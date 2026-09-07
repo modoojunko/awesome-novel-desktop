@@ -21,6 +21,9 @@
 
 ## 5b. 执行实录（2026-09-07）
 
+- 5.1 实证：tag v0.18 触发 S端 自动发布 success（14m35s），生产 check-auth（真实 pc_hash）已下发 entitlement v1/五 key/max_projects=null
+- 5.2 实证：C端 打包 success → Release v0.18（dmg 38.5MB + exe 29.9MB）+ latest.json version=0.18/首行附注；本地栈两跳链验证 verify 透传生产快照原文、degraded=false
+
 - 1.1 预检：information_schema 确认 8 列无 entitlement（对列查询 42703 报错即前置铁证）；行=pro/max 两行
 - 2.1 ALTER 经 managePgDatabase execute 成功（classification=schema_change，2 行小表瞬时）
 - 3.1 UPDATE rowCount=1（仅 pro）
@@ -29,5 +32,5 @@
 
 ## 5. 交接（范围外，勾给下一棒）
 
-- [ ] 5.1 S端 部署（tag/dispatch；部署时 pg_gate 应绿——列已就位）
-- [ ] 5.2 C端 打包发版（闭环必要条件）
+- [x] 5.1 S端 部署（tag/dispatch；部署时 pg_gate 应绿——列已就位）
+- [x] 5.2 C端 打包发版（闭环必要条件）
