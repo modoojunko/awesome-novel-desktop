@@ -341,6 +341,10 @@ async def browser_auth(silent: bool = False) -> dict:
                     "message": "已登录",
                     "tier": cfg["tier"],
                     "token": cfg["token"],
+                    # username 必须回传：前端 useAuthHeal 每次 check-auth 都会
+                    # setToken(token, username)——缺省会把 localStorage 用户名擦空，
+                    # 设置弹窗账号行随之消失（c-version-account-visibility 回归）
+                    "username": cfg["username"],
                 },
             }
         if result.get("code") == 2:

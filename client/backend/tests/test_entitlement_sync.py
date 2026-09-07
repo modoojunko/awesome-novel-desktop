@@ -152,6 +152,7 @@ class TestBrowserAuthSnapshot:
         monkeypatch.setattr(_service, "_ensure_local_user", fake_ensure)
         r = asyncio.run(_service.browser_auth(silent=True))
         assert r["code"] == 0
+        assert r["data"]["username"] == "u"  # 前端 heal 靠它回写 localStorage 用户名
         cfg = _service.get_local_config()
         assert cfg["entitlement"]["features"] == _AI_FEATURES
         assert cfg["entitlement_fetched_at"]
