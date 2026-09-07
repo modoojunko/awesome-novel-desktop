@@ -121,8 +121,11 @@ def standard_fallback_for(tier: str) -> dict:
     return STANDARD_FALLBACK.get(_TIER_ALIAS.get(tier, tier), STANDARD_FALLBACK["none"])
 
 
-# 重同步节流：快照不完整时 async 门禁边界触发，60s 内不重复打 S端
-_LAST_ENT_RESYNC = {"t": 0.0}
+# 重同步节流：快照不完整时 async 门禁边界触发，60s 内不重复打 S端。
+# 哨兵必须为 -inf：节流时钟是 time.monotonic()（相对系统开机），0.0 会让
+# 刚开机的机器（uptime < 60s，如 CI runner）首调即被误节流——main CI 实锤
+# 的间歇性 test_incomplete_snapshot_resyncs_once 失败即此因
+_LAST_ENT_RESYNC = {"t": float("-inf")}
 
 # S端 门户（购买/续费/开通试用入口），可通过 config.json 覆盖
 DEFAULT_PORTAL_URL = "https://novel-s-web-ai-novel-test-d1ghsr86ra814c12c.webapps.tcloudbase.com"
