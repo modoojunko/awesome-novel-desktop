@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 import tempfile
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -177,7 +178,9 @@ class TestBrowserAuthSnapshot:
 
 class TestEnsureEntitlementSnapshot:
     def setup_method(self):
-        _service._LAST_ENT_RESYNC["t"] = 0.0
+        # -inf = 「从未同步」哨兵（与 service 初值同源）；0.0 配 monotonic 时钟
+        # 会在刚开机的机器（uptime<60s，CI runner 实锤）上把首调误判为已节流
+        _service._LAST_ENT_RESYNC["t"] = float("-inf")
 
     def test_complete_snapshot_no_resync(self, monkeypatch):
         _write_cfg(entitlement=dict(_MEMBER_SNAP))
@@ -202,6 +205,25 @@ class TestEnsureEntitlementSnapshot:
         monkeypatch.setattr(_service, "browser_auth", fake_browser_auth)
         asyncio.run(_service.ensure_entitlement_snapshot())
         asyncio.run(_service.ensure_entitlement_snapshot())  # 60s 节流：第二次不再打
+        assert calls == [True]
+
+    def test_fresh_boot_machine_resyncs_immediately(self, monkeypatch):
+        """刚开机的机器（monotonic uptime < 60s 节流窗）首调 MUST 触发重同步。
+
+        回归钉死 CI 间歇失败根因：哨兵曾是 0.0 配 monotonic 时钟，runner
+        uptime<60s 时 now-0.0<60 被误节流（main CI 07:15 与 PR CI 双实锤）。
+        """
+        _write_cfg(tier="pro", entitlement={"v": 1, "features": _AI_FEATURES, "limits": {}})
+        calls = []
+
+        async def fake_browser_auth(silent=False):
+            calls.append(silent)
+            return {"code": 0}
+
+        monkeypatch.setattr(_service, "browser_auth", fake_browser_auth)
+        monkeypatch.setattr(time, "monotonic", lambda: 5.0)  # 模拟开机仅 5 秒
+        _service._LAST_ENT_RESYNC["t"] = float("-inf")  # fresh 进程哨兵初值
+        asyncio.run(_service.ensure_entitlement_snapshot())
         assert calls == [True]
 
     def test_no_snapshot_no_resync(self, monkeypatch):

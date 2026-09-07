@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { isLoggedIn } from "../lib/auth";
 import { supportUrl } from "../lib/support";
+import { BRAND } from "../lib/brand";
 import PrefsModal from "../components/PrefsModal";
 import BookPrefsModal from "../components/novel/BookPrefsModal";
 import { Ico, P } from "../components/icons";
@@ -36,7 +37,7 @@ export default function Navbar() {
     return (
       <header className="appbar appbar-wb">
         <Link className="logo" to="/novels">
-          <span className="logo-mark">爱</span>爱小说
+          <span className="logo-mark">{BRAND.mark}</span>{BRAND.name}
         </Link>
         <span className="sep" />
         <Link className="back" to="/novels">
@@ -63,7 +64,7 @@ export default function Navbar() {
   return (
     <header className="appbar">
       <Link className="logo" to="/novels">
-        <span className="logo-mark">爱</span>爱小说
+        <span className="logo-mark">{BRAND.mark}</span>{BRAND.name}
       </Link>
       {loggedIn && (
         <nav className="nav">

@@ -6,6 +6,7 @@
 import { useState } from "react";
 import Modal from "@/components/design/Modal";
 import { getUsername } from "@/lib/auth";
+import { BRAND } from "@/lib/brand";
 
 interface ParseBook {
   name: string;
@@ -147,13 +148,13 @@ export default function RestoreModal({
           <div style={{ display: "grid", gap: 10 }}>
             <Slot
               label="作品备份包"
-              hint="爱小说-备份-日期.zip 或《书名》-作品包"
+              hint={`${BRAND.name}-备份-日期.zip 或《书名》-作品包`}
               path={assetsPath}
               onPick={() => pick("assets")}
             />
             <Slot
               label="账号与模型配置包（可选）"
-              hint="爱小说-备份-配置-日期.zip"
+              hint={`${BRAND.name}-备份-配置-日期.zip`}
               path={configPath}
               onPick={() => pick("config")}
             />

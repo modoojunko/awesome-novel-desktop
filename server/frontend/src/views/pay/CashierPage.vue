@@ -13,6 +13,7 @@ import {
   type SkusView, type SkuItem, type CreateOrderResult, type ActivateResult, type LicenseView,
 } from '@/api/pay'
 import { useSessionStore } from '@/stores/session'
+import { brand } from '@/constants/brand'
 import Ico from '@/components/ui/Ico.vue'
 import AppModal from '@/components/ui/AppModal.vue'
 import SiteBeianBar from '@/components/site/SiteBeianBar.vue'
@@ -330,8 +331,8 @@ onUnmounted(() => { stopPolling(); stopCountdown() })
   <div class="pay-page">
     <!-- 品牌 -->
     <div class="pay-brand">
-      <span class="logo-mark">爱</span>
-      <span class="pay-brand-name">爱小说</span>
+      <span class="logo-mark">{{ brand.mark }}</span>
+      <span class="pay-brand-name">{{ brand.name }}</span>
     </div>
 
     <!-- ═══ 态〇：未登录且停售开关关闭（未登录≠停售，两分支按登录态拆分） ═══ -->

@@ -15,6 +15,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from auth_local.middleware import get_current_user
+from backup.export import backup_zip_name, config_zip_name
 from db import async_session
 from main import app
 
@@ -108,8 +109,9 @@ class TestBackupExportJob:
         assert done["state"] == "done", done
         files = sorted(p.name for p in target_dir.iterdir())
         assert len(files) == 2
-        assert files[0].startswith("爱小说-备份-")
-        assert files[1].startswith("爱小说-备份-配置-")
+        # 产物名逐字节全等（brand-name-single-source：前缀引品牌桥，冻结契约现值不变）
+        assert files[0] == backup_zip_name()
+        assert files[1] == config_zip_name()
 
         # 资产包：格式 v1 + 每书目录
         with zipfile.ZipFile(target_dir / files[0]) as zf:

@@ -54,6 +54,38 @@ def get_resource_root() -> Path:
     return base
 
 
+def _load_brand():
+    """品牌桥接入（brand-name-single-source）：单源是 backend/brand.py。
+    壳与后端的 sys.path 布局不同，这里自行引导；import 或取值任何异常都
+    回落字面量默认——窗口创建路径上零新增可炸点（v0.15 教训）。"""
+    try:
+        backend_dir = get_base_dir() / "backend"
+        if not backend_dir.exists():
+            # Dev: 本文件在 client/packaging/build/ → backend 在 client/backend/
+            backend_dir = Path(__file__).resolve().parents[2] / "backend"
+        if str(backend_dir) not in sys.path:
+            sys.path.insert(0, str(backend_dir))
+        import brand
+
+        return brand
+    except Exception:
+        class _BrandFallback:
+            BRAND_NAME = "爱小说"
+            BRAND_NAME_EN = "AI Novel"
+            BRAND_MARK = "爱"
+            BRAND_TAGLINE = "AI 辅助长篇小说写作"
+
+        return _BrandFallback
+
+
+def window_title() -> str:
+    """系统窗口标题 = 品牌名（与产品名一致，替代历史「AI Novel」）。"""
+    try:
+        return _load_brand().BRAND_NAME
+    except Exception:
+        return "爱小说"
+
+
 def start_server():
     """启动 FastAPI 后端"""
     base_dir = get_base_dir()
@@ -86,6 +118,9 @@ def start_server():
 
         # PyInstaller 打包后，设置前端 dist 与 reference 模板路径（按打包布局探测）
         res_root = get_resource_root()
+        # 品牌单源（brand-name-single-source）：注入资源根供 backend/brand.py 定位
+        # （uvicorn 字符串加载的 main:app 等后端模块无法自行探测打包布局）
+        os.environ.setdefault("RESOURCE_ROOT", str(res_root))
 
         # ── S端 地址解析链：显式环境变量 > 发布期 release.json（CI 构建期烘焙）> 占位 ──
         # release.json 由打包工作流生成并随 datas 分发；本地开发没有它 → 行为与历史一致。
@@ -199,7 +234,7 @@ def wait_for_server(appdata: Path, timeout: int = 15) -> int:
     return None
 
 
-LOADING_HTML = """<!DOCTYPE html>
+LOADING_HTML_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -224,10 +259,21 @@ LOADING_HTML = """<!DOCTYPE html>
 </head>
 <body>
   <div class="spinner"></div>
-  <div class="title">AI Novel</div>
+  <div class="title">__BRAND_NAME__</div>
   <div class="subtitle">正在启动…</div>
 </body>
 </html>"""
+
+
+def loading_html() -> str:
+    """splash 品牌名注入（brand-name-single-source）：CSS 含大量花括号，
+    用占位符 replace 而非 format；注入失败回落字面量默认。"""
+    name = "爱小说"
+    try:
+        name = _load_brand().BRAND_NAME or name
+    except Exception:
+        pass
+    return LOADING_HTML_TEMPLATE.replace("__BRAND_NAME__", name)
 
 
 def check_backend_and_navigate(window, appdata):
@@ -249,7 +295,7 @@ def check_backend_and_navigate(window, appdata):
         err_path.write_text(
             "<html><head><meta charset='utf-8'></head><body "
             "style='font-family:-apple-system,sans-serif;padding:40px;"
-            "background:#1a1a2e;color:#e0e0e0'><h2>AI Novel 启动失败</h2>"
+            "background:#1a1a2e;color:#e0e0e0'><h2>" + html.escape(window_title()) + " 启动失败</h2>"
             "<p>后端启动超时，请检查日志:</p><pre "
             "style='white-space:pre-wrap;background:#0f3460;padding:16px;border-radius:8px'>"
             + html.escape(logs[-500:]) + "</pre></body></html>",
@@ -261,7 +307,7 @@ def check_backend_and_navigate(window, appdata):
 def ensure_loading_page(appdata: Path) -> str:
     """把加载 HTML 写入本地文件，返回 file:// URL"""
     loading_path = appdata / "loading.html"
-    loading_path.write_text(LOADING_HTML, encoding="utf-8")
+    loading_path.write_text(loading_html(), encoding="utf-8")
     return loading_path.as_uri()
 
 
@@ -326,7 +372,7 @@ def main():
         win_w, win_h = 1400, 900
 
     window = webview.create_window(
-        title="AI Novel",
+        title=window_title(),
         url=loading_url,
         width=win_w,
         height=win_h,

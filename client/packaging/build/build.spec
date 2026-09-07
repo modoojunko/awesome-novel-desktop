@@ -54,9 +54,11 @@ a = Analysis(
         # 发布期注入的 S端 地址（CI 构建时生成在 spec 同目录；本地开发无此文件则不打）。
         # 注意 datas 的目标段是「目录」语义——写成文件名会造出同名目录套娃，须落资源根 "."。
         *([(str(spec_dir / "release.json"), ".")] if (spec_dir / "release.json").exists() else []),
+        # 品牌单源（brand-name-single-source）：brand.json 落资源根，backend/brand.py 运行时探测读取
+        (str(root_dir / "brand" / "brand.json"), "."),
     ],
     hiddenimports=[
-        'main', 'config', 'db', 'ai_client',
+        'main', 'config', 'brand', 'db', 'ai_client',
         'aiosqlite', 'sqlalchemy.ext.asyncio',
         'anthropic', 'openai',
         'yaml', 'httpx', 'jose', 'multipart',

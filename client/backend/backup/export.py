@@ -22,6 +22,7 @@ from pathlib import Path
 import yaml
 from sqlalchemy import select
 
+import brand
 from db import async_session
 from filesystem.paths import CHARACTER_DIR, PATH_TO_KEY, THREADS_PATH
 from filesystem.storage import get_storage
@@ -45,11 +46,12 @@ def _d(now: datetime | None = None) -> str:
 
 
 def backup_zip_name(now: datetime | None = None) -> str:
-    return f"爱小说-备份-{_d(now)}.zip"
+    # 前缀取品牌单源（brand-name-single-source）；「爱小说-备份-」为 backup-restore 冻结契约现值
+    return f"{brand.BRAND_NAME}-备份-{_d(now)}.zip"
 
 
 def config_zip_name(now: datetime | None = None) -> str:
-    return f"爱小说-备份-配置-{_d(now)}.zip"
+    return f"{brand.BRAND_NAME}-备份-配置-{_d(now)}.zip"
 
 
 def single_zip_name(book_name: str, now: datetime | None = None) -> str:

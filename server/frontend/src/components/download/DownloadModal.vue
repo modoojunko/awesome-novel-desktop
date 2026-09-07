@@ -16,6 +16,7 @@ import {
   RELEASES_PAGE_URL,
   type LatestRelease,
 } from '@/constants/client-release'
+import { brand } from '@/constants/brand'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{
@@ -32,7 +33,7 @@ watch(() => props.open, (open) => {
 </script>
 
 <template>
-  <AppModal :open="open" title="下载爱小说" @update:open="emit('update:open', $event)">
+  <AppModal :open="open" :title="`下载${brand.name}`" @update:open="emit('update:open', $event)">
     <template v-if="!latest">
       <p class="dl-sub">正在获取最新版本…</p>
       <div class="mt-4 space-y-2.5">

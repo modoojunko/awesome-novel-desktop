@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { request } from "@/lib/api";
+import { BRAND } from "@/lib/brand";
 
 // 教程页未建：暂指 GitHub 使用说明，站内引导流立项后替换
 const TUTORIAL_URL = "https://github.com/modoojunko/ai-novel#readme";
@@ -34,7 +35,7 @@ export default function LandingPage() {
       <div className="brand-lockup fx fx-1">
         <div className="brand-en">AWESOME-NOVEL</div>
         <div className="brand-cn">
-          爱小说
+          {BRAND.name}
           {ver && <span className="brand-ver">v{ver}</span>}
         </div>
       </div>

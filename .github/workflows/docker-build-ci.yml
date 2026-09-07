@@ -40,18 +40,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 逐个构建 4 个镜像，任一失败即 CI 红 —— 便于排查 Dockerfile/依赖问题
+      # 逐个构建 4 个镜像，任一失败即 CI 红 —— 便于排查 Dockerfile/依赖问题。
+      # 走 compose build：三服务 Dockerfile 的 COPY --from=brand 依赖
+      # additional_contexts（brand-name-single-source）；裸 docker build 不认
+      # 本地命名上下文，runner 上会把 brand 当 Docker Hub 镜像 pull（实测红）。
       - name: Build server-backend (S端 后端)
-        run: docker build -t ai-novel-server-backend:ci ./server
+        run: docker compose build server-backend
 
       - name: Build server-frontend (S端 前端 nginx)
-        run: docker build -t ai-novel-server-frontend:ci ./server/frontend
+        run: docker compose build server-frontend
 
       - name: Build client-backend (C端 后端)
-        run: docker build -t ai-novel-client-backend:ci ./client/backend
+        run: docker compose build client-backend
 
       - name: Build client-frontend (C端 前端 nginx)
-        run: docker build -t ai-novel-client-frontend:ci ./client/frontend
+        run: docker compose build client-frontend
 
       # 额外校验 docker-compose.yml 编排合法（config 级，不需启动容器）
       - name: Validate docker-compose config

@@ -7,6 +7,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import Ico from '@/components/ui/Ico.vue'
 import { P } from '@/components/ui/icons'
 import { tierName, tierHasPlan } from '@/constants/tiers'
+import { brand } from '@/constants/brand'
 
 const route = useRoute()
 
@@ -30,7 +31,7 @@ onMounted(() => {
   pcHash.value = (route.query.pc_hash as string) || ''
   deviceProfile.value = (route.query.device_profile as string) || ''
   pcName.value = (route.query.pc_name as string) || ''
-  document.title = '爱小说 · 设备授权'
+  document.title = `${brand.name} · 设备授权`
   if (!pcHash.value) {
     isInvalid.value = true
   }
@@ -101,8 +102,8 @@ async function submitAuth() {
     <!-- 授权表单 -->
     <template v-else>
       <div class="brand-row">
-        <span class="logo-mark">爱</span>
-        <span class="bn serif">爱小说</span>
+        <span class="logo-mark">{{ brand.mark }}</span>
+        <span class="bn serif">{{ brand.name }}</span>
       </div>
       <h1>设备授权</h1>
       <p class="sub">桌面应用请求绑定此设备，请登录以完成授权</p>

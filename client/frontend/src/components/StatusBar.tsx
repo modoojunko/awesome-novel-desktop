@@ -8,6 +8,7 @@
  */
 import { useLocation } from "react-router-dom";
 import { formatVersion, useClientVersion } from "@/lib/version";
+import { copyrightLine } from "@/lib/brand";
 
 export default function StatusBar() {
   const { pathname } = useLocation();
@@ -20,7 +21,7 @@ export default function StatusBar() {
       {/* 固定条不占文档流，垫 26px 防页面底部内容被遮挡（与原型 body padding 同口径） */}
       <div className="statusbar-spacer" aria-hidden="true" />
       <footer className="statusbar" data-od-id="app-status-bar">
-        <span data-od-id="app-credits">© 2026 爱小说</span>
+        <span data-od-id="app-credits">{copyrightLine}</span>
         <span className="sb-ver" data-od-id="status-version">
           {formatVersion(version)}
         </span>
