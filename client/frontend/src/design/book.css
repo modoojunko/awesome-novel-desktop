@@ -12,7 +12,9 @@
    （col-tree/col-editor/col-ai overflow-y:auto）恢复原型的列内滚动。 */
 .wb {
   --col-left: 280px;
-  height: calc(100vh - 48px); /* 48 = appbar 高（原型 flex 链口径） */
+  /* 48 = appbar 高（原型 flex 链口径）；26 = 底部状态条让位（c-version-account-visibility，
+     StatusBar 垫 26px，.wb 不让位会被固定条盖住列底且多出 26px 幽灵滚动） */
+  height: calc(100vh - 48px - 26px);
   display: flex;
   flex-direction: column;
   overflow: hidden;

@@ -61,3 +61,32 @@ body,
     padding: 16px 16px 0;
   }
 }
+
+/* ── 窗口底部状态条（c-version-account-visibility，ClientShell 底端）──
+   左版权、右版本，固定窗口底常驻；样式与原型 list/book/model-config 逐字同值
+   （ADJUSTMENTS 2026-09-07 条目），业务层作用域不进 base.css 共享段。
+   z-index 30 压在 scrim(40)/modal(60)/toast(80) 之下。落地页 `/` 由组件侧豁免。 */
+.statusbar-spacer {
+  height: 26px;
+  flex-shrink: 0;
+}
+.statusbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  padding: 0 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+.statusbar .sb-ver {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}

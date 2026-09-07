@@ -1,7 +1,6 @@
 import { Routes, Route, Navigate, useLocation, useParams } from "react-router-dom";
 import ClientShell from "@/components/ClientShell";
 import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
 import LandingPage from "@/pages/LandingPage";
 import LoginPage from "@/pages/LoginPage";
 import ApiKeyConfigPage from "@/pages/ApiKeyConfigPage";
@@ -72,7 +71,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/novels" replace />} />
         </Routes>
       </div>
-      <Footer />
+      {/* 版权行并入底部状态条（StatusBar，ClientShell 层）——页脚 © 常驻条退役 */}
       {/* AI 会员拦截全局升级引导（监听 api.request 的 member-block 事件） */}
       <MemberBlockPrompt />
     </ClientShell>

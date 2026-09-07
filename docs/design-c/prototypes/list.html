@@ -165,7 +165,10 @@
   .seg button:hover { color: var(--fg); }
   .seg button.on { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px color-mix(in oklch, var(--fg) 8%, transparent); font-weight: 500; }
 
-  .pagefoot { border-top: 1px solid var(--border); padding: 20px 0; color: var(--muted); font-size: 12px; text-align: center; }
+  /* 底部状态条（c-version-account-visibility V3）：左版权、右版本，固定窗口底 */
+  .statusbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; height: 26px; padding: 0 16px; background: var(--surface); border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+  .statusbar .sb-ver { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  body { padding-bottom: 26px; }
 
   /* 窄屏：收拢 appbar，主 CTA 换行成全宽，防止横向溢出 */
   @media (max-width: 480px) {
@@ -185,7 +188,7 @@
 <div class="update-strip" data-od-id="update-notice-strip">
   <div class="notice info" data-od-id="update-notice">
     <span class="nt">
-      <b>发现新版本 v0.13</b>
+      <b>发现新版本 v0.13（当前 v0.11）</b>
       <span>提升章纲 AI 起草的稳定性，修复若干问题</span>
     </span>
     <button class="btn btn-secondary btn-sm" data-od-id="update-download">去下载</button>
@@ -266,12 +269,12 @@
       <div class="pref-row"><div><div class="pl">模型配置 · API Key</div><div class="pm">管理 AI 服务密钥与供应商</div></div><a class="btn btn-secondary btn-sm" href="model-config.html">去配置</a></div>
       <div class="pref-row"><div><div class="pl">账号</div><div class="pm" id="prefTier">免费版 · 单机使用</div></div><a class="btn btn-secondary btn-sm" href="book.html">打开示例书</a></div>
     </div>
-    <div class="mcard-foot"><button class="btn btn-primary" data-close="modalPrefs">保存</button></div>
+    <div class="mcard-foot"><span data-od-id="pref-version" style="margin-right:auto;font-size:12px;color:var(--muted);">v0.11</span><button class="btn btn-primary" data-close="modalPrefs">保存</button></div>
   </div>
 </div>
 
 <div class="toast-wrap" id="toastWrap" role="status" aria-live="polite"></div>
-<footer class="pagefoot" data-od-id="footer">© 2026 爱小说</footer>
+<footer class="statusbar" data-od-id="app-status-bar"><span data-od-id="app-credits">© 2026 爱小说</span><span class="sb-ver" data-od-id="status-version">v0.11</span></footer>
 
 <script>
 /* ═══════════ 数据 ═══════════ */

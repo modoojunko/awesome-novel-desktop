@@ -7,6 +7,7 @@ import Modal from "@/components/design/Modal";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import { api } from "@/lib/api";
 import { isLoggedIn } from "@/lib/auth";
+import { formatVersion, useClientVersion } from "@/lib/version";
 import {
   getBookArchiveAiSummary,
   getBookFontSize,
@@ -54,6 +55,7 @@ export default function BookPrefsModal({
   const [tier, setTier] = useState<string>("");
   const [isMember, setIsMember] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const version = useClientVersion();
 
   useEffect(() => {
     if (!open) return;
@@ -87,9 +89,15 @@ export default function BookPrefsModal({
         title="设置 · 写作偏好"
         wbStyle
         footer={
-          <button className="btn btn-primary" onClick={save}>
-            保存
-          </button>
+          <>
+            {/* 版本行（.note 走 wb-style 弹窗既有左置 muted 样式）：吃应用级缓存 */}
+            <span className="note" data-od-id="pref-version">
+              {formatVersion(version)}
+            </span>
+            <button className="btn btn-primary" onClick={save}>
+              保存
+            </button>
+          </>
         }
       >
         <div className="pref-row">

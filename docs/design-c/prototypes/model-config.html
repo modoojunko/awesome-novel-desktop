@@ -187,7 +187,10 @@
   .toast .undo:hover { text-decoration: underline; }
   @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 
-  .pagefoot { border-top: 1px solid var(--border); padding: 20px 0; color: var(--muted); font-size: 12px; text-align: center; }
+  /* 底部状态条（c-version-account-visibility V3）：左版权、右版本，固定窗口底 */
+  .statusbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; height: 26px; padding: 0 16px; background: var(--surface); border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+  .statusbar .sb-ver { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  body { padding-bottom: 26px; }
 
   @media (max-width: 480px) {
     .appbar { padding: 0 12px; gap: 8px; }
@@ -305,7 +308,7 @@
 </div>
 
 <div class="toast-wrap" id="toastWrap" role="status" aria-live="polite"></div>
-<footer class="pagefoot" data-od-id="footer">© 2026 爱小说</footer>
+<footer class="statusbar" data-od-id="app-status-bar"><span data-od-id="app-credits">© 2026 爱小说</span><span class="sb-ver" data-od-id="status-version">v0.13</span></footer>
 
 <script>
 /* ═══════════ 常量 ═══════════ */

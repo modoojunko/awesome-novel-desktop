@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { request } from "@/lib/api";
+import { formatVersion } from "@/lib/version";
 
 interface UpdateCheckState {
   current: string;
@@ -66,7 +67,11 @@ export default function UpdateNotice() {
     <div className={immersive ? "update-strip update-strip--imm" : "update-strip"}>
       <div className="notice info">
         <span className="nt">
-          <b>发现新版本 v{state.latest}</b>
+          <b>
+            发现新版本 v{state.latest}
+            {/* 对照的当前版本取自同一次检测响应，零额外请求；缺失时退回原文案 */}
+            {state.current ? `（当前 ${formatVersion(state.current)}）` : ""}
+          </b>
           {state.notes ? <span>{state.notes}</span> : null}
         </span>
         <a

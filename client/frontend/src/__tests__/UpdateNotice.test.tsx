@@ -32,11 +32,11 @@ async function mountAt(path: string) {
 }
 
 describe("UpdateNotice", () => {
-  it("有更新：呈现版本号、摘要与三个动作；外链为 target=_blank 锚点", async () => {
+  it("有更新：呈现版本号与当前版本对照、摘要与三个动作；外链为 target=_blank 锚点", async () => {
     requestMock.mockResolvedValue(state());
     await mountAt("/novels");
 
-    expect(await screen.findByText("发现新版本 v0.13")).toBeTruthy();
+    expect(await screen.findByText("发现新版本 v0.13（当前 v0.11）")).toBeTruthy();
     expect(requestMock).toHaveBeenCalledWith("/update-check", { quiet: true });
     expect(screen.getByText("提升章纲 AI 起草的稳定性，修复若干问题")).toBeTruthy();
     const download = screen.getByRole("link", { name: "去下载" }) as HTMLAnchorElement;
@@ -48,6 +48,12 @@ describe("UpdateNotice", () => {
       "https://www.awesomenovel.com/download/v0.13/notes.html",
     );
     expect(screen.getByRole("button", { name: "知道了" })).toBeTruthy();
+  });
+
+  it("有更新但响应缺失 current：对照文案退回仅含新版本号", async () => {
+    requestMock.mockResolvedValue(state({ current: "" }));
+    await mountAt("/novels");
+    expect(await screen.findByText("发现新版本 v0.13")).toBeTruthy();
   });
 
   it("无更新 / 检测失败：不渲染任何更新元素", async () => {
@@ -67,7 +73,7 @@ describe("UpdateNotice", () => {
       path === "/update-check" ? state() : { dismissed: "0.13" },
     );
     const { container } = await mountAt("/novels");
-    await screen.findByText("发现新版本 v0.13");
+    await screen.findByText("发现新版本 v0.13（当前 v0.11）");
 
     fireEvent.click(screen.getByRole("button", { name: "知道了" }));
     await waitFor(() =>

@@ -373,7 +373,39 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     parity：本屏 parity 只截 configs / empty 页面级两场景，弹窗不进基线（既有口径），零漂移；
     实现侧 ApiConfigForm 同批落地（seg 控件、锁定矩阵、api_format 随 create/update/test-connection 契约上送）。
 
-12. **书架权益异常提示条（c-s-entitlement-sync，2026-09-06）**
+## 底部状态条（c-version-account-visibility，2026-09-07）
+
+12. **list.html / book.html / model-config.html 新增固定底部状态条 `.statusbar`（V3 落点，视觉稿已批）**
+    用户拍板「版本号要常驻」，四变体视觉稿后定版 V3=窗口底部状态条（`docs/design-c/drafts/version-placement-draft.html`）。
+    结构：左版权「© 2026 爱小说」+ 右版本号 `.sb-ver`（mono tabular-nums），26px 高、border-top 细线、
+    muted 12px、z-index 30（scrim 40 之下，弹窗遮罩盖得住）、`position:fixed` 贴窗口底；
+    `body { padding-bottom: 26px }` 预留防遮挡。三屏 `.pagefoot`（© 单行）随之退役删除——版权并入状态条，
+    窗口底部只保留这一条（禁双底条）。`home.html` 豁免不加：落地页自带品牌页脚已含版本行（v0.9），
+    营销页非应用态且页脚经三轮评审定稿；`index.html` 为设计说明页非应用态，不加。
+    版本号字面量随 parity 打桩口径（运行时为真实烘焙版本）：list/book 场景 stub `update`（current=0.11）→ `v0.11`；
+    model-config 场景 stub `none`（current=0.13）→ `v0.13`。
+    实现侧同批落地：`StatusBar` 组件挂 `ClientShell`（路由 `/` 豁免同口径）、App 级 `<Footer />`（.pagefoot）退役、
+    index.css 新增 `.statusbar` 业务层段（无共享段改动）、`.sb-ver` 样式与原型逐字同值。
+    【追记（同 PR 评审修正）】工作台/登录须**真实让位 26px**，否则固定条盖住列底且 app 侧多 26px 幽灵滚动
+    （body padding 对 overflow:hidden 的 flex 内容盒无效）：book.html 改用链内 `.sb-spacer`（.view flex:1
+    随之收缩），实现侧 book.css `.wb` 高度 `calc(100vh - 48px - 26px)`、landing.css `.auth-wrap`
+    `min-height: calc(100vh - 26px)`。list/model-config 内容自然增长，维持 body padding-bottom 口径不变。
+
+13. **同批 rider：update-strip 字面量带当前版本对照（list.html / book.html）**
+    更新提示条文案「发现新版本 v0.13」→「发现新版本 v0.13（当前 v0.11）」（client-update MODIFIED
+    需求的对照文案，stub `update` 场景 current=0.11）。parity：两屏 update 场景基线随字面量同批重铸。
+
+14. **同批弹窗版本行：list.html / book.html modalPrefs 底部加 muted 版本小字**
+    两弹窗 `.mcard-foot` 左置版本行（`data-od-id="pref-version"`，v0.11 与本屏 stub 口径一致；
+    book.html 用既有 `.note` 左置样式，list.html 内联同值）。设置弹窗账号行不加用户名到 book.html
+    （本书偏好弹窗不新增账号身份，既有套餐文案行保持）。
+
+    **存量观察（非本 change，待原登记流程处理）**：`book.html` 原型设定树为 7 项（无「主线」），
+    而实现侧 story-arc 主线合并后设定为 8 项——book.settings 场景 parity 自主线合并起结构性超阈
+    （主仓 baselines 停在 2026-08-29）。工作台原型随主线收编另批处理，本 change 不动。
+
+15. **书架权益异常提示条（c-s-entitlement-sync，2026-09-06）**
     书架顶部新增条件渲染 notice（warn 语义，信息=「权益信息同步异常，已按套餐标准处理」+ 可复制问题详情 + 联系客服出口）。
     复用既有 .notice 组件形态（无新增组件/第四种胶囊）；仅 entitlement_degraded=true 时渲染，
     默认态不出现 → 书架 parity 基线（empty/quota 场景）零漂移，实现侧登记免原型改版。
+
