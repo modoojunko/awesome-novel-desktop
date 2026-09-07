@@ -218,6 +218,21 @@ class OrderRepo:
         else:
             return self._db.find("orders", filter={"refund_status": "processing"})
 
+    def find_refund_in_flight(self) -> list[dict]:
+        """扫描 F（冻结完整性）：退款在途单（冷静期 refund_pending + 已提交
+        refund_processing）。在途量级恒小（用户确认退款才产生），逐单幂等补冻结。"""
+        if isinstance(self._db, Session):
+            from app.models.payments import OrderORM
+            orms = self._db.query(OrderORM).filter(
+                OrderORM.status.in_(["refund_pending", "refund_processing"])
+            ).all()
+            return [{c.name: getattr(o, c.name) for c in o.__table__.columns} for o in orms]
+        else:
+            return self._db.find(
+                "orders",
+                filter={"status": "in.(refund_pending,refund_processing)"},
+            )
+
     def find_refund_half_done(self) -> list[dict]:
         """扫描 D：退款成功但订单状态未到 refunded（半截恢复）。"""
         if isinstance(self._db, Session):

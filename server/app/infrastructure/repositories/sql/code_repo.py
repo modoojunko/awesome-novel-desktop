@@ -141,20 +141,52 @@ class SqlCodeRepo:
         return result
 
     def revoke_queued_for_order(self, order_no: str, anchor) -> int:
-        """退款收回（排队相位）：active 且 grant_start 空或 > anchor 置 revoked；
-        已起算行（grant_start <= anchor）不动。anchor=refund_requested_at（naive UTC）。"""
+        """退款收回（排队相位）：active/frozen 且 grant_start 空或 > anchor 置 revoked；
+        已起算行（grant_start <= anchor）不动。anchor=refund_requested_at（naive UTC）。
+        frozen 一并覆盖：确认退款即冻结，到账时排队行从冻结态直接收回。"""
         if isinstance(anchor, str):
             anchor = datetime.fromisoformat(anchor.replace("Z", "+00:00"))
         if anchor is not None and anchor.tzinfo is not None:
             anchor = anchor.astimezone(UTC).replace(tzinfo=None)
         result = self.db.query(ActivationCodeORM).filter(
             ActivationCodeORM.code_id == f"O-{order_no}",
-            ActivationCodeORM.status == "active",
+            ActivationCodeORM.status.in_(["active", "frozen"]),
             or_(ActivationCodeORM.grant_start.is_(None),
                 ActivationCodeORM.grant_start > anchor),
         ).update({"status": "revoked", "status_detail": "revoked"}, synchronize_session=False)
         self.db.commit()
         return result
+
+    def freeze_for_order(self, order_no: str) -> int:
+        """退款冻结（s-pay-refund-freeze）：该订单 active 行置 frozen——可用性暂停，
+        不计 tier/到期/生效展示；grant_start/expires_at 不动（排队位与取消还原不受影响）。
+        幂等：已 frozen 重放返回 0。"""
+        result = self.db.query(ActivationCodeORM).filter(
+            ActivationCodeORM.code_id == f"O-{order_no}",
+            ActivationCodeORM.status == "active",
+        ).update({"status": "frozen", "status_detail": "frozen"}, synchronize_session=False)
+        self.db.commit()
+        return result
+
+    def unfreeze_for_order(self, order_no: str) -> int:
+        """退款解冻（冷静期取消/到账已起算恢复共用）：frozen → active。
+        冻结不触碰起算信息，还原即精确（active↔frozen 对偶）。幂等。"""
+        result = self.db.query(ActivationCodeORM).filter(
+            ActivationCodeORM.code_id == f"O-{order_no}",
+            ActivationCodeORM.status == "frozen",
+        ).update({"status": "active", "status_detail": "active"}, synchronize_session=False)
+        self.db.commit()
+        return result
+
+    def find_frozen(self, limit: int = 200) -> list[ActivationCode]:
+        """扫描 F（冻结完整性）取数：全部冻结行（在途退款单量级，天然有界）。"""
+        rows = (
+            self.db.query(ActivationCodeORM)
+            .filter(ActivationCodeORM.status == "frozen")
+            .limit(limit)
+            .all()
+        )
+        return [self._to_domain(r) for r in rows]
 
     def find_unconsumed_by_username(self, username: str) -> list[ActivationCode]:
         uid = self._resolve_user_id(username)

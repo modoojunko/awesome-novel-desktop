@@ -129,12 +129,14 @@ class PgHttpCodeRepo:
         )
 
     def revoke_queued_for_order(self, order_no: str, anchor) -> int:
-        """退款收回（排队相位）：active 且 grant_start 空或 > anchor 置 revoked；
+        """退款收回（排队相位）：active/frozen 且 grant_start 空或 > anchor 置 revoked；
         已起算行不动。anchor=refund_requested_at（与折算金额锁定同锚）。
+        frozen 一并覆盖：确认退款即冻结，到账时排队行从冻结态直接收回。
 
         PostgREST 单 filter 无法表达跨列 OR（`or` 参数值以 `(` 开头会被客户端
         误加 eq. 前缀）——两支无条件 CAS（is.null 一支 + gt.anchor 一支）取并集，
-        各自单列条件天然幂等；TOCTOU 安全：active 行 grant_start 不可变。"""
+        各自单列条件天然幂等；TOCTOU 安全：active/frozen 行 grant_start 不可变
+        （冻结只翻 status，不碰 grant_start）。"""
         if isinstance(anchor, datetime):
             a = anchor
         else:
@@ -148,12 +150,36 @@ class PgHttpCodeRepo:
                 _TABLE,
                 {
                     "code_id": f"eq.O-{order_no}",
-                    "status": "eq.active",
+                    "status": "in.(active,frozen)",
                     "grant_start": grant_filter,
                 },
                 {"status": "revoked", "status_detail": "revoked"},
             )
         return total
+
+    def freeze_for_order(self, order_no: str) -> int:
+        """退款冻结（s-pay-refund-freeze）：该订单 active 行置 frozen——可用性暂停，
+        不计 tier/到期/生效展示；grant_start/expires_at 不动（排队位与取消还原不受
+        影响）。幂等：已 frozen 重放返回 0。"""
+        return self.client.update_cas(
+            _TABLE,
+            {"code_id": f"eq.O-{order_no}", "status": "eq.active"},
+            {"status": "frozen", "status_detail": "frozen"},
+        )
+
+    def unfreeze_for_order(self, order_no: str) -> int:
+        """退款解冻（冷静期取消/到账已起算恢复共用）：frozen → active。
+        冻结不触碰起算信息，还原即精确（active↔frozen 对偶）。幂等。"""
+        return self.client.update_cas(
+            _TABLE,
+            {"code_id": f"eq.O-{order_no}", "status": "eq.frozen"},
+            {"status": "active", "status_detail": "active"},
+        )
+
+    def find_frozen(self, limit: int = 200) -> list[ActivationCode]:
+        """扫描 F（冻结完整性）取数：全部冻结行（在途退款单量级，天然有界）。"""
+        docs = self.client.find(_TABLE, filter={"status": "eq.frozen"}, limit=limit)
+        return [self._to_domain(d) for d in docs]
 
     def find_unconsumed_by_username(self, username: str) -> list[ActivationCode]:
         uid = self._resolve_user_id(username)

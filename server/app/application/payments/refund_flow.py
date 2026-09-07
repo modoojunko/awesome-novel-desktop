@@ -124,6 +124,12 @@ def request_refund(
             raise RefundAlreadyActiveError(cooldown_remaining=rem)
         return current or {"error": "cas_lost"}
 
+    # 冻结权益（s-pay-refund-freeze）：该单已激活行 active→frozen，可用性立即
+    # 暂停（不计 tier/到期/生效展示）。grant_start 不动——排队位与取消还原不受
+    # 影响。幂等；此步写半截由扫描 F 补冻结。
+    if code_repo is not None:
+        code_repo.freeze_for_order(order_no)
+
     event_repo.append({
         "event_key": f"refund:{order_no}:requested",
         "event_type": "refund.requested",
@@ -149,8 +155,13 @@ def cancel_refund(
     order_repo: OrderRepo,
     event_repo: TradeEventRepo,
     order: dict,
+    code_repo=None,
 ) -> dict:
-    """冷静期取消：CAS refund_pending→fulfilled（先到者赢，与到点提交竞态）。"""
+    """冷静期取消：CAS refund_pending→fulfilled（先到者赢，与到点提交竞态）。
+
+    CAS 赢后解冻该单 frozen 行（取消路径只解冻，从不触碰 revoked 行）；
+    解冻写半截由扫描 F 补解冻。
+    """
     now = datetime.utcnow()  # naive UTC（表列/域口径一致，避免 aware/naive 混比）
     order_no = order["order_no"]
 
@@ -170,6 +181,9 @@ def cancel_refund(
     if updated is None:
         # CAS 输——已被到点提交（T6）
         return {"error": "already_submitted", "status": "refund_processing"}
+
+    if code_repo is not None:
+        code_repo.unfreeze_for_order(order_no)
 
     event_repo.append({
         "event_key": f"refund:{order_no}:canceled",
@@ -315,6 +329,16 @@ def complete_refund(
                     "grant_start": row.grant_start.isoformat() if row and row.grant_start else None,
                     "expires_at": row.expires_at.isoformat() if row and row.expires_at else None,
                 },
+            })
+        # 3c 已起算行恢复（s-pay-refund-freeze）：确认退款时被冻结、grant_start ≤ 锚
+        # 的行保留剩余权益——未激活/排队行已被 3a/3b 收回，剩余 frozen 行即已起算行，
+        # 解冻恢复 active 继续有效。幂等；写半截由扫描 E 兜底。
+        restored = code_repo.unfreeze_for_order(order_no)
+        if restored:
+            event_repo.append({
+                "event_key": f"codes:O-{order_no}:restored",
+                "event_type": "codes.restored",
+                "order_no": order_no,
             })
 
     return {"order_no": order_no, "status": "refunded"}

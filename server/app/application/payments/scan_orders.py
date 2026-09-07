@@ -103,7 +103,8 @@ def scan_refund_followup(
     notify: Any = None,
     code_repo=None,
 ) -> list[dict]:
-    """T3：退款跟进——NOT_ENOUGH 重试 + 查退款结果 + 扫描 D 半截恢复。
+    """T3：退款跟进——NOT_ENOUGH 重试 + 查退款结果 + 扫描 D 半截恢复
+    + 扫描 E 漏网收敛（含 frozen 行相位判定）+ 扫描 F 冻结完整性自愈。
 
     全部幂等：扫描重放安全（complete_refund 全量可重入）。
     """
@@ -177,6 +178,7 @@ def scan_refund_followup(
     # ── 扫描 E：orders 已 refunded 终态但订单来源码仍 active+排队中 → 收回 ──
     # 与 complete_refund 共用同一收回方法（锚=refund_requested_at，已起算豁免）：
     # 既收敛历史存量漏网行，也兜底「complete_refund 漏收后订单已终态」的窗口。
+    # frozen 行同口径（冻结只是可用性暂停，相位判定不受影响）。
     if code_repo is not None:
         for order in order_repo.find_refund_succeeded():
             order_no = order["order_no"]
@@ -200,6 +202,51 @@ def scan_refund_followup(
                     },
                 })
                 results.append({"order_no": order_no, "action": "queued_code_revoked"})
+            # 已起算行恢复：排队/未激活行已收回，剩余 frozen 行即已起算行
+            # （确认退款时冻结、退款成功应保留剩余权益）——补 complete_refund
+            # 3c 崩溃半截。幂等：无 frozen 行返回 0。
+            restored = code_repo.unfreeze_for_order(order_no)
+            if restored:
+                event_repo.append({
+                    "event_key": f"codes:O-{order_no}:restored",
+                    "event_type": "codes.restored",
+                    "order_no": order_no,
+                })
+                results.append({"order_no": order_no, "action": "frozen_code_restored"})
+
+        # ── 扫描 F：冻结完整性（s-pay-refund-freeze）──
+        # F-a 退款在途单的 active 行补冻结（确认退款时冻结写半截）；
+        # F-b frozen 行的订单已不在退款流程 → 补解冻（取消时解冻写半截；
+        #      refunded 单不走此支——其 frozen 行归扫描 E 按锚相位判定，
+        #      防止把该收回的排队行洗活）。
+        # 自愈属状态迁移，按台账口径追加事件；键带秒级时间戳——一单可经
+        # 多轮退款，固定键会吞掉后续轮次的账（CAS 赢者才记账，重放不重复）。
+        for order in order_repo.find_refund_in_flight():
+            frozen = code_repo.freeze_for_order(order["order_no"])
+            if frozen:
+                event_repo.append({
+                    "event_key": f"codes:O-{order['order_no']}:frozen:{int(now.timestamp())}",
+                    "event_type": "codes.frozen",
+                    "order_no": order["order_no"],
+                    "payload": {"heal": "scan_f", "order_status": order.get("status")},
+                })
+                results.append({"order_no": order["order_no"], "action": "code_frozen"})
+        for row in code_repo.find_frozen():
+            order_no = row.code_id[2:] if row.code_id.startswith("O-") else ""
+            if not order_no:
+                continue
+            order = order_repo.find_by_order_no(order_no)
+            if order is None or order.get("status") != "fulfilled":
+                continue  # 在途/已退款单的 frozen 行分别归 F-a/扫描 E 管
+            unfrozen = code_repo.unfreeze_for_order(order_no)
+            if unfrozen:
+                event_repo.append({
+                    "event_key": f"codes:O-{order_no}:unfrozen:{int(now.timestamp())}",
+                    "event_type": "codes.unfrozen",
+                    "order_no": order_no,
+                    "payload": {"heal": "scan_f", "order_status": order.get("status")},
+                })
+                results.append({"order_no": order_no, "action": "code_unfrozen"})
 
     return results
 

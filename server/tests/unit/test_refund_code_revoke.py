@@ -312,8 +312,9 @@ class TestRefundBoundaries:
         assert out["status"] == "fulfilled"
         assert _code_status("O-BD1") == "revoked"
 
-    def test_processing_leaves_code_alone(self, repos):
-        """refund_pending/processing 期间码相位不迁移，succeeded 才判定。"""
+    def test_processing_code_frozen_not_phased(self, repos):
+        """refund_pending/processing 期间相位不迁移（码不被收回），但确认退款
+        即冻结（s-pay-refund-freeze）：扫描 F 补冻结后行处于 frozen 态。"""
         _, order_repo, event_repo, code_repo = repos
         uid = _mk_user("bd_b")
         _mk_order("BD2", uid, status="refund_processing", refund_status="processing",
@@ -323,7 +324,7 @@ class TestRefundBoundaries:
         gw.refunds["BD2"] = {"status": RefundStatus.NOT_ENOUGH.value}
         gw.next_refund_status = RefundStatus.NOT_ENOUGH  # 重试仍不足，停 processing
         scan_refund_followup(order_repo, event_repo, gw, code_repo=code_repo)
-        assert _code_status("O-BD2") == "active"
+        assert _code_status("O-BD2") == "frozen"
 
     def test_below_one_fen_rejection_revokes_nothing(self, repos):
         """折算拒退（below_one_fen）在 request_refund 即返回，不触发任何收回调用。"""
@@ -473,7 +474,7 @@ class TestPgHttpRevokeQueued:
         assert len(requests) == 2
         p0, p1 = requests[0].url.params, requests[1].url.params
         assert p0["code_id"] == "eq.O-PG1" and p1["code_id"] == "eq.O-PG1"
-        assert p0["status"] == "eq.active" and p1["status"] == "eq.active"
+        assert p0["status"] == "in.(active,frozen)" and p1["status"] == "in.(active,frozen)"
         assert p0["grant_start"] == "is.null"
         assert p1["grant_start"] == "gt.2026-09-04T12:00:00"  # naive iso，无时区尾缀
 

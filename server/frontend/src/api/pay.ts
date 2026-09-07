@@ -103,7 +103,7 @@ export interface LicenseCode {
   order_no: string
   tier: string
   duration_days: number
-  status: string // pending_activation | active | revoked
+  status: string // pending_activation | active | frozen | revoked
   activated_at: string
   expires_at: string
   grant_start: string
@@ -128,7 +128,9 @@ export interface LicenseCodePage {
 
 export const LICENSE_TABS = [
   { key: 'all', label: '全部', statuses: null },
-  { key: 'active', label: '生效中', statuses: ['active'] },
+  // frozen 归入生效中版：退款处理中被暂停的行留在原 tab（带已冻结徽标），
+  // 取消退款自动恢复原状——用户不必换 tab 找"我的套餐去哪了"
+  { key: 'active', label: '生效中', statuses: ['active', 'frozen'] },
   { key: 'pending', label: '待激活', statuses: ['pending_activation'] },
   { key: 'revoked', label: '已收回', statuses: ['revoked'] },
 ] as const

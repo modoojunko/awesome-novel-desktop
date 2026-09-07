@@ -105,10 +105,22 @@ function durationLabel(g: LicenseCode): string {
   return g.duration_days >= 36500 ? '永久' : `${g.duration_days} 天`
 }
 function statusText(status: string): string {
-  return status === 'active' ? '生效中' : status === 'pending_activation' ? '待激活' : '已收回'
+  return status === 'active' ? '生效中'
+    : status === 'frozen' ? '退款处理中'
+      : status === 'pending_activation' ? '待激活'
+        : status === 'revoked' ? '已收回' : status // 未知状态按原文（防御误标）
 }
 function statusPill(status: string): string {
-  return status === 'active' ? 'pill-status pill-ok' : status === 'pending_activation' ? 'pill-status pill-warn' : 'pill-tag'
+  return status === 'active' ? 'pill-status pill-ok'
+    : status === 'frozen' ? 'pill-status pill-warn'
+      : status === 'pending_activation' ? 'pill-status pill-warn' : 'pill-tag'
+}
+function statusSub(g: LicenseCode): string {
+  if (g.status === 'frozen') return '退款处理中·已暂停使用；取消退款自动恢复'
+  if (g.status === 'active') return `已激活 ${fmtBj(g.activated_at)} · ${fmtBj(g.expires_at, false)} 到期`
+  if (g.status === 'pending_activation') return '已到货未激活：不计时、不占额度；未激活前退款全额'
+  if (g.status === 'revoked') return '已随退款收回'
+  return `状态：${g.status}` // 未知状态按原文渲染（防御后端先行/前端滞后的窗口）
 }
 
 // ── 激活（确认弹层 → 接口 → 刷新；两段式第二段的用户入口）──
@@ -244,11 +256,7 @@ onMounted(() => {
                 <span class="g-tier">{{ tierName(g.tier) }} · {{ durationLabel(g) }}</span>
                 <span :class="statusPill(g.status)">{{ statusText(g.status) }}</span>
               </div>
-              <div class="g-sub">
-                <template v-if="g.status === 'active'">已激活 {{ fmtBj(g.activated_at) }} · {{ fmtBj(g.expires_at, false) }} 到期</template>
-                <template v-else-if="g.status === 'pending_activation'">已到货未激活：不计时、不占额度；未激活前退款全额</template>
-                <template v-else>已随退款收回</template>
-              </div>
+              <div class="g-sub">{{ statusSub(g) }}</div>
               <button v-if="g.status === 'pending_activation'" class="btn btn-primary btn-sm" @click="askActivate(g)">激活</button>
             </div>
           </div>

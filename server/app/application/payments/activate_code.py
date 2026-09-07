@@ -59,9 +59,11 @@ def activate_code(
     period_days = snapshot.get("period_days", 30)
     tier = snapshot.get("tier_key", "pro")
 
-    # 计算顺延起点
-    active_codes = code_repo.find_active_by_user_id(user_id)
-    base = calc_grant_start(active_codes)
+    # 计算顺延起点——冻结行（退款处理中）一并计入：冻结只暂停可用性，
+    # 不动排队位，取消退款后排队终点不变（s-pay-refund-freeze）
+    family = [c for c in code_repo.find_all_by_username(user_id)
+              if c.status in ("active", "frozen")]
+    base = calc_grant_start(family)
     grant_start = datetime(base.year, base.month, base.day)
     expires_at = grant_start + timedelta(days=period_days)
 

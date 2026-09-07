@@ -439,13 +439,15 @@ async def cancel_refund(order_no: str, request: Request, db: Db = Depends(get_db
     username, user_id = _current_identity(request) or ("", None)
 
     from app.application.payments.refund_flow import cancel_refund as _cancel
+    from app.infrastructure.repositories.factory import code_repo as _code_repo_factory
     from app.infrastructure.repositories.payments_repo import OrderRepo, TradeEventRepo
 
     order = OrderRepo(db).find_by_order_no(order_no)
     if not order or order.get("user_id") != user_id:
         return {"code": 4004, "msg": "订单不存在"}
 
-    result = _cancel(OrderRepo(db), TradeEventRepo(db), order)
+    result = _cancel(OrderRepo(db), TradeEventRepo(db), order,
+                     code_repo=_code_repo_factory(db))
     if "error" in result:
         if result["error"] == "already_submitted":
             return {"code": 4007, "msg": "冷静期已结束，退款已提交"}
@@ -514,7 +516,7 @@ async def get_license(request: Request, db: Db = Depends(get_db)):
 
 
 # 套餐明细 status 参数白名单（license-grants-pagination：tab 归组映射在前端，接口保持"哑"）
-_LIST_CODE_STATUSES = {"pending_activation", "active", "revoked"}
+_LIST_CODE_STATUSES = {"pending_activation", "active", "frozen", "revoked"}
 
 
 @r.get("/license/codes")

@@ -535,7 +535,7 @@ export class MockApi {
       if (this.codesGate?.delayMs) await new Promise((r) => setTimeout(r, this.codesGate.delayMs))
       if (!this.licenseCodes.length && this.orders.some((o) => o.fulfillment)) this.syncLicenseFromCodes()
       const statusQ = url.searchParams.get('status')
-      const allowed = ['pending_activation', 'active', 'revoked']
+      const allowed = ['pending_activation', 'active', 'frozen', 'revoked']
       let list = this.licenseCodes
       if (statusQ !== null) {
         const want = statusQ.split(',').map((s) => s.trim()).filter((s) => allowed.includes(s))

@@ -113,6 +113,34 @@ test.describe('我的套餐明细 tab 分版与激活（license-grants-paginatio
     await expect(page.getByText('联系客服')).toBeVisible()
   })
 
+  test('退款冻结行：留在生效中版带「退款处理中」标识，无激活按钮（s-pay-refund-freeze）', async ({ page, mockApi }) => {
+    mockApi.setLicenseCodes([code({
+      code_id: 'O-S20260905FROZEN01',
+      order_no: 'S20260905FROZEN01',
+      status: 'frozen',
+    })])
+    await gotoLicense(page)
+    // 默认版=生效中：冻结行留在本版可见（不凭空消失），带退款处理中标识
+    await expect(page.getByText('退款处理中', { exact: true })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByText('退款处理中·已暂停使用；取消退款自动恢复')).toBeVisible()
+    // 冻结行不提供激活入口；「全部」版同样可见
+    await expect(page.getByRole('button', { name: '激活' })).toHaveCount(0)
+    await page.getByRole('tab', { name: '全部' }).click()
+    await expect(page.getByText('退款处理中', { exact: true })).toBeVisible()
+  })
+
+  test('未知状态行：按原文渲染防御性回退，不误标生效或冻结', async ({ page, mockApi }) => {
+    mockApi.setLicenseCodes([code({
+      code_id: 'O-S20260905FUTURE01',
+      order_no: 'S20260905FUTURE01',
+      status: 'some_new_status',
+    })])
+    await gotoLicense(page, '?tab=all')
+    // 状态分版筛选会把未知状态滤掉，未知行只在「全部」出现；文案按原文渲染
+    await expect(page.getByText('状态：some_new_status')).toBeVisible({ timeout: 10000 })
+    await expect(page.getByText('some_new_status').first()).toBeVisible()
+  })
+
   test('已收回行：专属版不置灰可见，「全部」内置灰，无操作按钮', async ({ page, mockApi }) => {
     mockApi.setLicenseCodes([code({
       code_id: 'O-S20260902REFUND01',
