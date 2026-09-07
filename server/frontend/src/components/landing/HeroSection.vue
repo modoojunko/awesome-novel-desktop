@@ -5,6 +5,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import Ico from '@/components/ui/Ico.vue'
 import { P } from '@/components/ui/icons'
 import DownloadModal from '@/components/download/DownloadModal.vue'
+import { brand } from '@/constants/brand'
 
 const session = useSessionStore()
 
@@ -72,8 +73,8 @@ const downloadOpen = ref(false)
     <!-- 右侧产品界面示意：C端 v2 书架（纯 CSS，随 token 自动适配） -->
     <div class="hero-mock">
       <div class="hm-bar">
-        <span class="hm-logo">爱</span>
-        <span class="hm-title">爱小说 · 书架</span>
+        <span class="hm-logo">{{ brand.mark }}</span>
+        <span class="hm-title">{{ brand.name }} · 书架</span>
         <span class="hm-seg"><i class="on"></i><i></i><i></i></span>
       </div>
       <div class="hm-body">

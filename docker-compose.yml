@@ -43,7 +43,12 @@ services:
     restart: unless-stopped
 
   server-frontend:
-    build: ./server/frontend
+    build:
+      context: ./server/frontend
+      additional_contexts:
+        # 品牌单源 brand.json 在仓库根（brand-name-single-source）：
+        # Dockerfile 内 COPY --from=brand 注入，vite 构建期读取
+        - brand=./brand
     container_name: ai-novel-server-frontend
     depends_on:
       - server-backend
@@ -52,7 +57,12 @@ services:
     restart: unless-stopped
 
   client-backend:
-    build: ./client/backend
+    build:
+      context: ./client/backend
+      additional_contexts:
+        # 品牌单源 brand.json 在仓库根（brand-name-single-source）：
+        # Dockerfile 内 COPY --from=brand 注入，brand.py 同层命中
+        - brand=./brand
     container_name: ai-novel-client-backend
     environment:
       DATA_ROOT: /app/data
@@ -73,7 +83,12 @@ services:
     restart: unless-stopped
 
   client-frontend:
-    build: ./client/frontend
+    build:
+      context: ./client/frontend
+      additional_contexts:
+        # 品牌单源 brand.json 在仓库根（brand-name-single-source）：
+        # Dockerfile 内 COPY --from=brand 注入，vite 构建期读取
+        - brand=./brand
     container_name: ai-novel-client-frontend
     depends_on:
       - client-backend

@@ -4,6 +4,7 @@ import { request } from '../lib/api';
 import { toast } from '../lib/toast';
 import { useDeviceActivation } from '../hooks/useDeviceActivation';
 import { Ico, P } from '@/components/icons';
+import { BRAND } from '@/lib/brand';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -148,7 +149,7 @@ export default function LoginPage() {
   return (
     <div className="auth-wrap">
       <div className="auth-card">
-        <h1>爱小说</h1>
+        <h1>{BRAND.name}</h1>
         <p className="sub">登录后即可开始创作</p>
         <button className="btn btn-primary btn-lg btn-block" onClick={handleBrowserAuth} disabled={loading}>
           {loading ? <Ico d={P.spinner} className="spin" size={16} /> : '打开浏览器登录'}

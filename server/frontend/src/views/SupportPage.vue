@@ -10,12 +10,13 @@ import {
   ACCOUNT_DELETION_WORKDAYS,
   INVOICE_WORKDAYS,
 } from '@/constants/support'
+import { brand } from '@/constants/brand'
 
 const mailtoHref = computed(() => `mailto:${SUPPORT_EMAIL}`)
 
 /** 场景卡"就此写邮件"链接：mailto 预填主题，省一步手填 */
 function mailtoFor(subject: string) {
-  return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`爱小说·${subject}`)}`
+  return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`${brand.name}·${subject}`)}`
 }
 
 const copied = ref(false)

@@ -13,6 +13,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 import models  # noqa: F401
+import brand
 from api_configs.router import router as api_configs_router
 from archive.router import archives_router
 from archive.router import router as archive_router
@@ -430,7 +431,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="AI Novel (Local)", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title=f"{brand.BRAND_NAME} (Local)", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

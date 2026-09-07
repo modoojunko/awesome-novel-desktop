@@ -17,15 +17,17 @@ export interface SiteRuntimeConfig {
   beianIcp?: string
   beianPolice?: string
   beianPoliceLink?: string
+  brandName?: string
 }
 
 const CONFIG_URL = 'site-config.json'
 const FETCH_TIMEOUT_MS = 3_000
 
-const KNOWN_KEYS = ['apiBase', 'beianIcp', 'beianPolice', 'beianPoliceLink'] as const
+const KNOWN_KEYS = ['apiBase', 'beianIcp', 'beianPolice', 'beianPoliceLink', 'brandName'] as const
 
-/** 白名单清洗：只认 4 个已知键，字符串 trim 后非空才采纳，其余一律丢弃 */
-function sanitize(raw: unknown): SiteRuntimeConfig {
+/** 白名单清洗：只认 5 个已知键，字符串 trim 后非空才采纳，其余一律丢弃。
+ * export 仅供 tests/site-config.test.ts（node --test 零依赖）验证语义。 */
+export function sanitize(raw: unknown): SiteRuntimeConfig {
   const out: SiteRuntimeConfig = {}
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out
   const obj = raw as Record<string, unknown>

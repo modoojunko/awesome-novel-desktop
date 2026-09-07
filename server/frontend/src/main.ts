@@ -5,6 +5,7 @@ import router from './router'
 import { warmUpBackend, setApiBase } from './api/request'
 import { loadSiteConfig } from './lib/site-config'
 import { applyBeianOverride } from './constants/site-beian'
+import { applyBrandOverride, brandFull } from './constants/brand'
 import './style.css'
 import './design/base.css'
 import './design/landing.css'
@@ -16,6 +17,10 @@ async function bootstrap(): Promise<void> {
   const cfg = await loadSiteConfig()
   if (cfg.apiBase) setApiBase(cfg.apiBase)
   applyBeianOverride(cfg)
+  // brandName 运行时覆盖（非空才生效，brand-name-single-source）：覆盖后同步改写
+  // document.title——AuthPage 卸载恢复的 DEFAULT_TITLE 是挂载时捕获值，引导段不落
+  // title 则覆盖值丢失
+  if (applyBrandOverride(cfg)) document.title = brandFull()
 
   const app = createApp(App)
   app.use(createPinia())

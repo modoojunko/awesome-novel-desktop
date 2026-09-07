@@ -5,6 +5,7 @@ import { useSessionStore } from '@/stores/session'
 import Ico from '@/components/ui/Ico.vue'
 import { P } from '@/components/ui/icons'
 import SiteBeianBar from '@/components/site/SiteBeianBar.vue'
+import { brand } from '@/constants/brand'
 
 const router = useRouter()
 const session = useSessionStore()
@@ -34,8 +35,8 @@ onMounted(async () => {
   <div class="dash">
     <header class="appbar">
       <router-link to="/dashboard" class="brand">
-        <span class="logo-mark">爱</span>
-        <span class="brand-name serif">爱小说</span>
+        <span class="logo-mark">{{ brand.mark }}</span>
+        <span class="brand-name serif">{{ brand.name }}</span>
       </router-link>
       <nav class="nav">
         <router-link to="/dashboard" exact-active-class="on">首页</router-link>
