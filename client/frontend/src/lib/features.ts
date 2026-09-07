@@ -1,10 +1,14 @@
 /**
- * 能力注册表（2026-08-18 口径修订）。
+ * 功能 key 词汇表（c-s-entitlement-sync 起语义调整）。
  *
- * 只描述「是否会员功能」：人工写作能力免费完整可用；AI 能力是会员权益
- * （试用/付费/终身）。入口一律可见（不做 UI 隐藏）；使用由后端
- * require_ai_access 统一拦截，403 member_required → 前端弹升级引导。
- * 运营判定（免费限 1 本 / 试用横幅）不进清单，保留直判。
+ * 本表是 FeatureKey 的**登记簿**（S端 tiers.entitlement 配置与 C端 门禁点按此
+ * 对齐；加 key 先登记 specs），同时在**快照缺失时兜底**：有权益快照时判定权
+ * 归快照（useFeature 查 features 数组），本表 memberOnly 不参与判定。
+ *
+ * 口径不变（2026-08-18）：人工写作能力免费完整可用；AI 能力是会员权益。
+ * 入口一律可见（不做 UI 隐藏）；使用由后端 require_ai_access 统一拦截，
+ * 403 member_required → 前端弹升级引导。运营判定（免费限 1 本/试用横幅）
+ * 不进清单，保留直判（建书上限走快照 limits.max_projects）。
  * 纯 TS，无 DOM 依赖。
  */
 export type FeatureKey =

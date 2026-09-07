@@ -1,0 +1,48 @@
+{
+  "_comment": "套餐权益标准配置·双端单一对拍基准。S端 ENTITLEMENT_DEFAULTS 与 C端 STANDARD_FALLBACK 均须与本文件一致（两端各有对拍测试）。变更流程：先登记 specs 词汇表 → 改本文件 → 两端实现同批改。feature key 事实源 = client/frontend/src/lib/features.ts。",
+  "version": 1,
+  "free_baseline": {
+    "features": [],
+    "limits": { "max_projects": 1 }
+  },
+  "tiers": {
+    "none": {
+      "features": [],
+      "limits": { "max_projects": 1 }
+    },
+    "free": {
+      "features": [],
+      "limits": { "max_projects": 1 }
+    },
+    "trial": {
+      "features": [
+        "settings-ai-fields",
+        "outline-advanced-fields",
+        "ai-generate",
+        "prompt-panel",
+        "ai-model"
+      ],
+      "limits": { "max_projects": null }
+    },
+    "pro": {
+      "features": [
+        "settings-ai-fields",
+        "outline-advanced-fields",
+        "ai-generate",
+        "prompt-panel",
+        "ai-model"
+      ],
+      "limits": { "max_projects": null }
+    },
+    "max": {
+      "features": [
+        "settings-ai-fields",
+        "outline-advanced-fields",
+        "ai-generate",
+        "prompt-panel",
+        "ai-model"
+      ],
+      "limits": { "max_projects": null }
+    }
+  }
+}

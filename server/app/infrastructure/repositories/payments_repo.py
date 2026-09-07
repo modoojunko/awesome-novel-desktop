@@ -453,6 +453,12 @@ class SkuRepo:
 class TierRepo:
     """tiers 仓储。"""
 
+    # 档位权益配置进程内缓存：key -> (monotonic, 解析后的 dict 或 None)。
+    # 配置变更频率极低（改配置=运维事件），TTL 60s 避免每次 check-auth 刷新
+    # 多一跳 pg_http（保住 #288 单往返优化）。
+    _ENTITLEMENT_CACHE: dict = {}
+    _ENTITLEMENT_TTL = 60.0
+
     def __init__(self, db):
         self._db = db
 
@@ -463,6 +469,37 @@ class TierRepo:
             return [{c.name: getattr(o, c.name) for c in o.__table__.columns} for o in orms]
         else:
             return self._db.find("tiers", sort=[("rank", "asc")])
+
+    def find_entitlement_by_key(self, tier_key: str) -> dict | None:
+        """档位权益配置（TTL 缓存）。
+
+        返回解析后的 dict（{"features":[...], "limits":{...}}）；
+        档位行不存在/未配置/坏 JSON 返回 None（调用方走 ENTITLEMENT_DEFAULTS 兜底）。
+        """
+        import json
+        import time as _time
+
+        now = _time.monotonic()
+        cached = TierRepo._ENTITLEMENT_CACHE.get(tier_key)
+        if cached is not None and now - cached[0] < TierRepo._ENTITLEMENT_TTL:
+            return cached[1]
+
+        parsed = None
+        for row in self.find_all():
+            if row.get("key") != tier_key:
+                continue
+            raw = row.get("entitlement")
+            if raw:
+                try:
+                    doc = json.loads(raw)
+                    if isinstance(doc, dict):
+                        parsed = doc
+                except ValueError:
+                    parsed = None
+            break
+
+        TierRepo._ENTITLEMENT_CACHE[tier_key] = (now, parsed)
+        return parsed
 
 
 class ReconciliationReportRepo:

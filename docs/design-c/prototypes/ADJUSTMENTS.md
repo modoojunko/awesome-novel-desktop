@@ -403,3 +403,9 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     **存量观察（非本 change，待原登记流程处理）**：`book.html` 原型设定树为 7 项（无「主线」），
     而实现侧 story-arc 主线合并后设定为 8 项——book.settings 场景 parity 自主线合并起结构性超阈
     （主仓 baselines 停在 2026-08-29）。工作台原型随主线收编另批处理，本 change 不动。
+
+15. **书架权益异常提示条（c-s-entitlement-sync，2026-09-06）**
+    书架顶部新增条件渲染 notice（warn 语义，信息=「权益信息同步异常，已按套餐标准处理」+ 可复制问题详情 + 联系客服出口）。
+    复用既有 .notice 组件形态（无新增组件/第四种胶囊）；仅 entitlement_degraded=true 时渲染，
+    默认态不出现 → 书架 parity 基线（empty/quota 场景）零漂移，实现侧登记免原型改版。
+

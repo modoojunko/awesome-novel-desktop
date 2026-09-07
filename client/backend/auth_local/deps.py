@@ -15,7 +15,7 @@ from models.project import Novel
 from models.user import User
 
 from .middleware import get_current_user
-from .service import check_permission, get_local_config
+from .service import check_permission, ensure_entitlement_snapshot, get_local_config
 
 
 async def require_ai_access(
@@ -27,6 +27,9 @@ async def require_ai_access(
     403 detail 为结构化 {reason: "member_required", message}，
     前端 request() 据此弹统一升级引导，而非裸错误。
     """
+    # 0) 快照三段式：不完整时先重同步一次（async 边界），失败走档位标准兜底
+    await ensure_entitlement_snapshot()
+
     # 1) 会员校验：免费/过期用户即使配置了 Key 也拦截（AI 是会员权益）
     perm = check_permission()
     if not perm.get("is_member", False):
@@ -79,6 +82,9 @@ async def require_project_limit(
     db: AsyncSession = Depends(get_db),
 ):
     """项目上限门控：免费/过期用户最多 1 个项目，会员不限"""
+    # 快照三段式：不完整时先重同步一次（async 边界），失败走档位标准兜底
+    await ensure_entitlement_snapshot()
+
     perm = check_permission()
     limit = perm.get("project_limit")
     if limit is None:  # 会员无上限（免费/过期分支已带 project_limit=1）
