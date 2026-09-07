@@ -148,9 +148,17 @@ export function Cfg({
       <summary>
         {title}
         {tag && <span className="tag">{tag}</span>}
-        <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13">
-          <path d={P.chevronDown} />
-        </svg>
+        {/* P.* 是元素串：走 innerHTML 注入（与 Ico 同口径），d= 会吃进整个 <path> 报错 */}
+        <svg
+          className="chev"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          width="13"
+          height="13"
+          dangerouslySetInnerHTML={{ __html: P.chevronDown }}
+        />
       </summary>
       <div className="inner">{children}</div>
     </details>
