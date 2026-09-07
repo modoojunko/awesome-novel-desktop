@@ -1,17 +1,29 @@
 import { createContext, useCallback, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { api } from "@/lib/api";
+
+/** 权益快照（entitlement 契约 v1，S端 check-auth 下发 / C端 verify 透传） */
+export interface EntitlementSnapshot {
+  v: number;
+  features: string[];
+  limits: { max_projects: number | null };
+}
 
 export interface TierState {
   tier: string;
   /** 免费待遇 = 非有效会员（免费层或套餐过期，与后端口径一致） */
   isFree: boolean;
-  /** 有效会员（trial/月/季/年/终身，未过期）——AI 能力判据 */
+  /** 有效会员（含归一化档位 pro/max，未过期）——AI 能力判据 */
   isMember: boolean;
   /** 套餐已过期（降为免费待遇，前端显示已过期徽标 + 续费引导） */
   expired: boolean;
   expiresAt: string;
   isPro: boolean;
   trialRemainingDays: number;
+  /** 权益快照原文（无快照=老 S端/未刷新，null） */
+  entitlement: EntitlementSnapshot | null;
+  /** 快照不完整经档位标准兜底供给（后端 entitlement_degraded） */
+  entitlementDegraded: boolean;
   loading: boolean;
   error: string | null;
   refetch: () => void;
@@ -23,20 +35,39 @@ interface VerifyResponse {
   expired?: boolean;
   expires_at?: string;
   trial_remaining_days?: number;
+  entitlement?: EntitlementSnapshot;
+  entitlement_degraded?: boolean;
 }
 
 // module 级缓存：同会话多 Provider/重挂载不重复请求（/auth/verify 仅 1 次）。
 let cachedVerify: VerifyResponse | null = null;
 
+// 两跳刷新节流（c-s-entitlement-sync Q1）：路由切换 → /auth/check-auth（S端
+// 静默往返写快照）→ refetch 刷上下文；60 秒窗口内不重复打 S端。无定时轮询。
+const REFRESH_THROTTLE_MS = 60_000;
+let lastRefreshAt = 0;
+let lastRefreshPath: string | null = null;
+
+function isEntitlementRoute(pathname: string): boolean {
+  return pathname === "/novels" || pathname.startsWith("/novel/");
+}
+
 const TierContext = createContext<TierState | null>(null);
 
 export function LicenseProvider({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
   const [tier, setTier] = useState(cachedVerify?.tier ?? "none");
   const [isMember, setIsMember] = useState(cachedVerify?.is_member ?? false);
   const [expired, setExpired] = useState(cachedVerify?.expired ?? false);
   const [expiresAt, setExpiresAt] = useState(cachedVerify?.expires_at ?? "");
   const [trialRemainingDays, setTrialRemainingDays] = useState(
     cachedVerify?.trial_remaining_days ?? 0,
+  );
+  const [entitlement, setEntitlement] = useState<EntitlementSnapshot | null>(
+    cachedVerify?.entitlement ?? null,
+  );
+  const [entitlementDegraded, setEntitlementDegraded] = useState(
+    cachedVerify?.entitlement_degraded ?? false,
   );
   const [loading, setLoading] = useState(!cachedVerify);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +79,8 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
       setExpired(cachedVerify.expired ?? false);
       setExpiresAt(cachedVerify.expires_at ?? "");
       setTrialRemainingDays(cachedVerify.trial_remaining_days ?? 0);
+      setEntitlement(cachedVerify.entitlement ?? null);
+      setEntitlementDegraded(cachedVerify.entitlement_degraded ?? false);
       setLoading(false);
       return;
     }
@@ -60,12 +93,16 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
       setExpired(r.expired ?? false);
       setExpiresAt(r.expires_at ?? "");
       setTrialRemainingDays(r.trial_remaining_days ?? 0);
+      setEntitlement(r.entitlement ?? null);
+      setEntitlementDegraded(r.entitlement_degraded ?? false);
       setError(null);
     } catch {
       cachedVerify = null; // 失败不缓存，允许重试
       setTier("none"); // 免费兜底，不抛 500
       setIsMember(false);
       setExpired(false);
+      setEntitlement(null);
+      setEntitlementDegraded(false);
       setError("套餐校验失败，已按免费处理");
     } finally {
       setLoading(false);
@@ -81,6 +118,46 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
     void load(false);
   }, [load]);
 
+  // 两跳刷新（路由切换）：check-auth 写快照 → refetch 刷上下文
+  useEffect(() => {
+    const path = location.pathname;
+    if (!isEntitlementRoute(path) || path === lastRefreshPath) return;
+    const now = Date.now();
+    if (now - lastRefreshAt < REFRESH_THROTTLE_MS) {
+      lastRefreshPath = path;
+      return;
+    }
+    lastRefreshAt = now;
+    lastRefreshPath = path;
+    void (async () => {
+      try {
+        await api.get("/auth/check-auth"); // S端 静默往返，更新本地快照
+      } catch {
+        // 断网/冷启动：沿用旧快照，绝不因网络降级会员
+      }
+      refetch();
+    })();
+  }, [location.pathname, refetch]);
+
+  // window focus 尽力补一刀（pywebview 无保证 focus 桥，不作依赖）
+  useEffect(() => {
+    const onFocus = () => {
+      const now = Date.now();
+      if (now - lastRefreshAt < REFRESH_THROTTLE_MS) return;
+      lastRefreshAt = now;
+      void (async () => {
+        try {
+          await api.get("/auth/check-auth");
+        } catch {
+          // 同上：沿用旧快照
+        }
+        refetch();
+      })();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refetch]);
+
   // 免费待遇 = 非有效会员（免费层或过期降级）；isPro 同步为有效会员语义
   const value: TierState = {
     tier,
@@ -90,6 +167,8 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
     expiresAt,
     isPro: isMember,
     trialRemainingDays,
+    entitlement,
+    entitlementDegraded,
     loading,
     error,
     refetch,

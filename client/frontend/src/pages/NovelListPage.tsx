@@ -9,6 +9,7 @@ import ImportNovelModal from "@/components/novel/ImportNovelModal";
 import RenameModal from "@/components/novel/RenameModal";
 import { Ico, P, genreIconPath } from "@/components/icons";
 import { PORTAL_URL } from "@/lib/portal";
+import { supportUrl } from "@/lib/support";
 
 interface Novel {
   id: string;
@@ -79,6 +80,9 @@ function NovelList() {
   const [renameTarget, setRenameTarget] = useState<Novel | null>(null);
   const [showKeyHint, setShowKeyHint] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [entDegraded, setEntDegraded] = useState(false);
+  const [entDetail, setEntDetail] = useState('');
+  const [supportLink, setSupportLink] = useState('');
   const navigate = useNavigate();
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -129,12 +133,22 @@ function NovelList() {
       if (r.trial_remaining_days !== undefined) setTrialDays(r.trial_remaining_days);
       if (r.is_member !== undefined) setIsMember(r.is_member);
       if (r.expired !== undefined) setExpired(r.expired);
+      // 权益快照异常（c-s-entitlement-sync）：后端已按档位标准兜底，提示用户可求助
+      if (r.entitlement_degraded !== undefined) setEntDegraded(r.entitlement_degraded);
+      if (r.entitlement_degraded) {
+        setEntDetail(JSON.stringify({
+          reason: "entitlement_incomplete_snapshot",
+          tier: r.tier ?? "",
+          fetched_at: r.entitlement_fetched_at ?? "",
+        }));
+      }
     }).catch(() => {});
     // 检查 API Key 配置状态 + 取 S端 门户地址（续费/开通引导用）
     api.get("/auth/config").then((cfg: any) => {
       if (!cfg.has_api_key) setShowKeyHint(true);
       if (cfg.portal_url) setPortalUrl(cfg.portal_url);
     }).catch(() => {});
+    supportUrl().then(setSupportLink).catch(() => {});
   }, [fetchNovels]);
 
   // 卡片 ⋯ 菜单：点外部收起
@@ -179,6 +193,28 @@ function NovelList() {
 
   return (
     <main className="main">
+      {/* 权益快照异常（c-s-entitlement-sync）：后端已按档位标准兜底，可复制详情找客服 */}
+      {entDegraded && (
+        <div className="notice">
+          <span className="nt">
+            <b>权益信息同步异常，已按套餐标准处理</b>
+            <span>若功能与套餐不符，可复制问题信息联系客服核对</span>
+          </span>
+          <span className="flex items-center gap-2">
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => navigator.clipboard?.writeText(entDetail).catch(() => {})}
+            >
+              复制问题信息
+            </button>
+            {supportLink && (
+              <a className="btn btn-secondary btn-sm" href={supportLink} target="_blank" rel="noreferrer">
+                联系客服
+              </a>
+            )}
+          </span>
+        </div>
+      )}
       {/* 过期降级 Banner（2026-08-18 口径：过期降为免费待遇） */}
       {expired && tier !== 'none' && (
         <div className="notice">

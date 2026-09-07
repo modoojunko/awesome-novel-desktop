@@ -1,16 +1,12 @@
 import { Outlet } from "react-router-dom";
-import AuthGuard from "@/components/auth/AuthGuard";
-import { LicenseProvider } from "@/components/novel/license/LicenseProvider";
 import { ProjectShell } from "@/components/novel/license/ProjectShell";
 
+// AuthGuard/LicenseProvider 已上移至 App 认证后路由根壳（c-s-entitlement-sync：
+// 书列表与工作台共享权益上下文），本层只保留项目上下文。
 export default function NovelLayout() {
   return (
-    <AuthGuard>
-      <LicenseProvider>
-        <ProjectShell>
-          <Outlet />
-        </ProjectShell>
-      </LicenseProvider>
-    </AuthGuard>
+    <ProjectShell>
+      <Outlet />
+    </ProjectShell>
   );
 }

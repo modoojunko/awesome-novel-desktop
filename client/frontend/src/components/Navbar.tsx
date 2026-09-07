@@ -1,17 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { isLoggedIn } from "../lib/auth";
-import { fetchPortalUrl, isSafeExternalUrl } from "../lib/portal";
+import { supportUrl } from "../lib/support";
 import PrefsModal from "../components/PrefsModal";
 import BookPrefsModal from "../components/novel/BookPrefsModal";
 import { Ico, P } from "../components/icons";
-
-/** S端 客服页外跳地址：portal_url 去尾斜杠拼 /support；取不到则按钮不渲染（不出死链）。 */
-async function supportUrl(): Promise<string> {
-  const portal = (await fetchPortalUrl()).replace(/\/+$/, "");
-  const url = portal ? `${portal}/support` : "";
-  return isSafeExternalUrl(url) ? url : "";
-}
 
 /** 客服外跳按钮（list.html/book.html appbar 原样）：锚点 target=_blank，
  * pywebview cocoa 只认锚点不认编程式 window.open。 */
