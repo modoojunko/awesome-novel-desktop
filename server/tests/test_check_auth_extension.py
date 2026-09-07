@@ -11,7 +11,7 @@ import pytest
 
 from app.models.base import SessionLocal
 from app.models.code import ActivationCodeORM
-from app.models.payments import OrderORM
+from app.models.payments import OrderORM, TierORM
 from app.models.user import UserORM
 from tests.test_device_activation import seed_grant_row, seed_raw_user
 
@@ -113,3 +113,79 @@ class TestCheckAuthExtension:
         data = _check_auth(client, pc_hash)
         assert data["attention"]["refund_processing"] is True
         assert data["attention"]["verify_pending"] is False
+
+
+def _seed_tier(key: str, entitlement: str):
+    """插/改一行 tiers（档位权益配置；按 key upsert，sqlite 测试库同模块共享）。"""
+    s = SessionLocal()
+    try:
+        row = s.query(TierORM).filter(TierORM.key == key).first()
+        if row is None:
+            row = TierORM(key=key, display_name=key.upper(), rank=20,
+                          selling_points="[]", entitlement=entitlement, status="live")
+            s.add(row)
+        else:
+            row.entitlement = entitlement
+        s.commit()
+    finally:
+        s.close()
+
+
+class TestCheckAuthEntitlement:
+    """权益快照下发（c-s-entitlement-sync）：档位配置 → DEFAULTS 兜底 → 免费基线。"""
+
+    @pytest.fixture(autouse=True)
+    def _clear_ent_cache(self):
+        """TTL 缓存按类隔离 + 种子行清理：session 级共享 sqlite，tiers.pro
+        残留（含坏 JSON）会污染同 session 后续 check-auth 类测试的配置来源。"""
+        from app.infrastructure.repositories.payments_repo import TierRepo
+        TierRepo._ENTITLEMENT_CACHE.clear()
+        yield
+        TierRepo._ENTITLEMENT_CACHE.clear()
+        s = SessionLocal()
+        try:
+            s.query(TierORM).filter(TierORM.key == "pro").delete(
+                synchronize_session=False)
+            s.commit()
+        finally:
+            s.close()
+
+    def test_paid_user_gets_defaults_features(self, client, _authed_user):
+        """无 tiers 行 → monthly 归一化 pro → DEFAULTS pro：AI 五 key + 不限本数。"""
+        username, pc_hash = _authed_user
+        _seed_active_code(username)
+        data = _check_auth(client, pc_hash)
+        ent = data["entitlement"]
+        assert ent["v"] == 1
+        assert ent["limits"]["max_projects"] is None
+        for key in ("settings-ai-fields", "outline-advanced-fields",
+                    "ai-generate", "prompt-panel", "ai-model"):
+            assert key in ent["features"]
+
+    def test_free_baseline_for_no_codes(self, client, _authed_user):
+        """无权益记录 → 免费基线：空 features + max_projects=1。"""
+        username, pc_hash = _authed_user
+        data = _check_auth(client, pc_hash)
+        ent = data["entitlement"]
+        assert ent["features"] == []
+        assert ent["limits"]["max_projects"] == 1
+
+    def test_tier_row_config_wins_over_defaults(self, client, _authed_user):
+        """tiers 行有配置 → 以配置为准（DB 优先于 DEFAULTS）。"""
+        username, pc_hash = _authed_user
+        _seed_active_code(username)
+        _seed_tier("pro", '{"features":["custom-key"],"limits":{"max_projects":7}}')
+        data = _check_auth(client, pc_hash)
+        ent = data["entitlement"]
+        assert ent["features"] == ["custom-key"]
+        assert ent["limits"]["max_projects"] == 7
+
+    def test_bad_json_falls_back_to_defaults(self, client, _authed_user):
+        """tiers 行坏 JSON → 回退 DEFAULTS，不炸。"""
+        username, pc_hash = _authed_user
+        _seed_active_code(username)
+        _seed_tier("pro", "not-json{")
+        data = _check_auth(client, pc_hash)
+        ent = data["entitlement"]
+        assert "ai-generate" in ent["features"]
+        assert ent["limits"]["max_projects"] is None

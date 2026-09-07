@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import type { ReactNode } from "react";
 
 const apiPostMock = vi.fn();
+const apiGetMock = vi.fn();
 
 beforeEach(() => {
   apiPostMock.mockReset();
+  apiGetMock.mockReset();
+  apiGetMock.mockResolvedValue({ code: 1 }); // 两跳刷新的 check-auth 调用默认不命中
   vi.resetModules();
-  vi.doMock("@/lib/api", () => ({ api: { post: apiPostMock } }));
+  vi.doMock("@/lib/api", () => ({ api: { post: apiPostMock, get: apiGetMock } }));
 });
 
 async function mountUseTier() {
@@ -16,7 +20,9 @@ async function mountUseTier() {
   );
   const { useTier } = await import("@/hooks/useTier");
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <LicenseProvider>{children}</LicenseProvider>
+    <MemoryRouter initialEntries={["/"]}>
+      <LicenseProvider>{children}</LicenseProvider>
+    </MemoryRouter>
   );
   return { renderHook: () => renderHook(() => useTier(), { wrapper }) };
 }

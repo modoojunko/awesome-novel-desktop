@@ -61,6 +61,9 @@ services:
       SERVER_API_FALLBACK: "${SERVER_API_FALLBACK:-}"
       # 宿主可访问的 S端 地址（前端打开 OAuth 授权页用；容器内网名宿主解析不了）
       PUBLIC_SERVER_API: "${PUBLIC_SERVER_API:-http://localhost:${SERVER_HOST_PORT:-19000}/api}"
+      # trial 无到期旧宽限（c-s-entitlement-sync）：仅本地 dev 容器注入；
+      # 生产安装包不带此 env，trial 无到期一律按免费基线收紧
+      ENTITLEMENT_LEGACY_TRIAL: "1"
     depends_on:
       - server-backend
     ports:

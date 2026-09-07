@@ -56,6 +56,8 @@ function TestTierProvider({
     expiresAt: "",
     isPro: member,
     trialRemainingDays: 0,
+    entitlement: null,
+    entitlementDegraded: false,
     loading: false,
     error: null,
     refetch: () => {},

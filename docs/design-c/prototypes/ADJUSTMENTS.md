@@ -372,3 +372,8 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     切格式 / 换供应商均不改动已输入 URL，仅清测试结果；界面不提供任何厂商地址文案（GLM Coding Plan 帮助小字拍板删除，URL 照抄厂商文档自备）。
     parity：本屏 parity 只截 configs / empty 页面级两场景，弹窗不进基线（既有口径），零漂移；
     实现侧 ApiConfigForm 同批落地（seg 控件、锁定矩阵、api_format 随 create/update/test-connection 契约上送）。
+
+12. **书架权益异常提示条（c-s-entitlement-sync，2026-09-06）**
+    书架顶部新增条件渲染 notice（warn 语义，信息=「权益信息同步异常，已按套餐标准处理」+ 可复制问题详情 + 联系客服出口）。
+    复用既有 .notice 组件形态（无新增组件/第四种胶囊）；仅 entitlement_degraded=true 时渲染，
+    默认态不出现 → 书架 parity 基线（empty/quota 场景）零漂移，实现侧登记免原型改版。

@@ -177,6 +177,18 @@ async def api_check_auth(pc_hash: str = "", db: Db = Depends(get_db)):
                 "expires_at": license_.max_expires_at.isoformat() if license_.max_expires_at else "",
             }
 
+            # ── 权益快照（c-s-entitlement-sync，契约 v1）：档位目录配置 →
+            #    ENTITLEMENT_DEFAULTS 兜底（档位行缺配置/坏 JSON/未知档位）；
+            #    免费基线 = 空 features + max_projects=1。排队/冻结/收回语义由
+            #    License.merge 继承，快照随下次 check-auth 自动反映。──
+            from app.config import settings as _settings
+            from app.infrastructure.repositories.payments_repo import TierRepo
+
+            tier_cfg = TierRepo(db).find_entitlement_by_key(license_.effective_tier)
+            ent = tier_cfg or _settings.ENTITLEMENT_DEFAULTS.get(
+                license_.effective_tier, _settings.ENTITLEMENT_DEFAULTS["none"])
+            data["entitlement"] = {"v": 1, **ent}
+
             # ── A4 扩展（可选字段，无支付数据时省略）──
             # days_remaining：北京自然日口径（今日 0 点到 expires_at，floor）；无套餐/免费省略
             if license_.max_expires_at:

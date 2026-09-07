@@ -59,6 +59,15 @@ class TestCheckAuth:
         assert data["data"]["tier"] == "trial"
         assert "expires_at" in data["data"]
 
+    def test_已授权时返回_entitlement_快照形状(self, client: TestClient):
+        """entitlement 契约 v1（c-s-entitlement-sync）：v 恒 1、features 数组、
+        max_projects 为 int|None（null=不限）。"""
+        resp = client.get("/api/check-auth", params={"pc_hash": "test-pc-hash-001"})
+        ent = resp.json()["data"]["entitlement"]
+        assert ent["v"] == 1
+        assert isinstance(ent["features"], list)
+        assert isinstance(ent["limits"]["max_projects"], (int, type(None)))
+
     def test_未授权时返回_code_1(self, client: TestClient):
         resp = client.get("/api/check-auth", params={"pc_hash": "nonexistent-hash"})
         data = resp.json()
