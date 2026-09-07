@@ -231,15 +231,18 @@ class TestVerifySessionPassthrough:
         assert r["entitlement_degraded"] is False
 
     def test_verify_degraded_flag(self):
-        self._login(entitlement={"v": 1, "features": _AI_FEATURES, "limits": {}})
+        self._login(entitlement={"v": 1, "features": _AI_FEATURES, "limits": {}},
+                    entitlement_fetched_at="2026-09-07T06:00:00+00:00")
         r = asyncio.run(_service.verify_session())
         assert r["entitlement_degraded"] is True
         assert "entitlement" not in r  # 不完整快照不透传原文，只给标志
+        assert r["entitlement_fetched_at"] == "2026-09-07T06:00:00+00:00"  # 详情三要素
 
     def test_verify_without_snapshot_omits_field(self):
         self._login()
         r = asyncio.run(_service.verify_session())
         assert "entitlement" not in r
+        assert "entitlement_fetched_at" not in r
         assert r["entitlement_degraded"] is False
 
 

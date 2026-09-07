@@ -10,6 +10,7 @@ import RenameModal from "@/components/novel/RenameModal";
 import { Ico, P, genreIconPath } from "@/components/icons";
 import { PORTAL_URL } from "@/lib/portal";
 import { supportUrl } from "@/lib/support";
+import { useTier } from "@/hooks/useTier";
 
 interface Novel {
   id: string;
@@ -69,10 +70,6 @@ function NovelList() {
   const [novels, setNovels] = useState<Novel[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [tier, setTier] = useState<string>('');
-  const [trialDays, setTrialDays] = useState<number>(0);
-  const [isMember, setIsMember] = useState<boolean>(false);
-  const [expired, setExpired] = useState<boolean>(false);
   const [portalUrl, setPortalUrl] = useState<string>('');
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -85,6 +82,8 @@ function NovelList() {
   const [supportLink, setSupportLink] = useState('');
   const navigate = useNavigate();
   const menuRef = useRef<HTMLDivElement>(null);
+  // 套餐状态走 LicenseProvider 上下文（Provider 挂在认证路由根壳，两跳刷新后自动更新）
+  const { tier, isMember, expired, trialRemainingDays: trialDays } = useTier();
 
   async function handleDelete() {
     if (!deleteTarget) return;
@@ -129,10 +128,6 @@ function NovelList() {
   useEffect(() => {
     fetchNovels();
     api.post("/auth/verify").then((r: any) => {
-      if (r.tier) setTier(r.tier);
-      if (r.trial_remaining_days !== undefined) setTrialDays(r.trial_remaining_days);
-      if (r.is_member !== undefined) setIsMember(r.is_member);
-      if (r.expired !== undefined) setExpired(r.expired);
       // 权益快照异常（c-s-entitlement-sync）：后端已按档位标准兜底，提示用户可求助
       if (r.entitlement_degraded !== undefined) setEntDegraded(r.entitlement_degraded);
       if (r.entitlement_degraded) {

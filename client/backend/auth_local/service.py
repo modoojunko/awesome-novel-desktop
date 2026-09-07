@@ -431,6 +431,9 @@ async def verify_session() -> dict:
     }
     if perm.get("entitlement") is not None:
         resp["entitlement"] = perm["entitlement"]  # 快照原文（无快照省略）
+    if perm.get("entitlement_degraded"):
+        # 降级详情三要素之一（tier-gating spec）：提示条可复制详情要带抓取时间
+        resp["entitlement_fetched_at"] = cfg.get("entitlement_fetched_at", "")
     return resp
 
 

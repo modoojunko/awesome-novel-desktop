@@ -136,11 +136,19 @@ class TestCheckAuthEntitlement:
 
     @pytest.fixture(autouse=True)
     def _clear_ent_cache(self):
-        """TTL 缓存按类隔离，避免跨测试串味。"""
+        """TTL 缓存按类隔离 + 种子行清理：session 级共享 sqlite，tiers.pro
+        残留（含坏 JSON）会污染同 session 后续 check-auth 类测试的配置来源。"""
         from app.infrastructure.repositories.payments_repo import TierRepo
         TierRepo._ENTITLEMENT_CACHE.clear()
         yield
         TierRepo._ENTITLEMENT_CACHE.clear()
+        s = SessionLocal()
+        try:
+            s.query(TierORM).filter(TierORM.key == "pro").delete(
+                synchronize_session=False)
+            s.commit()
+        finally:
+            s.close()
 
     def test_paid_user_gets_defaults_features(self, client, _authed_user):
         """无 tiers 行 → monthly 归一化 pro → DEFAULTS pro：AI 五 key + 不限本数。"""
