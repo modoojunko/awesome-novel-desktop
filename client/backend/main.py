@@ -12,8 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 
-import models  # noqa: F401
 import brand
+import models  # noqa: F401
 from api_configs.router import router as api_configs_router
 from archive.router import archives_router
 from archive.router import router as archive_router

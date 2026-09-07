@@ -69,16 +69,16 @@ def test_shallow_layout_never_raises(monkeypatch):
 
 
 def test_missing_file_falls_back_to_defaults(monkeypatch, tmp_path):
-    """文件缺失静默回落内置默认（启动路径零阻塞纪律）。"""
+    """文件缺失静默回落内置默认（启动路径零阻塞纪律）。
+
+    注意顺序：先 reload 再打补丁——reload 重执行源码会把 _candidate_dirs
+    重定义回真身，先 patch 后 reload 补丁会静默丢失（评审 P3）。
+    """
     empty = tmp_path / "empty"
     empty.mkdir()
     monkeypatch.setenv("RESOURCE_ROOT", str(empty))
-    # 模块在 frozen/dev 探测之外的兜底路径：直接验证 _load 的失败分支
+    importlib.reload(brand)  # 在 RESOURCE_ROOT 指向空目录的真实定位路径上重载
     monkeypatch.setattr(brand, "_candidate_dirs", lambda: [empty])
-    reloaded = importlib.reload(brand)
-    try:
-        assert reloaded.BRAND_NAME == brand._DEFAULTS["name"]
-        assert reloaded.BRAND_NAME_EN == brand._DEFAULTS["nameEn"]
-    finally:
-        monkeypatch.delenv("RESOURCE_ROOT")
-        importlib.reload(brand)
+    reloaded = brand._load()
+    monkeypatch.delenv("RESOURCE_ROOT")
+    assert reloaded == brand._DEFAULTS
