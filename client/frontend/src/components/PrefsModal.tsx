@@ -8,7 +8,8 @@ import { Link, useNavigate } from "react-router-dom";
 import Modal from "@/components/design/Modal";
 import RestoreModal from "@/components/RestoreModal";
 import { api } from "@/lib/api";
-import { isLoggedIn, logout } from "@/lib/auth";
+import { getUsername, isLoggedIn, logout } from "@/lib/auth";
+import { formatVersion, useClientVersion } from "@/lib/version";
 import {
   getArchiveAiSummaryEnabled,
   getDefaultFontSize,
@@ -48,6 +49,8 @@ export default function PrefsModal({ open, onClose }: { open: boolean; onClose: 
   const [aiSummary, setAiSummary] = useState(true);
   const [tier, setTier] = useState<string>("");
   const [restoreOpen, setRestoreOpen] = useState(false);
+  const version = useClientVersion();
+  const username = getUsername();
 
   useEffect(() => {
     if (!open) return;
@@ -73,9 +76,18 @@ export default function PrefsModal({ open, onClose }: { open: boolean; onClose: 
       onClose={onClose}
       title="设置 · 写作偏好"
       footer={
-        <button className="btn btn-primary" onClick={save}>
-          保存
-        </button>
+        <>
+          {/* 版本行（报障终点，与账号同屏）：吃应用级缓存，打开不发新请求 */}
+          <span
+            data-od-id="pref-version"
+            style={{ marginRight: "auto", fontSize: 12, color: "var(--muted)" }}
+          >
+            {formatVersion(version)}
+          </span>
+          <button className="btn btn-primary" onClick={save}>
+            保存
+          </button>
+        </>
       }
     >
       <div className="pref-row">
@@ -174,9 +186,19 @@ export default function PrefsModal({ open, onClose }: { open: boolean; onClose: 
         </Link>
       </div>
       <div className="pref-row">
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div className="pl">账号</div>
-          <div className="pm">{tier || "…"}</div>
+          {/* 「用户名 · 套餐」可辨当前账号；超长截断、悬停见全文；无用户名不硬造 */}
+          <div
+            className="pm"
+            data-od-id="pref-account"
+            title={username ?? undefined}
+            style={
+              username ? { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } : undefined
+            }
+          >
+            {username ? `${username} · ${tier || "…"}` : tier || "…"}
+          </div>
         </div>
         {isLoggedIn() ? (
           <button className="btn btn-secondary btn-sm" onClick={logout}>

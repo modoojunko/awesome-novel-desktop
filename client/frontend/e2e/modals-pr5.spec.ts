@@ -365,6 +365,9 @@ test("本书偏好：字号 per-book 持久 + 免费态升级 PRO 链升级弹�
       await expect(dlg.getByText(label, { exact: true })).toBeVisible();
     }
 
+    // 版本行（c-version-account-visibility）：吃应用级缓存；docker 后端无烘焙 → 「开发版 dev」
+    await expect(dlg.locator('[data-od-id="pref-version"]')).toHaveText(/^(v\d+\.\d+.*|开发版 dev|版本未知)$/);
+
     // 免费态：账号行「升级 PRO」→ 关偏好弹窗、链出升级弹窗（S端 门户引导）
     await expect(dlg.locator("#pref-upgrade")).toBeVisible();
     await dlg.locator("#pref-upgrade").click();

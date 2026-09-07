@@ -37,7 +37,7 @@ test.describe("更新提示条", () => {
     await page.goto("/#/novels");
     const strip = page.locator(".update-strip .notice.info");
     await expect(strip).toBeVisible();
-    await expect(strip).toContainText("发现新版本 v0.13");
+    await expect(strip).toContainText("发现新版本 v0.13（当前 v0.11）"); // rider 对照文案
     await expect(strip).toContainText("提升章纲 AI 起草的稳定性，修复若干问题");
 
     // 「去下载」→ target=_blank 锚点在弹出新页打开（pywebview 中即系统浏览器路径）

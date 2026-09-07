@@ -10,8 +10,13 @@ export function url(hashPath: string) {
  * 更新提示条打桩（client-update-notify）。
  * "update" 载荷与原型 list.html / book.html 字面量一致（ADJUSTMENTS #15 parity 口径）；
  * "none" = 检测成功无更新；"fail" = 端点异常（应用侧必须静默不渲染）。
+ * current 覆盖默认版本号（c-version-account-visibility：状态条/版本行断言用）。
  */
-export function stubUpdateNotice(page: Page, mode: "update" | "none" | "fail") {
+export function stubUpdateNotice(
+  page: Page,
+  mode: "update" | "none" | "fail",
+  current?: string,
+) {
   return page.route("**/api/update-check", (r) => {
     if (mode === "fail") {
       return r.fulfill({ status: 500, json: { detail: "boom" } });
@@ -19,7 +24,7 @@ export function stubUpdateNotice(page: Page, mode: "update" | "none" | "fail") {
     if (mode === "none") {
       return r.fulfill({
         json: {
-          current: "0.13",
+          current: current ?? "0.13",
           latest: "0.13",
           has_update: false,
           notes: "",
@@ -30,7 +35,7 @@ export function stubUpdateNotice(page: Page, mode: "update" | "none" | "fail") {
     }
     return r.fulfill({
       json: {
-        current: "0.11",
+        current: current ?? "0.11",
         latest: "0.13",
         has_update: true,
         notes: "提升章纲 AI 起草的稳定性，修复若干问题",

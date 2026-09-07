@@ -445,6 +445,11 @@
   .toast { display: inline-flex; align-items: center; gap: 8px; background: var(--fg); color: var(--surface); padding: 9px 16px; border-radius: 10px; font-size: 13px; box-shadow: var(--shadow-card); animation: toast-in 0.22s ease; }
   .toast svg { width: 14px; height: 14px; color: var(--ok); }
   @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+
+  /* 底部状态条（c-version-account-visibility V3）：左版权、右版本，固定窗口底 */
+  .statusbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; height: 26px; padding: 0 16px; background: var(--surface); border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+  .statusbar .sb-ver { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  body { padding-bottom: 26px; }
 </style>
 </head>
 <body>
@@ -453,7 +458,7 @@
 <div class="update-strip" data-od-id="update-notice-strip">
   <div class="notice info" data-od-id="update-notice">
     <span class="nt">
-      <b>发现新版本 v0.13</b>
+      <b>发现新版本 v0.13（当前 v0.11）</b>
       <span>提升章纲 AI 起草的稳定性，修复若干问题</span>
     </span>
     <button class="btn btn-secondary btn-sm" data-od-id="update-download">去下载</button>
@@ -830,7 +835,7 @@
       <div class="pref-row"><div><div class="pl">归档时 AI 摘要</div><div class="pm">归档时用 AI 生成章节摘要；关闭后截取正文开头作摘要</div></div><span class="seg" data-od-id="seg-archsum"><button class="on" data-v="on">开</button><button data-v="off">关</button></span></div>
       <div class="pref-row"><div><div class="pl">账号</div><div class="pm" id="prefTier">免费版 · 单机使用</div></div><button class="btn btn-secondary btn-sm" id="prefUpgrade">升级 PRO</button></div>
     </div>
-    <div class="mcard-foot"><button class="btn btn-primary" data-close="modalPrefs">保存</button></div>
+    <div class="mcard-foot"><span class="note" data-od-id="pref-version">v0.11</span><button class="btn btn-primary" data-close="modalPrefs">保存</button></div>
   </div>
 </div>
 
@@ -855,6 +860,7 @@
 </div>
 
 <div class="toast-wrap" id="toastWrap"></div>
+<footer class="statusbar" data-od-id="app-status-bar"><span data-od-id="app-credits">© 2026 爱小说</span><span class="sb-ver" data-od-id="status-version">v0.11</span></footer>
 
 <script>
 /* ═══════════ 数据：正文 ═══════════ */
