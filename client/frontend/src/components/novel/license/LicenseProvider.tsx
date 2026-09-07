@@ -22,8 +22,10 @@ export interface TierState {
   trialRemainingDays: number;
   /** 权益快照原文（无快照=老 S端/未刷新，null） */
   entitlement: EntitlementSnapshot | null;
-  /** 快照不完整经档位标准兜底供给（后端 entitlement_degraded） */
+  /** 快照不完整经档位标准兜底供给（后端 entitlement_degraded；防御态，徽章不消费） */
   entitlementDegraded: boolean;
+  /** S端失联（权益同步刷新失败）：徽章文案保持既有档位仅转 warn，恢复后自动回常规色 */
+  syncFailed: boolean;
   loading: boolean;
   error: string | null;
   refetch: () => void;
@@ -69,6 +71,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
   const [entitlementDegraded, setEntitlementDegraded] = useState(
     cachedVerify?.entitlement_degraded ?? false,
   );
+  const [syncFailed, setSyncFailed] = useState(false);
   const [loading, setLoading] = useState(!cachedVerify);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,13 +100,10 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
       setEntitlementDegraded(r.entitlement_degraded ?? false);
       setError(null);
     } catch {
-      cachedVerify = null; // 失败不缓存，允许重试
-      setTier("none"); // 免费兜底，不抛 500
-      setIsMember(false);
-      setExpired(false);
-      setEntitlement(null);
-      setEntitlementDegraded(false);
-      setError("套餐校验失败，已按免费处理");
+      // 失联口径（c-account-control-center）：保留上次快照判定，文案不变不清缓存不降级；
+      // syncFailed 驱动徽章转 warn，恢复后随既有同步节奏回常规色。
+      setSyncFailed(true);
+      setError("套餐信息暂时无法核实，已按最近一次结果展示");
     } finally {
       setLoading(false);
     }
@@ -118,7 +118,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
     void load(false);
   }, [load]);
 
-  // 两跳刷新（路由切换）：check-auth 写快照 → refetch 刷上下文
+  // 两跳刷新（路由切换）：check-auth 写快照 → refetch 刷上下文；失败置失联标志
   useEffect(() => {
     const path = location.pathname;
     if (!isEntitlementRoute(path) || path === lastRefreshPath) return;
@@ -132,8 +132,10 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
     void (async () => {
       try {
         await api.get("/auth/check-auth"); // S端 静默往返，更新本地快照
+        setSyncFailed(false);
       } catch {
-        // 断网/冷启动：沿用旧快照，绝不因网络降级会员
+        // S端失联：沿用本地快照（c-account-control-center 失联变色信号源）
+        setSyncFailed(true);
       }
       refetch();
     })();
@@ -148,8 +150,9 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
       void (async () => {
         try {
           await api.get("/auth/check-auth");
+          setSyncFailed(false);
         } catch {
-          // 同上：沿用旧快照
+          setSyncFailed(true);
         }
         refetch();
       })();
@@ -169,6 +172,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
     trialRemainingDays,
     entitlement,
     entitlementDegraded,
+    syncFailed,
     loading,
     error,
     refetch,

@@ -1,36 +1,20 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { isLoggedIn } from "../lib/auth";
-import { supportUrl } from "../lib/support";
 import { BRAND } from "../lib/brand";
-import PrefsModal from "../components/PrefsModal";
+import AcctMenu from "../components/AcctMenu";
 import BookPrefsModal from "../components/novel/BookPrefsModal";
 import { Ico, P } from "../components/icons";
 
-/** 客服外跳按钮（list.html/book.html appbar 原样）：锚点 target=_blank，
- * pywebview cocoa 只认锚点不认编程式 window.open。 */
-function SupportLink({ url }: { url: string }) {
-  return (
-    <a className="btn btn-ghost btn-sm" href={url} target="_blank" rel="noreferrer">
-      联系客服
-    </a>
-  );
-}
-
-/** 顶栏（list.html appbar 原样）：logo + 导航 + spacer + 联系客服 + 设置。 */
+/** 顶栏（c-account-control-center）：动作区收敛为头像胶囊唯一入口。
+ * 书架态：logo + 导航 + 触发钮；工作台态：logo + 返回 + 触发钮（本书偏好
+ * 经面板「本书偏好」项打开，BookPrefsModal 仍挂本处）。 */
 export default function Navbar() {
   const location = useLocation();
   const loggedIn = isLoggedIn();
-  const [showPrefs, setShowPrefs] = useState(false);
-  const [support, setSupport] = useState("");
+  const [showBookPrefs, setShowBookPrefs] = useState(false);
 
-  useEffect(() => {
-    if (!loggedIn) return;
-    supportUrl().then(setSupport);
-  }, [loggedIn]);
-
-  // 书工作台变体（book.html）：logo + 分隔线 + 返回我的小说 + 联系客服 + 设置，无导航/登录。
-  // PR 5：设置 = 本书偏好（字号/行距 per-book + 归档 AI 摘要），全局偏好仍在书架态。
+  // 书工作台变体（book.html）：logo + 分隔线 + 返回我的小说 + 触发钮，无导航/登录。
   if (location.pathname.startsWith("/novel/")) {
     const m = location.pathname.match(/^\/novel\/([^/]+)/);
     const projectId = m?.[1] ?? "";
@@ -45,13 +29,12 @@ export default function Navbar() {
           我的小说
         </Link>
         <span className="spacer" />
-        {support && <SupportLink url={support} />}
-        <button className="btn btn-ghost btn-sm" onClick={() => setShowPrefs(true)}>
-          设置
-        </button>
+        {loggedIn && (
+          <AcctMenu onBookPrefs={() => setShowBookPrefs(true)} />
+        )}
         <BookPrefsModal
-          open={showPrefs && !!projectId}
-          onClose={() => setShowPrefs(false)}
+          open={showBookPrefs && !!projectId}
+          onClose={() => setShowBookPrefs(false)}
           projectId={projectId}
         />
       </header>
@@ -88,15 +71,7 @@ export default function Navbar() {
           </Link>
         </>
       )}
-      {loggedIn && (
-        <>
-          {support && <SupportLink url={support} />}
-          <button className="btn btn-ghost btn-sm" onClick={() => setShowPrefs(true)}>
-            设置
-          </button>
-          <PrefsModal open={showPrefs} onClose={() => setShowPrefs(false)} />
-        </>
-      )}
+      {loggedIn && <AcctMenu />}
     </header>
   );
 }

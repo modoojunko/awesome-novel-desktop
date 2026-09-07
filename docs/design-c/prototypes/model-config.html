@@ -200,6 +200,31 @@
     .page-head .btn { align-self: stretch; }
     .vgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
+
+  /* ═══ 控制中心面板（c-account-control-center）——头像胶囊唯一入口 ═══ */
+  .acct { display: inline-flex; }
+  .acct-trigger { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 5px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; font-size: 12.5px; }
+  .acct-trigger:hover { border-color: var(--accent); }
+  .acct-trigger.open { border-color: var(--accent); background: var(--accent-soft); }
+  .acct-trigger .caret { width: 14px; height: 14px; color: var(--muted); }
+  .avatar { width: 24px; height: 24px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+  .badge { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 11px; line-height: 1.6; white-space: nowrap; }
+  .badge-accent { background: var(--accent-soft); color: var(--accent); }
+  .badge-muted { background: color-mix(in oklch, var(--fg) 6%, transparent); color: var(--muted); }
+  .badge-warn { background: var(--warn-soft); color: var(--warn); }
+  .acct-menu { position: fixed; width: 280px; max-height: calc(100vh - 24px); overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-card); padding: 6px; z-index: 60; }
+  .am-head { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .am-head .avatar { width: 28px; height: 28px; }
+  .am-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13px; margin-right: auto; }
+  .am-group { padding: 8px 12px 2px; font-size: 11px; color: var(--muted); letter-spacing: 0.02em; }
+  .am-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 12px; border: 0; border-radius: 8px; background: none; color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; text-align: left; text-decoration: none; }
+  .am-item:hover { background: color-mix(in oklch, var(--fg) 5%, transparent); }
+  .am-item svg { width: 15px; height: 15px; color: var(--muted); flex: none; }
+  .am-hint { margin-left: auto; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+  .am-item.danger { color: var(--warn); }
+  .am-item.danger svg { color: var(--warn); }
+  .am-foot { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
+  .am-version { display: block; padding: 4px 12px 6px; font-size: 11px; color: var(--muted); text-align: right; }
 </style>
 </head>
 <body>
@@ -211,8 +236,30 @@
     <a class="on" href="model-config.html" aria-current="page">模型配置</a>
   </nav>
   <span class="spacer"></span>
-  <button class="btn btn-ghost btn-sm" id="btnPrefs">设置</button>
+  <div class="acct">
+    <button class="acct-trigger" id="btnAcct" data-od-id="acct-trigger" aria-haspopup="menu" aria-expanded="false">
+      <span class="avatar" aria-hidden="true">m</span><span class="badge badge-accent" data-od-id="acct-badge">PRO 会员</span><svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+  </div>
 </header>
+
+<!-- ═══ 控制中心面板（c-account-control-center）═══ -->
+<div class="acct-menu" id="acctMenu" hidden data-od-id="acct-menu" role="menu" aria-label="账号与设置">
+  <div class="am-head" data-od-id="acct-menu-head">
+    <span class="avatar" aria-hidden="true">m</span>
+    <span class="am-name" title="modoojunko">modoojunko</span>
+    <span class="badge badge-accent">PRO 会员</span>
+  </div>
+  <div class="am-group">数据</div>
+  <button class="am-item" role="menuitem" data-od-id="acct-menu-backup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 15V4M7 8l5-5 5 5M5 20h14"/></svg>备份<span class="am-hint">选择文件夹导出</span></button>
+  <button class="am-item" role="menuitem" data-od-id="acct-menu-restore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>恢复<span class="am-hint">从备份文件导入</span></button>
+  <div class="am-group">支持</div>
+  <a class="am-item" role="menuitem" data-od-id="acct-menu-support" href="https://www.awesomenovel.com/support" target="_blank" rel="noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5h16v11H8l-4 4z"/></svg>联系客服<span class="am-hint">新窗口打开</span></a>
+  <div class="am-foot">
+    <button class="am-item danger" role="menuitem" data-od-id="acct-menu-logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg><span id="amLogoutText">退出登录</span></button>
+    <span class="am-version" data-od-id="acct-menu-version">v0.19</span>
+  </div>
+</div>
 
 <main class="main" data-od-id="model-config">
   <div class="page-head">
@@ -730,6 +777,32 @@ document.addEventListener('keydown', e => {
 $('btnAdd').addEventListener('click', () => openForm(null));
 $('cfName').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('cfSave').click(); } });
 $('cfKey').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('cfSave').click(); } });
+
+/* ═══════════ 控制中心面板（c-account-control-center）═══════════ */
+const acctTrigger = $('btnAcct');
+const acctMenu = $('acctMenu');
+function positionAcctMenu() {
+  const r = acctTrigger.getBoundingClientRect();
+  acctMenu.style.top = (r.bottom + 4) + 'px';
+  acctMenu.style.right = (window.innerWidth - r.right) + 'px';
+}
+function setAcctOpen(open) {
+  acctMenu.hidden = !open;
+  acctTrigger.classList.toggle('open', open);
+  acctTrigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) positionAcctMenu();
+}
+acctTrigger.addEventListener('click', (e) => {
+  e.stopPropagation();
+  setAcctOpen(acctMenu.hidden);
+});
+document.addEventListener('click', (e) => {
+  if (!acctMenu.hidden && !acctMenu.contains(e.target) && !acctTrigger.contains(e.target)) setAcctOpen(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !acctMenu.hidden) setAcctOpen(false);
+});
+window.addEventListener('resize', () => { if (!acctMenu.hidden) positionAcctMenu(); });
 
 renderUsage();
 renderCards();

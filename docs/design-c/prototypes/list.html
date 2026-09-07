@@ -180,6 +180,31 @@
     .page-head { flex-direction: column; align-items: flex-start; gap: 16px; margin-bottom: 28px; }
     .page-head .btn { align-self: stretch; }
   }
+
+  /* ═══ 控制中心面板（c-account-control-center）——头像胶囊唯一入口 ═══ */
+  .acct { display: inline-flex; }
+  .acct-trigger { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 5px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; font-size: 12.5px; }
+  .acct-trigger:hover { border-color: var(--accent); }
+  .acct-trigger.open { border-color: var(--accent); background: var(--accent-soft); }
+  .acct-trigger .caret { width: 14px; height: 14px; color: var(--muted); }
+  .avatar { width: 24px; height: 24px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+  .badge { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 11px; line-height: 1.6; white-space: nowrap; }
+  .badge-accent { background: var(--accent-soft); color: var(--accent); }
+  .badge-muted { background: color-mix(in oklch, var(--fg) 6%, transparent); color: var(--muted); }
+  .badge-warn { background: var(--warn-soft); color: var(--warn); }
+  .acct-menu { position: fixed; width: 280px; max-height: calc(100vh - 24px); overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-card); padding: 6px; z-index: 60; }
+  .am-head { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .am-head .avatar { width: 28px; height: 28px; }
+  .am-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13px; margin-right: auto; }
+  .am-group { padding: 8px 12px 2px; font-size: 11px; color: var(--muted); letter-spacing: 0.02em; }
+  .am-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 12px; border: 0; border-radius: 8px; background: none; color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; text-align: left; text-decoration: none; }
+  .am-item:hover { background: color-mix(in oklch, var(--fg) 5%, transparent); }
+  .am-item svg { width: 15px; height: 15px; color: var(--muted); flex: none; }
+  .am-hint { margin-left: auto; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+  .am-item.danger { color: var(--warn); }
+  .am-item.danger svg { color: var(--warn); }
+  .am-foot { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
+  .am-version { display: block; padding: 4px 12px 6px; font-size: 11px; color: var(--muted); text-align: right; }
 </style>
 </head>
 <body>
@@ -204,8 +229,11 @@
     <a href="model-config.html">模型配置</a>
   </nav>
   <span class="spacer"></span>
-  <a class="btn btn-ghost btn-sm" href="#" data-od-id="btn-support">联系客服</a>
-  <button class="btn btn-ghost btn-sm" id="btnPrefs">设置</button>
+  <div class="acct">
+    <button class="acct-trigger" id="btnAcct" data-od-id="acct-trigger" aria-haspopup="menu" aria-expanded="false">
+      <span class="avatar" aria-hidden="true">m</span><span class="badge badge-accent" data-od-id="acct-badge">PRO 会员</span><svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+  </div>
 </header>
 
 <main class="main" data-od-id="book-list">
@@ -259,17 +287,22 @@
   </div>
 </div>
 
-<!-- ═══ 设置弹窗 ═══ -->
-<div class="modal" id="modalPrefs" hidden data-od-id="modal-prefs" role="dialog" aria-modal="true" aria-labelledby="prefsTitle">
-  <div class="mcard">
-    <div class="mcard-head"><span class="mh serif" id="prefsTitle">设置 · 写作偏好</span><button class="icon-btn x" data-close="modalPrefs" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-    <div class="mcard-body">
-      <div class="pref-row"><div><div class="pl">默认字号</div><div class="pm">新建章节的正文排版</div></div><span class="seg"><button data-v="fs-s">小</button><button class="on" data-v="fs-m">中</button><button data-v="fs-l">大</button></span></div>
-      <div class="pref-row"><div><div class="pl">默认行距</div><div class="pm">长时写作建议「舒适」</div></div><span class="seg"><button data-v="lh-tight">紧凑</button><button class="on" data-v="lh-comfy">舒适</button><button data-v="lh-loose">宽松</button></span></div>
-      <div class="pref-row"><div><div class="pl">模型配置 · API Key</div><div class="pm">管理 AI 服务密钥与供应商</div></div><a class="btn btn-secondary btn-sm" href="model-config.html">去配置</a></div>
-      <div class="pref-row"><div><div class="pl">账号</div><div class="pm" id="prefTier">免费版 · 单机使用</div></div><a class="btn btn-secondary btn-sm" href="book.html">打开示例书</a></div>
-    </div>
-    <div class="mcard-foot"><span data-od-id="pref-version" style="margin-right:auto;font-size:12px;color:var(--muted);">v0.11</span><button class="btn btn-primary" data-close="modalPrefs">保存</button></div>
+<!-- ═══ 控制中心面板（c-account-control-center）：头像胶囊唯一入口的右对齐 popover ═══ -->
+<div class="acct-menu" id="acctMenu" hidden data-od-id="acct-menu" role="menu" aria-label="账号与设置">
+  <div class="am-head" data-od-id="acct-menu-head">
+    <span class="avatar" aria-hidden="true">m</span>
+    <span class="am-name" title="modoojunko">modoojunko</span>
+    <span class="badge badge-accent">PRO 会员</span>
+  </div>
+  <div class="am-group">数据</div>
+  <button class="am-item" role="menuitem" data-od-id="acct-menu-backup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 15V4M7 8l5-5 5 5M5 20h14"/></svg>备份<span class="am-hint">选择文件夹导出</span></button>
+  <button class="am-item" role="menuitem" data-od-id="acct-menu-restore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>恢复<span class="am-hint">从备份文件导入</span></button>
+  <button class="am-item" role="menuitem" data-od-id="acct-menu-config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h13M10 12h10M4 17h7"/></svg>模型配置 · API Key<span class="am-hint">去配置</span></button>
+  <div class="am-group">支持</div>
+  <a class="am-item" role="menuitem" data-od-id="acct-menu-support" href="https://www.awesomenovel.com/support" target="_blank" rel="noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5h16v11H8l-4 4z"/></svg>联系客服<span class="am-hint">新窗口打开</span></a>
+  <div class="am-foot">
+    <button class="am-item danger" role="menuitem" data-od-id="acct-menu-logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg><span id="amLogoutText">退出登录</span></button>
+    <span class="am-version" data-od-id="acct-menu-version">v0.19</span>
   </div>
 </div>
 
@@ -473,15 +506,32 @@ document.addEventListener('keydown', e => {
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 });
 
-/* ═══════════ 设置 ═══════════ */
-$('btnPrefs').addEventListener('click', () => openModal('modalPrefs'));
-document.querySelectorAll('#modalPrefs .seg button').forEach(b => {
-  b.addEventListener('click', () => {
-    const seg = b.closest('.seg');
-    seg.querySelectorAll('button').forEach(x => x.classList.remove('on'));
-    b.classList.add('on');
-  });
+/* ═══════════ 控制中心面板（c-account-control-center）═══════════ */
+const acctTrigger = $('btnAcct');
+const acctMenu = $('acctMenu');
+function positionAcctMenu() {
+  const r = acctTrigger.getBoundingClientRect();
+  acctMenu.style.top = (r.bottom + 4) + 'px';
+  acctMenu.style.right = (window.innerWidth - r.right) + 'px';
+}
+function setAcctOpen(open) {
+  acctMenu.hidden = !open;
+  acctTrigger.classList.toggle('open', open);
+  acctTrigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) positionAcctMenu();
+}
+acctTrigger.addEventListener('click', (e) => {
+  e.stopPropagation();
+  setAcctOpen(acctMenu.hidden);
 });
+/* 外点关闭：白名单含触发钮（防 toggle 双触发） */
+document.addEventListener('click', (e) => {
+  if (!acctMenu.hidden && !acctMenu.contains(e.target) && !acctTrigger.contains(e.target)) setAcctOpen(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !acctMenu.hidden) setAcctOpen(false);
+});
+window.addEventListener('resize', () => { if (!acctMenu.hidden) positionAcctMenu(); });
 
 renderCards();
 </script>

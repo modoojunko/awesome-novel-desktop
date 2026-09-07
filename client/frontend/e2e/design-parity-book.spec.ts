@@ -273,7 +273,9 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         await row.hover();
         await row.locator('[data-act="del"]').click();
       } else if (c.screen === "modal-prefs") {
-        await protoPage.locator("#btnPrefs").click();
+        // 面板「本书偏好」项（c-account-control-center：appbar 设置按钮已收敛）
+        await protoPage.locator("#btnAcct").click();
+        await protoPage.locator("#amBookPrefs").click();
       } else if (c.screen === "modal-upgrade") {
         // 免费态右栏 AI locked 卡的「升级 PRO」——默认选中章 → 章栏 #btnUpgrade3
         // （#btnUpgrade2 在卷选中栏 #railVolume 内，默认 hidden 不可点）
@@ -287,7 +289,7 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
       const appCtx = await browser.newContext({ viewport: VIEWPORT });
       await appCtx.addInitScript(() => {
         localStorage.setItem("auth_token", "parity-stub-token");
-        localStorage.setItem("auth_username", "parity");
+        localStorage.setItem("auth_username", "modoojunko"); // 与原型头像首字一致（像素级比对）
       });
       const appPage = await appCtx.newPage();
       stubBookAPI(appPage, c.pro, c.screen === "volume");
@@ -322,8 +324,9 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         await row.getByTitle("删除章节").click();
         await appPage.waitForSelector(".modal .mcard");
       } else if (c.screen === "modal-prefs") {
-        // appbar「设置」→ 本书偏好弹窗（账号行 /auth/verify 打桩为免费态）
-        await appPage.getByRole("button", { name: "设置", exact: true }).click();
+        // 触发钮 → 面板「本书偏好」→ 本书偏好弹窗（verify 打桩为免费态）
+        await appPage.locator('[data-od-id="acct-trigger"]').click();
+        await appPage.locator('[data-od-id="acct-menu-bookprefs"]').click();
         await appPage.waitForSelector(".modal .mcard");
       } else if (c.screen === "modal-upgrade") {
         // 免费态右栏 ai-locked 卡「升级 PRO」→ 升级弹窗

@@ -122,7 +122,7 @@ test.describe("design-parity 书架屏（list.html）", () => {
       const appCtx = await browser.newContext({ viewport: VIEWPORT });
       await appCtx.addInitScript(() => {
         localStorage.setItem("auth_token", "parity-stub-token");
-        localStorage.setItem("auth_username", "parity");
+        localStorage.setItem("auth_username", "modoojunko"); // 与原型头像首字一致（像素级比对）
       });
       const appPage = await appCtx.newPage();
       const novels = c.state === "books" ? FIXED_NOVELS() : c.state === "quota" ? [FIXED_NOVELS()[0]] : [];

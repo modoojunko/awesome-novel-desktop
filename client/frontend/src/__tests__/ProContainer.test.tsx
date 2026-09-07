@@ -58,6 +58,7 @@ function TestTierProvider({
     trialRemainingDays: 0,
     entitlement: null,
     entitlementDegraded: false,
+  syncFailed: false,
     loading: false,
     error: null,
     refetch: () => {},
