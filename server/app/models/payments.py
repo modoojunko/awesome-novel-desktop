@@ -29,6 +29,10 @@ class TierORM(Base):
     display_name = Column(String(64), nullable=False)
     rank = Column(Integer, nullable=False)  # 等级序：max(30) > pro(20) > trial(10)
     selling_points = Column(Text, nullable=False, default="[]", server_default="[]")
+    # 档位权益配置 JSON：{"features":[...],"limits":{"max_projects":null|int}}。
+    # 单列 JSON（c-s-entitlement-sync）：加权益维度零 DDL；缺配置/坏 JSON 由
+    # ENTITLEMENT_DEFAULTS 兜底（check-auth 组装处）。
+    entitlement = Column(Text, nullable=False, default="{}", server_default="{}")
     status = Column(String(16), nullable=False, default="live", server_default="live")
     created_at = Column(DateTime, server_default=__import__("sqlalchemy").func.now())
     updated_at = Column(DateTime, server_default=__import__("sqlalchemy").func.now())

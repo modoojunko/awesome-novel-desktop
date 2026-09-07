@@ -155,6 +155,24 @@ class Settings:
     }
     TIER_POLICY["lifetime"]["device_limit"] = 99
 
+    # ── 套餐权益标准配置（c-s-entitlement-sync）──
+    # 与 docs/contracts/entitlement-defaults.json 同源（两端各有对拍测试）；档位行
+    # 缺 entitlement 配置/坏 JSON 时 check-auth 用此兜底。feature key 词汇表 =
+    # client/frontend/src/lib/features.ts，加 key 先登记 specs。
+    ENTITLEMENT_DEFAULTS: dict = {
+        "none":  {"features": [], "limits": {"max_projects": 1}},
+        "free":  {"features": [], "limits": {"max_projects": 1}},
+        "trial": {"features": ["settings-ai-fields", "outline-advanced-fields",
+                               "ai-generate", "prompt-panel", "ai-model"],
+                  "limits": {"max_projects": None}},
+        "pro":   {"features": ["settings-ai-fields", "outline-advanced-fields",
+                               "ai-generate", "prompt-panel", "ai-model"],
+                  "limits": {"max_projects": None}},
+        "max":   {"features": ["settings-ai-fields", "outline-advanced-fields",
+                               "ai-generate", "prompt-panel", "ai-model"],
+                  "limits": {"max_projects": None}},   # planned：先给 pro 同款，上线改配置即可
+    }
+
 
 settings = Settings()  # 模块级单例，全局引用 from app.config import settings
 

@@ -52,7 +52,8 @@ REQUIRED: dict[str, tuple[tuple[str, str], ...]] = {
     # ── payments 域（payments_repo.py，pg_http 同通道；2026-09-01 补录）──
     "tiers": (
         ("id", "typed"), ("key", "text"), ("display_name", "text"),
-        ("rank", "typed"), ("selling_points", "text"), ("status", "text"),
+        ("rank", "typed"), ("selling_points", "text"), ("entitlement", "text"),
+        ("status", "text"),
         ("created_at", "typed"), ("updated_at", "typed"),
     ),
     "skus": (
@@ -111,7 +112,7 @@ EXPECTED_DEFAULTS: dict[str, dict[str, str]] = {
         "fingerprint": "", "hostname": "", "os": "", "os_arch": "",
     },
     "device_grants": {"enrolled": "0", "fingerprint": ""},
-    "tiers": {"selling_points": "[]", "status": "live"},
+    "tiers": {"selling_points": "[]", "entitlement": "{}", "status": "live"},
     "skus": {
         "discount_permille": "1000", "device_limit": "1",
         "on_sale": "true", "sort": "0",
