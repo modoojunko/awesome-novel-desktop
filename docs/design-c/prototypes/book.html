@@ -449,7 +449,9 @@
   /* 底部状态条（c-version-account-visibility V3）：左版权、右版本，固定窗口底 */
   .statusbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; height: 26px; padding: 0 16px; background: var(--surface); border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
   .statusbar .sb-ver { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-  body { padding-bottom: 26px; }
+  /* 状态条让位：body overflow:hidden，flex 链内垫 26px（.view flex:1 随之收缩），
+     工作台内容不被固定条遮挡——body padding 对 flex 内容盒无效，故用链内 spacer */
+  .sb-spacer { height: 26px; flex: none; }
 </style>
 </head>
 <body>
@@ -860,6 +862,7 @@
 </div>
 
 <div class="toast-wrap" id="toastWrap"></div>
+<div class="sb-spacer" aria-hidden="true"></div>
 <footer class="statusbar" data-od-id="app-status-bar"><span data-od-id="app-credits">© 2026 爱小说</span><span class="sb-ver" data-od-id="status-version">v0.11</span></footer>
 
 <script>

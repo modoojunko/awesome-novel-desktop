@@ -104,6 +104,9 @@ test.describe("design-parity 模型配置屏（model-config.html）", () => {
       );
       await appPage.route("**/api/auth/check-auth", (r) => r.fulfill({ json: { code: 1 } }));
       await appPage.route("**/api/v1/api-configs", (r) => r.fulfill({ json: configs }));
+      // /auth/config（portal_url，公开营销地址非密钥）：新栈 backend 对其 401 会触发
+      // api.ts 全局 401 跳 /#/login，把场景弹离配置页——必须就地打桩
+      await appPage.route("**/api/auth/config", (r) => r.fulfill({ json: { portal_url: "" } }));
       // model-config.html 原型无更新提示条 → 打桩无更新，应用侧不得渲染
       await stubUpdateNotice(appPage, "none");
       await appPage.goto("/#/config");

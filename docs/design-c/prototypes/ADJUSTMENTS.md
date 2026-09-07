@@ -386,6 +386,10 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     model-config 场景 stub `none`（current=0.13）→ `v0.13`。
     实现侧同批落地：`StatusBar` 组件挂 `ClientShell`（路由 `/` 豁免同口径）、App 级 `<Footer />`（.pagefoot）退役、
     index.css 新增 `.statusbar` 业务层段（无共享段改动）、`.sb-ver` 样式与原型逐字同值。
+    【追记（同 PR 评审修正）】工作台/登录须**真实让位 26px**，否则固定条盖住列底且 app 侧多 26px 幽灵滚动
+    （body padding 对 overflow:hidden 的 flex 内容盒无效）：book.html 改用链内 `.sb-spacer`（.view flex:1
+    随之收缩），实现侧 book.css `.wb` 高度 `calc(100vh - 48px - 26px)`、landing.css `.auth-wrap`
+    `min-height: calc(100vh - 26px)`。list/model-config 内容自然增长，维持 body padding-bottom 口径不变。
 
 13. **同批 rider：update-strip 字面量带当前版本对照（list.html / book.html）**
     更新提示条文案「发现新版本 v0.13」→「发现新版本 v0.13（当前 v0.11）」（client-update MODIFIED

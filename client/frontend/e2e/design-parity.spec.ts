@@ -129,6 +129,8 @@ test.describe("design-parity 书架屏（list.html）", () => {
       await appPage.route("**/api/novels", (r) => r.fulfill({ json: novels }));
       // 原型常显更新提示条（ADJUSTMENTS #15）→ 应用侧同文案打桩，保持像素基线
       await stubUpdateNotice(appPage, "update");
+      // /auth/config（portal_url 公开地址）在新栈 backend 会 401 并触发全局跳 /#/login，就地打桩防弹离
+      await appPage.route("**/api/auth/config", (r) => r.fulfill({ json: { portal_url: "" } }));
       await appPage
         .route("**/api/auth/verify", (r) => r.fulfill({ json: c.member ? MEMBER_VERIFY : FREE_VERIFY }));
       // portal_url 给真值：appbar「联系客服」按钮与原型同步渲染（空值时按钮隐藏，会造像素差）

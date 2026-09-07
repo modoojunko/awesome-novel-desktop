@@ -293,6 +293,8 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
       stubBookAPI(appPage, c.pro, c.screen === "volume");
       // 原型常显更新提示条（ADJUSTMENTS #15）→ 应用侧同文案打桩（沉浸全宽变体）
       await stubUpdateNotice(appPage, "update");
+      // /auth/config（portal_url 公开地址）在新栈 backend 会 401 并触发全局跳 /#/login，就地打桩防弹离
+      await appPage.route("**/api/auth/config", (r) => r.fulfill({ json: { portal_url: "" } }));
       await appPage.goto(`/#/novel/${PID}`);
       await appPage.waitForSelector(".chtab", { timeout: 10000 });
       if (c.screen === "volume") {
