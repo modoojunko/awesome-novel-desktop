@@ -67,4 +67,18 @@ describe("useClientVersion 应用级缓存", () => {
     await mountProbe();
     expect(await screen.findByTestId("v")).toHaveTextContent("v0.14");
   });
+
+  it("先挂载方失败后，后挂载方重试成功会广播拉起先挂载方（状态条不滞后于弹窗）", async () => {
+    requestMock.mockRejectedValueOnce(new Error("backend not ready"));
+    const statusbar = await mountProbe(); // 模拟根部状态条：先挂载、失败
+    expect(await screen.findByTestId("v")).toHaveTextContent("版本未知");
+
+    requestMock.mockResolvedValue({ current: "0.13", has_update: false });
+    await mountProbe(); // 模拟后打开的弹窗：重试成功
+    await waitFor(() =>
+      expect(screen.getAllByTestId("v")[0]).toHaveTextContent("v0.13"), // 先挂载方无需重挂即被拉起
+    );
+    expect(screen.getAllByTestId("v")[1]).toHaveTextContent("v0.13");
+    statusbar.unmount();
+  });
 });
