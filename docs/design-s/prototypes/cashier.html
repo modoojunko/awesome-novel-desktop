@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>爱小说 · 购买套餐（原型 · 三档对比选套餐 · 流程七态）</title>
+<title>爱小说 · 购买套餐（原型 · 三档对比选套餐 · 流程九态）</title>
 <style>
 /* ═══ 内联样式：令牌与基础类同源自 server/frontend/src/design/base.css（行号见 ADJUSTMENTS.md）；
    布局组合为选型 A（竞品风·居中块面，2026-08-29 用户选定）；
@@ -87,6 +87,8 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: 0.01em; margin: 30px 0 6
 .p-price { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 32px; font-weight: 600; letter-spacing: -0.02em; margin-top: 12px; }
 .p-price small { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 2px; }
 .p-was { font-size: 12px; color: var(--muted); text-decoration: line-through; margin-top: 1px; }
+.p-up { font-size: 12px; font-weight: 600; color: var(--accent-strong); margin-top: 2px; }
+.p-alt { font-size: 12px; color: var(--muted); margin-top: 1px; }
 .p-note { font-size: 12px; color: var(--muted); margin-top: 10px; }
 .p-feat { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: grid; gap: 4px; }
 .p-feat i { font-style: normal; font-size: 11.5px; color: var(--muted); display: flex; gap: 6px; align-items: baseline; }
@@ -135,7 +137,7 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: 0.01em; margin: 30px 0 6
 .doc-body h4 { margin: 0 0 6px; font-size: 13.5px; }
 .doc-body ol { margin: 0; padding-left: 18px; display: grid; gap: 8px; color: var(--fg); }
 .doc-body .v { color: var(--muted); font-size: 11.5px; margin-top: 10px; }
-.switcher { position: fixed; top: 12px; right: 12px; z-index: 90; display: flex; gap: 4px; padding: 5px; background: var(--fg); border-radius: 9px; box-shadow: var(--shadow-card); }
+.switcher { position: fixed; top: 12px; right: 12px; z-index: 90; display: flex; flex-wrap: wrap; justify-content: flex-end; max-width: 480px; gap: 4px; padding: 5px; background: var(--fg); border-radius: 9px; box-shadow: var(--shadow-card); }
 .switcher button { font-size: 11.5px; color: oklch(100% 0 0 / 70%); padding: 4px 9px; border-radius: 6px; }
 .switcher button.on { background: oklch(100% 0 0 / 16%); color: oklch(100% 0 0); font-weight: 500; }
 </style>
@@ -146,8 +148,11 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: 0.01em; margin: 30px 0 6
   <button data-state="pick" class="on">选套餐</button>
   <button data-state="pickCampaign">选套餐·首购活动</button>
   <button data-state="pickMaxPlanned">选套餐·MAX未上架</button>
+  <button data-state="pickUpgrade">选套餐·升级双入口</button>
   <button data-state="waiting">等待支付</button>
+  <button data-state="waitingUpgrade">等待支付·升级单</button>
   <button data-state="paid">已到货</button>
+  <button data-state="upgraded">已升级</button>
   <button data-state="closed">已过期</button>
   <button data-state="failCreate">下单失败</button>
   <button data-state="failVerify">核对中</button>
@@ -185,7 +190,10 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: 0.01em; margin: 30px 0 6
     <div class="purchase">
       <div class="sel">已选<b id="selName">PRO · 包月（30 天）</b></div>
       <div class="pay"><span class="save" id="selSave" hidden>已省 15 元</span><div class="now" id="selPrice">¥30.00</div></div>
-      <button class="cta" id="payBtn">去支付</button>
+      <div style="display:flex; gap:10px; align-items:center">
+        <button class="btn btn-secondary" id="renewBtn" hidden style="height:46px; padding:0 18px; border-radius:11px; font-size:14px">续费 · 到期接续</button>
+        <button class="cta" id="payBtn">去支付</button>
+      </div>
     </div>
     <div class="agree">点击去支付后，将确认<a class="lnk" href="#">《付费须知》</a>与<a class="lnk" href="#">《退款政策》</a>要点（v2026.08）</div>
 
@@ -230,6 +238,46 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: 0.01em; margin: 30px 0 6
     </div>
   </section>
 
+  <!-- ═══ 态二·升级单：等待支付（升级不两段式——支付成功自动换档，无激活环节） ═══ -->
+  <section data-stage="waitingUpgrade" hidden>
+    <h1>微信扫码支付</h1>
+    <p class="sub">订单号 <span class="num">S20261007-8U2M</span> · 升级 PRO → MAX（剩余 20 天）</p>
+
+    <div class="stage-narrow">
+      <div class="notice info">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+        <span>请使用微信扫描二维码完成支付。<b>¥20.00</b> 支付成功后<b>立即升级为 MAX</b>，无需手动激活。</span>
+      </div>
+      <div class="panel">
+        <div class="kv" style="margin:0 0 14px">
+          <span>升级明细</span><b>MAX 剩余 20 天价值 <span class="num">¥40.00</span> − PRO 剩余抵扣 <span class="num">¥20.00</span></b>
+          <span>到期日</span><b>10月7日（升级不变）</b>
+        </div>
+        <div class="qr-stage">
+          <div class="qr-box" aria-label="微信支付二维码（占位）">
+            <svg width="150" height="150" viewBox="0 0 150 150" aria-hidden="true">
+              <g fill="var(--fg)">
+                <rect x="8" y="8" width="36" height="36" rx="4"/><rect x="14" y="14" width="24" height="24" fill="var(--surface)"/><rect x="20" y="20" width="12" height="12"/>
+                <rect x="106" y="8" width="36" height="36" rx="4"/><rect x="112" y="14" width="24" height="24" fill="var(--surface)"/><rect x="118" y="20" width="12" height="12"/>
+                <rect x="8" y="106" width="36" height="36" rx="4"/><rect x="14" y="112" width="24" height="24" fill="var(--surface)"/><rect x="20" y="118" width="12" height="12"/>
+                <rect x="56" y="12" width="8" height="8"/><rect x="70" y="20" width="8" height="8"/><rect x="84" y="12" width="8" height="8"/><rect x="60" y="30" width="8" height="8"/><rect x="78" y="34" width="8" height="8"/>
+                <rect x="12" y="56" width="8" height="8"/><rect x="26" y="62" width="8" height="8"/><rect x="40" y="54" width="8" height="8"/><rect x="56" y="60" width="8" height="8"/><rect x="72" y="52" width="8" height="8"/><rect x="88" y="62" width="8" height="8"/><rect x="104" y="56" width="8" height="8"/><rect x="120" y="64" width="8" height="8"/><rect x="134" y="54" width="8" height="8"/>
+                <rect x="56" y="76" width="8" height="8"/><rect x="70" y="84" width="8" height="8"/><rect x="86" y="78" width="8" height="8"/><rect x="100" y="86" width="8" height="8"/><rect x="116" y="78" width="8" height="8"/><rect x="130" y="86" width="8" height="8"/>
+                <rect x="14" y="100" width="8" height="8"/><rect x="30" y="92" width="8" height="8"/><rect x="44" y="102" width="8" height="8"/><rect x="58" y="96" width="8" height="8"/><rect x="74" y="104" width="8" height="8"/><rect x="92" y="94" width="8" height="8"/><rect x="108" y="102" width="8" height="8"/><rect x="124" y="94" width="8" height="8"/><rect x="136" y="104" width="8" height="8"/>
+                <rect x="56" y="116" width="8" height="8"/><rect x="72" y="122" width="8" height="8"/><rect x="88" y="112" width="8" height="8"/><rect x="102" y="120" width="8" height="8"/><rect x="118" y="114" width="8" height="8"/><rect x="132" y="124" width="8" height="8"/><rect x="60" y="134" width="8" height="8"/><rect x="80" y="130" width="8" height="8"/><rect x="98" y="136" width="8" height="8"/>
+              </g>
+            </svg>
+          </div>
+          <div class="countdown">二维码有效期剩 <span class="num">13:21</span></div>
+          <button class="btn btn-ghost">取消支付</button>
+        </div>
+      </div>
+      <p style="text-align:center; font-size:13px; color:var(--muted); margin-top:14px">
+        已扫码付款但页面没变化？<button class="lnk" id="resyncUp">我已支付，帮我查一下到账</button>
+      </p>
+    </div>
+  </section>
+
   <!-- ═══ 态三：已到货（待激活） ═══ -->
   <section data-stage="paid" hidden>
     <h1>支付成功</h1>
@@ -254,6 +302,34 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: 0.01em; margin: 30px 0 6
           <a class="btn btn-secondary" style="height:42px" href="#">返回控制台</a>
         </div>
         <a class="lnk" href="#" style="margin-top:6px; font-size:12.5px">先存着，之后在「我的套餐」激活</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 态三·升级单：已升级（自动换档，计时中；无激活/囤单分支） ═══ -->
+  <section data-stage="upgraded" hidden>
+    <h1>支付成功</h1>
+    <p class="sub">订单号 <span class="num">S20261007-8U2M</span></p>
+
+    <div class="stage-narrow">
+      <div class="panel" style="display:grid; justify-items:center; gap:6px; padding:28px 22px">
+        <div class="done-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>
+        </div>
+        <div class="serif" style="font-size:21px; font-weight:600">已升级，计时中</div>
+        <div style="font-size:13px; color:var(--muted)">MAX 权益已生效；到期日不变（10月7日），到期后按需续购</div>
+        <div class="kv" style="margin-top:16px; width:100%; max-width:340px">
+          <span>升级前</span><b>PRO · 剩余 20 天</b>
+          <span>升级后</span><b>MAX · 剩余 20 天（立即生效）</b>
+          <span>补差金额</span><b class="num">¥20.00（抵扣 PRO 剩余 ¥20.00）</b>
+          <span>到期日</span><b>10月7日（不变）</b>
+          <span>支付方式</span><b>微信扫码支付</b>
+          <span>协议确认</span><b>v2026.08 · 已同意（14:22）</b>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:10px">
+          <a class="btn btn-primary" style="height:42px; padding:0 22px" href="#">返回控制台</a>
+        </div>
+        <a class="lnk" href="#" style="margin-top:6px; font-size:12.5px">查看我的套餐</a>
       </div>
     </div>
   </section>
@@ -394,8 +470,9 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: 0.01em; margin: 30px 0 6
       <p style="margin:0 0 4px">请阅读并确认以下要点：</p>
       <ul class="terms">
         <li>一次性买断时长，<b>到期不自动扣款</b></li>
-        <li>套餐支付成功即到货，<b>点激活才开始计时</b>；未激活可全额退</li>
-        <li>退款<b>按剩余时长计算、原路退回</b>，不影响其他套餐的起止时间。</li>
+        <li id="mTerm2">套餐支付成功即到货，<b>点激活才开始计时</b>；未激活可全额退</li>
+        <li id="mTerm3">退款<b>按剩余时长计算、原路退回</b>，不影响其他套餐的起止时间。</li>
+        <li id="mUpDetail" hidden></li>
         <li>本单：<b id="mOrder">PRO · 包月（30 天）· ¥30.00</b></li>
       </ul>
       <p style="margin:8px 0 0; font-size:12px; color:var(--muted)">全文：<a class="lnk" href="/legal/payment-notice.html" target="_blank">《付费须知》（v2026.08）</a> · <a class="lnk" href="/legal/refund-policy.html" target="_blank">《退款政策》（v2026.08）</a></p>
@@ -441,7 +518,18 @@ const MOCK = {
     pro:  ["含免费全部功能", "AI 生成正文（流式）", "设定与章纲融入 AI", "卷/章高级字段（冲突阶梯·情绪设计）"],
     max:  ["含 PRO 全部功能", "更强模型 · 更大用量", "多章连写与批量生成", "优先体验新能力", "最多 10 台设备"],
   },
+  /* 生效期升级双入口（09-07，方案稿 docs/prd/s-pay-upgrade-proration-design.md §3.1/3.2）：
+     场景=PRO 包月计时中已用 10 天剩 20 天；升级价基=目标档「同时长」SKU 现价（拍板项 10：
+     升级不跨周期——到期日/剩余时长继承当前套餐，包年秒价再便宜也与升级无关）。 */
+  upgrade: {
+    enabled: false,        // 仅切换器「选套餐·升级双入口」变体注入 true
+    tier: "pro", period: "monthly",
+    basePaid: 3000,        // PRO 原单实付（分，含历史折扣）
+    usedDays: 10,          // 已用天数
+    expireText: "10月7日", // 到期日（升级不变）
+  },
 };
+const TIER_RANK = { free: 0, pro: 1, max: 2 };
 /* 价格口径单源（09-03 前端评审 P0 修复：整元不带小数、非整元保留分；卡片/购买条/弹窗同用 fmt） */
 const fmt = (v) => "¥" + (v / 100).toFixed(2).replace(/\.?0+$/, "");
 const fen = fmt;
@@ -456,19 +544,34 @@ function skuPrice(sku) {
   return { price: Math.round(sku.base * (hit ? MOCK.campaign.factor : sku.factor)), hit };
 }
 
+/* 升级 quote（数字实算自证，口径同 refund.html MOCK 公式法）：
+   credit=当前套餐原单实付 × 剩余/总时长；list=目标档同时长 SKU 现价 × 剩余/总时长；
+   pay=list−credit（恒>0，高档秒价更高）。剩余时长/到期日继承当前套餐（拍板项 10）。 */
+function upgradeQuote(targetTier) {
+  const u = MOCK.upgrade;
+  if (!u.enabled) return null;
+  const baseSku = MOCK.skus[u.tier + "-" + u.period];
+  const tgt = MOCK.skus[targetTier + "-" + u.period];
+  const remDays = baseSku.days - u.usedDays;
+  const credit = Math.round(u.basePaid * remDays / baseSku.days);
+  const list = Math.round(skuPrice(tgt).price * remDays / tgt.days);
+  return { remDays, credit, list, pay: list - credit };
+}
+
 function renderTiers() {
   const box = $("tierCards");
   box.innerHTML = "";
+  const u = MOCK.upgrade;
   for (const [key, t] of Object.entries(MOCK.tiers)) {
     const card = document.createElement("div");
     if (key === "free") {
       card.className = "card free";
       card.innerHTML =
-        '<span class="tag cur">当前方案</span>' +
+        (u.enabled ? "" : '<span class="tag cur">当前方案</span>') +
         '<div class="p-name">免费</div>' +
         '<div class="p-days">1 台设备</div>' +
         '<div class="p-price">¥0</div>' +
-        '<div class="p-was">试用剩 2 天</div>' +
+        (u.enabled ? "" : '<div class="p-was">试用剩 2 天</div>') +
         '<div class="p-feat">' + MOCK.feats.free.map((f) => "<i>" + f + "</i>").join("") + "</div>";
     } else if (!t.live) {
       card.className = "card soon";
@@ -479,17 +582,27 @@ function renderTiers() {
     } else {
       const sku = MOCK.skus[key + "-" + period];
       const { price, hit } = skuPrice(sku);
+      const isCur = u.enabled && key === u.tier;
+      /* 升级价只在时长 tab=当前套餐周期时展示（拍板项 8 附加条件，PM 评审 P1-2）：
+         其余 tab 高档卡回归全价卡——升级行/续费行/卡头天数三个时间量纲同卡是认知陷阱 */
+      const q = u.enabled && period === u.period && TIER_RANK[key] > TIER_RANK[u.tier] ? upgradeQuote(key) : null;
       const off = hit ? MOCK.campaign.label : sku.factor < 1 ? (Math.round(sku.factor * 100) / 10) + "折" : "";
-      const popular = key === MOCK.popularTier;
+      const popular = key === MOCK.popularTier && !isCur;
       card.className = "card" + (key === tier ? " on" : "");
       card.dataset.tier = key;
       card.innerHTML =
-        (popular ? '<span class="tag">最受欢迎</span>' : "") +
+        (isCur ? '<span class="tag cur">当前套餐 · 计时中</span>' : popular ? '<span class="tag">最受欢迎</span>' : "") +
         (off ? '<span class="off">' + off + "</span>" : "") +
         '<div class="p-name">' + t.label + "</div>" +
         '<div class="p-days">' + sku.days + " 天 · 最多 " + sku.devices + " 台设备</div>" +
-        '<div class="p-price">' + yuan(price) + "<small>元</small></div>" +
-        (price < sku.base ? '<div class="p-was">原价 ' + yuan(sku.base) + " 元</div>" : "") +
+        (q
+          ? /* 高档卡：主价=升级补差（打开时刻预估，收银台下单重算为准）；续费全价降辅助行，随时长 tab 联动 */
+            '<div class="p-price">' + yuan(q.pay) + "<small>元</small></div>" +
+            '<div class="p-up">升级补差 · 立即生效（剩 ' + q.remDays + " 天 · 到期日不变）</div>" +
+            '<div class="p-alt">续费 ' + yuan(price) + " · " + sku.days + " 天全价，到期后接续</div>"
+          : '<div class="p-price">' + yuan(price) + "<small>元</small></div>" +
+            (price < sku.base ? '<div class="p-was">原价 ' + yuan(sku.base) + " 元</div>" : "") +
+            (isCur ? '<div class="p-alt">已用 ' + u.usedDays + " 天 · " + u.expireText + "到期</div>" : "")) +
         '<div class="p-feat">' + MOCK.feats[key].map((f) => "<i>" + f + "</i>").join("") + "</div>" +
         (popular ? '<div class="p-note">本月已有 ' + MOCK.buyers.toLocaleString() + " 人选择</div>" : "");
       card.addEventListener("click", () => { tier = key; renderTiers(); refreshPurchase(); });
@@ -501,11 +614,27 @@ function renderTiers() {
 function refreshPurchase() {
   const sku = MOCK.skus[tier + "-" + period];
   const { price } = skuPrice(sku);
-  const saved = sku.base - price;
-  $("selName").textContent = MOCK.tiers[tier].label + " · " + sku.name + "（" + sku.days + " 天）";
-  $("selPrice").textContent = fen(price);
-  $("selSave").hidden = saved <= 0;
-  $("selSave").textContent = "已省 " + yuan(saved) + " 元";
+  const u = MOCK.upgrade;
+  const q = u.enabled && period === u.period && TIER_RANK[tier] > TIER_RANK[u.tier] ? upgradeQuote(tier) : null;
+  if (q) {
+    /* 生效期低档选高档：双入口（拍板项 9）——主=升级立即生效补差，副=续费全价排队 */
+    $("selName").textContent = MOCK.tiers[tier].label + " · 升级（剩 " + q.remDays + " 天 · 到期日不变）";
+    $("selPrice").textContent = fen(q.pay);
+    $("selSave").hidden = false;
+    $("selSave").textContent = "已抵扣当前套餐剩余 " + yuan(q.credit) + " 元";
+    $("payBtn").textContent = "升级 · 立即生效";
+    $("renewBtn").hidden = false;
+    $("renewBtn").textContent = "续费 " + yuan(price) + " · 到期接续";
+  } else {
+    $("selName").textContent = MOCK.tiers[tier].label + " · " + sku.name + "（" + sku.days + " 天）" +
+      (u.enabled && tier === u.tier ? " · 续费" : "");
+    $("selPrice").textContent = fen(price);
+    const saved = sku.base - price;
+    $("selSave").hidden = saved <= 0;
+    $("selSave").textContent = "已省 " + yuan(saved) + " 元";
+    $("payBtn").textContent = "去支付";
+    $("renewBtn").hidden = true;
+  }
 }
 
 function applyCampaign() {
@@ -516,14 +645,16 @@ function applyCampaign() {
   if (c) $("miniMonthly").textContent = c.label;
 }
 
-/* 切换器选套餐变体注入：normal=常态（MAX 在售）/ campaign=首购活动 / maxPlanned=MAX 未上架 */
+/* 切换器选套餐变体注入：normal=常态（MAX 在售）/ campaign=首购活动 / maxPlanned=MAX 未上架 / upgrade=生效期升级双入口 */
 function setupPick(mode) {
   MOCK.campaign = mode === "campaign" ? {
     sku: "pro-monthly", label: "首月 5 折", factor: 0.5,
     notice: "限时首购优惠：首次购买包月按 5 折（¥15）结算；再次购买恢复原价，活动价以下单时页面为准。",
   } : null;
   MOCK.tiers.max.live = mode !== "maxPlanned";
-  tier = "pro"; period = "monthly";
+  MOCK.upgrade.enabled = mode === "upgrade";
+  tier = mode === "upgrade" ? "max" : "pro";  // 升级变体默认选中高档，双入口购买条直接可见
+  period = "monthly";
   [...$("periodTabs").children].forEach((x) => x.classList.toggle("on", x.dataset.period === "monthly"));
   applyCampaign();
   renderTiers();
@@ -543,17 +674,42 @@ const openTerms = (show) => {
   $("scrim").hidden = !show; $("termsModal").hidden = !show;
   if (show) { $("termsCheck").checked = false; $("termsOk").disabled = true; }
 };
-$("payBtn").addEventListener("click", () => {
+
+/* 协议弹窗双分支：upgrade=升级单要点（立即生效/到期日不变/已起算按 MAX 折算退）+明细行；buy=现行四要点 */
+let modalMode = "buy";
+function openBuyTerms() {
+  modalMode = "buy";
+  $("mTerm2").innerHTML = '套餐支付成功即到货，<b>点激活才开始计时</b>；未激活可全额退';
+  $("mTerm3").innerHTML = '退款<b>按剩余时长计算、原路退回</b>，不影响其他套餐的起止时间。';
+  $("mUpDetail").hidden = true;
   const sku = MOCK.skus[tier + "-" + period];
   $("mOrder").textContent = MOCK.tiers[tier].label + " · " + sku.name + "（" + sku.days + " 天）· " + fen(skuPrice(sku).price);
   openTerms(true);
+}
+$("payBtn").addEventListener("click", () => {
+  const u = MOCK.upgrade;
+  const q = u.enabled && period === u.period && TIER_RANK[tier] > TIER_RANK[u.tier] ? upgradeQuote(tier) : null;
+  if (!q) { openBuyTerms(); return; }
+  modalMode = "upgrade";
+  $("mTerm2").innerHTML = '升级<b>立即生效</b>：剩余 ' + q.remDays + ' 天即享 ' + MOCK.tiers[tier].label + ' 权益，到期日不变（' + u.expireText + '）';
+  $("mTerm3").innerHTML = '升级单已起算，退款<b>按剩余时长的 ' + MOCK.tiers[tier].label + ' 价值折算、原路退回</b>';
+  $("mUpDetail").hidden = false;
+  $("mUpDetail").innerHTML = '明细：' + MOCK.tiers[tier].label + ' 剩余 ' + q.remDays + ' 天价值 <b class="num">' + yuan(q.list) + '</b> − 当前套餐剩余抵扣 <b class="num">' + yuan(q.credit) + '</b>';
+  $("mOrder").textContent = "升级 " + MOCK.tiers[u.tier].label + " → " + MOCK.tiers[tier].label + " · 剩余 " + q.remDays + " 天 · 补差 " + yuan(q.pay);
+  openTerms(true);
 });
+/* 副按钮：续费全价排队（现行链路），与升级同屏并存 */
+$("renewBtn").addEventListener("click", openBuyTerms);
 $("termsCancel").addEventListener("click", () => openTerms(false));
 $("termsCheck").addEventListener("change", () => ($("termsOk").disabled = !$("termsCheck").checked));
-$("termsOk").addEventListener("click", () => { openTerms(false); $("switcher").querySelector('[data-state="waiting"]').click(); });
+$("termsOk").addEventListener("click", () => {
+  openTerms(false);
+  $("switcher").querySelector('[data-state="' + (modalMode === "upgrade" ? "waitingUpgrade" : "waiting") + '"]').click();
+});
 $("failRetry").addEventListener("click", () => $("switcher").querySelector('[data-state="waiting"]').click());
 $("failBack").addEventListener("click", () => $("switcher").querySelector('[data-state="pick"]').click());
 $("resync").addEventListener("click", () => $("switcher").querySelector('[data-state="paid"]').click());
+$("resyncUp").addEventListener("click", () => $("switcher").querySelector('[data-state="upgraded"]').click());
 
 const switcher = $("switcher");
 const stages = document.querySelectorAll("[data-stage]");
@@ -562,7 +718,7 @@ switcher.addEventListener("click", (e) => {
   if (!btn) return;
   switcher.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === btn));
   const st = btn.dataset.state;
-  const pickMode = { pick: "normal", pickCampaign: "campaign", pickMaxPlanned: "maxPlanned" }[st];
+  const pickMode = { pick: "normal", pickCampaign: "campaign", pickMaxPlanned: "maxPlanned", pickUpgrade: "upgrade" }[st];
   if (pickMode) setupPick(pickMode);
   const stage = pickMode ? "pick" : st;
   stages.forEach((s) => (s.hidden = s.dataset.stage !== stage));
