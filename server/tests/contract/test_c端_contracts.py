@@ -23,27 +23,19 @@ def jwt_for_testuser() -> str:
 
 
 # ══════════════════════════════════════════════════════════════════
-# 1) /api/auth-page  — C端 浏览器 OAuth 登录页
+# 1) /api/auth-page — 内联授权页已删除（auth-page-direct-entry）
+#    授权页实体迁至 S端 前端 /auth（AuthPage.vue），C端 直接打开该页完成
+#    设备授权；此处固化「后端不再提供内联页」的契约。
 # ══════════════════════════════════════════════════════════════════
 
 class TestAuthPage:
-    def test_返回_200_包含登录表单(self, client: TestClient):
+    def test_内联授权页已删除返回_404(self, client: TestClient):
         resp = client.get("/api/auth-page", params={
             "pc_hash": "test-pc-hash-001",
             "pc_name": "测试机-PC",
             "device_profile": "eyJmIjoidGVzdC1maW5nZXJwcmludC0wMDEiLCJoIj",
         })
-        assert resp.status_code == 200
-        html = resp.text
-        # 必须是 HTML，且包含登录/授权核心元素
-        assert "<!DOCTYPE html>" in html or "<html" in html
-        assert "pc_hash" in html or "username" in html or "password" in html or "登录" in html
-
-    def test_无_pc_hash_也返回_200(self, client: TestClient):
-        """即使缺参数也应该返回页面（浏览器端 JS 可能自己补参）。"""
-        resp = client.get("/api/auth-page")
-        assert resp.status_code == 200
-        assert resp.text.strip()
+        assert resp.status_code == 404
 
 
 # ══════════════════════════════════════════════════════════════════

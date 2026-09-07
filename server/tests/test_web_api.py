@@ -260,11 +260,10 @@ class TestDevicePortal:
 
 
 class TestOAuthFlow:
-    def test_auth_page(self, client):
+    def test_auth_page_removed(self, client):
+        """授权页实体已迁至 S端 前端 /auth（auth-page-direct-entry）：后端内联页不得复活。"""
         r = client.get("/api/auth-page", params={"pc_hash": "some_hash"})
-        assert r.status_code == 200
-        assert "爱小说" in r.text
-        assert "授权" in r.text
+        assert r.status_code == 404
 
     def test_authorize_ok(self, client, web_user, uid):
         r = client.post(

@@ -1,10 +1,14 @@
-"""C端 OAuth 授权流：auth-page / authorize / check-auth。"""
+"""C端 设备授权流：authorize / check-auth。
+
+授权页实体由 S端 前端 /auth（AuthPage.vue）唯一承载，C端 直接打开该页；
+后端内联授权页（原 GET /api/auth-page）已删除（auth-page-direct-entry），
+契约测试固化其 404。
+"""
 from __future__ import annotations
 
 import logging
 
-from fastapi import Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi import Depends
 
 from app.application.devices.authorize_device import authorize_device
 from app.infrastructure.repositories.factory import (
@@ -18,93 +22,7 @@ from app.interfaces.dto import AuthorizeRequest
 
 logger = logging.getLogger("api.client.auth")
 
-AUTH_PAGE_HTML = """\
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>爱小说 · 设备授权</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;background:#fdf8f3;color:#3d352a;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.card{background:#fff;max-width:400px;width:100%;padding:32px;border-radius:12px;border:1px solid #e5d5c0;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
-.logo{display:flex;align-items:center;gap:8px;margin-bottom:24px}
-.logo-icon{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#d4a574,#a67c52);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-family:"EB Garamond","Noto Serif SC",serif;font-weight:700}
-h1{font-family:"EB Garamond","Noto Serif SC",serif;font-size:20px;font-weight:700;margin:0}
-p.sub{color:#8b7355;font-size:14px;margin-bottom:24px;line-height:1.5}
-label{display:block;font-size:14px;font-weight:500;margin-bottom:4px;color:#3d352a}
-input{width:100%;padding:10px 14px;font-size:14px;border:1px solid #e5d5c0;border-radius:8px;background:#fff;color:#3d352a;outline:none;transition:border-color .15s;margin-bottom:16px}
-input:focus{border-color:#8b6914}
-button{width:100%;padding:12px;font-size:15px;font-weight:500;background:#8b6914;color:#faf6ee;border:none;border-radius:8px;cursor:pointer;transition:background .15s}
-button:hover{background:#7a5d12}
-button:disabled{opacity:.5;cursor:not-allowed}
-.error{color:#b85a5a;font-size:13px;display:none;margin-top:12px;padding:10px 14px;background:rgba(184,90,90,.1);border-radius:8px}
-.success{display:none;text-align:center;padding:20px 0}
-.success-icon{width:64px;height:64px;color:#5a8a5a;margin:0 auto 16px;display:block}
-.success h2{font-family:"EB Garamond","Noto Serif SC",serif;font-size:20px;font-weight:700;margin-bottom:8px}
-.success p{color:#8b7355;font-size:14px}
-</style>
-</head>
-<body>
-<div class="card" id="card">
-<div class="logo"><div class="logo-icon">&#9998;</div><h1>爱小说</h1></div>
-<div id="formView">
-<p class="sub">桌面应用请求绑定此设备，请登录以完成授权</p>
-<form id="authForm">
-<input type="hidden" name="pc_hash" id="pc_hash">
-<input type="hidden" name="device_profile" id="device_profile">
-<label for="username">用户名</label><input type="text" name="username" id="username" required>
-<label for="password">密码</label><input type="password" name="password" id="password" required>
-<button type="submit" id="submitBtn">授权登录</button>
-<p class="error" id="errorMsg"></p>
-</form>
-</div>
-<div class="success" id="successView">
-<svg class="success-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-<h2>授权成功</h2>
-<p>此页面可以关闭了</p>
-</div>
-</div>
-<script>
-document.getElementById('authForm').addEventListener('submit', async function(e){
-  e.preventDefault();var btn=document.getElementById('submitBtn');btn.disabled=true;btn.textContent='授权中...';
-  var params=new URLSearchParams(window.location.search);
-  document.getElementById('pc_hash').value=params.get('pc_hash')||'';
-  document.getElementById('device_profile').value=params.get('device_profile')||'';
-  try{
-    var resp=await fetch('/api/authorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      username:document.getElementById('username').value,
-      password:document.getElementById('password').value,
-      pc_hash:document.getElementById('pc_hash').value,
-      device_profile:document.getElementById('device_profile').value
-    })});
-    var data=await resp.json();
-    if(data.code===0){
-      document.getElementById('formView').style.display='none';
-      document.getElementById('successView').style.display='block';
-    }else{
-      var err=document.getElementById('errorMsg');
-      err.style.display='block';err.textContent=data.msg||'授权失败';
-      btn.disabled=false;btn.textContent='授权登录';
-    }
-  }catch(e){
-    var err=document.getElementById('errorMsg');
-    err.style.display='block';err.textContent='网络错误，请重试';
-    btn.disabled=false;btn.textContent='授权登录';
-  }
-});
-</script>
-</body>
-</html>"""
-
 from app.interfaces.client_api.router import router as r
-
-
-@r.get("/api/auth-page")
-async def api_auth_page(request: Request):
-    """返回授权页面（C端 OAuth 流程）。"""
-    return HTMLResponse(AUTH_PAGE_HTML)
 
 
 @r.post("/api/authorize")

@@ -22,10 +22,10 @@ def test_prefixed_form_unchanged(client):
     assert "code" in r.json()
 
 
-def test_stripped_form_hits_auth_page_html(client):
+def test_stripped_form_auth_page_removed(client):
+    """授权页实体已迁至 S端 前端 /auth：剥前缀形态同样 404（不再有内联 HTML）。"""
     r = client.get("/auth-page", params={"pc_hash": "x"})
-    assert r.status_code == 200
-    assert "text/html" in r.headers.get("content-type", "")
+    assert r.status_code == 404
 
 
 def test_stripped_post_reaches_validation(client):
