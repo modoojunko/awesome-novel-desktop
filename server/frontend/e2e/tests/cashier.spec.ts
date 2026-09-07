@@ -38,6 +38,21 @@ test.describe('收银台', () => {
     await expect(page.getByLabel('微信支付二维码')).toBeVisible()
   })
 
+  test('生效期付费用户看到换档引导（先退再买+排队提醒）；免费档不显示', async ({ page, mockApi }) => {
+    // 付费档：notice 出现且三要素齐（三步引导/排队提醒/我的订单出口）
+    mockApi.setLicense({ tier: 'pro', remaining_sec: 20 * 86400 })
+    await gotoPay(page)
+    const tip = page.locator('.notice.info.pay-notice').first()
+    await expect(tip).toBeVisible({ timeout: 10000 })
+    await expect(tip).toContainText('想换更高档')
+    await expect(tip).toContainText('排队至原套餐到期后才计时')
+    await expect(tip.locator('a[href="/dashboard/orders"]')).toBeVisible()
+    // 免费档：不渲染（对照，spec 第二 scenario）
+    mockApi.setLicense({ tier: 'free', remaining_sec: 0 })
+    await page.reload()
+    await expect(page.locator('.notice.info.pay-notice')).toHaveCount(0)
+  })
+
   test('协议弹窗提供全文直达链接（勾选前可读、新标签、无幽灵文书名）', async ({ page }) => {
     await gotoPay(page)
     await page.getByRole('button', { name: '去支付' }).click()

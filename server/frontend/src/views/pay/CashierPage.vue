@@ -8,9 +8,9 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  apiPaySkus, apiPayCreateOrder, apiPayQueryOrder, apiPayCancelOrder, apiPayActivate,
+  apiPaySkus, apiPayCreateOrder, apiPayQueryOrder, apiPayCancelOrder, apiPayActivate, apiPayLicense,
   fmtPrice, fmtBj, periodLabel,
-  type SkusView, type SkuItem, type CreateOrderResult, type ActivateResult,
+  type SkusView, type SkuItem, type CreateOrderResult, type ActivateResult, type LicenseView,
 } from '@/api/pay'
 import { useSessionStore } from '@/stores/session'
 import Ico from '@/components/ui/Ico.vue'
@@ -75,6 +75,11 @@ const PERIOD_ORDER: SkuItem['period'][] = ['monthly', 'quarterly', 'yearly']
 
 // ── 计算属性 ──
 const isLoggedIn = computed(() => session.isLoggedIn)
+
+// ── 生效期换档引导（add-refund-rebuy-guide）：已购付费档用户提示"先退再买"路径 ──
+const license = ref<LicenseView | null>(null)
+const hasActivePaidPlan = computed(() =>
+  !!license.value && !['free', 'none'].includes(license.value.tier) && license.value.remaining_sec > 0)
 
 /** 目录里实际在售的时长集合（驱动 tab；目录不可达时为空=不渲染 tab） */
 const periods = computed<SkuItem['period'][]>(() => {
@@ -307,7 +312,17 @@ async function renderQr(): Promise<void> {
 watch(() => [payState.value, order.value?.code_url], () => { void renderQr() }, { flush: 'post' })
 
 // ── 生命周期 ──
-onMounted(loadSkus)
+/** license 拉取静默降级：失败/未登录不弹错、不打断选购主流程（spec：接口失败 MUST NOT 显示） */
+async function loadLicense() {
+  if (!session.isLoggedIn) return
+  try {
+    license.value = await apiPayLicense()
+  } catch (e) {
+    console.error('loadLicense failed:', e)
+  }
+}
+
+onMounted(() => { loadSkus(); loadLicense() })
 onUnmounted(() => { stopPolling(); stopCountdown() })
 </script>
 
@@ -352,6 +367,16 @@ onUnmounted(() => { stopPolling(); stopCountdown() })
     <template v-else-if="payState === 'pick'">
       <h1 class="pay-h1">升级套餐，解锁全部写作能力</h1>
       <p class="pay-sub">一次性买断 · 到期不自动扣款 · 随时按剩余时长退款</p>
+
+      <!-- 生效期换档引导（add-refund-rebuy-guide）：已购付费档用户提示"先退再买"三步，
+           明示"退款完成前下单会排队至原套餐到期后"；免费/未登录/接口失败不渲染 -->
+      <div v-if="hasActivePaidPlan" class="notice info pay-notice">
+        <span>
+          <b>想换更高档？</b>
+          可先在<router-link class="lnk" to="/dashboard/orders">我的订单</router-link>对当前套餐申请退款（按剩余时长折算、未用部分原路退回），退款成功后再选购高档套餐，立即生效。
+          提醒：退款完成前下单，新套餐会排队至原套餐到期后才计时。
+        </span>
+      </div>
 
       <!-- 时长 tab 主轴（包月默认；折扣徽标读 discount_display 单源） -->
       <div v-if="periods.length > 1" class="pay-tabs">

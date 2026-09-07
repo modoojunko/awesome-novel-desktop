@@ -112,6 +112,8 @@ button { font: inherit; cursor: pointer; border: 0; background: none; color: inh
   <button data-state="refunded">已退款</button>
   <button data-state="reject-fen">拒绝·不足1分</button>
   <button data-state="reject-window">拒绝·超1年窗</button>
+  <button data-state="up-preview">升级单·两腿预览</button>
+  <button data-state="up-refunded">升级单·已退款</button>
 </div>
 
 <header class="appbar">
@@ -291,6 +293,76 @@ button { font: inherit; cursor: pointer; border: 0; background: none; color: inh
       </div>
     </div>
   </section>
+  <!-- ═══ 态七：升级单退款 · 两腿预览（等效实付>升级单实付，须拆两笔原路退款；PM 评审 P0-1/P1-6 落页） ═══
+       场景接 cashier.html 升级变体：PRO 包月 ¥30 用 10 天升 MAX（补差 ¥20、等效实付基数 ¥40），
+       升级 2 天后申请退款 → 剩 18 天，应退合计 ¥36 = 升级单腿 ¥20 + PRO 原单腿 ¥16 -->
+  <section data-stage="up-preview" hidden>
+    <div class="page-head">
+      <div>
+        <h1>申请退款</h1>
+        <div class="sub">退款按剩余时长折算，原路退回您的微信。本操作只影响这一笔订单。</div>
+      </div>
+    </div>
+
+    <div class="stage-narrow">
+      <div class="panel">
+        <div class="panel-h"><h2>MAX · 升级单（升级前 PRO · 剩余 20 天）</h2><span class="pill pill-status pill-ok">已到账</span></div>
+        <div class="kv">
+          <span>升级单号</span><b class="num">S20261007-8U2M</b>
+          <span>升级单实付</span><b class="num">¥20.00（补差）</b>
+          <span>折抵来源</span><b>PRO 原单 <span class="num">S20260917-3Q8D</span> 剩余价值 <span class="num">¥20.00</span> 已折入</b>
+          <span>套餐时长</span><b>2026-09-17 ～ 2026-10-07</b>
+          <span>剩余时长</span><b id="upRemainText">18 天</b>
+        </div>
+        <hr style="border:0; border-top:1px solid var(--border); margin:14px 0">
+        <div class="refund-hero">
+          <span class="v" id="upRefundAmt">¥36.00</span>
+          <span class="u">预计退款（两笔原路退回）</span>
+        </div>
+        <div class="kv" style="margin-top:10px">
+          <span>第一笔</span><b>升级单退 <span class="num" id="upLegA">¥20.00</span> · 原路</b>
+          <span>第二笔</span><b>PRO 原单退 <span class="num" id="upLegB">¥16.00</span> · 原路</b>
+        </div>
+        <p class="rule-note">升级单按 MAX 价值折算：升级时剩余 20 天价值 ¥40.00，现剩 18 天，应退 <b id="upDueText">¥36.00</b>；超出升级单实付的部分由 PRO 原单原路退回。确认后 <b>MAX 权益立即停止使用</b>，且 <b>原 PRO 套餐剩余价值已折入本笔退款、不再恢复</b>。</p>
+        <div style="display:flex; gap:10px; margin-top:16px">
+          <button class="btn btn-primary btn-lg" id="upToConfirm">确认退款金额，继续</button>
+          <a class="btn btn-ghost" href="#">先不退了</a>
+        </div>
+      </div>
+      <p style="text-align:center; margin-top:12px"><a class="lnk" href="#">看看退款政策全文</a></p>
+    </div>
+  </section>
+
+  <!-- ═══ 态八：升级单退款 · 完成（两笔到账 + 原套餐不恢复） ═══ -->
+  <section data-stage="up-refunded" hidden>
+    <div class="page-head">
+      <div>
+        <h1>退款完成</h1>
+        <div class="sub">订单号 <span class="num">S20261007-8U2M</span></div>
+      </div>
+      <span class="pill pill-tag">已退款</span>
+    </div>
+
+    <div class="stage-narrow">
+      <div class="panel" style="display:grid; justify-items:center; gap:8px; padding:28px 22px; text-align:center">
+        <div class="done-mark ok">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>
+        </div>
+        <div class="serif" style="font-size:19px; font-weight:600">¥36.00 已分两笔原路退回</div>
+        <div style="font-size:13px; color:var(--muted)">升级单 <span class="num">¥20.00</span> · PRO 原单 <span class="num">¥16.00</span> · 2026-09-19 15:40 退回微信</div>
+        <div class="kv" style="text-align:left; margin-top:12px">
+          <span>MAX 权益</span><b>已停止使用</b>
+          <span>原 PRO 套餐</span><b><b>不恢复</b>——剩余价值已折入本笔退款</b>
+          <span>套餐功能</span><b>如无其他套餐，已回到免费版</b>
+        </div>
+        <a class="btn btn-primary" href="#">返回我的订单</a>
+      </div>
+      <div class="notice info" style="margin-top:14px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+        <span>需要继续使用套餐功能？<a class="lnk" href="#">随时可以重新购买套餐</a>，时长从头计算。</span>
+      </div>
+    </div>
+  </section>
 
 </main>
 
@@ -302,9 +374,24 @@ const MOCK = {
   paidFen: 2400,
   totalSec: 30 * 86400,          // 2,592,000
   remainSec: 9 * 86400 + 16 * 3600 + 48 * 60, // 838,080（9 天 16 小时 48 分）
+  /* 升级单两腿退款（方案稿 docs/prd/s-pay-upgrade-proration-design.md §6，PM 评审 P0-1 落地口径）：
+     应退合计 = 等效实付基数 × 剩余(退款时刻)/剩余(升级时刻)，两腿封顶各自实付；
+     场景=升级时 MAX 剩余 20 天价值 ¥40（抵扣 PRO ¥20 + 补差 ¥20），2 天后退款剩 18 天 */
+  up: {
+    listFen: 4000,        // 升级时刻 MAX 剩余 20 天价值（等效实付基数）
+    remTSec: 20 * 86400,  // 升级时刻剩余秒
+    payFen: 2000,         // 升级单实付（腿A 封顶）
+    creditFen: 2000,      // PRO 原单折抵（腿B 封顶）
+    remRSec: 18 * 86400,  // 退款确认时刻剩余秒
+  },
 };
 const refundFen = Math.round(MOCK.paidFen * MOCK.remainSec / MOCK.totalSec); // 776
 const fen = (v) => "¥" + (v / 100).toFixed(2);
+
+/* 升级单两腿拆分（实现口径同源）：due=合计应退；legA=min(due,升级单实付)；legB=min(due−legA, PRO 折抵) */
+const upDue = Math.round(MOCK.up.listFen * MOCK.up.remRSec / MOCK.up.remTSec);          // 3600
+const upLegAFen = Math.min(upDue, MOCK.up.payFen);                                       // 2000
+const upLegBFen = Math.min(upDue - upLegAFen, MOCK.up.creditFen);                        // 1600
 
 /* 评审切换器 */
 const switcher = document.getElementById("switcher");
@@ -324,6 +411,16 @@ document.getElementById("confirmRefund").addEventListener("click", () =>
 
 /* 数字一致性自证：页面展示值由公式实时算出 */
 document.getElementById("refundAmt").textContent = fen(refundFen);
+
+/* 升级单两腿预览：金额全部由 MOCK 公式实算（与普通单同纪律） */
+document.getElementById("upRemainText").textContent = Math.round(MOCK.up.remRSec / 86400) + " 天";
+document.getElementById("upRefundAmt").textContent = fen(upDue);
+document.getElementById("upDueText").textContent = fen(upDue);
+document.getElementById("upLegA").textContent = fen(upLegAFen);
+document.getElementById("upLegB").textContent = fen(upLegBFen);
+document.getElementById("upToConfirm").addEventListener("click", () =>
+  switcher.querySelector('[data-state="up-refunded"]').click()
+);
 </script>
 </body>
 </html>
