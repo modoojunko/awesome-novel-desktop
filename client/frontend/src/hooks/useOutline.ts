@@ -178,6 +178,7 @@ export function useOutline(projectId: string): UseOutlineReturn {
   // -----------------------------------------------------------------------
 
   const refetchTree = useCallback(async () => {
+    if (!projectId) return; // 项目缺失（如书被删除后残留的标签页）：不发空 id 请求，避免 404 循环
     setLoading(true);
     setError(null);
     try {
