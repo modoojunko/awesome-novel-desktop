@@ -97,8 +97,8 @@ body,
 .acct-trigger:hover { border-color: var(--accent); }
 .acct-trigger.open { border-color: var(--accent); background: var(--accent-soft); }
 .acct-trigger .caret { width: 14px; height: 14px; color: var(--muted); }
-.acct .avatar { width: 24px; height: 24px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex: none; }
-.acct .avatar svg { width: 14px; height: 14px; }
+.avatar { width: 24px; height: 24px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex: none; }
+.avatar svg { width: 14px; height: 14px; }
 .badge { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 11px; line-height: 1.6; white-space: nowrap; }
 .badge-accent { background: var(--accent-soft); color: var(--accent); }
 .badge-muted { background: color-mix(in oklch, var(--fg) 6%, transparent); color: var(--muted); }

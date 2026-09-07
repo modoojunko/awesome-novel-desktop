@@ -91,7 +91,7 @@ test.describe("design-parity 模型配置屏（model-config.html）", () => {
       const appCtx = await browser.newContext({ viewport: VIEWPORT });
       await appCtx.addInitScript(() => {
         localStorage.setItem("auth_token", "parity-stub-token");
-        localStorage.setItem("auth_username", "parity");
+        localStorage.setItem("auth_username", "modoojunko"); // 与原型头像首字一致（像素级比对）
       });
       const appPage = await appCtx.newPage();
       const configs = c.state === "configs" ? SEED_CONFIGS() : [];
