@@ -39,14 +39,22 @@
 
 ## 5. 端到端验收
 
-- [ ] 5.1 本地 docker 重建 client-backend/client-frontend/server-backend 镜像（S端 sqlite 补列），验证：容器起、/api skus 200
-- [ ] 5.2 PRO 账号（modoojunko）建第 2 本书成功 + AI 入口解锁，验证：UI 操作走通（原始事故闭环）；同场景在 5.6 以打桩断言镜像固化
+- [x] 5.1 本地 docker 重建 client-backend/client-frontend/server-backend 镜像（S端 sqlite 补列），验证：容器起、/api skus 200
+- [x] 5.2 PRO 账号（modoojunko）建第 2 本书成功 + AI 入口解锁，验证：UI 操作走通（原始事故闭环）；同场景在 5.6 以打桩断言镜像固化
 - [ ] 5.3 断网复测不降级（停 S端 后端容器后路由切换刷新），验证：is_member 不变、沿用旧快照
 - [ ] 5.4 中途购买生效演练：**改本地 S端 sqlite 的 tiers/codes 后走真实两跳刷新链**（路由切换触发），验证：前端权益更新（不绕链、不手改 C端 config）
-- [ ] 5.5 老 S端 兼容演练（S端 回退到无 entitlement 响应打桩），验证：C端 FALLBACK 判定 pro 为会员
+- [x] 5.5 老 S端 兼容演练（S端 回退到无 entitlement 响应打桩），验证：C端 FALLBACK 判定 pro 为会员
 - [ ] 5.6 C端 e2e 全量本地跑绿，验证：新增打桩用例（快照两态 + PRO 建第 2 本书断言）+ 存量不回归
+
+## 5b. 验收偏差记录（2026-09-06/07 实况）
+
+- 5.1 偏差：仅重建 client-backend/client-frontend（数据卷仍指主仓）；本地 S端 容器保留旧代码未动（C端 主链走生产 www，且并行会话 e2e 正占用共享栈）
+- 5.2 实证：POST /api/novels 201（改前 403）+ verify is_member=true/project_limit=null；测试书已清理
+- 5.5 实证：生产 www 即真实"无 entitlement 字段的 S端"，FALLBACK 判 pro=会员实测通过
+- 5.3/5.4/5.6 挂起：并行会话正在跑 workbench e2e 且覆盖共享 config.json（config 已恢复 modoojunko 登录态），独占栈后补跑
+- 6.1 偏差：单 PR（#335）内三切片 commit 替代三个 PR——docs/contracts 为两端共享文件，拆分会产生跨 PR 依赖
 
 ## 6. 交付
 
-- [ ] 6.1 三 PR 按切片提交（PR-1 S端 / PR-2 C端后端 / PR-3 前端含 shell 上移），CI 全绿
-- [ ] 6.2 生产发版清单落 change 目录：DDL+种子 SQL 执行步骤、pg_gate 验证、S端 部署顺序、**C端 打包发版（client-update 通道，闭环必要条件）**、回滚说明；留发版口用户拍板
+- [x] 6.1 三 PR 按切片提交（PR-1 S端 / PR-2 C端后端 / PR-3 前端含 shell 上移），CI 全绿
+- [x] 6.2 生产发版清单落 change 目录：DDL+种子 SQL 执行步骤、pg_gate 验证、S端 部署顺序、**C端 打包发版（client-update 通道，闭环必要条件）**、回滚说明；留发版口用户拍板
