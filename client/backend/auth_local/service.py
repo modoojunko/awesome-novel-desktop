@@ -83,8 +83,46 @@ SESSION_DAYS = 30
 POLL_INTERVAL = 2
 POLL_TIMEOUT = 120
 
-# 会员套餐（S端 TIER_POLICY）：AI 能力判据。lifetime 永不过期。
-MEMBER_TIERS = ("trial", "monthly", "quarterly", "yearly", "lifetime")
+# 档位兜底名单（仅"无快照"分支使用，见 check_permission 分支 4）：
+# 含归一化档位 pro/max 与历史档位名——兜老 S端 与首次升级未刷新的窗口
+# （c-s-entitlement-sync：主判定路径不存在档位白名单，快照优先）。
+FALLBACK_MEMBER_TIERS = ("trial", "pro", "max",
+                         "monthly", "quarterly", "yearly", "lifetime")
+
+# 快照完整性：features 是 list 且 limits.max_projects 键存在（Q3 三段式的判定前提）
+def _snapshot_complete(ent) -> bool:
+    return (
+        isinstance(ent, dict)
+        and isinstance(ent.get("features"), list)
+        and isinstance(ent.get("limits"), dict)
+        and "max_projects" in ent["limits"]
+    )
+
+
+# 档位标准配置镜像（与 docs/contracts/entitlement-defaults.json 同源，tests 对拍；
+# 只用于"快照存在但不完整且重同步不可得"的极端分支——按档位标准给权限，不是瞎放开）
+_TIER_ALIAS = {"monthly": "pro", "quarterly": "pro", "yearly": "pro", "lifetime": "pro"}
+STANDARD_FALLBACK = {
+    "none":  {"features": [], "limits": {"max_projects": 1}},
+    "free":  {"features": [], "limits": {"max_projects": 1}},
+    "trial": {"features": ["settings-ai-fields", "outline-advanced-fields",
+                           "ai-generate", "prompt-panel", "ai-model"],
+              "limits": {"max_projects": None}},
+    "pro":   {"features": ["settings-ai-fields", "outline-advanced-fields",
+                           "ai-generate", "prompt-panel", "ai-model"],
+              "limits": {"max_projects": None}},
+    "max":   {"features": ["settings-ai-fields", "outline-advanced-fields",
+                           "ai-generate", "prompt-panel", "ai-model"],
+              "limits": {"max_projects": None}},
+}
+
+
+def standard_fallback_for(tier: str) -> dict:
+    return STANDARD_FALLBACK.get(_TIER_ALIAS.get(tier, tier), STANDARD_FALLBACK["none"])
+
+
+# 重同步节流：快照不完整时 async 门禁边界触发，60s 内不重复打 S端
+_LAST_ENT_RESYNC = {"t": 0.0}
 
 # S端 门户（购买/续费/开通试用入口），可通过 config.json 覆盖
 DEFAULT_PORTAL_URL = "https://novel-s-web-ai-novel-test-d1ghsr86ra814c12c.webapps.tcloudbase.com"
@@ -124,6 +162,7 @@ def load_or_create_config() -> dict:
         "server_api": "",
         "portal_url": DEFAULT_PORTAL_URL,
         "deletion_pending": False,
+        "entitlement": None,
     }
     for k, v in defaults.items():
         if k not in cfg:
@@ -290,6 +329,8 @@ async def browser_auth(silent: bool = False) -> dict:
             cfg["username"] = data.get("username", "")
             cfg["tier"] = data.get("tier", "none")
             cfg["expires_at"] = data.get("expires_at", "")
+            cfg["entitlement"] = data.get("entitlement")   # 权益快照（entitlement-sync）
+            cfg["entitlement_fetched_at"] = datetime.now(UTC).isoformat()
             cfg["last_login_at"] = datetime.now(UTC).isoformat()
             cfg["deletion_pending"] = False  # 重新登录/撤销恢复：清除暂停标记
             save_local_config(cfg)
@@ -325,8 +366,11 @@ async def browser_auth(silent: bool = False) -> dict:
             if cfg.get("token"):
                 deleted = bool((result.get("data") or {}).get("deleted"))
                 stale_user = cfg.get("username", "")
-                for k in ("token", "username", "tier", "expires_at", "last_login_at"):
-                    cfg[k] = "" if k != "tier" else "none"
+                for k in ("token", "username", "expires_at", "last_login_at",
+                          "entitlement_fetched_at"):
+                    cfg[k] = ""
+                cfg["tier"] = "none"
+                cfg["entitlement"] = None
                 cfg["deletion_pending"] = False
                 save_local_config(cfg)
                 logger.info("event=session.invalidated user=%s deleted=%s", stale_user, deleted)
@@ -375,7 +419,7 @@ async def verify_session() -> dict:
 
     # 套餐判定统一走 check_permission（tier/is_member/expired/project_limit/剩余天数）
     perm = check_permission()
-    return {
+    resp = {
         "valid": True,
         "tier": perm["tier"],
         "is_member": perm.get("is_member", False),
@@ -383,24 +427,57 @@ async def verify_session() -> dict:
         "expires_at": expires_at,
         "project_limit": perm.get("project_limit"),
         "trial_remaining_days": perm.get("trial_remaining_days", 0),
+        "entitlement_degraded": perm.get("entitlement_degraded", False),
     }
+    if perm.get("entitlement") is not None:
+        resp["entitlement"] = perm["entitlement"]  # 快照原文（无快照省略）
+    return resp
+
+
+def _perm(tier: str, *, allowed: bool = True, is_member: bool = False,
+          expired: bool = False, reason: str = "", msg: str = "",
+          project_limit: int | None = 1, trial_remaining_days: int = 0,
+          degraded: bool = False, entitlement: dict | None = None) -> dict:
+    """check_permission 统一返回形状（新增 entitlement/entitlement_degraded 两个键）。"""
+    d: dict = {
+        "allowed": allowed,
+        "tier": tier,
+        "is_member": is_member,
+        "expired": expired,
+        "project_limit": project_limit,
+        "trial_remaining_days": trial_remaining_days,
+        "entitlement_degraded": degraded,
+    }
+    if entitlement is not None:
+        d["entitlement"] = entitlement
+    if reason:
+        d["reason"] = reason
+    if msg:
+        d["msg"] = msg
+    return d
 
 
 def check_permission(now: date | None = None) -> dict:
-    """检查当前用户套餐权限（2026-08-18 口径）
+    """检查当前用户套餐权限（c-s-entitlement-sync 快照驱动口径）
 
-    统一形状，全分支齐备：
-    - is_member: 是否拥有有效会员身份（trial/月/季/年/终身，未过期）——AI 能力判据
-    - expired: 套餐是否已过期（过期降为免费待遇）
-    - project_limit: 项目上限（None=会员不限；免费/过期=1）
-    - trial_remaining_days: 距到期剩余天数（免费层仅在有到期数据时有效，不再默认 7）
+    判定优先级链（spec tier-access / entitlement-sync）：
+    0) deletion_pending → 免费基线
+    1) 免费档位 → 免费基线；trial 无到期生产收紧（与过期同口径），
+       env ENTITLEMENT_LEGACY_TRIAL=1 保留旧宽限（仅 dev/test 注入）
+    2) 本地过期/非法 → 免费基线（先于快照，快照可能更陈旧）
+    3) 完整快照自证：is_member = features 非空或 max_projects 不限；
+       project_limit = limits.max_projects（None=不限）
+       快照存在但不完整 → 档位标准兜底 STANDARD_FALLBACK + degraded=True
+       （重同步由 async 边界 ensure_entitlement_snapshot 负责，本函数零网络 IO）
+    4) 无快照（老 S端 / 未刷新）→ FALLBACK_MEMBER_TIERS 档位兜底
 
-    allowed 保留旧语义（False 仅出现在过期/信息异常），workflow.tier_bypass 据此旁路。
+    allowed 保留旧语义（False 仅出现在暂停/过期/信息异常），workflow.tier_bypass 据此旁路。
     """
     cfg = get_local_config()
     tier = cfg.get("tier", "none") or "none"
     expires_at = cfg.get("expires_at", "")
     now = now or datetime.now(UTC).date()
+    ent = cfg.get("entitlement")
 
     def _remaining_days() -> int:
         if not expires_at:
@@ -410,65 +487,72 @@ def check_permission(now: date | None = None) -> dict:
         except ValueError:
             return 0
 
-    # 注销撤销期（account-deletion）：付费与套餐功能暂停（spec R4 MUST NOT）。
-    # 标记由 browser_auth 在 check-auth code 2 时写入；撤销后重新登录自动清除。
+    # 0) 注销撤销期（account-deletion）：付费与套餐功能暂停；撤销后重新登录自动清除。
     if cfg.get("deletion_pending"):
-        return {
-            "allowed": False,
-            "tier": tier,
-            "is_member": False,
-            "expired": False,
-            "reason": "deletion_pending",
-            "msg": "账号注销申请处理中，付费与套餐功能已暂停；可到网页控制台撤销。本地作品不受影响。",
-            "project_limit": 1,
-            "trial_remaining_days": _remaining_days(),
-        }
+        return _perm(tier, allowed=False, reason="deletion_pending",
+                     msg="账号注销申请处理中，付费与套餐功能已暂停；可到网页控制台撤销。本地作品不受影响。",
+                     trial_remaining_days=_remaining_days())
 
-    # 免费层（none / 未知值一律按免费处理）
-    if tier not in MEMBER_TIERS:
-        return {
-            "allowed": True,
-            "tier": tier,
-            "is_member": False,
-            "expired": False,
-            "project_limit": 1,
-            "trial_remaining_days": _remaining_days(),
-        }
+    # 1) 免费档位 / trial 无到期收紧
+    if tier not in FALLBACK_MEMBER_TIERS:
+        return _perm(tier, trial_remaining_days=_remaining_days())
+    if (tier == "trial" and not expires_at
+            and not os.environ.get("ENTITLEMENT_LEGACY_TRIAL")):
+        return _perm(tier, allowed=False, expired=True, reason="trial_no_expiry",
+                     msg="试用信息异常，已降为免费待遇 — 开通套餐或联系客服恢复",
+                     trial_remaining_days=0)
 
-    # 会员套餐过期检查（终身不过期；无到期数据视为有效，兼容 S端 旧数据）
+    # 2) 到期检查（lifetime 永不过期；无到期数据对付费档保留旧兼容）
     if tier != "lifetime" and expires_at:
         try:
             if date.fromisoformat(expires_at[:10]) < now:
-                return {
-                    "allowed": False,
-                    "tier": tier,
-                    "is_member": False,
-                    "expired": True,
-                    "reason": "expired",
-                    "msg": "套餐已过期，已降为免费待遇 — 续费后恢复全部功能",
-                    "project_limit": 1,
-                    "trial_remaining_days": 0,
-                }
+                return _perm(tier, allowed=False, expired=True, reason="expired",
+                             msg="套餐已过期，已降为免费待遇 — 续费后恢复全部功能",
+                             trial_remaining_days=0)
         except ValueError:
-            return {
-                "allowed": False,
-                "tier": tier,
-                "is_member": False,
-                "expired": True,
-                "reason": "invalid",
-                "msg": "套餐信息异常",
-                "project_limit": 1,
-                "trial_remaining_days": 0,
-            }
+            return _perm(tier, allowed=False, expired=True, reason="invalid",
+                         msg="套餐信息异常",
+                         trial_remaining_days=0)
 
-    return {
-        "allowed": True,
-        "tier": tier,
-        "is_member": True,
-        "expired": False,
-        "project_limit": None,
-        "trial_remaining_days": _remaining_days(),
-    }
+    # 3) 快照优先
+    if _snapshot_complete(ent):
+        features = ent["features"]
+        max_projects = ent["limits"]["max_projects"]
+        is_member = bool(features) or max_projects is None
+        return _perm(tier, is_member=is_member, project_limit=max_projects,
+                     trial_remaining_days=_remaining_days(), entitlement=ent)
+    if ent is not None:
+        # 快照存在但不完整：重同步（async 边界）仍不可得 → 按档位标准兜底 + 降级标志
+        fb = standard_fallback_for(tier)
+        is_member = bool(fb["features"]) or fb["limits"]["max_projects"] is None
+        return _perm(tier, is_member=is_member,
+                     project_limit=fb["limits"]["max_projects"],
+                     trial_remaining_days=_remaining_days(), degraded=True)
+
+    # 4) 无快照兜底（老 S端 / 未刷新）：档位名单判定
+    return _perm(tier, is_member=True, project_limit=None,
+                 trial_remaining_days=_remaining_days())
+
+
+async def ensure_entitlement_snapshot() -> None:
+    """快照三段式第一段（Q3）：本地快照存在但不完整时，静默重同步一次。
+
+    只允许在 async 边界调用（deps 门禁 / 端点）——check_permission 保持同步纯读。
+    60s 节流：离线等重同步不可得场景不逐请求打 S端。
+    """
+    import time as _time
+
+    ent = get_local_config().get("entitlement")
+    if ent is None or _snapshot_complete(ent):
+        return
+    now = _time.monotonic()
+    if now - _LAST_ENT_RESYNC["t"] < 60:
+        return
+    _LAST_ENT_RESYNC["t"] = now
+    try:
+        await browser_auth(silent=True)  # code 0 即覆盖快照；其余码维持现状
+    except Exception:  # noqa: BLE001 重同步失败不阻断门禁，走兜底
+        logger.warning("event=entitlement_resync_failed")
 
 
 async def _ensure_local_user(username: str) -> None:
