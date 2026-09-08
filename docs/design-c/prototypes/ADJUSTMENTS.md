@@ -409,3 +409,13 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     复用既有 .notice 组件形态（无新增组件/第四种胶囊）；仅 entitlement_degraded=true 时渲染，
     默认态不出现 → 书架 parity 基线（empty/quota 场景）零漂移，实现侧登记免原型改版。
 
+
+16. **顶栏头像控制中心面板（c-account-control-center，2026-09-07）**
+    三屏 appbar（list/book/model-config）动作区收敛为头像胶囊唯一入口：移除「联系客服」「设置」
+    常驻按钮，新增 `.acct-trigger`（首字头像 + 四态套餐徽章 + caret）。list.html 设置弹窗
+    （modalPrefs）整段退役，替换为 `.acct-menu` 控制中心面板（账号区头完整档 + 数据组备份/恢复 +
+    模型配置 + 支持组客服外跳 + 退出登录轻确认 + 版本行）；book.html 面板工作台语境增挂
+    「本书偏好」项承接原「设置」按钮（modalPrefs 本书偏好弹窗与其归档 seg 保留不动）。
+    badge 三色沿用语气词映射：accent=PRO 会员、muted=免费版（含过期合并单档）/试用充裕、
+    warn=试用临期（≤3 天含 0 天）与 S端失联变色（前端同步失败信号，文案不变仅换色）。
+    用户名 >12ch 截断悬停见全文；外点白名单含触发钮防 toggle 双触发。

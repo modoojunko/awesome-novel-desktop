@@ -82,7 +82,7 @@ describe("LicenseProvider", () => {
     expect(result.current.isPro).toBe(false);
   });
 
-  it("verify 失败降级免费、不抛异常", async () => {
+  it("verify 首次失败：不抛异常，走免费防御态并置失联标志", async () => {
     apiPostMock.mockRejectedValue(new Error("network"));
     const m = await mountUseTier();
     const { result } = m.renderHook();
@@ -90,6 +90,73 @@ describe("LicenseProvider", () => {
     expect(result.current.tier).toBe("none");
     expect(result.current.isFree).toBe(true);
     expect(result.current.error).toBeTruthy();
+    expect(result.current.syncFailed).toBe(true);
+  });
+
+  it("已有判定后 verify 失败：保留上次档位不清缓存，仅置失联标志（c-account-control-center 失联口径）", async () => {
+    apiPostMock.mockResolvedValue({
+      tier: "monthly",
+      is_member: true,
+      expired: false,
+      trial_remaining_days: 30,
+    });
+    const m = await mountUseTier();
+    const { result } = m.renderHook();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.tier).toBe("monthly");
+
+    // 后续刷新失败：档位文案不变、不清缓存，仅失联标志
+    apiPostMock.mockRejectedValue(new Error("network"));
+    await result.current.refetch();
+    await waitFor(() => expect(result.current.syncFailed).toBe(true));
+    expect(result.current.tier).toBe("monthly");
+    expect(result.current.isMember).toBe(true);
+    expect(result.current.isFree).toBe(false);
+  });
+
+  it("两跳刷新 check-auth 失败置失联，档位文案不变（路由 /novels 触发）", async () => {
+    apiPostMock.mockResolvedValue({
+      tier: "monthly",
+      is_member: true,
+      expired: false,
+      trial_remaining_days: 30,
+    });
+    apiGetMock.mockRejectedValueOnce(new Error("offline"));
+    const { LicenseProvider } = await import(
+      "@/components/novel/license/LicenseProvider"
+    );
+    const { useTier } = await import("@/hooks/useTier");
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <MemoryRouter initialEntries={["/novels"]}>
+        <LicenseProvider>{children}</LicenseProvider>
+      </MemoryRouter>
+    );
+    const { result } = renderHook(() => useTier(), { wrapper });
+    await waitFor(() => expect(result.current.syncFailed).toBe(true));
+    expect(result.current.tier).toBe("monthly"); // 档位文案不变
+  });
+
+  it("两跳刷新 check-auth 成功保持常规色（syncFailed=false）", async () => {
+    apiPostMock.mockResolvedValue({
+      tier: "monthly",
+      is_member: true,
+      expired: false,
+      trial_remaining_days: 30,
+    });
+    apiGetMock.mockResolvedValue({ code: 0 });
+    const { LicenseProvider } = await import(
+      "@/components/novel/license/LicenseProvider"
+    );
+    const { useTier } = await import("@/hooks/useTier");
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <MemoryRouter initialEntries={["/novels"]}>
+        <LicenseProvider>{children}</LicenseProvider>
+      </MemoryRouter>
+    );
+    const { result } = renderHook(() => useTier(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.syncFailed).toBe(false);
+    expect(result.current.tier).toBe("monthly");
   });
 
   it("重挂载复用 module 缓存，不再请求", async () => {

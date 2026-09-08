@@ -45,6 +45,7 @@ function TierProvider({ tier, children }: { tier: string; children: ReactNode })
     trialRemainingDays: 0,
     entitlement: null,
     entitlementDegraded: false,
+  syncFailed: false,
     loading: false,
     error: null,
     refetch: () => {},

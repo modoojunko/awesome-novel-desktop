@@ -52,6 +52,11 @@ export const P = {
   moon: '<path d="M20.5 14.5A8.5 8.5 0 019.5 3.5a8.5 8.5 0 1011 11z"/>',
   chat: '<path d="M4 5h16v11H8l-4 4z"/>',
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M3 20h18"/>',
+  // 控制中心面板（c-account-control-center）：用户名取不到时的头像退化
+  person: '<path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  backup: '<path d="M12 15V4M7 8l5-5 5 5M5 20h14"/>',
+  restore: '<path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  logout: '<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/>',
 } as const;
 
 /** 供应商图标（model-config.html VENDORS 原样；原型唯一用圆头线帽的图标组） */

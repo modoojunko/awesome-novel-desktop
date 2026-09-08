@@ -14,7 +14,7 @@ export const strictSrcGlobs = [
   "src/pages/NovelListPage.tsx",
   "src/components/Footer.tsx",
   "src/components/Navbar.tsx",
-  "src/components/PrefsModal.tsx",
+  "src/components/AcctMenu.tsx",
   "src/components/icons.tsx",
   "src/components/design/Modal.tsx",
   "src/components/novel/CreateProjectModal.tsx",

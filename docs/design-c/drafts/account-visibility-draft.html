@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>评审稿 · 修订版 登录后首页账号与套餐落点 — V4' 控制中心面板（顶栏唯一入口）</title>
+<style>
+  /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致 ═══ */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.55; padding: 40px 24px 80px; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; padding: 0; }
+  a { color: inherit; text-decoration: none; }
+
+  /* ─── 稿头（版式沿 version-placement-draft.html 先例） ─── */
+  .draft-banner { display: flex; align-items: center; gap: 9px; padding: 10px 16px; border: 1px dashed var(--warn); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: 13px; margin-bottom: 28px; }
+  .draft-banner b { color: var(--fg); font-weight: 600; }
+  h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 6px 0 14px; }
+  .sub b { color: var(--fg); font-weight: 600; }
+  .caliber { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 14px 16px; font-size: 12.5px; color: var(--muted); margin-bottom: 36px; }
+  .caliber b { color: var(--fg); font-weight: 600; }
+  .caliber li { margin: 5px 0 5px 18px; }
+  .legend { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .demo { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); outline: 1.5px dashed color-mix(in oklch, var(--accent) 55%, transparent); outline-offset: 2px; white-space: nowrap; }
+
+  /* 变体结论章 */
+  .verdict { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; background: var(--fg-soft); color: var(--muted); vertical-align: 3px; white-space: nowrap; }
+  .verdict.pick { background: var(--accent-soft); color: var(--accent-strong); }
+
+  /* 五态文案表 */
+  .stt { width: 100%; border-collapse: collapse; font-size: 12px; margin: 10px 0 4px; }
+  .stt th, .stt td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .stt th { font-size: 11px; color: var(--muted); font-weight: 500; white-space: nowrap; }
+  .stt td:first-child { font-weight: 600; color: var(--fg); white-space: nowrap; }
+  .stt .num { font-size: 11px; }
+  .stt-foot { margin: 6px 0 0 18px; }
+  .stt-foot li { margin: 3px 0; }
+
+  /* ─── 变体节 ─── */
+  .vsec { margin: 0 0 52px; }
+  .frame-title { font-family: var(--font-display); font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+  .frame-desc { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
+  .duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start; }
+  @media (max-width: 980px) { .duo { grid-template-columns: 1fr; } }
+  .win-cap { font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.04em; margin-bottom: 8px; }
+
+  /* ─── 模拟窗口（app 框架，顶栏逐字复刻 list.html 书架屏） ─── */
+  .win { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-card); }
+
+  /* appbar：结构与尺寸与 list.html 原样 */
+  .appbar { height: 48px; display: flex; align-items: center; padding: 0 20px; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; }
+  .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--surface); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; }
+  .appbar .nav { display: inline-flex; gap: 4px; margin-left: 14px; }
+  .appbar .nav a { font-size: 13.5px; color: var(--muted); padding: 5px 10px; border-radius: 8px; }
+  .appbar .nav a.on { color: var(--fg); background: var(--fg-soft); font-weight: 500; }
+  .appbar .spacer { flex: 1; }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 28px; padding: 0 12px; border-radius: 8px; font-size: 12.5px; font-weight: 500; border: 1px solid transparent; white-space: nowrap; }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+  .btn-ghost { background: transparent; color: var(--muted); padding: 0 8px; }
+  .strike { position: relative; opacity: 0.55; }
+  .strike::after { content: ""; position: absolute; left: -2px; right: -2px; top: 50%; height: 1.5px; background: color-mix(in oklch, var(--err) 55%, transparent); transform: rotate(-6deg); border-radius: 2px; }
+
+  /* 内容提示区（骨架占位，示意书架页本体） */
+  .content { padding: 20px 22px 26px; background: var(--bg); min-height: 158px; }
+  .content .ph-title { font-family: var(--font-display); font-size: 21px; font-weight: 600; color: var(--fg); margin-bottom: 4px; }
+  .content .ph-sub { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+  .sk { height: 10px; border-radius: 6px; background: var(--fg-soft); }
+  .sk.card { height: 74px; border-radius: var(--radius); }
+  .sk-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+
+  /* ─── 本稿新元素（各变体的主角；虚线框是标注，非真实 UI） ─── */
+  .mk { outline: 1.5px dashed color-mix(in oklch, var(--accent) 55%, transparent); outline-offset: 2px; }
+
+  /* 套餐徽章：短档文案，色档见口径表 */
+  .tb { display: inline-flex; align-items: center; padding: 1.5px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+  .tb.pro { background: var(--accent-soft); color: var(--accent-strong); }
+  .tb.trial { background: var(--fg-soft); color: var(--muted); }
+  .tb.warn { background: var(--warn-soft); color: var(--warn); }
+  .tb.free { background: var(--fg-soft); color: var(--muted); }
+
+  /* V1 账号胶囊（未选，留档） */
+  .acct-cap { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 6px 0 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font-size: 12.5px; color: var(--fg); white-space: nowrap; }
+  .acct-cap svg { width: 14px; height: 14px; color: var(--muted); flex: none; }
+  .acct-cap .un { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+
+  /* V2 页头账号条（未选，留档） */
+  .acct-strip { display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
+  .acct-strip b { font-weight: 500; white-space: nowrap; }
+  .acct-strip .as-spacer { flex: 1; }
+  .acct-strip .as-note { color: var(--muted); font-size: 12px; }
+  .acct-strip.warn { border-color: color-mix(in oklch, var(--warn) 28%, var(--border)); background: var(--warn-soft); }
+
+  /* V3 状态条扩展（未选，留档） */
+  .statusbar { height: 26px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; background: var(--surface); border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted); }
+  .statusbar .sb-right { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .statusbar .sb-acct { display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 1px 4px; }
+
+  /* V4' 头像按钮 + 菜单（拍板推荐） */
+  .acct-btn { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px 0 4px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); white-space: nowrap; }
+  .acct-btn.on { border-color: color-mix(in oklch, var(--accent) 45%, var(--border)); background: var(--accent-soft); }
+  .avatar { flex: none; width: 22px; height: 22px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); display: grid; place-items: center; font-size: 12px; font-weight: 600; }
+  .avatar svg { width: 13px; height: 13px; }
+  .acct-btn .caret { width: 12px; height: 12px; color: var(--muted); }
+  .acct-menu { position: absolute; top: 52px; right: 10px; z-index: 6; width: 280px; max-height: min(560px, 70vh); overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-card); padding: 6px; }
+  .am-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .am-head .am-name { font-weight: 500; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .am-head .tb { margin-left: auto; flex: none; }
+  .am-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: 7px; font-size: 12.5px; color: var(--fg); text-align: left; }
+  .am-item:hover { background: var(--fg-soft); }
+  .am-item svg { width: 14px; height: 14px; color: var(--muted); flex: none; }
+  .am-item .am-sub { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .am-div { height: 1px; background: var(--border); margin: 4px 6px; }
+  .am-group { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; padding: 8px 10px 2px; }
+  .am-item.warn-item { color: var(--warn); }
+  .am-item.warn-item svg { color: var(--warn); }
+  .am-ver { padding: 6px 10px 2px; font-size: 11px; color: var(--muted); }
+
+  /* 放大镜 */
+  .zoom { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px; }
+  .zoom-cell { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 22px 20px 14px; }
+  .zoom-cell .zn { font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 0.08em; display: block; margin-bottom: 12px; }
+  .zoom-cell p { font-size: 12px; color: var(--muted); margin-top: 14px; }
+  .zoom-cell .am-head { border: 1px solid var(--border); border-radius: 8px; border-bottom: 1px solid var(--border); margin: 0 0 8px; }
+
+  /* 旁注 */
+  .notes { margin: 16px 2px 0; font-size: 12.5px; color: var(--muted); }
+  .notes li { margin: 5px 0 5px 18px; }
+  .notes b { color: var(--fg); font-weight: 600; }
+
+  /* 对比表 + 推荐节 */
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 22px 24px; margin-top: 8px; }
+  .panel h2 { font-family: var(--font-display); font-size: 17px; font-weight: 600; margin-bottom: 12px; }
+  .cmp { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 18px; }
+  .cmp th, .cmp td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .cmp th { font-size: 11.5px; color: var(--muted); font-weight: 500; }
+  .cmp td:first-child { font-weight: 600; white-space: nowrap; }
+  .cmp .pick { color: var(--accent-strong); }
+  .panel ol { margin-left: 20px; font-size: 13.5px; }
+  .panel li { margin: 7px 0; }
+  .panel .muted { color: var(--muted); font-size: 12.5px; margin-top: 12px; }
+  .rec-box { border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border)); background: var(--accent-soft); border-radius: var(--radius); padding: 14px 16px; font-size: 13.5px; margin-bottom: 18px; }
+  .rec-box b { color: var(--accent-strong); }
+  .decide { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 18px; }
+  .decide th, .decide td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .decide th { font-size: 11.5px; color: var(--muted); font-weight: 500; white-space: nowrap; }
+  .decide td:first-child { font-weight: 600; white-space: nowrap; }
+  .decide .yes { color: var(--accent-strong); }
+  .decide .todo { color: var(--warn); }
+  .check { margin: 8px 0 0; list-style: none; }
+  .check li { margin: 6px 0 6px 2px; padding-left: 22px; position: relative; font-size: 13px; }
+  .check li::before { content: "□"; position: absolute; left: 2px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="draft-banner">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+    <span><b>已评审通过（用户终审）</b> · 本稿定稿为实施基准（V4' 控制中心面板终案）：V4 头像菜单为落点，「联系客服」收编进菜单，PrefsModal 有效细项并入（接线审计裁撤冗余项）——「设置 · 写作偏好」弹窗整体退役，菜单升级为「控制中心面板」；顶栏右侧只留头像一个入口；<b>归档设置下沉到书设置</b>（BookPrefsModal 补 per-book 开关，只补 UI）。此前全部待拍板项已按 PM 倾向定案闭环（见末节两栏表）。静态示意，未入 prototypes/ 基线、未动实现与 openspec；V1 / V2 / V3 未选留档。</span>
+  </div>
+
+  <h1>C端 登录后首页账号与套餐落点（修订版 · V4' 控制中心面板）</h1>
+  <p class="sub">终审结果：头像菜单方向 + 客服收编 + <b>设置细项并入</b>——PrefsModal（设置 · 写作偏好弹窗）退役，接线审计后的有效细项（备份与恢复 / 模型配置 / 账号行 / 版本行）并入头像菜单，升级为<b>控制中心面板</b>；全局字号 / 行距与工作台「本书偏好」重复、归档 AI 摘要开关随拍板一并移除（归档行为默认开不变）。<b>归档设置下沉到书设置</b>：BookPrefsModal（本书偏好）补「归档 AI 摘要」per-book 开关，数据层已存在、只补 UI。顶栏右侧仍只留头像一个入口；工作台等内页顶栏同步这套减法。范围：登录后各页顶栏（书架 #/novels 为主口径）；未登录落落地页不在范围内。本稿为实施基准，不写实现代码。</p>
+
+  <div class="caliber">
+    <ul>
+      <li><b>拍板口径（终审定稿）</b>：落点 = V4' 控制中心面板——头像菜单 + 客服收编 + <b>PrefsModal 有效细项并入、「设置 · 写作偏好」弹窗整体退役</b>；本稿经用户终审<b>整体通过，定稿为实施基准</b>，全部待拍板项已闭环（见末节两栏表）。本稿所有「实施口径」以本节与 V4' 节为准；V1–V3 留档节中涉及「设置弹窗」的表述为退役前口径，仅作评审痕迹。</li>
+      <li><b>接线审计与裁撤口径（用户拍板：没用的去掉）</b>：面板只收「已接线且仍有独立价值」的设置项——<b>备份 / 恢复</b>保留（活：backup export / import 接口均已接线）、<b>模型配置</b>保留（活：真路由）；<b>全局默认字号 / 默认行距裁撤</b>——工作台「本书偏好」（BookPrefsModal）已管字号行距，全局项仅作书级未设置时的兜底默认，功能重叠，字号行距唯一入口收敛到本书偏好、新书用内置默认；<b>归档 AI 摘要开关移除（用户拍板）</b>——沿既定模式「只删界面入口，不动数据层」：<span class="num">getArchiveAiSummaryEnabled / getBookArchiveAiSummary</span> 回退链保留，归档行为走默认（开），用户无界面可关但行为不变，<span class="num">lib/prefs</span> 与归档消费点零改动；<b>控制粒度下沉到书设置</b>——BookPrefsModal（本书偏好）补「归档 AI 摘要」per-book 开关，<span class="num">setBookArchiveAiSummary / getBookArchiveAiSummary</span> 数据层已存在、只补 UI，书级未设置回退全局默认（开）的既有链路不变。字号 / 行距同样只删界面入口，<b>lib/prefs 默认值读取与回退链保留不动</b>（数据层不裁）。</li>
+      <li><b>信息架构 · 合体而非分体</b>：账号与套餐在同一元素内成组展示（「用户名 · 套餐」，沿 PrefsModal 账号行 #336 的既有措辞结构）。文案双层：<b>触发钮徽章用短档</b>（四态，定长派生），<b>菜单头徽章用 tierLabel 完整档原文</b>——完整事实层随 PrefsModal 退役由设置弹窗账号行迁入菜单头，措辞单源仍是 <span class="num">tierLabel()</span>、零改动。</li>
+      <li><b>顶栏减法口径</b>：右侧唯一入口 = 头像胶囊（首字 avatar + 套餐徽章 + 展开 caret）；「设置」「联系客服」从顶栏移除、收进菜单。<b>外链纪律</b>：菜单「联系客服」必须以 <span class="num">target="_blank"</span> 锚点渲染，<b>禁编程式 window.open</b>（pywebview cocoa 只认锚点，Navbar SupportLink 既有先例）；实际 URL 走 <span class="num">supportUrl()</span>（S 端下发 portal_url 拼 <span class="num">/support</span>，取不到不出死链、菜单项隐藏），<span class="num">https://www.awesomenovel.com/support</span> 为目的地示意。</li>
+      <li><b>数据源</b>：<span class="num">POST /api/auth/verify</span>（<span class="num">valid / tier(pro|trial|none) / is_member / expired / trial_remaining_days / entitlement{features,limits} / entitlement_degraded</span>）+ <span class="num">localStorage auth_username</span>（<span class="num">getUsername()</span>）。登录态下 username 必在；万一取不到则头像退化为通用人形图标、只留徽章，不硬造用户名。</li>
+      <li><b>四态文案表</b>（完整档 = tierLabel 单源、菜单头展示；短档 = 触发钮徽章映射）：</li>
+    </ul>
+    <table class="stt">
+      <tr><th>徽章态（四态）</th><th>verify 判定</th><th>tierLabel 完整档（菜单头展示，原文零改动）</th><th>触发钮徽章 · 短档</th><th>色彩口径（两处同规则）</th></tr>
+      <tr><td>PRO 会员</td><td class="num">is_member 且 !expired</td><td>PRO 会员</td><td>PRO 会员</td><td>accent（accent-soft 底）</td></tr>
+      <tr><td>试用中</td><td class="num">tier=trial 且 trial_remaining_days&gt;0</td><td>试用中 · 剩 N 天</td><td>试用 · 剩 N 天</td><td>充裕（&gt;3 天）muted；≤3 天 --warn（阈值已定案）</td></tr>
+      <tr><td>免费版（含已过期）</td><td class="num">expired=true，或其余（tier=none 且非会员）</td><td>过期：<b>套餐已过期 · 免费待遇</b>；非过期：<b>免费版 · 单机使用</b>——完整档两档区分保留在菜单头（事实层随弹窗退役迁入）</td><td>免费版（合并单档 · 用户拍板）</td><td>muted（过期不再上 warn）</td></tr>
+      <tr><td>未登录（参考）</td><td class="num">无 token</td><td>未登录 · 单机使用</td><td>—（书架不可达，落落地页）</td><td>—</td></tr>
+    </table>
+    <ul class="stt-foot">
+      <li><b>降级换色规则（用户拍板：不加新文案，降级 = 前态 + 换色）</b>：S 端不可达（<span class="num">entitlement_degraded=true</span>）时<b>不是独立态</b>——徽章沿用不可达前最后一次成功判定的套餐态原文（如「PRO 会员」「试用 · 剩 12 天」照常显示），仅<b>配色整体转 --warn</b> 示警，触发钮与菜单头两处同步；不改菜单结构、不阻塞书架可用，完整套餐名由菜单头展示（缓存值）。<b>tierLabel 单源确认零改动</b>——降级曾是唯一拟新增档，现不再新增。</li>
+      <li><b>实现提示</b>：降级色只作用于徽章配色（字色 + 底色整体换 warn），不改文案、不改菜单结构；可选非必需细节——徽章 <span class="num">title</span> 悬停提示「权益核验中，暂按现有待遇」（标注为可选，不作为验收项）。</li>
+      <li><b>免费版与过期徽章合并（用户拍板：都是免费版）</b>：过期用户的待遇兜底就是免费待遇，功能上同一状态——首页徽章不再区分、不再上 warn，统一「免费版」muted 单档。<b>区分信息不丢、换通道承载</b>：完整档文案由菜单头承载（账号事实层随 PrefsModal 退役迁入，「套餐已过期 · 免费待遇」vs「免费版 · 单机使用」tierLabel 单源零改动）；触发钮保持合并短档；过期提醒主通道 = 书架既有到期提示条（<span class="num">ExpiryNoticeBar</span>），徽章不重复叙事。</li>
+      <li><span class="num">tier=trial</span> 且剩余 <span class="num">0</span> 天：在徽章层即「免费版」，<b>无独立档</b>——原「收敛为过期档」遗留项已随合并关闭；tierLabel 层裸档措辞属完整档（菜单头展示），本稿不动其原文。</li>
+      <li><b>警示色口径</b>：--warn 只剩两个用途——<b>试用临期</b>（≤3 天，阈值已定案）与<b>降级换色</b>叠加（S 端不可达时任意前态徽章整体转 warn）。常态下 PRO 用 accent、试用充裕与免费版（含过期）统一 muted。<b>不引入 --err</b>：过期是可恢复状态而非错误，且书架原型（list.html）本就未定义 --err。</li>
+      <li><b>超长用户名截断</b>：沿 PrefsModal 账号行同规则——触发钮用户名区与菜单头用户名区均 <span class="num">max-width:12ch</span>，超出省略号截断、悬停 title 显示全文；徽章与胶囊整体 <span class="num">white-space:nowrap</span>。最宽短档「试用 · 剩 N 天」（两位数天数）仍在 12ch 内，不触发截断。</li>
+      <li><b>交互口径</b>：① 触发——点击头像胶囊开合，<span class="num">aria-haspopup="menu"</span> + <span class="num">aria-expanded</span> 同步，<b>开面板时胶囊转高亮态</b>（描边转 accent、底转 accent-soft）；② 关闭——Esc 关闭并<b>回焦触发钮</b>、点击面板外任意区域关闭；面板内不再有即存即效控件（偏好开关已全部移除），全部菜单项均为流程项（备份 / 恢复 / 模型配置），点击先关面板再进对应流程；③ 键盘——Tab 聚焦触发钮后 Enter 开合，方向键在菜单项间移动，Enter / Space 触发，焦点圈不出面板（桌面惯例）；④ 定位与形态——面板绝对定位于触发钮下方右对齐（top = appbar 底 + 4px），宽 <span class="num">280px</span>（宽度由账号头完整档徽章「套餐已过期 · 免费待遇」决定）；偏好控件全部裁撤后面板自然高度约 <span class="num">270px</span>，常规窗口无需滚动，<span class="num">max-height: min(560px, 视口高 − appbar − 24px)</span> 内滚动降为窄窗 / 小屏兜底；窄窗口右缘钳制不越界、不遮 appbar 本体；分组标签 <span class="num">11px muted</span>。</li>
+      <li><b>退出登录归属（随拍板沉底）</b>：唯一入口 = 控制中心面板底部（警示调展示，与面板内其他操作隔离）；二次确认与否列为<b>新增决策</b>——现状 <span class="num">logout()</span> 直接清凭据回落地页、无确认，「直接退出 / 二次确认」仍需拍板。原「设置弹窗内保留退出」随弹窗退役不再存在，无双入口问题。</li>
+      <li><b>IA 变更代价清单（供实施评估，非本稿动工项）</b>：
+        <ul class="stt-foot">
+          <li><b>原型库同步</b>：list.html 顶栏「联系客服 / 设置」两枚按钮重铸为头像胶囊；<b>「设置弹窗」段落（modalPrefs）整体重铸为控制中心面板形态</b>；<b>book.html 工作台顶栏同步这套减法（决策点③已定案）</b>，其本书偏好弹窗补「归档 AI 摘要」per-book 开关——原型即基线，先改原型并在 <span class="num">ADJUSTMENTS.md</span> 逐处登记，再动实现。</li>
+          <li><b>PrefsModal 退役路径</b>：Navbar 登录态不再 import / 渲染 PrefsModal（「设置」按钮链路随顶栏减法一并移除）；<span class="num">PrefsModal.tsx</span> 删除或移入归档；其引用的 <span class="num">RestoreModal</span> 由「恢复」菜单项继续使用、随迁不删；<span class="num">lib/prefs</span> 的默认值 / 摘要开关读取与书级回退链保留不动（全局字号 / 行距、归档 AI 摘要均只删界面入口，数据层不裁，归档行为默认开不变）、<span class="num">lib/auth</span>、版本数据源原样复用；<b>BookPrefsModal（本书偏好）补「归档 AI 摘要」per-book 开关</b>——<span class="num">setBookArchiveAiSummary / getBookArchiveAiSummary</span> 已存在（prefs.ts），只补 UI，书级未设置回退全局默认（开）链路不变。</li>
+          <li><b>用例迁移</b>：<span class="num">design-parity-list</span> 像素基线重录（顶栏 + 弹窗段落两处）；<span class="num">modals-pr5</span> 等 PrefsModal 用例改为控制中心面板链路（开面板 → seg / 开关即存即效断言、备份 / 恢复 / 模型配置跳转断言）；<span class="num">__tests__</span> 中 PrefsModal 相关用例（偏好持久化、账号行、版本行）迁移为面板组件用例，<b>全局字号 / 行距 seg 用例删除或改指向本书偏好、归档 AI 摘要开关用例删除</b>；<b>BookPrefsModal 新增 per-book 摘要开关用例（含书级未设置回退全局默认断言）</b>；<span class="num">lib/prefs</span> 既有测试引用逐一核对（getDefaultFontSize / getDefaultLineHeight / getArchiveAiSummaryEnabled / getBookArchiveAiSummary / setBookArchiveAiSummary 的读写与回退链用例随 UI 裁撤与新增同步修订），<span class="num">btn-support</span> 定位同步更新。</li>
+          <li><b>客服可达性</b>：客服从一级顶栏收进面板「支持」组——原「设置弹窗补客服链」兜底随弹窗退役<b>作废关闭</b>（客服已在菜单内，无二次降级）。</li>
+          <li><b>新组件成本</b>：控制中心面板（开合 / Esc / 外点关闭 / 焦点圈 / 窄窗内滚动兜底）为本产品首次引入，实现与测试面新增，一次性基础设施投入。</li>
+        </ul>
+      </li>
+      <li><b>读图方式</b>：下方每个模拟窗口里<span class="legend">虚线框圈出的 <span class="demo">modoojunko · PRO 会员</span></span> 就是该变体新增的账号 / 套餐元素，其余部分为 list.html 书架屏现状复刻（顶栏结构、尺寸逐字一致）。</li>
+    </ul>
+  </div>
+
+  <!-- ═══════════ 变体一：顶栏账号胶囊（未选留档） ═══════════ -->
+  <section class="vsec">
+    <div class="frame-title">变体一 V1 · 顶栏右侧账号胶囊<span class="verdict">未选 · 评审留档</span></div>
+    <div class="frame-desc">用户名与套餐徽章合为只读胶囊落顶栏动作区。未选理由：动作区在「客服 / 设置」之外再加元素，工具栏感与顶栏拥挤问题的解法方向相反——拍板方向是做减法而非做加法。</div>
+    <div class="duo">
+      <div>
+        <div class="win-cap">A 式 · 毗邻「设置」（动作区 2→3）</div>
+        <div class="win" data-od-id="variant-v1a-adjacent">
+          <header class="appbar">
+            <a class="logo"><span class="logo-mark">爱</span>爱小说</a>
+            <nav class="nav"><a class="on">我的作品</a><a>模型配置</a></nav>
+            <span class="spacer"></span>
+            <a class="btn btn-ghost">联系客服</a>
+            <span class="acct-cap mk" data-od-id="acct-capsule"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c1.6-3.2 4.2-4.8 7-4.8s5.4 1.6 7 4.8"/></svg><span class="un">modoojunko</span><span class="tb pro" data-od-id="acct-badge">PRO 会员</span></span>
+            <a class="btn btn-ghost">设置</a>
+          </header>
+          <div class="content">
+            <div class="ph-title">我的作品</div>
+            <div class="ph-sub">建书即写 · 设定与大纲是高级配置，随时可补</div>
+            <div class="sk-cards"><div class="sk card"></div><div class="sk card"></div><div class="sk card"></div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="win-cap">B 式 · 替换「设置」（动作区仍 2）</div>
+        <div class="win" data-od-id="variant-v1b-replace">
+          <header class="appbar">
+            <a class="logo"><span class="logo-mark">爱</span>爱小说</a>
+            <nav class="nav"><a class="on">我的作品</a><a>模型配置</a></nav>
+            <span class="spacer"></span>
+            <a class="btn btn-ghost">联系客服</a>
+            <span class="acct-cap mk" data-od-id="acct-capsule"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c1.6-3.2 4.2-4.8 7-4.8s5.4 1.6 7 4.8"/></svg><span class="un">modoojunko</span><span class="tb pro" data-od-id="acct-badge">PRO 会员</span></span>
+          </header>
+          <div class="content">
+            <div class="ph-title">我的作品</div>
+            <div class="ph-sub">建书即写 · 设定与大纲是高级配置，随时可补</div>
+            <div class="sk-cards"><div class="sk card"></div><div class="sk card"></div><div class="sk card"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <ul class="notes">
+      <li><b>点击链路（留档）</b>：点胶囊 → 直接打开设置弹窗并定位账号行；无菜单层。若未来评审重启此方向，交互口径见上一版稿存档。</li>
+      <li><b>未选理由</b>：与拍板的顶栏减法方向相逆——A 式动作区 3 元素，工具栏感最重；B 式「设置」失去文字锚点，客服可达性未改善。</li>
+    </ul>
+  </section>
+
+  <!-- ═══════════ 变体二：书架页头账号条（未选留档） ═══════════ -->
+  <section class="vsec">
+    <div class="frame-title">变体二 V2 · 书架页头账号条（欢迎区）<span class="verdict">未选 · 评审留档</span></div>
+    <div class="frame-desc">顶栏零改动，page-head 下方加账号条，临期态转 warn 并挂升级出口。未选理由：常驻欢迎条 filler 化；其「临期 / 过期警示 + 升级出口」遗产建议并入书架既有 quota-notice 通道条件性出现（随 V4' 实施可顺带裁定）。</div>
+    <div class="duo">
+      <div>
+        <div class="win-cap">PRO 态 · info 语气</div>
+        <div class="win" data-od-id="variant-v2-pro">
+          <header class="appbar">
+            <a class="logo"><span class="logo-mark">爱</span>爱小说</a>
+            <nav class="nav"><a class="on">我的作品</a><a>模型配置</a></nav>
+            <span class="spacer"></span>
+            <a class="btn btn-ghost">联系客服</a>
+            <a class="btn btn-ghost">设置</a>
+          </header>
+          <div class="content">
+            <div class="ph-title">我的作品</div>
+            <div class="ph-sub">建书即写 · 设定与大纲是高级配置，随时可补</div>
+            <div class="acct-strip mk" data-od-id="acct-welcome-strip">
+              <b>欢迎回来，modoojunko</b>
+              <span class="tb pro">PRO 会员</span>
+              <span class="as-spacer"></span>
+              <span class="as-note">账号与权益在设置内管理</span>
+            </div>
+            <div class="sk-cards"><div class="sk card"></div><div class="sk card"></div><div class="sk card"></div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="win-cap">试用临期态 · --warn 警示 + 升级出口</div>
+        <div class="win" data-od-id="variant-v2-trial">
+          <header class="appbar">
+            <a class="logo"><span class="logo-mark">爱</span>爱小说</a>
+            <nav class="nav"><a class="on">我的作品</a><a>模型配置</a></nav>
+            <span class="spacer"></span>
+            <a class="btn btn-ghost">联系客服</a>
+            <a class="btn btn-ghost">设置</a>
+          </header>
+          <div class="content">
+            <div class="ph-title">我的作品</div>
+            <div class="ph-sub">建书即写 · 设定与大纲是高级配置，随时可补</div>
+            <div class="acct-strip warn mk" data-od-id="acct-welcome-strip">
+              <b>欢迎回来，modoojunko</b>
+              <span class="tb warn">试用 · 剩 <span class="num">2</span> 天</span>
+              <span class="as-spacer"></span>
+              <span class="as-note">升级后不限作品数 · 现有作品不受影响</span>
+              <button class="btn btn-secondary">升级</button>
+            </div>
+            <div class="sk-cards"><div class="sk card"></div><div class="sk card"></div><div class="sk card"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <ul class="notes">
+      <li><b>点击链路（留档）</b>：条内任意位置 → 设置弹窗账号行；「升级」→ 升级购买页（与书满锁卡同链路）。</li>
+      <li><b>未选理由</b>：「欢迎回来」第二眼即零信息量，与「克制、不卖萌」文案基调相性一般；与免费满额 quota-notice 同屏时条海。临期 / 过期警示需求本身成立，遗产归入 notice 通道。</li>
+    </ul>
+  </section>
+
+  <!-- ═══════════ 变体三：状态条扩展（未选留档） ═══════════ -->
+  <section class="vsec">
+    <div class="frame-title">变体三 V3 · 底部状态条扩展<span class="verdict">未选 · 评审留档</span></div>
+    <div class="frame-desc">#336 状态条扩为「版权 · 账号 · 套餐 · 版本」。未选理由：26px 灰字在视觉动线末端——用户正是在 #336 已上线的背景下提出「显眼」需求，本落点不满足题眼。</div>
+    <div class="win" data-od-id="variant-v3-statusbar">
+      <header class="appbar">
+        <a class="logo"><span class="logo-mark">爱</span>爱小说</a>
+        <nav class="nav"><a class="on">我的作品</a><a>模型配置</a></nav>
+        <span class="spacer"></span>
+        <a class="btn btn-ghost">联系客服</a>
+        <a class="btn btn-ghost">设置</a>
+      </header>
+      <div class="content" style="min-height:120px;">
+        <div class="ph-title">我的作品</div>
+        <div class="ph-sub">顶栏现状零改动 · 身份下沉到 #336 状态条</div>
+        <div class="sk-cards"><div class="sk card"></div><div class="sk card"></div><div class="sk card"></div></div>
+      </div>
+      <footer class="statusbar" data-od-id="app-status-bar">
+        <span data-od-id="app-credits">© 2026 爱小说</span>
+        <span class="sb-right">
+          <span class="sb-acct mk" data-od-id="statusbar-account">modoojunko · PRO 会员</span>
+          <span>·</span>
+          <span class="num" data-od-id="status-version">v0.15.1</span>
+        </span>
+      </footer>
+    </div>
+    <ul class="notes">
+      <li><b>点击链路（留档）</b>：账号段可点开设置弹窗，但 26px / 11.5px 灰字热区小，可发现性存疑。</li>
+      <li><b>未选理由</b>：显眼度全场最低；仅当未来拍板「顶栏永远不放身份」时作为兜底复活。</li>
+    </ul>
+  </section>
+
+  <!-- ═══════════ 变体四 V4'：头像菜单 · 顶栏唯一入口（拍板推荐） ═══════════ -->
+  <section class="vsec">
+    <div class="frame-title">变体四 V4' · 控制中心面板（设置细项全量并入）· 顶栏动作区收敛为 1<span class="verdict pick">拍板推荐</span></div>
+    <div class="frame-desc">移除「联系客服」「设置」两枚常驻按钮，头像胶囊成为右侧唯一入口；PrefsModal 退役，接线审计后的有效细项并入面板——账号区头（完整档徽章）/ 数据组（备份 / 恢复）/ 模型配置 / 支持组（客服外链）/ 底部（退出登录警示调 + 可选版本行）；全局字号 / 行距 seg 与归档 AI 摘要开关经审计移除，面板内不再有任何偏好控件。触发钮保持四态短档，不点开也能看到套餐态。</div>
+    <div class="duo">
+      <div>
+        <div class="win-cap">a · 收起态 · 右侧仅剩 1 个入口</div>
+        <div class="win" data-od-id="variant-v4p-collapsed">
+          <header class="appbar">
+            <a class="logo"><span class="logo-mark">爱</span>爱小说</a>
+            <nav class="nav"><a class="on">我的作品</a><a>模型配置</a></nav>
+            <span class="spacer"></span>
+            <button class="acct-btn mk" data-od-id="acct-menu-trigger" aria-haspopup="menu" aria-expanded="false"><span class="avatar">m</span><span class="tb pro" data-od-id="acct-badge">PRO 会员</span><svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+          </header>
+          <div class="content">
+            <div class="ph-title">我的作品</div>
+            <div class="ph-sub">顶栏右侧：原「联系客服 / 设置」已收进头像菜单</div>
+            <div class="sk-cards"><div class="sk card"></div><div class="sk card"></div><div class="sk card"></div></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="win-cap">b · 展开态 · 控制中心面板（PRO · 分组与可点击区）</div>
+        <div class="win" data-od-id="variant-v4p-open-pro">
+          <header class="appbar">
+            <a class="logo"><span class="logo-mark">爱</span>爱小说</a>
+            <nav class="nav"><a class="on">我的作品</a><a>模型配置</a></nav>
+            <span class="spacer"></span>
+            <button class="acct-btn on mk" data-od-id="acct-menu-trigger" aria-haspopup="menu" aria-expanded="true"><span class="avatar">m</span><span class="tb pro" data-od-id="acct-badge">PRO 会员</span><svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+          </header>
+          <div class="content" style="min-height:290px;">
+            <div class="ph-title">我的作品</div>
+            <div class="ph-sub">控制中心面板 · 全部菜单项为流程项，关面板后进入对应流程；客服外链新窗口</div>
+            <div class="sk-cards"><div class="sk card"></div><div class="sk card"></div><div class="sk card"></div></div>
+          </div>
+          <div class="acct-menu mk" data-od-id="acct-menu">
+            <div class="am-head" data-od-id="acct-menu-head"><span class="avatar">m</span><span class="am-name" title="modoojunko">modoojunko</span><span class="tb pro">PRO 会员</span></div>
+            <div class="am-group" data-od-id="acct-menu-group-data">数据</div>
+            <button class="am-item" data-od-id="acct-menu-backup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10M8 9l4 4 4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>备份<span class="am-sub">选择文件夹导出</span></button>
+            <button class="am-item" data-od-id="acct-menu-restore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V11M8 15l4-4 4 4M4 7V5a2 2 0 012-2h12a2 2 0 012 2v2"/></svg>恢复<span class="am-sub">从备份文件导入</span></button>
+            <button class="am-item" data-od-id="acct-menu-config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="3.5"/><path d="M10.2 12.8L19 4M15.5 4.5l3 3M13 7l2.5 2.5"/></svg>模型配置 · API Key<span class="am-sub">去配置</span></button>
+            <div class="am-group" data-od-id="acct-menu-group-support">支持</div>
+            <a class="am-item" data-od-id="acct-menu-support" href="https://www.awesomenovel.com/support" target="_blank" rel="noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-8.5 8.5M18 13v5a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2h5"/></svg>联系客服<span class="am-sub">新窗口打开</span></a>
+            <div class="am-div"></div>
+            <button class="am-item warn-item" data-od-id="acct-menu-logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 5h4a1 1 0 011 1v12a1 1 0 01-1 1h-4M10 8l-4 4 4 4M6 12h9"/></svg>退出登录</button>
+            <div class="am-ver num" data-od-id="acct-menu-version" title="可选展示项 · 与 #336 状态条同源">v0.15.1</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="duo" style="margin-top:24px;">
+      <div>
+        <div class="win-cap">c · 试用临期 · 徽章区示意（面板与 b 同构，不重复整图）</div>
+        <div class="zoom-cell" data-od-id="zoom-acct-trial-badges">
+          <span class="zn">试用剩 2 天 · 两层徽章同步 warn</span>
+          <div style="display:flex; justify-content:center; padding:8px 0 2px;">
+            <button class="acct-btn on mk" data-od-id="acct-menu-trigger" aria-haspopup="menu" aria-expanded="true"><span class="avatar">m</span><span class="tb warn" data-od-id="acct-badge">试用 · 剩 <span class="num">2</span> 天</span><svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+          </div>
+          <div class="am-head" style="border:1px solid var(--border); margin:14px 0 0;"><span class="avatar">m</span><span class="am-name" title="modoojunko">modoojunko</span><span class="tb warn">试用中 · 剩 <span class="num">2</span> 天</span></div>
+          <p>触发钮用短档「试用 · 剩 <span class="num">2</span> 天」，菜单头用完整档「试用中 · 剩 <span class="num">2</span> 天」，两处同步 warn。面板分组、菜单项与 PRO 展开态（b 图）完全同构，仅徽章色档不同，不重复整图。</p>
+        </div>
+      </div>
+      <div>
+        <div class="win-cap">d · 两层徽章全态放大镜（菜单头完整档 × 触发钮短档）</div>
+        <div class="zoom-cell" data-od-id="zoom-acct-head-states">
+          <span class="zn">四态 · 完整档随弹窗退役迁入菜单头，色彩口径见口径表</span>
+          <div class="am-head"><span class="avatar">m</span><span class="am-name">modoojunko</span><span class="am-sub" style="flex:1; text-align:right; margin-right:8px; font-size:11px; color:var(--muted);">触发钮：PRO 会员</span><span class="tb pro">PRO 会员</span></div>
+          <div class="am-head"><span class="avatar">m</span><span class="am-name">modoojunko</span><span class="am-sub" style="flex:1; text-align:right; margin-right:8px; font-size:11px; color:var(--muted);">触发钮：试用 · 剩 <span class="num">12</span> 天</span><span class="tb trial">试用中 · 剩 <span class="num">12</span> 天</span></div>
+          <div class="am-head"><span class="avatar">m</span><span class="am-name">modoojunko</span><span class="am-sub" style="flex:1; text-align:right; margin-right:8px; font-size:11px; color:var(--muted);">触发钮：试用 · 剩 <span class="num">2</span> 天</span><span class="tb warn">试用中 · 剩 <span class="num">2</span> 天</span></div>
+          <div class="am-head"><span class="avatar">m</span><span class="am-name">modoojunko</span><span class="am-sub" style="flex:1; text-align:right; margin-right:8px; font-size:11px; color:var(--muted);">触发钮：免费版（合并）</span><span class="tb free">套餐已过期 · 免费待遇</span></div>
+          <div class="am-head" style="margin-bottom:10px;"><span class="avatar">m</span><span class="am-name">modoojunko</span><span class="am-sub" style="flex:1; text-align:right; margin-right:8px; font-size:11px; color:var(--muted);">触发钮：免费版</span><span class="tb free">免费版 · 单机使用</span></div>
+          <div class="am-head" style="border-bottom-style:dashed; margin-bottom:0;"><span class="avatar">m</span><span class="am-name">modoojunko</span><span class="am-sub" style="flex:1; text-align:right; margin-right:8px; font-size:11px; color:var(--muted);">降级示意 · 文案不变仅换色</span><span class="tb warn" title="权益核验中，暂按现有待遇">PRO 会员</span></div>
+          <p><b>免费版与过期徽章合并（用户拍板）</b>：触发钮层「免费版」单档；完整档区分（「套餐已过期 · 免费待遇」）保留在菜单头、muted 不上 warn；过期提醒主通道 = 书架既有到期提示条（<span class="num">ExpiryNoticeBar</span>），徽章不重复叙事。</p>
+          <p><b>降级换色规则（用户拍板）</b>：S 端不可达（entitlement_degraded）不是独立态——末行示意：两层文案都沿用前次成功判定原文，仅配色整体转 warn，触发钮与菜单头同步；悬停 title「权益核验中，暂按现有待遇」为可选细节。用户名取不到时头像退化为通用人形图标（<span class="num">.avatar svg</span> 人形），不硬造。</p>
+        </div>
+      </div>
+    </div>
+    <ul class="notes">
+      <li><b>做法</b>：Navbar 登录态动作区 3→1（移除 SupportLink 与「设置」ghost 按钮，头像胶囊唯一入口）；PrefsModal 整体退役，接线审计后的有效细项并入面板——<b>账号区头</b>（<span class="num">getUsername() + /auth/verify</span>，徽章 = tierLabel 完整档原文，账号事实层迁入）、<b>数据组</b>（备份 / 恢复，接口均已接线；点击关面板 → 各自弹窗流程，RestoreModal 随迁不删）、<b>模型配置</b>（真路由；关面板 → 跳 <span class="num">#/config</span>）、<b>支持组</b>（联系客服，<span class="num">target="_blank"</span> 锚点外链）、<b>底部</b>（退出登录警示调 + 可选版本行）；<b>全局默认字号 / 行距 seg 与归档 AI 摘要开关均裁撤</b>——字号行距与本书偏好功能重叠，唯一入口收敛到 BookPrefsModal，新书用内置默认；摘要开关移除后归档行为走默认（开），数据层回退链不动、行为不变。</li>
+      <li><b>分组理由（PM 调整说明）</b>：数据组单独成组——低频且语义重（动用户文件），隔离防误触；「模型配置」不设组标签——单项不成组，避免伪层级；「支持」组收拢对外动作，并为后续帮助类入口（如更新日志）预留扩展位；退出登录沉底 + 警示调——与面板内其他操作隔离，符合桌面惯例；面板自此无任何即存即效控件，全部为流程项，交互模型更简单。</li>
+      <li><b>点击链路</b>：备份 / 恢复 → 关面板 → 各自弹窗流程；模型配置 → 关面板 → <span class="num">#/config</span>；联系客服 → 新窗口打开支持页（<span class="num">supportUrl()</span> 下发，<span class="num">awesomenovel.com/support</span> 为示意，取不到不出死链、菜单项隐藏）；退出登录 →（轻确认，终审定案①）→ 清凭据回落地页；字号 / 行距 → 面板不再承载，去工作台本书偏好（BookPrefsModal）。</li>
+      <li><b>面板形态约束</b>：宽 <span class="num">280px</span>（宽度由账号头完整档徽章「套餐已过期 · 免费待遇」决定）；偏好控件全部裁撤后面板自然高度约 <span class="num">270px</span>，常规窗口无需滚动——<span class="num">max-height: min(560px, 视口高 − appbar − 24px)</span> 内滚动降为窄窗 / 小屏兜底；分组标签 <span class="num">11px muted</span>、组间留白分隔不加重线；窄窗右缘钳制沿用。原「双列分组」备选随面板变矮<b>撤销</b>——单列已无过高问题。</li>
+      <li><b>取舍 / 风险</b>：有效设置一次点击可达（较原弹窗路径更短）；裁撤全局字号 / 行距与摘要开关后，改排版要多走一步（进书 → 本书偏好）、摘要无界面可关（行为默认开、数据层不动）——属「少即是多」的可接受代价；PrefsModal 退役的组件 / 用例 / 原型迁移面见口径节代价清单；退出登录警示调 + 沉底降低误触，轻确认已定案（终审①）。</li>
+      <li><b>与 #336 的关系（改写）</b>：状态条版本仍是报障终点、唯一话术（「窗口最下面一行右下角」）；菜单底部版本行标为<b>可选展示</b>（与 #336 同源、只读零交互）——<b>结论：保留</b>。理由：控制中心成为设置唯一入口后，用户截图求助时一张菜单同时可见账号、套餐、版本，工单沟通成本最低，代价仅一行小字；若实测面板纵向过挤，优先裁它，报障职责由 #336 兜底不丢。</li>
+    </ul>
+  </section>
+
+  <!-- ═══════════ 横向对比 ═══════════ -->
+  <div class="panel" style="margin-bottom:28px;">
+    <h2>四个变体评审结论</h2>
+    <table class="cmp">
+      <tr><th>变体</th><th>结论</th><th>显眼度</th><th>顶栏动作区</th><th>新组件</th><th>核心理由</th></tr>
+      <tr>
+        <td>V1 账号胶囊</td><td>未选</td><td>高</td><td>2→3（A）/ 2（B）</td><td>无</td><td>做加法方向与拍板的顶栏减法相逆；工具栏感 / 失「设置」锚点</td>
+      </tr>
+      <tr>
+        <td>V2 页头欢迎条</td><td>未选</td><td>最高</td><td>0</td><td>无</td><td>常驻 filler 化；条海；警示遗产并入 notice 通道</td>
+      </tr>
+      <tr>
+        <td>V3 状态条扩展</td><td>未选</td><td>低</td><td>0</td><td>无</td><td>26px 灰字不满足「显眼」题眼</td>
+      </tr>
+      <tr>
+        <td class="pick">V4' 控制中心面板（设置全量并入）</td><td class="pick">拍板</td><td class="pick">高（徽章常驻触发钮）</td><td class="pick">收敛为 1 个入口</td><td class="pick">控制中心面板</td><td class="pick">顶栏减法 + 设置全量收口 + 身份标准位；代价：面板高度管理 + PrefsModal 迁移面</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- ═══════════ PM 推荐（修订版） ═══════════ -->
+  <div class="panel">
+    <h2>PM 推荐与拍板状态（修订版）</h2>
+    <div class="rec-box">
+      <b>推荐（已拍板）：V4' 控制中心面板——头像菜单收编客服与接线审计后保留的设置项，PrefsModal 退役，顶栏右侧只留头像一个入口。</b>「菜单只是轻入口」的旧假设被拍板推翻：设置的唯一入口就是面板本身；冗余项（全局字号 / 行距）经审计裁撤。本节把判断变更摆上台面，并把剩余决策收敛为四项。
+    </div>
+    <ol>
+      <li><b>为什么推翻「V4 另开一期」</b>：① 用户直接拍板头像菜单方向——产品判断让位于明确的用户偏好，这是需求不是争议；② <b>客服收编放大了减法收益</b>：单独收编设置只省一个按钮，客服一并收进后右侧收敛为单一身份入口，「界面更简洁」的诉求从边际改善变成结构改善；③ popover 的组件成本是一次性投入，菜单形态为后续「账号独立页 / 多账号」预留 IA 位置，越早落位越少返工。原判断的保守点（新组件 + 退出登录 IA 风险）已在口径节逐条给出交互纪律与代价清单，风险可控。设置细项并入（本轮拍板）是同一逻辑的延伸——用户要的是更少的容器，不是更多的入口；偏好项即存即效、无「保存」语义，本就不该独占一个 Modal。</li>
+      <li><b>已拍板 vs 仍需拍板（终审全部闭环）</b>：
+        <table class="decide">
+          <tr><th>已拍板（终审定案）</th><th>仍需拍板</th></tr>
+          <tr>
+            <td class="yes">落点 = V4' 控制中心面板；<b>PrefsModal 细项并入、设置弹窗退役（用户拍板）</b>；<b>全局字号 / 行距裁撤（审计=与本书偏好重复）、归档 AI 摘要开关移除（用户拍板）——均只删界面入口，数据层不动</b>；<b>归档设置下沉到书设置：BookPrefsModal（本书偏好）补「归档 AI 摘要」per-book 开关，数据层已存在、只补 UI，书级未设置回退全局默认（开）</b>；账号 + 套餐合体（菜单头完整档 + 触发钮短档）</td>
+            <td class="todo">无——全部闭环（终审通过，此前 ①–④ 按 PM 倾向定案，见下）</td>
+          </tr>
+          <tr>
+            <td class="yes">「联系客服」收进面板「支持」组——原待拍板「设置弹窗补客服链」随弹窗退役<b>作废关闭</b>；顶栏移除「联系客服 / 设置」两枚常驻按钮；徽章四态 + 免费版与过期合并 + 降级换色（tierLabel 单源零改动，完整档展示位迁至菜单头）；面板内全部为流程项，无即存即效控件</td>
+            <td class="todo">—</td>
+          </tr>
+          <tr>
+            <td class="yes"><b>终审定案四项（按 PM 倾向）</b>：① 退出登录加轻确认（面板内联确认或小弹窗，<span class="num">logout()</span> 前置一步确认）；② 头像用用户名首字，取不到退化通用人形图标；③ 工作台等内页顶栏同步这套减法（同一控制中心，工作台语境的本书偏好入口不变）；④ 试用 ≤3 天转 --warn 阈值定案</td>
+            <td class="todo">—</td>
+          </tr>
+          <tr>
+            <td class="yes">过期提醒主通道 = 书架既有到期提示条（ExpiryNoticeBar）；#336 状态条报障终点不动；外链纪律：target=_blank 锚点、禁编程式 window.open、无地址不出死链</td>
+            <td class="todo">—</td>
+          </tr>
+        </table>
+      </li>
+      <li><b>验收标准清单</b>：
+        <ul class="check">
+          <li>登录后书架顶栏右侧仅剩头像胶囊一个入口；控制中心面板结构齐：账号区头 / 数据组（备份 / 恢复）/ 模型配置 / 支持组（联系客服）/ 底部（退出登录 + 可选版本行）；面板无字号 / 行距入口、无 AI 摘要开关；头像用用户名首字、取不到退化人形图标（②定案）</li>
+          <li>触发钮徽章四态短档；菜单头徽章 tierLabel 完整档原文（过期 / 免费区分保留在此，muted、不上 warn）；降级 = 前态换 warn 色（两层同步）；全场景无 --err</li>
+          <li>备份 / 恢复 / 模型配置点击关面板并进入对应流程；字号 / 行距唯一入口为工作台本书偏好（BookPrefsModal）；归档 AI 摘要控制粒度在书设置——BookPrefsModal 补 per-book 开关（数据层已有、只补 UI），书级未设置回退全局默认（开），lib/prefs 与消费点零改动</li>
+          <li>PrefsModal 退役干净：组件与「设置」入口移除、RestoreModal 随迁可用；<span class="num">modals-pr5</span> / <span class="num">__tests__</span> 迁移后全绿（全局字号 / 行距 seg 用例删除或改指向本书偏好、归档 AI 摘要开关用例删除）；BookPrefsModal 新增开关用例、lib/prefs 既有测试引用核对修订；list.html「设置弹窗」段落重铸并 ADJUSTMENTS.md 登记</li>
+          <li>过期提醒主通道为书架既有到期提示条（ExpiryNoticeBar），徽章不重复叙事</li>
+          <li>「联系客服」为 <span class="num">target="_blank"</span> 锚点、无编程式 window.open；URL 走 <span class="num">supportUrl()</span>，未就绪时菜单项隐藏不出死链</li>
+          <li>退出登录带轻确认（内联确认或小弹窗，已定案①）后再清凭据回落地页；版本行按可选结论保留、只读</li>
+          <li>交互回归：Esc 关面板并回焦触发钮、点击外部关闭、方向键移动焦点、<span class="num">aria-haspopup / aria-expanded</span> 正确、开面板触发钮高亮；面板 <span class="num">280px</span>、窄窗右缘钳制，内滚动仅窄窗兜底</li>
+          <li>用户名 &gt;12ch 省略号截断 + title 全文；未登录落地页顶栏 diff 为零；工作台等内页顶栏同步减法（③定案）；#336 状态条、quota notice、更新提示条零回归</li>
+          <li><span class="num">data-od-id</span> 挂齐（<span class="num">acct-menu-trigger / acct-menu / acct-menu-head / acct-menu-backup / acct-menu-restore / acct-menu-config / acct-menu-support / acct-menu-logout / acct-menu-version</span>）</li>
+        </ul>
+      </li>
+    </ol>
+    <p class="muted">终审已通过，本稿定稿为实施基准（V4' 控制中心面板终案），待拍板项全部闭环；实施侧按「先改原型并 ADJUSTMENTS 登记、再改实现、design:check 全绿」流程落地。本稿自身未改动 prototypes/ 原型库本体、openspec 与任何实现代码。</p>
+  </div>
+
+</div>
+</body>
+</html>

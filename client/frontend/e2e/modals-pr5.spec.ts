@@ -10,7 +10,7 @@ import { test, expect, type Page, type APIRequestContext } from "@playwright/tes
 //   ② 只读章 AI 解锁链：归档 → 工具栏 AI 生成正文 → 解除只读确认 → AiModal
 //      提示词预览 → 取消不生成但已解锁（真 bug #1）+ AI 确认后自动切正文页签（真 bug #2）
 //   ③ 版本历史弹窗：两轮自动保存产生快照 → ver-row 列表 + 当前版本 → 恢复回退正文
-//   ④ 本书偏好弹窗：appbar 设置 → per-book 字号保存持久 + 免费态升级 PRO 链升级弹窗
+//   ④ 本书偏好弹窗：面板「本书偏好」→ per-book 字号保存持久 + 免费态升级 PRO 链升级弹窗
 // =========================================================================
 // 鉴权手法与 workbench-features.spec.ts 一致：S端 真实注册登录 → 写 docker
 // 容器 config.json（trial=PRO / none=免费）→ localStorage 注入 auth_token。
@@ -355,8 +355,9 @@ test("本书偏好：字号 per-book 持久 + 免费态升级 PRO 链升级弹�
   try {
     const pid = await createNovel(page, `偏好${Date.now() % 100000}`);
 
-    // 工作台 appbar「设置」→ 本书偏好弹窗（四行偏好）
-    await page.getByRole("button", { name: "设置", exact: true }).click();
+    // 工作台 appbar 头像触发钮 → 面板「本书偏好」→ 本书偏好弹窗（四行偏好）
+    await page.locator('[data-od-id="acct-trigger"]').click();
+    await page.locator('[data-od-id="acct-menu-bookprefs"]').click();
     const dlg = page.getByRole("dialog");
     await expect(
       dlg.getByRole("heading", { name: "设置 · 写作偏好" }),
@@ -380,7 +381,8 @@ test("本书偏好：字号 per-book 持久 + 免费态升级 PRO 链升级弹�
     await expect(page.getByRole("dialog")).toHaveCount(0);
 
     // 字号切「大」→ 保存 → per-book 落库（pref.book.{pid}.fs）+ 重开保持
-    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await page.locator('[data-od-id="acct-trigger"]').click();
+    await page.locator('[data-od-id="acct-menu-bookprefs"]').click();
     await dlg.getByRole("button", { name: "大", exact: true }).click();
     await dlg.getByRole("button", { name: "保存" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -391,7 +393,8 @@ test("本书偏好：字号 per-book 持久 + 免费态升级 PRO 链升级弹�
       ),
     ).toBe("fs-l");
 
-    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await page.locator('[data-od-id="acct-trigger"]').click();
+    await page.locator('[data-od-id="acct-menu-bookprefs"]').click();
     await expect(
       page
         .getByRole("dialog")

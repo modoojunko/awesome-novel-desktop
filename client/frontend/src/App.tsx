@@ -9,7 +9,6 @@ import NovelLayout from "@/pages/NovelLayout";
 import NovelWorkspace from "@/components/novel/NovelWorkspace";
 import MemberBlockPrompt from "@/components/novel/license/MemberBlockPrompt";
 import AuthGuard from "@/components/auth/AuthGuard";
-import { LicenseProvider } from "@/components/novel/license/LicenseProvider";
 import { isLoggedIn } from "@/lib/auth";
 
 /** 301 过渡：旧路由 /project/:id → /novel/:id */
@@ -18,15 +17,11 @@ function RedirectToNovel() {
   return <Navigate to={"/novel/" + id} replace />;
 }
 
-/** 认证后路由根壳（c-s-entitlement-sync）：AuthGuard 最外，LicenseProvider
- * 上移至此——书列表与工作台全部认证路由共享权益上下文（degraded 提示条、
- * 路由切换两跳刷新都依赖此挂载点）。 */
+/** 认证后路由根壳：AuthGuard 最外。LicenseProvider 已上移至 ClientShell 已登录
+ * 分支（c-account-control-center）——控制中心面板在全部已登录路由（含 /config）
+ * 都有权益上下文，书列表/工作台路由经此共享。 */
 function Authed({ children }: { children: React.ReactNode }) {
-  return (
-    <AuthGuard>
-      <LicenseProvider>{children}</LicenseProvider>
-    </AuthGuard>
-  );
+  return <AuthGuard>{children}</AuthGuard>;
 }
 
 /** `/` 分流：静态首页只服务未登录；已登录直落书架，不再看入口卡。 */

@@ -7,6 +7,7 @@ import Modal from "@/components/design/Modal";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import { api } from "@/lib/api";
 import { isLoggedIn } from "@/lib/auth";
+import { tierLabel as sharedTierLabel } from "@/lib/tier";
 import { formatVersion, useClientVersion } from "@/lib/version";
 import {
   getBookArchiveAiSummary,
@@ -32,12 +33,8 @@ const LINE_HEIGHTS: { v: LineHeightPref; label: string }[] = [
 
 function tierLabel(r: any): string {
   if (!isLoggedIn()) return "未登录 · 单机使用";
-  if (r?.expired) return "套餐已过期 · 免费待遇";
-  if (r?.tier === "trial")
-    return r?.trial_remaining_days > 0 ? `试用中 · 剩 ${r.trial_remaining_days} 天` : "试用中";
-  if (r?.is_member) return "PRO 版 · AI 能力已解锁";
-  // 免费态文案对齐原型 modalPrefs（「免费版 · 单机使用」）——PR5 弹窗 parity 口径
-  return "免费版 · 单机使用";
+  // 文案单源 lib/tier.ts（c-account-control-center）：会员档统一「PRO 会员」
+  return sharedTierLabel(r ?? {});
 }
 
 export default function BookPrefsModal({

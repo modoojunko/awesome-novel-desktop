@@ -92,8 +92,8 @@ test.describe("底部状态条", () => {
   });
 });
 
-test.describe("版本行与账号行（设置弹窗）", () => {
-  test("全局偏好弹窗：账号行「用户名 · 套餐」同屏 + 底部版本行（吃缓存零新请求）", async ({
+test.describe("版本行与账号行（控制中心面板）", () => {
+  test("面板账号区头「用户名 · 完整档」同屏 + 底部版本行（吃缓存零新请求）", async ({
     page,
   }) => {
     await stubShell(page, "writer01");
@@ -101,32 +101,29 @@ test.describe("版本行与账号行（设置弹窗）", () => {
     await page.goto("/#/novels");
     await expect(page.locator('[data-od-id="app-status-bar"]')).toBeVisible(); // 状态条先触发一次取版本（缓存建立）
 
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    const dlg = page.getByRole("dialog");
-    await expect(dlg.getByRole("heading", { name: "设置 · 写作偏好" })).toBeVisible();
-    await expect(dlg.locator('[data-od-id="pref-account"]')).toHaveText("writer01 · PRO 会员");
-    await expect(dlg.locator('[data-od-id="pref-version"]')).toHaveText("v0.15.1"); // 弹窗吃缓存不发新请求
+    await page.locator('[data-od-id="acct-trigger"]').click();
+    await expect(page.locator('[data-od-id="acct-menu"]')).toBeVisible();
+    const head = page.locator('[data-od-id="acct-menu-head"]');
+    await expect(head).toContainText("writer01");
+    await expect(head).toContainText("PRO 会员"); // 完整档文案（单源 lib/tier.ts）
+    await expect(page.locator('[data-od-id="acct-menu-version"]')).toHaveText("v0.15.1"); // 面板吃缓存不发新请求
   });
 
-  test("长用户名：截断不撑破行布局，悬停 title 见全文", async ({ page }) => {
+  test("长用户名：截断不撑破面板，悬停 title 见全文", async ({ page }) => {
     const longName = "w".repeat(38) + "-end"; // 42 字符
     await stubShell(page, longName);
     await stubUpdateNotice(page, "none", "0.15.1");
     await page.goto("/#/novels");
 
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    const account = page.locator('[data-od-id="pref-account"]');
-    await expect(account).toBeVisible();
-    await expect(account).toHaveAttribute("title", longName);
-    const style = await account.evaluate((el) => {
+    await page.locator('[data-od-id="acct-trigger"]').click();
+    const name = page.locator('[data-od-id="acct-menu-head"] .am-name');
+    await expect(name).toBeVisible();
+    await expect(name).toHaveAttribute("title", longName);
+    const style = await name.evaluate((el) => {
       const s = getComputedStyle(el);
       return { overflow: s.overflow, textOverflow: s.textOverflow, whiteSpace: s.whiteSpace };
     });
     expect(style.textOverflow).toBe("ellipsis");
     expect(style.whiteSpace).toBe("nowrap");
-    // 行不撑破：账号行宽度不超过弹窗体宽度
-    const box = await account.boundingBox();
-    const body = await page.getByRole("dialog").boundingBox();
-    expect(box!.width).toBeLessThan(body!.width);
   });
 });

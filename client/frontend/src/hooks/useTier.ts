@@ -12,6 +12,7 @@ const SAFE_FREE: TierState = {
   trialRemainingDays: 0,
   entitlement: null,
   entitlementDegraded: false,
+  syncFailed: false,
   loading: false,
   error: null,
   refetch: () => {},
