@@ -342,6 +342,14 @@ async def set_project_model(
     old_config_id = project.ai_config_id
     old_model = project.ai_model
 
+    # 幂等（9.2.13）：同值重复提交不写审计、不改状态，直接返回
+    if old_config_id == api_config_id and old_model == model:
+        return {
+            "id": project.id,
+            "ai_config_id": project.ai_config_id,
+            "ai_model": project.ai_model,
+        }
+
     # Determine change_type
     if old_config_id is None and old_model is None:
         change_type = "initial"

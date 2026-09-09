@@ -593,3 +593,54 @@ class TestIntroAi:
         assert r.json() == {"original": "原文", "polished": "改后", "act": "replace"}
         # 长文生成类：temperature 0.7（与 JSON 判定类区分）
         assert fake.last_kwargs["temperature"] == 0.7
+
+
+# ── 幂等（9.2.13）──────────────────────────────────────────────────────────
+
+
+class TestSetModelIdempotency:
+    def test_same_pair_twice_no_duplicate_audit(self, client):
+        from models.audit_log import ProjectModelAuditLog
+
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel())
+        payload = {"api_config_id": cid, "model": "gpt-4o"}
+        for _ in range(2):
+            r = client.put(f"/api/v1/novels/{nid}/ai-model", json=payload)
+            assert r.status_code == 200, r.text
+
+        async def _count():
+            async with async_session() as session:
+                res = await session.execute(
+                    select(ProjectModelAuditLog).where(
+                        ProjectModelAuditLog.project_id == nid
+                    )
+                )
+                return len(res.scalars().all())
+
+        assert _run_async(_count()) == 1
+
+    def test_different_model_writes_audit(self, client):
+        from models.audit_log import ProjectModelAuditLog
+
+        cid = _run_async(_make_config(["gpt-4o", "gpt-4o-mini"]))
+        nid = _run_async(_make_novel())
+        client.put(
+            f"/api/v1/novels/{nid}/ai-model",
+            json={"api_config_id": cid, "model": "gpt-4o"},
+        )
+        client.put(
+            f"/api/v1/novels/{nid}/ai-model",
+            json={"api_config_id": cid, "model": "gpt-4o-mini"},
+        )
+
+        async def _count():
+            async with async_session() as session:
+                res = await session.execute(
+                    select(ProjectModelAuditLog).where(
+                        ProjectModelAuditLog.project_id == nid
+                    )
+                )
+                return len(res.scalars().all())
+
+        assert _run_async(_count()) == 2
