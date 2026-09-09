@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { introAi, aiBlockReason, detailMessage } from "@/lib/ai";
+import { introAi, genreAi, aiBlockReason, detailMessage } from "@/lib/ai";
 
 // 简介 AI 调用层（genre-signup-redesign tasks 3.5 / D7）
 describe("detailMessage 归一化", () => {
@@ -64,5 +64,41 @@ describe("introAi 请求形态", () => {
     );
     const body = JSON.parse(String(spy.mock.calls[0][1]?.body));
     expect(body.missing_segments).toEqual(["本来的生活"]);
+  });
+});
+
+// tasks 9.1.7：题材字段 AI 的 URL/入参形态
+describe("genreAi 请求形态", () => {
+  beforeEach(() => vi.restoreAllMocks());
+
+  it.each(["core_promise", "forbidden_list", "cost_ratio", "battlefield", "track"] as const)(
+    "POST /settings/ai/genre/%s，入参 title + context",
+    async (field) => {
+      const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ value: "x" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      await genreAi(field, { title: "我的书", context: { current: "旧值" } }, "pid-1");
+      const [url, init] = spy.mock.calls[0];
+      expect(String(url)).toContain(`/novels/pid-1/settings/ai/genre/${field}`);
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        title: "我的书",
+        context: { current: "旧值" },
+      });
+    },
+  );
+
+  it("context 缺省为空对象", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ value: 1 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await genreAi("cost_ratio", { title: "书" }, "p1");
+    expect(JSON.parse(String(spy.mock.calls[0][1]?.body)).context).toEqual({});
   });
 });
