@@ -24,7 +24,7 @@ export function useModelStatus(projectId: string | undefined) {
       return;
     }
     try {
-      const resp = await fetch(`${API_BASE}/projects/${projectId}/ai-model`, { headers: authHeaders() });
+      const resp = await fetch(`${API_BASE}/novels/${projectId}/ai-model`, { headers: authHeaders() });
       if (resp.ok) {
         const data = await resp.json();
         setCurrentConfigId(data.api_config_id);
@@ -69,7 +69,7 @@ export function useModelStatus(projectId: string | undefined) {
     model: string | null,
   ) => {
     if (!projectId) return;
-    const resp = await fetch(`${API_BASE}/projects/${projectId}/ai-model`, {
+    const resp = await fetch(`${API_BASE}/novels/${projectId}/ai-model`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ api_config_id: apiConfigId, model }),

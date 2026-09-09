@@ -293,7 +293,7 @@ async def config_usage(
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@router.get("/projects")
+@router.get("/novels")
 async def list_projects_v1(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -304,7 +304,7 @@ async def list_projects_v1(
 
 
 # STATIC before parameterized
-@router.post("/projects/apply-model-to-all")
+@router.post("/novels/apply-model-to-all")
 async def apply_model_to_all(
     body: ApplyModelToAllBody,
     user: dict = Depends(get_current_user),
@@ -320,7 +320,7 @@ async def apply_model_to_all(
     return result
 
 
-@router.get("/projects/{project_id}")
+@router.get("/novels/{project_id}")
 async def get_project_v1(
     project_id: str,
     user: dict = Depends(get_current_user),
@@ -333,7 +333,7 @@ async def get_project_v1(
     return novel_to_dict(project)
 
 
-@router.get("/projects/{project_id}/ai-model")
+@router.get("/novels/{project_id}/ai-model")
 async def get_project_model(
     project_id: str,
     user: dict = Depends(get_current_user),
@@ -346,7 +346,7 @@ async def get_project_model(
     return result
 
 
-@router.put("/projects/{project_id}/ai-model")
+@router.put("/novels/{project_id}/ai-model")
 async def set_project_model_route(
     project_id: str,
     body: SetAiModelBody,
@@ -366,7 +366,7 @@ async def set_project_model_route(
     return result
 
 
-@router.get("/projects/{project_id}/model-history")
+@router.get("/novels/{project_id}/model-history")
 async def get_model_history_route(
     project_id: str,
     user: dict = Depends(get_current_user),
@@ -379,7 +379,7 @@ async def get_model_history_route(
     return {"history": entries}
 
 
-@router.post("/projects/{project_id}/model-history/{entry_id}/restore")
+@router.post("/novels/{project_id}/model-history/{entry_id}/restore")
 async def restore_model_history_route(
     project_id: str,
     entry_id: str,
@@ -395,7 +395,7 @@ async def restore_model_history_route(
     return result
 
 
-@router.get("/projects/{project_id}/usage")
+@router.get("/novels/{project_id}/usage")
 async def project_usage(
     project_id: str,
     user: dict = Depends(get_current_user),

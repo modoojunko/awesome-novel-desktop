@@ -88,7 +88,7 @@ async def lifespan(app: FastAPI):
     try:
         async with engine.begin() as conn:
             await conn.execute(
-                text("ALTER TABLE projects ADD COLUMN source TEXT DEFAULT 'ai'")
+                text("ALTER TABLE novels ADD COLUMN source TEXT DEFAULT 'ai'")
             )
     except Exception:
         pass  # 列已存在
@@ -97,7 +97,7 @@ async def lifespan(app: FastAPI):
     try:
         async with engine.begin() as conn:
             await conn.execute(
-                text("ALTER TABLE projects ADD COLUMN backfill_status TEXT DEFAULT 'none'")
+                text("ALTER TABLE novels ADD COLUMN backfill_status TEXT DEFAULT 'none'")
             )
     except Exception:
         pass  # 列已存在
@@ -109,7 +109,7 @@ async def lifespan(app: FastAPI):
     try:
         async with engine.begin() as conn:
             await conn.execute(
-                text("ALTER TABLE projects DROP COLUMN index_status")
+                text("ALTER TABLE novels DROP COLUMN index_status")
             )
     except Exception:
         pass

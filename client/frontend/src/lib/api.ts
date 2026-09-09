@@ -107,10 +107,10 @@ export async function request(
         ? err.detail
         : err.detail?.message || res.statusText;
     // 附带 HTTP 状态码：调用方据此区分结构性错误（404/405 端点缺失）与网络/服务端错误
-    const e = new Error(message) as Error & { status?: number; projects?: string[] };
+    const e = new Error(message) as Error & { status?: number; novels?: string[] };
     e.status = res.status;
-    if (typeof err.detail === "object" && Array.isArray(err.detail.projects)) {
-      e.projects = err.detail.projects;
+    if (typeof err.detail === "object" && Array.isArray(err.detail.novels)) {
+      e.novels = err.detail.novels;
     }
     throw e;
   }

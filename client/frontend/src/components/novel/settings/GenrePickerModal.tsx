@@ -31,7 +31,7 @@ interface GenrePickerModalProps {
 
 interface DeleteError {
   message: string;
-  projects?: string[];
+  novels?: string[];
 }
 
 // ── Component ────────────────────────────────────────────────────────────
@@ -114,9 +114,9 @@ export default function GenrePickerModal({
       setSelectedId((s) => (s === deleteTarget.id ? undefined : s));
       setDeleteTarget(null);
     } catch (e: any) {
-      // 409 时 e.projects 已由 request() 透传
+      // 409 时 e.novels 已由 request() 透传
       setDeleteTarget(null);
-      setDeleteError({ message: e.message || "删除失败", projects: e?.projects });
+      setDeleteError({ message: e.message || "删除失败", novels: e?.novels });
     }
   };
 
@@ -167,8 +167,8 @@ export default function GenrePickerModal({
         {deleteError && (
           <p className="opt" style={{ color: "var(--err)", margin: "10px 0 0" }}>
             {deleteError.message}
-            {deleteError.projects && deleteError.projects.length > 0 && (
-              <>　使用该题材的作品：{deleteError.projects.join("、")}</>
+            {deleteError.novels && deleteError.novels.length > 0 && (
+              <>　使用该题材的作品：{deleteError.novels.join("、")}</>
             )}
           </p>
         )}

@@ -23,7 +23,7 @@ export function useChangeHistory(projectId: string | undefined) {
     setError(null);
     try {
       const resp = await fetch(
-        `${API_BASE}/projects/${projectId}/model-history`,
+        `${API_BASE}/novels/${projectId}/model-history`,
         { headers: authHeaders() },
       );
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -43,7 +43,7 @@ export function useChangeHistory(projectId: string | undefined) {
   const restoreVersion = async (entryId: string) => {
     if (!projectId) return;
     const resp = await fetch(
-      `${API_BASE}/projects/${projectId}/model-history/${entryId}/restore`,
+      `${API_BASE}/novels/${projectId}/model-history/${entryId}/restore`,
       { method: "POST", headers: authHeaders() },
     );
     if (resp.status === 400) {

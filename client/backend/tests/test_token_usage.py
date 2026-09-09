@@ -144,7 +144,7 @@ def test_settings_field_generation_records_usage(client, project_id):
         json={"context": {}},
     )
     assert resp.status_code == 200, resp.text
-    usage_resp = client.get("/api/v1/projects/" + project_id + "/usage")
+    usage_resp = client.get("/api/v1/novels/" + project_id + "/usage")
     assert usage_resp.status_code == 200, usage_resp.text
     assert usage_resp.json().get("total_tokens", 0) > 0
 

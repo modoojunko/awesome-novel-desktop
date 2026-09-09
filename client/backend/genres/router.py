@@ -118,7 +118,7 @@ async def delete_genre_route(
             409,
             detail={
                 "message": f"该题材正在被 {len(projects)} 个作品使用，无法删除",
-                "projects": projects,
+                "novels": projects,
             },
         )
 

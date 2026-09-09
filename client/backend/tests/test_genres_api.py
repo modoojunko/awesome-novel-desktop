@@ -254,7 +254,7 @@ class TestGenreDeleteReferenceGuard:
         r = client.delete(f"/api/genres/{gid}")
         assert r.status_code == 409, r.text
         detail = r.json()["detail"]
-        assert name in detail["projects"]
+        assert name in detail["novels"]
         assert "无法删除" in detail["message"]
 
         # 删除未引用自定义题材仍成功（对照组）

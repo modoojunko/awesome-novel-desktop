@@ -20,7 +20,7 @@ class TokenLog(Base):
         String(36), ForeignKey("users.id"), nullable=False
     )
     project_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("projects.id"), nullable=True
+        "novel_id", String(36), ForeignKey("novels.id"), nullable=True
     )
     api_config_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("api_configs.id", ondelete="SET NULL"), nullable=True

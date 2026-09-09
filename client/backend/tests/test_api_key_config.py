@@ -125,7 +125,7 @@ async def _create_project(
             user_id=user_id,
             name=name,
             slug=name.lower().replace(" ", "-") + "-" + uuid.uuid4().hex[:6],
-            root_path=f"/tmp/projects/{user_id}/{name}",
+            root_path=f"/tmp/novels/{user_id}/{name}",
             ai_config_id=ai_config_id,
             ai_model=ai_model,
         )
@@ -242,7 +242,7 @@ async def _clean_user_configs(user_id: str):
             {"uid": user_id},
         )
         await session.execute(
-            text("DELETE FROM projects WHERE user_id = :uid"),
+            text("DELETE FROM novels WHERE user_id = :uid"),
             {"uid": user_id},
         )
         await session.commit()
@@ -253,7 +253,7 @@ async def _clean_user_data(user_id: str):
     async with async_session() as session:
         # Delete projects
         await session.execute(
-            text("DELETE FROM projects WHERE user_id = :uid"),
+            text("DELETE FROM novels WHERE user_id = :uid"),
             {"uid": user_id},
         )
         # Delete api configs
@@ -953,7 +953,7 @@ class TestModelSelection:
         )
         # Set model
         resp = client.put(
-            f"/api/v1/projects/{p.id}/ai-model",
+            f"/api/v1/novels/{p.id}/ai-model",
             json={
                 "api_config_id": config_id,
                 "model": "gpt-4o",
@@ -961,7 +961,7 @@ class TestModelSelection:
         )
         assert resp.status_code == 200
         # Verify via project GET (model info returned as part of project response)
-        resp2 = client.get(f"/api/v1/projects/{p.id}")
+        resp2 = client.get(f"/api/v1/novels/{p.id}")
         assert resp2.status_code == 200
         data = resp2.json()
         assert data.get("ai_config_id") == config_id, (
@@ -980,7 +980,7 @@ class TestModelSelection:
             )
         )
         resp = client.put(
-            f"/api/v1/projects/{p.id}/ai-model",
+            f"/api/v1/novels/{p.id}/ai-model",
             json={
                 "api_config_id": "nonexistent-config-id",
                 "model": "gpt-4o",
@@ -997,7 +997,7 @@ class TestModelSelection:
             )
         )
         resp = client.put(
-            f"/api/v1/projects/{p.id}/ai-model",
+            f"/api/v1/novels/{p.id}/ai-model",
             json={
                 "api_config_id": None,
                 "model": None,
@@ -1019,7 +1019,7 @@ class TestModelSelection:
             self.MODEL_USER_ID
         )
         resp = client.put(
-            f"/api/v1/projects/{p.id}/ai-model",
+            f"/api/v1/novels/{p.id}/ai-model",
             json={
                 "api_config_id": "ignored",
                 "model": "gpt-4o",
@@ -1052,7 +1052,7 @@ class TestModelSelection:
         config_id = create_resp.json()["id"]
         # Apply to all
         resp = client.post(
-            "/api/v1/projects/apply-model-to-all",
+            "/api/v1/novels/apply-model-to-all",
             json={
                 "api_config_id": config_id,
                 "model": "gpt-4o",
@@ -1081,13 +1081,13 @@ class TestModelSelection:
             )
         )
         client.put(
-            f"/api/v1/projects/{p.id}/ai-model",
+            f"/api/v1/novels/{p.id}/ai-model",
             json={
                 "api_config_id": config_id,
                 "model": "gpt-4o-mini",
             },
         )
-        resp = client.get("/api/v1/projects")
+        resp = client.get("/api/v1/novels")
         assert resp.status_code == 200
         projects = resp.json()
         if isinstance(projects, list):
@@ -1154,7 +1154,7 @@ class TestEditConfigEffect:
             },
         )
         # Project should still reference the same config
-        resp = client.get(f"/api/v1/projects/{p.id}")
+        resp = client.get(f"/api/v1/novels/{p.id}")
         data = resp.json()
         assert data.get("ai_config_id") == config_id
 
@@ -1185,7 +1185,7 @@ class TestEditConfigEffect:
                 "api_key": _test_api_key("new-key"),
             },
         )
-        resp = client.get(f"/api/v1/projects/{p.id}")
+        resp = client.get(f"/api/v1/novels/{p.id}")
         data = resp.json()
         assert data.get("ai_config_id") == config_id
         assert data.get("ai_model") == "gpt-4o"
@@ -1217,7 +1217,7 @@ class TestEditConfigEffect:
                 "base_url": "https://api.deepseek.com",
             },
         )
-        resp = client.get(f"/api/v1/projects/{p.id}")
+        resp = client.get(f"/api/v1/novels/{p.id}")
         data = resp.json()
         # Project still points to same config
         assert data.get("ai_config_id") == config_id
@@ -1244,7 +1244,7 @@ class TestEditConfigEffect:
         )
         # Delete config
         client.delete(f"/api/v1/api-configs/{config_id}")
-        resp = client.get(f"/api/v1/projects/{p.id}")
+        resp = client.get(f"/api/v1/novels/{p.id}")
         data = resp.json()
         assert data.get("ai_config_id") is None
         assert data.get("ai_model") == "gpt-4o"
@@ -1765,7 +1765,7 @@ class TestUsageStatistics:
     def test_per_project_usage_empty(self, client):
         """TC-USAGE-06: Per-project usage with no data."""
         p = _run_async(_create_project(user_id=self.USAGE_USER_ID, name="用量项目"))
-        resp = client.get(f"/api/v1/projects/{p.id}/usage")
+        resp = client.get(f"/api/v1/novels/{p.id}/usage")
         assert resp.status_code == 200
         data = resp.json()
         assert data.get("total_tokens", 0) == 0
@@ -1796,7 +1796,7 @@ class TestChangeHistory:
     def test_history_empty(self, client):
         """TC-HISTORY-01: Project with no changes -> empty history."""
         p = _run_async(_create_project(user_id=self.HIST_USER_ID, name="历史项目"))
-        resp = client.get(f"/api/v1/projects/{p.id}/model-history")
+        resp = client.get(f"/api/v1/novels/{p.id}/model-history")
         assert resp.status_code == 200
         data = resp.json()
         history = data if isinstance(data, list) else data.get("history", [])
@@ -1818,7 +1818,7 @@ class TestChangeHistory:
 
         # Set model (triggers history entry)
         client.put(
-            f"/api/v1/projects/{p.id}/ai-model",
+            f"/api/v1/novels/{p.id}/ai-model",
             json={
                 "api_config_id": config_id,
                 "model": "gpt-4o",
@@ -1826,7 +1826,7 @@ class TestChangeHistory:
         )
 
         # Check history
-        resp = client.get(f"/api/v1/projects/{p.id}/model-history")
+        resp = client.get(f"/api/v1/novels/{p.id}/model-history")
         assert resp.status_code == 200
         data = resp.json()
         history = data if isinstance(data, list) else data.get("history", [])

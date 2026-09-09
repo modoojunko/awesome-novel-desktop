@@ -55,4 +55,4 @@ class ApiConfig(Base):
 
     # Relationships
     user = relationship("User", back_populates="api_configs")
-    projects = relationship("Novel", back_populates="ai_config")
+    novels = relationship("Novel", back_populates="ai_config")
