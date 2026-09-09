@@ -104,3 +104,32 @@ describe("confirmSetting 失败", () => {
     expect(toastState.error).toHaveBeenCalledWith("该项还未填写内容");
   });
 });
+
+// ── 「已确认」与「已填」双数据源（tasks 9.3.7c）────────────────────────────
+describe("confirmedStatus（GET /settings/status）", () => {
+  it("与 readiness 分离：内容已填 ≠ 已确认", async () => {
+    apiState.get.mockImplementation((path: string) => {
+      if (path.endsWith("/settings/status"))
+        return Promise.resolve({ synopsis: true, genre: false });
+      if (path.endsWith("/readiness")) return Promise.resolve(COMPLETE_READINESS);
+      return Promise.resolve({});
+    });
+    const { result } = await mountHook();
+
+    await waitFor(() => expect(result.current.confirmedStatus).not.toBeNull());
+    // 已确认：synopsis 是、genre 否；而 readiness 是「内容已填」的另一口径
+    expect(result.current.confirmedStatus).toEqual({ synopsis: true, genre: false });
+    expect(result.current.settingsStatus?.synopsis).toBe(true);
+  });
+
+  it("status 拉取失败 → null（调用方回退 readiness，不误标已确认）", async () => {
+    apiState.get.mockImplementation((path: string) => {
+      if (path.endsWith("/settings/status")) return Promise.reject(new Error("500"));
+      if (path.endsWith("/readiness")) return Promise.resolve(EMPTY_READINESS);
+      return Promise.resolve({});
+    });
+    const { result } = await mountHook();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.confirmedStatus).toBeNull();
+  });
+});

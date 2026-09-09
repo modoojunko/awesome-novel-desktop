@@ -75,7 +75,7 @@
 - [x] 8.5 触共享段的回归结论：本改动 C端 UI + C端后端，未触碰 base.css 共享令牌/组件类（`.rail-assist`/`.ai-sink` 为 C端局部、用共享令牌），故 `design-cross` 无需跑（依据 proposal Design Impact）
 - [x] 8.6 **AI 端点调用点门禁**：`grep -rnE '\bget_ai_client\(' client/backend --include='*.py' | grep -vE 'ai_client\.py|/tests/|ai_prefill\.py|novels/router\.py|__pycache__|\.mimosa' | grep -vE '^\S+:[0-9]+:\s*#'` 须为空（实测 14 处：替换 12 处含 `story/arc_wizard.py:61`/`story/character_agent.py:250`/`story/engine.py:201`，豁免 `ai_prefill.py:26` 与 `novels/router.py:154` suggest-meta）；另核 `record_usage` 各点记实际模型 id、门控违规近似 grep（`check_permission\(|is_member` 在业务层）为空
 
-- [ ] 8.7 **补 `tier-gating` MODIFIED delta**：`openspec/specs/tier-gating/spec.md:83` 明写「Free-locked keys SHALL be exactly … `ai-model`」——本 change 把 `ai-model` 翻案为免费可用，须新增 `specs/tier-gating/spec.md` delta（否则归档时规范自相矛盾）
+- [x] 8.7 **补 `tier-gating` MODIFIED delta**：`openspec/specs/tier-gating/spec.md:83` 明写「Free-locked keys SHALL be exactly … `ai-model`」——本 change 把 `ai-model` 翻案为免费可用，须新增 `specs/tier-gating/spec.md` delta（否则归档时规范自相矛盾）
 
 ## 9. 测试（单测 / 集成 / 本地 e2e）
 
@@ -140,13 +140,13 @@
 
 - [x] 9.3.1 `e2e/settings-forms.spec.ts` ①：断言 `genre.genre_id === "urban-daily"` 与 `GenrePickerModal` → 纯新契约后必失败，改为新契约面板用例
 - [x] 9.3.2 `e2e/creation-flow.spec.ts`：「简介空不可确认」与「确认永远可点」冲突、`genre_id` 注入失效 → 先定死确认 gate 语义再改
-- [ ] 9.3.3 `backend/tests/test_readiness.py`（见 9.2.12）
-- [ ] 9.3.4 `__tests__/features.test.ts`（见 9.1.8）
-- [ ] 9.3.5 `__tests__/api-503.test.ts`（见 9.1.8）
+- [x] 9.3.3 `backend/tests/test_readiness.py`（见 9.2.12）
+- [x] 9.3.4 `__tests__/features.test.ts`（见 9.1.8）
+- [x] 9.3.5 `__tests__/api-503.test.ts`（见 9.1.8）
 - [x] 9.3.6 `e2e/design-parity*.spec.ts` + `prototypes/`：面板顺序对调、徽标 ok→warn、新增 `.rail-assist`/`.ai-sink` → **先 tasks 1.1 原型转正 + 重生成基线**再跑 `design:check`；本 change 的 e2e 不以 parity 为门禁
-- [ ] 9.3.7b **必改测试补全（后端工程师实测）**：`test_db_storage.py:78-79`（VALID_TYPES 去 ai-model）、`test_readiness.py:225`（`PUT /settings/status/ai-model` 期待 200）、`test_genres_api.py:257`（被引用删除 409，随 `_find_referencing_projects` guard 停用）、`test_genres_injection.py`（6 处）、`test_chapter_writer_context.py`（5 处）、`test_tone_section.py`、`test_prose_pipeline.py`（4 处 patch `ai_client_mod.get_ai_client`）、`test_write_prompt_polish.py`（4 处同）、`test_archive_ai_summary.py`（3 处 patch `archive_service.get_ai_client`）——**替换 `get_ai_client()` 后 monkeypatch 目标失效**，须同步改 patch 目标
-- [ ] 9.3.7c **「已确认」数据源**：前端**从不调用** `GET /settings/status`（`useOnboarding.ts:19-27` 的 settingsStatus 来自 `/readiness` 内容非空），故「已确认=ok 绿」态**无数据源、刷新即丢**——须接 `GET /settings/status` 并与 readiness 派生的「已填」分离（否则 2.3/2.5 验收为假）
-- [ ] 9.3.7 既有 AI 端点测试须补 `app.dependency_overrides[require_novel_model] = lambda: True`（现只覆盖 `require_ai_access`，新依赖挂上后会 503）
+- [x] 9.3.7b **必改测试补全（后端工程师实测）**：`test_db_storage.py:78-79`（VALID_TYPES 去 ai-model）、`test_readiness.py:225`（`PUT /settings/status/ai-model` 期待 200）、`test_genres_api.py:257`（被引用删除 409，随 `_find_referencing_projects` guard 停用）、`test_genres_injection.py`（6 处）、`test_chapter_writer_context.py`（5 处）、`test_tone_section.py`、`test_prose_pipeline.py`（4 处 patch `ai_client_mod.get_ai_client`）、`test_write_prompt_polish.py`（4 处同）、`test_archive_ai_summary.py`（3 处 patch `archive_service.get_ai_client`）——**替换 `get_ai_client()` 后 monkeypatch 目标失效**，须同步改 patch 目标
+- [x] 9.3.7c **「已确认」数据源**：前端**从不调用** `GET /settings/status`（`useOnboarding.ts:19-27` 的 settingsStatus 来自 `/readiness` 内容非空），故「已确认=ok 绿」态**无数据源、刷新即丢**——须接 `GET /settings/status` 并与 readiness 派生的「已填」分离（否则 2.3/2.5 验收为假）
+- [x] 9.3.7 既有 AI 端点测试须补 `app.dependency_overrides[require_novel_model] = lambda: True`（现只覆盖 `require_ai_access`，新依赖挂上后会 503）
 
 ### 9.4 本地 e2e 界面测试（Playwright，`client/frontend/e2e/`）
 
