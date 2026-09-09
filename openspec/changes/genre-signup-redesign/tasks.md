@@ -3,7 +3,7 @@
 - [x] 1.0 **实体命名统一（D20，Change C D1 翻案）**：`projects`→`novels` 表名、`project_id`→`novel_id` 列名（`chapters`/`volumes`/`token_log`/`project_model_audit_log`）、**4 处** `ForeignKey("projects.id")`→`"novels.id"`、`ApiConfig.projects` relationship→`.novels`、`legacy_archive.py:59` 表名判断、测试同批；后端 URI `/api/v1/projects/*`→`/api/v1/novels/*`（不留别名）、前端 `useModelStatus` 的 `/projects/...` 同批改；**不改**磁盘目录 `PROJECTS_DIR` 与 `project_settings` 表名；**实测规模**：表名 6 处 + 列名 4 个 model 列 + **后端 `project_id` 259 处**（形参/局部变量/字典键）+ URI 生产 7 条 + 测试/e2e 17 处 + 前端 **3 文件 5 处**（`useModelStatus.ts`/`useUsageStats.ts`/`useChangeHistory.ts`）+ `main.py:91/100/112` 裸 SQL + `legacy_archive.py:61`；验证＝① `grep -rn '"projects"\|projects\.id\|/projects/' client/backend client/frontend/src` 仅剩 `PROJECTS_DIR`/`project_settings`/`project_model_audit_log` 等预期项；② **列名/形参改名清单式核对**（`project_id` 有 259 处、无法用 grep 表达——以「`models/` 4 个 FK 列 + 生产路由 8 条 + 前端 3 文件 5 处」逐项勾对）+ 全量测试绿；**副作用**：指纹不匹配→开发者本地库留档重建（e2e seed 需重建）
 
 - [x] 1.1 把评审稿 `docs/design-c/drafts/genre-signup-draft.html` 纳入 `docs/design-c/prototypes/`（**三窗：本书模型 + 简介 + 题材**、AI 写作助手、免费版锁定视角），并在 `prototypes/ADJUSTMENTS.md` 登记每处对基线的偏差原因（含「模型步写在流程条第①步但不进 SETTINGS_ITEMS」的 IA 偏差、`draft` 内两处陈旧注释「仅 PRO/MAX」「选中即保存无确认键」的修正）；`.rail-assist`/`.ai-sink` 归属定为 C端局部组件类（复用共享令牌、不新增全局 token）
-- [ ] 1.2 跑 `cd client/frontend && npm run design:lint` 确认原型无裸 hex / emoji / 未登记档位；若收编进 `design:check` 的 strictGlobs，再补 `npm run design:check` 像素结论
+- [x] 1.2 跑 `cd client/frontend && npm run design:lint` 确认原型无裸 hex / emoji / 未登记档位；若收编进 `design:check` 的 strictGlobs，再补 `npm run design:check` 像素结论
 
 ## 2. SETTINGS_ITEMS 前两步重排
 
