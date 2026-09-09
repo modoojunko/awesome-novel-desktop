@@ -8,6 +8,9 @@ const SETTINGS_TYPES = ["synopsis", "story-arc", "genre", "world", "style", "ant
 
 export function useOnboarding(projectId: string | undefined, volumes: any[]) {
   const [settingsStatus, setSettingsStatus] = useState<Record<string, boolean> | null>(null);
+  // 已确认标记（PUT /settings/status/{type} 的持久源；与 /readiness 的「内容已填」区分，
+  // 对齐 design-language §5.1：已填＝进行中(warn)、已确认＝ok）
+  const [confirmedStatus, setConfirmedStatus] = useState<Record<string, boolean> | null>(null);
   const [loading, setLoading] = useState(true);
 
   // 数据源 = 内容就绪判定（/readiness）：completed 项即「已设定」；
@@ -26,7 +29,11 @@ export function useOnboarding(projectId: string | undefined, volumes: any[]) {
           ]),
         );
       })
-      .catch(() => setSettingsStatus(null))
+      .catch(() => setSettingsStatus(null));
+    api
+      .get(`/novels/${projectId}/settings/status`)
+      .then((data: any) => setConfirmedStatus(data ?? null))
+      .catch(() => setConfirmedStatus(null))
       .finally(() => setLoading(false));
   }, [projectId]);
 
@@ -47,6 +54,7 @@ export function useOnboarding(projectId: string | undefined, volumes: any[]) {
       try {
         await api.put(`/novels/${projectId}/settings/status/${type}`);
         setSettingsStatus((prev) => ({ ...prev, [type]: true }));
+        setConfirmedStatus((prev) => ({ ...prev, [type]: true }));
         return true;
       } catch (e) {
         // 后端判定该项内容为空时返回 400（产品决策：点完成设定需内容非空）
@@ -57,5 +65,5 @@ export function useOnboarding(projectId: string | undefined, volumes: any[]) {
     [projectId],
   );
 
-  return { settingsStatus, settingsDone, allConfirmed, isNew, confirmSetting, loading };
+  return { settingsStatus, confirmedStatus, settingsDone, allConfirmed, isNew, confirmSetting, loading };
 }

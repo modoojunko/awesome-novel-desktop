@@ -53,7 +53,7 @@ export default function NovelWorkspace() {
   const projectId = project?.id ?? "";
 
   const outline = useOutline(projectId);
-  const { settingsDone, settingsStatus, confirmSetting } = useOnboarding(projectId, []);
+  const { settingsDone, settingsStatus, confirmedStatus, confirmSetting } = useOnboarding(projectId, []);
 
   // ── 视图映射：modnav 三态 ↔ 内部视图名（默认 workbench = 写作） ──────
   const go = useCallback(
@@ -401,6 +401,7 @@ export default function NovelWorkspace() {
           projectId={projectId}
           initialPanel={wb.viewPayload?.panel as string | undefined}
           settingsStatus={settingsStatus}
+          confirmedStatus={confirmedStatus}
           confirmSetting={handleConfirmSetting}
           onDirtyChange={handleSettingsDirty}
         />

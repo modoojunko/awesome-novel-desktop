@@ -68,6 +68,7 @@ export interface SettingsViewProps {
   projectId: string;
   initialPanel?: string;
   settingsStatus: Record<string, boolean> | null;
+  confirmedStatus?: Record<string, boolean> | null;
   confirmSetting: (type: string) => Promise<boolean>;
   onDirtyChange?: (dirty: boolean) => void;
 }
@@ -83,7 +84,7 @@ function normalizePanel(v: string | undefined): string {
 }
 
 export default function SettingsView({
-  projectId, initialPanel, settingsStatus, confirmSetting, onDirtyChange,
+  projectId, initialPanel, settingsStatus, confirmedStatus, confirmSetting, onDirtyChange,
 }: SettingsViewProps) {
   const [panel, setPanel] = useState(() => normalizePanel(initialPanel));
   const [dirty, setDirty] = useState(false);
@@ -125,7 +126,12 @@ export default function SettingsView({
 
   const item = SETTINGS_ITEMS.find((i) => i.k === panel);
   const isModel = panel === "aiModel";
-  const confirmed = item ? !!settingsStatus?.[item.settingsKey] : false;
+  // §5.1 三态：confirmed（已确认，来自 /settings/status）> filled（已填，来自 /readiness）> 未填
+  // confirmedStatus 拉取失败（null）时回退 settingsStatus，避免已确认项被误标「已填」
+  const confirmed = item
+    ? !!(confirmedStatus?.[item.settingsKey] ?? settingsStatus?.[item.settingsKey])
+    : false;
+  const filled = item ? !!settingsStatus?.[item.settingsKey] : false;
 
   // ── 进度（两态口径：done/empty；readiness 拉取失败按 0 计，与 modnav 一致）──
   const total = SETTINGS_ITEMS.length;
@@ -182,8 +188,8 @@ export default function SettingsView({
   }, [item, panel, confirmed, busy, confirmSetting]);
 
   const panelTitle = isModel ? "AI 模型" : (item?.name ?? "");
-  const badgeCls = isModel || confirmed ? BADGE_DONE : BADGE_EMPTY;
-  const badgeLabel = isModel || confirmed ? "已确认" : "未填";
+  const badgeCls = isModel || confirmed ? BADGE_DONE : filled ? "warn" : BADGE_EMPTY;
+  const badgeLabel = isModel || confirmed ? "已确认" : filled ? "已填" : "未填";
   const panelDesc = isModel
     ? "本书写作所用的模型、变更历史与用量。"
     : (DESCS[panel] ?? "");
