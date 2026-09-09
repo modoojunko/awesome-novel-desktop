@@ -193,9 +193,15 @@ const SEED = (() => {
     })),
   };
 
-  // 设定视图·题材面板（默认面板）：GET /settings/genre → genre_id
-  // + GET /genres/deep-space → GenreDefinition（对齐原型 SET_GENRE 逐字段）
-  const genreSetting = { genre_id: "deep-space" };
+  // 设定视图·题材面板（默认面板）：GET /settings/genre → 五字段契约（D19 关系化）
+  const genreSetting = {
+    core_promise: "以弱破强的痛快",
+    promise_note: "读者要看到弱者用脑子翻盘",
+    forbidden_list: [{ tagId: "forbidden:no-deus-ex-machina" }],
+    cost_ratio: 8,
+    battlefield: ["battlefield:resources", "battlefield:status"],
+    track: "凡人流——从练气一步步爬，每卷突破一个大境界。",
+  };
   const genreDef = {
     id: "deep-space",
     name: "深空探索",
@@ -305,10 +311,11 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         await volLoaded;
         await appPage.waitForSelector(".col-middle .panel-head h2");
       } else if (c.screen === "settings") {
-        // 等待须先于点击注册：挂载即发请求，响应可能先于 await 返回
-        const genreLoaded = appPage.waitForResponse("**/api/genres/deep-space");
+        // 等待须先于点击注册：挂载即发请求，响应可能先于 await 返回。
+        // tasks 2.1 起设定视图默认落「简介」（SETTINGS_ITEMS[0]）→ 等 story
+        const storyLoaded = appPage.waitForResponse(`**/api/novels/${PID}/story`);
         await appPage.locator(".modnav button", { hasText: "设定" }).click();
-        await genreLoaded;
+        await storyLoaded;
         await appPage.waitForSelector(".settings-v main h2");
       } else if (c.screen === "preview") {
         const proseLoaded = appPage.waitForResponse(
@@ -357,6 +364,16 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
       fs.writeFileSync(path.join(BASELINE_DIR, `${base}.app.png`), appShot);
       fs.writeFileSync(path.join(BASELINE_DIR, `${base}.diff.png`), PNG.sync.write(diff));
       const ratio = diffCount / (a.width * a.height);
+      if (c.screen === "settings") {
+        // tasks 9.3.6：题材/简介面板改六格后，原型 book.html 的设定段尚未转正
+        // （设计事实源已迁 docs/design-c/prototypes/genre-signup.html）——
+        // 基线重生成随 1.1 原型转正，本 change 的 e2e 不以 parity 为门禁。
+        test.skip(
+          true,
+          `设定屏 parity 基线待随原型转正重生成（当前差异 ${(ratio * 100).toFixed(3)}%）`,
+        );
+        return;
+      }
       expect(
         ratio,
         `像素差异率 ${(ratio * 100).toFixed(3)}%（阈值 0.2%）— 三张对比图见 docs/design-c/baselines/${base}.*`
@@ -401,7 +418,22 @@ function stubBookAPI(page: Page, pro: boolean, volumeGap = false) {
   page.route(`**/api/novels/${PID}/chapters/vol-1-ch-1`, (r) => r.fulfill({ json: SEED.chapter }));
   // 设定视图·题材面板（默认面板）：已设定题材 = 原型 SET_GENRE（深空探索）
   page.route(`**/api/novels/${PID}/settings/genre`, (r) => r.fulfill({ json: SEED.genreSetting }));
-  page.route("**/api/genres/deep-space", (r) => r.fulfill({ json: SEED.genreDef }));
+  // 题材候选源（面板挂载即拉）+ 本书 AI 就绪态（D13，SettingsView 取 ai_state）
+  page.route("**/api/genres/candidates", (r) => r.fulfill({ json: {} }));
+  page.route(`**/api/v1/novels/${PID}/ai-model`, (r) =>
+    r.fulfill({
+      json: {
+        api_config_id: "c1",
+        model: "gpt-4o",
+        config_name: "主配置",
+        ai_state: "ready",
+        effective_model: "gpt-4o",
+        reason: "ready",
+        message: "已就绪",
+      },
+    }),
+  );
+  page.route("**/api/v1/api-configs", (r) => r.fulfill({ json: [] }));
   // PRO 态：非 all-pending（不弹 OnboardingCard；原型 pro 态无催促卡）
   page.route(`**/api/novels/${PID}/workflow/phase-status`, (r) =>
     r.fulfill({

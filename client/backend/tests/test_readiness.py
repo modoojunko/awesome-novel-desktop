@@ -409,3 +409,39 @@ class TestCharactersEndpoints:
         assert r.status_code == 200, r.text
         r = client.get(f"/api/novels/{pid}/settings/characters/list")
         assert "张三" not in r.json()
+
+
+class TestGenreReadinessContract:
+    """9.2.12：题材就绪判据＝新契约核心键任一非空（01 口味胶囊不落库、不计入）。"""
+
+    def test_flavor_only_not_filled(self, client):
+        """只点口味胶囊（不落库）→ 题材仍未填 → 确认 400。"""
+        pid = _create_project(client)
+        r = client.put(f"/api/novels/{pid}/settings/status/genre")
+        assert r.status_code == 400
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"cost_ratio": 5},
+            {"battlefield": ["battlefield:resources"]},
+            {"track": "从练气到飞升"},
+            {"forbidden_list": [{"tagId": "forbidden:no-deus-ex-machina"}]},
+        ],
+    )
+    def test_any_core_key_fills(self, client, payload):
+        pid = _create_project(client)
+        r = client.put(f"/api/novels/{pid}/settings/genre", json=payload)
+        assert r.status_code == 200, r.text
+        assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 200
+
+    def test_promise_note_alone_not_counted(self, client):
+        """promise_note 只随 core_promise 入契约，不单独计入判据。"""
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/settings/genre", json={"promise_note": "读者要看翻盘"})
+        assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 400
+
+    def test_whitespace_only_not_filled(self, client):
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "   "})
+        assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 400

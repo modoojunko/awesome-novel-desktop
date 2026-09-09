@@ -352,15 +352,14 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     await confirmPanel(page);
     await synSave;
 
-    // ── genre：API 注入 + 面板确认（urban-romance 非种子 id → 定义缺失降级态）
+    // ── genre：API 注入五字段 + 面板确认（新契约，无 genre_id）
     await apiPutJSON(request, token, `/novels/${pid}/settings/genre`, {
-      genre_id: "urban-romance",
+      core_promise: "以弱破强的痛快",
+      cost_ratio: 8,
     });
     await openSetting(page, "题材");
-    // 面板加载是两跳异步（settings/genre + fetchGenre）；确认完成按钮在加载中即
-    // 可见可点，抢跑会让 hasGenre() 见到 null → 确认被拦并弹「选择题材」。必须
-    // 等「定义缺失」徽标出现（加载完成的降级态信号）再确认。
-    await expect(page.getByText("定义缺失")).toBeVisible({ timeout: 5000 });
+    // 面板加载完成信号＝六格渲染出（首格口味胶囊可见）
+    await expect(page.locator(".settings-v .mod")).toHaveCount(6, { timeout: 5000 });
     await confirmPanel(page);
 
     // ── style：API 注入 + 面板已确认态（种子模板预填 role → readiness 即

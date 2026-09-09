@@ -218,10 +218,10 @@ async function savePanel(page: Page) {
 }
 
 // -------------------------------------------------------------------------
-// ① 题材：真实题材选择器（空态 → 都市日常 → 应用题材 → 自动保存 → 完成设定）
+// ① 题材：六格新契约面板（口味联动 → 自定义禁区 → 吃苦指数 → 确认落五字段）
 // -------------------------------------------------------------------------
 
-test("题材：真实题材选择器（空态 → 选 都市日常 → 应用题材 → 自动保存）", async ({
+test("题材：六格面板（口味联动 → 自定义禁区 → 吃苦指数 → 确认落五字段）", async ({
   page,
   request,
 }) => {
@@ -238,39 +238,45 @@ test("题材：真实题材选择器（空态 → 选 都市日常 → 应用题
       page.locator(".settings-v main h2", { hasText: "题材" }),
     ).toBeVisible({ timeout: 5000 });
 
-    // 空态：cur-genre「未选择」+ 选择题材按钮
-    await expect(page.getByText("未选择", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "选择题材" }).click();
+    // 六格齐全（编号 01-06 + 名称）
+    await expect(page.locator(".settings-v .mod")).toHaveCount(6);
+    for (const name of ["题材", "主要看什么", "绝对禁止", "吃苦指数", "主线战场", "剧情轨道"]) {
+      await expect(page.locator(".settings-v .mod .m-name", { hasText: name })).toBeVisible();
+    }
 
-    // 选择器（design Modal）：都市系分组点「都市日常」→ 底部「应用题材」可用
-    const modal = page.getByRole("dialog");
-    await expect(
-      modal.getByRole("heading", { name: "选择题材" }),
-    ).toBeVisible({ timeout: 5000 });
-    await modal.getByText("都市日常", { exact: true }).click();
-    const applyBtn = modal.getByRole("button", { name: "应用题材" });
-    await expect(applyBtn).toBeEnabled();
+    // 01 口味胶囊 → 预置联动（02 文本 + 03/05 胶囊 + 04 指数），不落库
+    await page.locator('[data-g="comeback"]').click();
+    await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue("以弱破强的痛快");
+    await expect(page.locator('[data-forbid="forbidden:no-deus-ex-machina"]')).toHaveClass(/on/);
+    await expect(page.locator('[data-bf="battlefield:resources"]')).toHaveClass(/on/);
+    await expect(page.locator(".settings-v .cost-val")).toHaveText("8");
 
-    // 应用题材 → 自动保存 PUT /settings/genre
+    // 03 回车自定义禁区
+    const forbidInput = page.locator('[data-od-id="forbid-input"]');
+    await forbidInput.fill("禁穿越");
+    await forbidInput.press("Enter");
+    await expect(page.getByText("禁穿越 ×")).toBeVisible();
+
+    // 04 拖动 → 浮例句出现
+    await page.locator('[data-od-id="cost-slider"]').fill("6");
+    await expect(page.locator('[data-od-id="cost-sentence"]')).toContainText("6 分");
+
+    // 确认完成 → PUT /settings/genre（先 save 后 confirm）
     const genreSave = page.waitForResponse(
-      (r) =>
-        r.request().method() === "PUT" && r.url().includes("/settings/genre"),
+      (r) => r.request().method() === "PUT" && r.url().includes("/settings/genre"),
     );
-    await applyBtn.click();
+    await confirmPanel(page);
     await genreSave;
 
-    // 题材已应用：cur-genre 显示题材名 + 已设定 tag
-    await expect(page.getByText("都市日常").first()).toBeVisible({
-      timeout: 5000,
-    });
-    await expect(page.getByText("已设定", { exact: true })).toBeVisible();
-
-    // 确认完成（readiness: genre_id 非空）
-    await confirmPanel(page);
-
-    // 后端直查
+    // 后端直查：五字段契约（无 genre_id）
     const genre = await apiGetJSON(request, token, `/novels/${pid}/settings/genre`);
-    expect(genre.genre_id).toBe("urban-daily");
+    expect(genre.core_promise).toBe("以弱破强的痛快");
+    expect(genre.cost_ratio).toBe(6);
+    expect(genre.forbidden_list).toEqual(
+      expect.arrayContaining([{ text: "禁穿越" }]),
+    );
+    expect(genre.battlefield).toContain("battlefield:resources");
+    expect(genre.genre_id).toBeUndefined();
   } finally {
     restore();
   }

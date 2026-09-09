@@ -210,6 +210,30 @@ async def put_novel_genre(
     await session.execute(
         delete(NovelGenreBattlefield).where(NovelGenreBattlefield.novel_id == novel_id)
     )
+
+    # 词汇引用先验存在（FK RESTRICT 会抛 IntegrityError→500；此处给 400 可读错误）
+    refs: list[str] = []
+    for item in payload.get("forbidden_list") or []:
+        if isinstance(item, dict) and _clean(item.get("tagId")):
+            refs.append(_clean(item["tagId"]))
+    for item in payload.get("battlefield") or []:
+        val = _clean(item)
+        if val and val.startswith(("promise:", "forbidden:", "battlefield:")):
+            refs.append(val)
+    if refs:
+        known = set(
+            (
+                await session.execute(
+                    select(GenreVocab.id).where(GenreVocab.id.in_(refs))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        missing = sorted(set(refs) - known)
+        if missing:
+            raise ValueError(f"未知的候选词汇：{'、'.join(missing)}")
+
     for i, item in enumerate(payload.get("forbidden_list") or []):
         if not isinstance(item, dict):
             continue

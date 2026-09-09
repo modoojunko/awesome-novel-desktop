@@ -565,3 +565,75 @@ class TestBoundaries:
             json={"forbidden_list": [{"text": f"禁{i}"} for i in range(50)]},
         )
         assert r.status_code == 200, r.text
+
+
+# ── 参数等价类（tasks 9.2.14）──────────────────────────────────────────────
+
+
+class TestEquivalenceClasses:
+    """逐入参划分合法/非法/空等价类（同一行为类只测代表值）。"""
+
+    @pytest.mark.parametrize("value", ["", "   ", None])
+    def test_core_promise_blank_equivalents(self, client, value):
+        pid = _new_novel(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre", json={"core_promise": value}
+        )
+        assert r.status_code == 200, r.text
+        assert client.get(f"/api/novels/{pid}/settings/genre").json()["core_promise"] == ""
+
+    def test_core_promise_special_chars_accepted(self, client):
+        pid = _new_novel(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={"core_promise": "<>{}'\"` 特殊字符"},
+        )
+        assert r.status_code == 200, r.text
+
+    def test_emoji_accepted_and_roundtrips(self, client):
+        pid = _new_novel(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre", json={"core_promise": "爽点🔥到炸"}
+        )
+        assert r.status_code == 200, r.text
+        assert (
+            client.get(f"/api/novels/{pid}/settings/genre").json()["core_promise"]
+            == "爽点🔥到炸"
+        )
+
+    def test_forbidden_item_both_keys_present_prefers_tag(self, client):
+        """同时给 tagId 与 text → 按 tagId 落（恰一非空的 DB 约束不破）。"""
+        pid = _new_novel(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={
+                "forbidden_list": [
+                    {"tagId": "forbidden:no-foresight", "text": "被忽略的自定义"}
+                ]
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert client.get(f"/api/novels/{pid}/settings/genre").json()["forbidden_list"] == [
+            {"tagId": "forbidden:no-foresight"}
+        ]
+
+    def test_unknown_tag_id_400_not_500(self, client):
+        """未知 tagId（词汇已删/拼错）→ 400 可读错误，不得 FK 炸 500。"""
+        pid = _new_novel(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={"forbidden_list": [{"tagId": "forbidden:ghost"}]},
+        )
+        assert r.status_code == 400, r.text
+        assert "未知的候选词汇" in r.text
+
+    def test_cost_ratio_string_numeric_coerced(self, client):
+        pid = _new_novel(client)
+        r = client.put(f"/api/novels/{pid}/settings/genre", json={"cost_ratio": "7"})
+        assert r.status_code == 200, r.text
+        assert client.get(f"/api/novels/{pid}/settings/genre").json()["cost_ratio"] == 7
+
+    def test_cost_ratio_non_numeric_400(self, client):
+        pid = _new_novel(client)
+        r = client.put(f"/api/novels/{pid}/settings/genre", json={"cost_ratio": "高"})
+        assert r.status_code == 400, r.text
