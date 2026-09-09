@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>评审稿 v2 · 题材即属性 — 建书即选、面板退役</title>
+<style>
+  /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致（--radius-lg 沿 book.html = 14px） ═══ */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.55; padding: 40px 24px 80px; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  /* ─── 稿头 ─── */
+  .draft-banner { display: flex; align-items: center; gap: 9px; padding: 10px 16px; border: 1px dashed var(--warn); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: 13px; margin-bottom: 28px; }
+  .draft-banner b { color: var(--fg); font-weight: 600; }
+  h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; }
+  h1 .v2 { font-family: var(--font-mono); font-size: 13px; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 2px 10px; vertical-align: 6px; margin-left: 10px; letter-spacing: 0.06em; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 6px 0 14px; }
+  .caliber { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 16px; font-size: 12.5px; color: var(--muted); margin-bottom: 36px; }
+  .caliber b { color: var(--fg); font-weight: 600; }
+  .caliber li { margin: 3px 0 3px 18px; }
+  .idea { border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: var(--radius); background: var(--accent-soft); padding: 14px 18px; font-size: 13.5px; line-height: 1.9; margin-bottom: 36px; }
+  .idea b { font-weight: 600; }
+
+  /* ─── 变体节 ─── */
+  .vsec { margin: 0 0 52px; }
+  .frame-title { font-family: var(--font-display); font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+  .frame-desc { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
+  .win { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-card); }
+  .win.rel { position: relative; }
+  .win-cap { font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.04em; margin: 0 0 8px; }
+
+  /* ─── 通用件（逐字复刻原型体系） ─── */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+  .btn svg { width: 15px; height: 15px; }
+  .btn-primary { background: var(--accent); color: oklch(100% 0 0); }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--muted); }
+  .btn-sm { height: 28px; padding: 0 11px; font-size: 12.5px; }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; color: var(--muted); cursor: pointer; border: none; background: none; }
+  .icon-btn:hover { color: var(--fg); background: var(--fg-soft); }
+  .icon-btn svg { width: 14px; height: 14px; }
+  .text-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--accent); opacity: .85; cursor: pointer; border: none; background: none; padding: 0; }
+  .text-btn:hover { opacity: 1; }
+  .text-btn svg { width: 13px; height: 13px; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 11px; }
+  .badge.done { background: var(--ok-soft); color: var(--ok); }
+  .badge.prog { background: var(--warn-soft); color: var(--warn); }
+  .badge.empty { background: var(--fg-soft); color: var(--muted); }
+  .defer-tag { font-size: 10px; color: var(--muted); border: 1px dashed var(--border); border-radius: 999px; padding: 1px 6px; }
+  .input, .textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+  .input:focus, .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .textarea { min-height: 72px; resize: vertical; line-height: 1.7; }
+  .opt { font-size: 12px; color: var(--muted); }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .field label { font-size: 12.5px; color: var(--muted); display: flex; align-items: baseline; gap: 7px; }
+  .trust-line { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ok); background: var(--ok-soft); border-radius: 8px; padding: 5px 10px; }
+  .trust-line svg { width: 13px; height: 13px; flex: none; }
+  .arc-card { text-align: left; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px 14px; cursor: pointer; }
+  .arc-card:hover { border-color: color-mix(in oklch, var(--accent) 40%, var(--border)); }
+  .arc-card.on { border-color: var(--accent); background: var(--accent-soft); }
+  .arc-card .ac-name { font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+  .arc-card.on .ac-name { color: var(--accent); }
+  .arc-card .ac-sel { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; background: color-mix(in oklch, var(--accent) 15%, transparent); color: var(--accent); }
+  .arc-card .ac-desc { margin-top: 3px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .arc-card .ac-beats { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; }
+  .arc-card .ac-beat { font-size: 10.5px; padding: 2px 8px; border-radius: 6px; background: var(--fg-soft); color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .chip { display: inline-flex; align-items: center; padding: 5px 12px; border: 1px solid var(--border); border-radius: 999px; font-size: 12.5px; color: var(--muted); background: var(--surface); }
+  .prompt-preview { width: 100%; padding: 10px 12px; border: 1px dashed color-mix(in oklch, var(--accent) 40%, var(--border)); border-radius: 9px; background: var(--bg); font-family: var(--font-mono); font-size: 12px; line-height: 1.7; white-space: pre-wrap; color: var(--fg); }
+
+  /* ─── A · 建书弹窗（CreateProjectModal 重设计） ─── */
+  .create-stage { padding: 40px 24px 48px; background: var(--bg); display: grid; place-items: start center; }
+  .mcard { width: min(520px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-card); display: flex; flex-direction: column; }
+  .mcard-head { display: flex; align-items: center; gap: 8px; padding: 18px 22px 0; }
+  .mcard-head .mh { font-family: var(--font-display); font-size: 17px; font-weight: 600; }
+  .mcard-head .x { margin-left: auto; }
+  .mcard-body { padding: 14px 22px 20px; }
+  .mcard-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 0 22px 18px; }
+  .mcard-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+  .search-wrap { position: relative; margin-top: 12px; }
+  .search-wrap svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--muted); pointer-events: none; }
+  .search { width: 100%; padding: 9px 12px 9px 36px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 13.5px; }
+  .search:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .g-group { margin-top: 14px; }
+  .g-group .gt { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 8px; }
+  .g-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .g-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; font-size: 13px; }
+  .g-item:hover { border-color: var(--fg); }
+  .g-item .gp { font-size: 11.5px; color: var(--muted); }
+  .g-item.on { background: var(--accent-soft); border-color: color-mix(in oklch, var(--accent) 40%, transparent); color: var(--accent); font-weight: 500; }
+  .g-item.on .gp { color: var(--accent); }
+
+  /* ─── B · 设定视图（题材退役 → 属性卡 + 7 项） ─── */
+  .set-grid { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 560px; }
+  @media (max-width: 860px) { .set-grid { grid-template-columns: 1fr; } .col-tree { display: none; } }
+  .col-tree { border-right: 1px solid var(--border); background: var(--bg); padding-bottom: 24px; }
+  .attr-card { margin: 14px 12px 4px; padding: 13px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+  .attr-card .a-name { font-family: var(--font-display); font-size: 15.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .attr-card .a-name .tag { font-family: var(--font-body); font-size: 10.5px; color: var(--muted); font-weight: 400; border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; }
+  .attr-card .a-desc { margin-top: 7px; font-size: 12px; color: var(--muted); line-height: 1.65; display: flex; align-items: flex-start; gap: 6px; }
+  .attr-card .a-desc svg { width: 13px; height: 13px; flex: none; margin-top: 2px; color: var(--ok); }
+  .attr-card .a-acts { display: flex; gap: 8px; margin-top: 11px; }
+  .tree-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 14px 8px 18px; }
+  .tree-head .t { font-size: 12px; letter-spacing: 0.08em; color: var(--muted); font-family: var(--font-mono); }
+  .tree-head .t b { color: var(--fg); font-weight: 500; }
+  .settings-progress { display: flex; align-items: center; gap: 10px; padding: 2px 14px 12px; }
+  .settings-progress .pl { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.04em; white-space: nowrap; color: var(--muted); }
+  .settings-progress .pl b { color: var(--accent); font-weight: 500; font-size: 13px; }
+  .pbar { height: 6px; border-radius: 999px; background: var(--fg-soft); overflow: hidden; flex: 1; }
+  .pbar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  .s-item { display: flex; align-items: center; gap: 9px; height: 36px; padding: 0 10px 0 14px; border-radius: 8px; margin: 0 8px; }
+  .s-item.on { background: var(--accent-soft); }
+  .s-item .nm { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .s-item.on .nm { color: var(--accent); font-weight: 500; }
+  .s-item .spacer { flex: 1; }
+  .tree-foot { padding: 14px 18px 0; font-size: 12px; color: var(--muted); line-height: 1.7; }
+  .col-panel { padding: 28px clamp(20px, 3.5vw, 44px) 40px; background: var(--bg); }
+  .panel { max-width: 660px; }
+  .panel-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  .panel-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 600; margin: 0; }
+  .panel .desc { font-size: 13px; color: var(--muted); margin: 0 0 24px; }
+  .panel-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); margin-top: 6px; flex-wrap: wrap; }
+  .panel-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+
+  /* ─── C · 查看规则弹层（窗口内绝对定位） ─── */
+  .scrim { position: absolute; inset: 0; background: color-mix(in oklch, var(--fg) 28%, transparent); z-index: 40; }
+  .modal { position: absolute; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; }
+  .sheet { width: min(600px, 100%); max-height: 92%; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-card); display: flex; flex-direction: column; }
+  .sheet-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 18px 22px 0; }
+  .sheet-head .mh { font-family: var(--font-display); font-size: 17px; font-weight: 600; }
+  .sheet-head .x { margin-left: auto; }
+  .sheet-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 22px 20px; }
+  .sheet-foot { flex: none; display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 22px 18px; border-top: 1px solid var(--border); }
+  .sheet-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+  .rule-sec { margin-top: 16px; }
+  .rule-sec .rs-t { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 8px; }
+  .arc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  @media (max-width: 760px) { .arc-grid { grid-template-columns: 1fr; } }
+
+  /* ─── D 对照表 + 结论 ─── */
+  .cmp { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; overflow: hidden; }
+  .cmp th, .cmp td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .cmp th { font-size: 12px; color: var(--muted); font-weight: 500; background: var(--bg); }
+  .cmp tr:last-child td { border-bottom: none; }
+  .cmp .new-on { color: var(--accent); font-weight: 500; }
+  .rec-box { border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: var(--radius); background: var(--accent-soft); padding: 16px 20px; font-size: 13.5px; line-height: 1.8; }
+  .rec-box b { font-weight: 600; }
+  .rec-box ol { margin: 8px 0 0 20px; }
+  .rec-box li { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 12.5px; margin-top: 14px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="draft-banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="16" height="16"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <span><b>评审稿 v2（DRAFT）· 未拍板</b> · v1（<span class="num">genre-settings-redesign-draft.html</span>）因「仍以题材占一个面板」被方向性否决，本稿从概念上退役题材面板 · 不改动 <span class="num">prototypes/</span> 与任何实现代码</span>
+  </div>
+
+  <h1>题材即属性：建书即选，面板退役<span class="v2">v2</span></h1>
+  <p class="sub">awesome-novel 给出的真正启示不是「收纳」，而是题材从头到尾就不该是作家要处理的表单——它是建书时的一个选择，和之后 AI 自动遵守的知识。</p>
+
+  <div class="idea">
+    <b>核心想法（三条）</b><br>
+    ① <b>选题材发生在建书那一刻</b>（= awesome-novel <span class="num">init --genre</span> 的时点）：建书弹窗的粗分类下拉升级为 24 题材选择器，书建好题材即定，AI 从第一章按规则写。<br>
+    ② <b>设定流里没有「题材面板」</b>：题材从 8 项设定任务中退役（8→7），降为设定视图顶部一张属性卡——不计进度、不需确认、没有「第一步」。<br>
+    ③ <b>规则编辑 UI 整体下架</b>：19 行编辑器与注入开关从作家界面消失，27 条预置规则在只读弹层中透明呈现；API / payload 原样保留继续下发，未来真有精调需求再做「规则包」，不做表单。
+  </div>
+
+  <div class="caliber">
+    <b>口径前提</b>
+    <li>后端 DB 已 seed 24 预置题材（含全部档案字段）；本稿不动 DB schema、不动 payload 字段语义。建书后前端静默 <span class="num">PUT settings/genre</span> 一次，与今天手动选题材的落库产物逐字节一致。</li>
+    <li>样例数据取 awesome-novel <span class="num">xianxia.md</span> 真实档案：禁忌 8 + 爽点 5 + 章节类型 5 + 节奏 3 + 少用词 6 = <b class="num">27</b> 条。</li>
+    <li>故事骨架（<span class="num">selected_arc_id</span>）本期随属性卡弹层单点读写 genre 记录；终局归属「主线」面板，待后端迁移后归位，本期不动。</li>
+  </div>
+
+  <!-- ═══════════════════ A · 建书即选题材 ═══════════════════ -->
+  <div class="vsec">
+    <div class="frame-title">A · 建书弹窗 — 书名 + 真题材，30 秒承诺不变且更实</div>
+    <div class="frame-desc">CreateProjectModal 的粗分类下拉替换为 24 题材选择器（分组网格 + 搜索 + 自定义入口）。选完建书：genre settings 静默初始化，设定流的题材任务从此不存在。</div>
+    <div class="win">
+      <div class="create-stage">
+        <div class="mcard" data-od-id="modal-create-project">
+          <div class="mcard-head"><span class="mh">新建作品</span><button class="icon-btn x" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+          <div class="mcard-body">
+            <div class="field" style="margin-bottom:4px;">
+              <label>书名</label>
+              <input class="input" placeholder="给这本书起个名字" value="凡人问剑" />
+            </div>
+            <div class="search-wrap" style="margin-top:10px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+              <input class="search" placeholder="搜索题材…" />
+            </div>
+            <div class="g-group" style="margin-top:12px;">
+              <div class="gt">玄幻系</div>
+              <div class="g-grid">
+                <div class="g-item on" data-od-id="genre-item-xianxia"><span>东方仙侠</span><span class="gp">修仙 · 境界与因果</span></div>
+                <div class="g-item"><span>传统玄幻</span><span class="gp">废柴逆袭 · 高武世界</span></div>
+              </div>
+            </div>
+            <div class="g-group">
+              <div class="gt">都市系</div>
+              <div class="g-grid">
+                <div class="g-item"><span>都市日常</span><span class="gp">现实生活 · 情感</span></div>
+                <div class="g-item"><span>都市种田</span><span class="gp">年代 · 商战 · 建设</span></div>
+                <div class="g-item"><span>都市修真</span><span class="gp">修真力量体系的都市</span></div>
+                <div class="g-item"><span>战神赘婿</span><span class="gp">战神 · 兵王</span></div>
+              </div>
+            </div>
+            <div class="g-group">
+              <div class="gt">悬疑系 / 科幻系</div>
+              <div class="g-grid">
+                <div class="g-item"><span>悬疑刑侦</span><span class="gp">探案 · 推理</span></div>
+                <div class="g-item"><span>科幻末世</span><span class="gp">末世 · 机甲 · 星际</span></div>
+              </div>
+            </div>
+            <p class="opt" style="margin:14px 0 0; font-size:11.5px;">选一个题材，AI 会自动配好这类书的写法（写作规则不用你填）。以后随时能换。</p>
+          </div>
+          <div class="mcard-foot">
+            <span class="note">免费版可创建 1 部作品</span>
+            <button class="btn btn-secondary" type="button">取消</button>
+            <button class="btn btn-primary" type="button" data-od-id="btn-create-project" id="btnCreate">创建作品</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ B · 设定视图：题材退役 ═══════════════════ -->
+  <div class="vsec">
+    <div class="frame-title">B · 设定视图 — 顶部属性卡，设定任务 8 → 7</div>
+    <div class="frame-desc">题材不是待办，是书本身的信息：属性卡常驻左栏顶部（书名下方）。设定 7 项全是创作决策，简介成为第一步。进度不再等题材确认。</div>
+    <div class="win">
+      <div class="modnav-strip" style="display:flex; gap:4px; padding:10px 16px 0; border-bottom:1px solid var(--border); background:var(--bg);">
+        <span style="display:inline-flex; padding:8px 14px 9px; font-size:13px; color:var(--fg); font-weight:500; border-bottom:2px solid var(--accent);">设定</span>
+        <span style="display:inline-flex; padding:8px 14px 9px; font-size:13px; color:var(--muted);">写作</span>
+        <span style="display:inline-flex; padding:8px 14px 9px; font-size:13px; color:var(--muted);">预览</span>
+      </div>
+      <div class="set-grid">
+        <aside class="col-tree">
+          <div class="attr-card" data-od-id="genre-attr-card">
+            <div class="a-name">东方仙侠 <span class="tag">玄幻系</span></div>
+            <div class="a-desc">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 13l4 4L19 7"/></svg>
+              <span>AI 已按这个题材自动配好 <b class="num">27</b> 条写作规则（含剧情骨架），不用你设置。</span>
+            </div>
+            <div class="a-acts">
+              <button class="btn btn-secondary btn-sm" type="button" data-od-id="btn-view-rules" id="btnViewRules">查看规则</button>
+              <button class="btn btn-secondary btn-sm" type="button" data-od-id="btn-swap-genre">更换题材</button>
+            </div>
+          </div>
+          <div class="tree-head"><span class="t">设定 · <b>7</b> 项</span></div>
+          <div class="settings-progress"><span class="pl num">设定 <b>0</b>/7</span><div class="pbar"><i style="width:0%"></i></div></div>
+          <div class="s-item on"><span class="nm">简介</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+          <div class="s-item"><span class="nm">主线</span><span class="spacer"></span><span class="defer-tag">可后补</span></div>
+          <div class="s-item"><span class="nm">世界</span><span class="spacer"></span><span class="defer-tag">可后补</span></div>
+          <div class="s-item"><span class="nm">风格</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+          <div class="s-item"><span class="nm">AI痕迹控制</span><span class="spacer"></span><span class="defer-tag">可后补</span></div>
+          <div class="s-item"><span class="nm">伏笔</span><span class="spacer"></span><span class="defer-tag">可后补</span></div>
+          <div class="s-item"><span class="nm">角色</span><span class="spacer"></span><span class="defer-tag">可后补</span></div>
+          <div class="tree-foot">没有「题材」这一步了——它在建书时已经定好。剩下的都是创作决策，多数可后补，不拦写作。</div>
+        </aside>
+        <main class="col-panel">
+          <div class="panel">
+            <div class="panel-head"><h2>简介</h2><span class="badge empty">未填</span></div>
+            <p class="desc">用几句话讲讲这是一个怎样的故事——它会是后续设定和写作的依据。</p>
+            <div class="field">
+              <label>故事简介 <span class="opt">≤500 字</span></label>
+              <textarea class="textarea" rows="4" maxlength="500" placeholder="主角是谁、世界是什么样的、核心冲突是什么" data-od-id="input-synopsis"></textarea>
+            </div>
+            <div class="panel-foot">
+              <span class="note">确认后计入设定进度</span>
+              <button class="btn btn-primary" type="button" data-od-id="btn-synopsis-confirm" id="btnIntroOk">确认完成</button>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ C · 查看规则弹层 ═══════════════════ -->
+  <div class="vsec">
+    <div class="frame-title">C · 查看规则弹层 — 透明，但不是任务</div>
+    <div class="frame-desc">属性卡 [查看规则] 打开：顶部剧情骨架三选一可换（唯一可操作项，点选即存），其余 27 条规则全部只读。右下 [更换题材] 打开选择器。这里没有「保存」，没有「确认完成」。</div>
+    <div class="win rel" style="min-height:560px;">
+      <div class="set-grid" style="min-height:560px;">
+        <aside class="col-tree">
+          <div class="tree-head"><span class="t">设定 · <b>7</b> 项</span></div>
+          <div class="s-item on" style="margin-top:8px;"><span class="nm">简介</span></div>
+          <div class="s-item"><span class="nm">主线</span></div>
+          <div class="s-item"><span class="nm">世界</span></div>
+          <div class="s-item"><span class="nm">风格</span></div>
+          <div class="s-item"><span class="nm">AI痕迹控制</span></div>
+          <div class="s-item"><span class="nm">伏笔</span></div>
+          <div class="s-item"><span class="nm">角色</span></div>
+        </aside>
+        <main class="col-panel"><div class="panel"><div class="panel-head"><h2>简介</h2></div></div></main>
+      </div>
+      <div class="scrim"></div>
+      <div class="modal" data-od-id="modal-genre-rules">
+        <div class="sheet">
+          <div class="sheet-head">
+            <span class="mh">东方仙侠 · AI 写作规则</span>
+            <span class="trust-line" style="margin-left:6px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 13l4 4L19 7"/></svg>27 条自动生效</span>
+            <button class="icon-btn x" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+          </div>
+          <div class="sheet-body">
+            <div class="rule-sec" style="margin-top:2px;">
+              <div class="rs-t">剧情骨架 · 三选一，点选即换（影响 AI 对每一卷的节奏安排）</div>
+              <div class="arc-grid" id="arcGrid">
+                <button class="arc-card on" type="button" data-od-id="arc-card-mortal">
+                  <span class="ac-name">凡人修仙型<span class="ac-sel">已选</span></span>
+                  <p class="ac-desc">从最低境界起步，一步步修炼攀登，适合传统仙侠长篇。</p>
+                  <div class="ac-beats"><span class="ac-beat">入道</span><span class="ac-beat">筑基</span><span class="ac-beat">游历</span><span class="ac-beat">结丹</span><span class="ac-beat">风云</span><span class="ac-beat">元婴</span><span class="ac-beat">争锋</span><span class="ac-beat">飞升</span></div>
+                </button>
+                <button class="arc-card" type="button" data-od-id="arc-card-realm">
+                  <span class="ac-name">秘境探险型</span>
+                  <p class="ac-desc">围绕特定秘境展开的探索争夺，适合卷级独立故事。</p>
+                  <div class="ac-beats"><span class="ac-beat">传闻</span><span class="ac-beat">集结</span><span class="ac-beat">入秘境</span><span class="ac-beat">探索</span><span class="ac-beat">夺宝</span><span class="ac-beat">逃生</span><span class="ac-beat">余波</span></div>
+                </button>
+                <button class="arc-card" type="button" data-od-id="arc-card-sect">
+                  <span class="ac-name">宗门崛起型</span>
+                  <p class="ac-desc">以宗门为中心的发展与争霸，适合宗门经营主线。</p>
+                  <div class="ac-beats"><span class="ac-beat">微末</span><span class="ac-beat">转机</span><span class="ac-beat">振兴</span><span class="ac-beat">树敌</span><span class="ac-beat">危机</span><span class="ac-beat">蜕变</span><span class="ac-beat">逐鹿</span></div>
+                </button>
+              </div>
+            </div>
+            <div class="rule-sec">
+              <div class="rs-t">这类题材的规矩 · AI 自动遵守</div>
+              <div class="chips"><span class="chip">力量体系不崩坏</span><span class="chip">修炼不一步登天</span><span class="chip">现代价值观不乱入</span><span class="chip">法宝能力有体系</span><span class="chip">因果必须兑现</span><span class="chip">天劫不是走形式</span><span class="chip">情感线不喧宾夺主</span><span class="chip">女性角色不扁平</span></div>
+            </div>
+            <div class="rule-sec">
+              <div class="rs-t">读者爽点 · AI 会主动安排的满足时刻</div>
+              <div class="chips"><span class="chip">境界突破</span><span class="chip">法宝炼成</span><span class="chip">秘境夺宝</span><span class="chip">因果兑现</span><span class="chip">渡劫成功</span></div>
+            </div>
+            <div class="rule-sec">
+              <div class="rs-t">章节类型 · AI 规划章节时的取材范围</div>
+              <div class="chips"><span class="chip">修炼日常</span><span class="chip">秘境探险</span><span class="chip">宗门博弈</span><span class="chip">斗法对决</span><span class="chip">天劫渡厄</span></div>
+            </div>
+            <div class="rule-sec">
+              <div class="rs-t">节奏与用词 · 自动控制，无需设置</div>
+              <div class="chips"><span class="chip">连续动作章 ≤ 3</span><span class="chip">连续日常章 ≤ 3</span><span class="chip">每章 ≥ 1 个情节节拍</span><span class="chip">少用：此子不可留</span><span class="chip">少用：恐怖如斯</span><span class="chip">少用：倒吸一口凉气</span><span class="chip">少用：万丈光芒</span><span class="chip">少用：毁天灭地</span><span class="chip">少用：一息之间</span></div>
+            </div>
+            <div class="rule-sec">
+              <div class="rs-t">类型写作指南 · 已嵌入 AI（只读）</div>
+              <div class="prompt-preview">你正在写东方仙侠小说。除通用写作原则外，请额外遵守：
+- 文风：流畅有古韵，大白话写仙人事；韵味来自节奏与动词，不堆生僻字。
+- 境界体系（练气→筑基→金丹→元婴→化神→渡劫）必须遵守；突破需资源、感悟、考验三重积累。
+- 宗门不是背景板：各有道统、规则与立场；修真界资源有限、弱肉强食。
+- 因果必须兑现；天劫是生死关不是形式主义。（……完整指南随题材下发）</div>
+            </div>
+          </div>
+          <div class="sheet-foot">
+            <span class="note">规则由题材自动派生；想加你自己的要求，去「风格」设定</span>
+            <button class="btn btn-secondary btn-sm" type="button" data-od-id="btn-sheet-swap">更换题材</button>
+            <button class="btn btn-primary btn-sm" type="button" data-od-id="btn-sheet-close">完成</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ D · 三方案对照 ═══════════════════ -->
+  <div class="vsec">
+    <div class="frame-title">D · 现状 / v1 / v2 对照</div>
+    <table class="cmp">
+      <tr><th style="width:20%;">维度</th><th>现状</th><th>v1（已否决）</th><th>v2</th></tr>
+      <tr><td>题材是什么</td><td>设定第 1 步（面板）</td><td>还是面板（5 区块收纳术）</td><td class="new-on">书的属性 + AI 预设</td></tr>
+      <tr><td>作家何时选</td><td>建书后进面板选</td><td>同左</td><td class="new-on">建书时选（老书属性卡补选）</td></tr>
+      <tr><td>设定流必做动作</td><td>选题材 + 面对 19 行编辑器</td><td>选题材 + 2 次点击确认</td><td class="new-on">零（题材步不存在了）</td></tr>
+      <tr><td>规则编辑</td><td>19 行默认展开可编辑</td><td>收进高级折叠区</td><td class="new-on">UI 下架，只读弹层</td></tr>
+      <tr><td>设定进度</td><td>8 项</td><td>8 项</td><td class="new-on">7 项</td></tr>
+      <tr><td>payload / API</td><td>—</td><td>零改动</td><td>零改动（新增建书后静默 PUT 一次）</td></tr>
+      <tr><td>可逆性</td><td>—</td><td>—</td><td>规则数据未删，未来可做「规则包」重新开放</td></tr>
+    </table>
+  </div>
+
+  <!-- ═══════════════════ 结论 ═══════════════════ -->
+  <div class="vsec" style="margin-bottom:24px;">
+    <div class="rec-box">
+      <b>推荐 v2 整稿落地</b>。工程切片：① 建书弹窗选择器 + 建书后静默初始化 genre settings；② SETTINGS_ITEMS 移除 genre（8→7）+ 左栏属性卡 + 规则弹层；③ GenreSettingForm 面板与 GenreHandle 契约退役。
+      <ol>
+        <li><b>为什么这才是「正确的想法」</b>：awesome-novel 里作家与题材的全部交互 = init 时挑一个编号。它没有题材面板、没有确认按钮、没有规则表单——规则是 AI 的知识，不是人的待办。v1 保留了面板，就还是让作家「处理」题材。</li>
+        <li><b>砍 UI 是认账的减法</b>：重度作家暂时失去精调 19 行的入口。依据：预置规则与 awesome-novel 同源已足够好，作家几乎从不改（改了也多为误伤）；数据未删，API 原样，未来按真实需求做规则包。真想影响输出的作家有正路——「风格」与「AI痕迹控制」面板。</li>
+        <li><b>设定流反而更完整</b>：7 项全部是创作决策（简介/主线/世界/风格/AI痕迹/伏笔/角色），没有一项是「替 AI 确认它早就知道的事」。第一步从「选题材」变成「写简介」，进书即创作。</li>
+        <li><b>顺手清掉的旧账</b>：「换题材会重置精调规则但 toast 说保留」的误导文案、题材面板的确认语义与进度口径纠缠——随面板退役一并消失。</li>
+        <li><b>遗留两笔（不在本期）</b>：故事骨架终局归「主线」面板（需后端把 selected_arc_id 迁出 genre 记录）；「无题材写作」自由派作家的兜底（可选「暂不选」，属性卡明示影响范围）。</li>
+      </ol>
+    </div>
+    <p class="muted">拍板后建议：① 在 <span class="num">prototypes/ADJUSTMENTS.md</span> 登记 book.html 原型同步（设定 7 项 + 属性卡）；② openspec 立项（实现仅涉 client/frontend 呈现层与建书弹窗，payload 契约零改动）。本稿不改动 prototypes/ 与任何实现代码。</p>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  function toast(msg) {
+    var t = document.createElement('div');
+    t.style.cssText = 'position:fixed;right:22px;bottom:22px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);z-index:99;';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 2400);
+  }
+  /* A · 建书弹窗：题材单选 + 创建 */
+  var createModal = document.querySelector('[data-od-id="modal-create-project"]');
+  createModal.addEventListener('click', function (e) {
+    var item = e.target.closest('.g-item'); if (!item) return;
+    createModal.querySelectorAll('.g-item').forEach(function (x) { x.classList.remove('on'); });
+    item.classList.add('on');
+  });
+  document.getElementById('btnCreate').addEventListener('click', function () {
+    var picked = createModal.querySelector('.g-item.on span');
+    toast('已创建「凡人问剑」· 题材「' + picked.textContent + '」已生效');
+  });
+  /* B · 简介确认 */
+  document.getElementById('btnIntroOk').addEventListener('click', function () {
+    toast('已确认「简介」· 计入设定进度');
+  });
+  /* C · 规则弹层：骨架单选即换 */
+  var arcGrid = document.getElementById('arcGrid');
+  arcGrid.addEventListener('click', function (e) {
+    var card = e.target.closest('.arc-card'); if (!card) return;
+    arcGrid.querySelectorAll('.arc-card').forEach(function (c) {
+      c.classList.remove('on');
+      var sel = c.querySelector('.ac-sel'); if (sel) sel.remove();
+    });
+    card.classList.add('on');
+    card.querySelector('.ac-name').insertAdjacentHTML('beforeend', '<span class="ac-sel">已选</span>');
+    toast('剧情骨架已换为「' + card.querySelector('.ac-name').textContent.replace('已选', '') + '」');
+  });
+})();
+</script>
+</body>
+</html>

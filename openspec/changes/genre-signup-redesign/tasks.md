@@ -1,0 +1,169 @@
+## 1. 原型先行
+
+- [x] 1.0 **实体命名统一（D20，Change C D1 翻案）**：`projects`→`novels` 表名、`project_id`→`novel_id` 列名（`chapters`/`volumes`/`token_log`/`project_model_audit_log`）、**4 处** `ForeignKey("projects.id")`→`"novels.id"`、`ApiConfig.projects` relationship→`.novels`、`legacy_archive.py:59` 表名判断、测试同批；后端 URI `/api/v1/projects/*`→`/api/v1/novels/*`（不留别名）、前端 `useModelStatus` 的 `/projects/...` 同批改；**不改**磁盘目录 `PROJECTS_DIR` 与 `project_settings` 表名；**实测规模**：表名 6 处 + 列名 4 个 model 列 + **后端 `project_id` 259 处**（形参/局部变量/字典键）+ URI 生产 7 条 + 测试/e2e 17 处 + 前端 **3 文件 5 处**（`useModelStatus.ts`/`useUsageStats.ts`/`useChangeHistory.ts`）+ `main.py:91/100/112` 裸 SQL + `legacy_archive.py:61`；验证＝① `grep -rn '"projects"\|projects\.id\|/projects/' client/backend client/frontend/src` 仅剩 `PROJECTS_DIR`/`project_settings`/`project_model_audit_log` 等预期项；② **列名/形参改名清单式核对**（`project_id` 有 259 处、无法用 grep 表达——以「`models/` 4 个 FK 列 + 生产路由 8 条 + 前端 3 文件 5 处」逐项勾对）+ 全量测试绿；**副作用**：指纹不匹配→开发者本地库留档重建（e2e seed 需重建）
+
+- [ ] 1.1 把评审稿 `docs/design-c/drafts/genre-signup-draft.html` 纳入 `docs/design-c/prototypes/`（**三窗：本书模型 + 简介 + 题材**、AI 写作助手、免费版锁定视角），并在 `prototypes/ADJUSTMENTS.md` 登记每处对基线的偏差原因（含「模型步写在流程条第①步但不进 SETTINGS_ITEMS」的 IA 偏差、`draft` 内两处陈旧注释「仅 PRO/MAX」「选中即保存无确认键」的修正）；`.rail-assist`/`.ai-sink` 归属定为 C端局部组件类（复用共享令牌、不新增全局 token）
+- [ ] 1.2 跑 `cd client/frontend && npm run design:lint` 确认原型无裸 hex / emoji / 未登记档位；若收编进 `design:check` 的 strictGlobs，再补 `npm run design:check` 像素结论
+
+## 2. SETTINGS_ITEMS 前两步重排
+
+- [ ] 2.1 在 `SettingsView.tsx` 把 `SETTINGS_ITEMS` 前两步从 `[genre, intro]` 对调为 `[intro, genre]`；**`normalizePanel` 的 fallback 也须从 `"genre"` 改 `"intro"`**（否则首屏仍可能落题材——流程审查 O-1）；确认 `settingsStatus`/`canDefer` 派生逻辑不受影响
+- [ ] 2.2 **补「确认即前进」**：`handleFootAction` 确认/保存后 `setPanel` 到**数组顺序下一项**（非「下一未确认项」，避免空确认时循环/跳过；**须跳过非 SETTINGS_ITEMS 的模型窗**），并验证「①简介确认→②题材」自动前进；对应 e2e
+- [ ] 2.3 徽标语义修正：简介/题材「已填」从 ok 绿改为进行中（warn 软底），「已确认」才用 ok 绿，对齐 §5.1
+- [ ] 2.4 对齐「全页无必填、确认永远可点」：评估现有 `!hasGenre()`/`introRef.isEmpty()` 确认阻断 gate，调整为可跳过（六格 01 恒有默认值或放开 gate）；**`hasGenre()` 须重定义为「新契约核心键任一非空」**（现实现依赖 `genre_id`/genre 定义加载，纯新契约下语义悬空；须与 `_check_genre` **同源**，否则 01 恒真 → 全空也能 save → 撞后端 400——流程审查 O-2）
+
+- [ ] 2.5 **写回语义与流程收尾（D16）**：单值/数值覆盖（按钮「采纳 · 覆盖」）、列表覆盖整表不追加、无法映射 tagId 落 `custom`、01 取消不回滚；「跳过」＝不点确认直接切下一个 tab；**末项确认后进「设定完成」态 + 「去写作」CTA**（不循环不停留）；不成对 `(config_id,None)`/`(None,model)` 拒绝、`(None,None)` 显式 clear 允许
+
+## 3. 简介面板改造（六段模板 + AI 助手）
+
+- [ ] 3.1 简介面板升级为：编辑框（synopsis ≤500，实时 x/500 计数 + 状态徽标）＋ 「怎么写」六段模板折叠文本指导（默认收起、点开展开；六段名逐字一致 + 公式 + 别踩三条）；折叠复用 `FormField.Cfg` 或受控 state、默认不带 `open`
+- [ ] 3.2 新增 `AiWriterAssistant` 组件（PRO 徽标并头部 + 并列能力行：体检/补缺失/润色 + 来源/去向声明），接入简介右栏；门控 key 用 `useFeature('settings-ai-fields')`（非 `ai-assistant`）
+- [ ] 3.3 新增 `AiSink` 结果区组件（fg-soft TintPanel + 操作名标签 + 候选 + 采纳/重试），简介 AI 反馈落编辑框下方；**状态所有权在 IntroPanel**（AiSink 通过写入回调写回 synopsis；补缺失=append、润色=replace，含 500 字截断）；**结果区生命周期**＝采纳后保留、切面板清空、重新请求覆盖、确认后清空（O-5）；**save 成功但 confirm 400 的终态**须给「内容未通过校验」提示并保留 dirty（O-4）；**AI 写回超 500 的截断位置**＝尾部截断且提示（O-14）
+- [ ] 3.4 体检按六段逐项查 + 禁忌扫描（只提醒不拦确认），行名与六段模板完全一致；响应为结构化 JSON（six_segments/taboo/verdict）
+- [ ] 3.5 新增前端 `lib/ai.ts` 封装：`introAi(action, {title, content}, projectId)`（introspect|fill|polish）；**`title` 来源钉死＝workspace/novel 状态的 `novel.name` 或新增 `api.fetchNovel(projectId)`**；catch **按 `detail.reason` 分派**（member_required→升级 / no_key→去模型配置 / missing_model→先选本书模型 / 502→暂不可用请重试且不拦确认，顺序 member_required→no_key→missing_model）；**结构化 detail 归一化**：`ai.ts` 两处 fetch（`doStreamFetch`/`doJsonPost`）统一取 `detail.message`（否则对象 detail 变 `[object Object]`）、`api.ts` 503 分支按 `detail.reason` 分流（`no_key`/`missing_model` 不进 infra 全局提示）并透传 `e.reason`；字段说明、**六段名与禁忌三元**接入**共享常量模块单源**（参照 `GET /api/genres/candidates` 的「后端下发 + 前端镜像 parity 测试」机制；`fieldGuide` 本仓库不存在，不依赖）
+
+## 4. 题材面板改造（六格 + 五行 AI）
+
+- [ ] 4.0 **AI 助手交互状态机（D14）**：四个能力（体检/补缺失/润色/五行）共用 `idle→running→result→adopted`（异常 `error(reason)`），`.ai-sink` 为唯一渲染面——含**前置守卫**（补缺失未体检→置灰+「先体检」）、**空结果**（六段全 ok→「无需补」）、**生命周期**（采纳后保留/切面板清空/重请求覆盖/确认后清空）、**save 成功 confirm 400→保留 dirty**、**失败按 reason 分派文案**（矩阵见 spec）、**重试不重复计 usage**
+
+- [ ] 4.1 题材面板六格对齐（口味胶囊 5 预置联动 / 主要看什么 / 绝对禁止[库标签+回车自定义] / 吃苦指数滑块 1-10 浮例句 / 主线战场[第 3 个软提示] / 剧情轨道），每格编号+怎么填+成书视角去处；**01 口味胶囊为预置联动，不走 AI、不计入确认判据**；**六格→field→契约映射写死**（02↔core_promise+promise_note(仅入契约)/03↔forbidden_list/04↔cost_ratio/05↔battlefield/06↔track）；逐格定「采纳后落哪个控件 + 控件期望数据形态」
+- [ ] 4.2 题材右栏复用 `AiWriterAssistant`：五行（对应 02-06 字段，各答各题含本格问题+输入来源），反馈落左侧对应输入框下方 `.ai-sink`，采纳写回对应控件；新增 `lib/ai.ts` `genreAi(field, {title, synopsis, context}, projectId)`；按字段返回强类型出参（core_promise{value,note}/forbidden_list[{tagId|text}]/cost_ratio 1-10/battlefield[]/track 文本）
+- [ ] 4.3 题材定义措辞收口（题材 = 读者预期 + 作者轨道 + 核心冲突的类型锁），写入题材提示帮助
+
+## 5. 免费版锁定
+
+- [ ] 5.0 **状态恢复出口完备性（D15）**：每个非 `ready` 的 `ai_state` 都有唯一恢复路径——`no_key` 含「Key 非空但测试失败」（文案区分未配置/测试失败）、`ready` 须同时满足 Key 非空且最近测试非失败态、`invalid` 涵盖「model ∉ config.models」存量错配、**无其他可用配置时给「新建配置」入口**；**移除 `ai-model` 的可确认语义**（死路径）
+
+- [ ] 5.1 AI 助手卡片对无套餐用户「可见 + 锁定」：整卡降透明 `.locked`、PRO 徽标转灰、能力行降透明 + `cursor:not-allowed`，名称/描述仍可见；门控 key `settings-ai-fields`（memberOnly）
+- [ ] 5.2 点击锁定行给统一升级提示（「这是会员功能，升级 PRO 后解锁——免费版写作能力完整」），不各自弹窗；移除行内就地劝导避免重复；前端锁定与后端 `require_ai_access` 判据对齐
+
+## 6. C端后端 AI 链路（本 change 内落地）
+
+- [ ] 6.0 **分层落地（D11）**：按「配置层→解析层→判定层→客户端层→门控层→业务层→prompt 层→计量层」落位——新增 `effective_model` 解析（`project.ai_model` 权威）、`compute_ai_state` 判定（与门控共用）、`get_ai_client_for_novel`；业务层一律改 `get_ai_client_for_novel`、禁读 `writing_model` 决定模型；验证＝5 条边界禁令可 grep（见 8.6）
+
+- [ ] 6.1 `settings/ai_router.py` 扩展：`FIELD_GENERATABLE` 加 `genre`；新增 `POST /settings/ai/intro/{action}`（introspect|fill|polish）且**必须注册在既有 `/ai/{stype}/{field}` 之前**、**同时挂 `require_ai_access` + `require_novel_model`**（与 7.3 一致）（否则 introspect 会被通用路由吞掉→400）；新端点挂 `require_ai_access`；简介 AI 以 `body.content`（当前编辑 synopsis）+ `body.title` 为输入，不读 story.yaml 旧文
+- [ ] 6.2 新增 prompt 模板：`settings_intro_introspect`（六段逐项 达标/缺失 + 禁忌扫描，JSON；**注明"只分析/只提醒、不补写不改写"** + 六段名/禁忌三元单源占位 + **schema + 枚举 + 一个 few-shot 示例**）、`settings_intro_fill`（补缺失；**注明"只补缺失段、不重写已写段"** + missing_segments 入参）、`settings_intro_polish`（前后对照，保原意、不代写、max_tokens 上调）；`settings_genre_{field}` 各字段——**prompt 按 field 拼接，仅 genre 特判 field 级，world/style/hooks/characters 仍走 `settings_{stype}.prompt`（勿误断加载不存在的 `settings_genre.prompt`）**；逐模板列明 `.format` 占位符 **+ 调用参数（max_tokens / temperature / json_mode）**；**JSON 花括号必须写成 `{{ }}`**（否则 `.format()` 抛 KeyError——现存 bug 实证：`prompts/prefill_world.prompt:14` 裸 `{` 已致 `KeyError`，建议顺手修）；**共享常量以占位符注入**（六段名/禁忌三元经 `.format` 注入，模板内不复制字面量）；**能用的 provider 追加 `response_format={"type":"json_object"}`**（同步扩 `AIClient.chat` 的 OpenAI 分支；**`json_mode` 由业务层传语义参数、客户端层按 `api_format` 落地**，Anthropic 忽略）；`AIClient.chat` 补 `temperature` 透传
+- [ ] 6.3 体检 introspection 响应 schema：`{"six_segments":[{name,status(ok|missing),excerpt,note?}], "taboo":{"hits":[{rule,excerpts}]}, "verdict":"strong|ok|weak"}`；禁忌规则枚举后端定义＝**设定集腔/作者自白/剧透**（注：与「别踩」第三元「写死结局」用途不同、勿合并）；`name` 与六段模板逐字一致；六段名/禁忌三元注册进共享常量/fieldGuide；**endpoint 后置归一化兜底**（弱模型下 status clamp 到 ok|missing、verdict 不在枚举则默认 ok/weak、name/rule 不在白名单则映射最近项或 unknown、非法 JSON 走 502 可重试）
+- [ ] 6.4 题材枚举/标签候选源：**新建共享候选源**（core_promise 枚举值、forbidden_list tagId 目录、battlefield 候选清单）——不直接复用 `presets.py` 现成键（其无这些新键/tagId，仅可萃取语义作初稿）；**tagId 取 `genre_vocab.id`（稳定 slug，如 `forbidden:no-deus-ex-machina`）**——**禁用 `preset:{preset_id}:{index}`**（index 会随常量顺序漂移）；候选清单由 `GET /api/genres/candidates` 下发、前端镜像 parity 测试；供模型选或走 custom、前端「采纳写回并映射 tagId」
+- [ ] 6.5 `record_usage` 的 `operation` 改为 `settings_{stype}_{action|field}` 细分，且 **`model` 记实际本书模型 id**（不再记 `"haiku"`——走本书模型后用量/计费口径须准）；错误契约区分 未配 key(**503 + reason=no_key**，保持现码)/非法 JSON(502 可重试，不拦确认)/参数错(400)；fill/polish 失败允许重试
+- [ ] 6.6 `readiness._check_genre` 判据改为新契约**核心键非空**（core_promise/forbidden_list/cost_ratio/battlefield/track 至少一，**01 口味胶囊不计入**）；`GenrePickerModal`/`data/genres.ts`/`DEFAULT_GENRE_ID` 随纯新契约弃用或改造，清理 `genre_id` 读空残留；**写作引擎题材配置去向与 6.0c 对齐**：`fulfillment_types` 语义并入 `core_promise`；`chapter_types`/`pacing_rules`/`fatigue_words` 迁 `writing-style.yaml`（含消费点 `chapter_writer.py:499` 的 `fatigue_words`）；`prompt_injection_enabled`/`selected_arc_id` 随 GenrePicker 退役移除
+
+- [ ] 6.0b **题材关系化建表（D19 方案 A，用户拍板「一次做对」）**：新增 4 个 model + 表——`genre_vocab`（**稳定 slug 主键**、`kind`/`label`/`sort`/`is_preset`）、`novel_genre`（`novel_id` 主键、`core_promise≤60`/`promise_note≤200`/`cost_ratio CHECK 1–10`/`track≤300`）、`novel_genre_forbidden`、`novel_genre_battlefield`（关联表：`vocab_id` FK→`genre_vocab` **或** `custom_text`，CHECK 恰一；`UNIQUE(novel_id, vocab_id)`）；新增 `genres/vocab_presets.py`（稳定 slug 如 `forbidden:no-deus-ex-machina`）+ `ensure_seed_genre_vocab()` 挂 lifespan（幂等，沿用 `ensure_seed_genres`）；`GET/PUT /settings/genre` **对外五字段 JSON 不变**、存储层事务写多表；`readiness._check_genre` 改查表；**重写 `resolve_genre_context` 查三表组装**（否则注入恒空）；`GET /api/genres/candidates` 查 `genre_vocab`；`project_settings('genre')` 废弃；**tagId 禁 `preset:{id}:{index}`**；存量库走「指纹不匹配→留档重建」；**R10** `ai-model` 行勿写 `ai_state`；**R9** `genre_profile` 停用或仅展示
+
+- [ ] 6.0d **novel_id 贯通改造（后端工程师实测：被严重低估）**：`novel_genre` 用 `novel_id` 主键，而 `resolve_genre_context(root_path)`（`genres/service.py:172`）、`_check_genre(root_path)`（`readiness.py:32`）、`compute_readiness(root_path)`、`READINESS_CHECKERS` 协议（`readiness.py:90-101`）、`build_chapter_context(root_path,...)`（`chapter_writer.py:469`）**均拿不到 novel_id**——须改签名并波及调用方：`workflow/gates.py:26`（`gate_settings_complete` 自身签名）+ `:44`、`workflow/router.py:39`、`volumes/service.py:65`（`tier_or_gate` 只透传 `*args`）、`gates.py:245`（`get_phase_status`，`db_project` 可空）、`novels/router.py:473`、`settings/status.py:51-52`、`write/router.py:139,174,254`、`chapters/ai_draft.py:226` + 测试（`test_chapter_writer_context.py`/`test_tone_section.py`/`test_genres_injection.py`）
+- [ ] 6.0e **`build_genre_section` 同批重写 + 消费点迁移**：它只渲染旧字段（`name/description/typical_arc/taboos/prompt_injection/chapter_types/pacing_rules/fulfillment_types/selected_arc`，`genres/service.py:238-276`），新五字段一个不认 → 光改 `resolve_genre_context` 注入仍近乎空；`chapter_writer.py:499` 消费 `gctx["fatigue_words"]`，新契约无此键 → 随 6.0c 迁 `writing-style.yaml` 并改消费点
+- [ ] 6.0f **题材存储拦截点定稿**：`GET/PUT /settings/genre` 现走泛型 KV 通道（`settings/router.py:53-99` 的 `SINGLE_FILE_TYPES`），**KV 协议无法单事务写 4 张表** → 新增 `genres/novel_genre_service.py`（`get_novel_genre(db, novel_id)`/`put_novel_genre(db, novel_id, payload)` 单事务 upsert + delete+insert），`settings/router.py` 对 `type=="genre"` **分支旁路 KV**，`readiness._check_genre` 改调该 service；若选「从 `PATH_TO_KEY` 移除 genre + 专用路由」须同步 `test_db_storage.py:50`（`len(PATH_TO_KEY)==8`）
+- [ ] 6.0g **`genre_vocab` 删除策略与自定义 slug 规则**：关联表 `vocab_id` FK 的 `ON DELETE` 定死（建议 `RESTRICT` + 「先解除引用」提示）；用户自定义 vocab 的 `id` 生成规则（`custom:{slugify(label)}` + 去重后缀）；`cost_ratio` 可空须写 `CHECK (cost_ratio IS NULL OR cost_ratio BETWEEN 1 AND 10)`；关联表 `sort` 语义＝从 0 连续、顺序＝前端数组序
+- [ ] 6.0c **约束双保险 + 空值统一**：DB 侧 `cost_ratio CHECK(1..10)`、关联表 `CHECK(恰一非空)`、**`novel_id` FK `ON DELETE CASCADE`**（注意与 6.0g 的 `vocab_id` FK `RESTRICT` 是两条不同外键）；Pydantic 侧同规则（`core_promise≤60`/`promise_note≤200`/`track≤300`/元素数上限）；**空值统一**（`null`/`""`/空白/无关联行 等价未填）；旧键移除 + `config_overrides.*` 迁 `writing-style.yaml`；验证见 9.2.14/9.2.15/9.2.16
+
+## 7. 本书模型设定（AI 前置）
+
+- [ ] 7.0 **单一事实源（D10+D13）**：后端抽 `compute_ai_state(novel, config, has_user_key) → ai_state ∈ {ready,member_required,no_key,missing_model,invalid}`（**与 `detail.reason` 同枚举**；优先级 `member_required>invalid>no_key>missing_model>ready`；`ready` 含 `model ∈ json.loads(config.models)`；`no_key` 为**本书绑定配置级**；**会员维度并入同一枚举**——前端不再 `useFeature`+`ai_state` 两处判；落点 `api_configs/service.py` 紧邻 `get_project_ai_model`，与 `require_novel_model` 共用）；`GET /novels/{id}/ai-model` 响应扩展 `ai_state` + `effective_model`；前端 `useModelStatus` **删除本地四态推导**、改消费（**保留 `modelOptions`/`configs`** 供卡片列表与组头徽标），门控按 `ai_state` 分派、catch 按 `detail.reason` 分派；`ai_state → 徽标`映射：ready→可用(ok)/invalid→配置失效(err)/missing_model→未选择(empty)/no_key→未配置(empty)/member_required→灰。验证：`ai_config_id` 有值但 `ai_model` 空时两端一致判 `missing_model`
+- [ ] 7.0b **三层粒度与绑定（D12）**：确认并落——供应商＝C端用户级、模型＝书级（`effective_model` 全书唯一）、prompt＝页面级（模型无关）；**后端 `set_project_model` 补校验 `model ∈ json.loads(config.models)`**（空列表拒、部分 null 拒、400；**现状 `SetAiModelBody` 两字段可 None 且不校验，会静默错配**）；UI 卡片列表选中即定 `(config_id, model)` 整对（**跨配置混搭不可达**；组内换模型允许）；**确认键遇 400 保留 draft + 行内报错**。验证：传不属于该配置的模型名被拒且选中态不丢；同书三处 AI（简介/题材/章写作）走同一模型
+
+- [ ] 7.0c **签名定稿 + 审计幂等 + 错误码映射**：① `compute_ai_state(novel, config, has_user_key)` 签名与 `member_required` 输入方式定稿（会员判断在门控层，判定层接收已算好的 `is_member`）；② `get_ai_client_for_novel(novel_id)` 签名定稿（自开会话读 novel，避免给 `polish_text` 再透传 db）；③ **审计幂等实现**——`set_project_model:344`/`apply_model_to_all_projects:424` 现无条件 `db.add(log_entry)`，须加「同值短路」不写行（否则 9.2.13 必红）；④ `set_project_model` 校验失败现 `return None` → 路由统一 404（`router.py:364-365`），须改返回契约使绑定失败落 **400**；⑤ `ai_state` 枚举改名 `no_model`→`missing_model` 须同步 `src/types/api-config.ts:4` 的 `ModelStatus` + `ModelSettingForm.tsx:44-58` 三处分支
+- [ ] 7.1 **模型步对所有用户可见可用**（免费版也能配、配好升级 PRO 后直接用——模型配置＝人工路径能力，不锁）：**复用** SettingsView 已渲染的 `ModelSettingForm`（`ai-model` 面板，不进 SETTINGS_ITEMS、不参与 readiness/确认即前进）——不新建模型项、不重复接入；**模型选择控件改为按 API 配置分组的卡片列表**（组头＝配置名+供应商+**连接状态徽标**，组内模型行单选/选中态；替代原生 `<select>`/optgroup，支持多供应商×多模型），数据源＝`modelOptions: FlatModelOption[]` 按 `api_config_id` 分组；**单选语义 role="radiogroup"+role="radio"/aria-checked**（StoryArcForm 只有 role/aria、**无键盘导航先例**且是 toggle 语义→**键盘导航须新增**：roving tabindex + ArrowUp/Down/Left/Right + Home/End，选中不可 toggle-off）；**连接状态数据源**＝`ApiConfig.last_test_status`（`useModelStatus` 现不返回，需扩展或合并 `useApiConfigs`）映射 已连接/未测试/失败；**空态**（有 Key 但无模型）给「去「模型配置」补模型」引导；**选择与生效分离＝点行只标亮、点「设为本书模型」才落库**（未选时按钮禁用；**需同步改真实 ModelSettingForm**：现为 onChange 即存、无确认键）+ **draft + dirty 接 `onDirtyChange`**（否则切面板静默丢失）+ 确认后 `refresh()`/补 `currentConfigName`；免费版已配置时提示「模型已配好 · 升级 PRO 后本书 AI 即可用」（不说「AI 就绪」）；模型步右栏卡**不绑 `.locked`**；**draft 未确认时切面板须走全局 dirty 提示**（与模型窗自己的确认键协调——O-10）；**配置被删且无其他可用配置时给「新建配置」入口**（不死路——O-7）；**`ai-model` 在 `VALID_TYPES` 可确认但 footer 无按钮，须明确该确认态去留**（死路径——O-18）；**`features.ts` 的 `ai-model` 改 `memberOnly: false` + `features.test.ts` 同步移入 FREE_FEATURES**
+- [ ] 7.2 AI 行点击＝统一门控函数（`AiWriterAssistant` 内一处判定，**只读 `ai_state`、一次分派**：`member_required`→升级 toast / `missing_model`|`invalid`→「先给本书选模型」+`onJumpModel()`(=setPanel('aiModel')) / `no_key`→「先去模型配置加 Key」+跳配置 / `ready`→调 lib）；**就绪判据＝后端 `ai_state === "ready"`**（前端不再自己判 `useFeature`/`currentConfigId`/`currentModel`）；`onJumpModel` 回调由 SettingsView 传入；**写作页兜底另立 change**（本 change 只保证设置视图，见 D7/9.4.12）
+- [ ] 7.3 后端独立 dependency `require_novel_model(project_id, user, db)`（与 `require_ai_access` 并列挂载，会员在前）：**形参名必须沿用路径参数 `project_id`**（实测改 `novel_id` → FastAPI 当必填 query → 所有 AI 端点 **422**；除非全量重命名路径参数，本 change 不做）；判据 `not ai_config_id or not ai_model`，未就绪 503 `{reason:"missing_model"}`（不可当瞬时故障重试）；给现有 `require_ai_access` 的未配 Key 分支补 `{reason:"no_key"}`（**保持 503 码**）；`get_ai_client_for_novel(novel_id)` 落地（构造失败优雅返回不裸 500）；**全仓库 `get_ai_client()` 调用点逐一替换（实测 14 处，替换 12 + 豁免 2）**：`write/router.py:62,179`、`write/auxiliary.py:157,217,252`、`settings/ai_router.py:50`、`chapters/ai_draft.py:259`、`prompt/router.py:46`、`archive/service.py:46`、**`story/arc_wizard.py:61`、`story/character_agent.py:250`、`story/engine.py:201`**；**豁免**：`ai_prefill.py:26`（建书预填）、**`novels/router.py:154`（suggest-meta，无 novel_id）**；**门禁见 8.6（含可执行命令与豁免清单）**；**`polish_text`/`expand_text`/`archive_chapter` 须新增 `novel_id` 并向上游（`write/router.py`、`archive/router.py`）透传**（三者签名现均拿不到，不能机械替换）；**`archive/service.py:45` 内联 `check_permission().is_member` 属业务层自判会员（违禁令③）须处置**；**双模型源权威链**：`project.ai_model` 唯一权威，**`writing_model` 建议停用/移除**（不再作为任何模型来源），显式模型名忽略（处置 `write/router.py:64,180`、`write/auxiliary.py:69,153,212,247`、`chapters/ai_draft.py:260`）
+
+## 8. 门禁与回归
+
+- [ ] 8.1 `cd client/frontend && npm run design:lint` 通过（无裸 hex / emoji / 未登记档位）
+- [ ] 8.2 `cd client/frontend && npm run design:check` 全绿（像素差 <0.2%；若收编原型进 strictGlobs）
+- [ ] 8.3 `cd client/frontend && npx tsc --noEmit` 通过；`cd client/backend && pytest`（若改动波及）通过；S端 无改动（依据 proposal Design Impact），不跑 `vue-tsc`
+- [ ] 8.4 相关 e2e 通过：settings（简介/题材面板、AI 行、六段折叠、免费版锁定、**本书模型前置**、**门控分流**）、readiness/onboarding（前两步顺序、题材新契约判据）。**注意（测试审查发现）**：`config.models` 无公开写入通道（`CreateApiConfigBody` 无 `models`、`PUT /api-configs` 不透传），假 Key 的 `refresh-models` 必得空列表 → **e2e 无法给书 seed 模型**；故 AI 相关 e2e 一律用 `page.route("**/api/v1/novels/*/ai-model")` 返回目标 `ai_state`，**真实判定与绑定校验归 pytest**（见 9.2）
+- [ ] 8.5 触共享段的回归结论：本改动 C端 UI + C端后端，未触碰 base.css 共享令牌/组件类（`.rail-assist`/`.ai-sink` 为 C端局部、用共享令牌），故 `design-cross` 无需跑（依据 proposal Design Impact）
+- [ ] 8.6 **AI 端点调用点门禁**：`grep -rnE '\bget_ai_client\(' client/backend --include='*.py' | grep -vE 'ai_client\.py|/tests/|ai_prefill\.py|novels/router\.py|__pycache__|\.mimosa' | grep -vE '^\S+:[0-9]+:\s*#'` 须为空（实测 14 处：替换 12 处含 `story/arc_wizard.py:61`/`story/character_agent.py:250`/`story/engine.py:201`，豁免 `ai_prefill.py:26` 与 `novels/router.py:154` suggest-meta）；另核 `record_usage` 各点记实际模型 id、门控违规近似 grep（`check_permission\(|is_member` 在业务层）为空
+
+- [ ] 8.7 **补 `tier-gating` MODIFIED delta**：`openspec/specs/tier-gating/spec.md:83` 明写「Free-locked keys SHALL be exactly … `ai-model`」——本 change 把 `ai-model` 翻案为免费可用，须新增 `specs/tier-gating/spec.md` delta（否则归档时规范自相矛盾）
+
+## 9. 测试（单测 / 集成 / 本地 e2e）
+
+### 9.0 测试设计原则（**不是"测有没有"，是"测对不对"**）
+
+- **界面测试 SHALL 断言规格而非存在性**：关键控件必须断言**尺寸/字号/圆角/间距/行高**与原型 token 一致（数据源＝`docs/design-c/prototypes/` + `src/design/base.css`），不能只断言"元素存在/文案正确"。本 change 的规格基线（取自评审稿 v8.5）：
+  | 控件 | 必须断言的规格 |
+  |---|---|
+  | 简介框 `.intro-ta` | `min-height 132px`、`font-size 14px`、`line-height 1.9`、`border-radius 9px`、`padding 9px 12px` |
+  | 通用输入 `.input/.textarea` | `padding 9px 12px`、`border-radius 9px`、`font-size 13.5px` |
+  | 按钮 `.btn` | `height 34px`、`padding 0 15px`、`border-radius 10px`、`font-size 13.5px`、`font-weight 500` |
+  | 胶囊 `.cap` | `padding 7px 14px`、`border-radius 999px`、`font-size 13px` |
+  | 徽标 `.badge` | `padding 2px 9px`、`border-radius 999px`、`font-size 11px` |
+  | 模型组 `.model-group` / 组头 | `border-radius 10px`；组头 `padding 9px 12px`、`font-size 12.5px`、底色 `--fg-soft` |
+  | 模型行 `.model-opt` | `padding 9px 12px`、`gap 9px`、行间 `1px dashed` 分隔、**同行等高** |
+  | AI 结果区 `.ai-sink` | `padding 12px 16px`、`border-radius 10px`、`font-size 12.5px`、`line-height 1.8`、底色 `--fg-soft`（**不得** `--surface`） |
+  | AI 助手卡 `.rail-assist` / 行 `.ra-step` | `padding 12px`/`9px 10px`、`border-radius 10px`/`9px`、行距 `6px` |
+  | 字号档 | 只允许设计白名单（10/10.5/11/11.5/12/12.5/13/13.5/14/20/22/26px），**禁裸字号** |
+- **接口测试 SHALL 覆盖三类**（缺一不算测过）：
+  1. **幂等**：同值重复写 → 200 且状态不变、审计不重复；重试/换候选**不重复计 usage**；重复 confirm 幂等。
+  2. **参数等价类**：每个入参划分「合法 / 非法 / 空」等价类，各取代表值——含空串、纯空白、`None`、超长、特殊字符（`<>{}"'\`）、emoji、类型错误（数字传字符串）。
+  3. **边界值**：每个有界参数测 **下界-1 / 下界 / 上界 / 上界+1**——`synopsis` 0/1/499/500/501；`cost_ratio` 0/1/10/11；模型列表 0/1/多；`forbidden_list` 0/1/重复项。
+- **低级错误兜底清单**（每类至少一条用例）：空值/纯空白、重复提交（双击确认键）、并发/竞态（切面板时请求返回）、特殊字符与编码、超长输入溢出、`None` 与 `""` 不等价。
+
+### 9.1 前端单测（vitest，`client/frontend/src/__tests__/`）
+
+> **执行命令**：`cd client/frontend && npx vitest run`（`package.json` 无 vitest script，`scripts/test-all.sh` 只跑 pytest+playwright——须显式 `npx vitest run`；CI 亦未接 vitest，需在本 change 补 script 或 CI step）
+
+- [ ] 9.1.0 **控件规格断言（规格 parity，非存在性）**：对 9.0 表格中每个控件断言 computed style —— `intro-ta` 的 `minHeight==="132px"`/`fontSize==="14px"`/`lineHeight==="1.9"`/`borderRadius==="9px"`；`.btn` 的 `height==="34px"`/`padding==="0px 15px"`/`fontSize==="13.5px"`；`.cap`/`.badge` 的 `borderRadius==="999px"` 与 padding；`.model-opt` 同行等高（`getBoundingClientRect().height` 一致）；`.ai-sink` 底色为 `--fg-soft` 计算值且**不等于** `--surface`。验证＝`getComputedStyle` / `getBoundingClientRect`；**若与原型不一致即失败**（这是"界面尺寸符合原型"的兜底）
+- [ ] 9.1.0b **输入框边界与溢出**：简介框在 0 字/1 字/499 字/500 字时的 `min-height` 不变（不塌陷）、超 500 被 `maxlength` 截断、长英文/无空格长串**不撑破容器**（`scrollWidth <= clientWidth`）、纯空白输入不触发"已填"；字号白名单校验（渲染树内 `fontSize` 全部落在 9.0 白名单）
+- [ ] 9.1.1 `introPanel.test.tsx`：六段模板默认收起（`aria-expanded="false"`）→ 展开后六段名/公式/别踩三条齐全；六段名与共享常量**逐字一致**（import 常量比对，禁复制字面量）；≤500 计数实时同步（**含边界 500/501**）；「有字未确认」=warn 语义、「已确认」=ok 语义（断言 class 不依赖色值）
+- [ ] 9.1.2 `aiSink.test.tsx`：体检渲染 6 行（达标/缺失）+ 禁忌结论；`.ai-sink` 位于简介框**之后**（DOM 顺序）、右栏无答案；补缺失采纳＝append（含 500 截断、不重写已写段）；润色采纳＝replace（`original`/`polished` 对照可见）；重试换候选不写回
+- [ ] 9.1.3 `genrePanel.test.tsx`：5 口味 → 02-05 预填来自共享候选源常量、可改可清、01 不计入确认判据；禁项回车自定义（空值忽略/去重）；战场第 3 个软提示仍可点；吃苦指数锚点（1/3/5/7/9/10）浮例句正确；五行 AI 落**对应字段正下方**并按字段写回（文本/数组/1-10/tagId），不误写他格
+- [ ] 9.1.4 `modelSettingForm.test.tsx`：分组卡片按 `api_config_id` 分组 + 组头徽标（`last_test_status` 六值 → 已连接/未测试/失败）；**radiogroup + 键盘导航**（roving tabindex、方向键环绕、Home/End、**选中不可 toggle-off**——`StoryArcForm.test.tsx` 只有 role/aria 先例、无键盘先例，本条是新范式）；**选择与生效分离**（点行 0 次 PUT、确认恰 1 次 PUT 整对、确认后回禁用、400 保留 draft + 行内报错）；空态引导；免费版已配好文案为「模型已配好 · 升级 PRO 后本书 AI 即可用」（**不得**出现「AI 就绪」）
+- [ ] 9.1.5 `useModelStatus.test.ts`：mock `GET ai-model` 返回 5 种 `ai_state`，断言 hook **原样透传**、无本地推导；`ai_config_id` 有值但 `ai_model` 空时**不得**返回 ready（D10 回归）
+- [ ] 9.1.6 `aiWriterAssistant.test.tsx`：AI 行**只读 `ai_state` 一次分派**（`member_required`→升级 / `missing_model`|`invalid`→跳模型设定 / `no_key`→跳模型配置 / `ready`→调 lib）；分派顺序 member_required→no_key→missing_model
+- [ ] 9.1.7 `introAiGenreAi.test.ts`：URL/入参正确（`title`＝书名、`content`＝当前 synopsis 草稿、题材带 `synopsis`）；catch 按 `detail.reason` 分派
+- [ ] 9.1.8 **改现有** `features.test.ts`：`ai-model` 移入 FREE_FEATURES；**扩现有** `api-503.test.ts`：补**对象 detail** 用例（按 reason 分流、不进 infra 全局提示、`e.reason` 透传、`detail.message` 被取出不出现 `[object Object]`）
+
+### 9.2 后端 pytest（`client/backend/tests/`）
+
+- [ ] 9.2.1 `test_ai_state.py`（新）：`compute_ai_state(novel, config, has_user_key)` 矩阵——`ready` 四项判据；优先级 `member_required > invalid > no_key > missing_model > ready`；`no_key` 为**本书绑定配置级**（绑 A 无 Key、B 有 Key → 非 ready）；`model ∉ json.loads(config.models)` → 非 ready；`models` 为 JSON 文本/`None`/空串/非法 JSON 不抛异常
+- [ ] 9.2.2 **扩现有** `test_api_key_config.py::TestModelSelection`：`set_project_model` 绑定校验——不属于该配置的 model → **400**；空 `models` → 400；`(config_id, None)`/`(None, model)` → 400；显式 clear `(None,None)` → 200
+- [ ] 9.2.3 **扩现有** `test_ai_member_gate.py`：`require_novel_model` 直调——`ai_config_id`/`ai_model` 空 → `503 reason=missing_model`；非空 → 通过；构造失败优雅 503/500；`require_ai_access` 未配 Key 补 `reason=no_key` 且**状态码仍 503**
+- [ ] 9.2.4 `test_settings_ai_intro_route.py`（新）：**路由顺序**——`POST .../settings/ai/intro/{introspect|fill|polish}` 不被 `/{stype}/{field}` 吞掉（不得返回 `400 not supported for: intro`）
+- [ ] 9.2.5 `test_settings_ai_intro.py`（新）：三能力契约——`introspect` 返回 `{six_segments,taboo,verdict}` 且 `name` 白名单/`status∈{ok,missing}`；`fill` 带 `missing_segments` 且 `act=="insert"`；`polish` `act=="replace"`；以 `body.content` 为源（story.yaml 未写也生效）
+- [ ] 9.2.6 **扩现有** `test_settings_ai.py`：归一化——非法 JSON→502 可重试、`status` clamp、`verdict` 兜底、`name`/`rule` 映射或 unknown、六段名/禁忌三元与共享常量单源一致
+- [ ] 9.2.7 `test_settings_genre_ai.py`（新）：`FIELD_GENERATABLE` 含 `genre`；genre 走 `settings_genre_{field}.prompt`、**world/style/hooks/characters 仍走 `settings_{stype}.prompt`**（防误断加载不存在的 `settings_genre.prompt`）；强类型出参；`promise_note` 无独立 AI 行
+- [ ] 9.2.8 **扩现有** `test_prompts_loader.py`：`settings_intro_*`/`settings_genre_{5 field}` 模板存在、占位符齐全（含 schema/枚举/few-shot 注入位）、模板内**不写模型名**
+- [ ] 9.2.9 `test_ai_client_layering.py`（新）：`chat` 透传 `temperature`；`json_mode` 由客户端层按 `api_format` 落地（OpenAI 出现 `response_format`、Anthropic **不出现**）；`effective_model` 以 `project.ai_model` 权威、`writing_model` 字面名忽略；`get_ai_client_for_novel` 读本书模型 + 构造失败优雅返回；建书期降级链仅 `ai_prefill`/`suggest_meta`
+- [ ] 9.2.10 `test_usage_model_id.py`（新）：`record_usage` 记**实际生效模型 id**（非 `"haiku"`）；`operation` 细分 `settings_{stype}_{action|field}`
+- [ ] 9.2.11 `test_ai_boundary_gate.py`（新，**静态扫描替代裸 grep**）：用 `pathlib.rglob`+`re` 实现 D11 三条禁令——业务层无裸 `get_ai_client(`（豁免清单写在测试内）、业务层无 `check_permission(`/`is_member`、`record_usage` 无 `model="haiku"` 字面量；跳过 `__pycache__`/`.mimosa`
+- [ ] 9.2.12 **改现有** `test_readiness.py`：`_check_genre` 判据改新契约核心键非空（三处 `{"genre_id":...}` → `{"core_promise":...}`）；补「只填 01 口味胶囊 → 仍 400」与「填 core_promise → 可确认」
+- [ ] 9.2.13 **幂等性**（新，`test_idempotency.py`）：同值重复 `PUT /novels/{id}/ai-model`（同 `(config_id, model)`）→ 两次均 200、`project` 状态不变、**审计不重复写**；重复 `PUT /settings/story` 同 synopsis / `PUT /settings/genre` 同 payload → 幂等；重复 confirm（`PUT /settings/status/{type}`）幂等；**AI 重试/换候选不重复计 usage**（同一次操作的 `record_usage` 只 1 次或按实际调用计但可区分）
+- [ ] 9.2.14 **参数等价类**（新，`test_equivalence_classes.py`）：逐入参划分「合法/非法/空」等价类——`synopsis`：空串、纯空白、`None`、1 字、超长、特殊字符 `<>{}"'\``、emoji；`model`：合法、不在配置列表、空串、`None`、不存在的 `api_config_id`；`cost_ratio`：数字、字符串数字、非数字、负数；`forbidden_list`：空数组、单元素、重复元素、超长文本、含分隔符 `·`；`ai_state` 判定：`models` 为 `None`/`""`/`"[]"`/非法 JSON/合法 JSON。**每类断言返回码 + detail.reason**
+- [ ] 9.2.15 **边界值**（新，`test_boundaries.py`）：`synopsis` **0/1/499/500/501**（**501 尾部截断**）；`cost_ratio` **0/1/10/11**（0 与 11 拒绝）；模型列表 **0/1/多**（0 → 任意 model 拒）；`forbidden_list` **0/1/重复**；`battlefield` 0/1/2/3（第 3 个仅软提示、不拒）；`title`/`content` 空串与超长；简介写回 **500 字截断位置**（尾部截断，不截断中间）
+
+- [ ] 9.2.16 **R8 删除残留 + 写作注入 + 存储路径**（新，`test_data_layer.py`）：删 ApiConfig 后 `ai_config_id=NULL + ai_model 非空` → `ai_state=="invalid"`（**不得**判 `missing_model`/ready）；`resolve_genre_context` 读五字段后 `build_genre_section` **非空**（防静默降级）；`route_relative_path()` 对本 change 全部路径（`story.yaml`/`settings/genre.yaml`/`settings-status.yaml`）**均非 None**（防落盘）；旧 `{genre_id}` 行读回后响应**不含** `genre_id`
+- [ ] 9.2.17 **R9/R10 边界**（新）：`writing-style.yaml` 的 `genre_profile` 不再参与题材判定/写作注入（若停用）或仅展示；`project_settings("ai-model")` 行**不被 `ai_state` 写入**
+
+### 9.3 既有测试回归（**必改，防契约级红**）
+
+- [ ] 9.3.1 `e2e/settings-forms.spec.ts` ①：断言 `genre.genre_id === "urban-daily"` 与 `GenrePickerModal` → 纯新契约后必失败，改为新契约面板用例
+- [ ] 9.3.2 `e2e/creation-flow.spec.ts`：「简介空不可确认」与「确认永远可点」冲突、`genre_id` 注入失效 → 先定死确认 gate 语义再改
+- [ ] 9.3.3 `backend/tests/test_readiness.py`（见 9.2.12）
+- [ ] 9.3.4 `__tests__/features.test.ts`（见 9.1.8）
+- [ ] 9.3.5 `__tests__/api-503.test.ts`（见 9.1.8）
+- [ ] 9.3.6 `e2e/design-parity*.spec.ts` + `prototypes/`：面板顺序对调、徽标 ok→warn、新增 `.rail-assist`/`.ai-sink` → **先 tasks 1.1 原型转正 + 重生成基线**再跑 `design:check`；本 change 的 e2e 不以 parity 为门禁
+- [ ] 9.3.7b **必改测试补全（后端工程师实测）**：`test_db_storage.py:78-79`（VALID_TYPES 去 ai-model）、`test_readiness.py:225`（`PUT /settings/status/ai-model` 期待 200）、`test_genres_api.py:257`（被引用删除 409，随 `_find_referencing_projects` guard 停用）、`test_genres_injection.py`（6 处）、`test_chapter_writer_context.py`（5 处）、`test_tone_section.py`、`test_prose_pipeline.py`（4 处 patch `ai_client_mod.get_ai_client`）、`test_write_prompt_polish.py`（4 处同）、`test_archive_ai_summary.py`（3 处 patch `archive_service.get_ai_client`）——**替换 `get_ai_client()` 后 monkeypatch 目标失效**，须同步改 patch 目标
+- [ ] 9.3.7c **「已确认」数据源**：前端**从不调用** `GET /settings/status`（`useOnboarding.ts:19-27` 的 settingsStatus 来自 `/readiness` 内容非空），故「已确认=ok 绿」态**无数据源、刷新即丢**——须接 `GET /settings/status` 并与 readiness 派生的「已填」分离（否则 2.3/2.5 验收为假）
+- [ ] 9.3.7 既有 AI 端点测试须补 `app.dependency_overrides[require_novel_model] = lambda: True`（现只覆盖 `require_ai_access`，新依赖挂上后会 503）
+
+### 9.4 本地 e2e 界面测试（Playwright，`client/frontend/e2e/`）
+
+> 前置：docker 4 服务；`setupSession(page, tier)` 支持 trial/none；**AI 相关一律 `page.route` 桩 `ai-model` 与 AI 端点**（见 8.4 注）。
+
+- [ ] 9.4.1 **前两步顺序 + 确认即前进**：新建书 → 设定默认落「简介」→ 填简介 → 确认 → 自动切「题材」；点回简介内容保留、不锁题材
+- [ ] 9.4.2 **跳过可回改**：简介不填直接确认 → 进题材 → 回简介仍可编辑（若 9.3.2 定死可跳过）
+- [ ] 9.4.3 **六段模板折叠冒烟**：默认 `aria-expanded="false"`、正文不可见；点击后六段名+公式+别踩可见
+- [ ] 9.4.4 **题材六格交互**：选口味 → 02-05 预填可改；禁项回车新增；战场第 3 个出软提示；滑块 → 浮例句更新
+- [ ] 9.4.5 **AI 反馈落输入框下方**：桩 introspect 返回固定六段 JSON → 点「体检」→ `.ai-sink` 在简介框之后、右栏无答案；补缺失采纳后 synopsis 变长
+- [ ] 9.4.6 **题材五行 AI 落对应格**：桩 `genre/cost_ratio` 返回 `{"value":8}` → 点该行 → 建议落该格下方 → 采纳 → 滑块/数值变 8
+- [ ] 9.4.7 **免费版：AI 卡可见+锁定、模型窗可用可配**：`setupSession(page,"none")` → `.rail-assist.locked` 存在、名称/描述可见、点击给升级提示**不产出结果**；同时模型窗可见可选模型
+- [ ] 9.4.8 **模型窗：选择与生效分离 + 键盘导航冒烟**：桩 configs（2 配置×2 模型）+ `ai_state:"missing_model"` → 点行只标亮（**无 PUT**）→ `ArrowDown` 移动 → 点「设为本书模型」→ 恰 1 次 PUT（整对）
+- [ ] 9.4.9 **missing_model 跳转**：桩 `ai_state:"missing_model"` → 点「AI 体检」→ 提示并跳本书模型面板、**不发起 AI 请求**
+- [ ] 9.4.10 **no_key 与 missing_model 分流**：分别桩两态 → 文案与跳转不同（模型配置 vs 本书模型），不得一色 toast
+- [ ] 9.4.11 **ready 可用**：桩 `{ai_state:"ready", effective_model:"gpt-4o"}` + 桩 AI 端点 → 点体检 → 结果落 `.ai-sink`、请求路径正确
+- [ ] 9.4.12 **写作页撞 missing_model 兜底**：桩 `missing_model` → 写作页润色/续写出现「去选模型」文案与跳转（**取舍已定**：本 change **只保证设置视图**的兜底，写作页兜底另立 change——故本条降级为前端单测，不阻塞）
+- [ ] 9.4.13 **界面规格 parity（尺寸断言，非可见性）**：对 9.0 表格控件用 `getBoundingClientRect`/`getComputedStyle` 断言真实渲染尺寸——简介框 `min-height ≥132`、按钮 `height === 34`、模型行**同行等高**、`.ai-sink` 底色＝`--fg-soft` 且 ≠ `--surface`、字号全落白名单；**窗口宽度变化（窄屏 900px 断点）后卡片不溢出**（`scrollWidth <= clientWidth`）
+- [ ] 9.4.14 **幂等与重复提交（UI 层）**：双击「设为本书模型」→ 只发 1 次 PUT；双击「确认完成」→ 只发 1 次；AI 请求进行中点同一行 → 不并发重复发请求（`running` 态禁用）
+- [ ] 9.4.15 **竞态**：AI 请求在途时切面板 → 结果**不写入已切走的面板**（无残留、无报错）；模型窗切换配置时旧请求返回不覆盖新选中

@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>评审稿 v5.3 · 题材＝保底合同 — 无 AI 框架（Phase 0）</title>
+<style>
+  /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致（--radius-lg 沿 book.html = 14px） ═══ */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.55; padding: 40px 24px 80px; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  /* ─── 稿头 ─── */
+  .draft-banner { display: flex; align-items: center; gap: 9px; padding: 10px 16px; border: 1px dashed var(--warn); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: 13px; margin-bottom: 28px; }
+  .draft-banner b { color: var(--fg); font-weight: 600; }
+  h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; }
+  h1 .v5 { font-family: var(--font-mono); font-size: 13px; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 2px 10px; vertical-align: 6px; margin-left: 10px; letter-spacing: 0.06em; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 6px 0 14px; }
+  .caliber { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 16px; font-size: 12.5px; color: var(--muted); margin-bottom: 36px; }
+  .caliber b { color: var(--fg); font-weight: 600; }
+  .caliber li { margin: 3px 0 3px 18px; }
+
+  /* ─── 变体节 ─── */
+  .vsec { margin: 0 0 52px; }
+  .frame-title { font-family: var(--font-display); font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+  .frame-desc { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
+  .win { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-card); }
+  .win-cap { font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.04em; margin: 0 0 8px; }
+
+  /* ─── 通用件 ─── */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+  .btn svg { width: 15px; height: 15px; }
+  .btn-primary { background: var(--accent); color: oklch(100% 0 0); }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--muted); }
+  .text-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--accent); opacity: .85; cursor: pointer; border: none; background: none; padding: 0; }
+  .text-btn:hover { opacity: 1; }
+  .text-btn svg { width: 13px; height: 13px; }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; color: var(--muted); cursor: pointer; border: none; background: none; }
+  .icon-btn:hover { color: var(--err); background: var(--err-soft); }
+  .icon-btn svg { width: 14px; height: 14px; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 11px; }
+  .badge.done { background: var(--ok-soft); color: var(--ok); }
+  .badge.empty { background: var(--fg-soft); color: var(--muted); }
+  .input, .textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+  .input:focus, .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .textarea { min-height: 58px; resize: vertical; line-height: 1.7; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .field label { font-size: 13px; color: var(--fg); font-weight: 500; display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+  .field label .why { font-size: 11.5px; color: var(--muted); font-weight: 400; }
+  .li-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .li-row .li-i { width: 20px; text-align: right; color: var(--muted); font-size: 12px; flex: none; }
+  .li-row .input { flex: 1; min-width: 0; }
+  .li-row .acts { display: flex; opacity: 0; transition: opacity 0.12s ease; }
+  .li-row:hover .acts, .li-row:focus-within .acts { opacity: 1; }
+  .prompt-preview { width: 100%; padding: 10px 12px; border: 1px dashed color-mix(in oklch, var(--accent) 40%, var(--border)); border-radius: 9px; background: var(--bg); font-family: var(--font-mono); font-size: 12px; line-height: 1.7; white-space: pre-wrap; color: var(--fg); }
+
+  /* ─── 面板骨架 ─── */
+  .modnav { display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .modnav span { display: inline-flex; padding: 8px 14px 9px; font-size: 13px; color: var(--muted); }
+  .modnav span.on { color: var(--fg); font-weight: 500; border-bottom: 2px solid var(--accent); }
+  .col-panel { padding: 26px clamp(20px, 3.5vw, 44px) 36px; background: var(--bg); }
+  .panel { max-width: 660px; }
+  .panel-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  .panel-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 600; margin: 0; }
+  .panel .desc { font-size: 13px; color: var(--muted); margin: 0 0 18px; }
+  .panel-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); margin-top: 8px; }
+  .panel-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+
+  /* ─── 定义卡 ─── */
+  details.def-card { border: 1px solid color-mix(in oklch, var(--accent) 30%, var(--border)); border-radius: var(--radius); background: var(--accent-soft); margin-bottom: 20px; }
+  details.def-card > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 11px 14px; font-size: 13px; font-weight: 600; }
+  details.def-card > summary::-webkit-details-marker { display: none; }
+  details.def-card > summary .chev { margin-left: auto; transition: transform 0.15s ease; }
+  details.def-card > summary .chev svg { width: 14px; height: 14px; color: var(--muted); }
+  details.def-card[open] > summary .chev { transform: rotate(180deg); }
+  .def-body { padding: 0 16px 14px; font-size: 13px; line-height: 1.85; }
+  .def-body .formula { margin-top: 8px; padding-top: 8px; border-top: 1px dashed color-mix(in oklch, var(--accent) 30%, transparent); }
+  .def-body .formula b { font-weight: 600; }
+  .def-body .use { margin-top: 8px; padding-top: 8px; border-top: 1px dashed color-mix(in oklch, var(--accent) 30%, transparent); color: var(--muted); font-size: 12.5px; }
+
+  /* ─── 三组分组标题 ─── */
+  .group-head { display: flex; align-items: baseline; gap: 10px; margin: 22px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .group-head .g-name { font-family: var(--font-display); font-size: 15px; font-weight: 600; flex: none; }
+  .group-head .g-why { font-size: 12px; color: var(--muted); }
+  .group-head .g-mark { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent); border: 1px dashed color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 0 7px; flex: none; }
+
+  /* ─── B 区：把关示意 ─── */
+  .duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start; }
+  @media (max-width: 900px) { .duo { grid-template-columns: 1fr; } }
+  .gate-card { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 14px 16px; }
+  .gate-card .gc-t { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .gate-card .gc-d { font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.7; }
+  .drift-banner { display: flex; align-items: flex-start; gap: 8px; border: 1px solid color-mix(in oklch, var(--warn) 45%, var(--border)); border-radius: 10px; background: var(--warn-soft); padding: 10px 12px; font-size: 12.5px; line-height: 1.7; color: var(--fg); }
+  .drift-banner svg { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--warn); }
+  .drift-banner .evolve { font-family: var(--font-mono); font-size: 10px; color: var(--warn); border: 1px dashed var(--warn); border-radius: 999px; padding: 0 6px; margin-left: 6px; white-space: nowrap; }
+
+  /* ─── C 区总账 + 结论 ─── */
+  .cmp { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; overflow: hidden; }
+  .cmp th, .cmp td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .cmp th { font-size: 12px; color: var(--muted); font-weight: 500; background: var(--bg); }
+  .cmp tr:last-child td { border-bottom: none; }
+  .cmp .new-on { color: var(--accent); font-weight: 500; }
+  .rec-box { border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: var(--radius); background: var(--accent-soft); padding: 16px 20px; font-size: 13.5px; line-height: 1.8; }
+  .rec-box b { font-weight: 600; }
+  .rec-box ol { margin: 8px 0 0 20px; }
+  .rec-box li { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 12.5px; margin-top: 14px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="draft-banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="16" height="16"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <span><b>评审稿 v5.3（DRAFT）· 未拍板</b> · <b>无 AI 框架（Phase 0）</b>：合同＝纯文本数据，零 AI 依赖完整成立；题材库匹配/生成前接线/判官/偏航全部降为后续 AI 层 · 不改动 <span class="num">prototypes/</span> 与任何实现代码</span>
+  </div>
+
+  <h1>题材＝保底合同：读者预期 · 作者轨道 · 核心冲突<span class="v5">v5.3 无 AI 框架</span></h1>
+  <p class="sub">题材＝你跟读者签的一张保底合同，功能俩字"定心"：定读者的心（知道会拿到什么），定你的心（写偏了回来拉一把）。合同 = 读者预期 + 作者轨道 + 核心冲突的类型锁，三者绑定撑完百万字不跑偏。</p>
+
+  <div class="caliber">
+    <b>口径前提</b>
+    <li><b>6 个空，全填空零选择</b>（铁律不变）：题材 / 主要看什么 / 会获得什么情绪 / 不会有什么 / 剧情骨架 / 核心冲突。全可留空：留空＝题材库基线或通用基线接管，不拦写作、无必填。</li>
+    <li>题材名模糊匹配机制保留：命中＝这类书的通用条款（AI 的规矩）自动生效；未命中＝通用基线。</li>
+    <li>合同本期落地为<b>生成前约束</b>（设定生成 + 正文生成两个接线点）；「偏航提醒」（生成后检查）列为 v5.x 演进，本期页面声明如实描述、不夸大。</li>
+    <li>「不会有什么」从「风格」面板收编回题材页（合同第三条款）；边界重划：读者向的雷归题材页、文风向的规矩留风格页，两侧文案互相指路。</li>
+    <li><b>v5.1 吸收外部案例</b>：吃苦指数（第 7 个空，数字填空非滑块）、禁止项按题材推荐预填、主线战场词库进 placeholder、红黄牌三档判定进 v5.x 规格；<b>拒绝</b>其枚举单选/滑块/多选限1-3/四项必填/新建表（违反已拍板的零选择与留空不拦写作原则）。</li>
+    <li><b>v5.3 定稿口径：无 AI 框架＝Phase 0</b>——合同是纯文本数据，作家自己是第一个消费者。两个零 AI 用法：①轨道卡常驻写作视图（合同摘要，抬头对照）②一键硬检查（「不会有什么」本地字符串扫描，手写章节也能查）。题材库匹配/AI 字段下发/判官鉴定/偏航提醒全部降为后续 AI 层，框架零依赖。</li>
+  </div>
+
+  <!-- ═══════════════════ A · 题材设定面板 ═══════════════════ -->
+  <div class="vsec">
+    <div class="frame-title">A · 题材设定面板 — 定义上墙，六个空按合同三件套分组</div>
+    <div class="frame-desc">定义卡就是页面的说明书：什么是题材、定谁的心、合同有什么用。三组顺序铺开不折叠，组标题即"定谁的心"。</div>
+    <div class="win">
+      <div class="modnav"><span class="on">设定</span><span>写作</span><span>预览</span></div>
+      <div class="col-panel">
+        <div class="panel">
+          <div class="panel-head"><h2>题材</h2><span class="badge empty" id="genreBadge">未填</span></div>
+          <p class="desc">这几个空填下来，你和读者的心都定了。留空也能写，填了更贴你。</p>
+
+          <details class="def-card" open data-od-id="def-card">
+            <summary>题材是什么<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"/></svg></span></summary>
+            <div class="def-body">
+              题材，是你跟读者签的一张<b>"保底合同"</b>：说清翻开这本书<b>主要看什么</b>、<b>会获得什么情绪</b>、<b>不用担心看到什么</b>乱入的东西。<br>
+              它定两头的心：读者定心（知道会拿到什么），你定心（写偏了，回这页拉回来）。
+              <div class="formula">题材 = <b>读者预期</b> + <b>作者轨道</b> + <b>核心冲突的类型锁</b>。三者绑定，撑完百万字不跑偏。</div>
+              <div class="use">合同签下后，就是整本书的尺子：之后的世界、角色设定和每一章剧情，AI 都按它判断合理不合理、符合不符合。</div>
+            </div>
+          </details>
+
+          <div class="field" data-od-id="f-genre-name">
+            <label>题材 <span class="why">合同标题 · 这本书是什么类型，用你的话写</span></label>
+            <input class="input" id="genreName" placeholder="例如：东方仙侠、悬疑刑侦、热血冒险" />
+          </div>
+
+          <div class="group-head" data-od-id="group-reader"><span class="g-mark">A</span><span class="g-name">读者预期</span><span class="g-why">定读者的心：翻开就知道看什么、什么味、放心不会踩雷</span></div>
+
+          <div class="field" data-od-id="f-content">
+            <label>主要看什么 <span class="why">内容承诺 · 最好带上和同类书不一样的地方</span></label>
+            <textarea class="textarea" rows="2" placeholder="例：主要看打怪升级的痛快——别人的主角抢机缘，我的主角捡漏洞。"></textarea>
+          </div>
+
+          <div class="field" data-od-id="f-emotions">
+            <label>会获得什么情绪 <span class="why">情绪承诺 · 你想让读者尝到什么味道，一行一个</span></label>
+            <div id="emotionRows">
+              <div class="li-row"><span class="li-i">1.</span><input class="input" placeholder="例：打怪升级的香辣味" /><span class="acts"><button class="icon-btn" title="删除本行" type="button" data-del><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></span></div>
+            </div>
+            <button class="text-btn" type="button" data-add-emo><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> 添加一项</button>
+          </div>
+
+          <div class="field" data-od-id="f-exclusions">
+            <label>不会有什么 <span class="why">排雷承诺 · 写得具体就能一键检查正文有没有踩雷；文风上的规矩去「风格」面板填</span></label>
+            <div id="excludeRows">
+              <div class="li-row"><span class="li-i">1.</span><input class="input" placeholder="例：无女主／没有系统／不圣母／不虐主" /><span class="acts"><button class="icon-btn" title="删除本行" type="button" data-del><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></span></div>
+            </div>
+            <button class="text-btn" type="button" data-add-exc><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> 添加一项</button>
+          </div>
+
+          <div class="group-head" data-od-id="group-track"><span class="g-mark">B</span><span class="g-name">作者轨道</span><span class="g-why">定你的心：整本书大致怎么走，写偏了，AI 拿这句拉回来</span></div>
+
+          <div class="field" data-od-id="f-track">
+            <label>剧情骨架 <span class="why">几句就行 · 卷级的大走向</span></label>
+            <textarea class="textarea" rows="2" placeholder="例：凡人流——从练气一步步爬，每卷突破一个大境界、了结一桩恩怨。"></textarea>
+          </div>
+
+          <div class="group-head" data-od-id="group-conflict"><span class="g-mark">C</span><span class="g-name">核心冲突</span><span class="g-why">类型锁的锁芯：整本书从头斗到尾的那个对抗</span></div>
+
+          <div class="field" data-od-id="f-conflict">
+            <label>核心冲突 <span class="why">一句话：主角和什么斗、靠什么赢（或输）</span></label>
+            <textarea class="textarea" rows="2" placeholder="热血冒险：主角和越来越强的怪物斗，靠觉悟和伙伴赢；权谋悬疑：主角和满朝政敌斗，靠信息差赢，也可能输。同一堆食材，锁芯不同，合同就不同。常见战场：资源争夺、地位攀升、生死存亡、真相探秘。"></textarea>
+          </div>
+
+          <div class="field" data-od-id="f-cost">
+            <label>吃苦指数 <span class="why">主角得到好处要付多少代价：1 最轻（流汗破财）～ 10 最重（折寿献祭）；留空由 AI 按题材拿捏</span></label>
+            <input class="input" type="number" min="1" max="10" placeholder="1 ~ 10 的数字，例如：8（逆袭流重代价）、3（甜宠流轻代价）" />
+          </div>
+
+          <div class="panel-foot">
+            <span class="note">不用一次填完——合同随时能改；写好的每一行，写作时都在轨道卡上陪着你</span>
+            <button class="btn btn-primary" type="button" data-od-id="btn-genre-confirm" id="btnConfirm">确认完成</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ B · 无 AI 时合同怎么当尺子 ═══════════════════ -->
+  <div class="vsec">
+    <div class="frame-title">B · 没有 AI 时，合同怎么当尺子 — 两个零 AI 用法</div>
+    <div class="frame-desc">框架不依赖 AI：合同是纯文本数据，作家自己是它的第一个消费者。AI 层（题材库基线 / 生成前接线 / 判官鉴定 / 偏航提醒）是后续叠加，规格保留在 PM 稿 5.4 / 5.9。</div>
+    <div class="duo">
+      <div class="gate-card" data-od-id="gate-trackcard">
+        <div class="gc-t">用法一 · 轨道卡常驻（写作视图侧条）</div>
+        <div class="gc-d">写作时抬头可见的合同摘要——写偏没写偏，作家自己一眼对照。尺子挂在墙上，量不量在作家，但尺子必须在视线里：</div>
+        <div class="prompt-preview">合同 · 凡人问剑
+主要看：打怪升级的痛快——捡漏洞流
+情绪：香辣爽 / 偶尔感动 / 结局痛快
+不会有：无女主 / 没有系统 / 不圣母
+骨架：每卷一个大境界、了结一桩恩怨
+冲突：和越来越强的怪物斗，靠觉悟和伙伴赢
+吃苦指数：8 —— 好处越大，代价越大</div>
+      </div>
+      <div class="gate-card" data-od-id="gate-hardcheck">
+        <div class="gc-t">用法二 · 一键硬检查（零 AI，纯本地字符串匹配）</div>
+        <div class="gc-d">「不会有什么」里写得具体，就能机械地查：对任意章节一键扫描文本命中，手写章节同样能查。</div>
+        <div class="drift-banner">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+          <span>本章扫描完成：发现 2 处「系统」（你承诺过：没有系统）</span>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:14px; border:1px dashed var(--border); border-radius:10px; padding:10px 14px; font-size:12px; color:var(--muted); line-height:1.8;" data-od-id="ai-layer-note">
+      <b style="color:var(--fg);">AI 层（后续版本叠加，框架零依赖）</b>：题材库基线自动下发 · 生成前合同进提示词 · 判官鉴定与三牌偏航提醒（红/黄/跑题）—— 规格已在 PM 稿 5.4 / 5.9，框架先跑通，AI 再上楼。
+    </div>
+  </div>
+
+  <!-- ═══════════════════ C · v4 字段去向 ═══════════════════ -->
+  <div class="vsec">
+    <div class="frame-title">C · v4 五个空的去向 + v5 新增</div>
+    <table class="cmp">
+      <tr><th style="width:26%;">v4 字段</th><th style="width:18%;">去向</th><th>理由</th></tr>
+      <tr><td>题材</td><td class="new-on">保留 · 合同标题</td><td>锁的型号；命中题材库＝通用条款自动生效，机制不变</td></tr>
+      <tr><td>这本书的核心差异</td><td>并入「主要看什么」</td><td>合同语义下它是内容承诺的一部分；作家按"看什么"思考，不按"差异"思考；差异化方向由 placeholder 保住</td></tr>
+      <tr><td>氛围基调</td><td>并入「会获得什么情绪」</td><td>基调太虚；情绪词照常可作一行填入</td></tr>
+      <tr><td>读者爽点</td><td>并入「会获得什么情绪」</td><td>爽点只是情绪的一种；旧数据降级为兼容读源</td></tr>
+      <tr><td>剧情骨架</td><td class="new-on">保留 · 作者轨道</td><td>就是"作者轨道"本体：写偏了拿它拉回来</td></tr>
+      <tr><td class="new-on">主要看什么（新增·扩写）</td><td class="new-on">读者预期 · 内容承诺</td><td>合同第一条款："翻开这本书主要看什么"</td></tr>
+      <tr><td class="new-on">不会有什么（新增）</td><td class="new-on">读者预期 · 排雷承诺</td><td>合同第三条款；从「风格」面板收编（读者向的雷归题材页，文风向的规矩留风格页），硬禁令执行</td></tr>
+      <tr><td class="new-on">核心冲突（新增）</td><td class="new-on">类型锁的锁芯</td><td>贯穿百万字的主对抗；没有它合同锁不住任何东西；placeholder 用热血冒险/权谋悬疑对照示范</td></tr>
+      <tr><td class="new-on">吃苦指数（v5.1 吸收）</td><td class="new-on">类型锁的代价刻度</td><td>主角得到好处要付多少代价（1 轻 ~ 10 重）；命中题材时预填推荐值（逆袭流 8、甜宠流 3）；黄牌判定的依据；数字填空，非滑块</td></tr>
+    </table>
+  </div>
+
+  <!-- ═══════════════════ 结论 ═══════════════════ -->
+  <div class="vsec" style="margin-bottom:24px;">
+    <div class="rec-box">
+      <b>推荐 v5 整稿落地</b>。工程切片：① 面板按三件套重组（6 填空 + 定义卡）；② payload 新增单键 contract（content/emotions/exclusions/conflict/track），config_overrides 旧结构保留、爽点键降级为情绪的兼容读源；③ 生成前接线两处（设定生成 + 正文生成），组装优先级＝合同 &gt; 题材库 &gt; 通用；④ 偏航提醒独立立项 v5.x。
+      <ol>
+        <li><b>定义就是页面本身</b>：定义卡上墙（用户原话大白话），字段分组直接用"读者预期/作者轨道/核心冲突"三元组——作家先懂"这页在干什么"，再动手填；每个组标题都说清"定谁的心"。</li>
+        <li><b>补上了锁芯</b>：v4 最大的洞是没有"核心冲突"——没有它，类型锁锁不住任何东西。它是 6 个空里写作成本最高的，用用户自己的两个比方（热血冒险 vs 权谋悬疑）做对照 placeholder，留空走库默认冲突兜底。</li>
+        <li><b>「不会有什么」归位</b>：合同第三条款，AI 当硬禁令执行；与风格页边界重划为"读者向的雷 vs 文风向的规矩"，两侧文案互相指路，存量数据不迁移。</li>
+        <li><b>条款分级防合同变监狱</b>：只有"不会有什么"是硬禁令；看什么/情绪是基调指引（允许变奏）；冲突/骨架是走向基准（允许卷内波澜）。合同是尺子，不是牢笼。</li>
+        <li><b>诚实认账</b>：本期只有生成前约束，没有生成后校验——AI 可能偶发越线，页面声明按实际行为描述，不夸大；"偏航提醒"是定心的完全体，涉及误报率与成本，独立评审后立项。</li>
+        <li><b>外部案例的吸收与拒绝（v5.1）</b>：吸收吃苦指数（代价感刻度）、禁止项标签库（进题材库基线并推荐预填）、战场词库（进 placeholder）、三牌判定（v5.x 规格）；拒绝枚举单选/滑块/多选限1-3/必填/新建表——它们违反"全填空零选择、留空不拦写作"两条已拍板原则。</li>
+      </ol>
+    </div>
+    <p class="muted">拍板后建议：openspec 立项（GenreSettingForm 重写 + contract 键 + 两处提示词接线）；<span class="num">prototypes/ADJUSTMENTS.md</span> 登记 book.html 面板修订。本稿不改动 prototypes/ 与任何实现代码。</p>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  function toast(msg) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;right:22px;bottom:22px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);z-index:99;';
+    t.textContent = msg; document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2400);
+  }
+  /* 题材名徽标联动 */
+  const genreInput = document.getElementById('genreName');
+  const badge = document.getElementById('genreBadge');
+  genreInput.addEventListener('input', () => {
+    const filled = genreInput.value.trim().length > 0;
+    badge.textContent = filled ? '已填' : '未填';
+    badge.classList.toggle('done', filled);
+    badge.classList.toggle('empty', !filled);
+  });
+  /* 条目行增删（情绪 + 不会有什么） */
+  function wireList(rowsId, addSel) {
+    const rows = document.getElementById(rowsId);
+    document.querySelector(addSel).addEventListener('click', () => {
+      const n = rows.querySelectorAll('.li-row').length + 1;
+      const div = document.createElement('div');
+      div.className = 'li-row';
+      div.innerHTML = `<span class="li-i">${n}.</span><input class="input" placeholder="填写内容" /><span class="acts"><button class="icon-btn" title="删除本行" type="button" data-del><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></span>`;
+      rows.appendChild(div);
+      div.querySelector('input').focus();
+    });
+    rows.addEventListener('click', e => {
+      const del = e.target.closest('[data-del]'); if (!del) return;
+      del.closest('.li-row').remove();
+      rows.querySelectorAll('.li-i').forEach((s, i) => { s.textContent = (i + 1) + '.'; });
+    });
+  }
+  wireList('emotionRows', '[data-add-emo]');
+  wireList('excludeRows', '[data-add-exc]');
+  document.getElementById('btnConfirm').addEventListener('click', () => toast('已确认「题材」· 合同生效，计入设定进度'));
+})();
+</script>
+</body>
+</html>
