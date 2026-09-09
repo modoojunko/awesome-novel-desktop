@@ -97,6 +97,8 @@ export interface SettingsViewProps {
   onDirtyChange?: (dirty: boolean) => void;
   /** 设定全部完成后「去写作」出口（切工作台写作视图）。 */
   onGoWrite?: () => void;
+  /** 本书书名——简介 AI 入参 title 的来源（tasks 3.5 钉死）。 */
+  novelName?: string;
 }
 
 /** 旧面板键 → 新面板键（外部 jump 载荷兼容） */
@@ -110,7 +112,7 @@ function normalizePanel(v: string | undefined): string {
 }
 
 export default function SettingsView({
-  projectId, initialPanel, settingsStatus, confirmedStatus, confirmSetting, onDirtyChange, onGoWrite,
+  projectId, initialPanel, settingsStatus, confirmedStatus, confirmSetting, onDirtyChange, onGoWrite, novelName,
 }: SettingsViewProps) {
   const [panel, setPanel] = useState(() => normalizePanel(initialPanel));
   const [dirty, setDirty] = useState(false);

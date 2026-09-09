@@ -405,6 +405,7 @@ export default function NovelWorkspace() {
           confirmSetting={handleConfirmSetting}
           onDirtyChange={handleSettingsDirty}
           onGoWrite={() => setView("workbench")}
+          novelName={project?.name ?? ""}
         />
       )}
       {/* 预览：只读树 + 只读排版（PreviewView 复刻 #viewPreview） */}

@@ -3,6 +3,16 @@ import { getApiBaseUrl } from "./env";
 
 const API_BASE = `${getApiBaseUrl()}/api`;
 
+/** 归一化后端 detail：字符串直接用；对象取 message（防 `[object Object]`）。 */
+export function detailMessage(detail: unknown, fallback: string): string {
+  if (typeof detail === "string" && detail) return detail;
+  if (detail && typeof detail === "object") {
+    const m = (detail as { message?: unknown }).message;
+    if (typeof m === "string" && m) return m;
+  }
+  return fallback;
+}
+
 export interface StreamCallbacks {
   onChunk: (text: string) => void;
   /** meta：done 事件附带的完工检查（ai-prompt-crafting 三工序③） */
@@ -85,7 +95,7 @@ function doStreamFetch(
     .then(async (response) => {
       if (!response.ok) {
         const err = await response.json().catch(() => ({ detail: response.statusText }));
-        callbacks.onError(err.detail || "写作出错");
+        callbacks.onError(detailMessage(err?.detail, "写作出错"));
         return;
       }
 
@@ -154,7 +164,7 @@ async function doJsonPost(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "请求出错");
+    throw new Error(detailMessage(err?.detail, "请求出错"));
   }
   return res.json();
 }
@@ -216,4 +226,51 @@ export async function draftOutline(
     `${API_BASE}/novels/${projectId}/chapters/${chapterRef}/outline/ai-draft`,
     {},
   );
+}
+
+// ---------------------------------------------------------------------------
+// 简介 AI 三能力（genre-signup-redesign tasks 3.5 / D7）
+// ---------------------------------------------------------------------------
+
+export type IntroAiAction = "introspect" | "fill" | "polish";
+
+/** 简介 AI 返回（体检为 six_segments/taboo/verdict；补缺失 missing/act；润色 original/polished/act）。 */
+export interface IntroAiResult {
+  six_segments?: Array<{ name: string; status: "ok" | "missing"; excerpt?: string; note?: string }>;
+  taboo?: { hits: Array<{ rule: string; excerpts: string[] }> };
+  verdict?: "strong" | "ok" | "weak";
+  missing?: Array<{ name: string; candidate: string }>;
+  original?: string;
+  polished?: string;
+  act?: "insert" | "replace";
+  [k: string]: unknown;
+}
+
+/** AI 前置失败的可分派原因（与后端 ai_state / detail.reason 同枚举）。 */
+export type AiBlockReason = "member_required" | "no_key" | "missing_model" | "invalid";
+
+/** 从错误里取分派原因；顺序 member_required → no_key → missing_model（invalid 归 missing_model 处理）。 */
+export function aiBlockReason(e: unknown): AiBlockReason | null {
+  const r = (e as { reason?: string })?.reason;
+  if (r === "member_required" || r === "no_key" || r === "missing_model" || r === "invalid") {
+    return r;
+  }
+  return null;
+}
+
+/**
+ * 简介 AI：POST /novels/{id}/settings/ai/intro/{action}
+ * - 入参 content ＝ 当前编辑框的 synopsis 草稿（不读存储旧文）、title ＝ 书名
+ * - 失败抛错，调用方按 aiBlockReason(e) 分派文案与跳转
+ */
+export async function introAi(
+  action: IntroAiAction,
+  payload: { title: string; content: string; missingSegments?: string[] },
+  projectId: string,
+): Promise<IntroAiResult> {
+  const body: Record<string, unknown> = { title: payload.title, content: payload.content };
+  if (action === "fill" && payload.missingSegments?.length) {
+    body.missing_segments = payload.missingSegments;
+  }
+  return doJsonPost(`${API_BASE}/novels/${projectId}/settings/ai/intro/${action}`, body);
 }

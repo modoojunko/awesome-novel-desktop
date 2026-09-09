@@ -70,18 +70,30 @@ export async function request(
   if (res.status === 503) {
     const text = await res.text().catch(() => "");
     let detail = "";
+    let reason: string | undefined;
     try {
       const parsed = JSON.parse(text);
-      if (typeof parsed?.detail === "string") detail = parsed.detail;
+      // detail 可能是字符串（旧口径）或对象 {reason, message}（AI 前置三态）
+      if (typeof parsed?.detail === "string") {
+        detail = parsed.detail;
+      } else if (parsed?.detail && typeof parsed.detail === "object") {
+        detail = parsed.detail.message || "";
+        reason = parsed.detail.reason;
+      }
     } catch {
       /* infra 级 503 响应体非 JSON（云托管冷启动） */
     }
-    const appLevel = detail.includes("未配置");
-    if (!options?.quiet && !options?.soft503) {
-      notify503(appLevel ? "app" : "infra");
+    // AI 前置的 no_key / missing_model 是可操作引导，不是服务不可用——不进 infra 全局提示
+    const isAiPrecondition = reason === "no_key" || reason === "missing_model";
+    if (!isAiPrecondition && !options?.quiet && !options?.soft503) {
+      notify503(detail.includes("未配置") ? "app" : "infra");
     }
-    const e = new Error(detail || "Service unavailable") as Error & { status?: number };
+    const e = new Error(detail || "Service unavailable") as Error & {
+      status?: number;
+      reason?: string;
+    };
     e.status = 503;
+    if (reason) e.reason = reason;
     throw e;
   }
 
@@ -106,11 +118,16 @@ export async function request(
       typeof err.detail === "string"
         ? err.detail
         : err.detail?.message || res.statusText;
-    // 附带 HTTP 状态码：调用方据此区分结构性错误（404/405 端点缺失）与网络/服务端错误
-    const e = new Error(message) as Error & { status?: number; novels?: string[] };
+    // 附带 HTTP 状态码 + detail.reason（AI 前置三态分流用；旧口径只有 member_required）
+    const e = new Error(message) as Error & {
+      status?: number;
+      novels?: string[];
+      reason?: string;
+    };
     e.status = res.status;
-    if (typeof err.detail === "object" && Array.isArray(err.detail.novels)) {
-      e.novels = err.detail.novels;
+    if (typeof err.detail === "object") {
+      if (Array.isArray(err.detail.novels)) e.novels = err.detail.novels;
+      if (typeof err.detail.reason === "string") e.reason = err.detail.reason;
     }
     throw e;
   }
