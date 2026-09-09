@@ -472,3 +472,27 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .ai-sink .chk-line .chk-res.ok { color: var(--ok); }
 .settings-v .ai-sink .chk-line .chk-res.miss { color: var(--err); }
 .settings-v .ai-sink .chk-line .chk-note { font-size: 11.5px; color: var(--muted); min-width: 0; }
+
+/* ── AI 写作助手卡片 .rail-assist（genre-signup-redesign tasks 3.2 / D4）──
+   PRO 徽标并头部 + 并列能力行；免费版 .locked＝可见+降透明（§11 门控）。
+   样式对齐原型 prototypes/genre-signup.html */
+.settings-v .rail-assist { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
+.settings-v .rail-assist .ra-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+.settings-v .rail-assist .ra-head .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: var(--on-accent); flex: none; }
+.settings-v .rail-assist .ra-head .rh-t b { display: block; font-size: 13px; font-weight: 600; }
+.settings-v .rail-assist .ra-head .rh-t span { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+.settings-v .rail-assist .ra-step { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; margin-bottom: 6px; }
+.settings-v .rail-assist .ra-step:last-of-type { margin-bottom: 0; }
+.settings-v .rail-assist .ra-step:hover { border-color: var(--accent); }
+.settings-v .rail-assist .ra-body { min-width: 0; flex: 1; }
+.settings-v .rail-assist .ra-body b { display: block; font-size: 12.5px; font-weight: 600; }
+.settings-v .rail-assist .ra-body i { display: block; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 2px; }
+.settings-v .rail-assist .ra-arrow { color: var(--muted); flex: none; }
+.settings-v .rail-assist .ra-foot { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+.settings-v .rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
+.settings-v .rail-assist.locked { border-color: var(--border); }
+.settings-v .rail-assist.locked .plan-badge { background: var(--fg-soft); color: var(--muted); }
+.settings-v .rail-assist.locked .ra-step { opacity: 0.55; cursor: not-allowed; }
+.settings-v .rail-assist.locked .ra-step:hover { border-color: var(--border); }
+.settings-v .rail-assist.locked .ra-body b { color: var(--muted); }
+.settings-v .rail-assist.locked .ra-arrow { opacity: 0.4; }

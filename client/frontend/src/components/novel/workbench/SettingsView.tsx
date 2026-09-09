@@ -29,6 +29,7 @@ import ArcWizard from "@/components/novel/settings/ArcWizard";
 import { useStoryArc } from "@/components/novel/settings/useStoryArc";
 import GenreSettingForm, { type GenreHandle } from "@/components/novel/settings/GenreSettingForm";
 import { INTRO_SEGMENTS, INTRO_FORMULA, DONT_DO, INTRO_MAX_LEN } from "@/lib/introTemplate";
+import AiWriterAssistant, { type AiCapabilityRow } from "@/components/novel/settings/AiWriterAssistant";
 
 // ── 面板注册表（顺序/命名与原型 navItems 一致；settingsKey 对后端口径）──
 const SETTINGS_ITEMS = [
@@ -52,6 +53,28 @@ const DESCS: Record<string, string> = {
   foreshadow: "先埋下的，后面要还。",
   chars: "核心角色是谁，他们想要什么。",
 };
+
+/** 简介右栏 AI 三能力（并列，非先后流程）——handler 由 3.5 接线到 lib/ai.ts。 */
+const INTRO_AI_ROWS: AiCapabilityRow[] = [
+  {
+    key: "check",
+    name: "体检",
+    desc: "六段逐项查达标 / 缺失 + 扫禁忌，只提醒不拦确认",
+    onClick: () => {},
+  },
+  {
+    key: "fill",
+    name: "补缺失",
+    desc: "只补缺的段，候选采纳才插入",
+    onClick: () => {},
+  },
+  {
+    key: "polish",
+    name: "润色",
+    desc: "保你原意压 AI 味，前后对照采纳才替换",
+    onClick: () => {},
+  },
+];
 
 const BADGE_DONE = "ok";
 const BADGE_EMPTY = "empty";
@@ -371,7 +394,12 @@ export default function SettingsView({
 
       {/* 右侧 AI 栏（settings-three-col）：与写作页右栏同构；主线时为四步向导 */}
       <aside className="col-ai">
-        {panel === "arc" ? (
+        {panel === "intro" ? (
+          <AiWriterAssistant
+            rows={INTRO_AI_ROWS}
+            footNote="输入：书名 + 简介本文（题材可后补）。结果统一落在简介框下方结果区，采纳才写回。"
+          />
+        ) : panel === "arc" ? (
           <ArcWizard ctl={arcCtl} />
         ) : panel === "world" || panel === "style" || panel === "antiAI" ? (
           <div className="rail-card">
