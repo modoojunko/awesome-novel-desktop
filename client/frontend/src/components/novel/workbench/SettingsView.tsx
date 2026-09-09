@@ -11,6 +11,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -28,8 +29,10 @@ import StoryArcForm from "@/components/novel/settings/StoryArcForm";
 import ArcWizard from "@/components/novel/settings/ArcWizard";
 import { useStoryArc } from "@/components/novel/settings/useStoryArc";
 import GenreSettingForm, { type GenreHandle } from "@/components/novel/settings/GenreSettingForm";
-import { INTRO_SEGMENTS, INTRO_FORMULA, DONT_DO, INTRO_MAX_LEN } from "@/lib/introTemplate";
+import { INTRO_SEGMENTS, INTRO_FORMULA, DONT_DO, INTRO_MAX_LEN, TABOO_RULES } from "@/lib/introTemplate";
 import AiWriterAssistant, { type AiCapabilityRow } from "@/components/novel/settings/AiWriterAssistant";
+import AiSink from "@/components/novel/settings/AiSink";
+import { introAi, aiBlockReason, type IntroAiAction } from "@/lib/ai";
 
 // ── 面板注册表（顺序/命名与原型 navItems 一致；settingsKey 对后端口径）──
 const SETTINGS_ITEMS = [
@@ -53,28 +56,6 @@ const DESCS: Record<string, string> = {
   foreshadow: "先埋下的，后面要还。",
   chars: "核心角色是谁，他们想要什么。",
 };
-
-/** 简介右栏 AI 三能力（并列，非先后流程）——handler 由 3.5 接线到 lib/ai.ts。 */
-const INTRO_AI_ROWS: AiCapabilityRow[] = [
-  {
-    key: "check",
-    name: "体检",
-    desc: "六段逐项查达标 / 缺失 + 扫禁忌，只提醒不拦确认",
-    onClick: () => {},
-  },
-  {
-    key: "fill",
-    name: "补缺失",
-    desc: "只补缺的段，候选采纳才插入",
-    onClick: () => {},
-  },
-  {
-    key: "polish",
-    name: "润色",
-    desc: "保你原意压 AI 味，前后对照采纳才替换",
-    onClick: () => {},
-  },
-];
 
 const BADGE_DONE = "ok";
 const BADGE_EMPTY = "empty";
@@ -121,6 +102,30 @@ export default function SettingsView({
   const formRef = useRef<SettingSaveHandle>(null);
   const genreRef = useRef<GenreHandle>(null);
   const introRef = useRef<IntroHandle>(null);
+  // 简介右栏 AI 三能力（并列，非先后流程）——onClick 经 introRef 调面板内 runAi
+  const introAiRows = useMemo<AiCapabilityRow[]>(
+    () => [
+      {
+        key: "check",
+        name: "体检",
+        desc: "六段逐项查达标 / 缺失 + 扫禁忌，只提醒不拦确认",
+        onClick: () => introRef.current?.runAi("introspect"),
+      },
+      {
+        key: "fill",
+        name: "补缺失",
+        desc: "只补缺的段，候选采纳才插入",
+        onClick: () => introRef.current?.runAi("fill"),
+      },
+      {
+        key: "polish",
+        name: "润色",
+        desc: "保你原意压 AI 味，前后对照采纳才替换",
+        onClick: () => introRef.current?.runAi("polish"),
+      },
+    ],
+    [],
+  );
 
   useEffect(() => {
     if (initialPanel) setPanel(normalizePanel(initialPanel));
@@ -313,6 +318,7 @@ export default function SettingsView({
             {panel === "intro" && (
               <IntroPanel
                 ref={introRef}
+                novelName={novelName}
                 projectId={projectId}
                 onDirtyChange={handleDirtyChange}
               />
@@ -398,7 +404,7 @@ export default function SettingsView({
       <aside className="col-ai">
         {panel === "intro" ? (
           <AiWriterAssistant
-            rows={INTRO_AI_ROWS}
+            rows={introAiRows}
             footNote="输入：书名 + 简介本文（题材可后补）。结果统一落在简介框下方结果区，采纳才写回。"
           />
         ) : panel === "arc" ? (
@@ -427,10 +433,14 @@ export default function SettingsView({
 export interface IntroHandle extends SettingSaveHandle {
   isEmpty: () => boolean;
   focus: () => void;
+  /** 运行 AI 能力（体检/补缺失/润色）——结果落简介框下方 .ai-sink（tasks 3.4）。 */
+  runAi: (action: IntroAiAction) => void;
 }
 
-const IntroPanel = forwardRef<IntroHandle, { projectId: string; onDirtyChange?: (dirty: boolean) => void }>(
-  function IntroPanel({ projectId, onDirtyChange }, ref) {
+const IntroPanel = forwardRef<
+  IntroHandle,
+  { projectId: string; novelName?: string; onDirtyChange?: (dirty: boolean) => void }
+>(function IntroPanel({ projectId, novelName, onDirtyChange }, ref) {
     const [synopsis, setSynopsis] = useState("");
     const [saving, setSaving] = useState(false);
     const taRef = useRef<HTMLTextAreaElement>(null);
@@ -472,13 +482,137 @@ const IntroPanel = forwardRef<IntroHandle, { projectId: string; onDirtyChange?: 
       }
     }, [projectId, synopsis, saving, markSaved]);
 
-    useImperativeHandle(
-      ref,
-      () => ({ save, isEmpty: () => !synopsis.trim(), focus: () => taRef.current?.focus() }),
-      [save, synopsis],
-    );
 
     const [guideOpen, setGuideOpen] = useState(false);
+    // AI 结果区状态（tasks 3.3/3.4）：{ label, node, adopt } —— 所有权在本面板
+    const [sink, setSink] = useState<
+      | { action: IntroAiAction; label: string; node: React.ReactNode; adopt?: () => void }
+      | null
+    >(null);
+
+    const runAi = useCallback(
+      (action: IntroAiAction) => {
+        const content = synopsis;
+        if (action === "introspect" && !content.trim()) {
+          toast.info("先写两句简介，体检才有东西可查");
+          return;
+        }
+        setSink(null);
+        introAi(action, { title: novelName ?? "", content }, projectId)
+          .then((r) => {
+            if (action === "introspect") {
+              const segs = r.six_segments ?? [];
+              const hits = r.taboo?.hits ?? [];
+              setSink({
+                action,
+                label: "AI 体检 · 六段逐项",
+                node: (
+                  <>
+                    {/* 行名按模板单源顺序渲染（后端只提供 status/note），保证与六段模板逐字一致 */}
+                    {INTRO_SEGMENTS.map((seg) => {
+                      const s = segs.find((x) => x.name === seg.name);
+                      return (
+                        <div className="chk-line" key={seg.name}>
+                          <span className="chk-name">{seg.name}</span>
+                          <span className={`chk-res ${s?.status === "ok" ? "ok" : "miss"}`}>
+                            {s?.status === "ok" ? "达标" : "缺失"}
+                          </span>
+                          <span className="chk-note">{s?.note ?? s?.excerpt ?? ""}</span>
+                        </div>
+                      );
+                    })}
+                    <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
+                      禁忌扫描：
+                      {hits.length
+                        ? hits.map((h) => h.rule).join(" / ")
+                        : `无 ${TABOO_RULES.join(" / ")}`}
+                      {r.verdict ? ` · 结论：${r.verdict}` : ""}
+                    </p>
+                  </>
+                ),
+              });
+            } else if (action === "fill") {
+              const miss = r.missing ?? [];
+              setSink({
+                action,
+                label: "补全缺失 · 候选如下，采纳才插入",
+                node: (
+                  <div>
+                    {miss.length ? (
+                      miss.map((m) => (
+                        <p key={m.name} style={{ margin: "4px 0" }}>
+                          <b>{m.name}</b>：{m.candidate}
+                        </p>
+                      ))
+                    ) : (
+                      <p style={{ margin: 0 }}>无需补，六段都齐了。</p>
+                    )}
+                  </div>
+                ),
+                adopt: miss.length
+                  ? () => {
+                      const add = miss
+                        .map((m) => m.candidate)
+                        .join("")
+                        .trim();
+                      const next = (synopsis.trim() + (synopsis.trim() ? "。" : "") + add).slice(
+                        0,
+                        INTRO_MAX_LEN,
+                      );
+
+    useImperativeHandle(
+      ref,
+      () => ({ save, isEmpty: () => !synopsis.trim(), focus: () => taRef.current?.focus(), runAi }),
+      [save, synopsis, runAi],
+    );
+                      editedRef.current = true;
+                      setSynopsis(next);
+                      toast.success(
+                        next.length >= INTRO_MAX_LEN
+                          ? "已追加（已到 500 字上限，尾部截断）"
+                          : "已追加进简介，可继续改",
+                      );
+                    }
+                  : undefined,
+              });
+            } else {
+              const polished = r.polished ?? "";
+              setSink({
+                action,
+                label: "润色 · 前后对照，采纳才替换",
+                node: (
+                  <div>
+                    <p style={{ margin: "4px 0", color: "var(--muted)" }}>原句：{r.original ?? ""}</p>
+                    <p style={{ margin: "4px 0" }}>
+                      <b>润后</b>：{polished}
+                    </p>
+                  </div>
+                ),
+                adopt: polished
+                  ? () => {
+                      editedRef.current = true;
+                      setSynopsis(polished.slice(0, INTRO_MAX_LEN));
+                      toast.success("已替换，原句可随时改回");
+                    }
+                  : undefined,
+              });
+            }
+          })
+          .catch((e: unknown) => {
+            const reason = aiBlockReason(e);
+            if (reason === "member_required") {
+              toast.info("AI 是会员功能，升级 PRO 后解锁");
+            } else if (reason === "no_key") {
+              toast.info("先去「模型配置」添加 API Key");
+            } else if (reason === "missing_model" || reason === "invalid") {
+              toast.info("先在本书选择模型");
+            } else {
+              toast.error((e as Error).message || "暂不可用，请重试");
+            }
+          });
+      },
+      [synopsis, novelName, projectId],
+    );
 
     return (
       <>
@@ -537,6 +671,18 @@ const IntroPanel = forwardRef<IntroHandle, { projectId: string; onDirtyChange?: 
             </div>
           )}
         </div>
+
+        {/* AI 结果区：落编辑框下方（tasks 3.3/3.4，采纳后保留、重新请求覆盖） */}
+        {sink && (
+          <AiSink
+            label={sink.label}
+            adoptText={sink.action === "fill" ? "采纳 · 追加到简介" : sink.action === "polish" ? "采纳 · 替换简介" : undefined}
+            onAdopt={sink.adopt}
+            data-od-id="intro-ai-sink"
+          >
+            {sink.node}
+          </AiSink>
+        )}
 
         <p className="opt" style={{ fontSize: 12, margin: "-6px 0 16px" }}>
           简介会作为后续设定和写作的依据。
