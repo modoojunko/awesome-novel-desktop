@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>评审稿 v8.5 · 创建期引导：本书模型 + 简介 + 题材</title>
+<style>
+  /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致（--radius-lg 沿 book.html = 14px） ═══ */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.55; padding: 40px 24px 80px; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  /* ─── 稿头 ─── */
+  .draft-banner { display: flex; align-items: center; gap: 9px; padding: 10px 16px; border: 1px dashed var(--warn); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: 13px; margin-bottom: 28px; }
+  .draft-banner b { color: var(--fg); font-weight: 600; }
+  h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; }
+  h1 .ver { font-family: var(--font-mono); font-size: 13px; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 2px 10px; vertical-align: 6px; margin-left: 10px; letter-spacing: 0.06em; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 6px 0 14px; }
+  .caliber { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 16px; font-size: 12.5px; color: var(--muted); margin-bottom: 36px; }
+  .caliber b { color: var(--fg); font-weight: 600; }
+  .caliber li { margin: 3px 0 3px 18px; }
+
+  /* ─── 模拟窗口 ─── */
+  .win { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-card); margin-bottom: 52px; }
+  .flow-strip { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--accent-soft); border-bottom: 1px solid var(--border); font-size: 12.5px; flex-wrap: wrap; }
+  .flow-strip .fs-label { font-weight: 600; }
+  .flow-strip .fs-step { color: var(--muted); }
+  .flow-strip .fs-step.on { color: var(--accent); font-weight: 500; }
+  .flow-strip .fs-step.done { color: var(--ok); }
+  .flow-strip .fs-step.later { color: var(--muted); opacity: .7; }
+  .flow-strip .fs-arrow { color: var(--muted); }
+  .flow-strip .fs-note { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+  .modnav { display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .modnav span { display: inline-flex; padding: 8px 14px 9px; font-size: 13px; color: var(--muted); }
+  .modnav span.on { color: var(--fg); font-weight: 500; border-bottom: 2px solid var(--accent); }
+  .set-grid2 { display: grid; grid-template-columns: minmax(0, 1fr) 268px; }
+  @media (max-width: 900px) { .set-grid2 { grid-template-columns: 1fr; } .col-ai-rail { display: none; } }
+  .col-ai-rail { border-left: 1px solid var(--border); padding: 16px; background: var(--bg); overflow-y: auto; }
+  .col-panel { padding: 26px clamp(20px, 3.5vw, 44px) 30px; background: var(--bg); }
+
+  /* ─── 通用件 ─── */
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 11px; }
+  .badge.done { background: var(--ok-soft); color: var(--ok); }
+  .badge.empty { background: var(--fg-soft); color: var(--muted); }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .badge.err { background: var(--err-soft); color: var(--err); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  /* 本书模型设定窗 */
+  .model-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .model-status .opt { color: var(--muted); }
+  .notice-warn { display: flex; align-items: baseline; gap: 8px; margin: 4px 0 14px; padding: 9px 13px; border: 1px solid color-mix(in oklch, var(--warn) 34%, var(--border)); border-radius: 9px; background: var(--warn-soft); font-size: 12.5px; color: var(--fg); line-height: 1.7; }
+  .notice-warn b { color: var(--warn); }
+  .notice-warn .nw-cta { flex: none; }
+  .model-ai-list { margin: 0; padding: 0; list-style: none; }
+  .model-ai-list li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 12px; }
+  .model-ai-list li:last-child { border-bottom: none; }
+  .model-ai-list li span { color: var(--muted); }
+  /* 模型选择器：按 API 配置分组的卡片列表（替代原生 select，支持多供应商 × 多模型） */
+  .model-picker { display: flex; flex-direction: column; gap: 10px; }
+  .model-group { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+  .model-group-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: var(--fg-soft); font-size: 12.5px; }
+  .model-group-head b { font-weight: 600; }
+  .model-group-head .opt { font-size: 11px; color: var(--muted); }
+  .model-group-head .badge { margin-left: auto; }
+  .model-opt { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 12px; border: none; border-top: 1px dashed var(--border); background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; }
+  .model-opt:hover { background: var(--fg-soft); }
+  .model-opt .mo-name { font-family: var(--font-mono); font-size: 12.5px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .model-opt .mo-tag { font-size: 10.5px; color: var(--muted); flex: none; }
+  .model-opt .mo-check { flex: none; color: var(--accent); opacity: 0; }
+  .model-opt.on { background: var(--accent-soft); }
+  .model-opt.on .mo-check { opacity: 1; }
+  .model-opt.on .mo-name { color: var(--accent); font-weight: 500; }
+  .model-picker-empty { padding: 12px; font-size: 12px; color: var(--muted); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--accent); color: oklch(100% 0 0); }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--muted); }
+  .input, .textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+  .input:focus, .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .textarea { min-height: 58px; resize: vertical; line-height: 1.7; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .field label { font-size: 13px; color: var(--fg); font-weight: 500; display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+  .field label .why { font-size: 11.5px; color: var(--muted); font-weight: 400; }
+  .opt { font-size: 12px; color: var(--muted); }
+  .cap { display: inline-flex; align-items: center; padding: 7px 14px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; color: var(--fg); background: var(--surface); cursor: pointer; user-select: none; }
+  .cap:hover { border-color: var(--muted); }
+  .cap.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+  .cap-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .cap-add input { width: 100%; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 9px; background: var(--surface); font-size: 13px; color: var(--fg); margin-top: 8px; }
+  .cap-add input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); border-style: solid; }
+
+  /* ─── 右栏 AI 轨 ─── */
+  .rail-pro { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border: 1px solid color-mix(in oklch, var(--accent) 30%, var(--border)); border-radius: 10px; background: var(--accent-soft); margin-bottom: 12px; }
+  .rail-pro .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; padding: 2px 8px; border-radius: 999px; background: var(--accent); color: oklch(100% 0 0); flex: none; }
+  .rail-pro .rp-t b { font-size: 12.5px; display: block; }
+  .rail-pro .rp-t span { font-size: 11px; color: var(--muted); }
+  .ai-sink .ans-act { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .ai-sink .ans-act button { height: 26px; padding: 0 12px; font-size: 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .ai-sink .ans-act button.primary { background: var(--accent); border-color: transparent; color: oklch(100% 0 0); }
+
+  /* ── 体检结果 ── */
+  .chk-line { display: flex; gap: 8px; align-items: baseline; }
+  .chk-line .chk-name { flex: none; width: 108px; font-size: 12px; }
+  .chk-line .chk-res { font-size: 12px; font-weight: 500; flex: none; }
+  .chk-line .chk-res.ok { color: var(--ok); }
+  .chk-line .chk-res.miss { color: var(--err); }
+  .chk-line .chk-note { font-size: 11.5px; color: var(--muted); min-width: 0; }
+
+  /* ── 面板骨架 ── */
+  .panel-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  .panel-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 600; margin: 0; }
+  .defline { font-size: 12.5px; color: var(--muted); margin: 0 0 22px; line-height: 1.8; }
+  .defline b { color: var(--fg); font-weight: 600; }
+  .panel-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); margin-top: 8px; }
+  .panel-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+
+  /* ── 简介两块：编辑框 / 怎么写 ── */
+  .intro-ta { min-height: 132px; font-size: 14px; line-height: 1.9; }
+  .cnt { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted); margin-left: auto; }
+  .blk { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 13px 16px; margin: 0 0 14px; }
+  .blk > .blk-t { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+  .blk > .blk-t b { font-size: 13px; font-weight: 600; }
+  .blk > .blk-t span { font-size: 11.5px; color: var(--muted); }
+  .hint-note { font-size: 12px; color: var(--muted); margin: 4px 0 0; line-height: 1.7; }
+  /* 怎么写引导 */
+  .g-row { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px dashed var(--border); }
+  .g-row:last-of-type { border-bottom: none; }
+  .g-row .g-name { flex: none; width: 108px; font-size: 12.5px; font-weight: 600; color: var(--fg); }
+  .g-row .g-body { font-size: 12px; color: var(--muted); line-height: 1.7; min-width: 0; }
+  .g-row .g-body em { font-style: normal; color: var(--fg); }
+  .g-formula { margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 12.5px; color: var(--fg); display: inline-block; }
+  .g-formula b { color: var(--accent); }
+  .g-dont { margin-top: 10px; font-size: 11.5px; color: var(--warn); line-height: 1.8; }
+  /* 怎么写＝点开才展开的文本指导 */
+  .guide { margin: 0 0 14px; }
+  .guide-toggle { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 13px; border: 1px dashed var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; color: var(--fg); font: inherit; }
+  .guide-toggle:hover { border-color: var(--accent); }
+  .guide-toggle .gt-b { font-size: 13px; font-weight: 600; flex: none; color: var(--accent); }
+  .guide-toggle .gt-s { font-size: 11.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .guide-toggle .gt-c { margin-left: auto; flex: none; color: var(--muted); transition: transform .18s ease; }
+  .guide-toggle[aria-expanded="true"] .gt-c { transform: rotate(180deg); }
+  .guide-body { margin-top: 8px; padding: 5px 16px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  .guide-body[hidden] { display: none; }
+  /* AI 结果区（简介框下方 / 题材对应格下方）——TintPanel 只读说明，勿用 --surface（否则与输入框撞色误判可编辑） */
+  .ai-sink { margin: 10px 0 0; background: var(--fg-soft); border-radius: 10px; padding: 12px 16px; font-size: 12.5px; line-height: 1.8; color: var(--fg); }
+  .ai-sink[hidden] { display: none; }
+  .ai-sink .aiz-head { font-size: 11px; font-weight: 600; letter-spacing: .05em; color: var(--accent); margin-bottom: 6px; }
+  /* AI 写作助手：一个容器（PRO 徽标并入头部）+ 三个并列能力行，名称在上、描述从属 */
+  .rail-assist { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
+  .rail-assist .ra-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+  .rail-assist .ra-head .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: oklch(100% 0 0); flex: none; }
+  .rail-assist .ra-head .rh-t b { display: block; font-size: 13px; font-weight: 600; }
+  .rail-assist .ra-head .rh-t span { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .rail-assist .ra-step { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; margin-bottom: 6px; }
+  .rail-assist .ra-step:last-of-type { margin-bottom: 0; }
+  .rail-assist .ra-step:hover { border-color: var(--accent); }
+  .rail-assist .ra-body { min-width: 0; flex: 1; }
+  .rail-assist .ra-body b { display: block; font-size: 12.5px; font-weight: 600; }
+  .rail-assist .ra-body i { display: block; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 2px; }
+  .rail-assist .ra-arrow { color: var(--muted); flex: none; }
+  .rail-assist .ra-foot { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+  .rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
+  /* 题材：AI 行只作按钮，答案回落到左侧对应格下方（.ai-sink），与简介一致 */
+  .rail-assist .ra-row { margin-bottom: 8px; }
+  .rail-assist .ra-row .ra-step { margin-bottom: 0; }
+  /* 免费版（无套餐）锁定态：可见 + 锁定 + 收益描述（规范 §11） */
+  .rail-assist.locked { border-color: var(--border); }
+  .rail-assist.locked .plan-badge { background: var(--fg-soft); color: var(--muted); }
+  .rail-assist.locked .ra-step { opacity: .55; cursor: not-allowed; }
+  .rail-assist.locked .ra-step:hover { border-color: var(--border); }
+  .rail-assist.locked .ra-body b { color: var(--muted); }
+  .rail-assist.locked .ra-arrow { opacity: .4; }
+  /* 演示视角切换器（非基线，仅看不同套餐看到的样子） */
+  .demo-view { display: flex; align-items: center; gap: 10px; margin: 4px 0 18px; font-size: 12.5px; }
+  .demo-view .dv-label { color: var(--fg); font-weight: 500; }
+  .demo-view .dv-note { color: var(--muted); font-size: 11.5px; }
+  .seg { display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; background: var(--fg-soft); }
+  .seg button { border: none; background: transparent; padding: 5px 14px; font-size: 12px; border-radius: 999px; color: var(--muted); cursor: pointer; }
+  .seg button.on { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px color-mix(in oklch, var(--fg) 8%, transparent); font-weight: 500; }
+
+  /* ── 题材五格 ── */
+  .mod { margin-bottom: 26px; }
+  .mod-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 12px; }
+  .mod-head .m-no { font-family: var(--font-mono); font-size: 11px; color: var(--accent); border: 1px dashed color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 0 7px; flex: none; }
+  .mod-head .m-name { font-size: 14px; font-weight: 600; flex: none; }
+  .mod-head .m-why { font-size: 12px; color: var(--muted); flex: none; }
+  .mod-head .m-use { flex: 1 1 auto; margin-left: 14px; font-size: 11.5px; color: var(--muted); text-align: right; line-height: 1.6; min-width: 0; }
+  .mod-head .m-use b { color: var(--accent); font-weight: 500; }
+  .cost-row { display: flex; align-items: center; gap: 16px; }
+  .cost-row input[type="range"] { flex: 1; accent-color: var(--accent); height: 26px; }
+  .cost-val { font-family: var(--font-mono); font-size: 20px; font-weight: 600; color: var(--accent); width: 34px; text-align: center; flex: none; }
+  .cost-sent { font-size: 12.5px; color: var(--fg); background: var(--fg-soft); border-radius: 8px; padding: 5px 11px; margin-top: 8px; display: inline-block; }
+  .cost-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono); }
+  .soft-note { font-size: 11.5px; color: var(--warn); margin-top: 8px; display: none; }
+
+  /* ── 结论 ─── */
+  .rec-box { border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: var(--radius); background: var(--accent-soft); padding: 16px 20px; font-size: 13.5px; line-height: 1.8; }
+  .rec-box b { font-weight: 600; }
+  .rec-box ol { margin: 8px 0 0 20px; }
+  .rec-box li { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 12.5px; margin-top: 14px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="draft-banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="16" height="16"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <span><b>评审稿 v8.5（DRAFT）· 界面已定稿，待用户最终拍板开工</b> · <b>本批＝AI 前置：本书模型设定</b>（未选模型则本书 AI 全不可用）→ <b>创建期前两步：① 简介 → ② 题材</b>（确认自动进下一步）· 简介＝编辑框直接写 +「怎么写」六段模板（<b>点开才展开</b>的文本指导）· 简介 / 题材右栏同款「AI 写作助手」卡片（PRO 徽标并头部 + 并列能力行 + 来源/去向声明），反馈统一显示在简介框下方结果区 · 顶部 <b>演示视角切换器可看免费版（无套餐）锁定时</b> · 世界 / 角色（开场主角＋金手指）/ 主线为后续批次 · 不改动 <span class="num">prototypes/</span> 与任何实现代码</span>
+  </div>
+
+  <h1>创建期引导 · 本书模型 + 简介 + 题材<span class="ver">v8.5</span></h1>
+  <p class="sub">建书只填书名 → 先写简介（直接写，可点开六段模板照着写，体检反馈就在简介框下方）、再定题材（六格按口味给建议），确认一步自动进下一步。世界、角色（含金手指）、主线是后续批次；伏笔 / 风格 / AI痕迹留在写作期随用随调。</p>
+
+  <div class="demo-view" data-od-id="demo-member-view">
+    <span class="dv-label">演示视角：AI 会员身份</span>
+    <span class="seg" id="memberSeg">
+      <button class="on" type="button" data-view="pro">已解锁 · PRO</button>
+      <button type="button" data-view="free">免费版 · 锁定</button>
+    </span>
+    <span class="dv-note">非基线 · 仅看无套餐用户看到的样子（简介 / 题材右栏一起切）</span>
+  </div>
+
+  <div class="caliber">
+    <b>口径前提</b>
+    <li><b>本批范围</b>：创建期 ① 简介 → ② 题材（**AI 前置：先给本书选模型**，未选则该书 AI 均不可用）。全页无必填、确认永远可点；每步可跳过、随时回改。</li>
+    <li><b>后续批次（顺序已定，本批不做）</b>：③ 世界 → ④ 开场主角（<b>金手指＝该卡显性字段</b>，与简介"转机"段互相印证）→ ⑤ 主线；伏笔 / 配角 / 风格 / AI痕迹＝写作期工具，不占创建期。</li>
+    <li><b>AI 前置＝本书模型</b>：模型配置是<b>人工路径能力，免费版也能看、也能配</b>（选 API 配置 + 模型，落 `project.ai_config_id` + `project.ai_model`，复用现有 `ModelSettingForm`）；<b>免费版差别只在右侧 AI 助手全灰</b>（升级 PRO 解锁），配好的模型升级后直接可用。PRO/MAX 用 AI 前须先选本书模型（流程 ① 模型 → ② 简介 → ③ 题材）；未选 → AI 行提示「先在本书选择模型」+ 跳模型设定，后端 503 `missing_model`。</li>
+    <li><b>简介 AI 三能力</b>（Pro 以上）：体检（六段模板逐项 + 禁忌扫描，只提醒不拦确认）、补全缺失（只补缺的段，候选采纳才插入）、润色（保原意压 AI 味，对照采纳才替换）——只加工你写的，不代写。<b>操作按钮在右栏，反馈统一显示在简介框下方</b>（不把右栏拉高）。</li>
+    <li><b>题材 AI 五行</b>（Pro 以上）：各答各题、注明输入来源；字段说明注册 fieldGuide 单源（衔接 settings-ai-qa）。</li>
+  </div>
+
+  <!-- ═══ 前置窗 · 本书模型设定（AI 前置；免费版也能配，差别只在右侧 AI 助手灰） ═══ -->
+  <div class="win" id="modelWin" data-od-id="win-book-model" style="margin-bottom:52px;">
+    <div class="flow-strip" data-od-id="flow-strip-model" id="flowModel">
+      <span class="fs-label">AI 前置 · 本书模型</span>
+      <span class="fs-step on">① 选模型</span><span class="fs-arrow">→</span>
+      <span class="fs-step">② 简介</span><span class="fs-arrow">→</span>
+      <span class="fs-step">③ 题材</span><span class="fs-arrow">→</span>
+      <span class="fs-step later">后续批次：世界 · 角色 · 主线</span>
+      <span class="fs-note">免费版也能配 · 配好升级 PRO 即可直接用</span>
+    </div>
+    <div class="modnav"><span class="on">设定</span><span>写作</span><span>预览</span></div>
+    <div class="set-grid2">
+    <div class="col-panel">
+      <div class="panel">
+        <div class="panel-head"><h2>本书模型</h2><span class="badge empty" id="modelBadge">未选择</span></div>
+        <p class="defline">用 AI 前先给这本书选个模型——选了它，简介、题材、写章、润色的 AI 都走这个。没选，本书的 AI 都用不了。</p>
+
+        <!-- 状态行 -->
+        <div class="field">
+          <label>当前状态</label>
+          <div class="model-status">
+            <span class="badge" id="modelStateBadge">未配置</span>
+            <span class="opt" id="modelStateText">暂无可用 API Key</span>
+          </div>
+        </div>
+
+        <!-- 未选模型的 AI 前置阻断提示 -->
+        <div class="notice-warn" id="modelGateHint">
+          <span><b>AI 未就绪</b>：先在下面选好模型，简介 / 题材 / 写章的 AI 才能用。</span>
+        </div>
+
+        <!-- 选择模型：按 API 配置分组的卡片列表（多供应商 × 多模型；选择与生效分离＝点行只标亮、点确认才落库） -->
+        <div class="field">
+          <label>选择模型 <span class="opt">按 API 配置分组 · 先在「模型配置」加 Key 才能选</span></label>
+          <div class="model-picker" id="modelPicker" data-od-id="book-model-picker" role="radiogroup" aria-label="本书使用的模型">
+            <div class="model-group">
+              <div class="model-group-head">
+                <b>我的 DeepSeek</b><span class="opt">deepseek</span><span class="badge done">已连接</span>
+              </div>
+              <button class="model-opt" type="button" role="radio" aria-checked="false" data-cid="config1" data-model="deepseek-v4-flash" data-od-id="model-opt-1">
+                <span class="mo-name">deepseek-v4-flash</span>
+                <svg class="mo-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M5 13l4 4L19 7"/></svg>
+              </button>
+              <button class="model-opt" type="button" role="radio" aria-checked="false" data-cid="config1" data-model="deepseek-v4-pro" data-od-id="model-opt-2">
+                <span class="mo-name">deepseek-v4-pro</span>
+                <svg class="mo-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M5 13l4 4L19 7"/></svg>
+              </button>
+            </div>
+            <div class="model-group">
+              <div class="model-group-head">
+                <b>官方 OpenAI</b><span class="opt">openai</span><span class="badge done">已连接</span>
+              </div>
+              <button class="model-opt" type="button" role="radio" aria-checked="false" data-cid="config2" data-model="gpt-4o" data-od-id="model-opt-3">
+                <span class="mo-name">gpt-4o</span>
+                <svg class="mo-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M5 13l4 4L19 7"/></svg>
+              </button>
+              <button class="model-opt" type="button" role="radio" aria-checked="false" data-cid="config2" data-model="gpt-4o-mini" data-od-id="model-opt-4">
+                <span class="mo-name">gpt-4o-mini</span>
+                <svg class="mo-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M5 13l4 4L19 7"/></svg>
+              </button>
+            </div>
+            <div class="model-group">
+              <div class="model-group-head">
+                <b>本地 Ollama</b><span class="opt">ollama</span><span class="badge empty">未测试</span>
+              </div>
+              <button class="model-opt" type="button" role="radio" aria-checked="false" data-cid="config3" data-model="qwen3:32b" data-od-id="model-opt-5">
+                <span class="mo-name">qwen3:32b</span>
+                <svg class="mo-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M5 13l4 4L19 7"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-foot">
+          <span class="note" id="modelFootNote">选好模型后点右侧确认，本书 AI 走这个模型</span>
+          <button class="btn btn-primary" type="button" id="btnModelConfirm" data-od-id="btn-model-confirm" disabled>设为本书模型</button>
+        </div>
+      </div>
+    </div>
+    <aside class="col-ai-rail" data-od-id="ai-rail-model">
+      <div class="rail-assist" data-od-id="ai-assist-model">
+        <div class="ra-head"><div class="rh-t"><b>本书 AI 都走这个模型</b><span>一次设定，本书所有 AI 能力共用 · 随时可换</span></div></div>
+        <ul class="model-ai-list">
+          <li><span>简介 · 体检/补缺失/润色</span><b>本书模型</b></li>
+          <li><span>题材 · 五行 AI</span><b>本书模型</b></li>
+          <li><span>写章 · 续写 / 润色</span><b>本书模型</b></li>
+        </ul>
+        <p class="ra-foot"><b>免费版也能配：</b>模型配置不是会员功能，先配好，升级 PRO 后这些 AI 直接用。</p>
+      </div>
+      <p class="opt" style="margin-top:12px;">API Key / Base URL 在「模型配置」里管理，这里只选本书用哪个。</p>
+    </aside>
+    </div>
+  </div>
+
+  <!-- ═══ A · 简介窗（创建期 ①） ═══ -->
+  <div class="win" style="margin-bottom:52px;">
+    <div class="flow-strip" data-od-id="flow-strip-intro" id="flowIntro">
+      <span class="fs-label">创建期引导</span>
+      <span class="fs-step on">① 简介</span><span class="fs-arrow">→</span>
+      <span class="fs-step">② 题材</span><span class="fs-arrow">→</span>
+      <span class="fs-step later">后续批次：世界 · 角色 · 主线</span>
+      <span class="fs-note">确认一步自动进入下一步 · 本批只做这两步</span>
+    </div>
+    <div class="modnav"><span class="on">设定</span><span>写作</span><span>预览</span></div>
+    <div class="set-grid2">
+    <div class="col-panel">
+      <div class="panel">
+        <div class="panel-head"><h2>简介</h2><span class="badge empty" id="introBadge">未填</span></div>
+        <p class="defline">简介是所有后续设定的源头——题材、角色、章节都从这段话读起。先写它，后面每一步都更准；糙一点没关系，写完点右栏「AI 体检」，反馈就出在下方的结果区。</p>
+
+        <!-- ① 编辑框：直接写 -->
+        <div class="field">
+          <label>故事简介 <span class="opt">≤500 字 · 直接写，卡住了点开下方「怎么写」</span><span class="cnt" id="introCnt">0/500</span></label>
+          <textarea class="textarea intro-ta" id="introInput" maxlength="500" data-od-id="intro-input" placeholder="他是谁、本来打算怎么过、什么事打破了平静、他必须面对什么、不做会怎样、做了可能怎样——想到哪句写哪句"></textarea>
+        </div>
+
+        <!-- ② 怎么写：文本指导，点开才展开 -->
+        <div class="guide" data-od-id="intro-guide">
+          <button class="guide-toggle" type="button" id="guideToggle" aria-expanded="false">
+            <span class="gt-b">「怎么写」六段模板</span>
+            <span class="gt-s">主角身份 → 本来的生活 → 突发状况 → 必须面对的矛盾 → 不做的后果 → 做了的可能结局 · 点开看每段怎么写</span>
+            <svg class="gt-c" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="guide-body" id="guideBody" hidden>
+            <div class="g-row"><span class="g-name">主角身份</span><span class="g-body">一句话立住他是谁、什么处境。<em>例：外门杂徒林拾，在宗门扫了十年落叶。</em>有了它，读者三秒知道跟谁走。</span></div>
+            <div class="g-row"><span class="g-name">本来的生活</span><span class="g-body">没出事之前，他打算怎么过。<em>例：熬满十年就出宗，回家守几亩灵田过安稳日子。</em>先给平静，后面打破它才有劲。</span></div>
+            <div class="g-row"><span class="g-name">突发状况</span><span class="g-body">什么事把平静打碎。<em>例：一双能看见修为漏洞的眼，偏在这时睁开了。</em>变故一出，故事才算开锣。</span></div>
+            <div class="g-row"><span class="g-name">必须面对的矛盾</span><span class="g-body">他躲不开、必须选的难题。<em>例：用它，会被忌惮他的首座盯上；不用，废他根骨的仇永远报不了。</em>两头都疼，读者才揪心。</span></div>
+            <div class="g-row"><span class="g-name">不做的后果</span><span class="g-body">他不动，会失去什么。<em>例：三个月后丹田枯竭，仇人坐着的位置越坐越稳。</em>把退路写死，读者才信他必须动。</span></div>
+            <div class="g-row"><span class="g-name">做了的可能结局</span><span class="g-body">指个方向，别写死结局。<em>例：要么踩着漏洞一路捅上去，要么变成所有人都想挖走的那只眼。</em>"可能"二字留悬念。</span></div>
+            <span class="g-formula">六段公式：<b>主角身份 + 本来的生活 + 突发状况 + 必须面对的矛盾 + 不做的后果 + 做了的可能结局</b></span>
+            <p class="g-dont">别踩：写成世界观设定集（没人关心大陆历史）；写成作者自白（"我构思了三年"）；最后一格写死结局（"可能"=没写的部分）。</p>
+          </div>
+        </div>
+
+        <!-- ③ AI 反馈区：右栏点按钮，结果落这里 -->
+        <div class="intro-ai" id="introAiZone" data-od-id="intro-ai-zone" hidden></div>
+
+        <div class="panel-foot">
+          <span class="note">简介会作为后续设定和写作的依据</span>
+          <button class="btn btn-primary" type="button" data-od-id="btn-intro-confirm" id="btnIntroConfirm">确认完成</button>
+        </div>
+      </div>
+    </div>
+    <aside class="col-ai-rail" data-od-id="ai-rail-intro">
+      <div class="rail-assist" data-od-id="ai-assist-intro">
+        <div class="ra-head" data-od-id="ai-rail-pro-intro">
+          <span class="plan-badge">PRO</span>
+          <div class="rh-t"><b>AI 写作助手</b><span>已解锁 · 包含在你的 PRO 套餐（Max 同享）· 只加工你写的，不代写</span></div>
+        </div>
+        <button class="ra-step" type="button" data-aiact="check" data-od-id="ai-check">
+          <span class="ra-body"><b>体检</b><i>六段逐项查达标 / 缺失 + 扫禁忌，只提醒不拦确认</i></span>
+          <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+        </button>
+        <button class="ra-step" type="button" data-aiact="fill" data-od-id="ai-fill">
+          <span class="ra-body"><b>补缺失</b><i>只补缺的段，候选采纳才插入</i></span>
+          <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+        </button>
+        <button class="ra-step" type="button" data-aiact="polish" data-od-id="ai-polish">
+          <span class="ra-body"><b>润色</b><i>保你原意压 AI 味，前后对照采纳才替换</i></span>
+          <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+        </button>
+        <p class="ra-foot">输入：书名 + 简介本文（题材可后补）。<b>结果统一落在简介框下方结果区</b>，采纳才写回。</p>
+      </div>
+
+      <p class="opt" style="margin-top:12px;">未配置模型？去左侧「AI 模型」。</p>
+    </aside>
+    </div>
+  </div>
+
+  <!-- ═══ B · 题材窗（创建期 ②） ═══ -->
+  <div class="win">
+    <div class="flow-strip" data-od-id="flow-strip-genre">
+      <span class="fs-label">创建期引导</span>
+      <span class="fs-step done">① 简介 · 已确认</span><span class="fs-arrow">→</span>
+      <span class="fs-step on">② 题材（当前）</span><span class="fs-arrow">→</span>
+      <span class="fs-step later">后续批次：世界 · 角色 · 主线</span>
+      <span class="fs-note">确认自动计入进度 · 本批到此为止，可直接开写</span>
+    </div>
+    <div class="modnav"><span class="on">设定</span><span>写作</span><span>预览</span></div>
+    <div class="set-grid2">
+    <div class="col-panel">
+      <div class="panel">
+        <div class="panel-head"><h2>题材</h2><span class="badge empty" id="genreBadge">未设定</span></div>
+        <p class="defline">题材决定读者<b>看什么</b>、<b>忍什么苦</b>、<b>绝不有什么</b>、<b>斗在哪</b>、<b>怎么走</b>——定了它，百万字不跑偏；随时能改。</p>
+
+        <div class="mod">
+          <div class="mod-head"><span class="m-no">01</span><span class="m-name">题材</span><span class="m-why">选个口味起点，下面各格跟着给建议</span><span class="m-use">填好后：<b>全书都按这套口味给建议</b>，随时可换</span></div>
+          <div class="cap-row">
+            <span class="cap on" data-g="comeback">逆袭打脸</span>
+            <span class="cap" data-g="mind">烧脑博弈</span>
+            <span class="cap" data-g="sweet">独宠撒糖</span>
+            <span class="cap" data-g="survival">绝境求生</span>
+            <span class="cap" data-g="scheme">权谋布局</span>
+          </div>
+        </div>
+
+        <div class="mod">
+          <div class="mod-head"><span class="m-no">02</span><span class="m-name">主要看什么</span><span class="m-why">读者翻开这本书，主要看的是什么</span><span class="m-use">填好后：<b>全书都围绕它写</b>，章节不跑题</span></div>
+          <textarea class="textarea" rows="2" id="m1Input" data-od-id="m1-input" placeholder="例：主要看以弱破强的痛快——境界压着他，他专挑别人修为里的漏洞打"></textarea>
+          <div class="ai-sink" data-ans-zone="m1" hidden></div>
+        </div>
+
+        <div class="mod">
+          <div class="mod-head"><span class="m-no">03</span><span class="m-name">绝对禁止</span><span class="m-why">勾了就不写；取消勾选＝明知风险偏要写</span><span class="m-use">填好后：<b>这些雷全书不会出现</b>，AI 也不写</span></div>
+          <div class="cap-row" id="forbidRow" style="margin-bottom:8px;"></div>
+          <div class="cap-add"><input id="forbidInput" placeholder="写你自己的禁区，回车添加" data-od-id="forbid-input" /></div>
+          <div class="ai-sink" data-ans-zone="m2" hidden></div>
+        </div>
+
+        <div class="mod">
+          <div class="mod-head"><span class="m-no">04</span><span class="m-name">吃苦指数</span><span class="m-why">主角得到好处要付多大代价：1 最轻（流汗破财）～ 10 最重（折寿献祭）</span><span class="m-use">填好后：<b>变强有代价，不白拿</b>，爽感才立得住</span></div>
+          <div class="cost-row">
+            <input type="range" min="1" max="10" step="1" id="costRange" data-od-id="cost-slider" />
+            <span class="cost-val num" id="costVal">8</span>
+          </div>
+          <span class="cost-sent" id="costSent" data-od-id="cost-sentence"></span>
+          <div class="cost-scale"><span>1 流汗破财</span><span>5 断骨毁名</span><span>10 命抵江山</span></div>
+          <div class="ai-sink" data-ans-zone="m3" hidden></div>
+        </div>
+
+        <div class="mod">
+          <div class="mod-head"><span class="m-no">05</span><span class="m-name">主线战场</span><span class="m-why">整本书主要斗什么（建议 1-2 个）</span><span class="m-use">填好后：<b>每卷冲突围绕战场</b>，不打野架</span></div>
+          <div class="cap-row" id="bfRow" style="margin-bottom:6px;"></div>
+          <p class="soft-note" id="bfNote">战场越多，主线越难聚焦，建议 1-2 个。</p>
+          <div class="ai-sink" data-ans-zone="m4" hidden></div>
+        </div>
+
+        <div class="mod">
+          <div class="mod-head"><span class="m-no">06</span><span class="m-name">剧情轨道</span><span class="m-why">整本书怎么走（可不填）</span><span class="m-use">填好后：<b>百万字沿它走</b>，写作台常驻可查</span></div>
+          <textarea class="textarea" rows="2" id="trackInput" data-od-id="track-input" placeholder="凡人流——从练气一步步爬，每卷突破一个大境界、了结一桩恩怨"></textarea>
+          <div class="ai-sink" data-ans-zone="m5" hidden></div>
+        </div>
+
+        <div class="panel-foot">
+          <span class="note">题材随时能改，写作台常驻可查</span>
+          <button class="btn btn-primary" type="button" data-od-id="btn-genre-confirm" id="btnConfirm">确认完成</button>
+        </div>
+      </div>
+    </div>
+    <aside class="col-ai-rail" data-od-id="ai-rail-genre">
+      <div class="rail-assist" data-od-id="ai-assist-genre">
+        <div class="ra-head" data-od-id="ai-rail-pro-genre">
+          <span class="plan-badge">PRO</span>
+          <div class="rh-t"><b>AI 写作助手</b><span>已解锁 · 包含在你的 PRO 套餐（Max 同享）· 只加工你写的，不代写</span></div>
+        </div>
+        <div class="ra-row" data-od-id="ai-row-m1">
+          <button class="ra-step" type="button" data-aiask="m1" data-od-id="ai-m1">
+            <span class="ra-body"><b>主要看什么</b><i>本格问题：读者翻开这本书，主要看什么？<br/>输入：书名 + 简介（第一步已填）</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row" data-od-id="ai-row-m2">
+          <button class="ra-step" type="button" data-aiask="m2" data-od-id="ai-m2">
+            <span class="ra-body"><b>绝对禁止</b><i>本格问题：这本书绝不出现什么？<br/>输入：02 的承诺 + 简介（第一步）</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row" data-od-id="ai-row-m3">
+          <button class="ra-step" type="button" data-aiask="m3" data-od-id="ai-m3">
+            <span class="ra-body"><b>吃苦指数</b><i>本格问题：主角得到好处，要付多大代价？<br/>输入：02 的承诺 + 03 的禁项</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row" data-od-id="ai-row-m4">
+          <button class="ra-step" type="button" data-aiask="m4" data-od-id="ai-m4">
+            <span class="ra-body"><b>主线战场</b><i>本格问题：整本书主要斗什么？<br/>输入：02 的承诺 + 简介（第一步）</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row" data-od-id="ai-row-m5">
+          <button class="ra-step" type="button" data-aiask="m5" data-od-id="ai-m5">
+            <span class="ra-body"><b>剧情轨道</b><i>本格问题：整本书怎么走？<br/>输入：02-05 已填的全部内容</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <p class="ra-foot">点某行，AI 建议<b>落到左侧对应格下方</b>；采纳才写回，随时可改可重试。</p>
+      </div>
+      <p class="opt" style="margin-top:12px;">未配置模型？去左侧「AI 模型」。</p>
+    </aside>
+    </div>
+  </div>
+
+  <!-- ═══ 结论 ═══ -->
+  <div class="vsec" style="margin-bottom:24px;">
+    <div class="rec-box">
+      <b>v8.4 终态结构（本批范围：简介 + 题材）</b>
+      <ol>
+        <li><b>① 简介</b>：编辑框直接写（≤500 字）；「怎么写」＝六段模板<b>文本指导，默认收起、点开才展开</b>；右栏「AI 写作助手」卡片＝体检 / 补缺失 / 润色三个**并列能力**（PRO 徽标并头部 + 名称上/描述从属 + 右箭头），<b>反馈统一显示在简介框下方结果区</b>。</li>
+        <li><b>② 题材</b>：六格（题材口味 + 主要看什么 + 绝对禁止 + 吃苦指数 + 主线战场 + 剧情轨道），每格有编号 / 怎么填 / 成书视角去处；右栏「AI 写作助手」卡片＝五行字段 AI（主要看什么 / 绝对禁止 / 吃苦指数 / 主线战场 / 剧情轨道），各答各题、答案在各自行下方。</li>
+        <li><b>免费版（无套餐）</b>：AI 卡片<b>可见 + 锁定</b>（降透明 + 锁徽 + 收益描述「升级 PRO 解锁」），点击给升级提示；免费版写作能力完整（规范 §11 能力等价）。顶部演示视角切换器可在已解锁 / 免费版之间切换查看。</li>
+        <li><b>后续批次（顺序已定）</b>：③ 世界 → ④ 开场主角（<b>金手指＝显性字段</b>，与简介"转机"段互相印证）→ ⑤ 主线；伏笔 / 配角 / 风格 / AI痕迹＝写作期工具。</li>
+      </ol>
+    </div>
+    <p class="muted">拍板后建议：openspec 立项（SETTINGS_ITEMS 前两步重排 + 简介/题材两面板改造 + contract 键）；世界 / 主角（含金手指）/ 主线另立后续 change。本稿不改动 prototypes/ 与任何实现代码。</p>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  function toast(msg) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;right:22px;bottom:22px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);z-index:99;';
+    t.textContent = msg; document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2400);
+  }
+  const esc = t => String(t).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const $ = s => document.querySelector(s);
+
+  /* ═══ 前置窗 · 本书模型设定（AI 前置） ═══ */
+  const modelStateBadge = document.getElementById('modelStateBadge');
+  const modelStateText = document.getElementById('modelStateText');
+  const modelPathBadge = document.getElementById('modelBadge');
+  const modelGateHint = document.getElementById('modelGateHint');
+  const modelFootNote = document.getElementById('modelFootNote');
+  // 状态演示：no_key(未配Key) / no_model(有Key未选) / configured(已选) / invalid(已失效)
+  const MODEL_STATE = {
+    no_key:     { badge: '未配置', badgeCls: 'empty', text: '暂无可用 API Key，先在「模型配置」加 Key', hint: true, path: '未选择' },
+    no_model:   { badge: '未选择', badgeCls: 'warn',  text: '已有可用 Key，还未为本书选择模型',        hint: true, path: '未选择' },
+    configured: { badge: '可用',   badgeCls: 'ok',    text: '已选模型',                                hint: false, path: '已选' },
+    invalid:    { badge: '配置失效', badgeCls: 'err', text: '当前绑定的 API 配置已删除，请重新选择模型', hint: true, path: '失效' },
+  };
+  function renderModelState(state, pathLabel, stateText) {
+    const s = MODEL_STATE[state];
+    modelStateBadge.className = 'badge ' + s.badgeCls;
+    modelStateBadge.textContent = s.badge;
+    modelStateText.textContent = stateText || s.text;
+    modelPathBadge.className = 'badge ' + (state === 'configured' ? 'done' : 'empty');
+    modelPathBadge.textContent = pathLabel || s.path;
+    modelGateHint.hidden = !s.hint;
+    if (state === 'configured') toast('已设为本书模型 · 立即生效，本书 AI 就绪');
+  }
+  const modelPicker = document.getElementById('modelPicker');
+  const btnModelConfirm = document.getElementById('btnModelConfirm');
+  let pickedOpt = null;
+  function pickModel(opt) {
+    modelPicker.querySelectorAll('.model-opt').forEach(o => {
+      const on = o === opt;
+      o.classList.toggle('on', on);
+      o.setAttribute('aria-checked', String(on));
+      o.tabIndex = on ? 0 : -1;
+    });
+    pickedOpt = opt;
+    btnModelConfirm.disabled = false;
+    modelFootNote.textContent = '已选「' + opt.dataset.model + '」，点右侧确认生效';
+  }
+  // 点模型行＝只标亮选中态（不落库）；点确认才生效——防误触（全书 AI 走这个模型）
+  modelPicker.addEventListener('click', e => {
+    const opt = e.target.closest('.model-opt');
+    if (!opt) return;
+    pickModel(opt);
+  });
+  // radiogroup 键盘导航：方向键在模型行之间移动并选中（WAI-ARIA radio 模式）
+  modelPicker.addEventListener('keydown', e => {
+    if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    const opts = [...modelPicker.querySelectorAll('.model-opt')];
+    const cur = opts.indexOf(document.activeElement);
+    if (cur < 0) return;
+    e.preventDefault();
+    const step = (e.key === 'ArrowDown' || e.key === 'ArrowRight') ? 1 : -1;
+    const next = opts[(cur + step + opts.length) % opts.length];
+    next.focus();
+    pickModel(next);
+  });
+  btnModelConfirm.addEventListener('click', () => {
+    if (!pickedOpt) return;
+    const cfgName = pickedOpt.closest('.model-group').querySelector('.model-group-head b').textContent;
+    renderModelState('configured', '已选 · ' + pickedOpt.dataset.model, cfgName + ' · ' + pickedOpt.dataset.model);
+    btnModelConfirm.disabled = true;
+    modelFootNote.textContent = '已生效 · 本书 AI 就绪，可直接去写简介/题材';
+  });
+
+  /* ═══ 简介窗 ═══ */
+
+  const introInput = document.getElementById('introInput');
+  const introBadge = document.getElementById('introBadge');
+  const introCnt = document.getElementById('introCnt');
+  function syncIntro() {
+    const len = introInput.value.length;
+    introCnt.textContent = len + '/500';
+    const filled = introInput.value.trim().length > 0;
+    introBadge.textContent = filled ? '已填' : '未填';
+    introBadge.className = 'badge ' + (filled ? 'done' : 'empty');
+  }
+  introInput.addEventListener('input', syncIntro);
+  syncIntro();
+
+  /* 「怎么写」＝点开才展开 */
+  const guideToggle = document.getElementById('guideToggle');
+  const guideBody = document.getElementById('guideBody');
+  guideToggle.addEventListener('click', () => {
+    const open = guideBody.hidden;
+    guideBody.hidden = !open;
+    guideToggle.setAttribute('aria-expanded', String(open));
+  });
+
+  /* 简介 AI 三能力：右栏按钮 → 结果落简介框下方（演示数据） */
+  const AI_TAG = { check: 'AI 体检 · 六段逐项', fill: '补全缺失 · 候选如下，采纳才插入', polish: '润色 · 前后对照，采纳才替换' };
+  const ACT = {
+    check: {
+      html: `<div class="chk-line"><span class="chk-name">主角身份</span><span class="chk-res ok">达标</span><span class="chk-note">身份＋处境都有，三秒立住</span></div>
+<div class="chk-line"><span class="chk-name">本来的生活</span><span class="chk-res miss">缺失</span><span class="chk-note">没出事前他打算怎么过没写——平静没立起来，打破就没了劲</span></div>
+<div class="chk-line"><span class="chk-name">突发状况</span><span class="chk-res ok">达标</span><span class="chk-note">变故明确，故事开锣了</span></div>
+<div class="chk-line"><span class="chk-name">必须面对的矛盾</span><span class="chk-res miss">缺失</span><span class="chk-note">他必须选什么没写——读者不揪心</span></div>
+<div class="chk-line"><span class="chk-name">不做的后果</span><span class="chk-res ok">达标</span><span class="chk-note">退路写死了，他必须动</span></div>
+<div class="chk-line"><span class="chk-name">做了的可能结局</span><span class="chk-res miss">缺失</span><span class="chk-note">方向没指——读者不知道追什么</span></div>
+<p style="margin:8px 0 0;font-size:11.5px;color:var(--muted);">禁忌扫描：无设定集腔 / 自白腔 / 剧透。缺失项可用下方「补全缺失」。</p>`,
+      act: null
+    },
+    fill: {
+      text: '补「必须面对的矛盾」：用它，会被忌惮他的首座盯上；不用，废他根骨的仇永远报不了。补「做了的可能结局」：要么踩着漏洞一路捅上去，要么变成所有人都想挖走的那只眼。',
+      alt: '补「本来的生活」：熬满十年就出宗，回家守几亩灵田过安稳日子。补「必须面对的矛盾」：报仇要露底牌，保命要装废物——他只能选一头。',
+      act: 'insert'
+    },
+    polish: {
+      text: '原句：他被踩了十年，丹田被废，寿数只剩三月。<br/>润后：入宗十年，他扫了十年落叶——丹田废了，寿数也只剩三个月。',
+      alt: '原句：他得到了一双能看见漏洞的眼睛。<br/>润后：那双眼睛睁开时，他看见的不是灵气，是每个人修为里的裂缝。',
+      act: 'replace'
+    }
+  };
+  const aiZone = document.getElementById('introAiZone');
+  /* 会员拦截统一出口：卡片本身只做视觉锁定态，点击给升级提示（规范 §11 / §10 公共守则） */
+  function lockedGuard(btn) {
+    const card = btn.closest('.rail-assist');
+    if (card && card.classList.contains('locked')) { toast('这是会员功能，升级 PRO 后解锁——免费版写作能力完整'); return true; }
+    return false;
+  }
+  document.querySelectorAll('[data-aiact]').forEach(btn => {
+    const key = btn.dataset.aiact;
+    const data = ACT[key];
+    let tried = false;
+    btn.addEventListener('click', () => {
+      if (lockedGuard(btn)) return;
+      tried = false;
+      aiZone.hidden = false;
+      const head = `<div class="aiz-head">${AI_TAG[key]}</div>`;
+      if (key === 'check') {
+        aiZone.innerHTML = head + data.html;
+        toast('体检完成 · 缺失项已标出，不拦确认');
+      } else {
+        aiZone.innerHTML = head + esc(data.text) + `<div class="ans-act"><button class="primary" type="button">${data.act === 'insert' ? '采纳 · 追加到简介' : '采纳 · 替换简介'}</button><button type="button">重试</button></div>`;
+        const [adopt, retry] = aiZone.querySelectorAll('.ans-act button');
+        adopt.addEventListener('click', () => {
+          if (data.act === 'insert') { introInput.value = (introInput.value.trim() + (introInput.value.trim() ? '。' : '') + data.text.replace(/^(原句：.*?<br\/>)?/, '')).slice(0, 500); }
+          else { introInput.value = data.alt.replace(/<br\/>/g, '\n').replace(/^(原句：.*?\n)?/, ''); }
+          syncIntro();
+          toast(data.act === 'insert' ? '已追加进简介，可继续改' : '已替换，原句可随时改回');
+        });
+        retry.addEventListener('click', () => {
+          tried = !tried;
+          aiZone.innerHTML = head + esc(tried ? data.alt : data.text) + `<div class="ans-act"><button class="primary" type="button">${data.act === 'insert' ? '采纳 · 追加到简介' : '采纳 · 替换简介'}</button><button type="button">重试</button></div>`;
+          toast('已重试，给了一版新的');
+        });
+      }
+      try { aiZone.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* jsdom 无实现 */ }
+    });
+  });
+
+  /* 简介确认 */
+  document.getElementById('btnIntroConfirm').addEventListener('click', () => {
+    document.querySelectorAll('#flowIntro .fs-step').forEach(s => {
+      if (s.textContent.startsWith('①')) { s.classList.remove('on'); s.classList.add('done'); s.textContent = '① 简介 · 已确认'; }
+      if (s.textContent.startsWith('②')) { s.classList.add('on'); s.textContent = '② 题材（当前）'; }
+    });
+    toast('已确认「简介」· 下一步：题材');
+  });
+
+  /* ═══ 题材窗 ═══ */
+
+  /* 题材口味联动 */
+  const GENRES = [
+    { g: 'comeback', label: '逆袭打脸', forbid: ['禁天降外援', '禁白捡神器', '禁反派降智'], cost: 8, bf: ['抢资源', '爬地位'] },
+    { g: 'mind',     label: '烧脑博弈', forbid: ['禁预知破局', '禁反派降智'],             cost: 5, bf: ['爬地位', '查真相'] },
+    { g: 'sweet',    label: '独宠撒糖', forbid: ['禁无端虐主', '禁第三者搅局'],           cost: 3, bf: ['争感情', '搞基建'] },
+    { g: 'survival', label: '绝境求生', forbid: ['禁天降外援', '禁预知破局'],             cost: 7, bf: ['抗外敌', '抢资源'] },
+    { g: 'scheme',   label: '权谋布局', forbid: ['禁反派降智', '禁预知破局'],             cost: 5, bf: ['爬地位', '查真相'] }
+  ];
+  let genreIdx = 0, bfCount = 2;
+  function renderGenre() {
+    const g = GENRES[genreIdx];
+    document.querySelectorAll('[data-g]').forEach(c => c.classList.toggle('on', c.dataset.g === g.g));
+    document.getElementById('forbidRow').innerHTML = g.forbid.map(f => `<span class="cap on">${esc(f)}</span>`).join('');
+    document.getElementById('costRange').value = g.cost;
+    renderCost();
+    bfCount = g.bf.length;
+    document.getElementById('bfRow').innerHTML = g.bf.map(b => `<span class="cap on">${esc(b)}</span>`).join('');
+    document.getElementById('bfNote').style.display = 'none';
+  }
+  document.querySelectorAll('[data-g]').forEach(c => c.addEventListener('click', () => {
+    genreIdx = GENRES.findIndex(x => x.g === c.dataset.g);
+    renderGenre();
+    toast('已按「' + GENRES[genreIdx].label + '」给出口味建议，各格可改');
+  }));
+
+  /* 禁项 / 战场：胶囊点击切换，第 3 个战场出软提示 */
+  function wireCapRow(rowId, noteId) {
+    const row = document.getElementById(rowId);
+    row.addEventListener('click', e => {
+      const cap = e.target.closest('.cap');
+      if (!cap) return;
+      cap.classList.toggle('on');
+      if (noteId) {
+        const onCount = row.querySelectorAll('.cap.on').length;
+        const note = document.getElementById(noteId);
+        note.style.display = onCount >= 3 ? 'block' : 'none';
+      }
+    });
+  }
+  wireCapRow('forbidRow');
+  wireCapRow('bfRow', 'bfNote');
+
+  /* 禁项自定义添加 */
+  document.getElementById('forbidInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.value.trim()) {
+      document.getElementById('forbidRow').insertAdjacentHTML('beforeend', `<span class="cap on">${esc(e.target.value.trim())}</span>`);
+      e.target.value = '';
+    }
+  });
+
+  /* 滑块 */
+  const COST_SENT = { 1: '他顺手捡了秘境，没人知道', 3: '断了三根肋骨，换回一条命', 5: '当众断骨毁名，才拿到入场券', 7: '折寿十年，换一次出手', 9: '以命作祭，才封得住那扇门', 10: '命抵江山' };
+  const costAnchor = v => v <= 1 ? 1 : v <= 3 ? 3 : v <= 5 ? 5 : v <= 7 ? 7 : v <= 9 ? 9 : 10;
+  function renderCost() {
+    const v = +document.getElementById('costRange').value;
+    document.getElementById('costVal').textContent = v;
+    document.getElementById('costSent').textContent = v + ' 分 → ' + COST_SENT[costAnchor(v)];
+  }
+  document.getElementById('costRange').addEventListener('input', renderCost);
+  renderGenre();
+
+  /* 题材 AI 五行：各答各题 + 采纳落控件（演示数据） */
+  const AI = {
+    m1: { text: '主要看以弱破强的痛快——境界压着他，他专挑别人修为里的漏洞打。', alt: '主要看"捡漏"的爽——别人苦修十年，他一眼看穿破绽，当场翻盘。', apply: t => { document.getElementById('m1Input').value = t; } },
+    m2: { text: '禁天降外援 · 禁反派降智 · 禁无脑后宫', alt: '禁一步登天 · 禁反派降智 · 禁万人迷', apply: t => { document.getElementById('forbidRow').innerHTML = t.split('·').map(s => `<span class="cap on">${esc(s.trim())}</span>`).join(''); } },
+    m3: { text: '建议 8 分——逆袭流的爽来自代价对等：好处越大，伤越重。', alt: '建议 7 分——留一分余地，重要转折再上 9。', apply: t => { const v = +t.match(/\d+/)[0]; document.getElementById('costRange').value = v; renderCost(); } },
+    m4: { text: '抢资源 · 爬地位', alt: '爬地位 · 查真相', apply: t => { document.getElementById('bfRow').innerHTML = t.split('·').map(s => `<span class="cap on">${esc(s.trim())}</span>`).join(''); } },
+    m5: { text: '凡人流——从练气一步步爬，每卷突破一个大境界、了结一桩恩怨。', alt: '翻盘流——每卷一个压他一头的对手，卷末用对方的规则掀翻对方。', apply: t => { document.getElementById('trackInput').value = t; } }
+  };
+  const ZONE_LABEL = { m1: 'AI 填 · 主要看什么', m2: 'AI 填 · 绝对禁止', m3: 'AI 填 · 吃苦指数', m4: 'AI 填 · 主线战场', m5: 'AI 填 · 剧情轨道' };
+  document.querySelectorAll('[data-aiask]').forEach(btn => {
+    const key = btn.dataset.aiask;
+    const box = document.querySelector(`[data-ans-zone="${key}"]`);
+    let tried = false;
+    btn.addEventListener('click', () => {
+      if (lockedGuard(btn)) return;
+      tried = false;
+      const d = AI[key];
+      box.innerHTML = `<div class="aiz-head">${ZONE_LABEL[key]}</div>` + esc(d.text) + `<div class="ans-act"><button class="primary" type="button">采纳</button><button type="button">重试</button></div>`;
+      box.hidden = false;
+      const [adopt, retry] = box.querySelectorAll('.ans-act button');
+      adopt.addEventListener('click', () => { d.apply(tried ? d.alt : d.text); toast('已采纳，落回对应格，随时可改'); });
+      retry.addEventListener('click', () => {
+        tried = !tried;
+        const txt = tried ? d.alt : d.text;
+        box.innerHTML = `<div class="aiz-head">${ZONE_LABEL[key]}</div>` + esc(txt) + `<div class="ans-act"><button class="primary" type="button">采纳</button><button type="button">重试</button></div>`;
+        toast('已重试，给了一版新的');
+      });
+      try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* jsdom 无实现 */ }
+    });
+  });
+
+  /* 题材确认 */
+  document.getElementById('btnConfirm').addEventListener('click', () => {
+    const strip = document.querySelector('[data-od-id="flow-strip-genre"]');
+    strip.querySelectorAll('.fs-step').forEach(s => {
+      if (s.textContent.startsWith('②')) { s.classList.remove('on'); s.classList.add('done'); s.textContent = '② 题材 · 已确认'; }
+    });
+    toast('已确认「题材」· 创建期前两步完成，可直接开写');
+  });
+
+  /* 演示视角切换器：无套餐(免费版) ↔ 已解锁(PRO)，简介/题材 AI 卡片一起切 */
+  const memberSeg = document.getElementById('memberSeg');
+  memberSeg.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    memberSeg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+    const free = btn.dataset.view === 'free';
+    // 模型配置＝人工路径能力，免费版也能看、也能配（不随 tier 隐藏）；只有右侧 AI 助手灰
+    document.querySelectorAll('.rail-assist').forEach(c => {
+      // 只锁「会员 AI 助手卡」（简介/题材，含 data-aiact/data-aiask 能力行）
+      const isMemberCard = c.querySelector('[data-aiact], [data-aiask]');
+      if (!isMemberCard) { c.classList.remove('locked'); return; }
+      c.classList.toggle('locked', free);
+    });
+    toast(free ? '已切换：免费版视角——模型照样能配，只是右侧 AI 助手全灰（升级 PRO 解锁）' : '已切换：PRO 视角——AI 助手可点');
+  });
+})();
+</script>
+</body>
+</html>
