@@ -16,6 +16,8 @@ interface ModelSettingFormProps {
   projectId: string;
   settingKey: string;
   onDirtyChange?: (dirty: boolean) => void;
+  /** 绑定/补模型成功后回调（设定视图据此刷新 AI 行的 ai_state，避免旧态跳转）。 */
+  onModelChanged?: () => void;
 }
 
 const CHECK_PATH = "M5 13l4 4L19 7";
@@ -39,6 +41,7 @@ function connBadge(status: string | null | undefined) {
 export default function ModelSettingForm({
   projectId,
   onDirtyChange,
+  onModelChanged,
 }: ModelSettingFormProps) {
   const {
     status,
@@ -142,13 +145,14 @@ export default function ModelSettingForm({
       try {
         await addModelToConfig(cid, modelId);
         setManual((prev) => ({ ...prev, [cid]: "" }));
+        onModelChanged?.();
       } catch (e) {
         setError((e as Error).message || "添加失败");
       } finally {
         setManualBusy(null);
       }
     },
-    [manual, manualBusy, addModelToConfig],
+    [manual, manualBusy, addModelToConfig, onModelChanged],
   );
 
   const handleApply = useCallback(async () => {
@@ -158,13 +162,14 @@ export default function ModelSettingForm({
     try {
       await selectModel(draft.cid, draft.model);
       setDraft(null);
+      onModelChanged?.();
     } catch (e) {
       // 400 等：保留 draft + 行内报错（不清空、不禁用）
       setError((e as Error).message || "保存失败");
     } finally {
       setSaving(false);
     }
-  }, [draft, saving, selectModel]);
+  }, [draft, saving, selectModel, onModelChanged]);
 
   if (!projectId) return null;
   if (loading) return <p className="opt">查询中…</p>;

@@ -106,7 +106,7 @@ export default function SettingsView({
   const genreRef = useRef<GenreHandle>(null);
   const introRef = useRef<IntroHandle>(null);
   // D13：AI 行的门控只读后端 ai_state 一次分派（不再 useFeature + 本地推导两处判）
-  const { aiState } = useModelStatus(projectId);
+  const { aiState, refresh: refreshAiState } = useModelStatus(projectId);
   const handleAiBlocked = useCallback((reason: AiState) => {
     if (reason === "no_key") {
       window.location.hash = "/config";
@@ -237,6 +237,29 @@ export default function SettingsView({
       : `${total - done} 项未填 · 均可后补`;
 
   // ── 确认完成 / 保存修改（gap3：先 save 后 confirm；已确认态只 save）────
+  /** 当前面板的保存句柄（简介/题材各自挂 ref，其余走 formRef）。 */
+  const currentHandle = useCallback(
+    (): SettingSaveHandle | null =>
+      panel === "genre"
+        ? genreRef.current
+        : panel === "intro"
+          ? introRef.current
+          : formRef.current,
+    [panel],
+  );
+
+  /** 存草稿：只落库、不确认、不前进（§5.1 草稿＝进行中）。 */
+  const handleSaveDraft = useCallback(async () => {
+    if (!item || busy) return;
+    setBusy(true);
+    try {
+      const saved = await currentHandle()?.save();
+      if (saved === true) toast.success(`「${item.name}」已存草稿`);
+    } finally {
+      setBusy(false);
+    }
+  }, [item, busy, currentHandle]);
+
   const handleFootAction = useCallback(async () => {
     if (!item || busy) return;
     // tasks 2.4：移除前端「空内容阻断」gate——全页无必填、确认永远可点；
@@ -246,12 +269,7 @@ export default function SettingsView({
     try {
       // 简介（IntroPanel）挂的是 introRef —— 漏分发会拿到 undefined 并带空数据
       // 去 confirm（后端 400）；改为严格 true 才继续，false/undefined 一律中止。
-      const handle =
-        panel === "genre"
-          ? genreRef.current
-          : panel === "intro"
-            ? introRef.current
-            : formRef.current;
+      const handle = currentHandle();
       const saved = await handle?.save();
       if (saved !== true) return;
       if (confirmed) {
@@ -276,7 +294,7 @@ export default function SettingsView({
     } finally {
       setBusy(false);
     }
-  }, [item, panel, confirmed, busy, confirmSetting, done, total]);
+  }, [item, panel, confirmed, busy, confirmSetting, done, total, currentHandle]);
 
   const panelTitle = isModel ? "AI 模型" : (item?.name ?? "");
   const badgeCls = isModel || confirmed ? BADGE_DONE : filled ? "warn" : BADGE_EMPTY;
@@ -442,6 +460,7 @@ export default function SettingsView({
                 projectId={projectId}
                 settingKey="ai-model"
                 onDirtyChange={handleDirtyChange}
+                onModelChanged={refreshAiState}
               />
             )}
           </div>
@@ -457,6 +476,16 @@ export default function SettingsView({
                 </svg>
                 已确认
               </span>
+            )}
+            {!isModel && !confirmed && (
+              <button
+                className="btn btn-secondary"
+                onClick={() => void handleSaveDraft()}
+                disabled={busy}
+                data-od-id="btn-save-draft"
+              >
+                存草稿
+              </button>
             )}
             {!isModel && (
               <button

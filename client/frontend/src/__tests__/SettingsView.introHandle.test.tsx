@@ -296,3 +296,53 @@ describe("SettingsView · 重复提交与竞态（tasks 9.4.14/9.4.15）", () =>
     expect(container.querySelector('[data-od-id="intro-ai-sink"]')).toBeNull();
   });
 });
+
+describe("SettingsView · 存草稿（简介面板）", () => {
+  beforeEach(() => {
+    apiState.get.mockReset();
+    apiState.updateStory.mockReset();
+    apiState.fetchStory.mockReset();
+    apiState.get.mockResolvedValue({});
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+    apiState.updateStory.mockResolvedValue({ ok: true, synopsis: "草稿内容" });
+  });
+
+  it("未确认面板有「存草稿」：只落库、不确认、不前进", async () => {
+    const confirmSetting = vi.fn().mockResolvedValue(true);
+    render(
+      <SettingsView
+        projectId="p1"
+        initialPanel="intro"
+        settingsStatus={{}}
+        confirmedStatus={{}}
+        confirmSetting={confirmSetting}
+        novelName="测试小说"
+      />,
+    );
+
+    fireEvent.change(await waitFor(() => screen.getByRole("textbox")), {
+      target: { value: "草稿内容" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "存草稿" }));
+
+    await waitFor(() => expect(apiState.updateStory).toHaveBeenCalledWith("p1", "草稿内容"));
+    expect(confirmSetting).not.toHaveBeenCalled();
+    // 仍停在简介面板（未前进到题材）
+    expect(screen.getByRole("heading", { name: "简介" })).toBeTruthy();
+  });
+
+  it("已确认面板不再显示「存草稿」（保存修改即草稿语义）", async () => {
+    render(
+      <SettingsView
+        projectId="p1"
+        initialPanel="intro"
+        settingsStatus={{ synopsis: true }}
+        confirmedStatus={{ synopsis: true }}
+        confirmSetting={vi.fn().mockResolvedValue(true)}
+        novelName="测试小说"
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存修改" })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "存草稿" })).toBeNull();
+  });
+});
