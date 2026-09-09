@@ -146,18 +146,9 @@ export default function SettingsView({
   // ── 确认完成 / 保存修改（gap3：先 save 后 confirm；已确认态只 save）────
   const handleFootAction = useCallback(async () => {
     if (!item || busy) return;
-    if (!confirmed) {
-      if (panel === "genre" && !genreRef.current?.hasGenre()) {
-        toast.info("请先选择题材");
-        genreRef.current?.openPicker();
-        return;
-      }
-      if (panel === "intro" && introRef.current?.isEmpty()) {
-        toast.info("请先写一段梗概");
-        introRef.current?.focus();
-        return;
-      }
-    }
+    // tasks 2.4：移除前端「空内容阻断」gate——全页无必填、确认永远可点；
+    // 内容为空时由后端 400 提示（confirmSetting 的 catch 已承接「还未填写内容」），
+    // 「跳过」＝直接切到下一个 tab（顺序是引导不是锁）。
     setBusy(true);
     try {
       // 简介（IntroPanel）挂的是 introRef —— 漏分发会拿到 undefined 并带空数据
