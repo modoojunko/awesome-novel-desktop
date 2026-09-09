@@ -177,7 +177,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
   const [flavorKey, setFlavorKey] = useState<string | null>(null);
   const [customForbidden, setCustomForbidden] = useState("");
   const loadedRef = useRef(false);
-  const { snapshotLoaded, markSaved } = useDirtyState(data, onDirtyChange);
+  const { snapshotLoaded, markSaved, markDirty } = useDirtyState(data, onDirtyChange);
   const cand = useCandidates();
 
   // ── 加载 ──────────────────────────────────────────────────────────
@@ -380,7 +380,11 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     }
   }, [projectId, settingKey, data, saving, markSaved]);
 
-  useImperativeHandle(ref, () => ({ save, runAi }), [save, runAi]);
+  useImperativeHandle(
+    ref,
+    () => ({ save, runAi, markDirty, clearAi: () => setSinks({}) }),
+    [save, runAi, markDirty],
+  );
 
   if (loading) return <p className="opt">加载中…</p>;
 

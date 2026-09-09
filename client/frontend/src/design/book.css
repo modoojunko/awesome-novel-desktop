@@ -522,3 +522,7 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .cost-sent { font-size: 12.5px; color: var(--fg); background: var(--fg-soft); border-radius: 8px; padding: 5px 11px; margin-top: 8px; display: inline-block; }
 .settings-v .cost-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono); }
 .settings-v .soft-note { font-size: 11.5px; color: var(--warn); margin-top: 8px; }
+/* 前置未满足的能力行（D14 前置守卫：置灰 + 「先体检」） */
+.settings-v .rail-assist .ra-step.ra-off { opacity: 0.5; cursor: not-allowed; }
+.settings-v .rail-assist .ra-step.ra-off:hover { border-color: var(--border); }
+.settings-v .rail-assist .ra-body b .ra-hint { margin-left: 6px; font-size: 10.5px; font-weight: 400; color: var(--warn); }

@@ -32,6 +32,22 @@ describe("AiWriterAssistant", () => {
     }
   });
 
+  it("前置未满足的能力行置灰 + 「先体检」，点击不触发（D14/O-3）", () => {
+    const onFill = vi.fn();
+    const { container } = render(
+      <AiWriterAssistant
+        rows={[{ key: "fill", name: "补缺失", desc: "只补缺的段", onClick: onFill, disabled: true, hint: "先体检" }]}
+        footNote="x"
+      />,
+    );
+    const btn = container.querySelector('[data-aiact="fill"]') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.className).toContain("ra-off");
+    expect(screen.getByText("先体检")).toBeTruthy();
+    fireEvent.click(btn);
+    expect(onFill).not.toHaveBeenCalled();
+  });
+
   it("无 LicenseProvider（免费兜底）时卡片锁定，点击不触发能力回调", () => {
     const onClick = vi.fn();
     const { container } = render(

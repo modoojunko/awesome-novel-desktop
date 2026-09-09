@@ -45,5 +45,12 @@ export function useDirtyState(
     notifyRef.current?.(false);
   }, []);
 
-  return { isDirty, snapshotLoaded, markSaved };
+  /** 强制回到 dirty（O-4：save 成功但 confirm 400 时，不假装已确认）。 */
+  const markDirty = useCallback(() => {
+    snapshotRef.current = "__forced_dirty__";
+    setIsDirty(true);
+    notifyRef.current?.(true);
+  }, []);
+
+  return { isDirty, snapshotLoaded, markSaved, markDirty };
 }

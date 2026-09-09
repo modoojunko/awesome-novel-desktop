@@ -18,6 +18,10 @@ export interface AiCapabilityRow {
   /** 能力描述（下，从属灰字）。 */
   desc: string;
   onClick: () => void;
+  /** 前置未满足（如补缺失需先体检）→ 该行置灰 + hint（D14 前置守卫）。 */
+  disabled?: boolean;
+  /** 置灰原因（如「先体检」）。 */
+  hint?: string;
 }
 
 export interface AiWriterAssistantProps {
@@ -61,13 +65,17 @@ export default function AiWriterAssistant({
       {rows.map((r) => (
         <button
           key={r.key}
-          className="ra-step"
+          className={`ra-step${r.disabled ? " ra-off" : ""}`}
           type="button"
           data-aiact={r.key}
+          disabled={r.disabled}
           onClick={guard(r.onClick)}
         >
           <span className="ra-body">
-            <b>{r.name}</b>
+            <b>
+              {r.name}
+              {r.disabled && r.hint && <span className="ra-hint">{r.hint}</span>}
+            </b>
             <i>{r.desc}</i>
           </span>
           <span className="ra-arrow" aria-hidden="true">

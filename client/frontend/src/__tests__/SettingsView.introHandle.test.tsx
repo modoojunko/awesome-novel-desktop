@@ -120,3 +120,78 @@ describe("SettingsView · 题材右栏五行", () => {
     );
   });
 });
+
+describe("SettingsView · D14 交互状态机", () => {
+  beforeEach(() => {
+    apiState.get.mockReset();
+    apiState.updateStory.mockReset();
+    aiState.introAi.mockReset();
+    apiState.get.mockResolvedValue({});
+    apiState.fetchStory.mockResolvedValue({ synopsis: "主角是个凡人。" });
+    apiState.updateStory.mockResolvedValue({ ok: true, synopsis: "主角是个凡人。" });
+  });
+
+  it("补缺失未体检 → 置灰「先体检」且点击不调 AI（O-3）", async () => {
+    const { container } = render(
+      <SettingsView
+        projectId="p1"
+        initialPanel="intro"
+        settingsStatus={{}}
+        confirmedStatus={{}}
+        confirmSetting={vi.fn().mockResolvedValue(true)}
+        novelName="测试小说"
+      />,
+    );
+
+    const fill = (await waitFor(() =>
+      container.querySelector('[data-aiact="fill"]'),
+    )) as HTMLButtonElement;
+    expect(fill.disabled).toBe(true);
+    expect(screen.getByText("先体检")).toBeTruthy();
+
+    fireEvent.click(fill);
+    expect(aiState.introAi).not.toHaveBeenCalled();
+
+    // 体检一次后解禁
+    aiState.introAi.mockResolvedValue({
+      six_segments: [],
+      taboo: { hits: [] },
+      verdict: "ok",
+    });
+    fireEvent.click(container.querySelector('[data-aiact="check"]')!);
+    await waitFor(() =>
+      expect((container.querySelector('[data-aiact="fill"]') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+  });
+
+  it("确认成功后清空结果区（O-5）", async () => {
+    aiState.introAi.mockResolvedValue({
+      six_segments: [],
+      taboo: { hits: [] },
+      verdict: "strong",
+    });
+    const { container } = render(
+      <SettingsView
+        projectId="p1"
+        initialPanel="intro"
+        settingsStatus={{}}
+        confirmedStatus={{}}
+        confirmSetting={vi.fn().mockResolvedValue(true)}
+        novelName="测试小说"
+      />,
+    );
+
+    await waitFor(() => expect(container.querySelector('[data-aiact="check"]')).toBeTruthy());
+    fireEvent.click(container.querySelector('[data-aiact="check"]')!);
+    await waitFor(() =>
+      expect(container.querySelector('[data-od-id="intro-ai-sink"]')).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "确认完成" }));
+    await waitFor(() =>
+      expect(container.querySelector('[data-od-id="intro-ai-sink"]')).toBeNull(),
+    );
+  });
+});

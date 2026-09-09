@@ -7,8 +7,14 @@ import type { ReactNode } from "react";
 import { Ico, P } from "@/components/icons";
 
 // ── SettingSaveHandle ─────────────────────────────────────────────
-/** 表单保存句柄（gap3）：SettingsView 持 ref 调用，确认完成前先把内容落库 */
-export type SettingSaveHandle = { save: () => Promise<boolean> };
+/** 表单保存句柄（gap3）：SettingsView 持 ref 调用，确认完成前先把内容落库。
+ *  markDirty：save 成功但 confirm 400 时恢复 dirty（D14/O-4）；
+ *  clearAi：确认成功后清空 AI 结果区（D14/O-5）。 */
+export type SettingSaveHandle = {
+  save: () => Promise<boolean>;
+  markDirty?: () => void;
+  clearAi?: () => void;
+};
 
 // ── AI props ──────────────────────────────────────────────────────
 interface AIProps {

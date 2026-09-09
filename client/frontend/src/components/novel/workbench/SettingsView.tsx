@@ -104,18 +104,25 @@ export default function SettingsView({
   const genreRef = useRef<GenreHandle>(null);
   const introRef = useRef<IntroHandle>(null);
   // 简介右栏 AI 三能力（并列，非先后流程）——onClick 经 introRef 调面板内 runAi
+  // 前置守卫（D14/O-3）：补缺失未体检 → 置灰 + 「先体检」
+  const [introspected, setIntrospected] = useState(false);
   const introAiRows = useMemo<AiCapabilityRow[]>(
     () => [
       {
         key: "check",
         name: "体检",
         desc: "六段逐项查达标 / 缺失 + 扫禁忌，只提醒不拦确认",
-        onClick: () => introRef.current?.runAi("introspect"),
+        onClick: () => {
+          introRef.current?.runAi("introspect");
+          setIntrospected(true);
+        },
       },
       {
         key: "fill",
         name: "补缺失",
         desc: "只补缺的段，候选采纳才插入",
+        disabled: !introspected,
+        hint: introspected ? undefined : "先体检",
         onClick: () => introRef.current?.runAi("fill"),
       },
       {
@@ -125,7 +132,7 @@ export default function SettingsView({
         onClick: () => introRef.current?.runAi("polish"),
       },
     ],
-    [],
+    [introspected],
   );
 
   // 题材右栏五行（02-06 各答各题；01 口味胶囊不走 AI）
@@ -224,18 +231,21 @@ export default function SettingsView({
     try {
       // 简介（IntroPanel）挂的是 introRef —— 漏分发会拿到 undefined 并带空数据
       // 去 confirm（后端 400）；改为严格 true 才继续，false/undefined 一律中止。
-      const saved =
+      const handle =
         panel === "genre"
-          ? await genreRef.current?.save()
+          ? genreRef.current
           : panel === "intro"
-            ? await introRef.current?.save()
-            : await formRef.current?.save();
+            ? introRef.current
+            : formRef.current;
+      const saved = await handle?.save();
       if (saved !== true) return;
       if (confirmed) {
+        handle?.clearAi?.();
         toast.success(`「${item.name}」已保存`);
       } else {
         const ok = await confirmSetting(item.settingsKey);
         if (ok) {
+          handle?.clearAi?.();
           toast.success(`「${item.name}」已确认`);
           // 确认即前进：切到 SETTINGS_ITEMS 的数组顺序下一项（末项不动；
           // 模型窗（aiModel）不在 SETTINGS_ITEMS，天然被跳过）
@@ -243,6 +253,9 @@ export default function SettingsView({
           const next = idx >= 0 ? SETTINGS_ITEMS[idx + 1] : undefined;
           if (next) setPanel(next.k);
           else if (done + 1 >= total) toast.success("设定全部完成，可以开写了");
+        } else {
+          // O-4：save 成功但 confirm 400（服务端读到的不一致）→ 保留 dirty，不假装已确认
+          handle?.markDirty?.();
         }
       }
     } finally {
@@ -481,6 +494,8 @@ export interface IntroHandle extends SettingSaveHandle {
   focus: () => void;
   /** 运行 AI 能力（体检/补缺失/润色）——结果落简介框下方 .ai-sink（tasks 3.4）。 */
   runAi: (action: IntroAiAction) => void;
+  /** 是否已体检（补缺失的前置守卫，D14/O-3）。 */
+  hasIntrospected: () => boolean;
 }
 
 const IntroPanel = forwardRef<
@@ -492,7 +507,9 @@ const IntroPanel = forwardRef<
     const taRef = useRef<HTMLTextAreaElement>(null);
     // P3-4：用户已手动输入时，晚到的挂载 fetch 不得覆盖输入
     const editedRef = useRef(false);
-    const { snapshotLoaded, markSaved } = useDirtyState(synopsis, onDirtyChange);
+    const { snapshotLoaded, markSaved, markDirty } = useDirtyState(synopsis, onDirtyChange);
+    // 前置守卫（O-3）：补缺失必须先体检拿到缺失段
+    const introspectedRef = useRef(false);
 
     useEffect(() => {
       let cancelled = false;
@@ -543,10 +560,15 @@ const IntroPanel = forwardRef<
           toast.info("先写两句简介，体检才有东西可查");
           return;
         }
+        if (action === "fill" && !introspectedRef.current) {
+          toast.info("先点「体检」，AI 才知道缺哪段");
+          return;
+        }
         setSink(null);
         introAi(action, { title: novelName ?? "", content }, projectId)
           .then((r) => {
             if (action === "introspect") {
+              introspectedRef.current = true;
               const segs = r.six_segments ?? [];
               const hits = r.taboo?.hits ?? [];
               setSink({
@@ -661,8 +683,11 @@ const IntroPanel = forwardRef<
         isEmpty: () => !synopsis.trim(),
         focus: () => taRef.current?.focus(),
         runAi,
+        markDirty,
+        clearAi: () => setSink(null),
+        hasIntrospected: () => introspectedRef.current,
       }),
-      [save, synopsis, runAi],
+      [save, synopsis, runAi, markDirty],
     );
 
     return (
