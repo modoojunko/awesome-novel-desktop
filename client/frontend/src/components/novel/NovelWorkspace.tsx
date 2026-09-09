@@ -404,6 +404,7 @@ export default function NovelWorkspace() {
           confirmedStatus={confirmedStatus}
           confirmSetting={handleConfirmSetting}
           onDirtyChange={handleSettingsDirty}
+          onGoWrite={() => setView("workbench")}
         />
       )}
       {/* 预览：只读树 + 只读排版（PreviewView 复刻 #viewPreview） */}

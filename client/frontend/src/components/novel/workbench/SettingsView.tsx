@@ -71,6 +71,8 @@ export interface SettingsViewProps {
   confirmedStatus?: Record<string, boolean> | null;
   confirmSetting: (type: string) => Promise<boolean>;
   onDirtyChange?: (dirty: boolean) => void;
+  /** 设定全部完成后「去写作」出口（切工作台写作视图）。 */
+  onGoWrite?: () => void;
 }
 
 /** 旧面板键 → 新面板键（外部 jump 载荷兼容） */
@@ -84,7 +86,7 @@ function normalizePanel(v: string | undefined): string {
 }
 
 export default function SettingsView({
-  projectId, initialPanel, settingsStatus, confirmedStatus, confirmSetting, onDirtyChange,
+  projectId, initialPanel, settingsStatus, confirmedStatus, confirmSetting, onDirtyChange, onGoWrite,
 }: SettingsViewProps) {
   const [panel, setPanel] = useState(() => normalizePanel(initialPanel));
   const [dirty, setDirty] = useState(false);
@@ -171,12 +173,13 @@ export default function SettingsView({
           const idx = SETTINGS_ITEMS.findIndex((i) => i.k === panel);
           const next = idx >= 0 ? SETTINGS_ITEMS[idx + 1] : undefined;
           if (next) setPanel(next.k);
+          else if (done + 1 >= total) toast.success("设定全部完成，可以开写了");
         }
       }
     } finally {
       setBusy(false);
     }
-  }, [item, panel, confirmed, busy, confirmSetting]);
+  }, [item, panel, confirmed, busy, confirmSetting, done, total]);
 
   const panelTitle = isModel ? "AI 模型" : (item?.name ?? "");
   const badgeCls = isModel || confirmed ? BADGE_DONE : filled ? "warn" : BADGE_EMPTY;
@@ -208,6 +211,16 @@ export default function SettingsView({
                 <i style={{ width: `${(done / total) * 100}%` }} />
           </div>
         </div>
+        {done === total && onGoWrite && (
+          <button
+            className="btn btn-primary"
+            type="button"
+            style={{ width: "100%", marginTop: 10 }}
+            onClick={onGoWrite}
+          >
+            设定完成 · 去写作
+          </button>
+        )}
         <div className="settings-nav-wrap">
           {SETTINGS_ITEMS.map((i) => {
             const done_ = !!settingsStatus?.[i.settingsKey];
