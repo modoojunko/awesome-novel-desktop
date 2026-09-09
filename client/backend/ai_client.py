@@ -102,7 +102,6 @@ class AIClient:
         """
         model = self.resolve(model)
         if self._provider == "openai":
-            kwargs.pop("json_mode", None)  # 流式不落 response_format
             openai_messages: list[dict[str, Any]] = []
             if system:
                 openai_messages.append({"role": "system", "content": system})
@@ -155,6 +154,7 @@ class AIClient:
         """Streaming chat. Yields StreamEvent with text, is_done, tokens."""
         model = self.resolve(model)
         if self._provider == "openai":
+            kwargs.pop("json_mode", None)  # 流式不落 response_format
             openai_messages: list[dict[str, Any]] = []
             if system:
                 openai_messages.append({"role": "system", "content": system})

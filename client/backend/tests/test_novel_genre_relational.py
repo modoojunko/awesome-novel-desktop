@@ -520,3 +520,48 @@ class TestCustomVocab:
         vid = _run_async(_seed())
         body = client.get("/api/genres/candidates").json()
         assert {"id": vid, "label": "禁 无脑装逼", "is_preset": False} in body["forbidden"]
+
+
+# ── 边界值（tasks 9.2.15）────────────────────────────────────────────────
+
+
+class TestBoundaries:
+    @pytest.mark.parametrize("value", [0, 11, -1, 100])
+    def test_cost_ratio_out_of_range(self, client, value):
+        pid = _new_novel(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre", json={"cost_ratio": value}
+        )
+        assert r.status_code == 400, r.text
+
+    @pytest.mark.parametrize("value", [1, 10])
+    def test_cost_ratio_bounds_accepted(self, client, value):
+        pid = _new_novel(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre", json={"cost_ratio": value}
+        )
+        assert r.status_code == 200, r.text
+        assert client.get(f"/api/novels/{pid}/settings/genre").json()["cost_ratio"] == value
+
+    def test_battlefield_at_limit_accepted(self, client):
+        pid = _new_novel(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={"battlefield": [f"战场{i}" for i in range(10)]},
+        )
+        assert r.status_code == 200, r.text
+
+    def test_battlefield_custom_at_20_chars(self, client):
+        pid = _new_novel(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre", json={"battlefield": ["字" * 20]}
+        )
+        assert r.status_code == 200, r.text
+
+    def test_forbidden_at_limit_accepted(self, client):
+        pid = _new_novel(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={"forbidden_list": [{"text": f"禁{i}"} for i in range(50)]},
+        )
+        assert r.status_code == 200, r.text
