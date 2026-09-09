@@ -438,7 +438,11 @@ export default function SettingsView({
               />
             )}
             {panel === "aiModel" && (
-              <ModelSettingForm projectId={projectId} settingKey="ai-model" />
+              <ModelSettingForm
+                projectId={projectId}
+                settingKey="ai-model"
+                onDirtyChange={handleDirtyChange}
+              />
             )}
           </div>
 

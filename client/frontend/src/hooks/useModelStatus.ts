@@ -83,15 +83,27 @@ export function useModelStatus(projectId: string | undefined) {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ api_config_id: apiConfigId, model }),
     });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (!resp.ok) {
+      // 绑定校验 400：把后端可读原因透出（前端保留 draft + 行内报错，D12）
+      const body = await resp.json().catch(() => ({}));
+      const detail = body?.detail;
+      const message =
+        typeof detail === "string"
+          ? detail
+          : detail?.message || `保存失败（HTTP ${resp.status}）`;
+      throw new Error(message);
+    }
     setCurrentConfigId(apiConfigId);
     setCurrentModel(model);
+    await fetchModel();
   };
 
   return {
     status,
     aiState,
     aiMessage,
+    /** 配置列表（卡片分组头：名称/供应商/连接状态徽标）。 */
+    configs,
     modelOptions,
     currentModel,
     currentConfigId,

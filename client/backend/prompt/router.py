@@ -85,7 +85,6 @@ async def list_prompts(
     chapter_ref: str,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
-    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     """整章单卡（ai-prompt-crafting）：只回 write-prompt 一条；存量 seg 行不迁移不返回。"""
@@ -115,7 +114,6 @@ async def get_prompt_content(
     seg: str,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
-    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_novel(db, project_id, user["id"])
@@ -148,7 +146,6 @@ async def update_prompt_content(
     body: UpdatePromptRequest,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
-    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_novel(db, project_id, user["id"])

@@ -38,7 +38,6 @@ async def quality_check(
     body: dict,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
-    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_novel(db, project_id, user["id"])
@@ -124,7 +123,6 @@ async def get_write_prompt(
     chapter_ref: str,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
-    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     """AI 弹窗提示词预览：存量 write-prompt 行优先（润色/编辑结果），无则粗组兜底。"""

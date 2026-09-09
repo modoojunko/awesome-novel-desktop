@@ -526,3 +526,19 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .rail-assist .ra-step.ra-off { opacity: 0.5; cursor: not-allowed; }
 .settings-v .rail-assist .ra-step.ra-off:hover { border-color: var(--border); }
 .settings-v .rail-assist .ra-body b .ra-hint { margin-left: 6px; font-size: 10.5px; font-weight: 400; color: var(--warn); }
+
+/* ── 本书模型选择：分组卡片列表 + radiogroup 行（tasks 7.1 / D12）──
+   选择与生效分离：点行只标亮（.on），点「设为本书模型」才落库。 */
+.settings-v .model-groups { display: flex; flex-direction: column; gap: 12px; }
+.settings-v .model-group { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 10px 12px; }
+.settings-v .model-group .mg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.settings-v .model-group .mg-head .mg-name { font-size: 13px; font-weight: 600; }
+.settings-v .model-group .mg-head .mg-vendor { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+.settings-v .model-group .mg-head .badge { margin-left: auto; }
+.settings-v .model-row { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 7px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; }
+.settings-v .model-row:hover { background: var(--fg-soft); }
+.settings-v .model-row:focus-visible { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.settings-v .model-row .mr-dot { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; }
+.settings-v .model-row.on { background: var(--accent-soft); border-color: color-mix(in oklch, var(--accent) 40%, transparent); color: var(--accent); font-weight: 500; }
+.settings-v .model-row.on .mr-dot { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 2px var(--surface); }
+.settings-v .model-apply { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
