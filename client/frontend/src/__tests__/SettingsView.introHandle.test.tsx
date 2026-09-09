@@ -213,3 +213,86 @@ describe("SettingsView · D14 交互状态机", () => {
     );
   });
 });
+
+describe("SettingsView · 重复提交与竞态（tasks 9.4.14/9.4.15）", () => {
+  beforeEach(() => {
+    apiState.get.mockReset();
+    apiState.updateStory.mockReset();
+    apiState.fetchStory.mockReset();
+    apiState.get.mockResolvedValue({});
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+  });
+
+  it("双击「确认完成」只保存+确认一次（busy 守卫）", async () => {
+    let resolveSave!: (v: { ok: boolean; synopsis: string }) => void;
+    apiState.updateStory.mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolveSave = r;
+        }),
+    );
+    const confirmSetting = vi.fn().mockResolvedValue(true);
+    render(
+      <SettingsView
+        projectId="p1"
+        initialPanel="intro"
+        settingsStatus={{}}
+        confirmedStatus={{}}
+        confirmSetting={confirmSetting}
+        novelName="测试小说"
+      />,
+    );
+
+    const btn = await waitFor(() => screen.getByRole("button", { name: "确认完成" }));
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    expect(apiState.updateStory).toHaveBeenCalledTimes(1);
+
+    resolveSave({ ok: true, synopsis: "" });
+    await waitFor(() => expect(confirmSetting).toHaveBeenCalledTimes(1));
+  });
+
+  it("AI 请求在途时切面板：晚到结果不写入已切走的面板（无残留）", async () => {
+    let resolveAi!: (v: unknown) => void;
+    aiState.introAi.mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolveAi = r;
+        }),
+    );
+    const { container } = render(
+      <SettingsView
+        projectId="p1"
+        initialPanel="intro"
+        settingsStatus={{}}
+        confirmedStatus={{}}
+        confirmSetting={vi.fn().mockResolvedValue(true)}
+        novelName="测试小说"
+      />,
+    );
+    await waitFor(() => expect(container.querySelector('[data-aiact="check"]')).toBeTruthy());
+    // 体检有「先写两句」前置守卫 → 先填内容
+    fireEvent.change(container.querySelector("textarea")!, {
+      target: { value: "主角是个凡人。" },
+    });
+    fireEvent.click(container.querySelector('[data-aiact="check"]')!);
+    await waitFor(() => expect(aiState.introAi).toHaveBeenCalled());
+
+    // 在途时切到题材面板（简介面板卸载）；面板 dirty → 切面板守卫放行
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(
+      [...container.querySelectorAll(".col-tree .s-item")].find((el) =>
+        el.textContent?.includes("题材"),
+      )!,
+    );
+    await waitFor(() =>
+      expect(container.querySelector(".settings-v main h2")?.textContent).toContain("题材"),
+    );
+
+    resolveAi({ six_segments: [], taboo: { hits: [] }, verdict: "ok" });
+    // 结果区不出现（面板已卸载，无残留、无报错）
+    await new Promise((r) => setTimeout(r, 20));
+    expect(container.querySelector('[data-od-id="intro-ai-sink"]')).toBeNull();
+  });
+});

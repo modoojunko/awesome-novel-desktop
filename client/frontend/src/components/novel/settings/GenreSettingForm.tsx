@@ -40,7 +40,7 @@ interface GenreSettingFormProps {
 /** 题材面板句柄：save 落库；runAi 由右栏 AI 卡片调用（tasks 4.2）。 */
 export type GenreHandle = SettingSaveHandle & {
   /** 运行某格 AI，结果落该格下方 .ai-sink。 */
-  runAi: (field: GenreAiField) => void;
+  runAi: (field: GenreAiField) => Promise<void>;
 };
 
 export type { GenreAiField };
@@ -284,7 +284,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
   const [running, setRunning] = useState<GenreAiField | null>(null);
 
   const runAi = useCallback(
-    (field: GenreAiField) => {
+    async (field: GenreAiField) => {
       setRunning(field);
       setSinks((prev) => ({ ...prev, [field]: undefined }));
       const context: Record<string, unknown> = {
@@ -303,7 +303,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         cost_ratio: data.cost_ratio,
         battlefield: data.battlefield,
       };
-      genreAi(field, { title: novelName ?? "", context }, projectId)
+      await genreAi(field, { title: novelName ?? "", context }, projectId)
         .then((r) => {
           const v = r.value;
           let node: React.ReactNode;

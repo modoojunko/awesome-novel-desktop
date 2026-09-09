@@ -221,3 +221,24 @@ describe("ModelSettingForm · 状态与空态", () => {
     expect(screen.getByText("查询中…")).toBeTruthy();
   });
 });
+
+describe("ModelSettingForm · 重复提交（tasks 9.4.14）", () => {
+  it("双击「设为本书模型」只发 1 次 PUT", async () => {
+    let resolve!: () => void;
+    const pending = new Promise<void>((r) => {
+      resolve = r;
+    });
+    const selectModel = vi.fn(() => pending);
+    setState({ selectModel });
+    const { container } = renderForm();
+
+    fireEvent.click(container.querySelector('[data-model="c2::deepseek-chat"]')!);
+    const apply = screen.getByRole("button", { name: "设为本书模型" });
+    fireEvent.click(apply);
+    fireEvent.click(apply);
+    fireEvent.click(apply);
+    expect(selectModel).toHaveBeenCalledTimes(1);
+    resolve();
+    await waitFor(() => expect(selectModel).toHaveBeenCalledTimes(1));
+  });
+});

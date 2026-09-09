@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import AiWriterAssistant from "@/components/novel/settings/AiWriterAssistant";
 
 // AI 写作助手卡片（genre-signup-redesign tasks 3.2 / D4）
@@ -99,5 +99,32 @@ describe("AiWriterAssistant · ai_state 一次分派（D13）", () => {
       />,
     );
     expect(screen.getByText(/先在本书选择模型/)).toBeTruthy();
+  });
+});
+
+describe("AiWriterAssistant · 在途禁用（tasks 9.4.14）", () => {
+  it("请求在途时行禁用，重复点击不并发发请求", async () => {
+    let resolve!: () => void;
+    const pending = new Promise<void>((r) => {
+      resolve = r;
+    });
+    const onClick = vi.fn(() => pending);
+    const { container } = render(
+      <AiWriterAssistant
+        rows={[{ key: "check", name: "体检", desc: "x", onClick }]}
+        footNote="x"
+        aiState="ready"
+      />,
+    );
+
+    const row = container.querySelector('[data-aiact="check"]') as HTMLButtonElement;
+    fireEvent.click(row);
+    await waitFor(() => expect(row.disabled).toBe(true));
+    fireEvent.click(row);
+    fireEvent.click(row);
+    expect(onClick).toHaveBeenCalledTimes(1);
+
+    resolve();
+    await waitFor(() => expect(row.disabled).toBe(false));
   });
 });

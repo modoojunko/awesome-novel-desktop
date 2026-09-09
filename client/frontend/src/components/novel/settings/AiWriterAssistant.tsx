@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useFeature } from "@/hooks/useTier";
 import { toast } from "@/lib/toast";
 import type { AiState } from "@/types/api-config";
@@ -18,7 +19,7 @@ export interface AiCapabilityRow {
   name: string;
   /** 能力描述（下，从属灰字）。 */
   desc: string;
-  onClick: () => void;
+  onClick: () => void | Promise<void>;
   /** 前置未满足（如补缺失需先体检）→ 该行置灰 + hint（D14 前置守卫）。 */
   disabled?: boolean;
   /** 置灰原因（如「先体检」）。 */
@@ -59,14 +60,22 @@ export default function AiWriterAssistant({
   // aiState 提供时以它为准（同一事实源）；未提供才退回 tier 门控
   const state: AiState = aiState ?? (unlocked ? "ready" : "member_required");
   const locked = state === "member_required";
+  // 在途禁用（tasks 9.4.14）：同一行重复点击不并发发请求
+  const [busy, setBusy] = useState(false);
 
-  const guard = (fn: () => void) => () => {
-    if (state === "ready") {
-      fn();
+  const guard = (fn: () => void | Promise<void>) => async () => {
+    if (busy) return;
+    if (state !== "ready") {
+      if (onBlocked) onBlocked(state);
+      else toast.info(BLOCK_TEXT[state] ?? "AI 暂不可用");
       return;
     }
-    if (onBlocked) onBlocked(state);
-    else toast.info(BLOCK_TEXT[state] ?? "AI 暂不可用");
+    setBusy(true);
+    try {
+      await fn();
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -90,8 +99,8 @@ export default function AiWriterAssistant({
           className={`ra-step${r.disabled ? " ra-off" : ""}`}
           type="button"
           data-aiact={r.key}
-          disabled={r.disabled}
-          onClick={guard(r.onClick)}
+          disabled={r.disabled || busy}
+          onClick={() => void guard(r.onClick)()}
         >
           <span className="ra-body">
             <b>

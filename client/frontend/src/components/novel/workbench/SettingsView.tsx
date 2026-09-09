@@ -516,7 +516,7 @@ export interface IntroHandle extends SettingSaveHandle {
   isEmpty: () => boolean;
   focus: () => void;
   /** 运行 AI 能力（体检/补缺失/润色）——结果落简介框下方 .ai-sink（tasks 3.4）。 */
-  runAi: (action: IntroAiAction) => void;
+  runAi: (action: IntroAiAction) => Promise<void>;
   /** 是否已体检（补缺失的前置守卫，D14/O-3）。 */
   hasIntrospected: () => boolean;
 }
@@ -577,7 +577,7 @@ const IntroPanel = forwardRef<
     >(null);
 
     const runAi = useCallback(
-      (action: IntroAiAction) => {
+      async (action: IntroAiAction) => {
         const content = synopsis;
         if (action === "introspect" && !content.trim()) {
           toast.info("先写两句简介，体检才有东西可查");
@@ -588,7 +588,7 @@ const IntroPanel = forwardRef<
           return;
         }
         setSink(null);
-        introAi(action, { title: novelName ?? "", content }, projectId)
+        await introAi(action, { title: novelName ?? "", content }, projectId)
           .then((r) => {
             if (action === "introspect") {
               introspectedRef.current = true;
