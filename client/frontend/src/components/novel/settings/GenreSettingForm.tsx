@@ -1,423 +1,531 @@
 // ── GenreSettingForm ──────────────────────────────────────────────────────
-// 题材设定面板（book.html v2 设定视图·题材）：
-//   当前题材卡（cur-genre）+ 类型禁忌 chips（只读派生）+ 提示词注入段
-//   （seg 启用/停用 + prompt-preview）+ 题材配置 4 组 ListEditor + 故事弧模板卡。
-// 数据逻辑不动（ADR-007：叙事者/文风蓝图归文风表单；切题材自动落库）。
-// 保存/确认语义收敛到面板脚注（gap3）：SettingsView 持 GenreHandle。
+// 题材设定面板（genre-signup-redesign tasks 4.1 / D18·D19 新契约）：
+//   六格 = 01 口味胶囊（预置联动，不落库/不计入判据）+ 02 主要看什么
+//   + 03 绝对禁止 + 04 吃苦指数 + 05 主线战场 + 06 剧情轨道。
+//   每格 = 编号 + 怎么填（m-why）+ 成书视角去处（m-use）。
+//
+// 存储契约（对外五字段 JSON，后端关系化落 4 张表）：
+//   02 → core_promise(≤60) + promise_note(≤200，AI 补充、不单独成行)
+//   03 → forbidden_list[{tagId|text}]   04 → cost_ratio(1-10)
+//   05 → battlefield[]（tagId 或自定义文本）  06 → track(≤300)
+// 空值统一："" / 空白 / [] / null 等价未填（后端 Pydantic + CHECK 同口径）。
+// AI 反馈落各格下方 .ai-sink（tasks 4.2），采纳才写回控件。
 
-import { forwardRef, useEffect, useImperativeHandle, useState, useCallback } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { Ico, P } from "@/components/icons";
-import GenrePickerModal from "./GenrePickerModal";
-import { Cfg, ListEditor, SettingSaveHandle } from "./FormField";
-import { fetchGenre, normalizeGenreDefinition, DEFAULT_GENRE_ID, type GenreDefinition, type StoryArcTemplate } from "@/data/genres";
+import { useDirtyState } from "@/hooks/useDirtyState";
+import { type SettingSaveHandle } from "./FormField";
+import {
+  GENRE_FLAVORS,
+  GENRE_LIMITS,
+  GENRE_VOCAB,
+  costSentence,
+  vocabLabel,
+  type VocabKind,
+} from "@/lib/genreVocab";
 
-// ── Props ────────────────────────────────────────────────────────────────
+// ── Props / Handle ───────────────────────────────────────────────────────
 
 interface GenreSettingFormProps {
   projectId: string;
   settingKey: string;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
-/** 面板脚注（gap3）持有：save 落库 / hasGenre 确认前校验 / openPicker 空态引导 */
+/** 题材面板句柄：save 落库；runAi 由右栏 AI 卡片调用（tasks 4.2）。 */
 export type GenreHandle = SettingSaveHandle & {
-  hasGenre: () => boolean;
-  openPicker: () => void;
+  /** 运行某格 AI，结果落该格下方 .ai-sink。 */
+  runAi: (field: GenreAiField) => void;
 };
 
-// ── Data shape from API ──────────────────────────────────────────────────
+/** 题材五行 AI 的字段键（01 口味胶囊不走 AI）。 */
+export type GenreAiField =
+  | "core_promise"
+  | "forbidden_list"
+  | "cost_ratio"
+  | "battlefield"
+  | "track";
 
-interface GenreConfigData {
-  genre_id: string;
-  prompt_injection_enabled?: boolean;
-  config_overrides?: {
-    fulfillment_types?: string[];
-    chapter_types?: string[];
-    pacing_rules?: string[];
-    fatigue_words?: string[];
-  };
-  selected_arc_id?: string;
-}
-
-// ── Project-level category label (mirrors data/genres constant inline) ──
-
-const GENRE_CATEGORIES: { id: string; label: string }[] = [
-  { id: "urban",       label: "都市系" },
-  { id: "historical",  label: "历史系" },
-  { id: "xianhuan",    label: "玄幻系" },
-  { id: "suspense",    label: "悬疑系" },
-  { id: "scifi",       label: "科幻系" },
-  { id: "independent", label: "独立类型" },
+export const GENRE_AI_FIELDS: GenreAiField[] = [
+  "core_promise",
+  "forbidden_list",
+  "cost_ratio",
+  "battlefield",
+  "track",
 ];
 
-// ── Story arc card（原型 .arc-card：ac-name + 已选 pill + ac-desc + beats）──
+// ── 契约数据形态 ─────────────────────────────────────────────────────────
 
-function ArcCard({
-  template,
-  selected,
-  onSelect,
+interface ForbiddenItem {
+  tagId?: string;
+  text?: string;
+}
+
+interface GenrePayload {
+  core_promise: string;
+  promise_note: string;
+  forbidden_list: ForbiddenItem[];
+  cost_ratio: number | null;
+  battlefield: string[];
+  track: string;
+}
+
+const EMPTY: GenrePayload = {
+  core_promise: "",
+  promise_note: "",
+  forbidden_list: [],
+  cost_ratio: null,
+  battlefield: [],
+  track: "",
+};
+
+function normalize(raw: unknown): GenrePayload {
+  const d = (raw ?? {}) as Partial<GenrePayload>;
+  const cost = d.cost_ratio;
+  return {
+    core_promise: (d.core_promise ?? "").toString(),
+    promise_note: (d.promise_note ?? "").toString(),
+    forbidden_list: Array.isArray(d.forbidden_list)
+      ? d.forbidden_list.filter((x): x is ForbiddenItem => !!x && typeof x === "object")
+      : [],
+    cost_ratio: typeof cost === "number" && cost >= 1 && cost <= 10 ? cost : null,
+    battlefield: Array.isArray(d.battlefield) ? d.battlefield.filter(Boolean).map(String) : [],
+    track: (d.track ?? "").toString(),
+  };
+}
+
+/** 候选源（接口失败时回退本地镜像，保证胶囊可用）。 */
+function useCandidates() {
+  const [promise, setPromise] = useState(() =>
+    GENRE_VOCAB.filter((e) => e.kind === "promise"),
+  );
+  const [forbidden, setForbidden] = useState(() =>
+    GENRE_VOCAB.filter((e) => e.kind === "forbidden"),
+  );
+  const [battlefield, setBattlefield] = useState(() =>
+    GENRE_VOCAB.filter((e) => e.kind === "battlefield"),
+  );
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get("/genres/candidates")
+      .then((d: Record<string, Array<{ id: string; label: string }>> | null) => {
+        if (cancelled || !d) return;
+        const pick = (kind: VocabKind) =>
+          (d[kind] ?? []).map((e, i) => ({ id: e.id, kind, label: e.label, sort: i * 10 }));
+        if (d.promise?.length) setPromise(pick("promise"));
+        if (d.forbidden?.length) setForbidden(pick("forbidden"));
+        if (d.battlefield?.length) setBattlefield(pick("battlefield"));
+      })
+      .catch(() => {
+        /* 回退本地镜像，不阻断填写 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return { promise, forbidden, battlefield };
+}
+
+// ── 一格的外壳（编号 + 名称 + 怎么填 + 成书去处 + 内容）───────────────────
+
+function Mod({
+  no,
+  name,
+  why,
+  use,
+  children,
 }: {
-  template: StoryArcTemplate;
-  selected: boolean;
-  onSelect: () => void;
+  no: string;
+  name: string;
+  why: string;
+  use: React.ReactNode;
+  children: React.ReactNode;
 }) {
   return (
-    <button className={`arc-card${selected ? " on" : ""}`} type="button" onClick={onSelect}>
-      <span className="ac-name">
-        {template.name}
-        {selected && <span className="ac-sel">已选</span>}
-      </span>
-      <p className="ac-desc">{template.description}</p>
-      <div className="ac-beats">
-        {template.beats.map((beat, i) => (
-          <span className="ac-beat" key={i}>{beat}</span>
-        ))}
+    <div className="mod">
+      <div className="mod-head">
+        <span className="m-no">{no}</span>
+        <span className="m-name">{name}</span>
+        <span className="m-why">{why}</span>
+        <span className="m-use">{use}</span>
       </div>
-    </button>
+      {children}
+    </div>
   );
 }
 
-// ── Main component ───────────────────────────────────────────────────────
+// ── Main ─────────────────────────────────────────────────────────────────
 
 const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function GenreSettingForm(
-  { projectId, settingKey },
+  { projectId, settingKey, onDirtyChange },
   ref,
 ) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [data, setData] = useState<GenrePayload>(EMPTY);
+  /** 01 口味胶囊＝纯 UI 联动，不落库、不计入判据。 */
+  const [flavorKey, setFlavorKey] = useState<string | null>(null);
+  const [customForbidden, setCustomForbidden] = useState("");
+  const loadedRef = useRef(false);
+  const { snapshotLoaded, markSaved } = useDirtyState(data, onDirtyChange);
+  const cand = useCandidates();
 
-  // Loaded genre data
-  const [genre, setGenre] = useState<GenreDefinition | null>(null);
-  const [genreId, setGenreId] = useState(DEFAULT_GENRE_ID);
-  /** genre_id 已设定但定义缺失（被删/未知）→ 降级可用态，不整块空屏 */
-  const [definitionMissing, setDefinitionMissing] = useState(false);
-
-  // Editable fields（ADR-007：氛围/视角/技法归文风表单，题材只保留配置与弧线）
-  const [promptInjectionEnabled, setPromptInjectionEnabled] = useState(true);
-  const [fulfillmentTypes, setFulfillmentTypes] = useState<string[]>([""]);
-  const [chapterTypes, setChapterTypes] = useState<string[]>([""]);
-  const [pacingRules, setPacingRules] = useState<string[]>([""]);
-  const [fatigueWords, setFatigueWords] = useState<string[]>([""]);
-  const [selectedArcId, setSelectedArcId] = useState<string | undefined>();
-
-  const [showPicker, setShowPicker] = useState(false);
-
-  // ── Apply a genre definition to all editable fields ───────────────
-  const applyGenre = useCallback((g: GenreDefinition) => {
-    setGenre(g);
-    setGenreId(g.id);
-    setFulfillmentTypes([...g.genreConfig.fulfillmentTypes]);
-    setChapterTypes([...g.genreConfig.chapterTypes]);
-    setPacingRules([...g.genreConfig.pacingRules]);
-    setFatigueWords([...g.genreConfig.fatigueWords]);
-    setSelectedArcId(g.storyArcTemplates[0]?.id);
-  }, []);
-
-  // ── Build save payload ────────────────────────────────────────────
-  const buildPayload = useCallback(
-    (g: GenreDefinition): GenreConfigData => ({
-      genre_id: g.id,
-      prompt_injection_enabled: promptInjectionEnabled,
-      config_overrides: {
-        fulfillment_types: fulfillmentTypes.filter(Boolean),
-        chapter_types: chapterTypes.filter(Boolean),
-        pacing_rules: pacingRules.filter(Boolean),
-        fatigue_words: fatigueWords.filter(Boolean),
-      },
-      selected_arc_id: selectedArcId,
-    }),
-    [promptInjectionEnabled, fulfillmentTypes, chapterTypes, pacingRules, fatigueWords, selectedArcId],
-  );
-
-  // ── Load from API ─────────────────────────────────────────────────
+  // ── 加载 ──────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     api
       .get(`/novels/${projectId}/settings/${settingKey}`)
-      .then(async (d: GenreConfigData | null) => {
+      .then((d: unknown) => {
         if (cancelled) return;
-        if (!d?.genre_id) {
-          // No genre set yet — leave empty, component shows prompt
-          setGenre(null);
-          setDefinitionMissing(false);
-          return;
-        }
-        setGenreId(d.genre_id);
-        // 定义可能已被删除/未知 → fetchGenre 返回 null → 进入降级可用态（不整块空屏）
-        const g = await fetchGenre(d.genre_id);
-        if (cancelled) return;
-        if (!g) {
-          setGenre(
-            normalizeGenreDefinition({
-              id: d.genre_id,
-              name: d.genre_id,
-              category: "independent",
-            }),
-          );
-          setDefinitionMissing(true);
-          setPromptInjectionEnabled(d.prompt_injection_enabled ?? true);
-          setFulfillmentTypes(
-            d.config_overrides?.fulfillment_types?.length
-              ? d.config_overrides.fulfillment_types
-              : [""],
-          );
-          setChapterTypes(
-            d.config_overrides?.chapter_types?.length
-              ? d.config_overrides.chapter_types
-              : [""],
-          );
-          setPacingRules(
-            d.config_overrides?.pacing_rules?.length
-              ? d.config_overrides.pacing_rules
-              : [""],
-          );
-          setFatigueWords(
-            d.config_overrides?.fatigue_words?.length
-              ? d.config_overrides.fatigue_words
-              : [""],
-          );
-          setSelectedArcId(undefined);
-          return;
-        }
-        setGenre(g);
-        setDefinitionMissing(false);
-
-        // Apply overrides or defaults（ADR-007：氛围/视角/技法归文风表单，不在此处加载）
-        setPromptInjectionEnabled(d.prompt_injection_enabled ?? true);
-        setFulfillmentTypes(d.config_overrides?.fulfillment_types?.length
-          ? d.config_overrides.fulfillment_types
-          : [...g.genreConfig.fulfillmentTypes],
-        );
-        setChapterTypes(d.config_overrides?.chapter_types?.length
-          ? d.config_overrides.chapter_types
-          : [...g.genreConfig.chapterTypes],
-        );
-        setPacingRules(d.config_overrides?.pacing_rules?.length
-          ? d.config_overrides.pacing_rules
-          : [...g.genreConfig.pacingRules],
-        );
-        setFatigueWords(d.config_overrides?.fatigue_words?.length
-          ? d.config_overrides.fatigue_words
-          : [...g.genreConfig.fatigueWords],
-        );
-        setSelectedArcId(d.selected_arc_id ?? g.storyArcTemplates[0]?.id);
+        const norm = normalize(d);
+        setData(norm);
+        snapshotLoaded(norm);
       })
-      .catch(() => setError("加载失败"))
+      .catch(() => {
+        if (!cancelled) setError("加载失败");
+      })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          loadedRef.current = true;
+        }
       });
     return () => {
       cancelled = true;
     };
+    // snapshotLoaded 引用稳定；仅项目/键切换重拉
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, settingKey]);
 
-  // ── Save（面板脚注 gap3 调用；切题材已自动落库）───────────────────
-  const handleSave = useCallback(async (): Promise<boolean> => {
-    if (!genre) return true;
+  const patch = useCallback((p: Partial<GenrePayload>) => {
+    setData((prev) => ({ ...prev, ...p }));
+  }, []);
+
+  // ── 01 口味联动：预填 02/03/04/05（不写 promise_note/track）──────────
+  const applyFlavor = useCallback(
+    (key: string) => {
+      const f = GENRE_FLAVORS.find((x) => x.key === key);
+      if (!f) return;
+      setFlavorKey(key);
+      setData((prev) => ({
+        ...prev,
+        core_promise: f.corePromise,
+        forbidden_list: f.forbidden.map((tagId) => ({ tagId })),
+        cost_ratio: f.costRatio,
+        battlefield: [...f.battlefield],
+      }));
+      toast.success(`已按「${f.label}」给出口味建议，各格可改`);
+    },
+    [],
+  );
+
+  // ── 03 绝对禁止：勾选 / 自定义 ─────────────────────────────────────
+  const forbidSelected = useMemo(
+    () => new Set(data.forbidden_list.map((f) => f.tagId).filter(Boolean) as string[]),
+    [data.forbidden_list],
+  );
+  const toggleForbidden = useCallback(
+    (tagId: string) => {
+      setData((prev) => {
+        const has = prev.forbidden_list.some((f) => f.tagId === tagId);
+        return {
+          ...prev,
+          forbidden_list: has
+            ? prev.forbidden_list.filter((f) => f.tagId !== tagId)
+            : [...prev.forbidden_list, { tagId }],
+        };
+      });
+    },
+    [],
+  );
+  const addCustomForbidden = useCallback(() => {
+    const text = customForbidden.trim();
+    if (!text) return;
+    if (data.forbidden_list.length >= GENRE_LIMITS.forbiddenMax) {
+      toast.info(`最多 ${GENRE_LIMITS.forbiddenMax} 条禁区`);
+      return;
+    }
+    setData((prev) => ({ ...prev, forbidden_list: [...prev.forbidden_list, { text }] }));
+    setCustomForbidden("");
+  }, [customForbidden, data.forbidden_list.length]);
+
+  // ── 05 主线战场：勾选 / 移除（自定义项由 AI 采纳写入，可 × 移除）────
+  const toggleBattlefield = useCallback((val: string) => {
+    setData((prev) => {
+      const has = prev.battlefield.includes(val);
+      if (!has && prev.battlefield.length >= GENRE_LIMITS.battlefieldMax) {
+        toast.info(`最多 ${GENRE_LIMITS.battlefieldMax} 个战场`);
+        return prev;
+      }
+      return {
+        ...prev,
+        battlefield: has
+          ? prev.battlefield.filter((x) => x !== val)
+          : [...prev.battlefield, val],
+      };
+    });
+  }, []);
+
+  // ── 保存 ──────────────────────────────────────────────────────────
+  const save = useCallback(async (): Promise<boolean> => {
     if (saving) return false;
     setSaving(true);
     setError("");
     try {
-      await api.put(`/novels/${projectId}/settings/${settingKey}`, buildPayload(genre));
+      await api.put(`/novels/${projectId}/settings/${settingKey}`, data);
+      markSaved();
       return true;
-    } catch (e: any) {
-      setError(e.message || "保存失败");
+    } catch (e) {
+      setError((e as Error).message || "保存失败");
       return false;
     } finally {
       setSaving(false);
     }
-  }, [projectId, settingKey, genre, saving, buildPayload]);
+  }, [projectId, settingKey, data, saving, markSaved]);
 
-  useImperativeHandle(
-    ref,
-    () => ({
-      save: handleSave,
-      hasGenre: () => !!genre,
-      openPicker: () => setShowPicker(true),
-    }),
-    [handleSave, genre],
+  useImperativeHandle(ref, () => ({ save, runAi: () => {} }), [save]);
+
+  if (loading) return <p className="opt">加载中…</p>;
+
+  const forbidCustom = data.forbidden_list.filter((f) => f.text);
+  const unknownBattlefield = data.battlefield.filter(
+    (b) => !cand.battlefield.some((c) => c.id === b),
   );
 
-  // ── Handle genre change from picker（自动落库 + 原型 toast 文案）────
-  const handleGenreChange = useCallback(
-    async (newId: string) => {
-      const g = await fetchGenre(newId);
-      if (!g) return;
-      applyGenre(g);
-      setDefinitionMissing(false);
-      // Auto-save immediately
-      setSaving(true);
-      try {
-        await api.put(`/novels/${projectId}/settings/${settingKey}`, buildPayload(g));
-        toast.success(`已应用题材「${g.name}」· 模板已带入，已填内容保留`);
-      } catch (e: any) {
-        setError(e.message || "保存失败");
-      } finally {
-        setSaving(false);
-      }
-    },
-    [projectId, settingKey, applyGenre, buildPayload],
-  );
-
-  // ── Loading state ─────────────────────────────────────────────────
-  if (loading) {
-    return <p className="opt">加载中…</p>;
-  }
-
-  // ── Empty state (no genre selected) ───────────────────────────────
-  if (!genre) {
-    return (
-      <div>
-        <div className="field">
-          <label>当前题材</label>
-          <div className="cur-genre">
-            <span>未选择</span>
-            <button
-              className="btn btn-primary btn-sm"
-              style={{ marginLeft: "auto" }}
-              type="button"
-              onClick={() => setShowPicker(true)}
-            >
-              选择题材
-            </button>
-          </div>
-          <span className="opt" style={{ fontSize: 12, color: "var(--muted)" }}>
-            选择题材可以帮助 AI 更准确地把握你的小说类型特征，生成贴合类型的文风和内容。
-          </span>
-        </div>
-
-        <GenrePickerModal
-          open={showPicker}
-          onConfirm={handleGenreChange}
-          onClose={() => setShowPicker(false)}
-        />
-      </div>
-    );
-  }
-
-  const categoryLabel =
-    GENRE_CATEGORIES.find((c) => c.id === genre.category)?.label ?? "";
-
-  // ── Render ────────────────────────────────────────────────────────
   return (
-    <div>
-      {/* ── 当前题材卡 ──────────────────────────────────────────── */}
-      <div className="field">
-        <label>当前题材</label>
-        <div className="cur-genre">
-          <span>{genre.name}</span>
-          {definitionMissing ? (
-            <span className="tag">定义缺失</span>
-          ) : (
-            <>
-              <span className="tag">{categoryLabel}</span>
-              <span className="tag">已设定</span>
-            </>
-          )}
-          <button
-            className="btn btn-secondary btn-sm"
-            style={{ marginLeft: "auto" }}
-            type="button"
-            onClick={() => setShowPicker(true)}
-          >
-            <Ico d={P.tune} sw={1.8} />
-            选择 / 切换题材
-          </button>
-        </div>
-        {definitionMissing ? (
-          <span className="opt" style={{ fontSize: 12, color: "var(--muted)" }}>
-            该题材定义已不存在（可能已被删除）。仍可编辑并保存下方覆盖项；切换为新题材可恢复完整设置。
-          </span>
-        ) : (
-          genre.description && (
-            <span className="opt" style={{ fontSize: 12, color: "var(--muted)" }}>
-              {genre.description} 切换题材将替换题材相关的参数模板，已填内容保留。
-            </span>
-          )
-        )}
-      </div>
-
-      {/* ── 类型禁忌（题材派生，只读）────────────────────────────── */}
-      {genre.taboos.length > 0 && (
-        <Cfg title="类型禁忌">
-          <div className="chips">
-            {genre.taboos.map((t) => (
-              <span className="chip" key={t}>{t}</span>
-            ))}
-          </div>
-          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>
-            禁忌由题材自动派生，不可编辑；如需调整请在风格设定中自定义规则。
-          </p>
-        </Cfg>
-      )}
-
-      {/* ── 提示词注入段 ────────────────────────────────────────── */}
-      <Cfg title="提示词注入段">
-        <div className="fl-row">
-          <span style={{ fontSize: 13 }}>AI 行为引导注入</span>
-          <span className="seg" role="group" aria-label="提示词注入">
+    <div data-od-id="genre-panel">
+      {/* 01 口味胶囊 —— 预置联动 */}
+      <Mod
+        no="01"
+        name="题材"
+        why="选个口味起点，下面各格跟着给建议"
+        use={
+          <>
+            "填好后："
+            <b>全书都按这套口味给建议</b>
+            "，随时可换"
+          </>
+        }
+      >
+        <div className="cap-row">
+          {GENRE_FLAVORS.map((f) => (
             <button
+              key={f.key}
+              className={`cap${flavorKey === f.key ? " on" : ""}`}
               type="button"
-              className={promptInjectionEnabled ? "on" : undefined}
-              onClick={() => setPromptInjectionEnabled(true)}
+              data-g={f.key}
+              onClick={() => applyFlavor(f.key)}
             >
-              启用
+              {f.label}
             </button>
-            <button
-              type="button"
-              className={!promptInjectionEnabled ? "on" : undefined}
-              onClick={() => setPromptInjectionEnabled(false)}
-            >
-              停用
-            </button>
-          </span>
-        </div>
-        <div className="prompt-preview" style={{ marginTop: 10, opacity: promptInjectionEnabled ? undefined : 0.45 }}>
-          {genre.promptInjection}
-        </div>
-        <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>
-          注入段会自动嵌入发送给 AI 的系统提示词，影响写作风格与行为。
-        </p>
-      </Cfg>
-
-      {/* ── 题材配置（可编辑）───────────────────────────────────── */}
-      <Cfg title="题材配置" open>
-        <ListEditor label="满足类型（爽点）" items={fulfillmentTypes} onChange={setFulfillmentTypes} placeholder="例如：发现真相的瞬间" />
-        <ListEditor label="章节类型" items={chapterTypes} onChange={setChapterTypes} placeholder="例如：场景章" />
-        <ListEditor label="节奏规则" items={pacingRules} onChange={setPacingRules} placeholder="例如：每章至少 1 次情感刻画" />
-        <ListEditor label="疲劳词" items={fatigueWords} onChange={setFatigueWords} placeholder="例如：突然" />
-      </Cfg>
-
-      {/* ── 故事弧模板 — 定义缺失时隐藏 ─────────────────────────── */}
-      {!definitionMissing && (
-        <Cfg title="故事弧模板">
-          <p className="opt" style={{ margin: "0 0 10px", fontSize: 11.5 }}>
-            选中的模板会影响 AI 对章节结构的规划。
-          </p>
-          {genre.storyArcTemplates.map((tpl) => (
-            <ArcCard
-              key={tpl.id}
-              template={tpl}
-              selected={selectedArcId === tpl.id}
-              onSelect={() => setSelectedArcId(tpl.id)}
-            />
           ))}
-        </Cfg>
+        </div>
+      </Mod>
+
+      {/* 02 主要看什么 → core_promise + promise_note */}
+      <Mod
+        no="02"
+        name="主要看什么"
+        why="读者翻开这本书，主要看的是什么"
+        use={
+          <>
+            "填好后："
+            <b>全书都围绕它写</b>
+            "，章节不跑题"
+          </>
+        }
+      >
+        <textarea
+          className="textarea"
+          rows={2}
+          maxLength={GENRE_LIMITS.corePromise}
+          data-od-id="m1-input"
+          placeholder="例：主要看以弱破强的痛快——境界压着他，他专挑别人修为里的漏洞打"
+          value={data.core_promise}
+          onChange={(e) => patch({ core_promise: e.target.value })}
+        />
+        {data.promise_note && (
+          <p className="opt" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
+            AI 补充读者预期：{data.promise_note}
+          </p>
+        )}
+      </Mod>
+
+      {/* 03 绝对禁止 → forbidden_list */}
+      <Mod
+        no="03"
+        name="绝对禁止"
+        why="勾了就不写；取消勾选＝明知风险偏要写"
+        use={
+          <>
+            "填好后："
+            <b>这些雷全书不会出现</b>
+            "，AI 也不写"
+          </>
+        }
+      >
+        <div className="cap-row" style={{ marginBottom: 8 }}>
+          {cand.forbidden.map((c) => (
+            <button
+              key={c.id}
+              className={`cap${forbidSelected.has(c.id) ? " on" : ""}`}
+              type="button"
+              data-forbid={c.id}
+              onClick={() => toggleForbidden(c.id)}
+            >
+              {c.label}
+            </button>
+          ))}
+          {forbidCustom.map((f) => (
+            <button
+              key={f.text}
+              className="cap on"
+              type="button"
+              title="点击移除"
+              onClick={() =>
+                setData((prev) => ({
+                  ...prev,
+                  forbidden_list: prev.forbidden_list.filter((x) => x !== f),
+                }))
+              }
+            >
+              {f.text} ×
+            </button>
+          ))}
+        </div>
+        <div className="cap-add">
+          <input
+            data-od-id="forbid-input"
+            placeholder="写你自己的禁区，回车添加"
+            value={customForbidden}
+            maxLength={100}
+            onChange={(e) => setCustomForbidden(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addCustomForbidden();
+              }
+            }}
+          />
+        </div>
+      </Mod>
+
+      {/* 04 吃苦指数 → cost_ratio */}
+      <Mod
+        no="04"
+        name="吃苦指数"
+        why="主角得到好处要付多大代价：1 最轻（流汗破财）～ 10 最重（折寿献祭）"
+        use={
+          <>
+            "填好后："
+            <b>变强有代价，不白拿</b>
+            "，爽感才立得住"
+          </>
+        }
+      >
+        <div className="cost-row">
+          <input
+            type="range"
+            min={1}
+            max={10}
+            step={1}
+            data-od-id="cost-slider"
+            value={data.cost_ratio ?? 5}
+            onChange={(e) => patch({ cost_ratio: Number(e.target.value) })}
+          />
+          <span className="cost-val num">{data.cost_ratio ?? "—"}</span>
+        </div>
+        {data.cost_ratio !== null && (
+          <span className="cost-sent" data-od-id="cost-sentence">
+            {costSentence(data.cost_ratio)}
+          </span>
+        )}
+        <div className="cost-scale">
+          <span>1 流汗破财</span>
+          <span>5 断骨毁名</span>
+          <span>10 命抵江山</span>
+        </div>
+      </Mod>
+
+      {/* 05 主线战场 → battlefield */}
+      <Mod
+        no="05"
+        name="主线战场"
+        why="整本书主要斗什么（建议 1-2 个）"
+        use={
+          <>
+            "填好后："
+            <b>每卷冲突围绕战场</b>
+            "，不打野架"
+          </>
+        }
+      >
+        <div className="cap-row" style={{ marginBottom: 6 }}>
+          {cand.battlefield.map((c) => (
+            <button
+              key={c.id}
+              className={`cap${data.battlefield.includes(c.id) ? " on" : ""}`}
+              type="button"
+              data-bf={c.id}
+              onClick={() => toggleBattlefield(c.id)}
+            >
+              {c.label}
+            </button>
+          ))}
+          {unknownBattlefield.map((b) => (
+            <button
+              key={b}
+              className="cap on"
+              type="button"
+              title="点击移除"
+              onClick={() => toggleBattlefield(b)}
+            >
+              {vocabLabel(b)} ×
+            </button>
+          ))}
+        </div>
+        {data.battlefield.length >= 3 && (
+          <p className="soft-note" data-od-id="bf-note">
+            战场越多，主线越难聚焦，建议 1-2 个。
+          </p>
+        )}
+      </Mod>
+
+      {/* 06 剧情轨道 → track */}
+      <Mod
+        no="06"
+        name="剧情轨道"
+        why="整本书怎么走（可不填）"
+        use={
+          <>
+            "填好后："
+            <b>百万字沿它走</b>
+            "，写作台常驻可查"
+          </>
+        }
+      >
+        <textarea
+          className="textarea"
+          rows={2}
+          maxLength={GENRE_LIMITS.track}
+          data-od-id="track-input"
+          placeholder="凡人流——从练气一步步爬，每卷突破一个大境界、了结一桩恩怨"
+          value={data.track}
+          onChange={(e) => patch({ track: e.target.value })}
+        />
+      </Mod>
+
+      {error && (
+        <p className="opt" style={{ color: "var(--err)" }}>
+          {error}
+        </p>
       )}
-
-      {error && <p className="opt" style={{ color: "var(--err)" }}>{error}</p>}
-
-      {/* ── Genre picker modal ────────────────────────────────────── */}
-      <GenrePickerModal
-        open={showPicker}
-        currentGenreId={genreId}
-        onConfirm={handleGenreChange}
-        onClose={() => setShowPicker(false)}
-      />
     </div>
   );
 });
+
 export default GenreSettingForm;

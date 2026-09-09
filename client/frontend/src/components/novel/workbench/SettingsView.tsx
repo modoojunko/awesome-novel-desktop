@@ -30,6 +30,7 @@ import ArcWizard from "@/components/novel/settings/ArcWizard";
 import { useStoryArc } from "@/components/novel/settings/useStoryArc";
 import GenreSettingForm, { type GenreHandle } from "@/components/novel/settings/GenreSettingForm";
 import { INTRO_SEGMENTS, INTRO_FORMULA, DONT_DO, INTRO_MAX_LEN, TABOO_RULES } from "@/lib/introTemplate";
+import { GENRE_DEFINITION } from "@/lib/genreVocab";
 import AiWriterAssistant, { type AiCapabilityRow } from "@/components/novel/settings/AiWriterAssistant";
 import AiSink from "@/components/novel/settings/AiSink";
 import { introAi, aiBlockReason, type IntroAiAction } from "@/lib/ai";
@@ -47,7 +48,7 @@ const SETTINGS_ITEMS = [
 ] as const;
 
 const DESCS: Record<string, string> = {
-  genre: "题材决定后续表单模板与 AI 生成的口味，是设定的第一步。",
+  genre: GENRE_DEFINITION,
   intro: "让读者（和 AI）知道这是一个怎样的故事。",
   arc: "这本书讲什么、结局想怎样、分几卷——定总方向盘，不拦写作。",
   world: "地理、政治与规则——故事发生的世界如何运转。",
@@ -313,6 +314,7 @@ export default function SettingsView({
                 ref={genreRef}
                 projectId={projectId}
                 settingKey="genre"
+                onDirtyChange={handleDirtyChange}
               />
             )}
             {panel === "intro" && (
@@ -559,12 +561,6 @@ const IntroPanel = forwardRef<
                         0,
                         INTRO_MAX_LEN,
                       );
-
-    useImperativeHandle(
-      ref,
-      () => ({ save, isEmpty: () => !synopsis.trim(), focus: () => taRef.current?.focus(), runAi }),
-      [save, synopsis, runAi],
-    );
                       editedRef.current = true;
                       setSynopsis(next);
                       toast.success(
@@ -612,6 +608,17 @@ const IntroPanel = forwardRef<
           });
       },
       [synopsis, novelName, projectId],
+    );
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        save,
+        isEmpty: () => !synopsis.trim(),
+        focus: () => taRef.current?.focus(),
+        runAi,
+      }),
+      [save, synopsis, runAi],
     );
 
     return (

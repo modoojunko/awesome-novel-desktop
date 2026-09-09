@@ -496,3 +496,29 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .rail-assist.locked .ra-step:hover { border-color: var(--border); }
 .settings-v .rail-assist.locked .ra-body b { color: var(--muted); }
 .settings-v .rail-assist.locked .ra-arrow { opacity: 0.4; }
+
+/* ── 题材六格 .mod（genre-signup-redesign tasks 4.1 / D18）──
+   每格＝编号 + 名称 + 怎么填（m-why）+ 成书去处（m-use）+ 控件。
+   样式对齐原型 prototypes/genre-signup.html（胶囊 cap / 滑块 cost / 软提示 soft-note） */
+.settings-v .mod { margin-bottom: 26px; }
+.settings-v .mod:last-of-type { margin-bottom: 16px; }
+.settings-v .mod .mod-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 12px; flex-wrap: wrap; }
+.settings-v .mod .mod-head .m-no { font-family: var(--font-mono); font-size: 11px; color: var(--accent); border: 1px dashed color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 0 7px; flex: none; }
+.settings-v .mod .mod-head .m-name { font-size: 14px; font-weight: 600; flex: none; }
+.settings-v .mod .mod-head .m-why { font-size: 12px; color: var(--muted); flex: none; }
+.settings-v .mod .mod-head .m-use { flex: 1 1 auto; margin-left: 14px; font-size: 11.5px; color: var(--muted); text-align: right; line-height: 1.6; min-width: 0; }
+.settings-v .mod .mod-head .m-use b { color: var(--accent); font-weight: 500; }
+
+.settings-v .cap { display: inline-flex; align-items: center; padding: 7px 14px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; color: var(--fg); background: var(--surface); cursor: pointer; user-select: none; font-family: inherit; }
+.settings-v .cap:hover { border-color: var(--muted); }
+.settings-v .cap.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.settings-v .cap-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.settings-v .cap-add input { width: 100%; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 9px; background: var(--surface); font-size: 13px; color: var(--fg); margin-top: 8px; font-family: inherit; }
+.settings-v .cap-add input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); border-style: solid; }
+
+.settings-v .cost-row { display: flex; align-items: center; gap: 16px; }
+.settings-v .cost-row input[type="range"] { flex: 1; accent-color: var(--accent); height: 26px; }
+.settings-v .cost-val { font-family: var(--font-mono); font-size: 20px; font-weight: 600; color: var(--accent); width: 34px; text-align: center; flex: none; }
+.settings-v .cost-sent { font-size: 12.5px; color: var(--fg); background: var(--fg-soft); border-radius: 8px; padding: 5px 11px; margin-top: 8px; display: inline-block; }
+.settings-v .cost-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono); }
+.settings-v .soft-note { font-size: 11.5px; color: var(--warn); margin-top: 8px; }
