@@ -229,10 +229,14 @@ test("题材：真实题材选择器（空态 → 选 都市日常 → 应用题
   try {
     const pid = await createNovel(page, `题材${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
-    // v2 默认面板 = 题材（左栏首项）
+    // tasks 2.1 顺序对调后默认落「简介」（SETTINGS_ITEMS[0]）；本用例切到题材面板
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "简介" }),
+    ).toBeVisible({ timeout: 10000 });
+    await openSetting(page, "题材");
     await expect(
       page.locator(".settings-v main h2", { hasText: "题材" }),
-    ).toBeVisible({ timeout: 10000 });
+    ).toBeVisible({ timeout: 5000 });
 
     // 空态：cur-genre「未选择」+ 选择题材按钮
     await expect(page.getByText("未选择", { exact: true })).toBeVisible();
@@ -706,5 +710,49 @@ test("P2-1d 脏表单确认完成：自动保存再确认（内容落库 + 按�
     expect(world.politics.rule).toContain("城主议会制");
   } finally {
     restore();
+  }
+});
+
+// -------------------------------------------------------------------------
+// tasks 2.2：前两步顺序（简介→题材）+ 确认即前进
+// -------------------------------------------------------------------------
+test("前两步顺序 + 确认即前进：简介确认后自动切到题材（tasks 2.2）", async ({
+  page,
+}) => {
+  const { restore } = await setupSession(page);
+  try {
+    await createNovel(page, `前进${Date.now() % 100000}`);
+    await page.getByRole("button", { name: /^设定/ }).click();
+
+    // ① 默认落「简介」
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "简介" }),
+    ).toBeVisible({ timeout: 10000 });
+
+    // ② 填简介 → 确认完成
+    await fillSettingField(page, "故事简介", "外门杂徒林拾，在宗门扫了十年落叶。");
+    const introSave = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url().includes("/settings/story"),
+    );
+    const btn = page.locator(".panel-foot").getByRole("button", { name: "确认完成" });
+    await expect(btn).toBeVisible({ timeout: 5000 });
+    await btn.click();
+    await introSave;
+
+    // ③ 确认即前进 → 自动切到「题材」
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "题材" }),
+    ).toBeVisible({ timeout: 5000 });
+
+    // ④ 回点「简介」：内容保留、不锁题材
+    await openSetting(page, "简介");
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "简介" }),
+    ).toBeVisible({ timeout: 5000 });
+    await expect(page.locator(".textarea").first()).toHaveValue(
+      "外门杂徒林拾，在宗门扫了十年落叶。",
+    );
+  } finally {
+    await restore();
   }
 });

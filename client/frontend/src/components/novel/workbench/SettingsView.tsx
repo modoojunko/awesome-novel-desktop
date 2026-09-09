@@ -167,7 +167,14 @@ export default function SettingsView({
         toast.success(`「${item.name}」已保存`);
       } else {
         const ok = await confirmSetting(item.settingsKey);
-        if (ok) toast.success(`「${item.name}」已确认`);
+        if (ok) {
+          toast.success(`「${item.name}」已确认`);
+          // 确认即前进：切到 SETTINGS_ITEMS 的数组顺序下一项（末项不动；
+          // 模型窗（aiModel）不在 SETTINGS_ITEMS，天然被跳过）
+          const idx = SETTINGS_ITEMS.findIndex((i) => i.k === panel);
+          const next = idx >= 0 ? SETTINGS_ITEMS[idx + 1] : undefined;
+          if (next) setPanel(next.k);
+        }
       }
     } finally {
       setBusy(false);

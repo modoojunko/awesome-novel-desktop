@@ -8,7 +8,7 @@
 ## 2. SETTINGS_ITEMS 前两步重排
 
 - [x] 2.1 在 `SettingsView.tsx` 把 `SETTINGS_ITEMS` 前两步从 `[genre, intro]` 对调为 `[intro, genre]`；**`normalizePanel` 的 fallback 也须从 `"genre"` 改 `"intro"`**（否则首屏仍可能落题材——流程审查 O-1）；确认 `settingsStatus`/`canDefer` 派生逻辑不受影响
-- [ ] 2.2 **补「确认即前进」**：`handleFootAction` 确认/保存后 `setPanel` 到**数组顺序下一项**（非「下一未确认项」，避免空确认时循环/跳过；**须跳过非 SETTINGS_ITEMS 的模型窗**），并验证「①简介确认→②题材」自动前进；对应 e2e
+- [x] 2.2 **补「确认即前进」**：`handleFootAction` 确认/保存后 `setPanel` 到**数组顺序下一项**（非「下一未确认项」，避免空确认时循环/跳过；**须跳过非 SETTINGS_ITEMS 的模型窗**），并验证「①简介确认→②题材」自动前进；对应 e2e
 - [ ] 2.3 徽标语义修正：简介/题材「已填」从 ok 绿改为进行中（warn 软底），「已确认」才用 ok 绿，对齐 §5.1
 - [ ] 2.4 对齐「全页无必填、确认永远可点」：评估现有 `!hasGenre()`/`introRef.isEmpty()` 确认阻断 gate，调整为可跳过（六格 01 恒有默认值或放开 gate）；**`hasGenre()` 须重定义为「新契约核心键任一非空」**（现实现依赖 `genre_id`/genre 定义加载，纯新契约下语义悬空；须与 `_check_genre` **同源**，否则 01 恒真 → 全空也能 save → 撞后端 400——流程审查 O-2）
 
