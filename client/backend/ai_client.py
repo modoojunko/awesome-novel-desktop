@@ -4,6 +4,7 @@
 C/S 模式下从本地 config.json 动态读取 API Key/Base URL/Model，而不是从 config.py。
 """
 
+import inspect
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -73,6 +74,32 @@ class AIClient:
                 kwargs["base_url"] = base_url
             self._client = AsyncOpenAI(**kwargs)
 
+    def _supports_temperature(self) -> bool:
+        """Anthropic 1.x SDK 的 messages.create 不再接受 temperature（须走 extra_body）。"""
+        cached = getattr(self, "_temp_supported", None)
+        if cached is None:
+            try:
+                cached = "temperature" in inspect.signature(
+                    self._client.messages.create
+                ).parameters
+            except (TypeError, ValueError, AttributeError):
+                cached = True
+            self._temp_supported = cached
+        return cached
+
+    def _anthropic_kwargs(self, kwargs: dict) -> dict:
+        """把 Anthropic 侧不支持的入参落到 extra_body（跨 SDK 版本兼容）。"""
+        temperature = kwargs.pop("temperature", None)
+        if temperature is None:
+            return kwargs
+        if self._supports_temperature():
+            kwargs["temperature"] = temperature
+        else:
+            extra = dict(kwargs.pop("extra_body", None) or {})
+            extra["temperature"] = temperature
+            kwargs["extra_body"] = extra
+        return kwargs
+
     @property
     def model(self) -> str:
         """本客户端实际使用的模型 id（计量/日志用，勿用于业务判断）。"""
@@ -127,6 +154,7 @@ class AIClient:
             return response.choices[0].message.content or ""
         else:
             kwargs.pop("json_mode", None)  # Anthropic 无 response_format，靠 prompt + 归一化兜底
+            kwargs = self._anthropic_kwargs(kwargs)
             response = await self._client.messages.create(
                 model=model,
                 system=system,
@@ -180,6 +208,7 @@ class AIClient:
                 tokens=getattr(chunk, "usage", None) and chunk.usage.total_tokens or 0,
             )
         else:
+            kwargs = self._anthropic_kwargs(kwargs)
             async with self._client.messages.stream(
                 model=model,
                 system=system,

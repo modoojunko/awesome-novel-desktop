@@ -56,13 +56,17 @@ class _FakeOpenAI:
 
 
 class _FakeAnthropic:
+    """模拟 anthropic 0.x SDK：messages.create 显式声明 temperature。"""
+
     def __init__(self, **kwargs):
         self.recorder = _Recorder("anthropic")
         create = self.recorder._create
 
         class _Messages:
             @staticmethod
-            async def create(**kw):
+            async def create(temperature=None, **kw):
+                if temperature is not None:
+                    kw["temperature"] = temperature
                 return await create(**kw)
 
         self.messages = _Messages()
@@ -158,3 +162,73 @@ class TestResolve:
 
     def test_model_property_exposes_effective(self, openai_client):
         assert openai_client.model == "gpt-4o"
+
+
+class _FakeAnthropicNoTemperature:
+    """模拟 anthropic 1.x SDK：messages.create 不接受 temperature。"""
+
+    def __init__(self, **kwargs):
+        self.recorder = _Recorder("anthropic")
+        create = self.recorder._create
+
+        class _Messages:
+            @staticmethod
+            async def create(**kw):
+                assert "temperature" not in kw, "1.x SDK 不接受 temperature"
+                return await create(**kw)
+
+        self.messages = _Messages()
+
+
+@pytest.fixture
+def anthropic_v1_client(monkeypatch):
+    monkeypatch.setattr(ai_client_module, "AsyncAnthropic", _FakeAnthropicNoTemperature)
+    return AIClient(
+        api_key="sk-x",
+        base_url="https://api.example.com/anthropic",
+        model="claude-x",
+        api_format="anthropic",
+    )
+
+
+class TestAnthropicTemperatureCompat:
+    """跨 SDK 版本：1.x 无 temperature 入参 → 落到 extra_body（否则 TypeError→502）。"""
+
+    def test_v1_sdk_temperature_goes_to_extra_body(self, anthropic_v1_client):
+        _run_async(
+            anthropic_v1_client.chat(
+                model="haiku",
+                system="",
+                messages=[{"role": "user", "content": "x"}],
+                temperature=0.3,
+            )
+        )
+        kwargs = anthropic_v1_client._client.recorder.kwargs
+        assert kwargs["extra_body"]["temperature"] == 0.3
+        assert "temperature" not in kwargs
+
+    def test_v0_sdk_keeps_temperature_kwarg(self, anthropic_client):
+        _run_async(
+            anthropic_client.chat(
+                model="haiku",
+                system="",
+                messages=[{"role": "user", "content": "x"}],
+                temperature=0.7,
+            )
+        )
+        kwargs = anthropic_client._client.recorder.kwargs
+        assert kwargs["temperature"] == 0.7
+        assert "extra_body" not in kwargs
+
+    def test_existing_extra_body_merged(self, anthropic_v1_client):
+        _run_async(
+            anthropic_v1_client.chat(
+                model="haiku",
+                system="",
+                messages=[{"role": "user", "content": "x"}],
+                temperature=0.3,
+                extra_body={"top_k": 5},
+            )
+        )
+        body = anthropic_v1_client._client.recorder.kwargs["extra_body"]
+        assert body == {"top_k": 5, "temperature": 0.3}
