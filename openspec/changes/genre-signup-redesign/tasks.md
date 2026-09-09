@@ -16,7 +16,7 @@
 
 ## 3. 简介面板改造（六段模板 + AI 助手）
 
-- [ ] 3.1 简介面板升级为：编辑框（synopsis ≤500，实时 x/500 计数 + 状态徽标）＋ 「怎么写」六段模板折叠文本指导（默认收起、点开展开；六段名逐字一致 + 公式 + 别踩三条）；折叠复用 `FormField.Cfg` 或受控 state、默认不带 `open`
+- [x] 3.1 简介面板升级为：编辑框（synopsis ≤500，实时 x/500 计数 + 状态徽标）＋ 「怎么写」六段模板折叠文本指导（默认收起、点开展开；六段名逐字一致 + 公式 + 别踩三条）；折叠复用 `FormField.Cfg` 或受控 state、默认不带 `open`
 - [ ] 3.2 新增 `AiWriterAssistant` 组件（PRO 徽标并头部 + 并列能力行：体检/补缺失/润色 + 来源/去向声明），接入简介右栏；门控 key 用 `useFeature('settings-ai-fields')`（非 `ai-assistant`）
 - [ ] 3.3 新增 `AiSink` 结果区组件（fg-soft TintPanel + 操作名标签 + 候选 + 采纳/重试），简介 AI 反馈落编辑框下方；**状态所有权在 IntroPanel**（AiSink 通过写入回调写回 synopsis；补缺失=append、润色=replace，含 500 字截断）；**结果区生命周期**＝采纳后保留、切面板清空、重新请求覆盖、确认后清空（O-5）；**save 成功但 confirm 400 的终态**须给「内容未通过校验」提示并保留 dirty（O-4）；**AI 写回超 500 的截断位置**＝尾部截断且提示（O-14）
 - [ ] 3.4 体检按六段逐项查 + 禁忌扫描（只提醒不拦确认），行名与六段模板完全一致；响应为结构化 JSON（six_segments/taboo/verdict）

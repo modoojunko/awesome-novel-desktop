@@ -28,6 +28,7 @@ import StoryArcForm from "@/components/novel/settings/StoryArcForm";
 import ArcWizard from "@/components/novel/settings/ArcWizard";
 import { useStoryArc } from "@/components/novel/settings/useStoryArc";
 import GenreSettingForm, { type GenreHandle } from "@/components/novel/settings/GenreSettingForm";
+import { INTRO_SEGMENTS, INTRO_FORMULA, DONT_DO, INTRO_MAX_LEN } from "@/lib/introTemplate";
 
 // ── 面板注册表（顺序/命名与原型 navItems 一致；settingsKey 对后端口径）──
 const SETTINGS_ITEMS = [
@@ -447,20 +448,22 @@ const IntroPanel = forwardRef<IntroHandle, { projectId: string; onDirtyChange?: 
       [save, synopsis],
     );
 
+    const [guideOpen, setGuideOpen] = useState(false);
+
     return (
       <>
         <div className="field">
           <label>
-            故事简介 <span className="opt">≤500 字</span>
+            故事简介 <span className="opt">≤{INTRO_MAX_LEN} 字</span>
             <span className="cnt" style={{ marginLeft: "auto" }}>
-              {synopsis.length}/500
+              {synopsis.length}/{INTRO_MAX_LEN}
             </span>
           </label>
           <textarea
             ref={taRef}
             className="textarea"
             rows={4}
-            maxLength={500}
+            maxLength={INTRO_MAX_LEN}
             placeholder="用几句话讲讲这个故事是关于什么的（主角、世界、核心冲突）"
             value={synopsis}
             disabled={saving}
@@ -470,6 +473,41 @@ const IntroPanel = forwardRef<IntroHandle, { projectId: string; onDirtyChange?: 
             }}
           />
         </div>
+        {/* 「怎么写」六段模板——默认收起，点开才展开（tasks 3.1 / D2） */}
+        <div className="guide" data-od-id="intro-guide">
+          <button
+            className="guide-toggle"
+            type="button"
+            aria-expanded={guideOpen}
+            onClick={() => setGuideOpen((v) => !v)}
+          >
+            <span className="gt-b">「怎么写」六段模板</span>
+            <span className="gt-s">
+              {INTRO_SEGMENTS.map((s) => s.name).join(" → ")} · 点开看每段怎么写
+            </span>
+            <span className="gt-c" aria-hidden="true">
+              {guideOpen ? "收起" : "展开"}
+            </span>
+          </button>
+          {guideOpen && (
+            <div className="guide-body">
+              {INTRO_SEGMENTS.map((s) => (
+                <div className="g-row" key={s.name}>
+                  <span className="g-name">{s.name}</span>
+                  <span className="g-body">
+                    <em>例：{s.example}</em>
+                    {s.why}
+                  </span>
+                </div>
+              ))}
+              <span className="g-formula">
+                六段公式：<b>{INTRO_FORMULA}</b>
+              </span>
+              <p className="g-dont">别踩：{DONT_DO.join("；")}。</p>
+            </div>
+          )}
+        </div>
+
         <p className="opt" style={{ fontSize: 12, margin: "-6px 0 16px" }}>
           简介会作为后续设定和写作的依据。
         </p>
