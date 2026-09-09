@@ -71,7 +71,7 @@
 - [x] 8.1 `cd client/frontend && npm run design:lint` 通过（无裸 hex / emoji / 未登记档位）
 - [x] 8.2 `cd client/frontend && npm run design:check` 全绿（像素差 <0.2%；若收编原型进 strictGlobs）
 - [x] 8.3 `cd client/frontend && npx tsc --noEmit` 通过；`cd client/backend && pytest`（若改动波及）通过；S端 无改动（依据 proposal Design Impact），不跑 `vue-tsc`
-- [ ] 8.4 相关 e2e 通过：settings（简介/题材面板、AI 行、六段折叠、免费版锁定、**本书模型前置**、**门控分流**）、readiness/onboarding（前两步顺序、题材新契约判据）。**注意（测试审查发现）**：`config.models` 无公开写入通道（`CreateApiConfigBody` 无 `models`、`PUT /api-configs` 不透传），假 Key 的 `refresh-models` 必得空列表 → **e2e 无法给书 seed 模型**；故 AI 相关 e2e 一律用 `page.route("**/api/v1/novels/*/ai-model")` 返回目标 `ai_state`，**真实判定与绑定校验归 pytest**（见 9.2）
+- [x] 8.4 相关 e2e 通过：settings（简介/题材面板、AI 行、六段折叠、免费版锁定、**本书模型前置**、**门控分流**）、readiness/onboarding（前两步顺序、题材新契约判据）。**注意（测试审查发现）**：`config.models` 无公开写入通道（`CreateApiConfigBody` 无 `models`、`PUT /api-configs` 不透传），假 Key 的 `refresh-models` 必得空列表 → **e2e 无法给书 seed 模型**；故 AI 相关 e2e 一律用 `page.route("**/api/v1/novels/*/ai-model")` 返回目标 `ai_state`，**真实判定与绑定校验归 pytest**（见 9.2）
 - [x] 8.5 触共享段的回归结论：本改动 C端 UI + C端后端，未触碰 base.css 共享令牌/组件类（`.rail-assist`/`.ai-sink` 为 C端局部、用共享令牌），故 `design-cross` 无需跑（依据 proposal Design Impact）
 - [x] 8.6 **AI 端点调用点门禁**：`grep -rnE '\bget_ai_client\(' client/backend --include='*.py' | grep -vE 'ai_client\.py|/tests/|ai_prefill\.py|novels/router\.py|__pycache__|\.mimosa' | grep -vE '^\S+:[0-9]+:\s*#'` 须为空（实测 14 处：替换 12 处含 `story/arc_wizard.py:61`/`story/character_agent.py:250`/`story/engine.py:201`，豁免 `ai_prefill.py:26` 与 `novels/router.py:154` suggest-meta）；另核 `record_usage` 各点记实际模型 id、门控违规近似 grep（`check_permission\(|is_member` 在业务层）为空
 
@@ -104,8 +104,8 @@
 
 > **执行命令**：`cd client/frontend && npx vitest run`（`package.json` 无 vitest script，`scripts/test-all.sh` 只跑 pytest+playwright——须显式 `npx vitest run`；CI 亦未接 vitest，需在本 change 补 script 或 CI step）
 
-- [ ] 9.1.0 **控件规格断言（规格 parity，非存在性）**：对 9.0 表格中每个控件断言 computed style —— `intro-ta` 的 `minHeight==="132px"`/`fontSize==="14px"`/`lineHeight==="1.9"`/`borderRadius==="9px"`；`.btn` 的 `height==="34px"`/`padding==="0px 15px"`/`fontSize==="13.5px"`；`.cap`/`.badge` 的 `borderRadius==="999px"` 与 padding；`.model-opt` 同行等高（`getBoundingClientRect().height` 一致）；`.ai-sink` 底色为 `--fg-soft` 计算值且**不等于** `--surface`。验证＝`getComputedStyle` / `getBoundingClientRect`；**若与原型不一致即失败**（这是"界面尺寸符合原型"的兜底）
-- [ ] 9.1.0b **输入框边界与溢出**：简介框在 0 字/1 字/499 字/500 字时的 `min-height` 不变（不塌陷）、超 500 被 `maxlength` 截断、长英文/无空格长串**不撑破容器**（`scrollWidth <= clientWidth`）、纯空白输入不触发"已填"；字号白名单校验（渲染树内 `fontSize` 全部落在 9.0 白名单）
+- [x] 9.1.0 **控件规格断言（规格 parity，非存在性）**：对 9.0 表格中每个控件断言 computed style —— `intro-ta` 的 `minHeight==="132px"`/`fontSize==="14px"`/`lineHeight==="1.9"`/`borderRadius==="9px"`；`.btn` 的 `height==="34px"`/`padding==="0px 15px"`/`fontSize==="13.5px"`；`.cap`/`.badge` 的 `borderRadius==="999px"` 与 padding；`.model-opt` 同行等高（`getBoundingClientRect().height` 一致）；`.ai-sink` 底色为 `--fg-soft` 计算值且**不等于** `--surface`。验证＝`getComputedStyle` / `getBoundingClientRect`；**若与原型不一致即失败**（这是"界面尺寸符合原型"的兜底）
+- [x] 9.1.0b **输入框边界与溢出**：简介框在 0 字/1 字/499 字/500 字时的 `min-height` 不变（不塌陷）、超 500 被 `maxlength` 截断、长英文/无空格长串**不撑破容器**（`scrollWidth <= clientWidth`）、纯空白输入不触发"已填"；字号白名单校验（渲染树内 `fontSize` 全部落在 9.0 白名单）
 - [x] 9.1.1 `introPanel.test.tsx`：六段模板默认收起（`aria-expanded="false"`）→ 展开后六段名/公式/别踩三条齐全；六段名与共享常量**逐字一致**（import 常量比对，禁复制字面量）；≤500 计数实时同步（**含边界 500/501**）；「有字未确认」=warn 语义、「已确认」=ok 语义（断言 class 不依赖色值）
 - [x] 9.1.2 `aiSink.test.tsx`：体检渲染 6 行（达标/缺失）+ 禁忌结论；`.ai-sink` 位于简介框**之后**（DOM 顺序）、右栏无答案；补缺失采纳＝append（含 500 截断、不重写已写段）；润色采纳＝replace（`original`/`polished` 对照可见）；重试换候选不写回
 - [x] 9.1.3 `genrePanel.test.tsx`：5 口味 → 02-05 预填来自共享候选源常量、可改可清、01 不计入确认判据；禁项回车自定义（空值忽略/去重）；战场第 3 个软提示仍可点；吃苦指数锚点（1/3/5/7/9/10）浮例句正确；五行 AI 落**对应字段正下方**并按字段写回（文本/数组/1-10/tagId），不误写他格
@@ -152,18 +152,18 @@
 
 > 前置：docker 4 服务；`setupSession(page, tier)` 支持 trial/none；**AI 相关一律 `page.route` 桩 `ai-model` 与 AI 端点**（见 8.4 注）。
 
-- [ ] 9.4.1 **前两步顺序 + 确认即前进**：新建书 → 设定默认落「简介」→ 填简介 → 确认 → 自动切「题材」；点回简介内容保留、不锁题材
-- [ ] 9.4.2 **跳过可回改**：简介不填直接确认 → 进题材 → 回简介仍可编辑（若 9.3.2 定死可跳过）
-- [ ] 9.4.3 **六段模板折叠冒烟**：默认 `aria-expanded="false"`、正文不可见；点击后六段名+公式+别踩可见
-- [ ] 9.4.4 **题材六格交互**：选口味 → 02-05 预填可改；禁项回车新增；战场第 3 个出软提示；滑块 → 浮例句更新
-- [ ] 9.4.5 **AI 反馈落输入框下方**：桩 introspect 返回固定六段 JSON → 点「体检」→ `.ai-sink` 在简介框之后、右栏无答案；补缺失采纳后 synopsis 变长
-- [ ] 9.4.6 **题材五行 AI 落对应格**：桩 `genre/cost_ratio` 返回 `{"value":8}` → 点该行 → 建议落该格下方 → 采纳 → 滑块/数值变 8
-- [ ] 9.4.7 **免费版：AI 卡可见+锁定、模型窗可用可配**：`setupSession(page,"none")` → `.rail-assist.locked` 存在、名称/描述可见、点击给升级提示**不产出结果**；同时模型窗可见可选模型
-- [ ] 9.4.8 **模型窗：选择与生效分离 + 键盘导航冒烟**：桩 configs（2 配置×2 模型）+ `ai_state:"missing_model"` → 点行只标亮（**无 PUT**）→ `ArrowDown` 移动 → 点「设为本书模型」→ 恰 1 次 PUT（整对）
-- [ ] 9.4.9 **missing_model 跳转**：桩 `ai_state:"missing_model"` → 点「AI 体检」→ 提示并跳本书模型面板、**不发起 AI 请求**
-- [ ] 9.4.10 **no_key 与 missing_model 分流**：分别桩两态 → 文案与跳转不同（模型配置 vs 本书模型），不得一色 toast
-- [ ] 9.4.11 **ready 可用**：桩 `{ai_state:"ready", effective_model:"gpt-4o"}` + 桩 AI 端点 → 点体检 → 结果落 `.ai-sink`、请求路径正确
-- [ ] 9.4.12 **写作页撞 missing_model 兜底**：桩 `missing_model` → 写作页润色/续写出现「去选模型」文案与跳转（**取舍已定**：本 change **只保证设置视图**的兜底，写作页兜底另立 change——故本条降级为前端单测，不阻塞）
-- [ ] 9.4.13 **界面规格 parity（尺寸断言，非可见性）**：对 9.0 表格控件用 `getBoundingClientRect`/`getComputedStyle` 断言真实渲染尺寸——简介框 `min-height ≥132`、按钮 `height === 34`、模型行**同行等高**、`.ai-sink` 底色＝`--fg-soft` 且 ≠ `--surface`、字号全落白名单；**窗口宽度变化（窄屏 900px 断点）后卡片不溢出**（`scrollWidth <= clientWidth`）
-- [ ] 9.4.14 **幂等与重复提交（UI 层）**：双击「设为本书模型」→ 只发 1 次 PUT；双击「确认完成」→ 只发 1 次；AI 请求进行中点同一行 → 不并发重复发请求（`running` 态禁用）
-- [ ] 9.4.15 **竞态**：AI 请求在途时切面板 → 结果**不写入已切走的面板**（无残留、无报错）；模型窗切换配置时旧请求返回不覆盖新选中
+- [x] 9.4.1 **前两步顺序 + 确认即前进**：新建书 → 设定默认落「简介」→ 填简介 → 确认 → 自动切「题材」；点回简介内容保留、不锁题材
+- [x] 9.4.2 **跳过可回改**：简介不填直接确认 → 进题材 → 回简介仍可编辑（若 9.3.2 定死可跳过）
+- [x] 9.4.3 **六段模板折叠冒烟**：默认 `aria-expanded="false"`、正文不可见；点击后六段名+公式+别踩可见
+- [x] 9.4.4 **题材六格交互**：选口味 → 02-05 预填可改；禁项回车新增；战场第 3 个出软提示；滑块 → 浮例句更新
+- [x] 9.4.5 **AI 反馈落输入框下方**：桩 introspect 返回固定六段 JSON → 点「体检」→ `.ai-sink` 在简介框之后、右栏无答案；补缺失采纳后 synopsis 变长
+- [x] 9.4.6 **题材五行 AI 落对应格**：桩 `genre/cost_ratio` 返回 `{"value":8}` → 点该行 → 建议落该格下方 → 采纳 → 滑块/数值变 8
+- [x] 9.4.7 **免费版：AI 卡可见+锁定、模型窗可用可配**：`setupSession(page,"none")` → `.rail-assist.locked` 存在、名称/描述可见、点击给升级提示**不产出结果**；同时模型窗可见可选模型
+- [x] 9.4.8 **模型窗：选择与生效分离 + 键盘导航冒烟**：桩 configs（2 配置×2 模型）+ `ai_state:"missing_model"` → 点行只标亮（**无 PUT**）→ `ArrowDown` 移动 → 点「设为本书模型」→ 恰 1 次 PUT（整对）
+- [x] 9.4.9 **missing_model 跳转**：桩 `ai_state:"missing_model"` → 点「AI 体检」→ 提示并跳本书模型面板、**不发起 AI 请求**
+- [x] 9.4.10 **no_key 与 missing_model 分流**：分别桩两态 → 文案与跳转不同（模型配置 vs 本书模型），不得一色 toast
+- [x] 9.4.11 **ready 可用**：桩 `{ai_state:"ready", effective_model:"gpt-4o"}` + 桩 AI 端点 → 点体检 → 结果落 `.ai-sink`、请求路径正确
+- [x] 9.4.12 **写作页撞 missing_model 兜底**：桩 `missing_model` → 写作页润色/续写出现「去选模型」文案与跳转（**取舍已定**：本 change **只保证设置视图**的兜底，写作页兜底另立 change——故本条降级为前端单测，不阻塞）
+- [x] 9.4.13 **界面规格 parity（尺寸断言，非可见性）**：对 9.0 表格控件用 `getBoundingClientRect`/`getComputedStyle` 断言真实渲染尺寸——简介框 `min-height ≥132`、按钮 `height === 34`、模型行**同行等高**、`.ai-sink` 底色＝`--fg-soft` 且 ≠ `--surface`、字号全落白名单；**窗口宽度变化（窄屏 900px 断点）后卡片不溢出**（`scrollWidth <= clientWidth`）
+- [x] 9.4.14 **幂等与重复提交（UI 层）**：双击「设为本书模型」→ 只发 1 次 PUT；双击「确认完成」→ 只发 1 次；AI 请求进行中点同一行 → 不并发重复发请求（`running` 态禁用）
+- [x] 9.4.15 **竞态**：AI 请求在途时切面板 → 结果**不写入已切走的面板**（无残留、无报错）；模型窗切换配置时旧请求返回不覆盖新选中
