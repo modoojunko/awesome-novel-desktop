@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createRef } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import GenreSettingForm, {
   type GenreHandle,
 } from "@/components/novel/settings/GenreSettingForm";
@@ -12,6 +12,13 @@ const apiState = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/api", () => ({ api: apiState, request: vi.fn() }));
+
+const aiState = vi.hoisted(() => ({ genreAi: vi.fn() }));
+
+vi.mock("@/lib/ai", () => ({
+  genreAi: aiState.genreAi,
+  aiBlockReason: (e: { reason?: string }) => e?.reason ?? null,
+}));
 
 function renderPanel(initial: unknown = {}) {
   apiState.get.mockImplementation((path: string) => {
@@ -157,5 +164,86 @@ describe("GenreSettingForm · 六格", () => {
     expect(screen.getByText("街口那条巷子 ×")).toBeTruthy();
     expect((container.querySelector('[data-od-id="track-input"]') as HTMLTextAreaElement).value)
       .toBe("每卷一个对手");
+  });
+});
+
+// ── 五行 AI（tasks 4.2）：反馈落各格下方，采纳才写回 ──────────────────────
+describe("GenreSettingForm · 五行 AI", () => {
+  beforeEach(() => {
+    apiState.get.mockReset();
+    apiState.put.mockReset();
+    apiState.put.mockResolvedValue({ ok: true });
+    aiState.genreAi.mockReset();
+  });
+
+  it("core_promise：sink 落在 02 格下方，采纳写回 value + note", async () => {
+    aiState.genreAi.mockResolvedValue({
+      value: { value: "以弱破强的痛快", note: "读者要看到弱者翻盘" },
+    });
+    const { ref, container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+
+    await act(async () => ref.current!.runAi("core_promise"));
+
+    const sink = container.querySelector('[data-od-id="genre-ai-sink-core_promise"]');
+    expect(sink).toBeTruthy();
+    expect(screen.getByText("AI 填 · 主要看什么")).toBeTruthy();
+    expect(aiState.genreAi).toHaveBeenCalledWith(
+      "core_promise",
+      expect.objectContaining({ title: "" }),
+      "p1",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
+    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+      .toBe("以弱破强的痛快");
+    expect(screen.getAllByText(/读者要看到弱者翻盘/).length).toBeGreaterThan(0);
+  });
+
+  it("cost_ratio：采纳后滑块与浮例句同步", async () => {
+    aiState.genreAi.mockResolvedValue({ value: 9 });
+    const { ref, container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+
+    await act(async () => ref.current!.runAi("cost_ratio"));
+    expect(screen.getByText(/建议 9 分/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
+    expect(screen.getByText("9 分 → 以命作祭，才封得住那扇门")).toBeTruthy();
+  });
+
+  it("battlefield：候选 tagId 采纳后落成已选胶囊", async () => {
+    aiState.genreAi.mockResolvedValue({
+      value: [{ tagId: "battlefield:resources" }, { text: "街口那条巷子" }],
+    });
+    const { ref, container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+
+    await act(async () => ref.current!.runAi("battlefield"));
+    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
+
+    expect(container.querySelector('[data-bf="battlefield:resources"]')?.className).toContain("on");
+    expect(screen.getByText("街口那条巷子 ×")).toBeTruthy();
+  });
+
+  it("track：采纳写回 06 文本框", async () => {
+    aiState.genreAi.mockResolvedValue({ value: "凡人流——每卷突破一个大境界" });
+    const { ref, container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+
+    await act(async () => ref.current!.runAi("track"));
+    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
+
+    expect((container.querySelector('[data-od-id="track-input"]') as HTMLTextAreaElement).value)
+      .toBe("凡人流——每卷突破一个大境界");
+  });
+
+  it("失败不落 sink（按 reason 分派提示）", async () => {
+    aiState.genreAi.mockRejectedValue({ reason: "missing_model" });
+    const { ref, container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+
+    await act(async () => ref.current!.runAi("track"));
+    expect(container.querySelector('[data-od-id="genre-ai-sink-track"]')).toBeNull();
   });
 });

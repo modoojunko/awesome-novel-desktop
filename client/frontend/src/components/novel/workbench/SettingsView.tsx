@@ -128,6 +128,43 @@ export default function SettingsView({
     [],
   );
 
+  // 题材右栏五行（02-06 各答各题；01 口味胶囊不走 AI）
+  const genreAiRows = useMemo<AiCapabilityRow[]>(
+    () => [
+      {
+        key: "m1",
+        name: "主要看什么",
+        desc: "本格问题：读者翻开这本书，主要看什么？输入：书名 + 简介（第一步已填）",
+        onClick: () => genreRef.current?.runAi("core_promise"),
+      },
+      {
+        key: "m2",
+        name: "绝对禁止",
+        desc: "本格问题：这本书绝不出现什么？输入：02 的承诺 + 简介（第一步）",
+        onClick: () => genreRef.current?.runAi("forbidden_list"),
+      },
+      {
+        key: "m3",
+        name: "吃苦指数",
+        desc: "本格问题：主角得到好处，要付多大代价？输入：02 的承诺 + 03 的禁项",
+        onClick: () => genreRef.current?.runAi("cost_ratio"),
+      },
+      {
+        key: "m4",
+        name: "主线战场",
+        desc: "本格问题：整本书主要斗什么？输入：02 的承诺 + 简介（第一步）",
+        onClick: () => genreRef.current?.runAi("battlefield"),
+      },
+      {
+        key: "m5",
+        name: "剧情轨道",
+        desc: "本格问题：整本书怎么走？输入：02-05 已填的全部内容",
+        onClick: () => genreRef.current?.runAi("track"),
+      },
+    ],
+    [],
+  );
+
   useEffect(() => {
     if (initialPanel) setPanel(normalizePanel(initialPanel));
   }, [initialPanel]);
@@ -315,6 +352,7 @@ export default function SettingsView({
                 projectId={projectId}
                 settingKey="genre"
                 onDirtyChange={handleDirtyChange}
+                novelName={novelName}
               />
             )}
             {panel === "intro" && (
@@ -408,6 +446,12 @@ export default function SettingsView({
           <AiWriterAssistant
             rows={introAiRows}
             footNote="输入：书名 + 简介本文（题材可后补）。结果统一落在简介框下方结果区，采纳才写回。"
+          />
+        ) : panel === "genre" ? (
+          <AiWriterAssistant
+            rows={genreAiRows}
+            footNote="点某行，AI 建议落到左侧对应格下方；采纳才写回，随时可改可重试。"
+            data-od-id="ai-assist-genre"
           />
         ) : panel === "arc" ? (
           <ArcWizard ctl={arcCtl} />

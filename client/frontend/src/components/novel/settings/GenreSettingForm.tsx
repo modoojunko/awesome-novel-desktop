@@ -15,6 +15,8 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useDirtyState } from "@/hooks/useDirtyState";
+import { genreAi, aiBlockReason, type GenreAiField } from "@/lib/ai";
+import AiSink from "./AiSink";
 import { type SettingSaveHandle } from "./FormField";
 import {
   GENRE_FLAVORS,
@@ -31,6 +33,8 @@ interface GenreSettingFormProps {
   projectId: string;
   settingKey: string;
   onDirtyChange?: (dirty: boolean) => void;
+  /** 本书书名——题材 AI 入参 title 的来源。 */
+  novelName?: string;
 }
 
 /** 题材面板句柄：save 落库；runAi 由右栏 AI 卡片调用（tasks 4.2）。 */
@@ -39,13 +43,7 @@ export type GenreHandle = SettingSaveHandle & {
   runAi: (field: GenreAiField) => void;
 };
 
-/** 题材五行 AI 的字段键（01 口味胶囊不走 AI）。 */
-export type GenreAiField =
-  | "core_promise"
-  | "forbidden_list"
-  | "cost_ratio"
-  | "battlefield"
-  | "track";
+export type { GenreAiField };
 
 export const GENRE_AI_FIELDS: GenreAiField[] = [
   "core_promise",
@@ -54,6 +52,15 @@ export const GENRE_AI_FIELDS: GenreAiField[] = [
   "battlefield",
   "track",
 ];
+
+/** 五行 AI 的字段 → 结果区标题（原型 ZONE_LABEL 同文案）。 */
+const AI_LABEL: Record<GenreAiField, string> = {
+  core_promise: "AI 填 · 主要看什么",
+  forbidden_list: "AI 填 · 绝对禁止",
+  cost_ratio: "AI 填 · 吃苦指数",
+  battlefield: "AI 填 · 主线战场",
+  track: "AI 填 · 剧情轨道",
+};
 
 // ── 契约数据形态 ─────────────────────────────────────────────────────────
 
@@ -159,7 +166,7 @@ function Mod({
 // ── Main ─────────────────────────────────────────────────────────────────
 
 const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function GenreSettingForm(
-  { projectId, settingKey, onDirtyChange },
+  { projectId, settingKey, onDirtyChange, novelName },
   ref,
 ) {
   const [loading, setLoading] = useState(true);
@@ -270,6 +277,92 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     });
   }, []);
 
+  // ── AI 结果区（tasks 4.2 / D14）：每格一个 sink，采纳才写回 ─────────
+  const [sinks, setSinks] = useState<
+    Partial<Record<GenreAiField, { label: string; node: React.ReactNode; adopt: () => void }>>
+  >({});
+  const [running, setRunning] = useState<GenreAiField | null>(null);
+
+  const runAi = useCallback(
+    (field: GenreAiField) => {
+      setRunning(field);
+      setSinks((prev) => ({ ...prev, [field]: undefined }));
+      const context: Record<string, unknown> = {
+        current:
+          field === "core_promise"
+            ? data.core_promise
+            : field === "forbidden_list"
+              ? data.forbidden_list
+              : field === "cost_ratio"
+                ? data.cost_ratio
+                : field === "battlefield"
+                  ? data.battlefield
+                  : data.track,
+        core_promise: data.core_promise,
+        forbidden_list: data.forbidden_list,
+        cost_ratio: data.cost_ratio,
+        battlefield: data.battlefield,
+      };
+      genreAi(field, { title: novelName ?? "", context }, projectId)
+        .then((r) => {
+          const v = r.value;
+          let node: React.ReactNode;
+          let adopt: () => void;
+          if (field === "core_promise") {
+            const { value, note } = v as { value: string; note: string };
+            node = (
+              <>
+                <p style={{ margin: "4px 0" }}>
+                  <b>{value}</b>
+                </p>
+                {note && <p style={{ margin: "4px 0", color: "var(--muted)" }}>{note}</p>}
+              </>
+            );
+            adopt = () => patch({ core_promise: value, promise_note: note });
+          } else if (field === "forbidden_list") {
+            const list = (v as Array<{ tagId?: string; text?: string }>) ?? [];
+            node = (
+              <p style={{ margin: 0 }}>
+                {list.map((x) => x.tagId ?? x.text).join(" · ") || "（没有建议）"}
+              </p>
+            );
+            adopt = () => patch({ forbidden_list: list });
+          } else if (field === "cost_ratio") {
+            const n = v as number;
+            node = <p style={{ margin: 0 }}>建议 {n} 分 —— {costSentence(n).split("→ ")[1]}</p>;
+            adopt = () => patch({ cost_ratio: n });
+          } else if (field === "battlefield") {
+            const list = (v as Array<{ tagId?: string; text?: string }>) ?? [];
+            const vals = list.map((x) => x.tagId ?? x.text ?? "").filter(Boolean);
+            node = <p style={{ margin: 0 }}>{vals.map(vocabLabel).join(" · ") || "（没有建议）"}</p>;
+            adopt = () => patch({ battlefield: vals });
+          } else {
+            const text = v as string;
+            node = <p style={{ margin: 0 }}>{text}</p>;
+            adopt = () => patch({ track: text });
+          }
+          setSinks((prev) => ({
+            ...prev,
+            [field]: { label: AI_LABEL[field], node, adopt },
+          }));
+        })
+        .catch((e: unknown) => {
+          const reason = aiBlockReason(e);
+          if (reason === "member_required") {
+            toast.info("AI 是会员功能，升级 PRO 后解锁");
+          } else if (reason === "no_key") {
+            toast.info("先去「模型配置」添加 API Key");
+          } else if (reason === "missing_model" || reason === "invalid") {
+            toast.info("先在本书选择模型");
+          } else {
+            toast.error((e as Error).message || "AI 暂不可用，请重试");
+          }
+        })
+        .finally(() => setRunning(null));
+    },
+    [data, novelName, projectId, patch],
+  );
+
   // ── 保存 ──────────────────────────────────────────────────────────
   const save = useCallback(async (): Promise<boolean> => {
     if (saving) return false;
@@ -287,7 +380,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     }
   }, [projectId, settingKey, data, saving, markSaved]);
 
-  useImperativeHandle(ref, () => ({ save, runAi: () => {} }), [save]);
+  useImperativeHandle(ref, () => ({ save, runAi }), [save, runAi]);
 
   if (loading) return <p className="opt">加载中…</p>;
 
@@ -353,6 +446,23 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             AI 补充读者预期：{data.promise_note}
           </p>
         )}
+        {running === "core_promise" && (
+          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
+        )}
+        {sinks.core_promise && (
+          <AiSink
+            label={sinks.core_promise!.label}
+            adoptText="采纳 · 覆盖"
+            onAdopt={() => {
+              sinks.core_promise!.adopt();
+              toast.success("已采纳，落回对应格，随时可改");
+            }}
+            onRetry={() => runAi("core_promise")}
+            data-od-id={`genre-ai-sink-core_promise`}
+          >
+            {sinks.core_promise!.node}
+          </AiSink>
+        )}
       </Mod>
 
       {/* 03 绝对禁止 → forbidden_list */}
@@ -412,6 +522,23 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             }}
           />
         </div>
+        {running === "forbidden_list" && (
+          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
+        )}
+        {sinks.forbidden_list && (
+          <AiSink
+            label={sinks.forbidden_list!.label}
+            adoptText="采纳 · 覆盖"
+            onAdopt={() => {
+              sinks.forbidden_list!.adopt();
+              toast.success("已采纳，落回对应格，随时可改");
+            }}
+            onRetry={() => runAi("forbidden_list")}
+            data-od-id={`genre-ai-sink-forbidden_list`}
+          >
+            {sinks.forbidden_list!.node}
+          </AiSink>
+        )}
       </Mod>
 
       {/* 04 吃苦指数 → cost_ratio */}
@@ -449,6 +576,23 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           <span>5 断骨毁名</span>
           <span>10 命抵江山</span>
         </div>
+        {running === "cost_ratio" && (
+          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
+        )}
+        {sinks.cost_ratio && (
+          <AiSink
+            label={sinks.cost_ratio!.label}
+            adoptText="采纳 · 覆盖"
+            onAdopt={() => {
+              sinks.cost_ratio!.adopt();
+              toast.success("已采纳，落回对应格，随时可改");
+            }}
+            onRetry={() => runAi("cost_ratio")}
+            data-od-id={`genre-ai-sink-cost_ratio`}
+          >
+            {sinks.cost_ratio!.node}
+          </AiSink>
+        )}
       </Mod>
 
       {/* 05 主线战场 → battlefield */}
@@ -493,6 +637,23 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             战场越多，主线越难聚焦，建议 1-2 个。
           </p>
         )}
+        {running === "battlefield" && (
+          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
+        )}
+        {sinks.battlefield && (
+          <AiSink
+            label={sinks.battlefield!.label}
+            adoptText="采纳 · 覆盖"
+            onAdopt={() => {
+              sinks.battlefield!.adopt();
+              toast.success("已采纳，落回对应格，随时可改");
+            }}
+            onRetry={() => runAi("battlefield")}
+            data-od-id={`genre-ai-sink-battlefield`}
+          >
+            {sinks.battlefield!.node}
+          </AiSink>
+        )}
       </Mod>
 
       {/* 06 剧情轨道 → track */}
@@ -517,6 +678,23 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           value={data.track}
           onChange={(e) => patch({ track: e.target.value })}
         />
+        {running === "track" && (
+          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
+        )}
+        {sinks.track && (
+          <AiSink
+            label={sinks.track!.label}
+            adoptText="采纳 · 覆盖"
+            onAdopt={() => {
+              sinks.track!.adopt();
+              toast.success("已采纳，落回对应格，随时可改");
+            }}
+            onRetry={() => runAi("track")}
+            data-od-id={`genre-ai-sink-track`}
+          >
+            {sinks.track!.node}
+          </AiSink>
+        )}
       </Mod>
 
       {error && (

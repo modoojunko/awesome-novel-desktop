@@ -16,10 +16,11 @@ const apiState = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({ api: apiState, request: vi.fn() }));
 
-const aiState = vi.hoisted(() => ({ introAi: vi.fn() }));
+const aiState = vi.hoisted(() => ({ introAi: vi.fn(), genreAi: vi.fn() }));
 
 vi.mock("@/lib/ai", () => ({
   introAi: aiState.introAi,
+  genreAi: aiState.genreAi,
   aiBlockReason: () => null,
 }));
 
@@ -78,6 +79,42 @@ describe("SettingsView · 简介面板句柄（回归）", () => {
       expect(aiState.introAi).toHaveBeenCalledWith(
         "introspect",
         expect.objectContaining({ title: "测试小说", content: "主角是个凡人。" }),
+        "p1",
+      ),
+    );
+  });
+});
+
+describe("SettingsView · 题材右栏五行", () => {
+  beforeEach(() => {
+    apiState.get.mockReset();
+    aiState.genreAi.mockReset();
+    apiState.get.mockResolvedValue({});
+    aiState.genreAi.mockResolvedValue({ value: "x" });
+  });
+
+  it("五行行存在，点「主线战场」经 genreRef.runAi 调 genreAi", async () => {
+    const { container } = render(
+      <SettingsView
+        projectId="p1"
+        initialPanel="genre"
+        settingsStatus={{}}
+        confirmedStatus={{}}
+        confirmSetting={vi.fn().mockResolvedValue(true)}
+        novelName="测试小说"
+      />,
+    );
+
+    await waitFor(() => expect(container.querySelector('[data-aiact="m4"]')).toBeTruthy());
+    for (const key of ["m1", "m2", "m3", "m4", "m5"]) {
+      expect(container.querySelector(`[data-aiact="${key}"]`)).toBeTruthy();
+    }
+    fireEvent.click(container.querySelector('[data-aiact="m4"]')!);
+
+    await waitFor(() =>
+      expect(aiState.genreAi).toHaveBeenCalledWith(
+        "battlefield",
+        expect.objectContaining({ title: "测试小说" }),
         "p1",
       ),
     );

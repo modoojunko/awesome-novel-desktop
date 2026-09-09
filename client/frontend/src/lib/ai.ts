@@ -214,6 +214,46 @@ export async function polishWritePrompt(
 }
 
 // ---------------------------------------------------------------------------
+// 题材五行 AI（genre-signup-redesign tasks 4.2 / D18）
+// ---------------------------------------------------------------------------
+
+/** 题材五行字段（01 口味胶囊不走 AI；promise_note 随 core_promise 出参）。 */
+export type GenreAiField =
+  | "core_promise"
+  | "forbidden_list"
+  | "cost_ratio"
+  | "battlefield"
+  | "track";
+
+/** 按字段强类型出参（与后端归一化后契约一致）。 */
+export interface GenreAiResult {
+  /** core_promise → {value, note}；forbidden_list → [{tagId|text}]；
+   *  cost_ratio → 1-10 数字；battlefield → string[]；track → 文本。 */
+  value:
+    | { value: string; note: string }
+    | Array<{ tagId?: string; text?: string }>
+    | number
+    | string[]
+    | string;
+}
+
+/**
+ * 题材字段 AI：POST /novels/{id}/settings/ai/genre/{field}
+ * - 走既有 `{stype}/{field}` 通道（后端仅 genre 特判 field 级 prompt）
+ * - 输入＝书名 + 简介 + 已填题材（后端自读），context 可传本格当前值
+ */
+export async function genreAi(
+  field: GenreAiField,
+  payload: { title: string; context?: Record<string, unknown> },
+  projectId: string,
+): Promise<GenreAiResult> {
+  return doJsonPost(
+    `${API_BASE}/novels/${projectId}/settings/ai/genre/${field}`,
+    { title: payload.title, context: payload.context ?? {} },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Outline AI draft (outline-ai-draft)
 // ---------------------------------------------------------------------------
 
