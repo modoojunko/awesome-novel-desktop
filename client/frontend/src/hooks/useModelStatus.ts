@@ -98,6 +98,15 @@ export function useModelStatus(projectId: string | undefined) {
     await fetchModel();
   };
 
+  /** 该配置的候选模型 id（端点不提供 /models 时的起点；不触网）。 */
+  const fetchCandidates = useCallback(async (configId: string) => {
+    const resp = await fetch(`${API_BASE}/api-configs/${configId}/model-candidates`, {
+      headers: authHeaders(),
+    });
+    if (!resp.ok) return { candidates: [] as string[], note: "" };
+    return (await resp.json()) as { candidates: string[]; note: string };
+  }, []);
+
   /** 给某个配置补模型 id（供应商不提供 /models 列表时的手动出口）。 */
   const addModelToConfig = useCallback(
     async (configId: string, modelId: string) => {
@@ -118,6 +127,7 @@ export function useModelStatus(projectId: string | undefined) {
     /** 补模型后刷新配置清单。 */
     refreshConfigs,
     addModelToConfig,
+    fetchCandidates,
     modelOptions,
     currentModel,
     currentConfigId,

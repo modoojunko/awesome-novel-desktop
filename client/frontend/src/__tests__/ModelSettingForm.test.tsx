@@ -55,6 +55,7 @@ function setState(patch: Record<string, unknown> = {}) {
     error: null,
     selectModel: vi.fn().mockResolvedValue(undefined),
     addModelToConfig: vi.fn().mockResolvedValue(undefined),
+    fetchCandidates: vi.fn().mockResolvedValue({ candidates: [], note: "" }),
     refresh: vi.fn(),
     refreshConfigs: vi.fn(),
     ...patch,
@@ -206,11 +207,16 @@ describe("ModelSettingForm · 状态与空态", () => {
     expect(screen.getByText(/新建配置/)).toBeTruthy();
   });
 
-  it("供应商没有模型列表时：该配置仍显示，并给手动补模型入口", () => {
+  it("供应商没有模型列表时：该配置仍显示 + 候选起点 + 手动入口", async () => {
+    const fetchCandidates = vi.fn().mockResolvedValue({
+      candidates: ["deepseek-v4-flash", "deepseek-v4-pro"],
+      note: "该端点不提供模型列表（Anthropic 兼容端点常见）",
+    });
     setState({
       aiState: "missing_model",
       hasKeys: true,
       modelOptions: [],
+      fetchCandidates,
       configs: [
         { id: "c9", name: "deepseek", vendor: "deepseek", last_test_status: "ok", models: [] },
       ],
@@ -218,8 +224,39 @@ describe("ModelSettingForm · 状态与空态", () => {
     const { container } = renderForm();
     // 关键回归：不能因为没有模型就把整个供应商藏起来
     expect(screen.getAllByText("deepseek").length).toBeGreaterThan(0);
-    expect(screen.getByText(/该配置没有模型列表/)).toBeTruthy();
     expect(container.querySelector('[data-manual="c9"]')).toBeTruthy();
+    // 候选与说明是异步拉取的（不触网）
+    await waitFor(() =>
+      expect(screen.getByText(/该端点不提供模型列表/)).toBeTruthy(),
+    );
+    await waitFor(() =>
+      expect(container.querySelector('[data-candidate="deepseek-v4-flash"]')).toBeTruthy(),
+    );
+  });
+
+  it("点候选即添加（不必手打）", async () => {
+    const addModelToConfig = vi.fn().mockResolvedValue(undefined);
+    setState({
+      aiState: "missing_model",
+      hasKeys: true,
+      modelOptions: [],
+      addModelToConfig,
+      fetchCandidates: vi.fn().mockResolvedValue({
+        candidates: ["deepseek-v4-flash"],
+        note: "n",
+      }),
+      configs: [
+        { id: "c9", name: "deepseek", vendor: "deepseek", last_test_status: "ok", models: [] },
+      ],
+    });
+    const { container } = renderForm();
+    await waitFor(() =>
+      expect(container.querySelector('[data-candidate="deepseek-v4-flash"]')).toBeTruthy(),
+    );
+    fireEvent.click(container.querySelector('[data-candidate="deepseek-v4-flash"]')!);
+    await waitFor(() =>
+      expect(addModelToConfig).toHaveBeenCalledWith("c9", "deepseek-v4-flash"),
+    );
   });
 
   it("手动补模型：调 addModelToConfig(cid, id) 并清空输入", async () => {
@@ -268,5 +305,23 @@ describe("ModelSettingForm · 重复提交（tasks 9.4.14）", () => {
     expect(selectModel).toHaveBeenCalledTimes(1);
     resolve();
     await waitFor(() => expect(selectModel).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("ModelSettingForm · 端点不提供模型列表的说明（9.1.4 补充）", () => {
+  it("空模型组显示「为什么不提供 + 怎么自动获取」的完整说明", async () => {
+    setState({
+      aiState: "missing_model",
+      hasKeys: true,
+      modelOptions: [],
+      fetchCandidates: vi.fn().mockResolvedValue({ candidates: [], note: "" }),
+      configs: [
+        { id: "c9", name: "deepseek", vendor: "deepseek", last_test_status: "ok", models: [] },
+      ],
+    });
+    renderForm();
+    expect(
+      screen.getByText(/该配置没有模型列表（部分供应商不提供）——手动填模型 id/),
+    ).toBeTruthy();
   });
 });

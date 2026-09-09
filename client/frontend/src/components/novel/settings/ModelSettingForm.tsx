@@ -53,12 +53,17 @@ export default function ModelSettingForm({
     loading,
     selectModel,
     addModelToConfig,
+    fetchCandidates,
   } = useModelStatus(projectId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   /** 手动补模型（供应商不提供 /models 列表时的出口）：config_id → 输入框值。 */
   const [manual, setManual] = useState<Record<string, string>>({});
   const [manualBusy, setManualBusy] = useState<string | null>(null);
+  /** 空模型配置的候选起点：config_id → { candidates, note }。 */
+  const [cands, setCands] = useState<
+    Record<string, { candidates: string[]; note: string }>
+  >({});
   /** draft＝已标亮未生效的 (config_id, model) 整对。 */
   const [draft, setDraft] = useState<{ cid: string; model: string } | null>(null);
   const rowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -116,9 +121,21 @@ export default function ModelSettingForm({
     [grouped],
   );
 
+  // 空模型配置：拉一次候选（端点不提供 /models 时的起点，不触网）
+  useEffect(() => {
+    for (const g of grouped) {
+      if (g.opts.length > 0 || cands[g.cid]) continue;
+      void fetchCandidates(g.cid).then((r) =>
+        setCands((prev) => ({ ...prev, [g.cid]: r })),
+      );
+    }
+    // grouped 每渲染重建，用其长度与 cid 列表做依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grouped.map((g) => g.cid).join(","), modelOptions.length]);
+
   const handleAddManual = useCallback(
-    async (cid: string) => {
-      const modelId = (manual[cid] ?? "").trim();
+    async (cid: string, explicit?: string) => {
+      const modelId = (explicit ?? manual[cid] ?? "").trim();
       if (!modelId || manualBusy) return;
       setManualBusy(cid);
       setError("");
@@ -228,8 +245,25 @@ export default function ModelSettingForm({
                   {opts.length === 0 && (
                     <div className="mg-empty">
                       <span className="opt" style={{ fontSize: 12 }}>
-                        该配置没有模型列表（部分供应商不提供）——手动填模型 id
+                        {cands[cid]?.note ||
+                          "该配置没有模型列表（部分供应商不提供）——手动填模型 id"}
                       </span>
+                      {(cands[cid]?.candidates?.length ?? 0) > 0 && (
+                        <div className="mg-cands">
+                          {cands[cid]!.candidates.map((m) => (
+                            <button
+                              key={m}
+                              className="cap"
+                              type="button"
+                              data-candidate={m}
+                              disabled={manualBusy === cid}
+                              onClick={() => void handleAddManual(cid, m)}
+                            >
+                              + {m}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       <div className="mg-add">
                         <input
                           className="input"

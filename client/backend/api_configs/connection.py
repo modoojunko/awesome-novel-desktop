@@ -19,6 +19,25 @@ CONNECTION_TEST_TIMEOUT = int(os.environ.get("API_CONFIG_TEST_TIMEOUT", "10"))
 # 降级探活请求的占位 model：仅验证鉴权与可达性，端点校验 model 在鉴权之后
 _ANTHROPIC_PROBE_MODEL = "claude-sonnet-4-20250514"
 
+# 「端点不提供 /models」时的候选起点（按 vendor）。
+# 只放**实测可用**的 id（deepseek 2026-09-09 实测：anthropic 兼容端点 404、
+# openai 端点 200 返回这三个）；没有把握的 vendor 留空 → 前端只给手动输入。
+# 候选**不自动写库**（用户点选才落 models），避免把猜测值塞进配置。
+VENDOR_MODEL_CANDIDATES: dict[str, list[str]] = {
+    "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-vision-exp"],
+}
+
+# 端点不提供模型列表时的统一说明（连接成功但列表为空的原因）
+NO_MODEL_LIST_NOTE = (
+    "该端点不提供模型列表（Anthropic 兼容端点常见）——可手动填模型 id，"
+    "或把接口格式改成 openai 后重新测试即可自动获取"
+)
+
+
+def model_candidates_for(vendor_id: str) -> list[str]:
+    """该 vendor 的候选模型 id（可能为空；不触网）。"""
+    return list(VENDOR_MODEL_CANDIDATES.get(vendor_id, []))
+
 
 async def test_connection(
     vendor_id: str,
@@ -65,7 +84,14 @@ async def test_connection(
                         "models": None,
                         "error": f"认证失败 (HTTP {resp.status_code}){detail}",
                     }
-                return {"ok": True, "status": "ok", "models": [], "error": None}
+                return {
+                    "ok": True,
+                    "status": "ok",
+                    "models": [],
+                    "error": None,
+                    "candidates": model_candidates_for(vendor_id),
+                    "note": NO_MODEL_LIST_NOTE,
+                }
     except httpx.TimeoutException:
         return {"ok": False, "status": "timeout", "models": None, "error": "连接超时"}
     except httpx.ConnectError:

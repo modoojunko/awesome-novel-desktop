@@ -146,12 +146,14 @@ async def _make_novel(
         return novel.id
 
 
-async def _make_config(models: list[str] | None = None, key: str = "sk-x") -> str:
+async def _make_config(
+    models: list[str] | None = None, key: str = "sk-x", vendor: str = "openai"
+) -> str:
     async with async_session() as session:
         cfg = ApiConfig(
             user_id=USER_ID,
             name=f"cfg-{uuid.uuid4().hex[:6]}",
-            vendor="openai",
+            vendor=vendor,
             api_key=key,
             base_url="https://api.example.com",
             models=json.dumps(models) if models is not None else None,
@@ -686,3 +688,74 @@ class TestManualModels:
             json={"models": [f"m{i}" for i in range(101)]},
         )
         assert r.status_code == 422, r.text
+
+
+# ── 「端点不提供 /models」的候选兜底（anthropic 兼容端点常见）──────────────
+
+
+class TestModelCandidates:
+    def test_candidates_endpoint_returns_vendor_list(self, client):
+        cid = _run_async(_make_config(None, vendor="deepseek"))
+        r = client.get(f"/api/v1/api-configs/{cid}/model-candidates")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["candidates"] == [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "deepseek-v4-flash-vision-exp",
+        ]
+        assert "不提供模型列表" in body["note"]
+
+    def test_candidates_unknown_vendor_empty(self, client):
+        cid = _run_async(_make_config(None))
+        # 默认 vendor 是 openai → 无候选（有 /models 的 vendor 不需要兜底）
+        assert client.get(f"/api/v1/api-configs/{cid}/model-candidates").json()[
+            "candidates"
+        ] == []
+
+    def test_candidates_missing_config_404(self, client):
+        r = client.get("/api/v1/api-configs/nope/model-candidates")
+        assert r.status_code == 404
+
+    def test_anthropic_404_fallback_carries_candidates(self, monkeypatch):
+        """anthropic 端点 /models 404 → 降级探活成功时带候选与说明（不写库）。"""
+        from api_configs import connection as conn
+
+        class _Resp:
+            def __init__(self, code, payload=None):
+                self.status_code = code
+                self._payload = payload or {}
+                self.text = ""
+
+            def json(self):
+                return self._payload
+
+        calls: list[tuple[str, str]] = []
+
+        class _Client:
+            def __init__(self, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def get(self, url, headers=None):
+                calls.append(("GET", url))
+                return _Resp(404)
+
+            async def post(self, url, headers=None, json=None):
+                calls.append(("POST", url))
+                return _Resp(200)
+
+        monkeypatch.setattr(conn.httpx, "AsyncClient", _Client)
+        out = _run_async(
+            conn.test_connection("deepseek", "sk-x", "https://api.deepseek.com/anthropic", "anthropic")
+        )
+        assert out["ok"] is True
+        assert out["models"] == []
+        assert out["candidates"][0] == "deepseek-v4-flash"
+        assert "不提供模型列表" in out["note"]
+        assert calls[0][1].endswith("/v1/models") and calls[1][1].endswith("/v1/messages")

@@ -550,3 +550,6 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .model-group .mg-empty { display: flex; flex-direction: column; gap: 8px; padding: 6px 2px 2px; }
 .settings-v .model-group .mg-add { display: flex; gap: 8px; align-items: center; }
 .settings-v .model-group .mg-add .input { flex: 1; min-width: 0; }
+
+/* 空模型配置的候选起点（端点不提供 /models 时点一下即添加） */
+.settings-v .model-group .mg-cands { display: flex; flex-wrap: wrap; gap: 8px; }
