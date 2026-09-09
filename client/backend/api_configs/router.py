@@ -209,6 +209,8 @@ async def update_config(
         updates["vendor_override"] = body.vendor_override
     if body.api_format is not None:
         updates["api_format"] = body.api_format
+    if body.models is not None:
+        updates["models"] = body.models
 
     try:
         result = await update_api_config(db, _user_id(user), config_id, updates)

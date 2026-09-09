@@ -52,9 +52,13 @@ export default function ModelSettingForm({
     hasKeys,
     loading,
     selectModel,
+    addModelToConfig,
   } = useModelStatus(projectId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  /** 手动补模型（供应商不提供 /models 列表时的出口）：config_id → 输入框值。 */
+  const [manual, setManual] = useState<Record<string, string>>({});
+  const [manualBusy, setManualBusy] = useState<string | null>(null);
   /** draft＝已标亮未生效的 (config_id, model) 整对。 */
   const [draft, setDraft] = useState<{ cid: string; model: string } | null>(null);
   const rowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -69,28 +73,28 @@ export default function ModelSettingForm({
     setDraft({ cid, model });
   }, []);
 
-  // 分组（按 api_config_id；组头取配置元数据）
+  // 分组：以**配置**为组（含没有模型列表的配置——供应商不提供 /models 时
+  // 也要让用户看见并手动补，否则会被误判成「只配了一个供应商」）
   const grouped = useMemo(() => {
-    const map = new Map<string, typeof modelOptions>();
+    const byConfig = new Map<string, typeof modelOptions>();
     for (const opt of modelOptions) {
-      const list = map.get(opt.api_config_id) ?? [];
+      const list = byConfig.get(opt.api_config_id) ?? [];
       list.push(opt);
-      map.set(opt.api_config_id, list);
+      byConfig.set(opt.api_config_id, list);
     }
-    return [...map.entries()];
-  }, [modelOptions]);
-
-  const configOf = useCallback(
-    (cid: string) => configs.find((c) => c.id === cid),
-    [configs],
-  );
+    return configs.map((c) => ({
+      cid: c.id,
+      name: c.name,
+      vendor: c.vendor,
+      lastTest: c.last_test_status,
+      opts: byConfig.get(c.id) ?? [],
+    }));
+  }, [configs, modelOptions]);
 
   /** 键盘导航（roving tabindex + 方向键环绕 + Home/End；选中不可 toggle-off）。 */
   const onRowKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLButtonElement>, flatIndex: number) => {
-      const flat = grouped.flatMap(([cid, opts]) =>
-        opts.map((o) => ({ cid, model: o.model })),
-      );
+      const flat = grouped.flatMap((g) => g.opts.map((o) => ({ cid: g.cid, model: o.model })));
       const go = (idx: number) => {
         const next = flat[(idx + flat.length) % flat.length];
         rowRefs.current[`${next.cid}::${next.model}`]?.focus();
@@ -110,6 +114,24 @@ export default function ModelSettingForm({
       }
     },
     [grouped],
+  );
+
+  const handleAddManual = useCallback(
+    async (cid: string) => {
+      const modelId = (manual[cid] ?? "").trim();
+      if (!modelId || manualBusy) return;
+      setManualBusy(cid);
+      setError("");
+      try {
+        await addModelToConfig(cid, modelId);
+        setManual((prev) => ({ ...prev, [cid]: "" }));
+      } catch (e) {
+        setError((e as Error).message || "添加失败");
+      } finally {
+        setManualBusy(null);
+      }
+    },
+    [manual, manualBusy, addModelToConfig],
   );
 
   const handleApply = useCallback(async () => {
@@ -145,8 +167,6 @@ export default function ModelSettingForm({
       ? `${currentConfigName} · ${currentModel}`
       : aiMessage || "AI 暂不可用";
   const needNewConfig = aiState === "invalid" && !hasKeys;
-  // 空态：有 Key 但没有任何可选模型（配置里 models 为空）
-  const noModels = hasKeys && modelOptions.length === 0;
 
   let flatIndex = -1;
 
@@ -184,15 +204,7 @@ export default function ModelSettingForm({
         )}
       </div>
 
-      {noModels && (
-        <div className="field">
-          <span className="opt" style={{ fontSize: 12, color: "var(--muted)" }}>
-            配置里还没有模型——<a href="#/config">去「模型配置」测试连接补模型</a>
-          </span>
-        </div>
-      )}
-
-      {modelOptions.length > 0 && (
+      {configs.length > 0 && (
         <div className="field">
           <label>
             选择模型
@@ -201,19 +213,50 @@ export default function ModelSettingForm({
             </span>
           </label>
           <div role="radiogroup" aria-label="本书模型" className="model-groups">
-            {grouped.map(([cid, opts]) => {
-              const cfg = configOf(cid);
-              const conn = connBadge(cfg?.last_test_status);
+            {grouped.map(({ cid, name, vendor, lastTest, opts }) => {
+              const conn = connBadge(lastTest);
               return (
                 <div className="model-group" key={cid}>
                   <div className="mg-head">
-                    <span className="mg-name">{opts[0].config_name}</span>
-                    <span className="mg-vendor">{opts[0].vendor}</span>
+                    <span className="mg-name">{name}</span>
+                    <span className="mg-vendor">{vendor}</span>
                     <span className={`badge ${conn.cls}`}>
                       <BadgeIcon ok={conn.cls === "ok"} />
                       {conn.label}
                     </span>
                   </div>
+                  {opts.length === 0 && (
+                    <div className="mg-empty">
+                      <span className="opt" style={{ fontSize: 12 }}>
+                        该配置没有模型列表（部分供应商不提供）——手动填模型 id
+                      </span>
+                      <div className="mg-add">
+                        <input
+                          className="input"
+                          placeholder="例如 deepseek-chat"
+                          value={manual[cid] ?? ""}
+                          data-manual={cid}
+                          onChange={(e) =>
+                            setManual((prev) => ({ ...prev, [cid]: e.target.value }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void handleAddManual(cid);
+                            }
+                          }}
+                        />
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          type="button"
+                          disabled={!manual[cid]?.trim() || manualBusy === cid}
+                          onClick={() => void handleAddManual(cid)}
+                        >
+                          {manualBusy === cid ? "添加中…" : "添加模型"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {opts.map((o) => {
                     flatIndex += 1;
                     const idx = flatIndex;

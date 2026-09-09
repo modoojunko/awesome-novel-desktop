@@ -61,6 +61,8 @@ class UpdateApiConfigBody(BaseModel):
     api_key: str | None = None
     vendor_override: str | None = None
     api_format: ApiFormat | None = None
+    # 手动补模型清单（部分 Anthropic 兼容端点不提供 /models 列表）
+    models: list[str] | None = None
 
 
 class SetAiModelBody(BaseModel):

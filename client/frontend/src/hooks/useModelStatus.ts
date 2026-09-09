@@ -11,7 +11,7 @@ function authHeaders(): Record<string, string> {
 }
 
 export function useModelStatus(projectId: string | undefined) {
-  const { configs, loading: configsLoading } = useApiConfigs();
+  const { configs, loading: configsLoading, updateConfig, refresh: refreshConfigs } = useApiConfigs();
   const [currentConfigId, setCurrentConfigId] = useState<string | null>(null);
   const [currentConfigName, setCurrentConfigName] = useState<string | null>(null);
   const [currentModel, setCurrentModel] = useState<string | null>(null);
@@ -98,12 +98,26 @@ export function useModelStatus(projectId: string | undefined) {
     await fetchModel();
   };
 
+  /** 给某个配置补模型 id（供应商不提供 /models 列表时的手动出口）。 */
+  const addModelToConfig = useCallback(
+    async (configId: string, modelId: string) => {
+      const cfg = configs.find((c) => c.id === configId);
+      const next = [...(cfg?.models ?? []), modelId];
+      await updateConfig(configId, { models: next });
+      await refreshConfigs();
+    },
+    [configs, updateConfig, refreshConfigs],
+  );
+
   return {
     status,
     aiState,
     aiMessage,
     /** 配置列表（卡片分组头：名称/供应商/连接状态徽标）。 */
     configs,
+    /** 补模型后刷新配置清单。 */
+    refreshConfigs,
+    addModelToConfig,
     modelOptions,
     currentModel,
     currentConfigId,

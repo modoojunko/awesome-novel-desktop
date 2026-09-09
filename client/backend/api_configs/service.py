@@ -158,11 +158,26 @@ async def update_api_config(
         if existing.scalar_one_or_none():
             raise ValueError("名称已被使用")
 
+    # models 是 JSON 文本列：手动写入须归一化（去空白/去重保序/上限）后序列化
+    if updates.get("models") is not None:
+        raw = updates["models"]
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for m in raw:
+            name = m.strip() if isinstance(m, str) else ""
+            if name and name not in seen:
+                seen.add(name)
+                cleaned.append(name)
+        if len(cleaned) > 100:
+            raise ValueError("模型数量过多（上限 100）")
+        updates["models"] = json.dumps(cleaned, ensure_ascii=False)
+        updates["models_updated_at"] = datetime.now(UTC)
+
     # Apply updates
     old_api_format = config.api_format
     if "api_key" in updates:
         updates["api_key"] = encrypt_api_key(updates["api_key"])
-    for field in ("name", "api_key", "vendor_override", "models", "api_format"):
+    for field in ("name", "api_key", "vendor_override", "models", "models_updated_at", "api_format"):
         if field in updates:
             setattr(config, field, updates[field])
 

@@ -545,3 +545,8 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 
 /* ── 简介输入框控件规格（tasks 9.1.0：与原型 .intro-ta 逐项对齐）── */
 .settings-v .intro-ta { min-height: 132px; font-size: 14px; line-height: 1.9; border-radius: 9px; }
+
+/* 空模型配置组：提示 + 手动补模型 id（供应商不提供 /models 列表时的出口） */
+.settings-v .model-group .mg-empty { display: flex; flex-direction: column; gap: 8px; padding: 6px 2px 2px; }
+.settings-v .model-group .mg-add { display: flex; gap: 8px; align-items: center; }
+.settings-v .model-group .mg-add .input { flex: 1; min-width: 0; }

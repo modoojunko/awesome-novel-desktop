@@ -54,7 +54,9 @@ function setState(patch: Record<string, unknown> = {}) {
     loading: false,
     error: null,
     selectModel: vi.fn().mockResolvedValue(undefined),
+    addModelToConfig: vi.fn().mockResolvedValue(undefined),
     refresh: vi.fn(),
+    refreshConfigs: vi.fn(),
     ...patch,
   };
 }
@@ -204,15 +206,41 @@ describe("ModelSettingForm · 状态与空态", () => {
     expect(screen.getByText(/新建配置/)).toBeTruthy();
   });
 
-  it("空态：有 Key 但配置里没有模型 → 引导去补模型", () => {
+  it("供应商没有模型列表时：该配置仍显示，并给手动补模型入口", () => {
     setState({
       aiState: "missing_model",
       hasKeys: true,
       modelOptions: [],
-      configs: [],
+      configs: [
+        { id: "c9", name: "deepseek", vendor: "deepseek", last_test_status: "ok", models: [] },
+      ],
     });
-    renderForm();
-    expect(screen.getByText(/配置里还没有模型/)).toBeTruthy();
+    const { container } = renderForm();
+    // 关键回归：不能因为没有模型就把整个供应商藏起来
+    expect(screen.getAllByText("deepseek").length).toBeGreaterThan(0);
+    expect(screen.getByText(/该配置没有模型列表/)).toBeTruthy();
+    expect(container.querySelector('[data-manual="c9"]')).toBeTruthy();
+  });
+
+  it("手动补模型：调 addModelToConfig(cid, id) 并清空输入", async () => {
+    const addModelToConfig = vi.fn().mockResolvedValue(undefined);
+    setState({
+      aiState: "missing_model",
+      hasKeys: true,
+      modelOptions: [],
+      addModelToConfig,
+      configs: [
+        { id: "c9", name: "deepseek", vendor: "deepseek", last_test_status: "ok", models: [] },
+      ],
+    });
+    const { container } = renderForm();
+    const input = container.querySelector('[data-manual="c9"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "deepseek-chat" } });
+    fireEvent.click(screen.getByRole("button", { name: "添加模型" }));
+    await waitFor(() =>
+      expect(addModelToConfig).toHaveBeenCalledWith("c9", "deepseek-chat"),
+    );
+    expect(input.value).toBe("");
   });
 
   it("loading 态显示查询中", () => {

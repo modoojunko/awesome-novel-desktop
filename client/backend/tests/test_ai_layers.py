@@ -644,3 +644,45 @@ class TestSetModelIdempotency:
                 return len(res.scalars().all())
 
         assert _run_async(_count()) == 2
+
+
+# ── 手动补模型（供应商不提供 /models 列表时的出口）───────────────────────────
+
+
+class TestManualModels:
+    def test_put_models_writes_json_text(self, client):
+        cid = _run_async(_make_config(None))
+        r = client.put(
+            f"/api/v1/api-configs/{cid}",
+            json={"models": ["deepseek-chat", " deepseek-chat ", "deepseek-reasoner"]},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["models"] == ["deepseek-chat", "deepseek-reasoner"]
+        # 落库是 JSON 文本（列是 Text），且判定层能解析
+        cfg = _run_async(_get_config(cid))
+        assert json.loads(cfg.models) == ["deepseek-chat", "deepseek-reasoner"]
+
+    def test_manual_models_enable_binding(self, client):
+        """补完模型后即可绑定本书（原本空列表会 400）。"""
+        cid = _run_async(_make_config(None))
+        nid = _run_async(_make_novel())
+        r = client.put(
+            f"/api/v1/novels/{nid}/ai-model",
+            json={"api_config_id": cid, "model": "deepseek-chat"},
+        )
+        assert r.status_code == 400, r.text  # 空列表先拒
+
+        client.put(f"/api/v1/api-configs/{cid}", json={"models": ["deepseek-chat"]})
+        r2 = client.put(
+            f"/api/v1/novels/{nid}/ai-model",
+            json={"api_config_id": cid, "model": "deepseek-chat"},
+        )
+        assert r2.status_code == 200, r2.text
+
+    def test_models_over_100_rejected(self, client):
+        cid = _run_async(_make_config(None))
+        r = client.put(
+            f"/api/v1/api-configs/{cid}",
+            json={"models": [f"m{i}" for i in range(101)]},
+        )
+        assert r.status_code == 422, r.text
