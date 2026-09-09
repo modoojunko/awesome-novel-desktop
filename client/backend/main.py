@@ -8,9 +8,10 @@ from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 import brand
 import models  # noqa: F401
@@ -442,6 +443,27 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=f"{brand.BRAND_NAME} (Local)", version="0.2.0", lifespan=lifespan)
+
+
+@app.exception_handler(OperationalError)
+async def _storage_busy_handler(request, exc):
+    """本地库瞬时 I/O 错误 → 503 可重试（不裸 500）。
+
+    桌面端数据目录在宿主/容器共享挂载上时，外部程序触碰该目录可能让 SQLite
+    短暂报 `disk I/O error`；这是瞬时态，给前端可重试的明确信号与文案。
+    """
+    if "disk I/O error" not in str(exc) and "database is locked" not in str(exc):
+        raise exc
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": {
+                "reason": "storage_busy",
+                "message": "本地数据文件暂时不可读（可能被外部程序占用），请重试",
+            }
+        },
+    )
+
 
 app.add_middleware(
     CORSMiddleware,

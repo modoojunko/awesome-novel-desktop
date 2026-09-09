@@ -83,8 +83,10 @@ export async function request(
     } catch {
       /* infra 级 503 响应体非 JSON（云托管冷启动） */
     }
-    // AI 前置的 no_key / missing_model 是可操作引导，不是服务不可用——不进 infra 全局提示
-    const isAiPrecondition = reason === "no_key" || reason === "missing_model";
+    // AI 前置的 no_key / missing_model 是可操作引导，不是服务不可用——不进 infra 全局提示；
+    // storage_busy 是本地库瞬时 I/O 错误，由面板就地重试，也不弹「云端唤醒中」
+    const isAiPrecondition =
+      reason === "no_key" || reason === "missing_model" || reason === "storage_busy";
     if (!isAiPrecondition && !options?.quiet && !options?.soft503) {
       notify503(detail.includes("未配置") ? "app" : "infra");
     }

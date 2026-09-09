@@ -759,3 +759,46 @@ class TestModelCandidates:
         assert out["candidates"][0] == "deepseek-v4-flash"
         assert "不提供模型列表" in out["note"]
         assert calls[0][1].endswith("/v1/models") and calls[1][1].endswith("/v1/messages")
+
+
+# ── 本地库瞬时 I/O 错误 → 503 storage_busy（不裸 500）──────────────────────
+
+
+class TestStorageBusyHandler:
+    def test_disk_io_error_maps_to_503(self):
+        import asyncio
+        import json as _json
+
+        from sqlalchemy.exc import OperationalError
+
+        from main import _storage_busy_handler
+
+        exc = OperationalError("SELECT 1", {}, Exception("disk I/O error"))
+        resp = asyncio.run(_storage_busy_handler(None, exc))
+        assert resp.status_code == 503
+        body = _json.loads(resp.body)
+        assert body["detail"]["reason"] == "storage_busy"
+        assert "暂时不可读" in body["detail"]["message"]
+
+    def test_locked_also_maps(self):
+        import asyncio
+
+        from sqlalchemy.exc import OperationalError
+
+        from main import _storage_busy_handler
+
+        exc = OperationalError("SELECT 1", {}, Exception("database is locked"))
+        resp = asyncio.run(_storage_busy_handler(None, exc))
+        assert resp.status_code == 503
+
+    def test_other_operational_error_reraises(self):
+        import asyncio
+
+        import pytest
+        from sqlalchemy.exc import OperationalError
+
+        from main import _storage_busy_handler
+
+        exc = OperationalError("SELECT 1", {}, Exception("no such table: x"))
+        with pytest.raises(OperationalError):
+            asyncio.run(_storage_busy_handler(None, exc))

@@ -152,3 +152,21 @@ describe("request() 503 · 对象 detail 分流", () => {
     expect(toastMock.info).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── storage_busy：本地库瞬时 I/O 错误 → 不进 infra 全局提示（就地重试）──────
+describe("request() 503 · storage_busy", () => {
+  it("不弹「云端唤醒中」，透传 reason + 可读文案", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        res503(OBJ_BODY("storage_busy", "本地数据文件暂时不可读（可能被外部程序占用），请重试")),
+      ),
+    );
+    const err = await request("/api/v1/novels/p1/model-history").catch((e) => e);
+    expect(err.status).toBe(503);
+    expect(err.reason).toBe("storage_busy");
+    expect(err.message).toContain("暂时不可读");
+    expect(toastMock.info).not.toHaveBeenCalled();
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+});
