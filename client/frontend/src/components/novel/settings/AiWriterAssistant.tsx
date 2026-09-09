@@ -1,5 +1,6 @@
 import { useFeature } from "@/hooks/useTier";
 import { toast } from "@/lib/toast";
+import type { AiState } from "@/types/api-config";
 
 /**
  * AI 写作助手卡片（genre-signup-redesign tasks 3.2 / D4）。
@@ -29,24 +30,43 @@ export interface AiWriterAssistantProps {
   /** 底部来源/去向声明。 */
   footNote: string;
   title?: string;
+  /**
+   * 后端判定层下发的本书 AI 就绪态（D13）。传了就**只读它**做一次分派
+   * （不再 useFeature + ai_state 两处判）；不传则退回 tier 门控（兼容旧调用方）。
+   */
+  aiState?: AiState;
+  /** 被前置拦下时的跳转（如去模型配置 / 去选模型）；不传则只弹提示。 */
+  onBlocked?: (reason: AiState) => void;
   "data-od-id"?: string;
 }
+
+const BLOCK_TEXT: Record<string, string> = {
+  member_required: "这是会员功能，升级 PRO 后解锁——免费版写作能力完整",
+  no_key: "先去「模型配置」添加 API Key",
+  missing_model: "先在本书选择模型",
+  invalid: "本书绑定的模型已失效，重新选择模型",
+};
 
 export default function AiWriterAssistant({
   rows,
   footNote,
   title = "AI 写作助手",
+  aiState,
+  onBlocked,
   "data-od-id": odId = "ai-assist",
 }: AiWriterAssistantProps) {
   const unlocked = useFeature("settings-ai-fields");
-  const locked = !unlocked;
+  // aiState 提供时以它为准（同一事实源）；未提供才退回 tier 门控
+  const state: AiState = aiState ?? (unlocked ? "ready" : "member_required");
+  const locked = state === "member_required";
 
   const guard = (fn: () => void) => () => {
-    if (locked) {
-      toast.info("这是会员功能，升级 PRO 后解锁——免费版写作能力完整");
+    if (state === "ready") {
+      fn();
       return;
     }
-    fn();
+    if (onBlocked) onBlocked(state);
+    else toast.info(BLOCK_TEXT[state] ?? "AI 暂不可用");
   };
 
   return (
@@ -58,7 +78,9 @@ export default function AiWriterAssistant({
           <span>
             {locked
               ? "未解锁 · 升级 PRO 后本书 AI 即可用"
-              : "已解锁 · 包含在你的 PRO 套餐（Max 同享）· 只加工你写的，不代写"}
+              : state === "ready"
+                ? "已解锁 · 包含在你的 PRO 套餐（Max 同享）· 只加工你写的，不代写"
+                : BLOCK_TEXT[state]}
           </span>
         </div>
       </div>

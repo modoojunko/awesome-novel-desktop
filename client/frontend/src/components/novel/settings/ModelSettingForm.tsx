@@ -23,7 +23,18 @@ function BadgeIcon({ ok }: { ok: boolean }) {
 }
 
 export default function ModelSettingForm({ projectId }: ModelSettingFormProps) {
-  const { status, modelOptions, currentModel, currentConfigId, currentConfigName, hasKeys, loading, selectModel } = useModelStatus(projectId);
+  const {
+    status,
+    aiState,
+    aiMessage,
+    modelOptions,
+    currentModel,
+    currentConfigId,
+    currentConfigName,
+    hasKeys,
+    loading,
+    selectModel,
+  } = useModelStatus(projectId);
   const [saving, setSaving] = useState(false);
 
   const handleSelect = useCallback(async (apiConfigId: string, model: string) => {
@@ -40,22 +51,23 @@ export default function ModelSettingForm({ projectId }: ModelSettingFormProps) {
   if (!projectId) return null;
   if (loading) return <p className="opt">查询中…</p>;
 
+  // 徽标/文案由后端 ai_state 投影（D13/D15），不再前端推导
   const badge =
-    status === "configured"
+    aiState === "ready"
       ? { cls: "ok", label: "可用", ok: true }
-      : status === "invalid"
+      : aiState === "invalid"
         ? { cls: "err", label: "配置失效", ok: false }
-        : status === "no_model"
+        : aiState === "missing_model"
           ? { cls: "empty", label: "未选择", ok: false }
-          : { cls: "empty", label: "未配置", ok: false };
+          : aiState === "member_required"
+            ? { cls: "empty", label: "需会员", ok: false }
+            : { cls: "empty", label: "未配置", ok: false };
   const statusText =
-    status === "configured"
+    aiState === "ready"
       ? `${currentConfigName} · ${currentModel}`
-      : status === "invalid"
-        ? "当前绑定的 API 配置已删除，请重新选择模型"
-        : status === "no_model"
-          ? "已有可用 Key，还未为本书选择模型"
-          : "暂无可用 API Key";
+      : aiMessage || "AI 暂不可用";
+  // O-7 不死路：失效且没有任何可用配置 → 给「新建配置」入口
+  const needNewConfig = aiState === "invalid" && !hasKeys;
 
   // 按 API 配置分组（optgroup 标签 = 配置名）；value 用 cid::model 复合编码
   const grouped: Record<string, typeof modelOptions> = {};
@@ -76,9 +88,16 @@ export default function ModelSettingForm({ projectId }: ModelSettingFormProps) {
           </span>
           <span className="opt" style={{ fontWeight: 400 }}>{statusText}</span>
         </div>
-        {status === "no_key" && (
+        {(aiState === "no_key" || aiState === "member_required") && (
           <span className="opt" style={{ fontSize: 12, color: "var(--muted)" }}>
-            暂无可用 API Key，<a href="#/config">去配置</a>
+            {aiState === "member_required" ? "升级 PRO 后本书 AI 即可用" : "去「模型配置」添加 API Key"}
+            <a href="#/config"> 去配置</a>
+          </span>
+        )}
+        {needNewConfig && (
+          <span className="opt" style={{ fontSize: 12, color: "var(--muted)" }}>
+            当前绑定的 API 配置已删除，且没有其他可用配置——
+            <a href="#/config">去「模型配置」新建配置</a>
           </span>
         )}
       </div>

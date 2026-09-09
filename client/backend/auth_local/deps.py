@@ -100,7 +100,12 @@ async def require_novel_model(
     `detail={reason, message}`，reason 与前端 `ai_state` 共用同一枚举；
     `reason=missing_model` 是前置未满足，**不可当瞬时故障重试**。
     """
-    from ai_state import compute_ai_state, state_message, user_has_ai_key
+    from ai_state import (
+        compute_ai_state,
+        no_key_message,
+        state_message,
+        user_has_ai_key,
+    )
 
     result = await db.execute(
         select(Novel).where(Novel.id == project_id, Novel.user_id == user["id"])
@@ -117,9 +122,8 @@ async def require_novel_model(
     if state == "ready":
         return True
 
-    raise HTTPException(
-        503, detail={"reason": state, "message": state_message(state)}
-    )
+    message = no_key_message(config) if state == "no_key" else state_message(state)
+    raise HTTPException(503, detail={"reason": state, "message": message})
 
 
 async def require_project_limit(

@@ -59,3 +59,45 @@ describe("AiWriterAssistant", () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 });
+
+describe("AiWriterAssistant · ai_state 一次分派（D13）", () => {
+  it("aiState=ready 时直接执行能力", () => {
+    const onClick = vi.fn();
+    render(
+      <AiWriterAssistant
+        rows={[{ key: "check", name: "体检", desc: "x", onClick }]}
+        footNote="x"
+        aiState="ready"
+      />,
+    );
+    fireEvent.click(screen.getByText("体检"));
+    expect(onClick).toHaveBeenCalled();
+  });
+
+  it("aiState=no_key → onBlocked('no_key')，能力不执行", () => {
+    const onClick = vi.fn();
+    const onBlocked = vi.fn();
+    render(
+      <AiWriterAssistant
+        rows={[{ key: "check", name: "体检", desc: "x", onClick }]}
+        footNote="x"
+        aiState="no_key"
+        onBlocked={onBlocked}
+      />,
+    );
+    fireEvent.click(screen.getByText("体检"));
+    expect(onClick).not.toHaveBeenCalled();
+    expect(onBlocked).toHaveBeenCalledWith("no_key");
+  });
+
+  it("aiState=missing_model → 卡片文案提示先选模型", () => {
+    render(
+      <AiWriterAssistant
+        rows={[{ key: "check", name: "体检", desc: "x", onClick: vi.fn() }]}
+        footNote="x"
+        aiState="missing_model"
+      />,
+    );
+    expect(screen.getByText(/先在本书选择模型/)).toBeTruthy();
+  });
+});

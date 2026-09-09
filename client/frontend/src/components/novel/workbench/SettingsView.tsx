@@ -31,6 +31,8 @@ import { useStoryArc } from "@/components/novel/settings/useStoryArc";
 import GenreSettingForm, { type GenreHandle } from "@/components/novel/settings/GenreSettingForm";
 import { INTRO_SEGMENTS, INTRO_FORMULA, DONT_DO, INTRO_MAX_LEN, TABOO_RULES } from "@/lib/introTemplate";
 import { GENRE_DEFINITION } from "@/lib/genreVocab";
+import { useModelStatus } from "@/hooks/useModelStatus";
+import type { AiState } from "@/types/api-config";
 import AiWriterAssistant, { type AiCapabilityRow } from "@/components/novel/settings/AiWriterAssistant";
 import AiSink from "@/components/novel/settings/AiSink";
 import { introAi, aiBlockReason, type IntroAiAction } from "@/lib/ai";
@@ -103,6 +105,19 @@ export default function SettingsView({
   const formRef = useRef<SettingSaveHandle>(null);
   const genreRef = useRef<GenreHandle>(null);
   const introRef = useRef<IntroHandle>(null);
+  // D13：AI 行的门控只读后端 ai_state 一次分派（不再 useFeature + 本地推导两处判）
+  const { aiState } = useModelStatus(projectId);
+  const handleAiBlocked = useCallback((reason: AiState) => {
+    if (reason === "no_key") {
+      window.location.hash = "/config";
+      return;
+    }
+    if (reason === "missing_model" || reason === "invalid") {
+      setPanel("aiModel");
+      return;
+    }
+    toast.info("这是会员功能，升级 PRO 后解锁——免费版写作能力完整");
+  }, []);
   // 简介右栏 AI 三能力（并列，非先后流程）——onClick 经 introRef 调面板内 runAi
   // 前置守卫（D14/O-3）：补缺失未体检 → 置灰 + 「先体检」
   const [introspected, setIntrospected] = useState(false);
@@ -459,11 +474,15 @@ export default function SettingsView({
           <AiWriterAssistant
             rows={introAiRows}
             footNote="输入：书名 + 简介本文（题材可后补）。结果统一落在简介框下方结果区，采纳才写回。"
+            aiState={aiState}
+            onBlocked={handleAiBlocked}
           />
         ) : panel === "genre" ? (
           <AiWriterAssistant
             rows={genreAiRows}
             footNote="点某行，AI 建议落到左侧对应格下方；采纳才写回，随时可改可重试。"
+            aiState={aiState}
+            onBlocked={handleAiBlocked}
             data-od-id="ai-assist-genre"
           />
         ) : panel === "arc" ? (

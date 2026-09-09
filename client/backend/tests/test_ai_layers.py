@@ -221,18 +221,34 @@ class TestComputeAiState:
     def test_model_not_in_config_invalid(self):
         """O-8 存量错配：model ∉ config.models 不再报 ready。"""
         novel = Novel(ai_config_id="c1", ai_model="removed-model")
-        cfg = ApiConfig(models=json.dumps(["gpt-4o"]))
+        cfg = ApiConfig(api_key="sk-x", models=json.dumps(["gpt-4o"]))
         assert compute_ai_state(novel, cfg, True) == "invalid"
 
     def test_empty_models_invalid(self):
         novel = Novel(ai_config_id="c1", ai_model="gpt-4o")
-        cfg = ApiConfig(models=None)
+        cfg = ApiConfig(api_key="sk-x", models=None)
         assert compute_ai_state(novel, cfg, True) == "invalid"
 
     def test_ready(self):
         novel = Novel(ai_config_id="c1", ai_model="gpt-4o")
-        cfg = ApiConfig(models=json.dumps(["gpt-4o", "gpt-4o-mini"]))
+        cfg = ApiConfig(api_key="sk-x", models=json.dumps(["gpt-4o", "gpt-4o-mini"]))
         assert compute_ai_state(novel, cfg, True) == "ready"
+
+    def test_o9_key_present_but_test_failed_not_ready(self):
+        """O-9：Key 非空但最近一次连接测试失败 → no_key（不能误判就绪）。"""
+        novel = Novel(ai_config_id="c1", ai_model="gpt-4o")
+        cfg = ApiConfig(
+            api_key="sk-x",
+            models=json.dumps(["gpt-4o"]),
+            last_test_status="auth_error",
+        )
+        assert compute_ai_state(novel, cfg, True) == "no_key"
+
+    def test_no_key_granularity_is_bound_config(self):
+        """no_key 粒度＝本书绑定配置级：绑定的配置没 Key 就是 no_key，与用户其他配置无关。"""
+        novel = Novel(ai_config_id="c1", ai_model="gpt-4o")
+        cfg = ApiConfig(api_key="", models=json.dumps(["gpt-4o"]))
+        assert compute_ai_state(novel, cfg, True) == "no_key"
 
 
 # ── 门控层 require_novel_model ─────────────────────────────────────────────

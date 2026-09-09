@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ApiConfig, FlatModelOption, ModelStatus } from "../types/api-config";
+import type { AiState, FlatModelOption, ModelStatus } from "../types/api-config";
 import { useApiConfigs } from "./useApiConfigs";
 import { getToken } from "../lib/auth";
 
@@ -15,6 +15,9 @@ export function useModelStatus(projectId: string | undefined) {
   const [currentConfigId, setCurrentConfigId] = useState<string | null>(null);
   const [currentConfigName, setCurrentConfigName] = useState<string | null>(null);
   const [currentModel, setCurrentModel] = useState<string | null>(null);
+  // D13：就绪态由后端判定层下发，前端只消费（不再本地推导四态）
+  const [aiState, setAiState] = useState<AiState>("no_key");
+  const [aiMessage, setAiMessage] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,6 +33,8 @@ export function useModelStatus(projectId: string | undefined) {
         setCurrentConfigId(data.api_config_id);
         setCurrentConfigName(data.config_name || null);
         setCurrentModel(data.model);
+        if (data.ai_state) setAiState(data.ai_state as AiState);
+        setAiMessage(data.message || "");
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
@@ -43,11 +48,15 @@ export function useModelStatus(projectId: string | undefined) {
   }, [fetchModel]);
 
   const hasKeys = configs.length > 0;
-  let status: ModelStatus = "no_key";
-  if (!hasKeys) status = "no_key";
-  else if (!currentConfigId) status = "no_model";
-  else if (configs.find((c) => c.id === currentConfigId)) status = "configured";
-  else status = "invalid";
+  // 模型面板用的四态 = 后端 ai_state 的投影（同一事实源，不再本地判）
+  const statusMap: Record<AiState, ModelStatus> = {
+    ready: "configured",
+    member_required: "no_key",
+    no_key: "no_key",
+    missing_model: "no_model",
+    invalid: "invalid",
+  };
+  const status: ModelStatus = statusMap[aiState] ?? "no_key";
 
   // Build flat model options
   const modelOptions: FlatModelOption[] = [];
@@ -81,6 +90,8 @@ export function useModelStatus(projectId: string | undefined) {
 
   return {
     status,
+    aiState,
+    aiMessage,
     modelOptions,
     currentModel,
     currentConfigId,

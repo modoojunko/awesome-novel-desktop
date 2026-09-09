@@ -29,6 +29,24 @@ vi.mock("@/hooks/useTier", () => ({
   useTier: () => ({ isPro: true, isFree: false, tier: "pro" }),
 }));
 
+// AI 行门控只读后端 ai_state（D13）——测试里直接给就绪态，避免真实网络
+vi.mock("@/hooks/useModelStatus", () => ({
+  useModelStatus: () => ({
+    status: "configured",
+    aiState: "ready",
+    aiMessage: "",
+    modelOptions: [],
+    currentModel: "gpt-4o",
+    currentConfigId: "c1",
+    currentConfigName: "cfg",
+    hasKeys: true,
+    loading: false,
+    error: null,
+    selectModel: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
+
 describe("SettingsView · 简介面板句柄（回归）", () => {
   beforeEach(() => {
     apiState.get.mockReset();

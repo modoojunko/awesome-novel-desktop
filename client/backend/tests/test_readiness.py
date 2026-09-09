@@ -224,11 +224,11 @@ class TestConfirmToggle:
         status = client.get(f"/api/novels/{pid}/settings/status").json()
         assert status["world"] is True
 
-    def test_ai_model_confirm_no_content_check(self, client):
-        """ai-model 不参与内容判定 → 无条件可确认。"""
+    def test_ai_model_confirm_retired_400(self, client):
+        """D15/O-18：ai-model 不再是设定完成度项，可确认语义已移除 → 400。"""
         pid = _create_project(client)
         r = client.put(f"/api/novels/{pid}/settings/status/ai-model")
-        assert r.status_code == 200
+        assert r.status_code == 400
 
     def test_style_default_passes(self, client):
         """style.role 模板默认值算内容 → 点完成通过。"""

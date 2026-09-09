@@ -74,8 +74,20 @@ def model_is_bound(novel: Novel | None, config: ApiConfig | None) -> bool:
     return model in parse_models(config.models)
 
 
+# 连接测试失败态（O-9：Key 填了但无效不能算就绪）。瞬时类（timeout/网络）同样
+# 视为「最近一次测试失败」——恢复出口是重测，不是假装就绪。
+FAILED_TEST_STATUSES = {"auth_error", "timeout", "network_error", "error", "not_found"}
+
+
+def config_key_usable(config: ApiConfig | None) -> bool:
+    """本书绑定配置的 Key 是否可用：非空 且 最近一次连接测试非失败态（O-9）。"""
+    if config is None or not (config.api_key or "").strip():
+        return False
+    return (config.last_test_status or "ok") not in FAILED_TEST_STATUSES
+
+
 def has_usable_key(config: ApiConfig | None) -> bool:
-    """配置是否有可用 Key（配置层只回答事实，不做业务判断）。"""
+    """兼容旧名：配置 Key 可用性（不含连接测试维度）。"""
     return bool(config is not None and (config.api_key or "").strip())
 
 
@@ -103,7 +115,14 @@ def compute_ai_state(
     if not config_id and model:
         return "invalid"
 
-    if not has_user_key:
+    # no_key 粒度＝**本书绑定配置级**（spec D13）：绑了配置就看该配置的 Key；
+    # 未绑配置时才回退「用户是否有任一可用 Key」。
+    if config_id:
+        if not config_key_usable(config) and config is not None:
+            return "no_key"
+        if not has_user_key and config is None:
+            return "no_key"
+    elif not has_user_key:
         return "no_key"
 
     if not config_id or not model:
@@ -162,20 +181,32 @@ async def ai_state_for_novel(
     """
     from auth_local.deps import ai_access_granted  # 门控层，避免反向依赖
 
+    config = None
+    if novel is not None and novel.ai_config_id:
+        config = await db.get(ApiConfig, novel.ai_config_id)
     if not ai_access_granted():
         state = "member_required"
     else:
-        config = None
-        if novel is not None and novel.ai_config_id:
-            config = await db.get(ApiConfig, novel.ai_config_id)
         state = compute_ai_state(novel, config, await user_has_ai_key(db, user_id))
 
+    message = (
+        no_key_message(config if novel is not None else None)
+        if state == "no_key"
+        else state_message(state)
+    )
     return {
         "ai_state": state,
         "effective_model": effective_model(novel),
         "reason": state,
-        "message": state_message(state),
+        "message": message,
     }
+
+
+def no_key_message(config: ApiConfig | None) -> str:
+    """`no_key` 文案区分「未配置」/「测试失败，请检查」（O-9）。"""
+    if config is not None and (config.api_key or "").strip():
+        return "API Key 连接测试失败 — 请检查或重测"
+    return "暂无可用 API Key — 先去「模型配置」添加"
 
 
 def state_message(state: str) -> str:
