@@ -65,10 +65,15 @@ async def archive(
     full_text = body.get("full_text", "")
     if len(full_text) < 100:
         raise HTTPException(400, "Text too short to archive")
-    # ai_summary=False：用户在设置中关闭归档 AI 摘要（正文降级摘要，不烧 AI 额度）
-    ai_summary = body.get("ai_summary", True)
+    # ai_summary=False：用户在设置中关闭归档 AI 摘要（正文降级摘要，不烧 AI 额度）；
+    # 会员判定走门控层非抛出版本（业务层不得自判会员，D11 禁令③）。
+    from auth_local.deps import ai_access_granted
 
-    result = await archive_chapter(project.root_path, chapter_ref, full_text, ai_summary)
+    ai_summary = body.get("ai_summary", True) and ai_access_granted()
+
+    result = await archive_chapter(
+        project.id, project.root_path, chapter_ref, full_text, ai_summary
+    )
     # force：归档是内容驱动操作（≥100 字已校验），phase 仅记账，不再要求 write→archive
     # 严格流转——直接写第一章的手工路径 phase 停在 outline，严格校验会 500。
     tier_phase_transition(project, "archive", force=True)

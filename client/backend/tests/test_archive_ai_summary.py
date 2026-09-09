@@ -42,7 +42,7 @@ def _future_iso(days: int = 30) -> str:
 
 
 import archive.service as archive_service
-from auth_local.deps import require_project_limit
+from auth_local.deps import require_novel_model, require_project_limit
 from auth_local.middleware import get_current_user
 from db import Base, async_session, engine, get_db
 from main import app
@@ -102,6 +102,8 @@ def _setup_overrides():
     # 不覆盖 require_ai_access（归档端点本就免费可用）；配额与会员态走真实 check_permission
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_current_user
+    # 本书模型门控：本模块测的是内容/其他门控，模型就绪另测（9.2）
+    app.dependency_overrides[require_novel_model] = lambda: True
     app.dependency_overrides[require_project_limit] = _override_true
     yield
     app.dependency_overrides.clear()
@@ -160,10 +162,10 @@ class TestArchiveAiSummary:
         _set_tier("monthly", _future_iso())
         calls: list = []
 
-        async def _fake_get_ai_client():
+        async def _fake_get_ai_client(novel_id=None):
             return _FakeAIClient(calls)
 
-        monkeypatch.setattr(archive_service, "get_ai_client", _fake_get_ai_client)
+        monkeypatch.setattr(archive_service, "get_ai_client_for_novel", _fake_get_ai_client)
 
         pid = _create_sparse_project(client)
         ref = _create_volume_and_chapter(client, pid)
@@ -179,10 +181,10 @@ class TestArchiveAiSummary:
         _set_tier("monthly", _future_iso())
         calls: list = []
 
-        async def _fake_get_ai_client():
+        async def _fake_get_ai_client(novel_id=None):
             return _FakeAIClient(calls)
 
-        monkeypatch.setattr(archive_service, "get_ai_client", _fake_get_ai_client)
+        monkeypatch.setattr(archive_service, "get_ai_client_for_novel", _fake_get_ai_client)
 
         pid = _create_sparse_project(client)
         ref = _create_volume_and_chapter(client, pid)
@@ -199,10 +201,10 @@ class TestArchiveAiSummary:
         _set_tier("none")
         calls: list = []
 
-        async def _fake_get_ai_client():
+        async def _fake_get_ai_client(novel_id=None):
             return _FakeAIClient(calls)
 
-        monkeypatch.setattr(archive_service, "get_ai_client", _fake_get_ai_client)
+        monkeypatch.setattr(archive_service, "get_ai_client_for_novel", _fake_get_ai_client)
 
         pid = _create_sparse_project(client)
         ref = _create_volume_and_chapter(client, pid)

@@ -16,6 +16,7 @@ from sqlalchemy import select
 from api_configs.crypto import decrypt_api_key
 from db import async_session
 from models.api_config import ApiConfig
+from models.project import Novel
 from models.user import User
 
 
@@ -72,6 +73,11 @@ class AIClient:
                 kwargs["base_url"] = base_url
             self._client = AsyncOpenAI(**kwargs)
 
+    @property
+    def model(self) -> str:
+        """本客户端实际使用的模型 id（计量/日志用，勿用于业务判断）。"""
+        return self._model
+
     def resolve(self, model_name: str) -> str:
         """Map haiku/sonnet → actual model ID.
 
@@ -96,6 +102,7 @@ class AIClient:
         """
         model = self.resolve(model)
         if self._provider == "openai":
+            kwargs.pop("json_mode", None)  # 流式不落 response_format
             openai_messages: list[dict[str, Any]] = []
             if system:
                 openai_messages.append({"role": "system", "content": system})
@@ -104,6 +111,9 @@ class AIClient:
             extra = {"thinking": {"type": "disabled"}}
             if "thinking" in kwargs:
                 extra["thinking"] = kwargs.pop("thinking")
+            # json_mode 分层归属（D12）：业务层只传语义参数，客户端层按 api_format 落地
+            if kwargs.pop("json_mode", False):
+                kwargs["response_format"] = {"type": "json_object"}
             response = await self._client.chat.completions.create(
                 model=model,
                 messages=openai_messages,
@@ -117,6 +127,7 @@ class AIClient:
                 usage["tokens_out"] = getattr(u, "completion_tokens", 0) or 0
             return response.choices[0].message.content or ""
         else:
+            kwargs.pop("json_mode", None)  # Anthropic 无 response_format，靠 prompt + 归一化兜底
             response = await self._client.messages.create(
                 model=model,
                 system=system,
@@ -294,6 +305,36 @@ async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:
         base_url=cfg.get("api_base_url", ""),
         model=cfg.get("api_model", "deepseek-v4-flash"),
     )
+
+
+async def get_ai_client_for_novel(novel_id: str) -> AIClient:
+    """客户端层（D11 ④）：按**本书绑定**的配置与模型构造客户端。
+
+    业务层唯一合法入口（除建书期 `ai_prefill`/`suggest_meta` 豁免）。
+    `ai_model` 权威、与 `ai_config_id` 绑定同一配置；调用方 `chat(model="haiku")`
+    经 `resolve()` 落到本书模型，**不要在业务层传字面模型名**。
+
+    前置未就绪（无书/未绑/配置已删/无 Key）抛 `ValueError`——业务层应先挂
+    `require_novel_model` 门控，正常路径不会走到这里。
+    """
+    async with async_session() as session:
+        novel = await session.get(Novel, novel_id)
+        if novel is None:
+            raise ValueError("书籍不存在")
+        if not novel.ai_config_id or not novel.ai_model:
+            raise ValueError("本书尚未选择模型")
+        cfg = await session.get(ApiConfig, novel.ai_config_id)
+        if cfg is None:
+            raise ValueError("本书绑定的 API 配置已删除，请重新选择模型")
+        plain_key = decrypt_api_key(cfg.api_key)
+        if not plain_key:
+            raise ValueError("本书绑定的 API 配置没有可用 Key")
+        return AIClient(
+            api_key=plain_key,
+            base_url=cfg.base_url,
+            model=novel.ai_model,
+            api_format=getattr(cfg, "api_format", None),
+        )
 
 
 async def get_ai_client() -> AIClient:

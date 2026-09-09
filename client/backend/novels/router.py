@@ -175,7 +175,8 @@ async def suggest_meta(
             user_id=user["id"],
             project_id=None,
             operation="suggest_meta",
-            model="haiku",
+            # 建书期豁免路径（无 novel_id）：记客户端实际模型（降级链结果）
+            model=client.model,
             tokens_in=usage.get("tokens_in", 0),
             tokens_out=usage.get("tokens_out", 0),
         )

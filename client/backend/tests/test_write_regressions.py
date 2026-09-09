@@ -33,7 +33,7 @@ os.environ["DATA_ROOT"] = _tmp_data_root
 
 import auth_local.service as _service  # noqa: E402
 import prompt.store as prompt_store  # noqa: E402
-from auth_local.deps import require_project_limit  # noqa: E402
+from auth_local.deps import require_novel_model, require_project_limit  # noqa: E402
 from auth_local.middleware import get_current_user  # noqa: E402
 from db import Base, async_session, engine, get_db  # noqa: E402
 from main import app  # noqa: E402
@@ -120,6 +120,8 @@ async def _override_true():
 def _setup_overrides():
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_current_user
+    # 本书模型门控：本模块测的是内容/其他门控，模型就绪另测（9.2）
+    app.dependency_overrides[require_novel_model] = lambda: True
     app.dependency_overrides[require_project_limit] = _override_true
     yield
     app.dependency_overrides.clear()
@@ -222,12 +224,12 @@ class TestDirectWriteKeepsStoredPrompt:
         _seed_stored_prompt(pid, ref, "已润色版本：任务指示/红线/质感齐备")
         fake = _FakeStreamClient()
 
-        async def _fake():
+        async def _fake(novel_id=None):
             return fake
 
         import ai_client as ai_client_mod
 
-        monkeypatch.setattr(ai_client_mod, "get_ai_client", _fake)
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
 
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
         assert r.status_code == 200, r.text
@@ -242,12 +244,12 @@ class TestDirectWriteKeepsStoredPrompt:
         pid, ref = _create_project_and_chapter(client)
         fake = _FakeStreamClient()
 
-        async def _fake():
+        async def _fake(novel_id=None):
             return fake
 
         import ai_client as ai_client_mod
 
-        monkeypatch.setattr(ai_client_mod, "get_ai_client", _fake)
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
 
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
         assert r.status_code == 200, r.text
@@ -260,12 +262,12 @@ class TestDirectWriteKeepsStoredPrompt:
         _seed_stored_prompt(pid, ref, "旧存量")
         fake = _FakeStreamClient()
 
-        async def _fake():
+        async def _fake(novel_id=None):
             return fake
 
         import ai_client as ai_client_mod
 
-        monkeypatch.setattr(ai_client_mod, "get_ai_client", _fake)
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
 
         r = client.post(
             f"/api/novels/{pid}/chapters/{ref}/write/write",
@@ -285,12 +287,12 @@ class TestPhaseRegressionsTolerated:
         _run_async(_set_phase(pid, "write"))
         fake = _FakeChatClient()
 
-        async def _fake():
+        async def _fake(novel_id=None):
             return fake
 
         import ai_client as ai_client_mod
 
-        monkeypatch.setattr(ai_client_mod, "get_ai_client", _fake)
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
 
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/prompt/polish")
         assert r.status_code == 200, r.text
@@ -303,12 +305,12 @@ class TestPhaseRegressionsTolerated:
         _run_async(_set_phase(pid, "archive"))
         fake = _FakeStreamClient()
 
-        async def _fake():
+        async def _fake(novel_id=None):
             return fake
 
         import ai_client as ai_client_mod
 
-        monkeypatch.setattr(ai_client_mod, "get_ai_client", _fake)
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
 
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
         assert r.status_code == 200, r.text

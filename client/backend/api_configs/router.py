@@ -353,14 +353,17 @@ async def set_project_model_route(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Set a project's AI model."""
-    result = await set_project_model(
-        db,
-        _user_id(user),
-        project_id,
-        body.api_config_id,
-        body.model,
-    )
+    """Set a project's AI model（D12 绑定校验失败 400）。"""
+    try:
+        result = await set_project_model(
+            db,
+            _user_id(user),
+            project_id,
+            body.api_config_id,
+            body.model,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     if result is None:
         raise HTTPException(404, "Project or config not found")
     return result

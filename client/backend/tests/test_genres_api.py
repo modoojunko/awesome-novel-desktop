@@ -21,7 +21,11 @@ _tmp_data_root = tempfile.mkdtemp(prefix="test_genres_api_")
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
 os.environ["DATA_ROOT"] = _tmp_data_root
 
-from auth_local.deps import require_ai_access, require_project_limit
+from auth_local.deps import (
+    require_ai_access,
+    require_novel_model,
+    require_project_limit,
+)
 from auth_local.middleware import get_current_user
 from db import Base, async_session, engine, get_db
 from genres.presets import PRESET_GENRES
@@ -86,6 +90,7 @@ def _setup_overrides():
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_current_user
     app.dependency_overrides[require_ai_access] = _override_true
+    app.dependency_overrides[require_novel_model] = lambda: True
     app.dependency_overrides[require_project_limit] = _override_true
     yield
     app.dependency_overrides.clear()

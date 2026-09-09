@@ -49,7 +49,7 @@ def _past_iso(days: int = 1) -> str:
 
 
 from api_configs.crypto import encrypt_api_key
-from auth_local.deps import require_ai_access
+from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from auth_local.service import verify_session
 from db import Base, async_session, engine, get_db
@@ -110,6 +110,8 @@ def _setup_overrides():
     # 不覆盖 require_ai_access / require_project_limit：本模块就是测真实门控
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_current_user
+    # 本书模型门控：本模块测的是内容/其他门控，模型就绪另测（9.2）
+    app.dependency_overrides[require_novel_model] = lambda: True
     yield
     app.dependency_overrides.clear()
 

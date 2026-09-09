@@ -2,7 +2,7 @@
 
 import json
 
-from ai_client import get_ai_client
+from ai_client import get_ai_client_for_novel
 from filesystem.storage import get_storage
 from prompts import load as load_prompt
 from settings.render import depiction_techniques_str, flatten_principles
@@ -66,7 +66,9 @@ async def build_auxiliary_context(
     )
     ctx["writing_style"] = _format_style(style)
     ctx["_role"] = style.get("role", "一位小说家")
-    ctx["_writing_model"] = style.get("writing_model", "haiku")
+    # D12：模型＝书级（novel.ai_model），writing_model 不再作为模型来源；
+    # 这里只传符号别名，客户端层 resolve() 落到本书模型。
+    ctx["_writing_model"] = "haiku"
 
     # Anti-ai rules
     anti_ai = await get_storage().read_yaml(root_path, "settings/anti-ai.yaml") or {}
@@ -151,10 +153,11 @@ async def stream_continue(
 
     # Model and role from resolved context
     resolved_model = model or ctx.pop("_writing_model", "haiku")
+    # 计量口径：实际生效模型由端点用 effective_model(project) 记（见 D11 ⑧）
     role = ctx.pop("_role", "一位小说家")
 
     # Stream
-    client = await get_ai_client()
+    client = await get_ai_client_for_novel(project.id)
     generated_text = ""
 
     async for event in client.chat_stream(
@@ -190,6 +193,7 @@ async def stream_continue(
 
 
 async def polish_text(
+    novel_id: str,
     root_path: str,
     chapter_ref: str,
     selected_text: str,
@@ -210,11 +214,12 @@ async def polish_text(
     prompt = prompt_template.format(**ctx)
 
     resolved_model = model or ctx.pop("_writing_model", "haiku")
+    # 计量口径：实际生效模型由端点用 effective_model(project) 记（见 D11 ⑧）
     role = ctx.pop("_role", "一位小说家")
     if usage is not None:
-        usage["model"] = resolved_model
+        usage.pop("model", None)  # 实际模型由端点记（effective_model）
 
-    client = await get_ai_client()
+    client = await get_ai_client_for_novel(novel_id)
     return await client.chat(
         model=resolved_model,
         system=f"你是一位文字编辑专家，请遵循以下角色定位：{role}",
@@ -225,6 +230,7 @@ async def polish_text(
 
 
 async def expand_text(
+    novel_id: str,
     root_path: str,
     chapter_ref: str,
     selected_text: str,
@@ -245,11 +251,12 @@ async def expand_text(
     prompt = prompt_template.format(**ctx)
 
     resolved_model = model or ctx.pop("_writing_model", "haiku")
+    # 计量口径：实际生效模型由端点用 effective_model(project) 记（见 D11 ⑧）
     role = ctx.pop("_role", "一位小说家")
     if usage is not None:
-        usage["model"] = resolved_model
+        usage.pop("model", None)  # 实际模型由端点记（effective_model）
 
-    client = await get_ai_client()
+    client = await get_ai_client_for_novel(novel_id)
     return await client.chat(
         model=resolved_model,
         system=f"你是一位擅长细节描写的文学作家，请遵循以下角色定位：{role}",

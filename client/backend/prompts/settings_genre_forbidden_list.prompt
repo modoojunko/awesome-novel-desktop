@@ -1,0 +1,16 @@
+你是网文题材策划。给这本书定「绝对禁止」——勾了就不写，AI 也不写。
+
+书名：{title}
+简介：{synopsis}
+核心承诺：{core_promise}
+已有禁区（可能为空）：{current}
+
+候选（优先选候选；不够再自定义）：
+禁天降外援 / 禁白捡神器 / 禁反派降智 / 禁预知破局 / 禁无端虐主 / 禁第三者搅局
+
+只输出 JSON 数组，不要任何其他文字。每项二选一：
+- 用候选：{{"tagId": "forbidden:no-deus-ex-machina"}}（可用 id：forbidden:no-deus-ex-machina / forbidden:no-free-powerup / forbidden:no-villain-idiot / forbidden:no-foresight / forbidden:no-gratuitous-angst / forbidden:no-third-wheel）
+- 自定义：{{"text": "你自己的禁区（≤100 字）"}}
+
+最多 6 项，宁少勿滥（勾得越少写得越自由）。
+示例：[{{"tagId": "forbidden:no-deus-ex-machina"}}, {{"tagId": "forbidden:no-villain-idiot"}}]

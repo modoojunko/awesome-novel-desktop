@@ -4,7 +4,7 @@ import json
 import time
 import uuid
 
-from ai_client import get_ai_client
+from ai_client import get_ai_client_for_novel
 from filesystem.storage import get_storage
 from prompts import load as load_prompt
 from story.character_agent import run_all_decisions
@@ -119,7 +119,7 @@ class DeductionEngine:
 
         # Step 2: Run character decisions in parallel
         decisions = await run_all_decisions(
-            self.characters, sensory_inputs, self.stage, rn
+            self.characters, sensory_inputs, self.stage, rn, self.project_id
         )
 
         # Step 3: Synthesize events and update state
@@ -198,7 +198,7 @@ class DeductionEngine:
         )
 
         try:
-            client = await get_ai_client()
+            client = await get_ai_client_for_novel(self.project_id)
             text = await client.chat(
                 model="haiku",
                 system="只输出 JSON 数组，不要其他文字。",

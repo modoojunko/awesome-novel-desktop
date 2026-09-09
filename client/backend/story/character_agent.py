@@ -6,7 +6,7 @@ import logging
 import re
 import time
 
-from ai_client import get_ai_client
+from ai_client import get_ai_client_for_novel
 from prompts import load as load_prompt
 from story.models import CharacterState, Decision, DecisionLog, SensoryInput, StageState
 
@@ -244,10 +244,11 @@ async def run_character_decision(
     sensory: SensoryInput,
     stage: StageState,
     round_num: int,
+    novel_id: str = "",
 ) -> Decision:
     """Run one character's decision. Retries once with stricter prompt on failure."""
     prompt = _build_decision_prompt(character, sensory, stage)
-    client = await get_ai_client()
+    client = await get_ai_client_for_novel(novel_id)
 
     for attempt in range(2):
         try:
@@ -293,11 +294,12 @@ async def run_all_decisions(
     sensory_inputs: dict[str, SensoryInput],
     stage: StageState,
     round_num: int,
+    novel_id: str = "",
 ) -> list[Decision]:
     """Run decisions for all characters in parallel. Never crashes."""
     tasks = [
         run_character_decision(
-            char, sensory_inputs.get(cid, SensoryInput()), stage, round_num
+            char, sensory_inputs.get(cid, SensoryInput()), stage, round_num, novel_id
         )
         for cid, char in characters.items()
     ]

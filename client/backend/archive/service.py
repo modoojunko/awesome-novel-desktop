@@ -1,7 +1,7 @@
 import re
 from datetime import UTC, datetime
 
-from ai_client import get_ai_client
+from ai_client import get_ai_client_for_novel
 from filesystem.storage import get_storage
 from workflow.engine import load_chapter
 
@@ -24,7 +24,11 @@ def _canonical_chapter_ref(ref: str) -> str:
 
 
 async def archive_chapter(
-    root_path: str, chapter_ref: str, full_text: str, ai_summary: bool = True
+    novel_id: str,
+    root_path: str,
+    chapter_ref: str,
+    full_text: str,
+    ai_summary: bool = True,
 ) -> dict:
     _validate_ref(chapter_ref)
     chapter = await load_chapter(root_path, chapter_ref)
@@ -36,14 +40,11 @@ async def archive_chapter(
     archive_path = f"archives/vol-{vol}-ch-{ch}-{slug}.md"
 
     # Generate 200-char summary via AI; degrade to first 200 chars when unavailable
-    # (ai_summary=False → 前端设置关掉 AI 摘要；non-member → AI 是会员权益直接降级；
-    #  no API key → get_ai_client raises ValueError; chat failures also caught).
+    # (ai_summary 由调用方按会员权益决定；本书模型未就绪/调用失败一律降级)。
     summary = full_text[:200]
-    from auth_local.service import check_permission
-
-    if ai_summary and check_permission().get("is_member", False):
+    if ai_summary:
         try:
-            client = await get_ai_client()
+            client = await get_ai_client_for_novel(novel_id)
             summary_text = await client.chat(
                 model="haiku",
                 system="",

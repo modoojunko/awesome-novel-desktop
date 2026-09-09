@@ -28,7 +28,7 @@ os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
 os.environ["DATA_ROOT"] = _tmp_data_root
 
 import auth_local.service as _service  # noqa: E402
-from auth_local.deps import require_project_limit  # noqa: E402
+from auth_local.deps import require_novel_model, require_project_limit  # noqa: E402
 from auth_local.middleware import get_current_user  # noqa: E402
 from db import Base, async_session, engine, get_db  # noqa: E402
 from filesystem.storage import get_storage  # noqa: E402
@@ -98,6 +98,8 @@ async def _override_true():
 def _setup_overrides():
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_current_user
+    # 本书模型门控：本模块测的是内容/其他门控，模型就绪另测（9.2）
+    app.dependency_overrides[require_novel_model] = lambda: True
     app.dependency_overrides[require_project_limit] = _override_true
     yield
     app.dependency_overrides.clear()
@@ -253,12 +255,12 @@ class TestWritePipeline:
         pid, ref, _ = _create_project_and_chapter(client)  # 无 word_target → 2500
         fake = _FakeStreamClient(CLEAN_PROSE)
 
-        async def _fake_get_ai_client():
+        async def _fake_get_ai_client(novel_id=None):
             return fake
 
         import ai_client as ai_client_mod
 
-        monkeypatch.setattr(ai_client_mod, "get_ai_client", _fake_get_ai_client)
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
 
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
         assert r.status_code == 200, r.text
@@ -274,12 +276,12 @@ class TestWritePipeline:
         pid, ref, _ = _create_project_and_chapter(client, word_target=3000)
         fake = _FakeStreamClient(CLEAN_PROSE)  # ~660 字 < 3000*90%
 
-        async def _fake_get_ai_client():
+        async def _fake_get_ai_client(novel_id=None):
             return fake
 
         import ai_client as ai_client_mod
 
-        monkeypatch.setattr(ai_client_mod, "get_ai_client", _fake_get_ai_client)
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
 
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
         assert r.status_code == 200, r.text
@@ -307,12 +309,12 @@ class TestWritePipeline:
         pid, ref, _ = _create_project_and_chapter(client, word_target=len(prose))
         fake = _FakeStreamClient(prose)
 
-        async def _fake_get_ai_client():
+        async def _fake_get_ai_client(novel_id=None):
             return fake
 
         import ai_client as ai_client_mod
 
-        monkeypatch.setattr(ai_client_mod, "get_ai_client", _fake_get_ai_client)
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
 
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
         assert r.status_code == 200, r.text
@@ -334,12 +336,12 @@ class TestWritePipeline:
         pid, ref, _ = _create_project_and_chapter(client, word_target=600)
         fake = _FakeStreamClient(messy)
 
-        async def _fake_get_ai_client():
+        async def _fake_get_ai_client(novel_id=None):
             return fake
 
         import ai_client as ai_client_mod
 
-        monkeypatch.setattr(ai_client_mod, "get_ai_client", _fake_get_ai_client)
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
 
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
         assert r.status_code == 200, r.text

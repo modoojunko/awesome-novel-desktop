@@ -45,6 +45,7 @@ def _future_iso(days: int = 30) -> str:
     return (datetime.now(UTC) + timedelta(days=days)).date().isoformat()
 
 
+from auth_local.deps import require_novel_model
 from auth_local.middleware import get_current_user
 from db import Base, async_session, engine, get_db
 from main import app
@@ -100,6 +101,8 @@ def _setup_overrides():
     # 不覆盖 require_ai_access：向导端点要测真实会员门控
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_current_user
+    # 本书模型门控：本模块测的是内容/其他门控，模型就绪另测（9.2）
+    app.dependency_overrides[require_novel_model] = lambda: True
     yield
     app.dependency_overrides.clear()
 
@@ -286,10 +289,10 @@ def stub_ai(monkeypatch):
 
         fake = _FakeAI(text)
 
-        async def get_client():
+        async def get_client(novel_id=None):
             return fake
 
-        monkeypatch.setattr(wiz, "get_ai_client", get_client)
+        monkeypatch.setattr(wiz, "get_ai_client_for_novel", get_client)
 
     return _stub
 

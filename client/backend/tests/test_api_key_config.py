@@ -113,6 +113,16 @@ async def _create_user(
         return user
 
 
+async def _set_config_models(config_id: str, models: list[str]) -> None:
+    """给配置写入模型列表（D12 绑定校验：model 必须 ∈ config.models）。"""
+    from models.api_config import ApiConfig
+
+    async with async_session() as session:
+        cfg = await session.get(ApiConfig, config_id)
+        cfg.models = json.dumps(models, ensure_ascii=False)
+        await session.commit()
+
+
 async def _create_project(
     user_id: str,
     name: str = "测试项目",
@@ -944,6 +954,7 @@ class TestModelSelection:
             },
         )
         config_id = create_resp.json()["id"]
+        _run_async(_set_config_models(config_id, ["gpt-4o"]))
         # Create project
         p = _run_async(
             _create_project(
@@ -1814,6 +1825,7 @@ class TestChangeHistory:
             },
         )
         config_id = create_resp.json()["id"]
+        _run_async(_set_config_models(config_id, ["gpt-4o"]))
         p = _run_async(_create_project(user_id=self.HIST_USER_ID, name="历史结构项目"))
 
         # Set model (triggers history entry)
