@@ -32,16 +32,16 @@ async def _check_synopsis(root_path: str, novel_id: str | None = None) -> bool:
 async def _check_genre(root_path: str, novel_id: str | None = None) -> bool:
     """题材就绪＝新契约核心键任一非空（D19 关系表）。
 
-    有 novel_id 时查 novel_genre 三表；无 novel_id（过渡期/未接线）回退旧 KV 的 genre_id。
+    `project_settings('genre')` KV 行已废弃（不再读写）；无 novel_id 时视为未填
+    （调用方须传 novel_id——所有生产路径已接线）。
     """
-    if novel_id:
-        from db import async_session
-        from genres.novel_genre_service import genre_is_filled
+    if not novel_id:
+        return False
+    from db import async_session
+    from genres.novel_genre_service import genre_is_filled
 
-        async with async_session() as session:
-            return await genre_is_filled(session, novel_id)
-    genre = await get_storage().read_yaml(root_path, "settings/genre.yaml") or {}
-    return bool(str(genre.get("genre_id", "")).strip())
+    async with async_session() as session:
+        return await genre_is_filled(session, novel_id)
 
 
 async def _check_world(root_path: str, novel_id: str | None = None) -> bool:

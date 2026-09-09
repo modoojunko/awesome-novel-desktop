@@ -1,19 +1,20 @@
 """题材定义注入写作链路测试（临时 root + 隔离临时 DB）。
 
-覆盖 resolve_genre_context（缺 genre.yaml / genre_id 空 / 定义缺失 → None、
-overrides 合并、prompt_injection_enabled 关闭）、build_genre_section 渲染内容、
-整章写作路径（build_chapter_context+to_prompt）注入题材块 + 疲劳词合并，
-以及定义缺失时的优雅降级（不报错、无题材块）。
-分段路径（assembler）已退役（ai-prompt-crafting），仅保留整章口径。
+D19 关系化后：题材唯一来源＝`novel_genre` + 关联表（`project_settings('genre')`
+KV 行已废弃）。覆盖：
+- `resolve_genre_context`：无 novel_id / 五字段全空 → None（优雅降级）
+- `build_genre_section`：只渲染五字段
+- 整章写作路径（build_chapter_context + to_prompt）注入题材块 + 疲劳词合并
+  （疲劳词主源＝writing-style.yaml）
 """
 
 import asyncio
 import os
 import tempfile
+import uuid
 
 import pytest
 
-# ── Test environment (isolated temp DB + temp root) ──────────────────────
 _tmp_db = tempfile.NamedTemporaryFile(suffix="_test_genres_injection.db", delete=False)  # noqa: SIM115
 _tmp_db.close()
 _tmp_data_root = tempfile.mkdtemp(prefix="test_genres_injection_")
@@ -23,15 +24,15 @@ os.environ["DATA_ROOT"] = _tmp_data_root
 
 from db import Base, async_session, engine  # noqa: E402
 from filesystem.storage import get_storage  # noqa: E402
-from genres.service import (  # noqa: E402
-    build_genre_section,
-    create_genre,
-    ensure_seed_genres,
-    resolve_genre_context,
+from genres.novel_genre_service import (  # noqa: E402
+    ensure_seed_genre_vocab,
+    put_novel_genre,
 )
+from genres.service import build_genre_section, resolve_genre_context  # noqa: E402
+from models.project import Novel  # noqa: E402
 from write.chapter_writer import build_chapter_context  # noqa: E402
 
-# ── Helpers ───────────────────────────────────────────────────────────────
+USER_ID = "genre_injection_user"
 
 
 def _run_async(coro):
@@ -51,7 +52,7 @@ async def _create_tables():
 @pytest.fixture(scope="module", autouse=True)
 def _setup_db():
     _run_async(_create_tables())
-    _run_async(ensure_seed_genres())
+    _run_async(ensure_seed_genre_vocab())
     yield
 
 
@@ -59,38 +60,18 @@ def _tmp_root() -> str:
     return tempfile.mkdtemp(prefix="test_genres_injection_root_")
 
 
-async def _create_genre(gid: str):
-    """服务层直接入库一个自定义题材（供 resolve/写作链路测试）。"""
-    async with async_session() as s:
-        await create_genre(
-            s,
-            {
-                "id": gid,
-                "name": "注入测试",
-                "description": "测试题材说明",
-                "category": "urban",
-                "narratorRole": "贴近主角的第三人称",
-                "typicalArc": "从平凡到成长",
-                "taboos": ["忌一", "忌二"],
-                "promptInjection": "[注入基调] 保持真实",
-                "toneBlueprint": {
-                    "defaultTone": "温暖",
-                    "atmosphereOptions": ["默认氛围"],
-                    "povOptions": ["第一人称"],
-                    "techniqueTags": ["细节"],
-                },
-                "genreConfig": {
-                    "fulfillmentTypes": ["成长"],
-                    "chapterTypes": ["日常"],
-                    "pacingRules": ["规则"],
-                    "fatigueWords": ["默认疲劳词"],
-                },
-                "storyArcTemplates": [
-                    {"id": "arc1", "name": "弧一", "description": "第一个弧", "beats": ["beat1"]},
-                    {"id": "arc2", "name": "弧二", "description": "第二个弧", "beats": ["b1", "b2"]},
-                ],
-            },
+async def _new_novel(root: str) -> str:
+    async with async_session() as session:
+        novel = Novel(
+            user_id=USER_ID,
+            name=f"注入-{uuid.uuid4().hex[:6]}",
+            slug=f"inj-{uuid.uuid4().hex[:6]}",
+            root_path=root,
         )
+        session.add(novel)
+        await session.commit()
+        await session.refresh(novel)
+        return novel.id
 
 
 def _seed_writer(root: str):
@@ -131,114 +112,46 @@ def _seed_writer(root: str):
 
 
 class TestResolveDegradation:
-    def test_no_genre_yaml_returns_none(self):
+    def test_no_novel_id_returns_none(self):
         assert _run_async(resolve_genre_context(_tmp_root())) is None
 
-    def test_empty_genre_id_returns_none(self):
+    def test_empty_genre_returns_none(self):
         root = _tmp_root()
-        _run_async(
-            get_storage().write_yaml(root, "settings/genre.yaml", {"genre_id": ""})
-        )
-        assert _run_async(resolve_genre_context(root)) is None
-
-    def test_unknown_genre_id_returns_none(self):
-        root = _tmp_root()
-        _run_async(
-            get_storage().write_yaml(root, "settings/genre.yaml", {"genre_id": "not-in-db"})
-        )
-        assert _run_async(resolve_genre_context(root)) is None
-
-
-# ── resolve_genre_context 合并逻辑 ───────────────────────────────────────
-
-
-class TestResolveMerge:
-    def test_overrides_win_over_defaults(self):
-        _run_async(_create_genre("resolve-genre"))
-        root = _tmp_root()
-        _run_async(
-            get_storage().write_yaml(
-                root,
-                "settings/genre.yaml",
-                {
-                    "genre_id": "resolve-genre",
-                    "tone_overrides": {"atmosphere": "自定义氛围"},
-                    "config_overrides": {"fatigue_words": ["自定义疲劳词"]},
-                    "selected_arc_id": "arc2",
-                    "prompt_injection_enabled": True,
-                },
-            )
-        )
-        ctx = _run_async(resolve_genre_context(root))
-        assert ctx is not None
-        assert ctx["name"] == "注入测试"
-        # ADR-007：题材 ctx 不再携带基调/叙事者（归文风表单 tone）
-        assert "atmosphere" not in ctx
-        assert "pov" not in ctx
-        assert "narrator_role" not in ctx
-        # 6.0c 迁移：fatigue_words / chapter_types / pacing_rules 归 writing-style.yaml
-        assert "fatigue_words" not in ctx
-        assert "chapter_types" not in ctx
-        assert "pacing_rules" not in ctx
-        assert ctx["selected_arc"]["id"] == "arc2"
-        assert ctx["selected_arc"]["beats"] == ["b1", "b2"]
-        assert ctx["prompt_injection"] == "[注入基调] 保持真实"
-
-    def test_prompt_injection_disabled_sets_none(self):
-        _run_async(_create_genre("disable-genre"))
-        root = _tmp_root()
-        _run_async(
-            get_storage().write_yaml(
-                root,
-                "settings/genre.yaml",
-                {"genre_id": "disable-genre", "prompt_injection_enabled": False},
-            )
-        )
-        ctx = _run_async(resolve_genre_context(root))
-        assert ctx is not None
-        assert ctx["prompt_injection"] is None
+        nid = _run_async(_new_novel(root))
+        assert _run_async(resolve_genre_context(root, nid)) is None
 
 
 # ── build_genre_section 渲染 ─────────────────────────────────────────────
 
 
 class TestBuildGenreSection:
-    def test_renders_all_blocks(self):
+    def test_renders_five_fields(self):
         section = build_genre_section(
             {
+                "core_promise": "以弱破强的痛快",
+                "promise_note": "读者要看弱者用脑子翻盘",
+                "cost_ratio": 7,
+                "track": "从被赶出家门到掌控全城",
+                "forbidden": ["禁天降外援"],
+                "battlefield": ["抢资源"],
+                # 旧契约键传入也应被忽略（KV 路径已退役）
                 "name": "测试题材",
-                "category": "urban",
-                "description": "一段说明",
-                "typical_arc": "典型弧",
-                "taboos": ["忌一", "忌二"],
-                # ADR-007：narrator_role/default_tone/atmosphere/pov/techniques
-                # 已停用（归文风表单 tone）——传入也应被忽略
-                "narrator_role": "叙事者",
-                "default_tone": "温暖",
-                "atmosphere": "温馨",
-                "pov": "第一人称",
-                "techniques": ["细节"],
+                "taboos": ["忌一"],
                 "prompt_injection": "[注入段]",
-                "fulfillment_types": ["成长"],
-                "selected_arc": {"name": "弧名", "description": "弧描述", "beats": ["b1", "b2"]},
+                "selected_arc": {"name": "弧名"},
             }
         )
         assert "## 题材设定" in section
-        assert "题材：测试题材" in section
-        assert "一段说明" in section
-        assert "叙事者角色" not in section
-        assert "默认基调" not in section
-        assert "氛围" not in section
-        assert "叙事视角" not in section
-        assert "描写技法" not in section
-        assert "题材禁忌：忌一；忌二" in section
-        assert "[注入段]" in section
-        assert "满足类型：成长" in section
-        # 6.0c 迁移：章节类型/节奏规则不再由题材块渲染
-        assert "章节类型" not in section
-        assert "节奏规则" not in section
-        assert "故事弧：弧名（弧描述）" in section
-        assert "弧节拍：b1 → b2" in section
+        assert "核心承诺：以弱破强的痛快" in section
+        assert "读者预期：读者要看弱者用脑子翻盘" in section
+        assert "吃苦指数：7" in section
+        assert "剧情轨道：从被赶出家门到掌控全城" in section
+        assert "绝对禁止：禁天降外援" in section
+        assert "主线战场：抢资源" in section
+        # 旧契约键不再渲染
+        assert "测试题材" not in section
+        assert "[注入段]" not in section
+        assert "故事弧" not in section
 
     def test_none_returns_empty(self):
         assert build_genre_section(None) == ""
@@ -249,41 +162,50 @@ class TestBuildGenreSection:
 
 class TestChapterWriterInjection:
     def test_injects_genre_section_and_fatigue(self):
-        _run_async(_create_genre("wr-genre"))
         root = _tmp_root()
         _seed_writer(root)
+        nid = _run_async(_new_novel(root))
+        _run_async(_put(nid))
+
         # 疲劳词主源＝writing-style.yaml（6.0e 迁移）
-        style = _run_async(
-            get_storage().read_yaml(root, "settings/writing-style.yaml")
-        )
+        style = _run_async(get_storage().read_yaml(root, "settings/writing-style.yaml"))
         style["fatigue_words"] = ["默认疲劳词"]
         style["chapter_types"] = ["日常"]
         style["pacing_rules"] = ["规则"]
-        _run_async(
-            get_storage().write_yaml(root, "settings/writing-style.yaml", style)
-        )
-        _run_async(
-            get_storage().write_yaml(root, "settings/genre.yaml", {"genre_id": "wr-genre"})
-        )
-        ctx = _run_async(build_chapter_context(root, "vol-1-ch-1", "测试小说"))
+        _run_async(get_storage().write_yaml(root, "settings/writing-style.yaml", style))
+
+        ctx = _run_async(build_chapter_context(root, "vol-1-ch-1", "测试小说", nid))
         assert "## 题材设定" in ctx.genre_section
-        assert "题材：注入测试" in ctx.genre_section
+        assert "核心承诺：以弱破强的痛快" in ctx.genre_section
         assert ctx.style_fatigue_words == ["默认疲劳词"]
 
         prompt = ctx.to_prompt()
         assert "## 题材设定" in prompt
         assert "禁止使用以下词汇：默认疲劳词" in prompt
-        # 6.0c 迁移：章节类型/节奏规则随「## 叙事基调」注入
         assert "章节类型：日常" in prompt
         assert "节奏规则：规则" in prompt
 
-    def test_degrades_gracefully_when_definition_missing(self):
+    def test_degrades_gracefully_when_genre_empty(self):
         root = _tmp_root()
         _seed_writer(root)
-        _run_async(
-            get_storage().write_yaml(root, "settings/genre.yaml", {"genre_id": "unknown-id"})
-        )
-        ctx = _run_async(build_chapter_context(root, "vol-1-ch-1", "测试小说"))
+        nid = _run_async(_new_novel(root))
+        ctx = _run_async(build_chapter_context(root, "vol-1-ch-1", "测试小说", nid))
         assert ctx.genre_section == ""
         assert ctx.style_fatigue_words == []
         assert "## 题材设定" not in ctx.to_prompt()
+
+
+async def _put(novel_id: str) -> None:
+    async with async_session() as session:
+        await put_novel_genre(
+            session,
+            novel_id,
+            {
+                "core_promise": "以弱破强的痛快",
+                "promise_note": "读者要看弱者用脑子翻盘",
+                "cost_ratio": 7,
+                "track": "从被赶出家门到掌控全城",
+                "forbidden_list": [{"tagId": "forbidden:no-deus-ex-machina"}],
+                "battlefield": ["battlefield:resources"],
+            },
+        )
