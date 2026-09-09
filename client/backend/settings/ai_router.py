@@ -35,6 +35,26 @@ GENRE_FIELDS = ("core_promise", "forbidden_list", "cost_ratio", "battlefield", "
 
 INTRO_ACTIONS = ("introspect", "fill", "polish")
 
+# prompt 名＝字面映射（键为已校验的枚举值）——避免把请求参数拼进文件路径
+_INTRO_PROMPTS = {
+    "introspect": "settings_intro_introspect",
+    "fill": "settings_intro_fill",
+    "polish": "settings_intro_polish",
+}
+_GENRE_PROMPTS = {
+    "core_promise": "settings_genre_core_promise",
+    "forbidden_list": "settings_genre_forbidden_list",
+    "cost_ratio": "settings_genre_cost_ratio",
+    "battlefield": "settings_genre_battlefield",
+    "track": "settings_genre_track",
+}
+_STYPE_PROMPTS = {
+    "world": "settings_world",
+    "style": "settings_style",
+    "hooks": "settings_hooks",
+    "characters": "settings_characters",
+}
+
 # 六段名 / 禁忌三元（体检归一化白名单；与前端 lib/introTemplate.ts 逐字一致）
 INTRO_SEGMENT_NAMES = (
     "主角身份",
@@ -233,7 +253,7 @@ async def intro_ai(
     if not content.strip():
         raise HTTPException(400, "简介为空，先写两句再让 AI 处理")
 
-    template = load_prompt(f"settings_intro_{action}")
+    template = load_prompt(_INTRO_PROMPTS[action])
     if action == "fill":
         missing = [
             str(x).strip() for x in (body.get("missing_segments") or []) if str(x).strip()
@@ -337,9 +357,9 @@ async def generate_field(
     if stype == "genre":
         if field not in GENRE_FIELDS:
             raise HTTPException(400, f"题材不支持该字段生成：{field}")
-        prompt_name = f"settings_genre_{field}"
+        prompt_name = _GENRE_PROMPTS[field]
     else:
-        prompt_name = f"settings_{stype}"
+        prompt_name = _STYPE_PROMPTS[stype]
 
     context = body.get("context", {}) or {}
     if stype == "genre":

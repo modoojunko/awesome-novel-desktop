@@ -16,7 +16,10 @@ def load(name: str) -> str:
     """
     if not _SAFE_NAME_RE.match(name):
         raise ValueError(f"Invalid prompt name: {name!r}")
-    path = os.path.join(_PROMPTS_DIR, f"{name}.prompt")
+    # 纵深防御：解析后必须仍在 prompts 目录内（防路径穿越；对静态分析亦可证安全）
+    path = os.path.realpath(os.path.join(_PROMPTS_DIR, f"{name}.prompt"))
+    if os.path.dirname(path) != os.path.realpath(_PROMPTS_DIR):
+        raise ValueError(f"Invalid prompt name: {name!r}")
     if not os.path.exists(path):
         raise FileNotFoundError(f"Prompt file not found: {path}")
     with open(path, "r", encoding="utf-8") as f:
