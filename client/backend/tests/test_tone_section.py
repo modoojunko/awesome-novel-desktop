@@ -120,6 +120,19 @@ class TestBuildToneSection:
     def test_empty_tone_dict_returns_empty(self):
         assert build_tone_section({"tone": {}}) == ""
 
+    def test_chapter_types_and_pacing_rules_rendered(self):
+        """6.0c 迁移：章节类型/节奏规则随叙事基调块注入。"""
+        section = build_tone_section(
+            {"chapter_types": ["日常", "冲突"], "pacing_rules": ["每 3 章一次小高潮"]}
+        )
+        assert "章节类型：日常、冲突" in section
+        assert "节奏规则：每 3 章一次小高潮" in section
+
+    def test_extras_alone_still_emit_block(self):
+        """只有迁移项、无 tone/narrator 时也要出块（不能被全空守卫吞掉）。"""
+        section = build_tone_section({"chapter_types": ["日常"]})
+        assert section == "## 叙事基调\n章节类型：日常"
+
 
 # ── 整章路径 chapter_writer ─────────────────────────────────────────────
 

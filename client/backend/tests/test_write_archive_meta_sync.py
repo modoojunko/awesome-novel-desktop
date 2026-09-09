@@ -249,38 +249,27 @@ class TestWriteArchiveMetaSync:
         )
         assert r.status_code == 400, "过短归档应仍 400"
 
-    def test_genre_surfaced_in_detail(self, client):
+    def test_kv_genre_reference_path_retired(self, client):
+        """genre-signup-redesign 6.6：本书题材改五字段契约后，
+        KV genre_id → 详情 genre/genre_name 的引用装配路径退役（恒 None，不 500）。"""
         _set_tier("none")
         pid = _create_sparse_project(client)
 
-        # 未选题材 → genre/genre_name None，不 500
         r0 = client.get(f"/api/novels/{pid}")
         assert r0.status_code == 200
         assert r0.json().get("genre") is None
         assert r0.json().get("genre_name") is None
 
-        # 选题材 → 详情合并 genre + 全局 genres 表 name
+        # 写新契约五字段 → KV 无 genre_id → 引用路径保持退役
         r1 = client.put(
-            f"/api/novels/{pid}/settings/genre", json={"genre_id": "urban-daily"}
+            f"/api/novels/{pid}/settings/genre", json={"core_promise": "以弱破强的痛快"}
         )
         assert r1.status_code == 200, r1.text
         r2 = client.get(f"/api/novels/{pid}")
         assert r2.status_code == 200
-        assert r2.json()["genre"] == "urban-daily"
-        assert r2.json()["genre_name"] == "都市日常"
-
-    def test_genre_id_without_definition_name_none(self, client):
-        _set_tier("none")
-        pid = _create_sparse_project(client)
-        # genre_id 已设但定义缺失（被删/未知）→ genre 保留、genre_name None
-        r1 = client.put(
-            f"/api/novels/{pid}/settings/genre", json={"genre_id": "no-such-genre"}
-        )
-        assert r1.status_code == 200, r1.text
-        r2 = client.get(f"/api/novels/{pid}")
-        assert r2.status_code == 200
-        assert r2.json()["genre"] == "no-such-genre"
+        assert r2.json().get("genre") is None
         assert r2.json().get("genre_name") is None
+
 
     def test_corrupt_genre_kv_no_500(self, client):
         _set_tier("none")

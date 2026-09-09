@@ -75,17 +75,19 @@ def _fmt_list(v) -> str:
 
 
 def build_tone_section(style) -> str:
-    """writing-style tone → 「## 叙事基调」markdown 块（ADR-007）。
+    """writing-style → 「## 叙事基调」markdown 块（ADR-007）。
 
     从 style.narrator_role + style.tone{default_tone, atmosphere, pov, techniques}
-    渲染。tone 与 narrator_role 都缺失/为空 → ""（不注入空块）。
+    + style.chapter_types/pacing_rules（6.0c 从题材行迁来）渲染。
+    全部缺失/为空 → ""（不注入空块）。
     题材库不再注入基调（见 genres/service.resolve_genre_context 停用）。
     """
     if not isinstance(style, dict):
         return ""
     narrator_role = style.get("narrator_role", "")
     tone = style.get("tone")
-    if not narrator_role and not isinstance(tone, dict):
+    has_extras = bool(style.get("chapter_types") or style.get("pacing_rules"))
+    if not narrator_role and not isinstance(tone, dict) and not has_extras:
         return ""
     lines = ["## 叙事基调"]
     if narrator_role:
@@ -99,6 +101,11 @@ def build_tone_section(style) -> str:
             lines.append(f"叙事视角：{_fmt_list(tone['pov'])}")
         if tone.get("techniques"):
             lines.append(f"描写技法：{_fmt_list(tone['techniques'])}")
+    # 6.0c 迁移：原题材行 config_overrides.chapter_types / pacing_rules
+    if style.get("chapter_types"):
+        lines.append("章节类型：" + _fmt_list(style["chapter_types"]))
+    if style.get("pacing_rules"):
+        lines.append("节奏规则：" + _fmt_list(style["pacing_rules"]))
     if len(lines) == 1:
         return ""  # 全空（仅标题无内容）不注入空块
     return "\n".join(lines)

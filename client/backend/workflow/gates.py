@@ -23,7 +23,7 @@ class GateResult:
     hard_block: bool = False
 
 
-async def gate_settings_complete(root_path: str) -> GateResult:
+async def gate_settings_complete(root_path: str, novel_id: str | None = None) -> GateResult:
     """Check if settings are complete enough to start outlining.
 
     Product decision (2026-08-02): completion = the author clicked "完成设定"
@@ -41,7 +41,7 @@ async def gate_settings_complete(root_path: str) -> GateResult:
     if not unconfirmed:
         return GateResult(valid=True, warnings=[])
 
-    readiness = await compute_readiness(root_path)
+    readiness = await compute_readiness(root_path, novel_id)
     labels = {m["key"]: m["label"] for m in readiness["missing"]}
     warnings = [f"尚未完成设定: {labels.get(k, k)}" for k in unconfirmed]
     if readiness["missing"]:
@@ -242,7 +242,10 @@ async def get_phase_status(
 
     # --- Run all gates ---
 
-    settings_result = await gate_settings_complete(root_path)
+    # novel_id 有值时题材判据查 novel_genre 表（D19）；无值时回退旧 KV。
+    settings_result = await gate_settings_complete(
+        root_path, db_project.id if db_project is not None else None
+    )
     outline_result = await gate_outline_exists(root_path)
 
     # All chapters check（章族入库：DB 行 → 组装章 JSON 供门控）

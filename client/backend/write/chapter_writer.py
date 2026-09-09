@@ -102,7 +102,8 @@ class ChapterContext:
         self.previous_chapter_recap = ""
         self.novel_title = ""
         self.genre_section = ""
-        self.genre_fatigue_words: list[str] = []
+        # 疲劳词：主源 writing-style.fatigue_words（6.0e 迁移）；旧契约题材行同批合并
+        self.style_fatigue_words: list[str] = []
         # ── ai-prompt-crafting 素材扩展 ──────────────────────────────
         self.volume_no: int | None = None
         self.chapter_no: int | None = None
@@ -296,7 +297,7 @@ class ChapterContext:
         # Rules
         mistakes = fmt_mistakes(self.style_setting.get("possible_mistakes"))
         fatigue = self._flatten_fatigue_words(self.anti_ai.get("fatigue_words_zh", {}))
-        fatigue = list(dict.fromkeys(fatigue + self.genre_fatigue_words))
+        fatigue = list(dict.fromkeys(fatigue + self.style_fatigue_words))
         tic_patterns = [
             r.get("pattern", "")
             for r in self.anti_ai.get("structural_tic_patterns", [])
@@ -467,7 +468,10 @@ def build_previous_context(prev_chapter: dict) -> tuple[str, bool]:
 
 
 async def build_chapter_context(
-    root_path: str, chapter_ref: str, novel_title: str = ""
+    root_path: str,
+    chapter_ref: str,
+    novel_title: str = "",
+    novel_id: str | None = None,
 ) -> ChapterContext:
     """Read all data sources and build a ChapterContext."""
     ctx = ChapterContext()
@@ -493,10 +497,19 @@ async def build_chapter_context(
     ctx.hooks = filter_active_hooks(hooks_data, chapter_ref)
 
     # Genre（题材定义注入，定义缺失时优雅降级为空）
-    gctx = await resolve_genre_context(root_path)
+    # novel_id 有值时读 novel_genre 关系表（D19 新契约）；无值时回退旧 KV genre_id。
+    gctx = await resolve_genre_context(root_path, novel_id)
     if gctx:
         ctx.genre_section = build_genre_section(gctx)
-        ctx.genre_fatigue_words = gctx.get("fatigue_words", [])
+    # 疲劳词主源已迁 writing-style.yaml（6.0e）；旧契约题材行的疲劳词过渡期合并去重。
+    ctx.style_fatigue_words = list(
+        dict.fromkeys(
+            [
+                *(ctx.style_setting.get("fatigue_words") or []),
+                *((gctx or {}).get("fatigue_words") or []),
+            ]
+        )
+    )
 
     # Chapter
     from workflow.engine import load_chapter

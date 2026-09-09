@@ -136,7 +136,9 @@ async def get_write_prompt(
     from prompt.store import load_prompt
     from write.chapter_writer import build_chapter_context
 
-    ctx = await build_chapter_context(project.root_path, chapter_ref, project.name)
+    ctx = await build_chapter_context(
+        project.root_path, chapter_ref, project.name, novel_id=project.id
+    )
     outline = ctx.chapter_outline or {}
     has_outline = bool(
         outline.get("summary") or outline.get("key_points") or outline.get("segments")
@@ -171,7 +173,9 @@ async def polish_write_prompt(
         validate_polished_prompt,
     )
 
-    ctx = await build_chapter_context(project.root_path, chapter_ref, project.name)
+    ctx = await build_chapter_context(
+        project.root_path, chapter_ref, project.name, novel_id=project.id
+    )
 
     from prompts import load
 
@@ -251,7 +255,9 @@ async def write_chapter(
 
     from write.chapter_writer import build_chapter_context
 
-    ctx = await build_chapter_context(project.root_path, chapter_ref, project.name)
+    ctx = await build_chapter_context(
+        project.root_path, chapter_ref, project.name, novel_id=project.id
+    )
     if prompt_override:
         prompt = prompt_override
     else:

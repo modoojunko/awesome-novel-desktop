@@ -248,14 +248,13 @@ class TestGenreDeleteReferenceGuard:
         rp = client.post("/api/novels", json={"name": name})
         assert rp.status_code in (200, 201), rp.text
         pid = rp.json()["id"]
-        rs = client.put(f"/api/novels/{pid}/settings/genre", json={"genre_id": gid})
+        rs = client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "x"})
         assert rs.status_code in (200, 201), rs.text
 
+        # genre-signup-redesign 6.6：本书题材改五字段契约、不再经 genre_id 引用题材库
+        # → _find_referencing_projects 恒空，引用 guard 停用，删除直接成功
         r = client.delete(f"/api/genres/{gid}")
-        assert r.status_code == 409, r.text
-        detail = r.json()["detail"]
-        assert name in detail["novels"]
-        assert "无法删除" in detail["message"]
+        assert r.status_code == 200, r.text
 
         # 删除未引用自定义题材仍成功（对照组）
         r2 = client.post(

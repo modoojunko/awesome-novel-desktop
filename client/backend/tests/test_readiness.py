@@ -163,7 +163,7 @@ class TestReadiness:
             f"/api/novels/{pid}/story/arc",
             json={"premise": "主角守护稻田对抗征迁", "ending": {}, "volumes": []},
         )
-        client.put(f"/api/novels/{pid}/settings/genre", json={"genre_id": "urban-romance"})
+        client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "以弱破强的痛快"})
         _fill_world(client, pid, filled=4)
         client.put(f"/api/novels/{pid}/settings/hooks", json={"active": [{"id": "h1", "description": "一个钩子"}]})
         client.put(f"/api/novels/{pid}/settings/character/张三", json={"name": "张三"})
@@ -251,7 +251,7 @@ class TestConfirmToggle:
         pid = _create_project(client)
         r = client.put(f"/api/novels/{pid}/settings/status/genre")
         assert r.status_code == 400
-        client.put(f"/api/novels/{pid}/settings/genre", json={"genre_id": "urban-romance"})
+        client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "以弱破强的痛快"})
         r = client.put(f"/api/novels/{pid}/settings/status/genre")
         assert r.status_code == 200, r.text
         assert r.json()["confirmed"] is True
@@ -321,7 +321,7 @@ class TestGateSettingsWarnings:
             f"/api/novels/{pid}/story/arc",
             json={"premise": "主角守护稻田对抗征迁", "ending": {}, "volumes": []},
         )
-        client.put(f"/api/novels/{pid}/settings/genre", json={"genre_id": "urban-romance"})
+        client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "以弱破强的痛快"})
         _fill_world(client, pid, filled=4)
         client.put(f"/api/novels/{pid}/settings/hooks", json={"active": [{"id": "h1", "description": "一个钩子"}]})
         client.put(f"/api/novels/{pid}/settings/character/张三", json={"name": "张三"})

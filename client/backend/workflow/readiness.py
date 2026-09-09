@@ -24,17 +24,27 @@ def _has_nonempty(v) -> bool:
     return bool(v is not None and str(v).strip())
 
 
-async def _check_synopsis(root_path: str) -> bool:
+async def _check_synopsis(root_path: str, novel_id: str | None = None) -> bool:
     story = await get_storage().read_yaml(root_path, "story.yaml") or {}
     return bool(str(story.get("synopsis", "")).strip())
 
 
-async def _check_genre(root_path: str) -> bool:
+async def _check_genre(root_path: str, novel_id: str | None = None) -> bool:
+    """题材就绪＝新契约核心键任一非空（D19 关系表）。
+
+    有 novel_id 时查 novel_genre 三表；无 novel_id（过渡期/未接线）回退旧 KV 的 genre_id。
+    """
+    if novel_id:
+        from db import async_session
+        from genres.novel_genre_service import genre_is_filled
+
+        async with async_session() as session:
+            return await genre_is_filled(session, novel_id)
     genre = await get_storage().read_yaml(root_path, "settings/genre.yaml") or {}
     return bool(str(genre.get("genre_id", "")).strip())
 
 
-async def _check_world(root_path: str) -> bool:
+async def _check_world(root_path: str, novel_id: str | None = None) -> bool:
     world = await get_storage().read_yaml(root_path, "settings/world-setting.yaml") or {}
     # 前端保存顶层 geography/politics/rules 三组对象（与写正文引擎一致），
     # 统计子字段非空数达到阈值即可确认。旧 details 结构是过时模板。
@@ -47,17 +57,17 @@ async def _check_world(root_path: str) -> bool:
     return filled >= WORLD_DETAILS_THRESHOLD
 
 
-async def _check_style(root_path: str) -> bool:
+async def _check_style(root_path: str, novel_id: str | None = None) -> bool:
     style = await get_storage().read_yaml(root_path, "settings/writing-style.yaml") or {}
     return bool(str(style.get("role", "")).strip())
 
 
-async def _check_anti_ai(root_path: str) -> bool:
+async def _check_anti_ai(root_path: str, novel_id: str | None = None) -> bool:
     anti_ai = await get_storage().read_yaml(root_path, "settings/anti-ai.yaml") or {}
     return _has_nonempty(anti_ai)
 
 
-async def _check_hooks(root_path: str) -> bool:
+async def _check_hooks(root_path: str, novel_id: str | None = None) -> bool:
     hooks = await get_storage().read_yaml(root_path, "settings/hooks.yaml") or {}
     # 前端保存 active/resolved/abandoned 三表（写作引擎只消费 active 悬而未决伏笔）。
     hook_list = hooks.get("active")
@@ -70,12 +80,12 @@ async def _check_hooks(root_path: str) -> bool:
     )
 
 
-async def _check_characters(root_path: str) -> bool:
+async def _check_characters(root_path: str, novel_id: str | None = None) -> bool:
     files = await get_storage().list_dir(root_path, "settings/character-setting")
     return any(f.endswith(".yaml") for f in files)
 
 
-async def _check_story_arc(root_path: str) -> bool:
+async def _check_story_arc(root_path: str, novel_id: str | None = None) -> bool:
     """主线卡：一句话主线非空，或任一分卷行有非待定内容（novels/router 同源逻辑）。"""
     from novels.router import _arc_has_content
 
@@ -101,14 +111,14 @@ READINESS_CHECKERS: list[tuple[str, str, str, object]] = [
 READINESS_KEYS = {key for key, _label, _jump, _check in READINESS_CHECKERS}
 
 
-async def compute_readiness(root_path: str) -> dict:
+async def compute_readiness(root_path: str, novel_id: str | None = None) -> dict:
     """Compute the 7-item content readiness.
 
     Returns {"complete": bool, "missing": [{key, label, jump}], "warning": str}.
     """
     missing = []
     for key, label, jump, check in READINESS_CHECKERS:
-        if not await check(root_path):  # type: ignore[operator]
+        if not await check(root_path, novel_id):  # type: ignore[operator]
             missing.append({"key": key, "label": label, "jump": jump})
     complete = not missing
     warning = (

@@ -49,7 +49,7 @@ async def confirm_settings_type(
     # ai-model 不参与判定（模型配置不是创作设定），跳过内容校验。
     if type in READINESS_KEYS:
         checker = next(c for k, _l, _j, c in READINESS_CHECKERS if k == type)
-        ok = await checker(project.root_path)  # type: ignore[operator]
+        ok = await checker(project.root_path, project.id)  # type: ignore[operator]
         if not ok:
             raise HTTPException(
                 400, "该项设定还未填写内容，请先填写后再标记完成"

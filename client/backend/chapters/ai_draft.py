@@ -223,7 +223,9 @@ async def ai_draft_outline(
     if not arc_md:
         raise HTTPException(422, "主线卡为空，请先在设定中完成主线拆纲再起草章纲")
 
-    ctx = await build_chapter_context(project.root_path, chapter_ref, project.name)
+    ctx = await build_chapter_context(
+        project.root_path, chapter_ref, project.name, novel_id=project.id
+    )
     chapter = await load_chapter(project.root_path, chapter_ref) or {}
     if not chapter:
         raise HTTPException(404, "Chapter not found")

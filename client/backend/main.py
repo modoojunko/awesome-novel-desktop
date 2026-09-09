@@ -346,6 +346,16 @@ async def lifespan(app: FastAPI):
 
         logging.getLogger("uvicorn.error").warning("Genre seed failed: %s", e)
 
+    # ── Seed genre vocab（题材候选源，D19 关系化） ───────────────────
+    try:
+        from genres.novel_genre_service import ensure_seed_genre_vocab
+
+        await ensure_seed_genre_vocab()
+    except Exception as e:
+        import logging
+
+        logging.getLogger("uvicorn.error").warning("Genre vocab seed failed: %s", e)
+
     # ── Migrate: create events table ─────────────────────────────────
     try:
         async with engine.begin() as conn:

@@ -176,7 +176,10 @@ class TestResolveMerge:
         assert "atmosphere" not in ctx
         assert "pov" not in ctx
         assert "narrator_role" not in ctx
-        assert ctx["fatigue_words"] == ["自定义疲劳词"]
+        # 6.0c 迁移：fatigue_words / chapter_types / pacing_rules 归 writing-style.yaml
+        assert "fatigue_words" not in ctx
+        assert "chapter_types" not in ctx
+        assert "pacing_rules" not in ctx
         assert ctx["selected_arc"]["id"] == "arc2"
         assert ctx["selected_arc"]["beats"] == ["b1", "b2"]
         assert ctx["prompt_injection"] == "[注入基调] 保持真实"
@@ -217,8 +220,6 @@ class TestBuildGenreSection:
                 "techniques": ["细节"],
                 "prompt_injection": "[注入段]",
                 "fulfillment_types": ["成长"],
-                "chapter_types": ["日常"],
-                "pacing_rules": ["规则"],
                 "selected_arc": {"name": "弧名", "description": "弧描述", "beats": ["b1", "b2"]},
             }
         )
@@ -232,8 +233,10 @@ class TestBuildGenreSection:
         assert "描写技法" not in section
         assert "题材禁忌：忌一；忌二" in section
         assert "[注入段]" in section
-        assert "章节类型：日常" in section
         assert "满足类型：成长" in section
+        # 6.0c 迁移：章节类型/节奏规则不再由题材块渲染
+        assert "章节类型" not in section
+        assert "节奏规则" not in section
         assert "故事弧：弧名（弧描述）" in section
         assert "弧节拍：b1 → b2" in section
 
@@ -249,17 +252,30 @@ class TestChapterWriterInjection:
         _run_async(_create_genre("wr-genre"))
         root = _tmp_root()
         _seed_writer(root)
+        # 疲劳词主源＝writing-style.yaml（6.0e 迁移）
+        style = _run_async(
+            get_storage().read_yaml(root, "settings/writing-style.yaml")
+        )
+        style["fatigue_words"] = ["默认疲劳词"]
+        style["chapter_types"] = ["日常"]
+        style["pacing_rules"] = ["规则"]
+        _run_async(
+            get_storage().write_yaml(root, "settings/writing-style.yaml", style)
+        )
         _run_async(
             get_storage().write_yaml(root, "settings/genre.yaml", {"genre_id": "wr-genre"})
         )
         ctx = _run_async(build_chapter_context(root, "vol-1-ch-1", "测试小说"))
         assert "## 题材设定" in ctx.genre_section
         assert "题材：注入测试" in ctx.genre_section
-        assert ctx.genre_fatigue_words == ["默认疲劳词"]
+        assert ctx.style_fatigue_words == ["默认疲劳词"]
 
         prompt = ctx.to_prompt()
         assert "## 题材设定" in prompt
         assert "禁止使用以下词汇：默认疲劳词" in prompt
+        # 6.0c 迁移：章节类型/节奏规则随「## 叙事基调」注入
+        assert "章节类型：日常" in prompt
+        assert "节奏规则：规则" in prompt
 
     def test_degrades_gracefully_when_definition_missing(self):
         root = _tmp_root()
@@ -269,5 +285,5 @@ class TestChapterWriterInjection:
         )
         ctx = _run_async(build_chapter_context(root, "vol-1-ch-1", "测试小说"))
         assert ctx.genre_section == ""
-        assert ctx.genre_fatigue_words == []
+        assert ctx.style_fatigue_words == []
         assert "## 题材设定" not in ctx.to_prompt()

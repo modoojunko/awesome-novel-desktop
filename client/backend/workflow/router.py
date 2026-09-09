@@ -36,7 +36,7 @@ async def transition_workflow(
     if target == "outline":
         # Soft gate: check settings but do not block (tier_or_gate: free 恒过)
         result = await tier_or_gate(
-            db, project, gate_settings_complete, project.root_path
+            db, project, gate_settings_complete, project.root_path, project.id
         )
         # hard_block is False for settings, so this always passes through
         if result.hard_block and not result.valid:

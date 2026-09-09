@@ -169,13 +169,63 @@ async def _find_referencing_projects(
 # ── Writing-pipeline injection ─────────────────────────────────────────────
 
 
-async def resolve_genre_context(root_path: str) -> dict | None:
+async def resolve_genre_context(
+    root_path: str, novel_id: str | None = None
+) -> dict | None:
     """Resolve a project's genre config into a flat prompt-injection dict.
 
-    Returns None when the project has no genre_id or the definition is missing
-    (graceful degradation). Reads project settings/genre.yaml via storage, then
-    looks up the definition in the DB.
+    genre-signup-redesign D19：题材改五字段关系表（novel_genre + 关联表）。
+    有 novel_id 时读关系表；无 novel_id（过渡期/旧测试）回退旧 KV genre_id 路径。
+    无题材/无内容时返回 None（优雅降级）。
     """
+    if novel_id:
+        from genres.novel_genre_service import get_novel_genre
+        from models.novel_genre import GenreVocab
+
+        async with async_session() as session:
+            g = await get_novel_genre(session, novel_id)
+            # 关联项的 tagId → 词汇 label（注入用可读文本）
+            ids = [
+                item["tagId"]
+                for item in g["forbidden_list"]
+                if item.get("tagId")
+            ] + [b for b in g["battlefield"] if isinstance(b, str) and ":" in b]
+            labels: dict[str, str] = {}
+            if ids:
+                rows = (
+                    await session.execute(
+                        select(GenreVocab).where(GenreVocab.id.in_(ids))
+                    )
+                ).scalars().all()
+                labels = {r.id: r.label for r in rows}
+        forbidden = [
+            labels.get(item["tagId"], item["tagId"])
+            if item.get("tagId")
+            else item.get("text", "")
+            for item in g["forbidden_list"]
+        ]
+        battlefield = [labels.get(b, b) for b in g["battlefield"]]
+        if not any(
+            [
+                g["core_promise"],
+                g["promise_note"],
+                g["cost_ratio"],
+                g["track"],
+                forbidden,
+                battlefield,
+            ]
+        ):
+            return None
+        return {
+            "core_promise": g["core_promise"],
+            "promise_note": g["promise_note"],
+            "cost_ratio": g["cost_ratio"],
+            "track": g["track"],
+            "forbidden": [x for x in forbidden if x],
+            "battlefield": [x for x in battlefield if x],
+        }
+
+    # ── 过渡期回退：旧 KV genre_id → genres 表 ──
     genre_cfg = await get_storage().read_yaml(root_path, "settings/genre.yaml") or {}
     genre_id = genre_cfg.get("genre_id")
     if not genre_id:
@@ -210,17 +260,10 @@ async def resolve_genre_context(root_path: str) -> dict | None:
         "prompt_injection": (
             definition.get("promptInjection", "") if prompt_enabled else None
         ),
+        # 6.0c 迁移：chapter_types / pacing_rules / fatigue_words 已归 writing-style.yaml
+        # （chapter_writer 合并消费），题材 ctx 不再携带，避免双源。
         "fulfillment_types": (
             cfg_overrides.get("fulfillment_types") or gcfg.get("fulfillmentTypes", [])
-        ),
-        "chapter_types": (
-            cfg_overrides.get("chapter_types") or gcfg.get("chapterTypes", [])
-        ),
-        "pacing_rules": (
-            cfg_overrides.get("pacing_rules") or gcfg.get("pacingRules", [])
-        ),
-        "fatigue_words": (
-            cfg_overrides.get("fatigue_words") or gcfg.get("fatigueWords", [])
         ),
         "selected_arc": selected_arc,
     }
@@ -239,11 +282,29 @@ def build_genre_section(ctx: dict | None) -> str:
     """Render the '## 题材设定' markdown block for prompt injection.
 
     Returns "" when ctx is None. Consumed by chapter_writer.py.
+    新契约（D19 五字段）优先；旧契约键仍在时按旧渲染（过渡期兼容）。
     """
     if not ctx:
         return ""
     lines = ["## 题材设定"]
-    lines.append(f"题材：{ctx.get('name', '')}")
+
+    # ── 新契约（novel_genre 五字段） ──
+    if ctx.get("core_promise"):
+        lines.append(f"核心承诺：{ctx['core_promise']}")
+    if ctx.get("promise_note"):
+        lines.append(f"读者预期：{ctx['promise_note']}")
+    if ctx.get("cost_ratio") is not None:
+        lines.append(f"吃苦指数：{ctx['cost_ratio']}（1=轻，10=极重）")
+    if ctx.get("track"):
+        lines.append(f"剧情轨道：{ctx['track']}")
+    if ctx.get("forbidden"):
+        lines.append("绝对禁止：" + "；".join(str(x) for x in ctx["forbidden"]))
+    if ctx.get("battlefield"):
+        lines.append("主线战场：" + _fmt(ctx["battlefield"]))
+
+    # ── 旧契约（过渡期回退路径） ──
+    if ctx.get("name"):
+        lines.append(f"题材：{ctx['name']}")
     if ctx.get("description"):
         lines.append(ctx["description"])
 
@@ -254,10 +315,6 @@ def build_genre_section(ctx: dict | None) -> str:
         lines.append("题材禁忌：" + "；".join(str(x) for x in ctx["taboos"]))
     if ctx.get("prompt_injection"):
         lines.append(ctx["prompt_injection"])
-    if ctx.get("chapter_types"):
-        lines.append("章节类型：" + _fmt(ctx["chapter_types"]))
-    if ctx.get("pacing_rules"):
-        lines.append("节奏规则：" + _fmt(ctx["pacing_rules"]))
     if ctx.get("fulfillment_types"):
         lines.append("满足类型：" + _fmt(ctx["fulfillment_types"]))
 

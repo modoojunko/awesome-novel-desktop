@@ -68,6 +68,11 @@ async def get_settings(
         )
     if type not in SINGLE_FILE_TYPES:
         raise HTTPException(400, f"Invalid settings type: {type}")
+    # genre 已关系化（D19）：对外仍是五字段 JSON，存储层走 novel_genre_service
+    if type == "genre":
+        from genres.novel_genre_service import get_novel_genre
+
+        return await get_novel_genre(db, project.id)
     return await get_storage().read_yaml(project.root_path, KEY_TO_PATH[type])
 
 
@@ -90,7 +95,21 @@ async def update_settings(
         )
     if type not in SINGLE_FILE_TYPES:
         raise HTTPException(400, f"Invalid settings type: {type}")
-    await get_storage().write_yaml(project.root_path, KEY_TO_PATH[type], body)
+    if type == "genre":
+        from pydantic import ValidationError
+
+        from genres.novel_genre_service import NovelGenreIn, put_novel_genre
+
+        try:
+            payload = NovelGenreIn.model_validate(body)
+        except ValidationError as e:
+            raise HTTPException(400, f"题材字段校验失败：{e.errors()[0]['msg']}") from e
+        try:
+            await put_novel_genre(db, project.id, payload.model_dump())
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+    else:
+        await get_storage().write_yaml(project.root_path, KEY_TO_PATH[type], body)
 
     if project.current_phase == "init":
         project.current_phase = "settings"

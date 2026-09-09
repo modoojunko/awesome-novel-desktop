@@ -470,7 +470,7 @@ async def get_readiness(
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Novel not found")
-    return await compute_readiness(project.root_path)
+    return await compute_readiness(project.root_path, project.id)
 
 
 async def _dump_project_snapshot(zf, db, project) -> None:
