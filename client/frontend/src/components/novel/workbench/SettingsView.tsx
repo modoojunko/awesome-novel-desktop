@@ -31,8 +31,8 @@ import GenreSettingForm, { type GenreHandle } from "@/components/novel/settings/
 
 // ── 面板注册表（顺序/命名与原型 navItems 一致；settingsKey 对后端口径）──
 const SETTINGS_ITEMS = [
-  { k: "genre", name: "题材", settingsKey: "genre", canDefer: false },
   { k: "intro", name: "简介", settingsKey: "synopsis", canDefer: false },
+  { k: "genre", name: "题材", settingsKey: "genre", canDefer: false },
   { k: "arc", name: "主线", settingsKey: "story-arc", canDefer: true },
   { k: "world", name: "世界", settingsKey: "world", canDefer: true },
   { k: "style", name: "风格", settingsKey: "style", canDefer: false },
@@ -79,7 +79,7 @@ function normalizePanel(v: string | undefined): string {
     world: "world", style: "style", "anti-ai": "antiAI",
     hooks: "foreshadow", characters: "chars", "ai-model": "aiModel",
   };
-  return (v && map[v]) || "genre";
+  return (v && map[v]) || "intro";
 }
 
 export default function SettingsView({
