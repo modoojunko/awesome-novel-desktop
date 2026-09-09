@@ -724,7 +724,7 @@ const IntroPanel = forwardRef<
           </label>
           <textarea
             ref={taRef}
-            className="textarea"
+            className="textarea intro-ta"
             rows={4}
             maxLength={INTRO_MAX_LEN}
             placeholder="用几句话讲讲这个故事是关于什么的（主角、世界、核心冲突）"
