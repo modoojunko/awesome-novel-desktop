@@ -107,6 +107,12 @@ async function setupSession(
   const { token, username } = await sRegisterAndLogin();
   const restore = await writeOAuthSession(token, username, tier);
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
+  // 页面级桩 check-auth：e2e 注入的 pc_hash 在 S端 无设备授权（code 1），后端会
+  // 据此清空 config.json 的注入 token → 业务请求 401（已知环境阻塞）。桩掉这次
+  // 往返即可保住注入会话；会员判定仍走后端 check_permission()（读 config.json tier）。
+  await page.route("**/api/auth/check-auth", (r) =>
+    r.fulfill({ json: { code: 0, data: {} } }),
+  );
   return { restore, token };
 }
 
@@ -165,10 +171,21 @@ async function confirmPanel(page: Page) {
     .locator(".panel-foot")
     .getByRole("button", { name: "确认完成" });
   await expect(btn).toBeVisible({ timeout: 5000 });
+  const before = await page.locator(".settings-v main h2").textContent();
+  const statusPut = page.waitForResponse(
+    (r) => r.request().method() === "PUT" && r.url().includes("/settings/status/"),
+  );
   await btn.click();
-  await expect(
-    page.locator(".panel-foot").getByRole("button", { name: "保存修改" }),
-  ).toBeVisible({ timeout: 5000 });
+  await statusPut;
+  // 确认即前进（tasks 2.2）：确认后面板切到下一项（末项/已确认态才留在原面板）
+  await expect(async () => {
+    const after = await page.locator(".settings-v main h2").textContent();
+    const saved = await page
+      .locator(".panel-foot")
+      .getByRole("button", { name: "保存修改" })
+      .count();
+    expect(after !== before || saved > 0).toBe(true);
+  }).toPass({ timeout: 5000 });
 }
 
 // -------------------------------------------------------------------------
@@ -205,42 +222,35 @@ test("创建小说：仅书名即可创建并进入小说页", async ({ page }) 
 // PRD 3.4：简介完成判定（简介面板点「确认完成」时校验内容非空）
 // -------------------------------------------------------------------------
 
-test("简介空不可确认，保存后可确认（AC-4.2）", async ({ page }) => {
-  const { restore } = await setupSession(page);
+test("简介可随时确认；内容为空时后端 400 拦截（tasks 2.4 语义）", async ({
+  page,
+  request,
+}) => {
+  const { restore, token } = await setupSession(page);
   try {
-    // 项目名唯一：跨用户同名会复用同一 root_path 目录（create_project 按 slug 建目录），
-    // 残留数据会串到新项目（如旧 story.yaml）。加时间戳保证每测试独立目录。
     const pid = await createNovel(page, `简介${Date.now() % 100000}`);
     await page.goto(`${ORIGIN}/#/novel/${pid}`);
-
-    // 新落点：默认写作工作台。简介面板在设定视图内，经 modnav「设定」进入（PR4 v2）。
     await page.getByRole("button", { name: /^设定/ }).click();
     await openSetting(page, "简介");
 
-    // 空简介 → 点「确认完成」→ 前置校验拦截 + toast 提示，不确认
+    // 空简介 → 确认按钮仍可点（无前端 gate）→ 后端 400 拦截，不落已确认
     await page
       .locator(".panel-foot")
       .getByRole("button", { name: "确认完成" })
       .click();
-    await expect(page.getByText("请先写一段梗概")).toBeVisible({ timeout: 5000 });
-    await expect(
-      page.locator(".panel-foot").getByRole("button", { name: "保存修改" }),
-    ).toHaveCount(0);
+    await expect(page.getByText(/还未填写内容/)).toBeVisible({ timeout: 5000 });
+    const status0 = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
+    expect(status0.synopsis).toBe(false);
 
     // 写入简介 → x/500 计数同步（spec#3）→ 确认完成（gap3：先 PUT /story 再 confirm）
     await page
       .getByPlaceholder(/用几句话/)
       .fill("一个穿越到明朝当海盗的故事");
     await expect(page.getByText("13/500")).toBeVisible();
-    const synSave = page.waitForResponse(
-      (r) => r.request().method() === "PUT" && r.url().includes("/story"),
-    );
     await confirmPanel(page);
-    await synSave;
-    // 已确认徽标（panel-foot done-note；note 文案同含「已确认」，须锚定类名）
-    await expect(page.locator(".panel-foot .done-note")).toBeVisible({
-      timeout: 5000,
-    });
+
+    const status1 = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
+    expect(status1.synopsis).toBe(true);
   } finally {
     restore();
   }
@@ -357,31 +367,27 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
       core_promise: "以弱破强的痛快",
       cost_ratio: 8,
     });
+    // 题材面板在「简介确认即前进」时已挂载（早于本次注入）→ 切走再切回强制重挂载取数
+    await openSetting(page, "世界");
     await openSetting(page, "题材");
     // 面板加载完成信号＝六格渲染出（首格口味胶囊可见）
     await expect(page.locator(".settings-v .mod")).toHaveCount(6, { timeout: 5000 });
+    await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue("以弱破强的痛快");
     await confirmPanel(page);
 
-    // ── style：API 注入 + 面板已确认态（种子模板预填 role → readiness 即
-    //    ready，按钮为「保存修改」，UI 无确认路径；status 由 API 补齐）
+    // ── style：API 注入 + 面板确认（§5.1 新书为「已填」非「已确认」→ 按钮是确认完成）
     await apiPutJSON(request, token, `/novels/${pid}/settings/style`, {
       role: "克制冷静的第三人称叙事，短句为主",
     });
     await openSetting(page, "风格");
-    await expect(
-      page.locator(".panel-foot").getByRole("button", { name: "保存修改" }),
-    ).toBeVisible({ timeout: 5000 });
-    await apiPutJSON(request, token, `/novels/${pid}/settings/status/style`, {});
+    await confirmPanel(page);
 
-    // ── anti-ai：API 注入 + 面板已确认态（种子模板预填疲劳词，同上）
+    // ── anti-ai：API 注入 + 面板确认（同上）
     await apiPutJSON(request, token, `/novels/${pid}/settings/anti-ai`, {
       blocklists: ["过度修辞", "翻译腔"],
     });
     await openSetting(page, "AI痕迹控制");
-    await expect(
-      page.locator(".panel-foot").getByRole("button", { name: "保存修改" }),
-    ).toBeVisible({ timeout: 5000 });
-    await apiPutJSON(request, token, `/novels/${pid}/settings/status/anti-ai`, {});
+    await confirmPanel(page);
 
     // ── characters：API 注入角色文件 + 面板确认
     await apiPutJSON(request, token, `/novels/${pid}/settings/character/张三`, {

@@ -59,6 +59,12 @@ async function setupSession(page: Page, tier = "trial") {
   const { token, username } = await sRegisterAndLogin();
   const restore = writeOAuthSession(token, username, tier);
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
+  // 页面级桩 check-auth：e2e 注入的 pc_hash 在 S端 无设备授权（code 1），后端会
+  // 据此清空 config.json 的注入 token → 业务请求 401（已知环境阻塞）。桩掉这次
+  // 往返即可保住注入会话；会员判定仍走后端 check_permission()（读 config.json tier）。
+  await page.route("**/api/auth/check-auth", (r) =>
+    r.fulfill({ json: { code: 0, data: {} } }),
+  );
   return { restore, token };
 }
 
@@ -116,14 +122,14 @@ test.describe("主线卡", () => {
         .last()
         .click();
 
-      // 确认完成（先 save 后 confirm），按钮转「保存修改」
+      // 确认完成（先 save 后 confirm）→ 确认即前进到下一项（tasks 2.2）
       const arcSave = page.waitForResponse(
         (r) => r.request().method() === "PUT" && r.url().includes("/story/arc"),
       );
       await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
       await arcSave;
       await expect(
-        page.locator(".panel-foot").getByRole("button", { name: "保存修改" }),
+        page.locator(".settings-v main h2", { hasText: "世界" }),
       ).toBeVisible({ timeout: 5000 });
 
       // 后端直查：story-arc 可确认 + 卡内容回读一致

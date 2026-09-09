@@ -77,6 +77,11 @@ async function setupFreeSession(page: Page): Promise<{ restore: () => void }> {
   const { token, username } = await sRegisterAndLogin();
   const restore = writeFreeSession(token, username);
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
+  // 页面级桩 check-auth：注入的 pc_hash 在 S端 无设备授权（code 1），后端会据此清空
+  // config.json 的注入 token → 业务 401（已知环境阻塞）；桩掉往返即可保住注入会话。
+  await page.route("**/api/auth/check-auth", (r) =>
+    r.fulfill({ json: { code: 0, data: {} } }),
+  );
   return { restore };
 }
 

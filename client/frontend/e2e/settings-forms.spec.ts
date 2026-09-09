@@ -99,6 +99,12 @@ async function setupSession(
   const { token, username } = await sRegisterAndLogin();
   const restore = await writeOAuthSession(token, username, tier);
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
+  // 页面级桩 check-auth：注入的 pc_hash 在 S端 无设备授权（code 1），后端会据此
+  // 清空 config.json 注入 token → 业务 401（已知环境阻塞）。桩掉这次往返即可
+  // 保住注入会话；会员判定仍走后端 check_permission()（读 config.json 的 tier）。
+  await page.route("**/api/auth/check-auth", (r) =>
+    r.fulfill({ json: { code: 0, data: { token, username, tier } } }),
+  );
   return { restore, token };
 }
 
@@ -261,12 +267,15 @@ test("题材：六格面板（口味联动 → 自定义禁区 → 吃苦指数 
     await page.locator('[data-od-id="cost-slider"]').fill("6");
     await expect(page.locator('[data-od-id="cost-sentence"]')).toContainText("6 分");
 
-    // 确认完成 → PUT /settings/genre（先 save 后 confirm）
+    // 确认完成 → 先 save（PUT /settings/genre）再 confirm，并「确认即前进」切到下一项
     const genreSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/genre"),
     );
-    await confirmPanel(page);
+    await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
     await genreSave;
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "主线" }),
+    ).toBeVisible({ timeout: 5000 });
 
     // 后端直查：五字段契约（无 genre_id）
     const genre = await apiGetJSON(request, token, `/novels/${pid}/settings/genre`);
@@ -307,12 +316,15 @@ test("风格：真实表单（叙事身份 Field + 核心原则折叠组）→ �
       .first()
       .fill("动词驱动叙事，动作外化情绪");
 
-    // 保存（种子模板使风格开书即 ready → 已确认态只 save，不 PUT status）
+    // 新书未确认（§5.1 已填≠已确认）→ 点「确认完成」：先 save 再 confirm，并前进
     const styleSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/style"),
     );
-    await savePanel(page);
+    await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
     await styleSave;
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "AI痕迹控制" }),
+    ).toBeVisible({ timeout: 5000 });
 
     // 后端直查（merge-on-save 后 role / core_principles 落盘）
     const style = await apiGetJSON(request, token, `/novels/${pid}/settings/style`);
@@ -348,12 +360,15 @@ test("AI痕迹：真实表单（疲劳词分类列表）→ 确认完成自动�
       .first()
       .fill("似乎");
 
-    // 保存（种子模板使 AI 痕迹开书即 ready → 已确认态只 save）
+    // 新书未确认 → 点「确认完成」（save + confirm + 前进到「伏笔」）
     const antiSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/anti-ai"),
     );
-    await savePanel(page);
+    await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
     await antiSave;
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "伏笔" }),
+    ).toBeVisible({ timeout: 5000 });
 
     // 后端直查：summary_narrative 分类含「似乎」
     const anti = await apiGetJSON(request, token, `/novels/${pid}/settings/anti-ai`);
@@ -703,12 +718,15 @@ test("P2-1d 脏表单确认完成：自动保存再确认（内容落库 + 按�
     await page.locator("summary", { hasText: "政治" }).click();
     await fillSettingField(page, "统治形式", "城主议会制，元老席位世袭");
 
-    // 确认完成 → 应先自动保存（PUT /settings/world）再确认（PUT /settings/status/world）
+    // 确认完成 → 应先自动保存（PUT /settings/world）再确认，并「确认即前进」到风格
     const autoSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/world"),
     );
-    await confirmPanel(page);
+    await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
     await autoSave;
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "风格" }),
+    ).toBeVisible({ timeout: 5000 });
 
     // 后端直查：内容已落库（自动保存生效）
     const world = await apiGetJSON(request, token, `/novels/${pid}/settings/world`);
@@ -738,7 +756,7 @@ test("前两步顺序 + 确认即前进：简介确认后自动切到题材（ta
     // ② 填简介 → 确认完成
     await fillSettingField(page, "故事简介", "外门杂徒林拾，在宗门扫了十年落叶。");
     const introSave = page.waitForResponse(
-      (r) => r.request().method() === "PUT" && r.url().includes("/settings/story"),
+      (r) => r.request().method() === "PUT" && /\/novels\/[^/]+\/story$/.test(r.url()),
     );
     const btn = page.locator(".panel-foot").getByRole("button", { name: "确认完成" });
     await expect(btn).toBeVisible({ timeout: 5000 });
