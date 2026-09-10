@@ -20,4 +20,6 @@ ignore = ["B008", "ASYNC230", "RUF100", "DTZ"]
 "projects/*.py" = ["BLE001", "S110"]
 "novels/*.py" = ["BLE001", "S110", "S112"]
 "workflow/*.py" = ["BLE001", "S110"]
+# genres/*：story.yaml 缺失/损坏不阻断题材读取（注入要与简介同族读文件）
+"genres/*.py" = ["BLE001", "S110"]
 "tests/*.py" = ["BLE001", "S112"]

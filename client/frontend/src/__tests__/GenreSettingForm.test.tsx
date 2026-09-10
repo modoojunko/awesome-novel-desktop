@@ -134,6 +134,8 @@ describe("GenreSettingForm · 六格", () => {
     await ref.current!.save();
 
     expect(apiState.put).toHaveBeenCalledWith("/novels/p1/settings/genre", {
+      theme: "",
+      sub_genre: "",
       core_promise: "以弱破强的痛快",
       promise_note: "",
       forbidden_list: [{ tagId: "forbidden:no-villain-idiot" }, { text: "禁穿越" }],
@@ -141,6 +143,50 @@ describe("GenreSettingForm · 六格", () => {
       battlefield: ["battlefield:truth"],
       track: "从练气到飞升",
     });
+  });
+
+  it("01 题材目录：20 个大类 + 选中后出子类，子类不属于新大类时清空", async () => {
+    const { container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+
+    const row = container.querySelector('[data-od-id="theme-row"]')!;
+    expect(row.querySelectorAll(".cap")).toHaveLength(20);
+    expect(screen.getByText("仙侠/修真")).toBeTruthy();
+
+    // 未选大类 → 不出子类行
+    expect(container.querySelector('[data-od-id="sub-genre-row"]')).toBeNull();
+
+    fireEvent.click(row.querySelector('[data-g="theme:仙侠/修真"]')!);
+    const subRow = container.querySelector('[data-od-id="sub-genre-row"]')!;
+    expect(subRow.querySelectorAll(".cap")).toHaveLength(4);
+    expect(screen.getByText("凡人流")).toBeTruthy();
+
+    // 选子类 → 打上选中态
+    fireEvent.click(subRow.querySelector('[data-g="sub:凡人流"]')!);
+    expect(container.querySelector('[data-g="sub:凡人流"]')!.className).toContain("on");
+
+    // 换大类 → 旧子类（不属于新大类）必须清掉，否则后端 400
+    fireEvent.click(row.querySelector('[data-g="theme:科幻"]')!);
+    expect(container.querySelector('[data-g="sub:凡人流"]')).toBeNull();
+    expect(container.querySelector('[data-g="theme:科幻"]')!.className).toContain("on");
+
+    // 再点已选大类 → 取消选择（子类行一并撤下）
+    fireEvent.click(row.querySelector('[data-g="theme:科幻"]')!);
+    expect(container.querySelector('[data-od-id="sub-genre-row"]')).toBeNull();
+  });
+
+  it("01 题材目录随契约下发回读（theme + sub_genre）", async () => {
+    const { ref, container } = renderPanel({ theme: "架空古王朝", sub_genre: "权谋" });
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+
+    expect(container.querySelector('[data-g="theme:架空古王朝"]')!.className).toContain("on");
+    expect(container.querySelector('[data-g="sub:权谋"]')!.className).toContain("on");
+
+    await ref.current!.save();
+    expect(apiState.put).toHaveBeenCalledWith(
+      "/novels/p1/settings/genre",
+      expect.objectContaining({ theme: "架空古王朝", sub_genre: "权谋" }),
+    );
   });
 
   it("回读：已有契约渲染到对应控件（含未知战场项原样展示）", async () => {

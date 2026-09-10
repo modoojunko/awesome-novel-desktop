@@ -152,7 +152,11 @@ async def list_candidates(session: AsyncSession) -> dict[str, list[dict[str, Any
 
 
 async def get_novel_genre(session: AsyncSession, novel_id: str) -> dict[str, Any]:
-    """组装本书题材为五字段 JSON（无行时返回全空）。"""
+    """组装本书题材为五字段 JSON（无行时返回全空）。
+
+    题材目录（01 大类/子类）不在这里——它落 `story.yaml`（与简介同族、复用既有 `genre` 键），
+    由调用方（settings/router）补齐 `theme`/`sub_genre` 两个字段再下发。
+    """
     row = await session.get(NovelGenre, novel_id)
     forbid = (
         await session.execute(

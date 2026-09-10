@@ -1,10 +1,11 @@
 // ── GenreSettingForm ──────────────────────────────────────────────────────
 // 题材设定面板（genre-signup-redesign tasks 4.1 / D18·D19 新契约）：
-//   六格 = 01 口味胶囊（预置联动，不落库/不计入判据）+ 02 主要看什么
+//   六格 = 01 题材目录（大类必选 + 子类可选，落 story.yaml）+ 02 主要看什么
 //   + 03 绝对禁止 + 04 吃苦指数 + 05 主线战场 + 06 剧情轨道。
 //   每格 = 编号 + 怎么填（m-why）+ 成书视角去处（m-use）。
 //
-// 存储契约（对外五字段 JSON，后端关系化落 4 张表）：
+// 存储契约（对外七字段 JSON；01 落 story.yaml，其余关系化落 4 张表）：
+//   01 → theme + sub_genre（题材目录，见 lib/themeCatalog.ts；后端按目录校验，未知 400）
 //   02 → core_promise(≤60) + promise_note(≤200，AI 补充、不单独成行)
 //   03 → forbidden_list[{tagId|text}]   04 → cost_ratio(1-10)
 //   05 → battlefield[]（tagId 或自定义文本）  06 → track(≤300)
@@ -26,6 +27,7 @@ import {
   vocabLabel,
   type VocabKind,
 } from "@/lib/genreVocab";
+import { THEMES, subTypesOf } from "@/lib/themeCatalog";
 
 // ── Props / Handle ───────────────────────────────────────────────────────
 
@@ -70,6 +72,9 @@ interface ForbiddenItem {
 }
 
 interface GenrePayload {
+  /** 01 题材目录（大类/子类）——落 story.yaml，与简介同族。 */
+  theme: string;
+  sub_genre: string;
   core_promise: string;
   promise_note: string;
   forbidden_list: ForbiddenItem[];
@@ -79,6 +84,8 @@ interface GenrePayload {
 }
 
 const EMPTY: GenrePayload = {
+  theme: "",
+  sub_genre: "",
   core_promise: "",
   promise_note: "",
   forbidden_list: [],
@@ -91,6 +98,8 @@ function normalize(raw: unknown): GenrePayload {
   const d = (raw ?? {}) as Partial<GenrePayload>;
   const cost = d.cost_ratio;
   return {
+    theme: (d.theme ?? "").toString(),
+    sub_genre: (d.sub_genre ?? "").toString(),
     core_promise: (d.core_promise ?? "").toString(),
     promise_note: (d.promise_note ?? "").toString(),
     forbidden_list: Array.isArray(d.forbidden_list)
@@ -212,7 +221,20 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     setData((prev) => ({ ...prev, ...p }));
   }, []);
 
-  // ── 01 口味联动：预填 02/03/04/05（不写 promise_note/track）──────────
+  // ── 01 题材目录：大类（必选，再点取消）/ 子类（可选，再点取消）─────────
+  const pickTheme = useCallback((name: string) => {
+    setData((prev) => {
+      if (prev.theme === name) return { ...prev, theme: "", sub_genre: "" };
+      // 换大类时旧子类不属于新大类 → 清掉（后端也会 400 拒收跨类子类）
+      return { ...prev, theme: name, sub_genre: "" };
+    });
+  }, []);
+
+  const pickSubGenre = useCallback((name: string) => {
+    setData((prev) => ({ ...prev, sub_genre: prev.sub_genre === name ? "" : name }));
+  }, []);
+
+  // ── 02 常见口味快捷填充：预填 02/03/04/05（不写 promise_note/track）───
   const applyFlavor = useCallback(
     (key: string) => {
       const f = GENRE_FLAVORS.find((x) => x.key === key);
@@ -410,32 +432,53 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
 
   return (
     <div data-od-id="genre-panel">
-      {/* 01 口味胶囊 —— 预置联动 */}
+      {/* 01 题材目录 —— 大类（必选）+ 子类（可选） */}
       <Mod
         no="01"
         name="题材"
-        why="选个口味起点，下面各格跟着给建议"
+        why="这本书写的是什么题材"
         use={
           <>
             "填好后："
-            <b>全书都按这套口味给建议</b>
+            <b>全书按这个题材的类型规则走</b>
             "，随时可换"
           </>
         }
       >
-        <div className="cap-row">
-          {GENRE_FLAVORS.map((f) => (
+        <p className="cap-label">大类（必选）</p>
+        <div className="cap-row" data-od-id="theme-row">
+          {THEMES.map((t) => (
             <button
-              key={f.key}
-              className={`cap${flavorKey === f.key ? " on" : ""}`}
+              key={t.name}
+              className={`cap${data.theme === t.name ? " on" : ""}`}
               type="button"
-              data-g={f.key}
-              onClick={() => applyFlavor(f.key)}
+              data-g={`theme:${t.name}`}
+              aria-pressed={data.theme === t.name}
+              onClick={() => pickTheme(t.name)}
             >
-              {f.label}
+              {t.name}
             </button>
           ))}
         </div>
+        {data.theme && (
+          <>
+            <p className="cap-label">子类（可选 · {data.theme}）</p>
+            <div className="cap-row" data-od-id="sub-genre-row">
+              {subTypesOf(data.theme).map((s) => (
+                <button
+                  key={s}
+                  className={`cap${data.sub_genre === s ? " on" : ""}`}
+                  type="button"
+                  data-g={`sub:${s}`}
+                  aria-pressed={data.sub_genre === s}
+                  onClick={() => pickSubGenre(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </Mod>
 
       {/* 02 主要看什么 → core_promise + promise_note */}
@@ -451,6 +494,22 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           </>
         }
       >
+        {/* 常见口味快捷填充：一次性预填 02/03/04/05（纯起点，各格可改） */}
+        <div className="cap-row flavors">
+          <span className="cap-label inline">常见口味</span>
+          {GENRE_FLAVORS.map((f) => (
+            <button
+              key={f.key}
+              className={`cap${flavorKey === f.key ? " on" : ""}`}
+              type="button"
+              data-g={f.key}
+              title="一次预填主要看什么 / 绝对禁止 / 吃苦指数 / 主线战场"
+              onClick={() => applyFlavor(f.key)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
         <textarea
           className="textarea"
           rows={2}

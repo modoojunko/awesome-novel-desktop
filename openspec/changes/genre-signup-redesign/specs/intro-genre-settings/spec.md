@@ -74,19 +74,33 @@
 - Then 结果出现在简介框下方结果区，右栏不堆长答案
 
 ### Requirement: 题材面板（六格 + 五行 AI）
-- 题材面板 SHALL 为六格：① 题材口味胶囊（5 预置，联动各格默认）② 主要看什么 ③ 绝对禁止（库标签预勾 + 取消＝放行 + 回车自定义）④ 吃苦指数滑块（1-10，浮例句）⑤ 主线战场（预选 2，第 3 个出软提示不禁止）⑥ 剧情轨道。
+- 题材面板 SHALL 为六格：**① 题材目录（第一问「什么题材？」：大类必选 + 子类可选，见下条）** ② 主要看什么 ③ 绝对禁止（库标签预勾 + 取消＝放行 + 回车自定义）④ 吃苦指数滑块（1-10，浮例句）⑤ 主线战场（预选 2，第 3 个出软提示不禁止）⑥ 剧情轨道。
+- **01 格 SHALL 是题材本身（用户 2026-09-10 拍板「题材应该是第一个问题：什么题材」）**：候选源＝**题材目录**（20 大类 × 各自子类，单一事实源 `genres/theme_catalog.py` ↔ `lib/themeCatalog.ts`，逐字对拍）——仙侠/修真、科幻、架空古王朝、刑侦/现实犯罪…（不再用「口味胶囊」当第一问）。交互：点大类即选中（再点取消），选中后出该大类的子类行（单选，可不选）；**换大类 SHALL 清掉不属于新大类的子类**（后端也会 400 拒收跨类子类）。大类是 01 格的**必选**项（子类可选）。
+- **口味胶囊 SHALL 移到 02 格**作「常见口味」快捷填充（原名「题材口味胶囊」名不符实：它填的是 02-05，不是题材）：一次预填 02/03/04/05，各格可改；**SHALL NOT** 覆盖 01 已选的题材。
 - 每格 SHALL 有编号 + 名称 + 「怎么填」提示 + 成书视角去处说明（m-use）。
-- 题材右栏 SHALL 为同款「AI 写作助手」卡片：五行字段（对应 **02-06** 六格/契约字段；01 口味胶囊为预置联动、不走 AI、不计入确认判据），各行名称上/描述下（含本格问题 + 输入来源）/右箭头，各答各题。**六格→路由 field→契约字段映射**：02 主要看什么↔core_promise(+promise_note，仅入契约不设 AI 行)；03 绝对禁止↔forbidden_list；04 吃苦指数↔cost_ratio；05 主线战场↔battlefield；06 剧情轨道↔track。
+- 题材右栏 SHALL 为同款「AI 写作助手」卡片：五行字段（对应 **02-06** 六格/契约字段；01 题材目录为直接选择、不走 AI、**计入**确认判据），各行名称上/描述下（含本格问题 + 输入来源）/右箭头，各答各题。**六格→路由 field→契约字段映射**：02 主要看什么↔core_promise(+promise_note，仅入契约不设 AI 行)；03 绝对禁止↔forbidden_list；04 吃苦指数↔cost_ratio；05 主线战场↔battlefield；06 剧情轨道↔track。
 - 点某行，反馈 SHALL 落到**左侧对应字段输入框正下方**的结果区（.ai-sink），采纳才写回对应控件；AI 建议按字段返回**强类型出参**（cost_ratio 为 1-10 数值、forbidden_list 为 `[{tagId|text}]`、battlefield 为数组、core_promise 为 `{value:enum|custom, note:读者预期句}`、主要看什么/剧情轨道为文本）。
 - 题材的枚举/标签类字段（core_promise、forbidden_list、battlefield）SHALL 有**候选来源**：由 9. 共享候选源给出候选清单（core_promise 枚举值、forbidden_list tagId 目录、battlefield 候选），模型从中选或走 custom，前端「采纳才写回并映射 tagId」。
 - **写回语义**（设计见 D16）：单值文本/数值**覆盖**（按钮「采纳 · 覆盖」）；列表（forbidden_list/battlefield）**覆盖整个列表**（不追加——O-6）；AI 返回无法映射 tagId 的文本落为 `custom`（不丢弃）；**01 取消选择不回滚**已填各格（O-15）。
 - 题材定义 SHALL 收口为：题材 = 读者预期 + 作者轨道 + 核心冲突的类型锁（提示帮助中的措辞）。
 - **纯新契约连带**（写作引擎配置去留）：推翻 genre_id 后，老 GenreSettingForm 落盘的 `genre_id + config_overrides(fulfillment_types/chapter_types/pacing_rules/fatigue_words) + selected_arc_id + prompt_injection_enabled + taboos` 这批写作引擎题材配置必须有明确去留——语义相近的迁移为新契约字段（fulfillment_types→core_promise、taboos→forbidden_list、typicalArc/storyArcTemplates→track），纯写作引擎/随 GenrePicker 退役的显式移除并评估，**不得静默丢弃**影响写作引擎 AI 口味/节奏/注入的配置。
 
-#### Scenario: 三种口味第六格联动
-- Given 选「逆袭打脸」
-- When 查看各格
+#### Scenario: 三种口味快捷填充（02 格）
+- Given 题材面板，已选 01 题材「仙侠/修真」
+- When 点 02 格的「逆袭打脸」
 - Then 主要看什么/绝对禁止/吃苦指数/主线战场 预填推荐值，均可改可清
+- And 01 已选的题材不被覆盖
+
+#### Scenario: 题材目录两级选择
+- Given 打开题材面板
+- When 点大类「仙侠/修真」
+- Then 出现其子类行（古典仙侠/凡人流/仙魔大战/种田修仙），可单选
+- And 换点「科幻」时，若原先选了「凡人流」，该子类被清掉（不属于科幻）
+
+#### Scenario: 未知题材被拒
+- Given 客户端提交一个不在目录内的大类名
+- When 保存题材
+- Then 后端 400 拒绝（「未知的题材」），不落库
 
 #### Scenario: 题材 AI 反馈落对应字段下方
 - Given 题材面板
@@ -207,49 +221,56 @@
 - **幂等性**：同值重复写 SHALL 幂等——`PUT /novels/{id}/ai-model` 重复提交同 `(config_id, model)` → 均 200、状态不变、**审计不重复写**；`PUT /settings/story`/`PUT /settings/genre` 重复提交同 payload → 幂等；`PUT /settings/status/{type}` 重复 confirm → 幂等；**AI 重试/换候选不重复计 usage**。
 - **边界与等价类**：`synopsis` 界 **500**（0/1/499/500/501，**501 尾部截断**——与 D16「500 字截断」一致）；`cost_ratio` 界 **[1,10]**（0/11 拒）；模型列表 0/1/多（0 → 任意 model 拒）；空串/纯空白/`None` SHALL 视为「未填」（三者等价，不得只判 `None`）。
 
-- **存储（D19 关系化，取代 D17 的 KV 方案）**：题材 SHALL 落 `novel_genre` + 关联表（4 张表，见下「题材 SHALL 存关系表」条）；`project_settings('genre')` 行 SHALL 废弃（不再读写）；**无迁移**（无 C 端用户，存量库指纹不匹配→留档重建）。**写作注入 SHALL 同批重写**：`resolve_genre_context` 须改读五字段，否则 `build_genre_section` 恒空且**无报错**（静默降级，正文质量悄悄变差）。**`genres` 表 SHALL NOT 被本 change 修改**（仅停用 `genre_id` 引用）。候选源 SHALL 由 `GET /api/genres/candidates` 下发（前后端镜像需 parity）。**`settings/ai-model.yaml` 为确认标记行，SHALL NOT 写入 `ai_state`**。**R9**：`writing-style.yaml` 的 `genre_profile` SHALL 停用或明确仅作展示名，不得与五字段并存为两个题材源。**禁止新增未路由的 storage 路径**（会静默落盘、破坏「数据全在 DB」）。
+- **存储（D19 关系化，取代 D17 的 KV 方案）**：题材 SHALL 落 `novel_genre` + 关联表（4 张表，见下「题材 SHALL 存关系表」条）；`project_settings('genre')` 行 SHALL 废弃（不再读写）；**无迁移**（无 C 端用户，存量库指纹不匹配→留档重建）。**写作注入 SHALL 同批重写**：`resolve_genre_context` 须改读五字段，否则 `build_genre_section` 恒空且**无报错**（静默降级，正文质量悄悄变差）；**且 SHALL 带上 01 题材目录**（`题材：大题（子类）` 一行，同读 `story.yaml`）——01 是「定了就不跑偏」的类型锁，只注入 02-06 会让模型不知道书是什么题材。**`genres` 表 SHALL NOT 被本 change 修改**（仅停用 `genre_id` 引用）。候选源 SHALL 由 `GET /api/genres/candidates` 下发（前后端镜像需 parity）。**`settings/ai-model.yaml` 为确认标记行，SHALL NOT 写入 `ai_state`**。**R9**：`writing-style.yaml` 的 `genre_profile` SHALL 停用或明确仅作展示名，不得与五字段并存为两个题材源。**禁止新增未路由的 storage 路径**（会静默落盘、破坏「数据全在 DB」）。
 - **R8 删除残留**：删 ApiConfig 后 `ai_config_id` 被置空而 `ai_model` 保留 → `ai_state` SHALL 判 `invalid`（非 `missing_model`/ready）。
 
 ### Requirement: 简介/题材字段数据契约
 - 简介 SHALL 存储 `{ synopsis: string, ≤500 }`（`PUT /settings/story`）。
-- 题材 SHALL 存**关系表**（方案 A，D19）：`novel_genre`（`novel_id` 主键、`core_promise VARCHAR(60)`、`promise_note VARCHAR(200)`、`cost_ratio INTEGER CHECK 1–10`、`track VARCHAR(300)`）+ `novel_genre_forbidden` / `novel_genre_battlefield`（关联表，`vocab_id` FK→`genre_vocab` 或 `custom_text`，CHECK 恰一；`UNIQUE(novel_id, vocab_id)`）。**候选源 SHALL 为 `genre_vocab` 表**（稳定 slug 主键、`kind`/`label`/`sort`/`is_preset`），**tagId SHALL 为稳定 slug**（如 `forbidden:no-deus-ex-machina`），**SHALL NOT 用 `preset:{id}:{index}` 这类随顺序漂移的编号**。**对外 API 契约不变**：`GET/PUT /settings/genre` 仍为五字段 JSON（后端存储层组装/拆分，事务写多表）。**空值统一**：`null`/`""`/纯空白/无关联行 等价视为未填。`project_settings('genre')` 行 SHALL 废弃。
+- **题材目录（01 格）SHALL 落 `story.yaml`**（用户 2026-09-10 拍板）：大类名存**既有 `genre` 键**（书卡胶囊/书内标签的展示链一直读它）、子类名存新键 `sub_genre`；`GET/PUT /novels/{id}/settings/genre` 的对外契约 SHALL 含 `theme`/`sub_genre` 两字段，**存储位置对前端透明**（面板一次取全、一次保存）。**理由**：题材目录是与简介同族的单值书级元数据（同文件、已有 `genre` 键），不是多值关系；**另立关系表意味着改 schema → 触发 C端 启动期指纹留档（用户库被改名重建，实打实的数据丢失）**，而简介真源本来就在 `story.yaml`。**键存在才写**：PUT 未带 `theme`/`sub_genre` 键时 SHALL NOT 改动既有值（老调用方只 PUT 五字段不得清空题材）。
+- **题材目录（封闭目录）SHALL 以中文名为存储值**：不另造 slug-id（名字即稳定键，免 id↔名两处漂移）；写入 SHALL 按目录校验，未知大类/跨类子类 → 400（「未知的题材」/「没有这个子类」）。
+- 题材 SHALL 存**关系表**（方案 A，D19）：`novel_genre`（`novel_id` 主键、`core_promise VARCHAR(60)`、`promise_note VARCHAR(200)`、`cost_ratio INTEGER CHECK 1–10`、`track VARCHAR(300)`）+ `novel_genre_forbidden` / `novel_genre_battlefield`（关联表，`vocab_id` FK→`genre_vocab` 或 `custom_text`，CHECK 恰一；`UNIQUE(novel_id, vocab_id)`）。**候选源 SHALL 为 `genre_vocab` 表**（稳定 slug 主键、`kind`/`label`/`sort`/`is_preset`），**tagId SHALL 为稳定 slug**（如 `forbidden:no-deus-ex-machina`），**SHALL NOT 用 `preset:{id}:{index}` 这类随顺序漂移的编号**。**空值统一**：`null`/`""`/纯空白/无关联行 等价视为未填。`project_settings('genre')` 行 SHALL 废弃。
 - **实体命名统一（D20）**：DB 表 `projects` SHALL 改名 `novels`、列 `project_id` SHALL 改名 `novel_id`（含 `chapters`/`volumes`/`token_log`/`project_model_audit_log` + 新表 FK）；后端 URI `/api/v1/projects/*` SHALL 改 `/api/v1/novels/*`（无外部消费者，不留别名）；前端 `/projects/...` 残留同批改。**理由**：一物三名已收敛两处（类名 `Novel`、路由 `/novels`），表名是唯一残留；Change C D1 原判「不动」的前提（有已分发数据）已因「无 C 端用户」失效。
-- 题材确认判据 SHALL 由「genre_id 非空」改为「新契约**核心键非空**（`core_promise`/`forbidden_list`/`cost_ratio`/`battlefield`/`track` 至少一非空；**01 口味胶囊不计入**，避免恒为真）」（`readiness._check_genre` 同步改），否则题材步骤永远无法确认。
-- **六格↔字段↔契约映射** SHALL 固定：02 主要看什么↔core_promise(+promise_note，仅入契约不设 AI 行)；03 绝对禁止↔forbidden_list；04 吃苦指数↔cost_ratio；05 主线战场↔battlefield；06 剧情轨道↔track；01 口味胶囊=预置联动、不走 AI、不计判据。
+- 题材确认判据 SHALL 由「genre_id 非空」改为「**已选题材目录大类 或 新契约核心键非空**」（`core_promise`/`forbidden_list`/`cost_ratio`/`battlefield`/`track` 至少一非空；`readiness._check_genre` 同步改）——01 格问的就是「什么题材」，只选了题材也算题材已定，否则作者会被自己答的第一问卡住。
+- **六格↔字段↔契约映射** SHALL 固定：01 题材目录↔`theme`+`sub_genre`(story.yaml)；02 主要看什么↔core_promise(+promise_note，仅入契约不设 AI 行)；03 绝对禁止↔forbidden_list；04 吃苦指数↔cost_ratio；05 主线战场↔battlefield；06 剧情轨道↔track。
 - **候选源** SHALL 提供 core_promise 枚举值、forbidden_list 的 tagId 目录、battlefield 候选清单（新建共享候选源，不复用 presets 现成键），供题材 AI 从中选或走 custom、前端「采纳写回并映射 tagId」。
 - AI 辅助的字段说明、**六段名与禁忌三元** SHALL 注册进**共享常量模块**（prompt 模板与前端渲染共用）；注：`fieldGuide`/`settings-ai-qa` **本仓库不存在**，属待建——本 change 以共享常量模块落地，不依赖未建系统。
 - 简介/题材 AI 能力 SHALL 由 **C端后端** `settings/ai_router.py` 承载：扩展（`FIELD_GENERATABLE` 加 `genre`、新增 `settings/ai/intro/{action}` 子路由且**注册在 `/ai/{stype}/{field}` 之前**、`settings_intro_{action}`/`settings_genre_{field}` prompt 模板）、挂 `require_ai_access`、`record_usage` 按 `settings_{stype}_{action|field}` 细分——非 S端、不引入独立服务。
 
 #### Scenario: 题材 payload 键控
-- Given 作者填了题材口味、禁项、吃苦 8、战场 2 个
+- Given 作者选了题材大类「仙侠/修真」+ 子类「凡人流」、禁项、吃苦 8、战场 2 个
 - When 保存
-- Then 持久化为 core_promise + forbidden_list + cost_ratio:8 + battlefield 两个值，空字段省略；无 genre_id
+- Then `story.yaml` 落 `genre: 仙侠/修真` + `sub_genre: 凡人流`，关系表落 core_promise/forbidden_list/cost_ratio:8/battlefield 两个值，空字段省略；无 genre_id
 
 #### Scenario: 题材确认基于新契约
 - Given 题材已填 core_promise（未填 genre_id）
 - When 查看设定状态
-- Then 题材判定为已确认（判据为新契约核心键非空，而非 genre_id）
+- Then 题材判定为已确认（判据为已选题材目录或新契约核心键非空，而非 genre_id）
 
 ### Requirement: 题材的对外展示（书卡胶囊与书内标签）
 
-- 书本上的题材展示位（书架卡片胶囊、书内标签）**SHALL 取值来自题材**（用户 2026-09-10 拍板「书的类型胶囊，取值从题材获取」），**SHALL NOT** 依赖已废弃的历史来源：建书弹窗的「类型」下拉与题材面板的 `genre_id` 都已不再写入，旧展示链（`story.yaml.genre` / `project_settings('genre')` KV）对本 change 之后的书恒为空。
-- 展示名 SHALL 取题材的**核心承诺**（`novel_genre.core_promise`，题材面板 02 格、契约唯一可作短展示名的字段），由后端在 `GET /novels`（`genre` 字段）与 `GET /novels/{id}`（`genre_label` 字段）**单源下发**；两端 SHALL NOT 各自拼装。
-- **占位**：题材未设定（核心承诺为空，且无历史来源可回退）时 SHALL 显示「**待定题材**」（共享常量 `GENRE_PENDING_LABEL`，前端两侧同源），**SHALL NOT** 空缺该展示位——空位会让作者以为界面漏了东西。
-- **老书回退**：既有书 SHALL 依次回退 `story.yaml.genre` → KV 题材名，避免升级后老书题材展示消失。
-- 展示名可能长于展示位（核心承诺上限 60 字）→ 展示位 SHALL 单行截断，SHALL NOT 撑破卡片顶栏。
+- 书本上的题材展示位（书架卡片胶囊、书内标签）**SHALL 取值来自题材**（用户 2026-09-10 拍板「书的类型胶囊，取值从题材获取」），**SHALL NOT** 依赖已废弃的历史来源：建书弹窗的「类型」下拉与题材面板的 `genre_id` 都已不再写入，旧展示链（`story.yaml.genre` 的旧语义 / `project_settings('genre')` KV）对本 change 之后的书恒为空。
+- 展示名 SHALL 取**题材目录**（01 格）：`主题大类 · 子类`（子类为空则只显示大类），由后端在 `GET /novels`（`genre` 字段）与 `GET /novels/{id}`（`genre_label` 字段，另下发 `theme`/`sub_genre`）**单源下发**；两端 SHALL NOT 各自拼装。
+- 题材目录缺失时 SHALL 依次回退：老书核心承诺 → 老书 `story.yaml.genre`(旧值) → KV 题材名。
+- **占位**：题材未设定（题材目录为空、且无历史来源可回退）时 SHALL 显示「**待定题材**」（共享常量 `GENRE_PENDING_LABEL`，前端两侧同源），**SHALL NOT** 空缺该展示位——空位会让作者以为界面漏了东西。
+- 展示名可能长于展示位 → 展示位 SHALL 单行截断，SHALL NOT 撑破卡片顶栏。
 
-#### Scenario: 题材设定后胶囊显示核心承诺
-- Given 作者在题材面板填写核心承诺「以弱破强的痛快」
+#### Scenario: 选完题材后胶囊显示大类·子类
+- Given 作者在题材面板选了「仙侠/修真」+「凡人流」
 - When 回到书架
-- Then 该书卡片的题材胶囊显示「以弱破强的痛快」
+- Then 该书卡片的题材胶囊显示「仙侠/修真 · 凡人流」
+
+#### Scenario: 只选大类也能显示
+- Given 作者只选了题材大类「悬疑」、未选子类
+- When 查看书架卡片或打开这本书
+- Then 题材展示位显示「悬疑」
 
 #### Scenario: 题材未设定时占位
-- Given 一本刚创建、题材六格全空的书
+- Given 一本刚创建、题材未选的书
 - When 查看书架卡片或打开这本书
 - Then 题材展示位显示「待定题材」（不是空缺、也不是「其他」）
 
 #### Scenario: 老书题材展示不回归为空
-- Given 一本建书时写入过 `story.yaml.genre`（如「科幻」）的老书，且题材关系表无数据
+- Given 一本建书时写入过旧 `story.yaml.genre`（如「科幻」）的老书，且题材目录与关系表均无数据
 - When 查看书架卡片或打开这本书
 - Then 题材展示位仍显示「科幻」
 

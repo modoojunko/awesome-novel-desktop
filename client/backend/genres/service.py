@@ -203,8 +203,20 @@ async def resolve_genre_context(
         for item in g["forbidden_list"]
     ]
     battlefield = [labels.get(b, b) for b in g["battlefield"]]
+
+    # 题材目录（01 格「什么题材」）落 story.yaml（与简介同族），注入时一并带上：
+    # 它是「定了就不跑偏」的类型锁，模型必须知道这本书是什么题材。
+    theme = sub_genre = ""
+    try:
+        story = await get_storage().read_yaml(root_path, "story.yaml") or {}
+        theme = (story.get("genre") or "").strip()
+        sub_genre = (story.get("sub_genre") or "").strip()
+    except Exception:
+        pass  # story.yaml 缺失/损坏不阻断注入
+
     if not any(
         [
+            theme,
             g["core_promise"],
             g["promise_note"],
             g["cost_ratio"],
@@ -215,6 +227,8 @@ async def resolve_genre_context(
     ):
         return None
     return {
+        "theme": theme,
+        "sub_genre": sub_genre,
         "core_promise": g["core_promise"],
         "promise_note": g["promise_note"],
         "cost_ratio": g["cost_ratio"],
@@ -242,6 +256,11 @@ def build_genre_section(ctx: dict | None) -> str:
     if not ctx:
         return ""
     lines = ["## 题材设定"]
+    if ctx.get("theme"):
+        label = ctx["theme"]
+        if ctx.get("sub_genre"):
+            label = f"{label}（{ctx['sub_genre']}）"
+        lines.append(f"题材：{label}")
     if ctx.get("core_promise"):
         lines.append(f"核心承诺：{ctx['core_promise']}")
     if ctx.get("promise_note"):

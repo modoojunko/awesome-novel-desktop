@@ -522,6 +522,14 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .cap:hover { border-color: var(--muted); }
 .settings-v .cap.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 .settings-v .cap-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+/* 胶囊组小标题（01 题材大类/子类、02 常见口味）——题材目录改版新增，原型未建模 */
+.settings-v .cap-label { font-size: 11.5px; color: var(--muted); margin: 0 0 6px; }
+/* 第二个及以后的组标题（子类行）：与上一组留出呼吸 */
+.settings-v .cap-row + .cap-label { margin-top: 12px; }
+/* 行内组标题（02 常见口味：标题与胶囊同一行） */
+.settings-v .cap-label.inline { margin: 0; }
+/* 02 常见口味行与下方输入框的间距 */
+.settings-v .cap-row.flavors { margin-bottom: 8px; }
 .settings-v .cap-add input { width: 100%; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 9px; background: var(--surface); font-size: 13px; color: var(--fg); margin-top: 8px; font-family: inherit; }
 .settings-v .cap-add input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); border-style: solid; }
 

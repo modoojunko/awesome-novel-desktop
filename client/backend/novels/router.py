@@ -246,14 +246,24 @@ async def list_all(
         except Exception:
             story = {}
         d["synopsis"] = story.get("synopsis") or ""
-        # 题材展示名：新契约核心承诺 → 老书历史来源（story.yaml.genre / KV 题材名）→ None
+        # 题材展示名：题材目录（story.yaml.genre/sub_genre，01 格选的「什么题材」）→
+        # 老书核心承诺 → 老书 KV 题材名 → None（前端以「待定题材」占位）
         d["genre"] = (
-            core_promises.get(str(p.id))
-            or story.get("genre")
+            _compose_theme_label(story.get("genre"), story.get("sub_genre"))
+            or core_promises.get(str(p.id))
             or kv_genres.get(str(p.id))
         )
         out.append(d)
     return out
+
+
+def _compose_theme_label(theme: str | None, sub_type: str | None) -> str:
+    """题材展示名：大类 · 子类（子类可空）。与前端 `themeLabel` 同口径。"""
+    t = (theme or "").strip()
+    s = (sub_type or "").strip()
+    if t and s:
+        return f"{t} · {s}"
+    return t or s
 
 
 async def _batch_core_promises(db: AsyncSession, projects) -> dict[str, str]:
@@ -345,9 +355,11 @@ async def get_one(
     # KV 缺失/损坏 → genre/genre_name None，不 500（NovelBar 以 genre 优先于 type 展示）
     data["genre"] = None
     data["genre_name"] = None
-    # 题材展示名（书内标签与书架卡片胶囊同源）：新契约核心承诺 → 老书历史来源 → None
-    # （None＝题材未设定，前端以「待定题材」占位，用户 2026-09-10 拍板）
+    # 题材展示名（书内标签与书架卡片胶囊同源）：题材目录（01 大类/子类）→ 老书核心承诺
+    # → 老书 story.yaml.genre / KV 题材名；空值＝题材未设定，前端以「待定题材」占位
     data["genre_label"] = None
+    data["theme"] = ""
+    data["sub_genre"] = ""
     try:
         from models.genre import Genre
         from models.novel_genre import NovelGenre
@@ -377,13 +389,19 @@ async def get_one(
                     data["genre_name"] = g.name
     except Exception:
         pass  # KV 缺失/损坏不 500
-    if not data["genre_label"]:
-        # 老书回退：story.yaml.genre（建书/导入时写入）→ KV 题材名
-        try:
-            story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
-        except Exception:
-            story = {}
-        data["genre_label"] = story.get("genre") or data["genre_name"]
+
+    try:
+        story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+    except Exception:
+        story = {}
+    data["theme"] = story.get("genre") or ""
+    data["sub_genre"] = story.get("sub_genre") or ""
+    # 题材目录是展示名主来源（子类拼「大类 · 子类」）；无选题材时回落到核心承诺/KV 题材名
+    data["genre_label"] = (
+        _compose_theme_label(story.get("genre"), story.get("sub_genre"))
+        or data["genre_label"]
+        or data["genre_name"]
+    )
     return data
 
 

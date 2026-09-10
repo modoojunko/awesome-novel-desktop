@@ -30,11 +30,15 @@ async def _check_synopsis(root_path: str, novel_id: str | None = None) -> bool:
 
 
 async def _check_genre(root_path: str, novel_id: str | None = None) -> bool:
-    """题材就绪＝新契约核心键任一非空（D19 关系表）。
+    """题材就绪＝**已选题材目录（01 格大类）** 或 新契约核心键任一非空（D19 关系表）。
 
-    `project_settings('genre')` KV 行已废弃（不再读写）；无 novel_id 时视为未填
-    （调用方须传 novel_id——所有生产路径已接线）。
+    题材目录落 story.yaml（`genre`/`sub_genre`，与简介同族）；01 格问的就是「什么题材」，
+    本身即题材已定的最强信号（用户 2026-09-10 口径）。
+    `project_settings('genre')` KV 行已废弃（不再读写）；无 novel_id 时仅看 story.yaml。
     """
+    story = await get_storage().read_yaml(root_path, "story.yaml") or {}
+    if str(story.get("genre", "")).strip():
+        return True
     if not novel_id:
         return False
     from db import async_session

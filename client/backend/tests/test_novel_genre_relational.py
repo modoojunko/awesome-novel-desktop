@@ -777,3 +777,98 @@ class TestGenreDisplaySource:
         assert not item["genre"]
         detail = client.get(f"/api/novels/{pid}").json()
         assert not detail["genre_label"]
+
+
+# ── 01 题材目录（大类/子类）：落 story.yaml，目录校验，展示名优先 ──────────
+
+
+class TestThemeCatalog:
+    """题材面板 01 格＝「什么题材」（用户 2026-09-10 拍板）。"""
+
+    def test_put_get_theme_roundtrip(self, client):
+        pid = _new_novel(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={"theme": "仙侠/修真", "sub_genre": "凡人流", "core_promise": "以弱破强的痛快"},
+        )
+        assert r.status_code == 200, r.text
+
+        got = client.get(f"/api/novels/{pid}/settings/genre").json()
+        assert got["theme"] == "仙侠/修真"
+        assert got["sub_genre"] == "凡人流"
+        assert got["core_promise"] == "以弱破强的痛快"
+
+    def test_theme_lands_in_story_yaml_reusing_genre_key(self, client):
+        """落点为 story.yaml（与简介同族），复用既有 genre 键 → 展示链无需新读法。"""
+        pid = _new_novel(client)
+        client.put(
+            f"/api/novels/{pid}/settings/genre", json={"theme": "科幻", "sub_genre": "硬科幻"}
+        )
+        detail = client.get(f"/api/novels/{pid}").json()
+        assert detail["theme"] == "科幻"
+        assert detail["sub_genre"] == "硬科幻"
+        assert detail["genre_label"] == "科幻 · 硬科幻"
+
+    def test_theme_beats_core_promise_as_display_name(self, client):
+        """展示名主来源＝题材目录；核心承诺只在前者缺失时兜底。"""
+        pid = _new_novel(client)
+        client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={"theme": "架空古王朝", "sub_genre": "权谋", "core_promise": "算无遗策的掌控感"},
+        )
+        item = next(r for r in client.get("/api/novels").json() if r["id"] == pid)
+        assert item["genre"] == "架空古王朝 · 权谋"
+
+    def test_unknown_theme_rejected_400(self, client):
+        pid = _new_novel(client)
+        r = client.put(f"/api/novels/{pid}/settings/genre", json={"theme": "随便编的题材"})
+        assert r.status_code == 400
+        assert "未知的题材" in r.json()["detail"]
+
+    def test_sub_genre_must_belong_to_theme(self, client):
+        pid = _new_novel(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={"theme": "仙侠/修真", "sub_genre": "硬科幻"},
+        )
+        assert r.status_code == 400
+        assert "没有这个子类" in r.json()["detail"]
+
+    def test_theme_keys_absent_does_not_clear_existing(self, client):
+        """老调用方只 PUT 五字段时不得清空已选题材（键存在才写）。"""
+        pid = _new_novel(client)
+        client.put(f"/api/novels/{pid}/settings/genre", json={"theme": "末世/废土"})
+        client.put(f"/api/novels/{pid}/settings/genre", json={"cost_ratio": 9})
+        got = client.get(f"/api/novels/{pid}/settings/genre").json()
+        assert got["theme"] == "末世/废土"
+        assert got["cost_ratio"] == 9
+
+    def test_theme_alone_satisfies_genre_check(self, client):
+        """01 格问的就是题材 → 只选题材即判定为已填、可点确认完成（判据含目录）。"""
+        pid = _new_novel(client)
+        # 空题材 → 确认被拒（内容为空）
+        assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 400
+        # 只选 01 题材、02-06 全空 → 判定为已填
+        client.put(f"/api/novels/{pid}/settings/genre", json={"theme": "谍战"})
+        assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 200
+        assert client.get(f"/api/novels/{pid}/settings/status").json()["genre"] is True
+
+    def test_theme_injected_into_prompt_section(self, client):
+        """写正文注入必须带题材（「定了就不跑偏」的类型锁）。"""
+        import asyncio
+
+        from config import DATA_ROOT
+        from genres.service import build_genre_section, resolve_genre_context
+
+        pid = _new_novel(client)
+        client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={"theme": "无限流", "sub_genre": "副本闯关"},
+        )
+        detail = client.get(f"/api/novels/{pid}").json()
+        root_path = f"{DATA_ROOT}/{detail['slug']}"
+        ctx = asyncio.run(resolve_genre_context(root_path, pid))
+        assert ctx is not None
+        assert ctx["theme"] == "无限流" and ctx["sub_genre"] == "副本闯关"
+        section = build_genre_section(ctx)
+        assert "题材：无限流（副本闯关）" in section

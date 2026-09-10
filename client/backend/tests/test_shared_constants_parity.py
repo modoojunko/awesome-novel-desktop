@@ -73,3 +73,38 @@ class TestIntroTemplateParity:
         # 体检禁忌第三元是「剧透」——两者不得合并（用途不同）
         assert INTRO_TABOO_RULES[2] == "剧透"
         assert "剧透" not in body
+
+
+class TestThemeCatalogParity:
+    """题材目录（01 格「什么题材」）前后端逐字一致。
+
+    不一致 = 作者选中的题材在后端 `theme_or_none` 校验不过（400「未知的题材」），
+    或子类被拒（400「没有这个子类」）。
+    """
+
+    def _frontend_themes(self) -> list[dict]:
+        src = _read("themeCatalog.ts")
+        block = re.search(r"THEMES:\s*ThemeEntry\[\]\s*=\s*\[(.*?)\n\];", src, re.DOTALL)
+        assert block, "找不到 THEMES"
+        out = []
+        for name, subs in re.findall(
+            r'\{\s*name:\s*"([^"]+)",\s*subTypes:\s*\[([^\]]*)\]\s*,?\s*\}', block.group(1)
+        ):
+            out.append(
+                {"name": name, "sub_types": re.findall(r'"([^"]+)"', subs)}
+            )
+        return out
+
+    def test_names_and_sub_types_match(self):
+        from genres.theme_catalog import THEMES
+
+        assert self._frontend_themes() == THEMES, (
+            "题材目录前后端不一致——以 genres/theme_catalog.py 为准同步 lib/themeCatalog.ts"
+        )
+
+    def test_validation_helpers_agree_on_membership(self):
+        from genres.theme_catalog import THEME_NAMES, sub_types_of
+
+        assert len(THEME_NAMES) == 20
+        assert sub_types_of("仙侠/修真") == ["古典仙侠", "凡人流", "仙魔大战", "种田修仙"]
+        assert sub_types_of("不存在的题材") == []

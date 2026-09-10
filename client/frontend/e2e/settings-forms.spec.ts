@@ -254,12 +254,23 @@ test("题材：六格面板（口味联动 → 自定义禁区 → 吃苦指数 
       await expect(page.locator(".settings-v .mod .m-name", { hasText: name })).toBeVisible();
     }
 
-    // 01 口味胶囊 → 预置联动（02 文本 + 03/05 胶囊 + 04 指数），不落库
+    // 01 题材目录：大类必选（20 个）+ 选中后出子类（用户 2026-09-10 拍板）
+    const themeRow = page.locator('[data-od-id="theme-row"]');
+    await expect(themeRow.locator(".cap")).toHaveCount(20);
+    await expect(page.locator('[data-od-id="sub-genre-row"]')).toHaveCount(0);
+    await themeRow.locator('[data-g="theme:仙侠/修真"]').click();
+    const subRow = page.locator('[data-od-id="sub-genre-row"]');
+    await expect(subRow.locator(".cap")).toHaveCount(4);
+    await subRow.locator('[data-g="sub:凡人流"]').click();
+    await expect(subRow.locator('[data-g="sub:凡人流"]')).toHaveClass(/on/);
+
+    // 02 常见口味快捷填充 → 预填 02 文本 + 03/05 胶囊 + 04 指数（不动 01 已选题材）
     await page.locator('[data-g="comeback"]').click();
     await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue("以弱破强的痛快");
     await expect(page.locator('[data-forbid="forbidden:no-deus-ex-machina"]')).toHaveClass(/on/);
     await expect(page.locator('[data-bf="battlefield:resources"]')).toHaveClass(/on/);
     await expect(page.locator(".settings-v .cost-val")).toHaveText("8");
+    await expect(themeRow.locator('[data-g="theme:仙侠/修真"]')).toHaveClass(/on/);
 
     // 03 回车自定义禁区
     const forbidInput = page.locator('[data-od-id="forbid-input"]');
@@ -281,8 +292,10 @@ test("题材：六格面板（口味联动 → 自定义禁区 → 吃苦指数 
       page.locator(".settings-v main h2", { hasText: "主线" }),
     ).toBeVisible({ timeout: 5000 });
 
-    // 后端直查：五字段契约（无 genre_id）
+    // 后端直查：01 题材目录 + 五字段契约（无 genre_id）
     const genre = await apiGetJSON(request, token, `/novels/${pid}/settings/genre`);
+    expect(genre.theme).toBe("仙侠/修真");
+    expect(genre.sub_genre).toBe("凡人流");
     expect(genre.core_promise).toBe("以弱破强的痛快");
     expect(genre.cost_ratio).toBe(6);
     expect(genre.forbidden_list).toEqual(
