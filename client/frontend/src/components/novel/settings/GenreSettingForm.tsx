@@ -180,6 +180,66 @@ function Mod({
   );
 }
 
+/** 02 多看点勾选器（局部 state：结果节点缓存在 sinks 里，勾选态必须活在组件内）。 */
+function PointChooser({
+  points,
+  onAdopt,
+}: {
+  points: Array<{ value: string; note: string }>;
+  onAdopt: (p: { core_promise: string; promise_note: string }) => void;
+}) {
+  const [picked, setPicked] = useState<number[]>([]);
+  const join = (idx: number[]) =>
+    idx
+      .map((i) => points[i].note)
+      .filter(Boolean)
+      .join("；")
+      .slice(0, GENRE_LIMITS.promiseNote);
+  return (
+    <div data-od-id="multi-points">
+      {points.map((pt, i) => (
+        <label className="mpt-row" key={`${pt.value}-${i}`}>
+          <input
+            type="checkbox"
+            data-od-id={`multi-pick-${i}`}
+            checked={picked.includes(i)}
+            onChange={(e) =>
+              setPicked((prev) =>
+                e.target.checked
+                  ? [...prev, i].sort((a, b) => a - b)
+                  : prev.filter((x) => x !== i),
+              )
+            }
+          />
+          <span>
+            <b>{pt.value}</b>
+            {pt.note && <span className="mpt-note">：{pt.note}</span>}
+          </span>
+        </label>
+      ))}
+      <p className="mpt-act">
+        <button
+          type="button"
+          className="btn btn-secondary"
+          data-od-id="multi-adopt"
+          disabled={picked.length === 0}
+          onClick={() =>
+            onAdopt(
+              // 单选＝标签 + 那句话；多选＝只拼那句话（单一标签表达不了多个看点）
+              picked.length === 1
+                ? { core_promise: points[picked[0]].value, promise_note: join(picked) }
+                : { core_promise: "", promise_note: join(picked) },
+            )
+          }
+        >
+          {picked.length > 1 ? `采纳勾选的 ${picked.length} 条` : "采纳勾选的这条"}
+        </button>
+        <span className="mpt-hint">也可以一条都不勾，直接在左边自己写</span>
+      </p>
+    </div>
+  );
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 
 const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function GenreSettingForm(
@@ -440,7 +500,16 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     Partial<
       Record<
         GenreAiField,
-        { list: Array<{ label: string; node: React.ReactNode; adopt: () => void }>; idx: number }
+        {
+          list: Array<{
+            label: string;
+            node: React.ReactNode;
+            adopt: () => void;
+            /** 多看点结果：采纳由结果区的勾选器负责，AiSink 不再出「采纳」按钮。 */
+            multi?: boolean;
+          }>;
+          idx: number;
+        }
       >
     >
   >({});
@@ -474,44 +543,29 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           const v = r.value;
           let node: React.ReactNode;
           let adopt: () => void;
+          /** 本次结果是否多看点数组（决定采纳由勾选器负责、AiSink 不出采纳键）。 */
+          let isMulti = false;
           if (field === "core_promise") {
             // 多看点（「多给几个看点」）：后端返回 1-3 条，每条独立采纳（用户手选）
-            const points = Array.isArray(v)
+            isMulti = Array.isArray(v);
+            const points = isMulti
               ? (v as Array<{ value: string; note: string }>)
               : [v as { value: string; note: string }];
-            if (points.length > 1) {
+            if (isMulti && points.length > 0) {
+              // 「直接给多个看点」→ 作家勾选采纳（可多选/单选；不勾就自己写）。
+              // 勾选态由 PointChooser 自己持有：结果节点缓存在 sinks state 里，
+              // 把勾选态放在外面会渲染成「点了没反应」。
               node = (
-                <div data-od-id="multi-points">
-                  {points.map((pt, i) => (
-                    <p
-                      key={`${pt.value}-${i}`}
-                      style={{ margin: "6px 0", display: "flex", gap: 10, alignItems: "baseline" }}
-                    >
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        data-od-id={`multi-adopt-${i}`}
-                        onClick={() => {
-                          patch({ core_promise: pt.value, promise_note: pt.note });
-                          toast.success("已采纳这一条，其余可再挑");
-                        }}
-                      >
-                        用这条
-                      </button>
-                      <span>
-                        <b>{pt.value}</b>
-                        {pt.note && (
-                          <span style={{ color: "var(--muted)" }}>：{pt.note}</span>
-                        )}
-                      </span>
-                    </p>
-                  ))}
-                </div>
+                <PointChooser
+                  points={points}
+                  onAdopt={(p) => {
+                    patch(p);
+                    toast.success("已采纳，可继续改或再勾几条");
+                  }}
+                />
               );
-              adopt = () => patch({
-                core_promise: points[0].value,
-                promise_note: points[0].note,
-              });
+              adopt = () =>
+                patch({ core_promise: "", promise_note: points.map((x) => x.note).join("；") });
             } else {
               const { value, note } = points[0];
               node = (
@@ -547,9 +601,10 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             adopt = () => patch({ track: text });
           }
           setSinks((prev) => {
-            const list = [...(prev[field]?.list ?? []), { label: AI_LABEL[field], node, adopt }].slice(
-              -SINK_MAX,
-            );
+            const list = [
+              ...(prev[field]?.list ?? []),
+              { label: AI_LABEL[field], node, adopt, multi: field === "core_promise" && isMulti },
+            ].slice(-SINK_MAX);
             return { ...prev, [field]: { list, idx: list.length - 1 } };
           });
         })
@@ -867,11 +922,15 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
                     return cur ? { ...prev, core_promise: { ...cur, idx: i } } : prev;
                   }),
               }}
-              adoptText="采纳 · 覆盖"
-              onAdopt={() => {
-                entry.adopt();
-                toast.success("已采纳，落回对应格，随时可改");
-              }}
+              adoptText={entry.multi ? undefined : "采纳 · 覆盖"}
+              onAdopt={
+                entry.multi
+                  ? undefined
+                  : () => {
+                      entry.adopt();
+                      toast.success("已采纳，落回对应格，随时可改");
+                    }
+              }
               onRetry={() => runAi("core_promise")}
               data-od-id={`genre-ai-sink-core_promise`}
             >

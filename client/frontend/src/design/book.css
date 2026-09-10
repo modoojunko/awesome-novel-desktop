@@ -564,6 +564,13 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .sel-item em { font-style: normal; color: var(--muted); }
 .settings-v .sel-item.only { border-bottom: 1px dashed var(--border); border-radius: 7px 7px 0 0; margin-bottom: 4px; }
 .settings-v .sel-empty { padding: 10px 12px; font-size: 12.5px; color: var(--muted); }
+
+/* 02 多看点勾选器（AI 直接给多个看点，作家勾选采纳） */
+.settings-v .mpt-row { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; }
+.settings-v .mpt-row input { margin-top: 3px; flex: none; }
+.settings-v .mpt-note { color: var(--muted); }
+.settings-v .mpt-act { margin: 10px 0 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.settings-v .mpt-act .mpt-hint { color: var(--muted); font-size: 11.5px; }
 .settings-v .cap-add input { width: 100%; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 9px; background: var(--surface); font-size: 13px; color: var(--fg); margin-top: 8px; font-family: inherit; }
 .settings-v .cap-add input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); border-style: solid; }
 

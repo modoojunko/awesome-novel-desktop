@@ -356,7 +356,7 @@ describe("GenreSettingForm · 五行 AI", () => {
     expect(container.textContent).toContain("标签：以弱破强的痛快");
   });
 
-  it("02 多看点：数组出参渲染多条，各自「用这条」只采纳该条", async () => {
+  it("02 多看点：勾选式采纳（单选＝标签+句子；多选＝只拼句子）", async () => {
     aiState.genreAi.mockResolvedValue({
       value: [
         { value: "以弱破强的痛快", note: "读者要看到弱者用脑子翻盘" },
@@ -371,13 +371,39 @@ describe("GenreSettingForm · 五行 AI", () => {
       await ref.current!.runAi("core_promise", { multi: true });
     });
     const multi = container.querySelector('[data-od-id="multi-points"]')!;
-    expect(multi.querySelectorAll('[data-od-id^="multi-adopt-"]')).toHaveLength(2);
+    expect(multi.querySelectorAll('[data-od-id^="multi-pick-"]')).toHaveLength(2);
 
-    // 采纳第二条 → 主框＝该条的 note、标签＝该条的 value（不是第一条）
-    fireEvent.click(multi.querySelector('[data-od-id="multi-adopt-1"]')!);
+    // 单选第二条 → 标签＝该条 value、主框＝该条 note
+    fireEvent.click(multi.querySelector('[data-od-id="multi-pick-1"]')!);
+    fireEvent.click(screen.getByRole("button", { name: "采纳勾选的这条" }));
     expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
       .toBe("读者想看一次次死里逃生");
     expect(container.textContent).toContain("标签：绝处逢生的紧张");
+  });
+
+  it("02 多看点：多选＝拼句子且不设单一标签（作家也可一条不勾自己写）", async () => {
+    aiState.genreAi.mockResolvedValue({
+      value: [
+        { value: "以弱破强的痛快", note: "读者要看到弱者用脑子翻盘" },
+        { value: "绝处逢生的紧张", note: "读者想看一次次死里逃生" },
+      ],
+    });
+    const { ref, container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await act(async () => {
+      await ref.current!.runAi("core_promise", { multi: true });
+    });
+
+    const multi = container.querySelector('[data-od-id="multi-points"]')!;
+    fireEvent.click(multi.querySelector('[data-od-id="multi-pick-0"]')!);
+    fireEvent.click(multi.querySelector('[data-od-id="multi-pick-1"]')!);
+    // 按钮文案随勾选数变化 → 明确"这一次会落几条"
+    fireEvent.click(screen.getByRole("button", { name: "采纳勾选的 2 条" }));
+
+    const box = container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement;
+    expect(box.value).toBe("读者要看到弱者用脑子翻盘；读者想看一次次死里逃生");
+    // 单一标签表达不了多个看点 → 多选时不写标签（作者想留标签就只勾一条）
+    expect(container.textContent).not.toContain("标签：以弱破强的痛快");
   });
 
   it("cost_ratio：采纳后滑块与浮例句同步", async () => {

@@ -187,14 +187,8 @@ export default function SettingsView({
       {
         key: "m1",
         name: "主要看什么",
-        desc: "本格问题：读者翻开这本书，主要看什么？输入：题材 + 书名 + 简介（含你已写的那句话）",
-        onClick: () => runGenreAi("m1", "core_promise"),
-      },
-      {
-        key: "m1b",
-        name: "多给几个看点",
-        desc: "一次给 2-3 个不同侧重的看点，你自己挑一条采纳",
-        onClick: () => runGenreAi("m1b", "core_promise", { multi: true }),
+        desc: "直接给几个看点，你**勾选**采纳（可多选/单选，也可以都别勾、自己写）。输入：题材 + 书名 + 简介 + 你已写的那句话",
+        onClick: () => runGenreAi("m1", "core_promise", { multi: true }),
       },
       {
         key: "m2",
