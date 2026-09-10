@@ -169,7 +169,13 @@ class AIClient:
             for block in response.content:
                 if getattr(block, "type", "") == "text" and block.text:
                     return block.text
-            return ""
+            # 无 text 块（偶发：预算全用在思考 / 供应商只回 thinking）——
+            # 明确报错让上层可重试，**不得静默返回空串**（会被当成「非法 JSON」）
+            blocks = [getattr(b, "type", "?") for b in (response.content or [])]
+            raise ValueError(
+                f"模型未返回文本内容（返回块：{blocks or '空'}，stop_reason="
+                f"{getattr(response, 'stop_reason', '?')}），请重试"
+            )
 
     async def chat_stream(
         self,

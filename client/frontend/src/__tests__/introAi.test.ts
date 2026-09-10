@@ -102,3 +102,31 @@ describe("genreAi 请求形态", () => {
     expect(JSON.parse(String(spy.mock.calls[0][1]?.body)).context).toEqual({});
   });
 });
+
+// 网关层 502（无 JSON 体）→ 人话提示，不把 "Bad Gateway" 丢给用户
+describe("doJsonPost 5xx 文案（走 introAi 入口）", () => {
+  beforeEach(() => vi.restoreAllMocks());
+
+  it("502 且响应体是 HTML（nginx 无上游）→ 「服务暂时不可用」", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("<html><body>502 Bad Gateway</body></html>", {
+        status: 502,
+        headers: { "Content-Type": "text/html" },
+      }),
+    );
+    const err = await introAi("fill", { title: "书", content: "内容" }, "p1").catch((e) => e);
+    expect(err.message).toContain("服务暂时不可用");
+    expect(err.message).not.toContain("Bad Gateway");
+  });
+
+  it("502 带 JSON detail（应用层 AI 失败）→ 保留可读 detail", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ detail: "AI 生成失败，可重试：超时" }), {
+        status: 502,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const err = await introAi("fill", { title: "书", content: "内容" }, "p1").catch((e) => e);
+    expect(err.message).toContain("AI 生成失败，可重试");
+  });
+});

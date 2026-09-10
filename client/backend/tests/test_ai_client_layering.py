@@ -232,3 +232,96 @@ class TestAnthropicTemperatureCompat:
         )
         body = anthropic_v1_client._client.recorder.kwargs["extra_body"]
         assert body == {"top_k": 5, "temperature": 0.3}
+
+
+class _EmptyThenText:
+    """模拟供应商偶发「只回思考不回文本」：第一次空，第二次正常。"""
+
+    def __init__(self, **kwargs):
+        self.calls = 0
+
+    async def create(self, **kw):
+        self.calls += 1
+        if self.calls == 1:
+            block = type("B", (), {"type": "thinking", "text": ""})()
+        else:
+            block = type("B", (), {"type": "text", "text": "ok"})()
+        return type("R", (), {"content": [block], "stop_reason": "end_turn"})()
+
+
+class TestEmptyTextNotSilent:
+    def test_no_text_block_raises(self, monkeypatch):
+        monkeypatch.setattr(ai_client_module, "AsyncAnthropic", _FakeEmptyAnthropic)
+        c = AIClient(
+            api_key="sk-x",
+            base_url="https://api.example.com/anthropic",
+            model="m",
+            api_format="anthropic",
+        )
+        with pytest.raises(ValueError, match="模型未返回文本内容"):
+            _run_async(
+                c.chat(model="haiku", system="", messages=[{"role": "user", "content": "x"}])
+            )
+
+
+class _FakeEmptyAnthropic:
+    def __init__(self, **kwargs):
+        class _Messages:
+            @staticmethod
+            async def create(**kw):
+                block = type("B", (), {"type": "thinking", "text": ""})()
+                return type("R", (), {"content": [block], "stop_reason": "end_turn"})()
+
+        self.messages = _Messages()
+
+
+class TestJudgeChatRetry:
+    def test_retries_once_on_empty_then_succeeds(self):
+        from settings.ai_router import _judge_chat
+
+        class _C:
+            def __init__(self):
+                self.n = 0
+
+            async def chat(self, **kw):
+                self.n += 1
+                if self.n == 1:
+                    raise ValueError("模型未返回文本内容（返回块：['thinking']），请重试")
+                return '{"missing": []}'
+
+        c = _C()
+        out = _run_async(_judge_chat(c, model="haiku", system="", messages=[]))
+        assert out == '{"missing": []}'
+        assert c.n == 2
+
+    def test_other_errors_not_retried(self):
+        from settings.ai_router import _judge_chat
+
+        class _C:
+            def __init__(self):
+                self.n = 0
+
+            async def chat(self, **kw):
+                self.n += 1
+                raise ValueError("连接超时")
+
+        c = _C()
+        with pytest.raises(ValueError, match="连接超时"):
+            _run_async(_judge_chat(c, model="haiku", system="", messages=[]))
+        assert c.n == 1
+
+    def test_empty_twice_still_raises(self):
+        from settings.ai_router import _judge_chat
+
+        class _C:
+            def __init__(self):
+                self.n = 0
+
+            async def chat(self, **kw):
+                self.n += 1
+                raise ValueError("模型未返回文本内容，请重试")
+
+        c = _C()
+        with pytest.raises(ValueError, match="模型未返回文本内容"):
+            _run_async(_judge_chat(c, model="haiku", system="", messages=[]))
+        assert c.n == 2

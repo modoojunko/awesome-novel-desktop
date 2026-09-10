@@ -94,6 +94,30 @@ _GENRE_VOCAB_IDS = {
 }
 
 
+# 判定类调用的预算：思考型模型会把预算花在推理上，2048 偶发「无文本输出」，
+# 提到 4096 给输出留量（design D12：JSON 判定类 max_tokens 足量）。
+_JUDGE_MAX_TOKENS = 4096
+
+
+async def _judge_chat(client, **kwargs):
+    """判定类调用：空文本输出自动重试一次，其余异常原样抛。
+
+    供应商偶发「只回思考不回文本」时，重试一次基本能拿到结果——
+    比直接把 502 甩给用户好。
+    """
+    last_err: Exception | None = None
+    for attempt in range(2):
+        try:
+            return await client.chat(max_tokens=_JUDGE_MAX_TOKENS, **kwargs)
+        except ValueError as e:
+            if "模型未返回文本内容" not in str(e):
+                raise
+            last_err = e
+            if attempt == 0:
+                continue
+    raise last_err  # type: ignore[misc]
+
+
 # ── 解析助手 ───────────────────────────────────────────────────────────────
 
 
@@ -268,15 +292,15 @@ async def intro_ai(
 
     client = await get_ai_client_for_novel(project_id)
     # 页面级参数（D12）：体检/补缺失＝JSON 判定类；润色＝长文生成类
-    temperature, max_tokens = (0.7, 2048) if action == "polish" else (0.3, 2048)
+    temperature = 0.7 if action == "polish" else 0.3
 
     usage: dict = {}
     try:
-        text = await client.chat(
+        text = await _judge_chat(
+            client,
             model="haiku",
             system="你是小说简介编辑。只输出 JSON，不要任何其他文字。",
             messages=[{"role": "user", "content": formatted}],
-            max_tokens=max_tokens,
             temperature=temperature,
             json_mode=True,
             usage=usage,
@@ -384,11 +408,11 @@ async def generate_field(
     client = await get_ai_client_for_novel(project_id)
     usage: dict = {}
     try:
-        text = await client.chat(
+        text = await _judge_chat(
+            client,
             model="haiku",
             system="你是小说设定专家。只输出 JSON，不要任何其他文字。",
             messages=[{"role": "user", "content": formatted_prompt}],
-            max_tokens=2048,
             temperature=0.3,
             json_mode=True,
             usage=usage,

@@ -163,7 +163,15 @@ async function doJsonPost(
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    const err = await res.json().catch(() => null);
+    // 无 JSON 体的 5xx = 网关层（nginx 无上游/服务重启中），不是应用错误——
+    // 别把 "Bad Gateway" 直接丢给用户
+    if (!err) {
+      const infra = res.status === 502 || res.status === 503 || res.status === 504;
+      throw new Error(
+        infra ? "服务暂时不可用（可能正在重启），请稍后重试" : `请求失败（HTTP ${res.status}）`,
+      );
+    }
     throw new Error(detailMessage(err?.detail, "请求出错"));
   }
   return res.json();
