@@ -265,3 +265,49 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
     }
   });
 });
+
+// ── 设定面板宽度：填满中栏、左右留白对称（不留"到 AI 栏的假空白"）──────────
+// 回归背景：`.wb .panel{max-width:660px}`（book.html 旧稿）在中栏 924px 时只在
+// 左侧留 660px，右侧空出 ~216px 到 AI 栏——1440 视口实测肉眼可见的大面积空白。
+// 现口径＝genre-signup.html（简介/题材权威稿）：面板为 1fr 填满，超宽屏按原型
+// `.wrap{max-width:1180px}` 居中。
+test("设定面板填满中栏且左右留白对称（1440/1920）", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `宽度${Date.now() % 100000}`);
+    await stubAiState(page, pid);
+
+    for (const width of [1440, 1920]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${ORIGIN}/#/novel/${pid}`);
+      await page.waitForTimeout(1500);
+      await page.getByRole("button", { name: /^设定/ }).click();
+      await expect(page.locator(".settings-v main h2")).toBeVisible({ timeout: 15000 });
+
+      const m = await page.evaluate(() => {
+        const q = (s: string) => document.querySelector(s) as HTMLElement | null;
+        const mid = q(".settings-v .col-middle")!;
+        const panel = q(".settings-v .col-middle .panel")!;
+        const ai = q(".settings-v .col-ai")!;
+        const mr = mid.getBoundingClientRect();
+        const pr = panel.getBoundingClientRect();
+        const ar = ai.getBoundingClientRect();
+        return {
+          midW: mr.width,
+          panelW: pr.width,
+          leftGap: pr.left - mr.left,
+          rightGap: ar.left - pr.right,
+        };
+      });
+
+      // ① 面板至少填满中栏 80%：1440 → 90%、1920 → 84%
+      //    （旧 `.wb .panel{max-width:660px}` 在 1440 只有 71%，此断言即失败）
+      expect(m.panelW / m.midW).toBeGreaterThan(0.8);
+      // ② 左右留白对称（窄屏同为 48px 栏内边距；超宽屏同为居中留白）
+      //    旧 bug 的特征是"左 48 / 右 216"的偏侧空白，此处必失败
+      expect(Math.abs(m.leftGap - m.rightGap)).toBeLessThan(2);
+    }
+  } finally {
+    restore();
+  }
+});

@@ -434,6 +434,15 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 }
 
 /* ─── 多对象面板满栏（settings-sub-fill）：角色/伏笔子双栏占满中间栏整宽整高 ── */
+/* 设定视图面板宽度：**填满中栏、紧邻 AI 栏**。
+   口径来源＝genre-signup.html（简介/题材的权威稿）：`.col-panel` 为 1fr，
+   **无内容宽度上限**。book.html 时代的 `.wb .panel { max-width: 660px }`（line 200）
+   会让面板右侧与 AI 栏之间空出 ~216px 的假空白（1440 视口实测：中栏 924 / 面板 660）。
+   注意与阅读区 `.editor { max-width: 680px }` 区分——那是正文行长上限，不适用于表单。 */
+/* 上限沿用原型 `.wrap{max-width:1180px}`：仅超宽屏（~1800+）生效并居中，
+   避免表单横跨 2000px；1440/1280 下面板仍填满中栏、紧邻 AI 栏。 */
+.settings-v .panel { max-width: 1180px; width: 100%; margin-inline: auto; }
+
 .settings-v .panel.sub-fill { max-width: none; width: 100%; margin: 0; display: flex; flex-direction: column; min-height: 100%; }
 .settings-v .panel.sub-fill .sub-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .settings-v .panel.sub-fill .subsplit { flex: 1; min-height: 0; }
