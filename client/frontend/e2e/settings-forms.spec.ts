@@ -291,9 +291,13 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
     await expect(page.locator('[data-od-id="theme-note"]')).toContainText(
       "案例：《凡人修仙传》",
     );
-    // 换大类 → 旧子类被清（跨类子类后端 400，客户端必须自觉）
+    // 浏览 ≠ 选中（用户报障「题材老是自动变成玄幻」）：点左列科幻只是看它的子类，字段不动
     await trigger.click();
     await themeRow.locator('[data-g="theme:科幻"]').click();
+    await expect(trigger).toContainText("仙侠/修真 / 凡人流");
+    await expect(page.locator('[data-od-id="sub-genre-row"]')).toContainText("星际");
+    // 显式「只归到大类（科幻）」→ 这才换大类，且旧子类被清（跨类子类后端 400，客户端必须自觉）
+    await page.locator('[data-od-id="sub-genre-row"] [data-g="theme:科幻"]').click();
     await expect(trigger).toContainText("科幻");
     await expect(trigger).not.toContainText("凡人流");
     await page.keyboard.press("Escape");

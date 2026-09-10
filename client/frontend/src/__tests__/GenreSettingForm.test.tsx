@@ -141,7 +141,7 @@ describe("GenreSettingForm · 六格", () => {
     });
   });
 
-  it("01 题材选择器：字段 + 展开两级，换大类清子类，× 清空", async () => {
+  it("01 题材选择器：点大类只浏览不改值；选中走显式动作，× 清空", async () => {
     const { container } = renderPanel();
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
@@ -154,41 +154,45 @@ describe("GenreSettingForm · 六格", () => {
     const panel = container.querySelector('[data-od-id="theme-panel"]')!;
     const themeRow = panel.querySelector('[data-od-id="theme-row"]')!;
     expect(themeRow.querySelectorAll(".sel-item")).toHaveLength(21);
-    // 右列＝「只归到大类」+ 当前浏览大类的子类
-    expect(panel.querySelector('[data-od-id="sub-genre-row"]')!.textContent).toContain(
-      "只归到大类",
-    );
 
-    // 点大类 → 选中 + 右列换成它的子类（面板不收起，便于继续细化）
+    // 点左列大类＝**只浏览**：右列换成它的子类，字段值不动
+    //（回归：原来点一下即选中 → 用户报「配置过的题材老是自动变成玄幻」）
     fireEvent.click(themeRow.querySelector('[data-g="theme:仙侠/修真"]')!);
-    expect(container.querySelector('[data-od-id="theme-trigger"]')!.textContent).toContain(
-      "仙侠/修真",
-    );
-    let subCol = container.querySelector('[data-od-id="sub-genre-row"]')!;
+    expect(trigger.textContent).toContain("选择题材");
+    const subCol = container.querySelector('[data-od-id="sub-genre-row"]')!;
     expect(subCol.querySelectorAll(".sel-item")).toHaveLength(5); // 只归到大类 + 4 子类
     expect(subCol.textContent).toContain("凡人流");
 
-    // 点子类 → 字段显示「大类 / 子类」，面板收起
-    fireEvent.click(subCol.querySelector('[data-g="sub:凡人流"]')!);
+    // 显式「只归到大类」＝选中大类并收起面板
+    fireEvent.click(subCol.querySelector('[data-g="theme:仙侠/修真"]')!);
+    expect(trigger.textContent).toContain("仙侠/修真");
+    expect(trigger.textContent).not.toContain("凡人流");
     expect(container.querySelector('[data-od-id="theme-panel"]')).toBeNull();
-    expect(container.querySelector('[data-od-id="theme-trigger"]')!.textContent).toContain(
-      "仙侠/修真 / 凡人流",
-    );
 
-    // 换大类 → 旧子类（不属于新大类）必须清掉，否则后端 400
-    fireEvent.click(container.querySelector('[data-od-id="theme-trigger"]')!);
+    // 重新展开（浏览列定位到已选大类）→ 浏览另一个大类：字段仍不动（浏览不写值）
+    fireEvent.click(trigger);
+    const panel2 = container.querySelector('[data-od-id="theme-panel"]')!;
     fireEvent.click(
-      container.querySelector('[data-od-id="theme-row"] [data-g="theme:科幻"]')!,
+      panel2.querySelector('[data-od-id="theme-row"] [data-g="theme:科幻"]')!,
     );
-    const tf = container.querySelector('[data-od-id="theme-trigger"]')!;
-    expect(tf.textContent).toContain("科幻");
-    expect(tf.textContent).not.toContain("凡人流");
+    expect(trigger.textContent).toContain("仙侠/修真");
+    expect(container.querySelector('[data-od-id="sub-genre-row"]')!.textContent).toContain(
+      "星际",
+    );
 
-    // × 清空（TDesign clearable 同语义，取代原先的「再点取消」）
-    fireEvent.click(container.querySelector('[data-od-id="theme-clear"]')!);
-    expect(container.querySelector('[data-od-id="theme-trigger"]')!.textContent).toContain(
-      "选择题材",
+    // 点子类（先浏览回仙侠/修真）＝选「大类 + 子类」，面板收起
+    fireEvent.click(
+      container.querySelector('[data-od-id="theme-row"] [data-g="theme:仙侠/修真"]')!,
     );
+    fireEvent.click(
+      container.querySelector('[data-od-id="sub-genre-row"] [data-g="sub:凡人流"]')!,
+    );
+    expect(container.querySelector('[data-od-id="theme-panel"]')).toBeNull();
+    expect(trigger.textContent).toContain("仙侠/修真 / 凡人流");
+
+    // × 清空（TDesign clearable 同语义）
+    fireEvent.click(container.querySelector('[data-od-id="theme-clear"]')!);
+    expect(trigger.textContent).toContain("选择题材");
   });
 
   it("01 搜索：命中项拍平成「大类 / 子类」路径，点选即落", async () => {
@@ -256,12 +260,18 @@ describe("GenreSettingForm · 六格", () => {
     expect(themeRow.querySelector('[data-g="theme:仙侠/修真"]')!.getAttribute("title")).toContain(
       "修行阶次",
     );
+    // 左列点大类只浏览 → 解读区不动；显式「只归到大类」才选中并出解读
     fireEvent.click(themeRow.querySelector('[data-g="theme:仙侠/修真"]')!);
+    expect(container.querySelector('[data-od-id="theme-note"]')).toBeNull();
+    fireEvent.click(
+      container.querySelector('[data-od-id="sub-genre-row"] [data-g="theme:仙侠/修真"]')!,
+    );
     const note = container.querySelector('[data-od-id="theme-note"]')!;
     expect(note.textContent).toContain("修行阶次");
     expect(note.querySelector(".eg")).toBeNull();
 
-    // 子类项自带悬停解读 + 案例
+    // 子类项自带悬停解读 + 案例（重新展开后仍能看到已选大类的子类）
+    fireEvent.click(container.querySelector('[data-od-id="theme-trigger"]')!);
     const firstSub = container.querySelector('[data-g="sub:凡人流"]')!;
     expect(firstSub.getAttribute("title")).toContain("资质平平");
     expect(firstSub.getAttribute("title")).toContain("案例：《凡人修仙传》");

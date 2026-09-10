@@ -380,26 +380,33 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     return out;
   }, [searching, themeQuery, activeTheme]);
 
-  /** 点大类＝选中它并浏览其子类（checkStrictly：父级也可单独选）；再次点同一大类不清空
-   *  （清空走字段右侧 ×，与 TDesign `clearable` 一致）。 */
+  /** 点左列大类＝**只浏览**（右列换成它的子类），**不改选中值**。
+   *
+   * 用户 2026-09-10 报障「配置过的题材老是自动变成玄幻」：原实现把「浏览」与「选中」合并
+   * （点一下即选中），作者只是想看看某个大类下有什么子类，题材就被改掉了——离开面板时
+   * 脏数据被保存，于是"自动变了"。选中走**显式**动作：
+   *   · 点右列「只归到大类（X）」＝只选大类
+   *   · 点右列某个子类＝选「大类 + 子类」
+   *   · 清空＝字段右侧 ×（clearable）
+   */
   const browseTheme = useCallback((name: string) => {
     setActiveTheme(name);
     setCursor(0);
-    setData((prev) => ({
-      ...prev,
-      theme: name,
-      sub_genre: prev.theme === name ? prev.sub_genre : "",
-    }));
+  }, []);
+
+  /** 只归到大类（显式选中当前浏览的大类；清掉子类）。 */
+  const pickThemeOnly = useCallback((name: string) => {
+    setData((prev) => ({ ...prev, theme: name, sub_genre: "" }));
   }, []);
 
   const pickRow = useCallback(
     (row: ThemeRow, close: boolean) => {
-      if (row.kind === "theme") browseTheme(row.theme);
+      if (row.kind === "theme") pickThemeOnly(row.theme);
       else
         setData((prev) => ({ ...prev, theme: row.theme, sub_genre: row.sub!.name }));
       if (close) closeThemePanel();
     },
-    [browseTheme, closeThemePanel],
+    [pickThemeOnly, closeThemePanel],
   );
 
   const clearTheme = useCallback(() => {
