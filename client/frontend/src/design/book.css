@@ -564,3 +564,12 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .ai-sink .aiz-hist .ah-t { font-size: 11px; color: var(--muted); }
 .settings-v .ai-sink .aiz-hist .ah-chip { height: 22px; padding: 0 9px; font-size: 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
 .settings-v .ai-sink .aiz-hist .ah-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+
+/* 标题对照行（D21）：只提示、不提供改书名入口 */
+.settings-v .ai-sink .title-check { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 11.5px; }
+.settings-v .ai-sink .title-check .tc-res { font-weight: 500; flex: none; }
+.settings-v .ai-sink .title-check .tc-res.ok { color: var(--ok); }
+.settings-v .ai-sink .title-check .tc-res.warn { color: var(--warn); }
+.settings-v .ai-sink .title-check .tc-note { color: var(--muted); }
+.settings-v .ai-sink .title-check .tc-chip { display: inline-block; margin-left: 5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); }
+.settings-v .ai-sink .title-check .tc-tip { margin-left: 6px; color: var(--muted); }

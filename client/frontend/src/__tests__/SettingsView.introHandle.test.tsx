@@ -421,3 +421,65 @@ describe("简介 AI · 最近 5 次历史 + 采纳整段替换（用户要求）
     expect(ta.value).not.toContain("候选第1版");
   });
 });
+
+describe("简介体检 · 标题对照（D21，只提示不代改）", () => {
+  beforeEach(() => {
+    apiState.get.mockReset();
+    apiState.fetchStory.mockReset();
+    aiState.introAi.mockReset();
+    apiState.get.mockResolvedValue({});
+    apiState.fetchStory.mockResolvedValue({ synopsis: "苏晚重生回被陷害前夜。" });
+  });
+
+  const renderIntro = () =>
+    render(
+      <SettingsView projectId="p1" initialPanel="intro" settingsStatus={{}} confirmedStatus={{}}
+        confirmSetting={vi.fn().mockResolvedValue(true)} novelName="我在夜晚打吸血鬼" />,
+    );
+
+  it("mismatch：渲染「与简介不符」+ 理由 + 候选，并明示由作者自己定", async () => {
+    aiState.introAi.mockResolvedValue({
+      six_segments: [], taboo: { hits: [] }, verdict: "strong",
+      title_check: { fit: "mismatch", note: "书名像轻松向，简介是压抑复仇", suggestions: ["血夜翻盘", "她在夜里撕开假面"] },
+    });
+    const { container } = renderIntro();
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="check"]')!));
+    await waitFor(() => expect(container.querySelector('[data-od-id="intro-title-check"]')).toBeTruthy());
+    expect(container.textContent).toContain("与简介不符");
+    expect(container.textContent).toContain("书名像轻松向");
+    expect(container.textContent).toContain("血夜翻盘");
+    expect(container.textContent).toContain("仅供参考，改不改由你定");
+    // 不提供任何改书名入口
+    expect(container.querySelector('[data-od-id="intro-title-check"] button')).toBeNull();
+  });
+
+  it("generic：渲染「标题无信息」+ 候选", async () => {
+    aiState.introAi.mockResolvedValue({
+      six_segments: [], taboo: { hits: [] }, verdict: "weak",
+      title_check: { fit: "generic", note: "任何同类型都能用", suggestions: ["血夜执刀人"] },
+    });
+    const { container } = renderIntro();
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="check"]')!));
+    await waitFor(() => expect(container.textContent).toContain("标题无信息"));
+    expect(container.textContent).toContain("血夜执刀人");
+  });
+
+  it("字段缺失：整行不渲染（模型没给就不提示，不造假绿）", async () => {
+    aiState.introAi.mockResolvedValue({ six_segments: [], taboo: { hits: [] }, verdict: "ok" });
+    const { container } = renderIntro();
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="check"]')!));
+    await waitFor(() => expect(container.textContent).toContain("AI 体检"));
+    expect(container.querySelector('[data-od-id="intro-title-check"]')).toBeNull();
+  });
+
+  it("ok：只显示一致行，不列候选", async () => {
+    aiState.introAi.mockResolvedValue({
+      six_segments: [], taboo: { hits: [] }, verdict: "strong",
+      title_check: { fit: "ok", note: "", suggestions: [] },
+    });
+    const { container } = renderIntro();
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="check"]')!));
+    await waitFor(() => expect(container.textContent).toContain("标题对照：一致"));
+    expect(container.textContent).not.toContain("仅供参考");
+  });
+});

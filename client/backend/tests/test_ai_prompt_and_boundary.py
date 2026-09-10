@@ -34,6 +34,17 @@ class TestPromptTemplates:
         for rule in ("设定集腔", "作者自白", "剧透"):
             assert rule in text
 
+    def test_introspect_has_title_check(self):
+        """D21：体检含标题对照（fit 三值 + 候选 ≤3 + 只提示不代改）。"""
+        text = load("settings_intro_introspect")
+        assert "标题对照" in text
+        for v in ("mismatch", "generic"):
+            assert v in text
+        assert "由作者自己决定" in text  # 拍板：不做一键改
+        assert "title_check" in text
+        # verdict 口径不受标题影响（独立提示行）
+        assert "只看六段与禁忌" in text
+
     def test_genre_templates_exist_with_placeholders(self):
         for field in GENRE_FIELDS:
             text = load(f"settings_genre_{field}")

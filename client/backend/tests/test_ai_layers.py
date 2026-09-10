@@ -889,3 +889,84 @@ class TestLocalConfigRobustness:
         svc.save_local_config({"token": "t", "tier": "pro"})
         assert cfg.exists() and not (tmp_path / "config.json.tmp").exists()
         assert svc.get_local_config()["token"] == "t"
+
+
+# ── 体检「标题对照」归一化（D21）───────────────────────────────────────────
+
+
+class TestTitleCheckNormalization:
+    def _introspect(self, monkeypatch, raw: dict):
+        import json as _json
+
+        import settings.ai_router as ar
+
+        fake = _FakeClient(_json.dumps(raw, ensure_ascii=False))
+
+        async def _get(novel_id):
+            return fake
+
+        monkeypatch.setattr(ar, "get_ai_client_for_novel", _get)
+        return ar._normalize_introspect(raw)
+
+    def test_three_fits_passthrough(self):
+        import settings.ai_router as ar
+
+        for fit in ("ok", "mismatch", "generic"):
+            out = ar._normalize_introspect(
+                {
+                    "six_segments": [],
+                    "taboo": {"hits": []},
+                    "title_check": {"fit": fit, "note": "n", "suggestions": ["候选A"]},
+                    "verdict": "ok",
+                }
+            )
+            assert out["title_check"]["fit"] == fit
+            # ok 时不带候选（无从建议）
+            assert out["title_check"]["suggestions"] == ([] if fit == "ok" else ["候选A"])
+
+    def test_invalid_fit_dropped(self):
+        import settings.ai_router as ar
+
+        out = ar._normalize_introspect(
+            {"six_segments": [], "taboo": {"hits": []},
+             "title_check": {"fit": "weird", "note": "n", "suggestions": []}, "verdict": "ok"}
+        )
+        assert "title_check" not in out  # 不得补 ok
+
+    def test_missing_title_check_dropped(self):
+        import settings.ai_router as ar
+
+        out = ar._normalize_introspect(
+            {"six_segments": [], "taboo": {"hits": []}, "verdict": "ok"}
+        )
+        assert "title_check" not in out
+
+    def test_suggestions_clamped(self):
+        import settings.ai_router as ar
+
+        out = ar._normalize_introspect(
+            {"six_segments": [], "taboo": {"hits": []}, "verdict": "weak",
+             "title_check": {"fit": "generic", "note": "x",
+                             "suggestions": ["一", "二", "三", "四", "五"]}}
+        )
+        s = out["title_check"]["suggestions"]
+        assert len(s) == 3  # ≤3 条
+
+    def test_suggestion_length_clamped(self):
+        import settings.ai_router as ar
+
+        out = ar._normalize_introspect(
+            {"six_segments": [], "taboo": {"hits": []}, "verdict": "weak",
+             "title_check": {"fit": "mismatch", "note": "x", "suggestions": ["字" * 30]}}
+        )
+        assert len(out["title_check"]["suggestions"][0]) == 16
+
+    def test_verdict_unchanged_by_title_check(self):
+        """verdict 只看六段 + 禁忌：标题不符也照原判（独立提示行）。"""
+        import settings.ai_router as ar
+
+        out = ar._normalize_introspect(
+            {"six_segments": [], "taboo": {"hits": []}, "verdict": "strong",
+             "title_check": {"fit": "mismatch", "note": "不符", "suggestions": ["新名"]}}
+        )
+        assert out["verdict"] == "strong"

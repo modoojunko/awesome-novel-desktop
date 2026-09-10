@@ -287,6 +287,12 @@ export interface IntroAiResult {
   six_segments?: Array<{ name: string; status: "ok" | "missing"; excerpt?: string; note?: string }>;
   taboo?: { hits: Array<{ rule: string; excerpts: string[] }> };
   verdict?: "strong" | "ok" | "weak";
+  /** 标题对照（D21）：书名与简介是否互相印证；缺字段＝模型没给，前端不渲染该行。 */
+  title_check?: {
+    fit: "ok" | "mismatch" | "generic";
+    note: string;
+    suggestions: string[];
+  };
   missing?: Array<{ name: string; candidate: string }>;
   original?: string;
   polished?: string;

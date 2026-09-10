@@ -245,7 +245,23 @@ def _normalize_introspect(data) -> dict:
     verdict = str(data.get("verdict", "")).strip()
     if verdict not in ("strong", "ok", "weak"):
         verdict = "ok" if not hits else "weak"
-    return {"six_segments": segments, "taboo": {"hits": hits}, "verdict": verdict}
+
+    out: dict = {"six_segments": segments, "taboo": {"hits": hits}, "verdict": verdict}
+
+    # 标题对照（D21）：fit 三值白名单；**未给或非法 → 整行不下发**（不得补 ok 造假绿）
+    tc = data.get("title_check")
+    if isinstance(tc, dict):
+        fit = str(tc.get("fit", "")).strip()
+        if fit in ("ok", "mismatch", "generic"):
+            suggestions = [
+                _clamp_str(x, 16) for x in (tc.get("suggestions") or []) if str(x).strip()
+            ][:3]
+            out["title_check"] = {
+                "fit": fit,
+                "note": _clamp_str(tc.get("note"), 120),
+                "suggestions": suggestions if fit != "ok" else [],
+            }
+    return out
 
 
 # ── 简介 AI（必须注册在通用字段路由之前）────────────────────────────────

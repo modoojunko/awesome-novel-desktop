@@ -580,6 +580,13 @@ export interface IntroHandle extends SettingSaveHandle {
   hasIntrospected: () => boolean;
 }
 
+/** 标题对照三态的展示文案（只提示，不代改书名）。 */
+const TITLE_FIT_LABEL: Record<"ok" | "mismatch" | "generic", string> = {
+  ok: "标题对照：一致",
+  mismatch: "标题对照：与简介不符",
+  generic: "标题对照：标题无信息",
+};
+
 /** 运行中各能力的操作名（与结果区标题同口径）。 */
 const AI_RUNNING_LABEL: Record<IntroAiAction, string> = {
   introspect: "AI 体检 · 生成中…",
@@ -717,6 +724,26 @@ const IntroPanel = forwardRef<
                         : `无 ${TABOO_RULES.join(" / ")}`}
                       {r.verdict ? ` · 结论：${r.verdict}` : ""}
                     </p>
+                    {/* 标题对照（D21）：只提示、不提供改书名入口——改不改由作者自己决定 */}
+                    {r.title_check && (
+                      <div className="title-check" data-od-id="intro-title-check">
+                        <span className={`tc-res ${r.title_check.fit === "ok" ? "ok" : "warn"}`}>
+                          {TITLE_FIT_LABEL[r.title_check.fit]}
+                        </span>
+                        {r.title_check.note && <span className="tc-note">{r.title_check.note}</span>}
+                        {r.title_check.suggestions.length > 0 && (
+                          <span className="tc-sug">
+                            可考虑：
+                            {r.title_check.suggestions.map((s) => (
+                              <span className="tc-chip" key={s}>
+                                {s}
+                              </span>
+                            ))}
+                            <span className="tc-tip">（仅供参考，改不改由你定）</span>
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </>
                 ),
               });

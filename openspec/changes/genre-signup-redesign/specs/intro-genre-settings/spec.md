@@ -40,7 +40,7 @@
 - 每行 SHALL 为：能力名称（上）+ 描述（下，从属）+ 右侧箭头，整行可点。
 - 体检 SHALL 按四件事检查：① 六段模板逐项查达标/缺失；② 扫禁忌（**设定集腔 / 作者自白 / 剧透**）；③ **标题对照**（书名 ↔ 简介是否互相印证）；④ 结论。**只提醒、不拦确认**；行名与六段模板完全一致。注：禁忌第三元「剧透」与「别踩」第三元「写死结局」**用途不同（扫描规则 vs 写作引导），写死结局 ≠ 剧透，勿合并为同一枚举**。体检为诊断语义，**只分析/只提醒、不补写不改写**。
 - 体检接口 SHALL 返回结构化 JSON：`{"six_segments":[{name,status(ok|missing),excerpt,note?}], "taboo":{"hits":[{rule,excerpts}]}, "title_check":{"fit":"ok|mismatch|generic","note":"…","suggestions":["…"]}, "verdict":"strong|ok|weak"}`，其中 `name` 须为六段名之一、`status` 限 `ok|missing`、`fit` 限三值。
-- **标题对照语义**（`title_check`）：`ok`＝标题暗示的类型/看点与简介一致；`mismatch`＝不符（如标题像甜宠、简介是压抑复仇）；`generic`＝标题无信息（任何同类型小说都能用，如《第一章》）。`mismatch`/`generic` 时 SHALL 给 `note` 说明理由 + **≤3 条候选标题**（每条 ≤16 字，贴题材、留钩子、不剧透结局）。**兜底**：模型未返回该字段或 `fit` 非法 → 该字段**不下发**，前端不渲染该行（**不得硬判 `ok`**，避免假绿）。
+- **标题对照语义**（`title_check`）：`ok`＝标题暗示的类型/看点与简介一致；`mismatch`＝不符（如标题像甜宠、简介是压抑复仇）；`generic`＝标题无信息（任何同类型小说都能用，如《第一章》）。`mismatch`/`generic` 时 SHALL 给 `note` 说明理由 + **≤3 条候选标题**（每条 ≤16 字，贴题材、留钩子、不剧透结局）。候选标题 SHALL 仅作参考提示，**SHALL NOT 提供「一键设为书名」入口**——书名改不改、怎么改由作家自己决定（用户拍板 2026-09-10）。**兜底**：模型未返回该字段或 `fit` 非法 → 该字段**不下发**，前端不渲染该行（**不得硬判 `ok`**，避免假绿）。
 - **结构化输出策略**（跨供应商/弱模型）：体检/题材的 JSON 输出除 endpoint 后置归一化兜底外，prompt 侧 SHALL 给 **schema + 枚举 + 一个 few-shot 示例**；能用的 provider 追加 `response_format={"type":"json_object"}`（需同步扩 `AIClient.chat` 的 OpenAI 分支）。
 - 补缺失 SHALL 只针对缺失段给候选；请求体 SHALL 带 `missing_segments`（前端把 introspect 的 missing 段传来），返回 `{"missing":[{name,candidate}], "act":"insert"}`；**只补缺失段、不重写作者已写段**。采纳才插入简介，可逐条采纳。**前置**：未先体检时「补缺失」行 SHALL 提示「先体检，才知道缺哪段」（或禁用），不得空跑（O-3）；六段全 ok 时 SHALL 提示「六段都齐了，无需补」（O-16）。
 - 润色 SHALL 前后对照（入参 `{title, content}`，返回 `{"original","polished","act":"replace"}`），采纳才替换；保原意、只加工不代写。**对照展示形态**＝原句/润后**上下两行**（O-17）。
