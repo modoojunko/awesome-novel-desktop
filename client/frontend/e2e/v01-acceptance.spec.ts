@@ -54,44 +54,16 @@ test.describe('v0.1 边界值与健壮性', () => {
     expect((await r.json()).code).toBe(1);
   });
 
-  test('B4: 无效激活码被拒绝', async ({ request }) => {
-    const user = uid();
-    await request.post('http://127.0.0.1:19000/api/web/register', {
-      data: { username: user, password: pw('dup'), security_question: 'q', security_answer: 'a' }
-    });
-    const login = await request.post('http://127.0.0.1:19000/api/web/login', {
-      data: { username: user, password: pw('dup') }
-    });
-    const token = (await login.json()).data.token;
+  test('B4/B5: 激活码通道已下线（8.3 拆除）——端点不存在，购买走 /api/pay/orders', async ({ request }) => {
+    // v0.1 验收时用户激活走 /api/license/activate；8.3 起激活码用户入口拆除，
+    // 付费改走收银台（/api/pay/orders）。此用例反向钉住退役契约：端点不得复活。
     const r = await request.post('http://127.0.0.1:19000/api/license/activate', {
-      data: { code: 'AC-INVALID-XXXX-XXXX' },
-      headers: { Authorization: 'Bearer ' + token }
+      data: { code: 'AC-INVALID-XXXX-XXXX' }
     });
-    expect((await r.json()).code).toBe(1);
-  });
-
-  test('B5: 已使用的激活码不可重复激活', async ({ request }) => {
-    const user = uid();
-    await request.post('http://127.0.0.1:19000/api/web/register', {
-      data: { username: user, password: pw('dup'), security_question: 'q', security_answer: 'a' }
-    });
-    const codeResp = await request.post('http://127.0.0.1:19000/api/generate_code', {
-      data: { admin_token: 'admin123', tier: 'yearly', count: 1 }
-    });
-    const code = (await codeResp.json()).data.codes[0];
-    const login = await request.post('http://127.0.0.1:19000/api/web/login', {
-      data: { username: user, password: pw('dup') }
-    });
-    const token = (await login.json()).data.token;
-    // 第一次激活应该成功
-    await request.post('http://127.0.0.1:19000/api/license/activate', {
-      data: { code }, headers: { Authorization: 'Bearer ' + token }
-    });
-    // 第二次激活应该失败
-    const r = await request.post('http://127.0.0.1:19000/api/license/activate', {
-      data: { code }, headers: { Authorization: 'Bearer ' + token }
-    });
-    expect((await r.json()).code).toBe(1);
+    expect(r.status()).toBe(404);
+    // 现役购买入口在场（参数校验 422 ≠ 404，说明路由活着）
+    const pay = await request.post('http://127.0.0.1:19000/api/pay/orders', { data: {} });
+    expect(pay.status()).toBe(422);
   });
 
   test('B6: 无 token 访问受保护端点被拒绝', async ({ request }) => {
@@ -136,7 +108,7 @@ test.describe('v0.1 用户场景与反馈验证', () => {
     expect(body.msg).toContain('已存在');
   });
 
-  test('U3: 激活无效码返回明确错误', async ({ request }) => {
+  test('U3: 下线激活码端点对已登录会话也保持 404（含 Bearer）', async ({ request }) => {
     const user = uid();
     await request.post('http://127.0.0.1:19000/api/web/register', {
       data: { username: user, password: pw('dup'), security_question: 'q', security_answer: 'a' }
@@ -149,9 +121,7 @@ test.describe('v0.1 用户场景与反馈验证', () => {
       data: { code: 'AC-NO-SUCH-CODE-XXXX' },
       headers: { Authorization: 'Bearer ' + token }
     });
-    const body = await r.json();
-    expect(body.code).toBe(1);
-    expect(body.msg).toContain('无效');
+    expect(r.status()).toBe(404);
   });
 
   test('U4: 修改密码成功后可用新密码登录', async ({ request }) => {

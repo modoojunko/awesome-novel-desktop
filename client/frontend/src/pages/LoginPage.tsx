@@ -14,11 +14,24 @@ export default function LoginPage() {
   const [checkingSlow, setCheckingSlow] = useState(false);
   const [error, setError] = useState('');
   // 会话失效/注销撤销期提示（useAuthHeal 写入 sessionStorage，登录页展示后清除）
-  const [authNotice] = useState(() => {
+  const [authNotice, setAuthNotice] = useState(() => {
     const msg = sessionStorage.getItem('auth_notice');
     if (msg) sessionStorage.removeItem('auth_notice');
     return msg ?? '';
   });
+  // heal 晚于本页挂载写入提示时（如 401 拦截器先把人送到 /login）补读一次，
+  // 保证「账号已注销」的提示必达（account-deletion tasks 5.2）
+  useEffect(() => {
+    const reread = () => {
+      const msg = sessionStorage.getItem('auth_notice');
+      if (msg) {
+        sessionStorage.removeItem('auth_notice');
+        setAuthNotice(msg);
+      }
+    };
+    window.addEventListener('auth-notice-updated', reread);
+    return () => window.removeEventListener('auth-notice-updated', reread);
+  }, []);
   const [authUrl, setAuthUrl] = useState('');
   const cancelledRef = useRef(false);
   const pollingRef = useRef(false);

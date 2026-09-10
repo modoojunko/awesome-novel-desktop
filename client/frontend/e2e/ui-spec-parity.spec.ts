@@ -53,7 +53,20 @@ async function setupSession(page: Page) {
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+  const mine = JSON.stringify(cfg, null, 2);
+  // 注入后必须**盯三轮**确认没被回写冲掉：本文件按字母序紧跟 settings-forms
+  // （全量跑最重的一档），其收尾残余 check-auth 会异步回写 config.json——
+  // 一次性写入曾被冲掉 → 注入 token 失效 → 401 拦截器把页面登出 → 用例干等超时。
+  const writeMine = () => fs.writeFileSync(CONFIG_PATH, mine);
+  writeMine();
+  for (let stable = 0, tries = 0; stable < 3 && tries < 12; tries++) {
+    await new Promise((r) => setTimeout(r, 300));
+    if (fs.readFileSync(CONFIG_PATH, "utf-8") === mine) stable += 1;
+    else {
+      writeMine();
+      stable = 0;
+    }
+  }
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
   await page.route("**/api/auth/check-auth", (r) =>
     r.fulfill({ json: { code: 0, data: {} } }),
@@ -116,12 +129,18 @@ async function cssNum(page: Page, sel: string, prop: string) {
   );
 }
 
+/** px 级断言前等字体就绪：全量跑时字体晚到会让 font-size/line-height 读出过渡值。 */
+async function fontsReady(page: import("@playwright/test").Page) {
+  await page.evaluate(() => document.fonts.ready);
+}
+
 test.describe("界面规格 parity（尺寸/字号）", () => {
   test("简介框 / 按钮 / 胶囊 / 徽标 / ai-sink 的规格断言（9.1.0/9.4.13）", async ({ page }) => {
     const { restore } = await setupSession(page);
     try {
       const pid = await createNovel(page, `规格${Date.now() % 100000}`);
       await stubAiState(page, pid);
+      await fontsReady(page);
       await page.getByRole("button", { name: /^设定/ }).click();
       await expect(page.locator(".settings-v main h2", { hasText: "简介" })).toBeVisible({
         timeout: 10000,
@@ -162,6 +181,7 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
     try {
       const pid = await createNovel(page, `规格题材${Date.now() % 100000}`);
       await stubAiState(page, pid);
+      await fontsReady(page);
       await page.route(`**/api/novels/${pid}/settings/ai/genre/cost_ratio`, (r) =>
         r.fulfill({ json: { value: 8 } }),
       );
@@ -234,6 +254,7 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
     try {
       const pid = await createNovel(page, `边界${Date.now() % 100000}`);
       await stubAiState(page, pid);
+      await fontsReady(page);
       await page.getByRole("button", { name: /^设定/ }).click();
       const ta = page.locator(".settings-v .intro-ta");
       await expect(ta).toBeVisible({ timeout: 10000 });
@@ -274,6 +295,7 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
     try {
       const pid = await createNovel(page, `窄屏${Date.now() % 100000}`);
       await stubAiState(page, pid);
+      await fontsReady(page);
       await page.getByRole("button", { name: /^设定/ }).click();
       await expect(page.locator(".settings-v main h2")).toBeVisible({ timeout: 10000 });
 
@@ -299,6 +321,7 @@ test("设定面板填满中栏且左右留白对称（1440/1920）", async ({ pa
   try {
     const pid = await createNovel(page, `宽度${Date.now() % 100000}`);
     await stubAiState(page, pid);
+      await fontsReady(page);
 
     for (const width of [1440, 1920]) {
       await page.setViewportSize({ width, height: 900 });
@@ -343,6 +366,7 @@ test("设定页：工具项徽标 / 辅助信息邻接 / 脚注贴底", async ({
   try {
     const pid = await createNovel(page, `PM评审${Date.now() % 100000}`);
     await stubAiState(page, pid);
+      await fontsReady(page);
     await page.setViewportSize({ width: 1660, height: 980 });
     await page.goto(`${ORIGIN}/#/novel/${pid}`);
     await page.waitForTimeout(1500);
@@ -395,6 +419,7 @@ test("简介体检：六段在宽屏两列排布（不再单列稀疏）", async
   try {
     const pid = await createNovel(page, `六段网格${Date.now() % 100000}`);
     await stubAiState(page, pid);
+      await fontsReady(page);
     await page.route(`**/api/novels/${pid}/settings/ai/intro/introspect`, (r) =>
       r.fulfill({
         json: {
