@@ -61,6 +61,8 @@ const SEED = (() => {
     name: "星海拾遗",
     type: "科幻",
     genre: "科幻",
+    // 书内题材标签取值来源（新契约核心承诺 → 老书历史来源）：对齐原型 .genre-tag「科幻」
+    genre_label: "科幻",
     source: "manual",
   };
 

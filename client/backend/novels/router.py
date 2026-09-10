@@ -195,7 +195,8 @@ async def list_all(
     # 书架卡片富化（只读、附加字段，数据模型不动）：
     #   word_count — 章表 word_count 聚合
     #   synopsis   — story.yaml（创建/导入时写入）
-    #   genre      — story.yaml.genre 展示名；缺失时回退 KV 题材（设定视图选择的题材）
+    #   genre      — 题材展示名：新契约核心承诺优先，老书回退 story.yaml.genre / KV 题材；
+    #                空值＝题材未设定，前端以「待定题材」占位（用户 2026-09-10 拍板）
     words: dict[str, int] = {}
     ch_count: dict[str, int] = {}
     arch_count: dict[str, int] = {}
@@ -210,7 +211,9 @@ async def list_all(
             await db.scalars(
                 select(Chapter)
                 .where(Chapter.project_id.in_([p.id for p in projects]))
-                .options(load_only(Chapter.project_id, Chapter.word_count, Chapter.status))
+                .options(
+                    load_only(Chapter.project_id, Chapter.word_count, Chapter.status)
+                )
             )
         ).all()
         counter = Counter()
@@ -227,6 +230,7 @@ async def list_all(
         arch_count = dict(archived)
 
     kv_genres = await _batch_kv_genre_names(db, projects)
+    core_promises = await _batch_core_promises(db, projects)
     storage = get_storage()
     out = []
     for p in projects:
@@ -242,9 +246,41 @@ async def list_all(
         except Exception:
             story = {}
         d["synopsis"] = story.get("synopsis") or ""
-        d["genre"] = story.get("genre") or kv_genres.get(str(p.id))
+        # 题材展示名：新契约核心承诺 → 老书历史来源（story.yaml.genre / KV 题材名）→ None
+        d["genre"] = (
+            core_promises.get(str(p.id))
+            or story.get("genre")
+            or kv_genres.get(str(p.id))
+        )
         out.append(d)
     return out
+
+
+async def _batch_core_promises(db: AsyncSession, projects) -> dict[str, str]:
+    """新契约「题材」的核心承诺（novel_genre.core_promise），按 novel_id 批量取。
+
+    题材自 D19 关系化后住 novel_genre 表；`core_promise` 是其中唯一可作短展示名的字段，
+    且是题材面板第一格——空值即「题材未设定」，由前端以「待定题材」占位。
+    """
+    if not projects:
+        return {}
+    try:
+        from models.novel_genre import NovelGenre
+
+        rows = (
+            await db.scalars(
+                select(NovelGenre).where(
+                    NovelGenre.novel_id.in_([p.id for p in projects])
+                )
+            )
+        ).all()
+        return {
+            str(r.novel_id): (r.core_promise or "").strip()
+            for r in rows
+            if (r.core_promise or "").strip()
+        }
+    except Exception:
+        return {}  # 表缺失/异常不 500，退化到历史来源
 
 
 async def _batch_kv_genre_names(db: AsyncSession, projects) -> dict[str, str]:
@@ -309,9 +345,17 @@ async def get_one(
     # KV 缺失/损坏 → genre/genre_name None，不 500（NovelBar 以 genre 优先于 type 展示）
     data["genre"] = None
     data["genre_name"] = None
+    # 题材展示名（书内标签与书架卡片胶囊同源）：新契约核心承诺 → 老书历史来源 → None
+    # （None＝题材未设定，前端以「待定题材」占位，用户 2026-09-10 拍板）
+    data["genre_label"] = None
     try:
         from models.genre import Genre
+        from models.novel_genre import NovelGenre
         from models.project_setting import ProjectSetting
+
+        ng = await db.get(NovelGenre, project.id)
+        if ng is not None and (ng.core_promise or "").strip():
+            data["genre_label"] = ng.core_promise.strip()
 
         row = (
             await db.execute(
@@ -333,6 +377,13 @@ async def get_one(
                     data["genre_name"] = g.name
     except Exception:
         pass  # KV 缺失/损坏不 500
+    if not data["genre_label"]:
+        # 老书回退：story.yaml.genre（建书/导入时写入）→ KV 题材名
+        try:
+            story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+        except Exception:
+            story = {}
+        data["genre_label"] = story.get("genre") or data["genre_name"]
     return data
 
 

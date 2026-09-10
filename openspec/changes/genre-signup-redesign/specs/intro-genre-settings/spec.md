@@ -230,6 +230,29 @@
 - When 查看设定状态
 - Then 题材判定为已确认（判据为新契约核心键非空，而非 genre_id）
 
+### Requirement: 题材的对外展示（书卡胶囊与书内标签）
+
+- 书本上的题材展示位（书架卡片胶囊、书内标签）**SHALL 取值来自题材**（用户 2026-09-10 拍板「书的类型胶囊，取值从题材获取」），**SHALL NOT** 依赖已废弃的历史来源：建书弹窗的「类型」下拉与题材面板的 `genre_id` 都已不再写入，旧展示链（`story.yaml.genre` / `project_settings('genre')` KV）对本 change 之后的书恒为空。
+- 展示名 SHALL 取题材的**核心承诺**（`novel_genre.core_promise`，题材面板 02 格、契约唯一可作短展示名的字段），由后端在 `GET /novels`（`genre` 字段）与 `GET /novels/{id}`（`genre_label` 字段）**单源下发**；两端 SHALL NOT 各自拼装。
+- **占位**：题材未设定（核心承诺为空，且无历史来源可回退）时 SHALL 显示「**待定题材**」（共享常量 `GENRE_PENDING_LABEL`，前端两侧同源），**SHALL NOT** 空缺该展示位——空位会让作者以为界面漏了东西。
+- **老书回退**：既有书 SHALL 依次回退 `story.yaml.genre` → KV 题材名，避免升级后老书题材展示消失。
+- 展示名可能长于展示位（核心承诺上限 60 字）→ 展示位 SHALL 单行截断，SHALL NOT 撑破卡片顶栏。
+
+#### Scenario: 题材设定后胶囊显示核心承诺
+- Given 作者在题材面板填写核心承诺「以弱破强的痛快」
+- When 回到书架
+- Then 该书卡片的题材胶囊显示「以弱破强的痛快」
+
+#### Scenario: 题材未设定时占位
+- Given 一本刚创建、题材六格全空的书
+- When 查看书架卡片或打开这本书
+- Then 题材展示位显示「待定题材」（不是空缺、也不是「其他」）
+
+#### Scenario: 老书题材展示不回归为空
+- Given 一本建书时写入过 `story.yaml.genre`（如「科幻」）的老书，且题材关系表无数据
+- When 查看书架卡片或打开这本书
+- Then 题材展示位仍显示「科幻」
+
 ## MODIFIED Requirements
 
 （无 — 本 capability 为新增，无既有需求被修改。）

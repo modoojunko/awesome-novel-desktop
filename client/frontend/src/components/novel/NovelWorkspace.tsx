@@ -22,6 +22,7 @@ import { useOutline } from "@/hooks/useOutline";
 import { useProject } from "@/hooks/useProject";
 import { useNovelState } from "@/hooks/useNovelState";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { GENRE_PENDING_LABEL } from "@/lib/genreVocab";
 import { useTier } from "@/hooks/useTier";
 import { toast } from "@/lib/toast";
 
@@ -134,7 +135,9 @@ export default function NovelWorkspace() {
       toast.error("重命名失败，请重试");
     }
   }, [nameDraft, project, updateProject]);
-  const genreLabel = (project?.type || project?.genre || "") as string;
+  // 题材标签与书架卡片胶囊同源（后端 `genre_label`：新契约核心承诺 → 老书历史来源）；
+  // 空值＝题材未设定 → 「待定题材」占位（用户 2026-09-10 拍板），标签位恒在。
+  const genreLabel = (project?.genre_label || GENRE_PENDING_LABEL) as string;
 
   // ── AI ref 链：正文编辑器实例 + 状态（右栏 AI 工具与中栏共用） ─────────
   const proseRef = useRef<ProseHandle | null>(null);
@@ -250,7 +253,9 @@ export default function NovelWorkspace() {
             onBlur={() => void commitRename()}
           />
         )}
-        {genreLabel && <span className="genre-tag">{genreLabel}</span>}
+        <span className={`genre-tag${project?.genre_label ? "" : " pending"}`}>
+          {genreLabel}
+        </span>
         {!isPro ? (
           <span className="free-hint">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

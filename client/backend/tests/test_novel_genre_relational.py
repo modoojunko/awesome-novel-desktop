@@ -735,3 +735,45 @@ class TestArchiveCounter:
         client.post(f"/api/novels/{pid}/chapters/{ref}/unarchive")
         back = self._shelf_item(client, pid)
         assert (back["total_chapters"], back["total_archives"]) == (1, 0)
+
+
+# ── 题材展示名（书卡胶囊 / 书内标签）单源：新契约核心承诺优先 ─────────────
+
+
+class TestGenreDisplaySource:
+    """题材胶囊/标签取值来自题材（core_promise）；空值＝未设定（前端以占位呈现）。"""
+
+    def test_shelf_genre_comes_from_core_promise(self, client):
+        pid = _new_novel(client)
+        before = client.get("/api/novels").json()
+        item = next(r for r in before if r["id"] == pid)
+        assert not item["genre"], "未设定题材时不下发题材名（前端占位）"
+
+        client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={"core_promise": "以弱破强的痛快"},
+        )
+        after = client.get("/api/novels").json()
+        item = next(r for r in after if r["id"] == pid)
+        assert item["genre"] == "以弱破强的痛快"
+
+    def test_detail_genre_label_matches_shelf(self, client):
+        pid = _new_novel(client)
+        client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={"core_promise": "层层反转的智力快感", "cost_ratio": 5},
+        )
+        detail = client.get(f"/api/novels/{pid}").json()
+        assert detail["genre_label"] == "层层反转的智力快感"
+        # 旧字段保留（老书 / 外部消费者兼容）：题材核心承诺不进 genre（那是历史 KV 口径）
+        assert detail["genre"] in (None, "")
+        assert detail["genre_name"] in (None, "")
+
+    def test_core_promise_blank_falls_back_to_none(self, client):
+        """只有 03/04 等非核心承诺字段时，展示名仍为空（胶囊走占位，不编造题材名）。"""
+        pid = _new_novel(client)
+        client.put(f"/api/novels/{pid}/settings/genre", json={"cost_ratio": 8})
+        item = next(r for r in client.get("/api/novels").json() if r["id"] == pid)
+        assert not item["genre"]
+        detail = client.get(f"/api/novels/{pid}").json()
+        assert not detail["genre_label"]

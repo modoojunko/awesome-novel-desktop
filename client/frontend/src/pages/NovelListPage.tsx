@@ -12,6 +12,7 @@ import { PORTAL_URL } from "@/lib/portal";
 import { supportUrl } from "@/lib/support";
 import { useTier } from "@/hooks/useTier";
 import { STAGE_LABEL, stageFromChapters } from "@/lib/novelStage";
+import { GENRE_PENDING_LABEL } from "@/lib/genreVocab";
 
 interface Novel {
   id: string;
@@ -376,14 +377,12 @@ function NovelList() {
               >
                 <div className="top">
                   <span className="mono">{(p.name || "书")[0]}</span>
-                  {/* 类型胶囊只在有值时渲染：建书不再问类型（2026-09-10），
-                      否则每本新书都挂一个「其他」标签，像是用户选错了 */}
-                  {p.genre && (
-                    <span className="genre">
-                      <Ico d={genreIconPath(p.genre)} />
-                      {p.genre}
-                    </span>
-                  )}
+                  {/* 题材胶囊：取值来自题材（新契约核心承诺，后端单源下发 `genre`）；
+                      未完成题材设定时用「待定题材」占位——胶囊位恒在，不因题材缺失而空缺 */}
+                  <span className={`genre${p.genre ? "" : " pending"}`}>
+                    <Ico d={genreIconPath(p.genre)} />
+                    {p.genre || GENRE_PENDING_LABEL}
+                  </span>
                   <span className={`b ${stage}`}>
                     <Ico d={STAGE_DOT[stage]} sw={2.4} />
                     {STAGE_LABEL[stage]}

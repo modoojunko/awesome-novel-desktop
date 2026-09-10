@@ -228,11 +228,12 @@ test("创建小说：仅书名即可创建并进入小说页", async ({ page }) 
     // 顶栏显示书名
     await expect(page.getByText(bookName).first()).toBeVisible({ timeout: 10000 });
 
-    // 新书无类型 → 书架卡片不挂「其他」胶囊（否则像用户选错了）
+    // 新书题材未设定 → 胶囊位仍占位显示「待定题材」（用户 2026-09-10 拍板）
     await page.goto(`${ORIGIN}/#/novels`);
     const card = page.locator(".cards .book-card", { hasText: bookName }).first();
     await expect(card).toBeVisible({ timeout: 10000 });
-    await expect(card.locator(".genre")).toHaveCount(0);
+    await expect(card.locator(".genre.pending")).toHaveCount(1);
+    await expect(card.locator(".genre")).toContainText("待定题材");
   } finally {
     restore();
   }
@@ -336,7 +337,8 @@ test("空书无门控：建书即写，加卷加章直达编辑器", async ({ pa
 test("设定 7 项全确认（settings-status 全绿）", async ({ page, request }) => {
   const { restore, token } = await setupSession(page);
   try {
-    const pid = await createNovel(page, `全确认${Date.now() % 100000}`);
+    const confirmBookName = `全确认${Date.now() % 100000}`;
+    const pid = await createNovel(page, confirmBookName);
     await page.goto(`${ORIGIN}/#/novel/${pid}`);
 
     // 013：设定未确认也不渲染「以下阶段尚未就绪」门控横幅（GateBanner 已移除）
@@ -421,6 +423,14 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     for (const k of ["synopsis", "genre", "world", "style", "anti-ai", "hooks", "characters"]) {
       expect(status[k]).toBe(true);
     }
+
+    // 题材设定后 → 书架卡片胶囊取值来自题材（核心承诺），占位态撤下
+    await page.goto(`${ORIGIN}/#/novels`);
+    const bookCard = page.locator(".cards .book-card", { hasText: confirmBookName }).first();
+    await expect(bookCard.locator(".genre")).toContainText("以弱破强的痛快", {
+      timeout: 10000,
+    });
+    await expect(bookCard.locator(".genre.pending")).toHaveCount(0);
   } finally {
     restore();
   }
