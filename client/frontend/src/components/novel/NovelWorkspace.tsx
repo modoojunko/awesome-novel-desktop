@@ -253,7 +253,10 @@ export default function NovelWorkspace() {
             onBlur={() => void commitRename()}
           />
         )}
-        <span className={`genre-tag${project?.genre_label ? "" : " pending"}`}>
+        <span
+          className={`genre-tag${project?.genre_label ? "" : " pending"}`}
+          title={genreLabel}
+        >
           {genreLabel}
         </span>
         {!isPro ? (

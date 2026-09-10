@@ -377,9 +377,13 @@ function NovelList() {
               >
                 <div className="top">
                   <span className="mono">{(p.name || "书")[0]}</span>
-                  {/* 题材胶囊：取值来自题材（新契约核心承诺，后端单源下发 `genre`）；
-                      未完成题材设定时用「待定题材」占位——胶囊位恒在，不因题材缺失而空缺 */}
-                  <span className={`genre${p.genre ? "" : " pending"}`}>
+                  {/* 题材胶囊：取值来自题材（后端单源下发 `genre`：大类 · 子类）；
+                      未完成题材设定时用「待定题材」占位——胶囊位恒在，不因题材缺失而空缺。
+                      title 供挤压时补齐被省略的全称 */}
+                  <span
+                    className={`genre${p.genre ? "" : " pending"}`}
+                    title={p.genre || GENRE_PENDING_LABEL}
+                  >
                     <Ico d={genreIconPath(p.genre)} />
                     {p.genre || GENRE_PENDING_LABEL}
                   </span>

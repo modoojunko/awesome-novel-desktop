@@ -872,3 +872,29 @@ class TestThemeCatalog:
         assert ctx["theme"] == "无限流" and ctx["sub_genre"] == "副本闯关"
         section = build_genre_section(ctx)
         assert "题材：无限流（副本闯关）" in section
+
+    def test_theme_without_sub_genre_shows_theme_only(self, client):
+        """子类可选：只选大类时展示名就是大类本身（不加分隔符、不降级成占位）。
+
+        用户 2026-09-10 追问「如果子类没有的，怎么满足作家」——口径：子类只是
+        更细的标记，缺失不影响任何判定与展示，卡片/标签照显大类。
+        """
+        pid = _new_novel(client)
+        client.put(f"/api/novels/{pid}/settings/genre", json={"theme": "谍战"})
+        item = next(r for r in client.get("/api/novels").json() if r["id"] == pid)
+        assert item["genre"] == "谍战"
+        detail = client.get(f"/api/novels/{pid}").json()
+        assert detail["genre_label"] == "谍战"
+        assert detail["theme"] == "谍战" and detail["sub_genre"] == ""
+
+    def test_sub_genre_cleared_when_theme_switches(self, client):
+        """换大类后旧子类必须由客户端清掉；后端对跨类子类 400（双保险）。"""
+        pid = _new_novel(client)
+        client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={"theme": "仙侠/修真", "sub_genre": "凡人流"},
+        )
+        r = client.put(f"/api/novels/{pid}/settings/genre", json={"theme": "科幻"})
+        assert r.status_code == 200, r.text
+        detail = client.get(f"/api/novels/{pid}").json()
+        assert detail["genre_label"] == "科幻", "换大类后不得残留旧子类"
