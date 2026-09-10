@@ -170,6 +170,8 @@ class AIClient:
             )
             if usage is not None:
                 u = getattr(response, "usage", None)
+                # OpenAI 的 prompt_tokens **已含**缓存命中部分（details.cached_tokens
+                # 是它的子集），故不再另加，避免重复计数。
                 usage["tokens_in"] = getattr(u, "prompt_tokens", 0) or 0
                 usage["tokens_out"] = getattr(u, "completion_tokens", 0) or 0
             return response.choices[0].message.content or ""
@@ -200,7 +202,14 @@ class AIClient:
                     raise
             if usage is not None:
                 u = getattr(response, "usage", None)
-                usage["tokens_in"] = getattr(u, "input_tokens", 0) or 0
+                # Anthropic 的 input_tokens **不含**缓存命中/写入的部分，二者另字段计。
+                # 漏掉它们会让「同一模板重复调用」的输入被系统性少算
+                # （实测同一 prompt：首调 913；二次 145 + cache_read 768 = 仍 913）。
+                usage["tokens_in"] = (
+                    (getattr(u, "input_tokens", 0) or 0)
+                    + (getattr(u, "cache_read_input_tokens", 0) or 0)
+                    + (getattr(u, "cache_creation_input_tokens", 0) or 0)
+                )
                 usage["tokens_out"] = getattr(u, "output_tokens", 0) or 0
             for block in response.content:
                 if getattr(block, "type", "") == "text" and block.text:

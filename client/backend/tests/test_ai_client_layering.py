@@ -414,3 +414,84 @@ class TestThinkingDisabledByDefault:
 
         _run_async(drain())
         assert sent["thinking"] == {"type": "disabled"}
+
+
+class TestAnthropicCacheAccounting:
+    """Anthropic 的 input_tokens 不含缓存读写 → 漏加会让重复调用被系统性少算。"""
+
+    def test_cache_fields_counted_into_tokens_in(self, monkeypatch):
+        class _Usage:
+            input_tokens = 145
+            output_tokens = 392
+            cache_read_input_tokens = 768
+            cache_creation_input_tokens = 64
+
+        class _Anthropic:
+            def __init__(self, **kw):
+                class _Messages:
+                    @staticmethod
+                    async def create(**kw2):
+                        block = type("B", (), {"type": "text", "text": "ok"})()
+                        return type("R", (), {"content": [block], "usage": _Usage()})()
+
+                self.messages = _Messages()
+
+        monkeypatch.setattr(ai_client_module, "AsyncAnthropic", _Anthropic)
+        c = AIClient(api_key="sk", base_url="https://x/anthropic", model="m", api_format="anthropic")
+        usage: dict = {}
+        _run_async(
+            c.chat(model="haiku", system="", messages=[{"role": "user", "content": "x"}], usage=usage)
+        )
+        # 145（非缓存）+ 768（缓存读）+ 64（缓存写）——才是真实输入
+        assert usage["tokens_in"] == 145 + 768 + 64
+        assert usage["tokens_out"] == 392
+
+    def test_openai_prompt_tokens_not_double_counted(self, monkeypatch):
+        class _Usage:
+            prompt_tokens = 913  # 已含缓存命中（details.cached_tokens 是其子集）
+            completion_tokens = 422
+
+        class _OpenAI:
+            def __init__(self, **kw):
+                class _Completions:
+                    @staticmethod
+                    async def create(**kw2):
+                        msg = type("M", (), {"content": "ok"})()
+                        choice = type("C", (), {"message": msg})()
+                        return type("R", (), {"choices": [choice], "usage": _Usage()})()
+
+                self.chat = type("Chat", (), {"completions": _Completions()})()
+
+        monkeypatch.setattr(ai_client_module, "AsyncOpenAI", _OpenAI)
+        c = AIClient(api_key="sk", base_url="https://api.openai.com/v1", model="m")
+        usage: dict = {}
+        _run_async(
+            c.chat(model="haiku", system="", messages=[{"role": "user", "content": "x"}], usage=usage)
+        )
+        assert usage["tokens_in"] == 913  # 不另加，避免重复计数
+        assert usage["tokens_out"] == 422
+
+    def test_missing_cache_fields_default_zero(self, monkeypatch):
+        """老 SDK/无缓存字段：取值缺省 0，不得报错。"""
+
+        class _Usage:
+            input_tokens = 500
+            output_tokens = 100
+
+        class _Anthropic:
+            def __init__(self, **kw):
+                class _Messages:
+                    @staticmethod
+                    async def create(**kw2):
+                        block = type("B", (), {"type": "text", "text": "ok"})()
+                        return type("R", (), {"content": [block], "usage": _Usage()})()
+
+                self.messages = _Messages()
+
+        monkeypatch.setattr(ai_client_module, "AsyncAnthropic", _Anthropic)
+        c = AIClient(api_key="sk", base_url="https://x/anthropic", model="m", api_format="anthropic")
+        usage: dict = {}
+        _run_async(
+            c.chat(model="haiku", system="", messages=[{"role": "user", "content": "x"}], usage=usage)
+        )
+        assert usage["tokens_in"] == 500

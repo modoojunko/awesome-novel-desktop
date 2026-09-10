@@ -970,3 +970,79 @@ class TestTitleCheckNormalization:
              "title_check": {"fit": "mismatch", "note": "不符", "suggestions": ["新名"]}}
         )
         assert out["verdict"] == "strong"
+
+
+class TestJudgeChatUsageAccumulation:
+    """重试的两次尝试都要记账（首次失败也烧钱，不能被覆盖）。"""
+
+    def test_retry_accumulates_both_attempts(self):
+        from settings.ai_router import _judge_chat
+
+        class _C:
+            def __init__(self):
+                self.n = 0
+
+            async def chat(self, usage=None, **kw):
+                self.n += 1
+                if self.n == 1:
+                    # 首次：烧了 token 但只回思考（空文本）
+                    if usage is not None:
+                        usage["tokens_in"] = 900
+                        usage["tokens_out"] = 1200
+                    raise ValueError("模型未返回文本内容（返回块：['thinking']），请重试")
+                if usage is not None:
+                    usage["tokens_in"] = 150
+                    usage["tokens_out"] = 400
+                return '{"missing": []}'
+
+        c = _C()
+        usage: dict = {}
+        out = _run_async(_judge_chat(c, model="haiku", system="", messages=[], usage=usage))
+        assert out == '{"missing": []}'
+        assert usage["tokens_in"] == 900 + 150  # 两次都算
+        assert usage["tokens_out"] == 1200 + 400
+
+    def test_single_attempt_unchanged(self):
+        from settings.ai_router import _judge_chat
+
+        class _C:
+            async def chat(self, usage=None, **kw):
+                if usage is not None:
+                    usage["tokens_in"] = 700
+                    usage["tokens_out"] = 300
+                return "{}"
+
+        usage: dict = {}
+        _run_async(_judge_chat(_C(), model="haiku", system="", messages=[], usage=usage))
+        assert usage["tokens_in"] == 700 and usage["tokens_out"] == 300
+
+    def test_other_error_flushes_usage(self):
+        """非空响应类错误：已烧的 token 也要记账后再抛。"""
+        from settings.ai_router import _judge_chat
+
+        class _C:
+            async def chat(self, usage=None, **kw):
+                if usage is not None:
+                    usage["tokens_in"] = 500
+                    usage["tokens_out"] = 50
+                raise ValueError("连接超时")
+
+        usage: dict = {}
+        with pytest.raises(ValueError, match="连接超时"):
+            _run_async(_judge_chat(_C(), model="haiku", system="", messages=[], usage=usage))
+        assert usage["tokens_in"] == 500
+
+    def test_two_empty_attempts_accumulate_then_raise(self):
+        from settings.ai_router import _judge_chat
+
+        class _C:
+            async def chat(self, usage=None, **kw):
+                if usage is not None:
+                    usage["tokens_in"] = 800
+                    usage["tokens_out"] = 900
+                raise ValueError("模型未返回文本内容，请重试")
+
+        usage: dict = {}
+        with pytest.raises(ValueError, match="模型未返回文本内容"):
+            _run_async(_judge_chat(_C(), model="haiku", system="", messages=[], usage=usage))
+        assert usage["tokens_in"] == 1600  # 两次都算

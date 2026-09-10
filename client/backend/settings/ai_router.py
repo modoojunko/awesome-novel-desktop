@@ -104,18 +104,43 @@ async def _judge_chat(client, **kwargs):
 
     供应商偶发「只回思考不回文本」时，重试一次基本能拿到结果——
     比直接把 502 甩给用户好。
+
+    记账：**每次尝试的 token 都累加**——首次失败那次同样烧了钱，
+    不能被重试覆盖（旧实现只记最后一次，用量偏低）。
     """
+    caller_usage = kwargs.pop("usage", None)
+    total_in = 0
+    total_out = 0
     last_err: Exception | None = None
     for attempt in range(2):
+        attempt_usage: dict = {}
         try:
-            return await client.chat(max_tokens=_JUDGE_MAX_TOKENS, **kwargs)
+            text = await client.chat(
+                max_tokens=_JUDGE_MAX_TOKENS, usage=attempt_usage, **kwargs
+            )
         except ValueError as e:
+            total_in += attempt_usage.get("tokens_in", 0)
+            total_out += attempt_usage.get("tokens_out", 0)
             if "模型未返回文本内容" not in str(e):
+                _flush_usage(caller_usage, total_in, total_out)
                 raise
             last_err = e
             if attempt == 0:
                 continue
+            break
+        total_in += attempt_usage.get("tokens_in", 0)
+        total_out += attempt_usage.get("tokens_out", 0)
+        _flush_usage(caller_usage, total_in, total_out)
+        return text
+    _flush_usage(caller_usage, total_in, total_out)
     raise last_err  # type: ignore[misc]
+
+
+def _flush_usage(usage: dict | None, tokens_in: int, tokens_out: int) -> None:
+    """把累计用量写回调用方的 usage dict（None 则忽略）。"""
+    if usage is not None:
+        usage["tokens_in"] = tokens_in
+        usage["tokens_out"] = tokens_out
 
 
 # ── 解析助手 ───────────────────────────────────────────────────────────────
