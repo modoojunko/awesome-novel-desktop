@@ -134,7 +134,7 @@ test.describe("主线卡", () => {
       await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
       await arcSave;
       await expect(
-        page.locator(".settings-v main h2", { hasText: "世界" }),
+        page.locator(".settings-v main h2", { hasText: "文风" }),
       ).toBeVisible({ timeout: 5000 });
 
       // 后端直查：story-arc 可确认 + 卡内容回读一致
@@ -213,8 +213,8 @@ test.describe("AI 四步向导（会员，浏览器侧打桩 AI 响应）", () =
       await page.locator(".col-ai").getByRole("button", { name: /让 AI 处理/ }).click();
       await expect(page.getByPlaceholder("最后一幕画面（例：侦探所里看着旧卷宗）")).toHaveValue("侦探所旧卷宗", { timeout: 5000 });
 
-      // 中途离开再回来：切到「世界」再切回「主线」，右栏向导按卡片内容续到第 3 步
-      await page.locator(".s-item", { hasText: "世界" }).click();
+      // 中途离开再回来：切到「文风」再切回「主线」，右栏向导按卡片内容续到第 3 步
+      await page.locator(".s-item", { hasText: "文风" }).click();
       await page.locator(".s-item", { hasText: "主线" }).click();
       await expect(page.getByRole("button", { name: "3. 倒推分卷" })).toHaveClass(/on/, { timeout: 5000 });
 

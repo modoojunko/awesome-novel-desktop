@@ -244,14 +244,14 @@ describe("设定视图懒挂载 / 离开卸载", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
     await waitFor(() =>
-      expect(screen.getAllByText("AI痕迹控制").length).toBeGreaterThan(0),
+      expect(screen.getAllByText("禁用词句").length).toBeGreaterThan(0),
     );
     // 写作视图常驻挂载：仅摘掉 on class（jsdom 断言 class 而非可见性）
     expect(threeColClass()).not.toContain("on");
 
     fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
     await waitFor(() =>
-      expect(screen.queryAllByText("AI痕迹控制").length).toBe(0),
+      expect(screen.queryAllByText("禁用词句").length).toBe(0),
     );
     expect(threeColClass()).toContain("on");
   });
@@ -274,7 +274,7 @@ describe("写作视图常驻挂载：切视图 prose 不丢", () => {
     // 切到设定 → 经 modnav「写作」返回
     fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
     await waitFor(() =>
-      expect(screen.getAllByText("AI痕迹控制").length).toBeGreaterThan(0),
+      expect(screen.getAllByText("禁用词句").length).toBeGreaterThan(0),
     );
     fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
 

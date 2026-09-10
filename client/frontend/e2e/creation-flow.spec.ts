@@ -411,14 +411,14 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     await apiPutJSON(request, token, `/novels/${pid}/settings/style`, {
       role: "克制冷静的第三人称叙事，短句为主",
     });
-    await openSetting(page, "风格");
+    await openSetting(page, "文风");
     await confirmPanel(page);
 
     // ── anti-ai：API 注入 + 面板确认（同上）
     await apiPutJSON(request, token, `/novels/${pid}/settings/anti-ai`, {
       blocklists: ["过度修辞", "翻译腔"],
     });
-    await openSetting(page, "AI痕迹控制");
+    await openSetting(page, "禁用词句");
     await confirmPanel(page);
 
     // ── characters：API 注入角色文件 + 面板确认

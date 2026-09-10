@@ -213,8 +213,8 @@ test.describe("题材/简介 AI 链路", () => {
       expect(aiCalled).toBe(0);
 
       // 模型窗（人工路径）不锁：可进、可选
-      await page.locator(".settings-v .col-tree .s-item", { hasText: "AI 模型" }).click();
-      await expect(page.locator(".settings-v main h2", { hasText: "AI 模型" })).toBeVisible();
+      await page.locator(".settings-v .col-tree .s-item", { hasText: "模型设定" }).click();
+      await expect(page.locator(".settings-v main h2", { hasText: "模型设定" })).toBeVisible();
     } finally {
       await restore();
     }
@@ -237,7 +237,7 @@ test.describe("题材/简介 AI 链路", () => {
       });
       await page.locator('[data-aiact="check"]').click();
 
-      await expect(page.locator(".settings-v main h2", { hasText: "AI 模型" })).toBeVisible({
+      await expect(page.locator(".settings-v main h2", { hasText: "模型设定" })).toBeVisible({
         timeout: 5000,
       });
       expect(aiCalled).toBe(0);
@@ -315,8 +315,8 @@ test("模型窗：点行只标亮（无 PUT）→ 键盘移动 → 点确认恰 
     });
 
     await page.getByRole("button", { name: /^设定/ }).click();
-    await page.locator(".settings-v .col-tree .s-item", { hasText: "AI 模型" }).click();
-    await expect(page.locator(".settings-v main h2", { hasText: "AI 模型" })).toBeVisible();
+    await page.locator(".settings-v .col-tree .s-item", { hasText: "模型设定" }).click();
+    await expect(page.locator(".settings-v main h2", { hasText: "模型设定" })).toBeVisible();
 
     // 分组卡片：两组 + 连接状态徽标
     await expect(page.locator(".model-group")).toHaveCount(2);

@@ -216,7 +216,7 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
       expect(colors.sink).not.toBe(colors.surface);
 
       // 模型窗：分组内模型行同行等高
-      await page.locator(".settings-v .col-tree .s-item", { hasText: "AI 模型" }).click();
+      await page.locator(".settings-v .col-tree .s-item", { hasText: "模型设定" }).click();
       await expect(page.locator(".model-group")).toHaveCount(1);
       const heights = await page.$$eval(".model-row", (els) =>
         els.map((e) => Math.round(e.getBoundingClientRect().height)),
@@ -353,7 +353,7 @@ test("设定页：工具项徽标 / 辅助信息邻接 / 脚注贴底", async ({
     await expect(page.locator(".settings-v .tree-head .t")).toContainText("+ 1 工具");
 
     // P1a 工具行不挂确认徽标（它从不参与确认，恒「已确认」是误导）
-    const toolBadge = page.locator(".settings-v .settings-nav-wrap .s-item", { hasText: "AI 模型" }).locator(".badge");
+    const toolBadge = page.locator(".settings-v .settings-nav-wrap .s-item", { hasText: "模型设定" }).locator(".badge");
     await expect(toolBadge).toContainText("不参与进度");
     await expect(toolBadge).not.toContainText("已确认");
 
@@ -382,7 +382,7 @@ test("设定页：工具项徽标 / 辅助信息邻接 / 脚注贴底", async ({
     expect(footGap).toBeLessThan(80);
 
     // P1b 模型窗面板头徽标＝真实就绪态（桩 ready → 可用，不再是恒「已确认」）
-    await page.locator(".settings-v .settings-nav-wrap .s-item", { hasText: "AI 模型" }).click();
+    await page.locator(".settings-v .settings-nav-wrap .s-item", { hasText: "模型设定" }).click();
     await expect(page.locator(".settings-v .panel-head .badge")).toContainText("可用");
     await expect(page.locator(".settings-v .panel-foot .note")).toContainText("不参与设定进度");
   } finally {

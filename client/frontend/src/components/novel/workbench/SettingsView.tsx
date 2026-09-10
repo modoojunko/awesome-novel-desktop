@@ -3,7 +3,8 @@
 //   + 8 导航项 done/empty 两态徽标 + 可后补 tag + tree-foot 口径注）
 //   + 右面板（panel-head/badge/desc/panelBody + panel-foot 确认完成）。
 // 七项计数与后端 READINESS_KEYS 同源（synopsis=简介 / hooks=伏笔）；
-// AI 模型为第 8 项工具项：恒 done、无确认按钮、不参与进度（ADJUSTMENTS #4）。
+// 模型设定为**第 00 项工具项**（用户 2026-09-10 指定排在最前）：恒 done、无确认按钮、
+// 不参与进度（ADJUSTMENTS #4）。
 // 产品扩展（ADJUSTMENTS #9）：已确认面板的按钮转「保存修改」——设计稿 done 态
 // 无落库入口，保留产品「改完随时存」能力；确认流程沿 gap3（先 save 再 confirm）。
 import {
@@ -41,15 +42,18 @@ import AiSink from "@/components/novel/settings/AiSink";
 import { introAi, aiBlockReason, type IntroAiAction } from "@/lib/ai";
 
 // ── 面板注册表（顺序/命名与原型 navItems 一致；settingsKey 对后端口径）──
+// 顺序＝用户 2026-09-10 拍板：00 模型设定（工具项，见下方树内单列）→ 01 简介 →
+// 02 题材 → 03 世界 → 04 角色 → 05 主线 → 06 文风 → 07 伏笔 → 08 禁用词句。
+// 这一序同时决定「确认即前进」的推进顺序（nextPanel 按本数组取下一项）。
 const SETTINGS_ITEMS = [
   { k: "intro", name: "简介", settingsKey: "synopsis", canDefer: false },
   { k: "genre", name: "题材", settingsKey: "genre", canDefer: false },
-  { k: "arc", name: "主线", settingsKey: "story-arc", canDefer: true },
   { k: "world", name: "世界", settingsKey: "world", canDefer: true },
-  { k: "style", name: "风格", settingsKey: "style", canDefer: false },
-  { k: "antiAI", name: "AI痕迹控制", settingsKey: "anti-ai", canDefer: true },
-  { k: "foreshadow", name: "伏笔", settingsKey: "hooks", canDefer: true },
   { k: "chars", name: "角色", settingsKey: "characters", canDefer: true },
+  { k: "arc", name: "主线", settingsKey: "story-arc", canDefer: true },
+  { k: "style", name: "文风", settingsKey: "style", canDefer: false },
+  { k: "foreshadow", name: "伏笔", settingsKey: "hooks", canDefer: true },
+  { k: "antiAI", name: "禁用词句", settingsKey: "anti-ai", canDefer: true },
 ] as const;
 
 const DESCS: Record<string, string> = {
@@ -57,8 +61,8 @@ const DESCS: Record<string, string> = {
   intro: "让读者（和 AI）知道这是一个怎样的故事。",
   arc: "这本书讲什么、结局想怎样、分几卷——定总方向盘，不拦写作。",
   world: "地理、政治与规则——故事发生的世界如何运转。",
-  style: "用谁的视角讲，用什么语气讲。",
-  antiAI: "控制生成正文的 AI 痕迹，让文字更像人写的。",
+  style: "用谁的视角讲，用什么语气讲（叙事身份 + 核心原则）。",
+  antiAI: "这些词句一出现就拦掉——AI 味最重的那批。",
   foreshadow: "先埋下的，后面要还。",
   chars: "核心角色是谁，他们想要什么。",
 };
@@ -321,7 +325,7 @@ export default function SettingsView({
     }
   }, [item, panel, confirmed, busy, confirmSetting, done, total, currentHandle]);
 
-  const panelTitle = isModel ? "AI 模型" : (item?.name ?? "");
+  const panelTitle = isModel ? "模型设定" : (item?.name ?? "");
   // 模型窗不是设定完成度项 → 徽标改为**真实就绪态**（与面板内「当前状态」同源，D13）
   const MODEL_BADGE: Record<string, { cls: string; label: string; ok: boolean }> = {
     ready: { cls: BADGE_DONE, label: "可用", ok: true },
@@ -372,6 +376,18 @@ export default function SettingsView({
           </button>
         )}
         <div className="settings-nav-wrap">
+          {/* 00 模型设定：工具项，排在最前（用户 2026-09-10 指定） */}
+          <div
+            className={`s-item${panel === "aiModel" ? " on" : ""}`}
+            onClick={() => handleSelect("aiModel")}
+            data-od-id="nav-model"
+          >
+            <span className="nm">模型设定</span>
+            <span className="defer-tag">工具</span>
+            <span className="spacer" />
+            {/* 工具项无「确认」语义（D15/O-18 已移除 ai-model 可确认）→ 不挂确认徽标 */}
+            <span className="badge empty">不参与进度</span>
+          </div>
           {SETTINGS_ITEMS.map((i) => {
             const done_ = !!settingsStatus?.[i.settingsKey];
             return (
@@ -390,16 +406,6 @@ export default function SettingsView({
               </div>
             );
           })}
-          <div
-            className={`s-item${panel === "aiModel" ? " on" : ""}`}
-            onClick={() => handleSelect("aiModel")}
-          >
-            <span className="nm">AI 模型</span>
-            <span className="defer-tag">工具</span>
-            <span className="spacer" />
-            {/* 工具项无「确认」语义（D15/O-18 已移除 ai-model 可确认）→ 不挂确认徽标 */}
-            <span className="badge empty">不参与进度</span>
-          </div>
         </div>
         <div className="tree-foot">
           <span style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.7 }}>

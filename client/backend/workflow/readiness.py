@@ -102,14 +102,16 @@ async def _check_story_arc(root_path: str, novel_id: str | None = None) -> bool:
 
 # 判定表（单一来源）：key -> (label, jump, checker)
 READINESS_CHECKERS: list[tuple[str, str, str, object]] = [
+    # 顺序与左栏菜单一致（用户 2026-09-10 拍板）：01 简介 → 02 题材 → 03 世界 →
+    # 04 角色 → 05 主线 → 06 文风 → 07 伏笔 → 08 禁用词句（工具项「模型设定」不计入）
     ("synopsis", "故事简介", "synopsis", _check_synopsis),
-    ("story-arc", "主线规划", "story-arc", _check_story_arc),
     ("genre", "题材类型", "genre", _check_genre),
     ("world", "世界设定", "world", _check_world),
-    ("style", "写作风格", "style", _check_style),
-    ("anti-ai", "AI痕迹控制", "anti-ai", _check_anti_ai),
-    ("hooks", "伏笔管理", "hooks", _check_hooks),
     ("characters", "角色管理", "characters", _check_characters),
+    ("story-arc", "主线规划", "story-arc", _check_story_arc),
+    ("style", "文风", "style", _check_style),
+    ("hooks", "伏笔管理", "hooks", _check_hooks),
+    ("anti-ai", "禁用词句", "anti-ai", _check_anti_ai),
 ]
 
 READINESS_KEYS = {key for key, _label, _jump, _check in READINESS_CHECKERS}

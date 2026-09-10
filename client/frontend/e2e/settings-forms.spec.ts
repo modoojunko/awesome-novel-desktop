@@ -209,15 +209,27 @@ function settingFieldTA(page: Page, label: string) {
  * 点 panel-foot「确认完成」：先 save（落库）后 confirm（gap3），确认后按钮转
  * 「保存修改」（ADJUSTMENTS #9）。
  */
+/**
+ * 点「确认完成」。**顺序无关**：确认即前进会切到 SETTINGS_ITEMS 的下一项，
+ * 故成功判据＝「留在本格（脚部转『保存修改』）」**或**「已推进到另一格」。
+ * （此前写死「必出现保存修改」，在末项或推进目标未确认时会假失败。）
+ */
 async function confirmPanel(page: Page) {
   const btn = page
     .locator(".panel-foot")
     .getByRole("button", { name: "确认完成" });
   await expect(btn).toBeVisible({ timeout: 5000 });
+  const title = page.locator(".settings-v main h2").first();
+  const before = (await title.count()) ? await title.innerText() : "";
   await btn.click();
-  await expect(
-    page.locator(".panel-foot").getByRole("button", { name: "保存修改" }),
-  ).toBeVisible({ timeout: 5000 });
+  await expect(async () => {
+    const now = (await title.count()) ? await title.innerText() : "";
+    const saveBtn = await page
+      .locator(".panel-foot")
+      .getByRole("button", { name: "保存修改" })
+      .count();
+    expect(now !== before || saveBtn > 0).toBe(true);
+  }).toPass({ timeout: 5000 });
 }
 
 /**
@@ -316,14 +328,14 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
     await page.locator('[data-od-id="cost-slider"]').fill("6");
     await expect(page.locator('[data-od-id="cost-sentence"]')).toContainText("6 分");
 
-    // 确认完成 → 先 save（PUT /settings/genre）再 confirm，并「确认即前进」切到下一项
+    // 确认完成 → 先 save（PUT /settings/genre）再 confirm，并「确认即前进」切到下一项（新顺序：题材→世界）
     const genreSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/genre"),
     );
     await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
     await genreSave;
     await expect(
-      page.locator(".settings-v main h2", { hasText: "主线" }),
+      page.locator(".settings-v main h2", { hasText: "世界" }),
     ).toBeVisible({ timeout: 5000 });
 
     // 后端直查：01 题材目录 + 五字段契约（无 genre_id）
@@ -354,7 +366,7 @@ test("风格：真实表单（叙事身份 Field + 核心原则折叠组）→ �
   try {
     const pid = await createNovel(page, `风格${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
-    await openSetting(page, "风格");
+    await openSetting(page, "文风");
 
     // 叙事身份折叠组（默认展开）：Field 文本（种子模板预填 role，fill 覆盖）
     await fillSettingField(page, "叙事身份", "冷静克制的第三人称叙事，短句为主");
@@ -367,14 +379,15 @@ test("风格：真实表单（叙事身份 Field + 核心原则折叠组）→ �
       .first()
       .fill("动词驱动叙事，动作外化情绪");
 
-    // 新书未确认（§5.1 已填≠已确认）→ 点「确认完成」：先 save 再 confirm，并前进
+    // 新书未确认（§5.1 已填≠已确认）→ 点「确认完成」：先 save 再 confirm，
+    // 并「确认即前进」到下一项（新顺序：文风→伏笔）
     const styleSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/style"),
     );
     await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
     await styleSave;
     await expect(
-      page.locator(".settings-v main h2", { hasText: "AI痕迹控制" }),
+      page.locator(".settings-v main h2", { hasText: "伏笔" }),
     ).toBeVisible({ timeout: 5000 });
 
     // 后端直查（merge-on-save 后 role / core_principles 落盘）
@@ -402,7 +415,7 @@ test("AI痕迹：真实表单（疲劳词分类列表）→ 确认完成自动�
   try {
     const pid = await createNovel(page, `痕迹${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
-    await openSetting(page, "AI痕迹控制");
+    await openSetting(page, "禁用词句");
 
     // 疲劳词折叠组（默认展开）：第一分类（总结叙事）ListEditor 填词
     // （种子模板已带默认疲劳词，fill 追加到既有分类）
@@ -411,14 +424,14 @@ test("AI痕迹：真实表单（疲劳词分类列表）→ 确认完成自动�
       .first()
       .fill("似乎");
 
-    // 新书未确认 → 点「确认完成」（save + confirm + 前进到「伏笔」）
+    // 新书未确认 → 点「确认完成」（save + confirm；禁用词句是末项 → 不前进）
     const antiSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/anti-ai"),
     );
     await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
     await antiSave;
     await expect(
-      page.locator(".settings-v main h2", { hasText: "伏笔" }),
+      page.locator(".settings-v main h2", { hasText: "禁用词句" }),
     ).toBeVisible({ timeout: 5000 });
 
     // 后端直查：summary_narrative 分类含「似乎」
@@ -644,16 +657,16 @@ test("P2-1 面板切换守卫：脏表单切换需确认，取消保留输入", 
       dialogShown = true;
       void d.dismiss();
     });
-    await openSetting(page, "风格");
+    await openSetting(page, "文风");
     expect(dialogShown).toBe(true);
     await expect(scene).toBeVisible();
     await expect(scene).toHaveValue("边境城邦：临海要塞，北接荒漠");
 
     // 确认分支：接受确认框 → 面板切换
     page.once("dialog", (d) => void d.accept());
-    await openSetting(page, "风格");
+    await openSetting(page, "世界");
     await expect(
-      page.locator(".settings-v main h2", { hasText: "风格" }),
+      page.locator(".settings-v main h2", { hasText: "世界" }),
     ).toBeVisible({ timeout: 5000 });
 
     // 后端未写入任何世界设定（脏输入未保存）
@@ -769,14 +782,14 @@ test("P2-1d 脏表单确认完成：自动保存再确认（内容落库 + 按�
     await page.locator("summary", { hasText: "政治" }).click();
     await fillSettingField(page, "统治形式", "城主议会制，元老席位世袭");
 
-    // 确认完成 → 应先自动保存（PUT /settings/world）再确认，并「确认即前进」到风格
+    // 确认完成 → 应先自动保存（PUT /settings/world）再确认，并「确认即前进」到下一项（新顺序：世界→角色）
     const autoSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/world"),
     );
     await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
     await autoSave;
     await expect(
-      page.locator(".settings-v main h2", { hasText: "风格" }),
+      page.locator(".settings-v main h2", { hasText: "角色" }),
     ).toBeVisible({ timeout: 5000 });
 
     // 后端直查：内容已落库（自动保存生效）
