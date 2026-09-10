@@ -16,3 +16,10 @@ export { EmptyState } from "./EmptyState";
 
 export { confirmAction, ConfirmHost } from "./Confirm";
 export type { ConfirmOptions } from "./Confirm";
+
+// ── 2026-09-10 genre-signup-redesign 沉淀（现网在 settings/ 下，首个第二使用者出现时搬运）──
+export { ChangeReceiptBar, RestoreHint, useChangeReceipt } from "./ChangeReceipt";
+export type { ChangeReceiptState } from "./ChangeReceipt";
+
+export { Cascader } from "./Cascader";
+export type { CascaderGroup, CascaderItem, CascaderValue } from "./Cascader";

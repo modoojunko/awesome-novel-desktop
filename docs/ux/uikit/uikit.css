@@ -166,3 +166,52 @@
   justify-content: center;
   margin-top: 16px;
 }
+
+/* ── 5. 改动回执族（2026-09-10 genre-signup-redesign 沉淀）──────────────────
+   现网定义在 book.css，作用域 `.settings-v`/`.wb .panel-foot`；搬运＝并入 base.css
+   共享段并删作用域版。**两条布局纪律是事故换来的，禁改**：
+   ① 脚部 `flex-wrap: nowrap` + `.rt`/`.note` 单行截断——折出的第二行会落到窗口底部
+     固定状态条之下，主按钮被盖住点不到；② `.rt` 必须 `display:block` 才吃
+   `overflow:hidden`（inline span 写 ellipsis 无效）。宿主容器若是栅格 `1fr` 轨道
+   须 `min-width: 0`，否则长回执撑宽中栏、挤出右栏，且点击在 mousedown/mouseup
+   之间因重排丢失（React onClick 不触发）。 */
+.receipt { display: inline-flex; align-items: center; gap: 10px; flex: 0 1 auto; min-width: 0; background: var(--warn-soft); border: 1px solid color-mix(in oklch, var(--warn) 22%, var(--border)); border-radius: 9px; padding: 6px 10px; font-size: 12.5px; line-height: 1.5; color: var(--fg); }
+.receipt .rt { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.receipt .undo { flex: none; border: 0; background: transparent; color: var(--warn); font: inherit; font-size: 12.5px; text-decoration: underline; cursor: pointer; padding: 0; }
+.field-restore { font-size: 11.5px; color: var(--muted); margin: 6px 0 0; }
+.field-restore .undo { border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 11.5px; text-decoration: underline; cursor: pointer; padding: 0; }
+
+/* ── 6. 就地展开两级级联选择器（TDesign Cascader 形态，2026-09-10 沉淀）──────
+   与 book.css `.settings-v .sel-*` 同名同值（去作用域）。**就地展开而非浮层**：
+   面板列自身 overflow-y:auto，浮层会被裁切并随滚动漂移。核心裁决「浏览≠选中」：
+   点左列只换右列内容不改选中值，选中走右列显式动作。 */
+.sel { position: relative; }
+.sel-field { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); font: inherit; font-size: 13px; color: var(--fg); text-align: left; cursor: pointer; }
+.sel-field:hover { border-color: var(--muted); }
+.sel-field.on, .sel-field:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent-soft); }
+.sel-field .v { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-field .ph { flex: 1 1 auto; color: var(--muted); }
+/* 图标必须显式定尺寸：Ico 不传 size 时 <svg> 无内在宽高，会撑爆控件 */
+.sel-field svg { flex: none; width: 14px; height: 14px; color: var(--muted); transition: transform 0.15s ease; }
+.sel-field svg.open { transform: rotate(180deg); }
+.sel-clear { flex: none; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); font-size: 15px; line-height: 1; }
+.sel-clear:hover { background: var(--fg-soft); color: var(--fg); }
+.sel-panel { margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.sel-search { width: 100%; padding: 9px 12px; border: 0; border-bottom: 1px solid var(--border); background: transparent; font: inherit; font-size: 13px; color: var(--fg); }
+.sel-search:focus { outline: none; border-bottom-color: var(--accent); }
+.sel-cols { display: grid; grid-template-columns: minmax(140px, 190px) 1fr; }
+.sel-col, .sel-list { margin: 0; padding: 6px; list-style: none; max-height: 288px; overflow-y: auto; }
+.sel-col.themes { border-right: 1px solid var(--border); background: var(--bg); }
+.sel-item { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px; background: transparent; font: inherit; font-size: 13px; color: var(--fg); text-align: left; cursor: pointer; }
+.sel-item:hover, .sel-item.cur { background: var(--fg-soft); }
+.sel-item.on { background: var(--accent-soft); color: var(--accent); }
+.sel-item .si-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-item .si-desc { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.sel-item em { font-style: normal; color: var(--muted); }
+.sel-item.only { border-bottom: 1px dashed var(--border); border-radius: 7px 7px 0 0; margin-bottom: 4px; }
+.sel-empty { padding: 10px 12px; font-size: 12.5px; color: var(--muted); }
+/* 选中即解读：选了子类说子类，只选大类说大类，都没选不占位 */
+.cap-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 9px; background: var(--bg); font-size: 12.5px; line-height: 1.6; color: var(--fg); }
+.cap-note b { color: var(--accent); font-weight: 500; }
+.cap-note .eg { color: var(--muted); }
+.cap-note .eg::before { content: " · "; }
