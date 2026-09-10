@@ -128,3 +128,98 @@ describe("AiWriterAssistant · 在途禁用（tasks 9.4.14）", () => {
     await waitFor(() => expect(row.disabled).toBe(false));
   });
 });
+
+describe("AiWriterAssistant · 连点互斥与运行提示（用户实测 6 连点 = 6 请求）", () => {
+  it("同步连点 6 次只发 1 个请求（ref 锁，不依赖重渲染）", async () => {
+    let resolve!: () => void;
+    const pending = new Promise<void>((r) => {
+      resolve = r;
+    });
+    const onClick = vi.fn(() => pending);
+    const { container } = render(
+      <AiWriterAssistant
+        rows={[{ key: "check", name: "体检", desc: "六段逐项", onClick }]}
+        footNote="x"
+        aiState="ready"
+      />,
+    );
+    const row = container.querySelector('[data-aiact="check"]') as HTMLButtonElement;
+
+    // 同一 tick 内连点（不 await、不等待重渲染）——旧 state 实现会全部穿过
+    for (let i = 0; i < 6; i++) fireEvent.click(row);
+    expect(onClick).toHaveBeenCalledTimes(1);
+    resolve();
+    await waitFor(() => expect(onClick).toHaveBeenCalledTimes(1));
+  });
+
+  it("运行中：该行显示「生成中…」+ aria-busy，其余行也禁用", async () => {
+    let resolve!: () => void;
+    const pending = new Promise<void>((r) => {
+      resolve = r;
+    });
+    const { container } = render(
+      <AiWriterAssistant
+        rows={[
+          { key: "check", name: "体检", desc: "六段逐项", onClick: () => pending },
+          { key: "fill", name: "补缺失", desc: "只补缺的段", onClick: vi.fn() },
+        ]}
+        footNote="x"
+        aiState="ready"
+      />,
+    );
+
+    fireEvent.click(container.querySelector('[data-aiact="check"]')!);
+    await waitFor(() =>
+      expect(container.querySelector('[data-aiact="check"]')?.className).toContain("ra-running"),
+    );
+    expect(screen.getByText("生成中…")).toBeTruthy();
+    expect(
+      container.querySelector('[data-aiact="check"]')?.getAttribute("aria-busy"),
+    ).toBe("true");
+    // 其余行一并禁用（在途互斥）
+    expect((container.querySelector('[data-aiact="fill"]') as HTMLButtonElement).disabled).toBe(true);
+
+    resolve();
+    await waitFor(() =>
+      expect(container.querySelector('[data-aiact="check"]')?.className).not.toContain("ra-running"),
+    );
+  });
+});
+
+describe("AiWriterAssistant · 运行态受控（父组件下发 runningKey）", () => {
+  it("runningKey 命中的行显示「生成中…」+ 高亮 + 禁用，其余行也禁用", () => {
+    const { container } = render(
+      <AiWriterAssistant
+        rows={[
+          { key: "check", name: "体检", desc: "六段逐项", onClick: vi.fn() },
+          { key: "polish", name: "润色", desc: "保原意", onClick: vi.fn() },
+        ]}
+        footNote="x"
+        aiState="ready"
+        runningKey="check"
+      />,
+    );
+    const row = container.querySelector('[data-aiact="check"]') as HTMLButtonElement;
+    expect(row.className).toContain("ra-running");
+    expect(row.disabled).toBe(true);
+    expect(row.getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByText("生成中…")).toBeTruthy();
+    expect((container.querySelector('[data-aiact="polish"]') as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it("runningKey=null：无运行态，行恢复可点", () => {
+    const { container } = render(
+      <AiWriterAssistant
+        rows={[{ key: "check", name: "体检", desc: "六段逐项", onClick: vi.fn() }]}
+        footNote="x"
+        aiState="ready"
+        runningKey={null}
+      />,
+    );
+    const row = container.querySelector('[data-aiact="check"]') as HTMLButtonElement;
+    expect(row.className).not.toContain("ra-running");
+    expect(row.disabled).toBe(false);
+  });
+});

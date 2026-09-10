@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useFeature } from "@/hooks/useTier";
 import { toast } from "@/lib/toast";
 import type { AiState } from "@/types/api-config";
@@ -38,6 +38,11 @@ export interface AiWriterAssistantProps {
   aiState?: AiState;
   /** 被前置拦下时的跳转（如去模型配置 / 去选模型）；不传则只弹提示。 */
   onBlocked?: (reason: AiState) => void;
+  /**
+   * 运行中的能力 key（受控）。父组件可下发以驱动「生成中…」视觉；
+   * 不传时组件内部自管（两者都只在 UI 层，真正的在途互斥由调用方面板保证）。
+   */
+  runningKey?: string | null;
   "data-od-id"?: string;
 }
 
@@ -54,27 +59,33 @@ export default function AiWriterAssistant({
   title = "AI 写作助手",
   aiState,
   onBlocked,
+  runningKey: runningKeyProp,
   "data-od-id": odId = "ai-assist",
 }: AiWriterAssistantProps) {
   const unlocked = useFeature("settings-ai-fields");
   // aiState 提供时以它为准（同一事实源）；未提供才退回 tier 门控
   const state: AiState = aiState ?? (unlocked ? "ready" : "member_required");
   const locked = state === "member_required";
-  // 在途禁用（tasks 9.4.14）：同一行重复点击不并发发请求
-  const [busy, setBusy] = useState(false);
+  // 在途互斥用 **ref**（同步判定）而不是 state：state 要等重渲染才生效，
+  // 连点会在同一 tick 内全部穿过（实测 6 连点 = 6 请求）。ref 让并发窗口归零。
+  const busyRef = useRef(false);
+  const [runningKeyInternal, setRunningKeyInternal] = useState<string | null>(null);
+  const runningKey = runningKeyProp !== undefined ? runningKeyProp : runningKeyInternal;
 
-  const guard = (fn: () => void | Promise<void>) => async () => {
-    if (busy) return;
+  const guard = (key: string, fn: () => void | Promise<void>) => async () => {
+    if (busyRef.current) return;
     if (state !== "ready") {
       if (onBlocked) onBlocked(state);
       else toast.info(BLOCK_TEXT[state] ?? "AI 暂不可用");
       return;
     }
-    setBusy(true);
+    busyRef.current = true;
+    setRunningKeyInternal(key);
     try {
       await fn();
     } finally {
-      setBusy(false);
+      busyRef.current = false;
+      setRunningKeyInternal(null);
     }
   };
 
@@ -93,27 +104,31 @@ export default function AiWriterAssistant({
           </span>
         </div>
       </div>
-      {rows.map((r) => (
-        <button
-          key={r.key}
-          className={`ra-step${r.disabled ? " ra-off" : ""}`}
-          type="button"
-          data-aiact={r.key}
-          disabled={r.disabled || busy}
-          onClick={() => void guard(r.onClick)()}
-        >
-          <span className="ra-body">
-            <b>
-              {r.name}
-              {r.disabled && r.hint && <span className="ra-hint">{r.hint}</span>}
-            </b>
-            <i>{r.desc}</i>
-          </span>
-          <span className="ra-arrow" aria-hidden="true">
-            ›
-          </span>
-        </button>
-      ))}
+      {rows.map((r) => {
+        const running = runningKey === r.key;
+        return (
+          <button
+            key={r.key}
+            className={`ra-step${r.disabled ? " ra-off" : ""}${running ? " ra-running" : ""}`}
+            type="button"
+            data-aiact={r.key}
+            aria-busy={running || undefined}
+            disabled={r.disabled || runningKey !== null}
+            onClick={() => void guard(r.key, r.onClick)()}
+          >
+            <span className="ra-body">
+              <b>
+                {r.name}
+                {r.disabled && r.hint && <span className="ra-hint">{r.hint}</span>}
+              </b>
+              <i>{running ? "生成中…" : r.desc}</i>
+            </span>
+            <span className="ra-arrow" aria-hidden="true">
+              {running ? "" : "›"}
+            </span>
+          </button>
+        );
+      })}
       <p className="ra-foot">{footNote}</p>
     </div>
   );

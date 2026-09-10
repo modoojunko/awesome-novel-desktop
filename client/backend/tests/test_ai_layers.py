@@ -802,3 +802,27 @@ class TestStorageBusyHandler:
         exc = OperationalError("SELECT 1", {}, Exception("no such table: x"))
         with pytest.raises(OperationalError):
             asyncio.run(_storage_busy_handler(None, exc))
+
+
+# ── 本地 config.json 读写健壮性（外部写入撞读 → 不 500）─────────────────────
+
+
+class TestLocalConfigRobustness:
+    def test_partial_json_degrades_to_empty(self, tmp_path, monkeypatch):
+        import auth_local.service as svc
+
+        cfg = tmp_path / "config.json"
+        cfg.write_text('{"token": "abc", "username": "x"', encoding="utf-8")  # 半截
+        monkeypatch.setattr(svc, "CONFIG_FILE", str(cfg))
+        assert svc.get_local_config() == {}
+
+    def test_save_is_atomic(self, tmp_path, monkeypatch):
+        """写盘后不应残留 .tmp；中途崩溃也不会让读方看到半截。"""
+        import auth_local.service as svc
+
+        cfg = tmp_path / "config.json"
+        monkeypatch.setattr(svc, "CONFIG_FILE", str(cfg))
+        monkeypatch.setattr(svc, "CONFIG_DIR", str(tmp_path))
+        svc.save_local_config({"token": "t", "tier": "pro"})
+        assert cfg.exists() and not (tmp_path / "config.json.tmp").exists()
+        assert svc.get_local_config()["token"] == "t"

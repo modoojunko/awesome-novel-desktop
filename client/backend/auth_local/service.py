@@ -132,20 +132,28 @@ DEFAULT_PORTAL_URL = "https://novel-s-web-ai-novel-test-d1ghsr86ra814c12c.webapp
 
 
 def get_local_config() -> dict:
+    """读本地会话配置。
+
+    **容错读**：外部程序（备份工具/用户手改/e2e 注入）可能在写入途中，
+    半截 JSON 不该让整个应用 500——按「暂无配置」降级，下次读就好。
+    """
     try:
         if os.path.exists(CONFIG_FILE):
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-    except OSError:
-        pass
+    except (OSError, ValueError):
+        logger.warning("event=config.read_failed path=%s", CONFIG_FILE)
     return {}
 
 
 def save_local_config(config: dict):
+    """**原子写**：先写临时文件再 `os.replace`——读方永不看到半截 JSON。"""
     Path(CONFIG_DIR).mkdir(parents=True, exist_ok=True)
-    Path(CONFIG_FILE).write_text(
+    tmp = f"{CONFIG_FILE}.tmp"
+    Path(tmp).write_text(
         json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+    os.replace(tmp, CONFIG_FILE)
 
 
 def load_or_create_config() -> dict:

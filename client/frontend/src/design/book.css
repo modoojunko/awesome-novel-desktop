@@ -553,3 +553,8 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 
 /* 空模型配置的候选起点（端点不提供 /models 时点一下即添加） */
 .settings-v .model-group .mg-cands { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* AI 行运行中：显式「生成中…」+ 视觉强调（否则用户以为没反应会连点） */
+.settings-v .rail-assist .ra-step.ra-running { border-color: var(--accent); background: var(--accent-soft); }
+.settings-v .rail-assist .ra-step.ra-running .ra-body i { color: var(--accent); }
+.settings-v .rail-assist .ra-step.ra-running .ra-arrow { color: var(--accent); }

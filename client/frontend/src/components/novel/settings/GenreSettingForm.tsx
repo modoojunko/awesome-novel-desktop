@@ -282,9 +282,13 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     Partial<Record<GenreAiField, { label: string; node: React.ReactNode; adopt: () => void }>>
   >({});
   const [running, setRunning] = useState<GenreAiField | null>(null);
+  /** 面板级在途锁（ref 同步判定）：同时在飞的只有一个题材 AI 请求。 */
+  const aiBusyRef = useRef(false);
 
   const runAi = useCallback(
     async (field: GenreAiField) => {
+      if (aiBusyRef.current) return; // 已有在途请求：忽略重复触发
+      aiBusyRef.current = true;
       setRunning(field);
       setSinks((prev) => ({ ...prev, [field]: undefined }));
       const context: Record<string, unknown> = {
@@ -358,7 +362,10 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             toast.error((e as Error).message || "AI 暂不可用，请重试");
           }
         })
-        .finally(() => setRunning(null));
+        .finally(() => {
+          aiBusyRef.current = false;
+          setRunning(null);
+        });
     },
     [data, novelName, projectId, patch],
   );

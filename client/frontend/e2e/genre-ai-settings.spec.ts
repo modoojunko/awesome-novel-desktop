@@ -345,3 +345,43 @@ test("模型窗：点行只标亮（无 PUT）→ 键盘移动 → 点确认恰 
     restore();
   }
 });
+
+// ── 连点防抖 + 运行中可见（用户实测：连点 6 次 = 6 个请求且无任何提示）──────
+test("AI 行连点：只发 1 个请求，且有「生成中」可见反馈（9.4.14）", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `连点${Date.now() % 100000}`);
+    await stubAiState(page, pid, "ready");
+    let hits = 0;
+    await page.route(`**/api/novels/${pid}/settings/ai/intro/introspect`, async (r) => {
+      hits += 1;
+      await new Promise((res) => setTimeout(res, 2000));
+      return r.fulfill({ json: { six_segments: [], taboo: { hits: [] }, verdict: "ok" } });
+    });
+
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await page.getByPlaceholder(/用几句话/).fill("外门杂徒林拾，在宗门扫了十年落叶。");
+    const row = page.locator('[data-aiact="check"]');
+    await expect(row).toBeVisible({ timeout: 10000 });
+
+    await row.click();
+    // 立刻可见的运行反馈：行高亮 + 「生成中…」+ 输入框下方占位
+    await expect(row).toHaveClass(/ra-running/, { timeout: 2000 });
+    await expect(row).toBeDisabled();
+    await expect(page.locator('[data-od-id="intro-ai-running"]')).toBeVisible();
+
+    // 连点 5 次（含同一 tick 的同步派发）——不得再发请求
+    for (let i = 0; i < 5; i++) await row.click({ force: true, timeout: 1000 }).catch(() => {});
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-aiact="check"]') as HTMLElement;
+      for (let i = 0; i < 5; i++) el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(hits).toBe(1);
+
+    // 完成后回到常态，结果落简介框下方
+    await expect(page.locator('[data-od-id="intro-ai-sink"]')).toBeVisible({ timeout: 10000 });
+    expect(hits).toBe(1);
+  } finally {
+    restore();
+  }
+});

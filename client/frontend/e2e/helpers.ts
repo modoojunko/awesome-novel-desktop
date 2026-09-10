@@ -1,3 +1,5 @@
+import fs from "fs";
+
 import type { Page } from "@playwright/test";
 
 export const BASE_URL = "http://localhost:8000";
@@ -44,4 +46,16 @@ export function stubUpdateNotice(
       },
     });
   });
+}
+
+/** 原子写本地会话 config.json（e2e 注入用）。
+ *
+ * 直接 writeFileSync 会让宿主与容器内的读方撞车：半截 JSON → 后端 500
+ * （`json.decoder.JSONDecodeError`），共享挂载下还可能触发 `disk I/O error`。
+ * 先写临时文件再 rename，读方永远只看到完整内容。
+ */
+export function writeConfigAtomic(configPath: string, content: string) {
+  const tmp = `${configPath}.tmp`;
+  fs.writeFileSync(tmp, content);
+  fs.renameSync(tmp, configPath);
 }

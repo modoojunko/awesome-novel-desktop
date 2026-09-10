@@ -28,7 +28,10 @@ import ModelSettingForm from "@/components/novel/settings/ModelSettingForm";
 import StoryArcForm from "@/components/novel/settings/StoryArcForm";
 import ArcWizard from "@/components/novel/settings/ArcWizard";
 import { useStoryArc } from "@/components/novel/settings/useStoryArc";
-import GenreSettingForm, { type GenreHandle } from "@/components/novel/settings/GenreSettingForm";
+import GenreSettingForm, {
+  type GenreHandle,
+  type GenreAiField,
+} from "@/components/novel/settings/GenreSettingForm";
 import { INTRO_SEGMENTS, INTRO_FORMULA, DONT_DO, INTRO_MAX_LEN, TABOO_RULES } from "@/lib/introTemplate";
 import { GENRE_DEFINITION } from "@/lib/genreVocab";
 import { useModelStatus } from "@/hooks/useModelStatus";
@@ -107,6 +110,31 @@ export default function SettingsView({
   const introRef = useRef<IntroHandle>(null);
   // D13：AI 行的门控只读后端 ai_state 一次分派（不再 useFeature + 本地推导两处判）
   const { aiState, refresh: refreshAiState } = useModelStatus(projectId);
+  /** AI 行运行态（受控下发给卡片）：点即置位、promise 落地即清，用户看得见后台在跑。 */
+  const [aiRunningKey, setAiRunningKey] = useState<string | null>(null);
+  const aiRowBusyRef = useRef(false);
+  const runIntroAi = useCallback(async (key: string, action: IntroAiAction) => {
+    if (aiRowBusyRef.current) return;
+    aiRowBusyRef.current = true;
+    setAiRunningKey(key);
+    try {
+      await introRef.current?.runAi(action);
+    } finally {
+      aiRowBusyRef.current = false;
+      setAiRunningKey(null);
+    }
+  }, []);
+  const runGenreAi = useCallback(async (key: string, field: GenreAiField) => {
+    if (aiRowBusyRef.current) return;
+    aiRowBusyRef.current = true;
+    setAiRunningKey(key);
+    try {
+      await genreRef.current?.runAi(field);
+    } finally {
+      aiRowBusyRef.current = false;
+      setAiRunningKey(null);
+    }
+  }, []);
   const handleAiBlocked = useCallback((reason: AiState) => {
     if (reason === "no_key") {
       window.location.hash = "/config";
@@ -128,8 +156,8 @@ export default function SettingsView({
         name: "体检",
         desc: "六段逐项查达标 / 缺失 + 扫禁忌，只提醒不拦确认",
         onClick: () => {
-          introRef.current?.runAi("introspect");
           setIntrospected(true);
+          return runIntroAi("check", "introspect");
         },
       },
       {
@@ -138,16 +166,16 @@ export default function SettingsView({
         desc: "只补缺的段，候选采纳才插入",
         disabled: !introspected,
         hint: introspected ? undefined : "先体检",
-        onClick: () => introRef.current?.runAi("fill"),
+        onClick: () => runIntroAi("fill", "fill"),
       },
       {
         key: "polish",
         name: "润色",
         desc: "保你原意压 AI 味，前后对照采纳才替换",
-        onClick: () => introRef.current?.runAi("polish"),
+        onClick: () => runIntroAi("polish", "polish"),
       },
     ],
-    [introspected],
+    [introspected, runIntroAi],
   );
 
   // 题材右栏五行（02-06 各答各题；01 口味胶囊不走 AI）
@@ -157,34 +185,34 @@ export default function SettingsView({
         key: "m1",
         name: "主要看什么",
         desc: "本格问题：读者翻开这本书，主要看什么？输入：书名 + 简介（第一步已填）",
-        onClick: () => genreRef.current?.runAi("core_promise"),
+        onClick: () => runGenreAi("m1", "core_promise"),
       },
       {
         key: "m2",
         name: "绝对禁止",
         desc: "本格问题：这本书绝不出现什么？输入：02 的承诺 + 简介（第一步）",
-        onClick: () => genreRef.current?.runAi("forbidden_list"),
+        onClick: () => runGenreAi("m2", "forbidden_list"),
       },
       {
         key: "m3",
         name: "吃苦指数",
         desc: "本格问题：主角得到好处，要付多大代价？输入：02 的承诺 + 03 的禁项",
-        onClick: () => genreRef.current?.runAi("cost_ratio"),
+        onClick: () => runGenreAi("m3", "cost_ratio"),
       },
       {
         key: "m4",
         name: "主线战场",
         desc: "本格问题：整本书主要斗什么？输入：02 的承诺 + 简介（第一步）",
-        onClick: () => genreRef.current?.runAi("battlefield"),
+        onClick: () => runGenreAi("m4", "battlefield"),
       },
       {
         key: "m5",
         name: "剧情轨道",
         desc: "本格问题：整本书怎么走？输入：02-05 已填的全部内容",
-        onClick: () => genreRef.current?.runAi("track"),
+        onClick: () => runGenreAi("m5", "track"),
       },
     ],
-    [],
+    [runGenreAi],
   );
 
   useEffect(() => {
@@ -509,6 +537,7 @@ export default function SettingsView({
             footNote="输入：书名 + 简介本文（题材可后补）。结果统一落在简介框下方结果区，采纳才写回。"
             aiState={aiState}
             onBlocked={handleAiBlocked}
+            runningKey={aiRunningKey}
           />
         ) : panel === "genre" ? (
           <AiWriterAssistant
@@ -516,6 +545,7 @@ export default function SettingsView({
             footNote="点某行，AI 建议落到左侧对应格下方；采纳才写回，随时可改可重试。"
             aiState={aiState}
             onBlocked={handleAiBlocked}
+            runningKey={aiRunningKey}
             data-od-id="ai-assist-genre"
           />
         ) : panel === "arc" ? (
@@ -549,6 +579,13 @@ export interface IntroHandle extends SettingSaveHandle {
   /** 是否已体检（补缺失的前置守卫，D14/O-3）。 */
   hasIntrospected: () => boolean;
 }
+
+/** 运行中各能力的操作名（与结果区标题同口径）。 */
+const AI_RUNNING_LABEL: Record<IntroAiAction, string> = {
+  introspect: "AI 体检 · 生成中…",
+  fill: "补全缺失 · 生成中…",
+  polish: "润色 · 生成中…",
+};
 
 const IntroPanel = forwardRef<
   IntroHandle,
@@ -604,9 +641,14 @@ const IntroPanel = forwardRef<
       | { action: IntroAiAction; label: string; node: React.ReactNode; adopt?: () => void }
       | null
     >(null);
+    /** 运行态（D14）：点完立刻在输入框下方给「生成中」占位，避免用户以为没反应。 */
+    const [aiRunning, setAiRunning] = useState<IntroAiAction | null>(null);
+    /** 面板级在途锁（ref 同步判定）：无论调用方点几次，同时在飞的只有一个请求。 */
+    const aiBusyRef = useRef(false);
 
     const runAi = useCallback(
       async (action: IntroAiAction) => {
+        if (aiBusyRef.current) return; // 已有在途请求：忽略重复触发
         const content = synopsis;
         if (action === "introspect" && !content.trim()) {
           toast.info("先写两句简介，体检才有东西可查");
@@ -616,7 +658,9 @@ const IntroPanel = forwardRef<
           toast.info("先点「体检」，AI 才知道缺哪段");
           return;
         }
+        aiBusyRef.current = true;
         setSink(null);
+        setAiRunning(action);
         await introAi(action, { title: novelName ?? "", content }, projectId)
           .then((r) => {
             if (action === "introspect") {
@@ -723,6 +767,10 @@ const IntroPanel = forwardRef<
             } else {
               toast.error((e as Error).message || "暂不可用，请重试");
             }
+          })
+          .finally(() => {
+            aiBusyRef.current = false;
+            setAiRunning(null);
           });
       },
       [synopsis, novelName, projectId],
@@ -799,6 +847,16 @@ const IntroPanel = forwardRef<
             </div>
           )}
         </div>
+
+        {/* 运行态占位：点完立刻可见（否则用户不知道后台在跑，会连点） */}
+        {aiRunning && !sink && (
+          <div className="ai-sink" data-od-id="intro-ai-running" aria-busy="true">
+            <div className="aiz-head">{AI_RUNNING_LABEL[aiRunning]}</div>
+            <span className="opt" style={{ fontSize: 12 }}>
+              AI 正在生成，请稍候…（完成后结果会出现在这里）
+            </span>
+          </div>
+        )}
 
         {/* AI 结果区：落编辑框下方（tasks 3.3/3.4，采纳后保留、重新请求覆盖） */}
         {sink && (
