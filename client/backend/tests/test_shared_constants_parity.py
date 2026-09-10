@@ -90,8 +90,9 @@ class TestThemeCatalogParity:
         block = re.search(r"THEMES:\s*ThemeEntry\[\]\s*=\s*\[(.*?)\n\];", src, re.DOTALL)
         assert block, "找不到 THEMES"
         body = block.group(1)
-        # 大类：t("名", "解读", [ … ]) —— 以其为切分点，段内即该大类的子类
-        heads = list(re.finditer(r't\("([^"]+)",\s*"([^"]+)",\s*\[', body))
+        # 大类：t("名", "解读", [ … ]) —— 以其为切分点，段内即该大类的子类。
+        # 允许 t( 后换行缩进（长解读会折行写），故 t\( 与引号之间用 \s*
+        heads = list(re.finditer(r't\(\s*"([^"]+)",\s*"([^"]+)",\s*\[', body))
         assert heads, "找不到 t(...) 大类项"
         out = []
         for i, m in enumerate(heads):
