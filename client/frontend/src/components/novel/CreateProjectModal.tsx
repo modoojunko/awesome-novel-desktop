@@ -107,7 +107,7 @@ export default function CreateProjectModal({
             取消
           </button>
           <button className="btn btn-primary" onClick={() => void handleCreate()} disabled={!canCreate}>
-            {submitting ? "创建中…" : "创建并开始写作"}
+            {submitting ? "创建中…" : "创建，去写简介"}
           </button>
         </>
       }

@@ -121,7 +121,7 @@ async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
   await page.getByRole("button", { name: "新建作品" }).first().click();
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建并开始写作" }).click();
+  await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const m = page.url().match(/\/novel\/([0-9a-fA-F-]+)/);
   if (!m) throw new Error(`无法解析 novel id: ${page.url()}`);
@@ -202,7 +202,7 @@ test("创建小说：仅书名即可创建并进入小说页", async ({ page }) 
 
     await page.getByRole("button", { name: "新建作品" }).first().click();
     // AC-1.4：空书名创建按钮不可用
-    await expect(page.getByRole("button", { name: "创建并开始写作" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "创建，去写简介" })).toBeDisabled();
 
     // 规格 creation-flow：The modal SHALL have no … no synopsis/genre collection
     // 回归背景：此处曾有一个「类型（选填）」下拉，与既有规格相悖（2026-09-10 修）
@@ -217,7 +217,7 @@ test("创建小说：仅书名即可创建并进入小说页", async ({ page }) 
 
     const bookName = `穿越测试${Date.now() % 10000}`;
     await page.locator("input#bkTitle").fill(bookName);
-    await page.getByRole("button", { name: "创建并开始写作" }).click();
+    await page.getByRole("button", { name: "创建，去写简介" }).click();
 
     // AC-1.6：创建成功直接进入小说页
     await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/, { timeout: 10000 });

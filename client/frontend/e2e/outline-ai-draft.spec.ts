@@ -113,7 +113,7 @@ async function setupFirstChapter(page: Page, name: string) {
   await page.goto(`${ORIGIN}/#/novels`);
   await page.getByRole("button", { name: "新建作品" }).first().click();
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建并开始写作" }).click();
+  await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   await page.getByTitle("添加卷").click();
   await page.getByLabel("卷名", { exact: true }).fill("第一卷");
