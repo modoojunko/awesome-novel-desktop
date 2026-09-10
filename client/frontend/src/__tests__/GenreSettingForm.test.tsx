@@ -175,6 +175,36 @@ describe("GenreSettingForm · 六格", () => {
     expect(container.querySelector('[data-od-id="sub-genre-row"]')).toBeNull();
   });
 
+  it("01 每项都有解读与案例：选中即显示（光有标签作者不知道指什么）", async () => {
+    const { container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+
+    // 未选 → 不占位
+    expect(container.querySelector('[data-od-id="theme-note"]')).toBeNull();
+
+    // 只选大类 → 显示大类解读（无案例）
+    const themeRow = container.querySelector('[data-od-id="theme-row"]')!;
+    expect(themeRow.querySelector('[data-g="theme:仙侠/修真"]')!.getAttribute("title")).toContain(
+      "修行阶次",
+    );
+    fireEvent.click(themeRow.querySelector('[data-g="theme:仙侠/修真"]')!);
+    const note = container.querySelector('[data-od-id="theme-note"]')!;
+    expect(note.textContent).toContain("修行阶次");
+    expect(note.querySelector(".eg")).toBeNull();
+
+    // 每颗子类胶囊自带悬停解读 + 案例
+    const firstSub = container.querySelector('[data-g="sub:凡人流"]')!;
+    expect(firstSub.getAttribute("title")).toContain("资质平平");
+    expect(firstSub.getAttribute("title")).toContain("案例：《凡人修仙传》");
+
+    // 选子类 → 解读区换成子类解读 + 案例
+    fireEvent.click(firstSub);
+    const subNote = container.querySelector('[data-od-id="theme-note"]')!;
+    expect(subNote.textContent).toContain("凡人流");
+    expect(subNote.textContent).toContain("资质平平");
+    expect(subNote.textContent).toContain("案例：《凡人修仙传》");
+  });
+
   it("01 题材目录随契约下发回读（theme + sub_genre）", async () => {
     const { ref, container } = renderPanel({ theme: "架空古王朝", sub_genre: "权谋" });
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));

@@ -76,35 +76,62 @@ class TestIntroTemplateParity:
 
 
 class TestThemeCatalogParity:
-    """题材目录（01 格「什么题材」）前后端逐字一致。
+    """题材目录（01 格「什么题材」+ 每项解读/案例）前后端逐字一致。
 
-    不一致 = 作者选中的题材在后端 `theme_or_none` 校验不过（400「未知的题材」），
-    或子类被拒（400「没有这个子类」）。
+    不一致 = 作者选中的题材在后端 `theme_or_none` 校验不过（400「未知的题材」）、
+    子类被拒（400「没有这个子类」），或面板显示的解读/案例与后端目录不符。
+
+    解析口径：TS 侧强制用工厂函数 `t(名, 解读, [...])` / `s(名, 解读, 案例)`，
+    每题一行——这样正则可稳定抽取（含嵌套与中文引号）。
     """
 
     def _frontend_themes(self) -> list[dict]:
         src = _read("themeCatalog.ts")
         block = re.search(r"THEMES:\s*ThemeEntry\[\]\s*=\s*\[(.*?)\n\];", src, re.DOTALL)
         assert block, "找不到 THEMES"
+        body = block.group(1)
+        # 大类：t("名", "解读", [ … ]) —— 以其为切分点，段内即该大类的子类
+        heads = list(re.finditer(r't\("([^"]+)",\s*"([^"]+)",\s*\[', body))
+        assert heads, "找不到 t(...) 大类项"
         out = []
-        for name, subs in re.findall(
-            r'\{\s*name:\s*"([^"]+)",\s*subTypes:\s*\[([^\]]*)\]\s*,?\s*\}', block.group(1)
-        ):
-            out.append(
-                {"name": name, "sub_types": re.findall(r'"([^"]+)"', subs)}
-            )
+        for i, m in enumerate(heads):
+            start = m.end()
+            end = heads[i + 1].start() if i + 1 < len(heads) else len(body)
+            subs = [
+                {"name": n, "desc": d, "example": e}
+                for n, d, e in re.findall(
+                    r's\("([^"]+)",\s*"([^"]+)",\s*"([^"]+)"\)', body[start:end]
+                )
+            ]
+            out.append({"name": m.group(1), "desc": m.group(2), "sub_types": subs})
         return out
 
-    def test_names_and_sub_types_match(self):
+    def test_names_descs_and_examples_match(self):
         from genres.theme_catalog import THEMES
 
         assert self._frontend_themes() == THEMES, (
             "题材目录前后端不一致——以 genres/theme_catalog.py 为准同步 lib/themeCatalog.ts"
         )
 
+    def test_every_entry_has_desc_and_example(self):
+        """解读与案例是本次补齐的硬要求：任一项缺失即回归（用户 2026-09-10）。"""
+        from genres.theme_catalog import THEMES
+
+        for t in THEMES:
+            assert t["desc"].strip(), f"大类「{t['name']}」缺解读"
+            assert t["sub_types"], f"大类「{t['name']}」没有子类"
+            for s in t["sub_types"]:
+                assert s["desc"].strip(), f"子类「{s['name']}」缺解读"
+                assert s["example"].strip(), f"子类「{s['name']}」缺案例"
+
     def test_validation_helpers_agree_on_membership(self):
-        from genres.theme_catalog import THEME_NAMES, sub_types_of
+        from genres.theme_catalog import THEME_NAMES, sub_type_names, sub_types_of
 
         assert len(THEME_NAMES) == 20
-        assert sub_types_of("仙侠/修真") == ["古典仙侠", "凡人流", "仙魔大战", "种田修仙"]
+        assert sub_type_names("仙侠/修真") == [
+            "古典仙侠",
+            "凡人流",
+            "仙魔大战",
+            "种田修仙",
+        ]
         assert sub_types_of("不存在的题材") == []

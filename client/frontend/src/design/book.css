@@ -530,6 +530,11 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .cap-label.inline { margin: 0; }
 /* 02 常见口味行与下方输入框的间距 */
 .settings-v .cap-row.flavors { margin-bottom: 8px; }
+/* 01 解读区：选中项「是什么 + 案例」（光有标签作者不知道指什么） */
+.settings-v .cap-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 9px; background: var(--bg); font-size: 12.5px; line-height: 1.6; color: var(--fg); }
+.settings-v .cap-note b { color: var(--accent); font-weight: 500; }
+.settings-v .cap-note .eg { color: var(--muted); }
+.settings-v .cap-note .eg::before { content: " · "; }
 .settings-v .cap-add input { width: 100%; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 9px; background: var(--surface); font-size: 13px; color: var(--fg); margin-top: 8px; font-family: inherit; }
 .settings-v .cap-add input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); border-style: solid; }
 

@@ -27,7 +27,7 @@ import {
   vocabLabel,
   type VocabKind,
 } from "@/lib/genreVocab";
-import { THEMES, subTypesOf } from "@/lib/themeCatalog";
+import { THEMES, subThemeEntry, subTypesOf, themeEntry } from "@/lib/themeCatalog";
 
 // ── Props / Handle ───────────────────────────────────────────────────────
 
@@ -429,6 +429,15 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
   const unknownBattlefield = data.battlefield.filter(
     (b) => !cand.battlefield.some((c) => c.id === b),
   );
+  // 01 解读区：选了子类说子类（更具体），只选大类说大类；都没选则不占位
+  const subEntry = subThemeEntry(data.theme, data.sub_genre);
+  const themeNote = subEntry
+    ? { name: data.sub_genre, desc: subEntry.desc, example: subEntry.example }
+    : themeEntry(data.theme) && {
+        name: data.theme,
+        desc: themeEntry(data.theme)!.desc,
+        example: "",
+      };
 
   return (
     <div data-od-id="genre-panel">
@@ -454,6 +463,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
               type="button"
               data-g={`theme:${t.name}`}
               aria-pressed={data.theme === t.name}
+              title={t.desc}
               onClick={() => pickTheme(t.name)}
             >
               {t.name}
@@ -464,20 +474,34 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           <>
             <p className="cap-label">子类（可选 · {data.theme}）</p>
             <div className="cap-row" data-od-id="sub-genre-row">
-              {subTypesOf(data.theme).map((s) => (
+              {subTypesOf(data.theme).map((sub) => (
                 <button
-                  key={s}
-                  className={`cap${data.sub_genre === s ? " on" : ""}`}
+                  key={sub.name}
+                  className={`cap${data.sub_genre === sub.name ? " on" : ""}`}
                   type="button"
-                  data-g={`sub:${s}`}
-                  aria-pressed={data.sub_genre === s}
-                  onClick={() => pickSubGenre(s)}
+                  data-g={`sub:${sub.name}`}
+                  aria-pressed={data.sub_genre === sub.name}
+                  title={`${sub.desc}　案例：${sub.example}`}
+                  onClick={() => pickSubGenre(sub.name)}
                 >
-                  {s}
+                  {sub.name}
                 </button>
               ))}
             </div>
           </>
+        )}
+        {/* 解读 + 案例：选中什么就说什么（只选大类则说大类），光有标签作者不知道指什么 */}
+        {themeNote && (
+          <p className="cap-note" data-od-id="theme-note">
+            <b>{themeNote.name}</b>
+            {"："}
+            {themeNote.desc}
+            {themeNote.example && (
+              <span className="eg">
+                案例：{themeNote.example}
+              </span>
+            )}
+          </p>
         )}
       </Mod>
 

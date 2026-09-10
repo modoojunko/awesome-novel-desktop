@@ -258,11 +258,23 @@ test("题材：六格面板（口味联动 → 自定义禁区 → 吃苦指数 
     const themeRow = page.locator('[data-od-id="theme-row"]');
     await expect(themeRow.locator(".cap")).toHaveCount(20);
     await expect(page.locator('[data-od-id="sub-genre-row"]')).toHaveCount(0);
+    await expect(page.locator('[data-od-id="theme-note"]')).toHaveCount(0);
     await themeRow.locator('[data-g="theme:仙侠/修真"]').click();
+    // 解读与案例：只选大类给大类解读，选了子类换成子类解读 + 案例
+    await expect(page.locator('[data-od-id="theme-note"]')).toContainText("修行阶次");
+    await expect(page.locator('[data-od-id="theme-note"] .eg')).toHaveCount(0);
     const subRow = page.locator('[data-od-id="sub-genre-row"]');
     await expect(subRow.locator(".cap")).toHaveCount(4);
+    await expect(subRow.locator('[data-g="sub:凡人流"]')).toHaveAttribute(
+      "title",
+      /案例：《凡人修仙传》/,
+    );
     await subRow.locator('[data-g="sub:凡人流"]').click();
     await expect(subRow.locator('[data-g="sub:凡人流"]')).toHaveClass(/on/);
+    await expect(page.locator('[data-od-id="theme-note"]')).toContainText("凡人流");
+    await expect(page.locator('[data-od-id="theme-note"]')).toContainText(
+      "案例：《凡人修仙传》",
+    );
 
     // 02 常见口味快捷填充 → 预填 02 文本 + 03/05 胶囊 + 04 指数（不动 01 已选题材）
     await page.locator('[data-g="comeback"]').click();
