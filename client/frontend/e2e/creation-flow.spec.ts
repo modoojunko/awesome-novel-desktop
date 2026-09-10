@@ -432,25 +432,18 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     });
     await expect(bookCard.locator(".genre.pending")).toHaveCount(0);
 
-    // 只选大类（不选子类）→ 胶囊显示大类本身，不出现「大类 · 」空尾（用户 2026-09-10 追问）
+    // 胶囊只显示大类（用户 2026-09-10 拍板「胶囊就显示大类」）：
+    // 选上子类也只显示大类，子类不占展示位
     // 注意：同 URL 的 goto 不会重载 SPA（不重新拉列表）→ 先绕一次书本页
-    await apiPutJSON(request, token, `/novels/${pid}/settings/genre`, {
-      theme: "架空古王朝",
-    });
-    await page.goto(`${ORIGIN}/#/novel/${pid}`);
-    await page.goto(`${ORIGIN}/#/novels`);
-    await expect(bookCard.locator(".genre")).toHaveText(/架空古王朝/);
-    await expect(bookCard.locator(".genre")).not.toContainText("·");
-    await expect(bookCard.locator(".genre")).toHaveAttribute("title", "架空古王朝");
-
-    // 再选上子类 → 变成「大类 · 子类」
     await apiPutJSON(request, token, `/novels/${pid}/settings/genre`, {
       theme: "架空古王朝",
       sub_genre: "权谋",
     });
     await page.goto(`${ORIGIN}/#/novel/${pid}`);
     await page.goto(`${ORIGIN}/#/novels`);
-    await expect(bookCard.locator(".genre")).toHaveText(/架空古王朝 · 权谋/);
+    await expect(bookCard.locator(".genre")).toHaveText(/架空古王朝/);
+    await expect(bookCard.locator(".genre")).not.toContainText("权谋");
+    await expect(bookCard.locator(".genre")).not.toContainText("·");
   } finally {
     restore();
   }

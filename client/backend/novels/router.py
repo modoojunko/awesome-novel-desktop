@@ -258,12 +258,11 @@ async def list_all(
 
 
 def _compose_theme_label(theme: str | None, sub_type: str | None) -> str:
-    """题材展示名：大类 · 子类（子类可空）。与前端 `themeLabel` 同口径。"""
-    t = (theme or "").strip()
-    s = (sub_type or "").strip()
-    if t and s:
-        return f"{t} · {s}"
-    return t or s
+    """题材展示名＝**大类**（用户 2026-09-10 拍板「胶囊就显示大类」）。
+
+    子类刻意不进展示位：卡片顶栏窄、且大类已足够定位一本书；子类在题材面板
+    与注入里仍然是完整信息（`theme`/`sub_genre` 照常下发）。"""
+    return (theme or "").strip()
 
 
 async def _batch_core_promises(db: AsyncSession, projects) -> dict[str, str]:

@@ -127,7 +127,7 @@ class TestThemeCatalogParity:
     def test_validation_helpers_agree_on_membership(self):
         from genres.theme_catalog import THEME_NAMES, sub_type_names, sub_types_of
 
-        assert len(THEME_NAMES) == 20
+        assert len(THEME_NAMES) == 21
         assert sub_type_names("仙侠/修真") == [
             "古典仙侠",
             "凡人流",

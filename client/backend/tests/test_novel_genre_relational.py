@@ -807,7 +807,8 @@ class TestThemeCatalog:
         detail = client.get(f"/api/novels/{pid}").json()
         assert detail["theme"] == "科幻"
         assert detail["sub_genre"] == "硬科幻"
-        assert detail["genre_label"] == "科幻 · 硬科幻"
+        assert detail["genre_label"] == "科幻"  # 展示位只大类（用户 2026-09-10 拍板）
+        assert detail["theme"] == "科幻" and detail["sub_genre"] == "硬科幻"
 
     def test_theme_beats_core_promise_as_display_name(self, client):
         """展示名主来源＝题材目录；核心承诺只在前者缺失时兜底。"""
@@ -817,7 +818,7 @@ class TestThemeCatalog:
             json={"theme": "架空古王朝", "sub_genre": "权谋", "core_promise": "算无遗策的掌控感"},
         )
         item = next(r for r in client.get("/api/novels").json() if r["id"] == pid)
-        assert item["genre"] == "架空古王朝 · 权谋"
+        assert item["genre"] == "架空古王朝"
 
     def test_unknown_theme_rejected_400(self, client):
         pid = _new_novel(client)

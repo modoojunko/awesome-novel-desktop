@@ -15,6 +15,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { Ico, P } from "@/components/icons";
 import { useDirtyState } from "@/hooks/useDirtyState";
 import { genreAi, aiBlockReason, type GenreAiField } from "@/lib/ai";
 import AiSink from "./AiSink";
@@ -27,7 +28,7 @@ import {
   vocabLabel,
   type VocabKind,
 } from "@/lib/genreVocab";
-import { THEMES, subThemeEntry, subTypesOf, themeEntry } from "@/lib/themeCatalog";
+import { THEMES, subThemeEntry, themeEntry, type SubTheme } from "@/lib/themeCatalog";
 
 // ── Props / Handle ───────────────────────────────────────────────────────
 
@@ -70,6 +71,11 @@ interface ForbiddenItem {
   tagId?: string;
   text?: string;
 }
+
+/** 01 选择器的一行：大类（＝只归大类）或「大类 + 子类」。 */
+type ThemeRow =
+  | { kind: "theme"; theme: string; sub?: undefined }
+  | { kind: "sub"; theme: string; sub: SubTheme };
 
 interface GenrePayload {
   /** 01 题材目录（大类/子类）——落 story.yaml，与简介同族。 */
@@ -221,18 +227,143 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     setData((prev) => ({ ...prev, ...p }));
   }, []);
 
-  // ── 01 题材目录：大类（必选，再点取消）/ 子类（可选，再点取消）─────────
-  const pickTheme = useCallback((name: string) => {
-    setData((prev) => {
-      if (prev.theme === name) return { ...prev, theme: "", sub_genre: "" };
-      // 换大类时旧子类不属于新大类 → 清掉（后端也会 400 拒收跨类子类）
-      return { ...prev, theme: name, sub_genre: "" };
+  // ── 01 题材选择器（Cascader 式）：展开态 / 搜索词 / 正在浏览的大类 / 键盘游标 ──
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [themeQuery, setThemeQuery] = useState("");
+  const [activeTheme, setActiveTheme] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const themeBoxRef = useRef<HTMLDivElement | null>(null);
+  const themeSearchRef = useRef<HTMLInputElement | null>(null);
+
+  const closeThemePanel = useCallback(() => {
+    setThemeOpen(false);
+    setThemeQuery("");
+  }, []);
+
+  const toggleThemePanel = useCallback(() => {
+    setThemeOpen((open) => {
+      if (open) {
+        setThemeQuery("");
+        return false;
+      }
+      // 展开时把浏览列定位到已选大类（未选则给第一个），游标归零
+      setThemeQuery("");
+      setActiveTheme((cur) => (cur || THEMES[0].name));
+      setCursor(0);
+      return true;
     });
   }, []);
 
-  const pickSubGenre = useCallback((name: string) => {
-    setData((prev) => ({ ...prev, sub_genre: prev.sub_genre === name ? "" : name }));
+  useEffect(() => {
+    if (themeOpen) themeSearchRef.current?.focus();
+  }, [themeOpen]);
+
+  // 点面板外收起（TDesign popup 同语义；本页是就地展开，故监听整个文档）。
+  // Esc 也挂文档级：点过大类后焦点在按钮上，只挂搜索框会收不起来。
+  useEffect(() => {
+    if (!themeOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (themeBoxRef.current && !themeBoxRef.current.contains(e.target as Node)) {
+        closeThemePanel();
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeThemePanel();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [themeOpen, closeThemePanel]);
+
+  // 展开时若已选题材，浏览列跟随；首次展开定位到已选/首个
+  useEffect(() => {
+    if (themeOpen) setActiveTheme((cur) => cur || data.theme || THEMES[0].name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [themeOpen]);
+
+  /** 当前可选项列表：搜索态＝全目录命中（拍平成「大类 / 子类」路径）；否则＝浏览列的
+   *  「只归到大类」+ 该大类子类。键盘 ↑↓/Enter 与渲染共用这一份，避免两套取舍。 */
+  const searching = themeQuery.trim().length > 0;
+  const themeRows = useMemo<ThemeRow[]>(() => {
+    if (!searching) {
+      const t = themeEntry(activeTheme);
+      return [
+        { kind: "theme", theme: activeTheme },
+        ...(t?.subTypes ?? []).map((sub) => ({
+          kind: "sub" as const,
+          theme: activeTheme,
+          sub,
+        })),
+      ];
+    }
+    const q = themeQuery.trim().toLowerCase();
+    const hit = (s: string) => s.toLowerCase().includes(q);
+    const out: ThemeRow[] = [];
+    for (const t of THEMES) {
+      if (hit(t.name) || hit(t.desc)) out.push({ kind: "theme", theme: t.name });
+      for (const sub of t.subTypes) {
+        if (hit(sub.name) || hit(sub.desc) || hit(sub.example)) {
+          out.push({ kind: "sub", theme: t.name, sub });
+        }
+      }
+    }
+    return out;
+  }, [searching, themeQuery, activeTheme]);
+
+  /** 点大类＝选中它并浏览其子类（checkStrictly：父级也可单独选）；再次点同一大类不清空
+   *  （清空走字段右侧 ×，与 TDesign `clearable` 一致）。 */
+  const browseTheme = useCallback((name: string) => {
+    setActiveTheme(name);
+    setCursor(0);
+    setData((prev) => ({
+      ...prev,
+      theme: name,
+      sub_genre: prev.theme === name ? prev.sub_genre : "",
+    }));
   }, []);
+
+  const pickRow = useCallback(
+    (row: ThemeRow, close: boolean) => {
+      if (row.kind === "theme") browseTheme(row.theme);
+      else
+        setData((prev) => ({ ...prev, theme: row.theme, sub_genre: row.sub!.name }));
+      if (close) closeThemePanel();
+    },
+    [browseTheme, closeThemePanel],
+  );
+
+  const clearTheme = useCallback(() => {
+    setData((prev) => ({ ...prev, theme: "", sub_genre: "" }));
+  }, []);
+
+  const onThemeKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeThemePanel();
+        return;
+      }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setCursor((c) => {
+          const n = themeRows.length;
+          if (n === 0) return 0;
+          return e.key === "ArrowDown" ? (c + 1) % n : (c - 1 + n) % n;
+        });
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const row = themeRows[cursor];
+        // 未搜索时 Enter 作用在浏览列：子类＝选完收起；「只归到大类」＝选中并收起
+        if (row) pickRow(row, true);
+      }
+    },
+    [themeRows, cursor, pickRow, closeThemePanel],
+  );
 
   // ── 02 常见口味快捷填充：预填 02/03/04/05（不写 promise_note/track）───
   const applyFlavor = useCallback(
@@ -441,7 +572,11 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
 
   return (
     <div data-od-id="genre-panel">
-      {/* 01 题材目录 —— 大类（必选）+ 子类（可选） */}
+      {/* 01 题材目录 —— 字段 + 就地展开的两级选择（2026-09-10 用户要求「参考 tdesign、页面简洁」）。
+          形态对标 TDesign Cascader：`checkStrictly`（父级＝大类可单独选）、`filterable`（搜索，
+          命中项拍平成「大类 / 子类」路径）、`clearable`（字段右 × 清空）。**就地展开而非浮层**：
+          设定面板列自身 overflow-y:auto，浮层会被裁切/随滚动漂移；浮层方案需 portal + 滚动跟随，
+          与本页「简洁」相悖（用户 2026-09-10 反馈）。 */}
       <Mod
         no="01"
         name="题材"
@@ -454,42 +589,160 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           </>
         }
       >
-        <p className="cap-label">大类（必选）</p>
-        <div className="cap-row" data-od-id="theme-row">
-          {THEMES.map((t) => (
-            <button
-              key={t.name}
-              className={`cap${data.theme === t.name ? " on" : ""}`}
-              type="button"
-              data-g={`theme:${t.name}`}
-              aria-pressed={data.theme === t.name}
-              title={t.desc}
-              onClick={() => pickTheme(t.name)}
-            >
-              {t.name}
-            </button>
-          ))}
-        </div>
-        {data.theme && (
-          <>
-            <p className="cap-label">子类（可选 · {data.theme}）</p>
-            <div className="cap-row" data-od-id="sub-genre-row">
-              {subTypesOf(data.theme).map((sub) => (
-                <button
-                  key={sub.name}
-                  className={`cap${data.sub_genre === sub.name ? " on" : ""}`}
-                  type="button"
-                  data-g={`sub:${sub.name}`}
-                  aria-pressed={data.sub_genre === sub.name}
-                  title={`${sub.desc}　案例：${sub.example}`}
-                  onClick={() => pickSubGenre(sub.name)}
-                >
-                  {sub.name}
-                </button>
-              ))}
+        <div className="sel" ref={themeBoxRef} data-od-id="theme-select">
+          <button
+            type="button"
+            className={`sel-field${themeOpen ? " on" : ""}`}
+            data-od-id="theme-trigger"
+            aria-haspopup="listbox"
+            aria-expanded={themeOpen}
+            onClick={toggleThemePanel}
+          >
+            <span className={data.theme ? "v" : "ph"}>
+              {data.theme
+                ? data.sub_genre
+                  ? `${data.theme} / ${data.sub_genre}`
+                  : data.theme
+                : "选择题材"}
+            </span>
+            {data.theme && (
+              <span
+                className="sel-clear"
+                role="button"
+                aria-label="清除题材"
+                data-od-id="theme-clear"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearTheme();
+                }}
+              >
+                ×
+              </span>
+            )}
+            {/* 展开态靠字段边框变 accent 表达，箭头保持向下（图标集无 chevronUp） */}
+            <Ico d={P.chevronDown} className={themeOpen ? "open" : undefined} />
+          </button>
+
+          {themeOpen && (
+            <div className="sel-panel" data-od-id="theme-panel">
+              <input
+                ref={themeSearchRef}
+                className="sel-search"
+                data-od-id="theme-search"
+                placeholder="搜索题材（名 / 解读 / 案例）"
+                value={themeQuery}
+                spellCheck={false}
+                onChange={(e) => {
+                  setThemeQuery(e.target.value);
+                  setCursor(0);
+                }}
+                onKeyDown={onThemeKeyDown}
+              />
+              {searching ? (
+                <ul className="sel-list" role="listbox" data-od-id="theme-results">
+                  {themeRows.map((r, i) => (
+                    <li key={`${r.theme}/${r.sub?.name ?? ""}`}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={i === cursor}
+                        className={`sel-item${i === cursor ? " cur" : ""}`}
+                        data-g={r.sub ? `sub:${r.sub.name}` : `theme:${r.theme}`}
+                        onMouseEnter={() => setCursor(i)}
+                        onClick={() => pickRow(r, true)}
+                      >
+                        <span className="si-name">
+                          {r.sub ? (
+                            <>
+                              <em>{r.theme} / </em>
+                              {r.sub.name}
+                            </>
+                          ) : (
+                            <>
+                              {r.theme}
+                              <em>　只归到大类</em>
+                            </>
+                          )}
+                        </span>
+                        <span className="si-desc">
+                          {r.sub ? r.sub.desc : themeEntry(r.theme)?.desc}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {themeRows.length === 0 && (
+                    <li className="sel-empty">没有匹配的题材，换个词试试</li>
+                  )}
+                </ul>
+              ) : (
+                <div className="sel-cols">
+                  <ul
+                    className="sel-col themes"
+                    role="listbox"
+                    aria-label="题材大类"
+                    data-od-id="theme-row"
+                  >
+                    {THEMES.map((t) => (
+                      <li key={t.name}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={data.theme === t.name}
+                          className={`sel-item${activeTheme === t.name ? " cur" : ""}${
+                            data.theme === t.name ? " on" : ""
+                          }`}
+                          data-g={`theme:${t.name}`}
+                          title={t.desc}
+                          onClick={() => browseTheme(t.name)}
+                        >
+                          <span className="si-name">{t.name}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <ul
+                    className="sel-col subs"
+                    role="listbox"
+                    aria-label="题材子类"
+                    data-od-id="sub-genre-row"
+                  >
+                    {themeRows.map((r, i) => (
+                      <li key={r.sub?.name ?? "only"}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={
+                            r.sub ? data.sub_genre === r.sub.name : !data.sub_genre
+                          }
+                          className={`sel-item${i === cursor ? " cur" : ""}${
+                            (r.sub ? data.sub_genre === r.sub.name : data.sub_genre === "")
+                              ? " on"
+                              : ""
+                          }${r.sub ? "" : " only"}`}
+                          data-g={r.sub ? `sub:${r.sub.name}` : `theme:${r.theme}`}
+                          title={
+                            r.sub
+                              ? `${r.sub.desc}　案例：${r.sub.example}`
+                              : `只标大类「${r.theme}」，不分子类`
+                          }
+                          onMouseEnter={() => setCursor(i)}
+                          onClick={() => pickRow(r, true)}
+                        >
+                          <span className="si-name">
+                            {r.sub ? r.sub.name : `只归到大类（${r.theme}）`}
+                          </span>
+                          <span className="si-desc">
+                            {r.sub ? r.sub.desc : "不分小类也行，随时能回来补"}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
-          </>
-        )}
+          )}
+        </div>
         {/* 解读 + 案例：选中什么就说什么（只选大类则说大类），光有标签作者不知道指什么 */}
         {themeNote && (
           <p className="cap-note" data-od-id="theme-note">

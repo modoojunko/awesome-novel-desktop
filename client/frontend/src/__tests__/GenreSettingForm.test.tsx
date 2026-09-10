@@ -145,34 +145,106 @@ describe("GenreSettingForm · 六格", () => {
     });
   });
 
-  it("01 题材目录：20 个大类 + 选中后出子类，子类不属于新大类时清空", async () => {
+  it("01 题材选择器：字段 + 展开两级，换大类清子类，× 清空", async () => {
     const { container } = renderPanel();
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
 
-    const row = container.querySelector('[data-od-id="theme-row"]')!;
-    expect(row.querySelectorAll(".cap")).toHaveLength(20);
-    expect(screen.getByText("仙侠/修真")).toBeTruthy();
+    // 收起态＝一个字段（不再是一片胶囊墙）
+    const trigger = container.querySelector('[data-od-id="theme-trigger"]')!;
+    expect(trigger.textContent).toContain("选择题材");
+    expect(container.querySelector('[data-od-id="theme-panel"]')).toBeNull();
 
-    // 未选大类 → 不出子类行
-    expect(container.querySelector('[data-od-id="sub-genre-row"]')).toBeNull();
+    fireEvent.click(trigger);
+    const panel = container.querySelector('[data-od-id="theme-panel"]')!;
+    const themeRow = panel.querySelector('[data-od-id="theme-row"]')!;
+    expect(themeRow.querySelectorAll(".sel-item")).toHaveLength(21);
+    // 右列＝「只归到大类」+ 当前浏览大类的子类
+    expect(panel.querySelector('[data-od-id="sub-genre-row"]')!.textContent).toContain(
+      "只归到大类",
+    );
 
-    fireEvent.click(row.querySelector('[data-g="theme:仙侠/修真"]')!);
-    const subRow = container.querySelector('[data-od-id="sub-genre-row"]')!;
-    expect(subRow.querySelectorAll(".cap")).toHaveLength(4);
-    expect(screen.getByText("凡人流")).toBeTruthy();
+    // 点大类 → 选中 + 右列换成它的子类（面板不收起，便于继续细化）
+    fireEvent.click(themeRow.querySelector('[data-g="theme:仙侠/修真"]')!);
+    expect(container.querySelector('[data-od-id="theme-trigger"]')!.textContent).toContain(
+      "仙侠/修真",
+    );
+    let subCol = container.querySelector('[data-od-id="sub-genre-row"]')!;
+    expect(subCol.querySelectorAll(".sel-item")).toHaveLength(5); // 只归到大类 + 4 子类
+    expect(subCol.textContent).toContain("凡人流");
 
-    // 选子类 → 打上选中态
-    fireEvent.click(subRow.querySelector('[data-g="sub:凡人流"]')!);
-    expect(container.querySelector('[data-g="sub:凡人流"]')!.className).toContain("on");
+    // 点子类 → 字段显示「大类 / 子类」，面板收起
+    fireEvent.click(subCol.querySelector('[data-g="sub:凡人流"]')!);
+    expect(container.querySelector('[data-od-id="theme-panel"]')).toBeNull();
+    expect(container.querySelector('[data-od-id="theme-trigger"]')!.textContent).toContain(
+      "仙侠/修真 / 凡人流",
+    );
 
     // 换大类 → 旧子类（不属于新大类）必须清掉，否则后端 400
-    fireEvent.click(row.querySelector('[data-g="theme:科幻"]')!);
-    expect(container.querySelector('[data-g="sub:凡人流"]')).toBeNull();
-    expect(container.querySelector('[data-g="theme:科幻"]')!.className).toContain("on");
+    fireEvent.click(container.querySelector('[data-od-id="theme-trigger"]')!);
+    fireEvent.click(
+      container.querySelector('[data-od-id="theme-row"] [data-g="theme:科幻"]')!,
+    );
+    const tf = container.querySelector('[data-od-id="theme-trigger"]')!;
+    expect(tf.textContent).toContain("科幻");
+    expect(tf.textContent).not.toContain("凡人流");
 
-    // 再点已选大类 → 取消选择（子类行一并撤下）
-    fireEvent.click(row.querySelector('[data-g="theme:科幻"]')!);
-    expect(container.querySelector('[data-od-id="sub-genre-row"]')).toBeNull();
+    // × 清空（TDesign clearable 同语义，取代原先的「再点取消」）
+    fireEvent.click(container.querySelector('[data-od-id="theme-clear"]')!);
+    expect(container.querySelector('[data-od-id="theme-trigger"]')!.textContent).toContain(
+      "选择题材",
+    );
+  });
+
+  it("01 搜索：命中项拍平成「大类 / 子类」路径，点选即落", async () => {
+    const { container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    fireEvent.click(container.querySelector('[data-od-id="theme-trigger"]')!);
+
+    const search = container.querySelector('[data-od-id="theme-search"]') as HTMLInputElement;
+    // 按解读/案例也能搜到（81 个子类，光按名字搜不够用）
+    fireEvent.change(search, { target: { value: "凡人修仙传" } });
+    const results = container.querySelector('[data-od-id="theme-results"]')!;
+    expect(results.textContent).toContain("仙侠/修真");
+    expect(results.textContent).toContain("凡人流");
+
+    fireEvent.click(results.querySelector('[data-g="sub:凡人流"]')!);
+    expect(container.querySelector('[data-od-id="theme-trigger"]')!.textContent).toContain(
+      "仙侠/修真 / 凡人流",
+    );
+
+    // 无命中 → 给一句可读的空态，不留白
+    fireEvent.click(container.querySelector('[data-od-id="theme-trigger"]')!);
+    fireEvent.change(container.querySelector('[data-od-id="theme-search"]')!, {
+      target: { value: "不存在的东西" },
+    });
+    expect(container.querySelector('[data-od-id="theme-results"]')!.textContent).toContain(
+      "没有匹配的题材",
+    );
+  });
+
+  it("01 键盘：↑↓ 移动 + Enter 选中当前项 + Esc 收起", async () => {
+    const { container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    fireEvent.click(container.querySelector('[data-od-id="theme-trigger"]')!);
+
+    const search = container.querySelector('[data-od-id="theme-search"]') as HTMLInputElement;
+    fireEvent.change(search, { target: { value: "权谋" } });
+    // 结果首项被高亮；Enter 直接落库
+    expect(
+      container.querySelector('[data-od-id="theme-results"] .sel-item.cur'),
+    ).toBeTruthy();
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(container.querySelector('[data-od-id="theme-trigger"]')!.textContent).toContain(
+      "权谋",
+    );
+
+    // Esc 收起面板
+    fireEvent.click(container.querySelector('[data-od-id="theme-trigger"]')!);
+    expect(container.querySelector('[data-od-id="theme-panel"]')).toBeTruthy();
+    fireEvent.keyDown(container.querySelector('[data-od-id="theme-search"]')!, {
+      key: "Escape",
+    });
+    expect(container.querySelector('[data-od-id="theme-panel"]')).toBeNull();
   });
 
   it("01 每项都有解读与案例：选中即显示（光有标签作者不知道指什么）", async () => {
@@ -183,6 +255,7 @@ describe("GenreSettingForm · 六格", () => {
     expect(container.querySelector('[data-od-id="theme-note"]')).toBeNull();
 
     // 只选大类 → 显示大类解读（无案例）
+    fireEvent.click(container.querySelector('[data-od-id="theme-trigger"]')!);
     const themeRow = container.querySelector('[data-od-id="theme-row"]')!;
     expect(themeRow.querySelector('[data-g="theme:仙侠/修真"]')!.getAttribute("title")).toContain(
       "修行阶次",
@@ -192,7 +265,7 @@ describe("GenreSettingForm · 六格", () => {
     expect(note.textContent).toContain("修行阶次");
     expect(note.querySelector(".eg")).toBeNull();
 
-    // 每颗子类胶囊自带悬停解读 + 案例
+    // 子类项自带悬停解读 + 案例
     const firstSub = container.querySelector('[data-g="sub:凡人流"]')!;
     expect(firstSub.getAttribute("title")).toContain("资质平平");
     expect(firstSub.getAttribute("title")).toContain("案例：《凡人修仙传》");
@@ -209,8 +282,12 @@ describe("GenreSettingForm · 六格", () => {
     const { ref, container } = renderPanel({ theme: "架空古王朝", sub_genre: "权谋" });
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
 
-    expect(container.querySelector('[data-g="theme:架空古王朝"]')!.className).toContain("on");
-    expect(container.querySelector('[data-g="sub:权谋"]')!.className).toContain("on");
+    expect(container.querySelector('[data-od-id="theme-trigger"]')!.textContent).toContain(
+      "架空古王朝 / 权谋",
+    );
+    expect(container.querySelector('[data-od-id="theme-note"]')!.textContent).toContain(
+      "以谋局与反制推进",
+    );
 
     await ref.current!.save();
     expect(apiState.put).toHaveBeenCalledWith(

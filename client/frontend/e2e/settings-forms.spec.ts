@@ -254,27 +254,37 @@ test("题材：六格面板（口味联动 → 自定义禁区 → 吃苦指数 
       await expect(page.locator(".settings-v .mod .m-name", { hasText: name })).toBeVisible();
     }
 
-    // 01 题材目录：大类必选（20 个）+ 选中后出子类（用户 2026-09-10 拍板）
-    const themeRow = page.locator('[data-od-id="theme-row"]');
-    await expect(themeRow.locator(".cap")).toHaveCount(20);
-    await expect(page.locator('[data-od-id="sub-genre-row"]')).toHaveCount(0);
+    // 01 题材选择器（TDesign Cascader 式）：收起＝一个字段；点开＝搜索 + 大类列 + 子类列
+    const trigger = page.locator('[data-od-id="theme-trigger"]');
+    await expect(trigger).toContainText("选择题材");
+    await expect(page.locator('[data-od-id="theme-panel"]')).toHaveCount(0);
     await expect(page.locator('[data-od-id="theme-note"]')).toHaveCount(0);
-    await themeRow.locator('[data-g="theme:仙侠/修真"]').click();
-    // 解读与案例：只选大类给大类解读，选了子类换成子类解读 + 案例
-    await expect(page.locator('[data-od-id="theme-note"]')).toContainText("修行阶次");
-    await expect(page.locator('[data-od-id="theme-note"] .eg')).toHaveCount(0);
-    const subRow = page.locator('[data-od-id="sub-genre-row"]');
-    await expect(subRow.locator(".cap")).toHaveCount(4);
-    await expect(subRow.locator('[data-g="sub:凡人流"]')).toHaveAttribute(
-      "title",
-      /案例：《凡人修仙传》/,
-    );
-    await subRow.locator('[data-g="sub:凡人流"]').click();
-    await expect(subRow.locator('[data-g="sub:凡人流"]')).toHaveClass(/on/);
+    await trigger.click();
+    const themeRow = page.locator('[data-od-id="theme-row"]');
+    await expect(themeRow.locator(".sel-item")).toHaveCount(21);
+    // 搜索按解读/案例也能命中（81 个子类，只按名字搜不够）
+    await page.locator('[data-od-id="theme-search"]').fill("凡人");
+    await expect(page.locator('[data-od-id="theme-results"]')).toContainText("仙侠/修真");
+    await page.locator('[data-od-id="theme-results"] [data-g="sub:凡人流"]').click();
+    // 选完收起，字段显示全路径
+    await expect(page.locator('[data-od-id="theme-panel"]')).toHaveCount(0);
+    await expect(trigger).toContainText("仙侠/修真 / 凡人流");
+    // 解读与案例：选中即见
     await expect(page.locator('[data-od-id="theme-note"]')).toContainText("凡人流");
     await expect(page.locator('[data-od-id="theme-note"]')).toContainText(
       "案例：《凡人修仙传》",
     );
+    // 换大类 → 旧子类被清（跨类子类后端 400，客户端必须自觉）
+    await trigger.click();
+    await themeRow.locator('[data-g="theme:科幻"]').click();
+    await expect(trigger).toContainText("科幻");
+    await expect(trigger).not.toContainText("凡人流");
+    await page.keyboard.press("Escape");
+    await expect(page.locator('[data-od-id="theme-panel"]')).toHaveCount(0);
+    // 换回仙侠/修真 + 凡人流，供后面保存断言
+    await trigger.click();
+    await themeRow.locator('[data-g="theme:仙侠/修真"]').click();
+    await page.locator('[data-od-id="sub-genre-row"] [data-g="sub:凡人流"]').click();
 
     // 02 常见口味快捷填充 → 预填 02 文本 + 03/05 胶囊 + 04 指数（不动 01 已选题材）
     await page.locator('[data-g="comeback"]').click();
@@ -282,7 +292,8 @@ test("题材：六格面板（口味联动 → 自定义禁区 → 吃苦指数 
     await expect(page.locator('[data-forbid="forbidden:no-deus-ex-machina"]')).toHaveClass(/on/);
     await expect(page.locator('[data-bf="battlefield:resources"]')).toHaveClass(/on/);
     await expect(page.locator(".settings-v .cost-val")).toHaveText("8");
-    await expect(themeRow.locator('[data-g="theme:仙侠/修真"]')).toHaveClass(/on/);
+    // 口味快捷填充不覆盖 01 已选题材（字段仍显示 大类 / 子类）
+    await expect(trigger).toContainText("仙侠/修真 / 凡人流");
 
     // 03 回车自定义禁区
     const forbidInput = page.locator('[data-od-id="forbid-input"]');
