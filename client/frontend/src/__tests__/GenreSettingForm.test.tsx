@@ -418,6 +418,34 @@ describe("GenreSettingForm · 五行 AI", () => {
     expect(screen.getByText("9 分 → 以命作祭，才封得住那扇门")).toBeTruthy();
   });
 
+  it("03 绝对禁止：tagId 显示中文标签，绝不把英文 slug 甩给作者", async () => {
+    // 用户 2026-09-10 反馈「AI 建议给出来的是英文」——AI 返回的是 tagId（正确），
+    // 03 结果区漏了 tagId→label 映射（05 有），原样打出 forbidden:no-free-powerup。
+    aiState.genreAi.mockResolvedValue({
+      value: [
+        { tagId: "forbidden:no-free-powerup" },
+        { tagId: "forbidden:no-villain-idiot" },
+        { text: "禁主角靠灵根觉醒翻盘" },
+      ],
+    });
+    const { ref, container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+
+    await act(async () => {
+      await ref.current!.runAi("forbidden_list");
+    });
+    const sink = container.querySelector('[data-od-id="genre-ai-sink-forbidden_list"]')!;
+    expect(sink.textContent).toContain("禁白捡神器");
+    expect(sink.textContent).toContain("禁反派降智");
+    expect(sink.textContent).toContain("禁主角靠灵根觉醒翻盘"); // 自定义中文原样
+    expect(sink.textContent).not.toContain("forbidden:"); // 英文 slug 一个都不许露
+
+    // 采纳仍落 tagId（存储契约不变），界面胶囊显示中文
+    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
+    expect(container.querySelector('[data-forbid="forbidden:no-free-powerup"]')).toBeTruthy();
+    expect(container.textContent).toContain("禁白捡神器");
+  });
+
   it("battlefield：候选 tagId 采纳后落成已选胶囊", async () => {
     aiState.genreAi.mockResolvedValue({
       value: [{ tagId: "battlefield:resources" }, { text: "街口那条巷子" }],

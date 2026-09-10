@@ -74,6 +74,15 @@ interface ForbiddenItem {
   text?: string;
 }
 
+/** tagId → 中文标签：先查接口下发的候选源（含库内自定义词汇），再退回本地镜像。
+ *
+ * **绝不要把 tagId（英文 slug，如 forbidden:no-free-powerup）直接显示给作者**——
+ * 03「绝对禁止」的结果区曾漏了这一步，AI 建议原样打出英文 id（05 有映射，03 没有）。
+ */
+function labelFor(id: string, pools: Array<{ id: string; label: string }>): string {
+  return pools.find((p) => p.id === id)?.label ?? vocabLabel(id);
+}
+
 /** 01 选择器的一行：大类（＝只归大类）或「大类 + 子类」。 */
 type ThemeRow =
   | { kind: "theme"; theme: string; sub?: undefined }
@@ -580,11 +589,10 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             }
           } else if (field === "forbidden_list") {
             const list = (v as Array<{ tagId?: string; text?: string }>) ?? [];
-            node = (
-              <p style={{ margin: 0 }}>
-                {list.map((x) => x.tagId ?? x.text).join(" · ") || "（没有建议）"}
-              </p>
-            );
+            const labels = list
+              .map((x) => (x.tagId ? labelFor(x.tagId, cand.forbidden) : (x.text ?? "")))
+              .filter(Boolean);
+            node = <p style={{ margin: 0 }}>{labels.join(" · ") || "（没有建议）"}</p>;
             adopt = () => patch({ forbidden_list: list });
           } else if (field === "cost_ratio") {
             const n = v as number;
@@ -593,7 +601,11 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           } else if (field === "battlefield") {
             const list = (v as Array<{ tagId?: string; text?: string }>) ?? [];
             const vals = list.map((x) => x.tagId ?? x.text ?? "").filter(Boolean);
-            node = <p style={{ margin: 0 }}>{vals.map(vocabLabel).join(" · ") || "（没有建议）"}</p>;
+            node = (
+              <p style={{ margin: 0 }}>
+                {vals.map((x) => labelFor(x, cand.battlefield)).join(" · ") || "（没有建议）"}
+              </p>
+            );
             adopt = () => patch({ battlefield: vals });
           } else {
             const text = v as string;
@@ -1137,7 +1149,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
               title="点击移除"
               onClick={() => toggleBattlefield(b)}
             >
-              {vocabLabel(b)} ×
+              {labelFor(b, cand.battlefield)} ×
             </button>
           ))}
         </div>
