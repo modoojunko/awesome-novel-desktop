@@ -385,3 +385,57 @@ test("AI 行连点：只发 1 个请求，且有「生成中」可见反馈（9.
     restore();
   }
 });
+
+// ── 生成历史（最近 5 次）+ 采纳整段替换（用户要求：避免无限抽卡/反悔）──────
+test("简介 AI：生成 6 次只留最近 5 次；切回旧版采纳＝整段替换不叠加", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `历史${Date.now() % 100000}`);
+    await stubAiState(page, pid, "ready");
+    let seq = 0;
+    await page.route(`**/api/novels/${pid}/settings/ai/intro/fill`, async (r) => {
+      seq += 1;
+      const s = seq;
+      await new Promise((res) => setTimeout(res, 100));
+      return r.fulfill({
+        json: { missing: [{ name: "突发状况", candidate: `候选第${s}版` }], act: "insert" },
+      });
+    });
+    await page.route(`**/api/novels/${pid}/settings/ai/intro/introspect`, (r) =>
+      r.fulfill({ json: { six_segments: [], taboo: { hits: [] }, verdict: "ok" } }),
+    );
+
+    await page.getByRole("button", { name: /^设定/ }).click();
+    const ta = page.getByPlaceholder(/用几句话/);
+    await ta.fill("我手写的开头");
+    await page.locator('[data-aiact="check"]').click();
+    const sink = page.locator('[data-od-id="intro-ai-sink"]');
+    await expect(sink).toBeVisible({ timeout: 10000 });
+
+    await page.locator('[data-aiact="fill"]').click();
+    await expect(sink).toContainText("候选第1版", { timeout: 10000 });
+    // 再点 5 次「重试」→ 共 6 次
+    for (let i = 0; i < 5; i++) {
+      await sink.getByRole("button", { name: "重试" }).click();
+      await expect(sink).toContainText(`候选第${seq}版`, { timeout: 10000 });
+    }
+
+    const chips = page.locator('[data-od-id="ai-sink-history"] [data-hist]');
+    await expect(chips).toHaveCount(5); // 只保留最近 5 次
+    await expect(page.locator('[data-od-id="ai-sink-history"]')).toContainText("只保留最近 5 次");
+
+    // 切回保留的第 1 条（＝第 2 次生成）采纳 → 整段替换「原文 + 本次候选」
+    await chips.first().click();
+    await expect(sink).toContainText("候选第2版");
+    await sink.getByRole("button", { name: /采纳 · 替换为补全后的简介/ }).click();
+    await expect(ta).toHaveValue("我手写的开头。候选第2版");
+
+    // 切到最新一条（第 6 次生成）再采纳 → 仍以手写原文为基准，不叠加上一版
+    await chips.last().click();
+    await expect(sink).toContainText("候选第6版");
+    await sink.getByRole("button", { name: /采纳 · 替换为补全后的简介/ }).click();
+    await expect(ta).toHaveValue("我手写的开头。候选第6版");
+  } finally {
+    restore();
+  }
+});

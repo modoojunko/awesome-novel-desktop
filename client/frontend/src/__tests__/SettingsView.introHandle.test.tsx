@@ -346,3 +346,78 @@ describe("SettingsView · 存草稿（简介面板）", () => {
     expect(screen.queryByRole("button", { name: "存草稿" })).toBeNull();
   });
 });
+
+describe("简介 AI · 最近 5 次历史 + 采纳整段替换（用户要求）", () => {
+  beforeEach(() => {
+    apiState.get.mockReset();
+    apiState.updateStory.mockReset();
+    apiState.fetchStory.mockReset();
+    aiState.introAi.mockReset();
+    apiState.get.mockResolvedValue({});
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+  });
+
+  const introAiReturn = (n: number) => ({
+    six_segments: [],
+    taboo: { hits: [] },
+    verdict: "ok",
+    missing: [{ name: "突发状况", candidate: `候选第${n}版` }],
+  });
+
+  it("重试 6 次只保留最近 5 次，且可切回第 1 次采纳", async () => {
+    const { container } = render(
+      <SettingsView projectId="p1" initialPanel="intro" settingsStatus={{}} confirmedStatus={{}}
+        confirmSetting={vi.fn().mockResolvedValue(true)} novelName="测试小说" />,
+    );
+    await waitFor(() => expect(container.querySelector('[data-aiact="fill"]')).toBeTruthy());
+    // 体检有「先写两句」前置 + 补缺失有「先体检」前置
+    fireEvent.change(container.querySelector("textarea")!, {
+      target: { value: "我手写的开头" },
+    });
+    aiState.introAi.mockResolvedValueOnce({ six_segments: [], taboo: { hits: [] }, verdict: "ok" });
+    fireEvent.click(container.querySelector('[data-aiact="check"]')!);
+    // 前置＝体检结果已到手（introspectedRef 在结果到达时置位）
+    await waitFor(() => expect(container.textContent).toContain("AI 体检"));
+
+    for (let i = 1; i <= 6; i++) {
+      aiState.introAi.mockResolvedValueOnce(introAiReturn(i));
+      fireEvent.click(container.querySelector('[data-aiact="fill"]')!);
+      await waitFor(() =>
+        expect(container.textContent).toContain(`候选第${i}版`),
+      );
+    }
+    const chips = [...container.querySelectorAll('[data-od-id="ai-sink-history"] [data-hist]')];
+    expect(chips).toHaveLength(5); // 只保留最近 5 次
+    expect(screen.getByText(/只保留最近 5 次/)).toBeTruthy();
+    // 保留的是第 2..6 次（丢最旧）
+    fireEvent.click(chips[0]);
+    expect(container.textContent).toContain("候选第2版");
+  });
+
+  it("采纳＝清空原输入、用「原文 + 本次候选」整段替换；换一次采纳不叠加", async () => {
+    const { container } = render(
+      <SettingsView projectId="p1" initialPanel="intro" settingsStatus={{}} confirmedStatus={{}}
+        confirmSetting={vi.fn().mockResolvedValue(true)} novelName="测试小说" />,
+    );
+    const ta = (await waitFor(() => container.querySelector("textarea"))) as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "我手写的开头" } });
+
+    aiState.introAi.mockResolvedValueOnce({ six_segments: [], taboo: { hits: [] }, verdict: "ok" });
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="check"]')!));
+    await waitFor(() => expect(container.textContent).toContain("AI 体检"));
+
+    aiState.introAi.mockResolvedValueOnce(introAiReturn(1));
+    fireEvent.click(container.querySelector('[data-aiact="fill"]')!);
+    await waitFor(() => expect(container.textContent).toContain("候选第1版"));
+    fireEvent.click(screen.getByRole("button", { name: /采纳 · 替换为补全后的简介/ }));
+    await waitFor(() => expect(ta.value).toBe("我手写的开头。候选第1版"));
+
+    // 再生成一版并采纳 → 整段替换（不叠加第 1 版）
+    aiState.introAi.mockResolvedValueOnce(introAiReturn(2));
+    fireEvent.click(container.querySelector('[data-aiact="fill"]')!);
+    await waitFor(() => expect(container.textContent).toContain("候选第2版"));
+    fireEvent.click(screen.getByRole("button", { name: /采纳 · 替换为补全后的简介/ }));
+    await waitFor(() => expect(ta.value).toBe("我手写的开头。候选第2版"));
+    expect(ta.value).not.toContain("候选第1版");
+  });
+});

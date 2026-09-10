@@ -558,3 +558,9 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .rail-assist .ra-step.ra-running { border-color: var(--accent); background: var(--accent-soft); }
 .settings-v .rail-assist .ra-step.ra-running .ra-body i { color: var(--accent); }
 .settings-v .rail-assist .ra-step.ra-running .ra-arrow { color: var(--accent); }
+
+/* AI 结果区历史条：最近 N 次可切换（避免无限抽卡 / 反悔） */
+.settings-v .ai-sink .aiz-hist { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.settings-v .ai-sink .aiz-hist .ah-t { font-size: 11px; color: var(--muted); }
+.settings-v .ai-sink .aiz-hist .ah-chip { height: 22px; padding: 0 9px; font-size: 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+.settings-v .ai-sink .aiz-hist .ah-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }

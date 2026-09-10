@@ -277,9 +277,16 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     });
   }, []);
 
-  // ── AI 结果区（tasks 4.2 / D14）：每格一个 sink，采纳才写回 ─────────
+  // ── AI 结果区（tasks 4.2 / D14 + 生成历史）：每格保留**最近 5 次**结果，
+  //    可切回任意一次再采纳（避免无限抽卡 / 反悔）；采纳＝覆盖该格控件。────
+  const SINK_MAX = 5;
   const [sinks, setSinks] = useState<
-    Partial<Record<GenreAiField, { label: string; node: React.ReactNode; adopt: () => void }>>
+    Partial<
+      Record<
+        GenreAiField,
+        { list: Array<{ label: string; node: React.ReactNode; adopt: () => void }>; idx: number }
+      >
+    >
   >({});
   const [running, setRunning] = useState<GenreAiField | null>(null);
   /** 面板级在途锁（ref 同步判定）：同时在飞的只有一个题材 AI 请求。 */
@@ -290,7 +297,6 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
       if (aiBusyRef.current) return; // 已有在途请求：忽略重复触发
       aiBusyRef.current = true;
       setRunning(field);
-      setSinks((prev) => ({ ...prev, [field]: undefined }));
       const context: Record<string, unknown> = {
         current:
           field === "core_promise"
@@ -345,10 +351,12 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             node = <p style={{ margin: 0 }}>{text}</p>;
             adopt = () => patch({ track: text });
           }
-          setSinks((prev) => ({
-            ...prev,
-            [field]: { label: AI_LABEL[field], node, adopt },
-          }));
+          setSinks((prev) => {
+            const list = [...(prev[field]?.list ?? []), { label: AI_LABEL[field], node, adopt }].slice(
+              -SINK_MAX,
+            );
+            return { ...prev, [field]: { list, idx: list.length - 1 } };
+          });
         })
         .catch((e: unknown) => {
           const reason = aiBlockReason(e);
@@ -460,20 +468,37 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         {running === "core_promise" && (
           <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
         )}
-        {sinks.core_promise && (
-          <AiSink
-            label={sinks.core_promise!.label}
-            adoptText="采纳 · 覆盖"
-            onAdopt={() => {
-              sinks.core_promise!.adopt();
-              toast.success("已采纳，落回对应格，随时可改");
-            }}
-            onRetry={() => runAi("core_promise")}
-            data-od-id={`genre-ai-sink-core_promise`}
-          >
-            {sinks.core_promise!.node}
-          </AiSink>
-        )}
+{(() => {
+          const st = sinks.core_promise;
+          if (!st) return null;
+          const { list, idx: active } = st;
+          const entry = list[active];
+          if (!entry) return null;
+          return (
+            <AiSink
+              label={entry.label}
+              history={{
+                total: list.length,
+                active,
+                max: SINK_MAX,
+                onSelect: (i) =>
+                  setSinks((prev) => {
+                    const cur = prev.core_promise;
+                    return cur ? { ...prev, core_promise: { ...cur, idx: i } } : prev;
+                  }),
+              }}
+              adoptText="采纳 · 覆盖"
+              onAdopt={() => {
+                entry.adopt();
+                toast.success("已采纳，落回对应格，随时可改");
+              }}
+              onRetry={() => runAi("core_promise")}
+              data-od-id={`genre-ai-sink-core_promise`}
+            >
+              {entry.node}
+            </AiSink>
+          );
+        })()}
       </Mod>
 
       {/* 03 绝对禁止 → forbidden_list */}
@@ -536,20 +561,37 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         {running === "forbidden_list" && (
           <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
         )}
-        {sinks.forbidden_list && (
-          <AiSink
-            label={sinks.forbidden_list!.label}
-            adoptText="采纳 · 覆盖"
-            onAdopt={() => {
-              sinks.forbidden_list!.adopt();
-              toast.success("已采纳，落回对应格，随时可改");
-            }}
-            onRetry={() => runAi("forbidden_list")}
-            data-od-id={`genre-ai-sink-forbidden_list`}
-          >
-            {sinks.forbidden_list!.node}
-          </AiSink>
-        )}
+{(() => {
+          const st = sinks.forbidden_list;
+          if (!st) return null;
+          const { list, idx: active } = st;
+          const entry = list[active];
+          if (!entry) return null;
+          return (
+            <AiSink
+              label={entry.label}
+              history={{
+                total: list.length,
+                active,
+                max: SINK_MAX,
+                onSelect: (i) =>
+                  setSinks((prev) => {
+                    const cur = prev.forbidden_list;
+                    return cur ? { ...prev, forbidden_list: { ...cur, idx: i } } : prev;
+                  }),
+              }}
+              adoptText="采纳 · 覆盖"
+              onAdopt={() => {
+                entry.adopt();
+                toast.success("已采纳，落回对应格，随时可改");
+              }}
+              onRetry={() => runAi("forbidden_list")}
+              data-od-id={`genre-ai-sink-forbidden_list`}
+            >
+              {entry.node}
+            </AiSink>
+          );
+        })()}
       </Mod>
 
       {/* 04 吃苦指数 → cost_ratio */}
@@ -590,20 +632,37 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         {running === "cost_ratio" && (
           <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
         )}
-        {sinks.cost_ratio && (
-          <AiSink
-            label={sinks.cost_ratio!.label}
-            adoptText="采纳 · 覆盖"
-            onAdopt={() => {
-              sinks.cost_ratio!.adopt();
-              toast.success("已采纳，落回对应格，随时可改");
-            }}
-            onRetry={() => runAi("cost_ratio")}
-            data-od-id={`genre-ai-sink-cost_ratio`}
-          >
-            {sinks.cost_ratio!.node}
-          </AiSink>
-        )}
+{(() => {
+          const st = sinks.cost_ratio;
+          if (!st) return null;
+          const { list, idx: active } = st;
+          const entry = list[active];
+          if (!entry) return null;
+          return (
+            <AiSink
+              label={entry.label}
+              history={{
+                total: list.length,
+                active,
+                max: SINK_MAX,
+                onSelect: (i) =>
+                  setSinks((prev) => {
+                    const cur = prev.cost_ratio;
+                    return cur ? { ...prev, cost_ratio: { ...cur, idx: i } } : prev;
+                  }),
+              }}
+              adoptText="采纳 · 覆盖"
+              onAdopt={() => {
+                entry.adopt();
+                toast.success("已采纳，落回对应格，随时可改");
+              }}
+              onRetry={() => runAi("cost_ratio")}
+              data-od-id={`genre-ai-sink-cost_ratio`}
+            >
+              {entry.node}
+            </AiSink>
+          );
+        })()}
       </Mod>
 
       {/* 05 主线战场 → battlefield */}
@@ -651,20 +710,37 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         {running === "battlefield" && (
           <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
         )}
-        {sinks.battlefield && (
-          <AiSink
-            label={sinks.battlefield!.label}
-            adoptText="采纳 · 覆盖"
-            onAdopt={() => {
-              sinks.battlefield!.adopt();
-              toast.success("已采纳，落回对应格，随时可改");
-            }}
-            onRetry={() => runAi("battlefield")}
-            data-od-id={`genre-ai-sink-battlefield`}
-          >
-            {sinks.battlefield!.node}
-          </AiSink>
-        )}
+{(() => {
+          const st = sinks.battlefield;
+          if (!st) return null;
+          const { list, idx: active } = st;
+          const entry = list[active];
+          if (!entry) return null;
+          return (
+            <AiSink
+              label={entry.label}
+              history={{
+                total: list.length,
+                active,
+                max: SINK_MAX,
+                onSelect: (i) =>
+                  setSinks((prev) => {
+                    const cur = prev.battlefield;
+                    return cur ? { ...prev, battlefield: { ...cur, idx: i } } : prev;
+                  }),
+              }}
+              adoptText="采纳 · 覆盖"
+              onAdopt={() => {
+                entry.adopt();
+                toast.success("已采纳，落回对应格，随时可改");
+              }}
+              onRetry={() => runAi("battlefield")}
+              data-od-id={`genre-ai-sink-battlefield`}
+            >
+              {entry.node}
+            </AiSink>
+          );
+        })()}
       </Mod>
 
       {/* 06 剧情轨道 → track */}
@@ -692,20 +768,37 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         {running === "track" && (
           <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
         )}
-        {sinks.track && (
-          <AiSink
-            label={sinks.track!.label}
-            adoptText="采纳 · 覆盖"
-            onAdopt={() => {
-              sinks.track!.adopt();
-              toast.success("已采纳，落回对应格，随时可改");
-            }}
-            onRetry={() => runAi("track")}
-            data-od-id={`genre-ai-sink-track`}
-          >
-            {sinks.track!.node}
-          </AiSink>
-        )}
+{(() => {
+          const st = sinks.track;
+          if (!st) return null;
+          const { list, idx: active } = st;
+          const entry = list[active];
+          if (!entry) return null;
+          return (
+            <AiSink
+              label={entry.label}
+              history={{
+                total: list.length,
+                active,
+                max: SINK_MAX,
+                onSelect: (i) =>
+                  setSinks((prev) => {
+                    const cur = prev.track;
+                    return cur ? { ...prev, track: { ...cur, idx: i } } : prev;
+                  }),
+              }}
+              adoptText="采纳 · 覆盖"
+              onAdopt={() => {
+                entry.adopt();
+                toast.success("已采纳，落回对应格，随时可改");
+              }}
+              onRetry={() => runAi("track")}
+              data-od-id={`genre-ai-sink-track`}
+            >
+              {entry.node}
+            </AiSink>
+          );
+        })()}
       </Mod>
 
       {error && (

@@ -247,3 +247,35 @@ describe("GenreSettingForm · 五行 AI", () => {
     expect(container.querySelector('[data-od-id="genre-ai-sink-track"]')).toBeNull();
   });
 });
+
+// 题材五行：最近 5 次历史 + 切回旧版采纳覆盖本格
+describe("GenreSettingForm · 生成历史（最近 5 次）", () => {
+  beforeEach(() => {
+    apiState.get.mockReset();
+    apiState.put.mockReset();
+    apiState.put.mockResolvedValue({ ok: true });
+    aiState.genreAi.mockReset();
+  });
+
+  it("连生成 6 次只保留最近 5 次；切回旧版采纳覆盖本格", async () => {
+    const { ref, container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+
+    for (let i = 1; i <= 6; i++) {
+      aiState.genreAi.mockResolvedValueOnce({ value: `第${i}版轨道` });
+      await act(async () => ref.current!.runAi("track"));
+      await waitFor(() => expect(container.textContent).toContain(`第${i}版轨道`));
+    }
+    const chips = [...container.querySelectorAll('[data-od-id="ai-sink-history"] [data-hist]')];
+    expect(chips).toHaveLength(5); // 丢最旧
+    expect(container.textContent).toContain("只保留最近 5 次");
+
+    // 切回第 1 条（＝第 2 次生成）并采纳 → 覆盖 06 文本框
+    fireEvent.click(chips[0]);
+    expect(container.textContent).toContain("第2版轨道");
+    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
+    expect((container.querySelector('[data-od-id="track-input"]') as HTMLTextAreaElement).value).toBe(
+      "第2版轨道",
+    );
+  });
+});

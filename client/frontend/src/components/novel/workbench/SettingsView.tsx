@@ -607,6 +607,7 @@ const IntroPanel = forwardRef<
         .then((r) => {
           if (!cancelled && !editedRef.current) {
             setSynopsis(r.synopsis ?? "");
+            baseRef.current = r.synopsis ?? "";
             snapshotLoaded(r.synopsis ?? "");
           }
         })
@@ -636,15 +637,39 @@ const IntroPanel = forwardRef<
 
 
     const [guideOpen, setGuideOpen] = useState(false);
-    // AI 结果区状态（tasks 3.3/3.4）：{ label, node, adopt } —— 所有权在本面板
-    const [sink, setSink] = useState<
-      | { action: IntroAiAction; label: string; node: React.ReactNode; adopt?: () => void }
-      | null
-    >(null);
+    // AI 结果区（tasks 3.3/3.4 + 生成历史）：每个能力保留**最近 5 次**结果，
+    // 可切回任意一次再采纳（避免无限抽卡 / 反悔）；采纳＝用选中那次整段替换输入框。
+    const [sinks, setSinks] = useState<
+      Partial<
+        Record<
+          IntroAiAction,
+          { list: Array<{ label: string; node: React.ReactNode; adopt?: () => void }>; idx: number }
+        >
+      >
+    >({});
+    /** 手写内容＝合成基准：手动编辑时更新；采纳结果不回写基准（防多次采纳叠加）。 */
+    const baseRef = useRef("");
+    /** 最近一次触发的能力（结果区展示对象）。 */
+    const lastActionRef = useRef<IntroAiAction>("introspect");
     /** 运行态（D14）：点完立刻在输入框下方给「生成中」占位，避免用户以为没反应。 */
     const [aiRunning, setAiRunning] = useState<IntroAiAction | null>(null);
     /** 面板级在途锁（ref 同步判定）：无论调用方点几次，同时在飞的只有一个请求。 */
     const aiBusyRef = useRef(false);
+
+    /** 生成历史上限：只保留最近 5 次（避免无限抽卡；要更早的版本就从这 5 条里选）。 */
+    const SINK_MAX = 5;
+
+    /** 追加一条生成结果并切到最新（超出上限丢最旧）。 */
+    const pushSink = useCallback(
+      (entry: { action: IntroAiAction; label: string; node: React.ReactNode; adopt?: () => void }) => {
+        const { action, ...rest } = entry;
+        setSinks((prev) => {
+          const list = [...(prev[action]?.list ?? []), rest].slice(-SINK_MAX);
+          return { ...prev, [action]: { list, idx: list.length - 1 } };
+        });
+      },
+      [],
+    );
 
     const runAi = useCallback(
       async (action: IntroAiAction) => {
@@ -659,7 +684,7 @@ const IntroPanel = forwardRef<
           return;
         }
         aiBusyRef.current = true;
-        setSink(null);
+        lastActionRef.current = action;
         setAiRunning(action);
         await introAi(action, { title: novelName ?? "", content }, projectId)
           .then((r) => {
@@ -667,7 +692,7 @@ const IntroPanel = forwardRef<
               introspectedRef.current = true;
               const segs = r.six_segments ?? [];
               const hits = r.taboo?.hits ?? [];
-              setSink({
+              pushSink({
                 action,
                 label: "AI 体检 · 六段逐项",
                 node: (
@@ -697,7 +722,7 @@ const IntroPanel = forwardRef<
               });
             } else if (action === "fill") {
               const miss = r.missing ?? [];
-              setSink({
+              pushSink({
                 action,
                 label: "补全缺失 · 候选如下，采纳才插入",
                 node: (
@@ -715,27 +740,27 @@ const IntroPanel = forwardRef<
                 ),
                 adopt: miss.length
                   ? () => {
+                      // 采纳＝**清空原输入、用「手写基准 + 本次候选」整段重写**：
+                      // 基准只在手动编辑时更新，故连续采纳不同候选不会层层叠加
+                      const base = baseRef.current.trim();
                       const add = miss
                         .map((m) => m.candidate)
                         .join("")
                         .trim();
-                      const next = (synopsis.trim() + (synopsis.trim() ? "。" : "") + add).slice(
-                        0,
-                        INTRO_MAX_LEN,
-                      );
+                      const next = (base ? `${base}。${add}` : add).slice(0, INTRO_MAX_LEN);
                       editedRef.current = true;
                       setSynopsis(next);
                       toast.success(
                         next.length >= INTRO_MAX_LEN
-                          ? "已追加（已到 500 字上限，尾部截断）"
-                          : "已追加进简介，可继续改",
+                          ? "已采纳（到 500 字上限，尾部截断）"
+                          : "已采纳，整段已替换为「你的原文 + 补全段」，可继续改",
                       );
                     }
                   : undefined,
               });
             } else {
               const polished = r.polished ?? "";
-              setSink({
+              pushSink({
                 action,
                 label: "润色 · 前后对照，采纳才替换",
                 node: (
@@ -784,11 +809,17 @@ const IntroPanel = forwardRef<
         focus: () => taRef.current?.focus(),
         runAi,
         markDirty,
-        clearAi: () => setSink(null),
+        clearAi: () => setSinks({}),
         hasIntrospected: () => introspectedRef.current,
       }),
       [save, synopsis, runAi, markDirty],
     );
+
+    // 结果区展示哪个能力的历史：取最近一次生成过的（点过体检就显示体检的那条）
+    const viewAction: IntroAiAction =
+      (["introspect", "fill", "polish"] as IntroAiAction[])
+        .filter((a) => (sinks[a]?.list.length ?? 0) > 0)
+        .slice(-1)[0] ?? lastActionRef.current;
 
     return (
       <>
@@ -809,6 +840,7 @@ const IntroPanel = forwardRef<
             disabled={saving}
             onChange={(e) => {
               editedRef.current = true;
+              baseRef.current = e.target.value; // 手动编辑＝新的合成基准
               setSynopsis(e.target.value);
             }}
           />
@@ -849,7 +881,7 @@ const IntroPanel = forwardRef<
         </div>
 
         {/* 运行态占位：点完立刻可见（否则用户不知道后台在跑，会连点） */}
-        {aiRunning && !sink && (
+        {aiRunning && (
           <div className="ai-sink" data-od-id="intro-ai-running" aria-busy="true">
             <div className="aiz-head">{AI_RUNNING_LABEL[aiRunning]}</div>
             <span className="opt" style={{ fontSize: 12 }}>
@@ -859,16 +891,39 @@ const IntroPanel = forwardRef<
         )}
 
         {/* AI 结果区：落编辑框下方（tasks 3.3/3.4，采纳后保留、重新请求覆盖） */}
-        {sink && (
-          <AiSink
-            label={sink.label}
-            adoptText={sink.action === "fill" ? "采纳 · 追加到简介" : sink.action === "polish" ? "采纳 · 替换简介" : undefined}
-            onAdopt={sink.adopt}
-            data-od-id="intro-ai-sink"
-          >
-            {sink.node}
-          </AiSink>
-        )}
+        {(() => {
+          const st = sinks[viewAction];
+          const entry = st?.list[st.idx];
+          if (!entry || !st) return null;
+          const { list, idx: active } = st;
+          return (
+            <AiSink
+              label={entry.label}
+              history={{
+                total: list.length,
+                active,
+                max: SINK_MAX,
+                onSelect: (i) =>
+                  setSinks((prev) => {
+                    const cur = prev[viewAction];
+                    return cur ? { ...prev, [viewAction]: { ...cur, idx: i } } : prev;
+                  }),
+              }}
+              adoptText={
+                viewAction === "fill"
+                  ? "采纳 · 替换为补全后的简介"
+                  : viewAction === "polish"
+                    ? "采纳 · 替换简介"
+                    : undefined
+              }
+              onAdopt={entry.adopt}
+              onRetry={() => void runAi(viewAction)}
+              data-od-id="intro-ai-sink"
+            >
+              {entry.node}
+            </AiSink>
+          );
+        })()}
 
         <p className="opt" style={{ fontSize: 12, margin: "-6px 0 16px" }}>
           简介会作为后续设定和写作的依据。
