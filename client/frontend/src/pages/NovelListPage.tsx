@@ -377,10 +377,14 @@ function NovelList() {
               >
                 <div className="top">
                   <span className="mono">{(p.name || "书")[0]}</span>
-                  <span className="genre">
-                    <Ico d={genreIconPath(p.genre)} />
-                    {p.genre || "其他"}
-                  </span>
+                  {/* 类型胶囊只在有值时渲染：建书不再问类型（2026-09-10），
+                      否则每本新书都挂一个「其他」标签，像是用户选错了 */}
+                  {p.genre && (
+                    <span className="genre">
+                      <Ico d={genreIconPath(p.genre)} />
+                      {p.genre}
+                    </span>
+                  )}
                   <span className={`b ${stage}`}>
                     <Ico d={STAGE_DOT[stage]} sw={2.4} />
                     {STAGE_LABEL[stage]}

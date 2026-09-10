@@ -8,11 +8,10 @@ import { Ico, P } from "@/components/icons";
 // Types
 // ---------------------------------------------------------------------------
 
-type ModalAction = { type: "SET_NAME"; value: string } | { type: "SET_GENRE"; value: string } | { type: "DISMISS" };
+type ModalAction = { type: "SET_NAME"; value: string } | { type: "DISMISS" };
 
 interface ModalState {
   name: string;
-  genre: string;
 }
 
 interface CreateProjectModalProps {
@@ -26,28 +25,25 @@ interface CreateProjectModalProps {
 }
 
 // ---------------------------------------------------------------------------
-// Reducer — 极简两字段：书名 + 类型（选填），list.html modalCreate 原样
+// Reducer — 极简单字段：书名。
+// 2026-09-10 用户裁定：建书只问书名（「类型」不再问——类型改由「设定 · 题材」
+// 的六格承载，建书时问一次等于让作者在还没想清故事时先做分类）。
 // ---------------------------------------------------------------------------
 
 const INITIAL: ModalState = {
   name: "",
-  genre: "",
 };
 
 function reducer(state: ModalState, action: ModalAction): ModalState {
   switch (action.type) {
     case "SET_NAME":
       return { ...state, name: action.value };
-    case "SET_GENRE":
-      return { ...state, genre: action.value };
     case "DISMISS":
       return { ...INITIAL };
     default:
       return state;
   }
 }
-
-const GENRE_OPTIONS = ["玄幻", "科幻", "都市", "悬疑", "武侠", "历史", "其他"];
 
 // ---------------------------------------------------------------------------
 // Component
@@ -84,11 +80,7 @@ export default function CreateProjectModal({
     if (!name || submitting) return;
     setSubmitting(true);
     try {
-      const novel = await api.createNovel({
-        name,
-        source: "manual",
-        genre: state.genre,
-      });
+      const novel = await api.createNovel({ name, source: "manual" });
       toast.success(`已创建《${novel.name}》，正在进入这本书…`);
       onCreated(novel.id);
     } catch {
@@ -126,7 +118,7 @@ export default function CreateProjectModal({
           id="bkTitle"
           ref={inputRef}
           className="input"
-          placeholder="起个名字，10 秒内就能开始写"
+          placeholder="先随手起一个，之后能改"
           maxLength={30}
           value={state.name}
           onChange={(e) => dispatch({ type: "SET_NAME", value: e.target.value })}
@@ -134,28 +126,9 @@ export default function CreateProjectModal({
           disabled={submitting}
         />
       </div>
-      <div className="field">
-        <label htmlFor="bkGenre">
-          类型 <span style={{ color: "var(--muted)", fontSize: 11 }}>选填</span>
-        </label>
-        <select
-          id="bkGenre"
-          className="input"
-          value={state.genre}
-          onChange={(e) => dispatch({ type: "SET_GENRE", value: e.target.value })}
-          disabled={submitting}
-        >
-          {/* 空值=暂不选择（「选填」语义；原型 option 表无此项，产品侧扩展） */}
-          <option value="">暂不选择</option>
-          {GENRE_OPTIONS.map((g) => (
-            <option key={g} value={g}>
-              {g}
-            </option>
-          ))}
-        </select>
-      </div>
       <p className="hint">
-        创建后<b>直接进入这本书</b>。一本书两个模块：设定与大纲——大纲里点章，即可配章纲、看提示词、写正文；设定随时可补。
+        创建后<b>直接进入这本书</b>。书名先随手起一个，之后随时能改；建好后先写简介、
+        再定题材——两步都能跳过，以后随时回来补。
       </p>
       {freeLimitReached && (
         <p className="hint" style={{ marginTop: 10, background: "var(--warn-soft)" }}>

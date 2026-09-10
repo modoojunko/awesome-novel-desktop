@@ -204,6 +204,17 @@ test("创建小说：仅书名即可创建并进入小说页", async ({ page }) 
     // AC-1.4：空书名创建按钮不可用
     await expect(page.getByRole("button", { name: "创建并开始写作" })).toBeDisabled();
 
+    // 规格 creation-flow：The modal SHALL have no … no synopsis/genre collection
+    // 回归背景：此处曾有一个「类型（选填）」下拉，与既有规格相悖（2026-09-10 修）
+    const dlg = page.getByRole("dialog");
+    await expect(dlg.locator(".field")).toHaveCount(1);
+    await expect(dlg.locator("select")).toHaveCount(0);
+    await expect(dlg).not.toContainText("类型");
+    // 文案：先随手起一个、之后能改；建好后先写简介再定题材（用户 2026-09-10 起草）
+    await expect(dlg.locator(".hint").first()).toContainText("之后随时能改");
+    await expect(dlg.locator(".hint").first()).toContainText("先写简介");
+    await expect(dlg.locator(".hint").first()).toContainText("再定题材");
+
     const bookName = `穿越测试${Date.now() % 10000}`;
     await page.locator("input#bkTitle").fill(bookName);
     await page.getByRole("button", { name: "创建并开始写作" }).click();
@@ -212,7 +223,12 @@ test("创建小说：仅书名即可创建并进入小说页", async ({ page }) 
     await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/, { timeout: 10000 });
     // 顶栏显示书名
     await expect(page.getByText(bookName).first()).toBeVisible({ timeout: 10000 });
-    // AC-1.2/1.3（设计 v2 修订）：弹窗保持极简 —— 书名 + 类型（选填），无简介/导入入口
+
+    // 新书无类型 → 书架卡片不挂「其他」胶囊（否则像用户选错了）
+    await page.goto(`${ORIGIN}/#/novels`);
+    const card = page.locator(".cards .book-card", { hasText: bookName }).first();
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(card.locator(".genre")).toHaveCount(0);
   } finally {
     restore();
   }
