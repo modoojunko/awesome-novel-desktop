@@ -115,6 +115,9 @@ async function setupFirstChapter(page: Page, name: string) {
   await page.locator("input#bkTitle").fill(name);
   await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
+  // 空书默认落「设定」（@/lib/novelStage）→ 本 spec 在写作视图操作，先切过去
+  await page.locator(".mtab", { hasText: "写作" }).click();
+  await expect(page.locator(".mtab.on")).toContainText("写作");
   await page.getByTitle("添加卷").click();
   await page.getByLabel("卷名", { exact: true }).fill("第一卷");
   await page.getByLabel(/初始章数/).fill("1");

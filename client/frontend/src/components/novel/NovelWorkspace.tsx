@@ -282,6 +282,7 @@ export default function NovelWorkspace() {
           source={project?.source}
           onGoSettings={() => go("advanced-settings")}
           registerRefetch={registerPhaseRefetch}
+          inSettings={view === "advanced-settings"}
         />
       </ProContainer>
 
@@ -450,11 +451,14 @@ function ProPhaseSurface({
   source,
   onGoSettings,
   registerRefetch,
+  inSettings,
 }: {
   projectId: string;
   source: string | undefined;
   onGoSettings: () => void;
   registerRefetch: (fn: () => void) => void;
+  /** 当前是否已在设定页（空书默认落设定 → 不再叠「开始设定」引导卡）。 */
+  inSettings: boolean;
 }) {
   const { phaseStatus, refetch } = useNovelState(projectId || undefined);
 
@@ -475,7 +479,8 @@ function ProPhaseSurface({
 
   const allPhasesPending =
     phaseStatus !== null && Object.values(phaseStatus).every((s) => s === "pending");
-  const showOnboarding = allPhasesPending && !onboardingDismissed;
+  // 已在设定页时不叠引导卡（卡片唯一作用是把人送到设定；空书已默认落设定）
+  const showOnboarding = allPhasesPending && !onboardingDismissed && !inSettings;
 
   return (
     <>

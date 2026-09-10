@@ -11,6 +11,7 @@ import { Ico, P, genreIconPath } from "@/components/icons";
 import { PORTAL_URL } from "@/lib/portal";
 import { supportUrl } from "@/lib/support";
 import { useTier } from "@/hooks/useTier";
+import { STAGE_LABEL } from "@/lib/novelStage";
 
 interface Novel {
   id: string;
@@ -35,7 +36,7 @@ const PHASE_STAGE: Record<string, "setting" | "writing" | "done"> = {
   write: "writing",
   archive: "done",
 };
-const STAGE_LABEL = { writing: "写作中", setting: "设定中", done: "已归档" } as const;
+// 阶段标签单源在 @/lib/novelStage（与「打开书的默认落点」同一个阶段模型）
 const STAGE_DOT = {
   writing: '<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
   setting: '<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
