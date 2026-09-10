@@ -341,6 +341,9 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
     await expect(
       page.locator(".settings-v main h2", { hasText: "世界" }),
     ).toBeVisible({ timeout: 5000 });
+    // 确认即前进＝换面板：上一条回执的撤销闭包属于题材表单，留在世界面板就是
+    // 「点了没反应」的死撤销（值还已落库）→ 必须清掉（换面板四条路径统一兜）
+    await expect(page.locator('[data-od-id="panel-receipt"]')).toHaveCount(0);
 
     // 后端直查：01 题材目录 + 五字段契约（无 genre_id）
     const genre = await apiGetJSON(request, token, `/novels/${pid}/settings/genre`);
@@ -380,9 +383,13 @@ test("题材：长回执单行截断，确认完成点得到", async ({ page }) 
     expect(await rt.getAttribute("title")).toBe((await rt.textContent())?.trim());
     expect(await rt.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
 
-    // 脚部不许折行（一行的高度 ≪ 两行），且滚到底后仍在窗口状态条之上
+    // 脚部不许折行：`flex-wrap: nowrap` 只禁「项换行」，进度提示文字折行同样会把
+    // 脚部顶高（一行 ≈58px，两行 ≈93px；提示折成两行时自身高 43 ≠ 一行 22）
     const foot = page.locator(".panel-foot");
-    expect((await foot.boundingBox())!.height).toBeLessThan(80);
+    expect((await foot.boundingBox())!.height).toBeLessThan(70);
+    const note = page.locator(".panel-foot .note");
+    expect(await note.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe("nowrap");
+    expect((await note.boundingBox())!.height).toBeLessThan(30);
     const btn = foot.getByRole("button", { name: "确认完成" });
     await btn.scrollIntoViewIfNeeded();
     const footBox = (await foot.boundingBox())!;

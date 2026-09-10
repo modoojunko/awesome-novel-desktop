@@ -16,8 +16,8 @@ import { useCallback, useState } from "react";
 export interface ChangeReceiptState {
   /** 作者视角的改动说明，如「已把吃苦指数从 6 调到 8」。 */
   text: string;
-  /** 一步撤销：回退这次改动并清掉回执。 */
-  undo: () => void;
+  /** 一步撤销：回退这次改动并清掉回执。**抛错则保留回执**（如模型撤销的网络写失败）。 */
+  undo: () => void | Promise<void>;
 }
 
 /**
@@ -37,13 +37,17 @@ export function useChangeReceipt(onChange?: (r: ChangeReceiptState | null) => vo
 
   /** 记一次改动：先 apply，再挂回执（撤销＝revert 后清回执）。 */
   const record = useCallback(
-    (text: string, apply: () => void, revert: () => void) => {
+    (text: string, apply: () => void, revert: () => void | Promise<void>) => {
       apply();
       publish({
         text,
-        undo: () => {
-          revert();
-          publish(null);
+        undo: async () => {
+          try {
+            await revert();
+            publish(null);
+          } catch {
+            // revert 失败（如撤销模型要写服务端）→ 保留回执，用户可再试
+          }
         },
       });
     },
@@ -59,7 +63,8 @@ export function useChangeReceipt(onChange?: (r: ChangeReceiptState | null) => vo
 export function ChangeReceiptBar({ receipt }: { receipt: ChangeReceiptState | null }) {
   if (!receipt) return null;
   return (
-    <span className="receipt" data-od-id="panel-receipt">
+    // role=status + aria-live：这条回执就是「改了知道」本身，读屏也得听得到
+    <span className="receipt" data-od-id="panel-receipt" role="status" aria-live="polite">
       {/* 长回执单行截断（脚部不许折行，见 book.css），全文走 title 悬浮可读 */}
       <span className="rt" title={receipt.text}>
         {receipt.text}
@@ -68,8 +73,9 @@ export function ChangeReceiptBar({ receipt }: { receipt: ChangeReceiptState | nu
         type="button"
         className="undo"
         data-od-id="panel-undo"
-        onClick={receipt.undo}
+        onClick={() => void receipt.undo()}
         title="回到这次改动之前"
+        aria-label={`撤销：${receipt.text}`}
       >
         撤销
       </button>

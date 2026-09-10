@@ -554,7 +554,6 @@ describe("GenreSettingForm · 改动回执 + 撤销", () => {
         .toBe("读者要看布局收网"),
     );
     expect(container.querySelector(".cost-val")!.textContent).toBe("5");
-    expect(ref.current).toBeTruthy();
   });
 
   it("禁项胶囊：勾选与取消都留回执，撤销可来回", async () => {
@@ -609,6 +608,56 @@ describe("GenreSettingForm · 改动回执 + 撤销", () => {
     expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
       .toBe("读者要看弱者翻盘");
     expect(container.querySelector('[data-od-id="field-restore"]')).toBeNull();
+  });
+
+  it("撤销按差量：勾选后自己加的自定义禁区不被撤销带走", async () => {
+    const { receipt, container } = renderPanel({});
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+
+    fireEvent.click(container.querySelector('[data-forbid="forbidden:no-villain-idiot"]')!);
+    const input = container.querySelector('[data-od-id="forbid-input"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "禁穿越" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    receipt()!.undo();
+    await waitFor(() =>
+      expect(container.querySelector('[data-forbid="forbidden:no-villain-idiot"]')!.className)
+        .not.toContain("on"),
+    );
+    // 「禁穿越」是勾选之后作家自己敲的，不属于这次改动 → 保留
+    expect(container.textContent).toContain("禁穿越");
+  });
+
+  it("滑块：未设 → N 也出回执（首次使用同样可撤销）", async () => {
+    const { receipt, container } = renderPanel({ cost_ratio: null });
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+    const slider = container.querySelector('[data-od-id="cost-slider"]') as HTMLInputElement;
+
+    fireEvent.pointerDown(slider);
+    fireEvent.change(slider, { target: { value: "7" } });
+    fireEvent.pointerUp(slider);
+    expect(receipt()?.text).toBe("已把吃苦指数从未设调到 7");
+
+    receipt()!.undo();
+    await waitFor(() =>
+      expect(container.querySelector(".cost-val")!.textContent).toBe("—"),
+    );
+  });
+
+  it("滑块：一次拖动里来回一圈回到原值 → 不算改动，连上一条回执一起清掉", async () => {
+    const { receipt, container } = renderPanel({ cost_ratio: 6 });
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+    const slider = container.querySelector('[data-od-id="cost-slider"]') as HTMLInputElement;
+
+    // 垫一条回执（用 03 勾选，免得动了 04 的值把「原值」挪走）
+    fireEvent.click(container.querySelector('[data-forbid="forbidden:no-villain-idiot"]')!);
+    expect(receipt()).not.toBeNull();
+
+    fireEvent.pointerDown(slider);
+    fireEvent.change(slider, { target: { value: "9" } });
+    fireEvent.change(slider, { target: { value: "6" } });
+    fireEvent.pointerUp(slider);
+    expect(receipt()).toBeNull();
   });
 
   it("AI 采纳覆盖这段 → 回执报字数，撤销写回改前两个字", async () => {

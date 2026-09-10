@@ -7,15 +7,7 @@
 // 不参与进度（ADJUSTMENTS #4）。
 // 产品扩展（ADJUSTMENTS #9）：已确认面板的按钮转「保存修改」——设计稿 done 态
 // 无落库入口，保留产品「改完随时存」能力；确认流程沿 gap3（先 save 再 confirm）。
-import {
-  forwardRef,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useDirtyState } from "@/hooks/useDirtyState";
@@ -115,6 +107,11 @@ export default function SettingsView({
   /** 改动回执（用户 2026-09-10）：三面板里"一键改变内容"的动作在脚部留一条 + 一步撤销。 */
   const [receipt, setReceipt] = useState<ChangeReceiptState | null>(null);
   const handleReceiptChange = useCallback((r: ChangeReceiptState | null) => setReceipt(r), []);
+  // 回执只属于「当前面板的那一次改动」：撤销闭包握的是该面板表单的 setData，
+  // 切走后留着就是点了没反应的死撤销（值已确认落库的更糟）。切面板有四条路径
+  // （点左栏 / 确认即前进 / 缺模型跳转 / 外部 initialPanel），统一由这条兜住，
+  // 不在各调用点各自清。
+  useEffect(() => setReceipt(null), [panel]);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -247,8 +244,7 @@ export default function SettingsView({
         if (!ok) return;
       }
       handleDirtyChange(false);
-      setReceipt(null); // 换面板不留上一页的回执
-      setPanel(k);
+      setPanel(k); // 回执由 [panel] 的 effect 统一清（见 receipt 声明处）
     },
     [panel, dirty, handleDirtyChange],
   );
@@ -293,7 +289,10 @@ export default function SettingsView({
     setBusy(true);
     try {
       const saved = await currentHandle()?.save();
-      if (saved === true) toast.success(`「${item.name}」已存草稿`);
+      if (saved === true) {
+        setReceipt(null); // 同上：落库后回执的撤销不再成立
+        toast.success(`「${item.name}」已存草稿`);
+      }
     } finally {
       setBusy(false);
     }
@@ -311,6 +310,8 @@ export default function SettingsView({
       const handle = currentHandle();
       const saved = await handle?.save();
       if (saved !== true) return;
+      // 保存成功＝这次改动已落库，回执里的撤销只能改回内存（与库不一致）→ 清掉
+      setReceipt(null);
       if (confirmed) {
         handle?.clearAi?.();
         toast.success(`「${item.name}」已保存`);
@@ -642,7 +643,9 @@ const IntroPanel = forwardRef<
     const [textHint, setTextHint] = useState(false);
     /** 采纳时刻的真实「改前值」（sink 是结果到达时创建的，闭包里的 synopsis 会过期）。 */
     const synopsisRef = useRef("");
-    synopsisRef.current = synopsis;
+    useLayoutEffect(() => {
+      synopsisRef.current = synopsis;
+    });
     // 前置守卫（O-3）：补缺失必须先体检拿到缺失段
     const introspectedRef = useRef(false);
 
@@ -673,6 +676,9 @@ const IntroPanel = forwardRef<
         const r = await api.updateStory(projectId, synopsis);
         setSynopsis(r.synopsis);
         markSaved();
+        // 保存＝新的「原文」：基线前移 + 撤下提示（否则一键恢复会把刚保存的内容改回旧版）
+        baseTextRef.current = r.synopsis ?? "";
+        setTextHint(false);
         return true;
       } catch {
         toast.error("简介保存失败");
@@ -821,7 +827,7 @@ const IntroPanel = forwardRef<
                       const next = (base ? `${base}。${add}` : add).slice(0, INTRO_MAX_LEN);
                       editedRef.current = true;
                       recordChange(
-                        `已采纳「补全缺失」，简介 ${synopsis.length} 字 → ${next.length} 字`,
+                        `已采纳「补全缺失」，简介 ${synopsisRef.current.length} 字 → ${next.length} 字`,
                         () => {
                           /* 值在下面落地 */
                         },
@@ -860,7 +866,7 @@ const IntroPanel = forwardRef<
                       const next = polished.slice(0, INTRO_MAX_LEN);
                       editedRef.current = true;
                       recordChange(
-                        `已采纳「润色」，简介 ${synopsis.length} 字 → ${next.length} 字`,
+                        `已采纳「润色」，简介 ${synopsisRef.current.length} 字 → ${next.length} 字`,
                         () => {
                           /* 值在下面落地 */
                         },

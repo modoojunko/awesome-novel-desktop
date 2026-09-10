@@ -6,6 +6,7 @@
 //   组内模型行＝radiogroup/radio + roving tabindex + 方向键/Home/End（选中不可取消）；
 //   **选择与生效分离**——点行只标亮（draft），点「设为本书模型」才落库（整对 PUT）；
 //   400 保留 draft + 行内报错；draft 未确认时切面板走全局 dirty 提示。
+import { toast } from "@/lib/toast";
 import { useChangeReceipt } from "./ChangeReceipt";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useModelStatus } from "@/hooks/useModelStatus";
@@ -167,7 +168,6 @@ export default function ModelSettingForm({
     // 改前值：把本书 AI 从「原模型」换成「新模型」——错了会让全书生成走错模型，故可撤销
     const prevCid = currentConfigId;
     const prevModel = currentModel;
-    const prevName = currentConfigName;
     try {
       await selectModel(draft.cid, draft.model);
       setDraft(null);
@@ -177,8 +177,15 @@ export default function ModelSettingForm({
         () => {
           /* 值已落库 */
         },
-        () => {
-          void selectModel(prevCid ?? null, prevModel ?? null).then(() => onModelChanged?.());
+        async () => {
+          // 撤销＝一次真实落库写：失败必须抛（hook 会保留回执让用户重试），并给可见反馈
+          try {
+            await selectModel(prevCid ?? null, prevModel ?? null);
+            onModelChanged?.();
+          } catch (e) {
+            toast.error((e as Error).message || "撤销失败，请重试");
+            throw e;
+          }
         },
       );
       onModelChanged?.();
@@ -188,7 +195,7 @@ export default function ModelSettingForm({
     } finally {
       setSaving(false);
     }
-  }, [draft, saving, selectModel, onModelChanged, recordChange, configs, currentConfigId, currentModel, currentConfigName]);
+  }, [draft, saving, selectModel, onModelChanged, recordChange, configs, currentConfigId, currentModel]);
 
   if (!projectId) return null;
   if (loading) return <p className="opt">查询中…</p>;

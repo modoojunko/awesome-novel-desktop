@@ -543,7 +543,10 @@ body.focus .editor-wrap { padding-inline: 8vw; }
    （.statusbar，fixed 26px）之下 —— 「确认完成」被盖住点不到（2026-09-10 e2e 实测）。 */
 .settings-v .panel-foot { flex-wrap: nowrap; }
 .settings-v .panel-foot .btn { flex: none; }
-.settings-v .panel-foot .gap-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 脚部两段可截断文本：进度提示（`note`）与回执正文（`.rt`）。
+   注意 `flex-wrap: nowrap` 只禁「项换行」，不禁「项内文本换行」——中文 min-content
+   约一字宽，不加 nowrap 时提示会自己折成两行，脚部又变两行（2026-09-10 实测）。 */
+.settings-v .panel-foot .note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-v .receipt .rt { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-v .receipt .undo { flex: none; border: 0; background: transparent; color: var(--warn); font: inherit; font-size: 12.5px; text-decoration: underline; cursor: pointer; padding: 0; }
 /* 文本字段：失焦后的「已修改 · 恢复原文」（打字时不出现） */

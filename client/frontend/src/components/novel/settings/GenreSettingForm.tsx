@@ -14,7 +14,7 @@
 // 空值统一："" / 空白 / [] / null 等价未填（后端 Pydantic + CHECK 同口径）。
 // AI 反馈落各格下方 .ai-sink（tasks 4.2），采纳才写回控件。
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Ico, P } from "@/components/icons";
@@ -265,20 +265,33 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
   const { snapshotLoaded, markSaved, markDirty } = useDirtyState(data, onDirtyChange);
   const cand = useCandidates();
   const { record: recordChange, clear: clearReceipt } = useChangeReceipt(onReceiptChange);
-  /** 滑块：拖动前的值（松手才出回执；拖回原值则清掉回执）。 */
+  /** 采纳瞬间的 data：AI 结果节点缓存在 sinks state 里，其 onAdopt 闭包停在
+      「点右栏那一行」那次渲染 —— 撤销若用它做基准，会抹掉结果到达后作家自己敲的字。 */
+  const dataRef = useRef(data);
+  useLayoutEffect(() => {
+    dataRef.current = data;
+  });
+  /** 滑块：拖动前的值（松手才出回执；拖回原值则清回执）。未设用 `armed` 记「从未设拖到 N」。 */
   const costBaseRef = useRef<number | null>(null);
+  const costArmedRef = useRef(false);
   const commitCost = useCallback(() => {
+    if (!costArmedRef.current) return; // 没经历「拖/聚焦」的变更（如 AI 写入）不记回执
+    costArmedRef.current = false;
     const from = costBaseRef.current;
     const to = data.cost_ratio;
-    if (from === null || to === null || from === to) return;
+    if (to === null) return;
+    if (from === to) {
+      clearReceipt(); // 拖了一圈回到原值：这次不算改动，清掉上一条回执
+      return;
+    }
     recordChange(
-      `已把吃苦指数从 ${from} 调到 ${to}`,
+      from === null ? `已把吃苦指数从未设调到 ${to}` : `已把吃苦指数从 ${from} 调到 ${to}`,
       () => {
         /* 值已在拖动中落地 */
       },
       () => setData((cur) => ({ ...cur, cost_ratio: from })),
     );
-  }, [data.cost_ratio, recordChange]);
+  }, [data.cost_ratio, recordChange, clearReceipt]);
   /** 02 句子的"打开时原值"（自己敲的字 → 失焦后给「恢复到打开时的原文」）。 */
   const noteBaseRef = useRef("");
   const [noteHint, setNoteHint] = useState(false);
@@ -545,7 +558,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     (tagId: string) => {
       const label = vocabLabel(tagId);
       const on = data.forbidden_list.some((f) => f.tagId === tagId);
-      const before = data.forbidden_list;
+      const at = data.forbidden_list.findIndex((f) => f.tagId === tagId);
       setData((prev) => ({
         ...prev,
         forbidden_list: on
@@ -553,13 +566,22 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           : [...prev.forbidden_list, { tagId }],
       }));
       // 一键勾选/取消 → 回执 + 一步撤销（recordChange 触发父组件 setState，
-      // 不得写在 setData 的 updater 里：updater 可能被 React 重复调用）
+      // 不得写在 setData 的 updater 里：updater 可能被 React 重复调用）。
+      // 撤销按**差量**回（只动这一项）：整数组快照会把「勾选之后作家自己敲进去的
+      // 自定义禁区」一起抹掉，而那不是这次改动的一部分。
       recordChange(
         `${on ? "已取消" : "已勾选"}「${label}」`,
         () => {
           /* 值已落地 */
         },
-        () => setData((cur) => ({ ...cur, forbidden_list: before })),
+        () => {
+          setData((cur) => ({
+            ...cur,
+            forbidden_list: on
+              ? [...cur.forbidden_list.slice(0, at), { tagId }, ...cur.forbidden_list.slice(at)]
+              : cur.forbidden_list.filter((f) => f.tagId !== tagId),
+          }));
+        },
       );
     },
     [data.forbidden_list, recordChange],
@@ -584,17 +606,24 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         return;
       }
       const label = val.includes(":") ? vocabLabel(val) : val;
-      const before = data.battlefield;
+      const at = data.battlefield.indexOf(val);
       setData((prev) => ({
         ...prev,
         battlefield: has ? prev.battlefield.filter((x) => x !== val) : [...prev.battlefield, val],
       }));
+      // 同 03：撤销按差量（只动这一项），不整数组回滚
       recordChange(
         `${has ? "已取消" : "已勾选"}「${label}」`,
         () => {
           /* 值已落地 */
         },
-        () => setData((cur) => ({ ...cur, battlefield: before })),
+        () =>
+          setData((cur) => ({
+            ...cur,
+            battlefield: has
+              ? [...cur.battlefield.slice(0, at), val, ...cur.battlefield.slice(at)]
+              : cur.battlefield.filter((x) => x !== val),
+          })),
       );
     },
     [data.battlefield, recordChange],
@@ -669,7 +698,11 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
                   points={points}
                   onAdopt={(p) => {
                     // 勾选器：单选＝标签+那句话；多选＝只拼那句话（单一标签表达不了多个看点）
-                    const before = { core_promise: data.core_promise, promise_note: data.promise_note };
+                    // 基准取采纳瞬间：这个节点缓存在 sinks state 里，闭包里的 data 会过期
+                    const before = {
+                      core_promise: dataRef.current.core_promise,
+                      promise_note: dataRef.current.promise_note,
+                    };
                     patch(p);
                     setNoteHint(false);
                     recordChange(
@@ -763,6 +796,10 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     try {
       await api.put(`/novels/${projectId}/settings/${settingKey}`, data);
       markSaved();
+      // 保存＝新的「原文」：基线前移并撤下提示，否则「恢复到打开时的原文」会把
+      // 刚存进去的内容改回打开时那一版（用户以为只是撤销打字）
+      noteBaseRef.current = data.promise_note;
+      setNoteHint(false);
       return true;
     } catch (e) {
       setError((e as Error).message || "保存失败");
@@ -1206,8 +1243,8 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             step={1}
             data-od-id="cost-slider"
             value={data.cost_ratio ?? 5}
-            onPointerDown={() => { costBaseRef.current = data.cost_ratio; }}
-            onFocus={() => { costBaseRef.current = data.cost_ratio; }}
+            onPointerDown={() => { costBaseRef.current = data.cost_ratio; costArmedRef.current = true; }}
+            onFocus={() => { costBaseRef.current = data.cost_ratio; costArmedRef.current = true; }}
             onChange={(e) => patch({ cost_ratio: Number(e.target.value) })}
             onPointerUp={commitCost}
             onBlur={commitCost}
