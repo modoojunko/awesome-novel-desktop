@@ -11,7 +11,9 @@
     "test:ui": "playwright test --ui",
     "design:lint": "node scripts/design-lint.mjs",
     "design:cross": "node ../../scripts/design-cross.mjs",
-    "design:check": "npm run design:lint && DESIGN_PARITY=1 playwright test e2e/design-parity.spec.ts"
+    "design:check": "npm run design:lint && DESIGN_PARITY=1 playwright test e2e/design-parity.spec.ts",
+    "e2e:sweep": "node scripts/sweep-e2e-residue.mjs --apply",
+    "e2e:sweep:dry": "node scripts/sweep-e2e-residue.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",
