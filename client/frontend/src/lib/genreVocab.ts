@@ -53,8 +53,40 @@ export const VOCAB_LABEL: Record<string, string> = Object.fromEntries(
   GENRE_VOCAB.map((e) => [e.id, e.label]),
 );
 
-export function vocabLabel(id: string): string {
-  return VOCAB_LABEL[id] ?? id;
+/** slug 切词 + 单复数归一（resource/resources 视为同词）。 */
+function slugWords(text: string): Set<string> {
+  const words = (text || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  return new Set(words.map((w) => (w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w)));
+}
+
+/**
+ * tagId / 裸 slug / **模型写岔的 id** → 中文标签。
+ *
+ * 精确命中优先；再做一次近似（模型常少写/多写一个词：`no-deus-machina` ↔
+ * `no-deus-ex-machina`）——旧数据里就有这种被当"自定义文本"存下来的英文 slug，
+ * 靠这层近似在界面上补回中文。都不中则原样返回（不静默吞掉）。
+ */
+export function vocabLabel(raw: string): string {
+  const s = (raw || "").trim();
+  if (!s) return "";
+  if (VOCAB_LABEL[s]) return VOCAB_LABEL[s];
+  for (const e of GENRE_VOCAB) {
+    const slug = e.id.split(":")[1];
+    if (s === slug) return e.label;
+  }
+  const words = slugWords(s.includes(":") ? s.split(":")[1] : s);
+  if (!words.size) return s;
+  const hits = GENRE_VOCAB.filter((e) => {
+    const known = slugWords(e.id.split(":")[1]);
+    if (!known.size) return false;
+    if (words.size === 1 || known.size === 1) {
+      return known.size === words.size && [...known].every((w) => words.has(w));
+    }
+    return (
+      [...words].every((w) => known.has(w)) || [...known].every((w) => words.has(w))
+    );
+  });
+  return hits.length === 1 ? hits[0].label : s;
 }
 
 // ── 01 口味胶囊（预置联动；不落库、不计入确认判据）────────────────────────

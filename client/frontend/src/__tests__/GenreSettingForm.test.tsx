@@ -446,6 +446,25 @@ describe("GenreSettingForm · 五行 AI", () => {
     expect(container.textContent).toContain("禁白捡神器");
   });
 
+  it("03 近似容错：模型写岔的 id（少写/多写一个词）也显示中文", async () => {
+    // 实测坑：模型把 forbidden:no-deus-ex-machina 写成 forbidden:no-deus-machina，
+    // 后端曾把它当「自定义文本」存下来 → 界面显示英文 slug（用户 2026-09-10 反馈）。
+    aiState.genreAi.mockResolvedValue({
+      value: [
+        { tagId: "forbidden:no-deus-machina" }, // 少写 ex
+        { tagId: "forbidden:no-villain-idiot" },
+      ],
+    });
+    const { ref, container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await act(async () => {
+      await ref.current!.runAi("forbidden_list");
+    });
+    const sink = container.querySelector('[data-od-id="genre-ai-sink-forbidden_list"]')!;
+    expect(sink.textContent).toContain("禁天降外援");
+    expect(sink.textContent).not.toContain("forbidden:");
+  });
+
   it("battlefield：候选 tagId 采纳后落成已选胶囊", async () => {
     aiState.genreAi.mockResolvedValue({
       value: [{ tagId: "battlefield:resources" }, { text: "街口那条巷子" }],

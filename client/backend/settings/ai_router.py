@@ -11,6 +11,7 @@
 """
 
 import json
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -166,16 +167,54 @@ def _clamp_str(v, limit: int) -> str:
     return str(v or "").strip()[:limit]
 
 
+def _slug_words(text: str) -> set[str]:
+    """把 slug 切成词集（并做单复数归一：resource/resources 视为同词）。"""
+    words = {w for w in re.split(r"[^a-z0-9]+", text) if w}
+    return {w[:-1] if len(w) > 3 and w.endswith("s") else w for w in words}
+
+
+def _vocab_looks_like_slug(raw: str) -> bool:
+    """像机器标识（`kind:slug` / 裸 slug）而不是给人看的文本。
+
+    判据：不含中日韩字符且只由 `[a-z0-9_:-]` 组成。中文自定义禁项（「禁穿越」）不受影响。
+    """
+    s = (raw or "").strip()
+    if not s or re.search(r"[\u3400-\u9fff]", s):
+        return False
+    return bool(re.fullmatch(r"[a-z0-9_:-]+", s.lower()))
+
+
 def _vocab_id(kind: str, raw: str) -> str | None:
-    """把模型给的候选（id 或裸 slug）映射回 tagId。"""
+    """把模型给的候选（id / 裸 slug / 写岔的 id）映射回 tagId。
+
+    精确命中优先；再做一次**近似匹配**——模型常把 id 写岔，
+    例如把 `forbidden:no-deus-ex-machina` 写成 `forbidden:no-deus-machina`
+    （实测发生过：那条被当"自定义文本"存了下来，界面就显示成英文 slug）。
+    近似规则保守：去掉非字母数字后互相包含（且长度 ≥8），且**只认唯一命中**。
+    """
     raw = (raw or "").strip()
     if not raw:
         return None
-    for vid in _GENRE_VOCAB_IDS[kind]:
+    ids = _GENRE_VOCAB_IDS[kind]
+    for vid in ids:
         slug = vid.split(":", 1)[1]
         if raw in (vid, slug):
             return vid
-    return None
+    # 近似＝按「词」比：模型少写/多写一个词（no-deus-machina vs no-deus-ex-machina）
+    raw_words = _slug_words(raw.lower().removeprefix(f"{kind}:"))
+    if not raw_words:
+        return None
+    hits = []
+    for vid in ids:
+        known = _slug_words(vid.split(":", 1)[1].lower())
+        if len(raw_words) == 1 or len(known) == 1:
+            # 单词情形只认「归一后完全相等」（resource ↔ resources），不放宽
+            if known == raw_words:
+                hits.append(vid)
+            continue
+        if raw_words <= known or known <= raw_words:
+            hits.append(vid)
+    return hits[0] if len(hits) == 1 else None
 
 
 def _normalize_vocab_list(kind: str, data, label_limit: int) -> list[dict]:
@@ -190,7 +229,7 @@ def _normalize_vocab_list(kind: str, data, label_limit: int) -> list[dict]:
                 out.append({"tagId": vid})
             else:
                 text = _clamp_str(item, label_limit)
-                if text:
+                if text and not _vocab_looks_like_slug(text):
                     out.append({"text": text})
             continue
         if not isinstance(item, dict):
@@ -201,7 +240,9 @@ def _normalize_vocab_list(kind: str, data, label_limit: int) -> list[dict]:
             out.append({"tagId": vid})
             continue
         text = _clamp_str(item.get("text") or raw, label_limit)
-        if text:
+        # 落自定义文本前挡一道：像机器标识（查不到的 id）不落库——
+        # 存下来只会在界面上显示英文 slug，既不是有效候选也不是人类可读的规则。
+        if text and not _vocab_looks_like_slug(text):
             out.append({"text": text})
     return out
 

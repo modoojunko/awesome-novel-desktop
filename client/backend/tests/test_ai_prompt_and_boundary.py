@@ -313,3 +313,56 @@ class TestThemeAnchorAndMultiPoint:
             "value": "只有一句话",
             "note": "",
         }
+
+
+class TestVocabIdFuzzyMapping:
+    """模型写岔的 tagId：少写/多写一个词要在边界处修正，别落成英文自定义文本。
+
+    实测（2026-09-10）：模型把 forbidden:no-deus-ex-machina 写成
+    forbidden:no-deus-machina，旧逻辑查不到候选 → 当 custom_text 存了下来 →
+    界面上显示英文 slug（用户反馈「AI 建议给出来的是英文」）。
+    """
+
+    def test_missing_word_maps_back(self):
+        from settings.ai_router import _vocab_id
+
+        assert _vocab_id("forbidden", "forbidden:no-deus-machina") == (
+            "forbidden:no-deus-ex-machina"
+        )
+        assert _vocab_id("forbidden", "no-deus-machina") == "forbidden:no-deus-ex-machina"
+
+    def test_plural_tolerated(self):
+        from settings.ai_router import _vocab_id
+
+        assert _vocab_id("battlefield", "battlefield:resource") == "battlefield:resources"
+
+    def test_exact_still_first(self):
+        from settings.ai_router import _vocab_id
+
+        assert _vocab_id("forbidden", "forbidden:no-free-powerup") == (
+            "forbidden:no-free-powerup"
+        )
+
+    def test_unknown_id_stays_unknown(self):
+        from settings.ai_router import _vocab_id
+
+        assert _vocab_id("forbidden", "forbidden:totally-unknown") is None
+
+    def test_slug_shaped_unknown_not_stored_as_custom_text(self):
+        """查不到的 id 不得落成自定义文本——存下来只会在界面上显示英文。"""
+        from settings.ai_router import _normalize_vocab_list
+
+        out = _normalize_vocab_list(
+            "forbidden",
+            [
+                {"tagId": "forbidden:no-deus-machina"},  # 近似 → 落 tagId
+                {"tagId": "forbidden:totally-unknown"},  # 真未知 → 丢弃
+                {"text": "禁主角靠灵根觉醒翻盘"},  # 中文自定义 → 保留
+                {"text": "no time travel please"},  # 英文但不像 slug → 保留
+            ],
+            100,
+        )
+        assert {"tagId": "forbidden:no-deus-ex-machina"} in out
+        assert {"text": "禁主角靠灵根觉醒翻盘"} in out
+        assert {"text": "no time travel please"} in out
+        assert not any("forbidden:totally" in str(x) for x in out)
