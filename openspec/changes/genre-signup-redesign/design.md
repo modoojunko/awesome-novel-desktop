@@ -76,7 +76,7 @@ AI 卡片 `locked` 态由 `useFeature('settings-ai-fields')`（已有会员门�
 - **行为收窄提示**：把章写作/润色/章纲从「全局 Key 正常用」变为「必须本书选模型否则 503」是硬性收窄；虽无 C端用户，但 e2e/开发数据里未配模型的书会全部 503——相关 e2e 的 seed 须给书配模型。
 - **路由注册顺序（关键）**：新增的 `POST /.../settings/ai/intro/{action}` 是 3 段路径，会被既有 `/{stype}/{field}` 通用路由以 `stype=intro, field=introspect` 抢先匹配（`intro ∉ FIELD_GENERATABLE` → 400）。**intro 子路由必须注册在 `/{stype}/{field}` 之前**（仓库 `main.py` 已有同类的「先注册 /settings/status 防被 /{type} 抢先」先例）；或改用不冲突路径（如 `/settings/ai-intro/{action}`）。实现时在 `tasks 6.1` 明示。
 - **简介三能力是「动作」**：`POST /api/novels/{id}/settings/ai/intro/{action}`，`action ∈ {introspect, fill, polish}`，各配 `settings_intro_{action}.prompt`。入参统一 `body.content`（当前编辑 synopsis）+ `body.title`（书名，前端必须传，见 D8）。
-  - `introspect`（体检/诊断，非生成）：返回 `{"six_segments":[{name,status(ok|missing),excerpt,note?}], "taboo":{"hits":[{rule,excerpts}]}, "verdict":"strong|ok|weak"}`；`name`=六段名、`status`∈{ok,missing}、禁忌规则∈{设定集腔,作者自白,剧透}（与别踩统一「作者自白」）；**只分析/只提醒、不补写不改写、不替用户重写整段**。
+  - `introspect`（体检/诊断，非生成）：返回 `{"six_segments":[{name,status(ok|missing),excerpt,note?}], "taboo":{"hits":[{rule,excerpts}]}, "title_check":{"fit":"ok|mismatch|generic","note","suggestions"[≤3,≤16字]}, "verdict":"strong|ok|weak"}`；`name`=六段名、`status`∈{ok,missing}、禁忌规则∈{设定集腔,作者自白,剧透}（与别踩统一「作者自白」）；**标题对照**（D21）= 书名与简介是否互相印证，`mismatch`/`generic` 给理由与候选标题，非法/缺失一律不下发；**只分析/只提醒、不补写不改写、不替用户重写整段**。
   - `fill`（补缺失）：入参 `{title, content, missing_segments:[六段名]}`（前端把 introspect 的 missing 段传来），返回 `{"missing":[{name,candidate}], "act":"insert"}`；**只补缺失段、绝不改动作者已写段、不重写整段**。
   - `polish`（润色）：入参 `{title, content}`，返回 `{"original","polished","act":"replace"}`；保原意、只加工不代写；`max_tokens` 上调（前后对照）。
 - **题材五行是「字段」**：走既有 `{stype}/{field}` 通道，`FIELD_GENERATABLE` 加 `genre`，`field ∈ {core_promise, forbidden_list, cost_ratio, battlefield, track}`（**promise_note 不设独立 AI 行**）；prompt 用 `settings_genre_{field}.prompt`（**按 field 拼接，仅 genre 特判 field 级；world/style/hooks/characters 仍保持 `settings_{stype}.prompt`，勿误断**——否则会加载不存在的 `settings_genre.prompt`）。按字段**强类型出参**：cost_ratio→1-10 数值、forbidden_list→[{tagId|text}]、battlefield→数组、core_promise→{value:enum|custom, note:读者预期句}、track→文本。
@@ -365,6 +365,12 @@ idle ──点能力行──▶ running ──成功──▶ result(候选) �
 **API 版本命名空间**：`api_configs` 用 `/api/v1` 前缀、其余模块用 `/api`——D20 后出现 `/api/v1/novels/{id}/ai-model` 与 `/api/novels/{id}` 并存；**沿用各自 prefix、不统一版本号**（无冲突，避免本 change 扩大范围）。
 
 **同步 Change C**：其 D1 从「不动」翻案为「本 change 一并改」；D2/D3 与本 change 一致。
+
+**D21. 体检纳入「标题对照」（用户追加，2026-09-10）。**
+
+**病根**：体检只回答「简介六段写全了吗」，不回答「这六段配得上这个书名吗」——`verdict` 仅由六段齐全度 + 有无禁忌决定，故**标题跑偏也判 strong**（例：《我在夜晚打吸血鬼》+ 宫斗简介 → strong；《第一章》→ strong）。
+
+**设计**：体检增第 ③ 项标题对照，`title_check.fit ∈ {ok, mismatch, generic}`（三值语义见 spec），`mismatch`/`generic` 给理由 + ≤3 条候选标题（≤16 字，贴题材、留钩子、不剧透）。**兜底原则**：模型未给或值非法 → 字段不下发、前端不渲染该行，**不得硬判 `ok`**（避免"看起来体检过了"的假绿）。`verdict` 口径**不变**（仍只看六段 + 禁忌），标题对照为**独立提示行**，不参与 verdict——避免改动既有判定语义。
 
 ## Risks / Trade-offs
 

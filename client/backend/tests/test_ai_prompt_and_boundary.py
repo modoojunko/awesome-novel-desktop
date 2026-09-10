@@ -143,3 +143,57 @@ class TestR9R10:
         src = inspect.getsource(ai_state)
         assert "project_settings" not in src
         assert "ai-model.yaml" not in src
+
+
+class TestPolishPromptQuality:
+    """润色模板质量契约（用户反馈「当前润色很差」后重写，2026-09-10）。
+
+    可判定项：占位符完整、硬性规则齐全、禁忌黑名单具象、自检清单在、few-shot 对照在，
+    且 **few-shot 自身不违反规则 1（不新增原文没有的信息）**——示例违规会教坏模型。
+    """
+
+    def _t(self) -> str:
+        return load("settings_intro_polish")
+
+    def test_placeholders(self):
+        t = self._t()
+        assert "{title}" in t and "{content}" in t
+
+    def test_hard_rules_present(self):
+        t = self._t()
+        for rule in ("完整保留全部原始设定", "不新增", "不删减", "不改人称", "字数 ≤ 原文的 90%",
+                     "多用短句", "不写死结局"):
+            assert rule in t, f"缺硬性规则：{rule}"
+
+    def test_hook_rule_rejects_resume_opening(self):
+        t = self._t()
+        assert "第一句必须是危机或反差钩子" in t
+        assert "履历式开头" in t
+
+    def test_taboo_blacklist_is_concrete(self):
+        t = self._t()
+        words = ("浮生", "流年", "凡尘", "孑然", "寂寥", "命运齿轮", "瞳孔骤缩", "气场全开")
+        missing = [w for w in words if w not in t]
+        assert not missing, f"禁忌黑名单缺词：{missing}"
+        for pat in ('"不是X，而是Y"', "不仅…更是", "在这个…的世界里"):
+            assert pat in t, f"缺 AI 平滑句式：{pat}"
+
+    def test_self_check_list_present(self):
+        t = self._t()
+        assert "自检" in t and "逐条过" in t
+
+    def test_few_shot_pair_present(self):
+        t = self._t()
+        assert "示例" in t and "原文：" in t and "改后：" in t
+
+    def test_few_shot_does_not_invent_facts(self):
+        """示例里不得出现原文没有的数字/地点——否则示例本身违反规则 1。"""
+        t = self._t()
+        block = t.split("示例", 1)[1]
+        for fabricated in ("七天", "出租屋", "三天", "五年后"):
+            assert fabricated not in block, f"示例新增了原文没有的信息：{fabricated}"
+
+    def test_json_contract_only(self):
+        t = self._t()
+        assert '"original"' in t and '"polished"' in t
+        assert "markdown" in t  # polished 内不得含 markdown 标记

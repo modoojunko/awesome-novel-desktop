@@ -38,13 +38,31 @@
 ### Requirement: 简介「AI 写作助手」（三能力，Pro）
 - 简介右栏 SHALL 为一个「AI 写作助手」卡片：PRO 徽标并入头部（「AI 写作助手」+ 已解锁/套餐归属/只加工不代写）＋三个**并列**能力行（体检 / 补缺失 / 润色，非先后流程）＋底部来源/去向声明。
 - 每行 SHALL 为：能力名称（上）+ 描述（下，从属）+ 右侧箭头，整行可点。
-- 体检 SHALL 按六段模板逐项查达标/缺失 + 扫禁忌（**设定集腔 / 作者自白 / 剧透**），**只提醒、不拦确认**；行名与六段模板完全一致。注：禁忌第三元「剧透」与「别踩」第三元「写死结局」**用途不同（扫描规则 vs 写作引导），写死结局 ≠ 剧透，勿合并为同一枚举**。体检接口 SHALL 返回结构化 JSON：`{"six_segments":[{name,status(ok|missing),excerpt,note?}], "taboo":{"hits":[{rule,excerpts}]}, "verdict":"strong|ok|weak"}`，其中 `name` 须为六段名之一、`status` 限 `ok|missing`。体检为诊断语义，**只分析/只提醒、不补写不改写**。
+- 体检 SHALL 按四件事检查：① 六段模板逐项查达标/缺失；② 扫禁忌（**设定集腔 / 作者自白 / 剧透**）；③ **标题对照**（书名 ↔ 简介是否互相印证）；④ 结论。**只提醒、不拦确认**；行名与六段模板完全一致。注：禁忌第三元「剧透」与「别踩」第三元「写死结局」**用途不同（扫描规则 vs 写作引导），写死结局 ≠ 剧透，勿合并为同一枚举**。体检为诊断语义，**只分析/只提醒、不补写不改写**。
+- 体检接口 SHALL 返回结构化 JSON：`{"six_segments":[{name,status(ok|missing),excerpt,note?}], "taboo":{"hits":[{rule,excerpts}]}, "title_check":{"fit":"ok|mismatch|generic","note":"…","suggestions":["…"]}, "verdict":"strong|ok|weak"}`，其中 `name` 须为六段名之一、`status` 限 `ok|missing`、`fit` 限三值。
+- **标题对照语义**（`title_check`）：`ok`＝标题暗示的类型/看点与简介一致；`mismatch`＝不符（如标题像甜宠、简介是压抑复仇）；`generic`＝标题无信息（任何同类型小说都能用，如《第一章》）。`mismatch`/`generic` 时 SHALL 给 `note` 说明理由 + **≤3 条候选标题**（每条 ≤16 字，贴题材、留钩子、不剧透结局）。**兜底**：模型未返回该字段或 `fit` 非法 → 该字段**不下发**，前端不渲染该行（**不得硬判 `ok`**，避免假绿）。
 - **结构化输出策略**（跨供应商/弱模型）：体检/题材的 JSON 输出除 endpoint 后置归一化兜底外，prompt 侧 SHALL 给 **schema + 枚举 + 一个 few-shot 示例**；能用的 provider 追加 `response_format={"type":"json_object"}`（需同步扩 `AIClient.chat` 的 OpenAI 分支）。
 - 补缺失 SHALL 只针对缺失段给候选；请求体 SHALL 带 `missing_segments`（前端把 introspect 的 missing 段传来），返回 `{"missing":[{name,candidate}], "act":"insert"}`；**只补缺失段、不重写作者已写段**。采纳才插入简介，可逐条采纳。**前置**：未先体检时「补缺失」行 SHALL 提示「先体检，才知道缺哪段」（或禁用），不得空跑（O-3）；六段全 ok 时 SHALL 提示「六段都齐了，无需补」（O-16）。
 - 润色 SHALL 前后对照（入参 `{title, content}`，返回 `{"original","polished","act":"replace"}`），采纳才替换；保原意、只加工不代写。**对照展示形态**＝原句/润后**上下两行**（O-17）。
 - **AI 助手交互状态机**（设计见 D14）：四个能力（体检/补缺失/润色/题材五行）SHALL 共用同一状态机 `idle → running → result → adopted`（异常走 `error(reason)`）；`.ai-sink` 为其唯一渲染面。**前置守卫**：补缺失未先体检时该行置灰 + 「先体检」，不空跑（O-3）；**空结果**（六段全 ok 时补缺失）显示「无需补」而非空白（O-16）；**生命周期**＝采纳后保留、切面板清空、重新请求覆盖、确认后清空（O-5）；**save 成功但 confirm 400** → 「内容未通过校验」+ 保留 dirty（O-4）。
 - **失败文案矩阵**（O-13）：400 →「请求有误，请检查输入」；403 `member_required` → 升级；403 `no_key` → 去模型配置；503 `missing_model` → 去选模型；502/非法 JSON →「暂不可用，请重试」且**不拦确认**；网络异常/超时 →「网络异常，请重试」。**重试不重复计 usage**。
 - 点任一能力，反馈 SHALL 落到**简介框下方**的结果区（.ai-sink，fg-soft），带操作名标签 + 采纳/重试；右栏只作按钮、不内嵌答案。AI 请求以**当前输入框的 synopsis 为源**（`content`），不读存储旧文；入参含 `title`（书名）。
+
+#### Scenario: 标题与简介不符时给出提示与候选
+- Given 书名为《我在夜晚打吸血鬼》（暗示都市奇幻），简介写成压抑宫斗
+- When 执行体检
+- Then 返回 `title_check.fit="mismatch"` + `note` 说明不符之处 + ≤3 条候选标题
+- And 简介面板在六段行下方显示「标题对照：与简介不符」+ 理由 + 候选标题
+
+#### Scenario: 标题无信息也提示（不得判为一致）
+- Given 书名为《第一章》或《测试》，任何同类型作品都能用
+- When 执行体检
+- Then 返回 `title_check.fit="generic"` + 候选标题（非 `ok`）
+
+#### Scenario: 弱模型未返回标题对照时不造假绿
+- Given 模型输出缺少 `title_check` 或 `fit` 取值非法
+- When 归一化体检响应
+- Then 该字段不下发、前端不渲染标题对照行（**不得**补一个 `ok`）
 
 #### Scenario: 体检六行与模板一致
 - Given 简介已输入

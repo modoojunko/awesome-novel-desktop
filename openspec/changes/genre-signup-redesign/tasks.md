@@ -56,6 +56,15 @@
 - [x] 6.0g **`genre_vocab` 删除策略与自定义 slug 规则**：关联表 `vocab_id` FK 的 `ON DELETE` 定死（建议 `RESTRICT` + 「先解除引用」提示）；用户自定义 vocab 的 `id` 生成规则（`custom:{slugify(label)}` + 去重后缀）；`cost_ratio` 可空须写 `CHECK (cost_ratio IS NULL OR cost_ratio BETWEEN 1 AND 10)`；关联表 `sort` 语义＝从 0 连续、顺序＝前端数组序
 - [x] 6.0c **约束双保险 + 空值统一**：DB 侧 `cost_ratio CHECK(1..10)`、关联表 `CHECK(恰一非空)`、**`novel_id` FK `ON DELETE CASCADE`**（注意与 6.0g 的 `vocab_id` FK `RESTRICT` 是两条不同外键）；Pydantic 侧同规则（`core_promise≤60`/`promise_note≤200`/`track≤300`/元素数上限）；**空值统一**（`null`/`""`/空白/无关联行 等价未填）；旧键移除 + `config_overrides.*` 迁 `writing-style.yaml`；验证见 9.2.14/9.2.15/9.2.16
 
+- [ ] 6.7 **体检纳入「标题对照」（D21，用户追加 2026-09-10；三处契约同批改）**：`settings_intro_introspect.prompt` 增第 ③ 项标题对照——`fit ∈ {ok, mismatch, generic}`（三值语义见 spec「标题对照语义」），`mismatch`/`generic` 给 `note` + ≤3 条候选标题（每条 ≤16 字，贴题材、留钩子、不剧透）；prompt 侧给 schema + 枚举 + few-shot（沿用既有结构化输出策略）；**`verdict` 口径不变**（仍只看六段 + 禁忌），标题对照为独立提示行
+- [ ] 6.7.1 `_normalize_introspect` 加 `title_check` 归一化：`fit` 白名单三值、`note` ≤120 字、`suggestions` 截断 ≤3 条/每条 ≤16 字；**模型未给或 `fit` 非法 → 该字段不下发**（前端不渲染该行，**不得补 `ok`**）
+- [ ] 6.7.2 前端体检结果区：六段行下方渲染「标题对照：一致 / 与简介不符 / 太笼统」+ 理由；`mismatch`/`generic` 时列出候选标题（`data-od-id="intro-title-check"`）；`ok` 时只显示一致行；字段缺失则整行不渲染
+- [ ] 6.7.3 测试：后端归一化 4 例（三值透传 / 非法 `fit` 丢弃 / 缺字段丢弃 / suggestions 截断）；前端 3 例（mismatch 渲染理由+候选、generic 渲染、字段缺失不渲染）；真机 e2e 1 例（桩 `title_check.mismatch` → 结果区出现标题对照行与候选）
+- [ ] 6.7.4 **（可选，待拍板）** 候选标题「设为书名」一键改：走既有 `api.renameNovel`，改完刷新工作台书名；**不点头则只展示建议、不提供一键改**
+
+- [ ] 6.8 **润色 prompt 重写（用户反馈「当前润色很差」，2026-09-10）**：`settings_intro_polish.prompt` 按可判定性重写——① 硬性规则从"保住原意"升级为**六条可核对**（完整保留六项原始设定且**不新增**剧情/人物/事件/地点/数字、不改人称视角类型调性、第一句必须是危机/反差钩子且禁履历式开头、**字数 ≤ 原文 90% 且 ≤500**、短句且段间自然衔接不照搬原骨架、放大两难代价且**不写死结局**、标签式输入**融成一段连贯正文不留分点**）；② 禁忌从 3 个词扩为**具象黑名单**（烂大街套词 12 项 + AI 平滑句式 3 类 + 解释性导语 3 项）；③ 落笔前**自检五问**；④ **few-shot 对照示例**（另书示例只示范手法，且示例自身不得新增原文没有的信息）。`verdict`/接口契约不变
+- [ ] 6.8.1 测试：`test_ai_prompt_and_boundary.py` 扩 8 例（占位符 / 六条硬规则齐全 / 钩子规则禁履历式 / 黑名单具象 / 自检清单 / few-shot 对照 / **示例不自造事实** / JSON 契约）；真机 A/B 留档（注水+标签式输入：旧 67% 字数且新增"旧巷/暗处有双眼睛"、履历式开头 → 新 56%、6/6 设定保留、危机钩子开头、零禁忌命中；好输入不回退 79%）
+
 ## 7. 本书模型设定（AI 前置）
 
 - [x] 7.0 **单一事实源（D10+D13）**：后端抽 `compute_ai_state(novel, config, has_user_key) → ai_state ∈ {ready,member_required,no_key,missing_model,invalid}`（**与 `detail.reason` 同枚举**；优先级 `member_required>invalid>no_key>missing_model>ready`；`ready` 含 `model ∈ json.loads(config.models)`；`no_key` 为**本书绑定配置级**；**会员维度并入同一枚举**——前端不再 `useFeature`+`ai_state` 两处判；落点 `api_configs/service.py` 紧邻 `get_project_ai_model`，与 `require_novel_model` 共用）；`GET /novels/{id}/ai-model` 响应扩展 `ai_state` + `effective_model`；前端 `useModelStatus` **删除本地四态推导**、改消费（**保留 `modelOptions`/`configs`** 供卡片列表与组头徽标），门控按 `ai_state` 分派、catch 按 `detail.reason` 分派；`ai_state → 徽标`映射：ready→可用(ok)/invalid→配置失效(err)/missing_model→未选择(empty)/no_key→未配置(empty)/member_required→灰。验证：`ai_config_id` 有值但 `ai_model` 空时两端一致判 `missing_model`
