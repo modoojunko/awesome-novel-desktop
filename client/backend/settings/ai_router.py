@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/novels/{project_id}/settings", tags=["settings-a
 FIELD_GENERATABLE = {"world", "style", "hooks", "characters", "genre"}
 
 # 题材五行字段（01 口味胶囊不走 AI；promise_note 不单独成行，随 core_promise 出参）
-GENRE_FIELDS = ("core_promise", "forbidden_list", "cost_ratio", "battlefield", "track")
+GENRE_FIELDS = ("core_promise", "forbidden_list", "cost_ratio", "battlefield")
 
 INTRO_ACTIONS = ("introspect", "fill", "polish")
 
@@ -47,7 +47,6 @@ _GENRE_PROMPTS = {
     "forbidden_list": "settings_genre_forbidden_list",
     "cost_ratio": "settings_genre_cost_ratio",
     "battlefield": "settings_genre_battlefield",
-    "track": "settings_genre_track",
 }
 _STYPE_PROMPTS = {
     "world": "settings_world",
@@ -310,9 +309,6 @@ def _normalize_genre_value(field: str, data):
         except (TypeError, ValueError):
             raise HTTPException(502, "吃苦指数返回的不是数字，可重试") from None
         return max(1, min(10, n))
-    if field == "track":
-        raw = data.get("value") if isinstance(data, dict) else data
-        return _clamp_str(raw, 300)
     raise HTTPException(400, f"未知题材字段：{field}")
 
 

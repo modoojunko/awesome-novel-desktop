@@ -220,7 +220,6 @@ async def resolve_genre_context(
             g["core_promise"],
             g["promise_note"],
             g["cost_ratio"],
-            g["track"],
             forbidden,
             battlefield,
         ]
@@ -232,7 +231,6 @@ async def resolve_genre_context(
         "core_promise": g["core_promise"],
         "promise_note": g["promise_note"],
         "cost_ratio": g["cost_ratio"],
-        "track": g["track"],
         "forbidden": [x for x in forbidden if x],
         "battlefield": [x for x in battlefield if x],
     }
@@ -267,8 +265,6 @@ def build_genre_section(ctx: dict | None) -> str:
         lines.append(f"读者预期：{ctx['promise_note']}")
     if ctx.get("cost_ratio") is not None:
         lines.append(f"吃苦指数：{ctx['cost_ratio']}（1=轻，10=极重）")
-    if ctx.get("track"):
-        lines.append(f"剧情轨道：{ctx['track']}")
     if ctx.get("forbidden"):
         lines.append("绝对禁止：" + "；".join(str(x) for x in ctx["forbidden"]))
     if ctx.get("battlefield"):

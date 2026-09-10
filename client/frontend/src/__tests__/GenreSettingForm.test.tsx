@@ -39,29 +39,28 @@ describe("GenreSettingForm · 六格", () => {
     apiState.put.mockResolvedValue({ ok: true });
   });
 
-  it("渲染六格（编号 01-06 + 名称 + 怎么填 + 成书去处）", async () => {
+  it("渲染五格（编号 01-05 + 名称 + 怎么填 + 成书去处；06 剧情轨道已退役）", async () => {
     const { container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     for (const name of [
       "题材",
       "主要看什么",
       "绝对禁止",
       "吃苦指数",
-      "主线战场",
-      "剧情轨道",
+      "本小说斗什么",
     ]) {
       expect(screen.getByText(name)).toBeTruthy();
     }
     expect(screen.getByText("01")).toBeTruthy();
-    expect(screen.getByText("06")).toBeTruthy();
-    expect(container.querySelectorAll(".m-use").length).toBe(6);
-    expect(container.querySelectorAll(".m-why").length).toBe(6);
+    expect(screen.queryByText("06")).toBeNull(); // 06 已退役
+    expect(container.querySelectorAll(".m-use").length).toBe(5);
+    expect(container.querySelectorAll(".m-why").length).toBe(5);
   });
 
   it("常见口味＝起点：点「逆袭打脸」预填一句完整的话（+03/04/05），不落 track", async () => {
     const { container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     fireEvent.click(container.querySelector('[data-g="comeback"]')!);
 
@@ -75,13 +74,11 @@ describe("GenreSettingForm · 六格", () => {
     expect(container.querySelector('[data-bf="battlefield:resources"]')?.className).toContain("on");
     expect(container.querySelector('[data-od-id="cost-slider"]')).toBeTruthy();
     expect(screen.getByText("8")).toBeTruthy();
-    expect((container.querySelector('[data-od-id="track-input"]') as HTMLTextAreaElement).value)
-      .toBe("");
   });
 
   it("03 回车自定义禁区 → 生成可移除的自定义胶囊", async () => {
     const { container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     const input = container.querySelector('[data-od-id="forbid-input"]') as HTMLInputElement;
     fireEvent.change(input, { target: { value: "禁穿越" } });
@@ -95,7 +92,7 @@ describe("GenreSettingForm · 六格", () => {
 
   it("04 未设置时不出浮例句；拖动后出「N 分 → …」", async () => {
     const { container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     expect(container.querySelector('[data-od-id="cost-sentence"]')).toBeNull();
     fireEvent.change(container.querySelector('[data-od-id="cost-slider"]')!, {
@@ -106,7 +103,7 @@ describe("GenreSettingForm · 六格", () => {
 
   it("05 战场第 3 个出软提示（不禁止）", async () => {
     const { container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     expect(container.querySelector('[data-od-id="bf-note"]')).toBeNull();
     for (const id of ["resources", "status", "truth"]) {
@@ -117,7 +114,7 @@ describe("GenreSettingForm · 六格", () => {
 
   it("save 落五字段契约（含自定义项与空值形态）", async () => {
     const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     fireEvent.change(container.querySelector('[data-od-id="m1-input"]')!, {
       target: { value: "读者要看到弱者被逼到墙角后靠脑子翻盘" },
@@ -130,9 +127,6 @@ describe("GenreSettingForm · 六格", () => {
       target: { value: "6" },
     });
     fireEvent.click(container.querySelector('[data-bf="battlefield:truth"]')!);
-    fireEvent.change(container.querySelector('[data-od-id="track-input"]')!, {
-      target: { value: "从练气到飞升" },
-    });
 
     await ref.current!.save();
 
@@ -144,13 +138,12 @@ describe("GenreSettingForm · 六格", () => {
       forbidden_list: [{ tagId: "forbidden:no-villain-idiot" }, { text: "禁穿越" }],
       cost_ratio: 6,
       battlefield: ["battlefield:truth"],
-      track: "从练气到飞升",
     });
   });
 
   it("01 题材选择器：字段 + 展开两级，换大类清子类，× 清空", async () => {
     const { container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     // 收起态＝一个字段（不再是一片胶囊墙）
     const trigger = container.querySelector('[data-od-id="theme-trigger"]')!;
@@ -200,7 +193,7 @@ describe("GenreSettingForm · 六格", () => {
 
   it("01 搜索：命中项拍平成「大类 / 子类」路径，点选即落", async () => {
     const { container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
     fireEvent.click(container.querySelector('[data-od-id="theme-trigger"]')!);
 
     const search = container.querySelector('[data-od-id="theme-search"]') as HTMLInputElement;
@@ -227,7 +220,7 @@ describe("GenreSettingForm · 六格", () => {
 
   it("01 键盘：↑↓ 移动 + Enter 选中当前项 + Esc 收起", async () => {
     const { container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
     fireEvent.click(container.querySelector('[data-od-id="theme-trigger"]')!);
 
     const search = container.querySelector('[data-od-id="theme-search"]') as HTMLInputElement;
@@ -252,7 +245,7 @@ describe("GenreSettingForm · 六格", () => {
 
   it("01 每项都有解读与案例：选中即显示（光有标签作者不知道指什么）", async () => {
     const { container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     // 未选 → 不占位
     expect(container.querySelector('[data-od-id="theme-note"]')).toBeNull();
@@ -283,7 +276,7 @@ describe("GenreSettingForm · 六格", () => {
 
   it("01 题材目录随契约下发回读（theme + sub_genre）", async () => {
     const { ref, container } = renderPanel({ theme: "架空古王朝", sub_genre: "权谋" });
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     expect(container.querySelector('[data-od-id="theme-trigger"]')!.textContent).toContain(
       "架空古王朝 / 权谋",
@@ -306,9 +299,8 @@ describe("GenreSettingForm · 六格", () => {
       forbidden_list: [{ tagId: "forbidden:no-foresight" }],
       cost_ratio: 4,
       battlefield: ["battlefield:status", "街口那条巷子"],
-      track: "每卷一个对手",
     });
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
       .toBe("读者要看布局收网");
@@ -318,8 +310,6 @@ describe("GenreSettingForm · 六格", () => {
     expect(screen.getByText("4 分 → 当众断骨毁名，才拿到入场券")).toBeTruthy();
     expect(container.querySelector('[data-bf="battlefield:status"]')?.className).toContain("on");
     expect(screen.getByText("街口那条巷子 ×")).toBeTruthy();
-    expect((container.querySelector('[data-od-id="track-input"]') as HTMLTextAreaElement).value)
-      .toBe("每卷一个对手");
   });
 });
 
@@ -337,7 +327,7 @@ describe("GenreSettingForm · 五行 AI", () => {
       value: { value: "以弱破强的痛快", note: "读者要看到弱者翻盘" },
     });
     const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     await act(async () => ref.current!.runAi("core_promise"));
 
@@ -364,7 +354,7 @@ describe("GenreSettingForm · 五行 AI", () => {
       ],
     });
     const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     // 右栏「多给几个看点」→ runAi(field, {multi:true}) → 结果区多条
     await act(async () => {
@@ -389,7 +379,7 @@ describe("GenreSettingForm · 五行 AI", () => {
       ],
     });
     const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
     await act(async () => {
       await ref.current!.runAi("core_promise", { multi: true });
     });
@@ -409,7 +399,7 @@ describe("GenreSettingForm · 五行 AI", () => {
   it("cost_ratio：采纳后滑块与浮例句同步", async () => {
     aiState.genreAi.mockResolvedValue({ value: 9 });
     const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     await act(async () => ref.current!.runAi("cost_ratio"));
     expect(screen.getByText(/建议 9 分/)).toBeTruthy();
@@ -429,7 +419,7 @@ describe("GenreSettingForm · 五行 AI", () => {
       ],
     });
     const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     await act(async () => {
       await ref.current!.runAi("forbidden_list");
@@ -456,7 +446,7 @@ describe("GenreSettingForm · 五行 AI", () => {
       ],
     });
     const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
     await act(async () => {
       await ref.current!.runAi("forbidden_list");
     });
@@ -470,7 +460,7 @@ describe("GenreSettingForm · 五行 AI", () => {
       value: [{ tagId: "battlefield:resources" }, { text: "街口那条巷子" }],
     });
     const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     await act(async () => ref.current!.runAi("battlefield"));
     fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
@@ -479,29 +469,18 @@ describe("GenreSettingForm · 五行 AI", () => {
     expect(screen.getByText("街口那条巷子 ×")).toBeTruthy();
   });
 
-  it("track：采纳写回 06 文本框", async () => {
-    aiState.genreAi.mockResolvedValue({ value: "凡人流——每卷突破一个大境界" });
-    const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
-
-    await act(async () => ref.current!.runAi("track"));
-    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
-
-    expect((container.querySelector('[data-od-id="track-input"]') as HTMLTextAreaElement).value)
-      .toBe("凡人流——每卷突破一个大境界");
-  });
 
   it("失败不落 sink（按 reason 分派提示）", async () => {
     aiState.genreAi.mockRejectedValue({ reason: "missing_model" });
     const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
-    await act(async () => ref.current!.runAi("track"));
-    expect(container.querySelector('[data-od-id="genre-ai-sink-track"]')).toBeNull();
+    await act(async () => ref.current!.runAi("battlefield"));
+    expect(container.querySelector('[data-od-id="genre-ai-sink-battlefield"]')).toBeNull();
   });
 });
 
-// 题材五行：最近 5 次历史 + 切回旧版采纳覆盖本格
+// 题材四行：最近 5 次历史 + 切回旧版采纳覆盖本格
 describe("GenreSettingForm · 生成历史（最近 5 次）", () => {
   beforeEach(() => {
     apiState.get.mockReset();
@@ -512,23 +491,21 @@ describe("GenreSettingForm · 生成历史（最近 5 次）", () => {
 
   it("连生成 6 次只保留最近 5 次；切回旧版采纳覆盖本格", async () => {
     const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     for (let i = 1; i <= 6; i++) {
-      aiState.genreAi.mockResolvedValueOnce({ value: `第${i}版轨道` });
-      await act(async () => ref.current!.runAi("track"));
-      await waitFor(() => expect(container.textContent).toContain(`第${i}版轨道`));
+      aiState.genreAi.mockResolvedValueOnce({ value: [{ text: `第${i}版战场` }] });
+      await act(async () => ref.current!.runAi("battlefield"));
+      await waitFor(() => expect(container.textContent).toContain(`第${i}版战场`));
     }
     const chips = [...container.querySelectorAll('[data-od-id="ai-sink-history"] [data-hist]')];
     expect(chips).toHaveLength(5); // 丢最旧
     expect(container.textContent).toContain("只保留最近 5 次");
 
-    // 切回第 1 条（＝第 2 次生成）并采纳 → 覆盖 06 文本框
+    // 切回第 1 条（＝第 2 次生成）并采纳 → 覆盖 05 战场胶囊
     fireEvent.click(chips[0]);
-    expect(container.textContent).toContain("第2版轨道");
+    expect(container.textContent).toContain("第2版战场");
     fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
-    expect((container.querySelector('[data-od-id="track-input"]') as HTMLTextAreaElement).value).toBe(
-      "第2版轨道",
-    );
+    expect(container.textContent).toContain("第2版战场");
   });
 });

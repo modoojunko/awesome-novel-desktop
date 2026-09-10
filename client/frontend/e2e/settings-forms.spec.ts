@@ -233,10 +233,10 @@ async function savePanel(page: Page) {
 }
 
 // -------------------------------------------------------------------------
-// ① 题材：六格新契约面板（口味联动 → 自定义禁区 → 吃苦指数 → 确认落五字段）
+// ① 题材：五格新契约面板（口味起点 → 自定义禁区 → 吃苦指数 → 确认落契约）
 // -------------------------------------------------------------------------
 
-test("题材：六格面板（口味联动 → 自定义禁区 → 吃苦指数 → 确认落五字段）", async ({
+test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 → 确认落契约）", async ({
   page,
   request,
 }) => {
@@ -253,9 +253,9 @@ test("题材：六格面板（口味联动 → 自定义禁区 → 吃苦指数 
       page.locator(".settings-v main h2", { hasText: "题材" }),
     ).toBeVisible({ timeout: 5000 });
 
-    // 六格齐全（编号 01-06 + 名称）
-    await expect(page.locator(".settings-v .mod")).toHaveCount(6);
-    for (const name of ["题材", "主要看什么", "绝对禁止", "吃苦指数", "主线战场", "剧情轨道"]) {
+    // 五格齐全（编号 01-05 + 名称；06 剧情轨道已退役——归主线规划）
+    await expect(page.locator(".settings-v .mod")).toHaveCount(5);
+    for (const name of ["题材", "主要看什么", "绝对禁止", "吃苦指数", "本小说斗什么"]) {
       await expect(page.locator(".settings-v .mod .m-name", { hasText: name })).toBeVisible();
     }
 

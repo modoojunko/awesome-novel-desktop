@@ -197,7 +197,7 @@ export const GENRE_LIMITS = {
   battlefieldTextMax: 20,
 } as const;
 
-/** 06 剧情轨道为唯一自由填空，可不填。 */
+/** 题材定义（提示帮助里的措辞）。 */
 export const GENRE_DEFINITION =
   "题材 = 读者预期 + 作者轨道 + 核心冲突的类型锁——定了它，百万字不跑偏；随时能改。";
 

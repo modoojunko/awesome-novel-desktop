@@ -425,7 +425,7 @@ class TestGenreReadinessContract:
         [
             {"cost_ratio": 5},
             {"battlefield": ["battlefield:resources"]},
-            {"track": "从练气到飞升"},
+            {"promise_note": "读者要看到弱者用脑子翻盘"},
             {"forbidden_list": [{"tagId": "forbidden:no-deus-ex-machina"}]},
         ],
     )

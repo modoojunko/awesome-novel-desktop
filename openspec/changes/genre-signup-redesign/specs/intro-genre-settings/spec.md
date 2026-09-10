@@ -1,6 +1,6 @@
 ## Purpose
 
-定义创建期前两步「① 简介 → ② 题材」的设定面板：简介六段模板引导与 AI 写作助手、题材六格与五行 AI、AI 反馈落输入框下方、免费版锁定与简介/题材字段数据契约。
+定义创建期前两步「① 简介 → ② 题材」的设定面板：简介六段模板引导与 AI 写作助手、题材五格与四行 AI、AI 反馈落输入框下方、免费版锁定与简介/题材字段数据契约。
 
 ## ADDED Requirements
 
@@ -85,7 +85,7 @@
 - **02 SHALL 直接给多个看点，由作家勾选采纳**（用户 2026-09-10 拍板）：前端点「主要看什么」这一行 SHALL 直接请求多看点（`multi_point=true`），**SHALL NOT** 另设「多给几个看点」入口——一个动作、一个结果区。`{multi_point}` 由请求体决定（缺省 `false`＝单对象，形状与旧行为逐字兼容，保留给旧调用）；`true` 时模型返回数组、**最多 3 条**侧重点不重复的看点，出参逐条做同样的长度校验并丢弃空项（全空 → 502 可重试）。
 - **勾选口径 SHALL 固定**：结果以**复选框列表**呈现（勾选态由结果区自身持有——结果节点缓存在面板 state 里，勾选态放外面会「点了没反应」）；作家可**多选、单选，或一条都不勾自己写**；采纳按钮文案随勾选数变化（勾 ≥2 条时显示「采纳勾选的 N 条」），一条不勾时按钮禁用。落库规则：**单选＝`core_promise`（标签）+ `promise_note`（那句话）**；**多选＝只落 `promise_note`（各条 note 以「；」拼接，超 200 字按上限截断），`core_promise` 留空**——单一标签表达不了多个看点；多看点结果 SHALL NOT 再出现 AiSink 的「采纳 · 覆盖」（避免两个采纳入口）。
 - **边界 SHALL 容错模型写岔的 tagId**：模型常少写/多写一个词（`forbidden:no-deus-machina` ↔ `forbidden:no-deus-ex-machina`）或单复数写错（`resource` ↔ `resources`）。归一化 SHALL 先精确命中，再按**词集合**近似命中（含单复数归一），**只认唯一命中**；仍查不到时，**像机器标识的值（不含中文、只由 `[a-z0-9_:-]` 组成）SHALL 丢弃，SHALL NOT 落成自定义文本**——存下来只会在界面上显示英文 slug，既不是有效候选也不是给人读的规则。展示端 SHALL 做同样的近似（旧库里已有这种被当自定义文本存下的 slug）。
-- **结果区 SHALL 显示中文标签，SHALL NOT 显示 tagId**（用户 2026-09-10 反馈「绝对禁止的 AI 建议给出来的是英文」）：AI 返回 `tagId`（如 `forbidden:no-free-powerup`）是**存储契约**，展示层 SHALL 映射为词汇 label（先查接口下发的候选源、再退本地镜像）；自定义项（`text`）原样显示中文。03「绝对禁止」曾漏了这一步（05「主线战场」有映射），把英文 slug 直接甩给作者。采纳写回 SHALL 仍是 `tagId`（契约不变）。
+- **结果区 SHALL 显示中文标签，SHALL NOT 显示 tagId**（用户 2026-09-10 反馈「绝对禁止的 AI 建议给出来的是英文」）：AI 返回 `tagId`（如 `forbidden:no-free-powerup`）是**存储契约**，展示层 SHALL 映射为词汇 label（先查接口下发的候选源、再退本地镜像）；自定义项（`text`）原样显示中文。03「绝对禁止」曾漏了这一步（05 斗什么格有映射），把英文 slug 直接甩给作者。采纳写回 SHALL 仍是 `tagId`（契约不变）。
 
 - **迭代约束**：`{current_note}`（作者已写的那句话）非空时，提示词 SHALL 明令「基于作者已写内容迭代优化，禁止完全另起炉灶重写」——旧实现把作者那句话漏传（只传了短标签），AI 看不到作者写的半句，产出常与作者原意无关。
 
@@ -110,16 +110,17 @@
 - When 点确认完成
 - Then 后端判定为已填（`promise_note` 计入核心键），不报「还未填写内容」
 
-### Requirement: 题材面板（六格 + 五行 AI）
-- 题材面板 SHALL 为六格：**① 题材目录（第一问「什么题材？」：大类必选 + 子类可选，见下条）** ② 主要看什么 ③ 绝对禁止（库标签预勾 + 取消＝放行 + 回车自定义）④ 吃苦指数滑块（1-10，浮例句）⑤ 主线战场（预选 2，第 3 个出软提示不禁止）⑥ 剧情轨道。
+### Requirement: 题材面板（五格 + 四行 AI）
+- 题材面板 SHALL 为五格：**① 题材目录（第一问「什么题材？」：大类必选 + 子类可选，见下条）** ② 主要看什么 ③ 绝对禁止（库标签预勾 + 取消＝放行 + 回车自定义）④ 吃苦指数滑块（1-10，浮例句）⑤ **本小说斗什么**（原名「主线战场」；预选 2，第 3 个出软提示不禁止）。
+- **06 剧情轨道 SHALL 从题材契约移除（用户 2026-09-10 拍板）**：它与「主线规划」（story-arc：一句话主线 + 结局 + 分卷推进）是**同一个概念**（整本书怎么走），一处两存违反本体纪律 → 归属**主线**，题材只剩「这本题材怎么锁」的四格 + 目录。**连带**：`resolve_genre_context`/`build_genre_section` SHALL NOT 再渲染剧情轨道；**主线 SHALL 进写作注入**（`story.yaml.story_arc.premise` → 「全书主线：…」，此前只有章纲 AI 读它、写正文没带），确保退役不丢信息。DB 列 `novel_genre.track` 保留不迁移（旧值不再读写）。
 - **01 格 SHALL 是题材本身（用户 2026-09-10 拍板「题材应该是第一个问题：什么题材」）**：候选源＝**题材目录**（**21 大类** × 各自子类，单一事实源 `genres/theme_catalog.py` ↔ `lib/themeCatalog.ts`，逐字对拍）——仙侠/修真、悬疑、科幻、架空古王朝、刑侦/现实犯罪…（不再用「口味胶囊」当第一问；「悬疑」为用户 2026-09-10 追加，原 JSON 把它拆在刑侦/志怪下）。大类是 01 格的**必选**项（子类可选）。
 - **01 的控件形态 SHALL 为「字段 + 就地展开的两级选择」（用户 2026-09-10 反馈「第一个的 UX 不是很好，参考下 tdesign 的组件，页面尽量简洁」）**，对标 TDesign Cascader 的三条语义：① **`checkStrictly` 任意级可选**——点大类即选中大类（父级可选，不必先选子类），再点子类细化；② **`filterable` 搜索**——搜索框按「名／解读／案例」过滤，命中项**拍平成「大类 / 子类」路径**行（81 个子类只按名字搜不够用）；③ **`clearable` 清空**——字段右侧 × 清空（取代早期「再点同一个大类取消」的隐式手势）。收起态 SHALL 只占一行字段（不再是一片 20+ 胶囊墙）。**换大类 SHALL 清掉不属于新大类的子类**（后端也会 400 拒收跨类子类）。键盘：搜索框 ←/→ 无、↑↓ 移动高亮、Enter 选中当前项、Esc 收起；面板外点击 SHALL 收起。
 - **展开态 SHALL 就地展开而非浮层**：设定面板列自身 `overflow-y:auto`，浮层会被裁切并随滚动漂移；浮层需 portal + 滚动跟随，与本页「简洁」相悖。收起即一行，故简洁目标由「字段形态」达成，而非浮层。
 - **目录每一项 SHALL 带「解读」与「案例」（用户 2026-09-10 追加）**：只给名字（如「武魂流」「本格刑侦」）作者不知道指什么。`desc`＝这一项**写的是什么**（一句话、作者视角，非营销词）；`example`＝**可对照的作品/取材**（把抽象标签锚到具体印象，叙事/影视/漫画皆可，正史类以「取材」形式给史料）。展示：**选中即见**——只选大类说大类解读，选了子类换成子类解读 + 案例（`.cap-note`，未选不占位）；每颗胶囊另带 `title` 悬停提示。**两项缺一不可**（对拍测试逐项断言非空）。
 - **口味胶囊 SHALL 移到 02 格**作「常见口味」快捷填充（原名「题材口味胶囊」名不符实：它填的是 02-05，不是题材）：一次预填 02/03/04/05，各格可改；**SHALL NOT** 覆盖 01 已选的题材。
 - 每格 SHALL 有编号 + 名称 + 「怎么填」提示 + 成书视角去处说明（m-use）。
-- 题材右栏 SHALL 为同款「AI 写作助手」卡片：五行字段（对应 **02-06** 六格/契约字段；01 题材目录为直接选择、不走 AI、**计入**确认判据），各行名称上/描述下（含本格问题 + 输入来源）/右箭头，各答各题。**六格→路由 field→契约字段映射**：02 主要看什么↔**promise_note（≤200，主输入＝作家写的那句话）**+core_promise（≤60，短标签：起点胶囊/AI 写入，不单独设输入框）；03 绝对禁止↔forbidden_list；04 吃苦指数↔cost_ratio；05 主线战场↔battlefield；06 剧情轨道↔track。
-- 点某行，反馈 SHALL 落到**左侧对应字段输入框正下方**的结果区（.ai-sink），采纳才写回对应控件；AI 建议按字段返回**强类型出参**（cost_ratio 为 1-10 数值、forbidden_list 为 `[{tagId|text}]`、battlefield 为数组、core_promise 为 `{value:enum|custom, note:读者预期句}`、主要看什么/剧情轨道为文本）。
+- 题材右栏 SHALL 为同款「AI 写作助手」卡片：**四行**字段（对应 02-05；01 题材目录为直接选择、不走 AI、**计入**确认判据），各行名称上/描述下（含本格问题 + 输入来源）/右箭头，各答各题。**路由 field→契约字段映射**：02 主要看什么↔**promise_note（≤200，主输入＝作家写的那句话）**+core_promise（≤60，短标签：起点胶囊/AI 写入，不单独设输入框）；03 绝对禁止↔forbidden_list；04 吃苦指数↔cost_ratio；05 本小说斗什么↔battlefield。**已退役的 track SHALL 被 AI 端点拒绝（400）**。
+- 点某行，反馈 SHALL 落到**左侧对应字段输入框正下方**的结果区（.ai-sink），采纳才写回对应控件；AI 建议按字段返回**强类型出参**（cost_ratio 为 1-10 数值、forbidden_list 为 `[{tagId|text}]`、battlefield 为数组、core_promise 为 `{value:enum|custom, note:读者预期句}`、主要看什么为文本）。
 - 题材的枚举/标签类字段（core_promise、forbidden_list、battlefield）SHALL 有**候选来源**：由 9. 共享候选源给出候选清单（core_promise 枚举值、forbidden_list tagId 目录、battlefield 候选），模型从中选或走 custom，前端「采纳才写回并映射 tagId」。
 - **写回语义**（设计见 D16）：单值文本/数值**覆盖**（按钮「采纳 · 覆盖」）；列表（forbidden_list/battlefield）**覆盖整个列表**（不追加——O-6）；AI 返回无法映射 tagId 的文本落为 `custom`（不丢弃）；**01 取消选择不回滚**已填各格（O-15）。
 - 题材定义 SHALL 收口为：题材 = 读者预期 + 作者轨道 + 核心冲突的类型锁（提示帮助中的措辞）。
@@ -128,8 +129,14 @@
 #### Scenario: 三种口味快捷填充（02 格）
 - Given 题材面板，已选 01 题材「仙侠/修真」
 - When 点 02 格的「逆袭打脸」
-- Then 主要看什么/绝对禁止/吃苦指数/主线战场 预填推荐值，均可改可清
+- Then 主要看什么/绝对禁止/吃苦指数/本小说斗什么 预填推荐值，均可改可清
 - And 01 已选的题材不被覆盖
+
+#### Scenario: 剧情轨道退役后主线承接注入
+- Given 作者在「主线规划」里写了一句话主线
+- When 生成正文
+- Then 写作上下文含「全书主线：<那句话>」（剧情轨道退役前由 06 格承担的这条信息，改由主线承接）
+- And 题材面板不再渲染 06 格，AI 端点对 `track` 返回 400
 
 #### Scenario: 题材目录两级选择
 - Given 打开题材面板
@@ -281,10 +288,10 @@
 - 简介 SHALL 存储 `{ synopsis: string, ≤500 }`（`PUT /settings/story`）。
 - **题材目录（01 格）SHALL 落 `story.yaml`**（用户 2026-09-10 拍板）：大类名存**既有 `genre` 键**（书卡胶囊/书内标签的展示链一直读它）、子类名存新键 `sub_genre`；`GET/PUT /novels/{id}/settings/genre` 的对外契约 SHALL 含 `theme`/`sub_genre` 两字段，**存储位置对前端透明**（面板一次取全、一次保存）。**理由**：题材目录是与简介同族的单值书级元数据（同文件、已有 `genre` 键），不是多值关系；**另立关系表意味着改 schema → 触发 C端 启动期指纹留档（用户库被改名重建，实打实的数据丢失）**，而简介真源本来就在 `story.yaml`。**键存在才写**：PUT 未带 `theme`/`sub_genre` 键时 SHALL NOT 改动既有值（老调用方只 PUT 五字段不得清空题材）。
 - **题材目录（封闭目录）SHALL 以中文名为存储值**：不另造 slug-id（名字即稳定键，免 id↔名两处漂移）；写入 SHALL 按目录校验，未知大类/跨类子类 → 400（「未知的题材」/「没有这个子类」）。
-- 题材 SHALL 存**关系表**（方案 A，D19）：`novel_genre`（`novel_id` 主键、`core_promise VARCHAR(60)`、`promise_note VARCHAR(200)`、`cost_ratio INTEGER CHECK 1–10`、`track VARCHAR(300)`）+ `novel_genre_forbidden` / `novel_genre_battlefield`（关联表，`vocab_id` FK→`genre_vocab` 或 `custom_text`，CHECK 恰一；`UNIQUE(novel_id, vocab_id)`）。**候选源 SHALL 为 `genre_vocab` 表**（稳定 slug 主键、`kind`/`label`/`sort`/`is_preset`），**tagId SHALL 为稳定 slug**（如 `forbidden:no-deus-ex-machina`），**SHALL NOT 用 `preset:{id}:{index}` 这类随顺序漂移的编号**。**空值统一**：`null`/`""`/纯空白/无关联行 等价视为未填。`project_settings('genre')` 行 SHALL 废弃。
+- 题材 SHALL 存**关系表**（方案 A，D19）：`novel_genre`（`novel_id` 主键、`core_promise VARCHAR(60)`、`promise_note VARCHAR(200)`、`cost_ratio INTEGER CHECK 1–10`、`track VARCHAR(300)`（**列保留、契约已移除**：2026-09-10 起不再读写，见「题材面板」需求））+ `novel_genre_forbidden` / `novel_genre_battlefield`（关联表，`vocab_id` FK→`genre_vocab` 或 `custom_text`，CHECK 恰一；`UNIQUE(novel_id, vocab_id)`）。**候选源 SHALL 为 `genre_vocab` 表**（稳定 slug 主键、`kind`/`label`/`sort`/`is_preset`），**tagId SHALL 为稳定 slug**（如 `forbidden:no-deus-ex-machina`），**SHALL NOT 用 `preset:{id}:{index}` 这类随顺序漂移的编号**。**空值统一**：`null`/`""`/纯空白/无关联行 等价视为未填。`project_settings('genre')` 行 SHALL 废弃。
 - **实体命名统一（D20）**：DB 表 `projects` SHALL 改名 `novels`、列 `project_id` SHALL 改名 `novel_id`（含 `chapters`/`volumes`/`token_log`/`project_model_audit_log` + 新表 FK）；后端 URI `/api/v1/projects/*` SHALL 改 `/api/v1/novels/*`（无外部消费者，不留别名）；前端 `/projects/...` 残留同批改。**理由**：一物三名已收敛两处（类名 `Novel`、路由 `/novels`），表名是唯一残留；Change C D1 原判「不动」的前提（有已分发数据）已因「无 C 端用户」失效。
-- 题材确认判据 SHALL 由「genre_id 非空」改为「**已选题材目录大类 或 新契约核心键非空**」（`core_promise`/`promise_note`/`forbidden_list`/`cost_ratio`/`battlefield`/`track` 至少一非空；`readiness._check_genre` 与 `genre_is_filled` 同步改）——01 格问的就是「什么题材」，只选了题材也算题材已定；**02 只写了那句話（promise_note）也算已填**（用户 2026-09-10 改版：选项只是几个词，作家写一句更好）。
-- **六格↔字段↔契约映射** SHALL 固定：01 题材目录↔`theme`+`sub_genre`(story.yaml)；02 主要看什么↔**promise_note（≤200，主输入＝作家写的那句话）**+core_promise（≤60，短标签：起点胶囊/AI 写入，不单独设输入框）；03 绝对禁止↔forbidden_list；04 吃苦指数↔cost_ratio；05 主线战场↔battlefield；06 剧情轨道↔track。
+- 题材确认判据 SHALL 由「genre_id 非空」改为「**已选题材目录大类 或 新契约核心键非空**」（`core_promise`/`promise_note`/`forbidden_list`/`cost_ratio`/`battlefield` 至少一非空；`readiness._check_genre` 与 `genre_is_filled` 同步改）——01 格问的就是「什么题材」，只选了题材也算题材已定；**02 只写了那句話（promise_note）也算已填**（用户 2026-09-10 改版：选项只是几个词，作家写一句更好）。
+- **五格↔字段↔契约映射** SHALL 固定：01 题材目录↔`theme`+`sub_genre`(story.yaml)；02 主要看什么↔**promise_note（≤200，主输入＝作家写的那句话）**+core_promise（≤60，短标签：起点胶囊/AI 写入，不单独设输入框）；03 绝对禁止↔forbidden_list；04 吃苦指数↔cost_ratio；05 本小说斗什么↔battlefield。（06 剧情轨道已退役→主线规划）
 - **候选源** SHALL 提供 core_promise 枚举值、forbidden_list 的 tagId 目录、battlefield 候选清单（新建共享候选源，不复用 presets 现成键），供题材 AI 从中选或走 custom、前端「采纳写回并映射 tagId」。
 - AI 辅助的字段说明、**六段名与禁忌三元** SHALL 注册进**共享常量模块**（prompt 模板与前端渲染共用）；注：`fieldGuide`/`settings-ai-qa` **本仓库不存在**，属待建——本 change 以共享常量模块落地，不依赖未建系统。
 - 简介/题材 AI 能力 SHALL 由 **C端后端** `settings/ai_router.py` 承载：扩展（`FIELD_GENERATABLE` 加 `genre`、新增 `settings/ai/intro/{action}` 子路由且**注册在 `/ai/{stype}/{field}` 之前**、`settings_intro_{action}`/`settings_genre_{field}` prompt 模板）、挂 `require_ai_access`、`record_usage` 按 `settings_{stype}_{action|field}` 细分——非 S端、不引入独立服务。

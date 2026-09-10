@@ -48,7 +48,9 @@ class NovelGenreIn(BaseModel):
     forbidden_list: list[ForbiddenItemIn] = Field(default_factory=list, max_length=50)
     cost_ratio: int | None = Field(default=None, ge=1, le=10)
     battlefield: list[str] = Field(default_factory=list, max_length=10)
-    track: str | None = Field(default=None, max_length=300)
+    # `track`（剧情轨道）已随 2026-09-10 用户拍板从题材契约移除——它与「主线规划」
+    # 是同一个概念（整本书怎么走），一处两存违反本体纪律；DB 列保留不迁移，已有值
+    # 只是不再被读写（旧调用带 track 会被 Pydantic 忽略）。
 
     @field_validator("battlefield")
     @classmethod
@@ -180,7 +182,6 @@ async def get_novel_genre(session: AsyncSession, novel_id: str) -> dict[str, Any
         ],
         "cost_ratio": row.cost_ratio if row else None,
         "battlefield": [b.vocab_id or b.custom_text for b in bf],
-        "track": (row.track if row else None) or "",
     }
 
 
@@ -190,7 +191,6 @@ async def put_novel_genre(
     """单事务：upsert novel_genre + delete/insert 两张关联表。"""
     core_promise = _clean(payload.get("core_promise"))
     promise_note = _clean(payload.get("promise_note"))
-    track = _clean(payload.get("track"))
     raw_cost = payload.get("cost_ratio")
     cost = None
     if raw_cost not in (None, ""):
@@ -205,7 +205,6 @@ async def put_novel_genre(
     row.core_promise = core_promise
     row.promise_note = promise_note
     row.cost_ratio = cost
-    row.track = track
 
     # 关联表全量替换（顺序＝数组序，sort 从 0 连续）
     await session.execute(
@@ -280,6 +279,5 @@ async def genre_is_filled(session: AsyncSession, novel_id: str) -> bool:
         or g["forbidden_list"]
         or g["cost_ratio"] is not None
         or g["battlefield"]
-        or _clean(g["track"])
     )
 

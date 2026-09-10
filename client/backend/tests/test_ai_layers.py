@@ -438,7 +438,7 @@ class TestGenreFieldAi:
         assert r.status_code == 200, r.text
         assert r.json()["value"] == 10
 
-    def test_battlefield_and_track(self, client, monkeypatch):
+    def test_battlefield(self, client, monkeypatch):
         nid = self._novel_ready()
         self._patch_client(monkeypatch, '["resources", {"text": "街口那条巷子"}]')
         r = client.post(
@@ -449,32 +449,27 @@ class TestGenreFieldAi:
             {"text": "街口那条巷子"},
         ]
 
-        self._patch_client(monkeypatch, '{"value": "凡人流——每卷突破一个大境界"}')
-        r2 = client.post(
-            f"/api/novels/{nid}/settings/ai/genre/track", json={"title": "书"}
-        )
-        assert r2.json()["value"] == "凡人流——每卷突破一个大境界"
-
     def test_invalid_json_502(self, client, monkeypatch):
         nid = self._novel_ready()
         self._patch_client(monkeypatch, "这不是 JSON")
         r = client.post(
-            f"/api/novels/{nid}/settings/ai/genre/track", json={"title": "书"}
+            f"/api/novels/{nid}/settings/ai/genre/battlefield", json={"title": "书"}
         )
         assert r.status_code == 502, r.text
 
     def test_unknown_genre_field_400(self, client, monkeypatch):
         nid = self._novel_ready()
         self._patch_client(monkeypatch, "{}")
-        r = client.post(
-            f"/api/novels/{nid}/settings/ai/genre/promise_note", json={"title": "书"}
-        )
-        assert r.status_code == 400, r.text
+        for field in ("promise_note", "track"):  # track 已随 2026-09-10 退役
+            r = client.post(
+                f"/api/novels/{nid}/settings/ai/genre/{field}", json={"title": "书"}
+            )
+            assert r.status_code == 400, (field, r.text)
 
     def test_usage_records_operation_and_actual_model(self, client, monkeypatch):
         nid = self._novel_ready()
         self._patch_client(monkeypatch, '{"value": "x"}')
-        client.post(f"/api/novels/{nid}/settings/ai/genre/track", json={"title": "书"})
+        client.post(f"/api/novels/{nid}/settings/ai/genre/battlefield", json={"title": "书"})
 
         async def _rows():
             async with async_session() as session:
@@ -484,13 +479,13 @@ class TestGenreFieldAi:
                 return res.scalars().all()
 
         rows = _run_async(_rows())
-        assert rows and rows[-1].operation == "settings_genre_track"
+        assert rows and rows[-1].operation == "settings_genre_battlefield"
         assert rows[-1].model == "gpt-4o"
 
     def test_json_mode_and_temperature_passed(self, client, monkeypatch):
         nid = self._novel_ready()
         fake = self._patch_client(monkeypatch, '{"value": "x"}')
-        client.post(f"/api/novels/{nid}/settings/ai/genre/track", json={"title": "书"})
+        client.post(f"/api/novels/{nid}/settings/ai/genre/battlefield", json={"title": "书"})
         assert fake.last_kwargs["json_mode"] is True
         assert fake.last_kwargs["temperature"] <= 0.3
         assert fake.last_kwargs["max_tokens"] >= 2048

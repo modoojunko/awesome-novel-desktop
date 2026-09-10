@@ -131,8 +131,7 @@ class TestBuildGenreSection:
                 "core_promise": "以弱破强的痛快",
                 "promise_note": "读者要看弱者用脑子翻盘",
                 "cost_ratio": 7,
-                "track": "从被赶出家门到掌控全城",
-                "forbidden": ["禁天降外援"],
+                                "forbidden": ["禁天降外援"],
                 "battlefield": ["抢资源"],
                 # 旧契约键传入也应被忽略（KV 路径已退役）
                 "name": "测试题材",
@@ -145,7 +144,6 @@ class TestBuildGenreSection:
         assert "核心承诺：以弱破强的痛快" in section
         assert "读者预期：读者要看弱者用脑子翻盘" in section
         assert "吃苦指数：7" in section
-        assert "剧情轨道：从被赶出家门到掌控全城" in section
         assert "绝对禁止：禁天降外援" in section
         assert "主线战场：抢资源" in section
         # 旧契约键不再渲染
@@ -204,8 +202,7 @@ async def _put(novel_id: str) -> None:
                 "core_promise": "以弱破强的痛快",
                 "promise_note": "读者要看弱者用脑子翻盘",
                 "cost_ratio": 7,
-                "track": "从被赶出家门到掌控全城",
-                "forbidden_list": [{"tagId": "forbidden:no-deus-ex-machina"}],
+                                "forbidden_list": [{"tagId": "forbidden:no-deus-ex-machina"}],
                 "battlefield": ["battlefield:resources"],
             },
         )

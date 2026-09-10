@@ -202,7 +202,7 @@ const SEED = (() => {
     forbidden_list: [{ tagId: "forbidden:no-deus-ex-machina" }],
     cost_ratio: 8,
     battlefield: ["battlefield:resources", "battlefield:status"],
-    track: "凡人流——从练气一步步爬，每卷突破一个大境界。",
+
   };
   const genreDef = {
     id: "deep-space",

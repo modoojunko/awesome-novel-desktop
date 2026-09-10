@@ -173,7 +173,7 @@ test.describe("题材/简介 AI 链路", () => {
 
       await page.getByRole("button", { name: /^设定/ }).click();
       await openSetting(page, "题材");
-      await expect(page.locator(".settings-v .mod")).toHaveCount(6);
+      await expect(page.locator(".settings-v .mod")).toHaveCount(5);
 
       await page.locator('[data-aiact="m3"]').click();
       const sink = page.locator('[data-od-id="genre-ai-sink-cost_ratio"]');

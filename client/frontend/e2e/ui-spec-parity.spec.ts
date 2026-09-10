@@ -168,7 +168,7 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
 
       await page.getByRole("button", { name: /^设定/ }).click();
       await page.locator(".settings-v .col-tree .s-item", { hasText: "题材" }).click();
-      await expect(page.locator(".settings-v .mod")).toHaveCount(6);
+      await expect(page.locator(".settings-v .mod")).toHaveCount(5);
 
       // 口味胶囊 borderRadius 999
       expect(await cssNum(page, ".settings-v .cap", "border-radius")).toBe(999);

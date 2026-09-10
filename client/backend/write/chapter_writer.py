@@ -92,6 +92,9 @@ class ChapterContext:
 
     def __init__(self):
         self.premise = ""
+        # 主线（story_arc.premise＝「谁+想要什么+什么拦着」）：整本书怎么走的唯一归属。
+        # 2026-09-10 起题材面板不再有「剧情轨道」（与主线重复），注入改由这里承接。
+        self.story_arc = ""
         self.world_setting = {}
         self.style_setting = {}
         self.anti_ai = {}
@@ -160,6 +163,8 @@ class ChapterContext:
 
         if self.premise or self.world_setting or self.volume_summary:
             bg = ["故事前提：" + self.premise] if self.premise else []
+            if self.story_arc:
+                bg.append("全书主线：" + self.story_arc)
             world_block = self._world_block()
             if world_block:
                 bg.append(world_block)
@@ -316,6 +321,8 @@ class ChapterContext:
         lines.append(f"本段是《{self.novel_title}》的一章。")
         if self.premise:
             lines.append(f"故事前提：{self.premise}")
+        if self.story_arc:
+            lines.append(f"全书主线：{self.story_arc}")
         world_block = self._world_block()
         if world_block:
             lines.append(world_block)
@@ -480,6 +487,8 @@ async def build_chapter_context(
     # Premise
     story = await get_storage().read_yaml(root_path, "story.yaml") or {}
     ctx.premise = story.get("synopsis", "")
+    arc = story.get("story_arc") if isinstance(story.get("story_arc"), dict) else {}
+    ctx.story_arc = str((arc or {}).get("premise", "") or "").strip()
 
     # Settings
     ctx.style_setting = (

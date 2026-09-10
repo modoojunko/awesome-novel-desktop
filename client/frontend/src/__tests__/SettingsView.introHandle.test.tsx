@@ -103,7 +103,7 @@ describe("SettingsView · 简介面板句柄（回归）", () => {
   });
 });
 
-describe("SettingsView · 题材右栏五行", () => {
+describe("SettingsView · 题材右栏四行", () => {
   beforeEach(() => {
     apiState.get.mockReset();
     aiState.genreAi.mockReset();
@@ -111,7 +111,7 @@ describe("SettingsView · 题材右栏五行", () => {
     aiState.genreAi.mockResolvedValue({ value: "x" });
   });
 
-  it("五行行存在，点「主线战场」经 genreRef.runAi 调 genreAi", async () => {
+  it("四行存在（01 不走 AI；06 剧情轨道已退役），点「本小说斗什么」经 genreRef.runAi 调 genreAi", async () => {
     const { container } = render(
       <SettingsView
         projectId="p1"
@@ -124,9 +124,10 @@ describe("SettingsView · 题材右栏五行", () => {
     );
 
     await waitFor(() => expect(container.querySelector('[data-aiact="m4"]')).toBeTruthy());
-    for (const key of ["m1", "m2", "m3", "m4", "m5"]) {
+    for (const key of ["m1", "m2", "m3", "m4"]) {
       expect(container.querySelector(`[data-aiact="${key}"]`)).toBeTruthy();
     }
+    expect(container.querySelector('[data-aiact="m5"]')).toBeNull(); // 06 已退役
     fireEvent.click(container.querySelector('[data-aiact="m4"]')!);
 
     await waitFor(() =>

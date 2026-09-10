@@ -71,7 +71,7 @@ describe("introAi 请求形态", () => {
 describe("genreAi 请求形态", () => {
   beforeEach(() => vi.restoreAllMocks());
 
-  it.each(["core_promise", "forbidden_list", "cost_ratio", "battlefield", "track"] as const)(
+  it.each(["core_promise", "forbidden_list", "cost_ratio", "battlefield"] as const)(
     "POST /settings/ai/genre/%s，入参 title + context + multi_point",
     async (field) => {
       const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(

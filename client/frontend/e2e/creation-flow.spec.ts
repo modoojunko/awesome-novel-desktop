@@ -398,8 +398,8 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     // 题材面板在「简介确认即前进」时已挂载（早于本次注入）→ 切走再切回强制重挂载取数
     await openSetting(page, "世界");
     await openSetting(page, "题材");
-    // 面板加载完成信号＝六格渲染出（首格口味胶囊可见）
-    await expect(page.locator(".settings-v .mod")).toHaveCount(6, { timeout: 5000 });
+    // 面板加载完成信号＝五格渲染出（首格题材选择器可见）
+    await expect(page.locator(".settings-v .mod")).toHaveCount(5, { timeout: 5000 });
     // 02 主框＝作家写的那句话（promise_note）；短标签另在提示行
     await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue(
       "读者要看到弱者被逼到绝境后，用脑子一步步翻盘",

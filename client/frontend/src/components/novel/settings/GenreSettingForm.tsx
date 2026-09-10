@@ -1,7 +1,8 @@
 // ── GenreSettingForm ──────────────────────────────────────────────────────
 // 题材设定面板（genre-signup-redesign tasks 4.1 / D18·D19 新契约）：
 //   六格 = 01 题材目录（大类必选 + 子类可选，落 story.yaml）+ 02 主要看什么
-//   + 03 绝对禁止 + 04 吃苦指数 + 05 主线战场 + 06 剧情轨道。
+//   + 03 绝对禁止 + 04 吃苦指数 + 05 本小说斗什么（2026-09-10 起五格：06 剧情轨道
+//     已退役——它与「主线规划」是同一个概念，一处两存违反本体纪律，主线归 story-arc）。
 //   每格 = 编号 + 怎么填（m-why）+ 成书视角去处（m-use）。
 //
 // 存储契约（对外七字段 JSON；01 落 story.yaml，其余关系化落 4 张表）：
@@ -9,7 +10,7 @@
 //   02 → promise_note(≤200，**主输入＝一句话**，AI 给完整草稿、作家可改)
 //        + core_promise(≤60，短标签：起点胶囊/AI 写入，不单独设输入框)
 //   03 → forbidden_list[{tagId|text}]   04 → cost_ratio(1-10)
-//   05 → battlefield[]（tagId 或自定义文本）  06 → track(≤300)
+//   05 → battlefield[]（tagId 或自定义文本）
 // 空值统一："" / 空白 / [] / null 等价未填（后端 Pydantic + CHECK 同口径）。
 // AI 反馈落各格下方 .ai-sink（tasks 4.2），采纳才写回控件。
 
@@ -55,7 +56,6 @@ export const GENRE_AI_FIELDS: GenreAiField[] = [
   "forbidden_list",
   "cost_ratio",
   "battlefield",
-  "track",
 ];
 
 /** 五行 AI 的字段 → 结果区标题（原型 ZONE_LABEL 同文案）。 */
@@ -63,8 +63,7 @@ const AI_LABEL: Record<GenreAiField, string> = {
   core_promise: "AI 填 · 主要看什么",
   forbidden_list: "AI 填 · 绝对禁止",
   cost_ratio: "AI 填 · 吃苦指数",
-  battlefield: "AI 填 · 主线战场",
-  track: "AI 填 · 剧情轨道",
+  battlefield: "AI 填 · 本小说斗什么",
 };
 
 // ── 契约数据形态 ─────────────────────────────────────────────────────────
@@ -97,7 +96,6 @@ interface GenrePayload {
   forbidden_list: ForbiddenItem[];
   cost_ratio: number | null;
   battlefield: string[];
-  track: string;
 }
 
 const EMPTY: GenrePayload = {
@@ -108,7 +106,6 @@ const EMPTY: GenrePayload = {
   forbidden_list: [],
   cost_ratio: null,
   battlefield: [],
-  track: "",
 };
 
 function normalize(raw: unknown): GenrePayload {
@@ -124,7 +121,6 @@ function normalize(raw: unknown): GenrePayload {
       : [],
     cost_ratio: typeof cost === "number" && cost >= 1 && cost <= 10 ? cost : null,
     battlefield: Array.isArray(d.battlefield) ? d.battlefield.filter(Boolean).map(String) : [],
-    track: (d.track ?? "").toString(),
   };
 }
 
@@ -436,7 +432,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     [themeRows, cursor, pickRow, closeThemePanel],
   );
 
-  // ── 02 常见口味快捷填充：预填 02/03/04/05（不写 promise_note/track）───
+  // ── 02 常见口味快捷填充：预填 02/03/04/05（不写 promise_note）───
   const applyFlavor = useCallback(
     (key: string) => {
       const f = GENRE_FLAVORS.find((x) => x.key === key);
@@ -485,7 +481,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     setCustomForbidden("");
   }, [customForbidden, data.forbidden_list.length]);
 
-  // ── 05 主线战场：勾选 / 移除（自定义项由 AI 采纳写入，可 × 移除）────
+  // ── 05 本小说斗什么：勾选 / 移除（自定义项由 AI 采纳写入，可 × 移除）────
   const toggleBattlefield = useCallback((val: string) => {
     setData((prev) => {
       const has = prev.battlefield.includes(val);
@@ -539,9 +535,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
               ? data.forbidden_list
               : field === "cost_ratio"
                 ? data.cost_ratio
-                : field === "battlefield"
-                  ? data.battlefield
-                  : data.track,
+                : data.battlefield,
         core_promise: data.core_promise,
         forbidden_list: data.forbidden_list,
         cost_ratio: data.cost_ratio,
@@ -607,10 +601,6 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
               </p>
             );
             adopt = () => patch({ battlefield: vals });
-          } else {
-            const text = v as string;
-            node = <p style={{ margin: 0 }}>{text}</p>;
-            adopt = () => patch({ track: text });
           }
           setSinks((prev) => {
             const list = [
@@ -889,7 +879,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
               className={`cap${flavorKey === f.key ? " on" : ""}`}
               type="button"
               data-g={f.key}
-              title="一次预填主要看什么 / 绝对禁止 / 吃苦指数 / 主线战场"
+              title="一次预填主要看什么 / 绝对禁止 / 吃苦指数 / 本小说斗什么"
               onClick={() => applyFlavor(f.key)}
             >
               {f.label}
@@ -1116,11 +1106,11 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         })()}
       </Mod>
 
-      {/* 05 主线战场 → battlefield */}
+      {/* 05 本小说斗什么 → battlefield */}
       <Mod
         no="05"
-        name="主线战场"
-        why="整本书主要斗什么（建议 1-2 个）"
+        name="本小说斗什么"
+        why="全书主要斗的是什么（建议 1-2 个）"
         use={
           <>
             "填好后："
@@ -1194,63 +1184,6 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         })()}
       </Mod>
 
-      {/* 06 剧情轨道 → track */}
-      <Mod
-        no="06"
-        name="剧情轨道"
-        why="整本书怎么走（可不填）"
-        use={
-          <>
-            "填好后："
-            <b>百万字沿它走</b>
-            "，写作台常驻可查"
-          </>
-        }
-      >
-        <textarea
-          className="textarea"
-          rows={2}
-          maxLength={GENRE_LIMITS.track}
-          data-od-id="track-input"
-          placeholder="凡人流——从练气一步步爬，每卷突破一个大境界、了结一桩恩怨"
-          value={data.track}
-          onChange={(e) => patch({ track: e.target.value })}
-        />
-        {running === "track" && (
-          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
-        )}
-{(() => {
-          const st = sinks.track;
-          if (!st) return null;
-          const { list, idx: active } = st;
-          const entry = list[active];
-          if (!entry) return null;
-          return (
-            <AiSink
-              label={entry.label}
-              history={{
-                total: list.length,
-                active,
-                max: SINK_MAX,
-                onSelect: (i) =>
-                  setSinks((prev) => {
-                    const cur = prev.track;
-                    return cur ? { ...prev, track: { ...cur, idx: i } } : prev;
-                  }),
-              }}
-              adoptText="采纳 · 覆盖"
-              onAdopt={() => {
-                entry.adopt();
-                toast.success("已采纳，落回对应格，随时可改");
-              }}
-              onRetry={() => runAi("track")}
-              data-od-id={`genre-ai-sink-track`}
-            >
-              {entry.node}
-            </AiSink>
-          );
-        })()}
-      </Mod>
 
       {error && (
         <p className="opt" style={{ color: "var(--err)" }}>

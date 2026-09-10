@@ -134,7 +134,6 @@ FULL_PAYLOAD = {
     ],
     "cost_ratio": 7,
     "battlefield": ["battlefield:resources", "家门口的巷子"],
-    "track": "从被赶出家门到掌控全城",
 }
 
 
@@ -153,7 +152,6 @@ class TestRoundTrip:
         assert body["core_promise"] == "以弱破强的痛快"
         assert body["promise_note"] == "读者要看到弱者用脑子翻盘"
         assert body["cost_ratio"] == 7
-        assert body["track"] == "从被赶出家门到掌控全城"
         assert body["forbidden_list"] == FULL_PAYLOAD["forbidden_list"]
         assert body["battlefield"] == FULL_PAYLOAD["battlefield"]
 
@@ -230,7 +228,7 @@ class TestRoundTrip:
         )
         body = client.get(f"/api/novels/{pid}/settings/genre").json()
         assert body["core_promise"] == ""
-        assert body["track"] == ""
+        assert "track" not in body  # 剧情轨道已退役（2026-09-10：与主线重复）
         assert body["cost_ratio"] is None
         assert body["forbidden_list"] == []
         assert body["battlefield"] == []
@@ -256,10 +254,6 @@ class TestRoundTrip:
         )
         assert r.status_code == 400, r.text
 
-    def test_track_over_300_400(self, client):
-        pid = _new_novel(client)
-        r = client.put(f"/api/novels/{pid}/settings/genre", json={"track": "字" * 301})
-        assert r.status_code == 400, r.text
 
     def test_forbidden_list_over_50_400(self, client):
         pid = _new_novel(client)
@@ -363,7 +357,6 @@ class TestInjection:
                 "core_promise": "以弱破强的痛快",
                 "promise_note": "读者要看到弱者用脑子翻盘",
                 "cost_ratio": 7,
-                "track": "从被赶出家门到掌控全城",
                 "forbidden": ["禁天降外援"],
                 "battlefield": ["抢资源"],
             }
@@ -372,7 +365,6 @@ class TestInjection:
         assert "核心承诺：以弱破强的痛快" in section
         assert "读者预期：读者要看到弱者用脑子翻盘" in section
         assert "吃苦指数：7" in section
-        assert "剧情轨道：从被赶出家门到掌控全城" in section
         assert "绝对禁止：禁天降外援" in section
         assert "主线战场：抢资源" in section
 
@@ -455,7 +447,6 @@ class TestService:
             "forbidden_list": [],
             "cost_ratio": None,
             "battlefield": [],
-            "track": "",
         }
 
     def test_put_ignores_malformed_forbidden_item(self, client):
@@ -899,3 +890,34 @@ class TestThemeCatalog:
         assert r.status_code == 200, r.text
         detail = client.get(f"/api/novels/{pid}").json()
         assert detail["genre_label"] == "科幻", "换大类后不得残留旧子类"
+
+
+class TestTrackRetired:
+    """剧情轨道已从题材契约移除（2026-09-10 用户拍板：与主线规划重复）。"""
+
+    def test_contract_no_longer_exposes_track(self, client):
+        pid = _new_novel(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={"core_promise": "以弱破强的痛快", "track": "从练气到飞升"},  # 旧字段被忽略
+        )
+        assert r.status_code == 200, r.text
+        got = client.get(f"/api/novels/{pid}/settings/genre").json()
+        assert "track" not in got
+
+    def test_ai_endpoint_rejects_track_field(self, client):
+        pid = _new_novel(client)
+        # 简介走专用端点（/settings/story 不在通用单文件白名单里）
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "够长的简介内容用于通过前置校验。"})
+        r = client.post(
+            f"/api/novels/{pid}/settings/ai/genre/track", json={"title": "x", "context": {}}
+        )
+        assert r.status_code == 400
+        assert "不支持" in r.json()["detail"]
+
+    def test_track_not_in_fill_judge(self, client):
+        """判据不再看 track（它已不是题材的键）。"""
+        pid = _new_novel(client)
+        assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 400
+        client.put(f"/api/novels/{pid}/settings/genre", json={"cost_ratio": 5})
+        assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 200

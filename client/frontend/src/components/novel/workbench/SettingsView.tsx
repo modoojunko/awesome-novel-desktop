@@ -181,7 +181,7 @@ export default function SettingsView({
     [introspected, runIntroAi],
   );
 
-  // 题材右栏五行（02-06 各答各题；01 口味胶囊不走 AI）
+  // 题材右栏四行（02-05 各答各题；01 题材目录不走 AI；06 剧情轨道已退役——归主线规划）
   const genreAiRows = useMemo<AiCapabilityRow[]>(
     () => [
       {
@@ -204,15 +204,9 @@ export default function SettingsView({
       },
       {
         key: "m4",
-        name: "主线战场",
-        desc: "本格问题：整本书主要斗什么？输入：题材 + 02 的承诺 + 简介",
+        name: "本小说斗什么",
+        desc: "本格问题：全书主要斗的是什么？输入：题材 + 02 的承诺 + 简介",
         onClick: () => runGenreAi("m4", "battlefield"),
-      },
-      {
-        key: "m5",
-        name: "剧情轨道",
-        desc: "本格问题：整本书怎么走？输入：题材 + 02-05 已填的全部内容",
-        onClick: () => runGenreAi("m5", "track"),
       },
     ],
     [runGenreAi],

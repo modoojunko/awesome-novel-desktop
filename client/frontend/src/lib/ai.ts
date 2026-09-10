@@ -230,8 +230,7 @@ export type GenreAiField =
   | "core_promise"
   | "forbidden_list"
   | "cost_ratio"
-  | "battlefield"
-  | "track";
+  | "battlefield"; // track（剧情轨道）已随 2026-09-10 退役：与主线规划重复
 
 /** 按字段强类型出参（与后端归一化后契约一致）。 */
 export interface GenreAiResult {
