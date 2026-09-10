@@ -8,6 +8,7 @@ on:
   pull_request:
     paths:
       - "client/frontend/**"
+      - ".github/workflows/client-frontend-ci.yml"
   workflow_dispatch:
 
 permissions:
@@ -28,4 +29,7 @@ jobs:
           cache-dependency-path: client/frontend/package-lock.json
       - run: npm ci
       - run: npx tsc --noEmit
+      # 单测门禁（2026-09-10 补）：此前 CI 只跑 tsc + build，vitest 从不执行——
+      # 改 lib/* 消费方时单测红过而 main 无人察觉。全部 mock、不依赖 docker 栈。
+      - run: npx vitest run
       - run: npm run build
