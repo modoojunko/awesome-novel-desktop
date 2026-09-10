@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext, type Dialog } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
 // 设定真实表单 + 预览只读 E2E（PR4 v2 设定视图 two-col + 预览视图复刻后改版）
@@ -99,7 +100,17 @@ async function setupSession(
   const { token, username } = await sRegisterAndLogin();
   const restore = await writeOAuthSession(token, username, tier);
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
-  return { restore, token };
+  // 页面级桩 check-auth：注入的 pc_hash 在 S端 无设备授权（code 1），后端会据此
+  // 清空 config.json 注入 token → 业务 401（已知环境阻塞）。桩掉这次往返即可
+  // 保住注入会话；会员判定仍走后端 check_permission()（读 config.json 的 tier）。
+  await page.route("**/api/auth/check-auth", (r) =>
+    r.fulfill({ json: { code: 0, data: { token, username, tier } } }),
+  );
+  const restoreAndCleanup = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    await restore();
+  };
+  return { restore: restoreAndCleanup, token };
 }
 
 /** 通过真实 UI 创建小说，返回 project id。 */
@@ -107,10 +118,14 @@ async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
   await page.getByRole("button", { name: "新建作品" }).first().click();
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建并开始写作" }).click();
+  await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const m = page.url().match(/\/novel\/([0-9a-fA-F-]+)/);
   if (!m) throw new Error(`无法解析 novel id: ${page.url()}`);
+  // 空书默认落「设定」（@/lib/novelStage：无章节 → 设定，用户 2026-09-10 拍板）；
+  // 本 spec 的用例都在写作视图操作 → 建书后显式切过去。
+  await page.locator(".mtab", { hasText: "写作" }).click();
+  await expect(page.locator(".mtab.on")).toContainText("写作");
   return m[1];
 }
 
@@ -194,15 +209,27 @@ function settingFieldTA(page: Page, label: string) {
  * 点 panel-foot「确认完成」：先 save（落库）后 confirm（gap3），确认后按钮转
  * 「保存修改」（ADJUSTMENTS #9）。
  */
+/**
+ * 点「确认完成」。**顺序无关**：确认即前进会切到 SETTINGS_ITEMS 的下一项，
+ * 故成功判据＝「留在本格（脚部转『保存修改』）」**或**「已推进到另一格」。
+ * （此前写死「必出现保存修改」，在末项或推进目标未确认时会假失败。）
+ */
 async function confirmPanel(page: Page) {
   const btn = page
     .locator(".panel-foot")
     .getByRole("button", { name: "确认完成" });
   await expect(btn).toBeVisible({ timeout: 5000 });
+  const title = page.locator(".settings-v main h2").first();
+  const before = (await title.count()) ? await title.innerText() : "";
   await btn.click();
-  await expect(
-    page.locator(".panel-foot").getByRole("button", { name: "保存修改" }),
-  ).toBeVisible({ timeout: 5000 });
+  await expect(async () => {
+    const now = (await title.count()) ? await title.innerText() : "";
+    const saveBtn = await page
+      .locator(".panel-foot")
+      .getByRole("button", { name: "保存修改" })
+      .count();
+    expect(now !== before || saveBtn > 0).toBe(true);
+  }).toPass({ timeout: 5000 });
 }
 
 /**
@@ -218,10 +245,10 @@ async function savePanel(page: Page) {
 }
 
 // -------------------------------------------------------------------------
-// ① 题材：真实题材选择器（空态 → 都市日常 → 应用题材 → 自动保存 → 完成设定）
+// ① 题材：五格新契约面板（口味起点 → 自定义禁区 → 吃苦指数 → 确认落契约）
 // -------------------------------------------------------------------------
 
-test("题材：真实题材选择器（空态 → 选 都市日常 → 应用题材 → 自动保存）", async ({
+test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 → 确认落契约）", async ({
   page,
   request,
 }) => {
@@ -229,46 +256,161 @@ test("题材：真实题材选择器（空态 → 选 都市日常 → 应用题
   try {
     const pid = await createNovel(page, `题材${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
-    // v2 默认面板 = 题材（左栏首项）
+    // tasks 2.1 顺序对调后默认落「简介」（SETTINGS_ITEMS[0]）；本用例切到题材面板
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "简介" }),
+    ).toBeVisible({ timeout: 10000 });
+    await openSetting(page, "题材");
     await expect(
       page.locator(".settings-v main h2", { hasText: "题材" }),
-    ).toBeVisible({ timeout: 10000 });
-
-    // 空态：cur-genre「未选择」+ 选择题材按钮
-    await expect(page.getByText("未选择", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "选择题材" }).click();
-
-    // 选择器（design Modal）：都市系分组点「都市日常」→ 底部「应用题材」可用
-    const modal = page.getByRole("dialog");
-    await expect(
-      modal.getByRole("heading", { name: "选择题材" }),
     ).toBeVisible({ timeout: 5000 });
-    await modal.getByText("都市日常", { exact: true }).click();
-    const applyBtn = modal.getByRole("button", { name: "应用题材" });
-    await expect(applyBtn).toBeEnabled();
 
-    // 应用题材 → 自动保存 PUT /settings/genre
-    const genreSave = page.waitForResponse(
-      (r) =>
-        r.request().method() === "PUT" && r.url().includes("/settings/genre"),
+    // 五格齐全（编号 01-05 + 名称；06 剧情轨道已退役——归主线规划）
+    await expect(page.locator(".settings-v .mod")).toHaveCount(5);
+    for (const name of ["题材", "主要看什么", "绝对禁止", "吃苦指数", "本小说斗什么"]) {
+      await expect(page.locator(".settings-v .mod .m-name", { hasText: name })).toBeVisible();
+    }
+
+    // 01 题材选择器（TDesign Cascader 式）：收起＝一个字段；点开＝搜索 + 大类列 + 子类列
+    const trigger = page.locator('[data-od-id="theme-trigger"]');
+    await expect(trigger).toContainText("选择题材");
+    await expect(page.locator('[data-od-id="theme-panel"]')).toHaveCount(0);
+    await expect(page.locator('[data-od-id="theme-note"]')).toHaveCount(0);
+    await trigger.click();
+    const themeRow = page.locator('[data-od-id="theme-row"]');
+    await expect(themeRow.locator(".sel-item")).toHaveCount(21);
+    // 搜索按解读/案例也能命中（81 个子类，只按名字搜不够）
+    await page.locator('[data-od-id="theme-search"]').fill("凡人");
+    await expect(page.locator('[data-od-id="theme-results"]')).toContainText("仙侠/修真");
+    await page.locator('[data-od-id="theme-results"] [data-g="sub:凡人流"]').click();
+    // 选完收起，字段显示全路径
+    await expect(page.locator('[data-od-id="theme-panel"]')).toHaveCount(0);
+    await expect(trigger).toContainText("仙侠/修真 / 凡人流");
+    // 解读与案例：选中即见
+    await expect(page.locator('[data-od-id="theme-note"]')).toContainText("凡人流");
+    await expect(page.locator('[data-od-id="theme-note"]')).toContainText(
+      "案例：《凡人修仙传》",
     );
-    await applyBtn.click();
+    // 浏览 ≠ 选中（用户报障「题材老是自动变成玄幻」）：点左列科幻只是看它的子类，字段不动
+    await trigger.click();
+    await themeRow.locator('[data-g="theme:科幻"]').click();
+    await expect(trigger).toContainText("仙侠/修真 / 凡人流");
+    await expect(page.locator('[data-od-id="sub-genre-row"]')).toContainText("星际");
+    // 显式「只归到大类（科幻）」→ 这才换大类，且旧子类被清（跨类子类后端 400，客户端必须自觉）
+    await page.locator('[data-od-id="sub-genre-row"] [data-g="theme:科幻"]').click();
+    await expect(trigger).toContainText("科幻");
+    await expect(trigger).not.toContainText("凡人流");
+    await page.keyboard.press("Escape");
+    await expect(page.locator('[data-od-id="theme-panel"]')).toHaveCount(0);
+    // 换回仙侠/修真 + 凡人流，供后面保存断言
+    await trigger.click();
+    await themeRow.locator('[data-g="theme:仙侠/修真"]').click();
+    await page.locator('[data-od-id="sub-genre-row"] [data-g="sub:凡人流"]').click();
+
+    // 02 常见口味＝起点：填的是**一句话**（作家改的就是这句）+ 03/05 胶囊 + 04 指数
+    await page.locator('[data-g="comeback"]').click();
+    await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue(/读者要看到/);
+    await expect(page.locator('[data-od-id="genre-panel"]')).toContainText("标签：以弱破强的痛快");
+    // 作家在这句话上改：改完能保存（主输入可编辑，不是只读的 AI 补充）
+    await page
+      .locator('[data-od-id="m1-input"]')
+      .fill("读者要看到弱者用脑子翻盘，每赢一次都痛快");
+    await expect(page.locator('[data-od-id="genre-panel"]')).toContainText("/200");
+    await expect(page.locator('[data-forbid="forbidden:no-deus-ex-machina"]')).toHaveClass(/on/);
+    await expect(page.locator('[data-bf="battlefield:resources"]')).toHaveClass(/on/);
+    await expect(page.locator(".settings-v .cost-val")).toHaveText("8");
+    // 口味快捷填充不覆盖 01 已选题材（字段仍显示 大类 / 子类）
+    await expect(trigger).toContainText("仙侠/修真 / 凡人流");
+
+    // 03 回车自定义禁区
+    const forbidInput = page.locator('[data-od-id="forbid-input"]');
+    await forbidInput.fill("禁穿越");
+    await forbidInput.press("Enter");
+    await expect(page.getByText("禁穿越 ×")).toBeVisible();
+
+    // 04 拖动 → 浮例句出现
+    await page.locator('[data-od-id="cost-slider"]').fill("6");
+    await expect(page.locator('[data-od-id="cost-sentence"]')).toContainText("6 分");
+
+    // 确认完成 → 先 save（PUT /settings/genre）再 confirm，并「确认即前进」切到下一项（新顺序：题材→世界）
+    const genreSave = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url().includes("/settings/genre"),
+    );
+    await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
     await genreSave;
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "世界" }),
+    ).toBeVisible({ timeout: 5000 });
+    // 确认即前进＝换面板：上一条回执的撤销闭包属于题材表单，留在世界面板就是
+    // 「点了没反应」的死撤销（值还已落库）→ 必须清掉（换面板四条路径统一兜）
+    await expect(page.locator('[data-od-id="panel-receipt"]')).toHaveCount(0);
 
-    // 题材已应用：cur-genre 显示题材名 + 已设定 tag
-    await expect(page.getByText("都市日常").first()).toBeVisible({
-      timeout: 5000,
-    });
-    await expect(page.getByText("已设定", { exact: true })).toBeVisible();
-
-    // 确认完成（readiness: genre_id 非空）
-    await confirmPanel(page);
-
-    // 后端直查
+    // 后端直查：01 题材目录 + 五字段契约（无 genre_id）
     const genre = await apiGetJSON(request, token, `/novels/${pid}/settings/genre`);
-    expect(genre.genre_id).toBe("urban-daily");
+    expect(genre.theme).toBe("仙侠/修真");
+    expect(genre.sub_genre).toBe("凡人流");
+    expect(genre.core_promise).toBe("以弱破强的痛快");
+    expect(genre.cost_ratio).toBe(6);
+    expect(genre.forbidden_list).toEqual(
+      expect.arrayContaining([{ text: "禁穿越" }]),
+    );
+    expect(genre.battlefield).toContain("battlefield:resources");
+    expect(genre.genre_id).toBeUndefined();
   } finally {
-    restore();
+    await restore();
+  }
+});
+
+// -------------------------------------------------------------------------
+// ①b 长回执不折行、不撑宽中栏：脚部折出的第二行会落到窗口状态条（.statusbar，
+// fixed 26px）之下点不到；中栏被内容撑宽则会把右栏 AI 挤出屏幕（2026-09-10 实测）
+// -------------------------------------------------------------------------
+
+test("题材：长回执单行截断，确认完成点得到", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    await createNovel(page, `回执${Date.now() % 100000}`);
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "题材");
+
+    // 口味胶囊＝一次点击改 5 格 → 最长的一条回执
+    await page.locator('[data-g="comeback"]').click();
+    const receipt = page.locator('[data-od-id="panel-receipt"]');
+    await expect(receipt).toContainText("覆盖：主要看什么 / 绝对禁止");
+
+    // 文本单行截断（scrollWidth > clientWidth），全文挂 title 悬浮可读
+    const rt = receipt.locator(".rt");
+    expect(await rt.getAttribute("title")).toBe((await rt.textContent())?.trim());
+    expect(await rt.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+
+    // 脚部不许折行：`flex-wrap: nowrap` 只禁「项换行」，进度提示文字折行同样会把
+    // 脚部顶高（一行 ≈58px，两行 ≈93px；提示折成两行时自身高 43 ≠ 一行 22）
+    const foot = page.locator(".panel-foot");
+    expect((await foot.boundingBox())!.height).toBeLessThan(70);
+    const note = page.locator(".panel-foot .note");
+    expect(await note.evaluate((el) => getComputedStyle(el).whiteSpace)).toBe("nowrap");
+    expect((await note.boundingBox())!.height).toBeLessThan(30);
+    const btn = foot.getByRole("button", { name: "确认完成" });
+    await btn.scrollIntoViewIfNeeded();
+    const footBox = (await foot.boundingBox())!;
+    const statusbar = (await page.locator(".statusbar").boundingBox())!;
+    expect(footBox.y + footBox.height).toBeLessThanOrEqual(statusbar.y + 0.5);
+
+    // 主按钮真的点得到：命中测试＝当初的失败签名（点下去命中的是状态条/回执）
+    const box = (await btn.boundingBox())!;
+    expect(
+      await page.evaluate(
+        ([x, y]) =>
+          (document.elementFromPoint(x as number, y as number) as HTMLElement)?.textContent?.trim(),
+        [box.x + box.width / 2, box.y + box.height / 2],
+      ),
+    ).toBe("确认完成");
+
+    // 中栏没有被回执撑宽：右栏 AI 仍在屏幕内（撑宽时 AI 栏被挤出右侧约 58px）
+    const ai = (await page.locator(".settings-v .col-ai").boundingBox())!;
+    expect(ai.x + ai.width).toBeLessThanOrEqual((await page.viewportSize())!.width);
+  } finally {
+    await restore();
   }
 });
 
@@ -284,7 +426,7 @@ test("风格：真实表单（叙事身份 Field + 核心原则折叠组）→ �
   try {
     const pid = await createNovel(page, `风格${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
-    await openSetting(page, "风格");
+    await openSetting(page, "文风");
 
     // 叙事身份折叠组（默认展开）：Field 文本（种子模板预填 role，fill 覆盖）
     await fillSettingField(page, "叙事身份", "冷静克制的第三人称叙事，短句为主");
@@ -297,12 +439,16 @@ test("风格：真实表单（叙事身份 Field + 核心原则折叠组）→ �
       .first()
       .fill("动词驱动叙事，动作外化情绪");
 
-    // 保存（种子模板使风格开书即 ready → 已确认态只 save，不 PUT status）
+    // 新书未确认（§5.1 已填≠已确认）→ 点「确认完成」：先 save 再 confirm，
+    // 并「确认即前进」到下一项（新顺序：文风→伏笔）
     const styleSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/style"),
     );
-    await savePanel(page);
+    await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
     await styleSave;
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "伏笔" }),
+    ).toBeVisible({ timeout: 5000 });
 
     // 后端直查（merge-on-save 后 role / core_principles 落盘）
     const style = await apiGetJSON(request, token, `/novels/${pid}/settings/style`);
@@ -313,7 +459,7 @@ test("风格：真实表单（叙事身份 Field + 核心原则折叠组）→ �
       ),
     ).toBe(true);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -329,7 +475,7 @@ test("AI痕迹：真实表单（疲劳词分类列表）→ 确认完成自动�
   try {
     const pid = await createNovel(page, `痕迹${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
-    await openSetting(page, "AI痕迹控制");
+    await openSetting(page, "禁用词句");
 
     // 疲劳词折叠组（默认展开）：第一分类（总结叙事）ListEditor 填词
     // （种子模板已带默认疲劳词，fill 追加到既有分类）
@@ -338,18 +484,21 @@ test("AI痕迹：真实表单（疲劳词分类列表）→ 确认完成自动�
       .first()
       .fill("似乎");
 
-    // 保存（种子模板使 AI 痕迹开书即 ready → 已确认态只 save）
+    // 新书未确认 → 点「确认完成」（save + confirm；禁用词句是末项 → 不前进）
     const antiSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/anti-ai"),
     );
-    await savePanel(page);
+    await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
     await antiSave;
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "禁用词句" }),
+    ).toBeVisible({ timeout: 5000 });
 
     // 后端直查：summary_narrative 分类含「似乎」
     const anti = await apiGetJSON(request, token, `/novels/${pid}/settings/anti-ai`);
     expect(anti.fatigue_words_zh.summary_narrative).toContain("似乎");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -411,7 +560,7 @@ test("角色：真实创建角色（创建弹窗 → 基本信息 → 确认完�
     expect(char.role).toBe("antagonist");
     expect(char.appearance).toContain("眉眼清冷");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -540,7 +689,7 @@ test("预览：只读树 + 只读正文（草稿/归档章皆可读）→ 恢复
     await expect(page.locator(".pv-title")).toHaveText("第一章", { timeout: 10000 });
     await expect(page.locator(".two-col .arch-tag")).toHaveCount(1);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -568,23 +717,23 @@ test("P2-1 面板切换守卫：脏表单切换需确认，取消保留输入", 
       dialogShown = true;
       void d.dismiss();
     });
-    await openSetting(page, "风格");
+    await openSetting(page, "文风");
     expect(dialogShown).toBe(true);
     await expect(scene).toBeVisible();
     await expect(scene).toHaveValue("边境城邦：临海要塞，北接荒漠");
 
     // 确认分支：接受确认框 → 面板切换
     page.once("dialog", (d) => void d.accept());
-    await openSetting(page, "风格");
+    await openSetting(page, "世界");
     await expect(
-      page.locator(".settings-v main h2", { hasText: "风格" }),
+      page.locator(".settings-v main h2", { hasText: "世界" }),
     ).toBeVisible({ timeout: 5000 });
 
     // 后端未写入任何世界设定（脏输入未保存）
     const world = await apiGetJSON(request, token, `/novels/${pid}/settings/world`);
     expect(world?.geography?.scenes ?? "").toBe("");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -637,7 +786,7 @@ test("P2-1b 角色切换守卫：脏表单切换需确认，取消保留输入",
     await page.locator(".char-row", { hasText: "阿乙" }).click();
     await expect(nameInput).toHaveValue("阿乙");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -669,7 +818,7 @@ test("P2-1c 离开设定视图守卫：脏表单离开需确认，取消保留",
     await page.getByRole("button", { name: /^写作/ }).click();
     await expect(scene).toHaveCount(0);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -693,18 +842,65 @@ test("P2-1d 脏表单确认完成：自动保存再确认（内容落库 + 按�
     await page.locator("summary", { hasText: "政治" }).click();
     await fillSettingField(page, "统治形式", "城主议会制，元老席位世袭");
 
-    // 确认完成 → 应先自动保存（PUT /settings/world）再确认（PUT /settings/status/world）
+    // 确认完成 → 应先自动保存（PUT /settings/world）再确认，并「确认即前进」到下一项（新顺序：世界→角色）
     const autoSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/world"),
     );
-    await confirmPanel(page);
+    await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
     await autoSave;
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "角色" }),
+    ).toBeVisible({ timeout: 5000 });
 
     // 后端直查：内容已落库（自动保存生效）
     const world = await apiGetJSON(request, token, `/novels/${pid}/settings/world`);
     expect(world.geography.scenes).toContain("边境城邦");
     expect(world.politics.rule).toContain("城主议会制");
   } finally {
-    restore();
+    await restore();
+  }
+});
+
+// -------------------------------------------------------------------------
+// tasks 2.2：前两步顺序（简介→题材）+ 确认即前进
+// -------------------------------------------------------------------------
+test("前两步顺序 + 确认即前进：简介确认后自动切到题材（tasks 2.2）", async ({
+  page,
+}) => {
+  const { restore } = await setupSession(page);
+  try {
+    await createNovel(page, `前进${Date.now() % 100000}`);
+    await page.getByRole("button", { name: /^设定/ }).click();
+
+    // ① 默认落「简介」
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "简介" }),
+    ).toBeVisible({ timeout: 10000 });
+
+    // ② 填简介 → 确认完成
+    await fillSettingField(page, "故事简介", "外门杂徒林拾，在宗门扫了十年落叶。");
+    const introSave = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && /\/novels\/[^/]+\/story$/.test(r.url()),
+    );
+    const btn = page.locator(".panel-foot").getByRole("button", { name: "确认完成" });
+    await expect(btn).toBeVisible({ timeout: 5000 });
+    await btn.click();
+    await introSave;
+
+    // ③ 确认即前进 → 自动切到「题材」
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "题材" }),
+    ).toBeVisible({ timeout: 5000 });
+
+    // ④ 回点「简介」：内容保留、不锁题材
+    await openSetting(page, "简介");
+    await expect(
+      page.locator(".settings-v main h2", { hasText: "简介" }),
+    ).toBeVisible({ timeout: 5000 });
+    await expect(page.locator(".textarea").first()).toHaveValue(
+      "外门杂徒林拾，在宗门扫了十年落叶。",
+    );
+  } finally {
+    await restore();
   }
 });

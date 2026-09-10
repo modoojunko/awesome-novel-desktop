@@ -27,12 +27,13 @@ test.describe("会话失效处理", () => {
     );
 
     await page.goto("/#/novels");
-    // heal：清凭据 + 回登录入口（Landing 的「打开浏览器登录」）
+    // heal：清凭据 + 回登录页（LoginPage 是失效提示的消费方，读后即焚展示）
     await expect(page.getByRole("button", { name: "打开浏览器登录" })).toBeVisible({ timeout: 15000 });
     expect(await page.evaluate(() => localStorage.getItem("auth_token"))).toBeNull();
     expect(await page.evaluate(() => localStorage.getItem("auth_username"))).toBeNull();
-    // 失效提示已持久化（供登录入口展示）
-    expect(await page.evaluate(() => sessionStorage.getItem("auth_notice"))).toContain("作品仍完好保留");
+    // 失效提示必达：展示在登录页（持久化只是手段，用户看得见才是契约）
+    await expect(page.getByRole("status")).toContainText("作品仍完好保留", { timeout: 10000 });
+    expect(page.url()).toContain("/#/login");
   });
 
   test("重新登录后进入工作台且无循环请求（tasks 5.2）", async ({ page }) => {
@@ -51,6 +52,16 @@ test.describe("会话失效处理", () => {
         },
       });
     });
+    // heal 写回凭据后，工作台 shell 会用这个假 token 打真实端点——401 拦截器
+    // 会清 token 硬跳回 /#/login（曾把本用例打成「停不回工作台」）。桩掉这些
+    // 只读端点，场景就只剩「heal 写回 → 停稳」本身。
+    await page.route("**/api/novels", (r) => r.fulfill({ json: [] }));
+    await page.route("**/api/auth/devices/current", (r) =>
+      r.fulfill({ json: { enrolled: true, activated: true } }),
+    );
+    await page.route("**/api/auth/config", (r) =>
+      r.fulfill({ json: { code: 0, data: {} } }),
+    );
 
     await page.goto("/#/novels");
     // heal 写回新凭据 → 稳定停留工作台；无登出循环、无 request 风暴
@@ -59,6 +70,7 @@ test.describe("会话失效处理", () => {
     await page.waitForTimeout(1000);
     expect(page.url()).toContain("/#/novels");
     expect(await page.evaluate(() => localStorage.getItem("auth_token"))).toBe("fresh-token");
-    expect(checkAuthCalls).toBeLessThanOrEqual(4);
+    // 两次 boot 各 1-3 次 check-auth 属正常；死循环会是几十次
+    expect(checkAuthCalls).toBeLessThanOrEqual(6);
   });
 });

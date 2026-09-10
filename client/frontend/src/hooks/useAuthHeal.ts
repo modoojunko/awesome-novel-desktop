@@ -46,7 +46,12 @@ export function useAuthHeal() {
               localStorage.removeItem("auth_token");
               localStorage.removeItem("auth_username");
               if (res.data.message) sessionStorage.setItem("auth_notice", res.data.message);
-              window.location.hash = "#/";
+              // 回**登录页**而不是营销落地页：失效提示的消费方是 LoginPage
+              // （读后即焚，落 / 的话提示永远没人展示）。同时广播一次：若
+              // LoginPage 已被 401 拦截器先送到 /login，它挂载时提示还没写入，
+              // 不补读这条消息就丢了。
+              window.location.hash = "#/login";
+              window.dispatchEvent(new Event("auth-notice-updated"));
             }
             return;
           }

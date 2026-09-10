@@ -33,7 +33,7 @@ from sqlalchemy import select  # noqa: E402
 
 import auth_local.service as _service  # noqa: E402
 import chapters.store as chapters_store  # noqa: E402
-from auth_local.deps import require_project_limit  # noqa: E402
+from auth_local.deps import require_novel_model, require_project_limit  # noqa: E402
 from auth_local.middleware import get_current_user  # noqa: E402
 from chapters import ai_draft  # noqa: E402
 from db import Base, async_session, engine, get_db  # noqa: E402
@@ -110,6 +110,8 @@ async def _override_true():
 def _setup_overrides():
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_current_user
+    # 本书模型门控：本模块测的是内容/其他门控，模型就绪另测（9.2）
+    app.dependency_overrides[require_novel_model] = lambda: True
     app.dependency_overrides[require_project_limit] = _override_true
     yield
     app.dependency_overrides.clear()
@@ -221,10 +223,10 @@ def _token_log_count(pid: str) -> int:
 def _setup_ai(monkeypatch, calls: list, **kw):
     fake = _FakeAIClient(calls, **kw)
 
-    async def _factory():
+    async def _factory(novel_id=None):
         return fake
 
-    monkeypatch.setattr(ai_draft, "get_ai_client", _factory)
+    monkeypatch.setattr(ai_draft, "get_ai_client_for_novel", _factory)
     return fake
 
 

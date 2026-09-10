@@ -56,10 +56,13 @@ def inspect_library(db_path: Path) -> dict:
                     {"key": SCHEMA_ID_KEY},
                 ).fetchone()
                 info["schema_id"] = row[0] if row else None
-            if "projects" in tables:
-                info["book_count"] = conn.execute(
-                    "SELECT COUNT(*) FROM projects"
-                ).fetchone()[0]
+            # 兼容旧库(projects)与新库(novels)：D20 改名后旧库走留档重建
+            for _tname in ("novels", "projects"):
+                if _tname in tables:
+                    info["book_count"] = conn.execute(
+                        f"SELECT COUNT(*) FROM {_tname}"
+                    ).fetchone()[0]
+                    break
         finally:
             conn.close()
     except sqlite3.Error:

@@ -34,12 +34,13 @@ export const FEATURES: Record<FeatureKey, { memberOnly: boolean }> = {
   "volume-chapter-config": { memberOnly: false },
   "advanced-config-entry": { memberOnly: false },
   "settings-7-items": { memberOnly: false },
+  // 模型配置＝人工路径能力（免费版也能配、配好升级 PRO 后直接用，D4/7.1）
+  "ai-model": { memberOnly: false },
   // 会员：AI 能力（入口可见、使用需会员）
   "settings-ai-fields": { memberOnly: true },
   "outline-advanced-fields": { memberOnly: true },
   "ai-generate": { memberOnly: true },
   "prompt-panel": { memberOnly: true },
-  "ai-model": { memberOnly: true },
 };
 
 /** 是否会员功能（AI 能力）——用于 PRO 标识/升级引导文案，不控制显隐。 */

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ApiConfig, FlatModelOption, ModelStatus } from "../types/api-config";
+import type { AiState, FlatModelOption, ModelStatus } from "../types/api-config";
 import { useApiConfigs } from "./useApiConfigs";
 import { getToken } from "../lib/auth";
 
@@ -11,10 +11,13 @@ function authHeaders(): Record<string, string> {
 }
 
 export function useModelStatus(projectId: string | undefined) {
-  const { configs, loading: configsLoading } = useApiConfigs();
+  const { configs, loading: configsLoading, updateConfig, refresh: refreshConfigs } = useApiConfigs();
   const [currentConfigId, setCurrentConfigId] = useState<string | null>(null);
   const [currentConfigName, setCurrentConfigName] = useState<string | null>(null);
   const [currentModel, setCurrentModel] = useState<string | null>(null);
+  // D13：就绪态由后端判定层下发，前端只消费（不再本地推导四态）
+  const [aiState, setAiState] = useState<AiState>("no_key");
+  const [aiMessage, setAiMessage] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,12 +27,14 @@ export function useModelStatus(projectId: string | undefined) {
       return;
     }
     try {
-      const resp = await fetch(`${API_BASE}/projects/${projectId}/ai-model`, { headers: authHeaders() });
+      const resp = await fetch(`${API_BASE}/novels/${projectId}/ai-model`, { headers: authHeaders() });
       if (resp.ok) {
         const data = await resp.json();
         setCurrentConfigId(data.api_config_id);
         setCurrentConfigName(data.config_name || null);
         setCurrentModel(data.model);
+        if (data.ai_state) setAiState(data.ai_state as AiState);
+        setAiMessage(data.message || "");
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
@@ -43,11 +48,15 @@ export function useModelStatus(projectId: string | undefined) {
   }, [fetchModel]);
 
   const hasKeys = configs.length > 0;
-  let status: ModelStatus = "no_key";
-  if (!hasKeys) status = "no_key";
-  else if (!currentConfigId) status = "no_model";
-  else if (configs.find((c) => c.id === currentConfigId)) status = "configured";
-  else status = "invalid";
+  // 模型面板用的四态 = 后端 ai_state 的投影（同一事实源，不再本地判）
+  const statusMap: Record<AiState, ModelStatus> = {
+    ready: "configured",
+    member_required: "no_key",
+    no_key: "no_key",
+    missing_model: "no_model",
+    invalid: "invalid",
+  };
+  const status: ModelStatus = statusMap[aiState] ?? "no_key";
 
   // Build flat model options
   const modelOptions: FlatModelOption[] = [];
@@ -69,18 +78,56 @@ export function useModelStatus(projectId: string | undefined) {
     model: string | null,
   ) => {
     if (!projectId) return;
-    const resp = await fetch(`${API_BASE}/projects/${projectId}/ai-model`, {
+    const resp = await fetch(`${API_BASE}/novels/${projectId}/ai-model`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ api_config_id: apiConfigId, model }),
     });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (!resp.ok) {
+      // 绑定校验 400：把后端可读原因透出（前端保留 draft + 行内报错，D12）
+      const body = await resp.json().catch(() => ({}));
+      const detail = body?.detail;
+      const message =
+        typeof detail === "string"
+          ? detail
+          : detail?.message || `保存失败（HTTP ${resp.status}）`;
+      throw new Error(message);
+    }
     setCurrentConfigId(apiConfigId);
     setCurrentModel(model);
+    await fetchModel();
   };
+
+  /** 该配置的候选模型 id（端点不提供 /models 时的起点；不触网）。 */
+  const fetchCandidates = useCallback(async (configId: string) => {
+    const resp = await fetch(`${API_BASE}/api-configs/${configId}/model-candidates`, {
+      headers: authHeaders(),
+    });
+    if (!resp.ok) return { candidates: [] as string[], note: "" };
+    return (await resp.json()) as { candidates: string[]; note: string };
+  }, []);
+
+  /** 给某个配置补模型 id（供应商不提供 /models 列表时的手动出口）。 */
+  const addModelToConfig = useCallback(
+    async (configId: string, modelId: string) => {
+      const cfg = configs.find((c) => c.id === configId);
+      const next = [...(cfg?.models ?? []), modelId];
+      await updateConfig(configId, { models: next });
+      await refreshConfigs();
+    },
+    [configs, updateConfig, refreshConfigs],
+  );
 
   return {
     status,
+    aiState,
+    aiMessage,
+    /** 配置列表（卡片分组头：名称/供应商/连接状态徽标）。 */
+    configs,
+    /** 补模型后刷新配置清单。 */
+    refreshConfigs,
+    addModelToConfig,
+    fetchCandidates,
     modelOptions,
     currentModel,
     currentConfigId,

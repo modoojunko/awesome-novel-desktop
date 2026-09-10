@@ -9,9 +9,9 @@ from workflow.readiness import READINESS_CHECKERS, READINESS_KEYS
 
 router = APIRouter(prefix="/api/novels/{project_id}/settings", tags=["settings"])
 
-# 可确认完成的设定类型 = readiness 判定集 ∪ ai-model（ai-model 可确认但不判定内容）。
-# 从 READINESS_KEYS 推导，避免与 readiness.py 重复维护。
-VALID_TYPES = READINESS_KEYS | {"ai-model"}
+# 可确认完成的设定类型 = readiness 判定集（D15/O-18：ai-model 不是设定完成度项，
+# 移除其「可确认」语义，消除 UI 无入口的死路径）。
+VALID_TYPES = set(READINESS_KEYS)
 STATUS_FILE = "settings/settings-status.yaml"
 
 
@@ -46,10 +46,9 @@ async def confirm_settings_type(
         raise HTTPException(404, "Project not found")
 
     # 产品决策：点「完成设定」时判定该项内容是否为空——为空则拒绝确认并提示。
-    # ai-model 不参与判定（模型配置不是创作设定），跳过内容校验。
     if type in READINESS_KEYS:
         checker = next(c for k, _l, _j, c in READINESS_CHECKERS if k == type)
-        ok = await checker(project.root_path)  # type: ignore[operator]
+        ok = await checker(project.root_path, project.id)  # type: ignore[operator]
         if not ok:
             raise HTTPException(
                 400, "该项设定还未填写内容，请先填写后再标记完成"

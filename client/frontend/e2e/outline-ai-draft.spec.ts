@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
 // 章纲 AI 起草 E2E（outline-ai-draft，打桩 AI）：
@@ -84,8 +85,18 @@ async function setupSession(
   tier = "trial",
 ): Promise<{ restore: () => void; token: string }> {
   const { token, username } = await sRegisterAndLogin();
-  const restore = await writeOAuthSession(token, username, tier);
+  const restoreConfig = await writeOAuthSession(token, username, tier);
+  const restore = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    restoreConfig();
+  };
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
+  // 页面级桩 check-auth：e2e 注入的 pc_hash 在 S端 无设备授权（code 1），后端会
+  // 据此清空 config.json 的注入 token → 业务请求 401（已知环境阻塞）。桩掉这次
+  // 往返即可保住注入会话；会员判定仍走后端 check_permission()（读 config.json tier）。
+  await page.route("**/api/auth/check-auth", (r) =>
+    r.fulfill({ json: { code: 0, data: {} } }),
+  );
   return { restore, token };
 }
 
@@ -107,8 +118,11 @@ async function setupFirstChapter(page: Page, name: string) {
   await page.goto(`${ORIGIN}/#/novels`);
   await page.getByRole("button", { name: "新建作品" }).first().click();
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建并开始写作" }).click();
+  await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
+  // 空书默认落「设定」（@/lib/novelStage）→ 本 spec 在写作视图操作，先切过去
+  await page.locator(".mtab", { hasText: "写作" }).click();
+  await expect(page.locator(".mtab.on")).toContainText("写作");
   await page.getByTitle("添加卷").click();
   await page.getByLabel("卷名", { exact: true }).fill("第一卷");
   await page.getByLabel(/初始章数/).fill("1");
@@ -186,7 +200,7 @@ test("空章纲：AI 起草回填表单 → 保存草稿 → 刷新回读", asyn
     });
     await expect(page.locator("#wf-wt")).toHaveValue("1800");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -218,7 +232,7 @@ test("已有内容：confirm 覆盖后才发起起草", async ({ page, request }
     expect(dialogs.some((m) => m.includes("覆盖"))).toBeTruthy();
     expect(draftCalls).toBe(1);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -257,7 +271,7 @@ test("只填场景卡：同样要覆盖确认；取消保留表单（hardening�
     });
     expect(draftCalls).toBe(1);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -280,7 +294,7 @@ test("失败：502 toast 提示且表单不动", async ({ page, request }) => {
     await expect(page.getByText(/草稿结构不完整/)).toBeVisible({ timeout: 10000 });
     await expect(page.locator("#wf-summary")).toHaveValue("失败前就有的内容");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -290,6 +304,6 @@ test("免费态：AI 起草入口不渲染", async ({ page }) => {
     await setupFirstChapter(page, `e2e-oad-免费-${Date.now()}`);
     await expect(page.getByTestId("og-ai-draft")).toHaveCount(0);
   } finally {
-    restore();
+    await restore();
   }
 });

@@ -1,0 +1,1043 @@
+"""AI 分层与题材/简介 AI 端点契约（genre-signup-redesign tasks 6.0/6.1/6.2/7.3）。
+
+覆盖：
+- 判定层 `compute_ai_state` 纯函数矩阵（含 R8 删除残留、O-8 存量错配）
+- 解析层 `effective_model` / `parse_models` 容错
+- 门控层 `require_novel_model`：ready 放行、其余 503 + detail.reason 同枚举、无书 404
+- 绑定校验 `set_project_model`：不成对 400、model 不在列表 400、显式 clear 放行
+- `GET /novels/{id}/ai-model` 下发 ai_state/effective_model
+- 题材字段 AI：归一化（候选 slug 映射 / 自定义文本 / 数值 clamp / 非法 JSON 502 / 非法字段 400）
+- 简介 AI：体检归一化兜底、补缺失、润色、非法 action 400
+- 计量：operation 细分 + model 记实际本书模型
+"""
+
+import asyncio
+import json
+import os
+import tempfile
+import uuid
+
+import pytest
+from fastapi.testclient import TestClient
+
+_tmp_db = tempfile.NamedTemporaryFile(suffix="_ai_layers.db", delete=False)  # noqa: SIM115
+_tmp_db.close()
+_tmp_data_root = tempfile.mkdtemp(prefix="test_ai_layers_")
+
+os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
+os.environ["DATA_ROOT"] = _tmp_data_root
+
+from sqlalchemy import select  # noqa: E402
+
+import auth_local.service as _service  # noqa: E402
+from ai_state import compute_ai_state, effective_model, parse_models  # noqa: E402
+from auth_local.deps import require_ai_access, require_novel_model  # noqa: E402
+from auth_local.middleware import get_current_user  # noqa: E402
+from db import Base, async_session, engine, get_db  # noqa: E402
+from main import app  # noqa: E402
+from models.api_config import ApiConfig  # noqa: E402
+from models.project import Novel  # noqa: E402
+from models.token_log import TokenLog  # noqa: E402
+from models.user import User  # noqa: E402
+from settings import ai_router  # noqa: E402
+
+USER_ID = "ai_layers_user"
+_CFG_PATH = os.path.join(_tmp_data_root, "config.json")
+
+
+def _set_member():
+    """会员态：ai_state 的 member_required 由门控层前置，本模块测的是模型链路。"""
+    from datetime import UTC, datetime, timedelta
+
+    _service.CONFIG_FILE = _CFG_PATH
+    expires = (datetime.now(UTC) + timedelta(days=30)).date().isoformat()
+    _service.save_local_config({"tier": "monthly", "expires_at": expires})
+
+
+def _run_async(coro):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+class _FakeClient:
+    """记录调用参数，返回预设文本。"""
+
+    def __init__(self, text: str = "{}"):
+        self.text = text
+        self.last_kwargs: dict = {}
+
+    async def chat(self, **kwargs):
+        self.last_kwargs = kwargs
+        usage = kwargs.get("usage")
+        if usage is not None:
+            usage["tokens_in"] = 10
+            usage["tokens_out"] = 20
+        return self.text
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _setup_db():
+    async def _create():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        async with async_session() as session:
+            session.add(
+                User(
+                    id=USER_ID,
+                    email=f"{USER_ID}@test.com",
+                    password_hash="*",
+                    display_name=USER_ID,
+                )
+            )
+            await session.commit()
+
+    _run_async(_create())
+    yield
+
+
+async def _override_get_db():
+    async with async_session() as session:
+        yield session
+
+
+async def _override_current_user():
+    return {"id": USER_ID}
+
+
+async def _override_true():
+    return True
+
+
+@pytest.fixture(autouse=True)
+def _setup_overrides():
+    _set_member()
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_current_user] = _override_current_user
+    app.dependency_overrides[require_ai_access] = _override_true
+    yield
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client():
+    with TestClient(app) as c:
+        yield c
+
+
+async def _make_novel(
+    ai_config_id: str | None = None, ai_model: str | None = None
+) -> str:
+    async with async_session() as session:
+        novel = Novel(
+            user_id=USER_ID,
+            name=f"AI分层-{uuid.uuid4().hex[:8]}",
+            slug=f"ai-layers-{uuid.uuid4().hex[:8]}",
+            root_path=f"{_tmp_data_root}/ai-layers-{uuid.uuid4().hex[:8]}",
+            ai_config_id=ai_config_id,
+            ai_model=ai_model,
+        )
+        session.add(novel)
+        await session.commit()
+        await session.refresh(novel)
+        return novel.id
+
+
+async def _make_config(
+    models: list[str] | None = None, key: str = "sk-x", vendor: str = "openai"
+) -> str:
+    async with async_session() as session:
+        cfg = ApiConfig(
+            user_id=USER_ID,
+            name=f"cfg-{uuid.uuid4().hex[:6]}",
+            vendor=vendor,
+            api_key=key,
+            base_url="https://api.example.com",
+            models=json.dumps(models) if models is not None else None,
+        )
+        session.add(cfg)
+        await session.commit()
+        await session.refresh(cfg)
+        return cfg.id
+
+
+async def _get_novel(novel_id: str) -> Novel:
+    async with async_session() as session:
+        return await session.get(Novel, novel_id)
+
+
+async def _get_config(config_id: str) -> ApiConfig:
+    async with async_session() as session:
+        return await session.get(ApiConfig, config_id)
+
+
+# ── 解析层 ─────────────────────────────────────────────────────────────────
+
+
+class TestParseModels:
+    def test_parses_json_text(self):
+        assert parse_models('["a","b"]') == ["a", "b"]
+
+    def test_tolerates_none_empty_invalid(self):
+        assert parse_models(None) == []
+        assert parse_models("") == []
+        assert parse_models("{not json") == []
+        assert parse_models('{"a":1}') == []
+        assert parse_models('[1, null, "x"]') == ["x"]
+
+    def test_effective_model_ignores_blank(self):
+        novel = Novel(ai_model="  gpt-4o  ")
+        assert effective_model(novel) == "gpt-4o"
+        assert effective_model(None) == ""
+
+
+# ── 判定层矩阵 ─────────────────────────────────────────────────────────────
+
+
+class TestComputeAiState:
+    def test_no_novel_missing_model(self):
+        assert compute_ai_state(None, None, True) == "missing_model"
+
+    def test_r8_delete_leftover_invalid(self):
+        """删配置后 ai_config_id 空、ai_model 保留 → invalid（不是 missing_model）。"""
+        novel = Novel(ai_config_id=None, ai_model="gpt-4o")
+        assert compute_ai_state(novel, None, True) == "invalid"
+
+    def test_no_key(self):
+        novel = Novel(ai_config_id="c1", ai_model="gpt-4o")
+        assert compute_ai_state(novel, None, False) == "no_key"
+
+    def test_missing_model_when_unbound(self):
+        novel = Novel(ai_config_id=None, ai_model=None)
+        assert compute_ai_state(novel, None, True) == "missing_model"
+        novel2 = Novel(ai_config_id="c1", ai_model=None)
+        assert compute_ai_state(novel2, None, True) == "missing_model"
+
+    def test_config_deleted_invalid(self):
+        novel = Novel(ai_config_id="gone", ai_model="gpt-4o")
+        assert compute_ai_state(novel, None, True) == "invalid"
+
+    def test_model_not_in_config_invalid(self):
+        """O-8 存量错配：model ∉ config.models 不再报 ready。"""
+        novel = Novel(ai_config_id="c1", ai_model="removed-model")
+        cfg = ApiConfig(api_key="sk-x", models=json.dumps(["gpt-4o"]))
+        assert compute_ai_state(novel, cfg, True) == "invalid"
+
+    def test_empty_models_invalid(self):
+        novel = Novel(ai_config_id="c1", ai_model="gpt-4o")
+        cfg = ApiConfig(api_key="sk-x", models=None)
+        assert compute_ai_state(novel, cfg, True) == "invalid"
+
+    def test_ready(self):
+        novel = Novel(ai_config_id="c1", ai_model="gpt-4o")
+        cfg = ApiConfig(api_key="sk-x", models=json.dumps(["gpt-4o", "gpt-4o-mini"]))
+        assert compute_ai_state(novel, cfg, True) == "ready"
+
+    def test_o9_key_present_but_test_failed_not_ready(self):
+        """O-9：Key 非空但最近一次连接测试失败 → no_key（不能误判就绪）。"""
+        novel = Novel(ai_config_id="c1", ai_model="gpt-4o")
+        cfg = ApiConfig(
+            api_key="sk-x",
+            models=json.dumps(["gpt-4o"]),
+            last_test_status="auth_error",
+        )
+        assert compute_ai_state(novel, cfg, True) == "no_key"
+
+    def test_no_key_granularity_is_bound_config(self):
+        """no_key 粒度＝本书绑定配置级：绑定的配置没 Key 就是 no_key，与用户其他配置无关。"""
+        novel = Novel(ai_config_id="c1", ai_model="gpt-4o")
+        cfg = ApiConfig(api_key="", models=json.dumps(["gpt-4o"]))
+        assert compute_ai_state(novel, cfg, True) == "no_key"
+
+
+# ── 门控层 require_novel_model ─────────────────────────────────────────────
+
+
+class TestRequireNovelModel:
+    async def _call(self, novel_id: str):
+        async with async_session() as session:
+            return await require_novel_model(novel_id, {"id": USER_ID}, session)
+
+    def test_ready_passes(self):
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))
+        assert _run_async(self._call(nid)) is True
+
+    def test_missing_model_503_reason(self):
+        from fastapi import HTTPException
+
+        nid = _run_async(_make_novel(None, None))
+        with pytest.raises(HTTPException) as ei:
+            _run_async(self._call(nid))
+        assert ei.value.status_code == 503
+        assert ei.value.detail["reason"] == "missing_model"
+
+    def test_invalid_503_reason(self):
+        from fastapi import HTTPException
+
+        gone = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(gone, "gpt-4o"))
+
+        async def _delete_cfg():
+            async with async_session() as session:
+                row = await session.get(ApiConfig, gone)
+                await session.delete(row)
+                await session.commit()
+
+        _run_async(_delete_cfg())
+        with pytest.raises(HTTPException) as ei:
+            _run_async(self._call(nid))
+        assert ei.value.status_code == 503
+        assert ei.value.detail["reason"] == "invalid"
+
+    def test_unknown_novel_404(self):
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as ei:
+            _run_async(self._call("nope"))
+        assert ei.value.status_code == 404
+
+
+# ── 绑定校验 ───────────────────────────────────────────────────────────────
+
+
+class TestModelBinding:
+    def test_set_valid_pair(self, client):
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel())
+        r = client.put(
+            f"/api/v1/novels/{nid}/ai-model",
+            json={"api_config_id": cid, "model": "gpt-4o"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["ai_model"] == "gpt-4o"
+
+    def test_unpaired_rejected_400(self, client):
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel())
+        r = client.put(
+            f"/api/v1/novels/{nid}/ai-model", json={"api_config_id": cid, "model": None}
+        )
+        assert r.status_code == 400, r.text
+
+    def test_model_not_in_config_400(self, client):
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel())
+        r = client.put(
+            f"/api/v1/novels/{nid}/ai-model",
+            json={"api_config_id": cid, "model": "not-listed"},
+        )
+        assert r.status_code == 400, r.text
+
+    def test_empty_models_400(self, client):
+        cid = _run_async(_make_config(None))
+        nid = _run_async(_make_novel())
+        r = client.put(
+            f"/api/v1/novels/{nid}/ai-model",
+            json={"api_config_id": cid, "model": "gpt-4o"},
+        )
+        assert r.status_code == 400, r.text
+
+    def test_explicit_clear_allowed(self, client):
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))
+        r = client.put(
+            f"/api/v1/novels/{nid}/ai-model",
+            json={"api_config_id": None, "model": None},
+        )
+        assert r.status_code == 200, r.text
+
+
+# ── ai-model 读端点下发 ai_state ──────────────────────────────────────────
+
+
+class TestGetAiModel:
+    def test_ready_payload(self, client):
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))
+        r = client.get(f"/api/v1/novels/{nid}/ai-model")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ai_state"] == "ready"
+        assert body["effective_model"] == "gpt-4o"
+        assert body["model"] == "gpt-4o"
+        assert body["reason"] == "ready"
+
+    def test_missing_model_payload(self, client):
+        nid = _run_async(_make_novel())
+        body = client.get(f"/api/v1/novels/{nid}/ai-model").json()
+        assert body["ai_state"] == "missing_model"
+
+
+# ── 题材字段 AI ────────────────────────────────────────────────────────────
+
+
+class TestGenreFieldAi:
+    def _novel_ready(self) -> str:
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel(cid, "gpt-4o"))
+        self._seed_story(nid)
+        return nid
+
+    def _seed_story(self, novel_id: str) -> None:
+        from filesystem.storage import get_storage
+
+        async def _write():
+            novel = await _get_novel(novel_id)
+            await get_storage().write_yaml(
+                novel.root_path, "story.yaml", {"synopsis": "一个凡人逆袭的故事"}
+            )
+
+        _run_async(_write())
+
+    def _patch_client(self, monkeypatch, text: str):
+        fake = _FakeClient(text)
+
+        async def _get(novel_id):
+            return fake
+
+        monkeypatch.setattr(ai_router, "get_ai_client_for_novel", _get)
+        return fake
+
+    def test_core_promise_returns_value_and_note(self, client, monkeypatch):
+        nid = self._novel_ready()
+        self._patch_client(
+            monkeypatch, '{"value": "以弱破强的痛快", "note": "读者要看弱者翻盘"}'
+        )
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/genre/core_promise", json={"title": "书"}
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["value"] == {"value": "以弱破强的痛快", "note": "读者要看弱者翻盘"}
+
+    def test_forbidden_list_maps_slug_and_custom(self, client, monkeypatch):
+        nid = self._novel_ready()
+        self._patch_client(
+            monkeypatch,
+            '["no-villain-idiot", {"text": "禁穿越"}, {"tagId": "forbidden:no-foresight"}]',
+        )
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/genre/forbidden_list", json={"title": "书"}
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["value"] == [
+            {"tagId": "forbidden:no-villain-idiot"},
+            {"text": "禁穿越"},
+            {"tagId": "forbidden:no-foresight"},
+        ]
+
+    def test_cost_ratio_clamped(self, client, monkeypatch):
+        nid = self._novel_ready()
+        self._patch_client(monkeypatch, '{"value": 42}')
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/genre/cost_ratio", json={"title": "书"}
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["value"] == 10
+
+    def test_battlefield(self, client, monkeypatch):
+        nid = self._novel_ready()
+        self._patch_client(monkeypatch, '["resources", {"text": "街口那条巷子"}]')
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/genre/battlefield", json={"title": "书"}
+        )
+        assert r.json()["value"] == [
+            {"tagId": "battlefield:resources"},
+            {"text": "街口那条巷子"},
+        ]
+
+    def test_invalid_json_502(self, client, monkeypatch):
+        nid = self._novel_ready()
+        self._patch_client(monkeypatch, "这不是 JSON")
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/genre/battlefield", json={"title": "书"}
+        )
+        assert r.status_code == 502, r.text
+
+    def test_unknown_genre_field_400(self, client, monkeypatch):
+        nid = self._novel_ready()
+        self._patch_client(monkeypatch, "{}")
+        for field in ("promise_note", "track"):  # track 已随 2026-09-10 退役
+            r = client.post(
+                f"/api/novels/{nid}/settings/ai/genre/{field}", json={"title": "书"}
+            )
+            assert r.status_code == 400, (field, r.text)
+
+    def test_usage_records_operation_and_actual_model(self, client, monkeypatch):
+        nid = self._novel_ready()
+        self._patch_client(monkeypatch, '{"value": "x"}')
+        client.post(f"/api/novels/{nid}/settings/ai/genre/battlefield", json={"title": "书"})
+
+        async def _rows():
+            async with async_session() as session:
+                res = await session.execute(
+                    select(TokenLog).where(TokenLog.project_id == nid)
+                )
+                return res.scalars().all()
+
+        rows = _run_async(_rows())
+        assert rows and rows[-1].operation == "settings_genre_battlefield"
+        assert rows[-1].model == "gpt-4o"
+
+    def test_json_mode_and_temperature_passed(self, client, monkeypatch):
+        nid = self._novel_ready()
+        fake = self._patch_client(monkeypatch, '{"value": "x"}')
+        client.post(f"/api/novels/{nid}/settings/ai/genre/battlefield", json={"title": "书"})
+        assert fake.last_kwargs["json_mode"] is True
+        assert fake.last_kwargs["temperature"] <= 0.3
+        assert fake.last_kwargs["max_tokens"] >= 2048
+
+
+# ── 简介 AI ────────────────────────────────────────────────────────────────
+
+
+class TestIntroAi:
+    def _novel_ready(self) -> str:
+        cid = _run_async(_make_config(["gpt-4o"]))
+        return _run_async(_make_novel(cid, "gpt-4o"))
+
+    def _patch_client(self, monkeypatch, text: str):
+        fake = _FakeClient(text)
+
+        async def _get(novel_id):
+            return fake
+
+        monkeypatch.setattr(ai_router, "get_ai_client_for_novel", _get)
+        return fake
+
+    def test_unknown_action_400(self, client):
+        nid = self._novel_ready()
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/nope",
+            json={"title": "书", "content": "内容"},
+        )
+        assert r.status_code == 400, r.text
+
+    def test_empty_content_400(self, client):
+        nid = self._novel_ready()
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/introspect",
+            json={"title": "书", "content": "   "},
+        )
+        assert r.status_code == 400, r.text
+
+    def test_introspect_normalizes_names_status_verdict(self, client, monkeypatch):
+        nid = self._novel_ready()
+        self._patch_client(
+            monkeypatch,
+            json.dumps(
+                {
+                    "six_segments": [
+                        {"name": "主角身份", "status": "ok", "excerpt": "外门杂徒"},
+                        {"name": "瞎编的段名", "status": "weird"},
+                    ],
+                    "taboo": {"hits": [{"rule": "结局剧透", "excerpts": ["他最后死了"]}]},
+                    "verdict": "unknown",
+                },
+                ensure_ascii=False,
+            ),
+        )
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/introspect",
+            json={"title": "书", "content": "内容"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert [s["name"] for s in body["six_segments"]] == [
+            "主角身份",
+            "本来的生活",
+            "突发状况",
+            "必须面对的矛盾",
+            "不做的后果",
+            "做了的可能结局",
+        ]
+        assert body["six_segments"][0]["status"] == "ok"
+        assert body["six_segments"][1]["status"] == "missing"
+        assert body["taboo"]["hits"][0]["rule"] == "剧透"  # 归一化到白名单
+        assert body["verdict"] in ("strong", "ok", "weak")
+
+    def test_fill_returns_missing_candidates(self, client, monkeypatch):
+        nid = self._novel_ready()
+        self._patch_client(
+            monkeypatch,
+            json.dumps(
+                {"missing": [{"name": "不做的后果", "candidate": "三个月后丹田枯竭。"}]},
+                ensure_ascii=False,
+            ),
+        )
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/fill",
+            json={"title": "书", "content": "内容", "missing_segments": ["不做的后果"]},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["missing"][0]["name"] == "不做的后果"
+        assert r.json()["act"] == "insert"
+
+    def test_polish_returns_before_after(self, client, monkeypatch):
+        nid = self._novel_ready()
+        fake = self._patch_client(
+            monkeypatch,
+            json.dumps({"original": "原文", "polished": "改后"}, ensure_ascii=False),
+        )
+        r = client.post(
+            f"/api/novels/{nid}/settings/ai/intro/polish",
+            json={"title": "书", "content": "原文"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json() == {"original": "原文", "polished": "改后", "act": "replace"}
+        # 长文生成类：temperature 0.7（与 JSON 判定类区分）
+        assert fake.last_kwargs["temperature"] == 0.7
+
+
+# ── 幂等（9.2.13）──────────────────────────────────────────────────────────
+
+
+class TestSetModelIdempotency:
+    def test_same_pair_twice_no_duplicate_audit(self, client):
+        from models.audit_log import ProjectModelAuditLog
+
+        cid = _run_async(_make_config(["gpt-4o"]))
+        nid = _run_async(_make_novel())
+        payload = {"api_config_id": cid, "model": "gpt-4o"}
+        for _ in range(2):
+            r = client.put(f"/api/v1/novels/{nid}/ai-model", json=payload)
+            assert r.status_code == 200, r.text
+
+        async def _count():
+            async with async_session() as session:
+                res = await session.execute(
+                    select(ProjectModelAuditLog).where(
+                        ProjectModelAuditLog.project_id == nid
+                    )
+                )
+                return len(res.scalars().all())
+
+        assert _run_async(_count()) == 1
+
+    def test_different_model_writes_audit(self, client):
+        from models.audit_log import ProjectModelAuditLog
+
+        cid = _run_async(_make_config(["gpt-4o", "gpt-4o-mini"]))
+        nid = _run_async(_make_novel())
+        client.put(
+            f"/api/v1/novels/{nid}/ai-model",
+            json={"api_config_id": cid, "model": "gpt-4o"},
+        )
+        client.put(
+            f"/api/v1/novels/{nid}/ai-model",
+            json={"api_config_id": cid, "model": "gpt-4o-mini"},
+        )
+
+        async def _count():
+            async with async_session() as session:
+                res = await session.execute(
+                    select(ProjectModelAuditLog).where(
+                        ProjectModelAuditLog.project_id == nid
+                    )
+                )
+                return len(res.scalars().all())
+
+        assert _run_async(_count()) == 2
+
+
+# ── 手动补模型（供应商不提供 /models 列表时的出口）───────────────────────────
+
+
+class TestManualModels:
+    def test_put_models_writes_json_text(self, client):
+        cid = _run_async(_make_config(None))
+        r = client.put(
+            f"/api/v1/api-configs/{cid}",
+            json={"models": ["deepseek-chat", " deepseek-chat ", "deepseek-reasoner"]},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["models"] == ["deepseek-chat", "deepseek-reasoner"]
+        # 落库是 JSON 文本（列是 Text），且判定层能解析
+        cfg = _run_async(_get_config(cid))
+        assert json.loads(cfg.models) == ["deepseek-chat", "deepseek-reasoner"]
+
+    def test_manual_models_enable_binding(self, client):
+        """补完模型后即可绑定本书（原本空列表会 400）。"""
+        cid = _run_async(_make_config(None))
+        nid = _run_async(_make_novel())
+        r = client.put(
+            f"/api/v1/novels/{nid}/ai-model",
+            json={"api_config_id": cid, "model": "deepseek-chat"},
+        )
+        assert r.status_code == 400, r.text  # 空列表先拒
+
+        client.put(f"/api/v1/api-configs/{cid}", json={"models": ["deepseek-chat"]})
+        r2 = client.put(
+            f"/api/v1/novels/{nid}/ai-model",
+            json={"api_config_id": cid, "model": "deepseek-chat"},
+        )
+        assert r2.status_code == 200, r2.text
+
+    def test_models_over_100_rejected(self, client):
+        cid = _run_async(_make_config(None))
+        r = client.put(
+            f"/api/v1/api-configs/{cid}",
+            json={"models": [f"m{i}" for i in range(101)]},
+        )
+        assert r.status_code == 422, r.text
+
+
+# ── 「端点不提供 /models」的候选兜底（anthropic 兼容端点常见）──────────────
+
+
+class TestModelCandidates:
+    def test_candidates_endpoint_returns_vendor_list(self, client):
+        cid = _run_async(_make_config(None, vendor="deepseek"))
+        r = client.get(f"/api/v1/api-configs/{cid}/model-candidates")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["candidates"] == [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "deepseek-v4-flash-vision-exp",
+        ]
+        assert "不提供模型列表" in body["note"]
+
+    def test_candidates_unknown_vendor_empty(self, client):
+        cid = _run_async(_make_config(None))
+        # 默认 vendor 是 openai → 无候选（有 /models 的 vendor 不需要兜底）
+        assert client.get(f"/api/v1/api-configs/{cid}/model-candidates").json()[
+            "candidates"
+        ] == []
+
+    def test_candidates_missing_config_404(self, client):
+        r = client.get("/api/v1/api-configs/nope/model-candidates")
+        assert r.status_code == 404
+
+    def test_anthropic_404_fallback_carries_candidates(self, monkeypatch):
+        """anthropic 端点 /models 404 → 降级探活成功时带候选与说明（不写库）。"""
+        from api_configs import connection as conn
+
+        class _Resp:
+            def __init__(self, code, payload=None):
+                self.status_code = code
+                self._payload = payload or {}
+                self.text = ""
+
+            def json(self):
+                return self._payload
+
+        calls: list[tuple[str, str]] = []
+
+        class _Client:
+            def __init__(self, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def get(self, url, headers=None):
+                calls.append(("GET", url))
+                return _Resp(404)
+
+            async def post(self, url, headers=None, json=None):
+                calls.append(("POST", url))
+                return _Resp(200)
+
+        monkeypatch.setattr(conn.httpx, "AsyncClient", _Client)
+        out = _run_async(
+            conn.test_connection("deepseek", "sk-x", "https://api.deepseek.com/anthropic", "anthropic")
+        )
+        assert out["ok"] is True
+        assert out["models"] == []
+        assert out["candidates"][0] == "deepseek-v4-flash"
+        assert "不提供模型列表" in out["note"]
+        assert calls[0][1].endswith("/v1/models") and calls[1][1].endswith("/v1/messages")
+
+
+# ── 本地库瞬时 I/O 错误 → 503 storage_busy（不裸 500）──────────────────────
+
+
+class TestStorageBusyHandler:
+    def test_disk_io_error_maps_to_503(self):
+        import asyncio
+        import json as _json
+
+        from sqlalchemy.exc import OperationalError
+
+        from main import _storage_busy_handler
+
+        exc = OperationalError("SELECT 1", {}, Exception("disk I/O error"))
+        resp = asyncio.run(_storage_busy_handler(None, exc))
+        assert resp.status_code == 503
+        body = _json.loads(resp.body)
+        assert body["detail"]["reason"] == "storage_busy"
+        assert "暂时不可读" in body["detail"]["message"]
+
+    def test_locked_also_maps(self):
+        import asyncio
+
+        from sqlalchemy.exc import OperationalError
+
+        from main import _storage_busy_handler
+
+        exc = OperationalError("SELECT 1", {}, Exception("database is locked"))
+        resp = asyncio.run(_storage_busy_handler(None, exc))
+        assert resp.status_code == 503
+
+    def test_other_operational_error_reraises(self):
+        import asyncio
+
+        import pytest
+        from sqlalchemy.exc import OperationalError
+
+        from main import _storage_busy_handler
+
+        exc = OperationalError("SELECT 1", {}, Exception("no such table: x"))
+        with pytest.raises(OperationalError):
+            asyncio.run(_storage_busy_handler(None, exc))
+
+
+# ── 本地 config.json 读写健壮性（外部写入撞读 → 不 500）─────────────────────
+
+
+class TestLocalConfigRobustness:
+    def test_partial_json_without_cache_returns_empty(self, tmp_path, monkeypatch):
+        """首次读到半截（没有任何上次好值）→ 空配置，不 500。"""
+        import auth_local.service as svc
+
+        svc._reset_config_cache()
+        cfg = tmp_path / "fresh-config.json"
+        cfg.write_text('{"token": "abc", "username": "x"', encoding="utf-8")  # 半截
+        monkeypatch.setattr(svc, "CONFIG_FILE", str(cfg))
+        assert svc.get_local_config() == {}
+
+    def test_partial_json_keeps_last_good(self, tmp_path, monkeypatch):
+        """外部正在写（半截）时保留**上一次好值**——不把已登录用户降级成未登录。"""
+        import auth_local.service as svc
+
+        svc._reset_config_cache()
+        cfg = tmp_path / "cfg.json"
+        monkeypatch.setattr(svc, "CONFIG_FILE", str(cfg))
+        monkeypatch.setattr(svc, "CONFIG_DIR", str(tmp_path))
+        svc.save_local_config({"token": "good", "tier": "pro"})
+        cfg.write_text('{"token": "good", "tier": "pr', encoding="utf-8")  # 外部半截
+        assert svc.get_local_config()["token"] == "good"
+
+    def test_cache_avoids_reread(self, tmp_path, monkeypatch):
+        """热路径读内存：连续两次读只解析一次文件。"""
+        import json as _json
+
+        import auth_local.service as svc
+
+        svc._reset_config_cache()
+        cfg = tmp_path / "c.json"
+        monkeypatch.setattr(svc, "CONFIG_FILE", str(cfg))
+        monkeypatch.setattr(svc, "CONFIG_DIR", str(tmp_path))
+        svc.save_local_config({"token": "t", "tier": "pro"})
+
+        calls = {"n": 0}
+        real_load = _json.load
+
+        def counting_load(fp, *a, **kw):
+            calls["n"] += 1
+            return real_load(fp, *a, **kw)
+
+        monkeypatch.setattr(svc.json, "load", counting_load)
+        for _ in range(5):
+            assert svc.get_local_config()["token"] == "t"
+        assert calls["n"] == 0  # 全程命中缓存，未解析文件
+
+    def test_external_change_invalidates_cache(self, tmp_path, monkeypatch):
+        """外部改动（备份还原/手改/e2e 注入）→ 签名失效后重读生效。"""
+        import auth_local.service as svc
+
+        svc._reset_config_cache()
+        cfg = tmp_path / "ext.json"
+        monkeypatch.setattr(svc, "CONFIG_FILE", str(cfg))
+        monkeypatch.setattr(svc, "CONFIG_DIR", str(tmp_path))
+        svc.save_local_config({"token": "old"})
+        cfg.write_text('{"token": "e2e-injected", "tier": "trial"}', encoding="utf-8")
+        assert svc.get_local_config()["token"] == "e2e-injected"
+
+    def test_returned_dict_is_copy(self, tmp_path, monkeypatch):
+        """返回副本：调用方随手改不污染缓存。"""
+        import auth_local.service as svc
+
+        svc._reset_config_cache()
+        cfg = tmp_path / "cp.json"
+        monkeypatch.setattr(svc, "CONFIG_FILE", str(cfg))
+        monkeypatch.setattr(svc, "CONFIG_DIR", str(tmp_path))
+        svc.save_local_config({"token": "t"})
+        leaked = svc.get_local_config()
+        leaked["token"] = "tampered"
+        assert svc.get_local_config()["token"] == "t"
+
+    def test_save_is_atomic(self, tmp_path, monkeypatch):
+        """写盘后不应残留 .tmp；中途崩溃也不会让读方看到半截。"""
+        import auth_local.service as svc
+
+        cfg = tmp_path / "config.json"
+        monkeypatch.setattr(svc, "CONFIG_FILE", str(cfg))
+        monkeypatch.setattr(svc, "CONFIG_DIR", str(tmp_path))
+        svc.save_local_config({"token": "t", "tier": "pro"})
+        assert cfg.exists() and not (tmp_path / "config.json.tmp").exists()
+        assert svc.get_local_config()["token"] == "t"
+
+
+# ── 体检「标题对照」归一化（D21）───────────────────────────────────────────
+
+
+class TestTitleCheckNormalization:
+    def _introspect(self, monkeypatch, raw: dict):
+        import json as _json
+
+        import settings.ai_router as ar
+
+        fake = _FakeClient(_json.dumps(raw, ensure_ascii=False))
+
+        async def _get(novel_id):
+            return fake
+
+        monkeypatch.setattr(ar, "get_ai_client_for_novel", _get)
+        return ar._normalize_introspect(raw)
+
+    def test_three_fits_passthrough(self):
+        import settings.ai_router as ar
+
+        for fit in ("ok", "mismatch", "generic"):
+            out = ar._normalize_introspect(
+                {
+                    "six_segments": [],
+                    "taboo": {"hits": []},
+                    "title_check": {"fit": fit, "note": "n", "suggestions": ["候选A"]},
+                    "verdict": "ok",
+                }
+            )
+            assert out["title_check"]["fit"] == fit
+            # ok 时不带候选（无从建议）
+            assert out["title_check"]["suggestions"] == ([] if fit == "ok" else ["候选A"])
+
+    def test_invalid_fit_dropped(self):
+        import settings.ai_router as ar
+
+        out = ar._normalize_introspect(
+            {"six_segments": [], "taboo": {"hits": []},
+             "title_check": {"fit": "weird", "note": "n", "suggestions": []}, "verdict": "ok"}
+        )
+        assert "title_check" not in out  # 不得补 ok
+
+    def test_missing_title_check_dropped(self):
+        import settings.ai_router as ar
+
+        out = ar._normalize_introspect(
+            {"six_segments": [], "taboo": {"hits": []}, "verdict": "ok"}
+        )
+        assert "title_check" not in out
+
+    def test_suggestions_clamped(self):
+        import settings.ai_router as ar
+
+        out = ar._normalize_introspect(
+            {"six_segments": [], "taboo": {"hits": []}, "verdict": "weak",
+             "title_check": {"fit": "generic", "note": "x",
+                             "suggestions": ["一", "二", "三", "四", "五"]}}
+        )
+        s = out["title_check"]["suggestions"]
+        assert len(s) == 3  # ≤3 条
+
+    def test_suggestion_length_clamped(self):
+        import settings.ai_router as ar
+
+        out = ar._normalize_introspect(
+            {"six_segments": [], "taboo": {"hits": []}, "verdict": "weak",
+             "title_check": {"fit": "mismatch", "note": "x", "suggestions": ["字" * 30]}}
+        )
+        assert len(out["title_check"]["suggestions"][0]) == 16
+
+    def test_verdict_unchanged_by_title_check(self):
+        """verdict 只看六段 + 禁忌：标题不符也照原判（独立提示行）。"""
+        import settings.ai_router as ar
+
+        out = ar._normalize_introspect(
+            {"six_segments": [], "taboo": {"hits": []}, "verdict": "strong",
+             "title_check": {"fit": "mismatch", "note": "不符", "suggestions": ["新名"]}}
+        )
+        assert out["verdict"] == "strong"
+
+
+class TestJudgeChatUsageAccumulation:
+    """重试的两次尝试都要记账（首次失败也烧钱，不能被覆盖）。"""
+
+    def test_retry_accumulates_both_attempts(self):
+        from settings.ai_router import _judge_chat
+
+        class _C:
+            def __init__(self):
+                self.n = 0
+
+            async def chat(self, usage=None, **kw):
+                self.n += 1
+                if self.n == 1:
+                    # 首次：烧了 token 但只回思考（空文本）
+                    if usage is not None:
+                        usage["tokens_in"] = 900
+                        usage["tokens_out"] = 1200
+                    raise ValueError("模型未返回文本内容（返回块：['thinking']），请重试")
+                if usage is not None:
+                    usage["tokens_in"] = 150
+                    usage["tokens_out"] = 400
+                return '{"missing": []}'
+
+        c = _C()
+        usage: dict = {}
+        out = _run_async(_judge_chat(c, model="haiku", system="", messages=[], usage=usage))
+        assert out == '{"missing": []}'
+        assert usage["tokens_in"] == 900 + 150  # 两次都算
+        assert usage["tokens_out"] == 1200 + 400
+
+    def test_single_attempt_unchanged(self):
+        from settings.ai_router import _judge_chat
+
+        class _C:
+            async def chat(self, usage=None, **kw):
+                if usage is not None:
+                    usage["tokens_in"] = 700
+                    usage["tokens_out"] = 300
+                return "{}"
+
+        usage: dict = {}
+        _run_async(_judge_chat(_C(), model="haiku", system="", messages=[], usage=usage))
+        assert usage["tokens_in"] == 700 and usage["tokens_out"] == 300
+
+    def test_other_error_flushes_usage(self):
+        """非空响应类错误：已烧的 token 也要记账后再抛。"""
+        from settings.ai_router import _judge_chat
+
+        class _C:
+            async def chat(self, usage=None, **kw):
+                if usage is not None:
+                    usage["tokens_in"] = 500
+                    usage["tokens_out"] = 50
+                raise ValueError("连接超时")
+
+        usage: dict = {}
+        with pytest.raises(ValueError, match="连接超时"):
+            _run_async(_judge_chat(_C(), model="haiku", system="", messages=[], usage=usage))
+        assert usage["tokens_in"] == 500
+
+    def test_two_empty_attempts_accumulate_then_raise(self):
+        from settings.ai_router import _judge_chat
+
+        class _C:
+            async def chat(self, usage=None, **kw):
+                if usage is not None:
+                    usage["tokens_in"] = 800
+                    usage["tokens_out"] = 900
+                raise ValueError("模型未返回文本内容，请重试")
+
+        usage: dict = {}
+        with pytest.raises(ValueError, match="模型未返回文本内容"):
+            _run_async(_judge_chat(_C(), model="haiku", system="", messages=[], usage=usage))
+        assert usage["tokens_in"] == 1600  # 两次都算

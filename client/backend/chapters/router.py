@@ -226,15 +226,22 @@ async def unarchive_chapter(
     if not chapter:
         raise HTTPException(404, "Chapter not found")
 
+    from repositories import chapter_repo
+
+    # 归档态须在 save_chapter 之前读：save_chapter 会把 chapter["status"]="draft"
+    # 落到同一 session 的行对象上，之后再读就恒为 draft（回减会静默失效）。
+    row = await chapter_repo.get_by_ref(db, project.id, chapter_ref)
+    was_archived = row is not None and getattr(row, "status", "") == "archived"
+
     chapter["status"] = "draft"
     chapter.pop("archive_path", None)
     chapter.pop("archive_summary", None)
     await save_chapter(db, project, chapter_ref, chapter)
 
-    from repositories import chapter_repo
-
-    row = await chapter_repo.get_by_ref(db, project.id, chapter_ref)
     if row is not None:
+        # total_archives 语义＝已归档章节数 → 与归档端点对称回减（幂等：非归档态不减）
+        if was_archived:
+            project.total_archives = max(0, (project.total_archives or 0) - 1)
         row.status = "draft"
         row.archived_at = None
         # 对称清归档行（archives 表，PR④）：章恢复可编辑，归档全文撤下

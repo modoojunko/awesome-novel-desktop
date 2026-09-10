@@ -1,423 +1,1388 @@
 // ── GenreSettingForm ──────────────────────────────────────────────────────
-// 题材设定面板（book.html v2 设定视图·题材）：
-//   当前题材卡（cur-genre）+ 类型禁忌 chips（只读派生）+ 提示词注入段
-//   （seg 启用/停用 + prompt-preview）+ 题材配置 4 组 ListEditor + 故事弧模板卡。
-// 数据逻辑不动（ADR-007：叙事者/文风蓝图归文风表单；切题材自动落库）。
-// 保存/确认语义收敛到面板脚注（gap3）：SettingsView 持 GenreHandle。
+// 题材设定面板（genre-signup-redesign tasks 4.1 / D18·D19 新契约）：
+//   六格 = 01 题材目录（大类必选 + 子类可选，落 story.yaml）+ 02 主要看什么
+//   + 03 绝对禁止 + 04 吃苦指数 + 05 本小说斗什么（2026-09-10 起五格：06 剧情轨道
+//     已退役——它与「主线规划」是同一个概念，一处两存违反本体纪律，主线归 story-arc）。
+//   每格 = 编号 + 怎么填（m-why）+ 成书视角去处（m-use）。
+//
+// 存储契约（对外七字段 JSON；01 落 story.yaml，其余关系化落 4 张表）：
+//   01 → theme + sub_genre（题材目录，见 lib/themeCatalog.ts；后端按目录校验，未知 400）
+//   02 → promise_note(≤200，**主输入＝一句话**，AI 给完整草稿、作家可改)
+//        + core_promise(≤60，短标签：起点胶囊/AI 写入，不单独设输入框)
+//   03 → forbidden_list[{tagId|text}]   04 → cost_ratio(1-10)
+//   05 → battlefield[]（tagId 或自定义文本）
+// 空值统一："" / 空白 / [] / null 等价未填（后端 Pydantic + CHECK 同口径）。
+// AI 反馈落各格下方 .ai-sink（tasks 4.2），采纳才写回控件。
 
-import { forwardRef, useEffect, useImperativeHandle, useState, useCallback } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Ico, P } from "@/components/icons";
-import GenrePickerModal from "./GenrePickerModal";
-import { Cfg, ListEditor, SettingSaveHandle } from "./FormField";
-import { fetchGenre, normalizeGenreDefinition, DEFAULT_GENRE_ID, type GenreDefinition, type StoryArcTemplate } from "@/data/genres";
+import { useDirtyState } from "@/hooks/useDirtyState";
+import { genreAi, aiBlockReason, type GenreAiField } from "@/lib/ai";
+import AiSink from "./AiSink";
+import { RestoreHint, useChangeReceipt } from "./ChangeReceipt";
+import { type SettingSaveHandle } from "./FormField";
+import {
+  GENRE_FLAVORS,
+  GENRE_LIMITS,
+  GENRE_VOCAB,
+  costSentence,
+  vocabLabel,
+  type VocabKind,
+} from "@/lib/genreVocab";
+import { THEMES, subThemeEntry, themeEntry, type SubTheme } from "@/lib/themeCatalog";
 
-// ── Props ────────────────────────────────────────────────────────────────
+// ── Props / Handle ───────────────────────────────────────────────────────
 
 interface GenreSettingFormProps {
   projectId: string;
   settingKey: string;
+  onDirtyChange?: (dirty: boolean) => void;
+  /** 改动回执（一键改变内容类动作在脚部留一条 + 一步撤销；用户 2026-09-10 拍板）。 */
+  onReceiptChange?: (r: import("./ChangeReceipt").ChangeReceiptState | null) => void;
+  /** 本书书名——题材 AI 入参 title 的来源。 */
+  novelName?: string;
 }
 
-/** 面板脚注（gap3）持有：save 落库 / hasGenre 确认前校验 / openPicker 空态引导 */
+/** 题材面板句柄：save 落库；runAi 由右栏 AI 卡片调用（tasks 4.2）。 */
 export type GenreHandle = SettingSaveHandle & {
-  hasGenre: () => boolean;
-  openPicker: () => void;
+  /** 运行某格 AI，结果落该格下方 .ai-sink。
+   *  opts.multi：02 专用「多给几个看点」（后端 multi_point=true，返回 1-3 条数组）。 */
+  runAi: (field: GenreAiField, opts?: { multi?: boolean }) => Promise<void>;
 };
 
-// ── Data shape from API ──────────────────────────────────────────────────
+export type { GenreAiField };
 
-interface GenreConfigData {
-  genre_id: string;
-  prompt_injection_enabled?: boolean;
-  config_overrides?: {
-    fulfillment_types?: string[];
-    chapter_types?: string[];
-    pacing_rules?: string[];
-    fatigue_words?: string[];
-  };
-  selected_arc_id?: string;
-}
-
-// ── Project-level category label (mirrors data/genres constant inline) ──
-
-const GENRE_CATEGORIES: { id: string; label: string }[] = [
-  { id: "urban",       label: "都市系" },
-  { id: "historical",  label: "历史系" },
-  { id: "xianhuan",    label: "玄幻系" },
-  { id: "suspense",    label: "悬疑系" },
-  { id: "scifi",       label: "科幻系" },
-  { id: "independent", label: "独立类型" },
+export const GENRE_AI_FIELDS: GenreAiField[] = [
+  "core_promise",
+  "forbidden_list",
+  "cost_ratio",
+  "battlefield",
 ];
 
-// ── Story arc card（原型 .arc-card：ac-name + 已选 pill + ac-desc + beats）──
+/** 五行 AI 的字段 → 结果区标题（原型 ZONE_LABEL 同文案）。 */
+const AI_LABEL: Record<GenreAiField, string> = {
+  core_promise: "AI 填 · 主要看什么",
+  forbidden_list: "AI 填 · 绝对禁止",
+  cost_ratio: "AI 填 · 吃苦指数",
+  battlefield: "AI 填 · 本小说斗什么",
+};
 
-function ArcCard({
-  template,
-  selected,
-  onSelect,
+// ── 契约数据形态 ─────────────────────────────────────────────────────────
+
+interface ForbiddenItem {
+  tagId?: string;
+  text?: string;
+}
+
+/** tagId → 中文标签：先查接口下发的候选源（含库内自定义词汇），再退回本地镜像。
+ *
+ * **绝不要把 tagId（英文 slug，如 forbidden:no-free-powerup）直接显示给作者**——
+ * 03「绝对禁止」的结果区曾漏了这一步，AI 建议原样打出英文 id（05 有映射，03 没有）。
+ */
+function labelFor(id: string, pools: Array<{ id: string; label: string }>): string {
+  return pools.find((p) => p.id === id)?.label ?? vocabLabel(id);
+}
+
+/** 01 选择器的一行：大类（＝只归大类）或「大类 + 子类」。 */
+type ThemeRow =
+  | { kind: "theme"; theme: string; sub?: undefined }
+  | { kind: "sub"; theme: string; sub: SubTheme };
+
+interface GenrePayload {
+  /** 01 题材目录（大类/子类）——落 story.yaml，与简介同族。 */
+  theme: string;
+  sub_genre: string;
+  core_promise: string;
+  promise_note: string;
+  forbidden_list: ForbiddenItem[];
+  cost_ratio: number | null;
+  battlefield: string[];
+}
+
+const EMPTY: GenrePayload = {
+  theme: "",
+  sub_genre: "",
+  core_promise: "",
+  promise_note: "",
+  forbidden_list: [],
+  cost_ratio: null,
+  battlefield: [],
+};
+
+function normalize(raw: unknown): GenrePayload {
+  const d = (raw ?? {}) as Partial<GenrePayload>;
+  const cost = d.cost_ratio;
+  return {
+    theme: (d.theme ?? "").toString(),
+    sub_genre: (d.sub_genre ?? "").toString(),
+    core_promise: (d.core_promise ?? "").toString(),
+    promise_note: (d.promise_note ?? "").toString(),
+    forbidden_list: Array.isArray(d.forbidden_list)
+      ? d.forbidden_list.filter((x): x is ForbiddenItem => !!x && typeof x === "object")
+      : [],
+    cost_ratio: typeof cost === "number" && cost >= 1 && cost <= 10 ? cost : null,
+    battlefield: Array.isArray(d.battlefield) ? d.battlefield.filter(Boolean).map(String) : [],
+  };
+}
+
+/** 候选源（接口失败时回退本地镜像，保证胶囊可用）。 */
+function useCandidates() {
+  const [promise, setPromise] = useState(() =>
+    GENRE_VOCAB.filter((e) => e.kind === "promise"),
+  );
+  const [forbidden, setForbidden] = useState(() =>
+    GENRE_VOCAB.filter((e) => e.kind === "forbidden"),
+  );
+  const [battlefield, setBattlefield] = useState(() =>
+    GENRE_VOCAB.filter((e) => e.kind === "battlefield"),
+  );
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get("/genres/candidates")
+      .then((d: Record<string, Array<{ id: string; label: string }>> | null) => {
+        if (cancelled || !d) return;
+        const pick = (kind: VocabKind) =>
+          (d[kind] ?? []).map((e, i) => ({ id: e.id, kind, label: e.label, sort: i * 10 }));
+        if (d.promise?.length) setPromise(pick("promise"));
+        if (d.forbidden?.length) setForbidden(pick("forbidden"));
+        if (d.battlefield?.length) setBattlefield(pick("battlefield"));
+      })
+      .catch(() => {
+        /* 回退本地镜像，不阻断填写 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return { promise, forbidden, battlefield };
+}
+
+// ── 一格的外壳（编号 + 名称 + 怎么填 + 成书去处 + 内容）───────────────────
+
+function Mod({
+  no,
+  name,
+  why,
+  use,
+  children,
 }: {
-  template: StoryArcTemplate;
-  selected: boolean;
-  onSelect: () => void;
+  no: string;
+  name: string;
+  why: string;
+  use: React.ReactNode;
+  children: React.ReactNode;
 }) {
   return (
-    <button className={`arc-card${selected ? " on" : ""}`} type="button" onClick={onSelect}>
-      <span className="ac-name">
-        {template.name}
-        {selected && <span className="ac-sel">已选</span>}
-      </span>
-      <p className="ac-desc">{template.description}</p>
-      <div className="ac-beats">
-        {template.beats.map((beat, i) => (
-          <span className="ac-beat" key={i}>{beat}</span>
-        ))}
+    <div className="mod">
+      <div className="mod-head">
+        <span className="m-no">{no}</span>
+        <span className="m-name">{name}</span>
+        <span className="m-why">{why}</span>
+        <span className="m-use">{use}</span>
       </div>
-    </button>
+      {children}
+    </div>
   );
 }
 
-// ── Main component ───────────────────────────────────────────────────────
+/** 02 多看点勾选器（局部 state：结果节点缓存在 sinks 里，勾选态必须活在组件内）。 */
+function PointChooser({
+  points,
+  onAdopt,
+}: {
+  points: Array<{ value: string; note: string }>;
+  onAdopt: (p: { core_promise: string; promise_note: string }) => void;
+}) {
+  const [picked, setPicked] = useState<number[]>([]);
+  const join = (idx: number[]) =>
+    idx
+      .map((i) => points[i].note)
+      .filter(Boolean)
+      .join("；")
+      .slice(0, GENRE_LIMITS.promiseNote);
+  return (
+    <div data-od-id="multi-points">
+      {points.map((pt, i) => (
+        <label className="mpt-row" key={`${pt.value}-${i}`}>
+          <input
+            type="checkbox"
+            data-od-id={`multi-pick-${i}`}
+            checked={picked.includes(i)}
+            onChange={(e) =>
+              setPicked((prev) =>
+                e.target.checked
+                  ? [...prev, i].sort((a, b) => a - b)
+                  : prev.filter((x) => x !== i),
+              )
+            }
+          />
+          <span>
+            <b>{pt.value}</b>
+            {pt.note && <span className="mpt-note">：{pt.note}</span>}
+          </span>
+        </label>
+      ))}
+      <p className="mpt-act">
+        <button
+          type="button"
+          className="btn btn-secondary"
+          data-od-id="multi-adopt"
+          disabled={picked.length === 0}
+          onClick={() =>
+            onAdopt(
+              // 单选＝标签 + 那句话；多选＝只拼那句话（单一标签表达不了多个看点）
+              picked.length === 1
+                ? { core_promise: points[picked[0]].value, promise_note: join(picked) }
+                : { core_promise: "", promise_note: join(picked) },
+            )
+          }
+        >
+          {picked.length > 1 ? `采纳勾选的 ${picked.length} 条` : "采纳勾选的这条"}
+        </button>
+        <span className="mpt-hint">也可以一条都不勾，直接在左边自己写</span>
+      </p>
+    </div>
+  );
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────
 
 const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function GenreSettingForm(
-  { projectId, settingKey },
+  { projectId, settingKey, onDirtyChange, onReceiptChange, novelName },
   ref,
 ) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  // Loaded genre data
-  const [genre, setGenre] = useState<GenreDefinition | null>(null);
-  const [genreId, setGenreId] = useState(DEFAULT_GENRE_ID);
-  /** genre_id 已设定但定义缺失（被删/未知）→ 降级可用态，不整块空屏 */
-  const [definitionMissing, setDefinitionMissing] = useState(false);
-
-  // Editable fields（ADR-007：氛围/视角/技法归文风表单，题材只保留配置与弧线）
-  const [promptInjectionEnabled, setPromptInjectionEnabled] = useState(true);
-  const [fulfillmentTypes, setFulfillmentTypes] = useState<string[]>([""]);
-  const [chapterTypes, setChapterTypes] = useState<string[]>([""]);
-  const [pacingRules, setPacingRules] = useState<string[]>([""]);
-  const [fatigueWords, setFatigueWords] = useState<string[]>([""]);
-  const [selectedArcId, setSelectedArcId] = useState<string | undefined>();
-
-  const [showPicker, setShowPicker] = useState(false);
-
-  // ── Apply a genre definition to all editable fields ───────────────
-  const applyGenre = useCallback((g: GenreDefinition) => {
-    setGenre(g);
-    setGenreId(g.id);
-    setFulfillmentTypes([...g.genreConfig.fulfillmentTypes]);
-    setChapterTypes([...g.genreConfig.chapterTypes]);
-    setPacingRules([...g.genreConfig.pacingRules]);
-    setFatigueWords([...g.genreConfig.fatigueWords]);
-    setSelectedArcId(g.storyArcTemplates[0]?.id);
-  }, []);
-
-  // ── Build save payload ────────────────────────────────────────────
-  const buildPayload = useCallback(
-    (g: GenreDefinition): GenreConfigData => ({
-      genre_id: g.id,
-      prompt_injection_enabled: promptInjectionEnabled,
-      config_overrides: {
-        fulfillment_types: fulfillmentTypes.filter(Boolean),
-        chapter_types: chapterTypes.filter(Boolean),
-        pacing_rules: pacingRules.filter(Boolean),
-        fatigue_words: fatigueWords.filter(Boolean),
+  const [data, setData] = useState<GenrePayload>(EMPTY);
+  /** 01 口味胶囊＝纯 UI 联动，不落库、不计入判据。 */
+  const [flavorKey, setFlavorKey] = useState<string | null>(null);
+  const [customForbidden, setCustomForbidden] = useState("");
+  const loadedRef = useRef(false);
+  const { snapshotLoaded, markSaved, markDirty } = useDirtyState(data, onDirtyChange);
+  const cand = useCandidates();
+  const { record: recordChange, clear: clearReceipt } = useChangeReceipt(onReceiptChange);
+  /** 采纳瞬间的 data：AI 结果节点缓存在 sinks state 里，其 onAdopt 闭包停在
+      「点右栏那一行」那次渲染 —— 撤销若用它做基准，会抹掉结果到达后作家自己敲的字。 */
+  const dataRef = useRef(data);
+  useLayoutEffect(() => {
+    dataRef.current = data;
+  });
+  /** 滑块：拖动前的值（松手才出回执；拖回原值则清回执）。未设用 `armed` 记「从未设拖到 N」。 */
+  const costBaseRef = useRef<number | null>(null);
+  const costArmedRef = useRef(false);
+  const commitCost = useCallback(() => {
+    if (!costArmedRef.current) return; // 没经历「拖/聚焦」的变更（如 AI 写入）不记回执
+    costArmedRef.current = false;
+    const from = costBaseRef.current;
+    const to = data.cost_ratio;
+    if (to === null) return;
+    if (from === to) {
+      clearReceipt(); // 拖了一圈回到原值：这次不算改动，清掉上一条回执
+      return;
+    }
+    recordChange(
+      from === null ? `已把吃苦指数从未设调到 ${to}` : `已把吃苦指数从 ${from} 调到 ${to}`,
+      () => {
+        /* 值已在拖动中落地 */
       },
-      selected_arc_id: selectedArcId,
-    }),
-    [promptInjectionEnabled, fulfillmentTypes, chapterTypes, pacingRules, fatigueWords, selectedArcId],
-  );
+      () => setData((cur) => ({ ...cur, cost_ratio: from })),
+    );
+  }, [data.cost_ratio, recordChange, clearReceipt]);
+  /** 02 句子的"打开时原值"（自己敲的字 → 失焦后给「恢复到打开时的原文」）。 */
+  const noteBaseRef = useRef("");
+  const [noteHint, setNoteHint] = useState(false);
 
-  // ── Load from API ─────────────────────────────────────────────────
+  // ── 加载 ──────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     api
       .get(`/novels/${projectId}/settings/${settingKey}`)
-      .then(async (d: GenreConfigData | null) => {
+      .then((d: unknown) => {
         if (cancelled) return;
-        if (!d?.genre_id) {
-          // No genre set yet — leave empty, component shows prompt
-          setGenre(null);
-          setDefinitionMissing(false);
-          return;
-        }
-        setGenreId(d.genre_id);
-        // 定义可能已被删除/未知 → fetchGenre 返回 null → 进入降级可用态（不整块空屏）
-        const g = await fetchGenre(d.genre_id);
-        if (cancelled) return;
-        if (!g) {
-          setGenre(
-            normalizeGenreDefinition({
-              id: d.genre_id,
-              name: d.genre_id,
-              category: "independent",
-            }),
-          );
-          setDefinitionMissing(true);
-          setPromptInjectionEnabled(d.prompt_injection_enabled ?? true);
-          setFulfillmentTypes(
-            d.config_overrides?.fulfillment_types?.length
-              ? d.config_overrides.fulfillment_types
-              : [""],
-          );
-          setChapterTypes(
-            d.config_overrides?.chapter_types?.length
-              ? d.config_overrides.chapter_types
-              : [""],
-          );
-          setPacingRules(
-            d.config_overrides?.pacing_rules?.length
-              ? d.config_overrides.pacing_rules
-              : [""],
-          );
-          setFatigueWords(
-            d.config_overrides?.fatigue_words?.length
-              ? d.config_overrides.fatigue_words
-              : [""],
-          );
-          setSelectedArcId(undefined);
-          return;
-        }
-        setGenre(g);
-        setDefinitionMissing(false);
-
-        // Apply overrides or defaults（ADR-007：氛围/视角/技法归文风表单，不在此处加载）
-        setPromptInjectionEnabled(d.prompt_injection_enabled ?? true);
-        setFulfillmentTypes(d.config_overrides?.fulfillment_types?.length
-          ? d.config_overrides.fulfillment_types
-          : [...g.genreConfig.fulfillmentTypes],
-        );
-        setChapterTypes(d.config_overrides?.chapter_types?.length
-          ? d.config_overrides.chapter_types
-          : [...g.genreConfig.chapterTypes],
-        );
-        setPacingRules(d.config_overrides?.pacing_rules?.length
-          ? d.config_overrides.pacing_rules
-          : [...g.genreConfig.pacingRules],
-        );
-        setFatigueWords(d.config_overrides?.fatigue_words?.length
-          ? d.config_overrides.fatigue_words
-          : [...g.genreConfig.fatigueWords],
-        );
-        setSelectedArcId(d.selected_arc_id ?? g.storyArcTemplates[0]?.id);
+        const norm = normalize(d);
+        setData(norm);
+        noteBaseRef.current = norm.promise_note;
+        setNoteHint(false);
+        snapshotLoaded(norm);
       })
-      .catch(() => setError("加载失败"))
+      .catch(() => {
+        if (!cancelled) setError("加载失败");
+      })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          loadedRef.current = true;
+        }
       });
     return () => {
       cancelled = true;
     };
+    // snapshotLoaded 引用稳定；仅项目/键切换重拉
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, settingKey]);
 
-  // ── Save（面板脚注 gap3 调用；切题材已自动落库）───────────────────
-  const handleSave = useCallback(async (): Promise<boolean> => {
-    if (!genre) return true;
+  const patch = useCallback((p: Partial<GenrePayload>) => {
+    setData((prev) => ({ ...prev, ...p }));
+  }, []);
+
+  // ── 01 题材选择器（Cascader 式）：展开态 / 搜索词 / 正在浏览的大类 / 键盘游标 ──
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [themeQuery, setThemeQuery] = useState("");
+  const [activeTheme, setActiveTheme] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const themeBoxRef = useRef<HTMLDivElement | null>(null);
+  const themeSearchRef = useRef<HTMLInputElement | null>(null);
+
+  const closeThemePanel = useCallback(() => {
+    setThemeOpen(false);
+    setThemeQuery("");
+  }, []);
+
+  const toggleThemePanel = useCallback(() => {
+    setThemeOpen((open) => {
+      if (open) {
+        setThemeQuery("");
+        return false;
+      }
+      // 展开时把浏览列定位到已选大类（未选则给第一个），游标归零
+      setThemeQuery("");
+      setActiveTheme((cur) => (cur || THEMES[0].name));
+      setCursor(0);
+      return true;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (themeOpen) themeSearchRef.current?.focus();
+  }, [themeOpen]);
+
+  // 点面板外收起（TDesign popup 同语义；本页是就地展开，故监听整个文档）。
+  // Esc 也挂文档级：点过大类后焦点在按钮上，只挂搜索框会收不起来。
+  useEffect(() => {
+    if (!themeOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (themeBoxRef.current && !themeBoxRef.current.contains(e.target as Node)) {
+        closeThemePanel();
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeThemePanel();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [themeOpen, closeThemePanel]);
+
+  // 展开时若已选题材，浏览列跟随；首次展开定位到已选/首个
+  useEffect(() => {
+    if (themeOpen) setActiveTheme((cur) => cur || data.theme || THEMES[0].name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [themeOpen]);
+
+  /** 当前可选项列表：搜索态＝全目录命中（拍平成「大类 / 子类」路径）；否则＝浏览列的
+   *  「只归到大类」+ 该大类子类。键盘 ↑↓/Enter 与渲染共用这一份，避免两套取舍。 */
+  const searching = themeQuery.trim().length > 0;
+  const themeRows = useMemo<ThemeRow[]>(() => {
+    if (!searching) {
+      const t = themeEntry(activeTheme);
+      return [
+        { kind: "theme", theme: activeTheme },
+        ...(t?.subTypes ?? []).map((sub) => ({
+          kind: "sub" as const,
+          theme: activeTheme,
+          sub,
+        })),
+      ];
+    }
+    const q = themeQuery.trim().toLowerCase();
+    const hit = (s: string) => s.toLowerCase().includes(q);
+    const out: ThemeRow[] = [];
+    for (const t of THEMES) {
+      if (hit(t.name) || hit(t.desc)) out.push({ kind: "theme", theme: t.name });
+      for (const sub of t.subTypes) {
+        if (hit(sub.name) || hit(sub.desc) || hit(sub.example)) {
+          out.push({ kind: "sub", theme: t.name, sub });
+        }
+      }
+    }
+    return out;
+  }, [searching, themeQuery, activeTheme]);
+
+  /** 点左列大类＝**只浏览**（右列换成它的子类），**不改选中值**。
+   *
+   * 用户 2026-09-10 报障「配置过的题材老是自动变成玄幻」：原实现把「浏览」与「选中」合并
+   * （点一下即选中），作者只是想看看某个大类下有什么子类，题材就被改掉了——离开面板时
+   * 脏数据被保存，于是"自动变了"。选中走**显式**动作：
+   *   · 点右列「只归到大类（X）」＝只选大类
+   *   · 点右列某个子类＝选「大类 + 子类」
+   *   · 清空＝字段右侧 ×（clearable）
+   */
+  const browseTheme = useCallback((name: string) => {
+    setActiveTheme(name);
+    setCursor(0);
+  }, []);
+
+  /** 只归到大类（显式选中当前浏览的大类；清掉子类）。 */
+  const pickThemeOnly = useCallback(
+    (name: string) => {
+      const before = { theme: data.theme, sub_genre: data.sub_genre };
+      if (before.theme === name && !before.sub_genre) return; // 值没变，不记回执
+      setData((prev) => ({ ...prev, theme: name, sub_genre: "" }));
+      recordChange(
+        `已把题材改为「${name}」`,
+        () => {
+          /* 值已落地 */
+        },
+        () => setData((cur) => ({ ...cur, ...before })),
+      );
+    },
+    [data.theme, data.sub_genre, recordChange],
+  );
+
+  const pickRow = useCallback(
+    (row: ThemeRow, close: boolean) => {
+      if (row.kind === "theme") {
+        pickThemeOnly(row.theme);
+      } else {
+        const label = `${row.theme} / ${row.sub!.name}`;
+        const before = { theme: data.theme, sub_genre: data.sub_genre };
+        if (before.theme === row.theme && before.sub_genre === row.sub!.name) {
+          if (close) closeThemePanel();
+          return;
+        }
+        setData((prev) => ({ ...prev, theme: row.theme, sub_genre: row.sub!.name }));
+        recordChange(
+          `已把题材改为「${label}」`,
+          () => {
+            /* 值已落地 */
+          },
+          () => setData((cur) => ({ ...cur, ...before })),
+        );
+      }
+      if (close) closeThemePanel();
+    },
+    [pickThemeOnly, closeThemePanel, data.theme, data.sub_genre, recordChange],
+  );
+
+  const clearTheme = useCallback(() => {
+    if (!data.theme) return; // 本来就空，不记回执
+    const before = { theme: data.theme, sub_genre: data.sub_genre };
+    setData((prev) => ({ ...prev, theme: "", sub_genre: "" }));
+    recordChange(
+      "已清空题材",
+      () => {
+        /* 值已落地 */
+      },
+      () => setData((cur) => ({ ...cur, ...before })),
+    );
+  }, [data.theme, data.sub_genre, recordChange]);
+
+  const onThemeKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeThemePanel();
+        return;
+      }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setCursor((c) => {
+          const n = themeRows.length;
+          if (n === 0) return 0;
+          return e.key === "ArrowDown" ? (c + 1) % n : (c - 1 + n) % n;
+        });
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const row = themeRows[cursor];
+        // 未搜索时 Enter 作用在浏览列：子类＝选完收起；「只归到大类」＝选中并收起
+        if (row) pickRow(row, true);
+      }
+    },
+    [themeRows, cursor, pickRow, closeThemePanel],
+  );
+
+  // ── 02 常见口味快捷填充：预填 02/03/04/05（不写 promise_note）───
+  const applyFlavor = useCallback(
+    (key: string) => {
+      const f = GENRE_FLAVORS.find((x) => x.key === key);
+      if (!f) return;
+      setFlavorKey(key);
+      // 一次点击覆盖多格 → 必须给回执 + 一步撤销（这是本面板后果最大的误点）。
+      // 注意：recordChange 会触发父组件 setState，**不得**写在 setData 的 updater 里
+      // （React 可能重复调用 updater → 渲染中反复 setState）。
+      const before = {
+        core_promise: data.core_promise,
+        promise_note: data.promise_note,
+        forbidden_list: data.forbidden_list,
+        cost_ratio: data.cost_ratio,
+        battlefield: data.battlefield,
+      };
+      setData((prev) => ({
+        ...prev,
+        core_promise: f.corePromise,
+        promise_note: f.promiseNote, // 起点是「一句完整的话」，不是几个字
+        forbidden_list: f.forbidden.map((tagId) => ({ tagId })),
+        cost_ratio: f.costRatio,
+        battlefield: [...f.battlefield],
+      }));
+      recordChange(
+        `已按「${f.label}」覆盖：主要看什么 / 绝对禁止（${f.forbidden.length} 项）/ 吃苦指数 ` +
+          `${before.cost_ratio ?? "未设"}→${f.costRatio} / 本小说斗什么（${f.battlefield.length} 项）`,
+        () => {
+          /* 值已落地 */
+        },
+        () => setData((cur) => ({ ...cur, ...before })),
+      );
+      setNoteHint(false);
+      toast.success(`已按「${f.label}」给出一句起点，改到像你写的再确认`);
+    },
+    [data, recordChange],
+  );
+
+  // ── 03 绝对禁止：勾选 / 自定义 ─────────────────────────────────────
+  const forbidSelected = useMemo(
+    () => new Set(data.forbidden_list.map((f) => f.tagId).filter(Boolean) as string[]),
+    [data.forbidden_list],
+  );
+  const toggleForbidden = useCallback(
+    (tagId: string) => {
+      const label = vocabLabel(tagId);
+      const on = data.forbidden_list.some((f) => f.tagId === tagId);
+      const at = data.forbidden_list.findIndex((f) => f.tagId === tagId);
+      setData((prev) => ({
+        ...prev,
+        forbidden_list: on
+          ? prev.forbidden_list.filter((f) => f.tagId !== tagId)
+          : [...prev.forbidden_list, { tagId }],
+      }));
+      // 一键勾选/取消 → 回执 + 一步撤销（recordChange 触发父组件 setState，
+      // 不得写在 setData 的 updater 里：updater 可能被 React 重复调用）。
+      // 撤销按**差量**回（只动这一项）：整数组快照会把「勾选之后作家自己敲进去的
+      // 自定义禁区」一起抹掉，而那不是这次改动的一部分。
+      recordChange(
+        `${on ? "已取消" : "已勾选"}「${label}」`,
+        () => {
+          /* 值已落地 */
+        },
+        () => {
+          setData((cur) => ({
+            ...cur,
+            forbidden_list: on
+              ? [...cur.forbidden_list.slice(0, at), { tagId }, ...cur.forbidden_list.slice(at)]
+              : cur.forbidden_list.filter((f) => f.tagId !== tagId),
+          }));
+        },
+      );
+    },
+    [data.forbidden_list, recordChange],
+  );
+  const addCustomForbidden = useCallback(() => {
+    const text = customForbidden.trim();
+    if (!text) return;
+    if (data.forbidden_list.length >= GENRE_LIMITS.forbiddenMax) {
+      toast.info(`最多 ${GENRE_LIMITS.forbiddenMax} 条禁区`);
+      return;
+    }
+    setData((prev) => ({ ...prev, forbidden_list: [...prev.forbidden_list, { text }] }));
+    setCustomForbidden("");
+  }, [customForbidden, data.forbidden_list.length]);
+
+  // ── 05 本小说斗什么：勾选 / 移除（自定义项由 AI 采纳写入，可 × 移除）────
+  const toggleBattlefield = useCallback(
+    (val: string) => {
+      const has = data.battlefield.includes(val);
+      if (!has && data.battlefield.length >= GENRE_LIMITS.battlefieldMax) {
+        toast.info(`最多 ${GENRE_LIMITS.battlefieldMax} 个战场`);
+        return;
+      }
+      const label = val.includes(":") ? vocabLabel(val) : val;
+      const at = data.battlefield.indexOf(val);
+      setData((prev) => ({
+        ...prev,
+        battlefield: has ? prev.battlefield.filter((x) => x !== val) : [...prev.battlefield, val],
+      }));
+      // 同 03：撤销按差量（只动这一项），不整数组回滚
+      recordChange(
+        `${has ? "已取消" : "已勾选"}「${label}」`,
+        () => {
+          /* 值已落地 */
+        },
+        () =>
+          setData((cur) => ({
+            ...cur,
+            battlefield: has
+              ? [...cur.battlefield.slice(0, at), val, ...cur.battlefield.slice(at)]
+              : cur.battlefield.filter((x) => x !== val),
+          })),
+      );
+    },
+    [data.battlefield, recordChange],
+  );
+
+  // ── AI 结果区（tasks 4.2 / D14 + 生成历史）：每格保留**最近 5 次**结果，
+  //    可切回任意一次再采纳（避免无限抽卡 / 反悔）；采纳＝覆盖该格控件。────
+  const SINK_MAX = 5;
+  const [sinks, setSinks] = useState<
+    Partial<
+      Record<
+        GenreAiField,
+        {
+          list: Array<{
+            label: string;
+            node: React.ReactNode;
+            adopt: () => void;
+            /** 多看点结果：采纳由结果区的勾选器负责，AiSink 不再出「采纳」按钮。 */
+            multi?: boolean;
+            /** 采纳后会写回的值（回执要报「多少字 → 多少字」）。 */
+            values?: { core_promise: string; promise_note: string };
+          }>;
+          idx: number;
+        }
+      >
+    >
+  >({});
+  const [running, setRunning] = useState<GenreAiField | null>(null);
+  /** 面板级在途锁（ref 同步判定）：同时在飞的只有一个题材 AI 请求。 */
+  const aiBusyRef = useRef(false);
+
+  const runAi = useCallback(
+    async (field: GenreAiField, opts?: { multi?: boolean }) => {
+      if (aiBusyRef.current) return; // 已有在途请求：忽略重复触发
+      aiBusyRef.current = true;
+      setRunning(field);
+      const context: Record<string, unknown> = {
+        current:
+          field === "core_promise"
+            ? data.core_promise
+            : field === "forbidden_list"
+              ? data.forbidden_list
+              : field === "cost_ratio"
+                ? data.cost_ratio
+                : data.battlefield,
+        core_promise: data.core_promise,
+        forbidden_list: data.forbidden_list,
+        cost_ratio: data.cost_ratio,
+        battlefield: data.battlefield,
+      };
+      await genreAi(field, { title: novelName ?? "", context, multiPoint: opts?.multi }, projectId)
+        .then((r) => {
+          const v = r.value;
+          let node: React.ReactNode;
+          let adopt: () => void;
+          /** 本次结果是否多看点数组（决定采纳由勾选器负责、AiSink 不出采纳键）。 */
+          let isMulti = false;
+          /** 02 采纳后会写回的值（回执报字数用）。 */
+          let adoptValues: { core_promise: string; promise_note: string } | undefined;
+          if (field === "core_promise") {
+            // 多看点（「多给几个看点」）：后端返回 1-3 条，每条独立采纳（用户手选）
+            isMulti = Array.isArray(v);
+            const points = isMulti
+              ? (v as Array<{ value: string; note: string }>)
+              : [v as { value: string; note: string }];
+            if (isMulti && points.length > 0) {
+              // 「直接给多个看点」→ 作家勾选采纳（可多选/单选；不勾就自己写）。
+              // 勾选态由 PointChooser 自己持有：结果节点缓存在 sinks state 里，
+              // 把勾选态放在外面会渲染成「点了没反应」。
+              node = (
+                <PointChooser
+                  points={points}
+                  onAdopt={(p) => {
+                    // 勾选器：单选＝标签+那句话；多选＝只拼那句话（单一标签表达不了多个看点）
+                    // 基准取采纳瞬间：这个节点缓存在 sinks state 里，闭包里的 data 会过期
+                    const before = {
+                      core_promise: dataRef.current.core_promise,
+                      promise_note: dataRef.current.promise_note,
+                    };
+                    patch(p);
+                    setNoteHint(false);
+                    recordChange(
+                      `已采纳 ${p.core_promise ? "1 条看点" : "勾选的看点"}，覆盖「主要看什么」（${
+                        before.promise_note.length
+                      } 字 → ${p.promise_note.length} 字）`,
+                      () => {
+                        /* 值已落地 */
+                      },
+                      () => setData((cur) => ({ ...cur, ...before })),
+                    );
+                    toast.success("已采纳，可继续改或再勾几条");
+                  }}
+                />
+              );
+              adopt = () =>
+                patch({ core_promise: "", promise_note: points.map((x) => x.note).join("；") });
+            } else {
+              const { value, note } = points[0];
+              node = (
+                <>
+                  <p style={{ margin: "4px 0" }}>
+                    <b>{value}</b>
+                  </p>
+                  {note && <p style={{ margin: "4px 0", color: "var(--muted)" }}>{note}</p>}
+                </>
+              );
+              adopt = () => patch({ core_promise: value, promise_note: note });
+              adoptValues = { core_promise: value, promise_note: note };
+            }
+          } else if (field === "forbidden_list") {
+            const list = (v as Array<{ tagId?: string; text?: string }>) ?? [];
+            const labels = list
+              .map((x) => (x.tagId ? labelFor(x.tagId, cand.forbidden) : (x.text ?? "")))
+              .filter(Boolean);
+            node = <p style={{ margin: 0 }}>{labels.join(" · ") || "（没有建议）"}</p>;
+            adopt = () => patch({ forbidden_list: list });
+          } else if (field === "cost_ratio") {
+            const n = v as number;
+            node = <p style={{ margin: 0 }}>建议 {n} 分 —— {costSentence(n).split("→ ")[1]}</p>;
+            adopt = () => patch({ cost_ratio: n });
+          } else if (field === "battlefield") {
+            const list = (v as Array<{ tagId?: string; text?: string }>) ?? [];
+            const vals = list.map((x) => x.tagId ?? x.text ?? "").filter(Boolean);
+            node = (
+              <p style={{ margin: 0 }}>
+                {vals.map((x) => labelFor(x, cand.battlefield)).join(" · ") || "（没有建议）"}
+              </p>
+            );
+            adopt = () => patch({ battlefield: vals });
+          }
+          setSinks((prev) => {
+            const list = [
+              ...(prev[field]?.list ?? []),
+              {
+                label: AI_LABEL[field],
+                node,
+                adopt,
+                multi: field === "core_promise" && isMulti,
+                values: field === "core_promise" ? adoptValues : undefined,
+              },
+            ].slice(-SINK_MAX);
+            return { ...prev, [field]: { list, idx: list.length - 1 } };
+          });
+        })
+        .catch((e: unknown) => {
+          const reason = aiBlockReason(e);
+          if (reason === "member_required") {
+            toast.info("AI 是会员功能，升级 PRO 后解锁");
+          } else if (reason === "no_key") {
+            toast.info("先去「模型配置」添加 API Key");
+          } else if (reason === "missing_model" || reason === "invalid") {
+            toast.info("先在本书选择模型");
+          } else {
+            toast.error((e as Error).message || "AI 暂不可用，请重试");
+          }
+        })
+        .finally(() => {
+          aiBusyRef.current = false;
+          setRunning(null);
+        });
+    },
+    [data, novelName, projectId, patch],
+  );
+
+  // ── 保存 ──────────────────────────────────────────────────────────
+  const save = useCallback(async (): Promise<boolean> => {
     if (saving) return false;
     setSaving(true);
     setError("");
     try {
-      await api.put(`/novels/${projectId}/settings/${settingKey}`, buildPayload(genre));
+      await api.put(`/novels/${projectId}/settings/${settingKey}`, data);
+      markSaved();
+      // 保存＝新的「原文」：基线前移并撤下提示，否则「恢复到打开时的原文」会把
+      // 刚存进去的内容改回打开时那一版（用户以为只是撤销打字）
+      noteBaseRef.current = data.promise_note;
+      setNoteHint(false);
       return true;
-    } catch (e: any) {
-      setError(e.message || "保存失败");
+    } catch (e) {
+      setError((e as Error).message || "保存失败");
       return false;
     } finally {
       setSaving(false);
     }
-  }, [projectId, settingKey, genre, saving, buildPayload]);
+  }, [projectId, settingKey, data, saving, markSaved]);
 
   useImperativeHandle(
     ref,
-    () => ({
-      save: handleSave,
-      hasGenre: () => !!genre,
-      openPicker: () => setShowPicker(true),
-    }),
-    [handleSave, genre],
+    () => ({ save, runAi, markDirty, clearAi: () => setSinks({}) }),
+    [save, runAi, markDirty],
   );
 
-  // ── Handle genre change from picker（自动落库 + 原型 toast 文案）────
-  const handleGenreChange = useCallback(
-    async (newId: string) => {
-      const g = await fetchGenre(newId);
-      if (!g) return;
-      applyGenre(g);
-      setDefinitionMissing(false);
-      // Auto-save immediately
-      setSaving(true);
-      try {
-        await api.put(`/novels/${projectId}/settings/${settingKey}`, buildPayload(g));
-        toast.success(`已应用题材「${g.name}」· 模板已带入，已填内容保留`);
-      } catch (e: any) {
-        setError(e.message || "保存失败");
-      } finally {
-        setSaving(false);
-      }
-    },
-    [projectId, settingKey, applyGenre, buildPayload],
+  if (loading) return <p className="opt">加载中…</p>;
+
+  const forbidCustom = data.forbidden_list.filter((f) => f.text);
+  const unknownBattlefield = data.battlefield.filter(
+    (b) => !cand.battlefield.some((c) => c.id === b),
   );
+  // 01 解读区：选了子类说子类（更具体），只选大类说大类；都没选则不占位
+  const subEntry = subThemeEntry(data.theme, data.sub_genre);
+  const themeNote = subEntry
+    ? { name: data.sub_genre, desc: subEntry.desc, example: subEntry.example }
+    : themeEntry(data.theme) && {
+        name: data.theme,
+        desc: themeEntry(data.theme)!.desc,
+        example: "",
+      };
 
-  // ── Loading state ─────────────────────────────────────────────────
-  if (loading) {
-    return <p className="opt">加载中…</p>;
-  }
-
-  // ── Empty state (no genre selected) ───────────────────────────────
-  if (!genre) {
-    return (
-      <div>
-        <div className="field">
-          <label>当前题材</label>
-          <div className="cur-genre">
-            <span>未选择</span>
-            <button
-              className="btn btn-primary btn-sm"
-              style={{ marginLeft: "auto" }}
-              type="button"
-              onClick={() => setShowPicker(true)}
-            >
-              选择题材
-            </button>
-          </div>
-          <span className="opt" style={{ fontSize: 12, color: "var(--muted)" }}>
-            选择题材可以帮助 AI 更准确地把握你的小说类型特征，生成贴合类型的文风和内容。
-          </span>
-        </div>
-
-        <GenrePickerModal
-          open={showPicker}
-          onConfirm={handleGenreChange}
-          onClose={() => setShowPicker(false)}
-        />
-      </div>
-    );
-  }
-
-  const categoryLabel =
-    GENRE_CATEGORIES.find((c) => c.id === genre.category)?.label ?? "";
-
-  // ── Render ────────────────────────────────────────────────────────
   return (
-    <div>
-      {/* ── 当前题材卡 ──────────────────────────────────────────── */}
-      <div className="field">
-        <label>当前题材</label>
-        <div className="cur-genre">
-          <span>{genre.name}</span>
-          {definitionMissing ? (
-            <span className="tag">定义缺失</span>
-          ) : (
-            <>
-              <span className="tag">{categoryLabel}</span>
-              <span className="tag">已设定</span>
-            </>
-          )}
+    <div data-od-id="genre-panel">
+      {/* 01 题材目录 —— 字段 + 就地展开的两级选择（2026-09-10 用户要求「参考 tdesign、页面简洁」）。
+          形态对标 TDesign Cascader：`checkStrictly`（父级＝大类可单独选）、`filterable`（搜索，
+          命中项拍平成「大类 / 子类」路径）、`clearable`（字段右 × 清空）。**就地展开而非浮层**：
+          设定面板列自身 overflow-y:auto，浮层会被裁切/随滚动漂移；浮层方案需 portal + 滚动跟随，
+          与本页「简洁」相悖（用户 2026-09-10 反馈）。 */}
+      <Mod
+        no="01"
+        name="题材"
+        why="这本书写的是什么题材"
+        use={
+          <>
+            "填好后："
+            <b>全书按这个题材的类型规则走</b>
+            "，随时可换"
+          </>
+        }
+      >
+        <div className="sel" ref={themeBoxRef} data-od-id="theme-select">
           <button
-            className="btn btn-secondary btn-sm"
-            style={{ marginLeft: "auto" }}
             type="button"
-            onClick={() => setShowPicker(true)}
+            className={`sel-field${themeOpen ? " on" : ""}`}
+            data-od-id="theme-trigger"
+            aria-haspopup="listbox"
+            aria-expanded={themeOpen}
+            onClick={toggleThemePanel}
           >
-            <Ico d={P.tune} sw={1.8} />
-            选择 / 切换题材
-          </button>
-        </div>
-        {definitionMissing ? (
-          <span className="opt" style={{ fontSize: 12, color: "var(--muted)" }}>
-            该题材定义已不存在（可能已被删除）。仍可编辑并保存下方覆盖项；切换为新题材可恢复完整设置。
-          </span>
-        ) : (
-          genre.description && (
-            <span className="opt" style={{ fontSize: 12, color: "var(--muted)" }}>
-              {genre.description} 切换题材将替换题材相关的参数模板，已填内容保留。
+            <span className={data.theme ? "v" : "ph"}>
+              {data.theme
+                ? data.sub_genre
+                  ? `${data.theme} / ${data.sub_genre}`
+                  : data.theme
+                : "选择题材"}
             </span>
-          )
+            {data.theme && (
+              <span
+                className="sel-clear"
+                role="button"
+                aria-label="清除题材"
+                data-od-id="theme-clear"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearTheme();
+                }}
+              >
+                ×
+              </span>
+            )}
+            {/* 展开态靠字段边框变 accent 表达，箭头保持向下（图标集无 chevronUp） */}
+            <Ico d={P.chevronDown} className={themeOpen ? "open" : undefined} />
+          </button>
+
+          {themeOpen && (
+            <div className="sel-panel" data-od-id="theme-panel">
+              <input
+                ref={themeSearchRef}
+                className="sel-search"
+                data-od-id="theme-search"
+                placeholder="搜索题材（名 / 解读 / 案例）"
+                value={themeQuery}
+                spellCheck={false}
+                onChange={(e) => {
+                  setThemeQuery(e.target.value);
+                  setCursor(0);
+                }}
+                onKeyDown={onThemeKeyDown}
+              />
+              {searching ? (
+                <ul className="sel-list" role="listbox" data-od-id="theme-results">
+                  {themeRows.map((r, i) => (
+                    <li key={`${r.theme}/${r.sub?.name ?? ""}`}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={i === cursor}
+                        className={`sel-item${i === cursor ? " cur" : ""}`}
+                        data-g={r.sub ? `sub:${r.sub.name}` : `theme:${r.theme}`}
+                        onMouseEnter={() => setCursor(i)}
+                        onClick={() => pickRow(r, true)}
+                      >
+                        <span className="si-name">
+                          {r.sub ? (
+                            <>
+                              <em>{r.theme} / </em>
+                              {r.sub.name}
+                            </>
+                          ) : (
+                            <>
+                              {r.theme}
+                              <em>　只归到大类</em>
+                            </>
+                          )}
+                        </span>
+                        <span className="si-desc">
+                          {r.sub ? r.sub.desc : themeEntry(r.theme)?.desc}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {themeRows.length === 0 && (
+                    <li className="sel-empty">没有匹配的题材，换个词试试</li>
+                  )}
+                </ul>
+              ) : (
+                <div className="sel-cols">
+                  <ul
+                    className="sel-col themes"
+                    role="listbox"
+                    aria-label="题材大类"
+                    data-od-id="theme-row"
+                  >
+                    {THEMES.map((t) => (
+                      <li key={t.name}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={data.theme === t.name}
+                          className={`sel-item${activeTheme === t.name ? " cur" : ""}${
+                            data.theme === t.name ? " on" : ""
+                          }`}
+                          data-g={`theme:${t.name}`}
+                          title={t.desc}
+                          onClick={() => browseTheme(t.name)}
+                        >
+                          <span className="si-name">{t.name}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <ul
+                    className="sel-col subs"
+                    role="listbox"
+                    aria-label="题材子类"
+                    data-od-id="sub-genre-row"
+                  >
+                    {themeRows.map((r, i) => (
+                      <li key={r.sub?.name ?? "only"}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={
+                            r.sub ? data.sub_genre === r.sub.name : !data.sub_genre
+                          }
+                          className={`sel-item${i === cursor ? " cur" : ""}${
+                            (r.sub ? data.sub_genre === r.sub.name : data.sub_genre === "")
+                              ? " on"
+                              : ""
+                          }${r.sub ? "" : " only"}`}
+                          data-g={r.sub ? `sub:${r.sub.name}` : `theme:${r.theme}`}
+                          title={
+                            r.sub
+                              ? `${r.sub.desc}　案例：${r.sub.example}`
+                              : `只标大类「${r.theme}」，不分子类`
+                          }
+                          onMouseEnter={() => setCursor(i)}
+                          onClick={() => pickRow(r, true)}
+                        >
+                          <span className="si-name">
+                            {r.sub ? r.sub.name : `只归到大类（${r.theme}）`}
+                          </span>
+                          <span className="si-desc">
+                            {r.sub ? r.sub.desc : "不分小类也行，随时能回来补"}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {/* 解读 + 案例：选中什么就说什么（只选大类则说大类），光有标签作者不知道指什么 */}
+        {themeNote && (
+          <p className="cap-note" data-od-id="theme-note">
+            <b>{themeNote.name}</b>
+            {"："}
+            {themeNote.desc}
+            {themeNote.example && (
+              <span className="eg">
+                案例：{themeNote.example}
+              </span>
+            )}
+          </p>
         )}
-      </div>
+      </Mod>
 
-      {/* ── 类型禁忌（题材派生，只读）────────────────────────────── */}
-      {genre.taboos.length > 0 && (
-        <Cfg title="类型禁忌">
-          <div className="chips">
-            {genre.taboos.map((t) => (
-              <span className="chip" key={t}>{t}</span>
-            ))}
-          </div>
-          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>
-            禁忌由题材自动派生，不可编辑；如需调整请在风格设定中自定义规则。
-          </p>
-        </Cfg>
-      )}
-
-      {/* ── 提示词注入段 ────────────────────────────────────────── */}
-      <Cfg title="提示词注入段">
-        <div className="fl-row">
-          <span style={{ fontSize: 13 }}>AI 行为引导注入</span>
-          <span className="seg" role="group" aria-label="提示词注入">
+      {/* 02 主要看什么 → promise_note（主句）+ core_promise（标签） */}
+      <Mod
+        no="02"
+        name="主要看什么"
+        why="读者翻开这本书，主要看的是什么"
+        use={
+          <>
+            "填好后："
+            <b>全书都围绕它写</b>
+            "，章节不跑题"
+          </>
+        }
+      >
+        {/* 常见口味快捷填充：一次性预填 02/03/04/05（纯起点，各格可改） */}
+        <div className="cap-row flavors">
+          <span className="cap-label inline">常见口味</span>
+          {GENRE_FLAVORS.map((f) => (
             <button
+              key={f.key}
+              className={`cap${flavorKey === f.key ? " on" : ""}`}
               type="button"
-              className={promptInjectionEnabled ? "on" : undefined}
-              onClick={() => setPromptInjectionEnabled(true)}
+              data-g={f.key}
+              title="一次预填主要看什么 / 绝对禁止 / 吃苦指数 / 本小说斗什么"
+              onClick={() => applyFlavor(f.key)}
             >
-              启用
+              {f.label}
             </button>
-            <button
-              type="button"
-              className={!promptInjectionEnabled ? "on" : undefined}
-              onClick={() => setPromptInjectionEnabled(false)}
-            >
-              停用
-            </button>
-          </span>
-        </div>
-        <div className="prompt-preview" style={{ marginTop: 10, opacity: promptInjectionEnabled ? undefined : 0.45 }}>
-          {genre.promptInjection}
-        </div>
-        <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>
-          注入段会自动嵌入发送给 AI 的系统提示词，影响写作风格与行为。
-        </p>
-      </Cfg>
-
-      {/* ── 题材配置（可编辑）───────────────────────────────────── */}
-      <Cfg title="题材配置" open>
-        <ListEditor label="满足类型（爽点）" items={fulfillmentTypes} onChange={setFulfillmentTypes} placeholder="例如：发现真相的瞬间" />
-        <ListEditor label="章节类型" items={chapterTypes} onChange={setChapterTypes} placeholder="例如：场景章" />
-        <ListEditor label="节奏规则" items={pacingRules} onChange={setPacingRules} placeholder="例如：每章至少 1 次情感刻画" />
-        <ListEditor label="疲劳词" items={fatigueWords} onChange={setFatigueWords} placeholder="例如：突然" />
-      </Cfg>
-
-      {/* ── 故事弧模板 — 定义缺失时隐藏 ─────────────────────────── */}
-      {!definitionMissing && (
-        <Cfg title="故事弧模板">
-          <p className="opt" style={{ margin: "0 0 10px", fontSize: 11.5 }}>
-            选中的模板会影响 AI 对章节结构的规划。
-          </p>
-          {genre.storyArcTemplates.map((tpl) => (
-            <ArcCard
-              key={tpl.id}
-              template={tpl}
-              selected={selectedArcId === tpl.id}
-              onSelect={() => setSelectedArcId(tpl.id)}
-            />
           ))}
-        </Cfg>
+        </div>
+        {/* 主输入＝一句话（用户 2026-09-10：选项只是几个词，让作家写一句更好；
+            AI 给的就是完整的这一句，作家改改再确认）。短标签由上面的胶囊/AI 写入，
+            不单独占一个输入框——避免「两处都要填」。 */}
+        <textarea
+          className="textarea"
+          rows={3}
+          maxLength={GENRE_LIMITS.promiseNote}
+          data-od-id="m1-input"
+          placeholder="例：读者要看到夜班巡护者被逼入绝境后，用凡人之躯和街头智慧硬撼血族，每场猎杀都是弱者反杀强者的痛快，同时悬着「他会不会变成怪物」的钩子"
+          value={data.promise_note}
+          onChange={(e) => patch({ promise_note: e.target.value })}
+          onBlur={() => setNoteHint(data.promise_note !== noteBaseRef.current)}
+        />
+        <RestoreHint
+          show={noteHint}
+          onRestore={() => {
+            patch({ promise_note: noteBaseRef.current });
+            setNoteHint(false);
+          }}
+        />
+        <p className="opt" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
+          {data.promise_note.length}/{GENRE_LIMITS.promiseNote}
+          {data.core_promise ? ` · 标签：${data.core_promise}` : " · 也可以先点上面的起点，再改成你自己的说法"}
+        </p>
+        {running === "core_promise" && (
+          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
+        )}
+{(() => {
+          const st = sinks.core_promise;
+          if (!st) return null;
+          const { list, idx: active } = st;
+          const entry = list[active];
+          if (!entry) return null;
+          return (
+            <AiSink
+              label={entry.label}
+              history={{
+                total: list.length,
+                active,
+                max: SINK_MAX,
+                onSelect: (i) =>
+                  setSinks((prev) => {
+                    const cur = prev.core_promise;
+                    return cur ? { ...prev, core_promise: { ...cur, idx: i } } : prev;
+                  }),
+              }}
+              adoptText={entry.multi ? undefined : "采纳 · 覆盖"}
+              onAdopt={
+                entry.multi
+                  ? undefined
+                  : () => {
+                      // 一键覆盖这段文本 → 回执 + 一步撤销（撤销＝写回采纳前的两个字）
+                      const before = {
+                        core_promise: data.core_promise,
+                        promise_note: data.promise_note,
+                      };
+                      const afterLen =
+                        entry.values?.promise_note.length ?? before.promise_note.length;
+                      entry.adopt();
+                      recordChange(
+                        `已采纳 AI 建议，覆盖「主要看什么」（${before.promise_note.length} 字 → ${afterLen} 字）`,
+                        () => {
+                          /* 值由 entry.adopt() 落地 */
+                        },
+                        () => {
+                          setData((cur) => ({ ...cur, ...before }));
+                          setNoteHint(false);
+                        },
+                      );
+                      toast.success("已采纳，落回对应格，随时可改");
+                    }
+              }
+              onRetry={() => runAi("core_promise")}
+              data-od-id={`genre-ai-sink-core_promise`}
+            >
+              {entry.node}
+            </AiSink>
+          );
+        })()}
+      </Mod>
+
+      {/* 03 绝对禁止 → forbidden_list */}
+      <Mod
+        no="03"
+        name="绝对禁止"
+        why="勾了就不写；取消勾选＝明知风险偏要写"
+        use={
+          <>
+            "填好后："
+            <b>这些雷全书不会出现</b>
+            "，AI 也不写"
+          </>
+        }
+      >
+        <div className="cap-row" style={{ marginBottom: 8 }}>
+          {cand.forbidden.map((c) => (
+            <button
+              key={c.id}
+              className={`cap${forbidSelected.has(c.id) ? " on" : ""}`}
+              type="button"
+              data-forbid={c.id}
+              onClick={() => toggleForbidden(c.id)}
+            >
+              {c.label}
+            </button>
+          ))}
+          {forbidCustom.map((f) => (
+            <button
+              key={f.text}
+              className="cap on"
+              type="button"
+              title="点击移除"
+              onClick={() =>
+                setData((prev) => ({
+                  ...prev,
+                  forbidden_list: prev.forbidden_list.filter((x) => x !== f),
+                }))
+              }
+            >
+              {f.text} ×
+            </button>
+          ))}
+        </div>
+        <div className="cap-add">
+          <input
+            data-od-id="forbid-input"
+            placeholder="写你自己的禁区，回车添加"
+            value={customForbidden}
+            maxLength={100}
+            onChange={(e) => setCustomForbidden(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addCustomForbidden();
+              }
+            }}
+          />
+        </div>
+        {running === "forbidden_list" && (
+          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
+        )}
+{(() => {
+          const st = sinks.forbidden_list;
+          if (!st) return null;
+          const { list, idx: active } = st;
+          const entry = list[active];
+          if (!entry) return null;
+          return (
+            <AiSink
+              label={entry.label}
+              history={{
+                total: list.length,
+                active,
+                max: SINK_MAX,
+                onSelect: (i) =>
+                  setSinks((prev) => {
+                    const cur = prev.forbidden_list;
+                    return cur ? { ...prev, forbidden_list: { ...cur, idx: i } } : prev;
+                  }),
+              }}
+              adoptText="采纳 · 覆盖"
+              onAdopt={() => {
+                entry.adopt();
+                toast.success("已采纳，落回对应格，随时可改");
+              }}
+              onRetry={() => runAi("forbidden_list")}
+              data-od-id={`genre-ai-sink-forbidden_list`}
+            >
+              {entry.node}
+            </AiSink>
+          );
+        })()}
+      </Mod>
+
+      {/* 04 吃苦指数 → cost_ratio */}
+      <Mod
+        no="04"
+        name="吃苦指数"
+        why="主角得到好处要付多大代价：1 最轻（流汗破财）～ 10 最重（折寿献祭）"
+        use={
+          <>
+            "填好后："
+            <b>变强有代价，不白拿</b>
+            "，爽感才立得住"
+          </>
+        }
+      >
+        <div className="cost-row">
+          <input
+            type="range"
+            min={1}
+            max={10}
+            step={1}
+            data-od-id="cost-slider"
+            value={data.cost_ratio ?? 5}
+            onPointerDown={() => { costBaseRef.current = data.cost_ratio; costArmedRef.current = true; }}
+            onFocus={() => { costBaseRef.current = data.cost_ratio; costArmedRef.current = true; }}
+            onChange={(e) => patch({ cost_ratio: Number(e.target.value) })}
+            onPointerUp={commitCost}
+            onBlur={commitCost}
+          />
+          <span className="cost-val num">{data.cost_ratio ?? "—"}</span>
+        </div>
+        {data.cost_ratio !== null && (
+          <span className="cost-sent" data-od-id="cost-sentence">
+            {costSentence(data.cost_ratio)}
+          </span>
+        )}
+        <div className="cost-scale">
+          <span>1 流汗破财</span>
+          <span>5 断骨毁名</span>
+          <span>10 命抵江山</span>
+        </div>
+        {running === "cost_ratio" && (
+          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
+        )}
+{(() => {
+          const st = sinks.cost_ratio;
+          if (!st) return null;
+          const { list, idx: active } = st;
+          const entry = list[active];
+          if (!entry) return null;
+          return (
+            <AiSink
+              label={entry.label}
+              history={{
+                total: list.length,
+                active,
+                max: SINK_MAX,
+                onSelect: (i) =>
+                  setSinks((prev) => {
+                    const cur = prev.cost_ratio;
+                    return cur ? { ...prev, cost_ratio: { ...cur, idx: i } } : prev;
+                  }),
+              }}
+              adoptText="采纳 · 覆盖"
+              onAdopt={() => {
+                entry.adopt();
+                toast.success("已采纳，落回对应格，随时可改");
+              }}
+              onRetry={() => runAi("cost_ratio")}
+              data-od-id={`genre-ai-sink-cost_ratio`}
+            >
+              {entry.node}
+            </AiSink>
+          );
+        })()}
+      </Mod>
+
+      {/* 05 本小说斗什么 → battlefield */}
+      <Mod
+        no="05"
+        name="本小说斗什么"
+        why="全书主要斗的是什么（建议 1-2 个）"
+        use={
+          <>
+            "填好后："
+            <b>每卷冲突围绕战场</b>
+            "，不打野架"
+          </>
+        }
+      >
+        <div className="cap-row" style={{ marginBottom: 6 }}>
+          {cand.battlefield.map((c) => (
+            <button
+              key={c.id}
+              className={`cap${data.battlefield.includes(c.id) ? " on" : ""}`}
+              type="button"
+              data-bf={c.id}
+              onClick={() => toggleBattlefield(c.id)}
+            >
+              {c.label}
+            </button>
+          ))}
+          {unknownBattlefield.map((b) => (
+            <button
+              key={b}
+              className="cap on"
+              type="button"
+              title="点击移除"
+              onClick={() => toggleBattlefield(b)}
+            >
+              {labelFor(b, cand.battlefield)} ×
+            </button>
+          ))}
+        </div>
+        {data.battlefield.length >= 3 && (
+          <p className="soft-note" data-od-id="bf-note">
+            战场越多，主线越难聚焦，建议 1-2 个。
+          </p>
+        )}
+        {running === "battlefield" && (
+          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
+        )}
+{(() => {
+          const st = sinks.battlefield;
+          if (!st) return null;
+          const { list, idx: active } = st;
+          const entry = list[active];
+          if (!entry) return null;
+          return (
+            <AiSink
+              label={entry.label}
+              history={{
+                total: list.length,
+                active,
+                max: SINK_MAX,
+                onSelect: (i) =>
+                  setSinks((prev) => {
+                    const cur = prev.battlefield;
+                    return cur ? { ...prev, battlefield: { ...cur, idx: i } } : prev;
+                  }),
+              }}
+              adoptText="采纳 · 覆盖"
+              onAdopt={() => {
+                entry.adopt();
+                toast.success("已采纳，落回对应格，随时可改");
+              }}
+              onRetry={() => runAi("battlefield")}
+              data-od-id={`genre-ai-sink-battlefield`}
+            >
+              {entry.node}
+            </AiSink>
+          );
+        })()}
+      </Mod>
+
+
+      {error && (
+        <p className="opt" style={{ color: "var(--err)" }}>
+          {error}
+        </p>
       )}
-
-      {error && <p className="opt" style={{ color: "var(--err)" }}>{error}</p>}
-
-      {/* ── Genre picker modal ────────────────────────────────────── */}
-      <GenrePickerModal
-        open={showPicker}
-        currentGenreId={genreId}
-        onConfirm={handleGenreChange}
-        onClose={() => setShowPicker(false)}
-      />
     </div>
   );
 });
+
 export default GenreSettingForm;

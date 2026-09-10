@@ -62,7 +62,9 @@ async def create_volume(
 ) -> dict:
     """MAX+1（忽略 body.vol_num）+ tier 门控 + DB 行 + 计数自增。"""
     vol_no = await volume_repo.max_volume_no(db, project.id) + 1
-    result = await tier_or_gate(db, project, gate_settings_complete, project.root_path)
+    result = await tier_or_gate(
+        db, project, gate_settings_complete, project.root_path, project.id
+    )
     if result.hard_block and not result.valid:
         raise HTTPException(400, f"Settings incomplete: {result.warnings}")
 

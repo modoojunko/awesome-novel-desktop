@@ -28,7 +28,7 @@ export function useUsageStats(options: {
       let url = "";
       if (options.configId) url = `${API_BASE}/api-configs/${options.configId}/usage`;
       else if (options.projectId)
-        url = `${API_BASE}/projects/${options.projectId}/usage`;
+        url = `${API_BASE}/novels/${options.projectId}/usage`;
       else url = `${API_BASE}/api-configs/usage-summary`;
       const resp = await fetch(url, { headers: authHeaders() });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);

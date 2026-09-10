@@ -20,7 +20,11 @@ _tmp_data_root = tempfile.mkdtemp(prefix="test_token_usage_")
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + _tmp_db.name
 os.environ["DATA_ROOT"] = _tmp_data_root
 
-from auth_local.deps import require_ai_access, require_project_limit
+from auth_local.deps import (
+    require_ai_access,
+    require_novel_model,
+    require_project_limit,
+)
 from auth_local.middleware import get_current_user
 from db import Base, async_session, engine, get_db
 from main import app
@@ -80,6 +84,7 @@ def _setup_overrides():
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_current_user
     app.dependency_overrides[require_ai_access] = _override_true
+    app.dependency_overrides[require_novel_model] = lambda: True
     app.dependency_overrides[require_project_limit] = _override_true
     yield
     app.dependency_overrides.clear()
@@ -87,6 +92,8 @@ def _setup_overrides():
 
 class _FakeAIClient:
     """chat 填充 usage dict 并返回合法 JSON，模拟真实 provider usage 回传。"""
+
+    model = "fake-model"
 
     def __init__(self, tokens_in: int = 10, tokens_out: int = 20):
         self.tokens_in = tokens_in
@@ -104,11 +111,12 @@ class _FakeAIClient:
 
 @pytest.fixture
 def client(monkeypatch):
-    async def _fake_get_client():
+    async def _fake_get_client(novel_id=None):
         return _FakeAIClient()
 
+    # 建书期 suggest-meta 走豁免路径（仍用 get_ai_client）；题材字段走本书模型
     monkeypatch.setattr("novels.router.get_ai_client", _fake_get_client)
-    monkeypatch.setattr("settings.ai_router.get_ai_client", _fake_get_client)
+    monkeypatch.setattr("settings.ai_router.get_ai_client_for_novel", _fake_get_client)
     with TestClient(app) as c:
         yield c
 
@@ -144,7 +152,7 @@ def test_settings_field_generation_records_usage(client, project_id):
         json={"context": {}},
     )
     assert resp.status_code == 200, resp.text
-    usage_resp = client.get("/api/v1/projects/" + project_id + "/usage")
+    usage_resp = client.get("/api/v1/novels/" + project_id + "/usage")
     assert usage_resp.status_code == 200, usage_resp.text
     assert usage_resp.json().get("total_tokens", 0) > 0
 

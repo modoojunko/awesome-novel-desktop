@@ -72,6 +72,20 @@ async def create_genre_route(
         raise HTTPException(422, str(e))
 
 
+@router.get("/candidates")
+async def list_candidates_route(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """题材候选源（D19）：promise / forbidden / battlefield 三组词汇。
+
+    必须声明在 `/{genre_id}` 之前，否则会被路径参数吞掉。
+    """
+    from .novel_genre_service import list_candidates
+
+    return await list_candidates(db)
+
+
 @router.get("/{genre_id}")
 async def get_genre_route(
     genre_id: str,
@@ -118,7 +132,7 @@ async def delete_genre_route(
             409,
             detail={
                 "message": f"该题材正在被 {len(projects)} 个作品使用，无法删除",
-                "projects": projects,
+                "novels": projects,
             },
         )
 

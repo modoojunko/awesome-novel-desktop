@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
 // 两段式提示词 → 正文生成 全链路 E2E（ai-prompt-crafting，打桩 AI）：
@@ -85,17 +86,31 @@ async function setupSession(page: Page): Promise<{ restore: () => void; token: s
   const { token, username } = await sRegisterAndLogin();
   const restore = await writeOAuthSession(token, username);
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
-  return { restore, token };
+  // 页面级桩 check-auth：e2e 注入的 pc_hash 在 S端 无设备授权（code 1），后端会
+  // 据此清空 config.json 的注入 token → 业务请求 401（已知环境阻塞）。桩掉这次
+  // 往返即可保住注入会话；会员判定仍走后端 check_permission()（读 config.json tier）。
+  await page.route("**/api/auth/check-auth", (r) =>
+    r.fulfill({ json: { code: 0, data: {} } }),
+  );
+  const restoreAndCleanup = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    await restore();
+  };
+  return { restore: restoreAndCleanup, token };
 }
 
 async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
   await page.getByRole("button", { name: "新建作品" }).first().click();
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建并开始写作" }).click();
+  await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const m = page.url().match(/\/novel\/([0-9a-fA-F-]+)/);
   if (!m) throw new Error(`无法解析 novel id: ${page.url()}`);
+  // 空书默认落「设定」（@/lib/novelStage：无章节 → 设定，用户 2026-09-10 拍板）；
+  // 本 spec 的用例都在写作视图操作 → 建书后显式切过去。
+  await page.locator(".mtab", { hasText: "写作" }).click();
+  await expect(page.locator(".mtab.on")).toContainText("写作");
   return m[1];
 }
 
@@ -212,6 +227,6 @@ test("两段式：AiModal 粗组→AI 润色→编辑→生成 + 完工检查横
     await page.getByTestId("qc-close").click();
     await expect(banner).toHaveCount(0);
   } finally {
-    restore();
+    await restore();
   }
 });

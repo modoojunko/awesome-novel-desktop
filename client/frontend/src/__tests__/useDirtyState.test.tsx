@@ -42,3 +42,17 @@ describe("useDirtyState.isDirty", () => {
     expect(result.current.isDirty).toBe(false);
   });
 });
+
+  it("markDirty：save 成功但 confirm 400 时强制回到 dirty（D14/O-4）", () => {
+    const { result, rerender } = renderHook(
+      ({ v }: { v: { scenes: string } }) => useDirtyState(v, undefined),
+      { initialProps: { v: { scenes: "" } } },
+    );
+    act(() => result.current.snapshotLoaded({ scenes: "" }));
+    rerender({ v: { scenes: "x" } });
+    act(() => result.current.markSaved());
+    expect(result.current.isDirty).toBe(false);
+
+    act(() => result.current.markDirty());
+    expect(result.current.isDirty).toBe(true);
+  });

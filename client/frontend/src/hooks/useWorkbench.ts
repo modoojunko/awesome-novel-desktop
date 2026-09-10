@@ -8,6 +8,8 @@ import type { TreeNode } from "@/components/novel/StructureTree";
 // Types
 // ---------------------------------------------------------------------------
 
+import { landingViewFor, stageFromChapters } from "@/lib/novelStage";
+
 export type WorkspaceView =
   | "workbench"
   | "advanced-settings"
@@ -82,6 +84,13 @@ export function useWorkbench(): UseWorkbenchReturn {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const selectedRefRef = useRef<string | null>(null);
+  /** 首次树加载是否已完成（默认落点要等它才有判据）。 */
+  const loadedRef = useRef(false);
+  /** 用户/深链是否已主动决定视图（主动意图优先于默认落点）。 */
+  const navigatedRef = useRef(false);
+  /** 默认落点是否已应用（只应用一次，后续刷新不回跳）。 */
+  const landingAppliedRef = useRef(false);
+  const viewPayloadRef = useRef<Record<string, any> | null>(null);
   selectedRefRef.current = selectedRef;
   // 删卷后清选中用：卷选中时 selectedRef 为空，需对照 selectedId
   const selectedIdRef = useRef<string | null>(null);
@@ -130,6 +139,8 @@ export function useWorkbench(): UseWorkbenchReturn {
       setVolumes(mapped);
     } catch {
       // volumes might not be available yet
+    } finally {
+      loadedRef.current = true;
     }
   }, [projectId]);
 
@@ -164,6 +175,9 @@ export function useWorkbench(): UseWorkbenchReturn {
   }, []);
 
   const focusNode = useCallback((ref: string) => {
+    // 注意：**不**在此标记「已主动导航」——首次加载的「自动聚焦第一章」也走这里，
+    // 标了会让默认落点被误判成「用户已决定视图」而永不生效。显式导航只认 setView
+    // （modnav / 去写作 / 跳转）；且落点只在首次加载后应用一次，之后用户点击不受影响。
     const parsed = parseRef(ref);
     if (!parsed) return;
     const volName = `vol-${parsed.vol}`;
@@ -191,6 +205,25 @@ export function useWorkbench(): UseWorkbenchReturn {
     focusNode(`${first.name}-ch-${first.chapters[0].chapter}`);
   }, [volumes, focusNode]);
 
+  // -----------------------------------------------------------------------
+  // 首次打开书的默认落点（用户 2026-09-10 拍板）：
+  //   无章节 → 设定页；全部章节已归档 → 预览；否则 → 写作。
+  // 只在首次树加载后应用一次；用户/深链已主动决定视图时不覆盖。
+  // 声明在「自动聚焦第一章」之后 —— 聚焦只负责选中，视图仍由落点决定。
+  // -----------------------------------------------------------------------
+  useEffect(() => {
+    if (landingAppliedRef.current || !loadedRef.current) return;
+    landingAppliedRef.current = true;
+    if (navigatedRef.current || viewPayloadRef.current) return;
+    const total = volumes.reduce((n, v) => n + v.chapters.length, 0);
+    const archived = volumes.reduce(
+      (n, v) => n + v.chapters.filter((c) => c.archived).length,
+      0,
+    );
+    const target = landingViewFor(stageFromChapters(total, archived));
+    if (target !== "workbench") setViewState(target);
+  }, [volumes]);
+
   const onToggle = useCallback((id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -202,8 +235,10 @@ export function useWorkbench(): UseWorkbenchReturn {
 
   const setView = useCallback(
     (next: WorkspaceView, payload?: Record<string, any>) => {
+      navigatedRef.current = true;
       setViewState(next);
       setViewPayload(payload ?? null);
+      viewPayloadRef.current = payload ?? null;
       // 切到 workbench 时若无选中，保留现状；focusNode 由调用方显式触发
     },
     [],

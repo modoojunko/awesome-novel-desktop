@@ -22,6 +22,7 @@ import { useOutline } from "@/hooks/useOutline";
 import { useProject } from "@/hooks/useProject";
 import { useNovelState } from "@/hooks/useNovelState";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { GENRE_PENDING_LABEL } from "@/lib/genreVocab";
 import { useTier } from "@/hooks/useTier";
 import { toast } from "@/lib/toast";
 
@@ -53,7 +54,7 @@ export default function NovelWorkspace() {
   const projectId = project?.id ?? "";
 
   const outline = useOutline(projectId);
-  const { settingsDone, settingsStatus, confirmSetting } = useOnboarding(projectId, []);
+  const { settingsDone, settingsStatus, confirmedStatus, confirmSetting } = useOnboarding(projectId, []);
 
   // ── 视图映射：modnav 三态 ↔ 内部视图名（默认 workbench = 写作） ──────
   const go = useCallback(
@@ -134,7 +135,9 @@ export default function NovelWorkspace() {
       toast.error("重命名失败，请重试");
     }
   }, [nameDraft, project, updateProject]);
-  const genreLabel = (project?.type || project?.genre || "") as string;
+  // 题材标签与书架卡片胶囊同源（后端 `genre_label`：新契约核心承诺 → 老书历史来源）；
+  // 空值＝题材未设定 → 「待定题材」占位（用户 2026-09-10 拍板），标签位恒在。
+  const genreLabel = (project?.genre_label || GENRE_PENDING_LABEL) as string;
 
   // ── AI ref 链：正文编辑器实例 + 状态（右栏 AI 工具与中栏共用） ─────────
   const proseRef = useRef<ProseHandle | null>(null);
@@ -250,7 +253,12 @@ export default function NovelWorkspace() {
             onBlur={() => void commitRename()}
           />
         )}
-        {genreLabel && <span className="genre-tag">{genreLabel}</span>}
+        <span
+          className={`genre-tag${project?.genre_label ? "" : " pending"}`}
+          title={genreLabel}
+        >
+          {genreLabel}
+        </span>
         {!isPro ? (
           <span className="free-hint">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -282,6 +290,7 @@ export default function NovelWorkspace() {
           source={project?.source}
           onGoSettings={() => go("advanced-settings")}
           registerRefetch={registerPhaseRefetch}
+          inSettings={view === "advanced-settings"}
         />
       </ProContainer>
 
@@ -401,8 +410,11 @@ export default function NovelWorkspace() {
           projectId={projectId}
           initialPanel={wb.viewPayload?.panel as string | undefined}
           settingsStatus={settingsStatus}
+          confirmedStatus={confirmedStatus}
           confirmSetting={handleConfirmSetting}
           onDirtyChange={handleSettingsDirty}
+          onGoWrite={() => setView("workbench")}
+          novelName={project?.name ?? ""}
         />
       )}
       {/* 预览：只读树 + 只读排版（PreviewView 复刻 #viewPreview） */}
@@ -447,11 +459,14 @@ function ProPhaseSurface({
   source,
   onGoSettings,
   registerRefetch,
+  inSettings,
 }: {
   projectId: string;
   source: string | undefined;
   onGoSettings: () => void;
   registerRefetch: (fn: () => void) => void;
+  /** 当前是否已在设定页（空书默认落设定 → 不再叠「开始设定」引导卡）。 */
+  inSettings: boolean;
 }) {
   const { phaseStatus, refetch } = useNovelState(projectId || undefined);
 
@@ -472,7 +487,8 @@ function ProPhaseSurface({
 
   const allPhasesPending =
     phaseStatus !== null && Object.values(phaseStatus).every((s) => s === "pending");
-  const showOnboarding = allPhasesPending && !onboardingDismissed;
+  // 已在设定页时不叠引导卡（卡片唯一作用是把人送到设定；空书已默认落设定）
+  const showOnboarding = allPhasesPending && !onboardingDismissed && !inSettings;
 
   return (
     <>

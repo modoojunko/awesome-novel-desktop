@@ -6,7 +6,13 @@ interface ApiConfigCardProps {
   config: ApiConfig;
   onEdit: (config: ApiConfig) => void;
   onDelete: (config: ApiConfig) => void;
-  onTest: (config: ApiConfig) => Promise<{ ok: boolean; status: string; error?: string }>;
+  onTest: (config: ApiConfig) => Promise<{
+    ok: boolean;
+    status: string;
+    error?: string;
+    note?: string;
+    models?: string[];
+  }>;
 }
 
 /** 七态徽标（model-config.html STATUS 原样） */
@@ -38,7 +44,14 @@ export function ApiConfigCard({ config, onEdit, onDelete, onTest }: ApiConfigCar
     setRes({ text: "测试中…" });
     try {
       const r = await onTest(config);
-      setRes(r.ok ? null : { text: r.error || "测试失败", bad: true });
+      if (!r.ok) {
+        setRes({ text: r.error || "测试失败", bad: true });
+      } else if ((r.models ?? config.models ?? []).length === 0 && r.note) {
+        // 连接正常但端点不提供模型列表 → 说明原因（否则用户以为「读不到」）
+        setRes({ text: r.note });
+      } else {
+        setRes(null);
+      }
     } catch {
       setRes({ text: "测试请求失败", bad: true });
     } finally {

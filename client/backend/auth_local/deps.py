@@ -77,6 +77,55 @@ async def require_ai_access(
     raise HTTPException(503, "AI 服务未配置 — 请先在设置中填写 API Key")
 
 
+def ai_access_granted() -> bool:
+    """门控层非抛出版本：供「可选 AI」路径（如归档摘要）决定是否调用 AI。
+
+    业务层不得自判会员（D11 边界禁令③）——需要「有则用、无则降级」的语义时，
+    调本函数而不是在业务层内联 `check_permission()`。
+    """
+    try:
+        return bool(check_permission().get("is_member", False))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def require_novel_model(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """门控层（D11 ⑤）：本书模型就绪——与 `require_ai_access` 并列挂载，会员在前。
+
+    判据**复用判定层** `compute_ai_state`（不得内联重写）。未就绪一律 503 +
+    `detail={reason, message}`，reason 与前端 `ai_state` 共用同一枚举；
+    `reason=missing_model` 是前置未满足，**不可当瞬时故障重试**。
+    """
+    from ai_state import (
+        compute_ai_state,
+        no_key_message,
+        state_message,
+        user_has_ai_key,
+    )
+
+    result = await db.execute(
+        select(Novel).where(Novel.id == project_id, Novel.user_id == user["id"])
+    )
+    novel = result.scalar_one_or_none()
+    if novel is None:
+        raise HTTPException(404, "Project not found")
+
+    config = None
+    if novel.ai_config_id:
+        config = await db.get(ApiConfig, novel.ai_config_id)
+
+    state = compute_ai_state(novel, config, await user_has_ai_key(db, user["id"]))
+    if state == "ready":
+        return True
+
+    message = no_key_message(config) if state == "no_key" else state_message(state)
+    raise HTTPException(503, detail={"reason": state, "message": message})
+
+
 async def require_project_limit(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

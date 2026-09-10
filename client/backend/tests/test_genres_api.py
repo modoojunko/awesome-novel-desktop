@@ -21,7 +21,11 @@ _tmp_data_root = tempfile.mkdtemp(prefix="test_genres_api_")
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
 os.environ["DATA_ROOT"] = _tmp_data_root
 
-from auth_local.deps import require_ai_access, require_project_limit
+from auth_local.deps import (
+    require_ai_access,
+    require_novel_model,
+    require_project_limit,
+)
 from auth_local.middleware import get_current_user
 from db import Base, async_session, engine, get_db
 from genres.presets import PRESET_GENRES
@@ -86,6 +90,7 @@ def _setup_overrides():
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_current_user
     app.dependency_overrides[require_ai_access] = _override_true
+    app.dependency_overrides[require_novel_model] = lambda: True
     app.dependency_overrides[require_project_limit] = _override_true
     yield
     app.dependency_overrides.clear()
@@ -248,14 +253,13 @@ class TestGenreDeleteReferenceGuard:
         rp = client.post("/api/novels", json={"name": name})
         assert rp.status_code in (200, 201), rp.text
         pid = rp.json()["id"]
-        rs = client.put(f"/api/novels/{pid}/settings/genre", json={"genre_id": gid})
+        rs = client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "x"})
         assert rs.status_code in (200, 201), rs.text
 
+        # genre-signup-redesign 6.6：本书题材改五字段契约、不再经 genre_id 引用题材库
+        # → _find_referencing_projects 恒空，引用 guard 停用，删除直接成功
         r = client.delete(f"/api/genres/{gid}")
-        assert r.status_code == 409, r.text
-        detail = r.json()["detail"]
-        assert name in detail["projects"]
-        assert "无法删除" in detail["message"]
+        assert r.status_code == 200, r.text
 
         # 删除未引用自定义题材仍成功（对照组）
         r2 = client.post(

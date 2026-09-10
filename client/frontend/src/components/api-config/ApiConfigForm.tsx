@@ -10,7 +10,13 @@ interface ApiConfigFormProps {
   config?: ApiConfig | null; // 有值 = 编辑态
   onSubmit: (data: ApiConfigFormData) => Promise<void>;
   onCancel: () => void;
-  onTest?: (data: ApiConfigFormData) => Promise<{ ok: boolean; status: string; error?: string }>;
+  onTest?: (data: ApiConfigFormData) => Promise<{
+    ok: boolean;
+    status: string;
+    error?: string;
+    note?: string;
+    models?: string[];
+  }>;
 }
 
 export interface ApiConfigFormData {
@@ -89,7 +95,11 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest }: ApiC
         api_key: apiKey,
         api_format: apiFormat,
       });
-      setTestResult({ ok: r.ok, message: r.ok ? "连接正常" : r.error || "测试失败" });
+      const noModels = r.ok && (r.models ?? []).length === 0 && !!r.note;
+      setTestResult({
+        ok: r.ok,
+        message: r.ok ? (noModels ? r.note! : "连接正常") : r.error || "测试失败",
+      });
     } catch {
       setTestResult({ ok: false, message: "测试请求失败" });
     } finally {

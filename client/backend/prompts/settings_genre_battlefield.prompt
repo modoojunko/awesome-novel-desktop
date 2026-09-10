@@ -1,0 +1,22 @@
+你是网文题材策划。给这本书定「主线战场」——整本书主要斗什么。
+
+【本书题材信息】
+题材名称：{theme}
+题材解读：{theme_desc}
+题材范例参考：{theme_example}
+
+书名：{title}
+简介：{synopsis}
+核心承诺：{core_promise}
+已有战场（可能为空）：{current}
+
+必须贴合{theme}题材的读者习惯——与题材无关的通用项不要给。
+候选（优先选候选；不够再自定义）：
+{battlefield_candidates}
+
+只输出 JSON 数组，不要任何其他文字。每项二选一：
+- 用候选：{{"tagId": "battlefield:resources"}}（可用 id：{battlefield_ids}）
+- 自定义：{{"text": "你自己的战场（≤20 字）"}}
+
+建议 1-2 个（最多 3 个）——战场越多主线越难聚焦。
+示例：[{{"tagId": "battlefield:resources"}}, {{"tagId": "battlefield:status"}}]

@@ -158,11 +158,26 @@ async def update_api_config(
         if existing.scalar_one_or_none():
             raise ValueError("名称已被使用")
 
+    # models 是 JSON 文本列：手动写入须归一化（去空白/去重保序/上限）后序列化
+    if updates.get("models") is not None:
+        raw = updates["models"]
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for m in raw:
+            name = m.strip() if isinstance(m, str) else ""
+            if name and name not in seen:
+                seen.add(name)
+                cleaned.append(name)
+        if len(cleaned) > 100:
+            raise ValueError("模型数量过多（上限 100）")
+        updates["models"] = json.dumps(cleaned, ensure_ascii=False)
+        updates["models_updated_at"] = datetime.now(UTC)
+
     # Apply updates
     old_api_format = config.api_format
     if "api_key" in updates:
         updates["api_key"] = encrypt_api_key(updates["api_key"])
-    for field in ("name", "api_key", "vendor_override", "models", "api_format"):
+    for field in ("name", "api_key", "vendor_override", "models", "models_updated_at", "api_format"):
         if field in updates:
             setattr(config, field, updates[field])
 
@@ -318,19 +333,37 @@ async def set_project_model(
     if not project:
         return None
 
+    # ── 绑定校验（D12）：模型与供应商必须来自同一配置 ──
+    # (None, None) 显式 clear 放行；不成对（缺一）拒绝；model 必须在配置的模型列表内。
+    if (api_config_id is None) != (model is None):
+        raise ValueError("api_config_id 与 model 必须成对提供（清除请两者都传 null）")
+
     if api_config_id:
-        # Verify config exists and belongs to user
         config_result = await db.execute(
             select(ApiConfig).where(
                 ApiConfig.id == api_config_id, ApiConfig.user_id == user_id
             )
         )
-        if not config_result.scalar_one_or_none():
+        config = config_result.scalar_one_or_none()
+        if not config:
             return None  # Will be interpreted as 404 by caller
+        # 复用判定层谓词（写入校验与 ready 判据同源）
+        from ai_state import parse_models
+
+        if model not in parse_models(config.models):
+            raise ValueError("该模型不属于这个 API 配置的模型列表，请重新选择")
 
     # Record audit log before changing
     old_config_id = project.ai_config_id
     old_model = project.ai_model
+
+    # 幂等（9.2.13）：同值重复提交不写审计、不改状态，直接返回
+    if old_config_id == api_config_id and old_model == model:
+        return {
+            "id": project.id,
+            "ai_config_id": project.ai_config_id,
+            "ai_model": project.ai_model,
+        }
 
     # Determine change_type
     if old_config_id is None and old_model is None:
@@ -378,6 +411,7 @@ async def get_project_ai_model(
         return None
 
     config_name = None
+    cfg = None
     if project.ai_config_id:
         cfg_result = await db.execute(
             select(ApiConfig).where(ApiConfig.id == project.ai_config_id)
@@ -386,10 +420,16 @@ async def get_project_ai_model(
         if cfg:
             config_name = cfg.name
 
+    # D13：前端门控只读 ai_state 一个字段、一次分派（不再本地推导四态）
+    from ai_state import ai_state_for_novel
+
+    state = await ai_state_for_novel(db, project, user_id)
+
     return {
         "api_config_id": project.ai_config_id,
         "model": project.ai_model,
         "config_name": config_name,
+        **state,
     }
 
 

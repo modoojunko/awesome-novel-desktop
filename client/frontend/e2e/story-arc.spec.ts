@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
 // 主线拆纲 E2E（story-arc-planning）：
@@ -59,14 +60,24 @@ async function setupSession(page: Page, tier = "trial") {
   const { token, username } = await sRegisterAndLogin();
   const restore = writeOAuthSession(token, username, tier);
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
-  return { restore, token };
+  // 页面级桩 check-auth：e2e 注入的 pc_hash 在 S端 无设备授权（code 1），后端会
+  // 据此清空 config.json 的注入 token → 业务请求 401（已知环境阻塞）。桩掉这次
+  // 往返即可保住注入会话；会员判定仍走后端 check_permission()（读 config.json tier）。
+  await page.route("**/api/auth/check-auth", (r) =>
+    r.fulfill({ json: { code: 0, data: {} } }),
+  );
+  const restoreAndCleanup = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    await restore();
+  };
+  return { restore: restoreAndCleanup, token };
 }
 
 async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
   await page.getByRole("button", { name: "新建作品" }).first().click();
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建并开始写作" }).click();
+  await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const m = page.url().match(/\/novel\/([0-9a-fA-F-]+)/);
   if (!m) throw new Error(`无法解析 novel id: ${page.url()}`);
@@ -116,14 +127,14 @@ test.describe("主线卡", () => {
         .last()
         .click();
 
-      // 确认完成（先 save 后 confirm），按钮转「保存修改」
+      // 确认完成（先 save 后 confirm）→ 确认即前进到下一项（tasks 2.2）
       const arcSave = page.waitForResponse(
         (r) => r.request().method() === "PUT" && r.url().includes("/story/arc"),
       );
       await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
       await arcSave;
       await expect(
-        page.locator(".panel-foot").getByRole("button", { name: "保存修改" }),
+        page.locator(".settings-v main h2", { hasText: "文风" }),
       ).toBeVisible({ timeout: 5000 });
 
       // 后端直查：story-arc 可确认 + 卡内容回读一致
@@ -134,7 +145,7 @@ test.describe("主线卡", () => {
       expect(arc.volumes).toHaveLength(2);
       expect(arc.volumes[1].title).toBe("待定");
     } finally {
-      restore();
+      await restore();
     }
   });
 
@@ -159,7 +170,7 @@ test.describe("主线卡", () => {
       // 手动填写不受影响：仍可填一句话主线
       await page.getByPlaceholder(/陆征追查失踪案/).fill("手填主线不受拦截影响");
     } finally {
-      restore();
+      await restore();
     }
   });
 });
@@ -202,8 +213,8 @@ test.describe("AI 四步向导（会员，浏览器侧打桩 AI 响应）", () =
       await page.locator(".col-ai").getByRole("button", { name: /让 AI 处理/ }).click();
       await expect(page.getByPlaceholder("最后一幕画面（例：侦探所里看着旧卷宗）")).toHaveValue("侦探所旧卷宗", { timeout: 5000 });
 
-      // 中途离开再回来：切到「世界」再切回「主线」，右栏向导按卡片内容续到第 3 步
-      await page.locator(".s-item", { hasText: "世界" }).click();
+      // 中途离开再回来：切到「文风」再切回「主线」，右栏向导按卡片内容续到第 3 步
+      await page.locator(".s-item", { hasText: "文风" }).click();
       await page.locator(".s-item", { hasText: "主线" }).click();
       await expect(page.getByRole("button", { name: "3. 倒推分卷" })).toHaveClass(/on/, { timeout: 5000 });
 
@@ -223,7 +234,7 @@ test.describe("AI 四步向导（会员，浏览器侧打桩 AI 响应）", () =
       expect(arc.volumes).toHaveLength(3);
       expect(arc.ending.scene).toBe("侦探所旧卷宗");
     } finally {
-      restore();
+      await restore();
     }
   });
 });

@@ -4,6 +4,7 @@
 C/S 模式下从本地 config.json 动态读取 API Key/Base URL/Model，而不是从 config.py。
 """
 
+import inspect
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -16,7 +17,14 @@ from sqlalchemy import select
 from api_configs.crypto import decrypt_api_key
 from db import async_session
 from models.api_config import ApiConfig
+from models.project import Novel
 from models.user import User
+
+# 判定/短答复类调用默认**关闭思考**：实测（DeepSeek anthropic 端点）延迟
+# 10s→1.4s、输出 tokens 2079→203；个别端点不认这个字段则去掉后重试一次，
+# 并把该 base 记下来不再重复尝试。
+_THINKING_UNSUPPORTED_BASES: set[str] = set()
+_THINKING_DISABLED = {"type": "disabled"}
 
 
 @dataclass
@@ -45,6 +53,7 @@ class AIClient:
         self._provider = "anthropic"  # default
         self._client: Any | None = None
         self._model = model
+        self._base_url = base_url
         self._init_client(api_key, base_url, api_format)
 
     def _init_client(self, api_key: str, base_url: str, api_format: str | None = None):
@@ -71,6 +80,51 @@ class AIClient:
             if base_url:
                 kwargs["base_url"] = base_url
             self._client = AsyncOpenAI(**kwargs)
+
+    def _supports_temperature(self) -> bool:
+        """Anthropic 1.x SDK 的 messages.create 不再接受 temperature（须走 extra_body）。"""
+        cached = getattr(self, "_temp_supported", None)
+        if cached is None:
+            try:
+                cached = "temperature" in inspect.signature(
+                    self._client.messages.create
+                ).parameters
+            except (TypeError, ValueError, AttributeError):
+                cached = True
+            self._temp_supported = cached
+        return cached
+
+    def _with_thinking_disabled(self, kwargs: dict) -> dict:
+        """默认关闭思考（判定类短答复不划算全预算在推理上）。"""
+        base = self._base_url or ""
+        if base not in _THINKING_UNSUPPORTED_BASES:
+            kwargs.setdefault("thinking", dict(_THINKING_DISABLED))
+        return kwargs
+
+    def _remember_thinking_unsupported(self) -> None:
+        if self._base_url:
+            _THINKING_UNSUPPORTED_BASES.add(self._base_url)
+
+    def _is_thinking_rejection(self, exc: Exception) -> bool:
+        return "thinking" in str(exc).lower()
+
+    def _anthropic_kwargs(self, kwargs: dict) -> dict:
+        """把 Anthropic 侧不支持的入参落到 extra_body（跨 SDK 版本兼容）。"""
+        temperature = kwargs.pop("temperature", None)
+        if temperature is None:
+            return kwargs
+        if self._supports_temperature():
+            kwargs["temperature"] = temperature
+        else:
+            extra = dict(kwargs.pop("extra_body", None) or {})
+            extra["temperature"] = temperature
+            kwargs["extra_body"] = extra
+        return kwargs
+
+    @property
+    def model(self) -> str:
+        """本客户端实际使用的模型 id（计量/日志用，勿用于业务判断）。"""
+        return self._model
 
     def resolve(self, model_name: str) -> str:
         """Map haiku/sonnet → actual model ID.
@@ -104,6 +158,9 @@ class AIClient:
             extra = {"thinking": {"type": "disabled"}}
             if "thinking" in kwargs:
                 extra["thinking"] = kwargs.pop("thinking")
+            # json_mode 分层归属（D12）：业务层只传语义参数，客户端层按 api_format 落地
+            if kwargs.pop("json_mode", False):
+                kwargs["response_format"] = {"type": "json_object"}
             response = await self._client.chat.completions.create(
                 model=model,
                 messages=openai_messages,
@@ -113,25 +170,57 @@ class AIClient:
             )
             if usage is not None:
                 u = getattr(response, "usage", None)
+                # OpenAI 的 prompt_tokens **已含**缓存命中部分（details.cached_tokens
+                # 是它的子集），故不再另加，避免重复计数。
                 usage["tokens_in"] = getattr(u, "prompt_tokens", 0) or 0
                 usage["tokens_out"] = getattr(u, "completion_tokens", 0) or 0
             return response.choices[0].message.content or ""
         else:
-            response = await self._client.messages.create(
-                model=model,
-                system=system,
-                messages=messages,
-                max_tokens=max_tokens,
-                **kwargs,
-            )
+            kwargs.pop("json_mode", None)  # Anthropic 无 response_format，靠 prompt + 归一化兜底
+            kwargs = self._anthropic_kwargs(kwargs)
+            kwargs = self._with_thinking_disabled(kwargs)
+            try:
+                response = await self._client.messages.create(
+                    model=model,
+                    system=system,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    **kwargs,
+                )
+            except Exception as e:  # noqa: BLE001 — 端点不认 thinking 时去掉再试一次
+                if "thinking" in kwargs and self._is_thinking_rejection(e):
+                    self._remember_thinking_unsupported()
+                    kwargs.pop("thinking", None)
+                    response = await self._client.messages.create(
+                        model=model,
+                        system=system,
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        **kwargs,
+                    )
+                else:
+                    raise
             if usage is not None:
                 u = getattr(response, "usage", None)
-                usage["tokens_in"] = getattr(u, "input_tokens", 0) or 0
+                # Anthropic 的 input_tokens **不含**缓存命中/写入的部分，二者另字段计。
+                # 漏掉它们会让「同一模板重复调用」的输入被系统性少算
+                # （实测同一 prompt：首调 913；二次 145 + cache_read 768 = 仍 913）。
+                usage["tokens_in"] = (
+                    (getattr(u, "input_tokens", 0) or 0)
+                    + (getattr(u, "cache_read_input_tokens", 0) or 0)
+                    + (getattr(u, "cache_creation_input_tokens", 0) or 0)
+                )
                 usage["tokens_out"] = getattr(u, "output_tokens", 0) or 0
             for block in response.content:
                 if getattr(block, "type", "") == "text" and block.text:
                     return block.text
-            return ""
+            # 无 text 块（偶发：预算全用在思考 / 供应商只回 thinking）——
+            # 明确报错让上层可重试，**不得静默返回空串**（会被当成「非法 JSON」）
+            blocks = [getattr(b, "type", "?") for b in (response.content or [])]
+            raise ValueError(
+                f"模型未返回文本内容（返回块：{blocks or '空'}，stop_reason="
+                f"{getattr(response, 'stop_reason', '?')}），请重试"
+            )
 
     async def chat_stream(
         self,
@@ -144,6 +233,7 @@ class AIClient:
         """Streaming chat. Yields StreamEvent with text, is_done, tokens."""
         model = self.resolve(model)
         if self._provider == "openai":
+            kwargs.pop("json_mode", None)  # 流式不落 response_format
             openai_messages: list[dict[str, Any]] = []
             if system:
                 openai_messages.append({"role": "system", "content": system})
@@ -169,6 +259,8 @@ class AIClient:
                 tokens=getattr(chunk, "usage", None) and chunk.usage.total_tokens or 0,
             )
         else:
+            kwargs = self._anthropic_kwargs(kwargs)
+            kwargs = self._with_thinking_disabled(kwargs)
             async with self._client.messages.stream(
                 model=model,
                 system=system,
@@ -294,6 +386,36 @@ async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:
         base_url=cfg.get("api_base_url", ""),
         model=cfg.get("api_model", "deepseek-v4-flash"),
     )
+
+
+async def get_ai_client_for_novel(novel_id: str) -> AIClient:
+    """客户端层（D11 ④）：按**本书绑定**的配置与模型构造客户端。
+
+    业务层唯一合法入口（除建书期 `ai_prefill`/`suggest_meta` 豁免）。
+    `ai_model` 权威、与 `ai_config_id` 绑定同一配置；调用方 `chat(model="haiku")`
+    经 `resolve()` 落到本书模型，**不要在业务层传字面模型名**。
+
+    前置未就绪（无书/未绑/配置已删/无 Key）抛 `ValueError`——业务层应先挂
+    `require_novel_model` 门控，正常路径不会走到这里。
+    """
+    async with async_session() as session:
+        novel = await session.get(Novel, novel_id)
+        if novel is None:
+            raise ValueError("书籍不存在")
+        if not novel.ai_config_id or not novel.ai_model:
+            raise ValueError("本书尚未选择模型")
+        cfg = await session.get(ApiConfig, novel.ai_config_id)
+        if cfg is None:
+            raise ValueError("本书绑定的 API 配置已删除，请重新选择模型")
+        plain_key = decrypt_api_key(cfg.api_key)
+        if not plain_key:
+            raise ValueError("本书绑定的 API 配置没有可用 Key")
+        return AIClient(
+            api_key=plain_key,
+            base_url=cfg.base_url,
+            model=novel.ai_model,
+            api_format=getattr(cfg, "api_format", None),
+        )
 
 
 async def get_ai_client() -> AIClient:

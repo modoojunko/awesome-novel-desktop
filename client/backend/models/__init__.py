@@ -19,6 +19,12 @@ from models.chapter import (
 )
 from models.event import Event
 from models.genre import Genre
+from models.novel_genre import (
+    GenreVocab,
+    NovelGenre,
+    NovelGenreBattlefield,
+    NovelGenreForbidden,
+)
 from models.project import Novel
 from models.project_setting import ProjectSetting
 from models.token_log import TokenLog
@@ -51,7 +57,11 @@ __all__ = [
     "ChapterVersion",
     "Event",
     "Genre",
+    "GenreVocab",
     "Novel",
+    "NovelGenre",
+    "NovelGenreBattlefield",
+    "NovelGenreForbidden",
     "ProjectModelAuditLog",
     "ProjectSetting",
     "TokenLog",

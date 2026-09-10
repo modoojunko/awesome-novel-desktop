@@ -113,3 +113,60 @@ describe("importParse() 503", () => {
     expect(window.location.hash).not.toBe("#/config");
   });
 });
+
+// ── 对象 detail（AI 前置三态）：按 reason 分流、不进 infra 全局提示（tasks 9.3.5）──
+const OBJ_BODY = (reason: string, message: string) =>
+  JSON.stringify({ detail: { reason, message } });
+
+describe("request() 503 · 对象 detail 分流", () => {
+  it.each(["no_key", "missing_model", "invalid"])(
+    "reason=%s：透传 e.reason + message，不弹 infra 全局提示",
+    async (reason) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(res503(OBJ_BODY(reason, `先处理 ${reason}`))),
+      );
+
+      const err = await request("/novels/p1/settings/ai/genre/track").catch((e) => e);
+      expect(err.status).toBe(503);
+      expect(err.reason).toBe(reason);
+      expect(err.message).toBe(`先处理 ${reason}`);
+      // no_key/missing_model 是可操作引导，不得弹「云端唤醒中」
+      if (reason === "invalid") {
+        expect(toastMock.info).toHaveBeenCalled();
+      } else {
+        expect(toastMock.info).not.toHaveBeenCalled();
+      }
+      expect(toastMock.error).not.toHaveBeenCalled();
+      expect(window.location.hash).not.toBe("#/config");
+    },
+  );
+
+  it("未知 reason：仍按 infra 全局提示（不静默）", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(res503(OBJ_BODY("weird", "未知原因"))),
+    );
+    const err = await request("/x").catch((e) => e);
+    expect(err.reason).toBe("weird");
+    expect(toastMock.info).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── storage_busy：本地库瞬时 I/O 错误 → 不进 infra 全局提示（就地重试）──────
+describe("request() 503 · storage_busy", () => {
+  it("不弹「云端唤醒中」，透传 reason + 可读文案", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        res503(OBJ_BODY("storage_busy", "本地数据文件暂时不可读（可能被外部程序占用），请重试")),
+      ),
+    );
+    const err = await request("/api/v1/novels/p1/model-history").catch((e) => e);
+    expect(err.status).toBe(503);
+    expect(err.reason).toBe("storage_busy");
+    expect(err.message).toContain("暂时不可读");
+    expect(toastMock.info).not.toHaveBeenCalled();
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+});

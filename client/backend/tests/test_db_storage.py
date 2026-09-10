@@ -71,12 +71,21 @@ def test_multi_file_setting_keys():
 
 
 def test_status_valid_types_derivation():
-    """settings/status.py VALID_TYPES = readiness 集 ∪ ai-model（与现 9 项逐项相等）。"""
+    """settings/status.py VALID_TYPES = readiness 集（D15/O-18 起 ai-model 不再可确认）。"""
     from settings.status import VALID_TYPES
     from workflow.readiness import READINESS_KEYS
 
-    assert VALID_TYPES == READINESS_KEYS | {"ai-model"}
-    assert VALID_TYPES == {"synopsis", "story-arc", "genre", "world", "style", "anti-ai", "hooks", "characters", "ai-model"}
+    assert VALID_TYPES == set(READINESS_KEYS)
+    assert VALID_TYPES == {
+        "synopsis",
+        "story-arc",
+        "genre",
+        "world",
+        "style",
+        "anti-ai",
+        "hooks",
+        "characters",
+    }
 
 
 # ── DatabaseFileBackend KV ─────────────────────────────────────────────────

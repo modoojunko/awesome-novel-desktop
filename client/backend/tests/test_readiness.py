@@ -28,7 +28,11 @@ os.environ["DATA_ROOT"] = _tmp_data_root
 # Change 002：无 config 默认免费旁路，phase-status 直接返回 tier_bypass（warnings 空）。
 # 本模块断言 settings 真实 gate 警告，故显式以付费套餐运行。
 import auth_local.service as _auth_service
-from auth_local.deps import require_ai_access, require_project_limit
+from auth_local.deps import (
+    require_ai_access,
+    require_novel_model,
+    require_project_limit,
+)
 from auth_local.middleware import get_current_user
 from db import Base, async_session, engine, get_db
 from main import app
@@ -86,6 +90,7 @@ def _setup_overrides():
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_current_user
     app.dependency_overrides[require_ai_access] = lambda: True
+    app.dependency_overrides[require_novel_model] = lambda: True
     app.dependency_overrides[require_project_limit] = lambda: True
     yield
     app.dependency_overrides.clear()
@@ -163,7 +168,7 @@ class TestReadiness:
             f"/api/novels/{pid}/story/arc",
             json={"premise": "主角守护稻田对抗征迁", "ending": {}, "volumes": []},
         )
-        client.put(f"/api/novels/{pid}/settings/genre", json={"genre_id": "urban-romance"})
+        client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "以弱破强的痛快"})
         _fill_world(client, pid, filled=4)
         client.put(f"/api/novels/{pid}/settings/hooks", json={"active": [{"id": "h1", "description": "一个钩子"}]})
         client.put(f"/api/novels/{pid}/settings/character/张三", json={"name": "张三"})
@@ -219,11 +224,11 @@ class TestConfirmToggle:
         status = client.get(f"/api/novels/{pid}/settings/status").json()
         assert status["world"] is True
 
-    def test_ai_model_confirm_no_content_check(self, client):
-        """ai-model 不参与内容判定 → 无条件可确认。"""
+    def test_ai_model_confirm_retired_400(self, client):
+        """D15/O-18：ai-model 不再是设定完成度项，可确认语义已移除 → 400。"""
         pid = _create_project(client)
         r = client.put(f"/api/novels/{pid}/settings/status/ai-model")
-        assert r.status_code == 200
+        assert r.status_code == 400
 
     def test_style_default_passes(self, client):
         """style.role 模板默认值算内容 → 点完成通过。"""
@@ -251,7 +256,7 @@ class TestConfirmToggle:
         pid = _create_project(client)
         r = client.put(f"/api/novels/{pid}/settings/status/genre")
         assert r.status_code == 400
-        client.put(f"/api/novels/{pid}/settings/genre", json={"genre_id": "urban-romance"})
+        client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "以弱破强的痛快"})
         r = client.put(f"/api/novels/{pid}/settings/status/genre")
         assert r.status_code == 200, r.text
         assert r.json()["confirmed"] is True
@@ -321,7 +326,7 @@ class TestGateSettingsWarnings:
             f"/api/novels/{pid}/story/arc",
             json={"premise": "主角守护稻田对抗征迁", "ending": {}, "volumes": []},
         )
-        client.put(f"/api/novels/{pid}/settings/genre", json={"genre_id": "urban-romance"})
+        client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "以弱破强的痛快"})
         _fill_world(client, pid, filled=4)
         client.put(f"/api/novels/{pid}/settings/hooks", json={"active": [{"id": "h1", "description": "一个钩子"}]})
         client.put(f"/api/novels/{pid}/settings/character/张三", json={"name": "张三"})
@@ -404,3 +409,43 @@ class TestCharactersEndpoints:
         assert r.status_code == 200, r.text
         r = client.get(f"/api/novels/{pid}/settings/characters/list")
         assert "张三" not in r.json()
+
+
+class TestGenreReadinessContract:
+    """9.2.12：题材就绪判据＝新契约核心键任一非空（01 口味胶囊不落库、不计入）。"""
+
+    def test_flavor_only_not_filled(self, client):
+        """只点口味胶囊（不落库）→ 题材仍未填 → 确认 400。"""
+        pid = _create_project(client)
+        r = client.put(f"/api/novels/{pid}/settings/status/genre")
+        assert r.status_code == 400
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"cost_ratio": 5},
+            {"battlefield": ["battlefield:resources"]},
+            {"promise_note": "读者要看到弱者用脑子翻盘"},
+            {"forbidden_list": [{"tagId": "forbidden:no-deus-ex-machina"}]},
+        ],
+    )
+    def test_any_core_key_fills(self, client, payload):
+        pid = _create_project(client)
+        r = client.put(f"/api/novels/{pid}/settings/genre", json=payload)
+        assert r.status_code == 200, r.text
+        assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 200
+
+    def test_sentence_alone_counts(self, client):
+        """02 主输入＝作家写的那句话（promise_note）；只写一句也算已填。
+
+        用户 2026-09-10 改版：选项只是几个词，让作家写一句完整的话更好（AI 给草稿、可改）。
+        旧口径「promise_note 不单独计入」随之作废。
+        """
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/settings/genre", json={"promise_note": "读者要看翻盘"})
+        assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 200
+
+    def test_whitespace_only_not_filled(self, client):
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "   "})
+        assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 400

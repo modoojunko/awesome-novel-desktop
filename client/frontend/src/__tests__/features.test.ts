@@ -9,6 +9,8 @@ const FREE_FEATURES: FeatureKey[] = [
   "volume-chapter-config",
   "advanced-config-entry",
   "settings-7-items",
+  // 模型配置＝人工路径能力：免费版也能配（D4/7.1）
+  "ai-model",
 ];
 
 const MEMBER_FEATURES: FeatureKey[] = [
@@ -16,7 +18,6 @@ const MEMBER_FEATURES: FeatureKey[] = [
   "outline-advanced-fields",
   "ai-generate",
   "prompt-panel",
-  "ai-model",
 ];
 
 describe("isMemberFeature — 会员功能矩阵（2026-08-18 口径）", () => {

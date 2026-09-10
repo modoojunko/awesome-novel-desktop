@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
 // 工作台非 AI 功能 E2E（PR3 book.html 复刻后适配：章对象三页签 / 卷纲面板 / 专注 / 提示词）
@@ -102,7 +103,17 @@ async function setupSession(
   const { token, username } = await sRegisterAndLogin();
   const restore = await writeOAuthSession(token, username, tier);
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
-  return { restore, token };
+  // 页面级桩 check-auth：e2e 注入的 pc_hash 在 S端 无设备授权（code 1），后端会
+  // 据此清空 config.json 的注入 token → 业务请求 401（已知环境阻塞）。桩掉这次
+  // 往返即可保住注入会话；会员判定仍走后端 check_permission()（读 config.json tier）。
+  await page.route("**/api/auth/check-auth", (r) =>
+    r.fulfill({ json: { code: 0, data: {} } }),
+  );
+  const restoreAndCleanup = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    await restore();
+  };
+  return { restore: restoreAndCleanup, token };
 }
 
 /** 通过真实 UI 创建小说，返回 project id。 */
@@ -110,10 +121,14 @@ async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
   await page.getByRole("button", { name: "新建作品" }).first().click();
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建并开始写作" }).click();
+  await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const m = page.url().match(/\/novel\/([0-9a-fA-F-]+)/);
   if (!m) throw new Error(`无法解析 novel id: ${page.url()}`);
+  // 空书默认落「设定」（@/lib/novelStage：无章节 → 设定，用户 2026-09-10 拍板）；
+  // 本 spec 的用例都在写作视图操作 → 建书后显式切过去。
+  await page.locator(".mtab", { hasText: "写作" }).click();
+  await expect(page.locator(".mtab.on")).toContainText("写作");
   return m[1];
 }
 
@@ -201,7 +216,7 @@ test("章纲：OgPane 真实表单编辑 + 保存草稿（概要/关键事件/�
     expect(ch.memo.current_task).toContain("真相");
     expect(ch.emotional_design.primary_mood).toBe("悬疑");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -265,7 +280,7 @@ test("信息差对齐：章纲顶部只读块显示卷级起止 + 本章规划�
     await expect(block).toContainText("读者知道地契是假的 → 读者知道仇家已到门口");
     await expect(block).toContainText("反派知道是陷阱 ↦ 主角不知道");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -328,7 +343,7 @@ test("卷纲面板：点卷节点 → 常编辑态 → 摘要/核心冲突/子�
       page.getByRole("tab", { name: /^章纲/ }),
     ).toBeVisible({ timeout: 10000 });
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -358,7 +373,7 @@ test("专注模式：隐藏左树右栏 + Esc 退出", async ({ page }) => {
     await expect(tree).toBeVisible();
     await expect(rail).toBeVisible();
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -417,7 +432,7 @@ test("提示词面板：整章单卡 + 种子提示词查看/编辑/已修改徽
     await page.getByRole("button", { name: "返回" }).click();
     await expect(page.getByText("已修改").first()).toBeVisible({ timeout: 5000 });
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -447,7 +462,7 @@ test("提示词无Key：进入提示词tab就地提示去配置，不整页跳�
     await page.getByRole("link", { name: "去配置" }).click();
     await expect(page).toHaveURL(/#\/config/);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -468,7 +483,7 @@ test("免费态：正文/章纲可见，提示词子 label 隐藏", async ({
     // 提示词子 label PRO-only：免费态隐藏（内容本身也由后端 member_required 拦截）
     await expect(page.getByRole("tab", { name: /^提示词/ })).toHaveCount(0);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -561,7 +576,7 @@ test("点章强制落章纲：确认/有正文后重挂载仍落章纲 + 右栏�
     await expect(page.getByText("本书总字数")).toBeVisible();
     await expect(page.getByText("本章草稿")).toBeVisible();
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -690,6 +705,6 @@ test("章纲新格子：场景卡/读者获得/章末落点/目标字数填值�
     await expect(page.locator("#wf-ladder")).toHaveValue("他收起通缉令，转身没入夜色");
     await expect(page.locator("#wf-wt")).toHaveValue("4000");
   } finally {
-    restore();
+    await restore();
   }
 });

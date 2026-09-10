@@ -92,6 +92,9 @@ class ChapterContext:
 
     def __init__(self):
         self.premise = ""
+        # 主线（story_arc.premise＝「谁+想要什么+什么拦着」）：整本书怎么走的唯一归属。
+        # 2026-09-10 起题材面板不再有「剧情轨道」（与主线重复），注入改由这里承接。
+        self.story_arc = ""
         self.world_setting = {}
         self.style_setting = {}
         self.anti_ai = {}
@@ -102,7 +105,8 @@ class ChapterContext:
         self.previous_chapter_recap = ""
         self.novel_title = ""
         self.genre_section = ""
-        self.genre_fatigue_words: list[str] = []
+        # 疲劳词：主源 writing-style.fatigue_words（6.0e 迁移）；旧契约题材行同批合并
+        self.style_fatigue_words: list[str] = []
         # ── ai-prompt-crafting 素材扩展 ──────────────────────────────
         self.volume_no: int | None = None
         self.chapter_no: int | None = None
@@ -159,6 +163,8 @@ class ChapterContext:
 
         if self.premise or self.world_setting or self.volume_summary:
             bg = ["故事前提：" + self.premise] if self.premise else []
+            if self.story_arc:
+                bg.append("全书主线：" + self.story_arc)
             world_block = self._world_block()
             if world_block:
                 bg.append(world_block)
@@ -296,7 +302,7 @@ class ChapterContext:
         # Rules
         mistakes = fmt_mistakes(self.style_setting.get("possible_mistakes"))
         fatigue = self._flatten_fatigue_words(self.anti_ai.get("fatigue_words_zh", {}))
-        fatigue = list(dict.fromkeys(fatigue + self.genre_fatigue_words))
+        fatigue = list(dict.fromkeys(fatigue + self.style_fatigue_words))
         tic_patterns = [
             r.get("pattern", "")
             for r in self.anti_ai.get("structural_tic_patterns", [])
@@ -315,6 +321,8 @@ class ChapterContext:
         lines.append(f"本段是《{self.novel_title}》的一章。")
         if self.premise:
             lines.append(f"故事前提：{self.premise}")
+        if self.story_arc:
+            lines.append(f"全书主线：{self.story_arc}")
         world_block = self._world_block()
         if world_block:
             lines.append(world_block)
@@ -467,7 +475,10 @@ def build_previous_context(prev_chapter: dict) -> tuple[str, bool]:
 
 
 async def build_chapter_context(
-    root_path: str, chapter_ref: str, novel_title: str = ""
+    root_path: str,
+    chapter_ref: str,
+    novel_title: str = "",
+    novel_id: str | None = None,
 ) -> ChapterContext:
     """Read all data sources and build a ChapterContext."""
     ctx = ChapterContext()
@@ -476,6 +487,8 @@ async def build_chapter_context(
     # Premise
     story = await get_storage().read_yaml(root_path, "story.yaml") or {}
     ctx.premise = story.get("synopsis", "")
+    arc = story.get("story_arc") if isinstance(story.get("story_arc"), dict) else {}
+    ctx.story_arc = str((arc or {}).get("premise", "") or "").strip()
 
     # Settings
     ctx.style_setting = (
@@ -493,10 +506,19 @@ async def build_chapter_context(
     ctx.hooks = filter_active_hooks(hooks_data, chapter_ref)
 
     # Genre（题材定义注入，定义缺失时优雅降级为空）
-    gctx = await resolve_genre_context(root_path)
+    # novel_id 有值时读 novel_genre 关系表（D19 新契约）；无值时回退旧 KV genre_id。
+    gctx = await resolve_genre_context(root_path, novel_id)
     if gctx:
         ctx.genre_section = build_genre_section(gctx)
-        ctx.genre_fatigue_words = gctx.get("fatigue_words", [])
+    # 疲劳词主源已迁 writing-style.yaml（6.0e）；旧契约题材行的疲劳词过渡期合并去重。
+    ctx.style_fatigue_words = list(
+        dict.fromkeys(
+            [
+                *(ctx.style_setting.get("fatigue_words") or []),
+                *((gctx or {}).get("fatigue_words") or []),
+            ]
+        )
+    )
 
     # Chapter
     from workflow.engine import load_chapter

@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import require_ai_access
+from ai_state import effective_model
+from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
@@ -55,16 +56,13 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
     三工序（ai-prompt-crafting）：①system 注入写作铁律；②完成时字数校验（<90% 提示不拦）；
     ③完成时叙事自查清单（提示性质）——随 done 事件返回。
     """
-    from ai_client import get_ai_client
+    from ai_client import get_ai_client_for_novel
     from chapters.service import save_chapter
     from write.chapter_writer import WRITING_IRON_RULES
 
-    client = await get_ai_client()
-    model = (
-        ctx.style_setting.get("writing_model", "haiku")
-        if hasattr(ctx, "style_setting")
-        else "haiku"
-    )
+    client = await get_ai_client_for_novel(project.id)
+    # 符号别名：模型由本书绑定决定（D12，不再读 writing_model）
+    model = "haiku"
     role = (
         ctx.style_setting.get("role", "一位小说家")
         if hasattr(ctx, "style_setting")
@@ -136,7 +134,9 @@ async def get_write_prompt(
     from prompt.store import load_prompt
     from write.chapter_writer import build_chapter_context
 
-    ctx = await build_chapter_context(project.root_path, chapter_ref, project.name)
+    ctx = await build_chapter_context(
+        project.root_path, chapter_ref, project.name, novel_id=project.id
+    )
     outline = ctx.chapter_outline or {}
     has_outline = bool(
         outline.get("summary") or outline.get("key_points") or outline.get("segments")
@@ -153,6 +153,7 @@ async def polish_write_prompt(
     chapter_ref: str,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     """两段式第二段：素材包 → 大模型润色 → 轻校验 → 覆盖写 write-prompt 行。
@@ -164,20 +165,22 @@ async def polish_write_prompt(
         raise HTTPException(404, "Project not found")
     _validate_ref(chapter_ref)
 
-    from ai_client import get_ai_client
+    from ai_client import get_ai_client_for_novel
     from write.chapter_writer import (
         build_chapter_context,
         strip_code_fences,
         validate_polished_prompt,
     )
 
-    ctx = await build_chapter_context(project.root_path, chapter_ref, project.name)
+    ctx = await build_chapter_context(
+        project.root_path, chapter_ref, project.name, novel_id=project.id
+    )
 
     from prompts import load
 
     system = load("prompt_crafting")
-    client = await get_ai_client()
-    model = ctx.style_setting.get("writing_model", "haiku")
+    client = await get_ai_client_for_novel(project.id)
+    model = "haiku"  # 符号别名，落到本书模型
     usage: dict = {}
     try:
         raw = await client.chat(
@@ -229,6 +232,7 @@ async def write_chapter(
     request: Request,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     """Stream an AI-written chapter based on all context data.
@@ -251,7 +255,9 @@ async def write_chapter(
 
     from write.chapter_writer import build_chapter_context
 
-    ctx = await build_chapter_context(project.root_path, chapter_ref, project.name)
+    ctx = await build_chapter_context(
+        project.root_path, chapter_ref, project.name, novel_id=project.id
+    )
     if prompt_override:
         prompt = prompt_override
     else:
@@ -290,6 +296,7 @@ async def continue_writing(
     body: dict,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     """Stream continuation text from a cursor position."""
@@ -319,6 +326,7 @@ async def polish_writing(
     body: dict,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     """Polish selected text (non-streaming)."""
@@ -336,7 +344,7 @@ async def polish_writing(
 
     usage: dict = {}
     text = await polish_text(
-        project.root_path, chapter_ref, selected_text, surrounding_context, usage=usage
+        project.id, project.root_path, chapter_ref, selected_text, surrounding_context, usage=usage
     )
     from api_configs.usage import record_usage
 
@@ -346,7 +354,7 @@ async def polish_writing(
         project_id=project.id,
         chapter_id=chapter_ref,
         operation="polish",
-        model=usage.get("model", "haiku"),
+        model=effective_model(project),
         tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0),
     )
@@ -360,6 +368,7 @@ async def expand_writing(
     body: dict,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     """Expand selected text (non-streaming)."""
@@ -377,7 +386,7 @@ async def expand_writing(
 
     usage: dict = {}
     text = await expand_text(
-        project.root_path, chapter_ref, selected_text, surrounding_context, usage=usage
+        project.id, project.root_path, chapter_ref, selected_text, surrounding_context, usage=usage
     )
     from api_configs.usage import record_usage
 
@@ -387,7 +396,7 @@ async def expand_writing(
         project_id=project.id,
         chapter_id=chapter_ref,
         operation="expand",
-        model=usage.get("model", "haiku"),
+        model=effective_model(project),
         tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0),
     )

@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
 // PR 5 弹窗群 E2E（book.html 3/3：删除分级 / 只读章 AI 解锁链 / 版本历史 / 本书偏好）
@@ -96,7 +97,17 @@ async function setupSession(page: Page, tier = "trial") {
   const { token, username } = await sRegisterAndLogin();
   const restore = await writeOAuthSession(token, username, tier);
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
-  return { restore, token };
+  // 页面级桩 check-auth：e2e 注入的 pc_hash 在 S端 无设备授权（code 1），后端会
+  // 据此清空 config.json 的注入 token → 业务请求 401（已知环境阻塞）。桩掉这次
+  // 往返即可保住注入会话；会员判定仍走后端 check_permission()（读 config.json tier）。
+  await page.route("**/api/auth/check-auth", (r) =>
+    r.fulfill({ json: { code: 0, data: {} } }),
+  );
+  const restoreAndCleanup = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    await restore();
+  };
+  return { restore: restoreAndCleanup, token };
 }
 
 /** 注入一条 active ApiConfig，使 require_ai_access 门控放行（不测真实连接）。 */
@@ -118,10 +129,14 @@ async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
   await page.getByRole("button", { name: "新建作品" }).first().click();
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建并开始写作" }).click();
+  await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const m = page.url().match(/\/novel\/([0-9a-fA-F-]+)/);
   if (!m) throw new Error(`无法解析 novel id: ${page.url()}`);
+  // 空书默认落「设定」（@/lib/novelStage：无章节 → 设定，用户 2026-09-10 拍板）；
+  // 本 spec 的用例都在写作视图操作 → 建书后显式切过去。
+  await page.locator(".mtab", { hasText: "写作" }).click();
+  await expect(page.locator(".mtab.on")).toContainText("写作");
   return m[1];
 }
 
@@ -207,7 +222,7 @@ test("删除分级：章盘点 chips / 删卷带章数字数 / 取消与确认",
     await page.getByTestId("del-confirm").click();
     await expect(page.getByText("开始创作")).toBeVisible({ timeout: 5000 });
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -288,7 +303,7 @@ test("解锁链：归档章点 AI → 解除只读 → AiModal 提示词；确�
     // 页签切回正文（编辑器重新可见；生成请求打向假端点失败属预期，不作断言）
     await expect(editor).toBeVisible({ timeout: 5000 });
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -340,7 +355,7 @@ test("版本历史弹窗：快照列表 + 当前版本徽标 + 恢复回退正�
     await expect(editor).toContainText("版本甲", { timeout: 10000 });
     await expect(editor).not.toContainText("版本乙");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -401,6 +416,6 @@ test("本书偏好：字号 per-book 持久 + 免费态升级 PRO 链升级弹�
         .getByRole("button", { name: "大", exact: true }),
     ).toHaveClass(/on/);
   } finally {
-    restore();
+    await restore();
   }
 });

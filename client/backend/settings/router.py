@@ -68,6 +68,17 @@ async def get_settings(
         )
     if type not in SINGLE_FILE_TYPES:
         raise HTTPException(400, f"Invalid settings type: {type}")
+    # genre 已关系化（D19）：对外仍是五字段 JSON，存储层走 novel_genre_service
+    if type == "genre":
+        from genres.novel_genre_service import get_novel_genre
+
+        data = await get_novel_genre(db, project.id)
+        # 题材目录（01 大类/子类）落 story.yaml（与简介同族，复用既有 genre 键）：
+        # 契约上仍是同一个「题材」，故在这里合成一个响应，前端一次取全
+        story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+        data["theme"] = story.get("genre") or ""
+        data["sub_genre"] = story.get("sub_genre") or ""
+        return data
     return await get_storage().read_yaml(project.root_path, KEY_TO_PATH[type])
 
 
@@ -90,7 +101,48 @@ async def update_settings(
         )
     if type not in SINGLE_FILE_TYPES:
         raise HTTPException(400, f"Invalid settings type: {type}")
-    await get_storage().write_yaml(project.root_path, KEY_TO_PATH[type], body)
+    if type == "genre":
+        from pydantic import ValidationError
+
+        from genres.novel_genre_service import NovelGenreIn, put_novel_genre
+        from genres.theme_catalog import sub_type_or_none, theme_or_none
+
+        try:
+            payload = NovelGenreIn.model_validate(body)
+        except ValidationError as e:
+            raise HTTPException(400, f"题材字段校验失败：{e.errors()[0]['msg']}") from e
+
+        # 题材目录按「键存在才写」处理：老调用方只 PUT 五字段，不该把已选题材清空
+        theme_touched = "theme" in body or "sub_genre" in body
+        theme = ""
+        sub = ""
+        if theme_touched:
+            try:
+                theme = theme_or_none(body.get("theme")) or ""
+                sub = sub_type_or_none(theme, body.get("sub_genre")) or ""
+            except ValueError as e:
+                raise HTTPException(400, str(e)) from e
+
+        try:
+            await put_novel_genre(db, project.id, payload.model_dump())
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+
+        if theme_touched:
+            storage = get_storage()
+            story = await storage.read_yaml(project.root_path, "story.yaml") or {}
+            # 复用既有 genre 键（书卡胶囊/书内标签的展示链一直读它）
+            if theme:
+                story["genre"] = theme
+            else:
+                story.pop("genre", None)
+            if sub:
+                story["sub_genre"] = sub
+            else:
+                story.pop("sub_genre", None)
+            await storage.write_yaml(project.root_path, "story.yaml", story)
+    else:
+        await get_storage().write_yaml(project.root_path, KEY_TO_PATH[type], body)
 
     if project.current_phase == "init":
         project.current_phase = "settings"

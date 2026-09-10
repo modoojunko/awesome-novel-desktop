@@ -23,14 +23,14 @@ class Volume(Base):
 
     __tablename__ = "volumes"
     __table_args__ = (
-        UniqueConstraint("project_id", "volume_no", name="uq_volumes_project_volume_no"),
+        UniqueConstraint("novel_id", "volume_no", name="uq_volumes_project_volume_no"),
     )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     project_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+        "novel_id", String(36), ForeignKey("novels.id", ondelete="CASCADE"), nullable=False, index=True
     )
     volume_no: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)

@@ -63,7 +63,11 @@
 .col-tree { min-height: 0; overflow-y: auto; border-right: 1px solid var(--border); background: var(--bg); padding-bottom: 24px; }
 .col-editor { min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
 /* 大纲视图中间列：卷选中显示卷纲面板，章选中显示章对象工作台（二者其一） */
-.col-middle { min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+/* min-width: 0 是栅格项纪律（与 min-height: 0 同源）：三栏是 `var(--col-left) 1fr 236px`，
+   缺了它，中栏内容一旦变宽（长回执行、不可断行的长串）就会顶开 1fr 轨道 ——
+   中栏多吃 ~60px、右栏 AI 被挤出屏幕右边，且宽度随内容变化会让点击在
+   mousedown/mouseup 之间丢失（2026-09-10 设定页回执实测：确认完成点不动）。 */
+.col-middle { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
 .col-middle > .col-panel, .col-middle > .col-editor { flex: 1; min-height: 0; }
 .col-progress, .col-ai { min-height: 0; overflow-y: auto; border-left: 1px solid var(--border); padding: 16px; background: var(--bg); }
 .preview-head { flex: none; display: flex; align-items: center; height: 46px; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--surface); }
@@ -434,8 +438,234 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 }
 
 /* ─── 多对象面板满栏（settings-sub-fill）：角色/伏笔子双栏占满中间栏整宽整高 ── */
+/* 设定视图面板宽度：**填满中栏、紧邻 AI 栏**。
+   口径来源＝genre-signup.html（简介/题材的权威稿）：`.col-panel` 为 1fr，
+   **无内容宽度上限**。book.html 时代的 `.wb .panel { max-width: 660px }`（line 200）
+   会让面板右侧与 AI 栏之间空出 ~216px 的假空白（1440 视口实测：中栏 924 / 面板 660）。
+   注意与阅读区 `.editor { max-width: 680px }` 区分——那是正文行长上限，不适用于表单。 */
+/* 上限沿用原型 `.wrap{max-width:1180px}`：仅超宽屏（~1800+）生效并居中，
+   避免表单横跨 2000px；1440/1280 下面板仍填满中栏、紧邻 AI 栏。 */
+.settings-v .panel { max-width: 1180px; width: 100%; margin-inline: auto; }
+
 .settings-v .panel.sub-fill { max-width: none; width: 100%; margin: 0; display: flex; flex-direction: column; min-height: 100%; }
 .settings-v .panel.sub-fill .sub-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .settings-v .panel.sub-fill .subsplit { flex: 1; min-height: 0; }
 .settings-v .panel.sub-fill .sub-list { max-height: none; height: 100%; }
 .settings-v .panel.sub-fill .sub-form { min-height: 0; overflow-y: auto; padding-right: 4px; }
+
+/* ── 简介「怎么写」六段模板折叠引导（genre-signup-redesign tasks 3.1 / D2）──
+   文案取自 lib/introTemplate.ts 单源；样式对齐原型 prototypes/genre-signup.html */
+.settings-v .guide { margin: 0 0 14px; }
+.settings-v .guide-toggle { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 13px; border: 1px dashed var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; color: var(--fg); font: inherit; }
+.settings-v .guide-toggle:hover { border-color: var(--accent); }
+.settings-v .guide-toggle .gt-b { font-size: 13px; font-weight: 600; flex: none; color: var(--accent); }
+.settings-v .guide-toggle .gt-s { font-size: 11.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-v .guide-toggle .gt-c { margin-left: auto; flex: none; color: var(--muted); font-size: 11.5px; }
+.settings-v .guide-body { margin-top: 8px; padding: 5px 16px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.settings-v .g-row { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px dashed var(--border); }
+.settings-v .g-row:last-of-type { border-bottom: none; }
+.settings-v .g-row .g-name { flex: none; width: 108px; font-size: 12.5px; font-weight: 600; color: var(--fg); }
+.settings-v .g-row .g-body { font-size: 12px; color: var(--muted); line-height: 1.7; min-width: 0; }
+.settings-v .g-row .g-body em { font-style: normal; color: var(--fg); }
+.settings-v .g-formula { margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 12.5px; color: var(--fg); display: inline-block; }
+.settings-v .g-formula b { color: var(--accent); }
+.settings-v .g-dont { margin-top: 10px; font-size: 11.5px; color: var(--warn); line-height: 1.8; }
+
+/* ── AI 结果区 .ai-sink（genre-signup-redesign tasks 3.3 / D3）──
+   TintPanel 只读说明（fg-soft），落左侧对应输入框正下方；禁 --surface（撞输入框底色）。
+   样式对齐原型 prototypes/genre-signup.html */
+.settings-v .ai-sink { margin: 10px 0 0; background: var(--fg-soft); border-radius: 10px; padding: 12px 16px; font-size: 12.5px; line-height: 1.8; color: var(--fg); }
+.settings-v .ai-sink .aiz-head { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: var(--accent); margin-bottom: 6px; }
+.settings-v .ai-sink .ans-act { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+.settings-v .ai-sink .ans-act button { height: 26px; padding: 0 12px; font-size: 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+.settings-v .ai-sink .ans-act button.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+.settings-v .ai-sink .chk-line { display: flex; gap: 8px; align-items: baseline; }
+.settings-v .ai-sink .chk-line .chk-name { flex: none; width: 108px; font-size: 12px; }
+.settings-v .ai-sink .chk-line .chk-res { font-size: 12px; font-weight: 500; flex: none; }
+.settings-v .ai-sink .chk-line .chk-res.ok { color: var(--ok); }
+.settings-v .ai-sink .chk-line .chk-res.miss { color: var(--err); }
+.settings-v .ai-sink .chk-line .chk-note { font-size: 11.5px; color: var(--muted); min-width: 0; }
+
+/* ── AI 写作助手卡片 .rail-assist（genre-signup-redesign tasks 3.2 / D4）──
+   PRO 徽标并头部 + 并列能力行；免费版 .locked＝可见+降透明（§11 门控）。
+   样式对齐原型 prototypes/genre-signup.html */
+.settings-v .rail-assist { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
+.settings-v .rail-assist .ra-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+.settings-v .rail-assist .ra-head .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: var(--on-accent); flex: none; }
+.settings-v .rail-assist .ra-head .rh-t b { display: block; font-size: 13px; font-weight: 600; }
+.settings-v .rail-assist .ra-head .rh-t span { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+.settings-v .rail-assist .ra-step { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; margin-bottom: 6px; }
+.settings-v .rail-assist .ra-step:last-of-type { margin-bottom: 0; }
+.settings-v .rail-assist .ra-step:hover { border-color: var(--accent); }
+.settings-v .rail-assist .ra-body { min-width: 0; flex: 1; }
+.settings-v .rail-assist .ra-body b { display: block; font-size: 12.5px; font-weight: 600; }
+.settings-v .rail-assist .ra-body i { display: block; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 2px; }
+.settings-v .rail-assist .ra-arrow { color: var(--muted); flex: none; }
+.settings-v .rail-assist .ra-foot { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+.settings-v .rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
+.settings-v .rail-assist.locked { border-color: var(--border); }
+.settings-v .rail-assist.locked .plan-badge { background: var(--fg-soft); color: var(--muted); }
+.settings-v .rail-assist.locked .ra-step { opacity: 0.55; cursor: not-allowed; }
+.settings-v .rail-assist.locked .ra-step:hover { border-color: var(--border); }
+.settings-v .rail-assist.locked .ra-body b { color: var(--muted); }
+.settings-v .rail-assist.locked .ra-arrow { opacity: 0.4; }
+
+/* ── 题材六格 .mod（genre-signup-redesign tasks 4.1 / D18）──
+   每格＝编号 + 名称 + 怎么填（m-why）+ 成书去处（m-use）+ 控件。
+   样式对齐原型 prototypes/genre-signup.html（胶囊 cap / 滑块 cost / 软提示 soft-note） */
+.settings-v .mod { margin-bottom: 26px; }
+.settings-v .mod:last-of-type { margin-bottom: 16px; }
+.settings-v .mod .mod-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 12px; flex-wrap: wrap; }
+.settings-v .mod .mod-head .m-no { font-family: var(--font-mono); font-size: 11px; color: var(--accent); border: 1px dashed color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 0 7px; flex: none; }
+.settings-v .mod .mod-head .m-name { font-size: 14px; font-weight: 600; flex: none; }
+.settings-v .mod .mod-head .m-why { font-size: 12px; color: var(--muted); flex: none; }
+.settings-v .mod .mod-head .m-use { flex: 1 1 auto; margin-left: 14px; font-size: 11.5px; color: var(--muted); text-align: right; line-height: 1.6; min-width: 0; }
+.settings-v .mod .mod-head .m-use b { color: var(--accent); font-weight: 500; }
+
+.settings-v .cap { display: inline-flex; align-items: center; padding: 7px 14px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; color: var(--fg); background: var(--surface); cursor: pointer; user-select: none; font-family: inherit; }
+.settings-v .cap:hover { border-color: var(--muted); }
+.settings-v .cap.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.settings-v .cap-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+/* 胶囊组小标题（01 题材大类/子类、02 常见口味）——题材目录改版新增，原型未建模 */
+.settings-v .cap-label { font-size: 11.5px; color: var(--muted); margin: 0 0 6px; }
+/* 第二个及以后的组标题（子类行）：与上一组留出呼吸 */
+.settings-v .cap-row + .cap-label { margin-top: 12px; }
+/* 行内组标题（02 常见口味：标题与胶囊同一行） */
+.settings-v .cap-label.inline { margin: 0; }
+/* 02 常见口味行与下方输入框的间距 */
+.settings-v .cap-row.flavors { margin-bottom: 8px; }
+/* 01 解读区：选中项「是什么 + 案例」（光有标签作者不知道指什么） */
+/* 面板脚部的「改动回执」（2026-09-10）：一次改动 = 一条回执 + 一步撤销。
+   回执是提示不是模式：脚部永远只有 1 个主按钮 + 最多 1 条回执。 */
+.settings-v .receipt { display: inline-flex; align-items: center; gap: 10px; flex: 0 1 auto; min-width: 0; background: var(--warn-soft); border: 1px solid color-mix(in oklch, var(--warn) 22%, var(--border)); border-radius: 9px; padding: 6px 10px; font-size: 12.5px; line-height: 1.5; color: var(--fg); }
+/* 长回执（如口味胶囊一键覆盖多格，实测 606px）单行截断，全文挂 title 悬浮可读。
+   **脚部不许折行**：设定面板的脚部贴着窗口底，折出的第二行会落到窗口状态条
+   （.statusbar，fixed 26px）之下 —— 「确认完成」被盖住点不到（2026-09-10 e2e 实测）。 */
+.settings-v .panel-foot { flex-wrap: nowrap; }
+.settings-v .panel-foot .btn { flex: none; }
+/* 脚部两段可截断文本：进度提示（`note`）与回执正文（`.rt`）。
+   注意 `flex-wrap: nowrap` 只禁「项换行」，不禁「项内文本换行」——中文 min-content
+   约一字宽，不加 nowrap 时提示会自己折成两行，脚部又变两行（2026-09-10 实测）。 */
+.settings-v .panel-foot .note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-v .receipt .rt { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-v .receipt .undo { flex: none; border: 0; background: transparent; color: var(--warn); font: inherit; font-size: 12.5px; text-decoration: underline; cursor: pointer; padding: 0; }
+/* 文本字段：失焦后的「已修改 · 恢复原文」（打字时不出现） */
+.settings-v .field-restore { font-size: 11.5px; color: var(--muted); margin: 6px 0 0; }
+.settings-v .field-restore .undo { border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 11.5px; text-decoration: underline; cursor: pointer; padding: 0; }
+
+.settings-v .cap-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 9px; background: var(--bg); font-size: 12.5px; line-height: 1.6; color: var(--fg); }
+.settings-v .cap-note b { color: var(--accent); font-weight: 500; }
+.settings-v .cap-note .eg { color: var(--muted); }
+.settings-v .cap-note .eg::before { content: " · "; }
+
+.settings-v .sel { position: relative; }
+/* 01 题材选择器（形态对标 TDesign Cascader：字段 + 两级/搜索结果；就地展开，非浮层——
+   设定面板列自身 overflow-y:auto，浮层会被裁切并随滚动漂移）。 */
+.settings-v .sel-field { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); font: inherit; font-size: 13px; color: var(--fg); text-align: left; cursor: pointer; }
+.settings-v .sel-field:hover { border-color: var(--muted); }
+.settings-v .sel-field.on, .settings-v .sel-field:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent-soft); }
+.settings-v .sel-field .v { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-v .sel-field .ph { flex: 1 1 auto; color: var(--muted); }
+/* 图标必须显式定尺寸：Ico 不传 size 时 <svg> 无内在宽高，会撑爆控件
+   （本仓惯例＝上下文 CSS 定尺寸，如 .genre svg / .b svg） */
+.settings-v .sel-field svg { flex: none; width: 14px; height: 14px; color: var(--muted); transition: transform 0.15s ease; }
+.settings-v .sel-field svg.open { transform: rotate(180deg); }
+.settings-v .sel-clear { flex: none; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); font-size: 15px; line-height: 1; }
+.settings-v .sel-clear:hover { background: var(--fg-soft); color: var(--fg); }
+.settings-v .sel-panel { margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.settings-v .sel-search { width: 100%; padding: 9px 12px; border: 0; border-bottom: 1px solid var(--border); background: transparent; font: inherit; font-size: 13px; color: var(--fg); }
+.settings-v .sel-search:focus { outline: none; border-bottom-color: var(--accent); }
+.settings-v .sel-cols { display: grid; grid-template-columns: minmax(140px, 190px) 1fr; }
+.settings-v .sel-col, .settings-v .sel-list { margin: 0; padding: 6px; list-style: none; max-height: 288px; overflow-y: auto; }
+.settings-v .sel-col.themes { border-right: 1px solid var(--border); background: var(--bg); }
+.settings-v .sel-item { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px; background: transparent; font: inherit; font-size: 13px; color: var(--fg); text-align: left; cursor: pointer; }
+.settings-v .sel-item:hover, .settings-v .sel-item.cur { background: var(--fg-soft); }
+.settings-v .sel-item.on { background: var(--accent-soft); color: var(--accent); }
+.settings-v .sel-item .si-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-v .sel-item .si-desc { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.settings-v .sel-item em { font-style: normal; color: var(--muted); }
+.settings-v .sel-item.only { border-bottom: 1px dashed var(--border); border-radius: 7px 7px 0 0; margin-bottom: 4px; }
+.settings-v .sel-empty { padding: 10px 12px; font-size: 12.5px; color: var(--muted); }
+
+/* 02 多看点勾选器（AI 直接给多个看点，作家勾选采纳） */
+.settings-v .mpt-row { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; }
+.settings-v .mpt-row input { margin-top: 3px; flex: none; }
+.settings-v .mpt-note { color: var(--muted); }
+.settings-v .mpt-act { margin: 10px 0 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.settings-v .mpt-act .mpt-hint { color: var(--muted); font-size: 11.5px; }
+.settings-v .cap-add input { width: 100%; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 9px; background: var(--surface); font-size: 13px; color: var(--fg); margin-top: 8px; font-family: inherit; }
+.settings-v .cap-add input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); border-style: solid; }
+
+.settings-v .cost-row { display: flex; align-items: center; gap: 16px; }
+.settings-v .cost-row input[type="range"] { flex: 1; accent-color: var(--accent); height: 26px; }
+.settings-v .cost-val { font-family: var(--font-mono); font-size: 20px; font-weight: 600; color: var(--accent); width: 34px; text-align: center; flex: none; }
+.settings-v .cost-sent { font-size: 12.5px; color: var(--fg); background: var(--fg-soft); border-radius: 8px; padding: 5px 11px; margin-top: 8px; display: inline-block; }
+.settings-v .cost-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono); }
+.settings-v .soft-note { font-size: 11.5px; color: var(--warn); margin-top: 8px; }
+/* 前置未满足的能力行（D14 前置守卫：置灰 + 「先体检」） */
+.settings-v .rail-assist .ra-step.ra-off { opacity: 0.5; cursor: not-allowed; }
+.settings-v .rail-assist .ra-step.ra-off:hover { border-color: var(--border); }
+.settings-v .rail-assist .ra-body b .ra-hint { margin-left: 6px; font-size: 10.5px; font-weight: 400; color: var(--warn); }
+
+/* ── 本书模型选择：分组卡片列表 + radiogroup 行（tasks 7.1 / D12）──
+   选择与生效分离：点行只标亮（.on），点「设为本书模型」才落库。 */
+.settings-v .model-groups { display: flex; flex-direction: column; gap: 12px; }
+.settings-v .model-group { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 10px 12px; }
+.settings-v .model-group .mg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.settings-v .model-group .mg-head .mg-name { font-size: 13px; font-weight: 600; }
+.settings-v .model-group .mg-head .mg-vendor { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+.settings-v .model-group .mg-head .badge { margin-left: auto; }
+.settings-v .model-row { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 7px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; }
+.settings-v .model-row:hover { background: var(--fg-soft); }
+.settings-v .model-row:focus-visible { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.settings-v .model-row .mr-dot { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; }
+.settings-v .model-row.on { background: var(--accent-soft); border-color: color-mix(in oklch, var(--accent) 40%, transparent); color: var(--accent); font-weight: 500; }
+.settings-v .model-row.on .mr-dot { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 2px var(--surface); }
+.settings-v .model-apply { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+
+/* ── 简介输入框控件规格（tasks 9.1.0：与原型 .intro-ta 逐项对齐）── */
+.settings-v .intro-ta { min-height: 132px; font-size: 14px; line-height: 1.9; border-radius: 9px; }
+
+/* 空模型配置组：提示 + 手动补模型 id（供应商不提供 /models 列表时的出口） */
+.settings-v .model-group .mg-empty { display: flex; flex-direction: column; gap: 8px; padding: 6px 2px 2px; }
+.settings-v .model-group .mg-add { display: flex; gap: 8px; align-items: center; }
+.settings-v .model-group .mg-add .input { flex: 1; min-width: 0; }
+
+/* 空模型配置的候选起点（端点不提供 /models 时点一下即添加） */
+.settings-v .model-group .mg-cands { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* AI 行运行中：显式「生成中…」+ 视觉强调（否则用户以为没反应会连点） */
+.settings-v .rail-assist .ra-step.ra-running { border-color: var(--accent); background: var(--accent-soft); }
+.settings-v .rail-assist .ra-step.ra-running .ra-body i { color: var(--accent); }
+.settings-v .rail-assist .ra-step.ra-running .ra-arrow { color: var(--accent); }
+
+/* AI 结果区历史条：最近 N 次可切换（避免无限抽卡 / 反悔） */
+.settings-v .ai-sink .aiz-hist { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.settings-v .ai-sink .aiz-hist .ah-t { font-size: 11px; color: var(--muted); }
+.settings-v .ai-sink .aiz-hist .ah-chip { height: 22px; padding: 0 9px; font-size: 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+.settings-v .ai-sink .aiz-hist .ah-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+
+/* 标题对照行（D21）：只提示、不提供改书名入口 */
+.settings-v .ai-sink .title-check { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 11.5px; }
+.settings-v .ai-sink .title-check .tc-res { font-weight: 500; flex: none; }
+.settings-v .ai-sink .title-check .tc-res.ok { color: var(--ok); }
+.settings-v .ai-sink .title-check .tc-res.warn { color: var(--warn); }
+.settings-v .ai-sink .title-check .tc-note { color: var(--muted); }
+.settings-v .ai-sink .title-check .tc-chip { display: inline-block; margin-left: 5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); }
+.settings-v .ai-sink .title-check .tc-tip { margin-left: 6px; color: var(--muted); }
+
+/* ── 设定面板的「辅助信息邻接」与「贴底脚注」（PM 评审 2026-09-10 修）──
+   面板变宽（1fr 填满中栏）后，靠 margin-left:auto 右推的次级元素会被甩到最右，
+   与它所属的文案脱节；辅助信息（展开/计数）改为紧跟文案。 */
+.settings-v .guide-toggle .gt-c { margin-left: 10px; }          /* 「展开」紧随文案，不右推 */
+.settings-v .field > label .cnt { margin-left: 10px; }          /* 计数紧邻「≤500 字」 */
+.settings-v .field > label { display: flex; align-items: baseline; gap: 0; }
+
+/* 体检六段：宽了自动并两列（auto-fit），窄屏单列——避免每行右侧大片空白 */
+/* 最小列宽 340px：保证「名称 108 + 结果 + 说明」三段的说明列有 ~180px 可承载 note
+   （260px 会在宽屏挤出 3 列，说明列只剩 ~170px，长 note 折多行反而更乱）*/
+.settings-v .ai-sink .chk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); column-gap: 24px; }
+
+/* 面板脚注贴底：面板撑满中栏高度，foot 压在底部（短内容面板不再"脚下空一片"） */
+.settings-v .panel { display: flex; flex-direction: column; min-height: 100%; }
+.settings-v .panel > .panel-foot { margin-top: auto; }

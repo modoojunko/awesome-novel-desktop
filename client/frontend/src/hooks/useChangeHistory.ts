@@ -23,10 +23,19 @@ export function useChangeHistory(projectId: string | undefined) {
     setError(null);
     try {
       const resp = await fetch(
-        `${API_BASE}/projects/${projectId}/model-history`,
+        `${API_BASE}/novels/${projectId}/model-history`,
         { headers: authHeaders() },
       );
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      if (!resp.ok) {
+        // 503 storage_busy 等结构化错误 → 取可读 message（否则用户只看到 HTTP 500）
+        const body = await resp.json().catch(() => null);
+        const detail = body?.detail;
+        throw new Error(
+          typeof detail === "string"
+            ? detail
+            : detail?.message || `HTTP ${resp.status}`,
+        );
+      }
       const data = await resp.json();
       setHistory(data.history || []);
     } catch (e) {
@@ -43,7 +52,7 @@ export function useChangeHistory(projectId: string | undefined) {
   const restoreVersion = async (entryId: string) => {
     if (!projectId) return;
     const resp = await fetch(
-      `${API_BASE}/projects/${projectId}/model-history/${entryId}/restore`,
+      `${API_BASE}/novels/${projectId}/model-history/${entryId}/restore`,
       { method: "POST", headers: authHeaders() },
     );
     if (resp.status === 400) {

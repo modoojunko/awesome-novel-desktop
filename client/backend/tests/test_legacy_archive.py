@@ -22,9 +22,9 @@ def _fp(metadata) -> str:
 def _make_legacy_db(path, books: int = 3):
     """老版本形态：有 projects 表（含数据），无 app_meta。"""
     conn = sqlite3.connect(path)
-    conn.execute("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT)")
+    conn.execute("CREATE TABLE novels (id TEXT PRIMARY KEY, name TEXT)")
     conn.executemany(
-        "INSERT INTO projects VALUES (?, ?)", [(f"b{i}", f"书{i}") for i in range(books)]
+        "INSERT INTO novels VALUES (?, ?)", [(f"b{i}", f"书{i}") for i in range(books)]
     )
     conn.commit()
     conn.close()
@@ -36,7 +36,7 @@ def _make_current_db(path, fingerprint: str):
     conn.execute(
         "INSERT INTO app_meta VALUES ('schema_id', ?)", (fingerprint,)
     )
-    conn.execute("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT)")
+    conn.execute("CREATE TABLE novels (id TEXT PRIMARY KEY, name TEXT)")
     conn.commit()
     conn.close()
 
@@ -72,7 +72,7 @@ class TestArchiveIfLegacy:
         assert not db.exists()
         # 留档内容完好
         conn = sqlite3.connect(archived)
-        assert conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0] == 3
+        assert conn.execute("SELECT COUNT(*) FROM novels").fetchone()[0] == 3
         conn.close()
 
     def test_current_db_not_archived(self, tmp_path):
@@ -114,8 +114,8 @@ class TestLegacyDbStatusEndpoint:
     def test_archive_listed_latest_first(self, client, tmp_path, monkeypatch):
         for name in ["novel.db.legacy-20260901-120000", "novel.db.legacy-20260902-090000"]:
             conn = sqlite3.connect(tmp_path / name)
-            conn.execute("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT)")
-            conn.executemany("INSERT INTO projects VALUES (?, ?)", [(f"b{i}", f"书{i}") for i in range(2)])
+            conn.execute("CREATE TABLE novels (id TEXT PRIMARY KEY, name TEXT)")
+            conn.executemany("INSERT INTO novels VALUES (?, ?)", [(f"b{i}", f"书{i}") for i in range(2)])
             conn.commit()
             conn.close()
         monkeypatch.setattr("backup.router.DATA_ROOT", str(tmp_path))

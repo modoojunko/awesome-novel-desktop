@@ -8,7 +8,7 @@ from db import Base
 
 
 class Novel(Base):
-    __tablename__ = "projects"
+    __tablename__ = "novels"
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
@@ -36,7 +36,7 @@ class Novel(Base):
     __table_args__ = (UniqueConstraint("user_id", "slug"),)
 
     # Relationships
-    ai_config = relationship("ApiConfig", back_populates="projects")
+    ai_config = relationship("ApiConfig", back_populates="novels")
     volumes = relationship(
         "Volume", cascade="all, delete-orphan", back_populates="project"
     )

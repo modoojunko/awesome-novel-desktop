@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
 // 核心创作流程 E2E — 创建小说（书名即创建）→ 设定完成判定（PRD 3.4）→ 大纲 → CRUD
@@ -107,7 +108,17 @@ async function setupSession(
   const { token, username } = await sRegisterAndLogin();
   const restore = await writeOAuthSession(token, username, tier);
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
-  return { restore, token };
+  // 页面级桩 check-auth：e2e 注入的 pc_hash 在 S端 无设备授权（code 1），后端会
+  // 据此清空 config.json 的注入 token → 业务请求 401（已知环境阻塞）。桩掉这次
+  // 往返即可保住注入会话；会员判定仍走后端 check_permission()（读 config.json tier）。
+  await page.route("**/api/auth/check-auth", (r) =>
+    r.fulfill({ json: { code: 0, data: {} } }),
+  );
+  const restoreAndCleanup = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    await restore();
+  };
+  return { restore: restoreAndCleanup, token };
 }
 
 /** 通过真实 UI 创建小说（书名即创建），返回 project id。 */
@@ -115,10 +126,14 @@ async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
   await page.getByRole("button", { name: "新建作品" }).first().click();
   await page.locator("input#bkTitle").fill(name);
-  await page.getByRole("button", { name: "创建并开始写作" }).click();
+  await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const m = page.url().match(/\/novel\/([0-9a-fA-F-]+)/);
   if (!m) throw new Error(`无法解析 novel id: ${page.url()}`);
+  // 空书默认落「设定」（@/lib/novelStage：无章节 → 设定，用户 2026-09-10 拍板）；
+  // 本 spec 的用例都在写作视图操作 → 建书后显式切过去。
+  await page.locator(".mtab", { hasText: "写作" }).click();
+  await expect(page.locator(".mtab.on")).toContainText("写作");
   return m[1];
 }
 
@@ -165,10 +180,21 @@ async function confirmPanel(page: Page) {
     .locator(".panel-foot")
     .getByRole("button", { name: "确认完成" });
   await expect(btn).toBeVisible({ timeout: 5000 });
+  const before = await page.locator(".settings-v main h2").textContent();
+  const statusPut = page.waitForResponse(
+    (r) => r.request().method() === "PUT" && r.url().includes("/settings/status/"),
+  );
   await btn.click();
-  await expect(
-    page.locator(".panel-foot").getByRole("button", { name: "保存修改" }),
-  ).toBeVisible({ timeout: 5000 });
+  await statusPut;
+  // 确认即前进（tasks 2.2）：确认后面板切到下一项（末项/已确认态才留在原面板）
+  await expect(async () => {
+    const after = await page.locator(".settings-v main h2").textContent();
+    const saved = await page
+      .locator(".panel-foot")
+      .getByRole("button", { name: "保存修改" })
+      .count();
+    expect(after !== before || saved > 0).toBe(true);
+  }).toPass({ timeout: 5000 });
 }
 
 // -------------------------------------------------------------------------
@@ -185,19 +211,36 @@ test("创建小说：仅书名即可创建并进入小说页", async ({ page }) 
 
     await page.getByRole("button", { name: "新建作品" }).first().click();
     // AC-1.4：空书名创建按钮不可用
-    await expect(page.getByRole("button", { name: "创建并开始写作" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "创建，去写简介" })).toBeDisabled();
+
+    // 规格 creation-flow：The modal SHALL have no … no synopsis/genre collection
+    // 回归背景：此处曾有一个「类型（选填）」下拉，与既有规格相悖（2026-09-10 修）
+    const dlg = page.getByRole("dialog");
+    await expect(dlg.locator(".field")).toHaveCount(1);
+    await expect(dlg.locator("select")).toHaveCount(0);
+    await expect(dlg).not.toContainText("类型");
+    // 文案：先随手起一个、之后能改；建好后先写简介再定题材（用户 2026-09-10 起草）
+    await expect(dlg.locator(".hint").first()).toContainText("之后随时能改");
+    await expect(dlg.locator(".hint").first()).toContainText("先写简介");
+    await expect(dlg.locator(".hint").first()).toContainText("再定题材");
 
     const bookName = `穿越测试${Date.now() % 10000}`;
     await page.locator("input#bkTitle").fill(bookName);
-    await page.getByRole("button", { name: "创建并开始写作" }).click();
+    await page.getByRole("button", { name: "创建，去写简介" }).click();
 
     // AC-1.6：创建成功直接进入小说页
     await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/, { timeout: 10000 });
     // 顶栏显示书名
     await expect(page.getByText(bookName).first()).toBeVisible({ timeout: 10000 });
-    // AC-1.2/1.3（设计 v2 修订）：弹窗保持极简 —— 书名 + 类型（选填），无简介/导入入口
+
+    // 新书题材未设定 → 胶囊位仍占位显示「待定题材」（用户 2026-09-10 拍板）
+    await page.goto(`${ORIGIN}/#/novels`);
+    const card = page.locator(".cards .book-card", { hasText: bookName }).first();
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(card.locator(".genre.pending")).toHaveCount(1);
+    await expect(card.locator(".genre")).toContainText("待定题材");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -205,44 +248,37 @@ test("创建小说：仅书名即可创建并进入小说页", async ({ page }) 
 // PRD 3.4：简介完成判定（简介面板点「确认完成」时校验内容非空）
 // -------------------------------------------------------------------------
 
-test("简介空不可确认，保存后可确认（AC-4.2）", async ({ page }) => {
-  const { restore } = await setupSession(page);
+test("简介可随时确认；内容为空时后端 400 拦截（tasks 2.4 语义）", async ({
+  page,
+  request,
+}) => {
+  const { restore, token } = await setupSession(page);
   try {
-    // 项目名唯一：跨用户同名会复用同一 root_path 目录（create_project 按 slug 建目录），
-    // 残留数据会串到新项目（如旧 story.yaml）。加时间戳保证每测试独立目录。
     const pid = await createNovel(page, `简介${Date.now() % 100000}`);
     await page.goto(`${ORIGIN}/#/novel/${pid}`);
-
-    // 新落点：默认写作工作台。简介面板在设定视图内，经 modnav「设定」进入（PR4 v2）。
     await page.getByRole("button", { name: /^设定/ }).click();
     await openSetting(page, "简介");
 
-    // 空简介 → 点「确认完成」→ 前置校验拦截 + toast 提示，不确认
+    // 空简介 → 确认按钮仍可点（无前端 gate）→ 后端 400 拦截，不落已确认
     await page
       .locator(".panel-foot")
       .getByRole("button", { name: "确认完成" })
       .click();
-    await expect(page.getByText("请先写一段梗概")).toBeVisible({ timeout: 5000 });
-    await expect(
-      page.locator(".panel-foot").getByRole("button", { name: "保存修改" }),
-    ).toHaveCount(0);
+    await expect(page.getByText(/还未填写内容/)).toBeVisible({ timeout: 5000 });
+    const status0 = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
+    expect(status0.synopsis).toBe(false);
 
     // 写入简介 → x/500 计数同步（spec#3）→ 确认完成（gap3：先 PUT /story 再 confirm）
     await page
       .getByPlaceholder(/用几句话/)
       .fill("一个穿越到明朝当海盗的故事");
     await expect(page.getByText("13/500")).toBeVisible();
-    const synSave = page.waitForResponse(
-      (r) => r.request().method() === "PUT" && r.url().includes("/story"),
-    );
     await confirmPanel(page);
-    await synSave;
-    // 已确认徽标（panel-foot done-note；note 文案同含「已确认」，须锚定类名）
-    await expect(page.locator(".panel-foot .done-note")).toBeVisible({
-      timeout: 5000,
-    });
+
+    const status1 = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
+    expect(status1.synopsis).toBe(true);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -293,7 +329,7 @@ test("空书无门控：建书即写，加卷加章直达编辑器", async ({ pa
     await expect(page.locator(".editor")).toBeVisible({ timeout: 10000 });
     await expect(page.locator(".editor")).toBeEditable();
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -306,7 +342,8 @@ test("空书无门控：建书即写，加卷加章直达编辑器", async ({ pa
 test("设定 7 项全确认（settings-status 全绿）", async ({ page, request }) => {
   const { restore, token } = await setupSession(page);
   try {
-    const pid = await createNovel(page, `全确认${Date.now() % 100000}`);
+    const confirmBookName = `全确认${Date.now() % 100000}`;
+    const pid = await createNovel(page, confirmBookName);
     await page.goto(`${ORIGIN}/#/novel/${pid}`);
 
     // 013：设定未确认也不渲染「以下阶段尚未就绪」门控横幅（GateBanner 已移除）
@@ -352,37 +389,37 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     await confirmPanel(page);
     await synSave;
 
-    // ── genre：API 注入 + 面板确认（urban-romance 非种子 id → 定义缺失降级态）
+    // ── genre：API 注入新契约 + 面板确认（无 genre_id）
     await apiPutJSON(request, token, `/novels/${pid}/settings/genre`, {
-      genre_id: "urban-romance",
+      core_promise: "以弱破强的痛快",
+      promise_note: "读者要看到弱者被逼到绝境后，用脑子一步步翻盘",
+      cost_ratio: 8,
     });
+    // 题材面板在「简介确认即前进」时已挂载（早于本次注入）→ 切走再切回强制重挂载取数
+    await openSetting(page, "世界");
     await openSetting(page, "题材");
-    // 面板加载是两跳异步（settings/genre + fetchGenre）；确认完成按钮在加载中即
-    // 可见可点，抢跑会让 hasGenre() 见到 null → 确认被拦并弹「选择题材」。必须
-    // 等「定义缺失」徽标出现（加载完成的降级态信号）再确认。
-    await expect(page.getByText("定义缺失")).toBeVisible({ timeout: 5000 });
+    // 面板加载完成信号＝五格渲染出（首格题材选择器可见）
+    await expect(page.locator(".settings-v .mod")).toHaveCount(5, { timeout: 5000 });
+    // 02 主框＝作家写的那句话（promise_note）；短标签另在提示行
+    await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue(
+      "读者要看到弱者被逼到绝境后，用脑子一步步翻盘",
+    );
+    await expect(page.locator('[data-od-id="genre-panel"]')).toContainText("标签：以弱破强的痛快");
     await confirmPanel(page);
 
-    // ── style：API 注入 + 面板已确认态（种子模板预填 role → readiness 即
-    //    ready，按钮为「保存修改」，UI 无确认路径；status 由 API 补齐）
+    // ── style：API 注入 + 面板确认（§5.1 新书为「已填」非「已确认」→ 按钮是确认完成）
     await apiPutJSON(request, token, `/novels/${pid}/settings/style`, {
       role: "克制冷静的第三人称叙事，短句为主",
     });
-    await openSetting(page, "风格");
-    await expect(
-      page.locator(".panel-foot").getByRole("button", { name: "保存修改" }),
-    ).toBeVisible({ timeout: 5000 });
-    await apiPutJSON(request, token, `/novels/${pid}/settings/status/style`, {});
+    await openSetting(page, "文风");
+    await confirmPanel(page);
 
-    // ── anti-ai：API 注入 + 面板已确认态（种子模板预填疲劳词，同上）
+    // ── anti-ai：API 注入 + 面板确认（同上）
     await apiPutJSON(request, token, `/novels/${pid}/settings/anti-ai`, {
       blocklists: ["过度修辞", "翻译腔"],
     });
-    await openSetting(page, "AI痕迹控制");
-    await expect(
-      page.locator(".panel-foot").getByRole("button", { name: "保存修改" }),
-    ).toBeVisible({ timeout: 5000 });
-    await apiPutJSON(request, token, `/novels/${pid}/settings/status/anti-ai`, {});
+    await openSetting(page, "禁用词句");
+    await confirmPanel(page);
 
     // ── characters：API 注入角色文件 + 面板确认
     await apiPutJSON(request, token, `/novels/${pid}/settings/character/张三`, {
@@ -396,8 +433,29 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     for (const k of ["synopsis", "genre", "world", "style", "anti-ai", "hooks", "characters"]) {
       expect(status[k]).toBe(true);
     }
+
+    // 题材设定后 → 书架卡片胶囊取值来自题材（核心承诺兜底：此时未选题材目录），占位态撤下
+    await page.goto(`${ORIGIN}/#/novels`);
+    const bookCard = page.locator(".cards .book-card", { hasText: confirmBookName }).first();
+    await expect(bookCard.locator(".genre")).toContainText("以弱破强的痛快", {
+      timeout: 10000,
+    });
+    await expect(bookCard.locator(".genre.pending")).toHaveCount(0);
+
+    // 胶囊只显示大类（用户 2026-09-10 拍板「胶囊就显示大类」）：
+    // 选上子类也只显示大类，子类不占展示位
+    // 注意：同 URL 的 goto 不会重载 SPA（不重新拉列表）→ 先绕一次书本页
+    await apiPutJSON(request, token, `/novels/${pid}/settings/genre`, {
+      theme: "架空古王朝",
+      sub_genre: "权谋",
+    });
+    await page.goto(`${ORIGIN}/#/novel/${pid}`);
+    await page.goto(`${ORIGIN}/#/novels`);
+    await expect(bookCard.locator(".genre")).toHaveText(/架空古王朝/);
+    await expect(bookCard.locator(".genre")).not.toContainText("权谋");
+    await expect(bookCard.locator(".genre")).not.toContainText("·");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -424,6 +482,6 @@ test("改名：novelbar 书名双击就地改名即时生效（AC-2.x）", async
     // 旧名不再显示
     await expect(page.getByText(origName).first()).not.toBeVisible();
   } finally {
-    restore();
+    await restore();
   }
 });

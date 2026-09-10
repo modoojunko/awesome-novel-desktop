@@ -209,6 +209,8 @@ async def update_config(
         updates["vendor_override"] = body.vendor_override
     if body.api_format is not None:
         updates["api_format"] = body.api_format
+    if body.models is not None:
+        updates["models"] = body.models
 
     try:
         result = await update_api_config(db, _user_id(user), config_id, updates)
@@ -278,6 +280,24 @@ async def refresh_models(
     return {"ok": False, "status": "untested", "models": []}
 
 
+@router.get("/api-configs/{config_id}/model-candidates")
+async def model_candidates(
+    config_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """该配置所属 vendor 的候选模型 id（端点不提供 /models 时的起点，不触网）。"""
+    from .connection import NO_MODEL_LIST_NOTE, model_candidates_for
+
+    config = await get_api_config(db, _user_id(user), config_id)
+    if not config:
+        raise HTTPException(404, "配置不存在")
+    return {
+        "candidates": model_candidates_for(config.get("vendor", "")),
+        "note": NO_MODEL_LIST_NOTE,
+    }
+
+
 @router.get("/api-configs/{config_id}/usage")
 async def config_usage(
     config_id: str,
@@ -293,7 +313,7 @@ async def config_usage(
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@router.get("/projects")
+@router.get("/novels")
 async def list_projects_v1(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -304,7 +324,7 @@ async def list_projects_v1(
 
 
 # STATIC before parameterized
-@router.post("/projects/apply-model-to-all")
+@router.post("/novels/apply-model-to-all")
 async def apply_model_to_all(
     body: ApplyModelToAllBody,
     user: dict = Depends(get_current_user),
@@ -320,7 +340,7 @@ async def apply_model_to_all(
     return result
 
 
-@router.get("/projects/{project_id}")
+@router.get("/novels/{project_id}")
 async def get_project_v1(
     project_id: str,
     user: dict = Depends(get_current_user),
@@ -333,7 +353,7 @@ async def get_project_v1(
     return novel_to_dict(project)
 
 
-@router.get("/projects/{project_id}/ai-model")
+@router.get("/novels/{project_id}/ai-model")
 async def get_project_model(
     project_id: str,
     user: dict = Depends(get_current_user),
@@ -346,27 +366,30 @@ async def get_project_model(
     return result
 
 
-@router.put("/projects/{project_id}/ai-model")
+@router.put("/novels/{project_id}/ai-model")
 async def set_project_model_route(
     project_id: str,
     body: SetAiModelBody,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Set a project's AI model."""
-    result = await set_project_model(
-        db,
-        _user_id(user),
-        project_id,
-        body.api_config_id,
-        body.model,
-    )
+    """Set a project's AI model（D12 绑定校验失败 400）。"""
+    try:
+        result = await set_project_model(
+            db,
+            _user_id(user),
+            project_id,
+            body.api_config_id,
+            body.model,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     if result is None:
         raise HTTPException(404, "Project or config not found")
     return result
 
 
-@router.get("/projects/{project_id}/model-history")
+@router.get("/novels/{project_id}/model-history")
 async def get_model_history_route(
     project_id: str,
     user: dict = Depends(get_current_user),
@@ -379,7 +402,7 @@ async def get_model_history_route(
     return {"history": entries}
 
 
-@router.post("/projects/{project_id}/model-history/{entry_id}/restore")
+@router.post("/novels/{project_id}/model-history/{entry_id}/restore")
 async def restore_model_history_route(
     project_id: str,
     entry_id: str,
@@ -395,7 +418,7 @@ async def restore_model_history_route(
     return result
 
 
-@router.get("/projects/{project_id}/usage")
+@router.get("/novels/{project_id}/usage")
 async def project_usage(
     project_id: str,
     user: dict = Depends(get_current_user),

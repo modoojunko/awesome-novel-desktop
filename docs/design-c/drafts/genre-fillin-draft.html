@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>评审稿 v4 · 全填空 — 作家字段 5 个，先不给你选</title>
+<style>
+  /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致（--radius-lg 沿 book.html = 14px） ═══ */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.55; padding: 40px 24px 80px; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  /* ─── 稿头 ─── */
+  .draft-banner { display: flex; align-items: center; gap: 9px; padding: 10px 16px; border: 1px dashed var(--warn); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: 13px; margin-bottom: 28px; }
+  .draft-banner b { color: var(--fg); font-weight: 600; }
+  h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; }
+  h1 .v4 { font-family: var(--font-mono); font-size: 13px; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 2px 10px; vertical-align: 6px; margin-left: 10px; letter-spacing: 0.06em; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 6px 0 14px; }
+  .idea { border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: var(--radius); background: var(--accent-soft); padding: 14px 18px; font-size: 13.5px; line-height: 1.9; margin-bottom: 24px; }
+  .idea b { font-weight: 600; }
+  .caliber { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 16px; font-size: 12.5px; color: var(--muted); margin-bottom: 36px; }
+  .caliber b { color: var(--fg); font-weight: 600; }
+  .caliber li { margin: 3px 0 3px 18px; }
+
+  /* ─── 变体节 ─── */
+  .vsec { margin: 0 0 52px; }
+  .frame-title { font-family: var(--font-display); font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+  .frame-desc { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
+  .win { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-card); }
+  .win-cap { font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.04em; margin: 0 0 8px; }
+
+  /* ─── 通用件 ─── */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--accent); color: oklch(100% 0 0); }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--muted); }
+  .btn-sm { height: 28px; padding: 0 11px; font-size: 12.5px; }
+  .text-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--accent); opacity: .85; cursor: pointer; border: none; background: none; padding: 0; }
+  .text-btn:hover { opacity: 1; }
+  .text-btn svg { width: 13px; height: 13px; }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; color: var(--muted); cursor: pointer; border: none; background: none; }
+  .icon-btn:hover { color: var(--err); background: var(--err-soft); }
+  .icon-btn svg { width: 14px; height: 14px; }
+  .seg { display: inline-flex; background: var(--fg-soft); border-radius: 8px; padding: 2px; gap: 2px; }
+  .seg button { border: none; background: none; padding: 4px 12px; font-size: 12.5px; border-radius: 6px; color: var(--muted); cursor: pointer; }
+  .seg button.on { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px color-mix(in oklch, var(--fg) 8%, transparent); }
+  .input, .textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+  .input:focus, .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .textarea { min-height: 60px; resize: vertical; line-height: 1.7; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+  .field label { font-size: 13px; color: var(--fg); font-weight: 500; display: flex; align-items: baseline; gap: 7px; }
+  .field label .why { font-size: 11.5px; color: var(--muted); font-weight: 400; }
+
+  /* ─── 面板骨架 ─── */
+  .modnav { display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .modnav span { display: inline-flex; padding: 8px 14px 9px; font-size: 13px; color: var(--muted); }
+  .modnav span.on { color: var(--fg); font-weight: 500; border-bottom: 2px solid var(--accent); }
+  .col-panel { padding: 26px clamp(20px, 3.5vw, 44px) 36px; background: var(--bg); }
+  .panel { max-width: 640px; }
+  .panel-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  .panel-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 600; margin: 0; }
+  .panel .desc { font-size: 13px; color: var(--muted); margin: 0 0 22px; }
+  .panel-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); margin-top: 6px; }
+  .panel-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+  .li-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .li-row .li-i { width: 20px; text-align: right; color: var(--muted); font-size: 12px; flex: none; }
+  .li-row .input { flex: 1; min-width: 0; }
+  .li-row .acts { display: flex; opacity: 0; transition: opacity 0.12s ease; }
+  .li-row:hover .acts, .li-row:focus-within .acts { opacity: 1; }
+
+  /* ─── 字段总账表 + 结论 ─── */
+  .cmp { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; overflow: hidden; }
+  .cmp th, .cmp td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .cmp th { font-size: 12px; color: var(--muted); font-weight: 500; background: var(--bg); }
+  .cmp tr:last-child td { border-bottom: none; }
+  .cmp .new-on { color: var(--accent); font-weight: 500; }
+  .cmp .hidden-ai { color: var(--muted); }
+  .rec-box { border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: var(--radius); background: var(--accent-soft); padding: 16px 20px; font-size: 13.5px; line-height: 1.8; }
+  .rec-box b { font-weight: 600; }
+  .rec-box ol { margin: 8px 0 0 20px; }
+  .rec-box li { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 12.5px; margin-top: 14px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="draft-banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="16" height="16"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <span><b>评审稿 v4（DRAFT）· 未拍板</b> · 字段裁决（排除 AI 字段）+ 全填空原则（不要选）· v1-v3 存档于 PM 稿文末 · 不改动 <span class="num">prototypes/</span> 与任何实现代码</span>
+  </div>
+
+  <h1>题材设定：作家字段 5 个，全填空<span class="v4">v4</span></h1>
+  <p class="sub">先排除 AI 需要的字段，只留作家真正要表达的；而且全部是填空——没有选择器、没有选项卡、没有勾选。内置预填值以后就是往这些空里填值，不改变交互。</p>
+
+  <div class="idea">
+    <b>两条原则</b><br>
+    ① <b>只留作家字段</b>：裁决标准＝这个空作家不填、AI 能不能自己搞对？AI 能搞对的（禁忌/疲劳词/节奏/注入段/章节类型）全部隐掉，随题材自动生效，界面上一概不出现。<br>
+    ② <b>全是填空，零选择</b>：题材是填空不是选择器，基调是填空不是四选一，骨架是填空不是选项卡，爽点是条目填空不是勾选。作家想怎么写就怎么写，平台不预设选项边界。
+  </div>
+
+  <div class="caliber">
+    <b>口径前提</b>
+    <li>作家字段 <b class="num">5</b> 个：题材 / 核心差异 / 氛围基调 / 剧情骨架 / 读者爽点。默认全空，留空＝AI 按通用或题材基线写。</li>
+    <li>题材库降级为预置值字典：作家填的题材名做模糊匹配，匹配上则 AI 基线自动生效；匹配不上＝通用基线，不拦写作、不报错。</li>
+    <li>境界体系/法宝/势力等是世界观字段，归「世界」面板（已有力量体系），不进题材页；「本书特别规矩」归「风格」面板自定义规则。</li>
+    <li>内置预填值（后续版本）＝这 5 个空帮你填好的版本，B 区演示其形态。</li>
+  </div>
+
+  <!-- ═══════════════════ A · 全填空面板（空白态） ═══════════════════ -->
+  <div class="vsec">
+    <div class="frame-title">A · 题材设定面板 — 五个空，填不填、填什么都是你说了算</div>
+    <div class="frame-desc">没有任何"选"的交互：不弹选择器、不给选项卡、不让勾选。每个空的 placeholder 只是举例，不是选项。</div>
+    <div class="win">
+      <div class="modnav"><span class="on">设定</span><span>写作</span><span>预览</span></div>
+      <div class="col-panel">
+        <div class="panel">
+          <div class="panel-head"><h2>题材</h2><span class="badge" style="background:var(--fg-soft); color:var(--muted);">未填</span></div>
+          <p class="desc">这几个空填下来，AI 就知道你的书该怎么写。留空也能写，填了更贴你。</p>
+
+          <div class="field" data-od-id="f-genre-name">
+            <label>题材 <span class="why">这本书是什么类型，随意用你的话写</span></label>
+            <input class="input" placeholder="例如：东方仙侠、悬疑刑侦、都市日常" />
+          </div>
+
+          <div class="field" data-od-id="f-core-diff">
+            <label>这本书和同类书不一样的核心 <span class="why">一句话卖点，AI 写作时最看重这个空</span></label>
+            <textarea class="textarea" rows="2" placeholder="例：别人的主角抢机缘，我的主角捡漏洞——修为越高的废人，露出的破绽越多。"></textarea>
+          </div>
+
+          <div class="field" data-od-id="f-tone">
+            <label>氛围基调 <span class="why">你想要的味道，用你的话</span></label>
+            <input class="input" placeholder="例：清修问道、市井烟火、冷峻克制、热血上头" />
+          </div>
+
+          <div class="field" data-od-id="f-arc">
+            <label>剧情骨架 <span class="why">整本书大怎么走，几句就行</span></label>
+            <textarea class="textarea" rows="2" placeholder="例：凡人流——从练气一步步往上爬，每卷突破一个大境界、了结一桩恩怨。"></textarea>
+          </div>
+
+          <div class="field" data-od-id="f-satisfy">
+            <label>读者爽点 <span class="why">你想让读者爽什么，一行一个</span></label>
+            <div id="satisfyRows">
+              <div class="li-row"><span class="li-i">1.</span><input class="input" placeholder="例：境界突破的瞬间" /><span class="acts"><button class="icon-btn" title="删除本行" type="button" data-del><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></span></div>
+            </div>
+            <button class="text-btn" type="button" data-add-row><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> 添加一项</button>
+          </div>
+
+          <div class="panel-foot">
+            <span class="note" data-od-id="genre-ai-note">禁忌、节奏这类 AI 的规则已按你填的题材自动配好，不用你管</span>
+            <button class="btn btn-primary" type="button" data-od-id="btn-genre-confirm" id="btnConfirm">确认完成</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ B · 内置预填值的形态 ═══════════════════ -->
+  <div class="vsec">
+    <div class="frame-title">B · 内置预填值 = 同样的空，帮你填好（评审演示切换）</div>
+    <div class="frame-desc">预填不是另一种界面、更不是选项——就是这五个空里有值了，和手填的完全一样，改哪个都行。切右上角演示。</div>
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
+      <span class="seg" data-od-id="seg-blankfill">
+        <button class="on" data-v="blank" type="button">空白态</button>
+        <button data-v="filled" type="button">预填演示态</button>
+      </span>
+      <span class="win-cap" id="bfCap">五个空全空 · 作家从零写</span>
+    </div>
+    <div class="win">
+      <div class="modnav"><span class="on">设定</span><span>写作</span><span>预览</span></div>
+      <div class="col-panel">
+        <div class="panel">
+          <div class="panel-head"><h2>题材</h2><span class="badge" id="bfBadge" style="background:var(--fg-soft); color:var(--muted);">未填</span></div>
+          <p class="desc">这几个空填下来，AI 就知道你的书该怎么写。留空也能写，填了更贴你。</p>
+
+          <div class="field">
+            <label>题材 <span class="why">这本书是什么类型，随意用你的话写</span></label>
+            <input class="input bf" id="bfGenre" placeholder="例如：东方仙侠、悬疑刑侦、都市日常" />
+          </div>
+          <div class="field">
+            <label>这本书和同类书不一样的核心 <span class="why">一句话卖点，AI 写作时最看重这个空</span></label>
+            <textarea class="textarea bf" id="bfDiff" rows="2" placeholder="例：别人的主角抢机缘，我的主角捡漏洞——修为越高的废人，露出的破绽越多。"></textarea>
+          </div>
+          <div class="field">
+            <label>氛围基调 <span class="why">你想要的味道，用你的话</span></label>
+            <input class="input bf" id="bfTone" placeholder="例：清修问道、市井烟火、冷峻克制、热血上头" />
+          </div>
+          <div class="field">
+            <label>剧情骨架 <span class="why">整本书大怎么走，几句就行</span></label>
+            <textarea class="textarea bf" id="bfArc" rows="2" placeholder="例：凡人流——从练气一步步往上爬，每卷突破一个大境界、了结一桩恩怨。"></textarea>
+          </div>
+          <div class="field">
+            <label>读者爽点 <span class="why">你想让读者爽什么，一行一个</span></label>
+            <div id="bfRows">
+              <div class="li-row"><span class="li-i">1.</span><input class="input bf-row" placeholder="例：境界突破的瞬间" /><span class="acts"><button class="icon-btn" title="删除本行" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></span></div>
+            </div>
+            <button class="text-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> 添加一项</button>
+          </div>
+
+          <div class="panel-foot">
+            <span class="note" id="bfNote">禁忌、节奏这类 AI 的规则已按你填的题材自动配好，不用你管</span>
+            <button class="btn btn-secondary" type="button" id="bfClear">清空重填</button>
+            <button class="btn btn-primary" type="button">确认完成</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ C · 字段总账 ═══════════════════ -->
+  <div class="vsec">
+    <div class="frame-title">C · 字段总账 — 作家的 5 个空，AI 的一揽子</div>
+    <table class="cmp">
+      <tr><th style="width:26%;">字段</th><th style="width:12%;">归属</th><th>裁决理由</th></tr>
+      <tr><td>题材</td><td class="new-on">作家 · 填空</td><td>一句话类型，作家一句话就能说清；题材库退为字典做模糊匹配</td></tr>
+      <tr><td>这本书的核心差异</td><td class="new-on">作家 · 填空</td><td>唯一 AI 编不出来、又最影响成书的东西——这本书凭什么不一样</td></tr>
+      <tr><td>氛围基调</td><td class="new-on">作家 · 填空</td><td>作家对"味道"有直觉；给选项反而限制他，填空 + 举例足够</td></tr>
+      <tr><td>剧情骨架</td><td class="new-on">作家 · 填空</td><td>大走向作家真有想法，几句就值得写下来</td></tr>
+      <tr><td>读者爽点</td><td class="new-on">作家 · 条目填空</td><td>作家意图，但一行一个随手填；不设勾选项</td></tr>
+      <tr><td>类型禁忌 / 写作指南 / 注入段</td><td class="hidden-ai">AI · 隐掉</td><td>平台知识层，随匹配到的题材自动生效</td></tr>
+      <tr><td>疲劳词 / 节奏规则 / 章节类型</td><td class="hidden-ai">AI · 隐掉</td><td>AI 的手艺参数，作家不以这个粒度思考</td></tr>
+      <tr><td>境界体系 / 法宝 / 势力</td><td class="hidden-ai">挪走</td><td>是世界观字段，归「世界」面板（已有力量体系）</td></tr>
+      <tr><td>本书特别规矩（无女主等）</td><td class="hidden-ai">挪走</td><td>归「风格」面板自定义规则，口径现成</td></tr>
+    </table>
+  </div>
+
+  <!-- ═══════════════════ 结论 ═══════════════════ -->
+  <div class="vsec" style="margin-bottom:24px;">
+    <div class="rec-box">
+      <b>推荐 v4 全填空整稿落地</b>。工程切片：① 面板改 5 填空（题材/核心差异/基调/骨架为文本，爽点为条目行）；② 题材名模糊匹配题材库，命中则 AI 字段自动下发，未命中走通用基线；③ AI 字段从 payload 的作家态中退役（数据层保留自动值）。
+      <ol>
+        <li><b>为什么"不要选"是对的</b>：每个选项都是平台画的边界——四选一的基调、三选一的骨架，都在替作家限定"能想什么"。填空 + 举例 placeholder 给的是示范不是边界，与"空模版、内置填好值"一脉相承：内置值就是往同样的空里填，两种来源（手填/预填）产物完全同构。</li>
+        <li><b>五个空里最重的是"核心差异"</b>：它是唯一 AI 编不出来、又直接决定这本书成色什么都字段；建议实现时提示词组装把它放在题材上下文首位。</li>
+        <li><b>题材自由文本的认账</b>：匹配不上题材库＝拿不到题材基线（禁忌/指南不生效），只走通用规则。可接受：不拦写作、不报错；后续预填值方案会反过来引导作家写出能命中库的名字。</li>
+        <li><b>v1-v4 的主线</b>：v1 藏值、v2 锁值、v3 选值加结构——全部输在"平台替作家拿主意"。v4 只留作家的表达，其余 AI 自己搞对。</li>
+      </ol>
+    </div>
+    <p class="muted">拍板后建议：openspec 立项（本稿涉 GenreSettingForm 重写 + 题材匹配逻辑 + payload 调整）；<span class="num">prototypes/ADJUSTMENTS.md</span> 登记 book.html 面板修订。本稿不改动 prototypes/ 与任何实现代码。</p>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  function toast(msg) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;right:22px;bottom:22px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);z-index:99;';
+    t.textContent = msg; document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2400);
+  }
+
+  /* A · 爽点行增删 */
+  const rows = document.getElementById('satisfyRows');
+  document.querySelector('[data-add-row]').addEventListener('click', () => {
+    const n = rows.querySelectorAll('.li-row').length + 1;
+    const div = document.createElement('div');
+    div.className = 'li-row';
+    div.innerHTML = `<span class="li-i">${n}.</span><input class="input" placeholder="例：境界突破的瞬间" /><span class="acts"><button class="icon-btn" title="删除本行" type="button" data-del><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></span>`;
+    rows.appendChild(div);
+    div.querySelector('input').focus();
+  });
+  rows.addEventListener('click', e => {
+    const del = e.target.closest('[data-del]'); if (!del) return;
+    del.closest('.li-row').remove();
+    rows.querySelectorAll('.li-i').forEach((s, i) => { s.textContent = (i + 1) + '.'; });
+  });
+
+  /* B · 空白/预填演示切换 */
+  const FILL = {
+    genre: '东方仙侠',
+    diff: '别人的主角抢机缘，我的主角捡漏洞——修为越高的废人，露出的破绽越多。',
+    tone: '清修问道里藏着狠劲，平时淡，动手时冷。',
+    arc: '凡人流：从练气一步步往上爬，每卷突破一个大境界、了结一桩恩怨。',
+    rows: ['境界突破的瞬间', '旧高手的破绽被戳穿', '以弱胜强后的淡然收场']
+  };
+  function setFilled(on) {
+    document.getElementById('bfGenre').value = on ? FILL.genre : '';
+    document.getElementById('bfDiff').value = on ? FILL.diff : '';
+    document.getElementById('bfTone').value = on ? FILL.tone : '';
+    document.getElementById('bfArc').value = on ? FILL.arc : '';
+    const rowsBox = document.getElementById('bfRows');
+    rowsBox.innerHTML = FILL.rows.map((v, i) => `
+      <div class="li-row"><span class="li-i">${i + 1}.</span><input class="input bf-row" placeholder="例：境界突破的瞬间" value="${v ? v : ''}" /><span class="acts"><button class="icon-btn" title="删除本行" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></span></div>`).join('')
+      + (on ? '' : `<div class="li-row"><span class="li-i">${FILL.rows.length + 1}.</span><input class="input bf-row" placeholder="例：境界突破的瞬间" /><span class="acts"><button class="icon-btn" title="删除本行" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></span></div>`);
+    const badge = document.getElementById('bfBadge');
+    badge.textContent = on ? '已填' : '未填';
+    badge.style.background = on ? 'var(--ok-soft)' : 'var(--fg-soft)';
+    badge.style.color = on ? 'var(--ok)' : 'var(--muted)';
+    document.getElementById('bfNote').textContent = on
+      ? '禁忌、节奏这类 AI 的规则已按「东方仙侠」自动配好，不用你管'
+      : '禁忌、节奏这类 AI 的规则已按你填的题材自动配好，不用你管';
+  }
+  const seg = document.querySelector('.seg[data-od-id="seg-blankfill"]');
+  seg.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    seg.querySelectorAll('button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    setFilled(b.dataset.v === 'filled');
+    document.getElementById('bfCap').textContent = b.dataset.v === 'filled' ? '同一组空，预填后的样子——改哪个都行' : '五个空全空 · 作家从零写';
+  });
+  document.getElementById('bfClear').addEventListener('click', () => { setFilled(false); toast('已清空，回到空白模版'); });
+  document.getElementById('btnConfirm').addEventListener('click', () => toast('已确认「题材」· 计入设定进度'));
+})();
+</script>
+</body>
+</html>

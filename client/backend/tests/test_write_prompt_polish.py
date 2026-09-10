@@ -30,7 +30,7 @@ os.environ["DATA_ROOT"] = _tmp_data_root
 import auth_local.service as _service  # noqa: E402
 import chapters.store as chapters_store  # noqa: E402
 import prompt.store as prompt_store  # noqa: E402
-from auth_local.deps import require_project_limit  # noqa: E402
+from auth_local.deps import require_novel_model, require_project_limit  # noqa: E402
 from auth_local.middleware import get_current_user  # noqa: E402
 from db import Base, async_session, engine, get_db  # noqa: E402
 from main import app  # noqa: E402
@@ -110,6 +110,8 @@ async def _override_true():
 def _setup_overrides():
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_current_user
+    # 本书模型门控：本模块测的是内容/其他门控，模型就绪另测（9.2）
+    app.dependency_overrides[require_novel_model] = lambda: True
     app.dependency_overrides[require_project_limit] = _override_true
     yield
     app.dependency_overrides.clear()
@@ -237,12 +239,12 @@ class TestPolishPrompt:
         calls: list = []
         fake = _FakeAIClient(calls)
 
-        async def _fake_get_ai_client():
+        async def _fake_get_ai_client(novel_id=None):
             return fake
 
         import ai_client as ai_client_mod
 
-        monkeypatch.setattr(ai_client_mod, "get_ai_client", _fake_get_ai_client)
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
 
         pid, ref = _create_project_and_chapter(client)
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/prompt/polish")
@@ -264,12 +266,12 @@ class TestPolishPrompt:
         _set_tier("none", api_key="sk-test")
         calls: list = []
 
-        async def _fake_get_ai_client():
+        async def _fake_get_ai_client(novel_id=None):
             return _FakeAIClient(calls)
 
         import ai_client as ai_client_mod
 
-        monkeypatch.setattr(ai_client_mod, "get_ai_client", _fake_get_ai_client)
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
 
         pid, ref = _create_project_and_chapter(client)
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/prompt/polish")
@@ -284,13 +286,13 @@ class TestPolishPrompt:
 
         calls: list = []
 
-        async def _fake_get_ai_client():
+        async def _fake_get_ai_client(novel_id=None):
             # 缺全部锚词的产物
             return _FakeAIClient(calls, reply="写作提示词如下，请查收。")
 
         import ai_client as ai_client_mod
 
-        monkeypatch.setattr(ai_client_mod, "get_ai_client", _fake_get_ai_client)
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
 
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/prompt/polish")
         assert r.status_code == 502, r.text
@@ -304,12 +306,12 @@ class TestPolishPrompt:
 
         calls: list = []
 
-        async def _fake_get_ai_client():
+        async def _fake_get_ai_client(novel_id=None):
             return _FakeAIClient(calls, error=RuntimeError("upstream down"))
 
         import ai_client as ai_client_mod
 
-        monkeypatch.setattr(ai_client_mod, "get_ai_client", _fake_get_ai_client)
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
 
         r = client.post(
             f"/api/novels/{pid}/chapters/{ref}/write/prompt/polish",

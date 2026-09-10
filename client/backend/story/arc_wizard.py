@@ -11,8 +11,9 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_client import get_ai_client
-from auth_local.deps import require_ai_access
+from ai_client import get_ai_client_for_novel
+from ai_state import effective_model
+from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
@@ -38,6 +39,7 @@ async def run_wizard_step(
     body: dict,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     """跑向导一步：入参 {input: 作者输入, arc: 卡片当前内容}，出参结构化 JSON。"""
@@ -58,11 +60,11 @@ async def run_wizard_step(
         input=author_input,
         arc=json.dumps(body.get("arc", {}), ensure_ascii=False),
     )
-    client = await get_ai_client()
+    client = await get_ai_client_for_novel(project.id)
     try:
         usage: dict = {}
         text = await client.chat(
-            model="haiku",
+            model=effective_model(project),
             system="你是长篇小说结构顾问。只输出 JSON，不要任何其他文字。",
             messages=[{"role": "user", "content": formatted}],
             max_tokens=1536,
@@ -78,7 +80,7 @@ async def run_wizard_step(
         user_id=user["id"],
         project_id=project.id,
         operation=operation,
-        model="haiku",
+        model=effective_model(project),
         tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0),
     )

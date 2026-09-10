@@ -9,8 +9,8 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_client import get_ai_client
-from auth_local.deps import require_ai_access
+from ai_client import get_ai_client_for_novel
+from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from filesystem.storage import get_storage
@@ -210,6 +210,7 @@ async def ai_draft_outline(
     chapter_ref: str,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     """章纲 AI 起草：返回结构化草稿，不落库（作者表单承接后走既有保存链路）。"""
@@ -223,7 +224,9 @@ async def ai_draft_outline(
     if not arc_md:
         raise HTTPException(422, "主线卡为空，请先在设定中完成主线拆纲再起草章纲")
 
-    ctx = await build_chapter_context(project.root_path, chapter_ref, project.name)
+    ctx = await build_chapter_context(
+        project.root_path, chapter_ref, project.name, novel_id=project.id
+    )
     chapter = await load_chapter(project.root_path, chapter_ref) or {}
     if not chapter:
         raise HTTPException(404, "Chapter not found")
@@ -256,8 +259,8 @@ async def ai_draft_outline(
     material = "\n\n".join(blocks)
 
     system = load_prompt("outline_draft")
-    client = await get_ai_client()
-    model = ctx.style_setting.get("writing_model", "haiku")
+    client = await get_ai_client_for_novel(project.id)
+    model = "haiku"  # 符号别名，落到本书模型（D12）
     usage: dict = {}
     try:
         raw = await client.chat(
