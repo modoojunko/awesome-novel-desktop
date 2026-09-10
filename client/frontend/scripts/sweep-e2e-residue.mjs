@@ -12,10 +12,18 @@
  *   · 只删测试名的行 + 它们的专属数据目录；孤儿目录（无对应书）也清
  *   · e2e 用户：只删 ^(e2e|probe)[-_] 且名下没有存活的书（不会孤立任何内容）
  *
+ * ⚠️ **外部进程写库必须让后端重开库**（2026-09-10 事故）：
+ * 本脚本以读写方式打开正在被后端使用的 SQLite 库，关闭时 SQLite 会做
+ * checkpoint 并**删掉 -wal 文件**；而后端进程仍握着那个「已删除」inode 的句柄，
+ * 它从那一刻起的写入全部落进幽灵 WAL——**任何新读者都看不到，重启即丢**。
+ * 用户实测症状：「简介/题材点了确认完成，回书架再进来状态没了」。
+ * 因此：脚本在收尾时做一次 `wal_checkpoint(TRUNCATE)`，并**重启 C端 后端**
+ * （docker compose restart client-backend；`--no-restart` 可关闭，但那就请手动重启）。
+ *
  * 用法：
  *   node scripts/sweep-e2e-residue.mjs            # 预演：只报数，不动库
- *   node scripts/sweep-e2e-residue.mjs --apply    # 真删
- *   node scripts/sweep-e2e-residue.mjs --db <path>
+ *   node scripts/sweep-e2e-residue.mjs --apply    # 真删（收尾重启后端）
+ *   node scripts/sweep-e2e-residue.mjs --db <path> [--no-restart]
  *
  * 也作为 Playwright 的 globalTeardown 被调用（见 e2e/global-teardown.ts，
  * 传 apply=true）。Node < 22.5 没有 node:sqlite → 跳过并提示，不让 e2e 变红。
@@ -106,7 +114,12 @@ export function scanResidue(dbPath) {
  * 执行清理。
  * @param {{dbPath?: string, apply?: boolean, log?: (s: string) => void}} opts
  */
-export function sweepResidue({ dbPath = DEFAULT_DB, apply = false, log = console.log } = {}) {
+export function sweepResidue({
+  dbPath = DEFAULT_DB,
+  apply = false,
+  restartBackend = true,
+  log = console.log,
+} = {}) {
   const sqlite = loadSqlite();
   if (!sqlite) {
     log("· 跳过残留清理：当前 Node 没有 node:sqlite（需 ≥ 22.5）");
@@ -165,6 +178,13 @@ export function sweepResidue({ dbPath = DEFAULT_DB, apply = false, log = console
     log(`· 残留清理失败（已回滚）：${e.message}`);
     return { skipped: true, error: String(e) };
   } finally {
+    // 关闭前把 WAL 内容并回主库：这样即使后端此刻正握着旧句柄，
+    // 主库也是完整的（后端重启后读到的就是这份）
+    try {
+      db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    } catch {
+      /* checkpoint 失败不影响已提交的数据 */
+    }
     db.close();
   }
 
@@ -184,7 +204,35 @@ export function sweepResidue({ dbPath = DEFAULT_DB, apply = false, log = console
     `· 已清理：测试书 ${plan.testBooks.length} 本 · e2e 用户 ${plan.staleUsers.length} 个 · ` +
       `e2e 配置 ${plan.staleConfigs.length} 条 · 目录 ${dirsRemoved} 个`,
   );
+
+  if (restartBackend) {
+    const ok = tryRestartBackend(log);
+    log(
+      ok
+        ? "· 已重启 C端 后端（外部写库会删掉 -wal，必须让它重开库，否则后续写入成为幽灵）"
+        : "· ⚠️ 未能重启 C端 后端：请手动 `docker compose restart client-backend`，" +
+          "否则后端持有已删除的 WAL、后续写入重启后会丢",
+    );
+  }
   return { applied: true, dirsRemoved, ...plan };
+}
+
+/** 重启 C端 后端（best-effort；在容器里没有 docker 就安静放弃）。 */
+function tryRestartBackend(log) {
+  try {
+    const { execFileSync } = require("node:child_process");
+    // 仓库根：scripts/ → client/frontend/ → client/ → 仓库根
+    const repoRoot = path.resolve(HERE, "..", "..", "..");
+    execFileSync("docker", ["compose", "restart", "client-backend"], {
+      cwd: repoRoot,
+      stdio: "pipe",
+      timeout: 60_000,
+    });
+    return true;
+  } catch (e) {
+    log(`  （重启失败：${e.message.split("\n")[0]}）`);
+    return false;
+  }
 }
 
 // CLI
@@ -194,5 +242,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   sweepResidue({
     dbPath: dbIdx >= 0 ? path.resolve(args[dbIdx + 1]) : DEFAULT_DB,
     apply: args.includes("--apply"),
+    restartBackend: !args.includes("--no-restart"),
   });
 }
