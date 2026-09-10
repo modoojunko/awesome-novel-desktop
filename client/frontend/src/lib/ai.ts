@@ -252,12 +252,17 @@ export interface GenreAiResult {
  */
 export async function genreAi(
   field: GenreAiField,
-  payload: { title: string; context?: Record<string, unknown> },
+  payload: { title: string; context?: Record<string, unknown>; multiPoint?: boolean },
   projectId: string,
 ): Promise<GenreAiResult> {
   return doJsonPost(
     `${API_BASE}/novels/${projectId}/settings/ai/genre/${field}`,
-    { title: payload.title, context: payload.context ?? {} },
+    {
+      title: payload.title,
+      context: payload.context ?? {},
+      // 02 的「多给几个看点」：后端据此把 {multi_point} 填 true，返回数组
+      multi_point: payload.multiPoint ? "true" : "false",
+    },
   );
 }
 

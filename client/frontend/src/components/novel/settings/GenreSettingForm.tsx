@@ -43,8 +43,9 @@ interface GenreSettingFormProps {
 
 /** 题材面板句柄：save 落库；runAi 由右栏 AI 卡片调用（tasks 4.2）。 */
 export type GenreHandle = SettingSaveHandle & {
-  /** 运行某格 AI，结果落该格下方 .ai-sink。 */
-  runAi: (field: GenreAiField) => Promise<void>;
+  /** 运行某格 AI，结果落该格下方 .ai-sink。
+   *  opts.multi：02 专用「多给几个看点」（后端 multi_point=true，返回 1-3 条数组）。 */
+  runAi: (field: GenreAiField, opts?: { multi?: boolean }) => Promise<void>;
 };
 
 export type { GenreAiField };
@@ -448,7 +449,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
   const aiBusyRef = useRef(false);
 
   const runAi = useCallback(
-    async (field: GenreAiField) => {
+    async (field: GenreAiField, opts?: { multi?: boolean }) => {
       if (aiBusyRef.current) return; // 已有在途请求：忽略重复触发
       aiBusyRef.current = true;
       setRunning(field);
@@ -468,22 +469,61 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         cost_ratio: data.cost_ratio,
         battlefield: data.battlefield,
       };
-      await genreAi(field, { title: novelName ?? "", context }, projectId)
+      await genreAi(field, { title: novelName ?? "", context, multiPoint: opts?.multi }, projectId)
         .then((r) => {
           const v = r.value;
           let node: React.ReactNode;
           let adopt: () => void;
           if (field === "core_promise") {
-            const { value, note } = v as { value: string; note: string };
-            node = (
-              <>
-                <p style={{ margin: "4px 0" }}>
-                  <b>{value}</b>
-                </p>
-                {note && <p style={{ margin: "4px 0", color: "var(--muted)" }}>{note}</p>}
-              </>
-            );
-            adopt = () => patch({ core_promise: value, promise_note: note });
+            // 多看点（「多给几个看点」）：后端返回 1-3 条，每条独立采纳（用户手选）
+            const points = Array.isArray(v)
+              ? (v as Array<{ value: string; note: string }>)
+              : [v as { value: string; note: string }];
+            if (points.length > 1) {
+              node = (
+                <div data-od-id="multi-points">
+                  {points.map((pt, i) => (
+                    <p
+                      key={`${pt.value}-${i}`}
+                      style={{ margin: "6px 0", display: "flex", gap: 10, alignItems: "baseline" }}
+                    >
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        data-od-id={`multi-adopt-${i}`}
+                        onClick={() => {
+                          patch({ core_promise: pt.value, promise_note: pt.note });
+                          toast.success("已采纳这一条，其余可再挑");
+                        }}
+                      >
+                        用这条
+                      </button>
+                      <span>
+                        <b>{pt.value}</b>
+                        {pt.note && (
+                          <span style={{ color: "var(--muted)" }}>：{pt.note}</span>
+                        )}
+                      </span>
+                    </p>
+                  ))}
+                </div>
+              );
+              adopt = () => patch({
+                core_promise: points[0].value,
+                promise_note: points[0].note,
+              });
+            } else {
+              const { value, note } = points[0];
+              node = (
+                <>
+                  <p style={{ margin: "4px 0" }}>
+                    <b>{value}</b>
+                  </p>
+                  {note && <p style={{ margin: "4px 0", color: "var(--muted)" }}>{note}</p>}
+                </>
+              );
+              adopt = () => patch({ core_promise: value, promise_note: note });
+            }
           } else if (field === "forbidden_list") {
             const list = (v as Array<{ tagId?: string; text?: string }>) ?? [];
             node = (

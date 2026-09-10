@@ -72,7 +72,7 @@ describe("genreAi 请求形态", () => {
   beforeEach(() => vi.restoreAllMocks());
 
   it.each(["core_promise", "forbidden_list", "cost_ratio", "battlefield", "track"] as const)(
-    "POST /settings/ai/genre/%s，入参 title + context",
+    "POST /settings/ai/genre/%s，入参 title + context + multi_point",
     async (field) => {
       const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
         new Response(JSON.stringify({ value: "x" }), {
@@ -87,9 +87,27 @@ describe("genreAi 请求形态", () => {
       expect(JSON.parse(String(init?.body))).toEqual({
         title: "我的书",
         context: { current: "旧值" },
+        // 多看点开关随请求下发；默认 false（旧行为完全兼容）
+        multi_point: "false",
       });
     },
   );
+
+  it("多看点模式：multiPoint=true 时 multi_point 传 true（02 专用）", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ value: "x" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await genreAi("core_promise", { title: "书", multiPoint: true }, "p1");
+    const [, init] = spy.mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toEqual({
+      title: "书",
+      context: {},
+      multi_point: "true",
+    });
+  });
 
   it("context 缺省为空对象", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(

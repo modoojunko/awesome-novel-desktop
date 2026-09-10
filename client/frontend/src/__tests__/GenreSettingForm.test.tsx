@@ -356,6 +356,30 @@ describe("GenreSettingForm · 五行 AI", () => {
     expect(container.textContent).toContain("标签：以弱破强的痛快");
   });
 
+  it("02 多看点：数组出参渲染多条，各自「用这条」只采纳该条", async () => {
+    aiState.genreAi.mockResolvedValue({
+      value: [
+        { value: "以弱破强的痛快", note: "读者要看到弱者用脑子翻盘" },
+        { value: "绝处逢生的紧张", note: "读者想看一次次死里逃生" },
+      ],
+    });
+    const { ref, container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
+
+    // 右栏「多给几个看点」→ runAi(field, {multi:true}) → 结果区多条
+    await act(async () => {
+      await ref.current!.runAi("core_promise", { multi: true });
+    });
+    const multi = container.querySelector('[data-od-id="multi-points"]')!;
+    expect(multi.querySelectorAll('[data-od-id^="multi-adopt-"]')).toHaveLength(2);
+
+    // 采纳第二条 → 主框＝该条的 note、标签＝该条的 value（不是第一条）
+    fireEvent.click(multi.querySelector('[data-od-id="multi-adopt-1"]')!);
+    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+      .toBe("读者想看一次次死里逃生");
+    expect(container.textContent).toContain("标签：绝处逢生的紧张");
+  });
+
   it("cost_ratio：采纳后滑块与浮例句同步", async () => {
     aiState.genreAi.mockResolvedValue({ value: 9 });
     const { ref, container } = renderPanel();

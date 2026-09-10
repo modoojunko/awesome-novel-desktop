@@ -206,9 +206,52 @@ def _normalize_vocab_list(kind: str, data, label_limit: int) -> list[dict]:
     return out
 
 
+def _theme_anchor(theme: str, sub: str) -> tuple[str, str]:
+    """题材目录里的「解读」与「案例」——喂给 AI 当风格锚。
+
+    目录（`genres/theme_catalog.py`）每条都带 desc/example，是最现成的 few-shot：
+    同题材的读者习惯、案例参照直接进提示词，模型就不必靠书名猜题材。
+    子类案例优先；只选大类时取前两个子类的案例拼一串。
+    """
+    from genres.theme_catalog import sub_type_entry, theme_entry
+
+    entry = theme_entry(theme) if theme else None
+    if entry is None:
+        return "", ""
+    sub_entry = sub_type_entry(theme, sub) if sub else None
+    if sub_entry is not None:
+        return sub_entry["desc"], sub_entry["example"]
+    subs = entry["sub_types"][:2]
+    return entry["desc"], "；".join(s["example"] for s in subs)
+
+
+def _as_bool(value) -> bool:
+    """宽松真值判定：true/1/"true"/"1"/"yes" → True（其余 False）。"""
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"true", "1", "yes", "on"}
+
+
 def _normalize_genre_value(field: str, data):
     """题材字段强类型出参（D18 契约）。"""
     if field == "core_promise":
+        # 多看点模式（{multi_point}=true）：模型返回数组，最多保留 3 条独立看点。
+        # 逐项做同样的长度校验（value ≤60 / note ≤200），**两项全空**的条目丢弃；
+        # 全部无效则按 502 处理（与单条同口径，可重试）。
+        if isinstance(data, list):
+            points = []
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                value = _clamp_str(item.get("value") or item.get("core_promise"), 60)
+                note = _clamp_str(item.get("note") or item.get("promise_note"), 200)
+                if value or note:
+                    points.append({"value": value, "note": note})
+                if len(points) >= 3:
+                    break
+            if not points:
+                raise HTTPException(502, "多看点没给出有效内容，可重试")
+            return points
         if isinstance(data, dict):
             value = _clamp_str(data.get("value") or data.get("core_promise"), 60)
             note = _clamp_str(data.get("note") or data.get("promise_note"), 200)
@@ -432,14 +475,53 @@ async def generate_field(
         forbidden_labels = [
             item.get("tagId") or item.get("text") for item in g["forbidden_list"]
         ]
+        # ① 题材目录进提示词（用户 2026-09-10）：题材是「定了就不跑偏」的类型锁，
+        #    AI 助手此前完全不知道本书是什么题材，产出只能靠书名硬猜。
+        #    落 story.yaml 的 genre/sub_genre（与简介同族）→ 目录取解读与案例当风格锚。
+        theme_name = (story.get("genre") or "").strip()
+        theme_sub = (story.get("sub_genre") or "").strip()
+        theme_label = f"{theme_name}（{theme_sub}）" if theme_sub else theme_name
+        theme_desc, theme_example = _theme_anchor(theme_name, theme_sub)
+        # ② 候选池动态渲染（不再在模板里手抄一遍——四处各存一份必然漂移）
+        from genres.vocab_presets import VOCAB_PRESETS
+
+        def _pool(kind: str) -> tuple[str, str]:
+            """某类候选的「标签清单 / id 清单」——两处都动态渲染，模板不手抄。"""
+            entries = [e for e in VOCAB_PRESETS if e["kind"] == kind]
+            return (
+                " / ".join(e["label"] for e in entries),
+                " / ".join(e["id"] for e in entries),
+            )
+
+        candidate_list, _promise_ids = _pool("promise")
+        forbidden_candidates, forbidden_ids = _pool("forbidden")
+        battlefield_candidates, battlefield_ids = _pool("battlefield")
+        # ③ 多看点开关走 user 占位符（后端控制；旧调用不传＝false，完全兼容）
+        multi_point = "true" if _as_bool(body.get("multi_point")) else "false"
         formatted_prompt = load_prompt(prompt_name).format(
             title=_clamp_str(body.get("title"), 100),
             synopsis=premise,
             current=json.dumps(context.get("current", ""), ensure_ascii=False),
+            # 02：作者刚写的那句话优先（promise_note），短标签另给（current_value）
+            current_note=_clamp_str(
+                g["promise_note"] or context.get("promise_note"), 200
+            ),
+            current_value=_clamp_str(
+                g["core_promise"] or context.get("current"), 60
+            ),
             core_promise=g["core_promise"] or context.get("core_promise", ""),
             forbidden_list=json.dumps(forbidden_labels, ensure_ascii=False),
             cost_ratio=g["cost_ratio"] if g["cost_ratio"] is not None else "",
             battlefield=json.dumps(g["battlefield"], ensure_ascii=False),
+            theme=theme_label,
+            theme_desc=theme_desc,
+            theme_example=theme_example,
+            candidate_list=candidate_list,
+            forbidden_candidates=forbidden_candidates,
+            forbidden_ids=forbidden_ids,
+            battlefield_candidates=battlefield_candidates,
+            battlefield_ids=battlefield_ids,
+            multi_point=multi_point,
         )
     else:
         formatted_prompt = load_prompt(prompt_name).format(
