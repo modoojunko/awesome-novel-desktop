@@ -167,6 +167,23 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
       // 口味胶囊 borderRadius 999
       expect(await cssNum(page, ".settings-v .cap", "border-radius")).toBe(999);
 
+      // 01 题材选择器：收起态是一行控件（不是巨框）、图标有尺寸。
+      // 回归背景：Ico 不传 size 时 <svg> 无内在宽高，漏了上下文 CSS 就会把字段
+      // 撑成几百 px 高的巨框＋巨型箭头（截图抓到，断言文本/类名的用例看不见）。
+      const selBox = await page.locator('[data-od-id="theme-trigger"]').boundingBox();
+      expect(selBox!.height).toBeLessThan(56);
+      const iconBox = await page.locator('[data-od-id="theme-trigger"] svg').boundingBox();
+      expect(iconBox!.width).toBeLessThanOrEqual(20);
+      expect(iconBox!.height).toBeLessThanOrEqual(20);
+      // 展开态：面板可见且两列在（大类列 + 子类列）
+      await page.locator('[data-od-id="theme-trigger"]').click();
+      await expect(page.locator('[data-od-id="theme-row"]')).toBeVisible();
+      await expect(page.locator('[data-od-id="sub-genre-row"]')).toBeVisible();
+      const panelBox = await page.locator('[data-od-id="theme-panel"]').boundingBox();
+      expect(panelBox!.height).toBeLessThan(420); // 两列各自 288 上限 + 搜索框
+      await page.keyboard.press("Escape");
+      await expect(page.locator('[data-od-id="theme-panel"]')).toHaveCount(0);
+
       // 五行 AI 落结果区后：底色＝--fg-soft 且 ≠ --surface
       await page.locator('[data-aiact="m3"]').click();
       const sink = page.locator('[data-od-id="genre-ai-sink-cost_ratio"]');

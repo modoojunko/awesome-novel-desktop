@@ -536,6 +536,7 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .cap-note .eg { color: var(--muted); }
 .settings-v .cap-note .eg::before { content: " · "; }
 
+.settings-v .sel { position: relative; }
 /* 01 题材选择器（形态对标 TDesign Cascader：字段 + 两级/搜索结果；就地展开，非浮层——
    设定面板列自身 overflow-y:auto，浮层会被裁切并随滚动漂移）。 */
 .settings-v .sel-field { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); font: inherit; font-size: 13px; color: var(--fg); text-align: left; cursor: pointer; }
@@ -543,7 +544,9 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .sel-field.on, .settings-v .sel-field:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent-soft); }
 .settings-v .sel-field .v { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-v .sel-field .ph { flex: 1 1 auto; color: var(--muted); }
-.settings-v .sel-field svg { flex: none; color: var(--muted); transition: transform 0.15s ease; }
+/* 图标必须显式定尺寸：Ico 不传 size 时 <svg> 无内在宽高，会撑爆控件
+   （本仓惯例＝上下文 CSS 定尺寸，如 .genre svg / .b svg） */
+.settings-v .sel-field svg { flex: none; width: 14px; height: 14px; color: var(--muted); transition: transform 0.15s ease; }
 .settings-v .sel-field svg.open { transform: rotate(180deg); }
 .settings-v .sel-clear { flex: none; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); font-size: 15px; line-height: 1; }
 .settings-v .sel-clear:hover { background: var(--fg-soft); color: var(--fg); }
