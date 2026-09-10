@@ -808,13 +808,76 @@ class TestStorageBusyHandler:
 
 
 class TestLocalConfigRobustness:
-    def test_partial_json_degrades_to_empty(self, tmp_path, monkeypatch):
+    def test_partial_json_without_cache_returns_empty(self, tmp_path, monkeypatch):
+        """首次读到半截（没有任何上次好值）→ 空配置，不 500。"""
         import auth_local.service as svc
 
-        cfg = tmp_path / "config.json"
+        svc._reset_config_cache()
+        cfg = tmp_path / "fresh-config.json"
         cfg.write_text('{"token": "abc", "username": "x"', encoding="utf-8")  # 半截
         monkeypatch.setattr(svc, "CONFIG_FILE", str(cfg))
         assert svc.get_local_config() == {}
+
+    def test_partial_json_keeps_last_good(self, tmp_path, monkeypatch):
+        """外部正在写（半截）时保留**上一次好值**——不把已登录用户降级成未登录。"""
+        import auth_local.service as svc
+
+        svc._reset_config_cache()
+        cfg = tmp_path / "cfg.json"
+        monkeypatch.setattr(svc, "CONFIG_FILE", str(cfg))
+        monkeypatch.setattr(svc, "CONFIG_DIR", str(tmp_path))
+        svc.save_local_config({"token": "good", "tier": "pro"})
+        cfg.write_text('{"token": "good", "tier": "pr', encoding="utf-8")  # 外部半截
+        assert svc.get_local_config()["token"] == "good"
+
+    def test_cache_avoids_reread(self, tmp_path, monkeypatch):
+        """热路径读内存：连续两次读只解析一次文件。"""
+        import json as _json
+
+        import auth_local.service as svc
+
+        svc._reset_config_cache()
+        cfg = tmp_path / "c.json"
+        monkeypatch.setattr(svc, "CONFIG_FILE", str(cfg))
+        monkeypatch.setattr(svc, "CONFIG_DIR", str(tmp_path))
+        svc.save_local_config({"token": "t", "tier": "pro"})
+
+        calls = {"n": 0}
+        real_load = _json.load
+
+        def counting_load(fp, *a, **kw):
+            calls["n"] += 1
+            return real_load(fp, *a, **kw)
+
+        monkeypatch.setattr(svc.json, "load", counting_load)
+        for _ in range(5):
+            assert svc.get_local_config()["token"] == "t"
+        assert calls["n"] == 0  # 全程命中缓存，未解析文件
+
+    def test_external_change_invalidates_cache(self, tmp_path, monkeypatch):
+        """外部改动（备份还原/手改/e2e 注入）→ 签名失效后重读生效。"""
+        import auth_local.service as svc
+
+        svc._reset_config_cache()
+        cfg = tmp_path / "ext.json"
+        monkeypatch.setattr(svc, "CONFIG_FILE", str(cfg))
+        monkeypatch.setattr(svc, "CONFIG_DIR", str(tmp_path))
+        svc.save_local_config({"token": "old"})
+        cfg.write_text('{"token": "e2e-injected", "tier": "trial"}', encoding="utf-8")
+        assert svc.get_local_config()["token"] == "e2e-injected"
+
+    def test_returned_dict_is_copy(self, tmp_path, monkeypatch):
+        """返回副本：调用方随手改不污染缓存。"""
+        import auth_local.service as svc
+
+        svc._reset_config_cache()
+        cfg = tmp_path / "cp.json"
+        monkeypatch.setattr(svc, "CONFIG_FILE", str(cfg))
+        monkeypatch.setattr(svc, "CONFIG_DIR", str(tmp_path))
+        svc.save_local_config({"token": "t"})
+        leaked = svc.get_local_config()
+        leaked["token"] = "tampered"
+        assert svc.get_local_config()["token"] == "t"
 
     def test_save_is_atomic(self, tmp_path, monkeypatch):
         """写盘后不应残留 .tmp；中途崩溃也不会让读方看到半截。"""

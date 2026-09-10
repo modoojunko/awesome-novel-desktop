@@ -131,29 +131,73 @@ _LAST_ENT_RESYNC = {"t": float("-inf")}
 DEFAULT_PORTAL_URL = "https://novel-s-web-ai-novel-test-d1ghsr86ra814c12c.webapps.tcloudbase.com"
 
 
-def get_local_config() -> dict:
-    """读本地会话配置。
+# ── 本地配置缓存 ────────────────────────────────────────────────────────
+# config.json 是**账号级持久层**（登录态 / 套餐 / 权益快照 / 设备指纹 / S端地址）：
+# 它不该在每个请求上反复读文件——正常路径读内存，写入直更缓存，外部改动靠
+# `(路径, mtime_ns, size)` 签名失效后重读。刷新链路不变：check-auth 与权益
+# 重同步（`ensure_entitlement_snapshot`）拿到新值后走 `save_local_config` 写回。
+_config_cache: dict | None = None
+_config_cache_sig: tuple | None = None
 
-    **容错读**：外部程序（备份工具/用户手改/e2e 注入）可能在写入途中，
-    半截 JSON 不该让整个应用 500——按「暂无配置」降级，下次读就好。
-    """
+
+def _config_signature() -> tuple | None:
+    """文件签名：(路径, mtime_ns, size)；文件不存在返回 None。"""
     try:
-        if os.path.exists(CONFIG_FILE):
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+        st = os.stat(CONFIG_FILE)
+    except OSError:
+        return None
+    return (CONFIG_FILE, st.st_mtime_ns, st.st_size)
+
+
+def _reset_config_cache() -> None:
+    """清缓存（仅测试用；切 CONFIG_FILE 时签名自会失效）。"""
+    global _config_cache, _config_cache_sig
+    _config_cache, _config_cache_sig = None, None
+
+
+def get_local_config() -> dict:
+    """读本地会话配置（内存缓存 + 文件签名失效）。
+
+    - 命中：文件 (mtime, size) 未变 → 直接返回缓存副本（热路径无文件 I/O）
+    - 失效：外部程序改过（备份还原 / 手改 / e2e 注入）→ 重读
+    - 容错：半截 JSON（外部正在写）→ 返回**上一次好值**，不降级成「未登录」
+    """
+    global _config_cache, _config_cache_sig
+    sig = _config_signature()
+    if sig is None:
+        # 文件不存在（首次启动/被删）：空配置
+        _config_cache, _config_cache_sig = None, None
+        return {}
+    if _config_cache is not None and sig == _config_cache_sig:
+        return dict(_config_cache)
+    try:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
+            data = json.load(f)
     except (OSError, ValueError):
+        # 半截内容：只有同一路径的上一次好值才可复用（换路径时不得串味）
         logger.warning("event=config.read_failed path=%s", CONFIG_FILE)
-    return {}
+        if _config_cache is not None and (_config_cache_sig or (None,))[0] == CONFIG_FILE:
+            return dict(_config_cache)
+        return {}
+    if not isinstance(data, dict):
+        if _config_cache is not None and (_config_cache_sig or (None,))[0] == CONFIG_FILE:
+            return dict(_config_cache)
+        return {}
+    _config_cache, _config_cache_sig = data, sig
+    return dict(data)
 
 
 def save_local_config(config: dict):
-    """**原子写**：先写临时文件再 `os.replace`——读方永不看到半截 JSON。"""
+    """**原子写**（temp + `os.replace`，读方永不看到半截）+ 直更内存缓存。"""
+    global _config_cache, _config_cache_sig
     Path(CONFIG_DIR).mkdir(parents=True, exist_ok=True)
     tmp = f"{CONFIG_FILE}.tmp"
     Path(tmp).write_text(
         json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     os.replace(tmp, CONFIG_FILE)
+    _config_cache = dict(config)
+    _config_cache_sig = _config_signature()
 
 
 def load_or_create_config() -> dict:
