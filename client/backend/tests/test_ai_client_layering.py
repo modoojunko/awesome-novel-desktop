@@ -325,3 +325,92 @@ class TestJudgeChatRetry:
         with pytest.raises(ValueError, match="模型未返回文本内容"):
             _run_async(_judge_chat(c, model="haiku", system="", messages=[]))
         assert c.n == 2
+
+
+class _FakeThinkingRejecting:
+    """模拟不认 thinking 字段的端点：第一次带 thinking 报 400，去掉后成功。"""
+
+    def __init__(self, **kwargs):
+        self.recorder = _Recorder("anthropic")
+        create = self.recorder._create
+        self.calls = 0
+
+        class _Messages:
+            @staticmethod
+            async def create(**kw):
+                outer.calls += 1
+                if "thinking" in kw:
+                    raise ValueError("400 Bad Request: unknown field 'thinking'")
+                return await create(**kw)
+
+        outer = self
+        self.messages = _Messages()
+
+
+class TestThinkingDisabledByDefault:
+    def test_anthropic_default_disables_thinking(self, anthropic_client):
+        _run_async(
+            anthropic_client.chat(
+                model="haiku", system="", messages=[{"role": "user", "content": "x"}]
+            )
+        )
+        kwargs = anthropic_client._client.recorder.kwargs
+        assert kwargs["thinking"] == {"type": "disabled"}
+
+    def test_unsupported_endpoint_retries_without_and_remembers(self, monkeypatch):
+        import ai_client as mod
+
+        mod._THINKING_UNSUPPORTED_BASES.clear()
+        monkeypatch.setattr(mod, "AsyncAnthropic", _FakeThinkingRejecting)
+        c = AIClient(
+            api_key="sk-x", base_url="https://no-thinking.example/anthropic",
+            model="m", api_format="anthropic",
+        )
+        _run_async(c.chat(model="haiku", system="", messages=[{"role": "user", "content": "x"}]))
+        # 第二次调用：已记住不支持 → 不再带 thinking（也不再触发一次失败重试）
+        before = c._client.calls
+        _run_async(c.chat(model="haiku", system="", messages=[{"role": "user", "content": "x"}]))
+        assert c._client.calls - before == 1
+        assert "https://no-thinking.example/anthropic" in mod._THINKING_UNSUPPORTED_BASES
+
+    def test_stream_also_disables_thinking(self, monkeypatch):
+        sent: dict = {}
+
+        class _Stream:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            def __aiter__(self):
+                async def gen():
+                    if False:
+                        yield None
+
+                return gen()
+
+        class _Anthropic:
+            def __init__(self, **kw):
+                class _Messages:
+                    @staticmethod
+                    def stream(**kw):
+                        sent.update(kw)
+                        return _Stream()
+
+                self.messages = _Messages()
+
+        monkeypatch.setattr(ai_client_module, "AsyncAnthropic", _Anthropic)
+        c = AIClient(
+            api_key="sk-x", base_url="https://api.example.com/anthropic",
+            model="m", api_format="anthropic",
+        )
+
+        async def drain():
+            async for _ in c.chat_stream(
+                model="haiku", system="", messages=[{"role": "user", "content": "x"}]
+            ):
+                pass
+
+        _run_async(drain())
+        assert sent["thinking"] == {"type": "disabled"}

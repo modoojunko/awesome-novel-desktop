@@ -20,6 +20,12 @@ from models.api_config import ApiConfig
 from models.project import Novel
 from models.user import User
 
+# 判定/短答复类调用默认**关闭思考**：实测（DeepSeek anthropic 端点）延迟
+# 10s→1.4s、输出 tokens 2079→203；个别端点不认这个字段则去掉后重试一次，
+# 并把该 base 记下来不再重复尝试。
+_THINKING_UNSUPPORTED_BASES: set[str] = set()
+_THINKING_DISABLED = {"type": "disabled"}
+
 
 @dataclass
 class StreamEvent:
@@ -47,6 +53,7 @@ class AIClient:
         self._provider = "anthropic"  # default
         self._client: Any | None = None
         self._model = model
+        self._base_url = base_url
         self._init_client(api_key, base_url, api_format)
 
     def _init_client(self, api_key: str, base_url: str, api_format: str | None = None):
@@ -86,6 +93,20 @@ class AIClient:
                 cached = True
             self._temp_supported = cached
         return cached
+
+    def _with_thinking_disabled(self, kwargs: dict) -> dict:
+        """默认关闭思考（判定类短答复不划算全预算在推理上）。"""
+        base = self._base_url or ""
+        if base not in _THINKING_UNSUPPORTED_BASES:
+            kwargs.setdefault("thinking", dict(_THINKING_DISABLED))
+        return kwargs
+
+    def _remember_thinking_unsupported(self) -> None:
+        if self._base_url:
+            _THINKING_UNSUPPORTED_BASES.add(self._base_url)
+
+    def _is_thinking_rejection(self, exc: Exception) -> bool:
+        return "thinking" in str(exc).lower()
 
     def _anthropic_kwargs(self, kwargs: dict) -> dict:
         """把 Anthropic 侧不支持的入参落到 extra_body（跨 SDK 版本兼容）。"""
@@ -155,13 +176,28 @@ class AIClient:
         else:
             kwargs.pop("json_mode", None)  # Anthropic 无 response_format，靠 prompt + 归一化兜底
             kwargs = self._anthropic_kwargs(kwargs)
-            response = await self._client.messages.create(
-                model=model,
-                system=system,
-                messages=messages,
-                max_tokens=max_tokens,
-                **kwargs,
-            )
+            kwargs = self._with_thinking_disabled(kwargs)
+            try:
+                response = await self._client.messages.create(
+                    model=model,
+                    system=system,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    **kwargs,
+                )
+            except Exception as e:  # noqa: BLE001 — 端点不认 thinking 时去掉再试一次
+                if "thinking" in kwargs and self._is_thinking_rejection(e):
+                    self._remember_thinking_unsupported()
+                    kwargs.pop("thinking", None)
+                    response = await self._client.messages.create(
+                        model=model,
+                        system=system,
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        **kwargs,
+                    )
+                else:
+                    raise
             if usage is not None:
                 u = getattr(response, "usage", None)
                 usage["tokens_in"] = getattr(u, "input_tokens", 0) or 0
@@ -215,6 +251,7 @@ class AIClient:
             )
         else:
             kwargs = self._anthropic_kwargs(kwargs)
+            kwargs = self._with_thinking_disabled(kwargs)
             async with self._client.messages.stream(
                 model=model,
                 system=system,
