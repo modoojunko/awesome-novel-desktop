@@ -197,6 +197,8 @@ async def list_all(
     #   synopsis   — story.yaml（创建/导入时写入）
     #   genre      — story.yaml.genre 展示名；缺失时回退 KV 题材（设定视图选择的题材）
     words: dict[str, int] = {}
+    ch_count: dict[str, int] = {}
+    arch_count: dict[str, int] = {}
     if projects:
         from collections import Counter
 
@@ -208,13 +210,21 @@ async def list_all(
             await db.scalars(
                 select(Chapter)
                 .where(Chapter.project_id.in_([p.id for p in projects]))
-                .options(load_only(Chapter.project_id, Chapter.word_count))
+                .options(load_only(Chapter.project_id, Chapter.word_count, Chapter.status))
             )
         ).all()
         counter = Counter()
+        counts = Counter()
+        archived = Counter()
         for ch in ch_rows:
-            counter[str(ch.project_id)] += ch.word_count or 0
+            key = str(ch.project_id)
+            counter[key] += ch.word_count or 0
+            counts[key] += 1
+            if ch.status == "archived":
+                archived[key] += 1
         words = dict(counter)
+        ch_count = dict(counts)
+        arch_count = dict(archived)
 
     kv_genres = await _batch_kv_genre_names(db, projects)
     storage = get_storage()
@@ -222,6 +232,11 @@ async def list_all(
     for p in projects:
         d = novel_to_dict(p)
         d["word_count"] = words.get(str(p.id), 0)
+        # 章数/已归档章数按章表聚合覆盖（章表＝唯一事实源，novel 上的列只是缓存）：
+        # 书架卡片阶段（stageFromChapters）与「打开书的落点」必须同结论，任何一处读旧缓存
+        # 都会自相矛盾（如「卡片已归档 / 落点写作」）；同时自愈历史库里的漂移计数。
+        d["total_chapters"] = ch_count.get(str(p.id), 0)
+        d["total_archives"] = arch_count.get(str(p.id), 0)
         try:
             story = await storage.read_yaml(p.root_path, "story.yaml") or {}
         except Exception:

@@ -11,7 +11,7 @@ import { Ico, P, genreIconPath } from "@/components/icons";
 import { PORTAL_URL } from "@/lib/portal";
 import { supportUrl } from "@/lib/support";
 import { useTier } from "@/hooks/useTier";
-import { STAGE_LABEL } from "@/lib/novelStage";
+import { STAGE_LABEL, stageFromChapters } from "@/lib/novelStage";
 
 interface Novel {
   id: string;
@@ -20,6 +20,8 @@ interface Novel {
   current_phase: string;
   total_volumes: number;
   total_chapters: number;
+  /** 已归档章节数（list 接口以章表聚合覆盖下发，见 novels/router.py）——卡片阶段判据 */
+  total_archives?: number;
   updated_at: string;
   /** 卡片富化字段（list 接口附加；缺失时优雅降级） */
   word_count?: number;
@@ -27,16 +29,9 @@ interface Novel {
   genre?: string | null;
 }
 
-/** 六阶段 → 设计三态：设定族灰、写作族琥珀、归档绿 */
-const PHASE_STAGE: Record<string, "setting" | "writing" | "done"> = {
-  init: "setting",
-  settings: "setting",
-  outline: "writing",
-  prompt: "writing",
-  write: "writing",
-  archive: "done",
-};
-// 阶段标签单源在 @/lib/novelStage（与「打开书的默认落点」同一个阶段模型）
+// 阶段标签 + 派生规则单源在 @/lib/novelStage（与「打开书的默认落点」同一模型）：
+// 无章=设定、全归档=已归档、其余=写作。原先按 current_phase 派生，会把
+// 「归档过几章但整本未完」的书显示成已归档，与落点（写作）自相矛盾。
 const STAGE_DOT = {
   writing: '<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
   setting: '<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
@@ -362,7 +357,10 @@ function NovelList() {
       ) : (
         <div className="cards">
           {sortedNovels.map((p) => {
-            const stage = PHASE_STAGE[p.current_phase] || "setting";
+            const stage = stageFromChapters(
+              p.total_chapters || 0,
+              p.total_archives || 0,
+            );
             const words = p.word_count ?? 0;
             return (
               <div

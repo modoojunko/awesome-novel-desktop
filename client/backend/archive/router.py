@@ -77,15 +77,19 @@ async def archive(
     # force：归档是内容驱动操作（≥100 字已校验），phase 仅记账，不再要求 write→archive
     # 严格流转——直接写第一章的手工路径 phase 停在 outline，严格校验会 500。
     tier_phase_transition(project, "archive", force=True)
-    project.total_archives += 1
 
     # DB 章行 archived 态（status + archived_at）
     from repositories import chapter_repo
 
     row = await chapter_repo.get_by_ref(db, project.id, chapter_ref)
+    # total_archives 语义＝**已归档章节数**（供书架卡片阶段判据）→ 必须幂等：
+    # 重复归档同一章不再累加，取消归档要回减（见 chapters/router.py unarchive）。
+    was_archived = row is not None and getattr(row, "status", "") == "archived"
     if row is not None:
         row.status = "archived"
         row.archived_at = datetime.now(UTC).replace(tzinfo=None)
+    if not was_archived:
+        project.total_archives = (project.total_archives or 0) + 1
     await db.commit()
 
     return result

@@ -637,3 +637,101 @@ class TestEquivalenceClasses:
         pid = _new_novel(client)
         r = client.put(f"/api/novels/{pid}/settings/genre", json={"cost_ratio": "高"})
         assert r.status_code == 400, r.text
+
+
+# ── total_archives 语义＝已归档章节数（书架卡片阶段判据，必须先准）──────────────
+
+
+class TestArchiveCounter:
+    """归档 +1（幂等）、取消归档 −1（对称）——卡片阶段判据依赖它。"""
+
+    def _setup(self, client):
+        pid = _new_novel(client)
+        r = client.post(f"/api/novels/{pid}/volumes", json={"title": "第一卷"})
+        assert r.status_code in (200, 201), r.text
+        vol_ref = r.json().get("ref") or "vol-1"
+        r2 = client.post(f"/api/novels/{pid}/volumes/{vol_ref}/chapters", json={"title": "第一章"})
+        assert r2.status_code in (200, 201), r2.text
+        ref = r2.json().get("ref") or f"{vol_ref}-ch-1"
+        return pid, ref
+
+    def _archives(self, pid) -> int:
+        import sqlite3
+
+        from config import DATABASE_URL
+
+        path = DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            return con.execute(
+                "SELECT total_archives FROM novels WHERE id = ?", (pid,)
+            ).fetchone()[0]
+        finally:
+            con.close()
+
+    def test_archive_then_unarchive_is_symmetric(self, client):
+        pid, ref = self._setup(client)
+        text = "第一章正文。" + "内容。" * 60
+
+        assert client.post(
+            f"/api/novels/{pid}/chapters/{ref}/archive",
+            json={"full_text": text, "ai_summary": False},
+        ).status_code == 200
+        assert self._archives(pid) == 1
+
+        assert client.post(f"/api/novels/{pid}/chapters/{ref}/unarchive").status_code == 200
+        assert self._archives(pid) == 0, "取消归档必须回减，否则卡片会误判写完"
+
+    def test_rearchive_is_idempotent(self, client):
+        pid, ref = self._setup(client)
+        text = "第一章正文。" + "内容。" * 60
+        for _ in range(2):
+            client.post(
+                f"/api/novels/{pid}/chapters/{ref}/archive",
+                json={"full_text": text, "ai_summary": False},
+            )
+        assert self._archives(pid) == 1, "重复归档同一章不得重复计数"
+
+    def test_unarchive_when_not_archived_never_goes_negative(self, client):
+        pid, ref = self._setup(client)
+        assert client.post(f"/api/novels/{pid}/chapters/{ref}/unarchive").status_code == 200
+        assert self._archives(pid) == 0
+
+    def _shelf_item(self, client, pid) -> dict:
+        items = client.get("/api/novels").json()
+        rows = items if isinstance(items, list) else items.get("items", [])
+        return next(r for r in rows if r["id"] == pid)
+
+    def test_shelf_counters_come_from_chapter_table(self, client):
+        """书架下发口径＝章表聚合（卡片阶段判据），且自愈列上的漂移计数。"""
+        pid, ref = self._setup(client)
+        text = "第一章正文。" + "内容。" * 60
+
+        before = self._shelf_item(client, pid)
+        assert (before["total_chapters"], before["total_archives"]) == (1, 0)
+
+        client.post(
+            f"/api/novels/{pid}/chapters/{ref}/archive",
+            json={"full_text": text, "ai_summary": False},
+        )
+        after = self._shelf_item(client, pid)
+        assert (after["total_chapters"], after["total_archives"]) == (1, 1)
+
+        # 人为把列上的计数改脏（模拟历史库/旧版本漏减）→ 下发值仍以章表为准
+        import sqlite3
+
+        from config import DATABASE_URL
+
+        path = DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+        con = sqlite3.connect(path)
+        try:
+            con.execute("UPDATE novels SET total_archives = 7 WHERE id = ?", (pid,))
+            con.commit()
+        finally:
+            con.close()
+        healthy = self._shelf_item(client, pid)
+        assert healthy["total_archives"] == 1, "卡片不得读列上的漂移计数"
+
+        client.post(f"/api/novels/{pid}/chapters/{ref}/unarchive")
+        back = self._shelf_item(client, pid)
+        assert (back["total_chapters"], back["total_archives"]) == (1, 0)

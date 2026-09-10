@@ -23,16 +23,21 @@ const RUN_PARITY = process.env.DESIGN_PARITY === "1";
 const VIEWPORT = { width: 1440, height: 900, deviceScaleFactor: 1 } as const;
 const MAX_DIFF_RATIO = 0.002; // 0.2% 像素阈值（抗锯齿容差）
 
-// 与原型 SEED_BOOKS 完全一致的固定数据（相对时间由 stub 时动态计算）
+// 与原型 SEED_BOOKS 同源固定数据（相对时间由 stub 时动态计算）。
+// **章数口径（2026-09-10 起）**：应用侧卡片阶段由 `stageFromChapters(章数, 已归档章数)`
+// 派生（与「打开书的落点」同源）——「无章节＝设定中」是该规则的定义。原型 SEED_BOOKS 里
+// 「长夜灯 2 章 + 设定中」在新口径下不可能成立（原型 `stage` 是手写字面量、非派生），
+// 故两侧注入数据统一改为 0 章，保持「同数据比布局」的前提；原型文件本身不改（docs/ 归设计线）。
 const H = 3600_000;
 const FIXED_NOVELS = () => [
   {
     id: "parity-1",
     name: "星海拾遗",
     slug: "parity-1",
-    current_phase: "write", // → 写作中
+    current_phase: "write", // 阶段只由章数派生，phase 不再参与（保留字段以贴近真实响应）
     total_volumes: 2,
     total_chapters: 4,
+    total_archives: 0, // 4 章未全归档 → 写作中
     word_count: 1371,
     genre: "科幻",
     synopsis: "废弃星港上，导航员沉舟捡到一枚不属于人类纪元的导航信标，决定修好旧船去追一段回声。",
@@ -42,9 +47,10 @@ const FIXED_NOVELS = () => [
     id: "parity-2",
     name: "长夜灯",
     slug: "parity-2",
-    current_phase: "settings", // → 设定中
+    current_phase: "settings", // → 设定中（0 章）
     total_volumes: 1,
-    total_chapters: 2,
+    total_chapters: 0,
+    total_archives: 0,
     word_count: 0,
     genre: "悬疑",
     synopsis: "一座永远天亮不了的县城，一个在深夜点灯的人。",
@@ -54,9 +60,10 @@ const FIXED_NOVELS = () => [
     id: "parity-3",
     name: "雾中法庭",
     slug: "parity-3",
-    current_phase: "archive", // → 已归档
+    current_phase: "archive", // → 已归档（9 章全归档）
     total_volumes: 3,
     total_chapters: 9,
+    total_archives: 9,
     word_count: 12842,
     genre: "都市",
     synopsis: "律所新人姜序被卷入一场横跨十二年的旧案，迷雾散去时，法槌落下。",
@@ -65,6 +72,7 @@ const FIXED_NOVELS = () => [
 ];
 
 // 原型侧 localStorage 注入用（字段名与 SEED_BOOKS 一致；stage/stageLabel/updated 为原型字面量）
+// 与上面 FIXED_NOVELS 同数据：原型 `stage` 是手写字面量，这里显式写出新口径下的结论值。
 const PROTO_BOOKS = [
   {
     title: "星海拾遗", genre: "科幻", stage: "writing", stageLabel: "写作中",
@@ -73,7 +81,7 @@ const PROTO_BOOKS = [
   },
   {
     title: "长夜灯", genre: "悬疑", stage: "setting", stageLabel: "设定中",
-    vols: 1, chs: 2, words: 0, updated: "昨天",
+    vols: 1, chs: 0, words: 0, updated: "昨天",
     summary: "一座永远天亮不了的县城，一个在深夜点灯的人。",
   },
   {
