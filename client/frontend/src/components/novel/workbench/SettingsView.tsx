@@ -325,13 +325,23 @@ export default function SettingsView({
   }, [item, panel, confirmed, busy, confirmSetting, done, total, currentHandle]);
 
   const panelTitle = isModel ? "AI 模型" : (item?.name ?? "");
-  const badgeCls = isModel || confirmed ? BADGE_DONE : filled ? "warn" : BADGE_EMPTY;
-  const badgeLabel = isModel || confirmed ? "已确认" : filled ? "已填" : "未填";
+  // 模型窗不是设定完成度项 → 徽标改为**真实就绪态**（与面板内「当前状态」同源，D13）
+  const MODEL_BADGE: Record<string, { cls: string; label: string; ok: boolean }> = {
+    ready: { cls: BADGE_DONE, label: "可用", ok: true },
+    missing_model: { cls: BADGE_EMPTY, label: "未选择", ok: false },
+    no_key: { cls: BADGE_EMPTY, label: "未配置", ok: false },
+    member_required: { cls: BADGE_EMPTY, label: "需会员", ok: false },
+    invalid: { cls: "err", label: "配置失效", ok: false },
+  };
+  const modelBadge = MODEL_BADGE[aiState] ?? MODEL_BADGE.no_key;
+  const badgeCls = isModel ? modelBadge.cls : confirmed ? BADGE_DONE : filled ? "warn" : BADGE_EMPTY;
+  const badgeLabel = isModel ? modelBadge.label : confirmed ? "已确认" : filled ? "已填" : "未填";
+  const badgeOk = isModel ? modelBadge.ok : badgeCls === BADGE_DONE;
   const panelDesc = isModel
     ? "本书写作所用的模型、变更历史与用量。"
     : (DESCS[panel] ?? "");
   const panelNote = isModel
-    ? "工具项 · 恒可用，不参与设定进度"
+    ? "工具项 · 不参与设定进度"
     : confirmed
       ? "已确认 · 可随时回来修改并重新确认"
       : item?.canDefer
@@ -343,7 +353,7 @@ export default function SettingsView({
       <aside className="col-tree">
         <div className="tree-head">
           <span className="t">
-            设定 · <b>{SETTINGS_ITEMS.length}</b> 项
+            设定 · <b>{SETTINGS_ITEMS.length}</b> 项 + 1 工具
           </span>
         </div>
         <div className="settings-progress">
@@ -390,10 +400,8 @@ export default function SettingsView({
             <span className="nm">AI 模型</span>
             <span className="defer-tag">工具</span>
             <span className="spacer" />
-            <span className={`badge ${BADGE_DONE}`}>
-              <BadgeIcon ok />
-              已确认
-            </span>
+            {/* 工具项无「确认」语义（D15/O-18 已移除 ai-model 可确认）→ 不挂确认徽标 */}
+            <span className="badge empty">不参与进度</span>
           </div>
         </div>
         <div className="tree-foot">
@@ -411,7 +419,7 @@ export default function SettingsView({
           <div className="panel-head">
             <h2>{panelTitle}</h2>
             <span className={`badge ${badgeCls}`}>
-              <BadgeIcon ok={badgeCls === BADGE_DONE} />
+              <BadgeIcon ok={badgeOk} />
               {badgeLabel}
             </span>
           </div>
@@ -705,6 +713,7 @@ const IntroPanel = forwardRef<
                 node: (
                   <>
                     {/* 行名按模板单源顺序渲染（后端只提供 status/note），保证与六段模板逐字一致 */}
+                    <div className="chk-grid">
                     {INTRO_SEGMENTS.map((seg) => {
                       const s = segs.find((x) => x.name === seg.name);
                       return (
@@ -717,6 +726,7 @@ const IntroPanel = forwardRef<
                         </div>
                       );
                     })}
+                    </div>
                     <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
                       禁忌扫描：
                       {hits.length
@@ -853,7 +863,8 @@ const IntroPanel = forwardRef<
         <div className="field">
           <label>
             故事简介 <span className="opt">≤{INTRO_MAX_LEN} 字</span>
-            <span className="cnt" style={{ marginLeft: "auto" }}>
+            {/* 计数紧邻上限说明（原 margin-left:auto 在宽面板下被推到最右，与文案脱节） */}
+            <span className="cnt">
               {synopsis.length}/{INTRO_MAX_LEN}
             </span>
           </label>

@@ -311,3 +311,107 @@ test("设定面板填满中栏且左右留白对称（1440/1920）", async ({ pa
     restore();
   }
 });
+
+// ── PM 评审四项修复的回归（2026-09-10）────────────────────────────────────
+// 背景：面板变宽后暴露 ① 工具项挂「已确认」假徽标 ② 说明型区块被 margin-left:auto
+// 甩到两端 ③ 面板脚注悬空 ④ 六段体检单列在宽屏下每行右侧大片空白。
+test("设定页：工具项徽标 / 辅助信息邻接 / 脚注贴底", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `PM评审${Date.now() % 100000}`);
+    await stubAiState(page, pid);
+    await page.setViewportSize({ width: 1660, height: 980 });
+    await page.goto(`${ORIGIN}/#/novel/${pid}`);
+    await page.waitForTimeout(1500);
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await expect(page.locator(".settings-v main h2")).toBeVisible({ timeout: 15000 });
+
+    // P3 左栏标题口径：8 设定项 + 1 工具行
+    await expect(page.locator(".settings-v .tree-head .t")).toContainText("+ 1 工具");
+
+    // P1a 工具行不挂确认徽标（它从不参与确认，恒「已确认」是误导）
+    const toolBadge = page.locator(".settings-v .settings-nav-wrap .s-item", { hasText: "AI 模型" }).locator(".badge");
+    await expect(toolBadge).toContainText("不参与进度");
+    await expect(toolBadge).not.toContainText("已确认");
+
+    // P2b/P2c 辅助信息邻接：计数与「≤500 字」、展开与文案的间距都在 ~30px 内
+    const gaps = await page.evaluate(() => {
+      const q = (s: string) => document.querySelector(s) as HTMLElement;
+      const label = q(".settings-v .field > label");
+      const cnt = label.querySelector(".cnt") as HTMLElement;
+      const opt = label.querySelector(".opt") as HTMLElement;
+      const gtC = q(".settings-v .guide-toggle .gt-c");
+      const gtS = q(".settings-v .guide-toggle .gt-s");
+      return {
+        cnt: Math.round(cnt.getBoundingClientRect().left - opt.getBoundingClientRect().right),
+        guide: Math.round(gtC.getBoundingClientRect().left - gtS.getBoundingClientRect().right),
+      };
+    });
+    expect(gaps.cnt).toBeLessThan(30);
+    expect(gaps.guide).toBeLessThan(40);
+
+    // P2d 面板脚注贴底：脚注底到中栏底只剩容器内边距（60px），不再悬空 ~180px
+    const footGap = await page.evaluate(() => {
+      const col = document.querySelector(".settings-v .col-middle")!;
+      const foot = document.querySelector(".settings-v .panel-foot")!;
+      return Math.round(col.getBoundingClientRect().bottom - foot.getBoundingClientRect().bottom);
+    });
+    expect(footGap).toBeLessThan(80);
+
+    // P1b 模型窗面板头徽标＝真实就绪态（桩 ready → 可用，不再是恒「已确认」）
+    await page.locator(".settings-v .settings-nav-wrap .s-item", { hasText: "AI 模型" }).click();
+    await expect(page.locator(".settings-v .panel-head .badge")).toContainText("可用");
+    await expect(page.locator(".settings-v .panel-foot .note")).toContainText("不参与设定进度");
+  } finally {
+    restore();
+  }
+});
+
+test("简介体检：六段在宽屏两列排布（不再单列稀疏）", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `六段网格${Date.now() % 100000}`);
+    await stubAiState(page, pid);
+    await page.route(`**/api/novels/${pid}/settings/ai/intro/introspect`, (r) =>
+      r.fulfill({
+        json: {
+          six_segments: [
+            { name: "主角身份", status: "ok", excerpt: "外门杂徒林拾", note: "" },
+            { name: "本来的生活", status: "ok", excerpt: "熬满十年出宗", note: "" },
+            { name: "突发状况", status: "missing", excerpt: "", note: "没写打破平静的变故" },
+            { name: "必须面对的矛盾", status: "missing", excerpt: "", note: "缺两难" },
+            { name: "不做的后果", status: "ok", excerpt: "丹田枯竭", note: "" },
+            { name: "做了的可能结局", status: "ok", excerpt: "一路捅上去", note: "" },
+          ],
+          taboo: { hits: [] },
+          title_check: { fit: "ok", note: "", suggestions: [] },
+          verdict: "ok",
+        },
+      }),
+    );
+
+    await page.setViewportSize({ width: 1660, height: 980 });
+    await page.goto(`${ORIGIN}/#/novel/${pid}`);
+    await page.waitForTimeout(1500);
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await page.getByPlaceholder(/用几句话/).fill("外门杂徒林拾，在宗门扫了十年落叶。");
+    await page.locator('[data-aiact="check"]').click();
+    await expect(page.locator('[data-od-id="intro-ai-sink"]')).toBeVisible({ timeout: 15000 });
+
+    const grid = await page.evaluate(() => {
+      const g = document.querySelector(".settings-v .ai-sink .chk-grid")!;
+      const tops = [...g.querySelectorAll(".chk-line")].map((e) => Math.round(e.getBoundingClientRect().top));
+      return {
+        cols: getComputedStyle(g).gridTemplateColumns.split(" ").length,
+        rows: new Set(tops).size,
+        lines: tops.length,
+      };
+    });
+    // 宽屏：6 段排成 3 行 2 列（不再 6 行单列、每行右侧大片空白）
+    expect(grid.lines).toBe(6);
+    expect(grid.cols).toBeGreaterThan(1);
+    expect(grid.rows).toBeLessThan(6);
+  } finally {
+    restore();
+  }
+});

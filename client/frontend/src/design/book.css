@@ -582,3 +582,19 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .ai-sink .title-check .tc-note { color: var(--muted); }
 .settings-v .ai-sink .title-check .tc-chip { display: inline-block; margin-left: 5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); }
 .settings-v .ai-sink .title-check .tc-tip { margin-left: 6px; color: var(--muted); }
+
+/* ── 设定面板的「辅助信息邻接」与「贴底脚注」（PM 评审 2026-09-10 修）──
+   面板变宽（1fr 填满中栏）后，靠 margin-left:auto 右推的次级元素会被甩到最右，
+   与它所属的文案脱节；辅助信息（展开/计数）改为紧跟文案。 */
+.settings-v .guide-toggle .gt-c { margin-left: 10px; }          /* 「展开」紧随文案，不右推 */
+.settings-v .field > label .cnt { margin-left: 10px; }          /* 计数紧邻「≤500 字」 */
+.settings-v .field > label { display: flex; align-items: baseline; gap: 0; }
+
+/* 体检六段：宽了自动并两列（auto-fit），窄屏单列——避免每行右侧大片空白 */
+/* 最小列宽 340px：保证「名称 108 + 结果 + 说明」三段的说明列有 ~180px 可承载 note
+   （260px 会在宽屏挤出 3 列，说明列只剩 ~170px，长 note 折多行反而更乱）*/
+.settings-v .ai-sink .chk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); column-gap: 24px; }
+
+/* 面板脚注贴底：面板撑满中栏高度，foot 压在底部（短内容面板不再"脚下空一片"） */
+.settings-v .panel { display: flex; flex-direction: column; min-height: 100%; }
+.settings-v .panel > .panel-foot { margin-top: auto; }
