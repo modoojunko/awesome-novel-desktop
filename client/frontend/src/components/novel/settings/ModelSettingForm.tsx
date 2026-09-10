@@ -6,6 +6,7 @@
 //   组内模型行＝radiogroup/radio + roving tabindex + 方向键/Home/End（选中不可取消）；
 //   **选择与生效分离**——点行只标亮（draft），点「设为本书模型」才落库（整对 PUT）；
 //   400 保留 draft + 行内报错；draft 未确认时切面板走全局 dirty 提示。
+import { useChangeReceipt } from "./ChangeReceipt";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useModelStatus } from "@/hooks/useModelStatus";
 import { Cfg } from "./FormField";
@@ -18,6 +19,8 @@ interface ModelSettingFormProps {
   onDirtyChange?: (dirty: boolean) => void;
   /** 绑定/补模型成功后回调（设定视图据此刷新 AI 行的 ai_state，避免旧态跳转）。 */
   onModelChanged?: () => void;
+  /** 改动回执：把本书模型改掉＝影响全书 AI 的动作 → 脚部回执 + 一步撤销。 */
+  onReceiptChange?: (r: import("./ChangeReceipt").ChangeReceiptState | null) => void;
 }
 
 const CHECK_PATH = "M5 13l4 4L19 7";
@@ -42,6 +45,7 @@ export default function ModelSettingForm({
   projectId,
   onDirtyChange,
   onModelChanged,
+  onReceiptChange,
 }: ModelSettingFormProps) {
   const {
     status,
@@ -60,6 +64,7 @@ export default function ModelSettingForm({
   } = useModelStatus(projectId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const { record: recordChange } = useChangeReceipt(onReceiptChange);
   /** 手动补模型（供应商不提供 /models 列表时的出口）：config_id → 输入框值。 */
   const [manual, setManual] = useState<Record<string, string>>({});
   const [manualBusy, setManualBusy] = useState<string | null>(null);
@@ -159,9 +164,23 @@ export default function ModelSettingForm({
     if (!draft || saving) return;
     setSaving(true);
     setError("");
+    // 改前值：把本书 AI 从「原模型」换成「新模型」——错了会让全书生成走错模型，故可撤销
+    const prevCid = currentConfigId;
+    const prevModel = currentModel;
+    const prevName = currentConfigName;
     try {
       await selectModel(draft.cid, draft.model);
       setDraft(null);
+      const cfgName = configs.find((c) => c.id === draft.cid)?.name ?? draft.cid;
+      recordChange(
+        `已把本书模型设为「${cfgName}${draft.model ? " · " + draft.model : ""}」`,
+        () => {
+          /* 值已落库 */
+        },
+        () => {
+          void selectModel(prevCid ?? null, prevModel ?? null).then(() => onModelChanged?.());
+        },
+      );
       onModelChanged?.();
     } catch (e) {
       // 400 等：保留 draft + 行内报错（不清空、不禁用）
@@ -169,7 +188,7 @@ export default function ModelSettingForm({
     } finally {
       setSaving(false);
     }
-  }, [draft, saving, selectModel, onModelChanged]);
+  }, [draft, saving, selectModel, onModelChanged, recordChange, configs, currentConfigId, currentModel, currentConfigName]);
 
   if (!projectId) return null;
   if (loading) return <p className="opt">查询中…</p>;

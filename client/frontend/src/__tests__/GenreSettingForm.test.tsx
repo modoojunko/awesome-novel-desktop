@@ -26,10 +26,18 @@ function renderPanel(initial: unknown = {}) {
     return Promise.resolve(initial);
   });
   const ref = createRef<GenreHandle>();
+  const receipts: Array<{ text: string; undo: () => void } | null> = [];
   const utils = render(
-    <GenreSettingForm ref={ref} projectId="p1" settingKey="genre" />,
+    <GenreSettingForm
+      ref={ref}
+      projectId="p1"
+      settingKey="genre"
+      onReceiptChange={(r) => receipts.push(r)}
+    />,
   );
-  return { ref, ...utils };
+  /** 当前回执（最后一次上报；null＝已清）。 */
+  const receipt = () => receipts[receipts.length - 1] ?? null;
+  return { ref, receipt, ...utils };
 }
 
 describe("GenreSettingForm · 六格", () => {
@@ -517,5 +525,109 @@ describe("GenreSettingForm · 生成历史（最近 5 次）", () => {
     expect(container.textContent).toContain("第2版战场");
     fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
     expect(container.textContent).toContain("第2版战场");
+  });
+});
+
+// ── 改动回执 + 单步撤销（用户 2026-09-10 拍板：一键改变内容类动作必须可回退）──
+describe("GenreSettingForm · 改动回执 + 撤销", () => {
+  beforeEach(() => {
+    apiState.get.mockReset();
+    apiState.put.mockReset();
+    apiState.put.mockResolvedValue({ ok: true });
+  });
+
+  it("口味胶囊＝一次覆盖多格 → 回执写明覆盖范围，撤销回到改前", async () => {
+    const { ref, receipt, container } = renderPanel({
+      core_promise: "算无遗策的掌控感",
+      promise_note: "读者要看布局收网",
+      cost_ratio: 5,
+    });
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+
+    fireEvent.click(container.querySelector('[data-g="comeback"]')!);
+    expect(receipt()?.text).toContain("已按「逆袭打脸」覆盖");
+    expect(receipt()?.text).toContain("吃苦指数 5→8");
+
+    receipt()!.undo();
+    await waitFor(() =>
+      expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+        .toBe("读者要看布局收网"),
+    );
+    expect(container.querySelector(".cost-val")!.textContent).toBe("5");
+    expect(ref.current).toBeTruthy();
+  });
+
+  it("禁项胶囊：勾选与取消都留回执，撤销可来回", async () => {
+    const { receipt, container } = renderPanel({ forbidden_list: [{ tagId: "forbidden:no-free-powerup" }] });
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+
+    fireEvent.click(container.querySelector('[data-forbid="forbidden:no-villain-idiot"]')!);
+    expect(receipt()?.text).toBe("已勾选「禁反派降智」");
+    receipt()!.undo();
+    await waitFor(() =>
+      expect(container.querySelector('[data-forbid="forbidden:no-villain-idiot"]')!.className)
+        .not.toContain("on"),
+    );
+
+    fireEvent.click(container.querySelector('[data-forbid="forbidden:no-free-powerup"]')!);
+    expect(receipt()?.text).toBe("已取消「禁白捡神器」");
+    receipt()!.undo();
+    await waitFor(() =>
+      expect(container.querySelector('[data-forbid="forbidden:no-free-powerup"]')!.className)
+        .toContain("on"),
+    );
+  });
+
+  it("滑块：拖动中不出回执，松手出一次；撤销回到拖动前", async () => {
+    const { receipt, container } = renderPanel({ cost_ratio: 6 });
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+    const slider = container.querySelector('[data-od-id="cost-slider"]') as HTMLInputElement;
+
+    fireEvent.pointerDown(slider);
+    fireEvent.change(slider, { target: { value: "9" } });
+    expect(receipt()).toBeNull(); // 拖动中不刷回执
+
+    fireEvent.pointerUp(slider);
+    expect(receipt()?.text).toBe("已把吃苦指数从 6 调到 9");
+
+    receipt()!.undo();
+    await waitFor(() => expect((container.querySelector('[data-od-id="cost-slider"]') as HTMLInputElement).value).toBe("6"));
+  });
+
+  it("02 文本：敲字只在失焦后给「恢复到打开时的原文」，过程中不提示", async () => {
+    const { receipt, container } = renderPanel({ promise_note: "读者要看弱者翻盘" });
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+    const box = container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement;
+
+    fireEvent.change(box, { target: { value: "读者要看弱者靠算计翻盘" } });
+    expect(container.querySelector('[data-od-id="field-restore"]')).toBeNull(); // 打字中不提示
+    expect(receipt()).toBeNull(); // 也不进脚部回执
+
+    fireEvent.blur(box);
+    expect(container.querySelector('[data-od-id="field-restore"]')).toBeTruthy();
+    fireEvent.click(container.querySelector('[data-od-id="field-restore-btn"]')!);
+    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+      .toBe("读者要看弱者翻盘");
+    expect(container.querySelector('[data-od-id="field-restore"]')).toBeNull();
+  });
+
+  it("AI 采纳覆盖这段 → 回执报字数，撤销写回改前两个字", async () => {
+    aiState.genreAi.mockResolvedValue({
+      value: { value: "以弱破强的痛快", note: "读者要看到弱者用脑子翻盘" },
+    });
+    const { ref, receipt, container } = renderPanel({ promise_note: "旧的一句" });
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+
+    await act(async () => ref.current!.runAi("core_promise"));
+    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
+
+    expect(receipt()?.text).toContain("已采纳 AI 建议，覆盖「主要看什么」");
+    expect(receipt()?.text).toContain("4 字 → 12 字");
+    receipt()!.undo();
+    await waitFor(() =>
+      expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+        .toBe("旧的一句"),
+    );
+    expect(container.textContent).not.toContain("标签：以弱破强的痛快");
   });
 });

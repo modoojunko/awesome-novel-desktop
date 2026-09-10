@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>设定页「改动回执 + 撤销」交互小样</title>
+<style>
+  :root {
+    --bg: #f7f8f9; --surface: #ffffff; --border: #e6e7eb; --fg: #1f2328;
+    --muted: #767b85; --fg-soft: #f1f2f4; --accent: #0f766e; --accent-soft: #e3f1ee;
+    --warn: #b45309; --warn-soft: #fdf3e3;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px; background: var(--bg); color: var(--fg);
+    font: 14px/1.65 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 880px) { .cols { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 18px 0; }
+  .card > h2 { font-size: 14px; margin: 0 0 2px; }
+  .card > .sub { color: var(--muted); font-size: 12px; margin: 0 0 16px; }
+  .mod { margin-bottom: 20px; }
+  .mod-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .m-no { font-size: 11px; color: var(--accent); border: 1px dashed var(--accent); border-radius: 999px; padding: 0 7px; }
+  .m-name { font-weight: 600; }
+  .m-why { font-size: 12px; color: var(--muted); }
+  .cap-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .cap-label { font-size: 11.5px; color: var(--muted); margin-right: 2px; }
+  .cap { display: inline-flex; align-items: center; padding: 6px 13px; border: 1px solid var(--border);
+    border-radius: 999px; font-size: 13px; background: var(--surface); cursor: pointer; font-family: inherit; }
+  .cap:hover { border-color: var(--muted); }
+  .cap.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+  .textarea { width: 100%; min-height: 62px; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 9px; font: inherit; resize: vertical; color: var(--fg); }
+  .opt { font-size: 11.5px; color: var(--muted); margin: 6px 0 0; }
+  .slider { width: 100%; accent-color: var(--accent); }
+  .row-li { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; }
+  .row-li .x { margin-left: auto; border: 0; background: transparent; color: var(--muted);
+    font-size: 15px; cursor: pointer; padding: 0 4px; border-radius: 5px; }
+  .row-li .x:hover { background: var(--fg-soft); color: var(--fg); }
+
+  /* 面板脚部：主按钮 + 改动回执（同一行，回执在左） */
+  .panel-foot { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--border);
+    margin: 18px -18px 0; padding: 12px 18px; background: var(--surface); border-radius: 0 0 12px 12px; }
+  .btn-primary { margin-left: auto; padding: 8px 16px; border-radius: 9px; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff; font: inherit; font-size: 13px; cursor: pointer; }
+  .receipt { display: none; align-items: center; gap: 10px; font-size: 12.5px; color: var(--fg);
+    background: var(--warn-soft); border: 1px solid #f0dcc0; border-radius: 9px; padding: 6px 10px; max-width: 70%; }
+  .receipt.show { display: inline-flex; }
+  .receipt .undo { flex: none; white-space: nowrap; border: 0; background: transparent; color: var(--warn);
+    font: inherit; font-size: 12.5px; cursor: pointer; text-decoration: underline; padding: 0; }
+  .field-hint { font-size: 11.5px; color: var(--muted); margin: 6px 0 0; display: none; }
+  .field-hint.show { display: block; }
+  .link { border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 11.5px;
+    text-decoration: underline; cursor: pointer; padding: 0; }
+  .ai-cover { margin-top: 8px; }
+  .btn-ghost { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface);
+    font: inherit; font-size: 12.5px; cursor: pointer; }
+  .btn-ghost:hover { border-color: var(--muted); }
+  .hook { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+  .hook b { color: var(--accent); font-weight: 500; }
+  /* 对比区：默认只读 */
+  .ro .cap, .ro .slider, .ro .x { pointer-events: none; opacity: .72; }
+  .editbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .btn-ghost { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface);
+    font: inherit; font-size: 13px; cursor: pointer; }
+  .badge-ro { font-size: 11.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+  .locked .cap, .locked .slider, .locked .textarea, .locked .x { pointer-events: none; opacity: .72; }
+</style>
+</head>
+<body>
+<h1>设定页：改动回执 + 单步撤销（可点的最小小样）</h1>
+<p class="lead">左＝产品经理方案（改动可见、可撤销，不引入查看态）；右＝你提的「默认查看、点编辑才可改」。两边内容与样式完全一样，只有交互不同——点几下比比手感。<br>
+<b>输入框的口径</b>：自己敲的字不进脚部回执（会刷屏）；但**被一键覆盖/清空**的文本必须有回执 + 撤销。自己敲的那段，用「失焦后框下一条轻提示」兜底（不占脚部、不打字时刷屏）。</p>
+
+<div class="cols">
+
+  <!-- ============ 左：回执 + 撤销 ============ -->
+  <section class="card" id="demoA">
+    <h2>方案 A · 改动回执 + 撤销</h2>
+    <p class="sub">控件照常能改；任何一次改动都会在脚部留一条回执，点「撤销」回到改动前。改回原值时回执自动消失。</p>
+
+    <div class="mod">
+      <div class="mod-head"><span class="m-no">02</span><span class="m-name">主要看什么</span><span class="m-why">读者翻开这本书，主要看的是什么</span></div>
+      <div class="cap-row" style="margin-bottom:8px">
+        <span class="cap-label">常见口味</span>
+        <button class="cap" data-flavor="comeback">逆袭打脸</button>
+        <button class="cap" data-flavor="mind">烧脑博弈</button>
+        <button class="cap" data-flavor="sweet">独宠撒糖</button>
+      </div>
+      <textarea class="textarea" id="a-note">读者要看到弱者被逼到绝境后，靠算计一步步翻盘。</textarea>
+      <p class="field-hint" id="a-note-hint">已修改 · <button class="link" id="a-note-restore">恢复到打开时的原文</button></p>
+      <p class="opt" id="a-tag">标签：以弱破强的痛快</p>
+      <div class="ai-cover"><button class="btn-ghost" id="a-ai">让 AI 补一句（采纳即覆盖这段）</button></div>
+    </div>
+
+    <div class="mod">
+      <div class="mod-head"><span class="m-no">03</span><span class="m-name">绝对禁止</span><span class="m-why">勾了就不写</span></div>
+      <div class="cap-row" id="a-forbid">
+        <button class="cap on" data-f="no-free-powerup">禁白捡神器</button>
+        <button class="cap" data-f="no-villain-idiot">禁反派降智</button>
+        <button class="cap" data-f="no-deus-ex-machina">禁天降外援</button>
+      </div>
+    </div>
+
+    <div class="mod">
+      <div class="mod-head"><span class="m-no">04</span><span class="m-name">吃苦指数</span><span class="m-why">主角得好处要付多大代价</span></div>
+      <input class="slider" type="range" min="1" max="10" value="6" id="a-cost" />
+      <p class="opt" id="a-cost-val">6 分 —— 当众断骨毁名，才拿到入场券</p>
+    </div>
+
+    <div class="mod">
+      <div class="mod-head"><span class="m-no">08</span><span class="m-name">禁用词句</span><span class="m-why">生成时要拦掉的词</span></div>
+      <div id="a-words">
+        <div class="row-li"><span>打脸</span><button class="x" title="删除本行">×</button></div>
+        <div class="row-li"><span>不是而是句式</span><button class="x" title="删除本行">×</button></div>
+        <div class="row-li"><span>眼底闪过一丝</span><button class="x" title="删除本行">×</button></div>
+      </div>
+    </div>
+
+    <div class="panel-foot">
+      <span class="receipt" id="a-receipt"><span id="a-receipt-txt"></span><button class="undo" id="a-undo">撤销</button></span>
+      <button class="btn-primary" id="a-confirm">确认完成</button>
+    </div>
+    <p class="hook">主按钮语义<b>没变</b>：未确认＝「确认完成」，已确认＝「保存修改」。回执是提示，不是模式——面板永远只有 1 个主按钮 + 最多 1 条回执。</p>
+  </section>
+
+  <!-- ============ 右：默认只读 + 点编辑 ============ -->
+  <section class="card ro" id="demoB">
+    <h2>方案 B · 默认查看，点「编辑」才能改</h2>
+    <p class="sub">进来是只读；点「编辑」才解锁控件；改完还要点「完成」，再点「保存修改」。</p>
+
+    <div class="editbar">
+      <span class="badge-ro" id="b-state">查看中</span>
+      <button class="btn-ghost" id="b-toggle">编辑</button>
+    </div>
+
+    <div class="mod">
+      <div class="mod-head"><span class="m-no">02</span><span class="m-name">主要看什么</span><span class="m-why">读者翻开这本书，主要看的是什么</span></div>
+      <div class="cap-row" style="margin-bottom:8px">
+        <span class="cap-label">常见口味</span>
+        <button class="cap">逆袭打脸</button>
+        <button class="cap">烧脑博弈</button>
+        <button class="cap">独宠撒糖</button>
+      </div>
+      <textarea class="textarea">读者要看到弱者被逼到绝境后，靠算计一步步翻盘。</textarea>
+    </div>
+
+    <div class="mod">
+      <div class="mod-head"><span class="m-no">04</span><span class="m-name">吃苦指数</span><span class="m-why">主角得好处要付多大代价</span></div>
+      <input class="slider" type="range" min="1" max="10" value="6" />
+      <p class="opt">6 分 —— 当众断骨毁名，才拿到入场券</p>
+    </div>
+
+    <div class="panel-foot">
+      <button class="btn-primary" id="b-save">保存修改</button>
+    </div>
+    <p class="hook">同一件事（把 6 改成 8）要走的步数：<b>A＝1 步</b>（拖完就生效，有回执可退）；<b>B＝3 步</b>（编辑 → 拖 → 完成）+ 一次保存。</p>
+  </section>
+
+</div>
+
+<script>
+// ===== 方案 A：回执 + 单步撤销 =====
+const FLAVORS = {
+  comeback: { label: "逆袭打脸", note: "读者要看到主角被境界、资源、人情压着，却专挑对方体系里的漏洞打。",
+              tag: "以弱破强的痛快", forbid: ["no-free-powerup", "no-villain-idiot"], cost: 8 },
+  mind:     { label: "烧脑博弈", note: "读者要看到局面每解释一层就翻一次，主角靠信息差布局收网。",
+              tag: "层层反转的智力快感", forbid: ["no-villain-idiot"], cost: 5 },
+  sweet:    { label: "独宠撒糖", note: "读者要看到关系一点点靠近，误会当场解开、不拖不虐。",
+              tag: "甜到齁的情感满足", forbid: [], cost: 3 },
+};
+const a = { note: "", tag: "以弱破强的痛快", forbid: new Set(["no-free-powerup"]), cost: 6 };
+const el = (id) => document.getElementById(id);
+const receipt = el("a-receipt"), receiptTxt = el("a-receipt-txt");
+let undoFn = null;
+
+function renderA() {
+  el("a-cost").value = a.cost;
+  el("a-cost-val").textContent = a.cost + " 分 —— 当众断骨毁名，才拿到入场券";
+  el("a-note").value = a.note;
+  el("a-tag").textContent = "标签：" + (a.tag || "（未设）");
+  document.querySelectorAll("#a-forbid .cap").forEach((b) =>
+    b.classList.toggle("on", a.forbid.has(b.dataset.f)));
+  // 回执：有撤销点就显示（撤销里含"改回原值即清空回执"的判断）
+  receipt.classList.toggle("show", !!undoFn);
+}
+function commit(label, apply, revert) {
+  apply();
+  undoFn = () => { revert(); undoFn = null; renderA(); };
+  receiptTxt.textContent = label;
+  renderA();
+}
+el("a-undo").onclick = () => undoFn && undoFn();
+
+document.querySelectorAll("[data-flavor]").forEach((btn) => {
+  btn.onclick = () => {
+    const f = FLAVORS[btn.dataset.flavor];
+    // 快照 → 改 → 回执（撤销＝写回快照）
+    const before = { note: a.note, tag: a.tag, forbid: [...a.forbid], cost: a.cost };
+    commit(
+      "已按「" + f.label + "」覆盖：主要看什么 / 绝对禁止（" + f.forbid.length + " 项）/ 吃苦指数 " +
+        before.cost + "→" + f.cost + " · ",
+      () => { a.note = f.note; a.tag = f.tag; a.forbid = new Set(f.forbid); a.cost = f.cost; },
+      () => { a.note = before.note; a.tag = before.tag; a.forbid = new Set(before.forbid); a.cost = before.cost; },
+    );
+  };
+});
+document.querySelectorAll("#a-forbid .cap").forEach((btn) => {
+  btn.onclick = () => {
+    const id = btn.dataset.f, on = a.forbid.has(id), label = btn.textContent;
+    commit(
+      (on ? "已取消「" : "已勾选「") + label + "」 · ",
+      () => { on ? a.forbid.delete(id) : a.forbid.add(id); },
+      () => { on ? a.forbid.add(id) : a.forbid.delete(id); },
+    );
+  };
+});
+el("a-cost").oninput = () => { el("a-cost-val").textContent = "拖动中 " + el("a-cost").value + " 分（松手生效）"; };
+el("a-cost").onchange = () => {
+  const next = Number(el("a-cost").value), prev = a.cost;
+  if (next === prev) return;
+  commit(
+    "已把吃苦指数从 " + prev + " 调到 " + next + " · ",
+    () => { a.cost = next; },
+    () => { a.cost = prev; },
+  );
+};
+document.querySelectorAll("#a-words .x").forEach((btn) => {
+  btn.onclick = () => {
+    const row = btn.parentElement, text = row.firstElementChild.textContent;
+    const parent = row.parentElement, idx = [...parent.children].indexOf(row);
+    commit("已删掉禁用词「" + text + "」 · ",
+      () => row.remove(),
+      () => parent.insertBefore(row, parent.children[idx] || null));
+  };
+});
+// —— 输入框：自己敲的字 → 失焦后才出一条字段级轻提示（不占脚部、打字时不刷屏）
+const noteBase = el("a-note").value;
+el("a-note").onblur = () => {
+  el("a-note-hint").classList.toggle("show", el("a-note").value !== noteBase);
+};
+el("a-note-restore").onclick = () => {
+  el("a-note").value = noteBase;
+  el("a-note-hint").classList.remove("show");
+};
+// —— 输入框被"一键覆盖"（AI 采纳）→ 必须进脚部回执，撤销把整段还回来
+el("a-ai").onclick = () => {
+  const prev = el("a-note").value;
+  const next = "读者要看到夜班巡护者被逼入绝境后，用凡人之躯和街头智慧硬撼血族，每场猎杀都是弱者反杀强者的痛快。";
+  commit(
+    "已采纳 AI 建议，覆盖「主要看什么」（" + prev.length + " 字 → " + next.length + " 字）· ",
+    () => { el("a-note").value = next; el("a-note-hint").classList.remove("show"); },
+    () => { el("a-note").value = prev; },
+  );
+};
+el("a-confirm").onclick = () => {
+  if (undoFn) { undoFn(); return; } // 演示：还有未退的改动时，先让你看到撤销
+  el("a-confirm").textContent = "保存修改";
+  receipt.classList.remove("show");
+};
+a.note = el("a-note").value; renderA();
+
+// ===== 方案 B：默认只读 =====
+el("b-toggle").onclick = () => {
+  const locked = el("demoB").classList.toggle("locked");
+  el("b-state").textContent = locked ? "查看中" : "编辑中";
+  el("b-toggle").textContent = locked ? "编辑" : "完成";
+};
+el("b-save").onclick = () => { el("b-state").textContent = "已保存 · 查看中"; el("demoB").classList.add("locked"); el("b-toggle").textContent = "编辑"; };
+</script>
+</body>
+</html>

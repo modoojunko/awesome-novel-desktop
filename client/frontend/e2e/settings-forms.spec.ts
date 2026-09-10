@@ -359,6 +359,55 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
 });
 
 // -------------------------------------------------------------------------
+// ①b 长回执不折行、不撑宽中栏：脚部折出的第二行会落到窗口状态条（.statusbar，
+// fixed 26px）之下点不到；中栏被内容撑宽则会把右栏 AI 挤出屏幕（2026-09-10 实测）
+// -------------------------------------------------------------------------
+
+test("题材：长回执单行截断，确认完成点得到", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    await createNovel(page, `回执${Date.now() % 100000}`);
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "题材");
+
+    // 口味胶囊＝一次点击改 5 格 → 最长的一条回执
+    await page.locator('[data-g="comeback"]').click();
+    const receipt = page.locator('[data-od-id="panel-receipt"]');
+    await expect(receipt).toContainText("覆盖：主要看什么 / 绝对禁止");
+
+    // 文本单行截断（scrollWidth > clientWidth），全文挂 title 悬浮可读
+    const rt = receipt.locator(".rt");
+    expect(await rt.getAttribute("title")).toBe((await rt.textContent())?.trim());
+    expect(await rt.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+
+    // 脚部不许折行（一行的高度 ≪ 两行），且滚到底后仍在窗口状态条之上
+    const foot = page.locator(".panel-foot");
+    expect((await foot.boundingBox())!.height).toBeLessThan(80);
+    const btn = foot.getByRole("button", { name: "确认完成" });
+    await btn.scrollIntoViewIfNeeded();
+    const footBox = (await foot.boundingBox())!;
+    const statusbar = (await page.locator(".statusbar").boundingBox())!;
+    expect(footBox.y + footBox.height).toBeLessThanOrEqual(statusbar.y + 0.5);
+
+    // 主按钮真的点得到：命中测试＝当初的失败签名（点下去命中的是状态条/回执）
+    const box = (await btn.boundingBox())!;
+    expect(
+      await page.evaluate(
+        ([x, y]) =>
+          (document.elementFromPoint(x as number, y as number) as HTMLElement)?.textContent?.trim(),
+        [box.x + box.width / 2, box.y + box.height / 2],
+      ),
+    ).toBe("确认完成");
+
+    // 中栏没有被回执撑宽：右栏 AI 仍在屏幕内（撑宽时 AI 栏被挤出右侧约 58px）
+    const ai = (await page.locator(".settings-v .col-ai").boundingBox())!;
+    expect(ai.x + ai.width).toBeLessThanOrEqual((await page.viewportSize())!.width);
+  } finally {
+    await restore();
+  }
+});
+
+// -------------------------------------------------------------------------
 // ② 风格：真实表单（叙事身份 Field + 核心原则折叠组）→ 确认完成自动落库
 // -------------------------------------------------------------------------
 

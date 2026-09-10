@@ -21,6 +21,7 @@ import { Ico, P } from "@/components/icons";
 import { useDirtyState } from "@/hooks/useDirtyState";
 import { genreAi, aiBlockReason, type GenreAiField } from "@/lib/ai";
 import AiSink from "./AiSink";
+import { RestoreHint, useChangeReceipt } from "./ChangeReceipt";
 import { type SettingSaveHandle } from "./FormField";
 import {
   GENRE_FLAVORS,
@@ -38,6 +39,8 @@ interface GenreSettingFormProps {
   projectId: string;
   settingKey: string;
   onDirtyChange?: (dirty: boolean) => void;
+  /** 改动回执（一键改变内容类动作在脚部留一条 + 一步撤销；用户 2026-09-10 拍板）。 */
+  onReceiptChange?: (r: import("./ChangeReceipt").ChangeReceiptState | null) => void;
   /** 本书书名——题材 AI 入参 title 的来源。 */
   novelName?: string;
 }
@@ -248,7 +251,7 @@ function PointChooser({
 // ── Main ─────────────────────────────────────────────────────────────────
 
 const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function GenreSettingForm(
-  { projectId, settingKey, onDirtyChange, novelName },
+  { projectId, settingKey, onDirtyChange, onReceiptChange, novelName },
   ref,
 ) {
   const [loading, setLoading] = useState(true);
@@ -261,6 +264,24 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
   const loadedRef = useRef(false);
   const { snapshotLoaded, markSaved, markDirty } = useDirtyState(data, onDirtyChange);
   const cand = useCandidates();
+  const { record: recordChange, clear: clearReceipt } = useChangeReceipt(onReceiptChange);
+  /** 滑块：拖动前的值（松手才出回执；拖回原值则清掉回执）。 */
+  const costBaseRef = useRef<number | null>(null);
+  const commitCost = useCallback(() => {
+    const from = costBaseRef.current;
+    const to = data.cost_ratio;
+    if (from === null || to === null || from === to) return;
+    recordChange(
+      `已把吃苦指数从 ${from} 调到 ${to}`,
+      () => {
+        /* 值已在拖动中落地 */
+      },
+      () => setData((cur) => ({ ...cur, cost_ratio: from })),
+    );
+  }, [data.cost_ratio, recordChange]);
+  /** 02 句子的"打开时原值"（自己敲的字 → 失焦后给「恢复到打开时的原文」）。 */
+  const noteBaseRef = useRef("");
+  const [noteHint, setNoteHint] = useState(false);
 
   // ── 加载 ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -272,6 +293,8 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         if (cancelled) return;
         const norm = normalize(d);
         setData(norm);
+        noteBaseRef.current = norm.promise_note;
+        setNoteHint(false);
         snapshotLoaded(norm);
       })
       .catch(() => {
@@ -395,23 +418,59 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
   }, []);
 
   /** 只归到大类（显式选中当前浏览的大类；清掉子类）。 */
-  const pickThemeOnly = useCallback((name: string) => {
-    setData((prev) => ({ ...prev, theme: name, sub_genre: "" }));
-  }, []);
+  const pickThemeOnly = useCallback(
+    (name: string) => {
+      const before = { theme: data.theme, sub_genre: data.sub_genre };
+      if (before.theme === name && !before.sub_genre) return; // 值没变，不记回执
+      setData((prev) => ({ ...prev, theme: name, sub_genre: "" }));
+      recordChange(
+        `已把题材改为「${name}」`,
+        () => {
+          /* 值已落地 */
+        },
+        () => setData((cur) => ({ ...cur, ...before })),
+      );
+    },
+    [data.theme, data.sub_genre, recordChange],
+  );
 
   const pickRow = useCallback(
     (row: ThemeRow, close: boolean) => {
-      if (row.kind === "theme") pickThemeOnly(row.theme);
-      else
+      if (row.kind === "theme") {
+        pickThemeOnly(row.theme);
+      } else {
+        const label = `${row.theme} / ${row.sub!.name}`;
+        const before = { theme: data.theme, sub_genre: data.sub_genre };
+        if (before.theme === row.theme && before.sub_genre === row.sub!.name) {
+          if (close) closeThemePanel();
+          return;
+        }
         setData((prev) => ({ ...prev, theme: row.theme, sub_genre: row.sub!.name }));
+        recordChange(
+          `已把题材改为「${label}」`,
+          () => {
+            /* 值已落地 */
+          },
+          () => setData((cur) => ({ ...cur, ...before })),
+        );
+      }
       if (close) closeThemePanel();
     },
-    [pickThemeOnly, closeThemePanel],
+    [pickThemeOnly, closeThemePanel, data.theme, data.sub_genre, recordChange],
   );
 
   const clearTheme = useCallback(() => {
+    if (!data.theme) return; // 本来就空，不记回执
+    const before = { theme: data.theme, sub_genre: data.sub_genre };
     setData((prev) => ({ ...prev, theme: "", sub_genre: "" }));
-  }, []);
+    recordChange(
+      "已清空题材",
+      () => {
+        /* 值已落地 */
+      },
+      () => setData((cur) => ({ ...cur, ...before })),
+    );
+  }, [data.theme, data.sub_genre, recordChange]);
 
   const onThemeKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -445,6 +504,16 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
       const f = GENRE_FLAVORS.find((x) => x.key === key);
       if (!f) return;
       setFlavorKey(key);
+      // 一次点击覆盖多格 → 必须给回执 + 一步撤销（这是本面板后果最大的误点）。
+      // 注意：recordChange 会触发父组件 setState，**不得**写在 setData 的 updater 里
+      // （React 可能重复调用 updater → 渲染中反复 setState）。
+      const before = {
+        core_promise: data.core_promise,
+        promise_note: data.promise_note,
+        forbidden_list: data.forbidden_list,
+        cost_ratio: data.cost_ratio,
+        battlefield: data.battlefield,
+      };
       setData((prev) => ({
         ...prev,
         core_promise: f.corePromise,
@@ -453,9 +522,18 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         cost_ratio: f.costRatio,
         battlefield: [...f.battlefield],
       }));
+      recordChange(
+        `已按「${f.label}」覆盖：主要看什么 / 绝对禁止（${f.forbidden.length} 项）/ 吃苦指数 ` +
+          `${before.cost_ratio ?? "未设"}→${f.costRatio} / 本小说斗什么（${f.battlefield.length} 项）`,
+        () => {
+          /* 值已落地 */
+        },
+        () => setData((cur) => ({ ...cur, ...before })),
+      );
+      setNoteHint(false);
       toast.success(`已按「${f.label}」给出一句起点，改到像你写的再确认`);
     },
-    [],
+    [data, recordChange],
   );
 
   // ── 03 绝对禁止：勾选 / 自定义 ─────────────────────────────────────
@@ -465,17 +543,26 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
   );
   const toggleForbidden = useCallback(
     (tagId: string) => {
-      setData((prev) => {
-        const has = prev.forbidden_list.some((f) => f.tagId === tagId);
-        return {
-          ...prev,
-          forbidden_list: has
-            ? prev.forbidden_list.filter((f) => f.tagId !== tagId)
-            : [...prev.forbidden_list, { tagId }],
-        };
-      });
+      const label = vocabLabel(tagId);
+      const on = data.forbidden_list.some((f) => f.tagId === tagId);
+      const before = data.forbidden_list;
+      setData((prev) => ({
+        ...prev,
+        forbidden_list: on
+          ? prev.forbidden_list.filter((f) => f.tagId !== tagId)
+          : [...prev.forbidden_list, { tagId }],
+      }));
+      // 一键勾选/取消 → 回执 + 一步撤销（recordChange 触发父组件 setState，
+      // 不得写在 setData 的 updater 里：updater 可能被 React 重复调用）
+      recordChange(
+        `${on ? "已取消" : "已勾选"}「${label}」`,
+        () => {
+          /* 值已落地 */
+        },
+        () => setData((cur) => ({ ...cur, forbidden_list: before })),
+      );
     },
-    [],
+    [data.forbidden_list, recordChange],
   );
   const addCustomForbidden = useCallback(() => {
     const text = customForbidden.trim();
@@ -489,21 +576,29 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
   }, [customForbidden, data.forbidden_list.length]);
 
   // ── 05 本小说斗什么：勾选 / 移除（自定义项由 AI 采纳写入，可 × 移除）────
-  const toggleBattlefield = useCallback((val: string) => {
-    setData((prev) => {
-      const has = prev.battlefield.includes(val);
-      if (!has && prev.battlefield.length >= GENRE_LIMITS.battlefieldMax) {
+  const toggleBattlefield = useCallback(
+    (val: string) => {
+      const has = data.battlefield.includes(val);
+      if (!has && data.battlefield.length >= GENRE_LIMITS.battlefieldMax) {
         toast.info(`最多 ${GENRE_LIMITS.battlefieldMax} 个战场`);
-        return prev;
+        return;
       }
-      return {
+      const label = val.includes(":") ? vocabLabel(val) : val;
+      const before = data.battlefield;
+      setData((prev) => ({
         ...prev,
-        battlefield: has
-          ? prev.battlefield.filter((x) => x !== val)
-          : [...prev.battlefield, val],
-      };
-    });
-  }, []);
+        battlefield: has ? prev.battlefield.filter((x) => x !== val) : [...prev.battlefield, val],
+      }));
+      recordChange(
+        `${has ? "已取消" : "已勾选"}「${label}」`,
+        () => {
+          /* 值已落地 */
+        },
+        () => setData((cur) => ({ ...cur, battlefield: before })),
+      );
+    },
+    [data.battlefield, recordChange],
+  );
 
   // ── AI 结果区（tasks 4.2 / D14 + 生成历史）：每格保留**最近 5 次**结果，
   //    可切回任意一次再采纳（避免无限抽卡 / 反悔）；采纳＝覆盖该格控件。────
@@ -519,6 +614,8 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             adopt: () => void;
             /** 多看点结果：采纳由结果区的勾选器负责，AiSink 不再出「采纳」按钮。 */
             multi?: boolean;
+            /** 采纳后会写回的值（回执要报「多少字 → 多少字」）。 */
+            values?: { core_promise: string; promise_note: string };
           }>;
           idx: number;
         }
@@ -555,6 +652,8 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           let adopt: () => void;
           /** 本次结果是否多看点数组（决定采纳由勾选器负责、AiSink 不出采纳键）。 */
           let isMulti = false;
+          /** 02 采纳后会写回的值（回执报字数用）。 */
+          let adoptValues: { core_promise: string; promise_note: string } | undefined;
           if (field === "core_promise") {
             // 多看点（「多给几个看点」）：后端返回 1-3 条，每条独立采纳（用户手选）
             isMulti = Array.isArray(v);
@@ -569,7 +668,19 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
                 <PointChooser
                   points={points}
                   onAdopt={(p) => {
+                    // 勾选器：单选＝标签+那句话；多选＝只拼那句话（单一标签表达不了多个看点）
+                    const before = { core_promise: data.core_promise, promise_note: data.promise_note };
                     patch(p);
+                    setNoteHint(false);
+                    recordChange(
+                      `已采纳 ${p.core_promise ? "1 条看点" : "勾选的看点"}，覆盖「主要看什么」（${
+                        before.promise_note.length
+                      } 字 → ${p.promise_note.length} 字）`,
+                      () => {
+                        /* 值已落地 */
+                      },
+                      () => setData((cur) => ({ ...cur, ...before })),
+                    );
                     toast.success("已采纳，可继续改或再勾几条");
                   }}
                 />
@@ -587,6 +698,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
                 </>
               );
               adopt = () => patch({ core_promise: value, promise_note: note });
+              adoptValues = { core_promise: value, promise_note: note };
             }
           } else if (field === "forbidden_list") {
             const list = (v as Array<{ tagId?: string; text?: string }>) ?? [];
@@ -612,7 +724,13 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           setSinks((prev) => {
             const list = [
               ...(prev[field]?.list ?? []),
-              { label: AI_LABEL[field], node, adopt, multi: field === "core_promise" && isMulti },
+              {
+                label: AI_LABEL[field],
+                node,
+                adopt,
+                multi: field === "core_promise" && isMulti,
+                values: field === "core_promise" ? adoptValues : undefined,
+              },
             ].slice(-SINK_MAX);
             return { ...prev, [field]: { list, idx: list.length - 1 } };
           });
@@ -904,6 +1022,14 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           placeholder="例：读者要看到夜班巡护者被逼入绝境后，用凡人之躯和街头智慧硬撼血族，每场猎杀都是弱者反杀强者的痛快，同时悬着「他会不会变成怪物」的钩子"
           value={data.promise_note}
           onChange={(e) => patch({ promise_note: e.target.value })}
+          onBlur={() => setNoteHint(data.promise_note !== noteBaseRef.current)}
+        />
+        <RestoreHint
+          show={noteHint}
+          onRestore={() => {
+            patch({ promise_note: noteBaseRef.current });
+            setNoteHint(false);
+          }}
         />
         <p className="opt" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
           {data.promise_note.length}/{GENRE_LIMITS.promiseNote}
@@ -936,7 +1062,24 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
                 entry.multi
                   ? undefined
                   : () => {
+                      // 一键覆盖这段文本 → 回执 + 一步撤销（撤销＝写回采纳前的两个字）
+                      const before = {
+                        core_promise: data.core_promise,
+                        promise_note: data.promise_note,
+                      };
+                      const afterLen =
+                        entry.values?.promise_note.length ?? before.promise_note.length;
                       entry.adopt();
+                      recordChange(
+                        `已采纳 AI 建议，覆盖「主要看什么」（${before.promise_note.length} 字 → ${afterLen} 字）`,
+                        () => {
+                          /* 值由 entry.adopt() 落地 */
+                        },
+                        () => {
+                          setData((cur) => ({ ...cur, ...before }));
+                          setNoteHint(false);
+                        },
+                      );
                       toast.success("已采纳，落回对应格，随时可改");
                     }
               }
@@ -1063,7 +1206,11 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             step={1}
             data-od-id="cost-slider"
             value={data.cost_ratio ?? 5}
+            onPointerDown={() => { costBaseRef.current = data.cost_ratio; }}
+            onFocus={() => { costBaseRef.current = data.cost_ratio; }}
             onChange={(e) => patch({ cost_ratio: Number(e.target.value) })}
+            onPointerUp={commitCost}
+            onBlur={commitCost}
           />
           <span className="cost-val num">{data.cost_ratio ?? "—"}</span>
         </div>

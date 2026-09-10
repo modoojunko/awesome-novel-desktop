@@ -220,3 +220,5 @@
 - [x] 9.4.13 **界面规格 parity（尺寸断言，非可见性）**：对 9.0 表格控件用 `getBoundingClientRect`/`getComputedStyle` 断言真实渲染尺寸——简介框 `min-height ≥132`、按钮 `height === 34`、模型行**同行等高**、`.ai-sink` 底色＝`--fg-soft` 且 ≠ `--surface`、字号全落白名单；**窗口宽度变化（窄屏 900px 断点）后卡片不溢出**（`scrollWidth <= clientWidth`）
 - [x] 9.4.14 **幂等与重复提交（UI 层）**：双击「设为本书模型」→ 只发 1 次 PUT；双击「确认完成」→ 只发 1 次；AI 请求进行中点同一行 → 不并发重复发请求（`running` 态禁用）
 - [x] 9.4.15 **竞态**：AI 请求在途时切面板 → 结果**不写入已切走的面板**（无残留、无报错）；模型窗切换配置时旧请求返回不覆盖新选中
+- [x] 9.4.16 **改动回执 + 单步撤销（三面板）**：题材（口味胶囊覆盖 5 格 / 禁项 / 战场 / 01 选中与清空 / 滑块松手 / AI 采纳）、简介（AI 采纳，含字数与「整段替换」语义）、模型（「设为本书模型」→ 撤销切回原模型）各留一条脚部回执 + 撤销；自己敲的字走字段下 `RestoreHint`（**失焦后**才出现）；切面板清回执（`ChangeReceipt.tsx` + `GenreSettingForm.test.tsx`「改动回执 + 撤销」+ `genre-ai-settings.spec.ts` 模型/简介两条）
+- [x] 9.4.17 **长回执的布局纪律（回归守护）**：回执单行截断（`scrollWidth > clientWidth` + `title` 全文）；脚部**不许折行**——折出的第二行会落到窗口状态条（`.statusbar`，fixed 26px）之下导致「确认完成」点不到；中栏 `1fr` 轨道须 `min-width: 0`，否则长回执把中栏撑宽 ~60px、右栏 AI 被挤出屏幕，且**点击会在 mousedown/mouseup 之间重排而丢失**（`e2e/settings-forms.spec.ts`「长回执单行截断，确认完成点得到」）

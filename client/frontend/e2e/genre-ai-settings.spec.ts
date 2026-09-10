@@ -344,6 +344,13 @@ test("模型窗：点行只标亮（无 PUT）→ 键盘移动 → 点确认恰 
     await apply.click();
     await expect.poll(() => puts.length).toBe(1);
     expect(puts[0]).toEqual({ api_config_id: "c2", model: "deepseek-chat" });
+
+    // 改动回执（影响全书 AI 的动作 → 脚部留一条 + 一步撤销）：撤销＝切回原模型
+    const receipt = page.locator('[data-od-id="panel-receipt"]');
+    await expect(receipt).toContainText("已把本书模型设为");
+    await page.locator('[data-od-id="panel-undo"]').click();
+    await expect.poll(() => puts.length).toBe(2);
+    expect(puts[1]).toEqual({ api_config_id: null, model: null }); // 原先是未绑定 → 撤销回到未绑定
   } finally {
     await restore();
   }
@@ -438,6 +445,13 @@ test("简介 AI：生成 6 次只留最近 5 次；切回旧版采纳＝整段�
     await expect(sink).toContainText("候选第6版");
     await sink.getByRole("button", { name: /采纳 · 替换为补全后的简介/ }).click();
     await expect(ta).toHaveValue("我手写的开头。候选第6版");
+
+    // 改动回执（一键覆盖类动作必须可回退）：回执 + 撤销 → 简介回到采纳前
+    const receipt = page.locator('[data-od-id="panel-receipt"]');
+    await expect(receipt).toContainText("已采纳「补全缺失」");
+    await page.locator('[data-od-id="panel-undo"]').click();
+    await expect(ta).toHaveValue("我手写的开头。候选第2版");
+    await expect(receipt).toHaveCount(0);
   } finally {
     await restore();
   }

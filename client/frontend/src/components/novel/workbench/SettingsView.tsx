@@ -39,6 +39,12 @@ import { useModelStatus } from "@/hooks/useModelStatus";
 import type { AiState } from "@/types/api-config";
 import AiWriterAssistant, { type AiCapabilityRow } from "@/components/novel/settings/AiWriterAssistant";
 import AiSink from "@/components/novel/settings/AiSink";
+import {
+  ChangeReceiptBar,
+  RestoreHint,
+  useChangeReceipt,
+  type ChangeReceiptState,
+} from "@/components/novel/settings/ChangeReceipt";
 import { introAi, aiBlockReason, type IntroAiAction } from "@/lib/ai";
 
 // ── 面板注册表（顺序/命名与原型 navItems 一致；settingsKey 对后端口径）──
@@ -106,6 +112,9 @@ export default function SettingsView({
   projectId, initialPanel, settingsStatus, confirmedStatus, confirmSetting, onDirtyChange, onGoWrite, novelName,
 }: SettingsViewProps) {
   const [panel, setPanel] = useState(() => normalizePanel(initialPanel));
+  /** 改动回执（用户 2026-09-10）：三面板里"一键改变内容"的动作在脚部留一条 + 一步撤销。 */
+  const [receipt, setReceipt] = useState<ChangeReceiptState | null>(null);
+  const handleReceiptChange = useCallback((r: ChangeReceiptState | null) => setReceipt(r), []);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -238,6 +247,7 @@ export default function SettingsView({
         if (!ok) return;
       }
       handleDirtyChange(false);
+      setReceipt(null); // 换面板不留上一页的回执
       setPanel(k);
     },
     [panel, dirty, handleDirtyChange],
@@ -437,6 +447,7 @@ export default function SettingsView({
                 projectId={projectId}
                 settingKey="genre"
                 onDirtyChange={handleDirtyChange}
+                onReceiptChange={handleReceiptChange}
                 novelName={novelName}
               />
             )}
@@ -446,6 +457,7 @@ export default function SettingsView({
                 novelName={novelName}
                 projectId={projectId}
                 onDirtyChange={handleDirtyChange}
+                onReceiptChange={handleReceiptChange}
               />
             )}
             {panel === "arc" && (
@@ -500,6 +512,7 @@ export default function SettingsView({
                 settingKey="ai-model"
                 onDirtyChange={handleDirtyChange}
                 onModelChanged={refreshAiState}
+                onReceiptChange={handleReceiptChange}
               />
             )}
           </div>
@@ -508,6 +521,8 @@ export default function SettingsView({
             <span className="note" style={{ marginRight: "auto" }}>
               {panelNote}
             </span>
+            {/* 改动回执（仅在模型设定/简介/题材三面板发声；其余面板恒 null） */}
+            <ChangeReceiptBar receipt={receipt} />
             {confirmed && !isModel && (
               <span className="done-note">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -607,14 +622,27 @@ const AI_RUNNING_LABEL: Record<IntroAiAction, string> = {
 
 const IntroPanel = forwardRef<
   IntroHandle,
-  { projectId: string; novelName?: string; onDirtyChange?: (dirty: boolean) => void }
->(function IntroPanel({ projectId, novelName, onDirtyChange }, ref) {
+  {
+    projectId: string;
+    novelName?: string;
+    onDirtyChange?: (dirty: boolean) => void;
+    onReceiptChange?: (r: ChangeReceiptState | null) => void;
+  }
+>(function IntroPanel({ projectId, novelName, onDirtyChange, onReceiptChange }, ref) {
     const [synopsis, setSynopsis] = useState("");
     const [saving, setSaving] = useState(false);
     const taRef = useRef<HTMLTextAreaElement>(null);
     // P3-4：用户已手动输入时，晚到的挂载 fetch 不得覆盖输入
     const editedRef = useRef(false);
     const { snapshotLoaded, markSaved, markDirty } = useDirtyState(synopsis, onDirtyChange);
+    // 改动回执（用户 2026-09-10）：AI 采纳＝一键覆盖整段 → 脚部回执 + 一步撤销
+    const { record: recordChange } = useChangeReceipt(onReceiptChange);
+    /** 简介的「打开时原值」：自己敲的字 → 失焦后给「恢复到打开时的原文」。 */
+    const baseTextRef = useRef("");
+    const [textHint, setTextHint] = useState(false);
+    /** 采纳时刻的真实「改前值」（sink 是结果到达时创建的，闭包里的 synopsis 会过期）。 */
+    const synopsisRef = useRef("");
+    synopsisRef.current = synopsis;
     // 前置守卫（O-3）：补缺失必须先体检拿到缺失段
     const introspectedRef = useRef(false);
 
@@ -626,6 +654,7 @@ const IntroPanel = forwardRef<
           if (!cancelled && !editedRef.current) {
             setSynopsis(r.synopsis ?? "");
             baseRef.current = r.synopsis ?? "";
+            baseTextRef.current = r.synopsis ?? "";
             snapshotLoaded(r.synopsis ?? "");
           }
         })
@@ -780,6 +809,8 @@ const IntroPanel = forwardRef<
                 ),
                 adopt: miss.length
                   ? () => {
+                      const prevValue = synopsisRef.current;
+                      const prevBase = baseRef.current;
                       // 采纳＝**清空原输入、用「手写基准 + 本次候选」整段重写**：
                       // 基准只在手动编辑时更新，故连续采纳不同候选不会层层叠加
                       const base = baseRef.current.trim();
@@ -789,6 +820,17 @@ const IntroPanel = forwardRef<
                         .trim();
                       const next = (base ? `${base}。${add}` : add).slice(0, INTRO_MAX_LEN);
                       editedRef.current = true;
+                      recordChange(
+                        `已采纳「补全缺失」，简介 ${synopsis.length} 字 → ${next.length} 字`,
+                        () => {
+                          /* 值在下面落地 */
+                        },
+                        () => {
+                          setSynopsis(prevValue);
+                          baseRef.current = prevBase;
+                          setTextHint(false);
+                        },
+                      );
                       setSynopsis(next);
                       toast.success(
                         next.length >= INTRO_MAX_LEN
@@ -813,8 +855,22 @@ const IntroPanel = forwardRef<
                 ),
                 adopt: polished
                   ? () => {
+                      const prevValue = synopsisRef.current;
+                      const prevBase = baseRef.current;
+                      const next = polished.slice(0, INTRO_MAX_LEN);
                       editedRef.current = true;
-                      setSynopsis(polished.slice(0, INTRO_MAX_LEN));
+                      recordChange(
+                        `已采纳「润色」，简介 ${synopsis.length} 字 → ${next.length} 字`,
+                        () => {
+                          /* 值在下面落地 */
+                        },
+                        () => {
+                          setSynopsis(prevValue);
+                          baseRef.current = prevBase;
+                          setTextHint(false);
+                        },
+                      );
+                      setSynopsis(next);
                       toast.success("已替换，原句可随时改回");
                     }
                   : undefined,
@@ -883,6 +939,16 @@ const IntroPanel = forwardRef<
               editedRef.current = true;
               baseRef.current = e.target.value; // 手动编辑＝新的合成基准
               setSynopsis(e.target.value);
+            }}
+            onBlur={() => setTextHint(synopsis !== baseTextRef.current)}
+          />
+          <RestoreHint
+            show={textHint}
+            onRestore={() => {
+              editedRef.current = true;
+              baseRef.current = baseTextRef.current;
+              setSynopsis(baseTextRef.current);
+              setTextHint(false);
             }}
           />
         </div>

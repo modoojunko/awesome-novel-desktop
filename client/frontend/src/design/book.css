@@ -63,7 +63,11 @@
 .col-tree { min-height: 0; overflow-y: auto; border-right: 1px solid var(--border); background: var(--bg); padding-bottom: 24px; }
 .col-editor { min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
 /* 大纲视图中间列：卷选中显示卷纲面板，章选中显示章对象工作台（二者其一） */
-.col-middle { min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+/* min-width: 0 是栅格项纪律（与 min-height: 0 同源）：三栏是 `var(--col-left) 1fr 236px`，
+   缺了它，中栏内容一旦变宽（长回执行、不可断行的长串）就会顶开 1fr 轨道 ——
+   中栏多吃 ~60px、右栏 AI 被挤出屏幕右边，且宽度随内容变化会让点击在
+   mousedown/mouseup 之间丢失（2026-09-10 设定页回执实测：确认完成点不动）。 */
+.col-middle { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
 .col-middle > .col-panel, .col-middle > .col-editor { flex: 1; min-height: 0; }
 .col-progress, .col-ai { min-height: 0; overflow-y: auto; border-left: 1px solid var(--border); padding: 16px; background: var(--bg); }
 .preview-head { flex: none; display: flex; align-items: center; height: 46px; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--surface); }
@@ -531,6 +535,21 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 /* 02 常见口味行与下方输入框的间距 */
 .settings-v .cap-row.flavors { margin-bottom: 8px; }
 /* 01 解读区：选中项「是什么 + 案例」（光有标签作者不知道指什么） */
+/* 面板脚部的「改动回执」（2026-09-10）：一次改动 = 一条回执 + 一步撤销。
+   回执是提示不是模式：脚部永远只有 1 个主按钮 + 最多 1 条回执。 */
+.settings-v .receipt { display: inline-flex; align-items: center; gap: 10px; flex: 0 1 auto; min-width: 0; background: var(--warn-soft); border: 1px solid color-mix(in oklch, var(--warn) 22%, var(--border)); border-radius: 9px; padding: 6px 10px; font-size: 12.5px; line-height: 1.5; color: var(--fg); }
+/* 长回执（如口味胶囊一键覆盖多格，实测 606px）单行截断，全文挂 title 悬浮可读。
+   **脚部不许折行**：设定面板的脚部贴着窗口底，折出的第二行会落到窗口状态条
+   （.statusbar，fixed 26px）之下 —— 「确认完成」被盖住点不到（2026-09-10 e2e 实测）。 */
+.settings-v .panel-foot { flex-wrap: nowrap; }
+.settings-v .panel-foot .btn { flex: none; }
+.settings-v .panel-foot .gap-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-v .receipt .rt { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-v .receipt .undo { flex: none; border: 0; background: transparent; color: var(--warn); font: inherit; font-size: 12.5px; text-decoration: underline; cursor: pointer; padding: 0; }
+/* 文本字段：失焦后的「已修改 · 恢复原文」（打字时不出现） */
+.settings-v .field-restore { font-size: 11.5px; color: var(--muted); margin: 6px 0 0; }
+.settings-v .field-restore .undo { border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 11.5px; text-decoration: underline; cursor: pointer; padding: 0; }
+
 .settings-v .cap-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 9px; background: var(--bg); font-size: 12.5px; line-height: 1.6; color: var(--fg); }
 .settings-v .cap-note b { color: var(--accent); font-weight: 500; }
 .settings-v .cap-note .eg { color: var(--muted); }
