@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
 // PR 5 弹窗群 E2E（book.html 3/3：删除分级 / 只读章 AI 解锁链 / 版本历史 / 本书偏好）
@@ -102,7 +103,11 @@ async function setupSession(page: Page, tier = "trial") {
   await page.route("**/api/auth/check-auth", (r) =>
     r.fulfill({ json: { code: 0, data: {} } }),
   );
-  return { restore, token };
+  const restoreAndCleanup = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    await restore();
+  };
+  return { restore: restoreAndCleanup, token };
 }
 
 /** 注入一条 active ApiConfig，使 require_ai_access 门控放行（不测真实连接）。 */
@@ -217,7 +222,7 @@ test("删除分级：章盘点 chips / 删卷带章数字数 / 取消与确认",
     await page.getByTestId("del-confirm").click();
     await expect(page.getByText("开始创作")).toBeVisible({ timeout: 5000 });
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -298,7 +303,7 @@ test("解锁链：归档章点 AI → 解除只读 → AiModal 提示词；确�
     // 页签切回正文（编辑器重新可见；生成请求打向假端点失败属预期，不作断言）
     await expect(editor).toBeVisible({ timeout: 5000 });
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -350,7 +355,7 @@ test("版本历史弹窗：快照列表 + 当前版本徽标 + 恢复回退正�
     await expect(editor).toContainText("版本甲", { timeout: 10000 });
     await expect(editor).not.toContainText("版本乙");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -411,6 +416,6 @@ test("本书偏好：字号 per-book 持久 + 免费态升级 PRO 链升级弹�
         .getByRole("button", { name: "大", exact: true }),
     ).toHaveClass(/on/);
   } finally {
-    restore();
+    await restore();
   }
 });

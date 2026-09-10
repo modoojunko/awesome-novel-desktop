@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
 // 主线拆纲 E2E（story-arc-planning）：
@@ -65,7 +66,11 @@ async function setupSession(page: Page, tier = "trial") {
   await page.route("**/api/auth/check-auth", (r) =>
     r.fulfill({ json: { code: 0, data: {} } }),
   );
-  return { restore, token };
+  const restoreAndCleanup = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    await restore();
+  };
+  return { restore: restoreAndCleanup, token };
 }
 
 async function createNovel(page: Page, name: string): Promise<string> {
@@ -140,7 +145,7 @@ test.describe("主线卡", () => {
       expect(arc.volumes).toHaveLength(2);
       expect(arc.volumes[1].title).toBe("待定");
     } finally {
-      restore();
+      await restore();
     }
   });
 
@@ -165,7 +170,7 @@ test.describe("主线卡", () => {
       // 手动填写不受影响：仍可填一句话主线
       await page.getByPlaceholder(/陆征追查失踪案/).fill("手填主线不受拦截影响");
     } finally {
-      restore();
+      await restore();
     }
   });
 });
@@ -229,7 +234,7 @@ test.describe("AI 四步向导（会员，浏览器侧打桩 AI 响应）", () =
       expect(arc.volumes).toHaveLength(3);
       expect(arc.ending.scene).toBe("侦探所旧卷宗");
     } finally {
-      restore();
+      await restore();
     }
   });
 });

@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext, type Dialog } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
 // 设定真实表单 + 预览只读 E2E（PR4 v2 设定视图 two-col + 预览视图复刻后改版）
@@ -105,7 +106,11 @@ async function setupSession(
   await page.route("**/api/auth/check-auth", (r) =>
     r.fulfill({ json: { code: 0, data: { token, username, tier } } }),
   );
-  return { restore, token };
+  const restoreAndCleanup = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    await restore();
+  };
+  return { restore: restoreAndCleanup, token };
 }
 
 /** 通过真实 UI 创建小说，返回 project id。 */
@@ -327,7 +332,7 @@ test("题材：六格面板（口味联动 → 自定义禁区 → 吃苦指数 
     expect(genre.battlefield).toContain("battlefield:resources");
     expect(genre.genre_id).toBeUndefined();
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -375,7 +380,7 @@ test("风格：真实表单（叙事身份 Field + 核心原则折叠组）→ �
       ),
     ).toBe(true);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -414,7 +419,7 @@ test("AI痕迹：真实表单（疲劳词分类列表）→ 确认完成自动�
     const anti = await apiGetJSON(request, token, `/novels/${pid}/settings/anti-ai`);
     expect(anti.fatigue_words_zh.summary_narrative).toContain("似乎");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -476,7 +481,7 @@ test("角色：真实创建角色（创建弹窗 → 基本信息 → 确认完�
     expect(char.role).toBe("antagonist");
     expect(char.appearance).toContain("眉眼清冷");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -605,7 +610,7 @@ test("预览：只读树 + 只读正文（草稿/归档章皆可读）→ 恢复
     await expect(page.locator(".pv-title")).toHaveText("第一章", { timeout: 10000 });
     await expect(page.locator(".two-col .arch-tag")).toHaveCount(1);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -649,7 +654,7 @@ test("P2-1 面板切换守卫：脏表单切换需确认，取消保留输入", 
     const world = await apiGetJSON(request, token, `/novels/${pid}/settings/world`);
     expect(world?.geography?.scenes ?? "").toBe("");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -702,7 +707,7 @@ test("P2-1b 角色切换守卫：脏表单切换需确认，取消保留输入",
     await page.locator(".char-row", { hasText: "阿乙" }).click();
     await expect(nameInput).toHaveValue("阿乙");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -734,7 +739,7 @@ test("P2-1c 离开设定视图守卫：脏表单离开需确认，取消保留",
     await page.getByRole("button", { name: /^写作/ }).click();
     await expect(scene).toHaveCount(0);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -773,7 +778,7 @@ test("P2-1d 脏表单确认完成：自动保存再确认（内容落库 + 按�
     expect(world.geography.scenes).toContain("边境城邦");
     expect(world.politics.rule).toContain("城主议会制");
   } finally {
-    restore();
+    await restore();
   }
 });
 

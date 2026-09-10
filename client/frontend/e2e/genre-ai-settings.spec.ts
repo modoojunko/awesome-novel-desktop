@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // ---------------------------------------------------------------------------
 // 题材/简介 AI 链路 e2e（genre-signup-redesign tasks 9.4.5–9.4.11）
@@ -60,10 +61,12 @@ async function setupSession(page: Page, tier = "trial") {
   await page.route("**/api/auth/check-auth", (r) =>
     r.fulfill({ json: { code: 0, data: {} } }),
   );
-  return {
-    token,
-    restore: () => fs.writeFileSync(CONFIG_PATH, original),
+  const restoreConfig = () => fs.writeFileSync(CONFIG_PATH, original);
+  const restore = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    restoreConfig();
   };
+  return { token, restore };
 }
 
 async function createNovel(page: Page, name: string): Promise<string> {
@@ -155,7 +158,7 @@ test.describe("题材/简介 AI 链路", () => {
       const before = await page.getByPlaceholder(/用几句话/).inputValue();
       expect(before).toContain("林拾");
     } finally {
-      restore();
+      await restore();
     }
   });
 
@@ -181,7 +184,7 @@ test.describe("题材/简介 AI 链路", () => {
       await expect(page.locator(".settings-v .cost-val")).toHaveText("8");
       await expect(page.locator('[data-od-id="cost-sentence"]')).toContainText("8 分");
     } finally {
-      restore();
+      await restore();
     }
   });
 
@@ -213,7 +216,7 @@ test.describe("题材/简介 AI 链路", () => {
       await page.locator(".settings-v .col-tree .s-item", { hasText: "AI 模型" }).click();
       await expect(page.locator(".settings-v main h2", { hasText: "AI 模型" })).toBeVisible();
     } finally {
-      restore();
+      await restore();
     }
   });
 
@@ -239,7 +242,7 @@ test.describe("题材/简介 AI 链路", () => {
       });
       expect(aiCalled).toBe(0);
     } finally {
-      restore();
+      await restore();
     }
   });
 
@@ -256,7 +259,7 @@ test.describe("题材/简介 AI 链路", () => {
       await page.locator('[data-aiact="check"]').click();
       await expect(page).toHaveURL(/#\/config/, { timeout: 5000 });
     } finally {
-      restore();
+      await restore();
     }
   });
 });
@@ -342,7 +345,7 @@ test("模型窗：点行只标亮（无 PUT）→ 键盘移动 → 点确认恰 
     await expect.poll(() => puts.length).toBe(1);
     expect(puts[0]).toEqual({ api_config_id: "c2", model: "deepseek-chat" });
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -382,7 +385,7 @@ test("AI 行连点：只发 1 个请求，且有「生成中」可见反馈（9.
     await expect(page.locator('[data-od-id="intro-ai-sink"]')).toBeVisible({ timeout: 10000 });
     expect(hits).toBe(1);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -436,6 +439,6 @@ test("简介 AI：生成 6 次只留最近 5 次；切回旧版采纳＝整段�
     await sink.getByRole("button", { name: /采纳 · 替换为补全后的简介/ }).click();
     await expect(ta).toHaveValue("我手写的开头。候选第6版");
   } finally {
-    restore();
+    await restore();
   }
 });

@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
 // 两段式提示词 → 正文生成 全链路 E2E（ai-prompt-crafting，打桩 AI）：
@@ -91,7 +92,11 @@ async function setupSession(page: Page): Promise<{ restore: () => void; token: s
   await page.route("**/api/auth/check-auth", (r) =>
     r.fulfill({ json: { code: 0, data: {} } }),
   );
-  return { restore, token };
+  const restoreAndCleanup = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    await restore();
+  };
+  return { restore: restoreAndCleanup, token };
 }
 
 async function createNovel(page: Page, name: string): Promise<string> {
@@ -222,6 +227,6 @@ test("两段式：AiModal 粗组→AI 润色→编辑→生成 + 完工检查横
     await page.getByTestId("qc-close").click();
     await expect(banner).toHaveCount(0);
   } finally {
-    restore();
+    await restore();
   }
 });

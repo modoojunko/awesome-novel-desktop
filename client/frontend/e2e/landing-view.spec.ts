@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
-import { writeConfigAtomic } from "./helpers";
+import { writeConfigAtomic, cleanupSessionNovels } from "./helpers";
 
 // 打开书的默认落点（用户 2026-09-10 拍板）：
 //   第一次创建的书（无章节）→ 设定；写完第一个章节后（有章节未全归档）→ 写作；
@@ -31,7 +31,11 @@ async function setupSession(page: Page) {
   writeConfigAtomic(CONFIG_PATH, JSON.stringify(cfg, null, 2));
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
   await page.route("**/api/auth/check-auth", (r) => r.fulfill({ json: { code: 0, data: {} } }));
-  return { token, restore: () => writeConfigAtomic(CONFIG_PATH, original) };
+  const restore = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    writeConfigAtomic(CONFIG_PATH, original);
+  };
+  return { token, restore };
 }
 
 /** 走真实入口：书架 → 点开书（组件重新挂载，落点才会重新判定）。 */
@@ -104,7 +108,7 @@ test("卡片阶段与落点同源：部分归档＝卡片写作中 + 落点写�
     await page.waitForTimeout(2200);
     await expect(page.locator(".mtab.on")).toContainText("预览");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -154,6 +158,6 @@ test("默认落点：空书→设定 / 有章节→写作 / 全归档→预览",
     await page.waitForTimeout(600);
     await expect(page.locator(".mtab.on")).toContainText("写作");
   } finally {
-    restore();
+    await restore();
   }
 });

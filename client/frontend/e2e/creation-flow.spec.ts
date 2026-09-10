@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
 // 核心创作流程 E2E — 创建小说（书名即创建）→ 设定完成判定（PRD 3.4）→ 大纲 → CRUD
@@ -113,7 +114,11 @@ async function setupSession(
   await page.route("**/api/auth/check-auth", (r) =>
     r.fulfill({ json: { code: 0, data: {} } }),
   );
-  return { restore, token };
+  const restoreAndCleanup = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    await restore();
+  };
+  return { restore: restoreAndCleanup, token };
 }
 
 /** 通过真实 UI 创建小说（书名即创建），返回 project id。 */
@@ -235,7 +240,7 @@ test("创建小说：仅书名即可创建并进入小说页", async ({ page }) 
     await expect(card.locator(".genre.pending")).toHaveCount(1);
     await expect(card.locator(".genre")).toContainText("待定题材");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -273,7 +278,7 @@ test("简介可随时确认；内容为空时后端 400 拦截（tasks 2.4 语�
     const status1 = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
     expect(status1.synopsis).toBe(true);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -324,7 +329,7 @@ test("空书无门控：建书即写，加卷加章直达编辑器", async ({ pa
     await expect(page.locator(".editor")).toBeVisible({ timeout: 10000 });
     await expect(page.locator(".editor")).toBeEditable();
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -445,7 +450,7 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     await expect(bookCard.locator(".genre")).not.toContainText("权谋");
     await expect(bookCard.locator(".genre")).not.toContainText("·");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -472,6 +477,6 @@ test("改名：novelbar 书名双击就地改名即时生效（AC-2.x）", async
     // 旧名不再显示
     await expect(page.getByText(origName).first()).not.toBeVisible();
   } finally {
-    restore();
+    await restore();
   }
 });

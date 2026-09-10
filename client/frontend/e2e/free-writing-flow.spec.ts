@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
 // 免费主流程 E2E（FE-34 / TE-17，change 004）—— P0 断点 1 第 8 条纵切
@@ -75,7 +76,11 @@ function writeFreeSession(t: string, u: string) {
 
 async function setupFreeSession(page: Page): Promise<{ restore: () => void }> {
   const { token, username } = await sRegisterAndLogin();
-  const restore = writeFreeSession(token, username);
+  const restoreConfig = writeFreeSession(token, username);
+  const restore = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    restoreConfig();
+  };
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
   // 页面级桩 check-auth：注入的 pc_hash 在 S端 无设备授权（code 1），后端会据此清空
   // config.json 的注入 token → 业务 401（已知环境阻塞）；桩掉往返即可保住注入会话。
@@ -167,7 +172,7 @@ test("免费建书直达写作工作台：零 phase-status，无阶段催促，m
     // 全程仍零 phase-status（设定确认 refetch 免费态为 no-op）
     expect(phaseReqs.length).toBe(0);
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -209,7 +214,7 @@ test("加卷加章：即达编辑器，实时字数 + 自动保存，空章三�
     // 自动保存（防抖）→ 已自动保存
     await expect(page.getByText("已自动保存").first()).toBeVisible({ timeout: 8000 });
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -246,7 +251,7 @@ test("树 CRUD：hover 铅笔重命名 + 删除（N2）", async ({ page }) => {
     await delModal.getByTestId("del-confirm").click();
     await expect(page.getByText("开始创作")).toBeVisible({ timeout: 5000 });
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -282,6 +287,6 @@ test("免费归档：不 500，正文只读，树已归档即时同步", async (
       timeout: 5000,
     });
   } finally {
-    restore();
+    await restore();
   }
 });

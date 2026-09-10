@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
+import { cleanupSessionNovels } from "./helpers";
 
 // ---------------------------------------------------------------------------
 // 界面规格 parity：尺寸/字号断言（tasks 9.1.0 / 9.1.0b / 9.4.13）
@@ -57,7 +58,12 @@ async function setupSession(page: Page) {
   await page.route("**/api/auth/check-auth", (r) =>
     r.fulfill({ json: { code: 0, data: {} } }),
   );
-  return { restore: () => fs.writeFileSync(CONFIG_PATH, original) };
+  const restoreConfig = () => fs.writeFileSync(CONFIG_PATH, original);
+  const restore = async () => {
+    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    restoreConfig();
+  };
+  return { restore };
 }
 
 async function createNovel(page: Page, name: string): Promise<string> {
@@ -145,7 +151,7 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
       }));
       expect(overflow.sw).toBeLessThanOrEqual(overflow.cw + 1);
     } finally {
-      restore();
+      await restore();
     }
   });
 
@@ -217,7 +223,7 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
       );
       expect(new Set(heights).size).toBe(1);
     } finally {
-      restore();
+      await restore();
     }
   });
 
@@ -259,7 +265,7 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
       await ta.fill("   ");
       await expect(page.locator(".settings-v .panel-head .badge")).not.toHaveClass(/warn/);
     } finally {
-      restore();
+      await restore();
     }
   });
 
@@ -278,7 +284,7 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
       }));
       expect(overflow.sw).toBeLessThanOrEqual(overflow.cw + 1);
     } finally {
-      restore();
+      await restore();
     }
   });
 });
@@ -325,7 +331,7 @@ test("设定面板填满中栏且左右留白对称（1440/1920）", async ({ pa
       expect(Math.abs(m.leftGap - m.rightGap)).toBeLessThan(2);
     }
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -380,7 +386,7 @@ test("设定页：工具项徽标 / 辅助信息邻接 / 脚注贴底", async ({
     await expect(page.locator(".settings-v .panel-head .badge")).toContainText("可用");
     await expect(page.locator(".settings-v .panel-foot .note")).toContainText("不参与设定进度");
   } finally {
-    restore();
+    await restore();
   }
 });
 
@@ -429,6 +435,6 @@ test("简介体检：六段在宽屏两列排布（不再单列稀疏）", async
     expect(grid.cols).toBeGreaterThan(1);
     expect(grid.rows).toBeLessThan(6);
   } finally {
-    restore();
+    await restore();
   }
 });
