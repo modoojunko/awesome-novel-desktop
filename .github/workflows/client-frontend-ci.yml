@@ -24,7 +24,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # Node 22：vitest 4 + jsdom 30 依赖的 undici 需要 Node ≥ 22.5
+          # （Node 20 下实跑报 `webidl.util.markAsUncloneable is not a function`）
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: client/frontend/package-lock.json
       - run: npm ci
