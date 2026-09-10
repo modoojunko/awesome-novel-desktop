@@ -59,14 +59,17 @@ describe("GenreSettingForm · 六格", () => {
     expect(container.querySelectorAll(".m-why").length).toBe(6);
   });
 
-  it("01 口味胶囊＝预置联动：点「逆袭打脸」预填 02/03/04/05，不落 track", async () => {
+  it("常见口味＝起点：点「逆袭打脸」预填一句完整的话（+03/04/05），不落 track", async () => {
     const { container } = renderPanel();
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
 
     fireEvent.click(container.querySelector('[data-g="comeback"]')!);
 
-    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
-      .toBe("以弱破强的痛快");
+    // 02 的主输入是作家要写的那句话（用户 2026-09-10：选项只是几个词）
+    const note = (container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value;
+    expect(note).toContain("读者要看到");
+    expect(note).toContain("弱者");
+    expect(container.textContent).toContain("标签：以弱破强的痛快"); // 短标签仍在（胶囊写入）
     expect(container.querySelector('[data-forbid="forbidden:no-deus-ex-machina"]')?.className)
       .toContain("on");
     expect(container.querySelector('[data-bf="battlefield:resources"]')?.className).toContain("on");
@@ -117,7 +120,7 @@ describe("GenreSettingForm · 六格", () => {
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
 
     fireEvent.change(container.querySelector('[data-od-id="m1-input"]')!, {
-      target: { value: "以弱破强的痛快" },
+      target: { value: "读者要看到弱者被逼到墙角后靠脑子翻盘" },
     });
     fireEvent.click(container.querySelector('[data-forbid="forbidden:no-villain-idiot"]')!);
     const input = container.querySelector('[data-od-id="forbid-input"]') as HTMLInputElement;
@@ -136,8 +139,8 @@ describe("GenreSettingForm · 六格", () => {
     expect(apiState.put).toHaveBeenCalledWith("/novels/p1/settings/genre", {
       theme: "",
       sub_genre: "",
-      core_promise: "以弱破强的痛快",
-      promise_note: "",
+      core_promise: "",
+      promise_note: "读者要看到弱者被逼到墙角后靠脑子翻盘",
       forbidden_list: [{ tagId: "forbidden:no-villain-idiot" }, { text: "禁穿越" }],
       cost_ratio: 6,
       battlefield: ["battlefield:truth"],
@@ -308,8 +311,8 @@ describe("GenreSettingForm · 六格", () => {
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(6));
 
     expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
-      .toBe("算无遗策的掌控感");
-    expect(screen.getByText(/读者要看布局收网/)).toBeTruthy();
+      .toBe("读者要看布局收网");
+    expect(screen.getByText(/标签：算无遗策的掌控感/)).toBeTruthy();
     expect(container.querySelector('[data-forbid="forbidden:no-foresight"]')?.className)
       .toContain("on");
     expect(screen.getByText("4 分 → 当众断骨毁名，才拿到入场券")).toBeTruthy();
@@ -349,8 +352,8 @@ describe("GenreSettingForm · 五行 AI", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
     expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
-      .toBe("以弱破强的痛快");
-    expect(screen.getAllByText(/读者要看到弱者翻盘/).length).toBeGreaterThan(0);
+      .toBe("读者要看到弱者翻盘");
+    expect(container.textContent).toContain("标签：以弱破强的痛快");
   });
 
   it("cost_ratio：采纳后滑块与浮例句同步", async () => {

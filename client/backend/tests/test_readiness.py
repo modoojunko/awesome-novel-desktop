@@ -435,11 +435,15 @@ class TestGenreReadinessContract:
         assert r.status_code == 200, r.text
         assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 200
 
-    def test_promise_note_alone_not_counted(self, client):
-        """promise_note 只随 core_promise 入契约，不单独计入判据。"""
+    def test_sentence_alone_counts(self, client):
+        """02 主输入＝作家写的那句话（promise_note）；只写一句也算已填。
+
+        用户 2026-09-10 改版：选项只是几个词，让作家写一句完整的话更好（AI 给草稿、可改）。
+        旧口径「promise_note 不单独计入」随之作废。
+        """
         pid = _create_project(client)
         client.put(f"/api/novels/{pid}/settings/genre", json={"promise_note": "读者要看翻盘"})
-        assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 400
+        assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 200
 
     def test_whitespace_only_not_filled(self, client):
         pid = _create_project(client)

@@ -267,10 +267,16 @@ async def put_novel_genre(
 
 
 async def genre_is_filled(session: AsyncSession, novel_id: str) -> bool:
-    """确认判据：核心键任一非空（01 口味胶囊不落库、不计入）。"""
+    """确认判据：核心键任一非空。
+
+    02 的主输入是作家写的**那一句话**（`promise_note`，用户 2026-09-10 改版），
+    故它也计入；短标签 `core_promise` 由起点胶囊/AI 写入，同样计入。
+    （`readiness._check_genre` 另有「已选题材目录大类」一条，两处合并成题材就绪。）
+    """
     g = await get_novel_genre(session, novel_id)
     return bool(
         _clean(g["core_promise"])
+        or _clean(g["promise_note"])
         or g["forbidden_list"]
         or g["cost_ratio"] is not None
         or g["battlefield"]

@@ -64,8 +64,10 @@ export interface GenreFlavor {
   key: string;
   /** 胶囊文案。 */
   label: string;
-  /** 预填 02 主要看什么（core_promise）。 */
+  /** 预填 02 的短标签（core_promise，注入「核心承诺」行、候选语义）。 */
   corePromise: string;
+  /** 预填 02 的完整句（promise_note ≤200）——作家改的就是这句，AI 也产出同形。 */
+  promiseNote: string;
   /** 预填 03 绝对禁止（tagId 列表）。 */
   forbidden: string[];
   /** 预填 04 吃苦指数。 */
@@ -79,6 +81,7 @@ export const GENRE_FLAVORS: GenreFlavor[] = [
     key: "comeback",
     label: "逆袭打脸",
     corePromise: "以弱破强的痛快",
+    promiseNote: "读者要看到主角被境界、资源、人情全都压着，却专挑对方体系里的漏洞打；每赢一次，都是弱者用脑子换来的痛快。",
     forbidden: [
       "forbidden:no-deus-ex-machina",
       "forbidden:no-free-powerup",
@@ -91,6 +94,7 @@ export const GENRE_FLAVORS: GenreFlavor[] = [
     key: "mind",
     label: "烧脑博弈",
     corePromise: "层层反转的智力快感",
+    promiseNote: "读者要看到眼前的局面每解释一层就翻一次，主角靠信息差布局收网；读到最后才发现最早那句话就是答案。",
     forbidden: ["forbidden:no-foresight", "forbidden:no-villain-idiot"],
     costRatio: 5,
     battlefield: ["battlefield:status", "battlefield:truth"],
@@ -99,6 +103,7 @@ export const GENRE_FLAVORS: GenreFlavor[] = [
     key: "sweet",
     label: "独宠撒糖",
     corePromise: "甜到齁的情感满足",
+    promiseNote: "读者要看到两个人的关系一点点靠近，误会当场解开、不拖不虐；甜在具体的照顾与偏心，不在嘴上。",
     forbidden: ["forbidden:no-gratuitous-angst", "forbidden:no-third-wheel"],
     costRatio: 3,
     battlefield: ["battlefield:affection", "battlefield:infrastructure"],
@@ -107,6 +112,7 @@ export const GENRE_FLAVORS: GenreFlavor[] = [
     key: "survival",
     label: "绝境求生",
     corePromise: "绝处逢生的紧张",
+    promiseNote: "读者要看到主角被逼到退无可退，靠胆量与临场判断硬撑过去；每一关都比上一关更险，喘口气的工夫都没有。",
     forbidden: ["forbidden:no-deus-ex-machina", "forbidden:no-foresight"],
     costRatio: 7,
     battlefield: ["battlefield:external-enemy", "battlefield:resources"],
@@ -115,6 +121,7 @@ export const GENRE_FLAVORS: GenreFlavor[] = [
     key: "scheme",
     label: "权谋布局",
     corePromise: "算无遗策的掌控感",
+    promiseNote: "读者要看到主角手里没牌却总在下一盘更大的棋：你看到的让步是局，你看到的败退也是局。",
     forbidden: ["forbidden:no-villain-idiot", "forbidden:no-foresight"],
     costRatio: 5,
     battlefield: ["battlefield:status", "battlefield:truth"],

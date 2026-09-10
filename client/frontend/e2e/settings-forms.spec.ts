@@ -291,9 +291,15 @@ test("题材：六格面板（口味联动 → 自定义禁区 → 吃苦指数 
     await themeRow.locator('[data-g="theme:仙侠/修真"]').click();
     await page.locator('[data-od-id="sub-genre-row"] [data-g="sub:凡人流"]').click();
 
-    // 02 常见口味快捷填充 → 预填 02 文本 + 03/05 胶囊 + 04 指数（不动 01 已选题材）
+    // 02 常见口味＝起点：填的是**一句话**（作家改的就是这句）+ 03/05 胶囊 + 04 指数
     await page.locator('[data-g="comeback"]').click();
-    await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue("以弱破强的痛快");
+    await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue(/读者要看到/);
+    await expect(page.locator('[data-od-id="genre-panel"]')).toContainText("标签：以弱破强的痛快");
+    // 作家在这句话上改：改完能保存（主输入可编辑，不是只读的 AI 补充）
+    await page
+      .locator('[data-od-id="m1-input"]')
+      .fill("读者要看到弱者用脑子翻盘，每赢一次都痛快");
+    await expect(page.locator('[data-od-id="genre-panel"]')).toContainText("/200");
     await expect(page.locator('[data-forbid="forbidden:no-deus-ex-machina"]')).toHaveClass(/on/);
     await expect(page.locator('[data-bf="battlefield:resources"]')).toHaveClass(/on/);
     await expect(page.locator(".settings-v .cost-val")).toHaveText("8");

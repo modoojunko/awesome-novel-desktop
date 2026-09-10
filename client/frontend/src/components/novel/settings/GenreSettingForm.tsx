@@ -6,7 +6,8 @@
 //
 // 存储契约（对外七字段 JSON；01 落 story.yaml，其余关系化落 4 张表）：
 //   01 → theme + sub_genre（题材目录，见 lib/themeCatalog.ts；后端按目录校验，未知 400）
-//   02 → core_promise(≤60) + promise_note(≤200，AI 补充、不单独成行)
+//   02 → promise_note(≤200，**主输入＝一句话**，AI 给完整草稿、作家可改)
+//        + core_promise(≤60，短标签：起点胶囊/AI 写入，不单独设输入框)
 //   03 → forbidden_list[{tagId|text}]   04 → cost_ratio(1-10)
 //   05 → battlefield[]（tagId 或自定义文本）  06 → track(≤300)
 // 空值统一："" / 空白 / [] / null 等价未填（后端 Pydantic + CHECK 同口径）。
@@ -374,11 +375,12 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
       setData((prev) => ({
         ...prev,
         core_promise: f.corePromise,
+        promise_note: f.promiseNote, // 起点是「一句完整的话」，不是几个字
         forbidden_list: f.forbidden.map((tagId) => ({ tagId })),
         cost_ratio: f.costRatio,
         battlefield: [...f.battlefield],
       }));
-      toast.success(`已按「${f.label}」给出口味建议，各格可改`);
+      toast.success(`已按「${f.label}」给出一句起点，改到像你写的再确认`);
     },
     [],
   );
@@ -758,7 +760,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         )}
       </Mod>
 
-      {/* 02 主要看什么 → core_promise + promise_note */}
+      {/* 02 主要看什么 → promise_note（主句）+ core_promise（标签） */}
       <Mod
         no="02"
         name="主要看什么"
@@ -787,20 +789,22 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             </button>
           ))}
         </div>
+        {/* 主输入＝一句话（用户 2026-09-10：选项只是几个词，让作家写一句更好；
+            AI 给的就是完整的这一句，作家改改再确认）。短标签由上面的胶囊/AI 写入，
+            不单独占一个输入框——避免「两处都要填」。 */}
         <textarea
           className="textarea"
-          rows={2}
-          maxLength={GENRE_LIMITS.corePromise}
+          rows={3}
+          maxLength={GENRE_LIMITS.promiseNote}
           data-od-id="m1-input"
-          placeholder="例：主要看以弱破强的痛快——境界压着他，他专挑别人修为里的漏洞打"
-          value={data.core_promise}
-          onChange={(e) => patch({ core_promise: e.target.value })}
+          placeholder="例：读者要看到夜班巡护者被逼入绝境后，用凡人之躯和街头智慧硬撼血族，每场猎杀都是弱者反杀强者的痛快，同时悬着「他会不会变成怪物」的钩子"
+          value={data.promise_note}
+          onChange={(e) => patch({ promise_note: e.target.value })}
         />
-        {data.promise_note && (
-          <p className="opt" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
-            AI 补充读者预期：{data.promise_note}
-          </p>
-        )}
+        <p className="opt" style={{ margin: "6px 0 0", fontSize: 11.5 }}>
+          {data.promise_note.length}/{GENRE_LIMITS.promiseNote}
+          {data.core_promise ? ` · 标签：${data.core_promise}` : " · 也可以先点上面的起点，再改成你自己的说法"}
+        </p>
         {running === "core_promise" && (
           <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
         )}

@@ -389,9 +389,10 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     await confirmPanel(page);
     await synSave;
 
-    // ── genre：API 注入五字段 + 面板确认（新契约，无 genre_id）
+    // ── genre：API 注入新契约 + 面板确认（无 genre_id）
     await apiPutJSON(request, token, `/novels/${pid}/settings/genre`, {
       core_promise: "以弱破强的痛快",
+      promise_note: "读者要看到弱者被逼到绝境后，用脑子一步步翻盘",
       cost_ratio: 8,
     });
     // 题材面板在「简介确认即前进」时已挂载（早于本次注入）→ 切走再切回强制重挂载取数
@@ -399,7 +400,11 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     await openSetting(page, "题材");
     // 面板加载完成信号＝六格渲染出（首格口味胶囊可见）
     await expect(page.locator(".settings-v .mod")).toHaveCount(6, { timeout: 5000 });
-    await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue("以弱破强的痛快");
+    // 02 主框＝作家写的那句话（promise_note）；短标签另在提示行
+    await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue(
+      "读者要看到弱者被逼到绝境后，用脑子一步步翻盘",
+    );
+    await expect(page.locator('[data-od-id="genre-panel"]')).toContainText("标签：以弱破强的痛快");
     await confirmPanel(page);
 
     // ── style：API 注入 + 面板确认（§5.1 新书为「已填」非「已确认」→ 按钮是确认完成）
