@@ -697,7 +697,7 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .kv-row .kv-val { min-height: 36px; padding: 8px 12px; }
 
 /* 一致性体检行：缺失态（ok/warn 已有） */
-.chk-res.warn { color: var(--err); }
+.chk-res.warn { color: var(--warn); }
 
 /* 铁律注 */
 .lock-note { font-size: 11.5px; color: var(--warn); margin-top: 8px; line-height: 1.7; }
