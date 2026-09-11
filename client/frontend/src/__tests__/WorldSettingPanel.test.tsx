@@ -4,6 +4,7 @@ import { createRef } from "react";
 import WorldSettingPanel, {
   type WorldPanelHandle,
 } from "@/components/novel/settings/world/WorldSettingPanel";
+import { recordLoreSuggestions } from "@/lib/loreSuggestions";
 
 const apiGet = vi.fn();
 const apiPut = vi.fn();
@@ -17,9 +18,11 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+const worldLoreApply = vi.fn();
 vi.mock("@/lib/ai", () => ({
   worldDraftTopic: (...a: unknown[]) => worldDraftTopic(...a),
   worldConsistencyCheck: (...a: unknown[]) => worldConsistencyCheck(...a),
+  worldLoreApply: (...a: unknown[]) => worldLoreApply(...a),
   aiBlockReason: () => null,
 }));
 
@@ -72,6 +75,7 @@ describe("WorldSettingPanel", () => {
     const stage = await screen.findByPlaceholderText(/云梁界，古典王朝的修仙世界/);
     await waitFor(() => expect(ref.current).not.toBeNull());
     await ref.current!.runAi("stage");
+    expect(worldDraftTopic).toHaveBeenCalledWith("世界舞台", "p1", "text");
     const adopt = await screen.findByText("采纳 · 覆盖");
     fireEvent.click(adopt);
     expect(stage).toHaveValue("云梁界，古典王朝的修仙世界。");
@@ -84,17 +88,53 @@ describe("WorldSettingPanel", () => {
 
   it("一致性体检：结果渲染 + 去哪补 + AI 起草入口", async () => {
     worldConsistencyCheck.mockResolvedValue({
-      items: [{ name: "代价与边界", status: "warn", note: "还没写代价" }],
-      degraded: false, verdict: "补上代价再确认",
+      items: [
+        { name: "代价与边界", status: "warn", note: "还没写代价" },
+        { name: "简介 × 世界", status: "miss", note: "简介没写" },
+      ],
+      degraded: true, degraded_reasons: ["简介未填"], verdict: "补上代价再确认",
     });
+    const onGotoPanel = vi.fn();
     const ref = createRef<WorldPanelHandle>();
-    render(<WorldSettingPanel projectId="p1" ref={ref} />);
+    render(<WorldSettingPanel projectId="p1" ref={ref} onGotoPanel={onGotoPanel} />);
     await waitFor(() => expect(ref.current).not.toBeNull());
     await act(async () => { await ref.current!.runAi("check"); });
     expect(screen.getByText("代价与边界")).toBeTruthy();
     expect(screen.getByText("风险")).toBeTruthy();
     expect(screen.getByText("03 力量的代价")).toBeTruthy();
     expect(screen.getByText(/AI 起草/)).toBeTruthy();
+    // 简介缺口不在世界页：跳转出口而非 AI 起草
+    fireEvent.click(screen.getByText("去补简介"));
+    expect(onGotoPanel).toHaveBeenCalledWith("intro");
+  });
+
+  it("lore 建议：挂载即显示，采纳入账后清掉本条", async () => {
+    worldLoreApply.mockResolvedValue({});
+    recordLoreSuggestions("p1", "vol-1-ch-1", [
+      { key: "血衣楼", value: "第12章登场的新势力", set: "extra" },
+    ]);
+    render(<WorldSettingPanel projectId="p1" />);
+    expect(await screen.findByText(/血衣楼/)).toBeTruthy();
+    fireEvent.click(screen.getByText("采纳入账"));
+    await waitFor(() => expect(worldLoreApply).toHaveBeenCalled());
+    expect(screen.queryByText(/采纳入账/)).toBeNull();
+  });
+
+  it("save：lore 写入的 origin 不被整包保存抹掉", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (String(url).includes("settings/genre"))
+        return Promise.resolve({ theme: "仙侠/修真", sub_genre: "凡人流" });
+      return Promise.resolve({
+        ...EMPTY,
+        history: [{ key: "丹阁大火", value: "三十年前", origin: "vol-1-ch-3" }],
+      });
+    });
+    const ref = createRef<WorldPanelHandle>();
+    render(<WorldSettingPanel projectId="p1" ref={ref} />);
+    await screen.findByText("世界铁律");
+    await ref.current!.save();
+    const [, body] = apiPut.mock.calls[0];
+    expect(body.history[0]).toMatchObject({ key: "丹阁大火", origin: "vol-1-ch-3" });
   });
 
   it("AI 生成铁律：采纳后追加进约束条目（按 key 去重）", async () => {
@@ -143,3 +183,16 @@ describe("WorldSettingPanel", () => {
     expect(body.constraints).toEqual([]);
   });
 });
+
+  it("sink 生成历史只保留最近 5 次", async () => {
+    worldDraftTopic.mockResolvedValue({ value: "草稿", topic: "世界舞台" });
+    const ref = createRef<WorldPanelHandle>();
+    render(<WorldSettingPanel projectId="p1" ref={ref} />);
+    await screen.findByText("世界舞台");
+    for (let i = 0; i < 7; i++) {
+      await act(async () => { await ref.current!.runAi("stage"); });
+    }
+    const sink = screen.getByText(/AI 填 · 世界舞台/).closest(".ai-sink")!;
+    expect(sink.querySelectorAll(".ah-chip")).toHaveLength(5);
+    expect(sink.textContent).toContain("只保留最近 5 次");
+  });

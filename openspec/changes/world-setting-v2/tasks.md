@@ -19,13 +19,13 @@
 
 ## 3. 后端·AI 五行与一致性体检（T7-T8）
 
-- [x] 3.1 `WORLD_FIELDS = ("stage","power","cost","factions")` + 字段级模板（`prompts/world_stage.prompt` 等 4 个）+ 输入组装（w1=书名+简介+题材；w2=01+题材+简介；w3=02+简介；factions=简介+历史条目；题材锚走运行时 `_theme_anchor`）——验证：pytest 每行输入组装与 clamp 用例
-- [x] 3.2 出参归一化 `_normalize_world_value`（段落 clamp ≤500；factions → `[{name≤20,note≤100}]` ≤5 条）+ 计量 `settings_world_{field}`——验证：pytest 归一化用例
-- [x] 3.3 一致性体检端点 `POST /settings/ai/world/check`（注册在通配字段路由**之前**）：输入组装（简介 ≤600 + 题材 desc ≤200 + 世界逐条 ≤100，总 ≤4000）、`_judge_chat` json_mode、三态白名单归一、简介/题材缺失降级（对应行 miss+degraded，不 400）——验证：pytest 体检归一化 + 降级矩阵 + 路由解析回归用例
+- [x] 3.1 ~~字段级四端点~~（实现演进）→ 通用起草端点 `POST /settings/ai/world/draft`（topic+shape: text/kv/faction；后端不枚举主题，任何世界要素可起草；`world_draft_topic.prompt` 动态拼 topic 口径行；题材锚走运行时 `_theme_anchor`；现实向书拒绝力量主题 400）——验证：pytest draft shape 矩阵 + no_power 400 + 已有世界设定进 prompt 断言（评审回归钉）
+- [x] 3.2 出参归一化 `_normalize_draft_value`（text clamp ≤300=PARAGRAPH_MAX 防采纳后保存 400；kv → key≤20/value≤200 ≤10 条、空 key 回退；faction → name/note ≤6 条）+ topic 消毒（去控制字符与花括号）+ 计量 `settings_world_draft_{topic}`——验证：pytest 归一化与消毒用例
+- [x] 3.3 一致性体检端点 `POST /settings/ai/world/check`（注册在通配字段路由**之前**）：七项白名单（CHECK_ITEMS_POWER/REAL 同源）、`_judge_chat` json_mode、三态白名单归一 + 名称归一匹配（×/x/空格写岔不丢项）、简介/题材缺失降级（D7 拍板：缺输入行直接置 miss 不烧 AI 调用，简介+题材全空→整次免调用；响应带 degraded_reasons）——验证：pytest 体检归一化 + 降级矩阵 + 双缺失免调用 + 名称归一回归用例
 
 ## 4. 后端·lore-keeping（T9）
 
-- [x] 4.1 `POST /settings/ai/world/lore-suggest`（stateless）：输入=章节归档内容 + 当前 world 摘要，输出 `[{key,value,origin}]` 建议集（不落库），覆盖 history/extra/factions/constraints；`archive_chapter` 响应附 `lore_suggestions`——验证：pytest 建议生成与失败静默降级用例
+- [x] 4.1 `POST /settings/ai/world/lore-suggest`（stateless）+ `archive_chapter` 响应附 `lore_suggestions`（两路归一化共用 `world_model.parse_lore_suggestions`，白名单同源 SET_NAMES）：输入=章节归档内容 + 当前 world 摘要，输出 `[{key,value,set}]` 建议集（不落库），覆盖 history/extra/factions/constraints——验证：pytest 建议生成与失败静默降级用例
 - [x] 4.2 `POST /settings/ai/world/lore-apply`：人工确认写入，`(key, origin)` 幂等合并（factions 按 name），返回整包归一化 world——验证：pytest 幂等用例（同 origin 重复 apply 不重复追加）+ 丢弃不入账用例
 - [x] 4.3 lore 与 `ai_summary` 偏好解耦——验证：pytest 关摘要时 lore-suggest 仍可用的用例
 
@@ -48,7 +48,7 @@
 
 - [x] 7.1 重写 `settings-forms.spec.ts` 世界 3 用例（旧十字段/阈值口径 → 五格口径：填写/徽标三态/确认即前进/空确认停留）——验证：本地 docker 栈 e2e 通过
 - [x] 7.2 新增 `world-settings.spec.ts`（全 mock，照 genre-ai-settings 模式）：AI 五行采纳/回执撤销/历史切回/体检三态与降级/现实向开关联动/免费锁定拦截——验证：本地 e2e 全绿
-- [x] 7.3 lore-apply 界面用例（归档响应 mock lore_suggestions → 世界页 06 出现建议条目 → 采纳入账/丢弃不变）——验证：e2e 通过
+- [x] 7.3 lore-apply 界面用例（~~e2e~~ 收敛为 vitest：暂存写入 → 世界页 06 挂载即出现建议条目 → 采纳入账（先落库再入账）→ 清掉本条）——验证：WorldSettingPanel.test.tsx「lore 建议」用例
 - [x] 7.4 密闭性验证：停外部依赖复跑本 spec，确认全 mock 无外呼——验证：e2e 复跑绿
 
 ## 9. 旧实现删除与替换验证

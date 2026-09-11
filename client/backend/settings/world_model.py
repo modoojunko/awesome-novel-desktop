@@ -39,7 +39,8 @@ _SET_LIMITS = {"history": HISTORY_MAX, "factions": FACTIONS_MAX,
                "constraints": CONSTRAINTS_MAX, "extra": EXTRA_MAX}
 
 # 控制字符清洗：value 允许 \n \t（渲染层逐行缩进），key 一律不留
-_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# 控制字符清洗：value 允许 \n \t（渲染层逐行缩进），key 一律不留；\r 一并清（Windows CRLF 粘贴）
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\r]")
 
 V2_KEYS = ("no_power", "stage", "power", "cost", "history", "factions", "constraints", "extra")
 
@@ -146,13 +147,17 @@ def _from_v1(raw: dict) -> dict:
         if _clean_value(src.get(k))
     )
 
+    def _clamp_entry_value(text: str) -> str:
+        """映射表拍板：value 超上限截断并在尾部加「…」（原文可回 `_legacy` 找回）。"""
+        return text[:VALUE_MAX] + "…" if len(text) > VALUE_MAX else text
+
     extra: list[dict] = []
     if geo_bits:
-        extra.append({"key": "地理与风物", "value": geo_bits})
+        extra.append({"key": "地理与风物", "value": _clamp_entry_value(geo_bits)})
     if law_bits:
-        extra.append({"key": "律法与刑罚", "value": law_bits})
+        extra.append({"key": "律法与刑罚", "value": _clamp_entry_value(law_bits)})
     if _clean_value(pol.get("social")):
-        extra.append({"key": "社会与信仰", "value": _clean_value(pol.get("social"))})
+        extra.append({"key": "社会与信仰", "value": _clamp_entry_value(_clean_value(pol.get("social")))})
 
     factions: list[dict] = []
     fac_text = _clean_value(pol.get("factions"))
@@ -215,7 +220,8 @@ def world_is_filled(raw) -> bool:
     if any(str(v2.get(k, "")).strip() for k in ("stage", "power", "cost")):
         return True
     return any(
-        str(e.get("value", "")).strip()
+        str(e.get("value", "")).strip() or str(e.get("name", "")).strip()
+        or str(e.get("note", "")).strip()
         for s in SET_NAMES
         for e in (v2.get(s) or [])
         if isinstance(e, dict)
@@ -243,12 +249,18 @@ def lore_apply_entries(v2: dict, entries: list[dict]) -> dict:
         if not key:
             raise ValueError("条目缺少名目")
         target = [dict(x) for x in (out.get(set_name) or [])]
-        dup = next(
-            (x for x in target
-             if (x.get("origin") or None) == origin
-             and (x.get("name", x.get("key", "")) == key if set_name == "factions" else x.get("key") == key)),
-            None,
-        )
+        # 幂等键（架构稿 §2.1 表）：history/extra=(key,origin)；factions=name；
+        # constraints=key（铁律是硬边界，同 key 永远原地更新，不因来源不同而重复）
+        if set_name == "factions":
+            dup = next((x for x in target if x.get("name", "") == key), None)
+        elif set_name == "constraints":
+            dup = next((x for x in target if x.get("key", "") == key), None)
+        else:
+            dup = next(
+                (x for x in target
+                 if x.get("key", "") == key and (x.get("origin") or None) == origin),
+                None,
+            )
         if dup is not None:
             if set_name == "factions":
                 dup["note"] = value
@@ -313,13 +325,19 @@ def render_world_block(raw) -> str:
     budget = WORLD_BLOCK_BUDGET - len(header) - paragraphs_len
     skipped = 0
     for title, rendered in pooled:
-        block = f"- {title}：\n" + "\n".join(f"  - {x}" for x in rendered)
-        if len(block) <= budget:
-            lines.append(block)
-            budget -= len(block) + 1
-        else:
-            skipped += len(rendered)
-            budget -= len(title) + 8
+        # 条目为最小渲染单元（D5）：单条放不下只跳该条，段头随首个存活条目出现
+        header_len = len(f"- {title}：\n")
+        body: list[str] = []
+        for line_text in rendered:
+            item = f"  - {line_text}"
+            cost = (header_len if not body else 0) + len(item) + 1
+            if cost <= budget:
+                body.append(item)
+                budget -= cost
+            else:
+                skipped += 1
+        if body:
+            lines.append(f"- {title}：\n" + "\n".join(body))
     if skipped:
         lines.append(f"（另有 {skipped} 条世界细节从略）")
     if not lines:
@@ -344,9 +362,33 @@ def render_red_lines(raw) -> list[str]:
 
 
 def world_summary_text(raw, char_budget: int = 1200) -> str:
-    """世界设定 → 紧凑文本（AI 一致性体检/lore-suggest 的世界侧输入）。"""
-    block = render_world_block(raw) + "\n" + "\n".join(render_red_lines(raw))
-    return block.strip()[:char_budget]
+    """世界设定 → 紧凑文本（AI 一致性体检/lore-suggest 的世界侧输入）。
+
+    预算只约束世界块；铁律走红线逐条全量附后（与写章链路同口径，不截断）。
+    """
+    body = render_world_block(raw)[:char_budget].rstrip()
+    reds = render_red_lines(raw)
+    if reds:
+        body = (body + "\n" if body else "") + "\n".join(reds)
+    return body.strip()
+
+
+def parse_lore_suggestions(data) -> list[dict]:
+    """AI lore-suggest 出参归一化（ai_router 与 archive 两路共用，白名单同源）。
+
+    data 期望 {"suggestions": [{key, value, set}]}；非法 set / 空 key·value 丢弃。
+    """
+    items = (data.get("suggestions") if isinstance(data, dict) else []) or []
+    out: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        set_name = _clean_key(item.get("set"))
+        key = _clean_key(item.get("key"))[:KEY_MAX]
+        value = _clean_value(item.get("value"))[:VALUE_MAX]
+        if set_name in SET_NAMES and key and value:
+            out.append({"key": key, "value": value, "set": set_name})
+    return out[:8]
 
 
 # ── 契约校验（PUT /settings/world 入参）─────────────────────────────────
@@ -383,10 +425,14 @@ class FactionIn(BaseModel):
     @field_validator("name")
     @classmethod
     def _name_rules(cls, v: str) -> str:
-        v = _clean_key(v)
-        if not v:
+        return _clean_key(v)
+
+    @model_validator(mode="after")
+    def _faction_rules(self) -> "FactionIn":
+        # 迁移映射（架构稿映射表）：politics.factions → {name:"", note:原文}，无名有注合法
+        if not self.name and not self.note.strip():
             raise ValueError("势力缺少名称")
-        return v
+        return self
 
 
 class WorldIn(BaseModel):
@@ -406,12 +452,13 @@ class WorldIn(BaseModel):
 
     @model_validator(mode="after")
     def _dup_rules(self) -> "WorldIn":
-        for set_name in ("history", "constraints", "extra"):
-            keys = [e.key for e in getattr(self, set_name)]
-            if len(keys) != len(set(keys)):
-                dup = next(k for k in keys if keys.count(k) > 1)
-                raise ValueError(f"{set_name} 存在重复名目：{dup}")
-        names = [f.name for f in self.factions]
+        # 唯一键口径（架构稿 §2.1 表）：history/extra 名目不强制唯一（幂等靠 (key, origin)）；
+        # constraints 是硬边界必须唯一；factions 只对已命名势力查重（迁移无名行豁免）
+        keys = [e.key for e in self.constraints]
+        if len(keys) != len(set(keys)):
+            dup = next(k for k in keys if keys.count(k) > 1)
+            raise ValueError(f"世界铁律存在重复名目：{dup}")
+        names = [f.name for f in self.factions if f.name]
         if len(names) != len(set(names)):
-            raise ValueError("factions 存在重复势力名")
+            raise ValueError("势力存在重复名称")
         return self

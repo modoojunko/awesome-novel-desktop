@@ -23,6 +23,10 @@ def _canonical_chapter_ref(ref: str) -> str:
     return ref
 
 
+# 公共别名：lore-suggest 端点（settings.ai_router）复用同一章引用规范
+canonical_chapter_ref = _canonical_chapter_ref
+
+
 async def archive_chapter(
     novel_id: str,
     root_path: str,
@@ -122,18 +126,11 @@ async def archive_chapter(
               lore_text = lore_text.split("```")[1]
               lore_text = lore_text.removeprefix("json")
           lore_data = _json.loads(lore_text.strip())
-          _SET_WHITELIST = ("history", "extra", "factions", "constraints")
-          for item in (lore_data.get("suggestions") if isinstance(lore_data, dict) else []) or []:
-              if not isinstance(item, dict):
-                  continue
-              set_name = str(item.get("set", "")).strip()
-              key = str(item.get("key", "")).strip()[:20]
-              value = str(item.get("value", "")).strip()[:200]
-              if set_name in _SET_WHITELIST and key and value:
-                  lore_suggestions.append(
-                      {"key": key, "value": value, "set": set_name, "origin": _canonical_chapter_ref(chapter_ref)}
-                  )
-          lore_suggestions = lore_suggestions[:8]
+          # 归一化与 ai_router.lore-suggest 同源（settings.world_model.parse_lore_suggestions）
+          from settings.world_model import parse_lore_suggestions
+
+          for item in parse_lore_suggestions(lore_data):
+              lore_suggestions.append({**item, "origin": _canonical_chapter_ref(chapter_ref)})
       except Exception:  # noqa: BLE001, S110 — lore 建议可选，失败静默降级
           lore_suggestions = []
     return {

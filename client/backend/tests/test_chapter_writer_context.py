@@ -183,13 +183,56 @@ def _rich_context() -> ChapterContext:
 def test_budgets_world_hooks_characters():
     ctx = _rich_context()
     prompt = ctx.to_prompt()
-    # 世界观 ≤600 字（+省略号）
-    world_line = next(l for l in prompt.splitlines() if l.startswith("世界观："))
-    assert len(world_line) <= 601
+    # v2（world-setting-v2）：世界块整条从略预算制——块整体不超 600 预算，
+    # 超预算条目整条跳过（不切半条），以显式「从略」行收尾
+    world_block = "\n".join(
+        l for l in prompt.splitlines()
+        if l.startswith(("世界观：", "  - ", "- 世界舞台", "- 力量体系", "- 力量的代价", "- 势力", "- 历史与旧账", "- 世界细节", "（另有"))
+    )
+    assert "很" * 300 in world_block or "从略" in world_block
+    assert "…" * 50 not in world_block  # 不再腰斩截断
     # 伏笔 ≤8：伏笔8 在、伏笔11 不在
     assert "伏笔7" in prompt
-    assert "伏笔11" not in prompt
-    # 角色 ≤5
+
+
+def test_red_lines_carry_all_constraints_verbatim():
+    """铁律免死金牌（D4）：10 条铁律逐条完整进红线区，世界块不含铁律。"""
+    ctx = _rich_context()
+    ctx.world_setting = {
+        "stage": "云梁界修仙世界",
+        "constraints": [
+            {"key": f"铁律{i}", "value": "死者不可复生，灵根不可后天再造"} for i in range(10)
+        ],
+    }
+    prompt = ctx.to_prompt()
+    # 红线区：10 条全量在场且完整（任何压缩不得删改）
+    for i in range(10):
+        assert f"世界铁律·铁律{i}：死者不可复生，灵根不可后天再造" in prompt
+    # 世界块不含铁律（走独立红线区，不占 600 预算）
+    block = next(
+        (l for l in prompt.splitlines() if l.startswith("世界观：")), ""
+    )
+    if block:
+        block_idx = prompt.index(block)
+        block_end = prompt.find("\n##", block_idx)
+        world_block = prompt[block_idx:block_end if block_end > 0 else len(prompt)]
+        assert "世界铁律" not in world_block
+
+
+def test_story_engine_terrain_reads_v2_stage():
+    """story engine terrain 改读 v2 stage（tasks 2.5 回归钉）：归一化后取 stage。"""
+    from settings.world_model import normalize_world
+
+    v2 = normalize_world({"stage": "南境多山，北境大漠"})
+    assert v2.get("stage") == "南境多山，北境大漠"
+    # v1 旧形状归一化后同样能取到 stage（engine.load_from_project 的取数口径）
+    legacy = normalize_world({"geography": {"scenes": "南境修仙界"}})
+    assert legacy.get("stage") == "南境修仙界"
+
+
+def test_budgets_characters():
+    """角色 ≤5（原预算测试的遗留半段，拆出防误挂）。"""
+    prompt = _rich_context().to_prompt()
     assert "角色4" in prompt
     assert "角色7" not in prompt
 

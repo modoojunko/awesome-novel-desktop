@@ -56,6 +56,8 @@ export default function KvListEditor({
               type="button"
               className="cap"
               data-od-id={`kv-suggest-${s}`}
+              disabled={full}
+              title={full ? `最多 ${maxItems} 条` : undefined}
               onClick={() => onChange([...rows, { key: s, value: "" }])}
             >
               {s}

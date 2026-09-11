@@ -121,10 +121,11 @@ async def update_settings(
         # 兼容旧前端/旧客户端直接 PUT 旧十字段形状：归一化成 v2，原文落 _legacy
         if _is_v1(body):
             merged = put_world_merged(raw, normalize_world(body))
-            merged["_legacy"] = body
+            # `_legacy` 只记首次迁移原文（回滚基准），后续旧客户端重放不覆盖
+            merged.setdefault("_legacy", body)
         else:
             try:
-                payload = WorldIn.model_validate(body).model_dump()
+                payload = WorldIn.model_validate(body).model_dump(exclude_none=True)
             except ValidationError as e:
                 raise HTTPException(400, f"世界设定校验失败：{e.errors()[0]['msg']}") from e
             merged = put_world_merged(raw, payload)
@@ -217,6 +218,8 @@ async def lore_apply(
     entries = body.get("entries")
     if not isinstance(entries, list) or not entries:
         raise HTTPException(400, "缺少要入账的条目（entries）")
+    if len(entries) > 20:
+        raise HTTPException(400, "单次最多入账 20 条")
 
     raw = await get_storage().read_yaml(project.root_path, KEY_TO_PATH["world"]) or {}
     v2 = normalize_world(raw)

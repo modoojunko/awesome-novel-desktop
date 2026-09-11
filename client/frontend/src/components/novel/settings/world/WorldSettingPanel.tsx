@@ -79,10 +79,16 @@ function normalizeWorld(data: unknown): WorldData {
   const d = (data ?? {}) as Record<string, unknown>;
   const entries = (v: unknown): KvRow[] =>
     Array.isArray(v)
-      ? v.map((e) => ({
-          key: String((e as KvRow)?.key ?? ""),
-          value: String((e as KvRow)?.value ?? ""),
-        }))
+      ? v.map((e) => {
+          const row: KvRow = {
+            key: String((e as KvRow)?.key ?? ""),
+            value: String((e as KvRow)?.value ?? ""),
+          };
+          // origin 是 lore 幂等键（(key, origin)），载入必须保留，否则整包保存会抹掉
+          const origin = (e as KvRow)?.origin;
+          if (origin) row.origin = String(origin);
+          return row;
+        })
       : [];
   const factions = (v: unknown): Array<{ name: string; note: string }> =>
     Array.isArray(v)
@@ -109,10 +115,16 @@ const AI_CELL: Record<"stage" | "power" | "cost", string> = {
   cost: "力量的代价",
 };
 
+type WorldSinkKey = "stage" | "power" | "cost" | "factions" | "constraints";
+
 export interface WorldPanelProps {
   projectId: string;
   onDirtyChange?: (dirty: boolean) => void;
   onReceiptChange?: (r: ChangeReceiptState | null) => void;
+  /** 体检修复行跳转出口：简介/题材的缺口要去对应面板补 */
+  onGotoPanel?: (panel: "intro" | "genre") => void;
+  /** 现实向开关状态上报（右栏力量两行随之退场） */
+  onNoPowerChange?: (noPower: boolean) => void;
 }
 
 export interface WorldPanelHandle extends SettingSaveHandle {
@@ -120,7 +132,10 @@ export interface WorldPanelHandle extends SettingSaveHandle {
   clearAi: () => void;
 }
 
-const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function WorldSettingPanel({ projectId, onDirtyChange, onReceiptChange }, ref) {
+const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function WorldSettingPanel(
+  { projectId, onDirtyChange, onReceiptChange, onGotoPanel, onNoPowerChange },
+  ref,
+) {
   const [world, setWorld] = useState<WorldData>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState<{ theme: string; sub: string } | null>(null);
@@ -138,6 +153,18 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
   const busyRef = useRef(false);
   const dataRef = useRef(world);
   dataRef.current = world;
+
+  // 归档识别的世界要素建议 → 06 折叠组展示（归档时由 useChapterData 写入暂存）
+  useEffect(() => {
+    setPendingLore(getLoreSuggestions(projectId));
+    setSinks({});
+    setCheck(null);
+  }, [projectId]);
+
+  // 现实向状态上报：右栏力量两行随之退场
+  useEffect(() => {
+    onNoPowerChange?.(world.no_power);
+  }, [world.no_power, onNoPowerChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -196,6 +223,11 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
     stage: "text", power: "text", cost: "text",
     factions: "faction", constraints: "kv",
   };
+  /** topic 用中文要素名直传后端 prompt（英文 slug 会被模型理解成「阶段/成本」） */
+  const SINK_TOPIC: Record<WorldSinkKey, string> = {
+    stage: "世界舞台", power: "力量体系", cost: "力量的代价",
+    factions: "势力", constraints: "世界铁律",
+  };
   const runAi = async (key: WorldAiField | "check"): Promise<void> => {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -203,10 +235,14 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
     try {
       if (key === "check") {
         const r = await worldConsistencyCheck(projectId);
-        setCheck(r);
+        setCheck({
+          items: Array.isArray(r?.items) ? r.items : [],
+          degraded: Boolean(r?.degraded),
+          verdict: String(r?.verdict ?? ""),
+        });
       } else {
         const shape = SINK_SHAPE[key as WorldSinkKey] ?? "text";
-        const res = await worldDraftTopic(key, projectId, shape);
+        const res = await worldDraftTopic(SINK_TOPIC[key as WorldSinkKey] ?? key, projectId, shape);
         const raw = res.value;
         const rows = Array.isArray(raw) ? raw : null;
         const txt = rows
@@ -241,15 +277,28 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
     if (!h) return;
     const entry = h.list[h.idx];
     const before = dataRef.current;
+    // 形状守卫：结构化格收到错配 value（AI 抖动/契约漂移）时降级，不崩渲染
+    const isFactionRows = (v: unknown): v is WorldFaction[] =>
+      Array.isArray(v) && v.every((x) => x && typeof x === "object" && "name" in x);
+    const isKvRows = (v: unknown): v is Array<{ key: string; value: string }> =>
+      Array.isArray(v) && v.every((x) => x && typeof x === "object" && "key" in x);
     if (key === "factions") {
-      const next = entry.value as unknown as WorldFaction[];
+      if (!isFactionRows(entry.value)) {
+        toast.error("结果形状不对，请重试");
+        return;
+      }
+      const next = entry.value;
       record(
         `已采纳「势力」（势力 ${before.factions.length} 行 → ${next.length} 行）`,
         () => setWorld((w) => ({ ...w, factions: next })),
         () => setWorld((w) => ({ ...w, factions: before.factions })),
       );
     } else if (key === "constraints") {
-      const rows = entry.value as Array<{ key: string; value: string }>;
+      if (!isKvRows(entry.value)) {
+        toast.error("结果形状不对，请重试");
+        return;
+      }
+      const rows = entry.value;
       const existing = new Set(before.constraints.map((r) => r.key));
       const add = rows.filter((r) => !existing.has(r.key));
       const next = [...before.constraints, ...add].slice(0, 10);
@@ -291,7 +340,6 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
 
   if (loading) return <p className="opt">加载中…</p>;
 
-  type WorldSinkKey = "stage" | "power" | "cost" | "factions" | "constraints";
   /** 体检项 → 补充目标格（项名与后端 CHECK_ITEMS_* 逐字对应）：告诉用户去哪个格子补内容 */
   const checkFixTarget = (name: string): string => {
     const map: Record<string, string> = {
@@ -301,17 +349,21 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
       "代价与边界": "03 力量的代价",
       "铁律 × 简介": "05 世界铁律",
       "势力立场": "04 势力",
-      "历史自洽": "06 · 历史与旧账",
-      "现实规则完备": "06 · 更多世界细节",
+      "历史自洽": "06 历史与旧账",
+      "现实规则完备": "06 更多世界细节",
     };
     return map[name] || name;
+  };
+
+  /** 缺口不在世界页的检查项 → 跳转出口（去简介/题材面板补） */
+  const checkGoto: Record<string, "intro" | "genre"> = {
+    "简介 × 世界": "intro",
+    "题材 × 世界": "genre",
   };
 
   /** 体检项 → AI 补：调用对应生成端点，结果落到对应格；账本类两项手动补 */
   const checkFixAi = (name: string) => {
     const map: Record<string, () => Promise<void>> = {
-      "简介 × 世界": () => runAi("stage"),
-      "题材 × 世界": () => runAi("stage"),
       "力量与上限": () => runAi("power"),
       "代价与边界": () => runAi("cost"),
       "铁律 × 简介": () => runAi("constraints"),
@@ -336,6 +388,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
               <button
                 key={i}
                 type="button"
+                aria-pressed={i === h.idx}
                 className={`ah-chip${i === h.idx ? " on" : ""}`}
                 data-hist={i}
                 onClick={() => setSinks((prev) => prev[key] ? { ...prev, [key]: { ...prev[key], idx: i } } : prev)}
@@ -349,7 +402,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
         <p style={{ margin: "4px 0" }}>{entry.txt}</p>
         <div className="ans-act">
           <button className="primary" type="button" onClick={() => adopt(key)}>
-            采纳 · 覆盖
+            {key === "constraints" ? "采纳 · 合并" : key === "factions" ? "采纳 · 合并" : "采纳 · 覆盖"}
           </button>
           <button type="button" onClick={() => void runAi(key)}>重试</button>
         </div>
@@ -420,7 +473,8 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
               record(
                 next ? "已切到现实向：力量两格收起" : "已恢复超自然力量两格",
                 apply,
-                () => patch({ no_power: !next }),
+                // 撤销用纯回写：值回到快照后由 useDirtyState 重算脏标记（patch 会强制脏）
+                () => setWorld((w) => ({ ...w, no_power: !next })),
               );
             }}
           >
@@ -449,7 +503,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
         {noPower && (
           <p className="opt">现实向 · 无超自然力量——物理与法律规则在「更多世界细节」里补即可。</p>
         )}
-        {sinkZone("power", "力量体系")}
+        {!noPower && sinkZone("power", "力量体系")}
       </div>
 
       {/* 03 力量的代价 */}
@@ -572,22 +626,39 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
             {check.degraded && (
               <p className="opt">简介或题材还没写——相关行按缺失处理，补完再体检更准。</p>
             )}
-            {/* 非达标项：提供"去补充"定位 + "AI 补"快捷按钮 */}
-            {check.items.filter((i: any) => i.status !== "ok").map((item: any, idx: number) => (
-              <div key={idx} className="chk-fix-row" data-od-id={`chk-fix-${idx}`}>
-                <span className="opt">{item.name}需要补充</span>
-                <span className="opt">→</span>
-                <span className="opt">{checkFixTarget(item.name)}</span>
-                <button
-                  className="chk-fix-ai"
-                  type="button"
-                  onClick={() => checkFixAi(item.name)}
-                  title={`AI 起草「${item.name}」的补充内容`}
-                >
-                  ✦ AI 起草
-                </button>
-              </div>
-            ))}
+            {/* 非达标项：提供"去补充"定位 + 出口（跳转/AI 起草/手动） */}
+            {check.items.filter((i: any) => i.status !== "ok").map((item: any, idx: number) => {
+              const gotoPanel = checkGoto[item.name];
+              const canAi = ["力量与上限", "代价与边界", "铁律 × 简介", "势力立场"].includes(item.name);
+              return (
+                <div key={idx} className="chk-fix-row" data-od-id={`chk-fix-${idx}`}>
+                  <span className="opt">{item.name}需要补充</span>
+                  <span className="opt">→</span>
+                  <span className="opt">{checkFixTarget(item.name)}</span>
+                  {gotoPanel && (
+                    <button
+                      className="chk-fix-ai"
+                      type="button"
+                      data-od-id={`chk-goto-${gotoPanel}`}
+                      onClick={() => onGotoPanel?.(gotoPanel)}
+                      title={gotoPanel === "intro" ? "去简介面板补简介" : "去题材面板确认题材"}
+                    >
+                      {gotoPanel === "intro" ? "去补简介" : "去确认题材"}
+                    </button>
+                  )}
+                  {canAi && (
+                    <button
+                      className="chk-fix-ai"
+                      type="button"
+                      onClick={() => checkFixAi(item.name)}
+                      title={`AI 起草「${item.name}」的补充内容`}
+                    >
+                      AI 起草
+                    </button>
+                  )}
+                </div>
+              );
+            })}
             {check.verdict && <p className="opt">结论：{check.verdict}</p>}
             <div className="ans-act">
               <button className="primary" type="button" onClick={() => void runAi("check")}>
@@ -627,9 +698,16 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
                     type="button"
                     data-od-id={`lore-adopt-${i}`}
                     onClick={async () => {
-                      await worldLoreApply(projectId, [
-                        { key: p.key, value: p.value, origin: p.origin, set: p.set },
-                      ]);
+                      // gap3 口径：先把手改落库（失败则中止，不吞用户输入），再入账建议
+                      if (!(await save())) return;
+                      try {
+                        await worldLoreApply(projectId, [
+                          { key: p.key, value: p.value, origin: p.origin, set: p.set },
+                        ]);
+                      } catch (e) {
+                        toast.error((e as Error).message || "入账失败，请重试");
+                        return;
+                      }
                       const fresh = normalizeWorld(
                         await api.get(`/novels/${projectId}/settings/world`),
                       );

@@ -172,7 +172,23 @@ async function doJsonPost(
         infra ? "服务暂时不可用（可能正在重启），请稍后重试" : `请求失败（HTTP ${res.status}）`,
       );
     }
-    throw new Error(detailMessage(err?.detail, "请求出错"));
+    // AI 会员拦截：403 detail={reason:"member_required"} → 广播全局升级引导（与 lib/api 同口径）
+    if (res.status === 403 && err?.detail?.reason === "member_required") {
+      const message = err.detail.message || "AI 是会员功能";
+      window.dispatchEvent(new CustomEvent("member-block", { detail: { message } }));
+      const e = new Error(message) as Error & { reason?: string; status?: number };
+      e.reason = "member_required";
+      e.status = res.status;
+      throw e;
+    }
+    // 附带 HTTP 状态码 + detail.reason（AI 前置三态分流用：no_key/missing_model/invalid）
+    const e = new Error(detailMessage(err?.detail, "请求出错")) as Error & {
+      reason?: string;
+      status?: number;
+    };
+    e.status = res.status;
+    if (err?.detail?.reason) e.reason = err.detail.reason;
+    throw e;
   }
   return res.json();
 }

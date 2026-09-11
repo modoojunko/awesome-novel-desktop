@@ -208,18 +208,25 @@ export default function SettingsView({
     [introspected, runIntroAi],
   );
 
+  // 现实向开关（世界面板上报）：右栏力量两行随之退场，原位一行灰字占位
+  const [worldNoPower, setWorldNoPower] = useState(false);
+
   // 世界右栏五行（world-setting-v2）：四问生成 + 一致性体检（答案落对应格下）
-  const worldAiRows = useMemo<AiCapabilityRow[]>(
-    () => [
+  const worldAiRows = useMemo<AiCapabilityRow[]>(() => {
+    const rows: AiCapabilityRow[] = [
       { key: "stage", name: "世界舞台", desc: "这是个什么世界，故事发生在哪 · 输入：书名+简介+题材", onClick: () => runWorldAi("stage") },
-      { key: "power", name: "力量体系", desc: "力量叫什么、分几级、上限在哪 · 输入：01+题材+简介", onClick: () => runWorldAi("power") },
-      { key: "cost", name: "力量的代价", desc: "用它要付什么代价 · 输入：02+简介", onClick: () => runWorldAi("cost") },
       { key: "factions", name: "势力", desc: "谁在和谁争、各自想要什么 · 输入：简介+历史旧账（若已写）", onClick: () => runWorldAi("factions") },
       { key: "constraints", name: "世界铁律", desc: "为这个世界立几条不许破的硬边界 · 输入：01-05 已填内容", onClick: () => runWorldAi("constraints") },
       { key: "check", name: "一致性体检", desc: "简介、题材、世界三方对照，扫矛盾与漏洞 · 只提醒不拦确认", onClick: () => runWorldAi("check") },
-    ],
-    [runWorldAi],
-  );
+    ];
+    if (!worldNoPower) {
+      rows.splice(1, 0,
+        { key: "power", name: "力量体系", desc: "力量叫什么、分几级、上限在哪 · 输入：01+题材+简介", onClick: () => runWorldAi("power") },
+        { key: "cost", name: "力量的代价", desc: "用它要付什么代价 · 输入：02+简介", onClick: () => runWorldAi("cost") },
+      );
+    }
+    return rows;
+  }, [runWorldAi, worldNoPower]);
 
   // 题材右栏四行（02-05 各答各题；01 题材目录不走 AI；06 剧情轨道已退役——归主线规划）
   const genreAiRows = useMemo<AiCapabilityRow[]>(
@@ -504,6 +511,8 @@ export default function SettingsView({
                 projectId={projectId}
                 onDirtyChange={handleDirtyChange}
                 onReceiptChange={handleReceiptChange}
+                onGotoPanel={(k) => setPanel(k)}
+                onNoPowerChange={setWorldNoPower}
               />
             )}
             {panel === "style" && (
@@ -552,7 +561,7 @@ export default function SettingsView({
             <span className="note" style={{ marginRight: "auto" }}>
               {panelNote}
             </span>
-            {/* 改动回执（仅在模型设定/简介/题材三面板发声；其余面板恒 null） */}
+            {/* 改动回执（在模型设定/简介/题材/世界四面板发声；其余面板恒 null） */}
             <ChangeReceiptBar receipt={receipt} />
             {confirmed && !isModel && (
               <span className="done-note">
@@ -610,7 +619,11 @@ export default function SettingsView({
         ) : panel === "world" ? (
           <AiWriterAssistant
             rows={worldAiRows}
-            footNote="答案落对应格下方，采纳 · 覆盖才写回，脚部有回执可一步撤销；每行保留最近 5 次结果可切回。体检缺输入走降级，不拦确认。"
+            footNote={
+              worldNoPower
+                ? "本书开了现实向：力量两行已退场，物理与法律规则在「更多世界细节」里补。"
+                : "答案落对应格下方，采纳 · 覆盖才写回，脚部有回执可一步撤销；每行保留最近 5 次结果可切回。体检缺输入走降级，不拦确认。"
+            }
             aiState={aiState}
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}

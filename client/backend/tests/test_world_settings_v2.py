@@ -34,6 +34,7 @@ from auth_local.deps import (  # noqa: E402
 from auth_local.middleware import get_current_user  # noqa: E402
 from main import app  # noqa: E402
 from settings.world_model import (  # noqa: E402
+    V2_EMPTY,
     lore_apply_entries,
     normalize_world,
     put_world_merged,
@@ -41,17 +42,20 @@ from settings.world_model import (  # noqa: E402
     render_red_lines,
     render_world_block,
     world_is_filled,
+    world_summary_text,
 )
 
 
 @pytest.fixture(autouse=True)
 def _override_auth_gates():
-    """其他模块的 teardown 会 clear 全局 overrides，这里每用例前重设。"""
+    """每用例前重设门控覆盖，用后自清（不依赖其他模块的 teardown 擦场）。"""
     app.dependency_overrides[get_current_user] = lambda: {"id": "u1"}
     app.dependency_overrides[require_ai_access] = lambda: True
     app.dependency_overrides[require_novel_model] = lambda: True
     app.dependency_overrides[require_project_limit] = lambda: True
     yield
+    for key in (get_current_user, require_ai_access, require_novel_model, require_project_limit):
+        app.dependency_overrides.pop(key, None)
 
 
 @pytest.fixture
@@ -91,15 +95,46 @@ class TestWorldInContract:
         })
         assert r.status_code == 400
 
-    def test_duplicate_key_400(self, client, pid):
+    def test_extra_duplicate_key_allowed(self, client, pid):
+        """history/extra 名目不强制唯一（§2.1：幂等靠 (key, origin)）。"""
         r = client.put(f"/api/novels/{pid}/settings/world", json={
             "extra": [
                 {"key": "迷雾森林", "value": "a"},
                 {"key": "迷雾森林", "value": "b"},
             ],
         })
+        assert r.status_code == 200, r.text
+
+    def test_constraints_duplicate_key_400(self, client, pid):
+        """世界铁律是硬边界，同 key 必须唯一。"""
+        r = client.put(f"/api/novels/{pid}/settings/world", json={
+            "constraints": [
+                {"key": "不可推翻的事", "value": "a"},
+                {"key": "不可推翻的事", "value": "b"},
+            ],
+        })
         assert r.status_code == 400
-        assert "迷雾森林" in r.json()["detail"]
+        assert "不可推翻的事" in r.json()["detail"]
+
+    def test_faction_empty_name_with_note_ok(self, client, pid):
+        """迁移映射：politics.factions → {name:"", note:原文}，无名有注合法。"""
+        r = client.put(f"/api/novels/{pid}/settings/world", json={
+            "factions": [{"name": "", "note": "丹阁与青梧宗世仇"}],
+        })
+        assert r.status_code == 200, r.text
+        r2 = client.put(f"/api/novels/{pid}/settings/world", json={
+            "factions": [{"name": "", "note": "  "}],
+        })
+        assert r2.status_code == 400
+
+    def test_faction_duplicate_named_400(self, client, pid):
+        r = client.put(f"/api/novels/{pid}/settings/world", json={
+            "factions": [
+                {"name": "丹阁", "note": "a"},
+                {"name": "丹阁", "note": "b"},
+            ],
+        })
+        assert r.status_code == 400
 
     def test_empty_key_400(self, client, pid):
         r = client.put(f"/api/novels/{pid}/settings/world", json={
@@ -327,8 +362,9 @@ class TestLoreRoutes:
                         json={"chapter_ref": "vol-1-ch-12"})
         assert r.status_code == 200, r.text
         data = r.json()
+        # 与 archive 产出同形：建议带 canonical origin（幂等键）
         assert data["suggestions"] == [
-            {"key": "血衣楼", "value": "第12章登场的新势力", "set": "extra"},
+            {"key": "血衣楼", "value": "第12章登场的新势力", "set": "extra", "origin": "vol-1-ch-12"},
         ]
 
 
@@ -464,3 +500,317 @@ class TestDraftShape:
         r = client.post(f"/api/novels/{pid}/settings/ai/world/draft",
                         json={"topic": "世界铁律", "shape": "kv"})
         assert r.status_code == 502
+
+
+# ── 评审回归补充：上下文 await / 迁移往返 / 幂等键 / 模板 v2 ──────────────
+
+
+class TestReviewRegression:
+    """三路评审（PM/后端/提示词）实锤问题的回归钉。"""
+
+    @pytest.fixture
+    def client(self):
+        with TestClient(app) as c:
+            yield c
+
+    def test_template_seed_is_v2_shape(self):
+        """建书骨架模板必须是 v2 形状——否则所有新书被当 legacy 嵌入 _legacy。"""
+        import pathlib
+
+        tpl = pathlib.Path(__file__).resolve().parents[1] / "reference" / "world-setting.yaml.template"
+        text = tpl.read_text(encoding="utf-8")
+        assert "geography" not in text and "politics" not in text
+        assert "no_power" in text and "constraints" in text
+
+    def test_world_summary_keeps_red_lines_whole(self):
+        """AI 输入侧摘要：预算只截世界块，铁律逐条完整（D4/D5 口径）。"""
+        long_extra = [{"key": f"条目{i}", "value": "字" * 180} for i in range(8)]
+        raw = {"constraints": [{"key": "不可推翻的事", "value": "死者不可复生"}], "extra": long_extra}
+        summary = world_summary_text(raw, 300)
+        assert "世界铁律·不可推翻的事：死者不可复生" in summary
+
+    def test_render_block_entry_granular_packing(self):
+        """D5：条目为最小渲染单元——放不下的大条目只跳自己，同段小条目存活。"""
+        raw = {"history": [
+            {"key": "小一", "value": "短"},
+            {"key": "大条甲", "value": "字" * 200},
+            {"key": "大条乙", "value": "字" * 200},
+            {"key": "大条丙", "value": "字" * 200},
+            {"key": "小二", "value": "短"},
+        ]}
+        block = render_world_block(raw)
+        assert "小一" in block and "小二" in block, "小条目不被大条目拖累"
+        assert block.count("字" * 200) == 2, "只装得下两条大条目"
+        assert "另有 1 条世界细节从略" in block
+        # 无半截条目
+        for line in block.splitlines():
+            if line.startswith("  - "):
+                assert len(line) <= 230
+
+    def test_v1_migration_get_put_roundtrip_200(self, client, pid):
+        """老书升级链：v1 十字段（超长 climate）→ GET → 整包 PUT 必须 200 可保存。"""
+
+        raw_v1 = {
+            "geography": {"scenes": "南境修仙界", "climate": "气" * 300, "limits": "灵气南浓北稀"},
+            "politics": {"rule": "宗门议会制", "factions": "丹阁与青梧宗世仇", "social": "修士为尊"},
+            "rules": {"world": "灵力体系", "personal": "代价是寿数", "society": "凡人不知修士"},
+        }
+        # 直接写存储（模拟存量旧书），再走 GET → PUT 往返
+        from main import app  # noqa: F401
+
+        # 经 API 写入 v1 形状（兼容旧客户端路径）
+        r = client.put(f"/api/novels/{pid}/settings/world", json=raw_v1)
+        assert r.status_code == 200, r.text
+        got = client.get(f"/api/novels/{pid}/settings/world").json()
+        assert got["extra"], "迁移产物应含 extra 条目"
+        assert all(len(e["value"]) <= 201 for e in got["extra"]), "超限截断加省略号 ≤201"
+        # GET → PUT 往返（老书首次保存不再 400）
+        r2 = client.put(f"/api/novels/{pid}/settings/world", json=got)
+        assert r2.status_code == 200, r2.text
+        # 无名有注势力行可保存（politics.factions 映射）
+        got2 = client.get(f"/api/novels/{pid}/settings/world").json()
+        assert any(f["name"] == "" and f["note"] for f in got2["factions"]) or got2["factions"] == []
+
+    def test_lore_apply_factions_dedup_by_name(self):
+        """factions 幂等键=name（§2.1）：不同 origin 同名 → 更新 note 不新增行。"""
+        v2 = dict(V2_EMPTY)
+        out = lore_apply_entries(v2, [
+            {"key": "丹阁", "value": "要为残卷讨说法", "set": "factions", "origin": "vol-1-ch-1"},
+        ])
+        out = lore_apply_entries(out, [
+            {"key": "丹阁", "value": "改口：要吞并青梧宗", "set": "factions", "origin": "vol-1-ch-9"},
+        ])
+        assert len(out["factions"]) == 1
+        assert out["factions"][0] == {"name": "丹阁", "note": "改口：要吞并青梧宗"}
+
+    def test_lore_apply_constraints_dedup_by_key(self):
+        """constraints 幂等键=key：铁律同 key 不同 origin 原地更新。"""
+        v2 = dict(V2_EMPTY)
+        out = lore_apply_entries(v2, [
+            {"key": "不可推翻的事", "value": "死者不可复生", "set": "constraints", "origin": "vol-1-ch-1"},
+        ])
+        out = lore_apply_entries(out, [
+            {"key": "不可推翻的事", "value": "死者不可复生，灵根不可再造", "set": "constraints", "origin": "vol-1-ch-9"},
+        ])
+        assert len(out["constraints"]) == 1
+        assert out["constraints"][0]["value"] == "死者不可复生，灵根不可再造"
+
+    def test_lore_apply_batch_limit_400(self, client, pid):
+        r = client.post(f"/api/novels/{pid}/settings/world/lore-apply", json={
+            "entries": [{"key": f"k{i}", "value": "v", "set": "extra"} for i in range(21)],
+        })
+        assert r.status_code == 400
+
+    def test_world_is_filled_counts_factions(self):
+        """只填势力的书也能确认世界（§2.4 value 或 name）。"""
+        assert world_is_filled({"factions": [{"name": "丹阁", "note": ""}]})
+        assert world_is_filled({"factions": [{"name": "", "note": "旧势力长文"}]})
+
+    def test_draft_no_power_power_topic_400(self, client, pid, monkeypatch):
+        """现实向书拒绝起草力量内容（写边界与面板收起口径一致）。"""
+        client.put(f"/api/novels/{pid}/settings/world", json={"no_power": True})
+        r = client.post(f"/api/novels/{pid}/settings/ai/world/draft",
+                        json={"topic": "力量体系", "shape": "text"})
+        assert r.status_code == 400
+        assert "现实向" in r.json()["detail"]
+
+    def test_draft_prompt_carries_world_context(self, client, pid, monkeypatch):
+        """起草 prompt 必须带已有世界设定（防 await 丢失回归）。"""
+        import json as _json
+
+        client.put(f"/api/novels/{pid}/settings/world", json={
+            "stage": "云梁界修仙世界",
+        })
+        captured: dict = {}
+
+        class _Fake:
+            model = "fake"
+
+            async def chat(self, *a, **k):
+                captured["prompt"] = k.get("messages", [{}])[0].get("content", "")
+                return _json.dumps({"value": [{"name": "丹阁", "note": "要与青梧宗争锋"}]})
+
+        async def _fake_get_client(novel_id=None):
+            return _Fake()
+
+        monkeypatch.setattr("settings.ai_router.get_ai_client_for_novel", _fake_get_client)
+        r = client.post(f"/api/novels/{pid}/settings/ai/world/draft",
+                        json={"topic": "势力", "shape": "faction"})
+        assert r.status_code == 200, r.text
+        assert "云梁界修仙世界" in captured["prompt"], "已有世界设定必须进 prompt"
+        assert "「势力」" in captured["prompt"], "topic 须为中文要素名"
+
+    def test_check_both_missing_skips_ai(self, client, pid, monkeypatch):
+        """简介+题材全空 → 不烧 AI 调用，全部置 miss + degraded_reasons。"""
+        called = {"n": 0}
+
+        class _Boom:
+            async def chat(self, *a, **k):
+                called["n"] += 1
+                raise AssertionError("不应调用 AI")
+
+        async def _fake_get_client(novel_id=None):
+            return _Boom()
+
+        monkeypatch.setattr("settings.ai_router.get_ai_client_for_novel", _fake_get_client)
+        r = client.post(f"/api/novels/{pid}/settings/ai/world/check", json={})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert called["n"] == 0
+        assert data["degraded"] is True
+        assert set(data["degraded_reasons"]) == {"简介未填", "题材未确认"}
+        assert all(i["status"] == "miss" for i in data["items"])
+
+    def test_check_name_normalization_matches(self, client, pid, monkeypatch):
+        """模型把「简介 × 世界」写岔（半角 x）也能命中官方项名。"""
+        import json as _json
+
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "测试前提"})
+        client.put(f"/api/novels/{pid}/settings/genre", json={"theme": "玄幻"})
+
+        class _Fake:
+            model = "fake"
+
+            async def chat(self, *a, **k):
+                return _json.dumps({"items": [
+                    {"name": "简介x世界", "status": "ok", "note": "对得上"},
+                    {"name": " 力量与上限 ", "status": "warn", "note": "上限模糊"},
+                ], "verdict": "x"})
+
+        async def _fake_get_client(novel_id=None):
+            return _Fake()
+
+        monkeypatch.setattr("settings.ai_router.get_ai_client_for_novel", _fake_get_client)
+        r = client.post(f"/api/novels/{pid}/settings/ai/world/check", json={})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        by_name = {i["name"]: i for i in data["items"]}
+        assert by_name["简介 × 世界"]["status"] == "ok"
+        assert by_name["力量与上限"]["status"] == "warn"
+
+
+# ── 测试评审补测：origin 往返 / 现实向项集 / 降级矩阵 / 满员边界 ──────────
+
+
+class TestTestReviewAdds:
+    @pytest.fixture
+    def client(self):
+        with TestClient(app) as c:
+            yield c
+
+    def test_lore_origin_survives_client_roundtrip(self, client, pid):
+        """lore 入账 → GET → 客户端形状整包 PUT → GET 仍有 origin（幂等键不被手存抹掉）。"""
+        r = client.post(f"/api/novels/{pid}/settings/world/lore-apply", json={
+            "entries": [{"key": "血衣楼", "value": "第12章登场", "set": "extra", "origin": "vol-1-ch-12"}],
+        })
+        assert r.status_code == 200, r.text
+        got = client.get(f"/api/novels/{pid}/settings/world").json()
+        assert got["extra"][0]["origin"] == "vol-1-ch-12"
+        # 客户端整包回写（normalizeWorld 保留 origin）
+        r2 = client.put(f"/api/novels/{pid}/settings/world", json=got)
+        assert r2.status_code == 200, r2.text
+        got2 = client.get(f"/api/novels/{pid}/settings/world").json()
+        assert got2["extra"][0].get("origin") == "vol-1-ch-12"
+        # 同 origin 重放不重复追加（幂等键仍有效）
+        r3 = client.post(f"/api/novels/{pid}/settings/world/lore-apply", json={
+            "entries": [{"key": "血衣楼", "value": "改写", "set": "extra", "origin": "vol-1-ch-12"}],
+        })
+        assert r3.status_code == 200
+        got3 = client.get(f"/api/novels/{pid}/settings/world").json()
+        assert len(got3["extra"]) == 1
+        assert got3["extra"][0]["value"] == "改写"
+
+    def test_check_no_power_swaps_to_real_items(self, client, pid, monkeypatch):
+        """现实向书体检返回 CHECK_ITEMS_REAL 项集（无力量两把尺，有现实规则完备）。"""
+        import json as _json
+
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "都市言情"})
+        client.put(f"/api/novels/{pid}/settings/world", json={"no_power": True})
+
+        class _Fake:
+            model = "fake"
+
+            async def chat(self, *a, **k):
+                prompt = k.get("messages", [{}])[0].get("content", "")
+                assert "现实向" in prompt, "现实向语境必须进 prompt"
+                names = ["简介 × 世界", "题材 × 世界", "铁律 × 简介", "势力立场", "历史自洽", "现实规则完备"]
+                return _json.dumps({"items": [{"name": n, "status": "ok", "note": "ok"} for n in names],
+                                    "verdict": "齐"})
+
+        async def _fake_get_client(novel_id=None):
+            return _Fake()
+
+        monkeypatch.setattr("settings.ai_router.get_ai_client_for_novel", _fake_get_client)
+        r = client.post(f"/api/novels/{pid}/settings/ai/world/check", json={})
+        assert r.status_code == 200, r.text
+        names = [i["name"] for i in r.json()["items"]]
+        assert "现实规则完备" in names
+        assert "力量与上限" not in names and "代价与边界" not in names
+
+    def test_check_theme_missing_degrades_only_theme_rows(self, client, pid, monkeypatch):
+        """题材缺失：题材行置 miss，其余行保留 AI 结论（降级≠全 miss）。"""
+        import json as _json
+
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "测试前提"})
+
+        class _Fake:
+            model = "fake"
+
+            async def chat(self, *a, **k):
+                names = ["简介 × 世界", "题材 × 世界", "力量与上限", "代价与边界", "铁律 × 简介", "势力立场", "历史自洽"]
+                return _json.dumps({"items": [{"name": n, "status": "ok", "note": "好"} for n in names],
+                                    "verdict": "行"})
+
+        async def _fake_get_client(novel_id=None):
+            return _Fake()
+
+        monkeypatch.setattr("settings.ai_router.get_ai_client_for_novel", _fake_get_client)
+        r = client.post(f"/api/novels/{pid}/settings/ai/world/check", json={})
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["degraded"] is True
+        by_name = {i["name"]: i for i in data["items"]}
+        assert by_name["题材 × 世界"]["status"] == "miss"
+        assert by_name["力量与上限"]["status"] == "ok", "非题材行保留 AI 结论"
+        assert "题材未确认" in data["degraded_reasons"]
+
+    def test_faction_shape_caps_at_six(self, client, pid, monkeypatch):
+        import json as _json
+
+        class _Fake:
+            model = "fake"
+
+            async def chat(self, *a, **k):
+                return _json.dumps({"value": [
+                    {"name": f"势力{i}", "note": "注"} for i in range(9)
+                ]})
+
+        async def _fake_get_client(novel_id=None):
+            return _Fake()
+
+        monkeypatch.setattr("settings.ai_router.get_ai_client_for_novel", _fake_get_client)
+        r = client.post(f"/api/novels/{pid}/settings/ai/world/draft",
+                        json={"topic": "势力", "shape": "faction"})
+        assert r.status_code == 200, r.text
+        assert len(r.json()["value"]) == 6
+
+    def test_history_extra_count_limits_400(self, client, pid):
+        r = client.put(f"/api/novels/{pid}/settings/world", json={
+            "history": [{"key": f"事{i}", "value": "v"} for i in range(101)],
+        })
+        assert r.status_code == 400
+        r2 = client.put(f"/api/novels/{pid}/settings/world", json={
+            "extra": [{"key": f"名{i}", "value": "v"} for i in range(51)],
+        })
+        assert r2.status_code == 400
+
+    def test_entry_key_over_limit_400(self, client, pid):
+        r = client.put(f"/api/novels/{pid}/settings/world", json={
+            "constraints": [{"key": "钥" * 21, "value": "v"}],
+        })
+        assert r.status_code == 400
+
+    def test_status_world_empty_confirm_400(self, client, pid):
+        """空世界确认被拦（确认需有内容）。"""
+        r = client.put(f"/api/novels/{pid}/settings/status/world")
+        assert r.status_code == 400

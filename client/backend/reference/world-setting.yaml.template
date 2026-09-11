@@ -1,18 +1,8 @@
-# world-setting.yaml - 世界设定
-name: ""
-summary: ""
-
-# 顶层结构（与前端 WorldSettingForm 保存一致，写正文引擎按此消费）
-geography:
-  scenes: ""
-  climate: ""
-  limits: ""
-politics:
-  rule: ""
-  factions: ""
-  social: ""
-  cost: ""
-rules:
-  world: ""
-  society: ""
-  personal: ""
+no_power: false
+stage: ""
+power: ""
+cost: ""
+history: []
+factions: []
+constraints: []
+extra: []

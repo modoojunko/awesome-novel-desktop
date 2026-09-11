@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { writeConfigAtomic } from "./helpers";
 
 // ---------------------------------------------------------------------------
 // 世界设定 v2 界面测试（world-setting-v2）：
@@ -55,14 +56,14 @@ async function setupSession(page: Page, tier = "trial") {
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+  writeConfigAtomic(CONFIG_PATH, JSON.stringify(cfg, null, 2));
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
   // 注入会话的 pc_hash 在 S端 无设备授权（code 1），后端会据此清空注入 token → 401；
   // 桩掉 check-auth 往返保住会话（settings-forms / genre-ai-settings 同注）
   await page.route("**/api/auth/check-auth", (r) =>
     r.fulfill({ json: { code: 0, data: {} } }),
   );
-  return { token, username, restore: () => fs.writeFileSync(CONFIG_PATH, original) };
+  return { token, username, restore: () => writeConfigAtomic(CONFIG_PATH, original) };
 }
 
 async function createNovel(page: Page, name: string): Promise<string> {
@@ -122,10 +123,10 @@ async function apiGetJSON(request: APIRequestContext, token: string, urlPath: st
 
 async function stubWorldAi(page: Page, pid: string) {
   let stageGen = 0;
-  // v2 通用起草端点：按请求体 topic 分流（stage 两版草稿供历史切回用）
+  // v2 通用起草端点：按请求体 topic 分流（stage 两版草稿供历史切回用；topic=中文要素名）
   void page.route(`**/api/novels/${pid}/settings/ai/world/draft`, (route) => {
     const body = route.request().postDataJSON() as { topic?: string };
-    if ((body?.topic ?? "") !== "stage") {
+    if ((body?.topic ?? "") !== "世界舞台") {
       route.fulfill({ json: { value: "通用内容草稿。", topic: body?.topic ?? "" } });
       return;
     }
@@ -136,7 +137,7 @@ async function stubWorldAi(page: Page, pid: string) {
           stageGen === 1
             ? "云梁界，古典王朝的修仙世界——故事集中在南境。"
             : "王朝治下的修仙界——主战场在南境青梧宗。",
-        topic: "stage",
+        topic: "世界舞台",
       },
     });
   });
@@ -185,14 +186,20 @@ test.describe("世界设定 v2", () => {
       }
       await expect(page.locator('[data-od-id="theme-inherit"]')).toBeVisible();
 
-      // 现实向开关：收起 02 主体与 03；再点恢复
+      // 现实向开关：收起 02 主体与 03 + 右栏力量两行退场；再点恢复
       const powerText = page.locator('[data-od-id="power-text"]');
+      const railPower = page.locator('.rail-assist [data-aiact="power"]');
+      const railCost = page.locator('.rail-assist [data-aiact="cost"]');
       await expect(powerText).toBeVisible();
+      await expect(railPower).toBeVisible();
       await page.locator('[data-od-id="no-power-btn"]').click();
       await expect(powerText).toHaveCount(0);
       await expect(page.locator('[data-od-id="mod-cost"]')).toBeHidden();
+      await expect(railPower).toHaveCount(0);
+      await expect(railCost).toHaveCount(0);
       await page.locator('[data-od-id="no-power-btn"]').click();
       await expect(powerText).toBeVisible();
+      await expect(railPower).toBeVisible();
     } finally {
       await restore();
     }
@@ -268,9 +275,7 @@ test.describe("世界设定 v2", () => {
 
       // 重进书 → 世界面板：徽标=已填（从未确认，不得误标已确认）
       const readiness = await apiGetJSON(request, token, `/novels/${pid}/readiness`);
-      console.log("PROBE readiness missing:", JSON.stringify(readiness.missing));
       const worldNow = await apiGetJSON(request, token, `/novels/${pid}/settings/world`);
-      console.log("PROBE world stage:", JSON.stringify(worldNow.stage));
       await page.goto(`${ORIGIN}/#/novel/${pid}`);
       await page.getByRole("button", { name: /^设定/ }).click();
       await openSetting(page, "世界");
@@ -302,3 +307,57 @@ test.describe("世界设定 v2", () => {
   });
 });
 
+
+  test("lore 全链：暂存建议 → 06 展示 → 采纳入账", async ({ page, request }) => {
+    const { token, restore } = await setupSession(page);
+    try {
+      const pid = await createNovel(page, `世界Lore_${Date.now() % 100000}`);
+      await stubAiState(page, pid, "ready");
+      // 模拟归档写入暂存（useChapterData recordLoreSuggestions 的落点）：
+      // 应用 JS 跑起来之前种 sessionStorage，验证面板挂载即读
+      await page.addInitScript((bookId) => {
+        sessionStorage.setItem(
+          `lore-suggestions:${bookId}`,
+          JSON.stringify([
+            { key: "血衣楼", value: "第12章登场的新势力", set: "extra", origin: "vol-1-ch-12" },
+          ]),
+        );
+      }, pid);
+      // createNovel 结束时已在 #/novel/{pid}（同文档）；reload 让 init script 真正执行
+      await page.reload();
+      await page.waitForLoadState("networkidle");
+      await page.getByRole("button", { name: /^设定/ }).click();
+      await openSetting(page, "世界");
+      await page.locator("details.cfg summary").click();
+      const pending = page.locator('[data-od-id="lore-pending"]');
+      await expect(pending).toBeVisible();
+      await expect(pending).toContainText("血衣楼");
+      await page.locator('[data-od-id^="lore-adopt-"]').click();
+      await expect(page.locator('[data-od-id="lore-pending"]')).toHaveCount(0);
+      // 入账落库：extra 里出现血衣楼（带 origin 幂等键）
+      const world = await apiGetJSON(request, token, `/novels/${pid}/settings/world`);
+      const lore = world.extra.find((e: { key: string }) => e.key === "血衣楼");
+      expect(lore).toBeTruthy();
+      expect(lore.origin).toBe("vol-1-ch-12");
+    } finally {
+      await restore();
+    }
+  });
+
+  test("空世界点确认完成：停留本面板不误标已确认", async ({ page }) => {
+    const { restore } = await setupSession(page);
+    try {
+      const pid = await createNovel(page, `世界空确认_${Date.now() % 100000}`);
+      await page.getByRole("button", { name: /^设定/ }).click();
+      await openSetting(page, "世界");
+      await expect(page.locator('[data-od-id="stage-input"]')).toBeVisible({ timeout: 10000 });
+      await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
+      // 后端 400 拦截：仍在本面板（确认按钮未变成保存修改）
+      await expect(page.locator(".settings-v main h2")).toHaveText(/世界/, { timeout: 5000 });
+      await expect(
+        page.locator(".panel-foot").getByRole("button", { name: "保存修改" }),
+      ).toHaveCount(0);
+    } finally {
+      await restore();
+    }
+  });
