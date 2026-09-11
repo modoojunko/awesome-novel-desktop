@@ -28,7 +28,8 @@
 - Then 后端返回未填写提示，面板停留且不标记已确认
 
 ### Requirement: 契约 v2 与读写归一化
-- PUT /settings/world SHALL 校验 WorldIn 契约：stage/power/cost ≤300 字、条目 value ≤200 字、key ≤20 字、factions ≤6 条、constraints ≤10 条、extra ≤50 条、history ≤100 条、拒绝重复 key 与控制字符；违规 SHALL 返回 400 并指明字段。
+- PUT /settings/world SHALL 校验 WorldIn 契约：stage/power/cost ≤300 字、条目 value ≤200 字、key ≤20 字、factions ≤6 条、constraints ≤10 条、extra ≤50 条、history ≤100 条、拒绝控制字符；违规 SHALL 返回 400 并指明字段。
+- 唯一键口径（架构稿 §2.1 幂等键表【拍板】）：constraints 名目 SHALL 唯一（铁律是硬边界）；factions 仅对已命名势力查重（迁移映射的无名有注行豁免）；history/extra 名目 SHALL NOT 强制唯一（幂等靠 (key, origin)，同 key 不同来源合法并存）。
 - GET /settings/world SHALL 永远返回归一化 v2 形状并剥离 `_legacy`；v1 旧数据在读边界自动归一化，原值 SHALL 存入 `_legacy` 供回滚（保留一个版本周期）。
 - 旧十字段 SHALL 按映射表搬入且不丢字：geography.scenes→stage 段落并入；geography.climate/limits→extra「地理与风物」；politics.rule→extra「律法与刑罚」；politics.factions（自由文本）→factions[0]{name:"",note:原文}；politics.social→extra「社会与信仰」；politics.cost→extra「律法与刑罚」；rules.world→power；rules.society→extra「律法与刑罚」；rules.personal→cost。
 
@@ -42,7 +43,15 @@
 - When PUT /settings/world
 - Then 返回 400 且错误指明该条目
 
-#### Scenario: 重复 key 被拒绝
+#### Scenario: 铁律重复名目被拒绝
+- Given constraints 里已有一条「不可推翻的事」
+- When PUT 时 constraints 再带一条同名目
+- Then 返回 400 且错误指明重复的名目
+
+#### Scenario: 历史允许同名目并存
+- Given history 已有「大战与灾变」一条
+- When PUT 追加另一条同名目（不同经过）
+- Then 保存成功（200），两条并存；lore 幂等合并仍按 (key, origin)
 - Given extra 中两条同名目条目
 - When PUT /settings/world
 - Then 返回 400 且错误指明重复的名目
@@ -95,7 +104,7 @@
 
 #### Scenario: 丢弃建议不入账
 - Given 一条 lore 建议
-- When 作者丢弃它
+- When 作者丢弃它（产品口径：不采纳即丢弃——无独立丢弃按钮，建议停留在暂存不被采纳就不入账；采纳是唯一入账出口，暂存随标签页会话清理）
 - Then 世界设定不变，后续写章不引用该条
 
 ### Requirement: 写章注入

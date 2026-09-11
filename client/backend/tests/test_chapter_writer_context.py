@@ -152,7 +152,8 @@ def _rich_context() -> ChapterContext:
     ctx.word_target = 1800
     ctx.premise = "退役刑警调查悬案"
     ctx.world_setting = {
-        "geography": {"scenes": "很" * 300},  # 超预算世界观
+        "stage": "很" * 300,  # 段落吃满预算
+        "extra": [{"key": f"名目{i}", "value": "容" * 180} for i in range(4)],
     }
     ctx.style_setting = {
         "role": "冷峻的叙事者",
@@ -185,11 +186,12 @@ def test_budgets_world_hooks_characters():
     prompt = ctx.to_prompt()
     # v2（world-setting-v2）：世界块整条从略预算制——块整体不超 600 预算，
     # 超预算条目整条跳过（不切半条），以显式「从略」行收尾
+    # 超预算世界数据：断言 chapter_writer 侧 prompt 出现显式「从略」行且无腰斩
     world_block = "\n".join(
         l for l in prompt.splitlines()
         if l.startswith(("世界观：", "  - ", "- 世界舞台", "- 力量体系", "- 力量的代价", "- 势力", "- 历史与旧账", "- 世界细节", "（另有"))
     )
-    assert "很" * 300 in world_block or "从略" in world_block
+    assert "从略" in world_block, "超预算时必须显式声明从略条数"
     assert "…" * 50 not in world_block  # 不再腰斩截断
     # 伏笔 ≤8：伏笔8 在、伏笔11 不在
     assert "伏笔7" in prompt

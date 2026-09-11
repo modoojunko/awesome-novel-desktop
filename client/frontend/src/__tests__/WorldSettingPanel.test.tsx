@@ -182,7 +182,6 @@ describe("WorldSettingPanel", () => {
     expect(body.history).toEqual([]);
     expect(body.constraints).toEqual([]);
   });
-});
 
   it("sink 生成历史只保留最近 5 次", async () => {
     worldDraftTopic.mockResolvedValue({ value: "草稿", topic: "世界舞台" });
@@ -196,3 +195,4 @@ describe("WorldSettingPanel", () => {
     expect(sink.querySelectorAll(".ah-chip")).toHaveLength(5);
     expect(sink.textContent).toContain("只保留最近 5 次");
   });
+});
