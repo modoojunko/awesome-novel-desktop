@@ -103,36 +103,36 @@ async def archive_chapter(
     # 偏好解耦：各自独立开关；AI 不可用一律静默降级为空建议。
     lore_suggestions: list[dict] = []
     if lore:
-      try:
-          import json as _json
+        try:
+            import json as _json
 
-          from filesystem.storage import get_storage as _storage
-          from prompts import load as _load_prompt
-          from settings.world_model import world_summary_text
+            from filesystem.storage import get_storage as _storage
+            from prompts import load as _load_prompt
+            from settings.world_model import world_summary_text
 
-          client = await get_ai_client_for_novel(novel_id)
-          world_raw = await _storage().read_yaml(root_path, "settings/world-setting.yaml") or {}
-          lore_prompt = _load_prompt("world_lore_suggest").format(
-              chapter=full_text[:3000],
-              world=world_summary_text(world_raw, 1200) or "（世界设定还空着）",
-          )
-          lore_text = await client.chat(
-              model="haiku",
-              system="你是小说世界设定管理员。只输出 JSON，不要任何其他文字。",
-              messages=[{"role": "user", "content": lore_prompt}],
-              max_tokens=800,
-          )
-          if "```" in lore_text:
-              lore_text = lore_text.split("```")[1]
-              lore_text = lore_text.removeprefix("json")
-          lore_data = _json.loads(lore_text.strip())
-          # 归一化与 ai_router.lore-suggest 同源（settings.world_model.parse_lore_suggestions）
-          from settings.world_model import parse_lore_suggestions
+            client = await get_ai_client_for_novel(novel_id)
+            world_raw = await _storage().read_yaml(root_path, "settings/world-setting.yaml") or {}
+            lore_prompt = _load_prompt("world_lore_suggest").format(
+                chapter=full_text[:3000],
+                world=world_summary_text(world_raw, 1200) or "（世界设定还空着）",
+            )
+            lore_text = await client.chat(
+                model="haiku",
+                system="你是小说世界设定管理员。只输出 JSON，不要任何其他文字。",
+                messages=[{"role": "user", "content": lore_prompt}],
+                max_tokens=800,
+            )
+            if "```" in lore_text:
+                lore_text = lore_text.split("```")[1]
+                lore_text = lore_text.removeprefix("json")
+            lore_data = _json.loads(lore_text.strip())
+            # 归一化与 ai_router.lore-suggest 同源（settings.world_model.parse_lore_suggestions）
+            from settings.world_model import parse_lore_suggestions
 
-          for item in parse_lore_suggestions(lore_data):
-              lore_suggestions.append({**item, "origin": _canonical_chapter_ref(chapter_ref)})
-      except Exception:  # noqa: BLE001, S110 — lore 建议可选，失败静默降级
-          lore_suggestions = []
+            for item in parse_lore_suggestions(lore_data):
+                lore_suggestions.append({**item, "origin": _canonical_chapter_ref(chapter_ref)})
+        except Exception:  # noqa: BLE001, S110 — lore 建议可选，失败静默降级
+            lore_suggestions = []
     return {
         "archive_path": archive_path,
         "summary": summary,

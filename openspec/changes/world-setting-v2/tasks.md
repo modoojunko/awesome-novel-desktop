@@ -48,7 +48,7 @@
 
 - [x] 7.1 重写 `settings-forms.spec.ts` 世界 3 用例（旧十字段/阈值口径 → 五格口径：填写/徽标三态/确认即前进/空确认停留）——验证：本地 docker 栈 e2e 通过
 - [x] 7.2 新增 `world-settings.spec.ts`（全 mock，照 genre-ai-settings 模式）：AI 五行采纳/回执撤销/历史切回/体检三态与降级/现实向开关联动/免费锁定拦截——验证：本地 e2e 全绿
-- [x] 7.3 lore-apply 界面用例（~~e2e~~ 收敛为 vitest：暂存写入 → 世界页 06 挂载即出现建议条目 → 采纳入账（先落库再入账）→ 清掉本条）——验证：WorldSettingPanel.test.tsx「lore 建议」用例
+- [x] 7.3 lore-apply 界面用例（vitest 三例：挂载渲染/采纳清条/record 去重 + e2e 全链一条：暂存种子 → 06 展示 → 采纳入账 → GET 断言 origin 落库）——验证：WorldSettingPanel.test.tsx + loreSuggestions.test.ts + world-settings.spec.ts「lore 全链」
 - [x] 7.4 密闭性验证：停外部依赖复跑本 spec，确认全 mock 无外呼——验证：e2e 复跑绿
 
 ## 9. 旧实现删除与替换验证

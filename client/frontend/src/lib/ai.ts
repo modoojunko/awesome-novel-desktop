@@ -365,6 +365,8 @@ export interface WorldCheckItem {
 export interface WorldCheckResult {
   items: WorldCheckItem[];
   degraded: boolean;
+  /** D7 降级原因（简介未填/题材未确认），degraded=false 时为空 */
+  degraded_reasons?: string[];
   verdict: string;
 }
 

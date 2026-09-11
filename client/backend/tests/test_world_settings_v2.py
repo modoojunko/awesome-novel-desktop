@@ -563,7 +563,8 @@ class TestReviewRegression:
         assert r.status_code == 200, r.text
         got = client.get(f"/api/novels/{pid}/settings/world").json()
         assert got["extra"], "迁移产物应含 extra 条目"
-        assert all(len(e["value"]) <= 201 for e in got["extra"]), "超限截断加省略号 ≤201"
+        assert all(len(e["value"]) <= 200 for e in got["extra"]), "超限截断加省略号且 ≤VALUE_MAX"
+        assert any(e["value"].endswith("…") for e in got["extra"]), "省略号必须落地"
         # GET → PUT 往返（老书首次保存不再 400）
         r2 = client.put(f"/api/novels/{pid}/settings/world", json=got)
         assert r2.status_code == 200, r2.text

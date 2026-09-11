@@ -391,7 +391,7 @@ async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:
 async def get_ai_client_for_novel(novel_id: str) -> AIClient:
     """客户端层（D11 ④）：按**本书绑定**的配置与模型构造客户端。
 
-    业务层唯一合法入口（除建书期 `ai_prefill`/`suggest_meta` 豁免）。
+    业务层唯一合法入口（除建书期 `世界 AI 起草（v2 通用起草端点）`/`suggest_meta` 豁免）。
     `ai_model` 权威、与 `ai_config_id` 绑定同一配置；调用方 `chat(model="haiku")`
     经 `resolve()` 落到本书模型，**不要在业务层传字面模型名**。
 

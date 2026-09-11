@@ -853,7 +853,7 @@ async def lore_suggest_world(
     return {"suggestions": suggestions, "chapter_ref": chapter_ref}
 
 
-# ── 按字段生成（world/style/hooks/characters/genre）──────────────────────# ── 按字段生成（world/style/hooks/characters/genre）──────────────────────
+# ── 按字段生成（world/style/hooks/characters/genre）──────────────────────
 
 
 @router.post("/ai/{stype}/{field}")

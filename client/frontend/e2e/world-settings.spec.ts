@@ -305,8 +305,6 @@ test.describe("世界设定 v2", () => {
       await restore();
     }
   });
-});
-
 
   test("lore 全链：暂存建议 → 06 展示 → 采纳入账", async ({ page, request }) => {
     const { token, restore } = await setupSession(page);
@@ -361,3 +359,4 @@ test.describe("世界设定 v2", () => {
       await restore();
     }
   });
+});

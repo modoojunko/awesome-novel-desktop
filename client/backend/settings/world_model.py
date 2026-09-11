@@ -148,8 +148,11 @@ def _from_v1(raw: dict) -> dict:
     )
 
     def _clamp_entry_value(text: str) -> str:
-        """映射表拍板：value 超上限截断并在尾部加「…」（原文可回 `_legacy` 找回）。"""
-        return text[:VALUE_MAX] + "…" if len(text) > VALUE_MAX else text
+        """映射表拍板：value 超上限截断并在尾部加「…」（原文可回 `_legacy` 找回）。
+
+        预留 1 字给省略号，产出 ≤VALUE_MAX，读边界 `[:VALUE_MAX]` 不会再削掉它。
+        """
+        return text[: VALUE_MAX - 1] + "…" if len(text) > VALUE_MAX else text
 
     extra: list[dict] = []
     if geo_bits:
@@ -197,10 +200,8 @@ def normalize_world(raw) -> dict:
 
 
 def read_world(raw) -> dict:
-    """GET 口径：归一化 v2 且剥离 `_legacy`。"""
-    out = normalize_world(raw)
-    out.pop("_legacy", None)
-    return out
+    """GET 口径：归一化 v2（`_legacy` 不在 V2_KEYS，天然剥离）。"""
+    return normalize_world(raw)
 
 
 def put_world_merged(raw, payload: dict) -> dict:
@@ -288,7 +289,9 @@ def _entry_line(e: dict) -> str:
     if "name" in e:
         note = _clean_value(e.get("note"))
         name = _clean_key(e.get("name"))
-        return f"{name}：{note}" if note else name
+        if note and name:
+            return f"{name}：{note}"
+        return name or note
     key = _clean_key(e.get("key"))
     value = _clean_value(e.get("value"))
     return f"{key}：{value}" if value else key

@@ -511,7 +511,7 @@ export default function SettingsView({
                 projectId={projectId}
                 onDirtyChange={handleDirtyChange}
                 onReceiptChange={handleReceiptChange}
-                onGotoPanel={(k) => setPanel(k)}
+                onGotoPanel={(k) => handleSelect(k)}
                 onNoPowerChange={setWorldNoPower}
               />
             )}
