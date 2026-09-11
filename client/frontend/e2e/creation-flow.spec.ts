@@ -352,13 +352,11 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     // 新落点：默认写作工作台。设定面板经 modnav「设定」tab 进入（PR4 v2 two-col）。
     await page.getByRole("button", { name: /^设定/ }).click();
 
-    // ── world：真实表单填 ≥4 个子字段（3 地理 + 1 政治）→ 确认完成自动落库
+    // ── world：契约 v2 五格（舞台一段话任一非空即可确认）→ 确认完成自动落库
     await openSetting(page, "世界");
-    await fillSettingField(page, "主要场景", "一座被沙漠包围的边境城邦");
-    await fillSettingField(page, "气候", "昼夜温差极大，夜晚滴水成冰");
-    await fillSettingField(page, "地理限制", "北临黑海，西侧是断崖");
-    await page.locator("summary", { hasText: "政治" }).click();
-    await fillSettingField(page, "统治形式", "城主议会制，元老席位世袭");
+    const stage = page.locator('[data-od-id="stage-input"]');
+    await expect(stage).toBeVisible({ timeout: 10000 });
+    await stage.fill("一座被沙漠包围的边境城邦，城主议会制，元老席位世袭");
     const worldSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/world"),
     );

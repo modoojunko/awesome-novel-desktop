@@ -12,7 +12,8 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useDirtyState } from "@/hooks/useDirtyState";
 import { type SettingSaveHandle } from "@/components/novel/settings/FormField";
-import WorldSettingForm from "@/components/novel/settings/WorldSettingForm";
+import WorldSettingPanel from "@/components/novel/settings/world/WorldSettingPanel";
+import type { WorldPanelHandle } from "@/components/novel/settings/world/WorldSettingPanel";
 import StyleSettingForm from "@/components/novel/settings/StyleSettingForm";
 import AntiAiSettingForm from "@/components/novel/settings/AntiAiSettingForm";
 import HooksSettingForm from "@/components/novel/settings/HooksSettingForm";
@@ -58,7 +59,7 @@ const DESCS: Record<string, string> = {
   genre: GENRE_DEFINITION,
   intro: "让读者（和 AI）知道这是一个怎样的故事。",
   arc: "这本书讲什么、结局想怎样、分几卷——定总方向盘，不拦写作。",
-  world: "地理、政治与规则——故事发生的世界如何运转。",
+  world: "世界是 AI 写章时的物理法则——能做什么、不能做什么、付什么代价，都从这里读。",
   style: "用谁的视角讲，用什么语气讲（叙事身份 + 核心原则）。",
   antiAI: "这些词句一出现就拦掉——AI 味最重的那批。",
   foreshadow: "先埋下的，后面要还。",
@@ -118,7 +119,8 @@ export default function SettingsView({
   const formRef = useRef<SettingSaveHandle>(null);
   const genreRef = useRef<GenreHandle>(null);
   const introRef = useRef<IntroHandle>(null);
-  // D13：AI 行的门控只读后端 ai_state 一次分派（不再 useFeature + 本地推导两处判）
+  /** 世界面板句柄：save 落库；runAi 由右栏 AI 卡/格头快捷钮调用（world-setting-v2）。 */
+// D13：AI 行的门控只读后端 ai_state 一次分派（不再 useFeature + 本地推导两处判）
   const { aiState, refresh: refreshAiState } = useModelStatus(projectId);
   /** AI 行运行态（受控下发给卡片）：点即置位、promise 落地即清，用户看得见后台在跑。 */
   const [aiRunningKey, setAiRunningKey] = useState<string | null>(null);
@@ -148,6 +150,21 @@ export default function SettingsView({
       setAiRunningKey(null);
     }
   }, []);
+  const worldRef = useRef<WorldPanelHandle>(null);
+  const runWorldAi = useCallback(
+    async (key: string) => {
+      if (aiRowBusyRef.current) return;
+      aiRowBusyRef.current = true;
+      setAiRunningKey(key);
+      try {
+        await worldRef.current?.runAi(key);
+      } finally {
+        aiRowBusyRef.current = false;
+        setAiRunningKey(null);
+      }
+    },
+    [],
+  );
   const handleAiBlocked = useCallback((reason: AiState) => {
     if (reason === "no_key") {
       window.location.hash = "/config";
@@ -190,6 +207,26 @@ export default function SettingsView({
     ],
     [introspected, runIntroAi],
   );
+
+  // 现实向开关（世界面板上报）：右栏力量两行随之退场，原位一行灰字占位
+  const [worldNoPower, setWorldNoPower] = useState(false);
+
+  // 世界右栏五行（world-setting-v2）：四问生成 + 一致性体检（答案落对应格下）
+  const worldAiRows = useMemo<AiCapabilityRow[]>(() => {
+    const rows: AiCapabilityRow[] = [
+      { key: "stage", name: "世界舞台", desc: "这是个什么世界，故事发生在哪 · 输入：书名+简介+题材", onClick: () => runWorldAi("stage") },
+      { key: "factions", name: "势力", desc: "谁在和谁争、各自想要什么 · 输入：简介+历史旧账（若已写）", onClick: () => runWorldAi("factions") },
+      { key: "constraints", name: "世界铁律", desc: "为这个世界立几条不许破的硬边界 · 输入：01-05 已填内容", onClick: () => runWorldAi("constraints") },
+      { key: "check", name: "一致性体检", desc: "简介、题材、世界三方对照，扫矛盾与漏洞 · 只提醒不拦确认", onClick: () => runWorldAi("check") },
+    ];
+    if (!worldNoPower) {
+      rows.splice(1, 0,
+        { key: "power", name: "力量体系", desc: "力量叫什么、分几级、上限在哪 · 输入：01+题材+简介", onClick: () => runWorldAi("power") },
+        { key: "cost", name: "力量的代价", desc: "用它要付什么代价 · 输入：02+简介", onClick: () => runWorldAi("cost") },
+      );
+    }
+    return rows;
+  }, [runWorldAi, worldNoPower]);
 
   // 题材右栏四行（02-05 各答各题；01 题材目录不走 AI；06 剧情轨道已退役——归主线规划）
   const genreAiRows = useMemo<AiCapabilityRow[]>(
@@ -254,11 +291,9 @@ export default function SettingsView({
 
   const item = SETTINGS_ITEMS.find((i) => i.k === panel);
   const isModel = panel === "aiModel";
-  // §5.1 三态：confirmed（已确认，来自 /settings/status）> filled（已填，来自 /readiness）> 未填
-  // confirmedStatus 拉取失败（null）时回退 settingsStatus，避免已确认项被误标「已填」
-  const confirmed = item
-    ? !!(confirmedStatus?.[item.settingsKey] ?? settingsStatus?.[item.settingsKey])
-    : false;
+  // §5.1 三态：已确认（/settings/status 的确认标记）> 已填（/readiness 内容判定）> 未填。
+  // 已确认 ONLY 来自确认标记存档——存草稿/内容就绪（readiness）不得误标「已确认」。
+  const confirmed = item ? !!confirmedStatus?.[item.settingsKey] : false;
   const filled = item ? !!settingsStatus?.[item.settingsKey] : false;
 
   // ── 进度（两态口径：done/empty；readiness 拉取失败按 0 计，与 modnav 一致）──
@@ -279,7 +314,9 @@ export default function SettingsView({
         ? genreRef.current
         : panel === "intro"
           ? introRef.current
-          : formRef.current,
+          : panel === "world"
+            ? worldRef.current
+            : formRef.current,
     [panel],
   );
 
@@ -469,11 +506,13 @@ export default function SettingsView({
               />
             )}
             {panel === "world" && (
-              <WorldSettingForm
-                ref={formRef}
+              <WorldSettingPanel
+                ref={worldRef}
                 projectId={projectId}
-                settingKey="world"
                 onDirtyChange={handleDirtyChange}
+                onReceiptChange={handleReceiptChange}
+                onGotoPanel={(k) => handleSelect(k)}
+                onNoPowerChange={setWorldNoPower}
               />
             )}
             {panel === "style" && (
@@ -522,7 +561,7 @@ export default function SettingsView({
             <span className="note" style={{ marginRight: "auto" }}>
               {panelNote}
             </span>
-            {/* 改动回执（仅在模型设定/简介/题材三面板发声；其余面板恒 null） */}
+            {/* 改动回执（在模型设定/简介/题材/世界四面板发声；其余面板恒 null） */}
             <ChangeReceiptBar receipt={receipt} />
             {confirmed && !isModel && (
               <span className="done-note">
@@ -577,7 +616,20 @@ export default function SettingsView({
           />
         ) : panel === "arc" ? (
           <ArcWizard ctl={arcCtl} />
-        ) : panel === "world" || panel === "style" || panel === "antiAI" ? (
+        ) : panel === "world" ? (
+          <AiWriterAssistant
+            rows={worldAiRows}
+            footNote={
+              worldNoPower
+                ? "本书开了现实向：力量两行已退场，物理与法律规则在「更多世界细节」里补。"
+                : "答案落对应格下方，采纳 · 覆盖才写回，脚部有回执可一步撤销；每行保留最近 5 次结果可切回。体检缺输入走降级，不拦确认。"
+            }
+            aiState={aiState}
+            onBlocked={handleAiBlocked}
+            runningKey={aiRunningKey}
+            data-od-id="ai-assist-world"
+          />
+        ) : panel === "style" || panel === "antiAI" ? (
           <div className="rail-card">
             <b>{item?.name} · AI 能力</b>
             <p className="opt" style={{ fontSize: 12 }}>

@@ -106,7 +106,7 @@ class TestLayeringBoundaryGate:
     # 豁免：客户端层定义、测试、建书期预填、suggest-meta（无 novel_id）
     EXEMPT_FILES: ClassVar[set[str]] = {
         "ai_client.py",
-        "ai_prefill.py",
+        
     }
     EXEMPT_REL: ClassVar[set[str]] = {
         "novels/router.py",  # suggest-meta 建书期

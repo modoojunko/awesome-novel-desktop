@@ -20,6 +20,7 @@ from settings.render import (
     flatten_principles,
     fmt_mistakes,
 )
+from settings.world_model import render_red_lines
 
 # 目标字数夹取区间（服务层守卫：越界值按默认处理）
 WORD_TARGET_MIN = 500
@@ -218,11 +219,9 @@ class ChapterContext:
         return [str(s).strip() for s in raw if str(s).strip()][:3]
 
     def _world_block(self) -> str:
-        block = inject_world_setting(self.world_setting)
-        # 世界观裁剪预算 ≤600 字（含标签），超宽截断
-        if len(block) > 600:
-            block = block[:600] + "…"
-        return block
+        # 预算由领域渲染器内部按「整条为单元 + 显式从略」控制（world-setting-v2 D5），
+        # 不再从中间硬切——被切半截的红线比没有更糟；铁律走 _red_lines 红线区。
+        return inject_world_setting(self.world_setting)
 
     def _narrative_goals_lines(self) -> list[str]:
         goals = []
@@ -273,6 +272,8 @@ class ChapterContext:
             items = self.payoff_plan.get(kind) or []
             reds.extend(f"{label}：{h}" for h in items)
         reds.extend(f"禁止：{p}" for p in self.prohibitions)
+        # 世界铁律（world-setting-v2）：逐条完整进红线区，任何压缩不得删改
+        reds.extend(render_red_lines(self.world_setting))
         return reds
 
     # ── 粗组兜底提示词 ─────────────────────────────────────────────

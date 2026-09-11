@@ -703,13 +703,13 @@ test("P2-1 面板切换守卫：脏表单切换需确认，取消保留输入", 
     const pid = await createNovel(page, `守卫${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
 
-    // v2 默认面板 = 题材 → 切到「世界」（地理折叠组默认展开），等表单加载完成
+    // v2 默认面板 = 题材 → 切到「世界」（契约 v2 五格），等舞台框加载完成
     await openSetting(page, "世界");
-    const scene = settingFieldTA(page, "主要场景");
-    await expect(scene).toBeVisible({ timeout: 10000 });
+    const stage = page.locator('[data-od-id="stage-input"]');
+    await expect(stage).toBeVisible({ timeout: 10000 });
 
     // 输入 → 脏状态
-    await scene.fill("边境城邦：临海要塞，北接荒漠");
+    await stage.fill("边境城邦：临海要塞，北接荒漠");
 
     // 取消分支：dismiss 确认框 → 面板不切换、输入保留
     let dialogShown = false;
@@ -719,8 +719,8 @@ test("P2-1 面板切换守卫：脏表单切换需确认，取消保留输入", 
     });
     await openSetting(page, "文风");
     expect(dialogShown).toBe(true);
-    await expect(scene).toBeVisible();
-    await expect(scene).toHaveValue("边境城邦：临海要塞，北接荒漠");
+    await expect(stage).toBeVisible();
+    await expect(stage).toHaveValue("边境城邦：临海要塞，北接荒漠");
 
     // 确认分支：接受确认框 → 面板切换
     page.once("dialog", (d) => void d.accept());
@@ -731,7 +731,7 @@ test("P2-1 面板切换守卫：脏表单切换需确认，取消保留输入", 
 
     // 后端未写入任何世界设定（脏输入未保存）
     const world = await apiGetJSON(request, token, `/novels/${pid}/settings/world`);
-    expect(world?.geography?.scenes ?? "").toBe("");
+    expect(world?.stage ?? "").toBe("");
   } finally {
     await restore();
   }
@@ -798,9 +798,9 @@ test("P2-1c 离开设定视图守卫：脏表单离开需确认，取消保留",
 
     // v2 默认面板 = 题材 → 切到「世界」再弄脏
     await openSetting(page, "世界");
-    const scene = settingFieldTA(page, "主要场景");
-    await expect(scene).toBeVisible({ timeout: 10000 });
-    await scene.fill("边境城邦：临海要塞，北接荒漠");
+    const stage = page.locator('[data-od-id="stage-input"]');
+    await expect(stage).toBeVisible({ timeout: 10000 });
+    await stage.fill("边境城邦：临海要塞，北接荒漠");
 
     // 取消分支：dismiss → 仍在设定视图、输入保留
     let dialogShown = false;
@@ -810,13 +810,13 @@ test("P2-1c 离开设定视图守卫：脏表单离开需确认，取消保留",
     });
     await page.getByRole("button", { name: /^写作/ }).click();
     expect(dialogShown).toBe(true);
-    await expect(scene).toBeVisible();
-    await expect(scene).toHaveValue("边境城邦：临海要塞，北接荒漠");
+    await expect(stage).toBeVisible();
+    await expect(stage).toHaveValue("边境城邦：临海要塞，北接荒漠");
 
     // 确认分支：accept → 离开设定视图（世界面板卸载）
     page.once("dialog", (d) => void d.accept());
     await page.getByRole("button", { name: /^写作/ }).click();
-    await expect(scene).toHaveCount(0);
+    await expect(stage).toHaveCount(0);
   } finally {
     await restore();
   }
@@ -831,16 +831,15 @@ test("P2-1d 脏表单确认完成：自动保存再确认（内容落库 + 按�
     const pid = await createNovel(page, `守卫完成${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
 
-    // v2 默认面板 = 题材 → 切到「世界」；填 ≥4 个子字段（3 地理 + 1 政治，
-    // readiness 阈值=4），不点保存（脏表单）
+    // v2 默认面板 = 题材 → 切到「世界」；填舞台段落 + 一条势力（readiness：任一非空即过），
+    // 不点保存（脏表单）
     await openSetting(page, "世界");
-    const scene = settingFieldTA(page, "主要场景");
-    await expect(scene).toBeVisible({ timeout: 10000 });
-    await fillSettingField(page, "主要场景", "一座被沙漠包围的边境城邦");
-    await fillSettingField(page, "气候", "昼夜温差极大，夜晚滴水成冰");
-    await fillSettingField(page, "地理限制", "北临黑海，西侧是断崖");
-    await page.locator("summary", { hasText: "政治" }).click();
-    await fillSettingField(page, "统治形式", "城主议会制，元老席位世袭");
+    const stage = page.locator('[data-od-id="stage-input"]');
+    await expect(stage).toBeVisible({ timeout: 10000 });
+    await stage.fill("一座被沙漠包围的边境城邦");
+    await page.locator('[data-od-id="fac-add"]').click();
+    await page.locator(".fac-name").fill("丹阁");
+    await page.locator(".fac-goal").fill("要为残卷讨一个说法，与城邦敌对");
 
     // 确认完成 → 应先自动保存（PUT /settings/world）再确认，并「确认即前进」到下一项（新顺序：世界→角色）
     const autoSave = page.waitForResponse(
@@ -852,10 +851,10 @@ test("P2-1d 脏表单确认完成：自动保存再确认（内容落库 + 按�
       page.locator(".settings-v main h2", { hasText: "角色" }),
     ).toBeVisible({ timeout: 5000 });
 
-    // 后端直查：内容已落库（自动保存生效）
+    // 后端直查：内容已落库（自动保存生效，契约 v2 形状）
     const world = await apiGetJSON(request, token, `/novels/${pid}/settings/world`);
-    expect(world.geography.scenes).toContain("边境城邦");
-    expect(world.politics.rule).toContain("城主议会制");
+    expect(world.stage).toContain("边境城邦");
+    expect(world.factions[0].name).toBe("丹阁");
   } finally {
     await restore();
   }

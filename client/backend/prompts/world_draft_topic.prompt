@@ -1,0 +1,16 @@
+你是小说设定专家。请为这本书的世界设定起草「{topic}」部分的内容。
+
+书名：{title}
+题材：{theme}（{theme_desc}）
+简介：{synopsis}
+已有世界设定：
+{world}
+
+口径：
+- 内容要跟已有设定风格一致、互相兼容
+- 具体可判，不要空话（如"保持一致性"不算内容）
+- {shape_line}
+{topic_line}
+
+只输出 JSON，不要任何其他文字：
+{format_line}

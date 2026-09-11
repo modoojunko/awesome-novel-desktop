@@ -29,7 +29,7 @@ from prompts import load as load_prompt
 router = APIRouter(prefix="/api/novels/{project_id}/settings", tags=["settings-ai"])
 
 # 支持按字段生成的设定类型（anti-ai 除外）
-FIELD_GENERATABLE = {"world", "style", "hooks", "characters", "genre"}
+FIELD_GENERATABLE = {"style", "hooks", "characters", "genre"}
 
 # 题材五行字段（01 口味胶囊不走 AI；promise_note 不单独成行，随 core_promise 出参）
 GENRE_FIELDS = ("core_promise", "forbidden_list", "cost_ratio", "battlefield")
@@ -49,7 +49,6 @@ _GENRE_PROMPTS = {
     "battlefield": "settings_genre_battlefield",
 }
 _STYPE_PROMPTS = {
-    "world": "settings_world",
     "style": "settings_style",
     "hooks": "settings_hooks",
     "characters": "settings_characters",
@@ -469,6 +468,389 @@ async def intro_ai(
         "polished": polished,
         "act": "replace",
     }
+
+
+# ── 世界设定 v2：通用按主题起草 / 一致性体检 / lore-suggest ────────────────
+# 注册在 /ai/{stype}/{field} 通配之前（intro 先例：通配会把 world 当 stype 吞掉）。
+# 设计：不硬编码字段列表——AI 起草按主题名动态生成，任何世界要素都能补。
+
+def _world_theme(story: dict) -> tuple[str, str, str]:
+    """题材锚（运行时读 story.yaml，不用前端快照）：标签/描述/示例。"""
+    theme_name = (story.get("genre") or "").strip()
+    theme_sub = (story.get("sub_genre") or "").strip()
+    theme_label = f"{theme_name}（{theme_sub}）" if theme_sub else theme_name
+    theme_desc, theme_example = _theme_anchor(theme_name, theme_sub)
+    return theme_label, theme_desc, theme_example
+
+
+async def _world_context(project, story: dict) -> dict:
+    """世界 AI 共享上下文：书名/简介/题材锚/已有世界设定摘要。"""
+    from settings.world_model import world_summary_text
+
+    world_raw = await get_storage().read_yaml(project.root_path, "settings/world-setting.yaml") or {}
+    theme_label, theme_desc, _ = _world_theme(story)
+    return {
+        "title": _clamp_str(getattr(project, "name", ""), 100),
+        "synopsis": _clamp_str(story.get("synopsis"), 600),
+        "theme": theme_label,
+        "theme_desc": theme_desc,
+        "world": world_summary_text(world_raw, 1200) or "（世界设定还空着）",
+    }
+
+
+# 起草输出形状由调用方声明（前端知道要落哪个格）：text=一段话 / kv=名目条目 / faction=势力行
+# 注意：format_line 是 .format() 的**参数**，花括号写单层（双层会原样进 prompt）
+_DRAFT_SHAPES = ("text", "kv", "faction")
+_DRAFT_SHAPE_LINE = {
+    "text": "60-140 字一段话即可，作家确认后会写入对应格",
+    "kv": "分条给出（3-6 条），每条一句话、具体可判，不要空话",
+    "faction": "列出主要势力（2-3 个），每个注明想要什么、与谁敌友",
+}
+_DRAFT_FORMAT_LINE = {
+    "text": '{"value": "一段话内容"}',
+    "kv": '{"value": [{"key": "名目（≤10字）", "value": "一句话（≤80字）"}]}',
+    "faction": '{"value": [{"name": "势力名（≤10字）", "note": "想要什么、与谁敌友"}]}',
+}
+# 已知要素的起草口径（吸收原字段级模板的精华；未知 topic 用通用口径）
+_DRAFT_TOPIC_LINE = {
+    "世界舞台": "写名称、时代、形态、主要地点；「暂不出场」的区域要写明",
+    "力量体系": "力量叫什么、分几级、怎么获得；上限必须写死（最强者能做什么、不能做什么）",
+    "力量的代价": "写消耗、副作用、冷却、禁忌与失控——代价是冲突的引信，无消耗的力量写不了冲突",
+    "势力": "2-3 个：各自想要什么、与谁是敌是友；反派是立场不同，不是单纯坏",
+    "世界铁律": "3-6 条不许破的硬边界：能力上限、不可推翻的事、世人不知道的事；要具体可判（如「死者不可复生」）",
+    "历史与旧账": "只写剧情会用到的世界级大事：时间+经过+留下的后果；万年流水账不写",
+}
+
+
+def _sanitize_topic(raw) -> str:
+    """topic 消毒：去控制字符与花括号/尖括号（防 prompt 结构被换行/占位符破坏）。"""
+    topic = re.sub(r"[{}\[\]<>`]", "", str(raw or ""))
+    return re.sub(r"[\x00-\x1f\x7f\r]", "", topic).strip()[:60]
+
+
+def _normalize_draft_value(shape: str, raw) -> object:
+    """按形状归一 AI 返回的 value：text 出一段话，kv/faction 出条目数组（空项丢弃）。"""
+    if shape == "text":
+        return _clamp_str(raw, 300)
+    rows = raw if isinstance(raw, list) else []
+    out: list = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if shape == "kv":
+            key = _clamp_str(row.get("key"), 20) or _clamp_str(row.get("value"), 10)
+            val = _clamp_str(row.get("value"), 200)
+            if key and val:
+                out.append({"key": key, "value": val})
+        else:
+            name = _clamp_str(row.get("name"), 20)
+            note = _clamp_str(row.get("note"), 200)
+            if name:
+                out.append({"name": name, "note": note})
+    return out[: 10 if shape == "kv" else 6]
+
+
+@router.post("/ai/world/draft")
+async def draft_world_topic(
+    project_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """通用按主题起草：topic 是任意世界要素名（力量体系/代价/历史/势力/铁律……）。
+
+    后端不枚举合法主题——只要作家或体检觉得需要，就能 AI 起草。
+    shape 声明落格形状：text（一段话）/ kv（名目条目）/ faction（势力行）。
+    """
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    topic = _sanitize_topic(body.get("topic"))
+    if not topic:
+        raise HTTPException(400, "缺少主题（topic）")
+    shape = str(body.get("shape") or "text").strip()
+    if shape not in _DRAFT_SHAPES:
+        raise HTTPException(400, "shape 仅支持 text/kv/faction")
+
+    story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+    from settings.world_model import normalize_world
+
+    world_raw = await get_storage().read_yaml(project.root_path, "settings/world-setting.yaml") or {}
+    # 现实向兜底：力量两格已收起时拒绝起草力量内容（与面板收起口径一致）
+    if bool(normalize_world(world_raw).get("no_power")) and topic in ("力量体系", "力量的代价"):
+        raise HTTPException(400, "本书开了现实向（无超自然力量），不起草力量内容；可起草「更多世界细节」")
+    ctx = await _world_context(project, story)
+
+    prompt = load_prompt("world_draft_topic").format(
+        topic=topic,
+        title=ctx["title"],
+        synopsis=ctx["synopsis"],
+        theme=ctx["theme"],
+        theme_desc=ctx["theme_desc"],
+        world=ctx["world"],
+        shape_line=_DRAFT_SHAPE_LINE[shape],
+        format_line=_DRAFT_FORMAT_LINE[shape],
+        topic_line=_DRAFT_TOPIC_LINE.get(topic, ""),
+    )
+
+    client = await get_ai_client_for_novel(project_id)
+    usage: dict = {}
+    try:
+        text = await _judge_chat(
+            client,
+            model="haiku",
+            system="你是小说设定专家。只输出 JSON，不要任何其他文字。",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            json_mode=True,
+            usage=usage,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
+
+    data = _parse_json(text, "世界起草")
+    value = _normalize_draft_value(shape, data.get("value") if isinstance(data, dict) else None)
+    if not value:
+        raise HTTPException(502, "AI 没给出结果，可重试")
+    if shape == "text":
+        from settings.world_model import PARAGRAPH_MAX
+
+        value = str(value)[:PARAGRAPH_MAX]
+
+    from api_configs.usage import record_usage
+
+    await record_usage(
+        db,
+        user_id=user["id"],
+        project_id=project.id,
+        api_config_id=project.ai_config_id,
+        operation=f"settings_world_draft_{topic[:20]}",
+        model=effective_model(project),
+        tokens_in=usage.get("tokens_in", 0),
+        tokens_out=usage.get("tokens_out", 0),
+    )
+    return {"value": value, "topic": topic}
+
+
+@router.post("/ai/world/check")
+async def check_world_consistency(
+    project_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """一致性体检：简介 × 题材 × 世界三方对照，逐项三态，只提醒不拦确认。
+
+    降级（D7）：简介/题材缺失不 400——涉及行置 miss 并给补填出口（degraded 标记）。
+    """
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+    from settings.world_model import (
+        _CHECK_STATUS,
+        CHECK_ITEMS_POWER,
+        CHECK_ITEMS_REAL,
+        normalize_world,
+        world_summary_text,
+    )
+
+    world_raw = await get_storage().read_yaml(project.root_path, "settings/world-setting.yaml") or {}
+    world = normalize_world(world_raw)
+    no_power = bool(world.get("no_power"))
+    item_names = list(CHECK_ITEMS_REAL if no_power else CHECK_ITEMS_POWER)
+
+    synopsis = str(story.get("synopsis", ""))
+    theme_label, theme_desc, _ = _world_theme(story)
+    synopsis_missing = not synopsis.strip()
+    theme_missing = not theme_label
+
+    # D7 降级【拍板】：缺输入的检查项直接置 miss，不烧 AI 调用；
+    # 三方缺二（简介+题材全空）→ 整次体检免调用，全部项置 miss。
+    degraded_reasons: list[str] = []
+    if synopsis_missing:
+        degraded_reasons.append("简介未填")
+    if theme_missing:
+        degraded_reasons.append("题材未确认")
+
+    def _miss_row(name: str, note: str) -> dict:
+        return {"name": name, "status": "miss", "note": note}
+
+    def _needs_synopsis(name: str) -> bool:
+        return "简介" in name
+
+    def _needs_theme(name: str) -> bool:
+        return "题材" in name
+
+    if synopsis_missing and theme_missing:
+        items_out = [
+            _miss_row(
+                name,
+                "输入缺失：简介未填、题材未确认——补完再体检更准"
+                if (_needs_synopsis(name) and _needs_theme(name))
+                else ("输入缺失：简介未填——先去补简介" if _needs_synopsis(name) else "输入缺失：题材未确认——先去题材页确认"),
+            )
+            for name in item_names
+        ]
+        return {"items": items_out, "degraded": True,
+                "degraded_reasons": degraded_reasons, "verdict": "简介与题材都还没写，体检结果不完整"}
+
+    prompt = load_prompt("world_check").format(
+        synopsis=_clamp_str(synopsis, 600) or "（未填写）",
+        theme=theme_label or "（未确认）",
+        theme_desc=theme_desc or "（无）",
+        world=world_summary_text(world_raw, 1200) or "（未填写）",
+        items=" / ".join(item_names),
+        mode_line="本书为现实向：没有超自然力量，用物理与法律规则判断" if no_power else "",
+    )
+
+    client = await get_ai_client_for_novel(project_id)
+    usage: dict = {}
+    try:
+        text = await _judge_chat(
+            client,
+            model="haiku",
+            system="你是小说设定一致性审校。只输出 JSON，不要任何其他文字。",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            json_mode=True,
+            usage=usage,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"体检失败，可重试：{e!s}") from e
+
+    data = _parse_json(text, "一致性体检")
+    # 名称归一匹配：模型把「简介 × 世界」写岔（空格/×半角）不算失格
+    def _name_key(n: str) -> str:
+        return re.sub(r"[\s×xX*·・]", "", n)
+
+    ai_items: dict = {}
+    raw_items = (data.get("items") if isinstance(data, dict) else []) or []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        name = _clamp_str(item.get("name"), 40)
+        status = str(item.get("status", "")).strip()
+        nk = _name_key(name)
+        if nk and nk not in ai_items and status in _CHECK_STATUS:
+            official = next((n for n in item_names if _name_key(n) == nk), None)
+            if official:
+                ai_items[nk] = {"name": official, "status": status,
+                                "note": _clamp_str(item.get("note"), 120)}
+
+    items_out = []
+    for name in item_names:
+        items_out.append(ai_items.get(_name_key(name)) or
+                         {"name": name, "status": "miss", "note": "AI 未给出该项，可重跑体检"})
+
+    degraded = bool(degraded_reasons)
+    if synopsis_missing:
+        for row in items_out:
+            if _needs_synopsis(row["name"]):
+                row.update(status="miss", note="输入缺失：简介未填——先去补简介，再重新体检")
+    if theme_missing:
+        for row in items_out:
+            if _needs_theme(row["name"]):
+                row.update(status="miss", note="输入缺失：题材未确认——先去题材页确认，再重新体检")
+
+    from api_configs.usage import record_usage
+
+    await record_usage(
+        db,
+        user_id=user["id"],
+        project_id=project.id,
+        api_config_id=project.ai_config_id,
+        operation="settings_world_check",
+        model=effective_model(project),
+        tokens_in=usage.get("tokens_in", 0),
+        tokens_out=usage.get("tokens_out", 0),
+    )
+    verdict = _clamp_str(data.get("verdict"), 120) if isinstance(data, dict) else ""
+    if degraded and not verdict:
+        verdict = "体检输入不完整（" + "、".join(degraded_reasons) + "），结果仅供参考"
+    return {"items": items_out, "degraded": degraded,
+            "degraded_reasons": degraded_reasons, "verdict": verdict}
+
+
+@router.post("/ai/world/lore-suggest")
+async def lore_suggest_world(
+    project_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """归档章节的世界要素建议（stateless 不落库，采纳走 /settings/world/lore-apply）。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    chapter_ref = _clamp_str(body.get("chapter_ref"), 40)
+    if not chapter_ref:
+        raise HTTPException(400, "缺少章节引用（chapter_ref）")
+
+    from settings.world_model import world_summary_text
+    from workflow.engine import load_chapter
+
+    chapter = await load_chapter(project.root_path, chapter_ref)
+    chapter_text = _clamp_str(
+        body.get("text") or (chapter.get("content") if isinstance(chapter, dict) else ""),
+        3000,
+    )
+    if not chapter_text.strip():
+        raise HTTPException(400, "章节正文为空，无法提取世界要素")
+
+    world_raw = await get_storage().read_yaml(project.root_path, "settings/world-setting.yaml") or {}
+    prompt = load_prompt("world_lore_suggest").format(
+        chapter=chapter_text,
+        world=world_summary_text(world_raw, 1200) or "（世界设定还空着）",
+    )
+
+    client = await get_ai_client_for_novel(project_id)
+    usage: dict = {}
+    try:
+        text = await _judge_chat(
+            client,
+            model="haiku",
+            system="你是小说世界设定管理员。只输出 JSON，不要任何其他文字。",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            json_mode=True,
+            usage=usage,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
+
+    data = _parse_json(text, "世界要素")
+    # 与 archive 产出同形：每条带 canonical 章节引用 origin（幂等键）
+    from archive.service import canonical_chapter_ref
+    from settings.world_model import parse_lore_suggestions
+
+    suggestions = [
+        {**item, "origin": canonical_chapter_ref(chapter_ref)}
+        for item in parse_lore_suggestions(data)
+    ]
+
+    from api_configs.usage import record_usage
+
+    await record_usage(
+        db,
+        user_id=user["id"],
+        project_id=project.id,
+        api_config_id=project.ai_config_id,
+        operation="settings_world_lore_suggest",
+        model=effective_model(project),
+        tokens_in=usage.get("tokens_in", 0),
+        tokens_out=usage.get("tokens_out", 0),
+    )
+    return {"suggestions": suggestions, "chapter_ref": chapter_ref}
 
 
 # ── 按字段生成（world/style/hooks/characters/genre）──────────────────────

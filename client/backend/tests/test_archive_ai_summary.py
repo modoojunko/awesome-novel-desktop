@@ -173,7 +173,9 @@ class TestArchiveAiSummary:
             f"/api/novels/{pid}/chapters/{ref}/archive", json={"full_text": LONG_TEXT}
         )
         assert r.status_code == 200, r.text
-        assert calls == ["chat"], "member + default should call AI exactly once"
+        assert calls == ["chat", "chat"], (
+            "member + default calls AI twice：归档摘要 + 世界 lore 建议（world-setting-v2 D11 解耦）"
+        )
         assert r.json()["summary"] == AI_SUMMARY
 
     def test_member_opt_out_skips_ai(self, client, monkeypatch):
@@ -193,7 +195,9 @@ class TestArchiveAiSummary:
             json={"full_text": LONG_TEXT, "ai_summary": False},
         )
         assert r.status_code == 200, r.text
-        assert calls == [], "member + ai_summary=False must not call AI"
+        assert calls == ["chat"], (
+            "member + ai_summary=False 仍跑 lore 建议（D11：两开关解耦），仅跳过摘要"
+        )
         assert r.json()["summary"] == LONG_TEXT[:200]
 
     def test_free_default_skips_ai(self, client, monkeypatch):
