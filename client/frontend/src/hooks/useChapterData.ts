@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
+import { recordLoreSuggestions } from "@/lib/loreSuggestions";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -268,11 +269,15 @@ class ChapterStore {
     if (!p.trim()) return false;
     this.update({ error: null });
     try {
-      await api.post(`/novels/${this.projectId}/chapters/${this.ref}/archive`, {
+      const resp = await api.post(`/novels/${this.projectId}/chapters/${this.ref}/archive`, {
         full_text: p,
         // ai_summary=false：设置里关掉归档 AI 摘要（后端降级为正文摘要）
         ai_summary: options?.aiSummary ?? true,
       });
+      // lore-keeping（world-setting-v2）：归档识别的世界要素建议 → 暂存，世界页 06 确认
+      if (resp && Array.isArray(resp.lore_suggestions) && resp.lore_suggestions.length) {
+        recordLoreSuggestions(this.projectId, this.ref, resp.lore_suggestions);
+      }
       this.update({
         status: "archived",
         initial: { prose: p, status: "archived" },

@@ -18,10 +18,10 @@ class TestPromptLoader:
         assert isinstance(content, str)
         assert len(content) > 50
 
-    def test_load_settings_world(self):
-        content = load_prompt("settings_world")
+    def test_load_world_stage(self):
+        content = load_prompt("world_stage")
         assert isinstance(content, str)
-        assert "{premise}" in content or "设定" in content
+        assert "世界舞台" in content and "{synopsis}" in content
 
     def test_load_story_stage(self):
         content = load_prompt("story_stage")

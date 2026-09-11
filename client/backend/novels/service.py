@@ -62,14 +62,6 @@ async def create_project(
             style["genre_profile"] = genre_profile
             await get_storage().write_yaml(root_path, "settings/writing-style.yaml", style)
 
-        # Pre-fill world-setting with AI if synopsis is available
-        if synopsis:
-            try:
-                from ai_prefill import prefill_world_setting
-
-                await prefill_world_setting(root_path)
-            except Exception:
-                pass  # Non-blocking — create_project succeeds even if AI prefill fails
 
     project = Novel(
         user_id=user_id,

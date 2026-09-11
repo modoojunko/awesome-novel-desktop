@@ -42,7 +42,12 @@ class DeductionEngine:
             or {}
         )
 
-        self.stage.terrain = self._get_nested(world, "geography.scenes", "")
+        # world-setting-v2：舞台段落（v1 旧形状在读边界归一化后取 stage）
+        from settings.world_model import normalize_world
+
+        self.stage.terrain = str(
+            normalize_world(world).get("stage", "")
+        ).strip()
 
         # Load chapter outline if specified（章族入库：DB 统一读入口）
         if chapter_ref:

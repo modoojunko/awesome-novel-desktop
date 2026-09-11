@@ -133,10 +133,18 @@ _WORLD_FIELDS = [
 
 
 def _fill_world(client, pid: str, filled: int = 4):
-    """按前端 WorldSettingForm payload 填充（顶层 geography/politics/rules 三组对象）。"""
-    world = {"geography": {}, "politics": {}, "rules": {}}
-    for i, (section, field) in enumerate(_WORLD_FIELDS):
-        world[section][field] = "有内容" if i < filled else ""
+    """按前端五格 payload 填充（契约 v2：stage/power/cost 段落 + extra 条目）。"""
+    world: dict = {"no_power": False, "stage": "", "power": "", "cost": "",
+                   "history": [], "factions": [], "constraints": [], "extra": []}
+    slots = [("stage", None), ("power", None), ("cost", None),
+             ("extra", "条目一"), ("extra", "条目二"), ("extra", "条目三")]
+    for k, slot in enumerate(slots):
+        if k >= filled:
+            break
+        if slot[0] == "extra":
+            world["extra"].append({"key": slot[1], "value": "有内容"})
+        else:
+            world[slot[0]] = "有内容"
     client.put(f"/api/novels/{pid}/settings/world", json=world)
 
 
@@ -179,18 +187,32 @@ class TestReadiness:
         assert data["missing"] == []
         assert data["warning"] == ""
 
-    def test_world_details_threshold(self, client):
-        """world 判定回归：顶层三组对象子字段 <4 不通过（修复计数 bug）。"""
+    def test_world_any_nonempty_passes(self, client):
+        """world 判定 v2：stage/power/cost/条目任一非空即通过（旧阈值作废）。"""
         pid = _create_project(client)
-        _fill_world(client, pid, filled=3)
+        _fill_world(client, pid, filled=0)
         r = client.get(f"/api/novels/{pid}/readiness")
         keys = {m["key"] for m in r.json()["missing"]}
         assert "world" in keys
 
-        _fill_world(client, pid, filled=4)
+        _fill_world(client, pid, filled=1)
         r = client.get(f"/api/novels/{pid}/readiness")
         keys = {m["key"] for m in r.json()["missing"]}
         assert "world" not in keys
+
+    def test_confirm_on_legacy_shape_normalizes(self, client):
+        """8.4 演练：旧十字段 KV 书走 GET/PUT/确认全链（读边界归一化，不 400）。"""
+        pid = _create_project(client)
+        v1 = {
+            "geography": {"scenes": "南境边境城邦", "climate": "多雨", "limits": "北境雪山"},
+            "politics": {"rule": "王朝", "factions": "两宗对立", "social": "修士在上", "cost": "逐出宗门"},
+            "rules": {"world": "灵力九境", "society": "宗门律法", "personal": "血咒反噬"},
+        }
+        client.put(f"/api/novels/{pid}/settings/world", json=v1)
+        r = client.put(f"/api/novels/{pid}/settings/status/world")
+        assert r.status_code == 200, r.text
+        status = client.get(f"/api/novels/{pid}/settings/status").json()
+        assert status["world"] is True
 
     def test_ai_model_not_judged(self, client):
         pid = _create_project(client)
@@ -370,7 +392,7 @@ class TestGenericSettingsTypes:
         pid = _create_project(client)
         r = client.get(f"/api/novels/{pid}/settings/world")
         assert r.status_code == 200, r.text
-        assert "geography" in r.json()
+        assert "stage" in r.json() and "_legacy" not in r.json()
 
     def test_put_single_file_type_still_works(self, client):
         pid = _create_project(client)

@@ -11,9 +11,6 @@ Product decision (2026-08-02):
 
 from filesystem.storage import get_storage
 
-# world details 子字段非空阈值（推荐值：8 个子字段中 ≥4）
-WORLD_DETAILS_THRESHOLD = 4
-
 
 def _has_nonempty(v) -> bool:
     """Recursively check whether a yaml value contains any non-empty scalar."""
@@ -49,16 +46,14 @@ async def _check_genre(root_path: str, novel_id: str | None = None) -> bool:
 
 
 async def _check_world(root_path: str, novel_id: str | None = None) -> bool:
+    """世界就绪＝契约 v2 判据（world-setting-v2）：骨架任一段非空或任一条目有值。
+
+    v1 旧十字段在读边界归一化后再判（老书升级不误报）。
+    """
+    from settings.world_model import world_is_filled
+
     world = await get_storage().read_yaml(root_path, "settings/world-setting.yaml") or {}
-    # 前端保存顶层 geography/politics/rules 三组对象（与写正文引擎一致），
-    # 统计子字段非空数达到阈值即可确认。旧 details 结构是过时模板。
-    filled = 0
-    for section in ("geography", "politics", "rules"):
-        sub = world.get(section)
-        if not isinstance(sub, dict):
-            continue
-        filled += sum(1 for v in sub.values() if str(v).strip())
-    return filled >= WORLD_DETAILS_THRESHOLD
+    return world_is_filled(world)
 
 
 async def _check_style(root_path: str, novel_id: str | None = None) -> bool:

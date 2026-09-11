@@ -68,6 +68,11 @@ async def get_settings(
         )
     if type not in SINGLE_FILE_TYPES:
         raise HTTPException(400, f"Invalid settings type: {type}")
+    # world 契约 v2（world-setting-v2）：GET 永远返回归一化 v2 并剥离 `_legacy`
+    if type == "world":
+        from settings.world_model import read_world
+
+        return read_world(await get_storage().read_yaml(project.root_path, KEY_TO_PATH[type]) or {})
     # genre 已关系化（D19）：对外仍是五字段 JSON，存储层走 novel_genre_service
     if type == "genre":
         from genres.novel_genre_service import get_novel_genre
@@ -101,7 +106,30 @@ async def update_settings(
         )
     if type not in SINGLE_FILE_TYPES:
         raise HTTPException(400, f"Invalid settings type: {type}")
-    if type == "genre":
+    # world 契约 v2（world-setting-v2）：WorldIn 校验 + 写边界落 `_legacy`（v1 原文留一个版本周期回滚）
+    if type == "world":
+        from pydantic import ValidationError
+
+        from settings.world_model import (
+            WorldIn,
+            _is_v1,
+            normalize_world,
+            put_world_merged,
+        )
+
+        raw = await get_storage().read_yaml(project.root_path, KEY_TO_PATH[type]) or {}
+        # 兼容旧前端/旧客户端直接 PUT 旧十字段形状：归一化成 v2，原文落 _legacy
+        if _is_v1(body):
+            merged = put_world_merged(raw, normalize_world(body))
+            merged["_legacy"] = body
+        else:
+            try:
+                payload = WorldIn.model_validate(body).model_dump()
+            except ValidationError as e:
+                raise HTTPException(400, f"世界设定校验失败：{e.errors()[0]['msg']}") from e
+            merged = put_world_merged(raw, payload)
+        await get_storage().write_yaml(project.root_path, KEY_TO_PATH[type], merged)
+    elif type == "genre":
         from pydantic import ValidationError
 
         from genres.novel_genre_service import NovelGenreIn, put_novel_genre
@@ -165,6 +193,40 @@ async def delete_character(
         project.root_path, f"settings/character-setting/{name}.yaml"
     )
     return {"ok": True}
+
+
+@router.post("/world/lore-apply")
+async def lore_apply(
+    project_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """AI lore 建议的人工确认入账：按 (key, origin) 幂等合并进世界设定。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    from settings.world_model import (
+        lore_apply_entries,
+        normalize_world,
+        put_world_merged,
+        read_world,
+    )
+
+    entries = body.get("entries")
+    if not isinstance(entries, list) or not entries:
+        raise HTTPException(400, "缺少要入账的条目（entries）")
+
+    raw = await get_storage().read_yaml(project.root_path, KEY_TO_PATH["world"]) or {}
+    v2 = normalize_world(raw)
+    try:
+        v2 = lore_apply_entries(v2, entries)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    merged = put_world_merged(raw, v2)
+    await get_storage().write_yaml(project.root_path, KEY_TO_PATH["world"], merged)
+    return read_world(merged)
 
 
 @router.get("/characters/list")

@@ -332,3 +332,71 @@ export async function introAi(
   }
   return doJsonPost(`${API_BASE}/novels/${projectId}/settings/ai/intro/${action}`, body);
 }
+
+
+// ---------------------------------------------------------------------------
+// 世界设定 v2（world-setting-v2）
+// ---------------------------------------------------------------------------
+
+export type WorldAiField = string;
+
+export interface WorldCheckItem {
+  name: string;
+  status: "ok" | "warn" | "miss";
+  note: string;
+}
+
+export interface WorldCheckResult {
+  items: WorldCheckItem[];
+  degraded: boolean;
+  verdict: string;
+}
+
+export interface WorldFaction {
+  name: string;
+  note: string;
+}
+
+export interface WorldLoreSuggestion {
+  key: string;
+  value: string;
+  set: "history" | "extra" | "factions" | "constraints";
+}
+
+/** 起草落格形状：text=一段话（舞台/力量/代价）· kv=名目条目（铁律）· faction=势力行 */
+export type WorldDraftShape = "text" | "kv" | "faction";
+
+export type WorldDraftValue =
+  | string
+  | Array<{ key: string; value: string }>
+  | WorldFaction[];
+
+/** 通用按主题起草：topic 是任意世界要素名，后端动态构建 prompt */
+export async function worldDraftTopic(
+  topic: string,
+  projectId: string,
+  shape: WorldDraftShape = "text",
+): Promise<{ value: WorldDraftValue; topic: string }> {
+  return doJsonPost(
+    `${API_BASE}/novels/${projectId}/settings/ai/world/draft`,
+    { topic, shape },
+  );
+}
+
+/** 一致性体检：简介 × 题材 × 世界三方对照（缺失输入走降级，不 400） */
+export async function worldConsistencyCheck(
+  projectId: string,
+): Promise<WorldCheckResult> {
+  return doJsonPost(`${API_BASE}/novels/${projectId}/settings/ai/world/check`, {});
+}
+
+/** lore-apply：确认后的世界要素条目写入（origin 幂等） */
+export async function worldLoreApply(
+  projectId: string,
+  entries: Array<{ key: string; value: string; origin?: string; set: string }>,
+): Promise<unknown> {
+  return doJsonPost(
+    `${API_BASE}/novels/${projectId}/settings/world/lore-apply`,
+    { entries },
+  );
+}

@@ -103,7 +103,7 @@ class _FakeAIClient:
         if usage is not None:
             usage["tokens_in"] = self.tokens_in
             usage["tokens_out"] = self.tokens_out
-        return '{"title": "测试书名", "synopsis": "一段简介", "genre": "都市言情"}'
+        return '{"title": "测试书名", "synopsis": "一段简介", "genre": "都市言情", "value": "一段话世界设定"}'
 
     async def chat_stream(self, model, system, messages, max_tokens=4096, **kwargs):
         yield type("E", (), {"text": "", "is_done": True, "tokens": 0, "error": ""})()
@@ -148,8 +148,8 @@ def test_settings_field_generation_records_usage(client, project_id):
     """设定单字段生成后项目级用量统计非零。"""
     client.put("/api/novels/" + project_id + "/story", json={"synopsis": "测试前提"})
     resp = client.post(
-        "/api/novels/" + project_id + "/settings/ai/world/geography",
-        json={"context": {}},
+        "/api/novels/" + project_id + "/settings/ai/world/draft",
+        json={"topic": "力量体系"},
     )
     assert resp.status_code == 200, resp.text
     usage_resp = client.get("/api/v1/novels/" + project_id + "/usage")
