@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>评审稿 v1.3 · 主线（设定第 05 项）</title>
+<style>
+  /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致 ═══ */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --on-accent: oklch(100% 0 0);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
+  button { font-family: inherit; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.55; padding: 40px 24px 80px; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1320px; margin: 0 auto; }
+
+  /* ─── 稿头 ─── */
+  .draft-banner { display: flex; align-items: center; gap: 9px; padding: 10px 16px; border: 1px dashed var(--warn); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: 13px; margin-bottom: 28px; }
+  .draft-banner b { color: var(--fg); font-weight: 600; }
+  h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; }
+  h1 .ver { font-family: var(--font-mono); font-size: 13px; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 2px 10px; vertical-align: 6px; margin-left: 10px; letter-spacing: 0.06em; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 6px 0 14px; line-height: 1.8; }
+  .caliber { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 16px; font-size: 12.5px; color: var(--muted); margin-bottom: 36px; line-height: 1.8; }
+  .caliber b { color: var(--fg); font-weight: 600; }
+  .caliber li { margin: 4px 0 4px 18px; }
+
+  /* ─── 模拟窗口（演示容器；窗内 = 现有书工作台原样复刻） ─── */
+  .win { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: clip; box-shadow: var(--shadow-card); margin-bottom: 52px; }
+  .win-titlebar { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .dot { width: 11px; height: 11px; border-radius: 999px; flex: none; }
+  .dot.r { background: var(--err); } .dot.y { background: var(--warn); } .dot.g { background: var(--ok); }
+  .win-title { flex: 1; text-align: center; font-size: 12px; color: var(--muted); margin-right: 51px; }
+
+  /* ── 应用框架（全局 appbar + 小说栏 + modnav —— 均为现有实现原样，本稿不动） ── */
+  .appbar { height: 48px; display: flex; align-items: center; padding: 0 20px; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; }
+  .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; flex: none; }
+  .appbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; flex: none; }
+  .appbar .back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; padding: 5px 9px; border-radius: 8px; }
+  .appbar .back:hover { color: var(--fg); background: var(--fg-soft); }
+  .appbar .back svg { width: 14px; height: 14px; }
+  .appbar .spacer { flex: 1; }
+  .novelbar { height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 20px; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .novel-title { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
+  .genre-tag { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--muted); background: var(--surface); }
+  .novelbar .spacer { flex: 1; }
+  .pill-pro { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; }
+  .pill-pro svg { width: 11px; height: 11px; }
+  .modnav { flex: none; display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .mtab { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 14px; border-radius: 9px; font-size: 13.5px; color: var(--muted); border: none; background: transparent; cursor: pointer; }
+  .mtab:hover { color: var(--fg); background: var(--fg-soft); }
+  .mtab.on { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+  .mtab .cnt { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.02em; }
+  .mtab.on .cnt { color: var(--accent); }
+  .modnav .spacer { flex: 1; }
+  .modnav .side { font-size: 12px; color: var(--muted); }
+
+  /* ── 设定视图（three-col 280 / 1fr / 236 —— 现有 .settings-v 栅格原样） ── */
+  .set-body { display: grid; grid-template-columns: 280px minmax(0, 1fr) 236px; min-height: 560px; }
+  @media (max-width: 1024px) { .set-body { grid-template-columns: 230px minmax(0, 1fr) 220px; } }
+  @media (max-width: 860px) { .set-body { grid-template-columns: minmax(0, 1fr); } .col-tree { border-right: 0; border-bottom: 1px solid var(--border); max-height: 300px; } .col-ai { border-left: 0; border-top: 1px solid var(--border); } }
+
+  /* ── 左栏设定树（现有实现原样：tree-head / settings-progress / s-item / tree-foot） ── */
+  .col-tree { min-height: 0; overflow-y: auto; border-right: 1px solid var(--border); background: var(--bg); padding-bottom: 24px; }
+  .tree-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 14px 8px 18px; }
+  .tree-head .t { font-size: 12px; letter-spacing: 0.08em; color: var(--muted); font-family: var(--font-mono); }
+  .tree-head .t b { color: var(--fg); font-weight: 500; }
+  .settings-progress { display: flex; align-items: center; gap: 10px; padding: 2px 14px 12px; }
+  .settings-progress .pl { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.04em; white-space: nowrap; color: var(--muted); }
+  .settings-progress .pl b { color: var(--accent); font-weight: 500; font-size: 13px; }
+  .settings-progress .pl.done b { color: var(--ok); }
+  .pbar { height: 6px; border-radius: 999px; background: var(--fg-soft); overflow: hidden; flex: 1; }
+  .pbar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width 0.3s ease; }
+  .pbar.done i { background: var(--ok); }
+  .settings-nav-wrap { padding: 0 8px; }
+  .s-item { display: flex; align-items: center; gap: 9px; height: 36px; padding: 0 10px 0 14px; border-radius: 8px; cursor: pointer; }
+  .s-item:hover { background: var(--fg-soft); }
+  .s-item.on { background: var(--accent-soft); }
+  .s-item .nm { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .s-item.on .nm { color: var(--accent); font-weight: 500; }
+  .s-item .spacer { flex: 1; }
+  .defer-tag { font-size: 10px; color: var(--muted); border: 1px dashed var(--border); border-radius: 999px; padding: 1px 6px; flex: none; }
+  .wb-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; flex: none; }
+  .wb-badge svg { width: 10px; height: 10px; }
+  .wb-badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .wb-badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .wb-badge.empty { background: var(--fg-soft); color: var(--muted); }
+  .tree-foot { padding: 8px 14px 4px; font-size: 12px; color: var(--muted); line-height: 1.7; }
+
+  /* ── 中栏（col-panel 660 版心 + panel —— 现有 .wb 作用域原样） ── */
+  .col-middle { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .col-panel { flex: 1; min-height: 0; overflow-y: auto; padding: 28px clamp(20px, 4vw, 48px) 60px; background: var(--bg); }
+  .panel { max-width: 660px; }
+  .panel-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  .panel-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 600; margin: 0; }
+  .panel .desc { font-size: 13px; color: var(--muted); margin: 0 0 24px; }
+  .wb-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .wb-field > label { font-size: 12.5px; color: var(--muted); display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+  .wb-field > label .opt { font-size: 11px; }
+  .input, .textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+  .input:focus, .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .textarea { min-height: 72px; resize: vertical; line-height: 1.7; }
+  .panel-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); margin-top: 6px; flex-wrap: wrap; }
+  .panel-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+  .done-note { display: inline-flex; align-items: center; gap: 7px; color: var(--ok); font-size: 13px; font-weight: 500; }
+  .done-note svg { width: 15px; height: 15px; }
+
+  /* ── 通用件（现有词表） ── */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--accent); color: var(--on-accent); }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--muted); }
+  .btn-sm { height: 28px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 7px; }
+  .icon-btn:hover { color: var(--err); background: var(--err-soft); }
+  .text-btn { display: inline-flex; align-items: center; gap: 5px; border: none; background: transparent; color: var(--accent); font-size: 12.5px; cursor: pointer; padding: 4px 2px; font-weight: 500; }
+  .text-btn:hover { color: var(--accent-strong); }
+  .cap { display: inline-flex; align-items: center; padding: 5px 12px; border: 1px solid var(--border); border-radius: 999px; font-size: 12.5px; color: var(--fg); background: var(--surface); cursor: pointer; user-select: none; }
+  .cap:hover { border-color: var(--muted); }
+  .cap.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+  .cap-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+  /* ── 三问问题行（字段名即问题 · 例句进占位符；行内 AI 帮我填沿文风/禁用词句同款） ── */
+  .q-label { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--fg); margin-bottom: 5px; }
+  .q-label .text-btn { margin-left: auto; font-size: 12px; }
+
+  /* ── 「怎么写」搭建法（settings-v .guide 现有样式原样） ── */
+  .guide { margin: 0 0 16px; }
+  .guide-toggle { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 13px; border: 1px dashed var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; color: var(--fg); font: inherit; }
+  .guide-toggle:hover { border-color: var(--accent); }
+  .guide-toggle .gt-b { font-size: 13px; font-weight: 600; flex: none; color: var(--accent); }
+  .guide-toggle .gt-s { font-size: 11.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .guide-toggle .gt-c { margin-left: auto; flex: none; color: var(--muted); font-size: 11.5px; }
+  .guide-body { margin-top: 8px; padding: 5px 16px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  .guide-body[hidden] { display: none; }
+  .g-row { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px dashed var(--border); }
+  .g-row:last-of-type { border-bottom: none; }
+  .g-row .g-name { flex: none; width: 108px; font-size: 12.5px; font-weight: 600; color: var(--fg); }
+  .g-row .g-body { font-size: 12px; color: var(--muted); line-height: 1.7; min-width: 0; }
+  .g-row .g-body em { font-style: normal; color: var(--fg); }
+  .g-formula { margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 12.5px; color: var(--fg); display: inline-block; }
+  .g-formula b { color: var(--accent); }
+  .g-dont { margin-top: 10px; font-size: 11.5px; color: var(--warn); line-height: 1.8; }
+
+  /* ── AI 结果区（settings-v .ai-sink 现有样式原样）与改动回执 ── */
+  .ai-sink { margin: 10px 0 0; background: var(--fg-soft); border-radius: 10px; padding: 12px 16px; font-size: 12.5px; line-height: 1.8; color: var(--fg); }
+  .ai-sink[hidden] { display: none; }
+  .ai-sink .aiz-head { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: var(--accent); margin-bottom: 6px; }
+  .ai-sink .aiz-hist { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+  .ai-sink .aiz-hist .ah-t { font-size: 11px; color: var(--muted); }
+  .ai-sink .aiz-hist .ah-chip { height: 20px; padding: 0 9px; font-size: 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; }
+  .ai-sink .aiz-hist .ah-chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+  .ai-sink .ans-act { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .ai-sink .ans-act button { height: 26px; padding: 0 12px; font-size: 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .ai-sink .ans-act button.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+  .chk-line { display: flex; gap: 8px; align-items: baseline; }
+  .chk-line .chk-name { flex: none; width: 108px; font-size: 12px; }
+  .chk-line .chk-res { font-size: 12px; font-weight: 500; flex: none; }
+  .chk-line .chk-res.ok { color: var(--ok); }
+  .chk-line .chk-res.miss { color: var(--err); }
+  .chk-line .chk-res.warn { color: var(--warn); }
+  .chk-line .chk-note { font-size: 11.5px; color: var(--muted); min-width: 0; }
+  .receipt { display: inline-flex; align-items: center; gap: 10px; flex: 0 1 auto; min-width: 0; background: var(--warn-soft); border: 1px solid color-mix(in oklch, var(--warn) 22%, var(--border)); border-radius: 9px; padding: 6px 10px; font-size: 12.5px; line-height: 1.5; color: var(--fg); }
+  .receipt[hidden] { display: none; }
+  .receipt .rt { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .receipt .rb-undo { flex: none; height: 24px; padding: 0 12px; font-size: 11.5px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .receipt .rb-undo:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── 右栏 AI 卡（col-ai 236px；AiWriterAssistant 结构：PRO 头 + 并列能力行 + 脚注） ── */
+  .col-ai { min-height: 0; overflow-y: auto; border-left: 1px solid var(--border); padding: 16px; background: var(--bg); }
+  .rail-card { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
+  .rail-card .rc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+  .rail-card .rc-head .mini-pro { font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; padding: 2px 8px; border-radius: 999px; background: var(--accent); color: var(--on-accent); flex: none; }
+  .rail-card .rc-head b { font-size: 13px; font-weight: 600; }
+  .rail-card .rc-sub { font-size: 11px; color: var(--muted); line-height: 1.6; margin-bottom: 10px; }
+  .rail-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; margin-bottom: 8px; }
+  .rail-row:hover { border-color: var(--accent); }
+  .rail-row .rr-b { min-width: 0; flex: 1; }
+  .rail-row .rr-b b { display: block; font-size: 12.5px; font-weight: 600; }
+  .rail-row .rr-b i { display: block; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.55; margin-top: 2px; }
+  .rail-row .rr-arrow { color: var(--muted); flex: none; }
+  .rail-foot { margin-top: 8px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+  .rail-foot b { color: var(--fg); font-weight: 500; }
+  /* 免费版态：整卡可见＋锁定（沿现版：降透明 + 点击统一升级提示） */
+  .rail-card.locked { opacity: .55; }
+  .rail-card.locked .rail-row { cursor: not-allowed; }
+  .rail-card.locked .rail-row:hover { border-color: var(--border); }
+  .rc-lock { color: var(--warn); flex: none; }
+
+  /* ── 演示控制（稿面 chrome，非界面元素） ── */
+  .demo-row { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+  .demo-row .dt-label { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+  .demo-row .opt { font-size: 11.5px; }
+
+  .statusbar { height: 26px; display: flex; align-items: center; gap: 14px; padding: 0 14px; background: var(--surface); border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted); }
+  .statusbar .sp { margin-left: auto; }
+
+  /* ── 结论 ─── */
+  .rec-box { border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: var(--radius); background: var(--accent-soft); padding: 16px 20px; font-size: 13.5px; line-height: 1.8; }
+  .rec-box b { font-weight: 600; }
+  .rec-box ol { margin: 8px 0 0 20px; }
+  .rec-box li { margin: 6px 0; }
+  .schema-box { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 14px 18px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.95; color: var(--fg); overflow-x: auto; margin-top: 14px; }
+  .schema-box b { color: var(--accent); font-weight: 600; }
+  .schema-box .cm { color: var(--muted); }
+  .muted { color: var(--muted); font-size: 12.5px; margin-top: 14px; line-height: 1.7; }
+  @media (max-width: 720px) { body { padding: 24px 12px 60px; } h1 { font-size: 22px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="draft-banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="16" height="16"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <span><b>评审稿 v1.3（DRAFT）· 主线＝设定第 05 项（可后补），待用户拍板</b> · <b>主线＝比简介更全的「从头到尾说什么＋结局是什么」；体量/卷数→写作阶段；主线进度、支线→归档时记录（数据字段本稿定稿，界面随「正文归档」change）</b> · 框架＝现有书工作台原样复刻，本稿只设计中栏面板与右栏 AI 卡 · 不改动 <span class="num">prototypes/</span> 与任何实现代码</span>
+  </div>
+
+  <h1>主线 · 设定第 05 项<span class="ver">v1.3</span></h1>
+  <p class="sub">主线设定页（中栏面板 + 右栏 AI 卡）＝<b>比简介更全的这本书</b>：从头到尾说什么、结局是什么——简介说给读者听（钩子、不剧透），主线说给 AI 和自己听（全景、可以剧透）。<b>无必填门槛（确认永远可点）</b>。体量/拆卷在写作阶段；主线进度、支线写作后归档记录（字段见结论区）。框架沿现有实现，本稿不动。</p>
+
+  <div class="caliber">
+    <b>口径前提</b>
+    <li><b>框架零改动</b>：整屏＝现有书工作台原样——小说栏（书名双击改名 / 类型 tag / PRO 徽）、modnav（设定 N/8 · 写作 N/N 章纲 · 预览）、<b>左设定树（设定 · 8 项 + 1 工具 + 进度条 + 模型设定工具项置顶 + 可后补 tag + 已确认/未填徽标 + tree-foot 口径注）</b>、panel-foot 三态（存草稿 / 确认完成→保存修改 / 已确认 done-note）、右栏 236px、底状态条。<b>本稿只动：选「主线」时的中栏面板内容 + 右栏 AI 卡。</b></li>
+    <li><b>主线只管主线（09-12 三次拍板，v1.3 定版）</b>：主线页只承载<b>故事全景＋结局</b>。三笔账各归各位——<b>①体量/结构/卷数 → 写作阶段</b>（多少卷、多少章、怎么拆，写作阶段定，创建期不问）；<b>②主线进度、支线 → 归档记录</b>（写出来之后归档时记录：主线发展到哪了、有哪些支线——数据字段本稿定稿（见结论区），录入/审阅界面随「正文归档」change 设计）；<b>③创建期只写两块</b>：从头到尾说什么＋结局是什么。</li>
+    <li><b>主线与简介的分工</b>：简介＝说给读者听的钩子（≤500 字、不剧透、会随书改版）；主线＝说给 AI 和自己听的全景（比简介更全、可以剧透、是稳定锚——简介改版不动摇它）。主线全文是写章提示词、拆卷、归档识别「主线到哪了」的共同对照基准。</li>
+    <li><b>面板定位与门槛</b>：主线＝设定第 05 项（可后补）；desc＝「比简介更全地说清这本书从头到尾讲什么、结局是什么——不填也不拦写作，直接开写都行」；<b>确认按钮永远可点（无前端置灰门槛）</b>——空内容确认由后端 400 提示（沿 tasks 2.4 全页口径），确认成功才计入设定进度（5/8）并<b>确认即前进</b>下一设定项（沿现版 handleFootAction）。</li>
+    <li><b>中栏两块（660px 版心，field 节奏沿现版）</b>：①<b>这本书从头到尾说什么</b>（全景叙事 textarea，软上限 600 字——从开头讲到结局：主角从哪起步、对抗怎么升级、最后怎么收场；不问卷数章数）→ ②<b>结局是什么＝三个问题让作家回答</b>（①故事的最后一幕，镜头里是什么画面？②走到终点时，主角变成了什么样的人？③合上书那一刻，想让读者心里留下什么感觉？——字段名即问题、例句进占位符；第③问旁挂「AI 帮我填」就地辅助，沿文风/禁用词句字段行内 AI 同款交互）。「怎么写」搭建法沿简介页 guide 形态，第一条讲主线与简介的分工。</li>
+    <li><b>右栏改版（本稿提案，评审拍板点）——AI 全部聚焦本设定</b>：从「AI 拆主线四步向导」改为与简介/题材/世界同构的能力行卡（AiWriterAssistant 三行：起草主线＝从简介扩写成全景＋结局锚 / 结局校准 / <b>主线体检</b>）——<b>三行只服务主线这一页：他项设定（简介/题材/世界/角色）只作输入，结论只落主线自己的格</b>；主线体检只看主线自身（故事连贯 / 开头接结局 / 三问对得上 / 和简介一个方向）。保留向导精髓：起草主线接受散想法输入；向导的「倒推分卷」步随拆卷移交写作阶段。两形态共用 useStoryArc 状态不冲突；若拍板保留向导也可并行。</li>
+    <li><b>两态文案（作家视角，本稿演示窗顶部可切换）</b>：<b>PRO 版</b>＝「你的 PRO 已包含 · 只加工你写的，不代写」；<b>免费版</b>＝整卡可见＋锁定（降透明＋锁形标，点击统一提示「这是会员功能，升级 PRO 后解锁——免费版写作能力完整」，沿现版全局文案），卡面文案明确「不用 AI 也完全可以——全景自己写、三问自己答，一样开写」。<b>内部词不上面板</b>：「Max 同享」「ai_state 门控」等只留本文档；中栏表单两态零差异——字段手写永远可用，AI 只是可选的帮手。</li>
+    <li><b>归档零界面元素（设计记录，不出现在 UI 上）</b>：本稿面板里不画任何归档相关控件；归档识别<b>主线进度</b>与<b>新支线</b>后的推送审阅入口（badge＋toast 不拦写作）、按剧情点回退三账联动（剧情/世界/角色）的挂载位置，随「正文归档」change 设计——数据字段本稿已定稿（见结论区）。</li>
+    <li><b>注入口径（写章提示词怎么消费这页，后台规则不上界面）</b>：主线全文进写章提示词的「故事走向」段（≤600 字沿总口子、与简介合并预算裁剪——简介管卖点氛围，主线管从头到尾的走向）；结局锚喂写作阶段的拆卷/卷纲 AI 与完本判定；主线全文＝归档识别主线进度与新支线的对照基准。</li>
+    <li><b>组件口径</b>：全页复用现有设定页词表（s-item / settings-progress / pbar / badge / wb-field / textarea / 字段行内 ai-fill / icon-btn / btn / guide / ai-sink / receipt / rail-card）；<b>零新组件</b>、不引第三方库。</li>
+  </div>
+
+  <!-- 演示控制（稿面 chrome）：右栏 AI 卡两态切换 -->
+  <div class="demo-row">
+    <span class="dt-label">演示视角</span>
+    <button class="cap on" id="demoPro" type="button">PRO 版</button>
+    <button class="cap" id="demoFree" type="button">免费版</button>
+    <span class="opt">切换看右栏 AI 卡两态文案——中栏表单两态完全一样：字段照常手写</span>
+  </div>
+
+  <!-- ═══ 主线窗（窗内 = 现有书工作台原样） ═══ -->
+  <div class="win" id="winMain">
+
+    <div class="win-titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="win-title">残卷听澜 — 爱小说</span></div>
+    <div class="appbar">
+      <span class="logo"><span class="logo-mark">爱</span>爱小说</span>
+      <span class="sep"></span>
+      <button class="back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="m15 18-6-6 6-6"/></svg>返回书架</button>
+      <span class="spacer"></span>
+      <button class="back" type="button">客服</button>
+      <button class="back" type="button">设置</button>
+    </div>
+
+    <!-- 小说栏（现有实现原样：书名双击改名 · 类型 · PRO 徽） -->
+    <div class="novelbar">
+      <span class="novel-title">《残卷听澜》</span>
+      <span class="genre-tag">仙侠/修真 · 凡人流</span>
+      <span class="pill-pro"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z"/></svg>PRO</span>
+      <span class="spacer"></span>
+    </div>
+
+    <!-- 书内模块导航（现有实现原样：设定 N/8 · 写作 · 预览） -->
+    <nav class="modnav">
+      <button class="mtab on" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        设定 <span class="cnt num" id="navCnt">4/8</span>
+      </button>
+      <button class="mtab" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        写作 <span class="cnt num">3/3 章纲</span>
+      </button>
+      <button class="mtab" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg>
+        预览
+      </button>
+      <span class="spacer"></span>
+      <span class="side">更改自动保存</span>
+    </nav>
+
+    <!-- ═══ 设定视图（three-col：280 树 / 1fr 面板 / 236 AI —— 本稿只设计后两者的「主线」态） ═══ -->
+    <div class="set-body">
+
+    <!-- ═══ 左栏设定树（现有实现原样，本稿不动） ═══ -->
+    <aside class="col-tree">
+      <div class="tree-head"><span class="t">设定 · <b>8</b> 项 + 1 工具</span></div>
+      <div class="settings-progress">
+        <span class="pl num" id="spPl">设定 <b id="spDone">4</b>/8</span>
+        <div class="pbar" id="spBar"><i style="width:50%"></i></div>
+      </div>
+      <div class="settings-nav-wrap">
+        <div class="s-item" data-demo="1"><span class="nm">模型设定</span><span class="defer-tag">工具</span><span class="spacer"></span><span class="wb-badge empty">不参与进度</span></div>
+        <div class="s-item" data-demo="1"><span class="nm">简介</span><span class="spacer"></span><span class="wb-badge ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 13l4 4L19 7"/></svg>已确认</span></div>
+        <div class="s-item" data-demo="1"><span class="nm">题材</span><span class="spacer"></span><span class="wb-badge ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 13l4 4L19 7"/></svg>已确认</span></div>
+        <div class="s-item" data-demo="1"><span class="nm">世界</span><span class="spacer"></span><span class="wb-badge ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 13l4 4L19 7"/></svg>已确认</span></div>
+        <div class="s-item" data-demo="1"><span class="nm">角色</span><span class="spacer"></span><span class="wb-badge ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 13l4 4L19 7"/></svg>已确认</span></div>
+        <div class="s-item on" id="stMain"><span class="nm">主线</span><span class="defer-tag" id="stMainDefer">可后补</span><span class="spacer"></span><span class="wb-badge empty" id="stMainBadge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="5"/></svg><span id="stMainBadgeText">未填</span></span></div>
+        <div class="s-item" data-demo="1"><span class="nm">文风</span><span class="spacer"></span><span class="wb-badge empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="5"/></svg>未填</span></div>
+        <div class="s-item" data-demo="1"><span class="nm">伏笔</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="wb-badge empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="5"/></svg>未填</span></div>
+        <div class="s-item" data-demo="1"><span class="nm">禁用词句</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="wb-badge empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="5"/></svg>未填</span></div>
+      </div>
+      <div class="tree-foot" id="tfNote">4 项未填 · 均可后补</div>
+    </aside>
+
+    <!-- ═══ 中栏 · 主线面板（本稿设计区 ①） ═══ -->
+    <main class="col-middle">
+      <div class="col-panel">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>主线</h2>
+            <span class="wb-badge empty" id="arcBadge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="5"/></svg><span id="arcBadgeText">未填</span></span>
+          </div>
+          <p class="desc">比简介更全地说清这本书从头到尾讲什么、结局是什么——不填也不拦写作，直接开写都行。</p>
+
+          <!-- 「怎么写」搭建法 -->
+          <div class="guide">
+            <button class="guide-toggle" type="button" id="guideToggle" aria-expanded="false">
+              <span class="gt-b">「怎么写」搭建法</span>
+              <span class="gt-s">和简介有什么不同 → 顺着讲就行 → 心里装个问题 → 结局先想好 · 点开看每条怎么写</span>
+              <span class="gt-c">展开</span>
+            </button>
+            <div class="guide-body" id="guideBody" hidden>
+              <div class="g-row"><span class="g-name">和简介不一样</span><span class="g-body">简介是写给读者的：藏悬念、留钩子、不剧透。这一栏写给你自己（和 AI）看：<b>把谜底摊开说</b>——故事怎么开始、怎么斗、怎么收场，都说透。<em>简介以后改十遍没关系，这一段定了就别轻易动——往后每一章都照着它来。</em></span></div>
+              <div class="g-row"><span class="g-name">顺着讲就行</span><span class="g-body">像给朋友剧透一个故事那样写：主角<em>一开始什么处境、碰上什么事</em>，对手<em>怎么一步步紧逼</em>、他付了什么代价，<em>最后怎么收场</em>。不用管分几卷、每卷几章——那是动笔以后的事。</span></div>
+              <div class="g-row"><span class="g-name">心里装个问题</span><span class="g-body">好故事都是读者读到最后才解开的那一个问题。<em>例：父亲到底出了什么事？那半卷残页里藏着谁的秘密？</em>写这一栏时心里带着它，每一段都会往它身上使劲。</span></div>
+              <div class="g-row"><span class="g-name">结局先想好</span><span class="g-body">最后一幕是什么画面？主角最后成了什么样的人？读者合上书是什么滋味？<em>这三问答上来，往后写每一章都知道自己在往哪儿走。</em>没想好就先空着，想到哪答哪。</span></div>
+              <span class="g-formula">搭骨架公式：<b>他从哪起步 + 谁在拦他 + 最后换来什么</b></span>
+              <p class="g-dont">别踩：把简介原样抄一遍（这里要的是更全的底细，含糊的地方都说透）；写成一份卷纲（分几卷、每卷几章，动笔再安排）；把配角小传一股脑塞进来（角色的账去角色页记）；结局全空着（越往后写越容易散）。</p>
+            </div>
+          </div>
+
+          <!-- ① 这本书从头到尾说什么（全景叙事） -->
+          <div class="wb-field">
+            <label>这本书从头到尾说什么 <span class="opt">比简介更全 · 可以剧透 · 建议 600 字以内——写章、定卷纲都照着这段来</span></label>
+            <textarea class="textarea" style="min-height:150px;" rows="6" id="aCore" placeholder="顺着写：主角从哪起步 → 对抗怎么升级 → 最后怎么收场。&#10;&#10;例：杂役弟子林拾在柳安坊市当值，捡到父亲留下的残页——父亲失踪前是青梧宗藏经阁的抄书人。他凭一双能听出灵力破绽的「听漏之耳」追查残页下落，从坊市查进宗门，牵出十年前藏经阁失火旧案；垄断残卷、遮掩旧案的丹阁一路设阻，盟友苏晚芜各怀心思。最后林拾在戒律堂对峙丹阁首座，旧案当众揭开，残卷归档，父亲的失踪也有了答案。"></textarea>
+          </div>
+
+          <!-- ② 结局是什么：三个问题让作家回答，答完即锚 -->
+          <div class="wb-field">
+            <label>结局是什么 <span class="opt">三个问题，想到哪答哪、可全空——答上来，往后写就不容易跑偏</span></label>
+            <div style="display:grid; gap:14px;">
+              <div>
+                <div class="q-label">① 故事的最后一幕，镜头里是什么画面？</div>
+                <input class="input" id="aScene" placeholder="例：丹阁首座在戒律堂认罪，残卷归档上架；林拾把父亲的旧物摆回书架，坊市人声如常。" />
+              </div>
+              <div>
+                <div class="q-label">② 走到终点时，主角变成了什么样的人？</div>
+                <input class="input" id="aState" placeholder="例：从怕事的杂役成为青梧宗执卷人——不再依赖听漏，也听得见人心。" />
+              </div>
+              <div>
+                <div class="q-label">③ 合上书那一刻，你想让读者心里留下什么感觉？<button class="text-btn" id="toneFill" type="button" title="让 AI 按你的题材给个建议，采不采纳你说了算">AI 帮我填</button></div>
+                <input class="input" id="aTone" placeholder="例：先悲后喜 / 苦尽甘来 / 意难平——用自己的话" />
+              </div>
+            </div>
+            <div class="ai-sink" id="sinkTone" hidden></div>
+            <div class="ai-sink" id="sinkEnd" hidden></div>
+          </div>
+
+          <p class="opt" style="font-size:12px; margin:-4px 0 16px;">
+            主线是总方向盘，不拦写作：没填也不影响直接去建卷写章。
+          </p>
+
+          <!-- 面板级 AI 结果区（主线体检落此，任意块可见） -->
+          <div class="ai-sink" id="sinkChk" hidden></div>
+
+          <div class="panel-foot">
+            <span class="note" id="footNote">高级项可后补 · 确认即计入进度</span>
+            <div class="receipt" id="receipt" hidden><span class="rt" id="receiptText"></span><button class="rb-undo" id="receiptUndo" type="button">撤销</button></div>
+            <span class="done-note" id="doneNote" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 13l4 4L19 7"/></svg>已确认</span>
+            <button class="btn btn-secondary" type="button" id="btnDraft">存草稿</button>
+            <button class="btn btn-primary" type="button" id="btnConfirm">确认完成</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ═══ 右栏 AI 卡（本稿设计区 ②：AiWriterAssistant 同构能力行卡） ═══ -->
+    <aside class="col-ai">
+      <div class="rail-card" id="railCard">
+        <div class="rc-head"><span class="mini-pro">PRO</span><b>AI 写作助手</b><svg class="rc-lock" id="rcLock" hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+        <p class="rc-sub" id="rcSub">你的 PRO 已包含 · 只加工你写的，不代写</p>
+        <button class="rail-row" type="button" data-aiask="m1">
+          <span class="rr-b"><b>起草主线</b><i>把你的简介扩写成从头到尾的完整故事，顺带把结局三问答了；散着说想法也行</i></span>
+          <svg class="rr-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+        </button>
+        <button class="rail-row" type="button" data-aiask="m3">
+          <span class="rr-b"><b>结局校准</b><i>帮你把结局三问捋顺，和你的题材对味</i></span>
+          <svg class="rr-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+        </button>
+        <button class="rail-row" type="button" data-aiask="m4">
+          <span class="rr-b"><b>主线体检</b><i>看看故事讲不讲得通、结尾接不接得上开头——只提醒，不拦你确认</i></span>
+          <svg class="rr-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+        </button>
+        <p class="rail-foot" id="railFoot">建议出现在对应问题的下方，点「<b>采纳 · 覆盖</b>」才会写入，面板底部可一步撤销；每个功能保留最近 5 次结果，随时切回。</p>
+      </div>
+      <p class="opt" id="modelHint" style="margin-top:12px; font-size:12px;">还没配置 AI？去左栏「模型设定」加一个就能用。</p>
+    </aside>
+    </div><!-- /set-body -->
+
+    <div class="statusbar"><span>《残卷听澜》 · 设定 · 主线</span><span class="sp">AI 助手：PRO · 更改自动保存</span></div>
+  </div>
+
+  <!-- ═══ 结论 ═══ -->
+  <div style="margin-bottom:24px;">
+    <div class="rec-box">
+      <b>终态结构（本批范围：主线设定页 · 中栏面板 + 右栏 AI 卡；框架零改动）</b>
+      <ol>
+        <li><b>框架零改动</b>：小说栏 / modnav / 左设定树（8 项 + 1 工具 + 进度条）/ panel-foot 三态 / 右栏 236px 全部沿现有实现；本稿只动选「主线」时的中栏面板与右栏 AI 卡。</li>
+        <li><b>三笔账各归各位（09-12 拍板）</b>：创建期＝全景＋结局；<b>体量/结构/卷数/拆卷 → 写作阶段</b>；<b>主线进度、支线 → 归档记录</b>（写作产生后归档时记录，录入/审阅界面随「正文归档」change 设计，数据字段本稿定稿）。</li>
+        <li><b>中栏两块</b>：这本书从头到尾说什么（全景叙事，软上限 600 字，从哪起步→对抗怎么升级→最后怎么收场）→ 结局是什么＝三个问题让作家回答（最后一幕画面／主角变成了谁／读者合上书的感受，第③问旁行内 AI 帮我填）；「怎么写」搭建法第一条讲主线与简介的分工（读者听的钩子 vs AI 听的全景）。</li>
+        <li><b>确认口径沿现版</b>：按钮永远可点（无置灰门槛）；空内容确认由后端 400 提示；确认成功计入设定进度（5/8）、树内徽标转「已确认」、按钮转「保存修改」、确认即前进下一设定项。</li>
+        <li><b>右栏 AI 行卡（评审拍板点）——全部聚焦本设定</b>：四步向导 → 与简介/题材/世界同构的三行（起草主线＝简介扩写成完整故事＋结局 / 结局校准 / 主线体检——只看主线自身：故事连贯、开头接结局、三问对得上、和简介一个方向）；采纳才写回、回执一步撤销、5 次历史、免费版可见＋锁定（两态文案见口径）；向导的「倒推分卷」步随拆卷移交写作阶段。若拍板保留向导，两卡可并行（共用 useStoryArc 状态）。</li>
+        <li><b>归档零界面元素</b>：面板里不画任何归档相关控件——主线进度 / 新支线的推送审阅入口、按剧情点回退三账联动，位置随「正文归档」change 设计；数据字段本稿定稿（见下方结构），仅作设计记录。</li>
+        <li><b>注入口径（后台规则，不上界面）</b>：主线全文进写章提示词「故事走向」段（≤600 字沿总口子、与简介合并预算）；结局锚喂写作阶段的拆卷/卷纲 AI 与完本判定；主线全文＝归档识别进度与支线的对照基准。</li>
+      </ol>
+    </div>
+
+    <div class="schema-box">
+<b>主线（创建期 · project_settings KV「story」键内的 story_arc 对象）</b><br />
+&nbsp;&nbsp;fullstory<b>:</b> 全景叙事<span class="cm">&nbsp;&nbsp;从头到尾说什么（比简介更全 · 建议 600 字以内 · 从哪起步→谁在拦他→最后换来什么）</span><br />
+&nbsp;&nbsp;ending.scene<b>:</b> 问①的答<span class="cm">&nbsp;&nbsp;最后一幕，镜头里是什么画面</span><br />
+&nbsp;&nbsp;ending.hero<b>:</b> 问②的答<span class="cm">&nbsp;&nbsp;走到终点时，主角变成了什么样的人</span><br />
+&nbsp;&nbsp;ending.tone<b>:</b> 问③的答<span class="cm">&nbsp;&nbsp;想让读者心里留下什么感觉（作家自己的话 · 行内 AI 可辅）</span><br />
+<br />
+<b>主线进度（归档时追加 · 正文归档 change 落库）</b><br />
+&nbsp;&nbsp;ref<b>:</b> 来源章&nbsp;&nbsp;&nbsp;&nbsp;kind<b>:</b> event / revision<span class="cm">&nbsp;&nbsp;推进事件 / 全文修订建议——幂等键=(ref,kind)，两类同表不混判</span><br />
+&nbsp;&nbsp;event<b>:</b> 推进了什么<span class="cm">&nbsp;&nbsp;这章把主线向前推的一步（一句话）；kind=revision 时此格放修订建议</span><br />
+&nbsp;&nbsp;stage<b>:</b> 阶段<span class="cm">&nbsp;&nbsp;开端 / 发展 / 高潮 / 收束（AI 对照主线全文判；枚举外值回退「发展」并原文记 note，不拒存）</span><br />
+&nbsp;&nbsp;note<b>:</b> 备注&nbsp;&nbsp;&nbsp;&nbsp;review<b>:</b> 待审阅 / 已采纳 / 已忽略<span class="cm">&nbsp;&nbsp;审阅态两记录统一叫 review</span><br />
+&nbsp;&nbsp;created_at<b>:</b> 归档时间<span class="cm">&nbsp;&nbsp;naive UTC；本记录是可审阅工作记录（审阅会改写），非只追加台账</span><br />
+<br />
+<b>支线（归档时记录 · 与伏笔台账 hooks 合流，映射按实勘字段）</b><br />
+&nbsp;&nbsp;desc→description｜intro_ref→introduced_in｜生命周期→hooks 组归属（active/resolved/…）｜name、end_ref、review→新键<br />
+&nbsp;&nbsp;kind: "subplot"<span class="cm">&nbsp;&nbsp;新键——注入过滤用：支线独立预算，不挤占伏笔 ≤8 条口子；hooks.priority 是数字串（1/2/3），勿用「priority=支线」</span><br />
+&nbsp;&nbsp;source<b>:</b> 来源<span class="cm">&nbsp;&nbsp;归档识别 / 作者手埋</span>&nbsp;&nbsp;&nbsp;&nbsp;end_ref<b>:</b> 收束章<span class="cm">&nbsp;&nbsp;收束时写</span><br />
+<br />
+<b>归档若发现写偏</b><span class="cm">：主线全文的修订建议以 kind=revision 并入「主线进度」同一审阅口（附改动对照），不另立结构。</span>
+    </div>
+
+    <p class="muted">拍板后建议：openspec 立项。前端：StoryArcForm 改造（改为「全景＋结局」两块：fullstory 大文本＋结局三问 scene/hero/tone（q-label 问题行·例句进占位符）；移除 premise 一句话与分卷规划块）、右栏 ArcWizard → AiWriterAssistant 三行接线（若保留向导则并行；「倒推分卷」步随拆卷移交）、e2e（story-arc.spec 三用例随改造整体重写；场景清单见评审：空内容确认 400 提示 / 三问脏态切换 / AI 行落格采纳撤销 / 5 次历史 / 免费拦截 0 请求 / 落库后撤销失效 / 晚到结果无 stray PUT / 分流跳转 / 存量旧书不炸；od-id 清单：arc-fullstory、arc-ending-scene、arc-ending-hero、arc-ending-tone、arc-tone-ai-fill、arc-sink-{draft,ending,check}、ai-assist-arc、btn-confirm〔现缺〕）。前端落地词表：右栏用现有 rail-assist/ra-step 系类（.rail-card 与 base.css 撞名，稿内 rail-card/rail-row 类名仅评审参照）；三问行用现有 field label＋.ai-fill 行内钮表达，不新增组件类；StoryArcForm 需补 runAi/clearAi 句柄与 onReceiptChange 接线（沿 IntroHandle 模式）；「Max 同享」等现版文案同步换稿内口径。后端：story_arc 结构调整为 {fullstory, ending{scene, hero, tone}}——KV 双写过渡＝加键兼容不升 format_version（读 fullstory ?? premise、写时镜像回 premise；volumes 键原样保留不删，唯一其他消费方 readiness 随本次改判）；confirm 沿现版口径：空内容由后端 400 提示，readiness._check_story_arc 改判 fullstory/ending 任一非空；fullstory 裁剪责任＝写章注入层 ChapterContext 唯一裁剪点（现版注入无裁剪，必须补），PUT 硬上限 2000 字防滥用；起草/校准/体检/行内 tone 四能力需新 AI 端点（建议 POST /settings/ai/arc/{draft,calibrate,check,tone}，沿现版 AI 信封与 require_ai_access 门），随 openspec 钉死；主线进度/支线两记录属归档域随「正文归档」change 建表，字段以本稿 schema 为准（kind 判别键、review 统一命名、hooks 合流映射按实勘字段），两记录是可审阅工作记录非只追加台账。组件映射：基调＝自由输入＋字段行内 ai-fill（沿文风/禁用词句字段级 AI 同款）、右栏＝AiWriterAssistant 原组件、归档零界面元素，零新组件、不引第三方库。<b>移交「正文归档」change（2026-09-12 拍板）</b>：主线进度 / 支线的录入与推送审阅、回退三账联动——设计底稿见桌面知识库「character-settings-draft-v1-with-archive-growth-2026-09-12.html」（角色侧），剧情侧随彼时一并设计。演示数据沿云梁界宇宙（林拾 / 青梧宗 / 丹阁 / 听漏），全景与简介「转机」段、角色主角卡一字对上——体检的联动价值才看得见。本稿不改动 prototypes/ 与任何实现代码。</p>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  function toast(msg) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;right:22px;bottom:22px;background:var(--fg);color:var(--on-accent);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);z-index:99;';
+    t.textContent = msg; document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2400);
+  }
+  const esc = t => String(t).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const $ = s => document.querySelector(s);
+  const $$ = s => Array.prototype.slice.call(document.querySelectorAll(s));
+
+  /* ═══ 「怎么写」搭建法 ═══ */
+  const guideToggle = $('#guideToggle'), guideBody = $('#guideBody');
+  guideToggle.addEventListener('click', () => {
+    const open = guideBody.hidden;
+    guideBody.hidden = !open;
+    guideToggle.setAttribute('aria-expanded', String(open));
+    guideToggle.querySelector('.gt-c').textContent = open ? '收起' : '展开';
+  });
+
+  /* ═══ 结局基调：自由输入 + 行内「AI 帮我填」（采纳写回 + 回执撤销 + 5 次历史） ═══ */
+  const TONE_AI = {
+    label: 'AI 填 · 结局基调',
+    list: [
+      '苦尽甘来——代价付足了，旧案揭开、残卷归档，主角接过父亲的位子。',
+      '先悲后喜——父亲的下落带着遗憾揭开，但林拾撑到了答案，也撑起了自己。'
+    ]
+  };
+  const HIST_TONE = { list: [] };
+  function renderSinkTone(box, idx) {
+    const o = HIST_TONE.list[idx];
+    const histHtml = HIST_TONE.list.length > 1
+      ? '<div class="aiz-hist"><span class="ah-t">最近 ' + HIST_TONE.list.length + ' 次</span>' +
+        HIST_TONE.list.map((_, i) => '<button class="ah-chip' + (i === idx ? ' on' : '') + '" type="button" data-idx="' + i + '">第 ' + (i + 1) + ' 次</button>').join('') + '</div>'
+      : '';
+    box.innerHTML = '<div class="aiz-head">' + TONE_AI.label + '</div>' + histHtml + esc(o) +
+      '<div class="ans-act"><button class="primary" type="button">采纳 · 覆盖</button><button type="button">重试</button></div>';
+    box.hidden = false;
+    const btns = box.querySelectorAll('.ans-act button');
+    btns[0].addEventListener('click', () => {
+      const before = $('#aTone').value;
+      $('#aTone').value = o;
+      showReceipt('已采纳「AI 填 · 结局基调」，可改', () => { $('#aTone').value = before; });
+      toast('已采纳，落回基调框，可继续改');
+    });
+    btns[1].addEventListener('click', () => {
+      HIST_TONE.list.push(TONE_AI.list[HIST_TONE.list.length % 2]);
+      if (HIST_TONE.list.length > 5) HIST_TONE.list.shift();
+      renderSinkTone(box, HIST_TONE.list.length - 1);
+      toast('已重试，给了一版新的');
+    });
+    box.querySelectorAll('.ah-chip').forEach(ch => ch.addEventListener('click', () => renderSinkTone(box, +ch.dataset.idx)));
+    try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* jsdom 无实现 */ }
+  }
+  $('#toneFill').addEventListener('click', () => {
+    if (!isPro) { toast(BLOCK_MSG); return; }
+    HIST_TONE.list.push(TONE_AI.list[HIST_TONE.list.length % 2]);
+    if (HIST_TONE.list.length > 5) HIST_TONE.list.shift();
+    renderSinkTone($('#sinkTone'), HIST_TONE.list.length - 1);
+  });
+
+  /* ═══ 改动回执（沿现版 ChangeReceipt：脚部一条 + 一步撤销） ═══ */
+  let restore = null;
+  function showReceipt(text, undoFn) {
+    restore = undoFn;
+    $('#receiptText').textContent = text;
+    $('#receipt').hidden = false;
+  }
+  $('#receiptUndo').addEventListener('click', () => {
+    if (restore) restore();
+    restore = null;
+    $('#receipt').hidden = true;
+    toast('已撤销，恢复采纳前的内容');
+  });
+  function snapFields(ids) { const s = {}; ids.forEach(id => { s[id] = document.getElementById(id).value; }); return s; }
+
+  /* ═══ AI 行 1：起草主线（简介扩写成全景＋结局锚；落格 + 回执撤销） ═══ */
+  function aiDraftMain() {
+    const before = snapFields(['aCore', 'aScene', 'aState', 'aTone']);
+    $('#aCore').value = '杂役弟子林拾在柳安坊市当值，捡到父亲留下的残页——父亲失踪前是青梧宗藏经阁的抄书人。他凭一双能听出灵力破绽的「听漏之耳」追查残页下落，从坊市查进宗门，牵出十年前藏经阁失火旧案；垄断残卷、遮掩旧案的丹阁一路设阻，盟友苏晚芜各怀心思。最后林拾在戒律堂对峙丹阁首座，旧案当众揭开，残卷归档，父亲的失踪也有了答案。';
+    $('#aScene').value = '丹阁首座在戒律堂认罪，残卷归档上架；林拾把父亲的旧物摆回书架，推开窗，坊市人声如常。';
+    $('#aState').value = '从怕事的杂役成为青梧宗执卷人——不再依赖听漏，也听得见人心。';
+    $('#aTone').value = '苦尽甘来';
+    showReceipt('已采纳「AI 起草主线」，全景和结局都写进来了，可改', () => {
+      ['aCore', 'aScene', 'aState', 'aTone'].forEach(id => { document.getElementById(id).value = before[id]; });
+    });
+    toast('已起草主线，落回各字段，可撤销或继续改');
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { /* jsdom 无实现 */ }
+  }
+
+  /* ═══ AI 行 2：结局锚点校准（采纳写回 + 回执撤销 + 5 次历史） ═══ */
+  const AI_END = {
+    label: 'AI 填 · 结局锚点校准',
+    scene: '丹阁首座在戒律堂当众认罪，残卷归档上架；林拾把父亲的旧物摆回书架，推开窗，坊市人声如常。',
+    state: '从怕事的杂役成为青梧宗执卷人——不再依赖听漏，也听得见人心。',
+    tone: '苦尽甘来',
+    note: '题材「以弱破强」偏爽感，苦尽甘来的收束与「残卷归档」闭环一致；悲收会压掉升级线的兑现。'
+  };
+  const HIST_END = { list: [] };
+  function renderSinkEnd(box, idx) {
+    const o = HIST_END.list[idx];
+    const histHtml = HIST_END.list.length > 1
+      ? '<div class="aiz-hist"><span class="ah-t">最近 ' + HIST_END.list.length + ' 次</span>' +
+        HIST_END.list.map((_, i) => '<button class="ah-chip' + (i === idx ? ' on' : '') + '" type="button" data-idx="' + i + '">第 ' + (i + 1) + ' 次</button>').join('') + '</div>'
+      : '';
+    box.innerHTML = '<div class="aiz-head">' + AI_END.label + '</div>' + histHtml +
+      '<b>最后一幕画面</b>：' + esc(o.scene) + '<br /><b>主角最终状态</b>：' + esc(o.state) + '<br /><b>基调</b>：' + esc(o.tone) + ' —— ' + esc(AI_END.note) +
+      '<div class="ans-act"><button class="primary" type="button">采纳 · 覆盖</button><button type="button">重试</button></div>';
+    box.hidden = false;
+    const btns = box.querySelectorAll('.ans-act button');
+    btns[0].addEventListener('click', () => {
+      const before = { scene: $('#aScene').value, state: $('#aState').value, tone: $('#aTone').value };
+      $('#aScene').value = o.scene; $('#aState').value = o.state; $('#aTone').value = o.tone;
+      showReceipt('已采纳「结局校准」，三问都答好了，可改', () => {
+        $('#aScene').value = before.scene; $('#aState').value = before.state; $('#aTone').value = before.tone;
+      });
+      toast('已采纳，落回对应字段，可撤销或继续改');
+    });
+    btns[1].addEventListener('click', () => {
+      HIST_END.list.push(HIST_END.list[HIST_END.list.length % 2 === 0 ? 0 : 1]);
+      if (HIST_END.list.length > 5) HIST_END.list.shift();
+      renderSinkEnd(box, HIST_END.list.length - 1);
+      toast('已重试，给了一版新的');
+    });
+    box.querySelectorAll('.ah-chip').forEach(ch => ch.addEventListener('click', () => renderSinkEnd(box, +ch.dataset.idx)));
+    try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* jsdom 无实现 */ }
+  }
+
+  /* ═══ AI 行 3：主线体检（只看主线自身；重跑在两版演示间切换） ═══ */
+  function chkMain(alt) {
+    if (alt) return [
+      ['故事连贯', 'ok', '从坊市到宗门再到戒律堂，一条线讲到底——没有断档'],
+      ['开头接结局', 'ok', '残卷之谜开头立起、结局揭开——闭环完整'],
+      ['三问对得上', 'ok', '基调「苦尽甘来」和最后一幕是一致的——旧案揭开、主角接过位置'],
+      ['和简介一个方向', 'ok', '承接简介「转机」段——方向一致、比简介更全']
+    ];
+    return [
+      ['故事连贯', 'ok', '从坊市到宗门再到戒律堂，一条线讲到底——没有断档'],
+      ['开头接结局', 'ok', '残卷之谜开头立起、结局揭开——闭环完整'],
+      ['三问对得上', 'warn', '基调「苦尽甘来」立住了，但苏晚芜这条线在结局没有交代——想想她的收束（只提醒不拦确认）'],
+      ['和简介一个方向', 'warn', '简介「转机」段主打以弱破强，故事里升级台阶还不够清晰——把「怎么一步步变强」写透（只提醒不拦确认）']
+    ];
+  }
+  let chkAlt = false;
+  function renderCheck(box) {
+    const lines = chkMain(chkAlt);
+    const foot = chkAlt ? '都顺了，可以放心确认。' : '只提醒不拦你确认——照着补一补，再跑一遍就行。';
+    box.innerHTML = '<div class="aiz-head">AI 体检 · 主线自检</div>' +
+      lines.map(l =>
+        '<div class="chk-line"><span class="chk-name">' + esc(l[0]) + '</span>' +
+        '<span class="chk-res ' + l[1] + '">' + (l[1] === 'ok' ? '达标' : l[1] === 'warn' ? '风险' : '缺失') + '</span>' +
+        '<span class="chk-note">' + esc(l[2]) + '</span></div>').join('') +
+      '<p style="margin:8px 0 0;font-size:11.5px;color:var(--muted);">' + esc(foot) + '</p>' +
+      '<div class="ans-act"><button class="primary" type="button">重跑</button></div>';
+    box.hidden = false;
+    box.querySelector('.ans-act button').addEventListener('click', () => {
+      chkAlt = !chkAlt; renderCheck(box);
+      toast(chkAlt ? '已重跑，这一版全过' : '已重跑 · 按当前设定重新体检');
+    });
+    try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* jsdom 无实现 */ }
+  }
+
+  /* ═══ 演示视角切换（PRO / 免费版）：右栏 AI 卡两态文案 ═══ */
+  const BLOCK_MSG = '这是会员功能，升级 PRO 后解锁——免费版写作能力完整';
+  let isPro = true;
+  function applyPersona() {
+    $('#railCard').classList.toggle('locked', !isPro);
+    $('#rcLock').hidden = isPro;
+    $('#rcSub').textContent = isPro
+      ? '你的 PRO 已包含 · 只加工你写的，不代写'
+      : '升级 PRO 解锁 · 免费版写作功能完整，这一页照常自己写';
+    $('#railFoot').innerHTML = isPro
+      ? '建议出现在对应问题的下方，点「<b>采纳 · 覆盖</b>」才会写入，面板底部可一步撤销；每个功能保留最近 5 次结果，随时切回。'
+      : '不用 AI 也完全可以——全景自己写、三问自己答，一样开写；想试试 AI 一起搭主线，升级 PRO 就行。';
+    $('#modelHint').hidden = !isPro;
+    $('#demoPro').classList.toggle('on', isPro);
+    $('#demoFree').classList.toggle('on', !isPro);
+  }
+  $('#demoPro').addEventListener('click', () => { isPro = true; applyPersona(); });
+  $('#demoFree').addEventListener('click', () => { isPro = false; applyPersona(); toast('演示：免费版视角——AI 卡可见、点了给升级提示，字段照常手写'); });
+
+  /* ═══ 右栏能力行接线（免费版点击 → 统一升级提示，沿现版） ═══ */
+  $$('[data-aiask]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!isPro) { toast(BLOCK_MSG); return; }
+      const key = btn.dataset.aiask;
+      if (key === 'm1') { aiDraftMain(); return; }
+      if (key === 'm4') { renderCheck($('#sinkChk')); return; }
+      HIST_END.list.push(AI_END);
+      if (HIST_END.list.length > 5) HIST_END.list.shift();
+      renderSinkEnd($('#sinkEnd'), HIST_END.list.length - 1);
+    });
+  });
+
+  /* ═══ 面板脚部：存草稿 / 确认完成（无必填门槛——确认永远可点；沿现版三态） ═══ */
+  $('#btnDraft').addEventListener('click', () => toast('「主线」已存草稿 · 未计入设定进度，随时回来继续'));
+  $('#btnConfirm').addEventListener('click', () => {
+    if ($('#doneNote').hidden === false) { toast('「主线」已保存修改'); return; }
+    // 沿现版口径：按钮永远可点，空内容走后端 400 提示（此处模拟该提示）
+    const hasContent = ['aCore', 'aScene', 'aState', 'aTone'].some(id => document.getElementById(id).value.trim());
+    if (!hasContent) { toast('还未填写内容——全景或结局三问，答一格就能计入进度'); return; }
+    $('#arcBadge').className = 'wb-badge ok';
+    $('#arcBadgeText').textContent = '已确认';
+    $('#arcBadge').querySelector('svg').innerHTML = '<path d="M5 13l4 4L19 7"/>';
+    $('#stMainBadge').className = 'wb-badge ok';
+    $('#stMainBadgeText').textContent = '已确认';
+    $('#stMainBadge').querySelector('svg').innerHTML = '<path d="M5 13l4 4L19 7"/>';
+    $('#stMainDefer').hidden = true;
+    $('#spDone').textContent = '5';
+    $('#spPl').classList.add('done');
+    $('#spBar').classList.add('done');
+    $('#spBar').querySelector('i').style.width = '62.5%';
+    $('#navCnt').textContent = '5/8';
+    $('#tfNote').textContent = '3 项未填 · 均可后补';
+    $('#doneNote').hidden = false;
+    $('#btnConfirm').textContent = '保存修改';
+    $('#footNote').textContent = '已确认 · 可随时回来修改并重新确认';
+    toast('已确认「主线」· 设定进度 5/8——下一项是「文风」');
+  });
+
+  /* 应用框架（演示稿说明）：其余树项 / modnav / 顶栏 */
+  $$('.s-item[data-demo]').forEach(b => b.addEventListener('click', () => toast('演示稿：本稿聚焦「主线」页——其余设定页同族同构')));
+  $$('.mtab').forEach(b => b.addEventListener('click', () => { if (!b.classList.contains('on')) toast('演示稿：写作 / 预览属工作台形态，不在本稿范围'); }));
+  $$('.appbar .back').forEach(b => b.addEventListener('click', () => toast('演示稿：应用框架示意')));
+})();
+</script>
+</body>
+</html>
