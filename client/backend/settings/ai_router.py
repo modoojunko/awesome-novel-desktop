@@ -856,6 +856,130 @@ async def lore_suggest_world(
 # ── 按字段生成（world/style/hooks/characters/genre）──────────────────────
 
 
+# ═══ 主线 AI 四能力（storyline-settings-v2）══════════════════════════════
+# draft（起草主线）/ calibrate（结局校准）/ check（主线体检）/ tone（行内基调）
+# 全部聚焦本设定：他项设定只作输入，结论只落主线面板字段。
+_ARC_ACTIONS: dict[str, str] = {
+    "draft": "arc_draft",
+    "calibrate": "arc_calibrate",
+    "check": "arc_check",
+    "tone": "arc_tone",
+}
+
+
+async def _arc_context(project) -> tuple[dict, dict]:
+    """主线上下文：arc 归一形状 + 轻量他项输入（题材/简介；世界/角色由 prompt 引导 AI 概括，避免超长）。"""
+    story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+    from novels.router import _arc_normalize
+
+    arc = _arc_normalize(story.get("story_arc") if isinstance(story.get("story_arc"), dict) else {})
+    theme_label, theme_desc, _theme_fields = _world_theme(story)
+    ctx = {
+        "title": project.name if hasattr(project, "name") else "",
+        "synopsis": str(story.get("synopsis", "") or ""),
+        "theme": theme_label or "",
+        "theme_desc": theme_desc or "",
+    }
+    return arc, ctx
+
+
+def _arc_judge(client, formatted: str, system: str, usage: dict):
+    return _judge_chat(
+        client,
+        model="haiku",
+        system=system,
+        messages=[{"role": "user", "content": formatted}],
+        temperature=0.4,
+        json_mode=True,
+        usage=usage,
+    )
+
+
+@router.post("/ai/arc/{action}")
+async def run_arc_ai(
+    project_id: str,
+    action: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """主线 AI 四能力：起草主线 / 结局校准 / 主线体检 / 行内基调建议。
+
+    输入：body.input（散想法，可选）+ 面板当前内容从 KV 读取（不信任客户端整卡回传）。
+    输出：{value} 信封；check 出 {checks:[{name,status,note}]} 四线。
+    """
+    if action not in _ARC_ACTIONS:
+        raise HTTPException(400, f"不支持的主线 AI 动作：{action}")
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    arc, ctx = await _arc_context(project)
+    author_input = str(body.get("input", "") or "").strip()
+    if action in ("draft", "calibrate") and not author_input and not arc["fullstory"]:
+        raise HTTPException(400, "先写两句想法或一段主线，AI 才有加工素材")
+
+    template = load_prompt(f"arc_{action}")
+    formatted = template.format(
+        input=author_input or "（无——按已填内容处理）",
+        fullstory=arc["fullstory"] or "（未填）",
+        scene=arc["ending"]["scene"] or "（未填）",
+        hero=arc["ending"]["hero"] or "（未填）",
+        tone=arc["ending"]["tone"] or "（未填）",
+        **ctx,
+    )
+
+    client = await get_ai_client_for_novel(project_id)
+    usage: dict = {}
+    try:
+        if action == "check":
+            text = await _arc_judge(
+                client, formatted,
+                "你是小说主线编辑。只输出 JSON，不要任何其他文字。",
+                usage,
+            )
+        elif action == "tone":
+            text = await _arc_judge(
+                client, formatted,
+                "你是小说编辑。只输出 JSON，不要任何其他文字。",
+                usage,
+            )
+        else:
+            text = await _judge_chat(
+                client,
+                model="main",
+                system="你是长篇小说结构顾问。只输出 JSON，不要任何其他文字。",
+                messages=[{"role": "user", "content": formatted}],
+                temperature=0.6,
+                usage=usage,
+            )
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
+
+    value = _parse_json(text, "主线 AI")
+
+    from api_configs.usage import record_usage
+
+    await record_usage(
+        db,
+        user_id=user["id"],
+        project_id=project.id,
+        api_config_id=project.ai_config_id,
+        operation=f"arc_{action}",
+        model=effective_model(project),
+        tokens_in=usage.get("tokens_in", 0),
+        tokens_out=usage.get("tokens_out", 0),
+    )
+
+    # check 降级：主线全空时整次免调用——四线全 miss（D 拍板沿 world_check 模式）
+    # （走到这里说明主线有内容或 input 非空；空主线 + 空 input 已在上方 400 拦截）
+    return {"value": value}
+
+
 @router.post("/ai/{stype}/{field}")
 async def generate_field(
     project_id: str,

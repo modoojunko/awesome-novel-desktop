@@ -27,6 +27,22 @@ WORD_TARGET_MIN = 500
 WORD_TARGET_MAX = 6000
 WORD_TARGET_DEFAULT = 2500
 
+# 主线注入预算（storyline-settings-v2 D4）：存储不截断，写章组装是唯一裁剪点
+STORY_ARC_INJECT_MAX = 600
+
+
+def clip_story_arc(text: str, limit: int = STORY_ARC_INJECT_MAX) -> str:
+    """主线全文注入裁剪：超预算截断到句读处，避免提示词超载。"""
+    t = (text or "").strip()
+    if len(t) <= limit:
+        return t
+    cut = t[:limit]
+    # 截到最后一个句读（句号/问叹号/分号），找不到就从尾部分词处截
+    for i in range(len(cut) - 1, max(len(cut) - 80, 0), -1):
+        if cut[i] in "。！？；…":
+            return cut[: i + 1]
+    return cut
+
 _WEIGHT_LABELS = {"high": "高", "mid": "中", "low": "低"}
 
 _CH1_PREVIOUS = "无前置章节，开篇直接切入角色当下行动，禁止大段世界观背景介绍。"
@@ -489,7 +505,10 @@ async def build_chapter_context(
     story = await get_storage().read_yaml(root_path, "story.yaml") or {}
     ctx.premise = story.get("synopsis", "")
     arc = story.get("story_arc") if isinstance(story.get("story_arc"), dict) else {}
-    ctx.story_arc = str((arc or {}).get("premise", "") or "").strip()
+    # storyline-settings-v2：fullstory 全景（legacy premise 归一），组装层唯一裁剪点
+    from novels.router import _arc_normalize
+
+    ctx.story_arc = clip_story_arc(_arc_normalize(arc)["fullstory"])
 
     # Settings
     ctx.style_setting = (
