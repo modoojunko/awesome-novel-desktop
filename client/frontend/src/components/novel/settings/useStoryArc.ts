@@ -1,29 +1,22 @@
-// 主线卡共享状态（settings-three-col）：SettingsView 持有，主线表单与右栏
-// AI 向导共用同一份 arc —— 向导产出自动落卡不会覆盖表单未保存的编辑。
+// 主线共享状态（storyline-settings-v2）：SettingsView 持有，主线表单与右栏
+// AI 三行共用同一份 arc —— AI 产出落卡不覆盖表单未保存的编辑。
+// 契约：{fullstory, ending{scene,hero,tone}}；legacy premise 由后端 GET 归一进 fullstory。
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useDirtyState } from "@/hooks/useDirtyState";
 
-export interface ArcVolumeRow {
-  title: string;
-  conflict: string;
-  chapters: string;
-}
-
 export interface ArcData {
-  premise: string;
+  fullstory: string;
   ending: { scene: string; hero: string; tone: string };
-  volumes: ArcVolumeRow[];
 }
 
 export const EMPTY_ARC: ArcData = {
-  premise: "",
+  fullstory: "",
   ending: { scene: "", hero: "", tone: "" },
-  volumes: [],
 };
 
-/** 旧数据里的占位基调（待定/？）按未选处理；合法值=三预设或任意自定义文本 */
+/** 旧数据里的占位基调（待定/？）按空处理；其余任意自定义文本合法 */
 export function normTone(t: unknown): string {
   const s = typeof t === "string" ? t : "";
   return s === "待定" || s === "？" || s === "?" ? "" : s;
@@ -34,12 +27,8 @@ export interface ArcCtl {
   arc: ArcData;
   loading: boolean;
   saving: boolean;
-  /** 后端按卡片内容推断的续步位置（第一个未完成步骤） */
-  resumeStep: number;
   patch: (p: Partial<ArcData>) => void;
   save: () => Promise<boolean>;
-  /** 向导产出落卡：写状态 + 整卡 PUT + 标记已保存（可续的持久化基础） */
-  applyWizard: (next: ArcData, nextResume: number) => Promise<void>;
 }
 
 export function useStoryArc(
@@ -50,7 +39,6 @@ export function useStoryArc(
   const [arc, setArc] = useState<ArcData>(EMPTY_ARC);
   const [loading, setLoading] = useState(enabled);
   const [saving, setSaving] = useState(false);
-  const [resumeStep, setResumeStep] = useState(1);
   // P3-4：晚到的挂载 fetch 不得覆盖用户输入
   const editedRef = useRef(false);
   const { snapshotLoaded, markSaved } = useDirtyState(arc, onDirtyChange);
@@ -65,20 +53,15 @@ export function useStoryArc(
       .then((d: any) => {
         if (cancelled || editedRef.current) return;
         const next: ArcData = {
-          premise: d.premise ?? "",
+          // 后端已归一（fullstory ?? premise）；此处兜底防直连旧后端
+          fullstory: d.fullstory ?? d.premise ?? "",
           ending: {
             scene: d.ending?.scene ?? "",
             hero: d.ending?.hero ?? "",
             tone: normTone(d.ending?.tone),
           },
-          volumes: Array.isArray(d.volumes)
-            ? d.volumes.map((v: any) => ({
-                title: v.title ?? "", conflict: v.conflict ?? "", chapters: v.chapters ?? "",
-              }))
-            : [],
         };
         setArc(next);
-        setResumeStep(typeof d.next_step === "number" ? d.next_step : 1);
         snapshotLoaded(next);
       })
       .catch(() => !cancelled && snapshotLoaded(EMPTY_ARC))
@@ -108,16 +91,5 @@ export function useStoryArc(
     }
   }, [projectId, arc, saving, markSaved]);
 
-  const applyWizard = useCallback(
-    async (next: ArcData, nextResume: number) => {
-      editedRef.current = true;
-      setArc(next);
-      setResumeStep(nextResume);
-      await api.updateStoryArc(projectId, next).catch(() => toast.error("主线保存失败"));
-      markSaved();
-    },
-    [projectId, markSaved],
-  );
-
-  return { projectId, arc, loading, saving, resumeStep, patch, save, applyWizard };
+  return { projectId, arc, loading, saving, patch, save };
 }

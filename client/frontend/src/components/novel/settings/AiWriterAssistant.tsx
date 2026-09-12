@@ -99,7 +99,7 @@ export default function AiWriterAssistant({
             {locked
               ? "未解锁 · 升级 PRO 后本书 AI 即可用"
               : state === "ready"
-                ? "已解锁 · 包含在你的 PRO 套餐（Max 同享）· 只加工你写的，不代写"
+                ? "你的 PRO 已包含 · 只加工你写的，不代写"
                 : BLOCK_TEXT[state]}
           </span>
         </div>

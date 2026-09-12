@@ -19,8 +19,7 @@ import AntiAiSettingForm from "@/components/novel/settings/AntiAiSettingForm";
 import HooksSettingForm from "@/components/novel/settings/HooksSettingForm";
 import CharacterManager from "@/components/novel/settings/CharacterManager";
 import ModelSettingForm from "@/components/novel/settings/ModelSettingForm";
-import StoryArcForm from "@/components/novel/settings/StoryArcForm";
-import ArcWizard from "@/components/novel/settings/ArcWizard";
+import StoryArcForm, { type ArcFormHandle, type ArcAiAction } from "@/components/novel/settings/StoryArcForm";
 import { useStoryArc } from "@/components/novel/settings/useStoryArc";
 import GenreSettingForm, {
   type GenreHandle,
@@ -58,7 +57,7 @@ const SETTINGS_ITEMS = [
 const DESCS: Record<string, string> = {
   genre: GENRE_DEFINITION,
   intro: "让读者（和 AI）知道这是一个怎样的故事。",
-  arc: "这本书讲什么、结局想怎样、分几卷——定总方向盘，不拦写作。",
+  arc: "比简介更全地说清这本书从头到尾讲什么、结局是什么——不填也不拦写作，直接开写都行。",
   world: "世界是 AI 写章时的物理法则——能做什么、不能做什么、付什么代价，都从这里读。",
   style: "用谁的视角讲，用什么语气讲（叙事身份 + 核心原则）。",
   antiAI: "这些词句一出现就拦掉——AI 味最重的那批。",
@@ -117,6 +116,8 @@ export default function SettingsView({
   const [busy, setBusy] = useState(false);
 
   const formRef = useRef<SettingSaveHandle>(null);
+  /** 主线面板句柄（save 走 formRef 同一 ref；runAi 为 arc 面板专属能力） */
+  const arcFormRef = useRef<ArcFormHandle>(null);
   const genreRef = useRef<GenreHandle>(null);
   const introRef = useRef<IntroHandle>(null);
   /** 世界面板句柄：save 落库；runAi 由右栏 AI 卡/格头快捷钮调用（world-setting-v2）。 */
@@ -227,6 +228,46 @@ export default function SettingsView({
     }
     return rows;
   }, [runWorldAi, worldNoPower]);
+
+  // 主线右栏三行（storyline-settings-v2）：全部聚焦主线——他项设定只作输入，
+  // 结论只落主线面板字段；runAi 经 formRef（ArcFormHandle）分发，面板内自带在途互斥
+  const runArcAiRow = useCallback(
+    async (key: string, action: ArcAiAction) => {
+      if (aiRowBusyRef.current) return;
+      aiRowBusyRef.current = true;
+      setAiRunningKey(key);
+      try {
+        await arcFormRef.current?.runAi(action);
+      } finally {
+        aiRowBusyRef.current = false;
+        setAiRunningKey(null);
+      }
+    },
+    [],
+  );
+  const arcAiRows = useMemo<AiCapabilityRow[]>(
+    () => [
+      {
+        key: "draft",
+        name: "起草主线",
+        desc: "把你的简介扩写成从头到尾的完整故事，顺带把结局三问答了；散着说想法也行",
+        onClick: () => runArcAiRow("draft", "draft"),
+      },
+      {
+        key: "ending",
+        name: "结局校准",
+        desc: "帮你把结局三问捋顺，和你的题材对味",
+        onClick: () => runArcAiRow("ending", "calibrate"),
+      },
+      {
+        key: "check",
+        name: "主线体检",
+        desc: "看看故事讲不讲得通、结尾接不接得上开头——只提醒，不拦你确认",
+        onClick: () => runArcAiRow("check", "check"),
+      },
+    ],
+    [runArcAiRow],
+  );
 
   // 题材右栏四行（02-05 各答各题；01 题材目录不走 AI；06 剧情轨道已退役——归主线规划）
   const genreAiRows = useMemo<AiCapabilityRow[]>(
@@ -500,7 +541,11 @@ export default function SettingsView({
             )}
             {panel === "arc" && (
               <StoryArcForm
-                ref={formRef}
+                ref={(h) => {
+                  // 双 ref：formRef 供 panel-foot save/confirm；arcFormRef 供右栏 runAi 分发
+                  (formRef as React.MutableRefObject<SettingSaveHandle | null>).current = h;
+                  arcFormRef.current = h;
+                }}
                 projectId={projectId}
                 ctl={arcCtl}
               />
@@ -615,7 +660,14 @@ export default function SettingsView({
             data-od-id="ai-assist-genre"
           />
         ) : panel === "arc" ? (
-          <ArcWizard ctl={arcCtl} />
+          <AiWriterAssistant
+            rows={arcAiRows}
+            footNote="建议落在对应问题的下方，点「采纳 · 覆盖」才会写入，面板底部可一步撤销；每个功能保留最近 5 次结果，随时切回。"
+            aiState={aiState}
+            onBlocked={handleAiBlocked}
+            runningKey={aiRunningKey}
+            data-od-id="ai-assist-arc"
+          />
         ) : panel === "world" ? (
           <AiWriterAssistant
             rows={worldAiRows}
