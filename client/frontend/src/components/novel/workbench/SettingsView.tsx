@@ -548,6 +548,7 @@ export default function SettingsView({
                 }}
                 projectId={projectId}
                 ctl={arcCtl}
+                onReceiptChange={handleReceiptChange}
               />
             )}
             {panel === "world" && (
