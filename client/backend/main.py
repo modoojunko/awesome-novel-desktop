@@ -2,6 +2,7 @@
 """AI Novel — C/S 架构本地服务"""
 
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
