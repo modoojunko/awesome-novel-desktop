@@ -606,10 +606,10 @@ async def _dump_project_snapshot(zf, db, project) -> None:
     threads = await storage.read_yaml(project.root_path, THREADS_PATH)
     if threads:
         _yaml(THREADS_PATH, threads)
-    for fname in await storage.list_dir(project.root_path, CHARACTER_DIR):
-        data = await storage.read_yaml(project.root_path, f"{CHARACTER_DIR}/{fname}")
-        if data:
-            _yaml(f"{CHARACTER_DIR}/{fname}", data)
+    # 角色段 v2（character-settings-v2）：真表 → characters/ 新布局
+    from backup.export import _dump_characters
+
+    await _dump_characters(zf, db, project)
 
     # 卷纲 + 章纲/正文 + 版本快照 + 生成提示词
     volumes = (

@@ -13,7 +13,8 @@ from pathlib import Path
 import yaml
 from sqlalchemy import select
 
-FORMAT_VERSION = 1
+from backup.format import FORMAT_VERSION
+
 
 
 def detect_kind(zf: zipfile.ZipFile) -> str:
@@ -66,13 +67,16 @@ def parse_package(paths: list[str]) -> dict:
         elif kind == "single":
             pn = "project.yaml" if "project.yaml" in names else "project.json"
             proj_data = yaml.safe_load(zf.read(pn))
+            # 单书包同样受版本闸约束（此前只有 assets 包读版本——修洞）
+            sv = proj_data.get("format_version", 0) if isinstance(proj_data, dict) else 0
+            schema_version = max(schema_version or 0, sv or 0)
             books.append({"name": proj_data.get("name", ""), "path": "", "source_zip": ps})
         elif kind == "config":
             config_data = yaml.safe_load(zf.read("config.yaml"))
 
     # 格式契约演进规则（backup-restore spec）：高于本应用支持的格式版本一律拒绝，
     # 防止新格式包被旧应用静默半恢复。v0（无版本号）按兼容模式全量回吃。
-    if schema_version and schema_version > 1:
+    if schema_version and schema_version > FORMAT_VERSION:
         raise ValueError(
             f"备份包格式版本较高（v{int(schema_version)}），请先升级应用到最新版本再恢复"
         )
@@ -133,6 +137,109 @@ async def persist_package(db, user_id: str, paths: list[str], include_config: bo
     )
     return {"results": results, "warnings": info.get("warnings", []), "reattach": reattach}
 
+
+
+
+async def _import_characters(db, zf, names: list[str], book_dir: str, novel) -> None:
+    """角色段恢复：v2 直读 + v1 映射；主角收敛（>1 时保 seq 最小）。"""
+    from models.character import Character, CharacterRelation
+    from characters.legacy_map import map_legacy_character
+
+    seq = 0
+    id_by_legacy_order: dict[str, str] = {}
+
+    # v2：characters/characters.yaml（数组，含 id/seq/legacy/relations 内嵌 owner/other id）
+    v2_name = f"{book_dir}characters/characters.yaml"
+    v2_rel_name = f"{book_dir}characters/relations.yaml"
+    if v2_name in set(names):
+        cards = yaml.safe_load(zf.read(v2_name)) or []
+        # id 冲突策略：包内 id 与本库已有角色撞车（同一包导回同一库/两机互导）→
+        # 重新生成 id 保内容；包内引用（relations / chapter_characters）经映射跟随
+        existing_ids = set(
+            await db.scalars(select(Character.id).where(Character.novel_id == novel.id))
+        )
+        all_existing = set(
+            await db.scalars(select(Character.id))
+        )
+        id_remap: dict[str, str] = {}
+        for raw in cards:
+            old_id = raw.get("id")
+            if old_id and old_id in all_existing and old_id not in id_remap:
+                id_remap[old_id] = str(uuid.uuid4())
+        for raw in cards:
+            seq += 1
+            raw_id = raw.get("id")
+            if raw_id and raw_id in id_remap:
+                raw_id = id_remap[raw_id]
+            ch = Character(
+                id=raw_id or str(uuid.uuid4()),
+                novel_id=novel.id,
+                seq=raw.get("seq") or seq,
+                name=str(raw.get("name") or f"\u0000{uuid.uuid4().hex[:12]}"),
+                aliases=json.dumps(raw.get("aliases") or [], ensure_ascii=False),
+                role=raw.get("role") or "配角",
+                persona=raw.get("persona") or "",
+                dossier=json.dumps(raw.get("dossier") or {}, ensure_ascii=False),
+                cog=json.dumps(raw.get("cog") or {}, ensure_ascii=False),
+                legacy=json.dumps(raw.get("legacy") or {}, ensure_ascii=False),
+            )
+            db.add(ch)
+        rels = yaml.safe_load(zf.read(v2_rel_name)) if v2_rel_name in set(names) else []
+        from models.character import CharacterRelation as _CR
+        all_existing_rels = set(
+            await db.scalars(select(_CR.id))
+        )
+        for raw in rels or []:
+            rel_id = raw.get("id")
+            if rel_id and rel_id in all_existing_rels:
+                rel_id = str(uuid.uuid4())
+            if rel_id:
+                all_existing_rels.add(rel_id)
+            db.add(CharacterRelation(
+                id=rel_id or str(uuid.uuid4()),
+                novel_id=novel.id,
+                owner_id=id_remap.get(raw["owner_id"], raw["owner_id"]),
+                other_id=id_remap.get(raw["other_id"], raw["other_id"]),
+                rel_type=raw.get("rel_type") or "",
+                stance=raw.get("stance") or "", note=raw.get("note") or "",
+                ch_ref=raw.get("ch_ref") or "",
+            ))
+        await db.flush()
+        # 同步计数器（不倒退、不复用）
+        if cards:
+            novel.character_seq_high = max(novel.character_seq_high, max(
+                int(c.get("seq") or 0) for c in cards))
+        return
+
+    # v1：settings/character-setting/*.yaml → 映射进新形状
+    v1_names = sorted(
+        n for n in names
+        if n.startswith(f"{book_dir}settings/character-setting/") and n.endswith(".yaml")
+    )
+    prot_seen = False
+    for name in v1_names:
+        raw = yaml.safe_load(zf.read(name))
+        if not raw:
+            continue
+        mapped = map_legacy_character(raw)
+        seq += 1
+        role = mapped["role"]
+        if role == "主角":
+            if prot_seen:
+                role = "配角"  # 主角收敛：保第一个
+            prot_seen = True
+        ch = Character(
+            novel_id=novel.id, seq=seq, name=mapped["name"] or f"\u0000{uuid.uuid4().hex[:12]}",
+            aliases=json.dumps(mapped["aliases"], ensure_ascii=False),
+            role=role, persona=mapped["persona"],
+            dossier=json.dumps(mapped["dossier"], ensure_ascii=False),
+            cog=json.dumps(mapped["cog"], ensure_ascii=False),
+            legacy=json.dumps(mapped["legacy"], ensure_ascii=False),
+        )
+        db.add(ch)
+    if v1_names:
+        await db.flush()
+        novel.character_seq_high = max(novel.character_seq_high, seq)
 
 async def _resolve_character_ids(db, novel_id: str) -> dict[str, str]:
     """本书的名字/别名 → 角色 id（导入路径的 id 绑定用）。"""
@@ -196,6 +303,12 @@ async def _import_single_book(db, zf: zipfile.ZipFile, book_dir: str, user_id: s
     db.add(novel)
     await db.flush()
 
+    # 角色段恢复（character-settings-v2）：必须在 chapters 之前落库（出场引用绑定 id）。
+    # v2 布局 = characters/*.yaml（直读）；v1 布局 = settings/character-setting/*.yaml（映射）。
+    # 设定循环不碰角色文件（route_relative_path 对 character: 前缀会返回 KV 键——
+    # 真表上线后那是无人读的死数据；防御性 continue 在下方 settings 分支里）。
+    await _import_characters(db, zf, names, book_dir, novel)
+
     # story.yaml / threads.yaml 恢复（与导出侧 dump_book_into 对称；
     # 往返测试发现缺口：此前这两个文件只导出不导入，恢复后简介/线索静默丢失）
     for rel, key in (("story.yaml", "story"), (THREADS_PATH, "threads")):
@@ -212,6 +325,9 @@ async def _import_single_book(db, zf: zipfile.ZipFile, book_dir: str, user_id: s
     # 设定恢复
     for name in sorted(names):
         if not name.startswith(f"{book_dir}settings/") or not name.endswith((".yaml", ".yml")):
+            continue
+        # v1 角色文件已由 _import_characters 处理；这里跳过防写回 character: KV
+        if name.startswith(f"{book_dir}settings/character-setting/"):
             continue
         rel = name[len(book_dir):]
         data = yaml.safe_load(zf.read(name))

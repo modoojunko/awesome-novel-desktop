@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from auth_local.middleware import get_current_user
 from backup.export import backup_zip_name, config_zip_name
+from backup.format import FORMAT_VERSION
 from db import async_session
 from main import app
 
@@ -113,18 +114,18 @@ class TestBackupExportJob:
         assert files[0] == backup_zip_name()
         assert files[1] == config_zip_name()
 
-        # 资产包：格式 v1 + 每书目录
+        # 资产包：格式 v2（character-settings-v2 升版）+ 每书目录
         with zipfile.ZipFile(target_dir / files[0]) as zf:
             names = zf.namelist()
             assert f"projects/{seeded['book_slug']}/project.yaml" in names
             meta = yaml.safe_load(zf.read(f"projects/{seeded['book_slug']}/project.yaml"))
-            assert meta["format_version"] == 1
+            assert meta["format_version"] == FORMAT_VERSION
             assert meta["name"] == "备份测试书"
 
         # 配置包：密钥解密回读（导出=明文契约）
         with zipfile.ZipFile(target_dir / files[1]) as zf:
             cfg = yaml.safe_load(zf.read("config.yaml"))
-        assert cfg["format_version"] == 1
+        assert cfg["format_version"] == FORMAT_VERSION
         assert cfg["user"]["display_name"] == "备份测试员"
         assert cfg["api_configs"][0]["api_key"] == seeded["secret"]
 

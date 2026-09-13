@@ -24,10 +24,10 @@ from sqlalchemy import select
 
 import brand
 from db import async_session
-from filesystem.paths import CHARACTER_DIR, PATH_TO_KEY, THREADS_PATH
+from filesystem.paths import PATH_TO_KEY, THREADS_PATH
+from backup.format import FORMAT_VERSION
 from filesystem.storage import get_storage
 
-FORMAT_VERSION = 1
 
 
 # ── 产物命名（中文自标识；书名清洗防 OS 非法字符） ────────────────────────────
@@ -107,10 +107,9 @@ async def dump_book_into(zf, db, project, prefix: str = "") -> None:
     threads = await storage.read_yaml(project.root_path, THREADS_PATH)
     if threads:
         put_yaml(THREADS_PATH, threads)
-    for fname in await storage.list_dir(project.root_path, CHARACTER_DIR):
-        data = await storage.read_yaml(project.root_path, f"{CHARACTER_DIR}/{fname}")
-        if data:
-            put_yaml(f"{CHARACTER_DIR}/{fname}", data)
+
+    # 角色段（character-settings-v2）：真表 → characters/ 新布局；不再写旧角色目录树
+    await _dump_characters(zf, db, project)
 
     # 卷纲 + 章纲/正文 + 版本快照 + 生成提示词
     volumes = (
@@ -175,6 +174,54 @@ async def dump_book_into(zf, db, project, prefix: str = "") -> None:
 
 
 # ── 配置包（user 子集 + api_configs，密钥明文——导入端重加密） ────────────────
+
+
+async def _dump_characters(zf, db, project) -> None:
+    """角色段 v2：characters/characters.yaml + characters/relations.yaml。
+
+    id / seq / legacy 原文全部随包往返（roundtrip 断言的稳定性依据）。
+    """
+    from models.character import Character, CharacterRelation
+    from characters.legacy_map import character_to_export
+
+    cards = (
+        await db.scalars(
+            select(Character)
+            .where(Character.novel_id == project.id)
+            .order_by(Character.seq)
+        )
+    ).all()
+    if not cards:
+        return
+    rels = (
+        await db.scalars(
+            select(CharacterRelation).where(CharacterRelation.novel_id == project.id)
+        )
+    ).all()
+    payload = {
+        "characters": [character_to_export(c) for c in cards],
+        "relations": [
+            {
+                "id": r.id,
+                "owner_id": r.owner_id,
+                "other_id": r.other_id,
+                "rel_type": r.rel_type,
+                "stance": r.stance,
+                "note": r.note,
+                "ch_ref": r.ch_ref,
+            }
+            for r in rels
+        ],
+    }
+    zf.writestr(
+        "characters/characters.yaml",
+        yaml.safe_dump(payload["characters"], allow_unicode=True, sort_keys=False),
+    )
+    zf.writestr(
+        "characters/relations.yaml",
+        yaml.safe_dump(payload["relations"], allow_unicode=True, sort_keys=False),
+    )
+
 
 
 async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:
