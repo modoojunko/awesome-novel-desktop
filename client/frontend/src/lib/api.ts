@@ -125,11 +125,18 @@ export async function request(
       status?: number;
       novels?: string[];
       reason?: string;
+      field?: string;
+      current?: unknown;
+      rev?: number;
     };
     e.status = res.status;
     if (typeof err.detail === "object") {
       if (Array.isArray(err.detail.novels)) e.novels = err.detail.novels;
       if (typeof err.detail.reason === "string") e.reason = err.detail.reason;
+      // 角色 rev 冲突（character-settings-v2）：透传冲突格与当前值供"刷新重试"UI
+      if (typeof err.detail.field === "string") e.field = err.detail.field;
+      if (err.detail.current !== undefined) e.current = err.detail.current;
+      if (typeof err.detail.rev === "number") e.rev = err.detail.rev;
     }
     throw e;
   }
