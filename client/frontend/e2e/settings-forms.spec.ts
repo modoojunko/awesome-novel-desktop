@@ -505,8 +505,7 @@ test("AI痕迹：真实表单（疲劳词分类列表）→ 确认完成自动�
 // -------------------------------------------------------------------------
 // ④ 角色：真实创建角色（创建弹窗 → 反派 → 基本信息 → 确认完成自动落库）
 // -------------------------------------------------------------------------
-
-test("角色：真实创建角色（创建弹窗 → 基本信息 → 确认完成自动落库）", async ({
+test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确认删除", async ({
   page,
   request,
 }) => {
@@ -516,49 +515,52 @@ test("角色：真实创建角色（创建弹窗 → 基本信息 → 确认完�
     await page.getByRole("button", { name: /^设定/ }).click();
     await openSetting(page, "角色");
 
-    // 空列表
-    await expect(page.getByText("暂无角色 · 点下方新建")).toBeVisible({
+    // 空状态：左侧添加入口可见
+    await expect(page.getByRole("button", { name: "添加角色" })).toBeVisible({
       timeout: 10000,
     });
 
-    // 行内新建（settings-three-col 子双栏）：左栏「新建角色」→ 名称 + 角色 select + 添加
-    await page.getByRole("button", { name: "新建角色" }).click();
-    await page.locator(".sub-add").getByPlaceholder("角色名").fill("林晚");
-    await page.locator(".sub-add").getByRole("combobox").selectOption("antagonist");
-    await page.getByRole("button", { name: "添加", exact: true }).click();
+    // 新建：点击添加 → 自动选中 → 命名（自动保存 PATCH）
+    await page.getByRole("button", { name: "添加角色" }).click();
+    const nameInput = page.getByRole("textbox", { name: "角色名称" });
+    await nameInput.fill("林晚");
 
-    // 创建后自动选中：列表行 + 表单角色名（异步加载完成再输入，避免覆盖）
-    await expect(
-      page.locator(".char-row", { hasText: "林晚" }),
-    ).toBeVisible({ timeout: 5000 });
-    const nameInput = page
-      .locator("label", { hasText: "角色名" })
-      .locator("xpath=ancestor::div[1]")
-      .locator("input");
-    await expect(nameInput).toHaveValue("林晚", { timeout: 5000 });
-
-    // 基本信息折叠组（默认展开）：外貌 + 背景
-    await fillSettingField(page, "外貌", "眉眼清冷，总穿青色长衫");
-    await fillSettingField(page, /^背景$/, "边境城邦出身的孤儿，被老药师收养");
-
-    // 确认完成（gap3：先 save 落库 PUT /settings/character/林晚，再 confirm）
-    const charSave = page.waitForResponse(
+    // 自动保存 PATCH 落库（防抖 600ms）
+    const patchReq = page.waitForRequest(
       (r) =>
-        r.request().method() === "PUT" &&
-        r.url().includes("/settings/character/"),
+        r.request().method() === "PATCH" &&
+        r.url().includes("/characters/"),
     );
-    await confirmPanel(page);
-    await charSave;
+    await patchReq;
 
-    // 后端直查
-    const char = await apiGetJSON(
-      request,
-      token,
-      `/novels/${pid}/settings/character/林晚`,
-    );
-    expect(char.name).toBe("林晚");
-    expect(char.role).toBe("antagonist");
-    expect(char.appearance).toContain("眉眼清冷");
+    // 类型切换成反派（chip 可点击胶囊）
+    await page.getByRole("button", { name: "反派", exact: true }).click();
+
+    // 档案行：外貌标签输入（自动保存）
+    await page.getByRole("textbox", { name: "外貌标签" }).fill("眉眼清冷，青色长衫");
+
+    // 等最后一格 PATCH 完成
+    await page.waitForTimeout(1200);
+
+    // 后端直查：角色已在新表（列表接口）里
+    const list = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+    const item = (list.data?.items ?? []).find((x: { name: string }) => x.name === "林晚");
+    expect(item).toBeTruthy();
+    expect(item.role).toBe("反派");
+    expect(item.dossier.look).toContain("眉眼清冷");
+
+    // 删除（L3）：点删除 → 输名字解锁 → 确认
+    await page.getByRole("button", { name: "删除", exact: true }).first().click();
+    const confirmInput = page.getByPlaceholder(/输入「林晚」以确认/);
+    await confirmInput.fill("错字");
+    await expect(page.getByRole("button", { name: "删除", exact: true }).last()).toBeDisabled();
+    await confirmInput.fill("林晚");
+    await page.getByRole("button", { name: "删除", exact: true }).last().click();
+
+    // 撤销找回
+    await page.getByRole("button", { name: "撤销" }).click();
+    const list2 = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+    expect((list2.data?.items ?? []).some((x: { name: string }) => x.name === "林晚")).toBe(true);
   } finally {
     await restore();
   }

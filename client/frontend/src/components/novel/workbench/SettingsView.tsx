@@ -639,7 +639,7 @@ export default function SettingsView({
                 已确认
               </span>
             )}
-            {!isModel && !confirmed && (
+            {!isModel && !confirmed && panel !== "chars" && (
               <button
                 className="btn btn-secondary"
                 onClick={() => void handleSaveDraft()}

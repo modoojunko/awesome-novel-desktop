@@ -455,6 +455,9 @@ async def _storage_busy_handler(request, exc):
     """
     if "disk I/O error" not in str(exc) and "database is locked" not in str(exc):
         raise exc
+    logging.getLogger("uvicorn.error").warning(
+        "event=storage_busy err=%s", str(exc)[:200]
+    )
     return JSONResponse(
         status_code=503,
         content={
