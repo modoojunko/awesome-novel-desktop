@@ -306,13 +306,17 @@ class TestArcReadiness:
 class _FakeAI:
     def __init__(self, text: str):
         self._text = text
+        self.calls: list[dict] = []
 
-    async def chat(self, **_kw):
+    async def chat(self, **kw):
+        self.calls.append(kw)
         return self._text
 
 
 @pytest.fixture
 def stub_ai(monkeypatch):
+    """打桩 AI 客户端；返回 fake 供断言（如模型别名守卫）。"""
+
     def _stub(text: str):
         import settings.ai_router as air
 
@@ -322,6 +326,7 @@ def stub_ai(monkeypatch):
             return fake
 
         monkeypatch.setattr(air, "get_ai_client_for_novel", get_client)
+        return fake
 
     return _stub
 
@@ -383,11 +388,44 @@ class TestArcAi:
         assert r.json()["value"]["tone"] == "苦尽甘来"
 
     def test_empty_material_400(self, client):
-        """draft/calibrate 空素材（无 input 且主线全空）→ 400。"""
+        """draft 空素材（无 input、无简介、主线全空）→ 400 中文提示。"""
         pid = _create_project(client)
         r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
         assert r.status_code == 400
-        assert "素材" in r.json()["detail"]
+        assert "简介" in r.json()["detail"]
+
+    def test_draft_material_accepts_synopsis(self, client, stub_ai):
+        """回归（2026-09-13 实测事故）：起草的主输入是简介——有简介、主线全空时
+        必须放行（此前只认 fullstory → 被 400 拦死）。"""
+        pid = _create_project(client)
+        r = client.put(f"/api/novels/{pid}/story", json={"synopsis": "陆征是私家侦探，姐姐找他查妹妹失踪。"})
+        assert r.status_code == 200, r.text
+        stub_ai('{"fullstory": "全景", "ending": {}}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
+        assert r.status_code == 200, r.text
+
+    def test_arc_ai_uses_supported_model_alias(self, client, stub_ai):
+        """回归（2026-09-13 实测事故）：model 必须用客户端支持的别名
+        （haiku/sonnet/review → 配置模型）；字面模型名（如 "main"）会透传供应商
+        被拒 → 502。四行动逐一守卫。"""
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "有简介"})
+        client.put(f"/api/novels/{pid}/story/arc", json=ARC_FULL)
+        payloads = {
+            "draft": '{"fullstory": "全景", "ending": {}}',
+            "calibrate": '{"scene": "画面", "hero": "归宿", "tone": "苦尽甘来"}',
+            "check": '{"checks": [], "summary": "ok"}',
+            "tone": '{"tone": "苦尽甘来"}',
+        }
+        for action, text in payloads.items():
+            fake = stub_ai(text)
+            r = client.post(f"/api/novels/{pid}/settings/ai/arc/{action}", json={})
+            assert r.status_code == 200, f"{action}: {r.text}"
+            assert fake.calls, f"{action} 未发起模型调用"
+            alias = fake.calls[0].get("model")
+            assert alias in ("haiku", "sonnet", "review"), (
+                f"{action} 使用非法模型别名 {alias!r}——会透传供应商被拒（502）"
+            )
 
     def test_unknown_action_400(self, client):
         pid = _create_project(client)

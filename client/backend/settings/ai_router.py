@@ -883,18 +883,6 @@ async def _arc_context(project) -> tuple[dict, dict]:
     return arc, ctx
 
 
-def _arc_judge(client, formatted: str, system: str, usage: dict):
-    return _judge_chat(
-        client,
-        model="haiku",
-        system=system,
-        messages=[{"role": "user", "content": formatted}],
-        temperature=0.4,
-        json_mode=True,
-        usage=usage,
-    )
-
-
 @router.post("/ai/arc/{action}")
 async def run_arc_ai(
     project_id: str,
@@ -918,8 +906,14 @@ async def run_arc_ai(
 
     arc, ctx = await _arc_context(project)
     author_input = str(body.get("input", "") or "").strip()
-    if action in ("draft", "calibrate") and not author_input and not arc["fullstory"]:
-        raise HTTPException(400, "先写两句想法或一段主线，AI 才有加工素材")
+    # 素材门槛按行语义（2026-09-13 实测修正：draft 的主输入是「简介」——
+    # 行描述即「把你的简介扩写成完整故事」，此前只认 fullstory 会把有简介的书拦成 400）
+    has_synopsis = bool(ctx["synopsis"].strip())
+    has_arc = bool(arc["fullstory"]) or any(arc["ending"].values())
+    if action == "draft" and not (author_input or has_synopsis or has_arc):
+        raise HTTPException(400, "先写两句简介，AI 才能帮你扩写成完整故事")
+    if action == "calibrate" and not (author_input or has_arc):
+        raise HTTPException(400, "先把主线或结局三问写两句，AI 才有校准的依据")
 
     template = load_prompt(f"arc_{action}")
     formatted = template.format(
@@ -931,30 +925,27 @@ async def run_arc_ai(
         **ctx,
     )
 
+    _SYSTEMS = {
+        "draft": "你是长篇小说结构顾问。只输出 JSON，不要任何其他文字。",
+        "calibrate": "你是资深小说主编。只输出 JSON，不要任何其他文字。",
+        "check": "你是小说主线编辑。只输出 JSON，不要任何其他文字。",
+        "tone": "你是小说编辑。只输出 JSON，不要任何其他文字。",
+    }
+    # model 必须用客户端别名（haiku/sonnet/review → 配置模型）；字面模型名会
+    # 透传供应商被拒 → 502（2026-09-13 实测："main" 非法）。
+    # 起草/校准＝生成类（temp 0.6），体检/基调＝判定类（temp 0.3）。
     client = await get_ai_client_for_novel(project_id)
     usage: dict = {}
     try:
-        if action == "check":
-            text = await _arc_judge(
-                client, formatted,
-                "你是小说主线编辑。只输出 JSON，不要任何其他文字。",
-                usage,
-            )
-        elif action == "tone":
-            text = await _arc_judge(
-                client, formatted,
-                "你是小说编辑。只输出 JSON，不要任何其他文字。",
-                usage,
-            )
-        else:
-            text = await _judge_chat(
-                client,
-                model="main",
-                system="你是长篇小说结构顾问。只输出 JSON，不要任何其他文字。",
-                messages=[{"role": "user", "content": formatted}],
-                temperature=0.6,
-                usage=usage,
-            )
+        text = await _judge_chat(
+            client,
+            model="haiku",
+            system=_SYSTEMS[action],
+            messages=[{"role": "user", "content": formatted}],
+            temperature=0.6 if action in ("draft", "calibrate") else 0.3,
+            json_mode=True,
+            usage=usage,
+        )
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001
