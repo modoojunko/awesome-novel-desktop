@@ -28,10 +28,10 @@
 
 ## 4. AI 四能力
 
-- [ ] 4.1 四个提示词模板 + 领域常量注入（死模板已随 1.4 删）。验证：渲染纯函数断言（targets 只含空格、gender/age 与 personality 字样不出现、同输入字节稳定、无未替换占位符）
-- [ ] 4.2 `draft` 端点：**路径必须在 `/ai/` 之后 ≥3 段**（2 段会被 `ai_router.py:976` 兜底吞掉，并返回与"characters 已退役"**完全相同**的 400 文案）；`act` 由 target 决定；`targets` 服务端算；脏返回处置；零空格免调用。验证：pytest
-- [ ] 4.3 `check` 端点：四态 + 项名服务端常量（力量向/现实向两套）+ `goto` 白名单 + 降级不 400 + 全空免调用 + 路人卡短路 + 无副作用。验证：pytest（含"世界页不出现 `conflict`"回归锁）
-- [ ] 4.4 门控与记账：`require_ai_access` + `require_novel_model` + `record_usage(operation=character_*)`；温度分档（人设 0.6 / 档案与认知 0.4 / 体检 0.3）并在 spec 冻结。验证：pytest（403/503 + operation ≤50 字 + token 记录）
+- [x] 4.1 已完成（`prompts/settings_characters_{persona,dossier,cog,check}.prompt`；格名/项名由领域常量经 `.format` 注入，模板无手抄键名）。原计划：4.1 四个提示词模板 + 领域常量注入（死模板已随 1.4 删）。验证：渲染纯函数断言（targets 只含空格、gender/age 与 personality 字样不出现、同输入字节稳定、无未替换占位符）
+- [x] 4.2 已完成（`settings/characters_ai.py::draft_character`：三段路径 `/settings/ai/characters/{id}/draft` 不触两段兜底；act 由 target 决定；targets 服务端算（compute_targets）；已填格拒绝/未知键静默丢/空值 502；零空格免调用返回空 cells。验证：`tests/test_characters_ai.py`（targets 卫生/整词断言 gender+age+personality 不出现/免调用计数=0）。原计划：4.2 `draft` 端点：**路径必须在 `/ai/` 之后 ≥3 段**（2 段会被 `ai_router.py:976` 兜底吞掉，并返回与"characters 已退役"**完全相同**的 400 文案）；`act` 由 target 决定；`targets` 服务端算；脏返回处置；零空格免调用。验证：pytest
+- [x] 4.3 已完成（四态 CHAR_CHECK_STATUS；项名/顺序/goto 服务端出，力量向/现实向两套按世界是否写 power 切换；模型编外项丢弃；缺输入降级不 400 且全空免调用；路人卡短路；无副作用。回归锁：`conflict not in world_model._CHECK_STATUS`）。原计划：4.3 `check` 端点：四态 + 项名服务端常量（力量向/现实向两套）+ `goto` 白名单 + 降级不 400 + 全空免调用 + 路人卡短路 + 无副作用。验证：pytest（含"世界页不出现 `conflict`"回归锁）
+- [x] 4.4 已完成（require_ai_access + require_novel_model + record_usage(operation=settings_char_draft_{target}/settings_char_check ≤50 字)；温度 人设 0.6/档案认知 0.4/体检 0.3 已在代码与 prompt 注释冻结；503/403 路径测试通过）。原计划：4.4 门控与记账：`require_ai_access` + `require_novel_model` + `record_usage(operation=character_*)`；温度分档（人设 0.6 / 档案与认知 0.4 / 体检 0.3）并在 spec 冻结。验证：pytest（403/503 + operation ≤50 字 + token 记录）
 - [ ] 4.5（单开 change，先于 4.1-4.4 上线）`AIClient` 显式 timeout + 502 路径记账；**真正理由是 `api_configs/usage.py:24-25` 的零 token 早退**（改它影响 7 文件 15 处调用与 `/usage` 统计口径），外加 `_judge_chat` 的 usage 未放 `finally`。验证：pytest（超时落 502 且有一次 usage 记录）
 
 ## 5. 前端
