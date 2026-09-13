@@ -153,8 +153,9 @@ async def update_chapter(
     if not project:
         raise HTTPException(404, "Project not found")
     _validate_ref(chapter_ref)
-    await save_chapter(db, project, chapter_ref, body)
-    return {"ok": True}
+    warnings = await save_chapter(db, project, chapter_ref, body)
+    # 出场角色未命中告警（character-settings-v2）：前端上屏提示
+    return {"ok": True, "warnings": warnings}
 
 
 @router.put("/chapters/{chapter_ref}/prose")
@@ -195,7 +196,7 @@ async def confirm_chapter(
         raise HTTPException(400, f"章纲确认失败，请先填写：{missing}")
     chapter["status"] = "confirmed"
     # 统一写入口：DB 落库 + 元数据派生（status/outline_status）
-    await save_chapter(db, project, chapter_ref, chapter)
+    warnings = await save_chapter(db, project, chapter_ref, chapter)
     from datetime import UTC, datetime
 
     from repositories import chapter_repo
@@ -236,7 +237,7 @@ async def unarchive_chapter(
     chapter["status"] = "draft"
     chapter.pop("archive_path", None)
     chapter.pop("archive_summary", None)
-    await save_chapter(db, project, chapter_ref, chapter)
+    warnings = await save_chapter(db, project, chapter_ref, chapter)
 
     if row is not None:
         # total_archives 语义＝已归档章节数 → 与归档端点对称回减（幂等：非归档态不减）

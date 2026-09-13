@@ -134,6 +134,25 @@ async def persist_package(db, user_id: str, paths: list[str], include_config: bo
     return {"results": results, "warnings": info.get("warnings", []), "reattach": reattach}
 
 
+async def _resolve_character_ids(db, novel_id: str) -> dict[str, str]:
+    """本书的名字/别名 → 角色 id（导入路径的 id 绑定用）。"""
+    from models.character import Character
+
+    cards = (
+        await db.scalars(select(Character).where(Character.novel_id == novel_id))
+    ).all()
+    out: dict[str, str] = {}
+    for c in cards:
+        if c.name:
+            out.setdefault(c.name, c.id)
+        try:
+            for alias in json.loads(c.aliases or "[]"):
+                out.setdefault(alias, c.id)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 async def _import_single_book(db, zf: zipfile.ZipFile, book_dir: str, user_id: str) -> str:
     """从 zip 内目录恢复一本书的全部资产。"""
     from chapters.store import (
@@ -268,8 +287,18 @@ async def _import_single_book(db, zf: zipfile.ZipFile, book_dir: str, user_id: s
         # 子表恢复（复用 save_chapter 的拆装逻辑）：在 add/flush 前的 pending 对象上
         # 整体替换子表（_replace_children 含 prose 的 ChapterContent），单次 flush 级联
         # 插入——flush 后再赋值子表会触发懒加载越界
+        # 出场角色 id 绑定（character-settings-v2）：包里是名字数组，先建角色映射
+        # （characters 必须先于 chapters 落库——persist 流程已保证），未命中留 NULL+快照
         _disassemble_scalars(ch, ch_data)
-        _replace_children(ch, ch_data)
+        name_map = await _resolve_character_ids(db, novel.id)
+        outline_names = [
+            str(n).strip()[:50]
+            for n in (ch_data.get("outline") or {}).get("characters") or []
+            if str(n).strip()
+        ]
+        await _replace_children(db, ch, ch_data, character_ids={
+            n: name_map.get(n) for n in outline_names
+        })
 
         db.add(ch)
         await db.flush()
