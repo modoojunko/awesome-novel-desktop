@@ -915,7 +915,9 @@ async def run_arc_ai(
     if action == "calibrate" and not (author_input or has_arc):
         raise HTTPException(400, "先把主线或结局三问写两句，AI 才有校准的依据")
 
-    template = load_prompt(f"arc_{action}")
+    # 提示词名走字面量白名单字典取值（勿用 f-string 拼 action：CodeQL 会把 URL 参数
+    # 直接拼进文件路径判为高危 path injection——PR #355 CI 实测，此形态永不告警）
+    template = load_prompt(_ARC_ACTIONS[action])
     formatted = template.format(
         input=author_input or "（无——按已填内容处理）",
         fullstory=arc["fullstory"] or "（未填）",
