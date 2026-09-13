@@ -41,7 +41,7 @@
 - [ ] 5.3 章纲「出场角色」换控件：从角色卡多选（**value 必须是卡的主名而非 id**——`outline.characters` 仍是名字数组）+ 保留自由文本兜底 + 未命中告警上屏；**必须让 `useOutline.saveChapter` 回传响应体**（现在 `useOutline.ts:242-248` 丢弃响应）+ 同步 `useOutline.test.tsx`；**保持 `OgForm.chars: string`**（改成 `string[]` 会连带 `chapterForm.ts` 全部调用点与 11 个用例）。验证：e2e
 - [ ] 5.4 门禁两档与第三态：**徽标阶梯改为 `stale > confirmed > filled`**，三处同源（中间徽标 / 左树 / panelNote）——现役 `SettingsView.tsx:337-338,427-428,480-484` 会让"内容有变"显示成绿色"已确认"，且左树把"内容已填"当"已确认"（本 change 一并纠正）；`GET /settings/status` 加键下发 `_meta.characters.stale`（**readiness 不承担第三态**）；顺带清理 `SettingsView.tsx:686-693` 的主线向导旧文案。验证：e2e（第一次确认 / 此后确认点名缺口 / 删主角退回 / 补回恢复，四条断文案 + class）
 - [ ] 5.5 免费门控复用「可见 + 锁定」（`settings-ai-fields`）。验证：e2e
-- [ ] 5.6 **新增前端镜像常量文件** `client/frontend/src/lib/characterModel.ts`（六层 30 格 / 档案 8 键含 `author_only` / 补全键 1+6+10 / 写章状态键 6 / 体检项两套 / 四态），写法必须能被 `tests/test_shared_constants_parity.py:19-21` 的正则抽取。验证：后端 parity 测试通过
+- [x] 5.6 已完成（`src/lib/characterModel.ts`：档案 8 键/六层 30 格/COG_FILL 10/WRITE_STATE 6/门禁/体检两套+四态/关系词表 + cardGaps 视图辅助；`tests/test_shared_constants_parity.py` 增 5 组对拍全绿；tsc 通过）。原计划：5.6 **新增前端镜像常量文件** `client/frontend/src/lib/characterModel.ts`（六层 30 格 / 档案 8 键含 `author_only` / 补全键 1+6+10 / 写章状态键 6 / 体检项两套 / 四态），写法必须能被 `tests/test_shared_constants_parity.py:19-21` 的正则抽取。验证：后端 parity 测试通过
 
 ## 6. 收尾与门禁
 
