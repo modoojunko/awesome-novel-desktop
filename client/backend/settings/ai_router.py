@@ -856,6 +856,124 @@ async def lore_suggest_world(
 # ── 按字段生成（world/style/hooks/characters/genre）──────────────────────
 
 
+# ═══ 主线 AI 四能力（storyline-settings-v2）══════════════════════════════
+# draft（起草主线）/ calibrate（结局校准）/ check（主线体检）/ tone（行内基调）
+# 全部聚焦本设定：他项设定只作输入，结论只落主线面板字段。
+_ARC_ACTIONS: dict[str, str] = {
+    "draft": "arc_draft",
+    "calibrate": "arc_calibrate",
+    "check": "arc_check",
+    "tone": "arc_tone",
+}
+
+
+async def _arc_context(project) -> tuple[dict, dict]:
+    """主线上下文：arc 归一形状 + 轻量他项输入（题材/简介；世界/角色由 prompt 引导 AI 概括，避免超长）。"""
+    story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+    from novels.router import _arc_normalize
+
+    arc = _arc_normalize(story.get("story_arc") if isinstance(story.get("story_arc"), dict) else {})
+    theme_label, theme_desc, _theme_fields = _world_theme(story)
+    ctx = {
+        "title": project.name if hasattr(project, "name") else "",
+        "synopsis": str(story.get("synopsis", "") or ""),
+        "theme": theme_label or "",
+        "theme_desc": theme_desc or "",
+    }
+    return arc, ctx
+
+
+@router.post("/ai/arc/{action}")
+async def run_arc_ai(
+    project_id: str,
+    action: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """主线 AI 四能力：起草主线 / 结局校准 / 主线体检 / 行内基调建议。
+
+    输入：body.input（散想法，可选）+ 面板当前内容从 KV 读取（不信任客户端整卡回传）。
+    输出：{value} 信封；check 出 {checks:[{name,status,note}]} 四线。
+    """
+    if action not in _ARC_ACTIONS:
+        raise HTTPException(400, f"不支持的主线 AI 动作：{action}")
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    arc, ctx = await _arc_context(project)
+    author_input = str(body.get("input", "") or "").strip()
+    # 素材门槛按行语义（2026-09-13 实测修正：draft 的主输入是「简介」——
+    # 行描述即「把你的简介扩写成完整故事」，此前只认 fullstory 会把有简介的书拦成 400）
+    has_synopsis = bool(ctx["synopsis"].strip())
+    has_arc = bool(arc["fullstory"]) or any(arc["ending"].values())
+    if action == "draft" and not (author_input or has_synopsis or has_arc):
+        raise HTTPException(400, "先写两句简介，AI 才能帮你扩写成完整故事")
+    if action == "calibrate" and not (author_input or has_arc):
+        raise HTTPException(400, "先把主线或结局三问写两句，AI 才有校准的依据")
+
+    # 提示词名走字面量白名单字典取值（勿用 f-string 拼 action：CodeQL 会把 URL 参数
+    # 直接拼进文件路径判为高危 path injection——PR #355 CI 实测，此形态永不告警）
+    template = load_prompt(_ARC_ACTIONS[action])
+    formatted = template.format(
+        input=author_input or "（无——按已填内容处理）",
+        fullstory=arc["fullstory"] or "（未填）",
+        scene=arc["ending"]["scene"] or "（未填）",
+        hero=arc["ending"]["hero"] or "（未填）",
+        tone=arc["ending"]["tone"] or "（未填）",
+        **ctx,
+    )
+
+    _SYSTEMS = {
+        "draft": "你是长篇小说结构顾问。只输出 JSON，不要任何其他文字。",
+        "calibrate": "你是资深小说主编。只输出 JSON，不要任何其他文字。",
+        "check": "你是小说主线编辑。只输出 JSON，不要任何其他文字。",
+        "tone": "你是小说编辑。只输出 JSON，不要任何其他文字。",
+    }
+    # model 必须用客户端别名（haiku/sonnet/review → 配置模型）；字面模型名会
+    # 透传供应商被拒 → 502（2026-09-13 实测："main" 非法）。
+    # 起草/校准＝生成类（temp 0.6），体检/基调＝判定类（temp 0.3）。
+    client = await get_ai_client_for_novel(project_id)
+    usage: dict = {}
+    try:
+        text = await _judge_chat(
+            client,
+            model="haiku",
+            system=_SYSTEMS[action],
+            messages=[{"role": "user", "content": formatted}],
+            temperature=0.6 if action in ("draft", "calibrate") else 0.3,
+            json_mode=True,
+            usage=usage,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
+
+    value = _parse_json(text, "主线 AI")
+
+    from api_configs.usage import record_usage
+
+    await record_usage(
+        db,
+        user_id=user["id"],
+        project_id=project.id,
+        api_config_id=project.ai_config_id,
+        operation=f"arc_{action}",
+        model=effective_model(project),
+        tokens_in=usage.get("tokens_in", 0),
+        tokens_out=usage.get("tokens_out", 0),
+    )
+
+    # 素材门槛只拦 draft/calibrate（见上方 400）：check/tone 在内容全空时也照常发起
+    # 一次调用——降级发生在 prompt 侧（模型把各线标 miss、提示先补再查），
+    # 与 world_check 的「缺输入免调用」策略不同，此处不做免调用（P3，2026-09-13 检视）
+    return {"value": value}
+
+
 @router.post("/ai/{stype}/{field}")
 async def generate_field(
     project_id: str,

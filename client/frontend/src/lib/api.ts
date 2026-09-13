@@ -158,15 +158,16 @@ export const api = {
   /** Write story.yaml synopsis (manual backfill). */
   updateStory: (novelId: string, synopsis: string): Promise<{ ok: boolean; synopsis: string }> =>
     request(`/novels/${novelId}/story`, { method: 'PUT', body: JSON.stringify({ synopsis }) }),
-  /** Read the story-arc card (premise / ending / volume plan + next_step). */
+  /** Read the story-arc card (fullstory / ending / volumes + has_content). */
   fetchStoryArc: (novelId: string): Promise<any> =>
     request(`/novels/${novelId}/story/arc`),
   /** Write the story-arc card (whole-card overwrite; empty & 待定 are legal). */
   updateStoryArc: (novelId: string, arc: unknown): Promise<any> =>
     request(`/novels/${novelId}/story/arc`, { method: 'PUT', body: JSON.stringify(arc) }),
-  /** Run one AI wizard step (member-gated; 403 raises member-block). */
-  runArcWizard: (novelId: string, step: string, body: { input: string; arc: unknown }): Promise<{ value: any }> =>
-    request(`/novels/${novelId}/story/arc/wizard/${step}`, { method: 'POST', body: JSON.stringify(body) }),
+  /** 主线 AI 四能力（storyline-settings-v2，member-gated；403 raises member-block）：
+   *  draft 起草主线 / calibrate 结局校准 / check 主线体检 / tone 行内基调建议 */
+  runArcAi: (novelId: string, action: "draft" | "calibrate" | "check" | "tone", body: { input?: string }): Promise<{ value: any }> =>
+    request(`/novels/${novelId}/settings/ai/arc/${action}`, { method: 'POST', body: JSON.stringify(body) }),
 };
 
 // ---------------------------------------------------------------------------

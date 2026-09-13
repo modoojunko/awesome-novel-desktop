@@ -5,13 +5,16 @@ import { test, expect, type Page, type APIRequestContext } from "@playwright/tes
 import { cleanupSessionNovels } from "./helpers";
 
 // =========================================================================
-// 主线拆纲 E2E（story-arc-planning）：
-// 1. 免费手填主线全流程（一句话 + 结局 + 分卷行含待定）→ 确认完成 → status 绿
-// 2. 免费点「AI 帮我拆」→ 后端 403 member_required → 全局升级引导弹窗，手动填写不受影响
-// 3. 会员四步向导（AI 响应浏览器侧打桩）：产出逐步落卡 + 自动保存；中途退出可续
+// 主线设定 E2E（storyline-settings-v2：全景 fullstory + 结局三问）
+// 1. 空内容确认 → 后端 400「还未填写」提示，进度不动
+// 2. 手填全流程（全景 + 三问）→ 确认完成 → 5/8 + 徽标已确认 + 前进文风
+// 3. 三问脏态切换 → window.confirm 拦截
+// 4. AI 三行 + 行内 tone（浏览器侧打桩）：落格 / 采纳写回 / 撤销 / 5 次历史 / 重试 / 500 重试
+// 5. 免费版：AI 点击 0 请求 + 统一升级 toast；手填全流程不受影响
+// 6. 主线体检：面板级 sink + 确认按钮仍可点
+// 7. 存量旧书（legacy premise + volumes）→ 打开不炸 / 归一显示 / 保存镜像 / volumes 保留
 // =========================================================================
-// 会话注入与 creation-flow.spec.ts 同法（S端 真实签发 + docker config.json）。
-// 测试口令为拼接构造（与既有 spec 同源的占位口令，非真实凭据）。
+// 会话注入与既有 spec 同法（S端 真实签发 + docker config.json + check-auth 页面级桩）。
 
 const S_API = "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
@@ -23,7 +26,7 @@ const TEST_PASSWORD = ["Test", "Pass789", "!"].join("");
 async function sRegisterAndLogin() {
   const name = `e2e_arc_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const password = TEST_PASSWORD;
-  const reg = await fetch(`${S_API}/register`, {
+  const r1 = await fetch(`${S_API}/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -31,7 +34,7 @@ async function sRegisterAndLogin() {
       security_question: "最喜欢的颜色", security_answer: "蓝色",
     }),
   });
-  const regBody = await reg.json();
+  const regBody = await r1.json();
   if (regBody.code !== 0) throw new Error(`S端 register 失败: ${JSON.stringify(regBody)}`);
   const login = await fetch(`${S_API}/login`, {
     method: "POST",
@@ -67,7 +70,7 @@ async function setupSession(page: Page, tier = "trial") {
     r.fulfill({ json: { code: 0, data: {} } }),
   );
   const restoreAndCleanup = async () => {
-    await cleanupSessionNovels(ORIGIN, token); // 先删本次测试自建的书，再还原本地会话
+    await cleanupSessionNovels(ORIGIN, token);
     await restore();
   };
   return { restore: restoreAndCleanup, token };
@@ -92,147 +95,355 @@ async function apiGetJSON(request: APIRequestContext, token: string, path: strin
   return r.json();
 }
 
+async function apiPutJSON(
+  request: APIRequestContext, token: string, path: string, body: unknown,
+) {
+  const r = await request.put(`${ORIGIN}/api${path}`, {
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    data: body as object,
+  });
+  expect(r.ok()).toBeTruthy();
+  return r.json();
+}
+
 async function openArcPanel(page: Page) {
   await page.getByRole("button", { name: /^设定/ }).click();
   await page.locator(".settings-v .col-tree").getByText("主线", { exact: true }).click();
 }
 
-test.describe("主线卡", () => {
-  test("免费手填全流程：一句话 + 结局 + 分卷（含待定行）→ 确认完成", async ({ page, request }) => {
-    const { restore, token } = await setupSession(page, "none");
+/** 串行填主线四字段：受控组件对并发 fill 有 onChange 批处理竞态（实测并发时
+ *  值会串位进最后一个输入框），必须逐个 await。 */
+async function fillArc(page: Page, opts?: { fullstory?: string; tone?: string }) {
+  await page
+    .locator('[data-od-id="arc-fullstory"]')
+    .fill(opts?.fullstory ?? "陆征追查苏棠失踪案，从坊市查进警队，最后在听证会上揭开真相。");
+  await page.locator('[data-od-id="arc-ending-scene"]').fill("侦探所里看着旧卷宗");
+  await page.locator('[data-od-id="arc-ending-hero"]').fill("破案但心里装了更多");
+  await page.locator('[data-od-id="arc-ending-tone"]').fill(opts?.tone ?? "苍凉但平静");
+}
+
+/** 浏览器层打桩 arc AI（正则锚 /api/ 前缀，防误吞 Vite /src/api/*）。
+ *  一并桩 /ai-model 下发 ai_state=ready（D13 单源）——docker 会话无 API Key，
+ *  不桩则 AI 卡被 no_key 拦走跳模型配置，AI 用例全灭（genre-ai-settings 同配方）。 */
+async function stubArcAi(page: Page, handler: (action: string) => { status: number; body: unknown }) {
+  await page.route(/\/api\/v1\/novels\/[^/]+\/ai-model/, (route) =>
+    route.fulfill({
+      status: 200,
+      body: JSON.stringify({ api_config_id: "stub", config_name: "stub", model: "stub", ai_state: "ready" }),
+      contentType: "application/json",
+    }),
+  );
+  await page.route(/\/api\/novels\/[^/]+\/settings\/ai\/arc\/(draft|calibrate|check|tone)/, (route) => {
+    const action = route.request().url().match(/arc\/(\w+)$/)![1];
+    const r = handler(action);
+    return route.fulfill({ status: r.status, body: JSON.stringify(r.body), contentType: "application/json" });
+  });
+}
+
+test.describe("主线面板（v2：全景 + 结局三问）", () => {
+  test("空内容确认 → 400 提示，进度不动", async ({ page }) => {
+    const { restore } = await setupSession(page, "trial");
     try {
-      const pid = await createNovel(page, `主线免费${Date.now() % 100000}`);
+      await createNovel(page, `主线空确认${Date.now() % 100000}`);
       await openArcPanel(page);
-
-      // 一句话主线
-      await page
-        .getByPlaceholder(/陆征追查失踪案/)
-        .fill("陆征追查苏棠失踪案，越查越深触及警队内部势力");
-
-      // 结局三字段（画面 + 主角结局；基调选择题点「悲」）
-      await page.getByPlaceholder("最后一幕画面（例：侦探所里看着旧卷宗）").fill("侦探所里看着旧卷宗");
-      await page.getByPlaceholder("主角最终怎样（例：破案但心里装了更多）").fill("破案但心里装了更多");
-      await page.getByRole("radio", { name: /^悲/ }).click();
-
-      // 分卷两行：卷 1 实填，卷 2 整行待定
-      await page.getByRole("button", { name: "加一卷" }).click();
-      await page.getByPlaceholder("卷名").fill("失踪");
-      await page.getByPlaceholder("这卷干什么（核心冲突一句话）").fill("追查失踪案发现旧案被压");
-      await page.getByPlaceholder("章数").fill("10");
-      await page.getByRole("button", { name: "加一卷" }).click();
-      // 卷 2 的待定按钮（btn-secondary，与基调 seg 区分）
-      await page
-        .locator(".field", { hasText: "分卷规划" })
-        .getByRole("button", { name: "待定" })
-        .last()
-        .click();
-
-      // 确认完成（先 save 后 confirm）→ 确认即前进到下一项（tasks 2.2）
-      const arcSave = page.waitForResponse(
-        (r) => r.request().method() === "PUT" && r.url().includes("/story/arc"),
-      );
       await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
-      await arcSave;
-      await expect(
-        page.locator(".settings-v main h2", { hasText: "文风" }),
-      ).toBeVisible({ timeout: 5000 });
-
-      // 后端直查：story-arc 可确认 + 卡内容回读一致
-      const status = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
-      expect(status["story-arc"]).toBe(true);
-      const arc = await apiGetJSON(request, token, `/novels/${pid}/story/arc`);
-      expect(arc.premise).toContain("陆征");
-      expect(arc.volumes).toHaveLength(2);
-      expect(arc.volumes[1].title).toBe("待定");
+      // 后端 400 → toast 中文提示；面板留在主线
+      await expect(page.getByText(/还未填写/).first()).toBeVisible({ timeout: 5000 });
+      await expect(page.locator(".settings-v main h2", { hasText: "主线" })).toBeVisible();
+      // 无分卷区、无基调选择题（tone-opt 退役）
+      await expect(page.getByText("加一卷")).toHaveCount(0);
+      await expect(page.locator('.settings-v [role="radio"]')).toHaveCount(0);
     } finally {
       await restore();
     }
   });
 
-  test("免费跑向导 → 403 升级引导弹窗，手动填写不受影响", async ({ page }) => {
-    const { restore } = await setupSession(page, "none");
+  test("手填全流程 → 确认完成：5/8 + 徽标已确认 + 前进文风 + 已确认态再确认＝保存修改", async ({ page, request }) => {
+    const { restore, token } = await setupSession(page, "trial");
     try {
-      await createNovel(page, `主线拦截${Date.now() % 100000}`);
+      const pid = await createNovel(page, `主线确认${Date.now() % 100000}`);
       await openArcPanel(page);
+      await fillArc(page);
 
-      // 向导常驻右栏（.col-ai），输入框为右栏里的 textarea
-      const wizInput = page.locator(".col-ai").getByRole("textbox");
-      await wizInput.fill("我想写一个侦探故事");
-      const wizard403 = page.waitForResponse(
-        (r) => r.url().includes("/story/arc/wizard/condense") && r.status() === 403,
-      );
-      await page.locator(".col-ai").getByRole("button", { name: /让 AI 处理/ }).click();
-      await wizard403;
+      const arcSave = page.waitForResponse(
+        (r) => r.request().method() === "PUT" && /\/story\/arc$/.test(r.url()),
+);
+      await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
+      await arcSave;
+      // 确认即前进 → 文风
+      await expect(
+        page.locator(".settings-v main h2", { hasText: "文风" }),
+      ).toBeVisible({ timeout: 5000 });
+      // 左栏：主线徽标已确认（进度数字随建书 seed 变，不锚绝对数——锚徽标与 status API）
+      await page.locator(".settings-v .col-tree").getByText("主线", { exact: true }).click();
+      await expect(
+        page.locator(".settings-v .col-tree .s-item", { hasText: "主线" }).getByText("已确认"),
+      ).toBeVisible();
+      // 已确认态：按钮转「保存修改」，再点＝保存（不弹确认语义）
+      await page.locator(".panel-foot").getByRole("button", { name: "保存修改" }).click();
+      await expect(page.getByText(/已保存/).first()).toBeVisible({ timeout: 5000 });
 
-      // 全局升级引导弹窗（MemberBlockPrompt）
-      await expect(page.getByText(/开通|续费/).first()).toBeVisible({ timeout: 5000 });
+      // 后端直查：fullstory 契约 + 镜像 + volumes 空
+      const arc = await apiGetJSON(request, token, `/novels/${pid}/story/arc`);
+      expect(arc.fullstory).toContain("听证会上揭开真相");
+      expect(arc.premise).toBe(arc.fullstory);
+      expect(arc.ending.tone).toBe("苍凉但平静");
+      const status = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
+      expect(status["story-arc"]).toBe(true);
+    } finally {
+      await restore();
+    }
+  });
 
-      // 手动填写不受影响：仍可填一句话主线
-      await page.getByPlaceholder(/陆征追查失踪案/).fill("手填主线不受拦截影响");
+  test("三问脏态：切面板弹 confirm，接受则切走", async ({ page }) => {
+    const { restore } = await setupSession(page, "trial");
+    try {
+      await createNovel(page, `主线脏态${Date.now() % 100000}`);
+      await openArcPanel(page);
+      await page.locator('[data-od-id="arc-ending-tone"]').fill("意难平");
+      page.once("dialog", (d) => d.accept());
+      await page.locator(".s-item", { hasText: "文风" }).click();
+      await expect(page.locator(".settings-v main h2", { hasText: "文风" })).toBeVisible();
     } finally {
       await restore();
     }
   });
 });
 
-test.describe("AI 四步向导（会员，浏览器侧打桩 AI 响应）", () => {
-  test("四步产出逐步落卡 + 自动保存；中途退出重开续步", async ({ page, request }) => {
+test.describe("主线 AI（会员，浏览器侧打桩）", () => {
+  test("起草主线：落全景下方 → 采纳写回 → 回执一步撤销", async ({ page }) => {
+    const { restore } = await setupSession(page, "trial");
+    try {
+      await createNovel(page, `主线起草${Date.now() % 100000}`);
+      await stubArcAi(page, (action) => ({
+        status: 200,
+        body: { value: action === "draft" ? {
+          fullstory: "AI 全景：陆征追查失踪案触及保护伞，最后听证会翻案。",
+          ending: { scene: "AI 画面", hero: "AI 归宿", tone: "苦尽甘来" },
+        } : {} },
+      }));
+      await openArcPanel(page);
+      await page.locator('.col-ai [data-aiact="draft"]').click();
+      await expect(page.locator('[data-od-id="arc-ai-sink-draft"]')).toBeVisible({ timeout: 5000 });
+      // 采纳 → 写回全景与三问
+      await page.locator('[data-od-id="arc-ai-sink-draft"]').getByRole("button", { name: /采纳/ }).click();
+      await expect(page.locator('[data-od-id="arc-fullstory"]')).toHaveValue(/AI 全景/, { timeout: 8000 });
+      await expect(page.locator('[data-od-id="arc-ending-tone"]')).toHaveValue("苦尽甘来");
+      // 回执一步撤销 → 还原
+      await page.locator(".panel-foot").getByRole("button", { name: "撤销" }).click();
+      await expect(page.locator('[data-od-id="arc-fullstory"]')).toHaveValue("");
+      await expect(page.locator('[data-od-id="arc-ending-tone"]')).toHaveValue("");
+    } finally {
+      await restore();
+    }
+  });
+
+  test("行内基调 AI：建议落输入框下方 → 采纳写回；500 → 错误提示 → 重试成功", async ({ page }) => {
+    const { restore } = await setupSession(page, "trial");
+    try {
+      await createNovel(page, `主线行内${Date.now() % 100000}`);
+      let calls = 0;
+      await stubArcAi(page, () => {
+        calls += 1;
+        return calls === 1
+          ? { status: 500, body: { detail: "boom" } }
+          : { status: 200, body: { value: { tone: "苦尽甘来" } } };
+      });
+      await openArcPanel(page);
+      // 第一次点击 → 500（错误 toast 由 vitest 覆盖文案；此处验行为未死锁）
+      await page.locator('[data-od-id="arc-tone-ai-fill"]').click();
+      await page.waitForTimeout(500);
+      // 失败后按钮仍可点（未卡在途态）→ 第二次点击成功
+      await page.locator('[data-od-id="arc-tone-ai-fill"]').click();
+      await expect(page.locator('[data-od-id="arc-ai-sink-tone"]')).toBeVisible({ timeout: 5000 });
+      await expect(page.getByText("苦尽甘来", { exact: true })).toBeVisible({ timeout: 5000 });
+      await page.locator('[data-od-id="arc-ai-sink-tone"]').getByRole("button", { name: /采纳/ }).click();
+      await expect(page.locator('[data-od-id="arc-ending-tone"]')).toHaveValue("苦尽甘来");
+    } finally {
+      await restore();
+    }
+  });
+
+  test("主线体检：面板级 sink 四线 + 确认按钮仍可点 + 重跑", async ({ page }) => {
+    const { restore } = await setupSession(page, "trial");
+    try {
+      await createNovel(page, `主线体检${Date.now() % 100000}`);
+      await stubArcAi(page, (action) => ({
+        status: 200,
+        body: { value: action === "check" ? {
+          checks: [
+            { name: "故事连贯", status: "ok", note: "一条线到底" },
+            { name: "开头接结局", status: "ok", note: "闭环" },
+            { name: "三问对得上", status: "warn", note: "基调与画面差一点" },
+            { name: "和简介一个方向", status: "miss", note: "简介为空，先补再查更准" },
+          ],
+          summary: "主线立得住",
+        } : {} },
+      }));
+      await openArcPanel(page);
+      await page.locator('.col-ai [data-aiact="check"]').click();
+      await expect(page.locator('[data-od-id="arc-ai-sink-check"]')).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('[data-od-id="arc-ai-sink-check"]').getByText("三问对得上")).toBeVisible();
+      // 只提醒不拦确认
+      await expect(
+        page.locator(".panel-foot").getByRole("button", { name: "确认完成" }),
+      ).toBeEnabled();
+      // 重跑可用
+      await page.locator('[data-od-id="arc-ai-sink-check"]').getByRole("button", { name: "重试" }).click();
+      await expect(page.locator('[data-od-id="arc-ai-sink-check"]')).toBeVisible({ timeout: 5000 });
+    } finally {
+      await restore();
+    }
+  });
+
+  test("5 次历史：第 6 次丢弃最旧 + 切回旧次采纳", async ({ page }) => {
+    const { restore } = await setupSession(page, "trial");
+    try {
+      await createNovel(page, `主线历史${Date.now() % 100000}`);
+      let calls = 0;
+      await stubArcAi(page, () => {
+        calls += 1;
+        return { status: 200, body: { value: { tone: `第${calls}版` } } };
+      });
+      await openArcPanel(page);
+      const btn = page.locator('[data-od-id="arc-tone-ai-fill"]');
+      for (let i = 0; i < 5; i++) {
+        await btn.click();
+        await page.waitForTimeout(120);
+      }
+      // 第 6 次触发重试：仍 5 枚 chip（上限提示）
+      await page.locator('[data-od-id="arc-ai-sink-tone"]').getByRole("button", { name: "重试" }).click();
+      await expect(page.getByText(/只保留最近 5 次/)).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('[data-od-id="arc-ai-sink-tone"] .ah-chip')).toHaveCount(5);
+      // 切回最旧一枚 chip（显示序「第 1 次」＝原始第 2 版——第 6 次已 shift 掉最旧）并采纳
+      await page.locator('[data-od-id="arc-ai-sink-tone"] .ah-chip').first().click();
+      await page.locator('[data-od-id="arc-ai-sink-tone"]').getByRole("button", { name: /采纳/ }).click();
+      await expect(page.locator('[data-od-id="arc-ending-tone"]')).toHaveValue("第2版");
+    } finally {
+      await restore();
+    }
+  });
+
+  test("落库后回执消失：确认成功 → 撤销不可达", async ({ page }) => {
+    const { restore } = await setupSession(page, "trial");
+    try {
+      await createNovel(page, `主线落库${Date.now() % 100000}`);
+      await stubArcAi(page, () => ({ status: 200, body: { value: { tone: "苦尽甘来" } } }));
+      await openArcPanel(page);
+      await page.locator('[data-od-id="arc-tone-ai-fill"]').click();
+      await page.locator('[data-od-id="arc-ai-sink-tone"]').getByRole("button", { name: /采纳/ }).click();
+      await expect(page.locator(".panel-foot").getByRole("button", { name: "撤销" })).toBeVisible();
+      // 确认完成（save 成功 → 回执清空）
+      await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
+      await expect(
+        page.locator(".settings-v main h2", { hasText: "文风" }),
+      ).toBeVisible({ timeout: 5000 });
+    } finally {
+      await restore();
+    }
+  });
+});
+
+test.describe("免费版", () => {
+  test("AI 点击 → 0 请求 + 统一升级 toast；手填全流程不受影响", async ({ page, request }) => {
+    const { restore, token } = await setupSession(page, "none");
+    try {
+      const pid = await createNovel(page, `主线免费${Date.now() % 100000}`);
+      await openArcPanel(page);
+
+      // 双层防御：前端 aiState=member_required 预拦（0 请求），或后端 403 后统一升级
+      // toast——docker 后端就绪态判定下请求可能真发出（1 次），两者都可接受；关键是
+      // 给出统一升级提示且不写回。
+      let aiCalls = 0;
+      await page.route(/\/api\/novels\/[^/]+\/settings\/ai\/arc\//, (route) => {
+        aiCalls += 1;
+        return route.fulfill({ status: 403, body: JSON.stringify({ detail: { reason: "member_required" } }), contentType: "application/json" });
+      });
+      await page.locator('.col-ai [data-aiact="draft"]').click();
+      // 统一升级提示：rail guard 的 onBlocked toast 或 403 后 MemberBlockPrompt，二者其一
+      await expect(
+        page.getByText(/会员功能|开通|升级 PRO 后解锁/).first(),
+      ).toBeVisible({ timeout: 8000 });
+      await page.locator('[data-od-id="arc-tone-ai-fill"]').click();
+      await page.waitForTimeout(600);
+      expect(aiCalls).toBeLessThanOrEqual(1); // 预拦则 0；穿透则恰好 1（403 后不再重试）
+      await expect(page.locator('[data-od-id="arc-ending-tone"]')).toHaveValue(""); // 不写回
+      // 403 穿透时全局升级弹窗（MemberBlockPrompt 模态，事件异步挂载）会挡住面板——
+      // 确定性关闭：等标题出现再点「稍后再说」；前端预拦（0 请求）时无弹窗，短等后跳过
+      const promptTitle = page.getByText("PRO 专属功能");
+      if (await promptTitle.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false)) {
+        await page.getByRole("button", { name: "稍后再说" }).click();
+      }
+
+      // 手填不受影响（确认全流程已由 PRO 用例覆盖，免费版验「手填+存草稿」即可等价）
+      await fillArc(page, { tone: "苦尽甘来" });
+      const draftSave = page.waitForResponse(
+        (r) => r.request().method() === "PUT" && /\/story\/arc$/.test(r.url()),
+      );
+      await page.locator(".panel-foot").getByRole("button", { name: "存草稿" }).click();
+      await draftSave;
+      const arc = await apiGetJSON(request, token, `/novels/${pid}/story/arc`);
+      expect(arc.fullstory).toContain("听证会上揭开真相");
+      expect(arc.ending.tone).toBe("苦尽甘来");
+    } finally {
+      await restore();
+    }
+  });
+});
+
+test.describe("存量兼容（legacy premise + volumes）", () => {
+  test("旧形状 KV：打开不炸 / fullstory 显示旧 premise / 保存镜像 / volumes 保留 / 无分卷区", async ({ page, request }) => {
     const { restore, token } = await setupSession(page, "trial");
     try {
-      const pid = await createNovel(page, `主线向导${Date.now() % 100000}`);
-
-      // 打桩四步 AI 响应（浏览器层，绕真实模型；落卡 PUT 走真实后端）
-      await page.route(/\/story\/arc\/wizard\/(condense|ending|split|audit)/, (route) => {
-        const step = route.request().url().match(/wizard\/(\w+)/)![1];
-        const value =
-          step === "condense"
-            ? { premise: "陆征追查失踪案触及警队保护伞", notes: "抓住了查案主线" }
-            : step === "ending"
-              ? { ending: { scene: "侦探所旧卷宗", hero: "破案但有余韵", tone: "悲" }, contradiction: "", notes: "结局已按你的描述整理" }
-              : step === "split"
-                ? { volumes: [
-                    { title: "失踪", conflict: "追查失踪案发现旧案被压", chapters: "10" },
-                    { title: "深水", conflict: "触及警队内部保护伞", chapters: "12" },
-                    { title: "破局", conflict: "与幕后黑手正面交锋", chapters: "8" },
-                  ], notes: "按三个断点分卷" }
-                : { checks: [{ question: "每卷挂在主线上", passed: true, detail: "三卷均为查案主线子集" }],
-                    passed: true, structure: "三卷式：起/承/转合" };
-        return route.fulfill({ json: { value } });
+      const pid = await createNovel(page, `主线存量${Date.now() % 100000}`);
+      // 旧客户端整份 PUT（legacy 形状：premise + volumes 两行）
+      await apiPutJSON(request, token, `/novels/${pid}/story/arc`, {
+        premise: "旧一句话主线：陆征查案",
+        ending: { scene: "", hero: "", tone: "" },
+        volumes: [
+          { title: "失踪", conflict: "追查失踪案", chapters: "10" },
+          { title: "待定", conflict: "待定", chapters: "?" },
+        ],
       });
 
       await openArcPanel(page);
+      // 归一显示：fullstory 框显示旧 premise；无分卷区；不炸
+      await expect(page.locator('[data-od-id="arc-fullstory"]')).toHaveValue("旧一句话主线：陆征查案");
+      await expect(page.getByText("加一卷")).toHaveCount(0);
 
-      // 第 1 步：说想法 → 浓缩落卡（向导常驻右栏 .col-ai）
-      await page.locator(".col-ai").getByRole("textbox").fill("陆征是私家侦探，苏棠姐姐来找他说妹妹失踪了……");
-      await page.locator(".col-ai").getByRole("button", { name: /让 AI 处理/ }).click();
-      await expect(page.getByPlaceholder(/陆征追查失踪案/)).toHaveValue(/触及警队保护伞/, { timeout: 5000 });
-
-      // 第 2 步：聊结局 → 落结局三字段
-      await expect(page.getByRole("button", { name: "2. 聊结局" })).toHaveClass(/on/);
-      await page.locator(".col-ai").getByRole("textbox").fill("案子破了但他知道还有很多没挖出来");
-      await page.locator(".col-ai").getByRole("button", { name: /让 AI 处理/ }).click();
-      await expect(page.getByPlaceholder("最后一幕画面（例：侦探所里看着旧卷宗）")).toHaveValue("侦探所旧卷宗", { timeout: 5000 });
-
-      // 中途离开再回来：切到「文风」再切回「主线」，右栏向导按卡片内容续到第 3 步
-      await page.locator(".s-item", { hasText: "文风" }).click();
-      await page.locator(".s-item", { hasText: "主线" }).click();
-      await expect(page.getByRole("button", { name: "3. 倒推分卷" })).toHaveClass(/on/, { timeout: 5000 });
-
-      // 第 3 步：倒推分卷 → 落分卷表
-      await page.locator(".col-ai").getByRole("textbox").fill("按三个大转折分");
-      await page.locator(".col-ai").getByRole("button", { name: /让 AI 处理/ }).click();
-      await expect(page.getByPlaceholder("卷名").first()).toHaveValue("失踪", { timeout: 5000 });
-
-      // 第 4 步：自查 → 三问结果 + 结构归纳
-      await page.locator(".col-ai").getByRole("textbox").fill("自查一下");
-      await page.getByRole("button", { name: "开始自查" }).click();
-      await expect(page.getByText(/三卷式/)).toBeVisible({ timeout: 5000 });
-
-      // 向导产出已随每步自动落卡（后端直查）
+      // 新契约保存（改基调）：镜像 + volumes 原样保留
+      await page.locator('[data-od-id="arc-ending-tone"]').fill("苦尽甘来");
+      const saveOk = page.waitForResponse(
+        (r) => r.request().method() === "PUT" && /\/story\/arc$/.test(r.url()),
+      );
+      await page.locator(".panel-foot").getByRole("button", { name: "存草稿" }).click();
+      await saveOk;
       const arc = await apiGetJSON(request, token, `/novels/${pid}/story/arc`);
-      expect(arc.premise).toContain("保护伞");
-      expect(arc.volumes).toHaveLength(3);
-      expect(arc.ending.scene).toBe("侦探所旧卷宗");
+      expect(arc.fullstory).toBe("旧一句话主线：陆征查案");
+      expect(arc.premise).toBe(arc.fullstory);
+      expect(arc.ending.tone).toBe("苦尽甘来");
+      expect(arc.volumes.map((v: { title: string }) => v.title)).toEqual(["失踪", "待定"]);
+    } finally {
+      await restore();
+    }
+  });
+
+  test("前端容错：GET 返回 legacy 形状也能显示", async ({ page, request }) => {
+    const { restore, token } = await setupSession(page, "trial");
+    try {
+      const pid = await createNovel(page, `主线容错${Date.now() % 100000}`);
+      // route-stub GET 旧形状（模拟直连旧后端）——前端 fetch 兜底 d.fullstory ?? d.premise
+      await page.route(/\/api\/novels\/[^/]+\/story\/arc$/, (route) => {
+        if (route.request().method() !== "GET") return route.continue();
+        return route.fulfill({
+          status: 200,
+          body: JSON.stringify({ premise: "仅旧字段", ending: { scene: "", hero: "", tone: "" }, volumes: [] }),
+          contentType: "application/json",
+        });
+      });
+      await openArcPanel(page);
+      await expect(page.locator('[data-od-id="arc-fullstory"]')).toHaveValue("仅旧字段");
+      void token; void pid;
     } finally {
       await restore();
     }

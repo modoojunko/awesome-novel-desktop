@@ -61,47 +61,53 @@ class ArcVolumeRow(BaseModel):
 
 
 class ArcEndingBody(BaseModel):
-    scene: str = ""  # 最后一幕画面
-    hero: str = ""  # 主角最终怎样
-    tone: str = ""  # 基调（悲/喜/开放）
+    scene: str = ""  # 问①：最后一幕，镜头里是什么画面
+    hero: str = ""  # 问②：走到终点时，主角变成了什么样的人
+    tone: str = ""  # 问③：想让读者心里留下什么感觉（自由文本）
 
 
 class StoryArcBody(BaseModel):
-    premise: str = ""  # 一句话主线：谁+想要什么+什么拦着
+    fullstory: str = ""  # 这本书从头到尾说什么（比简介更全、可剧透）
     ending: ArcEndingBody = ArcEndingBody()
+    # premise：legacy 一句话主线（读侧归一进 fullstory，写侧由 fullstory 镜像回填）
+    premise: str = ""
+    # volumes：分卷规划已移交写作阶段（storyline-settings-v2）；仅接受旧客户端
+    # 整份 PUT 时回传原值，本页不再读写新行
     volumes: list[ArcVolumeRow] = []
 
 
-def _arc_volume_effective(row: dict) -> bool:
-    """分卷行有有效内容（非整行待定/空）。"""
-    for f in ("title", "conflict", "chapters"):
-        v = str(row.get(f, "")).strip()
-        if v and v not in ("待定", "?", "？"):
-            return True
-    return False
+# 内容硬上限（防滥用；600 字为建议值不做硬校验）——storyline-settings-v2
+ARC_FULLSTORY_MAX = 2000
+ARC_ENDING_FIELD_MAX = 200
+
+
+def _arc_normalize(arc: dict) -> dict:
+    """story_arc 归一读：fullstory ?? premise（legacy 一句话主线升位为全景）。"""
+    fullstory = str(arc.get("fullstory", "") or "").strip()
+    premise = str(arc.get("premise", "") or "").strip()
+    if not fullstory:
+        fullstory = premise
+    ending = arc.get("ending") if isinstance(arc.get("ending"), dict) else {}
+    volumes = arc.get("volumes") if isinstance(arc.get("volumes"), list) else []
+    return {
+        "fullstory": fullstory,
+        # premise 随行返回（双写镜像的读侧证据；保存后恒等于 fullstory）
+        "premise": fullstory,
+        "ending": {f: str(ending.get(f, "") or "").strip() for f in ("scene", "hero", "tone")},
+        "volumes": [
+            {f: str(v.get(f, "") or "") for f in ("title", "conflict", "chapters")}
+            for v in volumes
+            if isinstance(v, dict)
+        ],
+    }
 
 
 def _arc_has_content(arc: dict) -> bool:
-    """主线有有效内容：一句话主线非空，或任一分卷行非待定。"""
-    if str(arc.get("premise", "")).strip():
+    """主线有有效内容：全景或结局三问任一非空（volumes 已移交写作阶段，不参与判定）。"""
+    norm = _arc_normalize(arc)
+    if norm["fullstory"]:
         return True
-    volumes = arc.get("volumes")
-    if isinstance(volumes, list):
-        return any(isinstance(v, dict) and _arc_volume_effective(v) for v in volumes)
-    return False
-
-
-def _arc_next_step(arc: dict) -> int:
-    """向导续步推断（保守取第一个未完成步骤）：1 主线 / 2 结局 / 3 分卷 / 4 自查。"""
-    if not str(arc.get("premise", "")).strip():
-        return 1
-    ending = arc.get("ending") or {}
-    if not any(str(ending.get(f, "")).strip() for f in ("scene", "hero", "tone")):
-        return 2
-    volumes = arc.get("volumes") or []
-    if not any(isinstance(v, dict) and _arc_volume_effective(v) for v in volumes):
-        return 3
-    return 4
+    return any(norm["ending"][f] for f in ("scene", "hero", "tone"))
 
 
 GENRE_CORPUS_NAMES = {
@@ -463,26 +469,16 @@ async def get_story_arc(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """读主线卡（story.yaml.story_arc，整存整取；空卡返回空结构）。"""
+    """读主线卡（story.yaml.story_arc，整存整取；空卡返回空结构；legacy premise 归一进 fullstory）。"""
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Novel not found")
     story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
-    arc = story.get("story_arc") or {}
+    arc = story.get("story_arc")
     if not isinstance(arc, dict):
         arc = {}
-    ending = arc.get("ending") or {}
-    volumes = arc.get("volumes") if isinstance(arc.get("volumes"), list) else []
-    data = {
-        "premise": str(arc.get("premise", "") or ""),
-        "ending": {f: str(ending.get(f, "") or "") for f in ("scene", "hero", "tone")},
-        "volumes": [
-            {f: str(v.get(f, "") or "") for f in ("title", "conflict", "chapters")}
-            for v in volumes
-            if isinstance(v, dict)
-        ],
-    }
-    return {**data, "next_step": _arc_next_step(data), "has_content": _arc_has_content(data)}
+    data = _arc_normalize(arc)
+    return {**data, "has_content": _arc_has_content(data)}
 
 
 @router.put("/{project_id}/story/arc")
@@ -492,30 +488,50 @@ async def update_story_arc(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """写主线卡（整份覆盖；空/待定均合法，不触发 AI）。"""
+    """写主线卡（整份覆盖；空/待定均合法，不触发 AI；双写镜像保 legacy 读方）。
+
+    legacy 兼容：旧客户端整份 PUT 只带 premise——按归一规则升位进 fullstory
+    （fullstory 空 && premise 非空时取 premise），镜像同值。
+    """
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Novel not found")
+    fullstory = body.fullstory.strip()
+    premise_in = body.premise.strip()
+    if not fullstory and premise_in:
+        fullstory = premise_in
+    if len(fullstory) > ARC_FULLSTORY_MAX:
+        raise HTTPException(400, f"主线全文过长（{len(fullstory)}/{ARC_FULLSTORY_MAX} 字）——建议 600 字以内")
+    ending = {
+        "scene": body.ending.scene.strip(),
+        "hero": body.ending.hero.strip(),
+        "tone": body.ending.tone.strip(),
+    }
+    for f, v in ending.items():
+        if len(v) > ARC_ENDING_FIELD_MAX:
+            raise HTTPException(400, f"结局「{ {'scene': '最后一幕画面', 'hero': '主角最终怎样', 'tone': '基调'}[f] }」过长（{len(v)}/{ARC_ENDING_FIELD_MAX} 字）")
     arc = {
-        "premise": body.premise.strip(),
-        "ending": {
-            "scene": body.ending.scene.strip(),
-            "hero": body.ending.hero.strip(),
-            "tone": body.ending.tone.strip(),
-        },
-        "volumes": [
-            {
-                "title": v.title.strip(),
-                "conflict": v.conflict.strip(),
-                "chapters": v.chapters.strip(),
-            }
-            for v in body.volumes
-        ],
+        "fullstory": fullstory,
+        # 双写镜像：旧代码与资产包导入仍读 premise，等价内容（storyline-settings-v2 D1）
+        "premise": fullstory,
+        "ending": ending,
     }
     story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+    # volumes 已移交写作阶段：PUT 缺省（空）时保留 KV 原值不删；旧客户端整份
+    # PUT 回传 volumes 时按原样写回，避免覆盖丢行
+    body_volumes = [v.model_dump() for v in body.volumes]
+    if body_volumes:
+        arc["volumes"] = [
+            {f: str(row.get(f, "") or "").strip() for f in ("title", "conflict", "chapters")}
+            for row in body_volumes
+        ]
+    elif isinstance(story.get("story_arc"), dict) and isinstance(
+        (story["story_arc"] or {}).get("volumes"), list
+    ):
+        arc["volumes"] = story["story_arc"]["volumes"]
     story["story_arc"] = arc
     await get_storage().write_yaml(project.root_path, "story.yaml", story)
-    return {"ok": True, **arc, "next_step": _arc_next_step(arc)}
+    return {"ok": True, **_arc_normalize(arc), "has_content": _arc_has_content(arc)}
 
 
 @router.delete("/{project_id}")

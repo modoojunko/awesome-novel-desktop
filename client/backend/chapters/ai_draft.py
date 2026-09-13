@@ -153,7 +153,7 @@ def _arc_markdown(story: dict) -> str:
     lines = []
     premise = str(arc.get("premise", "") or "").strip()
     if premise:
-        lines.append(f"一句话主线：{premise}")
+        lines.append(f"全书主线：{premise}")
     for f, label in (("scene", "终局场景"), ("hero", "主角归宿"), ("tone", "基调")):
         v = str(ending.get(f, "") or "").strip()
         if v and v != "待定":

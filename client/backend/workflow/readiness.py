@@ -85,7 +85,7 @@ async def _check_characters(root_path: str, novel_id: str | None = None) -> bool
 
 
 async def _check_story_arc(root_path: str, novel_id: str | None = None) -> bool:
-    """主线卡：一句话主线非空，或任一分卷行有非待定内容（novels/router 同源逻辑）。"""
+    """主线：fullstory 或结局三问任一非空（storyline-settings-v2；legacy premise 归一进 fullstory，volumes 已移交写作阶段）。"""
     from novels.router import _arc_has_content
 
     story = await get_storage().read_yaml(root_path, "story.yaml") or {}
