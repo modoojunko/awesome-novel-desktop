@@ -1,0 +1,1808 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>爱小说 · 设定｜角色 · 示例稿</title>
+<!--
+  交付说明（设计侧工件 · 不动任何 src/；OpenDesign 原型，交互可直接预览）
+
+  裁定沿用：顶部书栏 / modnav / 左侧设定树 / 右栏位置＝现有设定页外壳，零改动、非本稿范围。
+  本稿重做两块：中间「角色」面板（人物卡）＋右栏 AI 助手内容。
+
+  v3 修订（09-13 裁定，逐条落地）：
+    ① 移除「全部角色」作用范围——四个 AI 能力一律只对当前选中的角色生效。
+    ② 一致性体检改口径＝当前角色 × 整体设定（简介 / 题材 / 世界 / 主线）逐项给结论，
+       判断的是「合不合理」，不再是数空格；必填缺口交给右栏「目标」行与层头徽标承载。
+    ③ AI 四能力都不是固定文案——后端按每行标注的「输入」调大模型生成；本稿答案是示例，
+       四处能力都有「重新生成」，人设补充另留最近 5 次可切回。
+    ④ 新增角色「删除 / 合并」——合并以目标卡为准：目标已有的字不动、空格用对方补齐，
+       名字并入别名，两边关系归并去重；删除与合并都进同一份回执，可一步撤销；
+       主角身份随内容走，删掉主角即回到「主角待立」（确认门禁照拦）。
+    ⑤ 移除连续性台账（状态流 / 持有物 / 经历 / 剧情履历）——待「归档」change 再设计。
+    ⑥ 移除人物关系的章节版本史与「回看 / 恢复到此时点」——同样待「归档」change；
+       关系收敛为一条记录（对方 / 类型 / 立场一句 / 记录章节），支持编辑与删除（v4 起改为单向视角，见下）。
+    ⑦ 技能并入认知 ④ 能力层（新增「技能 · 习得与来源」）；语言特征移入基础档案
+       （⑤行为的「性格」不再重复说话与口头禅，一条语义只写一处）。
+
+  v4 修订（09-13 逐项拍板，本稿落地）：
+    ① 人物关系改【单向】：只保存「这个角色怎么看别人」，对方卡上写的是他自己的视角——
+       不再"一对一条、两边同步"；同一对方只留一条，重复记入改成更新那条；合并时两边记录归到目标卡并按对方去重。
+    ② 确认门禁两档：首次创建只要主角卡完整；之后在设定页确认 ＝ 主角 ＋ 每个配角/反派的六项
+       （名称 / 一句话人设 / 剧情定位 / 核心认知盲区 / 能力上限 / 能力代价）齐，路人只要基础档案。
+    ③ 确认会打回：删主角、清空关键字段、换主角之后，徽标显示「已确认 · 内容有变 · 待重新确认」。
+    ④ 自动保存：点值即改就地落库（真实实现＝单格 PATCH ＋ base_rev 乐观锁），面板底部不再有「存草稿」，
+       改为头部保存态提示；「确认完成」只负责确认，不再承担保存。
+    ⑤ 存储与升级口径（原型无关，仅记录）：角色进真表（id 主键、关系型设计），上线后淘汰老表；
+       老库按单轨政策留档、数据靠导出包往返，导入时把老字段映射进新格（三个无归宿字段只留原文、不上界面）。
+    ⑥ 付费口径：右栏四行全部锁 PRO（免费用户可见、点不动，字段照常手填）。
+
+  v5 修订（09-13 二轮评审后按「在设计上解掉」落地）：
+    ① 删除 / 合并升到 L3 名称输入确认（输入角色名才解锁按钮，与现役删除族同档），面板写清后果与撤销窗口；
+    ② 体检结果从右栏挪回卡片内——与人设 / 档案 / 认知共用同一套 sink 语言，右栏只放按钮；
+    ③ 体检项名按服务端变体修正：「世界 × 能力上限」「势力 × 角色落地」「主线 × 角色」，并注明现实向会换成「世界 × 现实规则 / 世界 × 限制」；
+    ④ 状态词汇全部对回现役词表：角色类型＝可点击胶囊 .chip、关系类型＝状态胶囊 .pill（语气档）、徽标＝ok / warn / prog / empty、
+       保存态对齐既有四态（saving / saved / dirty / failed）——不再自造 done / acc / tp / rtype / save-state.on；
+    ⑤ 体检行改用新类名 .chk-row（不覆盖既有的 .chk-line 作用域），第四个状态值取名 conflict（渲染走 err 色，值名不与传输失败态撞名）；
+    ⑥ 第三态文案去掉「已确认」字样（设计语言硬规则：凡含「已确认」必须绿色），改「内容有变 · 待重新确认」，说明文字补一句"这一项之前确认过"；
+    ⑦ 确认口径统一为「第一次确认 / 此后确认」（产品里没有创建向导，不写"首次创建"）；
+    ⑧ 跨屏配套（本文件之外，记录备忘）：章纲页「出场角色」要从自由文本改成从角色卡多选，否则 id 化会留下未命中引用；
+       写章提示词的「角色初始状态」块同时改用六层主格 ＋ 语言特征供给（今天恒空）。
+
+  沿用 v2（相对 zcode 稿 drafts/ai-novel-c端-角色设定.html）：
+    人物卡改卷宗——身份头（宋体名讳＋类型胶囊＋编号）＋一句话人设衬线引文先行，
+    基础档案去表格化点值即改；认知六层收成纵向脊线，收起只读主字段、展开见全字段，
+    必填缺口标层头；角色列表按 主角 / 配角 / 反派 / 路人 分组折叠。
+
+  文案口径（09-13）：页面可见文案一律按「给作家看」写——不出现交接口径与内部术语（改动的来龙去脉、change、回执、上树、
+  后端/大模型、输入、溯源、主字段/必填格等），稿头的改动清单改为作家向的「这一页怎么用」四条；设计侧记录只留在本注释里。
+
+  规范：tokens 与 client/frontend/src/design/{base,book}.css 逐字同源；全部 data-od-id（kebab-case）；
+  零外部资源、零裸色、零 emoji、零 scrollIntoView。
+-->
+<style>
+  /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致（--radius-lg 沿世界稿 = 14px） ═══ */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --on-accent: oklch(100% 0 0);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
+  button { font-family: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 6px; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.55; padding: 40px 24px 80px; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1440px; margin: 0 auto; }
+
+  /* ─── 稿头 ─── */
+  .doc-head { margin-bottom: 30px; }
+  .doc-head h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; }
+  .doc-head .sub { color: var(--muted); font-size: 13.5px; margin: 8px 0 14px; line-height: 1.8; }
+  .changes { list-style: none; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 26px; }
+  .changes li { display: flex; gap: 10px; font-size: 12.5px; color: var(--muted); line-height: 1.75; min-width: 0; }
+  .changes li i { font-style: normal; font-family: var(--font-mono); font-size: 11px; color: var(--accent); flex: none; padding-top: 3px; }
+  .changes li b { color: var(--fg); font-weight: 600; }
+
+  /* ─── 模拟窗口 ─── */
+  .win { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: clip; box-shadow: var(--shadow-card); }
+  .win-titlebar { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .dot { width: 11px; height: 11px; border-radius: 999px; flex: none; }
+  .dot.r { background: var(--err); } .dot.y { background: var(--warn); } .dot.g { background: var(--ok); }
+  .win-title { flex: 1; text-align: center; font-size: 12px; color: var(--muted); margin-right: 51px; }
+  .appbar { height: 48px; display: flex; align-items: center; padding: 0 20px; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; }
+  .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; flex: none; }
+  .appbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; flex: none; }
+  .appbar .back { display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; color: var(--muted); font-size: 13.5px; padding: 5px 9px; border-radius: 8px; cursor: pointer; }
+  .appbar .back:hover { color: var(--fg); background: var(--fg-soft); }
+  .appbar .back svg { width: 14px; height: 14px; }
+  .appbar .spacer { flex: 1; }
+  .novelbar { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 20px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
+  .novelbar .nb-title { font-family: var(--font-display); font-size: 13.5px; color: var(--fg); font-weight: 600; }
+  .novelbar .nb-sep { width: 1px; height: 16px; background: var(--border); }
+  .novelbar .spacer { flex: 1; }
+  .modnav { display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .modnav span { display: inline-flex; gap: 5px; align-items: baseline; padding: 8px 14px 9px; font-size: 13px; color: var(--muted); cursor: pointer; }
+  .modnav span.on { color: var(--fg); font-weight: 500; border-bottom: 2px solid var(--accent); }
+  .modnav span .num { font-size: 11.5px; }
+
+  /* ── 设定页三栏：设定树(232) ｜ 角色面板(1fr) ｜ AI 栏(244) ── */
+  .view.three-col { display: grid; grid-template-columns: 232px minmax(0, 1fr) 244px; align-items: stretch; }
+  .col-tree { background: var(--bg); border-right: 1px solid var(--border); padding: 14px 12px 16px; }
+  .tree-head { padding: 0 8px 8px; }
+  .tree-head .t { font-size: 13px; color: var(--muted); }
+  .tree-head .t b { color: var(--fg); font-weight: 600; }
+  .settings-progress { padding: 0 8px 12px; border-bottom: 1px dashed var(--border); }
+  .settings-progress .pl { font-size: 12px; color: var(--muted); }
+  .settings-progress .pl b { color: var(--fg); }
+  .pbar { height: 6px; border-radius: 999px; background: var(--fg-soft); margin-top: 7px; overflow: hidden; }
+  .pbar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width .25s ease; }
+  .settings-nav-wrap { padding-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .s-item { display: flex; align-items: center; gap: 6px; padding: 8px 9px; border-radius: 8px; cursor: pointer; }
+  .s-item:hover { background: var(--fg-soft); }
+  .s-item.on { background: var(--accent-soft); }
+  .s-item .nm { font-size: 12.5px; color: var(--fg); }
+  .s-item.on .nm { color: var(--accent-strong); font-weight: 600; }
+  .s-item .defer-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+  .s-item .spacer { flex: 1; }
+  .tree-foot { border-top: 1px dashed var(--border); margin-top: 10px; padding: 10px 8px 0; font-size: 12px; color: var(--muted); line-height: 1.7; }
+
+  .col-middle { min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .col-panel { flex: 1; display: flex; flex-direction: column; padding: 16px 18px 20px; }
+  .panel.sub-fill { flex: 1; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px 14px; }
+  .panel-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+  .panel-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 600; }
+  .panel-head .ph-tools { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+  .desc { font-size: 13px; color: var(--muted); margin: 0 0 18px; line-height: 1.8; max-width: 62em; }
+  .desc b { color: var(--fg); font-weight: 600; }
+  .sub-wrap { flex: 1; display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 0 20px; align-items: start; }
+
+  /* ── 角色列表：按类型分组折叠 ── */
+  .char-list { position: sticky; top: 14px; align-self: start; max-height: calc(100vh - 56px); display: flex; flex-direction: column; min-height: 0; padding: 2px 0 4px; }
+  .tree-top { display: flex; align-items: baseline; padding: 0 8px 8px; font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .04em; }
+  .tree-top .cnt { margin-left: auto; font-weight: 400; font-size: 10.5px; }
+  .tree-add { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 32px; margin-bottom: 8px; border: 1px dashed color-mix(in oklch, var(--accent) 40%, var(--border)); border-radius: 8px; background: var(--surface); color: var(--accent); font-size: 12.5px; font-weight: 500; cursor: pointer; flex: none; }
+  .tree-add:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .tree-search { width: 100%; padding: 7px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font-size: 12.5px; margin-bottom: 8px; flex: none; }
+  .tree-search:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .tree-groups { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; padding-right: 2px; }
+  .tg { margin-bottom: 2px; }
+  .tg-h { display: flex; align-items: center; gap: 7px; width: 100%; border: none; background: transparent; padding: 6px 8px; border-radius: 7px; cursor: pointer; font: inherit; color: var(--fg); text-align: left; }
+  .tg-h:hover { background: var(--fg-soft); }
+  .tg-h .chev { color: var(--muted); flex: none; transition: transform .16s ease; }
+  .tg.open .tg-h .chev { transform: rotate(90deg); }
+  .tg-dot { width: 7px; height: 7px; border-radius: 999px; flex: none; }
+  .tg-dot.main { background: var(--accent); }
+  .tg-dot.side { background: color-mix(in oklch, var(--fg) 40%, transparent); }
+  .tg-dot.villain { background: var(--err); }
+  .tg-dot.extra { background: color-mix(in oklch, var(--fg) 18%, transparent); }
+  .tg-name { font-size: 12px; font-weight: 600; }
+  .tg-cnt { margin-left: auto; font-size: 10.5px; color: var(--muted); }
+  .tg-list { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 4px; }
+  .ti { display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; text-align: left; padding: 5px 8px 5px 24px; border-radius: 7px; cursor: pointer; font: inherit; }
+  .ti:hover { background: var(--fg-soft); }
+  .ti.on { background: var(--accent-soft); }
+  .ti.on .ti-name { color: var(--accent-strong); font-weight: 600; }
+  .ti-ava { width: 22px; height: 22px; border-radius: 50%; background: var(--fg-soft); color: var(--fg); display: grid; place-items: center; font-size: 11px; font-weight: 600; font-style: normal; flex: none; }
+  .ti.on .ti-ava { background: var(--accent); color: var(--on-accent); }
+  .ti-b { min-width: 0; flex: 1; }
+  .ti-name { display: block; font-size: 12.5px; color: var(--fg); line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ti-sub { display: block; font-size: 10.5px; color: var(--muted); line-height: 1.4; }
+  .ti-flag { flex: none; font-size: 10px; color: var(--warn); border: 1px solid color-mix(in oklch, var(--warn) 35%, transparent); border-radius: 999px; padding: 0 6px; }
+  .tempty { padding: 6px 8px; }
+
+  .char-main { min-width: 0; border-left: 1px solid var(--border); padding-left: 20px; }
+
+  /* ── 身份头：印章 + 名讳 + 类型胶囊 + 编号 ── */
+  .char-head { display: flex; gap: 16px; align-items: flex-start; }
+  .seal { width: 52px; height: 52px; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-family: var(--font-display); font-size: 24px; font-weight: 600; display: grid; place-items: center; flex: none; }
+  .ch-id { flex: 1; min-width: 0; }
+  .ch-name-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ch-name { font-family: var(--font-display); font-size: 25px; font-weight: 600; color: var(--fg); border: none; background: transparent; width: 8.5em; padding: 2px 8px; margin-left: -8px; border-radius: 8px; box-shadow: inset 0 0 0 1px transparent; }
+  .ch-name:hover { background: var(--fg-soft); }
+  .ch-name:focus { outline: none; background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px var(--accent-soft); }
+  .ch-name::placeholder { color: var(--muted); font-weight: 500; }
+  .type-pills { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  /* 角色类型：可点击胶囊＝既有 chip 家族（不另造 .tp） */
+  .chip { height: 26px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; cursor: pointer; font-family: inherit; }
+  .chip:hover { color: var(--fg); border-color: var(--muted); }
+  .chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); font-weight: 500; }
+  .ch-alias { display: block; width: 100%; margin-top: 6px; border: none; border-bottom: 1px dashed transparent; background: transparent; color: var(--muted); font-size: 12.5px; padding: 2px 4px; margin-left: -4px; border-radius: 6px; }
+  .ch-alias:hover { border-bottom-color: var(--border); background: var(--fg-soft); }
+  .ch-alias:focus { outline: none; background: var(--accent-soft); border-bottom-color: var(--accent); color: var(--fg); }
+  .ch-meta { margin-top: 7px; font-size: 11.5px; color: var(--muted); }
+  .ch-side { flex: none; padding-top: 4px; }
+  /* 卡头动作：合并 / 删除 */
+  .ch-ops { display: inline-flex; gap: 6px; margin-top: 9px; }
+  .ch-ops button { height: 25px; padding: 0 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--muted); font-size: 11.5px; cursor: pointer; font-family: inherit; }
+  .ch-ops button:hover { border-color: var(--muted); color: var(--fg); }
+  .ch-ops button.danger:hover { border-color: color-mix(in oklch, var(--err) 45%, transparent); color: var(--err); background: var(--err-soft); }
+  .ops-panel { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding: 11px 13px; border: 1px dashed color-mix(in oklch, var(--accent) 40%, var(--border)); border-radius: 10px; background: var(--surface); font-size: 12.5px; }
+  .ops-panel.danger { border-color: color-mix(in oklch, var(--err) 40%, var(--border)); }
+  .ops-panel .op-t { flex: 1 1 260px; min-width: 0; line-height: 1.7; }
+  .ops-panel .op-t b { font-weight: 600; }
+  .ops-panel select, .ops-panel input { height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--fg); font-size: 12px; font-family: inherit; }
+  .ops-panel select:focus, .ops-panel input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .ops-panel .op-acts { margin-left: auto; display: inline-flex; gap: 8px; flex: none; }
+  .btn.btn-danger { background: var(--err); color: var(--on-accent); }
+  .btn.btn-danger:hover { background: color-mix(in oklch, var(--err) 85%, var(--fg)); }
+
+  /* ── 一句话人设（衬线引文，全卡唯一重点强调） ── */
+  .persona { margin-top: 16px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 10px 10px 0; padding: 10px 16px 12px 16px; }
+  .persona .pl-label { display: block; font-size: 11px; letter-spacing: .06em; font-weight: 600; color: var(--accent-strong); margin-bottom: 4px; }
+  .persona textarea { width: 100%; border: none; background: transparent; resize: vertical; font-family: var(--font-display); font-size: 15.5px; line-height: 1.85; color: var(--fg); }
+  .persona textarea:focus { outline: none; }
+  .persona:focus-within { background: color-mix(in oklch, var(--accent) 17%, transparent); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent) 35%, transparent); }
+
+  /* ── 分节 ── */
+  .sec { margin-top: 24px; }
+  .sec-h { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .sec-h h3 { font-family: var(--font-display); font-size: 15px; font-weight: 600; }
+  .sec-h .sec-sub { font-size: 11.5px; color: var(--muted); min-width: 0; }
+  .sec-h .sec-tools { margin-left: auto; flex: none; }
+
+  /* ── 基础档案（去表格化：点值即改） ── */
+  .dossier { display: flex; flex-direction: column; }
+  .drow { display: flex; gap: 12px; align-items: baseline; padding: 7px 0; border-bottom: 1px dashed color-mix(in oklch, var(--border) 75%, transparent); min-width: 0; }
+  .drow:last-child { border-bottom: none; }
+  .dk { flex: none; width: 104px; font-size: 12px; color: var(--muted); }
+  .dk .req { font-style: normal; font-size: 10px; color: var(--warn); border: 1px solid color-mix(in oklch, var(--warn) 35%, transparent); border-radius: 999px; padding: 0 5px; margin-left: 5px; }
+  .dv { flex: 1; min-width: 0; font-size: 13px; }
+  .dv input, .dv textarea { width: 100%; border: none; background: transparent; color: var(--fg); font-size: 13px; padding: 2px 6px; margin: -2px -6px; border-radius: 6px; }
+  .dv textarea { resize: vertical; line-height: 1.7; }
+  .dv input:hover, .dv textarea:hover { background: var(--fg-soft); }
+  .dv input:focus, .dv textarea:focus { outline: none; background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent) 40%, transparent); }
+  .dv input::placeholder, .dv textarea::placeholder { color: color-mix(in oklch, var(--muted) 75%, transparent); }
+  .dtri { display: flex; gap: 12px; }
+  .dtri input { flex: 1; min-width: 0; }
+
+  /* ── 认知内核：六层纵向脊线 ── */
+  .cog { position: relative; padding-left: 26px; }
+  .cog::before { content: ''; position: absolute; left: 8px; top: 22px; bottom: 22px; width: 2px; background: color-mix(in oklch, var(--accent) 20%, var(--border)); }
+  .layer { position: relative; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+  .layer::before { content: ''; position: absolute; left: -22px; top: 20px; width: 8px; height: 8px; border-radius: 999px; background: var(--surface); border: 2px solid color-mix(in oklch, var(--accent) 35%, var(--border)); }
+  .layer:not(.miss)::before { background: var(--accent); border-color: var(--accent); }
+  .layer.miss::before { background: var(--warn-soft); border-color: var(--warn); }
+  .layer + .layer, .cog-link + .layer { margin-top: 0; }
+  .layer-head { display: flex; align-items: center; gap: 10px; width: 100%; border: none; background: transparent; text-align: left; padding: 11px 14px; cursor: pointer; font: inherit; border-radius: 12px; min-width: 0; }
+  .layer-head:hover { background: var(--fg-soft); }
+  .layer.open { border-color: color-mix(in oklch, var(--accent) 30%, var(--border)); }
+  .layer-idx { font-size: 10.5px; color: var(--muted); letter-spacing: .06em; flex: none; }
+  .layer-name { font-family: var(--font-display); font-size: 15px; font-weight: 600; flex: none; }
+  .layer-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; flex: none; }
+  .layer-prev { flex: 1; min-width: 0; font-size: 12.5px; color: color-mix(in oklch, var(--muted) 80%, transparent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .layer-prev.has { color: var(--fg); }
+  .layer-fill { flex: none; font-size: 10.5px; color: var(--muted); }
+  .layer-miss { flex: none; font-size: 10px; color: var(--warn); border: 1px solid color-mix(in oklch, var(--warn) 35%, transparent); border-radius: 999px; padding: 0 7px; }
+  .layer-head .chev { flex: none; color: var(--muted); transition: transform .18s ease; }
+  .layer.open .chev { transform: rotate(180deg); }
+  .layer-body { border-top: 1px dashed var(--border); padding: 14px; }
+  .cog-link { display: flex; align-items: center; gap: 8px; padding: 7px 0 7px 26px; font-size: 11px; color: var(--muted); }
+  .cog-link i { font-style: normal; color: var(--accent-strong); flex: none; }
+  .cog-link .grp { font-size: 10px; color: var(--accent-strong); background: var(--accent-soft); border-radius: 999px; padding: 1px 8px; }
+  .fgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+  .f { display: flex; flex-direction: column; min-width: 0; }
+  .f.full { grid-column: 1 / -1; }
+  .f-label { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; flex-wrap: wrap; }
+  .f-label b { font-size: 12.5px; font-weight: 600; }
+  .f-label .hint { font-size: 11px; color: var(--muted); }
+  .f-label .req { font-style: normal; font-size: 10px; color: var(--warn); border: 1px solid color-mix(in oklch, var(--warn) 35%, transparent); border-radius: 999px; padding: 0 6px; }
+  .f input, .f textarea { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font-size: 13px; }
+  .f textarea { resize: vertical; line-height: 1.7; }
+  .f input:focus, .f textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .f input::placeholder, .f textarea::placeholder { color: color-mix(in oklch, var(--muted) 75%, transparent); }
+
+  /* ── 人物关系（单向：只记这个角色怎么看别人） ── */
+  .rel { display: flex; flex-direction: column; }
+  .rel-tools { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
+  .rel-item { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 9px 12px; }
+  .rel-item + .rel-item { margin-top: 8px; }
+  .rel-row { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+  .rel-who { display: inline-flex; align-items: center; gap: 7px; min-width: 0; flex: none; }
+  .rel-ava { width: 22px; height: 22px; border-radius: 50%; background: var(--fg-soft); color: var(--fg); display: grid; place-items: center; font-size: 11px; font-weight: 600; font-style: normal; flex: none; }
+  .rel-name { border: none; background: transparent; padding: 0; font-size: 13px; font-weight: 500; color: var(--fg); cursor: pointer; font-family: inherit; }
+  .rel-name:hover { color: var(--accent-strong); text-decoration: underline; }
+  .rel-note { flex: 1 1 180px; min-width: 0; font-size: 12px; color: var(--muted); line-height: 1.65; }
+  .rel-meta { flex: none; font-size: 10.5px; color: var(--muted); }
+  .rel-acts { flex: none; display: inline-flex; gap: 4px; }
+  .rel-acts button { height: 22px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; font-family: inherit; }
+  .rel-acts button:hover { border-color: var(--border); color: var(--fg); background: var(--fg-soft); }
+  .rel-acts button.danger:hover { border-color: color-mix(in oklch, var(--err) 40%, transparent); color: var(--err); background: var(--err-soft); }
+  /* 关系类型：状态胶囊＝既有 pill 家族＋语气档（不另造 .rtype） */
+  .pill { flex: none; font-size: 10.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+  .pill.kin { color: var(--accent-strong); border-color: color-mix(in oklch, var(--accent) 35%, transparent); background: var(--accent-soft); }
+  .pill.ally { color: var(--ok); border-color: color-mix(in oklch, var(--ok) 35%, transparent); background: var(--ok-soft); }
+  .pill.foe { color: var(--err); border-color: color-mix(in oklch, var(--err) 30%, transparent); background: var(--err-soft); }
+  .pill.tension { color: var(--warn); border-color: color-mix(in oklch, var(--warn) 35%, transparent); background: var(--warn-soft); }
+  /* 记一段关系（内联表单） */
+  .rel-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding: 10px 12px; border: 1px dashed color-mix(in oklch, var(--accent) 40%, var(--border)); border-radius: 10px; background: var(--surface); }
+  .rel-form select, .rel-form input { height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--fg); font-size: 12px; font-family: inherit; }
+  .rel-form select:focus, .rel-form input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .rel-form input { flex: 1 1 180px; min-width: 0; }
+  .rel-form-hint { flex: none; font-size: 10.5px; color: var(--muted); }
+  .btn.btn-sm { height: 28px; padding: 0 13px; font-size: 12px; }
+
+  .lb-empty { font-size: 12px; color: var(--muted); line-height: 1.7; }
+
+  /* ── 通用件 ── */
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 11px; }
+  /* 徽标档位＝现役词表：ok（已确认，必绿）／warn（待办）／prog（进度态）／empty */
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .badge.prog { background: var(--accent-soft); color: var(--accent-strong); }
+  .badge.empty { background: var(--fg-soft); color: var(--muted); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--accent); color: var(--on-accent); }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--muted); }
+  .btn:disabled { opacity: .45; cursor: default; pointer-events: none; }
+  .text-btn { display: inline-flex; align-items: center; gap: 5px; border: none; background: transparent; color: var(--accent); font-size: 12.5px; cursor: pointer; padding: 4px 2px; font-weight: 500; }
+  .text-btn:hover { color: var(--accent-strong); }
+  .opt { font-size: 12px; color: var(--muted); }
+  .panel-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); margin-top: 18px; flex-wrap: wrap; }
+  .panel-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+  .panel-foot .warnline { color: var(--warn); }
+  .save-state { font-size: 11px; color: var(--muted); }
+  .save-state.saving { color: var(--muted); }
+  .save-state.saved { color: var(--ok); }
+  .save-state.dirty { color: var(--warn); }
+  .save-state.failed { color: var(--err); }
+
+  /* ── AI 结果区（落对应槽位）与回执 ── */
+  .ai-sink { margin: 12px 0 0; background: var(--fg-soft); border-radius: 10px; padding: 12px 16px; font-size: 12.5px; line-height: 1.8; color: var(--fg); }
+  .ai-sink .aiz-head { font-size: 11px; font-weight: 600; letter-spacing: .05em; color: var(--accent); margin-bottom: 6px; }
+  .ai-sink .aiz-hist { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+  .ai-sink .ah-t { font-size: 11px; color: var(--muted); }
+  .ai-sink .ah-chip { height: 20px; padding: 0 9px; font-size: 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; }
+  .ai-sink .ah-chip.on { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); font-weight: 500; }
+  .ai-sink .ans-act { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .ai-sink .ans-act button { height: 26px; padding: 0 12px; font-size: 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .ai-sink .ans-act button:hover { border-color: var(--muted); }
+  .ai-sink .ans-act button.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+  .ai-sink .ans-act button.primary:hover { background: var(--accent-strong); }
+  .ai-sink .aiz-line { display: flex; gap: 8px; padding: 2px 0; }
+  .ai-sink .aiz-k { flex: none; width: 118px; font-size: 11px; color: var(--muted); padding-top: 2px; }
+  .ai-sink .aiz-v { flex: 1; min-width: 0; }
+  .ai-sink .aiz-note { font-size: 11px; color: var(--warn); margin-bottom: 4px; }
+  /* 体检逐项（新类名 .chk-row，不动既有的 .chk-line 作用域）：名称＋结论一行，依据一行 */
+  .chk-row { margin-bottom: 10px; }
+  .chk-row .chk-name { font-size: 12.5px; font-weight: 500; }
+  .chk-row .chk-res { margin-left: 6px; font-size: 12px; font-weight: 500; }
+  .chk-row .chk-res.ok { color: var(--ok); }
+  .chk-row .chk-res.warn { color: var(--warn); }
+  .chk-row .chk-res.conflict { color: var(--err); }
+  .chk-row .chk-res.miss { color: var(--muted); }
+  .chk-row .chk-note { display: block; font-size: 12px; color: var(--muted); line-height: 1.7; margin-top: 3px; }
+  .chk-row .chk-go { margin-top: 5px; height: 24px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--fg); font-size: 11.5px; cursor: pointer; font-family: inherit; }
+  .chk-row .chk-go:hover { border-color: var(--accent); color: var(--accent-strong); }
+  .panel-foot .receipt-bar { flex: 1 1 100%; margin-top: 0; }
+  .receipt-bar { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 8px 12px; border: 1px solid color-mix(in oklch, var(--accent) 30%, var(--border)); border-radius: 9px; background: var(--accent-soft); font-size: 12px; color: var(--fg); }
+  .receipt-bar .rb-undo { margin-left: auto; flex: none; height: 24px; padding: 0 12px; font-size: 11.5px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .receipt-bar .rb-undo:hover { border-color: var(--accent); color: var(--accent-strong); }
+
+  /* ── 右栏 AI 写作助手 ── */
+  .col-ai { border-left: 1px solid var(--border); background: var(--bg); padding: 16px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .rail-assist { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
+  .rail-assist .ra-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+  .rail-assist .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: var(--on-accent); flex: none; }
+  .rail-assist .rh-t b { display: block; font-size: 13px; font-weight: 600; }
+  .rail-assist .rh-t span { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; line-height: 1.6; }
+  .rail-assist .ra-row { margin-bottom: 8px; }
+  .rail-assist .ra-step { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; }
+  .rail-assist .ra-step:hover { border-color: var(--accent); }
+  .rail-assist .ra-body { min-width: 0; flex: 1; }
+  .rail-assist .ra-body b { display: block; font-size: 12.5px; font-weight: 600; }
+  .rail-assist .ra-body i { display: block; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 2px; }
+  .rail-assist .ra-arrow { color: var(--muted); flex: none; }
+  .rail-assist .ra-foot { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+  .rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
+  /* 右栏「目标」行：当前角色的三处空格（人设 / 档案 / 认知） */
+  .rail-assist .ai-target { font-size: 11px; color: var(--muted); line-height: 1.7; margin: 0 0 10px; padding: 0 2px; }
+  .rail-assist .ai-target { font-size: 11px; color: var(--muted); line-height: 1.7; margin: 0 0 10px; padding: 0 2px; }
+  .rail-assist .ai-target b { color: var(--fg); font-weight: 500; }
+  .rail-assist .ai-target .gap-c { color: var(--warn); }
+  .rail-assist .ra-idx { flex: none; align-self: center; font-size: 10px; color: var(--muted); }
+  /* 右栏结果区：一致性体检的落点 */
+
+  .toast-wrap { position: fixed; right: 22px; bottom: 22px; z-index: 99; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  .toast { background: var(--fg); color: var(--surface); padding: 9px 16px; border-radius: 10px; font-size: 13px; box-shadow: var(--shadow-card); max-width: 34em; animation: toast-in .2s ease; }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  /* ── 窄屏 ── */
+  @media (max-width: 1240px) {
+    .view.three-col { grid-template-columns: 208px minmax(0, 1fr) 224px; }
+    .sub-wrap { grid-template-columns: 212px minmax(0, 1fr); }
+  }
+  @media (max-width: 1000px) {
+    body { padding: 24px 12px 60px; }
+    .doc-head h1 { font-size: 22px; }
+    .changes { grid-template-columns: minmax(0, 1fr); }
+    .view.three-col { grid-template-columns: minmax(0, 1fr); }
+    .col-tree { border-right: 0; border-bottom: 1px solid var(--border); }
+    .col-ai { border-left: 0; border-top: 1px solid var(--border); }
+    .sub-wrap { grid-template-columns: minmax(0, 1fr); gap: 16px 0; }
+    .char-list { position: static; max-height: 300px; border-bottom: 1px dashed var(--border); padding-bottom: 10px; }
+    .char-main { border-left: 0; padding-left: 0; }
+  }
+  @media (max-width: 700px) {
+    .fgrid { grid-template-columns: minmax(0, 1fr); }
+    .ch-name { width: 100%; }
+    .dtri { flex-direction: column; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<div class="toast-wrap" id="toastWrap" data-od-id="toast-wrap"></div>
+<div class="wrap">
+
+  <header class="doc-head" data-od-id="doc-head">
+    <h1>设定 · 角色</h1>
+    <p class="sub">演示数据是《残卷听澜》的一组角色，不是真实用量；这里 AI 给出的答案也只是示例。</p>
+    <ul class="changes">
+      <li><i>01</i><span><b>主角必立</b>——先写名字和一句话人设；要确认「角色」，主角和每个配角/反派的关键字段都要有值（路人只留基础档案）。</span></li>
+      <li><i>02</i><span><b>改动自动保存</b>——不用点保存；AI 只补空格，你写过的字一个不动，写进去后可以一步撤销。</span></li>
+      <li><i>03</i><span><b>关系只记你怎么看他</b>——同一对方一条，随时能改或删；对方卡上写的是他自己的视角。</span></li>
+      <li><i>04</i><span><b>AI 体检</b>——拿这张卡去对简介、题材、世界、主线，只提醒，不拦你确认。</span></li>
+    </ul>
+  </header>
+
+  <div class="win" data-od-id="win-app">
+    <div class="win-titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="win-title">残卷听澜 — 爱小说</span></div>
+    <div class="appbar" data-od-id="appbar">
+      <span class="logo"><span class="logo-mark">爱</span>爱小说</span>
+      <span class="sep"></span>
+      <button class="back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="m15 18-6-6 6-6"/></svg>返回工作台</button>
+      <span class="spacer"></span>
+      <button class="back" type="button">客服</button>
+      <button class="back" type="button">设置</button>
+    </div>
+    <div class="novelbar" data-od-id="novelbar">
+      <span class="nb-title">《残卷听澜》</span>
+      <span class="nb-sep"></span>
+      <span>仙侠/修真 · 凡人流</span>
+      <span class="spacer"></span>
+      <span class="badge acc">PRO</span>
+    </div>
+    <div class="modnav" data-od-id="modnav">
+      <span class="on">设定<span class="num"><b id="modCount">3</b>/8</span></span>
+      <span>写作</span>
+      <span>预览</span>
+    </div>
+
+    <div class="view three-col">
+
+      <!-- ═══ 左栏 · 设定树＝现有设定页原样复刻（不动） ═══ -->
+      <aside class="col-tree" data-od-id="settings-tree">
+        <div class="tree-head"><span class="t">设定 · <b>8</b> 项 + 1 工具</span></div>
+        <div class="settings-progress">
+          <span class="pl num" id="progTxt">设定 <b>3</b>/8</span>
+          <div class="pbar"><i id="progBar" style="width: 37.5%;"></i></div>
+        </div>
+        <div class="settings-nav-wrap">
+          <div class="s-item"><span class="nm">模型设定</span><span class="defer-tag">工具</span><span class="spacer"></span><span class="badge empty">不参与进度</span></div>
+          <div class="s-item"><span class="nm">简介</span><span class="spacer"></span><span class="badge ok">已确认</span></div>
+          <div class="s-item"><span class="nm">题材</span><span class="spacer"></span><span class="badge ok">已确认</span></div>
+          <div class="s-item"><span class="nm">世界</span><span class="spacer"></span><span class="badge ok">已确认</span></div>
+          <div class="s-item on"><span class="nm">角色</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge warn">草稿</span></div>
+          <div class="s-item"><span class="nm">主线</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+          <div class="s-item"><span class="nm">文风</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+          <div class="s-item"><span class="nm">伏笔</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+          <div class="s-item"><span class="nm">禁用词句</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+        </div>
+        <div class="tree-foot">可后补项确认后计入设定进度 · 确认即前进到下一项</div>
+      </aside>
+
+      <!-- ═══ 中栏 · 角色面板（本稿核心） ═══ -->
+      <main class="col-middle">
+        <div class="col-panel">
+          <div class="panel sub-fill">
+            <div class="panel-head">
+              <h2>角色</h2>
+              <span class="badge warn" id="charState" data-od-id="badge-char-state">草稿 · 主角已立</span>
+              <span class="ph-tools"><span class="save-state" id="saveState">已自动保存</span><span class="num" id="charCount">43 人</span></span>
+            </div>
+            <p class="desc">AI 写每一章，都要靠这里知道「<b>谁在场、谁想干什么</b>」。主角必立——从称呼和一句话人设写起；配角、反派把认知内核填全，路人只留基础档案。人物关系只记「他怎么看别人」：一段一句，同一对方一条。</p>
+            <div class="sub-wrap">
+
+              <nav class="char-list" data-od-id="char-list">
+                <div class="tree-top">角色列表<span class="cnt num" id="treeCnt">43</span></div>
+                <button class="tree-add" id="btnAddChar" data-od-id="btn-add-char" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 5v14M5 12h14"/></svg>添加角色</button>
+                <input class="tree-search" id="treeSearch" data-od-id="search-char" type="search" placeholder="搜名字 / 别名" aria-label="搜索角色" />
+                <div class="tree-groups" id="treeList"></div>
+              </nav>
+
+              <div class="char-main">
+                <div id="card" data-od-id="char-card"></div>
+              </div>
+
+            </div>
+
+            <div class="panel-foot">
+              <div class="receipt-bar" id="receipt" hidden data-od-id="receipt-adopt">
+                <span id="receiptText"></span>
+                <button class="rb-undo" id="receiptUndo" type="button">撤销</button>
+              </div>
+              <span class="note" id="footNote"></span>
+              <button class="btn btn-primary" id="btnConfirm" type="button" data-od-id="btn-confirm">确认完成</button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ═══ 右栏 · AI 写作助手 ═══ -->
+      <aside class="col-ai" data-od-id="ai-rail">
+        <div class="rail-assist" data-od-id="rail-assist">
+          <div class="ra-head">
+            <span class="plan-badge">PRO</span>
+            <div class="rh-t"><b>AI 写作助手</b><span>已解锁 · 包含在 PRO 套餐 · 只补设定，不替你写正文</span></div>
+          </div>
+          <p class="ai-target" id="aiTarget" data-od-id="ai-target"></p>
+          <div class="ra-row">
+            <button class="ra-step" type="button" data-aiask="persona" data-od-id="ai-persona">
+              <span class="ra-idx num">01</span>
+              <span class="ra-body"><b>人设补充</b><i id="hPersona">补一句话人设，采纳才覆盖</i></span>
+              <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+          </div>
+          <div class="ra-row">
+            <button class="ra-step" type="button" data-aiask="dossier" data-od-id="ai-dossier">
+              <span class="ra-idx num">02</span>
+              <span class="ra-body"><b>基础信息补充</b><i id="hDossier">补档案空格；性别、年龄不代填</i></span>
+              <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+          </div>
+          <div class="ra-row">
+            <button class="ra-step" type="button" data-aiask="cog" data-od-id="ai-cognition">
+              <span class="ra-idx num">03</span>
+              <span class="ra-body"><b>认知补充</b><i id="hCog">把每层要写的那几格补上，只补空格</i></span>
+              <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+          </div>
+          <div class="ra-row">
+            <button class="ra-step" type="button" data-aiask="check" data-od-id="ai-check">
+              <span class="ra-idx num">04</span>
+              <span class="ra-body"><b>一致性体检</b><i id="hCheck">拿这张卡去对简介、题材、世界、主线</i></span>
+              <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+          </div>
+          <p class="ra-foot">这四行都只对<b>当前选中的角色</b>生效：先给你一稿，点<b>采纳 · 写入</b>才落到卡上，写错了能一步撤销。只补空格——你写过的字一个不动；性别、年龄不代填，留给你自己定。答案都是 AI 现场生成的，这里只是示例，不满意就<b>重新生成</b>。卡片上不放 AI 按钮：免费用户照样可以手填所有字段，这一栏看得见、点不动。</p>
+        </div>
+        <p class="opt" style="margin-top:12px; padding:0 4px;">未配置模型？去左侧「模型设定」。</p>
+      </aside>
+
+    </div><!-- /view.three-col -->
+  </div><!-- /win -->
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.prototype.slice.call((r || document).querySelectorAll(s));
+  const esc = t => String(t == null ? '' : t).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+
+  function toast(msg) {
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.textContent = msg;
+    $('#toastWrap').appendChild(t);
+    setTimeout(() => t.remove(), 2600);
+  }
+
+  /* ═══ 认知内核：六层单向（字段与 zcode 稿同源，表述收紧；primary＝收起时预览的那一句） ═══ */
+  const LAYERS = [
+    { id: 'worldview', no: '01', name: '世界观', tag: '认知层', primary: 'w1', arrow: '↓', link: '世界怎么转，他就怎么看自己', req: ['w5'], fields: [
+      { k: 'w1', label: '世界规则认知度', hint: '他是知道、不知道，还是被蒙在鼓里', full: 1, ta: 1 },
+      { k: 'w2', label: '局势主观判定', hint: '他以为的局面，可能和真实的不一样' },
+      { k: 'w3', label: '世界运行规则信仰', hint: '他认定世界怎么运转——只写一条，别自相矛盾' },
+      { k: 'w4', label: '人性通用认知', hint: '他怎么看人、怎么看善恶' },
+      { k: 'w5', label: '核心认知盲区', hint: '必填——他跨不过去的那道墙', req: 1 }
+    ] },
+    { id: 'self', no: '02', name: '自我观', tag: '认知层', primary: 's1', arrow: '↓', link: '他怎么取舍，都从这里定', fields: [
+      { k: 's1', label: '自我身份定位', hint: '我是谁、该担什么' },
+      { k: 's2', label: '自我价值判定', hint: '自卑 / 自负 / 通透 / 卑微' },
+      { k: 's3', label: '深层软肋', hint: '他怕什么、悔什么、放不下什么——写危机戏靠这一格', full: 1, ta: 1 },
+      { k: 's4', label: '优势与缺陷认知', hint: '他真有本事的，和他自认的，可能不是一回事', full: 1, ta: 1 },
+      { k: 's5', label: '宿命认知观', hint: '他信不信命——决定他最后争什么、怎么争' }
+    ] },
+    { id: 'values', no: '03', name: '价值观', tag: '认知层', primary: 'v1', arrow: '⇒', link: '往下走：他怎么会用本事、用到什么程度', grp: '执行层', fields: [
+      { k: 'v1', label: '核心追求', hint: '他这辈子最想要的那件事' },
+      { k: 'v2', label: '三观底线', hint: '打死也不做的事' },
+      { k: 'v3', label: '核心价值优先级', hint: '谁排在谁前面、哪一条可以牺牲——定了就别中途改', full: 1, ta: 1 },
+      { k: 'v4', label: '个人善恶判定标准', hint: '他自己心里的好坏标准——和别人的冲突都从这来', full: 1 }
+    ] },
+    { id: 'power', no: '04', name: '能力', tag: '执行层', primary: 'p2', arrow: '⇒', link: '他怎么想、有什么本事，决定他怎么做', req: ['p3', 'p4'], fields: [
+      { k: 'p1', label: '先天天赋', hint: '天生的、改不了的底子' },
+      { k: 'p2', label: '后天综合能力（金手指）', hint: '他的看家本事——要跟世界设定的力量体系对得上' },
+      { k: 'p6', label: '技能 · 习得与来源', hint: '一招一式从哪学的、练到什么程度——写打斗与办事时用', full: 1, ta: 1 },
+      { k: 'p3', label: '能力上限阈值', hint: '必填——不能超过世界设定里的上限', req: 1 },
+      { k: 'p4', label: '能力代价 · 短板', hint: '必填——用在哪儿会反噬、怕什么，要能在世界设定里找到依据', req: 1 },
+      { k: 'p5', label: '隐藏底牌后手', hint: '什么条件才能用、有什么限制——留到绝境翻盘', full: 1 }
+    ] },
+    { id: 'behavior', no: '05', name: '行为', tag: '执行层', primary: 'b1', arrow: '⇒', link: '他怎么做，慢慢变成他待的那个环境', grp: '结果层', fields: [
+      { k: 'b1', label: '性格 · 待人态度', hint: '他待人接物什么样——说话和口头禅写在「基础档案 · 语言特征」', full: 1, ta: 1 },
+      { k: 'b2', label: '行为习惯 · 小动作 · 喜忌', hint: '他身上那些一直不变的小习惯', full: 1, ta: 1 },
+      { k: 'b3', label: '危机本能行为', hint: '出事时他第一反应是什么——这格最藏不住人', full: 1, ta: 1 },
+      { k: 'b4', label: '决策思维习惯', hint: '遇事他先算什么、再算什么' },
+      { k: 'b5', label: '社交表现形态', hint: '对外的样子和私下的样子' }
+    ] },
+    { id: 'env', no: '06', name: '环境', tag: '结果层', primary: 'e3', fields: [
+      { k: 'e1', label: '地域与阶级环境', hint: '他一路走下来，落在什么地方、什么身份' },
+      { k: 'e2', label: '资源与权限条件', hint: '他手上能动用的人、钱、门路' },
+      { k: 'e3', label: '人际生态环境', hint: '一条条关系记在下面「人物关系」里，这里写总的局面和暗流', full: 1, ta: 1 },
+      { k: 'e4', label: '时代局势背景', hint: '他所在的时代和大局——跟世界设定对得上' },
+      { k: 'e5', label: '关键塑人事件', hint: '他变成今天这样，是被哪几件事推的' }
+    ] }
+  ];
+
+  /* ═══ 种子数据（演示种子，非真实用量） ═══ */
+  function cnNum(n) {
+    const C = '一二三四五六七八九十';
+    if (n <= 10) return C[n - 1];
+    if (n < 20) return '十' + C[n - 11];
+    if (n === 20) return '二十';
+    if (n < 30) return '二十' + C[n - 21];
+    if (n === 30) return '三十';
+    return '三十' + C[n - 31];
+  }
+
+  const DATA = {};
+  function addChar(key, o) { o.key = key; DATA[key] = o; }
+
+  addChar('lingshi', {
+    name: '林拾', alias: '别名 · 残卷郎 / 听漏先生', type: '主角', id: '#C-0001', first: '第 03 章', updated: '第 11 章归档',
+    persona: '青梧宗杂役弟子，资质平平却记性过人——别人当废纸的残页，他能一字不差背下来。',
+    dossier: {
+      gender: '男', age: '十七', race: '人族',
+      faction: '青梧宗外门 · 柳安坊市 · 杂役弟子（底层）',
+      look: '瘦长个，旧道袍洗得发白；左眉一道疤（火场留的）。',
+      speech: '说话慢半拍，急了才吐真话；口头禅「让我再想想」。',
+      background: '幼年火场失父，被戒律堂收进杂役房；靠替藏经阁抄书换外门通行。',
+      plot: '主角——以弱破强；核心冲突＝查旧案 × 躲丹阁。'
+    },
+    cog: {
+      w1: '知道九境之上的事被宗门刻意捂着；不知道「听漏」的代价会累加。',
+      w2: '以为丹阁只是来查账——其实早盯上他了。',
+      w3: '规则只护有钱有势的人——所以只能自己挣。',
+      w4: '人多半是先自保再谈善恶——不怪他们。',
+      w5: '',
+      s1: '我就是个杂役——但记性是我的本钱。',
+      s2: '表面自轻（杂役嘛），骨子里不服。',
+      s3: '怕火（火场创伤）；怕欠人情——收了恩情就得还。',
+      s4: '自认只要肯背就能赢（低估境界差）；自知嘴笨，不知自己把什么都憋着。',
+      s5: '',
+      v1: '查清父亲失踪的真相。',
+      v2: '不对坊市平民下手。',
+      v3: '亲人真相 ＞ 恩义 ＞ 安稳 ＞ 修行前程；可押眼睛和前程，不押别人的命。',
+      v4: '为护人撒谎是善；按规矩见死不救才是恶。',
+      p1: '记性过人——抄过的残页一字不差。',
+      p2: '听漏之耳——听见灵力流动的「漏洞」，看穿修为破绽。',
+      p6: '抄录与古字认读（藏经阁外围自学，抄过的一字不差）；外门十年练出的潜行与腿脚。',
+      p3: '练气前期垫底；耳力只到金丹，再高反噬。',
+      p4: '每用一次自瞎一日；连用三次永久丢一段记忆（要能和「世界设定 · 力量的代价」对上）。',
+      p5: '',
+      b1: '憨直嘴笨，心里话不往外倒；被逼急了才硬顶一句。',
+      b2: '想事情摩挲左眉；吃饭坐门口；别人碰残页会炸。',
+      b3: '',
+      b4: '先「让我再想想」，再赌一把信息差。',
+      b5: '表层憨笑不接话；真实＝记下每个人说过什么。',
+      e1: '外门柴房——自己挣来的落脚处。',
+      e2: '藏经阁外围通行——帮抄书抄来的。',
+      e3: '柳掌柜——半个人情；赵执事——睁只眼闭只眼；丹阁——敌，尚未照面。',
+      e4: '残卷案风声再起，坊市暗流——他的处境随之收紧。',
+      e5: ''
+    }
+  });
+
+  addChar('suwanwu', {
+    name: '苏晚芜', alias: '苏师姐', type: '配角', id: '#C-0002', first: '第 11 章',
+    persona: '青梧宗内门弟子，另一个想查丹阁旧案的人——比林拾有修为，也比他多顾虑。',
+    dossier: { gender: '女', age: '十九', race: '人族', faction: '青梧宗内门 · 丹阁挂名（明）', look: '眉眼清淡，袖口磨得整齐。', speech: '客气、周全，话里带钩；口头禅「这话我可没说」。', background: '丹阁旧人之后，家里那桩案子没人敢提。', plot: '林拾的同盟与制衡：交换秘密、各留一手。' },
+    cog: { v1: '查清师门旧案里属于自己那一支的真相。', s3: '怕被当成棋子——哪怕是自己人的棋子。', b1: '客气、周全，从不先把话说满。' }
+  });
+
+  addChar('lfu', {
+    name: '林父', alias: '林承业 · 已故', type: '配角', id: '#C-0004', first: '第 00 章（追忆）',
+    persona: '林拾的父亲——火场里没了，只留一枚遗扣和一桩没人敢提的失踪。',
+    dossier: { gender: '男', age: '殁年三十九', race: '人族', faction: '青梧宗外门 · 残卷修补匠', look: '只存在于林拾记忆里的背影。', speech: '话少，一句顶一句；口头禅「补得上」。', background: '替藏经阁修补残卷；火场之后，宗门记录里连名字都被抹了。', plot: '旧案的核心缺口——本人不登场，只被追。' },
+    cog: { v1: '（生前执念）把那半卷补完。', b1: '话少，做活极稳。' }
+  });
+
+  addChar('lzhou', {
+    name: '老周', alias: '藏经阁老吏', type: '配角', id: '#C-0009', first: '第 04 章',
+    persona: '藏经阁看门的老吏，一辈子和残卷打交道——教林拾认古字，也从没问过为什么。',
+    dossier: { gender: '男', age: '六十上下', race: '人族', faction: '青梧宗 · 藏经阁杂吏', look: '背驼，指头全是墨渍。', speech: '慢、声音低；口头禅「急什么」。', background: '在藏经阁待了四十年，比现任首座资历都老。', plot: '林拾的引路人；知道得比说出来的多。' },
+    cog: { v1: '安安稳稳看一辈子门。', b1: '慢，但不含糊；问什么答什么，多的不说。' }
+  });
+
+  addChar('liu', { name: '柳掌柜', type: '配角', id: '#C-0003', first: '第 03 章', persona: '柳安坊市当铺掌柜，什么都收，什么都不问。', dossier: { gender: '男', age: '五十上下', race: '人族', faction: '柳安坊市 · 当铺掌柜', speech: '笑面、慢条斯理；先问「拿来的是什么」，再问名字。', plot: '坊市情报节点：什么都能打听，什么都收钱。' }, cog: { v1: '把铺子开过这个乱世。', b1: '笑面、不与人红脸，什么都能聊。' } });
+
+  addChar('zhao', { name: '赵执事', type: '配角', id: '#C-0005', first: '第 05 章', persona: '青梧宗管杂役名录的执事——林拾偷进藏经阁那次，他睁一只眼闭一只眼。', dossier: { gender: '男', age: '四十', race: '人族', faction: '青梧宗 · 杂役房执事', speech: '公事口吻，话少、不打岔。', plot: '给林拾递关键信息，偶尔收点好处。' }, cog: { v1: '安稳做到致仕。', b1: '公事公办；收好处时手不抖。' } });
+
+  addChar('jie', { name: '戒律堂主', type: '配角', id: '#C-0006', first: '第 06 章', persona: '青梧宗戒律堂主，铁面，认规矩不认人。', dossier: { gender: '男', age: '不详', race: '人族', faction: '青梧宗 · 戒律堂', speech: '字少、声平，问完就判。', plot: '给林拾立规矩、设障碍的宗门面孔。' }, cog: { v1: '宗门规矩高于一切。', b1: '铁面、不留情面。' } });
+
+  addChar('dan', { name: '丹阁首座', type: '反派', id: '#C-0007', first: '第 07 章', persona: '丹阁当家——当年那场火是他默许烧的，如今要抢在所有人前头把残卷收干净。', dossier: { gender: '男', age: '不详', race: '人族', faction: '青梧宗 · 丹阁首座', speech: '说话像在对账，一条一条来。', plot: '中期主压力：用规矩与资源困住林拾，不亲自动手。' }, cog: { v1: '在残卷案定案前，把所有原件攥进丹阁。', b1: '不怒、不急；什么都算得清。' } });
+
+  addChar('zhi', { name: '执法长老', type: '反派', id: '#C-0008', first: '第 09 章', persona: '丹阁执法长老，通缉令的执行人，出手狠。', dossier: { gender: '男', age: '不详', race: '人族', faction: '青梧宗 · 丹阁执法', speech: '话少，先动手、后报名号。', plot: '明面上的追捕者，逼林拾离宗。' }, cog: { v1: '把通缉令办成铁案。', b1: '不多话、不留余地。' } });
+
+  for (let i = 1; i <= 34; i++) {
+    addChar('m' + i, {
+      name: '外门弟子·' + cnNum(i), type: '路人', id: '#C-' + String(i + 10).padStart(4, '0'), first: '第 ' + (11 + i) + ' 章',
+      persona: '青梧宗外门弟子，出场带过一笔的背景人物。',
+      dossier: { race: '人族', faction: '青梧宗外门', plot: '背景人物——需要时再补卡。' },
+      cog: {}, simple: 1
+    });
+  }
+
+  /* ═══ 人物关系：单向记录——只存「这个角色怎么看别人」；章节版本史与回看待「归档」change ═══ */
+  const REL_TYPES = [
+    { g: '亲缘', items: ['父子', '母女', '兄弟', '姐妹', '血亲'] },
+    { g: '师承', items: ['师徒', '同门', '举荐'] },
+    { g: '立场', items: ['同盟', '友好', '主仆', '上下级', '竞争', '纵容', '管束'] },
+    { g: '恩怨', items: ['恩情', '亏欠', '敌对', '仇人', '畏惧'] }
+  ];
+  const REL = [
+    { id: 'r1', owner: 'lingshi', other: 'lfu', ch: 0, type: '父子', stance: '血亲 · 追忆', note: '火场之后只剩一枚遗扣——查他失踪，是林拾一切动作的底因。' },
+    { id: 'r2', owner: 'lingshi', other: 'lzhou', ch: 4, type: '师徒', stance: '半师之谊', note: '教他认残页里的古字；没拜过师，也没留名。' },
+    { id: 'r3', owner: 'lingshi', other: 'liu', ch: 8, type: '同盟', stance: '消息换保护', note: '柴房落脚是他递的话；后来把丹阁查账的风声透给他，人情转成了生意。' },
+    { id: 'r4', owner: 'lingshi', other: 'zhao', ch: 11, type: '纵容', stance: '已不敢照面', note: '偷进藏经阁那次他当没看见；丹阁调走名录后，他先把差事摘干净了。' },
+    { id: 'r5', owner: 'lingshi', other: 'jie', ch: 6, type: '管束', stance: '记名立规', note: '顶下残页之事保住差事——代价是名字进了戒律堂的册子。' },
+    { id: 'r6', owner: 'lingshi', other: 'suwanwu', ch: 11, type: '同盟', stance: '试探 · 各留一手', note: '互换旧案线索；谁也没交底。' },
+    { id: 'r7', owner: 'lingshi', other: 'dan', ch: 11, type: '仇人', stance: '转明', note: '丹阁查账的真正目标是他；雷雨夜照面，彼此都认出了对方。' },
+    { id: 'r8', owner: 'lingshi', other: 'zhi', ch: 9, type: '敌对', stance: '通缉 · 明面', note: '通缉令的执行人，出手不留余地。' },
+    { id: 'r9', owner: 'suwanwu', other: 'dan', ch: 0, type: '仇人', stance: '家案 · 未明说', note: '丹阁旧案里丢了父亲——首座知道她是谁。' },
+    { id: 'r10', owner: 'liu', other: 'dan', ch: 3, type: '畏惧', stance: '不敢不应对', note: '坊市里丹阁要什么，他给什么。' }
+  ];
+
+  const TYPES = ['主角', '配角', '反派', '路人'];
+  const DOT = { '主角': 'main', '配角': 'side', '反派': 'villain', '路人': 'extra' };
+  /* 主角＝类型是「主角」的那张卡：一本书一位，改类型即换人（门禁、体检、进度都跟着它走） */
+  function protKey() { const ks = Object.keys(DATA).filter(k => DATA[k].type === '主角'); return ks.length ? ks[0] : null; }
+  const UI = { sel: null, ops: '', relForm: 0, relEdit: null, cog: {}, grp: { '主角': 1, '配角': 1, '反派': 1, '路人': 0 }, q: '', zoneVar: { dossier: 0, cog: 0 }, checkVar: {}, confirmed: false };
+  UI.sel = protKey() || Object.keys(DATA)[0];
+  UI.cog[UI.sel] = { worldview: 1 };
+
+  const protOk = d => !!(d && String(d.name || '').trim() && String(d.persona || '').trim());
+
+  function setPath(path, val) {
+    const ks = path.split('.');
+    let o = DATA[UI.sel];
+    for (let i = 0; i < ks.length - 1; i++) { if (!o[ks[i]] || typeof o[ks[i]] !== 'object') o[ks[i]] = {}; o = o[ks[i]]; }
+    o[ks[ks.length - 1]] = val;
+  }
+
+  /* ═══ 当前角色的三处可补充区：人设 1 格、基础档案 6 格（性别年龄不计）、认知 9 格 ═══ */
+  function zoneGaps(d) {
+    return {
+      persona: String(d.persona || '').trim() ? 0 : 1,
+      dossier: DOSSIER_FILL.filter(f => !String((d.dossier || {})[f.k] || '').trim()).length,
+      cog: d.simple ? 0 : COG_FILL.filter(f => !String(d.cog[f.k] || '').trim()).length
+    };
+  }
+  function aiTargetHtml() {
+    const d = DATA[UI.sel];
+    const nm = '<b>' + esc(d.name || '未命名') + '</b> <span class="num">' + esc(d.id) + '</span>';
+    const g = zoneGaps(d);
+    const part = (n, max) => n ? '<span class="gap-c">缺 ' + n + '/' + max + '</span>' : '已齐';
+    if (d.simple) return '当前角色：' + nm + ' · 路人卡只填基础档案 · 档案' + part(g.dossier, 6) + '（性别、年龄不代填）';
+    return '当前角色：' + nm + ' · 人设' + part(g.persona, 1) + ' · 档案' + part(g.dossier, 6) + ' · 认知' + part(g.cog, 10);
+  }
+  function renderAiTarget() {
+    const t = $('#aiTarget');
+    if (t) t.innerHTML = aiTargetHtml();
+    const d = DATA[UI.sel];
+    const nm = d.name || '未命名';
+    const ph = $('#hPersona'), dh = $('#hDossier'), ch2 = $('#hCog'), kh = $('#hCheck');
+    /* 能力行＝名称 + 描述（描述里带「会读什么」）+ 右箭头，与现役 AI 卡片同构 */
+    if (ph) ph.textContent = '为「' + nm + '」出一稿 · 会读：这张卡、简介、题材';
+    if (dh) dh.textContent = '补「' + nm + '」的档案空格（性别、年龄不代填）· 会读：这张卡、简介、题材、世界';
+    if (ch2) ch2.textContent = '补「' + nm + '」每层要写的那几格（含技能）· 会读：这张卡、世界（力量与代价）、主线';
+    if (kh) kh.textContent = '拿「' + nm + '」去对整体设定 · 会读：这张卡、简介、题材、世界、主线';
+  }
+
+  /* ═══ 角色列表（按类型分组折叠） ═══ */
+  function treeHtml() {
+    const q = UI.q.trim();
+    let html = '';
+    TYPES.forEach(t => {
+      const hit = Object.keys(DATA).filter(k => DATA[k].type === t && (!q || (String(DATA[k].name) + String(DATA[k].alias || '')).indexOf(q) >= 0));
+      if (q && !hit.length) return;
+      const open = q ? 1 : UI.grp[t];
+      const dotCls = 'tg-dot ' + DOT[t];
+      const rows = hit.map(k => {
+        const c = DATA[k];
+        const flag = t === '主角' && !protOk(c) ? '<span class="ti-flag">待立</span>' : '';
+        const tiCls = 'ti' + (UI.sel === k ? ' on' : '');
+        return '<button type="button" class="' + tiCls + '" data-act="pick" data-key="' + k + '" data-od-id="char-' + k + '">' +
+          '<i class="ti-ava">' + esc(String(c.name || '？').slice(0, 1)) + '</i>' +
+          '<span class="ti-b"><span class="ti-name">' + esc(c.name || '未命名') + '</span><span class="ti-sub num">' + esc(c.first || '未出场') + '</span></span>' + flag +
+          '</button>';
+      }).join('');
+      html += '<div class="tg' + (open ? ' open' : '') + '" data-type="' + t + '">' +
+        '<button type="button" class="tg-h" data-act="toggle-grp" data-type="' + t + '">' +
+          '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="12" height="12"><path d="m9 6 6 6-6 6"/></svg>' +
+          '<i class="' + dotCls + '"></i><span class="tg-name">' + t + '</span><span class="tg-cnt num">' + hit.length + '</span>' +
+        '</button>' +
+        '<div class="tg-list"' + (open ? '' : ' hidden') + '>' + rows + '</div>' +
+        '</div>';
+    });
+    return html || '<p class="opt tempty">没有找到——换个名字或别名试试。</p>';
+  }
+  function renderTree() {
+    $('#treeList').innerHTML = treeHtml();
+    $('#treeCnt').textContent = String(Object.keys(DATA).length);
+    $('#charCount').textContent = Object.keys(DATA).length + ' 人';
+  }
+
+  /* ═══ 人物卡 ═══ */
+  function headHtml(d) {
+    const types = TYPES.map(t => '<button type="button" class="chip' + (d.type === t ? ' on' : '') + '" data-act="type" data-type="' + t + '">' + t + '</button>').join('');
+    const side = d.type === '主角'
+      ? '<span class="badge ' + (protOk(d) ? 'ok' : 'warn') + '">' + (protOk(d) ? '已立主角' : '主角待立') + '</span>'
+      : '<span class="badge empty">' + esc(d.type) + '</span>';
+    return '<header class="char-head" data-od-id="char-head">' +
+      '<span class="seal">' + esc(String(d.name || '？').slice(0, 1)) + '</span>' +
+      '<div class="ch-id">' +
+        '<div class="ch-name-row">' +
+          '<input class="ch-name" data-path="name" value="' + esc(d.name) + '" placeholder="姓名 / 称号 / 代号" data-od-id="input-char-name" aria-label="角色名称" />' +
+          '<span class="type-pills" role="group" aria-label="角色类型" data-od-id="seg-char-type">' + types + '</span>' +
+        '</div>' +
+        '<input class="ch-alias" data-path="alias" value="' + esc(d.alias || '') + '" placeholder="别名 / 称号（可选，AI 写章用于指代）" aria-label="别名" />' +
+        '<div class="ch-meta num">' + esc(d.id) + ' · 首次出场 ' + esc(d.first || '未出场') + (d.updated ? ' · 更新于 ' + esc(d.updated) : '') + '</div>' +
+      '</div>' +
+      '<div class="ch-side">' + side +
+        '<div class="ch-ops">' +
+          '<button type="button" data-act="ops-merge" data-od-id="btn-char-merge">合并…</button>' +
+          '<button type="button" class="danger" data-act="ops-del" data-od-id="btn-char-del">删除</button>' +
+        '</div>' +
+      '</div>' +
+    '</header>' + opsPanelHtml(d) + '<div class="ai-sink" id="sinkCheck" hidden data-od-id="sink-check"></div>';
+  }
+
+  /* 删除 / 合并：都是先出说明、再动手；动手走同一份回执，可一步撤销 */
+  function opsPanelHtml(d) {
+    if (!UI.ops) return '';
+    if (UI.ops === 'del') {
+      const n = relTouching(d.key).length;
+      const dn = d.name || '未命名';
+      return '<div class="ops-panel danger" data-od-id="ops-del">' +
+        '<span class="op-t">删除《' + esc(dn) + '》？' + (n ? '他写过的、以及别人写给他的 <b>' + n + '</b> 段关系都会一并移除；' : '') +
+        (d.type === '主角' ? '主角位会空出来——要另立一位主角，才能确认「角色」。' : '') +
+        '删错了可以在下面的回执里撤销——撤销保留到你继续编辑或刷新页面之前。</span>' +
+        '<input id="opsConfirmName" placeholder="输入「' + esc(dn) + '」以确认" aria-label="输入角色名以确认" />' +
+        '<span class="op-acts"><button type="button" class="btn btn-danger btn-sm" data-act="ops-del-ok" data-od-id="btn-char-del-ok" disabled>删除</button>' +
+        '<button type="button" class="btn btn-secondary btn-sm" data-act="ops-cancel" data-od-id="btn-char-ops-cancel">取消</button></span>' +
+      '</div>';
+    }
+    const who = TYPES.map(t => '<optgroup label="' + t + '">' +
+      Object.keys(DATA).filter(k => k !== d.key && DATA[k].type === t)
+        .map(k => '<option value="' + k + '">' + esc((DATA[k].name || '未命名') + ' · ' + DATA[k].id) + '</option>').join('') +
+      '</optgroup>').join('');
+    return '<div class="ops-panel" data-od-id="ops-merge">' +
+      '<span class="op-t">把《' + esc(d.name || '未命名') + '》并到另一张卡上：<b>那张卡写过的不动，空着的地方用这张卡补上</b>；这个名字会变成那张卡的别名；这边写的关系也归到那张卡上，同一个人的合成一条。合并会删掉这张卡，可以撤销——撤销保留到你继续编辑或刷新页面之前。</span>' +
+      '<select id="mergeTarget" aria-label="合并到哪张卡"><option value="">合并到…</option>' + who + '</select>' +
+      '<input id="opsConfirmName" placeholder="输入「' + esc(d.name || '未命名') + '」以确认" aria-label="输入角色名以确认" />' +
+      '<span class="op-acts"><button type="button" class="btn btn-primary btn-sm" data-act="ops-merge-ok" data-od-id="btn-char-merge-ok" disabled>合并</button>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-act="ops-cancel" data-od-id="btn-char-ops-cancel">取消</button></span>' +
+    '</div>';
+  }
+
+  function personaHtml(d) {
+    return '<div class="persona" data-od-id="persona-block">' +
+      '<span class="pl-label">一句话人设 · 每章都会带上这张卡的这句</span>' +
+      '<textarea rows="2" data-path="persona" placeholder="此人是谁、凭什么是他——例：青梧宗杂役弟子，资质平平却记性过人。">' + esc(d.persona || '') + '</textarea>' +
+      '<div class="ai-sink" id="sinkPersona" hidden></div>' +
+    '</div>';
+  }
+
+  function dossierHtml(d) {
+    const dd = d.dossier || {};
+    const inp = (p, ph) => '<input data-path="dossier.' + p + '" value="' + esc(dd[p] || '') + '" placeholder="' + ph + '" aria-label="' + ph + '" />';
+    const row = (label, body, req) => '<div class="drow"><span class="dk">' + label + (req ? '<i class="req">必填</i>' : '') + '</span><span class="dv">' + body + '</span></div>';
+    return '<section class="sec" data-od-id="sec-dossier">' +
+      '<header class="sec-h"><h3>基础档案</h3><span class="sec-sub">写每一章都用得上的硬信息——点一下就能改。</span></header>' +
+      '<div class="dossier">' +
+        row('性别 · 年龄 · 种族', '<span class="dtri">' + inp('gender', '性别') + inp('age', '年龄') + inp('race', '种族') + '</span>') +
+        row('势力 · 身份', inp('faction', '例：青梧宗外门 · 杂役弟子（底层）')) +
+        row('外貌标签', inp('look', '例：瘦长个 · 旧道袍 · 左眉疤')) +
+        row('语言特征', inp('speech', '例：说话慢半拍 · 急了才吐真话 · 口头禅「让我再想想」')) +
+        row('背景', '<textarea rows="1" data-path="dossier.background" placeholder="出身与来路——写到他为什么要这么做时用。" aria-label="背景">' + esc(dd.background || '') + '</textarea>') +
+        row('剧情定位', inp('plot', '在故事里干什么、和谁冲突——主角必填，AI 挑谁上场时看这格'), 1) +
+      '</div>' +
+      '<div class="ai-sink" id="sinkDossier" hidden></div>' +
+    '</section>';
+  }
+
+  function layerState(d, L) {
+    const missReq = (L.req || []).filter(k => !String(d.cog[k] || '').trim());
+    const filled = L.fields.filter(f => String(d.cog[f.k] || '').trim()).length;
+    return { missReq: missReq, filled: filled, total: L.fields.length };
+  }
+
+  function cogHtml(d) {
+    if (d.simple) {
+      return '<section class="sec" data-od-id="sec-cognition">' +
+        '<header class="sec-h"><h3>认知内核</h3><span class="sec-sub">六层单向：认知层 ⇒ 执行层 ⇒ 结果层。</span></header>' +
+        '<p class="lb-empty">路人卡不用填认知内核——基础档案和剧情定位写好就够；哪天他有戏份了，把类型点成配角，六层就会出现。</p>' +
+      '</section>';
+    }
+    const parts = [];
+    LAYERS.forEach(L => {
+      const st = layerState(d, L);
+      const open = !!(UI.cog[d.key] && UI.cog[d.key][L.id]);
+      const prev = String(d.cog[L.primary] || '').trim();
+      const fields = L.fields.map(f => {
+        const v = String(d.cog[f.k] || '');
+        const ph = '一句话写清这一层——空着可让右栏 AI 补';
+        const ctl = f.ta
+          ? '<textarea rows="' + (f.full ? 2 : 1) + '" data-path="cog.' + f.k + '" placeholder="' + esc(ph) + '" aria-label="' + esc(f.label) + '">' + esc(v) + '</textarea>'
+          : '<input data-path="cog.' + f.k + '" placeholder="' + esc(ph) + '" value="' + esc(v) + '" aria-label="' + esc(f.label) + '" />';
+        return '<div class="f' + (f.full ? ' full' : '') + '"><div class="f-label"><b>' + esc(f.label) + (f.req ? '<i class="req">必填</i>' : '') + '</b><span class="hint">' + esc(f.hint) + '</span></div>' + ctl + '</div>';
+      }).join('');
+      const state = st.missReq.length
+        ? '<span class="layer-miss">还差 ' + st.missReq.length + ' 项必填</span>'
+        : '<span class="layer-fill num">' + st.filled + '/' + st.total + '</span>';
+      parts.push('<article class="layer' + (open ? ' open' : '') + (st.missReq.length ? ' miss' : '') + '" data-layer="' + L.id + '" data-od-id="layer-' + L.id + '">' +
+        '<button type="button" class="layer-head" data-act="toggle-layer">' +
+          '<span class="layer-idx num">' + L.no + '</span><span class="layer-name">' + esc(L.name) + '</span>' +
+          '<span class="layer-tag">' + esc(L.tag) + '</span>' +
+          '<span class="layer-prev' + (prev ? ' has' : '') + '">' + esc(prev || '还没写——展开补这一层的核心一句') + '</span>' + state +
+          '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m6 9 6 6 6-6"/></svg>' +
+        '</button>' +
+        '<div class="layer-body"' + (open ? '' : ' hidden') + '><div class="fgrid">' + fields + '</div></div>' +
+      '</article>');
+      if (L.link) {
+        parts.push('<div class="cog-link"><i class="num">' + L.arrow + '</i>' + esc(L.link) + (L.grp ? '<span class="grp">' + esc(L.grp) + '</span>' : '') + '</div>');
+      }
+    });
+    return '<section class="sec" data-od-id="sec-cognition">' +
+      '<header class="sec-h"><h3>认知内核</h3>' +
+        '<span class="sec-sub">六层是一条链：世界观 → 自我观 → 价值观 → 能力 → 行为 → 环境。AI 写他做什么时顺着这条链找依据，不容易写崩人设。</span>' +
+        '<span class="sec-tools"><button type="button" class="text-btn" data-act="cog-all" data-od-id="btn-cog-all">展开全部</button></span>' +
+      '</header>' +
+      '<div class="ai-sink" id="sinkCog" hidden></div>' +
+      '<div class="cog">' + parts.join('') + '</div>' +
+    '</section>';
+  }
+
+  /* ═══ 人物关系：单向记录——只存「这个角色怎么看别人」，同一对方一条 ═══ */
+  /* 章节版本史与「回看 / 恢复到此时点」按裁定移除，随「归档」change 再设计 */
+  function chTxt(n) { return '第 ' + String(n).padStart(2, '0') + ' 章'; }
+  function maxCh() { let m = 0; REL.forEach(r => { if (r.ch > m) m = r.ch; }); return m; }
+  /* 单向：一张卡上列的，是这个角色自己写的关系 */
+  function relPairs(sel) { return REL.filter(r => r.owner === sel); }
+  function relTouching(sel) { return REL.filter(r => r.owner === sel || r.other === sel); }
+  function relOther(r) { return r.other; }
+  function relById(id) { return REL.filter(r => r.id === id)[0] || null; }
+  function relSamePair(owner, other, exceptId) {
+    return REL.filter(r => r.id !== exceptId && r.owner === owner && r.other === other)[0] || null;
+  }
+  function relCls(t) {
+    if (['父子', '母女', '兄弟', '姐妹', '血亲', '师徒', '同门', '举荐'].indexOf(t) >= 0) return 'kin';
+    if (['同盟', '友好', '恩情'].indexOf(t) >= 0) return 'ally';
+    if (['敌对', '仇人'].indexOf(t) >= 0) return 'foe';
+    return 'tension';
+  }
+
+  function relRowHtml(d, r) {
+    const ok = r.other;
+    const o = DATA[ok] || { name: '已删除的角色' };
+    return '<article class="rel-item" data-od-id="rel-' + r.id + '">' +
+      '<div class="rel-row">' +
+        '<span class="rel-who"><i class="rel-ava">' + esc(String(o.name || '？').slice(0, 1)) + '</i>' +
+          '<button type="button" class="rel-name" data-act="rel-pick" data-key="' + ok + '" data-od-id="rel-open-' + ok + '">' + esc(o.name || '未命名') + '</button></span>' +
+        '<span class="pill ' + relCls(r.type) + '">' + esc(r.type) + '</span>' +
+        '<span class="rel-note">' + esc(r.stance || '') + (r.stance && r.note ? '——' : '') + esc(r.note || '') + '</span>' +
+        '<span class="rel-meta num">记于 ' + chTxt(r.ch) + '</span>' +
+        '<span class="rel-acts">' +
+          '<button type="button" data-act="rel-edit" data-id="' + r.id + '" data-od-id="btn-rel-edit-' + r.id + '">编辑</button>' +
+          '<button type="button" class="danger" data-act="rel-del" data-id="' + r.id + '" data-od-id="btn-rel-del-' + r.id + '">删除</button>' +
+        '</span>' +
+      '</div>' +
+    '</article>';
+  }
+
+  function relFormHtml(d) {
+    if (!UI.relForm) return '';
+    const edit = UI.relEdit ? relById(UI.relEdit) : null;
+    const cur = edit ? edit.other : '';
+    const who = TYPES.map(t => '<optgroup label="' + t + '">' +
+      Object.keys(DATA).filter(k => k !== d.key && DATA[k].type === t)
+        .map(k => '<option value="' + k + '"' + (cur === k ? ' selected' : '') + '>' + esc((DATA[k].name || '未命名') + ' · ' + DATA[k].id) + '</option>').join('') +
+      '</optgroup>').join('');
+    const tps = REL_TYPES.map(g => '<optgroup label="' + esc(g.g) + '">' +
+      g.items.map(t => '<option value="' + t + '"' + (edit && edit.type === t ? ' selected' : '') + '>' + t + '</option>').join('') + '</optgroup>').join('');
+    return '<div class="rel-form" data-od-id="rel-form">' +
+      '<select id="relTarget" aria-label="对方角色"' + (edit ? ' disabled' : '') + '><option value="">选对方…</option>' + who + '</select>' +
+      '<select id="relType" aria-label="关系类型">' + tps + '</select>' +
+      '<input id="relStance" placeholder="一句立场——例：半师之谊" aria-label="立场" value="' + esc(edit ? (edit.stance || '') : '') + '" />' +
+      '<input id="relNote" placeholder="一句说明——例：教他认残页里的古字" aria-label="关系说明" value="' + esc(edit ? (edit.note || '') : '') + '" />' +
+      '<button type="button" class="btn btn-primary btn-sm" data-act="rel-save" data-od-id="btn-rel-save">' + (edit ? '保存' : '记下') + '</button>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-act="rel-cancel" data-od-id="btn-rel-cancel">取消</button>' +
+      '<span class="rel-form-hint num">' + (edit ? '只改你写的这一条，对方卡上不动' : '记在' + chTxt(maxCh())) + '</span>' +
+    '</div>';
+  }
+
+  let relSeq = 100;
+  function saveRel() {
+    const ty = $('#relType'), st = $('#relStance'), nt = $('#relNote');
+    if (!ty) return;
+    const type = ty.value, stance = st ? st.value.trim() : '', note = nt ? nt.value.trim() : '';
+    if (UI.relEdit) {
+      const r = relById(UI.relEdit);
+      UI.relForm = 0; UI.relEdit = null;
+      if (!r) { renderCard(); return; }
+      beginReceipt(UI.sel);
+      r.type = type; r.stance = stance; r.note = note;
+      renderCard();
+      toast('已改这段关系——只改了你自己的视角，对方卡上不动');
+      return;
+    }
+    const t = $('#relTarget');
+    if (!t || !t.value) { toast('先选对方——关系是两个人共有的同一条记录'); return; }
+    const dup = relSamePair(UI.sel, t.value, null);
+    UI.relForm = 0;
+    beginReceipt(UI.sel);
+    if (dup) {
+      dup.type = type; dup.stance = stance; dup.note = note;
+      renderCard();
+      toast('你已经给他记过关系了——改成更新那一条，不会多出一条');
+      return;
+    }
+    REL.push({ id: 'r' + (++relSeq), owner: UI.sel, other: t.value, ch: maxCh(), type: type, stance: stance, note: note });
+    renderCard();
+    toast('已记一段——' + (DATA[t.value].name || '对方') + '那张卡上同步能看到，可撤销');
+  }
+
+  function relHtml(d) {
+    const pairs = relPairs(d.key);
+    const rows = pairs.map(r => relRowHtml(d, r)).join('');
+    const body = d.simple && !pairs.length
+      ? '<p class="lb-empty">路人卡暂无关系——有了对手戏，点「＋记一段关系」记一条。</p>'
+      : (rows || '<p class="lb-empty">还没有关系记录——遇到值得记的人，点「＋记一段关系」。</p>');
+    return '<section class="sec" data-od-id="sec-relations">' +
+      '<header class="sec-h"><h3>人物关系</h3>' +
+        '<span class="sec-sub">只记这个角色怎么看别人（亲缘 / 师承 / 立场 / 恩怨）——同一对方一条，随时能改或删。</span>' +
+        '<span class="rel-tools">' +
+          '<button type="button" class="text-btn" data-act="rel-add" data-od-id="btn-rel-add">＋记一段关系</button>' +
+        '</span>' +
+      '</header>' +
+      '<div class="rel">' + body + '</div>' + relFormHtml(d) +
+    '</section>';
+  }
+
+  function renderCard() {
+    const d = DATA[UI.sel];
+    $('#card').innerHTML = headHtml(d) + personaHtml(d) + dossierHtml(d) + relHtml(d) + cogHtml(d);
+    syncFoot();
+    renderAiTarget();
+  }
+
+  /* 确认门禁（两档）：第一次确认（这一项还没确认过）只要主角卡完整；此后每次确认 ＝ 主角 ＋ 每个配角/反派的六项齐。
+     路人卡只要基础档案，不参与这一档。 */
+  const GATE_FIELDS = [
+    { label: '角色名称', read: d => d.name },
+    { label: '一句话人设', read: d => d.persona },
+    { label: '剧情定位', read: d => (d.dossier || {}).plot },
+    { label: '核心认知盲区', read: d => d.cog.w5 },
+    { label: '能力上限', read: d => d.cog.p3 },
+    { label: '能力代价', read: d => d.cog.p4 }
+  ];
+  function cardGaps(d) {
+    if (d.simple) return String((d.dossier || {}).plot || '').trim() ? [] : ['剧情定位'];
+    return GATE_FIELDS.filter(f => !String(f.read(d) || '').trim()).map(f => f.label);
+  }
+  function charGate() {
+    const pk = protKey();
+    if (!pk) return { ok: false, noProt: true, list: [] };
+    const list = [];
+    const d = DATA[pk];
+    const g = cardGaps(d);
+    if (g.length) list.push('主角《' + (d.name || '未命名') + '》缺 ' + g.join('、'));
+    Object.keys(DATA).filter(k => !DATA[k].simple && k !== pk).forEach(k => {
+      const g2 = cardGaps(DATA[k]);
+      if (g2.length) list.push(DATA[k].type + '《' + (DATA[k].name || '未命名') + '》缺 ' + g2.join('、'));
+    });
+    return { ok: !list.length, noProt: false, list: list };
+  }
+  /* 徽标与进度：草稿 / 已确认 / 已确认但有变（打回） */
+  function syncFoot() {
+    const note = $('#footNote');
+    const g = charGate();
+    if (!g.ok) {
+      const head = g.noProt ? '确认「角色」要先有一位主角——在卡头把谁点成主角' : ('还差 ' + g.list.length + ' 处：' + g.list[0] + (g.list.length > 1 ? ' 等' : ''));
+      note.textContent = (UI.confirmed ? '这一项之前确认过，内容改过了——' : '') + head;
+      note.className = 'note warnline';
+    } else {
+      note.textContent = '主角和每个配角/反派的关键字段都齐了——改动会自动保存，随时可以确认';
+      note.className = 'note';
+    }
+    const b = $('#charState');
+    const item = $$('.s-item').filter(x => x.querySelector('.nm') && x.querySelector('.nm').textContent === '角色')[0];
+    const badge = item ? item.querySelector('.badge') : null;
+    if (UI.confirmed && g.ok) {
+      b.textContent = '已确认'; b.className = 'badge ok';
+      if (badge) { badge.textContent = '已确认'; badge.className = 'badge ok'; }
+      setProg(4, '已确认');
+    } else if (UI.confirmed && !g.ok) {
+      b.textContent = '内容有变 · 待重新确认'; b.className = 'badge warn';   /* 硬规则：含「已确认」字样必须绿色，故此处不含 */
+      if (badge) { badge.textContent = '待重新确认'; badge.className = 'badge warn'; }
+      setProg(3, '待重新确认');
+    } else {
+      b.textContent = g.noProt ? '草稿 · 未立主角' : '草稿 · 主角已立';
+      b.className = 'badge ' + (g.noProt ? 'warn' : 'prog');
+      if (badge) { badge.textContent = '草稿'; badge.className = 'badge warn'; }
+      setProg(3, '草稿');
+    }
+  }
+  function setProg(n, treeBadgeTxt) {
+    $('#modCount').textContent = String(n);
+    $('#progBar').style.width = (n / 8 * 100) + '%';
+    $('#progTxt').innerHTML = '设定 <b>' + n + '</b>/8';
+    const item = $$('.s-item').filter(x => x.querySelector('.nm') && x.querySelector('.nm').textContent === '角色')[0];
+    if (item) { const bd = item.querySelector('.badge'); if (bd) bd.textContent = treeBadgeTxt; }
+  }
+  /* 手工改过就标一下保存态（真实实现＝防抖后单格 PATCH） */
+  let saveTimer = null;
+  function markSaving() {
+    const el = $('#saveState');
+    if (!el) return;
+    el.textContent = '保存中…'; el.className = 'save-state';
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { el.textContent = '已自动保存 · 刚刚'; el.className = 'save-state on'; }, 320);
+  }
+
+
+  /* ═══ 删除 / 合并：都是先出说明再动手，动手走同一份回执，可一步撤销 ═══ */
+  const MERGE_LABELS = { gender: '性别', age: '年龄', race: '种族', faction: '势力 · 身份', look: '外貌标签', speech: '语言特征', background: '背景', plot: '剧情定位' };
+  function delChar() {
+    const d = DATA[UI.sel];
+    const key = d.key;
+    const others = Object.keys(DATA).filter(k => k !== key);
+    if (!others.length) { toast('这是最后一个角色——至少留一张卡'); return; }
+    const wasProt = d.type === '主角';
+    const nm = d.name || '未命名';
+    beginReceipt([key]);
+    delete DATA[key];
+    const rest = REL.filter(r => r.owner !== key && r.other !== key);
+    REL.length = 0; REL.push.apply(REL, rest);
+    UI.ops = ''; UI.relForm = 0; UI.relEdit = null;
+    UI.sel = others[0];
+    if (wasProt) UI.cog[UI.sel] = UI.cog[UI.sel] || {};   /* 主角没了：syncFoot 会把徽标与进度打到「待重新确认」 */
+    renderTree(); renderCard();
+    $('#receiptText').textContent = '已删除《' + nm + '》' + (wasProt ? '（主角位空缺，设定回到未完成）' : '') + '——可撤销';
+    toast('已删除《' + nm + '》——用下面的撤销能找回来');
+  }
+
+  function mergeChar() {
+    const sel = $('#mergeTarget');
+    const target = sel ? sel.value : '';
+    if (!target) { toast('先选并到哪张卡上——那张卡写过的不动'); return; }
+    const a = DATA[UI.sel], b = DATA[target];
+    if (!a || !b || target === a.key) return;
+    const an = a.name || '未命名', bn = b.name || '未命名';
+    beginReceipt([a.key, target]);
+    const filled = [];
+    if (!String(b.persona || '').trim() && String(a.persona || '').trim()) { b.persona = a.persona; filled.push('一句话人设'); }
+    Object.keys(MERGE_LABELS).forEach(k => {
+      if (!String((b.dossier || {})[k] || '').trim() && String((a.dossier || {})[k] || '').trim()) {
+        b.dossier = b.dossier || {}; b.dossier[k] = a.dossier[k]; filled.push(MERGE_LABELS[k]);
+      }
+    });
+    LAYERS.forEach(L => L.fields.forEach(f => {
+      if (!String(b.cog[f.k] || '').trim() && String(a.cog[f.k] || '').trim()) {
+        b.cog = b.cog || {}; b.cog[f.k] = a.cog[f.k]; filled.push('认知 · ' + f.label);
+      }
+    }));
+    if (!String(b.first || '').trim() && String(a.first || '').trim()) b.first = a.first;
+    const aliasBits = [b.alias, a.name, a.alias].filter(x => String(x || '').trim())
+      .join(' · ').split(' · ').map(s => s.trim()).filter(Boolean);
+    b.alias = aliasBits.filter((x, i) => aliasBits.indexOf(x) === i).join(' · ');
+    /* 关系改指目标卡：自己写的关系并进来，别人写给他的也改指过来；同一个对端合成一条 */
+    let moved = 0, dropped = 0;
+    REL.forEach(r => { if (r.owner === a.key) { r.owner = target; moved++; } else if (r.other === a.key) { r.other = target; moved++; } });
+    const seen = {}, kept = [];
+    REL.forEach(r => {
+      /* 合成一张卡之后，自己对自己这条自然消掉 */
+      if (r.owner === r.other) { dropped++; return; }
+      const touches = r.owner === target || r.other === target;
+      if (!touches) { kept.push(r); return; }
+      const k = r.owner + '|' + r.other;
+      if (seen[k]) { const kp = seen[k]; if (!kp.stance && r.stance) kp.stance = r.stance; if (!kp.note && r.note) kp.note = r.note; dropped++; return; }
+      seen[k] = r; kept.push(r);
+    });
+    REL.length = 0; REL.push.apply(REL, kept);
+    if (a.type === '主角') {
+      Object.keys(DATA).forEach(k => { if (DATA[k].type === '主角') DATA[k].type = '配角'; });
+      b.type = '主角';
+    }
+    delete DATA[a.key];
+    UI.ops = ''; UI.relForm = 0; UI.relEdit = null;
+    UI.sel = target;
+    renderTree(); renderCard();
+    $('#receiptText').textContent = '已把《' + an + '》并进《' + bn + '》——补 ' + filled.length + ' 处空格、关系归并 ' + moved + ' 段' + (dropped ? '（去重 ' + dropped + ' 段）' : '') + '；可撤销';
+    toast('已合并——原来那张卡的字没动，空着的地方用《' + an + '》补上了' + (dropped ? '，重复的关系合成一条' : ''));
+  }
+
+  /* ═══ 交互：列表 ═══ */
+  function resetCardPanels() {
+    UI.ops = ''; UI.relForm = 0; UI.relEdit = null;
+    /* 回执只保留最近一条，切角色卡即清（与现役口径一致） */
+    if (lastSnaps) { lastSnaps = null; lastRel = null; $('#receipt').hidden = true; }
+  }
+  $('#treeList').addEventListener('click', e => {
+    const el = e.target.closest('[data-act]');
+    if (!el) return;
+    if (el.dataset.act === 'pick') { UI.sel = el.dataset.key; resetCardPanels(); renderTree(); renderCard(); }
+    if (el.dataset.act === 'toggle-grp') { const t = el.dataset.type; UI.grp[t] = UI.grp[t] ? 0 : 1; renderTree(); }
+  });
+  $('#treeSearch').addEventListener('input', e => { UI.q = e.target.value; renderTree(); });
+
+  $('#btnAddChar').addEventListener('click', () => {
+    const n = Object.keys(DATA).length + 1;
+    const key = 'c' + n + '-' + n;
+    addChar(key, { name: '', alias: '', type: '配角', id: '#C-' + String(n).padStart(4, '0'), first: '', persona: '', dossier: {}, cog: {} });
+    UI.sel = key; resetCardPanels();
+    renderTree(); renderCard();
+    const inp = $('#card .ch-name');
+    if (inp) inp.focus();
+    toast('名字一写就出现在左边列表；类型在卡头点一下就能归类');
+  });
+
+  /* ═══ 交互：卡片 ═══ */
+  $('#card').addEventListener('input', e => {
+    /* L3 名称输入确认：删 / 并这类不可逆动作，输入角色名才解锁按钮 */
+    if (e.target.id === 'opsConfirmName') {
+      const cur = String((DATA[UI.sel] || {}).name || '未命名').trim();
+      const btn = $('[data-act="ops-del-ok"]') || $('[data-act="ops-merge-ok"]');
+      if (btn) btn.disabled = e.target.value.trim() !== cur;
+      return;
+    }
+    const el = e.target.closest('[data-path]');
+    if (!el) return;
+    /* 手工改过之后，上一次 AI 采纳的回执就收起来——撤销不再回滚你后来的字 */
+    if (lastSnaps) { lastSnaps = null; lastRel = null; $('#receipt').hidden = true; }
+    setPath(el.dataset.path, el.value);
+    markSaving();
+    const p = el.dataset.path;
+    if (p === 'name') {
+      const seal = $('.seal', $('#card'));
+      if (seal) seal.textContent = String(el.value || '？').slice(0, 1);
+    }
+    if (p === 'name' || p === 'persona') {
+      renderTree();
+      const on = $('.ti.on');
+      if (on) {
+        const c = DATA[UI.sel];
+        on.querySelector('.ti-name').textContent = c.name || '未命名';
+        on.querySelector('.ti-ava').textContent = String(c.name || '？').slice(0, 1);
+      }
+    }
+    if (p.indexOf('cog.') === 0) {
+      const layer = el.closest('.layer');
+      const L = LAYERS.filter(x => x.id === layer.dataset.layer)[0];
+      if (L) {
+        const st = layerState(DATA[UI.sel], L);
+        const prevEl = layer.querySelector('.layer-prev');
+        const prev = String(DATA[UI.sel].cog[L.primary] || '').trim();
+        prevEl.textContent = prev || '还没写——展开补这一层的核心一句';
+        prevEl.className = 'layer-prev' + (prev ? ' has' : '');
+        const stateEl = layer.querySelector('.layer-miss') || layer.querySelector('.layer-fill');
+        const tag = document.createElement('span');
+        if (st.missReq.length) { tag.className = 'layer-miss'; tag.textContent = '还差 ' + st.missReq.length + ' 项必填'; }
+        else { tag.className = 'layer-fill num'; tag.textContent = st.filled + '/' + st.total; }
+        layer.classList.toggle('miss', !!st.missReq.length);
+        stateEl.replaceWith(tag);
+      }
+    }
+    syncFoot();
+    renderAiTarget();
+  });
+
+  $('#card').addEventListener('click', e => {
+    const el = e.target.closest('[data-act]');
+    if (!el) return;
+    const act = el.dataset.act;
+    if (act === 'toggle-layer') {
+      const layer = el.closest('.layer');
+      const open = !layer.classList.contains('open');
+      layer.classList.toggle('open', open);
+      layer.querySelector('.layer-body').hidden = !open;
+      UI.cog[UI.sel] = UI.cog[UI.sel] || {};
+      UI.cog[UI.sel][layer.dataset.layer] = open ? 1 : 0;
+    }
+    if (act === 'cog-all') {
+      const d = DATA[UI.sel];
+      const anyClosed = LAYERS.some(L => { const el2 = $('#card .layer[data-layer="' + L.id + '"]'); return el2 && !el2.classList.contains('open'); });
+      UI.cog[d.key] = {};
+      LAYERS.forEach(L => { UI.cog[d.key][L.id] = anyClosed ? 1 : 0; });
+      renderCard();
+      const btn = $('[data-act="cog-all"]');
+      if (btn) btn.textContent = anyClosed ? '收起全部' : '展开全部';
+    }
+    if (act === 'rel-pick') { UI.sel = el.dataset.key; resetCardPanels(); renderTree(); renderCard(); }
+    if (act === 'rel-add') { UI.relForm = 1; UI.relEdit = null; renderCard(); }
+    if (act === 'rel-edit') { UI.relForm = 1; UI.relEdit = el.dataset.id; renderCard(); }
+    if (act === 'rel-del') {
+      const r = relById(el.dataset.id);
+      if (!r) return;
+      const nm = (DATA[r.other] || {}).name || '对方';
+      beginReceipt(UI.sel);
+      const rest = REL.filter(x => x.id !== r.id);
+      REL.length = 0; REL.push.apply(REL, rest);
+      UI.relForm = 0; UI.relEdit = null;
+      renderCard();
+      $('#receiptText').textContent = '已删掉你写的那段关系（《' + nm + '》）——可撤销';
+      toast('已删掉你对《' + nm + '》的那段关系——可撤销');
+    }
+    if (act === 'rel-cancel') { UI.relForm = 0; UI.relEdit = null; renderCard(); }
+    if (act === 'rel-save') saveRel();
+    if (act === 'ops-del') { UI.ops = 'del'; UI.relForm = 0; UI.relEdit = null; renderCard(); }
+    if (act === 'ops-merge') { UI.ops = 'merge'; UI.relForm = 0; UI.relEdit = null; renderCard(); }
+    if (act === 'ops-cancel') { UI.ops = ''; renderCard(); }
+    if (act === 'ops-del-ok') delChar();
+    if (act === 'ops-merge-ok') mergeChar();
+    if (act === 'check-goto') {
+      /* 只开合那一层、不整卡重绘——否则体检结果会跟着没掉，作者没法边改边对照 */
+      const parts = el.dataset.goto.split(':');
+      if (parts[0] === 'layer') {
+        const layer = $('.layer[data-layer="' + parts[1] + '"]');
+        if (layer) {
+          layer.classList.add('open');
+          layer.querySelector('.layer-body').hidden = false;
+          UI.cog[UI.sel] = UI.cog[UI.sel] || {};
+          UI.cog[UI.sel][parts[1]] = 1;
+        }
+        toast('已展开要改的那一层——改完回来再体检一次');
+      } else {
+        const t = $('[data-path="dossier.' + parts[1] + '"]');
+        if (t) { t.focus(); toast('改完回来再体检一次'); }
+      }
+    }
+    if (act === 'check-rerun') {
+      UI.checkVar[UI.sel] = (UI.checkVar[UI.sel] || 0) + 1;
+      renderCheck();
+      toast('已重新体检——AI 每次的说法可能略有不同');
+    }
+    if (act === 'type') setType(el.dataset.type);
+  });
+
+  function setType(t) {
+    const d = DATA[UI.sel];
+    if (d.type === t) return;
+    if (t === '主角') {
+      Object.keys(DATA).forEach(k => { if (DATA[k].type === '主角') DATA[k].type = '配角'; });
+      toast('一本书只有一位主角——原来那位已改成配角');
+    }
+    /* 主角换人 = 「角色」这一项的确认失效，回到草稿（确认只对当时立住的那张卡负责） */
+    if (d.type === '主角' || t === '主角') {
+      if (UI.confirmed) toast('主角换人了——「角色」会显示「内容有变」，改完再确认一次');
+    }
+    d.type = t;
+    renderTree(); renderCard();
+  }
+
+  /* ═══ 回执（采纳 / 删除 / 合并都进同一份） ═══ */
+  let lastSnaps = null, lastRel = null;
+  function beginReceipt(keys) {
+    lastSnaps = {};
+    (Array.isArray(keys) ? keys : [keys]).forEach(k => { lastSnaps[k] = JSON.stringify(DATA[k]); });
+    lastRel = JSON.stringify(REL);
+    $('#receipt').hidden = false;
+  }
+  $('#receiptUndo').addEventListener('click', () => {
+    if (!lastSnaps) return;
+    const ks = Object.keys(lastSnaps);
+    ks.forEach(k => { DATA[k] = JSON.parse(lastSnaps[k]); });
+    if (lastRel) { REL.length = 0; REL.push.apply(REL, JSON.parse(lastRel)); }
+    lastSnaps = null; lastRel = null;
+    $('#receipt').hidden = true;
+    if (!DATA[UI.sel]) UI.sel = protKey() || Object.keys(DATA)[0];
+    renderTree(); renderCard();
+    toast('已撤销——' + (ks.length > 1 ? ks.length + ' 张卡' : '这张卡') + '回到动手之前的样子');
+  });
+
+  /* ═══ AI 助手：四个能力都只对当前选中的角色生效（人设 / 基础档案 / 认知内核 / 一致性体检） ═══ */
+  /* 四行都不是固定文案：真实实现＝后端按每行标注的「输入」拼提示词调大模型；
+     下面的 BANK / GEN 只是演示「示例输出」，重跑一次就换一版，说明它不是写死的。 */
+  /* 入库角色用自己的稿；没入库的用 GEN 模板生成——机制对每个角色一致，不挑主角 */
+  const BANK = {
+    lingshi: {
+      persona: [
+        '青梧宗杂役弟子林拾：资质被判「不堪修」，却把抄过的每一页都记进了脑子——宗门当废纸处理的残卷，是他的宝库。',
+        '林拾，青梧宗最不起眼的杂役：灵根残缺，记性却是个无底洞——他背下的残页，够把宗门的底细拼出一半。'
+      ],
+      power: [
+        '代价与限制：每用一次自瞎一日，连用三次永久丢一段记忆——和「世界设定 · 力量的代价」一字对上；短板：灵根残缺，正面硬拼必输。',
+        '代价和「世界设定 · 力量的代价」对齐——用一次瞎一日；用在金丹修士身上反噬翻倍；短板：身板薄，只能取巧不能缠斗。'
+      ],
+      fills: { w5: '以为「听漏」的代价睡一觉就能好——其实在累积。' }
+    },
+    suwanwu: {
+      persona: [
+        '青梧宗内门弟子苏晚芜：丹阁挂名，心思却在旧案——她递出的每条线索，都留了一半在袖子里。',
+        '苏晚芜，丹阁旧人之后：查案比谁都急，也比谁都怕急——她要的是真相落定，不是掀桌。'
+      ],
+      power: [
+        '上限止于内门中游——再往上要丹阁点头，她不肯；代价：法门出自丹阁，用狠了留丹毒；短板：不敢当众翻旧账。'
+      ],
+      fills: {
+        w5: '以为旧案只是丹阁一家的事——没看到戒律堂也在等这个结果。',
+        p3: '内门中游；再往上要丹阁点头——她不肯。',
+        s1: '内门弟子是壳，旧案遗孤是核——先认哪个，看对谁。',
+        p4: '法门出自丹阁，用狠了留丹毒；短板：不敢当众翻旧账。'
+      }
+    },
+    liu: {
+      persona: [ '柳安坊市当铺掌柜柳掌柜：什么都收，什么都不问——要问，那是下一单的价钱。' ],
+      dossier: {
+        look: '团脸，笑纹深；算盘不离手。',
+        background: '早年在州府当铺做学徒，攒下这间铺面——原乡在哪，没人问出过。'
+      },
+      fills: {
+        w5: '以为收钱不问来路就能一直太平——坊市的规矩已经变了，他还按老规矩做人。',
+        p3: '凡人无灵力；全部本钱是消息与人情。',
+        p4: '无修为，护不住铺子里的东西；短板：得罪不起任何一个修行者。'
+      }
+    },
+    zhao: {
+      persona: [ '杂役房执事赵执事：名录上的字比人硬——好处收得，责任不担。' ],
+      dossier: {
+        look: '微胖，袍角总是干净的——离是非远一点的人。',
+        background: '宗门底层爬上来的，深知多一事不如少一事。'
+      },
+      fills: {
+        w5: '以为睁一只眼闭一只眼就能全身而退——名录上的事，迟早有人来对账。',
+        p3: '练气后期，管人够用，动手不够。',
+        p4: '怕担责，事情一大就往上推；短板：收了好处，把柄在人手里。'
+      }
+    },
+    jie: {
+      persona: [ '戒律堂主：认规矩不认人——规矩之外，他谁也不看。' ],
+      dossier: {
+        look: '瘦硬，眉间一道竖纹；戒尺不离手。',
+        background: '戒律堂出身，一路按规矩升上来——没破过例，也没救过人。'
+      },
+      fills: {
+        w5: '相信规矩兜得住所有人——没算过有人拿规矩当刀使。',
+        p3: '金丹中期，宗门执法序列的前列。',
+        p4: '守规矩＝出手有章法，也被章法捆住；短板：不留情面，也就没有盟友。'
+      }
+    },
+    lfu: {
+      persona: [ '残卷修补匠林承业：一辈子把碎页补成整卷——最后连自己名字都被人从记录里补掉了。' ],
+      fills: {
+        w5: '以为把残卷修好就能护住家人——修得越好，越招祸。',
+        p3: '凡人；全部本事是手上功夫。',
+        p4: '无修为；短板：挡不住任何修行者，也包括那场火。'
+      }
+    },
+    lzhou: {
+      persona: [ '藏经阁老吏老周：四十年只做一件事——看门、认字、不问来处。' ],
+      fills: {
+        w5: '以为藏经阁的规矩能护住看门人——他看了四十年，没看过一次名册。',
+        p3: '凡人，眼力毒；九成古字认得出处。',
+        p4: '无修为；短板：守着秘密，却护不住任何一件事。'
+      }
+    },
+    dan: {
+      persona: [ '丹阁首座：说话像在对账——当年那场火，是他账上最干净的一笔。' ],
+      dossier: {
+        look: '保养得宜，指腹无茧——不像修行者，像账房先生。',
+        background: '丹阁起家的那一代人；旧案里他是执笔，不是执刀。'
+      },
+      power: [
+        '上限压着化神门槛，再进一步要宗门气运；代价：从不亲自动手，每一步都留破绽；短板：离不开丹阁的名器。'
+      ],
+      fills: {
+        w5: '以为残卷收齐案子就翻不了——不知道有人把那半页背进了脑子里。',
+        s1: '首座之位是手段，不是目的——他要的是丹阁说了算。',
+        p3: '化神门槛之下第一人；再进一步要宗门气运。',
+        p4: '从不亲自动手——这也是破绽；短板：离不开丹阁的名器。'
+      }
+    },
+    zhi: {
+      persona: [ '执法长老：先动手、后报名号——通缉令就是他的道理。' ],
+      dossier: {
+        look: '高瘦，颧骨冷硬；令旗挂在腰后。',
+        background: '执法堂熬出来的老人，办过的铁案比读过的书多。'
+      },
+      fills: {
+        w5: '以为通缉令一到人就得跑——没想过有人往令旗底下撞。',
+        p3: '金丹后期，追捕里少有敌手。',
+        p4: '令旗在手，出手不留余地；短板：只认令不认势——容易被当枪使。'
+      }
+    }
+  };
+  /* 通用草稿：每格两种说法，重跑换一版——演示「大模型每次给的不一样」 */
+  const GEN = {
+    w1: [
+      d => (d.name || '未命名') + '对世界的认知止于眼前一层——更上面的规矩，只当传说听。',
+      d => (d.name || '未命名') + '只知道脚下这片地方怎么运转；再往外的说法，一概当故事听。'
+    ],
+    w5: [
+      d => (d.name || '未命名') + '把「' + (String(d.cog.w3 || '').trim() || '自己认定的那套规则') + '」当成事实的全部——这一层之外的代价，眼下还看不见。',
+      d => (d.name || '未命名') + '认定' + (String(d.cog.w3 || '').trim() || '自己那套规矩') + '能一直管用——没算过有人拿它当刀使。'
+    ],
+    s1: [
+      d => (d.name || '未命名') + '对自己的定位很实：先站稳，再谈别的。',
+      d => (d.name || '未命名') + '知道自己几斤几两——没把握之前，一句大话不说。'
+    ],
+    v1: [
+      d => (d.name || '未命名') + '想要的不难：把眼下的日子过安稳——直到被逼着要更多。',
+      d => (d.name || '未命名') + '图的是安稳；真要争，也只争那件非争不可的事。'
+    ],
+    p2: [
+      d => (d.name || '未命名') + '没有惊世的本事——靠的是一件别人不稀罕的小技。',
+      d => (d.name || '未命名') + '本事不显眼，胜在别人不肯花那个功夫。'
+    ],
+    p6: [
+      d => (d.name || '未命名') + '手上功夫都是自己磨的——出处不值一提，能用就行。',
+      d => '有人教过一点，其余是挨打挨出来的——写打斗按这个来。'
+    ],
+    p3: [
+      d => (d.type === '反派' ? '同辈中的第一梯队；再往上，要拿别人垫。' : '止于当前境界的门槛；越限必反噬——和「世界设定 · 力量的代价」对得上。'),
+      d => '上限压在同辈中游——「世界设定 · 力量体系」到这一层就到头，再上要拿命换。'
+    ],
+    p4: [
+      d => '能力有价：用得越狠反噬越重；短板在近身与持久。',
+      d => '代价是慢性的、会累积；短板在硬碰硬——「世界设定 · 力量的代价」里写的就是这条。'
+    ],
+    b1: [
+      d => (d.name || '未命名') + '话不多，先听后说；急了才露真话。',
+      d => (d.name || '未命名') + '面上和气，心里有本自己的账。'
+    ],
+    e3: [
+      d => (d.name || '未命名') + '与人为善，不与人深交——真正的牵扯都记在「人物关系」里。',
+      d => '和谁都过得去，但没有一个能交底的——牵扯都写在「人物关系」里。'
+    ],
+    persona: [
+      d => (d.name || '未命名') + '：话不多，但每句都留着后手——' + (d.type === '反派' ? '对手最忌这种。' : '同门最吃这一套。'),
+      d => (d.name || '未命名') + '：把心事都写在做法里，嘴上一个字不漏。'
+    ]
+  };
+  const GEN_D = {
+    race: [() => '人族', () => '人族'],
+    faction: [
+      d => (d.type === '反派' ? '青梧宗 · 丹阁' : '青梧宗 · 外门') + '（按「世界设定 · 势力」落位）',
+      d => (d.type === '反派' ? '青梧宗 · 丹阁执法一支' : '青梧宗 · 外门杂役房')
+    ],
+    look: [
+      () => '身形普通，唯有一处旧疤——来历还没人问过。',
+      () => '常服、耐走的样子；手上有一处旧伤。'
+    ],
+    speech: [
+      () => '嗓门不高，说话先想半拍；急事只吐短句。',
+      () => '不抢话，别人说完才开口；越到急处越简短。'
+    ],
+    background: [
+      () => '出身平常；早年一件事让他离了原乡，细节留待归档补全。',
+      () => '家里本做小营生，一场变故之后只剩他一个——来路细节还空着。'
+    ],
+    plot: [
+      d => (d.type === '反派' ? '给主角立规矩、设障碍的那个人。' : d.type === '主角' ? '主线承担者——以弱破强。' : '在主角的故事里占一段：或助力，或代价。'),
+      d => (d.type === '反派' ? '把规矩当刀使，逼主角先动。' : d.type === '主角' ? '以弱破强——全书的压力都落在他身上。' : '在主角这段路上出现一次，留下点东西。')
+    ]
+  };
+  /* 补充清单：基础档案不动性别 / 年龄（不代填）；认知＝各层主字段＋必填格＋技能 */
+  const DOSSIER_FILL = [
+    { k: 'race', label: '种族' },
+    { k: 'faction', label: '势力 · 身份' },
+    { k: 'look', label: '外貌标签' },
+    { k: 'speech', label: '语言特征' },
+    { k: 'background', label: '背景' },
+    { k: 'plot', label: '剧情定位' }
+  ];
+  const COG_FILL = [
+    { k: 'w1', layer: '世界观', label: '世界规则认知度' },
+    { k: 'w5', layer: '世界观', label: '核心认知盲区', req: 1 },
+    { k: 's1', layer: '自我观', label: '自我身份定位' },
+    { k: 'v1', layer: '价值观', label: '核心追求' },
+    { k: 'p2', layer: '能力', label: '能力（金手指）' },
+    { k: 'p6', layer: '能力', label: '技能 · 习得与来源' },
+    { k: 'p3', layer: '能力', label: '能力上限阈值', req: 1 },
+    { k: 'p4', layer: '能力', label: '能力代价 · 短板', req: 1 },
+    { k: 'b1', layer: '行为', label: '性格 · 待人态度' },
+    { k: 'e3', layer: '环境', label: '人际生态环境' }
+  ];
+  const ZONE_NAME = { persona: '人设', dossier: '基础档案', cog: '认知' };
+
+  const pick2 = (list, i) => list[Math.abs(i || 0) % list.length];
+  function aiPersona(d, i) {
+    const b = BANK[d.key];
+    return b && b.persona ? pick2(b.persona, i) : pick2(GEN.persona, i)(d);
+  }
+  function aiCogVal(d, k, i) {
+    const b = BANK[d.key];
+    if (b && b.fills && b.fills[k]) return b.fills[k];
+    return pick2(GEN[k], i)(d);
+  }
+  function aiDossierVal(d, k, i) {
+    const b = BANK[d.key];
+    if (b && b.dossier && b.dossier[k]) return b.dossier[k];
+    return pick2(GEN_D[k], i)(d);
+  }
+
+  /* ① 人设补充：先出稿落卡内「一句话人设」槽，采纳才覆盖；每张卡留最近 5 稿 */
+  const HIST = { persona: { key: null, list: [] } };
+
+  function pushSink() {
+    const d = DATA[UI.sel];
+    const h = HIST.persona;
+    if (h.key !== d.key) { h.key = d.key; h.list.length = 0; }
+    h.list.push(aiPersona(d, h.list.length));
+    if (h.list.length > 5) h.list.shift();
+    renderPersonaSink(h.list.length - 1);
+  }
+
+  function renderPersonaSink(idx) {
+    const d = DATA[UI.sel];
+    const box = document.getElementById('sinkPersona');
+    if (!box) return;
+    const h = HIST.persona;
+    const o = h.list[idx];
+    const hist = h.list.length > 1
+      ? '<div class="aiz-hist"><span class="ah-t">最近 ' + h.list.length + ' 次</span>' +
+        h.list.map((x, i) => '<button type="button" class="ah-chip' + (i === idx ? ' on' : '') + '" data-idx="' + i + '">第 ' + (i + 1) + ' 次</button>').join('') + '</div>'
+      : '';
+    box.innerHTML = '<div class="aiz-head">AI 生成 · 人设补充 · ' + esc(d.name || '未命名') + '</div>' + hist + esc(o) +
+      '<div class="ans-act"><button type="button" class="primary" data-sink-act="adopt">采纳 · 覆盖</button><button type="button" data-sink-act="retry">重新生成</button></div>';
+    box.hidden = false;
+    box.querySelector('[data-sink-act="adopt"]').addEventListener('click', () => {
+      beginReceipt(UI.sel);
+      setPath('persona', o);
+      $('#receiptText').textContent = '已采纳「人设补充」→ ' + (d.name || '未命名') + '（' + o.length + ' 字，可改）';
+      renderTree(); renderCard();
+      toast('已采纳——落回一句话人设，可撤销，也可以接着改');
+    });
+    box.querySelector('[data-sink-act="retry"]').addEventListener('click', () => pushSink());
+    Array.prototype.forEach.call(box.querySelectorAll('.ah-chip'), ch => ch.addEventListener('click', () => renderPersonaSink(Number(ch.dataset.idx))));
+  }
+
+  /* ② 基础信息补充 / ③ 认知补充：列出每格草稿，可重新生成，采纳整批写入 */
+  function draftDossier(d, i) {
+    return DOSSIER_FILL.filter(f => !String((d.dossier || {})[f.k] || '').trim())
+      .map(f => ({ k: f.k, label: f.label, v: aiDossierVal(d, f.k, i) }));
+  }
+  function draftCog(d, i) {
+    return COG_FILL.filter(f => !String(d.cog[f.k] || '').trim())
+      .map(f => ({ k: f.k, layer: f.layer, label: f.label, req: f.req, v: aiCogVal(d, f.k, i) }));
+  }
+
+  let pendingZone = null;
+
+  function openZoneSink(zone) {
+    const d = DATA[UI.sel];
+    if (zone === 'cog' && d.simple) { toast('路人卡不用填认知内核——有戏份了，先把类型改成配角'); return; }
+    const i = UI.zoneVar[zone] || 0;
+    const list = zone === 'dossier' ? draftDossier(d, i) : draftCog(d, i);
+    if (!list.length) { toast(zone === 'dossier' ? '基础档案已经写齐了——性别、年龄留给你自己定' : '认知六层要补的都齐了'); return; }
+    const box = document.getElementById(zone === 'dossier' ? 'sinkDossier' : 'sinkCog');
+    if (!box) return;
+    const missGA = zone === 'dossier' && (!String((d.dossier || {}).gender || '').trim() || !String((d.dossier || {}).age || '').trim());
+    box.innerHTML = '<div class="aiz-head">AI 生成 · ' + (zone === 'dossier' ? '基础信息补充' : '认知补充') + ' · ' + esc(d.name || '未命名') + ' · ' + list.length + ' 格' + (i ? ' · 第 ' + (i + 1) + ' 次生成' : '') + '</div>' +
+      (missGA ? '<div class="aiz-note">性别、年龄不代填——留给你写。</div>' : '') +
+      list.map(f => '<div class="aiz-line"><span class="aiz-k">' + esc(f.label) + (f.req ? ' · 必填' : '') + '</span><span class="aiz-v">' + esc(f.v) + '</span></div>').join('') +
+      '<div class="ans-act"><button type="button" class="primary" data-zact="adopt">采纳 · 写入</button><button type="button" data-zact="regen">重新生成</button><button type="button" data-zact="drop">放弃</button></div>';
+    box.hidden = false;
+    pendingZone = { zone: zone, list: list };
+    box.querySelector('[data-zact="adopt"]').addEventListener('click', () => applyZone(pendingZone));
+    box.querySelector('[data-zact="regen"]').addEventListener('click', () => { UI.zoneVar[zone] = (UI.zoneVar[zone] || 0) + 1; openZoneSink(zone); });
+    box.querySelector('[data-zact="drop"]').addEventListener('click', () => { pendingZone = null; renderCard(); });
+  }
+
+  function applyZone(p) {
+    if (!p) return;
+    const d = DATA[UI.sel];
+    beginReceipt(UI.sel);
+    const layers = {};
+    p.list.forEach(f => {
+      if (p.zone === 'dossier') { d.dossier = d.dossier || {}; d.dossier[f.k] = f.v; }
+      else { d.cog = d.cog || {}; d.cog[f.k] = f.v; layers[f.layer] = 1; }
+    });
+    if (p.zone === 'cog') {
+      UI.cog[d.key] = UI.cog[d.key] || {};
+      LAYERS.forEach(L => { if (layers[L.name]) UI.cog[d.key][L.id] = 1; });
+    }
+    pendingZone = null;
+    renderTree(); renderCard();
+    $('#receiptText').textContent = '已采纳「' + (p.zone === 'dossier' ? '基础信息补充' : '认知补充') + '」→ ' + (d.name || '未命名') + '（' + p.list.length + ' 格，可改）';
+    toast('已写入 ' + p.list.length + ' 格——可撤销，也可以接着改');
+  }
+
+  function aiZone(zone) {
+    if (zone === 'persona') { pushSink(); return; }
+    openZoneSink(zone);
+  }
+
+  /* ④ 一致性体检：拿当前角色去对整体设定（简介 / 题材 / 世界 / 主线）逐项给结论 */
+  /* 真实实现＝后端把「当前角色卡 ＋ 整体设定」交给大模型判；下面两版是示例输出，重跑换一版 */
+  const CHECK_BANK = {
+    lingshi: [
+      [ ['简介 × 角色', 'ok', '金手指「听漏」正对简介里的「转机」——资质平平，却有一手别人不认的本钱', 'layer:power'],
+        ['题材 × 角色', 'ok', '以弱破强是这本的主打；主角资质垫底、靠信息差取胜，落在节奏里', ''],
+        ['世界 × 能力上限', 'warn', '上限写到金丹——「世界设定 · 力量体系」里这是第六境；但「耳力反噬翻倍」这一条，「力量的代价」里没有对应写法，建议去世界设定补一句', 'layer:power'],
+        ['世界 × 代价', 'ok', '自瞎一日 / 连用三次丢记忆，和「世界设定 · 力量的代价」一字对上', 'layer:power'],
+        ['势力 × 角色落地', 'conflict', '「世界设定 · 势力」里的丹阁只落了「首座」一张卡——执法长老已有，但丹阁的规矩与名器还没落到具体人身上', ''],
+        ['主线 × 角色', 'warn', '结局三问的「主角归宿」还空着；角色这边已按「查旧案」立住，等主线补上再对齐', 'dossier:plot'] ],
+      [ ['简介 × 角色', 'ok', '「记性过人」与简介同源，没有另起设定；驱动也落在「查旧案」这一件事上', 'layer:power'],
+        ['题材 × 角色', 'ok', '凡人流算的是资源与代价——他每用一次能力就瞎一日，换算成立', ''],
+        ['世界 × 能力上限', 'ok', '金丹是耳力的顶，也是「力量体系」里第六境的天花板，没有越界', 'layer:power'],
+        ['世界 × 代价', 'ok', '代价沿用「力量的代价」里的那一条，没有另造规则', 'layer:power'],
+        ['势力 × 角色落地', 'conflict', '丹阁的「规矩」还没有具体人执掌——写追捕戏时缺一个能出面的人（世界设定里目前只有势力名）', ''],
+        ['主线 × 角色', 'warn', '主线全景已立，「主角归宿」未写——主角的终极追求暂时没有上级锚点', 'dossier:plot'] ]
+    ]
+  };
+  function checkLines(d) {
+    const bank = CHECK_BANK[d.key];
+    if (bank) return bank[(UI.checkVar[d.key] || 0) % bank.length];
+    const has = k => !!String(d.cog[k] || '').trim();
+    const plot = String((d.dossier || {}).plot || '').trim();
+    return [
+      ['简介 × 角色', has('v1') ? 'ok' : 'warn', has('v1') ? '「' + String(d.cog.v1).slice(0, 18) + '」与简介的方向一致' : '还没写核心追求——简介里的主线缺他的动机', 'layer:values'],
+      ['题材 × 角色', has('b1') ? 'ok' : 'warn', has('b1') ? '性格与身份合这本的类型调子，没有出戏' : '还没写性格与待人态度——题材的调子落不到他身上', 'layer:behavior'],
+      ['世界 × 能力上限', has('p3') ? 'ok' : 'warn', has('p3') ? '和「世界设定 · 力量体系」对得上' : '没写上限——跨设定对照不了', 'layer:power'],
+      ['世界 × 代价', has('p4') ? 'ok' : 'warn', has('p4') ? '和「世界设定 · 力量的代价」对得上' : '没写代价——能力会显得白给', 'layer:power'],
+      ['势力 × 角色落地', 'warn', '「世界设定 · 势力」里，和他直接相关的那一支还没落到具体人身上', ''],
+      ['主线 × 角色', plot ? 'ok' : 'warn', plot ? '剧情定位与主线全景不冲突' : '剧情定位空着——主线里没有他的位置', 'dossier:plot']
+    ];
+  }
+  /* 体检结果落卡片内（与人设 / 档案 / 认知三处同一套 sink 语言），右栏只放按钮 */
+  function renderCheck() {
+    const d = DATA[UI.sel];
+    const box = document.getElementById('sinkCheck');
+    if (!box) return;
+    const nm = esc(d.name || '未命名');
+    const rerun = '<div class="ans-act"><button type="button" class="primary" data-act="check-rerun" data-od-id="btn-recheck">再体检一次</button></div>';
+    if (d.simple) {
+      box.innerHTML = '<div class="aiz-head">AI 体检 · ' + nm + '</div>' +
+        '<div class="opt">路人卡只有基础档案，没有能对照的认知层——哪天他有戏份了，把类型改成配角再体检。</div>';
+      box.hidden = false;
+      return;
+    }
+    const lines = checkLines(d);
+    const bad = lines.filter(l => l[1] === 'conflict').length;
+    const warn = lines.filter(l => l[1] === 'warn').length;
+    const RES_TXT = { ok: '达标', warn: '风险', conflict: '矛盾', miss: '缺输入' };
+    box.innerHTML = '<div class="aiz-head">AI 体检 · ' + nm + ' <span class="num">' + esc(d.id) + '</span> · 对着简介 / 题材 / 世界 / 主线看（示例）</div>' +
+      lines.map(l => {
+        const rowCls = 'chk-row';
+        const resCls = 'chk-res ' + l[1];
+        return '<div class="' + rowCls + '"><span class="chk-name">' + esc(l[0]) + '</span>' +
+        '<span class="' + resCls + '">' + (RES_TXT[l[1]] || '缺输入') + '</span>' +
+        '<span class="chk-note">' + esc(l[2]) + '</span>' +
+        (l[3] ? '<button type="button" class="chk-go" data-act="check-goto" data-goto="' + l[3] + '">去改</button>' : '') + '</div>';
+      }).join('') +
+      '<div class="opt">矛盾 ' + bad + ' · 风险 ' + warn + '——体检只提醒，不拦你确认；按「去改」跳到要改的那一格。项名与顺序由服务端出，会随书的类型变（现实向换成「世界 × 现实规则 / 世界 × 限制」）。</div>' + rerun;
+    box.hidden = false;
+  }
+
+  $$('.ra-step').forEach(btn => btn.addEventListener('click', () => {
+    const k = btn.dataset.aiask;
+    if (k === 'check') { renderCheck(); return; }
+    aiZone(k);
+  }));
+
+  /* ═══ 底部动作 ═══ */
+  $('#btnConfirm').addEventListener('click', () => {
+    const g = charGate();
+    if (g.noProt) { toast('先立主角：在卡头把谁点成「主角」——AI 写每一章都要先看主角卡'); return; }
+    if (!g.ok) {
+      const more = g.list.length > 1 ? '（共 ' + g.list.length + ' 张卡）' : '';
+      toast('还差：' + g.list[0] + more + '——填上，或用右栏「认知补充」');
+      return;
+    }
+    UI.confirmed = true;
+    syncFoot();
+    toast('已确认「角色」——之后改动关键字段会显示「内容有变」，改完再确认一次');
+  });
+
+  $$('.appbar .back').forEach(b => b.addEventListener('click', () => toast('这是示例稿：顶部书栏不属于本页，点「返回工作台」在正式版里才有效')));
+  $$('.modnav span').forEach(s => s.addEventListener('click', () => { if (!s.classList.contains('on')) toast('这是示例稿：只演示「设定 · 角色」这一页，写作和预览在正式版里用'); }));
+
+  renderTree();
+  renderCard();
+})();
+</script>
+</body>
+</html>
