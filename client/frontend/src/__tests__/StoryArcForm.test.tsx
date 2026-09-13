@@ -151,6 +151,23 @@ describe("主线面板（全景＋结局三问）", () => {
       expect.objectContaining({ fullstory: "新全景主线" }),
     );
   });
+
+  it("保存失败透出后端原因（如硬上限 400），不泛化成「保存失败」", async () => {
+    apiState.updateStoryArc.mockRejectedValue(
+      new Error("主线全文过长（2100/2000 字）——建议 600 字以内"),
+    );
+    const { ref } = await mount();
+    const ta = screen.getAllByRole("textbox")[0] as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "超长内容" } });
+    let ok = true;
+    await actasync(async () => {
+      ok = await ref.current.save();
+    });
+    expect(ok).toBe(false);
+    expect(toastState.error).toHaveBeenCalledWith(
+      "主线全文过长（2100/2000 字）——建议 600 字以内",
+    );
+  });
 });
 
 describe("行内「AI 帮我填」（基调第三问）", () => {

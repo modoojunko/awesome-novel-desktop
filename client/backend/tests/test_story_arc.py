@@ -476,4 +476,4 @@ class TestArcInjection:
         from chapters.ai_draft import _arc_markdown
 
         md = _arc_markdown(story)
-        assert "一句话主线：全景主线一句话版本" in md
+        assert "全书主线：全景主线一句话版本" in md

@@ -109,7 +109,8 @@ class ChapterContext:
 
     def __init__(self):
         self.premise = ""
-        # 主线（story_arc.premise＝「谁+想要什么+什么拦着」）：整本书怎么走的唯一归属。
+        # 主线（story_arc.fullstory＝从头到尾的全景，legacy premise 在归一里升位）：整本书
+        # 怎么走的唯一归属；注入前经 clip_story_arc 裁剪（≤600 字）。
         # 2026-09-10 起题材面板不再有「剧情轨道」（与主线重复），注入改由这里承接。
         self.story_arc = ""
         self.world_setting = {}

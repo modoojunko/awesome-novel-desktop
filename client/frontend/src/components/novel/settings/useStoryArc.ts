@@ -83,8 +83,10 @@ export function useStoryArc(
       await api.updateStoryArc(projectId, arc);
       markSaved();
       return true;
-    } catch {
-      toast.error("主线保存失败");
+    } catch (e) {
+      // 后端 400 带可行动原因（如「主线全文过长（2100/2000 字）——建议 600 字以内」）——
+      // 透出真实原因，别泛化成「保存失败」让用户无从下手（P2，2026-09-13 检视）
+      toast.error((e as Error).message || "主线保存失败");
       return false;
     } finally {
       setSaving(false);

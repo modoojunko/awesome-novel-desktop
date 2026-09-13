@@ -966,8 +966,9 @@ async def run_arc_ai(
         tokens_out=usage.get("tokens_out", 0),
     )
 
-    # check 降级：主线全空时整次免调用——四线全 miss（D 拍板沿 world_check 模式）
-    # （走到这里说明主线有内容或 input 非空；空主线 + 空 input 已在上方 400 拦截）
+    # 素材门槛只拦 draft/calibrate（见上方 400）：check/tone 在内容全空时也照常发起
+    # 一次调用——降级发生在 prompt 侧（模型把各线标 miss、提示先补再查），
+    # 与 world_check 的「缺输入免调用」策略不同，此处不做免调用（P3，2026-09-13 检视）
     return {"value": value}
 
 
