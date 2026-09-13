@@ -65,5 +65,25 @@ export function useOnboarding(projectId: string | undefined, volumes: any[]) {
     [projectId],
   );
 
-  return { settingsStatus, confirmedStatus, settingsDone, allConfirmed, isNew, confirmSetting, loading };
+  // 角色第三态（character-settings-v2）：确认存档 vs 当前内容指纹
+  const [charStaleState, setCharStaleState] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await api.get(`/novels/${projectId}/characters/gate/status`) as {
+          data?: { confirmed?: boolean; stale?: boolean } | null;
+        };
+        if (alive && res?.data?.confirmed && res.data.stale) setCharStaleState(true);
+        if (alive && !res?.data?.confirmed) setCharStaleState(false);
+      } catch {
+        /* 无确认存档 = 未确认，无需 stale */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectId, confirmedStatus]);
+
+  return { settingsStatus, confirmedStatus, settingsDone, allConfirmed, isNew, confirmSetting, loading, charStale: charStaleState };
 }

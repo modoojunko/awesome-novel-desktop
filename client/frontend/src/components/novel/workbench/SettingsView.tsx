@@ -81,6 +81,8 @@ export interface SettingsViewProps {
   projectId: string;
   initialPanel?: string;
   settingsStatus: Record<string, boolean> | null;
+  /** 角色项"内容有变"（character-settings-v2）：确认存档与当前内容指纹不一致 */
+  charStale?: boolean;
   confirmedStatus?: Record<string, boolean> | null;
   confirmSetting: (type: string) => Promise<boolean>;
   onDirtyChange?: (dirty: boolean) => void;
@@ -101,7 +103,7 @@ function normalizePanel(v: string | undefined): string {
 }
 
 export default function SettingsView({
-  projectId, initialPanel, settingsStatus, confirmedStatus, confirmSetting, onDirtyChange, onGoWrite, novelName,
+  projectId, initialPanel, settingsStatus, confirmedStatus, charStale, confirmSetting, onDirtyChange, onGoWrite, novelName,
 }: SettingsViewProps) {
   const [panel, setPanel] = useState(() => normalizePanel(initialPanel));
   /** 改动回执（用户 2026-09-10）：三面板里"一键改变内容"的动作在脚部留一条 + 一步撤销。 */
@@ -424,8 +426,28 @@ export default function SettingsView({
     invalid: { cls: "err", label: "配置失效", ok: false },
   };
   const modelBadge = MODEL_BADGE[aiState] ?? MODEL_BADGE.no_key;
-  const badgeCls = isModel ? modelBadge.cls : confirmed ? BADGE_DONE : filled ? "warn" : BADGE_EMPTY;
-  const badgeLabel = isModel ? modelBadge.label : confirmed ? "已确认" : filled ? "已填" : "未填";
+  const isChars = panel === "chars";
+  // 角色第三态（character-settings-v2）：确认过但内容指纹变了 → 「内容有变 · 待重新确认」
+  // （文案刻意不含「已确认」，守 §5「已确认→ok 绿」硬规则）
+  const charsStaleBadge = isChars && confirmed && charStale;
+  const badgeCls = isModel
+    ? modelBadge.cls
+    : charsStaleBadge
+      ? "warn"
+      : confirmed
+        ? BADGE_DONE
+        : filled
+          ? "warn"
+          : BADGE_EMPTY;
+  const badgeLabel = isModel
+    ? modelBadge.label
+    : charsStaleBadge
+      ? "内容有变 · 待重新确认"
+      : confirmed
+        ? "已确认"
+        : filled
+          ? "已填"
+          : "未填";
   const badgeOk = isModel ? modelBadge.ok : badgeCls === BADGE_DONE;
   const panelDesc = isModel
     ? "本书写作所用的模型、变更历史与用量。"
