@@ -28,7 +28,7 @@ async def get_settings_status(
     data = await get_storage().read_yaml(project.root_path, STATUS_FILE)
     if not data:
         return {t: False for t in VALID_TYPES}
-    return {t: bool(data.get(t, False)) for t in VALID_TYPES}
+    return {t: data.get(t) is True for t in VALID_TYPES}
 
 
 @router.put("/status/{type}")
