@@ -140,7 +140,7 @@ async def _import_single_book(db, zf: zipfile.ZipFile, book_dir: str, user_id: s
         _disassemble_scalars,
         _replace_children,
     )
-    from filesystem.paths import route_relative_path
+    from filesystem.paths import THREADS_PATH, route_relative_path
     from models.archive import Archive, ChapterPrompt
     from models.chapter import Chapter, ChapterVersion
     from models.project import Novel
@@ -176,6 +176,19 @@ async def _import_single_book(db, zf: zipfile.ZipFile, book_dir: str, user_id: s
     )
     db.add(novel)
     await db.flush()
+
+    # story.yaml / threads.yaml 恢复（与导出侧 dump_book_into 对称；
+    # 往返测试发现缺口：此前这两个文件只导出不导入，恢复后简介/线索静默丢失）
+    for rel, key in (("story.yaml", "story"), (THREADS_PATH, "threads")):
+        arc_name = f"{book_dir}{rel}"
+        if arc_name not in set(names):
+            continue
+        data = yaml.safe_load(zf.read(arc_name))
+        if data:
+            db.add(ProjectSetting(
+                root_path=root_path, key=key,
+                content=json.dumps(data, ensure_ascii=False),
+            ))
 
     # 设定恢复
     for name in sorted(names):
