@@ -152,9 +152,9 @@ describe("主线面板（全景＋结局三问）", () => {
     );
   });
 
-  it("保存失败透出后端原因（如硬上限 400），不泛化成「保存失败」", async () => {
+  it("保存失败透出后端原因（带响应的 400），不泛化成「保存失败」", async () => {
     apiState.updateStoryArc.mockRejectedValue(
-      new Error("主线全文过长（2100/2000 字）——建议 600 字以内"),
+      Object.assign(new Error("主线全文过长（2100/2000 字）——建议 600 字以内"), { status: 400 }),
     );
     const { ref } = await mount();
     const ta = screen.getAllByRole("textbox")[0] as HTMLTextAreaElement;
@@ -167,6 +167,19 @@ describe("主线面板（全景＋结局三问）", () => {
     expect(toastState.error).toHaveBeenCalledWith(
       "主线全文过长（2100/2000 字）——建议 600 字以内",
     );
+  });
+
+  it("断网类失败（无后端响应）回落中文兜底，不透出英文原文", async () => {
+    apiState.updateStoryArc.mockRejectedValue(new TypeError("Failed to fetch"));
+    const { ref } = await mount();
+    const ta = screen.getAllByRole("textbox")[0] as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "x" } });
+    let ok = true;
+    await actasync(async () => {
+      ok = await ref.current.save();
+    });
+    expect(ok).toBe(false);
+    expect(toastState.error).toHaveBeenCalledWith("主线保存失败");
   });
 });
 

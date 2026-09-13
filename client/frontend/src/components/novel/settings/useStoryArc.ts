@@ -84,9 +84,12 @@ export function useStoryArc(
       markSaved();
       return true;
     } catch (e) {
-      // 后端 400 带可行动原因（如「主线全文过长（2100/2000 字）——建议 600 字以内」）——
-      // 透出真实原因，别泛化成「保存失败」让用户无从下手（P2，2026-09-13 检视）
-      toast.error((e as Error).message || "主线保存失败");
+      // 后端 400 带可行动原因（如「主线全文过长（2100/2000 字）——建议 600 字以内」），
+      // 透出原文别泛化；但网络层失败（fetch 抛 TypeError「Failed to fetch」）与 401 无
+      // 中文 detail——只凭 status（确有后端响应）判断，否则回落中文兜底
+      // （P2/P3，2026-09-13 检视）
+      const err = e as Error & { status?: number };
+      toast.error(err.status && err.message ? err.message : "主线保存失败");
       return false;
     } finally {
       setSaving(false);
