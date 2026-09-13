@@ -33,6 +33,7 @@ from novels.router import router as novels_router
 from prompt.router import router as prompt_router
 from settings.ai_router import router as settings_ai_router
 from settings.router import router as settings_router
+from settings.characters_router import router as characters_router
 from settings.status import router as settings_status_router
 from story.router import router as story_router
 from update_check import router as update_check_router
@@ -482,6 +483,7 @@ app.include_router(update_check_router)
 app.include_router(ai_router)
 app.include_router(novels_router)
 app.include_router(settings_status_router)  # 先注册：GET /settings/status 不能被 /{type} 抢先匹配
+app.include_router(characters_router)  # 角色端点同理：不能被 GET /settings/{type} 兜底吃掉
 app.include_router(settings_router)
 app.include_router(settings_ai_router)
 app.include_router(chapters_router)
