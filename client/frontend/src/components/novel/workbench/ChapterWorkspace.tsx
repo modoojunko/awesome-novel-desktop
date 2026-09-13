@@ -16,6 +16,7 @@ import {
   type RefObject,
 } from "react";
 import OgPane from "./OgPane";
+import { charactersApi } from "@/lib/charactersApi";
 import PromptPane from "./PromptPane";
 import ProsePane, {
   INITIAL_PROSE_AI_STATE,
@@ -170,7 +171,24 @@ export default function ChapterWorkspace({
   }, [aiWriteSignal, proseRef]);
 
   // ── 章纲表单：加载 / 缺口 / 保存 / 3s 静默自动保存 ────────────────────
-  const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
+    // 本书角色名清单（character-settings-v2）：章纲出场角色多选候选
+  const [characterNames, setCharacterNames] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const data = await charactersApi.list(projectId);
+        if (alive) setCharacterNames(data.items.map((i) => i.name).filter(Boolean));
+      } catch {
+        /* 角色接口失败不阻塞章纲；textarea 兜底仍可用 */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
+
+const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   const [ogStatus, setOgStatus] = useState("");
   const ogStatusRef = useRef(ogStatus);
   useEffect(() => {
@@ -585,6 +603,7 @@ export default function ChapterWorkspace({
       {chTab === "og" && (
         <OgPane
           form={ogForm}
+          characterNames={characterNames}
           label={label}
           infoGap={infoGap}
           onPatch={(patch) => setOgForm((f) => ({ ...f, ...patch }))}

@@ -836,3 +836,6 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .char-save-state.saved { color: var(--ok); }
 .char-save-state.dirty { color: var(--warn); }
 .char-save-state.failed { color: var(--err); }
+
+/* 章纲出场角色多选（character-settings-v2）：chips 行 + 保留 textarea 兜底 */
+.og-char-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
