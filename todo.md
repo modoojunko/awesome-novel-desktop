@@ -15,6 +15,26 @@
   线上无影响；**不要单独发**（会触发一轮 S端 部署，跨境上传大概率又要本机接力），
   随下一次 S端 改动顺手带上。
 
+## 产品设计（拍板待做）
+
+- [ ] **正文归档 change：角色侧「归档生长」单独设计（2026-09-12 拍板移交）**
+  从角色设定页评审稿（`docs/design-c/drafts/character-settings-draft.html`）移除的写作期设计，
+  待「正文归档」change 一并设计：归档识别收件箱（新角色 AI 预填 / 变化建议 / 疑似同一人
+  合并，badge＋toast 推送不拦写作，入册关键项=称呼＋定位＋一句话人设，采纳入册即上树）、
+  成长轨迹（收获/能力/认知/关系/处境，条目带剧情点 origin，写章按 as-of 注入 origin ≤ N）、
+  回退三账联动（按剧情点截断 origin 晚于该点的写作期产物：剧情退回草稿 / 世界条目失效 /
+  角色成长失效、新角色退回收件箱；创建期手写骨架永不改写；回退前自动快照、一步撤销）。
+  **设计底稿已留档**：`~/Desktop/knowledge/character-settings-draft-v1-with-archive-growth-2026-09-12.html`
+  （收件箱三卡 / 时间线 / 回退两步弹窗的完整交互稿）；角色设定稿 v1.0 终态的三栏形态
+  （单树＋紧凑卡＋AI 收右栏）是它的地基。涉及组件：Timeline / 计数徽标 / 两步弹窗
+  （语义对齐 TDesign）。触发方式：对话里说「设计正文归档」。
+  **剧情侧同移交（2026-09-12，评审稿 v1.3）**：主线设定评审稿
+  `docs/design-c/drafts/storyline-settings-draft.html`（创建期只写「全景＋结局」，体量/拆卷
+  移交写作阶段）已定稿**归档期数据字段**：主线进度条目（ref/event/stage/note/status）＋
+  支线条目（name/desc/source/intro_ref/end_ref/status/review，建议与伏笔台账合流
+  priority=支线）——随本 change 建表；**主线面板零归档界面元素**（挂载位置随本 change
+  设计），主线进度/新支线推送审阅、按剧情点回退三账联动（剧情/世界/角色）随本 change 一并设计。
+
 ## 中优先（质量治理）
 
 - [ ] **账号自助注销功能立项（要做，2026-08-29 拍板）**
@@ -28,6 +48,19 @@
   （spec R6 新增 scenario / 协议 §三.6④ / 原型 warn 提示已写），但 **C端 当前
   没有作品导出/备份功能**——须同批实现（如整书导出 TXT/Markdown），否则提示是空头支票。
   另：撤销期内 C 端行为（免费功能是否可用）spec 未写死，倾向一并拒绝并引导去 S端撤销。
+
+- [ ] **novel 实体全系统统一一名（2026-09-11 拍板，须立项迁移）**
+  拍板：小说这个实体全系统只能有一个名字（novel），彻底清掉一物三名。
+  现状=正名完成一半：主表 `novels`、`/api/novels`、`novel_genre` 族已是正名；
+  残留 project：子表 FK 列 `project_id`（chapters/volumes/token_log/audit_log）、
+  KV 表 `project_settings`、`project_model_audit_log`、路由参数 `{project_id}`、
+  仓储 `list_by_project` 族、`class Novel` 住 `models/project.py`、`PROJECTS_DIR` 与
+  盘面/资产包内 `projects/{slug}/` 布局、前端 `story.ts` 一处 project_id。
+  执行要点：**DB 列名层不能裸改**——会触发 schema 指纹变化→老用户库三件套留档重建，
+  必须按改名迁移三件套立项（specs 词汇表登记 + 迁移 + 删库救回演练）；
+  方案底稿 `~/Desktop/knowledge/c-novel-naming-plan-2026-09.md`（D2 已消解：
+  /api/v1/projects 已不存在）；过渡纪律=新代码/新表一律 novel_id，不再扩散 project。
+  债务全清单见 `docs/arc/02` §6 与 `docs/arc/04`。触发方式：对话里说「立项 novel 正名迁移」。
 
 - [ ] **dashboard-home e2e「激活失败显示错误」用例抖动治本**
   全量跑偶发红（8/28 当天 4 次全量闪 2 次，单跑恒绿、CI 绿）。模式：打开激活弹窗 →
