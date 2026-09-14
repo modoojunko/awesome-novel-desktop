@@ -20,5 +20,5 @@
 ## 4. 全链验证与收尾
 
 - [x] 4.1 后端全量 pytest 绿（主仓根 venv 跑，实数记录）；ruff/design-lint 门禁绿
-- [ ] 4.2 手工冒烟：本地栈断网/错 Key 模拟超时，确认 502 文案、token_log `_fail` 行、用量页汇总不异常
-- [ ] 4.3 specs/character-settings 遗留 4.5 注销核对（该 change tasks 已归档，无需改，仅确认口径闭合）；e2e 全量（若角色用例受 502 文案影响则同步修 mock）
+- [x] 4.2 手工冒烟：本地栈断网/错 Key 模拟超时，确认 502 文案、token_log `_fail` 行、用量页汇总不异常
+- [x] 4.3 specs/character-settings 遗留 4.5 注销核对（该 change tasks 已归档，无需改，仅确认口径闭合）；e2e 全量（若角色用例受 502 文案影响则同步修 mock）
