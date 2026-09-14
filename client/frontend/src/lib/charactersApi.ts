@@ -64,25 +64,27 @@ export interface UndoResult {
   receipt: string;
 }
 
-async function unwrap<T>(r: { ok?: boolean; data?: T }): Promise<T> {
-  if (r.data === undefined) throw new Error("响应缺少 data");
+/** 后端统一信封 {ok, data}；入参是未 await 的 request() Promise（直接传会读到 Promise.data → 恒 undefined） */
+async function unwrap<T>(p: Promise<unknown>): Promise<T> {
+  const r = (await p) as { data?: T };
+  if (!r || r.data === undefined) throw new Error("响应缺少 data");
   return r.data;
 }
 
 export const charactersApi = {
   list: (projectId: string) =>
     unwrap<CharacterListData>(
-      api.get(`/novels/${projectId}/characters`) as never,
+      api.get(`/novels/${projectId}/characters`),
     ),
 
   create: (projectId: string, name: string, role = "配角") =>
     unwrap<CharacterCard>(
-      api.post(`/novels/${projectId}/characters`, { name, role }) as never,
+      api.post(`/novels/${projectId}/characters`, { name, role }),
     ),
 
   get: (projectId: string, id: string) =>
     unwrap<CharacterCard>(
-      api.get(`/novels/${projectId}/characters/${id}`) as never,
+      api.get(`/novels/${projectId}/characters/${id}`),
     ),
 
   patch: (
@@ -97,12 +99,12 @@ export const charactersApi = {
         path,
         value,
         base_rev: baseRev,
-      }) as never,
+      }),
     ),
 
   remove: (projectId: string, id: string) =>
     unwrap<{ receipt: string; undo: { op_id: string } }>(
-      api.delete(`/novels/${projectId}/characters/${id}`) as never,
+      api.delete(`/novels/${projectId}/characters/${id}`),
     ),
 
   merge: (projectId: string, sourceId: string, targetId: string) =>
@@ -113,12 +115,12 @@ export const charactersApi = {
     }>(
       api.post(`/novels/${projectId}/characters/${sourceId}/merge`, {
         target_id: targetId,
-      }) as never,
+      }),
     ),
 
   undo: (projectId: string, token: string) =>
     unwrap<UndoResult>(
-      api.post(`/novels/${projectId}/characters/ops/${token}/undo`, {}) as never,
+      api.post(`/novels/${projectId}/characters/ops/${token}/undo`, {}),
     ),
 
   upsertRelation: (
@@ -131,24 +133,24 @@ export const charactersApi = {
       api.put(
         `/novels/${projectId}/characters/${ownerId}/relations/${otherId}`,
         body,
-      ) as never,
+      ),
     ),
 
   deleteRelation: (projectId: string, ownerId: string, otherId: string) =>
     unwrap<{ receipt: string; undo: { op_id: string } }>(
       api.delete(
         `/novels/${projectId}/characters/${ownerId}/relations/${otherId}`,
-      ) as never,
+      ),
     ),
 
   confirm: (projectId: string, first: boolean) =>
     unwrap<{ ok: boolean }>(
-      api.post(`/novels/${projectId}/characters/confirm`, { first }) as never,
+      api.post(`/novels/${projectId}/characters/confirm`, { first }),
     ),
 
   gateStatus: (projectId: string) =>
     unwrap<GateStatus | null>(
-      api.get(`/novels/${projectId}/characters/gate/status`) as never,
+      api.get(`/novels/${projectId}/characters/gate/status`),
     ),
 
   aiDraft: (
@@ -165,7 +167,7 @@ export const charactersApi = {
       api.post(
         `/novels/${projectId}/settings/ai/characters/${characterId}/draft`,
         { target },
-      ) as never,
+      ),
     ),
 
   aiCheck: (projectId: string, characterId: string) =>
@@ -183,6 +185,6 @@ export const charactersApi = {
       api.post(
         `/novels/${projectId}/settings/ai/characters/${characterId}/check`,
         {},
-      ) as never,
+      ),
     ),
 };

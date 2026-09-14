@@ -63,6 +63,8 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
   const [check, setCheck] = useState<CheckResult | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [toast, setToast] = useState("");
+  /** 删除/合并后的撤销句柄（后端 ops token），随下一次操作或刷新消失 */
+  const [undoOp, setUndoOp] = useState<{ opId: string } | null>(null);
 
   const queueRef = useRef<{ path: string; value: unknown }[]>([]);
   const runningRef = useRef(false);
@@ -262,6 +264,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
         setCard(null);
       }
       setOpsPanel("");
+      setUndoOp({ opId: res.undo.op_id });
       showToast(res.receipt);
     } catch (e) {
       showToast((e as Error).message || "\u5220\u9664\u5931\u8d25");
@@ -277,11 +280,33 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
       setSelectedId(mergeTarget);
       await loadCard(mergeTarget);
       setOpsPanel("");
+      setUndoOp({ opId: res.undo.op_id });
       showToast(res.receipt);
     } catch (e) {
       showToast((e as Error).message || "\u5408\u5e76\u5931\u8d25");
     }
   }, [card, mergeTarget, projectId, reloadList, loadCard, showToast]);
+
+  const doUndo = useCallback(async () => {
+    if (!undoOp) return;
+    try {
+      await charactersApi.undo(projectId, undoOp.opId);
+      setUndoOp(null);
+      const items = (await charactersApi.list(projectId)).items;
+      await reloadList();
+      const first = items[0];
+      if (first) {
+        selectedIdRef.current = first.id;
+        setSelectedId(first.id);
+        await loadCard(first.id);
+      } else {
+        setCard(null);
+      }
+      showToast("\u5df2\u64a4\u9500\uff0c\u89d2\u8272\u5df2\u627e\u56de");
+    } catch (e) {
+      showToast((e as Error).message || "\u64a4\u9500\u5931\u8d25");
+    }
+  }, [undoOp, projectId, reloadList, loadCard, showToast]);
 
   const q = query.trim();
   const grouped = GROUPS.map((role) => ({
@@ -720,8 +745,21 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
               </div>
             </section>
 
-            {toast && <p className="opt" role="status">{toast}</p>}
           </>
+        )}
+
+        {toast && (
+          <p className="opt" role="status">
+            {toast}
+            {undoOp && (
+              <>
+                {" "}
+                <button type="button" className="char-undo" onClick={() => void doUndo()}>
+                  撤销
+                </button>
+              </>
+            )}
+          </p>
         )}
       </div>
     </div>
