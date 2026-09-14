@@ -511,6 +511,8 @@ test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确�
 }) => {
   const { restore, token } = await setupSession(page);
   try {
+    // UI 建书：C端 鉴权是「token == config.json 会话」的本地比对，request 夹具
+    // 在浏览器会话建立前直打 API 会 401（登录状态无效），故走 UI 路径
     const pid = await createNovel(page, `角色${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
     await openSetting(page, "角色");
@@ -527,9 +529,7 @@ test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确�
 
     // 自动保存 PATCH 落库（防抖 600ms）
     const patchReq = page.waitForRequest(
-      (r) =>
-        r.request().method() === "PATCH" &&
-        r.url().includes("/characters/"),
+      (r) => r.method() === "PATCH" && r.url().includes("/characters/"),
     );
     await patchReq;
 
@@ -557,8 +557,12 @@ test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确�
     await confirmInput.fill("林晚");
     await page.getByRole("button", { name: "删除", exact: true }).last().click();
 
-    // 撤销找回
+    // 撤销找回（undo 是 fire-and-forget 的后台调用，须等 POST 返回再断言）
+    const undoPost = page.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url().includes("/ops/"),
+    );
     await page.getByRole("button", { name: "撤销" }).click();
+    await undoPost;
     const list2 = await apiGetJSON(request, token, `/novels/${pid}/characters`);
     expect((list2.data?.items ?? []).some((x: { name: string }) => x.name === "林晚")).toBe(true);
   } finally {
@@ -743,50 +747,44 @@ test("P2-1 面板切换守卫：脏表单切换需确认，取消保留输入", 
 // P2-1b/1c/1d：三个「脏意识」缺口（角色切换 / 离开设定视图 / 完成设定自动保存）
 // -------------------------------------------------------------------------
 
-test("P2-1b 角色切换守卫：脏表单切换需确认，取消保留输入", async ({ page }) => {
+test("P2-1b 角色面板脏接入住守卫：输入未落库时离开设定需确认", async ({ page }) => {
   const { restore } = await setupSession(page);
   try {
-    const pid = await createNovel(page, `守卫角色${Date.now() % 100000}`);
+    await createNovel(page, `守卫角色${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
     await openSetting(page, "角色");
 
-    // 创建两个角色（行内新建：左栏输入名称 → 添加；配角为默认角色）
-    for (const name of ["阿甲", "阿乙"]) {
-      await page.getByRole("button", { name: "新建角色" }).click();
-      await page.locator(".sub-add").getByPlaceholder("角色名").fill(name);
-      await page.getByRole("button", { name: "添加", exact: true }).click();
-      await expect(
-        page.locator(".char-row", { hasText: name }),
-      ).toBeVisible({ timeout: 5000 });
-    }
-    // 创建第二个角色后自动选中「阿乙」；先切回「阿甲」（干净，无弹窗）。
-    // 阿甲数据为异步加载（GET /settings/character/阿甲），须等表单角色名=阿甲
-    // （快照已就绪）再输入，否则加载完成会覆盖输入并重置脏标记 → 守卫不触发。
-    await page.locator(".char-row", { hasText: "阿甲" }).click();
-    const nameInput = page
-      .locator("label", { hasText: "角色名" })
-      .locator("xpath=ancestor::div[1]")
-      .locator("input");
-    await expect(nameInput).toHaveValue("阿甲", { timeout: 5000 });
+    // 新契约 = 自动保存制（单格 PATCH 防抖 600ms），「卡间切换确认」已成历史；
+    // 本用例验证角色面板的脏状态接入设定的离开守卫。拖住 PATCH 让脏窗口可复现
+    await page.route(/\/characters\/[0-9a-f-]+$/, (route) => {
+      if (route.request().method() === "PATCH") {
+        setTimeout(() => void route.continue(), 1500);
+      } else {
+        void route.continue();
+      }
+    });
 
-    // 编辑阿甲的外貌 → 脏
-    await fillSettingField(page, "外貌", "阿甲的外貌描述");
-    const appearance = settingFieldTA(page, "外貌");
+    await page.getByRole("button", { name: "添加角色" }).click();
+    const nameInput = page.getByRole("textbox", { name: "角色名称" });
+    await expect(nameInput).toBeVisible({ timeout: 8000 });
 
-    // 取消分支：dismiss → 仍选中阿甲、输入保留
+    // 输入即脏（PATCH 被拖住）→ 立即试图离开设定
+    await nameInput.fill("阿甲");
+
+    // 取消分支：dismiss → 仍在设定视图、输入保留
     let dialogShown = false;
     page.once("dialog", (d) => {
       dialogShown = true;
       void d.dismiss();
     });
-    await page.locator(".char-row", { hasText: "阿乙" }).click();
+    await page.getByRole("button", { name: /^写作/ }).click();
     expect(dialogShown).toBe(true);
-    await expect(appearance).toHaveValue("阿甲的外貌描述");
+    await expect(nameInput).toHaveValue("阿甲");
 
-    // 确认分支：accept → 切换为阿乙（表单角色名=阿乙）
+    // 确认分支：accept → 离开设定视图（角色面板卸载）
     page.once("dialog", (d) => void d.accept());
-    await page.locator(".char-row", { hasText: "阿乙" }).click();
-    await expect(nameInput).toHaveValue("阿乙");
+    await page.getByRole("button", { name: /^写作/ }).click();
+    await expect(nameInput).toHaveCount(0);
   } finally {
     await restore();
   }
