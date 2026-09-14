@@ -29,7 +29,7 @@ from prompts import load as load_prompt
 router = APIRouter(prefix="/api/novels/{project_id}/settings", tags=["settings-ai"])
 
 # 支持按字段生成的设定类型（anti-ai 除外）
-FIELD_GENERATABLE = {"style", "hooks", "characters", "genre"}
+FIELD_GENERATABLE = {"style", "hooks", "genre"}
 
 # 题材五行字段（01 口味胶囊不走 AI；promise_note 不单独成行，随 core_promise 出参）
 GENRE_FIELDS = ("core_promise", "forbidden_list", "cost_ratio", "battlefield")
@@ -51,7 +51,6 @@ _GENRE_PROMPTS = {
 _STYPE_PROMPTS = {
     "style": "settings_style",
     "hooks": "settings_hooks",
-    "characters": "settings_characters",
 }
 
 # 六段名 / 禁忌三元（体检归一化白名单；与前端 lib/introTemplate.ts 逐字一致）
@@ -853,7 +852,7 @@ async def lore_suggest_world(
     return {"suggestions": suggestions, "chapter_ref": chapter_ref}
 
 
-# ── 按字段生成（world/style/hooks/characters/genre）──────────────────────
+# ── 按字段生成（world/style/hooks/genre）──────────────────────
 
 
 # ═══ 主线 AI 四能力（storyline-settings-v2）══════════════════════════════

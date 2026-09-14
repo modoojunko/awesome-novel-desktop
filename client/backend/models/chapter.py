@@ -198,11 +198,23 @@ class ChapterKeyPoint(_ChapterChildMixin, Base):
 
 
 class ChapterCharacter(_ChapterChildMixin, Base):
-    """outline.characters — 本章出场角色名。"""
+    """outline.characters — 本章出场角色。
+
+    character_id 指向角色身份（改名/合并后引用不断）；character_name 保留原文——
+    既是未命中时的快照，也是"读不回卡时"的展示兜底。API 契约 outline.characters
+    仍是名字数组：写入时按名解析 id（chapters/store.apply_chapter_data），
+    读取时按 id 回填现名。
+    """
 
     __tablename__ = "chapter_characters"
     __table_args__ = (
         UniqueConstraint("chapter_id", "sort_order", name="uq_chch_chapter_sort"),
+    )
+    character_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("characters.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     character_name: Mapped[str] = mapped_column(String(50), nullable=False)
 

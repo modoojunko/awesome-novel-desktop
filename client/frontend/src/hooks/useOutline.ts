@@ -112,7 +112,7 @@ export interface UseOutlineReturn {
   allConfirmed: boolean;
   allHavePerspectiveGuidance: boolean;
   loadChapterData(ref: string): Promise<ChapterData>;
-  saveChapter(ref: string, data: Partial<ChapterData>): Promise<void>;
+  saveChapter(ref: string, data: Partial<ChapterData>): Promise<{ warnings?: string[] }>;
   confirmChapter(ref: string): Promise<void>;
   transitionToPrompt(): Promise<void>;
   refetchTree(): Promise<void>;
@@ -245,7 +245,9 @@ export function useOutline(projectId: string): UseOutlineReturn {
       // Merge incoming partial data with known data
       const merged: ChapterData = { ...existing, ...data } as ChapterData;
 
-      await api.put(`/novels/${projectId}/chapters/${ref}`, merged);
+      const res = (await api.put(`/novels/${projectId}/chapters/${ref}`, merged)) as {
+        warnings?: string[];
+      };
 
       setChaptersMap((prev) => {
         const next = new Map(prev);
@@ -266,6 +268,9 @@ export function useOutline(projectId: string): UseOutlineReturn {
         }
         return next;
       });
+
+      // 出场角色未命中告警（character-settings-v2）由调用方上屏
+      return { warnings: res?.warnings };
     },
     [projectId, volumes],
   );

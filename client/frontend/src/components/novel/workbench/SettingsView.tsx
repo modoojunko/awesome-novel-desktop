@@ -18,6 +18,8 @@ import StyleSettingForm from "@/components/novel/settings/StyleSettingForm";
 import AntiAiSettingForm from "@/components/novel/settings/AntiAiSettingForm";
 import HooksSettingForm from "@/components/novel/settings/HooksSettingForm";
 import CharacterManager from "@/components/novel/settings/CharacterManager";
+import { type CharAiCtx } from "@/lib/characterModel";
+import { charactersApi } from "@/lib/charactersApi";
 import ModelSettingForm from "@/components/novel/settings/ModelSettingForm";
 import StoryArcForm, { type ArcFormHandle, type ArcAiAction } from "@/components/novel/settings/StoryArcForm";
 import { useStoryArc } from "@/components/novel/settings/useStoryArc";
@@ -29,7 +31,10 @@ import { INTRO_SEGMENTS, INTRO_FORMULA, DONT_DO, INTRO_MAX_LEN, TABOO_RULES } fr
 import { GENRE_DEFINITION } from "@/lib/genreVocab";
 import { useModelStatus } from "@/hooks/useModelStatus";
 import type { AiState } from "@/types/api-config";
-import AiWriterAssistant, { type AiCapabilityRow } from "@/components/novel/settings/AiWriterAssistant";
+import AiWriterAssistant, {
+  CharsAiRail,
+  type AiCapabilityRow,
+} from "@/components/novel/settings/AiWriterAssistant";
 import AiSink from "@/components/novel/settings/AiSink";
 import {
   ChangeReceiptBar,
@@ -62,7 +67,8 @@ const DESCS: Record<string, string> = {
   style: "用谁的视角讲，用什么语气讲（叙事身份 + 核心原则）。",
   antiAI: "这些词句一出现就拦掉——AI 味最重的那批。",
   foreshadow: "先埋下的，后面要还。",
-  chars: "核心角色是谁，他们想要什么。",
+  chars:
+    "AI 写每一章，都要靠这里知道「谁在场、谁想干什么」。主角必立——从称呼和一句话人设写起；配角、反派把认知内核填全，路人只留基础档案。人物关系只记「他怎么看别人」：一段一句，同一对方一条。",
 };
 
 const BADGE_DONE = "ok";
@@ -81,6 +87,8 @@ export interface SettingsViewProps {
   projectId: string;
   initialPanel?: string;
   settingsStatus: Record<string, boolean> | null;
+  /** 角色项"内容有变"（character-settings-v2）：确认存档与当前内容指纹不一致 */
+  charStale?: boolean;
   confirmedStatus?: Record<string, boolean> | null;
   confirmSetting: (type: string) => Promise<boolean>;
   onDirtyChange?: (dirty: boolean) => void;
@@ -101,7 +109,7 @@ function normalizePanel(v: string | undefined): string {
 }
 
 export default function SettingsView({
-  projectId, initialPanel, settingsStatus, confirmedStatus, confirmSetting, onDirtyChange, onGoWrite, novelName,
+  projectId, initialPanel, settingsStatus, confirmedStatus, charStale, confirmSetting, onDirtyChange, onGoWrite, novelName,
 }: SettingsViewProps) {
   const [panel, setPanel] = useState(() => normalizePanel(initialPanel));
   /** 改动回执（用户 2026-09-10）：三面板里"一键改变内容"的动作在脚部留一条 + 一步撤销。 */
@@ -166,6 +174,24 @@ export default function SettingsView({
     },
     [],
   );
+  const charsRef = formRef;
+  const runCharsAi = useCallback(
+    async (key: string) => {
+      if (aiRowBusyRef.current) return;
+      aiRowBusyRef.current = true;
+      setAiRunningKey(key);
+      try {
+        await (charsRef.current as { runAi?: (k: string) => Promise<void> } | null)?.runAi?.(
+          key,
+        );
+      } finally {
+        aiRowBusyRef.current = false;
+        setAiRunningKey(null);
+      }
+    },
+    [charsRef],
+  );
+  const [charCtx, setCharCtx] = useState<CharAiCtx | null>(null);
   const handleAiBlocked = useCallback((reason: AiState) => {
     if (reason === "no_key") {
       window.location.hash = "/config";
@@ -390,6 +416,17 @@ export default function SettingsView({
       if (saved !== true) return;
       // 保存成功＝这次改动已落库，回执里的撤销只能改回内存（与库不一致）→ 清掉
       setReceipt(null);
+      // 角色确认走两档门禁端点（review P1：此前只 PUT status，门禁从未生效，
+      // 新书更是永远 400）：首次档只查主角卡，此后档全量六项
+      if (panel === "chars") {
+        try {
+          await charactersApi.confirm(projectId, !confirmed);
+        } catch (e) {
+          toast.error((e as Error).message || "确认未通过");
+          handle?.markDirty?.();
+          return;
+        }
+      }
       if (confirmed) {
         handle?.clearAi?.();
         toast.success(`「${item.name}」已保存`);
@@ -412,7 +449,7 @@ export default function SettingsView({
     } finally {
       setBusy(false);
     }
-  }, [item, panel, confirmed, busy, confirmSetting, done, total, currentHandle]);
+  }, [item, panel, confirmed, busy, confirmSetting, done, total, currentHandle, projectId]);
 
   const panelTitle = isModel ? "模型设定" : (item?.name ?? "");
   // 模型窗不是设定完成度项 → 徽标改为**真实就绪态**（与面板内「当前状态」同源，D13）
@@ -424,8 +461,28 @@ export default function SettingsView({
     invalid: { cls: "err", label: "配置失效", ok: false },
   };
   const modelBadge = MODEL_BADGE[aiState] ?? MODEL_BADGE.no_key;
-  const badgeCls = isModel ? modelBadge.cls : confirmed ? BADGE_DONE : filled ? "warn" : BADGE_EMPTY;
-  const badgeLabel = isModel ? modelBadge.label : confirmed ? "已确认" : filled ? "已填" : "未填";
+  const isChars = panel === "chars";
+  // 角色第三态（character-settings-v2）：确认过但内容指纹变了 → 「内容有变 · 待重新确认」
+  // （文案刻意不含「已确认」，守 §5「已确认→ok 绿」硬规则）
+  const charsStaleBadge = isChars && confirmed && charStale;
+  const badgeCls = isModel
+    ? modelBadge.cls
+    : charsStaleBadge
+      ? "warn"
+      : confirmed
+        ? BADGE_DONE
+        : filled
+          ? "warn"
+          : BADGE_EMPTY;
+  const badgeLabel = isModel
+    ? modelBadge.label
+    : charsStaleBadge
+      ? "内容有变 · 待重新确认"
+      : confirmed
+        ? "已确认"
+        : filled
+          ? "已填"
+          : "未填";
   const badgeOk = isModel ? modelBadge.ok : badgeCls === BADGE_DONE;
   const panelDesc = isModel
     ? "本书写作所用的模型、变更历史与用量。"
@@ -479,6 +536,10 @@ export default function SettingsView({
           </div>
           {SETTINGS_ITEMS.map((i) => {
             const done_ = !!settingsStatus?.[i.settingsKey];
+            // 5.4 三级阶梯：确认 > 已填 > 未填——已填不再冒充已确认（中间徽标同源）
+            const confirmed = !!confirmedStatus?.[i.settingsKey];
+            const badgeCls = confirmed ? BADGE_DONE : done_ ? "warn" : BADGE_EMPTY;
+            const badgeLabel = confirmed ? "已确认" : done_ ? "已填" : "未填";
             return (
               <div
                 key={i.k}
@@ -488,9 +549,9 @@ export default function SettingsView({
                 <span className="nm">{i.name}</span>
                 {i.canDefer && !done_ && <span className="defer-tag">可后补</span>}
                 <span className="spacer" />
-                <span className={`badge ${done_ ? BADGE_DONE : BADGE_EMPTY}`}>
-                  <BadgeIcon ok={done_} />
-                  {done_ ? "已确认" : "未填"}
+                <span className={`badge ${badgeCls}`}>
+                  <BadgeIcon ok={confirmed} />
+                  {badgeLabel}
                 </span>
               </div>
             );
@@ -590,6 +651,7 @@ export default function SettingsView({
                 ref={formRef}
                 projectId={projectId}
                 onDirtyChange={handleDirtyChange}
+                onCtxChange={setCharCtx}
               />
             )}
             {panel === "aiModel" && (
@@ -617,7 +679,7 @@ export default function SettingsView({
                 已确认
               </span>
             )}
-            {!isModel && !confirmed && (
+            {!isModel && !confirmed && panel !== "chars" && (
               <button
                 className="btn btn-secondary"
                 onClick={() => void handleSaveDraft()}
@@ -681,6 +743,14 @@ export default function SettingsView({
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}
             data-od-id="ai-assist-world"
+          />
+        ) : panel === "chars" ? (
+          <CharsAiRail
+            ctx={charCtx}
+            aiState={aiState}
+            onBlocked={handleAiBlocked}
+            runningKey={aiRunningKey}
+            onRun={runCharsAi}
           />
         ) : panel === "style" || panel === "antiAI" ? (
           <div className="rail-card">

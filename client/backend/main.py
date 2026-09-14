@@ -2,6 +2,7 @@
 """AI Novel — C/S 架构本地服务"""
 
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -32,6 +33,8 @@ from novels.router import ai_router
 from novels.router import router as novels_router
 from prompt.router import router as prompt_router
 from settings.ai_router import router as settings_ai_router
+from settings.characters_ai import router as characters_ai_router
+from settings.characters_router import router as characters_router
 from settings.router import router as settings_router
 from settings.status import router as settings_status_router
 from story.router import router as story_router
@@ -453,6 +456,9 @@ async def _storage_busy_handler(request, exc):
     """
     if "disk I/O error" not in str(exc) and "database is locked" not in str(exc):
         raise exc
+    logging.getLogger("uvicorn.error").warning(
+        "event=storage_busy err=%s", str(exc)[:200]
+    )
     return JSONResponse(
         status_code=503,
         content={
@@ -482,6 +488,8 @@ app.include_router(update_check_router)
 app.include_router(ai_router)
 app.include_router(novels_router)
 app.include_router(settings_status_router)  # 先注册：GET /settings/status 不能被 /{type} 抢先匹配
+app.include_router(characters_router)  # 角色端点同理：不能被 GET /settings/{type} 兜底吃掉
+app.include_router(characters_ai_router)
 app.include_router(settings_router)
 app.include_router(settings_ai_router)
 app.include_router(chapters_router)

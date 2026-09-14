@@ -136,3 +136,53 @@ class TestThemeCatalogParity:
             "种田修仙",
         ]
         assert sub_types_of("不存在的题材") == []
+
+
+class TestCharacterModelParity:
+    """character-settings-v2：character_model.py ↔ lib/characterModel.ts 逐字对拍。"""
+
+    def _frontend_src(self) -> str:
+        return _read("characterModel.ts")
+
+    def test_dossier_fields_match(self):
+        from settings.character_model import DOSSIER_FIELDS
+
+        src = self._frontend_src()
+        block = src[src.find("DOSSIER_FIELDS"):src.find("DOSSIER_KEYS")]
+        pairs = re.findall(r'k: "(\w+)",\s*label: "([^"]+)"', block)
+        backend = [(f["k"], f["label"]) for f in DOSSIER_FIELDS]
+        assert pairs == backend, "档案格前后端不一致——以 character_model.py 为准同步"
+
+    def test_cog_layers_match(self):
+        from settings.character_model import COG_KEYS
+
+        src = self._frontend_src()
+        cog_keys = re.findall(r'k: "(w\d|s\d|v\d|p\d|e\d|b\d)"', src)
+        assert cog_keys == list(COG_KEYS), "认知格前后端不一致"
+
+    def test_cog_fill_and_write_state_match(self):
+        from settings.character_model import COG_FILL_KEYS, WRITE_STATE_KEYS
+
+        src = self._frontend_src()
+        assert re.search(r'COG_FILL_KEYS = \[\n(.*?)\];', src, re.DOTALL), "COG_FILL_KEYS 形态变了"
+        for key in COG_FILL_KEYS:
+            assert f'"{key}"' in src
+        for key in WRITE_STATE_KEYS:
+            assert f'"{key}"' in src
+
+    def test_check_status_match(self):
+        from settings.character_model import CHAR_CHECK_STATUS
+
+        src = self._frontend_src()
+        m = re.search(r'CHAR_CHECK_STATUS = \[([^]]+)\]', src)
+        assert m, "CHAR_CHECK_STATUS 形态变了"
+        front = re.findall(r'"(\w+)"', m.group(1))
+        assert front == list(CHAR_CHECK_STATUS)
+
+    def test_check_items_match(self):
+        from settings.character_model import check_items
+
+        src = self._frontend_src()
+        for name, _goto in check_items(True) + check_items(False):
+            assert f'"{name}"' in src, f"体检项 {name} 缺前端镜像"
+

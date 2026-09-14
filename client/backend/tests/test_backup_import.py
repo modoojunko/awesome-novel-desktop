@@ -12,6 +12,7 @@ import zipfile
 import yaml
 from sqlalchemy import select
 
+from backup.format import FORMAT_VERSION
 from backup.importer import _import_single_book, _restore_config
 from db import async_session
 
@@ -197,14 +198,14 @@ class TestVersionSnapshotImport:
 
 
 def test_format_version_above_supported_rejected():
-    """格式契约演进：format_version > 1 拒绝并提示升级（防新格式包被旧应用半恢复）。"""
+    """格式契约演进：format_version > FORMAT_VERSION 拒绝并提示升级（防新格式包被旧应用半恢复）。"""
     import asyncio
     import os
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("backup.yaml", yaml.safe_dump({
-            "format_version": 2,
+            "format_version": FORMAT_VERSION + 1,
             "books": [],
         }))
     from backup.importer import parse_package

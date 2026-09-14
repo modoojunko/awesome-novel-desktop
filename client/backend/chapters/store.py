@@ -12,6 +12,7 @@
 """
 
 import contextlib
+import json
 import logging
 import re
 import time
@@ -254,7 +255,54 @@ _SCENE_WEIGHTS = {"high", "mid", "low"}
 _SCENE_FOCUS = {"核心冲突", "人物情绪", "信息差"}
 
 
-def _replace_children(row, data: dict) -> None:
+async def _resolve_names(session, project_id: str, names: list[str]) -> dict[str, str]:
+    """名字/别名 → 角色 id（character-settings-v2）。
+
+    精确名命中优先，别名兜底；未命中的名字不在返回 map 里（调用方落快照 + 告警）。
+    """
+    from models.character import Character
+
+    if not names:
+        return {}
+    cards = (
+        await session.scalars(
+            select(Character).where(Character.novel_id == project_id)
+        )
+    ).all()
+    by_name = {c.name: c.id for c in cards if c.name}
+    by_alias: dict[str, str] = {}
+    for c in cards:
+        try:
+            for alias in json.loads(c.aliases or "[]"):
+                by_alias.setdefault(alias, c.id)
+        except (TypeError, ValueError):
+            continue
+    out: dict[str, str] = {}
+    for name in names:
+        if name in by_name:
+            out[name] = by_name[name]
+        elif name in by_alias:
+            out[name] = by_alias[name]
+    return out
+
+
+async def _replace_children(session, row, data: dict, character_ids: dict[str, str] | None = None) -> list[str]:
+    """子表整体替换。返回未命中角色的 warnings（character-settings-v2）。
+
+    character_ids：导入路径直插 pending 对象时由调用方预算的 名字→id 映射；
+    None = 由 session 现查（apply_chapter_data 主路径）。
+    """
+    if character_ids is None:
+        name_map = await _resolve_names(
+            session, row.project_id,
+            [str(n).strip()[:50] for n in (data.get("outline") or {}).get("characters") or [] if str(n).strip()],
+        )
+    else:
+        name_map = character_ids
+    return await _replace_children_impl(session, row, data, name_map)
+
+
+async def _replace_children_impl(session, row, data: dict, name_map: dict[str, str]) -> list[str]:
     from models.chapter import (
         ChapterCharacter,
         ChapterContent,
@@ -278,10 +326,18 @@ def _replace_children(row, data: dict) -> None:
         for i, item in enumerate(outline.get("key_points") or [])
         for tag, content in [_parse_key_point(str(item))]
     ]
+    names = [str(name).strip()[:50] for name in (outline.get("characters") or []) if str(name).strip()]
+    warnings = [
+        f"出场角色「{name}」没有对应的角色卡，已按原文保留"
+        for name in names if name not in name_map
+    ]
     row.characters = [
-        ChapterCharacter(sort_order=i, character_name=str(name).strip()[:50])
-        for i, name in enumerate(outline.get("characters") or [])
-        if str(name).strip()
+        ChapterCharacter(
+            sort_order=i,
+            character_name=name,
+            character_id=name_map.get(name),
+        )
+        for i, name in enumerate(names)
     ]
 
     payoff_rows: list[tuple[int, str, str]] = []
@@ -380,6 +436,7 @@ def _replace_children(row, data: dict) -> None:
         row.content.prose = prose
     else:
         row.content = ChapterContent(prose=prose)
+    return warnings
 
 
 # ── 对外入口（签名与 YAML 时代的 engine.load/save 一致）────────────────────
@@ -409,7 +466,7 @@ async def load_chapter(root_path: str, chapter_ref: str) -> dict:
         return assemble_chapter(row)
 
 
-async def save_chapter(root_path: str, chapter_ref: str, data: dict) -> None:
+async def save_chapter(root_path: str, chapter_ref: str, data: dict) -> list[str]:
     """统一写入口：拆装落库 + 元数据派生 + versions 快照（PR③ 前仍文件）。
 
     子表 clear 后先 flush 落删除再重建（flush 内插入先于删除会撞唯一键）。
@@ -435,7 +492,7 @@ async def save_chapter(root_path: str, chapter_ref: str, data: dict) -> None:
         if prose.strip() and status == "outline":
             status = "writing"
         row.status = status
-        await apply_chapter_data(session, row, data)
+        _prose, _status, warnings = await apply_chapter_data(session, row, data)
         await session.commit()
 
     # 版本快照：prose / outline.summary 实质变化才写（正文已落库，快照失败不回滚）
@@ -445,12 +502,17 @@ async def save_chapter(root_path: str, chapter_ref: str, data: dict) -> None:
             await _write_version_snapshot(
                 root_path, ref, old_status, prose, data.get("outline") or {}, status
             )
+    return warnings
 
 
-async def apply_chapter_data(session, row, data: dict) -> tuple[str, str]:
+async def apply_chapter_data(session, row, data: dict) -> tuple[str, str, list[str]]:
     """字段落库（无提交无快照）：c-novel-export-roundtrip PR2 抽取共用。
 
-    Returns: (prose, status)
+    出场角色在此处做「名字 → character_id」解析（这里有 session 与 row.project_id；
+    _replace_children 是纯同步无 session，解析不放那里——character-settings-v2）。
+    未命中的名字保留原文快照并进 warnings（不静默丢、不自动建卡）。
+
+    Returns: (prose, status, warnings)
     """
     if data.get("title"):
         row.title = str(data["title"])[:200]
@@ -464,12 +526,12 @@ async def apply_chapter_data(session, row, data: dict) -> tuple[str, str]:
     for attr in _CHILD_ATTRS:
         getattr(row, attr).clear()
     await session.flush()
-    _replace_children(row, data)
+    warnings = await _replace_children(session, row, data)
 
     row.word_count = count_chars(prose)
     row.has_prose = bool(prose.strip())
     row.outline_status = _derive_outline_status(status, prose)
-    return prose, status
+    return prose, status, warnings
 
 
 async def _write_version_snapshot(

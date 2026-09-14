@@ -9,11 +9,22 @@
 未填字段跳过，不产生 ``{...}`` 占位符。
 """
 
+import json
+import logging
 import re
 
+from sqlalchemy import select
+
+from db import async_session
 from filesystem.storage import get_storage
 from genres.service import build_genre_section, resolve_genre_context
 from prompt.context import filter_active_hooks, inject_world_setting
+from settings.character_model import (
+    WRITE_STATE_KEYS as _WRITE_STATE_KEYS,
+)
+from settings.character_model import (
+    WRITE_STATE_PER_CHAR_MAX as _WRITE_STATE_PER_CHAR_MAX,
+)
 from settings.render import (
     build_tone_section,
     depiction_techniques_str,
@@ -21,6 +32,8 @@ from settings.render import (
     fmt_mistakes,
 )
 from settings.world_model import render_red_lines
+
+logger = logging.getLogger(__name__)
 
 # 目标字数夹取区间（服务层守卫：越界值按默认处理）
 WORD_TARGET_MIN = 500
@@ -492,6 +505,40 @@ def build_previous_context(prev_chapter: dict) -> tuple[str, bool]:
     return "\n".join(parts), True
 
 
+
+
+async def _novel_id_by_root(root_path: str) -> str | None:
+    from models.project import Novel
+
+    async with async_session() as session:
+        row = (
+            await session.scalars(
+                select(Novel).where(Novel.root_path == root_path)
+            )
+        ).first()
+        return row.id if row else None
+
+
+async def _resolve_character_row(session, novel_id: str, name: str):
+    from models.character import Character
+
+    cards = (
+        await session.scalars(
+            select(Character).where(Character.novel_id == novel_id)
+        )
+    ).all()
+    for c in cards:
+        if c.name == name:
+            return c
+    for c in cards:
+        try:
+            if name in json.loads(c.aliases or "[]"):
+                return c
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 async def build_chapter_context(
     root_path: str,
     chapter_ref: str,
@@ -605,25 +652,38 @@ async def build_chapter_context(
             ctx.previous_context = _CH1_PREVIOUS
             ctx.previous_context_semantic = True
 
-    # Characters in this chapter（补语言特征 speech）
+    # Characters in this chapter（character-settings-v2：按 id 读真表；
+    # 状态 = 认知层主格摘要 + 语言特征——旧 state_history 链路已随台账移除退役）
+    if not novel_id:
+        novel_id = await _novel_id_by_root(root_path)
     char_names = ctx.chapter_outline.get("characters", [])
-    if isinstance(char_names, list):
-        for name in char_names[:5]:
-            if isinstance(name, str):
-                ch_data = (
-                    await get_storage().read_yaml(
-                        root_path, f"settings/character-setting/{name}.yaml"
+    if isinstance(char_names, list) and char_names:
+        async with async_session() as session:
+            for name in char_names[:5]:
+                if not isinstance(name, str):
+                    continue
+                ch_row = await _resolve_character_row(session, novel_id, name)
+                if ch_row is None:
+                    # 显式告警：不注入空条目（旧行为渲染 "- 名字："），不静默跳过
+                    ctx.characters.append(
+                        {"name": name, "state": "", "speech": "", "missing": True}
                     )
-                    or {}
-                )
-                state = ""
-                state_history = ch_data.get("state_history", [])
-                if isinstance(state_history, list) and state_history:
-                    last = state_history[-1]
-                    if isinstance(last, dict):
-                        state = last.get("state", "")
+                    logger.warning(
+                        "chapter character not found: novel=%s name=%s", novel_id, name
+                    )
+                    continue
+                cog = json.loads(ch_row.cog or "{}")
+                dossier = json.loads(ch_row.dossier or "{}")
+                parts = [str(cog.get(k, "") or "").strip() for k in _WRITE_STATE_KEYS]
+                parts = [p for p in parts if p]
+                state = "；".join(parts)[:_WRITE_STATE_PER_CHAR_MAX] if parts else ""
                 ctx.characters.append(
-                    {"name": name, "state": state, "speech": ch_data.get("speech", "")}
+                    {
+                        "name": ch_row.name or name,
+                        "state": state,
+                        "speech": dossier.get("speech", ""),
+                        "missing": False,
+                    }
                 )
 
     return ctx

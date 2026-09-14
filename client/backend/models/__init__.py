@@ -17,6 +17,7 @@ from models.chapter import (
     ChapterSegment,
     ChapterVersion,
 )
+from models.character import Character, CharacterGate, CharacterOp, CharacterRelation
 from models.event import Event
 from models.genre import Genre
 from models.novel_genre import (
@@ -55,6 +56,10 @@ __all__ = [
     "ChapterSceneCard",
     "ChapterSegment",
     "ChapterVersion",
+    "Character",
+    "CharacterGate",
+    "CharacterOp",
+    "CharacterRelation",
     "Event",
     "Genre",
     "GenreVocab",

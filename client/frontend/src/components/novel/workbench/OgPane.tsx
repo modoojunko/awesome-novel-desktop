@@ -18,6 +18,8 @@ import {
 
 interface OgPaneProps {
   form: OgForm;
+  /** 本书角色名清单（character-settings-v2）：出场角色多选候选取这里 */
+  characterNames?: string[];
   /** 完整章标题（第X章 · 名称，nodeLabel 派生）——原型 panel-head 口径 */
   label: string;
   /** 信息差对齐只读块（PR6）：卷级起止 + 本章规划行；null = 卷未配置，不渲染 */
@@ -49,6 +51,7 @@ function flashField(key: string) {
 
 export default function OgPane({
   form,
+  characterNames,
   label,
   infoGap,
   onPatch,
@@ -170,12 +173,38 @@ export default function OgPane({
             </div>
             <div className="field">
               <label>
-                出场角色 <span className="opt">一行一个角色名</span>
+                出场角色 <span className="opt">点选角色卡；也可直接输入名字</span>
               </label>
+              {characterNames && characterNames.length > 0 && (
+                <div className="og-char-picker" role="group" aria-label="从角色卡选择出场角色">
+                  {characterNames.map((n) => {
+                    const on = form.chars.split("\n").some((line) => line.trim() === n);
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        className={`chip${on ? " on" : ""}`}
+                        onClick={() => {
+                          const lines = form.chars
+                            .split("\n")
+                            .map((x) => x.trim())
+                            .filter(Boolean);
+                          const next = on
+                            ? lines.filter((x) => x !== n)
+                            : [...lines, n];
+                          onPatch({ chars: next.join("\n") });
+                        }}
+                      >
+                        {n}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <textarea
                 className="textarea"
                 id="wf-chars"
-                placeholder="角色名"
+                placeholder="角色名（一行一个）"
                 value={form.chars}
                 onChange={(e) => onPatch({ chars: e.target.value })}
               />

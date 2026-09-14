@@ -437,3 +437,54 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
 
     **门禁范围**：本页**暂未纳入** `design-vocab.mjs` 的 `strictGlobs`（实现侧页面未落地，
     纳入会使 `design:check` 无对应实现而必红）；待实现收编后随原型基线一批纳入。
+
+18. **角色设定改版（character-settings-v2，2026-09-13）**
+    新增 `character-settings.html`（自 Downloads 工作稿 v6 收编，`data-od-id` 全量保留）。本页取代：
+    `book.html` 内的旧角色面板（14 字段折叠卡）与 `ADJUSTMENTS.md:181` 登记的「角色（左列角色行 +
+    14 字段三组折叠卡）」条目——两处保留为历史，不再作为该屏的实现依据。
+
+    **词汇归属（复用，不新增胶囊/徽标档位）**：角色类型＝可点击胶囊 `.chip` / `.chip.on`；
+    人物关系类型＝状态胶囊 `.pill` + 语气档；徽标只用 `ok / warn / prog / empty`；保存态对齐既有
+    四态（`saving / saved / dirty / failed`）；体检逐项行用**新类名 `.chk-row`**（名称＋结论一行、
+    依据一行），不覆盖既有 `.chk-line` 作用域；体检第四个取值命名 `conflict`（渲染走 err 色；值名
+    不与传输失败态 `err` 撞名），**不进世界页结论白名单**。原型内 `.chip/.pill` 的尺寸与现役
+    `book.css/base.css` 略有出入——**以现役为准**（原型尺寸仅示意）。
+
+    **状态语义登记**：第三态文案定为「内容有变 · 待重新确认」（不含「已确认」字样，守 §5 S-R2
+    「已确认→ok 绿」硬规则）；**常态「草稿」不再挂 warn 徽标**（§5 S-R3：警示徽标禁止常态化），
+    未确认改为中性档位/副标题表达。删除/合并走卡内 `.ops-panel` + **输入角色名解锁确认**（L3 语义
+    与 §12 一致，但机制是内联面板而非 `DeleteConfirmModal`——差异在此登记）。
+
+    **落点声明**：体检与三处补全的 AI 结果一律落卡片内 `.ai-sink`（右栏只放按钮），沿用
+    intro-genre 的「结果落对应槽位」规则；回执沿用面板脚 `.receipt`（单行、最近一条、切卡清空）。
+
+    **门禁范围**：本文件已加入 `design-vocab.mjs` 的 `strictGlobs`（严格文件 26→27，lint 通过）；
+    顺手清理 3 条失效登记项（`Footer.tsx` / `GenreEditModal.tsx` / `CharacterCreateModal.tsx`，
+    文件均已不存在）。类名映射表（原型 164 类 → 现役复用 / `.settings-v` 局部新增）随 5.1a 落
+    `book.css` 时同批产出。稿纸列宽（232/244/236）不绑定实现，以现役 `.three-col` / `.subsplit`
+    几何为准。演示种子为 9 卡 10 关系（非 43——43 是压测词表）。
+
+    **已知边界**：原型 `save-state` 仅演示 `saving → saved` 两态；`dirty / failed` 的形态以
+    `ChapterWorkspace` 的现役四态实现为准，parity 基线不覆盖（靠 e2e）。
+
+
+19. **设定屏·角色 parity 首跑（character-settings-v2 tasks 6.2，2026-09-14）**
+
+    `design-parity-book.spec.ts` 参数化 `PROTO_FILE`，新增 `settings-characters` 场景：
+    原型侧隐藏稿头/窗体标题栏并归一化满幅（body margin/padding、win 描边），比对裁剪
+    以 col-tree 左缘→col-ai 右缘为内容锚点（容器 padding 差不造成整体错位）；应用侧
+    打桩 43 卡聚合/单卡/关系/gate/readiness(4 缺=3+角色已填 4/8)/settings-status。
+
+    **首跑揪出并已修**：① 应用 `.sub-wrap` 纵排把人物卡挤到可视区外 → `.char-sub`
+    双栏（236px 列表 + 卡）；② 卡片区块顺序 错（人物关系在认知内核前）→ 按原型改为
+    基础档案→认知内核→人物关系；③ 左树徽标把"已填"冒充"已确认"（5.4 登记过的纠正
+    只改了面板头没改树）→ 树也走 stale>confirmed>filled 三级；④ 列表聚合补 specs:149
+    要求的 首次出场（chapter_characters×chapters×volumes 一次 GROUP BY 取最小阅读序）
+    与更新时间，卡 meta/列表副标换真字段；⑤ 右栏 chars 分支缺失（四能力孤岛）→
+    CharsAiRail 接线；⑥ 原型演示数据对齐现役：右栏头行文案、3/8→4/8、草稿→已填、
+    三栏网格 232/244→280/236（以现役 shell 为准）、别名 join 口径、更新于改日期时间。
+
+    **遗留（skip 断言的理由）**：两套独立实现的内部间距节奏仍有差——树行起点差
+    ~23px、面板头差 ~7px、模型设定行宽差 8px、字体光栅差异；0.2% 阈值按同源 CSS
+    校准，不适用于跨实现比对。基线三张图照常落 `docs/design-c/baselines/`，逐项
+    对齐间距后把 skip 换回阈值断言。认知六层/关系区在首屏之外，靠 e2e 覆盖。

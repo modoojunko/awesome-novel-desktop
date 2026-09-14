@@ -37,7 +37,7 @@ async def gate_settings_complete(root_path: str, novel_id: str | None = None) ->
     from workflow.readiness import READINESS_KEYS, compute_readiness
 
     status = await get_storage().read_yaml(root_path, "settings/settings-status.yaml") or {}
-    unconfirmed = [k for k in READINESS_KEYS if not bool(status.get(k))]
+    unconfirmed = [k for k in READINESS_KEYS if not status.get(k) is True]
     if not unconfirmed:
         return GateResult(valid=True, warnings=[])
 

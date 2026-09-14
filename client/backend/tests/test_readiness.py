@@ -179,7 +179,7 @@ class TestReadiness:
         client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "以弱破强的痛快"})
         _fill_world(client, pid, filled=4)
         client.put(f"/api/novels/{pid}/settings/hooks", json={"active": [{"id": "h1", "description": "一个钩子"}]})
-        client.put(f"/api/novels/{pid}/settings/character/张三", json={"name": "张三"})
+        client.post(f"/api/novels/{pid}/characters", json={"name": "张三", "role": "主角"})
         # style/anti-ai 模板默认已通过
         r = client.get(f"/api/novels/{pid}/readiness")
         data = r.json()
@@ -287,7 +287,7 @@ class TestConfirmToggle:
         pid = _create_project(client)
         r = client.put(f"/api/novels/{pid}/settings/status/characters")
         assert r.status_code == 400
-        client.put(f"/api/novels/{pid}/settings/character/张三", json={"name": "张三"})
+        client.post(f"/api/novels/{pid}/characters", json={"name": "张三", "role": "主角"})
         r = client.put(f"/api/novels/{pid}/settings/status/characters")
         assert r.status_code == 200, r.text
         assert r.json()["confirmed"] is True
@@ -351,7 +351,7 @@ class TestGateSettingsWarnings:
         client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "以弱破强的痛快"})
         _fill_world(client, pid, filled=4)
         client.put(f"/api/novels/{pid}/settings/hooks", json={"active": [{"id": "h1", "description": "一个钩子"}]})
-        client.put(f"/api/novels/{pid}/settings/character/张三", json={"name": "张三"})
+        client.post(f"/api/novels/{pid}/characters", json={"name": "张三", "role": "主角"})
         # style/anti-ai 模板默认已通过内容判定
         for t in ["synopsis", "story-arc", "genre", "world", "style", "anti-ai", "hooks", "characters"]:
             r = client.put(f"/api/novels/{pid}/settings/status/{t}")
@@ -422,7 +422,7 @@ class TestCharactersEndpoints:
         # 新项目无角色
         r = client.get(f"/api/novels/{pid}/settings/characters/list")
         assert r.json() == []
-        # 写入 → list 含张三
+        # 写入 → list 含张三（本用例测的是旧 KV 通道本身，种子走旧端点）
         client.put(f"/api/novels/{pid}/settings/character/张三", json={"name": "张三"})
         r = client.get(f"/api/novels/{pid}/settings/characters/list")
         assert "张三" in r.json()

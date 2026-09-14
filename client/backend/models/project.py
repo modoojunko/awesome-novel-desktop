@@ -22,6 +22,9 @@ class Novel(Base):
     total_volumes: Mapped[int] = mapped_column(Integer, default=0)
     total_chapters: Mapped[int] = mapped_column(Integer, default=0)
     total_archives: Mapped[int] = mapped_column(Integer, default=0)
+    # 角色显示序号计数器（character-settings-v2）：seq 单调递增、不复用——
+    # MAX+1 会在"删掉最大号卡"后复用编号，违反编号不回收
+    character_seq_high: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     source: Mapped[str] = mapped_column(String(10), default="ai")
     backfill_status: Mapped[str] = mapped_column(String(20), default="none")
     ai_config_id: Mapped[str | None] = mapped_column(

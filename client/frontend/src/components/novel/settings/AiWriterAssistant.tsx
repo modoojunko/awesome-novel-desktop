@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useFeature } from "@/hooks/useTier";
+import type { CharAiCtx } from "@/lib/characterModel";
 import { toast } from "@/lib/toast";
 import type { AiState } from "@/types/api-config";
 
@@ -30,6 +31,8 @@ export interface AiWriterAssistantProps {
   rows: AiCapabilityRow[];
   /** 底部来源/去向声明。 */
   footNote: string;
+  /** 头部下的作用域行（可选；角色面板＝「当前角色：… 缺 n/m」）。 */
+  targetLine?: ReactNode;
   title?: string;
   /**
    * 后端判定层下发的本书 AI 就绪态（D13）。传了就**只读它**做一次分派
@@ -56,6 +59,7 @@ const BLOCK_TEXT: Record<string, string> = {
 export default function AiWriterAssistant({
   rows,
   footNote,
+  targetLine,
   title = "AI 写作助手",
   aiState,
   onBlocked,
@@ -104,6 +108,11 @@ export default function AiWriterAssistant({
           </span>
         </div>
       </div>
+      {targetLine != null && (
+        <p className="ai-target" data-od-id="ai-target">
+          {targetLine}
+        </p>
+      )}
       {rows.map((r) => {
         const running = runningKey === r.key;
         return (
@@ -131,5 +140,67 @@ export default function AiWriterAssistant({
       })}
       <p className="ra-foot">{footNote}</p>
     </div>
+  );
+}
+
+/** 角色右栏四行（character-settings-v2）：作用域＝当前选中卡；免费可见、点不动。 */
+export function CharsAiRail(props: {
+  ctx: CharAiCtx | null;
+  aiState?: AiState;
+  onBlocked?: (reason: AiState) => void;
+  runningKey?: string | null;
+  onRun: (key: string) => void | Promise<void>;
+}) {
+  const { ctx } = props;
+  const part = (n: number, max: number) => (n ? `缺 ${n}/${max}` : "已齐");
+  const targetLine = ctx ? (
+    <>
+      当前角色：<b>{ctx.name}</b> <span className="num">#{ctx.code}</span>
+      {ctx.role === "路人" ? (
+        <> · 路人卡只填基础档案 · 档案{part(ctx.dossierGap, 6)}（性别、年龄不代填）</>
+      ) : (
+        <>
+          {" "}· 人设{part(ctx.personaGap, 1)} · 档案{part(ctx.dossierGap, 6)} · 认知
+          {part(ctx.cogGap, 10)}
+        </>
+      )}
+    </>
+  ) : null;
+  const rows: AiCapabilityRow[] = [
+    {
+      key: "persona",
+      name: "人设补充",
+      desc: ctx ? `为「${ctx.name}」出一稿 · 会读：这张卡、简介、题材` : "补一句话人设，采纳才覆盖",
+      onClick: () => props.onRun("persona"),
+    },
+    {
+      key: "dossier",
+      name: "基础信息补充",
+      desc: ctx ? `补「${ctx.name}」的档案空格（性别、年龄不代填）· 会读：这张卡、简介、题材、世界` : "补档案空格；性别、年龄不代填",
+      onClick: () => props.onRun("dossier"),
+    },
+    {
+      key: "cog",
+      name: "认知补充",
+      desc: ctx ? `补「${ctx.name}」每层要写的那几格（含技能）· 会读：这张卡、世界（力量与代价）、主线` : "把每层要写的那几格补上，只补空格",
+      onClick: () => props.onRun("cog"),
+    },
+    {
+      key: "check",
+      name: "一致性体检",
+      desc: ctx ? `拿「${ctx.name}」去对整体设定 · 会读：这张卡、简介、题材、世界、主线` : "拿这张卡去对简介、题材、世界、主线",
+      onClick: () => props.onRun("check"),
+    },
+  ];
+  return (
+    <AiWriterAssistant
+      rows={rows}
+      footNote="这四行都只对当前选中的角色生效：先给你一稿，点「采纳 · 写入」才落到卡上，写错了能一步撤销。只补空格——你写过的字一个不动；性别、年龄不代填，留给你自己定。答案都是 AI 现场生成的，这里只是示例，不满意就重新生成。卡片上不放 AI 按钮：免费用户照样可以手填所有字段，这一栏看得见、点不动。"
+      targetLine={targetLine}
+      aiState={props.aiState}
+      onBlocked={props.onBlocked}
+      runningKey={props.runningKey}
+      data-od-id="ai-assist-chars"
+    />
   );
 }

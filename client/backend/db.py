@@ -18,6 +18,8 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor.execute("PRAGMA foreign_keys=ON")
     # WAL：编辑器自动保存高频小事务下读写不互斥，崩溃恢复更稳
     cursor.execute("PRAGMA journal_mode=WAL")
+    # 写写并发（两个 session 紧邻提交）时等锁而非立刻报 "database is locked"
+    cursor.execute("PRAGMA busy_timeout=5000")
     cursor.close()
 
 
