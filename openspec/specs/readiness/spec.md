@@ -49,6 +49,7 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 - Then the item IS marked complete (defaults count as content)
 
 ### Requirement: Content-based checkers (single source of truth)
+
 - Each of the 7 items SHALL have a pure-function checker registered in one READINESS_CHECKERS table.
 - synopsis SHALL pass when story.yaml.synopsis is non-empty.
 - genre SHALL pass when settings/genre.yaml.genre_id is non-empty.
@@ -56,7 +57,7 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 - style SHALL pass when role is non-empty.
 - anti-ai SHALL pass when settings/anti-ai.yaml has content.
 - hooks SHALL pass when the hooks list has at least one valid hook.
-- characters SHALL pass when settings/character-setting/ contains at least one yaml.
+- characters SHALL pass when the book has exactly at most one protagonist AND that protagonist card carries 名称 / 一句话人设 / 剧情定位 / 核心认知盲区 / 能力上限 / 能力代价, AND every non-extra character carries the same six fields; extra characters SHALL only require 剧情定位. On the **first** confirmation (the item has no confirmation record yet) characters SHALL pass when the protagonist card carries 名称 and 一句话人设 only.
 
 #### Scenario: World v2 stage-only counts as filled
 - Given a world setting where only stage is non-empty
@@ -83,6 +84,23 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 - When the author clicks "完成设定" on the world item
 - Then world is reported missing in Chinese
 
+#### Scenario: Characters first confirmation
+- Given a book whose 角色 item has never been confirmed
+- And its protagonist card carries a name and a one-line persona
+- When the author confirms the 角色 item
+- Then the item is marked complete
+
+#### Scenario: Characters later confirmation names the gaps
+- Given the 角色 item has been confirmed before
+- And one supporting character is missing 能力代价
+- When the author confirms the 角色 item again
+- Then the item is not marked complete and the missing fields are reported in Chinese with the character name
+
+#### Scenario: Content change sends the item back
+- Given the 角色 item is confirmed
+- When the protagonist is deleted, the protagonist is switched, or one of the six required fields is cleared
+- Then readiness reports characters as missing again
+- And the stale state (「内容有变 · 待重新确认」, without the word 已确认) is derived by `GET /settings/status` from the confirmation record, NOT by readiness (readiness stays a pure content predicate and SHALL NOT read or write the confirmation record)
 ### Requirement: Gate convergence
 - gate_settings_complete SHALL be refactored to call the same READINESS_CHECKERS subset for settings.
 - Settings gate warnings SHALL be Chinese and SHALL carry a jump target.

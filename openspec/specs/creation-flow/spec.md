@@ -78,8 +78,15 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 
 - **WHEN** 用户选中「世界 / 风格 / AI痕迹控制」
 - **THEN** AI 栏显示该设定项的 AI 能力说明与入口提示（字段内「AI 帮我填」按钮保持原位）
-- **WHEN** 用户选中无 AI 能力的设定项（题材/简介/伏笔/角色/AI 模型）
+- **WHEN** 用户选中无 AI 能力的设定项（题材/简介/伏笔/AI 模型）
 - **THEN** AI 栏显示「当前设定项暂无 AI 功能」占位说明
+
+#### Scenario: 角色面板的 AI 栏
+
+- **WHEN** 用户选中「角色」设定项
+- **THEN** 右侧 AI 栏显示「AI 写作助手」四行能力（人设补充 / 基础信息补充 / 认知补充 / 一致性体检），四行只对当前选中的角色生效
+- **AND** 每行结构沿用既有能力行（名称 + 描述，描述内含「会读什么」）
+- **AND** 补全类能力的答案落卡片内对应字段区的结果区（`.ai-sink`），体检结论落卡片内结果区，右栏只作按钮、不内嵌答案
 
 #### Scenario: 多对象设定的内嵌子双栏
 
@@ -96,7 +103,6 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 
 - **WHEN** 视口宽度 <1024px
 - **THEN** 设定视图左栏置顶、主栏与 AI 栏纵向堆叠，AI 栏不隐藏（AI 能力仍可用）
-
 ### Requirement: 多对象设定的内嵌子双栏
 
 「角色」「伏笔」设定项的中间栏 SHALL 呈内嵌子双栏，且占满中间栏内容区。
@@ -116,3 +122,15 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 
 - **WHEN** 用户在内嵌左栏新增或切换对象
 - **THEN** 行为与改版前一致（新增即选中、切换加载已保存内容、脏切换保护口径不变）
+
+#### Scenario: 角色列表按类型分组且可搜
+
+- **WHEN** 用户选中「角色」且书中角色数量达到数十人量级
+- **THEN** 内嵌左栏按「主角 / 配角 / 反派 / 路人」分组折叠，显示各组数量，列表自身滚动
+- **AND** 顶部有搜索框，按键入即时在本地过滤（按名称或别名命中，不发网络请求）
+- **AND** 新增入口固定在列表顶部，不随滚动消失
+
+#### Scenario: 大列表不产生请求放大
+
+- **WHEN** 用户打开「角色」面板或在其内切换选中对象
+- **THEN** 列表内容由一次请求返回（含类型、别名、首次出场与缺口提示），切换选中不逐角色再取
