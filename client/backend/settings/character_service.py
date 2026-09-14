@@ -211,6 +211,11 @@ def _card_full(ch: Character) -> dict:
     }
 
 
+def _display_name(name: str) -> str:
+    """占位名（\u0000+uuid 段，空名唯一键安全）在收据与提示里一律显示「未命名」"""
+    return "未命名" if name.startswith("\u0000") else name
+
+
 async def create_character(
     session: AsyncSession, novel_id: str, name: str, role: str = "配角"
 ) -> Character:
@@ -415,7 +420,7 @@ async def delete_character(
     ))
     await session.commit()
     return {
-        "receipt": f"已删除《{ch.name}》",
+        "receipt": f"已删除《{_display_name(ch.name)}》",
         "undo": {"op_id": token},
     }
 
@@ -565,8 +570,8 @@ async def merge_character(
     await session.refresh(tgt)
     return {
         "receipt": (
-            f"已把《{src.name}》并进《{tgt.name}》——补 {filled_count} 处空格、"
-            f"关系归并 {moved} 段（去重 {dropped} 段）"
+            f"已把《{_display_name(src.name)}》并进《{_display_name(tgt.name)}》——"
+            f"补 {filled_count} 处空格、关系归并 {moved} 段（去重 {dropped} 段）"
         ),
         "undo": {"op_id": token},
         "target": card_to_dict(tgt),

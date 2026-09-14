@@ -472,12 +472,12 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
             {opsPanel === "del" && (
               <div className="char-ops-panel danger">
                 <span className="op-t">
-                  删除《{card.name || "未命名"}》？相关关系会一并移除。
+                  删除《{displayName(card.name) || "未命名"}》？相关关系会一并移除。
                   {card.role === "主角" && " 主角位会空出来。"}
                   删错了可撤销——撤销保留到你继续编辑或刷新之前。
                 </span>
                 <input
-                  placeholder={`输入「${card.name || "未命名"}」以确认`}
+                  placeholder={`输入「${displayName(card.name) || "未命名"}」以确认`}
                   aria-label="输入角色名以确认"
                   value={opsName}
                   onChange={(e) => setOpsName(e.target.value)}
@@ -485,7 +485,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
                 <button
                   type="button"
                   className="btn btn-danger"
-                  disabled={opsName.trim() !== (card.name || "未命名")}
+                  disabled={opsName.trim() !== (displayName(card.name) || "未命名")}
                   onClick={() => void doDelete()}
                 >
                   删除
@@ -496,7 +496,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
             {opsPanel === "merge" && (
               <div className="char-ops-panel">
                 <span className="op-t">
-                  把《{card.name || "未命名"}》并到另一张卡：<b>那张卡写过的不动，空格用这张补上</b>。可撤销。
+                  把《{displayName(card.name) || "未命名"}》并到另一张卡：<b>那张卡写过的不动，空格用这张补上</b>。可撤销。
                 </span>
                 <select aria-label="合并到哪张卡" value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)}>
                   <option value="">合并到…</option>
@@ -505,7 +505,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
                   ))}
                 </select>
                 <input
-                  placeholder={`输入「${card.name || "未命名"}」以确认`}
+                  placeholder={`输入「${displayName(card.name) || "未命名"}」以确认`}
                   aria-label="输入角色名以确认"
                   value={opsName}
                   onChange={(e) => setOpsName(e.target.value)}
@@ -513,7 +513,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={!mergeTarget || opsName.trim() !== (card.name || "未命名")}
+                  disabled={!mergeTarget || opsName.trim() !== (displayName(card.name) || "未命名")}
                   onClick={() => void doMerge()}
                 >
                   合并
