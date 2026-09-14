@@ -61,6 +61,15 @@ export interface GateStatus {
   confirmed_at: string | null;
 }
 
+/** 从简介立主角的出稿（character-bootstrap-from-intro）：只出稿不建卡，采纳走既有单格写入 */
+export interface BootstrapDraft {
+  name: string;
+  aliases: string[];
+  persona: string;
+  cells: { path: string; value: string }[];
+  skipped?: { key: string; why: string }[];
+}
+
 export interface UndoResult {
   ok: boolean;
   receipt: string;
@@ -170,6 +179,14 @@ export const charactersApi = {
         `/novels/${projectId}/settings/ai/characters/${characterId}/draft`,
         { target },
       ),
+    ),
+
+  /** 从简介立主角（书级）：characterId 可选——主角待立时带上，出稿只补空格 */
+  bootstrapDraft: (projectId: string, characterId?: string) =>
+    unwrap<BootstrapDraft>(
+      api.post(`/novels/${projectId}/settings/ai/characters/bootstrap`, {
+        character_id: characterId || undefined,
+      }),
     ),
 
   aiCheck: (projectId: string, characterId: string) =>

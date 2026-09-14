@@ -133,6 +133,8 @@ export const GATE_FIELDS: [string, string][] = [
 /** 右栏 AI 作用域上下文（SettingsView 拼「当前角色：… 缺 n/m」用） */
 export interface CharAiCtx {
   name: string;
+  /** 名称是否为空（哨兵名）——「从简介立主角」行的出现判据 */
+  nameless: boolean;
   code: string;
   role: string;
   personaGap: number;

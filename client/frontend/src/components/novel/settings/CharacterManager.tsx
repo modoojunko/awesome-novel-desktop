@@ -1,8 +1,9 @@
 // 角色面板（character-settings-v2）：真表 API + 分组列表 + 卷宗人物卡 + 单向关系
 // + 删除/合并（L3 名称输入确认）+ 单格自动保存（防抖 + 串行队列 + rev 冲突 409 处理）
-// + 右栏 AI 经 SettingsView 分发（本组件暴露 runAi/clearAi 句柄）。
+// + 右栏 AI 经 SettingsView 分发（本组件暴露 runAi/clearAi 句柄）
+// + 首次进入引导与「从简介立主角」（character-bootstrap-from-intro：出稿采纳走既有单格写入）。
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { charactersApi, CharacterCard } from "@/lib/charactersApi";
+import { charactersApi, BootstrapDraft, CharacterCard } from "@/lib/charactersApi";
 import {
   COG_FILL_KEYS,
   COG_LAYERS,
@@ -13,6 +14,7 @@ import {
   type CharAiCtx,
 } from "@/lib/characterModel";
 import { Ico } from "@/components/icons";
+import type { AiState } from "@/types/api-config";
 
 interface Props {
   projectId: string;
@@ -20,9 +22,14 @@ interface Props {
   onDirtyChange?: (dirty: boolean) => void;
   /** 选中卡变化时上报（右栏四行提示与缺口计数的数据源） */
   onCtxChange?: (ctx: CharAiCtx | null) => void;
+  /** 01 简介是否已填（readiness settingsStatus.synopsis）——空态引导卡的分路判据 */
+  introReady?: boolean;
+  /** 本书 AI 就绪态（D13）：空态引导按钮与右栏行同一门控；不 ready 时点击走 onBlocked */
+  aiState?: AiState;
+  onBlocked?: (reason: AiState) => void;
 }
 
-interface SaveHandle {
+export interface CharacterSaveHandle {
   save: () => Promise<boolean>;
   /** 兼容 SettingSaveHandle 可选成员 */
   clearAi?: () => void;
@@ -47,11 +54,17 @@ interface CheckResult {
 
 const GROUPS = ROLES;
 
-const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager(
+/** 出稿到采纳之间作者可能已手写——逐格以当前卡内容复查，只写空格（纯函数） */
+function cellStillEmpty(cardLike: CharacterCard, path: string): boolean {
+  const [bucket, key] = path.split(".") as ["dossier" | "cog", string];
+  return !String(cardLike[bucket]?.[key] ?? "").trim();
+}
+
+const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function CharacterManager(
   props,
   ref,
 ) {
-  const { projectId, onDirtyChange, onCtxChange } = props;
+  const { projectId, onDirtyChange, onCtxChange, introReady, aiState, onBlocked } = props;
   const [list, setList] = useState<CharacterCard[]>([]);
   const [gate, setGate] = useState<{ ok: boolean; no_protagonist: boolean; confirmed: boolean }>({
     ok: false, no_protagonist: true, confirmed: false,
@@ -70,6 +83,8 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
   const [relForm, setRelForm] = useState(false);
   const [relDraft, setRelDraft] = useState({ other: "", rel_type: "\u540c\u76df", stance: "", note: "" });
   const [sink, setSink] = useState<AiSink | null>(null);
+  /** 「从简介立主角」出稿（character-bootstrap-from-intro）：出稿过目，采纳才写入 */
+  const [bootstrapSink, setBootstrapSink] = useState<BootstrapDraft | null>(null);
   const [check, setCheck] = useState<CheckResult | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [toast, setToast] = useState("");
@@ -108,6 +123,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
     setCheck(null);
     onCtxChange?.({
       name: displayName(full.name) || "未命名",
+      nameless: !displayName(full.name),
       code: full.code,
       role: full.role,
       personaGap: full.persona.trim() ? 0 : 1,
@@ -204,9 +220,16 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
     clearAi: () => {
       setSink(null);
       setCheck(null);
+      setBootstrapSink(null);
     },
     runAi: async (key: string) => {
-      if (aiBusy || !card) return;
+      if (aiBusy) return;
+      if (key === "bootstrap") {
+        // 从简介立主角：允许无卡（空态）触发；主角待立时带当前卡 id（出稿只补空格）
+        await runBootstrap();
+        return;
+      }
+      if (!card) return;
       setAiBusy(true);
       const cardId = card.id;
       try {
@@ -235,6 +258,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
       setOpsPanel("");
       setRelForm(false);
       setCogOpen({});
+      setBootstrapSink(null);
       await loadCard(id);
     },
     [flushQueue, loadCard],
@@ -242,7 +266,8 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
 
   const addCharacter = useCallback(async () => {
     try {
-      const created = await charactersApi.create(projectId, "");
+      // 首卡默认主角（character-bootstrap-from-intro）；之后添加仍默认配角
+      const created = await charactersApi.create(projectId, "", list.length === 0 ? "主角" : "配角");
       await reloadList();
       selectedIdRef.current = created.id;
       setSelectedId(created.id);
@@ -253,7 +278,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
     } catch (e) {
       showToast((e as Error).message || "\u521b\u5efa\u5931\u8d25");
     }
-  }, [projectId, reloadList, loadCard, showToast]);
+  }, [projectId, list.length, reloadList, loadCard, showToast]);
 
   const adoptSink = useCallback(async () => {
     if (!sink || !card) return;
@@ -270,6 +295,78 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
       showToast((e as Error).message || "\u91c7\u7eb3\u5931\u8d25");
     }
   }, [sink, card, projectId, loadCard, reloadList, showToast]);
+
+  /** 采纳「从简介立主角」草稿：空态=建主角卡+逐格补写；主角待立=只补空格（含名字/别名/人设） */
+  const adoptBootstrap = useCallback(async () => {
+    if (!bootstrapSink) return;
+    const draft = bootstrapSink;
+    try {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+      await flushQueue();
+      if (card) {
+        const steps: { path: string; value: unknown }[] = [];
+        if (!displayName(card.name) && draft.name) steps.push({ path: "name", value: draft.name });
+        if (!card.aliases.length && draft.aliases.length)
+          steps.push({ path: "aliases", value: draft.aliases });
+        if (!card.persona.trim() && draft.persona) steps.push({ path: "persona", value: draft.persona });
+        steps.push(...draft.cells.filter((c) => cellStillEmpty(card, c.path)));
+        for (const s of steps) {
+          await charactersApi.patch(projectId, card.id, s.path, s.value, revRef.current);
+          revRef.current += 1;
+        }
+        setBootstrapSink(null);
+        await loadCard(card.id);
+        await reloadList();
+      } else {
+        const created = await charactersApi.create(projectId, draft.name, "主角");
+        selectedIdRef.current = created.id;
+        setSelectedId(created.id);
+        setOpsPanel("");
+        setRelForm(false);
+        await loadCard(created.id);
+        const steps: { path: string; value: unknown }[] = [];
+        if (draft.aliases.length) steps.push({ path: "aliases", value: draft.aliases });
+        if (draft.persona) steps.push({ path: "persona", value: draft.persona });
+        steps.push(...draft.cells.filter((c) => cellStillEmpty(created, c.path)));
+        for (const s of steps) {
+          await charactersApi.patch(projectId, created.id, s.path, s.value, revRef.current);
+          revRef.current += 1;
+        }
+        setBootstrapSink(null);
+        await loadCard(created.id);
+        await reloadList();
+      }
+      showToast("\u5df2\u91c7\u7eb3\uff0c\u53ef\u7ee7\u7eed\u6539");
+    } catch (e) {
+      const err = e as Error & { status?: number; rev?: number };
+      if (err.status === 409 && err.rev !== undefined) {
+        // rev 冲突：同步到服务端 rev 并重取卡；草稿保留，可直接重试
+        revRef.current = err.rev;
+        if (card) await loadCard(card.id);
+      }
+      showToast((e as Error).message || "\u91c7\u7eb3\u5931\u8d25");
+    }
+  }, [bootstrapSink, card, projectId, flushQueue, loadCard, reloadList, showToast]);
+
+  /** 空态引导卡入口与右栏行共用：门控（不 ready → onBlocked）后出稿 */
+  const runBootstrap = useCallback(async () => {
+    if (aiBusy) return;
+    if (aiState && aiState !== "ready") {
+      onBlocked?.(aiState);
+      return;
+    }
+    setAiBusy(true);
+    try {
+      const res = await charactersApi.bootstrapDraft(projectId, card?.id || undefined);
+      setSink(null);
+      setCheck(null);
+      setBootstrapSink(res);
+    } catch (e) {
+      showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
+    } finally {
+      setAiBusy(false);
+    }
+  }, [aiBusy, aiState, onBlocked, card, projectId, showToast]);
 
   const doDelete = useCallback(async () => {
     if (!card) return;
@@ -340,6 +437,44 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
   }));
   const sealChar = displayName(card?.name)?.trim()?.[0] ?? "\uff1f";
 
+  /** 「从简介立主角」出稿预览（空态引导卡内与选中卡顶部共用；采纳走 adoptBootstrap） */
+  const bootstrapPreview = bootstrapSink ? (
+    <div className="ai-sink" role="status" data-testid="char-bootstrap-preview">
+      <div className="aiz-head">AI 拟稿 · 采纳才写入</div>
+      {bootstrapSink.name && (
+        <div className="aiz-line">
+          <span className="aiz-k">名称</span>
+          <span className="aiz-v">{bootstrapSink.name}</span>
+        </div>
+      )}
+      {bootstrapSink.aliases.length > 0 && (
+        <div className="aiz-line">
+          <span className="aiz-k">别名</span>
+          <span className="aiz-v">{bootstrapSink.aliases.join(" · ")}</span>
+        </div>
+      )}
+      {bootstrapSink.persona && (
+        <div className="aiz-line">
+          <span className="aiz-k">一句话人设</span>
+          <span className="aiz-v">{bootstrapSink.persona}</span>
+        </div>
+      )}
+      {bootstrapSink.cells.map((cell) => (
+        <div key={cell.path} className="aiz-line">
+          <span className="aiz-k">{cell.path}</span>
+          <span className="aiz-v">{cell.value}</span>
+        </div>
+      ))}
+      {bootstrapSink.skipped?.map((s, i) => (
+        <div key={`${s.key}-${i}`} className="opt">跳过 {s.key}：{s.why}</div>
+      ))}
+      <div className="ans-act">
+        <button type="button" className="btn btn-primary" onClick={() => void adoptBootstrap()}>采纳 · 写入</button>
+        <button type="button" className="btn btn-secondary" onClick={() => setBootstrapSink(null)}>放弃</button>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className="sub-wrap char-sub">
       <nav className="sub-list char-list" aria-label="角色列表">
@@ -404,7 +539,40 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
 
       <div className="sub-form char-main">
         {!card ? (
-          <p className="opt">左侧添加或选择一个角色。</p>
+          list.length === 0 ? (
+            <div className="char-empty-guide" data-testid="char-empty-guide">
+              {bootstrapPreview ?? (
+                <>
+                  <p className="guide-t">
+                    {introReady
+                      ? "简介里已经有主角的线索了"
+                      : "先去 01 简介写几句，主角就有了眉目"}
+                  </p>
+                  <p className="opt">
+                    「从简介立主角」会读你的简介，把名字、人设和各空格先拟一稿——看过再采纳；也可以直接手动建一张主角卡。
+                  </p>
+                  <div className="guide-act">
+                    {introReady && (
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        data-testid="char-bootstrap"
+                        disabled={aiBusy}
+                        onClick={() => void runBootstrap()}
+                      >
+                        {aiBusy ? "AI 正在拟…" : "从简介立主角"}
+                      </button>
+                    )}
+                    <button type="button" className="btn btn-secondary" onClick={() => void addCharacter()}>
+                      手动建主角
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <p className="opt">左侧添加或选择一个角色。</p>
+          )
         ) : (
           <>
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
@@ -415,6 +583,8 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
                 {saveState === "failed" && "保存失败 · 请重试"}
               </span>
             </div>
+
+            {bootstrapPreview}
 
             <header className="char-head">
               <span className="char-seal">{sealChar}</span>
