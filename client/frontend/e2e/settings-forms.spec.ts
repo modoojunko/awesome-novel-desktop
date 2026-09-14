@@ -565,6 +565,36 @@ test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确�
     await undoPost;
     const list2 = await apiGetJSON(request, token, `/novels/${pid}/characters`);
     expect((list2.data?.items ?? []).some((x: { name: string }) => x.name === "林晚")).toBe(true);
+
+    // 确认链（review P1 回归钉）：立主角 + 人设 → 确认完成走两档门禁端点
+    // → settings/status 落盘 → gate/status 已确认；再清人设 → stale
+    await page.getByRole("button", { name: "主角", exact: true }).click();
+    await page.getByRole("textbox", { name: "一句话人设" }).fill("瘦高个的拾残人");
+    await page.waitForTimeout(1200); // 末格 PATCH 落库
+    const confirmPost = page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" && r.url().includes("/characters/confirm"),
+    );
+    const statusPut = page.waitForResponse(
+      (r) =>
+        r.request().method() === "PUT" && r.url().includes("/settings/status/characters"),
+    );
+    await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
+    expect((await confirmPost).status()).toBe(200);
+    expect((await statusPut).status()).toBe(200);
+    const gate1 = await apiGetJSON(request, token, `/novels/${pid}/characters/gate/status`);
+    expect(gate1.data?.confirmed).toBe(true);
+    expect(gate1.data?.stale).toBe(false);
+    // 清空人设（门禁字段）→ 内容有变
+    const list3 = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+    const card3 = list3.data.items.find((x: { name: string }) => x.name === "林晚");
+    const clr = await request.patch(`/api/novels/${pid}/characters/${card3.id}`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: { path: "persona", value: "", base_rev: card3.rev },
+    });
+    expect(clr.status()).toBe(200);
+    const gate2 = await apiGetJSON(request, token, `/novels/${pid}/characters/gate/status`);
+    expect(gate2.data?.stale).toBe(true);
   } finally {
     await restore();
   }

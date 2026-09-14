@@ -9,6 +9,9 @@ Product decision (2026-08-02):
 7 items are judged (ai-model is NOT part of readiness).
 """
 
+from sqlalchemy import select
+
+from db import async_session
 from filesystem.storage import get_storage
 
 
@@ -80,8 +83,20 @@ async def _check_hooks(root_path: str, novel_id: str | None = None) -> bool:
 
 
 async def _check_characters(root_path: str, novel_id: str | None = None) -> bool:
-    files = await get_storage().list_dir(root_path, "settings/character-setting")
-    return any(f.endswith(".yaml") for f in files)
+    """角色项「已填」= 真表里至少一张卡（character-settings-v2；旧 yaml 目录已退役）。
+
+    两档**门禁**不在这里——门禁在 POST /characters/confirm（confirm_characters）；
+    readiness 只承担「内容非空」语义，与其余 checker 同口径。
+    """
+    if not novel_id:
+        return False
+    from models.character import Character
+
+    async with async_session() as session:
+        row = await session.scalar(
+            select(Character.id).where(Character.novel_id == novel_id).limit(1)
+        )
+        return row is not None
 
 
 async def _check_story_arc(root_path: str, novel_id: str | None = None) -> bool:

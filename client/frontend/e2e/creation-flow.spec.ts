@@ -419,11 +419,15 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     await openSetting(page, "禁用词句");
     await confirmPanel(page);
 
-    // ── characters：API 注入角色文件 + 面板确认
-    await apiPutJSON(request, token, `/novels/${pid}/settings/character/张三`, {
-      name: "张三",
+    // ── characters：真表 API 建主角卡（v2）→ 面板确认（两档门禁·首次档查名称+人设）
+    const charPost = await request.post(`${ORIGIN}/api/novels/${pid}/characters`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: { name: "张三", role: "主角" },
     });
+    expect(charPost.status()).toBe(200);
     await openSetting(page, "角色");
+    await page.getByRole("textbox", { name: "一句话人设" }).fill("边境城邦的更夫，认得每一种脚步声");
+    await page.waitForTimeout(900); // 防抖 PATCH 落库
     await confirmPanel(page);
 
     // 7 项全确认 → /settings/status 全 true（PRD 3.4；013：观察点从 GateBanner 消失改为后端直查）

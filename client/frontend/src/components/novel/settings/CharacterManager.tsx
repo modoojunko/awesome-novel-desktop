@@ -8,6 +8,7 @@ import {
   COG_LAYERS,
   DOSSIER_FIELDS,
   DOSSIER_FILL_KEYS,
+  displayName,
   ROLES,
   type CharAiCtx,
 } from "@/lib/characterModel";
@@ -106,7 +107,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
     setSink(null);
     setCheck(null);
     onCtxChange?.({
-      name: full.name || "未命名",
+      name: displayName(full.name) || "未命名",
       code: full.code,
       role: full.role,
       personaGap: full.persona.trim() ? 0 : 1,
@@ -337,7 +338,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
       (c) => c.role === role && (!q || c.name.includes(q) || c.aliases.some((a) => a.includes(q))),
     ),
   }));
-  const sealChar = card?.name?.trim()?.[0] ?? "\uff1f";
+  const sealChar = displayName(card?.name)?.trim()?.[0] ?? "\uff1f";
 
   return (
     <div className="sub-wrap char-sub">
@@ -378,9 +379,9 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
                         className={`char-row-btn${selectedId === c.id ? " on" : ""}`}
                         onClick={() => void pick(c.id)}
                       >
-                        <i className="char-ava">{c.name?.[0] ?? "？"}</i>
+                        <i className="char-ava">{displayName(c.name)?.[0] ?? "？"}</i>
                         <span className="char-row-main">
-                          <span className="nm">{c.name || "未命名"}</span>
+                          <span className="nm">{displayName(c.name) || "未命名"}</span>
                           <span className="sub num">
                             {c.first_chapter != null
                               ? `第 ${String(c.first_chapter).padStart(2, "0")} 章`
@@ -421,7 +422,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
                 <div className="char-name-row">
                   <input
                     className="char-name-input"
-                    value={card.name}
+                    value={displayName(card.name)}
                     placeholder="姓名 / 称号"
                     aria-label="角色名称"
                     onChange={(e) => setField("name", e.target.value)}
@@ -500,7 +501,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
                 <select aria-label="合并到哪张卡" value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)}>
                   <option value="">合并到…</option>
                   {list.filter((x) => x.id !== card.id).map((x) => (
-                    <option key={x.id} value={x.id}>{x.name || "未命名"} · #{x.code}</option>
+                    <option key={x.id} value={x.id}>{displayName(x.name) || "未命名"} · #{x.code}</option>
                   ))}
                 </select>
                 <input

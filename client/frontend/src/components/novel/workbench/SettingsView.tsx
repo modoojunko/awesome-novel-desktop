@@ -19,6 +19,7 @@ import AntiAiSettingForm from "@/components/novel/settings/AntiAiSettingForm";
 import HooksSettingForm from "@/components/novel/settings/HooksSettingForm";
 import CharacterManager from "@/components/novel/settings/CharacterManager";
 import { type CharAiCtx } from "@/lib/characterModel";
+import { charactersApi } from "@/lib/charactersApi";
 import ModelSettingForm from "@/components/novel/settings/ModelSettingForm";
 import StoryArcForm, { type ArcFormHandle, type ArcAiAction } from "@/components/novel/settings/StoryArcForm";
 import { useStoryArc } from "@/components/novel/settings/useStoryArc";
@@ -415,6 +416,17 @@ export default function SettingsView({
       if (saved !== true) return;
       // 保存成功＝这次改动已落库，回执里的撤销只能改回内存（与库不一致）→ 清掉
       setReceipt(null);
+      // 角色确认走两档门禁端点（review P1：此前只 PUT status，门禁从未生效，
+      // 新书更是永远 400）：首次档只查主角卡，此后档全量六项
+      if (panel === "chars") {
+        try {
+          await charactersApi.confirm(projectId, !confirmed);
+        } catch (e) {
+          toast.error((e as Error).message || "确认未通过");
+          handle?.markDirty?.();
+          return;
+        }
+      }
       if (confirmed) {
         handle?.clearAi?.();
         toast.success(`「${item.name}」已保存`);
@@ -437,7 +449,7 @@ export default function SettingsView({
     } finally {
       setBusy(false);
     }
-  }, [item, panel, confirmed, busy, confirmSetting, done, total, currentHandle]);
+  }, [item, panel, confirmed, busy, confirmSetting, done, total, currentHandle, projectId]);
 
   const panelTitle = isModel ? "模型设定" : (item?.name ?? "");
   // 模型窗不是设定完成度项 → 徽标改为**真实就绪态**（与面板内「当前状态」同源，D13）

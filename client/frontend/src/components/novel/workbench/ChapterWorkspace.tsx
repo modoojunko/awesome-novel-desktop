@@ -178,7 +178,8 @@ export default function ChapterWorkspace({
     void (async () => {
       try {
         const data = await charactersApi.list(projectId);
-        if (alive) setCharacterNames(data.items.map((i) => i.name).filter(Boolean));
+        if (alive) setCharacterNames(data.items.map((i) => i.name)
+            .filter((n) => n && !n.startsWith("\u0000")));
       } catch {
         /* 角色接口失败不阻塞章纲；textarea 兜底仍可用 */
       }

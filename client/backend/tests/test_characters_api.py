@@ -264,6 +264,12 @@ class TestDeleteMergeUndo:
             f"/api/novels/{nid}/characters/{tgt['id']}/relations/{prot['id']}",
             json={"rel_type": "同盟", "stance": "同门"},
         )
+        # 目标卡自己的另一段既有关系（跟源卡无关）——撤销不得波及（review P1）
+        other = c.post(f"/api/novels/{nid}/characters", json={"name": "老周"}).json()["data"]
+        c.put(
+            f"/api/novels/{nid}/characters/{other['id']}/relations/{tgt['id']}",
+            json={"rel_type": "友好", "stance": "同坊市"},
+        )
 
         r = c.post(f"/api/novels/{nid}/characters/{src['id']}/merge", json={"target_id": tgt["id"]})
         assert r.status_code == 200, r.text
@@ -284,6 +290,10 @@ class TestDeleteMergeUndo:
         assert items["林十一"]["cog"].get("w5", "") in ("", None)  # 目标卡的补格被还原
         rels_src = c.get(f"/api/novels/{nid}/characters/{src['id']}/relations").json()["data"]
         assert rels_src and rels_src[0]["rel_type"] == "仇人"  # 关系改回
+        # 目标卡自己的既有关系原样保留（review P1 回归钉）
+        rels_other = c.get(f"/api/novels/{nid}/characters/{other['id']}/relations").json()["data"]
+        kept = [x for x in rels_other if x["other_id"] == tgt["id"]]
+        assert len(kept) == 1 and kept[0]["rel_type"] == "友好"
 
     def test_gate_confirm_two_tiers_and_stale(self, client):
         c, nid = client
@@ -323,6 +333,23 @@ class TestDeleteMergeUndo:
         })
         status2 = c.get(f"/api/novels/{nid}/characters/gate/status").json()["data"]
         assert status2["stale"] is True
+
+    def test_patch_name_empty_becomes_placeholder(self, client):
+        """清空名字 = 回未命名哨兵；两张卡都清空也不撞 UNIQUE（review P2）。"""
+        c, nid = client
+        a = c.post(f"/api/novels/{nid}/characters", json={"name": "甲"}).json()["data"]
+        b = c.post(f"/api/novels/{nid}/characters", json={"name": "乙"}).json()["data"]
+        r1 = c.patch(f"/api/novels/{nid}/characters/{a['id']}", json={
+            "path": "name", "value": "", "base_rev": a["rev"],
+        })
+        assert r1.status_code == 200, r1.text
+        r2 = c.patch(f"/api/novels/{nid}/characters/{b['id']}", json={
+            "path": "name", "value": "  ", "base_rev": b["rev"],
+        })
+        assert r2.status_code == 200, r2.text
+        names = [x["name"] for x in c.get(f"/api/novels/{nid}/characters").json()["data"]["items"]]
+        placeholders = [n for n in names if n.startswith("\u0000")]
+        assert len(placeholders) == 2, names  # 两张都落哨兵、互不撞键
 
     def test_patch_unknown_character_404ish(self, client):
         c, nid = client

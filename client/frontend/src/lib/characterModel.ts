@@ -140,6 +140,15 @@ export interface CharAiCtx {
   cogGap: number;
 }
 
+/** 未命名哨兵（create/清空名时服务端写入 "\u0000"+uuid 段，唯一键安全） */
+export const NAME_PLACEHOLDER_PREFIX = "\u0000";
+
+/** 展示名：哨兵 → 空串（调用方再兜底「未命名」）；真名原样。 */
+export function displayName(name: string | null | undefined): string {
+  if (!name || name.startsWith(NAME_PLACEHOLDER_PREFIX)) return "";
+  return name;
+}
+
 export const ROLES = ["主角", "配角", "反派", "路人"] as const;
 export type CharacterRole = (typeof ROLES)[number];
 

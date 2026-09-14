@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select, update
@@ -269,6 +269,10 @@ async def patch_character(
                 ).first()
                 if taken:
                     raise Conflict("name_taken", f"已有角色叫「{new_name}」，换一个名字")
+            elif not str(ch.name or "").startswith("\u0000"):
+                # 清空 = 回到未命名占位（create 同款哨兵）；直接写 "" 会让第二张
+                # 空名卡撞 uq_char_novel_name → 500（review P2）
+                value = f"\u0000{uuid.uuid4().hex[:12]}"
         if path == "role":
             if value not in ROLES:
                 raise Unprocessable("invalid_role", f"角色类型只能是 {'/'.join(ROLES)}")
@@ -408,7 +412,7 @@ async def delete_character(
     session.add(CharacterOp(
         novel_id=novel_id, kind="delete", before=_json_dumps(before),
         undo_token=token,
-        expires_at=datetime.now() + timedelta(seconds=UNDO_TTL_SECONDS),
+        expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=UNDO_TTL_SECONDS),
     ))
     await session.commit()
     return {
@@ -425,7 +429,18 @@ async def merge_character(
     src = await _load_card(session, novel_id, source_id)
     tgt = await _load_card(session, novel_id, target_id)
     before_src = await _snapshot_card(session, src)
+    # 目标卡的既有关系必须进前像：undo 会清掉触及目标卡的全部关系再重建，
+    # 不快照它们就会被一并抹掉（review P1）
     before_tgt = card_to_dict(tgt)
+    before_tgt["relations"] = [
+        rel_to_dict(r)
+        for r in await session.scalars(
+            select(CharacterRelation).where(
+                (CharacterRelation.owner_id == target_id)
+                | (CharacterRelation.other_id == target_id)
+            )
+        )
+    ]
     filled_count = 0
 
     # 空格用来源卡补齐；目标已有的字不动
@@ -545,7 +560,7 @@ async def merge_character(
         novel_id=novel_id, kind="merge",
         before=_json_dumps({"source": before_src, "target": before_tgt}),
         undo_token=token,
-        expires_at=datetime.now() + timedelta(seconds=UNDO_TTL_SECONDS),
+        expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=UNDO_TTL_SECONDS),
     ))
     await session.commit()
     await session.refresh(tgt)
@@ -571,7 +586,7 @@ async def undo_op(session: AsyncSession, novel_id: str, token: str) -> dict:
         raise Unprocessable("not_found", "没有这次操作的撤销记录")
     if op.undone_at is not None:
         raise Conflict("already_undone", "这次操作已经撤销过了")
-    if op.expires_at < datetime.now():
+    if op.expires_at < datetime.now(UTC).replace(tzinfo=None):
         raise Conflict("undo_expired", "撤销窗口已过，无法撤回")
     before = json.loads(op.before or "{}")
 
@@ -589,19 +604,21 @@ async def undo_op(session: AsyncSession, novel_id: str, token: str) -> dict:
         tgt_before = before.get("target") or {}
         tgt = await _load_card(session, novel_id, tgt_before["id"])
         _overwrite_from_snapshot(tgt, tgt_before)
-        # 现存指向 target 的关系全部回到前像状态（删掉现在的、重建前像里的）
+        # 现存触及目标卡的关系全部清掉，按前像重建——源卡的与目标卡自己的都要
+        # （目标卡自己的关系在合并时虽未被移动，但 undo 的清理是全量清除）
         await session.execute(
             delete(CharacterRelation).where(
                 (CharacterRelation.owner_id == tgt_before["id"])
                 | (CharacterRelation.other_id == tgt_before["id"])
             )
         )
-        for rel in (before.get("source") or {}).get("relations") or []:
-            session.add(CharacterRelation(
-                novel_id=novel_id, owner_id=rel["owner_id"], other_id=rel["other_id"],
-                rel_type=rel["rel_type"], stance=rel["stance"], note=rel["note"],
-                ch_ref=rel["ch_ref"],
-            ))
+        for side in ("source", "target"):
+            for rel in (before.get(side) or {}).get("relations") or []:
+                session.add(CharacterRelation(
+                    novel_id=novel_id, owner_id=rel["owner_id"], other_id=rel["other_id"],
+                    rel_type=rel["rel_type"], stance=rel["stance"], note=rel["note"],
+                    ch_ref=rel["ch_ref"],
+                ))
     elif op.kind == "relation_delete":
         for rel in before.get("relations") or []:
             session.add(CharacterRelation(
@@ -614,7 +631,7 @@ async def undo_op(session: AsyncSession, novel_id: str, token: str) -> dict:
     await session.execute(
         delete(CharacterGate).where(CharacterGate.novel_id == novel_id)
     )
-    op.undone_at = datetime.now()
+    op.undone_at = datetime.now(UTC).replace(tzinfo=None)
     await session.commit()
     return {"ok": True, "receipt": "已撤销，恢复到操作前"}
 
@@ -715,7 +732,7 @@ async def delete_relation(
     session.add(CharacterOp(
         novel_id=novel_id, kind="relation_delete", before=_json_dumps(before),
         undo_token=token,
-        expires_at=datetime.now() + timedelta(seconds=UNDO_TTL_SECONDS),
+        expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=UNDO_TTL_SECONDS),
     ))
     await session.commit()
     return {"receipt": "已删掉这段关系", "undo": {"op_id": token}}
@@ -774,7 +791,7 @@ async def confirm_characters(session: AsyncSession, novel_id: str, first: bool) 
     else:
         row.protagonist_id = prot.id
         row.fingerprint = fp
-        row.confirmed_at = datetime.now()
+        row.confirmed_at = datetime.now(UTC).replace(tzinfo=None)
         row.rev += 1
     await session.commit()
     return {"ok": True, "type": "characters", "confirmed": True}
