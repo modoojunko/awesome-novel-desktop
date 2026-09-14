@@ -57,7 +57,7 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 - style SHALL pass when role is non-empty.
 - anti-ai SHALL pass when settings/anti-ai.yaml has content.
 - hooks SHALL pass when the hooks list has at least one valid hook.
-- characters SHALL pass when the book has exactly at most one protagonist AND that protagonist card carries 名称 / 一句话人设 / 剧情定位 / 核心认知盲区 / 能力上限 / 能力代价, AND every non-extra character carries the same six fields; extra characters SHALL only require 剧情定位. On the **first** confirmation (the item has no confirmation record yet) characters SHALL pass when the protagonist card carries 名称 and 一句话人设 only.
+- characters SHALL pass when the book has at least one character card whose 名称 is non-empty (unnamed placeholder cards count as empty). Readiness only judges 内容非空：确认门禁的两档要求（主角六项等）归 character-settings 的确认端点，readiness SHALL NOT 重复裁决，也 SHALL NOT 读确认记录。
 
 #### Scenario: World v2 stage-only counts as filled
 - Given a world setting where only stage is non-empty
@@ -101,6 +101,14 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 - When the protagonist is deleted, the protagonist is switched, or one of the six required fields is cleared
 - Then readiness reports characters as missing again
 - And the stale state (「内容有变 · 待重新确认」, without the word 已确认) is derived by `GET /settings/status` from the confirmation record, NOT by readiness (readiness stays a pure content predicate and SHALL NOT read or write the confirmation record)
+#### Scenario: 空名卡不算已填
+- **WHEN** 书中只有一张未命名（或名字全空白）的空卡
+- **THEN** readiness 把 characters 报为未填
+
+#### Scenario: 一张有名卡即已填
+- **WHEN** 书中有一张名字非空的角色卡（哪怕只填了名字）
+- **THEN** readiness 不把 characters 报为未填
+
 ### Requirement: Gate convergence
 - gate_settings_complete SHALL be refactored to call the same READINESS_CHECKERS subset for settings.
 - Settings gate warnings SHALL be Chinese and SHALL carry a jump target.
