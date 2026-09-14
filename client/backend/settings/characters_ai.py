@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_client import get_ai_client_for_novel
+from ai_client import AITimeoutError, get_ai_client_for_novel
 from ai_state import effective_model
 from api_configs.usage import record_usage
 from auth_local.deps import get_current_user, require_ai_access, require_novel_model
@@ -199,11 +199,21 @@ async def draft_character(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await record_usage(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_char_draft_{target}_fail"[:50],
+            model=effective_model(project),
+            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except Exception as e:  # noqa: BLE001
         await record_usage(
             db, user_id=user["id"], project_id=project.id,
             api_config_id=project.ai_config_id,
-            operation=f"settings_char_draft_{target}"[:50],
+            operation=f"settings_char_draft_{target}_fail"[:50],
             model=effective_model(project),
             tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
         )
@@ -233,9 +243,10 @@ async def draft_character(
         await record_usage(
             db, user_id=user["id"], project_id=project.id,
             api_config_id=project.ai_config_id,
-            operation=f"settings_char_draft_{target}"[:50],
+            operation=f"settings_char_draft_{target}_fail"[:50],
             model=effective_model(project),
             tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
         )
         raise HTTPException(502, "AI 没给出可用的内容，可重试")
 
@@ -340,11 +351,21 @@ async def check_character(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await record_usage(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_char_check_fail",
+            model=effective_model(project),
+            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except Exception as e:  # noqa: BLE001
         await record_usage(
             db, user_id=user["id"], project_id=project.id,
             api_config_id=project.ai_config_id,
-            operation="settings_char_check",
+            operation="settings_char_check_fail",
             model=effective_model(project),
             tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
         )

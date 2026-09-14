@@ -9,7 +9,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_client import get_ai_client_for_novel
+from ai_client import AITimeoutError, get_ai_client_for_novel
 from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
@@ -270,22 +270,34 @@ async def ai_draft_outline(
             messages=[{"role": "user", "content": "请为素材包中的本章起草章纲草稿。"}],
             usage=usage,
         )
+    except AITimeoutError:
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db, user_id=user["id"], project_id=project.id,
+            chapter_id=chapter_ref, operation="outline_draft_fail",
+            model=model,
+            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except HTTPException:
         raise
-    except Exception as e:  # 模型/网络错误：不计量，可重试
-        raise HTTPException(502, f"章纲起草调用失败：{e}") from e
+    except Exception as e:  # 模型/网络错误：留痕后可重试
+        from api_configs.usage import record_usage
 
-    draft = None
-    try:
-        parsed = json.loads(strip_code_fences(raw))
-        draft = _sanitize_draft(parsed)
-    except (ValueError, TypeError):
-        draft = None
-    if draft is None:
-        raise HTTPException(502, "草稿结构不完整（缺梗概/核心任务/段落规划），未返回，可重试")
+        await record_usage(
+            db, user_id=user["id"], project_id=project.id,
+            chapter_id=chapter_ref, operation="outline_draft_fail",
+            model=model,
+            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, f"章纲起草调用失败：{e}") from e
 
     from api_configs.usage import record_usage
 
+    # 记账先于解析：调用已完成（钱已花），产物不合格也要留痕
     await record_usage(
         db,
         user_id=user["id"],
@@ -296,5 +308,15 @@ async def ai_draft_outline(
         tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0),
     )
+
+    draft = None
+    try:
+        parsed = json.loads(strip_code_fences(raw))
+        draft = _sanitize_draft(parsed)
+    except (ValueError, TypeError):
+        draft = None
+    if draft is None:
+        raise HTTPException(502, "草稿结构不完整（缺梗概/核心任务/段落规划），未返回，可重试")
+
     await db.commit()
     return draft

@@ -160,36 +160,65 @@ async def stream_continue(
     client = await get_ai_client_for_novel(project.id)
     generated_text = ""
 
-    async for event in client.chat_stream(
-        model=resolved_model,
-        system=role,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=512,
-    ):
-        if event.text:
-            generated_text += event.text
-            yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
-        elif event.is_done:
-            # Save updated prose（统一写入口：落库 + 元数据派生 + 版本快照）
-            new_prose = existing_prose[:cursor_position] + generated_text
-            chapter["prose"] = new_prose
-            await save_chapter(root_path, chapter_ref, chapter)
+    from ai_client import AITimeoutError
 
-            from api_configs.usage import record_usage
+    try:
+        async for event in client.chat_stream(
+            model=resolved_model,
+            system=role,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=512,
+        ):
+            if event.text:
+                generated_text += event.text
+                yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
+            elif event.is_done:
+                # Save updated prose（统一写入口：落库 + 元数据派生 + 版本快照）
+                new_prose = existing_prose[:cursor_position] + generated_text
+                chapter["prose"] = new_prose
+                await save_chapter(root_path, chapter_ref, chapter)
 
-            await record_usage(
-                db,
-                user_id=project.user_id,
-                project_id=project.id,
-                chapter_id=chapter_ref,
-                operation="continue",
-                model=resolved_model,
-                tokens_out=event.tokens,
-            )
+                from api_configs.usage import record_usage
 
-            yield f"data: {json.dumps({'type': 'done', 'full_text': generated_text, 'tokens': event.tokens}, ensure_ascii=False)}\n\n"
-        elif event.error:
-            yield f"data: {json.dumps({'type': 'error', 'error': event.error}, ensure_ascii=False)}\n\n"
+                await record_usage(
+                    db,
+                    user_id=project.user_id,
+                    project_id=project.id,
+                    chapter_id=chapter_ref,
+                    operation="continue",
+                    model=resolved_model,
+                    tokens_out=event.tokens,
+                )
+
+                yield f"data: {json.dumps({'type': 'done', 'full_text': generated_text, 'tokens': event.tokens}, ensure_ascii=False)}\n\n"
+            elif event.error:
+                yield f"data: {json.dumps({'type': 'error', 'error': event.error}, ensure_ascii=False)}\n\n"
+    except AITimeoutError:
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db,
+            user_id=project.user_id,
+            project_id=project.id,
+            chapter_id=chapter_ref,
+            operation="continue_fail",
+            model=resolved_model,
+            force=True,
+        )
+        yield f"data: {json.dumps({'type': 'error', 'error': 'AI 服务响应超时，请稍后重试'}, ensure_ascii=False)}\n\n"
+    except Exception as e:  # noqa: BLE001 — 流中断也留痕（调用已发生）
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db,
+            user_id=project.user_id,
+            project_id=project.id,
+            chapter_id=chapter_ref,
+            operation="continue_fail",
+            model=resolved_model,
+            force=True,
+        )
+        yield f"data: {json.dumps({'type': 'error', 'error': f'AI 生成失败，可重试：{e!s}'}, ensure_ascii=False)}\n\n"
 
 
 async def polish_text(

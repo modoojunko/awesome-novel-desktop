@@ -20,8 +20,11 @@ async def record_usage(
     model: str = "haiku",
     tokens_in: int = 0,
     tokens_out: int = 0,
+    force: bool = False,
 ) -> None:
-    if not tokens_in and not tokens_out:
+    # force=True 供失败记账用：调用真实发生但未返回用量（多为零 token）也要留痕；
+    # 成功调用零 token 仍早退（防噪音）。
+    if not tokens_in and not tokens_out and not force:
         return
     db.add(
         TokenLog(
