@@ -191,6 +191,47 @@ describe("CharacterManager 从简介立主角", () => {
     expect(patched).toContain("dossier.race");
   });
 
+  it("出稿后作者手写的格不被覆盖（只写空格复查）", async () => {
+    apiPost.mockImplementation((url: string) => {
+      if (String(url).includes("/bootstrap")) {
+        return Promise.resolve({
+          data: {
+            name: "林拾",
+            aliases: [],
+            persona: "",
+            cells: [{ path: "dossier.look", value: "AI 拟的外貌" }],
+          },
+        });
+      }
+      return Promise.resolve({ data: cardData() });
+    });
+    apiGet.mockImplementation((url: string) => {
+      if (String(url) === "/novels/p1/characters") {
+        return Promise.resolve({ data: listWith([cardData()]) });
+      }
+      return Promise.resolve({ data: cardData() });
+    });
+    const ref = createRef<CharacterSaveHandle>();
+    render(<CharacterManager ref={ref} projectId="p1" introReady />);
+    await screen.findByText(/一句话人设/);
+    await act(async () => {
+      await ref.current?.runAi?.("bootstrap");
+    });
+    await screen.findByText("AI 拟稿 · 采纳才写入");
+    // 作者在出稿与采纳之间手写了「外貌标签」
+    fireEvent.change(screen.getByRole("textbox", { name: "外貌标签" }), {
+      target: { value: "作者写的外貌" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "采纳 · 写入" }));
+    await waitFor(() => expect(apiPatch).toHaveBeenCalled());
+    // dossier.look 只应有作者自己的那次 PATCH，AI 拟稿值不得写入
+    const lookPatches = apiPatch.mock.calls.filter(
+      (c) => (c[1] as { path: string }).path === "dossier.look",
+    );
+    expect(lookPatches).toHaveLength(1);
+    expect((lookPatches[0][1] as { value: string }).value).toBe("作者写的外貌");
+  });
+
   it("AI 门控未就绪：空态按钮点击走 onBlocked、不发请求", async () => {
     const blocked = vi.fn();
     render(<CharacterManager projectId="p1" introReady aiState="no_key" onBlocked={blocked} />);

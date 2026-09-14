@@ -54,6 +54,12 @@ interface CheckResult {
 
 const GROUPS = ROLES;
 
+/** 出稿到采纳之间作者可能已手写——逐格以当前卡内容复查，只写空格（纯函数） */
+function cellStillEmpty(cardLike: CharacterCard, path: string): boolean {
+  const [bucket, key] = path.split(".") as ["dossier" | "cog", string];
+  return !String(cardLike[bucket]?.[key] ?? "").trim();
+}
+
 const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function CharacterManager(
   props,
   ref,
@@ -295,13 +301,15 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     if (!bootstrapSink) return;
     const draft = bootstrapSink;
     try {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+      await flushQueue();
       if (card) {
         const steps: { path: string; value: unknown }[] = [];
         if (!displayName(card.name) && draft.name) steps.push({ path: "name", value: draft.name });
         if (!card.aliases.length && draft.aliases.length)
           steps.push({ path: "aliases", value: draft.aliases });
         if (!card.persona.trim() && draft.persona) steps.push({ path: "persona", value: draft.persona });
-        steps.push(...draft.cells);
+        steps.push(...draft.cells.filter((c) => cellStillEmpty(card, c.path)));
         for (const s of steps) {
           await charactersApi.patch(projectId, card.id, s.path, s.value, revRef.current);
           revRef.current += 1;
@@ -319,7 +327,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         const steps: { path: string; value: unknown }[] = [];
         if (draft.aliases.length) steps.push({ path: "aliases", value: draft.aliases });
         if (draft.persona) steps.push({ path: "persona", value: draft.persona });
-        steps.push(...draft.cells);
+        steps.push(...draft.cells.filter((c) => cellStillEmpty(created, c.path)));
         for (const s of steps) {
           await charactersApi.patch(projectId, created.id, s.path, s.value, revRef.current);
           revRef.current += 1;
@@ -330,9 +338,15 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       }
       showToast("\u5df2\u91c7\u7eb3\uff0c\u53ef\u7ee7\u7eed\u6539");
     } catch (e) {
+      const err = e as Error & { status?: number; rev?: number };
+      if (err.status === 409 && err.rev !== undefined) {
+        // rev 冲突：同步到服务端 rev 并重取卡；草稿保留，可直接重试
+        revRef.current = err.rev;
+        if (card) await loadCard(card.id);
+      }
       showToast((e as Error).message || "\u91c7\u7eb3\u5931\u8d25");
     }
-  }, [bootstrapSink, card, projectId, loadCard, reloadList, showToast]);
+  }, [bootstrapSink, card, projectId, flushQueue, loadCard, reloadList, showToast]);
 
   /** 空态引导卡入口与右栏行共用：门控（不 ready → onBlocked）后出稿 */
   const runBootstrap = useCallback(async () => {
@@ -345,6 +359,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     try {
       const res = await charactersApi.bootstrapDraft(projectId, card?.id || undefined);
       setSink(null);
+      setCheck(null);
       setBootstrapSink(res);
     } catch (e) {
       showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
@@ -450,8 +465,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
           <span className="aiz-v">{cell.value}</span>
         </div>
       ))}
-      {bootstrapSink.skipped?.map((s) => (
-        <div key={s.key} className="opt">跳过 {s.key}：{s.why}</div>
+      {bootstrapSink.skipped?.map((s, i) => (
+        <div key={`${s.key}-${i}`} className="opt">跳过 {s.key}：{s.why}</div>
       ))}
       <div className="ans-act">
         <button type="button" className="btn btn-primary" onClick={() => void adoptBootstrap()}>采纳 · 写入</button>
@@ -524,36 +539,40 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
 
       <div className="sub-form char-main">
         {!card ? (
-          <div className="char-empty-guide" data-testid="char-empty-guide">
-            {bootstrapPreview ?? (
-              <>
-                <p className="guide-t">
-                  {introReady
-                    ? "简介里已经有主角的线索了"
-                    : "先去 01 简介写几句，主角就有了眉目"}
-                </p>
-                <p className="opt">
-                  「从简介立主角」会读你的简介，把名字、人设和各空格先拟一稿——看过再采纳；也可以直接手动建一张主角卡。
-                </p>
-                <div className="guide-act">
-                  {introReady && (
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      data-testid="char-bootstrap"
-                      disabled={aiBusy}
-                      onClick={() => void runBootstrap()}
-                    >
-                      {aiBusy ? "AI 正在拟…" : "从简介立主角"}
+          list.length === 0 ? (
+            <div className="char-empty-guide" data-testid="char-empty-guide">
+              {bootstrapPreview ?? (
+                <>
+                  <p className="guide-t">
+                    {introReady
+                      ? "简介里已经有主角的线索了"
+                      : "先去 01 简介写几句，主角就有了眉目"}
+                  </p>
+                  <p className="opt">
+                    「从简介立主角」会读你的简介，把名字、人设和各空格先拟一稿——看过再采纳；也可以直接手动建一张主角卡。
+                  </p>
+                  <div className="guide-act">
+                    {introReady && (
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        data-testid="char-bootstrap"
+                        disabled={aiBusy}
+                        onClick={() => void runBootstrap()}
+                      >
+                        {aiBusy ? "AI 正在拟…" : "从简介立主角"}
+                      </button>
+                    )}
+                    <button type="button" className="btn btn-secondary" onClick={() => void addCharacter()}>
+                      手动建主角
                     </button>
-                  )}
-                  <button type="button" className="btn btn-secondary" onClick={() => void addCharacter()}>
-                    手动建主角
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <p className="opt">左侧添加或选择一个角色。</p>
+          )
         ) : (
           <>
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
