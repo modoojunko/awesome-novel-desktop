@@ -47,5 +47,5 @@
 
 - [ ] 6.1 逐条处理会被打破的用例：后端 `test_db_storage`（routing / list_dir / `VALID_TYPES` 逐字钉死 8 键）/ `test_readiness`（7 例）/ `test_backup_export`（`format_version==1`）/ `test_backup_import:207`；前端**重写**（非修补）`settings-forms.spec.ts:744` 的 P2-1b 切换守卫（自动保存上线后 `window.confirm` 语义整体消失）+ `creation-flow.spec.ts:423` 只带 name 的确认 + `ui-spec-parity` 的 `.chk-line`；补 `test_workflow_api.py:305` 的 characters 孪生用例锁住 1.4。验证：pytest + playwright 全绿
 - [x] 6.2 已完成（设计事实源对齐 + 基建落地，断言暂 skip 见 ADJUSTMENTS #19；提交随 80ae8a9 后批）。原计划：6.2 新增 parity 场景 `settings-characters`：注意**设定屏 parity 现在是 `test.skip`**（"待随原型转正重生成"），这一步等于第一次打开设定屏 parity——要先参数化 `PROTO_FILE`（现为模块级 const 指向 book.html）、补 stub（列表聚合 / 单卡 / 关系 / status / readiness / ai_state），并**明确覆盖边界**（1440×900 只覆盖首屏，认知六层与关系区进不了基线，那部分靠 e2e）。验证：`npm run design:check` 全绿
-- [ ] 6.3 全链演练：旧版造真库 → 导出双包 → 装新版 → 断言留档 → 导入 → 九层 roundtrip 全绿 → 再断言 v1 包在新版下角色段无损；降级被响亮拒绝。验证：演练脚本输出 + 摘要计数
+- [x] 6.3 已完成（scripts/upgrade_drill.py 六阶段 --all 全绿；演练另揪出并修复：未路由 settings 文件 key=None 炸整书导入、引擎连接池跨改名的 stale-inode 坑）。原计划：6.3 全链演练：旧版造真库 → 导出双包 → 装新版 → 断言留档 → 导入 → 九层 roundtrip 全绿 → 再断言 v1 包在新版下角色段无损；降级被响亮拒绝。验证：演练脚本输出 + 摘要计数
 - [ ] 6.4 双端类型检查与设计门禁：`tsc --noEmit`、`vue-tsc --noEmit`、各端 `npm run design:lint`。验证：命令全部通过
