@@ -321,3 +321,177 @@ class _FailingClient:
             usage["tokens_in"] = self.tokens
             usage["tokens_out"] = 0
         return '{"value": "一段可用的世界设定"}'
+
+
+class TestZeroTokenFailRecorded:
+    """characters_ai 普通异常分支（零 token）也必须落 _fail 行（review 修复回归）。"""
+
+    def test_zero_token_failure_records_fail(self, monkeypatch):
+        import tempfile
+
+        from sqlalchemy import select
+
+        from db import async_session
+        from models.character import Character
+        from models.project import Novel
+        from models.token_log import TokenLog
+        from models.user import User
+
+        async def _seed():
+            uid = "zt-" + uuid.uuid4().hex[:8]
+            slug = "zt-" + uuid.uuid4().hex[:8]
+            root = tempfile.mkdtemp(prefix="zt-novel-")
+            async with async_session() as session:
+                session.add(User(id=uid, email=f"{uid}@t.local",
+                                 password_hash="x", display_name="zt"))
+                proj = Novel(user_id=uid, name="零token书", slug=slug,
+                             root_path=root, source="manual",
+                             current_phase="write", ai_model="haiku")
+                session.add(proj)
+                await session.commit()
+                await session.refresh(proj)
+                ch = Character(novel_id=proj.id, seq=1, name="林拾", role="主角")
+                session.add(ch)
+                await session.commit()
+                await session.refresh(ch)
+                return uid, proj.id, ch.id
+
+        uid, nid, card_id = _run_async(_seed())
+
+        from filesystem.storage import get_storage
+
+        async def _root_of(nid):
+            from models.project import Novel as N
+            async with async_session() as session:
+                proj = await session.get(N, nid)
+                return proj.root_path
+
+        root = _run_async(_root_of(nid))
+
+        # draft 上下文读三方设定，缺失降级不拦 AI——写齐更贴近现役
+        st = get_storage()
+        _run_async(st.write_yaml(root, "story.yaml", {"synopsis": "s", "genre": "仙侠"}))
+        _run_async(st.write_yaml(root, "settings/world-setting.yaml", {"stage": "九境"}))
+
+        class _Boom:
+            async def chat(self, **kwargs):
+                raise RuntimeError("供应商 5xx")  # 不填 usage = 零 token 失败
+
+        async def _fake(novel_id=None):
+            return _Boom()
+
+        monkeypatch.setattr("ai_client.get_ai_client_for_novel", _fake)
+        monkeypatch.setattr("settings.characters_ai.get_ai_client_for_novel", _fake)
+
+        from auth_local.deps import require_ai_access, require_novel_model
+        from auth_local.middleware import get_current_user
+        from db import async_session as _sess
+        from db import get_db
+        from main import app
+
+        async def _override_get_db():
+            async with _sess() as session:
+                yield session
+
+        app.dependency_overrides[get_db] = _override_get_db
+        app.dependency_overrides[get_current_user] = lambda: {"id": uid}
+        app.dependency_overrides[require_ai_access] = lambda: True
+        app.dependency_overrides[require_novel_model] = lambda: True
+        try:
+            with TestClient(app) as client:
+                r = client.post(
+                    f"/api/novels/{nid}/settings/ai/characters/{card_id}/draft",
+                    json={"target": "cog"},
+                )
+                assert r.status_code == 502, r.text
+        finally:
+            app.dependency_overrides.clear()
+
+        async def _rows():
+            async with async_session() as session:
+                result = await session.execute(
+                    select(TokenLog).where(TokenLog.project_id == nid)
+                )
+                return list(result.scalars())
+
+        rows = _run_async(_rows())
+        assert [r.operation for r in rows] == ["settings_char_draft_cog_fail"]
+        assert rows[0].tokens_in == 0 and rows[0].tokens_out == 0
+
+
+class TestStreamSaveFailureNotMisclassified:
+    """流式写章：落库失败 ≠ AI 失败——不落 _fail 行，文案区分（review 修复回归）。"""
+
+    def test_save_failure_reports_save_error_without_fail_log(self, monkeypatch):
+        from ai_client import StreamEvent
+
+        class _FakeStream:
+            async def chat_stream(self, **kwargs):
+                yield StreamEvent(text="雨下了一夜。")
+                yield StreamEvent(text="他把伞收在门后。")
+                yield StreamEvent(is_done=True, tokens=42)
+
+        async def _fake(novel_id=None):
+            return _FakeStream()
+
+        monkeypatch.setattr("ai_client.get_ai_client_for_novel", _fake)
+
+        async def _broken_save(*a, **kw):
+            raise RuntimeError("database is locked")
+
+        import chapters.service
+
+        monkeypatch.setattr(chapters.service, "save_chapter", _broken_save)
+
+        from auth_local.deps import require_ai_access, require_novel_model
+        from auth_local.middleware import get_current_user
+        from db import async_session as _sess
+        from db import get_db
+        from main import app
+
+        uid = "stream-user"
+
+        async def _override_get_db():
+            async with _sess() as session:
+                yield session
+
+        app.dependency_overrides[get_db] = _override_get_db
+        app.dependency_overrides[get_current_user] = lambda: {"id": uid}
+        app.dependency_overrides[require_ai_access] = lambda: True
+        app.dependency_overrides[require_novel_model] = lambda: True
+        try:
+            with TestClient(app) as client:
+                name = "svf-" + uuid.uuid4().hex[:6]
+                r = client.post("/api/novels", json={"name": name})
+                assert r.status_code in (200, 201), r.text
+                pid = r.json()["id"]
+                r = client.post(f"/api/novels/{pid}/volumes",
+                                json={"vol_num": 1, "title": "第一卷"})
+                assert r.status_code in (200, 201), r.text
+                r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters",
+                                json={"title": "第1章"})
+                assert r.status_code in (200, 201), r.text
+                ref = r.json()["chapter_ref"]
+
+                r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write",
+                                json={})
+                body = r.text
+                assert "保存失败" in body, body
+                assert "AI 生成失败" not in body, body
+                assert "write_chapter_fail" not in body
+        finally:
+            app.dependency_overrides.clear()
+
+        from sqlalchemy import select
+
+        from db import async_session
+        from models.token_log import TokenLog
+
+        async def _rows():
+            async with async_session() as session:
+                result = await session.execute(
+                    select(TokenLog).where(TokenLog.project_id == pid)
+                )
+                return list(result.scalars())
+
+        assert _run_async(_rows()) == []

@@ -216,6 +216,7 @@ async def draft_character(
             operation=f"settings_char_draft_{target}_fail"[:50],
             model=effective_model(project),
             tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
         )
         raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
 
@@ -368,6 +369,7 @@ async def check_character(
             operation="settings_char_check_fail",
             model=effective_model(project),
             tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
         )
         raise HTTPException(502, f"体检失败，可重试：{e!s}") from e
 

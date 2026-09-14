@@ -176,7 +176,11 @@ async def stream_continue(
                 # Save updated prose（统一写入口：落库 + 元数据派生 + 版本快照）
                 new_prose = existing_prose[:cursor_position] + generated_text
                 chapter["prose"] = new_prose
-                await save_chapter(root_path, chapter_ref, chapter)
+                try:
+                    await save_chapter(root_path, chapter_ref, chapter)
+                except Exception as e:  # noqa: BLE001 — AI 已成功，落库失败不记 _fail
+                    yield f"data: {json.dumps({'type': 'error', 'error': f'内容已生成，但保存失败：{e!s}'}, ensure_ascii=False)}\n\n"
+                    return
 
                 from api_configs.usage import record_usage
 

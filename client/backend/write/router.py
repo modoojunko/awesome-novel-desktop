@@ -83,10 +83,14 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
                 full_text += event.text
                 yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
             elif event.is_done:
-                chapter = await load_chapter(root_path, chapter_ref)
-                chapter["prose"] = full_text
-                # 统一写入口（修直写缺陷）：拆装落库 + 元数据派生 + 版本快照
-                await save_chapter(db, project, chapter_ref, chapter)
+                try:
+                    chapter = await load_chapter(root_path, chapter_ref)
+                    chapter["prose"] = full_text
+                    # 统一写入口（修直写缺陷）：拆装落库 + 元数据派生 + 版本快照
+                    await save_chapter(db, project, chapter_ref, chapter)
+                except Exception as e:  # noqa: BLE001 — AI 已成功，落库失败不记 _fail
+                    yield f"data: {json.dumps({'type': 'error', 'error': f'内容已生成，但保存失败：{e!s}'}, ensure_ascii=False)}\n\n"
+                    return
                 from api_configs.usage import record_usage
 
                 await record_usage(
