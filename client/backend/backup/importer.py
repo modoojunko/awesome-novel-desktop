@@ -16,7 +16,6 @@ from sqlalchemy import select
 from backup.format import FORMAT_VERSION
 
 
-
 def detect_kind(zf: zipfile.ZipFile) -> str:
     names = set(zf.namelist())
     if "backup.yaml" in names:
@@ -142,11 +141,10 @@ async def persist_package(db, user_id: str, paths: list[str], include_config: bo
 
 async def _import_characters(db, zf, names: list[str], book_dir: str, novel) -> None:
     """角色段恢复：v2 直读 + v1 映射；主角收敛（>1 时保 seq 最小）。"""
-    from models.character import Character, CharacterRelation
     from characters.legacy_map import map_legacy_character
+    from models.character import Character, CharacterRelation
 
     seq = 0
-    id_by_legacy_order: dict[str, str] = {}
 
     # v2：characters/characters.yaml（数组，含 id/seq/legacy/relations 内嵌 owner/other id）
     v2_name = f"{book_dir}characters/characters.yaml"
@@ -155,9 +153,6 @@ async def _import_characters(db, zf, names: list[str], book_dir: str, novel) -> 
         cards = yaml.safe_load(zf.read(v2_name)) or []
         # id 冲突策略：包内 id 与本库已有角色撞车（同一包导回同一库/两机互导）→
         # 重新生成 id 保内容；包内引用（relations / chapter_characters）经映射跟随
-        existing_ids = set(
-            await db.scalars(select(Character.id).where(Character.novel_id == novel.id))
-        )
         all_existing = set(
             await db.scalars(select(Character.id))
         )

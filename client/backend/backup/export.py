@@ -23,12 +23,10 @@ import yaml
 from sqlalchemy import select
 
 import brand
+from backup.format import FORMAT_VERSION
 from db import async_session
 from filesystem.paths import PATH_TO_KEY, THREADS_PATH
-from backup.format import FORMAT_VERSION
 from filesystem.storage import get_storage
-
-
 
 # ── 产物命名（中文自标识；书名清洗防 OS 非法字符） ────────────────────────────
 
@@ -181,8 +179,8 @@ async def _dump_characters(zf, db, project) -> None:
 
     id / seq / legacy 原文全部随包往返（roundtrip 断言的稳定性依据）。
     """
-    from models.character import Character, CharacterRelation
     from characters.legacy_map import character_to_export
+    from models.character import Character, CharacterRelation
 
     cards = (
         await db.scalars(

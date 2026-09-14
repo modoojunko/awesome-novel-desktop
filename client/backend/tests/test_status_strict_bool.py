@@ -6,7 +6,6 @@ workflow/gates 与 settings/status 曾用 bool(data.get(t)) 读取——任何�
 修复 = 严格 is True 判定；本文件锁死该行为。
 """
 
-import pytest
 from fastapi.testclient import TestClient
 
 from auth_local.middleware import get_current_user
@@ -14,7 +13,6 @@ from db import async_session
 from main import app
 from models.project import Novel
 from models.user import User
-from settings import status as status_module
 
 
 async def _seed():

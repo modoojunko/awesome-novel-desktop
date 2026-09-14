@@ -41,6 +41,7 @@ def _run(coro):
 
 async def _seed_full_book(tmp_root: str) -> str:
     """建书 + 设定树 + 卷纲（含四族子表）+ 章（全子表）+ 快照 + 提示词 + 归档。"""
+    from filesystem.storage import get_storage
     from models.archive import Archive, ChapterPrompt
     from models.chapter import (
         Chapter,
@@ -48,14 +49,13 @@ async def _seed_full_book(tmp_root: str) -> str:
         ChapterKnowledgeState,
         ChapterMicroPayoff,
         ChapterPayoffItem,
-                ChapterSceneCard,
+        ChapterSceneCard,
         ChapterSegment,
         ChapterVersion,
     )
     from models.project import Novel
     from models.user import User
     from models.volume import Volume
-    from filesystem.storage import get_storage
 
     uid = f"rt-{uuid.uuid4().hex[:8]}"
     slug = f"rt-{uuid.uuid4().hex[:8]}"
@@ -197,7 +197,7 @@ class TestLayer1Metadata:
     def test_project_fields_survive_semantically(self, roundtrip):
         from models.project import Novel
 
-        src_id, dst_id, blob, slug, root_path = roundtrip
+        src_id, dst_id, _blob, _slug, _root_path = roundtrip
 
         async def run():
             async with async_session() as db:
@@ -207,7 +207,7 @@ class TestLayer1Metadata:
                     dst.name, dst.current_phase, dst.source,
                 )
 
-        (s_name, s_phase, s_source), (d_name, d_phase, d_source) = _run(run())
+        (s_name, s_phase, _s_source), (d_name, d_phase, d_source) = _run(run())
         # 语义等值：同名冲突时改名《xx（备份）》（本 fixture 只导一次、无同名 → 名字保持）；
         # phase/source 逐字
         assert d_name == s_name
@@ -233,7 +233,10 @@ class TestLayer2Settings:
 class TestLayer3Volume:
     def test_volume_structures_survive_without_chapters(self, roundtrip):
         from models.volume import (
-            Volume, VolumeChapterPlan, VolumeConflictLadder, VolumeStage,
+            Volume,
+            VolumeChapterPlan,
+            VolumeConflictLadder,
+            VolumeStage,
         )
 
         _src_id, dst_id, _blob, _slug, _root = roundtrip
@@ -265,8 +268,13 @@ class TestLayer3Volume:
 class TestLayer4Chapter:
     def test_chapter_full_fields_and_subtables(self, roundtrip):
         from models.chapter import (
-            Chapter, ChapterKeyPoint, ChapterKnowledgeState, ChapterMicroPayoff,
-            ChapterPayoffItem, ChapterSceneCard, ChapterSegment,
+            Chapter,
+            ChapterKeyPoint,
+            ChapterKnowledgeState,
+            ChapterMicroPayoff,
+            ChapterPayoffItem,
+            ChapterSceneCard,
+            ChapterSegment,
         )
 
         _src_id, dst_id, _blob, _slug, _root = roundtrip
@@ -327,7 +335,7 @@ class TestLayer5Snapshot:
         assert _run(run()) == [src_snap]
         # 原包里也是这段字节
         with zipfile.ZipFile(io.BytesIO(blob)) as zf:
-            name = [n for n in zf.namelist() if n.startswith("versions/")][0]
+            name = next(n for n in zf.namelist() if n.startswith("versions/"))
             assert zf.read(name).decode("utf-8") == src_snap
 
 
@@ -389,7 +397,7 @@ class TestLayer7Archives:
 
 class TestLayer8IdempotentReexport:
     def test_reexport_after_import_is_deep_equal_on_settings(self, roundtrip, tmp_path):
-        _src_id, dst_id, blob, _slug, dst_root = roundtrip
+        _src_id, dst_id, blob, _slug, _dst_root = roundtrip
         # 导入后的书再导一次；设定树与章纲应与第一次导出深比相等
         again = _run(_export_book_zip_bytes(dst_id, str(tmp_path / "dst-root")))
 
@@ -425,7 +433,7 @@ class TestIdStabilityMatrix:
                 return (s.id, s.slug, s.root_path, sch.id, sch.ref), (
                     d.id, d.slug, d.root_path, dch.id, dch.ref)
 
-        (s_id, s_slug, s_root, s_chid, s_ref), (d_id, d_slug, d_root, d_chid, d_ref) = _run(run())
+        (s_id, _s_slug, _s_root, s_chid, s_ref), (d_id, _d_slug, _d_root, d_chid, d_ref) = _run(run())
         assert d_id != s_id          # Novel.id 不稳定（导入新生成）
         assert d_chid != s_chid      # Chapter.id 新生成
         # ref 是稳定语义键
@@ -483,7 +491,7 @@ class TestBadPackages:
                 zf.writestr(n, d)
         path = tmp_path / "v99.zip"
         path.write_bytes(buf.getvalue())
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             parse_package([str(path)])
 
     def test_empty_zip_yields_no_books(self, tmp_path):

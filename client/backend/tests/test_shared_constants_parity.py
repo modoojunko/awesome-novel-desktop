@@ -164,7 +164,7 @@ class TestCharacterModelParity:
         from settings.character_model import COG_FILL_KEYS, WRITE_STATE_KEYS
 
         src = self._frontend_src()
-        assert re.search(r'COG_FILL_KEYS = \[\n(.*?)\];', src, re.S), "COG_FILL_KEYS 形态变了"
+        assert re.search(r'COG_FILL_KEYS = \[\n(.*?)\];', src, re.DOTALL), "COG_FILL_KEYS 形态变了"
         for key in COG_FILL_KEYS:
             assert f'"{key}"' in src
         for key in WRITE_STATE_KEYS:

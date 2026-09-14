@@ -23,8 +23,8 @@ from models.character import Character, CharacterGate, CharacterOp, CharacterRel
 from models.project import Novel
 from models.volume import Volume
 from settings.character_model import (
-    DOSSIER_KEYS,
     COG_KEYS,
+    DOSSIER_KEYS,
     RELATION_TYPES,
     ROLES,
     book_characters_gate,
@@ -297,7 +297,7 @@ async def patch_character(
                 "rev_conflict", "这一格已被其它改动更新，请刷新后重试",
                 field=path, current=_read_field(ch, path), rev=ch.rev,
             )
-    elif path.startswith("dossier.") or path.startswith("cog."):
+    elif path.startswith(("dossier.", "cog.")):
         bucket, key = path.split(".", 1)
         allowed = DOSSIER_KEYS if bucket == "dossier" else COG_KEYS
         if key not in allowed:
@@ -350,7 +350,6 @@ async def _demote_other_protagonists(
 async def _promote_to_protagonist(
     session: AsyncSession, novel_id: str, character_id: str, new_role: str, base_rev: int
 ) -> None:
-    ch = await session.get(Character, character_id)
     if new_role == "主角":
         await _demote_other_protagonists(session, novel_id, keep_id=character_id)
         stmt = (

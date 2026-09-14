@@ -9,16 +9,15 @@ import json
 import uuid
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
+from auth_local.deps import require_ai_access as _require_ai_access
+from auth_local.deps import require_novel_model as _require_novel_model
 from auth_local.middleware import get_current_user
 from db import async_session
 from main import app
 from models.character import Character
 from models.project import Novel
-from auth_local.deps import require_ai_access as _require_ai_access
-from auth_local.deps import require_novel_model as _require_novel_model
 from models.user import User
 
 
@@ -79,7 +78,7 @@ class _FakeClient:
 
 @pytest.fixture
 def client(monkeypatch):
-    user_id, novel_id, root = asyncio.run(_seed())
+    user_id, novel_id, _root = asyncio.run(_seed())
 
     async def _override():
         return {"id": user_id}
@@ -95,7 +94,6 @@ def client(monkeypatch):
 
 
 def _install_fake(monkeypatch, payload, captured):
-    from ai_client import get_ai_client_for_novel
 
     async def _fake(novel_id):
         return _FakeClient(payload, captured)
@@ -246,7 +244,6 @@ class TestCheck:
                 proj = await db.get(Novel, nid)
                 root = proj.root_path
             await st.write_yaml(root, "story.yaml", {})
-            import os as _os
             await st.delete_file(root, "settings/world-setting.yaml")
 
         asyncio.run(_clear_inputs())
@@ -271,7 +268,7 @@ class TestCheck:
         assert called["n"] == 0  # 全空免调用
 
     def test_extra_card_no_cognition_short_circuit(self, client):
-        c, nid, captured = client
+        c, nid, _captured = client
         card = asyncio.run(_add_card(nid, role="路人", name="路人甲"))
         r = c.post(f"/api/novels/{nid}/settings/ai/characters/{card.id}/check", json={})
         assert r.status_code == 200
@@ -280,13 +277,13 @@ class TestCheck:
 
 class TestGating:
     def test_free_user_blocked_403(self, client, monkeypatch):
-        c, nid, captured = client
+        c, nid, _captured = client
         card = asyncio.run(_add_card(nid))
-
-        from settings.characters_ai import require_ai_access as _unused  # noqa: F401
 
         # 模拟免费用户：覆盖 require_ai_access 的依赖为抛 403
         from fastapi import HTTPException
+
+        from settings.characters_ai import require_ai_access as _unused  # noqa: F401
 
         def _forbidden():
             raise HTTPException(403, "该功能属于 PRO 套餐")

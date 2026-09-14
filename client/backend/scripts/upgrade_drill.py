@@ -119,7 +119,7 @@ def _raw_insert(conn: sqlite3.Connection, table: str, **kv) -> None:
     无 server_default 的 NOT NULL 列（数值 0 / 文本空串）。"""
     cols = {name: dflt for _, name, _t, notnull, dflt, _pk in conn.execute(
         f"PRAGMA table_info({table})").fetchall() if notnull}
-    for name, dflt in cols.items():
+    for name in cols:
         kv.setdefault(name, 0 if any(t in (conn.execute(
             f"SELECT type FROM pragma_table_info('{table}') WHERE name='{name}'"
         ).fetchone()[0] or "") for t in ("INT", "REAL")) else "")
@@ -132,14 +132,14 @@ def _raw_insert(conn: sqlite3.Connection, table: str, **kv) -> None:
 def phase_seed_old(root: str, work: Path) -> None:
     os.environ["DATA_ROOT"] = root
     Path(root).mkdir(parents=True, exist_ok=True)
-    import models  # noqa: F401 —— 模型须先注册，Base.metadata 才有表
-    from db import Base
-
     # 当前 schema 造库，再退回"旧版形态"：减去本 change 的角色四件套 +
     # character_seq_high + chapter_characters.character_id + app_meta
     import sqlite3
 
     from sqlalchemy.ext.asyncio import create_async_engine
+
+    import models  # noqa: F401 —— 模型须先注册，Base.metadata 才有表
+    from db import Base
 
     async def _create():
         eng = create_async_engine(f"sqlite+aiosqlite:///{Path(root) / 'novel.db'}")
@@ -239,13 +239,13 @@ def phase_boot_new(root: str, work: Path) -> None:
 def phase_import_v1(root: str, work: Path) -> None:
     os.environ["DATA_ROOT"] = root
     Path(root).mkdir(parents=True, exist_ok=True)
+    import asyncio
+
     from fastapi.testclient import TestClient
+    from sqlalchemy.ext.asyncio import create_async_engine
 
     import models  # noqa: F401
     from db import Base
-
-    import asyncio
-    from sqlalchemy.ext.asyncio import create_async_engine
 
     async def _create():
         eng = create_async_engine(f"sqlite+aiosqlite:///{Path(root) / 'novel.db'}")
@@ -321,10 +321,11 @@ def phase_export_v2(root: str, work: Path) -> None:
     from db import engine as _engine
 
     asyncio.run(_engine.dispose())
-    from fastapi.testclient import TestClient
-    from main import app
     import sqlite3
-    import tempfile
+
+    from fastapi.testclient import TestClient
+
+    from main import app
 
     with TestClient(app) as c:
         sconn = sqlite3.connect(Path(root) / "novel.db")
@@ -342,13 +343,13 @@ def phase_export_v2(root: str, work: Path) -> None:
 def phase_roundtrip_v2(root: str, work: Path) -> None:
     os.environ["DATA_ROOT"] = root
     Path(root).mkdir(parents=True, exist_ok=True)
+    import asyncio
+
     from fastapi.testclient import TestClient
+    from sqlalchemy.ext.asyncio import create_async_engine
 
     import models  # noqa: F401
     from db import Base
-
-    import asyncio
-    from sqlalchemy.ext.asyncio import create_async_engine
 
     async def _create():
         eng = create_async_engine(f"sqlite+aiosqlite:///{Path(root) / 'novel.db'}")
@@ -439,6 +440,7 @@ def main() -> None:
             r = subprocess.run(
                 [sys.executable, __file__, "--phase", ph, "--work", str(work), "--root", roots[ph]],
                 env=env,
+                check=False,
             )
             if r.returncode != 0:
                 fails.append(ph)
@@ -447,7 +449,7 @@ def main() -> None:
         checks = _load_state(work) if _state_path(work).exists() else {}
         print(f"留档触发: {checks.get('boot', {}).get('archived')}")
         print(f"三件套:   {checks.get('boot', {}).get('trio')}")
-        print(f"v1 导入:  角色 2 位、9 内容格 + 5 legacy 键、出场引用绑 id")
+        print("v1 导入:  角色 2 位、9 内容格 + 5 legacy 键、出场引用绑 id")
         print(f"roundtrip: {checks.get('roundtrip', {}).get('dst')}")
         print(f"降级拒绝: {'downgrade' not in fails}")
         print(f"结果:     {'全部通过 ✅' if not fails else f'失败于 {fails} ❌'}")

@@ -11,7 +11,6 @@ import uuid
 import zipfile
 from pathlib import Path
 
-import pytest
 import yaml
 from sqlalchemy import select, text
 
@@ -19,8 +18,8 @@ from backup.export import dump_book_into
 from backup.importer import _import_single_book
 from characters.legacy_map import map_legacy_character
 from db import async_session
-from models.character import Character, CharacterRelation
 from models.chapter import Chapter, ChapterCharacter
+from models.character import Character, CharacterRelation
 from models.project import Novel
 from models.user import User
 from models.volume import Volume

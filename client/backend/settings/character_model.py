@@ -200,12 +200,11 @@ def card_gaps(card: dict) -> list[str]:
     dossier = card.get("dossier") or {}
     cog = card.get("cog") or {}
     for path, label in GATE_FIELDS:
-        if path.startswith("dossier."):
-            if not _filled(dossier.get(path.split(".", 1)[1])):
-                gaps.append(label)
-        elif path.startswith("cog."):
-            if not _filled(cog.get(path.split(".", 1)[1])):
-                gaps.append(label)
+        if "." not in path:
+            continue  # name/persona 属主角判据（首次档），不进格位缺口
+        bucket = dossier if path.startswith("dossier.") else cog
+        if not _filled(bucket.get(path.split(".", 1)[1])):
+            gaps.append(label)
     return gaps
 
 
@@ -215,7 +214,7 @@ def character_gate(card: dict) -> dict:
     两档由「是否已确认过」决定（见 spec：首次确认只查主角卡完整）。
     本函数实现"此后确认"的完整档；首次档由调用方传 first=True。
     """
-    if not _filled(card.get("name")) and not card.get("role") == "主角":
+    if not _filled(card.get("name")) and card.get("role") != "主角":
         return {"ok": False, "no_protagonist": True, "missing": []}
     if card.get("role") != "主角":
         return {"ok": True, "no_protagonist": False, "missing": []}

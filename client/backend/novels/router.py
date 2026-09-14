@@ -583,7 +583,7 @@ async def _dump_project_snapshot(zf, db, project) -> None:
 
     from archive.router import _archive_filename
     from chapters.store import assemble_chapter
-    from filesystem.paths import CHARACTER_DIR, PATH_TO_KEY, THREADS_PATH
+    from filesystem.paths import PATH_TO_KEY, THREADS_PATH
     from models.archive import Archive, ChapterPrompt
     from models.chapter import Chapter, ChapterVersion
     from models.volume import Volume

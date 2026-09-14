@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 from auth_local.middleware import get_current_user
 from db import async_session
 from main import app
-from models.character import Character
 from models.project import Novel
 from models.user import User
 
@@ -134,7 +133,7 @@ class TestFirstChapter:
 
     def test_set_protagonist_demotes_old(self, client):
         c, nid = client
-        a = c.post(f"/api/novels/{nid}/characters", json={"name": "甲", "role": "主角"}).json()["data"]
+        c.post(f"/api/novels/{nid}/characters", json={"name": "甲", "role": "主角"})
         b = c.post(f"/api/novels/{nid}/characters", json={"name": "乙"}).json()["data"]
         r = c.patch(f"/api/novels/{nid}/characters/{b['id']}", json={
             "path": "role", "value": "主角", "base_rev": b["rev"],

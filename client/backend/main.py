@@ -33,9 +33,9 @@ from novels.router import ai_router
 from novels.router import router as novels_router
 from prompt.router import router as prompt_router
 from settings.ai_router import router as settings_ai_router
-from settings.router import router as settings_router
 from settings.characters_ai import router as characters_ai_router
 from settings.characters_router import router as characters_router
+from settings.router import router as settings_router
 from settings.status import router as settings_status_router
 from story.router import router as story_router
 from update_check import router as update_check_router

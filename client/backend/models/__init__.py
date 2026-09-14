@@ -2,7 +2,6 @@ from models.api_config import ApiConfig
 from models.app_meta import AppMeta
 from models.archive import Archive, ChapterPrompt
 from models.audit_log import ProjectModelAuditLog
-from models.character import Character, CharacterGate, CharacterOp, CharacterRelation
 from models.chapter import (
     Chapter,
     ChapterCharacter,
@@ -18,6 +17,7 @@ from models.chapter import (
     ChapterSegment,
     ChapterVersion,
 )
+from models.character import Character, CharacterGate, CharacterOp, CharacterRelation
 from models.event import Event
 from models.genre import Genre
 from models.novel_genre import (
@@ -43,10 +43,6 @@ __all__ = [
     "AppMeta",
     "Archive",
     "Chapter",
-    "Character",
-    "CharacterGate",
-    "CharacterOp",
-    "CharacterRelation",
     "ChapterCharacter",
     "ChapterContent",
     "ChapterDowntimeFunction",
@@ -60,6 +56,10 @@ __all__ = [
     "ChapterSceneCard",
     "ChapterSegment",
     "ChapterVersion",
+    "Character",
+    "CharacterGate",
+    "CharacterOp",
+    "CharacterRelation",
     "Event",
     "Genre",
     "GenreVocab",

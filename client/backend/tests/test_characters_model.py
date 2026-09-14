@@ -59,7 +59,7 @@ def _expect_integrity(coro):
 class TestCharacterConstraints:
     def test_seq_counter_never_reuses_after_delete(self):
         """删掉最大号卡再建卡 → 拿新号，不复用（tasks 2.1 关键断言）。"""
-        uid, nid = asyncio_run(_seed_novel())
+        _uid, nid = asyncio_run(_seed_novel())
         a = asyncio_run(_add_character(nid, "甲"))
         b = asyncio_run(_add_character(nid, "乙"))
         assert (a.seq, b.seq) == (1, 2)
@@ -75,7 +75,7 @@ class TestCharacterConstraints:
         assert c.seq == 3  # 不是 2（MAX+1 会复用）
 
     def test_duplicate_name_rejected(self):
-        uid, nid = asyncio_run(_seed_novel())
+        _uid, nid = asyncio_run(_seed_novel())
         asyncio_run(_add_character(nid, "林拾"))
 
         async def _dup():
@@ -84,7 +84,7 @@ class TestCharacterConstraints:
         _expect_integrity(_dup())
 
     def test_two_protagonists_rejected_by_partial_index(self):
-        uid, nid = asyncio_run(_seed_novel())
+        _uid, nid = asyncio_run(_seed_novel())
         asyncio_run(_add_character(nid, "主角甲", role="主角"))
 
         async def _second_prot():
@@ -94,7 +94,7 @@ class TestCharacterConstraints:
 
     def test_demote_then_promote_in_order_passes(self):
         """先降后升（含 flush 间隔）→ 换主角成功（服务层事务的形状依据）。"""
-        uid, nid = asyncio_run(_seed_novel())
+        _uid, nid = asyncio_run(_seed_novel())
         prot = asyncio_run(_add_character(nid, "原主角", role="主角"))
         other = asyncio_run(_add_character(nid, "挑战者"))
 
@@ -173,7 +173,7 @@ class TestRelationConstraints:
 
     def test_reverse_direction_is_a_separate_row(self):
         """单向语义：甲看乙 ≠ 乙看甲——反向是合法的另一条。"""
-        uid, nid = asyncio_run(_seed_novel())
+        _uid, nid = asyncio_run(_seed_novel())
         a = asyncio_run(_add_character(nid, "甲"))
         b = asyncio_run(_add_character(nid, "乙"))
         asyncio_run(_add_rel(nid, a.id, b.id, "师徒"))

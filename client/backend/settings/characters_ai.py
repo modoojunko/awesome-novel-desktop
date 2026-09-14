@@ -18,7 +18,6 @@ import json
 import logging
 import re
 
-import yaml
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,9 +31,9 @@ from filesystem.storage import get_storage
 from models.character import Character
 from models.project import Novel
 from settings.character_model import (
+    CHAR_CHECK_STATUS,
     COG_FILL_KEYS,
     DOSSIER_FILL_KEYS,
-    CHAR_CHECK_STATUS,
     check_items,
     compute_targets,
 )
@@ -140,7 +139,7 @@ async def draft_character(
         return {"ok": True, "data": {"targets": [], "cells": [], "act": "replace" if target == "persona" else "insert"}}
 
     story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
-    theme_label, theme_desc = _theme_of(story)
+    theme_label, _theme_desc = _theme_of(story)
     world = await _world_summary(project.root_path, 400 if target != "cog" else 1200)
     story_arc = await _story_arc_text(project.root_path) if target in ("cog", "check") else ""
     cog = cog or {}
@@ -375,7 +374,7 @@ async def check_character(
         ai_items.get(_name_key(n)) or _miss_row(n, "AI 未给出该项，可重跑体检")
         for n in item_names
     ]
-    if synopsis_missing := (not synopsis.strip()):
+    if not synopsis.strip():
         for row in items_out:
             if "简介" in row["name"]:
                 row.update(status="miss", note="输入缺失：简介未填——先去补简介，再重新体检")

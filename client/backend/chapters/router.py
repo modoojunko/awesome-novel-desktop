@@ -207,7 +207,7 @@ async def confirm_chapter(
         row.outline_status = "confirmed"
         row.confirmed_at = datetime.now(UTC).replace(tzinfo=None)
         await db.commit()
-    return {"ok": True, "status": "confirmed"}
+    return {"ok": True, "status": "confirmed", "warnings": warnings}
 
 
 @router.post("/chapters/{chapter_ref}/unarchive")
@@ -255,7 +255,7 @@ async def unarchive_chapter(
             await db.delete(arch)
     await db.commit()
 
-    return {"ok": True, "ref": chapter_ref}
+    return {"ok": True, "ref": chapter_ref, "warnings": warnings}
 
 
 @router.delete("/chapters/{chapter_ref}")

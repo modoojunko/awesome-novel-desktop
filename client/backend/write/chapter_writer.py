@@ -10,25 +10,30 @@
 """
 
 import json
+import logging
 import re
 
+from sqlalchemy import select
+
+from db import async_session
 from filesystem.storage import get_storage
 from genres.service import build_genre_section, resolve_genre_context
 from prompt.context import filter_active_hooks, inject_world_setting
+from settings.character_model import (
+    WRITE_STATE_KEYS as _WRITE_STATE_KEYS,
+)
+from settings.character_model import (
+    WRITE_STATE_PER_CHAR_MAX as _WRITE_STATE_PER_CHAR_MAX,
+)
 from settings.render import (
     build_tone_section,
     depiction_techniques_str,
     flatten_principles,
     fmt_mistakes,
 )
-from settings.character_model import (
-    WRITE_STATE_KEYS as _WRITE_STATE_KEYS,
-    WRITE_STATE_PER_CHAR_MAX as _WRITE_STATE_PER_CHAR_MAX,
-)
 from settings.world_model import render_red_lines
-from sqlalchemy import select
 
-from db import async_session
+logger = logging.getLogger(__name__)
 
 # 目标字数夹取区间（服务层守卫：越界值按默认处理）
 WORD_TARGET_MIN = 500
