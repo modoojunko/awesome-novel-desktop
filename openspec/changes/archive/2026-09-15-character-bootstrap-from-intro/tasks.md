@@ -23,4 +23,4 @@
 ## 4. 收尾
 
 - [x] 4.1 自查对照 spec scenarios 逐条核验；ADJUSTMENTS 登记若无则免。
-- [ ] 4.2 提交分支、拉 PR、完成审核（review→修→合）。
+- [x] 4.2 提交分支、拉 PR、完成审核（review→修→合）。
