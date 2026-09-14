@@ -331,12 +331,15 @@ async def _import_single_book(db, zf: zipfile.ZipFile, book_dir: str, user_id: s
             continue
         rel = name[len(book_dir):]
         data = yaml.safe_load(zf.read(name))
-        if data:
-            key = route_relative_path(rel)
-            db.add(ProjectSetting(
-                root_path=root_path, key=key,
-                content=json.dumps(data, ensure_ascii=False),
-            ))
+        if not data:
+            continue
+        key = route_relative_path(rel)
+        if key is None:
+            continue  # 未知/未路由的 settings 文件不入 KV（否则 NOT NULL 炸整书）
+        db.add(ProjectSetting(
+            root_path=root_path, key=key,
+            content=json.dumps(data, ensure_ascii=False),
+        ))
 
     # 卷 + 卷纲四子表
     for name in sorted(names):
