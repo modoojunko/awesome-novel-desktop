@@ -11,6 +11,7 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
+from ai_client import AITimeoutError
 from auth_local.deps import require_ai_access as _require_ai_access
 from auth_local.deps import require_novel_model as _require_novel_model
 from auth_local.middleware import get_current_user
@@ -56,6 +57,10 @@ async def _add_card(nid: str, **kw) -> Character:
     async with async_session() as session:
         ch = Character(novel_id=nid, seq=1, name=kw.get("name", "林拾"),
                        role=kw.get("role", "主角"))
+        if "persona" in kw:
+            ch.persona = kw["persona"]
+        if "aliases" in kw:
+            ch.aliases = json.dumps(kw["aliases"], ensure_ascii=False)
         if "cog" in kw:
             ch.cog = json.dumps(kw["cog"], ensure_ascii=False)
         if "dossier" in kw:
@@ -298,3 +303,158 @@ def require_ai_access_dep():
     from auth_local.deps import require_ai_access
 
     return require_ai_access
+
+
+class TestBootstrap:
+    """从简介立主角（character-bootstrap-from-intro）：只出稿不建卡、只补空格、性别年龄永不出现。"""
+
+    def test_returns_draft_without_creating_card(self, client, monkeypatch):
+        c, nid, captured = client
+        _install_fake(monkeypatch, {
+            "name": "林拾", "aliases": ["拾哥"],
+            "persona": "扫了十年落叶的杂役弟子，一双能看见修为漏洞的眼。",
+            "fills": {"race": "人族", "faction": "青梧宗", "plot": "背残页翻盘",
+                      "w1": "修行如登山", "w5": "不知眼眸来历", "p3": "化神即顶"},
+            "skipped": [{"key": "age", "why": "作者自己定"}],
+        }, captured)
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={})
+        assert r.status_code == 200
+        data = r.json()["data"]
+        assert data["name"] == "林拾"
+        assert data["aliases"] == ["拾哥"]
+        assert data["persona"] == "扫了十年落叶的杂役弟子，一双能看见修为漏洞的眼。"
+        paths = [cell["path"] for cell in data["cells"]]
+        assert "dossier.race" in paths and "dossier.faction" in paths and "dossier.plot" in paths
+        assert "cog.w5" in paths and "cog.p3" in paths
+        # 只出稿不落库
+        rows = asyncio.run(_roster_count(nid))
+        assert rows == 0
+        # prompt 带上了简介与题材
+        prompt = captured[0]["messages"][0]["content"]
+        assert "背残页翻盘" in prompt and "仙侠" in prompt
+
+    def test_gender_age_never_enter_cells(self, client, monkeypatch):
+        c, nid, _captured = client
+        _install_fake(monkeypatch, {
+            "name": "林拾", "aliases": [], "persona": "人设",
+            "fills": {"gender": "男", "age": "十六", "race": "人族", "w5": "盲区"},
+        }, [])
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={})
+        assert r.status_code == 200
+        paths = [cell["path"] for cell in r.json()["data"]["cells"]]
+        assert "dossier.gender" not in paths and "dossier.age" not in paths
+        assert "dossier.race" in paths and "cog.w5" in paths
+
+    def test_400_when_synopsis_missing(self, client, monkeypatch):
+        c, nid, _captured = client
+
+        async def _wipe():
+            from filesystem.storage import get_storage
+            async with async_session() as session:
+                proj = await session.get(Novel, nid)
+                slug = proj.slug
+            st = get_storage()
+            data = await st.read_yaml(f"./data/{slug}", "story.yaml") or {}
+            data["synopsis"] = ""
+            await st.write_yaml(f"./data/{slug}", "story.yaml", data)
+
+        asyncio.run(_wipe())
+        _install_fake(monkeypatch, {"name": "x"}, [])
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={})
+        assert r.status_code == 400
+        assert "简介" in r.json()["detail"]
+
+    def test_empty_output_502(self, client, monkeypatch):
+        c, nid, _captured = client
+        _install_fake(monkeypatch, {"name": "", "aliases": [], "persona": "", "fills": {}}, [])
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={})
+        assert r.status_code == 502
+        assert "没给出可用的内容" in r.json()["detail"]
+
+    def test_timeout_records_fail_usage(self, client, monkeypatch):
+        c, nid, _captured = client
+        calls: list[dict] = []
+
+        async def _fake_record(db, **kw):
+            calls.append(kw)
+
+        monkeypatch.setattr("settings.characters_ai.record_usage", _fake_record)
+
+        class _TimeoutClient:
+            async def chat(self, **kwargs):
+                raise AITimeoutError("timed out")
+
+        async def _fake(novel_id):
+            return _TimeoutClient()
+
+        monkeypatch.setattr("ai_client.get_ai_client_for_novel", _fake)
+        monkeypatch.setattr("settings.characters_ai.get_ai_client_for_novel", _fake)
+
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={})
+        assert r.status_code == 502
+        assert "超时" in r.json()["detail"]
+        assert calls and calls[0]["operation"] == "settings_char_bootstrap_fail" and calls[0]["force"] is True
+
+    def test_named_card_only_fills_empty_and_reports_skips(self, client, monkeypatch):
+        """主角待立：已有名字/人设/已写格一律不动，改记入 skipped。"""
+        c, nid, _captured = client
+        card = asyncio.run(_add_card(nid, name="林拾", role="主角", persona="已有的人设",
+                                     dossier={"race": "人族"},
+                                     cog={"w5": "已有盲区"}))
+        captured: list = []
+        _install_fake(monkeypatch, {
+            "name": "另名", "aliases": ["外号"], "persona": "新的人设",
+            "fills": {"race": "再写一次", "faction": "青梧宗", "w5": "再写一次", "p3": "上限"},
+        }, captured)
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap",
+                   json={"character_id": card.id})
+        assert r.status_code == 200
+        data = r.json()["data"]
+        # 卡上名字/人设已有 → 不返回；别名卡上为空 → 照给
+        assert data["name"] == "" and data["persona"] == "" and data["aliases"] == ["外号"]
+        skips = {s["key"] for s in data["skipped"]}
+        assert {"name", "persona"} <= skips and "aliases" not in skips
+        paths = [cell["path"] for cell in data["cells"]]
+        assert "dossier.race" not in paths and "cog.w5" not in paths
+        assert "dossier.faction" in paths and "cog.p3" in paths
+        # prompt 的已写段带上了卡上已有内容
+        prompt = captured[0]["messages"][0]["content"]
+        assert "已有盲区" in prompt
+
+    def test_placeholder_name_card_still_gets_name(self, client, monkeypatch):
+        c, nid, _captured = client
+        card = asyncio.run(_add_card(nid, name="\u0000abcdef123456", role="主角"))
+        _install_fake(monkeypatch, {"name": "林拾", "persona": "人设"}, [])
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap",
+                   json={"character_id": card.id})
+        assert r.status_code == 200
+        assert r.json()["data"]["name"] == "林拾"
+
+    def test_existing_aliases_skipped(self, client, monkeypatch):
+        c, nid, _captured = client
+        card = asyncio.run(_add_card(nid, name="\u0000abcdef654321", role="主角",
+                                     aliases=["旧号"]))
+        _install_fake(monkeypatch, {"name": "林拾", "aliases": ["新号"]}, [])
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap",
+                   json={"character_id": card.id})
+        assert r.status_code == 200
+        data = r.json()["data"]
+        assert data["aliases"] == []
+        assert any(s["key"] == "aliases" for s in data["skipped"])
+
+    def test_unknown_bootstrap_gives_404(self, client, monkeypatch):
+        c, nid, _captured = client
+        _install_fake(monkeypatch, {"name": "x"}, [])
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap",
+                   json={"character_id": "no-such-id"})
+        assert r.status_code == 404
+
+
+async def _roster_count(nid: str) -> int:
+    from sqlalchemy import select
+
+    async with async_session() as session:
+        rows = (await session.scalars(
+            select(Character.id).where(Character.novel_id == nid)
+        )).all()
+        return len(rows)

@@ -471,3 +471,35 @@ class TestGenreReadinessContract:
         pid = _create_project(client)
         client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "   "})
         assert client.put(f"/api/novels/{pid}/settings/status/genre").status_code == 400
+
+
+class TestCharactersReadinessNamed:
+    """角色 readiness 收紧：至少一张名字非空的卡才算已填（character-bootstrap-from-intro）。
+
+    readiness 只判内容非空；两档确认门禁归 POST /characters/confirm。
+    """
+
+    def _missing_keys(self, client, pid: str) -> set:
+        return {m["key"] for m in client.get(f"/api/novels/{pid}/readiness").json()["missing"]}
+
+    def test_unnamed_card_counts_as_empty(self, client):
+        pid = _create_project(client)
+        client.post(f"/api/novels/{pid}/characters", json={"name": "", "role": "主角"})
+        assert "characters" in self._missing_keys(client, pid)
+
+    def test_whitespace_name_via_patch_still_empty(self, client):
+        pid = _create_project(client)
+        r = client.post(f"/api/novels/{pid}/characters", json={"name": "", "role": "主角"})
+        cid = r.json()["data"]["id"]
+        rev = r.json()["data"]["rev"]
+        pr = client.patch(
+            f"/api/novels/{pid}/characters/{cid}",
+            json={"path": "name", "value": "   ", "base_rev": rev},
+        )
+        assert pr.status_code == 200, pr.text
+        assert "characters" in self._missing_keys(client, pid)
+
+    def test_single_named_card_fills(self, client):
+        pid = _create_project(client)
+        client.post(f"/api/novels/{pid}/characters", json={"name": "张三", "role": "主角"})
+        assert "characters" not in self._missing_keys(client, pid)

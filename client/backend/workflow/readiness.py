@@ -9,7 +9,7 @@ Product decision (2026-08-02):
 7 items are judged (ai-model is NOT part of readiness).
 """
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from db import async_session
 from filesystem.storage import get_storage
@@ -83,10 +83,10 @@ async def _check_hooks(root_path: str, novel_id: str | None = None) -> bool:
 
 
 async def _check_characters(root_path: str, novel_id: str | None = None) -> bool:
-    """角色项「已填」= 真表里至少一张卡（character-settings-v2；旧 yaml 目录已退役）。
+    """角色项「已填」= 真表里至少一张**名字非空**的卡（character-bootstrap-from-intro 收紧）。
 
-    两档**门禁**不在这里——门禁在 POST /characters/confirm（confirm_characters）；
-    readiness 只承担「内容非空」语义，与其余 checker 同口径。
+    空名卡（含 ``\\u0000`` 未命名占位）不算已填——readiness 只承担「内容非空」语义；
+    两档**门禁**不在这里——门禁在 POST /characters/confirm（confirm_characters）。
     """
     if not novel_id:
         return False
@@ -94,7 +94,13 @@ async def _check_characters(root_path: str, novel_id: str | None = None) -> bool
 
     async with async_session() as session:
         row = await session.scalar(
-            select(Character.id).where(Character.novel_id == novel_id).limit(1)
+            select(Character.id)
+            .where(
+                Character.novel_id == novel_id,
+                func.trim(Character.name) != "",
+                ~Character.name.like("\u0000%"),
+            )
+            .limit(1)
         )
         return row is not None
 

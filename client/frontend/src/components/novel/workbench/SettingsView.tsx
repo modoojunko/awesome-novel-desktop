@@ -652,6 +652,9 @@ export default function SettingsView({
                 projectId={projectId}
                 onDirtyChange={handleDirtyChange}
                 onCtxChange={setCharCtx}
+                introReady={!!settingsStatus?.synopsis}
+                aiState={aiState}
+                onBlocked={handleAiBlocked}
               />
             )}
             {panel === "aiModel" && (

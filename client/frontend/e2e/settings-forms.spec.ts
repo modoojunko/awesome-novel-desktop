@@ -933,3 +933,58 @@ test("前两步顺序 + 确认即前进：简介确认后自动切到题材（ta
     await restore();
   }
 });
+
+// -------------------------------------------------------------------------
+// ⑤ 角色首进引导（character-bootstrap-from-intro）：简介已填 → 空态引导卡
+//    两出口；手动建主角首卡默认「主角」；有名卡后 readiness 角色项即已填
+// -------------------------------------------------------------------------
+test("角色：首进引导卡 → 手动建主角 → 引导卡退场", async ({ page, request }) => {
+  const { restore, token } = await setupSession(page);
+  const auth = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  try {
+    const pid = await createNovel(page, `引导${Date.now() % 100000}`);
+    // 先把 01 简介填上（readiness synopsis 就绪 → 角色页空态给 AI 出口）
+    const putStory = await request.put(`${ORIGIN}/api/novels/${pid}/story`, {
+      headers: auth,
+      data: { synopsis: "杂役弟子林晚靠一双能看见修为漏洞的眼翻盘。" },
+    });
+    expect(putStory.ok()).toBeTruthy();
+    // settingsStatus 在进书时取自 /readiness，PUT 后须重载工作台拿到新状态
+    await page.reload();
+    await expect(page.getByRole("button", { name: /^设定/ })).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "角色");
+
+    // 引导卡：AI 出口 + 手动出口，并存（AI 不点：本地栈无模型，门控提示属免费/模型路径）
+    await expect(page.getByText("简介里已经有主角的线索了")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByRole("button", { name: "从简介立主角" })).toBeVisible();
+    await expect(page.getByTestId("char-empty-guide")).toBeVisible();
+
+    // 手动建主角：首卡默认「主角」
+    await page.getByRole("button", { name: "手动建主角" }).click();
+    await page.getByRole("textbox", { name: "角色名称" }).fill("林晚");
+    await page.waitForTimeout(1200); // 防抖 PATCH 落库
+
+    const list = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+    const item = (list.data?.items ?? []).find((x: { name: string }) => x.name === "林晚");
+    expect(item).toBeTruthy();
+    expect(item.role).toBe("主角");
+
+    // 一张有名卡 → readiness 角色项不再报缺失（收紧口径的正向面）
+    const ready = await apiGetJSON(request, token, `/novels/${pid}/readiness`);
+    const keys = (ready.missing ?? []).map((m: { key: string }) => m.key);
+    expect(keys).not.toContain("characters");
+
+    // 引导卡退场：列表非空后进来直接是卷宗卡
+    await page.reload();
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "角色");
+    await expect(page.getByTestId("char-empty-guide")).toHaveCount(0, { timeout: 10000 });
+    await expect(page.getByRole("textbox", { name: "角色名称" })).toHaveValue("林晚");
+  } finally {
+    await restore();
+  }
+});

@@ -1,15 +1,19 @@
-"""角色 AI 能力端点（character-settings-v2 tasks 4.x）。
+"""角色 AI 能力端点（character-settings-v2 tasks 4.x；bootstrap 属 character-bootstrap-from-intro）。
 
-两条能力（design.md D6/D7）：
+三条能力（design.md D6/D7；bootstrap=书级立主角）：
 - POST /ai/characters/{cid}/draft?target=persona|dossier|cog
   「只补空格」以服务端此刻空值为唯一基准；targets 服务端算；脏返回域归一；
   人设是唯一覆盖型（act=replace，豁免非空检查，但空稿不落）。
 - POST /ai/characters/{cid}/check
   四态 ok/warn/conflict/miss；项名与顺序服务端出（力量向/现实向两套）；
   输入缺失降级不 400；全空免调用；无副作用。
+- POST /ai/characters/bootstrap
+  从简介立主角：只出稿不建卡（采纳=前端 create 主角卡＋既有单格 PATCH）；
+  带 character_id（主角待立）时同样以服务端空值为基准只补空格；
+  简介未填 400；性别/年龄不在 allowed 键集合，模型吐了也不进 cells。
 
 路径 /ai/characters/… 为三段（首段字面量），不会被 /ai/{stype}/{field} 两段兜底吃掉。
-温度分档（spec 冻结）：人设 0.6 / 档案与认知 0.4 / 体检 0.3。
+温度分档（spec 冻结）：人设 0.6 / 档案与认知 0.4 / 体检 0.3 / 立主角 0.5。
 """
 
 from __future__ import annotations
@@ -37,7 +41,7 @@ from settings.character_model import (
     check_items,
     compute_targets,
 )
-from settings.character_service import _load_card, card_to_dict
+from settings.character_service import Unprocessable, _load_card, card_to_dict
 
 logger = logging.getLogger(__name__)
 
@@ -427,4 +431,172 @@ async def check_character(
     return {"ok": True, "data": {
         "items": items_out, "degraded": bool(degraded_reasons),
         "degraded_reasons": degraded_reasons, "verdict": verdict,
+    }}
+
+
+# 立主角允许的格位键＝档案空格 ∪ 认知补全键；性别/年龄是 author_only，天然不在集合里
+_BOOTSTRAP_FILL_KEYS = frozenset(DOSSIER_FILL_KEYS) | frozenset(COG_FILL_KEYS)
+
+
+def _card_unnamed(ch: Character) -> bool:
+    n = str(ch.name or "")
+    return not n.strip() or n.startswith("\u0000")
+
+
+@router.post("/ai/characters/bootstrap")
+async def bootstrap_protagonist(
+    project_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """从简介立主角：只出稿不建卡，采纳由前端走 create 主角卡＋既有单格 PATCH。
+
+    带 character_id（主角待立）时，名称/别名/人设/格位均以服务端此刻内容为
+    唯一空值基准——已有的一律不返回、改记入 skipped；性别/年龄永不出现。
+    """
+    from prompts import load as load_prompt
+
+    project = await _get_project(db, project_id, user["id"])
+
+    ch = None
+    cid = str(body.get("character_id") or "")
+    if cid:
+        try:
+            ch = await _load_card(db, project_id, cid)
+        except Unprocessable:
+            raise HTTPException(404, "角色不存在或已删除") from None
+
+    story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+    synopsis = str(story.get("synopsis") or "").strip()
+    if not synopsis:
+        raise HTTPException(400, "简介还没写——先去 01 简介写几句，再来立主角")
+
+    theme_label, _theme_desc = _theme_of(story)
+    world = await _world_summary(project.root_path, 600)
+
+    dossier = json.loads(ch.dossier or "{}") if ch is not None else {}
+    cog_bucket = json.loads(ch.cog or "{}") if ch is not None else {}
+
+    def _filled(bucket: dict, key: str) -> bool:
+        return bool(str(bucket.get(key) or "").strip())
+
+    filled_lines = "\n".join(
+        [f"{k}：{dossier[k]}" for k in DOSSIER_FILL_KEYS if _filled(dossier, k)]
+        + [f"{k}：{cog_bucket[k]}" for k in COG_FILL_KEYS if _filled(cog_bucket, k)]
+    ) or "（无）"
+
+    prompt = load_prompt("settings_characters_bootstrap").format(
+        title=project.name,
+        theme=theme_label or "（未确认）",
+        synopsis=_clamp(synopsis, 600),
+        world=world or "（未填写）",
+        filled_lines=filled_lines,
+    )
+
+    client = await get_ai_client_for_novel(project_id)
+    usage: dict = {}
+    try:
+        text = await client.chat(
+            model="haiku",
+            system="你是小说设定专家。只输出 JSON，不要任何其他文字。",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5,
+            json_mode=True,
+            usage=usage,
+        )
+    except AITimeoutError:
+        await record_usage(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_char_bootstrap_fail"[:50],
+            model=effective_model(project),
+            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试") from None
+    except Exception as e:  # noqa: BLE001
+        await record_usage(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_char_bootstrap_fail"[:50],
+            model=effective_model(project),
+            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
+
+    data = _parse_json(text, "立主角")
+    skipped: list[dict] = []
+
+    name = _clamp(data.get("name"), 30).strip()
+    if ch is not None and not _card_unnamed(ch):
+        if name:
+            skipped.append({"key": "name", "why": "已有名字，没动"})
+        name = ""
+
+    aliases_raw = data.get("aliases")
+    aliases = [
+        _clamp(a, 20).strip()
+        for a in (aliases_raw if isinstance(aliases_raw, list) else [])
+        if isinstance(a, str) and _clamp(a, 20).strip()
+    ][:2]
+    if ch is not None and aliases:
+        try:
+            have = [str(a) for a in json.loads(ch.aliases or "[]")]
+        except (TypeError, ValueError):
+            have = []
+        if have:
+            skipped.append({"key": "aliases", "why": "已有别名，没动"})
+            aliases = []
+
+    persona = _clamp(data.get("persona"), 300).strip()
+    if ch is not None and str(ch.persona or "").strip():
+        if persona:
+            skipped.append({"key": "persona", "why": "已有人设，没动"})
+        persona = ""
+
+    fills = data.get("fills") if isinstance(data.get("fills"), dict) else {}
+    cells: list[dict] = []
+    for key, value in fills.items():
+        if key not in _BOOTSTRAP_FILL_KEYS:
+            continue  # 未知键 / 越界键（含性别、年龄）静默丢
+        bucket = dossier if key in DOSSIER_FILL_KEYS else cog_bucket
+        if _filled(bucket, key):
+            continue  # 只补空格：服务端此刻空值为唯一基准
+        text_v = _clamp(value, 300).strip()
+        if not text_v:
+            continue
+        prefix = "dossier" if key in DOSSIER_FILL_KEYS else "cog"
+        cells.append({"path": f"{prefix}.{key}", "value": text_v})
+
+    skipped.extend(
+        {"key": s.get("key"), "why": _clamp(s.get("why"), 60)}
+        for s in (data.get("skipped") or [])[:6]
+        if isinstance(s, dict)
+    )
+
+    if not (name or persona or cells):
+        await record_usage(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_char_bootstrap_fail"[:50],
+            model=effective_model(project),
+            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, "AI 没给出可用的内容，可重试")
+
+    await record_usage(
+        db, user_id=user["id"], project_id=project.id,
+        api_config_id=project.ai_config_id,
+        operation="settings_char_bootstrap",
+        model=effective_model(project),
+        tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+    )
+    return {"ok": True, "data": {
+        "name": name, "aliases": aliases, "persona": persona,
+        "cells": cells, "skipped": skipped,
     }}

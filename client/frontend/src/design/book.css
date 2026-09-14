@@ -845,5 +845,11 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .char-save-state.dirty { color: var(--warn); }
 .char-save-state.failed { color: var(--err); }
 
+/* 首次进入引导卡（character-bootstrap-from-intro）：空态两出口＝从简介立主角 / 手动建主角 */
+.char-empty-guide { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 460px; margin: 24px auto 0; padding: 16px; border: 1px dashed color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: 12px; background: var(--surface); }
+.char-empty-guide .guide-t { font-size: 14px; font-weight: 600; color: var(--fg); }
+.char-empty-guide .guide-act { display: flex; gap: 8px; margin-top: 4px; }
+.char-empty-guide .ai-sink { align-self: stretch; margin: 0; }
+
 /* 章纲出场角色多选（character-settings-v2）：chips 行 + 保留 textarea 兜底 */
 .og-char-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
