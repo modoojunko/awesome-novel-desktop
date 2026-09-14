@@ -340,7 +340,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
   const sealChar = card?.name?.trim()?.[0] ?? "\uff1f";
 
   return (
-    <div className="sub-wrap">
+    <div className="sub-wrap char-sub">
       <nav className="sub-list char-list" aria-label="角色列表">
         <div className="sub-list-head">
           角色列表
@@ -600,6 +600,87 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
 
             <section className="sec">
               <header className="sec-h">
+                <h3>认知内核</h3>
+                <span className="sec-sub">六层是一条链：世界观 → 自我观 → 价值观 → 能力 → 行为 → 环境。</span>
+              </header>
+              {check && (
+                <div className="ai-sink" role="status">
+                  <div className="aiz-head">AI 体检 · {check.verdict || "逐项结论"}</div>
+                  {check.items.map((item) => (
+                    <div key={item.name} className="chk-row">
+                      <span className="chk-name">{item.name}</span>
+                      <span className={`chk-res ${item.status}`}>
+                        {item.status === "ok" ? "达标" : item.status === "warn" ? "风险" : item.status === "conflict" ? "矛盾" : "缺输入"}
+                      </span>
+                      <span className="chk-note">{item.note}</span>
+                      {item.goto?.startsWith("layer:") && (
+                        <button
+                          type="button"
+                          className="chk-go"
+                          onClick={() => setCogOpen((m) => ({ ...m, [item.goto!.split(":")[1]]: true }))}
+                        >
+                          去改
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="char-cog">
+                {COG_LAYERS.map((layer) => {
+                  const open = !!cogOpen[layer.id];
+                  const filledCount = layer.fields.filter((f) => String(card.cog[f.k] ?? "").trim()).length;
+                  const missingReq = layer.fields.filter((f) => f.req && !String(card.cog[f.k] ?? "").trim());
+                  const primary = card.cog[layer.primary] ?? "";
+                  return (
+                    <article
+                      key={layer.id}
+                      className={`cog-layer${open ? " open" : ""}${missingReq.length ? " missing" : filledCount ? " filled" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        className="cog-layer-head"
+                        onClick={() => setCogOpen((m) => ({ ...m, [layer.id]: !m[layer.id] }))}
+                      >
+                        <span className="cog-layer-no">{layer.no}</span>
+                        <span className="cog-layer-name">{layer.name}</span>
+                        <span className="cog-layer-tag">{layer.tag}</span>
+                        <span className={`cog-layer-prev${primary ? " has" : ""}`}>
+                          {primary || "还没写——展开补这一层的核心一句"}
+                        </span>
+                        {missingReq.length ? (
+                          <span className="cog-layer-miss">还差 {missingReq.length} 项必填</span>
+                        ) : (
+                          <span className="cog-layer-state">{filledCount}/{layer.fields.length}</span>
+                        )}
+                      </button>
+                      {open && (
+                        <div className="cog-layer-grid">
+                          {layer.fields.map((f) => (
+                            <div key={f.k} className={`cog-field${f.k === layer.primary ? " full" : ""}`}>
+                              <div className="f-label">
+                                <b>
+                                  {f.label}
+                                  {f.req && <i className="req">必填</i>}
+                                </b>
+                              </div>
+                              <input
+                                value={card.cog[f.k] ?? ""}
+                                aria-label={f.label}
+                                onChange={(e) => setField(`cog.${f.k}`, e.target.value)}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="sec">
+              <header className="sec-h">
                 <h3>人物关系</h3>
                 <span className="sec-sub">只记这个角色怎么看别人——同一对方一条。</span>
                 <button type="button" className="text-btn" onClick={() => setRelForm((v) => !v)}>＋记一段关系</button>
@@ -695,87 +776,6 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
                   <button type="button" className="btn btn-secondary" onClick={() => setRelForm(false)}>取消</button>
                 </div>
               )}
-            </section>
-
-            <section className="sec">
-              <header className="sec-h">
-                <h3>认知内核</h3>
-                <span className="sec-sub">六层是一条链：世界观 → 自我观 → 价值观 → 能力 → 行为 → 环境。</span>
-              </header>
-              {check && (
-                <div className="ai-sink" role="status">
-                  <div className="aiz-head">AI 体检 · {check.verdict || "逐项结论"}</div>
-                  {check.items.map((item) => (
-                    <div key={item.name} className="chk-row">
-                      <span className="chk-name">{item.name}</span>
-                      <span className={`chk-res ${item.status}`}>
-                        {item.status === "ok" ? "达标" : item.status === "warn" ? "风险" : item.status === "conflict" ? "矛盾" : "缺输入"}
-                      </span>
-                      <span className="chk-note">{item.note}</span>
-                      {item.goto?.startsWith("layer:") && (
-                        <button
-                          type="button"
-                          className="chk-go"
-                          onClick={() => setCogOpen((m) => ({ ...m, [item.goto!.split(":")[1]]: true }))}
-                        >
-                          去改
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="char-cog">
-                {COG_LAYERS.map((layer) => {
-                  const open = !!cogOpen[layer.id];
-                  const filledCount = layer.fields.filter((f) => String(card.cog[f.k] ?? "").trim()).length;
-                  const missingReq = layer.fields.filter((f) => f.req && !String(card.cog[f.k] ?? "").trim());
-                  const primary = card.cog[layer.primary] ?? "";
-                  return (
-                    <article
-                      key={layer.id}
-                      className={`cog-layer${open ? " open" : ""}${missingReq.length ? " missing" : filledCount ? " filled" : ""}`}
-                    >
-                      <button
-                        type="button"
-                        className="cog-layer-head"
-                        onClick={() => setCogOpen((m) => ({ ...m, [layer.id]: !m[layer.id] }))}
-                      >
-                        <span className="cog-layer-no">{layer.no}</span>
-                        <span className="cog-layer-name">{layer.name}</span>
-                        <span className="cog-layer-tag">{layer.tag}</span>
-                        <span className={`cog-layer-prev${primary ? " has" : ""}`}>
-                          {primary || "还没写——展开补这一层的核心一句"}
-                        </span>
-                        {missingReq.length ? (
-                          <span className="cog-layer-miss">还差 {missingReq.length} 项必填</span>
-                        ) : (
-                          <span className="cog-layer-state">{filledCount}/{layer.fields.length}</span>
-                        )}
-                      </button>
-                      {open && (
-                        <div className="cog-layer-grid">
-                          {layer.fields.map((f) => (
-                            <div key={f.k} className={`cog-field${f.k === layer.primary ? " full" : ""}`}>
-                              <div className="f-label">
-                                <b>
-                                  {f.label}
-                                  {f.req && <i className="req">必填</i>}
-                                </b>
-                              </div>
-                              <input
-                                value={card.cog[f.k] ?? ""}
-                                aria-label={f.label}
-                                onChange={(e) => setField(`cog.${f.k}`, e.target.value)}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
             </section>
 
           </>

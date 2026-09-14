@@ -125,7 +125,7 @@
   .modnav span .num { font-size: 11.5px; }
 
   /* ── 设定页三栏：设定树(232) ｜ 角色面板(1fr) ｜ AI 栏(244) ── */
-  .view.three-col { display: grid; grid-template-columns: 232px minmax(0, 1fr) 244px; align-items: stretch; }
+  .view.three-col { display: grid; grid-template-columns: 280px minmax(0, 1fr) 236px; align-items: stretch; }
   .col-tree { background: var(--bg); border-right: 1px solid var(--border); padding: 14px 12px 16px; }
   .tree-head { padding: 0 8px 8px; }
   .tree-head .t { font-size: 13px; color: var(--muted); }
@@ -463,7 +463,7 @@
       <span class="badge acc">PRO</span>
     </div>
     <div class="modnav" data-od-id="modnav">
-      <span class="on">设定<span class="num"><b id="modCount">3</b>/8</span></span>
+      <span class="on">设定<span class="num"><b id="modCount">4</b>/8</span></span>
       <span>写作</span>
       <span>预览</span>
     </div>
@@ -474,21 +474,21 @@
       <aside class="col-tree" data-od-id="settings-tree">
         <div class="tree-head"><span class="t">设定 · <b>8</b> 项 + 1 工具</span></div>
         <div class="settings-progress">
-          <span class="pl num" id="progTxt">设定 <b>3</b>/8</span>
-          <div class="pbar"><i id="progBar" style="width: 37.5%;"></i></div>
+          <span class="pl num" id="progTxt">设定 <b>4</b>/8</span>
+          <div class="pbar"><i id="progBar" style="width: 50%;"></i></div>
         </div>
         <div class="settings-nav-wrap">
           <div class="s-item"><span class="nm">模型设定</span><span class="defer-tag">工具</span><span class="spacer"></span><span class="badge empty">不参与进度</span></div>
           <div class="s-item"><span class="nm">简介</span><span class="spacer"></span><span class="badge ok">已确认</span></div>
           <div class="s-item"><span class="nm">题材</span><span class="spacer"></span><span class="badge ok">已确认</span></div>
           <div class="s-item"><span class="nm">世界</span><span class="spacer"></span><span class="badge ok">已确认</span></div>
-          <div class="s-item on"><span class="nm">角色</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge warn">草稿</span></div>
+          <div class="s-item on"><span class="nm">角色</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge warn">已填</span></div>
           <div class="s-item"><span class="nm">主线</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
           <div class="s-item"><span class="nm">文风</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
           <div class="s-item"><span class="nm">伏笔</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
           <div class="s-item"><span class="nm">禁用词句</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
         </div>
-        <div class="tree-foot">可后补项确认后计入设定进度 · 确认即前进到下一项</div>
+        <div class="tree-foot">4 项未填 · 均可后补</div>
       </aside>
 
       <!-- ═══ 中栏 · 角色面板（本稿核心） ═══ -->
@@ -498,7 +498,7 @@
             <div class="panel-head">
               <h2>角色</h2>
               <span class="badge warn" id="charState" data-od-id="badge-char-state">草稿 · 主角已立</span>
-              <span class="ph-tools"><span class="save-state" id="saveState">已自动保存</span><span class="num" id="charCount">43 人</span></span>
+              
             </div>
             <p class="desc">AI 写每一章，都要靠这里知道「<b>谁在场、谁想干什么</b>」。主角必立——从称呼和一句话人设写起；配角、反派把认知内核填全，路人只留基础档案。人物关系只记「他怎么看别人」：一段一句，同一对方一条。</p>
             <div class="sub-wrap">
@@ -521,7 +521,7 @@
                 <span id="receiptText"></span>
                 <button class="rb-undo" id="receiptUndo" type="button">撤销</button>
               </div>
-              <span class="note" id="footNote"></span>
+              <span class="note" id="footNote">高级项可后补 · 确认即计入进度</span>
               <button class="btn btn-primary" id="btnConfirm" type="button" data-od-id="btn-confirm">确认完成</button>
             </div>
           </div>
@@ -650,7 +650,7 @@
   function addChar(key, o) { o.key = key; DATA[key] = o; }
 
   addChar('lingshi', {
-    name: '林拾', alias: '别名 · 残卷郎 / 听漏先生', type: '主角', id: '#C-0001', first: '第 03 章', updated: '09-11 08:00',
+    name: '林拾', alias: '残卷郎 · 听漏先生', type: '主角', id: '#C-0001', first: '第 03 章', updated: '09-11 08:00',
     persona: '青梧宗杂役弟子，资质平平却记性过人——别人当废纸的残页，他能一字不差背下来。',
     dossier: {
       gender: '男', age: '十七', race: '人族',
@@ -702,7 +702,7 @@
   });
 
   addChar('lfu', {
-    name: '林父', alias: '林承业 · 已故', type: '配角', id: '#C-0004', first: '第 00 章（追忆）',
+    name: '林父', alias: '林承业 · 已故', type: '配角', id: '#C-0004', first: '第 00 章',
     persona: '林拾的父亲——火场里没了，只留一枚遗扣和一桩没人敢提的失踪。',
     dossier: { gender: '男', age: '殁年三十九', race: '人族', faction: '青梧宗外门 · 残卷修补匠', look: '只存在于林拾记忆里的背影。', speech: '话少，一句顶一句；口头禅「补得上」。', background: '替藏经阁修补残卷；火场之后，宗门记录里连名字都被抹了。', plot: '旧案的核心缺口——本人不登场，只被追。' },
     cog: { v1: '（生前执念）把那半卷补完。', b1: '话少，做活极稳。' }
@@ -850,7 +850,7 @@
         '<input class="ch-alias" data-path="alias" value="' + esc(d.alias || '') + '" placeholder="别名 / 称号（可选，AI 写章用于指代）" aria-label="别名" />' +
         '<div class="ch-meta num">' + esc(d.id) + ' · 首次出场 ' + esc(d.first || '未出场') + (d.updated ? ' · 更新于 ' + esc(d.updated) : '') + '</div>' +
       '</div>' +
-      '<div class="ch-side">' + side +
+      '<div class="ch-side"><span class="save-state">已自动保存</span>' + side +
         '<div class="ch-ops">' +
           '<button type="button" data-act="ops-merge" data-od-id="btn-char-merge">合并…</button>' +
           '<button type="button" class="danger" data-act="ops-del" data-od-id="btn-char-del">删除</button>' +

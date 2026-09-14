@@ -66,7 +66,8 @@ const DESCS: Record<string, string> = {
   style: "用谁的视角讲，用什么语气讲（叙事身份 + 核心原则）。",
   antiAI: "这些词句一出现就拦掉——AI 味最重的那批。",
   foreshadow: "先埋下的，后面要还。",
-  chars: "核心角色是谁，他们想要什么。",
+  chars:
+    "AI 写每一章，都要靠这里知道「谁在场、谁想干什么」。主角必立——从称呼和一句话人设写起；配角、反派把认知内核填全，路人只留基础档案。人物关系只记「他怎么看别人」：一段一句，同一对方一条。",
 };
 
 const BADGE_DONE = "ok";
@@ -523,6 +524,10 @@ export default function SettingsView({
           </div>
           {SETTINGS_ITEMS.map((i) => {
             const done_ = !!settingsStatus?.[i.settingsKey];
+            // 5.4 三级阶梯：确认 > 已填 > 未填——已填不再冒充已确认（中间徽标同源）
+            const confirmed = !!confirmedStatus?.[i.settingsKey];
+            const badgeCls = confirmed ? BADGE_DONE : done_ ? "warn" : BADGE_EMPTY;
+            const badgeLabel = confirmed ? "已确认" : done_ ? "已填" : "未填";
             return (
               <div
                 key={i.k}
@@ -532,9 +537,9 @@ export default function SettingsView({
                 <span className="nm">{i.name}</span>
                 {i.canDefer && !done_ && <span className="defer-tag">可后补</span>}
                 <span className="spacer" />
-                <span className={`badge ${done_ ? BADGE_DONE : BADGE_EMPTY}`}>
-                  <BadgeIcon ok={done_} />
-                  {done_ ? "已确认" : "未填"}
+                <span className={`badge ${badgeCls}`}>
+                  <BadgeIcon ok={confirmed} />
+                  {badgeLabel}
                 </span>
               </div>
             );

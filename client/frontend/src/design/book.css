@@ -732,6 +732,10 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .rail-assist .ai-target .gap-c { color: var(--warn); }
 .char-search { width: 100%; padding: 7px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font-size: 12.5px; margin-bottom: 8px; flex: none; }
 .char-search:focus { outline: 2px solid color-mix(in oklch, var(--accent) 12%, transparent); border-color: var(--accent); }
+/* 双栏布局（原型 .sub-wrap：236px 列表 + 卡）：覆盖 sub-fill 的纵排默认 */
+.settings-v .panel.sub-fill .sub-wrap.char-sub { flex-direction: row; align-items: stretch; gap: 0 20px; }
+.settings-v .sub-wrap.char-sub .char-list { position: sticky; top: 14px; align-self: flex-start; width: 236px; flex: none; max-height: calc(100vh - 56px); display: flex; flex-direction: column; min-height: 0; padding: 2px 0 4px; }
+.settings-v .sub-wrap.char-sub .char-main { flex: 1; min-width: 0; border-left: 1px solid var(--border); padding-left: 20px; }
 
 /* 人物卡：身份头 */
 .char-head { display: flex; gap: 16px; align-items: flex-start; }
