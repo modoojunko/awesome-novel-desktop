@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_client import AITimeoutError
 from ai_state import effective_model
 from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
@@ -71,50 +72,81 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
     system = f"{role}\n\n{WRITING_IRON_RULES}"
     full_text = ""
 
-    async for event in client.chat_stream(
-        model=model,
-        system=system,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=8192,
-    ):
-        if event.text:
-            full_text += event.text
-            yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
-        elif event.is_done:
-            chapter = await load_chapter(root_path, chapter_ref)
-            chapter["prose"] = full_text
-            # 统一写入口（修直写缺陷）：拆装落库 + 元数据派生 + 版本快照
-            await save_chapter(db, project, chapter_ref, chapter)
-            from api_configs.usage import record_usage
+    try:
+        async for event in client.chat_stream(
+            model=model,
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=8192,
+        ):
+            if event.text:
+                full_text += event.text
+                yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
+            elif event.is_done:
+                try:
+                    chapter = await load_chapter(root_path, chapter_ref)
+                    chapter["prose"] = full_text
+                    # 统一写入口（修直写缺陷）：拆装落库 + 元数据派生 + 版本快照
+                    await save_chapter(db, project, chapter_ref, chapter)
+                except Exception as e:  # noqa: BLE001 — AI 已成功，落库失败不记 _fail
+                    yield f"data: {json.dumps({'type': 'error', 'error': f'内容已生成，但保存失败：{e!s}'}, ensure_ascii=False)}\n\n"
+                    return
+                from api_configs.usage import record_usage
 
-            await record_usage(
-                db,
-                user_id=project.user_id,
-                project_id=project.id,
-                chapter_id=chapter_ref,
-                operation="write_chapter",
-                model=model,
-                tokens_out=event.tokens,
-            )
-            done: dict = {"type": "done", "full_text": full_text, "tokens": event.tokens}
-            # 工序②：写完字数校验（<90% 显式提示，不拦落库）
-            target = getattr(ctx, "word_target", 2500) or 2500
-            actual = len(full_text)
-            word_check = {
-                "target": target,
-                "actual": actual,
-                "below_limit": actual < int(target * 0.9),
-            }
-            if word_check["below_limit"]:
-                word_check["message"] = f"字数不足：目标 {target}，实写 {actual}"
-            done["word_check"] = word_check
-            # 工序③：写后叙事自查（七条规则确定性扫描，提示性质）
-            from write.quality import run_narrative_self_check
+                await record_usage(
+                    db,
+                    user_id=project.user_id,
+                    project_id=project.id,
+                    chapter_id=chapter_ref,
+                    operation="write_chapter",
+                    model=model,
+                    tokens_out=event.tokens,
+                )
+                done: dict = {"type": "done", "full_text": full_text, "tokens": event.tokens}
+                # 工序②：写完字数校验（<90% 显式提示，不拦落库）
+                target = getattr(ctx, "word_target", 2500) or 2500
+                actual = len(full_text)
+                word_check = {
+                    "target": target,
+                    "actual": actual,
+                    "below_limit": actual < int(target * 0.9),
+                }
+                if word_check["below_limit"]:
+                    word_check["message"] = f"字数不足：目标 {target}，实写 {actual}"
+                done["word_check"] = word_check
+                # 工序③：写后叙事自查（七条规则确定性扫描，提示性质）
+                from write.quality import run_narrative_self_check
 
-            done["self_check"] = run_narrative_self_check(full_text)
-            yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
-        elif event.error:
-            yield f"data: {json.dumps({'type': 'error', 'error': event.error}, ensure_ascii=False)}\n\n"
+                done["self_check"] = run_narrative_self_check(full_text)
+                yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+            elif event.error:
+                yield f"data: {json.dumps({'type': 'error', 'error': event.error}, ensure_ascii=False)}\n\n"
+    except AITimeoutError:
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db,
+            user_id=project.user_id,
+            project_id=project.id,
+            chapter_id=chapter_ref,
+            operation="write_chapter_fail",
+            model=model,
+            force=True,
+        )
+        yield f"data: {json.dumps({'type': 'error', 'error': 'AI 服务响应超时，请稍后重试'}, ensure_ascii=False)}\n\n"
+    except Exception as e:  # noqa: BLE001 — 流中断也留痕（调用已发生）
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db,
+            user_id=project.user_id,
+            project_id=project.id,
+            chapter_id=chapter_ref,
+            operation="write_chapter_fail",
+            model=model,
+            force=True,
+        )
+        yield f"data: {json.dumps({'type': 'error', 'error': f'AI 生成失败，可重试：{e!s}'}, ensure_ascii=False)}\n\n"
 
 
 @router.get("/prompt")
@@ -190,10 +222,52 @@ async def polish_write_prompt(
             messages=[{"role": "user", "content": ctx.material_markdown()}],
             usage=usage,
         )
+    except AITimeoutError:
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db,
+            user_id=user["id"],
+            project_id=project.id,
+            chapter_id=chapter_ref,
+            operation="prompt_polish_fail",
+            model=model,
+            tokens_in=usage.get("tokens_in", 0),
+            tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except HTTPException:
         raise
     except Exception as e:  # 模型/网络错误：不落库，前端可重试
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db,
+            user_id=user["id"],
+            project_id=project.id,
+            chapter_id=chapter_ref,
+            operation="prompt_polish_fail",
+            model=model,
+            tokens_in=usage.get("tokens_in", 0),
+            tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
         raise HTTPException(502, f"润色调用失败：{e}") from e
+
+    from api_configs.usage import record_usage
+
+    # 记账先于校验：调用已完成（钱已花），产物不合格也要留痕
+    await record_usage(
+        db,
+        user_id=user["id"],
+        project_id=project.id,
+        chapter_id=chapter_ref,
+        operation="prompt_polish",
+        model=model,
+        tokens_in=usage.get("tokens_in", 0),
+        tokens_out=usage.get("tokens_out", 0),
+    )
     polished = strip_code_fences(raw)
 
     missing = validate_polished_prompt(polished, ctx)
@@ -209,19 +283,6 @@ async def polish_write_prompt(
     # 润色接管分段 generate 退役后的阶段推进（outline→prompt；返工回退跳过）
     _advance_phase(project, "prompt")
     await db.commit()
-
-    from api_configs.usage import record_usage
-
-    await record_usage(
-        db,
-        user_id=user["id"],
-        project_id=project.id,
-        chapter_id=chapter_ref,
-        operation="prompt_polish",
-        model=model,
-        tokens_in=usage.get("tokens_in", 0),
-        tokens_out=usage.get("tokens_out", 0),
-    )
     return {"prompt": polished, "polished": True}
 
 
@@ -343,9 +404,30 @@ async def polish_writing(
     surrounding_context = (context_before + "\n" + context_after).strip()
 
     usage: dict = {}
-    text = await polish_text(
-        project.id, project.root_path, chapter_ref, selected_text, surrounding_context, usage=usage
-    )
+    try:
+        text = await polish_text(
+            project.id, project.root_path, chapter_ref, selected_text, surrounding_context, usage=usage
+        )
+    except AITimeoutError:
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db, user_id=project.user_id, project_id=project.id,
+            chapter_id=chapter_ref, operation="polish_fail",
+            model=effective_model(project), force=True,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
+    except Exception as e:  # noqa: BLE001 — 失败也留痕（调用已发生）
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db, user_id=project.user_id, project_id=project.id,
+            chapter_id=chapter_ref, operation="polish_fail",
+            model=effective_model(project),
+            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
     from api_configs.usage import record_usage
 
     await record_usage(
@@ -385,9 +467,30 @@ async def expand_writing(
     surrounding_context = (context_before + "\n" + context_after).strip()
 
     usage: dict = {}
-    text = await expand_text(
-        project.id, project.root_path, chapter_ref, selected_text, surrounding_context, usage=usage
-    )
+    try:
+        text = await expand_text(
+            project.id, project.root_path, chapter_ref, selected_text, surrounding_context, usage=usage
+        )
+    except AITimeoutError:
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db, user_id=project.user_id, project_id=project.id,
+            chapter_id=chapter_ref, operation="expand_fail",
+            model=effective_model(project), force=True,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
+    except Exception as e:  # noqa: BLE001 — 失败也留痕（调用已发生）
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db, user_id=project.user_id, project_id=project.id,
+            chapter_id=chapter_ref, operation="expand_fail",
+            model=effective_model(project),
+            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
     from api_configs.usage import record_usage
 
     await record_usage(

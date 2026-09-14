@@ -19,7 +19,16 @@ if "anthropic" not in sys.modules:
         def __init__(self, *args, **kwargs):
             pass
 
+    # ai_client 归一网络异常（AITimeoutError）依赖这两个名字，stub 与真 SDK 同形
+    class APIConnectionError(Exception):
+        pass
+
+    class APITimeoutError(APIConnectionError):
+        pass
+
     anthropic.AsyncAnthropic = AsyncAnthropic
+    anthropic.APIConnectionError = APIConnectionError
+    anthropic.APITimeoutError = APITimeoutError
     sys.modules["anthropic"] = anthropic
 
     # Also stub anthropic.lib.streaming if accessed
@@ -39,7 +48,16 @@ if "openai" not in sys.modules:
         def __init__(self, *args, **kwargs):
             pass
 
+    # 同 anthropic：补齐 ai_client 依赖的异常名
+    class APIConnectionError(Exception):
+        pass
+
+    class APITimeoutError(APIConnectionError):
+        pass
+
     openai_mod.AsyncOpenAI = AsyncOpenAI
+    openai_mod.APIConnectionError = APIConnectionError
+    openai_mod.APITimeoutError = APITimeoutError
     sys.modules["openai"] = openai_mod
 
     # Stub openai.types.chat if accessed

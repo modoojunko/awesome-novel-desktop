@@ -16,7 +16,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_client import get_ai_client_for_novel
+from ai_client import AITimeoutError, get_ai_client_for_novel
 from ai_state import effective_model
 from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
@@ -104,34 +104,37 @@ async def _judge_chat(client, **kwargs):
     比直接把 502 甩给用户好。
 
     记账：**每次尝试的 token 都累加**——首次失败那次同样烧了钱，
-    不能被重试覆盖（旧实现只记最后一次，用量偏低）。
+    不能被重试覆盖（旧实现只记最后一次，用量偏低）。回填走 finally：
+    任何退出路径（成功 / 空文本重试耗尽 / 超时或其他异常）都把累计
+    用量写回调用方，失败记账据此落库。
     """
     caller_usage = kwargs.pop("usage", None)
     total_in = 0
     total_out = 0
     last_err: Exception | None = None
-    for attempt in range(2):
-        attempt_usage: dict = {}
-        try:
-            text = await client.chat(
-                max_tokens=_JUDGE_MAX_TOKENS, usage=attempt_usage, **kwargs
-            )
-        except ValueError as e:
-            total_in += attempt_usage.get("tokens_in", 0)
-            total_out += attempt_usage.get("tokens_out", 0)
-            if "模型未返回文本内容" not in str(e):
-                _flush_usage(caller_usage, total_in, total_out)
-                raise
-            last_err = e
-            if attempt == 0:
-                continue
-            break
-        total_in += attempt_usage.get("tokens_in", 0)
-        total_out += attempt_usage.get("tokens_out", 0)
+    try:
+        for attempt in range(2):
+            attempt_usage: dict = {}
+            try:
+                text = await client.chat(
+                    max_tokens=_JUDGE_MAX_TOKENS, usage=attempt_usage, **kwargs
+                )
+            except ValueError as e:
+                if "模型未返回文本内容" not in str(e):
+                    raise
+                last_err = e
+                if attempt == 0:
+                    continue
+                break
+            else:
+                return text
+            finally:
+                # 每次尝试退出时（成功/失败/超时/取消）都把该次已烧 token 落袋
+                total_in += attempt_usage.get("tokens_in", 0)
+                total_out += attempt_usage.get("tokens_out", 0)
+        raise last_err  # type: ignore[misc]
+    finally:
         _flush_usage(caller_usage, total_in, total_out)
-        return text
-    _flush_usage(caller_usage, total_in, total_out)
-    raise last_err  # type: ignore[misc]
 
 
 def _flush_usage(usage: dict | None, tokens_in: int, tokens_out: int) -> None:
@@ -139,6 +142,32 @@ def _flush_usage(usage: dict | None, tokens_in: int, tokens_out: int) -> None:
     if usage is not None:
         usage["tokens_in"] = tokens_in
         usage["tokens_out"] = tokens_out
+
+
+async def _record_failure(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    project_id: str | None,
+    api_config_id: str | None,
+    operation: str,
+    model: str,
+    usage: dict | None,
+) -> None:
+    """失败记账：operation 加 `_fail` 后缀、force 落库（零 token 的真实调用也留痕）。"""
+    from api_configs.usage import record_usage
+
+    await record_usage(
+        db,
+        user_id=user_id,
+        project_id=project_id,
+        api_config_id=api_config_id,
+        operation=f"{operation}_fail"[:50],
+        model=model,
+        tokens_in=(usage or {}).get("tokens_in", 0),
+        tokens_out=(usage or {}).get("tokens_out", 0),
+        force=True,
+    )
 
 
 # ── 解析助手 ───────────────────────────────────────────────────────────────
@@ -424,13 +453,26 @@ async def intro_ai(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_intro_{action}", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_intro_{action}", model=effective_model(project),
+            usage=usage,
+        )
         raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
 
-    data = _parse_json(text, "简介 AI")
-
+    # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
     from api_configs.usage import record_usage
 
     await record_usage(
@@ -443,6 +485,8 @@ async def intro_ai(
         tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0),
     )
+
+    data = _parse_json(text, "简介 AI")
 
     if action == "introspect":
         return _normalize_introspect(data)
@@ -607,18 +651,24 @@ async def draft_world_topic(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_world_draft_{topic[:20]}",
+            model=effective_model(project), usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_world_draft_{topic[:20]}",
+            model=effective_model(project), usage=usage,
+        )
         raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
 
-    data = _parse_json(text, "世界起草")
-    value = _normalize_draft_value(shape, data.get("value") if isinstance(data, dict) else None)
-    if not value:
-        raise HTTPException(502, "AI 没给出结果，可重试")
-    if shape == "text":
-        from settings.world_model import PARAGRAPH_MAX
-
-        value = str(value)[:PARAGRAPH_MAX]
-
+    # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
     from api_configs.usage import record_usage
 
     await record_usage(
@@ -631,6 +681,16 @@ async def draft_world_topic(
         tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0),
     )
+
+    data = _parse_json(text, "世界起草")
+    value = _normalize_draft_value(shape, data.get("value") if isinstance(data, dict) else None)
+    if not value:
+        raise HTTPException(502, "AI 没给出结果，可重试")
+    if shape == "text":
+        from settings.world_model import PARAGRAPH_MAX
+
+        value = str(value)[:PARAGRAPH_MAX]
+
     return {"value": value, "topic": topic}
 
 
@@ -721,8 +781,36 @@ async def check_world_consistency(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_world_check", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_world_check", model=effective_model(project),
+            usage=usage,
+        )
         raise HTTPException(502, f"体检失败，可重试：{e!s}") from e
+
+    # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
+    from api_configs.usage import record_usage
+
+    await record_usage(
+        db,
+        user_id=user["id"],
+        project_id=project.id,
+        api_config_id=project.ai_config_id,
+        operation="settings_world_check",
+        model=effective_model(project),
+        tokens_in=usage.get("tokens_in", 0),
+        tokens_out=usage.get("tokens_out", 0),
+    )
 
     data = _parse_json(text, "一致性体检")
     # 名称归一匹配：模型把「简介 × 世界」写岔（空格/×半角）不算失格
@@ -758,18 +846,6 @@ async def check_world_consistency(
             if _needs_theme(row["name"]):
                 row.update(status="miss", note="输入缺失：题材未确认——先去题材页确认，再重新体检")
 
-    from api_configs.usage import record_usage
-
-    await record_usage(
-        db,
-        user_id=user["id"],
-        project_id=project.id,
-        api_config_id=project.ai_config_id,
-        operation="settings_world_check",
-        model=effective_model(project),
-        tokens_in=usage.get("tokens_in", 0),
-        tokens_out=usage.get("tokens_out", 0),
-    )
     verdict = _clamp_str(data.get("verdict"), 120) if isinstance(data, dict) else ""
     if degraded and not verdict:
         verdict = "体检输入不完整（" + "、".join(degraded_reasons) + "），结果仅供参考"
@@ -824,19 +900,24 @@ async def lore_suggest_world(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_world_lore_suggest", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_world_lore_suggest", model=effective_model(project),
+            usage=usage,
+        )
         raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
 
-    data = _parse_json(text, "世界要素")
-    # 与 archive 产出同形：每条带 canonical 章节引用 origin（幂等键）
-    from archive.service import canonical_chapter_ref
-    from settings.world_model import parse_lore_suggestions
-
-    suggestions = [
-        {**item, "origin": canonical_chapter_ref(chapter_ref)}
-        for item in parse_lore_suggestions(data)
-    ]
-
+    # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
     from api_configs.usage import record_usage
 
     await record_usage(
@@ -849,6 +930,17 @@ async def lore_suggest_world(
         tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0),
     )
+
+    data = _parse_json(text, "世界要素")
+    # 与 archive 产出同形：每条带 canonical 章节引用 origin（幂等键）
+    from archive.service import canonical_chapter_ref
+    from settings.world_model import parse_lore_suggestions
+
+    suggestions = [
+        {**item, "origin": canonical_chapter_ref(chapter_ref)}
+        for item in parse_lore_suggestions(data)
+    ]
+
     return {"suggestions": suggestions, "chapter_ref": chapter_ref}
 
 
@@ -947,13 +1039,26 @@ async def run_arc_ai(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"arc_{action}", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"arc_{action}", model=effective_model(project),
+            usage=usage,
+        )
         raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
 
-    value = _parse_json(text, "主线 AI")
-
+    # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
     from api_configs.usage import record_usage
 
     await record_usage(
@@ -966,6 +1071,8 @@ async def run_arc_ai(
         tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0),
     )
+
+    value = _parse_json(text, "主线 AI")
 
     # 素材门槛只拦 draft/calibrate（见上方 400）：check/tone 在内容全空时也照常发起
     # 一次调用——降级发生在 prompt 侧（模型把各线标 miss、提示先补再查），
@@ -1076,13 +1183,24 @@ async def generate_field(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_{stype}_{field}", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_{stype}_{field}", model=effective_model(project),
+            usage=usage,
+        )
         raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
 
-    value = _parse_json(text, "设定 AI")
-    if stype == "genre":
-        value = _normalize_genre_value(field, value)
-
+    # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
     from api_configs.usage import record_usage
 
     await record_usage(
@@ -1095,4 +1213,9 @@ async def generate_field(
         tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0),
     )
+
+    value = _parse_json(text, "设定 AI")
+    if stype == "genre":
+        value = _normalize_genre_value(field, value)
+
     return {"value": value}

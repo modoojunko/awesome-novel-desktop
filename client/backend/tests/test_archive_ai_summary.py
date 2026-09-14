@@ -151,8 +151,13 @@ class _FakeAIClient:
     def __init__(self, calls: list):
         self._calls = calls
 
-    async def chat(self, **_kwargs):
+    async def chat(self, **kwargs):
         self._calls.append("chat")
+        usage = kwargs.get("usage")
+        if usage is not None:
+            # 贴真客户端契约：成功调用回填 provider usage（记账数据源）
+            usage["tokens_in"] = 30
+            usage["tokens_out"] = 12
         return AI_SUMMARY
 
 
@@ -199,6 +204,76 @@ class TestArchiveAiSummary:
             "member + ai_summary=False 仍跑 lore 建议（D11：两开关解耦），仅跳过摘要"
         )
         assert r.json()["summary"] == LONG_TEXT[:200]
+
+    def test_ai_calls_record_usage(self, client, monkeypatch):
+        # ai-client capability 需求 2：归档链两处 AI 调用成功后各落一行账
+        _set_tier("monthly", _future_iso())
+        calls: list = []
+
+        async def _fake_get_ai_client(novel_id=None):
+            return _FakeAIClient(calls)
+
+        monkeypatch.setattr(archive_service, "get_ai_client_for_novel", _fake_get_ai_client)
+
+        pid = _create_sparse_project(client)
+        ref = _create_volume_and_chapter(client, pid)
+        r = client.post(
+            f"/api/novels/{pid}/chapters/{ref}/archive", json={"full_text": LONG_TEXT}
+        )
+        assert r.status_code == 200, r.text
+
+        from sqlalchemy import select
+
+        from models.token_log import TokenLog
+
+        async def _ops():
+            async with async_session() as session:
+                rows = await session.execute(
+                    select(TokenLog).where(TokenLog.project_id == pid)
+                )
+                return [(row.operation, row.tokens_in, row.tokens_out) for row in rows.scalars()]
+
+        assert _run_async(_ops()) == [
+            ("archive_summary", 30, 12),
+            ("archive_lore", 30, 12),
+        ]
+
+    def test_ai_failure_records_fail_rows(self, client, monkeypatch):
+        # 调用失败走静默降级（归档不拦）但必须落 _fail 行（force 零 token）
+        _set_tier("monthly", _future_iso())
+
+        class _BoomClient:
+            async def chat(self, **_kwargs):
+                raise RuntimeError("供应商 5xx")
+
+        async def _fake_get_ai_client(novel_id=None):
+            return _BoomClient()
+
+        monkeypatch.setattr(archive_service, "get_ai_client_for_novel", _fake_get_ai_client)
+
+        pid = _create_sparse_project(client)
+        ref = _create_volume_and_chapter(client, pid)
+        r = client.post(
+            f"/api/novels/{pid}/chapters/{ref}/archive", json={"full_text": LONG_TEXT}
+        )
+        assert r.status_code == 200, r.text  # 静默降级：归档照常成功
+        assert r.json()["summary"] == LONG_TEXT[:200]
+
+        from sqlalchemy import select
+
+        from models.token_log import TokenLog
+
+        async def _ops():
+            async with async_session() as session:
+                rows = await session.execute(
+                    select(TokenLog).where(TokenLog.project_id == pid)
+                )
+                return [(row.operation, row.tokens_in, row.tokens_out) for row in rows.scalars()]
+
+        assert _run_async(_ops()) == [
+            ("archive_summary_fail", 0, 0),
+            ("archive_lore_fail", 0, 0),
+        ]
 
     def test_free_default_skips_ai(self, client, monkeypatch):
         # 免费用户 + 默认 → AI 是会员权益，后端直接降级（get_ai_client 不该被触达）

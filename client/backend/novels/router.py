@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_client import get_ai_client
+from ai_client import AITimeoutError, get_ai_client
 from auth_local.deps import require_ai_access, require_project_limit
 from auth_local.middleware import get_current_user
 from db import get_db
@@ -163,13 +163,42 @@ async def suggest_meta(
 
     try:
         usage: dict = {}
-        text = await client.chat(
-            model="haiku",
-            system="",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1200,
-            usage=usage,
-        )
+        try:
+            text = await client.chat(
+                model="haiku",
+                system="",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1200,
+                usage=usage,
+            )
+        except AITimeoutError:
+            from api_configs.usage import record_usage
+
+            await record_usage(
+                db,
+                user_id=user["id"],
+                project_id=None,
+                operation="suggest_meta_fail",
+                model=client.model,
+                tokens_in=usage.get("tokens_in", 0),
+                tokens_out=usage.get("tokens_out", 0),
+                force=True,
+            )
+            raise HTTPException(502, "AI 服务响应超时，请稍后重试")
+        except Exception as e:  # noqa: BLE001 — 失败也留痕（调用已发生）
+            from api_configs.usage import record_usage
+
+            await record_usage(
+                db,
+                user_id=user["id"],
+                project_id=None,
+                operation="suggest_meta_fail",
+                model=client.model,
+                tokens_in=usage.get("tokens_in", 0),
+                tokens_out=usage.get("tokens_out", 0),
+                force=True,
+            )
+            raise HTTPException(502, f"AI suggestion failed: {e!s}") from e
         # Extract JSON from response (handle ```json fences)
         if "```" in text:
             text = text.split("```")[1]

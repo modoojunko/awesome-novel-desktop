@@ -353,7 +353,9 @@ class TestAiDraftGuarded:
         pid, ref = _create_project_and_chapter(client)
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/outline/ai-draft")
         assert r.status_code == 502
-        assert _token_log_count(pid) == 0  # 失败不计量
+        # ai-client-timeout-and-usage-accounting 新口径：调用已完成（钱已花），
+        # 产物不合格也要留痕（成功名记账，与 characters_ai 空结果口径一致）
+        assert _token_log_count(pid) == 1
 
     def test_missing_skeleton_502(self, client, monkeypatch):
         _set_tier("trial")
