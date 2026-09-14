@@ -3,13 +3,22 @@
 // + 右栏 AI 经 SettingsView 分发（本组件暴露 runAi/clearAi 句柄）。
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { charactersApi, CharacterCard } from "@/lib/charactersApi";
-import { COG_LAYERS, DOSSIER_FIELDS, ROLES } from "@/lib/characterModel";
+import {
+  COG_FILL_KEYS,
+  COG_LAYERS,
+  DOSSIER_FIELDS,
+  DOSSIER_FILL_KEYS,
+  ROLES,
+  type CharAiCtx,
+} from "@/lib/characterModel";
 import { Ico } from "@/components/icons";
 
 interface Props {
   projectId: string;
   /** P2-1：脏状态回调（有未落库修改时 true） */
   onDirtyChange?: (dirty: boolean) => void;
+  /** 选中卡变化时上报（右栏四行提示与缺口计数的数据源） */
+  onCtxChange?: (ctx: CharAiCtx | null) => void;
 }
 
 interface SaveHandle {
@@ -41,7 +50,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
   props,
   ref,
 ) {
-  const { projectId, onDirtyChange } = props;
+  const { projectId, onDirtyChange, onCtxChange } = props;
   const [list, setList] = useState<CharacterCard[]>([]);
   const [gate, setGate] = useState<{ ok: boolean; no_protagonist: boolean; confirmed: boolean }>({
     ok: false, no_protagonist: true, confirmed: false,
@@ -96,7 +105,18 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
     onDirtyChange?.(false);
     setSink(null);
     setCheck(null);
-  }, [projectId, clearDirty, onDirtyChange]);
+    onCtxChange?.({
+      name: full.name || "未命名",
+      code: full.code,
+      role: full.role,
+      personaGap: full.persona.trim() ? 0 : 1,
+      dossierGap: DOSSIER_FILL_KEYS.filter((k) => !(full.dossier[k] ?? "").trim()).length,
+      cogGap:
+        full.role === "路人"
+          ? 0
+          : COG_FILL_KEYS.filter((k) => !(full.cog[k] ?? "").trim()).length,
+    });
+  }, [projectId, clearDirty, onDirtyChange, onCtxChange]);
 
   useEffect(() => {
     (async () => {
@@ -262,6 +282,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
         await loadCard(rest[0].id);
       } else {
         setCard(null);
+        onCtxChange?.(null);
       }
       setOpsPanel("");
       setUndoOp({ opId: res.undo.op_id });
@@ -301,12 +322,13 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
         await loadCard(first.id);
       } else {
         setCard(null);
+        onCtxChange?.(null);
       }
       showToast("\u5df2\u64a4\u9500\uff0c\u89d2\u8272\u5df2\u627e\u56de");
     } catch (e) {
       showToast((e as Error).message || "\u64a4\u9500\u5931\u8d25");
     }
-  }, [undoOp, projectId, reloadList, loadCard, showToast]);
+  }, [undoOp, projectId, reloadList, loadCard, showToast, onCtxChange]);
 
   const q = query.trim();
   const grouped = GROUPS.map((role) => ({
@@ -359,7 +381,11 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
                         <i className="char-ava">{c.name?.[0] ?? "？"}</i>
                         <span className="char-row-main">
                           <span className="nm">{c.name || "未命名"}</span>
-                          <span className="sub">{c.code}</span>
+                          <span className="sub num">
+                            {c.first_chapter != null
+                              ? `第 ${String(c.first_chapter).padStart(2, "0")} 章`
+                              : "未出场"}
+                          </span>
                         </span>
                         {c.role === "主角" && (!c.name || !c.persona) && (
                           <span className="pill pill-warn">待立</span>
@@ -422,7 +448,14 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
                     setField("aliases", e.target.value.split("·").map((s) => s.trim()).filter(Boolean))
                   }
                 />
-                <div className="char-meta">{card.code} · 修订 r{card.rev}</div>
+                <div className="char-meta num">
+                  #{card.code} · 首次出场{" "}
+                  {card.first_chapter != null
+                    ? `第 ${String(card.first_chapter).padStart(2, "0")} 章`
+                    : "未出场"}
+                  {card.updated_at &&
+                    ` · 更新于 ${card.updated_at.slice(5, 16).replace("T", " ")}`}
+                </div>
               </div>
               <div className="char-side">
                 <span className={`badge ${card.role === "主角" ? (card.name && card.persona ? "ok" : "warn") : "empty"}`}>
@@ -467,7 +500,7 @@ const CharacterManager = forwardRef<SaveHandle, Props>(function CharacterManager
                 <select aria-label="合并到哪张卡" value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)}>
                   <option value="">合并到…</option>
                   {list.filter((x) => x.id !== card.id).map((x) => (
-                    <option key={x.id} value={x.id}>{x.name || "未命名"} · {x.code}</option>
+                    <option key={x.id} value={x.id}>{x.name || "未命名"} · #{x.code}</option>
                   ))}
                 </select>
                 <input

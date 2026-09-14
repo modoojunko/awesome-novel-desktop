@@ -23,6 +23,8 @@ export interface CharacterCard {
   rev: number;
   created_at: string | null;
   updated_at: string | null;
+  /** 首次出场＝出场章最小阅读序的章号；未出场为 null */
+  first_chapter?: number | null;
   /** 仅单卡 GET 携带：单向关系（他怎么看别人） */
   relations?: CharacterRelation[];
   /** 仅列表携带：门禁缺口 */

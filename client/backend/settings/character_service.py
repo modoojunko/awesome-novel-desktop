@@ -15,12 +15,13 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes
 
 from models.character import Character, CharacterGate, CharacterOp, CharacterRelation
 from models.project import Novel
+from models.volume import Volume
 from settings.character_model import (
     DOSSIER_KEYS,
     COG_KEYS,
@@ -98,6 +99,7 @@ async def _load_card(session: AsyncSession, novel_id: str, character_id: str) ->
 
 async def _card_view(session: AsyncSession, ch: Character) -> dict:
     view = card_to_dict(ch)
+    view["first_chapter"] = (await _first_chapters(session, ch.novel_id)).get(ch.id)
     rels = (
         await session.scalars(
             select(CharacterRelation).where(CharacterRelation.owner_id == ch.id)
@@ -147,6 +149,28 @@ async def _resolve_character(session: AsyncSession, novel_id: str, name: str) ->
     return None
 
 
+async def _first_chapters(session: AsyncSession, novel_id: str) -> dict[str, int]:
+    """首次出场＝出场章最小阅读序（卷×1000+章）的章号；一次 GROUP BY 给全。"""
+    from models.chapter import Chapter, ChapterCharacter
+
+    rows = (
+        await session.execute(
+            select(
+                ChapterCharacter.character_id,
+                func.min(Volume.volume_no * 1000 + Chapter.chapter_no),
+            )
+            .join(Chapter, Chapter.id == ChapterCharacter.chapter_id)
+            .join(Volume, Volume.id == Chapter.volume_id)
+            .where(
+                Chapter.project_id == novel_id,
+                ChapterCharacter.character_id.isnot(None),
+            )
+            .group_by(ChapterCharacter.character_id)
+        )
+    ).all()
+    return {cid: int(key) % 1000 for cid, key in rows if cid}
+
+
 async def list_characters(session: AsyncSession, novel_id: str) -> dict:
     """列表聚合，一次给全（tasks 2.3）：含编号、类型、缺口、门禁摘要。"""
     from settings.character_model import card_gaps
@@ -156,10 +180,12 @@ async def list_characters(session: AsyncSession, novel_id: str) -> dict:
             select(Character).where(Character.novel_id == novel_id).order_by(Character.seq)
         )
     ).all()
+    firsts = await _first_chapters(session, novel_id)
     items = []
     for ch in cards:
         view = card_to_dict(ch)
         view["gaps"] = card_gaps(_card_full(ch))
+        view["first_chapter"] = firsts.get(ch.id)
         items.append(view)
     prot = next((c for c in cards if c.role == "主角"), None)
     gate_cards = [_card_full(c) for c in cards]

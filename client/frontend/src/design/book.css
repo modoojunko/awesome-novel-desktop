@@ -727,6 +727,9 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .char-add { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 32px; margin-bottom: 8px; border: 1px dashed color-mix(in oklch, var(--accent) 40%, var(--border)); border-radius: 8px; background: var(--surface); color: var(--accent); font-size: 12.5px; font-weight: 500; cursor: pointer; flex: none; }
 .char-add:hover { border-color: var(--accent); background: color-mix(in oklch, var(--accent) 12%, transparent); }
 .char-undo { border: none; background: none; padding: 0; color: var(--accent); font-size: inherit; cursor: pointer; text-decoration: underline; }
+.settings-v .rail-assist .ai-target { font-size: 11px; color: var(--muted); line-height: 1.7; margin: 0 0 10px; padding: 0 2px; }
+.settings-v .rail-assist .ai-target b { color: var(--fg); font-weight: 500; }
+.settings-v .rail-assist .ai-target .gap-c { color: var(--warn); }
 .char-search { width: 100%; padding: 7px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font-size: 12.5px; margin-bottom: 8px; flex: none; }
 .char-search:focus { outline: 2px solid color-mix(in oklch, var(--accent) 12%, transparent); border-color: var(--accent); }
 

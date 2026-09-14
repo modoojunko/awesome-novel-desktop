@@ -130,6 +130,16 @@ export const GATE_FIELDS: [string, string][] = [
   ["cog.p3", "能力上限"],
   ["cog.p4", "能力代价"],
 ];
+/** 右栏 AI 作用域上下文（SettingsView 拼「当前角色：… 缺 n/m」用） */
+export interface CharAiCtx {
+  name: string;
+  code: string;
+  role: string;
+  personaGap: number;
+  dossierGap: number;
+  cogGap: number;
+}
+
 export const ROLES = ["主角", "配角", "反派", "路人"] as const;
 export type CharacterRole = (typeof ROLES)[number];
 

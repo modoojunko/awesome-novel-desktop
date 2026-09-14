@@ -44,7 +44,51 @@ def client():
     app.dependency_overrides.clear()
 
 
-class TestCrud:
+class TestFirstChapter:
+    def test_list_and_card_carry_first_chapter(self, client):
+        """spec：列表聚合 SHALL 含首次出场（出场章最小阅读序的章号）。"""
+        from models.chapter import Chapter, ChapterCharacter
+        from models.volume import Volume
+
+        c, nid = client
+        r = c.post(f"/api/novels/{nid}/characters", json={"name": "林拾", "role": "主角"})
+        cid = r.json()["data"]["id"]
+
+        async def _seed_chapters() -> None:
+            async with async_session() as session:
+                vol = Volume(id=str(uuid.uuid4()), project_id=nid, volume_no=1, title="V1")
+                session.add(vol)
+                await session.flush()
+                ch2 = Chapter(
+                    project_id=nid, volume_id=vol.id, chapter_no=2,
+                    ref="v1-c2", title="二", status="outline",
+                )
+                ch5 = Chapter(
+                    project_id=nid, volume_id=vol.id, chapter_no=5,
+                    ref="v1-c5", title="五", status="outline",
+                )
+                session.add_all([ch2, ch5])
+                await session.flush()
+                session.add_all([
+                    ChapterCharacter(chapter_id=ch5.id, sort_order=0, character_id=cid, character_name="林拾"),
+                    ChapterCharacter(chapter_id=ch2.id, sort_order=0, character_id=cid, character_name="林拾"),
+                ])
+                await session.commit()
+
+        asyncio.run(_seed_chapters())
+
+        data = c.get(f"/api/novels/{nid}/characters").json()["data"]
+        assert data["items"][0]["first_chapter"] == 2  # 出场在 5 和 2 → 取 2
+        card = c.get(f"/api/novels/{nid}/characters/{cid}").json()["data"]
+        assert card["first_chapter"] == 2
+
+        # 未出场角色 → None
+        c.post(f"/api/novels/{nid}/characters", json={"name": "路人甲"})
+        data = c.get(f"/api/novels/{nid}/characters").json()["data"]
+        by_name = {x["name"]: x["first_chapter"] for x in data["items"]}
+        assert by_name["路人甲"] is None
+
+
     def test_create_list_get_patch_flow(self, client):
         c, nid = client
         r = c.post(f"/api/novels/{nid}/characters", json={"name": "林拾", "role": "主角"})

@@ -18,6 +18,7 @@ import StyleSettingForm from "@/components/novel/settings/StyleSettingForm";
 import AntiAiSettingForm from "@/components/novel/settings/AntiAiSettingForm";
 import HooksSettingForm from "@/components/novel/settings/HooksSettingForm";
 import CharacterManager from "@/components/novel/settings/CharacterManager";
+import { type CharAiCtx } from "@/lib/characterModel";
 import ModelSettingForm from "@/components/novel/settings/ModelSettingForm";
 import StoryArcForm, { type ArcFormHandle, type ArcAiAction } from "@/components/novel/settings/StoryArcForm";
 import { useStoryArc } from "@/components/novel/settings/useStoryArc";
@@ -29,7 +30,10 @@ import { INTRO_SEGMENTS, INTRO_FORMULA, DONT_DO, INTRO_MAX_LEN, TABOO_RULES } fr
 import { GENRE_DEFINITION } from "@/lib/genreVocab";
 import { useModelStatus } from "@/hooks/useModelStatus";
 import type { AiState } from "@/types/api-config";
-import AiWriterAssistant, { type AiCapabilityRow } from "@/components/novel/settings/AiWriterAssistant";
+import AiWriterAssistant, {
+  CharsAiRail,
+  type AiCapabilityRow,
+} from "@/components/novel/settings/AiWriterAssistant";
 import AiSink from "@/components/novel/settings/AiSink";
 import {
   ChangeReceiptBar,
@@ -168,6 +172,24 @@ export default function SettingsView({
     },
     [],
   );
+  const charsRef = formRef;
+  const runCharsAi = useCallback(
+    async (key: string) => {
+      if (aiRowBusyRef.current) return;
+      aiRowBusyRef.current = true;
+      setAiRunningKey(key);
+      try {
+        await (charsRef.current as { runAi?: (k: string) => Promise<void> } | null)?.runAi?.(
+          key,
+        );
+      } finally {
+        aiRowBusyRef.current = false;
+        setAiRunningKey(null);
+      }
+    },
+    [charsRef],
+  );
+  const [charCtx, setCharCtx] = useState<CharAiCtx | null>(null);
   const handleAiBlocked = useCallback((reason: AiState) => {
     if (reason === "no_key") {
       window.location.hash = "/config";
@@ -612,6 +634,7 @@ export default function SettingsView({
                 ref={formRef}
                 projectId={projectId}
                 onDirtyChange={handleDirtyChange}
+                onCtxChange={setCharCtx}
               />
             )}
             {panel === "aiModel" && (
@@ -703,6 +726,14 @@ export default function SettingsView({
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}
             data-od-id="ai-assist-world"
+          />
+        ) : panel === "chars" ? (
+          <CharsAiRail
+            ctx={charCtx}
+            aiState={aiState}
+            onBlocked={handleAiBlocked}
+            runningKey={aiRunningKey}
+            onRun={runCharsAi}
           />
         ) : panel === "style" || panel === "antiAI" ? (
           <div className="rail-card">
