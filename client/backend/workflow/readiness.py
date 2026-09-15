@@ -60,7 +60,13 @@ async def _check_world(root_path: str, novel_id: str | None = None) -> bool:
 
 
 async def _check_style(root_path: str, novel_id: str | None = None) -> bool:
-    style = await get_storage().read_yaml(root_path, "settings/writing-style.yaml") or {}
+    # style-settings-v2：判据不变（role 非空），数据源经归一——旧键老书（narrator_role/
+    # tone.pov）归一进 role 后仍判「已填」，不因改版降级
+    from settings.style_model import read_style
+
+    style = read_style(
+        await get_storage().read_yaml(root_path, "settings/writing-style.yaml") or {}
+    )
     return bool(str(style.get("role", "")).strip())
 
 

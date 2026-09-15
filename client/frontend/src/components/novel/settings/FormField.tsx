@@ -97,10 +97,14 @@ export function InputField({
 
 // ── ListEditor（li-row 列表 + 添加一项）────────────────────────────
 export function ListEditor({
-  label, hint, items, onChange, placeholder, maxLength, maxItems, aiGeneratable, onAIGenerate, aiLoading,
+  label, hint, items, onChange, placeholder, maxLength, maxItems, aiGeneratable, onAIGenerate, aiLoading, onMoveUp, showCount,
 }: {
   label?: string; hint?: string; items: string[]; onChange: (v: string[]) => void;
   placeholder?: string; maxLength?: number; maxItems?: number;
+  /** 可选上移（style-settings-v2：硬约束/手法的行序即注入序） */
+  onMoveUp?: (i: number) => void;
+  /** 可选 x/y 计数（上限语义可见，§13：上限写在输入处不藏报错里） */
+  showCount?: boolean;
 } & AIProps) {
   return (
     <div className="field">
@@ -126,6 +130,16 @@ export function ListEditor({
             }}
           />
           <span className="acts">
+            {onMoveUp && i > 0 && (
+              <button
+                className="icon-btn"
+                type="button"
+                title="上移"
+                onClick={() => onMoveUp(i)}
+              >
+                <Ico d={P.chevronUp} sw={2} />
+              </button>
+            )}
             <button
               className="icon-btn"
               type="button"
@@ -143,21 +157,25 @@ export function ListEditor({
           添加一项
         </button>
       )}
+      {showCount && maxItems && (
+        <span className="opt li-cnt num">{items.length}/{maxItems} 条</span>
+      )}
     </div>
   );
 }
 
 // ── Cfg（details.cfg 折叠组：summary 标题 + 可选 tag + chev）────────
 export function Cfg({
-  title, tag, open, children,
+  title, tag, sum, open, children,
 }: {
-  title: string; tag?: string; open?: boolean; children: ReactNode;
+  title: string; tag?: string; /** 组头摘要（style-settings-v2：收起态也传达信息） */ sum?: string; open?: boolean; children: ReactNode;
 }) {
   return (
     <details className="cfg" open={open || undefined}>
       <summary>
         {title}
         {tag && <span className="tag">{tag}</span>}
+        {sum && <span className="sum">{sum}</span>}
         {/* P.* 是元素串：走 innerHTML 注入（与 Ico 同口径），d= 会吃进整个 <path> 报错 */}
         <svg
           className="chev"

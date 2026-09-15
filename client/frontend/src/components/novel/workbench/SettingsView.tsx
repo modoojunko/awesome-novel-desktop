@@ -14,7 +14,7 @@ import { useDirtyState } from "@/hooks/useDirtyState";
 import { type SettingSaveHandle } from "@/components/novel/settings/FormField";
 import WorldSettingPanel from "@/components/novel/settings/world/WorldSettingPanel";
 import type { WorldPanelHandle } from "@/components/novel/settings/world/WorldSettingPanel";
-import StyleSettingForm from "@/components/novel/settings/StyleSettingForm";
+import StyleSettingForm, { type StylePanelHandle } from "@/components/novel/settings/StyleSettingForm";
 import AntiAiSettingForm from "@/components/novel/settings/AntiAiSettingForm";
 import HooksSettingForm, { type HookSaveState, type HooksPanelHandle } from "@/components/novel/settings/HooksSettingForm";
 import CharacterManager from "@/components/novel/settings/CharacterManager";
@@ -64,7 +64,7 @@ const DESCS: Record<string, string> = {
   intro: "让读者（和 AI）知道这是一个怎样的故事。",
   arc: "比简介更全地说清这本书从头到尾讲什么、结局是什么——不填也不拦写作，直接开写都行。",
   world: "世界是 AI 写章时的物理法则——能做什么、不能做什么、付什么代价，都从这里读。",
-  style: "用谁的视角讲，用什么语气讲（叙事身份 + 核心原则）。",
+  style: "文字文风管身份与红线（免费，继承题材），量化参数管数字手感（会员·蒸馏）。",
   antiAI: "这些词句一出现就拦掉——AI 味最重的那批。",
   foreshadow:
     "先埋下的，后面要还（「收束」＝把坑填了）。每条伏笔记三件事：在哪埋、打算哪章还、还了没——章节从卷章树里选，AI 写到那章会照着还。改动即自动保存；设定期想到就记一条，写正文时回来埋也一样。",
@@ -200,6 +200,19 @@ export default function SettingsView({
     setAiRunningKey(key);
     try {
       await hooksRef.current?.runAi?.(key);
+    } finally {
+      aiRowBusyRef.current = false;
+      setAiRunningKey(null);
+    }
+  }, []);
+  /** 文风面板句柄（style-settings-v2）：save/confirm 走 formRef；runAi 为文风右栏分发 */
+  const styleRef = useRef<StylePanelHandle>(null);
+  const runStyleAi = useCallback(async (key: string) => {
+    if (aiRowBusyRef.current) return;
+    aiRowBusyRef.current = true;
+    setAiRunningKey(key);
+    try {
+      await styleRef.current?.runAi?.(key);
     } finally {
       aiRowBusyRef.current = false;
       setAiRunningKey(null);
@@ -387,6 +400,37 @@ export default function SettingsView({
     [hookCtx, runHooksAi],
   );
 
+  // 文风右栏四行（style-settings-v2；data-aiact s1-s4）：蒸馏跳量化页签并打开样本面板
+  const styleAiRows = useMemo<AiCapabilityRow[]>(
+    () => [
+      {
+        key: "distill",
+        name: "蒸馏我的文风",
+        desc: "交 3,000–10,000 字你认可的案例 → 出「作者画像」给你确认 → 六行基线落卡 · 输入：novel-samples 或已归档章节",
+        onClick: () => runStyleAi("distill"),
+      },
+      {
+        key: "polish",
+        name: "润色文字文风",
+        desc: "按题材文字文风＋简介起草或润色三区，采纳才写回 · 输入：题材＋简介",
+        onClick: () => runStyleAi("polish"),
+      },
+      {
+        key: "check",
+        name: "锚定体检",
+        desc: "文字文风三区锚定自检：身份/红线/手法是否自洽，并与「禁用词句」面板对齐口径 · 只提醒不拦确认",
+        onClick: () => runStyleAi("check"),
+      },
+      {
+        key: "fewshot",
+        name: "例句提炼",
+        desc: "从已归档正文里挑 1–3 条最能代表文风的句子 · 输入：已归档章节",
+        onClick: () => runStyleAi("fewshot"),
+      },
+    ],
+    [runStyleAi],
+  );
+
   useEffect(() => {
     if (initialPanel) setPanel(normalizePanel(initialPanel));
   }, [initialPanel]);
@@ -479,6 +523,10 @@ export default function SettingsView({
       // 这里只提示性拦下；后端 confirm 400 兜底（同「伏笔不能为空…先跳过」口径）
       if (panel === "foreshadow" && handle?.canConfirm?.() === false) {
         toast.info("伏笔不能为空：先埋一条——写一句描述就行；或先跳过，写作期回来补");
+        return;
+      }
+      if (panel === "style" && handle?.canConfirm?.() === false) {
+        toast.info("先写叙事身份：一句话说清镜头多近、什么态度——这是每一章的地基");
         return;
       }
       // 保存成功＝这次改动已落库，回执里的撤销只能改回内存（与库不一致）→ 清掉
@@ -708,10 +756,18 @@ export default function SettingsView({
             )}
             {panel === "style" && (
               <StyleSettingForm
-                ref={formRef}
+                ref={(h) => {
+                  // 双 ref：formRef 供 panel-foot save/confirm；styleRef 供右栏 runAi 分发
+                  (formRef as React.MutableRefObject<SettingSaveHandle | null>).current = h;
+                  styleRef.current = h;
+                }}
                 projectId={projectId}
                 settingKey="style"
                 onDirtyChange={handleDirtyChange}
+                onReceiptChange={handleReceiptChange}
+                aiState={aiState}
+                onBlocked={handleAiBlocked}
+                confirmed={!!confirmedStatus?.style}
               />
             )}
             {panel === "antiAI" && (
@@ -876,7 +932,16 @@ export default function SettingsView({
             runningKey={aiRunningKey}
             data-od-id="ai-assist-foreshadow"
           />
-        ) : panel === "style" || panel === "antiAI" ? (
+        ) : panel === "style" ? (
+          <AiWriterAssistant
+            rows={styleAiRows}
+            footNote="蒸馏学到的禁用词会自动并入左侧「禁用词句」面板并去重；机器写的章永不回写文风卡——重蒸馏只由你触发，每次蒸馏都有版本快照；要保住的基线行锁定即可，重蒸馏跳过。所有 AI 辅助功能都在本栏，编辑区不放 AI 按钮；免费版四行可见＋锁定，点击走统一升级提示。"
+            aiState={aiState}
+            onBlocked={handleAiBlocked}
+            runningKey={aiRunningKey}
+            data-od-id="ai-assist-style"
+          />
+        ) : panel === "antiAI" ? (
           <div className="rail-card">
             <b>{item?.name} · AI 能力</b>
             <p className="opt" style={{ fontSize: 12 }}>

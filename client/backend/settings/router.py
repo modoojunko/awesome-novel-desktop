@@ -73,6 +73,11 @@ async def get_settings(
         from settings.world_model import read_world
 
         return read_world(await get_storage().read_yaml(project.root_path, KEY_TO_PATH[type]) or {})
+    # style 契约 v2（style-settings-v2）：GET 返回归一三区并剥离 `_legacy_style`
+    if type == "style":
+        from settings.style_model import read_style
+
+        return read_style(await get_storage().read_yaml(project.root_path, KEY_TO_PATH[type]) or {})
     # genre 已关系化（D19）：对外仍是五字段 JSON，存储层走 novel_genre_service
     if type == "genre":
         from genres.novel_genre_service import get_novel_genre
@@ -130,6 +135,14 @@ async def update_settings(
                 raise HTTPException(400, f"世界设定校验失败：{e.errors()[0]['msg']}") from e
             merged = put_world_merged(raw, payload)
         await get_storage().write_yaml(project.root_path, KEY_TO_PATH[type], merged)
+    elif type == "style":
+        # style 契约 v2（style-settings-v2）：白名单写（role/rules/craft/few_shot_examples）
+        # ＋旧键归一落底（`_legacy_style` 留底；撤并键零写回由白名单保证——评审 P0）
+        from settings.style_model import put_style
+
+        raw = await get_storage().read_yaml(project.root_path, KEY_TO_PATH[type]) or {}
+        merged = put_style(raw, body)
+        await get_storage().write_yaml(project.root_path, KEY_TO_PATH[type], merged)
     elif type == "genre":
         from pydantic import ValidationError
 
@@ -178,6 +191,25 @@ async def update_settings(
         await db.commit()
 
     return {"ok": True}
+
+
+@router.post("/anti-ai/words")
+async def append_anti_ai_words(
+    project_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """禁用词服务端追加（style-settings-v2 评审 P0）：蒸馏学到的词由此端点写入，
+    归一（strip＋大小写折叠）后跨分类去重；前端面板保持人类整表写，机器段不经过
+    前端读改写，杜绝 read-modify-write 竞态。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    from settings.style_model import append_anti_ai_words
+
+    added = await append_anti_ai_words(project.root_path, body.get("words"))
+    return {"ok": True, "added": added}
 
 
 @router.delete("/character/{name}")

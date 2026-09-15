@@ -179,8 +179,10 @@ class TestChapterWriterInjection:
         prompt = ctx.to_prompt()
         assert "## 题材设定" in prompt
         assert "禁止使用以下词汇：默认疲劳词" in prompt
-        assert "章节类型：日常" in prompt
-        assert "节奏规则：规则" in prompt
+        # style-settings-v2：chapter_types/tone 块退役，章节类型不再注入；
+        # pacing_rules 经归一并入硬约束（拍板），以红线列表形态注入
+        assert "章节类型：日常" not in prompt
+        assert "- 规则" in prompt
 
     def test_degrades_gracefully_when_genre_empty(self):
         root = _tmp_root()

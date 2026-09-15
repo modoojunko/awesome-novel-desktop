@@ -26,10 +26,8 @@ from settings.character_model import (
     WRITE_STATE_PER_CHAR_MAX as _WRITE_STATE_PER_CHAR_MAX,
 )
 from settings.render import (
-    build_tone_section,
-    depiction_techniques_str,
-    flatten_principles,
-    fmt_mistakes,
+    quant_section,
+    style_section,
 )
 from settings.world_model import render_red_lines
 
@@ -128,6 +126,7 @@ class ChapterContext:
         self.story_arc = ""
         self.world_setting = {}
         self.style_setting = {}
+        self.style_quant = {}
         self.anti_ai = {}
         self.hooks = []
         self.volume_summary = ""
@@ -172,9 +171,12 @@ class ChapterContext:
         blocks.append(f"【叙事身份】{role or '一位小说家'}")
         if self.genre_section:
             blocks.append(f"【题材】\n{self.genre_section}")
-        tone = build_tone_section(self.style_setting)
-        if tone:
-            blocks.append(f"【文风基调】\n{tone}")
+        style_sec = style_section(self.style_setting)
+        if style_sec:
+            blocks.append(f"【文风】\n{style_sec}")
+        quant = quant_section(self.style_quant)
+        if quant:
+            blocks.append(quant)
         few_shot = self._few_shot_examples()
         if few_shot:
             blocks.append("【文风例句（案例段原料）】\n" + "\n".join(f"- {s}" for s in few_shot))
@@ -237,12 +239,6 @@ class ChapterContext:
                 "【约束红线（最高优先级，任何压缩不得删改）】\n"
                 + "\n".join(f"- {r}" for r in red_lines)
             )
-        mistakes = fmt_mistakes(self.style_setting.get("possible_mistakes"))
-        if mistakes:
-            blocks.append(f"【文风常见错误】{mistakes}")
-        techniques = depiction_techniques_str(self.style_setting)
-        if techniques:
-            blocks.append(f"【描写技法】{techniques}")
         if self.ladder_exit:
             blocks.append(f"【本章章末落点】{self.ladder_exit}")
 
@@ -322,9 +318,8 @@ class ChapterContext:
 
         # Role
         role = self.style_setting.get("role", "一位小说家")
-        principles = flatten_principles(self.style_setting.get("core_principles"))
         lines.append("## 角色定位")
-        lines.append(f"你是{role}。{' '.join(principles)}")
+        lines.append(f"你是{role}。")
         lines.append("")
 
         # Genre section (题材定义注入，紧跟角色定位，先于正文指引生效)
@@ -332,14 +327,14 @@ class ChapterContext:
             lines.append(self.genre_section)
             lines.append("")
 
-        # Tone section (ADR-007：文风基调归文风表单，题材库不再注入)
-        tone_section = build_tone_section(self.style_setting)
-        if tone_section:
-            lines.append(tone_section)
+        # Style section（style-settings-v2：三区单一来源；tone/mistakes 块退役）
+        style_sec = style_section(self.style_setting)
+        if style_sec:
+            lines.append("## 文风")
+            lines.append(style_sec)
             lines.append("")
 
         # Rules
-        mistakes = fmt_mistakes(self.style_setting.get("possible_mistakes"))
         fatigue = self._flatten_fatigue_words(self.anti_ai.get("fatigue_words_zh", {}))
         fatigue = list(dict.fromkeys(fatigue + self.style_fatigue_words))
         tic_patterns = [
@@ -347,8 +342,6 @@ class ChapterContext:
             for r in self.anti_ai.get("structural_tic_patterns", [])
         ]
         lines.append("## 原则与禁忌")
-        if mistakes:
-            lines.append(f"注意避免：{mistakes}")
         if fatigue:
             lines.append(f"禁止使用以下词汇：{', '.join(fatigue)}")
         if tic_patterns:
@@ -426,10 +419,13 @@ class ChapterContext:
         lines.append("")
 
         # Writing requirements
-        techniques_str = depiction_techniques_str(self.style_setting)
         lines.append("## 写作要求")
-        if techniques_str:
-            lines.append(techniques_str)
+        style_sec = style_section(self.style_setting)
+        if style_sec:
+            lines.append(style_sec)
+        quant = quant_section(self.style_quant)
+        if quant:
+            lines.append(quant)
         few_shot = self._few_shot_examples()
         if few_shot:
             lines.append("文风例句（参考语感）：")
@@ -567,9 +563,14 @@ async def build_chapter_context(
     ctx.story_arc = clip_story_arc(_arc_normalize(arc)["fullstory"])
 
     # Settings
-    ctx.style_setting = (
+    from settings.style_model import read_style
+
+    ctx.style_setting = read_style(
         await get_storage().read_yaml(root_path, "settings/writing-style.yaml") or {}
     )
+    from filesystem.paths import STYLE_QUANT_PATH
+
+    ctx.style_quant = await get_storage().read_yaml(root_path, STYLE_QUANT_PATH) or {}
     ctx.world_setting = (
         await get_storage().read_yaml(root_path, "settings/world-setting.yaml") or {}
     )

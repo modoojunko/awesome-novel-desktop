@@ -5,23 +5,14 @@ import json
 from ai_client import get_ai_client_for_novel
 from filesystem.storage import get_storage
 from prompts import load as load_prompt
-from settings.render import depiction_techniques_str, flatten_principles
+from settings.render import style_section
 from workflow.engine import load_chapter, save_chapter
 
 
 def _format_style(style: dict) -> str:
-    """Format writing style dict into a readable string."""
-    parts = []
-    role = style.get("role", "")
-    if role:
-        parts.append(f"叙事角色：{role}")
-    principles = flatten_principles(style.get("core_principles"))
-    if principles:
-        parts.append(f"写作原则：{'；'.join(principles[:3])}")
-    techniques = depiction_techniques_str(style)
-    if techniques:
-        parts.append(techniques)
-    return "\n".join(parts)
+    """文风三区（style-settings-v2）：身份→红线→手法（单一来源，沿 chapter_writer 口径）。"""
+    sec = style_section(style)
+    return sec or (f"叙事角色：{style.get('role', '')}" if style.get("role") else "")
 
 
 def _format_anti_ai(rules: dict) -> str:

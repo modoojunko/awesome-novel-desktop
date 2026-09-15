@@ -14,6 +14,8 @@ import json
 import re
 
 from fastapi import APIRouter, Depends, HTTPException
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,7 +42,7 @@ from settings.hooks_model import (
 router = APIRouter(prefix="/api/novels/{project_id}/settings", tags=["settings-ai"])
 
 # 支持按字段生成的设定类型（anti-ai 除外；hooks 已随伏笔 AI 四能力退役——foreshadow-settings-v2 9.1）
-FIELD_GENERATABLE = {"style", "genre"}
+FIELD_GENERATABLE = {"genre"}  # style 已升级三区 AI（/ai/style/{polish,check,fewshot-mine}）＋蒸馏
 
 # 题材五行字段（01 口味胶囊不走 AI；promise_note 不单独成行，随 core_promise 出参）
 GENRE_FIELDS = ("core_promise", "forbidden_list", "cost_ratio", "battlefield")
@@ -1603,6 +1605,307 @@ async def run_hooks_ai(
         for no, r in enumerate(rows, start=1)
     ]
     return {"checks": checks, "degraded": False, "degraded_reasons": [], "verdict": ""}
+
+
+# ── 文风蒸馏与三区 AI（style-settings-v2）──────────────────────────
+# 注意：本路由族必须注册在 /ai/{stype}/{field} 之前，否则被通配遮蔽（hooks 同款注释）。
+
+_STYLE_DISTILL_ACTIONS = {"step1", "step2", "step3", "commit"}
+
+
+async def _load_quant_doc(root_path: str) -> dict:
+    from settings.style_quant_model import quant_doc
+    from filesystem.paths import STYLE_QUANT_PATH
+    from filesystem.storage import get_storage
+
+    return quant_doc(await get_storage().read_yaml(root_path, STYLE_QUANT_PATH) or {})
+
+
+async def _save_quant_doc(root_path: str, doc: dict) -> None:
+    from filesystem.paths import STYLE_QUANT_PATH
+    from filesystem.storage import get_storage
+
+    await get_storage().write_yaml(root_path, STYLE_QUANT_PATH, doc)
+
+
+async def _assemble_distill_samples(project, body: dict, db) -> tuple[str, int, list[str]]:
+    """样本两路装配：novel-samples/ 文件＋勾选已归档章节；区间校验（3,000–10,000）。"""
+    import os
+
+    from models.archive import Archive
+    from models.chapter import Chapter
+    from settings.style_quant_model import SAMPLE_MAX, SAMPLE_MIN
+
+    files = [str(x) for x in (body.get("files") or []) if str(x).strip()]
+    chapter_ids = [str(x) for x in (body.get("chapter_ids") or []) if str(x).strip()]
+    samples_dir = os.path.join(project.root_path, "novel-samples")
+    texts: list[str] = []
+    used: list[str] = []
+    for name in files[:20]:
+        safe = os.path.realpath(os.path.join(samples_dir, name))
+        if os.path.dirname(safe) != os.path.realpath(samples_dir) or not os.path.isfile(safe):
+            raise HTTPException(400, f"样本文件不可用：{name}")
+        with open(safe, encoding="utf-8", errors="ignore") as f:
+            texts.append(f.read())
+        used.append(name)
+    if chapter_ids:
+        rows = await db.execute(
+            select(Archive)
+            .join(Chapter, Chapter.id == Archive.chapter_id)
+            .where(Chapter.project_id == project.id, Archive.chapter_id.in_(chapter_ids))
+        )
+        for a in rows.scalars():
+            texts.append(a.content or "")
+            used.append(a.title or "已归档章节")
+    text = "\n\n".join(texts)
+    chars = len("".join(text.split()))
+    if chars < SAMPLE_MIN:
+        raise HTTPException(400, f"样本合计 {chars} 字，少于 {SAMPLE_MIN} 字统计噪声大——再补一些你认可的文章")
+    if chars > SAMPLE_MAX:
+        raise HTTPException(400, f"样本合计 {chars} 字，超过 {SAMPLE_MAX} 字——挑最有代表性的几章")
+    return text, chars, used
+
+
+async def _distill_llm(project, user, db, *, system: str, prompt: str):
+    """蒸馏单步 LLM 调用：沿 hooks 管线（judge 重试＋记账＋JSON 解析）。"""
+    from api_configs.usage import record_usage
+
+    client = await get_ai_client_for_novel(project.id)
+    usage: dict = {}
+    try:
+        text = await _judge_chat(
+            client,
+            model="haiku",
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            json_mode=True,
+            usage=usage,
+        )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_style_distill", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_style_distill", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, f"AI 学习失败，可重试：{e!s}") from e
+    await record_usage(
+        db,
+        user_id=user["id"],
+        project_id=project.id,
+        api_config_id=project.ai_config_id,
+        operation="settings_style_distill",
+        model=effective_model(project),
+        tokens_in=usage.get("tokens_in", 0),
+        tokens_out=usage.get("tokens_out", 0),
+    )
+    return _parse_json(text, "文风蒸馏")
+
+
+@router.post("/ai/style-distill/{action}")
+async def style_distill_ai(
+    project_id: str,
+    action: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """蒸馏三步＋落卡（A3 组装审阅形）：每步产物落 style-quant.draft，中断续跑；
+    「不像，再学一次」＝ step3 带 force 重跑；commit 落正式区＋history＋禁用词并入。"""
+    if action not in _STYLE_DISTILL_ACTIONS:
+        raise HTTPException(400, f"不支持的蒸馏动作：{action}")
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    body = body or {}
+    doc = await _load_quant_doc(project.root_path)
+    draft = doc.get("draft") or {}
+
+    if action == "commit":
+        from settings.style_model import append_anti_ai_words
+        from settings.style_quant_model import commit_draft
+
+        doc = commit_draft(doc, sample_chars=int(draft.get("sample_chars") or 0), chapter_count=int(draft.get("chapter_count") or 0), at=datetime.now(UTC).isoformat(timespec="seconds"))
+        await _save_quant_doc(project.root_path, doc)
+        banned = (draft.get("step3") or {}).get("banned") or []
+        added = await append_anti_ai_words(project.root_path, banned) if banned else 0
+        return {"ok": True, "quant": await _load_quant_doc(project.root_path), "banned_added": added}
+
+    if not isinstance(body, dict):
+        body = {}
+
+    if action == "step1":
+        if draft.get("step1"):
+            return {"ok": True, "resumed": True, "step": draft.get("step", 0)}
+        text, chars, used = await _assemble_distill_samples(project, body, db)
+        prompt = load_prompt("style_distill_step1").format(sample=text)
+        data = await _distill_llm(project, user, db, system="你是文风分析师。只输出 JSON，不要任何其他文字。", prompt=prompt)
+        sections = data.get("sections") if isinstance(data, dict) else None
+        if not isinstance(sections, list) or not sections:
+            raise HTTPException(502, "样本标注返回结构不对，可重试")
+        draft.update({
+            "step": 1,
+            "sample_chars": chars,
+            "chapter_count": len(body.get("chapter_ids") or []),
+            "samples_used": used,
+            "step1": {"sections": sections[:40]},
+        })
+        doc["draft"] = draft
+        await _save_quant_doc(project.root_path, doc)
+        return {"ok": True, "step": 1, "sections": len(sections[:40])}
+
+    if action == "step2":
+        if draft.get("step2"):
+            return {"ok": True, "resumed": True, "step": draft.get("step", 0)}
+        if not draft.get("step1"):
+            raise HTTPException(400, "先完成第一步（样本标注）")
+        step1_lines = "\n".join(
+            f"- {s.get('label')}（{s.get('layer')}）" for s in draft["step1"].get("sections", []) if isinstance(s, dict)
+        )
+        prompt = load_prompt("style_distill_step2").format(
+            sample_chars=draft.get("sample_chars", 0), step1_summary=step1_lines or "（无）"
+        )
+        data = await _distill_llm(project, user, db, system="你是文风量化分析师。只输出 JSON，不要任何其他文字。", prompt=prompt)
+        metrics = data.get("metrics") if isinstance(data, dict) else None
+        if not isinstance(metrics, dict):
+            raise HTTPException(502, "量化统计返回结构不对，可重试")
+        draft["step"] = 2
+        draft["step2"] = {"metrics": metrics}
+        doc["draft"] = draft
+        await _save_quant_doc(project.root_path, doc)
+        return {"ok": True, "step": 2}
+
+    # step3：归纳九维＋画像＋禁用词候选；force=「不像，再学一次」（只重跑本步）
+    if action == "step3" and not body.get("force") and draft.get("step3"):
+        return {"ok": True, "resumed": True, "step": draft.get("step", 0)}
+    if not draft.get("step2"):
+        raise HTTPException(400, "先完成第二步（量化统计）")
+    metrics = (draft.get("step2") or {}).get("metrics") or {}
+    metrics_lines = "\n".join(f"- {k}：{v}" for k, v in metrics.items())
+    prompt = load_prompt("style_distill_step3").format(metrics=metrics_lines)
+    data = await _distill_llm(project, user, db, system="你是文风蒸馏师。只输出 JSON，不要任何其他文字。", prompt=prompt)
+    if not isinstance(data, dict) or not isinstance(data.get("baseline"), dict):
+        raise HTTPException(502, "文风归纳返回结构不对，可重试")
+    banned = data.get("banned")
+    draft["step"] = 3
+    draft["step3"] = {
+        "baseline": data.get("baseline"),
+        "details": data.get("details") or {},
+        "portrait": _clamp_str(data.get("portrait"), 1200),
+        "banned": [str(x).strip()[:50] for x in banned if str(x).strip()][:50] if isinstance(banned, list) else [],
+    }
+    doc["draft"] = draft
+    await _save_quant_doc(project.root_path, doc)
+    return {"ok": True, "step": 3, "portrait": draft["step3"]["portrait"]}
+
+
+@router.post("/ai/style/{action}")
+async def run_style_ai(
+    project_id: str,
+    action: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """文风三区 AI：polish（润色/起草三区）/check（锚定体检）/fewshot-mine（例句提炼）。
+
+    旧 /ai/style/{field} 单字段生成随三区改版退役——落到本路由未知 action 分支，
+    给专门退役文案（hooks 9.1 先例）。
+    """
+    if action not in ("polish", "check", "fewshot-mine"):
+        raise HTTPException(
+            400,
+            "文风单字段生成已退役：文风 AI 升级为三区，"
+            "请改用 /ai/style/polish（润色文字文风）、/check（锚定体检）、/fewshot-mine（例句提炼）",
+        )
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    body = body or {}
+    story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+    premise = _clamp_str(story.get("synopsis"), 600)
+    usage_note = "输入：题材＋简介"
+
+    if action == "polish":
+        if not premise:
+            raise HTTPException(400, "先写两句简介，AI 才有依据帮你起草文风")
+        ctx = body.get("context", {}) or {}
+        ctx_text = "\n".join(f"- {k}：{v}" for k, v in ctx.items() if v) or "（空——按蓝图起草）"
+        prompt = load_prompt("settings_style").format(premise=premise, context=ctx_text)
+        system = "你是小说文风设定专家。只输出 JSON，不要任何其他文字。"
+        data = await _distill_llm(project, user, db, system=system, prompt=prompt)
+        if not isinstance(data, dict):
+            raise HTTPException(502, "文风起草返回结构不对，可重试")
+        role = _clamp_str(data.get("role"), 500)
+        rules = [str(x).strip()[:500] for x in data.get("rules", []) if str(x).strip()][:8]
+        craft = [str(x).strip()[:500] for x in data.get("craft", []) if str(x).strip()][:8]
+        if not role or not rules:
+            raise HTTPException(502, "文风起草缺少身份或红线，可重试")
+        return {"role": role, "rules": rules, "craft": craft}
+
+    if action == "check":
+        role = _clamp_str(body.get("role"), 500)
+        rules = [str(x).strip()[:500] for x in body.get("rules", []) if str(x).strip()]
+        craft = [str(x).strip()[:500] for x in body.get("craft", []) if str(x).strip()]
+        if not role:
+            raise HTTPException(400, "先写叙事身份——锚定体检对当前三区生效")
+        anti = await get_storage().read_yaml(project.root_path, "settings/anti-ai.yaml") or {}
+        fatigue = [
+            w
+            for cat in (anti.get("fatigue_words_zh") or {}).values()
+            if isinstance(cat, list)
+            for w in cat
+        ][:40]
+        rules_text = "\n".join(f"- {r}" for r in rules) or "（未填）"
+        craft_text = "\n".join(f"- {c}" for c in craft) or "（未填）"
+        prompt = load_prompt("style_check").format(
+            role=role, rules=rules_text, craft=craft_text,
+            fatigue="、".join(str(w) for w in fatigue) or "（空）",
+        )
+        system = "你是小说设定一致性审校。只输出 JSON，不要任何其他文字。"
+        data = await _distill_llm(project, user, db, system=system, prompt=prompt)
+        checks = data.get("checks") if isinstance(data, dict) else None
+        if not isinstance(checks, list):
+            raise HTTPException(502, "锚定体检返回结构不对，可重试")
+        return {
+            "checks": checks[:8],
+            "verdict": _clamp_str(data.get("verdict"), 200) if isinstance(data, dict) else "",
+        }
+
+    # fewshot-mine：从已归档正文提炼 1-3 条标志句
+    rows = await db.execute(
+        select(Archive)
+        .join(Chapter, Chapter.id == Archive.chapter_id)
+        .where(Chapter.project_id == project.id)
+        .order_by(Archive.archived_at.desc())
+        .limit(6)
+    )
+    texts = [(a.title or "章节", (a.content or "")[:1200]) for a in rows.scalars()]
+    if not texts:
+        raise HTTPException(400, "还没有已归档章节——写完一章并归档后，AI 才能替你挑例句")
+    corpus = "\n\n".join(f"【{t}】\n{c}" for t, c in texts)
+    prompt = load_prompt("style_fewshot_mine").format(corpus=corpus)
+    system = "你是文风编辑。只输出 JSON，不要任何其他文字。"
+    data = await _distill_llm(project, user, db, system=system, prompt=prompt)
+    lines = [str(x).strip()[:300] for x in (data.get("lines") or []) if str(x).strip()][:3] if isinstance(data, dict) else []
+    if not lines:
+        raise HTTPException(502, "例句提炼返回结构不对，可重试")
+    return {"lines": lines}
 
 
 @router.post("/ai/{stype}/{field}")
