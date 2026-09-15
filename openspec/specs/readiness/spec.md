@@ -56,7 +56,7 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 - world SHALL pass when any of stage/power/cost is non-empty OR any entry in history/factions/constraints/extra carries a non-empty value (v2 shape; legacy v1 shapes SHALL be normalized at the read boundary before judging).
 - style SHALL pass when role is non-empty.
 - anti-ai SHALL pass when settings/anti-ai.yaml has content.
-- hooks SHALL pass when the hooks list has at least one valid hook.
+- hooks SHALL pass when the foreshadow ledger (novel_hooks) has at least one row whose description is non-empty after trimming, regardless of status (active/resolved/abandoned all count —「任意状态」). The checker reads the ledger table, not settings KV; the judge threshold itself is unchanged by this change.
 - characters SHALL pass when the book has at least one character card whose 名称 is non-empty (unnamed placeholder cards count as empty). Readiness only judges 内容非空：确认门禁的两档要求（主角六项等）归 character-settings 的确认端点，readiness SHALL NOT 重复裁决，也 SHALL NOT 读确认记录。
 
 #### Scenario: World v2 stage-only counts as filled
@@ -101,6 +101,7 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 - When the protagonist is deleted, the protagonist is switched, or one of the six required fields is cleared
 - Then readiness reports characters as missing again
 - And the stale state (「内容有变 · 待重新确认」, without the word 已确认) is derived by `GET /settings/status` from the confirmation record, NOT by readiness (readiness stays a pure content predicate and SHALL NOT read or write the confirmation record)
+
 #### Scenario: 空名卡不算已填
 - **WHEN** 书中只有一张未命名（或名字全空白）的空卡
 - **THEN** readiness 把 characters 报为未填
@@ -109,6 +110,15 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 - **WHEN** 书中有一张名字非空的角色卡（哪怕只填了名字）
 - **THEN** readiness 不把 characters 报为未填
 
+#### Scenario: hooks judge reads the ledger in any status
+- Given a book whose only non-empty hooks are all in resolved or abandoned status
+- When readiness is fetched
+- Then hooks is not reported missing
+
+#### Scenario: hooks empty ledger still counts as missing
+- Given a book with zero hook rows (or all descriptions whitespace-only)
+- When readiness is fetched
+- Then hooks is reported missing
 ### Requirement: Gate convergence
 - gate_settings_complete SHALL be refactored to call the same READINESS_CHECKERS subset for settings.
 - Settings gate warnings SHALL be Chinese and SHALL carry a jump target.

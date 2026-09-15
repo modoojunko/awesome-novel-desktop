@@ -39,25 +39,25 @@
 
 ## 6. AI 端点与起草伏笔（批2）
 
-- [ ] 6.1 新建 `POST /ai/hooks/{action}` 白名单端点（require_ai_access＋require_novel_model、_judge_chat 记账全套、注册先于通配路由）：draft（简介＋题材锚＋世界＋主线→3 候选，出参 slug/priority 归一）、audit（活跃×已写章纲；章纲上下文构建器＋无章纲/无活跃降级免调用；判定常量服务端出）；mock 测试（降级/门控 403/超时记账/出参归一/audit 白名单）
-- [ ] 6.2 SettingsView 右栏 foreshadow 分支＋runHooksAi 分发（沿 runGenreAi 模式、aiState 一次分派 D13）；起草行：勾选采纳（乐观 temp id→POST 真 id）、采纳后聚焦引入章节、最近 5 次历史 chips、回执精确撤销；AiSink 落卡底
-- [ ] 6.3 埋坑体检交互：结果行可点跳转（选中＋聚焦字段＋滚动可见）、四类点名（超期/在期/未定期/无留痕）、降级文案；免费态四行可见＋锁定走统一升级出口、空态旁路同门控；e2e 4 例（AI 桩：候选采纳/体检跳转/免费锁定零请求/降级）
+- [x] 6.1 新建 `POST /ai/hooks/{action}` 白名单端点（require_ai_access＋require_novel_model、_judge_chat 记账全套、注册先于通配路由）：draft（简介＋题材锚＋世界＋主线→3 候选，出参 slug/priority 归一）、audit（活跃×已写章纲；章纲上下文构建器＋无章纲/无活跃降级免调用；判定常量服务端出）；mock 测试（降级/门控 403/超时记账/出参归一/audit 白名单）
+- [x] 6.2 SettingsView 右栏 foreshadow 分支＋runHooksAi 分发（沿 runGenreAi 模式、aiState 一次分派 D13）；起草行：勾选采纳（乐观 temp id→POST 真 id）、采纳后聚焦引入章节、最近 5 次历史 chips、回执精确撤销；AiSink 落卡底
+- [x] 6.3 埋坑体检交互：结果行可点跳转（选中＋聚焦字段＋滚动可见）、四类点名（超期/在期/未定期/无留痕）、降级文案；免费态四行可见＋锁定走统一升级出口、空态旁路同门控；e2e 4 例（AI 桩：候选采纳/体检跳转/免费锁定零请求/降级）
 
 ## 7. 批2 验收
 
-- [ ] 7.1 批2 回归：pytest＋e2e＋design:check 全绿；手测「起草→采纳→自动保存→体检点名→跳转补填」全链
+- [x] 7.1 批2 回归：pytest＋e2e＋design:check 全绿；手测「起草→采纳→自动保存→体检点名→跳转补填」全链
 
 ## 8. 拟收束与查一致性（批3）
 
-- [ ] 8.1 payoff 端点（按选中 hook id 作用域，body 传当前编辑值，出 resolved ref 建议＋怎么收的）与 check 端点（选中×简介/题材/世界，缺输入 D7 降级）；mock 测试
-- [ ] 8.2 拟收束方案交互：结果落收束记录区 sink、覆盖已有记录时「覆盖并收束」明示警示、采纳=patch＋flush＋回执精确撤销；无选中置灰＋hint（h2/h4）；查一致性结果行跳转；e2e 3 例（覆盖明示/置灰指路/一致性跳转）
+- [x] 8.1 payoff 端点（按选中 hook id 作用域，body 传当前编辑值，出 resolved ref 建议＋怎么收的）与 check 端点（选中×简介/题材/世界，缺输入 D7 降级）；mock 测试
+- [x] 8.2 拟收束方案交互：结果落收束记录区 sink、覆盖已有记录时「覆盖并收束」明示警示、采纳=patch＋flush＋回执精确撤销；无选中置灰＋hint（h2/h4）；查一致性结果行跳转；e2e 3 例（覆盖明示/置灰指路/一致性跳转）
 
 ## 9. 退役与清理（收尾）
 
-- [ ] 9.1 旧 `/ai/hooks/description` 退役：FIELD_GENERATABLE 摘 hooks、_STYPE_PROMPTS 摘 hooks、删 `prompts/settings_hooks.prompt`；旧端点返回 400 退役文案；test_workflow_api 对应用例更新；全仓 grep 零残留
-- [ ] 9.2 提示词注入回归：`render_hooks_block` 展示号＋优先级标注用例；test_chapter_writer_context 预算数学不动、fixture 补 id 字段
+- [x] 9.1 旧 `/ai/hooks/description` 退役：FIELD_GENERATABLE 摘 hooks、_STYPE_PROMPTS 摘 hooks、删 `prompts/settings_hooks.prompt`；旧端点返回 400 退役文案；test_workflow_api 对应用例更新；全仓 grep 零残留
+- [x] 9.2 提示词注入回归：`render_hooks_block` 展示号＋优先级标注用例；test_chapter_writer_context 预算数学不动、fixture 补 id 字段
 
 ## 10. 归档验收（收尾）
 
-- [ ] 10.1 全量验收：容器 pytest 全量绿；e2e 本地 docker 栈全量绿（新增约 14 例＋存量改造）；design:check 全绿＜0.2%；`upgrade_drill.py --all` 六阶段绿＋幂等重跑；roundtrip 第十层入套件
-- [ ] 10.2 规格同步：creation-flow（伏笔移出无 AI 清单）、readiness（任意状态＋真表数据源）、prompt-crafting（注入口径）、write-archive-meta-sync（mentioned UPDATE）、backup-restore（FORMAT_VERSION 3＋hooks 段＋v1 读窗）、volume-chapter-service（树补 id）、design-system（hk-* 词表）七处 capability sync；README 表清单更新
+- [x] 10.1 全量验收：容器 pytest 全量绿；e2e 本地 docker 栈全量绿（新增约 14 例＋存量改造）；design:check 全绿＜0.2%；`upgrade_drill.py --all` 六阶段绿＋幂等重跑；roundtrip 第十层入套件
+- [x] 10.2 规格同步：creation-flow（伏笔移出无 AI 清单）、readiness（任意状态＋真表数据源）、prompt-crafting（注入口径）、write-archive-meta-sync（mentioned UPDATE）、backup-restore（FORMAT_VERSION 3＋hooks 段＋v1 读窗）、volume-chapter-service（树补 id）、design-system（hk-* 词表）七处 capability sync；README 表清单更新

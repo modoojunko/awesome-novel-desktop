@@ -78,8 +78,15 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 
 - **WHEN** 用户选中「世界 / 风格 / AI痕迹控制」
 - **THEN** AI 栏显示该设定项的 AI 能力说明与入口提示（字段内「AI 帮我填」按钮保持原位）
-- **WHEN** 用户选中无 AI 能力的设定项（题材/简介/伏笔/AI 模型）
+- **WHEN** 用户选中无 AI 能力的设定项（题材/简介/AI 模型）
 - **THEN** AI 栏显示「当前设定项暂无 AI 功能」占位说明
+- **AND** 「伏笔」自本 change 起具备右栏 AI 四行（见 foreshadow-settings capability），不再属于无 AI 能力清单
+
+#### Scenario: 伏笔面板的 AI 栏
+
+- **WHEN** 用户选中「伏笔」设定项
+- **THEN** 右侧 AI 栏显示「AI 写作助手」四行能力（起草伏笔 / 拟收束方案 / 埋坑体检 / 查一致性），答案落卡底结果区或对应字段，采纳·覆盖才写回
+- **AND** 免费态四行可见＋锁定，点击走统一升级出口
 
 #### Scenario: 角色面板的 AI 栏
 
@@ -95,7 +102,7 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 - **WHEN** 用户在内嵌左栏点「新增」
 - **THEN** 列表加入新对象并选中，右侧表单切换为新对象的配置
 - **WHEN** 用户在内嵌左栏切换选中对象
-- **THEN** 右侧表单切换为该对象已保存的内容；未保存修改时的切换保护与现有面板切换口径一致
+- **THEN** 右侧表单切换为该对象已保存的内容（伏笔为自动保存，无未保存行）；面板级切换保护与现有口径一致
 - **WHEN** 用户选中单对象设定项（题材/简介/主线/世界/风格/AI痕迹控制/AI 模型）
 - **THEN** 中间栏保持单表单（无内嵌左栏）
 
