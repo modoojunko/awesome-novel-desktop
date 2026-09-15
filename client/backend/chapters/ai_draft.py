@@ -252,9 +252,12 @@ async def ai_draft_outline(
             )
         )
     if ctx.hooks:
-        blocks.append(
-            "【活跃伏笔】\n" + "\n".join(f"- {h.get('description', '?')}" for h in ctx.hooks[:8])
-        )
+        hook_lines = []
+        for h in ctx.hooks[:8]:
+            code = h.get("code") or ""
+            prefix = f"[{code}] " if code else ""
+            hook_lines.append(f"- {prefix}{h.get('description', '?')}")
+        blocks.append("【活跃伏笔】\n" + "\n".join(hook_lines))
     blocks.append(f"【本章现有章纲（改写基底）】\n{_existing_outline_markdown(chapter)}")
     material = "\n\n".join(blocks)
 

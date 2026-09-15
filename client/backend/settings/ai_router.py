@@ -933,8 +933,7 @@ async def lore_suggest_world(
 
     data = _parse_json(text, "世界要素")
     # 与 archive 产出同形：每条带 canonical 章节引用 origin（幂等键）
-    from archive.service import canonical_chapter_ref
-    from settings.world_model import parse_lore_suggestions
+    from settings.world_model import canonical_chapter_ref, parse_lore_suggestions
 
     suggestions = [
         {**item, "origin": canonical_chapter_ref(chapter_ref)}

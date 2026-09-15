@@ -9,11 +9,15 @@ import { Ico, P } from "@/components/icons";
 // ── SettingSaveHandle ─────────────────────────────────────────────
 /** 表单保存句柄（gap3）：SettingsView 持 ref 调用，确认完成前先把内容落库。
  *  markDirty：save 成功但 confirm 400 时恢复 dirty（D14/O-4）；
- *  clearAi：确认成功后清空 AI 结果区（D14/O-5）。 */
+ *  clearAi：确认成功后清空 AI 结果区（D14/O-5）；
+ *  canConfirm：确认预检（伏笔门禁 ≥1 条描述非空——提示性，不 disable，后端兜底）；
+ *  markConfirmed：确认成功后快照内容指纹（伏笔「内容有变」降级徽标的基线）。 */
 export type SettingSaveHandle = {
   save: () => Promise<boolean>;
   markDirty?: () => void;
   clearAi?: () => void;
+  canConfirm?: () => boolean;
+  markConfirmed?: () => void;
 };
 
 // ── AI props ──────────────────────────────────────────────────────

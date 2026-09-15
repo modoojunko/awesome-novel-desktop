@@ -70,16 +70,26 @@ async def _check_anti_ai(root_path: str, novel_id: str | None = None) -> bool:
 
 
 async def _check_hooks(root_path: str, novel_id: str | None = None) -> bool:
-    hooks = await get_storage().read_yaml(root_path, "settings/hooks.yaml") or {}
-    # 前端保存 active/resolved/abandoned 三表（写作引擎只消费 active 悬而未决伏笔）。
-    hook_list = hooks.get("active")
-    if not isinstance(hook_list, list):
+    """伏笔就绪＝台账（novel_hooks）至少一条 trim 后非空描述，任意状态。
+
+    foreshadow-settings-v2：checker 数据源 KV YAML → 真表；判据口径不变
+    （≥1 条非空；active/resolved/abandoned 都算——「任意状态」）。
+    空 description 列（默认 ""）与全空格描述都不算已填。
+    """
+    if not novel_id:
         return False
-    return any(
-        bool(str(h.get("description", "") or h.get("seed_text", "") or h.get("id", "")).strip())
-        for h in hook_list
-        if isinstance(h, dict)
-    )
+    from models.hook import NovelHook
+
+    async with async_session() as session:
+        row = await session.scalar(
+            select(NovelHook.id)
+            .where(
+                NovelHook.novel_id == novel_id,
+                func.trim(NovelHook.description) != "",
+            )
+            .limit(1)
+        )
+        return row is not None
 
 
 async def _check_characters(root_path: str, novel_id: str | None = None) -> bool:

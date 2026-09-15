@@ -640,6 +640,13 @@ async def _dump_project_snapshot(zf, db, project) -> None:
 
     await _dump_characters(zf, db, project)
 
+    # 伏笔段 v3（foreshadow-settings-v2）：真表 → hooks/hooks.yaml——复用备份链
+    # 的同一个导出函数（章引用 id→ref），settings/ 树不再含 hooks。本端点与
+    # /backup/export 共用导入器，缺这段会让作品包路径静默丢伏笔
+    from backup.export import _dump_hooks
+
+    await _dump_hooks(zf, db, project)
+
     # 卷纲 + 章纲/正文 + 版本快照 + 生成提示词
     volumes = (
         await db.scalars(

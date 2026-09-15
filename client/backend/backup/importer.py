@@ -5,6 +5,7 @@
 """
 
 import json
+import re
 import uuid
 import zipfile
 from datetime import datetime
@@ -114,18 +115,30 @@ async def persist_package(db, user_id: str, paths: list[str], include_config: bo
                 book_dir = f"projects/{slug}/"
                 try:
                     async with db.begin_nested():
-                        novel_id = await _import_single_book(db, zf, book_dir, user_id)
+                        book_warnings: list[str] = []
+                        novel_id = await _import_single_book(
+                            db, zf, book_dir, user_id, warnings=book_warnings
+                        )
                     novel_ids.append(novel_id)
-                    results.append({"book_id": book_dir, "status": "ok", "novel_id": novel_id})
+                    results.append({
+                        "book_id": book_dir, "status": "ok", "novel_id": novel_id,
+                        "warnings": book_warnings,
+                    })
                 except Exception:
                     results.append({"book_id": book_dir, "status": "failed"})
         elif kind == "single":
             pn = "project.yaml" if "project.yaml" in set(zf.namelist()) else "project.json"
             try:
                 async with db.begin_nested():
-                    novel_id = await _import_single_book(db, zf, "", user_id)
+                    book_warnings = []
+                    novel_id = await _import_single_book(
+                        db, zf, "", user_id, warnings=book_warnings
+                    )
                 novel_ids.append(novel_id)
-                results.append({"book_id": pn, "status": "ok", "novel_id": novel_id})
+                results.append({
+                    "book_id": pn, "status": "ok", "novel_id": novel_id,
+                    "warnings": book_warnings,
+                })
             except Exception:
                 results.append({"book_id": pn, "status": "failed"})
 
@@ -134,7 +147,14 @@ async def persist_package(db, user_id: str, paths: list[str], include_config: bo
         if novel_ids
         else {"mode": "none", "attached": 0}
     )
-    return {"results": results, "warnings": info.get("warnings", []), "reattach": reattach}
+    # 逐书容错提示（伏笔章引用解析失败等）并进总 warnings——「置 NULL＋warning
+    # 计数、不丢行」的契约要能在恢复摘要里看到
+    book_level = [w for r in results for w in r.get("warnings", [])]
+    return {
+        "results": results,
+        "warnings": info.get("warnings", []) + book_level,
+        "reattach": reattach,
+    }
 
 
 
@@ -255,8 +275,225 @@ async def _resolve_character_ids(db, novel_id: str) -> dict[str, str]:
     return out
 
 
-async def _import_single_book(db, zf: zipfile.ZipFile, book_dir: str, user_id: str) -> str:
-    """从 zip 内目录恢复一本书的全部资产。"""
+# ── 伏笔段（foreshadow-settings-v2 tasks 3.1/3.2）────────────────────────────
+
+# v1 自由文本章引用 → 规范 ref 的容错形态："vol-1-ch-2" / "1-2"（含全半角连接符）
+_CANON_REF_RE = re.compile(r"^vol-(\d+)-ch-(\d+)$", re.IGNORECASE)
+_SHORT_REF_RE = re.compile(r"^(\d+)\s*[-–—－]\s*(\d+)$")
+
+
+def _normalize_free_chapter_ref(value) -> str:
+    """v1 `introduced_in` 自由文本 → vol-N-ch-M 规范 ref；解析不了返回空串。
+
+    读窗只归一数字形态（"1-1"/"vol-1-ch-1" 等）；叙述性文本（垃圾文本）返回
+    ""，由调用方置 NULL＋warning，不丢行。
+    """
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    m = _CANON_REF_RE.match(text)
+    if m:
+        return f"vol-{int(m.group(1))}-ch-{int(m.group(2))}"
+    m = _SHORT_REF_RE.match(text)
+    if m:
+        return f"vol-{int(m.group(1))}-ch-{int(m.group(2))}"
+    return ""
+
+
+def _hooks_v1_to_entries(data: dict) -> list[dict]:
+    """v1 读窗（tasks 3.2）：KV 三数组 {active,resolved,abandoned} → v3 条目列表。
+
+    逐条细则（spec + tasks，全部有测试钉住）：
+    - 数组名 → status（条目内 status 只有 "mentioned" 特判：迁为 active＋
+      mentioned 走 introduced_in 同一绑定——spec「mentioned_in_chapter_id=引入章」）；
+    - introduced_in 自由文本经 _normalize_free_chapter_ref 归一 → introduced/mentioned
+      章 ref，包内解析失败由 _import_hooks 置 NULL＋warning；
+    - priority 混形（int/"1"/"high"）走 hooks_model.normalize_priority，非法置默认 2；
+    - type 未知 slug 置默认 mystery（novel_hooks.type 列 nullable=False 且有默认值，
+      「置空」不可落库——spec 两选项按 hooks_model 现状取后者）；
+    - v1 无 seq/planned/resolved/payoff_note：seq 留空由导入顺序取号器补，其余置空。
+    """
+    from settings.hooks_model import HOOK_TYPE_KEYS, normalize_priority
+
+    entries: list[dict] = []
+    for array_name, status in (
+        ("active", "active"),
+        ("resolved", "resolved"),
+        ("abandoned", "abandoned"),
+    ):
+        for raw in data.get(array_name) or []:
+            if not isinstance(raw, dict):
+                continue  # 数组里的非对象条目是格式噪声，不落行
+            raw_introduced = str(raw.get("introduced_in") or "").strip()
+            introduced_ref = _normalize_free_chapter_ref(raw_introduced)
+            entry_status = status
+            mentioned_ref = ""
+            if str(raw.get("status") or "").strip().lower() == "mentioned":
+                entry_status = "active"
+                mentioned_ref = introduced_ref
+            try:
+                priority = normalize_priority(raw.get("priority"))
+            except ValueError:
+                priority = 2
+            hook_type = str(raw.get("hook_type") or raw.get("type") or "").strip()
+            if hook_type not in HOOK_TYPE_KEYS:
+                hook_type = "mystery"
+            entries.append({
+                "seq": raw.get("seq"),
+                "description": str(raw.get("description") or ""),
+                "type": hook_type,
+                "priority": priority,
+                "status": entry_status,
+                "introduced_chapter_ref": introduced_ref,
+                "planned_chapter_ref": "",
+                "resolved_chapter_ref": "",
+                "mentioned_chapter_ref": mentioned_ref,
+                "payoff_note": "",
+                # 内部键：有 introduced_in 原文但归一不出 ref → 导入时记 warning
+                "_unparsed_ref": raw_introduced if raw_introduced and not introduced_ref else "",
+            })
+    return entries
+
+
+def _hook_row_fields(raw: dict, warnings: list[str], index: int, ref_to_id: dict) -> dict:
+    """v3 条目 → NovelHook 列 dict（白名单外键一律忽略，混形兜底不丢行）。"""
+    from settings.hooks_model import (
+        DESCRIPTION_MAX,
+        HOOK_STATUSES,
+        HOOK_TYPE_KEYS,
+        PAYOFF_NOTE_MAX,
+        normalize_priority,
+    )
+
+    try:
+        priority = normalize_priority(raw.get("priority"))
+    except ValueError:
+        priority = 2
+        warnings.append(f"伏笔第 {index} 条 priority 非法，已置默认「中」")
+    status = str(raw.get("status") or "").strip()
+    if status not in HOOK_STATUSES:
+        status = "active"
+        warnings.append(f"伏笔第 {index} 条 status 非法，已置默认 active")
+    hook_type = str(raw.get("type") or "").strip()
+    if hook_type not in HOOK_TYPE_KEYS:
+        hook_type = "mystery"
+
+    def _bind(column: str) -> str | None:
+        ref = str(raw.get(column) or "").strip()
+        if not ref:
+            return None
+        chapter_id = ref_to_id.get(ref)
+        if chapter_id is None:
+            # 解析失败：置 NULL＋warning，行不丢（backup-restore spec 硬契约）
+            warnings.append(f"伏笔第 {index} 条的章节引用 {ref} 无法解析，已置空")
+            return None
+        return chapter_id
+
+    return {
+        "description": str(raw.get("description") or "").strip()[:DESCRIPTION_MAX],
+        "type": hook_type,
+        "priority": priority,
+        "status": status,
+        "introduced_chapter_id": _bind("introduced_chapter_ref"),
+        "planned_chapter_id": _bind("planned_chapter_ref"),
+        "resolved_chapter_id": _bind("resolved_chapter_ref"),
+        "mentioned_chapter_id": _bind("mentioned_chapter_ref"),
+        "payoff_note": str(raw.get("payoff_note") or "").strip()[:PAYOFF_NOTE_MAX],
+    }
+
+
+async def _import_hooks(
+    db, zf: zipfile.ZipFile, names: set[str], book_dir: str, novel, warnings: list[str]
+) -> None:
+    """伏笔段恢复：v3 直读（hooks/hooks.yaml）＋ v1 读窗（settings/hooks.yaml 三数组）。
+
+    顺序约束（backup-restore spec，落库顺序显式注释）：本函数必须在「章循环落库
+    之后」调用——ref→id 重绑按本书已落库的 chapters(ref) 解析。它与既有的
+    「characters 先于 chapters（出场引用绑定 id）」顺序约束并列：角色喂章的
+    子表，伏笔在章循环收尾重绑，两段都不倒序。
+    """
+    from models.chapter import Chapter
+    from models.hook import NovelHook
+
+    v3_name = f"{book_dir}hooks/hooks.yaml"
+    v1_name = f"{book_dir}settings/hooks.yaml"
+    if v3_name in names:
+        data = yaml.safe_load(zf.read(v3_name)) or {}
+        entries = data.get("hooks") if isinstance(data, dict) else data
+        entries = list(entries or [])
+    elif v1_name in names:
+        # v1 读窗：settings/hooks.yaml 不会进 project_settings——settings 循环里
+        # route_relative_path 对 hooks 已无路由（返回 None 被跳过），旧 KV 键零残留
+        data = yaml.safe_load(zf.read(v1_name))
+        entries = _hooks_v1_to_entries(data if isinstance(data, dict) else {})
+    else:
+        return
+    if not entries:
+        return
+
+    # ref → id 表：此刻本书 chapters 已全部落库（顺序约束见 docstring）
+    ref_to_id = {
+        ref: cid
+        for cid, ref in (
+            await db.execute(
+                select(Chapter.id, Chapter.ref).where(Chapter.project_id == novel.id)
+            )
+        ).all()
+    }
+
+    # 包内 id 撞车重排沿角色先例：包 id 与本库已有伏笔撞车（同包导回同一库/
+    # 两机互导）→ 重新生成 id 保内容（v3 导出不写 id，此分支只兜底容错）
+    all_existing = set(await db.scalars(select(NovelHook.id)))
+    id_remap: dict[str, str] = {}
+    for raw in entries:
+        if isinstance(raw, dict):
+            old_id = raw.get("id")
+            if old_id and old_id in all_existing and old_id not in id_remap:
+                id_remap[old_id] = str(uuid.uuid4())
+
+    seen_seqs: set[int] = set()
+    for index, raw in enumerate(entries, start=1):
+        if not isinstance(raw, dict):
+            warnings.append(f"伏笔第 {index} 条不是对象，已跳过")
+            continue
+        if raw.get("_unparsed_ref"):
+            # v1 读窗：introduced_in 有原文但归一不出 ref → 置 NULL＋warning，不丢行
+            warnings.append(
+                f"伏笔第 {index} 条的引入章「{raw['_unparsed_ref']}」无法解析为章节引用，已置空"
+            )
+        raw_id = raw.get("id")
+        if raw_id and raw_id in id_remap:
+            raw_id = id_remap[raw_id]
+        # seq：包值优先；缺失/非法/包内重复（v1 读窗常态）→ 按导入顺序同事务取号
+        try:
+            seq = int(raw.get("seq") or 0)
+        except (TypeError, ValueError):
+            seq = 0
+        if seq <= 0 or seq in seen_seqs:
+            seq = novel.hook_seq_high + 1
+        novel.hook_seq_high = max(novel.hook_seq_high, seq)
+        seen_seqs.add(seq)
+
+        fields = _hook_row_fields(raw, warnings, index, ref_to_id)
+        db.add(NovelHook(
+            id=raw_id or str(uuid.uuid4()),
+            novel_id=novel.id,
+            seq=seq,
+            **fields,
+        ))
+    await db.flush()
+
+
+async def _import_single_book(
+    db, zf: zipfile.ZipFile, book_dir: str, user_id: str, warnings: list[str] | None = None
+) -> str:
+    """从 zip 内目录恢复一本书的全部资产。
+
+    warnings：可选收集列表——章 ref 解析失败等「容错不丢行」的提示逐条追加，
+    由 persist_package 并进恢复摘要（不传则静默容错，直调方兼容旧签名）。
+    """
     from chapters.store import (
         _disassemble_scalars,
         _replace_children,
@@ -435,6 +672,14 @@ async def _import_single_book(db, zf: zipfile.ZipFile, book_dir: str, user_id: s
             db.add(Archive(
                 chapter_id=ch_id, title=Path(an).stem, content=zf.read(an).decode("utf-8"),
             ))
+
+    # 伏笔段恢复（foreshadow-settings-v2）：必须在「章循环落库之后」执行——
+    # ref→id 重绑按本书已落库的 chapters 解析（顺序约束与上方「角色段必须在
+    # chapters 之前落库：出场引用绑定 id」并列，落库顺序不得倒置）。
+    # 另：settings/hooks.yaml（v1 KV 形状）不会被 settings 循环写进
+    # project_settings——route_relative_path 已无 hooks 路由，旧 KV 键零残留。
+    hook_warnings: list[str] = warnings if warnings is not None else []
+    await _import_hooks(db, zf, names, book_dir, novel, hook_warnings)
 
     await db.flush()
     return str(novel.id)

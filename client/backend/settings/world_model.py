@@ -394,6 +394,22 @@ def parse_lore_suggestions(data) -> list[dict]:
     return out[:8]
 
 
+def canonical_chapter_ref(ref: str) -> str:
+    """把章引用归一为规范 vol-N-ch-M 格式（兼容模板短格式 '1-1'）。
+
+    lore 幂等键（origin）专用：ai_router 与 archive 两路 lore 产出共用。
+    原 archive/service 与 prompt/context 各有一份 hooks 引用归一副本，
+    随伏笔章引用改存 chapter id 一并退役（foreshadow-settings-v2）。
+    """
+    ref = (ref or "").strip()
+    if re.match(r"^vol-\d+-ch-\d+$", ref):
+        return ref
+    m = re.match(r"^(\d+)-(\d+)$", ref)
+    if m:
+        return f"vol-{m.group(1)}-ch-{m.group(2)}"
+    return ref
+
+
 # ── 契约校验（PUT /settings/world 入参）─────────────────────────────────
 
 

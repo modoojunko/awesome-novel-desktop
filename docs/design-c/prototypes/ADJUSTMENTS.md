@@ -488,3 +488,36 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     ~23px、面板头差 ~7px、模型设定行宽差 8px、字体光栅差异；0.2% 阈值按同源 CSS
     校准，不适用于跨实现比对。基线三张图照常落 `docs/design-c/baselines/`，逐项
     对齐间距后把 skip 换回阈值断言。认知六层/关系区在首屏之外，靠 e2e 覆盖。
+
+20. **伏笔设定改版（foreshadow-settings-v2，2026-09-15）**
+    新增 `foreshadow-settings.html`（自 `drafts/ai-novel-c端-伏笔设定.html` v3 终稿收编，
+    `data-od-id` 全量保留）。本稿取代 `book.html` 设定段登记的「伏笔（活跃/已收束/废弃三分组，
+    9 类钩子+优先级）」旧口径（PR 4 #3，留作历史）；实现依据以本稿＋
+    `openspec/changes/foreshadow-settings-v2/specs/foreshadow-settings` 契约为准。
+
+    **类名映射表（.kv 家族作用域化，避让世界面板现役 .kv-row/book.css:694）**：
+    `.kv`→`.hk-kv`、`.kv-row`→`.hk-kv-row`、`.kv-k`→`.hk-kv-k`、`.kv-static`→`.hk-kv-static`、
+    `.kv-hint`→`.hk-kv-hint`（`.kv-row.span2` 语义并入 `.hk-kv-row.span2`）。台账两行条目
+    `.hk-item/.hk-dot/.hk-b/.hk-name/.hk-meta` 与分组头 `.sub-group-label`（g-dot 三色）为
+    settings-v 作用域新类；其余（.cap/.cap-row/.seg-note/.badge/.btn/.input/.textarea/.opt/
+    .text-btn/.save-state/.sub-empty/.receipt-bar/.ai-sink/.chk-line/.rail-assist/.tree-*/.
+    sec-label/.sl-tag/.panel-foot）全部现役复用，不新增第四种胶囊/徽标档位。
+
+    **状态语言登记**：状态点三色 活跃=实心 warn／已收束=实心 ok／废弃=muted 描边——台账点、
+    分组头点、卡面状态徽标（.sl-tag st-*）、状态切换控件全链同源；面板徽标五态：
+    还没有伏笔=empty／N 条待收束=warn／已确认 · N 条待收束=done／全部收束=ok／
+    内容有变 · 待重新确认=warn（优先级最高，文案不含「已确认」，守 §5 S-R2）。
+    保存四态（saving/saved/dirty/failed）落面板脚 .save-state（mono 小字）；「存草稿」
+    按钮对伏笔隐藏。data-aiact=h1-h4；**空态 AI 旁路（btn-empty-ai）＝「编辑区零 AI 按钮」
+    的唯一登记例外**，随 aiState 门控矩阵走（免费可见＋锁定）。
+
+    **词汇修正（相对 v3 稿面，有意的偏差）**：类型下拉中文标签以后端词表单源
+    `settings/hooks_model.py` 镜像为准——悬念/威胁/承诺/线索/关系伏笔/能力伏笔/情绪钩/
+    选择钩/渴望钩（稿面 谜团/关系/力量/情感/选择/欲望 为草稿期旧词）；demo 候选标签同步。
+
+    **评审脚手架（非基线，实现对照与 parity 截图排除）**：doc-head 稿头、win-titlebar、
+    appbar「客服/设置」演示按钮、modnav 页签、右下 toast 演示。转正补 modnav（对齐
+    character-settings.html 先例）；demo 内两处 id（badgeLedger/abandonedNote）改名
+    stateBadge/dropNote——避让 design:lint 裸 hex 正则（`#bad`/`#aba` 命中），语义不变。
+
+    **门禁范围**：本文件已加入 `design-vocab.mjs` 的 `strictGlobs`（严格原型 5→6，lint 通过）。

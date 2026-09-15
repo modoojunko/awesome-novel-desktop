@@ -16,7 +16,7 @@ import WorldSettingPanel from "@/components/novel/settings/world/WorldSettingPan
 import type { WorldPanelHandle } from "@/components/novel/settings/world/WorldSettingPanel";
 import StyleSettingForm from "@/components/novel/settings/StyleSettingForm";
 import AntiAiSettingForm from "@/components/novel/settings/AntiAiSettingForm";
-import HooksSettingForm from "@/components/novel/settings/HooksSettingForm";
+import HooksSettingForm, { type HookSaveState } from "@/components/novel/settings/HooksSettingForm";
 import CharacterManager from "@/components/novel/settings/CharacterManager";
 import { type CharAiCtx } from "@/lib/characterModel";
 import { charactersApi } from "@/lib/charactersApi";
@@ -66,7 +66,8 @@ const DESCS: Record<string, string> = {
   world: "世界是 AI 写章时的物理法则——能做什么、不能做什么、付什么代价，都从这里读。",
   style: "用谁的视角讲，用什么语气讲（叙事身份 + 核心原则）。",
   antiAI: "这些词句一出现就拦掉——AI 味最重的那批。",
-  foreshadow: "先埋下的，后面要还。",
+  foreshadow:
+    "先埋下的，后面要还（「收束」＝把坑填了）。每条伏笔记三件事：在哪埋、打算哪章还、还了没——章节从卷章树里选，AI 写到那章会照着还。改动即自动保存；设定期想到就记一条，写正文时回来埋也一样。",
   chars:
     "AI 写每一章，都要靠这里知道「谁在场、谁想干什么」。主角必立——从称呼和一句话人设写起；配角、反派把认知内核填全，路人只留基础档案。人物关系只记「他怎么看别人」：一段一句，同一对方一条。",
 };
@@ -192,6 +193,17 @@ export default function SettingsView({
     [charsRef],
   );
   const [charCtx, setCharCtx] = useState<CharAiCtx | null>(null);
+  // 伏笔面板（foreshadow-settings-v2）：徽标五态 / 保存四态 / 选中条目 ctx 的上报落点。
+  // 不在 [panel] 变化时重置——伏笔面板挂载即重新上报（挂载 effect 先于父层 effect 跑，
+  // 任何「先清后报」的时序都会把刚上报的状态抹掉）；徽标按 isForeshadow 取用，天然隔离。
+  const [hookPanelState, setHookPanelState] = useState<{
+    cls: string;
+    label: string;
+    ok: boolean;
+    empty: boolean;
+  } | null>(null);
+  const [hookSaveState, setHookSaveState] = useState<HookSaveState>("saved");
+  const [hookCtx, setHookCtx] = useState<{ id: string; code: string; desc: string } | null>(null);
   const handleAiBlocked = useCallback((reason: AiState) => {
     if (reason === "no_key") {
       window.location.hash = "/config";
@@ -326,6 +338,42 @@ export default function SettingsView({
     [runGenreAi],
   );
 
+  // 伏笔右栏四行（foreshadow-settings-v2；data-aiact h1-h4）：h2/h4 无选中置灰＋hint；
+  // 行点击经 formRef 分发（charsRef=formRef，伏笔面板同走该通道；端点批2 实现）
+  const foreshadowAiRows = useMemo<AiCapabilityRow[]>(
+    () => [
+      {
+        key: "h1",
+        name: "起草伏笔",
+        desc: "按你的简介＋题材＋世界＋主线给 3 条候选，勾选采纳 · 输入：简介＋题材＋世界＋主线",
+        onClick: () => runCharsAi("h1"),
+      },
+      {
+        key: "h2",
+        name: "拟收束方案",
+        desc: "对当前选中的伏笔给收束方案 · 采纳后写入收束记录并移入已收束 · 输入：当前伏笔＋主线＋已写章纲",
+        disabled: !hookCtx,
+        hint: hookCtx ? undefined : "先选一条伏笔",
+        onClick: () => runCharsAi("h2"),
+      },
+      {
+        key: "h3",
+        name: "埋坑体检",
+        desc: "扫全部活跃伏笔 × 已写章纲：埋了没还的点名，给出建议收束章 · 只提醒不拦确认；章纲未建时降级为纯台账自检",
+        onClick: () => runCharsAi("h3"),
+      },
+      {
+        key: "h4",
+        name: "查一致性",
+        desc: "只查当前选中伏笔 × 简介/题材/世界：钩子是否与设定矛盾、代价是否对得上 · 只提醒不拦确认",
+        disabled: !hookCtx,
+        hint: hookCtx ? undefined : "先选一条伏笔",
+        onClick: () => runCharsAi("h4"),
+      },
+    ],
+    [hookCtx, runCharsAi],
+  );
+
   useEffect(() => {
     if (initialPanel) setPanel(normalizePanel(initialPanel));
   }, [initialPanel]);
@@ -414,6 +462,12 @@ export default function SettingsView({
       const handle = currentHandle();
       const saved = await handle?.save();
       if (saved !== true) return;
+      // 伏笔确认门禁（提示性预检）：≥1 条描述非空（任意状态）——按钮恒可点不 disable，
+      // 这里只提示性拦下；后端 confirm 400 兜底（同「伏笔不能为空…先跳过」口径）
+      if (panel === "foreshadow" && handle?.canConfirm?.() === false) {
+        toast.info("伏笔不能为空：先埋一条——写一句描述就行；或先跳过，写作期回来补");
+        return;
+      }
       // 保存成功＝这次改动已落库，回执里的撤销只能改回内存（与库不一致）→ 清掉
       setReceipt(null);
       // 角色确认走两档门禁端点（review P1：此前只 PUT status，门禁从未生效，
@@ -429,11 +483,15 @@ export default function SettingsView({
       }
       if (confirmed) {
         handle?.clearAi?.();
+        // 伏笔：已确认态的「保存修改」＝重新确认——内容指纹基线随之前移（徽标恢复「已确认」系）
+        handle?.markConfirmed?.();
         toast.success(`「${item.name}」已保存`);
       } else {
         const ok = await confirmSetting(item.settingsKey);
         if (ok) {
           handle?.clearAi?.();
+          // 伏笔：确认成功＝快照内容指纹（之后内容有变→徽标降级「内容有变 · 待重新确认」）
+          handle?.markConfirmed?.();
           toast.success(`「${item.name}」已确认`);
           // 确认即前进：切到 SETTINGS_ITEMS 的数组顺序下一项（末项不动；
           // 模型窗（aiModel）不在 SETTINGS_ITEMS，天然被跳过）
@@ -462,38 +520,51 @@ export default function SettingsView({
   };
   const modelBadge = MODEL_BADGE[aiState] ?? MODEL_BADGE.no_key;
   const isChars = panel === "chars";
+  const isForeshadow = panel === "foreshadow";
   // 角色第三态（character-settings-v2）：确认过但内容指纹变了 → 「内容有变 · 待重新确认」
   // （文案刻意不含「已确认」，守 §5「已确认→ok 绿」硬规则）
   const charsStaleBadge = isChars && confirmed && charStale;
+  // 伏笔徽标五态（foreshadow-settings-v2）：由 HooksSettingForm 按台账内容＋确认态上报——
+  // 还没有伏笔=empty／N 条待收束=warn／已确认 · N 条待收束=done／全部收束=ok／内容有变=warn（最高优先）
+  const hookBadge = isForeshadow ? hookPanelState : null;
   const badgeCls = isModel
     ? modelBadge.cls
-    : charsStaleBadge
-      ? "warn"
-      : confirmed
-        ? BADGE_DONE
-        : filled
-          ? "warn"
-          : BADGE_EMPTY;
+    : hookBadge
+      ? hookBadge.cls
+      : charsStaleBadge
+        ? "warn"
+        : confirmed
+          ? BADGE_DONE
+          : filled
+            ? "warn"
+            : BADGE_EMPTY;
   const badgeLabel = isModel
     ? modelBadge.label
-    : charsStaleBadge
-      ? "内容有变 · 待重新确认"
-      : confirmed
-        ? "已确认"
-        : filled
-          ? "已填"
-          : "未填";
-  const badgeOk = isModel ? modelBadge.ok : badgeCls === BADGE_DONE;
+    : hookBadge
+      ? hookBadge.label
+      : charsStaleBadge
+        ? "内容有变 · 待重新确认"
+        : confirmed
+          ? "已确认"
+          : filled
+            ? "已填"
+            : "未填";
+  const badgeOk = isModel ? modelBadge.ok : hookBadge ? hookBadge.ok : badgeCls === BADGE_DONE;
+  const hookEmpty = isForeshadow && !!hookPanelState?.empty;
   const panelDesc = isModel
     ? "本书写作所用的模型、变更历史与用量。"
     : (DESCS[panel] ?? "");
   const panelNote = isModel
     ? "工具项 · 不参与设定进度"
-    : confirmed
-      ? "已确认 · 可随时回来修改并重新确认"
-      : item?.canDefer
-        ? "高级项可后补 · 确认即计入进度"
-        : "确认后计入设定进度";
+    : isForeshadow
+      ? confirmed
+        ? "已确认 · 可随时回来修改并重新确认"
+        : "改动自动保存 · 确认即前进到「禁用词句」"
+      : confirmed
+        ? "已确认 · 可随时回来修改并重新确认"
+        : item?.canDefer
+          ? "高级项可后补 · 确认即计入进度"
+          : "确认后计入设定进度";
 
   return (
     <div className="view three-col on settings-v">
@@ -644,6 +715,12 @@ export default function SettingsView({
                 projectId={projectId}
                 settingKey="hooks"
                 onDirtyChange={handleDirtyChange}
+                onSaveStateChange={setHookSaveState}
+                onPanelState={setHookPanelState}
+                onCtxChange={setHookCtx}
+                aiState={aiState}
+                onBlocked={handleAiBlocked}
+                confirmed={!!confirmedStatus?.hooks}
               />
             )}
             {panel === "chars" && (
@@ -669,9 +746,17 @@ export default function SettingsView({
           </div>
 
           <div className="panel-foot">
-            <span className="note" style={{ marginRight: "auto" }}>
-              {panelNote}
-            </span>
+            {/* 伏笔空表：warnline 取代 note（常驻信号，非 toast；门禁的提示性预检口径） */}
+            {hookEmpty && (
+              <span className="warnline" data-od-id="hook-hint" style={{ marginRight: "auto" }}>
+                确认「伏笔」至少要埋一条——写一句描述就行；也可以先跳过，写作期回来补
+              </span>
+            )}
+            {!hookEmpty && (
+              <span className="note" style={{ marginRight: "auto" }}>
+                {panelNote}
+              </span>
+            )}
             {/* 改动回执（在模型设定/简介/题材/世界四面板发声；其余面板恒 null） */}
             <ChangeReceiptBar receipt={receipt} />
             {confirmed && !isModel && (
@@ -682,7 +767,8 @@ export default function SettingsView({
                 已确认
               </span>
             )}
-            {!isModel && !confirmed && panel !== "chars" && (
+            {/* 「存草稿」对伏笔隐藏（自动保存制——草稿态＝已落库未确认，foreshadow-settings-v2） */}
+            {!isModel && !confirmed && panel !== "chars" && panel !== "foreshadow" && (
               <button
                 className="btn btn-secondary"
                 onClick={() => void handleSaveDraft()}
@@ -691,6 +777,15 @@ export default function SettingsView({
               >
                 存草稿
               </button>
+            )}
+            {/* 伏笔面板脚保存态（自动保存制；「存草稿」对伏笔隐藏——草稿态＝已落库未确认） */}
+            {isForeshadow && (
+              <span className={`save-state ${hookSaveState}`} data-od-id="save-state">
+                {hookSaveState === "saving" && "保存中…"}
+                {hookSaveState === "saved" && "已自动保存"}
+                {hookSaveState === "dirty" && "有未保存修改"}
+                {hookSaveState === "failed" && "保存失败 · 请重试"}
+              </span>
             )}
             {!isModel && (
               <button
@@ -754,6 +849,15 @@ export default function SettingsView({
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}
             onRun={runCharsAi}
+          />
+        ) : panel === "foreshadow" ? (
+          <AiWriterAssistant
+            rows={foreshadowAiRows}
+            footNote="答案落对应字段或卡底，采纳 · 覆盖才写回（覆盖已有收束记录时按钮明示「覆盖并收束」，采纳仍可一步撤销）；回执只留最近一条、8 秒内可点撤销；起草伏笔保留最近 5 次结果可切回。所有 AI 辅助功能都在本栏，伏笔卡编辑区不放 AI 按钮；免费版四行可见＋锁定，点击走统一升级提示。"
+            aiState={aiState}
+            onBlocked={handleAiBlocked}
+            runningKey={aiRunningKey}
+            data-od-id="ai-assist-foreshadow"
           />
         ) : panel === "style" || panel === "antiAI" ? (
           <div className="rail-card">

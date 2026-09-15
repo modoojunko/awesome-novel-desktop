@@ -92,7 +92,6 @@ def _seed_writer(root: str):
             {"fatigue_words_zh": {}, "structural_tic_patterns": []},
         )
     )
-    _run_async(get_storage().write_yaml(root, "settings/hooks.yaml", {"active": []}))
     _run_async(
         get_storage().write_yaml(
             root,

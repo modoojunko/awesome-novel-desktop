@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>爱小说 · 设定｜伏笔（伏笔台账＋单条伏笔卡 · 真表 v3）</title>
+<!--
+  交付说明（设计侧工件 · 不动任何 src/；OpenDesign 原型，交互可直接预览）
+
+  裁定 v3（2026-09-15 二轮终审[前端/后端/测试/产品]吸收 + 用户五拍板「按推荐」；承 v2 三拍板）：
+    ④ 撤销对齐服务端语义：删除=DELETE 即落库＋服务端 ops token（沿角色先例），撤销按原 id
+       原样恢复、编号不跳变；「8 秒」仅定义为回执条 UI 自清窗口，token 有效期到下次操作/刷新；
+    ⑤ 确认判据=≥1 条描述非空（任意状态，「这本书用过伏笔设定」）；判据与 readiness spec 不改，
+       checker 数据源 KV→真表（连带 readiness/workflow 测试种数据换新 API）；
+    ⑥ 计划收束指向未建章=接受降级：先留空，埋坑体检点名「未定期」，讲解层明示；
+       体检「建议收束章」一键补填留写作期 change；
+    ⑦ 确认后内容有变（尤其清空）：面板徽标降级「内容有变 · 待重新确认」（沿 charStale 先例）；
+    ⑧ 三批切片：批1 免费基座（真表+升级链+CRUD+卷章选择器+门禁）、批2 体检+起草（PRO 锚点）、
+       批3 拟收束+一致性；数据模型与 AI 不拆两个 change。
+
+  持久化模型（二轮前端 P0）：字段级防抖 PATCH＋串行队列（沿 CharacterManager 先例）；
+    save()=flush 在途队列——gap3「确认前先保存」由此继续成立；「存草稿」按钮对伏笔隐藏，
+    草稿态=已落库未确认；面板脚以保存四态指示替代。demo 内编辑示意性地走「保存中…→已自动保存」。
+
+  id：服务端发号 UUID 主键＋每书单调 seq（novels.hook_seq_high，同事务取号），#H-#### 由 seq
+    派生、编号永不复用；前端永不生成 id（demo 的 max+1 仅为示意）。
+
+  升级链真语义（二轮后端 P0）：真表注册即变 schema 指纹→存量库整库留档+空库→恢复靠导入 v1 包
+    →导入器必须补 v1 hooks 读窗：三数组→真表行（数组名→status；introduced_in 文本归一后按章 ref
+    绑 introduced_chapter_id，绑不上置 NULL 不丢行；status:'mentioned'→active+mentioned_in_chapter_id；
+    priority int/str/high 混形归一；未知 type 白名单归一）；导出包章引用一律存 ref（导入器恢复章时
+    重新生成 id，运行态 id 不入包，导入按 ref→id 重绑、章循环落库之后执行）；FORMAT_VERSION 2→3。
+
+  章节引用：卷章树 API（GET /volumes、GET /tree）响应补 chapter id（二轮实勘现役不吐 id，立项补登）；
+    删章/删卷级联后 introduced/planned/resolved/mentioned 四列 SET NULL（项目 ChapterCharacter 先例
+    同构；CASCADE 错杀伏笔、RESTRICT 打断现役删章流，均否），前端悬挂显示「章节已删」；
+    选择器按卷 optgroup 分组，验收场景含 300 章书目。
+
+  门控矩阵：四行＋空态「让 AI 起草」旁路 × aiState 五态（ready/no_key/missing_model/
+    member_required/invalid）立项补齐行为矩阵；member_required 统一走 MemberBlockPrompt 出口；
+    「未配置模型？去左侧 AI 模型」仅对可自配 Key 的态出现，member_required 态不给该指路；
+    空态 AI 旁路＝「编辑区零 AI 按钮」的唯一登记例外。免费版四行可见＋锁定。
+
+  h2 覆盖口径定稿：覆盖已有收束记录时按钮转「覆盖并收束」并明示覆盖（警示级，不加二次弹窗），
+    采纳仍可一步撤销（N7「结果能不能不要」由撤销兑现）。旧端点退役返回 400 退役文案（沿角色先例）。
+  priority 存储 Integer 1/2/3（服务层归一，API 兼容 int/str/high；注入标签与展示统一 高/中/低）；
+    稿面「高/中/低」为展示契约。type 存 9 值 slug 白名单。
+  non-goals：mentioned_in_chapter_id 本期只迁不增（归档 UI 归写作期 change）；工作台侧埋坑体检
+    入口留写作期 change；ConfirmGuard 组件不新造（切面板/离开设定页守卫沿现役两处 confirm）；
+    确认空表为前端提示性预检，按钮恒可点、后端门禁兜底。
+
+  规范：tokens 与 client/frontend/src/design/{base,book}.css 逐字同源；交互模块全部
+    挂 data-od-id（kebab-case）；零外部资源、零裸色、零 emoji。
+-->
+<style>
+  /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致（--radius-lg 沿世界稿 = 14px） ═══ */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
+  button { font-family: inherit; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.55; padding: 40px 24px 80px; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1320px; margin: 0 auto; }
+
+  /* ─── 稿头 ─── */
+  .draft-banner { display: flex; align-items: center; gap: 9px; padding: 10px 16px; border: 1px dashed var(--warn); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: 13px; margin-bottom: 28px; }
+  .draft-banner b { color: var(--fg); font-weight: 600; }
+  h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; }
+  h1 .ver { font-family: var(--font-mono); font-size: 13px; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 2px 10px; vertical-align: 6px; margin-left: 10px; letter-spacing: 0.06em; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 6px 0 14px; line-height: 1.8; }
+  .caliber { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 16px; font-size: 12.5px; color: var(--muted); margin-bottom: 36px; line-height: 1.8; }
+  .caliber b { color: var(--fg); font-weight: 600; }
+  .caliber li { margin: 4px 0 4px 18px; }
+
+  /* ─── 模拟窗口（与角色稿同构） ─── */
+  .win { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: clip; box-shadow: var(--shadow-card); margin-bottom: 52px; }
+
+  /* ── 应用框架（现有设定页外壳原样复刻） ── */
+  .win-titlebar { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .dot { width: 11px; height: 11px; border-radius: 999px; flex: none; }
+  .dot.r { background: var(--err); } .dot.y { background: var(--warn); } .dot.g { background: var(--ok); }
+  .win-title { flex: 1; text-align: center; font-size: 12px; color: var(--muted); margin-right: 51px; }
+  .appbar { height: 48px; display: flex; align-items: center; padding: 0 20px; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; }
+  .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--surface); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; flex: none; }
+  .appbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; flex: none; }
+  .appbar .back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; padding: 5px 9px; border-radius: 8px; }
+  .appbar .back:hover { color: var(--fg); background: var(--fg-soft); }
+  .appbar .spacer { flex: 1; }
+  .novelbar { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 20px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
+  .novelbar .nb-title { font-family: var(--font-display); font-size: 13.5px; color: var(--fg); font-weight: 600; }
+  .novelbar .nb-sep { width: 1px; height: 16px; background: var(--border); }
+  .modnav { display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .modnav span { display: inline-flex; padding: 8px 14px 9px; font-size: 13px; color: var(--muted); }
+  .modnav span.on { color: var(--fg); font-weight: 500; border-bottom: 2px solid var(--accent); }
+  /* ── 设定页三栏：设定树(230) ｜ 伏笔面板(1fr) ｜ AI 栏(236) ── */
+  .view.three-col.settings-v { display: grid; grid-template-columns: 230px minmax(0, 1fr) 236px; align-items: start; }
+  .col-middle { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .col-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 18px 20px; }
+  .panel.sub-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px 14px; overflow: hidden; }
+  .desc { font-size: 12.5px; color: var(--muted); margin: 0 0 14px; line-height: 1.8; }
+  .desc b { color: var(--fg); font-weight: 600; }
+  .sub-wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: 252px minmax(0, 1fr); gap: 0 16px; align-items: start; }
+  /* 设定树（复刻现有 col-tree） */
+  .col-tree { border-right: 1px solid var(--border); background: var(--bg); padding: 12px 10px 14px; }
+  .tree-head { padding: 0 8px 8px; }
+  .tree-head .t { font-size: 13px; color: var(--muted); }
+  .tree-head .t b { color: var(--fg); font-weight: 600; }
+  .settings-progress { padding: 0 8px 10px; border-bottom: 1px dashed var(--border); }
+  .settings-progress .pl { font-size: 12px; color: var(--muted); }
+  .settings-progress .pl b { color: var(--fg); }
+  .pbar { height: 6px; border-radius: 999px; background: var(--fg-soft); margin-top: 6px; overflow: hidden; }
+  .pbar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  .settings-nav-wrap { padding-top: 6px; }
+  .s-item { display: flex; align-items: center; gap: 6px; padding: 8px 9px; border-radius: 8px; cursor: pointer; }
+  .s-item:hover { background: var(--fg-soft); }
+  .s-item.on { background: var(--accent-soft); }
+  .s-item .nm { font-size: 12.5px; color: var(--fg); }
+  .s-item.on .nm { color: var(--accent-strong); font-weight: 600; }
+  .s-item .defer-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+  .s-item .spacer { flex: 1; }
+  .tree-foot { border-top: 1px dashed var(--border); margin-top: 8px; padding: 8px 8px 0; }
+  /* 伏笔列表与右 AI 栏：桌面端贴顶滚动 */
+  .hook-tree { position: sticky; top: 12px; align-self: start; max-height: calc(100vh - 24px); display: flex; flex-direction: column; border-right: 1px solid var(--border); padding: 0 12px 10px 0; min-height: 0; }
+  .hook-main { min-width: 0; }
+  .col-ai { border-left: 1px solid var(--border); padding: 16px; background: var(--bg); overflow-y: auto; }
+  @media (min-width: 861px) {
+    .col-ai { position: sticky; top: 12px; max-height: calc(100vh - 24px); }
+  }
+  @media (max-width: 1080px) { .view.three-col.settings-v { grid-template-columns: 208px minmax(0, 1fr) 222px; } }
+  @media (max-width: 900px) {
+    .view.three-col.settings-v { grid-template-columns: minmax(0, 1fr); }
+    .col-tree { border-right: 0; border-bottom: 1px solid var(--border); }
+    .col-ai { border-left: 0; border-top: 1px solid var(--border); }
+    .hook-tree { position: static; max-height: 40vh; border-right: 0; border-bottom: 1px dashed var(--border); padding-right: 0; }
+    .sub-wrap { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  /* ── 伏笔台账（状态三分组：活跃=warn / 已收束=ok / 废弃=muted——N5 同源；空组不渲染） ── */
+  .tree-top { display: flex; align-items: center; gap: 6px; padding: 2px 8px 8px; font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .04em; }
+  .tree-top .cnt { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; font-weight: 400; }
+  .tree-search { width: 100%; padding: 7px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font-size: 12.5px; margin-bottom: 8px; }
+  .tree-search:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .tree-add { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 30px; margin-bottom: 8px; border: 1px dashed color-mix(in oklch, var(--accent) 40%, var(--border)); border-radius: 8px; background: var(--surface); color: var(--accent); font-size: 12.5px; font-weight: 500; cursor: pointer; flex: none; }
+  .tree-add:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .tree-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding-right: 2px; }
+  .hook-tree, .tree-list, .col-ai { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .tree-list::-webkit-scrollbar, .col-ai::-webkit-scrollbar { width: 8px; }
+  .tree-list::-webkit-scrollbar-thumb, .col-ai::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .tree-list::-webkit-scrollbar-thumb:hover, .col-ai::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+  .sub-group-label { display: flex; align-items: center; gap: 6px; padding: 9px 8px 5px; font-size: 10.5px; font-weight: 600; color: var(--muted); letter-spacing: .05em; }
+  .sub-group-label .g-dot { width: 7px; height: 7px; border-radius: 999px; flex: none; }
+  .sub-group-label .g-dot.active { background: var(--warn); }
+  .sub-group-label .g-dot.resolved { background: var(--ok); }
+  .sub-group-label .g-dot.abandoned { background: transparent; border: 1.5px solid var(--muted); }
+  .sub-group-label .g-cnt { margin-left: auto; font-family: var(--font-mono); font-weight: 400; }
+  .hk-item { display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left; padding: 7px 8px; border: none; background: transparent; border-radius: 8px; cursor: pointer; font: inherit; }
+  .hk-item:hover { background: var(--fg-soft); }
+  .hk-item.on { background: var(--accent-soft); }
+  .hk-dot { width: 8px; height: 8px; border-radius: 999px; flex: none; margin-top: 5px; }
+  .hk-dot.active { background: var(--warn); }
+  .hk-dot.resolved { background: var(--ok); }
+  .hk-dot.abandoned { background: transparent; border: 1.5px solid var(--muted); }
+  .hk-b { min-width: 0; flex: 1; }
+  .hk-name { display: block; font-size: 12.5px; color: var(--fg); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hk-item.on .hk-name { color: var(--accent-strong); font-weight: 600; }
+  .hk-meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 10.5px; color: var(--muted); }
+  .hk-meta .hk-type { flex: none; border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+  .hk-meta .hk-ch { font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── 伏笔卡：档案表（kv 词表为示意——落地按 ADJUSTMENTS 映射表作用域化，避让世界面板 .kv-row） ── */
+  .sec-label { font-family: var(--font-display); font-size: 14px; font-weight: 600; margin: 0 0 10px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .sec-label .sl-tag { font-family: var(--font-body); font-size: 11px; font-weight: 500; border-radius: 999px; padding: 2px 10px; background: var(--accent-soft); color: var(--accent-strong); }
+  .sl-tag.st-active { background: var(--warn-soft); color: var(--warn); }
+  .sl-tag.st-resolved { background: var(--ok-soft); color: var(--ok); }
+  .sl-tag.st-abandoned { background: var(--fg-soft); color: var(--muted); }
+  .kv-static { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+  .kv { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+  .kv-row { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-bottom: 1px dashed var(--border); }
+  .kv-row:last-child { border-bottom: none; }
+  .kv-k { width: 112px; flex: none; font-size: 12px; color: var(--muted); font-weight: 600; }
+  .kv-k .req { font-style: normal; color: var(--muted); font-size: 10px; margin-left: 4px; border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; }
+  .kv-row .input, .kv-row .textarea { flex: 1; min-width: 0; border: none; background: transparent; padding: 2px 0; font-size: 12.5px; resize: vertical; }
+  .kv-row .input:focus, .kv-row .textarea:focus { outline: none; }
+  .kv-row { position: relative; }
+  .kv-row:focus-within { background: var(--accent-soft); }
+  .kv-row select.input { appearance: auto; cursor: pointer; }
+  .kv-hint { font-size: 11px; color: var(--muted); font-weight: 400; }
+  .cap { display: inline-flex; align-items: center; padding: 7px 14px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; color: var(--fg); background: var(--surface); cursor: pointer; user-select: none; }
+  .cap:hover { border-color: var(--muted); }
+  .cap.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+  .cap-sm { padding: 3px 11px; font-size: 12px; }
+  .cap-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .seg-note { flex-basis: 100%; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .del-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .del-row .del-hint { font-size: 11px; color: var(--muted); }
+
+  /* ── 空态（图标＋一句话＋主动作＋旁路）与「未选中」轻空态 ── */
+  .sub-empty { padding: 34px 20px; text-align: center; }
+  .sub-empty .se-ico { width: 34px; height: 34px; margin: 0 auto 10px; color: var(--muted); opacity: .7; }
+  .sub-empty .se-t { font-size: 13px; color: var(--fg); font-weight: 600; }
+  .sub-empty .se-s { font-size: 12px; color: var(--muted); margin: 4px 0 14px; line-height: 1.7; }
+  .sub-empty.slim { padding: 26px 20px; }
+
+  /* ── 通用件（与角色稿逐字同词表） ── */
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 11px; }
+  .badge.done { background: var(--ok-soft); color: var(--ok); }
+  .badge.empty { background: var(--fg-soft); color: var(--muted); }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .badge.err { background: var(--err-soft); color: var(--err); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .badge.acc { background: var(--accent-soft); color: var(--accent); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--accent); color: oklch(100% 0 0); }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--muted); }
+  .btn-ghost { background: transparent; color: var(--muted); padding: 0 10px; }
+  .btn-ghost:hover { color: var(--fg); }
+  .btn-sm { height: 28px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; }
+  .btn:disabled { opacity: .45; cursor: default; pointer-events: none; }
+  .input, .textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+  .input:focus, .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .textarea { min-height: 58px; resize: vertical; line-height: 1.7; }
+  .opt { font-size: 12px; color: var(--muted); }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 7px; }
+  .icon-btn:hover { color: var(--err); background: var(--err-soft); }
+  .text-btn { display: inline-flex; align-items: center; gap: 5px; border: none; background: transparent; color: var(--accent); font-size: 12.5px; cursor: pointer; padding: 4px 2px; font-weight: 500; }
+  .text-btn:hover { color: var(--accent-strong); }
+  .text-btn.gray { color: var(--muted); }
+  .text-btn.gray:hover { color: var(--fg); }
+  .save-state { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+  /* ─── 右栏 AI 轨（与角色稿同构） ─── */
+  .rail-assist { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
+  .rail-assist .ra-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+  .rail-assist .ra-head .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: oklch(100% 0 0); flex: none; }
+  .rail-assist .ra-head .rh-t b { display: block; font-size: 13px; font-weight: 600; }
+  .rail-assist .ra-head .rh-t span { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .rail-assist .ra-row { margin-bottom: 8px; }
+  .rail-assist .ra-step { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; }
+  .rail-assist .ra-step:hover { border-color: var(--accent); }
+  .rail-assist .ra-step:disabled { opacity: .45; cursor: default; pointer-events: none; }
+  .rail-assist .ra-body { min-width: 0; flex: 1; }
+  .rail-assist .ra-body b { display: block; font-size: 12.5px; font-weight: 600; }
+  .rail-assist .ra-body i { display: block; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 2px; }
+  .rail-assist .ra-arrow { color: var(--muted); flex: none; }
+  .rail-assist .ra-foot { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+  .rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
+
+  /* ── AI 结果区（TintPanel）与回执（面板内自管；最近一条；8 秒=UI 自清窗口） ── */
+  .ai-sink { margin: 10px 0 0; background: var(--fg-soft); border-radius: 10px; padding: 12px 16px; font-size: 12.5px; line-height: 1.8; color: var(--fg); }
+  .ai-sink[hidden] { display: none; }
+  .ai-sink .aiz-head { font-size: 11px; font-weight: 600; letter-spacing: .05em; color: var(--accent); margin-bottom: 6px; }
+  .ai-sink .aiz-hist { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+  .ai-sink .aiz-hist .ah-t { font-size: 11px; color: var(--muted); }
+  .ai-sink .aiz-hist .ah-chip { height: 20px; padding: 0 9px; font-size: 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; }
+  .ai-sink .aiz-hist .ah-chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+  .ai-sink .cand { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; border-bottom: 1px dashed var(--border); }
+  .ai-sink .cand:last-of-type { border-bottom: none; }
+  .ai-sink .cand input[type="checkbox"] { margin-top: 4px; flex: none; accent-color: var(--accent); }
+  .ai-sink .cand .c-tag { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent); margin-right: 6px; white-space: nowrap; }
+  .ai-sink .ans-act { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .ai-sink .ans-act button { height: 26px; padding: 0 12px; font-size: 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .ai-sink .ans-act button.primary { background: var(--accent); border-color: transparent; color: oklch(100% 0 0); }
+  .ai-sink .ans-act .aa-note { font-size: 11px; color: var(--warn); }
+  .chk-line { display: flex; gap: 8px; align-items: baseline; }
+  .chk-line.click { cursor: pointer; border-radius: 6px; }
+  .chk-line.click:hover { background: color-mix(in oklch, var(--accent) 6%, transparent); }
+  .chk-line.click:hover .chk-name { color: var(--accent); }
+  .chk-line .chk-name { flex: none; width: 96px; font-size: 12px; }
+  .chk-line .chk-res { font-size: 12px; font-weight: 500; flex: none; }
+  .chk-line .chk-res.ok { color: var(--ok); }
+  .chk-line .chk-res.miss { color: var(--err); }
+  .chk-line .chk-res.warn { color: var(--warn); }
+  .chk-line .chk-note { font-size: 11.5px; color: var(--muted); min-width: 0; }
+  .receipt-bar { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 8px 12px; border: 1px solid color-mix(in oklch, var(--accent) 30%, var(--border)); border-radius: 9px; background: var(--accent-soft); font-size: 12px; color: var(--fg); }
+  .receipt-bar[hidden] { display: none; }
+  .receipt-bar .rb-undo { margin-left: auto; flex: none; height: 24px; padding: 0 12px; font-size: 11.5px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .receipt-bar .rb-undo:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── 面板骨架 ── */
+  .panel-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+  .panel-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 600; margin: 0; }
+  .panel-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); margin-top: 8px; flex-wrap: wrap; }
+  .panel-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+  .panel-foot .warnline { font-size: 12px; color: var(--warn); margin-right: auto; }
+
+  /* ── 结论 ─── */
+  .rec-box { border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: var(--radius); background: var(--accent-soft); padding: 16px 20px; font-size: 13.5px; line-height: 1.8; }
+  .rec-box b { font-weight: 600; }
+  .rec-box ol { margin: 8px 0 0 20px; }
+  .rec-box li { margin: 6px 0; }
+
+  @media (max-width: 720px) {
+    body { padding: 24px 12px 60px; }
+    h1 { font-size: 22px; }
+    .col-panel { padding: 20px 14px 24px; }
+    .caliber { padding: 10px 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="draft-banner"><b>设计稿 v3（终审修订）</b>二轮四路评审吸收＋五项拍板「按推荐」：ops token 撤销、任意状态可确认、未来章降级、内容有变降级徽标、三批切片。交互可预览。</div>
+  <h1>伏笔设定 · 伏笔台账＋单条伏笔卡<span class="ver">DRAFT v3</span></h1>
+  <p class="sub">承 v2（真表 novel_hooks＋id 引用、章节选择器、确认门禁保留）。v3 补齐落地契约：<b>自动保存</b>（字段级防抖 PATCH＋队列，存草稿隐藏）、<b>ops token 撤销</b>（原 id 原样恢复，8 秒＝回执自清窗口）、<b>确认判据任意状态</b>、<b>内容有变降级徽标</b>（沿 charStale 先例）、<b>计划收束未建章降级</b>、<b>卷章选择器补 chapter id 数据源</b>。</p>
+  <ul class="caliber">
+    <li><b>真表与 id</b>：novel_hooks 单表；id＝服务端发号 UUID 主键＋每书单调 seq（#H-#### 派生，<b>编号永不复用</b>）；状态单列 active/resolved/abandoned；归档联动 mentioned_in_chapter_id（本期只迁不增）。被引用一律用 id。</li>
+    <li><b>持久化＝自动保存</b>：字段级防抖 PATCH＋串行队列（沿 CharacterManager 先例）；save()＝flush 在途队列，确认前先 flush（gap3 继续成立）；「存草稿」对伏笔隐藏——草稿态＝已落库未确认。</li>
+    <li><b>章节引用用 id</b>：三格＝卷章选择器（卷 optgroup 分组，数据源＝卷章树 API 补 chapter id）；删章/卷级联后四列章引用 SET NULL，前端悬挂显示「章节已删」；<b>计划收束指向未建章先留空</b>——体检点名「未定期」，不造无中生有的章。</li>
+    <li><b>确认门禁保留</b>：确认「伏笔」≥1 条描述非空（<b>任意状态</b>——全收束/全废弃也算「用过伏笔设定」）；判据与 readiness 规格不改，checker 数据源换真表；确认后内容有变（尤其清空）→ 徽标降级「内容有变 · 待重新确认」。</li>
+    <li><b>撤销与回执</b>：删除即落库＋服务端 ops token，撤销按原 id 原样恢复；「8 秒」＝回执条 UI 自清窗口，回执面板内自管、只留最近一条；AI 采纳撤销＝精确逆操作，不吃掉其后其他改动。</li>
+    <li><b>术语与状态语言</b>：「收束」单源（收束＝把坑填了；埋/还 留讲解层）；活跃=warn／已收束=ok／废弃=muted 全链同源；「废弃＝不再收束」。</li>
+  </ul>
+
+  <div class="win" id="winHooks">
+
+    <div class="win-titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="win-title">残卷听澜 — 爱小说</span></div>
+    <div class="appbar">
+      <span class="logo"><span class="logo-mark">爱</span>爱小说</span>
+      <span class="sep"></span>
+      <button class="back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="m15 18-6-6 6-6"/></svg>返回工作台</button>
+      <span class="spacer"></span>
+      <button class="back" type="button">客服</button>
+      <button class="back" type="button">设置</button>
+    </div>
+    <div class="novelbar">
+      <span class="nb-title">《残卷听澜》</span>
+      <span class="nb-sep"></span>
+      <span>仙侠/修真 · 凡人流</span>
+      <span class="spacer" style="flex:1;"></span>
+      <span class="badge acc">PRO</span>
+    </div>
+
+    <div class="view three-col on settings-v">
+
+    <!-- ═══ 左栏 · 设定树＝现有设定页原样复刻（不动） ═══ -->
+    <aside class="col-tree">
+      <div class="tree-head"><span class="t">设定 · <b>8</b> 项 + 1 工具</span></div>
+      <div class="settings-progress">
+        <span class="pl num">设定 <b>6</b>/8</span>
+        <div class="pbar"><i style="width: 75%;"></i></div>
+      </div>
+      <div class="settings-nav-wrap">
+        <div class="s-item"><span class="nm">模型设定</span><span class="defer-tag">工具</span><span class="spacer"></span><span class="badge empty">不参与进度</span></div>
+        <div class="s-item"><span class="nm">简介</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item"><span class="nm">题材</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item"><span class="nm">世界</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item"><span class="nm">角色</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item"><span class="nm">主线</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item"><span class="nm">文风</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item on"><span class="nm">伏笔</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge warn">进行中</span></div>
+        <div class="s-item"><span class="nm">禁用词句</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+      </div>
+      <div class="tree-foot"><span style="font-size: 12px; color: var(--muted); line-height: 1.7;">可后补项确认后计入设定进度 · 确认即前进到下一项</span></div>
+    </aside>
+
+    <main class="col-middle">
+     <div class="col-panel">
+      <div class="panel sub-fill">
+       <div class="panel-head">
+        <h2>伏笔</h2>
+        <span class="badge warn" id="badgeLedger">4 条待收束</span>
+       </div>
+       <p class="desc">先埋下的，后面要还（「收束」＝把坑填了）。每条伏笔记三件事：<b>在哪埋、打算哪章还、还了没</b>——章节从卷章树里选，AI 写到那章会照着还。改动即自动保存；设定期想到就记一条，写正文时回来埋也一样。</p>
+       <div class="sub-wrap">
+
+        <!-- ═══ 子栏左 · 伏笔台账（状态三分组＋搜索＋添加置顶；空组不渲染） ═══ -->
+        <nav class="hook-tree" id="treeHooks" data-od-id="tree-hooks">
+          <div class="tree-top">伏笔<span class="cnt num" id="tcTotal">7</span></div>
+          <button class="tree-add" id="hkAdd" data-od-id="btn-add-hook" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 5v14M5 12h14"/></svg>添加伏笔</button>
+          <input class="tree-search" id="treeSearch" data-od-id="search-hook" type="search" placeholder="搜描述…" />
+          <div class="tree-list" id="hookList"></div>
+          <p class="opt" id="treeEmpty" hidden style="padding:4px 8px;">没有找到——换个词试试。</p>
+        </nav>
+
+        <!-- ═══ 子栏右 · 选中伏笔卡 ═══ -->
+        <div class="hook-main">
+
+          <div id="hookCard">
+            <div class="sec-label" style="margin-top:0;">伏笔卡<span class="kv-static num" id="hkId">#H-0001</span><span class="sl-tag st-active" id="hkStateTag">活跃</span></div>
+            <div class="kv" data-od-id="kv-hook">
+              <div class="kv-row span2" style="align-items: flex-start;">
+                <span class="kv-k">伏笔描述<i class="req">必填</i></span>
+                <textarea class="textarea" rows="2" id="hkDesc" data-od-id="input-hook-desc" placeholder="埋了什么钩子、读者会记挂什么。例：父亲失踪前塞给林拾的半页残卷——缺的半页在哪？"></textarea>
+              </div>
+              <div class="kv-row">
+                <span class="kv-k">引入章节</span>
+                <select class="input" id="hkIn" data-od-id="select-hook-in"></select>
+              </div>
+              <div class="kv-row" id="rowPlan">
+                <span class="kv-k">计划收束<span class="kv-hint">章未建可先留空</span></span>
+                <select class="input" id="hkPlan" data-od-id="select-hook-plan"></select>
+              </div>
+              <div class="kv-row">
+                <span class="kv-k">类型</span>
+                <select class="input" id="hkType" data-od-id="select-hook-type"></select>
+              </div>
+              <div class="kv-row">
+                <span class="kv-k">优先级</span>
+                <div class="cap-row" id="priSeg" data-od-id="seg-hook-priority">
+                  <button class="cap cap-sm" type="button" data-pri="1">高</button>
+                  <button class="cap cap-sm" type="button" data-pri="2">中</button>
+                  <button class="cap cap-sm" type="button" data-pri="3">低</button>
+                </div>
+              </div>
+              <div class="kv-row">
+                <span class="kv-k">状态</span>
+                <div style="flex:1; min-width:0;">
+                  <div class="cap-row" id="stateSeg" data-od-id="seg-hook-state">
+                    <button class="cap cap-sm" type="button" data-state="active">活跃</button>
+                    <button class="cap cap-sm" type="button" data-state="resolved">已收束</button>
+                    <button class="cap cap-sm" type="button" data-state="abandoned">废弃</button>
+                  </div>
+                  <p class="seg-note" id="stateNote">切换后这条伏笔会移到对应分组；移错随时切回来（收束记录保留不清）。</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- 收束记录：已收束态展开；软引导留痕，不硬拦确认 -->
+            <div id="resolvedBlock" data-od-id="kv-hook-payoff">
+              <div class="sec-label" style="margin-top:16px;">收束记录<span class="sl-tag">建议留痕</span></div>
+              <div class="kv">
+                <div class="kv-row">
+                  <span class="kv-k">收束章节</span>
+                  <select class="input" id="hkOut" data-od-id="select-hook-out"></select>
+                </div>
+                <div class="kv-row span2" style="align-items: flex-start;">
+                  <span class="kv-k">怎么收的</span>
+                  <textarea class="textarea" rows="2" id="hkHow" data-od-id="input-hook-how" placeholder="一句留痕：读者在哪一刻对上了。例：通缉令笔迹与赵执事批过的名录对上——林拾当场没声张。"></textarea>
+                  <div class="ai-sink" id="sinkPayoff" hidden></div>
+                </div>
+              </div>
+              <p class="opt" id="payoffHint" hidden style="margin-top:8px;">这条已收束但没留痕——补一句「怎么收的」，埋坑体检会一直点名提醒。</p>
+            </div>
+
+            <div id="abandonedNote" hidden>
+              <p class="opt" style="margin-top:12px;">废弃＝不再收束。移回「活跃」可重新埋。</p>
+            </div>
+
+            <div class="del-row">
+              <button type="button" class="btn btn-secondary btn-sm" id="hkDel" data-od-id="btn-del-hook"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="13" height="13"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>删除这条伏笔</button>
+              <span class="del-hint">删除后 8 秒内可点撤销——按原编号原样找回。</span>
+            </div>
+          </div>
+
+          <!-- 有伏笔但未选中：轻空态 -->
+          <div class="sub-empty slim" id="selEmpty" hidden data-od-id="empty-hook-selection">
+            <p class="se-t">在左侧选一条伏笔</p>
+            <p class="se-s">或点「添加伏笔」新埋一条。</p>
+          </div>
+
+          <!-- 空态：图标＋一句话＋主动作＋旁路（旁路＝「编辑区零 AI 按钮」唯一登记例外，随门控矩阵走） -->
+          <div class="sub-empty" id="hookEmpty" hidden data-od-id="empty-hooks">
+            <svg class="se-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 8v4m0 4h.01"/></svg>
+            <p class="se-t">还没有伏笔</p>
+            <p class="se-s">想到就记一条：埋了什么、打算哪章还。<br />写正文时回来埋一样算数——但确认「伏笔」前至少要埋一条。</p>
+            <button class="btn btn-secondary" id="emptyAdd" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 5v14M5 12h14"/></svg>添加伏笔</button>
+            <p class="opt" style="margin-top:10px;">或者 <button class="text-btn" id="emptyAi" type="button" data-od-id="btn-empty-ai">让 AI 从简介＋主线起草几条候选</button>。</p>
+          </div>
+
+          <!-- AI 结果落点（编辑区无 AI 按钮，结果都落这里） -->
+          <div class="ai-sink" id="sinkHooks" hidden data-od-id="sink-hook-draft"></div>
+          <div class="ai-sink" id="sinkCheck" hidden data-od-id="sink-hook-check"></div>
+
+        </div><!-- /hook-main -->
+      </div><!-- /sub-wrap -->
+
+      <!-- 回执：面板内自管（不经 SettingsView 回执通道），最近一条，8 秒自清 -->
+      <div class="receipt-bar" id="receiptBar" hidden data-od-id="receipt-hooks">
+        <span id="receiptText"></span>
+        <button class="rb-undo" id="receiptUndo" type="button">撤销</button>
+      </div>
+
+      <div class="panel-foot">
+        <span class="warnline" id="hookHint" hidden>确认「伏笔」至少要埋一条——写一句描述就行；也可以先跳过，写作期回来补</span>
+        <span class="note" id="hookOkNote">改动自动保存 · 确认即前进到「禁用词句」</span>
+        <span class="save-state" id="saveState" data-od-id="save-state">已自动保存</span>
+        <button class="btn btn-primary" type="button" id="btnConfirm">确认完成</button>
+      </div>
+      </div><!-- /panel.sub-fill -->
+     </div><!-- /col-panel -->
+    </main><!-- /col-middle -->
+
+    <!-- ═══ 右栏 · AI 助手（现有 col-ai 位置，内容＝本稿设计） ═══ -->
+    <aside class="col-ai">
+      <div class="rail-assist" id="railHooks">
+        <div class="ra-head">
+          <span class="plan-badge">PRO</span>
+          <div class="rh-t"><b>AI 写作助手</b><span>已解锁 · 包含在 PRO 会员 · 只加工你的设定，不代写</span></div>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiact="h1" data-od-id="ai-draft-hooks">
+            <span class="ra-body"><b>起草伏笔</b><i>按你的简介＋题材＋世界＋主线给 3 条候选，勾选采纳 · 输入：简介＋题材＋世界＋主线</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiact="h2" data-od-id="ai-payoff-plan">
+            <span class="ra-body"><b>拟收束方案</b><i id="h2Hint">对当前选中的伏笔给收束方案 · 采纳后写入收束记录并移入已收束 · 输入：当前伏笔＋主线＋已写章纲</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiact="h3" data-od-id="ai-ledger-audit">
+            <span class="ra-body"><b>埋坑体检</b><i>扫全部活跃伏笔 × 已写章纲：埋了没还的点名，给出建议收束章 · 只提醒不拦确认；章纲未建时降级为纯台账自检</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiact="h4" data-od-id="ai-hook-check">
+            <span class="ra-body"><b>查一致性</b><i id="h4Hint">只查当前选中伏笔 × 简介/题材/世界：钩子是否与设定矛盾、代价是否对得上 · 只提醒不拦确认</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <p class="ra-foot">答案落对应字段或卡底，<b>采纳 · 覆盖</b>才写回（覆盖已有收束记录时按钮明示「覆盖并收束」，采纳仍可一步撤销）；回执只留最近一条、8 秒内可点撤销；起草伏笔保留最近 5 次结果可切回。<b>所有 AI 辅助功能都在本栏</b>，伏笔卡编辑区不放 AI 按钮；免费版四行可见＋锁定，点击走统一升级窗口（未配置模型时才指路「AI 模型」）。</p>
+      </div>
+
+      <p class="opt" style="margin-top:12px;">未配置模型？去左侧「AI 模型」。</p>
+    </aside>
+    </div><!-- /view.three-col -->
+  </div><!-- /winHooks -->
+
+  <div class="rec-box">
+    <b>结论 · v3 裁定与增量（取代 v2 结论）</b>
+    <ol>
+      <li><b>五拍板落定</b>：①撤销=DELETE 即落库＋服务端 ops token（原 id 原样恢复，编号不跳变；8 秒=回执 UI 自清）；②确认判据=≥1 条描述非空（任意状态），checker 换真表数据源；③计划收束指向未建章=留空降级＋体检点名，讲解层明示；④确认后内容有变→「内容有变 · 待重新确认」（charStale 先例）；⑤三批切片——批1 免费基座（真表+升级链+CRUD+选择器+门禁）、批2 体检+起草、批3 拟收束+一致性。</li>
+      <li><b>二轮 P0 全闭</b>：升级链补导入器 v1 hooks 读窗（三数组→真表行；mentioned→active+mentioned 列；绑不上章引用置 NULL 不丢行）；导出包章引用存 ref 不存 id（导入按 ref→id 重绑）；FORMAT_VERSION 2→3；持久化=字段级防抖 PATCH＋队列（save()=flush，「存草稿」隐藏）；id 服务端发号 UUID+单调 seq。</li>
+      <li><b>二轮 P1 全闭</b>：卷章树 API（/volumes、/tree）响应补 chapter id（新增 Modified 登记）；删章/卷级联四列 SET NULL＋前端「章节已删」；回执面板内自管（不经 SettingsView 通道）；门控矩阵（四行＋空态旁路 × aiState 五态）立项补齐，member_required 走统一升级出口；h2 覆盖口径=警示明示＋可撤销（不加二次弹窗）；退役端点 400 文案。</li>
+      <li><b>表契约定稿</b>：id UUID PK、novel_id FK CASCADE、seq 单调、description/payoff_note String(300)、type slug String(20)、priority Integer 1/2/3（API 兼容 int/str/high 归一）、status String(20)、四列章引用 FK SET NULL＋index、mentioned_in_chapter_id、时间戳；词表单源 hooks_model.py（9 slug＋3 status＋长度常量）前端镜像＋parity 测试；索引 ix_hook_novel_status。</li>
+      <li><b>立项建议</b>：openspec change `foreshadow-settings-v2` —— New `foreshadow-settings`（真表契约＋CRUD＋ops token 撤销＋升级链＋AI 四行 /ai/hooks/{action} 只出建议）；Modified `creation-flow`（伏笔移出「无 AI 能力项」；退役 /ai/hooks/description 与 settings_hooks.prompt）；Modified `design-system`（hk-* 词表、状态点三色、保存四态）；Modified 卷章树 schema（/volumes、/tree 响应补 chapter id）；backup FORMAT_VERSION 3＋v1 读窗。readiness 判据不改（checker 换源）。测试面：后端矩阵约 30 例＋e2e 14 例＋六阶段演练（含删库救回 roundtrip）；7 个落地口径已在稿头落纸。non-goals：mentioned 只迁不增；工作台体检入口留写作期 change；ConfirmGuard 不新造。</li>
+    </ol>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  function toast(msg) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;right:22px;bottom:22px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);z-index:99;max-width:340px;';
+    t.textContent = msg; document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2600);
+  }
+  const esc = t => String(t).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const $ = s => document.querySelector(s);
+  const $$ = s => Array.prototype.slice.call(document.querySelectorAll(s));
+
+  /* ═══ 口径：类型 slug、优先级 "1/2/3"（存储 Integer，展示 高/中/低）、章节=chapter id ═══ */
+  const TYPES = [
+    ['mystery', '谜团'], ['threat', '威胁'], ['promise', '承诺'], ['clue', '线索'], ['relationship', '关系'],
+    ['power', '力量'], ['emotion', '情感'], ['choice', '选择'], ['desire', '欲望']
+  ];
+  const TYPE_LABEL = Object.fromEntries(TYPES);
+  const PRI_LABEL = { '1': '高', '2': '中', '3': '低' };
+  const STATE_LABEL = { active: '活跃', resolved: '已收束', abandoned: '废弃' };
+  /* 卷章树（demo 数据，按卷分组示意 optgroup）：c1-c12=卷一，c13-c40=卷二 */
+  const VOLS = [['卷一 · 凡尘', 1, 12], ['卷二 · 残卷', 13, 40]];
+  const CH_NAMES = { 1: '火场遗页', 3: '柳安坊', 5: '听漏', 6: '戒律堂', 7: '丹阁', 9: '通缉令', 11: '同盟', 12: '残页对账' };
+  const CHAPTERS = [];
+  VOLS.forEach((v, vi) => {
+    for (let i = v[1]; i <= v[2]; i++) {
+      CHAPTERS.push({ id: 'c' + i, vol: vi, label: '第 ' + String(i).padStart(2, '0') + ' 章' + (CH_NAMES[i] ? ' · ' + CH_NAMES[i] : '') });
+    }
+  });
+  const CH_LABEL = Object.fromEntries(CHAPTERS.map(c => [c.id, c.label]));
+  const chLabel = id => id ? (CH_LABEL[id] || '章节已删') : '';
+
+  /* ═══ 数据（demo 单源）：真表行；落地 id=服务端 UUID＋seq 单调，demo 用数字示意 ═══ */
+  let HOOKS = [
+    { id: 1, state: 'active', desc: '父亲失踪前塞给林拾的半页残卷——缺的半页在哪', inCh: 'c1', plan: 'c38', type: 'mystery', pri: '1' },
+    { id: 2, state: 'active', desc: '柳掌柜「什么都收」——他到底替谁收', inCh: 'c3', plan: '', type: 'mystery', pri: '2' },
+    { id: 3, state: 'active', desc: '听漏之耳连用三次丢一段记忆——第一次丢的是什么', inCh: 'c5', plan: 'c30', type: 'promise', pri: '1' },
+    { id: 4, state: 'active', desc: '藏经阁大火当晚，戒律堂主为什么迟到一炷香', inCh: 'c6', plan: '', type: 'clue', pri: '3' },
+    { id: 5, state: 'resolved', desc: '丹阁通缉令的画师笔法——出自赵执事之手', inCh: 'c9', plan: '', outCh: 'c24', how: '拿通缉令笔迹对照赵执事批过的名录对上——林拾当场没声张，攥成了牌。', type: 'clue', pri: '2' },
+    { id: 6, state: 'resolved', desc: '苏晚芜袖口熏香与林拾母亲遗物同源', inCh: 'c11', plan: '', outCh: 'c22', how: '第 22 章互换信物时点破同源，两人各退半步——同盟里多了一层旧缘。', type: 'relationship', pri: '3' },
+    { id: 7, state: 'abandoned', desc: '坊市传闻的「夜半钟声」', inCh: 'c4', plan: '', type: 'threat', pri: '3' }
+  ];
+  const GROUPS = [
+    { key: 'active', label: '活跃' },
+    { key: 'resolved', label: '已收束' },
+    { key: 'abandoned', label: '废弃' }
+  ];
+  let selId = 1;
+  let lastDeleted = null;
+  let pendingUndo = null;
+  let undoTimer = null;
+  let saveTimer = null;
+  let confirmed = false;
+  let confirmSnap = null;   /* 确认时内容指纹——内容有变→徽标降级 */
+
+  const byId = id => HOOKS.find(h => h.id === id);
+  const arrOf = state => HOOKS.filter(h => h.state === state);
+  const hkCode = id => '#H-' + String(id).padStart(4, '0');
+  const nextId = () => HOOKS.reduce((m, h) => Math.max(m, h.id), 0) + 1;
+
+  /* ═══ 自动保存示意（落地=字段级防抖 PATCH＋串行队列；save()=flush） ═══ */
+  function touchSave() {
+    const el = $('#saveState');
+    el.textContent = '保存中…';
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { el.textContent = '已自动保存'; }, 600);
+  }
+
+  /* ═══ 台账渲染：三分组（空组不渲染）＋两行条目 ═══ */
+  function renderList(q) {
+    const box = $('#hookList');
+    box.innerHTML = '';
+    let total = 0;
+    GROUPS.forEach(g => {
+      const items = arrOf(g.key).filter(h => !q || h.desc.indexOf(q) >= 0);
+      if (items.length === 0) return;
+      const head = document.createElement('div');
+      head.className = 'sub-group-label';
+      head.innerHTML = '<span class="g-dot ' + g.key + '"></span>' + g.label + '<span class="g-cnt num">' + items.length + '</span>';
+      box.appendChild(head);
+      items.forEach(h => {
+        total++;
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'hk-item' + (h.id === selId ? ' on' : '');
+        b.dataset.id = String(h.id);
+        const ch = h.state === 'resolved' ? ('收于 ' + (chLabel(h.outCh) || '未记')) : (chLabel(h.inCh) || '未记章');
+        b.innerHTML = '<span class="hk-dot ' + h.state + '"></span>' +
+          '<span class="hk-b"><span class="hk-name">' + (esc(h.desc) || '未填写') + '</span>' +
+          '<span class="hk-meta"><span class="hk-type">' + esc(TYPE_LABEL[h.type] || h.type) + '</span><span>' + esc(PRI_LABEL[h.pri] || h.pri) + '</span><span class="hk-ch">' + esc(ch) + '</span></span></span>';
+        b.addEventListener('click', () => selectHook(h.id));
+        box.appendChild(b);
+      });
+    });
+    $('#tcTotal').textContent = String(total);
+    $('#treeEmpty').hidden = !(q && total === 0);
+    syncBadge();
+  }
+
+  function syncBadge() {
+    const pending = arrOf('active').length;
+    const badge = $('#badgeLedger');
+    const changed = confirmed && confirmSnap !== null && confirmSnap !== JSON.stringify(HOOKS);
+    if (changed) { badge.textContent = '内容有变 · 待重新确认'; badge.className = 'badge warn'; }
+    else if (HOOKS.length === 0) { badge.textContent = '还没有伏笔'; badge.className = 'badge empty'; }
+    else if (confirmed) { badge.textContent = '已确认 · ' + pending + ' 条待收束'; badge.className = 'badge done'; }
+    else if (pending > 0) { badge.textContent = pending + ' 条待收束'; badge.className = 'badge warn'; }
+    else { badge.textContent = '全部收束'; badge.className = 'badge ok'; }
+    /* 确认门禁：≥1 条描述非空（任意状态）；按钮恒可点，这里只提示 */
+    const ok = HOOKS.some(h => h.desc.trim().length > 0);
+    $('#hookHint').hidden = ok;
+    $('#hookOkNote').hidden = !ok;
+    syncRail();
+  }
+
+  /* ═══ 章节选择器（按卷 optgroup）与类型下拉 ═══ */
+  function fillChapterSelect(sel, withEmpty, emptyLabel) {
+    sel.innerHTML = '';
+    if (withEmpty) {
+      const o = document.createElement('option');
+      o.value = ''; o.textContent = emptyLabel || '选章节（可后补）';
+      sel.appendChild(o);
+    }
+    VOLS.forEach((v, vi) => {
+      const og = document.createElement('optgroup');
+      og.label = v[0];
+      CHAPTERS.filter(c => c.vol === vi).forEach(c => {
+        const o = document.createElement('option');
+        o.value = c.id; o.textContent = c.label;
+        og.appendChild(o);
+      });
+      sel.appendChild(og);
+    });
+  }
+  function fillTypeSelect(sel) {
+    sel.innerHTML = '';
+    TYPES.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t[0]; o.textContent = t[1];
+      sel.appendChild(o);
+    });
+  }
+  fillTypeSelect($('#hkType'));
+  fillChapterSelect($('#hkIn'), false);
+  fillChapterSelect($('#hkPlan'), true, '选章节（章未建可先留空）');
+  fillChapterSelect($('#hkOut'), true, '选收束章节（可后补）');
+
+  /* ═══ 右栏 h2/h4：无选中条目时置灰＋hint（沿 AiCapabilityRow disabled 先例） ═══ */
+  function syncRail() {
+    const none = !byId(selId);
+    [['h2', '先选一条伏笔——收束方案对选中条目生效'], ['h4', '先选一条伏笔——一致性体检对选中条目生效']].forEach(([k, hint]) => {
+      const btn = $('[data-aiact="' + k + '"]');
+      if (!btn) return;
+      btn.disabled = none;
+      const i = btn.querySelector('.ra-body i');
+      if (i) {
+        if (i.dataset.orig === undefined) i.dataset.orig = i.textContent;
+        i.textContent = none ? hint : i.dataset.orig;
+      }
+    });
+  }
+
+  /* ═══ 伏笔卡渲染与编辑 ═══ */
+  function renderForm() {
+    const h = byId(selId);
+    $('#hookCard').hidden = !h;
+    $('#selEmpty').hidden = !!(h || HOOKS.length === 0);
+    $('#hookEmpty').hidden = HOOKS.length > 0;
+    if (!h) { syncRail(); return; }
+    $('#hkId').textContent = hkCode(h.id);
+    $('#hkDesc').value = h.desc;
+    $('#hkIn').value = h.inCh || '';
+    $('#hkPlan').value = h.plan || '';
+    $('#hkType').value = h.type;
+    $('#hkOut').value = h.outCh || '';
+    $('#hkHow').value = h.how || '';
+    $$('#priSeg .cap').forEach(c => c.classList.toggle('on', c.dataset.pri === h.pri));
+    $$('#stateSeg .cap').forEach(c => c.classList.toggle('on', c.dataset.state === h.state));
+    const tag = $('#hkStateTag');
+    tag.textContent = STATE_LABEL[h.state];
+    tag.className = 'sl-tag ' + { active: 'st-active', resolved: 'st-resolved', abandoned: 'st-abandoned' }[h.state];
+    $('#resolvedBlock').hidden = h.state !== 'resolved';
+    $('#abandonedNote').hidden = h.state !== 'abandoned';
+    $('#rowPlan').hidden = h.state === 'resolved';
+    $('#payoffHint').hidden = !(h.state === 'resolved' && !(h.how || '').trim());
+    if (h.state === 'resolved') {
+      $('#stateNote').textContent = '已收束的还留着收束记录——改错章随时改回来。';
+    } else if (h.state === 'abandoned') {
+      $('#stateNote').textContent = '废弃＝不再收束；移回「活跃」可重新埋。';
+    } else {
+      $('#stateNote').textContent = '切换后这条伏笔会移到对应分组；移错随时切回来（收束记录保留不清）。';
+    }
+    syncRail();
+  }
+
+  function selectHook(id) { selId = id; $('#sinkPayoff').hidden = true; renderList($('#treeSearch').value.trim()); renderForm(); }
+
+  function patch(patchObj) {
+    const h = byId(selId); if (!h) return;
+    Object.assign(h, patchObj);
+    touchSave();
+    renderList($('#treeSearch').value.trim());
+    renderForm();
+  }
+
+  $('#hkDesc').addEventListener('input', e => patch({ desc: e.target.value }));
+  $('#hkIn').addEventListener('change', e => patch({ inCh: e.target.value }));
+  $('#hkPlan').addEventListener('change', e => patch({ plan: e.target.value }));
+  $('#hkOut').addEventListener('change', e => patch({ outCh: e.target.value }));
+  $('#hkHow').addEventListener('input', e => patch({ how: e.target.value }));
+  $('#hkType').addEventListener('change', e => patch({ type: e.target.value }));
+  $('#priSeg').addEventListener('click', e => {
+    const c = e.target.closest('.cap'); if (!c) return;
+    patch({ pri: c.dataset.pri });
+  });
+
+  /* 状态显式切换：切换即挪组，选中跟随；收束记录保留不清 */
+  $('#stateSeg').addEventListener('click', e => {
+    const c = e.target.closest('.cap'); if (!c) return;
+    const h = byId(selId); if (!h) return;
+    const to = c.dataset.state;
+    if (to === h.state) return;
+    patch({ state: to });
+    if (to === 'resolved') {
+      $('#hkOut').focus();
+      toast('已移入「已收束」——选收束章节、补一句怎么收的');
+    } else if (to === 'abandoned') {
+      toast('已移入「废弃」——不再收束，移回活跃可重新埋');
+    } else {
+      toast('已移回「活跃」——记得补计划收束章');
+    }
+  });
+
+  /* 删除：即落库（落地=DELETE＋服务端 ops token，撤销原 id 原样恢复）；8 秒=回执自清窗口 */
+  $('#hkDel').addEventListener('click', () => {
+    const h = byId(selId); if (!h) return;
+    lastDeleted = h;
+    HOOKS.splice(HOOKS.indexOf(h), 1);
+    selId = HOOKS.length ? HOOKS[0].id : null;
+    touchSave();
+    renderList($('#treeSearch').value.trim()); renderForm();
+    showReceipt('已删除「' + (h.desc.slice(0, 12) || '未填写') + '」· 8 秒内可点撤销', () => {
+      if (!lastDeleted) return;
+      HOOKS.push(lastDeleted);
+      selId = lastDeleted.id; lastDeleted = null;
+      touchSave();
+      renderList($('#treeSearch').value.trim()); renderForm();
+      toast('已撤销，按原编号原样找回');
+    });
+  });
+
+  /* 添加伏笔：落地=POST（服务端发号 uuid+seq，编号永不复用）；demo max+1 仅示意 */
+  function addHook() {
+    const h = { id: nextId(), state: 'active', desc: '', inCh: '', plan: '', type: 'mystery', pri: '2' };
+    HOOKS.push(h); selId = h.id;
+    $('#treeSearch').value = '';
+    touchSave();
+    renderList(''); renderForm();
+    $('#hkDesc').focus();
+  }
+  $('#hkAdd').addEventListener('click', addHook);
+  $('#emptyAdd').addEventListener('click', addHook);
+
+  /* 树内搜索 */
+  $('#treeSearch').addEventListener('input', e => renderList(e.target.value.trim()));
+
+  /* ═══ 回执条：面板内自管，最近一条，8 秒自清（token 有效期见稿头裁定） ═══ */
+  function showReceipt(text, undoFn) {
+    pendingUndo = undoFn;
+    $('#receiptText').textContent = text;
+    $('#receiptBar').hidden = false;
+    if (undoTimer) clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => { $('#receiptBar').hidden = true; pendingUndo = null; }, 8000);
+  }
+  $('#receiptUndo').addEventListener('click', () => {
+    if (pendingUndo) pendingUndo();
+    $('#receiptBar').hidden = true; pendingUndo = null;
+  });
+
+  /* ═══ AI 行 h1：起草伏笔（3 条候选勾选采纳；采纳后聚焦新条目引入章节） ═══ */
+  const AI_DRAFTS = [
+    [
+      { tag: '候选 1 · 谜团', type: 'mystery', pri: '2', txt: '丹阁首座收购残卷不为自己——他在替一个更上面的人凑齐整套。' },
+      { tag: '候选 2 · 承诺', type: 'promise', pri: '2', txt: '戒律堂主当年放过林拾父亲一马，留了一句「你儿子再来，我就按规矩办」。' },
+      { tag: '候选 3 · 线索', type: 'clue', pri: '3', txt: '柳掌柜当铺的柜台下压着半张旧票，落款是林拾父亲的化名。' }
+    ],
+    [
+      { tag: '候选 1 · 谜团', type: 'mystery', pri: '2', txt: '半页残卷上的批注笔迹，与宗门立派祖师的手札同源——旧案比宗门历史更老。' },
+      { tag: '候选 2 · 威胁', type: 'threat', pri: '2', txt: '盯上苏晚芜的不是一个探子——她身边每旬换一次的采买，都是丹阁的眼线。' },
+      { tag: '候选 3 · 选择', type: 'choice', pri: '3', txt: '赵执事抽屉里锁着一封没寄出的请罪书——收件人是林拾的父亲。' }
+    ]
+  ];
+  const AI_HIST = {};
+  function renderDraftSink(idx) {
+    const h = AI_HIST.h1;
+    const o = h.list[idx];
+    const histHtml = h.list.length > 1
+      ? '<div class="aiz-hist"><span class="ah-t">最近 ' + h.list.length + ' 次</span>' +
+        h.list.map((_, i) => '<button class="ah-chip' + (i === idx ? ' on' : '') + '" type="button" data-idx="' + i + '">第 ' + (i + 1) + ' 次</button>').join('') + '</div>'
+      : '';
+    const box = $('#sinkHooks');
+    box.innerHTML = '<div class="aiz-head">AI 填 · 起草伏笔（勾选后采纳）</div>' + histHtml +
+      o.map((c, i) => '<label class="cand"><input type="checkbox" checked data-ci="' + i + '" /><span><span class="c-tag">' + esc(c.tag) + '</span>' + esc(c.txt) + '</span></label>').join('') +
+      '<div class="ans-act"><button class="primary" type="button">采纳所选 · 加入活跃</button><button type="button">重试</button><span class="aa-note" data-cnt></span></div>';
+    box.hidden = false;
+    const syncCnt = () => {
+      const n = box.querySelectorAll('.cand input:checked').length;
+      box.querySelector('[data-cnt]').textContent = '将加入 ' + n + ' 条';
+    };
+    box.querySelectorAll('.cand input').forEach(cb => cb.addEventListener('change', syncCnt));
+    syncCnt();
+    const btns = box.querySelectorAll('.ans-act button');
+    btns[0].addEventListener('click', () => {
+      const chosen = o.filter((_, i) => box.querySelector('.cand input[data-ci="' + i + '"]').checked);
+      if (chosen.length === 0) { toast('先勾选至少一条候选'); return; }
+      const snapshot = JSON.stringify(HOOKS);
+      const firstNew = nextId();
+      chosen.forEach(c => HOOKS.push({ id: nextId(), state: 'active', desc: c.txt, inCh: '', plan: '', type: c.type, pri: c.pri }));
+      selId = firstNew;
+      touchSave();
+      renderList(''); renderForm();
+      showReceipt('已采纳「起草伏笔」：' + chosen.length + ' 条加入活跃组，章位待补', () => {
+        HOOKS = JSON.parse(snapshot);
+        selId = HOOKS.length ? HOOKS[0].id : null;
+        touchSave();
+        renderList(''); renderForm();
+        toast('已撤销，只回滚这次采纳');
+      });
+      $('#hkIn').focus();
+      toast('已加入 ' + chosen.length + ' 条——选一下引入章节就算埋好了');
+    });
+    btns[1].addEventListener('click', () => {
+      h.list.push(h.list[(h.list.length + 1) % 2]);
+      if (h.list.length > 5) h.list.shift();
+      renderDraftSink(h.list.length - 1);
+      toast('已重试，给了一版新的');
+    });
+    box.querySelectorAll('.ah-chip').forEach(ch => ch.addEventListener('click', () => renderDraftSink(+ch.dataset.idx)));
+  }
+
+  /* ═══ AI 行 h2：拟收束方案（覆盖明示警示＋可撤销；不加二次弹窗） ═══ */
+  function renderPayoffSink() {
+    const h = byId(selId); if (!h) return;
+    const box = $('#sinkPayoff');
+    const hasExisting = !!(h.outCh || (h.how || '').trim());
+    box.innerHTML = '<div class="aiz-head">AI 填 · 拟收束方案（对 ' + hkCode(h.id) + ' 生效）</div>' +
+      '建议第 36–38 章收：林拾为救苏晚芜动用「听漏」，第三次使用的代价落地——丢的正是父亲失踪那晚的记忆；残卷缺页在记忆闪回里对上丹阁内殿的匾额。' +
+      '<div class="ans-act">' +
+      (hasExisting ? '<span class="aa-note">已有收束记录——采纳将覆盖它（可撤销）</span>' : '') +
+      '<button class="primary" type="button">' + (hasExisting ? '覆盖并收束' : '采纳 · 写入收束记录') + '</button>' +
+      '<button type="button" data-act="cancel">取消</button></div>';
+    box.hidden = false;
+    const btns = box.querySelectorAll('.ans-act button');
+    btns[0].addEventListener('click', () => {
+      const snapshot = JSON.stringify(HOOKS);
+      patch({ state: 'resolved', outCh: 'c38', how: '为救苏晚芜第三次动用「听漏」，丢的记忆正是父亲失踪那晚——残卷缺页在闪回里对上丹阁内殿的匾额。' });
+      showReceipt('已采纳「拟收束方案」：' + hkCode(h.id) + ' 移入已收束，收束记录已写入', () => {
+        HOOKS = JSON.parse(snapshot);
+        touchSave();
+        renderList(''); renderForm();
+        toast('已撤销，恢复采纳前内容');
+      });
+      toast('已收束——埋了 37 章的线，还上了');
+      box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    btns[1].addEventListener('click', () => { box.hidden = true; });
+  }
+
+  /* ═══ AI 行 h3/h4：体检（chk-line 可点跳转；章纲未建时降级为纯台账自检——见稿头） ═══ */
+  function renderCheck(kind) {
+    const box = $('#sinkCheck');
+    if (kind === 'h3') {
+      box.innerHTML = '<div class="aiz-head">AI 体检 · 埋坑体检（活跃 4 × 已写章纲 1–24 章）</div>' +
+        '<div class="chk-line click" data-jump="1" data-field="hkPlan"><span class="chk-name">#H-0001 残卷缺页</span><span class="chk-res warn">超期</span><span class="chk-note">已埋 24 章未收束——建议 38 章前收，与主线第三折合流</span></div>' +
+        '<div class="chk-line click" data-jump="3" data-field="hkPlan"><span class="chk-name">#H-0003 丢记忆</span><span class="chk-res ok">在期</span><span class="chk-note">计划第 30 章前后，还剩 6 章余量</span></div>' +
+        '<div class="chk-line click" data-jump="2" data-field="hkPlan"><span class="chk-name">#H-0002 / #H-0004</span><span class="chk-res warn">未定期</span><span class="chk-note">没写计划收束章——章纲还没建的章可先留空，这里会一直提醒</span></div>' +
+        '<div class="chk-line click" data-jump="5" data-field="hkHow"><span class="chk-name">#H-0005 留痕</span><span class="chk-res warn">无记录</span><span class="chk-note">已收束但没写「怎么收的」——补一句，下次体检不再点名</span></div>' +
+        '<p style="margin:8px 0 0;font-size:11.5px;color:var(--muted);">只提醒不拦确认；点一行可跳去对应伏笔补填。</p>' +
+        '<div class="ans-act"><button class="primary" type="button">重跑</button></div>';
+    } else {
+      box.innerHTML = '<div class="aiz-head">AI 体检 · #H-0001 × 简介 / 题材 / 世界</div>' +
+        '<div class="chk-line"><span class="chk-name">简介 × 伏笔</span><span class="chk-res ok">达标</span><span class="chk-note">「残卷」主线钩子与简介第一段逐字对上</span></div>' +
+        '<div class="chk-line"><span class="chk-name">世界 × 伏笔</span><span class="chk-res ok">达标</span><span class="chk-note">听漏代价（自瞎一日）与世界 03 一字不差</span></div>' +
+        '<div class="chk-line click" data-jump="4" data-field="hkDesc"><span class="chk-name">题材 × 伏笔</span><span class="chk-res warn">风险</span><span class="chk-note">「戒律堂主迟到一炷香」(#H-0004) 偏日常——仙侠语境里改成「闭关关键时刻离席」更贴</span></div>' +
+        '<p style="margin:8px 0 0;font-size:11.5px;color:var(--muted);">风险不拦确认；点一行可跳去改。</p>' +
+        '<div class="ans-act"><button class="primary" type="button">重跑</button></div>';
+    }
+    box.hidden = false;
+    box.querySelectorAll('.chk-line.click').forEach(line => {
+      line.addEventListener('click', () => {
+        const id = +line.dataset.jump;
+        if (!byId(id)) return;
+        selectHook(id);
+        const el = document.getElementById(line.dataset.field);
+        if (el) { el.focus(); try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* jsdom 无实现 */ } }
+      });
+    });
+    box.querySelector('.ans-act button').addEventListener('click', () => toast('已重跑 · 按当前台账与设定重新体检'));
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  $$('[data-aiact]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      const key = btn.dataset.aiact;
+      if (key === 'h1') {
+        if (!AI_HIST.h1) AI_HIST.h1 = { list: [AI_DRAFTS[0]] };
+        renderDraftSink(0);
+      }
+      if (key === 'h2') {
+        if (!byId(selId)) { toast('先在左侧选一条伏笔——收束方案对选中条目生效'); return; }
+        renderPayoffSink();
+      }
+      if (key === 'h3') renderCheck('h3');
+      if (key === 'h4') renderCheck('h4');
+    });
+  });
+
+  /* ═══ 确认：门禁 ≥1 条描述非空（任意状态）；按钮恒可点，前端仅提示性预检，后端门禁兜底 ═══ */
+  $('#btnConfirm').addEventListener('click', () => {
+    if (!HOOKS.some(h => h.desc.trim().length > 0)) {
+      toast('伏笔不能为空：先埋一条——写一句描述就行；或先跳过，写作期回来补');
+      return;
+    }
+    confirmed = true;
+    confirmSnap = JSON.stringify(HOOKS);
+    syncBadge(); renderList($('#treeSearch').value.trim());
+    toast('已确认「伏笔」· 设定树里下一项：禁用词句');
+  });
+
+  /* 空态旁路：让 AI 起草（「编辑区零 AI 按钮」唯一登记例外；随门控矩阵走） */
+  $('#emptyAi').addEventListener('click', () => {
+    if (!AI_HIST.h1) AI_HIST.h1 = { list: [AI_DRAFTS[0]] };
+    renderDraftSink(0);
+    $('#sinkHooks').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+
+  /* 应用框架：顶栏（演示稿说明——上部为现有设定页外壳，非本稿范围） */
+  $$('.appbar .back').forEach(b => b.addEventListener('click', () => toast('演示稿：上部为现有设定页外壳——本稿只设计「伏笔」的中/右两栏')));
+
+  renderList('');
+  renderForm();
+})();
+</script>
+</body>
+</html>

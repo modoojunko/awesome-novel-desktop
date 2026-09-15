@@ -18,7 +18,7 @@ from sqlalchemy import select
 from db import async_session
 from filesystem.storage import get_storage
 from genres.service import build_genre_section, resolve_genre_context
-from prompt.context import filter_active_hooks, inject_world_setting
+from prompt.context import inject_world_setting
 from settings.character_model import (
     WRITE_STATE_KEYS as _WRITE_STATE_KEYS,
 )
@@ -218,10 +218,18 @@ class ChapterContext:
             blocks.append("【角色初始状态】\n" + "\n".join(lines))
 
         if self.hooks:
-            blocks.append(
-                "【活跃伏笔】\n"
-                + "\n".join(f"- {h.get('description', '?')}" for h in self.hooks[:8])
-            )
+            # 展示编号 + 优先级（高/中/低）随注入（foreshadow-settings-v2）；
+            # 无编号的 dict 桩（测试/旧形）降级为纯描述行
+            lines = []
+            for h in self.hooks[:8]:
+                desc = h.get("description", "?")
+                code = h.get("code") or ""
+                prefix = f"[{code}] " if code else ""
+                label = h.get("priority_label") or ""
+                lines.append(
+                    f"- {prefix}{desc}" + (f"（优先级：{label}）" if label else "")
+                )
+            blocks.append("【活跃伏笔】\n" + "\n".join(lines))
 
         red_lines = self._red_lines()
         if red_lines:
@@ -569,9 +577,10 @@ async def build_chapter_context(
         await get_storage().read_yaml(root_path, "settings/anti-ai.yaml") or {}
     )
 
-    # Hooks（共享过滤口径：排除本章引入 + pending/mentioned + ≤8）
-    hooks_data = await get_storage().read_yaml(root_path, "settings/hooks.yaml") or {}
-    ctx.hooks = filter_active_hooks(hooks_data, chapter_ref)
+    # Hooks（真表 novel_hooks：status==active + 本章引入按章 id 排除 + ≤8）
+    from prompt.context import active_hooks_for_chapter
+
+    ctx.hooks = await active_hooks_for_chapter(root_path, chapter_ref, novel_id)
 
     # Genre（题材定义注入，定义缺失时优雅降级为空）
     # novel_id 有值时读 novel_genre 关系表（D19 新契约）；无值时回退旧 KV genre_id。

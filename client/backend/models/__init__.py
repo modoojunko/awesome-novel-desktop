@@ -20,6 +20,7 @@ from models.chapter import (
 from models.character import Character, CharacterGate, CharacterOp, CharacterRelation
 from models.event import Event
 from models.genre import Genre
+from models.hook import HookOp, NovelHook
 from models.novel_genre import (
     GenreVocab,
     NovelGenre,
@@ -63,10 +64,12 @@ __all__ = [
     "Event",
     "Genre",
     "GenreVocab",
+    "HookOp",
     "Novel",
     "NovelGenre",
     "NovelGenreBattlefield",
     "NovelGenreForbidden",
+    "NovelHook",
     "ProjectModelAuditLog",
     "ProjectSetting",
     "TokenLog",

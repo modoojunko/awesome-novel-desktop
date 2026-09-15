@@ -139,16 +139,10 @@ def _prime_settings(client, pid: str):
             "rules": {"world": "", "society": "", "personal": ""},
         },
     )
-    client.put(
-        f"/api/novels/{pid}/settings/hooks",
-        json={
-            "active": [
-                {"id": "hook-1", "description": "First hook", "introduced_in": "1-1", "status": "pending"},
-                {"id": "hook-2", "description": "Second hook", "introduced_in": "1-1", "status": "pending"},
-                {"id": "hook-3", "description": "Third hook", "introduced_in": "1-1", "status": "pending"},
-            ]
-        },
-    )
+    # hooks（foreshadow-settings-v2：真表 novel_hooks，条目级 POST 种数据）
+    for desc in ("First hook", "Second hook", "Third hook"):
+        r = client.post(f"/api/novels/{pid}/hooks", json={"description": desc})
+        assert r.status_code == 200, r.text
     # synopsis / genre（PRD 3.4 判定口径对齐；transition 走软门控不 assert warnings，语义安全）
     client.put(f"/api/novels/{pid}/story", json={"synopsis": "A test synopsis"})
     client.put(f"/api/novels/{pid}/settings/genre", json={"genre_id": "fantasy"})

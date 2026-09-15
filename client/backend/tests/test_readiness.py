@@ -148,6 +148,13 @@ def _fill_world(client, pid: str, filled: int = 4):
     client.put(f"/api/novels/{pid}/settings/world", json=world)
 
 
+def _add_hook(client, pid: str, description: str, status: str = "active") -> dict:
+    """种一条伏笔（foreshadow-settings-v2：readiness 判据走真表 novel_hooks）。"""
+    r = client.post(f"/api/novels/{pid}/hooks", json={"description": description, "status": status})
+    assert r.status_code == 200, r.text
+    return r.json()["data"]
+
+
 # ── GET /readiness ────────────────────────────────────────────────────────
 
 
@@ -178,7 +185,7 @@ class TestReadiness:
         )
         client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "以弱破强的痛快"})
         _fill_world(client, pid, filled=4)
-        client.put(f"/api/novels/{pid}/settings/hooks", json={"active": [{"id": "h1", "description": "一个钩子"}]})
+        _add_hook(client, pid, "一个钩子")
         client.post(f"/api/novels/{pid}/characters", json={"name": "张三", "role": "主角"})
         # style/anti-ai 模板默认已通过
         r = client.get(f"/api/novels/{pid}/readiness")
@@ -293,14 +300,49 @@ class TestConfirmToggle:
         assert r.json()["confirmed"] is True
 
     def test_confirm_hooks(self, client):
-        """模板空钩子（id/description 空）不算内容 → 400；有效钩子后可确认。"""
+        """空表（无行）不算已填 → 400；有效钩子（真表行）后可确认。"""
         pid = _create_project(client)
         r = client.put(f"/api/novels/{pid}/settings/status/hooks")
         assert r.status_code == 400
-        client.put(f"/api/novels/{pid}/settings/hooks", json={"active": [{"id": "h1", "description": "一个钩子"}]})
+        _add_hook(client, pid, "一个钩子")
         r = client.put(f"/api/novels/{pid}/settings/status/hooks")
         assert r.status_code == 200, r.text
         assert r.json()["confirmed"] is True
+
+    def test_confirm_hooks_all_resolved_passes(self, client):
+        """「任意状态」：全部 resolved（已收束）也算已填，可确认。"""
+        pid = _create_project(client)
+        _add_hook(client, pid, "已收束的钩子", status="resolved")
+        r = client.put(f"/api/novels/{pid}/settings/status/hooks")
+        assert r.status_code == 200, r.text
+
+    def test_confirm_hooks_all_abandoned_passes(self, client):
+        """「任意状态」：全部 abandoned（废弃）也算已填。"""
+        pid = _create_project(client)
+        _add_hook(client, pid, "废弃的钩子", status="abandoned")
+        assert client.put(f"/api/novels/{pid}/settings/status/hooks").status_code == 200
+
+    def test_confirm_hooks_resolved_without_payoff_passes(self, client):
+        """收束记录是软引导：resolved 无收束章节/怎么收的仍可确认（不硬拦）。"""
+        pid = _create_project(client)
+        _add_hook(client, pid, "收了但没写记录", status="resolved")
+        assert client.put(f"/api/novels/{pid}/settings/status/hooks").status_code == 200
+
+    def test_confirm_hooks_empty_ledger_rejected(self, client):
+        """空表（零行）确认 → 400 + 出路提示。"""
+        pid = _create_project(client)
+        r = client.put(f"/api/novels/{pid}/settings/status/hooks")
+        assert r.status_code == 400
+        assert "还未填写" in r.json()["detail"]
+
+    def test_confirm_hooks_whitespace_only_rejected(self, client):
+        """全空格描述不算内容 → 400。"""
+        pid = _create_project(client)
+        _add_hook(client, pid, "   ")
+        r = client.put(f"/api/novels/{pid}/settings/status/hooks")
+        assert r.status_code == 400
+        status = client.get(f"/api/novels/{pid}/readiness").json()
+        assert "hooks" in {m["key"] for m in status["missing"]}
 
 
 # ── Gate — settings 完成判定联动（PRD 3.4 AC-4.1）──────────────────────
@@ -350,7 +392,7 @@ class TestGateSettingsWarnings:
         )
         client.put(f"/api/novels/{pid}/settings/genre", json={"core_promise": "以弱破强的痛快"})
         _fill_world(client, pid, filled=4)
-        client.put(f"/api/novels/{pid}/settings/hooks", json={"active": [{"id": "h1", "description": "一个钩子"}]})
+        _add_hook(client, pid, "一个钩子")
         client.post(f"/api/novels/{pid}/characters", json={"name": "张三", "role": "主角"})
         # style/anti-ai 模板默认已通过内容判定
         for t in ["synopsis", "story-arc", "genre", "world", "style", "anti-ai", "hooks", "characters"]:
@@ -395,14 +437,26 @@ class TestGenericSettingsTypes:
         assert "stage" in r.json() and "_legacy" not in r.json()
 
     def test_put_single_file_type_still_works(self, client):
+        """推导（KEY_TO_PATH）不能破坏正常单文件路径。"""
+        pid = _create_project(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/anti-ai",
+            json={"banned_words": ["转折词"]},
+        )
+        assert r.status_code == 200, r.text
+        r = client.get(f"/api/novels/{pid}/settings/anti-ai")
+        assert r.json()["banned_words"] == ["转折词"]
+
+    def test_hooks_kv_channel_retired(self, client):
+        """foreshadow-settings-v2 2.5：伏笔 KV 通道下线——GET/PUT settings/hooks 400。"""
         pid = _create_project(client)
         r = client.put(
             f"/api/novels/{pid}/settings/hooks",
             json={"active": [{"id": "h1", "description": "一个钩子"}]},
         )
-        assert r.status_code == 200, r.text
+        assert r.status_code == 400, r.text
         r = client.get(f"/api/novels/{pid}/settings/hooks")
-        assert r.json()["active"][0]["id"] == "h1"
+        assert r.status_code == 400, r.text
 
 
 class TestCharactersEndpoints:

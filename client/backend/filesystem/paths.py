@@ -4,13 +4,14 @@
 key 用语义短名；字符目录按前缀 `character:`。
 """
 
-# 8 类单文件设定：相对路径 → DB key
+# 单文件设定：相对路径 → DB key
+# hooks 不在其中：伏笔已升级真表 novel_hooks（foreshadow-settings-v2），
+# settings/hooks.yaml 通道整体退役（GET/PUT /settings/hooks 不再受理）。
 PATH_TO_KEY = {
     "story.yaml": "story",
     "settings/world-setting.yaml": "world",
     "settings/writing-style.yaml": "style",
     "settings/anti-ai.yaml": "anti-ai",
-    "settings/hooks.yaml": "hooks",
     "settings/genre.yaml": "genre",
     "settings/ai-model.yaml": "ai-model",
     "settings/settings-status.yaml": "status",

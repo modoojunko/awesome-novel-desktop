@@ -1,13 +1,19 @@
-"""角色 v2 升级全链演练（character-settings-v2 tasks 6.3）。
+"""伏笔 v2＋角色 v2 升级全链演练（character-settings-v2 tasks 6.3 ＋
+foreshadow-settings-v2 tasks 3.3）。
 
 六阶段，每阶段独立子进程（DATA_ROOT 在 import 前定死，与真实部署同构）：
   seed-old     旧版形态真库（当前 schema 减本 change：无角色四表/无
                character_seq_high/无 chapter_characters.character_id/无 app_meta）
-               + 老字段 yaml 落盘 + 造 v1 导出包（单书包，无 format_version）
+               + 老字段 yaml 落盘 + 造 v1 导出包（单书包，无 format_version；
+               伏笔走 settings/hooks.yaml KV 三数组混形样例）
   boot-new     新版应用指向旧库 → 断言三件套留档 + 空库启动
   import-v1    新空库 ← v1 包：老 14 字段按 LEGACY_FIELD_MAP 落位、5 键进 legacy、
-               主角收敛、出场引用按名字绑 id
-  roundtrip-v2 新库再导出（v2 包）→ 第三个新库再导入 → 九层抽查计数对拍
+               主角收敛、出场引用按名字绑 id；伏笔三数组逐条对拍（数组名→status、
+               mentioned→active＋mentioned 列、introduced_in 归一绑 ref、垃圾 ref→
+               NULL＋warnings、seq 取号、project_settings 无 hooks 残留）
+  export-v2    源库再导出（v3 包）：断言 hooks/hooks.yaml 在场、settings/ 无 hooks
+  roundtrip-v2 新库再导出（v2 包）→ 第三个新库再导入 → 十层抽查计数对拍
+               （伏笔计数/章引用经 ref/status）＋ 幂等重跑断言（再 import 不重复增行）
   downgrade    format_version=99 的包被响亮拒绝（降级保护）
 
 用法：python scripts/upgrade_drill.py --all --work DIR
@@ -58,6 +64,55 @@ LAO_ZHOU = {
     "speech": "慢，问什么答什么",
 }
 
+# 旧版伏笔 KV 三数组混形样例（foreshadow-settings-v2 tasks 3.3：mentioned、
+# 短格式 "1-1"、垃圾文本、priority 混形、空描述、指向已删章的悬空 ref）。
+# 预期导入结果：6 行全保留；垃圾文本与悬空 ref 各记 1 条 warning（共 2 条）。
+DRILL_HOOKS_KV = {
+    "active": [
+        {
+            "description": "mentioned 旧状态样例",
+            "introduced_in": "1-1",
+            "status": "mentioned",
+            "priority": 1,
+            "hook_type": "clue",
+        },
+        {
+            "description": "短格式引入样例",
+            "introduced_in": "1-1",
+            "priority": "2",
+            "hook_type": "mystery",
+        },
+        {
+            "description": "垃圾文本引入样例",
+            "introduced_in": "不知道写在哪一章",
+            "priority": 99,
+            "hook_type": "weird",
+        },
+        {
+            "description": "",
+            "introduced_in": "",
+            "priority": "high",
+        },
+    ],
+    "resolved": [
+        {
+            "description": "已收束样例",
+            "introduced_in": "vol-1-ch-1",
+            "priority": 3,
+            "hook_type": "promise",
+        },
+    ],
+    "abandoned": [
+        {
+            "description": "悬空引用样例（指向已删章）",
+            "introduced_in": "3-7",
+            "priority": 2,
+            "hook_type": "threat",
+        },
+    ],
+}
+DRILL_HOOK_ROWS = 6  # 4 active + 1 resolved + 1 abandoned，全保留不丢行
+
 
 # ── 工具 ────────────────────────────────────────────────────────────────────
 def _state_path(work: Path) -> Path:
@@ -105,13 +160,35 @@ def _counts(root: str) -> dict:
     cur = conn.cursor()
     out = {}
     for t in ("novels", "volumes", "chapters", "chapter_characters", "characters",
-              "character_relations", "project_settings"):
+              "character_relations", "novel_hooks", "project_settings"):
         try:
             out[t] = cur.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
         except sqlite3.OperationalError:
             out[t] = "表不存在"
     conn.close()
     return out
+
+
+def _hook_refs_rows(root: str) -> list[tuple]:
+    """伏笔逐条（seq/status/priority/description＋四列章引用经 ref 解析）。
+
+    ref 是稳定语义键：roundtrip 对拍「章引用经 ref 一致」（id 允许重映射）。
+    """
+    conn = sqlite3.connect(Path(root) / "novel.db")
+    rows = conn.execute(
+        """
+        SELECT h.seq, h.status, h.priority, h.description, h.payoff_note,
+               ci.ref, cp.ref, cr.ref, cm.ref
+        FROM novel_hooks h
+        LEFT JOIN chapters ci ON h.introduced_chapter_id = ci.id
+        LEFT JOIN chapters cp ON h.planned_chapter_id = cp.id
+        LEFT JOIN chapters cr ON h.resolved_chapter_id = cr.id
+        LEFT JOIN chapters cm ON h.mentioned_chapter_id = cm.id
+        ORDER BY h.seq
+        """
+    ).fetchall()
+    conn.close()
+    return rows
 
 
 def _raw_insert(conn: sqlite3.Connection, table: str, **kv) -> None:
@@ -185,7 +262,16 @@ def phase_seed_old(root: str, work: Path) -> None:
         yaml.dump(LAO_ZHOU, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )
 
-    # v1 单书包（老版导出口径：无 format_version；角色走 settings/character-setting/）
+    # 老 app 的伏笔 KV 落盘（三数组混形样例，foreshadow-settings-v2 tasks 3.3）
+    settings_dir = Path(root) / "projects" / SLUG / "settings"
+    settings_dir.mkdir(parents=True, exist_ok=True)
+    (settings_dir / "hooks.yaml").write_text(
+        yaml.dump(DRILL_HOOKS_KV, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    # v1 单书包（老版导出口径：无 format_version；角色走 settings/character-setting/、
+    # 伏笔走 settings/hooks.yaml 三数组）
     pkg = work / "v1-package.zip"
     with zipfile.ZipFile(pkg, "w") as zf:
         zf.writestr("project.yaml", yaml.dump({
@@ -194,6 +280,9 @@ def phase_seed_old(root: str, work: Path) -> None:
         zf.writestr("story.yaml", yaml.dump({"synopsis": "旧版写的简介"}, allow_unicode=True))
         zf.writestr("threads.yaml", yaml.dump({"threads": []}, allow_unicode=True))
         zf.writestr("settings/writing-style.yaml", yaml.dump({"role": "克制叙事"}, allow_unicode=True))
+        zf.writestr("settings/hooks.yaml", yaml.dump(
+            DRILL_HOOKS_KV, allow_unicode=True, sort_keys=False,
+        ))
         for fn in ("林拾.yaml", "老周.yaml"):
             zf.write(ch_dir / fn, f"settings/character-setting/{fn}")
         zf.writestr("volumes/vol-1.yaml", yaml.dump({
@@ -228,11 +317,15 @@ def phase_boot_new(root: str, work: Path) -> None:
     has_characters = live.execute(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='characters'"
     ).fetchone()[0]
+    has_hooks = live.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='novel_hooks'"
+    ).fetchone()[0]
     live.close()
     assert n_novels == 0, f"空库启动失败：还有 {n_novels} 本书"
     assert has_characters == 1, "新库缺 characters 表"
+    assert has_hooks == 1, "新库缺 novel_hooks 表"
     _save_state(work, boot={"archived": True, "trio": [p.name for p in archived]})
-    print(f"[boot-new] 三件套留档 {[p.name for p in archived]}；空库启动（characters 表已建）")
+    print(f"[boot-new] 三件套留档 {[p.name for p in archived]}；空库启动（characters/novel_hooks 表已建）")
 
 
 # ── 阶段 3：新空库 ← v1 包 ─────────────────────────────────────────────────
@@ -306,14 +399,70 @@ def phase_import_v1(root: str, work: Path) -> None:
         assert cc["character_id"] == lin["id"], "出场引用未绑定角色 id"
         conn.close()
 
+        # ── 伏笔段逐条对拍（foreshadow-settings-v2 tasks 3.3）──────────────────
+        hconn = sqlite3.connect(Path(root) / "novel.db")
+        hconn.row_factory = sqlite3.Row
+        hrows = {
+            r["description"]: r
+            for r in hconn.execute(
+                """
+                SELECT h.*, ci.ref AS introduced_ref
+                FROM novel_hooks h
+                LEFT JOIN chapters ci ON h.introduced_chapter_id = ci.id
+                ORDER BY h.seq
+                """
+            ).fetchall()
+        }
+        # 行数 = 有效条数（混形样例全保留，不丢行）
+        assert len(hrows) == DRILL_HOOK_ROWS, (
+            f"伏笔行数 {len(hrows)} != 有效条数 {DRILL_HOOK_ROWS}"
+        )
+        # 数组名→status；旧 status:"mentioned" → active＋mentioned=引入章
+        mentioned = hrows["mentioned 旧状态样例"]
+        assert mentioned["status"] == "active", mentioned["status"]
+        assert mentioned["introduced_ref"] == "vol-1-ch-1"  # 短格式 "1-1" 归一绑 ref
+        assert mentioned["mentioned_chapter_id"] == mentioned["introduced_chapter_id"]
+        # 短格式引入绑定到新章 id；字符串数字 priority 归一
+        short = hrows["短格式引入样例"]
+        assert short["introduced_chapter_id"] == mentioned["introduced_chapter_id"]
+        assert short["priority"] == 2
+        # 垃圾文本 → NULL＋warnings；priority 非法置默认 2；未知 type 置默认 mystery
+        garbage = hrows["垃圾文本引入样例"]
+        assert garbage["introduced_chapter_id"] is None
+        assert garbage["priority"] == 2 and garbage["type"] == "mystery"
+        # 空描述留行；"high" → 1
+        empty = hrows[""]
+        assert empty["description"] == "" and empty["priority"] == 1
+        assert empty["introduced_chapter_id"] is None
+        # resolved / abandoned 数组映射；可解析 ref → 新章 id
+        assert hrows["已收束样例"]["status"] == "resolved"
+        assert hrows["已收束样例"]["introduced_chapter_id"] is not None
+        dangling = hrows["悬空引用样例（指向已删章）"]
+        assert dangling["status"] == "abandoned"
+        assert dangling["introduced_chapter_id"] is None
+        # seq 缺失 → 按导入顺序取号器补（1..N 单调不复用）
+        seqs = [r["seq"] for r in sorted(hrows.values(), key=lambda r: r["seq"])]
+        assert seqs == list(range(1, DRILL_HOOK_ROWS + 1)), seqs
+        # warnings 计数：垃圾文本 + 悬空 "3-7" = 2 条「无法解析」
+        hook_warns = [w for w in summary.get("warnings", []) if "无法解析" in w]
+        assert len(hook_warns) == 2, hook_warns
+        # 旧 KV 形状导入后 project_settings 无 hooks 残留
+        n_kv_hooks = hconn.execute(
+            "SELECT COUNT(*) FROM project_settings WHERE key LIKE 'hook%'"
+        ).fetchone()[0]
+        assert n_kv_hooks == 0, "project_settings 残留 hooks 键"
+        hconn.close()
+
     _save_state(work, v1_root=str(Path(root).resolve()), import_summary=summary)
-    print(f"[import-v1] v1 包恢复：角色 {len(rows)} 位（9 内容格 + 5 legacy 键全落位），"
-          f"出场引用已绑 id")
+    print(f"[import-v1] v1 包恢复：角色 {len(rows)} 位（9 内容格 + 5 legacy 键）、"
+          f"出场引用已绑 id；伏笔 {len(hrows)} 行逐条对拍（mentioned→active、"
+          f"垃圾/悬空 ref→NULL＋warning、seq 取号、KV 零残留）")
 
 
-# ── 阶段 4a：源库导出 v2 包 ────────────────────────────────────────────────
+# ── 阶段 4a：源库导出 v3 包（走现役备份链 single 任务）────────────────────
 def phase_export_v2(root: str, work: Path) -> None:
     import asyncio
+    import time
 
     os.environ["DATA_ROOT"] = root
     _ensure_user()
@@ -327,16 +476,41 @@ def phase_export_v2(root: str, work: Path) -> None:
 
     from main import app
 
+    pkg = work / "v2-package.zip"
     with TestClient(app) as c:
         sconn = sqlite3.connect(Path(root) / "novel.db")
         novel_id = sconn.execute("SELECT id FROM novels").fetchone()[0]
         sconn.close()
-        r = c.get(f"/api/novels/{novel_id}/export")
+        # 现役备份链：POST /backup/export/start kind=single → dump_book_into
+        # （v3 契约：project.yaml 带 format_version）；/novels/{id}/export 是
+        # 并行旧端点，不承载 format_version 契约头
+        r = c.post("/api/backup/export/start", json={
+            "kind": "single", "target_file": str(pkg), "book_id": novel_id,
+        })
         assert r.status_code == 200, r.text
-        pkg = work / "v2-package.zip"
-        pkg.write_bytes(r.content)
+        deadline = time.time() + 30
+        last = {}
+        while time.time() < deadline:
+            last = c.get("/api/backup/export/status").json()["data"]
+            if last["state"] in ("done", "error"):
+                break
+            time.sleep(0.1)
+        assert last["state"] == "done", last
+
+    # v3 包内容断言（foreshadow-settings-v2 tasks 3.3）：伏笔段在场且走新布局
+    with zipfile.ZipFile(pkg) as zf:
+        names = zf.namelist()
+        assert "hooks/hooks.yaml" in names, f"v3 包缺 hooks/hooks.yaml：{names}"
+        assert "settings/hooks.yaml" not in names, "v3 包残留 settings/hooks.yaml"
+        section = yaml.safe_load(zf.read("hooks/hooks.yaml"))
+        assert len(section["hooks"]) == DRILL_HOOK_ROWS
+        proj_meta = yaml.safe_load(zf.read("project.yaml"))
+        assert proj_meta["format_version"] == 3, proj_meta["format_version"]
+
     _save_state(work, v2_pkg=str(pkg))
-    print(f"[export-v2] 源库导出 v2 包：{pkg}（{pkg.stat().st_size} 字节）")
+    print(f"[export-v2] 源库导出 v3 包：{pkg}（{pkg.stat().st_size} 字节）；"
+          f"hooks/hooks.yaml 在场（{DRILL_HOOK_ROWS} 条、章引用 ref 形）、settings/ 无 hooks、"
+          f"format_version=3")
 
 
 # ── 阶段 4b：新库导入 v2 包（roundtrip 抽查）───────────────────────────────
@@ -377,9 +551,10 @@ def phase_roundtrip_v2(root: str, work: Path) -> None:
 
     src_counts = _counts(src_root)
     dst_counts = _counts(root)
-    for k in ("volumes", "chapters", "chapter_characters", "characters"):
+    for k in ("volumes", "chapters", "chapter_characters", "characters", "novel_hooks"):
         assert src_counts[k] == dst_counts[k], f"{k}: 源 {src_counts[k]} != 目标 {dst_counts[k]}"
     assert dst_counts["characters"] == 2 and dst_counts["chapter_characters"] == 1
+    assert dst_counts["novel_hooks"] == DRILL_HOOK_ROWS
 
     # 角色内容抽查（v2 直读，不再走映射）
     conn = sqlite3.connect(Path(root) / "novel.db")
@@ -389,8 +564,36 @@ def phase_roundtrip_v2(root: str, work: Path) -> None:
     assert d["look"] == LIN_SHI["appearance"], "v2 往返丢字段"
     conn.close()
 
+    # 伏笔引用跟随对拍：源/目标逐条（含四列章引用经 ref）相等——删库救回后
+    # 章 id 重新生成，引用必须指向「同 ref」的章
+    src_hooks = _hook_refs_rows(src_root)
+    dst_hooks = _hook_refs_rows(root)
+    assert dst_hooks == src_hooks, f"伏笔 ref 对拍不一致：\n{src_hooks}\n{dst_hooks}"
+    assert any(r[8] for r in dst_hooks), "mentioned 留痕列经 ref 对拍不应全空"
+
+    # ── 幂等重跑断言（foreshadow-settings-v2 tasks 3.3）：对已导入库再跑 import
+    # 不重复增行——新导入另起新书，首书的伏笔行数保持不变
+    with TestClient(app) as c:
+        first_novel_id = next(
+            x["novel_id"] for x in r2.json()["data"]["results"] if x["status"] == "ok"
+        )
+        r3 = c.post("/api/backup/import/persist", json={
+            "paths": [state["v2_pkg"]], "include_config": False,
+        })
+        assert r3.status_code == 200, r3.text
+        assert all(x["status"] == "ok" for x in r3.json()["data"]["results"]), r3.text
+    idem = sqlite3.connect(Path(root) / "novel.db")
+    first_hooks = idem.execute(
+        "SELECT COUNT(*) FROM novel_hooks WHERE novel_id = ?", (first_novel_id,)
+    ).fetchone()[0]
+    total_hooks = idem.execute("SELECT COUNT(*) FROM novel_hooks").fetchone()[0]
+    idem.close()
+    assert first_hooks == DRILL_HOOK_ROWS, f"幂等重跑增行了：首书伏笔 {first_hooks}"
+    assert total_hooks == DRILL_HOOK_ROWS * 2, f"两次导入应各 {DRILL_HOOK_ROWS} 行：{total_hooks}"
+
     _save_state(work, roundtrip={"src": src_counts, "dst": dst_counts})
-    print(f"[roundtrip-v2] v2 包再导入：六表计数对拍一致 {dst_counts}；角色字段抽查通过")
+    print(f"[roundtrip-v2] v3 包再导入：七表计数对拍一致 {dst_counts}；角色字段抽查通过；"
+          f"伏笔 {len(dst_hooks)} 条引用跟随（经 ref）＋status 逐条相等；幂等重跑不增行")
 
 
 # ── 阶段 5：降级响亮拒绝 ───────────────────────────────────────────────────
@@ -449,8 +652,10 @@ def main() -> None:
         checks = _load_state(work) if _state_path(work).exists() else {}
         print(f"留档触发: {checks.get('boot', {}).get('archived')}")
         print(f"三件套:   {checks.get('boot', {}).get('trio')}")
-        print("v1 导入:  角色 2 位、9 内容格 + 5 legacy 键、出场引用绑 id")
+        print("v1 导入:  角色 2 位、9 内容格 + 5 legacy 键、出场引用绑 id；"
+              f"伏笔 {DRILL_HOOK_ROWS} 行逐条对拍（mentioned→active、垃圾/悬空 ref→NULL、KV 零残留）")
         print(f"roundtrip: {checks.get('roundtrip', {}).get('dst')}")
+        print("幂等重跑: 已导入库再 import 不重复增行")
         print(f"降级拒绝: {'downgrade' not in fails}")
         print(f"结果:     {'全部通过 ✅' if not fails else f'失败于 {fails} ❌'}")
         sys.exit(1 if fails else 0)
