@@ -9,7 +9,10 @@
 //   （最近一条、8 秒自清窗口），不经 SettingsView 的 onReceiptChange 通道。
 // 确认门禁＝≥1 条描述非空（任意状态）：前端提示性预检（按钮恒可点），后端 400 兜底；
 //   确认后内容指纹变化→面板徽标「内容有变 · 待重新确认」（charStale 先例，快照落 localStorage）。
-// AI 四行经 SettingsView 右栏分发（本组件暴露 runAi 句柄；批1 仅接线，端点批2 实现）。
+// AI 行（批2）：h1 起草＝3 候选落卡底 sink（勾选→采纳所选走批1 乐观行队列，
+//   采纳后聚焦引入章节选择器，回执精确撤销只回滚本次采纳，最近 5 次可切回）；
+//   h3 体检＝结果落 sink，行可点跳转（选中＋聚焦 goto 字段＋滚动可见）；
+//   h2/h4 留批3（占位提示）。
 import {
   forwardRef,
   useCallback,
@@ -19,7 +22,15 @@ import {
   useRef,
   useState,
 } from "react";
-import { hooksApi, type HookEntry, type HookUndo, type VolumeTreeEntry } from "@/lib/hooksApi";
+import {
+  hooksApi,
+  type HookAuditCheck,
+  type HookCandidate,
+  type HookEntry,
+  type HookPatchBody,
+  type HookUndo,
+  type VolumeTreeEntry,
+} from "@/lib/hooksApi";
 import {
   DESCRIPTION_MAX,
   HOOK_STATUSES,
@@ -28,9 +39,11 @@ import {
   priorityLabel,
   typeLabel,
 } from "@/lib/hooksModel";
+import { aiBlockReason } from "@/lib/ai";
 import { toast } from "@/lib/toast";
 import { nodeLabel } from "@/lib/nodeTitle";
 import { Ico, P } from "@/components/icons";
+import AiSink from "./AiSink";
 import type { SettingSaveHandle } from "./FormField";
 import type { AiState } from "@/types/api-config";
 
@@ -64,6 +77,25 @@ export interface HooksPanelHandle extends SettingSaveHandle {
 export type HookSaveState = "saved" | "saving" | "dirty" | "failed";
 
 type HookStatusValue = (typeof HOOK_STATUSES)[number];
+
+/** 右栏 AI 行动作（h1 起草 / h3 体检；h2/h4 批3）。 */
+type HooksAiAction = "h1" | "h3";
+
+/** 起草生成历史上限（避免无限抽卡；要更早的版本就从这 5 条里选）。 */
+const AI_SINK_MAX = 5;
+
+interface DraftSinkEntry {
+  candidates: HookCandidate[];
+  /** 勾选态按「次」保存（切回历史 chips 恢复该次的勾选） */
+  checked: boolean[];
+}
+
+interface AuditSinkEntry {
+  checks: HookAuditCheck[];
+  degraded: boolean;
+  degradedReasons: string[];
+  verdict: string;
+}
 
 const GROUP_LABEL: Record<HookStatusValue, string> = {
   active: "活跃",
@@ -140,10 +172,14 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
   const runningRef = useRef(false);
   const timerRef = useRef<number | null>(null);
   /** 在途建行（乐观 temp 行 → POST 真 id 替换）；PATCH 队列在 flush 时先等它 */
-  const creatingRef = useRef<Promise<void> | null>(null);
+  const creatingRef = useRef<Promise<unknown> | null>(null);
   const receiptTimerRef = useRef<number | null>(null);
   const descInputRef = useRef<HTMLTextAreaElement>(null);
   const outSelectRef = useRef<HTMLSelectElement>(null);
+  /** AI 行跳转落点：引入章节（采纳后聚焦）/ 计划收束（未定期·超期）/ 怎么收的（无留痕） */
+  const inSelectRef = useRef<HTMLSelectElement>(null);
+  const planSelectRef = useRef<HTMLSelectElement>(null);
+  const howInputRef = useRef<HTMLTextAreaElement>(null);
 
   const applySaveState = useCallback(
     (s: HookSaveState) => {
@@ -252,56 +288,86 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
     [enqueue],
   );
 
-  // ── 添加：乐观插入 temp 行 → POST 真 id 替换（前端永不生成 id；seq 服务端发号） ──
+  // ── 建行（乐观 temp 行 → 串行 POST 真 id 替换）────────────────────────
+  // 「添加伏笔」与 AI 采纳共用：批1 的「POST 回踩清本地输入」竞态修复语义原样保留——
+  // temp 行上用户已抢编辑的值用队列现值合并，不被 POST 响应整行回踩。
+  const createRows = useCallback(
+    (bodies: HookPatchBody[]): Promise<string[]> => {
+      const temps = bodies.map(
+        (body) =>
+          ({ tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, body }),
+      );
+      setItems((prev) => [
+        ...prev,
+        ...temps.map(
+          (t) => ({ ...emptyHook(projectId, t.tempId), ...t.body }) as HookEntry,
+        ),
+      ]);
+      selectedIdRef.current = temps[0].tempId;
+      setSelectedId(temps[0].tempId);
+      setQuery("");
+      markDirty();
+      applySaveState("dirty");
+      const run = (async () => {
+        try {
+          await creatingRef.current?.catch(() => {});
+          const ids: string[] = [];
+          for (const t of temps) {
+            const created = await hooksApi.create(projectId, t.body);
+            ids.push(created.id);
+            const merged: HookEntry = { ...created };
+            for (const op of queueRef.current) {
+              if (op.hookId === t.tempId)
+                (merged as unknown as Record<string, unknown>)[op.field] = op.value;
+            }
+            setItems((prev) => prev.map((h) => (h.id === t.tempId ? merged : h)));
+            queueRef.current.forEach((op) => {
+              if (op.hookId === t.tempId) op.hookId = created.id;
+            });
+          }
+          if (selectedIdRef.current === temps[0].tempId) {
+            selectedIdRef.current = ids[0];
+            setSelectedId(ids[0]);
+          }
+          if (queueRef.current.length === 0) {
+            applySaveState("saved");
+            clearDirty();
+          }
+          return ids;
+        } catch (e) {
+          // 失败：回滚 temp 行、选中回正、保存态置失败（调用方决定 toast 文案）
+          setItems((prev) => prev.filter((h) => !temps.some((t) => t.tempId === h.id)));
+          if (temps.some((t) => t.tempId === selectedIdRef.current)) {
+            const rest = itemsRef.current.filter(
+              (h) => !temps.some((t) => t.tempId === h.id),
+            );
+            selectedIdRef.current = rest[0]?.id ?? "";
+            setSelectedId(rest[0]?.id ?? "");
+          }
+          applySaveState("failed");
+          throw e;
+        }
+      })();
+      creatingRef.current = run;
+      void run.then(
+        () => {
+          if (creatingRef.current === run) creatingRef.current = null;
+        },
+        () => {
+          if (creatingRef.current === run) creatingRef.current = null;
+        },
+      );
+      return run;
+    },
+    [projectId, markDirty, applySaveState, clearDirty],
+  );
+
   const addHook = useCallback(() => {
-    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setItems((prev) => [...prev, emptyHook(projectId, tempId)]);
-    selectedIdRef.current = tempId;
-    setSelectedId(tempId);
-    setQuery("");
-    markDirty();
-    applySaveState("dirty");
-    const prevCreating = creatingRef.current;
-    const creating = (async () => {
-      try {
-        await prevCreating?.catch(() => {});
-        const created = await hooksApi.create(projectId, {});
-        // 乐观 temp 行上用户可能已抢编辑（建行在途时就开始打字/改胶囊）——
-        // 用队列里该行的现值合并（enqueue 同字段去重＝每格最新值），不能被
-        // POST 响应整行回踩；随后 flush 会把同样的值 PATCH 上去，两端收敛。
-        const merged: HookEntry = { ...created };
-        for (const op of queueRef.current) {
-          if (op.hookId === tempId) (merged as unknown as Record<string, unknown>)[op.field] = op.value;
-        }
-        setItems((prev) => prev.map((h) => (h.id === tempId ? merged : h)));
-        if (selectedIdRef.current === tempId) {
-          selectedIdRef.current = created.id;
-          setSelectedId(created.id);
-        }
-        queueRef.current.forEach((op) => {
-          if (op.hookId === tempId) op.hookId = created.id;
-        });
-        if (queueRef.current.length === 0) {
-          applySaveState("saved");
-          clearDirty();
-        }
-      } catch {
-        setItems((prev) => prev.filter((h) => h.id !== tempId));
-        if (selectedIdRef.current === tempId) {
-          const rest = itemsRef.current.filter((h) => h.id !== tempId);
-          selectedIdRef.current = rest[0]?.id ?? "";
-          setSelectedId(rest[0]?.id ?? "");
-        }
-        applySaveState("failed");
-        toast.error("添加失败，请重试");
-      }
-    })();
-    creatingRef.current = creating;
-    void creating.then(() => {
-      if (creatingRef.current === creating) creatingRef.current = null;
+    createRows([{}]).catch(() => {
+      toast.error("添加失败，请重试");
     });
     window.setTimeout(() => descInputRef.current?.focus(), 0);
-  }, [projectId, markDirty, applySaveState, clearDirty]);
+  }, [createRows]);
 
   // ── 删除：即落库 DELETE＋ops token；回执 8 秒自清；撤销按原 id 原样恢复 ──
   const doDelete = useCallback(async () => {
@@ -362,10 +428,150 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
     [setField],
   );
 
-  // ── AI 四行分发（批1 临时口径：端点在批2 tasks 6.1 才实现——行点击给上线提示，不报错） ──
-  const runAi = useCallback(async (_key: string) => {
-    toast.info("该功能即将上线——先手动记录，一样有效");
-  }, []);
+  // ── AI 行（批2）：h1 起草 / h3 体检；h2/h4 留批3（占位提示，不报错） ────
+  const [draftSinks, setDraftSinks] = useState<{ list: DraftSinkEntry[]; idx: number }>({
+    list: [],
+    idx: 0,
+  });
+  const [auditSinks, setAuditSinks] = useState<{ list: AuditSinkEntry[]; idx: number }>({
+    list: [],
+    idx: 0,
+  });
+  const [aiRunning, setAiRunning] = useState<HooksAiAction | null>(null);
+  /** 面板级在途锁（ref 同步判定）：无论调用方点几次，同时在飞的只有一个请求。 */
+  const aiBusyRef = useRef(false);
+  /** 采纳回执（面板内自管，8 秒自清）：精确撤销＝只删本次采纳的那批 id */
+  const [aiReceipt, setAiReceipt] = useState<{ text: string; ids: string[] } | null>(null);
+  const aiReceiptTimerRef = useRef<number | null>(null);
+
+  const runAi = useCallback(
+    async (key: string) => {
+      if (aiBusyRef.current) return; // 已有在途请求：忽略重复触发
+      if (key !== "h1" && key !== "h3") {
+        toast.info("该功能即将上线——先手动记录，一样有效");
+        return;
+      }
+      aiBusyRef.current = true;
+      setAiRunning(key);
+      try {
+        if (key === "h1") {
+          const r = await hooksApi.draftAi(projectId);
+          const candidates = r.candidates ?? [];
+          setDraftSinks((prev) => {
+            const list = [
+              ...prev.list,
+              { candidates, checked: candidates.map(() => true) },
+            ].slice(-AI_SINK_MAX);
+            return { list, idx: list.length - 1 };
+          });
+        } else {
+          const r = await hooksApi.auditAi(projectId);
+          setAuditSinks((prev) => {
+            const list = [
+              ...prev.list,
+              {
+                checks: r.checks ?? [],
+                degraded: !!r.degraded,
+                degradedReasons: r.degraded_reasons ?? [],
+                verdict: r.verdict ?? "",
+              },
+            ].slice(-AI_SINK_MAX);
+            return { list, idx: list.length - 1 };
+          });
+        }
+      } catch (e) {
+        const reason = aiBlockReason(e);
+        // 403 member_required 已由 request() 广播全局升级引导，这里只兜底文案
+        if (reason === "member_required") toast.info("AI 是会员功能，升级 PRO 后解锁");
+        else if (reason === "no_key") toast.info("先去「模型配置」添加 API Key");
+        else if (reason === "missing_model" || reason === "invalid")
+          toast.info("先在本书选择模型");
+        else toast.error((e as Error).message || "生成失败，请重试");
+      } finally {
+        aiBusyRef.current = false;
+        setAiRunning(null);
+      }
+    },
+    [projectId],
+  );
+
+  /** 采纳所选候选：走批1 乐观行队列建行（保留「POST 回踩清本地输入」竞态修复语义） */
+  const adoptCandidates = useCallback(
+    async (entry: DraftSinkEntry) => {
+      const chosen = entry.candidates.filter((_, i) => entry.checked[i] ?? true);
+      if (chosen.length === 0) {
+        toast.info("先勾选至少一条候选");
+        return;
+      }
+      let ids: string[];
+      try {
+        ids = await createRows(
+          chosen.map((c) => ({
+            description: c.description,
+            type: c.type,
+            priority: c.priority,
+          })),
+        );
+      } catch {
+        toast.error("采纳失败，请重试");
+        return;
+      }
+      // 采纳后聚焦引入章节选择器——「选一下引入章节就算埋好了」
+      window.setTimeout(() => inSelectRef.current?.focus(), 0);
+      // 回执精确撤销：只回滚本次采纳的这批 id，不影响用户此前的其他编辑
+      setAiReceipt({
+        text: `已采纳「起草伏笔」：${ids.length} 条加入活跃组，章位待补 · 8 秒内可点撤销`,
+        ids,
+      });
+      if (aiReceiptTimerRef.current) window.clearTimeout(aiReceiptTimerRef.current);
+      aiReceiptTimerRef.current = window.setTimeout(() => setAiReceipt(null), 8000);
+      toast.success(`已加入 ${ids.length} 条——选一下引入章节就算埋好了`);
+    },
+    [createRows],
+  );
+
+  /** 精确撤销本次采纳：逐条 DELETE（行已被用户手动删的跳过），其他行不动 */
+  const undoAdopt = useCallback(async () => {
+    const rec = aiReceipt;
+    if (!rec) return;
+    let failed = 0;
+    for (const id of rec.ids) {
+      try {
+        await hooksApi.remove(projectId, id);
+      } catch {
+        failed += 1;
+      }
+    }
+    if (aiReceiptTimerRef.current) window.clearTimeout(aiReceiptTimerRef.current);
+    setAiReceipt(null);
+    const rest = await reloadList();
+    if (!rest.some((h) => h.id === selectedIdRef.current)) {
+      selectedIdRef.current = rest[0]?.id ?? "";
+      setSelectedId(rest[0]?.id ?? "");
+    }
+    toast.success(
+      failed ? `已撤销（${rec.ids.length - failed}/${rec.ids.length} 条，其余请手动核对）` : "已撤销，只回滚这次采纳",
+    );
+  }, [aiReceipt, projectId, reloadList]);
+
+  /** 体检行跳转：先 flush 在途保存，再选中该伏笔＋聚焦 goto 字段＋滚动可见 */
+  const jumpToHook = useCallback(
+    (hookId: string, gotoField: string | null) => {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+      void flushQueue().then(() => {
+        selectedIdRef.current = hookId;
+        setSelectedId(hookId);
+        if (!gotoField) return;
+        // 等选中行的字段渲染后再聚焦（收束记录区只在已收束态展开）
+        window.setTimeout(() => {
+          const el = gotoField === "payoff" ? howInputRef.current : planSelectRef.current;
+          el?.scrollIntoView({ block: "center", behavior: "smooth" });
+          el?.focus();
+        }, 60);
+      });
+    },
+    [flushQueue],
+  );
 
   // ── 句柄：save()=flush（gap3 确认前落库）；确认快照；AI 分发 ─────────────
   useImperativeHandle(ref, () => ({
@@ -376,7 +582,11 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
       return queueRef.current.length === 0 && saveStateRef.current !== "failed";
     },
     markDirty,
-    clearAi: () => {},
+    clearAi: () => {
+      // 确认动作会清 AI 结果区（沿简介/角色先例：确认＝基线前移，旧建议作废）
+      setDraftSinks({ list: [], idx: 0 });
+      setAuditSinks({ list: [], idx: 0 });
+    },
     markConfirmed: () => {
       const fp = fingerprint(itemsRef.current);
       snapRef.current = fp;
@@ -586,6 +796,7 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
                 <div className="hk-kv-row">
                   <span className="hk-kv-k">引入章节</span>
                   <select
+                    ref={inSelectRef}
                     className="input"
                     data-od-id="select-hook-in"
                     aria-label="引入章节"
@@ -601,6 +812,7 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
                       计划收束<span className="hk-kv-hint">章未建可先留空</span>
                     </span>
                     <select
+                      ref={planSelectRef}
                       className="input"
                       data-od-id="select-hook-plan"
                       aria-label="计划收束章节"
@@ -693,6 +905,7 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
                     <div className="hk-kv-row hk-span2">
                       <span className="hk-kv-k">怎么收的</span>
                       <textarea
+                        ref={howInputRef}
                         className="textarea"
                         rows={2}
                         maxLength={PAYOFF_NOTE_MAX}
@@ -768,8 +981,153 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
               </p>
             </div>
           )}
+
+          {/* AI 结果落点（编辑区无 AI 按钮，结果都落卡底——原型 sinkHooks/sinkCheck） */}
+          {aiRunning && (
+            <div className="ai-sink" data-od-id="hooks-ai-running" aria-busy="true">
+              <div className="aiz-head">
+                {aiRunning === "h1" ? "AI 填 · 起草伏笔" : "AI 体检 · 埋坑体检"} · 生成中…
+              </div>
+              <span className="opt" style={{ fontSize: 12 }}>
+                AI 正在生成，请稍候…（完成后结果会出现在这里）
+              </span>
+            </div>
+          )}
+          {(() => {
+            const entry = draftSinks.list[draftSinks.idx];
+            if (!entry) return null;
+            const adoptCount = entry.checked.filter(Boolean).length;
+            return (
+              <AiSink
+                label="AI 填 · 起草伏笔（勾选后采纳）"
+                history={
+                  draftSinks.list.length > 1
+                    ? {
+                        total: draftSinks.list.length,
+                        active: draftSinks.idx,
+                        max: AI_SINK_MAX,
+                        onSelect: (i) => setDraftSinks((prev) => ({ ...prev, idx: i })),
+                      }
+                    : undefined
+                }
+                adoptText="采纳所选 · 加入活跃"
+                onAdopt={() => void adoptCandidates(entry)}
+                onRetry={() => void runAi("h1")}
+                data-od-id="sink-hook-draft"
+              >
+                {entry.candidates.map((c, i) => (
+                  <label className="cand" key={i} data-od-id="hook-candidate">
+                    <input
+                      type="checkbox"
+                      checked={entry.checked[i] ?? true}
+                      onChange={(e) =>
+                        setDraftSinks((prev) => ({
+                          ...prev,
+                          list: prev.list.map((item, j) =>
+                            j === prev.idx
+                              ? {
+                                  ...item,
+                                  checked: item.checked.map((v, k) =>
+                                    k === i ? e.target.checked : v,
+                                  ),
+                                }
+                              : item,
+                          ),
+                        }))
+                      }
+                    />
+                    <span>
+                      <span className="c-tag">
+                        候选 {i + 1} · {typeLabel(c.type)} · {priorityLabel(c.priority)}
+                      </span>
+                      {c.description}
+                    </span>
+                  </label>
+                ))}
+                <span className="aa-note" data-od-id="hook-adopt-count">
+                  将加入 {adoptCount} 条
+                </span>
+              </AiSink>
+            );
+          })()}
+          {(() => {
+            const entry = auditSinks.list[auditSinks.idx];
+            if (!entry) return null;
+            // 类别由 服务端判定（status＋goto_field）映射展示：miss=超期 / ok=在期 /
+            // warn+payoff=无留痕 / warn+planned=未定期
+            const labelOf = (c: HookAuditCheck) =>
+              c.status === "ok"
+                ? "在期"
+                : c.status === "miss"
+                  ? "超期"
+                  : c.goto_field === "payoff"
+                    ? "无留痕"
+                    : "未定期";
+            return (
+              <AiSink
+                label={
+                  entry.degraded ? "AI 体检 · 埋坑体检（纯台账自检）" : "AI 体检 · 埋坑体检"
+                }
+                history={
+                  auditSinks.list.length > 1
+                    ? {
+                        total: auditSinks.list.length,
+                        active: auditSinks.idx,
+                        max: AI_SINK_MAX,
+                        onSelect: (i) => setAuditSinks((prev) => ({ ...prev, idx: i })),
+                      }
+                    : undefined
+                }
+                onRetry={() => void runAi("h3")}
+                data-od-id="sink-hook-check"
+              >
+                {entry.degraded && (
+                  <p className="opt" style={{ margin: "0 0 6px" }}>
+                    {entry.degradedReasons.join("、")}
+                    {entry.verdict ? `——${entry.verdict}` : "——只提醒不拦确认"}
+                  </p>
+                )}
+                {entry.checks.map((c) => {
+                  const hook = items.find((h) => h.id === c.hook_id);
+                  return (
+                    <button
+                      type="button"
+                      key={c.hook_id}
+                      className="chk-line click"
+                      data-od-id="audit-row"
+                      data-hook-id={c.hook_id}
+                      onClick={() => jumpToHook(c.hook_id, c.goto_field)}
+                    >
+                      <span className="chk-name">
+                        {c.code}
+                        {hook?.description ? ` ${hook.description.slice(0, 10)}` : ""}
+                      </span>
+                      <span className={`chk-res ${c.status}`}>{labelOf(c)}</span>
+                      <span className="chk-note">{c.note}</span>
+                    </button>
+                  );
+                })}
+                {!entry.degraded && entry.checks.length > 0 && (
+                  <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>
+                    只提醒不拦确认
+                    {entry.checks.some((c) => c.goto_field) ? "；点一行可跳去对应伏笔补填" : ""}。
+                  </p>
+                )}
+              </AiSink>
+            );
+          })()}
         </div>
       </div>
+
+      {/* 采纳回执（面板内自管）：精确撤销只回滚本次采纳，8 秒自清 */}
+      {aiReceipt && (
+        <div className="hk-receipt" data-od-id="receipt-hooks-ai" role="status" aria-live="polite">
+          <span>{aiReceipt.text}</span>
+          <button type="button" className="hk-receipt-undo" onClick={() => void undoAdopt()}>
+            撤销
+          </button>
+        </div>
+      )}
 
       {/* 回执：面板内自管（不经 SettingsView 回执通道），最近一条，8 秒自清 */}
       {receipt && (

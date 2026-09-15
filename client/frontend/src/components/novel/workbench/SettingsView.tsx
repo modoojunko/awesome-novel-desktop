@@ -16,7 +16,7 @@ import WorldSettingPanel from "@/components/novel/settings/world/WorldSettingPan
 import type { WorldPanelHandle } from "@/components/novel/settings/world/WorldSettingPanel";
 import StyleSettingForm from "@/components/novel/settings/StyleSettingForm";
 import AntiAiSettingForm from "@/components/novel/settings/AntiAiSettingForm";
-import HooksSettingForm, { type HookSaveState } from "@/components/novel/settings/HooksSettingForm";
+import HooksSettingForm, { type HookSaveState, type HooksPanelHandle } from "@/components/novel/settings/HooksSettingForm";
 import CharacterManager from "@/components/novel/settings/CharacterManager";
 import { type CharAiCtx } from "@/lib/characterModel";
 import { charactersApi } from "@/lib/charactersApi";
@@ -192,6 +192,19 @@ export default function SettingsView({
     },
     [charsRef],
   );
+  /** 伏笔面板句柄：save/confirm 走 formRef；runAi 为伏笔右栏专属分发（批2） */
+  const hooksRef = useRef<HooksPanelHandle>(null);
+  const runHooksAi = useCallback(async (key: string) => {
+    if (aiRowBusyRef.current) return;
+    aiRowBusyRef.current = true;
+    setAiRunningKey(key);
+    try {
+      await hooksRef.current?.runAi?.(key);
+    } finally {
+      aiRowBusyRef.current = false;
+      setAiRunningKey(null);
+    }
+  }, []);
   const [charCtx, setCharCtx] = useState<CharAiCtx | null>(null);
   // 伏笔面板（foreshadow-settings-v2）：徽标五态 / 保存四态 / 选中条目 ctx 的上报落点。
   // 不在 [panel] 变化时重置——伏笔面板挂载即重新上报（挂载 effect 先于父层 effect 跑，
@@ -339,14 +352,14 @@ export default function SettingsView({
   );
 
   // 伏笔右栏四行（foreshadow-settings-v2；data-aiact h1-h4）：h2/h4 无选中置灰＋hint；
-  // 行点击经 formRef 分发（charsRef=formRef，伏笔面板同走该通道；端点批2 实现）
+  // 行点击经 hooksRef 分发（伏笔面板 runAi；批2 起草/体检为真能力，h2/h4 留批3）
   const foreshadowAiRows = useMemo<AiCapabilityRow[]>(
     () => [
       {
         key: "h1",
         name: "起草伏笔",
         desc: "按你的简介＋题材＋世界＋主线给 3 条候选，勾选采纳 · 输入：简介＋题材＋世界＋主线",
-        onClick: () => runCharsAi("h1"),
+        onClick: () => runHooksAi("h1"),
       },
       {
         key: "h2",
@@ -354,13 +367,13 @@ export default function SettingsView({
         desc: "对当前选中的伏笔给收束方案 · 采纳后写入收束记录并移入已收束 · 输入：当前伏笔＋主线＋已写章纲",
         disabled: !hookCtx,
         hint: hookCtx ? undefined : "先选一条伏笔",
-        onClick: () => runCharsAi("h2"),
+        onClick: () => runHooksAi("h2"),
       },
       {
         key: "h3",
         name: "埋坑体检",
         desc: "扫全部活跃伏笔 × 已写章纲：埋了没还的点名，给出建议收束章 · 只提醒不拦确认；章纲未建时降级为纯台账自检",
-        onClick: () => runCharsAi("h3"),
+        onClick: () => runHooksAi("h3"),
       },
       {
         key: "h4",
@@ -368,10 +381,10 @@ export default function SettingsView({
         desc: "只查当前选中伏笔 × 简介/题材/世界：钩子是否与设定矛盾、代价是否对得上 · 只提醒不拦确认",
         disabled: !hookCtx,
         hint: hookCtx ? undefined : "先选一条伏笔",
-        onClick: () => runCharsAi("h4"),
+        onClick: () => runHooksAi("h4"),
       },
     ],
-    [hookCtx, runCharsAi],
+    [hookCtx, runHooksAi],
   );
 
   useEffect(() => {
@@ -711,7 +724,11 @@ export default function SettingsView({
             )}
             {panel === "foreshadow" && (
               <HooksSettingForm
-                ref={formRef}
+                ref={(h) => {
+                  // 双 ref：formRef 供 panel-foot save/confirm；hooksRef 供右栏 runAi 分发
+                  (formRef as React.MutableRefObject<SettingSaveHandle | null>).current = h;
+                  hooksRef.current = h;
+                }}
                 projectId={projectId}
                 settingKey="hooks"
                 onDirtyChange={handleDirtyChange}

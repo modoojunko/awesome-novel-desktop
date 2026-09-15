@@ -483,8 +483,19 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .ai-sink .chk-line .chk-name { flex: none; width: 108px; font-size: 12px; }
 .settings-v .ai-sink .chk-line .chk-res { font-size: 12px; font-weight: 500; flex: none; }
 .settings-v .ai-sink .chk-line .chk-res.ok { color: var(--ok); }
+.settings-v .ai-sink .chk-line .chk-res.warn { color: var(--warn); }
 .settings-v .ai-sink .chk-line .chk-res.miss { color: var(--err); }
 .settings-v .ai-sink .chk-line .chk-note { font-size: 11.5px; color: var(--muted); min-width: 0; }
+/* 体检可点行（foreshadow-settings-v2 批2：跳转对应伏笔字段）——button 复位 + hover */
+.settings-v .ai-sink .chk-line.click { width: 100%; border: none; background: transparent; text-align: left; font: inherit; padding: 3px 5px; border-radius: 6px; cursor: pointer; }
+.settings-v .ai-sink .chk-line.click:hover { background: color-mix(in oklch, var(--accent) 6%, transparent); }
+.settings-v .ai-sink .chk-line.click:hover .chk-name { color: var(--accent); }
+/* 起草候选行（勾选采纳）＋将加入计数（foreshadow-settings-v2 批2） */
+.settings-v .ai-sink .cand { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; border-bottom: 1px dashed var(--border); cursor: pointer; }
+.settings-v .ai-sink .cand:last-of-type { border-bottom: none; }
+.settings-v .ai-sink .cand input[type="checkbox"] { margin-top: 4px; flex: none; accent-color: var(--accent); }
+.settings-v .ai-sink .cand .c-tag { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent); margin-right: 6px; white-space: nowrap; }
+.settings-v .ai-sink .aa-note { display: block; margin-top: 8px; font-size: 11px; color: var(--warn); }
 
 /* ── AI 写作助手卡片 .rail-assist（genre-signup-redesign tasks 3.2 / D4）──
    PRO 徽标并头部 + 并列能力行；免费版 .locked＝可见+降透明（§11 门控）。

@@ -80,6 +80,31 @@ export interface VolumeTreeEntry {
   chapters: ChapterTreeEntry[];
 }
 
+/** AI 起草候选（批2：POST /settings/ai/hooks/draft 出参；type/priority 已由后端走
+ *  hooks_model 归一——非法 slug 降 mystery、非法 priority 降 2、空描述丢弃）。 */
+export interface HookCandidate {
+  description: string;
+  type: string;
+  priority: number;
+}
+
+/** AI 埋坑体检行：hook_id/code/status/goto_field 由服务端判定常量给出
+ *  （模型只产 note），goto_field ∈ planned/payoff，null＝在期无需跳转。 */
+export interface HookAuditCheck {
+  hook_id: string;
+  code: string;
+  status: "ok" | "warn" | "miss";
+  note: string;
+  goto_field: "planned" | "payoff" | null;
+}
+
+export interface HooksAuditResult {
+  checks: HookAuditCheck[];
+  degraded: boolean;
+  degraded_reasons: string[];
+  verdict: string;
+}
+
 /** 后端统一信封 {ok, data}；入参是未 await 的 request() Promise（直接传会读到 Promise.data → 恒 undefined） */
 async function unwrap<T>(p: Promise<unknown>): Promise<T> {
   const r = (await p) as { data?: T };
@@ -109,4 +134,18 @@ export const hooksApi = {
   /** 卷章树（伏笔选择器数据源；/volumes 返回裸数组，非 {ok,data} 信封）。 */
   volumes: (projectId: string) =>
     api.get(`/novels/${projectId}/volumes`) as Promise<VolumeTreeEntry[]>,
+
+  /** 起草伏笔（只出建议；AI 端点返回裸对象非信封。403 member_required 由
+   *  request() 广播全局升级引导后继续抛出）。 */
+  draftAi: (projectId: string) =>
+    api.post(`/novels/${projectId}/settings/ai/hooks/draft`, {}) as Promise<{
+      candidates: HookCandidate[];
+    }>,
+
+  /** 埋坑体检（全部活跃 × 已写章纲；无章纲/无活跃由后端降级免调用）。 */
+  auditAi: (projectId: string) =>
+    api.post(
+      `/novels/${projectId}/settings/ai/hooks/audit`,
+      {},
+    ) as Promise<HooksAuditResult>,
 };
