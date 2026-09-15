@@ -134,7 +134,8 @@ def commit_draft(doc: dict, *, sample_chars: int, chapter_count: int, at: str) -
     doc["baseline"] = baseline
     doc["details"] = step3.get("details") or {}
     doc["portrait"] = str(step3.get("portrait") or "")
-    doc.setdefault("history", []).append(
+    history = doc.setdefault("history", [])
+    history.append(
         {
             "at": at,
             "sample_chars": sample_chars,
@@ -143,5 +144,7 @@ def commit_draft(doc: dict, *, sample_chars: int, chapter_count: int, at: str) -
             "mixture": mixture,
         }
     )
+    # 快照上限：只留最近 20 次（消费方仅前端 v{N} 徽标），防 KV 无限膨胀（评审 P3）
+    doc["history"] = history[-20:]
     doc["draft"] = {}
     return doc

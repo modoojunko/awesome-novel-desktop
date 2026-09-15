@@ -20,7 +20,7 @@ from settings.render import depiction_techniques_str, flatten_principles
 # 白名单写键（PUT 只受理这些；撤并键零写回）
 STYLE_WRITE_KEYS = ("role", "rules", "craft", "few_shot_examples")
 
-_MAX_RULES = 50
+_MAX_RULES = 100  # 模板全量归一（core_principles+possible_mistakes+pacing_rules≈58 条）不截断
 _MAX_CRAFT = 50
 _MAX_FEWSHOT = 3
 _VALUE_MAX = 500

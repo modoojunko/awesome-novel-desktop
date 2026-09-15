@@ -370,6 +370,45 @@ class TestDistillEndpoints:
 # ── 提示词组装 ───────────────────────────────────────────────────────────
 
 
+
+
+class TestReviewFixRegressions:
+    def test_template_scale_rules_not_truncated(self):
+        """评审 P2：模板全量归一（≈58 条）不得被上限截断——反 AI 红线一条不能丢。"""
+        raw = {
+            "role": "r",
+            "core_principles": {f"cat{i}": [f"原则{i}-{j}" for j in range(6)] for i in range(5)},
+            "possible_mistakes": [f"错误{i}" for i in range(20)],
+            "pacing_rules": ["节奏规则"],
+        }
+        out = normalize_style(raw)
+        assert len(out["rules"]) >= 50
+        # 全部原则与错误都在（抽查首尾）
+        assert "原则0-0" in out["rules"] and "原则4-5" in out["rules"]
+        assert "错误19" in out["rules"]
+
+    def test_auxiliary_style_read_goes_through_normalize(self):
+        """评审 P2：辅助写作链（续写/润色/扩写）读 style 必须经归一——
+        老书只填旧键时三区照常注入，不走未归一直读。"""
+        import asyncio
+
+        from write.auxiliary import _format_style
+
+        legacy = {
+            "role": "冷静叙事者",
+            "narrator_role": "第三人称限知",
+            "tone": {"techniques": ["动作外化"]},
+            "core_principles": ["每章结尾必须有钩子"],
+            "depiction_techniques": ["情绪靠动作外化"],
+        }
+        normalized = read_style(legacy)
+        sec = _format_style(normalized)
+        assert "冷静叙事者" in sec
+        assert "每章结尾必须有钩子" in sec
+        assert "情绪靠动作外化" in sec
+        # 未归一直读在迁移窗口期会丢这些内容——这里钉住归一后的行为
+
+
 class TestPromptAssembly:
     def _ctx(self, tmp_root):
         from write.chapter_writer import ChapterContext

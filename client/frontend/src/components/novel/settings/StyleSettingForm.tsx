@@ -26,21 +26,16 @@ import { Cfg, ListEditor, type SettingSaveHandle } from "./FormField";
 import type { ChangeReceiptState } from "./ChangeReceipt";
 import { styleAiApi, styleQuantApi, BASELINE_ROWS } from "@/lib/styleApi";
 import type { StyleQuant } from "@/lib/styleApi";
-import type { AiState } from "@/types/api-config";
 import { toast } from "@/lib/toast";
-import { Ico, P } from "@/components/icons";
 
 interface Props {
   projectId: string;
+  /** 设定面板统一契约键（settings router key）；本面板读写 /settings/style 与 /settings/style-quant */
   settingKey: string;
   /** P2-1：脏状态回调（未保存修改时 true），父组件切换面板前据此确认 */
   onDirtyChange?: (dirty: boolean) => void;
   /** 面板脚回执（采纳/重置类一触即变；经 SettingsView 的 ChangeReceiptBar 渲染） */
   onReceiptChange?: (r: ChangeReceiptState | null) => void;
-  /** 后端 ai_state 一次分派（D13）：member_required/no_key/missing_model/invalid/ready */
-  aiState?: AiState;
-  onBlocked?: (reason: AiState) => void;
-  confirmed?: boolean;
 }
 
 export interface StylePanelHandle extends SettingSaveHandle {
@@ -60,7 +55,7 @@ function checkResClass(res: string): string {
 }
 
 const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSettingForm(
-  { projectId, onDirtyChange, onReceiptChange },
+  { projectId, settingKey: _settingKey, onDirtyChange, onReceiptChange },
   ref,
 ) {
   const [loading, setLoading] = useState(true);
@@ -170,56 +165,65 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
         publishReceipt(null);
       },
       runAi: async (key: string) => {
-        if (key === "distill") {
-          setTab("quant");
-          await openDistill();
-          return;
-        }
-        if (key === "polish") {
-          const out = await styleAiApi.polish(projectId, {
-            role: role.trim(),
-            rules: rules.map((r) => r.trim()).filter(Boolean),
-            craft: craft.map((c) => c.trim()).filter(Boolean),
-          });
-          const prev = { role, rules: [...rules], craft: [...craft] };
-          record(
-            "已采纳「润色文字文风」：三区按题材＋简介重写（覆盖原内容，可撤销）",
-            () => {
-              setRole(out.role);
-              setRules(out.rules.length ? out.rules : [""]);
-              setCraft(out.craft.length ? out.craft : [""]);
-            },
-            () => {
-              setRole(prev.role);
-              setRules(prev.rules);
-              setCraft(prev.craft);
-            },
-          );
-          toast.success("已起草文字文风三区——每条都能改，锚定体检建议跑一遍");
-          return;
-        }
-        if (key === "check") {
-          setCheckSink(
-            await styleAiApi.check(projectId, {
-              role: role.trim(),
-              rules: rules.map((r) => r.trim()).filter(Boolean),
-              craft: craft.map((c) => c.trim()).filter(Boolean),
-            }),
-          );
-          return;
-        }
-        if (key === "fewshot") {
-          const out = await styleAiApi.fewshotMine(projectId);
-          const prev = [...fewShots];
-          record(
-            `已提炼 ${out.lines.length} 条例句（来自已归档正文）`,
-            () => setFewShots(out.lines.length ? out.lines : [""]),
-            () => setFewShots(prev),
-          );
+        try {
+          await runAiByKey(key);
+        } catch (e: unknown) {
+          // 运行时失败（后端 400 前置缺失 / 502 超时解析）必须可见——沿 hooks runAi 兜底口径
+          toast.error((e as Error).message || "AI 处理失败，可重试");
         }
       },
     }),
   );
+
+  async function runAiByKey(key: string) {
+    if (key === "distill") {
+      setTab("quant");
+      await openDistill();
+      return;
+    }
+    if (key === "polish") {
+      const out = await styleAiApi.polish(projectId, {
+        role: role.trim(),
+        rules: rules.map((r) => r.trim()).filter(Boolean),
+        craft: craft.map((c) => c.trim()).filter(Boolean),
+      });
+      const prev = { role, rules: [...rules], craft: [...craft] };
+      record(
+        "已采纳「润色文字文风」：三区按题材＋简介重写（覆盖原内容，可撤销）",
+        () => {
+          setRole(out.role);
+          setRules(out.rules.length ? out.rules : [""]);
+          setCraft(out.craft.length ? out.craft : [""]);
+        },
+        () => {
+          setRole(prev.role);
+          setRules(prev.rules);
+          setCraft(prev.craft);
+        },
+      );
+      toast.success("已起草文字文风三区——每条都能改，锚定体检建议跑一遍");
+      return;
+    }
+    if (key === "check") {
+      setCheckSink(
+        await styleAiApi.check(projectId, {
+          role: role.trim(),
+          rules: rules.map((r) => r.trim()).filter(Boolean),
+          craft: craft.map((c) => c.trim()).filter(Boolean),
+        }),
+      );
+      return;
+    }
+    if (key === "fewshot") {
+      const out = await styleAiApi.fewshotMine(projectId);
+      const prev = [...fewShots];
+      record(
+        `已提炼 ${out.lines.length} 条例句（来自已归档正文）`,
+        () => setFewShots(out.lines.length ? out.lines : [""]),
+        () => setFewShots(prev),
+      );
+    }
+  }
 
   // ── 量化页签 ──────────────────────────────────────────────────────
   const quantReady = !!quant && Number(quant.confidence) > 0;
@@ -231,17 +235,21 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
   }
 
   async function openDistill() {
-    const s = await styleQuantApi.samples(projectId);
-    setSamples(s);
-    setSelFiles(new Set(s.files.map((f) => f.name)));
-    setSelChapters(new Set(s.chapters.map((c) => c.id)));
-    // 续跑：draft 已到 step3 → 画像确认；其余从样本起
-    if (draft?.step3?.portrait) {
-      setDistillStep(3);
-      setDistillView("portrait");
-    } else {
-      setDistillStep(draftStep as 0 | 1 | 2 | 3);
-      setDistillView("samples");
+    try {
+      const s = await styleQuantApi.samples(projectId);
+      setSamples(s);
+      setSelFiles(new Set(s.files.map((f) => f.name)));
+      setSelChapters(new Set(s.chapters.map((c) => c.id)));
+      // 续跑：draft 已到 step3 → 画像确认；其余从样本起
+      if (draft?.step3?.portrait) {
+        setDistillStep(3);
+        setDistillView("portrait");
+      } else {
+        setDistillStep(draftStep as 0 | 1 | 2 | 3);
+        setDistillView("samples");
+      }
+    } catch (e: unknown) {
+      setError((e as Error).message || "样本加载失败");
     }
   }
 
@@ -444,7 +452,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
               <span className="fb-no">③</span>
               <b>描写层次和手法</b>
               <span className="hint">
-                题材已按蓝图预填——<em>删改成你自己的即可</em>。每条给做法＋例子，读了能照着改一段（至多 8 条）。
+                已预填一套可用起点——<em>删改成你自己的即可</em>。每条给做法＋例子，读了能照着改一段（至多 8 条）。
               </span>
             </div>
             <div data-od-id="list-craft">

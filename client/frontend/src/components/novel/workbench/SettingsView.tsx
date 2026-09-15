@@ -765,9 +765,6 @@ export default function SettingsView({
                 settingKey="style"
                 onDirtyChange={handleDirtyChange}
                 onReceiptChange={handleReceiptChange}
-                aiState={aiState}
-                onBlocked={handleAiBlocked}
-                confirmed={!!confirmedStatus?.style}
               />
             )}
             {panel === "antiAI" && (

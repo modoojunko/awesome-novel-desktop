@@ -329,9 +329,13 @@ class ChapterContext:
 
         # Style section（style-settings-v2：三区单一来源；tone/mistakes 块退役）
         style_sec = style_section(self.style_setting)
-        if style_sec:
+        quant = quant_section(self.style_quant)
+        if style_sec or quant:
             lines.append("## 文风")
-            lines.append(style_sec)
+            if style_sec:
+                lines.append(style_sec)
+            if quant:
+                lines.append(quant)
             lines.append("")
 
         # Rules
@@ -420,12 +424,6 @@ class ChapterContext:
 
         # Writing requirements
         lines.append("## 写作要求")
-        style_sec = style_section(self.style_setting)
-        if style_sec:
-            lines.append(style_sec)
-        quant = quant_section(self.style_quant)
-        if quant:
-            lines.append(quant)
         few_shot = self._few_shot_examples()
         if few_shot:
             lines.append("文风例句（参考语感）：")

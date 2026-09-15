@@ -1641,6 +1641,7 @@ async def _assemble_distill_samples(project, body: dict, db) -> tuple[str, int, 
     samples_dir = os.path.join(project.root_path, "novel-samples")
     texts: list[str] = []
     used: list[str] = []
+    matched_chapters = 0
     for name in files[:20]:
         safe = os.path.realpath(os.path.join(samples_dir, name))
         if os.path.dirname(safe) != os.path.realpath(samples_dir) or not os.path.isfile(safe):
@@ -1655,6 +1656,7 @@ async def _assemble_distill_samples(project, body: dict, db) -> tuple[str, int, 
             .where(Chapter.project_id == project.id, Archive.chapter_id.in_(chapter_ids))
         )
         for a in rows.scalars():
+            matched_chapters += 1
             texts.append(a.content or "")
             used.append(a.title or "已归档章节")
     text = "\n\n".join(texts)
@@ -1663,7 +1665,7 @@ async def _assemble_distill_samples(project, body: dict, db) -> tuple[str, int, 
         raise HTTPException(400, f"样本合计 {chars} 字，少于 {SAMPLE_MIN} 字统计噪声大——再补一些你认可的文章")
     if chars > SAMPLE_MAX:
         raise HTTPException(400, f"样本合计 {chars} 字，超过 {SAMPLE_MAX} 字——挑最有代表性的几章")
-    return text, chars, used
+    return text, chars, used, matched_chapters
 
 
 async def _distill_llm(project, user, db, *, system: str, prompt: str):
@@ -1750,7 +1752,7 @@ async def style_distill_ai(
     if action == "step1":
         if draft.get("step1"):
             return {"ok": True, "resumed": True, "step": draft.get("step", 0)}
-        text, chars, used = await _assemble_distill_samples(project, body, db)
+        text, chars, used, matched_chapters = await _assemble_distill_samples(project, body, db)
         prompt = load_prompt("style_distill_step1").format(sample=text)
         data = await _distill_llm(project, user, db, system="你是文风分析师。只输出 JSON，不要任何其他文字。", prompt=prompt)
         sections = data.get("sections") if isinstance(data, dict) else None
@@ -1759,7 +1761,7 @@ async def style_distill_ai(
         draft.update({
             "step": 1,
             "sample_chars": chars,
-            "chapter_count": len(body.get("chapter_ids") or []),
+            "chapter_count": matched_chapters,
             "samples_used": used,
             "step1": {"sections": sections[:40]},
         })
