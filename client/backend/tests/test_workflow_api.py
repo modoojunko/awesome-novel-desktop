@@ -307,6 +307,21 @@ class TestSettingsAIFieldGenerate:
         assert r2.status_code == 400
         assert "not supported" in str(r2.json().get("detail", "")).lower()
 
+    def test_hooks_field_generation_retired_returns_400(self, client):
+        """hooks 摘出 FIELD_GENERATABLE／_STYPE_PROMPTS（foreshadow-settings-v2 9.1）：
+        旧单字段路径 /ai/hooks/description 落到 /ai/hooks/{action} 白名单路由，
+        返回 400 专门退役文案（角色退役先例的 400 语义）。"""
+        name = f"AINovel-{uuid.uuid4().hex[:6]}"
+        r = client.post("/api/novels", json={"name": name})
+        assert r.status_code in (200, 201)
+        pid = r.json()["id"]
+        r2 = client.post(
+            f"/api/novels/{pid}/settings/ai/hooks/description",
+            json={"context": {}},
+        )
+        assert r2.status_code == 400
+        assert "退役" in str(r2.json().get("detail", ""))
+
 
 # ── 导入持久化往返（persist → 读回）──────────────────────────────────────
 

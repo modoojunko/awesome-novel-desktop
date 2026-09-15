@@ -1,4 +1,4 @@
-"""伏笔 AI 端点测试（foreshadow-settings-v2 批2 tasks 6.1）。
+"""伏笔 AI 端点测试（foreshadow-settings-v2 批2 tasks 6.1 / 批3 tasks 8.1）。
 
 覆盖 POST /api/novels/{id}/settings/ai/hooks/{action}：
 - draft：出参归一（type 非法降 mystery / priority 非法降 2 / 空描述丢弃）、
@@ -6,7 +6,11 @@
 - audit：四类点名（超期 miss / 在期 ok / 未定期 warn / 无留痕 warn）各一断言、
   出参 status 白名单与 goto_field 合法性、模型只产 note（id/状态以服务端为准）、
   无章纲降级免调用、无活跃伏笔降级免调用
-- 通用：未知 action 400、坏 JSON 502、404
+- payoff（批3）：出参形状 {resolved_chapter_ref（canonical 归一）, payoff_note}、
+  作用域 400（无 hook id / 无描述 / 缺主线）、坏 ref 502、超时记账
+- check（批3）：world_check 同款三上下文、三方全缺降级免调用、缺输入行强制置
+  miss＋补填出口、status 白名单同 audit、成功记账
+- 通用：未知 action 400、旧路径 description 400 退役文案、坏 JSON 502、404
 
 用法：
     cd client/backend
@@ -210,7 +214,7 @@ class TestHooksAiGate:
     def test_free_user_403(self, client):
         pid = _create_project(client)
         _set_tier("none", api_key=_FAKE_KEY)
-        for action in ("draft", "audit"):
+        for action in ("draft", "payoff", "audit", "check"):
             r = client.post(f"/api/novels/{pid}/settings/ai/hooks/{action}", json={})
             assert r.status_code == 403, (action, r.text)
             assert r.json()["detail"]["reason"] == "member_required"
@@ -219,6 +223,13 @@ class TestHooksAiGate:
         pid = _create_project(client)
         r = client.post(f"/api/novels/{pid}/settings/ai/hooks/bogus", json={})
         assert r.status_code == 400
+
+    def test_retired_description_400(self, client):
+        """旧单字段路径 /ai/hooks/description → 400 专门退役文案（tasks 9.1）。"""
+        pid = _create_project(client)
+        r = client.post(f"/api/novels/{pid}/settings/ai/hooks/description", json={})
+        assert r.status_code == 400
+        assert "退役" in r.json()["detail"]
 
     def test_404_project(self, client):
         r = client.post("/api/novels/no-such/settings/ai/hooks/draft", json={})
@@ -521,3 +532,313 @@ class TestHooksAudit:
 
         rows = _run_async(_rows())
         assert [r.operation for r in rows] == ["settings_hooks_audit_fail"]
+
+
+# ── payoff（批3）：出参形状 / 作用域 400 / ref 归一 / 记账 ──────────────────
+
+_PAYOFF_OK = '{"resolved_chapter_ref": "1-3", "payoff_note": "第3章听证会上残卷笔迹对上，林拾当场对质"}'
+
+
+def _seed_story_fields(novel_id: str, **fields) -> None:
+    """直写 story.yaml（genre 等无独立测试端点的字段；read 侧同源）。"""
+    from filesystem.storage import get_storage
+    from novels.service import get_novel
+
+    async def _write():
+        async with async_session() as session:
+            project = await get_novel(session, novel_id, "hkai")
+        story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+        story.update(fields)
+        await get_storage().write_yaml(project.root_path, "story.yaml", story)
+
+    _run_async(_write())
+
+
+def _seed_world(novel_id: str, data: dict) -> None:
+    """直写 settings/world-setting.yaml（check 的世界侧输入）。"""
+    from filesystem.storage import get_storage
+    from novels.service import get_novel
+
+    async def _write():
+        async with async_session() as session:
+            project = await get_novel(session, novel_id, "hkai")
+        await get_storage().write_yaml(
+            project.root_path, "settings/world-setting.yaml", data
+        )
+
+    _run_async(_write())
+
+
+class TestHooksPayoff:
+    def _seed(self, client) -> tuple[str, str]:
+        pid = _create_project(client)
+        r = client.put(
+            f"/api/novels/{pid}/story/arc", json={"fullstory": "三幕：寻妹—揭盖—收网。"}
+        )
+        assert r.status_code in (200, 201), r.text
+        hid = _add_hook(pid, description="姐姐失踪前留下的半张车票")
+        return pid, hid
+
+    def test_missing_hook_id_400(self, client):
+        pid, _ = self._seed(client)
+        r = client.post(
+            f"/api/novels/{pid}/settings/ai/hooks/payoff", json={"description": "有描述"}
+        )
+        assert r.status_code == 400
+        assert "先选一条伏笔" in r.json()["detail"]
+
+    def test_missing_description_400(self, client):
+        pid, hid = self._seed(client)
+        r = client.post(
+            f"/api/novels/{pid}/settings/ai/hooks/payoff",
+            json={"hook_id": hid, "description": "   "},
+        )
+        assert r.status_code == 400
+        assert "描述" in r.json()["detail"]
+
+    def test_missing_fullstory_400(self, client):
+        """缺主线 → 400 中文原因（收束方案要按全书走向定收束点）。"""
+        pid = _create_project(client)
+        hid = _add_hook(pid, description="半张车票")
+        r = client.post(
+            f"/api/novels/{pid}/settings/ai/hooks/payoff",
+            json={"hook_id": hid, "description": "半张车票"},
+        )
+        assert r.status_code == 400
+        assert "主线" in r.json()["detail"]
+
+    def test_output_shape_and_ref_canonicalization(self, client, stub_ai):
+        """出参 {resolved_chapter_ref, payoff_note}；模板短格式 ref 归一成规范形；
+        prompt 作用域＝body 传的当前编辑值＋主线（intro 先例，不读库旧文）。"""
+        pid, hid = self._seed(client)
+        fake = stub_ai(_PAYOFF_OK)
+        r = client.post(
+            f"/api/novels/{pid}/settings/ai/hooks/payoff",
+            json={
+                "hook_id": hid,
+                "description": "姐姐失踪前留下的半张车票",
+                "type": "clue",
+                "priority": "高",
+                "code": "#H-0001",
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert r.json() == {
+            "resolved_chapter_ref": "vol-1-ch-3",
+            "payoff_note": "第3章听证会上残卷笔迹对上，林拾当场对质",
+        }
+        prompt = fake.calls[0]["messages"][0]["content"]
+        assert "姐姐失踪前留下的半张车票" in prompt  # 当前编辑值进 prompt
+        assert "三幕" in prompt  # 主线进 prompt
+        assert "#H-0001" in prompt and "线索" in prompt and "高" in prompt
+
+    def test_bad_ref_502(self, client, stub_ai):
+        pid, hid = self._seed(client)
+        stub_ai('{"resolved_chapter_ref": "第36章", "payoff_note": "在酒馆对上"}')
+        r = client.post(
+            f"/api/novels/{pid}/settings/ai/hooks/payoff",
+            json={"hook_id": hid, "description": "半张车票"},
+        )
+        assert r.status_code == 502
+        assert "vol-N-ch-M" in r.json()["detail"]
+
+    def test_missing_note_502(self, client, stub_ai):
+        pid, hid = self._seed(client)
+        stub_ai('{"resolved_chapter_ref": "vol-1-ch-3", "payoff_note": ""}')
+        r = client.post(
+            f"/api/novels/{pid}/settings/ai/hooks/payoff",
+            json={"hook_id": hid, "description": "半张车票"},
+        )
+        assert r.status_code == 502
+
+    def test_timeout_records_fail(self, monkeypatch, client):
+        """超时 502 + `settings_hooks_payoff_fail` 记账。"""
+        from sqlalchemy import select
+
+        from ai_client import AITimeoutError
+        from models.token_log import TokenLog
+
+        class _TimeoutClient:
+            async def chat(self, **kw):
+                raise AITimeoutError("AI 服务连接超时或失败")
+
+        async def _failing(novel_id=None):
+            return _TimeoutClient()
+
+        monkeypatch.setattr("settings.ai_router.get_ai_client_for_novel", _failing)
+        pid, hid = self._seed(client)
+        resp = client.post(
+            f"/api/novels/{pid}/settings/ai/hooks/payoff",
+            json={"hook_id": hid, "description": "半张车票"},
+        )
+        assert resp.status_code == 502
+
+        async def _rows():
+            async with async_session() as session:
+                result = await session.execute(
+                    select(TokenLog).where(TokenLog.project_id == pid)
+                )
+                return list(result.scalars())
+
+        rows = _run_async(_rows())
+        assert [r.operation for r in rows] == ["settings_hooks_payoff_fail"]
+
+
+# ── check（批3）：三上下文 / 降级免调用 / 白名单 / 记账 ─────────────────────
+
+_CHECK_FULL = (
+    '{"checks": ['
+    '{"name": "简介", "status": "ok", "note": "车票在简介第一段有根"},'
+    '{"name": "题材", "status": "warn", "note": "刑侦线偏日常，往悬疑靠"},'
+    '{"name": "世界", "status": "miss", "note": "车票笔迹与世界铁律笔迹说矛盾"}'
+    "]}"
+)
+
+
+class TestHooksCheck:
+    def test_missing_hook_id_400(self, client):
+        pid = _create_project(client)
+        r = client.post(
+            f"/api/novels/{pid}/settings/ai/hooks/check", json={"description": "有描述"}
+        )
+        assert r.status_code == 400
+        assert "先选一条伏笔" in r.json()["detail"]
+
+    def test_missing_description_400(self, client):
+        pid = _create_project(client)
+        hid = _add_hook(pid, description="半张车票")
+        r = client.post(
+            f"/api/novels/{pid}/settings/ai/hooks/check",
+            json={"hook_id": hid, "description": ""},
+        )
+        assert r.status_code == 400
+        assert "描述" in r.json()["detail"]
+
+    def test_all_missing_degrades_without_ai(self, client):
+        """三方全缺（简介/题材/世界）→ D7 降级免调用，全部行置 miss＋补填出口。"""
+
+        class _Boom:
+            async def chat(self, *a, **k):
+                raise AssertionError("降级路径不得调用 AI")
+
+        async def _fake(novel_id=None):
+            return _Boom()
+
+        from unittest import mock
+
+        import settings.ai_router as air
+
+        pid = _create_project(client)
+        hid = _add_hook(pid, description="半张车票")
+        with mock.patch.object(air, "get_ai_client_for_novel", _fake):
+            r = client.post(
+                f"/api/novels/{pid}/settings/ai/hooks/check",
+                json={"hook_id": hid, "description": "半张车票"},
+            )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["degraded"] is True
+        assert data["degraded_reasons"] == ["简介未填", "题材未确认", "世界设定还空着"]
+        assert [c["name"] for c in data["checks"]] == ["简介 × 伏笔", "题材 × 伏笔", "世界 × 伏笔"]
+        assert all(c["status"] == "miss" for c in data["checks"])
+        assert all("先去" in c["note"] for c in data["checks"])  # 每行都有补填出口
+        assert "先补" in data["verdict"]
+
+    def test_partial_missing_forces_miss_row(self, client, stub_ai):
+        """部分缺输入 → AI 照常体检其余项；缺输入行强制置 miss（world_check D7 同款）。"""
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "陆征查旧案。"})
+        _seed_story_fields(pid, genre="悬疑", sub_genre="社会派")
+        # 世界设定不种 → 世界行该置 miss
+        hid = _add_hook(pid, description="半张车票")
+        stub_ai(_CHECK_FULL)
+        r = client.post(
+            f"/api/novels/{pid}/settings/ai/hooks/check",
+            json={"hook_id": hid, "description": "半张车票"},
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["degraded"] is True
+        assert data["degraded_reasons"] == ["世界设定还空着"]
+        by_name = {c["name"]: c for c in data["checks"]}
+        assert by_name["简介 × 伏笔"]["status"] == "ok"  # 其余项正常出判定
+        assert by_name["题材 × 伏笔"]["status"] == "warn"
+        assert by_name["世界 × 伏笔"]["status"] == "miss"  # 强制置 miss
+        assert "世界设定还空着" in by_name["世界 × 伏笔"]["note"]  # 不采信模型对空输入的判定
+
+    def test_whitelist_and_name_normalization(self, client, stub_ai):
+        """status 白名单同 audit；模型回名「简介 × 伏笔」「世界×伏笔」都归一；
+        status 写岔的行丢弃 → 回退「AI 未给出该项，可重试」。"""
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "陆征查旧案。"})
+        _seed_story_fields(pid, genre="悬疑")
+        _seed_world(pid, {"stage": "九十年代滨江轮埠"})
+        hid = _add_hook(pid, description="半张车票")
+        stub_ai(
+            '{"checks": ['
+            '{"name": "简介 × 伏笔", "status": "ok", "note": "对得上"},'
+            '{"name": "题材", "status": "特别差", "note": "非法状态应被丢弃"},'
+            '{"name": "世界×伏笔", "status": "miss", "note": "笔迹与铁律矛盾"}'
+            "]}"
+        )
+        r = client.post(
+            f"/api/novels/{pid}/settings/ai/hooks/check",
+            json={"hook_id": hid, "description": "半张车票"},
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["degraded"] is False
+        by_name = {c["name"]: c for c in data["checks"]}
+        assert by_name["简介 × 伏笔"] == {"name": "简介 × 伏笔", "status": "ok", "note": "对得上"}
+        assert by_name["题材 × 伏笔"] == {
+            "name": "题材 × 伏笔", "status": "miss", "note": "AI 未给出该项，可重试",
+        }
+        assert by_name["世界 × 伏笔"]["status"] == "miss"
+        assert by_name["世界 × 伏笔"]["note"] == "笔迹与铁律矛盾"
+        for c in data["checks"]:
+            assert c["status"] in ("ok", "warn", "miss")
+
+    def test_success_records_usage(self, client):
+        """成功调用落 `settings_hooks_check` 记账（token 逐条落库）。"""
+        from unittest import mock
+
+        from sqlalchemy import select
+
+        from models.token_log import TokenLog
+
+        class _UsageAI(_FakeAI):
+            async def chat(self, **kw):
+                kw["usage"]["tokens_in"] = 9
+                kw["usage"]["tokens_out"] = 5
+                return self._text
+
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "陆征查旧案。"})
+        _seed_story_fields(pid, genre="悬疑")
+        _seed_world(pid, {"stage": "九十年代滨江轮埠"})
+        hid = _add_hook(pid, description="半张车票")
+
+        import settings.ai_router as air
+
+        fake = _UsageAI(_CHECK_FULL)
+
+        async def get_client(novel_id=None):
+            return fake
+
+        with mock.patch.object(air, "get_ai_client_for_novel", get_client):
+            r = client.post(
+                f"/api/novels/{pid}/settings/ai/hooks/check",
+                json={"hook_id": hid, "description": "半张车票"},
+            )
+        assert r.status_code == 200, r.text
+
+        async def _rows():
+            async with async_session() as session:
+                result = await session.execute(
+                    select(TokenLog).where(TokenLog.project_id == pid)
+                )
+                return list(result.scalars())
+
+        rows = _run_async(_rows())
+        assert [r.operation for r in rows] == ["settings_hooks_check"]
+        assert rows[0].tokens_in == 9 and rows[0].tokens_out == 5

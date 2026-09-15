@@ -386,3 +386,153 @@ test.describe.serial("伏笔 AI 链路（批2）", () => {
     }
   });
 });
+
+// =========================================================================
+// 批3（tasks 8.2）：h2 拟收束方案 / h4 查一致性（打桩 AI）
+//   ⑤ h2：已有收束记录 → 明示「覆盖并收束」→ 采纳=PATCH 三字段 → 回执撤销还原
+//   ⑥ 无选中：h2/h4 置灰＋hint 指路，零 AI 请求（h1 不受影响）
+//   ⑦ h4：结果落卡底 sink，行可点聚焦描述字段
+// =========================================================================
+
+const PAYOFF_STUB = {
+  resolved_chapter_ref: "vol-1-ch-09",
+  payoff_note: "第9章听证会上残卷笔迹对上——林拾当场对质",
+};
+
+const CHECK_STUB = {
+  checks: [
+    { name: "简介 × 伏笔", status: "ok", note: "车票在简介第一段有根" },
+    { name: "题材 × 伏笔", status: "warn", note: "刑侦线偏日常，往悬疑靠" },
+    { name: "世界 × 伏笔", status: "miss", note: "笔迹细节与世界铁律矛盾" },
+  ],
+  degraded: false,
+  degraded_reasons: [],
+  verdict: "",
+};
+
+test.describe.serial("伏笔 AI 链路（批3）", () => {
+  test("⑤ 拟收束：已有记录明示「覆盖并收束」→采纳写入→回执撤销还原", async ({
+    page,
+    request,
+  }) => {
+    const { restore, token } = await setupSession(page);
+    try {
+      const pid = await createNovel(page, `伏笔收束${Date.now() % 100000}`);
+      await stubAiState(page, pid, "ready");
+      // 种一条已有收束记录的伏笔（覆盖警示的前提）
+      await apiPostJSON(request, token, `/novels/${pid}/hooks`, {
+        description: "半张地图的另一半",
+        status: "resolved",
+        payoff_note: "用假死收束",
+      });
+      await page.route(`**/api/novels/${pid}/settings/ai/hooks/payoff`, (r) =>
+        r.fulfill({ json: PAYOFF_STUB }),
+      );
+      const patches: Array<Record<string, unknown>> = [];
+      await page.route(`**/api/novels/${pid}/hooks/*`, (r) => {
+        if (r.request().method() === "PATCH") {
+          patches.push(JSON.parse(r.request().postData() || "{}"));
+        }
+        return r.continue();
+      });
+
+      await page.getByRole("button", { name: /^设定/ }).click();
+      await openHooks(page);
+      await page.locator('[data-aiact="h2"]').click();
+
+      // 结果落收束记录区 sink；已有记录 → 明示警示＋按钮转「覆盖并收束」
+      const sink = page.locator('[data-od-id="sink-hook-payoff"]');
+      await expect(sink).toBeVisible({ timeout: 10000 });
+      await expect(sink).toContainText("已有收束记录——采纳将覆盖它（可撤销）");
+      await expect(sink).toContainText(PAYOFF_STUB.payoff_note);
+
+      // 采纳＝PATCH {status:'resolved', resolved_chapter_id, payoff_note}
+      // （建议章未建 → resolved_chapter_id 留空待补）
+      await sink.getByRole("button", { name: "覆盖并收束" }).click();
+      await expect(page.locator('[data-od-id="receipt-hooks-ai"]')).toBeVisible({
+        timeout: 10000,
+      });
+      await expect.poll(() => patches.length).toBe(1);
+      expect(patches[0]).toMatchObject({
+        status: "resolved",
+        resolved_chapter_id: null,
+        payoff_note: PAYOFF_STUB.payoff_note,
+      });
+
+      // 回执精确撤销：三字段改回采纳前值（旧收束记录原样回来）。
+      // 读回用 poll（路由捕获在请求时、服务端落库在其后——一次性读会竞态）
+      await page
+        .locator('[data-od-id="receipt-hooks-ai"]')
+        .getByRole("button", { name: "撤销" })
+        .click();
+      await expect.poll(() => patches.length).toBe(2);
+      expect(patches[1]).toMatchObject({ status: "resolved", payoff_note: "用假死收束" });
+      await expect
+        .poll(async () => {
+          const list = await apiGetJSON(request, token, `/novels/${pid}/hooks`);
+          return `${list.data.items[0].status}|${list.data.items[0].payoff_note}`;
+        })
+        .toBe("resolved|用假死收束");
+    } finally {
+      await restore();
+    }
+  });
+
+  test("⑥ 无选中：h2/h4 置灰＋hint 指路，零 AI 请求", async ({ page }) => {
+    const { restore } = await setupSession(page);
+    try {
+      const pid = await createNovel(page, `伏笔置灰${Date.now() % 100000}`);
+      await stubAiState(page, pid, "ready");
+      let aiCalled = 0;
+      await page.route(`**/api/novels/${pid}/settings/ai/hooks/**`, (r) => {
+        aiCalled += 1;
+        return r.fulfill({ json: {} });
+      });
+
+      await page.getByRole("button", { name: /^设定/ }).click();
+      await openHooks(page); // 空台账：无选中条目
+
+      // h2/h4 选中作用域行置灰＋「先选一条伏笔」指路；h1 起草（非选中作用域）不受影响
+      for (const key of ["h2", "h4"]) {
+        const row = page.locator(`[data-aiact="${key}"]`);
+        await expect(row).toBeDisabled();
+        await expect(row.locator(".ra-hint")).toHaveText("先选一条伏笔");
+      }
+      await expect(page.locator('[data-aiact="h1"]')).toBeEnabled();
+      expect(aiCalled).toBe(0);
+    } finally {
+      await restore();
+    }
+  });
+
+  test("⑦ 查一致性：结果落卡底 sink，行可点聚焦描述字段", async ({ page, request }) => {
+    const { restore, token } = await setupSession(page);
+    try {
+      const pid = await createNovel(page, `伏笔一致${Date.now() % 100000}`);
+      await stubAiState(page, pid, "ready");
+      await apiPostJSON(request, token, `/novels/${pid}/hooks`, {
+        description: "姐姐失踪前留下的半张车票",
+      });
+      await page.route(`**/api/novels/${pid}/settings/ai/hooks/check`, (r) =>
+        r.fulfill({ json: CHECK_STUB }),
+      );
+
+      await page.getByRole("button", { name: /^设定/ }).click();
+      await openHooks(page);
+      await page.locator('[data-aiact="h4"]').click();
+
+      const sink = page.locator('[data-od-id="sink-hook-consistency"]');
+      await expect(sink).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('[data-od-id="check-row"]')).toHaveCount(3);
+      await expect(sink).toContainText("达标");
+      await expect(sink).toContainText("风险");
+      await expect(sink).toContainText("对不上");
+
+      // 行可点跳转：聚焦这条伏笔的描述字段
+      await page.locator('[data-od-id="check-row"]').nth(1).click();
+      await expect(page.locator('[data-od-id="input-hook-desc"]')).toBeFocused();
+    } finally {
+      await restore();
+    }
+  });
+});

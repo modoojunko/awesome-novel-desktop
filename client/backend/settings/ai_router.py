@@ -30,14 +30,17 @@ from settings.hooks_model import (
     DESCRIPTION_MAX,
     HOOK_TYPE_KEYS,
     HOOK_TYPES,
+    PAYOFF_NOTE_MAX,
     PRIORITY_LABELS,
     normalize_priority,
+    priority_label,
+    type_label,
 )
 
 router = APIRouter(prefix="/api/novels/{project_id}/settings", tags=["settings-ai"])
 
-# 支持按字段生成的设定类型（anti-ai 除外）
-FIELD_GENERATABLE = {"style", "hooks", "genre"}
+# 支持按字段生成的设定类型（anti-ai 除外；hooks 已随伏笔 AI 四能力退役——foreshadow-settings-v2 9.1）
+FIELD_GENERATABLE = {"style", "genre"}
 
 # 题材五行字段（01 口味胶囊不走 AI；promise_note 不单独成行，随 core_promise 出参）
 GENRE_FIELDS = ("core_promise", "forbidden_list", "cost_ratio", "battlefield")
@@ -58,7 +61,6 @@ _GENRE_PROMPTS = {
 }
 _STYPE_PROMPTS = {
     "style": "settings_style",
-    "hooks": "settings_hooks",
 }
 
 # 六段名 / 禁忌三元（体检归一化白名单；与前端 lib/introTemplate.ts 逐字一致）
@@ -1087,13 +1089,16 @@ async def run_arc_ai(
     return {"value": value}
 
 
-# ═══ 伏笔 AI 两能力（foreshadow-settings-v2 批2）══════════════════════════
-# draft（起草候选）/ audit（埋坑体检）；payoff/check 留批3 注册位（同字典加键即可）。
-# 本节必须注册在下方 /ai/{stype}/{field} 通配之前（intro/world/arc 同款约束）——
-# 注册后旧通配路径 /ai/hooks/description 被白名单 400 口径遮蔽（正式退役见 tasks 9.1）。
+# ═══ 伏笔 AI 四能力（foreshadow-settings-v2 批2/批3）══════════════════════
+# draft（起草候选）/ payoff（拟收束方案）/ audit（埋坑体检）/ check（查一致性）。
+# 本节必须注册在下方 /ai/{stype}/{field} 通配之前（intro/world/arc 同款约束）。
+# 注意：/ai/hooks/{action} 路由同时遮蔽了旧通配路径 /ai/hooks/description——
+# 该 action 不在白名单时按 9.1 给专门退役文案（见下方分支）。
 _HOOK_ACTIONS: dict[str, str] = {
     "draft": "hooks_draft",
+    "payoff": "hooks_payoff",
     "audit": "hooks_audit",
+    "check": "hooks_check",
 }
 
 # audit 判定常量（design D5：判定服务端出——类别/状态/跳转目标不采信模型自由文本，
@@ -1101,6 +1106,25 @@ _HOOK_ACTIONS: dict[str, str] = {
 AUDIT_OUTLINE_MAX_LINES = 60  # 章纲上下文封顶最近 60 章（全量拼 prompt 的护栏）
 AUDIT_NO_PLAN_LINE = 40       # 「40 章未定期」提醒线：已写 ≥40 章仍无计划 → 默认 note 升格催办
 _AUDIT_GOTO_FIELDS = ("planned", "payoff")  # 行跳转目标白名单（None＝在期，无需跳）
+
+# check 三上下文行（world_check 同款：简介/题材/世界）；status 白名单同 audit。
+_HOOK_CHECK_ITEMS = ("简介", "题材", "世界")
+_HOOK_CHECK_STATUS = ("ok", "warn", "miss")
+
+
+def _check_item_key(name) -> str:
+    """模型回名归一：「简介 × 伏笔」「简介×伏笔」「简介」都映射回 简介。"""
+    return re.sub(r"[\s×xX*·・]|伏笔", "", str(name or ""))
+
+
+def _check_miss_row(item: str) -> dict:
+    """缺输入行的 miss 出参（D7：补填出口写进 note，不报错不阻断）。"""
+    notes = {
+        "简介": "输入缺失：简介未填——先去补简介，再重新体检",
+        "题材": "输入缺失：题材未确认——先去题材页确认，再重新体检",
+        "世界": "输入缺失：世界设定还空着——先去世界面板补几条，再重新体检",
+    }
+    return {"name": f"{item} × 伏笔", "status": "miss", "note": notes[item]}
 
 
 async def _hooks_draft_context(project) -> dict:
@@ -1151,19 +1175,16 @@ def _normalize_hook_candidates(data) -> list[dict]:
     return out
 
 
-async def _hooks_audit_scan(db: AsyncSession, novel_id: str) -> tuple[list[dict], list[str], int]:
-    """埋坑体检的确定性扫描：类别/状态/跳转目标全由服务端判定（模型只补 note）。
+async def _load_written_outline(
+    db: AsyncSession, novel_id: str
+) -> tuple[list[tuple[int, str, str]], dict[str, int], dict[str, str]]:
+    """已写章纲构建（批2 audit；payoff 同源复用）：返回 (written, pos_by_id, ref_by_id)。
 
-    返回 (rows, outline_lines, written_count)：
-    - rows：按 seq 序的体检行骨架。kind 四类——
-        overdue 超期（计划收束章已过还没收 → miss）/ on_track 在期（ok）/
-        no_plan 未定期（warn）/ no_receipt 无留痕（已收束没留「怎么收的」→ warn）
-    - outline_lines：已写章纲 prompt 行（书序；outline_status != unfilled 或 summary
-      非空才算「已写」，渲染 `vol-N-ch-M 标题：summary`，摘要截 300）
-    - written_count：已写章纲章数（40 章未定期提醒线的判据）
+    - written：[(书序 pos, 章 ref, prompt 行)]——outline_status != unfilled 或 summary
+      非空才算「已写」，行渲染 `vol-N-ch-M 标题：summary`，摘要截 300
+    - pos_by_id / ref_by_id：章 id → 书序位置 / 章 ref（超期判定与 id→ref 换算用）
     """
     from models.chapter import Chapter
-    from models.hook import NovelHook
     from models.volume import Volume
 
     ch_rows = (
@@ -1184,6 +1205,22 @@ async def _hooks_audit_scan(db: AsyncSession, novel_id: str) -> tuple[list[dict]
         if (ch.outline_status or "unfilled") != "unfilled" or summary:
             head = f"{ch.ref} {ch.title}" if (ch.title or "").strip() else ch.ref
             written.append((pos, ch.ref, f"{head}：{summary[:300]}"))
+    return written, pos_by_id, ref_by_id
+
+
+async def _hooks_audit_scan(db: AsyncSession, novel_id: str) -> tuple[list[dict], list[str], int]:
+    """埋坑体检的确定性扫描：类别/状态/跳转目标全由服务端判定（模型只补 note）。
+
+    返回 (rows, outline_lines, written_count)：
+    - rows：按 seq 序的体检行骨架。kind 四类——
+        overdue 超期（计划收束章已过还没收 → miss）/ on_track 在期（ok）/
+        no_plan 未定期（warn）/ no_receipt 无留痕（已收束没留「怎么收的」→ warn）
+    - outline_lines：已写章纲 prompt 行（书序；构建见 _load_written_outline）
+    - written_count：已写章纲章数（40 章未定期提醒线的判据）
+    """
+    from models.hook import NovelHook
+
+    written, pos_by_id, ref_by_id = await _load_written_outline(db, novel_id)
     last_written = written[-1][0] if written else 0
     written_count = len(written)
 
@@ -1253,17 +1290,52 @@ async def run_hooks_ai(
     __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
-    """伏笔 AI：draft（起草 3 条候选）/ audit（埋坑体检）。
+    """伏笔 AI 四能力：draft（起草候选）/ payoff（拟收束方案）/ audit（埋坑体检）/ check（查一致性）。
 
-    输入后端自读（story.yaml＋世界＋主线＋真表 hooks/chapters），不采信前端快照。
+    输入后端自读（story.yaml＋世界＋主线＋真表 chapters），不采信前端快照；
+    例外是**选中伏笔的当前编辑值**——payoff/check 按 body 传值作用域（intro 先例：
+    面板编辑未落库时也按所见出建议，不读库旧文）。
     audit 降级（world_check D7 先例）：无活跃伏笔 / 无已写章纲 → 免调用，
     纯台账自检只点名 未定期/无留痕，不报错不阻断。
     """
     if action not in _HOOK_ACTIONS:
+        if action == "description":
+            # 旧单字段生成路径退役（9.1）：/ai/hooks/{action} 白名单路由遮蔽了通配
+            # 400 口径，这里给专门退役文案（沿角色 FIELD_GENERATABLE 摘除先例的 400 语义）。
+            raise HTTPException(
+                400,
+                "伏笔单字段生成已退役：伏笔 AI 升级为四能力，"
+                "请改用 /ai/hooks/draft（起草）、/payoff（拟收束）、/audit（埋坑体检）、/check（查一致性）",
+            )
         raise HTTPException(400, f"不支持的伏笔 AI 动作：{action}")
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
+
+    # ── 选中作用域公共校验（payoff/check）：hook id ＋ 当前编辑描述 ──────────
+    if action in ("payoff", "check"):
+        hook_id = str(body.get("hook_id") or "").strip()
+        if not hook_id:
+            what = "拟收束方案" if action == "payoff" else "查一致性"
+            raise HTTPException(400, f"先选一条伏笔——{what}对选中的伏笔生效")
+        description = _clamp_str(body.get("description"), DESCRIPTION_MAX)
+        if not description:
+            raise HTTPException(400, "这条伏笔还没有描述，先写一句再让 AI 处理")
+
+    # 选中伏笔展示上下文（type/priority 非法降默认，与 draft 出参同口径）
+    def _hook_display() -> dict:
+        htype = str(body.get("type") or "").strip()
+        if htype not in HOOK_TYPE_KEYS:
+            htype = HOOK_TYPE_KEYS[0]
+        try:
+            pri = normalize_priority(body.get("priority"))
+        except ValueError:
+            pri = 2
+        return {
+            "code": _clamp_str(body.get("code"), 12) or "（未编号）",
+            "type_label": type_label(htype),
+            "priority_label": priority_label(pri),
+        }
 
     if action == "draft":
         ctx = await _hooks_draft_context(project)
@@ -1283,11 +1355,73 @@ async def run_hooks_ai(
             priority_list=" / ".join(PRIORITY_LABELS[k] for k in sorted(PRIORITY_LABELS)),
         )
         system = "你是小说伏笔编辑。只输出 JSON，不要任何其他文字。"
+    elif action == "payoff":
+        # 主线是收束方案的依据（缺主线 400，中文原因）——fullstory 空时 _hooks_draft_context
+        # 填的是「（未填）」占位，据此判缺
+        ctx = await _hooks_draft_context(project)
+        if not ctx["fullstory"].strip() or ctx["fullstory"] == "（未填）":
+            raise HTTPException(400, "主线还没写——收束方案要按全书走向定收束点，先去主线面板写两句")
+        written, _pos_by_id, ref_by_id = await _load_written_outline(db, project.id)
+        planned_ref = ref_by_id.get(str(body.get("planned_chapter_id") or ""), "")
+        disp = _hook_display()
+        formatted = load_prompt(_HOOK_ACTIONS[action]).format(
+            title=ctx["title"],
+            code=disp["code"],
+            description=description,
+            type_label=disp["type_label"],
+            priority_label=disp["priority_label"],
+            planned=planned_ref or "（未定期——由你按主线节奏建议）",
+            fullstory=ctx["fullstory"],
+            outline_block=(
+                "\n".join(line for _, _, line in written[-AUDIT_OUTLINE_MAX_LINES:])
+                or "（还没有已写章纲——按主线节奏建议之后的章）"
+            ),
+        )
+        system = "你是小说伏笔编辑。只输出 JSON，不要任何其他文字。"
+    elif action == "check":
+        # world_check 同款三上下文（简介/题材/世界）；选中伏笔值走 body（intro 先例）
+        story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+        from settings.world_model import world_summary_text
+
+        world_raw = await get_storage().read_yaml(project.root_path, "settings/world-setting.yaml") or {}
+        theme_label, theme_desc, _ = _world_theme(story)
+        synopsis = _clamp_str(story.get("synopsis"), 600)
+        world_text = world_summary_text(world_raw, 1200)
+        synopsis_missing = not synopsis.strip()
+        theme_missing = not theme_label
+        world_missing = not world_text.strip()
+        degraded_reasons: list[str] = []
+        if synopsis_missing:
+            degraded_reasons.append("简介未填")
+        if theme_missing:
+            degraded_reasons.append("题材未确认")
+        if world_missing:
+            degraded_reasons.append("世界设定还空着")
+        if len(degraded_reasons) == 3:
+            # D7 降级【拍板】：三方全缺 → 整次体检免调用，全部行置 miss＋补填出口
+            return {
+                "checks": [_check_miss_row(x) for x in _HOOK_CHECK_ITEMS],
+                "degraded": True,
+                "degraded_reasons": degraded_reasons,
+                "verdict": "简介、题材、世界都还没写——先补几笔，再查才有依据",
+            }
+        disp = _hook_display()
+        formatted = load_prompt(_HOOK_ACTIONS[action]).format(
+            code=disp["code"],
+            description=description,
+            type_label=disp["type_label"],
+            priority_label=disp["priority_label"],
+            synopsis=synopsis or "（未填写）",
+            theme=theme_label or "（未确认）",
+            theme_desc=theme_desc or "",
+            world=world_text or "（未填写）",
+        )
+        system = "你是小说设定一致性审校。只输出 JSON，不要任何其他文字。"
     else:
         ctx = await _hooks_draft_context(project)
         rows, outline_lines, _written_count = await _hooks_audit_scan(db, project.id)
         # 降级免调用（D7）：无活跃伏笔 / 无已写章纲 → 纯台账自检（点名 未定期/无留痕）
-        degraded_reasons: list[str] = []
+        degraded_reasons = []
         if not rows:
             degraded_reasons.append("还没有活跃伏笔")
         elif not outline_lines:
@@ -1331,7 +1465,7 @@ async def run_hooks_ai(
 
     # model 必须用客户端别名（haiku/sonnet/review → 配置模型）；字面模型名会
     # 透传供应商被拒 → 502（见 arc 同款注释）。
-    # 起草＝生成类（temp 0.6）；体检＝判定类（temp 0.3）。
+    # 起草/拟收束＝生成类（temp 0.6）；体检/查一致性＝判定类（temp 0.3）。
     client = await get_ai_client_for_novel(project_id)
     usage: dict = {}
     try:
@@ -1340,7 +1474,7 @@ async def run_hooks_ai(
             model="haiku",
             system=system,
             messages=[{"role": "user", "content": formatted}],
-            temperature=0.6 if action == "draft" else 0.3,
+            temperature=0.6 if action in ("draft", "payoff") else 0.3,
             json_mode=True,
             usage=usage,
         )
@@ -1381,6 +1515,68 @@ async def run_hooks_ai(
 
     if action == "draft":
         return {"candidates": _normalize_hook_candidates(data)}
+
+    if action == "payoff":
+        # ref 走 canonical 惯例归一（world_model 单源，勿复制）：模型写模板短格式
+        # 「1-3」也归一成 vol-1-ch-3；归一后仍不合规范形 → 502 可重试
+        from settings.world_model import canonical_chapter_ref
+
+        if not isinstance(data, dict):
+            raise HTTPException(502, "拟收束方案返回结构不对，可重试")
+        ref = canonical_chapter_ref(
+            str(data.get("resolved_chapter_ref") or data.get("chapter_ref") or "")
+        )
+        if not re.fullmatch(r"vol-\d+-ch-\d+", ref):
+            raise HTTPException(
+                502, "收束章引用要写成 vol-N-ch-M（如 vol-1-ch-12），可重试"
+            )
+        note = _clamp_str(data.get("payoff_note") or data.get("note"), PAYOFF_NOTE_MAX)
+        if not note:
+            raise HTTPException(502, "AI 没给出「怎么收」的建议，可重试")
+        return {"resolved_chapter_ref": ref, "payoff_note": note}
+
+    if action == "check":
+        # 出参白名单同 audit：status ∈ ok/warn/miss，模型写岔的行丢弃→回退「AI 未给出」；
+        # 缺输入涉及行强制置 miss＋补填出口（world_check D7 同款，不采信模型对空输入的判定）
+        raw_checks = (data.get("checks") if isinstance(data, dict) else []) or []
+        ai_by_key: dict[str, dict] = {}
+        for item in raw_checks if isinstance(raw_checks, list) else []:
+            if not isinstance(item, dict):
+                continue
+            status = str(item.get("status", "")).strip()
+            key = _check_item_key(item.get("name"))
+            if not key or key in ai_by_key or status not in _HOOK_CHECK_STATUS:
+                continue
+            official = next(
+                (x for x in _HOOK_CHECK_ITEMS if _check_item_key(x) == key), None
+            )
+            if official:
+                ai_by_key[key] = {
+                    "name": f"{official} × 伏笔",
+                    "status": status,
+                    "note": _clamp_str(item.get("note"), 120),
+                }
+        checks_out = [
+            ai_by_key.get(x)
+            or {"name": f"{x} × 伏笔", "status": "miss", "note": "AI 未给出该项，可重试"}
+            for x in _HOOK_CHECK_ITEMS
+        ]
+        if synopsis_missing:
+            checks_out[0] = _check_miss_row("简介")
+        if theme_missing:
+            checks_out[1] = _check_miss_row("题材")
+        if world_missing:
+            checks_out[2] = _check_miss_row("世界")
+        degraded = bool(degraded_reasons)
+        verdict = _clamp_str(data.get("verdict"), 120) if isinstance(data, dict) else ""
+        if degraded and not verdict:
+            verdict = "查一致性输入不完整（" + "、".join(degraded_reasons) + "），结果仅供参考"
+        return {
+            "checks": checks_out,
+            "degraded": degraded,
+            "degraded_reasons": degraded_reasons,
+            "verdict": verdict,
+        }
 
     # audit：模型只产 note（reason），id/status/goto_field 以服务端骨架为准组装——
     # 模型没给/写岔编号的行回退服务端默认 note，绝不因模型缺行丢点名。

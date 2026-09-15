@@ -105,6 +105,27 @@ export interface HooksAuditResult {
   verdict: string;
 }
 
+/** AI 拟收束方案（批3：POST /settings/ai/hooks/payoff 出参；resolved_chapter_ref
+ *  已由后端走 canonical 惯例归一成 vol-N-ch-M，未必对应已建章——前端查树换 id）。 */
+export interface HookPayoffResult {
+  resolved_chapter_ref: string;
+  payoff_note: string;
+}
+
+/** AI 查一致性行（批3）：三上下文 简介/题材/世界 × 选中伏笔；status 白名单同 audit。 */
+export interface HookCheckRow {
+  name: string;
+  status: "ok" | "warn" | "miss";
+  note: string;
+}
+
+export interface HooksCheckResult {
+  checks: HookCheckRow[];
+  degraded: boolean;
+  degraded_reasons: string[];
+  verdict: string;
+}
+
 /** 后端统一信封 {ok, data}；入参是未 await 的 request() Promise（直接传会读到 Promise.data → 恒 undefined） */
 async function unwrap<T>(p: Promise<unknown>): Promise<T> {
   const r = (await p) as { data?: T };
@@ -148,4 +169,39 @@ export const hooksApi = {
       `/novels/${projectId}/settings/ai/hooks/audit`,
       {},
     ) as Promise<HooksAuditResult>,
+
+  /** 拟收束方案（批3：对选中伏笔；body 传当前编辑值——后端不读库旧文）。
+   *  返回规范 ref 形建议；采纳走前端组合 PATCH（见 HooksSettingForm adoptPayoff）。 */
+  payoffAi: (
+    projectId: string,
+    body: {
+      hook_id: string;
+      description: string;
+      type: string;
+      priority: number;
+      code?: string;
+      planned_chapter_id?: string | null;
+    },
+  ) =>
+    api.post(
+      `/novels/${projectId}/settings/ai/hooks/payoff`,
+      body,
+    ) as Promise<HookPayoffResult>,
+
+  /** 查一致性（批3：选中伏笔 × 简介/题材/世界；body 传当前编辑值）。
+   *  三方全缺由后端降级免调用。 */
+  checkAi: (
+    projectId: string,
+    body: {
+      hook_id: string;
+      description: string;
+      type: string;
+      priority: number;
+      code?: string;
+    },
+  ) =>
+    api.post(
+      `/novels/${projectId}/settings/ai/hooks/check`,
+      body,
+    ) as Promise<HooksCheckResult>,
 };
