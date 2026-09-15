@@ -521,3 +521,29 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     stateBadge/dropNote——避让 design:lint 裸 hex 正则（`#bad`/`#aba` 命中），语义不变。
 
     **门禁范围**：本文件已加入 `design-vocab.mjs` 的 `strictGlobs`（严格原型 5→6，lint 通过）。
+
+21. **文风设定改版（style-settings-v2，2026-09-15）**
+    新增 `style-settings.html`（自 `drafts/ai-novel-c端-文风设定.html` 终稿收编）。
+    面板内两页签（文字文风／量化参数）＝**页签回归例外**（design-language §7 tabs
+    语言，仅面板内层级，面板间导航仍走左树）——用户拍板，替代单页长滚动。
+
+    **类名映射表（settings-v 作用域新类，落 book.css 本地段）**：页签
+    `.ptabs/.ptab`（+`.ptab-pro` 小徽，视觉档同 plan-badge 缩小）；锚定块
+    `.fblock/.fb-head/.fb-no/.hint` 与锚定链 `.anchor-chain/.ac-node/.ac-arrow/.ac-note`；
+    基线 `.dims/.dims-meta/.bx-row/.bx-head/.bx-name/.bx-dims/.bx-vals/.bx-note/
+    .lock-btn/.five-bar/.fb-legend`；明细 `.det-row/.dk/.dv2`；蒸馏 `.sample-box/
+    .sample-row/.s-name/.s-cnt/.s-check/.sample-total/.dist-step/.ds-no/.ds-b/.ds-ok/
+    .portrait/.pz-head/.pz-note/.pz-ask/.pz-act`；空态复用 sub-empty 家族。
+    **共享化**：`.hk-sec-label/.hk-sl-tag` 提升为 `.settings-v .sec-label/.sl-tag`
+    （hk-* 保留别名，HooksSettingForm 不改名）。**组件扩展（不新增词表）**：
+    `Cfg` +sum 摘要位、`ListEditor` +上移/`x/y` 计数（`.li-cnt`）。
+    **不入库**（稿内演示残留）：src-card 家族、genre-grid/g-chip、badge.done、
+    badge.acc（页签 PRO 小徽用 .ptab-pro）。
+
+    **状态语言登记**：页签徽标 文字文风=「题材默认」ok→「已自定义 · N 处」warn；
+    量化=「未蒸馏」empty→「置信度 N」acc；蒸馏三步完成=ok；锁定按钮 aria-pressed、
+    五层条 aria-hidden。**data-od-id**：style-tabs/input-style-role/list-rules/
+    list-craft/list-fewshots/field-*/chain-anchor/quant-*/lock-{row}/distill-*/
+    author-portrait/btn-portrait-keep/btn-portrait-retry/sink-style-check。
+
+    **门禁范围**：design-vocab.mjs strictGlobs 增补本文件（严格原型 6→7）。

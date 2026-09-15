@@ -51,17 +51,23 @@ def filter_active_hooks(hooks, current_chapter_id: str | None = None) -> list:
     return kept[:8]
 
 
-def hook_view(h) -> dict:
+def hook_view(h, current_chapter_id: str | None = None) -> dict:
     """NovelHook 行 → 注入用 dict：展示编号/优先级/类型标签按词表就绪。
 
     优先级非法 → 标注为空串（渲染时丢弃该标注，不静默吞错位）。
+    due_now：计划收束章等于当前写作章 → 「建议本章收束」派生标记
+    （style-settings-v2 评审 P1：只写 planned 不给信号，AI 写到那章不知道要还）。
     """
     seq = _get(h, "seq")
+    planned = _get(h, "planned_chapter_id")
     return {
         "code": f"H-{seq:04d}" if isinstance(seq, int) and seq > 0 else "",
         "description": str(_get(h, "description") or ""),
         "priority_label": priority_label(_get(h, "priority")),
         "type_label": type_label(_get(h, "type")) if _get(h, "type") else "",
+        "due_now": bool(
+            current_chapter_id and planned and str(planned) == str(current_chapter_id)
+        ),
     }
 
 
@@ -77,6 +83,8 @@ def render_hooks_block(hooks: list[dict]) -> str:
             meta.append(f"优先级：{h['priority_label']}")
         if h.get("type_label"):
             meta.append(f"类型：{h['type_label']}")
+        if h.get("due_now"):
+            meta.append("建议本章收束")
         suffix = f"（{'，'.join(meta)}）" if meta else ""
         code = h.get("code") or ""
         prefix = f"[{code}] " if code else ""
@@ -104,7 +112,10 @@ async def load_active_hooks(
                 .order_by(NovelHook.seq)
             )
         ).all()
-    return [hook_view(h) for h in filter_active_hooks(rows, current_chapter_id)]
+    return [
+        hook_view(h, current_chapter_id)
+        for h in filter_active_hooks(rows, current_chapter_id)
+    ]
 
 
 async def active_hooks_for_chapter(

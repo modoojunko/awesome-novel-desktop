@@ -25,6 +25,12 @@ CHARACTER_PREFIX = "character:"  # DB key 前缀：character:{filename.yaml}
 THREADS_PATH = "threads.yaml"
 THREADS_KEY = "threads"
 
+# style-quant（style-settings-v2）：量化层专用键，同 threads 先例——不进 PATH_TO_KEY
+# （通用 /settings/{type} 天然拒绝），只走 settings/style_quant_router.py 专用端点；
+# PUT 仅受理锁定切换，基线数值服务端只写（评审 P0：防表单整卡覆盖回踩只读基线）。
+STYLE_QUANT_PATH = "settings/style-quant.yaml"
+STYLE_QUANT_KEY = "style-quant"
+
 # 目录型设定：无单文件端点，/settings/{type} 泛化端点应拒绝（指引走 /character/{name} 等）
 MULTI_FILE_SETTING_KEYS = {"characters"}
 
@@ -37,6 +43,8 @@ def route_relative_path(relative_path: str) -> str | None:
         return PATH_TO_KEY[relative_path]
     if relative_path == THREADS_PATH:
         return THREADS_KEY
+    if relative_path == STYLE_QUANT_PATH:
+        return STYLE_QUANT_KEY
     if relative_path.startswith(CHARACTER_DIR + "/"):
         return CHARACTER_PREFIX + relative_path[len(CHARACTER_DIR) + 1 :]
     return None

@@ -12,6 +12,7 @@ export const P = {
   arrowRight: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   chevronRight: '<path d="M9 6l6 6-6 6"/>',
   chevronDown: '<path d="M6 9l6 6 6-6"/>',
+  chevronUp: '<path d="M18 15l-6-6-6 6"/>',
   check: '<path d="M5 13l4 4L19 7"/>',
   pencil: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',

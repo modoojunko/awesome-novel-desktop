@@ -961,3 +961,79 @@ body.focus .editor-wrap { padding-inline: 8vw; }
   .settings-v .hk-sub { grid-template-columns: minmax(0, 1fr); }
   .settings-v .hk-tree { position: static; max-height: 40vh; border-right: 0; border-bottom: 1px dashed var(--border); padding-right: 0; }
 }
+
+/* ═══════════ style-settings-v2（文风设定 v2）═══════════
+   两页签（面板内层级——页签回归例外，ADJUSTMENTS #21 登记）；三区锚定块；
+   量化基线（六行只读＋行级锁定）；蒸馏三步＋作者画像确认卡。
+   .settings-v .sec-label/.sl-tag：hk-sec-label/hk-sl-tag 提升共享（hk-* 保留别名）。 */
+
+.settings-v .sec-label { font-family: var(--font-display); font-size: 14px; font-weight: 600; margin: 0 0 10px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.settings-v .sl-tag { font-family: var(--font-body); font-size: 11px; font-weight: 500; border-radius: 999px; padding: 2px 10px; background: var(--accent-soft); color: var(--accent-strong); }
+
+/* 页签（tabs 40px 语言：激活 accent 下划线；parity 例外见 ADJUSTMENTS #21） */
+.settings-v .ptabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.settings-v .ptab { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px 10px; font-size: 13px; color: var(--muted); background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; font: inherit; }
+.settings-v .ptab:hover { color: var(--fg); }
+.settings-v .ptab.on { color: var(--fg); font-weight: 500; border-bottom-color: var(--accent); }
+.settings-v .ptab .badge { font-size: 10px; padding: 1px 8px; }
+.settings-v .ptab .ptab-pro { font-family: var(--font-mono); font-size: 9px; letter-spacing: .06em; padding: 2px 7px; border-radius: 999px; background: var(--accent); color: oklch(100% 0 0); }
+
+/* 锚定块与锚定链 */
+.settings-v .fblock { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px 14px; margin-bottom: 12px; }
+.settings-v .fb-head { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; margin-bottom: 8px; }
+.settings-v .fb-no { font-family: var(--font-mono); font-size: 11px; color: var(--accent); border: 1px dashed color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 0 7px; flex: none; }
+.settings-v .fb-head b { font-size: 13.5px; font-weight: 600; }
+.settings-v .fb-head .hint { flex-basis: 100%; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+.settings-v .fb-head .hint em { font-style: normal; color: var(--fg); }
+.settings-v .fb-diff { margin: 8px 0 0; font-size: 11.5px; color: var(--muted); }
+.settings-v .fb-diff b { color: var(--warn); font-weight: 500; }
+.settings-v .anchor-chain { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
+.settings-v .ac-node { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; font-size: 12px; }
+.settings-v .ac-node:hover { border-color: var(--accent); color: var(--accent); }
+.settings-v .ac-arrow { color: var(--muted); flex: none; display: inline-flex; }
+.settings-v .ac-note { flex-basis: 100%; font-size: 11px; color: var(--muted); }
+.settings-v .li-cnt { display: inline-block; }
+
+/* 量化基线（六行只读＋行级锁定） */
+.settings-v .dims-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 12px; border: 1px solid var(--border); border-bottom: none; border-radius: 10px 10px 0 0; background: var(--fg-soft); font-size: 11.5px; color: var(--muted); }
+.settings-v .dims-meta .spacer { flex: 1; }
+.settings-v .dims { border: 1px solid var(--border); border-radius: 0 0 10px 10px; background: var(--surface); overflow: hidden; }
+.settings-v .bx-row { padding: 10px 12px; border-bottom: 1px dashed var(--border); }
+.settings-v .bx-row:last-child { border-bottom: none; }
+.settings-v .bx-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.settings-v .bx-name { font-size: 12.5px; font-weight: 600; }
+.settings-v .bx-dims { font-family: var(--font-mono); font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+.settings-v .bx-vals { font-size: 12.5px; color: var(--fg); margin-top: 4px; }
+.settings-v .bx-note { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.settings-v .lock-btn { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font: inherit; font-size: 10.5px; padding: 1px 9px; cursor: pointer; }
+.settings-v .lock-btn:hover { border-color: var(--muted); }
+.settings-v .lock-btn.on { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); }
+.settings-v .five-bar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; margin-top: 6px; max-width: 460px; }
+.settings-v .five-bar i { display: block; height: 100%; }
+.settings-v .fb-legend { display: flex; gap: 14px; margin-top: 5px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+.settings-v .det-row { display: flex; gap: 10px; padding: 6px 12px; border-bottom: 1px dashed var(--border); font-size: 12px; }
+.settings-v .det-row:last-child { border-bottom: none; }
+.settings-v .det-row .dk { width: 150px; flex: none; color: var(--muted); font-weight: 600; }
+.settings-v .det-row .dv2 { flex: 1; min-width: 0; color: var(--fg); }
+
+/* 蒸馏（样本两路＋三步进度＋作者画像确认卡） */
+.settings-v .sample-box { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px 14px; }
+.settings-v .sample-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 12.5px; }
+.settings-v .sample-row .s-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-v .sample-row .s-cnt { color: var(--muted); font-size: 11.5px; flex: none; }
+.settings-v .sample-total { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding-top: 9px; border-top: 1px dashed var(--border); font-size: 12.5px; flex-wrap: wrap; }
+.settings-v .dist-step { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--border); align-items: flex-start; }
+.settings-v .dist-step:last-of-type { border-bottom: none; }
+.settings-v .dist-step .ds-no { flex: none; width: 22px; height: 22px; border-radius: 999px; background: var(--ok-soft); color: var(--ok); display: grid; place-items: center; font-family: var(--font-mono); font-size: 11px; }
+.settings-v .dist-step.pending .ds-no { background: var(--fg-soft); color: var(--muted); }
+.settings-v .dist-step .ds-b { flex: 1; min-width: 0; }
+.settings-v .dist-step .ds-b b { display: block; font-size: 12.5px; font-weight: 600; }
+.settings-v .dist-step .ds-b i { display: block; font-style: normal; font-size: 11px; color: var(--muted); margin-top: 1px; line-height: 1.6; }
+.settings-v .dist-step .ds-ok { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--ok); }
+.settings-v .portrait { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 14px 16px; }
+.settings-v .portrait .pz-head { font-size: 11px; font-weight: 600; letter-spacing: .05em; color: var(--accent); margin-bottom: 6px; }
+.settings-v .portrait .pz-note { font-size: 12px; color: var(--muted); line-height: 1.8; border-left: 2px solid color-mix(in oklch, var(--accent) 40%, transparent); padding-left: 10px; margin-bottom: 10px; }
+.settings-v .portrait p { font-size: 12.5px; line-height: 1.8; }
+.settings-v .portrait .pz-ask { margin-top: 12px; padding: 9px 12px; border-radius: 9px; background: var(--accent-soft); font-size: 12.5px; }
+.settings-v .portrait .pz-act { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.settings-v .quant-note { margin-top: 10px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }

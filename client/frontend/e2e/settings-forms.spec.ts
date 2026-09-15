@@ -415,10 +415,10 @@ test("题材：长回执单行截断，确认完成点得到", async ({ page }) 
 });
 
 // -------------------------------------------------------------------------
-// ② 风格：真实表单（叙事身份 Field + 核心原则折叠组）→ 确认完成自动落库
+// ② 风格：两页签（文字文风三区＋量化空态）→ 确认完成自动落库（style-settings-v2）
 // -------------------------------------------------------------------------
 
-test("风格：真实表单（叙事身份 Field + 核心原则折叠组）→ 确认完成自动落库", async ({
+test("文风：两页签（文字文风三区＋量化空态）→ 确认完成自动落库", async ({
   page,
   request,
 }) => {
@@ -428,19 +428,27 @@ test("风格：真实表单（叙事身份 Field + 核心原则折叠组）→ �
     await page.getByRole("button", { name: /^设定/ }).click();
     await openSetting(page, "文风");
 
-    // 叙事身份折叠组（默认展开）：Field 文本（种子模板预填 role，fill 覆盖）
-    await fillSettingField(page, "叙事身份", "冷静克制的第三人称叙事，短句为主");
+    // 两页签：文字文风（默认签）｜量化参数（未蒸馏 → 空态）
+    await expect(page.locator('[data-od-id="style-tabs"]')).toBeVisible();
+    await expect(page.locator('[data-od-id="style-tab-badge"]')).toHaveText("题材默认");
+    await page.locator('[data-od-id="ptab-quant"]').click();
+    await expect(page.locator('[data-od-id="quant-empty"]')).toBeVisible();
+    await expect(page.locator('[data-od-id="quant-tab-badge"]')).toHaveText("未蒸馏");
+    await page.locator('[data-od-id="ptab-text"]').click();
 
-    // 核心原则折叠组（默认收起）：展开 → 首行 ListEditor 填原则
-    await page.locator("summary", { hasText: "核心原则" }).click();
-    const principles = page.locator("details.cfg", { hasText: "核心原则" });
-    await principles
-      .locator("input.input")
+    // 三区：叙事身份（textarea）＋硬约束首行 ListEditor
+    await page
+      .locator('[data-od-id="input-style-role"]')
+      .fill("冷静克制的第三人称叙事，短句为主");
+    await page
+      .locator('[data-od-id="list-rules"] input.input')
       .first()
       .fill("动词驱动叙事，动作外化情绪");
+    // 改过身份与红线 → 页签徽标翻「已自定义」
+    await expect(page.locator('[data-od-id="style-tab-badge"]')).toHaveText("已自定义 · 2 处");
 
     // 新书未确认（§5.1 已填≠已确认）→ 点「确认完成」：先 save 再 confirm，
-    // 并「确认即前进」到下一项（新顺序：文风→伏笔）
+    // 并「确认即前进」到下一项（顺序：文风→伏笔）
     const styleSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/style"),
     );
@@ -450,14 +458,14 @@ test("风格：真实表单（叙事身份 Field + 核心原则折叠组）→ �
       page.locator(".settings-v main h2", { hasText: "伏笔" }),
     ).toBeVisible({ timeout: 5000 });
 
-    // 后端直查（merge-on-save 后 role / core_principles 落盘）
+    // 后端直查：归一三区落盘；撤并键不再出现（_legacy_style 属留底键，GET 已剥）
     const style = await apiGetJSON(request, token, `/novels/${pid}/settings/style`);
     expect(style.role).toContain("克制");
     expect(
-      style.core_principles.some(
-        (p: string) => typeof p === "string" && p.includes("动词驱动叙事"),
-      ),
+      style.rules.some((p: string) => typeof p === "string" && p.includes("动词驱动叙事")),
     ).toBe(true);
+    expect(style).not.toHaveProperty("tone");
+    expect(style).not.toHaveProperty("possible_mistakes");
   } finally {
     await restore();
   }
