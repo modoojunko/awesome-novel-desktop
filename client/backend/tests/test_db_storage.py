@@ -47,19 +47,24 @@ def test_paths_routing():
     # threads.yaml → KV 专用路由（PR④）；不得进 PATH_TO_KEY（会泄漏 /settings/threads 端点）
     assert route_relative_path("threads.yaml") == "threads"
     assert "threads.yaml" not in PATH_TO_KEY
-    assert len(PATH_TO_KEY) == 8  # 坑1：9 类含 8 单文件 + 字符目录前缀
+    # hooks 已退役（foreshadow-settings-v2 2.5）：伏笔升级真表 novel_hooks，
+    # settings/hooks.yaml 不再路由 DB —— GET/PUT /settings/hooks 走「Invalid settings type」400
+    assert route_relative_path("settings/hooks.yaml") is None
+    assert len(PATH_TO_KEY) == 7  # 9 类设定 − characters（目录型）− hooks（真表化）
     assert set(KEY_TO_PATH) == set(PATH_TO_KEY.values())
 
 
 def test_single_file_types_derivation():
-    """settings/router.py SINGLE_FILE_TYPES 推导来源契约（去 story/status 后的 6 项单文件 CRUD）。"""
+    """settings/router.py SINGLE_FILE_TYPES 推导来源契约（去 story/status 后的单文件 CRUD）。"""
     from settings.router import SINGLE_FILE_TYPES
 
     assert set(KEY_TO_PATH) - {"story", "status"} == {
-        "world", "style", "anti-ai", "hooks", "genre", "ai-model",
+        "world", "style", "anti-ai", "genre", "ai-model",
     }
     assert SINGLE_FILE_TYPES == set(KEY_TO_PATH) - {"story", "status"}
     assert "characters" not in SINGLE_FILE_TYPES
+    # hooks 分支下线（foreshadow-settings-v2 2.5）：不再受理 GET/PUT settings/hooks
+    assert "hooks" not in SINGLE_FILE_TYPES
 
 
 def test_multi_file_setting_keys():
@@ -135,13 +140,13 @@ def test_list_dir_characters_returns_yaml_names():
 def test_delete_root_clears_rows_and_dir():
     comp = CompositeStorageBackend()
     root = _tmp_root()
-    _run_async(comp.write_yaml(root, "settings/hooks.yaml", {"active": []}))
+    _run_async(comp.write_yaml(root, "settings/writing-style.yaml", {"core": "x"}))
     _run_async(comp.write_yaml(root, f"{CHARACTER_DIR}/a.yaml", {"name": "A"}))
     _run_async(comp.write_yaml(root, "threads.yaml", {"threads": {}}))
-    assert _run_async(comp.read_yaml(root, "settings/hooks.yaml")) == {"active": []}
+    assert _run_async(comp.read_yaml(root, "settings/writing-style.yaml")) == {"core": "x"}
     _run_async(comp.delete_root(root))
     # 坑4：清行再 rmtree
-    assert _run_async(comp.read_yaml(root, "settings/hooks.yaml")) == {}
+    assert _run_async(comp.read_yaml(root, "settings/writing-style.yaml")) == {}
     assert _run_async(comp.list_dir(root, CHARACTER_DIR)) == []
     assert not os.path.exists(root)
 
@@ -150,10 +155,11 @@ def test_init_skeleton_seeds_db_not_disk():
     comp = CompositeStorageBackend()
     root = _tmp_root(prefix="test_skeleton_")
     _run_async(comp.init_skeleton(root))
-    # DB 有 5 类模板种子行（ADR-003）
+    # DB 有模板种子行（ADR-003）；hooks 已真表化不再种子（foreshadow-settings-v2 2.5）
     db = DatabaseFileBackend()
-    for key in ["story", "world", "style", "anti-ai", "hooks"]:
+    for key in ["story", "world", "style", "anti-ai"]:
         assert _run_async(db.has_key(root, key)) is True
+    assert _run_async(db.has_key(root, "hooks")) is False
     # 磁盘无 settings yaml（ADR-003：只进 DB 不进盘）
     assert not os.path.exists(os.path.join(root, "settings", "writing-style.yaml"))
     # PR⑤ 大扫除后盘上只剩项目根目录：无骨架文件/子目录

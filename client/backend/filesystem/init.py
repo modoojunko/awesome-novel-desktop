@@ -10,12 +10,12 @@ TEMPLATE_DIR = (
 )
 
 # settings 模板 → (相对路径, DB key)：只进 DB 不进盘（ADR-003）
+# hooks 不在其中：伏笔已升级真表 novel_hooks（foreshadow-settings-v2），种子随之摘除。
 SETTINGS_TEMPLATES = {
     "story.yaml.template": ("story.yaml", "story"),
     "world-setting.yaml.template": ("settings/world-setting.yaml", "world"),
     "writing-style.yaml.template": ("settings/writing-style.yaml", "style"),
     "anti-ai.yaml.template": ("settings/anti-ai.yaml", "anti-ai"),
-    "hooks.yaml.template": ("settings/hooks.yaml", "hooks"),
 }
 
 

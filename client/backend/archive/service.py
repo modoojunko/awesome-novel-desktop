@@ -1,8 +1,8 @@
-import re
 from datetime import UTC, datetime
 
 from ai_client import get_ai_client_for_novel
 from filesystem.storage import get_storage
+from settings.world_model import canonical_chapter_ref
 from workflow.engine import load_chapter
 
 
@@ -10,21 +10,6 @@ def _validate_ref(ref: str) -> str:
     if ".." in ref or "/" in ref:
         raise ValueError("Invalid chapter reference")
     return ref
-
-
-def _canonical_chapter_ref(ref: str) -> str:
-    """把伏笔引入章节归一为规范 vol-N-ch-M 格式（兼容模板短格式 '1-1'）。"""
-    ref = (ref or "").strip()
-    if re.match(r"^vol-\d+-ch-\d+$", ref):
-        return ref
-    m = re.match(r"^(\d+)-(\d+)$", ref)
-    if m:
-        return f"vol-{m.group(1)}-ch-{m.group(2)}"
-    return ref
-
-
-# 公共别名：lore-suggest 端点（settings.ai_router）复用同一章引用规范
-canonical_chapter_ref = _canonical_chapter_ref
 
 
 async def _record_ai_usage(
@@ -130,6 +115,11 @@ async def archive_chapter(
                 row.title = str(title)[:200]
                 row.summary = str(summary)[:300]
                 row.content = full_text
+            # 归档联动（write-archive-meta-sync）：本章引入的活跃伏笔 → 单条 UPDATE
+            # mentioned_in_chapter_id。status 枚举不被归档修改；同值重写天然幂等。
+            from settings.hooks_service import mark_hooks_mentioned
+
+            await mark_hooks_mentioned(session, novel_id, ch_row.id)
             await session.commit()
 
     await update_thread_state(root_path, chapter, summary)
@@ -184,7 +174,7 @@ async def archive_chapter(
                     from settings.world_model import parse_lore_suggestions
 
                     for item in parse_lore_suggestions(lore_data):
-                        lore_suggestions.append({**item, "origin": _canonical_chapter_ref(chapter_ref)})
+                        lore_suggestions.append({**item, "origin": canonical_chapter_ref(chapter_ref)})
                 except Exception:  # noqa: BLE001, S110 — 解析失败静默降级（账已记）
                     lore_suggestions = []
     return {
@@ -209,12 +199,8 @@ async def update_thread_state(root_path: str, chapter: dict, summary: str):
     t["current_state"] = summary
     t["emotional_temperature"] = chapter.get("memo", {}).get("emotion_curve", "medium")
 
-    hooks = await get_storage().read_yaml(root_path, "settings/hooks.yaml")
-    for hook in hooks.get("active", []):
-        # 前端 active 项无 status；introduced_in 兼容短格式 "1-1"
-        if _canonical_chapter_ref(hook.get("introduced_in", "")) == t["last_chapter"]:
-            hook["status"] = "mentioned"
-    await get_storage().write_yaml(root_path, "settings/hooks.yaml", hooks)
+    # 伏笔 mentioned 留痕已迁真表单条 UPDATE（archive_chapter → mark_hooks_mentioned，
+    # write-archive-meta-sync）；旧「整文件读改写 status:mentioned」的 KV 通道退役。
 
     await get_storage().write_yaml(root_path, "threads.yaml", threads)
 

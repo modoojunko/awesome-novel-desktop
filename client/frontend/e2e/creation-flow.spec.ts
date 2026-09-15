@@ -363,18 +363,16 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     await confirmPanel(page);
     await worldSave;
 
-    // ── hooks：真实表单添加伏笔 → 填描述 → 确认完成自动落库
+    // ── hooks：真表流（foreshadow-settings-v2）——添加伏笔 → 填描述 → 自动保存
+    //    （字段级防抖 PATCH /hooks/{id}）→ 确认完成（gap3＝flush 后 confirm，PUT status）
     await openSetting(page, "伏笔");
-    await page.getByRole("button", { name: "添加伏笔" }).click();
-    await page
-      .locator('input[placeholder="伏笔描述"]')
-      .first()
-      .fill("主角妹妹失踪的真相");
+    await page.locator('[data-od-id="btn-add-hook"]').click();
     const hooksSave = page.waitForResponse(
-      (r) => r.request().method() === "PUT" && r.url().includes("/settings/hooks"),
+      (r) => r.request().method() === "PATCH" && r.url().includes("/hooks/"),
     );
-    await confirmPanel(page);
+    await page.locator('[data-od-id="input-hook-desc"]').fill("主角妹妹失踪的真相");
     await hooksSave;
+    await confirmPanel(page);
 
     // ── synopsis：简介面板真实表单 → 确认完成（PUT /story）
     await openSetting(page, "简介");

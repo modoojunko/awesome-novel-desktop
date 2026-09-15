@@ -46,6 +46,7 @@ async def build_auxiliary_context(
     root_path: str,
     chapter_ref: str,
     style_settings: dict | None = None,
+    novel_id: str | None = None,
 ) -> dict[str, str]:
     """Build context dictionary for auxiliary writing from chapter data and settings.
 
@@ -106,13 +107,21 @@ async def build_auxiliary_context(
         "\n".join(snap_lines) if snap_lines else "（暂无角色信息）"
     )
 
-    # Active hooks
-    hooks_data = await get_storage().read_yaml(root_path, "settings/hooks.yaml") or {}
-    hooks = hooks_data.get("active", [])
-    if hooks and isinstance(hooks, list):
-        hook_lines = [
-            f"- {h.get('description', '?')}" for h in hooks[:8] if isinstance(h, dict)
-        ]
+    # Active hooks（真表 novel_hooks：status==active、本章引入按章 id 排除；
+    # 无 novel_id 降级为空——KV 通道已随 foreshadow-settings-v2 退役）
+    from prompt.context import active_hooks_for_chapter
+
+    hooks = await active_hooks_for_chapter(root_path, chapter_ref, novel_id)
+    if hooks:
+        hook_lines = []
+        for h in hooks[:8]:
+            code = h.get("code") or ""
+            prefix = f"[{code}] " if code else ""
+            label = h.get("priority_label") or ""
+            hook_lines.append(
+                f"- {prefix}{h.get('description', '?')}"
+                + (f"（优先级：{label}）" if label else "")
+            )
         ctx["active_hooks"] = "\n".join(hook_lines)
     else:
         ctx["active_hooks"] = "（暂无活跃伏笔）"
@@ -142,7 +151,9 @@ async def stream_continue(
     existing_prose = chapter.get("prose", "")
 
     # Get context (will overwrite recent_context with cursor-specific text)
-    ctx = await build_auxiliary_context(root_path, chapter_ref, style_settings)
+    ctx = await build_auxiliary_context(
+        root_path, chapter_ref, style_settings, novel_id=project.id
+    )
     cursor_start = max(0, cursor_position - 1500)
     ctx["recent_context"] = existing_prose[cursor_start:cursor_position]
     ctx["anti_ai_rules"] = ctx.get("anti_ai_rules", "（无）")
@@ -239,7 +250,9 @@ async def polish_text(
 
     usage: 可选 dict，调用后填充 {"model", "tokens_in", "tokens_out"}。
     """
-    ctx = await build_auxiliary_context(root_path, chapter_ref, style_settings)
+    ctx = await build_auxiliary_context(
+        root_path, chapter_ref, style_settings, novel_id=novel_id
+    )
     ctx["selected_text"] = selected_text
     ctx["surrounding_context"] = surrounding_context
 
@@ -276,7 +289,9 @@ async def expand_text(
 
     usage: 可选 dict，调用后填充 {"model", "tokens_in", "tokens_out"}。
     """
-    ctx = await build_auxiliary_context(root_path, chapter_ref, style_settings)
+    ctx = await build_auxiliary_context(
+        root_path, chapter_ref, style_settings, novel_id=novel_id
+    )
     ctx["selected_text"] = selected_text
     ctx["surrounding_context"] = surrounding_context
 

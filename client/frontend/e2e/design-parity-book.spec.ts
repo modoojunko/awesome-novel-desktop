@@ -32,6 +32,11 @@ const PROTO_CHARS = path.resolve(
   process.cwd(),
   "../../docs/design-c/prototypes/character-settings.html",
 );
+/** 设定屏·伏笔面板原型（foreshadow-settings-v2 tasks 4.6）——伏笔台账＋伏笔卡 parity。 */
+const PROTO_FORESHADOW = path.resolve(
+  process.cwd(),
+  "../../docs/design-c/prototypes/foreshadow-settings.html",
+);
 const BASELINE_DIR = path.resolve(process.cwd(), "../../docs/design-c/baselines");
 const RUN_PARITY = process.env.DESIGN_PARITY === "1";
 const VIEWPORT = { width: 1440, height: 900, deviceScaleFactor: 1 } as const;
@@ -259,6 +264,12 @@ const CASES = [
     screen: "settings-characters",
     proto: "characters",
   },
+  {
+    state: "settings-foreshadow",
+    pro: true,
+    screen: "settings-foreshadow",
+    proto: "foreshadow",
+  },
 ] as const;
 
 test.describe("design-parity 书工作台屏（book.html）", () => {
@@ -276,9 +287,11 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         else localStorage.removeItem("ainovel.book.v2");
       }, c.pro);
       const protoPage = await protoCtx.newPage();
-      const protoFile = (c as { proto?: string }).proto === "characters" ? PROTO_CHARS : PROTO_FILE;
+      const protoKind = (c as { proto?: string }).proto;
+      const protoFile =
+        protoKind === "characters" ? PROTO_CHARS : protoKind === "foreshadow" ? PROTO_FORESHADOW : PROTO_FILE;
       await protoPage.goto(`file://${protoFile}`);
-      if ((c as { proto?: string }).proto === "characters") {
+      if (protoKind) {
         // 视口归一化：稿头/窗体标题栏是原型自带的说明性 chrome，应用窗口没有——
         // 比对裁剪到三栏区，这两块藏掉
         await protoPage.addStyleTag({
@@ -313,9 +326,10 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         await protoPage.locator("#btnUpgrade3").click();
       }
       await protoPage.waitForTimeout(400);
-      const isChars = (c as { proto?: string }).proto === "characters";
-      const protoShot = isChars ? null : await protoPage.screenshot();
-      if (!isChars) await protoCtx.close();
+      const isChars = protoKind === "characters";
+      const isFore = protoKind === "foreshadow";
+      const protoShot = isChars || isFore ? null : await protoPage.screenshot();
+      if (!isChars && !isFore) await protoCtx.close();
       // ── 应用侧（打桩固定数据；默认写作视图 + 初次自动选中第一章·章纲）──
       const appCtx = await browser.newContext({ viewport: VIEWPORT });
       await appCtx.addInitScript(() => {
@@ -325,6 +339,7 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
       const appPage = await appCtx.newPage();
       stubBookAPI(appPage, c.pro, c.screen === "volume");
       if (isChars) stubCharactersAPI(appPage);
+      if (isFore) stubForeshadowAPI(appPage);
       // 原型常显更新提示条（ADJUSTMENTS #15）→ 应用侧同文案打桩（沉浸全宽变体）
       await stubUpdateNotice(appPage, "update");
       // /auth/config（portal_url 公开地址）在新栈 backend 会 401 并触发全局跳 /#/login，就地打桩防弹离
@@ -372,15 +387,22 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         await listLoaded;
         await appPage.waitForSelector(".char-list");
         await appPage.waitForTimeout(400); // 单卡 GET + 右栏作用域行
+      } else if (c.screen === "settings-foreshadow") {
+        await appPage.locator(".modnav button", { hasText: "设定" }).click();
+        const listLoaded = appPage.waitForResponse(`**/api/novels/${PID}/hooks`);
+        await appPage.locator(".settings-v .col-tree .s-item", { hasText: "伏笔" }).click();
+        await listLoaded;
+        await appPage.waitForSelector(".hk-tree");
+        await appPage.waitForTimeout(400); // 卷章树 GET + 徽标/保存态上报
       }
       await appPage.waitForLoadState("networkidle");
       await appPage.evaluate(() => document.fonts.ready);
       await appPage.waitForTimeout(700); // page-enter 0.4s 收敛
       let appShot: Buffer;
-      if (isChars) {
-        // 覆盖边界（tasks 6.2）：只比对三栏区首屏（1440×900 里 y 以下的部分）——
-        // 认知六层与关系区进不了基线，那部分靠 e2e。锚点用 col-tree 左缘/col-ai
-        // 右缘（内容坐标），容器 padding 差异不会造成整体错位
+      if (isChars || isFore) {
+        // 覆盖边界（tasks 6.2 / foreshadow 4.6）：只比对三栏区首屏（1440×900 里 y 以下的部分）——
+        // 认知六层/关系区、伏笔台账深处的条目进不了基线，那部分靠 e2e。锚点用 col-tree
+        // 左缘/col-ai 右缘（内容坐标），容器 padding 差异不会造成整体错位
         const anchor = async (page: Page, scope: string) => {
           const tree = (await page.locator(`${scope} .col-tree`).boundingBox())!;
           const rail = (await page.locator(`${scope} .col-ai`).boundingBox())!;
@@ -401,13 +423,13 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         await protoCtx.close();
         await appCtx.close();
         const ratio = compareShots(protoShot, appShot, `book.${c.state}`);
-        // 首次打开设定屏 parity（tasks 6.2）：骨架/文案/种子已对齐（三栏网格、徽标
-        // 三级阶梯、区块顺序、首次出场/更新于、右栏四行与作用域行），但两套独立
-        // 实现的内部间距节奏仍有差（树行起点 23px / 面板头 7px / 列宽 8px），0.2%
-        // 阈值是为同源 CSS 校准的——像素节奏逐项对齐后收紧断言（ADJUSTMENTS #19）。
+        // 首跑对齐记录（settings-characters 先例 / settings-foreshadow 同口径）：骨架、
+        // 文案与种子已逐字对齐（三栏网格、徽标五态、台账三分组、伏笔卡档案表、右栏四行），
+        // 但两套独立实现的内部间距节奏与光栅仍有差（树行起点/面板头/箭头字形 svg vs 文本），
+        // 0.2% 阈值按同源 CSS 校准——像素节奏逐项对齐后收紧断言（ADJUSTMENTS #19/#20）。
         test.skip(
           true,
-          `设定屏·角色 parity 骨架已对齐，间距节奏待逐项对齐（当前差异 ${(ratio * 100).toFixed(3)}%）`,
+          `设定屏·${isChars ? "角色" : "伏笔"} parity 骨架已对齐，间距节奏待逐项对齐（当前差异 ${(ratio * 100).toFixed(3)}%）`,
         );
         return;
       }
@@ -673,6 +695,112 @@ function stubCharactersAPI(page: Page) {
       items: CHAR_ITEMS,
     } } }),
   );
+}
+
+// ── settings-foreshadow 种子（与 foreshadow-settings.html 的 HOOKS 逐字段对齐）──
+// 章引用 id 与原型 demo 的 c<N> 同形；章名口径：原型 CH_NAMES 之外的章无标题
+// （选择器/台账 meta 只显示「第 NN 章」）。演示目标：4 活跃/2 已收束/1 废弃 →
+// 徽标「4 条待收束」warn；选中首条（#H-0001）。
+const UPDATED_H = "2026-09-15T08:00:00";
+
+const HOOK_ITEMS = [
+  { seq: 1, status: "active", type: "mystery", pri: 1, desc: "父亲失踪前塞给林拾的半页残卷——缺的半页在哪", inC: "c1", planC: "c38", outC: null, how: "" },
+  { seq: 2, status: "active", type: "mystery", pri: 2, desc: "柳掌柜「什么都收」——他到底替谁收", inC: "c3", planC: null, outC: null, how: "" },
+  { seq: 3, status: "active", type: "promise", pri: 1, desc: "听漏之耳连用三次丢一段记忆——第一次丢的是什么", inC: "c5", planC: "c30", outC: null, how: "" },
+  { seq: 4, status: "active", type: "clue", pri: 3, desc: "藏经阁大火当晚，戒律堂主为什么迟到一炷香", inC: "c6", planC: null, outC: null, how: "" },
+  { seq: 5, status: "resolved", type: "clue", pri: 2, desc: "丹阁通缉令的画师笔法——出自赵执事之手", inC: "c9", planC: null, outC: "c24", how: "拿通缉令笔迹对照赵执事批过的名录对上——林拾当场没声张，攥成了牌。" },
+  { seq: 6, status: "resolved", type: "relationship", pri: 3, desc: "苏晚芜袖口熏香与林拾母亲遗物同源", inC: "c11", planC: null, outC: "c22", how: "第 22 章互换信物时点破同源，两人各退半步——同盟里多了一层旧缘。" },
+  { seq: 7, status: "abandoned", type: "threat", pri: 3, desc: "坊市传闻的「夜半钟声」", inC: "c4", planC: null, outC: null, how: "" },
+].map((h) => ({
+  id: `hook-${h.seq}`,
+  novel_id: PID,
+  seq: h.seq,
+  code: `#H-${String(h.seq).padStart(4, "0")}`,
+  description: h.desc,
+  type: h.type,
+  priority: h.pri,
+  status: h.status,
+  introduced_chapter_id: h.inC,
+  planned_chapter_id: h.planC,
+  resolved_chapter_id: h.outC,
+  mentioned_chapter_id: null,
+  payoff_note: h.how,
+  created_at: UPDATED_H,
+  updated_at: UPDATED_H,
+}));
+
+/** 与原型 CH_NAMES 同源：有名字的章才在「第 NN 章」后缀「 · 章名」。 */
+const FORE_CH_NAMES: Record<number, string> = {
+  1: "火场遗页", 3: "柳安坊", 5: "听漏", 6: "戒律堂",
+  7: "丹阁", 9: "通缉令", 11: "同盟", 12: "残页对账",
+};
+
+/** /volumes 树（伏笔选择器数据源）：卷一 12 章 + 卷二 28 章，id 与原型 demo 的 c<N> 同形。 */
+const FORE_VOLUMES = [
+  {
+    ref: "vol-1",
+    title: "凡尘",
+    summary: "",
+    chapter_count: 12,
+    chapters: Array.from({ length: 12 }, (_, i) => ({
+      id: `c${i + 1}`,
+      ref: `vol-1-ch-${i + 1}`,
+      volume: 1,
+      chapter: i + 1,
+      title: FORE_CH_NAMES[i + 1] ?? "",
+      status: "outline",
+      word_count: 0,
+    })),
+  },
+  {
+    ref: "vol-2",
+    title: "残卷",
+    summary: "",
+    chapter_count: 28,
+    chapters: Array.from({ length: 28 }, (_, i) => ({
+      id: `c${i + 13}`,
+      ref: `vol-2-ch-${i + 1}`,
+      volume: 2,
+      chapter: i + 13,
+      title: FORE_CH_NAMES[i + 13] ?? "",
+      status: "outline",
+      word_count: 0,
+    })),
+  },
+];
+
+/** settings-foreshadow 专用桩：hooks 列表 + 卷章树（含章 id）+ readiness/status + ai_state。
+ *  readiness/status 口径＝原型树（设定 7/8：六项已确认 + 伏笔已填，禁用词句未填）。 */
+function stubForeshadowAPI(page: Page) {
+  page.route(`**/api/novels/${PID}/readiness`, (r) =>
+    r.fulfill({
+      json: {
+        missing: [{ key: "anti-ai" }],
+      },
+    }),
+  );
+  page.route(`**/api/novels/${PID}/settings/status`, (r) =>
+    r.fulfill({
+      json: {
+        synopsis: true,
+        genre: true,
+        world: true,
+        characters: true,
+        "story-arc": true,
+        style: true,
+        hooks: false,
+      },
+    }),
+  );
+  page.route(`**/api/novels/${PID}`, (r) =>
+    r.fulfill({
+      json: { ...SEED.project, name: "残卷听澜", genre: "仙侠", genre_label: "仙侠/修真 · 凡人流" },
+    }),
+  );
+  page.route(`**/api/novels/${PID}/hooks`, (r) =>
+    r.fulfill({ json: { ok: true, data: { count: HOOK_ITEMS.length, items: HOOK_ITEMS } } }),
+  );
+  page.route(`**/api/novels/${PID}/volumes`, (r) => r.fulfill({ json: FORE_VOLUMES }));
 }
 
 /** 打桩书工作台全量 API（先注册兜底，后注册具体 → 具体优先）。 */

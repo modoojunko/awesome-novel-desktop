@@ -6,6 +6,8 @@ import 侧只手工造最小 zip，两侧从未连起来——角色段改版（
 八层（对照 openspec/changes/archive/2026-09-05-c-novel-export-roundtrip/tasks.md 4.3）：
   1 元数据白名单逐字段  2 设定深比  3 卷纲剥 chapters  4 章全字段
   5 快照字节级  6 提示词原文  7 归档 manifest  8 幂等再导出
+层 10 伏笔段（foreshadow-settings-v2 tasks 3.1）：hooks 计数对拍、章引用经 ref
+对拍、status 逐条相等（角色段断言在 test_backup_characters.py）。
 外加坏包矩阵（截断/版本过高/空包）。
 
 id 稳定性矩阵（design.md 附录）：
@@ -130,6 +132,31 @@ async def _seed_full_book(tmp_root: str) -> str:
             chapter_id=ch.id, title="第一章", summary="开端归档",
             content="第一章正文全文。",
         ))
+        # 层 10：伏笔（foreshadow-settings-v2）——三状态＋四列章引用＋mentioned 留痕
+        from models.hook import NovelHook
+
+        session.add_all([
+            NovelHook(
+                novel_id=proj.id, seq=1, description="残页的来历没有交代",
+                type="clue", priority=1, status="active",
+                introduced_chapter_id=ch.id, planned_chapter_id=ch.id,
+            ),
+            NovelHook(
+                novel_id=proj.id, seq=2, description="老周说过他会认古字",
+                type="promise", priority=2, status="resolved",
+                introduced_chapter_id=ch.id, resolved_chapter_id=ch.id,
+                payoff_note="借认古字收束",
+            ),
+            NovelHook(
+                novel_id=proj.id, seq=3, description="废弃的支线钩",
+                type="threat", priority=3, status="abandoned",
+            ),
+            NovelHook(
+                novel_id=proj.id, seq=4, description="归档留痕样例",
+                type="mystery", priority=2, status="active",
+                introduced_chapter_id=ch.id, mentioned_chapter_id=ch.id,
+            ),
+        ])
         await session.commit()
 
     # 层 2：设定树（必须在本 session commit 之后写——write_yaml 开第二个写连接，
@@ -410,6 +437,79 @@ class TestLayer8IdempotentReexport:
 
         with zipfile.ZipFile(io.BytesIO(blob)) as z1, zipfile.ZipFile(io.BytesIO(again)) as z2:
             assert settings_map(z1) == settings_map(z2)
+
+
+# ── 层 10：伏笔段（foreshadow-settings-v2 tasks 3.1）──────────────────────
+
+
+class TestLayer10Hooks:
+    def test_v3_package_has_hooks_section_without_legacy_kv(self, roundtrip):
+        _src_id, _dst_id, blob, _slug, _root = roundtrip
+        with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+            names = zf.namelist()
+            assert "hooks/hooks.yaml" in names
+            assert "settings/hooks.yaml" not in names  # 旧 KV 键不再出现
+            section = yaml.safe_load(zf.read("hooks/hooks.yaml"))
+        hooks = section["hooks"]
+        assert len(hooks) == 4
+        # 章引用一律 ref 形态（不存运行态 chapter id）；无引用列置空串
+        by_seq = {h["seq"]: h for h in hooks}
+        assert by_seq[1]["introduced_chapter_ref"] == "vol-1-ch-1"
+        assert by_seq[1]["planned_chapter_ref"] == "vol-1-ch-1"
+        assert by_seq[2]["resolved_chapter_ref"] == "vol-1-ch-1"
+        assert by_seq[4]["mentioned_chapter_ref"] == "vol-1-ch-1"
+        assert by_seq[3]["introduced_chapter_ref"] == ""
+        # 字段白名单逐键（spec 冻结列序）
+        assert set(by_seq[1]) == {
+            "seq", "description", "type", "priority", "status",
+            "introduced_chapter_ref", "planned_chapter_ref",
+            "resolved_chapter_ref", "mentioned_chapter_ref", "payoff_note",
+        }
+
+    def test_hooks_count_refs_and_status_survive_by_ref(self, roundtrip):
+        from models.chapter import Chapter
+        from models.hook import NovelHook
+
+        src_id, dst_id, _blob, _slug, _root = roundtrip
+
+        async def run():
+            out = {}
+            async with async_session() as db:
+                for tag, nid in (("src", src_id), ("dst", dst_id)):
+                    rows = (await db.scalars(
+                        select(NovelHook).where(NovelHook.novel_id == nid)
+                        .order_by(NovelHook.seq)
+                    )).all()
+                    refs = {
+                        cid: ref
+                        for cid, ref in (
+                            await db.execute(
+                                select(Chapter.id, Chapter.ref)
+                                .where(Chapter.project_id == nid)
+                            )
+                        ).all()
+                    }
+                    out[tag] = [
+                        (
+                            h.seq, h.description, h.type, h.priority, h.status,
+                            h.payoff_note,
+                            refs.get(h.introduced_chapter_id, ""),
+                            refs.get(h.planned_chapter_id, ""),
+                            refs.get(h.resolved_chapter_id, ""),
+                            refs.get(h.mentioned_chapter_id, ""),
+                        )
+                        for h in rows
+                    ]
+            return out["src"], out["dst"]
+
+        src_rows, dst_rows = _run(run())
+        # 计数对拍 + 逐条相等（seq 稳定、status 逐条相等、章引用经 ref 对拍——
+        # id 允许重映射，引用跟随）
+        assert len(dst_rows) == len(src_rows) == 4
+        assert dst_rows == src_rows
+        # seq 原样导出原样回来（1..4 不重排）
+        assert [r[0] for r in dst_rows] == [1, 2, 3, 4]
+        assert [r[4] for r in dst_rows] == ["active", "resolved", "abandoned", "active"]
 
 
 # ── id 稳定性矩阵（本 change 新增项的锚——角色/关系 id 在 2.x 接入后必须进这里）──
