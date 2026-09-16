@@ -298,3 +298,50 @@ test("免费归档：不 500，正文只读，树已归档即时同步", async (
     await restore();
   }
 });
+
+// -------------------------------------------------------------------------
+// ⑦ 顶栏「续写」：回到上次退出前的章与位置（行头归一，用户拍板口径）
+// -------------------------------------------------------------------------
+
+test("顶栏续写：回到上次退出前的章与位置", async ({ page }) => {
+  const { restore } = await setupFreeSession(page);
+  try {
+    await createNovel(page, `续写${Date.now() % 100000}`);
+    const editor = await writeFirstChapter(page);
+    // 足量内容让编辑器可滚动；先等写作进度节流窗口（1s）过掉再滚到底
+    await editor.fill(
+      "这一段是续写恢复验证的正文内容，需要写得足够长才能让编辑器出现滚动条。".repeat(30),
+    );
+    await expect(page.getByText("已自动保存").first()).toBeVisible({ timeout: 8000 });
+    await page.waitForTimeout(1200);
+    const wrap = page.locator(".editor-wrap");
+    await wrap.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    // bar-here 跟随上次写到的章：默认名不重复序号 ＋「草稿」徽（有正文未归档）
+    const barHere = page.locator(".bar-here");
+    await expect(barHere.locator(".bh-tag")).toHaveText("草稿");
+
+    // 加第二章并切过去（离开第一章）——bar-here 仍停在第一章
+    const volHead = page.locator(".col-tree .vol-head").first();
+    await volHead.hover();
+    await volHead.locator('[title="添加章节"]').click();
+    await page.locator(".inline-add input").fill("第二章");
+    await page.keyboard.press("Enter");
+    const ch2 = page.locator(".col-tree .ch", { hasText: "第二章" });
+    await expect(ch2).toBeVisible({ timeout: 5000 });
+    await ch2.click();
+    await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({ timeout: 5000 });
+    await expect(barHere.locator(".bh-t")).toContainText("第 1 章");
+
+    // 顶栏「续写」→ 回第一章、正文页签、滚动位置已恢复
+    await page.locator('[data-od-id="resume-cta"]').click();
+    const backEditor = page.locator(".editor");
+    await expect(backEditor).toBeVisible({ timeout: 5000 });
+    await expect(backEditor).toContainText("这一段是续写恢复验证的正文内容");
+    await expect(page.getByRole("tab", { name: /^正文/ })).toHaveAttribute("aria-selected", "true");
+    expect(await wrap.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  } finally {
+    await restore();
+  }
+});

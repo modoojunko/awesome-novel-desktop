@@ -85,7 +85,7 @@ export function markArchiveNoticeShown() {
 // 本书偏好（modalPrefs）：per-project 覆盖，未设置回落全局默认
 // ---------------------------------------------------------------------------
 
-type BookPrefKey = "fs" | "lh" | "ai_summary";
+type BookPrefKey = "fs" | "lh" | "ai_summary" | "last_write";
 
 function bookKey(projectId: string, key: BookPrefKey): string {
   return `pref.book.${projectId}.${key}`;
@@ -142,6 +142,40 @@ export function getBookArchiveAiSummary(projectId: string): boolean {
 export function setBookArchiveAiSummary(projectId: string, enabled: boolean) {
   try {
     localStorage.setItem(bookKey(projectId, "ai_summary"), enabled ? "on" : "off");
+  } catch {
+    // 忽略
+  }
+}
+
+/** 上次写作会话（行头归一「续写」口径，用户拍板 2026-09-16）：
+ *  记「哪一章 + 编辑器滚动位置比例」，续写=回到上次退出前的进度。
+ *  纯本机 localStorage（设备级），不上传；书内章删除后由消费方校验回落。 */
+export interface LastWriteSession {
+  ref: string;
+  /** 编辑器滚动比例 0..1（内容不足一屏为 0） */
+  scroll: number;
+  ts: number;
+}
+
+export function getLastWriteSession(projectId: string): LastWriteSession | null {
+  try {
+    const raw = localStorage.getItem(bookKey(projectId, "last_write"));
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Partial<LastWriteSession> | null;
+    if (!v || typeof v.ref !== "string" || !v.ref) return null;
+    const scroll = typeof v.scroll === "number" ? Math.min(1, Math.max(0, v.scroll)) : 0;
+    return { ref: v.ref, scroll, ts: typeof v.ts === "number" ? v.ts : 0 };
+  } catch {
+    return null;
+  }
+}
+
+export function setLastWriteSession(projectId: string, ref: string, scroll: number) {
+  try {
+    localStorage.setItem(
+      bookKey(projectId, "last_write"),
+      JSON.stringify({ ref, scroll, ts: Date.now() } satisfies LastWriteSession),
+    );
   } catch {
     // 忽略
   }

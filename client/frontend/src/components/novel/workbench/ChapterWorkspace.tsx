@@ -73,6 +73,10 @@ interface ChapterWorkspaceProps {
   onAiWrite: () => void;
   /** 生成启动信号（计数器递增）：切正文页签 + 聚焦（真 bug #2） */
   aiWriteSignal: number;
+  /** 续写恢复信号（顶栏 CTA）：n 递增触发，落正文页签并滚回上次位置 */
+  resumeSignal?: { ref: string; scroll: number; n: number };
+  /** 写作进度上抛（顶栏 bar-here 跟随显示上次写到的章） */
+  onWriteProgress?: (session: { ref: string; scroll: number; ts: number }) => void;
 }
 
 const fmt = (n: number) => n.toLocaleString("zh-CN");
@@ -90,6 +94,8 @@ export default function ChapterWorkspace({
   onRailData,
   onAiWrite,
   aiWriteSignal,
+  resumeSignal,
+  onWriteProgress,
 }: ChapterWorkspaceProps) {
   const store = useChapterData(projectId, chapterRef);
   const { wordCount, saveState, targetWords, setTargetWords } = store;
@@ -169,6 +175,13 @@ export default function ChapterWorkspace({
     const t = setTimeout(() => proseRef.current?.focus(), 60);
     return () => clearTimeout(t);
   }, [aiWriteSignal, proseRef]);
+
+  // 续写恢复信号（顶栏 CTA）：落正文页签，滚动位置由 ProsePane 按 resumeScroll 恢复
+  useEffect(() => {
+    if (!resumeSignal || !resumeSignal.n) return;
+    setChTab("prose");
+    setShowHistory(false);
+  }, [resumeSignal]);
 
   // ── 章纲表单：加载 / 缺口 / 保存 / 3s 静默自动保存 ────────────────────
     // 本书角色名清单（character-settings-v2）：章纲出场角色多选候选
@@ -582,6 +595,12 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         lh={lh}
         hidden={chTab !== "prose"}
         onAIStateChange={onAIStateChange}
+        resumeScroll={
+          resumeSignal && resumeSignal.ref === chapterRef
+            ? { n: resumeSignal.n, pct: resumeSignal.scroll }
+            : undefined
+        }
+        onWriteProgress={onWriteProgress}
       />
 
       <ArchiveModal

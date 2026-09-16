@@ -92,6 +92,9 @@
   .bh-prog .prog-bar { flex: 1; }
   .prog-bar { height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
   .prog-bar span { display: block; height: 100%; background: var(--fg); border-radius: 3px; }
+  /* 草稿徽（正在写的章；storyline .tag/.tag-live 同款收编，改名 bh-tag 避让 cfg 摘要 .tag） */
+  .bh-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+  .bh-tag-live { color: var(--fg); border-color: color-mix(in oklch, var(--fg) 38%, transparent); }
   @media (max-width: 1320px) { .appbar .genre-tag { display: none; } }
   @media (max-width: 1180px) { .bh-prog { display: none; } }
   @media (max-width: 920px) {
@@ -1133,7 +1136,9 @@ function updateModNav() {
 function renderTreeAll() { renderTree($('treeOutline')); updateBarHere(); }
 
 /* ═══ 顶栏主线定位（行头归一）：主线端点 = 最新归档章，无归档取首章。
-   拟定/待写状态机（storyline.html）落地后再切 frontier 口径 ═══ */
+   拟定/待写状态机（storyline.html）落地后再切 frontier 口径。
+   「续写」口径（用户拍板 09-16）= 回到上次退出前的位置：原型无退出跟踪，
+   演示语义 = 选中当前主线章并落正文；真实现按设备本地 last_write 会话恢复 ═══ */
 function updateBarHere() {
   const el = $('barHere'); if (!el) return;
   let cur = null, curVol = null;
@@ -1141,18 +1146,22 @@ function updateBarHere() {
   if (!cur) {
     for (const v of BOOK.volumes) { if (v.chapters.length) { cur = v.chapters[0]; curVol = v; break; } }
   }
-  if (!cur) { el.innerHTML = ''; return; }
+  if (!cur) { el.innerHTML = ''; updateBarHere.target = null; return; }
+  updateBarHere.target = cur.id;
   const no = curVol.chapters.indexOf(cur) + 1;
   const title = (cur.title.split(' · ')[1] || cur.title);
   const archived = curVol.chapters.filter(isArchived).length;
   const total = curVol.chapters.length;
   const pct = Math.round(Math.min(1, archived / total) * 100);
   const vn = curVol.title.split(' · ')[0];
+  const badge = isArchived(cur) ? '' : '<span class="bh-tag bh-tag-live">草稿</span>';
   el.innerHTML = '<p class="bh-k">当前主线</p>'
     + '<span class="bh-rule" aria-hidden="true"></span>'
     + '<p class="bh-t"><span class="n">第 ' + no + ' 章</span>' + escapeHtml(title) + '</p>'
+    + badge
     + '<div class="bh-prog"><span class="bh-vol">' + escapeHtml(vn) + ' · ' + archived + '/' + total + '</span>'
-    + '<span class="prog-bar"><span style="width:' + pct + '%"></span></span></div>';
+    + '<span class="prog-bar"><span style="width:' + pct + '%"></span></span></div>'
+    + '<button class="btn btn-primary btn-sm" data-od-id="resume-cta" title="回到上次退出前的位置">续写</button>';
 }
 
 function renderTree(el) {
@@ -1202,6 +1211,17 @@ function renderTree(el) {
 }
 
 /* 树交互（点卷行 = 卷纲，点章行 = 章对象工作台，chev = 折叠） */
+/* 顶栏「续写」（用户拍板口径：回到上次退出前的位置）——原型无退出跟踪，
+   演示语义 = 选中当前主线章并落正文页签 */
+$('barHere').addEventListener('click', e => {
+  if (!e.target.closest('[data-od-id="resume-cta"]')) return;
+  const id = updateBarHere.target; if (!id) return;
+  sel = { kind: 'chapter', id };
+  S.selVol = volOfCh(id).id; S.selCh = id; S.chTab = 'prose';
+  persist();
+  renderTreeAll(); renderMiddle();
+  toast('已回到上次写作位置');
+});
 $('treeOutline').addEventListener('click', e => {
   const chRow = e.target.closest('.ch');
   const volHead = e.target.closest('.vol-head');
