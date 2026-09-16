@@ -119,9 +119,11 @@
 /* .badge 清零声明原为反制 daisyUI 同名类；daisyUI 已退役，保留作为无害防御 */
 .wb .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; flex: none; border: 0; background: none; text-transform: none; }
 /* 行头归一（appbar-single-row）：账户档位徽随合并顶栏进了 .wb 作用域，
-   豁免上面的 badge 清零——档位徽有底色（index.css .badge-accent/.badge-muted 同值） */
+   豁免上面的 badge 清零——档位徽有底色（index.css .badge-accent/.badge-muted 同值；
+   warn=S端失联/试用临期警示态，同 index.css .badge-warn） */
 .wb .appbar .badge-accent { background: var(--accent-soft); color: var(--accent); }
 .wb .appbar .badge-muted { background: color-mix(in oklch, var(--fg) 6%, transparent); color: var(--muted); }
+.wb .appbar .badge-warn { background: var(--warn-soft); color: var(--warn); }
 .wb .badge.ok { background: var(--ok-soft); color: var(--ok); }
 .wb .badge.warn { background: var(--warn-soft); color: var(--warn); }
 .wb .badge.err { background: var(--err-soft); color: var(--err); }

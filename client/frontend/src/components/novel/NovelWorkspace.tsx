@@ -29,7 +29,7 @@ import { useTier } from "@/hooks/useTier";
 import { toast } from "@/lib/toast";
 import { BRAND } from "@/lib/brand";
 import { isLoggedIn } from "@/lib/auth";
-import { cnNum } from "@/lib/nodeTitle";
+import { cnNum, isDefaultTitle } from "@/lib/nodeTitle";
 
 // ---------------------------------------------------------------------------
 // NovelWorkspace — book.html 复刻（PR 3：壳 + 大纲树 + 章对象工作台）
@@ -271,7 +271,8 @@ export default function NovelWorkspace() {
         <span className="bh-rule" aria-hidden="true" />
         <p className="bh-t">
           <span className="n">第 {no} 章</span>
-          {cur.title}
+          {/* 默认名（「第一章」等序号形态）不再拼名称，避免「第 1 章第一章」（nodeLabel 同口径） */}
+          {isDefaultTitle("章", no, cur.title) ? null : cur.title}
         </p>
         <div className="bh-prog">
           <span className="bh-vol">
