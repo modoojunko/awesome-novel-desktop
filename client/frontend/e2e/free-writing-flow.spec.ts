@@ -147,8 +147,8 @@ test("免费建书直达写作工作台：零 phase-status，无阶段催促，m
     await expect(
       page.getByText("还没有卷与章节。点击左上「＋」添加第一卷。"),
     ).toBeVisible();
-    // 免费标识（novelbar free-hint）
-    await expect(page.getByText(/免费模式 · 写作功能完整/)).toBeVisible();
+    // 免费标识（行头归一后 = 顶栏账户胶囊档位徽「免费版」）
+    await expect(page.locator('[data-od-id="acct-badge"]')).toHaveText("免费版");
     // ⑦ modnav 三态（PR3 设计稿）：设定 / 写作 / 预览
     await expect(page.getByRole("button", { name: /^设定/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^写作/ })).toBeVisible();

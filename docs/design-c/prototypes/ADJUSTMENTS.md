@@ -547,3 +547,28 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     author-portrait/btn-portrait-keep/btn-portrait-retry/sink-style-check。
 
     **门禁范围**：design-vocab.mjs strictGlobs 增补本文件（严格原型 6→7）。
+
+22. **书内行头归一（appbar-single-row，2026-09-16）**
+    `book.html` 原双行头（appbar 48「logo＋返回我的小说＋账户」＋ novelbar 44
+    「书名＋题材＋免费提示/PRO 徽＋升级钮」）并成**一行 48px**：logo（即返回入口，
+    title「返回我的小说」，跳 list.html）｜书名｜题材胶囊｜**当前主线定位 bar-here**
+    ｜账户胶囊。口径取自 `drafts/storyline.html`（写作工作台原型）顶栏段，用户拍板
+    「行头归一以此为准」；省出一整条给正文。
+
+    **砍掉的顶栏位**：「← 我的小说」返回链接（返回=点 logo）；免费提示 free-hint
+    与「升级 PRO」钮（免费态标识收敛到账户胶囊档位徽「免费版」；升级入口仍在右栏
+    locked 卡与本书偏好弹窗）。`applyPro()` 同步摘除 freeHint/proPill/btnUpgrade
+    三处引用。
+
+    **新增顶栏段 bar-here**：`bh-k 当前主线｜bh-rule｜bh-t 第 N 章＋题｜bh-prog
+    卷序 · 已归档/总章＋prog-bar`。**v1 口径＝最新归档章为端点**（无归档落首章；
+    空书留空槽），storyline.html 的拟定/待写 frontier 口径待主线状态机立项后切换。
+    响应式三档随 storyline：≤1320px 藏题材、≤1180px 藏 bh-prog、≤920px 折行。
+
+    **类名**：`.bar-here/.bh-k/.bh-rule/.bh-t(+.n)/.bh-prog/.bh-vol/.prog-bar`
+    直接收编（storyline 同名），应用侧落 book.css 顶栏段并 `.bar-here` 前缀作用域；
+    删 `.appbar .back`/`.novelbar`/`.free-hint`/`.pill-pro`（无其他使用点）。
+    **data-od-id**：appbar-logo（原 back-to-list 退役）、current-position。
+
+    **同步实现**：Navbar 书内变体退役（/novel/* 返回 null），合并头由
+    NovelWorkspace 渲染（AcctMenu＋BookPrefsModal 随迁）；wb.volumes 即数据源。
