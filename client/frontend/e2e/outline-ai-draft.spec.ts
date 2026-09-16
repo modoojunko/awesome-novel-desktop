@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
-import { cleanupSessionNovels } from "./helpers";
+import { cleanupSessionNovels, stableClick } from "./helpers";
 
 // =========================================================================
 // 章纲 AI 起草 E2E（outline-ai-draft，打桩 AI）：
@@ -116,7 +116,7 @@ async function ensurePromptAccess(request: APIRequestContext, token: string) {
 /** 建书 + 加卷 1 章 → 点章 → 停在「章纲」页签 */
 async function setupFirstChapter(page: Page, name: string) {
   await page.goto(`${ORIGIN}/#/novels`);
-  await page.getByRole("button", { name: "新建作品" }).first().click();
+  await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
   await page.locator("input#bkTitle").fill(name);
   await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
@@ -259,9 +259,9 @@ test("只填场景卡：同样要覆盖确认；取消保留表单（hardening�
     // 第一次：dismiss 取消 → 不发请求、表单保留
     page.once("dialog", (d) => void d.dismiss());
     await page.getByTestId("og-ai-draft").click();
-    await page.waitForTimeout(500);
-    expect(draftCalls).toBe(0);
+    // 先走完表单断言的自动重试窗（=观察期），再断言零请求（替代固定 sleep）
     await expect(page.locator("#wf-scenes input[data-scene='n']").first()).toHaveValue("渡口");
+    expect(draftCalls).toBe(0);
 
     // 第二次：accept → 发起并回填
     page.once("dialog", (d) => void d.accept());

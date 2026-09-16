@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
-import { cleanupSessionNovels } from "./helpers";
+import { cleanupSessionNovels, pageSettled, stableClick } from "./helpers";
 
 // =========================================================================
 // 免费主流程 E2E（FE-34 / TE-17，change 004）—— P0 断点 1 第 8 条纵切
@@ -93,7 +93,7 @@ async function setupFreeSession(page: Page): Promise<{ restore: () => void }> {
 /** 通过真实 UI 创建小说（免费限 1 部，测试内仅建一本）。 */
 async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
-  await page.getByRole("button", { name: "新建作品" }).first().click();
+  await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
   await page.locator("input#bkTitle").fill(name);
   await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
@@ -364,7 +364,7 @@ test("顶栏续写：回到上次退出前的章与位置", async ({ page }) => 
         .catch(() => false);
     }
     expect(saved).toBe(true);
-    await page.waitForTimeout(1200);
+    await pageSettled(page); // 保存往返已由「已自动保存」钉住，此处等网络与布局收敛
     const wrap = page.locator(".editor-wrap");
     await wrap.evaluate((el) => {
       el.scrollTop = el.scrollHeight;
@@ -406,7 +406,7 @@ test("顶栏续写：回到上次退出前的章与位置", async ({ page }) => 
     // preventScroll 聚焦：click() 自带的 scrollIntoView 会污染「不再被拽回」断言
     await backEditor.evaluate((el) => el.focus({ preventScroll: true }));
     await page.keyboard.type("续写之后继续写的一句。");
-    await page.waitForTimeout(1500); // 越过节流窗口，确保期间发生过多轮渲染
+    await page.waitForTimeout(1500); // 被测时序（节流窗口），非脆弱等待——e2e-speedup-infra 保留
     expect(await wrap.evaluate((el) => el.scrollTop)).toBeLessThan(10);
   } finally {
     await restore();

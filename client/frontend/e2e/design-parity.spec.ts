@@ -14,7 +14,7 @@ import path from "path";
 import { test, expect } from "@playwright/test";
 import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
-import { stubUpdateNotice } from "./helpers";
+import { pageSettled, stubUpdateNotice } from "./helpers";
 
 // process.cwd() = client/frontend（playwright 运行目录，与既有 spec 一致；type:module 下无 __dirname）
 const PROTO_FILE = path.resolve(process.cwd(), "../../docs/design-c/prototypes/list.html");
@@ -122,7 +122,7 @@ test.describe("design-parity 书架屏（list.html）", () => {
       const protoPage = await protoCtx.newPage();
       await protoPage.goto(`file://${PROTO_FILE}`);
       await protoPage.evaluate(() => document.fonts.ready);
-      await protoPage.waitForTimeout(700);
+      await pageSettled(protoPage); // page-enter 等有限动画播完（替代固定 sleep）
       const protoShot = await protoPage.screenshot();
       await protoCtx.close();
 
@@ -147,7 +147,7 @@ test.describe("design-parity 书架屏（list.html）", () => {
       await appPage.goto("/#/novels");
       await appPage.waitForLoadState("networkidle");
       await appPage.evaluate(() => document.fonts.ready);
-      await appPage.waitForTimeout(700); // page-enter 0.4s 收敛
+      await pageSettled(appPage); // page-enter 0.4s 收敛（动画播完替代固定 sleep）
       const appShot = await appPage.screenshot();
       await appCtx.close();
 

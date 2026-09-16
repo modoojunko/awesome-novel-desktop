@@ -41,17 +41,19 @@ async function setupSession(page: Page) {
 /** 走真实入口：书架 → 点开书（组件重新挂载，落点才会重新判定）。 */
 async function openFromShelf(page: Page, pid: string) {
   await page.goto(`${ORIGIN}/#/novels`);
-  await page.waitForTimeout(600);
+  await page.locator(".book-card").first().waitFor({ state: "visible", timeout: 10000 }); // 书卡就绪
   await page.goto(`${ORIGIN}/#/novel/${pid}`);
-  await page.waitForTimeout(2200);
+  await page.locator(".mtab").first().waitFor({ state: "visible", timeout: 15000 }); // 工作台就绪（落点已判）
 }
 
 /** 只看书架（两次导航：首次让容器内后端刷新 config 缓存，第二次才断言）。 */
 async function openShelf(page: Page) {
   await page.goto(`${ORIGIN}/#/novels`);
-  await page.waitForTimeout(600);
+  await page
+    .waitForResponse((r) => r.url().includes("/api/novels"), { timeout: 10000 })
+    .catch(() => {}); // 首次触发后端 config 缓存刷新（往返真落地）
   await page.goto(`${ORIGIN}/#/novels`);
-  await page.waitForTimeout(800);
+  await page.locator(".book-card").first().waitFor({ state: "visible", timeout: 10000 });
 }
 
 /** 书架卡片上的阶段标签（与落点同源：stageFromChapters）。 */
@@ -94,8 +96,8 @@ test("卡片阶段与落点同源：部分归档＝卡片写作中 + 落点写�
 
     // 卡片显示写作中 → 点开必须落写作（同一判据的两处消费）
     await page.goto(`${ORIGIN}/#/novel/${pid}`);
-    await page.waitForTimeout(2200);
-    await expect(page.locator(".mtab.on")).toContainText("写作");
+    await page.locator(".mtab").first().waitFor({ state: "visible", timeout: 15000 }); // 工作台就绪（替代固定 sleep）
+    await expect(page.locator(".mtab.on")).toContainText("写作", { timeout: 10000 });
 
     // 两章全归档 → 卡片「已归档」+ 落点预览，仍同源
     await api("POST", `/api/novels/${pid}/chapters/${volRef}-ch-2/archive`, {
@@ -105,8 +107,8 @@ test("卡片阶段与落点同源：部分归档＝卡片写作中 + 落点写�
     await openShelf(page);
     await expect(cardStage(page, bookName)).toContainText("已归档", { timeout: 15000 });
     await page.goto(`${ORIGIN}/#/novel/${pid}`);
-    await page.waitForTimeout(2200);
-    await expect(page.locator(".mtab.on")).toContainText("预览");
+    await page.locator(".mtab").first().waitFor({ state: "visible", timeout: 15000 }); // 工作台就绪（替代固定 sleep）
+    await expect(page.locator(".mtab.on")).toContainText("预览", { timeout: 10000 });
   } finally {
     await restore();
   }
@@ -155,8 +157,8 @@ test("默认落点：空书→设定 / 有章节→写作 / 全归档→预览",
 
     // ④ 用户手动切回写作 → 不被落点拽回去（落点只在首次加载判一次）
     await page.locator(".mtab", { hasText: "写作" }).click();
-    await page.waitForTimeout(600);
-    await expect(page.locator(".mtab.on")).toContainText("写作");
+    // tab 切换由下方断言自动重试收敛（替代固定 sleep）
+    await expect(page.locator(".mtab.on")).toContainText("写作", { timeout: 10000 });
   } finally {
     await restore();
   }

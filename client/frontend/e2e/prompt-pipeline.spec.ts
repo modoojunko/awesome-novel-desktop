@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
-import { cleanupSessionNovels } from "./helpers";
+import { cleanupSessionNovels, stableClick } from "./helpers";
 
 // =========================================================================
 // 两段式提示词 → 正文生成 全链路 E2E（ai-prompt-crafting，打桩 AI）：
@@ -101,7 +101,7 @@ async function setupSession(page: Page): Promise<{ restore: () => void; token: s
 
 async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
-  await page.getByRole("button", { name: "新建作品" }).first().click();
+  await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
   await page.locator("input#bkTitle").fill(name);
   await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
