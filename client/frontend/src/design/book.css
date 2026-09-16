@@ -35,6 +35,12 @@
 .bar-here .bh-t .n { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-right: 7px; }
 .bar-here .bh-prog { display: flex; align-items: center; gap: 9px; flex: none; width: 168px; }
 .bar-here .bh-vol { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+/* 草稿徽（端点章有正文未归档）：中性款，值同原型 book.html（storyline .tag/.tag-live
+   收编改名，避让 cfg 摘要 .tag）；语气依据 = design-language §5 规则 S-R3
+   「警示性的常态化徽标禁止」——恒显常态属性不上 warn。live 须排在 .bh-tag 之后
+   （同特异性按顺序决胜） */
+.bar-here .bh-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.bar-here .bh-tag-live { color: var(--fg); border-color: color-mix(in oklch, var(--fg) 38%, transparent); }
 .bar-here .prog-bar { flex: 1; height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
 .bar-here .prog-bar span { display: block; height: 100%; background: var(--fg); border-radius: 3px; }
 @media (max-width: 1320px) { .appbar .genre-tag { display: none; } }

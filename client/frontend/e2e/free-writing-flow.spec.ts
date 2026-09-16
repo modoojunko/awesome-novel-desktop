@@ -333,7 +333,13 @@ test("顶栏续写：回到上次退出前的章与位置", async ({ page }) => 
     });
     // bar-here 跟随上次写到的章：默认名不重复序号 ＋「草稿」徽（有正文未归档）
     const barHere = page.locator(".bar-here");
-    await expect(barHere.locator(".bh-tag")).toHaveText("草稿");
+    const badge = barHere.locator(".bh-tag");
+    await expect(badge).toHaveText("草稿");
+    // 样式落位（book.css .bh-tag/.bh-tag-live，值同原型）：防「类只在原型、应用侧无定义」
+    // 盲区回归——裸 span 继承正文字号且无边框/圆角，这三项足以证伪
+    await expect(badge).toHaveCSS("border-radius", "999px");
+    await expect(badge).toHaveCSS("border-top-width", "1px");
+    await expect(badge).toHaveCSS("font-size", "10px");
 
     // 加第二章并切过去（离开第一章）——bar-here 仍停在第一章
     const volHead = page.locator(".col-tree .vol-head").first();
