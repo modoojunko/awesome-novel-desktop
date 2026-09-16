@@ -35,7 +35,6 @@ from auth_local.deps import (  # noqa: E402
     require_project_limit,
 )
 from auth_local.middleware import get_current_user  # noqa: E402
-from filesystem.storage import get_storage  # noqa: E402
 from main import app  # noqa: E402
 from settings.style_model import (  # noqa: E402
     normalize_style,
@@ -44,7 +43,6 @@ from settings.style_model import (  # noqa: E402
 )
 from settings.style_quant_model import (  # noqa: E402
     apply_locks,
-    build_baseline,
     commit_draft,
     confidence_for,
     quant_doc,
@@ -210,8 +208,6 @@ class TestStyleEndpoints:
         assert "_legacy_style" not in data
 
     def test_legacy_book_normalized_on_get(self, client, pid):
-        storage = get_storage()
-        root = None
         # 直接经路由写入旧形状再读（PUT 走归一），验证旧内容不丢
         r = client.put(f"/api/novels/{pid}/settings/style", json=dict(OLD_STYLE))
         assert r.status_code == 200
@@ -232,10 +228,7 @@ class TestStyleEndpoints:
 class TestQuantEndpoints:
     def test_put_locks_only(self, client, pid):
         # 种一个已蒸馏文档
-        from filesystem.paths import STYLE_QUANT_PATH
 
-        storage = get_storage()
-        project_root = None
         doc = quant_doc({})
         doc["confidence"] = 82
         doc["baseline"] = {"rhythm": {"value": "对话 48%", "tolerance": 10, "locked": False}}
@@ -284,9 +277,10 @@ def _project_root(pid: str) -> str:
     """测试辅助：查项目真实 root_path（slug ≠ id，不能猜）。"""
     import asyncio
 
+    from sqlalchemy import select
+
     from db import async_session
     from models.project import Novel
-    from sqlalchemy import select
 
     async def _get():
         async with async_session() as s:
@@ -296,26 +290,21 @@ def _project_root(pid: str) -> str:
 
 
 class TestDistillEndpoints:
-    def _seed_samples(self, client, pid, monkeypatch):
-        # novel-samples/ 目录：写一个 3200 字文件（去空白后达标）
-        storage = get_storage()
-        # 找项目 root_path：经 novels API 拿不到 root_path，用 DB 直接查不便——
-        # DATA_ROOT/<novel_id> 即 root（storage 布局）；直接构造
+    def _seed_samples(self, pid):
         root = _project_root(pid)
         os.makedirs(os.path.join(root, "novel-samples"), exist_ok=True)
         body = "雨点砸在铁皮棚上。他没有抬头。" * 400  # 去空白后 3200 字
         with open(os.path.join(root, "novel-samples", "a.md"), "w", encoding="utf-8") as f:
             f.write(body)
-        return root
 
     def test_three_steps_resume_commit(self, client, pid, monkeypatch):
-        root = self._seed_samples(client, pid, monkeypatch)
+        self._seed_samples(pid)
         payloads = [
             '{"sections": [{"label": "雨点砸棚", "layer": "环境"}]}',
             '{"metrics": {"平均句长": "14.6 字", "对话占比": "48%"}}',
             '{"baseline": {"narrative": "第三人称限知", "rhythm": {"dialogue": 48, "action": 24, "narration": 15, "environment": 7, "inner": 6}}, "details": {"词法": "x"}, "portrait": "一个冷静的讲述者。", "banned": ["突然"]}',
         ]
-        calls = _install_fake_distill(monkeypatch, payloads)
+        _install_fake_distill(monkeypatch, payloads)
 
         # step1
         r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step1", json={"files": ["a.md"], "chapter_ids": []})
@@ -355,16 +344,17 @@ class TestDistillEndpoints:
         assert r.status_code == 400
 
     def test_member_gate_403(self, client, pid, monkeypatch):
-        app.dependency_overrides[require_ai_access] = lambda: None
         from fastapi import HTTPException
 
         def _deny():
             raise HTTPException(403, "member_required")
 
         app.dependency_overrides[require_ai_access] = _deny
-        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step1", json={"files": [], "chapter_ids": []})
-        assert r.status_code == 403
-        app.dependency_overrides[require_ai_access] = lambda: True
+        try:
+            r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step1", json={"files": [], "chapter_ids": []})
+            assert r.status_code == 403
+        finally:
+            app.dependency_overrides[require_ai_access] = lambda: True
 
 
 # ── 提示词组装 ───────────────────────────────────────────────────────────
@@ -390,7 +380,6 @@ class TestReviewFixRegressions:
     def test_auxiliary_style_read_goes_through_normalize(self):
         """评审 P2：辅助写作链（续写/润色/扩写）读 style 必须经归一——
         老书只填旧键时三区照常注入，不走未归一直读。"""
-        import asyncio
 
         from write.auxiliary import _format_style
 
@@ -416,9 +405,6 @@ class TestPromptAssembly:
         return ChapterContext(), tmp_root
 
     def test_style_section_injected(self, pid, monkeypatch, tmp_path):
-        import asyncio
-
-        from write.chapter_writer import build_chapter_context
 
         # 直接用纯函数层断言（build_chapter_context 需要章行，另由 e2e 覆盖全链）：
         from settings.render import quant_section, style_section

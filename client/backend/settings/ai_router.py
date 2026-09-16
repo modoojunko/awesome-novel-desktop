@@ -12,10 +12,9 @@
 
 import json
 import re
-
-from fastapi import APIRouter, Depends, HTTPException
 from datetime import UTC, datetime
 
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1614,9 +1613,9 @@ _STYLE_DISTILL_ACTIONS = {"step1", "step2", "step3", "commit"}
 
 
 async def _load_quant_doc(root_path: str) -> dict:
-    from settings.style_quant_model import quant_doc
     from filesystem.paths import STYLE_QUANT_PATH
     from filesystem.storage import get_storage
+    from settings.style_quant_model import quant_doc
 
     return quant_doc(await get_storage().read_yaml(root_path, STYLE_QUANT_PATH) or {})
 
@@ -1841,7 +1840,6 @@ async def run_style_ai(
     body = body or {}
     story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
     premise = _clamp_str(story.get("synopsis"), 600)
-    usage_note = "输入：题材＋简介"
 
     if action == "polish":
         if not premise:
@@ -1890,6 +1888,9 @@ async def run_style_ai(
         }
 
     # fewshot-mine：从已归档正文提炼 1-3 条标志句
+    from models.archive import Archive
+    from models.chapter import Chapter
+
     rows = await db.execute(
         select(Archive)
         .join(Chapter, Chapter.id == Archive.chapter_id)

@@ -36,9 +36,9 @@ from settings.ai_router import router as settings_ai_router
 from settings.characters_ai import router as characters_ai_router
 from settings.characters_router import router as characters_router
 from settings.hooks_router import router as hooks_router
-from settings.style_quant_router import router as style_quant_router
 from settings.router import router as settings_router
 from settings.status import router as settings_status_router
+from settings.style_quant_router import router as style_quant_router
 from story.router import router as story_router
 from update_check import router as update_check_router
 from workflow.router import backfill_router as workflow_backfill_router
