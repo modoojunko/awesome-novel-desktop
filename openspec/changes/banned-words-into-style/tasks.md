@@ -1,7 +1,7 @@
 ## 1. 前置与原型
 
 - [x] 1.1 归档 style-settings-v2（openspec archive + sync specs + 归档 PR），确认 style-quant/prompt-crafting 基线落地：`openspec list` 不再出现该 change
-- [ ] 1.2 原型先行，三个文件逐处改＋ADJUSTMENTS.md 逐文件登记：`prototypes/book.html`（antiAI 注册 :1052、desc :2228、疲劳词 cfgGroup/FATIGUE_CATS 渲染器 :2472/:2507、左栏 nav 项）；`prototypes/style-settings.html`（11 处 anti 引用：稿头注记 :38-42、硬约束 hint :381/:462、锚定体检 :605/:615、lexicon note :849、AI 体检 :947/:951）；`prototypes/foreshadow-settings.html`（nav 项 :362、hookOkNote :486、toast :962——后两处与新推进序「文风→伏笔」直接矛盾）。定稿决策点一并落纸：锚定链 fRules/fCraft 断锚补 id 管道、fb-no ①②③ 编号方案（现 ①身份②硬约束③手法 与新三块编号撞车）、是否为文风面板新增 parity CASE（settings CASE 现仅比左栏＋简介面板）；产出改稿截图供 parity 重录
+- [x] 1.2 原型先行，三个文件逐处改＋ADJUSTMENTS.md 逐文件登记：`prototypes/book.html`（antiAI 注册 :1052、desc :2228、疲劳词 cfgGroup/FATIGUE_CATS 渲染器 :2472/:2507、左栏 nav 项）；`prototypes/style-settings.html`（11 处 anti 引用：稿头注记 :38-42、硬约束 hint :381/:462、锚定体检 :605/:615、lexicon note :849、AI 体检 :947/:951）；`prototypes/foreshadow-settings.html`（nav 项 :362、hookOkNote :486、toast :962——后两处与新推进序「文风→伏笔」直接矛盾）。定稿决策点一并落纸：锚定链 fRules/fCraft 断锚补 id 管道、fb-no ①②③ 编号方案（现 ①身份②硬约束③手法 与新三块编号撞车）、是否为文风面板新增 parity CASE（settings CASE 现仅比左栏＋简介面板）；产出改稿截图供 parity 重录
 
 ## 2. 后端——归一边界与迁移
 
