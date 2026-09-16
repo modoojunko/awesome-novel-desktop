@@ -245,6 +245,33 @@ class TestDeleteMergeUndo:
         rels = c.get(f"/api/novels/{nid}/characters/{prot['id']}/relations").json()["data"]
         assert rels and rels[0]["other_name"] == "苏晚芜"
 
+    def test_unnamed_receipt_hides_placeholder(self, client):
+        c, nid = client
+        r = c.post(f"/api/novels/{nid}/characters", json={"name": "", "role": "配角"})
+        assert r.status_code == 200, r.text
+        card = r.json()["data"]
+        assert card["name"].startswith("\u0000")  # 占位名只活在库里的唯一键上
+
+        r = c.delete(f"/api/novels/{nid}/characters/{card['id']}")
+        assert r.status_code == 200, r.text
+        receipt = r.json()["data"]["receipt"]
+        assert receipt == "已删除《未命名》"
+        assert "\u0000" not in receipt
+
+    def test_merge_receipt_hides_placeholder(self, client):
+        c, nid = client
+        src = c.post(f"/api/novels/{nid}/characters", json={"name": "", "role": "配角"}).json()["data"]
+        tgt = c.post(f"/api/novels/{nid}/characters", json={"name": "李四", "role": "配角"}).json()["data"]
+
+        r = c.post(
+            f"/api/novels/{nid}/characters/{src['id']}/merge",
+            json={"target_id": tgt["id"]},
+        )
+        assert r.status_code == 200, r.text
+        receipt = r.json()["data"]["receipt"]
+        assert receipt.startswith("已把《未命名》并进《李四》")
+        assert "\u0000" not in receipt
+
     def test_merge_fills_and_dedups_then_undo(self, client):
         c, nid = client
         prot = c.post(f"/api/novels/{nid}/characters", json={"name": "林拾", "role": "主角"}).json()["data"]
