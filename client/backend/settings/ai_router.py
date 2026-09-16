@@ -40,7 +40,8 @@ from settings.hooks_model import (
 
 router = APIRouter(prefix="/api/novels/{project_id}/settings", tags=["settings-ai"])
 
-# 支持按字段生成的设定类型（anti-ai 除外；hooks 已随伏笔 AI 四能力退役——foreshadow-settings-v2 9.1）
+# 支持按字段生成的设定类型（hooks 已随伏笔 AI 四能力退役——foreshadow-settings-v2 9.1；
+# anti-ai 已随禁用词收编退役——banned-words-into-style）
 FIELD_GENERATABLE = {"genre"}  # style 已升级三区 AI（/ai/style/{polish,check,fewshot-mine}）＋蒸馏
 
 # 题材五行字段（01 口味胶囊不走 AI；promise_note 不单独成行，随 core_promise 出参）

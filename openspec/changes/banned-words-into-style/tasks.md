@@ -20,13 +20,13 @@
 
 ## 4. 前端
 
-- [ ] 4.1 `StyleSettingForm.tsx`：硬约束区扩三块——禁用词 ListEditor（maxLength 50、hint 带分类示例词）＋句式规则编辑器（TicPatternEditor 整体搬入、接 maxItems 20 隐藏添加钮、补 data-od-id）；GET 归一/PUT payload 扩两键（style GET/PUT 内联在本组件，styleApi.ts 不动）；**脏快照 shape 扩两键**（否则编辑词表不触发 dirty 守卫）；**蒸馏 commit 成功后回读 GET 只合并 banned_words/tic_patterns 两键进表单态与快照基线**（不整表 set）——vitest：commit 后直接保存新词不丢、PUT body 六键
-- [ ] 4.2 面板退役与全局口径：删 `AntiAiSettingForm.tsx`；`SettingsView.tsx` 去 antiAI 页签注册/渲染分支/「AI痕迹控制」死文案（:952）/体检锚与 footNote 改文风内口径/hard-constraint hint（:431）与 sink 头（:494）指向文案更新/normalizePanel 的 anti-ai 键改指 style（防外部载荷落空面板误保存）；`useOnboarding.ts` SETTINGS_TYPES 8→7；`NovelWorkspace.tsx`「设定 x/8」硬编码改 7；tsc --noEmit 绿
-- [ ] 4.3 门禁：npm run design:lint 绿；按 1.2 改稿重录 parity 基线（若立项文风面板 CASE 一并重录）后 npm run design:check 绿（像素差 <0.2%）；design-vocab 零改动自查确认
-- [ ] 4.4 vitest 存量清点：`NovelWorkspace.test.tsx`「禁用词句」断言锚（:247/:254/:277）、`useOnboarding.test.tsx` 键数与「还差 7 项」文案（:20/:25）、`StyleSettingForm.fewShots.test.tsx` PUT body 键恰好断言（:113）全绿
+- [x] 4.1 `StyleSettingForm.tsx`：硬约束区扩三块——禁用词 ListEditor（maxLength 50、hint 带分类示例词）＋句式规则编辑器（TicPatternEditor 整体搬入、接 maxItems 20 隐藏添加钮、补 data-od-id）；GET 归一/PUT payload 扩两键（style GET/PUT 内联在本组件，styleApi.ts 不动）；**脏快照 shape 扩两键**（否则编辑词表不触发 dirty 守卫）；**蒸馏 commit 成功后回读 GET 只合并 banned_words/tic_patterns 两键进表单态与快照基线**（不整表 set）——vitest：commit 后直接保存新词不丢、PUT body 六键
+- [x] 4.2 面板退役与全局口径：删 `AntiAiSettingForm.tsx`；`SettingsView.tsx` 去 antiAI 页签注册/渲染分支/「AI痕迹控制」死文案（:952）/体检锚与 footNote 改文风内口径/hard-constraint hint（:431）与 sink 头（:494）指向文案更新/normalizePanel 的 anti-ai 键改指 style（防外部载荷落空面板误保存）；`useOnboarding.ts` SETTINGS_TYPES 8→7；`NovelWorkspace.tsx`「设定 x/8」硬编码改 7；tsc --noEmit 绿
+- [x] 4.3 门禁：npm run design:lint 绿；按 1.2 改稿重录 parity 基线（若立项文风面板 CASE 一并重录）后 npm run design:check 绿（像素差 <0.2%）；design-vocab 零改动自查确认
+- [x] 4.4 vitest 存量清点：`NovelWorkspace.test.tsx`「禁用词句」断言锚（:247/:254/:277）、`useOnboarding.test.tsx` 键数与「还差 7 项」文案（:20/:25）、`StyleSettingForm.fewShots.test.tsx` PUT body 键恰好断言（:113）全绿
 
 ## 5. e2e 与验收
 
-- [ ] 5.1 e2e 改写：settings-forms（anti-ai 段→文风三块，:475-507）、creation-flow（:414 对将退役端点的 PUT 注入改 style、:433 status 8 键循环改 7、:417 openSetting 改）、design-parity-book（:162/:671/:778 readiness stub 键＋:773 注释＋基线重录）、foreshadow-settings（:460 注释随手改）；workbench-features/style-quant 仅回归不改写——本地 docker 栈全量 e2e 绿
-- [ ] 5.2 真实会话复验配方：存量书（带 anti-ai 词）→ 不开面板直接体检（迁移兜底）→ 开文风面板见迁移词 → 蒸馏 commit 后直接保存词不丢 → 写一章验证提示词注入 → quality 体检命中——按既有演练清单过一遍
-- [ ] 5.3 收尾：全仓 grep 验收「无 anti-ai 活引用」，排除项明确＝anti-ai 原键（保留）、settings-status 历史确认记录、`client/frontend/src/.mimosa/` 基线缓存、openspec 归档与历史文档；runs 全绿后走 PR→归档流程
+- [x] 5.1 e2e 改写：settings-forms（anti-ai 段→文风三块，:475-507）、creation-flow（:414 对将退役端点的 PUT 注入改 style、:433 status 8 键循环改 7、:417 openSetting 改）、design-parity-book（:162/:671/:778 readiness stub 键＋:773 注释＋基线重录）、foreshadow-settings（:460 注释随手改）；workbench-features/style-quant 仅回归不改写——本地 docker 栈全量 e2e 绿
+- [x] 5.2 真实会话复验配方：存量书（带 anti-ai 词）→ 不开面板直接体检（迁移兜底）→ 开文风面板见迁移词 → 蒸馏 commit 后直接保存词不丢 → 写一章验证提示词注入 → quality 体检命中——按既有演练清单过一遍
+- [x] 5.3 收尾：全仓 grep 验收「无 anti-ai 活引用」，排除项明确＝anti-ai 原键（保留）、settings-status 历史确认记录、`client/frontend/src/.mimosa/` 基线缓存、openspec 归档与历史文档；runs 全绿后走 PR→归档流程

@@ -410,13 +410,7 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     await openSetting(page, "文风");
     await confirmPanel(page);
 
-    // ── anti-ai：API 注入 + 面板确认（同上）
-    await apiPutJSON(request, token, `/novels/${pid}/settings/anti-ai`, {
-      blocklists: ["过度修辞", "翻译腔"],
-    });
-    await openSetting(page, "禁用词句");
-    await confirmPanel(page);
-
+    // banned-words-into-style：禁用词句面板退役（禁用词随文风卡保存，无独立确认步）
     // ── characters：真表 API 建主角卡（v2）→ 面板确认（两档门禁·首次档查名称+人设）
     const charPost = await request.post(`${ORIGIN}/api/novels/${pid}/characters`, {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -428,11 +422,13 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     await page.waitForTimeout(900); // 防抖 PATCH 落库
     await confirmPanel(page);
 
-    // 7 项全确认 → /settings/status 全 true（PRD 3.4；013：观察点从 GateBanner 消失改为后端直查）
+    // 确认过的 6 键全 true（readiness 7 项键；story-arc 本测试未确认不作断言；
+    // banned-words-into-style 起 anti-ai 退役 → status 键集里不复存在）
     const status = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
-    for (const k of ["synopsis", "genre", "world", "style", "anti-ai", "hooks", "characters"]) {
+    for (const k of ["synopsis", "genre", "world", "style", "hooks", "characters"]) {
       expect(status[k]).toBe(true);
     }
+    expect(status["anti-ai"]).toBeUndefined();
 
     // 题材设定后 → 书架卡片胶囊取值来自题材（核心承诺兜底：此时未选题材目录），占位态撤下
     await page.goto(`${ORIGIN}/#/novels`);
