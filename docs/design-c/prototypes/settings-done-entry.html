@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>爱小说 · 设定完成「去写作」入口重设计</title>
+<!--
+  交付说明（设计侧工件 · 不动任何 src/；OpenDesign 原型，交互可直接预览）
+
+  裁定：重设计设定页左栏的「设定完成 · 去写作」入口。现状＝全宽 btn-primary
+    普通按钮插在进度条与导航项之间——没有里程碑感、和导航抢视觉、文案平。
+
+  新设计（本稿核心，v2 合一）：不再叠第二张卡——「设定 8/8」进度行本体在完成瞬间
+    升级为完成卡（同一元素两状态）：
+    · 头部：对勾图标 + 「设定完成 8/8」（pl 变 ok 绿加粗）+「全部就绪」徽标
+    · 进度条转 ok 绿满格
+    · 块内展开「去写作」主 CTA + 「写作时也能回来改设定」小字
+    · 整块 ok-soft 底 + ok 描边（状态语言 §5：完成=ok 绿），导航项不被挤走
+  未完成态（7/8）：保持原进度行；下方「下一步」引导条点名差的那一项，点击直达
+    （原则 P1 永远知道下一步：阶段完成即出现下一阶段入口）。
+
+  评审脚手架（非基线，实现对照与截图排除）：doc-head 稿头、win-titlebar、
+  appbar/modnav 演示、右下角状态切换器（全部完成/差一项/旧版对照）、toast 演示。
+
+  规范：tokens 与 client/frontend/src/design/{base,book}.css 逐字同源；交互模块全部
+    挂 data-od-id（kebab-case）；零外部资源、零裸色、零 emoji。
+-->
+<style>
+  /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致 ═══ */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
+  button { font-family: inherit; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.55; padding: 40px 24px 80px; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1320px; margin: 0 auto; }
+
+  /* ─── 稿头 ─── */
+  .draft-banner { display: flex; align-items: center; gap: 9px; padding: 10px 16px; border: 1px dashed var(--warn); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: 13px; margin-bottom: 28px; }
+  .draft-banner b { color: var(--fg); font-weight: 600; }
+  h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; }
+  h1 .ver { font-family: var(--font-mono); font-size: 13px; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 2px 10px; vertical-align: 6px; margin-left: 10px; letter-spacing: 0.06em; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 6px 0 14px; line-height: 1.8; }
+  .caliber { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 16px; font-size: 12.5px; color: var(--muted); margin-bottom: 36px; line-height: 1.8; }
+  .caliber b { color: var(--fg); font-weight: 600; }
+  .caliber li { margin: 4px 0 4px 18px; }
+
+  /* ─── 模拟窗口（与前几稿同构） ─── */
+  .win { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: clip; box-shadow: var(--shadow-card); margin-bottom: 52px; }
+  .win-titlebar { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .dot { width: 11px; height: 11px; border-radius: 999px; flex: none; }
+  .dot.r { background: var(--err); } .dot.y { background: var(--warn); } .dot.g { background: var(--ok); }
+  .win-title { flex: 1; text-align: center; font-size: 12px; color: var(--muted); margin-right: 51px; }
+  .appbar { height: 48px; display: flex; align-items: center; padding: 0 20px; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; }
+  .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--surface); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; flex: none; }
+  .appbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; flex: none; }
+  .appbar .back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; padding: 5px 9px; border-radius: 8px; }
+  .appbar .back:hover { color: var(--fg); background: var(--fg-soft); }
+  .appbar .spacer { flex: 1; }
+  .novelbar { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 20px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
+  .novelbar .nb-title { font-family: var(--font-display); font-size: 13.5px; color: var(--fg); font-weight: 600; }
+  .novelbar .nb-sep { width: 1px; height: 16px; background: var(--border); }
+  .modnav { display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .modnav span { display: inline-flex; padding: 8px 14px 9px; font-size: 13px; color: var(--muted); }
+  .modnav span.on { color: var(--fg); font-weight: 500; border-bottom: 2px solid var(--accent); }
+
+  /* ── 设定页三栏 ── */
+  .view.three-col.settings-v { display: grid; grid-template-columns: 230px minmax(0, 1fr) 236px; align-items: start; }
+  .col-middle { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .col-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 18px 20px; }
+  .panel.sub-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px 14px; overflow: hidden; }
+  .col-tree { border-right: 1px solid var(--border); background: var(--bg); padding: 12px 10px 14px; }
+  .col-ai { border-left: 1px solid var(--border); padding: 16px; background: var(--bg); overflow-y: auto; }
+  @media (max-width: 1080px) { .view.three-col.settings-v { grid-template-columns: 208px minmax(0, 1fr) 222px; } }
+  @media (max-width: 900px) {
+    .view.three-col.settings-v { grid-template-columns: minmax(0, 1fr); }
+    .col-tree { border-right: 0; border-bottom: 1px solid var(--border); }
+    .col-ai { border-left: 0; border-top: 1px solid var(--border); }
+  }
+
+  /* 设定树（复刻现有） */
+  .tree-head { padding: 0 8px 8px; }
+  .tree-head .t { font-size: 13px; color: var(--muted); }
+  .tree-head .t b { color: var(--fg); font-weight: 600; }
+  .settings-progress { padding: 0 8px 10px; border-bottom: 1px dashed var(--border); }
+  .settings-progress .pl { font-size: 12px; color: var(--muted); }
+  .settings-progress .pl b { color: var(--fg); }
+  .pbar { height: 6px; border-radius: 999px; background: var(--fg-soft); margin-top: 6px; overflow: hidden; }
+  .pbar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  /* 完成态：进度行本体升级为完成卡（同元素两状态，不叠第二块） */
+  .settings-progress.done { border-bottom: none; border: 1px solid color-mix(in oklch, var(--ok) 30%, var(--border)); background: var(--ok-soft); border-radius: 10px; padding: 11px 12px 12px; margin-bottom: 10px; }
+  .settings-progress.done .pb-head { display: flex; align-items: center; gap: 7px; }
+  .settings-progress.done .pl { color: var(--ok); font-weight: 600; font-size: 13px; }
+  .settings-progress.done .pl b { color: var(--ok); }
+  .settings-progress.done .pbar { margin-top: 8px; }
+  .settings-progress.done .pbar i { background: var(--ok); }
+  .pb-done { margin-top: 10px; }
+  .pb-done .dc-btn { width: 100%; }
+  .pb-done .dc-foot { margin-top: 7px; font-size: 10.5px; color: var(--muted); text-align: center; }
+  .pb-check { color: var(--ok); flex: none; display: inline-flex; }
+  .pb-badge { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--ok); background: var(--surface); border: 1px solid color-mix(in oklch, var(--ok) 35%, var(--border)); border-radius: 999px; padding: 1px 8px; }
+  .settings-nav-wrap { padding-top: 6px; }
+  .s-item { display: flex; align-items: center; gap: 6px; padding: 8px 9px; border-radius: 8px; cursor: pointer; }
+  .s-item:hover { background: var(--fg-soft); }
+  .s-item.on { background: var(--accent-soft); }
+  .s-item .nm { font-size: 12.5px; color: var(--fg); }
+  .s-item.on .nm { color: var(--accent-strong); font-weight: 600; }
+  .s-item .defer-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+  .s-item .spacer { flex: 1; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 11px; }
+  .badge.done { background: var(--ok-soft); color: var(--ok); }
+  .badge.empty { background: var(--fg-soft); color: var(--muted); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .badge.acc { background: var(--accent-soft); color: var(--accent); }
+  .badge svg { width: 10px; height: 10px; }
+  .tree-foot { border-top: 1px dashed var(--border); margin-top: 8px; padding: 8px 8px 0; }
+
+  /* ── 下一步引导条（未完成态；完成态插槽见上 .settings-progress.done） ── */
+  /* 旧版对照（现状按钮，仅评审对照展示） */
+  .old-btn { width: 100%; margin-top: 10px; }
+
+  /* 下一步引导条（未完成态） */
+  .next-hint { margin-top: 10px; display: flex; align-items: center; gap: 8px; padding: 9px 10px; border: 1px dashed color-mix(in oklch, var(--warn) 40%, var(--border)); border-radius: 10px; background: var(--warn-soft); }
+  .next-hint .nh-t { flex: 1; min-width: 0; font-size: 11.5px; color: var(--fg); line-height: 1.6; }
+  .next-hint .nh-t b { color: var(--warn); }
+  .next-hint .nh-go { flex: none; border: none; background: transparent; color: var(--accent); font: inherit; font-size: 11.5px; cursor: pointer; padding: 2px 4px; }
+
+  /* ── 通用件（与前几稿逐字同词表） ── */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--accent); color: oklch(100% 0 0); }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--muted); }
+  .btn:disabled { opacity: .45; cursor: default; pointer-events: none; }
+  .input, .textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+  .input:focus, .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .textarea { min-height: 58px; resize: vertical; line-height: 1.7; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .field label { font-size: 13px; color: var(--fg); font-weight: 600; display: flex; flex-direction: column; gap: 2px; }
+  .field label .hint { font-size: 11.5px; color: var(--muted); font-weight: 400; line-height: 1.6; }
+  .opt { font-size: 12px; color: var(--muted); }
+  .panel-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+  .panel-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 600; margin: 0; }
+  .panel-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); margin-top: 8px; flex-wrap: wrap; }
+  .panel-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+
+  /* ── 右栏占位（非本稿焦点） ── */
+  .rail-card { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
+  .rail-card b { font-size: 13px; }
+  .rail-card p { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.7; }
+
+  /* ── 结论 ─── */
+  .rec-box { border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: var(--radius); background: var(--accent-soft); padding: 16px 20px; font-size: 13.5px; line-height: 1.8; }
+  .rec-box b { font-weight: 600; }
+  .rec-box ol { margin: 8px 0 0 20px; }
+  .rec-box li { margin: 6px 0; }
+
+  /* 评审切换器（非基线） */
+  .demo-switch { position: fixed; right: 20px; bottom: 20px; z-index: 98; display: flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); box-shadow: var(--shadow-card); font-size: 11.5px; color: var(--muted); }
+  .demo-switch button { border: none; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; padding: 3px 9px; border-radius: 999px; cursor: pointer; }
+  .demo-switch button.on { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+
+  @media (max-width: 720px) {
+    body { padding: 24px 12px 60px; }
+    h1 { font-size: 22px; }
+    .col-panel { padding: 20px 14px 24px; }
+    .caliber { padding: 10px 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="draft-banner"><b>设计稿（组件重设计）</b>「设定完成 · 去写作」入口＝设定页左栏进度条下的完成态插槽；右下角切换器可在三个状态间预览（非基线演示元素）。</div>
+  <h1>设定完成 · 去写作 入口<span class="ver">DRAFT v2</span></h1>
+  <p class="sub">现状＝一颗全宽普通主按钮挤在窄树栏里：没有里程碑感、和导航项抢视觉、完成后就一直挂着。本稿把它升级为「完成卡」——完成是一件事，值得一个明确的仪式点；未完成时同位置给「下一步」引导。</p>
+  <ul class="caliber">
+    <li><b>合一（v2）</b>：完成卡与「设定 8/8」进度行合并——同一元素两状态，去掉重复的 8/8 与叠卡；行头对勾＋「设定完成 8/8」，行内「去写作」CTA。</li>
+    <li><b>未完成不出现</b>：7/8 时同位置是「下一步」引导条——点名差的那一项、点击直达；P1 永远知道下一步。</li>
+    <li><b>旧版按钮退役</b>：全宽普通主按钮不再出现于左栏；完成态才有的入口不该长得和「保存」一样。</li>
+  </ul>
+
+  <div class="win" id="winDone">
+    <div class="win-titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="win-title">残卷听澜 — 爱小说</span></div>
+    <div class="appbar">
+      <span class="logo"><span class="logo-mark">爱</span>爱小说</span>
+      <span class="sep"></span>
+      <button class="back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="m15 18-6-6 6-6"/></svg>返回工作台</button>
+      <span class="spacer"></span>
+      <button class="back" type="button">客服</button>
+      <button class="back" type="button">设置</button>
+    </div>
+    <div class="novelbar">
+      <span class="nb-title">《残卷听澜》</span>
+      <span class="nb-sep"></span>
+      <span>仙侠/修真 · 凡人流</span>
+      <span class="spacer" style="flex:1;"></span>
+      <span class="badge acc">PRO</span>
+    </div>
+
+    <div class="view three-col on settings-v">
+
+      <!-- ═══ 左栏：进度条 + 完成卡（本稿核心）＋导航 ═══ -->
+      <aside class="col-tree">
+        <div class="tree-head"><span class="t">设定 · <b>8</b> 项 + 1 工具</span></div>
+        <!-- 进度行＝完成卡（同一元素两状态：8/8 时整块升级，不另叠卡片） -->
+        <div class="settings-progress" id="progBlock" data-od-id="settings-progress">
+          <div class="pb-head">
+            <span class="pb-check" id="pbCheck" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><circle cx="12" cy="12" r="9" stroke-width="1.8"/><path d="M8.5 12.2l2.4 2.4 4.6-5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="pl num" id="progLabel">设定 <b>8</b>/8</span>
+            <span class="pb-badge" id="pbBadge" hidden>全部就绪</span>
+          </div>
+          <div class="pbar" id="progBar"><i id="progFill" style="width: 100%;"></i></div>
+          <div class="pb-done" id="pbDone" hidden data-od-id="done-body">
+            <button class="btn btn-primary dc-btn" type="button" id="btnGoWrite" data-od-id="btn-go-write">
+              去写作
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+            </button>
+            <p class="dc-foot">写作时也能回来改设定，不冲突</p>
+          </div>
+        </div>
+
+        <!-- 下一步引导条（未完成态） -->
+        <div class="next-hint" id="nextHint" hidden data-od-id="settings-next-hint">
+          <span class="nh-t" id="nextText">还差 <b>1</b> 项：<b>禁用词句</b>未确认</span>
+          <button class="nh-go" type="button" id="nextGo" data-od-id="next-go">去确认</button>
+        </div>
+
+        <div class="settings-nav-wrap">
+          <div class="s-item"><span class="nm">模型设定</span><span class="defer-tag">工具</span><span class="spacer"></span><span class="badge empty">不参与进度</span></div>
+          <div class="s-item"><span class="nm">简介</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+          <div class="s-item"><span class="nm">题材</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+          <div class="s-item"><span class="nm">世界</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+          <div class="s-item"><span class="nm">角色</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+          <div class="s-item"><span class="nm">主线</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+          <div class="s-item"><span class="nm">文风</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+          <div class="s-item"><span class="nm">伏笔</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+          <div class="s-item" id="navAnti"><span class="nm">禁用词句</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge warn" id="antiBadge">已填</span></div>
+        </div>
+        <div class="tree-foot"><span style="font-size: 12px; color: var(--muted); line-height: 1.7;">可后补项确认后计入设定进度 · 确认即前进到下一项</span></div>
+      </aside>
+
+      <!-- ═══ 中栏：以「禁用词句」面板为代表占位（非本稿焦点） ═══ -->
+      <main class="col-middle">
+        <div class="col-panel">
+          <div class="panel sub-fill">
+            <div class="panel-head">
+              <h2 id="panelTitle">禁用词句</h2>
+              <span class="badge warn" id="panelBadge">已填</span>
+            </div>
+            <p class="desc" id="panelDesc">这些词句一出现就拦掉——AI 味最重的那批。</p>
+            <div class="field">
+              <label>总结叙事类<span class="hint">出现就标记，每行一个</span></label>
+              <textarea class="textarea" rows="3">本章讲述了｜接下来｜与此同时｜故事还在继续</textarea>
+            </div>
+            <div class="field">
+              <label>抽象情绪类<span class="hint">「他感到」类直陈情绪的写法</span></label>
+              <textarea class="textarea" rows="2">他感到｜他觉得｜他意识到</textarea>
+            </div>
+            <div class="panel-foot">
+              <span class="note">改动自动保存 · 确认即计入设定进度</span>
+              <button class="btn btn-secondary" type="button">存草稿</button>
+              <button class="btn btn-primary" type="button">确认完成</button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ═══ 右栏占位 ═══ -->
+      <aside class="col-ai">
+        <div class="rail-card">
+          <b>AI 写作助手</b>
+          <p class="opt" style="margin-top:6px;">本稿聚焦左栏「设定完成」入口；右栏能力卡沿既有设计（各面板自带四行能力），不在本稿范围。</p>
+        </div>
+        <p class="opt" style="margin-top:12px;">未配置模型？去左侧「AI 模型」。</p>
+      </aside>
+    </div>
+  </div>
+
+  <div class="rec-box">
+    <b>结论 · 本稿裁定</b>
+    <ol>
+      <li><b>进度行合一（本稿核心）</b>：「设定 8/8」进度行在完成瞬间升级为完成卡——对勾＋「设定完成 8/8」＋全绿进度条＋行内「去写作」CTA＋「随时回来改」小字；ok-soft 底、ok 描边，里程碑有仪式感、行动点唯一。</li>
+      <li><b>未完成给「下一步」</b>：7/8 时同位置显示引导条，点名差的那一项、点击直达该面板；完成卡与引导条互斥，同一插槽。</li>
+      <li><b>旧按钮退役</b>：全宽普通主按钮不再出现在左栏；「去写作」只从完成卡进入。</li>
+      <li><b>落地口径</b>：实现于 SettingsView 左栏（done===total && onGoWrite 分支改造）；状态语言沿 §5（完成=ok 绿）；词表新增 settings-done-card/settings-next-hint，ADJUSTMENTS 登记后入 book.css。</li>
+    </ol>
+  </div>
+
+</div>
+
+<!-- 评审切换器（非基线演示元素） -->
+<div class="demo-switch" id="demoSwitch">
+  <span>预览</span>
+  <button type="button" data-state="done" class="on">全部完成</button>
+  <button type="button" data-state="one-left">差一项</button>
+  <button type="button" data-state="old">旧版对照</button>
+</div>
+
+<script>
+(function () {
+  function toast(msg) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;right:22px;bottom:64px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);z-index:99;max-width:340px;';
+    t.textContent = msg; document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2400);
+  }
+  const $ = s => document.querySelector(s);
+  const $$ = s => Array.from(document.querySelectorAll(s));
+
+  const progBlock = $('#progBlock');
+  const nextHint = $('#nextHint');
+  const progLabel = $('#progLabel');
+  const progFill = $('#progFill');
+  const pbCheck = $('#pbCheck');
+  const pbBadge = $('#pbBadge');
+  const pbDone = $('#pbDone');
+  const antiBadge = $('#antiBadge');
+  const panelTitle = $('#panelTitle');
+  const panelBadge = $('#panelBadge');
+  const panelDesc = $('#panelDesc');
+
+  function render(state) {
+    $$('#demoSwitch button').forEach(b => b.classList.toggle('on', b.dataset.state === state));
+    const o = $('#oldBtn'); if (o && state !== 'old') o.remove();
+    if (state === 'done') {
+      /* 完成：进度块本体升级为完成卡 */
+      progBlock.classList.add('done');
+      progLabel.innerHTML = '设定完成 <b>8</b>/8';
+      progFill.style.width = '100%';
+      pbCheck.hidden = false;
+      pbBadge.hidden = false;
+      pbDone.hidden = false;
+      nextHint.hidden = true;
+      antiBadge.textContent = '已确认';
+      antiBadge.className = 'badge done';
+      panelTitle.textContent = '禁用词句';
+      panelBadge.textContent = '已确认';
+      panelBadge.className = 'badge done';
+      panelDesc.textContent = '这些词句一出现就拦掉——AI 味最重的那批。';
+    } else if (state === 'one-left') {
+      progBlock.classList.remove('done');
+      progLabel.innerHTML = '设定 <b>7</b>/8';
+      progFill.style.width = '87.5%';
+      pbCheck.hidden = true;
+      pbBadge.hidden = true;
+      pbDone.hidden = true;
+      nextHint.hidden = false;
+      $('#nextText').innerHTML = '还差 <b>1</b> 项：<b>禁用词句</b>未确认';
+      antiBadge.textContent = '已填';
+      antiBadge.className = 'badge warn';
+      panelTitle.textContent = '禁用词句';
+      panelBadge.textContent = '已填';
+      panelBadge.className = 'badge warn';
+      panelDesc.textContent = '这些词句一出现就拦掉——AI 味最重的那批。';
+    } else {
+      /* old：现状对照——完成态渲染普通全宽主按钮 */
+      progBlock.classList.remove('done');
+      progLabel.innerHTML = '设定 <b>8</b>/8';
+      progFill.style.width = '100%';
+      pbCheck.hidden = true;
+      pbBadge.hidden = true;
+      pbDone.hidden = true;
+      nextHint.hidden = true;
+      if (!$('#oldBtn')) {
+        const old = document.createElement('button');
+        old.className = 'btn btn-primary old-btn';
+        old.id = 'oldBtn';
+        old.textContent = '设定完成 · 去写作';
+        old.addEventListener('click', () => toast('旧版：普通全宽主按钮（现状）'));
+        progBlock.after(old);
+      }
+    }
+  }
+
+  $$('#demoSwitch button').forEach(b => b.addEventListener('click', () => render(b.dataset.state)));
+
+  $('#btnGoWrite').addEventListener('click', () => toast('去写作：切换到写作视图（正文工作台）——原 onGoWrite 行为不变'));
+  $('#nextGo').addEventListener('click', () => toast('跳到「禁用词句」面板——补完这项，完成卡就出现'));
+
+  /* 应用框架演示 */
+  $$('.appbar .back').forEach(b => b.addEventListener('click', () => toast('演示稿：上部为现有外壳，非本稿范围')));
+  $('#navAnti').addEventListener('click', () => toast('演示：跳到「禁用词句」面板'));
+
+  render('done');
+})();
+</script>
+</body>
+</html>

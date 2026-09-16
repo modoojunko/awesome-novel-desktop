@@ -327,6 +327,15 @@ details.cfg .inner { padding: 4px 14px 14px; }
 /* ─── 设定视图（左栏 + 右面板，与大纲同构；PR 4 落地） ──── */
 .settings-nav-wrap { padding: 0 8px; }
 .settings-progress { display: flex; align-items: center; gap: 10px; padding: 2px 14px 12px; }
+/* 设定完成入口（settings-done-entry）：完成态进度行升级为完成卡（ok-soft 底＋ok 描边）。 */
+.settings-v .settings-progress.done { flex-wrap: wrap; row-gap: 8px; border: 1px solid color-mix(in oklch, var(--ok) 30%, var(--border)); background: var(--ok-soft); border-radius: 10px; padding: 10px 12px; margin: 0 8px 10px; }
+.settings-v .settings-progress.done .pl { color: var(--ok); font-weight: 600; }
+.settings-v .settings-progress.done .pbar { flex-basis: 100%; }
+.settings-v .settings-progress.done .pbar i { background: var(--ok); }
+.settings-v .settings-progress.done .pb-check { color: var(--ok); display: inline-flex; }
+.settings-v .settings-progress.done .pb-badge { margin-left: auto; font-size: 10px; color: var(--ok); background: var(--surface); border: 1px solid color-mix(in oklch, var(--ok) 35%, var(--border)); border-radius: 999px; padding: 1px 8px; font-family: var(--font-mono); }
+.settings-v .settings-progress.done .done-btn { flex-basis: 100%; }
+.settings-v .settings-progress.done .done-foot { flex-basis: 100%; text-align: center; font-size: 10.5px; color: var(--muted); }
 .settings-progress .pl { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.04em; white-space: nowrap; color: var(--muted); }
 .settings-progress .pl b { color: var(--accent); font-weight: 500; font-size: 13px; }
 .settings-progress .pl.done b { color: var(--ok); }

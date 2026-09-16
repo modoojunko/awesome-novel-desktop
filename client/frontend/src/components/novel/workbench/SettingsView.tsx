@@ -644,14 +644,36 @@ export default function SettingsView({
           </div>
         </div>
         {done === total && onGoWrite && (
-          <button
-            className="btn btn-primary"
-            type="button"
-            style={{ width: "100%", marginTop: 10 }}
-            onClick={onGoWrite}
-          >
-            设定完成 · 去写作
-          </button>
+          // 设定完成入口（settings-done-entry）：进度行本体升级为完成卡——
+          // 对勾＋「设定完成 8/8」＋「全部就绪」＋满格绿条＋「去写作」CTA。
+          // 旧全宽普通主按钮退役（评审：完成态不该长得和「保存」一样）。
+          <div className="settings-progress done" data-od-id="settings-done-card">
+            <span className="pb-check" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="15" height="15">
+                <circle cx="12" cy="12" r="9" strokeWidth="1.8" />
+                <path d={CHECK_PATH} strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <span className="pl num">
+              设定完成 <b>{total}/{total}</b>
+            </span>
+            <span className="pb-badge">全部就绪</span>
+            <div className="pbar">
+              <i style={{ width: "100%" }} />
+            </div>
+            <button
+              className="btn btn-primary done-btn"
+              type="button"
+              data-od-id="btn-go-write"
+              onClick={onGoWrite}
+            >
+              去写作
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14" aria-hidden="true">
+                <path d="M5 12h14m-6-6 6 6-6 6" />
+              </svg>
+            </button>
+            <p className="done-foot">写作时也能回来改设定，不冲突</p>
+          </div>
         )}
         <div className="settings-nav-wrap">
           {/* 00 模型设定：工具项，排在最前（用户 2026-09-10 指定） */}
