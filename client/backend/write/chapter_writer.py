@@ -127,7 +127,6 @@ class ChapterContext:
         self.world_setting = {}
         self.style_setting = {}
         self.style_quant = {}
-        self.anti_ai = {}
         self.hooks = []
         self.volume_summary = ""
         self.chapter_outline = {}
@@ -135,8 +134,6 @@ class ChapterContext:
         self.previous_chapter_recap = ""
         self.novel_title = ""
         self.genre_section = ""
-        # 疲劳词：主源 writing-style.fatigue_words（6.0e 迁移）；旧契约题材行同批合并
-        self.style_fatigue_words: list[str] = []
         # ── ai-prompt-crafting 素材扩展 ──────────────────────────────
         self.volume_no: int | None = None
         self.chapter_no: int | None = None
@@ -338,16 +335,17 @@ class ChapterContext:
                 lines.append(quant)
             lines.append("")
 
-        # Rules
-        fatigue = self._flatten_fatigue_words(self.anti_ai.get("fatigue_words_zh", {}))
-        fatigue = list(dict.fromkeys(fatigue + self.style_fatigue_words))
+        # Rules（banned-words-into-style：禁用词/句式单源自文风 KV；统一迁移感知读
+        # 路径保证存量书取用时已迁移。句式注入维持取前 5 条现行为，机器体检仍全量）
+        banned = [str(w) for w in (self.style_setting.get("banned_words") or [])]
         tic_patterns = [
             r.get("pattern", "")
-            for r in self.anti_ai.get("structural_tic_patterns", [])
+            for r in (self.style_setting.get("tic_patterns") or [])
+            if isinstance(r, dict)
         ]
         lines.append("## 原则与禁忌")
-        if fatigue:
-            lines.append(f"禁止使用以下词汇：{', '.join(fatigue)}")
+        if banned:
+            lines.append(f"禁止使用以下词汇：{', '.join(banned)}")
         if tic_patterns:
             lines.append(f"禁止以下句式：{', '.join(tic_patterns[:5])}")
         lines.append("")
@@ -434,13 +432,6 @@ class ChapterContext:
         lines.append("写正文，不写章节标题，不写总结，不使用 Markdown 标记，不输出引导语。")
 
         return "\n".join(lines)
-
-    def _flatten_fatigue_words(self, fatigue_dict: dict) -> list[str]:
-        words = []
-        for category in fatigue_dict.values():
-            if isinstance(category, list):
-                words.extend(category)
-        return words
 
 
 # ── 前情上下文（语义化）──────────────────────────────────────────────
@@ -560,20 +551,15 @@ async def build_chapter_context(
 
     ctx.story_arc = clip_story_arc(_arc_normalize(arc)["fullstory"])
 
-    # Settings
-    from settings.style_model import read_style
+    # Settings（banned-words-into-style：统一迁移感知读路径，禁用词/句式随 style_setting 单源）
+    from settings.style_model import read_style_migrated
 
-    ctx.style_setting = read_style(
-        await get_storage().read_yaml(root_path, "settings/writing-style.yaml") or {}
-    )
+    ctx.style_setting = await read_style_migrated(root_path)
     from filesystem.paths import STYLE_QUANT_PATH
 
     ctx.style_quant = await get_storage().read_yaml(root_path, STYLE_QUANT_PATH) or {}
     ctx.world_setting = (
         await get_storage().read_yaml(root_path, "settings/world-setting.yaml") or {}
-    )
-    ctx.anti_ai = (
-        await get_storage().read_yaml(root_path, "settings/anti-ai.yaml") or {}
     )
 
     # Hooks（真表 novel_hooks：status==active + 本章引入按章 id 排除 + ≤8）
@@ -586,15 +572,6 @@ async def build_chapter_context(
     gctx = await resolve_genre_context(root_path, novel_id)
     if gctx:
         ctx.genre_section = build_genre_section(gctx)
-    # 疲劳词主源已迁 writing-style.yaml（6.0e）；旧契约题材行的疲劳词过渡期合并去重。
-    ctx.style_fatigue_words = list(
-        dict.fromkeys(
-            [
-                *(ctx.style_setting.get("fatigue_words") or []),
-                *((gctx or {}).get("fatigue_words") or []),
-            ]
-        )
-    )
 
     # Chapter
     from workflow.engine import load_chapter

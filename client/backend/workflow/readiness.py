@@ -6,22 +6,14 @@ Product decision (2026-08-02):
   the item's content is checked; empty -> 400 + hint, non-empty -> confirmed.
 - Template default values count as content (non-empty passes).
 
-7 items are judged (ai-model is NOT part of readiness).
+7 items are judged (ai-model is NOT part of readiness; anti-ai retired into the
+style panel by banned-words-into-style — banned words no longer gate readiness).
 """
 
 from sqlalchemy import func, select
 
 from db import async_session
 from filesystem.storage import get_storage
-
-
-def _has_nonempty(v) -> bool:
-    """Recursively check whether a yaml value contains any non-empty scalar."""
-    if isinstance(v, dict):
-        return any(_has_nonempty(x) for x in v.values())
-    if isinstance(v, list):
-        return any(_has_nonempty(x) for x in v)
-    return bool(v is not None and str(v).strip())
 
 
 async def _check_synopsis(root_path: str, novel_id: str | None = None) -> bool:
@@ -62,17 +54,11 @@ async def _check_world(root_path: str, novel_id: str | None = None) -> bool:
 async def _check_style(root_path: str, novel_id: str | None = None) -> bool:
     # style-settings-v2：判据不变（role 非空），数据源经归一——旧键老书（narrator_role/
     # tone.pov）归一进 role 后仍判「已填」，不因改版降级
-    from settings.style_model import read_style
+    # banned-words-into-style：走迁移感知读路径（禁用词有无不影响本判据）
+    from settings.style_model import read_style_migrated
 
-    style = read_style(
-        await get_storage().read_yaml(root_path, "settings/writing-style.yaml") or {}
-    )
+    style = await read_style_migrated(root_path)
     return bool(str(style.get("role", "")).strip())
-
-
-async def _check_anti_ai(root_path: str, novel_id: str | None = None) -> bool:
-    anti_ai = await get_storage().read_yaml(root_path, "settings/anti-ai.yaml") or {}
-    return _has_nonempty(anti_ai)
 
 
 async def _check_hooks(root_path: str, novel_id: str | None = None) -> bool:
@@ -134,8 +120,9 @@ async def _check_story_arc(root_path: str, novel_id: str | None = None) -> bool:
 
 # 判定表（单一来源）：key -> (label, jump, checker)
 READINESS_CHECKERS: list[tuple[str, str, str, object]] = [
-    # 顺序与左栏菜单一致（用户 2026-09-10 拍板）：01 简介 → 02 题材 → 03 世界 →
-    # 04 角色 → 05 主线 → 06 文风 → 07 伏笔 → 08 禁用词句（工具项「模型设定」不计入）
+    # 顺序与左栏菜单一致（用户 2026-09-10 拍板；banned-words-into-style 起为 7 项，
+    # 禁用词句退役并入文风面板）：01 简介 → 02 题材 → 03 世界 → 04 角色 → 05 主线 →
+    # 06 文风 → 07 伏笔（工具项「模型设定」不计入）
     ("synopsis", "故事简介", "synopsis", _check_synopsis),
     ("genre", "题材类型", "genre", _check_genre),
     ("world", "世界设定", "world", _check_world),
@@ -143,7 +130,6 @@ READINESS_CHECKERS: list[tuple[str, str, str, object]] = [
     ("story-arc", "主线规划", "story-arc", _check_story_arc),
     ("style", "文风", "style", _check_style),
     ("hooks", "伏笔管理", "hooks", _check_hooks),
-    ("anti-ai", "禁用词句", "anti-ai", _check_anti_ai),
 ]
 
 READINESS_KEYS = {key for key, _label, _jump, _check in READINESS_CHECKERS}

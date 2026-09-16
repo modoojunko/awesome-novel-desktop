@@ -96,6 +96,55 @@ describe("文风例句 few_shot_examples", () => {
   });
 });
 
+describe("禁用词收编（banned-words-into-style）", () => {
+  it("commit 并入禁用词后直接保存：表单态已回读合并，新词不丢", async () => {
+    // 初载词表 1 条；画像确认 commit 服务端并入「眸子」（banned_added=1）→
+    // 组件回读 GET 到 v2 → 用户不切面板直接保存 → payload 必须带新词（D4 丢词回归）
+    const styleV1 = { role: "r", banned_words: ["突然"], tic_patterns: [] };
+    const styleV2 = { role: "r", banned_words: ["突然", "眸子"], tic_patterns: [] };
+    let styleGets = 0;
+    apiState.get.mockImplementation((url: string) => {
+      if (url.endsWith("/settings/style")) {
+        styleGets += 1;
+        return Promise.resolve(styleGets === 1 ? styleV1 : styleV2);
+      }
+      if (url.endsWith("/settings/style-quant")) {
+        // draft 已到画像步：openDistill 直接进入画像确认视图
+        return Promise.resolve({ draft: { step: 3, step3: { portrait: "像你的写法" } } });
+      }
+      if (url.endsWith("/settings/style-samples")) {
+        return Promise.resolve({ files: [], chapters: [], min: 3000, max: 10000, in_range: false, hint: "再补些样本" });
+      }
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
+    apiState.post.mockResolvedValue({
+      ok: true,
+      quant: { confidence: 80, baseline: {}, history: [], draft: null, sample_chars: 7214, updated_at: "2026-09-16" },
+      banned_added: 1,
+    });
+
+    const ref = createRef<SettingSaveHandle>();
+    render(<StyleSettingForm ref={ref} projectId="p1" settingKey="style" />);
+    await waitFor(() => expect(screen.getByTestId("input-style-role")).toBeTruthy());
+
+    // 右栏 AI 四行入口「蒸馏我的文风」→ 量化页签 → 画像确认 → 落卡
+    const handle = ref.current as unknown as { runAi?: (key: string) => Promise<void> };
+    await handle.runAi!("distill");
+    fireEvent.click(await screen.findByText("就是这样，落卡"));
+
+    // commit 后回读合并：等第二次 style GET（回读）落地再保存
+    await waitFor(() => {
+      const styleGets = apiState.get.mock.calls.filter(([u]) => String(u).endsWith("/settings/style")).length;
+      expect(styleGets).toBeGreaterThanOrEqual(2);
+    });
+    expect(await ref.current!.save()).toBe(true);
+    expect(apiState.put).toHaveBeenCalledWith(
+      "/novels/p1/settings/style",
+      expect.objectContaining({ banned_words: ["突然", "眸子"] }),
+    );
+  });
+});
+
 describe("撤并键零写回（评审 P0）", () => {
   it("GET 带旧键（possible_mistakes/tone/narrator_role）时 PUT payload 只含白名单四键", async () => {
     mockGet({
@@ -111,7 +160,7 @@ describe("撤并键零写回（评审 P0）", () => {
     expect(await ref.current!.save()).toBe(true);
     expect(apiState.put).toHaveBeenCalledTimes(1);
     const body = apiState.put.mock.calls[0][1] as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual(["craft", "few_shot_examples", "role", "rules"]);
+    expect(Object.keys(body).sort()).toEqual(["banned_words", "craft", "few_shot_examples", "role", "rules", "tic_patterns"]);
   });
 });
 

@@ -35,7 +35,7 @@ import { getLastWriteSession, type LastWriteSession } from "@/lib/prefs";
 // ---------------------------------------------------------------------------
 // NovelWorkspace — book.html 复刻（PR 3：壳 + 大纲树 + 章对象工作台）
 //   appbar（行头归一：logo 即返回 · 书名双击改名 · 题材 · 当前主线定位 · 账户胶囊）
-//   modnav（设定 N/8 · 写作 N/N 章纲 · 预览，默认写作视图）
+//   modnav（设定 N/7 · 写作 N/N 章纲 · 预览，默认写作视图）
 //   写作 = three-col（树 / 中栏 / 右栏）常驻挂载（.view.on 切换保正文脏状态）
 //   设定 = two-col（SettingsView，PR 4 复刻 #viewSettings）
 //   预览 = 只读树 + 只读排版（PR 4 复刻 #viewPreview）
@@ -429,7 +429,7 @@ export default function NovelWorkspace() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="15" height="15">
             <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
           </svg>
-          设定 <span className="cnt">{settingsDone}/8</span>
+          设定 <span className="cnt">{settingsDone}/7</span>
         </button>
         <button
           className={`mtab${view === "workbench" ? " on" : ""}`}

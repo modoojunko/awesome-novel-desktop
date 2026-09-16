@@ -85,13 +85,8 @@ def _seed_writer(root: str):
             {"role": "一位小说家", "core_principles": [], "possible_mistakes": []},
         )
     )
-    _run_async(
-        get_storage().write_yaml(
-            root,
-            "settings/anti-ai.yaml",
-            {"fatigue_words_zh": {}, "structural_tic_patterns": []},
-        )
-    )
+    # banned-words-into-style：anti-ai 面板退役，禁用词落文风 KV（模板预填），
+    # 原键不再种子（filesystem/init.py 摘除）
     _run_async(
         get_storage().write_yaml(
             root,
@@ -164,9 +159,9 @@ class TestChapterWriterInjection:
         nid = _run_async(_new_novel(root))
         _run_async(_put(nid))
 
-        # 疲劳词主源＝writing-style.yaml（6.0e 迁移）
+        # 禁用词单源＝文风 KV banned_words（幽灵键 fatigue_words 归一并入后剥离）
         style = _run_async(get_storage().read_yaml(root, "settings/writing-style.yaml"))
-        style["fatigue_words"] = ["默认疲劳词"]
+        style["banned_words"] = ["默认疲劳词"]
         style["chapter_types"] = ["日常"]
         style["pacing_rules"] = ["规则"]
         _run_async(get_storage().write_yaml(root, "settings/writing-style.yaml", style))
@@ -174,7 +169,7 @@ class TestChapterWriterInjection:
         ctx = _run_async(build_chapter_context(root, "vol-1-ch-1", "测试小说", nid))
         assert "## 题材设定" in ctx.genre_section
         assert "核心承诺：以弱破强的痛快" in ctx.genre_section
-        assert ctx.style_fatigue_words == ["默认疲劳词"]
+        assert ctx.style_setting.get("banned_words") == ["默认疲劳词"]
 
         prompt = ctx.to_prompt()
         assert "## 题材设定" in prompt
@@ -190,7 +185,7 @@ class TestChapterWriterInjection:
         nid = _run_async(_new_novel(root))
         ctx = _run_async(build_chapter_context(root, "vol-1-ch-1", "测试小说", nid))
         assert ctx.genre_section == ""
-        assert ctx.style_fatigue_words == []
+        assert ctx.style_setting.get("banned_words") == []
         assert "## 题材设定" not in ctx.to_prompt()
 
 

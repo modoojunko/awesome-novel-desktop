@@ -548,7 +548,40 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
 
     **门禁范围**：design-vocab.mjs strictGlobs 增补本文件（严格原型 6→7）。
 
-22. **书内行头归一（appbar-single-row，2026-09-16）**
+---
+
+22. **禁用词收编文风（banned-words-into-style，2026-09-16）**
+    「禁用词句」独立面板退役，内容收编为文风卡硬约束区两个折叠组。三文件同批：
+
+    **book.html**（settings 屏 parity 基线）：
+    1. 设定左栏 `ITEMS` 去掉 `antiAI`（AI痕迹控制）项——内容菜单 8→7，
+       末项变为伏笔；`DESCS` 同步摘除；「AI痕迹控制」措辞全清。
+    2. 摘除 antiAI 面板渲染器与演示死数据（`FATIGUE_CATS`/`SET_ANTI`/`ticCards`）。
+    3. 面板种子注释同步（空面板清单去 AI痕迹）。
+
+    **style-settings.html**（文风卡基线）：
+    4. 左栏示意 nav 去禁用词句项（与 book.html 同口径）。
+    5. 硬约束区（②）后新增两个折叠组（Cfg，默认收起、组头 sum 常显「N 条」，
+       设计语言高密度表单口径）：**禁用词**（词表 ≤100，模板按七类预填 37 条，
+       `data-od-id="group-banned-words/list-banned-words"`）与**句式规则**
+       （正则＋阈值＋严重度 ≤20 条，sub-block tics 形态，
+       `data-od-id="group-tic-patterns/list-tic-patterns"`）；组头计数 `#bannedCount/
+       #ticCount` 随增删同步。
+    6. 文案改口：②硬约束 hint「通用的 AI 词句归『禁用词句』面板拦」→「归下方
+       『禁用词』『句式规则』两组拦（同一处管体检）」；锚定体检 desc、蒸馏 ra-foot、
+       lexicon note、AI 体检头/行 同步去面板指涉改组指涉。
+    7. 设计注记补 ⑥（收编口径）；⑤ 历史注记不改写。
+
+    **foreshadow-settings.html**：
+    8. 左栏示意 nav 去禁用词句项；hookOkNote「确认即前进到『禁用词句』」→
+       「确认后停留本格（已是最后一项）」；确认 toast 同步（伏笔成为末项）。
+
+    **parity 影响**：settings CASE 只截左栏＋默认简介面板——左栏少一行即像素变化，
+    基线需重录；文风卡新版面（两折叠组）不在现有 CASE 截图内，暂无新增 CASE
+    （该卡交互多、折叠态多，等实现侧稳定后随 parity 重录一并评估）。
+---
+
+23. **书内行头归一（appbar-single-row，2026-09-16）**
     `book.html` 原双行头（appbar 48「logo＋返回我的小说＋账户」＋ novelbar 44
     「书名＋题材＋免费提示/PRO 徽＋升级钮」）并成**一行 48px**：logo（即返回入口，
     title「返回我的小说」，跳 list.html）｜书名｜题材胶囊｜**当前主线定位 bar-here**
@@ -573,7 +606,7 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     **同步实现**：Navbar 书内变体退役（/novel/* 返回 null），合并头由
     NovelWorkspace 渲染（AcctMenu＋BookPrefsModal 随迁）；wb.volumes 即数据源。
 
-23. **设定完成入口重设计（settings-done-entry，2026-09-16）**
+24. **设定完成入口重设计（settings-done-entry，2026-09-16）**
     新增 `settings-done-entry.html`（自 `drafts/ai-novel-c端-设定完成去写作.html` v2 合一版收编）。
     「设定 8/8」进度行在完成态升级为完成卡：`.settings-progress.done` 变体（ok-soft 底＋ok
     描边）＋ `.pb-check/.pb-badge/.done-btn/.done-foot` 词表；状态语言沿 §5 完成=ok 绿。
@@ -581,7 +614,20 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     非基线演示元素：doc-head、win-titlebar、appbar/modnav、右下状态切换器与 toast。
     门禁范围：design-vocab.mjs strictGlobs 增补本文件。
 
-24. **顶栏「续写」＝回到上次退出前的进度（appbar-resume-session，2026-09-16）**
+25. **认知六层对齐理解层次（cog-logical-levels，2026-09-16）**
+    认知区词表补两处**提示文案**（只读小字，无交互、无新形态）：
+    ① 层头六问 hint `.cog-layer-hint`（他眼里的世界是什么样的？/ 他把自己当成谁？/
+    他在乎什么？为什么做这些事？/ 他能做什么？怎么做到的？/ 遇到事，他会怎么做？/
+    他身边有什么人、什么事？）；② s5 格位 hint——复用 base.css 既有 `.f-hint`（label 下
+    一行小字：「他和这个世界到底是怎么回事？这条路走到头，他注定要面对什么？」）。
+    词表双源：`character_model.py` ↔ `characterModel.ts` 的 `COG_LEVEL_HINTS`/
+    `COG_FIELD_HINTS`（parity 用例对拍文案逐字）。
+    **原型未同步本区**：认知六层在 `character-settings.html` 首屏之外、像素 parity 只比
+    `list.html`（见第 18 条），本批提示文案靠实现侧 vitest（层头渲染＋展开 s5 格断言）
+    与 e2e 覆盖，故不加原型、不改基线。
+    **口径**：一律大白话，「理解层次/NLP/上三层下三层/精神层/张力」等术语不上界面。
+
+26. **顶栏「续写」＝回到上次退出前的进度（appbar-resume-session，2026-09-16）**
     用户拍板：bar-here 的「续写」不是跳队列末端开新章，而是**回到上次退出前的位置**
     （哪一章＋编辑器滚动位置）。设备本机 localStorage `pref.book.{pid}.last_write`
     （ref＋滚动比例＋ts；ProsePane 输入/滚动节流 1s 记录）；bar-here 主线端点随之

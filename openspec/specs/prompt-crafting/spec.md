@@ -26,11 +26,12 @@
 
 ### Requirement: 素材包确定性组装
 
-- 文风段 SHALL 重排为单一来源结构：身份（叙事身份一句）→红线（硬约束逐条）→手法（描写手法逐行）→例句（few_shot 逐条）；`possible_mistakes` 行与「叙事基调」块（`build_tone_section`）SHALL 退役——通用反模式由禁用词句面板承接，基调信息经归一并入身份/手法。
-- 续写/润色/扩写辅助链的风格格式（`_format_style`）SHALL 同步为三区口径。
+- 文风段 SHALL 重排为单一来源结构：身份（叙事身份一句）→红线（硬约束逐条）→手法（描写手法逐行）→例句（few_shot 逐条）；`possible_mistakes` 行与「叙事基调」块（`build_tone_section`）SHALL 退役——通用反模式由文风硬约束子区（禁用词/句式规则）承接，基调信息经归一并入身份/手法。
+- 「原则与禁忌」段 SHALL 单源化：「禁止使用以下词汇」SHALL 只取文风 KV 的 `banned_words`，「禁止以下句式」SHALL 只取文风 KV 的 `tic_patterns` 前 5 条（现行为钉住，机器体检仍全量）；对 style 卡 fatigue_words 与题材行疲劳词的合并读取 SHALL 删除。
+- 续写/润色/扩写辅助链的风格格式（`_format_style`）与禁用词注入 SHALL 同步为文风 KV 单源。
 - 新增量化基线段：style-quant `confidence > 0` 时 SHALL 注入六行基线（约 X（±容差）、可按本章剧情在容差内自行调节）；`confidence = 0`/缺失 SHALL NOT 注入。
 - 活跃伏笔块 SHALL 为 `planned_chapter_id == 当前章 id` 的条目追加「建议本章收束」标记。
-- 未填字段 SHALL 跳过对应内容，SHALL NOT 注入未替换占位符；旧键（possible_mistakes/tone）经归一后不再直接读取。
+- 未填字段 SHALL 跳过对应内容，SHALL NOT 注入未替换占位符；旧键（possible_mistakes/tone/fatigue_words）经归一后不再直接读取。
 
 #### Scenario: 三区文风段
 
@@ -41,6 +42,16 @@
 
 - **WHEN** 存量书 style KV 只有旧键 narrator_role/tone.pov/possible_mistakes/core_principles
 - **THEN** GET /settings/style 返回归一三区（旧基调并入身份、旧错误并入红线），写章提示词按三区注入且内容不丢（原文留 `_legacy_style`）
+
+#### Scenario: 禁忌词句单源注入
+
+- **WHEN** 文风 KV banned_words 含「突然」、tic_patterns 含「不是…而是」，组装写章提示词
+- **THEN** 「禁止使用以下词汇」段恰含「突然」、「禁止以下句式」段恰含该正则；来源唯一（无第二份词表参与拼接）
+
+#### Scenario: 迁移词迁移后仍生效
+
+- **WHEN** 存量书禁用词原在 anti-ai.yaml，完成迁移后组装写章提示词
+- **THEN** 这些词出现在「禁止使用以下词汇」段（迁移不丢拦截能力）
 
 #### Scenario: 章级量化指令可预期
 
@@ -122,7 +133,7 @@
   1. 角色定位（叙事身份 + 题材）；
   2. 任务指示：章号、目标字数 ±10% 与压缩策略（超限优先压缩低权重场景、不得删红线）、叙事目标三条（核心悬念问题式 + 读者情绪 + 爽点设计含类型与位置）；
   3. 前情上下文（按上一 Requirement 的来源）；
-  4. 角色初始状态（起点→转折→落点 + 语言特征）；
+  4. 角色初始状态（起点→转折→落点 + 语言特征；角色状态块按认知六层主格层序注入——世界观 → 自我观 → 价值观 → 能力 → 行为 → 环境，即理解层次「下层是上层的放映」的链序，口径与 character-settings 的写章侧角色状态块一致；本条为口径登记，不改行为）；
   5. 故事背景（前提 + 世界观裁剪 + 卷概要）；
   6. 场景原材料：每场景核心事件链（外部动作链，非内心）、信息差、焦点（核心冲突/人物情绪/信息差三选一）、权重笔墨分配（高权重 ≥70% 笔墨、低权重 ≤100 字转场）；
   7. 案例（文风 few_shot 例句透传；空则跳过）；

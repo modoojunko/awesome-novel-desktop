@@ -160,13 +160,16 @@ def _add_hook(client, pid: str, description: str, status: str = "active") -> dic
 
 class TestReadiness:
     def test_new_project_missing_defaults(self, client):
-        """新项目：模板默认值算内容（style/anti-ai 通过），空项进入 missing。"""
+        """新项目：模板默认值算内容（style 通过），空项进入 missing。
+
+        banned-words-into-style：anti-ai 检查项退役（7 项），禁用词不再参与 readiness。
+        """
         pid = _create_project(client)
         r = client.get(f"/api/novels/{pid}/readiness")
         assert r.status_code == 200
         data = r.json()
         keys = {m["key"] for m in data["missing"]}
-        # synopsis/story-arc/genre/world/hooks/characters 为空 → missing；style/anti-ai 模板有默认 → 通过
+        # synopsis/story-arc/genre/world/hooks/characters 为空 → missing；style 模板有默认 → 通过
         assert keys == {"synopsis", "story-arc", "genre", "world", "hooks", "characters"}
         assert not data["complete"]
         assert "还差" in data["warning"]
@@ -187,7 +190,7 @@ class TestReadiness:
         _fill_world(client, pid, filled=4)
         _add_hook(client, pid, "一个钩子")
         client.post(f"/api/novels/{pid}/characters", json={"name": "张三", "role": "主角"})
-        # style/anti-ai 模板默认已通过
+        # style 模板默认已通过
         r = client.get(f"/api/novels/{pid}/readiness")
         data = r.json()
         assert data["complete"] is True, data
@@ -394,8 +397,8 @@ class TestGateSettingsWarnings:
         _fill_world(client, pid, filled=4)
         _add_hook(client, pid, "一个钩子")
         client.post(f"/api/novels/{pid}/characters", json={"name": "张三", "role": "主角"})
-        # style/anti-ai 模板默认已通过内容判定
-        for t in ["synopsis", "story-arc", "genre", "world", "style", "anti-ai", "hooks", "characters"]:
+        # style 模板默认已通过内容判定；anti-ai 已退役（banned-words-into-style，7 项）
+        for t in ["synopsis", "story-arc", "genre", "world", "style", "hooks", "characters"]:
             r = client.put(f"/api/novels/{pid}/settings/status/{t}")
             assert r.status_code == 200, f"confirm {t} failed: {r.text}"
         msgs = _settings_warnings(client, pid)
@@ -440,12 +443,22 @@ class TestGenericSettingsTypes:
         """推导（KEY_TO_PATH）不能破坏正常单文件路径。"""
         pid = _create_project(client)
         r = client.put(
-            f"/api/novels/{pid}/settings/anti-ai",
-            json={"banned_words": ["转折词"]},
+            f"/api/novels/{pid}/settings/ai-model",
+            json={"writing_model": "sonnet"},
         )
         assert r.status_code == 200, r.text
-        r = client.get(f"/api/novels/{pid}/settings/anti-ai")
-        assert r.json()["banned_words"] == ["转折词"]
+        r = client.get(f"/api/novels/{pid}/settings/ai-model")
+        assert r.json()["writing_model"] == "sonnet"
+
+    def test_anti_ai_channel_retired(self, client):
+        """banned-words-into-style：anti-ai 写通道退役（面板并入文风硬约束区）。"""
+        pid = _create_project(client)
+        r = client.put(
+            f"/api/novels/{pid}/settings/anti-ai",
+            json={"fatigue_words_zh": {}},
+        )
+        assert r.status_code == 400, r.text
+        assert "文风" in r.json()["detail"]
 
     def test_hooks_kv_channel_retired(self, client):
         """foreshadow-settings-v2 2.5：伏笔 KV 通道下线——GET/PUT settings/hooks 400。"""

@@ -186,6 +186,16 @@ class TestCharacterModelParity:
         for name, _goto in check_items(True) + check_items(False):
             assert f'"{name}"' in src, f"体检项 {name} 缺前端镜像"
 
+    def test_cog_hints_match(self):
+        """cog-logical-levels 六问 hint 与格位 hint：层 id/格键与文案都要逐字镜像。"""
+        from settings.character_model import COG_FIELD_HINTS, COG_LEVEL_HINTS
+
+        src = self._frontend_src()
+        for layer_id, hint in COG_LEVEL_HINTS.items():
+            assert f"{layer_id}: \"{hint}\"" in src, f"层 hint {layer_id} 与后端不一致"
+        for key, hint in COG_FIELD_HINTS.items():
+            assert f'{key}: "{hint}"' in src, f"格位 hint {key} 与后端不一致"
+
 
 class TestHooksModelParity:
     """foreshadow-settings-v2：hooks_model.py ↔ lib/hooksModel.ts 逐字对拍。"""

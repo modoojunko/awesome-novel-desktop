@@ -457,7 +457,8 @@ test.describe.serial("伏笔设定（真表 novel_hooks）", () => {
       const badge = page.locator(".settings-v .panel-head .badge");
       await expect(badge).toHaveText(/1 条待收束/);
 
-      // 确认完成 → 确认即前进到「禁用词句」；回伏笔 → 「已确认 · 1 条待收束」（done）
+      // 确认完成 → 伏笔已是末项，确认后停留本格（banned-words-into-style）；
+// 回伏笔 → 「已确认 · 1 条待收束」（done）
       await page
         .locator(".panel-foot")
         .getByRole("button", { name: "确认完成" })

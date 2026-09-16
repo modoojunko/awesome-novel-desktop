@@ -1,9 +1,6 @@
-# readiness Specification
+# readiness 变更（增量）
 
-## Purpose
-TBD - created by archiving change settings-readiness. Update Purpose after archive.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Unified readiness endpoint
 
@@ -32,27 +29,6 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 - Given a novel whose banned words live in the style KV (post-migration) with everything else filled
 - When readiness is fetched
 - Then complete is true and the missing list contains no anti-ai entry
-
-### Requirement: Judge on "complete setting" action (product decision)
-- The system SHALL NOT judge settings completion at novel creation time.
-- Completion SHALL be judged when the author clicks the per-item "完成设定" (ConfirmToggle) action.
-- On click, the system SHALL check that item's content against the readiness rule (non-empty / threshold).
-- If the content is sufficient, the item SHALL be marked complete.
-- If insufficient, the system SHALL return which items are missing and NOT mark complete.
-
-#### Scenario: Create does not judge
-- Given an author creates a novel with only a name
-- Then no settings-completion judgment or "incomplete" prompt is shown
-
-#### Scenario: Click complete on unfilled item
-- Given a novel where world details are all empty
-- When the author clicks "完成设定" on the world item
-- Then the item is NOT marked complete and the missing detail is reported in Chinese
-
-#### Scenario: Click complete on filled item
-- Given a novel where style.role carries the template default (non-empty)
-- When the author clicks "完成设定" on the style item
-- Then the item IS marked complete (defaults count as content)
 
 ### Requirement: Content-based checkers (single source of truth)
 
@@ -138,45 +114,3 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 #### Scenario: 清空禁用词不退回未填
 - **WHEN** 作者清空文风面板禁用词与句式规则后重新拉 readiness
 - **THEN** style 判定不变（只看 role 非空），不因词表为空报缺失
-
-### Requirement: Gate convergence
-- gate_settings_complete SHALL be refactored to call the same READINESS_CHECKERS subset for settings.
-- Settings gate warnings SHALL be Chinese and SHALL carry a jump target.
-- get_phase_status SHALL consume the readiness result for the settings phase.
-- settings-status.yaml SHALL NOT be an input to readiness (kept deprecated, not deleted).
-
-#### Scenario: Phase status matches readiness
-- Given a novel whose readiness is complete
-- When phase status is fetched
-- Then the settings phase is not reported with warnings
-
-### Requirement: Soft gate preserved
-- Readiness SHALL NOT hard-block transitions; complete=false SHALL only produce guidance.
-- The frontend SHALL offer both "先去补设定" and "仍然继续" when incomplete.
-
-#### Scenario: Proceed while incomplete
-- Given a novel with incomplete settings
-- When the author tries to start outlining
-- Then the transition is allowed and the UI shows both "先去补设定" and "仍然继续" options
-
-### Requirement: arc 内容判据（第 05 项主线）
-
-- arc SHALL 进 readiness 内容判据（与既有 7 项同表注册）：`story_arc.fullstory` 或 `ending{scene, hero, tone}` 任一非空即已填
-- legacy 形状 SHALL 在读取边界归一后再判：legacy `premise` 非空即视为已填（迁移由存储层双写承载，判据只看归一后的形状）
-- arc 全空 SHALL 报未填（中文），且空内容确认被后端 400 拒绝（沿「完成设定」判据，defaults 不适用于本项——主线无默认内容）
-
-#### Scenario: 只有全景即已填
-- **WHEN** 主线只填了 fullstory，三问全空
-- **THEN** arc 不报缺失
-
-#### Scenario: 只有基调即已填
-- **WHEN** 主线只填了 ending.tone
-- **THEN** arc 不报缺失
-
-#### Scenario: legacy premise 书归一为已填
-- **WHEN** 旧书 story_arc 只有 legacy premise 非空
-- **THEN** arc 不报缺失
-
-#### Scenario: 全空报未填
-- **WHEN** 主线没有任何内容时点击「确认完成」
-- **THEN** arc 报缺失（中文），确认被 400 拒绝

@@ -40,6 +40,10 @@
      叙事者角色/视角并入叙事身份、技法并入手法、氛围归题材蓝图（视角此前四处重复、
      情绪外化三处重复，全部归一）。作者必填只剩：身份一句＋红线几条。
      提示词文风段＝身份＋红线＋手法＋例句＋禁用词句＋量化基线，每个信息单一来源。
+  ⑥ 禁用词收编（用户 2026-09-16 拍板，banned-words-into-style）：「禁用词句」独立
+     面板退役，其内容收编为本卡硬约束区的两个折叠组——禁用词（词表，≤100 条）与
+     句式规则（正则＋阈值，≤20 条）；提示词「原则与禁忌」段与程序化体检改从本卡
+     单源取数。折叠默认收起、组头摘要位常显「N 条」（设计语言高密度表单口径）。
 
   右下角「评审切换器」为非基线演示元素（同 home.html 先例，parity 截图排除），
   用于在三个状态间切换：文风卡（默认）／蒸馏流程／预设库。
@@ -378,7 +382,7 @@
     <li><b>蒸馏＝3,000–10,000 字案例</b>：AI 三步学出「作者画像」＋六行基线；画像确认才落卡，基线只读＋行级锁定。</li>
     <li><b>基线设完不动，章节交给 AI</b>：章节的量化变化不做场景卡——写章的 AI 按本章剧情在 ±10% 容差内自行调节，调节过程在章纲确认/写作现场可见。</li>
     <li><b>免费/会员分界</b>：免费＝文字文风完整写作能力；会员＝蒸馏量化参数——同一界面，入口可见＋锁定。</li>
-    <li><b>作者只需动笔两处</b>：身份一句＋红线几条；手法题材预填删改即可，例句选填。AI 易犯错误块与叙事基调组已撤并——通用反模式归「禁用词句」面板（拦截职责唯一），视角/基调/氛围拆进身份、手法与题材，提示词每个信息单一来源。</li>
+    <li><b>作者只需动笔两处</b>：身份一句＋红线几条；手法题材预填删改即可，例句选填。AI 易犯错误块与叙事基调组已撤并——通用反模式归「禁用词句」面板（拦截职责唯一；banned-words-into-style 起该职责并入本卡硬约束区的禁用词/句式规则两组），视角/基调/氛围拆进身份、手法与题材，提示词每个信息单一来源。</li>
   </ul>
 
   <div class="win" id="winStyle">
@@ -418,7 +422,6 @@
         <div class="s-item"><span class="nm">主线</span><span class="spacer"></span><span class="badge done">已确认</span></div>
         <div class="s-item on"><span class="nm">文风</span><span class="spacer"></span><span class="badge warn">进行中</span></div>
         <div class="s-item"><span class="nm">伏笔</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
-        <div class="s-item"><span class="nm">禁用词句</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
       </div>
       <div class="tree-foot"><span style="font-size: 12px; color: var(--muted); line-height: 1.7;">可后补项确认后计入设定进度 · 确认即前进到下一项</span></div>
     </aside>
@@ -459,8 +462,34 @@
           </div>
 
           <div class="fblock" data-od-id="field-rules">
-            <div class="fb-head"><span class="fb-no">②</span><b>硬约束</b><span class="hint">这个身份<em>绝对不能做什么</em>。每条都要能检查——超没超，一眼看得出来（3–5 条）。风格特有的禁令写这里；通用的 AI 词句归「禁用词句」面板拦。</span></div>
+            <div class="fb-head"><span class="fb-no">②</span><b>硬约束</b><span class="hint">这个身份<em>绝对不能做什么</em>。每条都要能检查——最好带数量，超没超一眼看得出来（3–5 条）。风格特有的禁令写这里；通用 AI 腔词与高频句式归下方「禁用词」「句式规则」两组拦（同一处管体检）。</span></div>
             <div id="leRules" data-od-id="list-rules"></div>
+          </div>
+
+          <!-- 折叠组：禁用词（banned-words-into-style 收编，原「禁用词句」面板退役） -->
+          <div class="cfg" id="cfgBanned" data-od-id="group-banned-words">
+            <button class="cfg-head" type="button" id="cfgBannedHead">
+              <b>禁用词</b><span class="tag">≤100 条</span>
+              <span class="sum">已填 <span class="num" id="bannedCount">37</span> 条 · 出现在正文即拦；蒸馏学到的词自动并入去重</span>
+              <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg></span>
+            </button>
+            <div class="cfg-body" id="cfgBannedBody" hidden>
+              <div id="leBanned" data-od-id="list-banned-words"></div>
+              <p class="opt" style="margin-top:6px;">通用 AI 腔词写这里（模板已按七类预填一批：总结叙事／抽象情绪／学术腔……）——「本章讲述了」「与此同时」「他感到」都是；<b>带量的风格禁令</b>（如「突然 ≤4 次/章」）写在上面②硬约束，两边不重复。</p>
+            </div>
+          </div>
+
+          <!-- 折叠组：句式规则 -->
+          <div class="cfg" id="cfgTics" data-od-id="group-tic-patterns">
+            <button class="cfg-head" type="button" id="cfgTicsHead">
+              <b>句式规则</b><span class="tag">≤20 条</span>
+              <span class="sum">已填 <span class="num" id="ticCount">8</span> 条 · 正则拦「不是…而是」类高频癖好，写完的章按条体检</span>
+              <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg></span>
+            </button>
+            <div class="cfg-body" id="cfgTicsBody" hidden>
+              <div id="ticList" data-od-id="list-tic-patterns"></div>
+              <p class="opt" style="margin-top:6px;">每条＝正则＋单章允许次数＋修复说明；写章提示词与程序化体检同源取这里（提示词注入前 5 条，体检全量）。</p>
+            </div>
           </div>
 
           <div class="fblock" data-od-id="field-craft">
@@ -602,7 +631,7 @@
         </div>
         <div class="ra-row">
           <button class="ra-step" type="button" data-aiask="s3" data-od-id="ai-anchor-check">
-            <span class="ra-body"><b>锚定体检</b><i>文字文风三区锚定自检：身份/红线/手法是否自洽，并与「禁用词句」面板对齐口径 · 只提醒不拦确认</i></span>
+            <span class="ra-body"><b>锚定体检</b><i>文字文风三区锚定自检：身份/红线/手法是否自洽，并与禁用词/句式规则同源对齐 · 只提醒不拦确认</i></span>
             <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
           </button>
         </div>
@@ -612,7 +641,7 @@
             <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
           </button>
         </div>
-        <p class="ra-foot">蒸馏学到的禁用词会自动并入左侧「禁用词句」面板并去重；机器写的章<b>永不回写文风卡</b>——重蒸馏只由你触发，每次蒸馏都有版本快照；要保住的基线行<b>锁定</b>即可，重蒸馏跳过。<b>所有 AI 辅助功能都在本栏</b>；免费版用文字文风写作，蒸馏卡可见＋锁定（会员功能）。</p>
+        <p class="ra-foot">蒸馏学到的禁用词会自动并入②硬约束下方的「禁用词」组并去重；机器写的章<b>永不回写文风卡</b>——重蒸馏只由你触发，每次蒸馏都有版本快照；要保住的基线行<b>锁定</b>即可，重蒸馏跳过。<b>所有 AI 辅助功能都在本栏</b>；免费版用文字文风写作，蒸馏卡可见＋锁定（会员功能）。</p>
       </div>
 
       <p class="opt" style="margin-top:12px;">未配置模型？去左侧「AI 模型」。</p>
@@ -841,12 +870,82 @@
   }
   renderShots();
 
+  /* ═══ 禁用词＋句式规则（banned-words-into-style 收编组，折叠默认收起） ═══ */
+  let banned = ['本章讲述了', '接下来', '与此同时', '他感到', '他意识到', '综上所述', '显而易见', '深吸一口气', '眼中闪过一丝', '阳光透过树叶', '微风拂过', '夜幕降临', '由此可见', '不仅如此', '似乎', '仿佛', '宛如'];
+  function renderBanned() {
+    const box = $('#leBanned');
+    box.innerHTML = '';
+    banned.forEach((v, i) => {
+      const row = document.createElement('div');
+      row.className = 'le-row';
+      const no = document.createElement('span');
+      no.className = 'le-no num'; no.textContent = String(i + 1);
+      const input = document.createElement('input');
+      input.className = 'input'; input.value = v;
+      input.placeholder = '添加禁用词，如： suddenly、本章讲述了、他感到';
+      input.addEventListener('input', () => { banned[i] = input.value; });
+      const tools = document.createElement('span');
+      tools.className = 'le-tools';
+      const del = document.createElement('button');
+      del.type = 'button'; del.className = 'icon-btn'; del.title = '删掉这个词';
+      del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="12" height="12"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>';
+      del.addEventListener('click', () => { banned.splice(i, 1); renderBanned(); });
+      tools.appendChild(del);
+      row.appendChild(no); row.appendChild(input); row.appendChild(tools);
+      box.appendChild(row);
+    });
+    if (banned.length < 100) {
+      const add = document.createElement('button');
+      add.type = 'button'; add.className = 'text-btn le-add';
+      add.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M12 5v14M5 12h14"/></svg>加一个词';
+      add.addEventListener('click', () => { banned.push(''); renderBanned(); });
+      box.appendChild(add);
+    }
+    $('#bannedCount').textContent = String(banned.filter(x => x.trim()).length);
+  }
+
+  let tics = [
+    { pattern: '不是[^，。]{1,20}(而是|是)', name: '不是而是句式', threshold: 3, severity: 'high', description: '直接写Y，不先否定X再转折' },
+    { pattern: '(不由得|不禁|忍不住|下意识地)', name: '公式化副词', threshold: 4, severity: 'high', description: '删掉副词，用具体身体反应重写' }
+  ];
+  function renderTics() {
+    const box = $('#ticList');
+    box.innerHTML = '';
+    tics.forEach((t, i) => {
+      const blk = document.createElement('div');
+      blk.className = 'sub-block';
+      blk.innerHTML =
+        '<div class="sub-row tics">' +
+        '<input class="input" value="' + t.name + '" placeholder="句式名" />' +
+        '<select class="input"><option' + (t.severity === 'high' ? ' selected' : '') + '>高</option><option' + (t.severity === 'medium' ? ' selected' : '') + '>中</option><option' + (t.severity === 'low' ? ' selected' : '') + '>低</option></select>' +
+        '<input class="input num" type="number" min="1" value="' + t.threshold + '" title="单章出现次数阈值" />' +
+        '<button class="icon-btn" type="button" title="删除本条"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="12" height="12"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>' +
+        '</div>' +
+        '<input class="input mono" value="' + t.pattern + '" placeholder="正则 pattern" />' +
+        '<input class="input" value="' + t.description + '" placeholder="修复说明（可选）：命中后如何改写" />';
+      blk.querySelector('.icon-btn').addEventListener('click', () => { tics.splice(i, 1); renderTics(); });
+      box.appendChild(blk);
+    });
+    if (tics.length < 20) {
+      const add = document.createElement('button');
+      add.type = 'button'; add.className = 'text-btn le-add';
+      add.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M12 5v14M5 12h14"/></svg>添加句式规则';
+      add.addEventListener('click', () => { tics.push({ pattern: '', name: '', threshold: 3, severity: 'medium', description: '' }); renderTics(); });
+      box.appendChild(add);
+    }
+    $('#ticCount').textContent = String(tics.filter(t => t.pattern.trim()).length);
+  }
+  bindCfg('#cfgBannedHead', '#cfgBannedBody', '#cfgBanned');
+  bindCfg('#cfgTicsHead', '#cfgTicsBody', '#cfgTics');
+  renderBanned();
+  renderTics();
+
   /* ═══ 全局基线（六行主参数，合并自九维；蒸馏产出只读＋行级锁定） ═══ */
   const BASE = [
     { name: '镜头与人称', grp: 'narrative', dims: 'narrative', vals: '第三人称限知 · 紧贴林拾', note: '独白直入叙事流，不写「他心想」；全知片段每卷不超过一次' },
     { name: '篇幅配比（五层）', grp: 'rhythm', dims: 'rhythm', bar: [48, 24, 15, 7, 6], legend: ['对话', '动作', '叙述', '环境', '内心独白'], note: '写章按「约 X（±10%）」执行——这段容差就是章级即兴的空间' },
     { name: '句子与段落', grp: 'syntax', dims: 'syntax · cohesion', vals: '平均句长 14.6 字（短 41 · 中 38 · 长 16 · 超长 5）', note: '单句段 31% · 段桥：动作与场景切换，少用「与此同时」' },
-    { name: '修饰密度', grp: 'lexicon', dims: 'lexicon · rhetoric', vals: '修饰词 8.1/百字（形容 4.2 · 副词 1.8 · 四字短语 2.1）· 比喻 0.8', note: '偏好词：残卷 / 账 / 记性 ｜ 禁用：突然 ≤4 次/章（并入「禁用词句」面板去重）' },
+    { name: '修饰密度', grp: 'lexicon', dims: 'lexicon · rhetoric', vals: '修饰词 8.1/百字（形容 4.2 · 副词 1.8 · 四字短语 2.1）· 比喻 0.8', note: '偏好词：残卷 / 账 / 记性 ｜ 禁用：突然 ≤4 次/章（并入「禁用词」组去重）' },
     { name: '情绪外化', grp: 'emotion', dims: 'emotion_expression', vals: '主通道：动作生理 58%（直接陈述压到 12%）', note: '配套写法：紧张＝抠指甲，愤怒＝轻声细语——不写「他很紧张」' },
     { name: '对话与动词质感', grp: 'dialogue_verb', dims: 'dialogue · verb', vals: '对话 18 字/轮 · 标签动作主导 · 动词力度 strong', note: '少用「他说她说」；「按、攥、掀」类高频' }
   ];
@@ -944,11 +1043,11 @@
   $('#sinkCheck').hidden = true;
   function renderCheck() {
     const box = $('#sinkCheckFoot');
-    box.innerHTML = '<div class="aiz-head">AI 体检 · 四字段锚定 × 禁用词句</div>' +
+    box.innerHTML = '<div class="aiz-head">AI 体检 · 三区锚定 × 禁用词（同源）</div>' +
       '<div class="chk-line"><span class="chk-name">身份 × 约束</span><span class="chk-res ok">达标</span><span class="chk-note">「不替角色感受」＋「不插旁白解释情感」——两条都在守同一条边界</span></div>' +
       '<div class="chk-line"><span class="chk-name">身份 × 手法</span><span class="chk-res ok">达标</span><span class="chk-note">情绪外化手法与「冷静不冷漠」的身份一致</span></div>' +
       '<div class="chk-line"><span class="chk-name">约束 × 手法</span><span class="chk-res warn">风险</span><span class="chk-note">「对话为主」＋「对话不超三回合」同时生效时，修真称谓传情的手法容易没空间——建议给称谓传情留一处例外</span></div>' +
-      '<div class="chk-line"><span class="chk-name">红线 × 禁用词句</span><span class="chk-res ok">同源</span><span class="chk-note">「突然 ≤4 次/章」与禁用词句面板同一阈值——通用词句只在禁用词句一处拦</span></div>' +
+      '<div class="chk-line"><span class="chk-name">红线 × 禁用词</span><span class="chk-res ok">同源</span><span class="chk-note">「突然 ≤4 次/章」与禁用词组同一数据源——通用词句只在禁用词一处拦</span></div>' +
       '<p style="margin:8px 0 0;font-size:11.5px;color:var(--muted);">只提醒不拦确认；点对应字段可去改。</p>' +
       '<div class="ans-act"><button class="primary" type="button">重跑</button></div>';
     box.hidden = false;
