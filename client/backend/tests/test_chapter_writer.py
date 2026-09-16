@@ -102,13 +102,12 @@ class TestChapterContext:
         prompt = ctx.to_prompt()
         assert "张三" in prompt
 
-    def test_flatten_fatigue_words(self):
+    def test_banned_words_injected_from_style(self):
+        """banned-words-into-style：禁用词单源自 style_setting.banned_words。"""
         ctx = ChapterContext()
-        result = ctx._flatten_fatigue_words(
-            {"副词": ["突然", "忽然"], "语气词": ["嗯", "啊"]}
-        )
-        assert len(result) == 4
-        assert "突然" in result
+        ctx.style_setting = {"role": "一位小说家", "banned_words": ["突然", "忽然"]}
+        prompt = ctx.to_prompt()
+        assert "禁止使用以下词汇：突然, 忽然" in prompt
 
     def test_with_previous_chapter_recap(self):
         ctx = ChapterContext()

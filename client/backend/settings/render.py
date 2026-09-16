@@ -1,4 +1,5 @@
-"""settings/render.py — writing-style / anti-ai → prompt 字符串渲染（ADR-006）。
+"""settings/render.py — writing-style → prompt 字符串渲染（ADR-006；banned-words-into-style
+起禁用词随文风 KV 单源，本模块不再处理 anti-ai）。
 
 设定数据存在 dict/list 双态：模板盘文件 core_principles 为按类别分组的 dict、
 前端/AI 保存为 list；depiction_techniques 模板为 {name/description/example}
@@ -96,7 +97,7 @@ def _fmt_list(v) -> str:
 
 # ── 三区文风（style-settings-v2）──────────────────────────────────
 # 身份→红线→手法单一来源；possible_mistakes 行与「叙事基调」块退役
-# （通用反模式归禁用词句面板，基调经 normalize_style 拆并）。
+# （通用反模式归文风硬约束区的禁用词/句式规则——banned-words-into-style，基调经 normalize_style 拆并）。
 # quant 段 confidence>0 才注入；容差分档 ≥70→±10% / ≥50→±20% / 其余→±30%。
 
 

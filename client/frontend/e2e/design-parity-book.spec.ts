@@ -159,7 +159,7 @@ const SEED = (() => {
 
   // GET /readiness：题材/简介/风格 done → 设定 3/7（＝原型 ITEMS 默认）
   const readiness = {
-    missing: ["world", "anti-ai", "hooks", "characters"].map((key) => ({ key })),
+    missing: ["world", "hooks", "characters"].map((key) => ({ key })),
   };
 
   // GET /volumes/vol-1（卷纲面板：buildBook v1.og 全字段；chapters 供「去配章纲」）
@@ -668,7 +668,7 @@ function stubCharactersAPI(page: Page) {
   page.route(`**/api/novels/${PID}/readiness`, (r) =>
     r.fulfill({
       json: {
-        missing: [{ key: "story-arc" }, { key: "style" }, { key: "anti-ai" }, { key: "hooks" }],
+        missing: [{ key: "story-arc" }, { key: "style" }, { key: "hooks" }],
       },
     }),
   );
@@ -770,12 +770,12 @@ const FORE_VOLUMES = [
 ];
 
 /** settings-foreshadow 专用桩：hooks 列表 + 卷章树（含章 id）+ readiness/status + ai_state。
- *  readiness/status 口径＝原型树（设定 7/8：六项已确认 + 伏笔已填，禁用词句未填）。 */
+ *  readiness/status 口径＝原型树（banned-words-into-style：7 项内容键，伏笔为末项）。 */
 function stubForeshadowAPI(page: Page) {
   page.route(`**/api/novels/${PID}/readiness`, (r) =>
     r.fulfill({
       json: {
-        missing: [{ key: "anti-ai" }],
+        missing: [{ key: "hooks" }],
       },
     }),
   );

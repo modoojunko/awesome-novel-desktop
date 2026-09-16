@@ -17,7 +17,7 @@ const toastState = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => ({ api: apiState }));
 vi.mock("@/lib/toast", () => ({ toast: toastState }));
 
-const READINESS_KEYS = ["synopsis", "genre", "world", "style", "anti-ai", "hooks", "characters"];
+const READINESS_KEYS = ["synopsis", "genre", "world", "story-arc", "style", "hooks", "characters"];
 
 const EMPTY_READINESS = {
   complete: false,

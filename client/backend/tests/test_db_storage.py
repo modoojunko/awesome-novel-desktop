@@ -87,10 +87,10 @@ def test_status_valid_types_derivation():
         "genre",
         "world",
         "style",
-        "anti-ai",
         "hooks",
         "characters",
     }
+    # banned-words-into-style：anti-ai 检查项退役，不再可确认
 
 
 # ── DatabaseFileBackend KV ─────────────────────────────────────────────────
@@ -155,11 +155,13 @@ def test_init_skeleton_seeds_db_not_disk():
     comp = CompositeStorageBackend()
     root = _tmp_root(prefix="test_skeleton_")
     _run_async(comp.init_skeleton(root))
-    # DB 有模板种子行（ADR-003）；hooks 已真表化不再种子（foreshadow-settings-v2 2.5）
+    # DB 有模板种子行（ADR-003）；hooks 已真表化不再种子（foreshadow-settings-v2 2.5）；
+    # anti-ai 不再种子（banned-words-into-style：禁用词并入文风模板，空行会误触迁移）
     db = DatabaseFileBackend()
-    for key in ["story", "world", "style", "anti-ai"]:
+    for key in ["story", "world", "style"]:
         assert _run_async(db.has_key(root, key)) is True
     assert _run_async(db.has_key(root, "hooks")) is False
+    assert _run_async(db.has_key(root, "anti-ai")) is False
     # 磁盘无 settings yaml（ADR-003：只进 DB 不进盘）
     assert not os.path.exists(os.path.join(root, "settings", "writing-style.yaml"))
     # PR⑤ 大扫除后盘上只剩项目根目录：无骨架文件/子目录

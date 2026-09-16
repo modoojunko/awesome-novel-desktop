@@ -15,17 +15,13 @@ def _format_style(style: dict) -> str:
     return sec or (f"叙事角色：{style.get('role', '')}" if style.get("role") else "")
 
 
-def _format_anti_ai(rules: dict) -> str:
-    """Format anti-ai rules into a readable string."""
+def _format_anti_ai(style: dict) -> str:
+    """禁用词/句式提示（banned-words-into-style：单源自文风 KV 硬约束区）。"""
     parts = []
-    fatigue = rules.get("fatigue_words_zh", {})
-    words = []
-    for category in fatigue.values():
-        if isinstance(category, list):
-            words.extend(category)
+    words = [str(w) for w in (style.get("banned_words") or [])]
     if words:
         parts.append(f"禁止词汇：{'、'.join(words[:15])}")
-    tic_patterns = rules.get("structural_tic_patterns", [])
+    tic_patterns = style.get("tic_patterns") or []
     if tic_patterns:
         patterns = [r.get("pattern", "") for r in tic_patterns if isinstance(r, dict)]
         if patterns:
@@ -48,23 +44,21 @@ async def build_auxiliary_context(
     ctx: dict[str, str] = {}
 
     # Writing style — resolve once and store metadata for caller
-    style = (
-        style_settings
-        if style_settings is not None
-        else (
-            await get_storage().read_yaml(root_path, "settings/writing-style.yaml")
-            or {}
-        )
-    )
+    # banned-words-into-style：统一迁移感知读路径（禁用词/句式随 style 单源）
+    if style_settings is not None:
+        style = style_settings
+    else:
+        from settings.style_model import read_style_migrated
+
+        style = await read_style_migrated(root_path)
     ctx["writing_style"] = _format_style(style)
     ctx["_role"] = style.get("role", "一位小说家")
     # D12：模型＝书级（novel.ai_model），writing_model 不再作为模型来源；
     # 这里只传符号别名，客户端层 resolve() 落到本书模型。
     ctx["_writing_model"] = "haiku"
 
-    # Anti-ai rules
-    anti_ai = await get_storage().read_yaml(root_path, "settings/anti-ai.yaml") or {}
-    ctx["anti_ai_rules"] = _format_anti_ai(anti_ai)
+    # Anti-ai rules（＝文风 KV 禁用词/句式，单源）
+    ctx["anti_ai_rules"] = _format_anti_ai(style)
 
     # Chapter — recent context from end of existing prose
     chapter = await load_chapter(root_path, chapter_ref)

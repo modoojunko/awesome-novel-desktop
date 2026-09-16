@@ -548,7 +548,40 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
 
     **门禁范围**：design-vocab.mjs strictGlobs 增补本文件（严格原型 6→7）。
 
-22. **书内行头归一（appbar-single-row，2026-09-16）**
+---
+
+22. **禁用词收编文风（banned-words-into-style，2026-09-16）**
+    「禁用词句」独立面板退役，内容收编为文风卡硬约束区两个折叠组。三文件同批：
+
+    **book.html**（settings 屏 parity 基线）：
+    1. 设定左栏 `ITEMS` 去掉 `antiAI`（AI痕迹控制）项——内容菜单 8→7，
+       末项变为伏笔；`DESCS` 同步摘除；「AI痕迹控制」措辞全清。
+    2. 摘除 antiAI 面板渲染器与演示死数据（`FATIGUE_CATS`/`SET_ANTI`/`ticCards`）。
+    3. 面板种子注释同步（空面板清单去 AI痕迹）。
+
+    **style-settings.html**（文风卡基线）：
+    4. 左栏示意 nav 去禁用词句项（与 book.html 同口径）。
+    5. 硬约束区（②）后新增两个折叠组（Cfg，默认收起、组头 sum 常显「N 条」，
+       设计语言高密度表单口径）：**禁用词**（词表 ≤100，模板按七类预填 37 条，
+       `data-od-id="group-banned-words/list-banned-words"`）与**句式规则**
+       （正则＋阈值＋严重度 ≤20 条，sub-block tics 形态，
+       `data-od-id="group-tic-patterns/list-tic-patterns"`）；组头计数 `#bannedCount/
+       #ticCount` 随增删同步。
+    6. 文案改口：②硬约束 hint「通用的 AI 词句归『禁用词句』面板拦」→「归下方
+       『禁用词』『句式规则』两组拦（同一处管体检）」；锚定体检 desc、蒸馏 ra-foot、
+       lexicon note、AI 体检头/行 同步去面板指涉改组指涉。
+    7. 设计注记补 ⑥（收编口径）；⑤ 历史注记不改写。
+
+    **foreshadow-settings.html**：
+    8. 左栏示意 nav 去禁用词句项；hookOkNote「确认即前进到『禁用词句』」→
+       「确认后停留本格（已是最后一项）」；确认 toast 同步（伏笔成为末项）。
+
+    **parity 影响**：settings CASE 只截左栏＋默认简介面板——左栏少一行即像素变化，
+    基线需重录；文风卡新版面（两折叠组）不在现有 CASE 截图内，暂无新增 CASE
+    （该卡交互多、折叠态多，等实现侧稳定后随 parity 重录一并评估）。
+---
+
+23. **书内行头归一（appbar-single-row，2026-09-16）**
     `book.html` 原双行头（appbar 48「logo＋返回我的小说＋账户」＋ novelbar 44
     「书名＋题材＋免费提示/PRO 徽＋升级钮」）并成**一行 48px**：logo（即返回入口，
     title「返回我的小说」，跳 list.html）｜书名｜题材胶囊｜**当前主线定位 bar-here**

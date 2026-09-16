@@ -359,7 +359,6 @@
         <div class="s-item"><span class="nm">主线</span><span class="spacer"></span><span class="badge done">已确认</span></div>
         <div class="s-item"><span class="nm">文风</span><span class="spacer"></span><span class="badge done">已确认</span></div>
         <div class="s-item on"><span class="nm">伏笔</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge warn">已填</span></div>
-        <div class="s-item"><span class="nm">禁用词句</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
       </div>
       <div class="tree-foot"><span style="font-size: 12px; color: var(--muted); line-height: 1.7;">1 项未填 · 均可后补</span></div>
     </aside>
@@ -483,7 +482,7 @@
 
       <div class="panel-foot">
         <span class="warnline" id="hookHint" hidden>确认「伏笔」至少要埋一条——写一句描述就行；也可以先跳过，写作期回来补</span>
-        <span class="note" id="hookOkNote">改动自动保存 · 确认即前进到「禁用词句」</span>
+        <span class="note" id="hookOkNote">改动自动保存 · 确认后停留本格（已是最后一项）</span>
         <span class="save-state" id="saveState" data-od-id="save-state">已自动保存</span>
         <button class="btn btn-primary" type="button" id="btnConfirm">确认完成</button>
       </div>
@@ -959,7 +958,7 @@
     confirmed = true;
     confirmSnap = JSON.stringify(HOOKS);
     syncBadge(); renderList($('#treeSearch').value.trim());
-    toast('已确认「伏笔」· 设定树里下一项：禁用词句');
+    toast('已确认「伏笔」· 已是最后一项设定');
   });
 
   /* 空态旁路：让 AI 起草（「编辑区零 AI 按钮」唯一登记例外；随门控矩阵走） */

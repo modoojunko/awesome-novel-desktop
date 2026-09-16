@@ -31,7 +31,6 @@ import auth_local.service as _service  # noqa: E402
 from auth_local.deps import require_novel_model, require_project_limit  # noqa: E402
 from auth_local.middleware import get_current_user  # noqa: E402
 from db import Base, async_session, engine, get_db  # noqa: E402
-from filesystem.storage import get_storage  # noqa: E402
 from main import app  # noqa: E402
 from models.user import User  # noqa: E402
 from write.chapter_writer import WRITING_IRON_RULES  # noqa: E402
@@ -219,7 +218,6 @@ def _create_project_and_chapter(client, word_target=None) -> tuple[str, str, str
         async with async_session() as session:
             proj = await session.get(Novel, pid)
             root = proj.root_path
-        await get_storage().write_yaml(root, "settings/anti-ai.yaml", {})
         data = {"title": "第1章", "prose": ""}
         if word_target:
             data["word_target"] = word_target

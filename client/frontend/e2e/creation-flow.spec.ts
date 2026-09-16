@@ -416,13 +416,7 @@ test("设定 8 项全确认（settings-status 全绿＋完成卡）", async ({ p
     await openSetting(page, "文风");
     await confirmPanel(page);
 
-    // ── anti-ai：API 注入 + 面板确认（同上）
-    await apiPutJSON(request, token, `/novels/${pid}/settings/anti-ai`, {
-      blocklists: ["过度修辞", "翻译腔"],
-    });
-    await openSetting(page, "禁用词句");
-    await confirmPanel(page);
-
+    // banned-words-into-style：禁用词句面板退役（禁用词随文风卡保存，无独立确认步）
     // ── characters：真表 API 建主角卡（v2）→ 面板确认（两档门禁·首次档查名称+人设）
     const charPost = await request.post(`${ORIGIN}/api/novels/${pid}/characters`, {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -434,11 +428,13 @@ test("设定 8 项全确认（settings-status 全绿＋完成卡）", async ({ p
     await page.waitForTimeout(900); // 防抖 PATCH 落库
     await confirmPanel(page);
 
-    // 7 项确认 → /settings/status 全 true；再补第 8 项 主线（settings-done-entry）
+    // 确认过的 6 键全 true（readiness 7 项键；story-arc 此时未确认不作断言，
+    // 下方主线确认后单独断言；banned-words-into-style 起 anti-ai 退役不复存在）
     const status = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
-    for (const k of ["synopsis", "genre", "world", "style", "anti-ai", "hooks", "characters"]) {
+    for (const k of ["synopsis", "genre", "world", "style", "hooks", "characters"]) {
       expect(status[k]).toBe(true);
     }
+    expect(status["anti-ai"]).toBeUndefined();
 
     await openSetting(page, "主线");
     // 等面板把注入的主线载入表单（防加载未完成就确认——旧wipe竞态）
@@ -446,11 +442,11 @@ test("设定 8 项全确认（settings-status 全绿＋完成卡）", async ({ p
       timeout: 5000,
     });
     await confirmPanel(page);
-    // 第 8 项（主线）确认后 story-arc 也为 true
+    // 末项（主线）确认后 story-arc 也为 true
     const status2 = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
     expect(status2["story-arc"]).toBe(true);
 
-    // ── 设定完成卡（settings-done-entry）：8/8 后进度行升级为完成卡
+    // ── 设定完成卡（settings-done-entry）：N/N 满格后进度行升级为完成卡
     await expect(page.locator('[data-od-id="settings-done-card"]')).toBeVisible();
     await expect(page.locator('[data-od-id="settings-done-card"]')).toContainText("设定完成");
     await expect(page.locator('[data-od-id="settings-done-card"]')).toContainText("全部就绪");

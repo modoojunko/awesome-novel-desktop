@@ -26,7 +26,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["人物成长", "情感圆满", "生活感悟"],
             "chapterTypes": ["日常", "冲突", "转折", "感悟"],
             "pacingRules": ["每天推进不超过 3 个场景", "每章至少 1 次情感刻画"],
-            "fatigueWords": ["突然", "意识到", "某种"],
         },
         "storyArcTemplates": [
             {"id": "growth", "name": "成长弧", "description": "主角从迷茫到找到自我的过程", "beats": ["日常困境", "转折事件", "挣扎", "领悟"]},
@@ -53,7 +52,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["能力成长", "势力平衡", "隐藏身份保护"],
             "chapterTypes": ["日常伪装", "异能冲突", "势力交锋", "秘密揭露"],
             "pacingRules": ["打斗场景不超过 2 章连续", "每 3 章安排 1 章日常缓冲"],
-            "fatigueWords": ["瞳孔一缩", "倒吸一口凉气", "可怕的", "惊人的"],
         },
         "storyArcTemplates": [
             {"id": "awakening", "name": "觉醒弧", "description": "主角从平凡到觉醒，逐渐了解异能世界", "beats": ["平凡日常", "觉醒事件", "探索期", "危机爆发"]},
@@ -79,7 +77,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["修为突破", "宗门重建", "守护都市"],
             "chapterTypes": ["修炼", "都市日常", "斗法", "传承揭秘"],
             "pacingRules": ["修炼章节不超过 3 章连续", "每章至少 1 个都市场景元素"],
-            "fatigueWords": ["突破了", "瓶颈", "灵气", "丹田"],
         },
         "storyArcTemplates": [
             {"id": "reclusive-master", "name": "隐居高手", "description": "隐于都市的高手被迫出手", "beats": ["隐于市", "事件触发", "展现实力", "卷入更深"]},
@@ -105,7 +102,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["商业目标达成", "智谋胜利", "行业影响"],
             "chapterTypes": ["布局", "交锋", "转折", "收网"],
             "pacingRules": ["每场商战不超过 5 章", "每章含至少有 1 次对话博弈"],
-            "fatigueWords": ["嘴角上扬", "眼中闪过", "阴谋", "布局"],
         },
         "storyArcTemplates": [
             {"id": "turnaround", "name": "逆袭弧", "description": "弱势方通过智谋翻盘", "beats": ["劣势开局", "积蓄力量", "关键一搏", "逆转胜"]},
@@ -133,7 +129,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["格局改变", "势力统一", "文明进步"],
             "chapterTypes": ["朝堂", "战场", "市井", "谋略"],
             "pacingRules": ["权谋章节与动作章节交替", "每卷至少 1 次重大历史事件"],
-            "fatigueWords": ["虎躯一震", "王霸之气", "运筹帷幄", "天下"],
         },
         "storyArcTemplates": [
             {"id": "unification", "name": "统一之途", "description": "乱世中走向统一的过程", "beats": ["乱世起", "势力割据", "合纵连横", "定鼎"]},
@@ -159,7 +154,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["改变命运", "技术革新", "势力建立"],
             "chapterTypes": ["穿越适应", "技术推广", "冲突解决", "势力扩张"],
             "pacingRules": ["知识应用要有铺垫", "每 5 章安排 1 章反思"],
-            "fatigueWords": ["震惊", "不可能", "这是...", "现代知识"],
         },
         "storyArcTemplates": [
             {"id": "industrial", "name": "工业革命", "description": "在古代掀起技术革命", "beats": ["穿越初醒", "发现优势", "小试牛刀", "改变时代"]},
@@ -185,7 +179,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["权力获得", "恩怨了结", "天下安定"],
             "chapterTypes": ["布局", "角力", "收网", "余波"],
             "pacingRules": ["每步权谋至少 3 章铺垫", "每章至少 1 次有深意的对话"],
-            "fatigueWords": ["微微一笑", "城府", "棋子", "算计"],
         },
         "storyArcTemplates": [
             {"id": "scheme", "name": "连环计", "description": "精心设计的连环计谋", "beats": ["设局", "请君入瓮", "变数", "收网"]},
@@ -211,7 +204,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["战役胜利", "格局改变", "军人使命完成"],
             "chapterTypes": ["战前", "交锋", "僵持", "转折"],
             "pacingRules": ["大战间隔至少 3 章铺垫", "每章保持至少 1 条人物线"],
-            "fatigueWords": ["杀红了眼", "血流成河", "尸横遍野", "势如破竹"],
         },
         "storyArcTemplates": [
             {"id": "decisive-battle", "name": "决战弧", "description": "一场决定命运的战役", "beats": ["战前部署", "接战", "胶着", "底牌", "胜负"]},
@@ -239,7 +231,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["境界突破", "宝物获取", "守护重要的人"],
             "chapterTypes": ["修炼", "冒险", "战斗", "揭秘"],
             "pacingRules": ["突破间隔至少 5 章", "每卷 1 次阶段性 BOSS 战"],
-            "fatigueWords": ["骇然", "恐怖如斯", "逆天", "妖孽"],
         },
         "storyArcTemplates": [
             {"id": "journey", "name": "冒险之旅", "description": "从新手村到世界之巅的旅程", "beats": ["出发", "第一个挑战", "伙伴集结", "黑暗逼近", "终局之战"]},
@@ -265,7 +256,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["修为突破", "因果了结", "护道卫道"],
             "chapterTypes": ["悟道", "历练", "斗法", "了因果"],
             "pacingRules": ["突破需机缘铺垫", "每阶段安排心魔考验"],
-            "fatigueWords": ["大道", "天道", "逆天", "命数"],
         },
         "storyArcTemplates": [
             {"id": "mortal-to-immortal", "name": "凡人修仙", "description": "从凡人一步步飞升的漫漫长路", "beats": ["入门", "筑基", "游历", "仙魔之争", "飞升"]},
@@ -291,7 +281,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["血脉觉醒", "实力碾压", "家族荣耀"],
             "chapterTypes": ["修炼", "战斗", "夺宝", "势力冲突"],
             "pacingRules": ["每 10 章 1 次高潮", "修炼与战斗交替"],
-            "fatigueWords": ["废物", "颤抖", "恐怖", "妖孽"],
         },
         "storyArcTemplates": [
             {"id": "revenge", "name": "王者归来", "description": "被贬低的天才重新证明自己", "beats": ["落魄", "机缘", "回归", "打脸", "问鼎"]},
@@ -317,7 +306,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["势力建立", "文明融合", "世界探索"],
             "chapterTypes": ["探索", "生存", "建设", "征战"],
             "pacingRules": ["新设定逐步展开", "力量成长有阶段感"],
-            "fatigueWords": ["震惊", "异世界", "穿越", "金手指"],
         },
         "storyArcTemplates": [
             {"id": "survival", "name": "异界求生", "description": "在陌生世界活下去并强大起来", "beats": ["初临", "适应", "立足", "崛起"]},
@@ -345,7 +333,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["真相揭露", "正义伸张", "谜题解答"],
             "chapterTypes": ["案发", "调查", "推理", "反转", "真相"],
             "pacingRules": ["每案至少 3 次反转", "线索均匀分布在章节中"],
-            "fatigueWords": ["原来如此", "真相只有一个", "凶手是", "不可思议"],
         },
         "storyArcTemplates": [
             {"id": "whodunit", "name": "谁是凶手", "description": "封闭空间的连环命案调查", "beats": ["命案发生", "现场勘查", "嫌疑人", "抽丝剥茧", "真相反转"]},
@@ -371,7 +358,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["活下来", "揭开恐怖源头", "打破循环"],
             "chapterTypes": ["异常", "探索", "危机", "直面"],
             "pacingRules": ["紧张与松弛交替", "每章至少 1 次恐怖感升级"],
-            "fatigueWords": ["背后一凉", "毛骨悚然", "冷汗", "阴森"],
         },
         "storyArcTemplates": [
             {"id": "descent", "name": "逐步沦陷", "description": "从正常世界逐渐滑入恐怖深渊", "beats": ["日常异常", "否认", "深入调查", "无法回头", "终局"]},
@@ -397,7 +383,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["怨念化解", "因果了结", "阴阳平衡"],
             "chapterTypes": ["异象", "探查", "因果", "收服/超度"],
             "pacingRules": ["每个灵异事件有完整因果", "每 2-3 章一个灵异单元"],
-            "fatigueWords": ["阴气", "冤魂", "索命", "道行"],
         },
         "storyArcTemplates": [
             {"id": "karma", "name": "因果弧", "description": "一段跨越前世今生的因果故事", "beats": ["现世孽", "探查", "前世揭示", "忏悔/救赎", "果报"]},
@@ -423,7 +408,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["案件破获", "正义伸张", "社会警示"],
             "chapterTypes": ["案发", "侦查", "追捕", "审讯", "审判"],
             "pacingRules": ["每案 2-4 章", "物证人证交替出现"],
-            "fatigueWords": ["线索", "推理", "嫌疑", "动机"],
         },
         "storyArcTemplates": [
             {"id": "manhunt", "name": "追凶弧", "description": "连环案件的侦破过程", "beats": ["首案", "分析画像", "连环升级", "对峙", "抓捕"]},
@@ -451,7 +435,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["科技突破", "文明延续", "人类觉醒"],
             "chapterTypes": ["发现", "探索", "冲突", "抉择"],
             "pacingRules": ["科技设定分批揭示", "伦理讨论与动作场面交替"],
-            "fatigueWords": ["未来", "科技", "系统", "数据"],
         },
         "storyArcTemplates": [
             {"id": "first-contact", "name": "第一次接触", "description": "人类与外星文明的首次接触", "beats": ["信号/发现", "确认", "接触", "文化冲击", "共存或战争"]},
@@ -477,7 +460,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["活下去", "找到希望", "建立新家园"],
             "chapterTypes": ["生存", "探索", "冲突", "希望"],
             "pacingRules": ["资源紧张感贯穿", "每 3 章安排 1 次重大抉择"],
-            "fatigueWords": ["末世", "丧尸", "变异", "幸存者"],
         },
         "storyArcTemplates": [
             {"id": "journey", "name": "寻路之旅", "description": "穿越废土寻找安全之地的旅程", "beats": ["出发", "沿途危机", "新同伴", "目的地沦陷", "继续前行"]},
@@ -503,7 +485,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["推翻系统", "守护身份", "技术平权"],
             "chapterTypes": ["日常", "入侵", "追击", "反抗"],
             "pacingRules": ["动作场面与黑客场景交替", "每章有新的社会阴暗面揭示"],
-            "fatigueWords": ["霓虹", "义体", "黑客", "企业"],
         },
         "storyArcTemplates": [
             {"id": "rebellion", "name": "反抗之路", "description": "从系统边缘人到反抗领袖", "beats": ["底层生活", "触发事件", "组织", "起义", "代价"]},
@@ -529,7 +510,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["时间线修复", "重要人物拯救", "因果闭环"],
             "chapterTypes": ["穿越", "适应", "干预", "后果"],
             "pacingRules": ["时间跳跃间隔至少 2 章", "每段停留展现充分影响"],
-            "fatigueWords": ["时间线", "蝴蝶效应", "未来", "改变历史"],
         },
         "storyArcTemplates": [
             {"id": "loop", "name": "时间循环", "description": "被困在同一天/段时间内不断循环", "beats": ["首次循环", "探索", "规则发现", "突破关键", "打破循环"]},
@@ -557,7 +537,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["冠军荣誉", "团队认可", "自我超越"],
             "chapterTypes": ["训练", "比赛", "团队", "突破"],
             "pacingRules": ["大赛前至少 3 章热身", "比赛细节有真实游戏感"],
-            "fatigueWords": ["操作", "手速", "意识", "决赛"],
         },
         "storyArcTemplates": [
             {"id": "underdog", "name": "黑马逆袭", "description": "无名小站队一步步走向冠军", "beats": ["危机/重组", "招人", "磨合", "晋级之路", "总决赛"]},
@@ -583,7 +562,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["角色成长", "羁绊深化", "事件解决"],
             "chapterTypes": ["日常", "事件", "冲突", "解决"],
             "pacingRules": ["日常与正经剧情三七开", "每章有角色互动亮点"],
-            "fatigueWords": ["仆街", "穿越", "系统", "属性"],
         },
         "storyArcTemplates": [
             {"id": "adventure", "name": "冒险篇章", "description": "单元式的冒险故事", "beats": ["新事件", "探索", "强敌", "伙伴之力", "胜利"]},
@@ -609,7 +587,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["情感归属", "理解与和解", "自我接纳"],
             "chapterTypes": ["相遇/重逢", "走近", "矛盾", "抉择", "释然"],
             "pacingRules": ["情感发展要自然", "每章有情感层次的推进"],
-            "fatigueWords": ["泪水", "微笑", "心脏", "温柔"],
         },
         "storyArcTemplates": [
             {"id": "love-story", "name": "爱情弧", "description": "两个人的相遇、相知到相守", "beats": ["相遇", "靠近", "甜蜜", "考验", "选择"]},
@@ -635,7 +612,6 @@ PRESET_GENRES: list[dict] = [
             "fulfillmentTypes": ["事件解决", "角色羁绊", "日常守护"],
             "chapterTypes": ["日常", "展开", "冲突", "收尾"],
             "pacingRules": ["每 3 章一个完整小故事", "对话占每章 40% 以上篇幅"],
-            "fatigueWords": ["喂喂", "不是吧", "设定", "角色"],
         },
         "storyArcTemplates": [
             {"id": "episodic", "name": "单元剧", "description": "每几章一个完整的小故事", "beats": ["日常开场", "事件触发", "解决过程", "温馨收尾"]},

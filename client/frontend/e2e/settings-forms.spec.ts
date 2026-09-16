@@ -8,7 +8,7 @@ import { cleanupSessionNovels } from "./helpers";
 // 设定真实表单 + 预览只读 E2E（PR4 v2 设定视图 two-col + 预览视图复刻后改版）
 //   ① 题材：GenreSettingForm 真实题材选择器（空态 → 选 都市日常 → 应用题材 → 自动保存）
 //   ② 风格：StyleSettingForm 真实表单（叙事身份 Field + 核心原则折叠组 ListEditor）
-//   ③ AI痕迹：AntiAiSettingForm 真实表单（疲劳词分类 ListEditor）
+//   ③ 禁用词收编（banned-words-into-style）：文风硬约束区禁用词折叠组（原 AI痕迹面板退役）
 //   ④ 角色：CharacterManager 真实创建角色（创建弹窗 → 基本信息 → 保存）
 //   ⑤ 预览（只读树 + 只读正文）：全书通读（草稿/归档章皆可读）→ 点章切换 →
 //      归档 tag 同步 → 回工作台恢复编辑（归档管理在正文编辑页）
@@ -233,7 +233,7 @@ async function confirmPanel(page: Page) {
 }
 
 /**
- * 已确认面板的保存路径：种子模板让 style/anti-ai 开书即有内容（readiness 即
+ * 已确认面板的保存路径：种子模板让 style 开书即有内容（readiness 即
  * ready → 按钮已是「保存修改」，gap3：已确认态只 save，不再 PUT status）。
  */
 async function savePanel(page: Page) {
@@ -474,10 +474,11 @@ test("文风：两页签（文字文风三区＋量化空态）→ 确认完成�
 });
 
 // -------------------------------------------------------------------------
-// ③ AI痕迹：真实表单（疲劳词分类折叠组）→ 确认完成自动落库
+// ③ 禁用词收编（banned-words-into-style）：文风硬约束区「禁用词」折叠组 →
+//    确认完成自动落库；文风确认后推进到伏笔（末项语义变更一并回归）
 // -------------------------------------------------------------------------
 
-test("AI痕迹：真实表单（疲劳词分类列表）→ 确认完成自动落库", async ({
+test("禁用词收编：文风硬约束区禁用词折叠组 → 确认完成落库并推进伏笔", async ({
   page,
   request,
 }) => {
@@ -485,28 +486,35 @@ test("AI痕迹：真实表单（疲劳词分类列表）→ 确认完成自动�
   try {
     const pid = await createNovel(page, `痕迹${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
-    await openSetting(page, "禁用词句");
+    await openSetting(page, "文风");
 
-    // 疲劳词折叠组（默认展开）：第一分类（总结叙事）ListEditor 填词
-    // （种子模板已带默认疲劳词，fill 追加到既有分类）
-    await page
-      .getByPlaceholder(/添加该分类下的疲劳词/)
-      .first()
-      .fill("似乎");
+    // 禁用词折叠组（默认收起）：点组头展开；模板预填 37 词 → 点「添加一项」追加新行
+    const bannedCfg = page.locator("details.cfg", { hasText: "禁用词" }).first();
+    await bannedCfg.locator("summary").click();
+    const addBtn = bannedCfg.getByRole("button", { name: /添加一项/ });
+    await addBtn.scrollIntoViewIfNeeded();
+    await addBtn.click();
+    await bannedCfg.locator("input.input").last().fill("似乎");
 
-    // 新书未确认 → 点「确认完成」（save + confirm；禁用词句是末项 → 不前进）
-    const antiSave = page.waitForResponse(
-      (r) => r.request().method() === "PUT" && r.url().includes("/settings/anti-ai"),
+    // 确认完成（save + confirm）；文风确认后即前进到伏笔（07 末项语义）
+    const stylePut = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url().includes("/settings/style"),
     );
     await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
-    await antiSave;
+    await stylePut;
     await expect(
-      page.locator(".settings-v main h2", { hasText: "禁用词句" }),
+      page.locator(".settings-v main h2", { hasText: "伏笔" }),
     ).toBeVisible({ timeout: 5000 });
 
-    // 后端直查：summary_narrative 分类含「似乎」
-    const anti = await apiGetJSON(request, token, `/novels/${pid}/settings/anti-ai`);
-    expect(anti.fatigue_words_zh.summary_narrative).toContain("似乎");
+    // 后端直查：文风 KV banned_words 含「似乎」（旧 /settings/anti-ai 写通道已退役）
+    const style = await apiGetJSON(request, token, `/novels/${pid}/settings/style`);
+    expect(style.banned_words).toContain("似乎");
+    // 旧面板退役：antiAI 写通道 400
+    const retired = await request.put(`${ORIGIN}/api/novels/${pid}/settings/anti-ai`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: { fatigue_words_zh: {} },
+    });
+    expect(retired.status()).toBe(400);
   } finally {
     await restore();
   }
