@@ -317,7 +317,8 @@ export default function NovelWorkspace() {
   const onResume = useCallback(() => {
     if (!hereTarget) return;
     if (!guardedLeave()) return;
-    focusNode(hereTarget.ref);
+    // 已在该章时不再重设选中（省一次整链重渲染），只走恢复信号
+    if (selectedRef !== hereTarget.ref) focusNode(hereTarget.ref);
     setResumeSignal((s) => ({
       ref: hereTarget.ref,
       scroll: hereTarget.scroll,

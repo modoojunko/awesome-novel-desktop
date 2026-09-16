@@ -219,17 +219,35 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     saveProgress();
   }, [archived, setProse, saveProgress]);
 
-  // ── 续写恢复：信号递增 + 本章内容就绪后，把编辑器滚回上次位置 ────────────
+  // ── 续写恢复：每个信号号只恢复一次（appliedResumeRef 守卫）。
+  //    换章加载时内容未就绪 → rAF 轮询等 scrollHeight 长出来（上限 2s），
+  //    空章/不可滚动则放弃。守卫是必须的：resumeScroll 每次渲染都是新对象，
+  //    不守卫的话用户续写后每次输入/滚动都会被拽回旧位置 ────────────────────
+  const appliedResumeRef = useRef(0);
   useEffect(() => {
     if (!resumeScroll || !resumeScroll.n) return;
-    const id = requestAnimationFrame(() => {
-      const wrap = wrapRef.current;
-      if (!wrap) return;
+    if (appliedResumeRef.current === resumeScroll.n) return;
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const start = performance.now();
+    let raf = 0;
+    const tick = () => {
       const max = wrap.scrollHeight - wrap.clientHeight;
-      wrap.scrollTop = Math.min(1, Math.max(0, resumeScroll.pct)) * Math.max(0, max);
-    });
-    return () => cancelAnimationFrame(id);
-  }, [resumeScroll, prose, chapterRef]);
+      if (max > 4) {
+        appliedResumeRef.current = resumeScroll.n;
+        wrap.scrollTop = Math.min(1, Math.max(0, resumeScroll.pct)) * max;
+        return;
+      }
+      if (performance.now() - start < 2000) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        // 放弃（空章本无可恢复），同样标记防重入
+        appliedResumeRef.current = resumeScroll.n;
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [resumeScroll, chapterRef]);
 
   // ── AI 流式写入 ────────────────────────────────────────────────────────
   const renderStreamed = useCallback((base: string, generated: string) => {

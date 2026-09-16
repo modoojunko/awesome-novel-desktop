@@ -183,6 +183,15 @@ export default function ChapterWorkspace({
     setShowHistory(false);
   }, [resumeSignal]);
 
+  // 稳定标识：按信号记忆化，避免每次渲染生成新对象触发 ProsePane 恢复 effect 重跑
+  const resumeScrollMemo = useMemo(
+    () =>
+      resumeSignal && resumeSignal.ref === chapterRef
+        ? { n: resumeSignal.n, pct: resumeSignal.scroll }
+        : undefined,
+    [resumeSignal, chapterRef],
+  );
+
   // ── 章纲表单：加载 / 缺口 / 保存 / 3s 静默自动保存 ────────────────────
     // 本书角色名清单（character-settings-v2）：章纲出场角色多选候选
   const [characterNames, setCharacterNames] = useState<string[]>([]);
@@ -595,11 +604,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         lh={lh}
         hidden={chTab !== "prose"}
         onAIStateChange={onAIStateChange}
-        resumeScroll={
-          resumeSignal && resumeSignal.ref === chapterRef
-            ? { n: resumeSignal.n, pct: resumeSignal.scroll }
-            : undefined
-        }
+        resumeScroll={resumeScrollMemo}
         onWriteProgress={onWriteProgress}
       />
 
