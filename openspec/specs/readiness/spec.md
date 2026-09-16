@@ -6,10 +6,11 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 ## Requirements
 
 ### Requirement: Unified readiness endpoint
+
 - GET /api/novels/{project_id}/readiness SHALL return {complete, missing:[{key,label,jump}], warning}.
-- complete SHALL be true when all 7 content-based checks pass (synopsis, genre, world, style, anti-ai, hooks, characters).
+- complete SHALL be true when all 7 content-based checks pass (synopsis, genre, world, story-arc, style, hooks, characters).
 - ai-model SHALL NOT be part of the readiness check.
-- missing items SHALL use Chinese labels; jump SHALL map to the frontend settings tree node id (genre/world/style/anti-ai/hooks/characters) or "synopsis" for the global synopsis card.
+- missing items SHALL use Chinese labels; jump SHALL map to the frontend settings tree node id (genre/world/characters/story-arc/style/hooks) or "synopsis" for the global synopsis card.
 - warning SHALL be a human-readable Chinese message.
 
 #### Scenario: Readiness reflects content state on demand
@@ -18,7 +19,7 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 - Then the result reflects actual content state (defaults count as content; user-filled content counts; both judged uniformly)
 
 #### Scenario: All filled becomes complete
-- Given a novel where synopsis, genre, world(details), style.role, anti-ai, hooks and characters are all filled
+- Given a novel where synopsis, genre, world(details), style.role, story-arc, hooks and characters are all filled
 - When readiness is fetched
 - Then complete is true and warning is empty
 
@@ -26,6 +27,11 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 - Given a novel with all 7 content checks passing
 - When the author selects or clears the AI model
 - Then readiness stays complete
+
+#### Scenario: anti-ai 不再是独立检查项
+- Given a novel whose banned words live in the style KV (post-migration) with everything else filled
+- When readiness is fetched
+- Then complete is true and the missing list contains no anti-ai entry
 
 ### Requirement: Judge on "complete setting" action (product decision)
 - The system SHALL NOT judge settings completion at novel creation time.
@@ -54,10 +60,11 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 - synopsis SHALL pass when story.yaml.synopsis is non-empty.
 - genre SHALL pass when settings/genre.yaml.genre_id is non-empty.
 - world SHALL pass when any of stage/power/cost is non-empty OR any entry in history/factions/constraints/extra carries a non-empty value (v2 shape; legacy v1 shapes SHALL be normalized at the read boundary before judging).
+- story-arc SHALL pass per the「arc 内容判据」requirement (fullstory or ending 三问任一非空；legacy premise 归一后判)——本 delta 不改其判据，仅随 anti-ai 退役并入清单计数。
 - style SHALL pass when role is non-empty (judged on the normalized style KV: legacy narrator_role/tone.pov SHALL be merged into role at the read boundary first, so legacy-filled books stay filled).
-- anti-ai SHALL pass when settings/anti-ai.yaml has content.
 - hooks SHALL pass when the foreshadow ledger (novel_hooks) has at least one row whose description is non-empty after trimming, regardless of status (active/resolved/abandoned all count —「任意状态」). The checker reads the ledger table, not settings KV; the judge threshold itself is unchanged by this change.
 - characters SHALL pass when the book has at least one character card whose 名称 is non-empty (unnamed placeholder cards count as empty). Readiness only judges 内容非空：确认门禁的两档要求（主角六项等）归 character-settings 的确认端点，readiness SHALL NOT 重复裁决，也 SHALL NOT 读确认记录。
+- 禁用词内容 SHALL NOT 单独参与 readiness（收编后归文风面板，词表有无不影响门禁——禁用词面板原 canDefer 语义由文风面板继承）。
 
 #### Scenario: World v2 stage-only counts as filled
 - Given a world setting where only stage is non-empty
@@ -127,6 +134,10 @@ TBD - created by archiving change settings-readiness. Update Purpose after archi
 #### Scenario: 量化层不参与 readiness
 - **WHEN** 某书有 style-quant（已蒸馏）或没有
 - **THEN** readiness 的 style 判定与 style-quant 无关（蒸馏是 PRO 功能不入门禁）
+
+#### Scenario: 清空禁用词不退回未填
+- **WHEN** 作者清空文风面板禁用词与句式规则后重新拉 readiness
+- **THEN** style 判定不变（只看 role 非空），不因词表为空报缺失
 
 ### Requirement: Gate convergence
 - gate_settings_complete SHALL be refactored to call the same READINESS_CHECKERS subset for settings.
