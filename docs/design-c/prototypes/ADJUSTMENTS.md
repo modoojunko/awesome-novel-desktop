@@ -606,10 +606,23 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     **同步实现**：Navbar 书内变体退役（/novel/* 返回 null），合并头由
     NovelWorkspace 渲染（AcctMenu＋BookPrefsModal 随迁）；wb.volumes 即数据源。
 
-23. **设定完成入口重设计（settings-done-entry，2026-09-16）**
+24. **设定完成入口重设计（settings-done-entry，2026-09-16）**
     新增 `settings-done-entry.html`（自 `drafts/ai-novel-c端-设定完成去写作.html` v2 合一版收编）。
     「设定 8/8」进度行在完成态升级为完成卡：`.settings-progress.done` 变体（ok-soft 底＋ok
     描边）＋ `.pb-check/.pb-badge/.done-btn/.done-foot` 词表；状态语言沿 §5 完成=ok 绿。
     **口径**：完成入口不再使用普通主按钮（长得和「保存」一样）；未完成态零像素变化。
     非基线演示元素：doc-head、win-titlebar、appbar/modnav、右下状态切换器与 toast。
     门禁范围：design-vocab.mjs strictGlobs 增补本文件。
+
+25. **认知六层对齐理解层次（cog-logical-levels，2026-09-16）**
+    认知区词表补两处**提示文案**（只读小字，无交互、无新形态）：
+    ① 层头六问 hint `.cog-layer-hint`（他眼里的世界是什么样的？/ 他把自己当成谁？/
+    他在乎什么？为什么做这些事？/ 他能做什么？怎么做到的？/ 遇到事，他会怎么做？/
+    他身边有什么人、什么事？）；② s5 格位 hint——复用 base.css 既有 `.f-hint`（label 下
+    一行小字：「他和这个世界到底是怎么回事？这条路走到头，他注定要面对什么？」）。
+    词表双源：`character_model.py` ↔ `characterModel.ts` 的 `COG_LEVEL_HINTS`/
+    `COG_FIELD_HINTS`（parity 用例对拍文案逐字）。
+    **原型未同步本区**：认知六层在 `character-settings.html` 首屏之外、像素 parity 只比
+    `list.html`（见第 18 条），本批提示文案靠实现侧 vitest（层头渲染＋展开 s5 格断言）
+    与 e2e 覆盖，故不加原型、不改基线。
+    **口径**：一律大白话，「理解层次/NLP/上三层下三层/精神层/张力」等术语不上界面。

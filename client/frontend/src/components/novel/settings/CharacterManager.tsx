@@ -5,6 +5,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { charactersApi, BootstrapDraft, CharacterCard } from "@/lib/charactersApi";
 import {
+  COG_FIELD_HINTS,
   COG_FILL_KEYS,
   COG_LEVEL_HINTS,
   COG_LAYERS,
@@ -839,6 +840,9 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                                   {f.req && <i className="req">必填</i>}
                                 </b>
                               </div>
+                              {COG_FIELD_HINTS[f.k] && (
+                                <p className="f-hint">{COG_FIELD_HINTS[f.k]}</p>
+                              )}
                               <input
                                 value={card.cog[f.k] ?? ""}
                                 aria-label={f.label}

@@ -125,6 +125,11 @@ export const COG_LEVEL_HINTS: Record<string, string> = {
   behavior: "遇到事，他会怎么做？",
   env: "他身边有什么人、什么事？",
 };
+
+// 格位级 hint（后端 COG_FIELD_HINTS 同源）——只给需要额外一句的格
+export const COG_FIELD_HINTS: Record<string, string> = {
+  s5: "他和这个世界到底是怎么回事？这条路走到头，他注定要面对什么？",
+};
 export const PERSONA_FILL_KEY = "persona";
 
 // ── 写章状态块（后端 WRITE_STATE_KEYS 同源）──────────────────────────────
