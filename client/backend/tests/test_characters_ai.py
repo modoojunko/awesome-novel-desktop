@@ -458,3 +458,26 @@ async def _roster_count(nid: str) -> int:
             select(Character.id).where(Character.novel_id == nid)
         )).all()
         return len(rows)
+
+
+class TestBootstrapCellBriefs:
+    def test_prompt_carries_cell_meanings(self, client, monkeypatch):
+        """评审修复回归：bootstrap prompt 必须带每格含义——
+        此前 s1/v1/b1/e3 等 7 格无口径，真书被写成「地点列表进自我观、
+        力量等级进价值观、两难冲突进性格与人际生态」。"""
+        c, nid, captured = client
+        _install_fake(monkeypatch, {"name": "林拾", "persona": "人设", "fills": {}}, captured)
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={})
+        assert r.status_code == 200, r.text
+        prompt = captured[0]["messages"][0]["content"]
+        # 认知格口径（词表单源渲染，不手抄）
+        assert "自我身份定位" in prompt
+        assert "核心追求" in prompt
+        assert "性格 · 待人态度" in prompt
+        assert "人际生态环境" in prompt
+        assert "世界规则认知度" in prompt
+        assert "后天综合能力" in prompt
+        # 档案格口径
+        assert "种族" in prompt and "势力 · 身份" in prompt
+        # 防错位禁令在 prompt 里
+        assert "不同格禁止说同一件事" in prompt

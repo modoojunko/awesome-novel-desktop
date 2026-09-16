@@ -488,12 +488,33 @@ async def bootstrap_protagonist(
         + [f"{k}：{cog_bucket[k]}" for k in COG_FILL_KEYS if _filled(cog_bucket, k)]
     ) or "（无）"
 
+    # 格位口径单源渲染（评审修复：此前 s1/v1/b1/e3 等 7 格无定义，
+    # 模型自由发挥 → 真书写成「地点列表进自我观」「力量等级进价值观」）。
+    from settings.character_model import COG_LAYERS
+
+    layer_of = {
+        f["k"]: (layer["name"], f["label"])
+        for layer in COG_LAYERS
+        for f in layer["fields"]
+    }
+    from settings.character_model import DOSSIER_FIELDS
+
+    dossier_briefs = " / ".join(
+        f"{k}（{next(f['label'] for f in DOSSIER_FIELDS if f['k'] == k)}）"
+        for k in DOSSIER_FILL_KEYS
+    )
+    cog_briefs = " / ".join(
+        f"{k}（{layer_of[k][0]}·{layer_of[k][1]}）" for k in COG_FILL_KEYS
+    )
+
     prompt = load_prompt("settings_characters_bootstrap").format(
         title=project.name,
         theme=theme_label or "（未确认）",
         synopsis=_clamp(synopsis, 600),
         world=world or "（未填写）",
         filled_lines=filled_lines,
+        dossier_briefs=dossier_briefs,
+        cog_briefs=cog_briefs,
     )
 
     client = await get_ai_client_for_novel(project_id)
