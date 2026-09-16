@@ -470,8 +470,10 @@ export default function SettingsView({
 
   // ── 进度（两态口径：done/empty；readiness 拉取失败按 0 计，与 modnav 一致）──
   const total = SETTINGS_ITEMS.length;
-  const done = settingsStatus
-    ? SETTINGS_ITEMS.filter((i) => settingsStatus[i.settingsKey]).length
+  // 设定完成入口（settings-done-entry 用户拍板）：N/8 数的是「已确认」——
+  // 内容齐了但没点确认不算完成；已填与否仍看 settingsStatus（每项徽标）
+  const done = confirmedStatus
+    ? SETTINGS_ITEMS.filter((i) => confirmedStatus[i.settingsKey]).length
     : 0;
   const progNote =
     done === total
