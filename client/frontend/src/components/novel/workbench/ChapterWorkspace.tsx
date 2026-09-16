@@ -18,6 +18,8 @@ import {
 import OgPane from "./OgPane";
 import { charactersApi } from "@/lib/charactersApi";
 import PromptPane from "./PromptPane";
+import { SettingsChangelogPane } from "./SettingsChangelogPane";
+import { ReconcilePane } from "./ReconcilePane";
 import ProsePane, {
   INITIAL_PROSE_AI_STATE,
   type ProseAIState,
@@ -154,7 +156,7 @@ export default function ChapterWorkspace({
   }, [projectId, chapterRef]);
 
   // ── 三页签：点章强制落「章纲」（设计稿行为） ─────────────────────────
-  const [chTab, setChTab] = useState<"og" | "prompt" | "prose">("og");
+  const [chTab, setChTab] = useState<"og" | "prompt" | "prose" | "settings" | "actions">("og");
   const [showArchive, setShowArchive] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   useEffect(() => {
@@ -564,6 +566,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             // 提示词子 label PRO-only：免费态隐藏（workbench-3-label spec）
             ...(isPro ? ([["prompt", "提示词", promptCnt]] as const) : []),
             ["prose", "正文", proseCnt],
+            ["settings", "设定", { text: "", cls: "" }],
+            ["actions", "操作", { text: "", cls: "" }],
           ] as const
         ).map(([key, text, cnt]) => (
           <button
@@ -607,6 +611,26 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         resumeScroll={resumeScrollMemo}
         onWriteProgress={onWriteProgress}
       />
+
+      {chTab === "settings" && (
+        <div className="settings-pane" data-od-id="settings-pane">
+          <SettingsChangelogPane
+            projectId={projectId}
+            chapterRef={chapterRef}
+          />
+        </div>
+      )}
+
+      {chTab === "actions" && (
+        <div className="actions-pane" data-od-id="actions-pane">
+          <ReconcilePane
+            projectId={projectId}
+            chapterRef={chapterRef}
+            archived={archived}
+            isPro={isPro}
+          />
+        </div>
+      )}
 
       <ArchiveModal
         open={showArchive}
