@@ -547,3 +547,11 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     author-portrait/btn-portrait-keep/btn-portrait-retry/sink-style-check。
 
     **门禁范围**：design-vocab.mjs strictGlobs 增补本文件（严格原型 6→7）。
+
+22. **设定完成入口重设计（settings-done-entry，2026-09-16）**
+    新增 `settings-done-entry.html`（自 `drafts/ai-novel-c端-设定完成去写作.html` v2 合一版收编）。
+    「设定 8/8」进度行在完成态升级为完成卡：`.settings-progress.done` 变体（ok-soft 底＋ok
+    描边）＋ `.pb-check/.pb-badge/.done-btn/.done-foot` 词表；状态语言沿 §5 完成=ok 绿。
+    **口径**：完成入口不再使用普通主按钮（长得和「保存」一样）；未完成态零像素变化。
+    非基线演示元素：doc-head、win-titlebar、appbar/modnav、右下状态切换器与 toast。
+    门禁范围：design-vocab.mjs strictGlobs 增补本文件。
