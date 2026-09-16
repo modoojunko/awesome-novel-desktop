@@ -996,3 +996,90 @@ test("角色：首进引导卡 → 手动建主角 → 引导卡退场", async (
     await restore();
   }
 });
+
+// -------------------------------------------------------------------------
+// ⑥ 认知体检：身心一致三问（cog-logical-levels）——好矛盾判达标、真冲突判矛盾
+// -------------------------------------------------------------------------
+
+test("角色体检：身心一致三问（好矛盾判达标、真冲突判矛盾）", async ({
+  page,
+  request,
+}) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `体检${Date.now() % 100000}`);
+    // AI 就绪态桩（ai-model + 配置清单）
+    await page.route(`**/api/v1/novels/${pid}/ai-model`, (r) =>
+      r.fulfill({
+        json: {
+          api_config_id: "c1",
+          model: "gpt-4o",
+          config_name: "主配置",
+          ai_state: "ready",
+          effective_model: "gpt-4o",
+          reason: "ready",
+          message: "",
+        },
+      }),
+    );
+    await page.route("**/api/v1/api-configs", (r) =>
+      r.fulfill({
+        json: [
+          {
+            id: "c1",
+            name: "主配置",
+            vendor: "openai",
+            models: ["gpt-4o"],
+            status: "active",
+            last_test_status: "ok",
+          },
+        ],
+      }),
+    );
+
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "角色");
+    await page.getByRole("button", { name: "添加角色" }).click();
+    const nameInput = page.getByRole("textbox", { name: "角色名称" });
+    await nameInput.fill("林晚");
+    await page.waitForTimeout(1200); // 末格 PATCH 落库
+
+    // 体检出参桩：9 项（含 3 组「想的和做的一致」，好矛盾判达标、真冲突判矛盾）
+    const items = [
+      { name: "简介 × 角色", status: "ok", note: "一致" },
+      { name: "题材 × 角色", status: "ok", note: "调子对" },
+      { name: "世界 × 能力上限", status: "ok", note: "在体系内" },
+      { name: "世界 × 代价", status: "ok", note: "对得上" },
+      { name: "势力 × 角色落地", status: "miss", note: "势力未填" },
+      { name: "主线 × 角色", status: "miss", note: "主线未填" },
+      {
+        name: "人设与行事对得上吗",
+        status: "ok",
+        note: "好矛盾：安稳的人干着最玩命的活，是看点",
+      },
+      {
+        name: "在乎的和会做的一致吗",
+        status: "conflict",
+        note: "真冲突：底线与手段打架了，二选一改",
+      },
+      { name: "他的处境和他的命对得上吗", status: "miss", note: "宿命未填" },
+    ];
+    await page.route(
+      `**/api/novels/${pid}/settings/ai/characters/*/check`,
+      (r) =>
+        r.fulfill({
+          json: { ok: true, data: { items, degraded: false, degraded_reasons: [], verdict: "两处看点，一处要改" } },
+        }),
+    );
+
+    // 右栏点「一致性体检」→ 卡内 sink 渲染 9 项，含大白话好矛盾/真冲突
+    await page.locator('[data-aiact="check"]').click();
+    const sink = page.locator(".sec .ai-sink");
+    await expect(sink).toContainText("人设与行事对得上吗", { timeout: 5000 });
+    await expect(sink).toContainText("好矛盾：安稳的人干着最玩命的活，是看点");
+    await expect(sink).toContainText("真冲突：底线与手段打架了，二选一改");
+    await expect(sink).toContainText("缺输入");
+  } finally {
+    await restore();
+  }
+});

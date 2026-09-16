@@ -214,6 +214,9 @@ class TestCheck:
             {"name": "世界 × 代价", "status": "ok", "note": "对得上"},
             {"name": "势力 × 角色落地", "status": "miss", "note": "势力未填"},
             {"name": "主线 × 角色", "status": "ok", "note": "一致"},
+            {"name": "人设与行事对得上吗", "status": "ok", "note": "好矛盾：安稳的人干着最玩命的活，是看点"},
+            {"name": "在乎的和会做的一致吗", "status": "conflict", "note": "真冲突：底线与手段打架，二选一改"},
+            {"name": "他的处境和他的命对得上吗", "status": "ok", "note": "呼应"},
             {"name": "编外项", "status": "ok", "note": "模型乱加"},
         ], "verdict": "总体成立"}
         _install_fake(monkeypatch, payload, captured)
@@ -221,10 +224,12 @@ class TestCheck:
         assert r.status_code == 200, r.text
         data = r.json()["data"]
         names = [i["name"] for i in data["items"]]
-        assert len(names) == 6  # 编外项被丢弃
+        assert len(names) == 9  # 编外项被丢弃；含 3 组「想的和做的一致」
         statuses = {i["name"]: i["status"] for i in data["items"]}
         assert statuses["世界 × 能力上限"] == "conflict"
         assert statuses["势力 × 角色落地"] == "miss"
+        assert statuses["人设与行事对得上吗"] == "ok"
+        assert "好矛盾" in {i["name"]: i["note"] for i in data["items"]}["人设与行事对得上吗"]
         gotos = {i["name"]: i.get("goto") for i in data["items"]}
         assert gotos["世界 × 能力上限"] == "layer:power"  # goto 服务端出
         assert gotos["势力 × 角色落地"] == "panel:world"

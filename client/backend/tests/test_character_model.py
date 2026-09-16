@@ -33,8 +33,8 @@ class TestConstants:
         assert len(DOSSIER_FILL_KEYS) == 6  # gender/age 不进 AI 候选
         assert len(COG_KEYS) == 30
         assert set(COG_REQUIRED) == {"w5", "p3", "p4"}
-        assert len(COG_FILL_KEYS) == 10  # 6 主格 + w5/p3/p4 + p6
-        assert set(COG_FILL_KEYS) == {"w1", "s1", "v1", "p2", "b1", "e3", "w5", "p3", "p4", "p6"}
+        assert len(COG_FILL_KEYS) == 11  # 6 主格 + w5/p3/p4 + p6 + s5（精神层落点）
+        assert set(COG_FILL_KEYS) == {"w1", "s1", "v1", "p2", "b1", "e3", "w5", "p3", "p4", "p6", "s5"}
         assert WRITE_STATE_KEYS == ("w1", "s1", "v1", "p2", "b1", "e3")
         assert CHAR_CHECK_STATUS == ("ok", "warn", "conflict", "miss")
 
@@ -47,7 +47,11 @@ class TestConstants:
         real_names = [name for name, _ in check_items(False)]
         assert "世界 × 能力上限" in power_names
         assert "世界 × 现实规则" in real_names
-        assert len(power_names) == len(real_names) == 6
+        # cog-logical-levels：+3 组「想的和做的一致」检查
+        assert len(power_names) == len(real_names) == 9
+        assert "人设与行事对得上吗" in power_names and "人设与行事对得上吗" in real_names
+        assert "在乎的和会做的一致吗" in real_names
+        assert "他的处境和他的命对得上吗" in real_names
 
 
 class TestGate:
@@ -123,7 +127,7 @@ class TestTargetsAndApply:
         t_dossier = compute_targets(dossier, cog, "", "dossier")
         assert "race" not in t_dossier and set(t_dossier) == set(DOSSIER_FILL_KEYS) - {"race"}
         t_cog = compute_targets(dossier, cog, "", "cog")
-        assert "w1" not in t_cog and len(t_cog) == 9
+        assert "w1" not in t_cog and len(t_cog) == 10
 
     def test_apply_skips_filled_and_unknown(self):
         card = {"dossier": {"race": "人族"}, "cog": {}}
