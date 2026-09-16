@@ -125,6 +125,12 @@ COG_LEVEL_HINTS: dict[str, str] = {
     "env": "他身边有什么人、什么事？",
 }
 
+# 格位级 hint——键 = 格键，只给语义上需要额外一句的格（cog-logical-levels：
+# s5 是精神层落点，光看 label「宿命认知观」不知道该写什么）。
+COG_FIELD_HINTS: dict[str, str] = {
+    "s5": "他和这个世界到底是怎么回事？这条路走到头，他注定要面对什么？",
+}
+
 # ── 写章「角色初始状态」块的供给键（tasks 2.8）────────────────────────────
 # 六层主格 + dossier.speech；格序固定、每格 ≤40 字、每人 ≤120 字、块 ≤5 人
 WRITE_STATE_KEYS: tuple[str, ...] = tuple(COG_PRIMARY_KEYS)
