@@ -30,6 +30,7 @@ import { toast } from "@/lib/toast";
 import { BRAND } from "@/lib/brand";
 import { isLoggedIn } from "@/lib/auth";
 import { cnNum, isDefaultTitle } from "@/lib/nodeTitle";
+import { getLastWriteSession, type LastWriteSession } from "@/lib/prefs";
 
 // ---------------------------------------------------------------------------
 // NovelWorkspace — book.html 复刻（PR 3：壳 + 大纲树 + 章对象工作台）
@@ -236,55 +237,128 @@ export default function NovelWorkspace() {
   const [showBookPrefs, setShowBookPrefs] = useState(false);
 
   // ── 顶栏主线定位（行头归一，book.html updateBarHere 同口径）：
-  //    最新归档章＝主线端点，无归档落首章；卷面进度 = 该卷已归档/总章数。
+  //    续写口径（用户拍板 09-16）＝「上次写到的章」优先（本机 last_write 会话），
+  //    无记录回落「最新归档章」，再回落首章；卷面进度 = 该卷已归档/总章数。
   //    数据源 wb.volumes（chapter:archived 事件即刷新）。
-  const hereBar = useMemo(() => {
-    type Vol = (typeof volumes)[number];
-    let cur: Vol["chapters"][number] | null = null;
-    let curVol: Vol | null = null;
-    for (const v of volumes) {
-      for (const c of v.chapters) {
-        if (c.archived) {
-          cur = c;
-          curVol = v;
+  const [lastWrite, setLastWrite] = useState<LastWriteSession | null>(() =>
+    getLastWriteSession(id ?? ""),
+  );
+  const [resumeSignal, setResumeSignal] = useState<{
+    ref: string;
+    scroll: number;
+    n: number;
+  } | null>(null);
+
+  interface HereTarget {
+    ref: string;
+    no: number;
+    title: string;
+    draft: boolean;
+    fromLastWrite: boolean;
+    scroll: number;
+    volNo: number;
+    archivedN: number;
+    total: number;
+  }
+  const hereTarget = useMemo<HereTarget | null>(() => {
+    const findByRef = (ref: string) => {
+      const m = ref.match(/^(vol-\d+)-ch-(\d+)$/);
+      if (!m) return null;
+      const v = volumes.find((x) => x.name === m[1]);
+      const c = v?.chapters.find((x) => x.chapter === Number(m[2]));
+      return v && c ? { v, c } : null;
+    };
+    type Hit = { v: (typeof volumes)[number]; c: (typeof volumes)[number]["chapters"][number] };
+    let pick: Hit | null = null;
+    let fromLastWrite = false;
+    if (lastWrite) {
+      const hit = findByRef(lastWrite.ref);
+      if (hit) {
+        pick = hit;
+        fromLastWrite = true;
+      }
+    }
+    if (!pick) {
+      for (const v of volumes) {
+        for (const c of v.chapters) {
+          if (c.archived) pick = { v, c };
         }
       }
     }
-    if (!cur || !curVol) {
+    if (!pick) {
       for (const v of volumes) {
         if (v.chapters.length) {
-          cur = v.chapters[0];
-          curVol = v;
+          pick = { v, c: v.chapters[0] };
           break;
         }
       }
     }
-    if (!cur || !curVol) return null;
-    const volNo = Number((curVol.name.match(/^vol-(\d+)$/) ?? [])[1] ?? 1);
-    const no = cur.chapter ?? curVol.chapters.indexOf(cur) + 1;
-    const archivedN = curVol.chapters.filter((c) => c.archived).length;
-    const total = curVol.chapters.length;
-    const pct = Math.round(Math.min(1, archivedN / total) * 100);
-    return (
-      <>
-        <p className="bh-k">当前主线</p>
-        <span className="bh-rule" aria-hidden="true" />
-        <p className="bh-t">
-          <span className="n">第 {no} 章</span>
-          {/* 默认名（「第一章」等序号形态）不再拼名称，避免「第 1 章第一章」（nodeLabel 同口径） */}
-          {isDefaultTitle("章", no, cur.title) ? null : cur.title}
-        </p>
-        <div className="bh-prog">
-          <span className="bh-vol">
-            第{cnNum(volNo)}卷 · {archivedN}/{total}
-          </span>
-          <span className="prog-bar">
-            <span style={{ width: `${pct}%` }} />
-          </span>
-        </div>
-      </>
-    );
-  }, [volumes]);
+    if (!pick) return null;
+    const volNo = Number((pick.v.name.match(/^vol-(\d+)$/) ?? [])[1] ?? 1);
+    const no = pick.c.chapter ?? pick.v.chapters.indexOf(pick.c) + 1;
+    return {
+      ref: `${pick.v.name}-ch-${no}`,
+      no,
+      title: pick.c.title,
+      draft:
+        !pick.c.archived &&
+        ((pick.c.has_prose ?? (pick.c.word_count ?? 0) > 0) ||
+          // 树上的字数只在归档/增删时刷新：正在写的章用 railData 实时字数补判
+          (selectedRef === `${pick.v.name}-ch-${pick.c.chapter}` &&
+            (railData?.wordCount ?? 0) > 0)),
+      fromLastWrite,
+      scroll: fromLastWrite ? (lastWrite?.scroll ?? 0) : 0,
+      volNo,
+      archivedN: pick.v.chapters.filter((c) => c.archived).length,
+      total: pick.v.chapters.length,
+    };
+  }, [volumes, lastWrite, selectedRef, railData]);
+
+  const onResume = useCallback(() => {
+    if (!hereTarget) return;
+    if (!guardedLeave()) return;
+    // 已在该章时不再重设选中（省一次整链重渲染），只走恢复信号
+    if (selectedRef !== hereTarget.ref) focusNode(hereTarget.ref);
+    setResumeSignal((s) => ({
+      ref: hereTarget.ref,
+      scroll: hereTarget.scroll,
+      n: (s?.n ?? 0) + 1,
+    }));
+  }, [hereTarget, guardedLeave, focusNode]);
+
+  const pct = hereTarget
+    ? Math.round(Math.min(1, hereTarget.archivedN / hereTarget.total) * 100)
+    : 0;
+  const hereBar = hereTarget ? (
+    <>
+      <p className="bh-k">当前主线</p>
+      <span className="bh-rule" aria-hidden="true" />
+      <p className="bh-t">
+        <span className="n">第 {hereTarget.no} 章</span>
+        {/* 默认名（「第一章」等序号形态）不再拼名称，避免「第 1 章第一章」（nodeLabel 同口径） */}
+        {isDefaultTitle("章", hereTarget.no, hereTarget.title) ? null : hereTarget.title}
+      </p>
+      {hereTarget.draft && (
+        <span className="bh-tag bh-tag-live">草稿</span>
+      )}
+      <div className="bh-prog">
+        <span className="bh-vol">
+          第{cnNum(hereTarget.volNo)}卷 · {hereTarget.archivedN}/{hereTarget.total}
+        </span>
+        <span className="prog-bar">
+          <span style={{ width: `${pct}%` }} />
+        </span>
+      </div>
+      <button
+        className="btn btn-primary btn-sm"
+        data-od-id="resume-cta"
+        title="回到上次退出前的位置"
+        onClick={onResume}
+      >
+        续写
+      </button>
+    </>
+  ) : null;
 
   return (
     <div className="wb">
@@ -414,6 +488,8 @@ export default function NovelWorkspace() {
               onAIStateChange={setAIState}
               bookWords={bookWords}
               onRailData={setRailData}
+              onWriteProgress={setLastWrite}
+              resumeSignal={resumeSignal ?? undefined}
               onAiWrite={() => requestAi({ kind: "write" })}
               aiWriteSignal={aiWriteSignal}
             />

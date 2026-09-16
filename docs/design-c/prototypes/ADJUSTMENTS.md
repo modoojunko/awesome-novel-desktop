@@ -626,3 +626,13 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     `list.html`（见第 18 条），本批提示文案靠实现侧 vitest（层头渲染＋展开 s5 格断言）
     与 e2e 覆盖，故不加原型、不改基线。
     **口径**：一律大白话，「理解层次/NLP/上三层下三层/精神层/张力」等术语不上界面。
+
+26. **顶栏「续写」＝回到上次退出前的进度（appbar-resume-session，2026-09-16）**
+    用户拍板：bar-here 的「续写」不是跳队列末端开新章，而是**回到上次退出前的位置**
+    （哪一章＋编辑器滚动位置）。设备本机 localStorage `pref.book.{pid}.last_write`
+    （ref＋滚动比例＋ts；ProsePane 输入/滚动节流 1s 记录）；bar-here 主线端点随之
+    **优先显示上次写到的章**，无记录回落「最新归档章」→ 首章。新增
+    `.bh-tag/.bh-tag-live` 草稿徽（storyline .tag/.tag-live 同款收编改名，避让 cfg
+    摘要 .tag）：端点章有正文未归档即显示「草稿」；「拟定」徽待主线状态机（自由
+    写作模式无拟定态，该徽正确地不出现）。**data-od-id**：resume-cta。原型的队列
+    门禁语义（拟定排队/末端开写）仍待状态机立项，本条不覆盖。

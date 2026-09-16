@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { ReactNode } from "react";
 import NovelWorkspace from "@/components/novel/NovelWorkspace";
@@ -244,6 +244,20 @@ describe("免费态：选中章 → 章对象工作台", () => {
   });
 });
 
+describe("bar-here 续写（上次写作会话）", () => {
+  it("last_write 章优先为主线端点＋续写按钮在", async () => {
+    mockOneChapterTree();
+    localStorage.setItem(
+      "pref.book.p1.last_write",
+      JSON.stringify({ ref: "vol-1-ch-1", scroll: 0.5, ts: 123 }),
+    );
+    renderWorkspace("none");
+    await selectFirstChapter();
+    expect(document.querySelector(".bar-here .bh-t")?.textContent).toBe("第 1 章");
+    expect(screen.getByRole("button", { name: "续写" })).toBeDefined();
+  });
+});
+
 describe("设定视图懒挂载 / 离开卸载", () => {
   it("经 modnav「设定」进入设定视图，点「写作」返回后卸载", async () => {
     mockEmptyTree();
@@ -314,8 +328,10 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
     expect(
       await screen.findByRole("button", { name: "AI 生成正文" }),
     ).toBeVisible();
-    expect(screen.getByRole("button", { name: "续写" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "润色选段" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "扩写选段" })).toBeDefined();
+    // 顶栏 bar-here 也有「续写」CTA（行头归一），右栏工具卡断言限定右栏范围
+    const rail = document.querySelector(".col-ai") as HTMLElement;
+    expect(within(rail).getByRole("button", { name: "续写" })).toBeDefined();
+    expect(within(rail).getByRole("button", { name: "润色选段" })).toBeDefined();
+    expect(within(rail).getByRole("button", { name: "扩写选段" })).toBeDefined();
   });
 });

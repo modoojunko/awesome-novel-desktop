@@ -21,7 +21,11 @@ import {
   type StreamDoneMeta,
 } from "@/lib/ai";
 import type { SelectionCapture } from "@/lib/selection";
-import type { FontSizePref, LineHeightPref } from "@/lib/prefs";
+import {
+  type FontSizePref,
+  type LineHeightPref,
+  setLastWriteSession,
+} from "@/lib/prefs";
 
 export interface ProseAIState {
   hasSelection: boolean;
@@ -62,6 +66,10 @@ interface ProsePaneProps {
   hidden?: boolean;
   /** 状态上抛（updater 形态：调用方直接传 React setState） */
   onAIStateChange: (update: (prev: ProseAIState) => ProseAIState) => void;
+  /** 续写恢复信号（顶栏 CTA）：n 递增触发，切到本页签后把编辑器滚回 pct */
+  resumeScroll?: { n: number; pct: number };
+  /** 写作进度上抛（顶栏 bar-here 跟随显示上次写到的章） */
+  onWriteProgress?: (session: { ref: string; scroll: number; ts: number }) => void;
 }
 
 function escapeHtml(s: string): string {
@@ -94,10 +102,11 @@ function collectParagraphs(div: HTMLDivElement): string[] {
 }
 
 const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
-  { projectId, chapterRef, fs, lh, hidden, onAIStateChange },
+  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress },
   ref,
 ) {
   const editorRef = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const store = useChapterData(projectId, chapterRef);
   const { prose, status, setProse } = store;
   const archived = status === "archived";
@@ -177,6 +186,28 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     return () => document.removeEventListener("selectionchange", onSel);
   }, [captureNow, onAIStateChange]);
 
+  // ── 上次写作会话（行头归一「续写」）：输入/滚动节流 1s 记「本章+滚动比例」 ──
+  const lastSaveRef = useRef(0);
+  const saveProgress = useCallback(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const now = Date.now();
+    if (now - lastSaveRef.current < 1000) return;
+    lastSaveRef.current = now;
+    const max = wrap.scrollHeight - wrap.clientHeight;
+    const scroll = max > 4 ? Math.min(1, Math.max(0, wrap.scrollTop / max)) : 0;
+    setLastWriteSession(projectId, chapterRef, scroll);
+    onWriteProgress?.({ ref: chapterRef, scroll, ts: now });
+  }, [projectId, chapterRef, onWriteProgress]);
+
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const onScroll = () => saveProgress();
+    wrap.addEventListener("scroll", onScroll, { passive: true });
+    return () => wrap.removeEventListener("scroll", onScroll);
+  }, [saveProgress]);
+
   // ── 输入 → store（自动保存由 store 防抖；1.5s） ───────────────────────
   const handleInput = useCallback(() => {
     if (archived || streamingRef.current) return;
@@ -185,7 +216,38 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     const next = collectParagraphs(div).join("\n");
     lastRenderedRef.current = next;
     setProse(next);
-  }, [archived, setProse]);
+    saveProgress();
+  }, [archived, setProse, saveProgress]);
+
+  // ── 续写恢复：每个信号号只恢复一次（appliedResumeRef 守卫）。
+  //    换章加载时内容未就绪 → rAF 轮询等 scrollHeight 长出来（上限 2s），
+  //    空章/不可滚动则放弃。守卫是必须的：resumeScroll 每次渲染都是新对象，
+  //    不守卫的话用户续写后每次输入/滚动都会被拽回旧位置 ────────────────────
+  const appliedResumeRef = useRef(0);
+  useEffect(() => {
+    if (!resumeScroll || !resumeScroll.n) return;
+    if (appliedResumeRef.current === resumeScroll.n) return;
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const start = performance.now();
+    let raf = 0;
+    const tick = () => {
+      const max = wrap.scrollHeight - wrap.clientHeight;
+      if (max > 4) {
+        appliedResumeRef.current = resumeScroll.n;
+        wrap.scrollTop = Math.min(1, Math.max(0, resumeScroll.pct)) * max;
+        return;
+      }
+      if (performance.now() - start < 2000) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        // 放弃（空章本无可恢复），同样标记防重入
+        appliedResumeRef.current = resumeScroll.n;
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [resumeScroll, chapterRef]);
 
   // ── AI 流式写入 ────────────────────────────────────────────────────────
   const renderStreamed = useCallback((base: string, generated: string) => {
@@ -366,7 +428,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           </button>
         </div>
       )}
-      <div className="editor-wrap" hidden={hidden}>
+      <div className="editor-wrap" hidden={hidden} ref={wrapRef}>
         {/* contentEditable 用字符串 "false"：布尔 false 会被 React 整个丢掉属性，
             归档/流式态需要 contenteditable="false" 保住只读语义（a11y + e2e 可判定） */}
         <div
