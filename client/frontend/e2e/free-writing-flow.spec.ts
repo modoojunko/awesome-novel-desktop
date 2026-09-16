@@ -294,6 +294,14 @@ test("免费归档：不 500，正文只读，树已归档即时同步", async (
     });
     // 顶栏主线定位随归档推进：端点推进到本章＋卷面进度 1/1
     await expect(barHere).toContainText("第一卷 · 1/1");
+    // 已归档章无「草稿」徽（徽标语义＝有正文未归档）
+    await expect(barHere.locator(".bh-tag")).toHaveCount(0);
+    // 续写落到该章既有只读态：不报错、不自动解锁写（会话仍指向本章）
+    await page.locator('[data-od-id="resume-cta"]').click();
+    await expect(page.getByText(/本章已归档 · 只读/).first()).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.locator(".editor")).toHaveAttribute("contenteditable", "false");
   } finally {
     await restore();
   }
@@ -302,6 +310,36 @@ test("免费归档：不 500，正文只读，树已归档即时同步", async (
 // -------------------------------------------------------------------------
 // ⑦ 顶栏「续写」：回到上次退出前的章与位置（行头归一，用户拍板口径）
 // -------------------------------------------------------------------------
+
+test("顶栏续写边界：会话章已删除 → 回落首章，不报错", async ({ page }) => {
+  const { restore } = await setupFreeSession(page);
+  try {
+    const pid = await createNovel(page, `回落${Date.now() % 100000}`);
+    await writeFirstChapter(page);
+    // 注入指向不存在章节的陈旧会话（不依赖删除交互与重排号假设）
+    await page.evaluate(
+      ([k, v]) => localStorage.setItem(k, v),
+      [
+        `pref.book.${pid}.last_write`,
+        JSON.stringify({ ref: "vol-9-ch-9", scroll: 0.5, ts: Date.now() }),
+      ],
+    );
+    await page.reload();
+    const barHere = page.locator(".bar-here");
+    await expect(barHere.locator(".bh-t")).toHaveText("第 1 章", { timeout: 8000 });
+    // 续写不报错：落回真实首章正文页签，滚动为 no-op（比例来自陈旧会话但章已回落）
+    await page.locator('[data-od-id="resume-cta"]').click();
+    await expect(page.getByRole("tab", { name: /^正文/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+      { timeout: 5000 },
+    );
+    await expect(page.locator(".editor")).toBeVisible();
+    await expect(page.locator(".bar-here .bh-t")).toHaveText("第 1 章");
+  } finally {
+    await restore();
+  }
+});
 
 test("顶栏续写：回到上次退出前的章与位置", async ({ page }) => {
   const { restore } = await setupFreeSession(page);
