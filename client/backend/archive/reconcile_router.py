@@ -47,7 +47,9 @@ def _row_dict(row: ChapterReconcile) -> dict:
     }
 
 
-async def _chapter_by_ref(db: AsyncSession, project_id: str, chapter_ref: str):
+async def _chapter_by_ref(
+    db: AsyncSession, project_id: str, chapter_ref: str, user: dict
+):
     from models.chapter import Chapter
     from models.project import Novel
 
@@ -83,7 +85,7 @@ async def list_reconcile(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    ch = await _chapter_by_ref(db, project_id, chapter_ref)
+    ch = await _chapter_by_ref(db, project_id, chapter_ref, user["id"])
     rows = (
         await db.scalars(
             select(ChapterReconcile)

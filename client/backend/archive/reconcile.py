@@ -124,8 +124,6 @@ async def _run_async(novel_id: str, root_path: str, chapter_ref: str, chapter_id
     if not full_text.strip():
         return
 
-    usage_total: dict = {}
-
     # ① 设定变化提取 → kind=set_changes
     # ② 角色关系建议 → kind=relations
     # ③ 伏笔登记（埋下/收束＋证据句）→ kind=hooks
