@@ -44,23 +44,6 @@
 - When the tree renders
 - Then the chapter appears with a 「未写」 de-emphasized marker instead of being hidden
 
-### Requirement: NovelBar with advanced-config entry (N3)
-
-- The system SHALL provide `components/novel/NovelBar.tsx` with: inline book-title rename (blur/Enter saves, Esc cancels, `savedRef` prevents double-save), a type label, an archive action, a 「高级配置 ▾」 entry (settings/outline) that is **visible and enterable on free tier** with an 「可选」 marker (N3), and a free/PRO hint.
-- The 「高级配置」 entry SHALL call `setView('advanced-settings')` / `setView('advanced-outline')`.
-- On free tier (`tier === 'none'`), the bar SHALL show 「免费 · 完整人工写作（限 1 部作品）」.
-- The type label SHALL render `project.type || project.genre` with empty-fallback when the backend fields are absent.
-
-#### Scenario: Advanced-config visible on free tier
-- Given a free-tier user on the workbench
-- When NovelBar renders
-- Then a visible 「高级配置 ▾」 entry with an 「可选」 marker is present and navigates to the settings/outline views
-
-#### Scenario: Inline rename without double-save
-- Given the user editing the book title
-- When they press Enter then blur
-- Then the title saves exactly once
-
 ### Requirement: Breadcrumb navigation (N17)
 
 - The system SHALL provide `components/novel/Breadcrumb.tsx` rendering `作品名 / 第N卷 / 第N章` with `h-9` lightweight styling, shown only in the writing workbench.
@@ -153,3 +136,48 @@
 
 - **WHEN** 全局设置弹窗退役后用户进入工作台打开本书偏好弹窗
 - **THEN** 「归档 AI 摘要」开关可见可用，取值不受入口迁移影响
+
+### Requirement: 书内顶栏（行头归一：单行 appbar）
+
+- 书内页顶栏 SHALL 为**单行 48px**，自左向右依次为：品牌 logo（唯一「返回书架」入口；原「← 我的小说」链接退役）｜书名（双击就地改名，Enter 保存 / Esc 取消，SHALL 保证只保存一次）｜题材胶囊｜当前主线定位（bar-here）｜账户胶囊（档位徽）。
+- 全局顶栏组件 SHALL NOT 在 `/novel/*` 渲染书内变体——书内顶栏的唯一事实源是工作台。
+- 免费档的档位告知 SHALL 由账户胶囊的档位徽承担（原顶栏 free-hint 与「升级 PRO」按钮退役）；升级入口 SHALL 仍在右栏 locked 卡与本书偏好弹窗可达。
+- bar-here SHALL 显示：「当前主线」引导词、`第 N 章` 与章节题（题名为默认序号名时 SHALL 省略题名，避免「第 1 章第一章」重复序号）、目标章有正文且未归档时的「草稿」标签、卷面进度（`第X卷 · 已归档/总章`＋进度条）与「续写」按钮。
+- bar-here SHALL 按原型三档响应式降级：≤1320px 隐藏题材胶囊、≤1180px 隐藏卷面进度、≤920px bar-here 换行为独立一行。
+- 书内顶栏 SHALL NOT 引入第二条导航行；modnav（设定/写作/预览）保持原样位于其下。
+
+#### Scenario: 单行头
+- **WHEN** 打开任意一本书的工作台
+- **THEN** 顶栏只有一行：logo｜书名｜题材｜当前主线定位｜账户胶囊，且没有「我的小说」返回链接、免费提示条与顶栏升级按钮
+
+#### Scenario: 就地改名只保存一次
+- **WHEN** 作者双击顶栏书名、输入新名后先按 Enter 再触发失焦
+- **THEN** 书名恰好保存一次
+
+#### Scenario: 默认名不重复序号
+- **WHEN** 主线章标题为默认序号名（如「第一章」）
+- **THEN** bar-here 渲染为「第 1 章」，不拼接章节名
+
+#### Scenario: 免费态档位告知
+- **WHEN** 免费档用户打开工作台
+- **THEN** 账户胶囊显示「免费版」档位徽，且升级入口在右栏 locked 卡与本书偏好弹窗可达
+
+### Requirement: 续写＝上次写作会话恢复
+
+- 工作台 SHALL 按书、按设备（localStorage）持久化「上次写作会话」：章节 ref 与正文编辑器滚动比例，在作者于正文页输入或滚动时节流更新。
+- bar-here 的目标章 SHALL 优先取该会话指向的章节；会话缺失或其章节已不存在时 SHALL 回落「最新归档章」，再回落「首章」。
+- 「续写」SHALL 选中目标章、切到正文页签，并在章节内容就绪后恢复记录的滚动比例（加载期间允许短暂轮询重试；空章/内容不足一屏时 SHALL 为无操作）。
+- 恢复 SHALL 每个信号至多应用一次：其后作者的输入与滚动 SHALL NOT 被覆盖（编辑器 SHALL NOT 弹回恢复位置）。
+- 若会话记录的章节其后已归档，续写 SHALL 落在该章的既有只读态，不引入新的解锁行为。
+
+#### Scenario: 续写回到上次位置
+- **WHEN** 作者在第 1 章滚动到内容后部，切到第 2 章后点击顶栏「续写」
+- **THEN** 选中章回到第 1 章、正文页签激活，且编辑器滚动位置恢复到上次记录的比例
+
+#### Scenario: 恢复只发生一次
+- **WHEN** 续写恢复完成后，作者把编辑器滚回顶部并继续输入
+- **THEN** 编辑器保持作者自己的滚动与输入结果，不再被拽回恢复点
+
+#### Scenario: 会话章已删除
+- **WHEN** 上次写作会话指向的章节已被删除
+- **THEN** bar-here 与「续写」回落到最新归档章（无归档则首章），且不报错
