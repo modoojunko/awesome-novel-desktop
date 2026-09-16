@@ -13,7 +13,7 @@
 
 - `SettingsView.tsx`：原 `done === total && onGoWrite` 按钮分支删除；`.settings-progress` 容器加条件类 `done`，内部条件渲染 pb-check / pb-badge / done-btn / done-foot（JSX 约 20 行）；CHECK_PATH 对勾沿文件既有常量；箭头内联 SVG（viewBox 24、stroke 2、显式宽高——词汇表口径）
 - `book.css` settings-v 段新增 done 变体（`.settings-v .settings-progress.done` ＋ `.pb-check/.pb-badge/.done-btn/.done-foot`）；基线 `.settings-progress` 原样式不动（非 done 态零像素变化）
-- ADJUSTMENTS #23：登记词表＋「完成入口不再用普通主按钮」口径；原型转正 `prototypes/settings-done-entry.html`
+- ADJUSTMENTS #24：登记词表＋「完成入口不再用普通主按钮」口径；原型转正 `prototypes/settings-done-entry.html`
 - 测试：`creation-flow.spec.ts` 设定全确认用例尾部断言完成卡与「去写作」切换；`settings-forms.spec.ts` 文风用例（7/8 态）补「完成卡不出现」断言
 
 ## non-goals

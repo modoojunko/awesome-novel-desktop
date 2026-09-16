@@ -138,6 +138,28 @@ class TestDraft:
         assert not _re.search(r"\bage\b", prompt)
         assert not _re.search(r"\bpersonality\b", prompt)
 
+    def test_s5_hint_phrase_matches_word_list(self, client, monkeypatch):
+        """s5 提示语是「界面词表 ↔ AI 口径」的同句（cog-logical-levels）：
+        改了 COG_FIELD_HINTS 就必须同步两处 prompt，反之亦然——以词表为源断言两 prompt 都带该句。"""
+        from settings.character_model import COG_FIELD_HINTS
+
+        c, nid, captured = client
+        phrase = COG_FIELD_HINTS["s5"].rstrip("？")  # prompt 句尾接「（他的「道」）。」，取共同前缀
+
+        # ① cog 补全路径（draft target=cog）
+        card = asyncio.run(_add_card(nid, dossier={}, cog={}))
+        _install_fake(monkeypatch, {"fills": {"s5": "守着灰港的夜"}}, captured)
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/{card.id}/draft",
+                   json={"target": "cog"})
+        assert r.status_code == 200, r.text
+        assert phrase in captured[-1]["messages"][0]["content"], "cog prompt 缺 s5 口径（词表已改？）"
+
+        # ② bootstrap 出稿路径
+        _install_fake(monkeypatch, {"name": "林拾", "persona": "人设", "fills": {}}, captured)
+        r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={})
+        assert r.status_code == 200, r.text
+        assert phrase in captured[-1]["messages"][0]["content"], "bootstrap prompt 缺 s5 口径（词表已改？）"
+
     def test_persona_replace_and_no_recall_when_filled(self, client, monkeypatch):
         c, nid, captured = client
         card = asyncio.run(_add_card(nid))  # persona 为空 → 有 targets
