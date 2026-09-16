@@ -6,6 +6,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { charactersApi, BootstrapDraft, CharacterCard } from "@/lib/charactersApi";
 import {
   COG_FILL_KEYS,
+  COG_LEVEL_HINTS,
   COG_LAYERS,
   DOSSIER_FIELDS,
   DOSSIER_FILL_KEYS,
@@ -816,6 +817,9 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                         <span className="cog-layer-no">{layer.no}</span>
                         <span className="cog-layer-name">{layer.name}</span>
                         <span className="cog-layer-tag">{layer.tag}</span>
+                        <span className="cog-layer-hint" title={COG_LEVEL_HINTS[layer.id]}>
+                          {COG_LEVEL_HINTS[layer.id]}
+                        </span>
                         <span className={`cog-layer-prev${primary ? " has" : ""}`}>
                           {primary || "还没写——展开补这一层的核心一句"}
                         </span>
