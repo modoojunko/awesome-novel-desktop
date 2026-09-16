@@ -1093,3 +1093,39 @@ test("角色体检：身心一致三问（好矛盾判达标、真冲突判矛�
     await restore();
   }
 });
+
+// -------------------------------------------------------------------------
+// ⑦ 认知区提示（cog-logical-levels）：层头六问 hint 常显 + 展开自我观见 s5 格位 hint
+//    认知区进不了像素基线（角色屏 parity 用例整体 skip、裁剪只覆盖三栏首屏），
+//    这块的可见性由本用例兜（ADJUSTMENTS #25）。
+// -------------------------------------------------------------------------
+test("认知区提示：层头六问 hint + 展开自我观见 s5 格位 hint", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    await createNovel(page, `认知${Date.now() % 100000}`);
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "角色");
+    await page.getByRole("button", { name: "添加角色" }).click();
+    await page.getByRole("textbox", { name: "角色名称" }).fill("林晚");
+    await page.waitForTimeout(1200); // 末格 PATCH 落库
+
+    // 层头六问 hint：不展开即可见（抽验世界观/自我观两层，六层同源）
+    await expect(page.getByText("他眼里的世界是什么样的？")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText("他把自己当成谁？")).toBeVisible();
+
+    // 展开「自我观」层 → s5 格位 hint 落在 label 下方（.cog-field 内的 .f-hint）
+    await page
+      .locator(".cog-layer", { hasText: "自我观" })
+      .locator(".cog-layer-head")
+      .click();
+    await expect(
+      page.locator(".cog-field", { hasText: "宿命认知观" }).locator(".f-hint"),
+    ).toHaveText("他和这个世界到底是怎么回事？这条路走到头，他注定要面对什么？", {
+      timeout: 5000,
+    });
+  } finally {
+    await restore();
+  }
+});

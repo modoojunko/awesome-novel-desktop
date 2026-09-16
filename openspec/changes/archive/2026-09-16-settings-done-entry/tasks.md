@@ -4,7 +4,7 @@
 
 ## 1. 原型转正
 
-- [x] 1.1 设计稿 `docs/design-c/drafts/ai-novel-c端-设定完成去写作.html`（v2 合一版）转正 `docs/design-c/prototypes/settings-done-entry.html`；ADJUSTMENTS #23 登记（settings-progress.done 变体词表、pb-check/pb-badge/done-btn/done-foot、「完成入口不用普通主按钮」口径）；design-vocab strictGlobs 增补；design:lint 通过
+- [x] 1.1 设计稿 `docs/design-c/drafts/ai-novel-c端-设定完成去写作.html`（v2 合一版）转正 `docs/design-c/prototypes/settings-done-entry.html`；ADJUSTMENTS #24 登记（settings-progress.done 变体词表、pb-check/pb-badge/done-btn/done-foot、「完成入口不用普通主按钮」口径）；design-vocab strictGlobs 增补；design:lint 通过
 
 ## 2. 实现
 

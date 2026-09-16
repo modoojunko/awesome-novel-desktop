@@ -607,6 +607,8 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     NovelWorkspace 渲染（AcctMenu＋BookPrefsModal 随迁）；wb.volumes 即数据源。
 
 24. **设定完成入口重设计（settings-done-entry，2026-09-16）**
+    （编号沿革：本条与上方「书内行头归一」曾撞号 23，2026-09-16 按「先写者留号」后移为 24；
+    `openspec/changes/archive/2026-09-16-settings-done-entry/` 内对 #23 的两处引用已同步改 #24。）
     新增 `settings-done-entry.html`（自 `drafts/ai-novel-c端-设定完成去写作.html` v2 合一版收编）。
     「设定 8/8」进度行在完成态升级为完成卡：`.settings-progress.done` 变体（ok-soft 底＋ok
     描边）＋ `.pb-check/.pb-badge/.done-btn/.done-foot` 词表；状态语言沿 §5 完成=ok 绿。
@@ -622,9 +624,11 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     一行小字：「他和这个世界到底是怎么回事？这条路走到头，他注定要面对什么？」）。
     词表双源：`character_model.py` ↔ `characterModel.ts` 的 `COG_LEVEL_HINTS`/
     `COG_FIELD_HINTS`（parity 用例对拍文案逐字）。
-    **原型未同步本区**：认知六层在 `character-settings.html` 首屏之外、像素 parity 只比
-    `list.html`（见第 18 条），本批提示文案靠实现侧 vitest（层头渲染＋展开 s5 格断言）
-    与 e2e 覆盖，故不加原型、不改基线。
+    **原型未同步本区**：认知六层在 `character-settings.html` 里位于首屏之外；角色屏 parity 用例
+    （`design-parity-book.spec.ts` 的 `settings-characters` 条目）当前整体 skip（间距节奏待逐项
+    对齐，见第 19 条）且截图裁剪只覆盖三栏首屏，认知区进不了像素基线。本批文案的覆盖＝实现侧
+    vitest（层头渲染＋展开 s5 格断言）＋ e2e 文本断言（`settings-forms.spec.ts`
+    「认知区提示」用例钉住层头 hint 与 `.cog-field .f-hint` 的 s5 原文）；故不加原型、不改基线。
     **口径**：一律大白话，「理解层次/NLP/上三层下三层/精神层/张力」等术语不上界面。
 
 26. **顶栏「续写」＝回到上次退出前的进度（appbar-resume-session，2026-09-16）**
