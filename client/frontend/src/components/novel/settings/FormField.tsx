@@ -9,11 +9,15 @@ import { Ico, P } from "@/components/icons";
 // ── SettingSaveHandle ─────────────────────────────────────────────
 /** 表单保存句柄（gap3）：SettingsView 持 ref 调用，确认完成前先把内容落库。
  *  markDirty：save 成功但 confirm 400 时恢复 dirty（D14/O-4）；
- *  clearAi：确认成功后清空 AI 结果区（D14/O-5）。 */
+ *  clearAi：确认成功后清空 AI 结果区（D14/O-5）；
+ *  canConfirm：确认预检（伏笔门禁 ≥1 条描述非空——提示性，不 disable，后端兜底）；
+ *  markConfirmed：确认成功后快照内容指纹（伏笔「内容有变」降级徽标的基线）。 */
 export type SettingSaveHandle = {
   save: () => Promise<boolean>;
   markDirty?: () => void;
   clearAi?: () => void;
+  canConfirm?: () => boolean;
+  markConfirmed?: () => void;
 };
 
 // ── AI props ──────────────────────────────────────────────────────
@@ -93,10 +97,14 @@ export function InputField({
 
 // ── ListEditor（li-row 列表 + 添加一项）────────────────────────────
 export function ListEditor({
-  label, hint, items, onChange, placeholder, maxLength, maxItems, aiGeneratable, onAIGenerate, aiLoading,
+  label, hint, items, onChange, placeholder, maxLength, maxItems, aiGeneratable, onAIGenerate, aiLoading, onMoveUp, showCount,
 }: {
   label?: string; hint?: string; items: string[]; onChange: (v: string[]) => void;
   placeholder?: string; maxLength?: number; maxItems?: number;
+  /** 可选上移（style-settings-v2：硬约束/手法的行序即注入序） */
+  onMoveUp?: (i: number) => void;
+  /** 可选 x/y 计数（上限语义可见，§13：上限写在输入处不藏报错里） */
+  showCount?: boolean;
 } & AIProps) {
   return (
     <div className="field">
@@ -122,6 +130,16 @@ export function ListEditor({
             }}
           />
           <span className="acts">
+            {onMoveUp && i > 0 && (
+              <button
+                className="icon-btn"
+                type="button"
+                title="上移"
+                onClick={() => onMoveUp(i)}
+              >
+                <Ico d={P.chevronUp} sw={2} />
+              </button>
+            )}
             <button
               className="icon-btn"
               type="button"
@@ -139,21 +157,25 @@ export function ListEditor({
           添加一项
         </button>
       )}
+      {showCount && maxItems && (
+        <span className="opt li-cnt num">{items.length}/{maxItems} 条</span>
+      )}
     </div>
   );
 }
 
 // ── Cfg（details.cfg 折叠组：summary 标题 + 可选 tag + chev）────────
 export function Cfg({
-  title, tag, open, children,
+  title, tag, sum, open, children,
 }: {
-  title: string; tag?: string; open?: boolean; children: ReactNode;
+  title: string; tag?: string; /** 组头摘要（style-settings-v2：收起态也传达信息） */ sum?: string; open?: boolean; children: ReactNode;
 }) {
   return (
     <details className="cfg" open={open || undefined}>
       <summary>
         {title}
         {tag && <span className="tag">{tag}</span>}
+        {sum && <span className="sum">{sum}</span>}
         {/* P.* 是元素串：走 innerHTML 注入（与 Ico 同口径），d= 会吃进整个 <path> 报错 */}
         <svg
           className="chev"

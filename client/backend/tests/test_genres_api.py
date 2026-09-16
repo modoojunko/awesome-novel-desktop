@@ -154,7 +154,6 @@ class TestGenreCRUD:
                 "fulfillmentTypes": ["成长"],
                 "chapterTypes": ["日常"],
                 "pacingRules": ["每章一个场景"],
-                "fatigueWords": ["突然"],
             },
             "storyArcTemplates": [
                 {"id": "a1", "name": "成长弧", "description": "d", "beats": ["b1"]}
@@ -170,7 +169,7 @@ class TestGenreCRUD:
         r2 = client.get("/api/genres/my-custom-genre")
         assert r2.status_code == 200, r2.text
         assert r2.json()["narratorRole"] == "贴近主角的第三人称"
-        assert r2.json()["genreConfig"]["fatigueWords"] == ["突然"]
+        # fatigueWords 概念退役（banned-words-into-style）：禁用词归文风 KV
 
         r3 = client.put(
             "/api/genres/my-custom-genre", json={**body, "name": "改名字"}

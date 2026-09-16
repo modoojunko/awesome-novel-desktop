@@ -488,3 +488,161 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     ~23px、面板头差 ~7px、模型设定行宽差 8px、字体光栅差异；0.2% 阈值按同源 CSS
     校准，不适用于跨实现比对。基线三张图照常落 `docs/design-c/baselines/`，逐项
     对齐间距后把 skip 换回阈值断言。认知六层/关系区在首屏之外，靠 e2e 覆盖。
+
+20. **伏笔设定改版（foreshadow-settings-v2，2026-09-15）**
+    新增 `foreshadow-settings.html`（自 `drafts/ai-novel-c端-伏笔设定.html` v3 终稿收编，
+    `data-od-id` 全量保留）。本稿取代 `book.html` 设定段登记的「伏笔（活跃/已收束/废弃三分组，
+    9 类钩子+优先级）」旧口径（PR 4 #3，留作历史）；实现依据以本稿＋
+    `openspec/changes/foreshadow-settings-v2/specs/foreshadow-settings` 契约为准。
+
+    **类名映射表（.kv 家族作用域化，避让世界面板现役 .kv-row/book.css:694）**：
+    `.kv`→`.hk-kv`、`.kv-row`→`.hk-kv-row`、`.kv-k`→`.hk-kv-k`、`.kv-static`→`.hk-kv-static`、
+    `.kv-hint`→`.hk-kv-hint`（`.kv-row.span2` 语义并入 `.hk-kv-row.span2`）。台账两行条目
+    `.hk-item/.hk-dot/.hk-b/.hk-name/.hk-meta` 与分组头 `.sub-group-label`（g-dot 三色）为
+    settings-v 作用域新类；其余（.cap/.cap-row/.seg-note/.badge/.btn/.input/.textarea/.opt/
+    .text-btn/.save-state/.sub-empty/.receipt-bar/.ai-sink/.chk-line/.rail-assist/.tree-*/.
+    sec-label/.sl-tag/.panel-foot）全部现役复用，不新增第四种胶囊/徽标档位。
+
+    **状态语言登记**：状态点三色 活跃=实心 warn／已收束=实心 ok／废弃=muted 描边——台账点、
+    分组头点、卡面状态徽标（.sl-tag st-*）、状态切换控件全链同源；面板徽标五态：
+    还没有伏笔=empty／N 条待收束=warn／已确认 · N 条待收束=done／全部收束=ok／
+    内容有变 · 待重新确认=warn（优先级最高，文案不含「已确认」，守 §5 S-R2）。
+    保存四态（saving/saved/dirty/failed）落面板脚 .save-state（mono 小字）；「存草稿」
+    按钮对伏笔隐藏。data-aiact=h1-h4；**空态 AI 旁路（btn-empty-ai）＝「编辑区零 AI 按钮」
+    的唯一登记例外**，随 aiState 门控矩阵走（免费可见＋锁定）。
+
+    **词汇修正（相对 v3 稿面，有意的偏差）**：类型下拉中文标签以后端词表单源
+    `settings/hooks_model.py` 镜像为准——悬念/威胁/承诺/线索/关系伏笔/能力伏笔/情绪钩/
+    选择钩/渴望钩（稿面 谜团/关系/力量/情感/选择/欲望 为草稿期旧词）；demo 候选标签同步。
+
+    **评审脚手架（非基线，实现对照与 parity 截图排除）**：doc-head 稿头、win-titlebar、
+    appbar「客服/设置」演示按钮、modnav 页签、右下 toast 演示。转正补 modnav（对齐
+    character-settings.html 先例）；demo 内两处 id（badgeLedger/abandonedNote）改名
+    stateBadge/dropNote——避让 design:lint 裸 hex 正则（`#bad`/`#aba` 命中），语义不变。
+
+    **门禁范围**：本文件已加入 `design-vocab.mjs` 的 `strictGlobs`（严格原型 5→6，lint 通过）。
+
+21. **文风设定改版（style-settings-v2，2026-09-15）**
+    新增 `style-settings.html`（自 `drafts/ai-novel-c端-文风设定.html` 终稿收编）。
+    面板内两页签（文字文风／量化参数）＝**页签回归例外**（design-language §7 tabs
+    语言，仅面板内层级，面板间导航仍走左树）——用户拍板，替代单页长滚动。
+
+    **类名映射表（settings-v 作用域新类，落 book.css 本地段）**：页签
+    `.ptabs/.ptab`（+`.ptab-pro` 小徽，视觉档同 plan-badge 缩小）；锚定块
+    `.fblock/.fb-head/.fb-no/.hint` 与锚定链 `.anchor-chain/.ac-node/.ac-arrow/.ac-note`；
+    基线 `.dims/.dims-meta/.bx-row/.bx-head/.bx-name/.bx-dims/.bx-vals/.bx-note/
+    .lock-btn/.five-bar/.fb-legend`；明细 `.det-row/.dk/.dv2`；蒸馏 `.sample-box/
+    .sample-row/.s-name/.s-cnt/.s-check/.sample-total/.dist-step/.ds-no/.ds-b/.ds-ok/
+    .portrait/.pz-head/.pz-note/.pz-ask/.pz-act`；空态复用 sub-empty 家族。
+    **共享化**：`.hk-sec-label/.hk-sl-tag` 提升为 `.settings-v .sec-label/.sl-tag`
+    （hk-* 保留别名，HooksSettingForm 不改名）。**组件扩展（不新增词表）**：
+    `Cfg` +sum 摘要位、`ListEditor` +上移/`x/y` 计数（`.li-cnt`）。
+    **不入库**（稿内演示残留）：src-card 家族、genre-grid/g-chip、badge.done、
+    badge.acc（页签 PRO 小徽用 .ptab-pro）。
+
+    **状态语言登记**：页签徽标 文字文风=「题材默认」ok→「已自定义 · N 处」warn；
+    量化=「未蒸馏」empty→「置信度 N」acc；蒸馏三步完成=ok；锁定按钮 aria-pressed、
+    五层条 aria-hidden。**data-od-id**：style-tabs/input-style-role/list-rules/
+    list-craft/list-fewshots/field-*/chain-anchor/quant-*/lock-{row}/distill-*/
+    author-portrait/btn-portrait-keep/btn-portrait-retry/sink-style-check。
+
+    **门禁范围**：design-vocab.mjs strictGlobs 增补本文件（严格原型 6→7）。
+
+---
+
+22. **禁用词收编文风（banned-words-into-style，2026-09-16）**
+    「禁用词句」独立面板退役，内容收编为文风卡硬约束区两个折叠组。三文件同批：
+
+    **book.html**（settings 屏 parity 基线）：
+    1. 设定左栏 `ITEMS` 去掉 `antiAI`（AI痕迹控制）项——内容菜单 8→7，
+       末项变为伏笔；`DESCS` 同步摘除；「AI痕迹控制」措辞全清。
+    2. 摘除 antiAI 面板渲染器与演示死数据（`FATIGUE_CATS`/`SET_ANTI`/`ticCards`）。
+    3. 面板种子注释同步（空面板清单去 AI痕迹）。
+
+    **style-settings.html**（文风卡基线）：
+    4. 左栏示意 nav 去禁用词句项（与 book.html 同口径）。
+    5. 硬约束区（②）后新增两个折叠组（Cfg，默认收起、组头 sum 常显「N 条」，
+       设计语言高密度表单口径）：**禁用词**（词表 ≤100，模板按七类预填 37 条，
+       `data-od-id="group-banned-words/list-banned-words"`）与**句式规则**
+       （正则＋阈值＋严重度 ≤20 条，sub-block tics 形态，
+       `data-od-id="group-tic-patterns/list-tic-patterns"`）；组头计数 `#bannedCount/
+       #ticCount` 随增删同步。
+    6. 文案改口：②硬约束 hint「通用的 AI 词句归『禁用词句』面板拦」→「归下方
+       『禁用词』『句式规则』两组拦（同一处管体检）」；锚定体检 desc、蒸馏 ra-foot、
+       lexicon note、AI 体检头/行 同步去面板指涉改组指涉。
+    7. 设计注记补 ⑥（收编口径）；⑤ 历史注记不改写。
+
+    **foreshadow-settings.html**：
+    8. 左栏示意 nav 去禁用词句项；hookOkNote「确认即前进到『禁用词句』」→
+       「确认后停留本格（已是最后一项）」；确认 toast 同步（伏笔成为末项）。
+
+    **parity 影响**：settings CASE 只截左栏＋默认简介面板——左栏少一行即像素变化，
+    基线需重录；文风卡新版面（两折叠组）不在现有 CASE 截图内，暂无新增 CASE
+    （该卡交互多、折叠态多，等实现侧稳定后随 parity 重录一并评估）。
+---
+
+23. **书内行头归一（appbar-single-row，2026-09-16）**
+    `book.html` 原双行头（appbar 48「logo＋返回我的小说＋账户」＋ novelbar 44
+    「书名＋题材＋免费提示/PRO 徽＋升级钮」）并成**一行 48px**：logo（即返回入口，
+    title「返回我的小说」，跳 list.html）｜书名｜题材胶囊｜**当前主线定位 bar-here**
+    ｜账户胶囊。口径取自 `drafts/storyline.html`（写作工作台原型）顶栏段，用户拍板
+    「行头归一以此为准」；省出一整条给正文。
+
+    **砍掉的顶栏位**：「← 我的小说」返回链接（返回=点 logo）；免费提示 free-hint
+    与「升级 PRO」钮（免费态标识收敛到账户胶囊档位徽「免费版」；升级入口仍在右栏
+    locked 卡与本书偏好弹窗）。`applyPro()` 同步摘除 freeHint/proPill/btnUpgrade
+    三处引用。
+
+    **新增顶栏段 bar-here**：`bh-k 当前主线｜bh-rule｜bh-t 第 N 章＋题｜bh-prog
+    卷序 · 已归档/总章＋prog-bar`。**v1 口径＝最新归档章为端点**（无归档落首章；
+    空书留空槽），storyline.html 的拟定/待写 frontier 口径待主线状态机立项后切换。
+    响应式三档随 storyline：≤1320px 藏题材、≤1180px 藏 bh-prog、≤920px 折行。
+
+    **类名**：`.bar-here/.bh-k/.bh-rule/.bh-t(+.n)/.bh-prog/.bh-vol/.prog-bar`
+    直接收编（storyline 同名），应用侧落 book.css 顶栏段并 `.bar-here` 前缀作用域；
+    删 `.appbar .back`/`.novelbar`/`.free-hint`/`.pill-pro`（无其他使用点）。
+    **data-od-id**：appbar-logo（原 back-to-list 退役）、current-position。
+
+    **同步实现**：Navbar 书内变体退役（/novel/* 返回 null），合并头由
+    NovelWorkspace 渲染（AcctMenu＋BookPrefsModal 随迁）；wb.volumes 即数据源。
+
+24. **设定完成入口重设计（settings-done-entry，2026-09-16）**
+    （编号沿革：本条与上方「书内行头归一」曾撞号 23，2026-09-16 按「先写者留号」后移为 24；
+    `openspec/changes/archive/2026-09-16-settings-done-entry/` 内对 #23 的两处引用已同步改 #24。）
+    新增 `settings-done-entry.html`（自 `drafts/ai-novel-c端-设定完成去写作.html` v2 合一版收编）。
+    「设定 8/8」进度行在完成态升级为完成卡：`.settings-progress.done` 变体（ok-soft 底＋ok
+    描边）＋ `.pb-check/.pb-badge/.done-btn/.done-foot` 词表；状态语言沿 §5 完成=ok 绿。
+    **口径**：完成入口不再使用普通主按钮（长得和「保存」一样）；未完成态零像素变化。
+    非基线演示元素：doc-head、win-titlebar、appbar/modnav、右下状态切换器与 toast。
+    门禁范围：design-vocab.mjs strictGlobs 增补本文件。
+
+25. **认知六层对齐理解层次（cog-logical-levels，2026-09-16）**
+    认知区词表补两处**提示文案**（只读小字，无交互、无新形态）：
+    ① 层头六问 hint `.cog-layer-hint`（他眼里的世界是什么样的？/ 他把自己当成谁？/
+    他在乎什么？为什么做这些事？/ 他能做什么？怎么做到的？/ 遇到事，他会怎么做？/
+    他身边有什么人、什么事？）；② s5 格位 hint——复用 base.css 既有 `.f-hint`（label 下
+    一行小字：「他和这个世界到底是怎么回事？这条路走到头，他注定要面对什么？」）。
+    词表双源：`character_model.py` ↔ `characterModel.ts` 的 `COG_LEVEL_HINTS`/
+    `COG_FIELD_HINTS`（parity 用例对拍文案逐字）。
+    **原型未同步本区**：认知六层在 `character-settings.html` 里位于首屏之外；角色屏 parity 用例
+    （`design-parity-book.spec.ts` 的 `settings-characters` 条目）当前整体 skip（间距节奏待逐项
+    对齐，见第 19 条）且截图裁剪只覆盖三栏首屏，认知区进不了像素基线。本批文案的覆盖＝实现侧
+    vitest（层头渲染＋展开 s5 格断言）＋ e2e 文本断言（`settings-forms.spec.ts`
+    「认知区提示」用例钉住层头 hint 与 `.cog-field .f-hint` 的 s5 原文）；故不加原型、不改基线。
+    **口径**：一律大白话，「理解层次/NLP/上三层下三层/精神层/张力」等术语不上界面。
+
+26. **顶栏「续写」＝回到上次退出前的进度（appbar-resume-session，2026-09-16）**
+    用户拍板：bar-here 的「续写」不是跳队列末端开新章，而是**回到上次退出前的位置**
+    （哪一章＋编辑器滚动位置）。设备本机 localStorage `pref.book.{pid}.last_write`
+    （ref＋滚动比例＋ts；ProsePane 输入/滚动节流 1s 记录）；bar-here 主线端点随之
+    **优先显示上次写到的章**，无记录回落「最新归档章」→ 首章。新增
+    `.bh-tag/.bh-tag-live` 草稿徽（storyline .tag/.tag-live 同款收编改名，避让 cfg
+    摘要 .tag）：端点章有正文未归档即显示「草稿」；「拟定」徽待主线状态机（自由
+    写作模式无拟定态，该徽正确地不出现）。**data-od-id**：resume-cta。原型的队列
+    门禁语义（拟定排队/末端开写）仍待状态机立项，本条不覆盖。
+
+    **草稿徽语气登记**：取**中性**款（`.bh-tag-live` = fg 字色 + fg/38% 描边，非
+    warn）——依 design-language §5 规则 **S-R3**「警示性的常态化徽标禁止（永久挂
+    「草稿」warn 徽标会把警示日常化）」，bar-here 的「草稿」是恒显常态属性，故不上
+    警示色；§5 令牌表「草稿 → warn」的映射适用于瞬时/非恒显状态位（如章节行
+    dot-warn），两者不冲突。storyline 原型 `.tag-live` 同为中性款，收编一致。

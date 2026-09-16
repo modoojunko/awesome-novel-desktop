@@ -140,3 +140,59 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 #### Scenario: 第三态文案合规
 - **WHEN** 角色项因内容变动退回未完成
 - **THEN** 徽标文案为「内容有变 · 待重新确认」，不含「已确认」字样
+
+### Requirement: 认知六层的理解层次标记
+
+角色认知六层区块 SHALL 在层头补一句大白话 hint（给作家看的，不出现「理解层次/NLP/上三层下三层/精神层」等术语）：
+- 世界观：「他眼里的世界是什么样的？」
+- 自我观：「他把自己当成谁？」
+- 价值观：「他在乎什么？为什么做这些事？」
+- 能力：「他能做什么？怎么做到的？」
+- 行为：「遇到事，他会怎么做？」
+- 环境：「他身边有什么人、什么事？」
+s5 的展示口径 SHALL 为「宿命认知观」＋hint「他和这个世界到底是怎么回事？这条路走到头，他注定要面对什么？」。层名 SHALL 保留既有叫法不改写。hint 与分组标记 SHALL 复用既有 `.cog-layer-tag` 档位（或同档位等价类），SHALL NOT 新增胶囊形态。
+
+#### Scenario: 层头带大白话 hint
+- **WHEN** 作者展开认知六层的「自我观」层
+- **THEN** 层头可见 hint「他把自己当成谁？」；s5 格位 hint 为「他和这个世界到底是怎么回事？这条路走到头，他注定要面对什么？」
+
+#### Scenario: 词表双源一致
+- **WHEN** 后端 character_model 与前端 characterModel 的 label/口径变更
+- **THEN** 两端同批修改且 parity 测试通过（镜像个数为零）
+
+### Requirement: 伏笔面板的词表与状态词汇
+
+- 伏笔台账与伏笔卡 SHALL 使用 settings-v 作用域的 hk-* 词表（台账两行条目、分组头、伏笔卡档案表）， SHALL NOT 复用世界面板现役 `.kv-row` 等同名异义类——落地时以 ADJUSTMENTS 登记的类名映射表为准（`.kv` 家族作用域化或改名 `.hk-kv`）。
+- 伏笔对象的状态语言 SHALL 全链同源（N5）：活跃＝实心 warn、已收束＝实心 ok、废弃＝muted 描边；台账点、分组头点、卡面状态徽标、状态切换控件共用同一套语义色，禁止为单屏发明第四种组合。
+- 面板徽标口径：还没有伏笔=empty、N 条待收束=warn、已确认 · N 条待收束=done、全部收束=ok、内容有变 · 待重新确认=warn（优先级最高）。
+- 回执 SHALL 面板内自管（不经 SettingsView 回执通道），语义沿用回执语言：最近一条、8 秒自清窗口、撤销按钮。
+- 面板脚 SHALL 呈现保存态（保存中…/已自动保存，mono 小字），「存草稿」按钮对伏笔隐藏。
+
+#### Scenario: 状态点与卡面徽标同色
+
+- **WHEN** 一条伏笔处于「已收束」状态
+- **THEN** 台账状态点、分组头计数点与卡面状态徽标均为 ok 语义色，三者由同一 status 派生
+
+#### Scenario: 类名不撞世界面板
+
+- **WHEN** 伏笔面板与世界面板同处于设定视图
+- **THEN** 伏笔卡的档案表样式不改变世界面板 `.kv-row` 的布局（类名经映射表隔离）
+
+### Requirement: 设定页内页签与文风量化词表
+
+- 设定面板内层级 SHALL 允许页签（`.settings-v .ptabs/.ptab`），并在 ADJUSTMENTS 登记页签回归例外（仅面板内层级，面板间导航仍走左树）；页签激活态沿 modnav 口径（accent 下划线）。
+- 文风面板 SHALL 收编以下 settings-v 作用域词表（book.css 本地段，随 ADJUSTMENTS 登记映射）：锚定块 `.fblock/.fb-head/.fb-no/.hint` 与锚定链 `.anchor-chain/.ac-node/.ac-arrow/.ac-note`；基线 `.dims/.dims-meta/.bx-row/.bx-head/.bx-name/.bx-dims/.bx-vals/.bx-note/.lock-btn/.five-bar/.fb-legend/.det-row`；蒸馏 `.sample-box/.sample-row/.s-name/.s-cnt/.s-check/.sample-total/.dist-step/.ds-no/.ds-b/.ds-ok/.portrait/.pz-head/.pz-note/.pz-ask/.pz-act`。
+- `Cfg` 折叠组件 SHALL 加可选 `sum` 摘要位（组头一行灰字，收起态也传达信息）；`ListEditor` SHALL 加可选上移与 `x/y` 计数（`maxItems` 到量隐藏添加钮已有）；均 SHALL 以可选 prop 扩展，SHALL NOT 新造平行词表。
+- `.hk-sec-label/.hk-sl-tag` SHALL 提升为 `.settings-v .sec-label/.sl-tag` 共享类（hk-* 保留别名或机械改名，映射表随 ADJUSTMENTS 登记），SHALL NOT 长期两套。
+- 已撤并入口的遗留词表（src-card 家族、genre-grid/g-chip、badge.done）SHALL NOT 入库。
+- 基线锁定按钮 SHALL 带 `aria-pressed`；五层占比条为纯装饰 SHALL 带 `aria-hidden`。
+
+#### Scenario: 页签例外已登记
+
+- **WHEN** design:lint 检查 settings-v 作用域新类
+- **THEN** ptabs/ptab 在 ADJUSTMENTS 例外清单内放行；面板间导航未出现第二套页签
+
+#### Scenario: 锁定状态可被辅助技术读出
+
+- **WHEN** 基线行「篇幅配比」处于锁定态
+- **THEN** 锁定按钮带 aria-pressed=true，五层条 aria-hidden=true

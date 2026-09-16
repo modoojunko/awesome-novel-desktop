@@ -5,36 +5,23 @@ import json
 from ai_client import get_ai_client_for_novel
 from filesystem.storage import get_storage
 from prompts import load as load_prompt
-from settings.render import depiction_techniques_str, flatten_principles
+from settings.render import style_section
 from workflow.engine import load_chapter, save_chapter
 
 
 def _format_style(style: dict) -> str:
-    """Format writing style dict into a readable string."""
-    parts = []
-    role = style.get("role", "")
-    if role:
-        parts.append(f"叙事角色：{role}")
-    principles = flatten_principles(style.get("core_principles"))
-    if principles:
-        parts.append(f"写作原则：{'；'.join(principles[:3])}")
-    techniques = depiction_techniques_str(style)
-    if techniques:
-        parts.append(techniques)
-    return "\n".join(parts)
+    """文风三区（style-settings-v2）：身份→红线→手法（单一来源，沿 chapter_writer 口径）。"""
+    sec = style_section(style)
+    return sec or (f"叙事角色：{style.get('role', '')}" if style.get("role") else "")
 
 
-def _format_anti_ai(rules: dict) -> str:
-    """Format anti-ai rules into a readable string."""
+def _format_anti_ai(style: dict) -> str:
+    """禁用词/句式提示（banned-words-into-style：单源自文风 KV 硬约束区）。"""
     parts = []
-    fatigue = rules.get("fatigue_words_zh", {})
-    words = []
-    for category in fatigue.values():
-        if isinstance(category, list):
-            words.extend(category)
+    words = [str(w) for w in (style.get("banned_words") or [])]
     if words:
         parts.append(f"禁止词汇：{'、'.join(words[:15])}")
-    tic_patterns = rules.get("structural_tic_patterns", [])
+    tic_patterns = style.get("tic_patterns") or []
     if tic_patterns:
         patterns = [r.get("pattern", "") for r in tic_patterns if isinstance(r, dict)]
         if patterns:
@@ -46,6 +33,7 @@ async def build_auxiliary_context(
     root_path: str,
     chapter_ref: str,
     style_settings: dict | None = None,
+    novel_id: str | None = None,
 ) -> dict[str, str]:
     """Build context dictionary for auxiliary writing from chapter data and settings.
 
@@ -56,23 +44,21 @@ async def build_auxiliary_context(
     ctx: dict[str, str] = {}
 
     # Writing style — resolve once and store metadata for caller
-    style = (
-        style_settings
-        if style_settings is not None
-        else (
-            await get_storage().read_yaml(root_path, "settings/writing-style.yaml")
-            or {}
-        )
-    )
+    # banned-words-into-style：统一迁移感知读路径（禁用词/句式随 style 单源）
+    if style_settings is not None:
+        style = style_settings
+    else:
+        from settings.style_model import read_style_migrated
+
+        style = await read_style_migrated(root_path)
     ctx["writing_style"] = _format_style(style)
     ctx["_role"] = style.get("role", "一位小说家")
     # D12：模型＝书级（novel.ai_model），writing_model 不再作为模型来源；
     # 这里只传符号别名，客户端层 resolve() 落到本书模型。
     ctx["_writing_model"] = "haiku"
 
-    # Anti-ai rules
-    anti_ai = await get_storage().read_yaml(root_path, "settings/anti-ai.yaml") or {}
-    ctx["anti_ai_rules"] = _format_anti_ai(anti_ai)
+    # Anti-ai rules（＝文风 KV 禁用词/句式，单源）
+    ctx["anti_ai_rules"] = _format_anti_ai(style)
 
     # Chapter — recent context from end of existing prose
     chapter = await load_chapter(root_path, chapter_ref)
@@ -106,13 +92,21 @@ async def build_auxiliary_context(
         "\n".join(snap_lines) if snap_lines else "（暂无角色信息）"
     )
 
-    # Active hooks
-    hooks_data = await get_storage().read_yaml(root_path, "settings/hooks.yaml") or {}
-    hooks = hooks_data.get("active", [])
-    if hooks and isinstance(hooks, list):
-        hook_lines = [
-            f"- {h.get('description', '?')}" for h in hooks[:8] if isinstance(h, dict)
-        ]
+    # Active hooks（真表 novel_hooks：status==active、本章引入按章 id 排除；
+    # 无 novel_id 降级为空——KV 通道已随 foreshadow-settings-v2 退役）
+    from prompt.context import active_hooks_for_chapter
+
+    hooks = await active_hooks_for_chapter(root_path, chapter_ref, novel_id)
+    if hooks:
+        hook_lines = []
+        for h in hooks[:8]:
+            code = h.get("code") or ""
+            prefix = f"[{code}] " if code else ""
+            label = h.get("priority_label") or ""
+            hook_lines.append(
+                f"- {prefix}{h.get('description', '?')}"
+                + (f"（优先级：{label}）" if label else "")
+            )
         ctx["active_hooks"] = "\n".join(hook_lines)
     else:
         ctx["active_hooks"] = "（暂无活跃伏笔）"
@@ -142,7 +136,9 @@ async def stream_continue(
     existing_prose = chapter.get("prose", "")
 
     # Get context (will overwrite recent_context with cursor-specific text)
-    ctx = await build_auxiliary_context(root_path, chapter_ref, style_settings)
+    ctx = await build_auxiliary_context(
+        root_path, chapter_ref, style_settings, novel_id=project.id
+    )
     cursor_start = max(0, cursor_position - 1500)
     ctx["recent_context"] = existing_prose[cursor_start:cursor_position]
     ctx["anti_ai_rules"] = ctx.get("anti_ai_rules", "（无）")
@@ -160,36 +156,69 @@ async def stream_continue(
     client = await get_ai_client_for_novel(project.id)
     generated_text = ""
 
-    async for event in client.chat_stream(
-        model=resolved_model,
-        system=role,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=512,
-    ):
-        if event.text:
-            generated_text += event.text
-            yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
-        elif event.is_done:
-            # Save updated prose（统一写入口：落库 + 元数据派生 + 版本快照）
-            new_prose = existing_prose[:cursor_position] + generated_text
-            chapter["prose"] = new_prose
-            await save_chapter(root_path, chapter_ref, chapter)
+    from ai_client import AITimeoutError
 
-            from api_configs.usage import record_usage
+    try:
+        async for event in client.chat_stream(
+            model=resolved_model,
+            system=role,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=512,
+        ):
+            if event.text:
+                generated_text += event.text
+                yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
+            elif event.is_done:
+                # Save updated prose（统一写入口：落库 + 元数据派生 + 版本快照）
+                new_prose = existing_prose[:cursor_position] + generated_text
+                chapter["prose"] = new_prose
+                try:
+                    await save_chapter(root_path, chapter_ref, chapter)
+                except Exception as e:  # noqa: BLE001 — AI 已成功，落库失败不记 _fail
+                    yield f"data: {json.dumps({'type': 'error', 'error': f'内容已生成，但保存失败：{e!s}'}, ensure_ascii=False)}\n\n"
+                    return
 
-            await record_usage(
-                db,
-                user_id=project.user_id,
-                project_id=project.id,
-                chapter_id=chapter_ref,
-                operation="continue",
-                model=resolved_model,
-                tokens_out=event.tokens,
-            )
+                from api_configs.usage import record_usage
 
-            yield f"data: {json.dumps({'type': 'done', 'full_text': generated_text, 'tokens': event.tokens}, ensure_ascii=False)}\n\n"
-        elif event.error:
-            yield f"data: {json.dumps({'type': 'error', 'error': event.error}, ensure_ascii=False)}\n\n"
+                await record_usage(
+                    db,
+                    user_id=project.user_id,
+                    project_id=project.id,
+                    chapter_id=chapter_ref,
+                    operation="continue",
+                    model=resolved_model,
+                    tokens_out=event.tokens,
+                )
+
+                yield f"data: {json.dumps({'type': 'done', 'full_text': generated_text, 'tokens': event.tokens}, ensure_ascii=False)}\n\n"
+            elif event.error:
+                yield f"data: {json.dumps({'type': 'error', 'error': event.error}, ensure_ascii=False)}\n\n"
+    except AITimeoutError:
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db,
+            user_id=project.user_id,
+            project_id=project.id,
+            chapter_id=chapter_ref,
+            operation="continue_fail",
+            model=resolved_model,
+            force=True,
+        )
+        yield f"data: {json.dumps({'type': 'error', 'error': 'AI 服务响应超时，请稍后重试'}, ensure_ascii=False)}\n\n"
+    except Exception as e:  # noqa: BLE001 — 流中断也留痕（调用已发生）
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db,
+            user_id=project.user_id,
+            project_id=project.id,
+            chapter_id=chapter_ref,
+            operation="continue_fail",
+            model=resolved_model,
+            force=True,
+        )
+        yield f"data: {json.dumps({'type': 'error', 'error': f'AI 生成失败，可重试：{e!s}'}, ensure_ascii=False)}\n\n"
 
 
 async def polish_text(
@@ -206,7 +235,9 @@ async def polish_text(
 
     usage: 可选 dict，调用后填充 {"model", "tokens_in", "tokens_out"}。
     """
-    ctx = await build_auxiliary_context(root_path, chapter_ref, style_settings)
+    ctx = await build_auxiliary_context(
+        root_path, chapter_ref, style_settings, novel_id=novel_id
+    )
     ctx["selected_text"] = selected_text
     ctx["surrounding_context"] = surrounding_context
 
@@ -243,7 +274,9 @@ async def expand_text(
 
     usage: 可选 dict，调用后填充 {"model", "tokens_in", "tokens_out"}。
     """
-    ctx = await build_auxiliary_context(root_path, chapter_ref, style_settings)
+    ctx = await build_auxiliary_context(
+        root_path, chapter_ref, style_settings, novel_id=novel_id
+    )
     ctx["selected_text"] = selected_text
     ctx["surrounding_context"] = surrounding_context
 

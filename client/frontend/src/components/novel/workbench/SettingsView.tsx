@@ -14,9 +14,8 @@ import { useDirtyState } from "@/hooks/useDirtyState";
 import { type SettingSaveHandle } from "@/components/novel/settings/FormField";
 import WorldSettingPanel from "@/components/novel/settings/world/WorldSettingPanel";
 import type { WorldPanelHandle } from "@/components/novel/settings/world/WorldSettingPanel";
-import StyleSettingForm from "@/components/novel/settings/StyleSettingForm";
-import AntiAiSettingForm from "@/components/novel/settings/AntiAiSettingForm";
-import HooksSettingForm from "@/components/novel/settings/HooksSettingForm";
+import StyleSettingForm, { type StylePanelHandle } from "@/components/novel/settings/StyleSettingForm";
+import HooksSettingForm, { type HookSaveState, type HooksPanelHandle } from "@/components/novel/settings/HooksSettingForm";
 import CharacterManager from "@/components/novel/settings/CharacterManager";
 import { type CharAiCtx } from "@/lib/characterModel";
 import { charactersApi } from "@/lib/charactersApi";
@@ -46,8 +45,9 @@ import { introAi, aiBlockReason, type IntroAiAction } from "@/lib/ai";
 
 // ── 面板注册表（顺序/命名与原型 navItems 一致；settingsKey 对后端口径）──
 // 顺序＝用户 2026-09-10 拍板：00 模型设定（工具项，见下方树内单列）→ 01 简介 →
-// 02 题材 → 03 世界 → 04 角色 → 05 主线 → 06 文风 → 07 伏笔 → 08 禁用词句。
-// 这一序同时决定「确认即前进」的推进顺序（nextPanel 按本数组取下一项）。
+// 02 题材 → 03 世界 → 04 角色 → 05 主线 → 06 文风 → 07 伏笔。
+// 这一序同时决定「确认即前进」的推进顺序（nextPanel 按本数组取下一项）；
+// banned-words-into-style：08 禁用词句退役——禁用词/句式规则并入文风硬约束区。
 const SETTINGS_ITEMS = [
   { k: "intro", name: "简介", settingsKey: "synopsis", canDefer: false },
   { k: "genre", name: "题材", settingsKey: "genre", canDefer: false },
@@ -56,7 +56,6 @@ const SETTINGS_ITEMS = [
   { k: "arc", name: "主线", settingsKey: "story-arc", canDefer: true },
   { k: "style", name: "文风", settingsKey: "style", canDefer: false },
   { k: "foreshadow", name: "伏笔", settingsKey: "hooks", canDefer: true },
-  { k: "antiAI", name: "禁用词句", settingsKey: "anti-ai", canDefer: true },
 ] as const;
 
 const DESCS: Record<string, string> = {
@@ -64,9 +63,9 @@ const DESCS: Record<string, string> = {
   intro: "让读者（和 AI）知道这是一个怎样的故事。",
   arc: "比简介更全地说清这本书从头到尾讲什么、结局是什么——不填也不拦写作，直接开写都行。",
   world: "世界是 AI 写章时的物理法则——能做什么、不能做什么、付什么代价，都从这里读。",
-  style: "用谁的视角讲，用什么语气讲（叙事身份 + 核心原则）。",
-  antiAI: "这些词句一出现就拦掉——AI 味最重的那批。",
-  foreshadow: "先埋下的，后面要还。",
+  style: "文字文风管身份与红线（免费，继承题材），量化参数管数字手感（会员·蒸馏）。",
+  foreshadow:
+    "先埋下的，后面要还（「收束」＝把坑填了）。每条伏笔记三件事：在哪埋、打算哪章还、还了没——章节从卷章树里选，AI 写到那章会照着还。改动即自动保存；设定期想到就记一条，写正文时回来埋也一样。",
   chars:
     "AI 写每一章，都要靠这里知道「谁在场、谁想干什么」。主角必立——从称呼和一句话人设写起；配角、反派把认知内核填全，路人只留基础档案。人物关系只记「他怎么看别人」：一段一句，同一对方一条。",
 };
@@ -102,7 +101,7 @@ export interface SettingsViewProps {
 function normalizePanel(v: string | undefined): string {
   const map: Record<string, string> = {
     genre: "genre", synopsis: "intro", intro: "intro", "story-arc": "arc", arc: "arc",
-    world: "world", style: "style", "anti-ai": "antiAI",
+    world: "world", style: "style", "anti-ai": "style",
     hooks: "foreshadow", characters: "chars", "ai-model": "aiModel",
   };
   return (v && map[v]) || "intro";
@@ -191,7 +190,44 @@ export default function SettingsView({
     },
     [charsRef],
   );
+  /** 伏笔面板句柄：save/confirm 走 formRef；runAi 为伏笔右栏专属分发（批2） */
+  const hooksRef = useRef<HooksPanelHandle>(null);
+  const runHooksAi = useCallback(async (key: string) => {
+    if (aiRowBusyRef.current) return;
+    aiRowBusyRef.current = true;
+    setAiRunningKey(key);
+    try {
+      await hooksRef.current?.runAi?.(key);
+    } finally {
+      aiRowBusyRef.current = false;
+      setAiRunningKey(null);
+    }
+  }, []);
+  /** 文风面板句柄（style-settings-v2）：save/confirm 走 formRef；runAi 为文风右栏分发 */
+  const styleRef = useRef<StylePanelHandle>(null);
+  const runStyleAi = useCallback(async (key: string) => {
+    if (aiRowBusyRef.current) return;
+    aiRowBusyRef.current = true;
+    setAiRunningKey(key);
+    try {
+      await styleRef.current?.runAi?.(key);
+    } finally {
+      aiRowBusyRef.current = false;
+      setAiRunningKey(null);
+    }
+  }, []);
   const [charCtx, setCharCtx] = useState<CharAiCtx | null>(null);
+  // 伏笔面板（foreshadow-settings-v2）：徽标五态 / 保存四态 / 选中条目 ctx 的上报落点。
+  // 不在 [panel] 变化时重置——伏笔面板挂载即重新上报（挂载 effect 先于父层 effect 跑，
+  // 任何「先清后报」的时序都会把刚上报的状态抹掉）；徽标按 isForeshadow 取用，天然隔离。
+  const [hookPanelState, setHookPanelState] = useState<{
+    cls: string;
+    label: string;
+    ok: boolean;
+    empty: boolean;
+  } | null>(null);
+  const [hookSaveState, setHookSaveState] = useState<HookSaveState>("saved");
+  const [hookCtx, setHookCtx] = useState<{ id: string; code: string; desc: string } | null>(null);
   const handleAiBlocked = useCallback((reason: AiState) => {
     if (reason === "no_key") {
       window.location.hash = "/config";
@@ -326,6 +362,73 @@ export default function SettingsView({
     [runGenreAi],
   );
 
+  // 伏笔右栏四行（foreshadow-settings-v2；data-aiact h1-h4）：h2/h4 无选中置灰＋hint；
+  // 行点击经 hooksRef 分发（伏笔面板 runAi；批2 起草/体检为真能力，h2/h4 留批3）
+  const foreshadowAiRows = useMemo<AiCapabilityRow[]>(
+    () => [
+      {
+        key: "h1",
+        name: "起草伏笔",
+        desc: "按你的简介＋题材＋世界＋主线给 3 条候选，勾选采纳 · 输入：简介＋题材＋世界＋主线",
+        onClick: () => runHooksAi("h1"),
+      },
+      {
+        key: "h2",
+        name: "拟收束方案",
+        desc: "对当前选中的伏笔给收束方案 · 采纳后写入收束记录并移入已收束 · 输入：当前伏笔＋主线＋已写章纲",
+        disabled: !hookCtx,
+        hint: hookCtx ? undefined : "先选一条伏笔",
+        onClick: () => runHooksAi("h2"),
+      },
+      {
+        key: "h3",
+        name: "埋坑体检",
+        desc: "扫全部活跃伏笔 × 已写章纲：埋了没还的点名，给出建议收束章 · 只提醒不拦确认；章纲未建时降级为纯台账自检",
+        onClick: () => runHooksAi("h3"),
+      },
+      {
+        key: "h4",
+        name: "查一致性",
+        desc: "只查当前选中伏笔 × 简介/题材/世界：钩子是否与设定矛盾、代价是否对得上 · 只提醒不拦确认",
+        disabled: !hookCtx,
+        hint: hookCtx ? undefined : "先选一条伏笔",
+        onClick: () => runHooksAi("h4"),
+      },
+    ],
+    [hookCtx, runHooksAi],
+  );
+
+  // 文风右栏四行（style-settings-v2；data-aiact s1-s4）：蒸馏跳量化页签并打开样本面板
+  const styleAiRows = useMemo<AiCapabilityRow[]>(
+    () => [
+      {
+        key: "distill",
+        name: "蒸馏我的文风",
+        desc: "交 3,000–10,000 字你认可的案例 → 出「作者画像」给你确认 → 六行基线落卡 · 输入：novel-samples 或已归档章节",
+        onClick: () => runStyleAi("distill"),
+      },
+      {
+        key: "polish",
+        name: "润色文字文风",
+        desc: "按题材文字文风＋简介起草或润色三区，采纳才写回 · 输入：题材＋简介",
+        onClick: () => runStyleAi("polish"),
+      },
+      {
+        key: "check",
+        name: "锚定体检",
+        desc: "文字文风三区锚定自检：身份/红线/手法是否自洽，并与禁用词/句式规则同源对齐 · 只提醒不拦确认",
+        onClick: () => runStyleAi("check"),
+      },
+      {
+        key: "fewshot",
+        name: "例句提炼",
+        desc: "从已归档正文里挑 1–3 条最能代表文风的句子 · 输入：已归档章节",
+        onClick: () => runStyleAi("fewshot"),
+      },
+    ],
+    [runStyleAi],
+  );
+
   useEffect(() => {
     if (initialPanel) setPanel(normalizePanel(initialPanel));
   }, [initialPanel]);
@@ -365,8 +468,10 @@ export default function SettingsView({
 
   // ── 进度（两态口径：done/empty；readiness 拉取失败按 0 计，与 modnav 一致）──
   const total = SETTINGS_ITEMS.length;
-  const done = settingsStatus
-    ? SETTINGS_ITEMS.filter((i) => settingsStatus[i.settingsKey]).length
+  // 设定完成入口（settings-done-entry 用户拍板）：N/7 数的是「已确认」——
+  // 内容齐了但没点确认不算完成；已填与否仍看 settingsStatus（每项徽标）
+  const done = confirmedStatus
+    ? SETTINGS_ITEMS.filter((i) => confirmedStatus[i.settingsKey]).length
     : 0;
   const progNote =
     done === total
@@ -414,6 +519,16 @@ export default function SettingsView({
       const handle = currentHandle();
       const saved = await handle?.save();
       if (saved !== true) return;
+      // 伏笔确认门禁（提示性预检）：≥1 条描述非空（任意状态）——按钮恒可点不 disable，
+      // 这里只提示性拦下；后端 confirm 400 兜底（同「伏笔不能为空…先跳过」口径）
+      if (panel === "foreshadow" && handle?.canConfirm?.() === false) {
+        toast.info("伏笔不能为空：先埋一条——写一句描述就行；或先跳过，写作期回来补");
+        return;
+      }
+      if (panel === "style" && handle?.canConfirm?.() === false) {
+        toast.info("先写叙事身份：一句话说清镜头多近、什么态度——这是每一章的地基");
+        return;
+      }
       // 保存成功＝这次改动已落库，回执里的撤销只能改回内存（与库不一致）→ 清掉
       setReceipt(null);
       // 角色确认走两档门禁端点（review P1：此前只 PUT status，门禁从未生效，
@@ -429,11 +544,15 @@ export default function SettingsView({
       }
       if (confirmed) {
         handle?.clearAi?.();
+        // 伏笔：已确认态的「保存修改」＝重新确认——内容指纹基线随之前移（徽标恢复「已确认」系）
+        handle?.markConfirmed?.();
         toast.success(`「${item.name}」已保存`);
       } else {
         const ok = await confirmSetting(item.settingsKey);
         if (ok) {
           handle?.clearAi?.();
+          // 伏笔：确认成功＝快照内容指纹（之后内容有变→徽标降级「内容有变 · 待重新确认」）
+          handle?.markConfirmed?.();
           toast.success(`「${item.name}」已确认`);
           // 确认即前进：切到 SETTINGS_ITEMS 的数组顺序下一项（末项不动；
           // 模型窗（aiModel）不在 SETTINGS_ITEMS，天然被跳过）
@@ -462,38 +581,51 @@ export default function SettingsView({
   };
   const modelBadge = MODEL_BADGE[aiState] ?? MODEL_BADGE.no_key;
   const isChars = panel === "chars";
+  const isForeshadow = panel === "foreshadow";
   // 角色第三态（character-settings-v2）：确认过但内容指纹变了 → 「内容有变 · 待重新确认」
   // （文案刻意不含「已确认」，守 §5「已确认→ok 绿」硬规则）
   const charsStaleBadge = isChars && confirmed && charStale;
+  // 伏笔徽标五态（foreshadow-settings-v2）：由 HooksSettingForm 按台账内容＋确认态上报——
+  // 还没有伏笔=empty／N 条待收束=warn／已确认 · N 条待收束=done／全部收束=ok／内容有变=warn（最高优先）
+  const hookBadge = isForeshadow ? hookPanelState : null;
   const badgeCls = isModel
     ? modelBadge.cls
-    : charsStaleBadge
-      ? "warn"
-      : confirmed
-        ? BADGE_DONE
-        : filled
-          ? "warn"
-          : BADGE_EMPTY;
+    : hookBadge
+      ? hookBadge.cls
+      : charsStaleBadge
+        ? "warn"
+        : confirmed
+          ? BADGE_DONE
+          : filled
+            ? "warn"
+            : BADGE_EMPTY;
   const badgeLabel = isModel
     ? modelBadge.label
-    : charsStaleBadge
-      ? "内容有变 · 待重新确认"
-      : confirmed
-        ? "已确认"
-        : filled
-          ? "已填"
-          : "未填";
-  const badgeOk = isModel ? modelBadge.ok : badgeCls === BADGE_DONE;
+    : hookBadge
+      ? hookBadge.label
+      : charsStaleBadge
+        ? "内容有变 · 待重新确认"
+        : confirmed
+          ? "已确认"
+          : filled
+            ? "已填"
+            : "未填";
+  const badgeOk = isModel ? modelBadge.ok : hookBadge ? hookBadge.ok : badgeCls === BADGE_DONE;
+  const hookEmpty = isForeshadow && !!hookPanelState?.empty;
   const panelDesc = isModel
     ? "本书写作所用的模型、变更历史与用量。"
     : (DESCS[panel] ?? "");
   const panelNote = isModel
     ? "工具项 · 不参与设定进度"
-    : confirmed
-      ? "已确认 · 可随时回来修改并重新确认"
-      : item?.canDefer
-        ? "高级项可后补 · 确认即计入进度"
-        : "确认后计入设定进度";
+    : isForeshadow
+      ? confirmed
+        ? "已确认 · 可随时回来修改并重新确认"
+        : "改动自动保存 · 确认后停留本格（已是最后一项）"
+      : confirmed
+        ? "已确认 · 可随时回来修改并重新确认"
+        : item?.canDefer
+          ? "高级项可后补 · 确认即计入进度"
+          : "确认后计入设定进度";
 
   return (
     <div className="view three-col on settings-v">
@@ -512,14 +644,36 @@ export default function SettingsView({
           </div>
         </div>
         {done === total && onGoWrite && (
-          <button
-            className="btn btn-primary"
-            type="button"
-            style={{ width: "100%", marginTop: 10 }}
-            onClick={onGoWrite}
-          >
-            设定完成 · 去写作
-          </button>
+          // 设定完成入口（settings-done-entry）：进度行本体升级为完成卡——
+          // 对勾＋「设定完成 N/N」＋「全部就绪」＋满格绿条＋「去写作」CTA。
+          // 旧全宽普通主按钮退役（评审：完成态不该长得和「保存」一样）。
+          <div className="settings-progress done" data-od-id="settings-done-card">
+            <span className="pb-check" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="15" height="15">
+                <circle cx="12" cy="12" r="9" strokeWidth="1.8" />
+                <path d={CHECK_PATH} strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <span className="pl num">
+              设定完成 <b>{total}/{total}</b>
+            </span>
+            <span className="pb-badge">全部就绪</span>
+            <div className="pbar">
+              <i style={{ width: "100%" }} />
+            </div>
+            <button
+              className="btn btn-primary done-btn"
+              type="button"
+              data-od-id="btn-go-write"
+              onClick={onGoWrite}
+            >
+              去写作
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14" aria-hidden="true">
+                <path d="M5 12h14m-6-6 6 6-6 6" />
+              </svg>
+            </button>
+            <p className="done-foot">写作时也能回来改设定，不冲突</p>
+          </div>
         )}
         <div className="settings-nav-wrap">
           {/* 00 模型设定：工具项，排在最前（用户 2026-09-10 指定） */}
@@ -624,26 +778,33 @@ export default function SettingsView({
             )}
             {panel === "style" && (
               <StyleSettingForm
-                ref={formRef}
+                ref={(h) => {
+                  // 双 ref：formRef 供 panel-foot save/confirm；styleRef 供右栏 runAi 分发
+                  (formRef as React.MutableRefObject<SettingSaveHandle | null>).current = h;
+                  styleRef.current = h;
+                }}
                 projectId={projectId}
                 settingKey="style"
                 onDirtyChange={handleDirtyChange}
-              />
-            )}
-            {panel === "antiAI" && (
-              <AntiAiSettingForm
-                ref={formRef}
-                projectId={projectId}
-                settingKey="anti-ai"
-                onDirtyChange={handleDirtyChange}
+                onReceiptChange={handleReceiptChange}
               />
             )}
             {panel === "foreshadow" && (
               <HooksSettingForm
-                ref={formRef}
+                ref={(h) => {
+                  // 双 ref：formRef 供 panel-foot save/confirm；hooksRef 供右栏 runAi 分发
+                  (formRef as React.MutableRefObject<SettingSaveHandle | null>).current = h;
+                  hooksRef.current = h;
+                }}
                 projectId={projectId}
                 settingKey="hooks"
                 onDirtyChange={handleDirtyChange}
+                onSaveStateChange={setHookSaveState}
+                onPanelState={setHookPanelState}
+                onCtxChange={setHookCtx}
+                aiState={aiState}
+                onBlocked={handleAiBlocked}
+                confirmed={!!confirmedStatus?.hooks}
               />
             )}
             {panel === "chars" && (
@@ -652,6 +813,9 @@ export default function SettingsView({
                 projectId={projectId}
                 onDirtyChange={handleDirtyChange}
                 onCtxChange={setCharCtx}
+                introReady={!!settingsStatus?.synopsis}
+                aiState={aiState}
+                onBlocked={handleAiBlocked}
               />
             )}
             {panel === "aiModel" && (
@@ -666,9 +830,17 @@ export default function SettingsView({
           </div>
 
           <div className="panel-foot">
-            <span className="note" style={{ marginRight: "auto" }}>
-              {panelNote}
-            </span>
+            {/* 伏笔空表：warnline 取代 note（常驻信号，非 toast；门禁的提示性预检口径） */}
+            {hookEmpty && (
+              <span className="warnline" data-od-id="hook-hint" style={{ marginRight: "auto" }}>
+                确认「伏笔」至少要埋一条——写一句描述就行；也可以先跳过，写作期回来补
+              </span>
+            )}
+            {!hookEmpty && (
+              <span className="note" style={{ marginRight: "auto" }}>
+                {panelNote}
+              </span>
+            )}
             {/* 改动回执（在模型设定/简介/题材/世界四面板发声；其余面板恒 null） */}
             <ChangeReceiptBar receipt={receipt} />
             {confirmed && !isModel && (
@@ -679,7 +851,8 @@ export default function SettingsView({
                 已确认
               </span>
             )}
-            {!isModel && !confirmed && panel !== "chars" && (
+            {/* 「存草稿」对伏笔隐藏（自动保存制——草稿态＝已落库未确认，foreshadow-settings-v2） */}
+            {!isModel && !confirmed && panel !== "chars" && panel !== "foreshadow" && (
               <button
                 className="btn btn-secondary"
                 onClick={() => void handleSaveDraft()}
@@ -688,6 +861,15 @@ export default function SettingsView({
               >
                 存草稿
               </button>
+            )}
+            {/* 伏笔面板脚保存态（自动保存制；「存草稿」对伏笔隐藏——草稿态＝已落库未确认） */}
+            {isForeshadow && (
+              <span className={`save-state ${hookSaveState}`} data-od-id="save-state">
+                {hookSaveState === "saving" && "保存中…"}
+                {hookSaveState === "saved" && "已自动保存"}
+                {hookSaveState === "dirty" && "有未保存修改"}
+                {hookSaveState === "failed" && "保存失败 · 请重试"}
+              </span>
             )}
             {!isModel && (
               <button
@@ -752,18 +934,29 @@ export default function SettingsView({
             runningKey={aiRunningKey}
             onRun={runCharsAi}
           />
-        ) : panel === "style" || panel === "antiAI" ? (
-          <div className="rail-card">
-            <b>{item?.name} · AI 能力</b>
-            <p className="opt" style={{ fontSize: 12 }}>
-              各字段行内的「AI 帮我填」按钮随字段就地可用：点一下，AI 按已确认的题材与简介给建议，结果可采纳或重试。
-            </p>
-          </div>
+        ) : panel === "foreshadow" ? (
+          <AiWriterAssistant
+            rows={foreshadowAiRows}
+            footNote="答案落对应字段或卡底，采纳 · 覆盖才写回（覆盖已有收束记录时按钮明示「覆盖并收束」，采纳仍可一步撤销）；回执只留最近一条、8 秒内可点撤销；起草伏笔保留最近 5 次结果可切回。所有 AI 辅助功能都在本栏，伏笔卡编辑区不放 AI 按钮；免费版四行可见＋锁定，点击走统一升级提示。"
+            aiState={aiState}
+            onBlocked={handleAiBlocked}
+            runningKey={aiRunningKey}
+            data-od-id="ai-assist-foreshadow"
+          />
+        ) : panel === "style" ? (
+          <AiWriterAssistant
+            rows={styleAiRows}
+            footNote="蒸馏学到的禁用词会自动并入硬约束区下方的「禁用词」组并去重；机器写的章永不回写文风卡——重蒸馏只由你触发，每次蒸馏都有版本快照；要保住的基线行锁定即可，重蒸馏跳过。所有 AI 辅助功能都在本栏，编辑区不放 AI 按钮；免费版四行可见＋锁定，点击走统一升级提示。"
+            aiState={aiState}
+            onBlocked={handleAiBlocked}
+            runningKey={aiRunningKey}
+            data-od-id="ai-assist-style"
+          />
         ) : (
           <div className="rail-card">
             <b>当前设定项暂无 AI 功能</b>
             <p className="opt" style={{ fontSize: 12 }}>
-              「主线」面板的右栏是 AI 拆主线四步向导；世界/风格/AI痕迹控制的字段旁有「AI 帮我填」。
+              「主线」面板的右栏是 AI 拆主线四步向导；世界/风格的字段旁有「AI 帮我填」。
             </p>
           </div>
         )}

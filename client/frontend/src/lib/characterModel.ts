@@ -113,7 +113,23 @@ export const COG_FILL_KEYS = [
   ...COG_PRIMARY_KEYS,
   ...COG_REQUIRED.filter((k) => !COG_PRIMARY_KEYS.includes(k)),
   "p6",
+  "s5",
 ];
+
+// 理解层次六问 hint（后端 COG_LEVEL_HINTS 同源；给作家看的大白话）
+export const COG_LEVEL_HINTS: Record<string, string> = {
+  worldview: "他眼里的世界是什么样的？",
+  self: "他把自己当成谁？",
+  values: "他在乎什么？为什么做这些事？",
+  power: "他能做什么？怎么做到的？",
+  behavior: "遇到事，他会怎么做？",
+  env: "他身边有什么人、什么事？",
+};
+
+// 格位级 hint（后端 COG_FIELD_HINTS 同源）——只给需要额外一句的格
+export const COG_FIELD_HINTS: Record<string, string> = {
+  s5: "他和这个世界到底是怎么回事？这条路走到头，他注定要面对什么？",
+};
 export const PERSONA_FILL_KEY = "persona";
 
 // ── 写章状态块（后端 WRITE_STATE_KEYS 同源）──────────────────────────────
@@ -133,6 +149,8 @@ export const GATE_FIELDS: [string, string][] = [
 /** 右栏 AI 作用域上下文（SettingsView 拼「当前角色：… 缺 n/m」用） */
 export interface CharAiCtx {
   name: string;
+  /** 名称是否为空（哨兵名）——「从简介立主角」行的出现判据 */
+  nameless: boolean;
   code: string;
   role: string;
   personaGap: number;
@@ -163,6 +181,9 @@ export const CHECK_ITEMS_POWER: [string, string][] = [
   ["世界 × 代价", "layer:power"],
   ["势力 × 角色落地", "panel:world"],
   ["主线 × 角色", "dossier:plot"],
+  ["人设与行事对得上吗", "layer:self"],
+  ["在乎的和会做的一致吗", "layer:values"],
+  ["他的处境和他的命对得上吗", "layer:env"],
 ];
 export const CHECK_ITEMS_REAL: [string, string][] = [
   ["简介 × 角色", "dossier:plot"],
@@ -171,6 +192,9 @@ export const CHECK_ITEMS_REAL: [string, string][] = [
   ["世界 × 限制", "layer:power"],
   ["势力 × 角色落地", "panel:world"],
   ["主线 × 角色", "dossier:plot"],
+  ["人设与行事对得上吗", "layer:self"],
+  ["在乎的和会做的一致吗", "layer:values"],
+  ["他的处境和他的命对得上吗", "layer:env"],
 ];
 
 // ── 关系类型词表 ─────────────────────────────────────────────────────────

@@ -1,7 +1,14 @@
-// ai-prompt-crafting 6.2 — 文风表单「文风例句」（few_shot_examples 1-3 条）：
-// 加载回读（>3 截断）、保存载荷（trim/过滤/截断 3）、存量为空一行可编辑。
+// style-settings-v2 — 文风表单两页签测试：
+//   · 文风例句（few_shot_examples 1-3 条）：加载回读（>3 截断）、保存载荷（trim/过滤/截断 3）
+//   · 撤并键零写回：GET 返回旧键（possible_mistakes/tone/narrator_role）时
+//     PUT payload 只含白名单四键（评审 P0）
+//   · 页签徽标：题材默认 ↔ 已自定义 · N 处
+//   · 确认门槛 canConfirm：叙事身份非空
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { configure } from "@testing-library/react";
+// 组件用 data-od-id 做定位属性（与 e2e 同源）——vitest 侧把 testId 指过去
+configure({ testIdAttribute: "data-od-id" });
 import { createRef } from "react";
 import StyleSettingForm from "@/components/novel/settings/StyleSettingForm";
 import type { SettingSaveHandle } from "@/components/novel/settings/FormField";
@@ -17,10 +24,18 @@ vi.mock("@/lib/api", () => ({ api: apiState }));
 
 const PH = "如：雨点砸在铁皮棚上，他没有抬头。";
 
+function mockGet(style: Record<string, unknown>, quant: Record<string, unknown> = {}) {
+  apiState.get.mockImplementation((url: string) => {
+    if (url.endsWith("/settings/style")) return Promise.resolve(style);
+    if (url.endsWith("/settings/style-quant")) return Promise.resolve(quant);
+    return Promise.reject(new Error(`unexpected GET ${url}`));
+  });
+}
+
 function renderForm() {
   const ref = createRef<SettingSaveHandle>();
   render(
-    <StyleSettingForm ref={ref} projectId="p1" settingKey="writing-style" />,
+    <StyleSettingForm ref={ref} projectId="p1" settingKey="style" />,
   );
   return ref;
 }
@@ -38,22 +53,14 @@ function fewShotsCfg() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  apiState.get.mockResolvedValue({
-    role: "一位小说家",
-    core_principles: ["克制"],
-    possible_mistakes: [],
-    depiction_techniques: [],
-    tone: { default_tone: "冷静" },
-  });
+  mockGet({ role: "一位小说家" });
   apiState.put.mockResolvedValue({});
+  apiState.post.mockResolvedValue({});
 });
 
 describe("文风例句 few_shot_examples", () => {
   it("加载回读存量例句；>3 条只取前 3 且例句满 3 时不再出现「添加一项」", async () => {
-    apiState.get.mockResolvedValue({
-      role: "r",
-      few_shot_examples: ["例句一", "例句二", "例句三", "例句四"],
-    });
+    mockGet({ role: "r", few_shot_examples: ["例句一", "例句二", "例句三", "例句四"] });
     renderForm();
     await waitFor(() => expect(rows()).toHaveLength(3));
     expect(rows().map((r) => r.value)).toEqual(["例句一", "例句二", "例句三"]);
@@ -70,7 +77,7 @@ describe("文风例句 few_shot_examples", () => {
 
     expect(await ref.current!.save()).toBe(true);
     expect(apiState.put).toHaveBeenCalledWith(
-      "/novels/p1/settings/writing-style",
+      "/novels/p1/settings/style",
       expect.objectContaining({ few_shot_examples: ["雨点砸在铁皮棚上。"] }),
     );
   });
@@ -83,8 +90,104 @@ describe("文风例句 few_shot_examples", () => {
 
     expect(await ref.current!.save()).toBe(true);
     expect(apiState.put).toHaveBeenCalledWith(
-      "/novels/p1/settings/writing-style",
+      "/novels/p1/settings/style",
       expect.objectContaining({ few_shot_examples: ["他数到第七声雷，才开口。"] }),
     );
+  });
+});
+
+describe("禁用词收编（banned-words-into-style）", () => {
+  it("commit 并入禁用词后直接保存：表单态已回读合并，新词不丢", async () => {
+    // 初载词表 1 条；画像确认 commit 服务端并入「眸子」（banned_added=1）→
+    // 组件回读 GET 到 v2 → 用户不切面板直接保存 → payload 必须带新词（D4 丢词回归）
+    const styleV1 = { role: "r", banned_words: ["突然"], tic_patterns: [] };
+    const styleV2 = { role: "r", banned_words: ["突然", "眸子"], tic_patterns: [] };
+    let styleGets = 0;
+    apiState.get.mockImplementation((url: string) => {
+      if (url.endsWith("/settings/style")) {
+        styleGets += 1;
+        return Promise.resolve(styleGets === 1 ? styleV1 : styleV2);
+      }
+      if (url.endsWith("/settings/style-quant")) {
+        // draft 已到画像步：openDistill 直接进入画像确认视图
+        return Promise.resolve({ draft: { step: 3, step3: { portrait: "像你的写法" } } });
+      }
+      if (url.endsWith("/settings/style-samples")) {
+        return Promise.resolve({ files: [], chapters: [], min: 3000, max: 10000, in_range: false, hint: "再补些样本" });
+      }
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
+    apiState.post.mockResolvedValue({
+      ok: true,
+      quant: { confidence: 80, baseline: {}, history: [], draft: null, sample_chars: 7214, updated_at: "2026-09-16" },
+      banned_added: 1,
+    });
+
+    const ref = createRef<SettingSaveHandle>();
+    render(<StyleSettingForm ref={ref} projectId="p1" settingKey="style" />);
+    await waitFor(() => expect(screen.getByTestId("input-style-role")).toBeTruthy());
+
+    // 右栏 AI 四行入口「蒸馏我的文风」→ 量化页签 → 画像确认 → 落卡
+    const handle = ref.current as unknown as { runAi?: (key: string) => Promise<void> };
+    await handle.runAi!("distill");
+    fireEvent.click(await screen.findByText("就是这样，落卡"));
+
+    // commit 后回读合并：等第二次 style GET（回读）落地再保存
+    await waitFor(() => {
+      const styleGets = apiState.get.mock.calls.filter(([u]) => String(u).endsWith("/settings/style")).length;
+      expect(styleGets).toBeGreaterThanOrEqual(2);
+    });
+    expect(await ref.current!.save()).toBe(true);
+    expect(apiState.put).toHaveBeenCalledWith(
+      "/novels/p1/settings/style",
+      expect.objectContaining({ banned_words: ["突然", "眸子"] }),
+    );
+  });
+});
+
+describe("撤并键零写回（评审 P0）", () => {
+  it("GET 带旧键（possible_mistakes/tone/narrator_role）时 PUT payload 只含白名单四键", async () => {
+    mockGet({
+      role: "冷静叙事者",
+      core_principles: ["克制"],
+      possible_mistakes: ["不要滥用形容词"],
+      depiction_techniques: ["动作外化"],
+      narrator_role: "第三人称限知",
+      tone: { default_tone: "冷静" },
+    });
+    const ref = renderForm();
+    await waitFor(() => expect(screen.getByTestId("input-style-role")).toBeTruthy());
+    expect(await ref.current!.save()).toBe(true);
+    expect(apiState.put).toHaveBeenCalledTimes(1);
+    const body = apiState.put.mock.calls[0][1] as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["banned_words", "craft", "few_shot_examples", "role", "rules", "tic_patterns"]);
+  });
+});
+
+describe("两页签与确认门槛", () => {
+  it("页签徽标：题材默认 → 改身份后「已自定义 · 1 处」", async () => {
+    mockGet({ role: "冷静叙事者", rules: ["钩子"] });
+    renderForm();
+    await waitFor(() => expect(screen.getByTestId("input-style-role")).toBeTruthy());
+    expect(screen.getByTestId("style-tab-badge").textContent).toBe("题材默认");
+    fireEvent.change(screen.getByTestId("input-style-role"), { target: { value: "改过的身份" } });
+    expect(screen.getByTestId("style-tab-badge").textContent).toBe("已自定义 · 1 处");
+  });
+
+  it("canConfirm：叙事身份非空 true、空 false", async () => {
+    mockGet({ role: "" });
+    const ref = renderForm();
+    await waitFor(() => expect(screen.getByTestId("input-style-role")).toBeTruthy());
+    expect(ref.current!.canConfirm?.()).toBe(false);
+    fireEvent.change(screen.getByTestId("input-style-role"), { target: { value: "冷静叙事者" } });
+    expect(ref.current!.canConfirm?.()).toBe(true);
+  });
+
+  it("量化页签未蒸馏空态：PRO 徽＋去蒸馏入口；页签徽「未蒸馏」", async () => {
+    renderForm();
+    await waitFor(() => expect(screen.getByTestId("input-style-role")).toBeTruthy());
+    fireEvent.click(screen.getByRole("tab", { name: /量化参数/ }));
+    await waitFor(() => expect(screen.getByTestId("quant-empty")).toBeTruthy());
+    expect(screen.getByTestId("quant-tab-badge").textContent).toBe("未蒸馏");
   });
 });

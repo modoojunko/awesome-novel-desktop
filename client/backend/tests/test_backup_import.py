@@ -198,7 +198,10 @@ class TestVersionSnapshotImport:
 
 
 def test_format_version_above_supported_rejected():
-    """格式契约演进：format_version > FORMAT_VERSION 拒绝并提示升级（防新格式包被旧应用半恢复）。"""
+    """格式契约演进：format_version > FORMAT_VERSION 拒绝并提示升级（防新格式包被旧应用半恢复）。
+
+    样本取 FORMAT_VERSION+1：当前 =3（foreshadow-settings-v2 升版），即「>3 拒绝」。
+    """
     import asyncio
     import os
 
@@ -219,6 +222,6 @@ def test_format_version_above_supported_rejected():
 
     try:
         asyncio.run(run())
-        raise AssertionError("v2 包应被拒绝")
+        raise AssertionError(f"format_version={FORMAT_VERSION + 1} 的包应被拒绝")
     except ValueError as e:
         assert "升级" in str(e)

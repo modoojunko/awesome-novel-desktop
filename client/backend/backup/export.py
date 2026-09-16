@@ -109,6 +109,9 @@ async def dump_book_into(zf, db, project, prefix: str = "") -> None:
     # 角色段（character-settings-v2）：真表 → characters/ 新布局；不再写旧角色目录树
     await _dump_characters(zf, db, project)
 
+    # 伏笔段（foreshadow-settings-v2）：真表 → hooks/hooks.yaml；settings 树不再含 hooks
+    await _dump_hooks(zf, db, project, prefix)
+
     # 卷纲 + 章纲/正文 + 版本快照 + 生成提示词
     volumes = (
         await db.scalars(
@@ -220,6 +223,59 @@ async def _dump_characters(zf, db, project) -> None:
         yaml.safe_dump(payload["relations"], allow_unicode=True, sort_keys=False),
     )
 
+
+
+async def _dump_hooks(zf, db, project, prefix: str = "") -> None:
+    """伏笔段 v3（foreshadow-settings-v2 tasks 3.1）：hooks/hooks.yaml。
+
+    spec 字段白名单：seq/description/type/priority/status/四列章 ref/payoff_note。
+    章引用一律 id→ref 解析（ref=vol-N-ch-M 规范形，与 chapters/{ref}.yaml 同名），
+    解析不了置空——包不存运行态 chapter id，导入时章 id 重新生成。seq 原样导出。
+    无伏笔的书不写该文件（沿用角色段口径，老包形状不受影响）。
+    """
+    from models.chapter import Chapter
+    from models.hook import NovelHook
+
+    hooks = (
+        await db.scalars(
+            select(NovelHook)
+            .where(NovelHook.novel_id == project.id)
+            .order_by(NovelHook.seq)
+        )
+    ).all()
+    if not hooks:
+        return
+    rows = (
+        await db.execute(
+            select(Chapter.id, Chapter.ref).where(Chapter.project_id == project.id)
+        )
+    ).all()
+    id_to_ref = {cid: ref for cid, ref in rows}
+
+    def _ref(chapter_id: str | None) -> str:
+        return id_to_ref.get(chapter_id, "") if chapter_id else ""
+
+    payload = {
+        "hooks": [
+            {
+                "seq": h.seq,
+                "description": h.description,
+                "type": h.type,
+                "priority": h.priority,
+                "status": h.status,
+                "introduced_chapter_ref": _ref(h.introduced_chapter_id),
+                "planned_chapter_ref": _ref(h.planned_chapter_id),
+                "resolved_chapter_ref": _ref(h.resolved_chapter_id),
+                "mentioned_chapter_ref": _ref(h.mentioned_chapter_id),
+                "payoff_note": h.payoff_note,
+            }
+            for h in hooks
+        ],
+    }
+    zf.writestr(
+        prefix + "hooks/hooks.yaml",
+        yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
+    )
 
 
 async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:

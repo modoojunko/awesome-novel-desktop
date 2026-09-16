@@ -118,7 +118,7 @@ ai-novel/
 │   ├── app/                   新系统核心代码（分层架构）
 │   │   ├── config.py          配置管理
 │   │   ├── main.py            FastAPI 应用入口
-│   │   ├── models/            SQLAlchemy ORM（6 表）
+│   │   ├── models/            SQLAlchemy ORM（40 表）
 │   │   ├── domain/            领域层（纯 Python 业务规则）
 │   │   ├── infrastructure/    仓储 + 安全工具
 │   │   ├── application/       编排用例（11 个）

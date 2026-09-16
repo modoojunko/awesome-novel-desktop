@@ -85,14 +85,8 @@ def _seed_writer(root: str):
             {"role": "一位小说家", "core_principles": [], "possible_mistakes": []},
         )
     )
-    _run_async(
-        get_storage().write_yaml(
-            root,
-            "settings/anti-ai.yaml",
-            {"fatigue_words_zh": {}, "structural_tic_patterns": []},
-        )
-    )
-    _run_async(get_storage().write_yaml(root, "settings/hooks.yaml", {"active": []}))
+    # banned-words-into-style：anti-ai 面板退役，禁用词落文风 KV（模板预填），
+    # 原键不再种子（filesystem/init.py 摘除）
     _run_async(
         get_storage().write_yaml(
             root,
@@ -165,9 +159,9 @@ class TestChapterWriterInjection:
         nid = _run_async(_new_novel(root))
         _run_async(_put(nid))
 
-        # 疲劳词主源＝writing-style.yaml（6.0e 迁移）
+        # 禁用词单源＝文风 KV banned_words（幽灵键 fatigue_words 归一并入后剥离）
         style = _run_async(get_storage().read_yaml(root, "settings/writing-style.yaml"))
-        style["fatigue_words"] = ["默认疲劳词"]
+        style["banned_words"] = ["默认疲劳词"]
         style["chapter_types"] = ["日常"]
         style["pacing_rules"] = ["规则"]
         _run_async(get_storage().write_yaml(root, "settings/writing-style.yaml", style))
@@ -175,13 +169,15 @@ class TestChapterWriterInjection:
         ctx = _run_async(build_chapter_context(root, "vol-1-ch-1", "测试小说", nid))
         assert "## 题材设定" in ctx.genre_section
         assert "核心承诺：以弱破强的痛快" in ctx.genre_section
-        assert ctx.style_fatigue_words == ["默认疲劳词"]
+        assert ctx.style_setting.get("banned_words") == ["默认疲劳词"]
 
         prompt = ctx.to_prompt()
         assert "## 题材设定" in prompt
         assert "禁止使用以下词汇：默认疲劳词" in prompt
-        assert "章节类型：日常" in prompt
-        assert "节奏规则：规则" in prompt
+        # style-settings-v2：chapter_types/tone 块退役，章节类型不再注入；
+        # pacing_rules 经归一并入硬约束（拍板），以红线列表形态注入
+        assert "章节类型：日常" not in prompt
+        assert "- 规则" in prompt
 
     def test_degrades_gracefully_when_genre_empty(self):
         root = _tmp_root()
@@ -189,7 +185,7 @@ class TestChapterWriterInjection:
         nid = _run_async(_new_novel(root))
         ctx = _run_async(build_chapter_context(root, "vol-1-ch-1", "测试小说", nid))
         assert ctx.genre_section == ""
-        assert ctx.style_fatigue_words == []
+        assert ctx.style_setting.get("banned_words") == []
         assert "## 题材设定" not in ctx.to_prompt()
 
 

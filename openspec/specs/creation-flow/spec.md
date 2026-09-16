@@ -60,7 +60,7 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 
 ### Requirement: 设定视图三段式布局
 
-设定视图 SHALL 与写作视图采用一致的三段式布局：左侧设定项导航、中间当前设定项表单、右侧 AI 栏。AI 相关功能在右侧 AI 栏呈现，而非嵌入表单内部。
+设定视图 SHALL 与写作视图采用一致的三段式布局：左侧设定项导航、中间当前设定项表单、右侧 AI 栏。AI 相关功能在右侧 AI 栏呈现，而非嵌入表单内部。「文风」面板 SHALL 为面板内两页签（文字文风/量化参数），页签为面板内层级（ADJUSTMENTS 登记例外），页签切换不触发面板间脏守卫。
 
 #### Scenario: 三栏呈现
 
@@ -76,10 +76,24 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 
 #### Scenario: 其他面板的 AI 栏
 
-- **WHEN** 用户选中「世界 / 风格 / AI痕迹控制」
+- **WHEN** 用户选中「世界 / AI痕迹控制」
 - **THEN** AI 栏显示该设定项的 AI 能力说明与入口提示（字段内「AI 帮我填」按钮保持原位）
-- **WHEN** 用户选中无 AI 能力的设定项（题材/简介/伏笔/AI 模型）
+- **WHEN** 用户选中无 AI 能力的设定项（题材/简介/AI 模型）
 - **THEN** AI 栏显示「当前设定项暂无 AI 功能」占位说明
+- **AND** 「伏笔」自本 change 起具备右栏 AI 四行（见 foreshadow-settings capability），不再属于无 AI 能力清单
+
+#### Scenario: 文风面板的两页签与 AI 栏
+
+- **WHEN** 用户选中「文风」设定项
+- **THEN** 中间栏呈两页签：文字文风（默认签，三区＋例句折叠）/ 量化参数（未蒸馏空态或蒸馏视图或基线六行），页签徽标「题材默认/已自定义」与「未蒸馏/置信度 N」
+- **AND** 右侧 AI 栏显示「AI 写作助手」四行能力（蒸馏我的文风 / 润色文字文风 / 锚定体检 / 例句提炼），答案落卡底结果区或对应字段，采纳·覆盖才写回
+- **AND** 免费态四行可见＋锁定，点击走统一升级出口；蒸馏完成落卡后自动停在量化页签
+
+#### Scenario: 伏笔面板的 AI 栏
+
+- **WHEN** 用户选中「伏笔」设定项
+- **THEN** 右侧 AI 栏显示「AI 写作助手」四行能力（起草伏笔 / 拟收束方案 / 埋坑体检 / 查一致性），答案落卡底结果区或对应字段，采纳·覆盖才写回
+- **AND** 免费态四行可见＋锁定，点击走统一升级出口
 
 #### Scenario: 角色面板的 AI 栏
 
@@ -95,14 +109,30 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 - **WHEN** 用户在内嵌左栏点「新增」
 - **THEN** 列表加入新对象并选中，右侧表单切换为新对象的配置
 - **WHEN** 用户在内嵌左栏切换选中对象
-- **THEN** 右侧表单切换为该对象已保存的内容；未保存修改时的切换保护与现有面板切换口径一致
-- **WHEN** 用户选中单对象设定项（题材/简介/主线/世界/风格/AI痕迹控制/AI 模型）
-- **THEN** 中间栏保持单表单（无内嵌左栏）
+- **THEN** 右侧表单切换为该对象已保存的内容（伏笔为自动保存，无未保存行）；面板级切换保护与现有口径一致
+- **WHEN** 用户选中单对象设定项（题材/简介/主线/世界/文风/AI痕迹控制/AI 模型）
+- **THEN** 中间栏保持单表单（无内嵌左栏；文风为单表单内的两页签）
 
 #### Scenario: 窄屏堆叠
 
 - **WHEN** 视口宽度 <1024px
 - **THEN** 设定视图左栏置顶、主栏与 AI 栏纵向堆叠，AI 栏不隐藏（AI 能力仍可用）
+
+#### Scenario: 两页签切换与确认前进
+
+- **WHEN** 用户在量化参数签查看基线后切回文字文风签，填叙事身份并点确认完成
+- **THEN** 保存 PUT /settings/style（payload 仅三区＋例句）→ 确认成功 → 自动前进到「伏笔」面板
+
+#### Scenario: 身份为空确认被预检
+
+- **WHEN** 叙事身份为空，用户点确认完成
+- **THEN** 提示「先写叙事身份……」且不前进；按钮不置灰
+
+#### Scenario: 保存不写撤并键
+
+- **WHEN** 存量书 style KV 带 possible_mistakes/tone 旧数据，用户在新 UI 修改硬约束并保存
+- **THEN** PUT 后 style KV 的 possible_mistakes/tone 键值保持原样（零写回）
+
 ### Requirement: 多对象设定的内嵌子双栏
 
 「角色」「伏笔」设定项的中间栏 SHALL 呈内嵌子双栏，且占满中间栏内容区。
@@ -134,3 +164,27 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 
 - **WHEN** 用户打开「角色」面板或在其内切换选中对象
 - **THEN** 列表内容由一次请求返回（含类型、别名、首次出场与缺口提示），切换选中不逐角色再取
+
+### Requirement: 设定完成入口（去写作）
+
+设定 8 项全部确认（done === total）且存在「去写作」出口时，设定页左栏进度行 SHALL 升级为完成卡：行头对勾图标＋「设定完成 8/8」＋「全部就绪」徽标，整块 ok-soft 底＋ok 描边，进度条满格转绿，块内展开主 CTA「去写作」；CTA 下方 SHALL 保留一行小字「写作时也能回来改设定，不冲突」。未完成（done < total）时进度行 SHALL 保持现状样式，SHALL NOT 出现完成卡。点击「去写作」SHALL 切换到写作视图（onGoWrite 契约不变）。改版前的全宽普通主按钮「设定完成 · 去写作」SHALL 从左栏移除。
+
+#### Scenario: 全部确认后出现完成卡
+
+- **WHEN** 设定 8 项全部确认，作者回到设定页
+- **THEN** 左栏进度行升级为完成卡：对勾＋「设定完成 8/8」＋「全部就绪」＋「去写作」CTA
+
+#### Scenario: 去写作切换视图
+
+- **WHEN** 作者点击完成卡上的「去写作」
+- **THEN** 应用切换到写作视图（原 onGoWrite 行为）
+
+#### Scenario: 未完成不出现完成卡
+
+- **WHEN** 设定仅 7 项确认
+- **THEN** 左栏保持普通进度行，SHALL NOT 出现完成卡
+
+#### Scenario: 旧按钮退役
+
+- **WHEN** 进入设定页任意状态
+- **THEN** 左栏不再出现「设定完成 · 去写作」全宽普通主按钮

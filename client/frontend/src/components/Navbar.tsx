@@ -1,45 +1,19 @@
-import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useLocation, Link } from "react-router-dom";
 import { isLoggedIn } from "../lib/auth";
 import { BRAND } from "../lib/brand";
 import AcctMenu from "../components/AcctMenu";
-import BookPrefsModal from "../components/novel/BookPrefsModal";
-import { Ico, P } from "../components/icons";
 
 /** 顶栏（c-account-control-center）：动作区收敛为头像胶囊唯一入口。
- * 书架态：logo + 导航 + 触发钮；工作台态：logo + 返回 + 触发钮（本书偏好
- * 经面板「本书偏好」项打开，BookPrefsModal 仍挂本处）。 */
+ * 书架/配置态：logo + 导航 + 触发钮。
+ * 书内态（/novel/*）：本组件让位 —— 书内顶栏已行头归一（logo 即返回 + 书名 +
+ * 题材 + 当前主线定位 + 账户胶囊，单行 48px，storyline.html 口径），
+ * 由 NovelWorkspace 渲染（含 AcctMenu 与本书偏好弹窗）。 */
 export default function Navbar() {
   const location = useLocation();
   const loggedIn = isLoggedIn();
-  const [showBookPrefs, setShowBookPrefs] = useState(false);
 
-  // 书工作台变体（book.html）：logo + 分隔线 + 返回我的小说 + 触发钮，无导航/登录。
-  if (location.pathname.startsWith("/novel/")) {
-    const m = location.pathname.match(/^\/novel\/([^/]+)/);
-    const projectId = m?.[1] ?? "";
-    return (
-      <header className="appbar appbar-wb">
-        <Link className="logo" to="/novels">
-          <span className="logo-mark">{BRAND.mark}</span>{BRAND.name}
-        </Link>
-        <span className="sep" />
-        <Link className="back" to="/novels">
-          <Ico d={P.back} sw={1.8} />
-          我的小说
-        </Link>
-        <span className="spacer" />
-        {loggedIn && (
-          <AcctMenu onBookPrefs={() => setShowBookPrefs(true)} />
-        )}
-        <BookPrefsModal
-          open={showBookPrefs && !!projectId}
-          onClose={() => setShowBookPrefs(false)}
-          projectId={projectId}
-        />
-      </header>
-    );
-  }
+  // 书内页顶栏由 NovelWorkspace 渲染，全局顶栏不重复出头条
+  if (location.pathname.startsWith("/novel/")) return null;
 
   const on = (prefix: string) =>
     location.pathname === prefix || location.pathname.startsWith(prefix + "/") ? "on" : undefined;

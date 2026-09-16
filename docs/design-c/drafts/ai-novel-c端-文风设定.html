@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>爱小说 · 设定｜文风（来源三路＋四字段锚定卡＋文风指纹）</title>
+<!--
+  交付说明（设计侧工件 · 不动任何 src/；OpenDesign 原型，交互可直接预览）
+
+  裁定：文风设定＝现有设定页选中「文风」节点后，col-middle＋col-ai 两栏的内容设计（改版稿）。
+    上部（novelbar 书名/类型/PRO ＋ modnav 设定 N/8 · 写作 · 预览）与左侧设定树
+    ＝现有设定页原样复刻，零改动、非本稿范围。与《ai-novel-c端-角色设定.html》同外壳同词表。
+
+  领域事实源＝awesome-novel 文风蒸馏工作流（style-distiller / writing-style.md /
+    distilled-style-spec），取其四字段锚定与三阶段 13 模板蒸馏，翻译成产品界面：
+
+  ① 结构拍板（用户 2026-09-15）：文风设定只两部分，不再选题材——题材在「题材」步已定。
+     · 第一部分「文字文风」（免费）：继承所选题材的文字文风蓝图，三区——叙事身份（必填
+       一句：镜头距离＋态度）/ 硬约束（红线，风格特有禁令也写这里）/ 描写手法（题材预填，
+       删改即可）＋例句 1–3（选填，可由蒸馏/提炼代劳）；蒸馏之前 AI 只按这部分写。
+     · 第二部分「量化参数」（会员）：蒸馏功能——交 3,000–10,000 字认可的案例，
+       AI 学出六行基线（九维合并视图）；
+       作者画像确认才落卡（A3）。蒸馏产出只读＋行级锁定；机器写的章永不回写，
+       重蒸馏仅作者触发，版本快照可查。
+  ② 全局 vs 章节（用户 2026-09-15 拍板）：基线＝全书一套基本不动；章节的量化变化
+     不做场景卡——交给写章的 AI 按本章剧情在容差内自行调节（±容差＝章级调节的
+     法定空间，超容差的需求回到重蒸馏）；调节结果在章纲确认/写作现场可见（N7
+     可预期，属工作台设计，另立一稿）。
+  ③ 免费/会员分界（用户拍板）：文字文风＝免费完整可用；蒸馏（量化参数）＝会员功能，
+     入口可见＋锁定，点击走后端 403 → MemberBlockPrompt（§11 首选策略）。
+  ④ 三处收编：题材预设库/换题材入口删除（题材已在上游设定）；「从空白开始」删除
+     （文字文风继承默认、随时可改，无需单独模式）；focal_character 移出文风卡
+     （归角色卡/主线）。锚定体检保留（查文字文风三区自洽）。
+  ⑤ 文字文风再收敛（用户 2026-09-15）：AI 易犯错误块撤销——通用反模式归「禁用词句」
+     面板（拦截职责唯一），风格特有禁令改写成可检查的硬约束；叙事基调组撤销——
+     叙事者角色/视角并入叙事身份、技法并入手法、氛围归题材蓝图（视角此前四处重复、
+     情绪外化三处重复，全部归一）。作者必填只剩：身份一句＋红线几条。
+     提示词文风段＝身份＋红线＋手法＋例句＋禁用词句＋量化基线，每个信息单一来源。
+
+  右下角「评审切换器」为非基线演示元素（同 home.html 先例，parity 截图排除），
+  用于在三个状态间切换：文风卡（默认）／蒸馏流程／预设库。
+
+  规范：tokens 与 client/frontend/src/design/{base,book}.css 逐字同源；交互模块全部
+    挂 data-od-id（kebab-case）；零外部资源、零裸色、零 emoji。
+-->
+<style>
+  /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致（--radius-lg 沿世界稿 = 14px） ═══ */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
+  button { font-family: inherit; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.55; padding: 40px 24px 80px; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1320px; margin: 0 auto; }
+
+  /* ─── 稿头 ─── */
+  .draft-banner { display: flex; align-items: center; gap: 9px; padding: 10px 16px; border: 1px dashed var(--warn); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: 13px; margin-bottom: 28px; }
+  .draft-banner b { color: var(--fg); font-weight: 600; }
+  h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; }
+  h1 .ver { font-family: var(--font-mono); font-size: 13px; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 2px 10px; vertical-align: 6px; margin-left: 10px; letter-spacing: 0.06em; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 6px 0 14px; line-height: 1.8; }
+  .caliber { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 16px; font-size: 12.5px; color: var(--muted); margin-bottom: 36px; line-height: 1.8; }
+  .caliber b { color: var(--fg); font-weight: 600; }
+  .caliber li { margin: 4px 0 4px 18px; }
+
+  /* ─── 模拟窗口（与角色稿同构） ─── */
+  .win { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: clip; box-shadow: var(--shadow-card); margin-bottom: 52px; }
+
+  /* ── 应用框架（窗口标题栏 / 顶栏 / 书栏 / 模块导航——现有设定页外壳原样复刻） ── */
+  .win-titlebar { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .dot { width: 11px; height: 11px; border-radius: 999px; flex: none; }
+  .dot.r { background: var(--err); } .dot.y { background: var(--warn); } .dot.g { background: var(--ok); }
+  .win-title { flex: 1; text-align: center; font-size: 12px; color: var(--muted); margin-right: 51px; }
+  .appbar { height: 48px; display: flex; align-items: center; padding: 0 20px; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; }
+  .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--surface); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; flex: none; }
+  .appbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; flex: none; }
+  .appbar .back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; padding: 5px 9px; border-radius: 8px; }
+  .appbar .back:hover { color: var(--fg); background: var(--fg-soft); }
+  .appbar .spacer { flex: 1; }
+  .novelbar { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 20px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
+  .novelbar .nb-title { font-family: var(--font-display); font-size: 13.5px; color: var(--fg); font-weight: 600; }
+  .novelbar .nb-sep { width: 1px; height: 16px; background: var(--border); }
+  .modnav { display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .modnav span { display: inline-flex; padding: 8px 14px 9px; font-size: 13px; color: var(--muted); }
+  .modnav span.on { color: var(--fg); font-weight: 500; border-bottom: 2px solid var(--accent); }
+  /* ── 设定页三栏：设定树(230) ｜ 文风面板(1fr) ｜ AI 栏(236) ── */
+  .view.three-col.settings-v { display: grid; grid-template-columns: 230px minmax(0, 1fr) 236px; align-items: start; }
+  .col-middle { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .col-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 18px 20px; }
+  .panel.sub-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px 14px; overflow: hidden; }
+  .desc { font-size: 12.5px; color: var(--muted); margin: 0 0 14px; line-height: 1.8; }
+  .desc b { color: var(--fg); font-weight: 600; }
+  .panel-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; padding-right: 6px; }
+  .panel-scroll::-webkit-scrollbar { width: 8px; }
+  .panel-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  /* ── 面板内页签（文字文风 / 量化参数）——同工作台 tabs 40px 语言 ── */
+  .ptabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .ptab { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px 10px; font-size: 13px; color: var(--muted); background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; font: inherit; }
+  .ptab:hover { color: var(--fg); }
+  .ptab.on { color: var(--fg); font-weight: 500; border-bottom-color: var(--accent); }
+  .ptab .badge { font-size: 10px; padding: 1px 8px; }
+  .ptab .sc-badge { font-size: 9px; padding: 2px 6px; }
+  /* 设定树（复刻现有 col-tree） */
+  .col-tree { border-right: 1px solid var(--border); background: var(--bg); padding: 12px 10px 14px; }
+  .tree-head { padding: 0 8px 8px; }
+  .tree-head .t { font-size: 13px; color: var(--muted); }
+  .tree-head .t b { color: var(--fg); font-weight: 600; }
+  .settings-progress { padding: 0 8px 10px; border-bottom: 1px dashed var(--border); }
+  .settings-progress .pl { font-size: 12px; color: var(--muted); }
+  .settings-progress .pl b { color: var(--fg); }
+  .pbar { height: 6px; border-radius: 999px; background: var(--fg-soft); margin-top: 6px; overflow: hidden; }
+  .pbar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  .settings-nav-wrap { padding-top: 6px; }
+  .s-item { display: flex; align-items: center; gap: 6px; padding: 8px 9px; border-radius: 8px; cursor: pointer; }
+  .s-item:hover { background: var(--fg-soft); }
+  .s-item.on { background: var(--accent-soft); }
+  .s-item .nm { font-size: 12.5px; color: var(--fg); }
+  .s-item.on .nm { color: var(--accent-strong); font-weight: 600; }
+  .s-item .defer-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+  .s-item .spacer { flex: 1; }
+  .tree-foot { border-top: 1px dashed var(--border); margin-top: 8px; padding: 8px 8px 0; }
+  .col-ai { border-left: 1px solid var(--border); padding: 16px; background: var(--bg); overflow-y: auto; }
+  @media (min-width: 861px) {
+    .col-ai { position: sticky; top: 12px; max-height: calc(100vh - 24px); }
+  }
+  @media (max-width: 1080px) { .view.three-col.settings-v { grid-template-columns: 208px minmax(0, 1fr) 222px; } }
+  @media (max-width: 900px) {
+    .view.three-col.settings-v { grid-template-columns: minmax(0, 1fr); }
+    .col-tree { border-right: 0; border-bottom: 1px solid var(--border); }
+    .col-ai { border-left: 0; border-top: 1px solid var(--border); }
+  }
+
+  /* ── 来源三路（A 题材预设 / B 蒸馏我的文风 / C 从空白开始） ── */
+  .src-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 22px; }
+  @media (max-width: 860px) { .src-row { grid-template-columns: 1fr; } }
+  .src-card { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 11px 13px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; font: inherit; }
+  .src-card:hover { border-color: var(--muted); }
+  .src-card.on { border-color: var(--accent); background: var(--accent-soft); }
+  .src-card .sc-t { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--fg); }
+  .src-card.on .sc-t { color: var(--accent-strong); }
+  .src-card .sc-s { font-size: 11px; color: var(--muted); line-height: 1.6; }
+  .src-card .sc-badge { flex: none; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .06em; padding: 2px 7px; border-radius: 999px; background: var(--accent); color: oklch(100% 0 0); }
+
+  /* ── 节标题与蓝图卡 ── */
+  .sec-label { font-family: var(--font-display); font-size: 14px; font-weight: 600; margin: 22px 0 10px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .sec-label:first-child { margin-top: 0; }
+  .sec-label .sl-no { font-family: var(--font-mono); font-size: 11px; color: var(--accent); border: 1px dashed color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 0 7px; flex: none; }
+  .sec-label .sl-tag { font-family: var(--font-body); font-size: 11px; font-weight: 500; color: var(--accent-strong); background: var(--accent-soft); border-radius: 999px; padding: 2px 10px; }
+  .sec-label .sl-tools { margin-left: auto; display: inline-flex; gap: 4px; align-items: center; }
+  .bp { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+  .bp-row { display: flex; gap: 10px; padding: 8px 12px; border-bottom: 1px dashed var(--border); }
+  .bp-row:last-child { border-bottom: none; }
+  .bp-k { width: 96px; flex: none; font-size: 12px; color: var(--muted); font-weight: 600; }
+  .bp-v { flex: 1; min-width: 0; font-size: 12.5px; color: var(--fg); line-height: 1.7; }
+  .bp-v .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .bp-v .chip { font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+  .bp-meta { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--fg-soft); font-size: 11.5px; color: var(--muted); flex-wrap: wrap; }
+  .bp-meta .spacer { flex: 1; }
+
+  /* ── 锚定链（①→②→③④ 可点直达） ── */
+  .anchor-chain { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
+  .ac-node { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; font-size: 12px; }
+  .ac-node:hover { border-color: var(--accent); color: var(--accent); }
+  .ac-node .n { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent); }
+  .ac-arrow { color: var(--muted); flex: none; display: inline-flex; }
+  .ac-note { flex-basis: 100%; font-size: 11px; color: var(--muted); }
+
+  /* ── 四字段块（编号＋判断标准＋输入；锚定顺序 ①→②→③→④ 不可逆） ── */
+  .fblock { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px 14px; margin-bottom: 12px; }
+  .fb-head { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; margin-bottom: 8px; }
+  .fb-no { font-family: var(--font-mono); font-size: 11px; color: var(--accent); border: 1px dashed color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 0 7px; flex: none; }
+  .fb-head b { font-size: 13.5px; font-weight: 600; }
+  .fb-head .hint { flex-basis: 100%; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+  .fb-head .hint em { font-style: normal; color: var(--fg); }
+  .le-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  .le-no { flex: none; width: 20px; text-align: right; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+  .le-row .input { padding: 7px 10px; font-size: 12.5px; }
+  .le-tools { display: flex; gap: 2px; flex: none; }
+  .le-cnt { margin: 6px 0 0 28px; font-size: 11px; color: var(--muted); }
+  .le-add { margin: 8px 0 0 28px; }
+  .fb-diff { margin: 8px 0 0; font-size: 11.5px; color: var(--muted); }
+  .fb-diff b { color: var(--warn); font-weight: 500; }
+
+  /* ── 折叠组（CfgGroup 范式：标题＋tag＋摘要＋chevron） ── */
+  .cfg { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin-bottom: 12px; }
+  .cfg-head { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 11px 14px; background: transparent; border: none; cursor: pointer; font: inherit; }
+  .cfg-head b { font-size: 13px; font-weight: 600; }
+  .cfg-head .tag { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; flex: none; }
+  .cfg-head .sum { flex: 1; min-width: 0; font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cfg-head .chev { color: var(--muted); flex: none; transition: transform .18s ease; display: inline-flex; }
+  .cfg.open .cfg-head .chev { transform: rotate(180deg); }
+  .cfg-body { border-top: 1px dashed var(--border); padding: 10px 14px 12px; }
+  .cfg-body[hidden] { display: none; }
+  .cfg-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+  .cfg-row .ck { width: 104px; flex: none; font-size: 12px; color: var(--muted); font-weight: 600; }
+  .cfg-row .input { padding: 7px 10px; font-size: 12.5px; }
+
+  /* ── 全局基线（六行主参数，合并自九维）＋统计明细折叠 ── */
+  .dims-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 12px; border: 1px solid var(--border); border-bottom: none; border-radius: 10px 10px 0 0; background: var(--fg-soft); font-size: 11.5px; color: var(--muted); }
+  .dims-meta .spacer { flex: 1; }
+  .dims { border: 1px solid var(--border); border-radius: 0 0 10px 10px; background: var(--surface); overflow: hidden; }
+  .bx-row { padding: 10px 12px; border-bottom: 1px dashed var(--border); }
+  .bx-row:last-child { border-bottom: none; }
+  .bx-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .bx-name { font-size: 12.5px; font-weight: 600; }
+  .bx-dims { font-family: var(--font-mono); font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+  .bx-vals { font-size: 12.5px; color: var(--fg); margin-top: 4px; }
+  .bx-note { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+  .lock-btn { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font: inherit; font-size: 10.5px; padding: 1px 9px; cursor: pointer; }
+  .lock-btn:hover { border-color: var(--muted); }
+  .lock-btn.on { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); }
+  .five-bar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; margin-top: 6px; max-width: 460px; }
+  .five-bar i { display: block; height: 100%; }
+  .fb-legend { display: flex; gap: 14px; margin-top: 5px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+  .det-row { display: flex; gap: 10px; padding: 6px 12px; border-bottom: 1px dashed var(--border); font-size: 12px; }
+  .det-row:last-child { border-bottom: none; }
+  .det-row .dk { width: 150px; flex: none; color: var(--muted); font-weight: 600; }
+  .det-row .dv2 { flex: 1; min-width: 0; color: var(--fg); }
+
+  /* ── 蒸馏空态（基线未生成时） ── */
+  .fp-empty { border: 1px dashed var(--border); border-radius: 10px; background: var(--surface); padding: 16px; text-align: center; }
+  .fp-empty .se-t { font-size: 13px; font-weight: 600; }
+  .fp-empty .se-s { font-size: 12px; color: var(--muted); margin: 4px 0 12px; line-height: 1.7; }
+
+  /* ── 蒸馏面板（状态 B） ── */
+  .dist-step { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--border); align-items: flex-start; }
+  .dist-step:last-of-type { border-bottom: none; }
+  .dist-step .ds-no { flex: none; width: 22px; height: 22px; border-radius: 999px; background: var(--ok-soft); color: var(--ok); display: grid; place-items: center; font-family: var(--font-mono); font-size: 11px; }
+  .dist-step .ds-b { flex: 1; min-width: 0; }
+  .dist-step .ds-b b { display: block; font-size: 12.5px; font-weight: 600; }
+  .dist-step .ds-b i { display: block; font-style: normal; font-size: 11px; color: var(--muted); margin-top: 1px; line-height: 1.6; }
+  .dist-step .ds-ok { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--ok); }
+  .sample-box { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px 14px; }
+  .sample-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 12.5px; }
+  .sample-row .s-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sample-row .s-cnt { color: var(--muted); font-size: 11.5px; flex: none; }
+  .sample-row .s-check { flex: none; color: var(--ok); display: inline-flex; }
+  .sample-total { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding-top: 9px; border-top: 1px dashed var(--border); font-size: 12.5px; flex-wrap: wrap; }
+  .portrait { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 14px 16px; }
+  .portrait .pz-head { font-size: 11px; font-weight: 600; letter-spacing: .05em; color: var(--accent); margin-bottom: 6px; }
+  .portrait .pz-note { font-size: 12px; color: var(--muted); line-height: 1.8; border-left: 2px solid color-mix(in oklch, var(--accent) 40%, transparent); padding-left: 10px; margin-bottom: 10px; }
+  .portrait h4 { font-size: 12.5px; font-weight: 600; margin: 10px 0 4px; }
+  .portrait p, .portrait li { font-size: 12.5px; line-height: 1.8; }
+  .portrait ul { margin-left: 18px; }
+  .portrait .pz-ask { margin-top: 12px; padding: 9px 12px; border-radius: 9px; background: var(--accent-soft); font-size: 12.5px; }
+  .portrait .pz-act { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+  /* ── 预设库（状态 C） ── */
+  .genre-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .g-chip { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; font-size: 12px; }
+  .g-chip:hover { border-color: var(--muted); }
+  .g-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); font-weight: 500; }
+
+  /* ── 通用件（与角色稿逐字同词表） ── */
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 11px; }
+  .badge.done { background: var(--ok-soft); color: var(--ok); }
+  .badge.empty { background: var(--fg-soft); color: var(--muted); }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .badge.err { background: var(--err-soft); color: var(--err); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .badge.acc { background: var(--accent-soft); color: var(--accent); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--accent); color: oklch(100% 0 0); }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--muted); }
+  .btn-ghost { background: transparent; color: var(--muted); padding: 0 10px; }
+  .btn-ghost:hover { color: var(--fg); }
+  .btn-sm { height: 28px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; }
+  .btn:disabled { opacity: .45; cursor: default; pointer-events: none; }
+  .input, .textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+  .input:focus, .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .textarea { min-height: 58px; resize: vertical; line-height: 1.7; }
+  .opt { font-size: 12px; color: var(--muted); }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 7px; }
+  .icon-btn:hover { color: var(--err); background: var(--err-soft); }
+  .icon-btn.up:hover { color: var(--accent); background: var(--accent-soft); }
+  .text-btn { display: inline-flex; align-items: center; gap: 5px; border: none; background: transparent; color: var(--accent); font-size: 12.5px; cursor: pointer; padding: 4px 2px; font-weight: 500; }
+  .text-btn:hover { color: var(--accent-strong); }
+  .text-btn.gray { color: var(--muted); }
+  .text-btn.gray:hover { color: var(--fg); }
+
+  /* ─── 右栏 AI 轨（与角色稿同构） ─── */
+  .rail-assist { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
+  .rail-assist .ra-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+  .rail-assist .ra-head .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: oklch(100% 0 0); flex: none; }
+  .rail-assist .ra-head .rh-t b { display: block; font-size: 13px; font-weight: 600; }
+  .rail-assist .ra-head .rh-t span { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .rail-assist .ra-row { margin-bottom: 8px; }
+  .rail-assist .ra-step { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; }
+  .rail-assist .ra-step:hover { border-color: var(--accent); }
+  .rail-assist .ra-body { min-width: 0; flex: 1; }
+  .rail-assist .ra-body b { display: block; font-size: 12.5px; font-weight: 600; }
+  .rail-assist .ra-body i { display: block; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 2px; }
+  .rail-assist .ra-arrow { color: var(--muted); flex: none; }
+  .rail-assist .ra-foot { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+  .rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
+
+  /* ── AI 结果区与回执 ── */
+  .ai-sink { margin: 10px 0 0; background: var(--fg-soft); border-radius: 10px; padding: 12px 16px; font-size: 12.5px; line-height: 1.8; color: var(--fg); }
+  .ai-sink[hidden] { display: none; }
+  .ai-sink .aiz-head { font-size: 11px; font-weight: 600; letter-spacing: .05em; color: var(--accent); margin-bottom: 6px; }
+  .ai-sink .ans-act { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .ai-sink .ans-act button { height: 26px; padding: 0 12px; font-size: 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .ai-sink .ans-act button.primary { background: var(--accent); border-color: transparent; color: oklch(100% 0 0); }
+  .chk-line { display: flex; gap: 8px; align-items: baseline; }
+  .chk-line .chk-name { flex: none; width: 108px; font-size: 12px; }
+  .chk-line .chk-res { font-size: 12px; font-weight: 500; flex: none; }
+  .chk-line .chk-res.ok { color: var(--ok); }
+  .chk-line .chk-res.miss { color: var(--err); }
+  .chk-line .chk-res.warn { color: var(--warn); }
+  .chk-line .chk-note { font-size: 11.5px; color: var(--muted); min-width: 0; }
+  .receipt-bar { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 8px 12px; border: 1px solid color-mix(in oklch, var(--accent) 30%, var(--border)); border-radius: 9px; background: var(--accent-soft); font-size: 12px; color: var(--fg); }
+  .receipt-bar[hidden] { display: none; }
+  .receipt-bar .rb-undo { margin-left: auto; flex: none; height: 24px; padding: 0 12px; font-size: 11.5px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .receipt-bar .rb-undo:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── 面板骨架 ── */
+  .panel-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+  .panel-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 600; margin: 0; }
+  .defline { font-size: 12.5px; color: var(--muted); margin: 0 0 18px; line-height: 1.8; }
+  .defline b { color: var(--fg); font-weight: 600; }
+  .panel-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); margin-top: 8px; flex-wrap: wrap; }
+  .panel-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+  .panel-foot .warnline { font-size: 12px; color: var(--warn); margin-right: auto; }
+
+  /* ── 评审切换器（非基线演示元素，parity 截图排除——同 home.html 先例） ── */
+  .demo-switch { position: fixed; right: 20px; bottom: 20px; z-index: 98; display: flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); box-shadow: var(--shadow-card); font-size: 11.5px; color: var(--muted); }
+  .demo-switch button { border: none; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; padding: 3px 9px; border-radius: 999px; cursor: pointer; }
+  .demo-switch button.on { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+
+  /* ── 结论 ─── */
+  .rec-box { border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: var(--radius); background: var(--accent-soft); padding: 16px 20px; font-size: 13.5px; line-height: 1.8; }
+  .rec-box b { font-weight: 600; }
+  .rec-box ol { margin: 8px 0 0 20px; }
+  .rec-box li { margin: 6px 0; }
+
+  @media (max-width: 720px) {
+    body { padding: 24px 12px 60px; }
+    h1 { font-size: 22px; }
+    .col-panel { padding: 20px 14px 24px; }
+    .caliber { padding: 10px 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="draft-banner"><b>设计稿（改版）</b>文风设定＝选中「文风」后的中/右两栏；上部与左树为现有设定页外壳，零改动。面板内两页签（文字文风／量化参数）；右下角「评审切换器」可在文风卡与蒸馏流程两个状态间切换（非基线演示元素）。</div>
+  <h1>文风设定 · 文字文风＋量化参数（双页签）<span class="ver">DRAFT v1</span></h1>
+  <p class="sub">结构拍板：文风＝两部分——①<b>文字文风</b>（免费，继承题材的文字文风蓝图，进页已填好、可改）②<b>量化参数</b>（会员，蒸馏 3,000–10,000 字案例生成六行基线）。</p>
+  <ul class="caliber">
+    <li><b>两部分，不选题材</b>：题材早就选完了——文字文风进页即按题材填好（免费，可改）；量化参数只来自蒸馏（会员）。</li>
+    <li><b>蒸馏＝3,000–10,000 字案例</b>：AI 三步学出「作者画像」＋六行基线；画像确认才落卡，基线只读＋行级锁定。</li>
+    <li><b>基线设完不动，章节交给 AI</b>：章节的量化变化不做场景卡——写章的 AI 按本章剧情在 ±10% 容差内自行调节，调节过程在章纲确认/写作现场可见。</li>
+    <li><b>免费/会员分界</b>：免费＝文字文风完整写作能力；会员＝蒸馏量化参数——同一界面，入口可见＋锁定。</li>
+    <li><b>作者只需动笔两处</b>：身份一句＋红线几条；手法题材预填删改即可，例句选填。AI 易犯错误块与叙事基调组已撤并——通用反模式归「禁用词句」面板（拦截职责唯一），视角/基调/氛围拆进身份、手法与题材，提示词每个信息单一来源。</li>
+  </ul>
+
+  <div class="win" id="winStyle">
+
+    <div class="win-titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="win-title">残卷听澜 — 爱小说</span></div>
+    <div class="appbar">
+      <span class="logo"><span class="logo-mark">爱</span>爱小说</span>
+      <span class="sep"></span>
+      <button class="back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="m15 18-6-6 6-6"/></svg>返回工作台</button>
+      <span class="spacer"></span>
+      <button class="back" type="button">客服</button>
+      <button class="back" type="button">设置</button>
+    </div>
+    <div class="novelbar">
+      <span class="nb-title">《残卷听澜》</span>
+      <span class="nb-sep"></span>
+      <span>仙侠/修真 · 凡人流</span>
+      <span class="spacer" style="flex:1;"></span>
+      <span class="badge acc">PRO</span>
+    </div>
+
+    <div class="view three-col on settings-v">
+
+    <!-- ═══ 左栏 · 设定树＝现有设定页原样复刻（不动） ═══ -->
+    <aside class="col-tree">
+      <div class="tree-head"><span class="t">设定 · <b>8</b> 项 + 1 工具</span></div>
+      <div class="settings-progress">
+        <span class="pl num">设定 <b>6</b>/8</span>
+        <div class="pbar"><i style="width: 75%;"></i></div>
+      </div>
+      <div class="settings-nav-wrap">
+        <div class="s-item"><span class="nm">模型设定</span><span class="defer-tag">工具</span><span class="spacer"></span><span class="badge empty">不参与进度</span></div>
+        <div class="s-item"><span class="nm">简介</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item"><span class="nm">题材</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item"><span class="nm">世界</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item"><span class="nm">角色</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item"><span class="nm">主线</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item on"><span class="nm">文风</span><span class="spacer"></span><span class="badge warn">进行中</span></div>
+        <div class="s-item"><span class="nm">伏笔</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+        <div class="s-item"><span class="nm">禁用词句</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+      </div>
+      <div class="tree-foot"><span style="font-size: 12px; color: var(--muted); line-height: 1.7;">可后补项确认后计入设定进度 · 确认即前进到下一项</span></div>
+    </aside>
+
+    <main class="col-middle">
+     <div class="col-panel">
+      <div class="panel sub-fill">
+       <div class="panel-head">
+        <h2>文风</h2>
+       </div>
+       <p class="desc">写章时两层一起生效：<b>文字文风</b>管身份与红线（免费，继承题材），<b>量化参数</b>管数字手感（会员 · 蒸馏 3,000–10,000 字案例）。</p>
+       <div class="ptabs" data-od-id="style-tabs">
+        <button class="ptab on" type="button" data-tab="text">文字文风<span class="badge ok" id="badgeStyle">题材默认</span></button>
+        <button class="ptab" type="button" data-tab="quant">量化参数<span class="sc-badge">PRO</span><span class="badge acc">置信度 <span class="num">82</span></span></button>
+       </div>
+       <div class="panel-scroll">
+
+        <!-- ═══════════ 文风卡（默认视图）＝两个页签：文字文风 / 量化参数 ═══════════ -->
+        <div id="viewCard">
+
+          <div id="tabText">
+          <p class="opt" style="margin:-2px 0 12px;">进页即按「仙侠/修真」蓝图填好——要动笔的只有身份一句和几条红线，手法预填删改即可；蒸馏之前 AI 只按这部分写。<button class="text-btn gray" id="btnResetBp" type="button" data-od-id="btn-reset-text" style="margin-left:8px;">重置为题材默认</button></p>
+
+          <div class="anchor-chain" data-od-id="chain-anchor">
+            <button class="ac-node" type="button" data-goto="fRole">叙事身份</button>
+            <span class="ac-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="12" height="12"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
+            <button class="ac-node" type="button" data-goto="fRules">硬约束</button>
+            <span class="ac-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="12" height="12"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
+            <button class="ac-node" type="button" data-goto="fCraft">描写层次和手法</button>
+            <span class="ac-note">定镜头 → 立红线 → 给做法——先定身份，才知道不能做什么、用什么手法最自然。</span>
+          </div>
+
+          <div class="fblock" data-od-id="field-role">
+            <div class="fb-head"><span class="fb-no">①</span><b>叙事身份</b>
+              <span class="hint">一句话说清两件事：<em>镜头离人多近</em>（贴主角／俯瞰全局）＋<em>叙述者什么态度</em>（冷静／共情／讽刺）。读了知道「我以什么身份在写」才算够。</span>
+            </div>
+            <textarea class="textarea" id="fRole" data-od-id="input-style-role" rows="2">一个冷静但不冷漠的叙事者——客观描述角色行动和环境，不替角色感受。让对话和动作传递情绪，不做心理分析旁白。</textarea>
+          </div>
+
+          <div class="fblock" data-od-id="field-rules">
+            <div class="fb-head"><span class="fb-no">②</span><b>硬约束</b><span class="hint">这个身份<em>绝对不能做什么</em>。每条都要能检查——超没超，一眼看得出来（3–5 条）。风格特有的禁令写这里；通用的 AI 词句归「禁用词句」面板拦。</span></div>
+            <div id="leRules" data-od-id="list-rules"></div>
+          </div>
+
+          <div class="fblock" data-od-id="field-craft">
+            <div class="fb-head"><span class="fb-no">③</span><b>描写层次和手法</b><span class="hint">题材已按蓝图预填——<em>删改成你自己的即可</em>。每条给做法＋例子，读了能照着改一段（至多 8 条）。</span></div>
+            <div id="leCraft" data-od-id="list-craft"></div>
+            <p class="fb-diff" id="diffNote" hidden></p>
+          </div>
+
+          <!-- 折叠组：文风例句 -->
+          <div class="cfg open" id="cfgShots" data-od-id="group-fewshots">
+            <button class="cfg-head" type="button" id="cfgShotsHead">
+              <b>文风例句</b><span class="tag">1–3 条</span>
+              <span class="sum">最能代表目标文风的完整句子，AI 写章时照着这个手感写</span>
+              <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg></span>
+            </button>
+            <div class="cfg-body" id="cfgShotsBody">
+              <div id="leShots" data-od-id="list-fewshots"></div>
+              <p class="opt" style="margin-top:6px;">将作为案例段透传进整章写作提示词；没有也可以——蒸馏会替你从正文里挑。</p>
+            </div>
+          </div>
+
+          </div><!-- /tabText -->
+
+          <div id="tabQuant" hidden>
+          <div id="fpReady" data-od-id="quant-panel">
+            <div class="dims-meta">主卡 general · <span class="num">v2</span> · 2026-09-14 · 样本 <span class="num">7,214</span> 字<span class="spacer"></span><span>全书一套基线；写章时 AI 按剧情在 ±10% 容差内自行调节，不用逐章设</span><span class="spacer"></span><button class="text-btn" id="btnRedistill" type="button" data-od-id="btn-redistill">重新蒸馏</button><button class="text-btn gray" id="btnFpHistory" type="button" data-od-id="btn-fp-history">查看历史（v1 · v2）</button></div>
+            <div class="dims" id="baseBox" data-od-id="style-baseline"></div>
+            <div class="cfg" id="cfgDetail" style="margin-top:10px;">
+              <button class="cfg-head" type="button" id="cfgDetailHead">
+                <b>统计明细</b><span class="tag">九维全量</span>
+                <span class="sum">蒸馏的原始账，只读——界面只常用上面 6 行，账本留给校准与争议</span>
+                <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg></span>
+              </button>
+              <div class="cfg-body" id="cfgDetailBody" hidden data-od-id="quant-details"></div>
+            </div>
+            <p class="opt" style="margin-top:10px;">章节的量化变化不在这里设——写章的 AI 按本章剧情自行调节，容差就是它的法定空间；调节结果在章纲确认与写作现场可见（属工作台设计，另立一稿）。</p>
+          </div>
+          <!-- 免费版 / 未蒸馏（confidence=0）：量化参数不生成，AI 只按文字文风写 -->
+          <div class="fp-empty" id="fpEmpty" hidden data-od-id="quant-empty">
+            <p class="se-t">还没有量化参数</p>
+            <p class="se-s">只用上面的「文字文风」就能写出合格的一章。<br />蒸馏是会员功能：交 3,000–10,000 字你认可的案例，AI 学出六行基线。</p>
+            <button class="btn btn-secondary btn-sm" id="fpEmptyGo" type="button">去蒸馏我的文风</button>
+          </div>
+          </div><!-- /tabQuant -->
+
+          <!-- AI 结果落点（编辑区无 AI 按钮） -->
+          <div class="ai-sink" id="sinkCheck" hidden data-od-id="sink-style-check"></div>
+        </div><!-- /viewCard -->
+
+        <!-- ═══════════ 状态 B · 蒸馏流程（A3 组装审阅形：画像确认才落卡） ═══════════ -->
+        <div id="viewDistill" hidden data-od-id="distill-panel">
+          <div class="sec-label"><span class="sl-no">①</span>样本<span class="badge ok">共 <span class="num">7,214</span> 字 · 在 3,000–10,000 区间</span></div>
+          <div class="sample-box" data-od-id="distill-samples">
+            <div class="sample-row"><span class="s-name">novel-samples/第一卷定稿摘选.md</span><span class="s-cnt num">4,102 字</span><span class="s-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M5 13l4 4L19 7"/></svg></span></div>
+            <div class="sample-row"><span class="s-name">已归档章节：第 09 章 · 第 11 章 · 第 12 章</span><span class="s-cnt num">3,112 字</span><span class="s-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M5 13l4 4L19 7"/></svg></span></div>
+            <div class="sample-total">
+              <span>把认可的文章放进项目 <b>novel-samples/</b> 文件夹，或勾选已归档章节——两路都算。</span>
+              <span class="spacer"></span>
+              <span class="opt">少于 3,000 字统计噪声大，AI 会建议再补；超过 10,000 字会建议挑最有代表性的几章。</span>
+            </div>
+          </div>
+
+          <div class="sec-label"><span class="sl-no">②</span>AI 学你的写法（三步）<span class="badge done">已完成 · 用时 1 分 40 秒</span></div>
+          <div class="sample-box" data-od-id="distill-steps">
+            <div class="dist-step"><span class="ds-no">1</span><span class="ds-b"><b>读样本，逐段标注写法</b><i>哪段在叙述、哪段在对话、情绪藏在动作里还是说出口——先看懂你怎么写</i></span><span class="ds-ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="12" height="12"><path d="M5 13l4 4L19 7"/></svg>完成</span></div>
+            <div class="dist-step"><span class="ds-no">2</span><span class="ds-b"><b>统计写法习惯</b><i>句长、对话占比、爱用的词、情绪怎么外化——拿数字说话</i></span><span class="ds-ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="12" height="12"><path d="M5 13l4 4L19 7"/></svg>完成</span></div>
+            <div class="dist-step"><span class="ds-no">3</span><span class="ds-b"><b>归纳成九维参数和画像</b><i>数字归九维参数（写章按「约 X（±容差）」执行），人话归画像（下面这张，等你确认）</i></span><span class="ds-ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="12" height="12"><path d="M5 13l4 4L19 7"/></svg>完成</span></div>
+          </div>
+
+          <div class="sec-label"><span class="sl-no">③</span>作者画像 · 你确认后才落卡</div>
+          <div class="portrait" data-od-id="author-portrait">
+            <div class="pz-head">作者画像</div>
+            <p class="pz-note">以下是你文风在 AI 眼里的理解——不是文学评价，AI 会照着这个写。哪里不对直接说。</p>
+            <h4>你的写作特点</h4>
+            <p>一个冷静但不冷漠的讲述者：贴着林拾写，读者只知道他知道的事；情绪不直说，藏在动作和细节里。</p>
+            <h4>你定的规矩</h4>
+            <ul>
+              <li>每章结尾必须有钩子，不平铺直叙收尾</li>
+              <li>不在对话里插旁白解释感情——让读者自己品</li>
+              <li>「突然／猛然／瞬间」每章不超过 4 次</li>
+            </ul>
+            <h4>AI 学到的量化感觉</h4>
+            <ul>
+              <li>短句为主，大多 20 字以内；对话约占一半</li>
+              <li>白描为主、修辞克制；爱用「残卷、账、记性」</li>
+              <li>章尾必留钩子——收束句短，紧跟新信息</li>
+            </ul>
+            <h4>你的典型句子</h4>
+            <ul>
+              <li>雨点砸在铁皮棚上，他没有抬头。</li>
+              <li>等声音停下来，他的左臂已经不自然地垂在身侧。</li>
+            </ul>
+            <p class="pz-ask">读起来像你的写法吗？不像 → 直接说「不像」，我会再学一次。</p>
+            <div class="pz-act">
+              <button class="btn btn-primary" id="btnPortraitKeep" type="button" data-od-id="btn-portrait-keep">就是这样，落卡</button>
+              <button class="btn btn-ghost" id="btnPortraitRetry" type="button" data-od-id="btn-portrait-retry">不像，再学一次</button>
+            </div>
+          </div>
+        </div><!-- /viewDistill -->
+
+       </div><!-- /panel-scroll -->
+
+       <!-- AI 结果落点（锚定体检） -->
+       <div class="ai-sink" id="sinkCheckFoot" hidden data-od-id="sink-style-check-foot"></div>
+
+       <div class="receipt-bar" id="receiptBar" hidden data-od-id="receipt-style">
+         <span id="receiptText"></span>
+         <button class="rb-undo" id="receiptUndo" type="button">撤销</button>
+       </div>
+
+       <div class="panel-foot">
+         <span class="warnline" id="styleHint" hidden>确认「文风」至少要写叙事身份——这是每一章的地基</span>
+         <span class="note" id="styleOkNote">文风不用一次调完——写章时也能回来改 · 确认即前进到「伏笔」</span>
+         <button class="btn btn-secondary" type="button" id="btnDraft">存草稿</button>
+         <button class="btn btn-primary" type="button" id="btnConfirm">确认完成</button>
+       </div>
+      </div><!-- /panel.sub-fill -->
+     </div><!-- /col-panel -->
+    </main><!-- /col-middle -->
+
+    <!-- ═══ 右栏 · AI 助手（现有 col-ai 位置，内容＝本稿设计） ═══ -->
+    <aside class="col-ai">
+      <div class="rail-assist" id="railStyle">
+        <div class="ra-head">
+          <span class="plan-badge">PRO</span>
+          <div class="rh-t"><b>AI 写作助手</b><span>已解锁 · 包含在你的 PRO 套餐（Max 同享）· 只学你的，不代写</span></div>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiask="s1" data-od-id="ai-distill">
+            <span class="ra-body"><b>蒸馏我的文风</b><i>交 3,000–10,000 字案例 → 出「作者画像」给你确认 → 六行基线落卡 · 输入：novel-samples 或已归档章节</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiask="s2" data-od-id="ai-draft-style">
+            <span class="ra-body"><b>润色文字文风</b><i>按题材文字文风＋简介起草或润色四字段，采纳才写回 · 输入：题材＋简介</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiask="s3" data-od-id="ai-anchor-check">
+            <span class="ra-body"><b>锚定体检</b><i>文字文风三区锚定自检：身份/红线/手法是否自洽，并与「禁用词句」面板对齐口径 · 只提醒不拦确认</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiask="s4" data-od-id="ai-fewshot-mine">
+            <span class="ra-body"><b>例句提炼</b><i>从已归档正文里挑 1–3 条最能代表文风的句子 · 输入：已归档章节</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <p class="ra-foot">蒸馏学到的禁用词会自动并入左侧「禁用词句」面板并去重；机器写的章<b>永不回写文风卡</b>——重蒸馏只由你触发，每次蒸馏都有版本快照；要保住的基线行<b>锁定</b>即可，重蒸馏跳过。<b>所有 AI 辅助功能都在本栏</b>；免费版用文字文风写作，蒸馏卡可见＋锁定（会员功能）。</p>
+      </div>
+
+      <p class="opt" style="margin-top:12px;">未配置模型？去左侧「AI 模型」。</p>
+    </aside>
+    </div><!-- /view.three-col -->
+  </div><!-- /winStyle -->
+
+  <div class="rec-box">
+    <b>结论 · 本稿裁定与增量</b>
+    <ol>
+      <li><b>结构拍板（本稿核心修正）：两部分，不选题材</b>——题材在「题材」步已定。①文字文风（免费）＝继承题材蓝图的三区：叙事身份（必填一句）/硬约束（红线，含风格特有禁令）/描写手法（题材预填删改）＋例句选填，蒸馏之前 AI 只按这部分写；②量化参数（会员）＝蒸馏 3,000–10,000 字认可的案例，出六行基线，作者画像确认才落卡。</li>
+      <li><b>基线六行与合并（沿用上轮裁定）</b>：镜头人称／篇幅配比五层／句子段落／修饰密度＋词表／情绪外化／对话动词质感——九维按语义合并，全量字段收「统计明细」折叠只读备查；基线只读＋行级锁定（locked，重蒸馏跳过）。</li>
+      <li><b>全局 vs 章节（用户拍板）</b>：基线＝全书一套基本不动；章节的量化变化不做场景卡——写章的 AI 按本章剧情在 ±容差内自行调节（容差＝章级调节的法定空间，超容差回重蒸馏）；调节结果在章纲确认/写作现场可见（属工作台设计，另立一稿）；focal_character 归角色卡/主线。</li>
+      <li><b>免费/会员分界</b>：免费＝文字文风完整可用；蒸馏＝会员功能，入口可见＋锁定，点击走后端 403 → MemberBlockPrompt（§11）。删掉的入口：题材预设库/换题材（上游已定）、从空白开始（继承默认即可改，无需单独模式）。</li>
+      <li><b>数据映射（立项时对齐）</b>：文字文风＝现行 style KV 收敛为三区（叙事身份/硬约束/描写手法；possible_mistakes 撤并——通用反模式入「禁用词句」面板、风格特有禁令改写进硬约束）＋tone 五项拆并（叙事者角色/视角→叙事身份、技法→手法、氛围→题材蓝图）＋题材蓝图作预填源；基线＝frontmatter 九维合并视图（存储仍逐字段）；场景卡不落地（章节量化变化由写作期 AI 在容差内调节，不建 style-profiles）；画像＝analysis 作者画像节；新增蒸馏任务与样本管理（novel-samples/已归档章节，3,000–10,000 字区间校验）。</li>
+      <li><b>验收口径</b>：本稿先入原型并登记 ADJUSTMENTS，再改实现——design:check 全绿（&lt;0.2%）＋ settings-forms / StyleSettingForm.fewShots e2e 更新后全过。</li>
+    </ol>
+  </div>
+
+</div>
+
+<!-- 评审切换器（非基线演示元素，parity 截图排除） -->
+<div class="demo-switch" id="demoSwitch">
+  <span>评审切换</span>
+  <button type="button" data-view="card" class="on">文风卡</button>
+  <button type="button" data-view="distill">蒸馏流程</button>
+</div>
+
+<script>
+(function () {
+  function toast(msg) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;right:22px;bottom:64px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);z-index:99;max-width:340px;';
+    t.textContent = msg; document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2600);
+  }
+  const esc = t => String(t).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const $ = s => document.querySelector(s);
+  const $$ = s => Array.prototype.slice.call(document.querySelectorAll(s));
+
+  /* ═══ 文字文风数据（demo 单源）＝题材蓝图默认 + 作者改过 2 处 ═══ */
+  const PRESET = {
+    role: '一个冷静但不冷漠的叙事者——客观描述角色行动和环境，不替角色感受。让对话和动作传递情绪，不做心理分析旁白。',
+    rules: [
+      '每章结尾必须有钩子，不能平铺直叙收尾',
+      '不在对话中插入旁白解释角色情感——让读者从语气和用词判断',
+      '对话为主、描写为辅，一段叙事后尽快回到对话推进',
+      '「突然」「猛然」「瞬间」每章不超过 4 次，红线段落从宽',
+      '不写无意义的日常——每个场景必须有冲突或信息推进'
+    ],
+    craft: [
+      '情绪通过动作表达：紧张时抠指甲、愤怒时反而轻声细语',
+      '环境感知融入角色行动：不是「街道很吵」，是「他得扯着嗓子对方才能听见」',
+      '对话用语气和用词差异区分角色——不靠「他说」「她说」标签',
+      '时间流逝用环境变化暗示：阳光角度、影子长度、温度变化',
+      '战斗用结果和后果描写代替过程：「等声音停下来，他的左臂已经不自然地垂在身侧」'
+    ]
+  };
+  /* 作者改过 2 处：rules[1]、craft[1]（演示：与蓝图有差异 → 已自定义） */
+  let style = JSON.parse(JSON.stringify(PRESET));
+  style.rules[1] = '对话中不插旁白解释情感——修真语境里改成「以气机与称谓传情」，禁直接点破';
+  style.craft[1] = '环境感知融入角色行动：焦虑时看到的不是房间全貌，是出口、窗户、能当武器的东西';
+
+  const LIMITS = { rules: 5, craft: 8 };
+  let edited = { role: false, rules: [1], craft: [1] };   /* 与题材默认的差异 */
+
+  /* ═══ ListEditor：编号行＋行删＋上移＋上限到量隐藏添加 ═══ */
+  function renderLE(boxId, key, ph) {
+    const box = $('#' + boxId);
+    box.innerHTML = '';
+    const arr = style[key];
+    arr.forEach((v, i) => {
+      const row = document.createElement('div');
+      row.className = 'le-row';
+      const no = document.createElement('span');
+      no.className = 'le-no num'; no.textContent = String(i + 1);
+      const input = document.createElement('input');
+      input.className = 'input'; input.value = v; input.placeholder = ph;
+      input.addEventListener('input', () => {
+        style[key][i] = input.value;
+        markCustom(i, key);
+      });
+      const tools = document.createElement('span');
+      tools.className = 'le-tools';
+      if (i > 0) {
+        const up = document.createElement('button');
+        up.type = 'button'; up.className = 'icon-btn up'; up.title = '上移';
+        up.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="12" height="12"><path d="m18 15-6-6-6 6"/></svg>';
+        up.addEventListener('click', () => {
+          const t = style[key][i - 1]; style[key][i - 1] = style[key][i]; style[key][i] = t;
+          renderLE(boxId, key, ph);
+        });
+        tools.appendChild(up);
+      }
+      const del = document.createElement('button');
+      del.type = 'button'; del.className = 'icon-btn'; del.title = '删掉这条';
+      del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="12" height="12"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>';
+      del.addEventListener('click', () => {
+        style[key].splice(i, 1);
+        edited[key] = edited[key].map(x => x < i ? x : x - 1).filter(x => x !== i);
+        renderLE(boxId, key, ph);
+      });
+      tools.appendChild(del);
+      row.appendChild(no); row.appendChild(input); row.appendChild(tools);
+      box.appendChild(row);
+    });
+    if (arr.length < LIMITS[key]) {
+      const add = document.createElement('button');
+      add.type = 'button'; add.className = 'text-btn le-add';
+      add.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M12 5v14M5 12h14"/></svg>加一条';
+      add.addEventListener('click', () => {
+        style[key].push('');
+        renderLE(boxId, key, ph);
+        const rows = box.querySelectorAll('.le-row .input');
+        if (rows.length) rows[rows.length - 1].focus();
+      });
+      box.appendChild(add);
+    }
+    const cnt = document.createElement('p');
+    cnt.className = 'le-cnt num';
+    cnt.textContent = arr.length + '/' + LIMITS[key] + ' 条';
+    box.appendChild(cnt);
+  }
+  function markCustom(i, key) {
+    if (style[key][i] !== PRESET[key][i] && edited[key].indexOf(i) < 0) edited[key].push(i);
+    syncBadge();
+  }
+  function syncBadge() {
+    const n = (edited.role ? 1 : 0) + edited.rules.length + edited.craft.length;
+    const badge = $('#badgeStyle');
+    if (n > 0) { badge.textContent = '已自定义 · ' + n + ' 处'; badge.className = 'badge warn'; }
+    else { badge.textContent = '题材默认'; badge.className = 'badge ok'; }
+    const diff = $('#diffNote');
+    if (n > 0) {
+      diff.hidden = false;
+      diff.innerHTML = '与题材默认（仙侠/修真蓝图）不同：<b>' + n + ' 处</b>（改于今天）——改过的都会被记住。';
+    } else {
+      diff.hidden = true;
+    }
+    /* 确认门槛：叙事身份必填 */
+    const ok = $('#fRole').value.trim().length > 0;
+    $('#styleHint').hidden = ok;
+    $('#styleOkNote').hidden = !ok;
+  }
+
+  function renderAll() {
+    renderLE('leRules', 'rules', '可执行的硬规则。例：「突然」每章不超过 4 次');
+    renderLE('leCraft', 'craft', '可操作的手法＋例子。例：紧张时抠指甲，不写「他很紧张」');
+    syncBadge();
+  }
+  $('#fRole').addEventListener('input', () => { edited.role = true; syncBadge(); });
+
+  /* ═══ 页签（文字文风 / 量化参数）与视图切换（文风卡 / 蒸馏流程） ═══ */
+  let curTab = 'text';
+  function setTab(t) {
+    curTab = t;
+    $('#tabText').hidden = t !== 'text';
+    $('#tabQuant').hidden = t !== 'quant';
+    $$('.ptab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  }
+  $$('.ptab').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+  function setView(v) {
+    const card = v === 'card';
+    $('#viewDistill').hidden = v !== 'distill';
+    $('.ptabs').hidden = !card;
+    $('#tabText').hidden = !card || curTab !== 'text';
+    $('#tabQuant').hidden = !card || curTab !== 'quant';
+    $$('#demoSwitch button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+    try { $('#winStyle').scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* jsdom 无实现 */ }
+  }
+  $$('#demoSwitch button').forEach(b => b.addEventListener('click', () => {
+    setView(b.dataset.view);
+    if (b.dataset.view === 'card') renderAll();
+  }));
+
+  /* ═══ 折叠组 ═══ */
+  function bindCfg(headSel, bodySel, groupSel) {
+    $(headSel).addEventListener('click', () => {
+      const open = $(groupSel).classList.toggle('open');
+      $(bodySel).hidden = !open;
+    });
+  }
+  bindCfg('#cfgShotsHead', '#cfgShotsBody', '#cfgShots');
+
+  /* ═══ 锚定链直达 ═══ */
+  $$('.ac-node').forEach(n => n.addEventListener('click', () => {
+    const el = document.getElementById(n.dataset.goto);
+    if (el) { el.focus(); try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* jsdom 无实现 */ } }
+  }));
+
+  /* ═══ 文风例句（1–3 条） ═══ */
+  let shots = ['雨点砸在铁皮棚上，他没有抬头。', '等声音停下来，他的左臂已经不自然地垂在身侧。', ''];
+  function renderShots() {
+    const box = $('#leShots');
+    box.innerHTML = '';
+    shots.forEach((v, i) => {
+      const row = document.createElement('div');
+      row.className = 'le-row';
+      const no = document.createElement('span');
+      no.className = 'le-no num'; no.textContent = String(i + 1);
+      const input = document.createElement('input');
+      input.className = 'input'; input.value = v;
+      input.placeholder = '如：雨点砸在铁皮棚上，他没有抬头。';
+      input.addEventListener('input', () => { shots[i] = input.value; });
+      const tools = document.createElement('span');
+      tools.className = 'le-tools';
+      const del = document.createElement('button');
+      del.type = 'button'; del.className = 'icon-btn'; del.title = '删掉这条';
+      del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="12" height="12"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>';
+      del.addEventListener('click', () => { shots.splice(i, 1); renderShots(); });
+      tools.appendChild(del);
+      row.appendChild(no); row.appendChild(input); row.appendChild(tools);
+      box.appendChild(row);
+    });
+    if (shots.length < 3) {
+      const add = document.createElement('button');
+      add.type = 'button'; add.className = 'text-btn le-add';
+      add.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M12 5v14M5 12h14"/></svg>加一条';
+      add.addEventListener('click', () => { shots.push(''); renderShots(); });
+      box.appendChild(add);
+    }
+    const cnt = document.createElement('p');
+    cnt.className = 'le-cnt num';
+    cnt.textContent = shots.filter(s => s.trim()).length + '/3 条';
+    box.appendChild(cnt);
+  }
+  renderShots();
+
+  /* ═══ 全局基线（六行主参数，合并自九维；蒸馏产出只读＋行级锁定） ═══ */
+  const BASE = [
+    { name: '镜头与人称', dims: 'narrative', vals: '第三人称限知 · 紧贴林拾', note: '独白直入叙事流，不写「他心想」；全知片段每卷不超过一次' },
+    { name: '篇幅配比（五层）', dims: 'rhythm', bar: [48, 24, 15, 7, 6], legend: ['对话', '动作', '叙述', '环境', '内心独白'], note: '写章按「约 X（±10%）」执行——这段容差就是章级即兴的空间' },
+    { name: '句子与段落', dims: 'syntax · cohesion', vals: '平均句长 14.6 字（短 41 · 中 38 · 长 16 · 超长 5）', note: '单句段 31% · 段桥：动作与场景切换，少用「与此同时」' },
+    { name: '修饰密度', dims: 'lexicon · rhetoric', vals: '修饰词 8.1/百字（形容 4.2 · 副词 1.8 · 四字短语 2.1）· 比喻 0.8', note: '偏好词：残卷 / 账 / 记性 ｜ 禁用：突然 ≤4 次/章（并入「禁用词句」面板去重）' },
+    { name: '情绪外化', dims: 'emotion_expression', vals: '主通道：动作生理 58%（直接陈述压到 12%）', note: '配套写法：紧张＝抠指甲，愤怒＝轻声细语——不写「他很紧张」' },
+    { name: '对话与动词质感', dims: 'dialogue · verb', vals: '对话 18 字/轮 · 标签动作主导 · 动词力度 strong', note: '少用「他说她说」；「按、攥、掀」类高频' }
+  ];
+  const locked = { rhythm: true };
+  function renderBase() {
+    const box = $('#baseBox');
+    box.innerHTML = '';
+    BASE.forEach(b => {
+      const el = document.createElement('div');
+      el.className = 'bx-row';
+      let mid;
+      if (b.bar) {
+        const op = [100, 78, 56, 34, 18];
+        mid = '<div class="five-bar">' + b.bar.map((v, i) =>
+          '<i style="width:' + v + '%;background:color-mix(in oklch, var(--accent) ' + op[i] + '%, transparent);"></i>').join('') + '</div>' +
+          '<div class="fb-legend">' + b.legend.map((l, i) => '<span>' + esc(l) + ' <span class="num">' + b.bar[i] + '%</span></span>').join('') + '</div>';
+      } else {
+        mid = '<div class="bx-vals">' + esc(b.vals) + '</div>';
+      }
+      el.innerHTML = '<div class="bx-head"><span class="bx-name">' + esc(b.name) + '</span>' +
+        '<span class="bx-dims">' + esc(b.dims) + '</span>' +
+        '<button class="lock-btn' + (locked[b.dims] ? ' on' : '') + '" type="button" data-lock="' + esc(b.dims) + '">' +
+        (locked[b.dims] ? '已锁定 · 重蒸馏跳过' : '锁定') + '</button></div>' +
+        mid + '<div class="bx-note">' + esc(b.note) + '</div>';
+      box.appendChild(el);
+    });
+  }
+  renderBase();
+  $('#baseBox').addEventListener('click', e => {
+    const btn = e.target.closest('[data-lock]'); if (!btn) return;
+    locked[btn.dataset.lock] = !locked[btn.dataset.lock];
+    renderBase();
+    toast(locked[btn.dataset.lock] ? '已锁定——重蒸馏保持这组基线' : '已解锁——重蒸馏会重新统计覆盖');
+  });
+
+  /* 统计明细（九维全量只读——账本不丢，界面只留常用） */
+  const DETAILS = [
+    ['词法 lexicon', '形容 4.2/百字 · 副词 1.8/百字 · 四字短语 2.1/百字 · 名代比 1:2.3 · 偏好词 3 个 · 禁用词 1 个'],
+    ['句法 syntax', '平均句长 14.6 字 · 单句段 31% · 每段平均 2.4 句 · 疑问句 6.2% · 感叹句 1.1% · 句长分布 41/38/16/5'],
+    ['节奏 rhythm', '对话 48 · 动作 24 · 叙述 15 · 环境 7 · 内心独白 6（和＝100）'],
+    ['修辞 rhetoric', '比喻 0.8/百字 · 偏好白描 · 五感分布 听 40 / 触 30 / 视 20 / 嗅味 10'],
+    ['情绪表达 emotion', '直接陈述 12 · 动作生理 58 · 环境映射 22 · 内心独白 8（和＝100）'],
+    ['叙事 narrative', '视角第三人称限知 · 焦点角色 林拾（随主线走，不入卡） · 独白直入叙事流'],
+    ['对话 dialogue', '平均 18 字 · 打断 3.2 次/百字 · 潜台词 35% · 标签动作主导'],
+    ['衔接 cohesion', '连词 1.4/百字 · 过渡句 8% · 段桥动作与场景切换'],
+    ['动词 verb', '动作 52 · 心理 18 · 状态 30（和＝100） · 力度 strong']
+  ];
+  $('#cfgDetailBody').innerHTML = DETAILS.map(d =>
+    '<div class="det-row"><span class="dk">' + esc(d[0]) + '</span><span class="dv2">' + esc(d[1]) + '</span></div>').join('');
+  bindCfg('#cfgDetailHead', '#cfgDetailBody', '#cfgDetail');
+
+  /* ═══ 文字文风重置（恢复题材默认蓝图；量化参数不受影响） ═══ */
+  $('#btnResetBp').addEventListener('click', () => {
+    const snapshot = JSON.stringify({ style, edited });
+    style = JSON.parse(JSON.stringify(PRESET));
+    edited = { role: false, rules: [], craft: [] };
+    renderAll();
+    showReceipt('已重置为题材默认（继承自「仙侠/修真」文字文风蓝图）', () => {
+      const s0 = JSON.parse(snapshot);
+      style = s0.style; edited = s0.edited;
+      renderAll();
+      toast('已撤销，恢复重置前内容');
+    });
+  });
+
+  /* ═══ 蒸馏流程（状态 B） ═══ */
+  $('#btnPortraitKeep').addEventListener('click', () => {
+    showReceipt('已落卡：文风指纹更新到 v3 · 画像已并入文风卡（可在字段里逐条改）', () => toast('已撤销（演示）：回退到落卡前'));
+    toast('画像已确认——六行基线更新了，写章时生效');
+    setView('card');
+    setTab('quant');
+  });
+  $('#btnPortraitRetry').addEventListener('click', () => {
+    toast('好——把不像的地方直接说出来（或再补几段样本），我重新学一次');
+  });
+  $('#btnRedistill').addEventListener('click', () => setView('distill'));
+  $('#fpEmptyGo').addEventListener('click', () => setView('distill'));
+  $('#btnFpHistory').addEventListener('click', () => toast('版本快照：v1 · 2026-09-02（首蒸 5,900 字）｜v2 · 2026-09-14（补样 7,214 字）——快照只读，可对照不可回写'));
+
+  /* ═══ 回执条 ═══ */
+  let pendingUndo = null;
+  function showReceipt(text, undoFn) {
+    pendingUndo = undoFn;
+    $('#receiptText').textContent = text;
+    $('#receiptBar').hidden = false;
+  }
+  $('#receiptUndo').addEventListener('click', () => {
+    if (pendingUndo) pendingUndo();
+    $('#receiptBar').hidden = true; pendingUndo = null;
+  });
+
+  /* ═══ 右栏 AI 行（结果落中栏 sink；采纳才写回） ═══ */
+  $('#sinkCheck').hidden = true;
+  function renderCheck() {
+    const box = $('#sinkCheckFoot');
+    box.innerHTML = '<div class="aiz-head">AI 体检 · 四字段锚定 × 禁用词句</div>' +
+      '<div class="chk-line"><span class="chk-name">身份 × 约束</span><span class="chk-res ok">达标</span><span class="chk-note">「不替角色感受」＋「不插旁白解释情感」——两条都在守同一条边界</span></div>' +
+      '<div class="chk-line"><span class="chk-name">身份 × 手法</span><span class="chk-res ok">达标</span><span class="chk-note">情绪外化手法与「冷静不冷漠」的身份一致</span></div>' +
+      '<div class="chk-line"><span class="chk-name">约束 × 手法</span><span class="chk-res warn">风险</span><span class="chk-note">「对话为主」＋「对话不超三回合」同时生效时，修真称谓传情的手法容易没空间——建议给称谓传情留一处例外</span></div>' +
+      '<div class="chk-line"><span class="chk-name">红线 × 禁用词句</span><span class="chk-res ok">同源</span><span class="chk-note">「突然 ≤4 次/章」与禁用词句面板同一阈值——通用词句只在禁用词句一处拦</span></div>' +
+      '<p style="margin:8px 0 0;font-size:11.5px;color:var(--muted);">只提醒不拦确认；点对应字段可去改。</p>' +
+      '<div class="ans-act"><button class="primary" type="button">重跑</button></div>';
+    box.hidden = false;
+    box.querySelector('.ans-act button').addEventListener('click', () => toast('已重跑 · 按当前四字段重新体检'));
+    try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* jsdom 无实现 */ }
+  }
+
+  $$('[data-aiask]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.aiask;
+      if (key === 's1') { setView('distill'); toast('蒸馏在左栏进行：交样本 → 画像确认 → 落卡'); return; }
+      if (key === 's3') { renderCheck(); return; }
+      if (key === 's4') {
+        const snapshot = JSON.stringify(shots);
+        shots = ['雨点砸在铁皮棚上，他没有抬头。', '等声音停下来，他的左臂已经不自然地垂在身侧。', '他把账合上，像合上一口棺材。'];
+        renderShots();
+        showReceipt('已提炼 3 条例句（来自第 09 / 11 / 12 章已归档正文）', () => {
+          shots = JSON.parse(snapshot); renderShots();
+          toast('已撤销，恢复提炼前例句');
+        });
+        toast('已从已归档正文提炼 3 条——不满意可在例句行里直接改');
+        return;
+      }
+      if (key === 's2') {
+        const snapshot = JSON.stringify({ style, edited });
+        style = {
+          role: '一个冷静但不冷漠的叙事者——贴着主角写，读者只知道他知道的事；情绪不直说，藏在动作与细节里。',
+          rules: [
+            '每章结尾必须有钩子，不能平铺直叙收尾',
+            '不在对话中插入旁白解释角色情感——修真语境里以气机与称谓传情',
+            '「突然」「猛然」「瞬间」每章不超过 4 次',
+            '不写无意义的日常——每个场景必须有冲突或信息推进'
+          ],
+          craft: [
+            '情绪通过动作表达：紧张时抠指甲、愤怒时反而轻声细语',
+            '环境感知融入角色行动：焦虑时看到的不是房间全貌，是出口、窗户、能当武器的东西',
+            '战斗用结果和后果描写代替过程：「等声音停下来，他的左臂已经不自然地垂在身侧」'
+          ]
+        };
+        edited = { role: false, rules: [], craft: [] };
+        renderAll();
+        setView('card');
+        showReceipt('已采纳「润色文字文风」：三区按题材文字文风＋简介重写（覆盖原内容，可撤销）', () => {
+          const s0 = JSON.parse(snapshot);
+          style = s0.style; edited = s0.edited;
+          renderAll();
+          toast('已撤销，恢复采纳前内容');
+        });
+        toast('已起草文字文风三区——每条都能改，锚定体检建议跑一遍');
+      }
+    });
+  });
+
+  /* ═══ 底部动作 ═══ */
+  $('#btnDraft').addEventListener('click', () => toast('「文风」已存草稿 · 未计入设定进度，随时回来继续'));
+  $('#btnConfirm').addEventListener('click', () => {
+    if ($('#fRole').value.trim().length === 0) { toast('先写叙事身份：一句话说清镜头多近、什么态度——这是每一章的地基'); return; }
+    $('#badgeStyle').textContent = '已确认';
+    $('#badgeStyle').className = 'badge done';
+    toast('已确认「文风」· 设定树里下一项：伏笔');
+  });
+
+  /* 应用框架：顶栏（演示稿说明——上部为现有设定页外壳，非本稿范围） */
+  $$('.appbar .back').forEach(b => b.addEventListener('click', () => toast('演示稿：上部为现有设定页外壳——本稿只设计「文风」的中/右两栏')));
+
+  renderAll();
+  setTab('text');
+})();
+</script>
+</body>
+</html>

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_client import get_ai_client
+from ai_client import AITimeoutError, get_ai_client
 from auth_local.deps import require_ai_access, require_project_limit
 from auth_local.middleware import get_current_user
 from db import get_db
@@ -163,13 +163,42 @@ async def suggest_meta(
 
     try:
         usage: dict = {}
-        text = await client.chat(
-            model="haiku",
-            system="",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1200,
-            usage=usage,
-        )
+        try:
+            text = await client.chat(
+                model="haiku",
+                system="",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1200,
+                usage=usage,
+            )
+        except AITimeoutError:
+            from api_configs.usage import record_usage
+
+            await record_usage(
+                db,
+                user_id=user["id"],
+                project_id=None,
+                operation="suggest_meta_fail",
+                model=client.model,
+                tokens_in=usage.get("tokens_in", 0),
+                tokens_out=usage.get("tokens_out", 0),
+                force=True,
+            )
+            raise HTTPException(502, "AI 服务响应超时，请稍后重试")
+        except Exception as e:  # noqa: BLE001 — 失败也留痕（调用已发生）
+            from api_configs.usage import record_usage
+
+            await record_usage(
+                db,
+                user_id=user["id"],
+                project_id=None,
+                operation="suggest_meta_fail",
+                model=client.model,
+                tokens_in=usage.get("tokens_in", 0),
+                tokens_out=usage.get("tokens_out", 0),
+                force=True,
+            )
+            raise HTTPException(502, f"AI suggestion failed: {e!s}") from e
         # Extract JSON from response (handle ```json fences)
         if "```" in text:
             text = text.split("```")[1]
@@ -610,6 +639,13 @@ async def _dump_project_snapshot(zf, db, project) -> None:
     from backup.export import _dump_characters
 
     await _dump_characters(zf, db, project)
+
+    # 伏笔段 v3（foreshadow-settings-v2）：真表 → hooks/hooks.yaml——复用备份链
+    # 的同一个导出函数（章引用 id→ref），settings/ 树不再含 hooks。本端点与
+    # /backup/export 共用导入器，缺这段会让作品包路径静默丢伏笔
+    from backup.export import _dump_hooks
+
+    await _dump_hooks(zf, db, project)
 
     # 卷纲 + 章纲/正文 + 版本快照 + 生成提示词
     volumes = (

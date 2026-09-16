@@ -40,6 +40,7 @@ async def list_volumes(db, project) -> list[dict]:
                 "chapter_count": v.chapter_count,
                 "chapters": [
                     {
+                        "id": c.id,  # DB 章 id（foreshadow-settings-v2：伏笔选择器按 id 引用章）
                         "ref": c.ref,
                         "volume": v.volume_no,
                         "chapter": c.chapter_no,

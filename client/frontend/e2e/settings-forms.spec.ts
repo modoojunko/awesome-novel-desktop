@@ -8,7 +8,7 @@ import { cleanupSessionNovels } from "./helpers";
 // 设定真实表单 + 预览只读 E2E（PR4 v2 设定视图 two-col + 预览视图复刻后改版）
 //   ① 题材：GenreSettingForm 真实题材选择器（空态 → 选 都市日常 → 应用题材 → 自动保存）
 //   ② 风格：StyleSettingForm 真实表单（叙事身份 Field + 核心原则折叠组 ListEditor）
-//   ③ AI痕迹：AntiAiSettingForm 真实表单（疲劳词分类 ListEditor）
+//   ③ 禁用词收编（banned-words-into-style）：文风硬约束区禁用词折叠组（原 AI痕迹面板退役）
 //   ④ 角色：CharacterManager 真实创建角色（创建弹窗 → 基本信息 → 保存）
 //   ⑤ 预览（只读树 + 只读正文）：全书通读（草稿/归档章皆可读）→ 点章切换 →
 //      归档 tag 同步 → 回工作台恢复编辑（归档管理在正文编辑页）
@@ -233,7 +233,7 @@ async function confirmPanel(page: Page) {
 }
 
 /**
- * 已确认面板的保存路径：种子模板让 style/anti-ai 开书即有内容（readiness 即
+ * 已确认面板的保存路径：种子模板让 style 开书即有内容（readiness 即
  * ready → 按钮已是「保存修改」，gap3：已确认态只 save，不再 PUT status）。
  */
 async function savePanel(page: Page) {
@@ -415,10 +415,10 @@ test("题材：长回执单行截断，确认完成点得到", async ({ page }) 
 });
 
 // -------------------------------------------------------------------------
-// ② 风格：真实表单（叙事身份 Field + 核心原则折叠组）→ 确认完成自动落库
+// ② 风格：两页签（文字文风三区＋量化空态）→ 确认完成自动落库（style-settings-v2）
 // -------------------------------------------------------------------------
 
-test("风格：真实表单（叙事身份 Field + 核心原则折叠组）→ 确认完成自动落库", async ({
+test("文风：两页签（文字文风三区＋量化空态）→ 确认完成自动落库", async ({
   page,
   request,
 }) => {
@@ -428,19 +428,29 @@ test("风格：真实表单（叙事身份 Field + 核心原则折叠组）→ �
     await page.getByRole("button", { name: /^设定/ }).click();
     await openSetting(page, "文风");
 
-    // 叙事身份折叠组（默认展开）：Field 文本（种子模板预填 role，fill 覆盖）
-    await fillSettingField(page, "叙事身份", "冷静克制的第三人称叙事，短句为主");
+    // 两页签：文字文风（默认签）｜量化参数（未蒸馏 → 空态）
+    await expect(page.locator('[data-od-id="style-tabs"]')).toBeVisible();
+    await expect(page.locator('[data-od-id="style-tab-badge"]')).toHaveText("题材默认");
+    await page.locator('[data-od-id="ptab-quant"]').click();
+    await expect(page.locator('[data-od-id="quant-empty"]')).toBeVisible();
+    await expect(page.locator('[data-od-id="quant-tab-badge"]')).toHaveText("未蒸馏");
+    await page.locator('[data-od-id="ptab-text"]').click();
+    // 未完成（7/8）：完成卡不出现（settings-done-entry）
+    await expect(page.locator('[data-od-id="settings-done-card"]')).toHaveCount(0);
 
-    // 核心原则折叠组（默认收起）：展开 → 首行 ListEditor 填原则
-    await page.locator("summary", { hasText: "核心原则" }).click();
-    const principles = page.locator("details.cfg", { hasText: "核心原则" });
-    await principles
-      .locator("input.input")
+    // 三区：叙事身份（textarea）＋硬约束首行 ListEditor
+    await page
+      .locator('[data-od-id="input-style-role"]')
+      .fill("冷静克制的第三人称叙事，短句为主");
+    await page
+      .locator('[data-od-id="list-rules"] input.input')
       .first()
       .fill("动词驱动叙事，动作外化情绪");
+    // 改过身份与红线 → 页签徽标翻「已自定义」
+    await expect(page.locator('[data-od-id="style-tab-badge"]')).toHaveText("已自定义 · 2 处");
 
     // 新书未确认（§5.1 已填≠已确认）→ 点「确认完成」：先 save 再 confirm，
-    // 并「确认即前进」到下一项（新顺序：文风→伏笔）
+    // 并「确认即前进」到下一项（顺序：文风→伏笔）
     const styleSave = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/settings/style"),
     );
@@ -450,24 +460,25 @@ test("风格：真实表单（叙事身份 Field + 核心原则折叠组）→ �
       page.locator(".settings-v main h2", { hasText: "伏笔" }),
     ).toBeVisible({ timeout: 5000 });
 
-    // 后端直查（merge-on-save 后 role / core_principles 落盘）
+    // 后端直查：归一三区落盘；撤并键不再出现（_legacy_style 属留底键，GET 已剥）
     const style = await apiGetJSON(request, token, `/novels/${pid}/settings/style`);
     expect(style.role).toContain("克制");
     expect(
-      style.core_principles.some(
-        (p: string) => typeof p === "string" && p.includes("动词驱动叙事"),
-      ),
+      style.rules.some((p: string) => typeof p === "string" && p.includes("动词驱动叙事")),
     ).toBe(true);
+    expect(style).not.toHaveProperty("tone");
+    expect(style).not.toHaveProperty("possible_mistakes");
   } finally {
     await restore();
   }
 });
 
 // -------------------------------------------------------------------------
-// ③ AI痕迹：真实表单（疲劳词分类折叠组）→ 确认完成自动落库
+// ③ 禁用词收编（banned-words-into-style）：文风硬约束区「禁用词」折叠组 →
+//    确认完成自动落库；文风确认后推进到伏笔（末项语义变更一并回归）
 // -------------------------------------------------------------------------
 
-test("AI痕迹：真实表单（疲劳词分类列表）→ 确认完成自动落库", async ({
+test("禁用词收编：文风硬约束区禁用词折叠组 → 确认完成落库并推进伏笔", async ({
   page,
   request,
 }) => {
@@ -475,28 +486,35 @@ test("AI痕迹：真实表单（疲劳词分类列表）→ 确认完成自动�
   try {
     const pid = await createNovel(page, `痕迹${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
-    await openSetting(page, "禁用词句");
+    await openSetting(page, "文风");
 
-    // 疲劳词折叠组（默认展开）：第一分类（总结叙事）ListEditor 填词
-    // （种子模板已带默认疲劳词，fill 追加到既有分类）
-    await page
-      .getByPlaceholder(/添加该分类下的疲劳词/)
-      .first()
-      .fill("似乎");
+    // 禁用词折叠组（默认收起）：点组头展开；模板预填 37 词 → 点「添加一项」追加新行
+    const bannedCfg = page.locator("details.cfg", { hasText: "禁用词" }).first();
+    await bannedCfg.locator("summary").click();
+    const addBtn = bannedCfg.getByRole("button", { name: /添加一项/ });
+    await addBtn.scrollIntoViewIfNeeded();
+    await addBtn.click();
+    await bannedCfg.locator("input.input").last().fill("似乎");
 
-    // 新书未确认 → 点「确认完成」（save + confirm；禁用词句是末项 → 不前进）
-    const antiSave = page.waitForResponse(
-      (r) => r.request().method() === "PUT" && r.url().includes("/settings/anti-ai"),
+    // 确认完成（save + confirm）；文风确认后即前进到伏笔（07 末项语义）
+    const stylePut = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url().includes("/settings/style"),
     );
     await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();
-    await antiSave;
+    await stylePut;
     await expect(
-      page.locator(".settings-v main h2", { hasText: "禁用词句" }),
+      page.locator(".settings-v main h2", { hasText: "伏笔" }),
     ).toBeVisible({ timeout: 5000 });
 
-    // 后端直查：summary_narrative 分类含「似乎」
-    const anti = await apiGetJSON(request, token, `/novels/${pid}/settings/anti-ai`);
-    expect(anti.fatigue_words_zh.summary_narrative).toContain("似乎");
+    // 后端直查：文风 KV banned_words 含「似乎」（旧 /settings/anti-ai 写通道已退役）
+    const style = await apiGetJSON(request, token, `/novels/${pid}/settings/style`);
+    expect(style.banned_words).toContain("似乎");
+    // 旧面板退役：antiAI 写通道 400
+    const retired = await request.put(`${ORIGIN}/api/novels/${pid}/settings/anti-ai`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: { fatigue_words_zh: {} },
+    });
+    expect(retired.status()).toBe(400);
   } finally {
     await restore();
   }
@@ -929,6 +947,184 @@ test("前两步顺序 + 确认即前进：简介确认后自动切到题材（ta
     await expect(page.locator(".textarea").first()).toHaveValue(
       "外门杂徒林拾，在宗门扫了十年落叶。",
     );
+  } finally {
+    await restore();
+  }
+});
+
+// -------------------------------------------------------------------------
+// ⑤ 角色首进引导（character-bootstrap-from-intro）：简介已填 → 空态引导卡
+//    两出口；手动建主角首卡默认「主角」；有名卡后 readiness 角色项即已填
+// -------------------------------------------------------------------------
+test("角色：首进引导卡 → 手动建主角 → 引导卡退场", async ({ page, request }) => {
+  const { restore, token } = await setupSession(page);
+  const auth = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  try {
+    const pid = await createNovel(page, `引导${Date.now() % 100000}`);
+    // 先把 01 简介填上（readiness synopsis 就绪 → 角色页空态给 AI 出口）
+    const putStory = await request.put(`${ORIGIN}/api/novels/${pid}/story`, {
+      headers: auth,
+      data: { synopsis: "杂役弟子林晚靠一双能看见修为漏洞的眼翻盘。" },
+    });
+    expect(putStory.ok()).toBeTruthy();
+    // settingsStatus 在进书时取自 /readiness，PUT 后须重载工作台拿到新状态
+    await page.reload();
+    await expect(page.getByRole("button", { name: /^设定/ })).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "角色");
+
+    // 引导卡：AI 出口 + 手动出口，并存（AI 不点：本地栈无模型，门控提示属免费/模型路径）
+    await expect(page.getByText("简介里已经有主角的线索了")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByRole("button", { name: "从简介立主角" })).toBeVisible();
+    await expect(page.getByTestId("char-empty-guide")).toBeVisible();
+
+    // 手动建主角：首卡默认「主角」
+    await page.getByRole("button", { name: "手动建主角" }).click();
+    await page.getByRole("textbox", { name: "角色名称" }).fill("林晚");
+    await page.waitForTimeout(1200); // 防抖 PATCH 落库
+
+    const list = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+    const item = (list.data?.items ?? []).find((x: { name: string }) => x.name === "林晚");
+    expect(item).toBeTruthy();
+    expect(item.role).toBe("主角");
+
+    // 一张有名卡 → readiness 角色项不再报缺失（收紧口径的正向面）
+    const ready = await apiGetJSON(request, token, `/novels/${pid}/readiness`);
+    const keys = (ready.missing ?? []).map((m: { key: string }) => m.key);
+    expect(keys).not.toContain("characters");
+
+    // 引导卡退场：列表非空后进来直接是卷宗卡
+    await page.reload();
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "角色");
+    await expect(page.getByTestId("char-empty-guide")).toHaveCount(0, { timeout: 10000 });
+    await expect(page.getByRole("textbox", { name: "角色名称" })).toHaveValue("林晚");
+  } finally {
+    await restore();
+  }
+});
+
+// -------------------------------------------------------------------------
+// ⑥ 认知体检：身心一致三问（cog-logical-levels）——好矛盾判达标、真冲突判矛盾
+// -------------------------------------------------------------------------
+
+test("角色体检：身心一致三问（好矛盾判达标、真冲突判矛盾）", async ({
+  page,
+  request,
+}) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `体检${Date.now() % 100000}`);
+    // AI 就绪态桩（ai-model + 配置清单）
+    await page.route(`**/api/v1/novels/${pid}/ai-model`, (r) =>
+      r.fulfill({
+        json: {
+          api_config_id: "c1",
+          model: "gpt-4o",
+          config_name: "主配置",
+          ai_state: "ready",
+          effective_model: "gpt-4o",
+          reason: "ready",
+          message: "",
+        },
+      }),
+    );
+    await page.route("**/api/v1/api-configs", (r) =>
+      r.fulfill({
+        json: [
+          {
+            id: "c1",
+            name: "主配置",
+            vendor: "openai",
+            models: ["gpt-4o"],
+            status: "active",
+            last_test_status: "ok",
+          },
+        ],
+      }),
+    );
+
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "角色");
+    await page.getByRole("button", { name: "添加角色" }).click();
+    const nameInput = page.getByRole("textbox", { name: "角色名称" });
+    await nameInput.fill("林晚");
+    await page.waitForTimeout(1200); // 末格 PATCH 落库
+
+    // 体检出参桩：9 项（含 3 组「想的和做的一致」，好矛盾判达标、真冲突判矛盾）
+    const items = [
+      { name: "简介 × 角色", status: "ok", note: "一致" },
+      { name: "题材 × 角色", status: "ok", note: "调子对" },
+      { name: "世界 × 能力上限", status: "ok", note: "在体系内" },
+      { name: "世界 × 代价", status: "ok", note: "对得上" },
+      { name: "势力 × 角色落地", status: "miss", note: "势力未填" },
+      { name: "主线 × 角色", status: "miss", note: "主线未填" },
+      {
+        name: "人设与行事对得上吗",
+        status: "ok",
+        note: "好矛盾：安稳的人干着最玩命的活，是看点",
+      },
+      {
+        name: "在乎的和会做的一致吗",
+        status: "conflict",
+        note: "真冲突：底线与手段打架了，二选一改",
+      },
+      { name: "他的处境和他的命对得上吗", status: "miss", note: "宿命未填" },
+    ];
+    await page.route(
+      `**/api/novels/${pid}/settings/ai/characters/*/check`,
+      (r) =>
+        r.fulfill({
+          json: { ok: true, data: { items, degraded: false, degraded_reasons: [], verdict: "两处看点，一处要改" } },
+        }),
+    );
+
+    // 右栏点「一致性体检」→ 卡内 sink 渲染 9 项，含大白话好矛盾/真冲突
+    await page.locator('[data-aiact="check"]').click();
+    const sink = page.locator(".sec .ai-sink");
+    await expect(sink).toContainText("人设与行事对得上吗", { timeout: 5000 });
+    await expect(sink).toContainText("好矛盾：安稳的人干着最玩命的活，是看点");
+    await expect(sink).toContainText("真冲突：底线与手段打架了，二选一改");
+    await expect(sink).toContainText("缺输入");
+  } finally {
+    await restore();
+  }
+});
+
+// -------------------------------------------------------------------------
+// ⑦ 认知区提示（cog-logical-levels）：层头六问 hint 常显 + 展开自我观见 s5 格位 hint
+//    认知区进不了像素基线（角色屏 parity 用例整体 skip、裁剪只覆盖三栏首屏），
+//    这块的可见性由本用例兜（ADJUSTMENTS #25）。
+// -------------------------------------------------------------------------
+test("认知区提示：层头六问 hint + 展开自我观见 s5 格位 hint", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    await createNovel(page, `认知${Date.now() % 100000}`);
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "角色");
+    await page.getByRole("button", { name: "添加角色" }).click();
+    await page.getByRole("textbox", { name: "角色名称" }).fill("林晚");
+    await page.waitForTimeout(1200); // 末格 PATCH 落库
+
+    // 层头六问 hint：不展开即可见（抽验世界观/自我观两层，六层同源）
+    await expect(page.getByText("他眼里的世界是什么样的？")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText("他把自己当成谁？")).toBeVisible();
+
+    // 展开「自我观」层 → s5 格位 hint 落在 label 下方（.cog-field 内的 .f-hint）
+    await page
+      .locator(".cog-layer", { hasText: "自我观" })
+      .locator(".cog-layer-head")
+      .click();
+    await expect(
+      page.locator(".cog-field", { hasText: "宿命认知观" }).locator(".f-hint"),
+    ).toHaveText("他和这个世界到底是怎么回事？这条路走到头，他注定要面对什么？", {
+      timeout: 5000,
+    });
   } finally {
     await restore();
   }

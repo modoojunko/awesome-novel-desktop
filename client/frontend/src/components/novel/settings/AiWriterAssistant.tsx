@@ -143,7 +143,7 @@ export default function AiWriterAssistant({
   );
 }
 
-/** 角色右栏四行（character-settings-v2）：作用域＝当前选中卡；免费可见、点不动。 */
+/** 角色右栏 AI 行（character-settings-v2 四行 + bootstrap；作用域见各行）：免费可见、点不动。 */
 export function CharsAiRail(props: {
   ctx: CharAiCtx | null;
   aiState?: AiState;
@@ -166,7 +166,20 @@ export function CharsAiRail(props: {
       )}
     </>
   ) : null;
+  // 主角待立（有主角卡但名字还空着）时出现：与空态引导同源，出稿只补空格
+  const bootstrapRow: AiCapabilityRow[] =
+    ctx?.role === "主角" && ctx.nameless
+      ? [
+          {
+            key: "bootstrap",
+            name: "从简介立主角",
+            desc: "读简介，把主角的名字、人设和空格先拟一稿 · 采纳才写入（性别、年龄不代填）",
+            onClick: () => props.onRun("bootstrap"),
+          },
+        ]
+      : [];
   const rows: AiCapabilityRow[] = [
+    ...bootstrapRow,
     {
       key: "persona",
       name: "人设补充",
@@ -195,7 +208,7 @@ export function CharsAiRail(props: {
   return (
     <AiWriterAssistant
       rows={rows}
-      footNote="这四行都只对当前选中的角色生效：先给你一稿，点「采纳 · 写入」才落到卡上，写错了能一步撤销。只补空格——你写过的字一个不动；性别、年龄不代填，留给你自己定。答案都是 AI 现场生成的，这里只是示例，不满意就重新生成。卡片上不放 AI 按钮：免费用户照样可以手填所有字段，这一栏看得见、点不动。"
+      footNote="这些行都只对当前选中的角色生效（「从简介立主角」只认主角待立那一张）：先给你一稿，点「采纳 · 写入」才落到卡上，写错了能一步撤销。只补空格——你写过的字一个不动；性别、年龄不代填，留给你自己定。答案都是 AI 现场生成的，这里只是示例，不满意就重新生成。卡片上不放 AI 按钮：免费用户照样可以手填所有字段，这一栏看得见、点不动。"
       targetLine={targetLine}
       aiState={props.aiState}
       onBlocked={props.onBlocked}

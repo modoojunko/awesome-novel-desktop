@@ -74,23 +74,36 @@
   .notice .nt span { color: var(--muted); font-size: 12.5px; margin-left: 8px; }
   .update-strip { flex: none; padding: 12px 16px 0; }
   .update-strip .notice { margin-bottom: 0; }
-  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; }
+  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; white-space: nowrap; flex: none; }
   .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--surface); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; }
   .appbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
-  .appbar .back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; padding: 5px 9px; border-radius: 8px; }
-  .appbar .back:hover { color: var(--fg); background: var(--fg-soft); }
-  .appbar .back svg { width: 14px; height: 14px; }
-  .appbar .spacer { flex: 1; }
 
-  /* ─── 小说栏 ───────────────────────────────────────────── */
-  .novelbar { height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 20px; background: var(--bg); border-bottom: 1px solid var(--border); }
-  .novel-title { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
-  .genre-tag { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--muted); background: var(--surface); }
-  .free-hint { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); padding: 3px 10px; border-radius: 999px; background: var(--fg-soft); }
-  .free-hint svg { width: 13px; height: 13px; }
-  .novelbar .spacer { flex: 1; }
-  .pill-pro { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; }
-  .pill-pro svg { width: 11px; height: 11px; }
+  /* ─── 顶栏书名 · 题材 · 当前主线定位（行头归一，storyline.html 口径：
+     原双行 appbar + novelbar 并成一行 48px，省出一整条给正文） ─── */
+  .novel-title { font-family: var(--font-display); font-size: 15.5px; font-weight: 600; white-space: nowrap; flex: none; }
+  .genre-tag { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--muted); background: var(--surface); white-space: nowrap; flex: none; }
+  .bar-here { display: flex; align-items: center; gap: 11px; flex: 1 1 auto; min-width: 0; }
+  .bh-k { flex: none; margin: 0; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; color: var(--accent); }
+  .bh-rule { width: 1px; height: 15px; background: var(--border); flex: none; }
+  .bh-t { flex: 0 1 auto; min-width: 0; margin: 0; font-family: var(--font-display); font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bh-t .n { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-right: 7px; }
+  .bh-prog { display: flex; align-items: center; gap: 9px; flex: none; width: 168px; }
+  .bh-vol { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+  .bh-prog .prog-bar { flex: 1; }
+  .prog-bar { height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+  .prog-bar span { display: block; height: 100%; background: var(--fg); border-radius: 3px; }
+  /* 草稿徽（正在写的章；storyline .tag/.tag-live 同款收编，改名 bh-tag 避让 cfg 摘要 .tag） */
+  .bh-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+  .bh-tag-live { color: var(--fg); border-color: color-mix(in oklch, var(--fg) 38%, transparent); }
+  @media (max-width: 1320px) { .appbar .genre-tag { display: none; } }
+  @media (max-width: 1180px) { .bh-prog { display: none; } }
+  @media (max-width: 920px) {
+    .appbar { position: static; height: auto; min-height: 0; flex-wrap: wrap; padding: 9px 14px; gap: 8px 10px; }
+    .appbar .sep { display: none; }
+    .appbar .acct { margin-left: auto; }
+    .bar-here { order: 3; flex: 1 1 100%; flex-wrap: wrap; gap: 8px 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+    .bh-k, .bh-rule, .bh-prog { display: none; }
+  }
 
   /* ─── 书内模块导航：设定 / 大纲 ─────────────────────────── */
   .modnav { flex: none; display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
@@ -494,14 +507,14 @@
   </div>
 </div>
 
-<!-- ═══ 应用栏 ═══ -->
+<!-- ═══ 应用栏（行头归一：logo 即返回 · 书名 · 题材 · 当前主线定位 · 账户） ═══ -->
 <header class="appbar" data-od-id="appbar">
-  <a class="logo" href="index.html"><span class="logo-mark">爱</span>爱小说</a>
+  <a class="logo" href="list.html" data-od-id="appbar-logo" title="返回我的小说"><span class="logo-mark">爱</span>爱小说</a>
   <span class="sep"></span>
-  <a class="back" href="list.html" data-od-id="back-to-list">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg>我的小说
-  </a>
-  <span class="spacer"></span>
+  <span class="novel-title serif">星海拾遗</span>
+  <span class="genre-tag">科幻</span>
+  <span class="sep"></span>
+  <div class="bar-here" id="barHere" data-od-id="current-position"></div>
   <div class="acct">
     <button class="acct-trigger" id="btnAcct" data-od-id="acct-trigger" aria-haspopup="menu" aria-expanded="false">
       <span class="avatar" aria-hidden="true">m</span><span class="badge badge-accent" id="acctBadge" data-od-id="acct-badge">PRO 会员</span><svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 9l6 6 6-6"/></svg>
@@ -527,22 +540,6 @@
     <button class="am-item danger" role="menuitem" data-od-id="acct-menu-logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg><span id="amLogoutText">退出登录</span></button>
     <span class="am-version" data-od-id="acct-menu-version">v0.19</span>
   </div>
-</div>
-
-<!-- ═══ 小说栏 ═══ -->
-<div class="novelbar" data-od-id="novelbar">
-  <span class="novel-title serif">星海拾遗</span>
-  <span class="genre-tag">科幻</span>
-  <span id="freeHint" class="free-hint">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
-    免费模式 · 写作功能完整，升级解锁 AI
-  </span>
-  <span class="spacer"></span>
-  <span id="proPill" class="pill-pro" hidden>
-    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z"/></svg>
-    PRO
-  </span>
-  <button id="btnUpgrade" class="btn btn-secondary btn-sm" data-od-id="btn-upgrade">升级 PRO</button>
 </div>
 
 <!-- ═══ 书内模块导航：设定 / 写作 / 预览 ═══ -->
@@ -1049,7 +1046,6 @@ let ITEMS = {
   intro:   { name: '简介',   status: 'done', canDefer: false, value: '梗概已写' },
   world:   { name: '世界',   status: 'empty', canDefer: true, value: '' },
   style:   { name: '风格',   status: 'done', canDefer: false, value: '第三人称限知 · 克制冷静' },
-  antiAI:  { name: 'AI痕迹控制', status: 'empty', canDefer: true, value: '' },
   foreshadow: { name: '伏笔', status: 'empty', canDefer: true, value: '' },
   chars:   { name: '角色',   status: 'empty', canDefer: true, value: '' }
 };
@@ -1136,7 +1132,37 @@ function updateModNav() {
 }
 
 /* ═══════════ 树渲染（单树：卷 → 章，行内带章纲状态与字数） ═══════════ */
-function renderTreeAll() { renderTree($('treeOutline')); }
+function renderTreeAll() { renderTree($('treeOutline')); updateBarHere(); }
+
+/* ═══ 顶栏主线定位（行头归一）：主线端点 = 最新归档章，无归档取首章。
+   拟定/待写状态机（storyline.html）落地后再切 frontier 口径。
+   「续写」口径（用户拍板 09-16）= 回到上次退出前的位置：原型无退出跟踪，
+   演示语义 = 选中当前主线章并落正文；真实现按设备本地 last_write 会话恢复 ═══ */
+function updateBarHere() {
+  const el = $('barHere'); if (!el) return;
+  let cur = null, curVol = null;
+  BOOK.volumes.forEach(v => v.chapters.forEach(c => { if (isArchived(c)) { cur = c; curVol = v; } }));
+  if (!cur) {
+    for (const v of BOOK.volumes) { if (v.chapters.length) { cur = v.chapters[0]; curVol = v; break; } }
+  }
+  if (!cur) { el.innerHTML = ''; updateBarHere.target = null; return; }
+  updateBarHere.target = cur.id;
+  const no = curVol.chapters.indexOf(cur) + 1;
+  const title = (cur.title.split(' · ')[1] || cur.title);
+  const archived = curVol.chapters.filter(isArchived).length;
+  const total = curVol.chapters.length;
+  const pct = Math.round(Math.min(1, archived / total) * 100);
+  const vn = curVol.title.split(' · ')[0];
+  const badge = isArchived(cur) ? '' : '<span class="bh-tag bh-tag-live">草稿</span>';
+  el.innerHTML = '<p class="bh-k">当前主线</p>'
+    + '<span class="bh-rule" aria-hidden="true"></span>'
+    + '<p class="bh-t"><span class="n">第 ' + no + ' 章</span>' + escapeHtml(title) + '</p>'
+    + badge
+    + '<div class="bh-prog"><span class="bh-vol">' + escapeHtml(vn) + ' · ' + archived + '/' + total + '</span>'
+    + '<span class="prog-bar"><span style="width:' + pct + '%"></span></span></div>'
+    + '<button class="btn btn-primary btn-sm" data-od-id="resume-cta" title="回到上次退出前的位置">续写</button>';
+}
+
 function renderTree(el) {
   el.innerHTML = '';
   let chTotal = 0;
@@ -1184,6 +1210,17 @@ function renderTree(el) {
 }
 
 /* 树交互（点卷行 = 卷纲，点章行 = 章对象工作台，chev = 折叠） */
+/* 顶栏「续写」（用户拍板口径：回到上次退出前的位置）——原型无退出跟踪，
+   演示语义 = 选中当前主线章并落正文页签 */
+$('barHere').addEventListener('click', e => {
+  if (!e.target.closest('[data-od-id="resume-cta"]')) return;
+  const id = updateBarHere.target; if (!id) return;
+  sel = { kind: 'chapter', id };
+  S.selVol = volOfCh(id).id; S.selCh = id; S.chTab = 'prose';
+  persist();
+  renderTreeAll(); renderMiddle();
+  toast('已回到上次写作位置');
+});
 $('treeOutline').addEventListener('click', e => {
   const chRow = e.target.closest('.ch');
   const volHead = e.target.closest('.vol-head');
@@ -2080,7 +2117,6 @@ $('histList').addEventListener('click', e => {
 });
 
 /* ═══════════ 升级 PRO ═══════════ */
-$('btnUpgrade').addEventListener('click', () => openModal('modalUpgrade'));
 $('btnUpgrade2').addEventListener('click', () => openModal('modalUpgrade'));
 $('btnUpgrade3').addEventListener('click', () => openModal('modalUpgrade'));
 $('prefUpgrade').addEventListener('click', () => { closeModal('modalPrefs'); openModal('modalUpgrade'); });
@@ -2092,9 +2128,6 @@ $('upgradeConfirm').addEventListener('click', () => {
 });
 function applyPro() {
   $('btnAi').hidden = !S.pro;
-  $('proPill').hidden = !S.pro;
-  $('freeHint').hidden = S.pro;
-  $('btnUpgrade').hidden = S.pro;
   $('prefTier').textContent = S.pro ? 'PRO 会员' : '免费版 · 单机使用';
   // 顶栏/面板徽章随 pro 状态（c-account-control-center：触发钮短档 = 完整档缩短投影）
   const proShort = S.pro ? 'PRO 会员' : '免费版';
@@ -2225,7 +2258,6 @@ const DESCS = {
   intro: '让读者（和 AI）知道这是一个怎样的故事。',
   world: '地理、政治与规则——故事发生的世界如何运转。',
   style: '用谁的视角讲，用什么语气讲。',
-  antiAI: '控制生成正文的 AI 痕迹，让文字更像人写的。',
   foreshadow: '先埋下的，后面要还。',
   chars: '核心角色是谁，他们想要什么。'
 };
@@ -2233,7 +2265,8 @@ let cur = 'genre';
 let picked = '深空探索';
 
 /* ═══════ 设定面板：演示种子（产品契约形状）+ 渲染助手 ═══════
-   空面板（世界/AI痕迹/伏笔/角色）字段全部留空——与左栏「未填」徽标一致 */
+   空面板（世界/伏笔/角色）字段全部留空——与左栏「未填」徽标一致
+   （banned-words-into-style：AI痕迹控制面板退役并入文风硬约束区） */
 const SPARK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>';
 const CHEV_SVG = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M6 9l6 6 6-6"/></svg>';
 const SET_GENRE = {
@@ -2265,16 +2298,6 @@ const SET_STYLE = {
   toneTechniques: ['动作外化情绪', '物件锚点复现']
 };
 const SET_HOOKS = { active: [], resolved: [], abandoned: [] };
-const FATIGUE_CATS = [
-  ['summary_narrative', '总结叙事', '本章讲述了、接下来、与此同时'],
-  ['abstract_emotion', '抽象情绪', '他感到、他觉得、他意识到'],
-  ['academic_tone', '学术腔调', '综上所述、总而言之、显而易见'],
-  ['cliche_action', '套路动作', '深吸一口气、咬了咬牙、眼中闪过一丝'],
-  ['cliche_environment', '套路环境', '阳光透过树叶、微风拂过、夜幕降临'],
-  ['logical_connectors', '逻辑连接', '由此可见、正因如此、不仅如此'],
-  ['narrative_filler', '叙述填充', '似乎、仿佛、宛如']
-];
-const SET_ANTI = { fatigue: {}, tics: [] };
 const SET_CHARS = { names: [], sel: null };
 const CHAR_BLANK = { name: '', role: 'supporting', appearance: '', background: '', speech: '', world_view: '', self_image: '', values: '', abilities: '', skills: '', environment: '', possessions: '', relationships: '', experiences: '' };
 const HOOK_TYPES = ['谜团', '威胁', '承诺', '线索', '关系', '力量', '情感', '选择', '欲望'];
@@ -2319,21 +2342,6 @@ function hookRows(list, simple) {
         <button class="icon-btn" title="删除" type="button">${VOL_TRASH_SVG}</button>
       </div>`).join('') + `
       <button class="text-btn" type="button">${VOL_PLUS_SVG} 添加伏笔</button>`;
-}
-function ticCards(tics) {
-  if (!tics.length) return '<p class="sub-empty">暂无句式规则 · 点下方添加</p>';
-  return tics.map(t => `
-      <div class="sub-block">
-        <div class="sub-row tics">
-          <input class="input" placeholder="句式名，如：不是而是句式" value="${escapeHtml(t.name || '')}" />
-          <select class="input"><option value="high" ${t.severity === 'high' ? 'selected' : ''}>高</option><option value="medium" ${(!t.severity || t.severity === 'medium') ? 'selected' : ''}>中</option><option value="low" ${t.severity === 'low' ? 'selected' : ''}>低</option></select>
-          <input class="input num" type="number" min="1" value="${t.threshold || 3}" title="单章出现次数阈值" />
-          <button class="icon-btn" title="删除本条" type="button">${VOL_TRASH_SVG}</button>
-        </div>
-        <input class="input mono" placeholder="正则 pattern，如：不是[^，。]{1,20}(而是|是)" value="${escapeHtml(t.pattern || '')}" />
-        <input class="input" placeholder="修复说明（可选）：命中后如何改写" value="${escapeHtml(t.description || '')}" />
-      </div>`).join('') + `
-      <button class="text-btn" type="button">${VOL_PLUS_SVG} 添加句式规则</button>`;
 }
 function arcCards(arcs, sel) {
   return arcs.map(a => `
@@ -2504,13 +2512,6 @@ const BODIES = {
       ${liField('氛围关键词', SET_STYLE.atmosphere, '氛围关键词，如：压抑')}
       ${liField('叙事视角', SET_STYLE.pov, '叙事视角，如：第三人称有限视角')}
       ${liField('描写技法偏好', SET_STYLE.toneTechniques, '描写技法偏好，如：动作外化情绪')}`, false, '可后补'),
-  antiAI: () =>
-    cfgGroup('疲劳词', FATIGUE_CATS.map(([key, label, hint]) => `
-      <div class="field">
-        <label>${label} <span class="opt">${hint}</span></label>
-        ${liRows(SET_ANTI.fatigue[key], '添加该分类下的疲劳词，如：' + hint.split('、')[0])}
-      </div>`).join(''), true)
-    + cfgGroup('句式偏好', ticCards(SET_ANTI.tics), false, '可后补'),
   foreshadow: () =>
     cfgGroup('活跃伏笔', hookRows(SET_HOOKS.active, false), true)
     + cfgGroup('已收束', hookRows(SET_HOOKS.resolved, false), false)

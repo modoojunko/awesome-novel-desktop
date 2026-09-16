@@ -4,13 +4,16 @@
 key 用语义短名；字符目录按前缀 `character:`。
 """
 
-# 8 类单文件设定：相对路径 → DB key
+# 单文件设定：相对路径 → DB key
+# hooks 不在其中：伏笔已升级真表 novel_hooks（foreshadow-settings-v2），
+# settings/hooks.yaml 通道整体退役（GET/PUT /settings/hooks 不再受理）。
+# anti-ai 映射保留（banned-words-into-style）：面板/写端点已退役，但迁移函数要读
+# 原键、导出/导入兜底与回滚安全都依赖它；清理属后续版本。
 PATH_TO_KEY = {
     "story.yaml": "story",
     "settings/world-setting.yaml": "world",
     "settings/writing-style.yaml": "style",
     "settings/anti-ai.yaml": "anti-ai",
-    "settings/hooks.yaml": "hooks",
     "settings/genre.yaml": "genre",
     "settings/ai-model.yaml": "ai-model",
     "settings/settings-status.yaml": "status",
@@ -24,6 +27,12 @@ CHARACTER_PREFIX = "character:"  # DB key 前缀：character:{filename.yaml}
 THREADS_PATH = "threads.yaml"
 THREADS_KEY = "threads"
 
+# style-quant（style-settings-v2）：量化层专用键，同 threads 先例——不进 PATH_TO_KEY
+# （通用 /settings/{type} 天然拒绝），只走 settings/style_quant_router.py 专用端点；
+# PUT 仅受理锁定切换，基线数值服务端只写（评审 P0：防表单整卡覆盖回踩只读基线）。
+STYLE_QUANT_PATH = "settings/style-quant.yaml"
+STYLE_QUANT_KEY = "style-quant"
+
 # 目录型设定：无单文件端点，/settings/{type} 泛化端点应拒绝（指引走 /character/{name} 等）
 MULTI_FILE_SETTING_KEYS = {"characters"}
 
@@ -36,6 +45,8 @@ def route_relative_path(relative_path: str) -> str | None:
         return PATH_TO_KEY[relative_path]
     if relative_path == THREADS_PATH:
         return THREADS_KEY
+    if relative_path == STYLE_QUANT_PATH:
+        return STYLE_QUANT_KEY
     if relative_path.startswith(CHARACTER_DIR + "/"):
         return CHARACTER_PREFIX + relative_path[len(CHARACTER_DIR) + 1 :]
     return None

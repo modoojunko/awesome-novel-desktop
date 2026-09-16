@@ -109,10 +109,27 @@ COG_PRIMARY_KEYS: tuple[str, ...] = tuple(layer["primary"] for layer in COG_LAYE
 # ── AI 补全键清单 ─────────────────────────────────────────────────────────
 # 人设是唯一"覆盖型"（act=replace），单独一键
 PERSONA_FILL_KEY = "persona"
-# 认知补充 = 层主格 6 + 必填 3 + 技能 p6（设计稿的 10 格）
+# 认知补充 = 层主格 6 + 必填 3 + 技能 p6 + 宿命 s5（cog-logical-levels：精神层落点，11 格）
 COG_FILL_KEYS = tuple(COG_PRIMARY_KEYS) + tuple(
     k for k in COG_REQUIRED if k not in COG_PRIMARY_KEYS
-) + ("p6",)
+) + ("p6", "s5")
+
+# 理解层次（NLP Logical Levels）六问 hint——给作家看的大白话（cog-logical-levels）。
+# 键 = 层 id；这些文案可上界面，禁止出现「理解层次/NLP/张力/模型」等术语。
+COG_LEVEL_HINTS: dict[str, str] = {
+    "worldview": "他眼里的世界是什么样的？",
+    "self": "他把自己当成谁？",
+    "values": "他在乎什么？为什么做这些事？",
+    "power": "他能做什么？怎么做到的？",
+    "behavior": "遇到事，他会怎么做？",
+    "env": "他身边有什么人、什么事？",
+}
+
+# 格位级 hint——键 = 格键，只给语义上需要额外一句的格（cog-logical-levels：
+# s5 是精神层落点，光看 label「宿命认知观」不知道该写什么）。
+COG_FIELD_HINTS: dict[str, str] = {
+    "s5": "他和这个世界到底是怎么回事？这条路走到头，他注定要面对什么？",
+}
 
 # ── 写章「角色初始状态」块的供给键（tasks 2.8）────────────────────────────
 # 六层主格 + dossier.speech；格序固定、每格 ≤40 字、每人 ≤120 字、块 ≤5 人
@@ -155,6 +172,10 @@ _CHECK_ITEMS_POWER: tuple[tuple[str, str], ...] = (
     ("世界 × 代价", "layer:power"),
     ("势力 × 角色落地", "panel:world"),
     ("主线 × 角色", "dossier:plot"),
+    # 想的和做的是否一致（cog-logical-levels：上三层 vs 下三层）
+    ("人设与行事对得上吗", "layer:self"),
+    ("在乎的和会做的一致吗", "layer:values"),
+    ("他的处境和他的命对得上吗", "layer:env"),
 )
 _CHECK_ITEMS_REAL: tuple[tuple[str, str], ...] = (
     ("简介 × 角色", "dossier:plot"),
@@ -163,6 +184,10 @@ _CHECK_ITEMS_REAL: tuple[tuple[str, str], ...] = (
     ("世界 × 限制", "layer:power"),
     ("势力 × 角色落地", "panel:world"),
     ("主线 × 角色", "dossier:plot"),
+    # 想的和做的是否一致（cog-logical-levels）
+    ("人设与行事对得上吗", "layer:self"),
+    ("在乎的和会做的一致吗", "layer:values"),
+    ("他的处境和他的命对得上吗", "layer:env"),
 )
 _CHECK_GOTO_ALLOWED_PREFIXES = ("layer:", "dossier:", "panel:")
 

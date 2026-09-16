@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { ReactNode } from "react";
 import NovelWorkspace from "@/components/novel/NovelWorkspace";
@@ -161,9 +161,15 @@ function renderWorkspace(tier = "none") {
   );
 }
 
-/** 选中第一章并等待章对象工作台挂载（树默认全展开，无需先点卷）。 */
+/** 选中第一章并等待章对象工作台挂载（树默认全展开，无需先点卷）。
+ *  行头归一后顶栏 bar-here 也显示章名，findByText 会歧义多命中，改定点树行。 */
 async function selectFirstChapter() {
-  fireEvent.click(await screen.findByText("第一章"));
+  const row = await waitFor(() => {
+    const el = document.querySelector(".tree .ch");
+    expect(el).toBeTruthy();
+    return el as HTMLElement;
+  });
+  fireEvent.click(row);
   await screen.findByRole("tab", { name: /^章纲/ });
 }
 
@@ -192,9 +198,10 @@ describe("默认落写作视图（免费）", () => {
     expect(
       screen.getByText("还没有卷与章节。点击左上「＋」添加第一卷。"),
     ).toBeVisible();
-    // novelbar：书名 + 免费提示
+    // 应用栏（行头归一）：书名在顶栏；免费标识收敛到账户档位徽（未登录不渲染，e2e 断言）
     expect(screen.getAllByText("测试小说").length).toBeGreaterThan(0);
-    expect(screen.getByText(/免费模式 · 写作功能完整/)).toBeVisible();
+    expect(screen.queryByText(/免费模式 · 写作功能完整/)).toBeNull();
+    expect(document.querySelector(".appbar-wb .bar-here")).toBeTruthy();
     // modnav 三态 + 写作 tab on + three-col on（jsdom 无 CSS → 断言 class）
     expect(screen.getByRole("button", { name: /^设定/ })).toBeDefined();
     expect(screen.getByRole("button", { name: /^写作/ })).toBeDefined();
@@ -223,6 +230,8 @@ describe("免费态：选中章 → 章对象工作台", () => {
     expect(screen.getByRole("tab", { name: /^正文/ })).toBeDefined();
     // 工具栏章名（树行 + 工具栏两处「第一章」→ chMeta 对齐成功的证据）
     expect(screen.getAllByText("第一章").length).toBeGreaterThanOrEqual(2);
+    // bar-here（顶栏主线定位）：默认名「第一章」不重复序号（nodeLabel 同口径）
+    expect(document.querySelector(".bar-here .bh-t")?.textContent).toBe("第 1 章");
     // 章纲面板必填字段在渲染
     expect(screen.queryAllByText(/核心任务/).length).toBeGreaterThan(0);
     // 点「正文」→ contenteditable 编辑器挂载；免费无 AI 按钮
@@ -235,6 +244,20 @@ describe("免费态：选中章 → 章对象工作台", () => {
   });
 });
 
+describe("bar-here 续写（上次写作会话）", () => {
+  it("last_write 章优先为主线端点＋续写按钮在", async () => {
+    mockOneChapterTree();
+    localStorage.setItem(
+      "pref.book.p1.last_write",
+      JSON.stringify({ ref: "vol-1-ch-1", scroll: 0.5, ts: 123 }),
+    );
+    renderWorkspace("none");
+    await selectFirstChapter();
+    expect(document.querySelector(".bar-here .bh-t")?.textContent).toBe("第 1 章");
+    expect(screen.getByRole("button", { name: "续写" })).toBeDefined();
+  });
+});
+
 describe("设定视图懒挂载 / 离开卸载", () => {
   it("经 modnav「设定」进入设定视图，点「写作」返回后卸载", async () => {
     mockEmptyTree();
@@ -244,14 +267,14 @@ describe("设定视图懒挂载 / 离开卸载", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
     await waitFor(() =>
-      expect(screen.getAllByText("禁用词句").length).toBeGreaterThan(0),
+      expect(screen.getAllByText("伏笔").length).toBeGreaterThan(0),
     );
     // 写作视图常驻挂载：仅摘掉 on class（jsdom 断言 class 而非可见性）
     expect(threeColClass()).not.toContain("on");
 
     fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
     await waitFor(() =>
-      expect(screen.queryAllByText("禁用词句").length).toBe(0),
+      expect(screen.queryAllByText("伏笔").length).toBe(0),
     );
     expect(threeColClass()).toContain("on");
   });
@@ -274,7 +297,7 @@ describe("写作视图常驻挂载：切视图 prose 不丢", () => {
     // 切到设定 → 经 modnav「写作」返回
     fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
     await waitFor(() =>
-      expect(screen.getAllByText("禁用词句").length).toBeGreaterThan(0),
+      expect(screen.getAllByText("伏笔").length).toBeGreaterThan(0),
     );
     fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
 
@@ -289,7 +312,8 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
   it("PRO 渲染 pill 徽并请求 phase-status；正文页可见 AI 生成正文", async () => {
     mockOneChapterTreePro();
     renderWorkspace("monthly");
-    expect(document.querySelector(".pill-pro")).toBeTruthy();
+    // PRO 徽随行头归一迁入账户胶囊（未登录不渲染）；顶栏本体在即可
+    expect(document.querySelector(".appbar-wb")).toBeTruthy();
     expect(screen.queryByText(/免费模式/)).toBeNull();
     expect(screen.queryByRole("button", { name: "升级 PRO" })).toBeNull();
     await waitFor(() =>
@@ -304,8 +328,10 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
     expect(
       await screen.findByRole("button", { name: "AI 生成正文" }),
     ).toBeVisible();
-    expect(screen.getByRole("button", { name: "续写" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "润色选段" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "扩写选段" })).toBeDefined();
+    // 顶栏 bar-here 也有「续写」CTA（行头归一），右栏工具卡断言限定右栏范围
+    const rail = document.querySelector(".col-ai") as HTMLElement;
+    expect(within(rail).getByRole("button", { name: "续写" })).toBeDefined();
+    expect(within(rail).getByRole("button", { name: "润色选段" })).toBeDefined();
+    expect(within(rail).getByRole("button", { name: "扩写选段" })).toBeDefined();
   });
 });

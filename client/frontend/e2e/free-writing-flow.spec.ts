@@ -147,8 +147,8 @@ test("免费建书直达写作工作台：零 phase-status，无阶段催促，m
     await expect(
       page.getByText("还没有卷与章节。点击左上「＋」添加第一卷。"),
     ).toBeVisible();
-    // 免费标识（novelbar free-hint）
-    await expect(page.getByText(/免费模式 · 写作功能完整/)).toBeVisible();
+    // 免费标识（行头归一后 = 顶栏账户胶囊档位徽「免费版」）
+    await expect(page.locator('[data-od-id="acct-badge"]')).toHaveText("免费版");
     // ⑦ modnav 三态（PR3 设计稿）：设定 / 写作 / 预览
     await expect(page.getByRole("button", { name: /^设定/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^写作/ })).toBeVisible();
@@ -272,6 +272,12 @@ test("免费归档：不 500，正文只读，树已归档即时同步", async (
     );
     await expect(page.getByText("已自动保存").first()).toBeVisible({ timeout: 8000 });
 
+    // 顶栏主线定位（行头归一）：无归档＝回落首章；默认名「第一章」不重复序号
+    const barHere = page.locator(".bar-here");
+    await expect(barHere).toContainText("当前主线");
+    await expect(barHere.locator(".bh-t")).toHaveText("第 1 章");
+    await expect(barHere).toContainText("第一卷 · 0/1");
+
     // 触发归档（PR 5：React 弹窗确认；免费档无 AI 摘要弹窗）
     await page.getByRole("button", { name: "归档本章" }).click();
     await page.getByTestId("arch-confirm").click();
@@ -286,6 +292,122 @@ test("免费归档：不 500，正文只读，树已归档即时同步", async (
     await expect(page.locator(".col-tree .arch-tag").first()).toBeVisible({
       timeout: 5000,
     });
+    // 顶栏主线定位随归档推进：端点推进到本章＋卷面进度 1/1
+    await expect(barHere).toContainText("第一卷 · 1/1");
+    // 已归档章无「草稿」徽（徽标语义＝有正文未归档）
+    await expect(barHere.locator(".bh-tag")).toHaveCount(0);
+    // 续写落到该章既有只读态：不报错、不自动解锁写（会话仍指向本章）
+    await page.locator('[data-od-id="resume-cta"]').click();
+    await expect(page.getByText(/本章已归档 · 只读/).first()).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.locator(".editor")).toHaveAttribute("contenteditable", "false");
+  } finally {
+    await restore();
+  }
+});
+
+// -------------------------------------------------------------------------
+// ⑦ 顶栏「续写」：回到上次退出前的章与位置（行头归一，用户拍板口径）
+// -------------------------------------------------------------------------
+
+test("顶栏续写边界：会话章已删除 → 回落首章，不报错", async ({ page }) => {
+  const { restore } = await setupFreeSession(page);
+  try {
+    const pid = await createNovel(page, `回落${Date.now() % 100000}`);
+    await writeFirstChapter(page);
+    // 注入指向不存在章节的陈旧会话（不依赖删除交互与重排号假设）
+    await page.evaluate(
+      ([k, v]) => localStorage.setItem(k, v),
+      [
+        `pref.book.${pid}.last_write`,
+        JSON.stringify({ ref: "vol-9-ch-9", scroll: 0.5, ts: Date.now() }),
+      ],
+    );
+    await page.reload();
+    const barHere = page.locator(".bar-here");
+    await expect(barHere.locator(".bh-t")).toHaveText("第 1 章", { timeout: 8000 });
+    // 续写不报错：落回真实首章正文页签，滚动为 no-op（比例来自陈旧会话但章已回落）
+    await page.locator('[data-od-id="resume-cta"]').click();
+    await expect(page.getByRole("tab", { name: /^正文/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+      { timeout: 5000 },
+    );
+    await expect(page.locator(".editor")).toBeVisible();
+    await expect(page.locator(".bar-here .bh-t")).toHaveText("第 1 章");
+  } finally {
+    await restore();
+  }
+});
+
+test("顶栏续写：回到上次退出前的章与位置", async ({ page }) => {
+  const { restore } = await setupFreeSession(page);
+  try {
+    await createNovel(page, `续写${Date.now() % 100000}`);
+    await writeFirstChapter(page);
+    // 足量内容让编辑器可滚动。bind-mount SQLite 偶发 503 会吞掉首次章加载
+    // （加载失败时自动保存静默不跑），重载一轮确保章数据就绪、保存可见。
+    const LONG = "这一段是续写恢复验证的正文内容，需要写得足够长才能让编辑器出现滚动条。".repeat(30);
+    let saved = false;
+    for (let i = 0; i < 2 && !saved; i++) {
+      await page.reload();
+      await page.getByRole("tab", { name: /^正文/ }).click();
+      const editor = page.locator(".editor");
+      await expect(editor).toBeVisible({ timeout: 8000 });
+      await editor.fill(LONG);
+      saved = await page
+        .getByText("已自动保存")
+        .first()
+        .waitFor({ state: "visible", timeout: 8000 })
+        .then(() => true)
+        .catch(() => false);
+    }
+    expect(saved).toBe(true);
+    await page.waitForTimeout(1200);
+    const wrap = page.locator(".editor-wrap");
+    await wrap.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    // bar-here 跟随上次写到的章：默认名不重复序号 ＋「草稿」徽（有正文未归档）
+    const barHere = page.locator(".bar-here");
+    const badge = barHere.locator(".bh-tag");
+    await expect(badge).toHaveText("草稿");
+    // 样式落位（book.css .bh-tag/.bh-tag-live，值同原型）：防「类只在原型、应用侧无定义」
+    // 盲区回归——裸 span 继承正文字号且无边框/圆角，这三项足以证伪
+    await expect(badge).toHaveCSS("border-radius", "999px");
+    await expect(badge).toHaveCSS("border-top-width", "1px");
+    await expect(badge).toHaveCSS("font-size", "10px");
+
+    // 加第二章并切过去（离开第一章）——bar-here 仍停在第一章
+    const volHead = page.locator(".col-tree .vol-head").first();
+    await volHead.hover();
+    await volHead.locator('[title="添加章节"]').click();
+    await page.locator(".inline-add input").fill("第二章");
+    await page.keyboard.press("Enter");
+    const ch2 = page.locator(".col-tree .ch", { hasText: "第二章" });
+    await expect(ch2).toBeVisible({ timeout: 5000 });
+    await ch2.click();
+    await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({ timeout: 5000 });
+    await expect(barHere.locator(".bh-t")).toContainText("第 1 章");
+
+    // 顶栏「续写」→ 回第一章、正文页签、滚动位置已恢复
+    await page.locator('[data-od-id="resume-cta"]').click();
+    const backEditor = page.locator(".editor");
+    await expect(backEditor).toBeVisible({ timeout: 5000 });
+    await expect(backEditor).toContainText("这一段是续写恢复验证的正文内容");
+    await expect(page.getByRole("tab", { name: /^正文/ })).toHaveAttribute("aria-selected", "true");
+    expect(await wrap.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+
+    // 恢复只发生一次：之后继续滚动/输入，scrollTop 不再被拽回旧位置
+    await wrap.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    // preventScroll 聚焦：click() 自带的 scrollIntoView 会污染「不再被拽回」断言
+    await backEditor.evaluate((el) => el.focus({ preventScroll: true }));
+    await page.keyboard.type("续写之后继续写的一句。");
+    await page.waitForTimeout(1500); // 越过节流窗口，确保期间发生过多轮渲染
+    expect(await wrap.evaluate((el) => el.scrollTop)).toBeLessThan(10);
   } finally {
     await restore();
   }

@@ -2,7 +2,8 @@ import fs from "fs";
 
 import type { Page } from "@playwright/test";
 
-export const BASE_URL = "http://localhost:8000";
+// 隔离栈错峰端口：E2E_CLIENT_API_URL 覆盖（默认仍是主栈 8000）
+export const BASE_URL = process.env.E2E_CLIENT_API_URL || "http://localhost:8000";
 
 export function url(hashPath: string) {
   return `${BASE_URL}/#${hashPath}`;

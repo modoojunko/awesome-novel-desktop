@@ -57,7 +57,6 @@ TBD - created by archiving change 003-two-tier-foundation. Update Purpose after 
 - WHEN 用户 60 秒内首次进入工作台路由
 - THEN 先请求 /auth/check-auth（S端 往返更新本地快照），随后 refetch 刷新上下文；60 秒内再次切换不再触发
 
-## ADDED Requirements
 
 ### Requirement: useTier hook
 

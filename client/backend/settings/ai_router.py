@@ -12,11 +12,13 @@
 
 import json
 import re
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_client import get_ai_client_for_novel
+from ai_client import AITimeoutError, get_ai_client_for_novel
 from ai_state import effective_model
 from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
@@ -25,11 +27,22 @@ from filesystem.storage import get_storage
 from genres.novel_genre_service import get_novel_genre
 from novels.service import get_novel
 from prompts import load as load_prompt
+from settings.hooks_model import (
+    DESCRIPTION_MAX,
+    HOOK_TYPE_KEYS,
+    HOOK_TYPES,
+    PAYOFF_NOTE_MAX,
+    PRIORITY_LABELS,
+    normalize_priority,
+    priority_label,
+    type_label,
+)
 
 router = APIRouter(prefix="/api/novels/{project_id}/settings", tags=["settings-ai"])
 
-# 支持按字段生成的设定类型（anti-ai 除外）
-FIELD_GENERATABLE = {"style", "hooks", "genre"}
+# 支持按字段生成的设定类型（hooks 已随伏笔 AI 四能力退役——foreshadow-settings-v2 9.1；
+# anti-ai 已随禁用词收编退役——banned-words-into-style）
+FIELD_GENERATABLE = {"genre"}  # style 已升级三区 AI（/ai/style/{polish,check,fewshot-mine}）＋蒸馏
 
 # 题材五行字段（01 口味胶囊不走 AI；promise_note 不单独成行，随 core_promise 出参）
 GENRE_FIELDS = ("core_promise", "forbidden_list", "cost_ratio", "battlefield")
@@ -50,7 +63,6 @@ _GENRE_PROMPTS = {
 }
 _STYPE_PROMPTS = {
     "style": "settings_style",
-    "hooks": "settings_hooks",
 }
 
 # 六段名 / 禁忌三元（体检归一化白名单；与前端 lib/introTemplate.ts 逐字一致）
@@ -104,34 +116,37 @@ async def _judge_chat(client, **kwargs):
     比直接把 502 甩给用户好。
 
     记账：**每次尝试的 token 都累加**——首次失败那次同样烧了钱，
-    不能被重试覆盖（旧实现只记最后一次，用量偏低）。
+    不能被重试覆盖（旧实现只记最后一次，用量偏低）。回填走 finally：
+    任何退出路径（成功 / 空文本重试耗尽 / 超时或其他异常）都把累计
+    用量写回调用方，失败记账据此落库。
     """
     caller_usage = kwargs.pop("usage", None)
     total_in = 0
     total_out = 0
     last_err: Exception | None = None
-    for attempt in range(2):
-        attempt_usage: dict = {}
-        try:
-            text = await client.chat(
-                max_tokens=_JUDGE_MAX_TOKENS, usage=attempt_usage, **kwargs
-            )
-        except ValueError as e:
-            total_in += attempt_usage.get("tokens_in", 0)
-            total_out += attempt_usage.get("tokens_out", 0)
-            if "模型未返回文本内容" not in str(e):
-                _flush_usage(caller_usage, total_in, total_out)
-                raise
-            last_err = e
-            if attempt == 0:
-                continue
-            break
-        total_in += attempt_usage.get("tokens_in", 0)
-        total_out += attempt_usage.get("tokens_out", 0)
+    try:
+        for attempt in range(2):
+            attempt_usage: dict = {}
+            try:
+                text = await client.chat(
+                    max_tokens=_JUDGE_MAX_TOKENS, usage=attempt_usage, **kwargs
+                )
+            except ValueError as e:
+                if "模型未返回文本内容" not in str(e):
+                    raise
+                last_err = e
+                if attempt == 0:
+                    continue
+                break
+            else:
+                return text
+            finally:
+                # 每次尝试退出时（成功/失败/超时/取消）都把该次已烧 token 落袋
+                total_in += attempt_usage.get("tokens_in", 0)
+                total_out += attempt_usage.get("tokens_out", 0)
+        raise last_err  # type: ignore[misc]
+    finally:
         _flush_usage(caller_usage, total_in, total_out)
-        return text
-    _flush_usage(caller_usage, total_in, total_out)
-    raise last_err  # type: ignore[misc]
 
 
 def _flush_usage(usage: dict | None, tokens_in: int, tokens_out: int) -> None:
@@ -139,6 +154,32 @@ def _flush_usage(usage: dict | None, tokens_in: int, tokens_out: int) -> None:
     if usage is not None:
         usage["tokens_in"] = tokens_in
         usage["tokens_out"] = tokens_out
+
+
+async def _record_failure(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    project_id: str | None,
+    api_config_id: str | None,
+    operation: str,
+    model: str,
+    usage: dict | None,
+) -> None:
+    """失败记账：operation 加 `_fail` 后缀、force 落库（零 token 的真实调用也留痕）。"""
+    from api_configs.usage import record_usage
+
+    await record_usage(
+        db,
+        user_id=user_id,
+        project_id=project_id,
+        api_config_id=api_config_id,
+        operation=f"{operation}_fail"[:50],
+        model=model,
+        tokens_in=(usage or {}).get("tokens_in", 0),
+        tokens_out=(usage or {}).get("tokens_out", 0),
+        force=True,
+    )
 
 
 # ── 解析助手 ───────────────────────────────────────────────────────────────
@@ -424,13 +465,26 @@ async def intro_ai(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_intro_{action}", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_intro_{action}", model=effective_model(project),
+            usage=usage,
+        )
         raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
 
-    data = _parse_json(text, "简介 AI")
-
+    # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
     from api_configs.usage import record_usage
 
     await record_usage(
@@ -443,6 +497,8 @@ async def intro_ai(
         tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0),
     )
+
+    data = _parse_json(text, "简介 AI")
 
     if action == "introspect":
         return _normalize_introspect(data)
@@ -607,18 +663,24 @@ async def draft_world_topic(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_world_draft_{topic[:20]}",
+            model=effective_model(project), usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_world_draft_{topic[:20]}",
+            model=effective_model(project), usage=usage,
+        )
         raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
 
-    data = _parse_json(text, "世界起草")
-    value = _normalize_draft_value(shape, data.get("value") if isinstance(data, dict) else None)
-    if not value:
-        raise HTTPException(502, "AI 没给出结果，可重试")
-    if shape == "text":
-        from settings.world_model import PARAGRAPH_MAX
-
-        value = str(value)[:PARAGRAPH_MAX]
-
+    # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
     from api_configs.usage import record_usage
 
     await record_usage(
@@ -631,6 +693,16 @@ async def draft_world_topic(
         tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0),
     )
+
+    data = _parse_json(text, "世界起草")
+    value = _normalize_draft_value(shape, data.get("value") if isinstance(data, dict) else None)
+    if not value:
+        raise HTTPException(502, "AI 没给出结果，可重试")
+    if shape == "text":
+        from settings.world_model import PARAGRAPH_MAX
+
+        value = str(value)[:PARAGRAPH_MAX]
+
     return {"value": value, "topic": topic}
 
 
@@ -721,8 +793,36 @@ async def check_world_consistency(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_world_check", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_world_check", model=effective_model(project),
+            usage=usage,
+        )
         raise HTTPException(502, f"体检失败，可重试：{e!s}") from e
+
+    # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
+    from api_configs.usage import record_usage
+
+    await record_usage(
+        db,
+        user_id=user["id"],
+        project_id=project.id,
+        api_config_id=project.ai_config_id,
+        operation="settings_world_check",
+        model=effective_model(project),
+        tokens_in=usage.get("tokens_in", 0),
+        tokens_out=usage.get("tokens_out", 0),
+    )
 
     data = _parse_json(text, "一致性体检")
     # 名称归一匹配：模型把「简介 × 世界」写岔（空格/×半角）不算失格
@@ -758,18 +858,6 @@ async def check_world_consistency(
             if _needs_theme(row["name"]):
                 row.update(status="miss", note="输入缺失：题材未确认——先去题材页确认，再重新体检")
 
-    from api_configs.usage import record_usage
-
-    await record_usage(
-        db,
-        user_id=user["id"],
-        project_id=project.id,
-        api_config_id=project.ai_config_id,
-        operation="settings_world_check",
-        model=effective_model(project),
-        tokens_in=usage.get("tokens_in", 0),
-        tokens_out=usage.get("tokens_out", 0),
-    )
     verdict = _clamp_str(data.get("verdict"), 120) if isinstance(data, dict) else ""
     if degraded and not verdict:
         verdict = "体检输入不完整（" + "、".join(degraded_reasons) + "），结果仅供参考"
@@ -824,19 +912,24 @@ async def lore_suggest_world(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_world_lore_suggest", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_world_lore_suggest", model=effective_model(project),
+            usage=usage,
+        )
         raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
 
-    data = _parse_json(text, "世界要素")
-    # 与 archive 产出同形：每条带 canonical 章节引用 origin（幂等键）
-    from archive.service import canonical_chapter_ref
-    from settings.world_model import parse_lore_suggestions
-
-    suggestions = [
-        {**item, "origin": canonical_chapter_ref(chapter_ref)}
-        for item in parse_lore_suggestions(data)
-    ]
-
+    # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
     from api_configs.usage import record_usage
 
     await record_usage(
@@ -849,6 +942,16 @@ async def lore_suggest_world(
         tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0),
     )
+
+    data = _parse_json(text, "世界要素")
+    # 与 archive 产出同形：每条带 canonical 章节引用 origin（幂等键）
+    from settings.world_model import canonical_chapter_ref, parse_lore_suggestions
+
+    suggestions = [
+        {**item, "origin": canonical_chapter_ref(chapter_ref)}
+        for item in parse_lore_suggestions(data)
+    ]
+
     return {"suggestions": suggestions, "chapter_ref": chapter_ref}
 
 
@@ -947,13 +1050,26 @@ async def run_arc_ai(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"arc_{action}", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"arc_{action}", model=effective_model(project),
+            usage=usage,
+        )
         raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
 
-    value = _parse_json(text, "主线 AI")
-
+    # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
     from api_configs.usage import record_usage
 
     await record_usage(
@@ -967,10 +1083,831 @@ async def run_arc_ai(
         tokens_out=usage.get("tokens_out", 0),
     )
 
+    value = _parse_json(text, "主线 AI")
+
     # 素材门槛只拦 draft/calibrate（见上方 400）：check/tone 在内容全空时也照常发起
     # 一次调用——降级发生在 prompt 侧（模型把各线标 miss、提示先补再查），
     # 与 world_check 的「缺输入免调用」策略不同，此处不做免调用（P3，2026-09-13 检视）
     return {"value": value}
+
+
+# ═══ 伏笔 AI 四能力（foreshadow-settings-v2 批2/批3）══════════════════════
+# draft（起草候选）/ payoff（拟收束方案）/ audit（埋坑体检）/ check（查一致性）。
+# 本节必须注册在下方 /ai/{stype}/{field} 通配之前（intro/world/arc 同款约束）。
+# 注意：/ai/hooks/{action} 路由同时遮蔽了旧通配路径 /ai/hooks/description——
+# 该 action 不在白名单时按 9.1 给专门退役文案（见下方分支）。
+_HOOK_ACTIONS: dict[str, str] = {
+    "draft": "hooks_draft",
+    "payoff": "hooks_payoff",
+    "audit": "hooks_audit",
+    "check": "hooks_check",
+}
+
+# audit 判定常量（design D5：判定服务端出——类别/状态/跳转目标不采信模型自由文本，
+# 模型只产每条的 note；id/code/goto_field 由本模块按真表与常量组装）。
+AUDIT_OUTLINE_MAX_LINES = 60  # 章纲上下文封顶最近 60 章（全量拼 prompt 的护栏）
+AUDIT_NO_PLAN_LINE = 40       # 「40 章未定期」提醒线：已写 ≥40 章仍无计划 → 默认 note 升格催办
+_AUDIT_GOTO_FIELDS = ("planned", "payoff")  # 行跳转目标白名单（None＝在期，无需跳）
+
+# check 三上下文行（world_check 同款：简介/题材/世界）；status 白名单同 audit。
+_HOOK_CHECK_ITEMS = ("简介", "题材", "世界")
+_HOOK_CHECK_STATUS = ("ok", "warn", "miss")
+
+
+def _check_item_key(name) -> str:
+    """模型回名归一：「简介 × 伏笔」「简介×伏笔」「简介」都映射回 简介。"""
+    return re.sub(r"[\s×xX*·・]|伏笔", "", str(name or ""))
+
+
+def _check_miss_row(item: str) -> dict:
+    """缺输入行的 miss 出参（D7：补填出口写进 note，不报错不阻断）。"""
+    notes = {
+        "简介": "输入缺失：简介未填——先去补简介，再重新体检",
+        "题材": "输入缺失：题材未确认——先去题材页确认，再重新体检",
+        "世界": "输入缺失：世界设定还空着——先去世界面板补几条，再重新体检",
+    }
+    return {"name": f"{item} × 伏笔", "status": "miss", "note": notes[item]}
+
+
+async def _hooks_draft_context(project) -> dict:
+    """起草上下文全部后端自读（不信任前端快照）：简介＋题材锚＋世界＋主线。"""
+    from novels.router import _arc_normalize
+    from settings.world_model import world_summary_text
+
+    story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+    world_raw = await get_storage().read_yaml(project.root_path, "settings/world-setting.yaml") or {}
+    theme_label, theme_desc, _ = _world_theme(story)
+    arc_raw = story.get("story_arc") if isinstance(story.get("story_arc"), dict) else {}
+    arc = _arc_normalize(arc_raw)
+    return {
+        "title": _clamp_str(getattr(project, "name", ""), 100),
+        "synopsis": _clamp_str(story.get("synopsis"), 600),
+        "theme": theme_label or "（未确认）",
+        "theme_desc": theme_desc or "",
+        "world": world_summary_text(world_raw, 1200) or "（世界设定还空着）",
+        "fullstory": _clamp_str(arc["fullstory"], 600) or "（未填）",
+    }
+
+
+def _normalize_hook_candidates(data) -> list[dict]:
+    """draft 出参归一（词表归一走 hooks_model，端点/模板不手抄枚举）：
+    description 空丢弃；type 非法降默认「悬念」；priority 非法降默认「中」；最多 3 条。"""
+    if not isinstance(data, dict):
+        raise HTTPException(502, "伏笔起草返回结构不对，可重试")
+    raw = data.get("candidates")
+    out: list[dict] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        desc = _clamp_str(item.get("description") or item.get("desc"), DESCRIPTION_MAX)
+        if not desc:
+            continue
+        htype = str(item.get("type") or "").strip()
+        if htype not in HOOK_TYPE_KEYS:
+            htype = HOOK_TYPE_KEYS[0]
+        try:
+            priority = normalize_priority(item.get("priority"))
+        except ValueError:
+            priority = 2
+        out.append({"description": desc, "type": htype, "priority": priority})
+        if len(out) >= 3:
+            break
+    if not out:
+        raise HTTPException(502, "AI 没给出可用候选，可重试")
+    return out
+
+
+async def _load_written_outline(
+    db: AsyncSession, novel_id: str
+) -> tuple[list[tuple[int, str, str]], dict[str, int], dict[str, str]]:
+    """已写章纲构建（批2 audit；payoff 同源复用）：返回 (written, pos_by_id, ref_by_id)。
+
+    - written：[(书序 pos, 章 ref, prompt 行)]——outline_status != unfilled 或 summary
+      非空才算「已写」，行渲染 `vol-N-ch-M 标题：summary`，摘要截 300
+    - pos_by_id / ref_by_id：章 id → 书序位置 / 章 ref（超期判定与 id→ref 换算用）
+    """
+    from models.chapter import Chapter
+    from models.volume import Volume
+
+    ch_rows = (
+        await db.execute(
+            select(Chapter, Volume.volume_no)
+            .join(Volume, Chapter.volume_id == Volume.id)
+            .where(Chapter.project_id == novel_id)
+            .order_by(Volume.volume_no, Chapter.chapter_no)
+        )
+    ).all()
+    pos_by_id: dict[str, int] = {}
+    ref_by_id: dict[str, str] = {}
+    written: list[tuple[int, str, str]] = []  # (pos, ref, prompt 行)
+    for pos, (ch, _vol_no) in enumerate(ch_rows, start=1):
+        pos_by_id[ch.id] = pos
+        ref_by_id[ch.id] = ch.ref
+        summary = (ch.summary or "").strip()
+        if (ch.outline_status or "unfilled") != "unfilled" or summary:
+            head = f"{ch.ref} {ch.title}" if (ch.title or "").strip() else ch.ref
+            written.append((pos, ch.ref, f"{head}：{summary[:300]}"))
+    return written, pos_by_id, ref_by_id
+
+
+async def _hooks_audit_scan(db: AsyncSession, novel_id: str) -> tuple[list[dict], list[str], int]:
+    """埋坑体检的确定性扫描：类别/状态/跳转目标全由服务端判定（模型只补 note）。
+
+    返回 (rows, outline_lines, written_count)：
+    - rows：按 seq 序的体检行骨架。kind 四类——
+        overdue 超期（计划收束章已过还没收 → miss）/ on_track 在期（ok）/
+        no_plan 未定期（warn）/ no_receipt 无留痕（已收束没留「怎么收的」→ warn）
+    - outline_lines：已写章纲 prompt 行（书序；构建见 _load_written_outline）
+    - written_count：已写章纲章数（40 章未定期提醒线的判据）
+    """
+    from models.hook import NovelHook
+
+    written, pos_by_id, ref_by_id = await _load_written_outline(db, novel_id)
+    last_written = written[-1][0] if written else 0
+    written_count = len(written)
+
+    hooks = (
+        await db.scalars(
+            select(NovelHook)
+            .where(
+                NovelHook.novel_id == novel_id,
+                NovelHook.status.in_(("active", "resolved")),
+            )
+            .order_by(NovelHook.seq)
+        )
+    ).all()
+
+    rows: list[dict] = []
+    for h in hooks:
+        base = {
+            "hook_id": h.id,
+            "code": f"#H-{h.seq:04d}",
+            "description": h.description,
+        }
+        if h.status == "resolved":
+            # 无留痕：已收束但「怎么收的」/收束章节没留（软引导——体检持续点名）
+            if not (h.payoff_note or "").strip() or not h.resolved_chapter_id:
+                rows.append({
+                    **base, "kind": "no_receipt", "status": "warn",
+                    "goto_field": "payoff", "tag": "缺留痕",
+                    "default_note": "已收束但没留「怎么收的」——补一句，下次体检不再点名",
+                })
+            continue
+        planned_id = h.planned_chapter_id or ""
+        planned_pos = pos_by_id.get(planned_id)
+        if planned_id and planned_pos is not None and last_written and planned_pos <= last_written:
+            rows.append({
+                **base, "kind": "overdue", "status": "miss",
+                "goto_field": "planned", "tag": f"超期·计划 {ref_by_id[planned_id]} 已过",
+                "default_note": f"计划收束章 {ref_by_id[planned_id]} 已过还没收——去收束，或改期",
+            })
+        elif planned_id and planned_pos is not None:
+            ref = ref_by_id[planned_id]
+            rows.append({
+                **base, "kind": "on_track", "status": "ok",
+                "goto_field": None, "tag": f"在期·计划 {ref}",
+                "default_note": f"计划 {ref}，还在期内",
+            })
+        else:
+            escalated = written_count >= AUDIT_NO_PLAN_LINE
+            rows.append({
+                **base, "kind": "no_plan", "status": "warn",
+                "goto_field": "planned", "tag": "未定期",
+                "default_note": (
+                    f"已写 {written_count} 章还没定期——读者快忘了这个坑，尽快定章"
+                    if escalated
+                    else "还没定计划收束章——章未建可先留空，这里会一直提醒"
+                ),
+            })
+    return rows, [line for _, _, line in written], written_count
+
+
+@router.post("/ai/hooks/{action}")
+async def run_hooks_ai(
+    project_id: str,
+    action: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """伏笔 AI 四能力：draft（起草候选）/ payoff（拟收束方案）/ audit（埋坑体检）/ check（查一致性）。
+
+    输入后端自读（story.yaml＋世界＋主线＋真表 chapters），不采信前端快照；
+    例外是**选中伏笔的当前编辑值**——payoff/check 按 body 传值作用域（intro 先例：
+    面板编辑未落库时也按所见出建议，不读库旧文）。
+    audit 降级（world_check D7 先例）：无活跃伏笔 / 无已写章纲 → 免调用，
+    纯台账自检只点名 未定期/无留痕，不报错不阻断。
+    """
+    if action not in _HOOK_ACTIONS:
+        if action == "description":
+            # 旧单字段生成路径退役（9.1）：/ai/hooks/{action} 白名单路由遮蔽了通配
+            # 400 口径，这里给专门退役文案（沿角色 FIELD_GENERATABLE 摘除先例的 400 语义）。
+            raise HTTPException(
+                400,
+                "伏笔单字段生成已退役：伏笔 AI 升级为四能力，"
+                "请改用 /ai/hooks/draft（起草）、/payoff（拟收束）、/audit（埋坑体检）、/check（查一致性）",
+            )
+        raise HTTPException(400, f"不支持的伏笔 AI 动作：{action}")
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    # ── 选中作用域公共校验（payoff/check）：hook id ＋ 当前编辑描述 ──────────
+    if action in ("payoff", "check"):
+        hook_id = str(body.get("hook_id") or "").strip()
+        if not hook_id:
+            what = "拟收束方案" if action == "payoff" else "查一致性"
+            raise HTTPException(400, f"先选一条伏笔——{what}对选中的伏笔生效")
+        description = _clamp_str(body.get("description"), DESCRIPTION_MAX)
+        if not description:
+            raise HTTPException(400, "这条伏笔还没有描述，先写一句再让 AI 处理")
+
+    # 选中伏笔展示上下文（type/priority 非法降默认，与 draft 出参同口径）
+    def _hook_display() -> dict:
+        htype = str(body.get("type") or "").strip()
+        if htype not in HOOK_TYPE_KEYS:
+            htype = HOOK_TYPE_KEYS[0]
+        try:
+            pri = normalize_priority(body.get("priority"))
+        except ValueError:
+            pri = 2
+        return {
+            "code": _clamp_str(body.get("code"), 12) or "（未编号）",
+            "type_label": type_label(htype),
+            "priority_label": priority_label(pri),
+        }
+
+    if action == "draft":
+        ctx = await _hooks_draft_context(project)
+        if not ctx["synopsis"].strip():
+            raise HTTPException(400, "先写两句简介，AI 才有依据帮你埋伏笔")
+        # 提示词名走字面量白名单字典取值（勿用 f-string 拼 action：见 arc 同款注释——
+        # CodeQL 把 URL 参数拼进文件路径判为高危 path injection，此形态永不告警）
+        formatted = load_prompt(_HOOK_ACTIONS[action]).format(
+            title=ctx["title"],
+            synopsis=ctx["synopsis"],
+            theme=ctx["theme"],
+            theme_desc=ctx["theme_desc"],
+            world=ctx["world"],
+            fullstory=ctx["fullstory"],
+            # 词表由 hooks_model 渲染（模板不手抄枚举）
+            type_list=" / ".join(f"{t['k']}（{t['label']}）" for t in HOOK_TYPES),
+            priority_list=" / ".join(PRIORITY_LABELS[k] for k in sorted(PRIORITY_LABELS)),
+        )
+        system = "你是小说伏笔编辑。只输出 JSON，不要任何其他文字。"
+    elif action == "payoff":
+        # 主线是收束方案的依据（缺主线 400，中文原因）——fullstory 空时 _hooks_draft_context
+        # 填的是「（未填）」占位，据此判缺
+        ctx = await _hooks_draft_context(project)
+        if not ctx["fullstory"].strip() or ctx["fullstory"] == "（未填）":
+            raise HTTPException(400, "主线还没写——收束方案要按全书走向定收束点，先去主线面板写两句")
+        written, _pos_by_id, ref_by_id = await _load_written_outline(db, project.id)
+        planned_ref = ref_by_id.get(str(body.get("planned_chapter_id") or ""), "")
+        disp = _hook_display()
+        formatted = load_prompt(_HOOK_ACTIONS[action]).format(
+            title=ctx["title"],
+            code=disp["code"],
+            description=description,
+            type_label=disp["type_label"],
+            priority_label=disp["priority_label"],
+            planned=planned_ref or "（未定期——由你按主线节奏建议）",
+            fullstory=ctx["fullstory"],
+            outline_block=(
+                "\n".join(line for _, _, line in written[-AUDIT_OUTLINE_MAX_LINES:])
+                or "（还没有已写章纲——按主线节奏建议之后的章）"
+            ),
+        )
+        system = "你是小说伏笔编辑。只输出 JSON，不要任何其他文字。"
+    elif action == "check":
+        # world_check 同款三上下文（简介/题材/世界）；选中伏笔值走 body（intro 先例）
+        story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+        from settings.world_model import world_summary_text
+
+        world_raw = await get_storage().read_yaml(project.root_path, "settings/world-setting.yaml") or {}
+        theme_label, theme_desc, _ = _world_theme(story)
+        synopsis = _clamp_str(story.get("synopsis"), 600)
+        world_text = world_summary_text(world_raw, 1200)
+        synopsis_missing = not synopsis.strip()
+        theme_missing = not theme_label
+        world_missing = not world_text.strip()
+        degraded_reasons: list[str] = []
+        if synopsis_missing:
+            degraded_reasons.append("简介未填")
+        if theme_missing:
+            degraded_reasons.append("题材未确认")
+        if world_missing:
+            degraded_reasons.append("世界设定还空着")
+        if len(degraded_reasons) == 3:
+            # D7 降级【拍板】：三方全缺 → 整次体检免调用，全部行置 miss＋补填出口
+            return {
+                "checks": [_check_miss_row(x) for x in _HOOK_CHECK_ITEMS],
+                "degraded": True,
+                "degraded_reasons": degraded_reasons,
+                "verdict": "简介、题材、世界都还没写——先补几笔，再查才有依据",
+            }
+        disp = _hook_display()
+        formatted = load_prompt(_HOOK_ACTIONS[action]).format(
+            code=disp["code"],
+            description=description,
+            type_label=disp["type_label"],
+            priority_label=disp["priority_label"],
+            synopsis=synopsis or "（未填写）",
+            theme=theme_label or "（未确认）",
+            theme_desc=theme_desc or "",
+            world=world_text or "（未填写）",
+        )
+        system = "你是小说设定一致性审校。只输出 JSON，不要任何其他文字。"
+    else:
+        ctx = await _hooks_draft_context(project)
+        rows, outline_lines, _written_count = await _hooks_audit_scan(db, project.id)
+        # 降级免调用（D7）：无活跃伏笔 / 无已写章纲 → 纯台账自检（点名 未定期/无留痕）
+        degraded_reasons = []
+        if not rows:
+            degraded_reasons.append("还没有活跃伏笔")
+        elif not outline_lines:
+            degraded_reasons.append("章纲还没写")
+        if degraded_reasons:
+            checks = [
+                {
+                    "hook_id": r["hook_id"],
+                    "code": r["code"],
+                    "status": r["status"],
+                    "note": r["default_note"],
+                    "goto_field": r["goto_field"],
+                }
+                for r in rows
+                if r["kind"] in ("no_plan", "no_receipt")
+            ]
+            verdict = (
+                "先埋一条伏笔（写一句描述就行），再来体检"
+                if not rows
+                else "章纲还没写，先按台账点名未定期/无留痕；章纲写好后体检更准"
+            )
+            return {
+                "checks": checks,
+                "degraded": True,
+                "degraded_reasons": degraded_reasons,
+                "verdict": verdict,
+            }
+        hooks_block = "\n".join(
+            f"{no}. {r['code']}（{r['tag']}）{r['description']}"
+            for no, r in enumerate(rows, start=1)
+        )
+        formatted = load_prompt(_HOOK_ACTIONS[action]).format(
+            title=ctx["title"],
+            synopsis=ctx["synopsis"] or "（未填写）",
+            theme=ctx["theme"],
+            fullstory=ctx["fullstory"],
+            hooks_block=hooks_block,
+            outline_block="\n".join(outline_lines[-AUDIT_OUTLINE_MAX_LINES:]) or "（无）",
+        )
+        system = "你是小说伏笔管理员。只输出 JSON，不要任何其他文字。"
+
+    # model 必须用客户端别名（haiku/sonnet/review → 配置模型）；字面模型名会
+    # 透传供应商被拒 → 502（见 arc 同款注释）。
+    # 起草/拟收束＝生成类（temp 0.6）；体检/查一致性＝判定类（temp 0.3）。
+    client = await get_ai_client_for_novel(project_id)
+    usage: dict = {}
+    try:
+        text = await _judge_chat(
+            client,
+            model="haiku",
+            system=system,
+            messages=[{"role": "user", "content": formatted}],
+            temperature=0.6 if action in ("draft", "payoff") else 0.3,
+            json_mode=True,
+            usage=usage,
+        )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_hooks_{action}", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_hooks_{action}", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
+
+    # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
+    from api_configs.usage import record_usage
+
+    await record_usage(
+        db,
+        user_id=user["id"],
+        project_id=project.id,
+        api_config_id=project.ai_config_id,
+        operation=f"settings_hooks_{action}",
+        model=effective_model(project),
+        tokens_in=usage.get("tokens_in", 0),
+        tokens_out=usage.get("tokens_out", 0),
+    )
+
+    data = _parse_json(text, "伏笔 AI")
+
+    if action == "draft":
+        return {"candidates": _normalize_hook_candidates(data)}
+
+    if action == "payoff":
+        # ref 走 canonical 惯例归一（world_model 单源，勿复制）：模型写模板短格式
+        # 「1-3」也归一成 vol-1-ch-3；归一后仍不合规范形 → 502 可重试
+        from settings.world_model import canonical_chapter_ref
+
+        if not isinstance(data, dict):
+            raise HTTPException(502, "拟收束方案返回结构不对，可重试")
+        ref = canonical_chapter_ref(
+            str(data.get("resolved_chapter_ref") or data.get("chapter_ref") or "")
+        )
+        if not re.fullmatch(r"vol-\d+-ch-\d+", ref):
+            raise HTTPException(
+                502, "收束章引用要写成 vol-N-ch-M（如 vol-1-ch-12），可重试"
+            )
+        note = _clamp_str(data.get("payoff_note") or data.get("note"), PAYOFF_NOTE_MAX)
+        if not note:
+            raise HTTPException(502, "AI 没给出「怎么收」的建议，可重试")
+        return {"resolved_chapter_ref": ref, "payoff_note": note}
+
+    if action == "check":
+        # 出参白名单同 audit：status ∈ ok/warn/miss，模型写岔的行丢弃→回退「AI 未给出」；
+        # 缺输入涉及行强制置 miss＋补填出口（world_check D7 同款，不采信模型对空输入的判定）
+        raw_checks = (data.get("checks") if isinstance(data, dict) else []) or []
+        ai_by_key: dict[str, dict] = {}
+        for item in raw_checks if isinstance(raw_checks, list) else []:
+            if not isinstance(item, dict):
+                continue
+            status = str(item.get("status", "")).strip()
+            key = _check_item_key(item.get("name"))
+            if not key or key in ai_by_key or status not in _HOOK_CHECK_STATUS:
+                continue
+            official = next(
+                (x for x in _HOOK_CHECK_ITEMS if _check_item_key(x) == key), None
+            )
+            if official:
+                ai_by_key[key] = {
+                    "name": f"{official} × 伏笔",
+                    "status": status,
+                    "note": _clamp_str(item.get("note"), 120),
+                }
+        checks_out = [
+            ai_by_key.get(x)
+            or {"name": f"{x} × 伏笔", "status": "miss", "note": "AI 未给出该项，可重试"}
+            for x in _HOOK_CHECK_ITEMS
+        ]
+        if synopsis_missing:
+            checks_out[0] = _check_miss_row("简介")
+        if theme_missing:
+            checks_out[1] = _check_miss_row("题材")
+        if world_missing:
+            checks_out[2] = _check_miss_row("世界")
+        degraded = bool(degraded_reasons)
+        verdict = _clamp_str(data.get("verdict"), 120) if isinstance(data, dict) else ""
+        if degraded and not verdict:
+            verdict = "查一致性输入不完整（" + "、".join(degraded_reasons) + "），结果仅供参考"
+        return {
+            "checks": checks_out,
+            "degraded": degraded,
+            "degraded_reasons": degraded_reasons,
+            "verdict": verdict,
+        }
+
+    # audit：模型只产 note（reason），id/status/goto_field 以服务端骨架为准组装——
+    # 模型没给/写岔编号的行回退服务端默认 note，绝不因模型缺行丢点名。
+    reasons: dict[int, str] = {}
+    raw_reasons = (data.get("reasons") if isinstance(data, dict) else []) or []
+    for item in raw_reasons if isinstance(raw_reasons, list) else []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            no = int(item.get("no"))
+        except (TypeError, ValueError):
+            continue
+        note = _clamp_str(item.get("reason"), 120)
+        if no >= 1 and note:
+            reasons[no] = note
+    checks = [
+        {
+            "hook_id": r["hook_id"],
+            "code": r["code"],
+            "status": r["status"],
+            "note": reasons.get(no) or r["default_note"],
+            "goto_field": r["goto_field"],
+        }
+        for no, r in enumerate(rows, start=1)
+    ]
+    return {"checks": checks, "degraded": False, "degraded_reasons": [], "verdict": ""}
+
+
+# ── 文风蒸馏与三区 AI（style-settings-v2）──────────────────────────
+# 注意：本路由族必须注册在 /ai/{stype}/{field} 之前，否则被通配遮蔽（hooks 同款注释）。
+
+_STYLE_DISTILL_ACTIONS = {"step1", "step2", "step3", "commit"}
+
+
+async def _load_quant_doc(root_path: str) -> dict:
+    from filesystem.paths import STYLE_QUANT_PATH
+    from filesystem.storage import get_storage
+    from settings.style_quant_model import quant_doc
+
+    return quant_doc(await get_storage().read_yaml(root_path, STYLE_QUANT_PATH) or {})
+
+
+async def _save_quant_doc(root_path: str, doc: dict) -> None:
+    from filesystem.paths import STYLE_QUANT_PATH
+    from filesystem.storage import get_storage
+
+    await get_storage().write_yaml(root_path, STYLE_QUANT_PATH, doc)
+
+
+async def _assemble_distill_samples(project, body: dict, db) -> tuple[str, int, list[str]]:
+    """样本两路装配：novel-samples/ 文件＋勾选已归档章节；区间校验（3,000–10,000）。"""
+    import os
+
+    from models.archive import Archive
+    from models.chapter import Chapter
+    from settings.style_quant_model import SAMPLE_MAX, SAMPLE_MIN
+
+    files = [str(x) for x in (body.get("files") or []) if str(x).strip()]
+    chapter_ids = [str(x) for x in (body.get("chapter_ids") or []) if str(x).strip()]
+    samples_dir = os.path.join(project.root_path, "novel-samples")
+    texts: list[str] = []
+    used: list[str] = []
+    matched_chapters = 0
+    for name in files[:20]:
+        safe = os.path.realpath(os.path.join(samples_dir, name))
+        if os.path.dirname(safe) != os.path.realpath(samples_dir) or not os.path.isfile(safe):
+            raise HTTPException(400, f"样本文件不可用：{name}")
+        with open(safe, encoding="utf-8", errors="ignore") as f:
+            texts.append(f.read())
+        used.append(name)
+    if chapter_ids:
+        rows = await db.execute(
+            select(Archive)
+            .join(Chapter, Chapter.id == Archive.chapter_id)
+            .where(Chapter.project_id == project.id, Archive.chapter_id.in_(chapter_ids))
+        )
+        for a in rows.scalars():
+            matched_chapters += 1
+            texts.append(a.content or "")
+            used.append(a.title or "已归档章节")
+    text = "\n\n".join(texts)
+    chars = len("".join(text.split()))
+    if chars < SAMPLE_MIN:
+        raise HTTPException(400, f"样本合计 {chars} 字，少于 {SAMPLE_MIN} 字统计噪声大——再补一些你认可的文章")
+    if chars > SAMPLE_MAX:
+        raise HTTPException(400, f"样本合计 {chars} 字，超过 {SAMPLE_MAX} 字——挑最有代表性的几章")
+    return text, chars, used, matched_chapters
+
+
+async def _distill_llm(project, user, db, *, system: str, prompt: str):
+    """蒸馏单步 LLM 调用：沿 hooks 管线（judge 重试＋记账＋JSON 解析）。"""
+    from api_configs.usage import record_usage
+
+    client = await get_ai_client_for_novel(project.id)
+    usage: dict = {}
+    try:
+        text = await _judge_chat(
+            client,
+            model="haiku",
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            json_mode=True,
+            usage=usage,
+        )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_style_distill", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation="settings_style_distill", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, f"AI 学习失败，可重试：{e!s}") from e
+    await record_usage(
+        db,
+        user_id=user["id"],
+        project_id=project.id,
+        api_config_id=project.ai_config_id,
+        operation="settings_style_distill",
+        model=effective_model(project),
+        tokens_in=usage.get("tokens_in", 0),
+        tokens_out=usage.get("tokens_out", 0),
+    )
+    return _parse_json(text, "文风蒸馏")
+
+
+@router.post("/ai/style-distill/{action}")
+async def style_distill_ai(
+    project_id: str,
+    action: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """蒸馏三步＋落卡（A3 组装审阅形）：每步产物落 style-quant.draft，中断续跑；
+    「不像，再学一次」＝ step3 带 force 重跑；commit 落正式区＋history＋禁用词并入。"""
+    if action not in _STYLE_DISTILL_ACTIONS:
+        raise HTTPException(400, f"不支持的蒸馏动作：{action}")
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    body = body or {}
+    doc = await _load_quant_doc(project.root_path)
+    draft = doc.get("draft") or {}
+
+    if action == "commit":
+        from settings.style_model import append_banned_words
+        from settings.style_quant_model import commit_draft
+
+        doc = commit_draft(doc, sample_chars=int(draft.get("sample_chars") or 0), chapter_count=int(draft.get("chapter_count") or 0), at=datetime.now(UTC).isoformat(timespec="seconds"))
+        await _save_quant_doc(project.root_path, doc)
+        banned = (draft.get("step3") or {}).get("banned") or []
+        added = await append_banned_words(project.root_path, banned) if banned else 0
+        return {"ok": True, "quant": await _load_quant_doc(project.root_path), "banned_added": added}
+
+    if not isinstance(body, dict):
+        body = {}
+
+    if action == "step1":
+        if draft.get("step1"):
+            return {"ok": True, "resumed": True, "step": draft.get("step", 0)}
+        text, chars, used, matched_chapters = await _assemble_distill_samples(project, body, db)
+        prompt = load_prompt("style_distill_step1").format(sample=text)
+        data = await _distill_llm(project, user, db, system="你是文风分析师。只输出 JSON，不要任何其他文字。", prompt=prompt)
+        sections = data.get("sections") if isinstance(data, dict) else None
+        if not isinstance(sections, list) or not sections:
+            raise HTTPException(502, "样本标注返回结构不对，可重试")
+        draft.update({
+            "step": 1,
+            "sample_chars": chars,
+            "chapter_count": matched_chapters,
+            "samples_used": used,
+            "step1": {"sections": sections[:40]},
+        })
+        doc["draft"] = draft
+        await _save_quant_doc(project.root_path, doc)
+        return {"ok": True, "step": 1, "sections": len(sections[:40])}
+
+    if action == "step2":
+        if draft.get("step2"):
+            return {"ok": True, "resumed": True, "step": draft.get("step", 0)}
+        if not draft.get("step1"):
+            raise HTTPException(400, "先完成第一步（样本标注）")
+        step1_lines = "\n".join(
+            f"- {s.get('label')}（{s.get('layer')}）" for s in draft["step1"].get("sections", []) if isinstance(s, dict)
+        )
+        prompt = load_prompt("style_distill_step2").format(
+            sample_chars=draft.get("sample_chars", 0), step1_summary=step1_lines or "（无）"
+        )
+        data = await _distill_llm(project, user, db, system="你是文风量化分析师。只输出 JSON，不要任何其他文字。", prompt=prompt)
+        metrics = data.get("metrics") if isinstance(data, dict) else None
+        if not isinstance(metrics, dict):
+            raise HTTPException(502, "量化统计返回结构不对，可重试")
+        draft["step"] = 2
+        draft["step2"] = {"metrics": metrics}
+        doc["draft"] = draft
+        await _save_quant_doc(project.root_path, doc)
+        return {"ok": True, "step": 2}
+
+    # step3：归纳九维＋画像＋禁用词候选；force=「不像，再学一次」（只重跑本步）
+    if action == "step3" and not body.get("force") and draft.get("step3"):
+        return {"ok": True, "resumed": True, "step": draft.get("step", 0)}
+    if not draft.get("step2"):
+        raise HTTPException(400, "先完成第二步（量化统计）")
+    metrics = (draft.get("step2") or {}).get("metrics") or {}
+    metrics_lines = "\n".join(f"- {k}：{v}" for k, v in metrics.items())
+    prompt = load_prompt("style_distill_step3").format(metrics=metrics_lines)
+    data = await _distill_llm(project, user, db, system="你是文风蒸馏师。只输出 JSON，不要任何其他文字。", prompt=prompt)
+    if not isinstance(data, dict) or not isinstance(data.get("baseline"), dict):
+        raise HTTPException(502, "文风归纳返回结构不对，可重试")
+    banned = data.get("banned")
+    draft["step"] = 3
+    draft["step3"] = {
+        "baseline": data.get("baseline"),
+        "details": data.get("details") or {},
+        "portrait": _clamp_str(data.get("portrait"), 1200),
+        "banned": [str(x).strip()[:50] for x in banned if str(x).strip()][:50] if isinstance(banned, list) else [],
+    }
+    doc["draft"] = draft
+    await _save_quant_doc(project.root_path, doc)
+    return {"ok": True, "step": 3, "portrait": draft["step3"]["portrait"]}
+
+
+@router.post("/ai/style/{action}")
+async def run_style_ai(
+    project_id: str,
+    action: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """文风三区 AI：polish（润色/起草三区）/check（锚定体检）/fewshot-mine（例句提炼）。
+
+    旧 /ai/style/{field} 单字段生成随三区改版退役——落到本路由未知 action 分支，
+    给专门退役文案（hooks 9.1 先例）。
+    """
+    if action not in ("polish", "check", "fewshot-mine"):
+        raise HTTPException(
+            400,
+            "文风单字段生成已退役：文风 AI 升级为三区，"
+            "请改用 /ai/style/polish（润色文字文风）、/check（锚定体检）、/fewshot-mine（例句提炼）",
+        )
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    body = body or {}
+    story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
+    premise = _clamp_str(story.get("synopsis"), 600)
+
+    if action == "polish":
+        if not premise:
+            raise HTTPException(400, "先写两句简介，AI 才有依据帮你起草文风")
+        ctx = body.get("context", {}) or {}
+        ctx_text = "\n".join(f"- {k}：{v}" for k, v in ctx.items() if v) or "（空——按蓝图起草）"
+        prompt = load_prompt("settings_style").format(premise=premise, context=ctx_text)
+        system = "你是小说文风设定专家。只输出 JSON，不要任何其他文字。"
+        data = await _distill_llm(project, user, db, system=system, prompt=prompt)
+        if not isinstance(data, dict):
+            raise HTTPException(502, "文风起草返回结构不对，可重试")
+        role = _clamp_str(data.get("role"), 500)
+        rules = [str(x).strip()[:500] for x in data.get("rules", []) if str(x).strip()][:8]
+        craft = [str(x).strip()[:500] for x in data.get("craft", []) if str(x).strip()][:8]
+        if not role or not rules:
+            raise HTTPException(502, "文风起草缺少身份或红线，可重试")
+        return {"role": role, "rules": rules, "craft": craft}
+
+    if action == "check":
+        role = _clamp_str(body.get("role"), 500)
+        rules = [str(x).strip()[:500] for x in body.get("rules", []) if str(x).strip()]
+        craft = [str(x).strip()[:500] for x in body.get("craft", []) if str(x).strip()]
+        if not role:
+            raise HTTPException(400, "先写叙事身份——锚定体检对当前三区生效")
+        # banned-words-into-style：疲劳词单源自文风 KV（统一迁移感知读路径）
+        from settings.style_model import read_style_migrated
+
+        style_doc = await read_style_migrated(project.root_path)
+        fatigue = [str(w) for w in (style_doc.get("banned_words") or [])][:40]
+        rules_text = "\n".join(f"- {r}" for r in rules) or "（未填）"
+        craft_text = "\n".join(f"- {c}" for c in craft) or "（未填）"
+        prompt = load_prompt("style_check").format(
+            role=role, rules=rules_text, craft=craft_text,
+            fatigue="、".join(str(w) for w in fatigue) or "（空）",
+        )
+        system = "你是小说设定一致性审校。只输出 JSON，不要任何其他文字。"
+        data = await _distill_llm(project, user, db, system=system, prompt=prompt)
+        checks = data.get("checks") if isinstance(data, dict) else None
+        if not isinstance(checks, list):
+            raise HTTPException(502, "锚定体检返回结构不对，可重试")
+        return {
+            "checks": checks[:8],
+            "verdict": _clamp_str(data.get("verdict"), 200) if isinstance(data, dict) else "",
+        }
+
+    # fewshot-mine：从已归档正文提炼 1-3 条标志句
+    from models.archive import Archive
+    from models.chapter import Chapter
+
+    rows = await db.execute(
+        select(Archive)
+        .join(Chapter, Chapter.id == Archive.chapter_id)
+        .where(Chapter.project_id == project.id)
+        .order_by(Archive.archived_at.desc())
+        .limit(6)
+    )
+    texts = [(a.title or "章节", (a.content or "")[:1200]) for a in rows.scalars()]
+    if not texts:
+        raise HTTPException(400, "还没有已归档章节——写完一章并归档后，AI 才能替你挑例句")
+    corpus = "\n\n".join(f"【{t}】\n{c}" for t, c in texts)
+    prompt = load_prompt("style_fewshot_mine").format(corpus=corpus)
+    system = "你是文风编辑。只输出 JSON，不要任何其他文字。"
+    data = await _distill_llm(project, user, db, system=system, prompt=prompt)
+    lines = [str(x).strip()[:300] for x in (data.get("lines") or []) if str(x).strip()][:3] if isinstance(data, dict) else []
+    if not lines:
+        raise HTTPException(502, "例句提炼返回结构不对，可重试")
+    return {"lines": lines}
 
 
 @router.post("/ai/{stype}/{field}")
@@ -1076,13 +2013,24 @@ async def generate_field(
             json_mode=True,
             usage=usage,
         )
+    except AITimeoutError:
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_{stype}_{field}", model=effective_model(project),
+            usage=usage,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
     except Exception as e:  # noqa: BLE001
+        await _record_failure(
+            db, user_id=user["id"], project_id=project.id,
+            api_config_id=project.ai_config_id,
+            operation=f"settings_{stype}_{field}", model=effective_model(project),
+            usage=usage,
+        )
         raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
 
-    value = _parse_json(text, "设定 AI")
-    if stype == "genre":
-        value = _normalize_genre_value(field, value)
-
+    # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
     from api_configs.usage import record_usage
 
     await record_usage(
@@ -1095,4 +2043,9 @@ async def generate_field(
         tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0),
     )
+
+    value = _parse_json(text, "设定 AI")
+    if stype == "genre":
+        value = _normalize_genre_value(field, value)
+
     return {"value": value}

@@ -20,6 +20,8 @@ export interface WorkbenchChapter {
   title: string;
   word_count: number;
   status: string;
+  /** DB 章 id（foreshadow-settings-v2：伏笔选择器按 id 引用章；旧响应缺省时不读） */
+  id?: string;
   /** 缺省时降级：word_count>0 或本地已载入 prose */
   has_prose?: boolean;
   archived?: boolean;
@@ -111,6 +113,7 @@ export function useWorkbench(): UseWorkbenchReturn {
         ref: string;
         title?: string;
         chapters?: Array<{
+          id?: string;
           chapter: number;
           title: string;
           word_count: number;
@@ -125,6 +128,7 @@ export function useWorkbench(): UseWorkbenchReturn {
         chapters: (v.chapters || []).map((c) => {
           const hasProse = c.has_prose ?? c.word_count > 0;
           return {
+            id: c.id,
             chapter: c.chapter,
             title: c.title,
             word_count: c.word_count || 0,

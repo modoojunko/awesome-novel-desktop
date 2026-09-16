@@ -29,12 +29,15 @@ services:
     volumes:
       - ${SERVER_DATA_DIR:-./.docker-data/server}:/app/data
     healthcheck:
+      # TCP 探活而非 HTTP：S端 没有健康端点，原探针指向的 /api/auth-page 已随
+      # auth-page-direct-entry 删除（探针恒 404 → 容器恒 unhealthy）。沿用
+      # e2e workflow 对 S端 的同款判活口径（TCP 19000），不再随路由增删失效。
       test:
         [
           "CMD",
           "python",
           "-c",
-          "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:19000/api/auth-page', timeout=5); sys.exit(0)",
+          "import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(0 if s.connect_ex(('127.0.0.1',19000))==0 else 1)",
         ]
       interval: 10s
       timeout: 5s

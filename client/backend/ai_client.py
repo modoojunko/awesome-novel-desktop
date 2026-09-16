@@ -10,7 +10,12 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
+from anthropic import APIConnectionError as AnthropicConnectionError
+from anthropic import APITimeoutError as AnthropicTimeoutError
 from anthropic import AsyncAnthropic
+from openai import APIConnectionError as OpenAIConnectionError
+from openai import APITimeoutError as OpenAITimeoutError
 from openai import AsyncOpenAI
 from sqlalchemy import select
 
@@ -25,6 +30,32 @@ from models.user import User
 # 并把该 base 记下来不再重复尝试。
 _THINKING_UNSUPPORTED_BASES: set[str] = set()
 _THINKING_DISABLED = {"type": "disabled"}
+
+# 超时纪律（ai-client-timeout-and-usage-accounting D1）：不依赖 SDK 默认
+# （600s + 重试，最坏一次点击 ~20 分钟）。read=90 覆盖判定类 4096 tokens
+# 生成上限；流式 read 是「相邻事件间隔」上限而非总时长，长文持续出 chunk
+# 不受影响，供应商挂起 120s 内判死。max_retries=1 收敛最坏等待 ≈3 分钟。
+_CHAT_TIMEOUT = httpx.Timeout(connect=10.0, read=90.0, write=30.0, pool=10.0)
+_STREAM_READ_TIMEOUT = 120.0
+
+# 网络层失败（超时/连接不通）——归一为 AITimeoutError 对外统一语义。
+_NETWORK_ERRORS: tuple[type[Exception], ...] = (
+    OpenAITimeoutError,
+    OpenAIConnectionError,
+    AnthropicTimeoutError,
+    AnthropicConnectionError,
+    httpx.TimeoutException,
+)
+
+
+class AITimeoutError(Exception):
+    """AI 调用网络层失败（超时/连接不通）——区别于供应商拒绝业务参数。"""
+
+
+def _stream_timeout() -> httpx.Timeout:
+    return httpx.Timeout(
+        connect=10.0, read=_STREAM_READ_TIMEOUT, write=30.0, pool=10.0
+    )
 
 
 @dataclass
@@ -49,37 +80,55 @@ class AIClient:
         base_url: str = "",
         model: str = "deepseek-v4-flash",
         api_format: str | None = None,
+        timeout: httpx.Timeout | None = None,
+        max_retries: int = 1,
     ):
         self._provider = "anthropic"  # default
         self._client: Any | None = None
         self._model = model
         self._base_url = base_url
-        self._init_client(api_key, base_url, api_format)
+        self._init_client(api_key, base_url, api_format, timeout, max_retries)
 
-    def _init_client(self, api_key: str, base_url: str, api_format: str | None = None):
+    def _init_client(
+        self,
+        api_key: str,
+        base_url: str,
+        api_format: str | None = None,
+        timeout: httpx.Timeout | None = None,
+        max_retries: int = 1,
+    ):
         """Initialize the underlying API client with the given credentials.
 
         api_format 显式优先（"openai" | "anthropic"）；None 时退回旧版行为：
         按 base_url 含 "anthropic" 推断（存量 User.api_key / config.json 兜底路径
         无格式信息，保持原推断）。
+        timeout/max_retries 显式设置，不依赖 SDK 默认（600s×重试）。
         """
         if not api_key:
             raise ValueError("未配置 API Key，请在设置页面填写")
 
+        common = {"timeout": timeout or _CHAT_TIMEOUT, "max_retries": max_retries}
         if api_format == "anthropic" or (
             api_format is None and "anthropic" in base_url.lower()
         ):
             self._provider = "anthropic"
-            kwargs = {"api_key": api_key}
+            kwargs = {"api_key": api_key, **common}
             if base_url:
                 kwargs["base_url"] = base_url
             self._client = AsyncAnthropic(**kwargs)
         else:
             self._provider = "openai"
-            kwargs = {"api_key": api_key}
+            kwargs = {"api_key": api_key, **common}
             if base_url:
                 kwargs["base_url"] = base_url
             self._client = AsyncOpenAI(**kwargs)
+
+    async def _guarded(self, coro):
+        """网络层异常归一为 AITimeoutError（超时/连接失败统一对外语义）。"""
+        try:
+            return await coro
+        except _NETWORK_ERRORS as e:
+            raise AITimeoutError(f"AI 服务连接超时或失败：{e}") from e
 
     def _supports_temperature(self) -> bool:
         """Anthropic 1.x SDK 的 messages.create 不再接受 temperature（须走 extra_body）。"""
@@ -161,12 +210,14 @@ class AIClient:
             # json_mode 分层归属（D12）：业务层只传语义参数，客户端层按 api_format 落地
             if kwargs.pop("json_mode", False):
                 kwargs["response_format"] = {"type": "json_object"}
-            response = await self._client.chat.completions.create(
-                model=model,
-                messages=openai_messages,
-                max_tokens=max_tokens,
-                extra_body=extra,
-                **kwargs,
+            response = await self._guarded(
+                self._client.chat.completions.create(
+                    model=model,
+                    messages=openai_messages,
+                    max_tokens=max_tokens,
+                    extra_body=extra,
+                    **kwargs,
+                )
             )
             if usage is not None:
                 u = getattr(response, "usage", None)
@@ -180,23 +231,29 @@ class AIClient:
             kwargs = self._anthropic_kwargs(kwargs)
             kwargs = self._with_thinking_disabled(kwargs)
             try:
-                response = await self._client.messages.create(
-                    model=model,
-                    system=system,
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    **kwargs,
-                )
-            except Exception as e:  # noqa: BLE001 — 端点不认 thinking 时去掉再试一次
-                if "thinking" in kwargs and self._is_thinking_rejection(e):
-                    self._remember_thinking_unsupported()
-                    kwargs.pop("thinking", None)
-                    response = await self._client.messages.create(
+                response = await self._guarded(
+                    self._client.messages.create(
                         model=model,
                         system=system,
                         messages=messages,
                         max_tokens=max_tokens,
                         **kwargs,
+                    )
+                )
+            except Exception as e:  # noqa: BLE001 — 端点不认 thinking 时去掉再试一次
+                if isinstance(e, AITimeoutError):
+                    raise  # 网络层失败不做 thinking 重试
+                if "thinking" in kwargs and self._is_thinking_rejection(e):
+                    self._remember_thinking_unsupported()
+                    kwargs.pop("thinking", None)
+                    response = await self._guarded(
+                        self._client.messages.create(
+                            model=model,
+                            system=system,
+                            messages=messages,
+                            max_tokens=max_tokens,
+                            **kwargs,
+                        )
                     )
                 else:
                     raise
@@ -242,42 +299,52 @@ class AIClient:
             extra = {"thinking": {"type": "disabled"}}
             if "thinking" in kwargs:
                 extra["thinking"] = kwargs.pop("thinking")
-            stream = await self._client.chat.completions.create(
-                model=model,
-                messages=openai_messages,
-                max_tokens=max_tokens,
-                stream=True,
-                extra_body=extra,
-                **kwargs,
-            )
-            async for chunk in stream:
-                delta = chunk.choices[0].delta
-                if delta and delta.content:
-                    yield StreamEvent(text=delta.content)
-            yield StreamEvent(
-                is_done=True,
-                tokens=getattr(chunk, "usage", None) and chunk.usage.total_tokens or 0,
-            )
+            try:
+                stream = await self._client.chat.completions.create(
+                    model=model,
+                    messages=openai_messages,
+                    max_tokens=max_tokens,
+                    stream=True,
+                    extra_body=extra,
+                    timeout=_stream_timeout(),
+                    **kwargs,
+                )
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta
+                    if delta and delta.content:
+                        yield StreamEvent(text=delta.content)
+                yield StreamEvent(
+                    is_done=True,
+                    tokens=getattr(chunk, "usage", None)
+                    and chunk.usage.total_tokens
+                    or 0,
+                )
+            except _NETWORK_ERRORS as e:
+                raise AITimeoutError(f"AI 服务连接超时或失败：{e}") from e
         else:
             kwargs = self._anthropic_kwargs(kwargs)
             kwargs = self._with_thinking_disabled(kwargs)
-            async with self._client.messages.stream(
-                model=model,
-                system=system,
-                messages=messages,
-                max_tokens=max_tokens,
-                **kwargs,
-            ) as stream:
-                async for event in stream:
-                    if event.type == "content_block_delta":
-                        delta_type = getattr(event.delta, "type", "")
-                        if delta_type == "text_delta":
-                            yield StreamEvent(text=event.delta.text)
-                    elif event.type == "message_stop":
-                        tokens = 0
-                        if hasattr(event, "usage") and event.usage:
-                            tokens = event.usage.output_tokens
-                        yield StreamEvent(is_done=True, tokens=tokens)
+            try:
+                async with self._client.messages.stream(
+                    model=model,
+                    system=system,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    timeout=_stream_timeout(),
+                    **kwargs,
+                ) as stream:
+                    async for event in stream:
+                        if event.type == "content_block_delta":
+                            delta_type = getattr(event.delta, "type", "")
+                            if delta_type == "text_delta":
+                                yield StreamEvent(text=event.delta.text)
+                        elif event.type == "message_stop":
+                            tokens = 0
+                            if hasattr(event, "usage") and event.usage:
+                                tokens = event.usage.output_tokens
+                            yield StreamEvent(is_done=True, tokens=tokens)
+            except _NETWORK_ERRORS as e:
+                raise AITimeoutError(f"AI 服务连接超时或失败：{e}") from e
 
 
 async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:

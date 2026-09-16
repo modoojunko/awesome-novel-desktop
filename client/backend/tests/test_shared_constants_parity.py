@@ -186,3 +186,59 @@ class TestCharacterModelParity:
         for name, _goto in check_items(True) + check_items(False):
             assert f'"{name}"' in src, f"体检项 {name} 缺前端镜像"
 
+    def test_cog_hints_match(self):
+        """cog-logical-levels 六问 hint 与格位 hint：层 id/格键与文案都要逐字镜像。"""
+        from settings.character_model import COG_FIELD_HINTS, COG_LEVEL_HINTS
+
+        src = self._frontend_src()
+        for layer_id, hint in COG_LEVEL_HINTS.items():
+            assert f"{layer_id}: \"{hint}\"" in src, f"层 hint {layer_id} 与后端不一致"
+        for key, hint in COG_FIELD_HINTS.items():
+            assert f'{key}: "{hint}"' in src, f"格位 hint {key} 与后端不一致"
+
+
+class TestHooksModelParity:
+    """foreshadow-settings-v2：hooks_model.py ↔ lib/hooksModel.ts 逐字对拍。"""
+
+    def _frontend_src(self) -> str:
+        return _read("hooksModel.ts")
+
+    def test_hook_types_match(self):
+        from settings.hooks_model import HOOK_TYPES
+
+        src = self._frontend_src()
+        block = re.search(r"HOOK_TYPES: HookType\[\] = \[(.*?)\n\];", src, re.DOTALL)
+        assert block, "找不到 HOOK_TYPES"
+        pairs = re.findall(r'k: "(\w+)",\s*label: "([^"]+)"', block.group(1))
+        assert pairs == [(f["k"], f["label"]) for f in HOOK_TYPES], (
+            "伏笔类型词表前后端不一致——以 settings/hooks_model.py 为准同步 lib/hooksModel.ts"
+        )
+
+    def test_hook_statuses_match(self):
+        from settings.hooks_model import HOOK_STATUSES
+
+        src = self._frontend_src()
+        m = re.search(r"HOOK_STATUSES: string\[\] = \[([^\]]*)\]", src)
+        assert m, "HOOK_STATUSES 形态变了"
+        front = re.findall(r'"(\w+)"', m.group(1))
+        assert front == list(HOOK_STATUSES), "伏笔状态词表前后端不一致"
+
+    def test_length_limits_match(self):
+        from settings.hooks_model import DESCRIPTION_MAX, PAYOFF_NOTE_MAX
+
+        src = self._frontend_src()
+        m_desc = re.search(r"DESCRIPTION_MAX\s*=\s*(\d+)", src)
+        m_payoff = re.search(r"PAYOFF_NOTE_MAX\s*=\s*(\d+)", src)
+        assert m_desc and m_payoff, "长度常量形态变了"
+        assert int(m_desc.group(1)) == DESCRIPTION_MAX
+        assert int(m_payoff.group(1)) == PAYOFF_NOTE_MAX
+
+    def test_priority_labels_match(self):
+        from settings.hooks_model import PRIORITY_LABELS
+
+        src = self._frontend_src()
+        m = re.search(r"PRIORITY_LABELS: Record<number, string> = \{([^}]*)\}", src)
+        assert m, "PRIORITY_LABELS 形态变了"
+        front = {int(k): v for k, v in re.findall(r'(\d+):\s*"([^"]+)"', m.group(1))}
+        assert front == PRIORITY_LABELS, "priority 标签前后端不一致"
+

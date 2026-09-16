@@ -75,6 +75,8 @@ export interface ChapterData {
 
 export interface ChapterMetaEntry {
   ref: string;
+  /** DB 章 id（foreshadow-settings-v2：伏笔选择器按 id 引用章；旧树缺省时不读） */
+  id?: string;
   volume: number;
   chapter: number;
   title: string;

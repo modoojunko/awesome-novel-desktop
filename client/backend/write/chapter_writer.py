@@ -18,7 +18,7 @@ from sqlalchemy import select
 from db import async_session
 from filesystem.storage import get_storage
 from genres.service import build_genre_section, resolve_genre_context
-from prompt.context import filter_active_hooks, inject_world_setting
+from prompt.context import inject_world_setting
 from settings.character_model import (
     WRITE_STATE_KEYS as _WRITE_STATE_KEYS,
 )
@@ -26,10 +26,8 @@ from settings.character_model import (
     WRITE_STATE_PER_CHAR_MAX as _WRITE_STATE_PER_CHAR_MAX,
 )
 from settings.render import (
-    build_tone_section,
-    depiction_techniques_str,
-    flatten_principles,
-    fmt_mistakes,
+    quant_section,
+    style_section,
 )
 from settings.world_model import render_red_lines
 
@@ -128,7 +126,7 @@ class ChapterContext:
         self.story_arc = ""
         self.world_setting = {}
         self.style_setting = {}
-        self.anti_ai = {}
+        self.style_quant = {}
         self.hooks = []
         self.volume_summary = ""
         self.chapter_outline = {}
@@ -136,8 +134,6 @@ class ChapterContext:
         self.previous_chapter_recap = ""
         self.novel_title = ""
         self.genre_section = ""
-        # 疲劳词：主源 writing-style.fatigue_words（6.0e 迁移）；旧契约题材行同批合并
-        self.style_fatigue_words: list[str] = []
         # ── ai-prompt-crafting 素材扩展 ──────────────────────────────
         self.volume_no: int | None = None
         self.chapter_no: int | None = None
@@ -172,9 +168,12 @@ class ChapterContext:
         blocks.append(f"【叙事身份】{role or '一位小说家'}")
         if self.genre_section:
             blocks.append(f"【题材】\n{self.genre_section}")
-        tone = build_tone_section(self.style_setting)
-        if tone:
-            blocks.append(f"【文风基调】\n{tone}")
+        style_sec = style_section(self.style_setting)
+        if style_sec:
+            blocks.append(f"【文风】\n{style_sec}")
+        quant = quant_section(self.style_quant)
+        if quant:
+            blocks.append(quant)
         few_shot = self._few_shot_examples()
         if few_shot:
             blocks.append("【文风例句（案例段原料）】\n" + "\n".join(f"- {s}" for s in few_shot))
@@ -218,10 +217,18 @@ class ChapterContext:
             blocks.append("【角色初始状态】\n" + "\n".join(lines))
 
         if self.hooks:
-            blocks.append(
-                "【活跃伏笔】\n"
-                + "\n".join(f"- {h.get('description', '?')}" for h in self.hooks[:8])
-            )
+            # 展示编号 + 优先级（高/中/低）随注入（foreshadow-settings-v2）；
+            # 无编号的 dict 桩（测试/旧形）降级为纯描述行
+            lines = []
+            for h in self.hooks[:8]:
+                desc = h.get("description", "?")
+                code = h.get("code") or ""
+                prefix = f"[{code}] " if code else ""
+                label = h.get("priority_label") or ""
+                lines.append(
+                    f"- {prefix}{desc}" + (f"（优先级：{label}）" if label else "")
+                )
+            blocks.append("【活跃伏笔】\n" + "\n".join(lines))
 
         red_lines = self._red_lines()
         if red_lines:
@@ -229,12 +236,6 @@ class ChapterContext:
                 "【约束红线（最高优先级，任何压缩不得删改）】\n"
                 + "\n".join(f"- {r}" for r in red_lines)
             )
-        mistakes = fmt_mistakes(self.style_setting.get("possible_mistakes"))
-        if mistakes:
-            blocks.append(f"【文风常见错误】{mistakes}")
-        techniques = depiction_techniques_str(self.style_setting)
-        if techniques:
-            blocks.append(f"【描写技法】{techniques}")
         if self.ladder_exit:
             blocks.append(f"【本章章末落点】{self.ladder_exit}")
 
@@ -314,9 +315,8 @@ class ChapterContext:
 
         # Role
         role = self.style_setting.get("role", "一位小说家")
-        principles = flatten_principles(self.style_setting.get("core_principles"))
         lines.append("## 角色定位")
-        lines.append(f"你是{role}。{' '.join(principles)}")
+        lines.append(f"你是{role}。")
         lines.append("")
 
         # Genre section (题材定义注入，紧跟角色定位，先于正文指引生效)
@@ -324,25 +324,28 @@ class ChapterContext:
             lines.append(self.genre_section)
             lines.append("")
 
-        # Tone section (ADR-007：文风基调归文风表单，题材库不再注入)
-        tone_section = build_tone_section(self.style_setting)
-        if tone_section:
-            lines.append(tone_section)
+        # Style section（style-settings-v2：三区单一来源；tone/mistakes 块退役）
+        style_sec = style_section(self.style_setting)
+        quant = quant_section(self.style_quant)
+        if style_sec or quant:
+            lines.append("## 文风")
+            if style_sec:
+                lines.append(style_sec)
+            if quant:
+                lines.append(quant)
             lines.append("")
 
-        # Rules
-        mistakes = fmt_mistakes(self.style_setting.get("possible_mistakes"))
-        fatigue = self._flatten_fatigue_words(self.anti_ai.get("fatigue_words_zh", {}))
-        fatigue = list(dict.fromkeys(fatigue + self.style_fatigue_words))
+        # Rules（banned-words-into-style：禁用词/句式单源自文风 KV；统一迁移感知读
+        # 路径保证存量书取用时已迁移。句式注入维持取前 5 条现行为，机器体检仍全量）
+        banned = [str(w) for w in (self.style_setting.get("banned_words") or [])]
         tic_patterns = [
             r.get("pattern", "")
-            for r in self.anti_ai.get("structural_tic_patterns", [])
+            for r in (self.style_setting.get("tic_patterns") or [])
+            if isinstance(r, dict)
         ]
         lines.append("## 原则与禁忌")
-        if mistakes:
-            lines.append(f"注意避免：{mistakes}")
-        if fatigue:
-            lines.append(f"禁止使用以下词汇：{', '.join(fatigue)}")
+        if banned:
+            lines.append(f"禁止使用以下词汇：{', '.join(banned)}")
         if tic_patterns:
             lines.append(f"禁止以下句式：{', '.join(tic_patterns[:5])}")
         lines.append("")
@@ -418,10 +421,7 @@ class ChapterContext:
         lines.append("")
 
         # Writing requirements
-        techniques_str = depiction_techniques_str(self.style_setting)
         lines.append("## 写作要求")
-        if techniques_str:
-            lines.append(techniques_str)
         few_shot = self._few_shot_examples()
         if few_shot:
             lines.append("文风例句（参考语感）：")
@@ -432,13 +432,6 @@ class ChapterContext:
         lines.append("写正文，不写章节标题，不写总结，不使用 Markdown 标记，不输出引导语。")
 
         return "\n".join(lines)
-
-    def _flatten_fatigue_words(self, fatigue_dict: dict) -> list[str]:
-        words = []
-        for category in fatigue_dict.values():
-            if isinstance(category, list):
-                words.extend(category)
-        return words
 
 
 # ── 前情上下文（语义化）──────────────────────────────────────────────
@@ -558,35 +551,27 @@ async def build_chapter_context(
 
     ctx.story_arc = clip_story_arc(_arc_normalize(arc)["fullstory"])
 
-    # Settings
-    ctx.style_setting = (
-        await get_storage().read_yaml(root_path, "settings/writing-style.yaml") or {}
-    )
+    # Settings（banned-words-into-style：统一迁移感知读路径，禁用词/句式随 style_setting 单源）
+    from settings.style_model import read_style_migrated
+
+    ctx.style_setting = await read_style_migrated(root_path)
+    from filesystem.paths import STYLE_QUANT_PATH
+
+    ctx.style_quant = await get_storage().read_yaml(root_path, STYLE_QUANT_PATH) or {}
     ctx.world_setting = (
         await get_storage().read_yaml(root_path, "settings/world-setting.yaml") or {}
     )
-    ctx.anti_ai = (
-        await get_storage().read_yaml(root_path, "settings/anti-ai.yaml") or {}
-    )
 
-    # Hooks（共享过滤口径：排除本章引入 + pending/mentioned + ≤8）
-    hooks_data = await get_storage().read_yaml(root_path, "settings/hooks.yaml") or {}
-    ctx.hooks = filter_active_hooks(hooks_data, chapter_ref)
+    # Hooks（真表 novel_hooks：status==active + 本章引入按章 id 排除 + ≤8）
+    from prompt.context import active_hooks_for_chapter
+
+    ctx.hooks = await active_hooks_for_chapter(root_path, chapter_ref, novel_id)
 
     # Genre（题材定义注入，定义缺失时优雅降级为空）
     # novel_id 有值时读 novel_genre 关系表（D19 新契约）；无值时回退旧 KV genre_id。
     gctx = await resolve_genre_context(root_path, novel_id)
     if gctx:
         ctx.genre_section = build_genre_section(gctx)
-    # 疲劳词主源已迁 writing-style.yaml（6.0e）；旧契约题材行的疲劳词过渡期合并去重。
-    ctx.style_fatigue_words = list(
-        dict.fromkeys(
-            [
-                *(ctx.style_setting.get("fatigue_words") or []),
-                *((gctx or {}).get("fatigue_words") or []),
-            ]
-        )
-    )
 
     # Chapter
     from workflow.engine import load_chapter

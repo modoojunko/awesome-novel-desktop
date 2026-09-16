@@ -139,16 +139,10 @@ def _prime_settings(client, pid: str):
             "rules": {"world": "", "society": "", "personal": ""},
         },
     )
-    client.put(
-        f"/api/novels/{pid}/settings/hooks",
-        json={
-            "active": [
-                {"id": "hook-1", "description": "First hook", "introduced_in": "1-1", "status": "pending"},
-                {"id": "hook-2", "description": "Second hook", "introduced_in": "1-1", "status": "pending"},
-                {"id": "hook-3", "description": "Third hook", "introduced_in": "1-1", "status": "pending"},
-            ]
-        },
-    )
+    # hooks（foreshadow-settings-v2：真表 novel_hooks，条目级 POST 种数据）
+    for desc in ("First hook", "Second hook", "Third hook"):
+        r = client.post(f"/api/novels/{pid}/hooks", json={"description": desc})
+        assert r.status_code == 200, r.text
     # synopsis / genre（PRD 3.4 判定口径对齐；transition 走软门控不 assert warnings，语义安全）
     client.put(f"/api/novels/{pid}/story", json={"synopsis": "A test synopsis"})
     client.put(f"/api/novels/{pid}/settings/genre", json={"genre_id": "fantasy"})
@@ -312,6 +306,21 @@ class TestSettingsAIFieldGenerate:
         )
         assert r2.status_code == 400
         assert "not supported" in str(r2.json().get("detail", "")).lower()
+
+    def test_hooks_field_generation_retired_returns_400(self, client):
+        """hooks 摘出 FIELD_GENERATABLE／_STYPE_PROMPTS（foreshadow-settings-v2 9.1）：
+        旧单字段路径 /ai/hooks/description 落到 /ai/hooks/{action} 白名单路由，
+        返回 400 专门退役文案（角色退役先例的 400 语义）。"""
+        name = f"AINovel-{uuid.uuid4().hex[:6]}"
+        r = client.post("/api/novels", json={"name": name})
+        assert r.status_code in (200, 201)
+        pid = r.json()["id"]
+        r2 = client.post(
+            f"/api/novels/{pid}/settings/ai/hooks/description",
+            json={"context": {}},
+        )
+        assert r2.status_code == 400
+        assert "退役" in str(r2.json().get("detail", ""))
 
 
 # ── 导入持久化往返（persist → 读回）──────────────────────────────────────

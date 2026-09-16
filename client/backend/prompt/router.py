@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_client import AITimeoutError, get_ai_client_for_novel
 from ai_state import effective_model
 from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
@@ -42,18 +43,37 @@ async def run_perspective_conversion(
     summary = chapter.get("outline", {}).get("summary", "")
     pov = chapter.get("pov_character", "主角")
 
-    from ai_client import get_ai_client_for_novel
-
     # C/S: Token tracking removed — user brings own API key
     client = await get_ai_client_for_novel(project.id)
     usage: dict = {}
-    guidance = await client.chat(
-        model=effective_model(project),
-        max_tokens=500,
-        system="将以下上帝视角章纲转换为沉浸式写作指引。用第二人称'你'。保留所有关键事件，但用感官细节替换概括性描述。200-300字。",
-        messages=[{"role": "user", "content": f"视角：{pov}\n章纲：{summary}"}],
-        usage=usage,
-    )
+    try:
+        guidance = await client.chat(
+            model=effective_model(project),
+            max_tokens=500,
+            system="将以下上帝视角章纲转换为沉浸式写作指引。用第二人称'你'。保留所有关键事件，但用感官细节替换概括性描述。200-300字。",
+            messages=[{"role": "user", "content": f"视角：{pov}\n章纲：{summary}"}],
+            usage=usage,
+        )
+    except AITimeoutError:
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db, user_id=user["id"], project_id=project.id,
+            chapter_id=chapter_ref, operation="perspective_fail",
+            model=effective_model(project), force=True,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
+    except Exception as e:  # noqa: BLE001 — 失败也留痕（调用已发生）
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db, user_id=user["id"], project_id=project.id,
+            chapter_id=chapter_ref, operation="perspective_fail",
+            model=effective_model(project),
+            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
 
     from api_configs.usage import record_usage
 

@@ -3,6 +3,11 @@ import path from 'path';
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'crypto';
 
+// 隔离栈错峰端口：env 覆盖（默认仍是主栈 8000/19000）
+const API_8000 = process.env.E2E_CLIENT_API_URL || 'http://127.0.0.1:8000';
+const WEB_BASE = process.env.E2E_BASE_URL || 'http://localhost:5174';
+const API_19000 = process.env.E2E_SERVER_API_URL || 'http://127.0.0.1:19000';
+
 // 获取唯一的用户名
 function uid() { return `e2e_${Date.now()}`; }
 
@@ -28,14 +33,14 @@ const CONFIG_PATH = path.join(
 test.describe('v0.1 边界值与健壮性', () => {
 
   test('B1: 注册密码边界 — 6位刚好通过', async ({ request }) => {
-    const r = await request.post('http://127.0.0.1:19000/api/web/register', {
+    const r = await request.post(`${API_19000}/api/web/register`, {
       data: { username: uid(), password: '1'.repeat(6), security_question: 'q', security_answer: 'a' }
     });
     expect((await r.json()).code).toBe(0);
   });
 
   test('B2: 注册密码边界 — 空用户名拒绝', async ({ request }) => {
-    const r = await request.post('http://127.0.0.1:19000/api/web/register', {
+    const r = await request.post(`${API_19000}/api/web/register`, {
       data: { username: '', password: pw('dup'), security_question: 'q', security_answer: 'a' }
     });
     // S端会创建空用户名或拒绝，取决于实现
@@ -45,10 +50,10 @@ test.describe('v0.1 边界值与健壮性', () => {
 
   test('B3: 重复注册被拒绝', async ({ request }) => {
     const user = uid();
-    await request.post('http://127.0.0.1:19000/api/web/register', {
+    await request.post(`${API_19000}/api/web/register`, {
       data: { username: user, password: pw('dup'), security_question: 'q', security_answer: 'a' }
     });
-    const r = await request.post('http://127.0.0.1:19000/api/web/register', {
+    const r = await request.post(`${API_19000}/api/web/register`, {
       data: { username: user, password: pw('dup'), security_question: 'q', security_answer: 'a' }
     });
     expect((await r.json()).code).toBe(1);
@@ -57,24 +62,24 @@ test.describe('v0.1 边界值与健壮性', () => {
   test('B4/B5: 激活码通道已下线（8.3 拆除）——端点不存在，购买走 /api/pay/orders', async ({ request }) => {
     // v0.1 验收时用户激活走 /api/license/activate；8.3 起激活码用户入口拆除，
     // 付费改走收银台（/api/pay/orders）。此用例反向钉住退役契约：端点不得复活。
-    const r = await request.post('http://127.0.0.1:19000/api/license/activate', {
+    const r = await request.post(`${API_19000}/api/license/activate`, {
       data: { code: 'AC-INVALID-XXXX-XXXX' }
     });
     expect(r.status()).toBe(404);
     // 现役购买入口在场（参数校验 422 ≠ 404，说明路由活着）
-    const pay = await request.post('http://127.0.0.1:19000/api/pay/orders', { data: {} });
+    const pay = await request.post(`${API_19000}/api/pay/orders`, { data: {} });
     expect(pay.status()).toBe(422);
   });
 
   test('B6: 无 token 访问受保护端点被拒绝', async ({ request }) => {
-    const r = await request.post('http://127.0.0.1:8000/api/novels', {
+    const r = await request.post(`${API_8000}/api/novels`, {
       data: { name: 'test' }
     });
     expect([401, 405, 403]).toContain(r.status());
   });
 
   test('B7: 无效 token 访问被拒绝', async ({ request }) => {
-    const r = await request.post('http://127.0.0.1:8000/api/novels', {
+    const r = await request.post(`${API_8000}/api/novels`, {
       data: { name: 'test' },
       headers: { Authorization: 'Bearer this-is-fake-token-12345' }
     });
@@ -86,7 +91,7 @@ test.describe('v0.1 边界值与健壮性', () => {
 test.describe('v0.1 用户场景与反馈验证', () => {
 
   test('U1: 登录失败时返回明确错误信息', async ({ request }) => {
-    const r = await request.post('http://127.0.0.1:19000/api/web/login', {
+    const r = await request.post(`${API_19000}/api/web/login`, {
       data: { username: 'nonexistent_' + uid(), password: pw('u1w') }
     });
     const body = await r.json();
@@ -97,10 +102,10 @@ test.describe('v0.1 用户场景与反馈验证', () => {
 
   test('U2: 重复注册返回明确错误', async ({ request }) => {
     const user = uid();
-    await request.post('http://127.0.0.1:19000/api/web/register', {
+    await request.post(`${API_19000}/api/web/register`, {
       data: { username: user, password: pw('dup'), security_question: 'q', security_answer: 'a' }
     });
-    const r = await request.post('http://127.0.0.1:19000/api/web/register', {
+    const r = await request.post(`${API_19000}/api/web/register`, {
       data: { username: user, password: pw('dup'), security_question: 'q', security_answer: 'a' }
     });
     const body = await r.json();
@@ -110,14 +115,14 @@ test.describe('v0.1 用户场景与反馈验证', () => {
 
   test('U3: 下线激活码端点对已登录会话也保持 404（含 Bearer）', async ({ request }) => {
     const user = uid();
-    await request.post('http://127.0.0.1:19000/api/web/register', {
+    await request.post(`${API_19000}/api/web/register`, {
       data: { username: user, password: pw('dup'), security_question: 'q', security_answer: 'a' }
     });
-    const login = await request.post('http://127.0.0.1:19000/api/web/login', {
+    const login = await request.post(`${API_19000}/api/web/login`, {
       data: { username: user, password: pw('dup') }
     });
     const token = (await login.json()).data.token;
-    const r = await request.post('http://127.0.0.1:19000/api/license/activate', {
+    const r = await request.post(`${API_19000}/api/license/activate`, {
       data: { code: 'AC-NO-SUCH-CODE-XXXX' },
       headers: { Authorization: 'Bearer ' + token }
     });
@@ -126,21 +131,21 @@ test.describe('v0.1 用户场景与反馈验证', () => {
 
   test('U4: 修改密码成功后可用新密码登录', async ({ request }) => {
     const user = uid();
-    await request.post('http://127.0.0.1:19000/api/web/register', {
+    await request.post(`${API_19000}/api/web/register`, {
       data: { username: user, password: pw('u4old'), security_question: 'q', security_answer: 'a' }
     });
     // 通过 S端 reset_password 修改密码
-    const change = await request.post('http://127.0.0.1:19000/api/reset_password', {
+    const change = await request.post(`${API_19000}/api/reset_password`, {
       data: { username: user, security_answer: 'a', new_password: pw('u4new') }
     });
     expect((await change.json()).code).toBe(0);
     // 用新密码登录
-    const login = await request.post('http://127.0.0.1:19000/api/web/login', {
+    const login = await request.post(`${API_19000}/api/web/login`, {
       data: { username: user, password: pw('u4new') }
     });
     expect((await login.json()).code).toBe(0);
     // 旧密码失效
-    const loginOld = await request.post('http://127.0.0.1:19000/api/web/login', {
+    const loginOld = await request.post(`${API_19000}/api/web/login`, {
       data: { username: user, password: pw('u4old') }
     });
     expect([1, 2]).toContain((await loginOld.json()).code);
@@ -148,7 +153,7 @@ test.describe('v0.1 用户场景与反馈验证', () => {
 
   test('U5: 无 API Key 时 AI 端点返回 503 服务不可用（非500）', async ({ request }) => {
     // 清理所有 ApiConfig（新多 Key 体系），确保无可用 Key
-    const list = await request.get('http://127.0.0.1:8000/api/v1/api-configs', {
+    const list = await request.get(`${API_8000}/api/v1/api-configs`, {
       headers: { Authorization: 'Bearer dev' }
     });
     if (list.ok()) {
@@ -159,7 +164,7 @@ test.describe('v0.1 用户场景与反馈验证', () => {
         });
       }
     }
-    const r = await request.post('http://127.0.0.1:8000/api/ai/suggest-meta', {
+    const r = await request.post(`${API_8000}/api/ai/suggest-meta`, {
       data: { premise: 'test' },
       headers: { Authorization: 'Bearer dev' }
     });
@@ -177,11 +182,31 @@ test.describe('v0.1 用户场景与反馈验证', () => {
     cfg.tier = 'trial';
     cfg.last_login_at = new Date().toISOString();
     delete cfg.expires_at;
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+    // 防冲轮询（runbook 第 9 坑）：并行 worker 页面的 check-auth 回写会冲掉裸写注入——
+    // 写入后 300ms 轮询对比全文，被冲掉即重写，连续两轮稳定才放行（其余 spec 同配方）
+    const writeStable = (text: string) => {
+      let stable = 0;
+      return new Promise<void>((resolve) => {
+        const tick = () => {
+          fs.writeFileSync(CONFIG_PATH, text);
+          setTimeout(() => {
+            if (fs.readFileSync(CONFIG_PATH, 'utf-8') === text) {
+              stable += 1;
+              if (stable >= 2) return resolve();
+            } else {
+              stable = 0;
+            }
+            tick();
+          }, 300);
+        };
+        tick();
+      });
+    };
+    await writeStable(JSON.stringify(cfg, null, 2));
     try {
       // 走 docker 栈（5174 nginx → 容器后端）：127.0.0.1:8000 常被本地残留
       // dev server 抢注，会读到另一份 config.json 导致会话注入失效
-      const r = await request.post('http://localhost:5174/api/v1/api-configs/test-connection', {
+      const r = await request.post(`${WEB_BASE}/api/v1/api-configs/test-connection`, {
         data: { vendor_id: 'deepseek', api_key: 'sk-fake-key-12345', base_url: 'https://api.deepseek.com/anthropic' },
         headers: { Authorization: 'Bearer dev' }
       });
@@ -199,7 +224,7 @@ test.describe('v0.1 用户场景与反馈验证', () => {
 test.describe('v0.1 API 门控验证', () => {
 
   test('G1: 权限门控: verify 返回套餐字段', async ({ request }) => {
-    const r = await request.post('http://127.0.0.1:8000/api/auth/verify');
+    const r = await request.post(`${API_8000}/api/auth/verify`);
     expect(r.status()).toBe(200);
     const perm = await r.json();
     expect(perm).toHaveProperty('valid');
@@ -207,7 +232,7 @@ test.describe('v0.1 API 门控验证', () => {
   });
 
   test('G2: 免费用户门控存在', async ({ request }) => {
-    const r = await request.post('http://127.0.0.1:8000/api/auth/verify');
+    const r = await request.post(`${API_8000}/api/auth/verify`);
     expect(r.status()).toBe(200);
   });
 

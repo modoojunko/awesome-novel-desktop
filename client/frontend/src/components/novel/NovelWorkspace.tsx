@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import ProContainer from "@/components/novel/ProContainer";
 import OnboardingCard from "@/components/novel/OnboardingCard";
@@ -11,6 +11,8 @@ import PreviewView from "@/components/novel/workbench/PreviewView";
 import Rail, { type RailChapterData } from "@/components/novel/workbench/Rail";
 import { AiModal, UnlockModal } from "@/components/novel/workbench/modals";
 import UpgradeModal from "@/components/novel/UpgradeModal";
+import AcctMenu from "@/components/AcctMenu";
+import BookPrefsModal from "@/components/novel/BookPrefsModal";
 import type { SelectionCapture } from "@/lib/selection";
 import {
   INITIAL_PROSE_AI_STATE,
@@ -25,10 +27,14 @@ import { useOnboarding } from "@/hooks/useOnboarding";
 import { GENRE_PENDING_LABEL } from "@/lib/genreVocab";
 import { useTier } from "@/hooks/useTier";
 import { toast } from "@/lib/toast";
+import { BRAND } from "@/lib/brand";
+import { isLoggedIn } from "@/lib/auth";
+import { cnNum, isDefaultTitle } from "@/lib/nodeTitle";
+import { getLastWriteSession, type LastWriteSession } from "@/lib/prefs";
 
 // ---------------------------------------------------------------------------
 // NovelWorkspace — book.html 复刻（PR 3：壳 + 大纲树 + 章对象工作台）
-//   novelbar（书名双击改名 / 类型胶囊 / 免费提示或 PRO 徽 / 升级）
+//   appbar（行头归一：logo 即返回 · 书名双击改名 · 题材 · 当前主线定位 · 账户胶囊）
 //   modnav（设定 N/7 · 写作 N/N 章纲 · 预览，默认写作视图）
 //   写作 = three-col（树 / 中栏 / 右栏）常驻挂载（.view.on 切换保正文脏状态）
 //   设定 = two-col（SettingsView，PR 4 复刻 #viewSettings）
@@ -227,10 +233,142 @@ export default function NovelWorkspace() {
   // GET /volumes）。必须 memo 住引用，只在 refresh 本身变化时才换新。
   const handleArchivesRefresh = useCallback(() => void refresh(), [refresh]);
 
+  // ── 顶栏「本书偏好」：账户面板入口项（原全局 Navbar 挂点随行头归一迁入） ──
+  const [showBookPrefs, setShowBookPrefs] = useState(false);
+
+  // ── 顶栏主线定位（行头归一，book.html updateBarHere 同口径）：
+  //    续写口径（用户拍板 09-16）＝「上次写到的章」优先（本机 last_write 会话），
+  //    无记录回落「最新归档章」，再回落首章；卷面进度 = 该卷已归档/总章数。
+  //    数据源 wb.volumes（chapter:archived 事件即刷新）。
+  const [lastWrite, setLastWrite] = useState<LastWriteSession | null>(() =>
+    getLastWriteSession(id ?? ""),
+  );
+  const [resumeSignal, setResumeSignal] = useState<{
+    ref: string;
+    scroll: number;
+    n: number;
+  } | null>(null);
+
+  interface HereTarget {
+    ref: string;
+    no: number;
+    title: string;
+    draft: boolean;
+    fromLastWrite: boolean;
+    scroll: number;
+    volNo: number;
+    archivedN: number;
+    total: number;
+  }
+  const hereTarget = useMemo<HereTarget | null>(() => {
+    const findByRef = (ref: string) => {
+      const m = ref.match(/^(vol-\d+)-ch-(\d+)$/);
+      if (!m) return null;
+      const v = volumes.find((x) => x.name === m[1]);
+      const c = v?.chapters.find((x) => x.chapter === Number(m[2]));
+      return v && c ? { v, c } : null;
+    };
+    type Hit = { v: (typeof volumes)[number]; c: (typeof volumes)[number]["chapters"][number] };
+    let pick: Hit | null = null;
+    let fromLastWrite = false;
+    if (lastWrite) {
+      const hit = findByRef(lastWrite.ref);
+      if (hit) {
+        pick = hit;
+        fromLastWrite = true;
+      }
+    }
+    if (!pick) {
+      for (const v of volumes) {
+        for (const c of v.chapters) {
+          if (c.archived) pick = { v, c };
+        }
+      }
+    }
+    if (!pick) {
+      for (const v of volumes) {
+        if (v.chapters.length) {
+          pick = { v, c: v.chapters[0] };
+          break;
+        }
+      }
+    }
+    if (!pick) return null;
+    const volNo = Number((pick.v.name.match(/^vol-(\d+)$/) ?? [])[1] ?? 1);
+    const no = pick.c.chapter ?? pick.v.chapters.indexOf(pick.c) + 1;
+    return {
+      ref: `${pick.v.name}-ch-${no}`,
+      no,
+      title: pick.c.title,
+      draft:
+        !pick.c.archived &&
+        ((pick.c.has_prose ?? (pick.c.word_count ?? 0) > 0) ||
+          // 树上的字数只在归档/增删时刷新：正在写的章用 railData 实时字数补判
+          (selectedRef === `${pick.v.name}-ch-${pick.c.chapter}` &&
+            (railData?.wordCount ?? 0) > 0)),
+      fromLastWrite,
+      scroll: fromLastWrite ? (lastWrite?.scroll ?? 0) : 0,
+      volNo,
+      archivedN: pick.v.chapters.filter((c) => c.archived).length,
+      total: pick.v.chapters.length,
+    };
+  }, [volumes, lastWrite, selectedRef, railData]);
+
+  const onResume = useCallback(() => {
+    if (!hereTarget) return;
+    if (!guardedLeave()) return;
+    // 已在该章时不再重设选中（省一次整链重渲染），只走恢复信号
+    if (selectedRef !== hereTarget.ref) focusNode(hereTarget.ref);
+    setResumeSignal((s) => ({
+      ref: hereTarget.ref,
+      scroll: hereTarget.scroll,
+      n: (s?.n ?? 0) + 1,
+    }));
+  }, [hereTarget, guardedLeave, focusNode]);
+
+  const pct = hereTarget
+    ? Math.round(Math.min(1, hereTarget.archivedN / hereTarget.total) * 100)
+    : 0;
+  const hereBar = hereTarget ? (
+    <>
+      <p className="bh-k">当前主线</p>
+      <span className="bh-rule" aria-hidden="true" />
+      <p className="bh-t">
+        <span className="n">第 {hereTarget.no} 章</span>
+        {/* 默认名（「第一章」等序号形态）不再拼名称，避免「第 1 章第一章」（nodeLabel 同口径） */}
+        {isDefaultTitle("章", hereTarget.no, hereTarget.title) ? null : hereTarget.title}
+      </p>
+      {hereTarget.draft && (
+        <span className="bh-tag bh-tag-live">草稿</span>
+      )}
+      <div className="bh-prog">
+        <span className="bh-vol">
+          第{cnNum(hereTarget.volNo)}卷 · {hereTarget.archivedN}/{hereTarget.total}
+        </span>
+        <span className="prog-bar">
+          <span style={{ width: `${pct}%` }} />
+        </span>
+      </div>
+      <button
+        className="btn btn-primary btn-sm"
+        data-od-id="resume-cta"
+        title="回到上次退出前的位置"
+        onClick={onResume}
+      >
+        续写
+      </button>
+    </>
+  ) : null;
+
   return (
     <div className="wb">
-      {/* 小说栏：书名（双击改名）· 类型 · 免费提示 / PRO 徽 · 升级 */}
-      <div className="novelbar">
+      {/* 应用栏（行头归一，storyline.html 口径）：logo 即返回 · 书名 · 题材 · 当前主线 · 账户 */}
+      <header className="appbar appbar-wb">
+        <Link className="logo" to="/novels" title="返回我的小说" data-od-id="appbar-logo">
+          <span className="logo-mark">{BRAND.mark}</span>
+          {BRAND.name}
+        </Link>
+        <span className="sep" />
         {nameDraft === null ? (
           <span
             className="novel-title serif"
@@ -259,29 +397,17 @@ export default function NovelWorkspace() {
         >
           {genreLabel}
         </span>
-        {!isPro ? (
-          <span className="free-hint">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 8v4M12 16h.01" />
-            </svg>
-            免费模式 · 写作功能完整，升级解锁 AI
-          </span>
-        ) : (
-          <span className="pill-pro">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z" />
-            </svg>
-            PRO
-          </span>
-        )}
-        <span className="spacer" />
-        {!isPro && (
-          <button className="btn btn-secondary btn-sm" onClick={onUpgrade}>
-            升级 PRO
-          </button>
-        )}
-      </div>
+        <span className="sep" />
+        <div className="bar-here" data-od-id="current-position">
+          {hereBar}
+        </div>
+        {isLoggedIn() && <AcctMenu onBookPrefs={() => setShowBookPrefs(true)} />}
+        <BookPrefsModal
+          open={showBookPrefs && !!projectId}
+          onClose={() => setShowBookPrefs(false)}
+          projectId={projectId}
+        />
+      </header>
 
       {/* PRO 阶段催促子树：免费态整棵不渲染、零 phase-status 请求 */}
       <ProContainer>
@@ -303,7 +429,7 @@ export default function NovelWorkspace() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="15" height="15">
             <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
           </svg>
-          设定 <span className="cnt">{settingsDone}/8</span>
+          设定 <span className="cnt">{settingsDone}/7</span>
         </button>
         <button
           className={`mtab${view === "workbench" ? " on" : ""}`}
@@ -362,6 +488,8 @@ export default function NovelWorkspace() {
               onAIStateChange={setAIState}
               bookWords={bookWords}
               onRailData={setRailData}
+              onWriteProgress={setLastWrite}
+              resumeSignal={resumeSignal ?? undefined}
               onAiWrite={() => requestAi({ kind: "write" })}
               aiWriteSignal={aiWriteSignal}
             />
