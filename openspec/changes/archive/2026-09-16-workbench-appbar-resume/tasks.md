@@ -14,8 +14,8 @@
 
 ## 3. 回归（门禁实际输出）
 
-- [x] 3.1 `npx tsc`（client/frontend）通过；`npx vitest run` **316/316 通过**（含本轮新增 3 例）
-- [x] 3.2 `npm run design:lint` 通过；`DESIGN_PARITY=1` 书工作台屏 parity：**6 场景 5 绿**，`free · workbench` 差异率 **0.203%**（阈值 0.2%）——超线部分为**存量**设定计数种子漂移（应用 4/8 vs 原型种子 3/7），本轮新增元素（草稿徽/续写 CTA/bar-here）两侧逐像素一致（差分图确认零新增红区）
+- [x] 3.1 `npx tsc`（client/frontend）通过；`npx vitest run` **316/316 通过**（本轮在 `NovelWorkspace.test.tsx` 净增 1 例：bar-here 续写会话；316 总数含其他并行变更的增量）
+- [x] 3.2 `npm run design:lint` 通过；`DESIGN_PARITY=1` 书工作台屏 parity：**6 场景 5 绿**，`free · workbench` 差异率 **0.203%**（阈值 0.2%）——超线部分为**存量**设定计数种子漂移（应用 4/8 vs 原型种子 3/7）。本轮新增元素的证据边界：续写 CTA 与 bar-here 有 parity 证据（差异率与改动前逐位相同）；**草稿徽未进入 parity 场景**（种子端点章已归档 → 徽标不渲染），其应用侧样式曾在归档复核中缺失（样式只落原型），已由 **#376** 补齐（book.css `.bh-tag/.bh-tag-live`）并以 e2e 计算样式断言覆盖（含反证）
 - [x] 3.3 e2e（隔离栈：独立端口 5176＋独立 C端 容器，不动共享栈）：`free-writing-flow` **5/5 通过**（含新增续写全链：写→滚→切章→续写→回章＋正文页签＋滚动恢复＋「恢复只发生一次」断言）；全量 148 例 **133 通过**（另一轮 126 通过/2 flaky），失败项均为环境存量：`v01-acceptance U6`（假 Key 后端 API 用例，本机环境红）与 `foreshadow-settings ②`（跑测窗口撞共享 S端 重启，`fetch failed`；单独复跑 **7/7 通过**）
 - [x] 3.4 未触共享段（新增类均 `.wb/.bar-here` 屏级作用域，`base.css` 令牌与基础组件类零改动）→ 免 design-cross；S端 无改动（免 vue-tsc/截图对照）
 - [x] 3.5 CI（PR #367/#370）：CodeQL、双平台打包、docker-build、lint/check、test 全绿
