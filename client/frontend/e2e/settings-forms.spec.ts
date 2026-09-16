@@ -1129,3 +1129,82 @@ test("认知区提示：层头六问 hint + 展开自我观见 s5 格位 hint", 
     await restore();
   }
 });
+
+// -------------------------------------------------------------------------
+// ⑧ 未命名卡可删除、可合并（#359 回归）：空名卡服务端存占位名（\u0000+uuid 段），
+//    确认比对必须走 displayName 桶底——修复前 placeholder 会漏占位名、按钮永久 disabled。
+//    真机路径兜住 vitest 覆盖不到的 UI 断链（vitest 只测词表与比对表达式）。
+// -------------------------------------------------------------------------
+test("角色：未命名卡可删除、可合并（占位名不进确认比对）", async ({
+  page,
+  request,
+}) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `未命名${Date.now() % 100000}`);
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "角色");
+
+    // 连建两张不命名的卡（首张=主角，次张=配角；均为空名 → 后端占位名）
+    await page.getByRole("button", { name: "添加角色" }).click();
+    await page.waitForTimeout(1200);
+    await page.getByRole("button", { name: "添加角色" }).click();
+    await page.waitForTimeout(1200);
+
+    const list = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+    expect(list.data.items.length).toBe(2);
+    expect(
+      list.data.items.every((x: { name: string }) => x.name.startsWith("\u0000")),
+    ).toBe(true);
+
+    // ── 删除当前选中的未命名卡（B）──
+    await page.getByRole("button", { name: "删除", exact: true }).first().click();
+    const confirmInput = page.getByPlaceholder(/输入「未命名」以确认/);
+    await expect(confirmInput).toBeVisible({ timeout: 5000 }); // 修复前此处显示占位名，断言必红
+    const delBtn = page.locator(".char-ops-panel.danger").getByRole("button", { name: "删除" });
+    await expect(delBtn).toBeDisabled();
+    await confirmInput.fill("错字");
+    await expect(delBtn).toBeDisabled();
+    await confirmInput.fill("未命名");
+    await expect(delBtn).toBeEnabled(); // 修复前永久 disabled
+    await delBtn.click();
+    await expect
+      .poll(
+        async () => {
+          const r = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+          return r.data.items.length;
+        },
+        { timeout: 5000 },
+      )
+      .toBe(1);
+
+    // ── 再建一张未命名卡（C），合并进剩下的那张（A）──
+    await page.getByRole("button", { name: "添加角色" }).click();
+    await page.waitForTimeout(1200);
+    const list2 = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+    expect(list2.data.items.length).toBe(2);
+    const target = (list2.data.items as { id: string; name: string }[])[0];
+
+    await page.getByRole("button", { name: "合并…" }).click();
+    const mergeInput = page.getByPlaceholder(/输入「未命名」以确认/);
+    await expect(mergeInput).toBeVisible({ timeout: 5000 });
+    await page.getByLabel("合并到哪张卡").selectOption(target.id);
+    const mergeBtn = page.locator(".char-ops-panel").getByRole("button", { name: "合并" });
+    await expect(mergeBtn).toBeDisabled();
+    await mergeInput.fill("未命名");
+    await expect(mergeBtn).toBeEnabled();
+    await mergeBtn.click();
+    // 合并后只剩目标卡（服务端真值），撤销不收（本用例只钉「未命名也能操作」）
+    await expect
+      .poll(
+        async () => {
+          const r = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+          return r.data.items.length;
+        },
+        { timeout: 5000 },
+      )
+      .toBe(1);
+  } finally {
+    await restore();
+  }
+});
