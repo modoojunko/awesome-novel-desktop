@@ -177,6 +177,16 @@ async def dump_book_into(zf, db, project, prefix: str = "") -> None:
 # ── 配置包（user 子集 + api_configs，密钥明文——导入端重加密） ────────────────
 
 
+
+async def _origin_chapter_ref(db, chapter_id: str | None) -> str:
+    """关系来源章 id → 导出 ref（vol-N-ch-M）；解析失败留空（不阻断导出）。"""
+    if not chapter_id:
+        return ""
+    from models.chapter import Chapter
+
+    row = await db.get(Chapter, chapter_id)
+    return row.ref if row is not None else ""
+
 async def _dump_characters(zf, db, project) -> None:
     """角色段 v2：characters/characters.yaml + characters/relations.yaml。
 
@@ -210,6 +220,8 @@ async def _dump_characters(zf, db, project) -> None:
                 "stance": r.stance,
                 "note": r.note,
                 "ch_ref": r.ch_ref,
+                # archive-reconcile：来源章（章 id → 导出时解析为 ref；不可解析留空）
+                "origin_chapter": await _origin_chapter_ref(db, r.origin_chapter_id),
             }
             for r in rels
         ],

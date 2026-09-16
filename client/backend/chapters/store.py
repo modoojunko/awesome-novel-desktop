@@ -130,6 +130,14 @@ def assemble_chapter(row) -> dict:
         "key_points": [_format_key_point(k.func_tag, k.content) for k in row.key_points],
         "characters": [c.character_name for c in row.characters],
     }
+    # archive-reconcile：本章各出场角色的状态变化（加键兼容，API 契约不变）
+    char_states = [
+        {"name": c.character_name, "state_change": c.state_change}
+        for c in row.characters
+        if c.state_change
+    ]
+    if char_states:
+        outline["character_states"] = char_states
     for json_key, col, _w in _OUTLINE_SCALARS:
         outline[json_key] = getattr(row, col) or ""
     if row.perspective_guidance:
@@ -331,11 +339,22 @@ async def _replace_children_impl(session, row, data: dict, name_map: dict[str, s
         f"出场角色「{name}」没有对应的角色卡，已按原文保留"
         for name in names if name not in name_map
     ]
+    # 本章各角色的状态变化（archive-reconcile）：键=角色名；重归档/重试覆盖
+    state_by_name = {
+        str(item.get("name", "")).strip(): str(item.get("state_change", "") or "")
+        for item in (
+            outline.get("character_states")
+            if isinstance(outline.get("character_states"), list)
+            else []
+        )
+        if isinstance(item, dict)
+    }
     row.characters = [
         ChapterCharacter(
             sort_order=i,
             character_name=name,
             character_id=name_map.get(name),
+            state_change=_fit(state_by_name.get(name, ""), 200),
         )
         for i, name in enumerate(names)
     ]

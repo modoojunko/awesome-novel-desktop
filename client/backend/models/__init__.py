@@ -29,6 +29,7 @@ from models.novel_genre import (
 )
 from models.project import Novel
 from models.project_setting import ProjectSetting
+from models.reconcile import ChapterReconcile
 from models.token_log import TokenLog
 from models.user import User
 from models.volume import (
@@ -53,6 +54,7 @@ __all__ = [
     "ChapterPayoffItem",
     "ChapterProhibition",
     "ChapterPrompt",
+    "ChapterReconcile",
     "ChapterRequiredChange",
     "ChapterSceneCard",
     "ChapterSegment",

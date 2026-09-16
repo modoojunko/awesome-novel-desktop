@@ -122,6 +122,14 @@ class CharacterRelation(Base):
     note: Mapped[str] = mapped_column(String(300), nullable=False, default="")
     # 记录时的章节 ref（vol-1-ch-11）；是时间戳性质的历史标记，不是活链接
     ch_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    # 来源章（archive-reconcile）：结构化的「这关系从哪章来」，供截至本章投影；
+    # 由存量 ch_ref 一次性解析回填，不可解析留空（NULL=不受章界约束）。
+    # 写入统一走关系服务；归档收尾提案采纳时携带 origin_chapter_id。
+    origin_chapter_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("chapters.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     rev: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
