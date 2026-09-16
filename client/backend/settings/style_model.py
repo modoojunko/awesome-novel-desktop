@@ -123,6 +123,14 @@ def _normalize_tics(v) -> list[dict]:
         pattern = str(item.get("pattern", "") or "").strip()[:_TIC_PATTERN_MAX]
         if not pattern or pattern in seen:
             continue
+        # 正则可编译性校验（评审 P1-3）：句式规则经 PUT 用户可编辑，
+        # 非法 pattern 入库后会让 quality 体检在 re.findall 处炸
+        import re as _re
+
+        try:
+            _re.compile(pattern)
+        except _re.error:
+            continue
         seen.add(pattern)
         try:
             threshold = max(1, int(item.get("threshold", 3)))
@@ -288,16 +296,24 @@ async def migrate_anti_ai_into_style(root_path: str) -> None:
     if isinstance(fw, dict):
         for cat in fw.values():
             if isinstance(cat, list):
-                words.extend(str(w) for w in cat if str(w).strip())
+                # 只收字符串（评审 P2-3）：毒数据 dict/数字 str() 成字面量会变垃圾词
+                words.extend(w for w in cat if isinstance(w, str) and w.strip())
     tics = anti.get("structural_tic_patterns")
     tics = tics if isinstance(tics, list) else []
 
-    extra: dict = {}
-    if words:
-        extra["banned_words"] = words
-    if tics:
-        extra["tic_patterns"] = tics
-    merged = normalize_style({**raw, **extra})
+    # 合并而非覆盖（评审 P1-1）：raw 里已有 banned_words/tic_patterns（如迁移前
+    # 跑过蒸馏 commit）时，extra 整键覆盖会把它们顶掉——先归一 base 再追加，
+    # normalize 内部按 _word_key/pattern 去重，天然防 anti 词与已有词重复
+    base = normalize_style(raw)
+    merged = normalize_style({
+        **base,
+        "banned_words": [*base.get("banned_words", []), *words],
+        "tic_patterns": [*base.get("tic_patterns", []), *tics],
+    })
+    # legacy 留底（评审 P1-2）：迁移读也会剥离旧键，与 put_style 同款回滚基准
+    raw_snapshot = raw
+    if _has_legacy_keys(raw_snapshot) and "_legacy_style" not in raw_snapshot:
+        merged.setdefault("_legacy_style", raw_snapshot)
     merged[BANNED_MIGRATED_KEY] = True
     await get_storage().write_yaml(root_path, "settings/writing-style.yaml", merged)
 
@@ -339,9 +355,10 @@ async def append_banned_words(root_path: str, words) -> int:
 
     from filesystem.storage import get_storage
 
-    merged = normalize_style(
-        await get_storage().read_yaml(root_path, "settings/writing-style.yaml") or {}
-    )
+    raw = await get_storage().read_yaml(root_path, "settings/writing-style.yaml") or {}
+    merged = normalize_style(raw)
+    if _has_legacy_keys(raw) and "_legacy_style" not in raw:
+        merged.setdefault("_legacy_style", raw)
     existing = {_word_key(w) for w in merged.get("banned_words", [])}
     added = 0
     for w in clean:

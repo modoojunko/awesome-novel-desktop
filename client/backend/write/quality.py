@@ -24,7 +24,11 @@ async def run_quality_checks(root_path: str, full_text: str) -> dict:
     over_threshold = {}
     for p in tic_list:
         pt = p["pattern"] if isinstance(p, dict) else p
-        matches = re.findall(pt, full_text)
+        try:
+            matches = re.findall(pt, full_text)
+        except re.error:
+            # 存量毒数据兜底：非法正则跳过该项（写边界已拒绝新增，评审 P1-3）
+            continue
         if matches:
             name = p.get("name", pt) if isinstance(p, dict) else pt
             pattern_hits[name] = len(matches)

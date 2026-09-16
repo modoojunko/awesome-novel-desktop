@@ -109,7 +109,7 @@ function TicPatternEditor({ items, onChange }: { items: TicPattern[]; onChange: 
               type="number"
               min={1}
               value={item.threshold}
-              onChange={(e) => update(i, { threshold: Number(e.target.value) || 1 })}
+              onChange={(e) => update(i, { threshold: Math.max(1, Number(e.target.value) || 1) })}
               title="单章出现次数阈值"
             />
             <button
@@ -260,7 +260,8 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
         banned_words: banned.map((w) => w.trim()).filter(Boolean).slice(0, 100),
         tic_patterns: tics
           .filter((t) => t.pattern.trim() !== "")
-          .map((t) => ({ ...t, name: t.name.trim(), description: t.description.trim() })),
+          .map((t) => ({ ...t, name: t.name.trim(), description: t.description.trim() }))
+          .slice(0, 20),
       });
       markSaved();
       publishReceipt(null);
@@ -419,18 +420,30 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
       setQuant(out.quant);
       setDistillView("closed");
       setDistillStep(0);
-      // D4 竞态缓解：服务端已 append 禁用词——回读 style 只把两键合入表单态，
-      // 并基于旧快照局部替换两键（三区快照保持原值：用户未保存的编辑仍 dirty）
+      // D4 竞态缓解：服务端已 append 禁用词——回读 style 取服务端两键，
+      // 与表单态做**并集**合并（评审 P1-1：整体替换会吞掉用户本会话未保存的
+      // 禁用词/句式编辑），再基于旧快照局部替换两键（三区快照保持原值：
+      // 用户未保存的编辑仍 dirty）
       if (out.banned_added > 0) {
         const fresh = await api.get(`/novels/${projectId}/settings/style`);
-        const newBanned: string[] = Array.isArray(fresh?.banned_words)
+        const serverBanned: string[] = Array.isArray(fresh?.banned_words)
           ? fresh.banned_words.map(String).filter(Boolean)
           : [];
-        const newTics = toTics(fresh?.tic_patterns);
-        setBanned(newBanned);
-        setTics(newTics);
-        const snap = (getSnapshot() ?? {}) as Record<string, unknown>;
-        snapshotLoaded({ ...snap, banned: newBanned, tics: newTics });
+        const serverTics = toTics(fresh?.tic_patterns);
+        const wordKey = (w: string) => w.normalize("NFKC").trim().toLowerCase();
+        const mergedBanned = [...banned];
+        for (const w of serverBanned) {
+          if (!mergedBanned.some((x) => wordKey(x) === wordKey(w))) mergedBanned.push(w);
+        }
+        const mergedTics = [...tics];
+        for (const t of serverTics) {
+          if (!mergedTics.some((x) => x.pattern.trim() === t.pattern)) mergedTics.push(t);
+        }
+        setBanned(mergedBanned);
+        setTics(mergedTics);
+        const snap = getSnapshot() as Record<string, unknown> | null;
+        // 快照未就绪（异常路径）时跳过——残缺快照会让后续渲染恒 dirty（评审 P2-2）
+        if (snap) snapshotLoaded({ ...snap, banned: mergedBanned, tics: mergedTics });
       }
       toast.success("画像已确认——六行基线更新了，写章时生效");
       publishReceipt({
@@ -588,7 +601,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
             <div data-od-id="list-banned-words">
               <ListEditor
                 items={banned.length ? banned : [""]}
-                onChange={(v) => setBanned(v.map((x) => x.trim()).filter((x, i) => x || i < v.length - 1))}
+                onChange={setBanned}
                 maxLength={50}
                 maxItems={100}
                 placeholder="添加禁用词。如：本章讲述了、与此同时、他感到"

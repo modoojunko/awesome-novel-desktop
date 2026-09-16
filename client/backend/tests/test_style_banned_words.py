@@ -192,6 +192,62 @@ class TestAppendBannedWords:
         assert _run_async(append_banned_words(root, ["", "  "])) == 0
 
 
+# ── 评审修复回归（P1-1/P1-2/P1-3）────────────────────────────────────
+
+
+class TestReviewFixes:
+    def test_append_then_migrate_keeps_distilled_words(self):
+        """P1-1：迁移前跑过蒸馏 commit 的书，迁移用合并不覆盖——蒸馏词不丢。"""
+        root = _tmp_root()
+        s = get_storage()
+        _run_async(
+            s.write_yaml(
+                root,
+                "settings/writing-style.yaml",
+                {"role": "r", "banned_words": []},
+            )
+        )
+        _run_async(s.write_yaml(root, "settings/anti-ai.yaml", ANTI_AI_DOC))
+        # 迁移前：蒸馏 commit append 两个词（无标记位）
+        added = _run_async(append_banned_words(root, ["蒸馏词甲", "蒸馏词乙"]))
+        assert added == 2
+        # 之后任意迁移感知读：anti 模板词并入，蒸馏词仍在
+        doc = _run_async(read_style_migrated(root))
+        assert "蒸馏词甲" in doc["banned_words"]
+        assert "蒸馏词乙" in doc["banned_words"]
+        assert "综上所述" in doc["banned_words"]
+
+    def test_migrate_preserves_legacy_snapshot(self):
+        """P1-2：迁移读剥离旧键时同款落 _legacy_style 回滚基准（老书从未 PUT 过）。"""
+        root = _tmp_root()
+        s = get_storage()
+        _run_async(
+            s.write_yaml(
+                root,
+                "settings/writing-style.yaml",
+                {
+                    "role": "r",
+                    "narrator_role": "第三人称限知",
+                    "tone": {"pov": ["全知片段每卷不超过一次"]},
+                },
+            )
+        )
+        doc = _run_async(read_style_migrated(root))
+        assert "第三人称限知" in doc["role"]
+        # GET 视图剥离留底，但库里要有（回滚基准）
+        assert "_legacy_style" not in doc
+        raw = _run_async(s.read_yaml(root, "settings/writing-style.yaml"))
+        assert "_legacy_style" in raw
+        assert raw["_legacy_style"].get("narrator_role") == "第三人称限知"
+
+    def test_put_rejects_invalid_regex_pattern(self):
+        """P1-3：非法正则 pattern 在归一边丢弃，不进库（quality 体检不炸）。"""
+        merged = put_style(
+            normalize_style({"role": "r"}),
+            {"tic_patterns": [{"pattern": "不是("}, {"pattern": "OK"}]},
+        )
+        assert [t["pattern"] for t in merged["tic_patterns"]] == ["OK"]
+
 # ── put_style 两键 ───────────────────────────────────────────────────────
 
 

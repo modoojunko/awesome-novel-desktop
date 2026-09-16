@@ -428,12 +428,8 @@ test("设定 8 项全确认（settings-status 全绿＋完成卡）", async ({ p
     await page.waitForTimeout(900); // 防抖 PATCH 落库
     await confirmPanel(page);
 
-<<<<<<< HEAD
-    // 确认过的 6 键全 true（readiness 7 项键；story-arc 本测试未确认不作断言；
-    // banned-words-into-style 起 anti-ai 退役 → status 键集里不复存在）
-=======
-    // 7 项确认 → /settings/status 全 true；再补第 8 项 主线（settings-done-entry）
->>>>>>> origin/main
+    // 确认过的 6 键全 true（readiness 7 项键；story-arc 此时未确认不作断言，
+    // 下方主线确认后单独断言；banned-words-into-style 起 anti-ai 退役不复存在）
     const status = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
     for (const k of ["synopsis", "genre", "world", "style", "hooks", "characters"]) {
       expect(status[k]).toBe(true);
@@ -446,11 +442,11 @@ test("设定 8 项全确认（settings-status 全绿＋完成卡）", async ({ p
       timeout: 5000,
     });
     await confirmPanel(page);
-    // 第 8 项（主线）确认后 story-arc 也为 true
+    // 末项（主线）确认后 story-arc 也为 true
     const status2 = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
     expect(status2["story-arc"]).toBe(true);
 
-    // ── 设定完成卡（settings-done-entry）：8/8 后进度行升级为完成卡
+    // ── 设定完成卡（settings-done-entry）：N/N 满格后进度行升级为完成卡
     await expect(page.locator('[data-od-id="settings-done-card"]')).toBeVisible();
     await expect(page.locator('[data-od-id="settings-done-card"]')).toContainText("设定完成");
     await expect(page.locator('[data-od-id="settings-done-card"]')).toContainText("全部就绪");
