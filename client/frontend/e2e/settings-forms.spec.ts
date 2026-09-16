@@ -435,6 +435,8 @@ test("文风：两页签（文字文风三区＋量化空态）→ 确认完成�
     await expect(page.locator('[data-od-id="quant-empty"]')).toBeVisible();
     await expect(page.locator('[data-od-id="quant-tab-badge"]')).toHaveText("未蒸馏");
     await page.locator('[data-od-id="ptab-text"]').click();
+    // 未完成（7/8）：完成卡不出现（settings-done-entry）
+    await expect(page.locator('[data-od-id="settings-done-card"]')).toHaveCount(0);
 
     // 三区：叙事身份（textarea）＋硬约束首行 ListEditor
     await page

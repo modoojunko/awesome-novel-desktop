@@ -339,12 +339,18 @@ test("空书无门控：建书即写，加卷加章直达编辑器", async ({ pa
 // 其余 4 项 API 注入内容 + 面板确认。断言最终 status 7 键全绿。
 // -------------------------------------------------------------------------
 
-test("设定 7 项全确认（settings-status 全绿）", async ({ page, request }) => {
+test("设定 8 项全确认（settings-status 全绿＋完成卡）", async ({ page, request }) => {
   const { restore, token } = await setupSession(page);
   try {
     const confirmBookName = `全确认${Date.now() % 100000}`;
     const pid = await createNovel(page, confirmBookName);
     await page.goto(`${ORIGIN}/#/novel/${pid}`);
+
+    // 主线内容提前 API 注入：确认角色后面板自动前进到「主线」，表单挂载时经
+    // GET /story/arc 载入该内容（settings-done-entry 第 8 项）
+    await apiPutJSON(request, token, `/novels/${pid}/story/arc`, {
+      fullstory: "少年更夫为寻妹踪闯入血族夜域，查出城主以全城血供换永生的交易。",
+    });
 
     // 013：设定未确认也不渲染「以下阶段尚未就绪」门控横幅（GateBanner 已移除）
     await expect(page.getByText(/尚未完成设定/)).toHaveCount(0);
@@ -422,13 +428,35 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
     await page.waitForTimeout(900); // 防抖 PATCH 落库
     await confirmPanel(page);
 
+<<<<<<< HEAD
     // 确认过的 6 键全 true（readiness 7 项键；story-arc 本测试未确认不作断言；
     // banned-words-into-style 起 anti-ai 退役 → status 键集里不复存在）
+=======
+    // 7 项确认 → /settings/status 全 true；再补第 8 项 主线（settings-done-entry）
+>>>>>>> origin/main
     const status = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
     for (const k of ["synopsis", "genre", "world", "style", "hooks", "characters"]) {
       expect(status[k]).toBe(true);
     }
     expect(status["anti-ai"]).toBeUndefined();
+
+    await openSetting(page, "主线");
+    // 等面板把注入的主线载入表单（防加载未完成就确认——旧wipe竞态）
+    await expect(page.locator('[data-od-id="arc-fullstory"]')).toHaveValue(/血族夜域/, {
+      timeout: 5000,
+    });
+    await confirmPanel(page);
+    // 第 8 项（主线）确认后 story-arc 也为 true
+    const status2 = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
+    expect(status2["story-arc"]).toBe(true);
+
+    // ── 设定完成卡（settings-done-entry）：8/8 后进度行升级为完成卡
+    await expect(page.locator('[data-od-id="settings-done-card"]')).toBeVisible();
+    await expect(page.locator('[data-od-id="settings-done-card"]')).toContainText("设定完成");
+    await expect(page.locator('[data-od-id="settings-done-card"]')).toContainText("全部就绪");
+    await page.locator('[data-od-id="btn-go-write"]').click();
+    // 去写作：切换到写作视图（workbench 三栏；写作 mtab 激活）
+    await expect(page.locator(".mtab.on")).toContainText("写作");
 
     // 题材设定后 → 书架卡片胶囊取值来自题材（核心承诺兜底：此时未选题材目录），占位态撤下
     await page.goto(`${ORIGIN}/#/novels`);
@@ -459,16 +487,16 @@ test("设定 7 项全确认（settings-status 全绿）", async ({ page, request
 // CRUD：改名（顶栏就地编辑）
 // -------------------------------------------------------------------------
 
-test("改名：novelbar 书名双击就地改名即时生效（AC-2.x）", async ({ page }) => {
+test("改名：顶栏书名双击就地改名即时生效（AC-2.x，行头归一后仍在 appbar）", async ({ page }) => {
   const { restore } = await setupSession(page);
   try {
     const origName = `原始${Date.now() % 100000}`;
     await createNovel(page, origName);
     const nextName = `新名字${Date.now() % 100000}`;
 
-    // novelbar 书名（双击重命名，#164 名称即标题口径）→ Enter 提交
+    // 顶栏书名（双击重命名，#164 名称即标题口径）→ Enter 提交
     await page.locator(".novel-title").dblclick();
-    const nameInput = page.locator(".novelbar input");
+    const nameInput = page.locator(".appbar-wb input");
     await expect(nameInput).toBeVisible({ timeout: 5000 });
     await nameInput.fill(nextName);
     await page.keyboard.press("Enter");

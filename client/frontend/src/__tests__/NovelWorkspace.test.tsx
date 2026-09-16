@@ -161,9 +161,15 @@ function renderWorkspace(tier = "none") {
   );
 }
 
-/** 选中第一章并等待章对象工作台挂载（树默认全展开，无需先点卷）。 */
+/** 选中第一章并等待章对象工作台挂载（树默认全展开，无需先点卷）。
+ *  行头归一后顶栏 bar-here 也显示章名，findByText 会歧义多命中，改定点树行。 */
 async function selectFirstChapter() {
-  fireEvent.click(await screen.findByText("第一章"));
+  const row = await waitFor(() => {
+    const el = document.querySelector(".tree .ch");
+    expect(el).toBeTruthy();
+    return el as HTMLElement;
+  });
+  fireEvent.click(row);
   await screen.findByRole("tab", { name: /^章纲/ });
 }
 
@@ -192,9 +198,10 @@ describe("默认落写作视图（免费）", () => {
     expect(
       screen.getByText("还没有卷与章节。点击左上「＋」添加第一卷。"),
     ).toBeVisible();
-    // novelbar：书名 + 免费提示
+    // 应用栏（行头归一）：书名在顶栏；免费标识收敛到账户档位徽（未登录不渲染，e2e 断言）
     expect(screen.getAllByText("测试小说").length).toBeGreaterThan(0);
-    expect(screen.getByText(/免费模式 · 写作功能完整/)).toBeVisible();
+    expect(screen.queryByText(/免费模式 · 写作功能完整/)).toBeNull();
+    expect(document.querySelector(".appbar-wb .bar-here")).toBeTruthy();
     // modnav 三态 + 写作 tab on + three-col on（jsdom 无 CSS → 断言 class）
     expect(screen.getByRole("button", { name: /^设定/ })).toBeDefined();
     expect(screen.getByRole("button", { name: /^写作/ })).toBeDefined();
@@ -223,6 +230,8 @@ describe("免费态：选中章 → 章对象工作台", () => {
     expect(screen.getByRole("tab", { name: /^正文/ })).toBeDefined();
     // 工具栏章名（树行 + 工具栏两处「第一章」→ chMeta 对齐成功的证据）
     expect(screen.getAllByText("第一章").length).toBeGreaterThanOrEqual(2);
+    // bar-here（顶栏主线定位）：默认名「第一章」不重复序号（nodeLabel 同口径）
+    expect(document.querySelector(".bar-here .bh-t")?.textContent).toBe("第 1 章");
     // 章纲面板必填字段在渲染
     expect(screen.queryAllByText(/核心任务/).length).toBeGreaterThan(0);
     // 点「正文」→ contenteditable 编辑器挂载；免费无 AI 按钮
@@ -289,7 +298,8 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
   it("PRO 渲染 pill 徽并请求 phase-status；正文页可见 AI 生成正文", async () => {
     mockOneChapterTreePro();
     renderWorkspace("monthly");
-    expect(document.querySelector(".pill-pro")).toBeTruthy();
+    // PRO 徽随行头归一迁入账户胶囊（未登录不渲染）；顶栏本体在即可
+    expect(document.querySelector(".appbar-wb")).toBeTruthy();
     expect(screen.queryByText(/免费模式/)).toBeNull();
     expect(screen.queryByRole("button", { name: "升级 PRO" })).toBeNull();
     await waitFor(() =>

@@ -579,3 +579,37 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     **parity 影响**：settings CASE 只截左栏＋默认简介面板——左栏少一行即像素变化，
     基线需重录；文风卡新版面（两折叠组）不在现有 CASE 截图内，暂无新增 CASE
     （该卡交互多、折叠态多，等实现侧稳定后随 parity 重录一并评估）。
+---
+
+23. **书内行头归一（appbar-single-row，2026-09-16）**
+    `book.html` 原双行头（appbar 48「logo＋返回我的小说＋账户」＋ novelbar 44
+    「书名＋题材＋免费提示/PRO 徽＋升级钮」）并成**一行 48px**：logo（即返回入口，
+    title「返回我的小说」，跳 list.html）｜书名｜题材胶囊｜**当前主线定位 bar-here**
+    ｜账户胶囊。口径取自 `drafts/storyline.html`（写作工作台原型）顶栏段，用户拍板
+    「行头归一以此为准」；省出一整条给正文。
+
+    **砍掉的顶栏位**：「← 我的小说」返回链接（返回=点 logo）；免费提示 free-hint
+    与「升级 PRO」钮（免费态标识收敛到账户胶囊档位徽「免费版」；升级入口仍在右栏
+    locked 卡与本书偏好弹窗）。`applyPro()` 同步摘除 freeHint/proPill/btnUpgrade
+    三处引用。
+
+    **新增顶栏段 bar-here**：`bh-k 当前主线｜bh-rule｜bh-t 第 N 章＋题｜bh-prog
+    卷序 · 已归档/总章＋prog-bar`。**v1 口径＝最新归档章为端点**（无归档落首章；
+    空书留空槽），storyline.html 的拟定/待写 frontier 口径待主线状态机立项后切换。
+    响应式三档随 storyline：≤1320px 藏题材、≤1180px 藏 bh-prog、≤920px 折行。
+
+    **类名**：`.bar-here/.bh-k/.bh-rule/.bh-t(+.n)/.bh-prog/.bh-vol/.prog-bar`
+    直接收编（storyline 同名），应用侧落 book.css 顶栏段并 `.bar-here` 前缀作用域；
+    删 `.appbar .back`/`.novelbar`/`.free-hint`/`.pill-pro`（无其他使用点）。
+    **data-od-id**：appbar-logo（原 back-to-list 退役）、current-position。
+
+    **同步实现**：Navbar 书内变体退役（/novel/* 返回 null），合并头由
+    NovelWorkspace 渲染（AcctMenu＋BookPrefsModal 随迁）；wb.volumes 即数据源。
+
+23. **设定完成入口重设计（settings-done-entry，2026-09-16）**
+    新增 `settings-done-entry.html`（自 `drafts/ai-novel-c端-设定完成去写作.html` v2 合一版收编）。
+    「设定 8/8」进度行在完成态升级为完成卡：`.settings-progress.done` 变体（ok-soft 底＋ok
+    描边）＋ `.pb-check/.pb-badge/.done-btn/.done-foot` 词表；状态语言沿 §5 完成=ok 绿。
+    **口径**：完成入口不再使用普通主按钮（长得和「保存」一样）；未完成态零像素变化。
+    非基线演示元素：doc-head、win-titlebar、appbar/modnav、右下状态切换器与 toast。
+    门禁范围：design-vocab.mjs strictGlobs 增补本文件。

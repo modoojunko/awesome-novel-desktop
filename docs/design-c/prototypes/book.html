@@ -74,23 +74,33 @@
   .notice .nt span { color: var(--muted); font-size: 12.5px; margin-left: 8px; }
   .update-strip { flex: none; padding: 12px 16px 0; }
   .update-strip .notice { margin-bottom: 0; }
-  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; }
+  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; white-space: nowrap; flex: none; }
   .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--surface); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; }
   .appbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
-  .appbar .back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; padding: 5px 9px; border-radius: 8px; }
-  .appbar .back:hover { color: var(--fg); background: var(--fg-soft); }
-  .appbar .back svg { width: 14px; height: 14px; }
-  .appbar .spacer { flex: 1; }
 
-  /* ─── 小说栏 ───────────────────────────────────────────── */
-  .novelbar { height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 20px; background: var(--bg); border-bottom: 1px solid var(--border); }
-  .novel-title { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
-  .genre-tag { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--muted); background: var(--surface); }
-  .free-hint { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); padding: 3px 10px; border-radius: 999px; background: var(--fg-soft); }
-  .free-hint svg { width: 13px; height: 13px; }
-  .novelbar .spacer { flex: 1; }
-  .pill-pro { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; }
-  .pill-pro svg { width: 11px; height: 11px; }
+  /* ─── 顶栏书名 · 题材 · 当前主线定位（行头归一，storyline.html 口径：
+     原双行 appbar + novelbar 并成一行 48px，省出一整条给正文） ─── */
+  .novel-title { font-family: var(--font-display); font-size: 15.5px; font-weight: 600; white-space: nowrap; flex: none; }
+  .genre-tag { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--muted); background: var(--surface); white-space: nowrap; flex: none; }
+  .bar-here { display: flex; align-items: center; gap: 11px; flex: 1 1 auto; min-width: 0; }
+  .bh-k { flex: none; margin: 0; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; color: var(--accent); }
+  .bh-rule { width: 1px; height: 15px; background: var(--border); flex: none; }
+  .bh-t { flex: 0 1 auto; min-width: 0; margin: 0; font-family: var(--font-display); font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bh-t .n { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-right: 7px; }
+  .bh-prog { display: flex; align-items: center; gap: 9px; flex: none; width: 168px; }
+  .bh-vol { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+  .bh-prog .prog-bar { flex: 1; }
+  .prog-bar { height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+  .prog-bar span { display: block; height: 100%; background: var(--fg); border-radius: 3px; }
+  @media (max-width: 1320px) { .appbar .genre-tag { display: none; } }
+  @media (max-width: 1180px) { .bh-prog { display: none; } }
+  @media (max-width: 920px) {
+    .appbar { position: static; height: auto; min-height: 0; flex-wrap: wrap; padding: 9px 14px; gap: 8px 10px; }
+    .appbar .sep { display: none; }
+    .appbar .acct { margin-left: auto; }
+    .bar-here { order: 3; flex: 1 1 100%; flex-wrap: wrap; gap: 8px 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+    .bh-k, .bh-rule, .bh-prog { display: none; }
+  }
 
   /* ─── 书内模块导航：设定 / 大纲 ─────────────────────────── */
   .modnav { flex: none; display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
@@ -494,14 +504,14 @@
   </div>
 </div>
 
-<!-- ═══ 应用栏 ═══ -->
+<!-- ═══ 应用栏（行头归一：logo 即返回 · 书名 · 题材 · 当前主线定位 · 账户） ═══ -->
 <header class="appbar" data-od-id="appbar">
-  <a class="logo" href="index.html"><span class="logo-mark">爱</span>爱小说</a>
+  <a class="logo" href="list.html" data-od-id="appbar-logo" title="返回我的小说"><span class="logo-mark">爱</span>爱小说</a>
   <span class="sep"></span>
-  <a class="back" href="list.html" data-od-id="back-to-list">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg>我的小说
-  </a>
-  <span class="spacer"></span>
+  <span class="novel-title serif">星海拾遗</span>
+  <span class="genre-tag">科幻</span>
+  <span class="sep"></span>
+  <div class="bar-here" id="barHere" data-od-id="current-position"></div>
   <div class="acct">
     <button class="acct-trigger" id="btnAcct" data-od-id="acct-trigger" aria-haspopup="menu" aria-expanded="false">
       <span class="avatar" aria-hidden="true">m</span><span class="badge badge-accent" id="acctBadge" data-od-id="acct-badge">PRO 会员</span><svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 9l6 6 6-6"/></svg>
@@ -527,22 +537,6 @@
     <button class="am-item danger" role="menuitem" data-od-id="acct-menu-logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg><span id="amLogoutText">退出登录</span></button>
     <span class="am-version" data-od-id="acct-menu-version">v0.19</span>
   </div>
-</div>
-
-<!-- ═══ 小说栏 ═══ -->
-<div class="novelbar" data-od-id="novelbar">
-  <span class="novel-title serif">星海拾遗</span>
-  <span class="genre-tag">科幻</span>
-  <span id="freeHint" class="free-hint">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
-    免费模式 · 写作功能完整，升级解锁 AI
-  </span>
-  <span class="spacer"></span>
-  <span id="proPill" class="pill-pro" hidden>
-    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z"/></svg>
-    PRO
-  </span>
-  <button id="btnUpgrade" class="btn btn-secondary btn-sm" data-od-id="btn-upgrade">升级 PRO</button>
 </div>
 
 <!-- ═══ 书内模块导航：设定 / 写作 / 预览 ═══ -->
@@ -1135,7 +1129,31 @@ function updateModNav() {
 }
 
 /* ═══════════ 树渲染（单树：卷 → 章，行内带章纲状态与字数） ═══════════ */
-function renderTreeAll() { renderTree($('treeOutline')); }
+function renderTreeAll() { renderTree($('treeOutline')); updateBarHere(); }
+
+/* ═══ 顶栏主线定位（行头归一）：主线端点 = 最新归档章，无归档取首章。
+   拟定/待写状态机（storyline.html）落地后再切 frontier 口径 ═══ */
+function updateBarHere() {
+  const el = $('barHere'); if (!el) return;
+  let cur = null, curVol = null;
+  BOOK.volumes.forEach(v => v.chapters.forEach(c => { if (isArchived(c)) { cur = c; curVol = v; } }));
+  if (!cur) {
+    for (const v of BOOK.volumes) { if (v.chapters.length) { cur = v.chapters[0]; curVol = v; break; } }
+  }
+  if (!cur) { el.innerHTML = ''; return; }
+  const no = curVol.chapters.indexOf(cur) + 1;
+  const title = (cur.title.split(' · ')[1] || cur.title);
+  const archived = curVol.chapters.filter(isArchived).length;
+  const total = curVol.chapters.length;
+  const pct = Math.round(Math.min(1, archived / total) * 100);
+  const vn = curVol.title.split(' · ')[0];
+  el.innerHTML = '<p class="bh-k">当前主线</p>'
+    + '<span class="bh-rule" aria-hidden="true"></span>'
+    + '<p class="bh-t"><span class="n">第 ' + no + ' 章</span>' + escapeHtml(title) + '</p>'
+    + '<div class="bh-prog"><span class="bh-vol">' + escapeHtml(vn) + ' · ' + archived + '/' + total + '</span>'
+    + '<span class="prog-bar"><span style="width:' + pct + '%"></span></span></div>';
+}
+
 function renderTree(el) {
   el.innerHTML = '';
   let chTotal = 0;
@@ -2079,7 +2097,6 @@ $('histList').addEventListener('click', e => {
 });
 
 /* ═══════════ 升级 PRO ═══════════ */
-$('btnUpgrade').addEventListener('click', () => openModal('modalUpgrade'));
 $('btnUpgrade2').addEventListener('click', () => openModal('modalUpgrade'));
 $('btnUpgrade3').addEventListener('click', () => openModal('modalUpgrade'));
 $('prefUpgrade').addEventListener('click', () => { closeModal('modalPrefs'); openModal('modalUpgrade'); });
@@ -2091,9 +2108,6 @@ $('upgradeConfirm').addEventListener('click', () => {
 });
 function applyPro() {
   $('btnAi').hidden = !S.pro;
-  $('proPill').hidden = !S.pro;
-  $('freeHint').hidden = S.pro;
-  $('btnUpgrade').hidden = S.pro;
   $('prefTier').textContent = S.pro ? 'PRO 会员' : '免费版 · 单机使用';
   // 顶栏/面板徽章随 pro 状态（c-account-control-center：触发钮短档 = 完整档缩短投影）
   const proShort = S.pro ? 'PRO 会员' : '免费版';
