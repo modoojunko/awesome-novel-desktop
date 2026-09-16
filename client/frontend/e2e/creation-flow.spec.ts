@@ -487,16 +487,16 @@ test("设定 8 项全确认（settings-status 全绿＋完成卡）", async ({ p
 // CRUD：改名（顶栏就地编辑）
 // -------------------------------------------------------------------------
 
-test("改名：novelbar 书名双击就地改名即时生效（AC-2.x）", async ({ page }) => {
+test("改名：顶栏书名双击就地改名即时生效（AC-2.x，行头归一后仍在 appbar）", async ({ page }) => {
   const { restore } = await setupSession(page);
   try {
     const origName = `原始${Date.now() % 100000}`;
     await createNovel(page, origName);
     const nextName = `新名字${Date.now() % 100000}`;
 
-    // novelbar 书名（双击重命名，#164 名称即标题口径）→ Enter 提交
+    // 顶栏书名（双击重命名，#164 名称即标题口径）→ Enter 提交
     await page.locator(".novel-title").dblclick();
-    const nameInput = page.locator(".novelbar input");
+    const nameInput = page.locator(".appbar-wb input");
     await expect(nameInput).toBeVisible({ timeout: 5000 });
     await nameInput.fill(nextName);
     await page.keyboard.press("Enter");

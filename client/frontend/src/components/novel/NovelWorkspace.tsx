@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import ProContainer from "@/components/novel/ProContainer";
 import OnboardingCard from "@/components/novel/OnboardingCard";
@@ -11,6 +11,8 @@ import PreviewView from "@/components/novel/workbench/PreviewView";
 import Rail, { type RailChapterData } from "@/components/novel/workbench/Rail";
 import { AiModal, UnlockModal } from "@/components/novel/workbench/modals";
 import UpgradeModal from "@/components/novel/UpgradeModal";
+import AcctMenu from "@/components/AcctMenu";
+import BookPrefsModal from "@/components/novel/BookPrefsModal";
 import type { SelectionCapture } from "@/lib/selection";
 import {
   INITIAL_PROSE_AI_STATE,
@@ -25,11 +27,14 @@ import { useOnboarding } from "@/hooks/useOnboarding";
 import { GENRE_PENDING_LABEL } from "@/lib/genreVocab";
 import { useTier } from "@/hooks/useTier";
 import { toast } from "@/lib/toast";
+import { BRAND } from "@/lib/brand";
+import { isLoggedIn } from "@/lib/auth";
+import { cnNum, isDefaultTitle } from "@/lib/nodeTitle";
 
 // ---------------------------------------------------------------------------
 // NovelWorkspace — book.html 复刻（PR 3：壳 + 大纲树 + 章对象工作台）
-//   novelbar（书名双击改名 / 类型胶囊 / 免费提示或 PRO 徽 / 升级）
-//   modnav（设定 N/7 · 写作 N/N 章纲 · 预览，默认写作视图）
+//   appbar（行头归一：logo 即返回 · 书名双击改名 · 题材 · 当前主线定位 · 账户胶囊）
+//   modnav（设定 N/8 · 写作 N/N 章纲 · 预览，默认写作视图）
 //   写作 = three-col（树 / 中栏 / 右栏）常驻挂载（.view.on 切换保正文脏状态）
 //   设定 = two-col（SettingsView，PR 4 复刻 #viewSettings）
 //   预览 = 只读树 + 只读排版（PR 4 复刻 #viewPreview）
@@ -227,10 +232,69 @@ export default function NovelWorkspace() {
   // GET /volumes）。必须 memo 住引用，只在 refresh 本身变化时才换新。
   const handleArchivesRefresh = useCallback(() => void refresh(), [refresh]);
 
+  // ── 顶栏「本书偏好」：账户面板入口项（原全局 Navbar 挂点随行头归一迁入） ──
+  const [showBookPrefs, setShowBookPrefs] = useState(false);
+
+  // ── 顶栏主线定位（行头归一，book.html updateBarHere 同口径）：
+  //    最新归档章＝主线端点，无归档落首章；卷面进度 = 该卷已归档/总章数。
+  //    数据源 wb.volumes（chapter:archived 事件即刷新）。
+  const hereBar = useMemo(() => {
+    type Vol = (typeof volumes)[number];
+    let cur: Vol["chapters"][number] | null = null;
+    let curVol: Vol | null = null;
+    for (const v of volumes) {
+      for (const c of v.chapters) {
+        if (c.archived) {
+          cur = c;
+          curVol = v;
+        }
+      }
+    }
+    if (!cur || !curVol) {
+      for (const v of volumes) {
+        if (v.chapters.length) {
+          cur = v.chapters[0];
+          curVol = v;
+          break;
+        }
+      }
+    }
+    if (!cur || !curVol) return null;
+    const volNo = Number((curVol.name.match(/^vol-(\d+)$/) ?? [])[1] ?? 1);
+    const no = cur.chapter ?? curVol.chapters.indexOf(cur) + 1;
+    const archivedN = curVol.chapters.filter((c) => c.archived).length;
+    const total = curVol.chapters.length;
+    const pct = Math.round(Math.min(1, archivedN / total) * 100);
+    return (
+      <>
+        <p className="bh-k">当前主线</p>
+        <span className="bh-rule" aria-hidden="true" />
+        <p className="bh-t">
+          <span className="n">第 {no} 章</span>
+          {/* 默认名（「第一章」等序号形态）不再拼名称，避免「第 1 章第一章」（nodeLabel 同口径） */}
+          {isDefaultTitle("章", no, cur.title) ? null : cur.title}
+        </p>
+        <div className="bh-prog">
+          <span className="bh-vol">
+            第{cnNum(volNo)}卷 · {archivedN}/{total}
+          </span>
+          <span className="prog-bar">
+            <span style={{ width: `${pct}%` }} />
+          </span>
+        </div>
+      </>
+    );
+  }, [volumes]);
+
   return (
     <div className="wb">
-      {/* 小说栏：书名（双击改名）· 类型 · 免费提示 / PRO 徽 · 升级 */}
-      <div className="novelbar">
+      {/* 应用栏（行头归一，storyline.html 口径）：logo 即返回 · 书名 · 题材 · 当前主线 · 账户 */}
+      <header className="appbar appbar-wb">
+        <Link className="logo" to="/novels" title="返回我的小说" data-od-id="appbar-logo">
+          <span className="logo-mark">{BRAND.mark}</span>
+          {BRAND.name}
+        </Link>
+        <span className="sep" />
         {nameDraft === null ? (
           <span
             className="novel-title serif"
@@ -259,29 +323,17 @@ export default function NovelWorkspace() {
         >
           {genreLabel}
         </span>
-        {!isPro ? (
-          <span className="free-hint">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 8v4M12 16h.01" />
-            </svg>
-            免费模式 · 写作功能完整，升级解锁 AI
-          </span>
-        ) : (
-          <span className="pill-pro">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z" />
-            </svg>
-            PRO
-          </span>
-        )}
-        <span className="spacer" />
-        {!isPro && (
-          <button className="btn btn-secondary btn-sm" onClick={onUpgrade}>
-            升级 PRO
-          </button>
-        )}
-      </div>
+        <span className="sep" />
+        <div className="bar-here" data-od-id="current-position">
+          {hereBar}
+        </div>
+        {isLoggedIn() && <AcctMenu onBookPrefs={() => setShowBookPrefs(true)} />}
+        <BookPrefsModal
+          open={showBookPrefs && !!projectId}
+          onClose={() => setShowBookPrefs(false)}
+          projectId={projectId}
+        />
+      </header>
 
       {/* PRO 阶段催促子树：免费态整棵不渲染、零 phase-status 请求 */}
       <ProContainer>

@@ -147,8 +147,8 @@ test("免费建书直达写作工作台：零 phase-status，无阶段催促，m
     await expect(
       page.getByText("还没有卷与章节。点击左上「＋」添加第一卷。"),
     ).toBeVisible();
-    // 免费标识（novelbar free-hint）
-    await expect(page.getByText(/免费模式 · 写作功能完整/)).toBeVisible();
+    // 免费标识（行头归一后 = 顶栏账户胶囊档位徽「免费版」）
+    await expect(page.locator('[data-od-id="acct-badge"]')).toHaveText("免费版");
     // ⑦ modnav 三态（PR3 设计稿）：设定 / 写作 / 预览
     await expect(page.getByRole("button", { name: /^设定/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^写作/ })).toBeVisible();
@@ -272,6 +272,12 @@ test("免费归档：不 500，正文只读，树已归档即时同步", async (
     );
     await expect(page.getByText("已自动保存").first()).toBeVisible({ timeout: 8000 });
 
+    // 顶栏主线定位（行头归一）：无归档＝回落首章；默认名「第一章」不重复序号
+    const barHere = page.locator(".bar-here");
+    await expect(barHere).toContainText("当前主线");
+    await expect(barHere.locator(".bh-t")).toHaveText("第 1 章");
+    await expect(barHere).toContainText("第一卷 · 0/1");
+
     // 触发归档（PR 5：React 弹窗确认；免费档无 AI 摘要弹窗）
     await page.getByRole("button", { name: "归档本章" }).click();
     await page.getByTestId("arch-confirm").click();
@@ -286,6 +292,8 @@ test("免费归档：不 500，正文只读，树已归档即时同步", async (
     await expect(page.locator(".col-tree .arch-tag").first()).toBeVisible({
       timeout: 5000,
     });
+    // 顶栏主线定位随归档推进：端点推进到本章＋卷面进度 1/1
+    await expect(barHere).toContainText("第一卷 · 1/1");
   } finally {
     await restore();
   }

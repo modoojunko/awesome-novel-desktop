@@ -271,7 +271,8 @@ test.describe("世界设定 v2", () => {
 
       // 存草稿（脚部次按钮）→ 退出书页（存草稿无回执，落库即静默）
       await page.locator(".panel-foot").getByRole("button", { name: "存草稿" }).click();
-      await page.getByRole("link", { name: "我的小说" }).click();
+      // 行头归一：返回入口 = 顶栏 logo（原「我的小说」链接已退役）
+      await page.locator('[data-od-id="appbar-logo"]').click();
 
       // 重进书 → 世界面板：徽标=已填（从未确认，不得误标已确认）
       const readiness = await apiGetJSON(request, token, `/novels/${pid}/readiness`);

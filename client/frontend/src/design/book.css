@@ -12,30 +12,40 @@
    （col-tree/col-editor/col-ai overflow-y:auto）恢复原型的列内滚动。 */
 .wb {
   --col-left: 280px;
-  /* 48 = appbar 高（原型 flex 链口径）；26 = 底部状态条让位（c-version-account-visibility，
-     StatusBar 垫 26px，.wb 不让位会被固定条盖住列底且多出 26px 幽灵滚动） */
-  height: calc(100vh - 48px - 26px);
+  /* 26 = 底部状态条让位（c-version-account-visibility，StatusBar 垫 26px，
+     .wb 不让位会被固定条盖住列底且多出 26px 幽灵滚动）。
+     行头归一后书内顶栏（appbar 48）在 .wb 内部，不再从外层扣 48px。 */
+  height: calc(100vh - 26px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-/* ─── 应用栏（工作台变体：logo + 分隔线 + 返回） ─────────── */
+/* ─── 应用栏（行头归一，storyline.html 口径：原 appbar + novelbar 双行
+   并成一行 48px，logo 即返回 · 书名 · 题材 · 当前主线定位 · 账户胶囊；
+   省出一整条给正文） ───────────────────── */
 .appbar.appbar-wb { padding: 0 16px; }
 .appbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
-.appbar .back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; padding: 5px 9px; border-radius: 8px; }
-.appbar .back:hover { color: var(--fg); background: var(--fg-soft); }
-.appbar .back svg { width: 14px; height: 14px; }
-
-/* ─── 小说栏 ───────────────────────────────────────────── */
-.novelbar { height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 20px; background: var(--bg); border-bottom: 1px solid var(--border); }
-.novel-title { font-family: var(--font-display); font-size: 16px; font-weight: 600; }
-.genre-tag { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--muted); background: var(--surface); }
-.free-hint { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); padding: 3px 10px; border-radius: 999px; background: var(--fg-soft); }
-.free-hint svg { width: 13px; height: 13px; }
-.novelbar .spacer { flex: 1; }
-.pill-pro { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; }
-.pill-pro svg { width: 11px; height: 11px; }
+.appbar .novel-title { font-family: var(--font-display); font-size: 15.5px; font-weight: 600; white-space: nowrap; flex: none; }
+.appbar .genre-tag { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--muted); background: var(--surface); white-space: nowrap; flex: none; }
+.bar-here { display: flex; align-items: center; gap: 11px; flex: 1 1 auto; min-width: 0; }
+.bar-here .bh-k { flex: none; margin: 0; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; color: var(--accent); }
+.bar-here .bh-rule { width: 1px; height: 15px; background: var(--border); flex: none; }
+.bar-here .bh-t { flex: 0 1 auto; min-width: 0; margin: 0; font-family: var(--font-display); font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-here .bh-t .n { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-right: 7px; }
+.bar-here .bh-prog { display: flex; align-items: center; gap: 9px; flex: none; width: 168px; }
+.bar-here .bh-vol { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.bar-here .prog-bar { flex: 1; height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.bar-here .prog-bar span { display: block; height: 100%; background: var(--fg); border-radius: 3px; }
+@media (max-width: 1320px) { .appbar .genre-tag { display: none; } }
+@media (max-width: 1180px) { .bar-here .bh-prog { display: none; } }
+@media (max-width: 920px) {
+  .appbar.appbar-wb { position: static; height: auto; min-height: 0; flex-wrap: wrap; padding: 9px 14px; gap: 8px 10px; }
+  .appbar .sep { display: none; }
+  .appbar .acct { margin-left: auto; }
+  .bar-here { order: 3; flex: 1 1 100%; flex-wrap: wrap; gap: 8px 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+  .bar-here .bh-k, .bar-here .bh-rule, .bar-here .bh-prog { display: none; }
+}
 
 /* ─── 书内模块导航：设定 / 写作 / 预览 ──────────────────── */
 .modnav { flex: none; display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
@@ -108,6 +118,12 @@
 .ch.sel .arch-tag { background: color-mix(in oklch, var(--accent) 10%, transparent); color: var(--accent); }
 /* .badge 清零声明原为反制 daisyUI 同名类；daisyUI 已退役，保留作为无害防御 */
 .wb .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; flex: none; border: 0; background: none; text-transform: none; }
+/* 行头归一（appbar-single-row）：账户档位徽随合并顶栏进了 .wb 作用域，
+   豁免上面的 badge 清零——档位徽有底色（index.css .badge-accent/.badge-muted 同值；
+   warn=S端失联/试用临期警示态，同 index.css .badge-warn） */
+.wb .appbar .badge-accent { background: var(--accent-soft); color: var(--accent); }
+.wb .appbar .badge-muted { background: color-mix(in oklch, var(--fg) 6%, transparent); color: var(--muted); }
+.wb .appbar .badge-warn { background: var(--warn-soft); color: var(--warn); }
 .wb .badge.ok { background: var(--ok-soft); color: var(--ok); }
 .wb .badge.warn { background: var(--warn-soft); color: var(--warn); }
 .wb .badge.err { background: var(--err-soft); color: var(--err); }
