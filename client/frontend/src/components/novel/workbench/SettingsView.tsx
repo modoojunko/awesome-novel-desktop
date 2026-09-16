@@ -15,7 +15,6 @@ import { type SettingSaveHandle } from "@/components/novel/settings/FormField";
 import WorldSettingPanel from "@/components/novel/settings/world/WorldSettingPanel";
 import type { WorldPanelHandle } from "@/components/novel/settings/world/WorldSettingPanel";
 import StyleSettingForm, { type StylePanelHandle } from "@/components/novel/settings/StyleSettingForm";
-import AntiAiSettingForm from "@/components/novel/settings/AntiAiSettingForm";
 import HooksSettingForm, { type HookSaveState, type HooksPanelHandle } from "@/components/novel/settings/HooksSettingForm";
 import CharacterManager from "@/components/novel/settings/CharacterManager";
 import { type CharAiCtx } from "@/lib/characterModel";
@@ -46,8 +45,9 @@ import { introAi, aiBlockReason, type IntroAiAction } from "@/lib/ai";
 
 // ── 面板注册表（顺序/命名与原型 navItems 一致；settingsKey 对后端口径）──
 // 顺序＝用户 2026-09-10 拍板：00 模型设定（工具项，见下方树内单列）→ 01 简介 →
-// 02 题材 → 03 世界 → 04 角色 → 05 主线 → 06 文风 → 07 伏笔 → 08 禁用词句。
-// 这一序同时决定「确认即前进」的推进顺序（nextPanel 按本数组取下一项）。
+// 02 题材 → 03 世界 → 04 角色 → 05 主线 → 06 文风 → 07 伏笔。
+// 这一序同时决定「确认即前进」的推进顺序（nextPanel 按本数组取下一项）；
+// banned-words-into-style：08 禁用词句退役——禁用词/句式规则并入文风硬约束区。
 const SETTINGS_ITEMS = [
   { k: "intro", name: "简介", settingsKey: "synopsis", canDefer: false },
   { k: "genre", name: "题材", settingsKey: "genre", canDefer: false },
@@ -56,7 +56,6 @@ const SETTINGS_ITEMS = [
   { k: "arc", name: "主线", settingsKey: "story-arc", canDefer: true },
   { k: "style", name: "文风", settingsKey: "style", canDefer: false },
   { k: "foreshadow", name: "伏笔", settingsKey: "hooks", canDefer: true },
-  { k: "antiAI", name: "禁用词句", settingsKey: "anti-ai", canDefer: true },
 ] as const;
 
 const DESCS: Record<string, string> = {
@@ -65,7 +64,6 @@ const DESCS: Record<string, string> = {
   arc: "比简介更全地说清这本书从头到尾讲什么、结局是什么——不填也不拦写作，直接开写都行。",
   world: "世界是 AI 写章时的物理法则——能做什么、不能做什么、付什么代价，都从这里读。",
   style: "文字文风管身份与红线（免费，继承题材），量化参数管数字手感（会员·蒸馏）。",
-  antiAI: "这些词句一出现就拦掉——AI 味最重的那批。",
   foreshadow:
     "先埋下的，后面要还（「收束」＝把坑填了）。每条伏笔记三件事：在哪埋、打算哪章还、还了没——章节从卷章树里选，AI 写到那章会照着还。改动即自动保存；设定期想到就记一条，写正文时回来埋也一样。",
   chars:
@@ -103,7 +101,7 @@ export interface SettingsViewProps {
 function normalizePanel(v: string | undefined): string {
   const map: Record<string, string> = {
     genre: "genre", synopsis: "intro", intro: "intro", "story-arc": "arc", arc: "arc",
-    world: "world", style: "style", "anti-ai": "antiAI",
+    world: "world", style: "style", "anti-ai": "style",
     hooks: "foreshadow", characters: "chars", "ai-model": "aiModel",
   };
   return (v && map[v]) || "intro";
@@ -418,7 +416,7 @@ export default function SettingsView({
       {
         key: "check",
         name: "锚定体检",
-        desc: "文字文风三区锚定自检：身份/红线/手法是否自洽，并与「禁用词句」面板对齐口径 · 只提醒不拦确认",
+        desc: "文字文风三区锚定自检：身份/红线/手法是否自洽，并与禁用词/句式规则同源对齐 · 只提醒不拦确认",
         onClick: () => runStyleAi("check"),
       },
       {
@@ -620,7 +618,7 @@ export default function SettingsView({
     : isForeshadow
       ? confirmed
         ? "已确认 · 可随时回来修改并重新确认"
-        : "改动自动保存 · 确认即前进到「禁用词句」"
+        : "改动自动保存 · 确认后停留本格（已是最后一项）"
       : confirmed
         ? "已确认 · 可随时回来修改并重新确认"
         : item?.canDefer
@@ -765,14 +763,6 @@ export default function SettingsView({
                 settingKey="style"
                 onDirtyChange={handleDirtyChange}
                 onReceiptChange={handleReceiptChange}
-              />
-            )}
-            {panel === "antiAI" && (
-              <AntiAiSettingForm
-                ref={formRef}
-                projectId={projectId}
-                settingKey="anti-ai"
-                onDirtyChange={handleDirtyChange}
               />
             )}
             {panel === "foreshadow" && (
@@ -932,24 +922,17 @@ export default function SettingsView({
         ) : panel === "style" ? (
           <AiWriterAssistant
             rows={styleAiRows}
-            footNote="蒸馏学到的禁用词会自动并入左侧「禁用词句」面板并去重；机器写的章永不回写文风卡——重蒸馏只由你触发，每次蒸馏都有版本快照；要保住的基线行锁定即可，重蒸馏跳过。所有 AI 辅助功能都在本栏，编辑区不放 AI 按钮；免费版四行可见＋锁定，点击走统一升级提示。"
+            footNote="蒸馏学到的禁用词会自动并入硬约束区下方的「禁用词」组并去重；机器写的章永不回写文风卡——重蒸馏只由你触发，每次蒸馏都有版本快照；要保住的基线行锁定即可，重蒸馏跳过。所有 AI 辅助功能都在本栏，编辑区不放 AI 按钮；免费版四行可见＋锁定，点击走统一升级提示。"
             aiState={aiState}
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}
             data-od-id="ai-assist-style"
           />
-        ) : panel === "antiAI" ? (
-          <div className="rail-card">
-            <b>{item?.name} · AI 能力</b>
-            <p className="opt" style={{ fontSize: 12 }}>
-              各字段行内的「AI 帮我填」按钮随字段就地可用：点一下，AI 按已确认的题材与简介给建议，结果可采纳或重试。
-            </p>
-          </div>
         ) : (
           <div className="rail-card">
             <b>当前设定项暂无 AI 功能</b>
             <p className="opt" style={{ fontSize: 12 }}>
-              「主线」面板的右栏是 AI 拆主线四步向导；世界/风格/AI痕迹控制的字段旁有「AI 帮我填」。
+              「主线」面板的右栏是 AI 拆主线四步向导；世界/风格的字段旁有「AI 帮我填」。
             </p>
           </div>
         )}

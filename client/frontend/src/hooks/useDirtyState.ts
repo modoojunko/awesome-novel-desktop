@@ -52,5 +52,16 @@ export function useDirtyState(
     notifyRef.current?.(true);
   }, []);
 
-  return { isDirty, snapshotLoaded, markSaved, markDirty };
+  /** 读取当前快照（banned-words-into-style：commit 服务端并入禁用词后，调用方
+   *  基于旧快照局部替换两键再 snapshotLoaded——用户未保存的其他编辑保持 dirty）。 */
+  const getSnapshot = useCallback((): unknown | null => {
+    if (snapshotRef.current === null) return null;
+    try {
+      return JSON.parse(snapshotRef.current);
+    } catch {
+      return null;
+    }
+  }, []);
+
+  return { isDirty, snapshotLoaded, markSaved, markDirty, getSnapshot };
 }

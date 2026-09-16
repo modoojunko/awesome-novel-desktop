@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
-// 完成判定 8 项（PRD 3.4 + story-arc-planning）：与后端 READINESS_KEYS 一致。
+// 完成判定 7 项（PRD 3.4 + story-arc-planning；banned-words-into-style：anti-ai
+// 检查项退役，禁用词归文风面板）：与后端 READINESS_KEYS 一致。
 // ai-model 不参与判定（模型配置不是创作设定），派生时恒绿。
-const SETTINGS_TYPES = ["synopsis", "story-arc", "genre", "world", "style", "anti-ai", "hooks", "characters"];
+const SETTINGS_TYPES = ["synopsis", "story-arc", "genre", "world", "style", "hooks", "characters"];
 
 export function useOnboarding(projectId: string | undefined, volumes: any[]) {
   const [settingsStatus, setSettingsStatus] = useState<Record<string, boolean> | null>(null);
@@ -43,7 +44,7 @@ export function useOnboarding(projectId: string | undefined, volumes: any[]) {
   // settingsStatus 拉取失败（null）时不能当作「全新项目」——避免把已有数据的项目误拉回设定引导
   const isNew = settingsStatus !== null && !hasVolumes && !allConfirmed;
 
-  // modnav「设定 N/8」口径：只数 8 项创作设定；ai-model 是恒绿派生项，不参与计数
+  // modnav「设定 N/7」口径：只数 7 项创作设定；ai-model 是恒绿派生项，不参与计数
   const settingsDone = settingsStatus
     ? SETTINGS_TYPES.filter((t) => settingsStatus[t] === true).length
     : 0;

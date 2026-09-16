@@ -7,7 +7,10 @@
 //     只带 role/rules/craft/few_shot_examples；归一与迁移在后端 put_style 边界
 //   · 量化基线只读：前端唯一写路径是行级锁定切换（styleQuantApi.putLocks）
 //   · 蒸馏三步端点串联，每步产物落 style-quant.draft，中断续跑；「不像再学一次」＝
-//     step3 带 force 重跑；commit 幂等并服务端并入禁用词句
+//     step3 带 force 重跑；commit 幂等并服务端并入禁用词——成功后回读 style 只把
+//     禁用词/句式两键合入表单态与快照（banned-words-into-style D4：防旧快照保存覆盖丢词）
+//   · 禁用词收编（banned-words-into-style）：原「禁用词句」面板退役，硬约束区下挂
+//     禁用词（≤100）与句式规则（≤20）两个折叠组，提示词/体检单源取本卡
 //   · 章节量化变化不做场景卡——写章 AI 按剧情在容差内自行调节（提示词已带指令）
 //
 // AI 四行在右栏（SettingsView 接 AiWriterAssistant），编辑区零 AI 按钮（伏笔纪律）。
@@ -23,6 +26,7 @@ import {
 import { api } from "@/lib/api";
 import { useDirtyState } from "@/hooks/useDirtyState";
 import { Cfg, ListEditor, type SettingSaveHandle } from "./FormField";
+import { Ico, P } from "@/components/icons";
 import type { ChangeReceiptState } from "./ChangeReceipt";
 import { styleAiApi, styleQuantApi, BASELINE_ROWS } from "@/lib/styleApi";
 import type { StyleQuant } from "@/lib/styleApi";
@@ -45,6 +49,108 @@ export interface StylePanelHandle extends SettingSaveHandle {
 
 const CHECK_PATH = "M5 13l4 4L19 7";
 
+/** 句式规则（banned-words-into-style：自原 AntiAiSettingForm 整体搬入，接 maxItems） */
+interface TicPattern {
+  pattern: string;
+  name: string;
+  threshold: number;
+  severity: string;
+  description: string;
+}
+
+const EMPTY_TIC: TicPattern = { pattern: "", name: "", threshold: 3, severity: "medium", description: "" };
+
+function toTics(v: unknown): TicPattern[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((p): TicPattern => {
+      const o = (p ?? {}) as Record<string, unknown>;
+      return {
+        pattern: String(o.pattern ?? ""),
+        name: String(o.name ?? ""),
+        threshold: typeof o.threshold === "number" && o.threshold >= 1 ? o.threshold : 3,
+        severity: o.severity === "high" || o.severity === "low" ? o.severity : "medium",
+        description: String(o.description ?? ""),
+      };
+    })
+    .filter((p) => p.pattern.trim() !== "");
+}
+
+/** 句式规则编辑器：首行 句式名/严重度/阈值/删除 ＋ 正则 pattern（mono）＋ 修复说明 */
+function TicPatternEditor({ items, onChange }: { items: TicPattern[]; onChange: (v: TicPattern[]) => void }) {
+  const update = (i: number, patch: Partial<TicPattern>) => {
+    const n = [...items];
+    n[i] = { ...(n[i] || EMPTY_TIC), ...patch };
+    onChange(n);
+  };
+  return (
+    <div data-od-id="list-tic-patterns">
+      {items.length === 0 && <p className="sub-empty">暂无句式规则 · 点下方添加</p>}
+      {items.map((item, i) => (
+        <div className="sub-block" key={i}>
+          <div className="sub-row tics">
+            <input
+              className="input"
+              value={item.name}
+              onChange={(e) => update(i, { name: e.target.value })}
+              placeholder="句式名，如：不是而是句式"
+            />
+            <select
+              className="input"
+              value={item.severity}
+              onChange={(e) => update(i, { severity: e.target.value })}
+            >
+              <option value="high">高</option>
+              <option value="medium">中</option>
+              <option value="low">低</option>
+            </select>
+            <input
+              className="input num"
+              type="number"
+              min={1}
+              value={item.threshold}
+              onChange={(e) => update(i, { threshold: Number(e.target.value) || 1 })}
+              title="单章出现次数阈值"
+            />
+            <button
+              className="icon-btn"
+              type="button"
+              title="删除本条"
+              onClick={() => onChange(items.filter((_, j) => j !== i))}
+            >
+              <Ico d={P.trash} sw={1.7} />
+            </button>
+          </div>
+          <input
+            className="input mono"
+            value={item.pattern}
+            onChange={(e) => update(i, { pattern: e.target.value })}
+            placeholder="正则 pattern，如：不是[^，。]{1,20}(而是|是)"
+          />
+          <input
+            className="input"
+            value={item.description}
+            onChange={(e) => update(i, { description: e.target.value })}
+            placeholder="修复说明（可选）：命中后如何改写"
+          />
+        </div>
+      ))}
+      {items.length < 20 && (
+        <button
+          className="text-btn"
+          type="button"
+          data-od-id="btn-add-tic"
+          onClick={() => onChange([...items, { ...EMPTY_TIC }])}
+        >
+          <Ico d={P.plus} sw={2} size={13} />
+          添加句式规则
+        </button>
+      )}
+      {items.length > 0 && <span className="opt li-cnt num">{items.length}/20 条</span>}
+    </div>
+  );
+}
+
 type Tab = "text" | "quant";
 type DistillView = "closed" | "samples" | "steps" | "portrait";
 
@@ -64,6 +170,9 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
   const [rules, setRules] = useState<string[]>([""]);
   const [craft, setCraft] = useState<string[]>([""]);
   const [fewShots, setFewShots] = useState<string[]>([""]);
+  // 禁用词收编（banned-words-into-style）：词表 ≤100／句式规则 ≤20，无占位空行
+  const [banned, setBanned] = useState<string[]>([]);
+  const [tics, setTics] = useState<TicPattern[]>([]);
   const [error, setError] = useState("");
   // 题材默认快照（首次加载的归一三区）——页签徽标「已自定义 · N 处」的 diff 基准
   const presetRef = useRef<{ role: string; rules: string[]; craft: string[] } | null>(null);
@@ -82,10 +191,10 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
   } | null>(null);
 
   const shape = useMemo(
-    () => ({ role, rules, craft, fewShots }),
-    [role, rules, craft, fewShots],
+    () => ({ role, rules, craft, fewShots, banned, tics }),
+    [role, rules, craft, fewShots, banned, tics],
   );
-  const { isDirty, snapshotLoaded, markSaved } = useDirtyState(shape, onDirtyChange);
+  const { isDirty, snapshotLoaded, markSaved, getSnapshot } = useDirtyState(shape, onDirtyChange);
 
   useEffect(() => {
     let alive = true;
@@ -99,13 +208,19 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
         const fewN: string[] = Array.isArray(style?.few_shot_examples)
           ? style.few_shot_examples.map(String)
           : [];
+        const bannedN: string[] = Array.isArray(style?.banned_words)
+          ? style.banned_words.map(String).filter(Boolean)
+          : [];
+        const ticsN = toTics(style?.tic_patterns);
         setRole(roleN);
         setRules(rulesN.length ? rulesN : [""]);
         setCraft(craftN.length ? craftN : [""]);
         setFewShots(fewN.slice(0, 3).length ? fewN.slice(0, 3) : [""]);
+        setBanned(bannedN);
+        setTics(ticsN);
         presetRef.current = { role: roleN, rules: rulesN, craft: craftN };
         setQuant(quant);
-        snapshotLoaded({ role: roleN, rules: rulesN, craft: craftN, fewShots: fewN });
+        snapshotLoaded({ role: roleN, rules: rulesN, craft: craftN, fewShots: fewN, banned: bannedN, tics: ticsN });
       })
       .catch((e: Error) => {
         if (alive) setError(e.message || "加载失败");
@@ -136,12 +251,16 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
   async function handleSave(): Promise<boolean> {
     setError("");
     try {
-      // 白名单 payload（撤并键零写回）：role/rules/craft/few_shot_examples 之外不带
+      // 白名单 payload（撤并键零写回）：六键之外不带；禁用词/句式随卡保存
       await api.put(`/novels/${projectId}/settings/style`, {
         role: role.trim(),
         rules: rules.map((r) => r.trim()).filter(Boolean),
         craft: craft.map((c) => c.trim()).filter(Boolean).slice(0, 8),
         few_shot_examples: fewShots.map((s) => s.trim()).filter(Boolean).slice(0, 3),
+        banned_words: banned.map((w) => w.trim()).filter(Boolean).slice(0, 100),
+        tic_patterns: tics
+          .filter((t) => t.pattern.trim() !== "")
+          .map((t) => ({ ...t, name: t.name.trim(), description: t.description.trim() })),
       });
       markSaved();
       publishReceipt(null);
@@ -300,6 +419,19 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
       setQuant(out.quant);
       setDistillView("closed");
       setDistillStep(0);
+      // D4 竞态缓解：服务端已 append 禁用词——回读 style 只把两键合入表单态，
+      // 并基于旧快照局部替换两键（三区快照保持原值：用户未保存的编辑仍 dirty）
+      if (out.banned_added > 0) {
+        const fresh = await api.get(`/novels/${projectId}/settings/style`);
+        const newBanned: string[] = Array.isArray(fresh?.banned_words)
+          ? fresh.banned_words.map(String).filter(Boolean)
+          : [];
+        const newTics = toTics(fresh?.tic_patterns);
+        setBanned(newBanned);
+        setTics(newTics);
+        const snap = (getSnapshot() ?? {}) as Record<string, unknown>;
+        snapshotLoaded({ ...snap, banned: newBanned, tics: newTics });
+      }
       toast.success("画像已确认——六行基线更新了，写章时生效");
       publishReceipt({
         text: `已落卡：六行基线更新（置信度 ${out.quant.confidence}）· 蒸馏禁用词并入 ${out.banned_added} 条`,
@@ -427,8 +559,8 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
               <span className="fb-no">②</span>
               <b>硬约束</b>
               <span className="hint">
-                这个身份<em>绝对不能做什么</em>。每条都要能检查——超没超，一眼看得出来（3–5 条）。
-                风格特有的禁令写这里；通用的 AI 词句归「禁用词句」面板拦。
+                这个身份<em>绝对不能做什么</em>。每条都要能检查——最好带数量，超没超一眼看得出来（3–5 条）。
+                风格特有的禁令写这里；通用 AI 腔词与高频句式归下方「禁用词」「句式规则」两组拦（同一处管体检）。
               </span>
             </div>
             <div data-od-id="list-rules">
@@ -446,6 +578,39 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
               />
             </div>
           </div>
+
+          {/* 折叠组：禁用词（banned-words-into-style 收编，原「禁用词句」面板退役） */}
+          <Cfg
+            title="禁用词"
+            tag="≤100 条"
+            sum={`已填 ${banned.filter((w) => w.trim()).length} 条 · 出现在正文即拦；蒸馏学到的词自动并入去重`}
+          >
+            <div data-od-id="list-banned-words">
+              <ListEditor
+                items={banned.length ? banned : [""]}
+                onChange={(v) => setBanned(v.map((x) => x.trim()).filter((x, i) => x || i < v.length - 1))}
+                maxLength={50}
+                maxItems={100}
+                placeholder="添加禁用词。如：本章讲述了、与此同时、他感到"
+              />
+            </div>
+            <p className="opt" style={{ marginTop: 6 }}>
+              通用 AI 腔词写这里（模板已按七类预填：总结叙事／抽象情绪／学术腔……）；
+              <b>带量的风格禁令</b>（如「突然 ≤4 次/章」）写在上面②硬约束，两边不重复。
+            </p>
+          </Cfg>
+
+          {/* 折叠组：句式规则 */}
+          <Cfg
+            title="句式规则"
+            tag="≤20 条"
+            sum={`已填 ${tics.filter((t) => t.pattern.trim()).length} 条 · 正则拦「不是…而是」类高频癖好，写完的章按条体检`}
+          >
+            <TicPatternEditor items={tics} onChange={setTics} />
+            <p className="opt" style={{ marginTop: 6 }}>
+              每条＝正则＋单章允许次数＋修复说明；写章提示词与程序化体检同源取这里（提示词注入前 5 条，体检全量）。
+            </p>
+          </Cfg>
 
           <div className="fblock" data-od-id="field-craft">
             <div className="fb-head">
@@ -491,7 +656,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
 
           {checkSink && (
             <div className="ai-sink" data-od-id="sink-style-check">
-              <div className="aiz-head">AI 体检 · 文字文风三区锚定 × 禁用词句</div>
+              <div className="aiz-head">AI 体检 · 文字文风三区锚定 × 禁用词（同源）</div>
               {checkSink.checks.map((c, i) => (
                 <div className="chk-line" key={i}>
                   <span className="chk-name">{c.name}</span>

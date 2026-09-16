@@ -303,7 +303,7 @@ export default function NovelWorkspace() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="15" height="15">
             <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
           </svg>
-          设定 <span className="cnt">{settingsDone}/8</span>
+          设定 <span className="cnt">{settingsDone}/7</span>
         </button>
         <button
           className={`mtab${view === "workbench" ? " on" : ""}`}
