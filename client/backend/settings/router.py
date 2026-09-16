@@ -73,10 +73,12 @@ async def get_settings(
         from settings.world_model import read_world
 
         return read_world(await get_storage().read_yaml(project.root_path, KEY_TO_PATH[type]) or {})
-    # style 契约 v2（style-settings-v2）：GET 返回归一三区并剥离 `_legacy_style`
+    # style 契约 v2（style-settings-v2）：GET 返回归一三区并剥离 `_legacy_style`；
+    # banned-words-into-style：先确保 anti-ai 存量迁移完成再读（GET 也兜迁移底）
     if type == "style":
-        from settings.style_model import read_style
+        from settings.style_model import migrate_anti_ai_into_style, read_style
 
+        await migrate_anti_ai_into_style(project.root_path)
         return read_style(await get_storage().read_yaml(project.root_path, KEY_TO_PATH[type]) or {})
     # genre 已关系化（D19）：对外仍是五字段 JSON，存储层走 novel_genre_service
     if type == "genre":
@@ -111,6 +113,13 @@ async def update_settings(
         )
     if type not in SINGLE_FILE_TYPES:
         raise HTTPException(400, f"Invalid settings type: {type}")
+    # anti-ai 退役（banned-words-into-style）：面板已并入文风硬约束区，写通道退役；
+    # GET 一版周期原样返回现值（无前端消费方，仅迁移/回滚兜底）
+    if type == "anti-ai":
+        raise HTTPException(
+            400,
+            "「禁用词句」已并入「文风」面板——禁用词与句式规则请在文风面板的硬约束区编辑",
+        )
     # world 契约 v2（world-setting-v2）：WorldIn 校验 + 写边界落 `_legacy`（v1 原文留一个版本周期回滚）
     if type == "world":
         from pydantic import ValidationError
@@ -138,8 +147,10 @@ async def update_settings(
     elif type == "style":
         # style 契约 v2（style-settings-v2）：白名单写（role/rules/craft/few_shot_examples）
         # ＋旧键归一落底（`_legacy_style` 留底；撤并键零写回由白名单保证——评审 P0）
-        from settings.style_model import put_style
+        # banned-words-into-style：先迁移再读 raw（先迁移、再读、再合并写的顺序约定，防迁移写覆盖并发 PUT）
+        from settings.style_model import migrate_anti_ai_into_style, put_style
 
+        await migrate_anti_ai_into_style(project.root_path)
         raw = await get_storage().read_yaml(project.root_path, KEY_TO_PATH[type]) or {}
         merged = put_style(raw, body)
         await get_storage().write_yaml(project.root_path, KEY_TO_PATH[type], merged)
@@ -191,25 +202,6 @@ async def update_settings(
         await db.commit()
 
     return {"ok": True}
-
-
-@router.post("/anti-ai/words")
-async def append_anti_ai_words(
-    project_id: str,
-    body: dict,
-    user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """禁用词服务端追加（style-settings-v2 评审 P0）：蒸馏学到的词由此端点写入，
-    归一（strip＋大小写折叠）后跨分类去重；前端面板保持人类整表写，机器段不经过
-    前端读改写，杜绝 read-modify-write 竞态。"""
-    project = await get_novel(db, project_id, user["id"])
-    if not project:
-        raise HTTPException(404, "Project not found")
-    from settings.style_model import append_anti_ai_words
-
-    added = await append_anti_ai_words(project.root_path, body.get("words"))
-    return {"ok": True, "added": added}
 
 
 @router.delete("/character/{name}")

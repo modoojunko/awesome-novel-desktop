@@ -7,6 +7,8 @@ key 用语义短名；字符目录按前缀 `character:`。
 # 单文件设定：相对路径 → DB key
 # hooks 不在其中：伏笔已升级真表 novel_hooks（foreshadow-settings-v2），
 # settings/hooks.yaml 通道整体退役（GET/PUT /settings/hooks 不再受理）。
+# anti-ai 映射保留（banned-words-into-style）：面板/写端点已退役，但迁移函数要读
+# 原键、导出/导入兜底与回滚安全都依赖它；清理属后续版本。
 PATH_TO_KEY = {
     "story.yaml": "story",
     "settings/world-setting.yaml": "world",

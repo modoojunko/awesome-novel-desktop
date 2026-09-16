@@ -1,25 +1,19 @@
 import re
 
-from filesystem.storage import get_storage
-
-
-def _flatten_fatigue_words(anti_ai: dict) -> list[str]:
-    """Flatten fatigue_words_zh nested categories into a single list."""
-    fw = anti_ai.get("fatigue_words_zh", {})
-    words = []
-    for category in fw.values():
-        if isinstance(category, list):
-            words.extend(category)
-    return words
-
 
 async def run_quality_checks(root_path: str, full_text: str) -> dict:
-    anti_ai = await get_storage().read_yaml(root_path, "settings/anti-ai.yaml")
+    # banned-words-into-style：禁用词/句式单源自文风 KV，统一迁移感知读路径
+    # （存量书不进设定页直接体检也先完成迁移，不假通过）
+    from settings.style_model import read_style_migrated
+
+    style = await read_style_migrated(root_path)
+    banned_words = [str(w) for w in (style.get("banned_words") or [])]
+    tic_list = style.get("tic_patterns") or []
 
     results = {"passed": True, "checks": {}}
 
     # 1. Anti-AI fatigue words
-    fatigue_hits = [w for w in _flatten_fatigue_words(anti_ai) if w in full_text]
+    fatigue_hits = [w for w in banned_words if w in full_text]
     results["checks"]["fatigue_words"] = {
         "passed": len(fatigue_hits) == 0,
         "hits": fatigue_hits,
@@ -28,7 +22,7 @@ async def run_quality_checks(root_path: str, full_text: str) -> dict:
     # 2. Forbidden sentence patterns
     pattern_hits = {}
     over_threshold = {}
-    for p in anti_ai.get("structural_tic_patterns", []):
+    for p in tic_list:
         pt = p["pattern"] if isinstance(p, dict) else p
         matches = re.findall(pt, full_text)
         if matches:

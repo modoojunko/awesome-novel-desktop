@@ -81,7 +81,7 @@
 
 #### Scenario: 旧端点不可达
 - **WHEN** POST /settings/anti-ai/words
-- **THEN** 返回 404
+- **THEN** 返回 404/405（端点已删除，路由表象任一即视为不可达）
 
 ### Requirement: 蒸馏并入文风词表
 

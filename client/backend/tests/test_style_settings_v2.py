@@ -118,10 +118,12 @@ class TestNormalizeStyle:
         twice = normalize_style(once)
         assert once == twice
 
-    def test_v2_passthrough_keeps_fatigue_words(self):
+    def test_v2_ghost_fatigue_words_merged_into_banned(self):
+        """幽灵键 fatigue_words（6.0e 遗物）归一并入 banned_words 后剥离（banned-words-into-style）。"""
         raw = {"role": "r", "rules": ["a"], "craft": [], "few_shot_examples": ["s"], "fatigue_words": ["忽然"]}
         out = normalize_style(raw)
-        assert out["fatigue_words"] == ["忽然"]
+        assert out["banned_words"] == ["忽然"]
+        assert "fatigue_words" not in out
         assert out["rules"] == ["a"]
 
     def test_pacing_rules_to_rules(self):
@@ -143,8 +145,10 @@ class TestNormalizeStyle:
         assert merged["rules"] == ["红线1"]
         for k in ("narrator_role", "tone", "core_principles", "possible_mistakes"):
             assert k not in merged
-        # fatigue_words 等未在 payload 的既有键保留
+        # payload 未带 banned_words 不清空该键（白名单语义＝全量替换所带键）
+        merged["banned_words"] = ["突然"]
         merged2 = put_style(merged, {"rules": ["红线2"]})
+        assert merged2["banned_words"] == ["突然"]
         assert merged2["role"] == "新身份"  # payload 没带 role 不清空？——不，白名单语义是全量替换该键
 
 
@@ -325,10 +329,9 @@ class TestDistillEndpoints:
         assert q["confidence"] > 0
         assert q["baseline"]["narrative"]["value"] == "第三人称限知"
         assert q["history"] and q["draft"] == {}
-        # 禁用词已服务端并入 anti-ai
-        anti = client.get(f"/api/novels/{pid}/settings/anti-ai").json()
-        words = [w for cat in anti.get("fatigue_words_zh", {}).values() for w in cat]
-        assert "突然" in words
+        # 禁用词已服务端并入文风 KV banned_words（banned-words-into-style 改目标）
+        style_doc = client.get(f"/api/novels/{pid}/settings/style").json()
+        assert "突然" in (style_doc.get("banned_words") or [])
 
     def test_sample_under_range_400(self, client, pid, monkeypatch):
         root = _project_root(pid)

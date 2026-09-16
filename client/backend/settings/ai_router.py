@@ -1736,13 +1736,13 @@ async def style_distill_ai(
     draft = doc.get("draft") or {}
 
     if action == "commit":
-        from settings.style_model import append_anti_ai_words
+        from settings.style_model import append_banned_words
         from settings.style_quant_model import commit_draft
 
         doc = commit_draft(doc, sample_chars=int(draft.get("sample_chars") or 0), chapter_count=int(draft.get("chapter_count") or 0), at=datetime.now(UTC).isoformat(timespec="seconds"))
         await _save_quant_doc(project.root_path, doc)
         banned = (draft.get("step3") or {}).get("banned") or []
-        added = await append_anti_ai_words(project.root_path, banned) if banned else 0
+        added = await append_banned_words(project.root_path, banned) if banned else 0
         return {"ok": True, "quant": await _load_quant_doc(project.root_path), "banned_added": added}
 
     if not isinstance(body, dict):
@@ -1864,13 +1864,11 @@ async def run_style_ai(
         craft = [str(x).strip()[:500] for x in body.get("craft", []) if str(x).strip()]
         if not role:
             raise HTTPException(400, "先写叙事身份——锚定体检对当前三区生效")
-        anti = await get_storage().read_yaml(project.root_path, "settings/anti-ai.yaml") or {}
-        fatigue = [
-            w
-            for cat in (anti.get("fatigue_words_zh") or {}).values()
-            if isinstance(cat, list)
-            for w in cat
-        ][:40]
+        # banned-words-into-style：疲劳词单源自文风 KV（统一迁移感知读路径）
+        from settings.style_model import read_style_migrated
+
+        style_doc = await read_style_migrated(project.root_path)
+        fatigue = [str(w) for w in (style_doc.get("banned_words") or [])][:40]
         rules_text = "\n".join(f"- {r}" for r in rules) or "（未填）"
         craft_text = "\n".join(f"- {c}" for c in craft) or "（未填）"
         prompt = load_prompt("style_check").format(
