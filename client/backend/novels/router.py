@@ -245,7 +245,13 @@ async def list_all(
         ch_rows = (
             await db.scalars(
                 select(Chapter)
-                .where(Chapter.project_id.in_([p.id for p in projects]))
+                .where(
+                    Chapter.project_id.in_([p.id for p in projects]),
+                    # 主线口径（2026-09-17 拍板）：回退后转入旧稿支线的章不计入
+                    # 字数/章数/归档数——书架卡片与工作台卷章树（同样过滤 ghost）
+                    # 必须同结论，否则「卡片阶段 vs 打开书的落点」自相矛盾
+                    Chapter.ghost_of.is_(None),
+                )
                 .options(
                     load_only(Chapter.project_id, Chapter.word_count, Chapter.status)
                 )
