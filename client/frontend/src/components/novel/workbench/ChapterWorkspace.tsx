@@ -16,6 +16,7 @@ import {
   type RefObject,
 } from "react";
 import OgPane from "./OgPane";
+import SimModal from "./SimModal";
 import { charactersApi } from "@/lib/charactersApi";
 import PromptPane from "./PromptPane";
 import { StyleShadowPane } from "./StyleShadowPane";
@@ -395,6 +396,33 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, chapterRef, ogForm, outline.chaptersMap]);
 
+  // ── 剧情推演（plot-sim）：弹窗按回合走一遍；收进章纲＝写预期策略后走既有保存链 ──
+  const [showSim, setShowSim] = useState(false);
+  const handleSimAdopt = useCallback(
+    async (line: string): Promise<boolean> => {
+      const patched: OgForm = { ...ogForm, rstrat: line };
+      const issues = ogFormIssues(patched);
+      if (issues.length > 0) {
+        toast.error(issues[0]);
+        return false;
+      }
+      try {
+        await outline.saveChapter(
+          chapterRef,
+          ogToPartial(patched, outline.chaptersMap.get(chapterRef)),
+        );
+        setOgForm(patched);
+        ogSnapRef.current = JSON.stringify(patched);
+        return true;
+      } catch {
+        toast.error("章纲保存失败，请重试");
+        return false;
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [chapterRef, ogForm, outline.saveChapter, outline.chaptersMap],
+  );
+
   // ── 提示词能力探测（tab 徽标 + PromptPane 共用；quiet：403 不弹升级） ──
   // 提示词子 label PRO-only（ai-prompt-crafting spec：免费隐藏 → 探测也只跑 PRO）
   const [hasPrompts, setHasPrompts] = useState<boolean | null>(null);
@@ -738,8 +766,20 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           canAiDraft={isPro}
           aiDrafting={aiDrafting}
           onAiDraft={() => void handleAiDraft()}
+          canSimulate={isPro && !archived && !ghostOf}
+          onSimulate={() => setShowSim(true)}
         />
       )}
+
+      <SimModal
+        open={showSim}
+        onClose={() => setShowSim(false)}
+        projectId={projectId}
+        chapterRef={chapterRef}
+        chapterLabel={label}
+        planWords={parseInt(ogForm.wt, 10) || targetWords || undefined}
+        onAdopt={handleSimAdopt}
+      />
 
       {chTab === "prompt" && (
         <PromptPane

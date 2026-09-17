@@ -35,6 +35,9 @@ interface OgPaneProps {
   canAiDraft?: boolean;
   aiDrafting?: boolean;
   onAiDraft?: () => void;
+  /** 剧情推演（plot-sim）：PRO 态渲染入口；打开按回合强演弹窗 */
+  canSimulate?: boolean;
+  onSimulate?: () => void;
 }
 
 const MOODS = ["紧张", "悬疑", "温暖", "悲伤", "激昂", "轻松", "压抑", "浪漫", "惊悚"];
@@ -64,6 +67,8 @@ export default function OgPane({
   canAiDraft,
   aiDrafting,
   onAiDraft,
+  canSimulate,
+  onSimulate,
 }: OgPaneProps) {
   const moodVal = form.mood || "";
   const moodCustom = moodVal && !MOODS.includes(moodVal) ? moodVal : "";
@@ -98,6 +103,16 @@ export default function OgPane({
               onClick={onAiDraft}
             >
               {aiDrafting ? "AI 起草中…" : "AI 起草"}
+            </button>
+          ) : null}
+          {canSimulate && onSimulate ? (
+            <button
+              className="btn btn-secondary btn-sm"
+              data-testid="og-simulate"
+              disabled={saving}
+              onClick={onSimulate}
+            >
+              剧情推演
             </button>
           ) : null}
           {confirmed ? (
