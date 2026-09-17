@@ -674,6 +674,13 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     引导语＋`.rail-stats` 统计卡＋`.rail-acts` 动作清单；**未实现动作＝禁用＋「规划中」**
     （用户拍板：先占位后续逐个补）；已实现动作：章纲（AI 起草/剧情推演）、正文
     （续写/润色/扩写沿用原工具卡，仅正文页签呈现）；文风调参等页签内已有动作不重复。
+    ⑨ **重写这一章**（chapter-rewrite，原型 readActionsHTML/applyRewrite/m-ch-confirm）：
+    「操作」页签 `.revert-card` 同款卡（data-od-id rewrite-card/rewrite-btn，仅有正文
+    且非支线渲染）→ `.rw-list` 三行影响面确认弹窗（旧稿/后续/设定）→ 确认即事务：
+    旧稿内容寻址快照入支线（`.ghost-row` 分组，ref=`{ref}-r{8hex}`）＋归档章解锁；
+    下游章挂 `.tag-stale` 虚线中性角标（§5 常态徽标禁警示色；避让 cfg 摘要 `.tag`，
+    data-testid=ch-stale），三面呈现（树行/设定投影 `ch-stale-note`/右栏操作统计
+    `下游挂着旧设定 N 章`）；本章保存成功即刷树消角标。
     **门控**：①-③ 免费可用；④ 影子手工编辑全档位、AI 建议 PRO（2026-09-17 拍板定案）、⑤ AI 归 PRO。
     **测试覆盖**：后端 pytest（frontier/ghost/style_shadow/plot_sim/prompt_sources）＋前端 vitest
     ＋e2e（plot-sim.spec.ts 等）；无原型像素基线（storyline 未收编严格扫描）。
