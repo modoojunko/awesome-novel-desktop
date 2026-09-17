@@ -20,13 +20,10 @@ from models.chapter import Chapter
 
 async def frontier_info(db: AsyncSession, novel_id: str) -> dict:
     """返回 {ref, chapter_no, state, writable, volume_id}；空书返回 chapters=[] 语义由调用方处理。"""
-    rows = (
-        await db.scalars(
-            select(Chapter)
-            .where(Chapter.project_id == novel_id)
-            .order_by(Chapter.ref)
-        )
-    ).all()
+    # 主线性单源（chapters/scope.py）：ghost_of IS NULL——旧稿快照不得抢占 frontier
+    from chapters.scope import mainline_stmt
+
+    rows = (await db.scalars(mainline_stmt(novel_id).order_by(Chapter.ref))).all()
     chapters = sorted(
         (
             {
@@ -152,17 +149,12 @@ async def revert_to_chapter(db: AsyncSession, novel_id: str, ref: str) -> dict:
     """
     from fastapi import HTTPException
 
+    from chapters.scope import mainline_stmt
     from models.archive import Archive
     from models.hook import NovelHook
     from models.reconcile import ChapterReconcile
 
-    rows = (
-        await db.scalars(
-            select(Chapter)
-            .where(Chapter.project_id == novel_id, Chapter.ghost_of.is_(None))
-            .order_by(Chapter.ref)
-        )
-    ).all()
+    rows = (await db.scalars(mainline_stmt(novel_id).order_by(Chapter.ref))).all()
     mainline = [
         {"row": c, "volume_no": _vol_no(c.ref), "chapter_no": c.chapter_no}
         for c in rows

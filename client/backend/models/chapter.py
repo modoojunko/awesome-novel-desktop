@@ -60,6 +60,9 @@ class Chapter(Base):
     # 旧稿支线（revert-ghost）：回退点章 ref（vol-1-ch-5）。非空＝本章已脱离主线，
     # 只读保留在支线分组；主线查询一律 ghost_of IS NULL。
     ghost_of: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 基于旧设定（chapter-rewrite）：上游章被重写后由重写事务置位；本章自身
+    # 保存/归档成功即清除（单写入口统一处理，不做时间戳派生）
+    stale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

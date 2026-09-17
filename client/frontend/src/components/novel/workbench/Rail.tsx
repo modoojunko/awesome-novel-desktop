@@ -30,6 +30,8 @@ export interface RailChapterData {
   onSimulate?: () => void;
   /** 当前章 ref（右栏辅助面板按章取数） */
   chapterRef?: string;
+  /** chapter-rewrite：下游「基于旧设定」章计数（NovelWorkspace 由树计算注入） */
+  staleDownstream?: number;
 }
 
 interface RailProps {
@@ -253,6 +255,7 @@ export default function Rail({
           aiDrafting={!!d.aiDrafting}
           onAiDraft={d.onAiDraft}
           onSimulate={d.onSimulate}
+          staleDownstream={d.staleDownstream}
         />
       )}
 

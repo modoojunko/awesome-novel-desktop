@@ -29,7 +29,7 @@ import ProsePane, {
   type ProseAIState,
   type ProseHandle,
 } from "./ProsePane";
-import { ArchiveModal, HistoryModal } from "./modals";
+import { ArchiveModal, HistoryModal, RewriteModal } from "./modals";
 import type { RailChapterData } from "./Rail";
 import {
   EMPTY_OG_FORM,
@@ -56,6 +56,7 @@ import {
   type LineHeightPref,
 } from "@/lib/prefs";
 import { toast } from "@/lib/toast";
+import { chapterNoOf, volNoOf } from "@/lib/chapterRef";
 
 type OutlineApi = ReturnType<typeof useOutline>;
 type WorkbenchApi = ReturnType<typeof useWorkbench>;
@@ -85,6 +86,8 @@ interface ChapterWorkspaceProps {
   onWriteProgress?: (session: { ref: string; scroll: number; ts: number }) => void;
   /** 回退到本章（revert-ghost）：主线收回，其后章转旧稿支线 */
   onRevert: (ref: string) => void;
+  /** chapter-rewrite：树刷新（useWorkbench.refresh——旧稿分组与角标只在树 hook 里） */
+  onTreeRefresh: () => Promise<void> | void;
 }
 
 const fmt = (n: number) => n.toLocaleString("zh-CN");
@@ -105,6 +108,7 @@ export default function ChapterWorkspace({
   resumeSignal,
   onWriteProgress,
   onRevert,
+  onTreeRefresh,
 }: ChapterWorkspaceProps) {
   const store = useChapterData(projectId, chapterRef);
   const { wordCount, saveState, targetWords, setTargetWords } = store;
@@ -129,10 +133,9 @@ export default function ChapterWorkspace({
   const writable = !frontierLocked;
 
   const chMeta = useMemo(() => {
-    const m = chapterRef.match(/^vol-(\d+)-ch-(\d+)$/);
-    if (!m) return null;
-    const volName = `vol-${parseInt(m[1], 10)}`;
-    const chNo = parseInt(m[2], 10);
+    const volName = `vol-${volNoOf(chapterRef)}`;
+    const chNo = chapterNoOf(chapterRef);
+    if (!chNo) return null;
     const vol = wb.volumes.find((v) => v.name === volName);
     return vol?.chapters.find((c) => c.chapter === chNo) ?? null;
   }, [wb.volumes, chapterRef]);
@@ -149,13 +152,12 @@ export default function ChapterWorkspace({
   } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    const m = chapterRef.match(/^vol-(\d+)-ch-(\d+)$/);
-    if (!m) {
+    const volRef = `vol-${volNoOf(chapterRef)}`;
+    const chNo = chapterNoOf(chapterRef);
+    if (!chNo) {
       setInfoGap(null);
       return;
     }
-    const volRef = `vol-${parseInt(m[1], 10)}`;
-    const chNo = parseInt(m[2], 10);
     api
       .get(`/novels/${projectId}/volumes/${volRef}`)
       .then((d: unknown) => {
@@ -474,8 +476,58 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   const handleArchive = useCallback(async () => {
     if (archived || wordCount === 0) return;
     const ok = await store.archive({ aiSummary: getBookArchiveAiSummary(projectId) });
-    if (ok) toast.success(`《${label}》已归档 · 只读`);
+    if (ok) {
+      // chapter-rewrite：存在下游「基于旧设定」章时在归档提示里点名（原型口径）
+      const hasStaleDownstream = outline.volumes.some((v) =>
+        v.chapters.some((c) => c.stale),
+      );
+      toast.success(
+        hasStaleDownstream
+          ? `《${label}》已归档 · 只读（下游章节标记「基于旧设定」）`
+          : `《${label}》已归档 · 只读`,
+      );
+    }
   }, [archived, wordCount, projectId, label, store]);
+
+  // ── chapter-rewrite：本章保存成功且仍带「基于旧设定」→ 刷新树让角标消失
+  //    （后端在单写入口已清 stale；树只在归档/增删事件刷新，这里补一次）
+  useEffect(() => {
+    if (store.saveState === "saved" && chMeta?.stale) {
+      void onTreeRefresh();
+      void outline.refetchTree();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.saveState, chMeta?.stale]);
+
+  // ── 重写这一章（chapter-rewrite）：flush → 合成端点（快照+解锁+下游置位）
+  //    → 正文页签聚焦改写；树刷新承接旧稿分组与「基于旧设定」角标 ──────────
+  const [showRewrite, setShowRewrite] = useState(false);
+  const [rewriting, setRewriting] = useState(false);
+  const handleRewriteConfirm = useCallback(async () => {
+    setRewriting(true);
+    try {
+      await store.flush(); // 旧稿快照必须先于存盘（防 1.5s 防抖窗口丢最后一段）
+      const d = (await api.post(
+        `/novels/${projectId}/chapters/${chapterRef}/rewrite`,
+        {},
+      )) as { ghost_ref: string; unarchived: boolean; stale_marked: number };
+      setShowRewrite(false);
+      await store.reload(); // 源章解锁后的状态（归档→可写）
+      await onTreeRefresh(); // 左树（useWorkbench）：旧稿分组 + 下游角标
+      await outline.refetchTree(); // chMeta/落点树（useOutline）
+      setChTab("prose");
+      toast.success(
+        d.unarchived
+          ? "旧稿已留存 · 本章已解锁：改完归档即写回主线"
+          : "旧稿已留存：改完归档即写回主线",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "重写失败，请重试");
+    } finally {
+      setRewriting(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, chapterRef, store, onTreeRefresh, outline.refetchTree]);
 
   // ── 恢复编辑（退出归档只读；换皮不减功能——banner 内入口） ────────────
   const handleUnarchive = useCallback(async () => {
@@ -727,6 +779,23 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
       {chTab === "actions" && (
         <div className="actions-pane" data-od-id="actions-pane">
+          {!ghostOf && (store.chapter?.prose ?? "").trim().length > 0 && (
+            <div className="revert-card" data-od-id="rewrite-card">
+              <p className="rc-title">重写这一章</p>
+              <p className="rc-desc">
+                打开写作窗口就地替换本章。旧稿转入旧稿支线（只读留存，可随时点开查看）；其后章节挂「基于旧设定」角标。
+              </p>
+              <button
+                className="btn btn-secondary btn-sm"
+                data-od-id="rewrite-btn"
+                data-testid="rewrite-btn"
+                disabled={rewriting}
+                onClick={() => setShowRewrite(true)}
+              >
+                重写这一章
+              </button>
+            </div>
+          )}
           {!ghostOf && (
             <div className="revert-card" data-od-id="revert-card">
               <p className="rc-title">回退到这里</p>
@@ -763,6 +832,13 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         open={showArchive}
         onClose={() => setShowArchive(false)}
         onConfirm={() => void handleArchive()}
+      />
+      <RewriteModal
+        open={showRewrite}
+        onClose={() => setShowRewrite(false)}
+        chapterLabel={label}
+        busy={rewriting}
+        onConfirm={() => void handleRewriteConfirm()}
       />
       <HistoryModal
         open={showHistory}

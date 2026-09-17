@@ -8,3 +8,20 @@ importer._hooks_v1_to_entries）。
 """
 
 FORMAT_VERSION = 3
+
+
+# ── 产物归属单源（chapter-rewrite）─────────────────────────────────────────
+# ref 语法双形制：主线 `vol-{N}-ch-{M}`；旧稿支线 `vol-{N}-ch-{M}-r{8hex}`。
+# 一个产物文件名归属 ref R ⇔ 以 `{R}-` 开头，且**余段不构成旧稿后缀**
+# （即余段不以 `r{8hex}-` 开头）——否则它属于更长的旧稿 ref。
+import re as _re_refs
+
+_GHOST_TAIL = _re_refs.compile(r"^r[0-9a-f]{8}-")
+
+
+def belongs_to_ref(name: str, ref: str) -> bool:
+    """产物归属判定（prompts/archives 共用）：边界感知，防主线吞旧稿产物。"""
+    prefix = f"{ref}-"
+    if not name.startswith(prefix):
+        return False
+    return not _GHOST_TAIL.match(name[len(prefix):])

@@ -11,6 +11,7 @@ import { toast } from "@/lib/toast";
 import { cnNum, editName, nodeLabel } from "@/lib/nodeTitle";
 import type { UseOutlineReturn } from "@/hooks/useOutline";
 import type { UseWorkbenchReturn } from "@/hooks/useWorkbench";
+import { chapterNoOf, volNoOf } from "@/lib/chapterRef";
 
 interface OutlineTreeProps {
   wb: UseWorkbenchReturn;
@@ -302,6 +303,11 @@ export default function OutlineTree({
                         <span className="ct">{nodeLabel("章", c.chapter, c.title)}</span>
                       )}
                       {c.archived && <span className="arch-tag">已归档</span>}
+                      {c.stale && (
+                        <span className="tag-stale" data-testid="ch-stale">
+                          基于旧设定
+                        </span>
+                      )}
                       <span className="acts">
                         <button
                           className="icon-btn"
@@ -411,10 +417,11 @@ function findCurrentTitle(
   if (kind === "卷") {
     return wb.volumes.find((v) => v.name === id)?.title ?? null;
   }
-  const m = id.match(/^vol-(\d+)-ch-(\d+)$/);
-  if (!m) return null;
-  const vol = wb.volumes.find((v) => v.name === `vol-${m[1]}`);
-  return vol?.chapters.find((c) => c.chapter === parseInt(m[2], 10))?.title ?? null;
+  const volName = `vol-${volNoOf(id)}`;
+  const chNo = chapterNoOf(id);
+  if (!chNo) return null;
+  const vol = wb.volumes.find((v) => v.name === volName);
+  return vol?.chapters.find((c) => c.chapter === chNo)?.title ?? null;
 }
 
 // ---------------------------------------------------------------------------

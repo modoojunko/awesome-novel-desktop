@@ -32,6 +32,7 @@ import { isLoggedIn } from "@/lib/auth";
 import { cnNum, isDefaultTitle } from "@/lib/nodeTitle";
 import { getLastWriteSession, type LastWriteSession } from "@/lib/prefs";
 import { revertToChapter } from "@/lib/reconcileApi";
+import { chapterNoOf, parseChapterRef, volNoOf } from "@/lib/chapterRef";
 
 // ---------------------------------------------------------------------------
 // NovelWorkspace — book.html 复刻（PR 3：壳 + 大纲树 + 章对象工作台）
@@ -125,8 +126,9 @@ export default function NovelWorkspace() {
   );
 
   // ── 选中节点解析：章 → 章对象工作台；卷 → 卷纲面板 ────────────────────
+  // ref 语法单源（chapterRef）：主线与旧稿 `-r{8hex}` 双形制都算「章对象」
   const chapterRef =
-    selectedRef && /^vol-\d+-ch-\d+$/.test(selectedRef) ? selectedRef : null;
+    selectedRef && parseChapterRef(selectedRef) ? selectedRef : null;
   const volumeSelId =
     !chapterRef && selectedId && /^vol-\d+$/.test(selectedId) ? selectedId : null;
 
@@ -162,6 +164,23 @@ export default function NovelWorkspace() {
       ),
     [volumes],
   );
+
+  // chapter-rewrite：当前章之后的主线「基于旧设定」章计数（右栏操作页签统计）
+  const staleDownstream = useMemo(() => {
+    if (!chapterRef) return undefined;
+    const vol = volNoOf(chapterRef);
+    const ch = chapterNoOf(chapterRef);
+    if (!ch) return undefined;
+    let n = 0;
+    for (const v of volumes) {
+      for (const c of v.chapters) {
+        const cv = volNoOf(`${v.name}-ch-${c.chapter}`);
+        const after = cv > vol || (cv === vol && c.chapter > ch);
+        if (after && c.stale) n += 1;
+      }
+    }
+    return n;
+  }, [volumes, chapterRef]);
 
   const sideText =
     view === "advanced-settings"
@@ -268,10 +287,11 @@ export default function NovelWorkspace() {
     type Hit = { v: (typeof volumes)[number]; c: Ch };
     type Pick = Hit & { pending: boolean };
     const findByRef = (ref: string): Hit | null => {
-      const m = ref.match(/^(vol-\d+)-ch-(\d+)$/);
-      if (!m) return null;
-      const v = volumes.find((x) => x.name === m[1]);
-      const c = v?.chapters.find((x) => x.chapter === Number(m[2]));
+      const volName = `vol-${volNoOf(ref)}`;
+      const chNo = chapterNoOf(ref);
+      if (!volName || !chNo) return null;
+      const v = volumes.find((x) => x.name === volName);
+      const c = v?.chapters.find((x) => x.chapter === chNo);
       return v && c ? { v, c } : null;
     };
     let pick: Pick | null = null;
@@ -546,6 +566,7 @@ export default function NovelWorkspace() {
               onWriteProgress={setLastWrite}
               resumeSignal={resumeSignal ?? undefined}
               onRevert={onRevert}
+              onTreeRefresh={refresh}
               onAiWrite={() => requestAi({ kind: "write" })}
               aiWriteSignal={aiWriteSignal}
             />
@@ -579,7 +600,13 @@ export default function NovelWorkspace() {
             onUpgrade={onUpgrade}
             proseRef={proseRef}
             aiState={aiState}
-            data={chapterRef ? (railData ?? undefined) : undefined}
+            data={
+              chapterRef
+                ? railData
+                  ? { ...railData, staleDownstream }
+                  : undefined
+                : undefined
+            }
             onAiWrite={() => requestAi({ kind: "write" })}
             onAiContinue={() =>
               requestAi({ kind: "continue", capture: proseRef.current?.captureNow() ?? null })

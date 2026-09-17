@@ -1180,3 +1180,13 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .rail-stats .v { font-weight: 600; }
 .rail-acts { display: flex; flex-direction: column; gap: 7px; }
 .rail-acts .btn { justify-content: flex-start; }
+
+
+/* ─── chapter-rewrite：基于旧设定角标与重写确认（storyline applyRewrite 口径） ── */
+.tag-stale { display: inline-flex; align-items: center; padding: 1px 7px; border: 1px dashed color-mix(in oklch, var(--fg) 45%, transparent); border-radius: 999px; font-size: 11px; color: var(--fg); }
+.rw-lead { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.rw-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.rw-list li { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; font-size: 13px; }
+.rw-list b { font-weight: 600; }
+.rw-list span { color: var(--muted); line-height: 1.6; }
+.sc-stale { margin: 0 0 4px; font-size: 12.5px; color: var(--warn); }

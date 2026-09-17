@@ -4,6 +4,7 @@
  *  已在中栏页签内提供的动作不在此重复（文风调参/收尾确认等）。 */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { chapterNoOf } from "@/lib/chapterRef";
 
 export interface OgStats {
   reqOk: number; // 归档门槛已满足项（六项）
@@ -83,6 +84,7 @@ export function AiAssistPanel({
   aiDrafting,
   onAiDraft,
   onSimulate,
+  staleDownstream,
 }: {
   projectId: string;
   chapterRef: string;
@@ -96,6 +98,8 @@ export function AiAssistPanel({
   aiDrafting: boolean;
   onAiDraft: () => void;
   onSimulate: () => void;
+  /** chapter-rewrite：下游「基于旧设定」章计数（无数据时显示「—」） */
+  staleDownstream?: number;
 }) {
   // 页签内轻量数据（与中栏页签同端点；只在对应页签激活时取）
   const [promptSrc, setPromptSrc] = useState<{ total: number; cast: number } | null>(null);
@@ -110,8 +114,7 @@ export function AiAssistPanel({
   const [loreStats, setLoreStats] = useState<{ here: number; until: number } | null>(null);
 
   const chapterNo = useMemo(() => {
-    const m = chapterRef.match(/-ch-(\d+)$/);
-    return m ? Number(m[1]) : 0;
+    return chapterNoOf(chapterRef);
   }, [chapterRef]);
 
   useEffect(() => {
@@ -219,8 +222,8 @@ export function AiAssistPanel({
           ];
           const until = entries.filter((e) => {
             if (!e.origin) return true;
-            const m = e.origin.match(/-ch-(\d+)$/);
-            return m ? Number(m[1]) <= chapterNo : true;
+            const n = chapterNoOf(e.origin);
+            return n ? n <= chapterNo : true;
           }).length;
           if (!cancelled) setLoreStats({ here, until });
         })
@@ -398,7 +401,10 @@ export function AiAssistPanel({
       {raStats([
         ["归档门槛", `${ogStats.reqOk}/6`],
         ["当前状态", archived ? "已归档" : wordCount > 0 ? "草稿" : "待写"],
-        ["下游挂着旧设定", "—"],
+        [
+          "下游挂着旧设定",
+          staleDownstream === undefined ? "—" : `${staleDownstream} 章`,
+        ],
         ["正文", `${wordCount.toLocaleString("zh-CN")} 字`],
       ])}
       {raActs([{ label: "生成本章变更摘要" }, { label: "生成下一章建议" }], locked)}

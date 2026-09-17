@@ -83,3 +83,22 @@ TBD - created by archiving change 004-free-workspace. Update Purpose after archi
 #### Scenario: 支线来源随章保留
 - **WHEN** 某章转入旧稿支线（ghost_of=目标章号）后导出
 - **THEN** 导出包含 ghost_of，导入后支线关系保留
+
+### Requirement: 重写旧稿支线章（后缀 ref）
+
+- 重写产生的旧稿支线章 SHALL 以 `{源章 ref}-r{sha256(正文)[:8]}`（内容寻址）为 ref 落库，`ghost_of` 指向源章 ref；同一章不同内容重写产生多个旧稿，同内容重放命中既有 ref（幂等，不重复落）。
+- 该支线章 SHALL 携带：标题（源章当时标题）、正文（快照全文）、`ghost_of`；章纲/收尾等派生数据 SHALL NOT 复制（旧稿是文稿快照，不是第二份主线数据）。
+- 装配与导出契约 SHALL 与既有支线章一致（`ghost_of` 加键直出、随导出包往返、导入 ref 重绑规则不变）；书级统计（字数/章数/归档数）与主线端点 SHALL 继续排除支线章（既有口径，零改动）。
+- 后缀 ref SHALL NOT 参与 `-ch-(\d+)` 章号解析链的正章匹配（解析取最后一段 `-ch-N` 之后再遇 `-r` 后缀的须按支线处理；实现侧统一走 ghost_of 判定，不做数字猜测）。
+
+#### Scenario: 多次重写产生多个旧稿
+- **WHEN** 同一章先后以不同内容重写两次
+- **THEN** 旧稿支线出现该章两个快照（内容寻址 ref 不同），均可只读查看
+
+#### Scenario: 同内容重放幂等
+- **WHEN** 对同一章以未变更的正文重复发起重写
+- **THEN** 命中既有旧稿 ref，不新增快照（ghost_created=false）
+
+#### Scenario: 旧稿随导出包往返
+- **WHEN** 含旧稿支线章的书导出并重新导入
+- **THEN** 旧稿章与 `ghost_of` 关系保留，主线统计不因旧稿变化
