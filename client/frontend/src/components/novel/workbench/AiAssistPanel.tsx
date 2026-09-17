@@ -1,18 +1,26 @@
 /** 右栏「AI 辅助」面板（storyline.html col-ai 复刻，workbench-storyline-ai-panel）：
  *  随中栏页签切换——每页签一条引导语＋统计卡＋动作清单。
- *  动作分两种：已实现=真实按钮；未实现=「规划中」占位（禁用，后续逐个补）。
- *  已在中栏页签内提供的动作不在此重复（文风调参/收尾确认等）。 */
+ *  动作清单已全部落地（2026-09-17）：占位机制退役——onClick 改为必填，各动作按门控禁用。
+ *  已在中栏页签内提供的动作不在此重复（文风调参/收尾确认等）。
+ *  2026-09-17 撤三个重复动作（ADJUSTMENTS #27 ⑫）：「重新组装提示词」＝提示词页签内
+ *  AI 润色（组装＋落库同一动作，且粗组稿本就每次重算）；「本章关系变化检测」＝操作页签
+ *  reconcile 关系收尾；「建议本章回收」＝reconcile 伏笔收尾的「收束」提案。
+ *  注：建表动作（提取本章变化/识别角色与物品变化/登记新伏笔）走 onRunReconcile，
+ *  检测动作（冲突检测/一致性/偏离/补边）走 onAiCheck，精修动作走 onPromptRefine。 */
 import { useEffect, useMemo, useState } from "react";
 import type { RefObject } from "react";
 import { api } from "@/lib/api";
 import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { chapterNoOf } from "@/lib/chapterRef";
+import type { AiCheckKind, RefineMode } from "@/lib/aiCheck";
 
 export interface OgStats {
   reqOk: number; // 归档门槛已满足项（六项）
   planWords: number | null;
   keyCount: number;
   castCount: number;
+  /** 还缺的必填项标签（原型 aiList('还缺'…)；「补全缺失字段」以它为输入） */
+  missingLabels?: string[];
 }
 
 interface ChapterLite {
@@ -23,13 +31,11 @@ interface ChapterLite {
 
 interface Act {
   label: string;
-  /** 已实现动作的点击；缺省＝规划中占位 */
-  onClick?: () => void;
+  /** 必填：占位机制已退役（每个动作都有真实链路；不可用经 disabled 表达） */
+  onClick: () => void;
   disabled?: boolean;
   busy?: boolean;
 }
-
-const PLACEHOLDER_TITLE = "规划中 · 后续版本提供";
 
 function raStats(pairs: Array<[string, string]>) {
   return (
@@ -44,31 +50,33 @@ function raStats(pairs: Array<[string, string]>) {
   );
 }
 
+function raList(title: string, items: string[], tone = "") {
+  if (items.length === 0) return null;
+  return (
+    <div className={`rail-list${tone ? ` ${tone}` : ""}`}>
+      <em>{title}</em>
+      <ul>
+        {items.map((t) => (
+          <li key={t}>{t}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function raActs(acts: Act[], locked: boolean) {
   return (
     <div className={`rail-acts${locked ? " rail-locked" : ""}`}>
-      {acts.map((a) =>
-        a.onClick ? (
-          <button
-            key={a.label}
-            className="btn btn-secondary btn-sm"
-            disabled={locked || a.disabled}
-            onClick={a.onClick}
-          >
-            {a.busy ? `${a.label}…` : a.label}
-          </button>
-        ) : (
-          <button
-            key={a.label}
-            className="btn btn-secondary btn-sm"
-            disabled
-            title={PLACEHOLDER_TITLE}
-          >
-            {a.label}
-            <span className="tag-plan">规划中</span>
-          </button>
-        ),
-      )}
+      {acts.map((a) => (
+        <button
+          key={a.label}
+          className="btn btn-secondary btn-sm"
+          disabled={locked || a.disabled}
+          onClick={a.onClick}
+        >
+          {a.busy ? `${a.label}…` : a.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -91,6 +99,10 @@ export function AiAssistPanel({
   proseRef,
   onAiSelection,
   onRunReconcile,
+  onFillGaps,
+  gapsLoading,
+  onAiCheck,
+  onPromptRefine,
 }: {
   projectId: string;
   chapterRef: string;
@@ -115,6 +127,13 @@ export function AiAssistPanel({
   ) => void;
   /** 按类触发本章收尾（设定/关系/伏笔三入口）；产出在「操作」页签待确认 */
   onRunReconcile?: (kind: "set_changes" | "relations" | "hooks") => void;
+  /** 章纲缺项补全（AI 产物 patch 到章纲表单，由既有保存链落库） */
+  onFillGaps?: () => void;
+  gapsLoading?: boolean;
+  /** 六类案头检查（就地弹窗；不落库） */
+  onAiCheck?: (kind: AiCheckKind) => void;
+  /** 提示词精修（提案制弹窗；采纳后走提示词保存链） */
+  onPromptRefine?: (mode: RefineMode) => void;
 }) {
   // 页签内轻量数据（与中栏页签同端点；只在对应页签激活时取）
   const [promptSrc, setPromptSrc] = useState<{ total: number; cast: number } | null>(null);
@@ -264,6 +283,7 @@ export function AiAssistPanel({
           ["关键事件", `${ogStats.keyCount} 条`],
           ["出场角色", `${ogStats.castCount} 人`],
         ])}
+        {raList("还缺", ogStats.missingLabels ?? [], "warn")}
         {raActs(
           [
             { label: "剧情推演 · 按回合走一遍", onClick: onSimulate, disabled: archived },
@@ -273,8 +293,19 @@ export function AiAssistPanel({
               disabled: !canAiDraft || aiDrafting || archived,
               busy: aiDrafting,
             },
-            { label: "补全缺失字段" },
-            { label: "与卷纲冲突检测" },
+            {
+              label: gapsLoading ? "补全中" : "补全缺失字段",
+              onClick: () => onFillGaps?.(),
+              disabled:
+                !onFillGaps ||
+                gapsLoading ||
+                (ogStats.missingLabels ?? []).length === 0,
+              busy: gapsLoading,
+            },
+            {
+              label: "与卷纲冲突检测",
+              onClick: () => onAiCheck?.("volume_conflict"),
+            },
           ],
           locked,
         )}
@@ -300,10 +331,8 @@ export function AiAssistPanel({
           [
             {
               label: aiState?.compressLoading ? "压缩中" : "压缩啰嗦段落",
-              onClick:
-                onAiSelection && proseRef
-                  ? () => onAiSelection("compress", proseRef.current?.captureNow() ?? null)
-                  : undefined,
+              onClick: () =>
+                onAiSelection?.("compress", proseRef?.current?.captureNow() ?? null),
               disabled: !aiState?.hasSelection || !!aiState?.compressLoading,
             },
           ],
@@ -327,9 +356,14 @@ export function AiAssistPanel({
         ])}
         {raActs(
           [
-            { label: "重新组装提示词" },
-            { label: "补全负向约束" },
-            { label: "精简提示词" },
+            {
+              label: "补全负向约束",
+              onClick: () => onPromptRefine?.("negative"),
+            },
+            {
+              label: "精简提示词",
+              onClick: () => onPromptRefine?.("concise"),
+            },
           ],
           locked,
         )}
@@ -353,7 +387,7 @@ export function AiAssistPanel({
           [
             {
               label: "提取本章变化",
-              onClick: onRunReconcile ? () => onRunReconcile("set_changes") : undefined,
+              onClick: () => onRunReconcile?.("set_changes"),
               disabled: !archived,
             },
           ],
@@ -375,7 +409,19 @@ export function AiAssistPanel({
           ["本章调整", styleStats ? (styleStats.shadow ? `${styleStats.shadow} 项` : "未调整") : "—"],
           ["硬约束", "见基线"],
         ])}
-        {raActs([{ label: "文风一致性检查" }, { label: "标记偏离段落" }], locked)}
+        {raActs(
+          [
+            {
+              label: "文风一致性检查",
+              onClick: () => onAiCheck?.("style_consistency"),
+            },
+            {
+              label: "标记偏离段落",
+              onClick: () => onAiCheck?.("style_deviations"),
+            },
+          ],
+          locked,
+        )}
       </div>
     );
   }
@@ -394,12 +440,17 @@ export function AiAssistPanel({
           [
             {
               label: "识别角色与物品变化",
-              onClick: onRunReconcile ? () => onRunReconcile("relations") : undefined,
+              onClick: () => onRunReconcile?.("relations"),
               disabled: !archived,
             },
-            { label: "本章关系变化检测" },
-            { label: "关系冲突检测" },
-            { label: "建议补边" },
+            {
+              label: "关系冲突检测",
+              onClick: () => onAiCheck?.("relations_conflict"),
+            },
+            {
+              label: "建议补边",
+              onClick: () => onAiCheck?.("relation_suggest"),
+            },
           ],
           locked,
         )}
@@ -422,11 +473,13 @@ export function AiAssistPanel({
         ])}
         {raActs(
           [
-            { label: "建议本章回收" },
-            { label: "伏笔冲突检测" },
+            {
+              label: "伏笔冲突检测",
+              onClick: () => onAiCheck?.("hooks_conflict"),
+            },
             {
               label: "登记新伏笔",
-              onClick: onRunReconcile ? () => onRunReconcile("hooks") : undefined,
+              onClick: () => onRunReconcile?.("hooks"),
               disabled: !archived,
             },
           ],

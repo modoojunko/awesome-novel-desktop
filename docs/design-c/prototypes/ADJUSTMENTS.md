@@ -692,6 +692,22 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     ＋ai_summary 开关）＋收尾提案（设定变化/关系/伏笔）＋设定页签「本章变化」；
     下一章建议＝下一章章纲的 AI 起草（以主线/前情/设定为输入）。故两项从占位清单
     撤销，不再列入补货批次。
+    ⑫ **右栏检测/精修族落地＋三项重复动作撤销（2026-09-17 补货批次）**：⑧ 的占位清单
+    按页签逐个补实现——检测族（六类 ai-check：`POST …/ai-check {kind}` 就地弹窗，finding
+    列表/空态/重试，`data-testid=ai-check-list|ai-check-empty`）＝章纲「与卷纲冲突检测」、
+    文风「文风一致性检查」「标记偏离段落」、关系「关系冲突检测」「建议补边」、伏笔
+    「伏笔冲突检测」；精修族（`POST …/write/prompt/refine {mode}` 提案制弹窗，采纳走既有
+    提示词保存链 `PUT …/prompts/write`，`data-testid=refine-preview|refine-adopt`）＝提示词
+    「补全负向约束」「精简提示词」；章纲「补全缺失字段」＝`POST …/outline/fill-gaps`（AI
+    产物回填章纲表单，落库走既有保存链），并在面板补 ⑧ 曾缺的「还缺」清单（原型
+    `aiList('还缺')`）。**撤三个重复动作**（各与既有消费面同产出，同 ⑪ 口径）：
+    「重新组装提示词」＝提示词页签内的「AI 润色」（组装＋落库同一动作，且粗组稿本就每次
+    重算）；「本章关系变化检测」＝「操作」页签 reconcile 关系收尾（识别角色与物品变化＋
+    待确认行）；「建议本章回收」＝reconcile 伏笔收尾的「收束」提案。产物一律不落库
+    （检测/精修皆为提案制或表单承接）。同批把本原型内联的伏笔类型词表 `HOOK_TYPES`
+    由草稿期旧词（谜团/关系/力量/情感/选择/欲望）校正为应用侧单源标签
+    （悬念/威胁/承诺/线索/关系伏笔/能力伏笔/情绪钩/选择钩/渴望钩，见
+    `client/backend/settings/hooks_model.py` 镜像）。
     **门控**：①-③ 免费可用；④ 影子手工编辑全档位、AI 建议 PRO（2026-09-17 拍板定案）、⑤ AI 归 PRO。
     **测试覆盖**：后端 pytest（frontier/ghost/style_shadow/plot_sim/prompt_sources）＋前端 vitest
     ＋e2e（plot-sim.spec.ts 等）；无原型像素基线（storyline 未收编严格扫描）。

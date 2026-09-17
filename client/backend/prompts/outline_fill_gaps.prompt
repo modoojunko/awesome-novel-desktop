@@ -1,0 +1,13 @@
+你是长篇小说章纲编辑。作者的章纲还缺下面这些字段，请依据素材把它们补齐。
+
+## 缺失字段
+{missing}
+
+## 素材（主线/卷纲/既有章纲/前情）
+{material}
+
+## 要求
+- 只补缺失字段，不修改已有内容的口径；补出的内容必须与素材一致，不引入新设定
+- key_points 每行一条（2-5 条）；mood 从「紧张/悬疑/温暖/悲伤/激昂/轻松/压抑/浪漫/惊悚」中选一个；segments 为 3-6 段，每段 summary＋target_words（合计约等于本章目标字数）
+- 只输出 JSON（只含缺失字段的键），不要其他文字：
+{{"fills": {{"summary": "…", "key_points": ["…"], "current_task": "…", "state": "…", "strategy": "…", "changes": ["…"], "mood": "…", "segments": [{{"summary": "…", "target_words": 800}}]}}}}

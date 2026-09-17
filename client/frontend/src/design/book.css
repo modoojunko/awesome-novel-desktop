@@ -1180,6 +1180,23 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .rail-stats .v { font-weight: 600; }
 .rail-acts { display: flex; flex-direction: column; gap: 7px; }
 .rail-acts .btn { justify-content: flex-start; }
+/* 还缺清单（原型 aiList('还缺')）：面板内的小列表块 */
+.rail-list { margin: 0; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.rail-list em { font-style: normal; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; color: var(--muted); }
+.rail-list ul { margin: 5px 0 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px; }
+.rail-list li { font-size: 12.5px; color: var(--fg); }
+.rail-list.warn li { color: var(--warn); }
+
+/* ─── ai-check / refine 弹窗：检查结果列表与精修预览 ─────────────────── */
+.ck-lead { margin: 0 0 10px; font-size: 13px; color: var(--muted); line-height: 1.7; }
+.ck-note { margin: 0; font-size: 13px; color: var(--muted); }
+.ck-note.err { color: var(--err); }
+.ck-note.ok { color: var(--fg); }
+.ck-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.ck-list li { display: grid; grid-template-columns: minmax(0, 0.42fr) minmax(0, 1fr); gap: 10px; font-size: 13px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.ck-list b { font-weight: 600; }
+.ck-list span { color: var(--muted); line-height: 1.6; }
+.ck-pre { margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-family: var(--font-mono); font-size: 12px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; max-height: 46vh; overflow: auto; }
 
 
 /* ─── chapter-rewrite：基于旧设定角标与重写确认（storyline applyRewrite 口径） ── */

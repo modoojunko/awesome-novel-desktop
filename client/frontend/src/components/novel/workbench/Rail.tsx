@@ -9,6 +9,7 @@ import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { toast } from "@/lib/toast";
 import { DEFAULT_TARGET } from "@/hooks/useChapterData";
 import { AiAssistPanel, type OgStats } from "./AiAssistPanel";
+import type { AiCheckKind, RefineMode } from "@/lib/aiCheck";
 import { runReconcile } from "@/lib/reconcileApi";
 
 export interface RailChapterData {
@@ -33,6 +34,13 @@ export interface RailChapterData {
   chapterRef?: string;
   /** chapter-rewrite：下游「基于旧设定」章计数（NovelWorkspace 由树计算注入） */
   staleDownstream?: number;
+  /** 章纲缺项补全（AI 产物回填章纲表单） */
+  onFillGaps?: () => void;
+  gapsLoading?: boolean;
+  /** 六类案头检查（就地弹窗） */
+  onAiCheck?: (kind: AiCheckKind) => void;
+  /** 提示词精修（提案制弹窗） */
+  onPromptRefine?: (mode: RefineMode) => void;
 }
 
 interface RailProps {
@@ -260,6 +268,10 @@ export default function Rail({
           aiState={aiState}
           proseRef={proseRef}
           onAiSelection={onAiSelection}
+          onFillGaps={d.onFillGaps}
+          gapsLoading={d.gapsLoading}
+          onAiCheck={d.onAiCheck}
+          onPromptRefine={d.onPromptRefine}
           onRunReconcile={(kind) => {
             const ref = d.chapterRef;
             if (!ref) return;
