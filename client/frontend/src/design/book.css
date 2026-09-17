@@ -1111,3 +1111,17 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .relations-graph .rg-name { font-weight: 600; }
 .rg-legend { margin: 8px 0 4px; font-size: 12px; color: var(--muted); }
 .rg-list { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
+
+/* ─── chapter-style-shadow：文风页签（基线只读＋本章影子） ─────────── */
+.style-shadow { padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+.ss-lead { margin: 6px 0 0; font-family: var(--font-display); font-size: 14px; font-weight: 600; }
+.ss-note { margin: 0; font-size: 12.5px; color: var(--muted); }
+.ss-error { margin: 0; font-size: 12px; color: var(--err); }
+.ss-baseline { margin: 0; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); list-style: none; }
+.ss-baseline li { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 10px; padding: 4px 0; font-size: 13px; }
+.ss-baseline .k { color: var(--muted); }
+.ss-row, .ss-suggestion { display: grid; grid-template-columns: 140px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.ss-row .k, .ss-suggestion .k { font-weight: 600; font-size: 13px; }
+.ss-row .v, .ss-suggestion .v { font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.ss-suggestion .r { font-size: 12px; color: var(--muted); grid-column: 2 / 4; }
+.ss-row button { justify-self: end; }

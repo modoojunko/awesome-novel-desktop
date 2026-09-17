@@ -45,6 +45,7 @@ from update_check import router as update_check_router
 from workflow.router import backfill_router as workflow_backfill_router
 from workflow.router import router as workflow_router
 from write.router import router as write_router
+from write.style_shadow import router as style_shadow_router
 
 
 @asynccontextmanager
@@ -120,6 +121,18 @@ async def lifespan(app: FastAPI):
                 text(
                     "ALTER TABLE chapter_characters ADD COLUMN "
                     "state_change TEXT NOT NULL DEFAULT ''"
+                )
+            )
+    except Exception:
+        pass  # 列已存在
+
+    # ── Migrate (chapter-style-shadow): 本章文风影子 ─────────────────
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "ALTER TABLE chapters ADD COLUMN "
+                    "style_shadow TEXT NOT NULL DEFAULT '{}'"
                 )
             )
     except Exception:
@@ -554,6 +567,7 @@ app.include_router(prompt_router)
 app.include_router(write_router)
 app.include_router(archive_router)
 app.include_router(archives_router)
+app.include_router(style_shadow_router)
 app.include_router(reconcile_router)
 app.include_router(chapters_versions_router)
 app.include_router(story_router)

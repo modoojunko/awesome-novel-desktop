@@ -25,8 +25,7 @@ async def list_volumes(db, project) -> list[dict]:
     """DB 全量树：一次拉卷 + 章，内存按 volume_id 分组（免 N+1）。"""
     vols = await volume_repo.list_by_project(db, project.id)
     chapters = await chapter_repo.list_by_project(db, project.id)
-    # revert-ghost：支线章不入主线卷章数组，单独以 ghosts 返回（工作台支线分组）
-    ghosts = [c for c in chapters if c.ghost_of]
+    # revert-ghost：支线章不入主线卷章数组（经 GET /ghosts 单独返回）
     mainline = [c for c in chapters if not c.ghost_of]
     by_vol: dict[str, list] = defaultdict(list)
     for c in mainline:

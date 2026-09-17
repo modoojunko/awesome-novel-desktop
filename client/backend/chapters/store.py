@@ -127,6 +127,13 @@ def assemble_chapter(row) -> dict:
         data["word_target"] = row.word_target
     if row.ladder_exit:
         data["ladder_exit"] = row.ladder_exit
+    # 本章文风影子（chapter-style-shadow）：JSON 直出，加键兼容
+    try:
+        import json as _json
+
+        data["style_shadow"] = _json.loads(row.style_shadow or "{}")
+    except Exception:  # noqa: BLE001 — 影子损坏按空处理，不阻塞章读取
+        data["style_shadow"] = {}
 
     outline: dict = {
         "key_points": [_format_key_point(k.func_tag, k.content) for k in row.key_points],
@@ -252,6 +259,19 @@ def _disassemble_scalars(row, data: dict) -> None:
         setattr(row, col, _fit(emotional.get(json_key), width))
     row.word_target = _int_or_none(data.get("word_target"))
     row.ladder_exit = _fit(data.get("ladder_exit"), 300)
+    # 本章文风影子：仅收 dict 形状 {dim: {value, reason}}，越界值置空
+    shadow = data.get("style_shadow")
+    if isinstance(shadow, dict):
+        clean: dict[str, dict] = {}
+        for dim, item in shadow.items():
+            if isinstance(item, dict) and (str(item.get("value", "")).strip() or str(item.get("reason", "")).strip()):
+                clean[str(dim)] = {
+                    "value": str(item.get("value", "")),
+                    "reason": str(item.get("reason", "")),
+                }
+        import json as _json
+
+        row.style_shadow = _json.dumps(clean, ensure_ascii=False)
 
 
 _CHILD_ATTRS = (

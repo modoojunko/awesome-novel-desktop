@@ -152,9 +152,9 @@ async def revert_to_chapter(db: AsyncSession, novel_id: str, ref: str) -> dict:
     """
     from fastapi import HTTPException
 
+    from models.archive import Archive
     from models.hook import NovelHook
     from models.reconcile import ChapterReconcile
-    from models.archive import Archive
 
     rows = (
         await db.scalars(
