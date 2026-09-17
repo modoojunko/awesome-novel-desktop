@@ -33,14 +33,19 @@ import { ArchiveModal, HistoryModal, RewriteModal } from "./modals";
 import type { RailChapterData } from "./Rail";
 import {
   EMPTY_OG_FORM,
+  GAP_TO_FILL_KEY,
   ogFormIssues,
   ogGaps,
+  ogPatchFromFills,
   ogToForm,
   ogToPartial,
   type OgForm,
 } from "./chapterForm";
+import AiCheckModal from "./AiCheckModal";
+import RefinePromptModal from "./RefinePromptModal";
 import { useChapterData } from "@/hooks/useChapterData";
 import { draftOutline } from "@/lib/ai";
+import { fillOutlineGaps, type AiCheckKind, type RefineMode } from "@/lib/aiCheck";
 import type { useOutline } from "@/hooks/useOutline";
 import type { useWorkbench } from "@/hooks/useWorkbench";
 import { api, request } from "@/lib/api";
@@ -399,6 +404,38 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, chapterRef, ogForm, outline.chaptersMap]);
 
+  // ── 右栏 AI 辅助·检测族（ai-check）与提示词精修（提案制） ─────────────
+  const [aiCheckKind, setAiCheckKind] = useState<AiCheckKind | null>(null);
+  const [refineMode, setRefineMode] = useState<RefineMode | null>(null);
+  const [gapsLoading, setGapsLoading] = useState(false);
+  // 精修采纳后提示词页签需换 key 重挂（内部状态自持，无外部刷新口）
+  const [promptReload, setPromptReload] = useState(0);
+
+  /** 章纲缺项补全：缺口清单 → AI 产物回填表单；落库走 3s 自动保存/手动保存。 */
+  const handleFillGaps = useCallback(async () => {
+    const missing = ogGaps(ogForm)
+      .map((g) => GAP_TO_FILL_KEY[g.key])
+      .filter(Boolean);
+    if (missing.length === 0) return;
+    setGapsLoading(true);
+    try {
+      const fills = await fillOutlineGaps(projectId, chapterRef, missing);
+      const patch = ogPatchFromFills(fills);
+      const n = Object.keys(patch).length;
+      if (n === 0) {
+        toast.info("没补出可用的字段，可重试");
+        return;
+      }
+      setOgForm((f) => ({ ...f, ...patch }));
+      toast.success(`已补 ${n} 项，检查后保存`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "补全失败，请重试");
+    } finally {
+      setGapsLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, chapterRef, ogForm]);
+
   // ── 剧情推演（plot-sim）：弹窗按回合走一遍；收进章纲＝写预期策略后走既有保存链 ──
   const [showSim, setShowSim] = useState(false);
   const handleSimAdopt = useCallback(
@@ -565,15 +602,20 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         planWords: Number.isFinite(wtParsed) && wtParsed > 0 ? wtParsed : (targetWords ?? null),
         keyCount: keyLines.length,
         castCount: castLines.length,
+        missingLabels: ogGaps(ogForm).map((g) => g.label),
       },
       canAiDraft: isPro && !archived,
       aiDrafting,
       onAiDraft: () => void handleAiDraft(),
       onSimulate: () => setShowSim(true),
+      onFillGaps: () => void handleFillGaps(),
+      gapsLoading,
+      onAiCheck: setAiCheckKind,
+      onPromptRefine: setRefineMode,
     });
     return () => onRailDataRef.current(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, aiDrafting]);
+  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, aiDrafting, gapsLoading, handleFillGaps]);
 
   // ── 页签徽标 ──────────────────────────────────────────────────────────
   const ogCnt =
@@ -886,12 +928,31 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
       {chTab === "prompt" && (
         <PromptPane
+          key={promptReload}
           projectId={projectId}
           chapterRef={chapterRef}
           title={label}
           hasPrompts={hasPrompts}
         />
       )}
+
+      <AiCheckModal
+        open={aiCheckKind !== null}
+        onClose={() => setAiCheckKind(null)}
+        projectId={projectId}
+        chapterRef={chapterRef}
+        chapterLabel={label}
+        kind={aiCheckKind}
+      />
+      <RefinePromptModal
+        open={refineMode !== null}
+        onClose={() => setRefineMode(null)}
+        projectId={projectId}
+        chapterRef={chapterRef}
+        chapterLabel={label}
+        mode={refineMode}
+        onAdopted={() => setPromptReload((n) => n + 1)}
+      />
 
       <div className="editor-status" hidden={chTab !== "prose"}>
         <span className="num">{fmt(wordCount)} 字</span>

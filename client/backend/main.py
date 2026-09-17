@@ -44,6 +44,7 @@ from story.router import router as story_router
 from update_check import router as update_check_router
 from workflow.router import backfill_router as workflow_backfill_router
 from workflow.router import router as workflow_router
+from write.ai_check import router as ai_check_router
 from write.plot_sim import router as plot_sim_router
 from write.prompt_sources import router as prompt_sources_router
 from write.router import router as write_router
@@ -588,6 +589,7 @@ app.include_router(chapters_router)
 app.include_router(chapters_ai_draft_router)
 app.include_router(prompt_router)
 app.include_router(write_router)
+app.include_router(ai_check_router)
 app.include_router(archive_router)
 app.include_router(archives_router)
 app.include_router(style_shadow_router)

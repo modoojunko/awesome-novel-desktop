@@ -712,7 +712,7 @@ test("章纲新格子：场景卡/读者获得/章末落点/目标字数填值�
 // -------------------------------------------------------------------------
 // ⑨ 右栏 AI 辅助随页签切换（workbench-storyline-ai-panel，storyline col-ai 口径）
 // -------------------------------------------------------------------------
-test("右栏 AI 辅助随页签切换：引导语/统计卡/动作清单（占位禁用）", async ({
+test("右栏 AI 辅助随页签切换：引导语/统计卡/动作清单（动作全部落地）", async ({
   page,
   request,
 }) => {
@@ -724,12 +724,13 @@ test("右栏 AI 辅助随页签切换：引导语/统计卡/动作清单（占�
     // 显式切回章纲并等表单就绪（点章落章纲的回落竞态结算）
     await page.getByRole("tab", { name: /^章纲/ }).click();
     await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
-    // 章纲页签：面板随页签切换；已实现动作真按钮（剧情推演），未实现动作占位
+    // 章纲页签：面板随页签切换；动作全部落地（占位机制已退役，不再有「规划中」）
     await expect(page.getByText("AI 辅助 · 章纲")).toBeVisible({ timeout: 10000 });
     const railActs = page.locator(".rail-acts");
     await expect(railActs.getByRole("button", { name: /剧情推演/ })).toBeEnabled();
-    await expect(railActs.getByRole("button", { name: /补全缺失字段/ })).toBeDisabled();
-    // 正文页签：面板切到正文（统计正文字数）＋未实现动作占位禁用
+    await expect(railActs.getByRole("button", { name: /补全缺失字段/ })).toBeEnabled();
+    await expect(railActs.getByText("规划中")).toHaveCount(0);
+    // 正文页签：面板切到正文（统计正文字数）；压缩需选中才可点
     await page.getByRole("tab", { name: /^正文/ }).click();
     await expect(page.getByText("AI 辅助 · 正文")).toBeVisible();
     await expect(railActs.getByRole("button", { name: /压缩啰嗦段落/ })).toBeDisabled();

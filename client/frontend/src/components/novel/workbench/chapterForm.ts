@@ -107,6 +107,69 @@ export const EMPTY_OG_FORM: OgForm = {
   wt: "",
 };
 
+/** 章纲缺口标签键 → fill-gaps 白名单键（与后端 chapters/ai_draft.py _FILLABLE_KEYS 同口径）。 */
+export const GAP_TO_FILL_KEY: Record<string, string> = {
+  task: "current_task",
+  rstate: "state",
+  rstrat: "strategy",
+  changes: "changes",
+  mood: "mood",
+  segs: "segments",
+};
+
+/** 后端 fills（白名单键）→ OgForm 补丁：未识别的键丢弃；行列表按行拼接。
+ *  产物只回填表单，落库仍走既有保存链（3s 自动保存/手动保存）。 */
+export function ogPatchFromFills(fills: Record<string, unknown>): Partial<OgForm> {
+  const patch: Partial<OgForm> = {};
+  for (const [k, v] of Object.entries(fills)) {
+    if (k === "segments") {
+      if (!Array.isArray(v)) continue;
+      const segs: OgSeg[] = [];
+      for (const it of v) {
+        if (!it || typeof it !== "object") continue;
+        const o = it as { summary?: unknown; target_words?: unknown };
+        const text = String(o.summary ?? "").trim();
+        if (!text) continue;
+        const w = Number(o.target_words);
+        segs.push({ s: text, w: Number.isFinite(w) && w > 0 ? w : 800 });
+      }
+      if (segs.length) patch.segs = segs;
+      continue;
+    }
+    if (typeof v === "string") {
+      const text = v.trim();
+      if (!text) continue;
+      switch (k) {
+        case "summary": patch.summary = text; break;
+        case "location": patch.loc = text; break;
+        case "time": patch.time = text; break;
+        case "current_task": patch.task = text; break;
+        case "state": patch.rstate = text; break;
+        case "strategy": patch.rstrat = text; break;
+        case "detail": patch.rdetail = text; break;
+        case "mood": patch.mood = text; break;
+        default: break;
+      }
+      continue;
+    }
+    if (Array.isArray(v)) {
+      const joined = v
+        .map((x) => String(x).trim())
+        .filter(Boolean)
+        .join("\n");
+      if (!joined) continue;
+      switch (k) {
+        case "key_points": patch.keys = joined; break;
+        case "characters": patch.chars = joined; break;
+        case "changes": patch.changes = joined; break;
+        case "prohibitions": patch.ban = joined; break;
+        default: break;
+      }
+    }
+  }
+  return patch;
+}
+
 const lines = (s: string): string[] =>
   s.split("\n").map((x) => x.trim()).filter(Boolean);
 

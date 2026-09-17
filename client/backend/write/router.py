@@ -10,6 +10,7 @@ from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
+from prompts import load as load_prompt
 from workflow.engine import _validate_ref, can_transition, load_chapter, update_phase
 
 
@@ -453,6 +454,92 @@ async def polish_writing(
         tokens_out=usage.get("tokens_out", 0),
     )
     return {"polished_text": text}
+
+
+_REFINE_MODES = {
+    "negative": "补全「负向约束」：从本章章纲与设定里提炼出必须避免的写法（例如视角越界、"
+    "提前揭破悬念、情绪直说），追加到「不可违反规则」段，不删既有红线。",
+    "concise": "精简提示词：删去重复与可从别处推出的表述，保留全部约束与关键设定，"
+    "整体篇幅压到原文的六到八成。",
+}
+
+
+@router.post("/prompt/refine")
+async def refine_write_prompt(
+    project_id: str,
+    chapter_ref: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """按模式修订整章写作提示词（产物不落库；作者在弹窗确认后走既有保存链）。"""
+    mode = str((body or {}).get("mode", "") or "").strip()
+    if mode not in _REFINE_MODES:
+        raise HTTPException(400, f"未知的修订模式：{mode}")
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    _validate_ref(chapter_ref)
+
+    from ai_client import get_ai_client_for_novel
+    from write.chapter_writer import build_chapter_context, strip_code_fences
+
+    current = str((body or {}).get("current_prompt", "") or "").strip()
+    if not current:
+        # 未传（未润色过的章）：以服务端组装稿为基底
+        ctx = await build_chapter_context(
+            project.root_path, chapter_ref, project.name, novel_id=project.id
+        )
+        current = ctx.to_prompt()
+    if not current:
+        raise HTTPException(409, "本章还没有可修订的提示词")
+
+    system = load_prompt("prompt_refine").format(
+        instruction=_REFINE_MODES[mode], current_prompt=current[:12000]
+    )
+    client = await get_ai_client_for_novel(project.id)
+    usage: dict = {}
+    try:
+        raw = await client.chat(
+            model="haiku", system=system,
+            messages=[{"role": "user", "content": "请输出修订后的提示词全文。"}],
+            max_tokens=4000, usage=usage,
+        )
+    except AITimeoutError:
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db, user_id=project.user_id, project_id=project.id,
+            chapter_id=chapter_ref, operation=f"prompt_refine_{mode}_fail",
+            model=effective_model(project), force=True,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
+    except Exception as e:  # noqa: BLE001
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db, user_id=project.user_id, project_id=project.id,
+            chapter_id=chapter_ref, operation=f"prompt_refine_{mode}_fail",
+            model=effective_model(project),
+            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, f"AI 调用失败，可重试：{e!s}") from e
+
+    from api_configs.usage import record_usage
+
+    await record_usage(
+        db, user_id=project.user_id, project_id=project.id,
+        chapter_id=chapter_ref, operation=f"prompt_refine_{mode}",
+        model=effective_model(project),
+        tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+    )
+    refined = strip_code_fences(raw).strip()
+    if not refined:
+        raise HTTPException(502, "修订结果为空，可重试")
+    return {"ok": True, "mode": mode, "prompt": refined}
 
 
 @router.post("/compress")

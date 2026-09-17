@@ -2300,7 +2300,9 @@ const SET_STYLE = {
 const SET_HOOKS = { active: [], resolved: [], abandoned: [] };
 const SET_CHARS = { names: [], sel: null };
 const CHAR_BLANK = { name: '', role: 'supporting', appearance: '', background: '', speech: '', world_view: '', self_image: '', values: '', abilities: '', skills: '', environment: '', possessions: '', relationships: '', experiences: '' };
-const HOOK_TYPES = ['谜团', '威胁', '承诺', '线索', '关系', '力量', '情感', '选择', '欲望'];
+// 类型中文标签＝后端词表单源（settings/hooks_model.py 镜像；草稿期旧词
+// 谜团/关系/力量/情感/选择/欲望 已废弃，见 ADJUSTMENTS #27 ⑫）
+const HOOK_TYPES = ['悬念', '威胁', '承诺', '线索', '关系伏笔', '能力伏笔', '情绪钩', '选择钩', '渴望钩'];
 const SET_MODEL = {
   current: 'Ark · glm-5（密钥 sk-···7f2a）',
   options: ['Ark · glm-5', 'Ark · glm-5-air', 'OpenAI · gpt-5-mini'],

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_client import AITimeoutError, get_ai_client_for_novel
+from ai_state import effective_model
 from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
@@ -202,6 +203,160 @@ def _existing_outline_markdown(chapter: dict) -> str:
         },
         ensure_ascii=False,
     )
+
+
+# 可补字段白名单＝前端 OgForm 能承接的键（前端 chapterForm 补丁表同单源口径）：
+# 覆盖归档门槛六项（task/state/strategy/changes/mood/segs）与章纲其余可写格子。
+# 后端只做白名单收口；具体下发哪些缺项由前端按缺口清单决定。
+_FILLABLE_KEYS = {
+    "summary", "key_points", "characters", "location", "time",
+    "current_task", "state", "strategy", "detail", "changes",
+    "prohibitions", "mood", "segments",
+}
+_LIST_KEYS = {"key_points", "characters", "changes", "prohibitions"}
+
+
+def _sanitize_fills(d: dict) -> dict:
+    """只收缺失字段白名单键；空值丢弃（前端 patch 到 OgPane 表单）。
+
+    - 行列表键（key_points/characters/changes/prohibitions）：逐行去空
+    - segments：结构化段落（summary + target_words），字数钳到 100-4000
+    """
+    fills = d.get("fills") if isinstance(d, dict) else None
+    if not isinstance(fills, dict):
+        return {}
+    out: dict = {}
+    for k, v in fills.items():
+        if k not in _FILLABLE_KEYS:
+            continue
+        if k == "segments":
+            segs: list[dict] = []
+            if isinstance(v, list):
+                for it in v:
+                    if not isinstance(it, dict):
+                        continue
+                    summary = str(it.get("summary", "")).strip()[:200]
+                    if not summary:
+                        continue
+                    try:
+                        words = int(it.get("target_words", 800))
+                    except (TypeError, ValueError):
+                        words = 800
+                    segs.append(
+                        {"summary": summary, "target_words": max(100, min(4000, words))}
+                    )
+            if segs:
+                out[k] = segs
+        elif k in _LIST_KEYS and isinstance(v, list):
+            vals = [str(x).strip() for x in v if str(x).strip()]
+            if vals:
+                out[k] = vals
+        elif isinstance(v, str) and v.strip():
+            out[k] = v.strip()[:300]
+    return out
+
+
+@router.post("/fill-gaps")
+async def fill_outline_gaps(
+    project_id: str,
+    chapter_ref: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """按缺失字段清单补全章纲（产物不落库，由前端表单承接后走既有保存链）。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    _validate_ref(chapter_ref)
+    missing = [str(x).strip()[:50] for x in (body.get("missing") or []) if str(x).strip()]
+    if not missing:
+        raise HTTPException(400, "缺少要补的字段清单（missing）")
+    missing = [m for m in missing if m in _FILLABLE_KEYS][:12]
+    if not missing:
+        raise HTTPException(400, "没有可补的字段")
+
+    ctx = await build_chapter_context(
+        project.root_path, chapter_ref, project.name, novel_id=project.id
+    )
+    chapter = await load_chapter(project.root_path, chapter_ref) or {}
+    if not chapter:
+        raise HTTPException(404, "Chapter not found")
+
+    material = _material_from_ctx(ctx, chapter)
+    system = load_prompt("outline_fill_gaps").format(
+        missing="、".join(missing), material=material
+    )
+    client = await get_ai_client_for_novel(project.id)
+    usage: dict = {}
+    try:
+        raw = await client.chat(
+            model="haiku", system=system,
+            messages=[{"role": "user", "content": "请补齐缺失字段。"}],
+            max_tokens=2000, usage=usage,
+        )
+    except AITimeoutError:
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db, user_id=project.user_id, project_id=project.id,
+            chapter_id=chapter_ref, operation="outline_fill_gaps_fail",
+            model=effective_model(project),
+            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
+    except Exception as e:  # noqa: BLE001
+        from api_configs.usage import record_usage
+
+        await record_usage(
+            db, user_id=project.user_id, project_id=project.id,
+            chapter_id=chapter_ref, operation="outline_fill_gaps_fail",
+            model=effective_model(project),
+            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+            force=True,
+        )
+        raise HTTPException(502, f"AI 调用失败，可重试：{e!s}") from e
+
+    from api_configs.usage import record_usage
+
+    # 记账先于解析：调用已完成（钱已花），产物不合格也要留痕
+    await record_usage(
+        db, user_id=project.user_id, project_id=project.id,
+        chapter_id=chapter_ref, operation="outline_fill_gaps",
+        model=effective_model(project),
+        tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+    )
+
+    parsed = None
+    try:
+        parsed = json.loads(strip_code_fences(raw))
+    except (ValueError, TypeError):
+        parsed = None
+    fills = _sanitize_fills(parsed) if parsed is not None else {}
+    if not fills:
+        raise HTTPException(502, "补全结果为空或结构不完整，可重试")
+    return {"ok": True, "fills": fills}
+
+
+def _material_from_ctx(ctx, chapter: dict) -> str:
+    blocks: list[str] = []
+    if ctx.story_arc:
+        blocks.append("【全书主线】\n" + ctx.story_arc)
+    if ctx.volume_summary:
+        blocks.append("【本卷卷纲】\n" + ctx.volume_summary)
+    prev = ctx.previous_context or ctx.previous_chapter_recap
+    if prev:
+        blocks.append("【前情】\n" + prev[:800])
+    outline = chapter.get("outline") or {}
+    cur = [
+        f"概要：{outline.get('summary', '') or '（空）'}",
+        "关键事件：" + ("；".join(str(k) for k in outline.get("key_points") or []) or "（空）"),
+    ]
+    blocks.append("【本章现有章纲】\n" + "\n".join(cur))
+    return "\n\n".join(blocks)
 
 
 @router.post("/ai-draft")
