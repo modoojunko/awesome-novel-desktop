@@ -8,7 +8,12 @@
 """
 
 import asyncio
+import os
+import subprocess
+import sys
+import textwrap
 import uuid
+from pathlib import Path
 
 import httpx
 import pytest
@@ -16,6 +21,8 @@ from fastapi.testclient import TestClient
 
 import ai_client as ai_client_module
 from ai_client import AIClient, AITimeoutError
+
+_BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
 def _run_async(coro):
@@ -54,7 +61,9 @@ class TestTimeoutInjection:
         c = AIClient(api_key="sk-x", base_url="https://api.example.com/v1", model="m")
         kw = c._client.init_kwargs
         assert kw["max_retries"] == 1
-        assert isinstance(kw["timeout"], httpx.Timeout)
+        # 交出去的必须是 SDK 自家的 Timeout：httpx.Timeout 会被真 SDK 拒收（httpx2 迁移）
+        assert not isinstance(kw["timeout"], httpx.Timeout)
+        assert isinstance(kw["timeout"], ai_client_module.OpenAITimeout)
         assert kw["timeout"].read == 90.0
 
     def test_anthropic_constructor_gets_timeout_and_retries(self, monkeypatch):
@@ -65,15 +74,20 @@ class TestTimeoutInjection:
         )
         kw = c._client.init_kwargs
         assert kw["max_retries"] == 1
-        assert isinstance(kw["timeout"], httpx.Timeout)
+        assert not isinstance(kw["timeout"], httpx.Timeout)
+        assert isinstance(kw["timeout"], ai_client_module.AnthropicTimeout)
         assert kw["timeout"].read == 90.0
 
     def test_custom_timeout_overrides_default(self, monkeypatch):
         monkeypatch.setattr(ai_client_module, "AsyncOpenAI", _FakeOpenAICapture)
         custom = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
         c = AIClient(api_key="sk-x", timeout=custom, max_retries=0)
-        assert c._client.init_kwargs["timeout"] is custom
+        passed = c._client.init_kwargs["timeout"]
         assert c._client.init_kwargs["max_retries"] == 0
+        # 逐相位换算：自定义口径原样保留，只换 SDK 认的类（不是同一个对象）
+        assert (passed.connect, passed.read, passed.write, passed.pool) == (
+            5.0, 10.0, 5.0, 5.0,
+        )
 
 
 class _TimeoutRaisingOpenAI:
@@ -495,3 +509,79 @@ class TestStreamSaveFailureNotMisclassified:
                 return list(result.scalars())
 
         assert _run_async(_rows()) == []
+
+
+class TestRealSdkTimeoutContract:
+    """真 SDK 守卫（构造级 + 请求级）。
+
+    conftest 会把 anthropic/openai 换成 stub（套件因此从不触发 SDK 自身的参数
+    校验，stub 也没有可校验请求级 kwargs 的方法），所以另起子进程按真 SDK 各
+    构造一次并向死端口发一次流式请求：anthropic ≥1.4 迁 httpx2 后在构造与请求
+    两级都拒收 httpx.Timeout，这道缝曾让发布包上所有走 anthropic 格式配置的
+    AI 功能 500。
+    """
+
+    _PROBE = textwrap.dedent(
+        """
+        import asyncio
+        import sys
+
+        import httpx
+
+        sys.path.insert(0, ".")
+        from ai_client import AIClient, AITimeoutError
+
+        # 死端口：连接秒拒（拒/超时都归 APIConnectionError → AITimeoutError）
+        T = httpx.Timeout(connect=2.0, read=2.0, write=2.0, pool=2.0)
+
+
+        async def main():
+            for fmt, base in (
+                ("anthropic", "http://127.0.0.1:9"),
+                ("openai", "http://127.0.0.1:9/v1"),
+            ):
+                c = AIClient(
+                    api_key="sk-test", base_url=base, model="m",
+                    api_format=fmt, timeout=T, max_retries=0,
+                )
+                assert type(c._client).__module__.split(".")[0] == fmt, type(c._client)
+                print("constructed", fmt)
+
+                raised = ""
+                try:
+                    async for _ in c.chat_stream(
+                        model="m", system="",
+                        messages=[{"role": "user", "content": "hi"}], max_tokens=8,
+                    ):
+                        break
+                except AITimeoutError:
+                    raised = "aitimeout"  # 网络失败被归一 —— 请求级 timeout 已被 SDK 接受
+                except TypeError as e:
+                    raise SystemExit(f"FAIL {fmt}: request-level timeout rejected: {e}")
+                if not raised:
+                    raise SystemExit(f"FAIL {fmt}: expected a network error, got none")
+                print("request-ok", fmt)
+
+
+        asyncio.run(main())
+        """
+    )
+
+    def test_both_formats_construct_against_real_sdk(self, tmp_path):
+        env = dict(
+            os.environ,
+            DATA_ROOT=str(tmp_path),
+            DATABASE_URL=f"sqlite+aiosqlite:///{tmp_path}/novel.db",
+        )
+        proc = subprocess.run(  # noqa: S603
+            [sys.executable, "-c", self._PROBE],
+            capture_output=True, text=True, env=env, cwd=str(_BACKEND_DIR),
+            timeout=120, check=False,
+        )
+        if "ModuleNotFoundError" in proc.stderr:
+            pytest.skip("真 SDK 未安装（纯 stub 环境）")
+        assert proc.returncode == 0, proc.stderr
+        assert "constructed anthropic" in proc.stdout
+        assert "constructed openai" in proc.stdout
+        assert "request-ok anthropic" in proc.stdout
+        assert "request-ok openai" in proc.stdout

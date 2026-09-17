@@ -9,6 +9,24 @@ import types
 import pytest
 from sqlalchemy import text
 
+
+def _reject_httpx_object(name: str, value: object) -> None:
+    """stub 拒收任何 MRO 根模块为 httpx 的构造参数（按真 SDK 最严口径守）。
+
+    真 anthropic ≥1.4 会拒收（传输层迁 httpx2 后抛 TypeError）；真 openai 3.x
+    目前尚容忍 httpx.Timeout，但传输层同样已是 httpx2——stub 有意从严统一两
+    侧口径，防 openai 路径将来收紧时再静默漏进发布包（本次 500 的病根即
+    stub「什么都收」，与真 SDK 脱节）。
+    """
+    for cls in type(value).__mro__:
+        module = getattr(cls, "__module__", None)
+        if isinstance(module, str) and module.partition(".")[0] == "httpx":
+            raise TypeError(
+                f"Invalid `{name}` argument; `httpx.{cls.__name__}` is from the "
+                "`httpx` package, but this SDK uses `httpx2`."
+            )
+
+
 # Stub the `anthropic` module so tests can import story modules
 # without the real SDK being installed.
 if "anthropic" not in sys.modules:
@@ -17,7 +35,8 @@ if "anthropic" not in sys.modules:
 
     class AsyncAnthropic:
         def __init__(self, *args, **kwargs):
-            pass
+            for k, v in kwargs.items():
+                _reject_httpx_object(k, v)
 
     # ai_client 归一网络异常（AITimeoutError）依赖这两个名字，stub 与真 SDK 同形
     class APIConnectionError(Exception):
@@ -26,9 +45,16 @@ if "anthropic" not in sys.modules:
     class APITimeoutError(APIConnectionError):
         pass
 
+    class Timeout:
+        """真 SDK 的 Timeout 类：与 httpx 无关，逐相位接收 connect/read/write/pool。"""
+
+        def __init__(self, *, connect=None, read=None, write=None, pool=None):
+            self.connect, self.read, self.write, self.pool = connect, read, write, pool
+
     anthropic.AsyncAnthropic = AsyncAnthropic
     anthropic.APIConnectionError = APIConnectionError
     anthropic.APITimeoutError = APITimeoutError
+    anthropic.Timeout = Timeout
     sys.modules["anthropic"] = anthropic
 
     # Also stub anthropic.lib.streaming if accessed
@@ -46,7 +72,8 @@ if "openai" not in sys.modules:
 
     class AsyncOpenAI:
         def __init__(self, *args, **kwargs):
-            pass
+            for k, v in kwargs.items():
+                _reject_httpx_object(k, v)
 
     # 同 anthropic：补齐 ai_client 依赖的异常名
     class APIConnectionError(Exception):
@@ -55,9 +82,14 @@ if "openai" not in sys.modules:
     class APITimeoutError(APIConnectionError):
         pass
 
+    class Timeout:
+        def __init__(self, *, connect=None, read=None, write=None, pool=None):
+            self.connect, self.read, self.write, self.pool = connect, read, write, pool
+
     openai_mod.AsyncOpenAI = AsyncOpenAI
     openai_mod.APIConnectionError = APIConnectionError
     openai_mod.APITimeoutError = APITimeoutError
+    openai_mod.Timeout = Timeout
     sys.modules["openai"] = openai_mod
 
     # Stub openai.types.chat if accessed
