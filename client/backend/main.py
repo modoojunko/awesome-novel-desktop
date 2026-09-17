@@ -45,6 +45,8 @@ from update_check import router as update_check_router
 from workflow.router import backfill_router as workflow_backfill_router
 from workflow.router import router as workflow_router
 from write.router import router as write_router
+from write.plot_sim import router as plot_sim_router
+from write.prompt_sources import router as prompt_sources_router
 from write.style_shadow import router as style_shadow_router
 
 
@@ -568,6 +570,8 @@ app.include_router(write_router)
 app.include_router(archive_router)
 app.include_router(archives_router)
 app.include_router(style_shadow_router)
+app.include_router(plot_sim_router)
+app.include_router(prompt_sources_router)
 app.include_router(reconcile_router)
 app.include_router(chapters_versions_router)
 app.include_router(story_router)
