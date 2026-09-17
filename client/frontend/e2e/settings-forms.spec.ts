@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext, type Dialog } from "@playwright/test";
-import { cleanupSessionNovels } from "./helpers";
+import { cleanupSessionNovels, pollBackend, stableClick } from "./helpers";
 
 // =========================================================================
 // 设定真实表单 + 预览只读 E2E（PR4 v2 设定视图 two-col + 预览视图复刻后改版）
@@ -116,7 +116,7 @@ async function setupSession(
 /** 通过真实 UI 创建小说，返回 project id。 */
 async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
-  await page.getByRole("button", { name: "新建作品" }).first().click();
+  await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
   await page.locator("input#bkTitle").fill(name);
   await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
@@ -557,11 +557,17 @@ test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确�
     // 档案行：外貌标签输入（自动保存）
     await page.getByRole("textbox", { name: "外貌标签" }).fill("眉眼清冷，青色长衫");
 
-    // 等最后一格 PATCH 完成
-    await page.waitForTimeout(1200);
-
-    // 后端直查：角色已在新表（列表接口）里
-    const list = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+    // 等最后一格 PATCH 真落库（条件轮询替代固定 sleep，e2e-speedup-infra）
+    const list = await pollBackend(
+      () => apiGetJSON(request, token, `/novels/${pid}/characters`),
+      (l: {
+        data?: { items?: Array<{ name: string; role: string; dossier: { look?: string } }> };
+      }) =>
+        (l.data?.items ?? []).some(
+          (x) =>
+            x.name === "林晚" && x.role === "反派" && (x.dossier?.look ?? "").includes("眉眼清冷"),
+        ),
+    );
     const item = (list.data?.items ?? []).find((x: { name: string }) => x.name === "林晚");
     expect(item).toBeTruthy();
     expect(item.role).toBe("反派");
@@ -588,7 +594,11 @@ test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确�
     // → settings/status 落盘 → gate/status 已确认；再清人设 → stale
     await page.getByRole("button", { name: "主角", exact: true }).click();
     await page.getByRole("textbox", { name: "一句话人设" }).fill("瘦高个的拾残人");
-    await page.waitForTimeout(1200); // 末格 PATCH 落库
+    await pollBackend(
+      () => apiGetJSON(request, token, `/novels/${pid}/characters`),
+      (l: { data?: { items?: unknown[] } }) =>
+        JSON.stringify(l.data?.items ?? []).includes("瘦高个的拾残人"),
+    ); // 末格 PATCH 落库（条件轮询替代固定 sleep）
     const confirmPost = page.waitForResponse(
       (r) =>
         r.request().method() === "POST" && r.url().includes("/characters/confirm"),
@@ -984,7 +994,11 @@ test("角色：首进引导卡 → 手动建主角 → 引导卡退场", async (
     // 手动建主角：首卡默认「主角」
     await page.getByRole("button", { name: "手动建主角" }).click();
     await page.getByRole("textbox", { name: "角色名称" }).fill("林晚");
-    await page.waitForTimeout(1200); // 防抖 PATCH 落库
+    await pollBackend(
+      () => apiGetJSON(request, token, `/novels/${pid}/characters`),
+      (l: { data?: { items?: Array<{ name: string; role: string }> } }) =>
+        (l.data?.items ?? []).some((x) => x.name === "林晚" && x.role === "主角"),
+    ); // 防抖 PATCH 落库（条件轮询替代固定 sleep）
 
     const list = await apiGetJSON(request, token, `/novels/${pid}/characters`);
     const item = (list.data?.items ?? []).find((x: { name: string }) => x.name === "林晚");
@@ -1052,7 +1066,11 @@ test("角色体检：身心一致三问（好矛盾判达标、真冲突判矛�
     await page.getByRole("button", { name: "添加角色" }).click();
     const nameInput = page.getByRole("textbox", { name: "角色名称" });
     await nameInput.fill("林晚");
-    await page.waitForTimeout(1200); // 末格 PATCH 落库
+    await pollBackend(
+      () => apiGetJSON(request, token, `/novels/${pid}/characters`),
+      (l: { data?: { items?: Array<{ name: string }> } }) =>
+        (l.data?.items ?? []).some((x) => x.name === "林晚"),
+    ); // 末格 PATCH 落库（条件轮询替代固定 sleep）
 
     // 体检出参桩：9 项（含 3 组「想的和做的一致」，好矛盾判达标、真冲突判矛盾）
     const items = [
@@ -1099,15 +1117,19 @@ test("角色体检：身心一致三问（好矛盾判达标、真冲突判矛�
 //    认知区进不了像素基线（角色屏 parity 用例整体 skip、裁剪只覆盖三栏首屏），
 //    这块的可见性由本用例兜（ADJUSTMENTS #25）。
 // -------------------------------------------------------------------------
-test("认知区提示：层头六问 hint + 展开自我观见 s5 格位 hint", async ({ page }) => {
-  const { restore } = await setupSession(page);
+test("认知区提示：层头六问 hint + 展开自我观见 s5 格位 hint", async ({ page, request }) => {
+  const { restore, token } = await setupSession(page);
   try {
-    await createNovel(page, `认知${Date.now() % 100000}`);
+    const pid = await createNovel(page, `认知${Date.now() % 100000}`);
     await page.getByRole("button", { name: /^设定/ }).click();
     await openSetting(page, "角色");
     await page.getByRole("button", { name: "添加角色" }).click();
     await page.getByRole("textbox", { name: "角色名称" }).fill("林晚");
-    await page.waitForTimeout(1200); // 末格 PATCH 落库
+    await pollBackend(
+      () => apiGetJSON(request, token, `/novels/${pid}/characters`),
+      (l: { data?: { items?: Array<{ name: string }> } }) =>
+        (l.data?.items ?? []).some((x) => x.name === "林晚"),
+    ); // 末格 PATCH 落库（条件轮询替代固定 sleep）
 
     // 层头六问 hint：不展开即可见（抽验世界观/自我观两层，六层同源）
     await expect(page.getByText("他眼里的世界是什么样的？")).toBeVisible({

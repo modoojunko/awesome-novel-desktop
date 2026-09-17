@@ -65,6 +65,14 @@ export default function LoginPage() {
       setChecking(false);
       return;
     }
+    // 反弹熔断（c-session-flip-stability「失效处理不循环」）：刚被 401 踢出
+    // （3 秒内）就跳过自动登录——否则「自动登录写回凭据 ↔ 业务 401 踢出」
+    // 互踢成环，实测可达每秒百次请求。熔断后停留本页走手动登录。
+    const kickedAt = Number(sessionStorage.getItem("last_auth_kick_at") || 0);
+    if (kickedAt && Date.now() - kickedAt < 3000) {
+      setChecking(false);
+      return;
+    }
     (async () => {
       const ok = await checkAuthorized('自动登录成功');
       if (!ok) setChecking(false);

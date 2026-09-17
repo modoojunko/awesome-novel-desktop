@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
-import { cleanupSessionNovels } from "./helpers";
+import { cleanupSessionNovels, stableClick } from "./helpers";
 
 // =========================================================================
 // 工作台非 AI 功能 E2E（PR3 book.html 复刻后适配：章对象三页签 / 卷纲面板 / 专注 / 提示词）
@@ -119,7 +119,7 @@ async function setupSession(
 /** 通过真实 UI 创建小说，返回 project id。 */
 async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
-  await page.getByRole("button", { name: "新建作品" }).first().click();
+  await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
   await page.locator("input#bkTitle").fill(name);
   await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);

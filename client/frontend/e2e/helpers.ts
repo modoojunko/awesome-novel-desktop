@@ -1,6 +1,6 @@
 import fs from "fs";
 
-import type { Page } from "@playwright/test";
+import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
 // 隔离栈错峰端口：E2E_CLIENT_API_URL 覆盖（默认仍是主栈 8000）
 export const BASE_URL = process.env.E2E_CLIENT_API_URL || "http://localhost:8000";
@@ -8,6 +8,53 @@ export const BASE_URL = process.env.E2E_CLIENT_API_URL || "http://localhost:8000
 export function url(hashPath: string) {
   return `${BASE_URL}/#${hashPath}`;
 }
+
+/**
+ * 页面收敛（e2e-speedup-infra）：网络空闲 + 有限动画播完，替代赌动画时长的固定 sleep。
+ * infinite 动画（跑马灯等）不等待；networkidle 超时视为已收敛（长轮询页面照常往下走）。
+ */
+export async function pageSettled(page: Page, timeout = 8000) {
+  await page.waitForLoadState("networkidle", { timeout }).catch(() => {});
+  await page.evaluate(async () => {
+    await Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.playState !== "infinite")
+        .map((a) => a.finished.catch(() => {})),
+    );
+  });
+}
+
+/**
+ * 后端直查轮询（e2e-speedup-infra）：等防抖 PATCH 真落库再断言，替代「赌 1.2s」。
+ * until 返回真即返回查询结果；超时抛错（防抖丢失时快速红，而非静默假绿）。
+ */
+export async function pollBackend<T>(
+  query: () => Promise<T>,
+  until: (v: T) => boolean,
+  timeout = 8000,
+): Promise<T> {
+  await expect.poll(async () => {
+    try {
+      return until(await query());
+    } catch {
+      return false; // 网络抖动继续轮询
+    }
+  }, { timeout }).toBe(true);
+  return query();
+}
+
+/**
+ * 稳定点击（e2e-speedup-infra 保险）：元素被重挂打断时自动重试，上限内点中为止。
+ * 常规场景一次命中零额外等待；重挂风暴若复发，此处兜底而非 30s 超时假死
+ * （风暴本身由书架请求预算守卫用例钉死）。
+ */
+export async function stableClick(loc: Locator, timeout = 10000) {
+  await expect(async () => {
+    await loc.click({ timeout: 2000 });
+  }).toPass({ timeout });
+}
+
 
 /**
  * 更新提示条打桩（client-update-notify）。

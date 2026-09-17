@@ -24,6 +24,9 @@ services:
       PORT: "19000"
       JWT_SECRET: "${JWT_SECRET:-local-license-secret}"
       ADMIN_TOKEN: "${ADMIN_TOKEN:-admin123}"
+      # 仅本地测试栈放开登录限流（e2e-speedup-infra）：全量 e2e 68+ 用户登录突发
+      # 必超默认 30/min/IP，级联带崩用例。生产部署链路不注入此变量，默认 30 不变。
+      RATE_LIMIT_LOGIN_PER_MIN: "600"
     ports:
       - "${SERVER_HOST_PORT:-19000}:19000"
     volumes:

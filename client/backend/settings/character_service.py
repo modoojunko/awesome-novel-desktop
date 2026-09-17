@@ -802,3 +802,53 @@ async def confirm_characters(session: AsyncSession, novel_id: str, first: bool) 
 
 
 _ = attributes  # 保持 import（sqlalchemy.attributes 供后续审计扩展）
+
+
+async def relations_graph(session: AsyncSession, novel_id: str) -> dict:
+    """全书关系图（workbench 角色关系页签）：节点=角色，边=单向视角关系。
+
+    边带来源章 ref（origin_chapter，可空）；孤立角色也返回（无边的节点）。"""
+    cards = (
+        await session.scalars(
+            select(Character).where(Character.novel_id == novel_id).order_by(Character.seq)
+        )
+    ).all()
+    rels = (
+        await session.scalars(
+            select(CharacterRelation).where(CharacterRelation.novel_id == novel_id)
+        )
+    ).all()
+    names = await _names_by_ids(session, [r.other_id for r in rels])
+    # 来源章 ref（含存量 ch_ref 回填结果）：一次取本章全部章 ref
+    from models.chapter import Chapter
+
+    chapter_refs = {
+        c.id: c.ref
+        for c in await session.scalars(
+            select(Chapter).where(Chapter.project_id == novel_id)
+        )
+    }
+
+    def _origin_ref(rel: CharacterRelation) -> str:
+        if rel.origin_chapter_id and rel.origin_chapter_id in chapter_refs:
+            return chapter_refs[rel.origin_chapter_id]
+        return rel.ch_ref or ""
+    by_id = {c.id: c for c in cards}
+
+    edges = [
+        {
+            "owner_id": r.owner_id,
+            "other_id": r.other_id,
+            "owner_name": by_id[r.owner_id].name if r.owner_id in by_id else "",
+            "other_name": names.get(r.other_id, r.other_id),
+            "rel_type": r.rel_type,
+            "stance": r.stance,
+            "origin_chapter": _origin_ref(r),
+        }
+        for r in rels
+    ]
+    nodes = [
+        {"id": c.id, "name": c.name, "role": c.role}
+        for c in cards
+    ]
+    return {"nodes": nodes, "edges": edges}

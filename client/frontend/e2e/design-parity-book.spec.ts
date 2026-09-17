@@ -303,6 +303,8 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         });
       }
       await protoPage.evaluate(() => document.fonts.ready);
+      // 帧位标定（e2e-speedup-infra 判保留）：parity 截图需两侧同一确定性帧，
+      // 固定等待即标定值，非脆弱等待——勿换 pageSettled（遮罩动画帧位会漂，实测 84% 差异）
       await protoPage.waitForTimeout(700);
       // 屏内交互（原型 LS 仅还原 settings/outline 视图 → 统一运行时点击，两侧对称）
       if (c.screen === "volume") {
@@ -325,6 +327,7 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         // （#btnUpgrade2 在卷选中栏 #railVolume 内，默认 hidden 不可点）
         await protoPage.locator("#btnUpgrade3").click();
       }
+      // 帧位标定（同上）：弹窗开启动画的采样帧由该固定等待锁定
       await protoPage.waitForTimeout(400);
       const isChars = protoKind === "characters";
       const isFore = protoKind === "foreshadow";
@@ -386,18 +389,19 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         await appPage.locator(".settings-v .col-tree .s-item", { hasText: "角色" }).click();
         await listLoaded;
         await appPage.waitForSelector(".char-list");
-        await appPage.waitForTimeout(400); // 单卡 GET + 右栏作用域行
+        await appPage.waitForTimeout(400); // 帧位标定（同上）：单卡 GET + 右栏作用域行
       } else if (c.screen === "settings-foreshadow") {
         await appPage.locator(".modnav button", { hasText: "设定" }).click();
         const listLoaded = appPage.waitForResponse(`**/api/novels/${PID}/hooks`);
         await appPage.locator(".settings-v .col-tree .s-item", { hasText: "伏笔" }).click();
         await listLoaded;
         await appPage.waitForSelector(".hk-tree");
-        await appPage.waitForTimeout(400); // 卷章树 GET + 徽标/保存态上报
+        await appPage.waitForTimeout(400); // 帧位标定（同上）：卷章树 GET + 徽标/保存态上报
       }
       await appPage.waitForLoadState("networkidle");
       await appPage.evaluate(() => document.fonts.ready);
-      await appPage.waitForTimeout(700); // page-enter 0.4s 收敛
+      // 帧位标定（同上）：page-enter 0.4s 收敛后采样
+      await appPage.waitForTimeout(700);
       let appShot: Buffer;
       if (isChars || isFore) {
         // 覆盖边界（tasks 6.2 / foreshadow 4.6）：只比对三栏区首屏（1440×900 里 y 以下的部分）——

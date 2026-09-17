@@ -19,6 +19,7 @@ import OgPane from "./OgPane";
 import { charactersApi } from "@/lib/charactersApi";
 import PromptPane from "./PromptPane";
 import { SettingsChangelogPane } from "./SettingsChangelogPane";
+import { RelationsGraphPane } from "./RelationsGraphPane";
 import { ReconcilePane } from "./ReconcilePane";
 import ProsePane, {
   INITIAL_PROSE_AI_STATE,
@@ -176,7 +177,9 @@ export default function ChapterWorkspace({
   }, [projectId, chapterRef]);
 
   // ── 三页签：点章强制落「章纲」（设计稿行为） ─────────────────────────
-  const [chTab, setChTab] = useState<"og" | "prompt" | "prose" | "settings" | "actions">("og");
+  const [chTab, setChTab] = useState<
+    "og" | "prompt" | "prose" | "settings" | "relations" | "actions"
+  >("og");
   const [showArchive, setShowArchive] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   useEffect(() => {
@@ -587,6 +590,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             ...(isPro ? ([["prompt", "提示词", promptCnt]] as const) : []),
             ["prose", "正文", proseCnt],
             ["settings", "设定", { text: "", cls: "" }],
+            ["relations", "角色关系", { text: "", cls: "" }],
             ["actions", "操作", { text: "", cls: "" }],
           ] as const
         ).map(([key, text, cnt]) => (
@@ -645,6 +649,12 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             projectId={projectId}
             chapterRef={chapterRef}
           />
+        </div>
+      )}
+
+      {chTab === "relations" && (
+        <div className="relations-pane" data-od-id="relations-pane">
+          <RelationsGraphPane projectId={projectId} />
         </div>
       )}
 

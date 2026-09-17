@@ -1,8 +1,8 @@
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
-import { cleanupSessionNovels } from "./helpers";
+import { test, expect, type Page, type Request, type APIRequestContext } from "@playwright/test";
+import { cleanupSessionNovels, stableClick } from "./helpers";
 
 // =========================================================================
 // 伏笔设定 E2E（foreshadow-settings-v2 tasks 4.7）——真表 novel_hooks 面板流
@@ -103,7 +103,7 @@ async function setupSession(
 /** 通过真实 UI 创建小说，返回 project id。 */
 async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
-  await page.getByRole("button", { name: "新建作品" }).first().click();
+  await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
   await page.locator("input#bkTitle").fill(name);
   await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
@@ -156,9 +156,31 @@ async function openHooks(page: Page) {
   await expect(page.locator(".hk-tree")).toBeVisible({ timeout: 10000 });
 }
 
-/** 等 UI 的最后一格 PATCH 落库（防抖 600ms + 余量）。 */
+/** 等 UI 的自动保存队列排空（e2e-speedup-infra）：字段级 PATCH 串行发出，
+ * 以「700ms 无新 hooks PATCH」为排空判据（防抖窗口 600ms）。
+ * 坑：不能用 waitForLoadState("networkidle")——页面本就静默时它会瞬时返回，
+ * 抢在后续 PATCH 之前放行（实测踩坑）。从未发 PATCH 的用例立即放行，
+ * 后续断言各自守门。 */
 async function waitDebounce(page: Page) {
-  await page.waitForTimeout(1200);
+  let lastPatchAt = 0;
+  const onReq = (r: Request) => {
+    if (r.method() === "PATCH" && /\/hooks\//.test(r.url())) lastPatchAt = Date.now();
+  };
+  page.on("request", onReq);
+  try {
+    const begin = Date.now();
+    await expect
+      .poll(
+        () =>
+          lastPatchAt > 0
+            ? Date.now() - lastPatchAt >= 700 // 见过 PATCH：等 700ms 静默＝队列排空
+            : Date.now() - begin >= 700, // 一个都没有：也要给满 600ms 防抖窗＋余量
+        { timeout: 8000, intervals: [100] },
+      )
+      .toBe(true);
+  } finally {
+    page.off("request", onReq);
+  }
 }
 
 test.describe.serial("伏笔设定（真表 novel_hooks）", () => {
