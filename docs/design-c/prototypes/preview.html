@@ -83,6 +83,12 @@
   .bh-rule { width: 1px; height: 15px; background: var(--border); flex: none; }
   .bh-t { flex: 0 1 auto; min-width: 0; margin: 0; font-family: var(--font-display); font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bh-t .n { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-right: 7px; }
+  .bh-prog { display: flex; align-items: center; gap: 9px; flex: none; width: 168px; }
+  .bh-vol { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+  .bh-prog .prog-bar { flex: 1; }
+  .prog-bar { height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+  .prog-bar span { display: block; height: 100%; background: var(--fg); border-radius: 3px; }
+  .bh-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
   @media (max-width: 1320px) { .appbar .genre-tag { display: none; } }
   @media (max-width: 920px) {
     .appbar { position: static; height: auto; min-height: 0; flex-wrap: wrap; padding: 9px 14px; gap: 8px 10px; }
@@ -99,6 +105,11 @@
   .badge { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 11px; line-height: 1.6; white-space: nowrap; }
   .badge-accent { background: var(--accent-soft); color: var(--accent); }
   .badge-muted { background: color-mix(in oklch, var(--fg) 6%, transparent); color: var(--muted); }
+
+  /* ─── 底部状态条（index.css .statusbar 同值） ───────────── */
+  .statusbar-spacer { height: 26px; flex-shrink: 0; }
+  .statusbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; height: 26px; padding: 0 16px; background: var(--surface); border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+  .statusbar .sb-ver { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
   /* ─── 书内模块导航（与 book.html 逐字同源） ─────────────── */
   .modnav { flex: none; display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
@@ -193,7 +204,13 @@
   <div class="bar-here" id="barHere" data-od-id="current-position">
     <p class="bh-k">当前主线</p>
     <span class="bh-rule"></span>
-    <p class="bh-t"><span class="n">第 1 章</span>锚点</p>
+    <p class="bh-t"><span class="n">第 16 章</span>刻痕</p>
+    <span class="bh-tag">拟定</span>
+    <div class="bh-prog">
+      <span class="bh-vol">第三卷 · 3/5</span>
+      <span class="prog-bar"><span style="width:60%"></span></span>
+    </div>
+    <button class="btn btn-primary btn-sm" data-od-id="resume-cta">续写</button>
   </div>
   <div class="acct">
     <button class="acct-trigger" id="btnAcct" data-od-id="acct-trigger" aria-haspopup="menu" aria-expanded="false">
@@ -206,7 +223,7 @@
 <nav class="modnav" data-od-id="modnav">
   <button class="mtab" data-view="settings" data-od-id="tab-settings">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-    设定 <span class="cnt" id="modSettingsCnt">3/7</span>
+    设定 <span class="cnt" id="modSettingsCnt">0/7</span>
   </button>
   <button class="mtab" data-view="writing" data-od-id="tab-writing" title="写作工作台（本屏不演示切换）">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
@@ -236,6 +253,13 @@
   <aside class="pv-side" id="pvSide" data-od-id="pv-side"></aside>
 
 </main>
+
+<!-- ═══ 窗口底部状态条（StatusBar 同款：左版权 · 右版本，fixed 26px） ═══ -->
+<div class="statusbar-spacer" aria-hidden="true"></div>
+<footer class="statusbar" data-od-id="app-status-bar">
+  <span data-od-id="app-credits">© 2026 爱小说</span>
+  <span class="sb-ver" data-od-id="status-version">v0.11</span>
+</footer>
 
 <script>
 /* ═══════════ 种子（parity 与应用 stub 逐字段对齐的演示数据） ═══════════

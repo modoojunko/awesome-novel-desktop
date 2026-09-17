@@ -5,7 +5,7 @@
 //   选中章与阅读配置均为预览本地态（ADJUSTMENTS #12/#13）：切章不回写写作视图；
 //   阅读配置走 pref.book.{pid}.read.*（独立于写作偏好 fs/lh，互不污染）。
 //   语义沿 ADJUSTMENTS #12：全书只读通读（草稿与归档章皆可读）；旧稿支线不进目录与概览。
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { nodeLabel } from "@/lib/nodeTitle";
 import {
@@ -225,8 +225,9 @@ export default function PreviewView({
           </span>
         </div>
         <div className="pv-toc" aria-label="预览目录">
+          {/* .pv-vol 直挂 .pv-toc（与原型 DOM 同构：`:first-child` 只落首卷头） */}
           {volumes.map((v) => (
-            <div key={v.name}>
+            <Fragment key={v.name}>
               <div className="pv-vol">
                 <b>{nodeLabel("卷", volNo(v.name), v.title)}</b> · {v.chapters.length} 章
               </div>
@@ -249,7 +250,7 @@ export default function PreviewView({
                   </button>
                 );
               })}
-            </div>
+            </Fragment>
           ))}
           {volumes.length === 0 && (
             <div className="pv-toc-empty">还没有卷与章节。回到「写作」添加第一卷。</div>

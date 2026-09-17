@@ -812,7 +812,8 @@ test("预览阅读器：三栏/跨卷翻页/配置持久化/写作选中不变",
     await page.getByTestId("pv-next").click();
     await expect(page.getByTestId("pv-chapter")).toContainText("第二章 · 渡口");
     await page.getByTestId("pv-next").click();
-    await expect(page.getByTestId("pv-chapter")).toContainText("第三章 · 归航");
+    // 章号卷内编号（第二卷首章 = 第一章 · 归航）
+    await expect(page.getByTestId("pv-chapter")).toContainText("第一章 · 归航");
     await expect(page.getByTestId("pv-chapter").locator(".pv-voltag")).toHaveText("第二卷");
     // 末章禁用 + 上一章回跨
     await expect(page.getByTestId("pv-next")).toHaveAttribute("aria-disabled", "true");
@@ -820,19 +821,22 @@ test("预览阅读器：三栏/跨卷翻页/配置持久化/写作选中不变",
     await expect(page.getByTestId("pv-chapter")).toContainText("第二章 · 渡口");
     // 目录直切
     await page.locator(".pv-ch", { hasText: "归航" }).click();
-    await expect(page.getByTestId("pv-chapter")).toContainText("第三章 · 归航");
+    await expect(page.getByTestId("pv-chapter")).toContainText("第一章 · 归航");
 
     // ── 阅读配置：夜间 + 小号立即生效并落 localStorage ──
     await page.getByRole("group", { name: "主题" }).locator("button", { hasText: "夜间" }).click();
     await page.getByRole("group", { name: "字号" }).locator("button", { hasText: "小" }).click();
     await expect(page.locator(".view.preview-v")).toHaveClass(/pv-theme-night/);
-    const readTheme = await page.evaluate(() =>
-      localStorage.getItem(`pref.book.${pid}.read.theme`),
+    const readTheme = await page.evaluate(
+      (k) => localStorage.getItem(k),
+      `pref.book.${pid}.read.theme`,
     );
     expect(readTheme).toBe("night");
 
     // ── 回写作：选中章仍是最初的第一章（预览切章不回写写作视图）──
     await page.locator(".mtab", { hasText: "写作" }).click();
+    // PR3 口径：点章/重挂载默认落「章纲」页签 → 先切「正文」再看编辑器
+    await page.getByRole("tab", { name: /^正文/ }).click();
     await expect(page.locator(".editor")).toBeVisible({ timeout: 10000 });
     await expect(page.locator(".editor-toolbar .ch-name")).toContainText("第一章");
 
