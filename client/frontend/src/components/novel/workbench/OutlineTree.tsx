@@ -352,7 +352,25 @@ export default function OutlineTree({
         {volumes.length === 0 && (
           <div className="empty-tree">还没有卷与章节。点击左上「＋」添加第一卷。</div>
         )}
-      </div>
+      </div>  {wb.ghosts.length > 0 && (
+    <div className="ghost-group" data-od-id="ghost-group">
+      <p className="gg-head">旧稿支线（只读）</p>
+      {wb.ghosts.map((g) => (
+        <button
+          key={g.ref}
+          className="ghost-row"
+          title="旧稿支线 · 只读"
+          onClick={() => wb.focusNode(g.ref)}
+        >
+          <span className="t">
+            第{g.chapter}章 · {g.title || "未命名"}
+          </span>
+          <span className="w">{g.word_count} 字</span>
+        </button>
+      ))}
+    </div>
+  )}
+
 
       <div className="tree-foot">
         <button className="btn btn-ghost btn-sm batch" onClick={() => void handleBatchConfirm()}>

@@ -31,6 +31,21 @@ async def list_volumes(
     return await list_volumes_db(db, project)
 
 
+@router.get("/ghosts")
+async def list_ghosts(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """旧稿支线章列表（revert-ghost）：脱离主线的只读保留章。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    from volumes.service import list_ghosts as list_ghosts_db
+
+    return await list_ghosts_db(db, project)
+
+
 @router.post("/volumes")
 async def create_volume(
     project_id: str,
@@ -185,6 +200,26 @@ async def get_frontier(
         },
         "chapters": info["chapters"],
     }
+
+
+@router.post("/chapters/{chapter_ref}/revert")
+async def revert_chapter(
+    project_id: str,
+    chapter_ref: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """回退到本章（revert-ghost）：主线收回，其后章节转入旧稿支线只读保留；
+    支线派生数据（出场状态变化/来源关系/伏笔登记/收尾提案/归档行）按章序清除。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    _validate_ref(chapter_ref)
+    from chapters.frontier import revert_to_chapter
+
+    result = await revert_to_chapter(db, project.id, chapter_ref)
+    # 主线计数与端点相关元数据随查询派生；树刷新由前端发起
+    return result
 
 
 @router.put("/chapters/{chapter_ref}/prose")

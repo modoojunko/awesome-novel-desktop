@@ -1092,3 +1092,14 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .change-row .what { font-size: 13px; color: var(--fg); min-width: 0; overflow-wrap: anywhere; }
 .change-row .origin { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); flex: none; }
 .foot-note { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+
+/* ─── revert-ghost：回退卡 ＋ 旧稿支线分组 ─────────────────────────── */
+.revert-card { padding: 12px 14px; border: 1px solid color-mix(in oklch, var(--warn) 35%, var(--border)); border-radius: 8px; background: color-mix(in oklch, var(--warn) 6%, var(--surface)); }
+.revert-card .rc-title { margin: 0 0 4px; font-family: var(--font-display); font-size: 14px; font-weight: 600; }
+.revert-card .rc-desc { margin: 0 0 10px; font-size: 12.5px; line-height: 1.7; color: var(--muted); }
+.ghost-group { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.ghost-group .gg-head { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; color: var(--muted); padding: 4px 8px; }
+.ghost-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border: 0; background: none; text-align: left; font: inherit; color: var(--muted); cursor: pointer; border-radius: 6px; }
+.ghost-row:hover { background: var(--fg-soft); color: var(--fg); }
+.ghost-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.ghost-row .w { font-family: var(--font-mono); font-size: 10px; flex: none; }

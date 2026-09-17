@@ -407,3 +407,46 @@ test("顶栏续写：回到上次退出前的章与位置", async ({ page }) => 
     await restore();
   }
 });
+
+// -------------------------------------------------------------------------
+// ⑧ 回退（revert-ghost）：主线收回，其后章转入旧稿支线
+// -------------------------------------------------------------------------
+
+test("回退到第一章：后续章转入旧稿支线，端点回落", async ({ page }) => {
+  const { restore } = await setupFreeSession(page);
+  try {
+    await createNovel(page, `回退${Date.now() % 100000}`);
+    await writeFirstChapter(page);
+    // 加第二章（拟定）→ 打开第一章操作页签 → 回退到这里
+    const volHead = page.locator(".col-tree .vol-head").first();
+    await volHead.hover();
+    await volHead.locator('[title="添加章节"]').click();
+    await page.locator(".inline-add input").fill("第二章");
+    await page.keyboard.press("Enter");
+    const ch2 = page.locator(".col-tree .ch", { hasText: "第二章" });
+    await expect(ch2).toBeVisible({ timeout: 5000 });
+
+    // 回退卡在第一章的操作页签：主线收回 → 第二章转入旧稿支线
+    const ch1 = page.locator(".col-tree .ch", { hasText: "第一章" });
+    await ch1.click();
+    await page.getByRole("tab", { name: /^操作/ }).click();
+    page.once("dialog", (d) => d.accept());
+    await page.locator('[data-od-id="revert-btn"]').click();
+
+    // 支线分组出现，第二章在列；主线只剩第一章（拟定端点）
+    await expect(page.locator('[data-od-id="ghost-group"]')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-od-id="ghost-group"] .ghost-row')).toHaveText(/第二章/);
+    const barHere = page.locator(".bar-here");
+    await expect(barHere.locator(".bh-t")).toHaveText("第 1 章");
+    await expect(barHere.locator(".bh-tag")).toHaveText("拟定");
+
+    // 支线章只读：点支线里的第二章 → 落正文页签 → 旧稿支线只读横幅
+    await page.locator('[data-od-id="ghost-group"] .ghost-row').click();
+    await page.getByRole("tab", { name: /^正文/ }).click();
+    await expect(page.getByText("旧稿支线 · 只读").first()).toBeVisible({ timeout: 5000 });
+    await expect(page.locator(".editor")).toHaveAttribute("contenteditable", "false");
+  } finally {
+    await restore();
+  }
+});
+

@@ -31,6 +31,7 @@ import { BRAND } from "@/lib/brand";
 import { isLoggedIn } from "@/lib/auth";
 import { cnNum, isDefaultTitle } from "@/lib/nodeTitle";
 import { getLastWriteSession, type LastWriteSession } from "@/lib/prefs";
+import { revertToChapter } from "@/lib/reconcileApi";
 
 // ---------------------------------------------------------------------------
 // NovelWorkspace — book.html 复刻（PR 3：壳 + 大纲树 + 章对象工作台）
@@ -332,6 +333,21 @@ export default function NovelWorkspace() {
     };
   }, [volumes, lastWrite, selectedRef, railData]);
 
+  const handleRevert = useCallback(
+    async (ref: string) => {
+      await revertToChapter(projectId, ref);
+      await refresh();
+      toast.success("已回退：之后的章节转入旧稿支线");
+    },
+    [projectId, refresh],
+  );
+  const handleRevertRef = useRef(handleRevert);
+  handleRevertRef.current = handleRevert;
+  const onRevert = useCallback(
+    (ref: string) => void handleRevertRef.current(ref),
+    [],  // 稳定引用：内部经 ref 取最新
+  );
+
   const onResume = useCallback(async () => {
     if (!hereTarget) return;
     if (!guardedLeave()) return;
@@ -528,6 +544,7 @@ export default function NovelWorkspace() {
               onRailData={setRailData}
               onWriteProgress={setLastWrite}
               resumeSignal={resumeSignal ?? undefined}
+              onRevert={onRevert}
               onAiWrite={() => requestAi({ kind: "write" })}
               aiWriteSignal={aiWriteSignal}
             />

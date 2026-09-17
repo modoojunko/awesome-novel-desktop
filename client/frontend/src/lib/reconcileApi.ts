@@ -75,3 +75,6 @@ export const rejectReconcile = (projectId: string, chapterRef: string, rowId: st
 
 export const retryReconcile = (projectId: string, chapterRef: string, rowId: string) =>
   post(`/novels/${projectId}/chapters/${chapterRef}/reconcile/${rowId}/retry`);
+
+export const revertToChapter = (projectId: string, chapterRef: string) =>
+  api.post(`/novels/${projectId}/chapters/${chapterRef}/revert`, {});

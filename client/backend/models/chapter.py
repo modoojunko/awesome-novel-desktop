@@ -53,6 +53,9 @@ class Chapter(Base):
     )
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 旧稿支线（revert-ghost）：回退点章 ref（vol-1-ch-5）。非空＝本章已脱离主线，
+    # 只读保留在支线分组；主线查询一律 ghost_of IS NULL。
+    ghost_of: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
