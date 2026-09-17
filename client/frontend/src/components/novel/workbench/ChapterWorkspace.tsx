@@ -21,6 +21,7 @@ import { charactersApi } from "@/lib/charactersApi";
 import PromptPane from "./PromptPane";
 import { StyleShadowPane } from "./StyleShadowPane";
 import { SettingsChangelogPane } from "./SettingsChangelogPane";
+import { HooksPane } from "./HooksPane";
 import { RelationsGraphPane } from "./RelationsGraphPane";
 import { ReconcilePane } from "./ReconcilePane";
 import ProsePane, {
@@ -180,7 +181,7 @@ export default function ChapterWorkspace({
 
   // ── 三页签：点章强制落「章纲」（设计稿行为） ─────────────────────────
   const [chTab, setChTab] = useState<
-    "og" | "prompt" | "prose" | "settings" | "relations" | "actions"
+    "og" | "prompt" | "prose" | "settings" | "relations" | "hooks" | "actions"
    | "style">("og");
   const [showArchive, setShowArchive] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -493,6 +494,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   const unarchiveRef = useRef(store.unarchive);
   unarchiveRef.current = store.unarchive;
   useEffect(() => {
+    // 章纲统计（右栏 AI 辅助·章纲页签）：归档门槛/计划字数/关键事件/出场角色
+    const keyLines = ogForm.keys.split("\n").filter((x) => x.trim());
+    const castLines = ogForm.chars.split("\n").filter((x) => x.trim());
+    const wtParsed = parseInt(ogForm.wt, 10);
     onRailDataRef.current({
       wordCount,
       targetWords,
@@ -500,9 +505,23 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       archived,
       bookWords,
       unarchive: unarchiveRef.current,
+      // storyline col-ai：右栏 AI 辅助随页签切换
+      tab: chTab,
+      chapterRef,
+      ogStats: {
+        reqOk: 6 - ogGaps(ogForm).length,
+        planWords: Number.isFinite(wtParsed) && wtParsed > 0 ? wtParsed : (targetWords ?? null),
+        keyCount: keyLines.length,
+        castCount: castLines.length,
+      },
+      canAiDraft: isPro && !archived,
+      aiDrafting,
+      onAiDraft: () => void handleAiDraft(),
+      onSimulate: () => setShowSim(true),
     });
     return () => onRailDataRef.current(null);
-  }, [wordCount, targetWords, setTargetWords, archived, bookWords]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, aiDrafting]);
 
   // ── 页签徽标 ──────────────────────────────────────────────────────────
   const ogCnt =
@@ -621,6 +640,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             ["settings", "设定", { text: "", cls: "" }],
             ["style", "文风", { text: "", cls: "" }],
             ["relations", "角色关系", { text: "", cls: "" }],
+            ["hooks", "伏笔", { text: "", cls: "" }],
             ["actions", "操作", { text: "", cls: "" }],
           ] as const
         ).map(([key, text, cnt]) => (
@@ -696,6 +716,12 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       {chTab === "relations" && (
         <div className="relations-pane" data-od-id="relations-pane">
           <RelationsGraphPane projectId={projectId} />
+        </div>
+      )}
+
+      {chTab === "hooks" && (
+        <div className="hooks-wrap" data-od-id="hooks-wrap">
+          <HooksPane projectId={projectId} chapterRef={chapterRef} />
         </div>
       )}
 

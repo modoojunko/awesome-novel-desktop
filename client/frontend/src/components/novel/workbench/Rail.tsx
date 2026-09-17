@@ -8,6 +8,7 @@ import { useState, type RefObject } from "react";
 import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { toast } from "@/lib/toast";
 import { DEFAULT_TARGET } from "@/hooks/useChapterData";
+import { AiAssistPanel, type OgStats } from "./AiAssistPanel";
 
 export interface RailChapterData {
   wordCount: number;
@@ -17,10 +18,24 @@ export interface RailChapterData {
   bookWords: number;
   /** 退出归档只读（解锁链确认后由页面调用） */
   unarchive: () => Promise<void>;
+  /** 中栏当前页签（storyline col-ai 口径：右栏 AI 辅助随页签切换） */
+  tab?: string;
+  /** 章纲页签统计（归档门槛/计划字数/关键事件/出场角色） */
+  ogStats?: OgStats;
+  /** AI 起草（章纲页签动作；缺省=不可用） */
+  canAiDraft?: boolean;
+  aiDrafting?: boolean;
+  onAiDraft?: () => void;
+  /** 剧情推演（章纲页签动作） */
+  onSimulate?: () => void;
+  /** 当前章 ref（右栏辅助面板按章取数） */
+  chapterRef?: string;
 }
 
 interface RailProps {
   mode: "volume" | "chapter";
+  /** 书本 id（右栏 AI 辅助面板按书按章取数） */
+  projectId: string;
   isPro: boolean;
   onUpgrade: () => void;
   proseRef: RefObject<ProseHandle | null>;
@@ -77,6 +92,7 @@ function PlannedFeat({ title, desc }: { title: string; desc: string }) {
 
 export default function Rail({
   mode,
+  projectId,
   isPro,
   onUpgrade,
   proseRef,
@@ -153,7 +169,7 @@ export default function Rail({
         </div>
       </div>
 
-      {isPro && (
+      {isPro && d?.tab === "prose" && (
         <>
           <p className="ai-sec">AI 工具</p>
           <div>
@@ -212,7 +228,7 @@ export default function Rail({
         </>
       )}
 
-      {!isPro && (
+      {!isPro && d?.tab === "prose" && (
         <>
           <p className="ai-sec">规划中的能力</p>
           <div className="rail-locked">
@@ -221,6 +237,23 @@ export default function Rail({
             <PlannedFeat title="场景扩写" desc="把一句话场景扩展为完整段落，保持设定一致。" />
           </div>
         </>
+      )}
+
+      {d?.tab && d.ogStats && d.chapterRef && d.onAiDraft && d.onSimulate && (
+        <AiAssistPanel
+          projectId={projectId}
+          chapterRef={d.chapterRef}
+          tab={d.tab}
+          isPro={isPro}
+          ogStats={d.ogStats}
+          wordCount={words}
+          planWords={d.ogStats.planWords ?? d.targetWords ?? null}
+          archived={!!d.archived}
+          canAiDraft={!!d.canAiDraft}
+          aiDrafting={!!d.aiDrafting}
+          onAiDraft={d.onAiDraft}
+          onSimulate={d.onSimulate}
+        />
       )}
 
       <p className="ai-sec">本章进度</p>

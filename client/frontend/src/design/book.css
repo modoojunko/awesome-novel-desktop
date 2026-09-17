@@ -1156,3 +1156,27 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .psrc-list .k { color: var(--muted); }
 .psrc-list .v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .psrc-list .n { color: var(--muted); }
+
+/* ─── hooks-pane：章内伏笔台账投影（storyline hooksHTML 口径） ──────── */
+.hooks-wrap { padding: 16px 20px; }
+.hooks-pane { display: flex; flex-direction: column; gap: 10px; }
+.hp-sum { margin: 0; font-size: 13px; color: var(--muted); }
+.hp-sum b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.hp-ledger { display: flex; flex-direction: column; gap: 6px; }
+.hp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.hp-row.hit { border-color: color-mix(in oklch, var(--accent) 45%, transparent); background: var(--accent-soft); }
+.hp-name { min-width: 0; font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.hp-code { font-style: normal; font-size: 11.5px; color: var(--muted); }
+.hp-origin { font-style: normal; font-size: 11.5px; color: var(--muted); width: 100%; }
+.hp-state { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.hp-state.open { color: var(--warn); }
+
+/* ─── rail-assist：右栏 AI 辅助随页签面板（storyline col-ai 口径） ──── */
+.rail-assist { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.rail-lead { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+.rail-stats { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.rail-stats li { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.rail-stats .k { color: var(--muted); }
+.rail-stats .v { font-weight: 600; }
+.rail-acts { display: flex; flex-direction: column; gap: 7px; }
+.rail-acts .btn { justify-content: flex-start; }

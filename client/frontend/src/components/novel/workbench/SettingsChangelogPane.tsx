@@ -1,7 +1,7 @@
 /** 「设定」页签：本章变化（可编辑）＋截至本章（投影，只读）。
  *  数据源：本章出场引用行的 state_change（archive-reconcile 落点）＋
- *  出场角色的关系（origin_chapter 标注）。设定类变化（lore-apply）走世界
- *  设定投影，由「世界设定」投影接口提供；本期先呈现角色/关系两类。 */
+ *  出场角色的关系（origin_chapter 标注）＋书级设定条目（world history/
+ *  factions/extra，origin=章 ref，按章序过滤到当前章）。 */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 
@@ -26,6 +26,13 @@ interface ChapterLite {
   chapter: number;
 }
 
+/** 书级设定条目（world v2：history/extra=(key,value)；factions=name/note） */
+interface LoreRow {
+  label: string;
+  value: string;
+  origin: string; // 章 ref（vol-N-ch-M）或空（开书）
+}
+
 export function SettingsChangelogPane({
   projectId,
   chapterRef,
@@ -37,6 +44,7 @@ export function SettingsChangelogPane({
   const [relations, setRelations] = useState<RelationRow[]>([]);
   const [chapters, setChapters] = useState<ChapterLite[]>([]);
   const [nameById, setNameById] = useState<Record<string, string>>({});
+  const [lore, setLore] = useState<LoreRow[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -108,6 +116,25 @@ export function SettingsChangelogPane({
       } catch {
         /* 树加载失败不阻断 */
       }
+      try {
+        const world = (await api.get(`/novels/${projectId}/settings/world`)) as {
+          history?: Array<{ key?: string; value?: string; origin?: string }>;
+          factions?: Array<{ name?: string; note?: string; origin?: string }>;
+          extra?: Array<{ key?: string; value?: string; origin?: string }>;
+        };
+        const rows: LoreRow[] = [];
+        for (const e of world.factions ?? []) {
+          if (e?.name) rows.push({ label: e.name, value: e.note ?? "", origin: e.origin ?? "" });
+        }
+        for (const set of [world.history ?? [], world.extra ?? []]) {
+          for (const e of set) {
+            if (e?.key) rows.push({ label: e.key, value: e.value ?? "", origin: e.origin ?? "" });
+          }
+        }
+        if (!cancelled) setLore(rows);
+      } catch {
+        /* 世界设定读取失败不阻断其余投影 */
+      }
     })();
     return () => {
       cancelled = true;
@@ -146,6 +173,23 @@ export function SettingsChangelogPane({
 
   const hasChanges = cast.some((c) => c.state_change) || relsUntil.length > 0;
 
+  // 截至本章：来源章 ≤ 本章的书级设定条目（origin 为章 ref；空=开书，恒显示）
+  const loreUntil = useMemo(
+    () =>
+      lore.filter((e) => {
+        if (!e.origin) return true;
+        const m = e.origin.match(/-ch-(\d+)$/);
+        return m ? Number(m[1]) <= chapterNo : true; // 旧格式/解析不了：保守显示
+      }),
+    [lore, chapterNo],
+  );
+
+  const loreOriginLabel = (origin: string): string => {
+    if (!origin) return "开书";
+    const m = origin.match(/-ch-(\d+)$/);
+    return m ? `第 ${Number(m[1])} 章` : origin;
+  };
+
   if (error) return <p className="vempty">{error}</p>;
 
   return (
@@ -179,8 +223,20 @@ export function SettingsChangelogPane({
         </div>
       ))}
 
+      <p className="seg-title">截至本章的设定条目</p>
+      {loreUntil.length === 0 && (
+        <p className="vempty">还没有随章节积累的设定条目。</p>
+      )}
+      {loreUntil.map((e, i) => (
+        <div className="change-row" key={`${e.label}-${i}`}>
+          <span className="who">{e.label}</span>
+          <span className="what">{e.value}</span>
+          <span className="origin">{loreOriginLabel(e.origin)}</span>
+        </div>
+      ))}
+
       <p className="foot-note">
-        以上内容会作为本章及之后章节的写作参考；世界设定的变化请见「世界设定」投影。
+        以上内容会作为本章及之后章节的写作参考；世界设定的完整维护请见「设定 · 世界」。
       </p>
     </div>
   );

@@ -574,6 +574,7 @@ export default function NovelWorkspace() {
         <aside className="col-ai">
           <Rail
             mode={chapterRef ? "chapter" : "volume"}
+            projectId={projectId}
             isPro={isPro}
             onUpgrade={onUpgrade}
             proseRef={proseRef}
