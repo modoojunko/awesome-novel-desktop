@@ -41,9 +41,18 @@ export interface WorkbenchNode {
   ref?: string;
 }
 
+export interface WorkbenchGhost {
+  ref: string;
+  chapter: number;
+  title: string;
+  word_count: number;
+  ghost_of: string;
+}
+
 export interface UseWorkbenchReturn {
   project: Record<string, any> | null;
   volumes: WorkbenchVolume[];
+  ghosts: WorkbenchGhost[];
   selectedId: string | null;
   selectedRef: string | null;
   view: WorkspaceView;
@@ -79,6 +88,9 @@ export function useWorkbench(): UseWorkbenchReturn {
   const projectId = project?.id ?? "";
 
   const [volumes, setVolumes] = useState<WorkbenchVolume[]>([]);
+  const [ghosts, setGhosts] = useState<
+    Array<{ ref: string; chapter: number; title: string; word_count: number; ghost_of: string }>
+  >([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRef, setSelectedRef] = useState<string | null>(null);
   const [view, setViewState] = useState<WorkspaceView>("workbench");
@@ -122,6 +134,28 @@ export function useWorkbench(): UseWorkbenchReturn {
           archived?: boolean;
         }>;
       }> = await api.get(`/novels/${projectId}/volumes`);
+      // 旧稿支线（revert-ghost）：与主线卷章分流的只读章
+      try {
+        const ghostRows: Array<{
+          id?: string;
+          ref: string;
+          chapter: number;
+          title: string;
+          word_count: number;
+          ghost_of: string;
+        }> = await api.get(`/novels/${projectId}/ghosts`);
+        setGhosts(
+          ghostRows.map((g) => ({
+            ref: g.ref,
+            chapter: g.chapter,
+            title: g.title,
+            word_count: g.word_count,
+            ghost_of: g.ghost_of,
+          })),
+        );
+      } catch {
+        setGhosts([]);
+      }
       const mapped = vols.map((v) => ({
         name: v.ref,
         title: v.title,
@@ -379,6 +413,7 @@ export function useWorkbench(): UseWorkbenchReturn {
   );
 
   return {
+    ghosts,
     project,
     volumes,
     selectedId,

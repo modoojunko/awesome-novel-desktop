@@ -25,8 +25,11 @@ async def list_volumes(db, project) -> list[dict]:
     """DB 全量树：一次拉卷 + 章，内存按 volume_id 分组（免 N+1）。"""
     vols = await volume_repo.list_by_project(db, project.id)
     chapters = await chapter_repo.list_by_project(db, project.id)
+    # revert-ghost：支线章不入主线卷章数组，单独以 ghosts 返回（工作台支线分组）
+    ghosts = [c for c in chapters if c.ghost_of]
+    mainline = [c for c in chapters if not c.ghost_of]
     by_vol: dict[str, list] = defaultdict(list)
-    for c in chapters:
+    for c in mainline:
         by_vol[c.volume_id].append(c)
 
     result = []
@@ -56,6 +59,33 @@ async def list_volumes(db, project) -> list[dict]:
             }
         )
     return result
+
+
+async def list_ghosts(db, project) -> list[dict]:
+    """旧稿支线章（revert-ghost）：脱离主线的章，只读保留。"""
+    ghosts = await chapter_repo.list_by_project(db, project.id)
+    return [
+        {
+            "id": c.id,
+            "ref": c.ref,
+            "volume": _vol_no_of(c),
+            "chapter": c.chapter_no,
+            "title": c.title,
+            "word_count": c.word_count,
+            "ghost_of": c.ghost_of,
+        }
+        for c in sorted(
+            (g for g in ghosts if g.ghost_of),
+            key=lambda x: (x.ghost_of or "", x.chapter_no),
+        )
+    ]
+
+
+def _vol_no_of(c) -> int:
+    import re as _re
+
+    m = _re.match(r"^vol-(\d+)-ch-", c.ref or "")
+    return int(m.group(1)) if m else 0
 
 
 async def create_volume(

@@ -646,6 +646,7 @@ async def _import_single_book(
             id=ch_id, project_id=novel.id, volume_id=vol_id,
             ref=ref, title=ch_data.get("title", ""), chapter_no=ref.count("ch-") and int(ref.rsplit("ch-", 1)[-1].split("-")[0].split(".")[0] or 1),
             status=status, word_count=len(prose), has_prose=bool(prose.strip()),
+            ghost_of=ch_data.get("ghost_of"),
         )
 
         # 子表恢复（复用 save_chapter 的拆装逻辑）：在 add/flush 前的 pending 对象上

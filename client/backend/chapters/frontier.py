@@ -103,6 +103,15 @@ async def is_writable(db: AsyncSession, novel_id: str, ref: str) -> tuple[bool, 
     返回 (可写, 拒绝原因)；拒绝文案面向作者（无内部术语）。
     """
     info = await frontier_info(db, novel_id)
+    row = (
+        await db.scalars(
+            select(Chapter).where(
+                Chapter.project_id == novel_id, Chapter.ref == ref
+            )
+        )
+    ).first()
+    if row is not None and row.ghost_of:
+        return False, "旧稿支线只读"
     target = next((c for c in info["chapters"] if c["ref"] == ref), None)
     if target is None:
         return True, ""  # 章不存在（将由调用方 404），门禁不拦
@@ -127,3 +136,111 @@ def asyncio_run_frontier(db: AsyncSession, novel_id: str) -> dict:
     import asyncio
 
     return asyncio.get_event_loop().run_until_complete(frontier_info(db, novel_id))
+
+
+async def revert_to_chapter(db: AsyncSession, novel_id: str, ref: str) -> dict:
+    """回退到指定章（revert-ghost）：
+
+    - 主线上该章之后的章（含跨卷）→ 旧稿支线（ghost_of = 回退点 ref），
+      正文原样保留、只读；
+    - 支线章的派生数据按章序清除：出场引用 state_change 清空、
+      来源章在支线的关系记录删除、支线章引入的伏笔删除、
+      支线章收束的伏笔回到进行中、支线章的收尾提案与归档行删除；
+    - 世界 lore 的已采纳条目不回撤（显式采纳属作者决定，见 spec）。
+
+    返回 {ghosted: n, hooks_removed: n, hooks_reactivated: n, relations_removed: n}。
+    """
+    from fastapi import HTTPException
+
+    from models.hook import NovelHook
+    from models.reconcile import ChapterReconcile
+    from models.archive import Archive
+
+    rows = (
+        await db.scalars(
+            select(Chapter)
+            .where(Chapter.project_id == novel_id, Chapter.ghost_of.is_(None))
+            .order_by(Chapter.ref)
+        )
+    ).all()
+    mainline = [
+        {"row": c, "volume_no": _vol_no(c.ref), "chapter_no": c.chapter_no}
+        for c in rows
+    ]
+    target = next((m for m in mainline if m["row"].ref == ref), None)
+    if target is None:
+        raise HTTPException(404, "Chapter not found")
+
+    ghost_rows = [m["row"] for m in mainline if (m["volume_no"], m["chapter_no"]) > (target["volume_no"], target["chapter_no"])]
+    ghost_ids = [c.id for c in ghost_rows]
+    for c in ghost_rows:
+        c.ghost_of = ref
+        c.status = "writing" if c.has_prose else "outline"
+        c.archived_at = None
+
+    ghosts_set = set(ghost_ids)
+
+    # 出场引用：state_change 清空（变化来自被回退的线）
+    from models.chapter import ChapterCharacter
+
+    for cid in ghost_ids:
+        for cc in await db.scalars(
+            select(ChapterCharacter).where(ChapterCharacter.chapter_id == cid)
+        ):
+            cc.state_change = ""
+
+    # 关系：来源章在支线的记录删除（它们由那条线长出）
+    rels_removed = 0
+    from models.character import CharacterRelation
+
+    for rel in await db.scalars(
+        select(CharacterRelation).where(
+            CharacterRelation.novel_id == novel_id,
+            CharacterRelation.origin_chapter_id.in_(ghosts_set),
+        )
+    ):
+        await db.delete(rel)
+        rels_removed += 1
+
+    # 伏笔：支线章引入的删除；支线章收束的回到进行中；支线章 mentioned 清空
+    hooks_removed = 0
+    hooks_reactivated = 0
+    for h in await db.scalars(
+        select(NovelHook).where(
+            NovelHook.novel_id == novel_id,
+            NovelHook.status != "abandoned",
+        )
+    ):
+        changed = False
+        if h.introduced_chapter_id in ghosts_set:
+            await db.delete(h)
+            hooks_removed += 1
+            changed = True
+        else:
+            if h.resolved_chapter_id in ghosts_set:
+                h.status = "active"
+                h.resolved_chapter_id = None
+                changed = True
+            if h.mentioned_chapter_id in ghosts_set:
+                h.mentioned_chapter_id = None
+                changed = True
+        if changed:
+            hooks_reactivated += 1 if h.status == "active" else 0
+
+    # 收尾提案与归档行：支线章的一并删除
+    for cid in ghost_ids:
+        for rec in await db.scalars(
+            select(ChapterReconcile).where(ChapterReconcile.chapter_id == cid)
+        ):
+            await db.delete(rec)
+        for arc in await db.scalars(
+            select(Archive).where(Archive.chapter_id == cid)
+        ):
+            await db.delete(arc)
+
+    await db.commit()
+    return {
+        "ghosted": len(ghost_rows),
+        "hooks_removed": hooks_removed,
+        "relations_removed": rels_removed,
+    }

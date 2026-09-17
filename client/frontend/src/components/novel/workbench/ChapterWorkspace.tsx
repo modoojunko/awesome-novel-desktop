@@ -81,6 +81,8 @@ interface ChapterWorkspaceProps {
   resumeSignal?: { ref: string; scroll: number; n: number };
   /** 写作进度上抛（顶栏 bar-here 跟随显示上次写到的章） */
   onWriteProgress?: (session: { ref: string; scroll: number; ts: number }) => void;
+  /** 回退到本章（revert-ghost）：主线收回，其后章转旧稿支线 */
+  onRevert: (ref: string) => void;
 }
 
 const fmt = (n: number) => n.toLocaleString("zh-CN");
@@ -100,9 +102,12 @@ export default function ChapterWorkspace({
   aiWriteSignal,
   resumeSignal,
   onWriteProgress,
+  onRevert,
 }: ChapterWorkspaceProps) {
   const store = useChapterData(projectId, chapterRef);
   const { wordCount, saveState, targetWords, setTargetWords } = store;
+  // 旧稿支线（revert-ghost）：本章脱离主线，只读保留
+  const ghostOf = store.chapter?.ghost_of ?? null;
 
   // 树结构里的章元数据（编号/标题/归档位；volumes 常驻已加载）。
   // WorkbenchVolume.chapters 无 ref 字段 → 按 vol-N/ch-N 对齐。
@@ -632,9 +637,11 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         resumeScroll={resumeScrollMemo}
         onWriteProgress={onWriteProgress}
         locked={
-          frontierLocked && chTab === "prose"
-            ? { reason: "还不能写这一章——先完成前面的章节" }
-            : undefined
+          ghostOf
+            ? { reason: "旧稿支线 · 只读" }
+            : frontierLocked && chTab === "prose"
+              ? { reason: "还不能写这一章——先完成前面的章节" }
+              : undefined
         }
       />
 
@@ -666,6 +673,29 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
       {chTab === "actions" && (
         <div className="actions-pane" data-od-id="actions-pane">
+          {!ghostOf && (
+            <div className="revert-card" data-od-id="revert-card">
+              <p className="rc-title">回退到这里</p>
+              <p className="rc-desc">
+                把主线收回本章：之后的章节转入旧稿支线只读保留，其派生的设定、关系与伏笔按章序清除。不可撤销。
+              </p>
+              <button
+                className="btn btn-secondary btn-sm"
+                data-od-id="revert-btn"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "回退后，本章之后的章节将转入旧稿支线（只读保留），其派生的设定/关系/伏笔会被清除。确定回退？",
+                    )
+                  ) {
+                    onRevert(chapterRef);
+                  }
+                }}
+              >
+                回退到这里
+              </button>
+            </div>
+          )}
           <ReconcilePane
             projectId={projectId}
             chapterRef={chapterRef}

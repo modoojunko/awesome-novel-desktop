@@ -138,6 +138,15 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass  # 列已存在
 
+    # ── Migrate (revert-ghost): 旧稿支线标记 ─────────────────────────
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("ALTER TABLE chapters ADD COLUMN ghost_of VARCHAR(64)")
+            )
+    except Exception:
+        pass  # 列已存在
+
     # 存量回填（一次性）：ch_ref 可解析（vol-N-ch-M）→ origin_chapter_id；
     # 不可解析留空＝不受章界约束。以 SQL 关联 chapters.ref 自然去重。
     try:
