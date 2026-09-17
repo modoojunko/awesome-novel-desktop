@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>星海拾遗 · 阅读预览 — 爱小说</title>
+<style>
+  /* 绑定 docs/ux/design-language.html v2.1 令牌，与 storyline.html / design-c 原型同源 */
+  :root{
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong:oklch(41% 0.10 170);
+    --accent-soft:color-mix(in oklch,var(--accent) 12%,transparent);
+    --accent-faint:color-mix(in oklch,var(--accent) 6%,transparent);
+    --ok:oklch(52% 0.11 155);--ok-soft:color-mix(in oklch,var(--ok) 14%,transparent);
+    --warn:oklch(50% 0.13 75);--warn-soft:color-mix(in oklch,var(--warn) 16%,transparent);
+    --err:oklch(50% 0.17 25);--err-soft:color-mix(in oklch,var(--err) 12%,transparent);
+    --on-accent:oklch(100% 0 0);
+    --fg-soft:color-mix(in oklch,var(--fg) 5%,transparent);
+    --shadow-card:0 1px 2px color-mix(in oklch,var(--fg) 5%,transparent),
+                  0 12px 32px -12px color-mix(in oklch,var(--fg) 14%,transparent);
+    --shadow-pop:0 18px 50px -12px color-mix(in oklch,var(--fg) 26%,transparent);
+    --accent-ink:var(--accent-strong);
+    --hl:var(--fg-soft);
+    --faint:color-mix(in oklch,var(--muted) 45%,var(--bg));
+    --font-display:'Noto Serif SC','Songti SC','STSong','Iowan Old Style',Georgia,serif;
+    --font-body:-apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',system-ui,sans-serif;
+    --font-mono:ui-monospace,'SF Mono',Menlo,'JetBrains Mono',monospace;
+    --radius:10px;--radius-lg:16px;--radius-sm:7px;--radius-pill:999px;
+  }
+  *,*::before,*::after{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.6;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}
+  button{font:inherit;cursor:pointer}
+  p{margin:0}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* ── 壳层 appbar 48 / modnav 44（与 storyline.html 同款） ── */
+  .appbar{position:sticky;top:0;z-index:32;min-height:48px;height:48px;flex:none;display:flex;align-items:center;padding:0 16px;gap:10px;background:var(--surface);border-bottom:1px solid var(--border)}
+  .logo{display:inline-flex;align-items:center;gap:9px;font-family:var(--font-display);font-size:16px;font-weight:600;letter-spacing:.08em;white-space:nowrap;color:var(--fg);background:none;border:0;padding:5px 9px;margin-left:-9px;border-radius:8px}
+  .logo:hover{background:var(--fg-soft)}
+  .logo:active{background:var(--border)}
+  .logo-mark{width:26px;height:26px;border-radius:7px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-family:var(--font-display);font-size:14px;flex:none}
+  .appbar .sep{width:1px;height:20px;background:var(--border);margin:0 2px;flex:none}
+  .acct{display:inline-flex}
+  .acct-trigger{display:inline-flex;align-items:center;gap:7px;padding:4px 10px 4px 5px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--fg);font-size:12.5px}
+  .acct-trigger:hover{border-color:var(--accent)}
+  .acct-trigger .caret{width:14px;height:14px;color:var(--muted)}
+  .avatar{width:24px;height:24px;border-radius:999px;background:var(--accent-soft);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none}
+  .badge-accent{display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;font-size:11px;line-height:1.6;white-space:nowrap;background:var(--accent-soft);color:var(--accent)}
+  .novel-title{font-family:var(--font-display);font-size:15.5px;font-weight:600;white-space:nowrap;flex:none}
+  .genre-tag{display:inline-flex;align-items:center;padding:2px 9px;border:1px solid var(--border);border-radius:999px;font-size:11.5px;color:var(--muted);background:var(--surface);white-space:nowrap}
+  .bar-here{display:flex;align-items:center;gap:11px;flex:1 1 auto;min-width:0}
+
+  .modnav{position:sticky;top:48px;z-index:30;flex:none;display:flex;align-items:center;gap:4px;height:44px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border)}
+  .mtab{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 14px;border-radius:9px;font-size:13.5px;color:var(--muted);border:0;background:none}
+  .mtab:hover{color:var(--fg);background:var(--fg-soft)}
+  .mtab.on{color:var(--accent);background:var(--accent-soft);font-weight:500}
+  .mtab[aria-disabled="true"],.mtab[aria-disabled="true"]:hover{color:var(--faint);background:none;cursor:default}
+  .modnav .side{font-size:12px;color:var(--muted)}
+
+  /* ── buttons ── */
+  .btn{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;line-height:1;border:1px solid var(--border);background:var(--surface);color:var(--fg);border-radius:var(--radius);padding:9px 15px;transition:background .14s,border-color .14s,color .14s,transform .05s}
+  .btn:hover{border-color:var(--fg)}
+  .btn:active{transform:translateY(1px)}
+  .btn-accent{background:var(--accent-ink);border-color:var(--accent-ink);color:var(--surface);font-weight:600}
+  .btn-accent:hover{background:color-mix(in oklch,var(--accent-ink) 84%,black);border-color:color-mix(in oklch,var(--accent-ink) 84%,black);color:var(--surface)}
+  .btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+  .btn:disabled:hover{border-color:var(--border)}
+
+  /* ── 工作台三栏 ── */
+  .work{display:grid;grid-template-columns:250px minmax(0,1fr) 264px;height:calc(100vh - 92px);min-height:560px}
+
+  /* ── 文本控件 ── */
+  .box{width:100%;border:1px solid var(--border);background:var(--surface);color:var(--fg);font:inherit;font-size:14px;padding:12px 14px;border-radius:var(--radius)}
+  .box:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .box-sm{padding:8px 10px;font-size:12.5px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{font-size:12px;color:var(--fg);border:1px solid var(--border);border-radius:999px;padding:3px 10px;background:color-mix(in oklch,var(--bg) 60%,var(--surface))}
+
+  /* ── 弹窗 ── */
+  .modal{position:fixed;inset:0;z-index:60;display:none}
+  .modal.on{display:block}
+  .backdrop{position:absolute;inset:0;background:color-mix(in oklch,var(--fg) 42%,transparent)}
+  .sheet{position:relative;margin:6vh auto 0;width:min(720px,calc(100% - 32px));background:var(--bg);border:1px solid var(--border);border-radius:calc(var(--radius) + 3px);padding:28px 30px 24px;max-height:86vh;overflow:auto}
+  .sheet h2{font-family:var(--font-display);font-size:23px;font-weight:600;letter-spacing:-.01em;margin:0}
+  .sheet .lead{color:var(--muted);font-size:13.5px;margin-top:9px;max-width:62ch}
+  .kicker{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+  .modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}
+
+  /* ── toast ── */
+  .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(14px);z-index:80;background:var(--fg);color:var(--bg);font-size:13.5px;padding:11px 18px;border-radius:var(--radius);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:80vw}
+  .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  /* ══════════════ 阅读预览：左目录 / 中阅读 / 右配置 ══════════════ */
+  [hidden]{display:none !important}
+  .work-preview{grid-template-columns:250px minmax(0,1fr) 264px}
+  .pv-tree{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--border);background:var(--surface)}
+  .pv-head{padding:13px 15px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:3px}
+  .pv-head .t{font-size:13.5px;color:var(--fg);font-weight:600}
+  .pv-head .sub{font-family:var(--font-mono);font-size:10px;color:var(--muted)}
+  .pv-toc{flex:1 1 auto;min-height:0;overflow:auto;padding:8px 8px 22px;display:flex;flex-direction:column;gap:1px}
+  .pv-vol{display:flex;align-items:baseline;gap:8px;padding:12px 10px 4px;font-family:var(--font-mono);font-size:10.5px;color:var(--faint);letter-spacing:.03em}
+  .pv-vol:first-child{padding-top:10px}
+  .pv-vol b{color:var(--muted);font-weight:500}
+  .pv-ch{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:none;border-radius:9px;padding:7px 10px;color:var(--muted);font:inherit}
+  .pv-ch:hover{background:var(--hl);color:var(--fg)}
+  .pv-ch.on{background:var(--accent-soft);color:var(--fg)}
+  .pv-ch .no{font-family:var(--font-mono);font-size:10.5px;color:var(--faint);flex:none;min-width:34px}
+  .pv-ch.on .no{color:var(--accent)}
+  .pv-ch .ti{flex:1 1 auto;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pv-ch .wc{font-family:var(--font-mono);font-size:10px;color:var(--faint);flex:none}
+  .pv-ch.on .wc{color:var(--accent)}
+  .pv-ch .tag{font-size:9px;padding:1px 5px;border-radius:6px;flex:none;border:1px solid var(--border);color:var(--muted)}
+  .pv-ch .tag.live{color:var(--accent);border-color:color-mix(in oklch,var(--accent) 35%,transparent)}
+  .pv-ch .tag.wip{color:var(--warn);border-color:color-mix(in oklch,var(--warn) 35%,transparent)}
+
+  .pv-read{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg);overflow:hidden}
+  .pv-read-top{flex:none;display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:1px solid var(--border)}
+  .pv-read-top .pos{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:11px;color:var(--muted)}
+  .pv-turn{border:1px solid var(--border);background:none;color:var(--fg);font:inherit;font-size:12px;padding:5px 12px;border-radius:9px;flex:none}
+  .pv-turn:hover{background:var(--fg-soft)}
+  .pv-turn[aria-disabled="true"],.pv-turn[aria-disabled="true"]:hover{opacity:.35;cursor:default;background:none}
+  .pv-prose-wrap{flex:1 1 auto;min-height:0;overflow:auto;padding:36px 48px 96px}
+  .pv-prose-wrap.theme-paper{--pv-bg:var(--bg);--pv-fg:var(--fg);--pv-muted:var(--muted)}
+  .pv-prose-wrap.theme-sepia{--pv-bg:oklch(0.955 0.014 80);--pv-fg:oklch(0.335 0.022 70);--pv-muted:oklch(0.55 0.02 70)}
+  .pv-prose-wrap.theme-night{--pv-bg:oklch(0.19 0.012 245);--pv-fg:oklch(0.875 0.012 245);--pv-muted:oklch(0.6 0.012 245)}
+  .pv-chapter{max-width:66ch;margin:0 auto;padding-bottom:20px;margin-bottom:28px;border-bottom:1px solid var(--border)}
+  .pv-voltag{margin:0 0 4px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;color:var(--pv-muted)}
+  .pv-chapter h2{margin:0 0 6px;font-size:26px;font-weight:600;color:var(--pv-fg);font-family:var(--font-display)}
+  .pv-meta{margin:0;font-family:var(--font-mono);font-size:11px;color:var(--pv-muted)}
+  .pv-prose{max-width:66ch;margin:0 auto}
+  #pv-read .pv-prose{font-family:var(--pv-font);font-size:var(--pv-size);line-height:var(--pv-line);color:var(--pv-fg)}
+  #pv-read .pv-prose .prose{font-family:inherit;font-size:inherit;line-height:inherit;color:inherit;max-width:none;margin:0}
+  #pv-read .pv-prose .prose p{margin:0 0 .95em}
+  #pv-read .pv-prose .prose blockquote{margin:.8em 0;color:var(--pv-muted);border-left:2px solid var(--border);padding-left:14px}
+  #pv-read .pv-prose .prose .scene{margin:1em 0;text-align:center;color:var(--pv-muted)}
+  #pv-read .pv-prose .vempty{color:var(--pv-muted);padding:10px 0}
+
+  .pv-side{display:flex;flex-direction:column;gap:14px;min-height:0;overflow:auto;border-left:1px solid var(--border);background:var(--bg);padding:16px 15px 22px}
+  .pv-card{border:1px solid var(--border);border-radius:12px;padding:12px 13px;background:var(--surface)}
+  .pv-card h4{margin:0 0 10px;font-size:12px;color:var(--muted);font-weight:500}
+  .pv-card .stat-line{display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--fg)}
+  .pv-card .stat-line span{display:flex;justify-content:space-between;gap:10px}
+  .pv-card .stat-line b{font-family:var(--font-mono);font-weight:500;color:var(--accent)}
+  .pv-seg{display:flex;gap:4px}
+  .pv-seg button{flex:1;border:1px solid var(--border);background:none;color:var(--muted);font:inherit;font-size:12px;padding:6px 0;border-radius:8px;cursor:pointer}
+  .pv-seg button:hover{color:var(--fg);border-color:var(--muted)}
+  .pv-seg button.on{background:var(--accent-soft);border-color:transparent;color:var(--accent);font-weight:500}
+  .pv-export .btn{width:100%;justify-content:center;padding:9px 0}
+  .pv-hint{font-size:11px;color:var(--muted);line-height:1.6;margin-top:4px}
+
+  /* ── 导出成稿弹窗：C 端 · 选本地保存位置 ＋ 勾选格式，导出在后台进行，不走浏览器下载 ── */
+  .ex-body{display:flex;flex-direction:column;margin-top:20px}
+  .ex-sec+.ex-sec{margin-top:18px}
+  .ex-sec h4{margin:0 0 8px;font-size:12px;color:var(--muted);font-weight:500}
+  .ex-path{display:flex;align-items:center;gap:9px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:0 12px}
+  .ex-path .ex-folder{flex:none;color:var(--muted);display:grid;place-items:center}
+  .ex-path .box{border:0;background:none;padding:10px 0;font-family:var(--font-mono);font-size:12.5px}
+  .ex-path .box:focus{box-shadow:none}
+  .ex-dirs{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+  .ex-dirs .chip{cursor:pointer;border:1px solid var(--border);background:var(--surface)}
+  .ex-dirs .chip:hover{border-color:var(--muted);color:var(--fg)}
+  .ex-fmts{display:flex;flex-direction:column;gap:7px}
+  .ex-fmt{display:flex;align-items:flex-start;gap:11px;text-align:left;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:10px 12px;cursor:pointer;font:inherit;color:var(--fg)}
+  .ex-fmt:hover{border-color:var(--muted)}
+  .ex-fmt.on{border-color:color-mix(in oklch,var(--accent) 42%,var(--border));background:color-mix(in oklch,var(--accent) 4%,var(--surface))}
+  .ex-tick{flex:none;width:17px;height:17px;border:1px solid var(--border);border-radius:5px;display:grid;place-items:center;margin-top:1px;color:transparent;transition:background .14s,border-color .14s,color .14s}
+  .ex-fmt.on .ex-tick{background:var(--accent-ink);border-color:var(--accent-ink);color:var(--surface)}
+  .ex-txt{display:flex;flex-direction:column;gap:2px}
+  .ex-txt b{font-size:13.5px;font-weight:600}
+  .ex-txt span{font-size:11.5px;color:var(--muted)}
+  .ex-sum{margin-top:18px;padding-top:12px;border-top:1px dashed var(--border);font-size:12px;color:var(--muted)}
+  .ex-stat{font-size:13px;color:var(--fg);margin:0 0 12px}
+  .ex-bar{height:6px;border-radius:999px;background:var(--surface);border:1px solid var(--border);overflow:hidden}
+  .ex-bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:999px;transition:width .25s}
+  .ex-steps{list-style:none;margin:16px 0 0;padding:0}
+  .ex-steps li{display:flex;justify-content:space-between;gap:12px;align-items:baseline;padding:7px 0;border-top:1px solid var(--border);font-size:12.5px}
+  .ex-steps b{font-family:var(--font-mono);font-size:11.5px;font-weight:500;color:var(--fg)}
+  .ex-steps em{font-style:normal;font-size:11.5px;color:var(--faint)}
+  .ex-steps em.ok{color:var(--ok)}
+  .ex-done{display:flex;gap:12px;align-items:flex-start;border:1px solid color-mix(in oklch,var(--ok) 38%,var(--border));background:color-mix(in oklch,var(--ok) 7%,var(--surface));border-radius:var(--radius);padding:13px 14px}
+  .ex-done-ico{flex:none;width:20px;height:20px;border-radius:50%;background:var(--ok);color:color-mix(in oklch,var(--surface) 10%,white);display:grid;place-items:center}
+  .ex-done b{font-size:13.5px}
+  .ex-done p{margin:3px 0 0;font-size:12px;color:var(--muted)}
+  .ex-done .mono{font-family:var(--font-mono);font-size:11.5px;color:var(--fg)}
+</style>
+</head>
+<body>
+
+<header class="appbar" data-od-id="appbar">
+  <button class="logo" id="btn-home" data-od-id="appbar-logo" title="返回我的作品" aria-label="返回我的作品"><span class="logo-mark">爱</span>爱小说</button>
+  <span class="sep"></span>
+  <span class="novel-title" data-od-id="novel-title">星海拾遗</span>
+  <span class="genre-tag">科幻 · 星际远航</span>
+  <span class="sep"></span>
+  <div class="bar-here" id="here-bar-slot" data-od-id="current-position"></div>
+  <div class="acct">
+    <button class="acct-trigger" id="btn-acct" data-od-id="acct-trigger">
+      <span class="avatar" aria-hidden="true">沈</span><span class="badge-accent">PRO 会员</span>
+      <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+  </div>
+</header>
+
+<nav class="modnav" data-od-id="modnav">
+  <button class="mtab" data-nav="settings" data-od-id="tab-settings" aria-disabled="true" title="本设计稿未覆盖">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h10M18 18h2"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></svg>
+    设定
+  </button>
+  <button class="mtab" data-nav="writing" data-od-id="tab-writing" title="写作工作台见 storyline.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+    写作工作台
+  </button>
+  <button class="mtab on" data-nav="preview" data-od-id="tab-preview" title="当前设计稿 · 预览全书阅读效果，可导出成稿">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg>
+    预览
+  </button>
+  <span class="spacer"></span>
+  <span class="side">本设计稿独立演示预览与导出</span>
+</nav>
+
+<!-- ══════════════ 阅读预览（三栏：目录 / 阅读 / 配置与导出） ══════════════ -->
+<main class="work work-preview" id="pv-work" data-od-id="work-preview">
+
+  <aside class="pv-tree" data-od-id="pv-tree">
+    <div class="pv-head">
+      <span class="t">全书目录</span>
+      <span class="sub" id="pv-count">—</span>
+    </div>
+    <nav class="pv-toc" id="pv-toc" aria-label="预览目录"></nav>
+  </aside>
+
+  <section class="pv-read" id="pv-read" data-od-id="pv-read"></section>
+
+  <aside class="pv-side" id="pv-side" data-od-id="pv-side"></aside>
+
+</main>
+
+<!-- ══════════════ 导出成稿弹窗：C 端 · 选本地保存位置 ＋ 勾选格式，导出在后台进行，不走浏览器下载 ══════════════ -->
+<div class="modal" id="pv-export" data-od-id="export-modal">
+  <div class="backdrop" data-export-close></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ex-title">
+    <p class="kicker">导出成稿</p>
+    <h2 id="ex-title">导出主线全稿</h2>
+    <p class="lead" id="ex-lead"></p>
+    <div class="ex-body" id="ex-body"></div>
+    <div class="modal-foot" id="ex-foot"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ═══════════ 数据：与 storyline.html 同源的演示种子（仅取预览所需的卷与主线章节） ═══════════ */
+const VOLS = [
+  {id:'v1', name:'第一卷 · 星海初航'},
+  {id:'v2', name:'第二卷 · 星群之间'},
+  {id:'v3', name:'第三卷 · 回声之海'}
+];
+function ch(o){ return Object.assign({status:'archived',ghostOf:null,stale:false,changes:[]},o); }
+const CH = [
+  ch({id:'c1',no:1,vol:'v1',order:1,title:'锚点',outline:'信标亮起，沉舟决定沿着信号寻找源头',body:'信标亮起的时候，沉舟正把最后一段校准数据压进存储器。三百年前的坐标，误差不到一个天文单位。她盯着那串数字看了很久，然后把手从注销键上挪开了。'}),
+  ch({id:'c2',no:2,vol:'v1',order:2,title:'跃迁',outline:'点火跃迁，亲手拆掉自己的锚点',body:'点火之前，她亲手拆掉了自己的锚点。那是船和母港之间唯一还连着的东西。她把锚点放进抽屉，关好，没有再看第二眼。'}),
+  ch({id:'c3',no:3,vol:'v1',order:3,title:'静默带',outline:'三小时静默里，她第一次听见自己的呼吸',body:'静默带里没有导航，也没有回声。三个小时，她只听见自己的呼吸。到第四个小时，她开始怀疑那串坐标是不是自己记错了。'}),
+  ch({id:'c4',no:4,vol:'v1',order:4,title:'旧航图',outline:'手绘航图的缺口，正对信号来的方向',body:'她把一张手绘航图摊在控制台上。纸是仿制品，但缺口的位置和信标给的方向严丝合缝。缺口的边缘被人反复摩挲过，纸都起了毛。'}),
+  ch({id:'c5',no:5,vol:'v1',order:5,title:'拾荒者',outline:'拾荒船用灯语问：你也听见了？',body:'拾荒船从舷侧三公里处掠过，灯语只有三个短闪：你也听见了？她没有回答。对方也没有再问。'}),
+  ch({id:'c6',no:6,vol:'v1',order:6,title:'中继站',outline:'卷末抵达中继站，门是开着的',body:'中继站的门是开着的。三百年来第一件不合理的事，就这样安安静静地摆在她面前。'}),
+  ch({id:'c7',no:7,vol:'v2',order:7,title:'人群',outline:'进入拾荒船队，学会在规则里说话',body:'船队有自己的规矩。新人要先交出航迹，再换得一张临时泊位。沉舟学会了在规则里说话，把真话拆成一半一半地讲。'}),
+  ch({id:'c8',no:8,vol:'v2',order:8,title:'引力井',outline:'借引力井省下第一批燃料',body:'借引力井省下第一批燃料，代价是交出一段三年前的航迹。老聋说这很划算，她没有反驳。'}),
+  ch({id:'c9',no:9,vol:'v2',order:9,title:'船徽',outline:'老聋塞给她一枚旧船徽',body:'老聋把一枚船徽塞进她手里。铜是旧的，背面刻着一行几乎磨平的字。「认得这个的，都不在了。」他说完就走了。'}),
+  ch({id:'c10',no:10,vol:'v2',order:10,title:'双航路',outline:'快与稳两条航路，她选了稳的',body:'两条航路摊在面前，一条快，一条稳。她选了稳的那条。船队里没人看好这个选择。'}),
+  ch({id:'c11',no:11,vol:'v2',order:11,title:'镜面',outline:'据说能照出没走的那条路的镜子',body:'船队里流传一面镜子，说能照出你没走的那条路。沉舟在镜前站了很久，什么也没看见。'}),
+  ch({id:'c12',no:12,vol:'v2',order:12,title:'出队',outline:'卷末离队，独自回到信号的方向',body:'离队的手续只用了半天。她没跟任何人道别，只把船徽留在了泊位的枕木上。'}),
+  ch({id:'c13',no:13,vol:'v3',order:13,title:'归航',outline:'再次靠近中继站，信号比记忆里近了一度',body:'再次靠近中继站时，信号比记忆里近了一度。这个数字不该变。'}),
+  ch({id:'c14',no:14,vol:'v3',order:14,title:'镜像',outline:'镜像回声第一次应答',body:'镜像回声第一次应答。频道里传回来的，是她三天前说过的一句话，一字不差。她把录音倒回去听了两遍，然后关掉频道，坐在黑暗里很久。'}),
+  ch({id:'c15',no:15,vol:'v3',order:15,title:'潮间',outline:'先回中继站求证',body:'她决定先回中继站求证。信号没有跟上来。这让她稍微安心了一点。'}),
+  ch({id:'c16',no:16,vol:'v3',order:16,title:'刻痕',outline:'第三段刻痕有了新刻痕',body:'第三段刻痕上多了一道新的。她数了三遍，确认不是自己看错。'}),
+  ch({id:'c17',no:17,vol:'v3',order:17,title:'回声之海',outline:'第三段刻痕是新的：等的人可能不止一个',status:'draft',body:'第三段刻痕是新的。她在频道里问了一句：你是谁。这一次，回声没有立刻回来。'}),
+
+  /* 旧稿支线（被重写/被回退后脱离主线的章节）——预览不渲染 */
+  ch({id:'g15',no:15,vol:'v3',order:15.5,ghostOf:14,title:'折返',outline:'决定折返，镜像信号一路跟随',body:'她决定折返，不再靠近中继站。镜像信号一路跟着，像一条不肯松口的线。'})
+];
+
+const $ = (s,r)=> (r||document).querySelector(s);
+const $$ = (s,r)=> Array.from((r||document).querySelectorAll(s));
+const byId = id => CH.find(c=>c.id===id);
+const volOf = id => VOLS.find(v=>v.id===id);
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function attr(s){ return esc(s).replace(/"/g,'&quot;'); }
+function wordCount(s){ return String(s==null?'':s).replace(/<[^>]*>/g,'').replace(/&[a-z]+;/gi,' ').replace(/\s/g,'').length; }
+function statusText(c){
+  return c.status==='draft' ? '草稿' : c.status==='planned' ? '拟定' : c.status==='pending' ? '待写' : '已归档';
+}
+/* 正文渲染：带格式 HTML 原样归一，纯文本按段落折叠 */
+function asHTML(s){
+  const t = s==null ? '' : String(s);
+  if(!t.trim()) return '';
+  if(/<(p|br|div|b|i|em|strong|blockquote|hr|h[1-3])\b/i.test(t)) return t;
+  return t.split(/\n+/).filter(x=>x.trim()).map(x=>'<p>'+esc(x.trim())+'</p>').join('');
+}
+function proseHTML(s){
+  const h = asHTML(s);
+  return h ? '<div class="prose">'+h+'</div>' : '<p class="vempty">这一章还没有正文。</p>';
+}
+
+/* ═══════════ 阅读预览 ＋ 导出成稿 ═══════════
+   预览三栏：左=主线章节目录 / 中=阅读排版（字号·字体·行距·主题）/ 右=配置与导出。
+   阅读全部取主线（不含旧稿支线）；导出 pdf/word/txt/md 覆盖有正文的章节。
+   导出为 C 端弹窗：勾选格式并选本地保存地址，导出在后台进行，完成后提示·
+   不产生浏览器下载；保存位置与文件产出由客户端在本机执行，原型只做交互与进度示意。 */
+const STORE = 'od.storyline.pv';
+const state = {
+  pv:{size:'m',font:'serif',line:'1.85',theme:'paper',sel:null},
+  ex:{fmts:{pdf:true,word:true,txt:false,md:false},dir:'文稿/星海拾遗/主线全稿',name:'星海拾遗 · 主线全稿',phase:'form',pct:0,timer:null}
+};
+try{ const s=JSON.parse(localStorage.getItem(STORE)); if(s&&s.sel) state.pv.sel=s.sel; }catch(e){}
+
+function pvChapters(){ return CH.filter(c=>!c.ghostOf).sort((a,b)=>a.order-b.order); }
+function pvPersist(){ try{ localStorage.setItem(STORE, JSON.stringify({sel:state.pv.sel})); }catch(e){} }
+function pvCurrent(){
+  const id = state.pv.sel;
+  const c = id && byId(id) && !byId(id).ghostOf ? byId(id) : null;
+  if(c) return c;
+  const chs = pvChapters();
+  const withBody = chs.filter(x=>String(x.body||'').trim());
+  const pick = withBody.slice(-1)[0] || chs[0] || null;
+  if(pick) state.pv.sel = pick.id;
+  return pick;
+}
+function pvStep(d){
+  const chs = pvChapters();
+  const cur = pvCurrent();
+  const i = cur ? chs.findIndex(x=>x.id===cur.id) : -1;
+  const n = i>=0 ? chs[i+d] : (d>0 ? chs[0] : chs[chs.length-1]);
+  if(!n){ toast(d>0 ? '已经是最后一章了' : '已经在第一章了'); return; }
+  state.pv.sel = n.id; pvPersist();
+  renderPreview();
+}
+function pvSetCfg(d){
+  const m = String(d||'').split(':');
+  const kind = m[0], val = m[1];
+  if(!kind || !val) return;
+  if(!(kind==='font'||kind==='size'||kind==='line'||kind==='theme')) return;
+  state.pv[kind] = val;
+  const root = $('#pv-work'); if(root) pvApplyCfg(root);
+  const wrap = $('#pv-read') ? $('.pv-prose-wrap', $('#pv-read')) : null;
+  if(wrap){ wrap.classList.remove('theme-paper','theme-sepia','theme-night'); wrap.classList.add('theme-'+state.pv.theme); }
+  const side = $('#pv-side'); if(side) side.innerHTML = pvSideHTML();
+}
+function pvApplyCfg(root){
+  const p = state.pv;
+  root.style.setProperty('--pv-size', p.size==='l' ? '18px' : p.size==='s' ? '14px' : '16px');
+  root.style.setProperty('--pv-line', String(p.line));
+  root.style.setProperty('--pv-font', p.font==='sans'
+    ? "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
+    : p.font==='kai' ? "'Kaiti SC','KaiTi','STKaiti',Georgia,serif" : 'var(--font-display)');
+}
+function pvTocHTML(){
+  return VOLS.map(v=>{
+    const chs = pvChapters().filter(c=>c.vol===v.id);
+    if(!chs.length) return '';
+    return '<div class="pv-vol">第 <b>'+esc(v.name)+'</b> · '+chs.length+' 章</div>'
+      + chs.map(c=>{
+          const on = state.pv.sel===c.id;
+          const has = String(c.body||'').trim();
+          const tag = c.status==='planned' ? '<span class="tag wip">拟定</span>'
+            : c.status==='draft' ? '<span class="tag live">草稿</span>' : '<span class="tag">已归档</span>';
+          return '<button type="button" class="pv-ch'+(on?' on':'')+'" data-pv-sel="'+c.id+'" aria-pressed="'+(on?'true':'false')+'">'
+            + '<span class="no">第'+c.no+'章</span>'
+            + '<span class="ti">'+esc(c.title||'（未命名）')+'</span>'
+            + (has?'<span class="wc">'+wordCount(c.body)+'字</span>':'')
+            + tag
+          + '</button>';
+        }).join('');
+  }).join('');
+}
+function pvReadHTML(){
+  const c = pvCurrent();
+  const chs = pvChapters();
+  const i = c ? chs.findIndex(x=>x.id===c.id) : -1;
+  const prev = i>0 ? chs[i-1] : null;
+  const next = c && i<chs.length-1 ? chs[i+1] : null;
+  const vol = c ? volOf(c.vol) : null;
+  const body = (c && String(c.body||'').trim())
+    ? proseHTML(c.body)
+    : '<p class="vempty">这一章还没有正文，还在章纲阶段。</p>';
+  const turnBtn = (dir,label,item)=>'<button type="button" class="pv-turn" data-pv-'+dir+'="1"'+(item?'':' aria-disabled="true"')+'>'+label+'</button>';
+  return ''
+    + '<div class="pv-read-top">'
+    + '<span class="pos">'+(vol?'<b>'+esc(vol.name)+'</b> · ':'')+'第 '+(c?c.no:'—')+' 章'+(c?' · '+esc(c.title):'')+'</span>'
+    + turnBtn('prev','上一章',prev)
+    + turnBtn('next','下一章',next)
+    + '</div>'
+    + '<div class="pv-prose-wrap theme-'+state.pv.theme+'">'
+    + (c
+        ? '<div class="pv-chapter">'
+          + (vol?'<p class="pv-voltag">'+esc(vol.name)+'</p>':'')
+          + '<h2>'+esc(c.title||'第 '+c.no+' 章')+'</h2>'
+          + '<p class="pv-meta">第 '+c.no+' 章 · '+statusText(c)+(c.stale?' · 基于旧设定':'')+' · '+wordCount(c.body)+' 字</p>'
+        + '</div>'
+        : '<p class="vempty">这本书还没有可预览的章节。</p>')
+    + '<div class="pv-prose">'+body+'</div>'
+    + '</div>';
+}
+function pvSideHTML(){
+  const p = state.pv;
+  const chs = pvChapters();
+  const totalWords = chs.reduce((a,c)=>a+wordCount(c.body),0);
+  const archived = chs.filter(c=>c.status==='archived').length;
+  const draft = chs.filter(c=>c.status==='draft').length;
+  const planned = chs.filter(c=>c.status==='planned').length;
+  const seg = (kind,label,opts)=>'<div class="pv-card"><h4>'+label+'</h4><div class="pv-seg" role="group" aria-label="'+label+'">'
+    + opts.map(o=>'<button type="button" data-pv-cfg="'+kind+':'+o[0]+'" class="'+(p[kind]===o[0]?'on':'')+'" aria-pressed="'+(p[kind]===o[0]?'true':'false')+'">'+o[1]+'</button>').join('')
+    + '</div></div>';
+  return ''
+    + '<div class="pv-card"><h4>全书概览</h4><div class="stat-line">'
+    + '<span>章节 <b>'+chs.length+'</b></span>'
+    + '<span>字数 <b>'+totalWords+'</b></span>'
+    + '<span>已归档 <b>'+archived+'</b> · 草稿 '+draft+' · 拟定 '+planned+'</span>'
+    + '</div></div>'
+    + seg('size','字号',[['s','小'],['m','中'],['l','大']])
+    + seg('font','字体',[['serif','衬线'],['sans','黑体'],['kai','楷体']])
+    + seg('line','行距',[['1.6','紧凑'],['1.85','舒适'],['2.2','宽松']])
+    + seg('theme','主题',[['paper','白纸'],['sepia','护眼'],['night','夜间']])
+    + '<div class="pv-card"><h4>导出成稿</h4><div class="pv-export">'
+    + '<button type="button" class="btn btn-accent" data-export-open data-od-id="export-open">导出成稿…</button>'
+    + '</div><p class="pv-hint">选择格式与本地保存位置，导出 '+chs.filter(c=>String(c.body||'').trim()).length+' 章有正文的章节。</p></div>';
+}
+function renderPreview(){
+  $('#pv-count').textContent = '主线 '+pvChapters().length+' 章 · '+VOLS.length+' 卷 · 不含旧稿';
+  $('#pv-toc').innerHTML = pvTocHTML();
+  $('#pv-read').innerHTML = pvReadHTML();
+  $('#pv-side').innerHTML = pvSideHTML();
+  const root = $('#pv-work'); if(root) pvApplyCfg(root);
+}
+
+/* ── 导出成稿：C 端弹窗 · 勾选格式并选本地保存地址，导出在后台进行，完成后提示 ── */
+const EX_FMTS = [
+  {k:'pdf',  tit:'PDF',        ext:'.pdf',  sub:'按阅读排版导出，适合分享与打印'},
+  {k:'word', tit:'Word',       ext:'.docx', sub:'保留章节标题与题记，便于继续编辑'},
+  {k:'txt',  tit:'纯文本',      ext:'.txt',  sub:'只留正文，任何编辑器都能打开'},
+  {k:'md',   tit:'Markdown',   ext:'.md',   sub:'保留标题层级与引用，方便排版'}
+];
+const EX_DIRS = ['文稿/星海拾遗/主线全稿','桌面/星海拾遗','下载/星海拾遗','文稿/我的作品/星海拾遗'];
+function exOpen(){
+  if(state.ex.phase==='done') state.ex.phase = 'form';
+  renderExport();
+  $('#pv-export').classList.add('on');
+}
+function exClose(){
+  $('#pv-export').classList.remove('on');
+  if(state.ex.timer){ clearInterval(state.ex.timer); state.ex.timer = null; }
+  state.ex.phase = 'form'; state.ex.pct = 0;
+}
+function exBg(){
+  /* 后台运行：只收起弹窗，导出继续；完成后 ex 定时器推 toast */
+  $('#pv-export').classList.remove('on');
+  toast('导出在后台继续 · 完成后会提示');
+}
+function exFmtOn(){ return EX_FMTS.filter(f=>state.ex.fmts[f.k]); }
+function exSync(){
+  const d = document.getElementById('ex-dir'); if(d && String(d.value||'').trim()) state.ex.dir = d.value.trim();
+  const n = document.getElementById('ex-name'); if(n && String(n.value||'').trim()) state.ex.name = n.value.trim();
+}
+function exTickSvg(){ return '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3.5 8.6l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'; }
+function exFolderSvg(){ return '<svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><path d="M2.5 5.5h5.2l1.5 2h8.3v7.4a1.3 1.3 0 0 1-1.3 1.3H3.8a1.3 1.3 0 0 1-1.3-1.3V5.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>'; }
+function renderExport(){
+  const chs = pvChapters().filter(c=>String(c.body||'').trim());
+  const words = chs.reduce((a,c)=>a+wordCount(c.body),0);
+  const b = $('#ex-body'), f = $('#ex-foot');
+  if(!b || !f) return;
+  $('#ex-lead').textContent = '把主线全稿导出到本地：勾选格式、定好保存位置，导出在后台进行，完成后就能在文件夹里拿到成稿。';
+  if(state.ex.phase==='running'){ renderExportRun(f); return; }
+  if(state.ex.phase==='done'){ renderExportDone(b,f); return; }
+  const fmts = EX_FMTS.map(x=>'<button type="button" class="ex-fmt'+(state.ex.fmts[x.k]?' on':'')+'" data-ex-fmt="'+x.k+'" aria-pressed="'+(state.ex.fmts[x.k]?'true':'false')+'">'
+      + '<span class="ex-tick">'+exTickSvg()+'</span>'
+      + '<span class="ex-txt"><b>'+x.tit+'</b><span>'+x.ext+' · '+x.sub+'</span></span>'
+    + '</button>').join('');
+  b.innerHTML =
+    '<div class="ex-sec"><h4>保存位置</h4>'
+    + '<div class="ex-path"><span class="ex-folder">'+exFolderSvg()+'</span>'
+    + '<input class="box box-sm" id="ex-dir" value="'+attr(state.ex.dir)+'" spellcheck="false" aria-label="保存位置" />'
+    + '</div>'
+    + '<div class="ex-dirs">'+EX_DIRS.map(d=>'<button type="button" class="chip" data-ex-dir="'+attr(d)+'">'+esc(d)+'</button>').join('')+'</div>'
+    + '</div>'
+    + '<div class="ex-sec"><h4>文件名</h4>'
+    + '<input class="box box-sm" id="ex-name" value="'+attr(state.ex.name)+'" spellcheck="false" aria-label="导出文件名" />'
+    + '</div>'
+    + '<div class="ex-sec"><h4>导出格式 <span class="fnote">可多选</span></h4>'
+    + '<div class="ex-fmts">'+fmts+'</div>'
+    + '</div>'
+    + '<p class="ex-sum">本次导出 '+chs.length+' 章 · '+words+' 字 · 覆盖全书主线，不含旧稿支线。</p>';
+  f.innerHTML = '<button type="button" class="btn" data-export-close>取消</button>'
+    + '<button type="button" class="btn btn-accent" data-ex-start'+(exFmtOn().length?'':' disabled')+'>开始导出</button>';
+}
+function renderExportRun(f){
+  const list = exFmtOn();
+  $('#ex-body').innerHTML =
+    '<p class="ex-stat" id="ex-stat">准备导出…</p>'
+    + '<div class="ex-bar"><i id="ex-bar"></i></div>'
+    + '<ul class="ex-steps">'+list.map(x=>'<li data-ex-step="'+x.k+'"><b>'+esc(state.ex.name+x.ext)+'</b><em>等待</em></li>').join('')+'</ul>';
+  f.innerHTML = '<button type="button" class="btn" data-ex-bg>后台运行</button>';
+}
+function renderExportDone(b,f){
+  const list = exFmtOn();
+  b.innerHTML =
+    '<div class="ex-done"><span class="ex-done-ico">'+exTickSvg()+'</span>'
+    + '<div><b>导出完成</b><p>'+(list.length?list.length+' 个文件':'成稿')+'已保存到 <span class="mono">'+esc(state.ex.dir)+'</span></p></div></div>'
+    + '<ul class="ex-steps">'+list.map(x=>'<li data-ex-step="'+x.k+'"><b>'+esc(state.ex.name+x.ext)+'</b><em class="ok">完成</em></li>').join('')+'</ul>';
+  f.innerHTML = '<button type="button" class="btn" data-export-close>完成</button>'
+    + '<button type="button" class="btn btn-ink" data-ex-open-dir>打开文件夹</button>';
+}
+function runExport(){
+  const list = exFmtOn();
+  if(!list.length){ toast('先勾选至少一种格式再进行导出'); return; }
+  state.ex.phase = 'running'; state.ex.pct = 0;
+  renderExport();
+  const n = list.length;
+  const setStat = txt => { const s = document.getElementById('ex-stat'); if(s) s.textContent = txt; };
+  const setStep = (k,txt) => { const li = $('[data-ex-step="'+k+'"]'); if(li){ const em = li.querySelector('em'); if(em) em.textContent = txt; } };
+  let done = 0;
+  setStep(list[0].k,'导出中');
+  setStat('正在导出 '+state.ex.name+list[0].ext+'…');
+  state.ex.timer = setInterval(()=>{
+    done++;
+    setStep(list[done-1].k,'完成');
+    state.ex.pct = Math.round(done/n*100);
+    const bar = document.getElementById('ex-bar'); if(bar) bar.style.width = state.ex.pct+'%';
+    if(done<n){
+      setStat('正在导出 '+state.ex.name+list[done].ext+'…');
+      setStep(list[done].k,'导出中');
+    }else{
+      clearInterval(state.ex.timer); state.ex.timer = null;
+      setStat('导出完成');
+      setTimeout(()=>{ if(state.ex.phase==='running') state.ex.phase = 'done'; renderExport();
+        toast('导出完成 · '+n+' 个文件已保存到 '+state.ex.dir); }, 420);
+    }
+  }, 620);
+}
+
+/* ═══════════ 交互 ═══════════ */
+let toastTimer=null;
+function toast(msg){
+  const el=$('#toast'); el.textContent=msg; el.classList.add('on');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove('on'),2600);
+}
+
+$('#btn-home').addEventListener('click',()=>toast('演示稿：返回我的作品（作品列表）不在本原型范围'));
+$('#btn-acct').addEventListener('click',()=>toast('演示稿：账号与设置不在本原型范围'));
+
+document.addEventListener('click', e=>{
+  const t = e.target.closest('[data-pv-sel],[data-pv-prev],[data-pv-next],[data-pv-cfg],[data-export-open],[data-export-close],[data-ex-fmt],[data-ex-dir],[data-ex-bg],[data-ex-start],[data-ex-open-dir],[data-nav]');
+  if(!t) return;
+  if(t.dataset.pvSel){ state.pv.sel = t.dataset.pvSel; pvPersist(); renderPreview(); return; }
+  if(t.dataset.pvPrev!==undefined){ if(t.getAttribute('aria-disabled')==='true') return; pvStep(-1); return; }
+  if(t.dataset.pvNext!==undefined){ if(t.getAttribute('aria-disabled')==='true') return; pvStep(1); return; }
+  if(t.dataset.pvCfg){ pvSetCfg(t.dataset.pvCfg); return; }
+  if(t.dataset.exportOpen!==undefined){ exOpen(); return; }
+  if(t.dataset.exportClose!==undefined){ exClose(); return; }
+  if(t.dataset.exFmt){
+    exSync();
+    const k = t.dataset.exFmt;
+    const known = EX_FMTS.some(f=>f.k===k);
+    if(known) state.ex.fmts[k] = !state.ex.fmts[k];
+    renderExport(); return;
+  }
+  if(t.dataset.exDir){ state.ex.dir = t.dataset.exDir; renderExport(); return; }
+  if(t.dataset.exBg){ exBg(); return; }
+  if(t.dataset.exStart!==undefined){ exSync(); runExport(); return; }
+  if(t.dataset.exOpenDir!==undefined){ toast('演示稿：打开本地文件夹不在本原型范围'); return; }
+  if(t.dataset.nav){
+    if(t.getAttribute('aria-disabled')==='true'){ toast('演示稿：「'+t.textContent.trim().replace(/\s+/g,' ')+'」不在本原型范围'); return; }
+    if(t.dataset.nav==='writing'){ toast('写作工作台见 storyline.html'); return; }
+    return; /* preview = 当前设计稿 */
+  }
+});
+
+/* ═══════════ 启动 ═══════════ */
+if(state.pv.sel && !(byId(state.pv.sel) && !byId(state.pv.sel).ghostOf)) state.pv.sel = null;
+pvCurrent();
+pvPersist();
+renderPreview();
+</script>
+</body>
+</html>
