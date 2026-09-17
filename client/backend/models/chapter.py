@@ -53,6 +53,10 @@ class Chapter(Base):
     )
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 本章文风影子（chapter-style-shadow，拍板③记章节档案）：JSON 文本列。
+    # 形状 {"rows": {dim: {"value": str, "reason": str}}}——只存本章覆盖的行，
+    # 未覆盖行沿用全书文风基线（style-quant）。写章提示词组装时按行覆盖注入。
+    style_shadow: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

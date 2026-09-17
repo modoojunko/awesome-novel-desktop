@@ -18,6 +18,7 @@ import {
 import OgPane from "./OgPane";
 import { charactersApi } from "@/lib/charactersApi";
 import PromptPane from "./PromptPane";
+import { StyleShadowPane } from "./StyleShadowPane";
 import { SettingsChangelogPane } from "./SettingsChangelogPane";
 import { RelationsGraphPane } from "./RelationsGraphPane";
 import { ReconcilePane } from "./ReconcilePane";
@@ -174,7 +175,7 @@ export default function ChapterWorkspace({
   // ── 三页签：点章强制落「章纲」（设计稿行为） ─────────────────────────
   const [chTab, setChTab] = useState<
     "og" | "prompt" | "prose" | "settings" | "relations" | "actions"
-  >("og");
+   | "style">("og");
   const [showArchive, setShowArchive] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   useEffect(() => {
@@ -585,6 +586,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             ...(isPro ? ([["prompt", "提示词", promptCnt]] as const) : []),
             ["prose", "正文", proseCnt],
             ["settings", "设定", { text: "", cls: "" }],
+            ["style", "文风", { text: "", cls: "" }],
             ["relations", "角色关系", { text: "", cls: "" }],
             ["actions", "操作", { text: "", cls: "" }],
           ] as const
@@ -641,6 +643,17 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           <SettingsChangelogPane
             projectId={projectId}
             chapterRef={chapterRef}
+          />
+        </div>
+      )}
+
+      {chTab === "style" && (
+        <div className="style-pane" data-od-id="style-pane">
+          <StyleShadowPane
+            projectId={projectId}
+            chapterRef={chapterRef}
+            archived={archived}
+            isPro={isPro}
           />
         </div>
       )}

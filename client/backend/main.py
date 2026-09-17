@@ -19,6 +19,7 @@ import models  # noqa: F401
 from api_configs.router import router as api_configs_router
 from archive.reconcile_router import router as reconcile_router
 from archive.router import archives_router
+from write.style_shadow import router as style_shadow_router
 from archive.router import router as archive_router
 
 # License 本地验证
@@ -120,6 +121,18 @@ async def lifespan(app: FastAPI):
                 text(
                     "ALTER TABLE chapter_characters ADD COLUMN "
                     "state_change TEXT NOT NULL DEFAULT ''"
+                )
+            )
+    except Exception:
+        pass  # 列已存在
+
+    # ── Migrate (chapter-style-shadow): 本章文风影子 ─────────────────
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "ALTER TABLE chapters ADD COLUMN "
+                    "style_shadow TEXT NOT NULL DEFAULT '{}'"
                 )
             )
     except Exception:
@@ -545,6 +558,7 @@ app.include_router(prompt_router)
 app.include_router(write_router)
 app.include_router(archive_router)
 app.include_router(archives_router)
+app.include_router(style_shadow_router)
 app.include_router(reconcile_router)
 app.include_router(chapters_versions_router)
 app.include_router(story_router)
