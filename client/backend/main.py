@@ -17,6 +17,7 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 import brand
 import models  # noqa: F401
 from api_configs.router import router as api_configs_router
+from archive.reconcile_router import router as reconcile_router
 from archive.router import archives_router
 from archive.router import router as archive_router
 
@@ -97,6 +98,48 @@ async def lifespan(app: FastAPI):
             )
     except Exception:
         pass  # 列已存在
+
+    # ── Migrate (archive-reconcile): 来源章/状态变化列 ────────────────
+    # character_relations.origin_chapter_id（截至本章投影的来源章，NULL=不受
+    # 章界约束）；chapter_characters.state_change（本章角色状态变化一句话）。
+    # 表新建走 create_all；两列给存量库补。
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "ALTER TABLE character_relations ADD COLUMN "
+                    "origin_chapter_id VARCHAR(36) REFERENCES chapters(id) "
+                    "ON DELETE SET NULL"
+                )
+            )
+    except Exception:
+        pass  # 列已存在
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "ALTER TABLE chapter_characters ADD COLUMN "
+                    "state_change TEXT NOT NULL DEFAULT ''"
+                )
+            )
+    except Exception:
+        pass  # 列已存在
+
+    # 存量回填（一次性）：ch_ref 可解析（vol-N-ch-M）→ origin_chapter_id；
+    # 不可解析留空＝不受章界约束。以 SQL 关联 chapters.ref 自然去重。
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE character_relations SET origin_chapter_id = ("
+                    " SELECT c.id FROM chapters c"
+                    " WHERE c.novel_id = character_relations.novel_id"
+                    "   AND c.ref = character_relations.ch_ref)"
+                    " WHERE origin_chapter_id IS NULL AND ch_ref != ''"
+                )
+            )
+    except Exception:
+        pass  # 首次迁移之外的失败按幂等吞掉（下次启动重试）
 
     # ── Migrate: add backfill_status column ──────────────────────────
     try:
@@ -502,6 +545,7 @@ app.include_router(prompt_router)
 app.include_router(write_router)
 app.include_router(archive_router)
 app.include_router(archives_router)
+app.include_router(reconcile_router)
 app.include_router(chapters_versions_router)
 app.include_router(story_router)
 app.include_router(workflow_router)

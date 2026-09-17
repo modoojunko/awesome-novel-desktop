@@ -87,6 +87,7 @@ async def archive(
     # total_archives 语义＝**已归档章节数**（供书架卡片阶段判据）→ 必须幂等：
     # 重复归档同一章不再累加，取消归档要回减（见 chapters/router.py unarchive）。
     was_archived = row is not None and getattr(row, "status", "") == "archived"
+    chapter_row_id = row.id if row is not None else None
     if row is not None:
         row.status = "archived"
         row.archived_at = datetime.now(UTC).replace(tzinfo=None)
@@ -94,7 +95,18 @@ async def archive(
         project.total_archives = (project.total_archives or 0) + 1
     await db.commit()
 
-    return result
+    # archive-reconcile：AI 收尾放后台单飞线程（PRO 且模型就绪才产生提案）；
+    # 归档即刻生效，收尾失败/未跑不影响本次归档结果。
+    reconcile_started = None
+    if chapter_row_id and lore:
+        from archive.reconcile import start_reconcile_job
+
+        job = start_reconcile_job(
+            project.id, project.root_path, chapter_ref, chapter_row_id
+        )
+        reconcile_started = bool(job)
+
+    return {**result, "reconcile_started": reconcile_started}
 
 
 @archives_router.get("")

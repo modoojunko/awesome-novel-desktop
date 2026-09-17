@@ -29,12 +29,18 @@
 - 后台段（单飞线程，模式照抄 backup/export._job）：AI 收尾三类＋lore＋角色状态提取，产出写 chapter_reconcile；进度由行状态聚合，前端轮询 `GET /reconcile?chapter_id=`。
 - legacy 清理：update_character_states 的 YAML state_history 追加退役（改写出场上引用行 state_change）；legacy 键与存量数据保留（回滚安全）。
 
-## D4. schema 迁移
+## D4. schema 迁移（含指纹门禁的现实约束）
 
 - character_relations +origin_chapter_id（FK chapters.id SET NULL）＋存量回填（ch_ref 解析，一次性，幂等）。
 - chapter_characters +state_change（Text default ""）。
 - 新表 chapter_reconcile（含 novel_id/chapter_id FK CASCADE——随书删）。
-- 全部走 main.py 幂等 ALTER＋schema 指纹；无破坏性变更、无列改名。
+- main.py 幂等 ALTER 台阶保留（对全新库/导入库为 no-op 或兜底）。
+
+**⚠️ 指纹门禁现实（实现期实测确认）**：`legacy_archive.compute_schema_fingerprint` 是全库「表+列+类型」哈希，`archive_if_legacy` 按**等值**判定——本变更改了模型 → 指纹必变 → 存量库升级首启**整库自动留档**（license 同款三道防线：自动留档 / .bak / 导出包），随后建新空库。因此：
+1. 用户的升级路径 = 导出包 → 升级 → 导入（新包含 state_change/origin_chapter，见 D4 导出契约）；旧库文件自动留档可人工救回——这是 export-roundtrip 立的既有协议，本 PR 不改其语义。
+2. `ch_ref→origin_chapter_id` 回填的真正价值在**导入旧格式包**（v3 包含 ch_ref 无 origin）后：启动期幂等回填把来源章补上。
+3. 架构级后续（不在本期）：让留档门禁识别「纯增量」schema 差异并原地 ALTER，免整库留档——需把 app_meta 从哈希改为结构清单，单独立项。
+4. 验收含**删库救回演练**（导出→升级触发留档→导入恢复全量数据）。
 - 导出/导入：state_change、origin_chapter 随对象进包（ref↔id 重绑，目标章缺失留空＋告警）；chapter_reconcile 界外（登记归属）。
 
 ## D5. 门控与 AI 成本

@@ -210,6 +210,10 @@ class ChapterCharacter(_ChapterChildMixin, Base):
     __table_args__ = (
         UniqueConstraint("chapter_id", "sort_order", name="uq_chch_chapter_sort"),
     )
+    # 本章该角色的状态变化一句话（archive-reconcile：归档收尾 AI 提取或手填，
+    # 重归档/重试覆盖；「截至本章」投影按章引用展示）。替代 legacy
+    # character-setting/*.yaml 的 state_history 追加路径。
+    state_change: Mapped[str] = mapped_column(Text, nullable=False, default="")
     character_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("characters.id", ondelete="SET NULL"),

@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from backup.format import FORMAT_VERSION
 
@@ -159,12 +159,17 @@ async def persist_package(db, user_id: str, paths: list[str], include_config: bo
 
 
 
-async def _import_characters(db, zf, names: list[str], book_dir: str, novel) -> None:
+async def _import_characters(
+    db, zf, names: list[str], book_dir: str, novel
+) -> list[tuple[str, str]]:
+    """返回 origin 重绑待办 [(relation_id, origin_ref)]——章循环落库后重绑。"""
     """角色段恢复：v2 直读 + v1 映射；主角收敛（>1 时保 seq 最小）。"""
     from characters.legacy_map import map_legacy_character
     from models.character import Character, CharacterRelation
 
     seq = 0
+    origin_pending: list[tuple[str, str]] = []
+
 
     # v2：characters/characters.yaml（数组，含 id/seq/legacy/relations 内嵌 owner/other id）
     v2_name = f"{book_dir}characters/characters.yaml"
@@ -210,8 +215,9 @@ async def _import_characters(db, zf, names: list[str], book_dir: str, novel) -> 
                 rel_id = str(uuid.uuid4())
             if rel_id:
                 all_existing_rels.add(rel_id)
+            rel_row_id = rel_id or str(uuid.uuid4())
             db.add(CharacterRelation(
-                id=rel_id or str(uuid.uuid4()),
+                id=rel_row_id,
                 novel_id=novel.id,
                 owner_id=id_remap.get(raw["owner_id"], raw["owner_id"]),
                 other_id=id_remap.get(raw["other_id"], raw["other_id"]),
@@ -219,12 +225,16 @@ async def _import_characters(db, zf, names: list[str], book_dir: str, novel) -> 
                 stance=raw.get("stance") or "", note=raw.get("note") or "",
                 ch_ref=raw.get("ch_ref") or "",
             ))
+            # archive-reconcile：来源章（包内存 ref 形态）——章循环后重绑 id
+            origin_ref = str(raw.get("origin_chapter") or "").strip()
+            if origin_ref:
+                origin_pending.append((rel_row_id, origin_ref))
         await db.flush()
         # 同步计数器（不倒退、不复用）
         if cards:
             novel.character_seq_high = max(novel.character_seq_high, max(
                 int(c.get("seq") or 0) for c in cards))
-        return
+        return origin_pending
 
     # v1：settings/character-setting/*.yaml → 映射进新形状
     v1_names = sorted(
@@ -255,6 +265,8 @@ async def _import_characters(db, zf, names: list[str], book_dir: str, novel) -> 
     if v1_names:
         await db.flush()
         novel.character_seq_high = max(novel.character_seq_high, seq)
+
+    return origin_pending
 
 async def _resolve_character_ids(db, novel_id: str) -> dict[str, str]:
     """本书的名字/别名 → 角色 id（导入路径的 id 绑定用）。"""
@@ -501,6 +513,7 @@ async def _import_single_book(
     from filesystem.paths import THREADS_PATH, route_relative_path
     from models.archive import Archive, ChapterPrompt
     from models.chapter import Chapter, ChapterVersion
+    from models.character import CharacterRelation
     from models.project import Novel
     from models.project_setting import ProjectSetting
     from models.volume import (
@@ -539,7 +552,7 @@ async def _import_single_book(
     # v2 布局 = characters/*.yaml（直读）；v1 布局 = settings/character-setting/*.yaml（映射）。
     # 设定循环不碰角色文件（route_relative_path 对 character: 前缀会返回 KV 键——
     # 真表上线后那是无人读的死数据；防御性 continue 在下方 settings 分支里）。
-    await _import_characters(db, zf, names, book_dir, novel)
+    origin_pending = await _import_characters(db, zf, names, book_dir, novel)
 
     # story.yaml / threads.yaml 恢复（与导出侧 dump_book_into 对称；
     # 往返测试发现缺口：此前这两个文件只导出不导入，恢复后简介/线索静默丢失）
@@ -679,6 +692,32 @@ async def _import_single_book(
     # 另：settings/hooks.yaml（v1 KV 形状）不会被 settings 循环写进
     # project_settings——route_relative_path 已无 hooks 路由，旧 KV 键零残留。
     hook_warnings: list[str] = warnings if warnings is not None else []
+    # archive-reconcile：来源章迟绑（characters 段先于 chapters 落库，重绑
+    # 必须在章循环之后；目标章缺失留空并计入告警，不阻断）
+    if origin_pending:
+        ref_to_id_rel = {
+            ref: cid
+            for cid, ref in (
+                await db.execute(
+                    select(Chapter.id, Chapter.ref).where(
+                        Chapter.project_id == novel.id
+                    )
+                )
+            ).all()
+        }
+        for rel_row_id, origin_ref in origin_pending:
+            cid = ref_to_id_rel.get(origin_ref)
+            if cid:
+                await db.execute(
+                    update(CharacterRelation)
+                    .where(CharacterRelation.id == rel_row_id)
+                    .values(origin_chapter_id=cid)
+                )
+            else:
+                warnings.append(
+                    f"关系来源章 {origin_ref} 不存在，已留空（不受章界约束）"
+                )
+        await db.flush()
     await _import_hooks(db, zf, names, book_dir, novel, hook_warnings)
 
     await db.flush()

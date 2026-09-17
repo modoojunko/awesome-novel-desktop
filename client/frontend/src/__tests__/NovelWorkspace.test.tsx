@@ -221,9 +221,10 @@ describe("免费态：选中章 → 章对象工作台", () => {
     mockOneChapterTree();
     renderWorkspace("none");
     await selectFirstChapter();
-    // 两页签（章纲默认选中；提示词子 label PRO-only：免费隐藏 ai-prompt-crafting）
+    // 页签（章纲默认选中；提示词子 label PRO-only：免费隐藏 ai-prompt-crafting）
+    // archive-reconcile：新增 设定/操作 两页签 → 免费 4 个（章纲/正文/设定/操作）
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.length).toBe(2);
+    expect(tabs.length).toBe(4);
     const ogTab = screen.getByRole("tab", { name: /^章纲/ });
     expect(ogTab.getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByRole("tab", { name: /^提示词/ })).toBeNull();

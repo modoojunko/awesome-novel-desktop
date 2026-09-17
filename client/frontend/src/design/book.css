@@ -1069,3 +1069,26 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .portrait .pz-ask { margin-top: 12px; padding: 9px 12px; border-radius: 9px; background: var(--accent-soft); font-size: 12.5px; }
 .settings-v .portrait .pz-act { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .settings-v .quant-note { margin-top: 10px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+
+/* ─── archive-reconcile：操作页签收尾区 ＋ 设定页签变化列表 ─────────── */
+.reconcile-pane { display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; }
+.reconcile-lead { margin: 0; font-family: var(--font-display); font-size: 15px; font-weight: 600; display: flex; align-items: baseline; gap: 10px; }
+.reconcile-count { font-family: var(--font-mono); font-size: 11px; color: var(--muted); font-weight: 400; }
+.reconcile-note { margin: 0; font-size: 12.5px; color: var(--muted); }
+.reconcile-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 8px 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.reconcile-row.rc-failed { border-color: color-mix(in oklch, var(--err) 35%, var(--border)); }
+.rc-status { flex: none; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.rc-status.pending { color: var(--fg); border-color: color-mix(in oklch, var(--fg) 38%, transparent); }
+.rc-status.accepted { color: var(--ok); border-color: color-mix(in oklch, var(--ok) 38%, transparent); }
+.rc-status.failed { color: var(--err); border-color: color-mix(in oklch, var(--err) 38%, transparent); }
+.rc-kind { font-size: 12px; color: var(--muted); flex: none; }
+.rc-summary { min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-acts { display: inline-flex; gap: 6px; flex: none; }
+.rc-error { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--err); }
+.settings-changelog { display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; }
+.seg-title { margin: 6px 0 2px; font-family: var(--font-display); font-size: 14px; font-weight: 600; }
+.change-row { display: grid; grid-template-columns: minmax(72px, auto) minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.change-row .who { font-size: 13px; font-weight: 600; }
+.change-row .what { font-size: 13px; color: var(--fg); min-width: 0; overflow-wrap: anywhere; }
+.change-row .origin { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); flex: none; }
+.foot-note { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
