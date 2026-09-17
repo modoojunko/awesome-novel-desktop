@@ -174,6 +174,11 @@ test("重写已归档章：旧稿入支线＋下游角标＋改写后角标消�
     const onDlg = (d: import("@playwright/test").Dialog) => d.accept();
     page.on("dialog", onDlg);
     await page.getByRole("button", { name: "归档本章" }).click();
+    // 归档弹窗：收尾计划预览（PRO 五件事）
+    const plan = page.getByTestId("archive-plan");
+    await expect(plan).toBeVisible();
+    await expect(plan).toContainText("提取本章设定变化");
+    await expect(plan).toContainText("登记伏笔");
     await page.getByTestId("arch-confirm").click();
     try {
       await expect(page.getByText(/下游章节标记「基于旧设定」/)).toBeVisible({
