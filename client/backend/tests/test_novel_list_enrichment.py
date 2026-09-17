@@ -160,3 +160,38 @@ class TestListEnrichment:
         assert row["total_chapters"] == 2
         # 列表 word_count = 章表求和；正文非空后必须 > 0
         assert isinstance(row["word_count"], int) and row["word_count"] > 0
+
+    def test_ghost_chapters_excluded_from_stats(self, client):
+        """主线口径（2026-09-17 拍板）：回退后转入旧稿支线的章不计入
+        字数/章数——书架卡片必须与工作台卷章树（同样过滤 ghost）同结论。"""
+        created = _create_project(client)
+        pid = created["id"]
+        base = f"/api/novels/{pid}"
+
+        vol_ref = client.post(f"{base}/volumes", json={"title": "第一卷"}).json()["ref"]
+        refs = []
+        for i in (1, 2):
+            rc = client.post(
+                f"{base}/volumes/{vol_ref}/chapters", json={"title": f"第{i}章"}
+            )
+            refs.append(rc.json()["chapter_ref"])
+
+        t1 = "明月出天山，苍茫云海间，长风几万里。" * 8
+        t2 = "苍茫云海间，长风几万里。"
+        client.put(f"{base}/chapters/{refs[0]}/prose", json={"prose": t1})
+        client.post(f"{base}/chapters/{refs[0]}/archive", json={"full_text": t1})
+        client.put(f"{base}/chapters/{refs[1]}/prose", json={"prose": t2})
+
+        row0 = next(r for r in client.get("/api/novels").json() if r["id"] == pid)
+        assert row0["total_chapters"] == 2
+        before_words = row0["word_count"]
+
+        rr = client.post(f"{base}/chapters/{refs[0]}/revert")
+        assert rr.status_code in (200, 201), rr.text
+
+        row1 = next(r for r in client.get("/api/novels").json() if r["id"] == pid)
+        # 支线章（第 2 章）字数/章数都不再计入；主线只剩第 1 章
+        assert row1["total_chapters"] == 1
+        assert row1["word_count"] < before_words
+        assert row1["word_count"] == len(t1)
+        assert row1["total_archives"] == 1  # 第 1 章仍归档
