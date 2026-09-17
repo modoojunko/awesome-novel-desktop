@@ -3,7 +3,9 @@
  *  动作分两种：已实现=真实按钮；未实现=「规划中」占位（禁用，后续逐个补）。
  *  已在中栏页签内提供的动作不在此重复（文风调参/收尾确认等）。 */
 import { useEffect, useMemo, useState } from "react";
+import type { RefObject } from "react";
 import { api } from "@/lib/api";
+import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { chapterNoOf } from "@/lib/chapterRef";
 
 export interface OgStats {
@@ -85,6 +87,10 @@ export function AiAssistPanel({
   onAiDraft,
   onSimulate,
   staleDownstream,
+  aiState,
+  proseRef,
+  onAiSelection,
+  onRunReconcile,
 }: {
   projectId: string;
   chapterRef: string;
@@ -100,6 +106,15 @@ export function AiAssistPanel({
   onSimulate: () => void;
   /** chapter-rewrite：下游「基于旧设定」章计数（无数据时显示「—」） */
   staleDownstream?: number;
+  /** 正文页签的选区动作通道（压缩啰嗦段落；润色/扩写沿用页内工具卡） */
+  aiState?: ProseAIState;
+  proseRef?: RefObject<ProseHandle | null>;
+  onAiSelection?: (
+    mode: "polish" | "expand" | "compress",
+    capture: ReturnType<ProseHandle["captureNow"]>,
+  ) => void;
+  /** 按类触发本章收尾（设定/关系/伏笔三入口）；产出在「操作」页签待确认 */
+  onRunReconcile?: (kind: "set_changes" | "relations" | "hooks") => void;
 }) {
   // 页签内轻量数据（与中栏页签同端点；只在对应页签激活时取）
   const [promptSrc, setPromptSrc] = useState<{ total: number; cast: number } | null>(null);
@@ -281,7 +296,19 @@ export function AiAssistPanel({
           ],
           ["状态", archived ? "已归档" : wordCount > 0 ? "草稿" : "待写"],
         ])}
-        {raActs([{ label: "压缩啰嗦段落" }], locked)}
+        {raActs(
+          [
+            {
+              label: aiState?.compressLoading ? "压缩中" : "压缩啰嗦段落",
+              onClick:
+                onAiSelection && proseRef
+                  ? () => onAiSelection("compress", proseRef.current?.captureNow() ?? null)
+                  : undefined,
+              disabled: !aiState?.hasSelection || !!aiState?.compressLoading,
+            },
+          ],
+          locked,
+        )}
       </div>
     );
   }
@@ -322,7 +349,16 @@ export function AiAssistPanel({
           ["截至本章条目", loreStats ? `${loreStats.until} 条` : "—"],
           ["基于旧设定", "—"],
         ])}
-        {raActs([{ label: "提取本章变化" }], locked)}
+        {raActs(
+          [
+            {
+              label: "提取本章变化",
+              onClick: onRunReconcile ? () => onRunReconcile("set_changes") : undefined,
+              disabled: !archived,
+            },
+          ],
+          locked,
+        )}
       </div>
     );
   }
@@ -356,7 +392,11 @@ export function AiAssistPanel({
         ])}
         {raActs(
           [
-            { label: "识别角色与物品变化" },
+            {
+              label: "识别角色与物品变化",
+              onClick: onRunReconcile ? () => onRunReconcile("relations") : undefined,
+              disabled: !archived,
+            },
             { label: "本章关系变化检测" },
             { label: "关系冲突检测" },
             { label: "建议补边" },
@@ -384,7 +424,11 @@ export function AiAssistPanel({
           [
             { label: "建议本章回收" },
             { label: "伏笔冲突检测" },
-            { label: "登记新伏笔" },
+            {
+              label: "登记新伏笔",
+              onClick: onRunReconcile ? () => onRunReconcile("hooks") : undefined,
+              disabled: !archived,
+            },
           ],
           locked,
         )}

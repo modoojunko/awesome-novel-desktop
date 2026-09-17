@@ -10,6 +10,7 @@ import json
 import os
 import tempfile
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -63,11 +64,21 @@ async def _seed() -> tuple[str, str, str]:
 _UIDS: dict[str, str] = {}
 
 
-def _client(nid: str):
+def _client(nid: str, *, ai: bool = False):
     c = TestClient(app)
     c.__enter__()
     uid = _UIDS[nid]
     app.dependency_overrides[get_current_user] = lambda: {"id": uid}
+    if ai:
+        from auth_local.deps import (
+            require_ai_access as _raa,
+        )
+        from auth_local.deps import (
+            require_novel_model as _rnm,
+        )
+
+        app.dependency_overrides[_raa] = lambda: True
+        app.dependency_overrides[_rnm] = lambda: True
     return c
 
 
@@ -290,6 +301,75 @@ class TestEndpoints:
         rid = _add_row(nid, ch_id, "set_changes", {"items": []})
         assert _post(nid, f"/{rid}/reject").status_code == 200
         assert _get_row(rid).status == "rejected"
+
+
+class TestRunNow:
+    def test_run_kind_filtered_job_started(self, monkeypatch):
+        _root, nid, _ch = asyncio.run(_seed())
+        captured: list = []
+
+        def _fake_start(novel_id, root_path, chapter_ref, chapter_id, kinds=None):
+            captured.append(kinds)
+            return {"state": "running"}
+
+        monkeypatch.setattr("archive.reconcile.start_reconcile_job", _fake_start)
+        c = _client(nid, ai=True)
+        try:
+            resp = c.post(
+                f"/api/novels/{nid}/chapters/vol-1-ch-1/reconcile/run",
+                json={"kind": "set_changes"},
+            )
+        finally:
+            app.dependency_overrides.clear()
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"ok": True, "started": True, "kind": "set_changes"}
+        assert captured == [["set_changes"]]
+
+    def test_run_all_when_kind_absent(self, monkeypatch):
+        _root, nid, _ch = asyncio.run(_seed())
+        captured: list = []
+
+        def _fake_start(novel_id, root_path, chapter_ref, chapter_id, kinds=None):
+            captured.append(kinds)
+            return {"state": "running"}
+
+        monkeypatch.setattr("archive.reconcile.start_reconcile_job", _fake_start)
+        c = _client(nid, ai=True)
+        try:
+            resp = c.post(f"/api/novels/{nid}/chapters/vol-1-ch-1/reconcile/run", json={})
+        finally:
+            app.dependency_overrides.clear()
+        assert resp.status_code == 200, resp.text
+        assert captured == [None]
+
+    def test_run_invalid_kind_400(self):
+        _root, nid, _ch = asyncio.run(_seed())
+        c = _client(nid, ai=True)
+        try:
+            resp = c.post(
+                f"/api/novels/{nid}/chapters/vol-1-ch-1/reconcile/run",
+                json={"kind": "bogus"},
+            )
+        finally:
+            app.dependency_overrides.clear()
+        assert resp.status_code == 400
+
+    def test_run_free_tier_403(self):
+        _root, nid, _ch = asyncio.run(_seed())
+        from auth_local.deps import require_ai_access
+
+        def _forbidden():
+            raise HTTPException(403, detail={"reason": "member_required"})
+
+        c = _client(nid)
+        app.dependency_overrides[require_ai_access] = _forbidden
+        try:
+            resp = c.post(
+                f"/api/novels/{nid}/chapters/vol-1-ch-1/reconcile/run", json={}
+            )
+        finally:
+            app.dependency_overrides.clear()
+        assert resp.status_code == 403
 
 
 class TestNotInjected:

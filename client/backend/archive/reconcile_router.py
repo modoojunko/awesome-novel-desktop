@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import get_current_user
+from auth_local.deps import get_current_user, require_ai_access, require_novel_model
 from db import get_db
 from models.project import Novel
 from models.reconcile import ChapterReconcile
@@ -143,6 +143,33 @@ async def reject(
     row.decided_at = datetime.now(UTC).replace(tzinfo=None)
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/run")
+async def run_now(
+    chapter_ref: str,
+    project_id: str,
+    body: dict | None = None,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    __: bool = Depends(require_novel_model),
+    db: AsyncSession = Depends(get_db),
+):
+    """按需触发本章收尾（工作台右栏 AI 辅助入口）：body.kind 限一类，缺省全量。
+
+    产出仍走提案制（chapter_reconcile 待确认行，在「操作」页签逐条确认）。"""
+    ch = await _chapter_by_ref(db, project_id, chapter_ref, user)
+    kind = str((body or {}).get("kind", "") or "").strip()
+    from archive.reconcile import KINDS as _KINDS
+    from archive.reconcile import start_reconcile_job
+
+    if kind and kind not in _KINDS:
+        raise HTTPException(400, f"未知的收尾类别：{kind}")
+    novel = await db.get(Novel, ch.project_id)
+    job = start_reconcile_job(
+        novel.id, novel.root_path, ch.ref, ch.id, kinds=[kind] if kind else None
+    )
+    return {"ok": True, "started": bool(job), "kind": kind or None}
 
 
 @router.post("/{row_id}/retry")

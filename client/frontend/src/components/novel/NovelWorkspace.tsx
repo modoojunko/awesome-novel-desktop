@@ -199,7 +199,7 @@ export default function NovelWorkspace() {
   type AiAction =
     | { kind: "write" }
     | { kind: "continue"; capture?: SelectionCapture | null }
-    | { kind: "selection"; mode: "polish" | "expand"; capture: SelectionCapture | null };
+    | { kind: "selection"; mode: "polish" | "expand" | "compress"; capture: SelectionCapture | null };
 
   const [showUnlock, setShowUnlock] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
@@ -219,7 +219,8 @@ export default function NovelWorkspace() {
     }
     if (action.capture) {
       if (action.mode === "polish") proseRef.current?.polish(action.capture);
-      else proseRef.current?.expand(action.capture);
+      else if (action.mode === "expand") proseRef.current?.expand(action.capture);
+      else proseRef.current?.compress(action.capture);
     } else {
       toast.info("请先在正文中选中一段文字");
     }

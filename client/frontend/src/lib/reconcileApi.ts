@@ -76,5 +76,17 @@ export const rejectReconcile = (projectId: string, chapterRef: string, rowId: st
 export const retryReconcile = (projectId: string, chapterRef: string, rowId: string) =>
   post(`/novels/${projectId}/chapters/${chapterRef}/reconcile/${rowId}/retry`);
 
+/** 按类按需触发本章收尾（kind 缺省＝全量五类）；产出仍为「操作」页签待确认行。 */
+export async function runReconcile(
+  projectId: string,
+  chapterRef: string,
+  kind?: string,
+): Promise<{ started: boolean; kind: string | null }> {
+  return (await api.post(
+    `/novels/${projectId}/chapters/${chapterRef}/reconcile/run`,
+    { kind: kind ?? "" },
+  )) as { started: boolean; kind: string | null };
+}
+
 export const revertToChapter = (projectId: string, chapterRef: string) =>
   api.post(`/novels/${projectId}/chapters/${chapterRef}/revert`, {});

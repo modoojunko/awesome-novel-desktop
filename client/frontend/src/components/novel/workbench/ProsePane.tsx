@@ -14,6 +14,7 @@ import ContrastPreviewModal from "@/components/novel/ContrastPreviewModal";
 import { useChapterData } from "@/hooks/useChapterData";
 import { toast } from "@/lib/toast";
 import {
+  compressText,
   expandText,
   polishText,
   streamChapterContinue,
@@ -33,6 +34,7 @@ export interface ProseAIState {
   continueLoading: boolean;
   polishLoading: boolean;
   expandLoading: boolean;
+  compressLoading: boolean;
   streaming: boolean;
 }
 
@@ -42,6 +44,7 @@ export const INITIAL_PROSE_AI_STATE: ProseAIState = {
   continueLoading: false,
   polishLoading: false,
   expandLoading: false,
+  compressLoading: false,
   streaming: false,
 };
 
@@ -55,6 +58,7 @@ export interface ProseHandle {
   continueWriting(capture?: SelectionCapture): void;
   polish(capture: SelectionCapture): void;
   expand(capture: SelectionCapture): void;
+  compress(capture: SelectionCapture): void;
 }
 
 interface ProsePaneProps {
@@ -125,7 +129,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   // 生成完工检查（三工序③：字数 + 叙事自查；提示性质，可关闭）
   const [qcReport, setQcReport] = useState<StreamDoneMeta | null>(null);
   const [preview, setPreview] = useState<{
-    mode: "polish" | "expand";
+    mode: "polish" | "expand" | "compress";
     capture: SelectionCapture;
     text: string | null;
     loading: boolean;
@@ -315,7 +319,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
 
   // ── 润色 / 扩写（选中段落 → 对照预览 → 接受替换） ─────────────────────
   const runTransform = useCallback(
-    async (mode: "polish" | "expand", capture: SelectionCapture) => {
+    async (mode: "polish" | "expand" | "compress", capture: SelectionCapture) => {
       const ctxBefore = capture.fullText.slice(Math.max(0, capture.start - 200), capture.start);
       const ctxAfter = capture.fullText.slice(capture.end, capture.end + 200);
       setPreview({ mode, capture, text: null, loading: true, error: null });
@@ -323,12 +327,15 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         ...prev,
         polishLoading: mode === "polish",
         expandLoading: mode === "expand",
+        compressLoading: mode === "compress",
       }));
       try {
         const text =
           mode === "polish"
             ? await polishText(projectId, chapterRef, capture.text, ctxBefore, ctxAfter)
-            : await expandText(projectId, chapterRef, capture.text, ctxBefore, ctxAfter);
+            : mode === "expand"
+              ? await expandText(projectId, chapterRef, capture.text, ctxBefore, ctxAfter)
+              : await compressText(projectId, chapterRef, capture.text, ctxBefore, ctxAfter);
         setPreview({ mode, capture, text, loading: false, error: null });
       } catch (e) {
         setPreview({
@@ -343,6 +350,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           ...prev,
           polishLoading: false,
           expandLoading: false,
+          compressLoading: false,
         }));
       }
     },
@@ -363,6 +371,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       continueWriting: (capture?: SelectionCapture) => startStream(true, undefined, capture),
       polish: (capture: SelectionCapture) => void runTransform("polish", capture),
       expand: (capture: SelectionCapture) => void runTransform("expand", capture),
+      compress: (capture: SelectionCapture) => void runTransform("compress", capture),
     }),
     [captureNow, startStream, finishStream, runTransform],
   );
@@ -473,7 +482,13 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
                 capture.fullText.slice(capture.end);
               lastRenderedRef.current = next;
               setProse(next);
-              toast.success(preview.mode === "polish" ? "已应用润色" : "已应用扩写");
+              toast.success(
+                preview.mode === "polish"
+                  ? "已应用润色"
+                  : preview.mode === "expand"
+                    ? "已应用扩写"
+                    : "已应用压缩",
+              );
             }
             setPreview(null);
           }}

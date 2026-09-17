@@ -79,6 +79,70 @@ describe("AiAssistPanel（随页签）", () => {
     expect(apiState.get).toHaveBeenCalledTimes(1);
   });
 
+  it("正文页签：压缩啰嗦段落为真按钮（选中才可点，走 onAiSelection）", () => {
+    const onAiSelection = vi.fn();
+    renderPanel("prose", {
+      onAiSelection,
+      aiState: { hasSelection: true, compressLoading: false } as never,
+      proseRef: { current: { captureNow: () => ({ text: "选中的一段" }) } } as never,
+    });
+    const btn = screen.getByRole("button", { name: /压缩啰嗦段落/ });
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(btn);
+    expect(onAiSelection).toHaveBeenCalledWith("compress", { text: "选中的一段" });
+    // 无选中 → 禁用（不降级为占位）
+    renderPanel("prose", {
+      onAiSelection,
+      aiState: { hasSelection: false, compressLoading: false } as never,
+      proseRef: { current: { captureNow: () => null } } as never,
+    });
+    const all = screen.getAllByRole("button", { name: /压缩啰嗦段落/ });
+    expect((all[all.length - 1] as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("设定/关系/伏笔三入口按类触发收尾（未归档禁用）", () => {
+    const onRunReconcile = vi.fn();
+    const { unmount } = render(
+      (() => {
+        const cb = { onAiDraft: vi.fn(), onSimulate: vi.fn() };
+        return (
+          <AiAssistPanel
+            projectId="p1"
+            chapterRef="vol-1-ch-2"
+            tab="settings"
+            isPro
+            ogStats={OG_STATS}
+            wordCount={0}
+            planWords={null}
+            archived
+            canAiDraft={false}
+            aiDrafting={false}
+            onRunReconcile={onRunReconcile}
+            {...cb}
+          />
+        );
+      })(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /提取本章变化/ }));
+    expect(onRunReconcile).toHaveBeenCalledWith("set_changes");
+    unmount();
+
+    renderPanel("relations", { archived: true, onRunReconcile });
+    fireEvent.click(screen.getByRole("button", { name: /识别角色与物品变化/ }));
+    expect(onRunReconcile).toHaveBeenCalledWith("relations");
+
+    renderPanel("hooks", { archived: true, onRunReconcile });
+    fireEvent.click(screen.getByRole("button", { name: /登记新伏笔/ }));
+    expect(onRunReconcile).toHaveBeenCalledWith("hooks");
+    // 剩余动作仍为占位
+    expect(screen.getByRole("button", { name: /伏笔冲突检测/ })).toBeDisabled();
+
+    // 未归档：三入口禁用
+    renderPanel("settings", { archived: false, onRunReconcile });
+    const all = screen.getAllByRole("button", { name: /提取本章变化/ });
+    expect((all[all.length - 1] as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("伏笔页签：悬置/本章埋下统计与占位动作", async () => {
     apiState.get.mockImplementation(async (p: string) => {
       if (p.endsWith("/hooks")) {

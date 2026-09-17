@@ -9,6 +9,7 @@ import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { toast } from "@/lib/toast";
 import { DEFAULT_TARGET } from "@/hooks/useChapterData";
 import { AiAssistPanel, type OgStats } from "./AiAssistPanel";
+import { runReconcile } from "@/lib/reconcileApi";
 
 export interface RailChapterData {
   wordCount: number;
@@ -46,7 +47,7 @@ interface RailProps {
   /** AI 写入工具链入口（归档章先解锁；生成正文再经 AiModal 提示词预览） */
   onAiWrite: () => void;
   onAiContinue: () => void;
-  onAiSelection: (mode: "polish" | "expand", capture: ReturnType<ProseHandle["captureNow"]>) => void;
+  onAiSelection: (mode: "polish" | "expand" | "compress", capture: ReturnType<ProseHandle["captureNow"]>) => void;
 }
 
 const fmt = (n: number) => n.toLocaleString("zh-CN");
@@ -256,6 +257,25 @@ export default function Rail({
           onAiDraft={d.onAiDraft}
           onSimulate={d.onSimulate}
           staleDownstream={d.staleDownstream}
+          aiState={aiState}
+          proseRef={proseRef}
+          onAiSelection={onAiSelection}
+          onRunReconcile={(kind) => {
+            const ref = d.chapterRef;
+            if (!ref) return;
+            void (async () => {
+              try {
+                const r = await runReconcile(projectId, ref, kind);
+                if (r.started) {
+                  toast.info("已开始收尾提取，产出在「操作」页签待确认");
+                } else {
+                  toast.info("本章已有收尾任务在跑，稍后到「操作」页签看产出");
+                }
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "触发失败，请重试");
+              }
+            })();
+          }}
         />
       )}
 
