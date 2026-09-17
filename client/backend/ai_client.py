@@ -14,9 +14,11 @@ import httpx
 from anthropic import APIConnectionError as AnthropicConnectionError
 from anthropic import APITimeoutError as AnthropicTimeoutError
 from anthropic import AsyncAnthropic
+from anthropic import Timeout as AnthropicTimeout
 from openai import APIConnectionError as OpenAIConnectionError
 from openai import APITimeoutError as OpenAITimeoutError
 from openai import AsyncOpenAI
+from openai import Timeout as OpenAITimeout
 from sqlalchemy import select
 
 from api_configs.crypto import decrypt_api_key
@@ -56,6 +58,21 @@ def _stream_timeout() -> httpx.Timeout:
     return httpx.Timeout(
         connect=10.0, read=_STREAM_READ_TIMEOUT, write=30.0, pool=10.0
     )
+
+
+# anthropic ≥1.4 / openai ≥3 已把传输层从 httpx 换成 httpx2，SDK 会主动拒收任何
+# MRO 根模块为 httpx 的对象（构造与请求两处都抛 TypeError），必须换成它自家
+# re-export 的 Timeout 类。旧版 SDK 的 Timeout 就是 httpx.Timeout，同一写法等价，
+# 故不需要按版本分支。逐相位换算以保住 connect/read 的不同口径。
+_SDK_TIMEOUTS: dict[str, Any] = {"anthropic": AnthropicTimeout, "openai": OpenAITimeout}
+
+
+def _to_sdk_timeout(provider: str, t: Any) -> Any:
+    """把超时换算成该 provider 传输栈认得的 Timeout 对象。"""
+    if not isinstance(t, httpx.Timeout):
+        return t  # 非 httpx.Timeout（如秒数）SDK 本来就认，原样透传
+    cls = _SDK_TIMEOUTS[provider]
+    return cls(connect=t.connect, read=t.read, write=t.write, pool=t.pool)
 
 
 @dataclass
@@ -107,10 +124,16 @@ class AIClient:
         if not api_key:
             raise ValueError("未配置 API Key，请在设置页面填写")
 
-        common = {"timeout": timeout or _CHAT_TIMEOUT, "max_retries": max_retries}
-        if api_format == "anthropic" or (
-            api_format is None and "anthropic" in base_url.lower()
-        ):
+        provider = "anthropic" if (
+            api_format == "anthropic"
+            or (api_format is None and "anthropic" in base_url.lower())
+        ) else "openai"
+
+        common = {
+            "timeout": _to_sdk_timeout(provider, timeout or _CHAT_TIMEOUT),
+            "max_retries": max_retries,
+        }
+        if provider == "anthropic":
             self._provider = "anthropic"
             kwargs = {"api_key": api_key, **common}
             if base_url:
@@ -306,7 +329,7 @@ class AIClient:
                     max_tokens=max_tokens,
                     stream=True,
                     extra_body=extra,
-                    timeout=_stream_timeout(),
+                    timeout=_to_sdk_timeout("openai", _stream_timeout()),
                     **kwargs,
                 )
                 async for chunk in stream:
@@ -330,7 +353,7 @@ class AIClient:
                     system=system,
                     messages=messages,
                     max_tokens=max_tokens,
-                    timeout=_stream_timeout(),
+                    timeout=_to_sdk_timeout("anthropic", _stream_timeout()),
                     **kwargs,
                 ) as stream:
                     async for event in stream:

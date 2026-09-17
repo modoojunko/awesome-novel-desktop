@@ -9,6 +9,21 @@ import types
 import pytest
 from sqlalchemy import text
 
+
+def _reject_httpx_object(name: str, value: object) -> None:
+    """真 SDK（anthropic ≥1.4 / openai ≥3）拒收任何 MRO 根模块为 httpx 的对象。
+
+    stub 照搬这条规则：stub 与真 SDK 脱节，正是 httpx2 迁移静默漏到发布包的原因。
+    """
+    for cls in type(value).__mro__:
+        module = getattr(cls, "__module__", None)
+        if isinstance(module, str) and module.partition(".")[0] == "httpx":
+            raise TypeError(
+                f"Invalid `{name}` argument; `httpx.{cls.__name__}` is from the "
+                "`httpx` package, but this SDK uses `httpx2`."
+            )
+
+
 # Stub the `anthropic` module so tests can import story modules
 # without the real SDK being installed.
 if "anthropic" not in sys.modules:
@@ -17,7 +32,8 @@ if "anthropic" not in sys.modules:
 
     class AsyncAnthropic:
         def __init__(self, *args, **kwargs):
-            pass
+            for k, v in kwargs.items():
+                _reject_httpx_object(k, v)
 
     # ai_client 归一网络异常（AITimeoutError）依赖这两个名字，stub 与真 SDK 同形
     class APIConnectionError(Exception):
@@ -26,9 +42,16 @@ if "anthropic" not in sys.modules:
     class APITimeoutError(APIConnectionError):
         pass
 
+    class Timeout:
+        """真 SDK 的 Timeout 类：与 httpx 无关，逐相位接收 connect/read/write/pool。"""
+
+        def __init__(self, *, connect=None, read=None, write=None, pool=None):
+            self.connect, self.read, self.write, self.pool = connect, read, write, pool
+
     anthropic.AsyncAnthropic = AsyncAnthropic
     anthropic.APIConnectionError = APIConnectionError
     anthropic.APITimeoutError = APITimeoutError
+    anthropic.Timeout = Timeout
     sys.modules["anthropic"] = anthropic
 
     # Also stub anthropic.lib.streaming if accessed
@@ -46,7 +69,8 @@ if "openai" not in sys.modules:
 
     class AsyncOpenAI:
         def __init__(self, *args, **kwargs):
-            pass
+            for k, v in kwargs.items():
+                _reject_httpx_object(k, v)
 
     # 同 anthropic：补齐 ai_client 依赖的异常名
     class APIConnectionError(Exception):
@@ -55,9 +79,14 @@ if "openai" not in sys.modules:
     class APITimeoutError(APIConnectionError):
         pass
 
+    class Timeout:
+        def __init__(self, *, connect=None, read=None, write=None, pool=None):
+            self.connect, self.read, self.write, self.pool = connect, read, write, pool
+
     openai_mod.AsyncOpenAI = AsyncOpenAI
     openai_mod.APIConnectionError = APIConnectionError
     openai_mod.APITimeoutError = APITimeoutError
+    openai_mod.Timeout = Timeout
     sys.modules["openai"] = openai_mod
 
     # Stub openai.types.chat if accessed
