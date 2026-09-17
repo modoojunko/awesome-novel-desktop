@@ -651,9 +651,27 @@ test("预览：只读树 + 只读正文（草稿/归档章皆可读）→ 恢复
     );
     await expect(page.getByText("已自动保存").first()).toBeVisible({ timeout: 8000 });
 
+    // 归档第一章 → 只读 + 写作树「已归档」同步。PR 5：归档走 React 弹窗
+    // （arch-confirm）；window.confirm 全兜底 accept（存量路径如 AI 摘要额度提示）
+    const onDlg = (d: Dialog) => d.accept();
+    page.on("dialog", onDlg);
+    await page.getByRole("button", { name: "归档本章" }).click();
+    await page.getByTestId("arch-confirm").click();
+    try {
+      await expect(page.getByText(/本章已归档 · 只读/).first()).toBeVisible({
+        timeout: 10000,
+      });
+    } finally {
+      page.off("dialog", onDlg);
+    }
+    // 写作树「已归档」即时同步：此刻只有第一章一枚（跨章可见性由预览树 count=2 覆盖）
+    await expect(page.locator(".three-col .col-tree .arch-tag")).toHaveCount(1, {
+      timeout: 5000,
+    });
+
     // API 备料：第二章直接 API 归档（ai_summary=false 不烧 AI），第三章仅建章
-    // 不归档（预览全书可读的草稿章样本）。须先于 UI 归档——归档事件会触发
-    // wb.refresh，卷章列表一次拉全三章。
+    // 不归档（预览全书可读的草稿章样本）。须在第一章归档之后——正文 PUT 有排队
+    // 门禁（仅 frontier 章可写，非 frontier 409），ch1 归档后 frontier 恰好轮到 ch2。
     await apiPostJSON(request, token, `/novels/${pid}/volumes/vol-1/chapters`, {
       title: "风起渡口",
     });
@@ -686,24 +704,6 @@ test("预览：只读树 + 只读正文（草稿/归档章皆可读）→ 恢复
     );
     await apiPostJSON(request, token, `/novels/${pid}/volumes/vol-1/chapters`, {
       title: "雾中城",
-    });
-
-    // 归档第一章 → 只读 + 写作树「已归档」同步。PR 5：归档走 React 弹窗
-    // （arch-confirm）；window.confirm 全兜底 accept（存量路径如 AI 摘要额度提示）
-    const onDlg = (d: Dialog) => d.accept();
-    page.on("dialog", onDlg);
-    await page.getByRole("button", { name: "归档本章" }).click();
-    await page.getByTestId("arch-confirm").click();
-    try {
-      await expect(page.getByText(/本章已归档 · 只读/).first()).toBeVisible({
-        timeout: 10000,
-      });
-    } finally {
-      page.off("dialog", onDlg);
-    }
-    // 写作树「已归档」即时同步：第一章（UI 归档）+ 第二章（API 备料归档）共 2 枚
-    await expect(page.locator(".three-col .col-tree .arch-tag")).toHaveCount(2, {
-      timeout: 5000,
     });
 
     // ── 预览视图：全书只读通读（ADJUSTMENTS #12），初始定档 = 工作台当前章 ──
