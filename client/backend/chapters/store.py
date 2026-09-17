@@ -121,6 +121,8 @@ def assemble_chapter(row) -> dict:
         "status": row.status,
         "prose": row.content.prose if row.content is not None else "",
     }
+    if row.ghost_of:
+        data["ghost_of"] = row.ghost_of
     if row.word_target is not None:
         data["word_target"] = row.word_target
     if row.ladder_exit:

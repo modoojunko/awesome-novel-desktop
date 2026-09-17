@@ -81,6 +81,7 @@ async def get_chapter_row(db, project, ref: str) -> dict | None:
         "outline_status": row.outline_status,
         "status": row.status,
         "has_prose": row.has_prose,
+        "ghost_of": row.ghost_of,
         "confirmed_at": row.confirmed_at.isoformat() if row.confirmed_at else None,
         "archived_at": row.archived_at.isoformat() if row.archived_at else None,
     }
