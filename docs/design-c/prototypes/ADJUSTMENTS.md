@@ -681,6 +681,11 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     下游章挂 `.tag-stale` 虚线中性角标（§5 常态徽标禁警示色；避让 cfg 摘要 `.tag`，
     data-testid=ch-stale），三面呈现（树行/设定投影 `ch-stale-note`/右栏操作统计
     `下游挂着旧设定 N 章`）；本章保存成功即刷树消角标。
+    ⑩ **归档收尾计划预览＋关系页签按章投影**（原型 archivePlanHTML/relsHTML）：
+    归档弹窗 `.arch-plan`（PRO 五件事＋「未确认不参与后续提示词」；免费档说明无
+    提案）；「角色关系」页签本章边高亮（accent 加粗）＋行内「· 本章」标注、来源列
+    （第 N 章·题名／开书设定·全书统一）与状态列（开书设定/随剧情演变/基于旧设定）、
+    图下「还没连线」孤立点行。
     **门控**：①-③ 免费可用；④ 影子手工编辑全档位、AI 建议 PRO（2026-09-17 拍板定案）、⑤ AI 归 PRO。
     **测试覆盖**：后端 pytest（frontier/ghost/style_shadow/plot_sim/prompt_sources）＋前端 vitest
     ＋e2e（plot-sim.spec.ts 等）；无原型像素基线（storyline 未收编严格扫描）。

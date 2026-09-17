@@ -3,6 +3,7 @@
  *  布局＝确定性环形（storyline.html graphLayout 同款），无随机、可截图。 */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { chapterNoOf } from "@/lib/chapterRef";
 
 interface GraphNode {
   id: string;
@@ -43,8 +44,18 @@ function layout(nodes: GraphNode[]): Map<string, { x: number; y: number }> {
   return pos;
 }
 
-export function RelationsGraphPane({ projectId }: { projectId: string }) {
+export function RelationsGraphPane({
+  projectId,
+  chapterRef,
+}: {
+  projectId: string;
+  /** 当前章 ref：本章新建/变化的关系在图上高亮（storyline rels 页签口径） */
+  chapterRef?: string;
+}) {
   const [graph, setGraph] = useState<GraphData | null>(null);
+  const [chapters, setChapters] = useState<
+    Array<{ ref: string; chapter: number; title: string; stale?: boolean }>
+  >([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,6 +72,37 @@ export function RelationsGraphPane({ projectId }: { projectId: string }) {
         }
       } catch {
         if (alive) setError("关系图加载失败");
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
+
+  // 来源章题名与「基于旧设定」角标（投影用；失败静默，不阻断图）
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const tree = (await api.get(`/novels/${projectId}/volumes`)) as Array<{
+          name?: string;
+          ref?: string;
+          chapters?: Array<{ ref?: string; chapter: number; title?: string; stale?: boolean }>;
+        }>;
+        const flat: Array<{ ref: string; chapter: number; title: string; stale?: boolean }> = [];
+        for (const v of tree ?? []) {
+          for (const c of v.chapters ?? []) {
+            flat.push({
+              ref: c.ref ?? `${v.name ?? v.ref}-ch-${c.chapter}`,
+              chapter: c.chapter,
+              title: c.title ?? "",
+              stale: c.stale,
+            });
+          }
+        }
+        if (alive) setChapters(flat);
+      } catch {
+        /* 题名失败不阻断 */
       }
     })();
     return () => {
@@ -93,6 +135,7 @@ export function RelationsGraphPane({ projectId }: { projectId: string }) {
           if (!a || !b) return null;
           const mx = (a.x + b.x) / 2;
           const my = (a.y + b.y) / 2;
+          const hit = !!chapterRef && e.origin_chapter === chapterRef;
           return (
             <g key={`${e.owner_id}-${e.other_id}-${i}`}>
               <line
@@ -100,8 +143,9 @@ export function RelationsGraphPane({ projectId }: { projectId: string }) {
                 y1={a.y}
                 x2={b.x}
                 y2={b.y}
-                stroke="var(--border)"
-                strokeWidth={1.5}
+                stroke={hit ? "var(--accent)" : "var(--border)"}
+                strokeWidth={hit ? 2.5 : 1.5}
+                data-hit={hit ? "1" : undefined}
               />
               <text x={mx} y={my - 4} textAnchor="middle" className="rg-edge-label">
                 {e.rel_type}
@@ -126,17 +170,45 @@ export function RelationsGraphPane({ projectId }: { projectId: string }) {
       </svg>
       <p className="rg-legend">
         {graph.nodes.length} 个角色 · {graph.edges.length} 条关系
-        {graph.edges.some((e) => e.origin_chapter) && " · 边按来源章排序见列表"}
+        {chapterRef && " · 本章新建或变化的关系在图上高亮"}
       </p>
       {graph.edges.length > 0 && (
         <ul className="rg-list">
-          {graph.edges.map((e, i) => (
-            <li key={i}>
-              {e.owner_name} → {e.other_name}：{e.rel_type}
-              {e.stance ? ` · ${e.stance}` : ""}
-            </li>
-          ))}
+          {graph.edges.map((e, i) => {
+            const hit = !!chapterRef && e.origin_chapter === chapterRef;
+            const origin = chapters.find((c) => c.ref === e.origin_chapter);
+            const state = !e.origin_chapter
+              ? "开书设定"
+              : origin?.stale
+                ? "基于旧设定"
+                : "随剧情演变";
+            const originLabel = !e.origin_chapter
+              ? "开书设定 · 全书统一"
+              : `第 ${origin?.chapter ?? chapterNoOf(e.origin_chapter)} 章${origin?.title ? ` · ${origin.title}` : ""}`;
+            return (
+              <li key={i} className={hit ? "hit" : undefined} data-testid="rg-row">
+                {e.owner_name} → {e.other_name}：{e.rel_type}
+                {e.stance ? ` · ${e.stance}` : ""}
+                <em className="rg-origin">
+                  {originLabel}
+                  {hit ? " · 本章" : ""}
+                </em>
+                <span className="rg-state">{state}</span>
+              </li>
+            );
+          })}
         </ul>
+      )}
+      {graph.nodes.filter((nd) => !graph.edges.some(
+        (e) => e.owner_id === nd.id || e.other_id === nd.id,
+      )).length > 0 && (
+        <p className="rg-iso">
+          还没连线：
+          {graph.nodes
+            .filter((nd) => !graph.edges.some((e) => e.owner_id === nd.id || e.other_id === nd.id))
+            .map((nd) => nd.name)
+            .join(" · ")}
+        </p>
       )}
     </div>
   );

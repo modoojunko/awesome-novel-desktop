@@ -767,7 +767,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
       {chTab === "relations" && (
         <div className="relations-pane" data-od-id="relations-pane">
-          <RelationsGraphPane projectId={projectId} />
+          <RelationsGraphPane projectId={projectId} chapterRef={chapterRef} />
         </div>
       )}
 
@@ -832,6 +832,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         open={showArchive}
         onClose={() => setShowArchive(false)}
         onConfirm={() => void handleArchive()}
+        isPro={isPro}
       />
       <RewriteModal
         open={showRewrite}

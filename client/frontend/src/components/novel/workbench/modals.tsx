@@ -149,10 +149,13 @@ export function ArchiveModal({
   open,
   onClose,
   onConfirm,
+  isPro,
 }: {
   open: boolean;
   onClose: () => void;
   onConfirm: () => void;
+  /** 收尾计划预览：PRO 列出后台五件事；免费档说明无提案 */
+  isPro?: boolean;
 }) {
   return (
     <Modal
@@ -185,6 +188,27 @@ export function ArchiveModal({
       <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
         仍可在版本历史中查看与恢复。
       </p>
+      {/* 收尾计划预览（storyline.html archivePlanHTML 口径） */}
+      <div className="arch-plan" data-od-id="archive-plan" data-testid="archive-plan">
+        <p className="ap-h">归档收尾</p>
+        {isPro ? (
+          <>
+            <p className="ap-lead">
+              归档本身即刻生效，主线立刻推进。归档后 AI 在后台接着跑下面 5
+              件事；有写回内容的都会变成待确认的提案，你点过确认才进全书那一套。没确认之前，这些提案不参与后面章节的提示词。
+            </p>
+            <ul className="ap-list">
+              <li>提取本章设定变化</li>
+              <li>更新角色关系</li>
+              <li>登记伏笔</li>
+              <li>识别世界要素</li>
+              <li>概括角色状态变化</li>
+            </ul>
+          </>
+        ) : (
+          <p className="ap-lead">免费版归档即刻生效，不产生收尾提案；升级后由 AI 在后台产出待确认的建议。</p>
+        )}
+      </div>
     </Modal>
   );
 }
