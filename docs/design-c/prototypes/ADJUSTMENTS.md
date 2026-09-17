@@ -767,3 +767,23 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
 11. **壳层逐字同 book.html**（appbar/modnav/update-strip/tokens，
     `--radius-lg:14px`），种子数据（星海拾遗 3 卷 17 章）为演示数据，
     与 design-parity-preview stub 逐字段对齐。
+
+---
+
+## preview.html 下载弹层修订（c-manuscript-download，2026-09-17）
+
+在 `preview.html`（c-preview-reader 收编稿）上做本 change 的原型修订：
+
+1. **右栏「下载成稿」入口进基线**：设计稿「导出成稿…」按术语拍板改名「下载成稿…」
+   （读者成稿动作 =「下载」；系统数据资产 =「备份/恢复」，本原型不再出现「导出」字样）。
+2. **PDF 项移除（缓办拍板）**：首版格式 = Markdown / 纯文本 / Word 三项，PDF 不出现
+   也不以禁用项占位；PDF 待阅读排版渲染管线另立版本后回补。
+3. **重开弹层读回已完成态**：设计稿 `exOpen` 把 done 重置回 form；产品语义 =
+   进行中关闭弹层为「后台运行」，重开可读到完成态与产出文件清单（spec 口径），按 spec 修正。
+4. **弹窗底座**：原型内联 `.modal/.sheet` 简化底座仅作演示；实现走 `Modal` 组件
+   （wbStyle 版式），像素基线只锁右栏入口卡与右栏区，弹层打开态不在基线场景内。
+5. **实现侧新增词汇**：`.ex-fmt`（格式勾选行，role=checkbox 语义）/`.ex-path`（位置行）/
+   `.ex-steps`（进度清单，等待/下载中/完成/失败四态，ok/err 语气字）/
+   `.ex-done`（完成块）/`.ex-bar`（进度条）/`.dl-need-desktop`（无壳降级提示）。
+6. **账号菜单备份项提示**同步收紧：`list.html` / `book.html` 同款文案
+   「选择文件夹导出」→「选择文件夹保存」（术语分离，同批落实现与两份基线原型）。

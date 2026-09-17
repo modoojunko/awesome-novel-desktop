@@ -229,7 +229,7 @@ export default function AcctMenu({
           <button className="am-item" role="menuitem" data-od-id="acct-menu-backup" onClick={runBackup}>
             <Ico d={P.backup} sw={1.7} />
             备份
-            <span className="am-hint">选择文件夹导出</span>
+            <span className="am-hint">选择文件夹保存</span>
           </button>
           <button
             className="am-item"

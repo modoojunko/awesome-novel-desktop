@@ -338,6 +338,44 @@ class NativeBridge:
         )
         return list(result) if result else []
 
+    def open_folder(self, path: str):
+        """在系统文件管理器中打开目录（下载成稿完成页出口）。
+
+        Windows 必须用 os.startfile 且不判返回值——explorer 成功也常返回 exit 1，
+        按 returncode 判定会假报失败；macOS/Linux 判 returncode。失败返回 False
+        不抛（完成页仍显示完整路径，用户可自行前往）。
+        """
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        target = Path(path) if path else None
+        if not target or not target.is_dir():
+            return False
+        try:
+            if sys.platform == "win32":
+                import os
+
+                os.startfile(str(target))  # noqa: S606
+                return True
+            cmd = ["open", str(target)] if sys.platform == "darwin" else ["xdg-open", str(target)]
+            return subprocess.run(cmd, check=False).returncode == 0
+        except Exception:
+            return False
+
+    def default_dirs(self):
+        """常用位置快捷项（下载弹层）：系统文稿/桌面/下载里真实存在的目录。"""
+        from pathlib import Path
+
+        home = Path.home()
+        names = {"文稿": "Documents", "桌面": "Desktop", "下载": "Downloads"}
+        out = []
+        for zh, en in names.items():
+            p = home / en
+            if p.is_dir():
+                out.append({"label": zh, "path": str(p)})
+        return out
+
 
 # 模块级单例：main() 在 create_window 后注入 window_ref（v0.15 曾漏掉本行，
 # js_api=bridge 直接触发 NameError——GUI 启动即炸且 --smoke 测不到）

@@ -34,16 +34,18 @@ const VOLUMES = [
 function renderView(overrides: Partial<Parameters<typeof PreviewView>[0]> = {}) {
   const onRefresh = vi.fn();
   const onGoWrite = vi.fn();
+  const onDownload = vi.fn();
   const props = {
     projectId: "p1",
     volumes: VOLUMES,
     onRefresh,
     initialRef: null as string | null,
     onGoWrite,
+    onDownload,
     ...overrides,
   };
   const utils = render(<PreviewView {...props} />);
-  return { ...utils, onRefresh, onGoWrite };
+  return { ...utils, onRefresh, onGoWrite, onDownload };
 }
 
 describe("PreviewView — 三栏阅读器", () => {

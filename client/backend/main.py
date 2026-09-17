@@ -24,6 +24,7 @@ from archive.router import router as archive_router
 # License 本地验证
 from auth_local.router import router as auth_local_router
 from backup.router import router as backup_router
+from manuscript.router import router as manuscript_router
 from chapters.ai_draft import router as chapters_ai_draft_router
 from chapters.router import router as chapters_router
 from chapters.versions import router as chapters_versions_router
@@ -571,6 +572,7 @@ app.add_middleware(
 # License 验证路由
 app.include_router(auth_local_router, prefix="/api/auth", tags=["auth"])
 app.include_router(backup_router)
+app.include_router(manuscript_router)
 
 # 版本自报与更新检测（client-update-notify）
 app.include_router(update_check_router)

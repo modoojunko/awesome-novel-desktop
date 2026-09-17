@@ -24,6 +24,8 @@ interface PreviewViewProps {
   initialRef?: string | null;
   /** 空书出口：去写作视图建卷建章 */
   onGoWrite: () => void;
+  /** 下载成稿入口（manuscript-download）：弹层挂壳层，这里只开 */
+  onDownload: () => void;
 }
 
 function escapeHtml(s: string): string {
@@ -76,6 +78,7 @@ export default function PreviewView({
   onRefresh,
   initialRef,
   onGoWrite,
+  onDownload,
 }: PreviewViewProps) {
   const [selRef, setSelRef] = useState<string | null>(null);
   const [prose, setProse] = useState("");
@@ -330,7 +333,17 @@ export default function PreviewView({
               </span>
             </div>
           </div>
-        )}
+)}
+        {/* 下载成稿（manuscript-download）：入口在右栏，弹层挂书工作台壳层 */}
+        <div className="pv-card" data-od-id="download-open-card">
+          <h4>下载成稿</h4>
+          <button className="btn btn-primary" style={{ width: "100%" }} data-od-id="download-open" onClick={onDownload}>
+            下载成稿…
+          </button>
+          <p className="pv-side-empty" style={{ margin: "8px 0 0" }}>
+            选格式与本地保存位置，下载 {chTotal} 章有正文的章节。
+          </p>
+        </div>
         {seg("size", "字号", [
           ["s", "小"],
           ["m", "中"],

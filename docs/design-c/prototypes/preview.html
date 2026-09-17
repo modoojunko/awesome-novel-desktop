@@ -177,6 +177,46 @@
   .pv-seg button { flex: 1; border: 1px solid var(--border); border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 12px; padding: 6px 0; cursor: pointer; }
   .pv-seg button:hover { color: var(--fg); border-color: var(--muted); }
   .pv-seg button.on { background: var(--accent-soft); border-color: transparent; color: var(--accent); font-weight: 500; }
+
+  /* ─── 下载成稿弹层（manuscript-download；无 PDF——首版格式 md/txt/docx） ─── */
+  .ex-sec+.ex-sec { margin-top: 16px; }
+  .ex-sec h4 { margin: 0 0 8px; font-size: 12px; color: var(--muted); font-weight: 500; }
+  .ex-path { display: flex; align-items: center; gap: 9px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 0 12px; }
+  .ex-path .box { border: 0; background: none; padding: 10px 0; font-family: var(--font-mono); font-size: 12.5px; color: var(--fg); width: 100%; outline: none; }
+  .ex-dirs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+  .ex-dirs .chip { font-size: 12px; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; background: var(--surface); cursor: pointer; color: var(--muted); }
+  .ex-dirs .chip:hover { color: var(--fg); border-color: var(--muted); }
+  .ex-fmts { display: flex; flex-direction: column; gap: 7px; }
+  .ex-fmt { display: flex; align-items: flex-start; gap: 11px; text-align: left; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px 12px; cursor: pointer; font: inherit; color: var(--fg); }
+  .ex-fmt:hover { border-color: var(--muted); }
+  .ex-fmt.on { border-color: color-mix(in oklch, var(--accent) 42%, var(--border)); background: color-mix(in oklch, var(--accent) 4%, var(--surface)); }
+  .ex-txt { display: flex; flex-direction: column; gap: 2px; }
+  .ex-txt b { font-size: 13.5px; font-weight: 600; }
+  .ex-txt span { font-size: 11.5px; color: var(--muted); }
+  .ex-sum { margin: 16px 0 0; padding-top: 12px; border-top: 1px dashed var(--border); font-size: 12px; color: var(--muted); }
+  .ex-stat { font-size: 13px; color: var(--fg); margin: 0 0 12px; }
+  .ex-bar { height: 6px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); overflow: hidden; }
+  .ex-bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width 0.25s; }
+  .ex-steps { list-style: none; margin: 14px 0 0; padding: 0; }
+  .ex-steps li { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--border); font-size: 12.5px; }
+  .ex-steps b { font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; color: var(--fg); }
+  .ex-steps em { font-style: normal; font-size: 11.5px; color: var(--muted); }
+  .ex-steps em.ok { color: var(--ok); }
+  .ex-done { display: flex; gap: 12px; align-items: flex-start; border: 1px solid color-mix(in oklch, var(--ok) 38%, var(--border)); background: color-mix(in oklch, var(--ok) 7%, var(--surface)); border-radius: var(--radius); padding: 13px 14px; }
+  .ex-done b { font-size: 13.5px; }
+  .ex-done p { margin: 3px 0 0; font-size: 12px; color: var(--muted); }
+  .ex-done .mono { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg); }
+  .toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%) translateY(14px); z-index: 80; background: var(--fg); color: var(--bg); font-size: 13.5px; padding: 11px 18px; border-radius: var(--radius); opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s; max-width: 80vw; }
+  .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .modal { position: fixed; inset: 0; z-index: 60; display: none; }
+  .modal.on { display: block; }
+  .backdrop { position: absolute; inset: 0; background: color-mix(in oklch, var(--fg) 42%, transparent); }
+  .sheet { position: relative; margin: 6vh auto 0; width: min(480px, calc(100% - 32px)); background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 24px 26px 20px; max-height: 84vh; overflow: auto; }
+  .sheet h2 { font-family: var(--font-display); font-size: 20px; font-weight: 600; margin: 0; }
+  .kicker { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 0 0 7px; }
+  .sheet .lead { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  .modal-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; align-items: center; }
+  .modal-foot .note { margin-right: auto; font-size: 12px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -255,6 +295,19 @@
 </main>
 
 <!-- ═══ 窗口底部状态条（StatusBar 同款：左版权 · 右版本，fixed 26px） ═══ -->
+<!-- ══════════ 下载成稿弹层（manuscript-download；首版无 PDF） ══════════ -->
+<div class="modal" id="dl-modal" data-od-id="download-modal">
+  <div class="backdrop" data-export-close></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="dl-title">
+    <p class="kicker">下载成稿</p>
+    <h2 id="dl-title">下载主线全稿</h2>
+    <p class="lead">把主线全稿存到本地：勾选格式、定好保存位置，下载在后台进行，完成后就能在文件夹里拿到成稿。</p>
+    <div id="dl-body"></div>
+    <div class="modal-foot" id="dl-foot"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
 <div class="statusbar-spacer" aria-hidden="true"></div>
 <footer class="statusbar" data-od-id="app-status-bar">
   <span data-od-id="app-credits">© 2026 爱小说</span>
@@ -416,6 +469,9 @@ function sideHTML(){
     + '<span>字数 <b>'+total+'</b></span>'
     + '<span>已归档 <b>'+nArch+'</b> · 草稿 '+nDraft+' · 拟定 '+nPlan+'</span>'
     + '</div></div>'
+    + '<div class="pv-card" data-od-id="download-open-card"><h4>下载成稿</h4>'
+    + '<button type="button" class="btn btn-primary" style="width:100%" data-export-open data-od-id="download-open">下载成稿…</button>'
+    + '<p style="margin:8px 0 0;font-size:12.5px;color:var(--muted);">选格式与本地保存位置，下载 '+chs.filter(c=>hasProse(c)).length+' 章有正文的章节。</p></div>'
     + segHTML('size', '字号', [['s','小'],['m','中'],['l','大']])
     + segHTML('font', '字体', [['serif','衬线'],['sans','黑体'],['kai','楷体']])
     + segHTML('line', '行距', [['tight','紧凑'],['comfy','舒适'],['loose','宽松']])
@@ -466,6 +522,102 @@ function step(d){
 }
 
 render();
+
+/* ── 下载成稿（manuscript-download）：勾选格式 → 后台下载 → 完成/打开文件夹 ── */
+const EX_FMTS = [
+  { k:'md',  tit:'Markdown', ext:'.md',  sub:'保留标题层级，方便再排版' },
+  { k:'txt', tit:'纯文本',   ext:'.txt', sub:'只留正文，任何编辑器都能打开' },
+  { k:'docx',tit:'Word',     ext:'.docx',sub:'保留卷章标题，便于继续编辑' },
+];
+const EX_DIRS = ['文稿/星海拾遗', '桌面/星海拾遗', '下载/星海拾遗'];
+const exState = { fmts:{ md:true, txt:false, docx:true }, dir: EX_DIRS[0], name:'星海拾遗 · 主线全稿', phase:'form', timer:null };
+function esc2(s){ return esc(s).replace(/"/g,'&quot;'); }
+function toastMsg(msg){
+  const el = $('#toast'); el.textContent = msg; el.classList.add('on');
+  setTimeout(() => el.classList.remove('on'), 2600);
+}
+function exSync(){
+  const d = document.getElementById('ex-dir'); if (d && d.value.trim()) exState.dir = d.value.trim();
+  const n = document.getElementById('ex-name'); if (n && n.value.trim()) exState.name = n.value.trim();
+}
+function exFmtOn(){ return EX_FMTS.filter(f => exState.fmts[f.k]); }
+function renderExport(){
+  const b = document.getElementById('dl-body'), f = document.getElementById('dl-foot');
+  if (exState.phase === 'running'){ renderExportRun(f); return; }
+  if (exState.phase === 'done'){ renderExportDone(b, f); return; }
+  b.innerHTML =
+    '<div class="ex-sec"><h4>保存位置</h4>'
+    + '<div class="ex-path"><input class="box" id="ex-dir" value="'+esc2(exState.dir)+'" spellcheck="false" aria-label="保存位置" /></div>'
+    + '<div class="ex-dirs">'+EX_DIRS.map(d => '<button type="button" class="chip" data-ex-dir="'+esc2(d)+'">'+esc(d)+'</button>').join('')+'</div>'
+    + '</div>'
+    + '<div class="ex-sec"><h4>文件名</h4><input class="box" id="ex-name" value="'+esc2(exState.name)+'" spellcheck="false" aria-label="下载文件名" /></div>'
+    + '<div class="ex-sec"><h4>下载格式（可多选）</h4><div class="ex-fmts">'
+    + EX_FMTS.map(x => '<button type="button" role="checkbox" aria-checked="'+(!!exState.fmts[x.k])+'" class="ex-fmt'+(exState.fmts[x.k]?' on':'')+'" data-ex-fmt="'+x.k+'" data-od-id="download-fmt-'+x.k+'">'
+        + '<span class="ex-txt"><b>'+x.tit+' '+x.ext+'</b><span>'+x.sub+'</span></span></button>').join('')
+    + '</div></div>'
+    + '<p class="ex-sum" data-od-id="download-summary">本次下载 '+mainline().filter(c=>hasProse(c)).length+' 章 · '+mainline().reduce((a,c)=>a+wordCount(c),0)+' 字 · 覆盖全书主线，不含旧稿支线。</p>';
+  f.innerHTML = '<button type="button" class="btn btn-secondary" data-export-close>取消</button>'
+    + '<button type="button" class="btn btn-primary" data-ex-start'+(exFmtOn().length?'':' disabled')+' data-od-id="download-start">开始下载</button>';
+}
+function renderExportRun(f){
+  document.getElementById('dl-body').innerHTML =
+    '<p class="ex-stat" id="ex-stat">准备下载…</p><div class="ex-bar"><i id="ex-bar"></i></div>'
+    + '<ul class="ex-steps">'+exFmtOn().map(x => '<li data-ex-step="'+x.k+'"><b>'+esc2(exState.name+x.ext)+'</b><em>等待</em></li>').join('')+'</ul>';
+  f.innerHTML = '<span class="note">关闭弹层后下载继续，完成会提示</span>'
+    + '<button type="button" class="btn btn-secondary" data-ex-bg>后台运行</button>';
+}
+function renderExportDone(b, f){
+  const list = exFmtOn();
+  b.innerHTML =
+    '<div class="ex-done"><div><b>下载完成</b><p>'+list.length+' 个文件已保存到 <span class="mono">'+esc(exState.dir)+'</span></p></div></div>'
+    + '<ul class="ex-steps">'+list.map(x => '<li><b>'+esc2(exState.name+x.ext)+'</b><em class="ok">完成</em></li>').join('')+'</ul>';
+  f.innerHTML = '<button type="button" class="btn btn-secondary" data-export-close>完成</button>'
+    + '<button type="button" class="btn btn-primary" data-ex-open-dir>打开文件夹</button>';
+}
+function runExportDemo(){
+  const list = exFmtOn();
+  if (!list.length) return;
+  exState.phase = 'running'; renderExport();
+  let done = 0;
+  const setStep = (k, txt) => { const li = document.querySelector('[data-ex-step="'+k+'"] em'); if (li) li.textContent = txt; };
+  setStep(list[0].k, '下载中');
+  state.timer = setInterval(() => {
+    done++;
+    setStep(list[done-1].k, '完成');
+    const bar = document.getElementById('ex-bar'); if (bar) bar.style.width = Math.round(done/list.length*100)+'%';
+    if (done < list.length) setStep(list[done].k, '下载中');
+    else {
+      clearInterval(state.timer); state.timer = null;
+      setTimeout(() => { exState.phase = 'done'; renderExport(); toastMsg('下载完成 · '+list.length+' 个文件已保存到 '+exState.dir); }, 400);
+    }
+  }, 600);
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-export-open],[data-export-close],[data-ex-fmt],[data-ex-dir],[data-ex-bg],[data-ex-start],[data-ex-open-dir]');
+  if (!t) return;
+  if (t.dataset.exportOpen !== undefined){
+    exSync();
+    document.getElementById('dl-modal').classList.add('on');
+    if (exState.phase === 'running') renderExportRun(document.getElementById('dl-foot'));
+    else if (exState.phase === 'done') renderExportDone(document.getElementById('dl-body'), document.getElementById('dl-foot'));
+    else renderExport();
+    return;
+  }
+  if (t.dataset.exportClose !== undefined){
+    if (state.timer){ /* 后台运行：下载继续 */ }
+    document.getElementById('dl-modal').classList.remove('on');
+    return;
+  }
+  if (t.dataset.exFmt){
+    exSync();
+    if (EX_FMTS.some(f => f.k === t.dataset.exFmt)) exState.fmts[t.dataset.exFmt] = !exState.fmts[t.dataset.exFmt];
+    renderExport(); return;
+  }
+  if (t.dataset.exDir){ exState.dir = t.dataset.exDir; renderExport(); return; }
+  if (t.dataset.exBg !== undefined){ document.getElementById('dl-modal').classList.remove('on'); toastMsg('下载在后台继续 · 完成后会提示'); return; }
+  if (t.dataset.exStart !== undefined){ exSync(); runExportDemo(); return; }
+  if (t.dataset.exOpenDir !== undefined){ toastMsg('演示稿：打开本地文件夹不在本原型范围'); return; }
+});
 </script>
 </body>
 </html>

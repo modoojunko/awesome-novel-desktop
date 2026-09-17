@@ -8,6 +8,7 @@ import VolumePanel from "@/components/novel/workbench/VolumePanel";
 import ChapterWorkspace from "@/components/novel/workbench/ChapterWorkspace";
 import SettingsView from "@/components/novel/workbench/SettingsView";
 import PreviewView from "@/components/novel/workbench/PreviewView";
+import ManuscriptDownloadModal from "@/components/novel/workbench/ManuscriptDownloadModal";
 import Rail, { type RailChapterData } from "@/components/novel/workbench/Rail";
 import { AiModal, UnlockModal } from "@/components/novel/workbench/modals";
 import UpgradeModal from "@/components/novel/UpgradeModal";
@@ -191,6 +192,8 @@ export default function NovelWorkspace() {
 
   // ── 升级 PRO 弹窗（novelbar / 右栏 locked 卡共用） ────────────────────
   const [showUpgrade, setShowUpgrade] = useState(false);
+  // 下载成稿弹层（manuscript-download）：挂壳层——预览视图条件挂载，挂预览内切视图会丢轮询/会话记忆
+  const [showDownload, setShowDownload] = useState(false);
   const onUpgrade = useCallback(() => setShowUpgrade(true), []);
 
   // ── 只读章 AI 解锁链（真 bug #1/#2 修复，book.html openAiModal 链） ────
@@ -283,6 +286,18 @@ export default function NovelWorkspace() {
     archivedN: number;
     total: number;
   }
+  // 主线统计（下载成稿摘要用；与预览概览同源：WorkbenchChapter 字段直取）
+  const msStats = useMemo(
+    () => ({
+      chapters: volumes.reduce((a, v) => a + v.chapters.length, 0),
+      words: volumes.reduce(
+        (a, v) => a + v.chapters.reduce((b, c) => b + (c.word_count || 0), 0),
+        0,
+      ),
+    }),
+    [volumes],
+  );
+
   const hereTarget = useMemo<HereTarget | null>(() => {
     type Ch = (typeof volumes)[number]["chapters"][number];
     type Hit = { v: (typeof volumes)[number]; c: Ch };
@@ -639,8 +654,18 @@ export default function NovelWorkspace() {
           initialRef={chapterRef}
           onRefresh={handleArchivesRefresh}
           onGoWrite={() => go("workbench")}
+          onDownload={() => setShowDownload(true)}
         />
       )}
+
+      {/* 下载成稿（manuscript-download）：弹层在壳层，跨视图轮询保活 */}
+      <ManuscriptDownloadModal
+        open={showDownload}
+        onClose={() => setShowDownload(false)}
+        projectId={projectId}
+        bookName={project?.name ?? ""}
+        stats={msStats}
+      />
 
       {/* PR 5 弹窗群：升级 PRO / 只读章 AI 解锁链 / AI 生成（提示词预览） */}
       <UpgradeModal open={showUpgrade} onClose={() => setShowUpgrade(false)} />
