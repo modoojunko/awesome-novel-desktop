@@ -51,7 +51,8 @@ export function ReconcilePane({
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!archived) return;
+    // 免费档不产生收尾行（占位态）：不发请求、不轮询
+    if (!archived || !isPro) return;
     try {
       const data = await fetchReconcile(projectId, chapterRef);
       setRows(data.rows);
@@ -61,15 +62,15 @@ export function ReconcilePane({
     } catch {
       setError("收尾进度获取失败，稍后自动重试");
     }
-  }, [archived, chapterRef, projectId, onRowsChanged]);
+  }, [archived, isPro, chapterRef, projectId, onRowsChanged]);
 
   // 归档章：挂载即拉一次，之后 5s 轮询（后台产出推进可见）
   useEffect(() => {
-    if (!archived) return;
+    if (!archived || !isPro) return;
     void refresh();
     const t = setInterval(() => void refresh(), 5000);
     return () => clearInterval(t);
-  }, [archived, refresh]);
+  }, [archived, isPro, refresh]);
 
   const act = useCallback(
     async (fn: () => Promise<void>, key: string) => {

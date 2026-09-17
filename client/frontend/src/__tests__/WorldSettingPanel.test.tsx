@@ -4,7 +4,6 @@ import { createRef } from "react";
 import WorldSettingPanel, {
   type WorldPanelHandle,
 } from "@/components/novel/settings/world/WorldSettingPanel";
-import { recordLoreSuggestions } from "@/lib/loreSuggestions";
 
 const apiGet = vi.fn();
 const apiPut = vi.fn();
@@ -18,11 +17,9 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
-const worldLoreApply = vi.fn();
 vi.mock("@/lib/ai", () => ({
   worldDraftTopic: (...a: unknown[]) => worldDraftTopic(...a),
   worldConsistencyCheck: (...a: unknown[]) => worldConsistencyCheck(...a),
-  worldLoreApply: (...a: unknown[]) => worldLoreApply(...a),
   aiBlockReason: () => null,
 }));
 
@@ -106,18 +103,6 @@ describe("WorldSettingPanel", () => {
     // 简介缺口不在世界页：跳转出口而非 AI 起草
     fireEvent.click(screen.getByText("去补简介"));
     expect(onGotoPanel).toHaveBeenCalledWith("intro");
-  });
-
-  it("lore 建议：挂载即显示，采纳入账后清掉本条", async () => {
-    worldLoreApply.mockResolvedValue({});
-    recordLoreSuggestions("p1", "vol-1-ch-1", [
-      { key: "血衣楼", value: "第12章登场的新势力", set: "extra" },
-    ]);
-    render(<WorldSettingPanel projectId="p1" />);
-    expect(await screen.findByText(/血衣楼/)).toBeTruthy();
-    fireEvent.click(screen.getByText("采纳入账"));
-    await waitFor(() => expect(worldLoreApply).toHaveBeenCalled());
-    expect(screen.queryByText(/采纳入账/)).toBeNull();
   });
 
   it("save：lore 写入的 origin 不被整包保存抹掉", async () => {

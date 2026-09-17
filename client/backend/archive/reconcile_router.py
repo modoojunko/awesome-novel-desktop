@@ -56,7 +56,7 @@ async def _chapter_by_ref(
     ch = (
         await db.scalars(
             select(Chapter).where(
-                Chapter.novel_id == project_id, Chapter.ref == chapter_ref
+                Chapter.project_id == project_id, Chapter.ref == chapter_ref
             )
         )
     ).first()
@@ -85,7 +85,7 @@ async def list_reconcile(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    ch = await _chapter_by_ref(db, project_id, chapter_ref, user["id"])
+    ch = await _chapter_by_ref(db, project_id, chapter_ref, user)
     rows = (
         await db.scalars(
             select(ChapterReconcile)
@@ -124,6 +124,9 @@ async def accept(
         row.decided_at = datetime.now(UTC).replace(tzinfo=None)
         await db.commit()
         raise HTTPException(502, f"写回失败：{e}") from e
+    # 提交行状态迁移（accepted＋decided_at）——此前缺 commit，接口 200 但
+    # 状态未落库（前端轮询永远看到待确认；e2e 全链撕出）
+    await db.commit()
     return {"ok": True, "row": _row_dict(row)}
 
 
@@ -167,7 +170,7 @@ async def _chapter_and_novel(db: AsyncSession, chapter_id: str):
     ch = await db.get(Chapter, chapter_id)
     if ch is None:
         raise HTTPException(404, "Chapter not found")
-    novel = await db.get(Novel, ch.novel_id)
+    novel = await db.get(Novel, ch.project_id)
     if novel is None:
         raise HTTPException(404, "Novel not found")
     return ch, novel

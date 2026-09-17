@@ -307,42 +307,6 @@ test.describe("世界设定 v2", () => {
     }
   });
 
-  test("lore 全链：暂存建议 → 06 展示 → 采纳入账", async ({ page, request }) => {
-    const { token, restore } = await setupSession(page);
-    try {
-      const pid = await createNovel(page, `世界Lore_${Date.now() % 100000}`);
-      await stubAiState(page, pid, "ready");
-      // 模拟归档写入暂存（useChapterData recordLoreSuggestions 的落点）：
-      // 应用 JS 跑起来之前种 sessionStorage，验证面板挂载即读
-      await page.addInitScript((bookId) => {
-        sessionStorage.setItem(
-          `lore-suggestions:${bookId}`,
-          JSON.stringify([
-            { key: "血衣楼", value: "第12章登场的新势力", set: "extra", origin: "vol-1-ch-12" },
-          ]),
-        );
-      }, pid);
-      // createNovel 结束时已在 #/novel/{pid}（同文档）；reload 让 init script 真正执行
-      await page.reload();
-      await page.waitForLoadState("networkidle");
-      await page.getByRole("button", { name: /^设定/ }).click();
-      await openSetting(page, "世界");
-      await page.locator("details.cfg summary").click();
-      const pending = page.locator('[data-od-id="lore-pending"]');
-      await expect(pending).toBeVisible();
-      await expect(pending).toContainText("血衣楼");
-      await page.locator('[data-od-id^="lore-adopt-"]').click();
-      await expect(page.locator('[data-od-id="lore-pending"]')).toHaveCount(0);
-      // 入账落库：extra 里出现血衣楼（带 origin 幂等键）
-      const world = await apiGetJSON(request, token, `/novels/${pid}/settings/world`);
-      const lore = world.extra.find((e: { key: string }) => e.key === "血衣楼");
-      expect(lore).toBeTruthy();
-      expect(lore.origin).toBe("vol-1-ch-12");
-    } finally {
-      await restore();
-    }
-  });
-
   test("空世界点确认完成：停留本面板不误标已确认", async ({ page }) => {
     const { restore } = await setupSession(page);
     try {

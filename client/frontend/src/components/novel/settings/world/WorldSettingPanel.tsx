@@ -12,7 +12,6 @@ import {
   aiBlockReason,
   worldDraftTopic,
   worldConsistencyCheck,
-  worldLoreApply,
   type WorldAiField,
   type WorldCheckItem,
   type WorldCheckResult,
@@ -24,11 +23,6 @@ import { useDirtyState } from "@/hooks/useDirtyState";
 import { SettingSaveHandle } from "../FormField";
 import { useChangeReceipt, type ChangeReceiptState } from "../ChangeReceipt";
 import KvListEditor, { type KvRow } from "./KvListEditor";
-import {
-  getLoreSuggestions,
-  dropLoreSuggestion,
-  type PendingLore,
-} from "@/lib/loreSuggestions";
 
 /** 契约 v2 形状（与后端 settings/world_model.py 逐字对应）。 */
 export interface WorldData {
@@ -148,15 +142,12 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
   }
   const [sinks, setSinks] = useState<Record<string, { list: SinkEntry[]; idx: number }>>({});
   const [check, setCheck] = useState<WorldCheckResult | null>(null);
-  const [pendingLore, setPendingLore] = useState<PendingLore[]>([]);
   const [runningKey, setRunningKey] = useState<string | null>(null);
   const busyRef = useRef(false);
   const dataRef = useRef(world);
   dataRef.current = world;
 
-  // 归档识别的世界要素建议 → 06 折叠组展示（归档时由 useChapterData 写入暂存）
   useEffect(() => {
-    setPendingLore(getLoreSuggestions(projectId));
     setSinks({});
     setCheck(null);
   }, [projectId]);
@@ -678,56 +669,10 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
           <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13"><path d="m6 9 6 6 6-6" /></svg>
         </summary>
         <div className="inner">
-          {pendingLore.length > 0 && (
-            <div style={{ marginBottom: 12 }} data-od-id="lore-pending">
-              <p className="opt" style={{ margin: "0 0 6px" }}>
-                归档识别的世界要素建议——确认后入账（带章节来源）
-              </p>
-              {pendingLore.map((p, i) => (
-                <div
-                  key={`${p.origin}-${p.key}`}
-                  style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4, flexWrap: "wrap" }}
-                >
-                  <span className="badge warn">{p.set}</span>
-                  <span style={{ fontSize: 12.5 }}>
-                    <b>{p.key}</b>：{p.value}
-                    <span className="opt">（{p.origin}）</span>
-                  </span>
-                  <button
-                    className="text-btn"
-                    type="button"
-                    data-od-id={`lore-adopt-${i}`}
-                    onClick={async () => {
-                      // gap3 口径：先把手改落库（失败则中止，不吞用户输入），再入账建议
-                      if (!(await save())) return;
-                      try {
-                        await worldLoreApply(projectId, [
-                          { key: p.key, value: p.value, origin: p.origin, set: p.set },
-                        ]);
-                      } catch (e) {
-                        toast.error((e as Error).message || "入账失败，请重试");
-                        return;
-                      }
-                      const fresh = normalizeWorld(
-                        await api.get(`/novels/${projectId}/settings/world`),
-                      );
-                      setWorld(fresh);
-                      snapshotLoaded(fresh);
-                      dropLoreSuggestion(projectId, p);
-                      setPendingLore(getLoreSuggestions(projectId));
-                      toast.success("已入账世界设定");
-                    }}
-                  >
-                    采纳入账
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
           <div className="field" style={{ marginBottom: 12 }}>
             <label>
               历史与旧账
-              <span className="hint">「世界至今」活账本——创建期可空；写作期归档章节时 AI 会建议把世界级大事追加进来</span>
+              <span className="hint">「世界至今」活账本——创建期可空；写作期归档后 AI 在「操作」页签给出世界要素建议，逐条采纳</span>
             </label>
             <KvListEditor
               rows={world.history}

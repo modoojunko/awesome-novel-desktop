@@ -7,10 +7,13 @@ C端 备份导出与恢复导入：把用户的全部小说资产打包为与数
 
 ### Requirement: 双包格式契约 v1
 
-- 小说资产包 SHALL 以与数据库无关的开放格式（yaml/md）打包；format_version SHALL 升至 **3**（本 change：新增伏笔段、settings 树摘除 hooks 键）。
-- 导入端 SHALL 保留 N-1 读窗：format_version ≤3 的包 SHALL 全部可导入；format_version 大于当前版本的包 SHALL 被响亮拒绝。
-- 小说资产包的伏笔段 SHALL 位于 `hooks/hooks.yaml`，每条含：description、type（slug）、priority、status、introduced_chapter_ref / planned_chapter_ref / resolved_chapter_ref / mentioned_chapter_ref（章引用一律存 `vol-N-ch-M` 规范 ref，**不存运行态 chapter id**——导入时章 id 重新生成）、payoff_note、seq。`settings/hooks.yaml` SHALL 不再出现在包内。
-- settings 树（PATH_TO_KEY）SHALL 摘除 hooks 键（同时收掉 KV 端点白名单与导出遍历）；新建项目模板 SHALL 不再种 hooks.yaml。
+双包契约新增/明确以下字段归属（其余不变）：
+
+- `chapters/{ref}.yaml` 的出场引用行 SHALL 携带 `state_change`（可空）；导入 SHALL 原样落库。
+- `relations.yaml` 的关系记录 SHALL 携带 `origin_chapter`（章 ref 形式，可空）；导入 SHALL 按 ref→id 重绑为 `origin_chapter_id`，目标章不存在时 SHALL 留空并计入导入告警（不阻断）。
+- `chapter_reconcile`（归档收尾提案/进度）SHALL 属**运行态待办，不随包**——包边界原则：丢了不心疼的内容不进包；登记归属即界外。
+- 导出 SHALL 在包内 `manifest` 或相应段登记上述字段的存在（格式版本号不变，加键兼容）。
+- 既有约束 SHALL 原样保留：包为数据库无关 yaml/md、N-1 读窗、章引用一律 ref 形态、versions/archives 冻结原文不重排、token_log/模型历史/events 不随包。
 
 #### Scenario: v3 包含伏笔段且不含旧 KV 键
 
@@ -33,6 +36,19 @@ C端 备份导出与恢复导入：把用户的全部小说资产打包为与数
 - **WHEN** 导入端遇到包内 format_version
 - **THEN** 缺失（v0 旧包）按兼容模式全量回吃；≤3 全部可导入（1=v1 契约、2=角色 v2、3=本 change 伏笔段）；大于 3 拒绝并提示「请先升级应用」
 - **AND** 未来演进：加键=兼容不升版；删键/改布局=升版且导入端保留 N-1 读窗
+
+#### Scenario: 出场引用带状态变化跨机恢复
+- **WHEN** 导出含「第 3 章出场沉舟 state_change=从犹豫到决意」的包并在新机导入
+- **THEN** 该字段原样恢复，且「截至本章」视图可显示
+
+#### Scenario: 关系来源章跨机重绑
+- **WHEN** 导出关系记录 origin_chapter=vol-1-ch-5 并在新机导入
+- **THEN** 来源章重绑为对应章 id；若该章缺失则来源留空并出现导入告警
+
+#### Scenario: 收尾提案不随包
+- **WHEN** 作者有 3 条待确认提案未处理即导出全书
+- **THEN** 包内不含提案数据，新机导入后提案区为空（不视为数据丢失）
+
 ### Requirement: 备份导出（目录选择+后端直写）
 
 备份导出 SHALL 通过壳层原生目录选择框（js_api 桥）由用户指定保存目录，后端（本机进程）直接将双包写入该目录并提供进度查询；无壳环境回退 HTTP 下载。单书交付导出 SHALL 通过壳层保存框指定文件名。
