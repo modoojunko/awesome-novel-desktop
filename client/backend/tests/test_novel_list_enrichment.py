@@ -139,11 +139,21 @@ class TestListEnrichment:
             assert rc.status_code in (200, 201), rc.text
             refs.append(rc.json()["chapter_ref"])
 
-        # 两章各写一段正文（统一写入口派生 word_count）
-        texts = ["明月出天山。", "苍茫云海间，长风几万里。"]
-        for ref, text in zip(refs, texts):
+        # 两章各写一段正文（统一写入口派生 word_count）。
+        # workbench-frontier 排队门禁：第 1 章需归档后第 2 章才可写（草稿即端点）。
+        # 第 1 章正文需 ≥100 字（归档门禁），归档后第 2 章才可写
+        texts = [
+            "明月出天山，苍茫云海间，长风几万里。" * 8,
+            "苍茫云海间，长风几万里。",
+        ]
+        for i, (ref, text) in enumerate(zip(refs, texts)):
             rp = client.put(f"{base}/chapters/{ref}/prose", json={"prose": text})
             assert rp.status_code == 200, rp.text
+            if i == 0:
+                ra = client.post(
+                    f"{base}/chapters/{ref}/archive", json={"full_text": text}
+                )
+                assert ra.status_code in (200, 201), ra.text
 
         rows = client.get("/api/novels").json()
         row = next(r for r in rows if r["id"] == pid)

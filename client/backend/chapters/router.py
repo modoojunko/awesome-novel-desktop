@@ -158,6 +158,35 @@ async def update_chapter(
     return {"ok": True, "warnings": warnings}
 
 
+@router.get("/frontier")
+async def get_frontier(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """主线 frontier（storyline.html 口径）：第一个未归档章；全归档时为末端待写占位。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    from chapters.frontier import frontier_info
+
+    info = await frontier_info(db, project.id)
+    front = info["frontier"]
+    if front is None:
+        return {"frontier": None, "chapters": info["chapters"]}
+    return {
+        "frontier": {
+            "ref": front["ref"],
+            "chapter_no": front["chapter_no"],
+            "volume_no": front["volume_no"],
+            "state": front["state"],
+            "writable": front["writable"],
+            "pending": front.get("pending", False),
+        },
+        "chapters": info["chapters"],
+    }
+
+
 @router.put("/chapters/{chapter_ref}/prose")
 async def update_chapter_prose(
     project_id: str,
@@ -171,6 +200,13 @@ async def update_chapter_prose(
     if not project:
         raise HTTPException(404, "Project not found")
     _validate_ref(chapter_ref)
+    # 排队门禁（workbench-frontier）：拟态章须按主线顺序开写——frontier 之前的
+    # 章未完成时，后面的章不能落正文（已有正文的草稿不受限，可继续）。
+    from chapters.frontier import is_writable
+
+    writable, reason = await is_writable(db, project.id, chapter_ref)
+    if not writable:
+        raise HTTPException(409, reason)
     await save_prose(db, project, chapter_ref, body.get("prose", ""))
     return {"ok": True}
 

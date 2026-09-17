@@ -304,6 +304,12 @@ async def write_chapter(
     if not project:
         raise HTTPException(404, "Project not found")
     _validate_ref(chapter_ref)
+    # 排队门禁（workbench-frontier）：拟态章按主线顺序开写
+    from chapters.frontier import is_writable
+
+    writable, reason = await is_writable(db, project.id, chapter_ref)
+    if not writable:
+        raise HTTPException(409, reason)
 
     prompt_override = ""
     try:
@@ -365,6 +371,12 @@ async def continue_writing(
     if not project:
         raise HTTPException(404, "Project not found")
     _validate_ref(chapter_ref)
+    # 排队门禁（workbench-frontier）：拟态章按主线顺序开写
+    from chapters.frontier import is_writable
+
+    writable, reason = await is_writable(db, project.id, chapter_ref)
+    if not writable:
+        raise HTTPException(409, reason)
 
     cursor_position = body.get("cursor_position", -1)
     if cursor_position < 0:

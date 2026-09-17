@@ -68,6 +68,8 @@ interface ProsePaneProps {
   onAIStateChange: (update: (prev: ProseAIState) => ProseAIState) => void;
   /** 续写恢复信号（顶栏 CTA）：n 递增触发，切到本页签后把编辑器滚回 pct */
   resumeScroll?: { n: number; pct: number };
+  /** 排队门禁（workbench-frontier）：非主线端点且无正文的章——只读＋提示 */
+  locked?: { reason: string };
   /** 写作进度上抛（顶栏 bar-here 跟随显示上次写到的章） */
   onWriteProgress?: (session: { ref: string; scroll: number; ts: number }) => void;
 }
@@ -102,7 +104,7 @@ function collectParagraphs(div: HTMLDivElement): string[] {
 }
 
 const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
-  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress },
+  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress, locked },
   ref,
 ) {
   const editorRef = useRef<HTMLDivElement>(null);
@@ -110,6 +112,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   const store = useChapterData(projectId, chapterRef);
   const { prose, status, setProse } = store;
   const archived = status === "archived";
+  const notEditable = archived || !!locked;
   const [streaming, setStreaming] = useState(false);
 
   // 本地输入回路标记：store.prose 变化若来自本地输入则跳过重渲（保光标）
@@ -210,14 +213,14 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
 
   // ── 输入 → store（自动保存由 store 防抖；1.5s） ───────────────────────
   const handleInput = useCallback(() => {
-    if (archived || streamingRef.current) return;
+    if (archived || locked || streamingRef.current) return;
     const div = editorRef.current;
     if (!div) return;
     const next = collectParagraphs(div).join("\n");
     lastRenderedRef.current = next;
     setProse(next);
     saveProgress();
-  }, [archived, setProse, saveProgress]);
+  }, [archived, locked, setProse, saveProgress]);
 
   // ── 续写恢复：每个信号号只恢复一次（appliedResumeRef 守卫）。
   //    换章加载时内容未就绪 → rAF 轮询等 scrollHeight 长出来（上限 2s），
@@ -428,13 +431,24 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           </button>
         </div>
       )}
+      {locked && !hidden && (
+        <div className="readonly-banner" data-od-id="frontier-lock-banner">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 8v5M12 16h.01" />
+          </svg>
+          <span>
+            <b>{locked.reason}</b>。完成前面的章节并归档后，这里会自动开放。
+          </span>
+        </div>
+      )}
       <div className="editor-wrap" hidden={hidden} ref={wrapRef}>
         {/* contentEditable 用字符串 "false"：布尔 false 会被 React 整个丢掉属性，
             归档/流式态需要 contenteditable="false" 保住只读语义（a11y + e2e 可判定） */}
         <div
           ref={editorRef}
           className={`editor ${fs} ${lh}${streaming ? " generating" : ""}`}
-          contentEditable={!archived && !streaming ? true : "false"}
+          contentEditable={!notEditable && !streaming ? true : "false"}
           data-placeholder={words ? "" : "从这一章开始写……"}
           suppressContentEditableWarning
           onInput={handleInput}
