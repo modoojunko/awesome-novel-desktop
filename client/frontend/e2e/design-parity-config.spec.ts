@@ -8,7 +8,7 @@ import path from "path";
 import { test, expect } from "@playwright/test";
 import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
-import { pageSettled, stubUpdateNotice } from "./helpers";
+import { stubUpdateNotice } from "./helpers";
 
 const PROTO_FILE = path.resolve(process.cwd(), "../../docs/design-c/prototypes/model-config.html");
 const BASELINE_DIR = path.resolve(process.cwd(), "../../docs/design-c/baselines");
@@ -83,7 +83,9 @@ test.describe("design-parity 模型配置屏（model-config.html）", () => {
       const protoPage = await protoCtx.newPage();
       await protoPage.goto(`file://${PROTO_FILE}`);
       await protoPage.evaluate(() => document.fonts.ready);
-      await pageSettled(protoPage); // page-enter 等有限动画播完（替代固定 sleep）
+      // 帧位标定（e2e-speedup-infra 判保留）：parity 截图需两侧同一确定性帧，
+      // 固定等待即标定值，非脆弱等待——勿换 pageSettled（遮罩动画帧位会漂，实测 84% 差异）
+      await protoPage.waitForTimeout(700);
       const protoShot = await protoPage.screenshot();
       await protoCtx.close();
 
@@ -112,7 +114,8 @@ test.describe("design-parity 模型配置屏（model-config.html）", () => {
       await appPage.goto("/#/config");
       await appPage.waitForLoadState("networkidle");
       await appPage.evaluate(() => document.fonts.ready);
-      await pageSettled(appPage); // page-enter 0.4s 收敛（动画播完替代固定 sleep）
+      // 帧位标定（同上）：page-enter 0.4s 收敛后采样
+      await appPage.waitForTimeout(700);
       const appShot = await appPage.screenshot();
       await appCtx.close();
 

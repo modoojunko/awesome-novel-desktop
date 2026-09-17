@@ -13,9 +13,9 @@
 ## 3. C端 e2e sleep 换条件等待
 
 - [x] 3.1 防抖落库类（实为 7 处：settings-forms ×5——含复查新发现的 1110 认知区、creation-flow ×1、foreshadow waitDebounce 助手×7 调用点）：`waitForTimeout` → `pollBackend` 后端轮询（helpers 新增）；foreshadow 用「700ms 无新 hooks PATCH＝串行队列排空」判据（networkidle 在已静默页会瞬时返回，实测踩坑已注释）。
-- [x] 3.2 动画收敛类（6 处：design-parity 三件套、ui-spec-parity、landing-view）：`waitForTimeout(700–800)` → 终态元素 expect 自动重试或 `toPass()`。
+- [x] 3.2 动画收敛类（ui-spec-parity ×3、landing-view ×7）：改工作台/书卡标记等待；design-parity 三件套 ×9 经 A/B 实验改判「帧位标定」保留固定值——parity 截图需两侧同一确定性帧，pageSettled 令遮罩动画帧位漂移（实测 84% 差异）、还原后全绿，已加注释防回填。
 - [x] 3.3 杂项类（其余 spec 的 120–2500ms）：逐条判断——等网络的改条件等待，等动效的改终态断言；`free-writing-flow` 节流窗口 1500ms 保留并注释「被测时序，非脆弱等待」。
-- [x] 3.4 全量 grep 复核：`waitForTimeout` 仅剩「被测时序」注释标记的用例。
+- [x] 3.4 全量 grep 复核：`waitForTimeout` 仅剩三类保留——被测时序（free-writing 1500ms）、帧位标定（parity 三件套）、往返竞态守卫（story-arc race 1500ms 上界），均已注释。
 
 ## 4. 回归
 

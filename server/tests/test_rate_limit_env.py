@@ -38,9 +38,8 @@ def _mini_client(limit: int) -> TestClient:
 
     app = Starlette(routes=[Route("/api/web/login", login, methods=["POST", "GET"])])
     client = TestClient(RateLimitMiddleware(app))
-    client.app_state_mw = None  # noqa: 占位说明——LIMIT 经实例属性覆写（影子类属性）
-    # RateLimitMiddleware 的 LIMIT 在类体求值；此处按测试阈值覆写实例生效。
-    # 通过 MRO 找到被 wrap 的中间件实例：
+    # RateLimitMiddleware 的 LIMIT 在类体求值；此处按测试阈值覆写实例生效
+    #（从 TestClient 的包装栈里取出中间件实例）。
     mw = _unwrap_middleware(client)
     mw.LIMIT = limit
     return client
