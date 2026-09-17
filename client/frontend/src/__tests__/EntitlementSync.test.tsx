@@ -16,6 +16,9 @@ beforeEach(() => {
   apiPostMock.mockReset();
   apiGetMock.mockReset();
   order.length = 0;
+  // 恒挂载口径（c-session-flip-stability）：Provider 按 isLoggedIn 分流取数，
+  // 本套件均为登录态语义 → 播种 token
+  localStorage.setItem("auth_token", "test-token");
   apiPostMock.mockImplementation(async () => {
     order.push("post");
     return { tier: "pro", is_member: true, expired: false };

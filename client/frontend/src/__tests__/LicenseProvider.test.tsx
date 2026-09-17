@@ -10,6 +10,9 @@ beforeEach(() => {
   apiPostMock.mockReset();
   apiGetMock.mockReset();
   apiGetMock.mockResolvedValue({ code: 1 }); // 两跳刷新的 check-auth 调用默认不命中
+  // 恒挂载口径（c-session-flip-stability）：Provider 按 isLoggedIn 分流取数，
+  // 既有用例均为登录态语义 → 播种 token
+  localStorage.setItem("auth_token", "test-token");
   vi.resetModules();
   vi.doMock("@/lib/api", () => ({ api: { post: apiPostMock, get: apiGetMock } }));
 });

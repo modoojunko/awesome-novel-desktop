@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
-import { cleanupSessionNovels } from "./helpers";
+import { cleanupSessionNovels, pollBackend, stableClick } from "./helpers";
 
 // =========================================================================
 // 核心创作流程 E2E — 创建小说（书名即创建）→ 设定完成判定（PRD 3.4）→ 大纲 → CRUD
@@ -124,7 +124,7 @@ async function setupSession(
 /** 通过真实 UI 创建小说（书名即创建），返回 project id。 */
 async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
-  await page.getByRole("button", { name: "新建作品" }).first().click();
+  await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
   await page.locator("input#bkTitle").fill(name);
   await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
@@ -209,7 +209,7 @@ test("创建小说：仅书名即可创建并进入小说页", async ({ page }) 
       timeout: 10000,
     });
 
-    await page.getByRole("button", { name: "新建作品" }).first().click();
+    await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
     // AC-1.4：空书名创建按钮不可用
     await expect(page.getByRole("button", { name: "创建，去写简介" })).toBeDisabled();
 
@@ -425,7 +425,11 @@ test("设定 8 项全确认（settings-status 全绿＋完成卡）", async ({ p
     expect(charPost.status()).toBe(200);
     await openSetting(page, "角色");
     await page.getByRole("textbox", { name: "一句话人设" }).fill("边境城邦的更夫，认得每一种脚步声");
-    await page.waitForTimeout(900); // 防抖 PATCH 落库
+    await pollBackend(
+      () => apiGetJSON(request, token, `/novels/${pid}/characters`),
+      (l: { data?: { items?: unknown[] } }) =>
+        JSON.stringify(l.data?.items ?? []).includes("边境城邦的更夫"),
+    ); // 防抖 PATCH 落库（条件轮询替代固定 sleep）
     await confirmPanel(page);
 
     // 确认过的 6 键全 true（readiness 7 项键；story-arc 此时未确认不作断言，

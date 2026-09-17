@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
-import { cleanupSessionNovels } from "./helpers";
+import { cleanupSessionNovels, stableClick } from "./helpers";
 
 // ---------------------------------------------------------------------------
 // 界面规格 parity：尺寸/字号断言（tasks 9.1.0 / 9.1.0b / 9.4.13）
@@ -81,7 +81,7 @@ async function setupSession(page: Page) {
 
 async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
-  await page.getByRole("button", { name: "新建作品" }).first().click();
+  await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
   await page.locator("input#bkTitle").fill(name);
   await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
@@ -326,7 +326,7 @@ test("设定面板填满中栏且左右留白对称（1440/1920）", async ({ pa
     for (const width of [1440, 1920]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${ORIGIN}/#/novel/${pid}`);
-      await page.waitForTimeout(1500);
+      await page.locator(".mtab").first().waitFor({ state: "visible", timeout: 15000 }); // 工作台就绪（替代固定 sleep）
       await page.getByRole("button", { name: /^设定/ }).click();
       await expect(page.locator(".settings-v main h2")).toBeVisible({ timeout: 15000 });
 
@@ -369,7 +369,7 @@ test("设定页：工具项徽标 / 辅助信息邻接 / 脚注贴底", async ({
       await fontsReady(page);
     await page.setViewportSize({ width: 1660, height: 980 });
     await page.goto(`${ORIGIN}/#/novel/${pid}`);
-    await page.waitForTimeout(1500);
+    await page.locator(".mtab").first().waitFor({ state: "visible", timeout: 15000 }); // 工作台就绪（替代固定 sleep）
     await page.getByRole("button", { name: /^设定/ }).click();
     await expect(page.locator(".settings-v main h2")).toBeVisible({ timeout: 15000 });
 
@@ -440,7 +440,7 @@ test("简介体检：六段在宽屏两列排布（不再单列稀疏）", async
 
     await page.setViewportSize({ width: 1660, height: 980 });
     await page.goto(`${ORIGIN}/#/novel/${pid}`);
-    await page.waitForTimeout(1500);
+    await page.locator(".mtab").first().waitFor({ state: "visible", timeout: 15000 }); // 工作台就绪（替代固定 sleep）
     await page.getByRole("button", { name: /^设定/ }).click();
     await page.getByPlaceholder(/用几句话/).fill("外门杂徒林拾，在宗门扫了十年落叶。");
     await page.locator('[data-aiact="check"]').click();

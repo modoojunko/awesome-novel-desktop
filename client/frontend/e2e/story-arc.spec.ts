@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
-import { cleanupSessionNovels } from "./helpers";
+import { cleanupSessionNovels, stableClick } from "./helpers";
 
 // =========================================================================
 // 主线设定 E2E（storyline-settings-v2：全景 fullstory + 结局三问）
@@ -78,7 +78,7 @@ async function setupSession(page: Page, tier = "trial") {
 
 async function createNovel(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
-  await page.getByRole("button", { name: "新建作品" }).first().click();
+  await stableClick(page.getByRole("button", { name: "新建作品" }).first()); // 稳定点击保险（风暴由守卫用例钉死）
   await page.locator("input#bkTitle").fill(name);
   await page.getByRole("button", { name: "创建，去写简介" }).click();
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
@@ -251,8 +251,9 @@ test.describe("主线 AI（会员，浏览器侧打桩）", () => {
       });
       await openArcPanel(page);
       // 第一次点击 → 500（错误 toast 由 vitest 覆盖文案；此处验行为未死锁）
+      const firstCall = page.waitForResponse((r) => r.url().includes("/ai/arc/tone"));
       await page.locator('[data-od-id="arc-tone-ai-fill"]').click();
-      await page.waitForTimeout(500);
+      await firstCall; // 500 往返真落地（条件等待替代固定 sleep）
       // 失败后按钮仍可点（未卡在途态）→ 第二次点击成功
       await page.locator('[data-od-id="arc-tone-ai-fill"]').click();
       await expect(page.locator('[data-od-id="arc-ai-sink-tone"]')).toBeVisible({ timeout: 5000 });
@@ -308,8 +309,13 @@ test.describe("主线 AI（会员，浏览器侧打桩）", () => {
       await openArcPanel(page);
       const btn = page.locator('[data-od-id="arc-tone-ai-fill"]');
       for (let i = 0; i < 5; i++) {
+        const resp = page.waitForResponse((r) => r.url().includes("/ai/arc/tone"));
         await btn.click();
-        await page.waitForTimeout(120);
+        await resp; // 每次建议往返真落地（条件等待替代固定 sleep）
+        if (i >= 1) {
+          // 第 1 次建议不渲染历史条（AiSink 历史条 total>1 才显示）；从第 2 次起逐枚等
+          await expect(page.locator('[data-od-id="arc-ai-sink-tone"] .ah-chip')).toHaveCount(i + 1);
+        }
       }
       // 第 6 次触发重试：仍 5 枚 chip（上限提示）
       await page.locator('[data-od-id="arc-ai-sink-tone"]').getByRole("button", { name: "重试" }).click();
@@ -365,7 +371,11 @@ test.describe("免费版", () => {
         page.getByText(/会员功能|开通|升级 PRO 后解锁/).first(),
       ).toBeVisible({ timeout: 8000 });
       await page.locator('[data-od-id="arc-tone-ai-fill"]').click();
-      await page.waitForTimeout(600);
+      // 预拦=0 请求；穿透=恰好 1 发 403：等往返或确认无请求（替代固定 sleep）
+      await Promise.race([
+        page.waitForResponse((r) => r.url().includes("/ai/arc/tone")).catch(() => null),
+        page.waitForTimeout(1500),
+      ]);
       expect(aiCalls).toBeLessThanOrEqual(1); // 预拦则 0；穿透则恰好 1（403 后不再重试）
       await expect(page.locator('[data-od-id="arc-ending-tone"]')).toHaveValue(""); // 不写回
       // 403 穿透时全局升级弹窗（MemberBlockPrompt 模态，事件异步挂载）会挡住面板——

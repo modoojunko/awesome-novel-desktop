@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 import uuid
 from collections import defaultdict
@@ -16,13 +17,29 @@ from app.infrastructure.logging import RequestIDFilter
 logger = logging.getLogger("api.access")
 
 
+def _login_rate_limit() -> int:
+    """登录限流阈值：RATE_LIMIT_LOGIN_PER_MIN，缺省/空/非正整数一律回落 30。
+
+    生产部署链路不注入该变量，行为与历史版本完全一致；仅本地测试栈
+    （docker-compose）注入高值吸收 e2e 登录突发（e2e-speedup-infra）。
+    """
+    raw = os.environ.get("RATE_LIMIT_LOGIN_PER_MIN", "").strip()
+    if not raw:
+        return 30
+    try:
+        value = int(raw)
+    except ValueError:
+        return 30
+    return value if value > 0 else 30
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """基于 IP 的速率限制。"""
 
     SENSITIVE_PATHS = {"/api/authorize", "/api/web/login"}
     # 5→30：吸收 E2E 套件的登录突发（/api/web/login）；C端 轮询走 GET
     # /api/check-auth 不受限，30/min/IP 仍可防爆破，避免误伤多管理员同网段
-    LIMIT = 30
+    LIMIT = _login_rate_limit()
     WINDOW = 60  # 秒
 
     def __init__(self, app):

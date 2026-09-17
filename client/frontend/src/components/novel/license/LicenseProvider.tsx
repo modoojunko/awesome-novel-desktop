@@ -1,6 +1,7 @@
 import { createContext, useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { api } from "@/lib/api";
+import { isLoggedIn } from "@/lib/auth";
 
 /** 权益快照（entitlement 契约 v1，S端 check-auth 下发 / C端 verify 透传） */
 export interface EntitlementSnapshot {
@@ -58,6 +59,10 @@ const TierContext = createContext<TierState | null>(null);
 
 export function LicenseProvider({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+  // 恒挂载口径（c-session-flip-stability）：登录态翻转只切换上下文值（未登录
+  // 注 null，消费方 useTier 已有 SAFE_FREE 兜底），壳层子树身份稳定不重挂。
+  // 未登录时不发 verify/check-auth，与旧「壳层条件不挂 Provider」语义一致。
+  const loggedIn = isLoggedIn();
   const [tier, setTier] = useState(cachedVerify?.tier ?? "none");
   const [isMember, setIsMember] = useState(cachedVerify?.is_member ?? false);
   const [expired, setExpired] = useState(cachedVerify?.expired ?? false);
@@ -110,8 +115,9 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!loggedIn) return;
     void load(true);
-  }, [load]);
+  }, [load, loggedIn]);
 
   const refetch = useCallback(() => {
     cachedVerify = null;
@@ -120,6 +126,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
 
   // 两跳刷新（路由切换）：check-auth 写快照 → refetch 刷上下文；失败置失联标志
   useEffect(() => {
+    if (!loggedIn) return;
     const path = location.pathname;
     if (!isEntitlementRoute(path) || path === lastRefreshPath) return;
     const now = Date.now();
@@ -143,6 +150,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
 
   // window focus 尽力补一刀（pywebview 无保证 focus 桥，不作依赖）
   useEffect(() => {
+    if (!loggedIn) return;
     const onFocus = () => {
       const now = Date.now();
       if (now - lastRefreshAt < REFRESH_THROTTLE_MS) return;
@@ -159,7 +167,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [refetch]);
+  }, [refetch, loggedIn]);
 
   // 免费待遇 = 非有效会员（免费层或过期降级）；isPro 同步为有效会员语义
   const value: TierState = {
@@ -177,7 +185,12 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
     error,
     refetch,
   };
-  return <TierContext.Provider value={value}>{children}</TierContext.Provider>;
+  // 未登录注入 null：上下文消费语义与旧「未登录不挂 Provider」完全一致
+  return (
+    <TierContext.Provider value={loggedIn ? value : null}>
+      {children}
+    </TierContext.Provider>
+  );
 }
 
 export { TierContext };

@@ -62,9 +62,20 @@ export async function request(
   });
 
   if (res.status === 401) {
-    localStorage.removeItem("auth_token");
-    window.location.href = "/#/login";
-    throw new Error("Unauthorized");
+    // 踢出口径（c-session-flip-stability）：仅用户动作请求的 401 清凭据+回登录页。
+    // 探测类（quiet：启动探测/后台刷新/静默预取）401 零全局副作用——瞬时拒绝
+    // 不再把用户正在编辑的页面踢飞；显式失效信号（useAuthHeal code 1 +
+    // session_invalid）不经过此分支，不受本豁免影响。
+    if (!options?.quiet) {
+      localStorage.removeItem("auth_token");
+      // 记录踢出时刻：LoginPage 自动登录以此做反弹熔断（c-session-flip-stability
+      // 「失效处理不循环」）——否则「自动登录写回凭据 ↔ 业务 401 踢出」互踢成环
+      sessionStorage.setItem("last_auth_kick_at", String(Date.now()));
+      window.location.href = "/#/login";
+    }
+    const e = new Error("Unauthorized") as Error & { status?: number };
+    e.status = 401;
+    throw e;
   }
 
   if (res.status === 503) {
@@ -217,6 +228,7 @@ export async function importParse(
     headers,
     signal,
   });
+  // 401 踢出不豁免：导入是用户动作请求（无 quiet 形态），口径见 request()
   if (res.status === 401) {
     localStorage.removeItem("auth_token");
     window.location.href = "/#/login";

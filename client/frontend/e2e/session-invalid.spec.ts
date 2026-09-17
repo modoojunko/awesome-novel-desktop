@@ -64,12 +64,16 @@ test.describe("会话失效处理", () => {
     );
 
     await page.goto("/#/novels");
-    // heal 写回新凭据 → 稳定停留工作台；无登出循环、无 request 风暴
-    await page.waitForTimeout(2500);
+    // heal 写回新凭据 → 稳定停留工作台（toPass 窗口=原观察窗：死循环在此超时红）
+    await expect(async () => {
+      expect(page.url()).toContain("/#/novels");
+      expect(await page.evaluate(() => localStorage.getItem("auth_token"))).toBe("fresh-token");
+    }).toPass({ timeout: 2500 });
     await page.goto("/#/novels");
-    await page.waitForTimeout(1000);
-    expect(page.url()).toContain("/#/novels");
-    expect(await page.evaluate(() => localStorage.getItem("auth_token"))).toBe("fresh-token");
+    await expect(async () => {
+      expect(page.url()).toContain("/#/novels");
+      expect(await page.evaluate(() => localStorage.getItem("auth_token"))).toBe("fresh-token");
+    }).toPass({ timeout: 1000 });
     // 两次 boot 各 1-3 次 check-auth 属正常；死循环会是几十次
     expect(checkAuthCalls).toBeLessThanOrEqual(6);
   });
