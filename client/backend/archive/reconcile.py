@@ -81,26 +81,38 @@ async def _upsert_pending(session, chapter_id: str, novel_id: str, kind: str, pa
     return row.id
 
 
-def start_reconcile_job(novel_id: str, root_path: str, chapter_ref: str, chapter_id: str) -> dict | None:
-    """单飞：同章收尾已在跑返回 None（调用方忽略即可，进度区以行状态为准）。"""
+def start_reconcile_job(
+    novel_id: str,
+    root_path: str,
+    chapter_ref: str,
+    chapter_id: str,
+    kinds: list[str] | None = None,
+) -> dict | None:
+    """单飞：同章已跑收尾返回 None（调用方忽略即可，进度区以行状态为准）。
+
+    kinds：按类按需触发（工作台右栏 AI 辅助的三处入口）；None＝全量五类。
+    """
     global _job
     key = f"{novel_id}:{chapter_ref}"
     with _job_lock:
         if _job and _job.get("state") == "running":
             return None
-        _job = {"state": "running", "key": key, "started": _now_iso()}
+        _job = {"state": "running", "key": key, "started": _now_iso(), "kinds": kinds}
     t = threading.Thread(
         target=_run_thread,
-        args=(novel_id, root_path, chapter_ref, chapter_id),
+        args=(novel_id, root_path, chapter_ref, chapter_id, kinds),
         daemon=True,
     )
     t.start()
     return {"state": "running", "key": key}
 
 
-def _run_thread(novel_id: str, root_path: str, chapter_ref: str, chapter_id: str) -> None:
+def _run_thread(
+    novel_id: str, root_path: str, chapter_ref: str, chapter_id: str,
+    kinds: list[str] | None = None,
+) -> None:
     try:
-        asyncio.run(_run_async(novel_id, root_path, chapter_ref, chapter_id))
+        asyncio.run(_run_async(novel_id, root_path, chapter_ref, chapter_id, kinds))
     except Exception as e:  # noqa: BLE001,S110 — 收尾失败不影响归档；留痕供排查
         print(f"[reconcile] chapter {chapter_ref} 收尾失败：{e}")
     finally:
@@ -109,7 +121,10 @@ def _run_thread(novel_id: str, root_path: str, chapter_ref: str, chapter_id: str
             _job = None
 
 
-async def _run_async(novel_id: str, root_path: str, chapter_ref: str, chapter_id: str) -> None:
+async def _run_async(
+    novel_id: str, root_path: str, chapter_ref: str, chapter_id: str,
+    kinds: list[str] | None = None,
+) -> None:
     from ai_client import get_ai_client_for_novel
     from chapters.store import load_chapter
 
@@ -135,6 +150,8 @@ async def _run_async(novel_id: str, root_path: str, chapter_ref: str, chapter_id
     cast = [str(n) for n in outline_chars if str(n).strip()]
 
     for kind, prompt in _collect_prompts(chapter_ref, chapter, full_text, cast):
+        if kinds is not None and kind not in kinds:
+            continue
         usage: dict = {}
         try:
             text = await client.chat(

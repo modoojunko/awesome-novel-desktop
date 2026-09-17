@@ -6,7 +6,7 @@ import Modal from "@/components/design/Modal";
 interface ContrastPreviewModalProps {
   open: boolean;
   onClose: () => void;
-  mode: "polish" | "expand";
+  mode: "polish" | "expand" | "compress";
   originalText: string;
   modifiedText: string | null;
   loading: boolean;
@@ -52,7 +52,8 @@ export default function ContrastPreviewModal({
   onReject,
   onRetry,
 }: ContrastPreviewModalProps) {
-  const actionLabel = mode === "polish" ? "润色后" : "扩写后";
+  const actionLabel =
+    mode === "polish" ? "润色后" : mode === "expand" ? "扩写后" : "压缩后";
   const canAccept = !loading && !error && modifiedText !== null;
 
   // Enter 接受（Esc 由 Modal 统一处理）；焦点在按钮上时让按钮自身的 Enter 生效
@@ -72,7 +73,7 @@ export default function ContrastPreviewModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={mode === "polish" ? "段落润色" : "场景扩写"}
+      title={mode === "polish" ? "段落润色" : mode === "expand" ? "场景扩写" : "压缩啰嗦段落"}
       wbStyle
       width={680}
       footer={

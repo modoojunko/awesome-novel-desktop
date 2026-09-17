@@ -260,6 +260,41 @@ async def polish_text(
     )
 
 
+async def compress_text(
+    novel_id: str,
+    root_path: str,
+    chapter_ref: str,
+    selected_text: str,
+    surrounding_context: str,
+    style_settings: dict | None = None,
+    model: str | None = None,
+    usage: dict | None = None,
+) -> str:
+    """Compress selected text (non-streaming). Returns compressed text string."""
+    ctx = await build_auxiliary_context(
+        root_path, chapter_ref, style_settings, novel_id=novel_id
+    )
+    ctx["selected_text"] = selected_text
+    ctx["surrounding_context"] = surrounding_context
+
+    prompt_template = load_prompt("compress_text")
+    prompt = prompt_template.format(**ctx)
+
+    resolved_model = model or ctx.pop("_writing_model", "haiku")
+    role = ctx.pop("_role", "一位小说家")
+    if usage is not None:
+        usage.pop("model", None)
+
+    client = await get_ai_client_for_novel(novel_id)
+    return await client.chat(
+        model=resolved_model,
+        system=f"你是一位文字编辑专家，请遵循以下角色定位：{role}",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=2048,
+        usage=usage,
+    )
+
+
 async def expand_text(
     novel_id: str,
     root_path: str,
