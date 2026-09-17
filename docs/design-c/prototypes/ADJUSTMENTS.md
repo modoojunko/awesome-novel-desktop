@@ -646,3 +646,24 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     「草稿」warn 徽标会把警示日常化）」，bar-here 的「草稿」是恒显常态属性，故不上
     警示色；§5 令牌表「草稿 → warn」的映射适用于瞬时/非恒显状态位（如章节行
     dot-warn），两者不冲突。storyline 原型 `.tag-live` 同为中性款，收编一致。
+
+27. **storyline.html 二三/四期行为整批登记（workbench-storyline-2-4，2026-09-17）**
+    原型 storyline.html 为这批行为的唯一事实源（drafts 目录，未进原型基线扫描）；`book.html`
+    基线不随批改动（新页签与弹窗属 storyline 范围）。逐项：
+    ① **主线端点与排队门禁**：`GET /frontier`（首个未归档章；全归档→待写占位）；正文 PUT 与
+    AI 写章对非 frontier/支线章返回 409，正文页就地只读横幅（复用既有只读家族文案）；bar-here
+    主线口径由「最新归档章」切换为 frontier（上条第 26 项的回落链随之更新：会话→frontier→首章）。
+    ② **回退与旧稿支线**：「操作」页签 `.revert-card`（data-od-id `revert-card`/`revert-btn`，
+    不可逆二次确认）；被回退章 `ghost_of` 标记转支线只读（`.ghost-group`），派生数据按章序清除。
+    ③ **角色关系页签**：storyline 同款确定性定距圆布图（`.relations-graph`，边标签「关系类型 ·
+    立场」）＋文本清单兜底。
+    ④ **文风本章影子**：「文风」页签（`.style-pane`/`.style-shadow`；PRO；免费占位）——全书
+    基线只读＋本章覆盖行（采纳/还原）＋AI 建议；shadow 数据落 `chapters.style_shadow`（拍板③）。
+    ⑤ **剧情推演弹窗**（`.sim-*` 家族）：storyline sim modal 逐段复刻——按回合逐步展开、未定
+    走法不能推进、「收进章纲」写「预期策略」（走法行=任一回合一拗→中途先接一次意外）；产物不
+    落库。AI 失败回落原型同款确定性推演（弹窗永远可用）。
+    ⑥ **提示词六来源**：「提示词」页签顶部 `.src-chips`＋`.psrc-list` 只读展示六处来源
+    （chars/preview/未填标注），与写作组装链同源。
+    **门控**：①-③ 免费可用；④ 写影子免费可用（门禁属待拍板项，锁现状）、suggest 与 ⑤ AI 归 PRO。
+    **测试覆盖**：后端 pytest（frontier/ghost/style_shadow/plot_sim/prompt_sources）＋前端 vitest
+    ＋e2e（plot-sim.spec.ts 等）；无原型像素基线（storyline 未收编严格扫描）。
