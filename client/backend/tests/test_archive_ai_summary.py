@@ -178,10 +178,12 @@ class TestArchiveAiSummary:
             f"/api/novels/{pid}/chapters/{ref}/archive", json={"full_text": LONG_TEXT}
         )
         assert r.status_code == 200, r.text
-        assert calls == ["chat", "chat"], (
-            "member + default calls AI twice：归档摘要 + 世界 lore 建议（world-setting-v2 D11 解耦）"
+        assert calls == ["chat"], (
+            "member + default：归档同步段只调摘一次 AI；世界要素归后台收尾提案（archive-reconcile）"
         )
         assert r.json()["summary"] == AI_SUMMARY
+        # 收尾任务随归档启动（提案落 chapter_reconcile，不随响应即焚）
+        assert r.json().get("reconcile_started") is True
 
     def test_member_opt_out_skips_ai(self, client, monkeypatch):
         # 会员 + ai_summary=False（设置里关掉）→ 不调 AI，降级为正文前 200 字
@@ -200,10 +202,11 @@ class TestArchiveAiSummary:
             json={"full_text": LONG_TEXT, "ai_summary": False},
         )
         assert r.status_code == 200, r.text
-        assert calls == ["chat"], (
-            "member + ai_summary=False 仍跑 lore 建议（D11：两开关解耦），仅跳过摘要"
+        assert calls == [], (
+            "member + ai_summary=False：同步段零 AI（摘要跳过）；收尾提案仍在后台跑（解耦）"
         )
         assert r.json()["summary"] == LONG_TEXT[:200]
+        assert r.json().get("reconcile_started") is True
 
     def test_ai_calls_record_usage(self, client, monkeypatch):
         # ai-client capability 需求 2：归档链两处 AI 调用成功后各落一行账
@@ -235,7 +238,6 @@ class TestArchiveAiSummary:
 
         assert _run_async(_ops()) == [
             ("archive_summary", 30, 12),
-            ("archive_lore", 30, 12),
         ]
 
     def test_ai_failure_records_fail_rows(self, client, monkeypatch):
@@ -272,7 +274,6 @@ class TestArchiveAiSummary:
 
         assert _run_async(_ops()) == [
             ("archive_summary_fail", 0, 0),
-            ("archive_lore_fail", 0, 0),
         ]
 
     def test_free_default_skips_ai(self, client, monkeypatch):

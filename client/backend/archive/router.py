@@ -70,11 +70,11 @@ async def archive(
     from auth_local.deps import ai_access_granted
 
     ai_summary = body.get("ai_summary", True) and ai_access_granted()
-    # lore-keeping 与摘要解耦（D11）：只看会员门控，不看 ai_summary 偏好
-    lore = ai_access_granted()
+    # 收尾提案制与摘要解耦（D11）：只看会员门控，不看 ai_summary 偏好
+    reconcile_allowed = ai_access_granted()
 
     result = await archive_chapter(
-        project.id, project.root_path, chapter_ref, full_text, ai_summary, lore
+        project.id, project.root_path, chapter_ref, full_text, ai_summary
     )
     # force：归档是内容驱动操作（≥100 字已校验），phase 仅记账，不再要求 write→archive
     # 严格流转——直接写第一章的手工路径 phase 停在 outline，严格校验会 500。
@@ -98,7 +98,7 @@ async def archive(
     # archive-reconcile：AI 收尾放后台单飞线程（PRO 且模型就绪才产生提案）；
     # 归档即刻生效，收尾失败/未跑不影响本次归档结果。
     reconcile_started = None
-    if chapter_row_id and lore:
+    if chapter_row_id and reconcile_allowed:
         from archive.reconcile import start_reconcile_job
 
         job = start_reconcile_job(

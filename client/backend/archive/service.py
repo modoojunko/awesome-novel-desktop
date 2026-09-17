@@ -1,8 +1,6 @@
-from datetime import UTC, datetime
 
 from ai_client import get_ai_client_for_novel
 from filesystem.storage import get_storage
-from settings.world_model import canonical_chapter_ref
 from workflow.engine import load_chapter
 
 
@@ -47,7 +45,6 @@ async def archive_chapter(
     chapter_ref: str,
     full_text: str,
     ai_summary: bool = True,
-    lore: bool = True,
 ) -> dict:
     _validate_ref(chapter_ref)
     chapter = await load_chapter(root_path, chapter_ref)
@@ -123,64 +120,12 @@ async def archive_chapter(
             await session.commit()
 
     await update_thread_state(root_path, chapter, summary)
-    await update_character_states(root_path, chapter, full_text)
 
-    # lore-keeping（world-setting-v2 D1）：识别本章新出现/变化的世界要素，
-    # 以建议形式随归档响应返回（stateless 不落库）；采纳走
-    # POST /settings/world/lore-apply（(key, origin) 幂等）。与 ai_summary
-    # 偏好解耦：各自独立开关；AI 不可用一律静默降级为空建议。
-    lore_suggestions: list[dict] = []
-    if lore:
-        import json as _json
-
-        from filesystem.storage import get_storage as _storage
-        from prompts import load as _load_prompt
-        from settings.world_model import world_summary_text
-
-        lore_usage: dict = {}
-        try:
-            client = await get_ai_client_for_novel(novel_id)
-        except Exception:  # noqa: BLE001 — 模型未就绪：调用未发生，不记账
-            client = None
-        if client is not None:
-            try:
-                world_raw = await _storage().read_yaml(
-                    root_path, "settings/world-setting.yaml"
-                ) or {}
-                lore_prompt = _load_prompt("world_lore_suggest").format(
-                    chapter=full_text[:3000],
-                    world=world_summary_text(world_raw, 1200) or "（世界设定还空着）",
-                )
-                lore_text = await client.chat(
-                    model="haiku",
-                    system="你是小说世界设定管理员。只输出 JSON，不要任何其他文字。",
-                    messages=[{"role": "user", "content": lore_prompt}],
-                    max_tokens=800,
-                    usage=lore_usage,
-                )
-            except Exception:  # noqa: BLE001 — lore 建议可选：调用失败降级为空并落 _fail
-                await _record_ai_usage(
-                    novel_id, "archive_lore_fail", lore_usage, force=True
-                )
-            else:
-                # 记账先于解析：调用已完成（钱已花），JSON 不合法也要留痕
-                await _record_ai_usage(novel_id, "archive_lore", lore_usage)
-                try:
-                    if "```" in lore_text:
-                        lore_text = lore_text.split("```")[1]
-                        lore_text = lore_text.removeprefix("json")
-                    lore_data = _json.loads(lore_text.strip())
-                    # 归一化与 ai_router.lore-suggest 同源（settings.world_model.parse_lore_suggestions）
-                    from settings.world_model import parse_lore_suggestions
-
-                    for item in parse_lore_suggestions(lore_data):
-                        lore_suggestions.append({**item, "origin": canonical_chapter_ref(chapter_ref)})
-                except Exception:  # noqa: BLE001, S110 — 解析失败静默降级（账已记）
-                    lore_suggestions = []
+    # 世界 lore 建议不再随响应即焚：由后台收尾线程落 chapter_reconcile 待确认行
+    # （archive-reconcile；采纳经 /reconcile/{id}/accept 走 lore-apply 幂等合并）。
     return {
         "archive_path": archive_path,
         "summary": summary,
-        "lore_suggestions": lore_suggestions,
     }
 
 
@@ -205,26 +150,3 @@ async def update_thread_state(root_path: str, chapter: dict, summary: str):
     await get_storage().write_yaml(root_path, "threads.yaml", threads)
 
 
-async def update_character_states(root_path: str, chapter: dict, full_text: str):
-    seg_chars = (
-        chapter.get("outline", {}).get("segments", [{}])[0].get("characters", [])
-    )
-    for name in seg_chars:
-        char = await get_storage().read_yaml(
-            root_path, f"settings/character-setting/{name}.yaml"
-        )
-        if not char:
-            continue
-        if "state_history" not in char:
-            char["state_history"] = []
-        state_change = chapter.get("memo", {}).get("character_state_change", "")
-        char["state_history"].append(
-            {
-                "chapter": f"vol-{chapter.get('volume')}-ch-{chapter.get('chapter')}",
-                "change": state_change,
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
-        )
-        await get_storage().write_yaml(
-            root_path, f"settings/character-setting/{name}.yaml", char
-        )

@@ -24,6 +24,7 @@
 - `write-archive-meta-sync`: 归档联动的处置方式分化——伏笔 mentioned 留痕保持自动即刻；角色状态变化改落出场引用行；AI 收尾（设定变化/关系/伏笔登记/lore 建议）改提案制入 `chapter_reconcile`，不再随响应即焚。
 - `backup-restore`: 双包契约补登——`chapter_characters.state_change`、`character_relations.origin_chapter_id` 随对象导出/导入（含 ref↔id 重绑）；`chapter_reconcile` 属运行态待办**不随包**（登记归属即界外）。
 - `workbench`: 工作台中栏新增「设定」「操作」两页签（设定＝本章变化编辑/截至本章投影；操作＝归档收尾进度与提案确认），归档入口语义不变。
+- `world-settings`: 「lore-keeping 随归档生长」口径重写——归档产出的世界要素建议改落收尾提案（kind=lore），不再随响应即焚、不进面板暂存区；采纳统一在「操作」页签逐条确认（lore-apply 幂等不变）。
 
 ## Design Impact
 

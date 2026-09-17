@@ -73,9 +73,11 @@ async def _upsert_pending(session, chapter_id: str, novel_id: str, kind: str, pa
         kind=kind,
         status="pending",
         payload=json.dumps(payload, ensure_ascii=False),
-        created_at=_now_iso(),
+        # created_at 走列 server_default（DateTime 列；此前的 ISO 字符串会在
+        # SQLite 直接 TypeError——收尾任务一落行即炸，本测试首跑撕出）
     )
     session.add(row)
+    await session.flush()  # id 为 insert 期默认值：不 flush 返回 None
     return row.id
 
 
@@ -161,9 +163,11 @@ def _collect_prompts(chapter_ref: str, chapter: dict, full_text: str, cast: list
     body = full_text[:3000]
     cast_s = "、".join(cast) if cast else "（本章无出场角色）"
     yield "set_changes", (
-        f"从第 {chapter_ref} 章正文提取新的世界观/设定事实（新增或与之前不同的设定），"
-        f"每条=「条目名：一句话内容」。只列事实，不评论。JSON 数组输出，"
-        f'形如 {{"items": ["信标：三百年前留下的导航信标"]}}。\n\n正文：\n{body}'
+        f"从第 {chapter_ref} 章正文提取新的世界观/设定事实（新增或与之前不同的设定）。"
+        f"只列事实，不评论。JSON 数组输出，每条含 key/value/set，"
+        f"set 取 history（大事年表）/factions（势力）/extra（更多细节），拿不准用 extra；"
+        f'形如 {{"items": [{{"key": "信标", "value": "三百年前留下的导航信标", "set": "extra"}}]}}。'
+        f"\n\n正文：\n{body}"
     )
     yield "relations", (
         f"从第 {chapter_ref} 章正文找出角色关系的变化或新关系（出场：{cast_s}）。"
@@ -179,7 +183,8 @@ def _collect_prompts(chapter_ref: str, chapter: dict, full_text: str, cast: list
     )
     yield "lore", (
         f"从第 {chapter_ref} 章正文识别新出现或变化的世界要素（地点/组织/历史/规则）。"
-        f'JSON 数组输出，形如 {{"items": [{{"key": "静默带", "value": "一句话"}}]}}。'
+        f"JSON 数组输出，每条含 key/value/set，set 取 history/factions/extra，拿不准用 extra；"
+        f'形如 {{"items": [{{"key": "静默带", "value": "一句话", "set": "extra"}}]}}。'
         f"没有则输出空数组。\n\n正文：\n{body}"
     )
     yield "char_states", (
@@ -259,8 +264,9 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
 
     payload = _json.loads(row.payload or "{}")
 
-    if row.kind == "set_changes":
-        # 世界/故事事实 → lore-apply 幂等合并（origin=本章 ref）
+    if row.kind in ("set_changes", "lore"):
+        # 世界/故事事实与世界要素建议 → 同一写回通道：lore-apply 幂等合并
+        # （origin=本章 ref）；两类 payload 形状一致（{items:[{key,value}]}）
         from filesystem.storage import get_storage
         from settings.world_model import (
             lore_apply_entries,
@@ -271,21 +277,35 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
         novel = await db.get(Novel, row.novel_id)
         ch = await db.get(Chapter, row.chapter_id)
         items = payload.get("items") or []
-        entries = [
-            {"key": str(i.get("key", "")).strip(), "value": str(i.get("value", "")).strip(),
-             "origin": ch.ref if ch else ""}
-            for i in items if isinstance(i, dict) and str(i.get("key", "")).strip()
-        ]
-        raw = await get_storage().read_yaml(novel.root_path, "settings/world.yaml") or {}
+        from settings.world_model import SET_NAMES as _WORLD_SETS
+
+        entries = []
+        for i in items:
+            if not isinstance(i, dict) or not str(i.get("key", "")).strip():
+                continue
+            set_name = str(i.get("set", "")).strip()
+            if set_name not in _WORLD_SETS:
+                set_name = "extra"  # 归属缺失/非法 → 「更多世界细节」（可后补名目）
+            entries.append({
+                "key": str(i.get("key", "")).strip(),
+                "value": str(i.get("value", "")).strip(),
+                "origin": ch.ref if ch else "",
+                "set": set_name,
+            })
+        # 路径唯一来源（filesystem.paths.KEY_TO_PATH）：硬编码 settings/world.yaml
+        # 会写进一个全仓没人读的野文件（本测试撕出）
+        from filesystem.paths import KEY_TO_PATH as _K2P
+
+        raw = await get_storage().read_yaml(novel.root_path, _K2P["world"]) or {}
         v2 = normalize_world(raw)
         v2 = lore_apply_entries(v2, entries)
         merged = put_world_merged(raw, v2)
-        await get_storage().write_yaml(novel.root_path, "settings/world.yaml", merged)
+        await get_storage().write_yaml(novel.root_path, _K2P["world"], merged)
 
     elif row.kind == "relations":
         # 关系建议 → 角色名/别名解析 id → upsert_relation（单向视角＋对端去重语义）
-        from sqlalchemy import select
-
+        # （勿在此函数内 import select：函数局部名会让 hooks 分支的模块级 select
+        #   变 UnboundLocalError——本测试撕出）
         from models.character import Character, CharacterRelation
         from settings.character_service import upsert_relation
 
@@ -345,7 +365,8 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
                 "type": "mystery",
                 "priority": 2,
                 "status": "active",
-                "introduced_chapter_ref": ch_ref,
+                # 服务契约：章引用列只认章 id（ref 字符串会被白名单拒绝）
+                "introduced_chapter_id": row.chapter_id,
             })
         for item in payload.get("resolved") or []:
             desc = str(item.get("description", ""))[:300]
@@ -363,7 +384,7 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
             if target is not None:
                 await patch_hook(db, row.novel_id, target.id, {
                     "status": "resolved",
-                    "resolved_chapter_ref": ch_ref,
+                    "resolved_chapter_id": row.chapter_id,
                 })
             else:
                 await create_hook(db, row.novel_id, {
@@ -371,8 +392,8 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
                     "type": "mystery",
                     "priority": 2,
                     "status": "resolved",
-                    "introduced_chapter_ref": ch_ref,
-                    "resolved_chapter_ref": ch_ref,
+                    "introduced_chapter_id": row.chapter_id,
+                    "resolved_chapter_id": row.chapter_id,
                 })
 
     else:
