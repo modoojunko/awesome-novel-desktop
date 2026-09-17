@@ -240,7 +240,8 @@ export default function NovelWorkspace() {
 
   // ── 顶栏主线定位（行头归一，book.html updateBarHere 同口径）：
   //    续写口径（用户拍板 09-16）＝「上次写到的章」优先（本机 last_write 会话），
-  //    无记录回落「最新归档章」，再回落首章；卷面进度 = 该卷已归档/总章数。
+  //    无记录回落「主线端点＝首个未归档章」（#383 frontier），再回落全归档的
+  //    「待写」占位；卷面进度 = 该卷已归档/总章数。
   //    数据源 wb.volumes（chapter:archived 事件即刷新）。
   const [lastWrite, setLastWrite] = useState<LastWriteSession | null>(() =>
     getLastWriteSession(id ?? ""),

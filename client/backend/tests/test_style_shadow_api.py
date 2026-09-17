@@ -298,8 +298,9 @@ class TestParseSuggestions:
 
     def test_row_whitelist_blank_value_and_reason_truncation(self):
         long_reason = "长" * 260
+        long_value = "值" * 260
         text = json.dumps({"suggestions": [
-            {"row": BASELINE_KEYS[0], "value": "v", "reason": long_reason},
+            {"row": BASELINE_KEYS[0], "value": long_value, "reason": long_reason},
             {"row": "unknown_row", "value": "v", "reason": "r"},
             {"row": "rhythm", "value": "", "reason": "r"},
             {"row": "rhythm", "value": 42},  # 值非 str → str() 收编；缺理由 → ""
@@ -308,4 +309,5 @@ class TestParseSuggestions:
         out = _parse_suggestions(text)
         assert len(out) == 2
         assert out[0]["reason"] == "长" * 200  # 截断到 200
+        assert out[0]["value"] == "值" * 200  # 值同截断（防超长值灌进影子行/提示词）
         assert out[1] == {"row": "rhythm", "value": "42", "reason": ""}
