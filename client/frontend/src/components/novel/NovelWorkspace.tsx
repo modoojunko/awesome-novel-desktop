@@ -54,6 +54,7 @@ export default function NovelWorkspace() {
     viewPayload,
     focusNode,
     refresh,
+    createChapter,
   } = wb;
   const { updateProject } = useProject();
   const { isPro } = useTier();
@@ -253,70 +254,99 @@ export default function NovelWorkspace() {
     ref: string;
     no: number;
     title: string;
-    draft: boolean;
-    fromLastWrite: boolean;
+    state: "draft" | "planned" | "pending";
+    writable: boolean;
     scroll: number;
     volNo: number;
     archivedN: number;
     total: number;
   }
   const hereTarget = useMemo<HereTarget | null>(() => {
-    const findByRef = (ref: string) => {
+    type Ch = (typeof volumes)[number]["chapters"][number];
+    type Hit = { v: (typeof volumes)[number]; c: Ch };
+    type Pick = Hit & { pending: boolean };
+    const findByRef = (ref: string): Hit | null => {
       const m = ref.match(/^(vol-\d+)-ch-(\d+)$/);
       if (!m) return null;
       const v = volumes.find((x) => x.name === m[1]);
       const c = v?.chapters.find((x) => x.chapter === Number(m[2]));
       return v && c ? { v, c } : null;
     };
-    type Hit = { v: (typeof volumes)[number]; c: (typeof volumes)[number]["chapters"][number] };
-    let pick: Hit | null = null;
+    let pick: Pick | null = null;
     let fromLastWrite = false;
+    // 选中章的实时字数（railData）：树上 has_prose 只在归档/增删时刷新，
+    // 正在写的章用它补判「草稿」
+    const liveWords =
+      selectedRef && railData && railData.wordCount > 0 ? selectedRef : null;
+    // ① 上次写作会话的章仍「活着」（存在且未归档）→ 端点优先回到那里（#370）
     if (lastWrite) {
       const hit = findByRef(lastWrite.ref);
-      if (hit) {
-        pick = hit;
+      if (hit && !hit.c.archived) {
+        pick = { ...hit, pending: false };
         fromLastWrite = true;
       }
     }
+    // ② 回落：主线上第一个未归档章（草稿/拟定）
     if (!pick) {
       for (const v of volumes) {
         for (const c of v.chapters) {
-          if (c.archived) pick = { v, c };
+          if (!c.archived) {
+            pick = { v, c, pending: false };
+            break;
+          }
         }
+        if (pick) break;
       }
     }
-    if (!pick) {
-      for (const v of volumes) {
-        if (v.chapters.length) {
-          pick = { v, c: v.chapters[0] };
-          break;
-        }
+    // ③ 全归档：主线末端「待写」占位（不落库，续写时创建）
+    if (!pick && volumes.length) {
+      const last = volumes[volumes.length - 1];
+      if (last.chapters.length) {
+        const no = (last.chapters[last.chapters.length - 1].chapter ?? 0) + 1;
+        pick = {
+          v: last,
+          c: { chapter: no, title: "待写", word_count: 0, status: "outline" },
+          pending: true,
+        };
       }
     }
     if (!pick) return null;
     const volNo = Number((pick.v.name.match(/^vol-(\d+)$/) ?? [])[1] ?? 1);
-    const no = pick.c.chapter ?? pick.v.chapters.indexOf(pick.c) + 1;
+    const no = pick.pending ? (pick.c.chapter as number) : (pick.c.chapter ?? 0);
+    const refNow = `${pick.v.name}-ch-${pick.pending ? "" : (pick.c.chapter ?? 0)}`;
+    const draft =
+      (!pick.pending && !!pick.c.has_prose) ||
+      (!pick.pending && liveWords !== null && refNow === liveWords);
     return {
-      ref: `${pick.v.name}-ch-${no}`,
+      ref: refNow,
       no,
-      title: pick.c.title,
-      draft:
-        !pick.c.archived &&
-        ((pick.c.has_prose ?? (pick.c.word_count ?? 0) > 0) ||
-          // 树上的字数只在归档/增删时刷新：正在写的章用 railData 实时字数补判
-          (selectedRef === `${pick.v.name}-ch-${pick.c.chapter}` &&
-            (railData?.wordCount ?? 0) > 0)),
-      fromLastWrite,
-      scroll: fromLastWrite ? (lastWrite?.scroll ?? 0) : 0,
+      title: pick.pending ? "待写" : pick.c.title,
+      state: pick.pending ? "pending" : draft ? "draft" : "planned",
+      writable: true, // 端点章恒可写
+      // 草稿端点＝上次写作章：续写仍回到上次退出前的滚动位置（#370 口径在端点内保留）
+      scroll:
+        fromLastWrite && lastWrite?.ref === refNow ? (lastWrite?.scroll ?? 0) : 0,
       volNo,
       archivedN: pick.v.chapters.filter((c) => c.archived).length,
       total: pick.v.chapters.length,
     };
   }, [volumes, lastWrite, selectedRef, railData]);
 
-  const onResume = useCallback(() => {
+  const onResume = useCallback(async () => {
     if (!hereTarget) return;
     if (!guardedLeave()) return;
+    // 「待写」占位章：先创建（prototype：新增一章＝拟定，先进章纲），再打开
+    if (hereTarget.state === "pending") {
+      const created = await createChapter(
+        `第${cnNum(hereTarget.no)}章`,
+        `vol-${hereTarget.volNo}`,
+      );
+      if (created) {
+        focusNode(created);
+        toast.info(`第 ${hereTarget.no} 章已创建，先进章纲`);
+      }
+      return;
+    }
     // 已在该章时不再重设选中（省一次整链重渲染），只走恢复信号
     if (selectedRef !== hereTarget.ref) focusNode(hereTarget.ref);
     setResumeSignal((s) => ({
@@ -324,7 +354,7 @@ export default function NovelWorkspace() {
       scroll: hereTarget.scroll,
       n: (s?.n ?? 0) + 1,
     }));
-  }, [hereTarget, guardedLeave, focusNode]);
+  }, [hereTarget, guardedLeave, focusNode, selectedRef, createChapter]);
 
   const pct = hereTarget
     ? Math.round(Math.min(1, hereTarget.archivedN / hereTarget.total) * 100)
@@ -338,9 +368,11 @@ export default function NovelWorkspace() {
         {/* 默认名（「第一章」等序号形态）不再拼名称，避免「第 1 章第一章」（nodeLabel 同口径） */}
         {isDefaultTitle("章", hereTarget.no, hereTarget.title) ? null : hereTarget.title}
       </p>
-      {hereTarget.draft && (
+      {hereTarget.state === "draft" && (
         <span className="bh-tag bh-tag-live">草稿</span>
       )}
+      {hereTarget.state === "planned" && <span className="bh-tag">拟定</span>}
+      {hereTarget.state === "pending" && <span className="bh-tag">待写</span>}
       <div className="bh-prog">
         <span className="bh-vol">
           第{cnNum(hereTarget.volNo)}卷 · {hereTarget.archivedN}/{hereTarget.total}
@@ -352,8 +384,14 @@ export default function NovelWorkspace() {
       <button
         className="btn btn-primary btn-sm"
         data-od-id="resume-cta"
-        title="回到上次退出前的位置"
-        onClick={onResume}
+        title={
+          hereTarget.state === "draft"
+            ? "回到上次退出前的位置"
+            : hereTarget.state === "pending"
+              ? "创建本章并开始写作"
+              : "打开这一章的章纲"
+        }
+        onClick={() => void onResume()}
       >
         续写
       </button>

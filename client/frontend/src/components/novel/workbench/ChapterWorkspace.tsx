@@ -104,6 +104,21 @@ export default function ChapterWorkspace({
 
   // 树结构里的章元数据（编号/标题/归档位；volumes 常驻已加载）。
   // WorkbenchVolume.chapters 无 ref 字段 → 按 vol-N/ch-N 对齐。
+  // 排队门禁（workbench-frontier）：主线顺序上，本章之前存在「无正文且未归档」
+  // 的章 → 本章为拟态排队章，不可写（后端 prose PUT 同规则 409 兜底）
+  const frontierLocked = useMemo(() => {
+    // 主线顺序上，本章之前存在「无正文且未归档」的章 → 本章在排队，不可写
+    for (const v of outline.volumes) {
+      for (const c of v.chapters) {
+        const ref = `${v.ref}-ch-${c.chapter}`;
+        if (ref === chapterRef) return false;
+        if (!c.archived && !(c.has_prose ?? (c.word_count ?? 0) > 0)) return true;
+      }
+    }
+    return false;
+  }, [chapterRef, outline.volumes]);
+  const writable = !frontierLocked;
+
   const chMeta = useMemo(() => {
     const m = chapterRef.match(/^vol-(\d+)-ch-(\d+)$/);
     if (!m) return null;
@@ -610,6 +625,11 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         onAIStateChange={onAIStateChange}
         resumeScroll={resumeScrollMemo}
         onWriteProgress={onWriteProgress}
+        locked={
+          frontierLocked && chTab === "prose"
+            ? { reason: "还不能写这一章——先完成前面的章节" }
+            : undefined
+        }
       />
 
       {chTab === "settings" && (
