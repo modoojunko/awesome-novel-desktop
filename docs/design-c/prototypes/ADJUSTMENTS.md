@@ -667,6 +667,13 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     落库。AI 失败回落原型同款确定性推演（弹窗永远可用）。
     ⑥ **提示词六来源**：「提示词」页签顶部 `.src-chips`＋`.psrc-list` 只读展示六处来源
     （chars/preview/未填标注），与写作组装链同源。
+    ⑦ **章内「伏笔」页签**（第 8 个，原型 hooksHTML）：`.hooks-pane` 只读台账投影——
+    汇总（N 条·M 悬置·本章埋/收）＋行（编号/描述/埋于第 N 章·题名/悬置｜已收｜已弃），
+    本章埋下或回收的条目 `.hp-row.hit` 高亮；空态引导去「设定 · 伏笔」。
+    ⑧ **右栏「AI 辅助」随页签面板**（原型 aiShell 各页签段）：`.rail-assist` 每页签
+    引导语＋`.rail-stats` 统计卡＋`.rail-acts` 动作清单；**未实现动作＝禁用＋「规划中」**
+    （用户拍板：先占位后续逐个补）；已实现动作：章纲（AI 起草/剧情推演）、正文
+    （续写/润色/扩写沿用原工具卡，仅正文页签呈现）；文风调参等页签内已有动作不重复。
     **门控**：①-③ 免费可用；④ 影子手工编辑全档位、AI 建议 PRO（2026-09-17 拍板定案）、⑤ AI 归 PRO。
     **测试覆盖**：后端 pytest（frontier/ghost/style_shadow/plot_sim/prompt_sources）＋前端 vitest
     ＋e2e（plot-sim.spec.ts 等）；无原型像素基线（storyline 未收编严格扫描）。

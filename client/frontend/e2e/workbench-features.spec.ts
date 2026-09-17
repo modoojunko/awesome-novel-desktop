@@ -708,3 +708,58 @@ test("章纲新格子：场景卡/读者获得/章末落点/目标字数填值�
     await restore();
   }
 });
+
+// -------------------------------------------------------------------------
+// ⑨ 右栏 AI 辅助随页签切换（workbench-storyline-ai-panel，storyline col-ai 口径）
+// -------------------------------------------------------------------------
+test("右栏 AI 辅助随页签切换：引导语/统计卡/动作清单（占位禁用）", async ({
+  page,
+  request,
+}) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    await ensurePromptAccess(request, token);
+    await createNovel(page, `e2e-rail-${Date.now()}`);
+    await writeFirstChapter(page);
+    // 显式切回章纲并等表单就绪（点章落章纲的回落竞态结算）
+    await page.getByRole("tab", { name: /^章纲/ }).click();
+    await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
+    // 章纲页签：面板随页签切换；已实现动作真按钮（剧情推演），未实现动作占位
+    await expect(page.getByText("AI 辅助 · 章纲")).toBeVisible({ timeout: 10000 });
+    const railActs = page.locator(".rail-acts");
+    await expect(railActs.getByRole("button", { name: /剧情推演/ })).toBeEnabled();
+    await expect(railActs.getByRole("button", { name: /补全缺失字段/ })).toBeDisabled();
+    // 正文页签：面板切到正文（统计正文字数）＋未实现动作占位禁用
+    await page.getByRole("tab", { name: /^正文/ }).click();
+    await expect(page.getByText("AI 辅助 · 正文")).toBeVisible();
+    await expect(railActs.getByRole("button", { name: /压缩啰嗦段落/ })).toBeDisabled();
+    // 提示词页签：组装来源统计（懒取 prompt-sources）
+    await page.getByRole("tab", { name: /^提示词/ }).click();
+    await expect(page.getByText("AI 辅助 · 提示词")).toBeVisible();
+    await expect(page.locator(".rail-stats")).toContainText("组装来源");
+    await expect(page.locator(".rail-stats")).toContainText("6 处");
+  } finally {
+    await restore();
+  }
+});
+
+// -------------------------------------------------------------------------
+// ⑩ 章内「伏笔」页签（workbench-storyline-hooks）：全档位只读台账投影
+// -------------------------------------------------------------------------
+test("伏笔页签：台账投影渲染（空态文案与汇总）", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    await createNovel(page, `e2e-hooks-${Date.now()}`);
+    await writeFirstChapter(page);
+    await page.getByRole("tab", { name: /^伏笔/ }).click();
+    await expect(page.locator('[data-od-id="hooks-pane"]')).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText("全书统一维护 · 记下埋点与回收章 · 本章条目高亮")).toBeVisible();
+    await expect(
+      page.getByText("还没有伏笔条目。到「设定 · 伏笔」里登记第一条。"),
+    ).toBeVisible();
+  } finally {
+    await restore();
+  }
+});
