@@ -127,3 +127,12 @@ class TestPromptSources:
             r = c.get("/api/novels/nope/chapters/vol-1-ch-1/prompt-sources")
             app.dependency_overrides.clear()
         assert r.status_code == 404
+
+    def test_missing_chapter_404(self):
+        """章不存在 → 404（不得回 200 全空来源，与 style-shadow/推演同语义）。"""
+        _root, nid = asyncio.run(_seed())
+        with TestClient(app) as c:
+            app.dependency_overrides[get_current_user] = lambda: {"id": "psrc_user"}
+            r = c.get(f"/api/novels/{nid}/chapters/vol-1-ch-9/prompt-sources")
+            app.dependency_overrides.clear()
+        assert r.status_code == 404

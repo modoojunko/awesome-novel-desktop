@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from ai_client import AITimeoutError
 from auth_local.deps import require_ai_access as _require_ai_access
 from auth_local.deps import require_novel_model as _require_novel_model
 from auth_local.middleware import get_current_user
@@ -28,19 +29,34 @@ from models.chapter import (
     ChapterRequiredChange,
 )
 from models.project import Novel
+from models.user import User
 from models.volume import Volume
 from write.plot_sim import _parse_rounds
 
 REF = "vol-1-ch-2"
 
+# 每份种子一个唯一用户（测试库跨用例复用：users.email/id 均唯一约束），
+# nid → uid 供门控 override 与记账断言取用户
+_UIDS: dict[str, str] = {}
+
+
+def _uid_of(nid: str) -> str:
+    return _UIDS[nid]
+
 
 async def _seed() -> tuple[str, str]:
-    """种一本书：第 1 章（有正文结尾）+ 第 2 章（章纲完整），返回 (root, novel_id)。"""
+    """种一本书：第 1 章（有正文结尾）+ 第 2 章（章纲完整），返回 (root, novel_id)。
+    User 行必须存在——token_log.user_id 有 users FK，缺行会让记账被静默拦下。"""
     root = tempfile.mkdtemp(prefix="test_plot_sim_")
     slug = f"sim-{os.path.basename(root)}"
+    uid = f"sim-{os.path.basename(root)[-12:]}"
     async with async_session() as session:
+        session.add(User(
+            id=uid, email=f"{slug}@test.local", password_hash="x",
+            display_name="推演测试", api_key="", api_base_url="", api_model="",
+        ))
         session.add(Novel(
-            user_id="sim_user", name="推演书", slug=slug,
+            user_id=uid, name="推演书", slug=slug,
             root_path=root, source="manual", current_phase="write",
             ai_model="haiku",
         ))
@@ -59,7 +75,12 @@ async def _seed() -> tuple[str, str]:
         await session.flush()
         from models.chapter import ChapterContent
 
-        session.add(ChapterContent(chapter_id=ch1.id, prose="她攥紧缆绳，解开了最后一根系泊。"))
+        # 正文刻意超 300 字：素材「结尾摘录」截断方向错时会摘成中段——AI 路径
+        # 的 "解开" in system 断言即该缺陷的回归探针
+        session.add(ChapterContent(
+            chapter_id=ch1.id,
+            prose="前文推进。" * 90 + "她攥紧缆绳，解开了最后一根系泊。",
+        ))
         ch2 = Chapter(
             project_id=proj.id, volume_id=vol.id, chapter_no=2,
             ref=REF, title="风起渡口", status="outline",
@@ -77,6 +98,7 @@ async def _seed() -> tuple[str, str]:
         session.add(ChapterPayoffItem(chapter_id=ch2.id, sort_order=1, kind="must_hold", content="谁在暗中跟着她"))
         session.add(ChapterRequiredChange(chapter_id=ch2.id, sort_order=1, change_type="", content="她把信交给了陌生人"))
         await session.commit()
+        _UIDS[proj.id] = uid
         return root, proj.id
 
 
@@ -100,7 +122,7 @@ def _with_client(monkeypatch, payload: str | None, capture: list):
 
 def _post(nid: str, gating: bool = True):
     with TestClient(app) as c:
-        app.dependency_overrides[get_current_user] = lambda: {"id": "sim_user"}
+        app.dependency_overrides[get_current_user] = lambda: {"id": _uid_of(nid)}
         if gating:
             app.dependency_overrides[_require_ai_access] = lambda: True
             app.dependency_overrides[_require_novel_model] = lambda: True
@@ -127,7 +149,8 @@ class TestOkPath:
         d = r.json()
         assert d["source"] == "ai"
         assert d["prev_label"] == "第 1 章"
-        assert d["entry"] == "她攥紧缆绳，解开了最后一根系泊。"[-60:]
+        # entry = 上一章正文末 60 字（种子正文 >300 字，尾段即最终句）
+        assert d["entry"].endswith("她攥紧缆绳，解开了最后一根系泊。")
         assert d["exit"] == "她把信交给了陌生人"
         assert d["cast"] == ["林晚"]
         assert [x["n"] for x in d["rounds"]] == [1, 2]
@@ -168,6 +191,38 @@ class TestOkPath:
         assert r.json()["source"] == "fallback"
         assert captured == []
 
+    def test_timeout_falls_back_and_records_fail_once(self, monkeypatch):
+        """AI 超时：记一次 plot_sim_fail（调用已发生）后回落，不向用户报错；
+        成功记账与调用 try 解耦——超时路径不得同时落 plot_sim 成功账。"""
+        _root, nid = asyncio.run(_seed())
+
+        class _TimeoutClient:
+            async def chat(self, **kwargs):
+                raise AITimeoutError("timeout")
+
+        async def _fake(novel_id):
+            return _TimeoutClient()
+
+        monkeypatch.setattr("write.plot_sim.get_ai_client_for_novel", _fake)
+        r = _post(nid)
+        assert r.status_code == 200, r.text
+        assert r.json()["source"] == "fallback"
+
+        async def _ops():
+            from models.token_log import TokenLog
+
+            async with async_session() as session:
+                rows = (
+                    await session.scalars(
+                        select(TokenLog).where(TokenLog.project_id == nid)
+                    )
+                ).all()
+                return [x.operation for x in rows]
+
+        ops = asyncio.run(_ops())
+        assert ops.count("plot_sim_fail") == 1
+        assert "plot_sim" not in ops
+
 
 class TestGating:
     def test_free_user_403_no_call(self, monkeypatch):
@@ -179,7 +234,7 @@ class TestGating:
             raise HTTPException(403, detail={"reason": "member_required"})
 
         with TestClient(app) as c:
-            app.dependency_overrides[get_current_user] = lambda: {"id": "sim_user"}
+            app.dependency_overrides[get_current_user] = lambda: {"id": _uid_of(nid)}
             app.dependency_overrides[_require_ai_access] = _forbidden
             r = c.post(f"/api/novels/{nid}/chapters/{REF}/simulate")
             app.dependency_overrides.clear()
@@ -193,7 +248,7 @@ class TestGating:
             raise HTTPException(503, detail={"reason": "missing_model"})
 
         with TestClient(app) as c:
-            app.dependency_overrides[get_current_user] = lambda: {"id": "sim_user"}
+            app.dependency_overrides[get_current_user] = lambda: {"id": _uid_of(nid)}
             app.dependency_overrides[_require_ai_access] = lambda: True
             app.dependency_overrides[_require_novel_model] = _no_model
             r = c.post(f"/api/novels/{nid}/chapters/{REF}/simulate")

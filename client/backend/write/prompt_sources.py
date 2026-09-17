@@ -49,6 +49,13 @@ async def prompt_sources(
         raise HTTPException(404, "Project not found")
     _validate_ref(chapter_ref)
 
+    # 章不存在 → 404（与 style-shadow/推演等章级端点同语义；
+    # build_chapter_context 对缺章是宽容的，会返回六空来源——那会让调用方误以为章存在）
+    from chapters.store import load_chapter as _load_chapter
+
+    if not await _load_chapter(project.root_path, chapter_ref):
+        raise HTTPException(404, "Chapter not found")
+
     ctx = await build_chapter_context(
         project.root_path, chapter_ref, project.name, novel_id=project.id
     )

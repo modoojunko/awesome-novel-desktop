@@ -183,7 +183,8 @@ def _material(chapter: dict, prev: dict | None, entry: str) -> str:
         p_kps = _str_list(p_outline.get("key_points"), 4)
         if p_kps:
             prev_lines.append("上一章关键事件：" + "；".join(p_kps))
-        prose = _s(prev.get("prose")) or ""
+        # 截断方向：先放宽到全书量级再取尾 120——直接默认截断会把「结尾摘录」摘成中段
+        prose = _s(prev.get("prose"), 100000) or ""
         if prose:
             prev_lines.append("上一章正文结尾摘录：" + prose[-120:])
     blocks.append("【上一章结尾】\n" + "\n".join(prev_lines))
@@ -258,9 +259,34 @@ async def plot_simulate(
                 messages=[{"role": "user", "content": "请把这一章按回合推演一遍。"}],
                 usage=usage,
             )
+        except AITimeoutError:
             from api_configs.usage import record_usage
 
+            await record_usage(
+                db, user_id=user["id"], project_id=project.id,
+                chapter_id=chapter_ref, operation="plot_sim_fail", model=model,
+                tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+                force=True,
+            )
+            await db.commit()
+            raw = ""
+        except Exception:  # noqa: BLE001 — 模型/网络错误：同上回落
+            from api_configs.usage import record_usage
+
+            await record_usage(
+                db, user_id=user["id"], project_id=project.id,
+                chapter_id=chapter_ref, operation="plot_sim_fail", model=model,
+                tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
+                force=True,
+            )
+            await db.commit()
+            raw = ""
+
+        if raw:
             # 记账先于解析：调用已完成（钱已花），产物不合格也留痕
+            # （独立于调用 try——记账异常不得被误判为调用失败而二次记账）
+            from api_configs.usage import record_usage
+
             await record_usage(
                 db,
                 user_id=user["id"],
@@ -275,26 +301,6 @@ async def plot_simulate(
             rounds = _parse_rounds(strip_code_fences(raw))
             if rounds:
                 source = "ai"
-        except AITimeoutError:
-            from api_configs.usage import record_usage
-
-            await record_usage(
-                db, user_id=user["id"], project_id=project.id,
-                chapter_id=chapter_ref, operation="plot_sim_fail", model=model,
-                tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
-                force=True,
-            )
-            await db.commit()
-        except Exception:  # noqa: BLE001 — 模型/网络错误：同上回落
-            from api_configs.usage import record_usage
-
-            await record_usage(
-                db, user_id=user["id"], project_id=project.id,
-                chapter_id=chapter_ref, operation="plot_sim_fail", model=model,
-                tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
-                force=True,
-            )
-            await db.commit()
 
     if not rounds:
         rounds = _fallback_rounds(outline, memo, emotional, cast, entry)

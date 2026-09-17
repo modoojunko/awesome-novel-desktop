@@ -211,7 +211,7 @@ def _parse_suggestions(text: str) -> list[dict]:
         value = str(item.get("value", "")).strip()
         reason = str(item.get("reason", "")).strip()
         if row in valid_rows and value:
-            out.append({"row": row, "value": value, "reason": reason[:200]})
+            out.append({"row": row, "value": value[:200], "reason": reason[:200]})
     return out
 
 
