@@ -70,6 +70,7 @@ export function useOnboarding(projectId: string | undefined, volumes: any[]) {
   // 角色第三态（character-settings-v2）：确认存档 vs 当前内容指纹
   const [charStaleState, setCharStaleState] = useState(false);
   useEffect(() => {
+    if (!projectId) return; // 书未加载完不打空 id 请求（/novels//characters/... 404 污染控制台）
     let alive = true;
     void (async () => {
       try {
