@@ -85,6 +85,8 @@ export interface ChapterMetaEntry {
   /** DB-backed 全量树（change 005）缺省时降级本地推断（N1） */
   has_prose?: boolean;
   archived?: boolean;
+  /** chapter-rewrite：基于旧设定（上游章被重写置位、本章保存清除） */
+  stale?: boolean;
 }
 
 export interface VolumeEntry {

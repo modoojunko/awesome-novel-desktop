@@ -34,6 +34,8 @@ export interface UseChapterDataReturn {
   targetWords: number;
   setTargetWords: (n: number) => void;
   save: () => void;
+  /** 落盘并等待完成（重写快照前置） */
+  flush: () => Promise<void>;
   retry: () => void;
   /** 归档（aiSummary=归档 AI 摘要开关）；返回是否成功 */
   archive: (options?: { aiSummary?: boolean }) => Promise<boolean>;
@@ -254,6 +256,15 @@ class ChapterStore {
     void this.doSave();
   };
 
+  /** 落盘并等待完成（chapter-rewrite：重写快照必须先于旧稿留存）。
+   *  已有在飞保存时轮询等待其收尾；脏则再存一次。 */
+  flush = async (): Promise<void> => {
+    for (let i = 0; i < 40 && this.saving; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (this.isDirty()) await this.doSave();
+  };
+
   retry = () => {
     void this.doSave();
   };
@@ -369,6 +380,7 @@ export function useChapterData(
     targetWords: state.targetWords,
     setTargetWords: store.setTargetWords,
     save: store.save,
+    flush: store.flush,
     retry: store.retry,
     archive: store.archive,
     unarchive: store.unarchive,

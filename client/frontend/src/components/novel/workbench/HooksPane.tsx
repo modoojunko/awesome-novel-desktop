@@ -3,6 +3,7 @@
  *  数据源：真表 novel_hooks（status active/resolved）＋卷章树（id→章号解析）。 */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { chapterNoOf } from "@/lib/chapterRef";
 
 interface HookRow {
   id: string;
@@ -78,8 +79,7 @@ export function HooksPane({
   }, [projectId]);
 
   const chapterNo = useMemo(() => {
-    const m = chapterRef.match(/-ch-(\d+)$/);
-    return m ? Number(m[1]) : 0;
+    return chapterNoOf(chapterRef);
   }, [chapterRef]);
 
   const currentId = useMemo(() => {

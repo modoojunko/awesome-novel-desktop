@@ -242,14 +242,13 @@ async def list_all(
 
         from models.chapter import Chapter
 
+        # 主线口径（2026-09-17 拍板＋2026-09-17 rewrite 单源化）：回退/重写产生的
+        # 旧稿支线章不计入字数/章数/归档数——书架卡片与工作台卷章树必须同结论
         ch_rows = (
             await db.scalars(
                 select(Chapter)
                 .where(
                     Chapter.project_id.in_([p.id for p in projects]),
-                    # 主线口径（2026-09-17 拍板）：回退后转入旧稿支线的章不计入
-                    # 字数/章数/归档数——书架卡片与工作台卷章树（同样过滤 ghost）
-                    # 必须同结论，否则「卡片阶段 vs 打开书的落点」自相矛盾
                     Chapter.ghost_of.is_(None),
                 )
                 .options(

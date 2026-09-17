@@ -39,7 +39,8 @@ async def list_volumes(db, project) -> list[dict]:
                 "ref": f"vol-{v.volume_no}",
                 "title": v.title,
                 "summary": v.summary,
-                "chapter_count": v.chapter_count,
+                # 章数以主线实测为准（缓存列在旧稿支线存在时不代表主线章数）
+                "chapter_count": len(chs),
                 "chapters": [
                     {
                         "id": c.id,  # DB 章 id（foreshadow-settings-v2：伏笔选择器按 id 引用章）
@@ -52,6 +53,8 @@ async def list_volumes(db, project) -> list[dict]:
                         "has_prose": c.has_prose,
                         "outline_status": c.outline_status,
                         "archived": c.status == "archived",
+                        # chapter-rewrite：基于旧设定角标（主线章自身状态列）
+                        "stale": bool(c.stale),
                     }
                     for c in sorted(chs, key=lambda x: x.chapter_no)
                 ],
@@ -61,7 +64,9 @@ async def list_volumes(db, project) -> list[dict]:
 
 
 async def list_ghosts(db, project) -> list[dict]:
-    """旧稿支线章（revert-ghost）：脱离主线的章，只读保留。"""
+    """旧稿支线章（revert-ghost / chapter-rewrite）：脱离主线的章，只读保留。"""
+    import re as _re
+
     ghosts = await chapter_repo.list_by_project(db, project.id)
     return [
         {
@@ -72,6 +77,11 @@ async def list_ghosts(db, project) -> list[dict]:
             "title": c.title,
             "word_count": c.word_count,
             "ghost_of": c.ghost_of,
+            # origin：重写旧稿＝内容寻址后缀（-r{8hex}），其余为回退转入
+            "origin": "rewrite"
+            if _re.match(r"^.*-r[0-9a-f]{8}$", c.ref or "")
+            else "revert",
+            "created_at": c.created_at.isoformat() if c.created_at else None,
         }
         for c in sorted(
             (g for g in ghosts if g.ghost_of),

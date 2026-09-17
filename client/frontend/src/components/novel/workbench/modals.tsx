@@ -520,3 +520,62 @@ export function AiModal({
     </Modal>
   );
 }
+
+// ---------------------------------------------------------------------------
+// 重写这一章（chapter-rewrite）：影响面确认（原型 m-ch-confirm 口径）
+// ---------------------------------------------------------------------------
+
+export function RewriteModal({
+  open,
+  onClose,
+  chapterLabel,
+  busy,
+  onConfirm,
+}: {
+  open: boolean;
+  onClose: () => void;
+  chapterLabel: string;
+  busy?: boolean;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="重写这一章"
+      wbStyle
+      locked={busy}
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose} disabled={busy}>
+            取消
+          </button>
+          <button
+            className="btn btn-primary"
+            data-testid="rewrite-confirm"
+            disabled={busy}
+            onClick={onConfirm}
+          >
+            {busy ? "处理中…" : "打开写作窗口重写"}
+          </button>
+        </>
+      }
+    >
+      <p className="rw-lead">{chapterLabel} · 重写只影响本章与之后的章节：</p>
+      <ul className="rw-list">
+        <li>
+          <b>旧稿</b>
+          <span>本章当前正文将转入旧稿支线，可随时点开查看。</span>
+        </li>
+        <li>
+          <b>后续</b>
+          <span>其后章节原样保留，但挂「基于旧设定」角标，提示上游设定已变。</span>
+        </li>
+        <li>
+          <b>设定</b>
+          <span>归档时确认本章变化；开书设定永不改写，之后累积的条目跟着重算。</span>
+        </li>
+      </ul>
+    </Modal>
+  );
+}

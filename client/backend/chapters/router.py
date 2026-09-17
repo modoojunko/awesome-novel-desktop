@@ -202,6 +202,24 @@ async def get_frontier(
     }
 
 
+@router.post("/chapters/{chapter_ref}/rewrite")
+async def rewrite_chapter_endpoint(
+    project_id: str,
+    chapter_ref: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """重写这一章（chapter-rewrite）：旧稿快照转旧稿支线（内容寻址 ref，幂等）＋
+    归档章解锁＋下游「基于旧设定」置位——一次事务；详见 chapters/rewrite.py。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    _validate_ref(chapter_ref)
+    from chapters.rewrite import rewrite_chapter
+
+    return await rewrite_chapter(db, project, chapter_ref)
+
+
 @router.post("/chapters/{chapter_ref}/revert")
 async def revert_chapter(
     project_id: str,

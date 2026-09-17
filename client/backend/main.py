@@ -63,12 +63,20 @@ async def lifespan(app: FastAPI):
 
     _schema_fp = legacy_archive.compute_schema_fingerprint(Base.metadata)
     _db_path = Path(DATABASE_URL.split("///")[-1])
-    _legacy_info = legacy_archive.archive_if_legacy(_db_path, _schema_fp)
+    # 纯新增差异（旧库表/列是新库子集）→ 原地迁移不存档（2026-09-17）；
+    # 破坏性差异仍走三件套留档。
+    _legacy_info = legacy_archive.archive_if_legacy(
+        _db_path, _schema_fp, metadata=Base.metadata
+    )
     if _legacy_info["archived"]:
         _logging.getLogger("uvicorn.error").info(
             "Legacy library archived: %s (%s)",
             _legacy_info["archived_path"],
             _legacy_info["reason"],
+        )
+    elif _legacy_info.get("needs_migration"):
+        _logging.getLogger("uvicorn.error").info(
+            "Additive schema migration in place (data preserved)"
         )
 
     try:
@@ -89,6 +97,10 @@ async def lifespan(app: FastAPI):
                 session.add(
                     AppMeta(key=legacy_archive.SCHEMA_ID_KEY, value=_schema_fp)
                 )
+                await session.commit()
+            elif existing.value != _schema_fp:
+                # 纯增量迁移落地后刷新戳（否则每次启动都重复走迁移判定）
+                existing.value = _schema_fp
                 await session.commit()
     except SQLAlchemyError:
         pass
@@ -145,6 +157,15 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.execute(
                 text("ALTER TABLE chapters ADD COLUMN ghost_of VARCHAR(64)")
+            )
+    except Exception:
+        pass  # 列已存在
+
+    # ── Migrate (chapter-rewrite): stale 列（基于旧设定角标）──────────
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("ALTER TABLE chapters ADD COLUMN stale BOOLEAN DEFAULT 0 NOT NULL")
             )
     except Exception:
         pass  # 列已存在

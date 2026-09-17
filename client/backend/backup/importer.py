@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 from sqlalchemy import select, update
 
-from backup.format import FORMAT_VERSION
+from backup.format import FORMAT_VERSION, belongs_to_ref
 
 
 def detect_kind(zf: zipfile.ZipFile) -> str:
@@ -676,13 +676,28 @@ async def _import_single_book(
                 snapshot=zf.read(vn).decode("utf-8"),
             ))
 
-        # 提示词
-        for pn2 in sorted(n for n in names if n.startswith(f"{book_dir}prompts/{ref}-")):
+        # 提示词（归属判定走 backup.format.belongs_to_ref：边界感知，
+        # 防主线 ref 吞掉旧稿支线章 `-r{8hex}` 的产品）
+        _prompts_prefix = f"{book_dir}prompts/"
+        for pn2 in sorted(
+            n
+            for n in names
+            if n.startswith(_prompts_prefix)
+            and n.endswith(".md")
+            and belongs_to_ref(n[len(_prompts_prefix):], ref)
+        ):
             pname = Path(pn2).stem.replace(f"{ref}-", "")
             db.add(ChapterPrompt(chapter_id=ch_id, name=pname, content=zf.read(pn2).decode("utf-8")))
 
-        # 归档
-        for an in sorted(n for n in names if n.startswith(f"{book_dir}archives/") and n.endswith(".md") and ref in n):
+        # 归档（同边界规则）
+        _arch_prefix = f"{book_dir}archives/"
+        for an in sorted(
+            n
+            for n in names
+            if n.startswith(_arch_prefix)
+            and n.endswith(".md")
+            and belongs_to_ref(n[len(_arch_prefix):], ref)
+        ):
             db.add(Archive(
                 chapter_id=ch_id, title=Path(an).stem, content=zf.read(an).decode("utf-8"),
             ))

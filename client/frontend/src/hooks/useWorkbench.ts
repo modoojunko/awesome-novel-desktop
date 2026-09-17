@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { parseChapterRef } from "@/lib/chapterRef";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useProject } from "@/hooks/useProject";
@@ -25,6 +27,9 @@ export interface WorkbenchChapter {
   /** 缺省时降级：word_count>0 或本地已载入 prose */
   has_prose?: boolean;
   archived?: boolean;
+  /** chapter-rewrite：基于旧设定角标 */
+  stale?: boolean;
+
 }
 
 export interface WorkbenchVolume {
@@ -74,9 +79,10 @@ export interface UseWorkbenchReturn {
 // ---------------------------------------------------------------------------
 
 function parseRef(ref: string): { vol: number; ch: number } | null {
-  const m = ref.match(/^vol-(\d+)-ch-(\d+)$/);
-  if (!m) return null;
-  return { vol: parseInt(m[1], 10), ch: parseInt(m[2], 10) };
+  // ref 语法单源（chapterRef）：主线与旧稿 `-r{8hex}` 双形制统一解析，
+  // 旧稿不再静默落 null（点旧稿无响应是 chapter-rewrite 评审 P0）
+  const p = parseChapterRef(ref);
+  return p ? { vol: p.vol, ch: p.ch } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +138,7 @@ export function useWorkbench(): UseWorkbenchReturn {
           status: string;
           has_prose?: boolean;
           archived?: boolean;
+          stale?: boolean;
         }>;
       }> = await api.get(`/novels/${projectId}/volumes`);
       // 旧稿支线（revert-ghost）：与主线卷章分流的只读章
@@ -169,6 +176,8 @@ export function useWorkbench(): UseWorkbenchReturn {
             status: c.status || "outline",
             has_prose: hasProse,
             archived: c.archived ?? c.status === "archived",
+            // chapter-rewrite：基于旧设定角标（后端 /volumes 直出）
+            stale: c.stale ?? false,
           };
         }),
       }));

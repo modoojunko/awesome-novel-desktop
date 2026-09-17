@@ -123,6 +123,9 @@ def assemble_chapter(row) -> dict:
     }
     if row.ghost_of:
         data["ghost_of"] = row.ghost_of
+    # chapter-rewrite：基于旧设定角标（主线章；上游重写置位、本章保存清除）
+    if row.stale:
+        data["stale"] = True
     if row.word_target is not None:
         data["word_target"] = row.word_target
     if row.ladder_exit:
@@ -534,6 +537,10 @@ async def save_chapter(root_path: str, chapter_ref: str, data: dict) -> list[str
             status = "writing"
         row.status = status
         _prose, _status, warnings = await apply_chapter_data(session, row, data)
+        # chapter-rewrite：本章内容有写（正文/章纲/重写归档）＝作者已接管，
+        # 「基于旧设定」角标在单写入口统一清除
+        if row.stale:
+            row.stale = False
         await session.commit()
 
     # 版本快照：prose / outline.summary 实质变化才写（正文已落库，快照失败不回滚）

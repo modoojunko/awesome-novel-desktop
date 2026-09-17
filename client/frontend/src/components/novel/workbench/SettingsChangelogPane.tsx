@@ -4,6 +4,7 @@
  *  factions/extra，origin=章 ref，按章序过滤到当前章）。 */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { chapterNoOf } from "@/lib/chapterRef";
 
 interface CastRow {
   character_name: string;
@@ -45,6 +46,7 @@ export function SettingsChangelogPane({
   const [chapters, setChapters] = useState<ChapterLite[]>([]);
   const [nameById, setNameById] = useState<Record<string, string>>({});
   const [lore, setLore] = useState<LoreRow[]>([]);
+  const [stale, setStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -54,8 +56,10 @@ export function SettingsChangelogPane({
         const ch = (await api.get(
           `/novels/${projectId}/chapters/${chapterRef}`,
         )) as {
+          stale?: boolean;
           outline?: { characters?: Array<{ name?: string; state_change?: string }> };
         };
+        if (!cancelled) setStale(!!ch.stale);
         const rows: CastRow[] = (ch.outline?.characters ?? []).map((c) => ({
           character_name: c?.name ?? "",
           character_id: null,
@@ -142,8 +146,7 @@ export function SettingsChangelogPane({
   }, [projectId]);
 
   const chapterNo = useMemo(() => {
-    const m = chapterRef.match(/-ch-(\d+)$/);
-    return m ? Number(m[1]) : 0;
+    return chapterNoOf(chapterRef);
   }, [chapterRef]);
 
   const chapterId = useMemo(() => {
@@ -178,22 +181,27 @@ export function SettingsChangelogPane({
     () =>
       lore.filter((e) => {
         if (!e.origin) return true;
-        const m = e.origin.match(/-ch-(\d+)$/);
-        return m ? Number(m[1]) <= chapterNo : true; // 旧格式/解析不了：保守显示
+        const n = chapterNoOf(e.origin);
+        return n ? n <= chapterNo : true; // 旧格式/解析不了：保守显示
       }),
     [lore, chapterNo],
   );
 
   const loreOriginLabel = (origin: string): string => {
     if (!origin) return "开书";
-    const m = origin.match(/-ch-(\d+)$/);
-    return m ? `第 ${Number(m[1])} 章` : origin;
+    const n = chapterNoOf(origin);
+    return n ? `第 ${n} 章` : origin;
   };
 
   if (error) return <p className="vempty">{error}</p>;
 
   return (
     <div className="settings-changelog" data-od-id="settings-changelog">
+      {stale && (
+        <p className="sc-stale" data-testid="ch-stale-note">
+          基于旧设定：本章在上游章节重写之前写成，设定变化以上面「截至本章」投影为准。
+        </p>
+      )}
       <p className="seg-title">本章变化</p>
       {cast.length === 0 && <p className="vempty">本章还没有出场角色。</p>}
       {cast.map((c) => (
