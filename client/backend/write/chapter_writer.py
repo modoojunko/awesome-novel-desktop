@@ -127,6 +127,8 @@ class ChapterContext:
         self.world_setting = {}
         self.style_setting = {}
         self.style_quant = {}
+        # 本章文风影子（chapter-style-shadow）：命中行覆盖基线渲染；直建 ctx 默认空
+        self.style_shadow: dict = {}
         self.hooks = []
         self.volume_summary = ""
         self.chapter_outline = {}
