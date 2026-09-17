@@ -711,3 +711,59 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     **门控**：①-③ 免费可用；④ 影子手工编辑全档位、AI 建议 PRO（2026-09-17 拍板定案）、⑤ AI 归 PRO。
     **测试覆盖**：后端 pytest（frontier/ghost/style_shadow/plot_sim/prompt_sources）＋前端 vitest
     ＋e2e（plot-sim.spec.ts 等）；无原型像素基线（storyline 未收编严格扫描）。
+
+---
+
+## preview.html（阅读预览三栏，c-preview-reader，2026-09-17）
+
+设计源：`docs/design-c/drafts/preview.html`（2026-09-17 设计侧会话产出）收编为本屏基线。
+**原型即基线：本文件入库，baselines/ 比对 PNG 为本地产物不入库。**
+
+只动 `preview.html`（新屏基线）：
+
+1. **预览独立成屏，book.html `#viewPreview` 两栏段下线**
+   原 book.html 预览 = 左树 + 只读正文两栏；本屏起预览为三栏阅读器
+   （全书目录 / 阅读 / 配置与概览）。book.html 的 `#viewPreview` 段与其
+   parity preview 场景迁移至本屏（design-parity-preview.spec.ts）。
+
+2. **目录行状态：章纲三态 dot → 成稿状态标签（.pill 家族）**
+   通读场景只需要成稿状态（拟定/草稿/已归档），章纲缺口细节归写作视图。
+   设计稿自造的 `.tag/.tag.live/.tag.wip` 收敛为 `.pill` 家族
+   （拟定=pill-faint、草稿=pill-accent、已归档=默认中性），第四态
+   「待写」随产品状态机移除。**已归档优先**：archived 章无论有无正文一律已归档。
+
+3. **章节行序号列（阿拉伯 mono `.no`）移除，单列 nodeLabel 全标签**
+   产品序号单源 `nodeTitle.ts`（「第三章 · 静默带」，全局章号中文数字）；
+   设计稿「第3章 + 标题」双列与单源口径冲突，按产品口径合并为一列。
+
+4. **卷头拼串 bug 修正**：设计稿 `'第 '+v.name` 会渲染成「第 第一卷 · 星海初航」；
+   收编稿改为 `<b>{卷全标签}</b> · {N} 章`。
+
+5. **阅读主题补 `--pv-bg` 消费规则**
+   设计稿三个主题类只定义 `--pv-bg/--pv-fg/--pv-muted` 变量、无任何规则消费
+   `--pv-bg`（夜间档浅底浅字不可读）。收编稿 `.pv-prose-wrap` 补
+   `background: var(--pv-bg); color: var(--pv-fg)`。护眼/夜间的 oklch 字面量
+   为登记的 token 化例外（与设计稿逐字一致，不新开全站 token）。
+
+6. **阅读配置持久化（新增）**：设计稿只持久化选中章；产品四轴（字号/字体/行距/主题）
+   书级持久化（`pref.book.{pid}.read.*`），原型以 `ainovel.reading.v1` 演示同语义。
+
+7. **下载成稿卡与弹层不在本屏基线**（归属 c-manuscript-download）
+   设计稿右栏「导出成稿…」卡与导出弹层随该 change 修订后
+   （文案「下载成稿」、PDF 项移除）再落本屏基线；本屏右栏只含
+   全书概览 + 四组阅读配置。术语拍板：读者成稿动作 =「下载」，
+   系统数据资产 =「备份/恢复」。
+
+8. **token 映射（不新开）**：设计稿的 `--accent-ink`→`--accent-strong`、
+   `--hl`→`--fg-soft`、`--faint`→就地 `color-mix`、`--radius-sm/pill`→
+   `--radius`/999px。左栏宽沿用 `--col-left`（280px）不用设计稿 250px。
+
+9. **初始章 = 首章**：设计稿默认选中「最后一章有正文的」；产品语义 =
+   写作视图当前章（initialRef，ADJUSTMENTS #13 本地态口径），parity 态即首章。
+
+10. **翻页控件例外登记**：阅读区「上一章 / 下一章」为翻页控件，
+    非动词按钮词（design-language §13 惯例例外，与分页器同族）。
+
+11. **壳层逐字同 book.html**（appbar/modnav/update-strip/tokens，
+    `--radius-lg:14px`），种子数据（星海拾遗 3 卷 17 章）为演示数据，
+    与 design-parity-preview stub 逐字段对齐。

@@ -748,25 +748,7 @@
 </section>
 
 <!-- ═══════════ 视图 3：预览（左树 + 只读正文，无右栏） ═══════════ -->
-<section class="view two-col" id="viewPreview" data-od-id="view-preview" hidden>
-  <aside class="col-tree" data-od-id="preview-tree">
-    <div class="tree-head">
-      <span class="t">预览 · 卷 <b id="pvVols">2</b> · 章 <b id="pvChs">4</b></span>
-    </div>
-    <div class="tree" id="treePreview"></div>
-    <div class="tree-foot">
-      <span style="font-size:12px; color:var(--muted); line-height:1.7;">只读预览 · 正文在此不可编辑</span>
-    </div>
-  </aside>
-  <main class="col-middle" data-od-id="preview-middle">
-    <div class="preview-head">
-      <span class="pv-title" id="pvChName">第一章 · 锚点</span>
-    </div>
-    <div class="editor-wrap">
-      <div class="editor fs-m lh-comfy" id="pvProse" contenteditable="false"></div>
-    </div>
-  </main>
-</section>
+<!-- #viewPreview 两栏段已下线：预览独立成屏（preview.html，c-preview-reader） -->
 
 <!-- ═══ 遮罩 + 弹窗 ═══ -->
 <div class="scrim" id="scrim" hidden></div>
@@ -1112,15 +1094,11 @@ function switchView(view) {
   $('viewSettings').classList.toggle('on', view === 'settings');
   $('viewOutline').hidden = view !== 'outline';
   $('viewOutline').classList.toggle('on', view === 'outline');
-  $('viewPreview').hidden = view !== 'preview';
-  $('viewPreview').classList.toggle('on', view === 'preview');
   const side = $('modSide');
   if (view === 'settings') side.textContent = '设定 · 若干项，确认即作为 AI 上下文（可选）';
-  else if (view === 'preview') side.textContent = '预览 · 只读正文，通读全篇';
   else side.textContent = '写作 · 卷有卷纲；点章即可配章纲、提示词并写正文';
   if (view === 'outline') renderMiddle();
-  if (view === 'preview') renderPreview();
-  updateModNav();
+  if (view === 'preview') { /* 预览已独立（preview.html） */ }  updateModNav();
 }
 document.querySelectorAll('.mtab').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
 function updateModNav() {

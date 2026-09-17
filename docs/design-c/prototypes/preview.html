@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>星海拾遗 · 阅读预览 — 爱小说</title>
+<style>
+  /* ─── tokens（与全站一致，book.html 同源） ─────────────── */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 14px;
+    --col-left: 280px;
+    /* 阅读主题（护眼/夜间为设计稿固定 oklch 字面量，ADJUSTMENTS 登记的 token 化例外） */
+    --pv-bg: var(--bg); --pv-fg: var(--fg); --pv-muted: var(--muted);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: var(--font-body); font-size: 14px; line-height: 1.55;
+    text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  img, svg { display: block; }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; padding: 0; }
+  input, textarea, select { font: inherit; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .serif { font-family: var(--font-display); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+
+  /* ─── 按钮 ─────────────────────────────────────────────── */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); border: 1px solid transparent; font-size: 13.5px; font-weight: 500; letter-spacing: 0.01em; transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease; }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+  .btn-primary { background: var(--accent); color: var(--surface); }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-strong); }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+  .btn-secondary:hover:not(:disabled) { border-color: var(--fg); }
+  .btn-ghost { background: transparent; color: var(--muted); padding: 0 8px; }
+  .btn-ghost:hover:not(:disabled) { color: var(--fg); background: var(--fg-soft); }
+  .btn-sm { height: 28px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; gap: 5px; }
+  .btn svg { width: 15px; height: 15px; }
+  .btn-sm svg { width: 13px; height: 13px; }
+  .icon-btn { width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: 8px; color: var(--muted); flex: none; }
+  .icon-btn:hover { color: var(--fg); background: var(--fg-soft); }
+  .icon-btn svg { width: 15px; height: 15px; }
+
+  /* ═══ 更新提示条（client-update-notify）——逐字同 book.html ═══ */
+  .notice { display: flex; align-items: center; gap: 12px; border: 1px solid color-mix(in oklch, var(--warn) 28%, var(--border)); background: var(--warn-soft); border-radius: var(--radius); padding: 10px 14px; font-size: 13px; }
+  .notice.info { border-color: color-mix(in oklch, var(--accent) 30%, var(--border)); background: var(--accent-soft); }
+  .notice .nt { flex: 1; }
+  .notice .nt b { font-weight: 500; }
+  .notice .nt span { color: var(--muted); font-size: 12.5px; margin-left: 8px; }
+  .update-strip { flex: none; padding: 12px 16px 0; }
+
+  /* ─── 应用栏（与 book.html 逐字同源） ──────────────────── */
+  .appbar { height: 48px; flex: none; display: flex; align-items: center; padding: 0 16px; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; white-space: nowrap; flex: none; }
+  .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--surface); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; }
+  .appbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
+  .novel-title { font-family: var(--font-display); font-size: 15.5px; font-weight: 600; white-space: nowrap; flex: none; }
+  .genre-tag { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--muted); background: var(--surface); white-space: nowrap; flex: none; }
+  .bar-here { display: flex; align-items: center; gap: 11px; flex: 1 1 auto; min-width: 0; }
+  .bh-k { flex: none; margin: 0; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; color: var(--accent); }
+  .bh-rule { width: 1px; height: 15px; background: var(--border); flex: none; }
+  .bh-t { flex: 0 1 auto; min-width: 0; margin: 0; font-family: var(--font-display); font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bh-t .n { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-right: 7px; }
+  @media (max-width: 1320px) { .appbar .genre-tag { display: none; } }
+  @media (max-width: 920px) {
+    .appbar { position: static; height: auto; min-height: 0; flex-wrap: wrap; padding: 9px 14px; gap: 8px 10px; }
+    .appbar .sep { display: none; }
+    .appbar .acct { margin-left: auto; }
+  }
+
+  /* ─── 账户（与 book.html 同源） ────────────────────────── */
+  .acct { display: inline-flex; margin-left: auto; }
+  .acct-trigger { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 5px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; font-size: 12.5px; }
+  .acct-trigger:hover { border-color: var(--accent); }
+  .acct-trigger .caret { width: 14px; height: 14px; color: var(--muted); }
+  .avatar { width: 24px; height: 24px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+  .badge { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 11px; line-height: 1.6; white-space: nowrap; }
+  .badge-accent { background: var(--accent-soft); color: var(--accent); }
+  .badge-muted { background: color-mix(in oklch, var(--fg) 6%, transparent); color: var(--muted); }
+
+  /* ─── 书内模块导航（与 book.html 逐字同源） ─────────────── */
+  .modnav { flex: none; display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .mtab { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 14px; border-radius: 9px; font-size: 13.5px; color: var(--muted); }
+  .mtab:hover { color: var(--fg); background: var(--fg-soft); }
+  .mtab.on { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+  .mtab .cnt { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.02em; }
+  .mtab.on .cnt { color: var(--accent); }
+  .modnav .spacer { flex: 1; }
+  .modnav .side { font-size: 12px; color: var(--muted); }
+
+  /* ─── 视图容器 ─────────────────────────────────────────── */
+  .view { flex: 1; min-height: 0; display: none; }
+  .view.on { display: block; }
+
+  /* ═════════ 阅读预览三栏（preview-reader）：目录 / 阅读 / 配置与概览 ═════════ */
+  .view.on.preview-v { display: grid; grid-template-columns: var(--col-left) minmax(0, 1fr) 264px; }
+  @media (max-width: 1024px) { :root { --col-left: 230px; } .view.on.preview-v { grid-template-columns: var(--col-left) minmax(0, 1fr); } .view.on.preview-v .pv-side { display: none; } }
+  @media (max-width: 640px) { .view.on.preview-v { grid-template-columns: 1fr; grid-template-rows: 240px 1fr; } .view.on.preview-v .pv-tree { border-right: 0; border-bottom: 1px solid var(--border); } }
+
+  .pv-tree { min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--surface); }
+  .pv-head { flex: none; padding: 13px 15px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; }
+  .pv-head .t { font-size: 13.5px; color: var(--fg); font-weight: 600; }
+  .pv-head .sub { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+  .pv-toc { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px 8px 22px; }
+  .pv-vol { display: flex; align-items: baseline; gap: 8px; padding: 12px 10px 4px; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); letter-spacing: 0.03em; }
+  .pv-vol:first-child { padding-top: 10px; }
+  .pv-vol b { color: var(--muted); font-weight: 500; font-family: var(--font-body); font-size: 11.5px; letter-spacing: 0; }
+  .pv-ch { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border-radius: 9px; padding: 7px 10px; color: var(--muted); font: inherit; }
+  .pv-ch:hover { background: var(--fg-soft); color: var(--fg); }
+  .pv-ch.on { background: var(--accent-soft); color: var(--fg); }
+  .pv-ch .ti { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pv-ch .wc { font-family: var(--font-mono); font-size: 10px; color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }
+  .pv-ch.on .wc { color: var(--accent); }
+  /* 成稿状态标签（.pill 家族，design-system 口径；章纲三态 dot 不进预览） */
+  .pill { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 1.6; font-weight: 500; background: var(--surface); color: var(--muted); white-space: nowrap; flex: none; }
+  .pill-accent { background: var(--accent-soft); border-color: transparent; color: var(--accent-strong); }
+
+  .pv-read { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
+  .pv-read-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .pv-read-top .pos { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+  .pv-turn { border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 12px; padding: 5px 12px; border-radius: 9px; flex: none; }
+  .pv-turn:hover:not([aria-disabled="true"]) { background: var(--fg-soft); }
+  .pv-turn[aria-disabled="true"] { opacity: 0.35; cursor: default; }
+  .pv-prose-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 36px 48px 96px; background: var(--pv-bg); color: var(--pv-fg); }
+  .pv-theme-sepia { --pv-bg: oklch(0.955 0.014 80); --pv-fg: oklch(0.335 0.022 70); --pv-muted: oklch(0.55 0.02 70); }
+  .pv-theme-night { --pv-bg: oklch(0.19 0.012 245); --pv-fg: oklch(0.875 0.012 245); --pv-muted: oklch(0.6 0.012 245); }
+  .pv-chapter { max-width: 66ch; margin: 0 auto; padding-bottom: 20px; margin-bottom: 28px; border-bottom: 1px solid var(--border); }
+  .pv-voltag { margin: 0 0 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; color: var(--pv-muted); }
+  .pv-chapter h2 { margin: 0 0 6px; font-size: 22px; font-weight: 600; color: var(--pv-fg); font-family: var(--font-display); }
+  .pv-meta { margin: 0; font-family: var(--font-mono); font-size: 11px; color: var(--pv-muted); }
+  .pv-prose { max-width: 66ch; margin: 0 auto; font-family: var(--pv-font, var(--font-display)); font-size: var(--pv-size, 16px); line-height: var(--pv-line, 1.85); color: var(--pv-fg); }
+  .pv-prose p { margin: 0 0 0.9em; text-indent: 2em; }
+  .pv-prose .vempty { text-indent: 0; color: var(--pv-muted); }
+  .pv-font-sans { --pv-font: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif; }
+  .pv-font-kai { --pv-font: 'Kaiti SC', 'KaiTi', 'STKaiti', Georgia, serif; }
+
+  .pv-side { min-height: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--bg); padding: 16px 15px 22px; display: flex; flex-direction: column; gap: 14px; }
+  .pv-card { border: 1px solid var(--border); border-radius: 12px; padding: 12px 13px; background: var(--surface); }
+  .pv-card h4 { margin: 0 0 10px; font-size: 12px; color: var(--muted); font-weight: 500; }
+  .pv-card .stat-line { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--fg); }
+  .pv-card .stat-line span { display: flex; justify-content: space-between; gap: 10px; }
+  .pv-card .stat-line b { font-family: var(--font-mono); font-weight: 500; color: var(--accent-strong); font-variant-numeric: tabular-nums; }
+  .pv-seg { display: flex; gap: 4px; }
+  .pv-seg button { flex: 1; border: 1px solid var(--border); border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 12px; padding: 6px 0; cursor: pointer; }
+  .pv-seg button:hover { color: var(--fg); border-color: var(--muted); }
+  .pv-seg button.on { background: var(--accent-soft); border-color: transparent; color: var(--accent); font-weight: 500; }
+</style>
+</head>
+<body>
+
+<!-- ═══ 全局更新提示条（client-update-notify）：逐字同 book.html ═══ -->
+<div class="update-strip" data-od-id="update-notice-strip">
+  <div class="notice info" data-od-id="update-notice">
+    <span class="nt">
+      <b>发现新版本 v0.13（当前 v0.11）</b>
+      <span>提升章纲 AI 起草的稳定性，修复若干问题</span>
+    </span>
+    <button class="btn btn-secondary btn-sm" data-od-id="update-download">去下载</button>
+    <button class="btn btn-ghost btn-sm" data-od-id="update-notes">查看更新内容</button>
+    <button class="btn btn-ghost btn-sm" data-od-id="update-dismiss">知道了</button>
+  </div>
+</div>
+
+<!-- ═══ 应用栏（行头归一：logo 即返回 · 书名 · 题材 · 当前主线定位 · 账户） ═══ -->
+<header class="appbar" data-od-id="appbar">
+  <a class="logo" href="list.html" data-od-id="appbar-logo" title="返回我的小说"><span class="logo-mark">爱</span>爱小说</a>
+  <span class="sep"></span>
+  <span class="novel-title serif">星海拾遗</span>
+  <span class="genre-tag">科幻</span>
+  <span class="sep"></span>
+  <div class="bar-here" id="barHere" data-od-id="current-position">
+    <p class="bh-k">当前主线</p>
+    <span class="bh-rule"></span>
+    <p class="bh-t"><span class="n">第 1 章</span>锚点</p>
+  </div>
+  <div class="acct">
+    <button class="acct-trigger" id="btnAcct" data-od-id="acct-trigger" aria-haspopup="menu" aria-expanded="false">
+      <span class="avatar" aria-hidden="true">m</span><span class="badge badge-muted" id="acctBadge" data-od-id="acct-badge">免费版</span><svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ═══ 书内模块导航：设定 / 写作 / 预览（预览 = 当前视图） ═══ -->
+<nav class="modnav" data-od-id="modnav">
+  <button class="mtab" data-view="settings" data-od-id="tab-settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+    设定 <span class="cnt" id="modSettingsCnt">3/7</span>
+  </button>
+  <button class="mtab" data-view="writing" data-od-id="tab-writing" title="写作工作台（本屏不演示切换）">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+    写作 <span class="cnt" id="modOutlineCnt">16/17 章纲</span>
+  </button>
+  <button class="mtab on" data-view="preview" data-od-id="tab-preview">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg>
+    预览
+  </button>
+  <span class="spacer"></span>
+  <span class="side" id="modSide">预览 · 只读正文，通读全篇</span>
+</nav>
+
+<!-- ══════════ 阅读预览（三栏：全书目录 / 阅读 / 配置与概览） ══════════ -->
+<main class="view on preview-v" id="viewPreview" data-od-id="view-preview">
+
+  <aside class="col-tree pv-tree" data-od-id="pv-tree">
+    <div class="pv-head">
+      <span class="t">全书目录</span>
+      <span class="sub" id="pvCount">—</span>
+    </div>
+    <nav class="pv-toc" id="pvToc" aria-label="预览目录"></nav>
+  </aside>
+
+  <section class="pv-read" id="pvRead" data-od-id="pv-read"></section>
+
+  <aside class="pv-side" id="pvSide" data-od-id="pv-side"></aside>
+
+</main>
+
+<script>
+/* ═══════════ 种子（parity 与应用 stub 逐字段对齐的演示数据） ═══════════
+   全局章号 1-17；主线（不含旧稿支线）；状态口径 = 成稿状态：
+   archived → 已归档（优先）；有正文未归档 → 草稿；无正文 → 拟定。
+   c16 拟定（无正文）、c17 草稿（有正文未归档），其余已归档。 */
+const CN = ['零','一','二','三','四','五','六','七','八','九'];
+function cnNum(n){ if(n<10) return CN[n]; if(n<20) return '十'+(n%10?CN[n%10]:''); const t=Math.floor(n/10),o=n%10; return CN[t]+'十'+(o?CN[o]:''); }
+function chLabel(no,title){ return '第'+cnNum(no)+'章 · '+title; }
+
+const VOLS = [
+  { id:'v1', no:1, title:'星海初航' },
+  { id:'v2', no:2, title:'星群之间' },
+  { id:'v3', no:3, title:'回声之海' },
+];
+
+/* 正文种子：唯一事实源（parity 侧从本数组提取字数，勿内联进章对象） */
+const PROSE = {
+  c1:  '信标亮起的时候，沉舟正把最后一段校准数据压进存储器。三百年前的坐标，误差不到一个天文单位。她盯着那串数字看了很久，然后把手从注销键上挪开了。',
+  c2:  '点火之前，她亲手拆掉了自己的锚点。那是船和母港之间唯一还连着的东西。她把锚点放进抽屉，关好，没有再看第二眼。',
+  c3:  '静默带里没有导航，也没有回声。三个小时，她只听见自己的呼吸。到第四个小时，她开始怀疑那串坐标是不是自己记错了。',
+  c4:  '她把一张手绘航图摊在控制台上。纸是仿制品，但缺口的位置和信标给的方向严丝合缝。缺口的边缘被人反复摩挲过，纸都起了毛。',
+  c5:  '拾荒船从舷侧三公里处掠过，灯语只有三个短闪：你也听见了？她没有回答。对方也没有再问。',
+  c6:  '中继站的门是开着的。三百年来第一件不合理的事，就这样安安静静地摆在她面前。',
+  c7:  '船队有自己的规矩。新人要先交出航迹，再换得一张临时泊位。沉舟学会了在规则里说话，把真话拆成一半一半地讲。',
+  c8:  '借引力井省下第一批燃料，代价是交出一段三年前的航迹。老聋说这很划算，她没有反驳。',
+  c9:  '老聋把一枚船徽塞进她手里。铜是旧的，背面刻着一行几乎磨平的字。「认得这个的，都不在了。」他说完就走了。',
+  c10: '两条航路摊在面前，一条快，一条稳。她选了稳的那条。船队里没人看好这个选择。',
+  c11: '船队里流传一面镜子，说能照出你没走的那条路。沉舟在镜前站了很久，什么也没看见。',
+  c12: '离队的手续只用了半天。她没跟任何人道别，只把船徽留在了泊位的枕木上。',
+  c13: '再次靠近中继站时，信号比记忆里近了一度。这个数字不该变。',
+  c14: '镜像回声第一次应答。频道里传回来的，是她三天前说过的一句话，一字不差。她把录音倒回去听了两遍，然后关掉频道，坐在黑暗里很久。',
+  c15: '她决定先回中继站求证。信号没有跟上来。这让她稍微安心了一点。',
+  c17: '第三段刻痕是新的。她在频道里问了一句：你是谁。这一次，回声没有立刻回来。'
+};
+
+/* 章：archived 优先；无 body 即拟定。g15 为旧稿支线（回退型，ghost_of 置位）——预览不渲染。 */
+const CHS = [
+  { id:'c1',  vol:'v1', no:1,  title:'锚点',     archived:true },
+  { id:'c2',  vol:'v1', no:2,  title:'跃迁',     archived:true },
+  { id:'c3',  vol:'v1', no:3,  title:'静默带',   archived:true },
+  { id:'c4',  vol:'v1', no:4,  title:'旧航图',   archived:true },
+  { id:'c5',  vol:'v1', no:5,  title:'拾荒者',   archived:true },
+  { id:'c6',  vol:'v1', no:6,  title:'中继站',   archived:true },
+  { id:'c7',  vol:'v2', no:7,  title:'人群',     archived:true },
+  { id:'c8',  vol:'v2', no:8,  title:'引力井',   archived:true },
+  { id:'c9',  vol:'v2', no:9,  title:'船徽',     archived:true },
+  { id:'c10', vol:'v2', no:10, title:'双航路',   archived:true },
+  { id:'c11', vol:'v2', no:11, title:'镜面',     archived:true },
+  { id:'c12', vol:'v2', no:12, title:'出队',     archived:true },
+  { id:'c13', vol:'v3', no:13, title:'归航',     archived:true },
+  { id:'c14', vol:'v3', no:14, title:'镜像',     archived:true },
+  { id:'c15', vol:'v3', no:15, title:'潮间',     archived:true },
+  { id:'c16', vol:'v3', no:16, title:'刻痕',     archived:false },
+  { id:'c17', vol:'v3', no:17, title:'回声之海', archived:false },
+  { id:'g15', vol:'v3', no:15, title:'折返',     archived:true, ghostOf:'c15' },
+];
+
+const $ = (s, r) => (r || document).querySelector(s);
+const byId = id => CHS.find(c => c.id === id);
+const volOf = id => VOLS.find(v => v.id === id);
+const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const bodyOf = c => PROSE[c.id] || '';
+const hasProse = c => !!bodyOf(c).trim();
+const wordCount = c => bodyOf(c).replace(/\s/g, '').length;
+const mainline = () => CHS.filter(c => !c.ghostOf);
+
+/* 成稿状态（已归档优先）：拟定 / 草稿 / 已归档 */
+function statusOf(c){
+  if (c.archived) return { label:'已归档', cls:'pill' };
+  if (hasProse(c)) return { label:'草稿', cls:'pill pill-accent' };
+  return { label:'拟定', cls:'pill' };
+}
+
+/* ═══════════ 阅读配置（四轴三档，书级持久化，只作用预览） ═══════════
+   默认 中号 · 衬线 · 舒适 · 白纸；demo 持久化键 ainovel.reading.v1。 */
+const STORE = 'ainovel.reading.v1';
+const cfg = Object.assign({ size:'m', font:'serif', line:'comfy', theme:'paper', sel:null });
+try { const s = JSON.parse(localStorage.getItem(STORE) || '{}'); Object.assign(cfg, s || {}); } catch (e) {}
+
+function persist(){ try { localStorage.setItem(STORE, JSON.stringify(cfg)); } catch (e) {} }
+
+function current(){
+  const c = cfg.sel && byId(cfg.sel) && !byId(cfg.sel).ghostOf ? byId(cfg.sel) : null;
+  if (c) return c;
+  return mainline()[0] || null;   /* 产品口径：初始章 = 写作视图当前章（parity 态为首章） */
+}
+
+/* ── 目录 ── */
+function tocHTML(){
+  return VOLS.map(v => {
+    const chs = mainline().filter(c => c.vol === v.id);
+    if (!chs.length) return '';
+    return '<div class="pv-vol"><b>第'+cnNum(v.no)+'卷 · '+esc(v.title)+'</b> · '+chs.length+' 章</div>'
+      + chs.map(c => {
+          const on = cfg.sel === c.id || (!cfg.sel && c.id === current().id);
+          const st = statusOf(c);
+          const wc = hasProse(c) ? '<span class="wc">'+wordCount(c)+'字</span>' : '';
+          return '<button type="button" class="pv-ch'+(on?' on':'')+'" data-pv-sel="'+c.id+'" aria-pressed="'+(on?'true':'false')+'" data-od-id="pv-ch">'
+            + '<span class="ti">'+esc(chLabel(c.no, c.title))+'</span>'
+            + wc
+            + '<span class="'+st.cls+'">'+st.label+'</span>'
+          + '</button>';
+        }).join('');
+  }).join('');
+}
+
+/* ── 阅读区 ── */
+function readHTML(){
+  const c = current();
+  const chs = mainline();
+  const i = c ? chs.findIndex(x => x.id === c.id) : -1;
+  const prev = i > 0 ? chs[i-1] : null;
+  const next = c && i < chs.length-1 ? chs[i+1] : null;
+  const vol = c ? volOf(c.vol) : null;
+  const st = c ? statusOf(c) : null;
+  const turn = (dir, label, item) => '<button type="button" class="pv-turn" data-pv-'+dir+'="1"'+(item?'':' aria-disabled="true"')+' data-od-id="pv-'+dir+'">'+label+'</button>';
+  const body = hasProse(c)
+    ? bodyOf(c).split(/\n+/).filter(x => x.trim()).map(x => '<p>'+esc(x.trim())+'</p>').join('')
+    : '<p class="vempty">本章还没有正文，回到「写作」开始写。</p>';
+  return ''
+    + '<div class="pv-read-top">'
+    + '<span class="pos">'+(vol ? esc('第'+cnNum(vol.no)+'卷 · '+vol.title)+' · ' : '')+esc(chLabel(c?c.no:0, c?c.title:''))+'</span>'
+    + turn('prev', '上一章', prev)
+    + turn('next', '下一章', next)
+    + '</div>'
+    + '<div class="pv-prose-wrap" data-od-id="pv-prose-wrap">'
+    + (c
+        ? '<div class="pv-chapter" data-od-id="pv-chapter">'
+          + (vol ? '<p class="pv-voltag">第'+cnNum(vol.no)+'卷 · '+esc(vol.title)+'</p>' : '')
+          + '<h2>'+esc(chLabel(c.no, c.title))+'</h2>'
+          + '<p class="pv-meta">'+st.label+(hasProse(c) ? ' · '+wordCount(c)+' 字' : '')+'</p>'
+        + '</div>'
+        : '<p class="vempty">这本书还没有可预览的章节。</p>')
+    + '<div class="pv-prose" data-od-id="pv-prose">'+body+'</div>'
+    + '</div>';
+}
+
+/* ── 右栏：全书概览 + 阅读配置 ── */
+function segHTML(kind, label, opts){
+  return '<div class="pv-card"><h4>'+label+'</h4><div class="pv-seg" role="group" aria-label="'+label+'" data-od-id="seg-pv-'+kind+'">'
+    + opts.map(o => '<button type="button" data-pv-cfg="'+kind+':'+o[0]+'" class="'+(cfg[kind]===o[0]?'on':'')+'" aria-pressed="'+(cfg[kind]===o[0]?'true':'false')+'">'+o[1]+'</button>').join('')
+    + '</div></div>';
+}
+function sideHTML(){
+  const chs = mainline();
+  const total = chs.reduce((a,c) => a + wordCount(c), 0);
+  const nArch = chs.filter(c => c.archived).length;
+  const nDraft = chs.filter(c => !c.archived && hasProse(c)).length;
+  const nPlan = chs.filter(c => !c.archived && !hasProse(c)).length;
+  return ''
+    + '<div class="pv-card" data-od-id="pv-overview"><h4>全书概览</h4><div class="stat-line">'
+    + '<span>章节 <b>'+chs.length+'</b></span>'
+    + '<span>字数 <b>'+total+'</b></span>'
+    + '<span>已归档 <b>'+nArch+'</b> · 草稿 '+nDraft+' · 拟定 '+nPlan+'</span>'
+    + '</div></div>'
+    + segHTML('size', '字号', [['s','小'],['m','中'],['l','大']])
+    + segHTML('font', '字体', [['serif','衬线'],['sans','黑体'],['kai','楷体']])
+    + segHTML('line', '行距', [['tight','紧凑'],['comfy','舒适'],['loose','宽松']])
+    + segHTML('theme', '主题', [['paper','白纸'],['sepia','护眼'],['night','夜间']]);
+}
+
+/* ── 配置应用（类挂根容器，CSS 变量收敛） ── */
+function applyCfg(){
+  const root = $('#viewPreview');
+  root.classList.remove('pv-theme-sepia','pv-theme-night');
+  if (cfg.theme !== 'paper') root.classList.add('pv-theme-'+cfg.theme);
+  root.classList.remove('pv-font-sans','pv-font-kai');
+  if (cfg.font !== 'serif') root.classList.add('pv-font-'+cfg.font);
+  root.style.setProperty('--pv-size', cfg.size === 'l' ? '18px' : cfg.size === 's' ? '14px' : '16px');
+  root.style.setProperty('--pv-line', cfg.line === 'tight' ? '1.6' : cfg.line === 'loose' ? '2.2' : '1.85');
+}
+
+function render(){
+  const chs = mainline();
+  $('#pvCount').textContent = '主线 '+chs.length+' 章 · '+VOLS.length+' 卷 · 不含旧稿';
+  $('#pvToc').innerHTML = tocHTML();
+  $('#pvRead').innerHTML = readHTML();
+  $('#pvSide').innerHTML = sideHTML();
+  applyCfg();
+}
+
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-pv-sel],[data-pv-prev],[data-pv-next],[data-pv-cfg],[data-view]');
+  if (!t) return;
+  if (t.dataset.pvSel){ cfg.sel = t.dataset.pvSel; persist(); render(); return; }
+  if (t.dataset.pvPrev !== undefined){ if (t.getAttribute('aria-disabled') === 'true') return; step(-1); return; }
+  if (t.dataset.pvNext !== undefined){ if (t.getAttribute('aria-disabled') === 'true') return; step(1); return; }
+  if (t.dataset.pvCfg){
+    const m = String(t.dataset.pvCfg).split(':');
+    if (['size','font','line','theme'].includes(m[0])){ cfg[m[0]] = m[1]; persist(); applyCfg(); $('#pvSide').innerHTML = sideHTML(); }
+    return;
+  }
+  if (t.dataset.view && t.dataset.view !== 'preview'){ /* 演示稿：其余视图不在本原型范围 */ }
+});
+
+function step(d){
+  const chs = mainline();
+  const cur = current();
+  const i = chs.findIndex(x => x.id === cur.id);
+  const n = chs[i+d];
+  if (!n) return;
+  cfg.sel = n.id; persist(); render();
+}
+
+render();
+</script>
+</body>
+</html>

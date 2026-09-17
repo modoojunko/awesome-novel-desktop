@@ -764,3 +764,83 @@ test("伏笔页签：台账投影渲染（空态文案与汇总）", async ({ pa
     await restore();
   }
 });
+
+// -------------------------------------------------------------------------
+// ⑨ 预览阅读器（preview-reader，c-preview-reader）：三栏 + 目录切章 + 跨卷翻页
+//    + 阅读配置持久化（离开再进仍在）+ 写作视图选中章不变（ADJUSTMENTS #13）
+// -------------------------------------------------------------------------
+
+test("预览阅读器：三栏/跨卷翻页/配置持久化/写作选中不变", async ({ page, request }) => {
+  const { restore, token } = await setupSession(page, "trial");
+  try {
+    const pid = await createNovel(page, `预览器${Date.now() % 100000}`);
+    const editor = await writeFirstChapter(page);
+    await editor.fill("第一卷第一章的正文，用于预览通读验证字数与状态标签。".repeat(4));
+    await expect(page.getByText("已自动保存").first()).toBeVisible({ timeout: 8000 });
+
+    // API 备料：vol-1 第二章 + 第二卷（含一章）→ 跨卷翻页样本
+    const post = async (path: string, data: unknown) => {
+      const r = await request.post(`${ORIGIN}/api/novels/${pid}${path}`, {
+        data,
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(r.ok()).toBeTruthy();
+      return r.json().catch(() => ({}));
+    };
+    await post("/volumes/vol-1/chapters", { title: "渡口" });
+    const v2 = await post("/volumes", { title: "第二卷" });
+    const v2Ref = (v2.data?.ref ?? v2.ref ?? "vol-2") as string;
+    await post(`/volumes/${v2Ref}/chapters`, { title: "归航" });
+    // 刷新树（API 备料后写作树是事件增量，保险起见整页重进）
+    await page.reload();
+    await expect(page.locator(".three-col .ch", { hasText: "归航" })).toBeVisible({
+      timeout: 10000,
+    });
+
+    // ── 进预览：三栏可见 + 目录头计数 + 初始章 = 写作视图当前章 ──
+    await page.locator(".mtab", { hasText: "预览" }).click();
+    await expect(page.locator(".pv-tree")).toBeVisible();
+    await expect(page.locator(".pv-read")).toBeVisible();
+    await expect(page.locator(".pv-side")).toBeVisible();
+    await expect(page.getByTestId("pv-count")).toContainText("主线 3 章 · 2 卷 · 不含旧稿");
+    await expect(page.getByTestId("pv-chapter")).toContainText("第一章");
+    // 概览：3 章 · 已归档 0（trial 未归档）· 草稿 1 · 拟定 2
+    await expect(page.locator(".pv-side .stat-line").first()).toContainText("章节 3");
+    await expect(page.locator(".pv-side .stat-line").first()).toContainText("草稿 1 · 拟定 2");
+
+    // ── 下一章跨卷：第一章 → 第二章（卷内）→ 第三卷? 第三章（第二卷）──
+    await page.getByTestId("pv-next").click();
+    await expect(page.getByTestId("pv-chapter")).toContainText("第二章 · 渡口");
+    await page.getByTestId("pv-next").click();
+    await expect(page.getByTestId("pv-chapter")).toContainText("第三章 · 归航");
+    await expect(page.getByTestId("pv-chapter").locator(".pv-voltag")).toHaveText("第二卷");
+    // 末章禁用 + 上一章回跨
+    await expect(page.getByTestId("pv-next")).toHaveAttribute("aria-disabled", "true");
+    await page.getByTestId("pv-prev").click();
+    await expect(page.getByTestId("pv-chapter")).toContainText("第二章 · 渡口");
+    // 目录直切
+    await page.locator(".pv-ch", { hasText: "归航" }).click();
+    await expect(page.getByTestId("pv-chapter")).toContainText("第三章 · 归航");
+
+    // ── 阅读配置：夜间 + 小号立即生效并落 localStorage ──
+    await page.getByRole("group", { name: "主题" }).locator("button", { hasText: "夜间" }).click();
+    await page.getByRole("group", { name: "字号" }).locator("button", { hasText: "小" }).click();
+    await expect(page.locator(".view.preview-v")).toHaveClass(/pv-theme-night/);
+    const readTheme = await page.evaluate(() =>
+      localStorage.getItem(`pref.book.${pid}.read.theme`),
+    );
+    expect(readTheme).toBe("night");
+
+    // ── 回写作：选中章仍是最初的第一章（预览切章不回写写作视图）──
+    await page.locator(".mtab", { hasText: "写作" }).click();
+    await expect(page.locator(".editor")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(".editor-toolbar .ch-name")).toContainText("第一章");
+
+    // ── 再进预览：阅读配置仍在（书级持久化）──
+    await page.locator(".mtab", { hasText: "预览" }).click();
+    await expect(page.locator(".view.preview-v")).toHaveClass(/pv-theme-night/);
+    await expect(page.getByTestId("pv-chapter")).toContainText("第一章");
+  } finally {
+    await restore();
+  }
+});

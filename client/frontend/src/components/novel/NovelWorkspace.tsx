@@ -631,14 +631,14 @@ export default function NovelWorkspace() {
           novelName={project?.name ?? ""}
         />
       )}
-      {/* 预览：只读树 + 只读排版（PreviewView 复刻 #viewPreview） */}
+      {/* 预览：三栏阅读器（preview-reader，c-preview-reader） */}
       {view === "archives" && (
         <PreviewView
           projectId={projectId}
           volumes={volumes}
-          outline={outline}
           initialRef={chapterRef}
           onRefresh={handleArchivesRefresh}
+          onGoWrite={() => go("workbench")}
         />
       )}
 
