@@ -133,3 +133,18 @@ describe("confirmedStatus（GET /settings/status）", () => {
     expect(result.current.confirmedStatus).toBeNull();
   });
 });
+
+// ── 空 projectId 守卫（PR #387）：书未加载完不打任何请求 ────────────────────
+// 回归背景：charStale effect 缺守卫时冷启动必发 /novels//characters/gate/status
+// 被 collections 通配路由吃掉 → 控制台 404。 NovelWorkspace 实参是 project?.id ?? ""，
+// 故 "" 与 undefined 都要守住。
+describe("空 projectId 守卫", () => {
+  it("projectId 为 undefined / 空串 → 不发任何请求", async () => {
+    const { useOnboarding } = await import("@/hooks/useOnboarding");
+    for (const pid of [undefined, ""]) {
+      renderHook(() => useOnboarding(pid, []));
+    }
+    await act(async () => {}); // 排空 effects 与微任务，给「不该有的请求」机会冒头
+    expect(apiState.get).not.toHaveBeenCalled();
+  });
+});
