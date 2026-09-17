@@ -337,3 +337,53 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
     expect(within(rail).getByRole("button", { name: "扩写选段" })).toBeDefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// chapter-rewrite：操作页签「重写这一章」卡门槛（无正文不渲染）
+// ---------------------------------------------------------------------------
+
+const ONE_CHAPTER_WITH_PROSE = { ...ONE_CHAPTER_DATA, prose: "第一章的正文内容。" };
+
+describe("重写入口门槛（chapter-rewrite）", () => {
+  it("无正文章：操作页签不渲染「重写这一章」卡", async () => {
+    mockOneChapterTree(); // ONE_CHAPTER_DATA.prose = ""
+    renderWorkspace("none");
+    await selectFirstChapter();
+    // 点章后回落章纲的竞态：重试式切「操作」直到面板挂载
+    await waitFor(() => {
+      fireEvent.click(screen.getByRole("tab", { name: /^操作/ }));
+      expect(document.querySelector('[data-od-id="actions-pane"]')).toBeTruthy();
+    });
+    expect(screen.queryByTestId("rewrite-btn")).toBeNull();
+    // 回退卡仍在（其余操作不受影响；该按钮注册在 data-od-id）
+    expect(document.querySelector('[data-od-id="revert-btn"]')).toBeTruthy();
+  });
+
+  it("有正文章：渲染「重写这一章」卡（点击出确认弹窗）", async () => {
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/novels/p1/volumes") return Promise.resolve(ONE_VOL_ONE_CHAPTER);
+      if (path === "/novels/p1/chapters/vol-1-ch-1")
+        return Promise.resolve(ONE_CHAPTER_WITH_PROSE);
+      if (path === "/novels/p1/readiness")
+        return Promise.resolve({ complete: false, missing: [], warning: "" });
+      return Promise.resolve({});
+    });
+    apiState.request.mockResolvedValue([]);
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+    apiState.put.mockResolvedValue({});
+    apiState.post.mockResolvedValue({});
+    renderWorkspace("none");
+    await selectFirstChapter();
+    await waitFor(() => {
+      fireEvent.click(screen.getByRole("tab", { name: /^操作/ }));
+      expect(document.querySelector('[data-od-id="actions-pane"]')).toBeTruthy();
+    });
+    const btn = screen.getByTestId("rewrite-btn");
+    fireEvent.click(btn);
+    // 影响面确认弹窗三行（限定在弹窗列表内，避开卡片同款文案）
+    const rwList = document.querySelector('[role="dialog"] .rw-list');
+    expect(rwList?.textContent).toContain("转入旧稿支线");
+    expect(rwList?.textContent).toContain("基于旧设定");
+    expect(screen.getByTestId("rewrite-confirm")).toBeTruthy();
+  });
+});

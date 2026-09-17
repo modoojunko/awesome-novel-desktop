@@ -155,6 +155,28 @@ class TestRewrite:
         finally:
             _cleanup()
 
+    def test_second_rewrite_with_new_content_creates_second_ghost(self):
+        """不同内容重写两次 → 两个旧稿快照（内容寻址 ref 不同，互不覆盖）。"""
+        _root, nid = asyncio.run(_seed())
+        try:
+            g1 = _post(nid, "/chapters/vol-1-ch-2/rewrite").json()["ghost_ref"]
+            # 源章改写为新内容（单写入口清自身 stale 也无妨）
+            r = _put(nid, "/chapters/vol-1-ch-2/prose",
+                     {"prose": "第2章重写后的新正文。"})
+            assert r.status_code == 200, r.text
+            g2 = _post(nid, "/chapters/vol-1-ch-2/rewrite").json()["ghost_ref"]
+            assert g1 != g2
+            ghosts = _get(nid, "/ghosts").json()
+            mine = [x for x in ghosts if x["ghost_of"] == "vol-1-ch-2"]
+            assert {x["ref"] for x in mine} == {g1, g2}
+            # 两份快照正文各自保留
+            p1 = _get(nid, f"/chapters/{g1}").json()["prose"]
+            p2 = _get(nid, f"/chapters/{g2}").json()["prose"]
+            assert p1 == "第2章的正文内容。"
+            assert p2 == "第2章重写后的新正文。"
+        finally:
+            _cleanup()
+
     def test_rewrite_409_no_prose_and_ghost_source(self):
         _root, nid = asyncio.run(_seed())
         try:

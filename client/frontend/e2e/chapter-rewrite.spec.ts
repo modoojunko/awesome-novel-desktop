@@ -170,6 +170,19 @@ test("重写已归档章：旧稿入支线＋下游角标＋改写后角标消�
     const stale2 = chRows.nth(1).locator('[data-testid="ch-stale"]');
     await expect(stale2).toHaveCount(1, { timeout: 10000 });
 
+    // ③′ 归档（重写后的）本章 → 提示点名下游角标（spec：存在下游「基于旧设定」时追加）
+    const onDlg = (d: import("@playwright/test").Dialog) => d.accept();
+    page.on("dialog", onDlg);
+    await page.getByRole("button", { name: "归档本章" }).click();
+    await page.getByTestId("arch-confirm").click();
+    try {
+      await expect(page.getByText(/下游章节标记「基于旧设定」/)).toBeVisible({
+        timeout: 10000,
+      });
+    } finally {
+      page.off("dialog", onDlg);
+    }
+
     // ④ 旧稿可点开只读查看（点旧稿→切正文；重挂竞态用重试吸收）
     await page.locator(".ghost-group .ghost-row").first().click();
     await expect(async () => {
@@ -191,8 +204,9 @@ test("重写已归档章：旧稿入支线＋下游角标＋改写后角标消�
     await expect(page.getByText("已自动保存").first()).toBeVisible({ timeout: 8000 });
     await expect(stale2).toHaveCount(0, { timeout: 10000 });
 
-    // 刷新后仍无角标、旧稿仍在
+    // 刷新后仍无角标、旧稿仍在（全书归档 → 落预览，先切回写作视图）
     await page.reload();
+    await page.locator(".mtab", { hasText: "写作" }).click();
     await expect(page.locator(".ghost-group").first()).toBeVisible({ timeout: 10000 });
     await expect(chRows.nth(1).locator('[data-testid="ch-stale"]')).toHaveCount(0);
   } finally {
