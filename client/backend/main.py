@@ -19,7 +19,6 @@ import models  # noqa: F401
 from api_configs.router import router as api_configs_router
 from archive.reconcile_router import router as reconcile_router
 from archive.router import archives_router
-from write.style_shadow import router as style_shadow_router
 from archive.router import router as archive_router
 
 # License 本地验证
@@ -46,6 +45,7 @@ from update_check import router as update_check_router
 from workflow.router import backfill_router as workflow_backfill_router
 from workflow.router import router as workflow_router
 from write.router import router as write_router
+from write.style_shadow import router as style_shadow_router
 
 
 @asynccontextmanager

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api_configs.usage import record_usage
 from auth_local.deps import get_current_user, require_ai_access, require_novel_model
 from db import get_db
 from filesystem.paths import STYLE_QUANT_PATH
@@ -123,9 +124,7 @@ async def suggest_style_shadow(
     PRO 门控沿 require_ai_access（免费档 403/409 由门控层决定）；建议不落库，
     采纳经 PUT /chapters/{ref} 写 style_shadow。
     """
-    import json as _json
-
-    project, ch = await _load_project_chapter(db, project_id, chapter_ref)
+    project, _ch = await _load_project_chapter(db, project_id, chapter_ref)
     doc = quant_doc(await get_storage().read_yaml(project.root_path, STYLE_QUANT_PATH) or {})
     baseline = _baseline_lines(doc)
     if doc.get("confidence", 0) <= 0 or not any(b["value"] for b in baseline):
@@ -164,15 +163,12 @@ async def suggest_style_shadow(
     if client is None:
         raise HTTPException(409, "本书 AI 模型未就绪——请先到设定 · 模型配置里选好本书模型")
 
-    from archive.service import _record_ai_usage
 
     usage: dict = {}
     text = await client.chat(
         model="haiku", system="", messages=[{"role": "user", "content": prompt}],
         max_tokens=500, usage=usage,
     )
-    from api_configs.usage import record_usage
-
     await record_usage(project_id, "style_shadow_suggest", usage)
 
     data = _parse_suggestions(text)
