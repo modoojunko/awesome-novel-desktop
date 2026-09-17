@@ -20,7 +20,10 @@ from models.chapter import Chapter
 from models.project import Novel
 from settings.style_quant_model import BASELINE_ROWS, quant_doc
 
-router = APIRouter(prefix="/chapters/{chapter_ref}/style-shadow", tags=["style-shadow"])
+router = APIRouter(
+    prefix="/api/novels/{project_id}/chapters/{chapter_ref}/style-shadow",
+    tags=["style-shadow"],
+)
 
 
 def _baseline_lines(doc: dict) -> list[dict]:
@@ -169,7 +172,16 @@ async def suggest_style_shadow(
         model="haiku", system="", messages=[{"role": "user", "content": prompt}],
         max_tokens=500, usage=usage,
     )
-    await record_usage(project_id, "style_shadow_suggest", usage)
+    await record_usage(
+        db,
+        user_id=project.user_id,
+        project_id=project.id,
+        chapter_id=chapter_ref,
+        operation="style_shadow_suggest",
+        model=usage.get("model", "haiku"),
+        tokens_in=usage.get("tokens_in", 0),
+        tokens_out=usage.get("tokens_out", 0),
+    )
 
     data = _parse_suggestions(text)
     return {"ok": True, "suggestions": data}
