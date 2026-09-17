@@ -5,8 +5,6 @@
 import asyncio
 import uuid
 
-from settings.character_service import relations_graph
-
 
 def _seed_user() -> str:
     from db import async_session
