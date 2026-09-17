@@ -127,6 +127,8 @@ class ChapterContext:
         self.world_setting = {}
         self.style_setting = {}
         self.style_quant = {}
+        # 本章文风影子（chapter-style-shadow）：命中行覆盖基线渲染；直建 ctx 默认空
+        self.style_shadow: dict = {}
         self.hooks = []
         self.volume_summary = ""
         self.chapter_outline = {}
@@ -171,7 +173,7 @@ class ChapterContext:
         style_sec = style_section(self.style_setting)
         if style_sec:
             blocks.append(f"【文风】\n{style_sec}")
-        quant = quant_section(self.style_quant)
+        quant = quant_section(self.style_quant, self.style_shadow)
         if quant:
             blocks.append(quant)
         few_shot = self._few_shot_examples()
@@ -326,7 +328,7 @@ class ChapterContext:
 
         # Style section（style-settings-v2：三区单一来源；tone/mistakes 块退役）
         style_sec = style_section(self.style_setting)
-        quant = quant_section(self.style_quant)
+        quant = quant_section(self.style_quant, self.style_shadow)
         if style_sec or quant:
             lines.append("## 文风")
             if style_sec:
@@ -577,6 +579,10 @@ async def build_chapter_context(
     from workflow.engine import load_chapter
 
     chapter = await load_chapter(root_path, chapter_ref) or {}
+    # 本章文风影子（chapter-style-shadow）：章 YAML 的 style_shadow（回退/支线同款直出）
+    ctx.style_shadow = chapter.get("style_shadow") or {}
+    if not isinstance(ctx.style_shadow, dict):
+        ctx.style_shadow = {}
     ctx.chapter_outline = chapter.get("outline", {})
     if not isinstance(ctx.chapter_outline, dict):
         ctx.chapter_outline = {}

@@ -120,8 +120,12 @@ def style_section(style) -> str:
     return "\n".join(lines)
 
 
-def quant_section(quant) -> str:
-    """量化基线段：六行「约 X（±容差%）」＋章级自调指令。未蒸馏/缺失 → ""。"""
+def quant_section(quant, shadow: dict | None = None) -> str:
+    """量化基线段：六行「约 X（±容差%）」＋章级自调指令。未蒸馏/缺失 → ""。
+
+    shadow（chapter-style-shadow）：{dim: {value, reason}}——命中的行渲染为
+    「约 {value}（本章覆盖：{reason}）」，替换基线值。"""
+    shadow = shadow if isinstance(shadow, dict) else {}
     if not isinstance(quant, dict):
         return ""
     try:
@@ -142,6 +146,14 @@ def quant_section(quant) -> str:
         item = baseline.get(key)
         value = str(item.get("value", "") or "").strip() if isinstance(item, dict) else ""
         if not value:
+            continue
+        override = shadow.get(key) if isinstance(shadow.get(key), dict) else None
+        if isinstance(override, dict) and str(override.get("value", "")).strip():
+            ov_value = str(override.get("value", "")).strip()
+            ov_reason = str(override.get("reason", "")).strip()
+            suffix = f"（本章覆盖：{ov_reason}）" if ov_reason else "（本章覆盖）"
+            lines.append(f"- {label}：约 {ov_value}{suffix}")
+            emitted = True
             continue
         row_tol = item.get("tolerance", tolerance)
         lines.append(f"- {label}：约 {value}（±{row_tol}%）")
