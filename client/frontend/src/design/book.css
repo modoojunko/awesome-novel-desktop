@@ -1120,7 +1120,9 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .ss-baseline { margin: 0; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); list-style: none; }
 .ss-baseline li { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 10px; padding: 4px 0; font-size: 13px; }
 .ss-baseline .k { color: var(--muted); }
-.ss-row, .ss-suggestion { display: grid; grid-template-columns: 140px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.ss-row { display: grid; grid-template-columns: 140px minmax(0, 1.1fr) minmax(0, 0.9fr) auto; gap: 10px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.ss-suggestion { display: grid; grid-template-columns: 140px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.ss-add { display: grid; grid-template-columns: 140px minmax(0, 1.1fr) minmax(0, 0.9fr) auto; gap: 10px; align-items: center; }
 .ss-row .k, .ss-suggestion .k { font-weight: 600; font-size: 13px; }
 .ss-row .v, .ss-suggestion .v { font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
 .ss-suggestion .r { font-size: 12px; color: var(--muted); grid-column: 2 / 4; }

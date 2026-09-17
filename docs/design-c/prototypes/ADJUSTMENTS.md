@@ -657,13 +657,16 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     不可逆二次确认）；被回退章 `ghost_of` 标记转支线只读（`.ghost-group`），派生数据按章序清除。
     ③ **角色关系页签**：storyline 同款确定性定距圆布图（`.relations-graph`，边标签「关系类型 ·
     立场」）＋文本清单兜底。
-    ④ **文风本章影子**：「文风」页签（`.style-pane`/`.style-shadow`；PRO；免费占位）——全书
-    基线只读＋本章覆盖行（采纳/还原）＋AI 建议；shadow 数据落 `chapters.style_shadow`（拍板③）。
+    ④ **文风本章影子**：「文风」页签（`.style-pane`/`.style-shadow`；**全档位**）——全书
+    基线只读＋本章覆盖行手工增/改/还原（行内编辑＋添加行控件）＋AI 建议（PRO）；
+    shadow 数据落 `chapters.style_shadow`（拍板③）。**档位口径 2026-09-17 拍板**：
+    手工覆盖行免费（与全书文风三区同权），AI 建议归 PRO——原「免费占位」口径废止
+    （spec 见 style-shadow-free-tier 归档，workbench 需求重写为「文风页签（全档位）」。
     ⑤ **剧情推演弹窗**（`.sim-*` 家族）：storyline sim modal 逐段复刻——按回合逐步展开、未定
     走法不能推进、「收进章纲」写「预期策略」（走法行=任一回合一拗→中途先接一次意外）；产物不
     落库。AI 失败回落原型同款确定性推演（弹窗永远可用）。
     ⑥ **提示词六来源**：「提示词」页签顶部 `.src-chips`＋`.psrc-list` 只读展示六处来源
     （chars/preview/未填标注），与写作组装链同源。
-    **门控**：①-③ 免费可用；④ 写影子免费可用（门禁属待拍板项，锁现状）、suggest 与 ⑤ AI 归 PRO。
+    **门控**：①-③ 免费可用；④ 影子手工编辑全档位、AI 建议 PRO（2026-09-17 拍板定案）、⑤ AI 归 PRO。
     **测试覆盖**：后端 pytest（frontier/ghost/style_shadow/plot_sim/prompt_sources）＋前端 vitest
     ＋e2e（plot-sim.spec.ts 等）；无原型像素基线（storyline 未收编严格扫描）。
