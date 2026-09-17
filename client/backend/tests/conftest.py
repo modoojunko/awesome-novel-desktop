@@ -11,9 +11,12 @@ from sqlalchemy import text
 
 
 def _reject_httpx_object(name: str, value: object) -> None:
-    """真 SDK（anthropic ≥1.4 / openai ≥3）拒收任何 MRO 根模块为 httpx 的对象。
+    """stub 拒收任何 MRO 根模块为 httpx 的构造参数（按真 SDK 最严口径守）。
 
-    stub 照搬这条规则：stub 与真 SDK 脱节，正是 httpx2 迁移静默漏到发布包的原因。
+    真 anthropic ≥1.4 会拒收（传输层迁 httpx2 后抛 TypeError）；真 openai 3.x
+    目前尚容忍 httpx.Timeout，但传输层同样已是 httpx2——stub 有意从严统一两
+    侧口径，防 openai 路径将来收紧时再静默漏进发布包（本次 500 的病根即
+    stub「什么都收」，与真 SDK 脱节）。
     """
     for cls in type(value).__mro__:
         module = getattr(cls, "__module__", None)

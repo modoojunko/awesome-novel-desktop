@@ -60,9 +60,11 @@ def _stream_timeout() -> httpx.Timeout:
     )
 
 
-# anthropic ≥1.4 / openai ≥3 已把传输层从 httpx 换成 httpx2，SDK 会主动拒收任何
-# MRO 根模块为 httpx 的对象（构造与请求两处都抛 TypeError），必须换成它自家
-# re-export 的 Timeout 类。旧版 SDK 的 Timeout 就是 httpx.Timeout，同一写法等价，
+# anthropic ≥1.4 把传输层从 httpx 换成 httpx2，并主动拒收任何 MRO 根模块为 httpx
+# 的对象（实测构造与请求两级都抛 TypeError）；openai ≥3 传输层同样迁到 httpx2
+# （自家 Timeout 即 httpx2.Timeout），当前版本尚容忍 httpx.Timeout。两个 provider
+# 都统一换算成各自 re-export 的 Timeout 类：anthropic 是硬要求，openai 是同口径
+# 防御（防其后续收紧）。旧版 SDK 的 Timeout 就是 httpx.Timeout，同一写法等价，
 # 故不需要按版本分支。逐相位换算以保住 connect/read 的不同口径。
 _SDK_TIMEOUTS: dict[str, Any] = {"anthropic": AnthropicTimeout, "openai": OpenAITimeout}
 

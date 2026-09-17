@@ -512,26 +512,58 @@ class TestStreamSaveFailureNotMisclassified:
 
 
 class TestRealSdkTimeoutContract:
-    """真 SDK 构造守卫。
+    """真 SDK 守卫（构造级 + 请求级）。
 
-    conftest 会把 anthropic/openai 换成宽容 stub（套件因此从不触发 SDK 自身的参数
-    校验），所以另起子进程按真 SDK 构造一遍：anthropic ≥1.4 / openai ≥3 迁 httpx2 后
-    拒收 httpx.Timeout，这道缝曾让发布包上所有走 anthropic 格式配置的 AI 功能 500。
+    conftest 会把 anthropic/openai 换成 stub（套件因此从不触发 SDK 自身的参数
+    校验，stub 也没有可校验请求级 kwargs 的方法），所以另起子进程按真 SDK 各
+    构造一次并向死端口发一次流式请求：anthropic ≥1.4 迁 httpx2 后在构造与请求
+    两级都拒收 httpx.Timeout，这道缝曾让发布包上所有走 anthropic 格式配置的
+    AI 功能 500。
     """
 
     _PROBE = textwrap.dedent(
         """
+        import asyncio
         import sys
-        sys.path.insert(0, ".")
-        from ai_client import AIClient
 
-        for fmt, base in (
-            ("anthropic", "https://api.deepseek.com/anthropic"),
-            ("openai", "https://open.bigmodel.cn/api/coding/paas/v4"),
-        ):
-            c = AIClient(api_key="sk-test", base_url=base, model="m", api_format=fmt)
-            assert type(c._client).__module__.split(".")[0] == fmt, type(c._client)
-            print("constructed", fmt)
+        import httpx
+
+        sys.path.insert(0, ".")
+        from ai_client import AIClient, AITimeoutError
+
+        # 死端口：连接秒拒（拒/超时都归 APIConnectionError → AITimeoutError）
+        T = httpx.Timeout(connect=2.0, read=2.0, write=2.0, pool=2.0)
+
+
+        async def main():
+            for fmt, base in (
+                ("anthropic", "http://127.0.0.1:9"),
+                ("openai", "http://127.0.0.1:9/v1"),
+            ):
+                c = AIClient(
+                    api_key="sk-test", base_url=base, model="m",
+                    api_format=fmt, timeout=T, max_retries=0,
+                )
+                assert type(c._client).__module__.split(".")[0] == fmt, type(c._client)
+                print("constructed", fmt)
+
+                raised = ""
+                try:
+                    async for _ in c.chat_stream(
+                        model="m", system="",
+                        messages=[{"role": "user", "content": "hi"}], max_tokens=8,
+                    ):
+                        break
+                except AITimeoutError:
+                    raised = "aitimeout"  # 网络失败被归一 —— 请求级 timeout 已被 SDK 接受
+                except TypeError as e:
+                    raise SystemExit(f"FAIL {fmt}: request-level timeout rejected: {e}")
+                if not raised:
+                    raise SystemExit(f"FAIL {fmt}: expected a network error, got none")
+                print("request-ok", fmt)
+
+
+        asyncio.run(main())
         """
     )
 
@@ -551,3 +583,5 @@ class TestRealSdkTimeoutContract:
         assert proc.returncode == 0, proc.stderr
         assert "constructed anthropic" in proc.stdout
         assert "constructed openai" in proc.stdout
+        assert "request-ok anthropic" in proc.stdout
+        assert "request-ok openai" in proc.stdout
