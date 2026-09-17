@@ -127,6 +127,18 @@ async def undo_op(
     return {"ok": True, "data": result}
 
 
+@router.get("/graph")
+async def relations_graph(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """全书关系图：节点=角色，边=单向视角关系（带来源章）。"""
+    from settings.character_service import relations_graph as relations_graph_svc
+
+    return {"ok": True, "data": await relations_graph_svc(db, project_id)}
+
+
 @router.get("/{character_id}/relations")
 async def list_relations(
     project_id: str,
