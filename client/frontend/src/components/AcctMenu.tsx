@@ -58,7 +58,10 @@ export default function AcctMenu({
   const position = useCallback(() => {
     const t = triggerRef.current;
     const p = panelRef.current;
+    /* v8 ignore start -- 防御分支：position 只在 open 期的布局效果/滚动监听里调用，
+       那时两个 ref 必已挂载，测试无法构造出 null 组合 */
     if (!t || !p) return;
+    /* v8 ignore stop */
     const r = t.getBoundingClientRect();
     p.style.top = `${r.bottom + 4}px`;
     p.style.right = `${window.innerWidth - r.right}px`;
@@ -95,7 +98,9 @@ export default function AcctMenu({
       const items = [
         ...(panelRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
       ].filter((el) => !el.hasAttribute("hidden"));
+      /* v8 ignore start -- 防御分支：面板展开时恒有 ≥4 个未 hidden 的 menuitem */
       if (!items.length) return;
+      /* v8 ignore stop */
       const idx = items.indexOf(document.activeElement as HTMLElement);
       if (e.key === "Tab") {
         e.preventDefault();
@@ -119,30 +124,19 @@ export default function AcctMenu({
     };
   }, [open, close]);
 
-  if (!open) {
-    return (
-      <div className="acct">
-        <button
-          ref={triggerRef}
-          className="acct-trigger"
-          data-od-id="acct-trigger"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          onClick={() => setOpen(true)}
-        >
-          <span className="avatar" aria-hidden="true">
-            {username ? (
-              username.slice(0, 1)
-            ) : (
-              <Ico d={P.person} sw={1.7} />
-            )}
-          </span>
-          <Badge />
-          <Ico className="caret" d={P.chevronDown} sw={1.7} />
-        </button>
-      </div>
-    );
-  }
+  /** 恢复弹窗：单点渲染在面板之外（它曾只挂在「面板展开」那支 return 里 → 点「恢复」
+   *  先 close() 收起面板，组件随即走提前 return 分支，模态永远不在渲染树里，入口自
+   *  #346 起一直打不开，09-18 覆盖专项发现）。单点渲染同时避免 open 翻转时元素换位重挂。 */
+  const restoreModal = (
+    <RestoreModal
+      open={restoreOpen}
+      onClose={() => setRestoreOpen(false)}
+      onGoConfig={() => {
+        setRestoreOpen(false);
+        navigate("/config");
+      }}
+    />
+  );
 
   // 备份：桌面壳选文件夹 → 本地后端直写导出（原全局设置弹窗流程原样迁移）
   const runBackup = async () => {
@@ -182,11 +176,11 @@ export default function AcctMenu({
       <div className="acct">
         <button
           ref={triggerRef}
-          className="acct-trigger open"
+          className={"acct-trigger" + (open ? " open" : "")}
           data-od-id="acct-trigger"
           aria-haspopup="menu"
-          aria-expanded="true"
-          onClick={() => close()}
+          aria-expanded={open}
+          onClick={() => (open ? close() : setOpen(true))}
         >
           <span className="avatar" aria-hidden="true">
             {username ? username.slice(0, 1) : <Ico d={P.person} sw={1.7} />}
@@ -195,8 +189,9 @@ export default function AcctMenu({
           <Ico className="caret" d={P.chevronDown} sw={1.7} />
         </button>
       </div>
-      {createPortal(
-        <div
+        {open &&
+          createPortal(
+            <div
           ref={panelRef}
           className="acct-menu"
           data-od-id="acct-menu"
@@ -312,14 +307,7 @@ export default function AcctMenu({
         </div>,
         document.body,
       )}
-      <RestoreModal
-        open={restoreOpen}
-        onClose={() => setRestoreOpen(false)}
-        onGoConfig={() => {
-          setRestoreOpen(false);
-          navigate("/config");
-        }}
-      />
+      {restoreModal}
     </>
   );
 
