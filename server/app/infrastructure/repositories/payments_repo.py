@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from app.domain.payments.order import Transition
+from app.infrastructure.repositories.pg_http.client import RawFilter
 
 
 def _dt(value) -> datetime:
@@ -59,7 +60,7 @@ class OrderRepo:
             orms = self._db.query(OrderORM).filter(OrderORM.id.in_(list(ids))).all()
             return [{c.name: getattr(o, c.name) for c in o.__table__.columns} for o in orms]
         else:
-            return self._db.find("orders", filter={"id": f"in.({','.join(str(i) for i in ids)})"})
+            return self._db.find("orders", filter={"id": RawFilter(f"in.({','.join(str(i) for i in ids)})")})
 
     def find_by_user(
         self, user_id: int, statuses: list[str] | None = None,
@@ -79,7 +80,7 @@ class OrderRepo:
         else:
             filt: dict = {"user_id": user_id}
             if statuses:
-                filt["status"] = f"in.({','.join(statuses)})"
+                filt["status"] = RawFilter(f"in.({','.join(statuses)})")
             return self._db.find(
                 "orders",
                 filter=filt,
@@ -99,7 +100,7 @@ class OrderRepo:
         else:
             filt: dict = {"user_id": user_id}
             if statuses:
-                filt["status"] = f"in.({','.join(statuses)})"
+                filt["status"] = RawFilter(f"in.({','.join(statuses)})")
             return self._db.count("orders", filter=filt)
 
     def find_by_user_page(
@@ -127,7 +128,7 @@ class OrderRepo:
         else:
             filt: dict = {"user_id": user_id}
             if statuses:
-                filt["status"] = f"in.({','.join(statuses)})"
+                filt["status"] = RawFilter(f"in.({','.join(statuses)})")
             rows, total = self._db.find(
                 "orders",
                 filter=filt,
@@ -179,7 +180,7 @@ class OrderRepo:
         else:
             # pg_http 简化：paid 非空行拉回内存按时间窗过滤（Change 1 量级可接受）
             # PostgREST 的 IS NOT NULL 语法是 not.is.null（not_null 会被当 eq 字面量解析成 timestamp 比较而 400）
-            all_paid = self._db.find("orders", filter={"paid_at": "not.is.null"})
+            all_paid = self._db.find("orders", filter={"paid_at": RawFilter("not.is.null")})
             return [
                 r for r in all_paid
                 if r.get("paid_at") and start <= _dt(r["paid_at"]) < end
@@ -230,7 +231,7 @@ class OrderRepo:
         else:
             return self._db.find(
                 "orders",
-                filter={"status": "in.(refund_pending,refund_processing)"},
+                filter={"status": RawFilter("in.(refund_pending,refund_processing)")},
             )
 
     def find_refund_half_done(self) -> list[dict]:
@@ -439,7 +440,7 @@ class SkuRepo:
         else:
             # pg_http 无联表：先取 live 档集，再按 tier_id 过滤+富集——与 sqlite 分支口径
             # 一致（planned/retired 档 SKU 不泄入目录；tier_key 由档行富集而非端点默认值）
-            tiers = self._db.find("tiers", filter={"status": "eq.live"}, sort=[("rank", "asc")])
+            tiers = self._db.find("tiers", filter={"status": "live"}, sort=[("rank", "asc")])
             by_id = {t.get("id"): t for t in tiers}
             rows = self._db.find("skus", filter={"on_sale": True}, sort=[("sort", "asc")])
             result = []

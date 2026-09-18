@@ -41,6 +41,11 @@ def activate_code(
     order = order_repo.find_by_order_no(order_no)
     if not order:
         return {"error": "order_not_found"}
+    # 属主校验（s-security-hardening）：订单不属于调用者 → 按"订单不存在"处理。
+    # 与其余订单端点（详情/退款/取消）同口径、不可区分存在性；此前缺失该校验，
+    # 任意登录用户可推进他人订单的台账行（替他人把套餐提前起算）。
+    if order.get("user_id") != user_id:
+        return {"error": "order_not_found"}
     if order["status"] not in ("fulfilled",):
         return {"error": "not_fulfilled"}
 

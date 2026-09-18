@@ -7,6 +7,12 @@ import AppButton from '@/components/ui/AppButton.vue'
 import Ico from '@/components/ui/Ico.vue'
 import { P } from '@/components/ui/icons'
 import { tierName, tierHasPlan } from '@/constants/tiers'
+import {
+  fetchLatestRelease,
+  windowsInstallerUrl,
+  macosInstallerUrl,
+  RELEASES_PAGE_URL,
+} from '@/constants/client-release'
 import { brand } from '@/constants/brand'
 
 const route = useRoute()
@@ -21,6 +27,13 @@ const authorized = ref(false)
 const errorMsg = ref('')
 const authResult = ref<{ tier: string; expires_at: string }>({ tier: '', expires_at: '' })
 const isInvalid = ref(false)
+// 桌面端本机配对密钥的哈希（s-security-hardening）；缺失=客户端版本过旧
+const challenge = ref('')
+const isOutdatedClient = ref(false)
+// 升级出口：实时解析线上最新版（失败回落 Releases 页）
+const winUrl = ref('')
+const macUrl = ref('')
+const releasesUrl = RELEASES_PAGE_URL
 
 // 无有效套餐（none/free/空）不展示档位 pill，避免裸代码出丑
 const showTier = computed(() => tierHasPlan(authResult.value.tier))
@@ -31,9 +44,19 @@ onMounted(() => {
   pcHash.value = (route.query.pc_hash as string) || ''
   deviceProfile.value = (route.query.device_profile as string) || ''
   pcName.value = (route.query.pc_name as string) || ''
+  challenge.value = (route.query.challenge as string) || ''
   document.title = `${brand.name} · 设备授权`
   if (!pcHash.value) {
     isInvalid.value = true
+  }
+  // 版本错配兑底：授权入口不带挑战值（旧版桌面端/旧安装包）→ 明确给升级出口
+  if (!/^[0-9a-f]{64}$/.test(challenge.value)) {
+    isOutdatedClient.value = true
+    void fetchLatestRelease().then((r) => {
+      if (!r?.version) return
+      winUrl.value = windowsInstallerUrl(r.version)
+      macUrl.value = macosInstallerUrl(r.version)
+    }).catch(() => {})
   }
 })
 
@@ -53,6 +76,7 @@ async function submitAuth() {
       pcHash.value,
       pcName.value || undefined,
       deviceProfile.value || undefined,
+      challenge.value,
     )
     if (res.code === 0) {
       authorized.value = true
@@ -81,6 +105,23 @@ async function submitAuth() {
     <template v-if="isInvalid">
       <p class="notice warn">
         <Ico :d="P.alert" />无效的授权请求，请从桌面应用重新发起
+      </p>
+    </template>
+
+    <!-- 版本错配兑底：授权入口缺少配对信息（桌面端版本过旧）-->
+    <template v-else-if="isOutdatedClient">
+      <div class="brand-row">
+        <span class="logo-mark">{{ brand.mark }}</span>
+        <span class="bn serif">{{ brand.name }}</span>
+      </div>
+      <h1>设备授权</h1>
+      <p class="notice warn">
+        <Ico :d="P.alert" />当前桌面应用版本过旧，无法完成授权。请升级到最新版本后重新登录。
+      </p>
+      <p class="foot-lnk">
+        <a v-if="winUrl" :href="winUrl" target="_blank" rel="noopener noreferrer" class="lnk">下载 Windows 版</a>
+        <a v-if="macUrl" :href="macUrl" target="_blank" rel="noopener noreferrer" class="lnk">下载 macOS 版</a>
+        <a v-if="!winUrl && !macUrl" :href="releasesUrl" target="_blank" rel="noopener noreferrer" class="lnk">前往下载最新版桌面应用</a>
       </p>
     </template>
 

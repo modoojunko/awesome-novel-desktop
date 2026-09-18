@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, func
 
 from app.models.base import Base
 from app.models.types import BigIntPK
@@ -16,6 +16,9 @@ class UserORM(Base):
     security_answer_hash= Column(String(256), default="", server_default="")
     status              = Column(String(32), default="active", server_default="active", index=True)
     theme               = Column(String(32), default="", server_default="")
+    # 凭据版本（s-security-hardening R5）：改密/改密保/注销执行时自增或置哨兵，
+    # 存量令牌（无 ver 声明）按 0 比对——升级不误伤
+    token_version       = Column(Integer, nullable=False, default=0, server_default="0")
     created_at          = Column(DateTime, server_default=func.now())
     # 账号自助注销（account-deletion）：中文枚举沿 codes 风格（design D1）
     deletion_status     = Column(String(32), default="正常", server_default="正常", index=True)

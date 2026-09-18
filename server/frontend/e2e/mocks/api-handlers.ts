@@ -103,6 +103,7 @@ export class MockApi {
     '**/api/devices/my',
     '**/api/devices/remove',
     '**/api/authorize',
+    '**/api/pair/exchange',
     '**/api/reset_password',
     // ⚠️ 真实调用带 query（?pc_hash=），Playwright glob 匹配完整 URL，须以 * 收尾
     '**/api/check-auth*',
@@ -335,9 +336,12 @@ export class MockApi {
       return route.fulfill(json(1, '缺少 pc_hash'))
     }
 
-    // ── C端 冻结契约 ──
+    // ── C端 授权（s-security-hardening）：challenge 必填（64 hex），与真后端同判防假绿 ──
     if (path === '/api/authorize' && method === 'POST') {
       const body = route.request().postDataJSON()
+      if (!/^[0-9a-f]{64}$/.test(body?.challenge ?? '')) {
+        return route.fulfill(json(1, '桌面端版本过旧，请升级后重试'))
+      }
       if (!body?.username || !body?.password) {
         return route.fulfill(json(1, '用户名或密码不能为空'))
       }
@@ -346,6 +350,15 @@ export class MockApi {
         tier: 'trial',
         expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
       }))
+    }
+
+    if (path === '/api/pair/exchange' && method === 'POST') {
+      const body = route.request().postDataJSON()
+      // 桩：device_secret 非空即成功（挑战语义由真后端契约测试锁）
+      if (body?.device_secret) {
+        return route.fulfill(json(0, { token: 'e2e-paired-token', username: this.currentUser?.username ?? 'testuser', tier: 'trial', expires_at: new Date(Date.now() + 7 * 86400000).toISOString() }))
+      }
+      return route.fulfill(json(1, '配对失败，请在桌面端重新发起授权'))
     }
 
     if (path === '/api/reset_password' && method === 'POST') {
@@ -419,6 +432,10 @@ export class MockApi {
     }
 
     if (path === '/api/web/register' && method === 'POST') {
+      const regBody = route.request().postDataJSON()
+      if (!/^[A-Za-z0-9_-]{3,32}$/.test(regBody?.username ?? '')) {
+        return route.fulfill(json(1, '用户名需为 3–32 位字母、数字、下划线或连字符'))
+      }
       const body = route.request().postDataJSON()
       if (!body?.username || !body?.password) {
         return route.fulfill(json(1, '请填写完整信息'))

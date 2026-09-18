@@ -43,11 +43,13 @@ class TestAuthPage:
 # ══════════════════════════════════════════════════════════════════
 
 class TestCheckAuth:
-    def test_已授权时返回_token_和套餐信息(self, client: TestClient):
+    def test_已授权时返回套餐信息且不携带_token(self, client: TestClient):
+        """s-security-hardening 硬切契约：轮询只回刷新数据；令牌只经 pair/exchange
+        发给持本机配对密钥者（pc_hash 可推导，曾可未登录换取他人令牌）。"""
         resp = client.get("/api/check-auth", params={"pc_hash": "test-pc-hash-001"})
         data = resp.json()
         assert data["code"] == 0
-        assert "token" in data["data"]
+        assert "token" not in data["data"]
         assert data["data"]["tier"] == "trial"
         assert "expires_at" in data["data"]
 
@@ -151,6 +153,7 @@ class TestResetPassword:
             "password": NEW_PASSWORD,
             "pc_hash": "test-pc-hash-002",
             "pc_name": "验证机",
+            "challenge": "c" * 64,
         })
         assert login_resp.status_code == 200
 

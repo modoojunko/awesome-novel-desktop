@@ -33,13 +33,17 @@ class PgHttpGrantRepo:
             token=doc["token"],
             enrolled=bool(doc.get("enrolled", False)),
             fingerprint=doc.get("fingerprint", "") or "",
+            challenge=doc.get("challenge", "") or "",
         )
 
     def get(self, pc_hash: str) -> DeviceGrant | None:
         doc = self.client.find_one(_TABLE, {"pc_hash": pc_hash})
         return self._to_domain(doc) if doc else None
 
-    def upsert(self, pc_hash: str, username: str, token: str, enrolled: bool, fingerprint: str) -> None:
+    def upsert(
+        self, pc_hash: str, username: str, token: str, enrolled: bool, fingerprint: str,
+        *, challenge: str | None = None,
+    ) -> None:
         user_id = self._resolve_user_id(username)
         if user_id is None:
             return  # 用户不存在，不写 grant
@@ -50,6 +54,7 @@ class PgHttpGrantRepo:
             "token": token,
             "enrolled": 1 if enrolled else 0,
             "fingerprint": fingerprint,
+            "challenge": challenge or None,
         }
         if existing:
             self.client.update(_TABLE, {"pc_hash": pc_hash}, payload)
@@ -73,3 +78,15 @@ class PgHttpGrantRepo:
         if user_id is None:
             return 0
         return self.client.delete(_TABLE, {"user_id": user_id})
+
+    def delete_by_fingerprint(self, username: str, fingerprint: str) -> int:
+        """移除设备时同步清除该设备授权凭证（s-security-hardening R5）。
+
+        指纹为空不清（无 device_profile 的授权彼此不可区分，且真实 C端 恒携带档案）。
+        """
+        user_id = self._resolve_user_id(username)
+        if user_id is None or not fingerprint:
+            return 0
+        return self.client.delete(
+            _TABLE, {"user_id": user_id, "fingerprint": fingerprint},
+        )

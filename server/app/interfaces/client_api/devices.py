@@ -10,13 +10,14 @@ from app.application.devices.consume_enrolled import consume_enrolled
 from app.application.devices.get_device_status import get_device_status
 from app.infrastructure.repositories.factory import code_repo, device_repo, grant_repo
 from app.interfaces.deps import Db, get_current_user_or_none, get_db
+from app.interfaces.guards import guard_identifiers
 
 logger = logging.getLogger("api.client.devices")
 
 from app.interfaces.client_api.router import router as r
 
 
-@r.get("/api/devices/current")
+@r.get("/api/devices/current", dependencies=[guard_identifiers(query=("pc_hash",))])
 async def api_devices_current(
     pc_hash: str = "",
     authorization: str = Header(default=""),
@@ -35,7 +36,7 @@ async def api_devices_current(
     return result
 
 
-@r.post("/api/devices/consume-enrolled")
+@r.post("/api/devices/consume-enrolled", dependencies=[guard_identifiers(query=("pc_hash",))])
 async def api_consume_enrolled(
     pc_hash: str = "",
     authorization: str = Header(default=""),

@@ -19,13 +19,14 @@ from app.infrastructure.repositories.factory import (
 )
 from app.interfaces.deps import Db, get_db
 from app.interfaces.dto import AuthorizeRequest
+from app.interfaces.guards import guard_identifiers
 
 logger = logging.getLogger("api.client.auth")
 
 from app.interfaces.client_api.router import router as r
 
 
-@r.post("/api/authorize")
+@r.post("/api/authorize", dependencies=[guard_identifiers(body=("pc_hash",))])
 async def api_authorize(
     req: AuthorizeRequest,
     db: Db = Depends(get_db),
@@ -38,6 +39,7 @@ async def api_authorize(
         pc_hash=req.pc_hash,
         pc_name=req.pc_name,
         device_profile_b64=req.device_profile,
+        challenge=req.challenge,
     )
     logger.info("event=authorize.result user=%s code=%d", req.username, result["code"])
     if result["code"] == 0:
@@ -45,7 +47,7 @@ async def api_authorize(
     return result
 
 
-@r.get("/api/check-auth")
+@r.get("/api/check-auth", dependencies=[guard_identifiers(query=("pc_hash",))])
 async def api_check_auth(pc_hash: str = "", db: Db = Depends(get_db)):
     """C端 轮询：该 pc_hash 是否已授权。"""
     if not pc_hash:
@@ -53,12 +55,9 @@ async def api_check_auth(pc_hash: str = "", db: Db = Depends(get_db)):
     try:
         grant = grant_repo(db).get(pc_hash)
         if grant:
-            from datetime import datetime, timedelta, timezone
 
             from app.domain.identity.deletion import is_due, remaining_days
-            from app.domain.licensing import License
             from app.infrastructure.repositories.factory import user_repo
-            from app.infrastructure.repositories.payments_repo import OrderRepo
 
             # 注销门禁（account-deletion）：撤销期付费功能暂停（code 2）；已注销拒绝
             # （执行时 device_grants 已清空，此分支为补偿扫描先行标记的兜底）
@@ -85,48 +84,12 @@ async def api_check_auth(pc_hash: str = "", db: Db = Depends(get_db)):
                     },
                 }
 
-            codes = code_repo(db).find_active_by_username(grant.username)
-            license_ = License(username=grant.username).merge(codes)
-
-            data = {
-                "token": grant.token,
-                "username": grant.username,
-                "tier": license_.effective_tier,
-                "expires_at": license_.max_expires_at.isoformat() if license_.max_expires_at else "",
-            }
-
-            # ── 权益快照（c-s-entitlement-sync，契约 v1）：档位目录配置 →
-            #    ENTITLEMENT_DEFAULTS 兜底（档位行缺配置/坏 JSON/未知档位）；
-            #    免费基线 = 空 features + max_projects=1。排队/冻结/收回语义由
-            #    License.merge 继承，快照随下次 check-auth 自动反映。──
-            from app.config import settings as _settings
-            from app.infrastructure.repositories.payments_repo import TierRepo
-
-            tier_cfg = TierRepo(db).find_entitlement_by_key(license_.effective_tier)
-            ent = tier_cfg or _settings.ENTITLEMENT_DEFAULTS.get(
-                license_.effective_tier, _settings.ENTITLEMENT_DEFAULTS["none"])
-            data["entitlement"] = {"v": 1, **ent}
-
-            # ── A4 扩展（可选字段，无支付数据时省略）──
-            # days_remaining：北京自然日口径（今日 0 点到 expires_at，floor）；无套餐/免费省略
-            if license_.max_expires_at:
-                tier = license_.effective_tier
-                if tier not in ("none", "free"):
-                    bj_tz = timezone(timedelta(hours=8))
-                    expires_bj = license_.max_expires_at.astimezone(bj_tz)
-                    today0_bj = datetime.now(bj_tz).replace(
-                        hour=0, minute=0, second=0, microsecond=0)
-                    days = (expires_bj - today0_bj).days
-                    days = max(days, 0)
-                    data["days_remaining"] = days
-
-            # attention：账号动态（退款进行中含冷静期 / 冻结待核对）
-            uid = user_repo(db).get_id(grant.username)
-            if uid:
-                flags = OrderRepo(db).attention_flags(uid)
-                if flags["refund_processing"] or flags["verify_pending"]:
-                    data["attention"] = flags
-
+            from app.interfaces.client_api.pairing import build_license_snapshot
+            # ── s-security-hardening 硬切：本端点不再携带令牌——仅套餐刷新数据。
+            #    令牌只经 POST /api/pair/exchange 发给持有本机配对密钥的请求
+            #    （pc_hash 由硬件序列号派生、可推导，曾可未登录换取他人 30 天令牌）。──
+            data = build_license_snapshot(db, grant.username)
+            data["username"] = grant.username
             return {"code": 0, "data": data}
         return {"code": 1, "msg": "等待授权"}
     except Exception:

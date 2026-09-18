@@ -31,6 +31,7 @@ class DeviceGrant:
     token: str
     enrolled: bool = False
     fingerprint: str = ""
+    challenge: str = ""
 
 
 @dataclass

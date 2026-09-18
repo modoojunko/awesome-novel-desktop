@@ -49,10 +49,11 @@ def init_payment_gateway(app) -> None:
     from app.infrastructure.payments.gateway import MockPaymentGateway
 
     logger = logging.getLogger("app")
-    if settings.PAYMENTS_GATEWAY == "mock":
+    gateway = settings.effective_gateway
+    if gateway == "mock":
         app.state.payment_gateway = MockPaymentGateway()
         logger.info("event=payments.gateway type=mock")
-    elif settings.PAYMENTS_GATEWAY == "wxpay":
+    elif gateway == "wxpay":
         # 配置缺项/非法即拒绝启动并列出全部问题；私钥可解析性在网关构造时校验
         errors = settings.wxpay_config_errors()
         if errors:
@@ -65,7 +66,7 @@ def init_payment_gateway(app) -> None:
                     settings.WXPAY_MCH_ID, settings.WXPAY_NOTIFY_URL)
     else:
         raise RuntimeError(
-            f"PAYMENTS_GATEWAY={settings.PAYMENTS_GATEWAY} 不支持"
+            f"PAYMENTS_GATEWAY={gateway or '<未配置>'} 不支持"
             "（可选 mock/wxpay）；拒绝以 Mock 处理真实付款"
         )
 
@@ -73,10 +74,16 @@ def init_payment_gateway(app) -> None:
 def create_app() -> FastAPI:
     """应用工厂。"""
     setup_logging()
+    # API 文档端点默认关闭（s-security-baseline R3）：生产曾公开 /docs + /openapi.json
+    # 全路由清单（含 admin/dev 注入端点）；本地调试显式 ENABLE_API_DOCS=1 打开。
+    docs_on = settings.ENABLE_API_DOCS.strip() in ("1", "true", "yes", "on")
     app = FastAPI(
         title="AI Novel - S Server",
         version="2.0.0",
         description="License 授权与设备管理服务（重构版）",
+        docs_url="/docs" if docs_on else None,
+        redoc_url="/redoc" if docs_on else None,
+        openapi_url="/openapi.json" if docs_on else None,
     )
 
     register_handlers(app)
@@ -90,8 +97,9 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
 
     # 路由表先收齐再注册中间件（归一化层精确匹配这张表）；
-    # 注册顺序 = CORS → 前缀归一化 → 限流 → 访问日志，与原先一致，
-    # 归一化在最外层使限流/日志看到的是补回前缀后的路径。
+    # 限流的敏感路径判定内置两形态归一（剥 /api 前缀形态与带前缀同桶，见
+    # middleware._sensitive_path）——不依赖中间件嵌套顺序，绕行面已闭合
+    #（2026-09-18 审计：/web/login 曾完全绕过限流）。
     register_middleware(app, api_paths=_collect_api_paths(app.routes))
 
     return app
@@ -108,13 +116,20 @@ def on_startup():
     logger = logging.getLogger("app")
     logger.info("event=app.start db_backend=%s db_path=%s", settings.DB_BACKEND, settings.DB_PATH)
 
+    # 生产启动门禁（s-security-baseline R1-R2）：密钥/网关不合格即拒绝启动（fail-closed），
+    # 列明不合格项但绝不回显密钥本体；本地 sqlite 形态零强制（仅弱默认告警）。
+    config_errors = settings.startup_config_errors()
+    if config_errors:
+        raise RuntimeError("生产配置门禁未通过，拒绝启动（修复后重启）：" + "；".join(config_errors))
+
     # env 指纹探针（key 轮换/传输排查用）：只记哈希与长度，绝不落 key 本体。
     # 与 GitHub secret 指纹、生成配置指纹、CloudBase 存储指纹四点对拍，
     # 任一环不一致即定位字符被转译/替换的环节。
     _k = settings.TCB_PG_API_KEY
+    # 凭据卫生（R6）：只记长度与哈希，不含任何明文片段（曾含 tail4，已移除）
     logger.info(
-        "event=env_fingerprint name=TCB_PG_API_KEY len=%d tail4=%s sha256=%s",
-        len(_k), _k[-4:] if _k else "", hashlib.sha256(_k.encode()).hexdigest(),
+        "event=env_fingerprint name=TCB_PG_API_KEY len=%d sha256=%s",
+        len(_k), hashlib.sha256(_k.encode()).hexdigest(),
     )
 
     # 初始化支付网关（mock/wxpay/未知 fail-fast 三分支，见 init_payment_gateway）

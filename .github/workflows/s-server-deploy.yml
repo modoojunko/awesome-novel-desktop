@@ -43,11 +43,39 @@ jobs:
       # ── 后端：云托管（云端构建镜像，本地无需 Docker）──
       # 用 secrets 生成部署配置（仓库内 cloudbaserc.json 只放占位符，凭据不入库）。
       # ⚠️ envParams 是每次部署的全量覆盖：云托管控制台手动加的环境变量会被这里
-      #    冲掉——新增环境变量必须同步补进本配置。PAYMENTS_GATEWAY/CRON_TOKEN/
-      #    SERVERCHAN_SENDKEY 未配 secrets 时注入空串，后端语义均安全
-      #    （空 gateway 回落 mock；空 cron token fail-closed；空 SendKey 降级日志）。
+      #    冲掉——新增环境变量必须同步补进本配置。CRON_TOKEN/SERVERCHAN_SENDKEY
+      #    未配 secrets 时注入空串，后端语义安全（cron token fail-closed；
+      #    SendKey 降级日志）。**JWT_SECRET/ADMIN_TOKEN/PAYMENTS_GATEWAY 未配即空串
+      #    时后端拒绝启动（s-security-hardening 起 fail-closed）**——下方"生产配置
+      #    门禁"步骤在部署前先行拦截，避免把不合格配置推成起不来的容器。
       #    WXPAY_*（Change 2）：gateway=wxpay 时任一缺失即拒绝启动（fail-fast）；
       #    密钥类值经 GitHub Secrets 注入，绝不入库。
+      - name: 生产配置门禁（密钥/网关不合格即中止，先于部署）
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          PAYMENTS_GATEWAY: ${{ secrets.PAYMENTS_GATEWAY }}
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          jwt = os.environ.get("JWT_SECRET", "")
+          adm = os.environ.get("ADMIN_TOKEN", "")
+          gw = os.environ.get("PAYMENTS_GATEWAY", "")
+          bad = []
+          if not jwt or jwt == "local-license-secret" or len(jwt) < 32:
+              bad.append("JWT_SECRET（须 ≥32 字符强随机值；空=secrets 缺失）")
+          if not adm or adm == "admin123" or len(adm) < 16:
+              bad.append("ADMIN_TOKEN（须 ≥16 字符强随机值；空=secrets 缺失）")
+          if not gw:
+              bad.append("PAYMENTS_GATEWAY（生产必须显式配置 wxpay/mock，禁止静默回落 mock）")
+          if bad:
+              print("生产配置门禁未通过，中止部署：")
+              for b in bad:
+                  print("  -", b)
+              sys.exit(1)
+          print(f"生产配置门禁通过（gateway={gw}；密钥长度已校验，不回显本体）")
+          PY
+
       - name: 生成后端部署配置
         run: |
           cat > server/cloudbaserc.json <<'EOF'
@@ -89,7 +117,7 @@ jobs:
           python3 -c "
           import json, hashlib
           k = json.load(open('server/cloudbaserc.json'))['cloudrun']['envParams']['TCB_PG_API_KEY']
-          print(f'fingerprint stage=generated len={len(k)} tail4={k[-4:]} sha256={hashlib.sha256(k.encode()).hexdigest()}')
+          print(f'fingerprint stage=generated len={len(k)} sha256={hashlib.sha256(k.encode()).hexdigest()}')
           "
 
       # ── key 指纹探针②：job 注入视角的 secret（对照 GitHub 侧存储）──
@@ -98,7 +126,7 @@ jobs:
           python3 -c "
           import os, hashlib
           k = os.environ['TCB_API_KEY']
-          print(f'fingerprint stage=secret-injected len={len(k)} tail4={k[-4:]} sha256={hashlib.sha256(k.encode()).hexdigest()}')
+          print(f'fingerprint stage=secret-injected len={len(k)} sha256={hashlib.sha256(k.encode()).hexdigest()}')
           "
         env:
           TCB_API_KEY: ${{ secrets.TCB_API_KEY }}
@@ -140,7 +168,7 @@ jobs:
               env = json.loads(env)
           key = env['TCB_PG_API_KEY']
           digest = hashlib.sha256(key.encode()).hexdigest()
-          print('fingerprint stage=cloudbase-stored len=%d tail4=%s sha256=%s' % (len(key), key[-4:], digest))
+          print('fingerprint stage=cloudbase-stored len=%d sha256=%s' % (len(key), digest))
           "
 
       # 09-04 事故教训：新版本对服务配置（env/规格）的继承曾整体失灵，全量 401 到

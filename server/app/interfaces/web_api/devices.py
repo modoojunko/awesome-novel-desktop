@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 
 from app.application.devices.list_devices import list_devices
 from app.application.devices.remove_device import remove_device
-from app.infrastructure.repositories.factory import code_repo, device_repo
+from app.infrastructure.repositories.factory import code_repo, device_repo, grant_repo
 from app.interfaces.deps import Db, get_current_user_or_none, get_db
 from app.interfaces.dto import DeviceRemoveRequest, fail
 
@@ -24,6 +24,6 @@ async def api_devices_my(db: Db = Depends(get_db), username: str = Depends(get_c
 async def api_devices_remove(req: DeviceRemoveRequest, db: Db = Depends(get_db), username: str = Depends(get_current_user_or_none)):
     if not username:
         return fail(code=1, msg="未登录")
-    result = remove_device(device_repo(db), username, req.id)
+    result = remove_device(device_repo(db), grant_repo(db), username, req.id)
     db.commit()
     return result

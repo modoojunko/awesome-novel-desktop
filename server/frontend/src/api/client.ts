@@ -7,8 +7,11 @@ export function apiAuthorize(
   pc_hash: string,
   pc_name?: string,
   device_profile?: string,
+  challenge?: string,
 ): Promise<ApiResponse<{ message: string; tier: string; expires_at: string }>> {
-  return request.post('/authorize', { username, password, pc_hash, pc_name, device_profile }).then(r => r.data)
+  // challenge = 桌面端本机配对密钥的 SHA-256（s-security-hardening）：后端落库，
+  // 此后令牌只经 /api/pair/exchange 发给持有本机密钥者
+  return request.post('/authorize', { username, password, pc_hash, pc_name, device_profile, challenge }).then(r => r.data)
 }
 
 export function apiResetPassword(

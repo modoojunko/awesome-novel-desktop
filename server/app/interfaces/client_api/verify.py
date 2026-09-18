@@ -14,13 +14,14 @@ from app.infrastructure.repositories.factory import (
 )
 from app.interfaces.deps import Db, get_db
 from app.interfaces.dto import VerifyRequest
+from app.interfaces.guards import guard_identifiers
 
 logger = logging.getLogger("api.client.verify")
 
 from app.interfaces.client_api.router import router as r
 
 
-@r.post("/api/verify")
+@r.post("/api/verify", dependencies=[guard_identifiers(body=("pc_hash",))])
 async def api_verify(
     req: VerifyRequest,
     db: Db = Depends(get_db),

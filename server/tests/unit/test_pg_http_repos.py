@@ -13,7 +13,7 @@ import pytest
 from app.domain.devices import DeviceRegistry
 from app.domain.identity import User
 from app.domain.licensing import ActivationCode
-from app.infrastructure.repositories.pg_http.client import PgRestClient
+from app.infrastructure.repositories.pg_http.client import PgRestClient, RawFilter
 from app.infrastructure.repositories.pg_http.code_repo import PgHttpCodeRepo
 from app.infrastructure.repositories.pg_http.config_repo import PgHttpConfigRepo
 from app.infrastructure.repositories.pg_http.device_repo import PgHttpDeviceRepo
@@ -382,7 +382,7 @@ class TestPgHttpConfigRepo:
 
 class TestPostgrestDialectContract:
     def test_find_explicit_in_filter_passthrough(self):
-        """in.() 操作符值原样透传——eq.in.(...) 是 400 语法错误（评审 P1 回归钉）。"""
+        """s-security-hardening：操作符语义需 RawFilter 显式声明，值原样透传（eq.in.(...) 是 400）。"""
         requests: list[httpx.Request] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -392,13 +392,30 @@ class TestPostgrestDialectContract:
         client = make_client(handler)
         rows = client.find(
             "codes",
-            {"bound_username": "writer1", "status": "in.(unused,active)"},
+            {"bound_username": "writer1", "status": RawFilter("in.(unused,active)")},
         )
         assert len(rows) == 1
         url = unquote(str(requests[0].url))
         assert "status=in.(unused,active)" in url
         assert "bound_username=eq.writer1" in url
         assert "eq.in." not in url
+
+    def test_bare_operator_shaped_value_is_literal(self):
+        """s-security-hardening 注入防线：裸串即使形如操作符也按字面等值（出站 eq.<原值>）。
+
+        这是 `pc_hash=neq.x` / `username=in.(...)` 注入链的根因回归钉——值的文本形态
+        不得参与语义判定；操作符只能来自 RawFilter 显式声明。
+        """
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return _ok([])
+
+        make_client(handler).find("users", {"username": 'in.("a","b")'})
+        url = unquote(str(requests[0].url))
+        assert 'username=eq.in.("a","b")' in url
+        assert "username=in.(" not in url
 
     def test_update_cas_sends_filters_prefer_and_body(self):
         """update_cas：条件进 query、变更进 body（None → null）、Prefer 头携带。"""
@@ -413,9 +430,9 @@ class TestPostgrestDialectContract:
         rows = client.update_cas(
             "users",
             {
-                "username": "eq.writer1",
-                "deletion_status": "eq.注销撤销期",
-                "deletion_deadline": f"lte.{now.isoformat()}",
+                "username": "writer1",
+                "deletion_status": "注销撤销期",
+                "deletion_deadline": RawFilter(f"lte.{now.isoformat()}"),
             },
             {"deletion_status": "已注销", "password_hash": "", "deletion_deadline": None},
         )
@@ -447,7 +464,7 @@ class TestPostgrestDialectContract:
             assert request.url.params["limit"] == "20"
             return _ok([])
 
-        make_client(handler).find("orders", {"user_id": "eq.7"}, limit=20, offset=30)
+        make_client(handler).find("orders", {"user_id": 7}, limit=20, offset=30)
 
     def test_count_parses_content_range_tail(self):
         def handler(request: httpx.Request) -> httpx.Response:

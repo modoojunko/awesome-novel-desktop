@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime
 from app.domain.licensing import ActivationCode
 from app.infrastructure.repositories.pg_http.client import (
     PgRestClient,
+    RawFilter,
     parse_dt,
     to_iso,
 )
@@ -115,7 +116,7 @@ class PgHttpCodeRepo:
             return 0
         return self.client.update_cas(
             _TABLE,
-            {"user_id": f"eq.{uid}", "status": "in.(unused,active)"},
+            {"user_id": uid, "status": RawFilter("in.(unused,active)")},
             {"status": "revoked"},
         )
 
@@ -124,7 +125,7 @@ class PgHttpCodeRepo:
         按秒折算，用户保留剩余权益）。发货幂等键 code_id=O-{order_no}。"""
         return self.client.update_cas(
             _TABLE,
-            {"code_id": f"eq.O-{order_no}", "status": "in.(unused,pending_activation)"},
+            {"code_id": f"O-{order_no}", "status": RawFilter("in.(unused,pending_activation)")},
             {"status": "revoked", "status_detail": "revoked"},
         )
 
@@ -145,12 +146,12 @@ class PgHttpCodeRepo:
             a = a.astimezone(UTC).replace(tzinfo=None)
         anchor_iso = a.isoformat()
         total = 0
-        for grant_filter in ("is.null", f"gt.{anchor_iso}"):
+        for grant_filter in (RawFilter("is.null"), RawFilter(f"gt.{anchor_iso}")):
             total += self.client.update_cas(
                 _TABLE,
                 {
-                    "code_id": f"eq.O-{order_no}",
-                    "status": "in.(active,frozen)",
+                    "code_id": f"O-{order_no}",
+                    "status": RawFilter("in.(active,frozen)"),
                     "grant_start": grant_filter,
                 },
                 {"status": "revoked", "status_detail": "revoked"},
@@ -163,7 +164,7 @@ class PgHttpCodeRepo:
         影响）。幂等：已 frozen 重放返回 0。"""
         return self.client.update_cas(
             _TABLE,
-            {"code_id": f"eq.O-{order_no}", "status": "eq.active"},
+            {"code_id": f"O-{order_no}", "status": "active"},
             {"status": "frozen", "status_detail": "frozen"},
         )
 
@@ -172,13 +173,13 @@ class PgHttpCodeRepo:
         冻结不触碰起算信息，还原即精确（active↔frozen 对偶）。幂等。"""
         return self.client.update_cas(
             _TABLE,
-            {"code_id": f"eq.O-{order_no}", "status": "eq.frozen"},
+            {"code_id": f"O-{order_no}", "status": "frozen"},
             {"status": "active", "status_detail": "active"},
         )
 
     def find_frozen(self, limit: int = 200) -> list[ActivationCode]:
         """扫描 F（冻结完整性）取数：全部冻结行（在途退款单量级，天然有界）。"""
-        docs = self.client.find(_TABLE, filter={"status": "eq.frozen"}, limit=limit)
+        docs = self.client.find(_TABLE, filter={"status": "frozen"}, limit=limit)
         return [self._to_domain(d) for d in docs]
 
     def find_unconsumed_by_username(self, username: str) -> list[ActivationCode]:
@@ -187,7 +188,7 @@ class PgHttpCodeRepo:
             return []
         docs = self.client.find(
             _TABLE,
-            {"user_id": f"eq.{uid}", "status": "in.(unused,active)"},
+            {"user_id": uid, "status": RawFilter("in.(unused,active)")},
             sort=[("activated_at", "desc")],
         )
         return [self._to_domain(d) for d in docs]
@@ -200,10 +201,10 @@ class PgHttpCodeRepo:
         return self.client.update_cas(
             _TABLE,
             {
-                "code_id": f"eq.{code_id}",
-                "user_id": f"eq.{uid}",
-                "status": "in.(unused,active)",
-                "refund_requested_at": "is.null",
+                "code_id": code_id,
+                "user_id": uid,
+                "status": RawFilter("in.(unused,active)"),
+                "refund_requested_at": RawFilter("is.null"),
             },
             {"refund_requested_at": now.isoformat()},
         )
@@ -229,7 +230,7 @@ class PgHttpCodeRepo:
     def find_by_order(self, order_id: int) -> list[ActivationCode]:
         docs = self.client.find(
             _TABLE,
-            {"order_id": f"eq.{order_id}"},
+            {"order_id": order_id},
             sort=[("created_at", "asc")],
         )
         return [self._to_domain(d) for d in docs]
@@ -237,7 +238,7 @@ class PgHttpCodeRepo:
     def find_active_by_user_id(self, user_id: int) -> list[ActivationCode]:
         docs = self.client.find(
             _TABLE,
-            {"user_id": f"eq.{user_id}", "status": "eq.active"},
+            {"user_id": user_id, "status": "active"},
             sort=[("expires_at", "desc")],
         )
         return [self._to_domain(d) for d in docs]
@@ -246,7 +247,7 @@ class PgHttpCodeRepo:
         """CAS pending_activation→active；False=已被并发方改走。"""
         rows = self.client.update_cas(
             _TABLE,
-            {"code_id": f"eq.{code_id}", "status": "eq.pending_activation"},
+            {"code_id": code_id, "status": "pending_activation"},
             {
                 "status": "active",
                 "status_detail": "active",
@@ -261,9 +262,9 @@ class PgHttpCodeRepo:
                                limit: int = 20, offset: int = 0) -> tuple[list[ActivationCode], int]:
         """订单来源明细分页单往返（count 与取行合并，同 OrderRepo.find_by_user_page；
         网关不回 Content-Range 时降级单独计数）。source=eq.order 天然排除 NULL 来源行。"""
-        filt: dict = {"user_id": f"eq.{user_id}", "source": "eq.order"}
+        filt: dict = {"user_id": user_id, "source": "order"}
         if statuses:
-            filt["status"] = f"in.({','.join(statuses)})"
+            filt["status"] = RawFilter(f"in.({','.join(statuses)})")
         docs, total = self.client.find(
             _TABLE,
             filter=filt,

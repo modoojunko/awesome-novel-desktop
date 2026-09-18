@@ -20,6 +20,7 @@ from app.domain.payments.pricing import (
     SkuNotFoundError,
 )
 from app.interfaces.deps import Db, get_db
+from app.interfaces.guards import guard_identifiers
 
 r = APIRouter(prefix="/api/pay", tags=["payments"])
 
@@ -47,6 +48,10 @@ def _current_identity(request: Request) -> tuple[str, int] | None:
     uid = payload.get("uid")
     if not isinstance(uid, int) or isinstance(uid, bool):
         raise HTTPException(status_code=401, detail="令牌格式过期，请重新登录")
+    from app.interfaces.deps import token_revoked
+
+    if token_revoked(payload, uid):
+        raise HTTPException(status_code=401, detail="登录状态已失效，请重新登录")
     return payload.get("sub", ""), uid
 
 
@@ -128,7 +133,7 @@ async def get_skus(request: Request, db: Db = Depends(get_db)):
     }}
 
 
-@r.post("/orders")
+@r.post("/orders", dependencies=[guard_identifiers(body=("sku_key",))])
 async def create_order(req: CreateOrderRequest, request: Request, db: Db = Depends(get_db)):
     """Z.3 下单（冻结快照+统一下单）。"""
     identity = _current_identity(request)
@@ -281,7 +286,7 @@ async def get_pending_order(request: Request, db: Db = Depends(get_db)):
     return {"code": 0, "data": None}
 
 
-@r.get("/orders/{order_no}")
+@r.get("/orders/{order_no}", dependencies=[guard_identifiers(path=("order_no",))])
 async def get_order(order_no: str, request: Request, db: Db = Depends(get_db)):
     """Z.5 订单详情（全量：状态/时间线/单号/退款进度）。"""
     identity = _current_identity(request)
@@ -318,7 +323,7 @@ async def get_order(order_no: str, request: Request, db: Db = Depends(get_db)):
     return {"code": 0, "data": _order_to_detail(order, grant=grant)}
 
 
-@r.post("/orders/{order_no}/query")
+@r.post("/orders/{order_no}/query", dependencies=[guard_identifiers(path=("order_no",))])
 async def query_order(order_no: str, request: Request, db: Db = Depends(get_db)):
     """手动查单（"我已支付帮我查"）。"""
     username, user_id = _current_identity(request) or ("", None)
@@ -355,7 +360,7 @@ async def query_order(order_no: str, request: Request, db: Db = Depends(get_db))
     return {"code": 0, "data": {"hit": result.status == PaymentStatus.SUCCESS, "hint": hint}}
 
 
-@r.get("/orders/{order_no}/refund-preview")
+@r.get("/orders/{order_no}/refund-preview", dependencies=[guard_identifiers(path=("order_no",))])
 async def refund_preview(order_no: str, request: Request, db: Db = Depends(get_db)):
     """退款预览（折算金额）。基准=台账行（未激活全额退）。"""
     username, user_id = _current_identity(request) or ("", None)
@@ -404,7 +409,7 @@ async def refund_preview(order_no: str, request: Request, db: Db = Depends(get_d
     }}
 
 
-@r.post("/orders/{order_no}/refund")
+@r.post("/orders/{order_no}/refund", dependencies=[guard_identifiers(path=("order_no",))])
 async def request_refund(order_no: str, req: RefundRequest, request: Request, db: Db = Depends(get_db)):
     """确认退款（进入冷静期）。"""
     username, user_id = _current_identity(request) or ("", None)
@@ -433,7 +438,7 @@ async def request_refund(order_no: str, req: RefundRequest, request: Request, db
         return {"code": 4009, "msg": "已超过退款窗口"}
 
 
-@r.post("/orders/{order_no}/refund/cancel")
+@r.post("/orders/{order_no}/refund/cancel", dependencies=[guard_identifiers(path=("order_no",))])
 async def cancel_refund(order_no: str, request: Request, db: Db = Depends(get_db)):
     """冷静期取消退款。"""
     username, user_id = _current_identity(request) or ("", None)
@@ -455,7 +460,7 @@ async def cancel_refund(order_no: str, request: Request, db: Db = Depends(get_db
     return {"code": 0, "data": result}
 
 
-@r.post("/orders/{order_no}/cancel")
+@r.post("/orders/{order_no}/cancel", dependencies=[guard_identifiers(path=("order_no",))])
 async def cancel_order(order_no: str, request: Request, db: Db = Depends(get_db)):
     """取消订单（用户主动）。"""
     username, user_id = _current_identity(request) or ("", None)
@@ -570,7 +575,7 @@ async def list_license_codes(
     return {"code": 0, "data": {"items": items, "total": total}}
 
 
-@r.post("/codes/activate")
+@r.post("/codes/activate", dependencies=[guard_identifiers(body=("order_no",))])
 async def activate(req: ActivateRequest, request: Request, db: Db = Depends(get_db)):
     """激活（到货-激活两段式第二段）。"""
     identity = _current_identity(request)

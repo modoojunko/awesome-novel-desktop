@@ -1,13 +1,23 @@
 """注册新用户 + 赠送 7 天试用码。"""
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 
 from app.domain.identity import User
 from app.domain.licensing import ActivationCode
 from app.infrastructure.repositories.base import CodeRepo, UserRepo
-from app.infrastructure.security.password import hash_password
+from app.infrastructure.security.password import (
+    hash_password,
+    normalize_security_answer,
+    password_too_long,
+)
+
+# 新注册用户名白名单（s-security-hardening）：只约束新账号；存量用户名零约束，
+# 登录/改密/注销等既有路径不设形态门槛（拦截会把人锁在门外）。
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9_\-]{3,32}$")
+_USERNAME_HINT = "用户名需为 3–32 位字母、数字、下划线或连字符"
 
 
 def register_user(
@@ -19,10 +29,14 @@ def register_user(
     security_answer: str = "",
 ) -> dict:
     """注册用户 + 送 7 天 trial 码。返回 {token, tier, expires_at}。"""
+    if not _USERNAME_RE.fullmatch(username or ""):
+        return {"code": 1, "msg": _USERNAME_HINT}
     if user_repo.exists(username):
         return {"code": 1, "msg": "用户名已存在"}
+    if password_too_long(password):
+        return {"code": 1, "msg": "密码过长（最多 72 字节）"}
 
-    answer_hash = hash_password(security_answer) if security_answer else ""
+    answer_hash = hash_password(normalize_security_answer(security_answer)) if security_answer else ""
     user = User(
         username=username,
         password_hash=hash_password(password),
@@ -55,7 +69,7 @@ def register_user(
     code_repo.activate(trial_code_id, username, expires)
 
     from app.infrastructure.security.jwt import sign_jwt
-    token = sign_jwt(username, user_id)
+    token = sign_jwt(username, user_id, ver=0)  # 新账号版本 0
 
     return {
         "code": 0,

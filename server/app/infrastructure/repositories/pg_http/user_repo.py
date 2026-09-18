@@ -7,7 +7,11 @@ from app.domain.identity.deletion import (
     DELETION_STATUS_NORMAL,
     DELETION_STATUS_PENDING,
 )
-from app.infrastructure.repositories.pg_http.client import PgRestClient, parse_dt
+from app.infrastructure.repositories.pg_http.client import (
+    PgRestClient,
+    RawFilter,
+    parse_dt,
+)
 
 _TABLE = "users"
 
@@ -41,6 +45,7 @@ class PgHttpUserRepo:
             deletion_requested_at=parse_dt(doc.get("deletion_requested_at")),
             deletion_deadline=parse_dt(doc.get("deletion_deadline")),
             deletion_waive_assets=bool(doc.get("deletion_waive_assets", False)),
+            token_version=int(doc.get("token_version") or 0),
         )
 
     def get(self, username: str) -> User | None:
@@ -65,15 +70,25 @@ class PgHttpUserRepo:
         })
         return user
 
-    def update_password(self, username: str, new_password_hash: str) -> None:
-        self.client.update(_TABLE, {"username": username}, {"password_hash": new_password_hash})
+    def update_password(self, username: str, new_password_hash: str,
+                        *, token_version: int | None = None) -> None:
+        changes: dict = {"password_hash": new_password_hash}
+        if token_version is not None:
+            changes["token_version"] = token_version  # 会话撤销（R5）
+        self.client.update(_TABLE, {"username": username}, changes)
+        if token_version is not None:
+            from app.infrastructure.security.token_version import invalidate_all
+            invalidate_all()
 
-    def update_security(self, username: str, question: str, answer_hash: str) -> None:
-        self.client.update(
-            _TABLE,
-            {"username": username},
-            {"security_question": question, "security_answer_hash": answer_hash},
-        )
+    def update_security(self, username: str, question: str, answer_hash: str,
+                        *, token_version: int | None = None) -> None:
+        changes: dict = {"security_question": question, "security_answer_hash": answer_hash}
+        if token_version is not None:
+            changes["token_version"] = token_version
+        self.client.update(_TABLE, {"username": username}, changes)
+        if token_version is not None:
+            from app.infrastructure.security.token_version import invalidate_all
+            invalidate_all()
 
     def update_theme(self, username: str, theme: str) -> None:
         self.client.update(_TABLE, {"username": username}, {"theme": theme})
@@ -87,7 +102,7 @@ class PgHttpUserRepo:
         """WHERE deletion_status='正常'（迁移已给存量行回填默认值，无 NULL）；0 行=已在流程中。"""
         return self.client.update_cas(
             _TABLE,
-            {"username": f"eq.{username}", "deletion_status": f"eq.{DELETION_STATUS_NORMAL}"},
+            {"username": username, "deletion_status": DELETION_STATUS_NORMAL},
             {
                 "deletion_status": DELETION_STATUS_PENDING,
                 "deletion_requested_at": requested_at.isoformat(),
@@ -101,9 +116,9 @@ class PgHttpUserRepo:
         return self.client.update_cas(
             _TABLE,
             {
-                "username": f"eq.{username}",
-                "deletion_status": f"eq.{DELETION_STATUS_PENDING}",
-                "deletion_deadline": f"gt.{now.isoformat()}",
+                "username": username,
+                "deletion_status": DELETION_STATUS_PENDING,
+                "deletion_deadline": RawFilter(f"gt.{now.isoformat()}"),
             },
             {"deletion_status": DELETION_STATUS_NORMAL,
              "deletion_requested_at": None, "deletion_deadline": None,
@@ -115,17 +130,20 @@ class PgHttpUserRepo:
         return self.client.update_cas(
             _TABLE,
             {
-                "username": f"eq.{username}",
-                "deletion_status": f"eq.{DELETION_STATUS_PENDING}",
-                "deletion_deadline": f"lte.{now.isoformat()}",
+                "username": username,
+                "deletion_status": DELETION_STATUS_PENDING,
+                "deletion_deadline": RawFilter(f"lte.{now.isoformat()}"),
             },
-            {"deletion_status": DELETION_STATUS_DELETED, "password_hash": ""},
+            {"deletion_status": DELETION_STATUS_DELETED, "password_hash": "",
+             "token_version": 1},
         )
+        from app.infrastructure.security.token_version import invalidate_all
+        invalidate_all()
 
     def find_due_deletion_usernames(self, now) -> list[str]:
         rows = self.client.find(
             _TABLE,
-            {"deletion_status": f"eq.{DELETION_STATUS_PENDING}", "deletion_deadline": f"lte.{now.isoformat()}"},
+            {"deletion_status": DELETION_STATUS_PENDING, "deletion_deadline": RawFilter(f"lte.{now.isoformat()}")},
             select="username",
         )
         return [r["username"] for r in rows]

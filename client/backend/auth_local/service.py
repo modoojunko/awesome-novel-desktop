@@ -49,12 +49,22 @@ def _get_public_server_api() -> str:
     )
 
 
-def _build_auth_url(public_api: str, pc_hash: str, pc_name: str, device_profile: str) -> str:
+def device_challenge(device_secret: str) -> str:
+    """配对挑战 = 本机配对密钥的 SHA-256（64 位小写 hex，随授权页 URL 提交）。"""
+    import hashlib
+
+    return hashlib.sha256((device_secret or "").encode("utf-8")).hexdigest()
+
+
+def _build_auth_url(
+    public_api: str, pc_hash: str, pc_name: str, device_profile: str, challenge: str = "",
+) -> str:
     """授权页地址：由 S端 前端 /auth 唯一承载（后端内联页已删除）。
 
     从 API 基址剥掉 /api 得 web origin；配置为自定义子路径（无 /api 后缀）
     时保持原样——该形态仅在 env SERVER_API_BASE 未设置时可达（同上）。
     device_profile 为 URL-safe Base64（无 padding），query 可原样拼接。
+    challenge=本机配对密钥哈希（密语本体绝不上 URL）。
     """
     web_origin = public_api.rstrip("/").removesuffix("/api")
     return (
@@ -62,6 +72,7 @@ def _build_auth_url(public_api: str, pc_hash: str, pc_name: str, device_profile:
         f"?pc_hash={pc_hash}"
         f"&pc_name={urllib.parse.quote(pc_name)}"
         f"&device_profile={device_profile}"
+        f"&challenge={challenge}"
     )
 
 
@@ -208,6 +219,8 @@ def load_or_create_config() -> dict:
     defaults = {
         "pc_hash": "",
         "pc_name": "",
+        # 本机配对密钥（s-security-hardening）：换取令牌的唯一凭据；哈希随授权页提交
+        "device_secret": "",
         "api_key": "",
         "api_base_url": "https://api.deepseek.com/anthropic",
         "api_model": "deepseek-v4-flash",
@@ -228,6 +241,11 @@ def load_or_create_config() -> dict:
     if not cfg.get("pc_hash"):
         cfg["pc_hash"] = generate_pc_hash()
         cfg["pc_name"] = platform.node() or "My PC"
+        changed = True
+    if not cfg.get("device_secret"):
+        import secrets as _secrets
+
+        cfg["device_secret"] = _secrets.token_urlsafe(32)  # 32 字节 = 256 位熵
         changed = True
     # 环境变量中的 SERVER_API_BASE 为部署真值：显式设置且与 config 不一致时对齐并持久化
     # （c-server-api-sync——旧逻辑「仅空时写入一次」会让 env 变更被残值永久遮蔽：
@@ -386,6 +404,25 @@ async def browser_auth(silent: bool = False) -> dict:
             return {"code": -1, "msg": result.get("msg", "S端 不可达")}
         if result.get("code") == 0:
             data = result["data"]
+            # s-security-hardening：S端 轮询不再携带令牌（硬切）——
+            # 本地无令牌（首装/掉登录）时以本机配对密钥走 pair/exchange 换取；
+            # 换取失败（密钥不符/未升级/限流）保留现状，MUST NOT 清凭据。
+            if not data.get("token"):
+                if cfg.get("token"):
+                    data["token"] = cfg["token"]  # 保留本地有效令牌，仅刷新套餐数据
+                else:
+                    x = await call_server_api(
+                        "pair/exchange",
+                        method="POST",
+                        json_body={"pc_hash": pc_hash, "device_secret": cfg.get("device_secret", "")},
+                    )
+                    if x.get("code") == 0 and x.get("data", {}).get("token"):
+                        data = {**data, **x["data"]}
+                    elif x.get("code") == -1:
+                        return {"code": -1, "msg": x.get("msg", "S端 不可达")}
+                    else:
+                        # 配对失败：引导重新授权（老安装包/密钥轮换后），不清本地数据
+                        return {"code": 1, "data": {"message": "请在桌面端重新登录以完成设备授权"}}
             cfg["token"] = data["token"]
             cfg["username"] = data.get("username", "")
             cfg["tier"] = data.get("tier", "none")
@@ -456,7 +493,8 @@ async def browser_auth(silent: bool = False) -> dict:
 
     # 构造授权页 URL（宿主可访问地址，由前端在宿主浏览器打开）
     pc_name = cfg.get("pc_name", "")
-    auth_url = _build_auth_url(_get_public_server_api(), pc_hash, pc_name, device_profile)
+    auth_url = _build_auth_url(_get_public_server_api(), pc_hash, pc_name, device_profile,
+                               challenge=device_challenge(cfg.get("device_secret", "")))
     return {"code": 1, "data": {"auth_url": auth_url, "message": "请在浏览器中完成登录"}}
 
 

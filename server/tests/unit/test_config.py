@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 from app.config import settings
 
 
@@ -28,18 +26,112 @@ class TestDatabaseUrl:
 
 
 class TestPaymentsGateway:
-    def test_mock_mode_by_default(self):
-        """PAYMENTS_GATEWAY 缺省 = mock（dev 注入端点注册）。"""
-        assert settings.PAYMENTS_GATEWAY == "mock"
+    """网关选择语义（s-security-hardening R2）：本地缺省 mock、空串=未配置、显式优先。"""
 
-    def test_empty_env_falls_back_to_mock(self):
-        """CI 未配 secrets 注入空串 → config 层 `or "mock"` 回落 mock（dev 端点不消失）。"""
-        assert (os.getenv("PAYMENTS_GATEWAY", "mock") or "mock") == "mock"
-        assert ("wxpay" or "mock") == "wxpay"
+    def test_local_default_gateway_is_mock(self):
+        """本地（sqlite）缺省：生效网关回落 mock（dev 端点注册），零配置可用。"""
+        assert settings.DB_BACKEND != "pg_http"
+        assert settings.effective_gateway == "mock"
 
-    def test_non_mock_disables_dev_endpoints(self):
-        """守卫语义：仅 PAYMENTS_GATEWAY == "mock" 注册 dev 端点。"""
+    def test_pg_http_without_explicit_gateway_has_none(self, monkeypatch):
+        """生产未显式配置 → 无生效网关（由启动门禁拒绝，不再静默回落 mock）。"""
+        monkeypatch.setattr(settings, "DB_BACKEND", "pg_http")
+        monkeypatch.setattr(settings, "PAYMENTS_GATEWAY", "")
+        assert settings.effective_gateway == ""
+
+    def test_explicit_gateway_wins(self, monkeypatch):
+        monkeypatch.setattr(settings, "PAYMENTS_GATEWAY", "wxpay")
+        assert settings.effective_gateway == "wxpay"
+
+    def test_dev_endpoints_registered_in_local_mock(self):
         from app.interfaces.web_api import dev_inject
 
-        assert dev_inject._MOCK_MODE is True  # 测试环境缺省 mock
+        assert dev_inject._MOCK_MODE is True  # 测试环境（sqlite）缺省 mock
         assert len(dev_inject.r.routes) > 0
+
+
+class TestStartupGate:
+    """生产启动门禁（s-security-hardening R1-R2）：pg_http 严格、sqlite 零强制。"""
+
+    def test_local_form_never_blocks(self):
+        assert settings.startup_config_errors() == []  # sqlite 测试环境
+
+    def test_pg_http_empty_secrets_and_gateway_rejected(self, monkeypatch):
+        monkeypatch.setattr(settings, "DB_BACKEND", "pg_http")
+        monkeypatch.setattr(settings, "JWT_SECRET", "")
+        monkeypatch.setattr(settings, "ADMIN_TOKEN", "")
+        monkeypatch.setattr(settings, "PAYMENTS_GATEWAY", "")
+        errs = settings.startup_config_errors()
+        assert any("JWT_SECRET" in e for e in errs), errs
+        assert any("ADMIN_TOKEN" in e for e in errs), errs
+        assert any("PAYMENTS_GATEWAY" in e for e in errs), errs
+
+    def test_pg_http_default_secrets_rejected(self, monkeypatch):
+        monkeypatch.setattr(settings, "DB_BACKEND", "pg_http")
+        monkeypatch.setattr(settings, "JWT_SECRET", "local-license-secret")
+        monkeypatch.setattr(settings, "ADMIN_TOKEN", "admin123")
+        errs = settings.startup_config_errors()
+        assert len(errs) == 3  # 两个密钥 + 网关未配置
+
+    def test_pg_http_mock_requires_allow_flag(self, monkeypatch):
+        monkeypatch.setattr(settings, "DB_BACKEND", "pg_http")
+        monkeypatch.setattr(settings, "JWT_SECRET", "x" * 48)
+        monkeypatch.setattr(settings, "ADMIN_TOKEN", "y" * 24)
+        monkeypatch.setattr(settings, "PAYMENTS_GATEWAY", "mock")
+        monkeypatch.setattr(settings, "PAYMENTS_ALLOW_MOCK", "")
+        assert any("PAYMENTS_ALLOW_MOCK" in e for e in settings.startup_config_errors())
+        monkeypatch.setattr(settings, "PAYMENTS_ALLOW_MOCK", "1")
+        assert settings.startup_config_errors() == []
+
+    def test_pg_http_valid_config_passes(self, monkeypatch):
+        monkeypatch.setattr(settings, "DB_BACKEND", "pg_http")
+        monkeypatch.setattr(settings, "JWT_SECRET", "x" * 48)
+        monkeypatch.setattr(settings, "ADMIN_TOKEN", "y" * 24)
+        monkeypatch.setattr(settings, "PAYMENTS_GATEWAY", "wxpay")
+        assert settings.startup_config_errors() == []
+
+    def test_unsupported_gateway_rejected(self, monkeypatch):
+        monkeypatch.setattr(settings, "DB_BACKEND", "pg_http")
+        monkeypatch.setattr(settings, "JWT_SECRET", "x" * 48)
+        monkeypatch.setattr(settings, "ADMIN_TOKEN", "y" * 24)
+        monkeypatch.setattr(settings, "PAYMENTS_GATEWAY", "alipay")
+        assert any("alipay" in e for e in settings.startup_config_errors())
+
+    def test_error_messages_never_echo_secret_values(self, monkeypatch):
+        monkeypatch.setattr(settings, "DB_BACKEND", "pg_http")
+        monkeypatch.setattr(settings, "JWT_SECRET", "short-secret-abc")
+        monkeypatch.setattr(settings, "ADMIN_TOKEN", "short-admin-xyz")
+        joined = "；".join(settings.startup_config_errors())
+        assert "short-secret-abc" not in joined and "short-admin-xyz" not in joined
+
+    def test_real_startup_refuses_with_bad_production_config(self, monkeypatch):
+        """端到端：pg_http + 空密钥时应用启动即 RuntimeError（fail-closed 实证）。"""
+        import pytest
+        from fastapi.testclient import TestClient
+
+        # 模块级 app：startup 处理器（app.on_event）只挂在它上面（create_app 返回的新实例不带）
+        from app.main import app as real_app
+
+        monkeypatch.setattr(settings, "DB_BACKEND", "pg_http")
+        monkeypatch.setattr(settings, "JWT_SECRET", "")
+        monkeypatch.setattr(settings, "ADMIN_TOKEN", "")
+        monkeypatch.setattr(settings, "PAYMENTS_GATEWAY", "")
+        with pytest.raises(RuntimeError, match="拒绝启动"), TestClient(real_app):
+            pass
+
+
+class TestApiDocsGate:
+    """文档端点默认关闭（s-security-hardening R3）。"""
+
+    def test_docs_endpoints_404_by_default(self, client):
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            assert client.get(path).status_code == 404, path
+
+    def test_docs_endpoints_available_when_explicitly_enabled(self, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        from app.main import create_app
+
+        monkeypatch.setattr(settings, "ENABLE_API_DOCS", "1")
+        with TestClient(create_app()) as c:
+            assert c.get("/openapi.json").status_code == 200
