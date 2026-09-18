@@ -420,58 +420,90 @@ describe("ManuscriptDownloadModal — 完成态再下载", () => {
     localStorage.removeItem("auth_token");
   });
 
-  function mockDoneFlow() {
+  const runningRes = () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ code: 0, data: { state: "running", pct: 40, steps: [] } }),
+  });
+  const doneRes = () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      code: 0,
+      data: {
+        state: "done",
+        pct: 100,
+        files: ["星海拾遗 · 主线全稿.md"],
+        steps: [{ format: "md", state: "完成", error: null }],
+        target_dir: "/tmp/out",
+      },
+    }),
+  });
+
+  /**
+   * 第一单直接完成；第 2 单起先回 N 拍 running 再回 done。
+   * 不能"GET 恒 done"：那样 running 只是几毫秒的中间态，任何对进度态的断言都是
+   * 竞态（#415 评审 P1 实测 18~22% 红，加长超时还会被 vitest 5s 上限伪装成超时超时）。
+   */
+  function mockDoneFlow(secondRoundRunningPolls = 3) {
+    let posts = 0;
+    let polls = 0;
     fetchMock2.mockImplementation(async (_u: string, init?: RequestInit) => {
       if ((init?.method ?? "GET") === "POST") {
-        return { ok: true, status: 200, json: async () => ({ code: 0, data: { state: "running" } }) };
+        posts += 1;
+        polls = 0;
+        return runningRes();
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          code: 0,
-          data: {
-            state: "done",
-            pct: 100,
-            files: ["星海拾遗 · 主线全稿.md"],
-            steps: [{ format: "md", state: "完成", error: null }],
-            target_dir: "/tmp/out",
-          },
-        }),
-      };
+      if (posts >= 2) {
+        polls += 1;
+        return polls <= secondRoundRunningPolls ? runningRes() : doneRes();
+      }
+      return doneRes();
     });
   }
 
-  it("完成态「再次下载」回表单：沿用目录/文件名/格式，且能立刻再发起", async () => {
-    mockDoneFlow();
-    renderModal();
-    act(() => armForm());
-    fireEvent.click(screen.getByText("开始下载"));
-    await waitFor(() => expect(screen.getByText("下载完成")).toBeTruthy(), { timeout: 3000 });
+  it(
+    "完成态「再次下载」回表单：沿用用户改过的目录/文件名/格式，且能立刻跑完第二单",
+    async () => {
+      mockDoneFlow();
+      renderModal();
+      act(() => armForm());
+      // 全部改成**非默认值**（默认名/默认格式即使被重置也照样"通过"，那是假绿——
+      // #415 评审 P2）：文件名自定义，格式点掉 md、点开 txt
+      fireEvent.change(document.querySelector('[data-od-id="download-filename"]')!, {
+        target: { value: "我的稿子" },
+      });
+      fireEvent.click(document.querySelector('[data-od-id="download-fmt-md"]')!);
+      fireEvent.click(document.querySelector('[data-od-id="download-fmt-txt"]')!);
 
-    // 完成态同时给出「再次下载」与「打开文件夹」两个出口
-    fireEvent.click(screen.getByText("再次下载"));
+      fireEvent.click(screen.getByText("开始下载"));
+      await waitFor(() => expect(screen.getByText("下载完成")).toBeTruthy(), { timeout: 3000 });
 
-    // 回表单且会话记忆沿用（目录、文件名、格式不丢）
-    expect((document.querySelector('[data-od-id="download-dir"]') as HTMLInputElement).value).toBe("/tmp/out");
-    expect((document.querySelector('[data-od-id="download-filename"]') as HTMLInputElement).value).toBe(
-      "星海拾遗 · 主线全稿",
-    );
-    expect(document.querySelector('[data-od-id="download-fmt-docx"]')?.getAttribute("aria-checked")).toBe("true");
-    const btn = screen.getByText("开始下载") as HTMLButtonElement;
-    expect(btn.disabled).toBe(false);
+      // 完成态同时给出「再次下载」与「打开文件夹」两个出口
+      fireEvent.click(screen.getByText("再次下载"));
 
-    // 立刻再发起：第二次 POST 成功 → 回到进度态
-    fireEvent.click(btn);
-    await waitFor(
-      () =>
-        expect(
-          fetchMock2.mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === "POST"),
-        ).toHaveLength(2),
-      { timeout: 8000 },
-    );
-    await waitFor(() => expect(screen.getByText("后台运行")).toBeTruthy(), { timeout: 8000 });
-  });
+      // 回表单且会话记忆沿用（断言非默认值才有区分度）
+      expect((document.querySelector('[data-od-id="download-dir"]') as HTMLInputElement).value).toBe("/tmp/out");
+      expect((document.querySelector('[data-od-id="download-filename"]') as HTMLInputElement).value).toBe("我的稿子");
+      expect(document.querySelector('[data-od-id="download-fmt-md"]')?.getAttribute("aria-checked")).toBe("false");
+      expect(document.querySelector('[data-od-id="download-fmt-txt"]')?.getAttribute("aria-checked")).toBe("true");
+      const btn = screen.getByText("开始下载") as HTMLButtonElement;
+      expect(btn.disabled).toBe(false);
+
+      // 立刻再发起：第二单先经稳定的进度态（3 拍 running）再到完成——两端都是稳定态，不赌瞬态
+      fireEvent.click(btn);
+      await waitFor(() => expect(screen.getByText("后台运行")).toBeTruthy(), { timeout: 3000 });
+      await waitFor(
+        () =>
+          expect(
+            fetchMock2.mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === "POST"),
+          ).toHaveLength(2),
+        { timeout: 3000 },
+      );
+      await waitFor(() => expect(screen.getByText("下载完成")).toBeTruthy(), { timeout: 3000 });
+    },
+    15000,
+  );
 
   it("完成态「打开文件夹」：走壳桥并带上保存目录", async () => {
     mockDoneFlow();
@@ -501,7 +533,8 @@ describe("ManuscriptDownloadModal — 完成态再下载", () => {
     await waitFor(() => expect(toast.info).toHaveBeenCalledWith("无法打开文件夹，可手动前往保存位置"));
   });
 
-  it("重开弹层仍读到完成态（规格「完成后进度仍可读」不被这次改动破坏）", async () => {    mockDoneFlow();
+  it("重开弹层仍读到完成态（规格「完成后进度仍可读」不被这次改动破坏）", async () => {
+    mockDoneFlow();
     const { rerender } = renderModal();
     act(() => armForm());
     fireEvent.click(screen.getByText("开始下载"));
@@ -513,9 +546,13 @@ describe("ManuscriptDownloadModal — 完成态再下载", () => {
       bookName: "星海拾遗",
       stats: { chapters: 3, words: 725 },
     };
-    // 关闭再打开（壳层常驻，phase 不清）
-    rerender(<ManuscriptDownloadModal open={false} {...props} />);
-    rerender(<ManuscriptDownloadModal open {...props} />);
+    // 关闭再打开（壳层常驻，phase 不清）——包 act 等退场结束，否则断言落在退场窗口里
+    await act(async () => {
+      rerender(<ManuscriptDownloadModal open={false} {...props} />);
+    });
+    await act(async () => {
+      rerender(<ManuscriptDownloadModal open {...props} />);
+    });
     expect(screen.getByText("下载完成")).toBeTruthy();
     expect(screen.getByText("再次下载")).toBeTruthy();
   });

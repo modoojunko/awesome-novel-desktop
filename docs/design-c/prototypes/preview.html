@@ -577,7 +577,7 @@ function renderExportDone(b, f){
   b.innerHTML =
     '<div class="ex-done"><div><b>下载完成</b><p>'+list.length+' 个文件已保存到 <span class="mono">'+esc(exState.dir)+'</span></p></div></div>'
     + '<ul class="ex-steps">'+list.map(x => '<li><b>'+esc2(exState.name+x.ext)+'</b><em class="ok">完成</em></li>').join('')+'</ul>';
-  f.innerHTML = '<button type="button" class="btn btn-secondary" data-export-close>完成</button>'
+  f.innerHTML = '<button type="button" class="btn btn-secondary" data-ex-again>再次下载</button>'
     + '<button type="button" class="btn btn-primary" data-ex-open-dir>打开文件夹</button>';
 }
 function runExportDemo(){
@@ -599,7 +599,7 @@ function runExportDemo(){
   }, 600);
 }
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-export-open],[data-export-close],[data-ex-fmt],[data-ex-dir],[data-ex-bg],[data-ex-start],[data-ex-open-dir]');
+  const t = e.target.closest('[data-export-open],[data-export-close],[data-ex-fmt],[data-ex-dir],[data-ex-bg],[data-ex-start],[data-ex-open-dir],[data-ex-again]');
   if (!t) return;
   if (t.dataset.exportOpen !== undefined){
     exSync();
@@ -623,6 +623,10 @@ document.addEventListener('click', e => {
   if (t.dataset.exBg !== undefined){ document.getElementById('dl-modal').classList.remove('on'); toastMsg('下载在后台继续 · 完成后会提示'); return; }
   if (t.dataset.exStart !== undefined){ exSync(); runExportDemo(); return; }
   if (t.dataset.exOpenDir !== undefined){ toastMsg('演示稿：打开本地文件夹不在本原型范围'); return; }
+  if (t.dataset.exAgain !== undefined){
+    // 完成态回表单：沿用目录/文件名/格式（#414 评审遗留 P2，实现 resetToForm 同语义）
+    exState.phase = 'form'; renderExport(); return;
+  }
 });
 </script>
 </body>
