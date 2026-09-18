@@ -154,7 +154,9 @@ export default function ManuscriptDownloadModal({
       // api 封装把 detail.message 映射进 e.message（job_runner running_kind 文案）
       const err = e as ApiError;
       if (err.status === 409) {
+        /* v8 ignore start -- 防御分支：api 封装对 4xx 恒给出非空 message */
         toast.info(err.message || "已有任务在进行中");
+        /* v8 ignore stop */
         return;
       }
       // 4xx 的 detail 是可行动中文（404「作品不存在」/422「缺少保存目录」），5xx 与网络层回落兜底

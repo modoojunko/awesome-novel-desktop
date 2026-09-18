@@ -96,7 +96,9 @@ export default function AcctMenu({
       // 方向键在菜单项间循环；Tab 圈不出面板
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Tab") return;
       const items = [
+        /* v8 ignore start -- 防御分支：键盘监听只在 open 期注册，那时 panelRef 必已挂载 */
         ...(panelRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
+        /* v8 ignore stop */
       ].filter((el) => !el.hasAttribute("hidden"));
       /* v8 ignore start -- 防御分支：面板展开时恒有 ≥4 个未 hidden 的 menuitem */
       if (!items.length) return;
@@ -159,7 +161,9 @@ export default function AcctMenu({
     } catch (e) {
       // 409 detail 结构化（job_runner running_kind）：api 封装已把 detail.message 映射进 message
       const err = e as ApiError;
+      /* v8 ignore start -- 防御分支：api 封装对 4xx 恒给出非空 message（无 detail 也回落通用文案） */
       if (err.status === 409) alert(err.message || "已有任务在进行中");
+      /* v8 ignore stop */
       else alert("备份启动失败：" + errMessage(e, "请重试"));
     }
   };

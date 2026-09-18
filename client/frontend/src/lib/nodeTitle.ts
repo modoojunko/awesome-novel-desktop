@@ -59,5 +59,7 @@ export function editName(
   no: number,
   title: string | null | undefined,
 ): string {
+  /* v8 ignore start -- 防御分支：title 为空时 isDefaultTitle 恒真，`title ?? ""` 的右臂走不到 */
   return isDefaultTitle(kind, no, title) ? "" : (title ?? "").trim();
+  /* v8 ignore stop */
 }

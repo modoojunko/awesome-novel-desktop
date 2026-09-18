@@ -64,6 +64,31 @@ describe("request() 503 三态", () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
+  it("detail 为对象但无 message：兜底不炸（不显示 undefined）", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ detail: { reason: "storage_busy" } }),
+      text: async () => JSON.stringify({ detail: { reason: "storage_busy" } }),
+    });
+    const err = (await mod.request("/novels").catch((e) => e)) as Error & { reason?: string; status?: number };
+    expect(err.status).toBe(503);
+    expect(err.reason).toBe("storage_busy");
+    expect(err.message).toBe("Service unavailable"); // detail 无 message → 503 兜底
+  });
+
+  it("响应体无 detail 字段：仍抛 503 且走兜底文案（else if 的假臂）", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({}),
+      text: async () => "{}",
+    });
+    const err = (await mod.request("/novels").catch((e) => e)) as Error & { status?: number };
+    expect(err.status).toBe(503);
+    expect(err.message).toBe("Service unavailable");
+  });
+
   it("quiet 形态：503 不弹任何全局提示（调用方就地提示）", async () => {
     fetchMock.mockResolvedValue({
       ok: false,
@@ -116,6 +141,15 @@ describe("request() 403 member_required", () => {
 });
 
 describe("request() 错误附件透传", () => {
+  it("detail 是对象但无 message：回落中文通用文案（不漏 undefined）", async () => {
+    fetchMock.mockResolvedValue(jsonRes(409, { detail: { novels: ["a"] } }));
+    const err = (await mod.request("/novels", { method: "POST" }).catch((e) => e)) as Error & {
+      novels?: string[];
+      message: string;
+    };
+    expect(err.novels).toEqual(["a"]);
+    expect(err.message).toBe("请求失败（HTTP 409）");
+  });
   it("detail 的 novels / reason / field / current / rev 全部挂到 Error 上", async () => {
     fetchMock.mockResolvedValue(
       jsonRes(409, {
@@ -172,6 +206,16 @@ describe("api.* 包装器逐个发得出去（URL / 方法 / body）", () => {
     expect(JSON.parse(String(calls[2][1].body))).toEqual({ name: "新名" });
     expect(JSON.parse(String(calls[4][1].body))).toEqual({ synopsis: "简介" });
     expect(JSON.parse(String(calls[7][1].body))).toEqual({ input: "词" });
+});
+
+  it("post/put/patch 不带 body：仍发得出去（body 缺省分支）", async () => {
+    fetchMock.mockResolvedValue(jsonRes(200, { ok: true }));
+    await mod.api.post("/novels/1/confirm");
+    await mod.api.put("/novels/1/story");
+    await mod.api.patch("/novels/1");
+    const calls = fetchMock.mock.calls as Array<[string, RequestInit]>;
+    expect(calls.map(([, i]) => i.method)).toEqual(["POST", "PUT", "PATCH"]);
+    for (const [, init] of calls) expect(init.body).toBeUndefined();
   });
 });
 
@@ -189,6 +233,14 @@ describe("导入端点", () => {
     expect(String(url)).toContain("/novels/import/persist");
     expect(init.method).toBe("POST");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok-edge");
+  });
+
+  it("downloadTemplate 无 token：不发 Authorization 头", async () => {
+    localStorage.removeItem("auth_token");
+    fetchMock.mockResolvedValue({ ok: true, status: 200, text: async () => "模板" });
+    await expect(mod.downloadTemplate()).resolves.toBe("模板");
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
   });
 
   it("downloadTemplate：成功取文本；失败抛中文", async () => {

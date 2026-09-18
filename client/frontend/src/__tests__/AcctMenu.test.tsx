@@ -405,6 +405,42 @@ describe("AcctMenu 交互分支补齐", () => {
     vi.unstubAllGlobals();
   });
 
+  it("面板内空白处 mousedown：不触发外点关闭（短路臂）", async () => {
+    await openMenu();
+    fireEvent.mouseDown(document.querySelector('[data-od-id="acct-menu"]') as HTMLElement);
+    expect(document.querySelector('[data-od-id="acct-menu-head"]')).toBeTruthy(); // 仍开着
+  });
+
+  it("Shift+Tab 且焦点不在首项：回退一位（内层 cond 的另一臂）", async () => {
+    await openMenu();
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].filter(
+      (el) => !el.hasAttribute("hidden"),
+    );
+    items[1].focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(items[0]);
+  });
+
+  it("未登录态：头像降级图标、名字「未登录」、无 title、名字转 muted", async () => {
+    const { getUsername } = await import("@/lib/auth");
+    const mocked = getUsername as unknown as ReturnType<typeof vi.fn>;
+    const prev = mocked.getMockImplementation?.();
+    mocked.mockReturnValue(null);
+    try {
+      await openMenu();
+      const head = document.querySelector('[data-od-id="acct-menu-head"]') as HTMLElement;
+      const name = head.querySelector(".am-name") as HTMLElement;
+      expect(name.textContent).toBe("未登录");
+      expect(name.getAttribute("title")).toBeNull();
+      expect(name.getAttribute("style") ?? "").toContain("muted");
+      expect(head.querySelector(".avatar svg")).toBeTruthy(); // 无用户名 → Ico
+      // 触发钮同样走 Ico 分支
+      expect(document.querySelector('[data-od-id="acct-trigger"] .avatar svg')).toBeTruthy();
+    } finally {
+      mocked.mockImplementation?.(prev as never);
+    }
+  });
+
   it("档位徽章：loading 呈省略号；无档位信息时不渲染徽章", async () => {
     const first = await openMenu({ loading: true });
     expect(document.querySelector('[data-od-id="acct-badge"]')?.textContent).toBe("…");

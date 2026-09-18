@@ -123,7 +123,10 @@ export default function RestoreModal({
     <Modal
       open={open}
       onClose={() => {
+        /* v8 ignore start -- 防御分支：locked={step === "working"} 已让 Modal 在恢复中
+           拒绝一切关闭路径（遮罩/Esc/X），这里只是二道保险 */
         if (step !== "working") onClose();
+        /* v8 ignore stop */
       }}
       title="恢复备份"
       locked={step === "working"}
