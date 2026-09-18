@@ -85,16 +85,22 @@ def _client_key(request) -> str:
     return peer
 
 
+_PROXY_PROBE_DONE = False
+
+
 def _log_proxy_probe(request) -> None:
     """XFF 行为探针（临时，实测期）：信任跳数未开且带 XFF 时记录真实链路。
 
     用于实测云托管网关/本地反代的 XFF 注入语义，回填 design Open Question 后移除。
+    每进程仅采样一次——网关注入语义对部署形态是常量，无需逐请求记录刷日志。
     """
-    if _trusted_proxy_hops() > 0:
+    global _PROXY_PROBE_DONE
+    if _PROXY_PROBE_DONE or _trusted_proxy_hops() > 0:
         return
     xff = request.headers.get("x-forwarded-for", "")
     if not xff:
         return
+    _PROXY_PROBE_DONE = True
     peer = request.client.host if request.client else "unknown"
     logger.info("event=proxy_probe peer=%s xff=%s x_real_ip=%s",
                 peer, xff, request.headers.get("x-real-ip", ""))
