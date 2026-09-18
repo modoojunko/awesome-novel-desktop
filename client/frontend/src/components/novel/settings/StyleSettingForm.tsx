@@ -961,8 +961,9 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                               {prev && prev.locked && <span className="badge empty">保留上一版</span>}
                             </div>
                             <div className="bx-vals">
+                              {/* 锁定行落卡＝{**新行, value: 上一版}——value 保留旧值，容差取新构建行值（评审 P2：预览＝落卡逐字段一致） */}
                               {prev && prev.locked
-                                ? `约 ${prev.value || "（上一版为空）"}（±${prev.tolerance}%）`
+                                ? `约 ${prev.value || "（上一版为空）"}（±${row.tolerance}%）`
                                 : `约 ${row.value}（±${row.tolerance}%）`}
                             </div>
                           </div>

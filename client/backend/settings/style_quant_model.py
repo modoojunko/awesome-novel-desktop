@@ -128,9 +128,14 @@ def commit_draft(doc: dict, *, sample_chars: int, chapter_count: int, at: str) -
         return doc
     confidence = confidence_for(sample_chars, chapter_count)
     stored_rows = step3.get("rows")
-    if isinstance(stored_rows, dict) and set(stored_rows) == set(BASELINE_KEYS):
-        baseline = {k: dict(v) for k, v in stored_rows.items() if isinstance(v, dict)}
+    if (
+        isinstance(stored_rows, dict)
+        and set(stored_rows) == set(BASELINE_KEYS)
+        and all(isinstance(v, dict) for v in stored_rows.values())
+    ):
+        baseline = {k: dict(v) for k, v in stored_rows.items()}
     else:
+        # 键不全或行值损坏（非 dict）→ 整体回落现算，绝不落残缺基线
         baseline = build_baseline({**step3, "confidence": confidence})
     prev = doc.get("baseline") or {}
     mixture: dict = {}

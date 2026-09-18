@@ -188,10 +188,12 @@ describe("落卡基线预览（c-style-paste-distill）", () => {
     const preview = await screen.findByTestId("portrait-baseline-preview");
     // 非锁定行：新蒸馏值＋预览容差
     expect(preview.textContent).toContain("约 第三人称限知（±20%）");
-    // 锁定行：如实显示落卡将保留的上一版值（预览＝落卡），新值不出现
+    // 锁定行：value 如实显示落卡将保留的上一版（±20%＝新构建行值的容差，与 commit 合并
+    // 语义 {**新行, value: 上一版} 逐字段一致——mock 故意给 prev.tolerance=10 钉死容差取新行）
     expect(preview.textContent).toContain("保留上一版");
-    expect(preview.textContent).toContain("约 旧配比（±10%）");
-    expect(preview.textContent).not.toContain("对话 48%");
+    expect(preview.textContent).toContain("约 旧配比（±20%）");
+    expect(preview.textContent).not.toContain("对话 48%"); // 锁定行新蒸馏值不出现
+    expect(preview.textContent).not.toContain("±10%"); // 旧落卡容差不出现（容差取新构建行值）
   });
 });
 

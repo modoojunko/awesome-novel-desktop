@@ -209,7 +209,20 @@ class TestQuantModel:
         doc = commit_draft(doc, sample_chars=10000, chapter_count=0, at="T1")
         assert doc["baseline"]["narrative"] == rows["narrative"]  # 落卡行＝预览行（同一产物复用）
         assert doc["baseline"]["rhythm"]["value"] == "旧配比"  # 锁定行按落卡时点保留上一版
+        # 锁定行 value 留旧、容差取新构建行值（{**新行, value: 上一版}）——与前端预览逐字段一致（评审 P2）
+        assert doc["baseline"]["rhythm"]["tolerance"] == 20
+        assert doc["baseline"]["rhythm"]["tolerance"] != 10  # 旧落卡容差不沿用
         assert doc["history"][0]["mixture"]["rhythm"] == "locked(上一版)"
+
+    def test_commit_rows_corrupted_value_falls_back(self):
+        """守卫加固（评审 P3）：键名齐但行值损坏（非 dict）→ 整体回落现算，不落残缺基线。"""
+        rows = build_baseline({"baseline": {"narrative": "新身份"}, "confidence": 60})
+        rows["rhythm"] = "损坏"  # 模拟异常存储：行值不是 dict
+        doc = quant_doc({})
+        doc["draft"] = {"step": 3, "sample_chars": 5000, "chapter_count": 0, "step3": {"rows": rows, "banned": []}}
+        doc = commit_draft(doc, sample_chars=5000, chapter_count=0, at="T1")
+        assert set(doc["baseline"]) == {"narrative", "rhythm", "syntax", "lexicon", "emotion", "dialogue_verb"}
+        assert isinstance(doc["baseline"]["rhythm"], dict)
 
     def test_quant_doc_history_not_shared_across_docs(self):
         """quant_doc 必须深拷贝默认形状：否则无 history 键的文档经 commit 后把快照串给下一个。"""

@@ -58,6 +58,8 @@ describe("字数提示与提交门", () => {
     type("字".repeat(40_001));
     expect(screen.getByTestId("paste-hint").textContent).toContain("挑最有代表性的几章");
     expect(start().disabled).toBe(true);
+    // 计数不冒充精确值：如实标注原始长度（含空白）而非「不含空白」口径（评审 P3）
+    expect(screen.getByText(/原始 40,001 字（超长，未剔除空白）/)).toBeTruthy();
   });
 });
 

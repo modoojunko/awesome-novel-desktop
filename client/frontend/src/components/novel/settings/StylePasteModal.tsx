@@ -83,9 +83,14 @@ export default function StylePasteModal({ open, onClose, onSubmit }: Props) {
         onChange={(e) => setText(e.target.value)}
       />
       <div className="paste-meta">
-        <span>
-          已贴 <b className="num">{n.toLocaleString()}</b> 字（不含空白）
-        </span>
+        {rawOver ? (
+          // fast-path 生效时未剔除空白，不冒充精确计数——如实标注原始长度
+          <span>原始 {text.length.toLocaleString()} 字（超长，未剔除空白）</span>
+        ) : (
+          <span>
+            已贴 <b className="num">{n.toLocaleString()}</b> 字（不含空白）
+          </span>
+        )}
         <span className="spacer" />
         <span className={tone} data-od-id="paste-hint">
           {hint}
