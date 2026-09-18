@@ -109,6 +109,22 @@ test.describe("版本行与账号行（控制中心面板）", () => {
     await expect(page.locator('[data-od-id="acct-menu-version"]')).toHaveText("v0.15.1"); // 面板吃缓存不发新请求
   });
 
+  test("恢复入口：点「恢复」弹出恢复备份弹窗（P0 回归：#346 起模态被 !open 提前 return 挡住）", async ({
+    page,
+  }) => {
+    await stubShell(page, "writer01");
+    await stubUpdateNotice(page, "none", "0.15.1");
+    await page.goto("/#/novels");
+    await page.locator('[data-od-id="acct-trigger"]').click();
+    await page.locator('[data-od-id="acct-menu-restore"]').click();
+    // 弹窗必须真的出现（旧代码：点恢复 → close() → 提前 return 分支不含模态 → 永远打不开）
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page.getByText("恢复备份")).toBeVisible();
+    // 取消可关闭，且菜单不再展开
+    await page.getByRole("button", { name: "取消" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
+
   test("长用户名：截断不撑破面板，悬停 title 见全文", async ({ page }) => {
     const longName = "w".repeat(38) + "-end"; // 42 字符
     await stubShell(page, longName);

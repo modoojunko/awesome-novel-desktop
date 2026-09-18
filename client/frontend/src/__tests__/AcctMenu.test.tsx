@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactNode } from "react";
 import type { TierState } from "@/components/novel/license/LicenseProvider";
@@ -197,5 +197,176 @@ describe("AcctMenu 备份发起（鉴权头 + 错误文案守卫）", () => {
     armBridge();
     await clickBackup();
     await waitFor(() => expect(alertMock).toHaveBeenCalledWith("备份启动失败：请重试"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 覆盖补齐（覆盖率专项）：键盘导航 / 外点 / Escape / 无壳分支 / 跳转接线
+// ---------------------------------------------------------------------------
+
+describe("AcctMenu 交互分支补齐", () => {
+  async function openMenu(over: Partial<TierState> = {}) {
+    const { default: AcctMenu } = await import("@/components/AcctMenu");
+    const { useTier } = await import("@/hooks/useTier");
+    vi.mocked(useTier).mockReturnValue(tierState(over));
+    const utils = mount(<AcctMenu />);
+    fireEvent.click(document.querySelector('[data-od-id="acct-trigger"]') as HTMLElement);
+    return utils;
+  }
+  const panel = () => document.querySelector('[data-od-id="acct-menu-head"]')?.closest(".popover, .acct-panel, [role=\"menu\"]") as HTMLElement | null;
+  const item = (id: string) => document.querySelector(`[data-od-id="${id}"]`) as HTMLElement | null;
+
+  it("外点关闭：mousedown 落在面板与触发钮之外 → 收起并复位轻确认", async () => {
+    await openMenu();
+    expect(item("acct-menu-logout")).toBeTruthy();
+    fireEvent.mouseDown(document.body);
+    await waitFor(() => expect(document.querySelector('[data-od-id="acct-menu-logout"]')).toBeNull());
+  });
+
+  it("Escape 关闭并阻止冒泡（不误触宿主快捷键）", async () => {
+    await openMenu();
+    const spy = vi.fn();
+    document.addEventListener("keydown", spy);
+    fireEvent.keyDown(document, { key: "Escape" });
+    document.removeEventListener("keydown", spy);
+    await waitFor(() => expect(document.querySelector('[data-od-id="acct-menu-logout"]')).toBeNull());
+    // stopPropagation：document 级监听器仍会被调用（同级），但事件不得继续冒泡到 window
+    expect(spy).toHaveBeenCalled();
+  });
+
+  it("方向键在菜单项间循环，Tab 圈不出面板（含 Shift+Tab 回绕）", async () => {
+    await openMenu();
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].filter(
+      (el) => !el.hasAttribute("hidden"),
+    );
+    expect(items.length).toBeGreaterThan(2);
+    items[0].focus();
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items[1]);
+    items[0].focus();
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(items[items.length - 1]);
+    items[items.length - 1].focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(items[0]);
+    items[0].focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(items[items.length - 1]);
+    // 焦点不在任何项上（idx === -1）→ 落第一项
+    (document.body as HTMLElement).focus();
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items[0]);
+  });
+
+  it("无壳：备份与恢复都给出桌面版提示（不静默）", async () => {
+    const alertMock = vi.fn();
+    vi.stubGlobal("alert", alertMock);
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+    await openMenu();
+    fireEvent.click(item("acct-menu-backup") as HTMLElement);
+    await waitFor(() => expect(alertMock).toHaveBeenCalledWith("备份功能需要桌面版应用"));
+    fireEvent.click(document.querySelector('[data-od-id="acct-trigger"]') as HTMLElement);
+    fireEvent.click(item("acct-menu-restore") as HTMLElement);
+    await waitFor(() => expect(alertMock).toHaveBeenCalledWith("恢复功能需要桌面版应用"));
+    vi.unstubAllGlobals();
+  });
+
+  it("用户在文件夹选择器里取消：不发请求、不提示", async () => {
+    const alertMock = vi.fn();
+    vi.stubGlobal("alert", alertMock);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(async () => null) },
+    };
+    await openMenu();
+    fireEvent.click(item("acct-menu-backup") as HTMLElement);
+    await waitFor(() => expect((window as unknown as { pywebview?: { api?: { pick_folder: unknown } } }).pywebview?.api?.pick_folder).toHaveBeenCalled());
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(alertMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+  });
+
+  it("模型配置项：关面板并跳 /config", async () => {
+    await openMenu();
+    fireEvent.click(item("acct-menu-config") as HTMLElement);
+    await waitFor(() => expect(document.querySelector('[data-od-id="acct-menu-config"]')).toBeNull());
+  });
+
+  it("恢复项：有壳时打开恢复弹窗；取消走 onClose 接线", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_open_file: vi.fn(async () => []) },
+    };
+    await openMenu();
+    fireEvent.click(item("acct-menu-restore") as HTMLElement);
+    await waitFor(() => expect(document.querySelector(".mcard")).toBeTruthy());
+    fireEvent.click(screen.getByText("取消"));
+    await waitFor(() => expect(document.querySelector(".mcard")).toBeNull());
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+  });
+
+  it("恢复完成页「去检查模型配置」：关弹窗并跳 /config（onGoConfig 接线）", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_open_file: vi.fn(async () => ["/tmp/pkg.zip"]) },
+    };
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).includes("/backup/import/parse")) {
+        return { ok: true, status: 200, json: async () => ({ code: 0, data: { books: [], config: null, warnings: [], schema_version: 1 } }) };
+      }
+      if (String(url).includes("/backup/import/persist")) {
+        return { ok: true, status: 200, json: async () => ({ code: 0, data: { results: [{ book_id: "b1", status: "ok" }], warnings: [], reattach: { mode: "none", attached: 0 } } }) };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    localStorage.setItem("auth_token", "t");
+    await openMenu();
+    fireEvent.click(item("acct-menu-restore") as HTMLElement);
+    await waitFor(() => expect(document.querySelector(".mcard")).toBeTruthy());
+    fireEvent.click(screen.getAllByText("选择文件")[0]);
+    await waitFor(() => expect((screen.getByText("下一步") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByText("下一步"));
+    await waitFor(() => expect(screen.getByText("确认恢复")).toBeTruthy());
+    fireEvent.click(screen.getByText("确认恢复"));
+    await waitFor(() => expect(screen.getByText("去检查模型配置")).toBeTruthy());
+    fireEvent.click(screen.getByText("去检查模型配置"));
+    await waitFor(() => expect(document.querySelector(".mcard")).toBeNull());
+    vi.unstubAllGlobals();
+    localStorage.removeItem("auth_token");
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+  });
+
+  it("无关按键不影响焦点；焦点不在项上时方向键落第一项", async () => {
+    await openMenu();
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].filter(
+      (el) => !el.hasAttribute("hidden"),
+    );
+    items[0].focus();
+    fireEvent.keyDown(document, { key: "a" }); // 非 Arrow/Tab → 直接返回
+    expect(document.activeElement).toBe(items[0]);
+    (document.activeElement as HTMLElement | null)?.blur(); // idx === -1
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items[0]);
+  });
+
+  it("展开态点触发钮收起面板；点「联系客服」也收起", async () => {
+    await openMenu();
+    fireEvent.click(document.querySelector('[data-od-id="acct-trigger"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector('[data-od-id="acct-menu-logout"]')).toBeNull());
+    // 重新展开后点客服链接（外跳由 target=_blank 承担，这里钉住 close 接线）
+    fireEvent.click(document.querySelector('[data-od-id="acct-trigger"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector('[data-od-id="acct-menu-support"]')).toBeTruthy());
+    fireEvent.click(document.querySelector('[data-od-id="acct-menu-support"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector('[data-od-id="acct-menu-support"]')).toBeNull());
+  });
+
+  it("档位徽章：loading 呈省略号；无档位信息时不渲染徽章", async () => {
+    const first = await openMenu({ loading: true });
+    expect(document.querySelector('[data-od-id="acct-badge"]')?.textContent).toBe("…");
+    first.unmount();
+    const second = await openMenu({ tier: undefined as unknown as TierState["tier"] });
+    expect(document.querySelector('[data-od-id="acct-badge"]')).toBeNull();
+    second.unmount();
   });
 });

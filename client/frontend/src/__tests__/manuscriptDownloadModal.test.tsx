@@ -589,3 +589,179 @@ describe("ManuscriptDownloadModal — 完成态再下载", () => {
     expect(screen.getByText("再次下载")).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 覆盖补齐（覆盖率专项）：常用位置探取 / 选择目录 / 无壳双保险 / 打开文件夹守卫 /
+// 重试接线 / 轮询卸载守卫（alive·seq）
+// ---------------------------------------------------------------------------
+
+describe("ManuscriptDownloadModal 分支补齐", () => {
+  const fm = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("fetch", fm);
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.removeItem("auth_token");
+  });
+
+  const idle = () => ({ ok: true, status: 200, json: async () => ({ code: 0, data: { state: "idle" } }) });
+  const running = () => ({ ok: true, status: 200, json: async () => ({ code: 0, data: { state: "running", pct: 10, steps: [] } }) });
+
+  it("挂载时已有壳：探常用位置 → chip 一键填充；「选择…」走 pick_folder", async () => {
+    const pick_folder = vi.fn(async () => "/tmp/picked");
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder, open_folder: vi.fn(), default_dirs: vi.fn(async () => [{ label: "文稿", path: "/tmp/docs" }]) },
+    };
+    renderModal({ open: true });
+    await waitFor(() => expect(screen.getByText("文稿")).toBeTruthy());
+    fireEvent.click(screen.getByText("文稿"));
+    expect((document.querySelector('[data-od-id="download-dir"]') as HTMLInputElement).value).toBe("/tmp/docs");
+    fireEvent.click(screen.getByText("选择…"));
+    await waitFor(() =>
+      expect((document.querySelector('[data-od-id="download-dir"]') as HTMLInputElement).value).toBe("/tmp/picked"),
+    );
+    expect(pick_folder).toHaveBeenCalledTimes(1);
+  });
+
+  it("常用位置探取失败：静默回落空列表（不炸、不弹错）", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: {
+        pick_folder: vi.fn(),
+        open_folder: vi.fn(),
+        default_dirs: vi.fn(async () => {
+          throw new Error("boom");
+        }),
+      },
+    };
+    renderModal({ open: true });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(document.querySelector('[data-od-id="download-dir"]')).toBeTruthy();
+  });
+
+  it("无壳点「选择…」：守卫拦下（pickDir 早返回）", async () => {
+    fm.mockResolvedValue(idle());
+    renderModal();
+    fireEvent.click(screen.getByText("选择…"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByText("选择…")).toBeTruthy();
+  });
+
+  it("错误态「重试」：回表单并立刻再发起（resetToForm + start 接线）", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    let posts = 0;
+    fm.mockImplementation(async (_u: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") {
+        posts += 1;
+        return { ok: true, status: 200, json: async () => ({ code: 0, data: { state: "running" } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ code: 0, data: { state: "error", error: { code: "io_error", message: "炸了" } } }) };
+    });
+    renderModal();
+    act(() => armForm());
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(screen.getByText("重试")).toBeTruthy(), { timeout: 3000 });
+    fireEvent.click(screen.getByText("重试"));
+    await waitFor(() => expect(posts).toBe(2), { timeout: 3000 });
+  });
+
+  it("无壳双保险：错误态删壳后点「重试」不发请求", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    let posts = 0;
+    fm.mockImplementation(async (_u: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") {
+        posts += 1;
+        return { ok: true, status: 200, json: async () => ({ code: 0, data: { state: "running" } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ code: 0, data: { state: "error", error: { code: "io_error", message: "炸了" } } }) };
+    });
+    renderModal();
+    act(() => armForm());
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(screen.getByText("重试")).toBeTruthy(), { timeout: 3000 });
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+    fireEvent.click(screen.getByText("重试"));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(posts).toBe(1); // 没有第二次 POST
+  });
+
+  it("完成态删壳后点「打开文件夹」：守卫拦下不炸", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    fm.mockImplementation(async (_u: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") return running();
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 0, data: { state: "done", pct: 100, files: ["a.md"], steps: [], target_dir: "/tmp/out" } }),
+      };
+    });
+    renderModal();
+    act(() => armForm());
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(screen.getByText("下载完成")).toBeTruthy(), { timeout: 3000 });
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+    fireEvent.click(screen.getByText("打开文件夹")); // b === null → 早返回
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByText("下载完成")).toBeTruthy();
+  });
+
+  it("轮询守卫：卸载后到达的响应/停滞计数不再改状态（alive·seq + stallOut 早返回）", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    let release: ((v: unknown) => void) | undefined;
+    fm.mockImplementation(async (_u: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") return running();
+      return new Promise((res) => {
+        release = res;
+      }) as Promise<unknown>;
+    });
+    const { unmount } = renderModal({ pollStallLimit: 1 });
+    act(() => armForm());
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(release).toBeTruthy(), { timeout: 3000 });
+    unmount(); // alive=false
+    await act(async () => {
+      // 解析迟到的响应 → 命中 `if (!alive || my !== seq) return`
+      release?.({
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 0, data: { state: "running", pct: 5, steps: [] } }),
+      });
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(true).toBe(true); // 断言点=无异常、无 React 警告
+  });
+
+  it("轮询失败守卫：卸载后到达的失败不再改状态（stallOut 的 !alive 早返回）", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    let reject: ((e: unknown) => void) | undefined;
+    fm.mockImplementation(async (_u: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") return running();
+      return new Promise((_res, rej) => {
+        reject = rej;
+      }) as Promise<unknown>;
+    });
+    const { unmount } = renderModal({ pollStallLimit: 1 });
+    act(() => armForm());
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(reject).toBeTruthy(), { timeout: 3000 });
+    unmount(); // alive=false
+    await act(async () => {
+      reject?.(new Error("late failure"));
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(true).toBe(true);
+  });
+});

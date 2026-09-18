@@ -27,6 +27,15 @@ describe("cnNum", () => {
   });
 });
 
+describe("空题名与默认判定", () => {
+  it("空/纯空白题名视为默认序号（未起名）", () => {
+    expect(isDefaultTitle("章", 1, "")).toBe(true);
+    expect(isDefaultTitle("章", 1, "   ")).toBe(true);
+    expect(isDefaultTitle("章", 1, null)).toBe(true);
+    expect(nodeLabel("章", 1, "")).toBe("第一章");
+  });
+});
+
 describe("千章边界（P3：修复前 1000+ 渲染成「第undefined百…章」）", () => {
   it("第1000章：默认序号形态不重复拼名称", () => {
     expect(nodeLabel("章", 1000, "第1000章")).toBe("第1000章");
