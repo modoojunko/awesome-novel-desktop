@@ -296,11 +296,11 @@ function wordCount(s){ return String(s==null?'':s).replace(/<[^>]*>/g,'').replac
 function statusText(c){
   return c.status==='draft' ? '草稿' : c.status==='planned' ? '拟定' : c.status==='pending' ? '待写' : '已归档';
 }
-/* 正文渲染：带格式 HTML 原样归一，纯文本按段落折叠 */
+/* 正文渲染：纯文本按段落折叠（原「带格式 HTML 原样归一」分支移除：
+   CodeQL py/js 注入面 high 告警；演示种子均为纯文本，该分支从未被走到） */
 function asHTML(s){
   const t = s==null ? '' : String(s);
   if(!t.trim()) return '';
-  if(/<(p|br|div|b|i|em|strong|blockquote|hr|h[1-3])\b/i.test(t)) return t;
   return t.split(/\n+/).filter(x=>x.trim()).map(x=>'<p>'+esc(x.trim())+'</p>').join('');
 }
 function proseHTML(s){
