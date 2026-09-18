@@ -43,14 +43,25 @@ describe("ApiConfigForm 新建态", () => {
     expect(screen.getByText("Anthropic 格式").className).toContain("on");
   });
 
-  it("URL 不预填：仅 placeholder 随格式变化", () => {
+  it("URL 不预填：选供应商与切格式都只换占位、不动输入", () => {
     render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
     const base = () => document.getElementById("cfBase") as HTMLInputElement;
     expect(base().value).toBe("");
     expect(base().placeholder).toContain("openai.com");
+    // 选供应商（另一半：原用例只测了切格式）
+    fireEvent.click(screen.getByText("Anthropic"));
+    expect(base().value).toBe("");
+    fireEvent.click(screen.getByText("Ollama"));
+    expect(base().value).toBe("");
+    // 切格式
+    fireEvent.click(screen.getByText("DeepSeek"));
     fireEvent.click(screen.getByText("Anthropic 格式"));
-    expect(base().value).toBe(""); // 不预填
+    expect(base().value).toBe("");
     expect(base().placeholder).toContain("anthropic.com");
+    // 手填后再点供应商/切格式也不被改写
+    fireEvent.change(base(), { target: { value: "https://mine.example" } });
+    fireEvent.click(screen.getByText("OpenAI 格式"));
+    expect(base().value).toBe("https://mine.example");
   });
 
   it("校验四态：名称/供应商/Base URL/API Key（Ollama 免 Key）", async () => {
@@ -153,7 +164,7 @@ describe("ApiConfigForm 编辑态", () => {
     expect(document.querySelector(".vfix")!.textContent).toContain("OpenAI");
   });
 
-  it("密钥留空保留：编辑态不填 Key 也能提交，占位与掩码提示齐备", async () => {
+  it("编辑态留空：表单提交空串（**省略字段是页面层职责**，见 ApiKeyConfigPage 用例），占位与掩码提示齐备", async () => {
     const onSubmit = vi.fn(async (_data: ApiConfigFormData) => {});
     render(<ApiConfigForm open config={editCfg()} onSubmit={onSubmit} onCancel={vi.fn()} />);
     const key = document.getElementById("cfKey") as HTMLInputElement;
@@ -188,6 +199,17 @@ describe("ApiConfigForm 编辑态", () => {
     setField("cfKey", "sk-1");
     fireEvent.click(screen.getByText("测试连接"));
     expect(await screen.findByText("端点未返回模型列表")).toBeTruthy();
+  });
+
+  it("密钥输入不泄漏：密码框 + 关自动填充 + 明文不进 DOM 文本", () => {
+    render(<ApiConfigForm open config={editCfg()} onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    const key = document.getElementById("cfKey") as HTMLInputElement;
+    expect(key.type).toBe("password");
+    expect(key.getAttribute("autocomplete")).toBe("off");
+    fireEvent.change(key, { target: { value: "sk-typed-secret" } });
+    expect(key.value).toBe("sk-typed-secret"); // 只存在于输入框
+    expect(document.body.textContent).not.toContain("sk-typed-secret"); // 不进任何文本节点
+    expect(document.body.textContent).toContain("sk-****9999"); // 展示的是掩码
   });
 
   it("表单随编辑目标重置：换 config → 字段刷新、错误与测试结果清空、Key 清空", async () => {

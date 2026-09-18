@@ -33,19 +33,18 @@ afterEach(() => {
 });
 
 describe("ProviderIcon / VendorGlyph", () => {
-  it("八家供应商表与标签齐全，图标按 vendor 取、未知回退 openai-compat", () => {
-    expect(VENDORS.map((v) => v.id)).toContain("openai-compat");
-    expect(VENDOR_LABELS.anthropic).toBe("Anthropic");
-    expect(VENDOR_FORMAT_LOCK.anthropic).toBe("anthropic");
-    expect(FORMAT_PLACEHOLDER.anthropic).toContain("anthropic.com");
-    render(
+  it("未知厂商回退 openai-compat 图形（回退失效即红）", () => {
+    const { unmount } = render(
       <>
-        <VendorGlyph vendor="deepseek" />
         <VendorGlyph vendor="不存在的厂商" />
-        <ProviderIcon vendor={"glm" as ApiConfig["vendor"]} />
+        <VendorGlyph vendor="openai-compat" />
       </>,
     );
-    expect(document.querySelectorAll("svg").length).toBeGreaterThanOrEqual(3);
+    const [fallback, compat] = [...document.querySelectorAll("svg")].map((g) => g.innerHTML);
+    expect(fallback).toBe(compat);
+    expect(document.querySelectorAll("svg").length).toBe(2);
+    unmount();
+    render(<ProviderIcon vendor={"glm" as ApiConfig["vendor"]} />);
     expect(screen.getByTitle("GLM")).toBeTruthy();
   });
 
@@ -114,7 +113,7 @@ describe("UsagePieChart", () => {
     expect(document.querySelectorAll("svg circle").length).toBe(1);
   });
 
-  it("多段：每段一圆 + 图例百分比与总量", () => {
+  it("多段：弧长/偏移按占比算（dash 参数真断言）+ 图例百分比与总量", () => {
     render(
       <UsagePieChart
         data={[
@@ -123,7 +122,15 @@ describe("UsagePieChart", () => {
         ]}
       />,
     );
-    expect(document.querySelectorAll("svg circle").length).toBe(2);
+    const circles = [...document.querySelectorAll("svg circle")];
+    expect(circles.length).toBe(2);
+    const circumference = 2 * Math.PI * 32;
+    const [dashA, gapA] = (circles[0].getAttribute("stroke-dasharray") ?? "").split(" ").map(Number);
+    expect(dashA / (dashA + gapA)).toBeCloseTo(0.75, 3); // 弧长占比
+    expect(Number(circles[0].getAttribute("stroke-dashoffset"))).toBeCloseTo(0, 5); // 首段从 0 起
+    const [dashB] = (circles[1].getAttribute("stroke-dasharray") ?? "").split(" ").map(Number);
+    expect(dashB / circumference).toBeCloseTo(0.25, 3);
+    expect(Number(circles[1].getAttribute("stroke-dashoffset"))).toBeCloseTo(-0.75 * circumference, 3); // 累进偏移
     expect(screen.getByText("75%")).toBeTruthy();
     expect(screen.getByText("25%")).toBeTruthy();
   });
@@ -208,8 +215,7 @@ describe("MigrationBanner", () => {
   it("「去查看」但列表不存在：静默不炸", async () => {
     document.getElementById("api-config-list")?.remove();
     render(<MigrationBanner migrationCompleted={false} />);
-    fireEvent.click(await screen.findByText("去查看"));
-    expect(screen.getByText("去查看")).toBeTruthy();
+    fireEvent.click(await screen.findByText("去查看")); // 无目标元素：不抛错即通过
   });
 
   it("「去查看」滚动到配置列表（列表在时）", async () => {
@@ -218,25 +224,28 @@ describe("MigrationBanner", () => {
     const scrollIntoView = vi.fn();
     target.scrollIntoView = scrollIntoView;
     document.body.appendChild(target);
-    render(<MigrationBanner migrationCompleted={false} />);
-    fireEvent.click(await screen.findByText("去查看"));
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth" });
-    target.remove();
+    try {
+      render(<MigrationBanner migrationCompleted={false} />);
+      fireEvent.click(await screen.findByText("去查看"));
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth" });
+    } finally {
+      target.remove(); // 断言失败也不把节点漏给后续用例
+    }
   });
 });
 
 describe("ApiConfigCard", () => {
   it("七态徽标与边框：逐态映射（含未知态回落未测试）", () => {
-    const cases: Array<[ApiConfig["last_test_status"], string, string]> = [
-      ["ok", "连接正常", ""],
-      ["auth_error", "认证失败", "b-err"],
-      ["timeout", "连接超时", "b-warn"],
-      ["network_error", "网络错误", "b-warn"],
-      ["rate_limited", "频率限制", "b-muted"],
-      ["unknown", "未知", "b-muted"],
-      ["something_new" as ApiConfig["last_test_status"], "未测试", ""],
+    const cases: Array<[ApiConfig["last_test_status"], string, string, string]> = [
+      ["ok", "连接正常", "", "ok"],
+      ["auth_error", "认证失败", "b-err", "err"],
+      ["timeout", "连接超时", "b-warn", "warn"],
+      ["network_error", "网络错误", "b-warn", "warn"],
+      ["rate_limited", "频率限制", "b-muted", "muted"],
+      ["unknown", "未知", "b-muted", "muted"],
+      ["something_new" as ApiConfig["last_test_status"], "未测试", "", "muted"],
     ];
-    for (const [status, label, border] of cases) {
+    for (const [status, label, border, badgeCls] of cases) {
       const { unmount } = render(
         <ApiConfigCard
           config={cfg({ last_test_status: status, models: [] })}
@@ -247,7 +256,11 @@ describe("ApiConfigCard", () => {
       );
       const card = document.querySelector(".cfg-card") as HTMLElement;
       expect(screen.getByText(label)).toBeTruthy();
-      expect(card.className).toContain(border);
+      // 边框 token 精确比对（原 toContain("") 恒真 → ok/未测试两态等于没断言）
+      const classes = card.className.trim().split(/\s+/);
+      expect(classes).toEqual(border ? ["cfg-card", border] : ["cfg-card"]);
+      // 徽标色 class 也要钉住（原用例只看了文案）
+      expect(card.querySelector(".b")!.className).toBe(`b ${badgeCls}`);
       unmount();
     }
   });

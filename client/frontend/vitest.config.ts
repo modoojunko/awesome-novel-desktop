@@ -1,6 +1,8 @@
 import { defineConfig } from "vitest/config";
 import path from "path";
 
+import { COVERAGE_CONTRACT_FILES } from "./src/coverage-contract";
+
 export default defineConfig({
   test: {
     environment: "jsdom",
@@ -12,30 +14,12 @@ export default defineConfig({
       provider: "v8",
       // 覆盖率契约只锁「本次交付动过的文件」——不是整仓阈值（存量无关 UI 不在账上）。
       // 口径说明：语句/行/函数/分支均计 100%；分母**不含** `/* v8 ignore start|stop */`
-      // 标注的 7 处不可达防御分支（AcctMenu 的 position refs 组合·菜单项数恒 ≥4·
+      // 标注的 **8 处**不可达防御分支（AcctMenu 的 position refs 组合·菜单项数恒 ≥4·
       // 键盘查询 ?? []·409 空 message；RestoreModal 的 working 步二道锁；
       // ManuscriptDownloadModal 的 409 空 message（api.ts 已保证 message 非空）；nodeTitle 的
-      // `title ?? ""`），每条注释都写了不可达理由。
-      include: [
-        // 批 1（2026-09-18，风险优先：密钥/账号/路由面）
-        "src/lib/api.ts",
-        "src/lib/nodeTitle.ts",
-        "src/lib/selection.ts",
-        "src/App.tsx",
-        "src/components/auth/AuthGuard.tsx",
-        "src/components/api-config/ApiConfigCard.tsx",
-        "src/components/api-config/ApiConfigForm.tsx",
-        "src/components/api-config/DeleteConfirmDialog.tsx",
-        "src/components/api-config/MigrationBanner.tsx",
-        "src/components/api-config/ProviderIcon.tsx",
-        "src/components/api-config/UndoToast.tsx",
-        "src/components/api-config/UsagePieChart.tsx",
-        "src/components/api-config/UsageStatsCard.tsx",
-        "src/components/novel/workbench/ManuscriptDownloadModal.tsx",
-        "src/components/RestoreModal.tsx",
-        "src/components/AcctMenu.tsx",
-        "src/hooks/useDeviceActivation.ts",
-      ],
+      // `title ?? ""`；ApiConfigForm 的编辑态 `if (isEdit) return`），每条注释都写了不可达理由。
+      include: [...COVERAGE_CONTRACT_FILES],
+      perFile: true, // 失败信息点名到具体文件（四项全 100 时与全局口径等价）
       thresholds: { statements: 100, lines: 100, functions: 100, branches: 100 },
     },
   },

@@ -50,6 +50,23 @@ describe("useSelectionCapture", () => {
     expect(result.current.selectedText).toBe("");
   });
 
+  it("keyup 也有独立判据：先清空再 keyup → 状态被重新置回", () => {
+    const ref = createRef<HTMLTextAreaElement>();
+    ref.current = fakeTextarea("hello", 0, 5);
+    const { result } = renderHook(() => useSelectionCapture(ref));
+    act(() => {
+      document.dispatchEvent(new MouseEvent("mouseup"));
+    });
+    expect(result.current.hasSelection).toBe(true);
+    act(() => result.current.clearSelection());
+    expect(result.current.hasSelection).toBe(false); // 清空后 keyup 再捕获回来（删 keyup 注册这条必红）
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keyup"));
+    });
+    expect(result.current.hasSelection).toBe(true);
+    expect(result.current.selectedText).toBe("hello");
+  });
+
   it("captureNow 直接返回捕获结果（无选区时置 false）", () => {
     const ref = createRef<HTMLTextAreaElement>();
     ref.current = fakeTextarea("abc", 1, 1);
@@ -69,16 +86,19 @@ describe("useSelectionCapture", () => {
     expect(result.current.hasSelection).toBe(true);
   });
 
-  it("卸载时移除文档监听（不再更新状态）", () => {
+  it("卸载时用**同一 handler 引用**解绑 mouseup/keyup（spy 断言，删 cleanup 必红）", () => {
+    const addSpy = vi.spyOn(document, "addEventListener");
+    const rmSpy = vi.spyOn(document, "removeEventListener");
     const ref = createRef<HTMLTextAreaElement>();
     ref.current = fakeTextarea("abc", 0, 3);
-    const { result, unmount } = renderHook(() => useSelectionCapture(ref));
+    const { unmount } = renderHook(() => useSelectionCapture(ref));
+    const added = addSpy.mock.calls.filter(([type]) => type === "mouseup" || type === "keyup");
+    expect(added.map(([t]) => t).sort()).toEqual(["keyup", "mouseup"]);
     unmount();
-    act(() => {
-      document.dispatchEvent(new MouseEvent("mouseup"));
-    });
-    // 卸载后状态不再推进（无异常即通过；此处断言最后一次快照仍为初始态）
-    expect(result.current.hasSelection).toBe(false);
-    expect(vi.isMockFunction(document.dispatchEvent)).toBe(false);
+    for (const [type, handler] of added) {
+      expect(rmSpy).toHaveBeenCalledWith(type, handler); // 解绑必须带同一引用，否则泄漏
+    }
+    addSpy.mockRestore();
+    rmSpy.mockRestore();
   });
 });

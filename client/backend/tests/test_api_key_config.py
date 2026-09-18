@@ -604,6 +604,27 @@ class TestApiKeyCRUD:
         )
         assert resp.status_code == 200
 
+    def test_update_with_blank_api_key_preserves_stored_key(self, client):
+        """编辑留空不得清空已存密钥（前端「留空则保留当前密钥」的服务端契约）。"""
+        create_resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "留空保留",
+                "vendor_id": "openai",
+                "base_url": "https://api.openai.com",
+                "api_key": _test_api_key("keepme"),
+            },
+        )
+        config_id = create_resp.json()["id"]
+        before = create_resp.json()["api_key_masked"]
+        resp = client.put(
+            f"/api/v1/api-configs/{config_id}",
+            json={"name": "留空保留（改名）", "api_key": ""},  # 空串 = 未提供
+        )
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "留空保留（改名）"
+        assert resp.json()["api_key_masked"] == before  # 密钥原样保留（非 "****"）
+
     def test_update_config_name_duplicate(self, client):
         """TC-CRUD-17: Update to a name already used by another config -> 409."""
         client.post(

@@ -42,15 +42,22 @@ describe("refreshStatus", () => {
     expect(result.current.loading).toBe(false);
   });
 
-  it("成功：带 Bearer 请求并置 status（loading 从 true 回落 false）", async () => {
-    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
-      ok: true,
-      json: async () => device({ device_name: "MacBook" }),
-    }));
+  it("成功：带 Bearer 请求并置 status（loading 真经历 true→false）", async () => {
+    let release: (() => void) | undefined;
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => {
+      await new Promise<void>((res) => (release = res));
+      return { ok: true, json: async () => device({ device_name: "MacBook" }) };
+    });
     vi.stubGlobal("fetch", fetchMock);
     const { result } = renderHook(() => useDeviceActivation());
+    let pending: Promise<unknown> | undefined;
+    act(() => {
+      pending = result.current.refreshStatus();
+    });
+    expect(result.current.loading).toBe(true); // 中间态：真的观测到，而非只断言终态
     await act(async () => {
-      await result.current.refreshStatus();
+      release?.();
+      await pending;
     });
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toContain("/api/auth/devices/current");

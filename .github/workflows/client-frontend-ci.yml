@@ -17,6 +17,9 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # 防御性超时：渲染期抖环这类回归会让 vitest 永远不返回（testTimeout 触发不了），
+    # 没有它就会挂到 GitHub 默认 6 小时
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: client/frontend
@@ -33,7 +36,7 @@ jobs:
       - run: npx tsc --noEmit
       # 单测门禁（2026-09-10 补）：此前 CI 只跑 tsc + build，vitest 从不执行——
       # 改 lib/* 消费方时单测红过而 main 无人察觉。全部 mock、不依赖 docker 栈。
-      # 2026-09-18 起带覆盖率：vitest.config.ts 锁了 5 个交付文件四项 100% 阈值，
-      # --coverage 让契约真正进门禁（实测只多 ~0.2s，只 instrument 这 5 个文件）。
+      # 2026-09-18 起带覆盖率：契约清单在 src/coverage-contract.ts（config import 它），
+      # 每批交付追加；--coverage 让四项 100% 阈值真正进门禁（实测与不开覆盖率无显著差异）。
       - run: npx vitest run --coverage
       - run: npm run build
