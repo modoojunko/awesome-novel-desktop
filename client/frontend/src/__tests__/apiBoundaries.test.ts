@@ -2,6 +2,11 @@
 //   503 三种响应体 / 403 member_required / 错误附件（novels·reason·field·current·rev）
 //   api.* 包装器逐个发得出去 / importParse·importPersist·importTemplate
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "@/lib/toast";
+
+vi.mock("@/lib/toast", () => ({
+  toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
+}));
 
 let mod: typeof import("@/lib/api");
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -14,6 +19,7 @@ const jsonRes = (status: number, body: unknown) => ({
 });
 
 beforeEach(async () => {
+  vi.clearAllMocks(); // toast 是 mock 模块：不清调用记录会跨用例累积，负向断言必假红
   vi.resetModules();
   vi.unstubAllGlobals();
   localStorage.setItem("auth_token", "tok-edge");
@@ -38,6 +44,8 @@ describe("request() 503 三态", () => {
     const err = (await mod.request("/novels").catch((e) => e)) as Error & { status?: number };
     expect(err.status).toBe(503);
     expect(err.message).toBe("模型服务暂不可用");
+    // 非 AI 前置 → infra 级全局提示（503 三种响应体里只有这一支该弹）
+    expect(toast.info).toHaveBeenCalledWith("云端服务唤醒中（约 30–60 秒），请稍后重试");
   });
 
   it("detail 为对象（AI 前置三态）：reason 透传且不弹 infra 全局提示", async () => {
@@ -51,6 +59,21 @@ describe("request() 503 三态", () => {
     expect(err.reason).toBe("no_key");
     expect(err.status).toBe(503);
     expect(err.message).toBe("尚未配置模型 API Key");
+    // AI 前置三态是「可操作引导」不是服务不可用 → 不得弹 infra 全局提示
+    expect(toast.info).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("quiet 形态：503 不弹任何全局提示（调用方就地提示）", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ detail: "模型服务暂不可用" }),
+      text: async () => JSON.stringify({ detail: "模型服务暂不可用" }),
+    });
+    await mod.request("/novels", { quiet: true }).catch(() => {});
+    expect(toast.info).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it("非 JSON 响应体（云托管冷启动）：不炸、抛 503", async () => {

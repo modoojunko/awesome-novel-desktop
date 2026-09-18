@@ -2,7 +2,7 @@
 //   鉴权（四处调用都带 Authorization；书名单走 quiet）· 解析失败停在选包步 ·
 //   恢复失败留在预览步并显示「恢复失败」（不再贴错标签、不再回退重解析）。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import RestoreModal from "@/components/RestoreModal";
 
 const fetchMock = vi.fn();
@@ -163,7 +163,7 @@ describe("RestoreModal 分支补齐", () => {
     fetchMock.mockResolvedValue(okJson2(PARSE_FULL));
     mount();
     fireEvent.click(screen.getAllByText("选择文件")[0]);
-    await new Promise((r) => setTimeout(r, 20));
+    await act(async () => {});
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -181,13 +181,15 @@ describe("RestoreModal 分支补齐", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
-  it("弹窗自身关闭路径（X / 遮罩）走 onClose 包装：非 working 步放行", async () => {
+  it("弹窗自身关闭路径：遮罩与 X 都走 onClose 包装（非 working 步放行）", async () => {
     const onClose = vi.fn();
-    const { container } = render(<RestoreModal open onClose={onClose} onGoConfig={vi.fn()} />);
-    expect(container).toBeTruthy();
-    const scrim = document.querySelector(".scrim") as HTMLElement;
-    fireEvent.click(scrim);
+    render(<RestoreModal open onClose={onClose} onGoConfig={vi.fn()} />);
+    fireEvent.click(document.querySelector(".scrim") as HTMLElement);
     expect(onClose).toHaveBeenCalledTimes(1);
+    // 头部 X 关闭钮（icon-btn x）同样走包装
+    const x = document.querySelector(".mcard-head .icon-btn.x") as HTMLElement;
+    fireEvent.click(x);
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   it("预览步渲染配置项与警告，可「上一步」回选包", async () => {

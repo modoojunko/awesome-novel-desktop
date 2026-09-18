@@ -598,6 +598,24 @@ describe("ManuscriptDownloadModal — 完成态再下载", () => {
 describe("ManuscriptDownloadModal 分支补齐", () => {
   const fm = vi.fn();
 
+  /**
+   * 负向守卫断言（"拦下、不炸"）必须在**测试级**可判红：守卫被删后，漏出的
+   * TypeError / 未处理拒绝只有被捕获并断言，才算真守卫（否则 run 级才红、用例恒绿）。
+   */
+  async function expectNoUnhandledRejection(fn: () => Promise<void>) {
+    const seen: unknown[] = [];
+    const onRej = (r: unknown) => seen.push(r);
+    process.on("unhandledRejection", onRej);
+    try {
+      await fn();
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+    } finally {
+      process.off("unhandledRejection", onRej);
+    }
+    expect(seen).toEqual([]);
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal("fetch", fm);
@@ -627,26 +645,32 @@ describe("ManuscriptDownloadModal 分支补齐", () => {
     expect(pick_folder).toHaveBeenCalledTimes(1);
   });
 
-  it("常用位置探取失败：静默回落空列表（不炸、不弹错）", async () => {
+  it("常用位置探取失败：静默回落空列表（不炸、不弹错、不渲染 chip）", async () => {
+    const defaultDirs = vi.fn(async () => {
+      throw new Error("boom");
+    });
     (window as unknown as { pywebview?: unknown }).pywebview = {
-      api: {
-        pick_folder: vi.fn(),
-        open_folder: vi.fn(),
-        default_dirs: vi.fn(async () => {
-          throw new Error("boom");
-        }),
-      },
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: defaultDirs },
     };
-    renderModal({ open: true });
-    await new Promise((r) => setTimeout(r, 30));
+    fm.mockResolvedValue(idle());
+    await expectNoUnhandledRejection(async () => {
+      renderModal({ open: true }); // 无 catch 时这里漏未处理拒绝
+      await waitFor(() => expect(defaultDirs).toHaveBeenCalled());
+      await act(async () => {});
+    });
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(document.querySelector(".ex-dirs .chip")).toBeNull();
     expect(document.querySelector('[data-od-id="download-dir"]')).toBeTruthy();
   });
 
-  it("无壳点「选择…」：守卫拦下（pickDir 早返回）", async () => {
+  it("无壳点「选择…」：守卫拦下——不发请求、不炸（pickDir 早返回）", async () => {
     fm.mockResolvedValue(idle());
     renderModal();
-    fireEvent.click(screen.getByText("选择…"));
-    await new Promise((r) => setTimeout(r, 20));
+    await expectNoUnhandledRejection(async () => {
+      fireEvent.click(screen.getByText("选择…")); // 无桥 → pickDir 早返回；删掉守卫这里会漏 TypeError
+      await act(async () => {});
+    });
+    expect(fm).not.toHaveBeenCalled(); // 无桥不进任何链路
     expect(screen.getByText("选择…")).toBeTruthy();
   });
 
@@ -693,8 +717,9 @@ describe("ManuscriptDownloadModal 分支补齐", () => {
   });
 
   it("完成态删壳后点「打开文件夹」：守卫拦下不炸", async () => {
+    const openFolderSpy = vi.fn();
     (window as unknown as { pywebview?: unknown }).pywebview = {
-      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+      api: { pick_folder: vi.fn(), open_folder: openFolderSpy, default_dirs: vi.fn(async () => []) },
     };
     fm.mockImplementation(async (_u: string, init?: RequestInit) => {
       if ((init?.method ?? "GET") === "POST") return running();
@@ -710,7 +735,8 @@ describe("ManuscriptDownloadModal 分支补齐", () => {
     await waitFor(() => expect(screen.getByText("下载完成")).toBeTruthy(), { timeout: 3000 });
     delete (window as unknown as { pywebview?: unknown }).pywebview;
     fireEvent.click(screen.getByText("打开文件夹")); // b === null → 早返回
-    await new Promise((r) => setTimeout(r, 20));
+    await act(async () => {});
+    expect(openFolderSpy).not.toHaveBeenCalled();
     expect(screen.getByText("下载完成")).toBeTruthy();
   });
 
@@ -731,15 +757,53 @@ describe("ManuscriptDownloadModal 分支补齐", () => {
     await waitFor(() => expect(release).toBeTruthy(), { timeout: 3000 });
     unmount(); // alive=false
     await act(async () => {
-      // 解析迟到的响应 → 命中 `if (!alive || my !== seq) return`
+      // 迟到响应携带 done：若 !alive 守卫被删，会走到 toast.success（卸载后仍会触发）→ 用例变红
       release?.({
         ok: true,
         status: 200,
-        json: async () => ({ code: 0, data: { state: "running", pct: 5, steps: [] } }),
+        json: async () => ({
+          code: 0,
+          data: { state: "done", pct: 100, files: ["x.md"], steps: [], target_dir: "/tmp/out" },
+        }),
       });
     });
-    await new Promise((r) => setTimeout(r, 30));
-    expect(true).toBe(true); // 断言点=无异常、无 React 警告
+    await act(async () => {});
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("响应序守卫：迟到的第一单响应不得覆盖第二单状态（my !== seq）", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    let pendingFirst: ((v: unknown) => void) | undefined;
+    let statusCalls = 0;
+    fm.mockImplementation(async (_u: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") return running();
+      statusCalls += 1;
+      if (statusCalls === 1) {
+        return new Promise((res) => {
+          pendingFirst = res;
+        }) as Promise<unknown>;
+      }
+      return { ok: true, status: 200, json: async () => ({ code: 0, data: { state: "running", pct: 42, steps: [] } }) };
+    });
+    renderModal();
+    act(() => armForm());
+    fireEvent.click(screen.getByText("开始下载"));
+    // 第一拍挂起；第二拍（600ms 后）先返回 pct=42
+    await waitFor(() => expect(pendingFirst).toBeTruthy(), { timeout: 3000 });
+    await waitFor(() => expect(statusCalls).toBeGreaterThanOrEqual(2), { timeout: 3000 });
+    await act(async () => {
+      // 放行第一拍：携带 done —— 若 seq 守卫被删，界面会被旧响应推到完成态
+      pendingFirst?.({
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 0, data: { state: "done", pct: 100, files: ["x.md"], steps: [], target_dir: "/tmp/out" } }),
+      });
+    });
+    await act(async () => {});
+    expect(screen.queryByText("下载完成")).toBeNull(); // 仍是第二拍的进度态
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it("轮询失败守卫：卸载后到达的失败不再改状态（stallOut 的 !alive 早返回）", async () => {
@@ -761,7 +825,8 @@ describe("ManuscriptDownloadModal 分支补齐", () => {
     await act(async () => {
       reject?.(new Error("late failure"));
     });
-    await new Promise((r) => setTimeout(r, 30));
-    expect(true).toBe(true);
+    await act(async () => {});
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
   });
 });

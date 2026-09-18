@@ -124,9 +124,9 @@ export default function AcctMenu({
     };
   }, [open, close]);
 
-  /** 恢复弹窗：必须挂在 `!open` 提前 return **之外**——点「恢复」会先 close() 收起面板，
-   *  若模态只存在于展开分支，入口就永远打不开（#346 起潜伏，09-18 覆盖专项发现）。
-   *  渲染在展开/收起两支各一次（同一时刻只有一支在渲染树里）。 */
+  /** 恢复弹窗：单点渲染在面板之外（它曾只挂在「面板展开」那支 return 里 → 点「恢复」
+   *  先 close() 收起面板，组件随即走提前 return 分支，模态永远不在渲染树里，入口自
+   *  #346 起一直打不开，09-18 覆盖专项发现）。单点渲染同时避免 open 翻转时元素换位重挂。 */
   const restoreModal = (
     <RestoreModal
       open={restoreOpen}
@@ -137,34 +137,6 @@ export default function AcctMenu({
       }}
     />
   );
-
-  if (!open) {
-    return (
-      <>
-        <div className="acct">
-        <button
-          ref={triggerRef}
-          className="acct-trigger"
-          data-od-id="acct-trigger"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          onClick={() => setOpen(true)}
-        >
-          <span className="avatar" aria-hidden="true">
-            {username ? (
-              username.slice(0, 1)
-            ) : (
-              <Ico d={P.person} sw={1.7} />
-            )}
-          </span>
-          <Badge />
-          <Ico className="caret" d={P.chevronDown} sw={1.7} />
-        </button>
-        </div>
-        {restoreModal}
-      </>
-    );
-  }
 
   // 备份：桌面壳选文件夹 → 本地后端直写导出（原全局设置弹窗流程原样迁移）
   const runBackup = async () => {
@@ -204,11 +176,11 @@ export default function AcctMenu({
       <div className="acct">
         <button
           ref={triggerRef}
-          className="acct-trigger open"
+          className={"acct-trigger" + (open ? " open" : "")}
           data-od-id="acct-trigger"
           aria-haspopup="menu"
-          aria-expanded="true"
-          onClick={() => close()}
+          aria-expanded={open}
+          onClick={() => (open ? close() : setOpen(true))}
         >
           <span className="avatar" aria-hidden="true">
             {username ? username.slice(0, 1) : <Ico d={P.person} sw={1.7} />}
@@ -217,8 +189,9 @@ export default function AcctMenu({
           <Ico className="caret" d={P.chevronDown} sw={1.7} />
         </button>
       </div>
-      {createPortal(
-        <div
+        {open &&
+          createPortal(
+            <div
           ref={panelRef}
           className="acct-menu"
           data-od-id="acct-menu"

@@ -12,6 +12,7 @@
     "design:lint": "node scripts/design-lint.mjs",
     "design:cross": "node ../../scripts/design-cross.mjs",
     "design:check": "npm run design:lint && DESIGN_PARITY=1 playwright test e2e/design-parity.spec.ts e2e/design-parity-preview.spec.ts",
+    "coverage": "vitest run --coverage",
     "e2e:sweep": "node scripts/sweep-e2e-residue.mjs --apply",
     "e2e:sweep:dry": "node scripts/sweep-e2e-residue.mjs"
   },
@@ -32,6 +33,7 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.4.0",
+    "@vitest/coverage-v8": "4.1.10",
     "autoprefixer": "^10.4.20",
     "jsdom": "^30.0.0",
     "pixelmatch": "^7.2.0",
