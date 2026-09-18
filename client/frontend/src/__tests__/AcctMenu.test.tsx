@@ -150,6 +150,7 @@ describe("AcctMenu 备份发起（鉴权头 + 错误文案守卫）", () => {
   }
 
   beforeEach(() => {
+    fetchMock.mockClear(); // 不清会跨用例累积（shuffle 下「called 1 times」会假红）
     vi.stubGlobal("fetch", fetchMock);
     localStorage.setItem("auth_token", "backup-token");
   });
@@ -190,6 +191,19 @@ describe("AcctMenu 备份发起（鉴权头 + 错误文案守卫）", () => {
     armBridge();
     await clickBackup();
     await waitFor(() => expect(alertMock).toHaveBeenCalledWith("已有下载任务在进行中"));
+  });
+
+  it("409 但 detail 为空串：显示通用文案（api.ts 保证 message 非空）", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ detail: "" }),
+    });
+    const alertMock = vi.fn();
+    vi.stubGlobal("alert", alertMock);
+    armBridge();
+    await clickBackup();
+    await waitFor(() => expect(alertMock).toHaveBeenCalledWith("请求失败（HTTP 409）"));
   });
 
   it("5xx / 网络层失败：中文兜底，不漏英文 statusText", async () => {

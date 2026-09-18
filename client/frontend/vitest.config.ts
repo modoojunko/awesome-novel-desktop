@@ -14,7 +14,8 @@ export default defineConfig({
       // 口径说明：语句/行/函数/分支均计 100%；分母**不含** `/* v8 ignore start|stop */`
       // 标注的 7 处不可达防御分支（AcctMenu 的 position refs 组合·菜单项数恒 ≥4·
       // 键盘查询 ?? []·409 空 message；RestoreModal 的 working 步二道锁；
-      // Modal 的 409 空 message；nodeTitle 的 title ?? ""），每条注释都写了不可达理由。
+      // ManuscriptDownloadModal 的 409 空 message（api.ts 已保证 message 非空）；nodeTitle 的
+      // `title ?? ""`），每条注释都写了不可达理由。
       include: [
         "src/lib/api.ts",
         "src/lib/nodeTitle.ts",

@@ -161,9 +161,11 @@ export default function AcctMenu({
     } catch (e) {
       // 409 detail 结构化（job_runner running_kind）：api 封装已把 detail.message 映射进 message
       const err = e as ApiError;
-      /* v8 ignore start -- 防御分支：api 封装对 4xx 恒给出非空 message（无 detail 也回落通用文案） */
-      if (err.status === 409) alert(err.message || "已有任务在进行中");
+      // api.ts 对 4xx 保证 message 恒非空（detail 为空串/对象无 message/响应体 null 都回落通用文案）
+      /* v8 ignore start -- 防御分支：上一行不变量成立后，`||` 右臂不可达；空 detail 的实际文案由 api 测试钉住 */
+      const conflictMsg = err.message || "已有任务在进行中";
       /* v8 ignore stop */
+      if (err.status === 409) alert(conflictMsg);
       else alert("备份启动失败：" + errMessage(e, "请重试"));
     }
   };

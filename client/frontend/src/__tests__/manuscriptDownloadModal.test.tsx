@@ -385,6 +385,18 @@ describe("ManuscriptDownloadModal — 轮询语义与降级（PR #414 评审 fin
     expect(screen.getByText("开始下载")).toBeTruthy();
   });
 
+  it("409 但 detail 为空串：toast 显示通用文案（api.ts 保证 message 非空）", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ detail: "" }),
+    });
+    renderModal();
+    act(() => armForm());
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith("请求失败（HTTP 409）"));
+  });
+
   it("5xx 与网络层失败：回落中文兜底（不漏英文 statusText）", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: false,
@@ -846,6 +858,7 @@ describe("ManuscriptDownloadModal 分支补齐（分支覆盖率专项）", () =
   afterEach(() => {
     vi.unstubAllGlobals();
     localStorage.removeItem("auth_token");
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
   });
 
   const runningB = () => ({ ok: true, status: 200, json: async () => ({ code: 0, data: { state: "running", pct: 10, steps: [] } }) });
@@ -920,7 +933,10 @@ describe("ManuscriptDownloadModal 分支补齐（分支覆盖率专项）", () =
     renderModal();
     act(() => armForm());
     fireEvent.click(screen.getByText("开始下载"));
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("下载失败"), { timeout: 3000 });
+    // 断言精确落点：role=alert 里还有静态标题 <b>下载失败</b>，用整块 textContent 会假绿
+    await waitFor(() => expect(document.querySelector(".ex-error p")!.textContent).toBe("下载失败"), {
+      timeout: 3000,
+    });
   });
 
   it("步骤行三态：完成 ok / 下载中等 undefined / 失败 err 三种类名都出现", async () => {

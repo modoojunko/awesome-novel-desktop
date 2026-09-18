@@ -64,10 +64,12 @@ npx vitest run --coverage --coverage.include='src/**' \
 | `components/api-config/` | 182 / 183 |
 | `components/`（其余） | 77 / 289 |
 | `components/design/` | 19 / 53 |
-| `App.tsx` + `components/auth/` + `main.tsx` | 11 / 13 |
+| `App.tsx` + `components/auth/` + `main.tsx` | 11 / 11（全零覆盖） |
 
-**零覆盖文件 46 个**（如 `VersionDiff.tsx`、`NovelListPage.tsx`、`LoginPage.tsx`、
-`ApiConfigForm.tsx`、`StructureTree.tsx`、`ApiKeyConfigPage.tsx` 等）。
+**零覆盖代码文件 38 个**（如 `VersionDiff.tsx`、`NovelListPage.tsx`、`LoginPage.tsx`、
+`ApiConfigForm.tsx`、`StructureTree.tsx`、`ApiKeyConfigPage.tsx` 等）；另有 **8 个无语句
+文件**（6 个 CSS + `volume/types.ts`、`types/api-config.ts` 两个纯类型文件），不计入缺口。
+整仓 136 个受测文件中包含这 6 个 CSS。
 
 ## 三、分批补测计划（建议顺序）
 
@@ -75,15 +77,26 @@ npx vitest run --coverage --coverage.include='src/**' \
 `/* v8 ignore start|stop */` 显式标注＋写理由），每批提交前跑 `npm run coverage`
 与全量单测 + tsc，并按仓库惯例走 PR＋双路评审＋合入。
 
-| 批 | 范围 | 未覆盖语句 | 预估 | 主要难点 |
-|---|---|---|---|---|
-| 批 1 | `hooks/**` + `lib/**` | 589 | 约 1 天 | 纯逻辑为主，需 stub fetch/localStorage；`useApiConfigs` 的 409/503 分支可复用本轮 `apiBoundaries` 手法 |
-| 批 2 | `pages/**` + `components/api-config/**` + `components/auth/**` + `App.tsx` | 514 | 约 1~1.5 天 | 页面级需 Router/auth/tier 三件套 stub；登录/注册页涉及 OAuth 跳转桩 |
-| 批 3 | `components/novel/settings/**`（含 530 行的 HooksSettingForm） | 约 1050 | 约 2~3 天 | 表单交互密集（提交/校验/回执/撤销），建议按"表单契约 × 两三条主路径"逐个收口 |
-| 批 4 | `components/novel/workbench/**` + `NovelWorkspace` + `components/design/**` | 约 1650 | 约 3~4 天 | 最复杂：三栏壳层、树/编辑器/卷纲面板的联动；`ManuscriptDownloadModal` 已是先例（本轮补齐） |
-| 收尾 | 阈值抬升与门禁 | — | 约 0.5 天 | 把 `coverage.include` 扩到 `src/**`，阈值按批分段抬（每批 +15~20%），末批锁 100%；可选：CI 增 `npm run coverage` job（会拉长 CI 时长） |
+**排序原则 = 风险优先**（账号 / 密钥 / 计费 / 数据写入面排在体量大的纯 UI 之前）：
+零覆盖清单里 `pages/LoginPage.tsx`(113)、`pages/ApiKeyConfigPage.tsx`(71)、
+`components/api-config/**`(182/183) 合计 **366 条未覆盖语句**是"凭证与计费"面，
+必须最先补——它们已在批 2 内，故批 2 提前到批 1 之前执行。
 
-合计约 **8~10 个工作日**（单会话连续作业可压缩；批间无依赖，可并行拆给多会话）。
+| 批 | 范围 | 未覆盖语句 | 预估（乐观下界） | 主要难点 |
+|---|---|---|---|---|
+| **批 0（校准）** | 从批 1 或批 3 挑一个文件（建议 `HooksSettingForm` 534 或 `hooks/**` 全目录）按"四项 100% + 每条 ignore 写可达性论证"的同一标准走完并计时 | — | 约 0.5~1 天 | 用真实速率回填下面四批的估算；本轮 5 文件 442 语句用了两个 PR、24 条用例才四项 100% |
+| 批 1（=风险面） | `pages/**` + `components/api-config/**` + `components/auth/**` + `App.tsx` + `hooks/useDeviceActivation` + `lib/selection.ts` | 514 | 需按批 0 校准回填 | 页面级需 Router/auth/tier 三件套 stub；登录/注册/注销页涉及 OAuth 跳转桩，密钥表单涉及掩码与校验 |
+| 批 2 | `hooks/**` + `lib/**`（除已覆盖部分；`lib/markdown.ts` 建议直接删，见遗留项） | 589 | 同上 | 纯逻辑为主，需 stub fetch/localStorage；可复用本轮 `apiBoundaries` 手法 |
+| 批 3 | `components/novel/settings/**`（含 530 行的 HooksSettingForm） | 约 1050 | 同上 | 表单交互密集（提交/校验/回执/撤销），建议按"表单契约 × 两三条主路径"逐个收口 |
+| 批 4 | **`components/novel/**` 其余全部**（workbench 936 + NovelWorkspace 110 + volume/license 等约 480）+ `components/design/**` | 约 1664 | 同上 | 最复杂：三栏壳层、树/编辑器/卷纲面板的联动；`ManuscriptDownloadModal` 已是先例（本轮补齐） |
+| 收尾 | 阈值抬升 | — | 约 0.5 天 | 把 `coverage.include` 扩到 `src/**`，阈值按批分段抬（每批 +15~20%），末批锁 100% |
+
+估算口径说明：上一版"8~10 人日"是**乐观下界**——它没算"每一处 `v8 ignore` 都要写可达性
+论证并被评审挑战"的成本（本轮 7 处里就有 2 处论证不成立、被两路评审各用探针实测推翻）。
+请以批 0 的实测速率 × 剩余语句数回填，再乘 1.5~2 的安全系数。
+
+**CI 门禁已在 #418 打开**：`client-frontend-ci.yml` 的单测步改为 `npx vitest run --coverage`，
+阈值从此在 PR 上生效（实测多耗约 0.2s，只 instrument 契约里的 5 个文件）。
 
 ## 四、决策请求
 
@@ -91,6 +104,15 @@ npx vitest run --coverage --coverage.include='src/**' \
   本次 P1/P2/P3 的每一行改动都有可判红的测试覆盖。
 - **立项整仓覆盖率**：回「立项整仓覆盖率」，我按上面四批推进；每批独立 PR＋双路评审，
   批间可随时叫停。
+
+## 五、附：本轮顺带发现的两个小项（未在本 PR 修）
+
+1. `src/lib/markdown.ts`（0/13，全仓无引用）是**死代码**——行内转义实现已被
+   `ProsePane.tsx` 与 `PreviewView.tsx` 各复制一份；建议直接删除（而不是排进补测计划），
+   顺带给整仓分母瘦身并避免第三份转义实现漂移。
+2. `RestoreModal` 完成页在 `okCount === 0` 时恒显示「模型配置已恢复」，即使本次是
+   "全部恢复失败"——文案与实际不符（测试已按真实用户路径「只恢复配置包」改写，
+   该文案问题登记为产品取舍，未在覆盖率 PR 内改）。
 
 补一句成本提示：整仓 100% 中有相当一部分是"e2e 已覆盖、但单测没覆盖"的 UI 交互，
 把这部分补成单测属于**为覆盖率而写测试**（维护成本会持续存在）；若目标是"防止回归"，
