@@ -203,7 +203,9 @@ async def update_config(
         updates["name"] = body.name
     if body.base_url is not None:
         updates["base_url"] = body.base_url
-    if body.api_key is not None:
+    # 空串 = 未提供（前端编辑态「留空则保留当前密钥」就是这个形态）：
+    # 不能当更新值——encrypt_api_key("") 会返回空串并把已存密钥覆盖清空
+    if body.api_key:
         updates["api_key"] = body.api_key
     if body.vendor_override is not None:
         updates["vendor_override"] = body.vendor_override

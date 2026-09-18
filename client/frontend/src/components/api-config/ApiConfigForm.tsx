@@ -59,7 +59,9 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest }: ApiC
 
   // 拍板（09-06）：URL 不预填——选供应商、切格式都不改动输入框，仅联动格式与占位
   const handleVendorSelect = (id: string) => {
+    /* v8 ignore start -- 防御分支：编辑态不渲染 .vgrid（改渲染 .vfix），无触发路径 */
     if (isEdit) return;
+    /* v8 ignore stop */
     setVendorId(id);
     const lock = VENDOR_FORMAT_LOCK[id as keyof typeof VENDOR_FORMAT_LOCK];
     if (lock) setApiFormat(lock);

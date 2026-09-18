@@ -1,40 +1,55 @@
-// 覆盖率契约自检（PR #418 评审 P2）：`vitest.config.ts` 的 include 是**手写清单**——
-// 文件被重命名/删除时契约会静默缩小（跑起来仍 100%，只是分母变少）。这里把清单钉住：
-// 改 include 必须同步本文件，删/改文件必须同步两处。
-import { readFileSync } from "node:fs";
-import { existsSync } from "node:fs";
+// 覆盖率契约自检（PR #418 评审 P2 续）：
+//   include 的**单一事实源**在 `src/coverage-contract.ts`（config import 它，本测试也读它），
+//   所以"两份手写清单互相漂移"这条风险从流程上消失；这里把守三件事：
+//   ① 契约文件都存在（重命名/删除必须同步）；
+//   ② **目录完整性**——api-config 目录下每个 .tsx 都在契约里（防新增兄弟组件漏进契约，
+//      这是"契约外长大"的高频形态）；
+//   ③ 配置里的阈值四项 100 + perFile（防被悄悄下调）。
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { COVERAGE_CONTRACT_FILES as CONTRACT_FILES } from "@/coverage-contract";
 
 const FRONTEND = join(__dirname, "..", "..");
 
-/** 与 vitest.config.ts 的 coverage.include 一一对应（本次交付触及的 5 个文件） */
-const CONTRACT_FILES = [
-  "src/lib/api.ts",
-  "src/lib/nodeTitle.ts",
-  "src/components/novel/workbench/ManuscriptDownloadModal.tsx",
-  "src/components/RestoreModal.tsx",
-  "src/components/AcctMenu.tsx",
-];
+/** 从配置文本里取 `include: [...]` 块（括号配对；单一源形态直接返回契约清单本身） */
+function configIncludeBlock(): string[] {
+  const cfg = readFileSync(join(FRONTEND, "vitest.config.ts"), "utf8");
+  // 必须锚定 coverage 段：test.include 也是 `include: [...]`（glob 形态），先匹配会抓错块
+  const covAt = cfg.indexOf("coverage: {");
+  expect(covAt).toBeGreaterThan(-1);
+  const start = cfg.indexOf("include: [", covAt);
+  expect(start).toBeGreaterThan(covAt);
+  const end = cfg.indexOf("]", start);
+  const body = cfg.slice(start, end);
+  if (body.includes("COVERAGE_CONTRACT_FILES")) return [...CONTRACT_FILES]; // 单一事实源形态
+  return [...body.matchAll(/"(src\/[^"]+\.[cm]?tsx?)"/g)].map((m) => m[1]);
+}
 
 describe("覆盖率契约自检", () => {
-  it("5 个契约文件都存在（重命名/删除必须同步契约）", () => {
+  it("契约文件都存在（重命名/删除必须同步契约）", () => {
     const missing = CONTRACT_FILES.filter((f) => !existsSync(join(FRONTEND, f)));
     expect(missing).toEqual([]);
   });
 
-  it("vitest.config.ts 的 include 与自检清单一致（防静默扩/缩分母）", () => {
-    const cfg = readFileSync(join(FRONTEND, "vitest.config.ts"), "utf8");
-    const listed = [...cfg.matchAll(/"(src\/[^"]+\.tsx?)"/g)].map((m) => m[1]);
-    expect(listed.sort()).toEqual([...CONTRACT_FILES].sort());
+  it("配置的 include 与单一事实源一致（config 走 import，不再手写两份清单）", () => {
+    expect(configIncludeBlock()).toEqual([...CONTRACT_FILES]);
   });
 
-  it("阈值四项全 100（语句/行/函数/分支）", () => {
+  it("目录完整性：api-config 目录下每个 .tsx 都在契约里（防新增兄弟组件漏进契约）", () => {
+    const dir = join(FRONTEND, "src", "components", "api-config");
+    const files = readdirSync(dir)
+      .filter((f) => f.endsWith(".tsx"))
+      .map((f) => `src/components/api-config/${f}`);
+    const missing = files.filter((f) => !(CONTRACT_FILES as readonly string[]).includes(f));
+    expect(missing).toEqual([]);
+  });
+
+  it("阈值四项全 100 且 perFile（语句/行/函数/分支）", () => {
     const cfg = readFileSync(join(FRONTEND, "vitest.config.ts"), "utf8");
-    const m = cfg.match(/thresholds:\s*\{([^}]*)\}/);
-    expect(m).toBeTruthy();
+    expect(cfg).toMatch(/perFile:\s*true/);
     for (const key of ["statements", "lines", "functions", "branches"]) {
-      expect(m![1]).toContain(`${key}: 100`);
+      expect(cfg).toMatch(new RegExp(`${key}:\\s*100`));
     }
   });
 });

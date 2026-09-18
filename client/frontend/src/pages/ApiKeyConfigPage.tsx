@@ -61,7 +61,11 @@ export default function ApiKeyConfigPage() {
 
   const handleFormSubmit = useCallback(async (data: ApiConfigFormData) => {
     if (editConfig) {
-      await updateConfig(editConfig.id, data);
+      // 「留空则保留当前密钥」：编辑态空 Key **必须省略字段**——原样发 "" 会被后端
+      // 当作更新值（encrypt("") == ""）把已存密钥清空（2026-09-18 覆盖率专项实锤，
+      // 后端同时收紧为「空串=未提供」，两侧各一道）
+      const { api_key, ...rest } = data;
+      await updateConfig(editConfig.id, api_key.trim() ? data : rest);
       setEditConfig(null);
       toast.success(`已保存「${data.name}」`);
     } else {
@@ -208,7 +212,16 @@ export default function ApiKeyConfigPage() {
         config={editConfig}
         onSubmit={handleFormSubmit}
         onCancel={closeForm}
-        onTest={async (data) => testRawConfig({ vendor_id: data.vendor_id, base_url: data.base_url, api_key: data.api_key, api_format: data.api_format })}
+        onTest={async (data) =>
+          editConfig && !data.api_key.trim()
+            ? testConfig(editConfig.id) // 未重敲 Key：用已存密钥测，避免误报「API Key 为空」
+            : testRawConfig({
+                vendor_id: data.vendor_id,
+                base_url: data.base_url,
+                api_key: data.api_key,
+                api_format: data.api_format,
+              })
+        }
       />
 
       {/* 删除确认 */}
