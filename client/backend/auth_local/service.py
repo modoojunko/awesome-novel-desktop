@@ -23,6 +23,8 @@ def _normalize_server_api(base: str) -> str:
 
     线上域名的路由规则用 /api/ 分流到 S端 后端，调用侧地址必须带该前缀；
     允许显式带自定义子路径的配置（非空 path 一律不改动），只兜裸域名。
+    注意：该形态仅在 env SERVER_API_BASE 未设置时可达
+    （c-server-api-sync 起 env 为部署真值，启动对齐会覆盖 config 残值）。
     """
     base = base.rstrip("/")
     if base and not urllib.parse.urlsplit(base).path:
@@ -51,7 +53,7 @@ def _build_auth_url(public_api: str, pc_hash: str, pc_name: str, device_profile:
     """授权页地址：由 S端 前端 /auth 唯一承载（后端内联页已删除）。
 
     从 API 基址剥掉 /api 得 web origin；配置为自定义子路径（无 /api 后缀）
-    时保持原样——该形态下宿主域名本就没有 SPA，属配置约束。
+    时保持原样——该形态仅在 env SERVER_API_BASE 未设置时可达（同上）。
     device_profile 为 URL-safe Base64（无 padding），query 可原样拼接。
     """
     web_origin = public_api.rstrip("/").removesuffix("/api")
@@ -231,6 +233,7 @@ def load_or_create_config() -> dict:
     # （c-server-api-sync——旧逻辑「仅空时写入一次」会让 env 变更被残值永久遮蔽：
     #   切换 S端 部署后登录凭证回传/校验全部打向已弃地址，用户卡死登录页）
     env_base = os.environ.get("SERVER_API_BASE")
+    # raw 比较：env 形态变化（裸域名↔带 /api）触发一次对齐落盘后即幂等收敛，无功能影响
     if env_base and cfg.get("server_api") != env_base:
         cfg["server_api"] = env_base
         changed = True

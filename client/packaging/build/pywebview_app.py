@@ -124,7 +124,7 @@ def start_server():
 
         # ── S端 地址解析链：显式环境变量 > 发布期 release.json（CI 构建期烘焙）> 占位 ──
         # release.json 由打包工作流生成并随 datas 分发；本地开发没有它 → 行为与历史一致。
-        # setdefault 语义保证装机后手工改 config.json / 环境变量始终优先。
+        # 注意 server_api 字段自 c-server-api-sync 起 env（release.json 烘焙）恒胜——启动会把 config.json 对齐到本值，手工改 config 会在下次 auth 调用被回滚（其余字段仍手工优先）。
         try:
             from config import load_release_overrides
             release = load_release_overrides(str(res_root))

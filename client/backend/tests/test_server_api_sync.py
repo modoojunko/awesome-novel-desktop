@@ -60,11 +60,20 @@ def test_env_unset_preserves_manual_config(isolated_config, monkeypatch):
     isolated_config.write_text("{}")
     monkeypatch.delenv("SERVER_API_BASE", raising=False)
     cfg = load_or_create_config()
-    assert cfg["server_api"] == custom or True  # 首次为空文件：默认空串
+    assert cfg["server_api"] == ""  # 全新空文件 + env 未设置 → 默认空串（不回落死链占位）
     isolated_config.write_text(json.dumps({"server_api": custom}))
     service._reset_config_cache()
     cfg = load_or_create_config()
     assert cfg["server_api"] == custom
+
+
+def test_env_unset_and_empty_config_stays_empty(isolated_config, monkeypatch):
+    """象限 4 护栏：env 未设置 + config 空 → 保持空串（钉住「故意不改」约束，
+    防未来有人在同步块前加默认值填充导致无声回落死链占位）。"""
+    monkeypatch.delenv("SERVER_API_BASE", raising=False)
+    cfg = load_or_create_config()
+    assert cfg["server_api"] == ""
+    assert service._config_signature() is not None  # 落盘为空串而非被填充
 
 
 def test_fresh_file_seeded_from_env(isolated_config, monkeypatch):
