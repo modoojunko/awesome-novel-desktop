@@ -58,7 +58,10 @@ export default function AcctMenu({
   const position = useCallback(() => {
     const t = triggerRef.current;
     const p = panelRef.current;
+    /* v8 ignore start -- 防御分支：position 只在 open 期的布局效果/滚动监听里调用，
+       那时两个 ref 必已挂载，测试无法构造出 null 组合 */
     if (!t || !p) return;
+    /* v8 ignore stop */
     const r = t.getBoundingClientRect();
     p.style.top = `${r.bottom + 4}px`;
     p.style.right = `${window.innerWidth - r.right}px`;
@@ -95,7 +98,9 @@ export default function AcctMenu({
       const items = [
         ...(panelRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
       ].filter((el) => !el.hasAttribute("hidden"));
+      /* v8 ignore start -- 防御分支：面板展开时恒有 ≥4 个未 hidden 的 menuitem */
       if (!items.length) return;
+      /* v8 ignore stop */
       const idx = items.indexOf(document.activeElement as HTMLElement);
       if (e.key === "Tab") {
         e.preventDefault();
@@ -119,9 +124,24 @@ export default function AcctMenu({
     };
   }, [open, close]);
 
+  /** 恢复弹窗：必须挂在 `!open` 提前 return **之外**——点「恢复」会先 close() 收起面板，
+   *  若模态只存在于展开分支，入口就永远打不开（#346 起潜伏，09-18 覆盖专项发现）。
+   *  渲染在展开/收起两支各一次（同一时刻只有一支在渲染树里）。 */
+  const restoreModal = (
+    <RestoreModal
+      open={restoreOpen}
+      onClose={() => setRestoreOpen(false)}
+      onGoConfig={() => {
+        setRestoreOpen(false);
+        navigate("/config");
+      }}
+    />
+  );
+
   if (!open) {
     return (
-      <div className="acct">
+      <>
+        <div className="acct">
         <button
           ref={triggerRef}
           className="acct-trigger"
@@ -140,7 +160,9 @@ export default function AcctMenu({
           <Badge />
           <Ico className="caret" d={P.chevronDown} sw={1.7} />
         </button>
-      </div>
+        </div>
+        {restoreModal}
+      </>
     );
   }
 
@@ -312,14 +334,7 @@ export default function AcctMenu({
         </div>,
         document.body,
       )}
-      <RestoreModal
-        open={restoreOpen}
-        onClose={() => setRestoreOpen(false)}
-        onGoConfig={() => {
-          setRestoreOpen(false);
-          navigate("/config");
-        }}
-      />
+      {restoreModal}
     </>
   );
 
