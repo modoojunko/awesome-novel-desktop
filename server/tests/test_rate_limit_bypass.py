@@ -98,8 +98,7 @@ def test_no_dead_entries_in_sensitive_paths():
     from app.main import _collect_api_paths, app
 
     known = _collect_api_paths(app.routes)
-    pending = {"/api/pair/exchange"}
-    dead = RateLimitMiddleware.SENSITIVE_PATHS - known - pending
+    dead = RateLimitMiddleware.SENSITIVE_PATHS - known
     assert not dead, f"清单含不存在路径：{dead}"
 
 

@@ -137,6 +137,8 @@ class PgHttpUserRepo:
             {"deletion_status": DELETION_STATUS_DELETED, "password_hash": "",
              "token_version": 1},
         )
+        from app.infrastructure.security.token_version import invalidate_all
+        invalidate_all()
 
     def find_due_deletion_usernames(self, now) -> list[str]:
         rows = self.client.find(

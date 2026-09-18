@@ -122,6 +122,8 @@ class SqlUserRepo:
              "token_version": DELETION_SENTINEL},
             synchronize_session=False,
         )
+        from app.infrastructure.security.token_version import invalidate_all
+        invalidate_all()
         self.db.commit()
         return result
 

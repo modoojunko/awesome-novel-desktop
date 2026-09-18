@@ -85,6 +85,11 @@ def _record_verify_failure(request: Request, key: str) -> None:
     times = [t for t in _NOTIFY_FAIL_TIMES.get(key, []) if now - t <= _NOTIFY_FAIL_WINDOW]
     times.append(now)
     _NOTIFY_FAIL_TIMES[key] = times
+    if len(_NOTIFY_FAIL_TIMES) > 256:  # 淘汰无近期失败的来源，防长跑内存增长
+        stale = [k for k, ts in _NOTIFY_FAIL_TIMES.items()
+                 if not ts or now - ts[-1] > _NOTIFY_FAIL_WINDOW]
+        for k in stale:
+            _NOTIFY_FAIL_TIMES.pop(k, None)
     if len(times) < _NOTIFY_FAIL_THRESHOLD:
         return
     _NOTIFY_FAIL_TIMES[key] = []

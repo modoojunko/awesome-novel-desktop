@@ -16,21 +16,31 @@ _CACHE: dict[int, tuple[float, int]] = {}
 
 
 def _fetch(uid: int) -> int | None:
+    import logging
+
     from app.config import settings
 
-    if settings.DB_BACKEND == "pg_http":
-        from app.infrastructure.repositories.pg_http import get_pg_client
+    try:
+        if settings.DB_BACKEND == "pg_http":
+            from app.infrastructure.repositories.pg_http import get_pg_client
 
-        doc = get_pg_client().find_one("users", {"id": int(uid)}, select="token_version")
-        if not doc or doc.get("token_version") is None:
-            return None
-        return int(doc["token_version"])
-    from app.models.base import SessionLocal
-    from app.models.user import UserORM
+            rows = get_pg_client().find(
+                "users", {"id": int(uid)}, select="token_version", limit=1)
+            if not rows or rows[0].get("token_version") is None:
+                return None
+            return int(rows[0]["token_version"])
+        from app.models.base import SessionLocal
+        from app.models.user import UserORM
 
-    with SessionLocal() as s:
-        row = s.query(UserORM.token_version).filter(UserORM.id == int(uid)).first()
-        return int(row[0]) if row else None
+        with SessionLocal() as s:
+            row = s.query(UserORM.token_version).filter(UserORM.id == int(uid)).first()
+            return int(row[0]) if row else None
+    except Exception as e:  # noqa: BLE001 — 版本查询失败按"无法判定"处理（fail-open）
+        # 撤销比对是增强防线：网关抖动/DDL 漂移不得放大队谢绝为全站 500；
+        # 其他防线（口令/grant 生命周期/注销门禁）不受影响。记 warning 供观察。
+        logging.getLogger("app.security").warning(
+            "event=token_version_fetch_failed uid=%s err=%s", uid, e)
+        return None
 
 
 def get_version(uid: int) -> int | None:
