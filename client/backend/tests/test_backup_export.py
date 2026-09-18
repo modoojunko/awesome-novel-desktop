@@ -259,15 +259,27 @@ async def _seed_book_with_archives(user_id: str, tmp_root: str, vols: int):
         return proj.id, slug
 
 
-def _arch_client(tmp_path, monkeypatch, vols: int):
-    """建用户 + vols 卷带归档的书，返回 (client, novel_id, slug)。"""
-    user_id = asyncio.run(_seed_user_with_config())
+@pytest.fixture
+def arch_client_factory(tmp_path, monkeypatch):
+    """工厂 fixture：按 vols 建「用户 + vols 卷带归档的书」。
+
+    teardown 必跑（yield 后清 dependency_overrides）——评审 P1：裸 helper 的
+    clear() 只在成功路径执行，断言失败即泄漏 get_current_user 覆盖污染后续用例。
+    """
+    monkeypatch.setattr("backup.router.DATA_ROOT", str(tmp_path / "data-root"))
     book_root = tmp_path / "book-root"
     book_root.mkdir()
-    novel_id, slug = asyncio.run(_seed_book_with_archives(user_id, str(book_root), vols))
-    monkeypatch.setattr("backup.router.DATA_ROOT", str(tmp_path / "data-root"))
-    app.dependency_overrides[get_current_user] = lambda: {"id": user_id}
-    return TestClient(app), novel_id, slug
+
+    def make(vols: int):
+        user_id = asyncio.run(_seed_user_with_config())
+        novel_id, slug = asyncio.run(
+            _seed_book_with_archives(user_id, str(book_root), vols)
+        )
+        app.dependency_overrides[get_current_user] = lambda: {"id": user_id}
+        return TestClient(app), novel_id, slug
+
+    yield make
+    app.dependency_overrides.clear()
 
 
 def _read_backup_archives(target_dir: Path, slug: str):
@@ -282,12 +294,13 @@ def _read_backup_archives(target_dir: Path, slug: str):
 
 
 class TestArchiveDedup:
-    def test_multi_volume_archives_unique(self, tmp_path, monkeypatch):
+    def test_multi_volume_archives_unique(self, tmp_path, arch_client_factory):
         """2 卷 × 每卷 1 归档：条目恰 2（修复前 4，必红）、manifest 恰 2 且无重复 filename。
 
-        断言必须用 list 计数（set 会掩盖重复）；manifest 字段集锁定不变。
+        断言必须用 list 计数（set 会掩盖重复）；manifest 字段集与排序（卷序，全序键）
+        一并锁定——排序是 spec 条款，删 order_by 该断言必红。
         """
-        client, _novel_id, slug = _arch_client(tmp_path, monkeypatch, vols=2)
+        client, _novel_id, slug = arch_client_factory(2)
         with client:
             target_dir = tmp_path / "out"
             r = client.post("/api/backup/export/start", json={
@@ -303,11 +316,13 @@ class TestArchiveDedup:
             assert len(man) == 2, f"manifest 应恰 2 条: {man}"
             assert len({m["filename"] for m in man}) == 2
             assert set(man[0]) == {"filename", "ref", "title", "summary", "archived_at"}
-        app.dependency_overrides.clear()
+            # 排序锁：卷序（ref 兜底，ghost tie 场景亦确定）
+            assert [m["ref"] for m in man] == ["vol-1-ch-1", "vol-2-ch-1"], man
 
-    def test_single_volume_bytes_unchanged(self, tmp_path, monkeypatch):
-        """1 卷 1 归档：条目恰 1、manifest 恰 1、条目内容字节等于库内 content（单卷行为不变）。"""
-        client, _novel_id, slug = _arch_client(tmp_path, monkeypatch, vols=1)
+    def test_single_volume_bytes_unchanged(self, tmp_path, arch_client_factory):
+        """1 卷 1 归档：条目名/内容字节/manifest 字段集不变（对接 spec「单卷书行为不变」）；
+        并覆盖 kind=single（单书交付导出，归档段在包根、无 projects/ 前缀）。"""
+        client, novel_id, slug = arch_client_factory(1)
         with client:
             target_dir = tmp_path / "out1"
             r = client.post("/api/backup/export/start", json={
@@ -319,8 +334,25 @@ class TestArchiveDedup:
 
             arch, man = _read_backup_archives(target_dir, slug)
             assert len(arch) == 1 and len(man) == 1
+            # 条目名 = ref + slug(标题)（_archive_filename 形态，tasks 1.3 逐条对账）
+            assert arch[0] == f"projects/{slug}/archives/vol-1-ch-1-第1卷首章.md"
             with zipfile.ZipFile(target_dir / backup_zip_name()) as zf:
                 content = zf.read(arch[0]).decode("utf-8")
             assert content == "第1卷归档正文。" * 12
             assert set(man[0]) == {"filename", "ref", "title", "summary", "archived_at"}
-        app.dependency_overrides.clear()
+
+            # kind=single：单书交付导出（评审 P2-4——requirement 明写覆盖两种包）
+            single = tmp_path / "single" / "book.zip"
+            Path(str(single)).parent.mkdir(parents=True, exist_ok=True)
+            r2 = client.post("/api/backup/export/start", json={
+                "kind": "single", "target_file": str(single), "book_id": novel_id,
+            })
+            assert r2.status_code == 200, r2.text
+            done2 = _wait_done(client)
+            assert done2["state"] == "done", done2
+            with zipfile.ZipFile(single) as zf:
+                s_arch = [n for n in zf.namelist()
+                          if n.startswith("archives/") and n.endswith(".md")]
+                assert s_arch == ["archives/vol-1-ch-1-第1卷首章.md"]
+                s_man = yaml.safe_load(zf.read("archives/manifest.yaml"))["archives"]
+                assert len(s_man) == 1 and s_man[0]["ref"] == "vol-1-ch-1"

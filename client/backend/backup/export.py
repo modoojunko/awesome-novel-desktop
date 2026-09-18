@@ -123,7 +123,6 @@ async def dump_book_into(zf, db, project, prefix: str = "") -> None:
             .order_by(Volume.volume_no)
         )
     ).all()
-    manifest_archives = []
     for vol in volumes:
         vol_ref = f"vol-{vol.volume_no}"
         vol_data = await get_volume(db, project, vol_ref)
@@ -155,15 +154,18 @@ async def dump_book_into(zf, db, project, prefix: str = "") -> None:
                 put(f"prompts/{ch.ref}-{prompt.name}.md", prompt.content)
 
     # 归档（原文 + manifest 旁路元数据）——书级块，与卷遍历解耦（c-backup-archive-dedup：
-    # 误置卷循环内会致 N 卷书每条归档写 N 遍 + manifest N 倍追加 + 全文字段 SELECT 放大）；
-    # 显式排序（卷序+章序）保证 manifest 顺序确定，不依赖查询计划
+    # 误置卷循环内会致 N 卷书每条归档写 N 遍 + manifest N 倍追加 + 全文字段 SELECT 放大）。
+    # 排序键须全序（c-backup-archive-dedup PR 评审 P1）：ghost 支线章与主章同卷同章号，
+    # 卷序+章序不足以定序，补 ref（同书唯一）兜底，manifest 顺序不再依赖查询计划。
+    # join(Volume) 只为排序存在——「章必有卷」（volume_id NOT NULL + FK CASCADE）为不变量。
+    manifest_archives: list[dict] = []
     archives = (
         await db.scalars(
             select(Archive)
             .join(Chapter)
             .join(Volume)
             .where(Chapter.project_id == project.id)
-            .order_by(Volume.volume_no, Chapter.chapter_no)
+            .order_by(Volume.volume_no, Chapter.chapter_no, Chapter.ref)
         )
     ).all()
     for arch in archives:

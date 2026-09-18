@@ -8,4 +8,5 @@
 ## 2. 门禁
 
 - [x] 2.1 后端全量（CI 同口径，cwd=`client/backend`）：`ruff check .` 与 `python -m pytest tests/ -q --timeout=30` 全绿——验证：零新增告警、零失败
-- [x] 2.2 归档期门禁（可执行判据）：`grep -c "### Requirement: 归档段唯一性与完整性" openspec/specs/backup-restore/spec.md` = 1（合并后）、既有 6 条 requirement 均在（`grep -c "### Requirement:" openspec/specs/backup-restore/spec.md` = 7）、`openspec validate backup-restore --strict` 与 `openspec validate c-backup-archive-dedup --strict` 均通过
+- [x] 2.2 双 validate 门禁（当前可跑）：`openspec validate c-backup-archive-dedup --strict` 与 `openspec validate backup-restore --strict` 均通过
+- [ ] 2.3 归档期判据（归档 PR 时勾）：`grep -c "### Requirement: 归档段唯一性与完整性" openspec/specs/backup-restore/spec.md` = 1、既有 requirement 全在（`grep -c "### Requirement:"` = 7）
