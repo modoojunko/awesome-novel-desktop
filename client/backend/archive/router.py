@@ -25,28 +25,11 @@ archives_router = APIRouter(
 )
 
 
-def _slugify(title: str) -> str:
-    return (title or "").replace(" ", "-").lower()[:50]
-
-
-def _archive_filename(chapter_ref: str, title: str) -> str:
-    """归档文件名（文件时代的寻址形态，前端零改动继续用它当地址）。"""
-    return f"{chapter_ref}-{_slugify(title)}.md"
-
-
-def _parse_archive_filename(filename: str) -> tuple[str, str] | None:
-    """'vol-1-ch-2-标题.md' → ('vol-1-ch-2', 标题 slug)；形态不符返回 None。"""
-    if "/" in filename or ".." in filename or not filename.endswith(".md"):
-        return None
-    body = filename[:-3]
-    parts = body.split("-")
-    if len(parts) < 4 or parts[0] != "vol" or parts[2] != "ch":
-        return None
-    if not (parts[1].isdigit() and parts[3].isdigit()):
-        return None
-    ref = f"vol-{parts[1]}-ch-{parts[3]}"
-    slug = "-".join(parts[4:])
-    return ref, slug
+# 命名单源：archive/naming.py（c-archive-filename-safety——公式曾在本文件与
+# service.py 各手抄一份，且漏安全规则）。本模块保留 `_` 前缀别名，外部既有 import
+# 面（backup/export.py、novels/router.py）零改动。
+from archive.naming import archive_filename as _archive_filename  # noqa: E402
+from archive.naming import parse_archive_filename as _parse_archive_filename
 
 
 @router.post("")

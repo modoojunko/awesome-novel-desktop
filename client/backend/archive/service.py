@@ -49,11 +49,14 @@ async def archive_chapter(
     _validate_ref(chapter_ref)
     chapter = await load_chapter(root_path, chapter_ref)
 
-    vol = chapter.get("volume", 1)
-    ch = chapter.get("chapter", 1)
     title = chapter.get("title", "untitled")
-    slug = title.replace(" ", "-").lower()[:50]
-    archive_path = f"archives/vol-{vol}-ch-{ch}-{slug}.md"
+    # 命名单源 archive/naming.py（c-archive-filename-safety）：写接口 archive_path 与
+    # 列表 filename 自此恒等；以规范 ref 拼名（原按章数据数字内联拼，与列表公式不同源）
+    from archive.naming import archive_filename
+
+    # 与落库口径同源：归档行的 title 是 str(title)[:200]（下方写库同截断），
+    # 命名也用同截断值——否则超长标题会让写接口 archive_path 与列表 filename 分叉
+    archive_path = f"archives/{archive_filename(chapter_ref, str(title)[:200])}"
 
     # Generate 200-char summary via AI; degrade to first 200 chars when unavailable
     # (ai_summary 由调用方按会员权益决定；本书模型未就绪/调用失败一律降级)。

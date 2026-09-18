@@ -5,6 +5,7 @@ legacy-db/status、单飞 409 的状态机基础。
 """
 
 import asyncio
+import io
 import time
 import uuid
 import zipfile
@@ -19,6 +20,7 @@ from backup.export import backup_zip_name, config_zip_name
 from backup.format import FORMAT_VERSION
 from db import async_session
 from main import app
+from models.chapter import Chapter
 
 
 async def _seed_user_with_config():
@@ -356,3 +358,346 @@ class TestArchiveDedup:
                 assert s_arch == ["archives/vol-1-ch-1-第1卷首章.md"]
                 s_man = yaml.safe_load(zf.read("archives/manifest.yaml"))["archives"]
                 assert len(s_man) == 1 and s_man[0]["ref"] == "vol-1-ch-1"
+
+
+async def _seed_book_with_archive_title(user_id: str, tmp_root: str, title: str):
+    """1 卷 × 1 章 × 1 归档，归档/章标题为指定值（危险字符用例）。"""
+    from models.archive import Archive
+    from models.chapter import Chapter, ChapterContent
+    from models.project import Novel
+    from models.volume import Volume
+
+    slug = f"dng-{uuid.uuid4().hex[:8]}"
+    async with async_session() as session:
+        proj = Novel(
+            user_id=user_id, name="危险标题书", slug=slug,
+            root_path=str(Path(tmp_root) / slug), source="manual", current_phase="write",
+        )
+        session.add(proj)
+        await session.flush()
+        vol = Volume(project_id=proj.id, volume_no=1, title="第一卷")
+        session.add(vol)
+        await session.flush()
+        content = "危险标题归档正文。" * 10
+        ch = Chapter(
+            project_id=proj.id, volume_id=vol.id, chapter_no=1, ref="vol-1-ch-1",
+            title=title, status="archived", word_count=len(content), has_prose=True,
+        )
+        session.add(ch)
+        await session.flush()
+        session.add(ChapterContent(chapter_id=ch.id, prose=content))
+        session.add(Archive(chapter_id=ch.id, title=title, summary="摘要", content=content))
+        await session.commit()
+        return proj.id, slug
+
+
+def _arch_client_with_title(tmp_path, monkeypatch, title: str):
+    user_id = asyncio.run(_seed_user_with_config())
+    book_root = tmp_path / "book-root"
+    book_root.mkdir()
+    novel_id, slug = asyncio.run(_seed_book_with_archive_title(user_id, str(book_root), title))
+    monkeypatch.setattr("backup.router.DATA_ROOT", str(tmp_path / "data-root"))
+    app.dependency_overrides[get_current_user] = lambda: {"id": user_id}
+    return TestClient(app), novel_id, slug
+
+
+# ── c-archive-filename-safety：危险标题的书导出包条目名安全（评审四行实证的端到端面）──
+
+
+async def _seed_book_with_archive_title(user_id: str, tmp_root: str, title: str):
+    """1 卷 × 1 章 × 1 归档，归档/章标题为指定值（危险字符用例）。"""
+    from models.archive import Archive
+    from models.chapter import Chapter, ChapterContent
+    from models.project import Novel
+    from models.volume import Volume
+
+    slug = f"dng-{uuid.uuid4().hex[:8]}"
+    async with async_session() as session:
+        proj = Novel(
+            user_id=user_id, name="危险标题书", slug=slug,
+            root_path=str(Path(tmp_root) / slug), source="manual", current_phase="write",
+        )
+        session.add(proj)
+        await session.flush()
+        vol = Volume(project_id=proj.id, volume_no=1, title="第一卷")
+        session.add(vol)
+        await session.flush()
+        content = "危险标题归档正文。" * 10
+        ch = Chapter(
+            project_id=proj.id, volume_id=vol.id, chapter_no=1, ref="vol-1-ch-1",
+            title=title, status="archived", word_count=len(content), has_prose=True,
+        )
+        session.add(ch)
+        await session.flush()
+        session.add(ChapterContent(chapter_id=ch.id, prose=content))
+        session.add(Archive(chapter_id=ch.id, title=title, summary="摘要", content=content))
+        await session.commit()
+        return proj.id, slug
+
+
+@pytest.fixture
+def title_client_factory(tmp_path, monkeypatch):
+    """工厂 fixture（teardown 必跑）：按标题建书并返回 TestClient。"""
+    monkeypatch.setattr("backup.router.DATA_ROOT", str(tmp_path / "data-root"))
+    book_root = tmp_path / "book-root"
+    book_root.mkdir()
+
+    def make(title: str):
+        user_id = asyncio.run(_seed_user_with_config())
+        novel_id, slug = asyncio.run(
+            _seed_book_with_archive_title(user_id, str(book_root), title)
+        )
+        app.dependency_overrides[get_current_user] = lambda: {"id": user_id}
+        return TestClient(app), novel_id, slug
+
+    yield make
+    app.dependency_overrides.clear()
+
+
+class TestArchiveFilenameSafety:
+    def test_dangerous_title_export_safe_and_roundtrip(self, tmp_path, title_client_factory):
+        """标题 `上/../下`：修复前条目含 `..` 路径段 → 导入端 validate_paths 拒 → 整包不可导入。
+
+        覆盖：包内条目名安全（无分隔符/无 `..` 段与子串）+ validate_paths 实调 +
+        解析器自洽 + 导入后 title == 完整条目名 stem（不再被分隔符截断为尾段）。
+        """
+        from backup.importer import _import_single_book, validate_paths
+
+        client, _novel_id, slug = title_client_factory("上/../下")
+        with client:
+            target_dir = tmp_path / "out-safe"
+            r = client.post("/api/backup/export/start", json={
+                "kind": "backup", "target_dir": str(target_dir), "include_config": False,
+            })
+            assert r.status_code == 200, r.text
+            done = _wait_done(client)
+            assert done["state"] == "done", done
+
+            exported_name = None
+            with zipfile.ZipFile(target_dir / backup_zip_name()) as zf:
+                arch = [n for n in zf.namelist()
+                        if n.startswith(f"projects/{slug}/archives/") and n.endswith(".md")]
+                assert len(arch) == 1, arch
+                exported_name = arch[0]
+                rel = exported_name[len(f"projects/{slug}/archives/"):]
+                assert "/" not in rel and "\\" not in rel, exported_name
+                assert ".." not in exported_name, exported_name
+                assert ".." not in Path(exported_name).parts, exported_name
+                validate_paths(zf)  # 修复前：路径段含 `..` → ValueError
+
+                from archive.naming import parse_archive_filename
+
+                assert parse_archive_filename(Path(exported_name).name) is not None
+
+            # 导入空库：title == 完整条目名 stem（既有语义），修复前被 "/" 截断为「下」
+            blob = (target_dir / backup_zip_name()).read_bytes()
+
+            async def restore_one():
+                async with async_session() as db:
+                    new_id = await _import_single_book(
+                        db, zipfile.ZipFile(io.BytesIO(blob)),
+                        f"projects/{slug}/", "safe-title-user",
+                    )
+                    await db.commit()
+                    from sqlalchemy import select as sa_select
+
+                    from models.archive import Archive as ArchiveRow
+
+                    rows = (await db.scalars(
+                        sa_select(ArchiveRow.title).join(
+                            Chapter, Chapter.id == ArchiveRow.chapter_id
+                        ).where(Chapter.project_id == new_id)
+                    )).all()
+                    return list(rows)
+
+            titles = asyncio.run(restore_one())
+            assert len(titles) == 1, titles
+            assert titles[0] == Path(exported_name).stem, titles
+
+
+# ── c-backup-characters-prefix：整库包每书角色段各归其位 ──────────────────────────
+
+
+async def _seed_book_with_characters(user_id: str, tmp_root: str, names: list[str]):
+    """建 1 本书：1 卷 × 1 章 + names 指定角色（≥2 名时补一条关系，覆盖关系段隔离）。"""
+    from models.chapter import Chapter
+    from models.character import Character, CharacterRelation
+    from models.project import Novel
+    from models.volume import Volume
+
+    slug = f"chr-{uuid.uuid4().hex[:8]}"
+    async with async_session() as session:
+        proj = Novel(
+            user_id=user_id, name=f"角色书-{slug[-4:]}", slug=slug,
+            root_path=str(Path(tmp_root) / slug), source="manual", current_phase="write",
+        )
+        session.add(proj)
+        await session.flush()
+        vol = Volume(project_id=proj.id, volume_no=1, title="第一卷")
+        session.add(vol)
+        await session.flush()
+        session.add(Chapter(
+            project_id=proj.id, volume_id=vol.id, chapter_no=1, ref="vol-1-ch-1",
+            title="第一章", status="outline", word_count=0, has_prose=False,
+        ))
+        chars = []
+        for i, nm in enumerate(names, start=1):
+            c = Character(
+                novel_id=proj.id, seq=i, name=nm, aliases="[]",
+                role="主角" if i == 1 else "配角", persona=f"{nm}的一句话",
+                dossier="{}", cog="{}", legacy="{}",
+            )
+            session.add(c)
+            chars.append(c)
+        await session.flush()
+        if len(chars) >= 2:
+            session.add(CharacterRelation(
+                novel_id=proj.id, owner_id=chars[0].id, other_id=chars[1].id,
+                rel_type="盟友", stance="信任",
+            ))
+        await session.commit()
+        return proj.id, slug
+
+
+@pytest.fixture
+def chars_client_factory(tmp_path, monkeypatch):
+    """工厂 fixture（teardown 必跑）：建多本各有角色的书。"""
+    monkeypatch.setattr("backup.router.DATA_ROOT", str(tmp_path / "data-root"))
+    book_root = tmp_path / "book-root"
+    book_root.mkdir()
+
+    def make(books: list[list[str]]):
+        user_id = asyncio.run(_seed_user_with_config())
+        out = []
+        for names in books:
+            nid, slug = asyncio.run(
+                _seed_book_with_characters(user_id, str(book_root), names)
+            )
+            out.append((nid, slug, names))
+        app.dependency_overrides[get_current_user] = lambda: {"id": user_id}
+        return TestClient(app), user_id, out
+
+    yield make
+    app.dependency_overrides.clear()
+
+
+class TestCharactersPrefix:
+    def test_two_books_characters_own_prefix(self, tmp_path, chars_client_factory):
+        """两书各有角色：各自 projects/{slug}/characters/ 均在且内容互异；包根无 characters/。"""
+        client, _uid, books = chars_client_factory([["甲", "乙"], ["丙"]])
+        target_dir = tmp_path / "out-chr"
+        r = client.post("/api/backup/export/start", json={
+            "kind": "backup", "target_dir": str(target_dir), "include_config": False,
+        })
+        assert r.status_code == 200, r.text
+        assert _wait_done(client)["state"] == "done"
+
+        with zipfile.ZipFile(target_dir / backup_zip_name()) as zf:
+            names = zf.namelist()
+            for _nid, slug, _nm in books:
+                assert f"projects/{slug}/characters/characters.yaml" in names, names
+                assert f"projects/{slug}/characters/relations.yaml" in names, names
+            # 包根不得出现 characters/（namelist list 计数——zip 保留重复条目，set 会掩盖）
+            assert [n for n in names if n.startswith("characters/")] == []
+            # 两书内容互异
+            a = zf.read(f"projects/{books[0][1]}/characters/characters.yaml")
+            b = zf.read(f"projects/{books[1][1]}/characters/characters.yaml")
+            assert a != b
+
+    def test_two_books_characters_roundtrip_per_book(self, tmp_path, chars_client_factory):
+        """整库包逐书导入：姓名集合与关系集合逐书对拍（防「最后一本发给每本书」）。"""
+        from sqlalchemy import select as sa_select
+
+        from backup.importer import _import_single_book
+        from models.character import Character, CharacterRelation
+
+        client, uid, books = chars_client_factory([["甲", "乙"], ["丙"]])
+        target_dir = tmp_path / "out-rt"
+        r = client.post("/api/backup/export/start", json={
+            "kind": "backup", "target_dir": str(target_dir), "include_config": False,
+        })
+        assert r.status_code == 200, r.text
+        assert _wait_done(client)["state"] == "done"
+
+        blob = (target_dir / backup_zip_name()).read_bytes()
+
+        async def restore_all():
+            results = {}
+            for _nid, slug, expected in books:
+                async with async_session() as db:
+                    new_id = await _import_single_book(
+                        db, zipfile.ZipFile(io.BytesIO(blob)), f"projects/{slug}/", uid
+                    )
+                    await db.commit()
+                    got = set((await db.scalars(
+                        sa_select(Character.name).where(Character.novel_id == new_id)
+                    )).all())
+                    rels = set((await db.scalars(
+                        sa_select(CharacterRelation.rel_type).join(
+                            Character, Character.id == CharacterRelation.owner_id
+                        ).where(Character.novel_id == new_id)
+                    )).all())
+                    chapters = len((await db.scalars(
+                        sa_select(Chapter.id).where(Chapter.project_id == new_id)
+                    )).all())
+                    results[slug] = (got, set(expected), rels, chapters)
+            return results
+
+        results = asyncio.run(restore_all())
+        for slug, (got, expected, rels, chapters) in results.items():
+            assert got == expected, f"{slug}: {got} != {expected}"
+            # 正向对照：书确实落库（负向/隔离结论不建立在空跑上）
+            assert chapters >= 1, f"{slug}: chapters={chapters}"
+            # 关系段逐书隔离：books[0] 种 1 条盟友、books[1] 无；串书/漏段必红
+            assert rels == ({"盟友"} if expected == {"甲", "乙"} else set()), f"{slug}: {rels}"
+
+    def test_legacy_root_characters_not_fallback(self, tmp_path, chars_client_factory):
+        """负向锁定（Non-Goal）：角色仅存包根的旧形态包 → 导入后每书角色为 0，不回退包根取值。"""
+        from sqlalchemy import select as sa_select
+
+        from backup.importer import _import_single_book
+        from models.character import Character
+
+        client, uid, books = chars_client_factory([["甲"], ["丙"]])
+        target_dir = tmp_path / "out-legacy"
+        client.post("/api/backup/export/start", json={
+            "kind": "backup", "target_dir": str(target_dir), "include_config": False,
+        })
+        assert _wait_done(client)["state"] == "done"
+
+        with zipfile.ZipFile(target_dir / backup_zip_name()) as src:
+            legacy = io.BytesIO()
+            with zipfile.ZipFile(legacy, "w") as out:
+                for n in src.namelist():
+                    if "/characters/" in n:
+                        continue
+                    out.writestr(n, src.read(n))
+                out.writestr(
+                    "characters/characters.yaml",
+                    src.read(f"projects/{books[1][1]}/characters/characters.yaml"),
+                )
+        legacy_bytes = legacy.getvalue()
+
+        async def restore_each():
+            out = {}
+            for _nid, slug, _nm in books:
+                async with async_session() as db:
+                    new_id = await _import_single_book(
+                        db, zipfile.ZipFile(io.BytesIO(legacy_bytes)),
+                        f"projects/{slug}/", uid,
+                    )
+                    await db.commit()
+                    got = set((await db.scalars(
+                        sa_select(Character.name).where(Character.novel_id == new_id)
+                    )).all())
+                    chapters = len((await db.scalars(
+                        sa_select(Chapter.id).where(Chapter.project_id == new_id)
+                    )).all())
+                    out[slug] = (got, chapters)
+            return out
+
+        counts = asyncio.run(restore_each())
+        for slug, (got, chapters) in counts.items():
+            assert got == set(), f"{slug}: 旧包不回退包根取值，应 0 角色，实得 {got}"
+            # 正向对照：书确实落库（负向结论不建立在空跑上）
+            assert chapters >= 1, f"{slug}: chapters={chapters}"

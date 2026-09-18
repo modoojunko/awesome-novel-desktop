@@ -230,3 +230,39 @@ class TestFreeArchive:
 
         r1 = client.get(f"/api/novels/{pid}")
         assert r1.json()["current_phase"] == "archive"
+
+
+    def test_archive_path_matches_list_and_readable(self, client):
+        """写接口 archive_path basename == 列表 filename，且 GET 可读（c-archive-filename-safety：
+        标题含连续点，修复前 GET 因 `..` 子串拒绝 → 404「列表有、打不开」）。
+
+        命名规则单源锁：只改 router 不改 service 的半修会让本用例首断言红。
+        """
+        _set_tier("none", api_key="")
+        pid = _create_sparse_project(client)
+        r = client.post(
+            f"/api/novels/{pid}/volumes", json={"vol_num": 1, "title": "Volume 1"}
+        )
+        assert r.status_code in (200, 201), r.text
+        ref = r.json()["ref"]
+        r2 = client.post(
+            f"/api/novels/{pid}/volumes/{ref}/chapters", json={"title": "第1..2章"}
+        )
+        assert r2.status_code in (200, 201), r2.text
+        ch_ref = r2.json()["chapter_ref"]
+
+        r3 = client.post(
+            f"/api/novels/{pid}/chapters/{ch_ref}/archive", json={"full_text": LONG_TEXT}
+        )
+        assert r3.status_code == 200, r3.text
+        written = r3.json()["archive_path"].split("/")[-1]
+
+        r4 = client.get(f"/api/novels/{pid}/archives")
+        assert r4.status_code == 200
+        listed = [f["filename"] for f in r4.json()]
+        assert written in listed, f"写接口 {written} 与列表 {listed} 不同源"
+        assert ".." not in written and "/" not in written
+
+        r5 = client.get(f"/api/novels/{pid}/archives/{written}")
+        assert r5.status_code == 200, f"列表有、打不开：{written} → {r5.status_code}"
+        assert r5.json()["content"] == LONG_TEXT

@@ -110,7 +110,7 @@ async def dump_book_into(zf, db, project, prefix: str = "") -> None:
         put_yaml(THREADS_PATH, threads)
 
     # 角色段（character-settings-v2）：真表 → characters/ 新布局；不再写旧角色目录树
-    await _dump_characters(zf, db, project)
+    await _dump_characters(zf, db, project, prefix)
 
     # 伏笔段（foreshadow-settings-v2）：真表 → hooks/hooks.yaml；settings 树不再含 hooks
     await _dump_hooks(zf, db, project, prefix)
@@ -198,8 +198,11 @@ async def _origin_chapter_ref(db, chapter_id: str | None) -> str:
     row = await db.get(Chapter, chapter_id)
     return row.ref if row is not None else ""
 
-async def _dump_characters(zf, db, project) -> None:
+async def _dump_characters(zf, db, project, prefix: str = "") -> None:
     """角色段 v2：characters/characters.yaml + characters/relations.yaml。
+
+    prefix：多书包每书目录前缀（c-backup-characters-prefix——曾漏传致整库包多书
+    角色文件写包根互相覆盖且导入端读不到）；单书布局默认空串（包根）。
 
     id / seq / legacy 原文全部随包往返（roundtrip 断言的稳定性依据）。
     """
@@ -238,11 +241,11 @@ async def _dump_characters(zf, db, project) -> None:
         ],
     }
     zf.writestr(
-        "characters/characters.yaml",
+        prefix + "characters/characters.yaml",
         yaml.safe_dump(payload["characters"], allow_unicode=True, sort_keys=False),
     )
     zf.writestr(
-        "characters/relations.yaml",
+        prefix + "characters/relations.yaml",
         yaml.safe_dump(payload["relations"], allow_unicode=True, sort_keys=False),
     )
 
