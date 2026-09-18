@@ -74,7 +74,7 @@ TBD - created by archiving change 004-free-workspace. Update Purpose after archi
 - `ProContainer` SHALL use `useTier().isFree` to decide; when free, it SHALL render `null` and NOT render the subtree.
 - The phase-driven UI — `OnboardingCard` and the `useNovelState` phase-status hook — SHALL be placed inside a ProContainer subtree so that free users render none of them and issue no phase-status request.
 - The `GateBanner` phase-warning banner SHALL NOT be rendered anywhere in the novel workspace for any tier.
-- The three navigation labels (编辑设定 / 编辑正文 / 预览小说) SHALL render for both tiers outside the ProContainer subtree.
+- The three navigation labels (编辑设定 / 编辑正文 / 预览) SHALL render for both tiers outside the ProContainer subtree.
 - Hooks inside the ProContainer subtree SHALL NOT be called at the top level of NovelWorkspace (no conditional hook calls); they live inside a child component that only mounts for paid users.
 
 #### Scenario: Free tier renders no phase UI
