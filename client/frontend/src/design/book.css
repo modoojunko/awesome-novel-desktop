@@ -493,6 +493,13 @@ details.cfg .inner { padding: 4px 14px 14px; }
 .ai-prompt:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 .ai-tag { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; }
 .ai-tag svg { width: 11px; height: 11px; }
+/* 粘贴文风样本弹窗（c-style-paste-distill）：Modal portal 到 body，须用全局类 */
+.paste-note { font-size: 12px; color: var(--muted); line-height: 1.7; }
+.paste-meta { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.paste-meta .spacer { flex: 1; }
+.paste-meta .num { font-weight: 600; }
+.paste-meta .warn { color: var(--warn); }
+.paste-meta .ok { color: var(--ok); }
 .benefit-row { display: flex; gap: 12px; padding: 10px 0; align-items: flex-start; }
 .benefit-row svg { width: 16px; height: 16px; color: var(--accent); flex: none; margin-top: 2px; }
 .benefit-row b { display: block; font-size: 13.5px; font-weight: 500; }

@@ -28,8 +28,9 @@ import { useDirtyState } from "@/hooks/useDirtyState";
 import { Cfg, ListEditor, type SettingSaveHandle } from "./FormField";
 import { Ico, P } from "@/components/icons";
 import type { ChangeReceiptState } from "./ChangeReceipt";
-import { styleAiApi, styleQuantApi, BASELINE_ROWS } from "@/lib/styleApi";
+import { styleAiApi, styleQuantApi, BASELINE_ROWS, countSampleChars } from "@/lib/styleApi";
 import type { StyleQuant } from "@/lib/styleApi";
+import StylePasteModal from "./StylePasteModal";
 import { toast } from "@/lib/toast";
 
 interface Props {
@@ -185,6 +186,11 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
   const [distillView, setDistillView] = useState<DistillView>("closed");
   const [distillStep, setDistillStep] = useState<0 | 1 | 2 | 3>(0);
   const [distillBusy, setDistillBusy] = useState(false);
+  // 粘贴样本（c-style-paste-distill）：弹窗开合 + 本次粘贴链的活动文本。
+  // 存组件态是为重试——step1 失败后点重试必须继续携带同一粘贴文本，
+  // 否则按空文件/章节路装配会报「样本合计 0 字」（粘贴直开路径 samples 为 null 无从补救）。
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState<string | null>(null);
   const [checkSink, setCheckSink] = useState<{
     checks: Array<{ name: string; res: string; note: string }>;
     verdict: string;
@@ -379,18 +385,24 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
     toast.success(locked ? "已锁定——重蒸馏保持这行基线" : "已解锁——重蒸馏会更新这行");
   }
 
-  async function runSteps(from: 1 | 3, force = false) {
+  /**
+   * 蒸馏三步串联。opts.startStep 显式起跑（粘贴重启必须传 0——state distillStep 的
+   * 闭包旧值会跳过 step1 拿旧产物跑 step3）；opts.text 为粘贴样本，step1 持续携带
+   * 直至成功或取消（后端 text 非空＝显式重启，幂等）。
+   */
+  async function runSteps(from: 1 | 3, force = false, opts?: { startStep?: 0 | 1 | 2 | 3; text?: string | null }) {
     if (distillBusy) return;
     setDistillBusy(true);
     setError("");
+    const activePaste = opts?.text ?? null;
     try {
-      let step: 0 | 1 | 2 | 3 = distillStep;
+      let step: 0 | 1 | 2 | 3 = opts?.startStep ?? distillStep;
       if (from === 1) {
         while (step < 3) {
           const next = (step + 1) as 1 | 2 | 3;
           const body =
             next === 1
-              ? { files: [...selFiles], chapter_ids: [...selChapters] }
+              ? { files: [...selFiles], chapter_ids: [...selChapters], ...(activePaste ? { text: activePaste } : {}) }
               : {};
           await styleQuantApi.distillStep(projectId, next, body);
           step = next;
@@ -403,12 +415,29 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
       }
       const q = await styleQuantApi.get(projectId);
       setQuant(q);
-      if (q.draft?.step3?.portrait) setDistillView("portrait");
+      if (q.draft?.step3?.portrait) {
+        setDistillView("portrait");
+        if (activePaste) setPasteText(null); // 粘贴链成功：活动样本使命完成
+      }
     } catch (e: unknown) {
       setError((e as Error).message || "蒸馏失败，可重试");
     } finally {
       setDistillBusy(false);
     }
+  }
+
+  /** 粘贴样本提交（c-style-paste-distill）：弹窗只管输入，重启跑三步，结果进画像确认卡。 */
+  async function startPasteDistill(text: string) {
+    setPasteOpen(false);
+    setTab("quant");
+    setPasteText(text);
+    setDistillView("steps");
+    await runSteps(1, false, { startStep: 0, text });
+  }
+
+  function closeDistill() {
+    setPasteText(null); // 用户放弃本次蒸馏：粘贴链样本随之作废
+    setDistillView("closed");
   }
 
   async function commitPortrait() {
@@ -700,14 +729,24 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                 <br />
                 蒸馏是会员功能：交 3,000–10,000 字你认可的案例，AI 学出六行基线。
               </p>
-              <button
-                className="btn btn-secondary"
-                type="button"
-                data-od-id="btn-open-distill"
-                onClick={() => void openDistill()}
-              >
-                去蒸馏我的文风
-              </button>
+              <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  data-od-id="btn-open-paste"
+                  onClick={() => setPasteOpen(true)}
+                >
+                  粘贴文本蒸馏
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  type="button"
+                  data-od-id="btn-open-distill"
+                  onClick={() => void openDistill()}
+                >
+                  从文件/章节选样本
+                </button>
+              </div>
             </div>
           )}
 
@@ -781,7 +820,28 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
             <div data-od-id="distill-panel">
               {distillView !== "portrait" && (
                 <>
-                  <div className="sample-box" data-od-id="distill-samples">
+                  {pasteText ? (
+                    <div className="sample-box" data-od-id="distill-paste-source">
+                      <div className="sample-row">
+                        <span className="s-name">粘贴文本</span>
+                        <span className="s-cnt num">{countSampleChars(pasteText).toLocaleString()} 字</span>
+                      </div>
+                      <div className="sample-total">
+                        <span>本次蒸馏用你粘贴的文本；换文件/章节请先「取消」再重新选。</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="sample-box" data-od-id="distill-samples">
+                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <button
+                          className="text-btn"
+                          type="button"
+                          data-od-id="btn-open-paste"
+                          onClick={() => setPasteOpen(true)}
+                        >
+                          直接粘贴文本
+                        </button>
+                      </div>
                     {(samples?.files ?? []).map((f) => (
                       <label className="sample-row" key={f.name}>
                         <input
@@ -824,7 +884,8 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                         <span className="opt">{samples.hint}</span>
                       )}
                     </div>
-                  </div>
+                    </div>
+                  )}
 
                   {distillStep > 0 && (
                     <div className="sample-box" style={{ marginTop: 12 }} data-od-id="distill-steps">
@@ -857,11 +918,15 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                       type="button"
                       data-od-id="btn-run-distill"
                       disabled={distillBusy || (distillStep === 0 && samples != null && !inRange)}
-                      onClick={() => void runSteps(distillStep === 0 ? 1 : 1)}
+                      onClick={() =>
+                        // 粘贴链重试必须显式从 step1 起跑：state distillStep 可能还挂着
+                        // 旧蒸馏的步数（甚至旧 draft 的步数），而带 text 的 step1 是重启语义
+                        void runSteps(1, false, pasteText ? { text: pasteText, startStep: 0 } : undefined)
+                      }
                     >
                       {distillBusy ? "蒸馏中…" : distillStep === 0 ? "开始蒸馏" : "继续蒸馏"}
                     </button>
-                    <button className="btn btn-ghost" type="button" onClick={() => setDistillView("closed")}>
+                    <button className="btn btn-ghost" type="button" onClick={() => closeDistill()}>
                       取消
                     </button>
                     {samples != null && !samples.in_range && distillStep === 0 && (
@@ -879,6 +944,32 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                   </p>
                   <p>{draft.step3.portrait}</p>
                   <p className="pz-ask">读起来像你的写法吗？不像 → 直接说「不像」，我会再学一次。</p>
+                  {draft.step3.rows && (
+                    <div style={{ marginTop: 12 }} data-od-id="portrait-baseline-preview">
+                      <div className="pz-head">落卡基线预览</div>
+                      <p className="pz-note" style={{ marginBottom: 8 }}>
+                        确认后原样写入量化参数；带「保留上一版」的行是你的锁定行——这次不更新。
+                      </p>
+                      {BASELINE_ROWS.map(([key, label]) => {
+                        const row = draft.step3?.rows?.[key];
+                        if (!row) return null;
+                        const prev = quant?.baseline?.[key];
+                        return (
+                          <div className="bx-row" key={key}>
+                            <div className="bx-head">
+                              <span className="bx-name">{label}</span>
+                              {prev && prev.locked && <span className="badge empty">保留上一版</span>}
+                            </div>
+                            <div className="bx-vals">
+                              {prev && prev.locked
+                                ? `约 ${prev.value || "（上一版为空）"}（±${prev.tolerance}%）`
+                                : `约 ${row.value}（±${row.tolerance}%）`}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                   <div className="pz-act">
                     <button
                       className="btn btn-primary"
@@ -901,6 +992,15 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
                     >
                       不像，再学一次
                     </button>
+                    <button
+                      className="btn btn-ghost"
+                      type="button"
+                      data-od-id="btn-portrait-later"
+                      disabled={distillBusy}
+                      onClick={() => closeDistill()}
+                    >
+                      取消，稍后再说
+                    </button>
                   </div>
                 </div>
               )}
@@ -908,6 +1008,12 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
           )}
         </div>
       )}
+
+      <StylePasteModal
+        open={pasteOpen}
+        onClose={() => setPasteOpen(false)}
+        onSubmit={(t) => void startPasteDistill(t)}
+      />
     </div>
   );
 });

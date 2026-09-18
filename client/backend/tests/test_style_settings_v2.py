@@ -43,6 +43,7 @@ from settings.style_model import (  # noqa: E402
 )
 from settings.style_quant_model import (  # noqa: E402
     apply_locks,
+    build_baseline,
     commit_draft,
     confidence_for,
     quant_doc,
@@ -195,6 +196,30 @@ class TestQuantModel:
         h = len(doc["history"])
         doc2 = commit_draft(doc, sample_chars=7214, chapter_count=3, at="x")
         assert len(doc2["history"]) == h  # 幂等：draft 已清，重复 commit 不追加
+
+    def test_commit_reuses_step3_rows_and_still_merges_locked(self):
+        """落卡行单源（c-style-paste-distill）：rows 缺省容差不为 ±30%；锁定行仍按落卡时点保留。"""
+        rows = build_baseline(
+            {"baseline": {"narrative": "新身份", "rhythm": {"dialogue": 48, "action": 24, "narration": 15, "environment": 7, "inner": 6}}, "confidence": 60}
+        )
+        assert rows["narrative"]["tolerance"] == 20  # 构建注入 confidence=60 → ±20%（缺省 0 会错落 ±30%）
+        doc = quant_doc({})
+        doc["baseline"] = {"rhythm": {"value": "旧配比", "tolerance": 10, "locked": True}}
+        doc["draft"] = {"step": 3, "sample_chars": 10000, "chapter_count": 0, "step3": {"rows": rows, "banned": []}}
+        doc = commit_draft(doc, sample_chars=10000, chapter_count=0, at="T1")
+        assert doc["baseline"]["narrative"] == rows["narrative"]  # 落卡行＝预览行（同一产物复用）
+        assert doc["baseline"]["rhythm"]["value"] == "旧配比"  # 锁定行按落卡时点保留上一版
+        assert doc["history"][0]["mixture"]["rhythm"] == "locked(上一版)"
+
+    def test_quant_doc_history_not_shared_across_docs(self):
+        """quant_doc 必须深拷贝默认形状：否则无 history 键的文档经 commit 后把快照串给下一个。"""
+        rows = build_baseline({"baseline": {}, "confidence": 0})
+        doc1 = quant_doc({"draft": {"step": 3, "sample_chars": 5000, "chapter_count": 0, "step3": {"rows": rows, "banned": []}}})
+        doc1 = commit_draft(doc1, sample_chars=5000, chapter_count=0, at="T1")
+        assert len(doc1["history"]) == 1
+        doc2 = quant_doc({})
+        assert doc2["history"] == []
+        assert doc2["draft"] == {}
 
 
 # ── 端点：style 归一边界 ─────────────────────────────────────────────────
@@ -358,6 +383,87 @@ class TestDistillEndpoints:
             assert r.status_code == 403
         finally:
             app.dependency_overrides[require_ai_access] = lambda: True
+
+    # ── 粘贴样本第三路（c-style-paste-distill）─────────────────────────
+
+    _PASTE = "他把账合上，像合上一口棺材。" * 360  # 无空白，5040 字
+
+    def test_paste_step1_accepts_text(self, client, pid, monkeypatch):
+        calls = _install_fake_distill(monkeypatch, ['{"sections": [{"label": "合账", "layer": "动作"}]}'])
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step1", json={"text": self._PASTE})
+        assert r.status_code == 200, r.text
+        assert r.json()["step"] == 1
+        # LLM 收到的样本＝粘贴文本本体
+        assert "他把账合上" in calls["prompts"][0]
+        q = client.get(f"/api/novels/{pid}/settings/style-quant").json()
+        assert q["draft"]["samples_used"] == ["粘贴文本"]
+        assert q["draft"]["chapter_count"] == 0
+        assert q["draft"]["sample_chars"] == 5040
+
+    def test_paste_step1_rejects_out_of_range_and_writes_nothing(self, client, pid):
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step1", json={"text": "字" * 2100})
+        assert r.status_code == 400
+        assert "再补" in r.json()["detail"]
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step1", json={"text": "字" * 10001})
+        assert r.status_code == 400
+        assert "挑最有代表性" in r.json()["detail"]
+        # 零写入：持久层 draft 不产生任何产物
+        q = client.get(f"/api/novels/{pid}/settings/style-quant").json()
+        assert not q.get("draft")
+
+    def test_paste_step1_rejects_non_string(self, client, pid):
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step1", json={"text": 12345})
+        assert r.status_code == 400
+        q = client.get(f"/api/novels/{pid}/settings/style-quant").json()
+        assert not q.get("draft")
+
+    def test_paste_restart_clears_old_draft_and_no_text_resumes(self, client, pid, monkeypatch):
+        self._seed_samples(pid)
+        payloads = [
+            '{"sections": [{"label": "雨点砸棚", "layer": "环境"}]}',
+            '{"metrics": {"平均句长": "14.6 字"}}',
+            '{"sections": [{"label": "合账", "layer": "动作"}]}',
+        ]
+        _install_fake_distill(monkeypatch, payloads)
+        # 文件路跑到 step2（旧 draft 有 step1+step2 产物）
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step1", json={"files": ["a.md"], "chapter_ids": []})
+        assert r.status_code == 200
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step2", json={})
+        assert r.status_code == 200
+        # 粘贴重启：旧产物作废，按新文本重跑 step1
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step1", json={"text": self._PASTE})
+        assert r.status_code == 200, r.text
+        q = client.get(f"/api/novels/{pid}/settings/style-quant").json()
+        assert q["draft"]["step"] == 1
+        assert "step2" not in q["draft"]  # 旧 step2 产物已作废
+        assert q["draft"]["samples_used"] == ["粘贴文本"]
+        # 无 text 时续跑短路保持：不重复调用、旧（新粘贴）产物保留
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step1", json={"files": ["a.md"], "chapter_ids": []})
+        assert r.json().get("resumed") is True
+
+    def test_paste_full_chain_rows_match_commit(self, client, pid, monkeypatch):
+        payloads = [
+            '{"sections": [{"label": "合账", "layer": "动作"}]}',
+            '{"metrics": {"平均句长": "14.6 字"}}',
+            '{"baseline": {"narrative": "第三人称限知", "rhythm": {"dialogue": 48, "action": 24, "narration": 15, "environment": 7, "inner": 6}}, "details": {"词法": "x"}, "portrait": "一个冷静的讲述者。", "banned": ["突然"]}',
+        ]
+        _install_fake_distill(monkeypatch, payloads)
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/step1", json={"text": self._PASTE})
+        assert r.status_code == 200
+        assert client.post(f"/api/novels/{pid}/settings/ai/style-distill/step2", json={}).status_code == 200
+        assert client.post(f"/api/novels/{pid}/settings/ai/style-distill/step3", json={}).status_code == 200
+        q = client.get(f"/api/novels/{pid}/settings/style-quant").json()
+        rows = q["draft"]["step3"]["rows"]
+        assert set(rows) == {"narrative", "rhythm", "syntax", "lexicon", "emotion", "dialogue_verb"}
+        assert rows["narrative"]["tolerance"] == 20  # 5,040 字 → confidence 53 → ±20%（非缺省 ±30%）
+        r = client.post(f"/api/novels/{pid}/settings/ai/style-distill/commit", json={})
+        assert r.status_code == 200
+        q2 = r.json()["quant"]
+        # 预览行与落卡行逐字段一致（确认卡＝正式区同一构建产物）
+        for k, row in rows.items():
+            assert q2["baseline"][k] == row
+        assert q2["confidence"] == 53
+        assert q2["draft"] == {}
 
 
 # ── 提示词组装 ───────────────────────────────────────────────────────────

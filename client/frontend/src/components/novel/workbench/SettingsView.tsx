@@ -404,7 +404,7 @@ export default function SettingsView({
       {
         key: "distill",
         name: "蒸馏我的文风",
-        desc: "交 3,000–10,000 字你认可的案例 → 出「作者画像」给你确认 → 六行基线落卡 · 输入：novel-samples 或已归档章节",
+        desc: "交 3,000–10,000 字你认可的案例 → 出「作者画像」给你确认 → 六行基线落卡 · 输入：粘贴文本、novel-samples 或已归档章节",
         onClick: () => runStyleAi("distill"),
       },
       {
