@@ -31,14 +31,15 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 
 ### Requirement: Shared status language and tone words
 - Progress-bearing objects SHALL express state through the three-state dot classes (`dot-empty`, `dot-warn`, `dot-ok`) plus a title attribute wherever progress semantics exist.
+- Evidence-bearing chapter rows in the reading preview (目录行) SHALL NOT use the three-state dot; they SHALL express 成稿状态 through the `.pill` status family with the labels 拟定 / 草稿 / 已归档, plus a word-count number in the mono/tabular style. 章纲 gap detail stays in the writing view.
 - Badges SHALL use the `.pill` family (roles tag/status/count x tones); callout bars SHALL use the `.notice` family with explicit modifiers; toast severity may add `warn`.
 - The cross-end tone vocabulary is fixed at info / ok / warn / err. Retired synonyms (success/danger as notice or badge tones, the `.b` badge names, `.strip`) MUST NOT reappear. The save-state ladder remains autosaving, unsaved, failed-with-retry, saved.
 - Streaming/AI activity SHALL be expressed by a breathing accent dot; prose layout MUST NOT animate during streaming.
 
 #### Scenario: Same object viewed twice
-- Given a chapter confirmed in the workbench tree
+- Given a chapter with a fixed 成稿状态 (无正文 / 有正文未归档 / 已归档)
 - When the preview view lists that chapter
-- Then it shows the same dot-ok semantics derived from the same data
+- Then the 目录行 shows the matching `.pill` status label (拟定 / 草稿 / 已归档) derived from the same chapter data, with the word count in mono/tabular style — never a three-state dot
 
 #### Scenario: S端 console uses unified badge and notice vocabulary
 - Given any S端 console, auth or landing screen needs a badge or a callout bar
@@ -58,6 +59,8 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 ### Requirement: Component vocabulary reuse before invention
 - Buttons SHALL map to the existing `.btn` size/variant ladder; C-end wrappers around it MUST NOT be introduced, and S-end shell components SHALL compile down to those same classes.
 - Static capsules belong to pill roles (tag/status/count); clickable capsule-like controls belong to the chip family.
+- File-format checkbox rows in the download overlay (`.ex-fmt`) SHALL be a single reusable control (role=checkbox semantics, visible selected state) rather than ad-hoc toggle markup, and its selected state SHALL use token-derived color-mix values only.
+- Progress lists in task overlays (`.ex-steps`) SHALL express per-item state as text (等待 / 下载中 / 完成) with the ok tone reserved for the completed state; they MUST NOT animate prose or the reading area.
 - Destructive confirmations SHALL render through an in-app modal confirm (no native `window.confirm`), listing affected items as inventory when deletion cascades.
 - Empty states SHALL offer at least one actionable exit alongside the descriptive line.
 
@@ -65,6 +68,11 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - Given deleting a config that books depend on
 - When the user confirms
 - Then an in-app dialog lists the affected items as inventory chips before deletion executes
+
+#### Scenario: 格式勾选行即统一控件
+- Given 下载成稿弹层渲染三种格式
+- When 用户点选其中一行
+- Then 该行呈现选中态（token 派生配色）且可键盘操作，另两行保持未选态
 
 ### Requirement: Cross-end shared-class synchronization
 - Classes that must render identically — tokens block (including `--on-accent`), `.btn` ladder, modal family, form base and error states, toast (including the `warn` tone), notices (`.notice` with explicit `info/ok/warn/err` tones), pills (`.pill` role × tone family), skeleton atoms (`.sk` + `sk-pulse`), panel cards (`.panel` + `hoverable/hl/compact`), empty-state slots — SHALL exist under the same name with the same declarations in both ends' `src/design/base.css`, inside a `@cross-begin/@cross-end` marked segment.
