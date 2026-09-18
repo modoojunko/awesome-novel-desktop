@@ -32,17 +32,46 @@ function notify503(kind: "app" | "infra") {
   }
 }
 
+export interface RequestOptions {
+  method?: string;
+  body?: string;
+  headers?: Record<string, string>;
+  /** 静默能力探测：不触发全局副作用（member_required 升级弹窗、503 全局提示、401 踢出） */
+  quiet?: boolean;
+  /** 503 不弹全局提示：抛带 status 的错误，由调用方就地提示（如 PromptManagementPage） */
+  soft503?: boolean;
+}
+
+/** 带 HTTP 状态的错误（request() 抛出形状；调用方断言用同一类型，勿再就地重复声明）。 */
+export type ApiError = Error & {
+  status?: number;
+  reason?: string;
+  novels?: string[];
+  field?: string;
+  current?: unknown;
+  rev?: number;
+};
+
+/**
+ * 统一错误文案取值（仓库口径，同 useStoryArc）：**只有确有后端响应（status 存在）
+ * 且为 4xx**时才透出原文——后端 4xx 的 detail 是可行动中文；网络层失败（无 status，
+ * Chromium「Failed to fetch」/ WKWebView「Load failed」）与 5xx（含 503 兜底的英文
+ * 「Service unavailable」）一律回落调用方的中文兜底，避免英文/空文案漏给用户。
+ */
+export function errMessage(e: unknown, fallback: string): string {
+  const err = e as Partial<ApiError> | null;
+  const usable =
+    typeof err?.status === "number" &&
+    err.status >= 400 &&
+    err.status < 500 &&
+    typeof err.message === "string" &&
+    !!err.message;
+  return usable ? (err.message as string) : fallback;
+}
+
 export async function request(
   path: string,
-  options?: {
-    method?: string;
-    body?: string;
-    headers?: Record<string, string>;
-    /** 静默能力探测：不触发全局副作用（member_required 升级弹窗、503 全局提示） */
-    quiet?: boolean;
-    /** 503 不弹全局提示：抛带 status 的错误，由调用方就地提示（如 PromptManagementPage） */
-    soft503?: boolean;
-  },
+  options?: RequestOptions,
 ): Promise<any> {
   const method = options?.method || 'GET';
   const headers: Record<string, string> = { ...(options?.headers || {}) };
@@ -55,11 +84,17 @@ export async function request(
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers,
-    body: options?.body,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method,
+      headers,
+      body: options?.body,
+    });
+  } catch {
+    // 网络层失败统一中文化（无 status ⇒ errMessage 回落调用方兜底）
+    throw new Error("网络连接失败，请重试") as ApiError;
+  }
 
   if (res.status === 401) {
     // 踢出口径（c-session-flip-stability）：仅用户动作请求的 401 清凭据+回登录页。
@@ -73,7 +108,7 @@ export async function request(
       sessionStorage.setItem("last_auth_kick_at", String(Date.now()));
       window.location.href = "/#/login";
     }
-    const e = new Error("Unauthorized") as Error & { status?: number };
+    const e = new Error("登录状态已失效，请重新登录") as Error & { status?: number };
     e.status = 401;
     throw e;
   }
@@ -111,7 +146,7 @@ export async function request(
   }
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    const err = await res.json().catch(() => ({ detail: `请求失败（HTTP ${res.status}）` }));
     // AI 会员拦截：后端 403 detail = {reason: "member_required", message}
     // → 广播全局升级引导（MemberBlockPrompt 监听），错误继续抛给调用方
     if (res.status === 403 && err?.detail?.reason === "member_required") {
@@ -130,16 +165,9 @@ export async function request(
     const message =
       typeof err.detail === "string"
         ? err.detail
-        : err.detail?.message || res.statusText;
+        : err.detail?.message || `请求失败（HTTP ${res.status}）`;
     // 附带 HTTP 状态码 + detail.reason（AI 前置三态分流用；旧口径只有 member_required）
-    const e = new Error(message) as Error & {
-      status?: number;
-      novels?: string[];
-      reason?: string;
-      field?: string;
-      current?: unknown;
-      rev?: number;
-    };
+    const e = new Error(message) as ApiError;
     e.status = res.status;
     if (typeof err.detail === "object") {
       if (Array.isArray(err.detail.novels)) e.novels = err.detail.novels;
@@ -156,11 +184,16 @@ export async function request(
 }
 
 export const api = {
-  get: (path: string) => request(path),
-  post: (path: string, body?: unknown) => request(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
-  put: (path: string, body?: unknown) => request(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined }),
-  patch: (path: string, body?: unknown) => request(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined }),
-  delete: (path: string) => request(path, { method: 'DELETE' }),
+  // opts 透传（quiet/soft503）：后台轮询类调用需要 quiet（frontend-auth-heal 规范），
+  // 没有透传口时只能绕回 request()——见 c-manuscript-download 轮询。
+  get: (path: string, opts?: RequestOptions) => request(path, opts),
+  post: (path: string, body?: unknown, opts?: RequestOptions) =>
+    request(path, { ...opts, method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  put: (path: string, body?: unknown, opts?: RequestOptions) =>
+    request(path, { ...opts, method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  patch: (path: string, body?: unknown, opts?: RequestOptions) =>
+    request(path, { ...opts, method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  delete: (path: string, opts?: RequestOptions) => request(path, { ...opts, method: 'DELETE' }),
   /** Fetch phase status for a novel. */
   fetchPhaseStatus: (novelId: string) =>
     request(`/novels/${novelId}/workflow/phase-status`),
@@ -241,8 +274,8 @@ export async function importParse(
     throw e;
   }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || res.statusText);
+    const err = await res.json().catch(() => ({ detail: "" }));
+    throw new Error(err.detail || `导入失败（HTTP ${res.status}）`);
   }
   return res.json();
 }

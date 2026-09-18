@@ -147,6 +147,13 @@ test.describe("下载成稿链路", () => {
     test.skip(!fs.existsSync(PROTO_DIR), "仅本地（打桩链路）");
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
+    // 鉴权回归：真实发出的请求必须带 Authorization（曾用裸 fetch → 后端 401，功能全线不通）
+    const seenAuth: string[] = [];
+    page.on("request", (req) => {
+      if (req.url().includes("/api/manuscript/download/")) {
+        seenAuth.push(req.headers()["authorization"] ?? "");
+      }
+    });
     await stubBridge(page, "/tmp/dl-e2e");
     stubBookApi(page);
     await gotoPreview(page);
@@ -165,6 +172,9 @@ test.describe("下载成稿链路", () => {
     await page.getByRole("button", { name: "打开文件夹" }).click();
     const opens = await page.evaluate(() => (window as unknown as { __dlOpens?: string[] }).__dlOpens);
     expect(opens).toEqual(["/tmp/dl-e2e"]);
+    // 发起 + 轮询两次以上请求，全部带 Bearer
+    expect(seenAuth.length).toBeGreaterThanOrEqual(2);
+    expect(seenAuth.every((h) => h === "Bearer dl-stub-token")).toBe(true);
     await ctx.close();
   });
 

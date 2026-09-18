@@ -5,6 +5,7 @@
 //   术语：本弹层只用「下载」；409 按 running_kind 说人话（「已有备份在进行」/「已有下载在进行」）。
 import { useEffect, useRef, useState } from "react";
 import Modal from "@/components/design/Modal";
+import { api, errMessage, type ApiError } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
 type Phase = "form" | "running" | "done" | "error";
@@ -49,12 +50,15 @@ export default function ManuscriptDownloadModal({
   projectId,
   bookName,
   stats,
+  pollStallLimit = 10,
 }: {
   open: boolean;
   onClose: () => void;
   projectId: string;
   bookName: string;
   stats: { chapters: number; words: number };
+  /** 轮询连续"无进展"判定阈值（默认 10 × 600ms ≈ 6s）；测试注入小值用 */
+  pollStallLimit?: number;
 }) {
   const [phase, setPhase] = useState<Phase>("form");
   const [dir, setDir] = useState("");
@@ -65,6 +69,8 @@ export default function ManuscriptDownloadModal({
   const [quickDirs, setQuickDirs] = useState<Array<{ label: string; path: string }>>([]);
   const [job, setJob] = useState<JobStatus | null>(null);
   const [errMsg, setErrMsg] = useState("");
+  /** 发起中（双击防护）：两次 click 之间 phase 尚未提交，无此位会发两个 POST */
+  const [starting, setStarting] = useState(false);
 
   // 首次打开：探常用位置（原生桥）；默认文件名随书名
   useEffect(() => {
@@ -83,12 +89,27 @@ export default function ManuscriptDownloadModal({
     if (phase !== "running") return;
     let alive = true;
     let seq = 0; // 响应序守卫：跨 done 边界的旧响应不得覆盖新态
+    let stall = 0; // 连续"无进展"（idle / 失败）计数：后端重启或任务被顶掉时不再无限假进度
+    const STALL_LIMIT = pollStallLimit;
+    const stallOut = (msg: string) => {
+      if (!alive) return;
+      setPhase("error");
+      setErrMsg(msg);
+    };
     const tick = async () => {
       const my = ++seq;
       try {
-        const r = await fetch("/api/manuscript/download/status");
-        const data = (await r.json())?.data as JobStatus;
-        if (!alive || my !== seq || !data || data.state === "idle") return;
+        // quiet：轮询属"后台刷新"探测类请求，401 不得清凭据/导航（frontend-auth-heal 规范）；
+        // 真失效由下面的停滞守卫生效（可见降级，而不是把正在写作的用户踢回登录页）
+        const body = await api.get("/manuscript/download/status", { quiet: true });
+        const data = body?.data as JobStatus;
+        if (!alive || my !== seq) return;
+        if (!data || data.state === "idle") {
+          // idle = 本任务已不在跑（后端重启 / 被别的任务顶掉）
+          if (++stall >= STALL_LIMIT) stallOut("下载进度已中断，请重开弹层查看或重新下载");
+          return;
+        }
+        stall = 0;
         setJob(data);
         if (data.state === "done") {
           setPhase("done");
@@ -98,7 +119,8 @@ export default function ManuscriptDownloadModal({
           setErrMsg(data.error?.message ?? "下载失败");
         }
       } catch {
-        /* 单次轮询失败忽略，下个周期再取 */
+        // 单次失败静默重试；连续失败到阈值则可见降级（避免"进度条假死"）
+        if (++stall >= STALL_LIMIT) stallOut("网络连接中断，无法获取下载进度；若已完成请到保存位置查看");
       }
     };
     void tick();
@@ -107,7 +129,7 @@ export default function ManuscriptDownloadModal({
       alive = false;
       clearInterval(timer);
     };
-  }, [phase]);
+  }, [phase, pollStallLimit]);
 
   const pickDir = async () => {
     const b = bridge();
@@ -118,37 +140,26 @@ export default function ManuscriptDownloadModal({
 
   const start = async () => {
     if (!bridge()) return; // 无壳双保险（按钮已禁用）
-    let res: Response;
+    setStarting(true);
     try {
-      res = await fetch("/api/manuscript/download/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          book_id: projectId,
-          target_dir: dir,
-          filename,
-          formats,
-        }),
+      await api.post("/manuscript/download/start", {
+        book_id: projectId,
+        target_dir: dir,
+        filename,
+        formats,
       });
-    } catch {
-      toast.error("下载发起失败，请重试");
-      return;
-    }
-    if (res.status === 409) {
-      // 409 detail = {"message","running_kind"}——按在跑任务类型说人话
-      let msg = "已有任务在进行中";
-      try {
-        const detail = (await res.json())?.detail;
-        msg = detail?.message ?? msg;
-      } catch {
-        /* 保底文案 */
+    } catch (e) {
+      // api 封装把 detail.message 映射进 e.message（job_runner running_kind 文案）
+      const err = e as ApiError;
+      if (err.status === 409) {
+        toast.info(err.message || "已有任务在进行中");
+        return;
       }
-      toast.info(msg);
+      // 4xx 的 detail 是可行动中文（404「作品不存在」/422「缺少保存目录」），5xx 与网络层回落兜底
+      toast.error(errMessage(e, "下载发起失败，请重试"));
       return;
-    }
-    if (!res.ok) {
-      toast.error("下载发起失败，请重试");
-      return;
+    } finally {
+      setStarting(false);
     }
     setJob(null);
     setPhase("running");
@@ -161,7 +172,7 @@ export default function ManuscriptDownloadModal({
     if (!ok) toast.info("无法打开文件夹，可手动前往保存位置");
   };
 
-  const canStart = phase === "form" && !!dir.trim() && formats.length > 0 && !!bridge();
+  const canStart = phase === "form" && !!dir.trim() && formats.length > 0 && !!bridge() && !starting;
 
   const resetToForm = () => {
     setPhase("form");
