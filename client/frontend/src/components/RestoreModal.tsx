@@ -5,7 +5,7 @@
  */
 import { useState } from "react";
 import Modal from "@/components/design/Modal";
-import { api } from "@/lib/api";
+import { api, errMessage } from "@/lib/api";
 import { getUsername } from "@/lib/auth";
 import { BRAND } from "@/lib/brand";
 
@@ -55,6 +55,8 @@ export default function RestoreModal({
   const [parseData, setParseData] = useState<ParseData | null>(null);
   const [existingNames, setExistingNames] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  /** 错误块标题：解析与恢复失败共用同一块，文案不能固定成「解析失败」（评审 P2） */
+  const [errTitle, setErrTitle] = useState("解析失败");
   const [summary, setSummary] = useState<PersistSummary | null>(null);
 
   const paths = [assetsPath, configPath].filter((p): p is string => !!p);
@@ -75,7 +77,8 @@ export default function RestoreModal({
       setParseData(d.data);
       // 同名书副本标记：对照现有书目（解析与恢复之间的确认信息）
       try {
-        const list = await api.get("/novels");
+        // quiet：可选富化（失败已被显式吞掉）＝静默预取，401 不得踢出用户
+        const list = await api.get("/novels", { quiet: true });
         const names: string[] = Array.isArray(list)
           ? list.map((b: { name?: string }) => b.name ?? "")
           : [];
@@ -85,7 +88,8 @@ export default function RestoreModal({
       }
       setStep("preview");
     } catch (e) {
-      setError((e as Error).message || String(e));
+      setErrTitle("解析失败");
+      setError(errMessage(e, "备份包解析失败，请确认选择的是本应用导出的文件"));
     }
   };
 
@@ -100,8 +104,10 @@ export default function RestoreModal({
       setSummary(d.data);
       setStep("done");
     } catch (e) {
-      setError((e as Error).message || String(e));
-      setStep("pick");
+      // 留在预览步：错误块在 preview 分支渲染（旧码回 pick 且标签固定「解析失败」，两处都不对）
+      setErrTitle("恢复失败");
+      setError(errMessage(e, "恢复失败，请重试"));
+      setStep("preview");
     }
   };
 
@@ -143,8 +149,8 @@ export default function RestoreModal({
             />
           </div>
           {error && (
-            <div style={{ marginTop: 12 }}>
-              <span className="pill pill-err">解析失败</span>
+            <div role="alert" style={{ marginTop: 12 }}>
+              <span className="pill pill-err">{errTitle}</span>
               <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 6, wordBreak: "break-all" }}>{error}</div>
             </div>
           )}
@@ -203,6 +209,12 @@ export default function RestoreModal({
                   {w}
                 </div>
               ))}
+            </div>
+          )}
+          {error && (
+            <div role="alert" style={{ marginBottom: 12 }}>
+              <span className="pill pill-err">{errTitle}</span>
+              <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 6, wordBreak: "break-all" }}>{error}</div>
             </div>
           )}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>

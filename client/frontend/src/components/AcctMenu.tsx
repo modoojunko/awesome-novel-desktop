@@ -13,7 +13,7 @@ import { useNavigate } from "react-router-dom";
 import RestoreModal from "@/components/RestoreModal";
 import { Ico, P } from "@/components/icons";
 import { useTier } from "@/hooks/useTier";
-import { api } from "@/lib/api";
+import { api, errMessage, type ApiError } from "@/lib/api";
 import { getUsername, logout } from "@/lib/auth";
 import { supportUrl } from "@/lib/support";
 import { formatVersion, useClientVersion } from "@/lib/version";
@@ -164,9 +164,9 @@ export default function AcctMenu({
       alert("备份已开始，完成后文件将保存在所选目录");
     } catch (e) {
       // 409 detail 结构化（job_runner running_kind）：api 封装已把 detail.message 映射进 message
-      const err = e as Error & { status?: number };
+      const err = e as ApiError;
       if (err.status === 409) alert(err.message || "已有任务在进行中");
-      else alert("备份启动失败：" + (err.message || "请重试"));
+      else alert("备份启动失败：" + errMessage(e, "请重试"));
     }
   };
 
