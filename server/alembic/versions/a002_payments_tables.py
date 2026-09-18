@@ -6,8 +6,9 @@ Change 1 支付地基（s-pay-foundation task 1.2）。
 Revision ID: a002_payments_tables
 Revises: a001_users_surrogate
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # SQLite 仅对 INTEGER PRIMARY KEY 自增；PG 用 BIGINT（BigIntPK 跨库类型，同 ORM types.py）
 BIGPK = sa.BigInteger().with_variant(sa.Integer(), "sqlite")

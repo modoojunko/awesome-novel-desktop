@@ -3,7 +3,9 @@
 运行: cd d:/code/ai-novel && python scripts/seed-demo.py
 """
 
-import requests, json, os
+import json
+
+import requests
 
 API = "http://localhost:8000/api"
 
@@ -15,6 +17,7 @@ print("=== 1. 注册用户 modoojunko ===")
 DEMO_PASSWORD = "".join(("Test", "Pass789!"))
 import time
 from pathlib import Path
+
 email = f"demo_{int(time.time())}@test.local"
 r = requests.post(f"{API}/auth/register", json={
     "email": email, "password": DEMO_PASSWORD, "display_name": "modoojunko"

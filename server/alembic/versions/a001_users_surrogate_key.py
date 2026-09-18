@@ -7,8 +7,9 @@
 Revision ID: a001_users_surrogate
 Revises: c3a51e09d7e2
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # SQLite 仅对 INTEGER PRIMARY KEY 自增；PG 用 BIGINT（BigIntPK 跨库类型，同 ORM types.py）
 BIGPK = sa.BigInteger().with_variant(sa.Integer(), "sqlite")

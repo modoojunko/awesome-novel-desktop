@@ -12,6 +12,8 @@ import {
   setBookLineHeight,
   getBookArchiveAiSummary,
   setBookArchiveAiSummary,
+  getBookReadingPrefs,
+  setBookReadingPref,
 } from "@/lib/prefs";
 
 describe("lib/prefs — 归档 AI 摘要本地偏好", () => {
@@ -97,4 +99,58 @@ describe("lib/prefs — 本书偏好（per-book 覆盖，回落全局）", () =>
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("lib/prefs — 预览阅读偏好（read.*，独立于写作偏好）", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("默认 中号 · 衬线 · 舒适 · 白纸", () => {
+    expect(getBookReadingPrefs("p1")).toEqual({
+      size: "m",
+      font: "serif",
+      line: "comfy",
+      theme: "paper",
+    });
+  });
+
+  it("往返读写并按轴落 localStorage", () => {
+    setBookReadingPref("p1", "size", "l");
+    setBookReadingPref("p1", "font", "kai");
+    setBookReadingPref("p1", "line", "loose");
+    setBookReadingPref("p1", "theme", "night");
+    expect(getBookReadingPrefs("p1")).toEqual({
+      size: "l",
+      font: "kai",
+      line: "loose",
+      theme: "night",
+    });
+    expect(localStorage.getItem("pref.book.p1.read.size")).toBe("l");
+    expect(localStorage.getItem("pref.book.p1.read.theme")).toBe("night");
+  });
+
+  it("非法值逐轴回落默认", () => {
+    localStorage.setItem("pref.book.p1.read.size", "xxl");
+    localStorage.setItem("pref.book.p1.read.theme", "solarized");
+    expect(getBookReadingPrefs("p1").size).toBe("m");
+    expect(getBookReadingPrefs("p1").theme).toBe("paper");
+  });
+
+  it("分书记忆：A 书设置不影响 B 书", () => {
+    setBookReadingPref("a", "theme", "night");
+    expect(getBookReadingPrefs("a").theme).toBe("night");
+    expect(getBookReadingPrefs("b").theme).toBe("paper");
+  });
+
+  it("回归：写阅读偏好不动写作偏好（fs/lh）", () => {
+    setBookFontSize("p1", "fs-s");
+    setBookLineHeight("p1", "lh-tight");
+    setBookReadingPref("p1", "size", "l");
+    setBookReadingPref("p1", "theme", "night");
+    expect(getBookFontSize("p1")).toBe("fs-s");
+    expect(getBookLineHeight("p1")).toBe("lh-tight");
+    expect(localStorage.getItem("pref.book.p1.fs")).toBe("fs-s");
+    expect(localStorage.getItem("pref.book.p1.read.size")).toBe("l");
+  });
 });

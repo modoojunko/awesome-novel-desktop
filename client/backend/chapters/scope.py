@@ -18,6 +18,7 @@ from models.chapter import Chapter
 #   3. novels/router.py        — 书架统计（字数/章数/归档数）
 #   4. chapters/frontier.py    — revert 截断（回退基序）
 #   5. chapters/rewrite.py     — 重写（源章校验与下游 stale 圈定）
+#   6. manuscript/content.py   — 成稿下载（读者成稿内容装配，c-manuscript-download）
 
 
 def mainline_stmt(novel_id: str) -> Select:

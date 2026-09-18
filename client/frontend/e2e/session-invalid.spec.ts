@@ -27,12 +27,13 @@ test.describe("会话失效处理", () => {
     );
 
     await page.goto("/#/novels");
-    // heal：清凭据 + 回登录页（LoginPage 是失效提示的消费方，读后即焚展示）
+    // 失效提示必达：展示在登录页（持久化只是手段，用户看得见才是契约）。
+    // toast 是读后即焚 4s 自灭——必须最先断言；慢加载下先断按钮会把 4s 窗口耗尽（负载抖动实录）。
+    await expect(page.getByRole("status")).toContainText("作品仍完好保留", { timeout: 15000 });
+    // heal：清凭据 + 回登录页
     await expect(page.getByRole("button", { name: "打开浏览器登录" })).toBeVisible({ timeout: 15000 });
     expect(await page.evaluate(() => localStorage.getItem("auth_token"))).toBeNull();
     expect(await page.evaluate(() => localStorage.getItem("auth_username"))).toBeNull();
-    // 失效提示必达：展示在登录页（持久化只是手段，用户看得见才是契约）
-    await expect(page.getByRole("status")).toContainText("作品仍完好保留", { timeout: 10000 });
     expect(page.url()).toContain("/#/login");
   });
 

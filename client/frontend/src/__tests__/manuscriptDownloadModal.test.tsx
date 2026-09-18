@@ -1,0 +1,219 @@
+// 下载成稿弹层（manuscript-download）组件契约：
+//   表单态（位置/文件名/格式多选/摘要/无壳降级）· 未选格式禁用 ·
+//   409 按 running_kind 提示 · 轮询到 done 呈完成态 · 运行中关弹层=后台运行。
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import ManuscriptDownloadModal from "@/components/novel/workbench/ManuscriptDownloadModal";
+import { toast } from "@/lib/toast";
+
+vi.mock("@/lib/toast", () => ({
+  toast: { success: vi.fn(), info: vi.fn(), error: vi.fn() },
+}));
+
+const fetchMock = vi.fn();
+
+// 默认无壳（window.pywebview 不存在）
+function renderModal(props: Partial<Record<string, unknown>> = {}) {
+  return render(
+    <ManuscriptDownloadModal
+      open
+      onClose={vi.fn()}
+      projectId="p1"
+      bookName="星海拾遗"
+      stats={{ chapters: 3, words: 725 }}
+      {...props}
+    />,
+  );
+}
+
+describe("ManuscriptDownloadModal — 下载成稿", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock.mockResolvedValue({ json: async () => ({ data: { state: "idle" } }), status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+  });
+
+  it("表单态：摘要章数/字数 + 不含旧稿口径", () => {
+    renderModal();
+    expect(screen.getByText(/本次下载 3 章/).textContent).toContain("本次下载 3 章 · 725 字");
+    expect(screen.getByText(/本次下载 3 章/).textContent).toContain("不含旧稿支线");
+  });
+
+  it("无壳环境：呈现需要桌面版说明（可点击出口），不静默", () => {
+    renderModal();
+    const note = screen.getAllByText(/下载成稿需要桌面版应用/)[0];
+    expect(note.querySelector("a")).toBeTruthy();
+  });
+
+  it("未选任何格式时主按钮禁用", () => {
+    renderModal();
+    fireEvent.click(document.querySelector('[data-od-id="download-fmt-md"]')!);
+    fireEvent.click(document.querySelector('[data-od-id="download-fmt-docx"]')!);
+    expect((screen.getByText("开始下载") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("409 按 running_kind 说人话（备份在跑）且停留在表单态", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    fetchMock.mockResolvedValueOnce({
+      status: 409,
+      json: async () => ({ detail: { message: "已有备份任务在进行中", running_kind: "backup" } }),
+    });
+    renderModal();
+    await act(async () => {
+      fireEvent.change(document.querySelector('[data-od-id="download-dir"]')!, {
+        target: { value: "/tmp/out" },
+      });
+    });
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith("已有备份任务在进行中"));
+    // 仍在表单态
+    expect(screen.getByText("开始下载")).toBeTruthy();
+  });
+
+  it("轮询到 done：完成态列出产出文件（重开弹层可读回）", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    // start 成功 → running；随后 status 返回 done
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") {
+        return { ok: true, status: 200, json: async () => ({ code: 0, data: { state: "running" } }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 0,
+          data: {
+            state: "done",
+            pct: 100,
+            files: ["星海拾遗 · 主线全稿.md", "星海拾遗 · 主线全稿.docx"],
+            steps: [
+              { format: "md", state: "完成", error: null },
+              { format: "docx", state: "完成", error: null },
+            ],
+            target_dir: "/tmp/out",
+          },
+        }),
+      };
+    });
+    renderModal();
+    await act(async () => {
+      fireEvent.change(document.querySelector('[data-od-id="download-dir"]')!, {
+        target: { value: "/tmp/out" },
+      });
+    });
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(screen.getByText("下载完成")).toBeTruthy(), { timeout: 3000 });
+    expect(screen.getByText("打开文件夹")).toBeTruthy();
+    // 完成页列出逐格式产出
+    expect(screen.getByText((_, el) => el?.textContent === "星海拾遗 · 主线全稿.md")).toBeTruthy();
+  });
+
+  it("运行中「后台运行」关闭弹层不取消（onClose 被调、无重置）", async () => {
+    const onClose = vi.fn();
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") {
+        return { ok: true, status: 200, json: async () => ({ code: 0, data: { state: "running" } }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 0,
+          data: { state: "running", pct: 40, steps: [{ format: "md", state: "下载中", error: null }] },
+        }),
+      };
+    });
+    renderModal({ onClose });
+    await act(async () => {
+      fireEvent.change(document.querySelector('[data-od-id="download-dir"]')!, {
+        target: { value: "/tmp/out" },
+      });
+    });
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(screen.getByText("后台运行")).toBeTruthy(), { timeout: 3000 });
+    fireEvent.click(screen.getByText("后台运行"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ManuscriptDownloadModal — 评审补强（PR #409 评审 findings）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock.mockResolvedValue({ json: async () => ({ data: { state: "idle" } }), status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+  });
+
+  it("无壳环境：开始下载禁用（不发请求双保险）", () => {
+    renderModal();
+    expect((screen.getByText("开始下载") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("409 下载在跑：文案区分任务类型", async () => {
+    fetchMock.mockResolvedValueOnce({
+      status: 409,
+      json: async () => ({ detail: { message: "已有下载任务在进行中", running_kind: "download" } }),
+    });
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    renderModal();
+    fireEvent.change(document.querySelector('[data-od-id="download-dir"]')!, {
+      target: { value: "/tmp/out" },
+    });
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith("已有下载任务在进行中"));
+    expect(screen.getByText("开始下载")).toBeTruthy();
+  });
+
+  it("下载失败：err 文案 + 返回修改/重试出口", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") {
+        return { ok: true, status: 200, json: async () => ({ code: 0, data: { state: "running" } }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 0,
+          data: {
+            state: "error",
+            error: { code: "permission_denied", message: "无法写入所选目录：/tmp/out" },
+            steps: [{ format: "md", state: "失败", error: "无法写入所选目录：/tmp/out" }],
+          },
+        }),
+      };
+    });
+    renderModal();
+    fireEvent.change(document.querySelector('[data-od-id="download-dir"]')!, {
+      target: { value: "/tmp/out" },
+    });
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy(), { timeout: 3000 });
+    expect(screen.getByRole("alert").textContent).toContain("无法写入所选目录");
+    expect(screen.getByText("返回修改")).toBeTruthy();
+    expect(screen.getByText("重试")).toBeTruthy();
+  });
+
+  it("文件名默认值跟随书名（首挂 bookName 为空后就绪的场景）", async () => {
+    const first = render(<ManuscriptDownloadModal open onClose={vi.fn()} projectId="p1" bookName="" stats={{ chapters: 0, words: 0 }} />);
+    await waitFor(() => expect(document.querySelector('[data-od-id="download-filename"]')).toBeTruthy());
+    // bookName 就绪（props 变化）→ 默认名跟随补全
+    first.rerender(<ManuscriptDownloadModal open onClose={vi.fn()} projectId="p1" bookName="星海拾遗" stats={{ chapters: 3, words: 725 }} />);
+    await waitFor(() =>
+      expect((document.querySelector('[data-od-id="download-filename"]') as HTMLInputElement).value).toBe("星海拾遗 · 主线全稿"),
+    );
+    first.unmount();
+  });
+});

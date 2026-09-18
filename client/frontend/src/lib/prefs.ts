@@ -147,6 +147,67 @@ export function setBookArchiveAiSummary(projectId: string, enabled: boolean) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 预览阅读偏好（preview-reader）：per-project 四轴，只作用预览视图——
+// 不读也不写写作偏好（fs/lh 两族，上方 bookKey 区），互不污染（c-preview-reader）。
+// ---------------------------------------------------------------------------
+
+export type ReadingSize = "s" | "m" | "l";
+export type ReadingLine = "tight" | "comfy" | "loose";
+export type ReadingFont = "serif" | "sans" | "kai";
+export type ReadingTheme = "paper" | "sepia" | "night";
+
+export interface ReadingPrefs {
+  size: ReadingSize;
+  font: ReadingFont;
+  line: ReadingLine;
+  theme: ReadingTheme;
+}
+
+/** 默认 中号 · 衬线 · 舒适 · 白纸。 */
+const READING_DEFAULT: ReadingPrefs = { size: "m", font: "serif", line: "comfy", theme: "paper" };
+
+const READING_ALLOWED: Record<keyof ReadingPrefs, string[]> = {
+  size: ["s", "m", "l"],
+  font: ["serif", "sans", "kai"],
+  line: ["tight", "comfy", "loose"],
+  theme: ["paper", "sepia", "night"],
+};
+
+function readingKey(projectId: string, key: string): string {
+  return `pref.book.${projectId}.read.${key}`;
+}
+
+/** 本书阅读偏好：非法值/缺省逐轴回落默认（不回落写作偏好）。 */
+export function getBookReadingPrefs(projectId: string): ReadingPrefs {
+  const read = (key: keyof ReadingPrefs): string => {
+    try {
+      const v = localStorage.getItem(readingKey(projectId, key));
+      return v && READING_ALLOWED[key].includes(v) ? v : READING_DEFAULT[key];
+    } catch {
+      return READING_DEFAULT[key];
+    }
+  };
+  return {
+    size: read("size") as ReadingSize,
+    font: read("font") as ReadingFont,
+    line: read("line") as ReadingLine,
+    theme: read("theme") as ReadingTheme,
+  };
+}
+
+export function setBookReadingPref<K extends keyof ReadingPrefs>(
+  projectId: string,
+  key: K,
+  value: ReadingPrefs[K],
+) {
+  try {
+    localStorage.setItem(readingKey(projectId, key), value);
+  } catch {
+    // 忽略（隐私模式等）
+  }
+}
+
 /** 上次写作会话（行头归一「续写」口径，用户拍板 2026-09-16）：
  *  记「哪一章 + 编辑器滚动位置比例」，续写=回到上次退出前的进度。
  *  纯本机 localStorage（设备级），不上传；书内章删除后由消费方校验回落。 */

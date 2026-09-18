@@ -29,6 +29,7 @@ from chapters.router import router as chapters_router
 from chapters.versions import router as chapters_versions_router
 from db import Base, async_session, engine
 from genres.router import router as genres_router
+from manuscript.router import router as manuscript_router
 from models.user import User
 from novels.router import ai_router
 from novels.router import router as novels_router
@@ -571,6 +572,7 @@ app.add_middleware(
 # License 验证路由
 app.include_router(auth_local_router, prefix="/api/auth", tags=["auth"])
 app.include_router(backup_router)
+app.include_router(manuscript_router)
 
 # 版本自报与更新检测（client-update-notify）
 app.include_router(update_check_router)

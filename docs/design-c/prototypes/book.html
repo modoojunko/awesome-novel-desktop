@@ -531,7 +531,7 @@
   </div>
   <button class="am-item" role="menuitem" data-od-id="acct-menu-bookprefs" id="amBookPrefs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h13M10 12h10M4 17h7"/></svg>本书偏好<span class="am-hint">字号 · 行距 · 归档</span></button>
   <div class="am-group">数据</div>
-  <button class="am-item" role="menuitem" data-od-id="acct-menu-backup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 15V4M7 8l5-5 5 5M5 20h14"/></svg>备份<span class="am-hint">选择文件夹导出</span></button>
+  <button class="am-item" role="menuitem" data-od-id="acct-menu-backup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 15V4M7 8l5-5 5 5M5 20h14"/></svg>备份<span class="am-hint">选择文件夹保存</span></button>
   <button class="am-item" role="menuitem" data-od-id="acct-menu-restore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>恢复<span class="am-hint">从备份文件导入</span></button>
   <button class="am-item" role="menuitem" data-od-id="acct-menu-config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h13M10 12h10M4 17h7"/></svg>模型配置 · API Key<span class="am-hint">去配置</span></button>
   <div class="am-group">支持</div>
@@ -748,25 +748,7 @@
 </section>
 
 <!-- ═══════════ 视图 3：预览（左树 + 只读正文，无右栏） ═══════════ -->
-<section class="view two-col" id="viewPreview" data-od-id="view-preview" hidden>
-  <aside class="col-tree" data-od-id="preview-tree">
-    <div class="tree-head">
-      <span class="t">预览 · 卷 <b id="pvVols">2</b> · 章 <b id="pvChs">4</b></span>
-    </div>
-    <div class="tree" id="treePreview"></div>
-    <div class="tree-foot">
-      <span style="font-size:12px; color:var(--muted); line-height:1.7;">只读预览 · 正文在此不可编辑</span>
-    </div>
-  </aside>
-  <main class="col-middle" data-od-id="preview-middle">
-    <div class="preview-head">
-      <span class="pv-title" id="pvChName">第一章 · 锚点</span>
-    </div>
-    <div class="editor-wrap">
-      <div class="editor fs-m lh-comfy" id="pvProse" contenteditable="false"></div>
-    </div>
-  </main>
-</section>
+<!-- #viewPreview 两栏段已下线：预览独立成屏（preview.html，c-preview-reader） -->
 
 <!-- ═══ 遮罩 + 弹窗 ═══ -->
 <div class="scrim" id="scrim" hidden></div>
@@ -1112,15 +1094,11 @@ function switchView(view) {
   $('viewSettings').classList.toggle('on', view === 'settings');
   $('viewOutline').hidden = view !== 'outline';
   $('viewOutline').classList.toggle('on', view === 'outline');
-  $('viewPreview').hidden = view !== 'preview';
-  $('viewPreview').classList.toggle('on', view === 'preview');
   const side = $('modSide');
   if (view === 'settings') side.textContent = '设定 · 若干项，确认即作为 AI 上下文（可选）';
-  else if (view === 'preview') side.textContent = '预览 · 只读正文，通读全篇';
   else side.textContent = '写作 · 卷有卷纲；点章即可配章纲、提示词并写正文';
   if (view === 'outline') renderMiddle();
-  if (view === 'preview') renderPreview();
-  updateModNav();
+  if (view === 'preview') { /* 预览已独立（preview.html） */ }  updateModNav();
 }
 document.querySelectorAll('.mtab').forEach(b => b.addEventListener('click', () => switchView(b.dataset.view)));
 function updateModNav() {
@@ -1569,88 +1547,7 @@ function renderOutlinePanel() {
   }
 }
 
-/* ═══════════ 预览视图：左树（只读导航） + 只读正文，无右栏 ═══════════ */
-function renderPreviewTree() {
-  const el = $('treePreview');
-  el.innerHTML = '';
-  let chTotal = 0;
-  BOOK.volumes.forEach(v => {
-    chTotal += v.chapters.length;
-    const volEl = document.createElement('div');
-    volEl.className = 'vol';
-    const expanded = S.expanded[v.id] !== false;
-    const head = document.createElement('div');
-    head.className = 'vol-head';
-    head.dataset.vol = v.id;
-    head.innerHTML = `
-      <svg class="chev ${expanded ? 'open' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
-      <span class="vt">${escapeHtml(v.title)}</span>`;
-    volEl.appendChild(head);
-    const list = document.createElement('div');
-    list.className = 'ch-list';
-    list.style.display = expanded ? '' : 'none';
-    v.chapters.forEach(c => {
-      const row = document.createElement('div');
-      row.className = 'ch' + (sel.kind === 'chapter' && sel.id === c.id ? ' sel' : '');
-      row.dataset.ch = c.id;
-      const dot = c.og?.status === 'confirmed'
-        ? '<span class="dot-ok"></span>'
-        : (chGaps(c).length ? '<span class="dot-warn"></span>' : '<span class="dot-empty"></span>');
-      row.innerHTML = `
-        ${dot}
-        <span class="ct">${escapeHtml(c.title)}</span>
-        ${c.archived ? '<span class="arch-tag">已归档</span>' : ''}`;
-      list.appendChild(row);
-    });
-    volEl.appendChild(list);
-    el.appendChild(volEl);
-  });
-  $('pvVols').textContent = BOOK.volumes.length;
-  $('pvChs').textContent = chTotal;
-}
-function renderPreview() {
-  renderPreviewTree();
-  let ch = sel.kind === 'chapter' ? curCh() : null;
-  if (!ch) {
-    const vol = sel.kind === 'volume' ? BOOK.volumes.find(v => v.id === sel.id) : BOOK.volumes[0];
-    ch = (vol?.chapters[0]) || BOOK.volumes[0]?.chapters[0] || null;
-    if (ch) { sel = { kind: 'chapter', id: ch.id }; S.selVol = volOfCh(ch.id).id; S.selCh = ch.id; persist(); }
-  }
-  const prose = $('pvProse');
-  const name = $('pvChName');
-  if (!ch) {
-    name.textContent = '暂无正文';
-    prose.innerHTML = '<p style="text-indent:0; color:var(--muted);">还没有卷与章节。回到「写作」添加第一卷。</p>';
-    return;
-  }
-  name.textContent = ch.title;
-  const text = chContent(ch);
-  prose.innerHTML = text
-    ? ch.content.map(p => `<p>${escapeHtml(p)}</p>`).join('')
-    : '<p style="text-indent:0; color:var(--muted);">本章还没有正文，回到「写作」开始写。</p>';
-}
-$('treePreview').addEventListener('click', e => {
-  const chRow = e.target.closest('.ch');
-  const volHead = e.target.closest('.vol-head');
-  if (chRow) {
-    const ch = findCh(chRow.dataset.ch);
-    sel = { kind: 'chapter', id: ch.id };
-    S.selVol = volOfCh(ch.id).id; S.selCh = ch.id;
-    persist();
-    renderPreview();
-    return;
-  }
-  if (volHead) {
-    const v = BOOK.volumes.find(x => x.id === volHead.dataset.vol);
-    const chev = volHead.querySelector('.chev');
-    const list = volHead.nextElementSibling;
-    const open = list.style.display === 'none';
-    list.style.display = open ? '' : 'none';
-    chev.classList.toggle('open', open);
-    S.expanded[v.id] = open;
-    persist();
-  }
-});
+/* 预览视图 JS 已随 #viewPreview 段下线移除（预览独立成屏 preview.html，c-preview-reader） */
 
 /* 章纲表单生成器（大纲面板与正文「章纲」页签共用；P 字段前缀，C 控件前缀）
    字段集 = 产品现行全字段（数据模型不动），必填口径 = 后端 gate_chapter_ready 六项 */

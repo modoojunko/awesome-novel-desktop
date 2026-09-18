@@ -18,7 +18,7 @@
 //   volume：点卷行 → 卷纲面板（GET /volumes/vol-1 对齐 buildBook v1.og 全字段）。
 //   settings：modnav 设定 → two-col 默认题材面板（GET /settings/genre → genre_id
 //   + GET /genres/{id} 对齐 SET_GENRE；category 用 slug、label 派生「科幻系」）。
-//   preview：modnav 预览 → 只读树 + 只读正文（初始章 = 写作视图当前章 vol-1-ch-1）。
+//   （preview 场景已迁移 design-parity-preview.spec.ts —— 预览独立成屏，c-preview-reader）
 import fs from "fs";
 import path from "path";
 import { test, expect, type Page } from "@playwright/test";
@@ -254,7 +254,6 @@ const CASES = [
   { state: "free", pro: false, screen: "workbench" },
   { state: "volume", pro: false, screen: "volume" },
   { state: "settings", pro: false, screen: "settings" },
-  { state: "preview", pro: false, screen: "preview" },
   { state: "modal-delete", pro: false, screen: "modal-delete" },
   { state: "modal-prefs", pro: false, screen: "modal-prefs" },
   { state: "modal-upgrade", pro: false, screen: "modal-upgrade" },
@@ -311,8 +310,6 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         await protoPage.locator(".vol-head .vt").first().click();
       } else if (c.screen === "settings") {
         await protoPage.locator('.mtab[data-view="settings"]').click();
-      } else if (c.screen === "preview") {
-        await protoPage.locator('.mtab[data-view="preview"]').click();
       } else if (c.screen === "modal-delete") {
         // 树首个章行（c1 锚点：confirmed + 正文）hover → 删除 → 分级确认弹窗
         const row = protoPage.locator(".ch").first();
@@ -361,13 +358,6 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         await appPage.locator(".modnav button", { hasText: "设定" }).click();
         await storyLoaded;
         await appPage.waitForSelector(".settings-v main h2");
-      } else if (c.screen === "preview") {
-        const proseLoaded = appPage.waitForResponse(
-          `**/api/novels/${PID}/chapters/vol-1-ch-1`,
-        );
-        await appPage.locator(".modnav button", { hasText: "预览" }).click();
-        await proseLoaded;
-        await appPage.waitForSelector(".pv-title");
       } else if (c.screen === "modal-delete") {
         // 首章（vol-1-ch-1 锚点，confirmed + 793 字）hover → 删除 → 删除确认弹窗
         const row = appPage.locator(".col-tree .ch").first();

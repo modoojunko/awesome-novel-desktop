@@ -14,7 +14,6 @@
 import asyncio
 import io
 import re
-import threading
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +26,10 @@ from backup.format import FORMAT_VERSION
 from db import async_session
 from filesystem.paths import PATH_TO_KEY, THREADS_PATH
 from filesystem.storage import get_storage
+from job_runner import JobError, run_thread
+from job_runner import set_job as _jr_set
+from job_runner import start as _jr_start
+from job_runner import status as _jr_status
 
 # ── 产物命名（中文自标识；书名清洗防 OS 非法字符） ────────────────────────────
 
@@ -374,89 +377,53 @@ async def config_preview(db, user_id: str) -> dict:
 # ── 任务化导出：选目录 → 后台线程写双包 → status 轮询真进度 ───────────────────
 
 
-class ExportJobError(Exception):
-    def __init__(self, code: str, message: str):
-        self.code = code
-        self.message = message
-        super().__init__(message)
-
-
-_job_lock = threading.Lock()
-_job: dict | None = None
-
-
-def _new_job(target_dir: str, include_config: bool, books: int) -> dict:
-    return {
-        "state": "running",
-        "phase": "probe",
-        "target_dir": target_dir,
-        "include_config": include_config,
-        "books_total": books,
-        "books_done": 0,
-        "current_book": "",
-        "bytes_written": 0,
-        "files": [],
-        "error": None,
-    }
+# 任务机制已抽到 job_runner（c-manual任务骨架单源）；本模块只留薄适配——
+# 对外签名（start_backup_job/start_single_job/job_status/_set/_phase/ExportJobError）不变，
+# 负载字段（books_total/current_book 等）归 backup 私有，扁平结构与既有测试/前端零消费面兼容。
+ExportJobError = JobError
 
 
 def _set(**kw) -> None:
-    with _job_lock:
-        _job.update(kw)
+    _jr_set(**kw)
+
+
+def _phase(name: str, current_book: str | None = None) -> None:
+    from job_runner import phase as _jp
+
+    _jp(name, current_book=current_book) if current_book is not None else _jp(name)
 
 
 def start_backup_job(target_dir: str, user_id: str, include_config: bool) -> dict | None:
     """单飞：已有任务在跑返回 None（路由层转 409）。"""
-    return _start({"kind": "backup", "target_dir": target_dir, "include_config": include_config},
-                  _run_backup_thread, user_id)
+    return _jr_start(
+        "backup", _run_backup_thread, user_id,
+        target_dir=target_dir or "", target_file="",
+        include_config=include_config,
+        books_total=0, books_done=0, current_book="",
+        bytes_written=0, files=[],
+    )
 
 
 def start_single_job(target_file: str, user_id: str, book_id: str) -> dict | None:
-    return _start({"kind": "single", "target_file": target_file, "book_id": book_id},
-                  _run_single_thread, user_id)
-
-
-def _start(payload: dict, runner, user_id: str) -> dict | None:
-    global _job
-    with _job_lock:
-        if _job and _job["state"] == "running":
-            return None
-        _job = {
-            "state": "running", "phase": "probe", "kind": payload["kind"],
-            "target_dir": payload.get("target_dir") or "",
-            "target_file": payload.get("target_file") or "",
-            "include_config": payload.get("include_config", True),
-            "books_total": 0, "books_done": 0, "current_book": "",
-            "bytes_written": 0, "files": [], "error": None,
-        }
-    thread = threading.Thread(target=runner, args=(payload, user_id), daemon=True)
-    thread.start()
-    return job_status()
+    return _jr_start(
+        "single", _run_single_thread, user_id,
+        target_dir="", target_file=target_file or "",
+        book_id=book_id or "",
+        include_config=True,
+        books_total=0, books_done=0, current_book="",
+        bytes_written=0, files=[],
+    )
 
 
 def job_status() -> dict:
-    with _job_lock:
-        return dict(_job) if _job else {"state": "idle"}
-
-
-def _phase(name: str, current_book: str | None = None) -> None:
-    kw = {"phase": name}
-    if current_book is not None:
-        kw["current_book"] = current_book
-    _set(**kw)
+    return _jr_status()
 
 
 def _run_backup_thread(payload: dict, user_id: str) -> None:
-    try:
+    def _body() -> None:
         asyncio.run(export_backup_to_dir(payload["target_dir"], user_id, payload["include_config"]))
-        _set(state="done", phase="finalize")
-    except ExportJobError as e:
-        _set(state="error", error={"code": e.code, "message": e.message})
-    except OSError as e:
-        code = "disk_full" if getattr(e, "errno", None) == 28 else "permission_denied" if getattr(e, "errno", None) in (13, 30) else "io_error"
-        _set(state="error", error={"code": code, "message": str(e)})
-    except Exception as e:  # 兜底：任务线程错误必须落到 status
-        _set(state="error", error={"code": "io_error", "message": str(e)})
+
+    run_thread(_body)
 
 
 async def export_backup_to_dir(target_dir: str, user_id: str, include_config: bool) -> None:
@@ -516,13 +483,10 @@ async def export_backup_to_dir(target_dir: str, user_id: str, include_config: bo
 
 
 def _run_single_thread(payload: dict, user_id: str) -> None:
-    try:
+    def _body() -> None:
         asyncio.run(_single_async(payload["target_file"], user_id, payload["book_id"]))
-        _set(state="done", phase="finalize")
-    except ExportJobError as e:
-        _set(state="error", error={"code": "not_found", "message": e.message})
-    except OSError as e:
-        _set(state="error", error={"code": "io_error", "message": str(e)})
+
+    run_thread(_body)
 
 
 async def _single_async(target_file: str, user_id: str, book_id: str) -> None:

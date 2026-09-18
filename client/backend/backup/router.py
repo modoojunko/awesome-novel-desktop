@@ -113,7 +113,15 @@ async def export_start(
     else:
         raise HTTPException(422, f"未知导出类型：{body.kind}")
     if started is None:
-        raise HTTPException(409, "已有导出任务在进行中")
+        # 单飞是全局的（备份/单书/下载互斥，job_runner 单源）；409 带 running_kind
+        # 让前端说人话（「已有备份在进行」/「已有下载在进行」）。
+        from job_runner import running_kind
+
+        kind = running_kind()
+        label = {"backup": "备份", "single": "导出", "download": "下载"}.get(kind or "", "导出")
+        raise HTTPException(
+            409, detail={"message": f"已有{label}任务在进行中", "running_kind": kind}
+        )
     return {"code": 0, "data": started}
 
 

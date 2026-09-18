@@ -160,3 +160,58 @@ class TestConfigPreview:
         d = r.json()["data"]
         assert d["configs"][0]["api_key_masked"].startswith("sk-")
         assert "sk-test1234567890" not in d["configs"][0]["api_key_masked"]
+
+
+class TestBackupJobSingleFlight:
+    """单飞 409 + running_kind（c-manuscript-download tasks 1.3）：
+
+    真正的并发窗口不好稳定造（备份任务太快就 done），用「已注入 running 状态」
+    的方式锁定互斥判定与 409 响应契约——这正是抽 job_runner 后的判定入口。
+    """
+
+    def test_409_carries_running_kind_backup(self, client, monkeypatch):
+        import job_runner
+
+        monkeypatch.setattr(
+            job_runner, "_job",
+            {"state": "running", "phase": "assets", "kind": "backup", "error": None},
+        )
+        r = client.post("/api/backup/export/start", json={
+            "kind": "backup", "target_dir": "/tmp/whatever", "include_config": False,
+        })
+        assert r.status_code == 409
+        detail = r.json()["detail"]
+        assert detail["running_kind"] == "backup"
+        assert "备份" in detail["message"]
+
+    def test_409_carries_running_kind_download(self, client, monkeypatch):
+        import job_runner
+
+        monkeypatch.setattr(
+            job_runner, "_job",
+            {"state": "running", "phase": "render", "kind": "download", "error": None},
+        )
+        r = client.post("/api/backup/export/start", json={
+            "kind": "backup", "target_dir": "/tmp/whatever", "include_config": False,
+        })
+        assert r.status_code == 409
+        detail = r.json()["detail"]
+        assert detail["running_kind"] == "download"
+        assert "下载" in detail["message"]
+
+    def test_idle_after_error_allows_restart(self, client, seeded, tmp_path, monkeypatch):
+        import job_runner
+
+        monkeypatch.setattr(
+            job_runner, "_job",
+            {"state": "error", "phase": "render", "kind": "download",
+             "error": {"code": "io_error", "message": "x"}},
+        )
+        target = tmp_path / "out" / "after-error.zip"
+        Path(str(target)).parent.mkdir(parents=True, exist_ok=True)
+        r = client.post("/api/backup/export/start", json={
+            "kind": "single", "target_file": str(target), "book_id": seeded["novel_id"],
+        })
+        assert r.status_code == 200
+        done = _wait_done(client)
+        assert done["state"] == "done", done
