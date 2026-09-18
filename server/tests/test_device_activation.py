@@ -128,8 +128,15 @@ def count_devices(username: str) -> int:
         s.close()
 
 
-def authorize(client, username, password, pc_hash, device_profile=None):
-    body = {"username": username, "password": password, "pc_hash": pc_hash, "pc_name": "PC"}
+def authorize(client, username, password, pc_hash, device_profile=None, challenge=None):
+    """s-security-hardening：授权必须携带 challenge（64 位小写 hex）；缺省自动生成。"""
+    import hashlib
+    import secrets
+
+    if challenge is None:
+        challenge = hashlib.sha256(secrets.token_urlsafe(32).encode()).hexdigest()
+    body = {"username": username, "password": password, "pc_hash": pc_hash,
+            "pc_name": "PC", "challenge": challenge}
     if device_profile is not None:
         body["device_profile"] = device_profile
     return client.post("/api/authorize", json=body)

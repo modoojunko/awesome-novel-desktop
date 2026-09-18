@@ -4,6 +4,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.domain.identity import User
+from app.infrastructure.security.token_version import DELETION_SENTINEL
 from app.models.user import UserORM
 
 
@@ -25,6 +26,7 @@ class SqlUserRepo:
             deletion_requested_at=row.deletion_requested_at,
             deletion_deadline=row.deletion_deadline,
             deletion_waive_assets=bool(row.deletion_waive_assets),
+            token_version=row.token_version or 0,
         )
 
     def get_id(self, username: str) -> int | None:
@@ -50,15 +52,25 @@ class SqlUserRepo:
         self.db.add(row)
         return user
 
-    def update_password(self, username: str, new_password_hash: str) -> None:
-        self.db.query(UserORM).filter(UserORM.username == username).update(
-            {"password_hash": new_password_hash}
-        )
+    def update_password(self, username: str, new_password_hash: str,
+                        *, token_version: int | None = None) -> None:
+        changes = {"password_hash": new_password_hash}
+        if token_version is not None:
+            changes["token_version"] = token_version  # 会话撤销（R5）
+        self.db.query(UserORM).filter(UserORM.username == username).update(changes)
+        if token_version is not None:
+            from app.infrastructure.security.token_version import invalidate_all
+            invalidate_all()
 
-    def update_security(self, username: str, question: str, answer_hash: str) -> None:
-        self.db.query(UserORM).filter(UserORM.username == username).update(
-            {"security_question": question, "security_answer_hash": answer_hash}
-        )
+    def update_security(self, username: str, question: str, answer_hash: str,
+                        *, token_version: int | None = None) -> None:
+        changes = {"security_question": question, "security_answer_hash": answer_hash}
+        if token_version is not None:
+            changes["token_version"] = token_version
+        self.db.query(UserORM).filter(UserORM.username == username).update(changes)
+        if token_version is not None:
+            from app.infrastructure.security.token_version import invalidate_all
+            invalidate_all()
 
     def update_theme(self, username: str, theme: str) -> None:
         self.db.query(UserORM).filter(UserORM.username == username).update(
@@ -106,7 +118,8 @@ class SqlUserRepo:
             UserORM.deletion_status == "注销撤销期",
             UserORM.deletion_deadline <= now,
         ).update(
-            {"deletion_status": "已注销", "password_hash": ""},
+            {"deletion_status": "已注销", "password_hash": "",
+             "token_version": DELETION_SENTINEL},
             synchronize_session=False,
         )
         self.db.commit()

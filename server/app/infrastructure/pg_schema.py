@@ -29,6 +29,7 @@ REQUIRED: dict[str, tuple[tuple[str, str], ...]] = {
         ("status", "text"), ("theme", "text"), ("created_at", "typed"),
         ("deletion_status", "text"), ("deletion_requested_at", "typed"),
         ("deletion_deadline", "typed"), ("deletion_waive_assets", "typed"),
+        ("token_version", "typed"),
     ),
     "codes": (
         ("code_id", "text"), ("tier", "text"), ("duration_days", "typed"),
@@ -45,7 +46,7 @@ REQUIRED: dict[str, tuple[tuple[str, str], ...]] = {
         ("created_at", "typed"), ("updated_at", "typed"),
     ),
     "device_grants": (
-        ("pc_hash", "text"), ("user_id", "typed"), ("token", "text"),
+        ("pc_hash", "text"), ("user_id", "typed"), ("token", "text"), ("challenge", "text"),
         ("enrolled", "typed"), ("fingerprint", "text"),
     ),
     "global_config": (("key", "text"), ("value", "text")),

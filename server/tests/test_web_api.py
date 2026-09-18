@@ -14,6 +14,7 @@ from app.infrastructure.security.jwt import sign_jwt
 from tests.conftest import WEB_PASSWORD
 
 # 测试用占位口令（拼串构造，避免被凭据扫描误报为硬编码密钥）
+_CHALLENGE = "a" * 64  # 测试用配对挑战（64 位小写 hex）
 WRONG_PWD = "".join(("wrong", "-pwd-9"))
 NEW_PWD_VALID = "".join(("Abc", "def-", "789"))
 RESET_PWD = "".join(("Reset", "-78", "9!"))
@@ -220,7 +221,7 @@ class TestDevicePortal:
         pc = f"portal_pc_{uid}"
         r = client.post(
             "/api/authorize",
-            json={"username": web_user["username"], "password": web_user["password"], "pc_hash": pc, "pc_name": "门户测试机"},
+            json={"username": web_user["username"], "password": web_user["password"], "pc_hash": pc, "pc_name": "门户测试机", "challenge": _CHALLENGE},
         )
         assert r.json()["code"] == 0, r.text
 
@@ -239,7 +240,7 @@ class TestDevicePortal:
         pc = f"rm_pc_{uid}"
         client.post(
             "/api/authorize",
-            json={"username": web_user["username"], "password": web_user["password"], "pc_hash": pc, "pc_name": "待删机"},
+            json={"username": web_user["username"], "password": web_user["password"], "pc_hash": pc, "pc_name": "待删机", "challenge": _CHALLENGE},
         )
         my = client.get("/api/devices/my", headers=_bearer(web_user["token"])).json()
         assert my["total_count"] == 1
@@ -268,7 +269,8 @@ class TestOAuthFlow:
     def test_authorize_ok(self, client, web_user, uid):
         r = client.post(
             "/api/authorize",
-            json={"username": web_user["username"], "password": web_user["password"], "pc_hash": f"auth_pc_{uid}"},
+            json={"username": web_user["username"], "password": web_user["password"],
+                  "pc_hash": f"auth_pc_{uid}", "challenge": _CHALLENGE},
         )
         d = r.json()
         assert d["code"] == 0, d
@@ -283,17 +285,36 @@ class TestOAuthFlow:
         assert r.json()["code"] == 1
 
     def test_check_auth_poll(self, client, web_user, uid):
+        """s-security-hardening 硬切契约：轮询只回刷新数据，MUST NOT 携带令牌；
+        令牌只经 pair/exchange 发给持本机配对密钥者（错误密钥=统一失败、不可区分）。"""
         pc = f"poll_pc_{uid}"
         client.post(
             "/api/authorize",
-            json={"username": web_user["username"], "password": web_user["password"], "pc_hash": pc},
+            json={"username": web_user["username"], "password": web_user["password"],
+                  "pc_hash": pc, "challenge": _CHALLENGE},
         )
         r = client.get("/api/check-auth", params={"pc_hash": pc})
         d = r.json()
         assert d["code"] == 0, d
-        assert d["data"]["token"].startswith("eyJ")
+        assert "token" not in d["data"], "check-auth 不得再携带令牌"
         assert d["data"]["username"] == web_user["username"]
         assert d["data"]["tier"] == "trial"
+
+        # 正确密钥 → 换到令牌
+        import hashlib
+        import secrets
+
+        secret = secrets.token_urlsafe(32)
+        client.post("/api/authorize", json={
+            "username": web_user["username"], "password": web_user["password"],
+            "pc_hash": f"poll2_{uid}", "challenge": hashlib.sha256(secret.encode()).hexdigest()})
+        x = client.post("/api/pair/exchange",
+                        json={"pc_hash": f"poll2_{uid}", "device_secret": secret}).json()
+        assert x["code"] == 0 and x["data"]["token"].startswith("eyJ"), x
+        # 错误密钥 → 统一失败（无 token、不可区分原因）
+        x2 = client.post("/api/pair/exchange",
+                         json={"pc_hash": f"poll2_{uid}", "device_secret": "wrong"}).json()
+        assert x2["code"] == 1 and "token" not in x2.get("data", {}), x2
 
     def test_check_auth_pending(self, client, uid):
         r = client.get("/api/check-auth", params={"pc_hash": f"unknown_{uid}"})
@@ -315,9 +336,19 @@ class TestVerify:
         pc = f"verify_pc_{uid}"
         client.post(
             "/api/authorize",
-            json={"username": web_user["username"], "password": web_user["password"], "pc_hash": pc},
+            json={"username": web_user["username"], "password": web_user["password"],
+                  "pc_hash": pc, "challenge": _CHALLENGE},
         )
-        grant_token = client.get("/api/check-auth", params={"pc_hash": pc}).json()["data"]["token"]
+        import hashlib
+        import secrets
+
+        device_secret = secrets.token_urlsafe(32)
+        client.post("/api/authorize", json={
+            "username": web_user["username"], "password": web_user["password"],
+            "pc_hash": pc, "challenge": hashlib.sha256(device_secret.encode()).hexdigest()})
+        grant_token = client.post("/api/pair/exchange",
+                                  json={"pc_hash": pc, "device_secret": device_secret}
+                                  ).json()["data"]["token"]
 
         r = client.post("/api/verify", json={"username": web_user["username"], "token": grant_token, "pc_hash": pc})
         d = r.json()
@@ -333,7 +364,8 @@ class TestVerify:
         pc = f"mismatch_pc_{uid}"
         client.post(
             "/api/authorize",
-            json={"username": web_user["username"], "password": web_user["password"], "pc_hash": pc},
+            json={"username": web_user["username"], "password": web_user["password"],
+                  "pc_hash": pc, "challenge": _CHALLENGE},
         )
         foreign_token = sign_jwt("someone_else", 999)
         r = client.post("/api/verify", json={"username": web_user["username"], "token": foreign_token, "pc_hash": pc})

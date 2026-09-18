@@ -15,7 +15,11 @@ from app.infrastructure.repositories.base import (
     UserRepo,
 )
 from app.infrastructure.security.jwt import sign_jwt
-from app.infrastructure.security.password import verify_password
+from app.infrastructure.security.password import (
+    hash_password,
+    needs_rehash,
+    verify_password,
+)
 
 
 def login(
@@ -35,6 +39,10 @@ def login(
     user = user_repo.get(username)
     if not user or not verify_password(password, user.password_hash):
         return {"code": 1, "msg": "用户名或密码错误"}
+    # 惰性升级（s-security-hardening）：存量 PBKDF2 哈希在验证成功时改写为 bcrypt，
+    # 用户零感知、无需停机迁移；非口令变更，不触发会话撤销。
+    if needs_rehash(user.password_hash):
+        user_repo.update_password(username, hash_password(password))
     if user.is_locked():
         return {"code": 1, "msg": "账户已被锁定，请联系客服"}
     if user.is_deleted():
@@ -54,7 +62,7 @@ def login(
 
     codes = code_repo.find_active_by_username(username)
     license_ = License(username=username).merge(codes)
-    token = sign_jwt(username, user_repo.get_id(username))
+    token = sign_jwt(username, user_repo.get_id(username), ver=user.token_version)
 
     return {
         "code": 0,

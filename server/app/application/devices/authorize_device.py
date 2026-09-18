@@ -1,6 +1,8 @@
 """OAuth 授权流核心用例。"""
 from __future__ import annotations
 
+import re
+
 from app.domain.devices import DeviceProfile, DeviceRegistry
 from app.domain.licensing import License
 from app.infrastructure.repositories.base import (
@@ -10,7 +12,13 @@ from app.infrastructure.repositories.base import (
     UserRepo,
 )
 from app.infrastructure.security.jwt import sign_jwt
-from app.infrastructure.security.password import verify_password
+from app.infrastructure.security.password import (
+    hash_password,
+    needs_rehash,
+    verify_password,
+)
+
+_CHALLENGE_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def authorize_device(
@@ -23,11 +31,20 @@ def authorize_device(
     pc_hash: str,
     pc_name: str = "",
     device_profile_b64: str = "",
+    challenge: str = "",
 ) -> dict:
+    # 0) 配对挑战（s-security-hardening）：缺失/不合法即拒——令牌只发给持有本机
+    #    配对密钥的客户端；缺失典型=客户端版本过旧（S端 /auth 页会先拦并给升级出口）。
+    if not _CHALLENGE_RE.fullmatch(challenge or ""):
+        return {"code": 1, "msg": "桌面端版本过旧，请升级后重试"}
+
     # 1) 验证用户
     user = user_repo.get(username)
     if not user or not verify_password(password, user.password_hash):
         return {"code": 1, "msg": "用户名或密码错误"}
+    # 惰性升级（s-security-hardening）：存量 PBKDF2 哈希验证成功即改写为 bcrypt
+    if needs_rehash(user.password_hash):
+        user_repo.update_password(username, hash_password(password))
 
     # 2) 设备注册
     profile = DeviceProfile.from_b64(device_profile_b64)
@@ -48,14 +65,16 @@ def authorize_device(
     codes = code_repo.find_active_by_username(username)
     license_ = License(username=username).merge(codes)
 
-    # 4) 写入授权凭证（token 携带 uid，jwt-uid-claim 与 web 签发同口径）
-    token = sign_jwt(username, user_repo.get_id(username))
+    # 4) 写入授权凭证（token 携带 uid，jwt-uid-claim 与 web 签发同口径）；
+    #    challenge 随授权落库——此后仅 pair/exchange（持本机密钥者）可换 token
+    token = sign_jwt(username, user_repo.get_id(username), ver=user.token_version)
     grant_repo.upsert(
         pc_hash=pc_hash,
         username=username,
         token=token,
         enrolled=is_new,
         fingerprint=fp,
+        challenge=challenge,
     )
 
     return {

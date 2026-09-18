@@ -57,14 +57,34 @@ def get_current_user(authorization: str = Header(default="")) -> CurrentUser:
     return CurrentUser(username=payload.get("sub", ""), uid=uid)
 
 
+def token_revoked(payload: dict, uid: int) -> bool:
+    """凭据版本比对（s-security-hardening R5）：无 ver 声明按 0（存量令牌不误伤）。
+
+    版本查询带 60s 进程内缓存（撤销最迟 60s 生效，写侧即时失效）；
+    查无此用户返回 False（交由后续业务判定）。
+    """
+    from app.infrastructure.security import token_version
+
+    expected = token_version.get_version(uid)
+    if expected is None:
+        return False
+    return payload.get("ver", 0) != expected
+
+
 def get_current_user_or_none(authorization: str = Header(default="")):
     """解析 JWT，返回 username 或 None（不抛 401）。
 
     刻意宽松（不要求 uid claim）：C端桌面客户端存量 token（30 天窗口、无法强刷）
     走此依赖的设备端点必须不受签发格式变更影响。
+    s-security-hardening R5：携带合法 uid 且版本不符（改密/改密保/注销后）→ 视同未登录。
     """
     if not authorization:
         return None
     token = authorization.replace("Bearer ", "")
     payload = verify_jwt(token)
-    return payload.get("sub", "") if payload else None
+    if not payload:
+        return None
+    uid = _valid_uid(payload)
+    if uid is not None and token_revoked(payload, uid):
+        return None
+    return payload.get("sub", "")

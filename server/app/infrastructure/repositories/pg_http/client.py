@@ -11,8 +11,16 @@ from typing import Any
 
 import httpx
 
-# 显式 PostgREST 操作符前缀：filter 值以此开头时原样透传，纯值才补 eq.
-_OPERATORS = ("eq.", "neq.", "gt.", "gte.", "lt.", "lte.", "in.", "is.", "or.", "not.", "textSearch.")
+
+class RawFilter(str):
+    """显式声明：该值是 PostgREST 过滤表达式，按操作符语义原样透传（如 in.(...)、not.is.null）。
+
+    只允许包装**服务端构造**的常量或已解析的内部值（如 f"eq.{uid}"）；
+    禁止包装请求输入——用户可控值一律走字面等值路径（裸字符串 → eq.<值>），
+    并在接口入口做危险形态拦截（见 app/interfaces/guards.py）。
+    历史上按"值以操作符开头"隐式透传的写法已被移除：那让 `pc_hash=neq.x` 这类输入
+    变成跨行匹配（未登录取得他人令牌 / 批量改密的注入链）。
+    """
 
 
 def to_iso(value: datetime | None) -> str | None:
@@ -274,11 +282,11 @@ class PgRestClient:
         for key, value in (filter or {}).items():
             if value is None:
                 params[key] = "is.null"
-            elif isinstance(value, str) and value.startswith(_OPERATORS):
-                # 显式 PostgREST 操作符（in.(...)、gte.<ts> 等）原样透传；
-                # 纯值才补 eq. 前缀——否则 eq.in.(...) 是 400 语法错误
-                params[key] = value
+            elif isinstance(value, RawFilter):
+                # 显式声明的过滤表达式：原样透传（仅服务端构造，见 RawFilter 文档）
+                params[key] = str(value)
             else:
+                # 其余一律按字面值等值匹配——值的文本形态不参与语义判定（注入防线）
                 params[key] = f"eq.{value}"
         if sort:
             params["order"] = ",".join(f"{field}.{direction}" for field, direction in sort)

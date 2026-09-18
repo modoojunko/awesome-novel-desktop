@@ -25,13 +25,17 @@ class SqlGrantRepo:
             token=row.token,
             enrolled=bool(row.enrolled),
             fingerprint=row.fingerprint or "",
+            challenge=row.challenge or "",
         )
 
     def get(self, pc_hash: str) -> DeviceGrant | None:
         row = self.db.query(DeviceGrantORM).filter(DeviceGrantORM.pc_hash == pc_hash).first()
         return self._to_domain(row) if row else None
 
-    def upsert(self, pc_hash: str, username: str, token: str, enrolled: bool, fingerprint: str) -> None:
+    def upsert(
+        self, pc_hash: str, username: str, token: str, enrolled: bool, fingerprint: str,
+        *, challenge: str | None = None,
+    ) -> None:
         user_id = self._get_user_id(username)
         if user_id is None:
             return  # 用户不存在，不写 grant
@@ -42,6 +46,7 @@ class SqlGrantRepo:
             row.token = token
             row.enrolled = 1 if enrolled else 0
             row.fingerprint = fingerprint
+            row.challenge = challenge or None  # 重新授权即轮换配对密钥
         else:
             row = DeviceGrantORM(
                 pc_hash=pc_hash,
@@ -49,6 +54,7 @@ class SqlGrantRepo:
                 token=token,
                 enrolled=1 if enrolled else 0,
                 fingerprint=fingerprint,
+                challenge=challenge or None,
             )
             self.db.add(row)
 
@@ -71,3 +77,16 @@ class SqlGrantRepo:
         ).delete(synchronize_session=False)
         self.db.commit()
         return result
+
+    def delete_by_fingerprint(self, username: str, fingerprint: str) -> int:
+        """移除设备时同步清除该设备授权凭证（s-security-hardening R5）。"""
+        user_id = self._get_user_id(username)
+        if user_id is None or not fingerprint:
+            return 0
+        rows = self.db.query(DeviceGrantORM).filter(
+            DeviceGrantORM.user_id == user_id,
+            DeviceGrantORM.fingerprint == fingerprint,
+        ).all()
+        for row in rows:
+            self.db.delete(row)
+        return len(rows)

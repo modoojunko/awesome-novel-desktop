@@ -48,7 +48,7 @@ test.describe('备案信息条', () => {
   })
 
   test('激活过渡页 /auth：吸底', async ({ page }) => {
-    await page.goto('/auth?pc_hash=test_hash_123')
+    await page.goto('/auth?pc_hash=test_hash_123&challenge=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef')
     await expectBeianVisible(page)
   })
 

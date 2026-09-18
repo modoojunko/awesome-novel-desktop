@@ -11,11 +11,18 @@ class AuthorizeRequest(BaseModel):
     pc_hash: str
     pc_name: str = ""
     device_profile: str = ""
+    challenge: str = ""  # 本机配对密钥的 SHA-256（64 位小写 hex；缺失=客户端版本过旧）
 
 class VerifyRequest(BaseModel):
     username: str
     token: str
     pc_hash: str
+
+class PairExchangeRequest(BaseModel):
+    """配对交换：pc_hash + 本机配对密钥（明文走 TLS 请求体，绝不入库/入日志）。"""
+    pc_hash: str
+    device_secret: str
+
 
 class ResetPasswordRequest(BaseModel):
     username: str

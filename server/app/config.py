@@ -39,17 +39,26 @@ class Settings:
         )
 
     # ── JWT ──
-    JWT_SECRET: str = os.getenv("JWT_SECRET", "local-license-secret")
+    # `or 默认值`：环境变量"存在但为空串"（如部署配置里 secret 缺失被注入空值）
+    # 必须等同未设置——否则空密钥可伪造任意 token（2026-09-18 审计实测）。
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "") or "local-license-secret"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_DAYS: int = 30
 
     # ── Admin ──
-    ADMIN_TOKEN: str = os.getenv("ADMIN_TOKEN", "admin123")
+    ADMIN_TOKEN: str = os.getenv("ADMIN_TOKEN", "") or "admin123"
 
     # ── 支付运维（设计 G7/B3/演练 A9）──
-    # 支付网关切换：mock（默认/空串，Change 1 全链替身+dev 注入端点注册）|
-    # wxpay|alipay（Change 2，dev 注入端点自动消失）
-    PAYMENTS_GATEWAY: str = os.getenv("PAYMENTS_GATEWAY", "mock") or "mock"
+    # 支付网关选择：wxpay（生产）| mock（模拟，需 PAYMENTS_ALLOW_MOCK=1）| 空=未显式配置。
+    # 生效值见 effective_gateway：本地（sqlite）缺省回落 mock 保持零配置可用；
+    # 生产（pg_http）未显式配置即拒绝启动（main 启动门禁）——绝不允许静默以 mock 收真实付款。
+    PAYMENTS_GATEWAY: str = os.getenv("PAYMENTS_GATEWAY", "") or ""
+    # mock 显式开关：与 PAYMENTS_GATEWAY=mock 同时提供才允许（防误配把演练替身当生产网关）
+    PAYMENTS_ALLOW_MOCK: str = os.getenv("PAYMENTS_ALLOW_MOCK", "") or ""
+    # API 文档端点（/docs、/redoc、/openapi.json）：默认关闭，本地调试显式 ENABLE_API_DOCS=1
+    ENABLE_API_DOCS: str = os.getenv("ENABLE_API_DOCS", "") or ""
+    # 微信回调来源白名单（可选，逗号分隔 IP/CIDR；默认关=不启用）。解析失败=拒启（fail-fast）
+    WXPAY_NOTIFY_ALLOWLIST: str = os.getenv("WXPAY_NOTIFY_ALLOWLIST", "") or ""
     # Server酱 SendKey：资金类告警通道；空 = 降级为仅日志（本地/CI 默认）
     SERVERCHAN_SENDKEY: str = os.getenv("SERVERCHAN_SENDKEY", "")
     # 定时扫描端点（R1-R4）令牌：pay-cron 云函数以 X-Cron-Token 头携带；空 = 端点全拒
@@ -132,6 +141,51 @@ class Settings:
                     errors.append(f"WXPAY_NOTIFY_URL 不能指向内网/保留 IP: {host}")
             except ValueError:
                 pass  # 公网域名，合法
+        return errors
+
+    # ── 启动门禁（s-security-baseline R1-R2）──
+
+    @property
+    def effective_gateway(self) -> str:
+        """生效网关：显式配置优先；未配置时本地（sqlite）回落 mock、生产（pg_http）留空。
+
+        生产的留空由 startup_config_errors 转为拒绝启动（fail-closed）。
+        """
+        if self.PAYMENTS_GATEWAY:
+            return self.PAYMENTS_GATEWAY
+        return "" if self.DB_BACKEND == "pg_http" else "mock"
+
+    def startup_config_errors(self) -> list[str]:
+        """生产（pg_http）启动门禁：任一项不合格即拒绝启动并列明（不回显值）。
+
+        本地 sqlite 形态零强制（仅弱默认告警，见模块尾）——docker 本地栈/CI/pytest
+        全走 sqlite，一律强制会把它们全部打死（设计 D4 分级）。
+        """
+        errors: list[str] = []
+        allowlist = self.WXPAY_NOTIFY_ALLOWLIST.strip()
+        if allowlist:
+            import ipaddress
+
+            for part in allowlist.split(","):
+                try:
+                    ipaddress.ip_network(part.strip(), strict=False)
+                except ValueError:
+                    errors.append(f"WXPAY_NOTIFY_ALLOWLIST 含非法网段：{part.strip()}（格式应为 IP 或 CIDR）")
+        if self.DB_BACKEND != "pg_http":
+            return errors
+        if self.JWT_SECRET in ("", "local-license-secret") or len(self.JWT_SECRET) < 32:
+            errors.append("JWT_SECRET 须为 ≥32 字符的强随机值（当前为空/出厂默认/过短）")
+        if self.ADMIN_TOKEN in ("", "admin123") or len(self.ADMIN_TOKEN) < 16:
+            errors.append("ADMIN_TOKEN 须为 ≥16 字符的强随机值（当前为空/出厂默认/过短）")
+        gateway = self.PAYMENTS_GATEWAY
+        if not gateway:
+            errors.append("PAYMENTS_GATEWAY 未显式配置（生产必须显式选择 wxpay/mock，"
+                          "禁止静默回落 mock）")
+        elif gateway == "mock":
+            if self.PAYMENTS_ALLOW_MOCK != "1":
+                errors.append("PAYMENTS_GATEWAY=mock 需同时设置 PAYMENTS_ALLOW_MOCK=1")
+        elif gateway != "wxpay":
+            errors.append(f"不支持的 PAYMENTS_GATEWAY={gateway}（可选 wxpay/mock）")
         return errors
 
     # ── 日志 ──

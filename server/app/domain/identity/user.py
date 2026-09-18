@@ -20,6 +20,7 @@ class User:
     deletion_deadline: datetime | None = None
     deletion_waive_assets: bool = False
     agreement_version: str = ""  # 注册时勾选的法律文件版本（legal-four-docs）
+    token_version: int = 0       # 凭据版本（R5）：签发进令牌，鉴权比对；改密/改密保/注销时前进
 
     def is_active(self) -> bool:
         return self.status == "active"

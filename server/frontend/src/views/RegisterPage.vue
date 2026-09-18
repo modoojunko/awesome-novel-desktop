@@ -89,7 +89,7 @@ async function handleRegister() {
     <div class="form-area">
       <!-- 组 1：必填账号信息 -->
       <p class="grp-t serif">账号信息</p>
-      <AppInput v-model="username" label="用户名" autocomplete="username" />
+      <AppInput v-model="username" label="用户名" autocomplete="username" hint="3–32 位字母、数字、下划线或连字符" />
       <AppInput
         v-model="password"
         type="password"

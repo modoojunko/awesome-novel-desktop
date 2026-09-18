@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from app.config import settings
 from app.interfaces.deps import get_db
 
-_MOCK_MODE = settings.PAYMENTS_GATEWAY == "mock"
+_MOCK_MODE = settings.effective_gateway == "mock"
 
 r = APIRouter(prefix="/api/dev/pay", tags=["dev-only"]) if _MOCK_MODE else APIRouter()
 
@@ -24,9 +24,13 @@ ADMIN_TOKEN = settings.ADMIN_TOKEN
 
 
 def _check_admin(request: Request) -> bool:
-    """X-Admin-Token 校验。"""
+    """X-Admin-Token 校验：令牌未配置时一律拒绝（空令牌不得放行），比较用恒定时原语。"""
+    import secrets
+
+    if not ADMIN_TOKEN:
+        return False
     token = request.headers.get("X-Admin-Token", "")
-    return token == ADMIN_TOKEN
+    return secrets.compare_digest(token, ADMIN_TOKEN)
 
 
 class InjectPaymentRequest(BaseModel):

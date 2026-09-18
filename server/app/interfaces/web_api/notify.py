@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse, Response
 
 from app.application.payments.fulfill_payment import fulfill_payment
 from app.application.payments.refund_flow import complete_refund
+from app.config import settings
 from app.domain.payments.order import Transition
 from app.infrastructure.repositories.factory import code_repo as _code_repo_factory
 from app.infrastructure.repositories.payments_repo import OrderRepo, TradeEventRepo
@@ -28,11 +29,75 @@ r = APIRouter()
 
 logger = logging.getLogger("app.payments.notify")
 
-# 微信官方验签探测流量（签名以此前缀开头），拒绝但豁免告警
+# 微信官方验签探测流量（签名以此前缀开头），拒绝但豁免告警与背压计数
 _SIGNTEST_PREFIX = "WECHATPAY/SIGNTEST/"
 
 # 已发货/终态订单集合：重复回调直接确认（官方：已处理过直接返回成功）
 _TERMINAL_STATUSES = {"paid", "fulfilled", "refunded", "closed"}
+
+# ── 验签失败背压（s-security-hardening R：防伪造回调刷满验签算力）──
+# 独立计数桶（与登录限流互不影响）；SIGNTEST 豁免；微信失败重试节奏
+# 15s/15s/30s/3m… 远低于阈值，不会误伤真实回调。
+_NOTIFY_FAIL_THRESHOLD = 10   # 60 秒内验签失败次数阈值
+_NOTIFY_FAIL_WINDOW = 60.0
+_NOTIFY_BLOCK_SECONDS = 600.0
+_NOTIFY_FAIL_TIMES: dict[str, list[float]] = {}
+_NOTIFY_BLOCKED: dict[str, float] = {}   # key → 解封时刻（monotonic）
+
+
+def _reset_backpressure() -> None:
+    """测试用：清空背压状态。"""
+    _NOTIFY_FAIL_TIMES.clear()
+    _NOTIFY_BLOCKED.clear()
+
+
+def _notify_allowlist_networks() -> list:
+    import ipaddress
+
+    raw = settings.WXPAY_NOTIFY_ALLOWLIST.strip()
+    if not raw:
+        return []
+    return [ipaddress.ip_network(part.strip(), strict=False) for part in raw.split(",") if part.strip()]
+
+
+def _source_allowed(ip: str, networks: list) -> bool:
+    import ipaddress
+
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr in net for net in networks)
+
+
+def _is_blocked(key: str) -> bool:
+    import time as _t
+
+    return _t.monotonic() < _NOTIFY_BLOCKED.get(key, 0.0)
+
+
+def _record_verify_failure(request: Request, key: str) -> None:
+    """验签失败计数：达阈值 → 告警；来源键可信时并暂封（不可信只告警不阻断，
+    防止把真实微信出口或全网封掉）。跨过阈值只告警一次（计数清零重新累积）。"""
+    import time as _t
+
+    now = _t.monotonic()
+    times = [t for t in _NOTIFY_FAIL_TIMES.get(key, []) if now - t <= _NOTIFY_FAIL_WINDOW]
+    times.append(now)
+    _NOTIFY_FAIL_TIMES[key] = times
+    if len(times) < _NOTIFY_FAIL_THRESHOLD:
+        return
+    _NOTIFY_FAIL_TIMES[key] = []
+    from app.interfaces.middleware import _trusted_proxy_hops
+
+    trusted = _trusted_proxy_hops() > 0
+    if trusted:
+        _NOTIFY_BLOCKED[key] = now + _NOTIFY_BLOCK_SECONDS
+    notify = getattr(request.app.state, "notify_service", None)
+    if notify is not None:
+        action = "已暂封该来源 10 分钟" if trusted else "来源不可信，仅告警不阻断"
+        notify.send(f"微信回调验签连续失败 {len(times)}+ 次",
+                    f"来源 {key}；{action}。请核查验签配置（证书/密钥）是否正确。")
 
 
 def _fail(status_code: int, message: str) -> JSONResponse:
@@ -43,6 +108,8 @@ def _fail(status_code: int, message: str) -> JSONResponse:
 
 @r.post("/api/pay/notify")
 async def wxpay_notify(request: Request, db: Db = Depends(get_db)):
+    from app.interfaces.middleware import _client_key
+
     body = await request.body()
     headers = dict(request.headers)  # Starlette 输出小写键，SDK 已兼容 fastapi 形式
     # SDK 要求显式签名算法头（缺失即抛异常），微信新回调可省略此头——
@@ -50,15 +117,26 @@ async def wxpay_notify(request: Request, db: Db = Depends(get_db)):
     headers.setdefault("wechatpay-signature-type", "WECHATPAY2-SHA256-RSA2048")
     gateway = request.app.state.payment_gateway
 
-    # 验签探测流量：按验签失败拒绝，豁免告警（否则每天误报刷屏）
+    # 可选来源白名单（配置即强制）：名单外 403——不验签不解密不告警
+    client_ip = _client_key(request)
+    networks = _notify_allowlist_networks()
+    if networks and not _source_allowed(client_ip, networks):
+        logger.warning("event=wxpay.notify.allowlist_rejected ip=%s", client_ip)
+        return _fail(403, "forbidden")
+
+    # 背压暂封中的来源：直接 429（对微信等价于失败重试）
+    if _is_blocked(client_ip):
+        return _fail(429, "rate limited")
+
+    # 验签探测流量：按验签失败拒绝，豁免告警与背压计数（配置回调地址时的例行探测）
     if (headers.get("wechatpay-signature") or "").startswith(_SIGNTEST_PREFIX):
         return _fail(401, "signature rejected")
 
     data = gateway.callback(headers=headers, body=body)
     if data is None:
         # 验签失败或解密失败：不产生任何状态变化，让微信重试
-        client = request.client.host if request.client else "unknown"
-        logger.warning("event=wxpay.notify.verify_failed ip=%s", client)
+        _record_verify_failure(request, client_ip)
+        logger.warning("event=wxpay.notify.verify_failed ip=%s", client_ip)
         return _fail(401, "verify failed")
 
     event_type = data.get("event_type", "")

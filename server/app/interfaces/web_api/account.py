@@ -27,7 +27,12 @@ from app.infrastructure.repositories.factory import (
     grant_repo,
     user_repo,
 )
-from app.infrastructure.security.password import hash_password, verify_password
+from app.infrastructure.security.password import (
+    hash_password,
+    normalize_security_answer,
+    password_too_long,
+    verify_password,
+)
 from app.interfaces.deps import Db, get_current_user_or_none, get_db
 from app.interfaces.dto import (
     AssetRefundRequest,
@@ -41,6 +46,7 @@ from app.interfaces.dto import (
     fail,
     ok,
 )
+from app.interfaces.guards import guard_identifiers
 
 logger = logging.getLogger("api.web.account")
 
@@ -86,7 +92,12 @@ async def api_user_password(req: ChangePasswordRequest, db: Db = Depends(get_db)
         return fail(code=1, msg="旧密码错误")
     if len(req.new_password) < 6:
         return fail(code=1, msg="密码至少6位")
-    user_repo(db).update_password(username, hash_password(req.new_password))
+    if password_too_long(req.new_password):
+        return fail(code=1, msg="密码过长（最多 72 字节）")
+    # 会话撤销（R5）：改密码即版本+1，全部存量令牌（含其他端）失效
+    user_repo(db).update_password(
+        username, hash_password(req.new_password),
+        token_version=(user.token_version or 0) + 1)
     db.commit()
     return ok({"success": True})
 
@@ -95,7 +106,12 @@ async def api_user_password(req: ChangePasswordRequest, db: Db = Depends(get_db)
 async def api_user_security(req: SecurityRequest, db: Db = Depends(get_db), username: str = Depends(get_current_user_or_none)):
     if not username:
         return fail(code=1, msg="未登录")
-    user_repo(db).update_security(username, req.security_question, hash_password(req.security_answer))
+    # 会话撤销（R5）：改密保同改密口径——密保可重置密码，等价凭据变更
+    user_row = user_repo(db).get(username)
+    user_repo(db).update_security(
+        username, req.security_question,
+        hash_password(normalize_security_answer(req.security_answer)),
+        token_version=((user_row.token_version or 0) + 1) if user_row else None)
     db.commit()
     return ok({"success": True})
 
@@ -134,7 +150,7 @@ async def api_user_deletion_assets(db: Db = Depends(get_db), username: str = Dep
     return ok({"blocked_assets": blocked_assets(code_repo(db), username)})
 
 
-@r.post("/api/user/deletion/refund-request")
+@r.post("/api/user/deletion/refund-request", dependencies=[guard_identifiers(body=("code_id",))])
 async def api_user_deletion_refund_request(req: AssetRefundRequest, db: Db = Depends(get_db), username: str = Depends(get_current_user_or_none)):
     """权益级退款申请（用户评审 2026-08-31：每个未消耗权益独立退款入口）。"""
     if not username:
