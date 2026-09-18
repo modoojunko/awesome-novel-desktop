@@ -8,17 +8,31 @@ import { describe, expect, it } from "vitest";
 
 const FRONTEND = join(__dirname, "..", "..");
 
-/** 与 vitest.config.ts 的 coverage.include 一一对应（本次交付触及的 5 个文件） */
+/** 与 vitest.config.ts 的 coverage.include 一一对应（逐批扩充；改 include 必须同步本表） */
 const CONTRACT_FILES = [
+  // 批 0（#417/#418 交付触及的 5 个文件）
   "src/lib/api.ts",
   "src/lib/nodeTitle.ts",
   "src/components/novel/workbench/ManuscriptDownloadModal.tsx",
   "src/components/RestoreModal.tsx",
   "src/components/AcctMenu.tsx",
+  // 批 1（风险优先：密钥/账号/路由面）
+  "src/lib/selection.ts",
+  "src/App.tsx",
+  "src/components/auth/AuthGuard.tsx",
+  "src/components/api-config/ApiConfigCard.tsx",
+  "src/components/api-config/ApiConfigForm.tsx",
+  "src/components/api-config/DeleteConfirmDialog.tsx",
+  "src/components/api-config/MigrationBanner.tsx",
+  "src/components/api-config/ProviderIcon.tsx",
+  "src/components/api-config/UndoToast.tsx",
+  "src/components/api-config/UsagePieChart.tsx",
+  "src/components/api-config/UsageStatsCard.tsx",
+  "src/hooks/useDeviceActivation.ts",
 ];
 
 describe("覆盖率契约自检", () => {
-  it("5 个契约文件都存在（重命名/删除必须同步契约）", () => {
+  it("契约文件都存在（重命名/删除必须同步契约）", () => {
     const missing = CONTRACT_FILES.filter((f) => !existsSync(join(FRONTEND, f)));
     expect(missing).toEqual([]);
   });

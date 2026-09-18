@@ -17,11 +17,24 @@ export default defineConfig({
       // ManuscriptDownloadModal 的 409 空 message（api.ts 已保证 message 非空）；nodeTitle 的
       // `title ?? ""`），每条注释都写了不可达理由。
       include: [
+        // 批 1（2026-09-18，风险优先：密钥/账号/路由面）
         "src/lib/api.ts",
         "src/lib/nodeTitle.ts",
+        "src/lib/selection.ts",
+        "src/App.tsx",
+        "src/components/auth/AuthGuard.tsx",
+        "src/components/api-config/ApiConfigCard.tsx",
+        "src/components/api-config/ApiConfigForm.tsx",
+        "src/components/api-config/DeleteConfirmDialog.tsx",
+        "src/components/api-config/MigrationBanner.tsx",
+        "src/components/api-config/ProviderIcon.tsx",
+        "src/components/api-config/UndoToast.tsx",
+        "src/components/api-config/UsagePieChart.tsx",
+        "src/components/api-config/UsageStatsCard.tsx",
         "src/components/novel/workbench/ManuscriptDownloadModal.tsx",
         "src/components/RestoreModal.tsx",
         "src/components/AcctMenu.tsx",
+        "src/hooks/useDeviceActivation.ts",
       ],
       thresholds: { statements: 100, lines: 100, functions: 100, branches: 100 },
     },
