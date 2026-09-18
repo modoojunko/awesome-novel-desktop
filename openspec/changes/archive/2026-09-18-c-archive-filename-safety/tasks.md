@@ -10,4 +10,4 @@
 
 - [x] 2.1 cwd=`client/backend`：`ruff check .` 与全量 `pytest tests/ -q` 全绿
 - [x] 2.2 `openspec validate c-archive-filename-safety --strict` 通过（当前可跑）
-- [ ] 2.3 `openspec validate c-archive-filename-safety --strict` 通过；归档期判据（归档 PR 勾）：主 spec 追加后 `grep -c "### Requirement: 归档条目名安全字符集" openspec/specs/backup-restore/spec.md` = 1
+- [x] 2.3 `openspec validate c-archive-filename-safety --strict` 通过；归档期判据（归档 PR 勾）：主 spec 追加后 `grep -c "### Requirement: 归档条目名安全字符集" openspec/specs/backup-restore/spec.md` = 1
