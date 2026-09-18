@@ -175,6 +175,10 @@ test.describe("下载成稿链路", () => {
     // 发起 + 轮询两次以上请求，全部带 Bearer
     expect(seenAuth.length).toBeGreaterThanOrEqual(2);
     expect(seenAuth.every((h) => h === "Bearer dl-stub-token")).toBe(true);
+    // 完成态出口（P2）：能回表单再下载一次（弹层常驻壳层，phase 不随 open 复位）
+    await page.locator('[data-od-id="download-again"]').click();
+    await expect(page.locator('[data-od-id="download-start"]')).toBeEnabled();
+    await expect(page.locator('[data-od-id="download-dir"]')).toHaveValue("/tmp");
     await ctx.close();
   });
 

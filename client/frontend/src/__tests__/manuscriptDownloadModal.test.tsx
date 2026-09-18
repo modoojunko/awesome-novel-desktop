@@ -400,3 +400,123 @@ describe("ManuscriptDownloadModal — 轮询语义与降级（PR #414 评审 fin
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("下载发起失败，请重试"));
   });
 });
+
+// ---------------------------------------------------------------------------
+// 完成态出口（#414 评审遗留 P2）：弹层挂壳层常驻、phase 不随 open 复位，
+// 没有回表单出口就只能切回书架再进书才能再下载一次。
+// ---------------------------------------------------------------------------
+
+describe("ManuscriptDownloadModal — 完成态再下载", () => {
+  const fetchMock2 = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("fetch", fetchMock2);
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.removeItem("auth_token");
+  });
+
+  function mockDoneFlow() {
+    fetchMock2.mockImplementation(async (_u: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") {
+        return { ok: true, status: 200, json: async () => ({ code: 0, data: { state: "running" } }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 0,
+          data: {
+            state: "done",
+            pct: 100,
+            files: ["星海拾遗 · 主线全稿.md"],
+            steps: [{ format: "md", state: "完成", error: null }],
+            target_dir: "/tmp/out",
+          },
+        }),
+      };
+    });
+  }
+
+  it("完成态「再次下载」回表单：沿用目录/文件名/格式，且能立刻再发起", async () => {
+    mockDoneFlow();
+    renderModal();
+    act(() => armForm());
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(screen.getByText("下载完成")).toBeTruthy(), { timeout: 3000 });
+
+    // 完成态同时给出「再次下载」与「打开文件夹」两个出口
+    fireEvent.click(screen.getByText("再次下载"));
+
+    // 回表单且会话记忆沿用（目录、文件名、格式不丢）
+    expect((document.querySelector('[data-od-id="download-dir"]') as HTMLInputElement).value).toBe("/tmp/out");
+    expect((document.querySelector('[data-od-id="download-filename"]') as HTMLInputElement).value).toBe(
+      "星海拾遗 · 主线全稿",
+    );
+    expect(document.querySelector('[data-od-id="download-fmt-docx"]')?.getAttribute("aria-checked")).toBe("true");
+    const btn = screen.getByText("开始下载") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+
+    // 立刻再发起：第二次 POST 成功 → 回到进度态
+    fireEvent.click(btn);
+    await waitFor(
+      () =>
+        expect(
+          fetchMock2.mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === "POST"),
+        ).toHaveLength(2),
+      { timeout: 8000 },
+    );
+    await waitFor(() => expect(screen.getByText("后台运行")).toBeTruthy(), { timeout: 8000 });
+  });
+
+  it("完成态「打开文件夹」：走壳桥并带上保存目录", async () => {
+    mockDoneFlow();
+    const openFolder = vi.fn(async () => true);
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: openFolder, default_dirs: vi.fn(async () => []) },
+    };
+    renderModal();
+    fireEvent.change(document.querySelector('[data-od-id="download-dir"]')!, { target: { value: "/tmp/out" } });
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(screen.getByText("下载完成")).toBeTruthy(), { timeout: 3000 });
+    fireEvent.click(screen.getByText("打开文件夹"));
+    await waitFor(() => expect(openFolder).toHaveBeenCalledWith("/tmp/out"));
+  });
+
+  it("完成态打开文件夹失败：可读提示（不静默、不报错）", async () => {
+    mockDoneFlow();
+    const openFolder = vi.fn(async () => false);
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: openFolder, default_dirs: vi.fn(async () => []) },
+    };
+    renderModal();
+    fireEvent.change(document.querySelector('[data-od-id="download-dir"]')!, { target: { value: "/tmp/out" } });
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(screen.getByText("下载完成")).toBeTruthy(), { timeout: 3000 });
+    fireEvent.click(screen.getByText("打开文件夹"));
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith("无法打开文件夹，可手动前往保存位置"));
+  });
+
+  it("重开弹层仍读到完成态（规格「完成后进度仍可读」不被这次改动破坏）", async () => {    mockDoneFlow();
+    const { rerender } = renderModal();
+    act(() => armForm());
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(screen.getByText("下载完成")).toBeTruthy(), { timeout: 3000 });
+
+    const props = {
+      onClose: vi.fn(),
+      projectId: "p1",
+      bookName: "星海拾遗",
+      stats: { chapters: 3, words: 725 },
+    };
+    // 关闭再打开（壳层常驻，phase 不清）
+    rerender(<ManuscriptDownloadModal open={false} {...props} />);
+    rerender(<ManuscriptDownloadModal open {...props} />);
+    expect(screen.getByText("下载完成")).toBeTruthy();
+    expect(screen.getByText("再次下载")).toBeTruthy();
+  });
+});

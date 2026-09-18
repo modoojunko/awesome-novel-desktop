@@ -217,9 +217,16 @@ export default function ManuscriptDownloadModal({
             </button>
           </>
         ) : (
-          <button className="btn btn-primary" onClick={() => void openFolder()}>
-            打开文件夹
-          </button>
+          <>
+            {/* 完成态回表单出口：弹层挂壳层常驻、phase 不随 open 复位，没有这个出口
+                就只能切回书架再进书才能再下载一次（#414 评审遗留 P2） */}
+            <button className="btn btn-secondary" data-od-id="download-again" onClick={resetToForm}>
+              再次下载
+            </button>
+            <button className="btn btn-primary" onClick={() => void openFolder()}>
+              打开文件夹
+            </button>
+          </>
         )
       }
     >
