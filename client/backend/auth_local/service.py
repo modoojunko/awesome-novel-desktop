@@ -227,9 +227,12 @@ def load_or_create_config() -> dict:
         cfg["pc_hash"] = generate_pc_hash()
         cfg["pc_name"] = platform.node() or "My PC"
         changed = True
-    # 环境变量中的 SERVER_API_BASE 同步到 config.json（持久化）
-    if os.environ.get("SERVER_API_BASE") and not cfg.get("server_api"):
-        cfg["server_api"] = os.environ["SERVER_API_BASE"]
+    # 环境变量中的 SERVER_API_BASE 为部署真值：显式设置且与 config 不一致时对齐并持久化
+    # （c-server-api-sync——旧逻辑「仅空时写入一次」会让 env 变更被残值永久遮蔽：
+    #   切换 S端 部署后登录凭证回传/校验全部打向已弃地址，用户卡死登录页）
+    env_base = os.environ.get("SERVER_API_BASE")
+    if env_base and cfg.get("server_api") != env_base:
+        cfg["server_api"] = env_base
         changed = True
     if changed:
         save_local_config(cfg)
