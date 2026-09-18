@@ -114,7 +114,9 @@ export default function LoginPage() {
       window.open(url, '_blank');
 
       // 新一次点击先取消上一轮残留轮询，防重入
+      /* v8 ignore start -- 防御分支：主按钮在 loading 期禁用，UI 上无法在轮询中再次进入 */
       if (pollingRef.current) cancelledRef.current = true;
+      /* v8 ignore stop */
       cancelledRef.current = false;
       pollingRef.current = true;
       let ok = false;
@@ -184,7 +186,10 @@ export default function LoginPage() {
         )}
         {authUrl && error && (
           <button className="btn btn-secondary btn-sm mt-3" onClick={retryCheck} disabled={loading}>
+            {/* v8 ignore start -- spinner 臂不可达：按钮渲染要求 error 非空，
+                而 handleBrowserAuth/retryCheck 入口都 setError("") —— 进入 loading 时按钮已卸载 */}
             {loading ? <Ico d={P.spinner} className="spin" size={13} /> : '重新检测'}
+            {/* v8 ignore stop */}
           </button>
         )}
         <p className="note">将在系统浏览器中打开登录页面</p>

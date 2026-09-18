@@ -14,12 +14,14 @@ export default defineConfig({
       provider: "v8",
       // 覆盖率契约只锁「本次交付动过的文件」——不是整仓阈值（存量无关 UI 不在账上）。
       // 口径说明：语句/行/函数/分支均计 100%；分母**不含** `/* v8 ignore start|stop */`
-      // 标注的 **11 处**不可达防御分支（AcctMenu 4：position refs 组合·菜单项数恒 ≥4·
-      // 键盘查询 ?? []·409 空 message；RestoreModal 1：working 步二道锁；
-      // ManuscriptDownloadModal 1：409 空 message（api.ts 已保证 message 非空）；
-      // nodeTitle 1：`title ?? ""`；ApiConfigForm 1：编辑态 `if (isEdit) return`；
-      // ExpiryNoticeBar 1：dismiss 的 `!notice`；ApiKeyConfigPage 2：确认对话框 `!deleteTarget`·
-      // 撤销按钮 `!undoToast`），每条注释都写了不可达理由。
+      // 标注的 **15 处**不可达/死码分支：
+      //   AcctMenu 4（position refs 组合·菜单项数恒 ≥4·键盘查询 ?? []·409 空 message）
+      //   RestoreModal 1（working 步二道锁）· ManuscriptDownloadModal 1（409 空 message）
+      //   nodeTitle 1（`title ?? ""`）· ApiConfigForm 1（编辑态 `if (isEdit) return`）
+      //   ExpiryNoticeBar 1（dismiss 的 `!notice`）· ApiKeyConfigPage 2（`!deleteTarget`·`!undoToast`）
+      //   LoginPage 2（轮询重入守卫·「重新检测」的 spinner 臂——按钮要求 error 非空而两个 handler
+      //     入口都 setError("")，进入 loading 时按钮已卸载）· NovelListPage 2（`!deleteTarget`·`!renameTarget`）
+      // 每条注释都写了不可达理由；若相关可达性前提被改（如 LoginPage 移除 disabled/setError），须复核。
       include: [...COVERAGE_CONTRACT_FILES],
       perFile: true, // 失败信息点名到具体文件（四项全 100 时与全局口径等价）
       thresholds: { statements: 100, lines: 100, functions: 100, branches: 100 },

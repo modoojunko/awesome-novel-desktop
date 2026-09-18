@@ -28,6 +28,7 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/components/ExpiryNoticeBar.tsx",
   "src/pages/LandingPage.tsx",
   "src/pages/NovelLayout.tsx",
-  // 待补：src/pages/LoginPage.tsx、src/pages/NovelListPage.tsx（下一波；补齐后
-  // 可把「pages 目录完整性」也加进 coverageContract 的目录断言）
+  // 批 1 收尾（pages 全量；此后 pages 目录完整性由契约测试的目录断言把守）
+  "src/pages/LoginPage.tsx",
+  "src/pages/NovelListPage.tsx",
 ] as const;
