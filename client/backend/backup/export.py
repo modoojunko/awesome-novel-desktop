@@ -23,11 +23,13 @@ from sqlalchemy import select
 
 import brand
 from backup.format import FORMAT_VERSION
-from job_runner import JobError, run_thread, set_job as _jr_set, start as _jr_start
-from job_runner import status as _jr_status
 from db import async_session
 from filesystem.paths import PATH_TO_KEY, THREADS_PATH
 from filesystem.storage import get_storage
+from job_runner import JobError, run_thread
+from job_runner import set_job as _jr_set
+from job_runner import start as _jr_start
+from job_runner import status as _jr_status
 
 # ── 产物命名（中文自标识；书名清洗防 OS 非法字符） ────────────────────────────
 

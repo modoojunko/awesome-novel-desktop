@@ -1,11 +1,11 @@
 # client/packaging/pywebview_app.py
 """AI Novel 桌面应用入口 — pywebview 壳"""
 
-import os
-import sys
 import json
-import threading
+import os
 import random
+import sys
+import threading
 import time
 from pathlib import Path
 
@@ -22,7 +22,7 @@ def get_base_dir() -> Path:
 
 
 def get_appdata() -> Path:
-    """运行时数据目录（日志/端口文件等）— 跨平台。
+    r"""运行时数据目录（日志/端口文件等）— 跨平台。
     Windows: %APPDATA%\AI Novel；macOS: ~/Library/Application Support/AI Novel。"""
     if sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support"
@@ -356,7 +356,7 @@ class NativeBridge:
             if sys.platform == "win32":
                 import os
 
-                os.startfile(str(target))  # noqa: S606
+                os.startfile(str(target))
                 return True
             cmd = ["open", str(target)] if sys.platform == "darwin" else ["xdg-open", str(target)]
             return subprocess.run(cmd, check=False).returncode == 0

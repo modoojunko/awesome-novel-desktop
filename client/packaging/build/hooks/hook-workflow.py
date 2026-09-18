@@ -3,7 +3,6 @@
 # This hook prevents PyInstaller from using the generic "workflow" hook from
 # pyinstaller-hooks-contrib which is designed for Prefect's workflow package.
 
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 # 明确告诉 PyInstaller 这是本地模块
 hiddenimports = [

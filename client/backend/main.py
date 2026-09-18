@@ -24,12 +24,12 @@ from archive.router import router as archive_router
 # License 本地验证
 from auth_local.router import router as auth_local_router
 from backup.router import router as backup_router
-from manuscript.router import router as manuscript_router
 from chapters.ai_draft import router as chapters_ai_draft_router
 from chapters.router import router as chapters_router
 from chapters.versions import router as chapters_versions_router
 from db import Base, async_session, engine
 from genres.router import router as genres_router
+from manuscript.router import router as manuscript_router
 from models.user import User
 from novels.router import ai_router
 from novels.router import router as novels_router

@@ -5,11 +5,11 @@
 
 调用：CloudBase 控制台 / MCP callFunction / 定时触发器
 """
+import http.client
 import json
 import os
-import http.client
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # ── 配置（环境变量注入，不硬编码）──
 PG_HOST = os.getenv("TCB_PG_HOST", "")          # 例如 xxx.api.tcloudbasegateway.com
@@ -29,7 +29,7 @@ def _req(method: str, table: str, params: dict = None, body: dict = None) -> lis
     # 安全校验：目标主机必须在白名单内
     parsed_host = PG_HOST.split(":")[0]  # 去端口
     if parsed_host not in ALLOWED_HOSTS:
-        raise ValueError(f"blocked: host not in whitelist")
+        raise ValueError("blocked: host not in whitelist")
 
     conn = http.client.HTTPSConnection(PG_HOST, timeout=10)
     headers = {
@@ -52,7 +52,7 @@ def _req(method: str, table: str, params: dict = None, body: dict = None) -> lis
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _append_event(event_key: str, event_type: str, order_no: str, payload: dict) -> bool:

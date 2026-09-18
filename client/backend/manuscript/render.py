@@ -12,7 +12,6 @@
 import re
 
 from job_runner import JobError
-
 from manuscript.content import Manuscript
 
 _CN = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"]

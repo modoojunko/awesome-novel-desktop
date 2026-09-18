@@ -24,7 +24,6 @@ from models.chapter import Chapter, ChapterContent
 from models.project import Novel
 from models.volume import Volume
 
-
 # ── 种子 ─────────────────────────────────────────────────────────────────────
 
 
@@ -156,8 +155,9 @@ def test_render_txt_structure():
 
 def test_render_docx_headings():
     data = render_docx(_mini_ms())
-    import docx as docx_mod
     import io
+
+    import docx as docx_mod
 
     document = docx_mod.Document(io.BytesIO(data))
     headings = [(p.style.name, p.text) for p in document.paragraphs if p.style.name.startswith("Heading") or p.style.name == "Title"]

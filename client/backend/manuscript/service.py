@@ -8,7 +8,8 @@
 import asyncio
 from pathlib import Path
 
-from job_runner import JobError, classify_os_error, run_thread, set_job, start as job_start
+from job_runner import JobError, classify_os_error, run_thread, set_job
+from job_runner import start as job_start
 from manuscript.content import Manuscript, build_manuscript
 from manuscript.render import render_docx, render_md, render_txt
 

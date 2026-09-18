@@ -3,10 +3,8 @@
 从 app.models 自动加载所有 ORM 模型，使用 app.config 中的 DB 路径。
 """
 import sys
-from pathlib import Path
 from logging.config import fileConfig
-
-from sqlalchemy import engine_from_config, pool
+from pathlib import Path
 
 from alembic import context
 
@@ -23,10 +21,11 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # 加载 ORM 模型元数据
-from app.models import Base  # noqa: E402
+from app.models import Base
+
 target_metadata = Base.metadata
 
-from app.config import settings  # noqa: E402
+from app.config import settings
 
 
 def run_migrations_offline() -> None:
