@@ -23,4 +23,11 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/components/api-config/UsagePieChart.tsx",
   "src/components/api-config/UsageStatsCard.tsx",
   "src/hooks/useDeviceActivation.ts",
+  // 批 1 第二波（页面面：模型配置页收口 + 到期提示条 + 落地页 + 工作台布局）
+  "src/pages/ApiKeyConfigPage.tsx",
+  "src/components/ExpiryNoticeBar.tsx",
+  "src/pages/LandingPage.tsx",
+  "src/pages/NovelLayout.tsx",
+  // 待补：src/pages/LoginPage.tsx、src/pages/NovelListPage.tsx（下一波；补齐后
+  // 可把「pages 目录完整性」也加进 coverageContract 的目录断言）
 ] as const;

@@ -74,7 +74,9 @@ export default function ExpiryNoticeBar() {
   }, []);
 
   const dismiss = useCallback(() => {
+    /* v8 ignore start -- 防御分支：dismiss 只绑在「已渲染出提示条」的按钮上，那时 notice 恒非空 */
     if (!notice) return;
+    /* v8 ignore stop */
     try {
       localStorage.setItem(dismissKey(notice.key), todayTag());
     } catch {

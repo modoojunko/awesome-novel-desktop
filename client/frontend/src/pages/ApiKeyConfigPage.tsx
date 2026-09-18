@@ -82,7 +82,9 @@ export default function ApiKeyConfigPage() {
   }, [editConfig, updateConfig, addConfig, testConfig]);
 
   const handleDelete = useCallback(async () => {
+    /* v8 ignore start -- 防御分支：确认对话框只在 deleteTarget 非空时渲染，按钮无法在空态触发 */
     if (!deleteTarget) return;
+    /* v8 ignore stop */
     setDeleting(true);
     try {
       await deleteConfig(deleteTarget.id);
@@ -96,7 +98,9 @@ export default function ApiKeyConfigPage() {
   }, [deleteTarget, deleteConfig]);
 
   const handleUndoDelete = useCallback(async () => {
+    /* v8 ignore start -- 防御分支：撤销按钮只在 undoToast 非空时渲染 */
     if (!undoToast) return;
+    /* v8 ignore stop */
     try {
       // 撤销 = 后端软删 restore，恢复同一 id（配置名/key/base_url 原样回来）
       await restoreConfig(undoToast.id);
