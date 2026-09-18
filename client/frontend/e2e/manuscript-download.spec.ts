@@ -149,9 +149,11 @@ test.describe("下载成稿链路", () => {
     const page = await ctx.newPage();
     // 鉴权回归：真实发出的请求必须带 Authorization（曾用裸 fetch → 后端 401，功能全线不通）
     const seenAuth: string[] = [];
+    let startPosts = 0;
     page.on("request", (req) => {
       if (req.url().includes("/api/manuscript/download/")) {
         seenAuth.push(req.headers()["authorization"] ?? "");
+        if (req.url().includes("/download/start") && req.method() === "POST") startPosts += 1;
       }
     });
     await stubBridge(page, "/tmp/dl-e2e");
@@ -169,12 +171,21 @@ test.describe("下载成稿链路", () => {
     // 轮询到 done → 完成页
     await expect(page.getByText("下载完成", { exact: true })).toBeVisible({ timeout: 10000 });
     // 打开文件夹：走壳桥且收到保存目录
-    await page.getByRole("button", { name: "打开文件夹" }).click();
+    await page.locator('[data-od-id="download-open-dir"]').click();
     const opens = await page.evaluate(() => (window as unknown as { __dlOpens?: string[] }).__dlOpens);
     expect(opens).toEqual(["/tmp/dl-e2e"]);
     // 发起 + 轮询两次以上请求，全部带 Bearer
     expect(seenAuth.length).toBeGreaterThanOrEqual(2);
     expect(seenAuth.every((h) => h === "Bearer dl-stub-token")).toBe(true);
+    // 完成态出口（P2）：能回表单再下载一次（弹层常驻壳层，phase 不随 open 复位）
+    expect(startPosts).toBe(1);
+    await page.locator('[data-od-id="download-again"]').click();
+    await expect(page.locator('[data-od-id="download-start"]')).toBeEnabled();
+    await expect(page.locator('[data-od-id="download-dir"]')).toHaveValue("/tmp");
+    // 第二单真的发得出去（e2e 是唯一带真实 HTTP 的层；单测那层是 stub）
+    await page.locator('[data-od-id="download-start"]').click();
+    await expect.poll(() => startPosts, { timeout: 5000 }).toBe(2);
+    await expect(page.getByText("下载完成", { exact: true })).toBeVisible({ timeout: 10000 });
     await ctx.close();
   });
 

@@ -174,9 +174,18 @@ export default function ManuscriptDownloadModal({
 
   const canStart = phase === "form" && !!dir.trim() && formats.length > 0 && !!bridge() && !starting;
 
+  /**
+   * 回表单（错误态「返回修改」与完成态「再次下载」共用）。
+   * 刻意**不清 `job`**：完成回执留在 state 里（form 态不渲染它），下一次 `start()`
+   * 会自行清空——这样「点了再次下载又反悔」不至于把产出清单彻底丢掉。
+   */
   const resetToForm = () => {
     setPhase("form");
-    setJob(null);
+    setErrMsg("");
+    // 焦点归位：被点的按钮随 footer 卸载后 activeElement 落回 body，键盘用户会被甩出弹层
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLInputElement>('[data-od-id="download-dir"]')?.focus();
+    });
   };
 
   return (
@@ -208,6 +217,7 @@ export default function ManuscriptDownloadModal({
             </button>
             <button
               className="btn btn-primary"
+              disabled={starting}
               onClick={() => {
                 resetToForm();
                 void start();
@@ -217,9 +227,20 @@ export default function ManuscriptDownloadModal({
             </button>
           </>
         ) : (
-          <button className="btn btn-primary" onClick={() => void openFolder()}>
-            打开文件夹
-          </button>
+          <>
+            {/* 完成态回表单出口：弹层挂壳层常驻、phase 不随 open 复位，没有这个出口
+                就只能切回书架再进书才能再下载一次（#414 评审遗留 P2） */}
+            <button className="btn btn-secondary" data-od-id="download-again" onClick={resetToForm}>
+              再次下载
+            </button>
+            <button
+              className="btn btn-primary"
+              data-od-id="download-open-dir"
+              onClick={() => void openFolder()}
+            >
+              打开文件夹
+            </button>
+          </>
         )
       }
     >
