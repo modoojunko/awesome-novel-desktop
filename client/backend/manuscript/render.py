@@ -18,8 +18,15 @@ _CN = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
 
 
 def cn_num(n: int) -> str:
-    """与前端 nodeTitle.ts cnNum 同族（含百位「一百零二」形态，超位回退阿拉伯）。"""
+    """与前端 nodeTitle.ts cnNum 同族（1 → 一，12 → 十二，21 → 二十一，102 → 一百二）。
+
+    四位及以上回退阿拉伯数字（1000 → "1000"）：中文数字只排到百位，前端同族实现同为
+    回退。修复前这里直接 `_CN[hundreds]` 越界——单卷满千章时 IndexError 会让**整单
+    下载**（md/txt/docx 全格式）硬失败（P3，2026-09-18）。
+    """
     if n <= 0 or not isinstance(n, int):
+        return str(n)
+    if n >= 1000:
         return str(n)
     if n < 10:
         return _CN[n]
@@ -32,7 +39,9 @@ def cn_num(n: int) -> str:
     return _CN[hundreds] + "百" + (cn_num(rest) if rest else "")
 
 
-_DEFAULT_TITLE_RE = re.compile(r"^第\s*[0-9一二三四五六七八九十百零]+\s*[卷章]$")  # \s* 与前端 nodeTitle 容差一致
+# 默认序号形态的字符类含 千万两：单卷满千章时用户的「第一千零一章」也是默认序号
+# （否则会和程序序号拼成「第1000章 · 第一千零一章」）。与前端 nodeTitle.ts 逐字一致。
+_DEFAULT_TITLE_RE = re.compile(r"^第\s*[0-9一二三四五六七八九十百千万两零]+\s*[卷章]$")
 
 
 def _label(kind: str, no: int, title: str) -> str:

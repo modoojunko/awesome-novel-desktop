@@ -18,8 +18,13 @@ from auth_local.middleware import get_current_user
 from db import async_session
 from main import app
 from manuscript.content import build_manuscript
-from manuscript.render import render_docx, render_md, render_txt
-from manuscript.service import sanitize_filename
+from manuscript.render import cn_num, render_docx, render_md, render_txt
+from manuscript.service import (
+    PROBE_NAME,
+    normalized_filename,
+    sanitize_filename,
+    strip_artifact_ext,
+)
 from models.chapter import Chapter, ChapterContent
 from models.project import Novel
 from models.volume import Volume
@@ -173,6 +178,145 @@ def test_docx_output_is_valid_zip_container():
 
     data = render_docx(_mini_ms())
     assert zipfile.is_zipfile(io.BytesIO(data))
+
+
+# ── P3：序号 ≥1000 回退阿拉伯（曾 IndexError 整单硬失败）────────────────────
+
+
+def test_cn_num_above_999_falls_back_to_arabic():
+    assert cn_num(9) == "九"
+    assert cn_num(12) == "十二"
+    assert cn_num(21) == "二十一"
+    assert cn_num(102) == "一百二"
+    assert cn_num(999) == "九百九十九"
+    assert cn_num(1000) == "1000"
+    assert cn_num(1234) == "1234"
+    assert cn_num(0) == "0" and cn_num(-3) == "-3"
+
+
+def test_render_volume_with_1000_chapters_does_not_crash():
+    """单卷满千章：修复前 _CN[hundreds] 越界 → md/txt/docx 全格式硬失败。"""
+    from manuscript.content import Manuscript, ManuscriptChapter, ManuscriptVolume
+
+    ms = Manuscript(title="长书", volumes=[ManuscriptVolume(
+        no=1, title="第一卷",
+        chapters=[ManuscriptChapter(no=i, title=f"第{i}章", prose="正文一句。") for i in range(1, 1002)],
+    )])
+    md = render_md(ms)
+    txt = render_txt(ms)
+    # 999 及以下走中文数字；≥1000 回退阿拉伯（标题「第1000章」本身是默认序号形态，
+    # 不再重复拼名称）
+    assert "### 第九百九十九章" in md
+    assert "### 第1000章" in md
+    assert "### 第1001章" in md
+    assert "第1001章" in txt
+    assert "第1000章 · 第1000章" not in md
+    # 用户手输的中文千位序号也算默认序号（正则补 千万两），不重复拼
+    from manuscript.render import _label
+
+    assert _label("章", 1000, "第一千零一章") == "第1000章"
+    assert _label("章", 1000, "终局") == "第1000章 · 终局"
+    assert zipfile.is_zipfile(__import__("io").BytesIO(render_docx(ms)))
+
+
+# ── P3：手输文件名自带产物扩展名不双写 ──────────────────────────────────────
+
+
+def test_strip_artifact_ext():
+    assert strip_artifact_ext("我的小说.md") == "我的小说"
+    assert strip_artifact_ext("我的小说.MD") == "我的小说"
+    assert strip_artifact_ext("我的小说.docx") == "我的小说"
+    assert strip_artifact_ext("我的小说.txt") == "我的小说"
+    assert strip_artifact_ext("  我的小说.md  ") == "我的小说"
+    assert strip_artifact_ext("我的小说") == "我的小说"
+    assert strip_artifact_ext("我的小说.v2") == "我的小说.v2"
+    assert strip_artifact_ext("我的小说.mdx") == "我的小说.mdx"
+    assert strip_artifact_ext(".md") == ""
+    # 重复后缀一次剥净（我的小说.docx.md → 我的小说，否则 docx 产物仍是 .docx.docx）
+    assert strip_artifact_ext("我的小说.docx.md") == "我的小说"
+    assert strip_artifact_ext("我的小说.md.txt.docx") == "我的小说"
+
+
+def test_normalized_filename_order_and_buckets():
+    """先 sanitize 再剥再 sanitize：尾部非法字符清掉后才露出扩展名也不漏剥。"""
+    assert normalized_filename("我的小说.md*", "书") == "我的小说"
+    assert normalized_filename("我的小说.docx.md", "书") == "我的小说"
+    assert normalized_filename("我的小说.v2", "书") == "我的小说.v2"
+    assert normalized_filename("", "书") == "书 · 主线全稿"
+    assert normalized_filename("   ", "书") == "书 · 主线全稿"
+    assert normalized_filename(".md", "书") == "书 · 主线全稿"
+    # 剥完只剩点号 → 收敛成「未命名」（而非把点号当文件名）
+    assert normalized_filename("..md", "书") == "未命名"
+
+
+def test_filename_with_artifact_ext_not_doubled(client, seeded, tmp_path):
+    out = tmp_path / "out"
+    r = client.post("/api/manuscript/download/start", json={
+        "book_id": seeded["novel_id"],
+        "target_dir": str(out),
+        "filename": "我的稿子.md",
+        "formats": ["md", "docx"],
+    })
+    assert r.status_code == 200, r.text
+    data = _wait_done(client)
+    assert data["state"] == "done", data
+    names = sorted(p.name for p in out.iterdir())
+    assert names == ["我的稿子.docx", "我的稿子.md"], names
+    # 归一化名同时下发给弹层（界面行名与落盘名同源）
+    assert data.get("filename") == "我的稿子"
+
+
+def test_filename_with_trailing_junk_and_repeated_ext(client, seeded, tmp_path):
+    """我的小说.md* → sanitize 清掉 * 后才露出扩展名 → 仍不双写。"""
+    out = tmp_path / "out"
+    r = client.post("/api/manuscript/download/start", json={
+        "book_id": seeded["novel_id"],
+        "target_dir": str(out),
+        "filename": "我的小说.md*",
+        "formats": ["md"],
+    })
+    assert r.status_code == 200, r.text
+    data = _wait_done(client)
+    assert data["state"] == "done", data
+    assert sorted(p.name for p in out.iterdir()) == ["我的小说.md"]
+
+
+# ── P3：探针不留残渣、历史残留不致撞名 ──────────────────────────────────────
+
+
+def test_probe_self_heals_legacy_residue(client, seeded, tmp_path):
+    """固定名探针：历史硬杀残渣在下次运行时被覆盖后删除＝自愈，目录里不留探针文件。"""
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / PROBE_NAME).write_text("stale")
+    r = _start(client, seeded, tmp_path)
+    assert r.status_code == 200, r.text
+    assert _wait_done(client)["state"] == "done"
+    assert not (out / PROBE_NAME).exists()
+
+
+def test_probe_cleans_up_and_keeps_attribution_when_write_fails(
+    client, seeded, tmp_path, monkeypatch
+):
+    """write 失败（磁盘满）时：探针文件仍被 finally 清掉，归因仍是 disk_full。
+
+    旧实现（无 finally）会让 ENOSPC 那一次留下探针文件；这条用例在旧实现下必红。
+    """
+    out = tmp_path / "out"
+
+    real_write_text = Path.write_text
+
+    def fail_after_write(self, *a, **kw):
+        real_write_text(self, "ok")  # 先落盘再模拟写入失败（ENOSPC 的真实形态）
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_text", fail_after_write)
+    r = _start(client, seeded, tmp_path)
+    assert r.status_code == 200, r.text
+    data = _wait_done(client)
+    assert data["state"] == "error"
+    assert data["error"]["code"] == "disk_full"
+    assert [p.name for p in out.iterdir() if p.name.startswith(PROBE_NAME)] == []
 
 
 # ── sanitize ────────────────────────────────────────────────────────────────

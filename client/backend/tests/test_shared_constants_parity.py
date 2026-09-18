@@ -242,3 +242,42 @@ class TestHooksModelParity:
         front = {int(k): v for k, v in re.findall(r'(\d+):\s*"([^"]+)"', m.group(1))}
         assert front == PRIORITY_LABELS, "priority 标签前后端不一致"
 
+class TestNodeTitleParity:
+    """nodeTitle.ts ↔ manuscript/render.py 的同族实现对拍（序号 + 默认序号判定正则）。"""
+
+    def test_cn_num_matches(self):
+        """卷/章序号：nodeTitle.ts::cnNum ↔ manuscript/render.py::cn_num（同族同回退）。
+
+        对拍表定义在前端测试 `__tests__/nodeTitle.test.ts` 的 CN_NUM_CASES（生产 TS 里
+        不该塞测试数据），这里正则抽取逐项比对——只改一侧（尤其 ≥1000 的阿拉伯回退）
+        会被 CI 拦住。
+        """
+        from manuscript.render import cn_num
+
+        cases_src = (_FRONTEND.parent / "__tests__" / "nodeTitle.test.ts").read_text(
+            encoding="utf-8"
+        )
+        m = re.search(r"CN_NUM_CASES[^=]*=\s*\[([\s\S]*?)\];", cases_src)
+        assert m, "CN_NUM_CASES 形态变了"
+        body = m.group(1)
+        pairs = [(int(n), t) for n, t in re.findall(r'\[(-?\d+),\s*"([^"]+)"\]', body)]
+        # 行数自检：解析数必须等于表行数，否则单引号/浮点/模板串写法会被静默漏比
+        rows = len(re.findall(r"^\s*\[", body, re.MULTILINE))
+        assert rows == len(pairs), f"对拍表 {rows} 行只解析出 {len(pairs)} 项——有行漏比"
+        assert len(pairs) >= 7, f"对拍表被削小了：{pairs}"
+        for n, expected in pairs:
+            assert cn_num(n) == expected, f"cn_num({n}) 前后端不一致：{cn_num(n)!r} != {expected!r}"
+        # 边界必须在表里（999/1000 是这次修复的核心）
+        assert {n for n, _ in pairs} >= {999, 1000}
+
+    def test_default_title_regex_matches(self):
+        """默认序号判定正则两侧逐字一致（否则同一章在树与成稿里标签不一致）。"""
+        from manuscript.render import _DEFAULT_TITLE_RE
+
+        src = (_FRONTEND / "nodeTitle.ts").read_text(encoding="utf-8")
+        m = re.search(r"DEFAULT_TITLE_RE = /(.+?)/;", src)
+        assert m, "DEFAULT_TITLE_RE 形态变了"
+        assert m.group(1) == _DEFAULT_TITLE_RE.pattern, (
+            f"默认序号正则前后端不一致：{m.group(1)!r} != {_DEFAULT_TITLE_RE.pattern!r}"
+        )
+

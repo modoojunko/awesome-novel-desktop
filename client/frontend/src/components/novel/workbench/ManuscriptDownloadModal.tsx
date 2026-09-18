@@ -25,6 +25,8 @@ interface JobStatus {
   pct?: number;
   chapter_count?: number;
   word_count?: number;
+  /** 后端归一化后的基底名（剥掉用户手输的产物扩展名）：弹层行名以它为准 */
+  filename?: string;
   error?: { code: string; message: string } | null;
 }
 
@@ -332,7 +334,9 @@ export default function ManuscriptDownloadModal({
               (s) => (
                 <li key={s.format} data-testid={`dl-step-${s.format}`}>
                   <b>
-                    {filename}
+                    {/* 后端下发的归一化名优先：用户手输「我的稿子.md」时盘上是
+                        我的稿子.md，界面不能照旧显示 我的稿子.md.md（评审 P1） */}
+                    {job?.filename ?? filename}
                     {FORMAT_META.find((f) => f.k === s.format)?.ext}
                   </b>
                   <em className={s.state === "完成" ? "ok" : s.state === "失败" ? "err" : undefined}>
@@ -359,7 +363,7 @@ export default function ManuscriptDownloadModal({
             {(job?.steps ?? []).map((s) => (
               <li key={s.format}>
                 <b>
-                  {filename}
+                  {job?.filename ?? filename}
                   {FORMAT_META.find((f) => f.k === s.format)?.ext}
                 </b>
                 <em className="ok">{s.state}</em>

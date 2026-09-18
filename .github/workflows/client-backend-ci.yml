@@ -4,10 +4,16 @@ on:
   push:
     paths:
       - "client/backend/**"
+      # 前后端对拍测试读前端源（tests/test_shared_constants_parity.py）：
+      # 只改前端也必须跑后端套件，否则「改一侧忘另一侧会被拦住」不成立
+      - "client/frontend/src/lib/nodeTitle.ts"
+      - "client/frontend/src/__tests__/nodeTitle.test.ts"
       - ".github/workflows/client-backend-ci.yml"
   pull_request:
     paths:
       - "client/backend/**"
+      - "client/frontend/src/lib/nodeTitle.ts"
+      - "client/frontend/src/__tests__/nodeTitle.test.ts"
   workflow_dispatch:
 
 permissions:
