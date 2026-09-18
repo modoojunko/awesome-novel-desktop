@@ -144,6 +144,7 @@
 - 免费档的档位告知 SHALL 由账户胶囊的档位徽承担（原顶栏 free-hint 与「升级 PRO」按钮退役）；升级入口 SHALL 仍在右栏 locked 卡与本书偏好弹窗可达。
 - bar-here 的目标章 SHALL 取**主线端点（frontier）＝全书首个未归档章**；全书已归档时 SHALL 显示待写占位（下一章号）。目标章有正文且未归档时的「草稿」标签、卷面进度（`第X卷 · 已归档/总章`＋进度条）与「续写」按钮。
 - bar-here SHALL 显示：「当前主线」引导词、`第 N 章` 与章节题（题名为默认序号名时 SHALL 省略题名，避免「第 1 章第一章」重复序号）。
+- 程序序号 SHALL 由中文数字表给出，**四位及以上回退阿拉伯数字**（`1000` → `第1000章`，中文表只排到百位）；默认序号判定 SHALL 同时认中文千位形态（如「第一千零一章」，故该章也不重复拼题名）。该口径前后端 SHALL 逐字一致（`lib/nodeTitle.ts::cnNum/_DEFAULT_TITLE_RE` ↔ `manuscript/render.py::cn_num/_DEFAULT_TITLE_RE`），parity 测试为唯一判定依据（P3，2026-09-18：修复前 ≥1000 会渲染成「第undefined百…章」且成稿整单硬失败）。
 - bar-here SHALL 按原型三档响应式降级：≤1320px 隐藏题材胶囊、≤1180px 隐藏卷面进度、≤920px bar-here 换行为独立一行。
 - 书内顶栏 SHALL NOT 引入第二条导航行；modnav（设定/写作/预览）保持原样位于其下。
 

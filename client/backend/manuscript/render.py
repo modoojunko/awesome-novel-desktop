@@ -39,7 +39,9 @@ def cn_num(n: int) -> str:
     return _CN[hundreds] + "百" + (cn_num(rest) if rest else "")
 
 
-_DEFAULT_TITLE_RE = re.compile(r"^第\s*[0-9一二三四五六七八九十百零]+\s*[卷章]$")  # \s* 与前端 nodeTitle 容差一致
+# 默认序号形态的字符类含 千万两：单卷满千章时用户的「第一千零一章」也是默认序号
+# （否则会和程序序号拼成「第1000章 · 第一千零一章」）。与前端 nodeTitle.ts 逐字一致。
+_DEFAULT_TITLE_RE = re.compile(r"^第\s*[0-9一二三四五六七八九十百千万两零]+\s*[卷章]$")
 
 
 def _label(kind: str, no: int, title: str) -> str:

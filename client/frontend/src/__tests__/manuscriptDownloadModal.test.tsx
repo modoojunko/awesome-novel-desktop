@@ -505,6 +505,38 @@ describe("ManuscriptDownloadModal — 完成态再下载", () => {
     15000,
   );
 
+  it("后端归一化名优先：手输「我的稿子.md」行名不双写", async () => {
+    fetchMock2.mockImplementation(async (_u: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") return runningRes();
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 0,
+          data: {
+            state: "done",
+            pct: 100,
+            files: ["我的稿子.md"],
+            steps: [{ format: "md", state: "完成", error: null }],
+            target_dir: "/tmp/out",
+            filename: "我的稿子", // 后端剥掉用户手输的 .md 后下发
+          },
+        }),
+      };
+    });
+    renderModal();
+    act(() => armForm());
+    fireEvent.change(document.querySelector('[data-od-id="download-filename"]')!, {
+      target: { value: "我的稿子.md" },
+    });
+    fireEvent.click(document.querySelector('[data-od-id="download-fmt-docx"]')!); // 只留 md
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(screen.getByText("下载完成")).toBeTruthy(), { timeout: 3000 });
+    // 行名 = 后端归一化名 + 格式扩展名；不得出现原始输入叠加的 我的稿子.md.md
+    expect(screen.getByText("我的稿子.md")).toBeTruthy();
+    expect(screen.queryByText("我的稿子.md.md")).toBeNull();
+  });
+
   it("完成态「打开文件夹」：走壳桥并带上保存目录", async () => {
     mockDoneFlow();
     const openFolder = vi.fn(async () => true);

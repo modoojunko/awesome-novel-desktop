@@ -45,6 +45,14 @@ describe("千章边界（P3：修复前 1000+ 渲染成「第undefined百…章�
     expect(nodeLabel("卷", 12, null)).toBe("第十二卷");
   });
 
+  it("第一千零一章：中文千位序号也算默认序号（正则含 千万两）", () => {
+    expect(isDefaultTitle("章", 1000, "第一千零一章")).toBe(true);
+    expect(nodeLabel("章", 1000, "第一千零一章")).toBe("第1000章");
+    expect(isDefaultTitle("章", 1000, "第一千两百章")).toBe(true);
+    // 带了名字就不算默认序号
+    expect(isDefaultTitle("章", 1000, "第一千零一章 终局")).toBe(false);
+  });
+
   it("不出现 undefined 字样（回退失效的特征）", () => {
     for (const n of [1000, 1001, 9999]) {
       expect(nodeLabel("章", n, null)).not.toContain("undefined");

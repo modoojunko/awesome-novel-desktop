@@ -6,8 +6,8 @@
 """
 
 import asyncio
+import contextlib
 import re
-import uuid
 from pathlib import Path
 
 from job_runner import JobError, classify_os_error, run_thread, set_job
@@ -24,13 +24,17 @@ FORMATS: dict[str, dict] = {
 
 PROBE_NAME = ".ainovel-write-probe"
 
-# 产物扩展名（手输文件名自带时先剥掉，防 我的小说.md.md）
-_ARTIFACT_EXT_RE = re.compile(r"\.(md|txt|docx)$", re.IGNORECASE)
+# 产物扩展名（手输文件名自带时先剥掉，防 我的小说.md.md）；+ 允许重复后缀一次剥净
+_ARTIFACT_EXT_RE = re.compile(r"(?:\.(?:md|txt|docx))+$", re.IGNORECASE)
 
 
 def strip_artifact_ext(name: str) -> str:
     """剥掉手输文件名自带的产物扩展名——不加这步，用户输入「我的小说.md」会得到
-    我的小说.md.md（md）/ 我的小说.md.docx（docx）（P3，2026-09-18）。"""
+    我的小说.md.md（md）/ 我的小说.md.docx（docx）（P3，2026-09-18）。
+
+    「+」形式支持重复后缀一次剥净（我的小说.docx.md → 我的小说）；只认这三种
+    扩展名，`.v2` / `.mdx` 之类原样保留。
+    """
     return _ARTIFACT_EXT_RE.sub("", (name or "").strip())
 
 
@@ -39,6 +43,19 @@ def sanitize_filename(name: str) -> str:
     from backup.export import sanitize_book_filename
 
     return sanitize_book_filename(name)
+
+
+def normalized_filename(raw: str, book_name: str) -> str:
+    """用户手输名 → 落盘用的干净基底名（单一事实源：写盘与弹层展示同源）。
+
+    顺序是「先 sanitize 再剥扩展名再 sanitize」：先清掉尾部 `*`/空格这类字符，
+    避免 `我的小说.md*` 剥不掉扩展名（清完才露出来）；剥完可能只剩点号（`..md`），
+    再过一次 sanitize 收敛成「未命名」。空输入回落默认名。
+    """
+    if not (raw or "").strip():
+        return default_filename(book_name)
+    base = strip_artifact_ext(sanitize_filename(raw))
+    return sanitize_filename(base) if base.strip() else default_filename(book_name)
 
 
 def default_filename(book_name: str) -> str:
@@ -105,17 +122,18 @@ async def _download_async(payload: dict, user_id: str) -> None:
     formats: list[str] = payload["formats"]
     steps: list[dict] = list(payload["steps"])
 
-    # ① 目录探针：可写性先行（与备份同款 probe 口径）
+    # ① 目录探针：可写性先行（与备份同款 probe 口径：固定名 + 立即清理；固定名让
+    #    历史硬杀残渣在下次运行时被覆盖后删除＝自愈）
     set_job(phase="probe")
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
-        # 唯一名 + finally 清理：固定名时若在 write 与 unlink 之间被 SIGKILL，用户目录会
-        # 永久留一个隐藏探针文件（P3，2026-09-18）；唯一名也让历史残留不致撞名/堆积。
-        probe = target_dir / f"{PROBE_NAME}-{uuid.uuid4().hex[:8]}"
+        probe = target_dir / PROBE_NAME
         try:
             probe.write_text("ok")
         finally:
-            probe.unlink(missing_ok=True)
+            # 清理不可抛：finally 里新抛的 OSError 会顶替在途异常、把归因换码
+            with contextlib.suppress(OSError):
+                probe.unlink(missing_ok=True)
     except OSError as e:
         # 归因与渲染阶段同源（classify_os_error）：disk_full/permission_denied/invalid_path/io_error
         raise JobError(classify_os_error(e), f"无法写入所选目录：{target_dir}") from e
@@ -132,13 +150,14 @@ async def _download_async(payload: dict, user_id: str) -> None:
         ms: Manuscript = await build_manuscript(db, project)
         book_name = project.name  # 会话关闭前取值（防 detached 访问）
 
-    safe_name = sanitize_filename(
-        strip_artifact_ext(payload["filename"]) or default_filename(book_name)
-    )
+    safe_name = normalized_filename(payload["filename"], book_name)
     set_job(
         chapter_count=ms.chapter_count,
         word_count=ms.word_count,
         book_name=book_name,
+        # 归一化后的基底名下发给前端：弹层进度/完成清单按它拼行名，否则用户输入
+        # 「我的稿子.md」时界面显示 我的稿子.md.md 而盘上是 我的稿子.md（评审 P1）
+        filename=safe_name,
     )
 
     # ③ 逐格式渲染写盘：part → rename；失败清理 part、行标「失败」，已完成文件保留

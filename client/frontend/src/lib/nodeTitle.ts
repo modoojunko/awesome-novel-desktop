@@ -25,8 +25,10 @@ export function cnNum(n: number): string {
   return `${CN_DIGITS[hundreds]}百${rest ? cnNum(rest) : ""}`;
 }
 
-/** 程序默认序号形态（第3卷 / 第三卷 / 第12章……），视为"没起过名"。 */
-const DEFAULT_TITLE_RE = /^第\s*[0-9一二三四五六七八九十百零]+\s*[卷章]$/;
+/** 程序默认序号形态（第3卷 / 第三卷 / 第12章 / 第一千零一章……），视为"没起过名"。
+ *  字符类含 千万两（千章回退阿拉伯后，用户手输的中文千位序号同样是"没起过名"）；
+ *  与后端 manuscript/render.py::_DEFAULT_TITLE_RE 逐字一致（parity 测试焊住）。 */
+const DEFAULT_TITLE_RE = /^第\s*[0-9一二三四五六七八九十百千万两零]+\s*[卷章]$/;
 
 /** title 是否只是默认序号（老数据 / 程序兜底），没有任何用户起的名称。 */
 export function isDefaultTitle(
