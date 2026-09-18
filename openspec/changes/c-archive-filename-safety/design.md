@@ -31,7 +31,7 @@ def slugify(title: str) -> str:
 def archive_filename(chapter_ref: str, title: str) -> str:
     return f"{chapter_ref}-{slugify(title)}.md"
 
-def parse_archive_filename(filename): ...  # 原实现原样迁移
+def parse_archive_filename(filename): ...  # 迁移 + 追加 `\` 拒绝（防御性；全仓无带 `\` 归档名依赖，前端零消费）
 ```
 `archive/router.py` 从 naming 导入并保留 `_archive_filename = archive_filename`、`_parse_archive_filename = parse_archive_filename` 两个别名（`backup/export.py`、`novels/router.py` 的既有 import 面零改动）；`_slugify` 无外部消费方、未保留（ruff 会删未用别名）；`archive/service.py` 用 `archive_filename(chapter_ref, title)` 取代内联公式（ref 即 `vol-{vol}-ch-{ch}` 的规范形，比按章数据数字拼更正确——数据与 ref 不一致时以 ref 为准）。
 

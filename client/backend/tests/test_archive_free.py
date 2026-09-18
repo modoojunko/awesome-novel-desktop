@@ -261,7 +261,7 @@ class TestFreeArchive:
         assert r4.status_code == 200
         listed = [f["filename"] for f in r4.json()]
         assert written in listed, f"写接口 {written} 与列表 {listed} 不同源"
-        assert ".." not in written and "/" not in written.split("archives/")[-1]
+        assert ".." not in written and "/" not in written
 
         r5 = client.get(f"/api/novels/{pid}/archives/{written}")
         assert r5.status_code == 200, f"列表有、打不开：{written} → {r5.status_code}"

@@ -8,4 +8,5 @@
 ## 2. 门禁
 
 - [x] 2.1 cwd=`client/backend`：`ruff check .` 与全量 `pytest tests/ -q` 全绿
-- [ ] 2.2 `openspec validate c-backup-characters-prefix --strict` 通过；归档期判据（归档 PR 勾）：主 spec 追加本需求后 `grep -c "### Requirement: 多书包每书段落位置（prefix 纪律）" openspec/specs/backup-restore/spec.md` = 1
+- [x] 2.2 `openspec validate c-backup-characters-prefix --strict` 通过（当前可跑）
+- [ ] 2.3 `openspec validate c-backup-characters-prefix --strict` 通过；归档期判据（归档 PR 勾）：主 spec 追加本需求后 `grep -c "### Requirement: 多书包每书段落位置（prefix 纪律）" openspec/specs/backup-restore/spec.md` = 1

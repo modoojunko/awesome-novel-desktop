@@ -13,7 +13,7 @@
 
 ## What Changes
 
-- **命名单源化 + 安全字符规则**：抽 `archive/naming.py`（`slugify` / `archive_filename` / `parse_archive_filename` 三件，规则单源），`archive/router.py` 与 `archive/service.py` 两处副本改经它（router 保留 `_slugify`/`_archive_filename`/`_parse_archive_filename` 别名以防外部导入断裂——`backup/export.py`、`novels/router.py` 各自 import）。规则：路径分隔符（`/`、`\`）→ `-`；连续点收敛为单点；**截断后**剥首尾点（防截断边界与 `.md` 拼接出 `..` 子串）。
+- **命名单源化 + 安全字符规则**：抽 `archive/naming.py`（`slugify` / `archive_filename` / `parse_archive_filename` 三件，规则单源），`archive/router.py` 与 `archive/service.py` 两处副本改经它（router 保留 `_archive_filename`/`_parse_archive_filename` 两个别名以防外部导入断裂——`backup/export.py`、`novels/router.py` 各自 import）。规则：路径分隔符（`/`、`\`）→ `-`；连续点收敛为单点；**截断后**剥首尾点（防截断边界与 `.md` 拼接出 `..` 子串）。
 - **写接口与列表同源**：`service.py` 的 `archive_path` 改用 `archive_filename(chapter_ref, title)`（原按 vol/ch 数字内联拼，形与列表一致但公式不同源）——POST 归档响应与列表 filename 自此恒等。
 - 契约化（backup-restore 新增「归档条目名安全字符集」）：条目名无分隔符、无 `..`（段与子串两义）、恒可被归档解析器解析；恢复后 title SHALL 等于完整条目名 stem 且 SHALL NOT 因分隔符/`..` 被截断；不含危险字符的标题命名逐字节不变。
 - 无用户可见界面改动；无 DB 迁移（文件名逐次派生，无持久化引用）。
@@ -40,3 +40,4 @@
 - 不做 Windows 保留字符（`:*?"<>|`）全量清洗（非路径穿越面，会引入无关命名漂移）。
 - slug 以 `r[0-9a-f]{8}-` 开头时会被导入端 `belongs_to_ref` 误判为旧稿支线而**静默丢弃**（评审发现，另单跟进）；emoji/组合字素的截断仅外观，不处理。
 - 不删旧整库包中已写坏的条目名（历史包一次性产物，无重写通道）。
+- `archive/service.py:144` 的 `last_chapter = vol-{chapter数据}/ch-{chapter数据}` 同类「按数据拼名」残留（幽灵章丢 `-r{8hex}` 后缀）不在本 change——其 consumer 是 threads.yaml 语义面，另单跟进（评审登记）。
