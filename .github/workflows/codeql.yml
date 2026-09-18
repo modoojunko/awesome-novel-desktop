@@ -1,0 +1,52 @@
+# CodeQL（advanced setup，2026-09-18 自 default setup 迁移）：
+# 默认设置不支持路径排除——原型/设计稿目录（docs/design-c）为自包含演示资产
+# （内联 JS＋硬编码种子），纳入扫描只会产生不可处置的注入面告警，故整体移出。
+# 语言集与原 default setup 一致：actions / javascript-typescript / python。
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      packages: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+          - language: python
+            build-mode: none
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # 原型设计目录移出扫描范围（用户拍板 2026-09-18）
+          paths-ignore: |
+            docs/design-c
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
