@@ -8,7 +8,7 @@
 import asyncio
 from pathlib import Path
 
-from job_runner import JobError, run_thread, set_job, start as job_start
+from job_runner import JobError, classify_os_error, run_thread, set_job, start as job_start
 from manuscript.content import Manuscript, build_manuscript
 from manuscript.render import render_docx, render_md, render_txt
 
@@ -88,7 +88,8 @@ async def _download_async(payload: dict, user_id: str) -> None:
     from models.project import Novel
     from models.user import User
 
-    target_dir = Path(payload["target_dir"])
+    # 手输路径容错：~/ 与相对路径按本机语义展开（前端首次开放手输，旧备份只有 pick_folder）
+    target_dir = Path(str(payload["target_dir"])).expanduser()
     formats: list[str] = payload["formats"]
     steps: list[dict] = list(payload["steps"])
 
@@ -100,10 +101,8 @@ async def _download_async(payload: dict, user_id: str) -> None:
         probe.write_text("ok")
         probe.unlink()
     except OSError as e:
-        raise JobError(
-            "invalid_path" if isinstance(e, (FileNotFoundError, NotADirectoryError)) else "permission_denied",
-            f"无法写入所选目录：{target_dir}",
-        ) from e
+        # 归因与渲染阶段同源（classify_os_error）：disk_full/permission_denied/invalid_path/io_error
+        raise JobError(classify_os_error(e), f"无法写入所选目录：{target_dir}") from e
 
     # ② 内容装配（线程内自开 session；user_id 为线程内鉴权凭据）
     set_job(phase="assemble", current="正在装配主线全稿")

@@ -40,8 +40,8 @@ async def download_start(
 ):
     from manuscript import service
 
-    # 格式白名单 + 去重保序；全不合法 → 422（前端主按钮已禁用，此处兜底）
-    fmts = [f for f in dict.fromkeys(body.formats) if f in service.FORMATS]
+    # 格式白名单 + 大小写归一 + 去重保序；全不合法 → 422（前端主按钮已禁用，此处兜底）
+    fmts = [f for f in dict.fromkeys(x.lower() for x in body.formats) if f in service.FORMATS]
     if not fmts:
         raise HTTPException(422, "请至少选择一种下载格式")
 

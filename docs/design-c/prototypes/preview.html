@@ -454,7 +454,10 @@ function readHTML(){
 /* ── 右栏：全书概览 + 阅读配置 ── */
 function segHTML(kind, label, opts){
   return '<div class="pv-card"><h4>'+label+'</h4><div class="pv-seg" role="group" aria-label="'+label+'" data-od-id="seg-pv-'+kind+'">'
-    + opts.map(o => '<button type="button" data-pv-cfg="'+kind+':'+o[0]+'" class="'+(cfg[kind]===o[0]?'on':'')+'" aria-pressed="'+(cfg[kind]===o[0]?'true':'false')+'">'+o[1]+'</button>').join('')
+    + opts.map(o => {
+        const on = cfg[kind] === o[0];  // 选中判断在串外（class 属性内不容 []，design:lint）
+        return '<button type="button" data-pv-cfg="'+kind+':'+o[0]+'" class="'+(on?'on':'')+'" aria-pressed="'+(on?'true':'false')+'">'+o[1]+'</button>';
+      }).join('')
     + '</div></div>';
 }
 function sideHTML(){
@@ -552,8 +555,11 @@ function renderExport(){
     + '</div>'
     + '<div class="ex-sec"><h4>文件名</h4><input class="box" id="ex-name" value="'+esc2(exState.name)+'" spellcheck="false" aria-label="下载文件名" /></div>'
     + '<div class="ex-sec"><h4>下载格式（可多选）</h4><div class="ex-fmts">'
-    + EX_FMTS.map(x => '<button type="button" role="checkbox" aria-checked="'+(!!exState.fmts[x.k])+'" class="ex-fmt'+(exState.fmts[x.k]?' on':'')+'" data-ex-fmt="'+x.k+'" data-od-id="download-fmt-'+x.k+'">'
-        + '<span class="ex-txt"><b>'+x.tit+' '+x.ext+'</b><span>'+x.sub+'</span></span></button>').join('')
+    + EX_FMTS.map(x => {
+        const on = !!exState.fmts[x.k];
+        return '<button type="button" role="checkbox" aria-checked="'+on+'" class="ex-fmt'+(on?' on':'')+'" data-ex-fmt="'+x.k+'" data-od-id="download-fmt-'+x.k+'">'
+          + '<span class="ex-txt"><b>'+x.tit+' '+x.ext+'</b><span>'+x.sub+'</span></span></button>';
+      }).join('')
     + '</div></div>'
     + '<p class="ex-sum" data-od-id="download-summary">本次下载 '+mainline().filter(c=>hasProse(c)).length+' 章 · '+mainline().reduce((a,c)=>a+wordCount(c),0)+' 字 · 覆盖全书主线，不含旧稿支线。</p>';
   f.innerHTML = '<button type="button" class="btn btn-secondary" data-export-close>取消</button>'

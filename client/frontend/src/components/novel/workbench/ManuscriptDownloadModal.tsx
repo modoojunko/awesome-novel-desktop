@@ -58,17 +58,20 @@ export default function ManuscriptDownloadModal({
 }) {
   const [phase, setPhase] = useState<Phase>("form");
   const [dir, setDir] = useState("");
-  const [filename, setFilename] = useState(`${bookName} · 主线全稿`);
+  const [filename, setFilename] = useState("");
+  /** 上一次替用户填的默认名：bookName 就绪/换书时跟随，用户改过即不覆盖 */
+  const lastDefaultRef = useRef("");
   const [formats, setFormats] = useState<string[]>(["md", "docx"]);
   const [quickDirs, setQuickDirs] = useState<Array<{ label: string; path: string }>>([]);
   const [job, setJob] = useState<JobStatus | null>(null);
   const [errMsg, setErrMsg] = useState("");
-  const jobIdRef = useRef<number | null>(null);
 
   // 首次打开：探常用位置（原生桥）；默认文件名随书名
   useEffect(() => {
     if (!open) return;
-    setFilename((f) => f || `${bookName} · 主线全稿`);
+    const def = bookName ? `${bookName} · 主线全稿` : "";
+    setFilename((f) => (f && f !== lastDefaultRef.current ? f : def || f));
+    lastDefaultRef.current = def;
     const b = bridge();
     if (b?.default_dirs) {
       b.default_dirs().then((dirs) => setQuickDirs(dirs ?? [])).catch(() => setQuickDirs([]));
@@ -79,11 +82,13 @@ export default function ManuscriptDownloadModal({
   useEffect(() => {
     if (phase !== "running") return;
     let alive = true;
+    let seq = 0; // 响应序守卫：跨 done 边界的旧响应不得覆盖新态
     const tick = async () => {
+      const my = ++seq;
       try {
         const r = await fetch("/api/manuscript/download/status");
         const data = (await r.json())?.data as JobStatus;
-        if (!alive || !data || data.state === "idle") return;
+        if (!alive || my !== seq || !data || data.state === "idle") return;
         setJob(data);
         if (data.state === "done") {
           setPhase("done");
@@ -112,16 +117,23 @@ export default function ManuscriptDownloadModal({
   };
 
   const start = async () => {
-    const res = await fetch("/api/manuscript/download/start", {
+    if (!bridge()) return; // 无壳双保险（按钮已禁用）
+    let res: Response;
+    try {
+      res = await fetch("/api/manuscript/download/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        book_id: projectId,
-        target_dir: dir,
-        filename,
-        formats,
-      }),
-    });
+        body: JSON.stringify({
+          book_id: projectId,
+          target_dir: dir,
+          filename,
+          formats,
+        }),
+      });
+    } catch {
+      toast.error("下载发起失败，请重试");
+      return;
+    }
     if (res.status === 409) {
       // 409 detail = {"message","running_kind"}——按在跑任务类型说人话
       let msg = "已有任务在进行中";
@@ -138,7 +150,6 @@ export default function ManuscriptDownloadModal({
       toast.error("下载发起失败，请重试");
       return;
     }
-    jobIdRef.current = Date.now();
     setJob(null);
     setPhase("running");
   };
@@ -150,7 +161,7 @@ export default function ManuscriptDownloadModal({
     if (!ok) toast.info("无法打开文件夹，可手动前往保存位置");
   };
 
-  const canStart = phase === "form" && !!dir.trim() && formats.length > 0;
+  const canStart = phase === "form" && !!dir.trim() && formats.length > 0 && !!bridge();
 
   const resetToForm = () => {
     setPhase("form");
@@ -160,8 +171,8 @@ export default function ManuscriptDownloadModal({
   return (
     <Modal
       open={open}
-      onClose={phase === "running" ? onClose : onClose} // 运行中关弹层 = 后台运行（不取消任务）
-      title="下载成稿"
+      onClose={onClose} // 运行中关弹层 = 后台运行（不取消任务，轮询在壳层继续）
+      title="下载主线全稿"
       wbStyle
       width={480}
       footer={

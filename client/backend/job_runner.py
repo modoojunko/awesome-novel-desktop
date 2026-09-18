@@ -86,3 +86,7 @@ def run_thread(fn) -> None:
         set_job(state="error", error={"code": classify_os_error(e), "message": str(e)})
     except Exception as e:  # 兜底：任务线程错误必须落到 status
         set_job(state="error", error={"code": "io_error", "message": str(e)})
+    except BaseException as e:
+        # asyncio.run 的 CancelledError（BaseException）/SystemExit 会穿透 except Exception——
+        # 不接住会留下 state=running 的死任务，单飞槽永久卡死（备份/单书/下载全锁死）。
+        set_job(state="error", error={"code": "cancelled", "message": f"任务被中断：{e!r}"})

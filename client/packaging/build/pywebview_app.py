@@ -349,7 +349,7 @@ class NativeBridge:
         import sys
         from pathlib import Path
 
-        target = Path(path) if path else None
+        target = Path(path).expanduser() if path else None
         if not target or not target.is_dir():
             return False
         try:

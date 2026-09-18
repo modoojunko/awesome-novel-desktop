@@ -284,13 +284,56 @@ def test_download_unknown_format_422(seeded, client, tmp_path):
     assert r.status_code == 422
 
 
+def test_download_format_case_normalized(seeded, client, tmp_path):
+    """大写/混写格式按白名单小写归一（未命中白名单的才 422）。"""
+    out = tmp_path / "out-case"
+    r = client.post("/api/manuscript/download/start", json={
+        "book_id": seeded["novel_id"], "target_dir": str(out),
+        "filename": "x", "formats": ["MD", "Docx"],
+    })
+    assert r.status_code == 200, r.text
+    done = _wait_done(client)
+    assert done["state"] == "done", done
+    assert done["files"] == ["x.md", "x.docx"]
+
+
+def test_status_kind_filter_non_download_reads_idle(seeded, client, monkeypatch):
+    """/manuscript/download/status 只关心下载：backup 任务在跑/完成时按 idle 口径返回。"""
+    import job_runner
+
+    client.get("/api/manuscript/download/status")  # 端点可达性
+    for state in ("running", "done"):
+        monkeypatch.setattr(
+            job_runner, "_job",
+            {"state": state, "phase": "assets", "kind": "backup", "error": None},
+        )
+        data = client.get("/api/manuscript/download/status").json()["data"]
+        assert data == {"state": "idle"}
+
+
+def test_run_thread_survives_base_exception(monkeypatch):
+    """CancelledError/SystemExit 穿透 except Exception 时也必须落 error——
+    否则单飞槽永久卡 running（备份/下载全锁死，只能重启应用）。"""
+    import job_runner
+
+    def _body():
+        raise asyncio.CancelledError()
+
+    job_runner.run_thread(_body)
+    st = job_runner.status()
+    assert st["state"] == "error", st
+    assert st["error"]["code"] == "cancelled"
+    # 槽位可复用：error 态不挡新任务
+    assert job_runner.start("download", lambda p, u: None, "u") is not None
+    job_runner.set_job(state="idle")
+
+
 def test_download_render_failure_keeps_done_files(seeded, client, tmp_path, monkeypatch):
     from manuscript import service
 
-    def _boom(m):
-        raise RuntimeError("boom")
-
-    monkeypatch.setitem(service.FORMATS["docx"], "render", lambda m: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setitem(
+        service.FORMATS["docx"], "render", lambda m: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
     # docx 渲染器惰性 import 后走 render_docx；直接替换 FORMATS 里的 lambda
     r = _start(client, seeded, tmp_path)
     assert r.status_code == 200

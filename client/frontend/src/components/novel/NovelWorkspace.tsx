@@ -286,12 +286,20 @@ export default function NovelWorkspace() {
     archivedN: number;
     total: number;
   }
-  // 主线统计（下载成稿摘要用；与预览概览同源：WorkbenchChapter 字段直取）
+  // 主线统计（下载成稿摘要用）：下载口径 = 有正文的章（后端装配只收 has_prose，
+  // spec「空章跳过：下载摘要的章数等于有正文的章数」——与预览概览的全量口径不同源）
   const msStats = useMemo(
     () => ({
-      chapters: volumes.reduce((a, v) => a + v.chapters.length, 0),
+      chapters: volumes.reduce(
+        (a, v) => a + v.chapters.filter((c) => c.has_prose ?? c.word_count > 0).length,
+        0,
+      ),
       words: volumes.reduce(
-        (a, v) => a + v.chapters.reduce((b, c) => b + (c.word_count || 0), 0),
+        (a, v) =>
+          a +
+          v.chapters
+            .filter((c) => c.has_prose ?? c.word_count > 0)
+            .reduce((b, c) => b + (c.word_count || 0), 0),
         0,
       ),
     }),

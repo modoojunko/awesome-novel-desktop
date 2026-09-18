@@ -19,6 +19,7 @@ _CN = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
 
 
 def cn_num(n: int) -> str:
+    """与前端 nodeTitle.ts cnNum 同族（含百位「一百零二」形态，超位回退阿拉伯）。"""
     if n <= 0 or not isinstance(n, int):
         return str(n)
     if n < 10:
@@ -27,10 +28,12 @@ def cn_num(n: int) -> str:
         return "十" + (_CN[n % 10] if n % 10 else "")
     if n < 100:
         return _CN[n // 10] + "十" + (_CN[n % 10] if n % 10 else "")
-    return str(n)
+    hundreds = n // 100
+    rest = n % 100
+    return _CN[hundreds] + "百" + (cn_num(rest) if rest else "")
 
 
-_DEFAULT_TITLE_RE = re.compile(r"^第[0-9一二三四五六七八九十百零]+[卷章]$")
+_DEFAULT_TITLE_RE = re.compile(r"^第\s*[0-9一二三四五六七八九十百零]+\s*[卷章]$")  # \s* 与前端 nodeTitle 容差一致
 
 
 def _label(kind: str, no: int, title: str) -> str:

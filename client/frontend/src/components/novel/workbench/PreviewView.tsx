@@ -53,11 +53,15 @@ interface FlatChapter {
   c: WorkbenchVolume["chapters"][number];
 }
 
+/** 有正文（WorkbenchChapter.has_prose 缺省时按字数派生——useWorkbench 同口径，单源防漂移） */
+function hasProseOf(c: { has_prose?: boolean; word_count: number }): boolean {
+  return c.has_prose ?? c.word_count > 0;
+}
+
 /** 成稿状态（已归档优先）：拟定 / 草稿 / 已归档。 */
 function statusOf(c: { archived?: boolean; has_prose?: boolean; word_count: number }) {
-  const hasProse = c.has_prose ?? c.word_count > 0;
   if (c.archived) return { label: "已归档", cls: "pill" };
-  if (hasProse) return { label: "草稿", cls: "pill pill-accent" };
+  if (hasProseOf(c)) return { label: "草稿", cls: "pill pill-accent" };
   return { label: "拟定", cls: "pill" };
 }
 
@@ -147,7 +151,7 @@ export default function PreviewView({
 
   const setReadingPref = <K extends keyof ReadingPrefs>(key: K, value: ReadingPrefs[K]) => {
     setReading((r) => ({ ...r, [key]: value }));
-    setBookReadingPref(projectId, key, value);
+    if (projectId) setBookReadingPref(projectId, key, value); // project 未到时只改本地态，不落错键
   };
 
   // 概览统计（主线 = volumes 主列表；与目录行同源）
@@ -160,8 +164,11 @@ export default function PreviewView({
     0,
   );
   const nDraft = volumes.reduce(
-    (a, v) =>
-      a + v.chapters.filter((c) => !c.archived && (c.has_prose ?? c.word_count > 0)).length,
+    (a, v) => a + v.chapters.filter((c) => !c.archived && hasProseOf(c)).length,
+    0,
+  );
+  const nProse = volumes.reduce(
+    (a, v) => a + v.chapters.filter((c) => hasProseOf(c)).length,
     0,
   );
   const nPlanned = chTotal - nArchived - nDraft;
@@ -170,10 +177,10 @@ export default function PreviewView({
   const activeChLabel = active ? nodeLabel("章", active.c.chapter, active.c.title) : "";
   const activeStatus = active ? statusOf(active.c) : null;
 
-  const seg = (
-    kind: keyof ReadingPrefs,
+  const seg = <K extends keyof ReadingPrefs>(
+    kind: K,
     label: string,
-    opts: Array<[string, string]>,
+    opts: Array<[ReadingPrefs[K], string]>,
   ) => (
     <div className="pv-card">
       <h4>{label}</h4>
@@ -183,7 +190,7 @@ export default function PreviewView({
             key={v}
             className={reading[kind] === v ? "on" : undefined}
             aria-pressed={reading[kind] === v}
-            onClick={() => setReadingPref(kind, v as never)}
+            onClick={() => setReadingPref(kind, v)}
           >
             {t}
           </button>
@@ -237,7 +244,7 @@ export default function PreviewView({
               {v.chapters.map((c) => {
                 const ref = `${v.name}-ch-${c.chapter}`;
                 const st = statusOf(c);
-                const hasProse = c.has_prose ?? c.word_count > 0;
+                const hasProse = hasProseOf(c);
                 return (
                   <button
                     key={ref}
@@ -294,7 +301,7 @@ export default function PreviewView({
               <h2>{activeChLabel}</h2>
               <p className="pv-meta" data-testid="pv-meta">
                 {activeStatus?.label}
-                {(active.c.has_prose ?? active.c.word_count > 0) && ` · ${active.c.word_count} 字`}
+                {hasProseOf(active.c) && ` · ${active.c.word_count} 字`}
                 {active.c.stale ? " · 基于旧设定" : ""}
               </p>
             </div>
@@ -334,14 +341,20 @@ export default function PreviewView({
             </div>
           </div>
 )}
-        {/* 下载成稿（manuscript-download）：入口在右栏，弹层挂书工作台壳层 */}
+        {/* 下载成稿（manuscript-download）：入口在右栏，弹层挂书工作台壳层；空书禁用 */}
         <div className="pv-card" data-od-id="download-open-card">
           <h4>下载成稿</h4>
-          <button className="btn btn-primary" style={{ width: "100%" }} data-od-id="download-open" onClick={onDownload}>
+          <button
+            className="btn btn-primary"
+            style={{ width: "100%" }}
+            data-od-id="download-open"
+            disabled={chTotal === 0}
+            onClick={onDownload}
+          >
             下载成稿…
           </button>
           <p className="pv-side-empty" style={{ margin: "8px 0 0" }}>
-            选格式与本地保存位置，下载 {chTotal} 章有正文的章节。
+            选格式与本地保存位置，下载 {nProse} 章有正文的章节。
           </p>
         </div>
         {seg("size", "字号", [

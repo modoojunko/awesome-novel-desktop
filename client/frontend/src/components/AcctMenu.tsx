@@ -158,8 +158,20 @@ export default function AcctMenu({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind: "backup", target_dir: dir, include_config: true }),
     });
-    if (res.ok) alert("备份已开始，完成后文件将保存在所选目录");
-    else alert("备份启动失败：" + (await res.text()));
+    if (res.ok) {
+      alert("备份已开始，完成后文件将保存在所选目录");
+    } else if (res.status === 409) {
+      // 409 detail 结构化（c-manuscript-download）：按在跑任务类型说人话，不裸显 JSON
+      let msg = "已有任务在进行中";
+      try {
+        msg = (await res.json())?.detail?.message ?? msg;
+      } catch {
+        /* 保底文案 */
+      }
+      alert(msg);
+    } else {
+      alert("备份启动失败：" + (await res.text()));
+    }
   };
 
   const judgment = {
