@@ -407,7 +407,7 @@ function NovelList() {
                   </button>
                 </div>
                 <h3>《{p.name}》</h3>
-                <p className="summary">{p.synopsis || ""}</p>
+                <p className="summary">{p.synopsis}</p>
                 <div className="stats">
                   <span>
                     <b className="num">{p.total_volumes || 0} 卷</b>结构

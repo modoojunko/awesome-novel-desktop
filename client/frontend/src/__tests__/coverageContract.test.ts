@@ -39,8 +39,9 @@ describe("覆盖率契约自检", () => {
   /** 目录完整性：该目录下每个 .tsx 都必须在契约里（防新增兄弟文件漏进契约） */
   function expectDirCovered(relDir: string) {
     const dir = join(FRONTEND, relDir);
-    const files = readdirSync(dir)
-      .filter((f) => f.endsWith(".tsx"))
+    // 递归 + 同时收 .ts/.tsx：评审反证过"只扫顶层 .tsx"会漏掉 `pages/x.ts` 与 `pages/sub/x.tsx`
+    const files = readdirSync(dir, { recursive: true, encoding: "utf8" })
+      .filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"))
       .map((f) => `${relDir}/${f}`);
     const missing = files.filter((f) => !(CONTRACT_FILES as readonly string[]).includes(f));
     expect(missing, `${relDir} 下未纳入契约的文件`).toEqual([]);

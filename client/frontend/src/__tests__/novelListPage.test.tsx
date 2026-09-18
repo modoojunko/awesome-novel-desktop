@@ -126,6 +126,10 @@ describe("列表状态与卡片", () => {
     expect(screen.getByText("一句话简介")).toBeTruthy();
     expect(screen.getByText(/更新于 刚刚/)).toBeTruthy();
     expect(screen.getByText("继续创作")).toBeTruthy();
+    // 互斥（PR #423 评审 P1）：PRO 正常态下六类 Banner 一个都不许出现
+    expect(
+      screen.queryByText(/权益信息同步异常|套餐已过期|试用还剩|试用期进行中|开通 7 天免费试用|免费版书架已满/),
+    ).toBeNull();
   });
 
   it("阶段派生：全归档=已归档（查看）/无章=设定；题材缺失显示待定胶囊", async () => {
@@ -159,7 +163,7 @@ describe("列表状态与卡片", () => {
     expect(screen.getByText(/更新于 \d{4}\//)).toBeTruthy(); // 超过一周落日期
   });
 
-  it("点卡片与回车都进工作台；菜单展开/收起/外点关闭", async () => {
+  it("卡片回车进工作台（Enter 臂）", async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
     const card = document.querySelector(".book-card") as HTMLElement;
@@ -230,6 +234,7 @@ describe("列表状态与卡片", () => {
     expect(screen.getByTestId("delete-modal")).toBeTruthy();
     fireEvent.click(screen.getByText("取消删除"));
     expect(screen.queryByTestId("delete-modal")).toBeNull();
+    expect(deleteMock).not.toHaveBeenCalled(); // 取消不得打删除接口
 
     fireEvent.click(screen.getByLabelText("更多操作"));
     fireEvent.click(screen.getByText("删除"));
@@ -261,26 +266,39 @@ describe("Banner 与门禁", () => {
   });
 
   it("过期 / 试用 / 免费层三条 Banner 互斥呈现", async () => {
+    // 注意：非会员且已有 1 本 → 「免费版书架已满」本该显示（免费待遇口径），故不列入互斥排除项
+    const NOT_IN = /试用还剩|试用期进行中|开通 7 天免费试用/;
     Object.assign(tierState, { tier: "trial", isMember: false, expired: true, trialRemainingDays: 0 });
     const expired = renderPage();
     await waitFor(() => expect(screen.getByText(/套餐已过期/)).toBeTruthy());
     expect(screen.getByText("续费恢复")).toBeTruthy();
+    expect(screen.queryByText(NOT_IN)).toBeNull(); // 过期时不再出试用/免费层条
     expired.unmount();
 
     Object.assign(tierState, { tier: "trial", isMember: false, expired: false, trialRemainingDays: 5 });
     const trial = renderPage();
     await waitFor(() => expect(screen.getByText(/试用还剩 5 天/)).toBeTruthy());
     expect(screen.getByText("开通 PRO")).toBeTruthy();
+    expect(screen.queryByText(/套餐已过期|开通 7 天免费试用/)).toBeNull();
     trial.unmount();
 
     Object.assign(tierState, { tier: "trial", isMember: false, expired: false, trialRemainingDays: 0 });
     const trialOn = renderPage();
     await waitFor(() => expect(screen.getByText(/试用期进行中/)).toBeTruthy());
+    expect(screen.queryByText(/套餐已过期|开通 7 天免费试用/)).toBeNull();
     trialOn.unmount();
 
     Object.assign(tierState, { tier: "none", isMember: false, expired: false, trialRemainingDays: 0 });
     renderPage();
     await waitFor(() => expect(screen.getByText(/开通 7 天免费试用/)).toBeTruthy());
+    expect(screen.queryByText(/套餐已过期|试用还剩|试用期进行中/)).toBeNull();
+  });
+
+  it("tier=none 但 expired 标记为真（不一致态）：只出免费层条，不出过期条", async () => {
+    Object.assign(tierState, { tier: "none", isMember: false, expired: true, trialRemainingDays: 0 });
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/开通 7 天免费试用/)).toBeTruthy());
+    expect(screen.queryByText(/套餐已过期/)).toBeNull(); // tier==='none' 时过期条必须让位
   });
 
   it("缺 API Key 提示与「去配置」；有 Key 时不提示", async () => {
@@ -323,7 +341,7 @@ describe("Banner 与门禁", () => {
     fireEvent.keyDown(document.querySelector('[data-od-id="lock-tile"]') as HTMLElement, { key: "Enter" });
     expect(openSpy).toHaveBeenCalledTimes(2);
     // 升级按钮用 portalUrl（有值时指向它）
-    expect(screen.getAllByText("升级")[0].closest("a")?.getAttribute("href")).toBe("https://portal.me");
+    expect(screen.getByRole("link", { name: "升级" }).getAttribute("href")).toBe("https://portal.me");
   });
 
   it("无 portal_url 时升级按钮回落常量门户", async () => {
@@ -376,7 +394,7 @@ describe("覆盖补齐（边界臂）", () => {
     fireEvent.keyDown(card, { key: "a" });
     expect(screen.queryByTestId("workspace")).toBeNull();
     fireEvent.keyDown(document.querySelector('[data-od-id="lock-tile"]') as HTMLElement, { key: "a" });
-    expect((globalThis.open as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(0);
+    expect(vi.mocked(globalThis.open)).not.toHaveBeenCalled();
   });
 
   it("书名列表多本时改名只改目标卡", async () => {
@@ -505,10 +523,4 @@ describe("覆盖补齐（收尾）", () => {
     expect(screen.queryByText("重命名")).toBeNull();
   });
 
-  it("无简介卡片：摘要区为空字符串（|| 兜底臂）", async () => {
-    getMock.mockResolvedValue([novel({ synopsis: undefined })]);
-    renderPage();
-    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
-    expect(document.querySelector(".book-card .summary")!.textContent).toBe("");
-  });
 });
