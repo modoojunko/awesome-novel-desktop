@@ -83,7 +83,9 @@ function NovelList() {
   const { tier, isMember, expired, trialRemainingDays: trialDays } = useTier();
 
   async function handleDelete() {
+    /* v8 ignore start -- 防御分支：删除确认弹窗只在 deleteTarget 非空时渲染 */
     if (!deleteTarget) return;
+    /* v8 ignore stop */
     const { id, name } = deleteTarget;
     try {
       await api.delete(`/novels/${id}`);
@@ -96,7 +98,9 @@ function NovelList() {
   }
 
   async function handleRename(next: string) {
+    /* v8 ignore start -- 防御分支：改名弹窗只在 renameTarget 非空时渲染 */
     if (!renameTarget) return;
+    /* v8 ignore stop */
     try {
       const updated = await api.renameNovel(renameTarget.id, next);
       setNovels((prev: Novel[]) =>
