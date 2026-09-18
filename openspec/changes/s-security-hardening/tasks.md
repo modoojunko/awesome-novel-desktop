@@ -115,7 +115,10 @@
   → server/frontend vue-tsc 零错误；client/frontend tsc --noEmit exit 0。
   → 两端 design:lint 通过（唯一告警 site-beian.ts emoji 为主检出行存量，notes-impact 已登记）；不触共享段，design-cross 不适用。
   → release-notes.md 已落（对外大白话段 + 内部部署注意段：secrets 门禁/CORS 域名清单/DDL 先行/无存量用户同批发版）；todo.md「S端 安全」节已回写实施进度（33→40 项时的状态）与余量。
-  → 演练已执行（2026-09-18，venv 直启双后端=S端 19095/C端 18095，同一份 worktree 代码；docker 容器构建未跑）。
+  → 演练已执行（2026-09-18，venv 直启双后端 + docker compose 栈重建两轮）。**docker 栈已重建为
+本 change 代码**（容器内核验：S端 guards.py 存在、C端 service.py 含 pair/exchange），并跑完
+**C端 e2e 全量：140 passed / 14 skipped（付费门控）**——登录/授权页等真实配对链路（浏览器授权→
+轮询→本机交换→进主界面）在重建栈上走通。空指纹授权登记行合并为同一行系存量语义（演练澄清，非回归）。
   注册白名单（非法名 code1+可读提示）→ 浏览器授权（challenge 落库）→ 轮询无 token → **C端 首启静默链路经
   pair/exchange 自动换 token**（本机后端对前端仍回 code 0+token，前端零改动实证）→ 错误密钥统一失败 →
   改密码（旧令牌 pay 面 401、user 面未登录、新密码可登录）→ 移除设备（被移设备 verify device_valid=False、
