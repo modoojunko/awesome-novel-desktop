@@ -6,6 +6,23 @@
 
 ## 进度更新
 
+### 批 1 第二波（2026-09-18，PR #422，测量 commit 8b8e7ec）
+页面面 4 个文件补到四项 100%：`pages/ApiKeyConfigPage`（收口）、`components/ExpiryNoticeBar`、
+`pages/LandingPage`、`pages/NovelLayout`；契约 17 → **21 个文件**。
+
+| 指标 | 首波后 | 第二波后 |
+|---|---|---|
+| 语句 | 55.69%（4496/8072） | **58.47%（4718/8068）** |
+| 行 | 57.77% | **60.66%（4284/7062）** |
+| 分支 | 51.78% | **53.8%（3351/6228）** |
+| 函数 | 50.2% | **52.89%（1261/2384）** |
+
+**本轮评审抓到一条系统性假绿模式（值得全项目警惕）**：负向断言写成
+`await waitFor(() => expect(x).toBeNull())` 会在异步取数 **resolve 之前**就通过——
+"不该出现"从此不可判红（18 个变异探针 8 个存活，全出于此）。修法（已内化）：
+**deferred promise + `await act(async () => resolve(...))` 做正同步点**，再断言缺席；
+边界臂（如"第 8 天不该提示"）必须显式存在，否则 `days <= 8` 这类越界变异会存活。
+
 ### 批 1 首波（2026-09-18）
 已交付：`components/api-config/**`（8 个文件）＋ `App.tsx`＋`components/auth/AuthGuard.tsx`
 ＋ `hooks/useDeviceActivation.ts` ＋ `lib/selection.ts`，共 **12 个文件补到四项 100%**

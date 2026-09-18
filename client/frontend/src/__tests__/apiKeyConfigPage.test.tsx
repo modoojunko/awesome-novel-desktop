@@ -2,8 +2,7 @@
 //   编辑态「留空则保留当前密钥」在**页面层**必须省略 api_key 字段——原样发 "" 会被后端
 //   当更新值（encrypt("") == ""）把已存密钥清空（2026-09-18 覆盖率专项实锤，后端同步
 //   收紧为「空串=未提供」）；未重敲 Key 时「测试连接」用已存密钥（testConfig(id)）。
-import { render, screen, waitFor } from "@testing-library/react";
-import { fireEvent, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ApiKeyConfigPage from "@/pages/ApiKeyConfigPage";
@@ -182,6 +181,9 @@ describe("ApiKeyConfigPage 覆盖补齐", () => {
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getByTestId("login-slot")).toBeTruthy());
+    // 名字里的「不发建档请求」落实为断言：无 POST，且所有请求都不带 Authorization
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+    expect(JSON.stringify(calls)).not.toContain("Authorization");
   });
 
   it("?add 直达：表单自动打开", async () => {
@@ -296,6 +298,31 @@ describe("ApiKeyConfigPage 覆盖补齐", () => {
   });
 
   it("列表三态：loading 骨架 / 空列表引导 / 加载失败可重试", async () => {
+    // loading 骨架：延迟列表请求，先断言骨架再放行（否则骨架态会被跳过 = 仅执行到）
+    let releaseList: ((v: unknown) => void) | undefined;
+    const fetchMock = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.endsWith("/api-configs")) {
+        return new Promise((res) => {
+          releaseList = res as (v: unknown) => void;
+        });
+      }
+      if (u.includes("/user/profile")) return { ok: true, json: async () => ({ migration_completed: true }) };
+      if (u.includes("/api-configs/status")) return { ok: true, json: async () => [] }; // 状态轮询要数组
+      if (u.includes("/usage-summary")) {
+        return { ok: true, json: async () => ({ total_all_time: 0, total_this_month: 0, total_today: 0, by_config: [] }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const loadingView = renderPage();
+    await waitFor(() => expect(document.querySelectorAll(".card-skeleton").length).toBe(3));
+    await act(async () => {
+      releaseList?.({ ok: true, json: async () => [CONFIG] });
+    });
+    await waitFor(() => expect(screen.getByText("主线 · OpenAI")).toBeTruthy());
+    loadingView.unmount();
+
     // 空列表
     stubFull({ empty: true });
     const empty = renderPage();

@@ -35,6 +35,26 @@ afterEach(() => {
   localStorage.clear();
 });
 
+
+/**
+ * 负向断言的正同步点（PR #422 评审 P1）：`await waitFor(() => expect(x).toBeNull())`
+ * 会在 check-auth resolve **之前**就通过 —— "不该出现"从此不可判红（变异探针实测 8/18 存活）。
+ * 这里用 deferred promise + `await act()` 把 "已 resolve 之后仍不出现" 变成确定事实。
+ */
+async function renderWithCheckAuth(data: unknown, code = 0) {
+  let resolveCheck: ((v: unknown) => void) | undefined;
+  requestMock.mockReturnValue(
+    new Promise((res) => {
+      resolveCheck = res;
+    }),
+  );
+  const utils = render(<ExpiryNoticeBar />);
+  await act(async () => {
+    resolveCheck?.(checkAuth(data, code));
+  });
+  return utils;
+}
+
 describe("优先级裁决与展示", () => {
   it("支付核对中优先于退款与临期；链接指向订单页且新窗口打开", async () => {
     requestMock.mockResolvedValue(
@@ -56,48 +76,69 @@ describe("优先级裁决与展示", () => {
     expect(await screen.findByRole("link", { name: "查看进度" })).toBeTruthy();
   });
 
-  it("仅临期（≤7 天）时提示续费；8 天/免费/无 days 都不显示", async () => {
-    const { unmount } = render(<ExpiryNoticeBar />);
-    await waitFor(() => expect(document.querySelector(".update-strip")).toBeNull()); // 30 天不提示
-    unmount();
+  it("仅临期（≤7 天）时提示续费；30/8/0 天与免费都不显示（正同步点，边界可判红）", async () => {
+    const thirty = await renderWithCheckAuth({ days_remaining: 30 });
+    expect(document.querySelector(".update-strip")).toBeNull(); // 30 天不提示
+    thirty.unmount();
 
-    requestMock.mockResolvedValue(checkAuth({ days_remaining: 7 }));
-    const seven = render(<ExpiryNoticeBar />);
-    expect(await screen.findByText(/套餐还剩 7 天/)).toBeTruthy();
+    const eight = await renderWithCheckAuth({ days_remaining: 8 });
+    expect(document.querySelector(".update-strip")).toBeNull(); // 8 天不提示（边界，缺这条 days<=8 变异存活）
+    eight.unmount();
+
+    const seven = await renderWithCheckAuth({ days_remaining: 7 });
+    expect(screen.getByText(/套餐还剩 7 天/)).toBeTruthy();
     // 外链要等 portal 拉取落地（异步 state），用 findBy
     expect((await screen.findByRole("link", { name: "去续费" })).getAttribute("href")).toBe(
       "https://portal.example.com/pay",
     );
     seven.unmount();
 
-    requestMock.mockResolvedValue(checkAuth({ days_remaining: 0 }));
-    const zero = render(<ExpiryNoticeBar />);
-    await waitFor(() => expect(document.querySelector(".update-strip")).toBeNull());
+    const zero = await renderWithCheckAuth({ days_remaining: 0 });
+    expect(document.querySelector(".update-strip")).toBeNull();
     zero.unmount();
 
-    requestMock.mockResolvedValue(checkAuth({ tier: "none" }));
-    render(<ExpiryNoticeBar />);
-    await waitFor(() => expect(document.querySelector(".update-strip")).toBeNull());
+    const free = await renderWithCheckAuth({ tier: "none" });
+    expect(document.querySelector(".update-strip")).toBeNull();
+    free.unmount();
+
+    const nd = await renderWithCheckAuth({ tier: "member" }); // 无 days 字段
+    expect(document.querySelector(".update-strip")).toBeNull();
+    nd.unmount();
   });
 });
 
 describe("关闭记忆与重显", () => {
-  it("点「不再显示」：当日不再显示（重挂也拦住）", async () => {
+  const todayTagForTest = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  };
+
+  it("点「不再显示」：当日不再显示（重挂也拦住；正同步点）", async () => {
     requestMock.mockResolvedValue(checkAuth({ days_remaining: 3 }));
     const first = render(<ExpiryNoticeBar />);
     fireEvent.click(await screen.findByText("不再显示"));
     await waitFor(() => expect(document.querySelector(".update-strip")).toBeNull());
-    expect(localStorage.getItem(`account-notice-dismissed:expiring:3`)).toBeTruthy();
+    expect(localStorage.getItem("account-notice-dismissed:expiring:3")).toBeTruthy();
     first.unmount();
-    render(<ExpiryNoticeBar />);
-    await waitFor(() => expect(document.querySelector(".update-strip")).toBeNull()); // 当日已关不重显
+
+    // 重挂 + 正同步点：必须等 check-auth resolve 之后仍不出现（否则"当日记忆"被删也绿）
+    const again = await renderWithCheckAuth({ days_remaining: 3 });
+    expect(document.querySelector(".update-strip")).toBeNull();
+    again.unmount();
+  });
+
+  it("同 key 但非当日的关闭记录：照常重显（日期被忽略的写法即红）", async () => {
+    localStorage.setItem("account-notice-dismissed:expiring:3", "1999-1-1");
+    const shown = await renderWithCheckAuth({ days_remaining: 3 });
+    expect(screen.getByText(/套餐还剩 3 天/)).toBeTruthy();
+    shown.unmount();
   });
 
   it("状态变化（剩余天数变了 → key 变）当日也重显", async () => {
-    localStorage.setItem("account-notice-dismissed:expiring:3", "2026-1-1"); // 旧 key（过去某天）
-    requestMock.mockResolvedValue(checkAuth({ days_remaining: 2 }));
-    render(<ExpiryNoticeBar />);
-    expect(await screen.findByText(/套餐还剩 2 天/)).toBeTruthy();
+    localStorage.setItem("account-notice-dismissed:expiring:3", todayTagForTest());
+    const shown = await renderWithCheckAuth({ days_remaining: 2 });
+    expect(screen.getByText(/套餐还剩 2 天/)).toBeTruthy();
+    shown.unmount();
   });
 
   it("存储不可用：照常显示；点关闭也不炸", async () => {
@@ -116,20 +157,28 @@ describe("关闭记忆与重显", () => {
 });
 
 describe("静默与安全边界", () => {
-  it("check-auth 非 0 / 无 data / 抛错：都不显示、不打扰", async () => {
-    requestMock.mockResolvedValue(checkAuth({ days_remaining: 3 }, 1));
-    const a = render(<ExpiryNoticeBar />);
-    await waitFor(() => expect(document.querySelector(".update-strip")).toBeNull());
+  it("check-auth 非 0 / 无 data / 抛错：都不显示、不打扰（正同步点）", async () => {
+    const a = await renderWithCheckAuth({ days_remaining: 3 }, 1); // code !== 0
+    expect(document.querySelector(".update-strip")).toBeNull();
     a.unmount();
 
-    requestMock.mockResolvedValue(checkAuth(null));
-    const b = render(<ExpiryNoticeBar />);
-    await waitFor(() => expect(document.querySelector(".update-strip")).toBeNull());
+    const b = await renderWithCheckAuth(null); // 无 data
+    expect(document.querySelector(".update-strip")).toBeNull();
     b.unmount();
 
-    requestMock.mockRejectedValue(new Error("offline"));
-    render(<ExpiryNoticeBar />);
-    await waitFor(() => expect(document.querySelector(".update-strip")).toBeNull());
+    // 抛错：deferred reject + act 冲刷，确保"拒绝之后"仍不显示
+    let rejectCheck: ((e: Error) => void) | undefined;
+    requestMock.mockReturnValue(
+      new Promise((_res, rej) => {
+        rejectCheck = rej;
+      }),
+    );
+    const c = render(<ExpiryNoticeBar />);
+    await act(async () => {
+      rejectCheck?.(new Error("offline"));
+    });
+    expect(document.querySelector(".update-strip")).toBeNull();
+    c.unmount();
   });
 
   it("portal 延迟拉取：无提示时不请求（不触发启动期 401 副作用）；有提示才请求一次", async () => {
@@ -164,8 +213,8 @@ describe("静默与安全边界", () => {
     await waitFor(() => expect(release).toBeTruthy());
     unmount();
     await act(async () => release?.("https://portal.example.com"));
-    // 卸载后到达的 portal 不得再写入状态（React 19 不报错，靠"无异常 + 无警告"不可判红；
-    // 这里用 console.error 监听兜住）：断言未出现 React 的卸载后更新告警
+    // 诚实口径（PR #422 评审 P2）：React 19 对卸载后 setState 不告警、公共 API 上无可见差异，
+    // `cancelled` 守卫**行为上不可判红**——这条只作"不炸"的烟雾检查 + 记录该分支已被执行。
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 

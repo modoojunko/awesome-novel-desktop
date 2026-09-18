@@ -1,7 +1,7 @@
 // 静态首页（LandingPage）契约（覆盖率专项·批 1 第二波）：
 //   未登录入口卡三段（品牌/口号/行动路径）· 版本胶囊读烘包版本（dev 不展示、失败静默）·
 //   教程外链新窗口 · 登录入口两处。
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import LandingPage from "@/pages/LandingPage";
@@ -51,10 +51,19 @@ describe("LandingPage", () => {
     expect(second.container.querySelector(".brand-ver")).toBeNull();
   });
 
-  it("版本请求失败：静默无胶囊", async () => {
-    requestMock.mockRejectedValue(new Error("offline"));
+  it("版本请求失败：静默无胶囊（deferred reject + 正同步点，失败即红）", async () => {
+    let rejectFn: ((e: Error) => void) | undefined;
+    requestMock.mockReturnValue(
+      new Promise((_res, rej) => {
+        rejectFn = rej;
+      }),
+    );
     const { container } = renderPage();
-    await waitFor(() => expect(container.querySelector(".brand-ver")).toBeNull());
+    await waitFor(() => expect(requestMock).toHaveBeenCalled());
+    await act(async () => {
+      rejectFn?.(new Error("offline"));
+    });
+    expect(container.querySelector(".brand-ver")).toBeNull(); // 拒绝之后仍无胶囊（catch 写值即红）
     expect(screen.getByText("人铸灵魂")).toBeTruthy();
   });
 
