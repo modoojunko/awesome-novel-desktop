@@ -11,9 +11,11 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       // 覆盖率契约只锁「本次交付动过的文件」——不是整仓阈值（存量无关 UI 不在账上）。
-      // 口径说明：语句/行/函数计 100%；分母**不含** `/* v8 ignore start|stop */` 标注的
-      // 两处不可达防御分支（AcctMenu 的 position refs 组合、菜单项数恒 ≥4）。
-      // 分支覆盖率未锁（未命中多为 `??`/`?.`/`||` 短路的另一半与 jsdom 不可达组合）。
+      // 口径说明：语句/行/函数/分支均计 100%；分母**不含** `/* v8 ignore start|stop */`
+      // 标注的 7 处不可达防御分支（AcctMenu 的 position refs 组合·菜单项数恒 ≥4·
+      // 键盘查询 ?? []·409 空 message；RestoreModal 的 working 步二道锁；
+      // ManuscriptDownloadModal 的 409 空 message（api.ts 已保证 message 非空）；nodeTitle 的
+      // `title ?? ""`），每条注释都写了不可达理由。
       include: [
         "src/lib/api.ts",
         "src/lib/nodeTitle.ts",
@@ -21,7 +23,7 @@ export default defineConfig({
         "src/components/RestoreModal.tsx",
         "src/components/AcctMenu.tsx",
       ],
-      thresholds: { statements: 100, lines: 100, functions: 100 },
+      thresholds: { statements: 100, lines: 100, functions: 100, branches: 100 },
     },
   },
   resolve: {

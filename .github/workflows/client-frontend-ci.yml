@@ -33,5 +33,7 @@ jobs:
       - run: npx tsc --noEmit
       # 单测门禁（2026-09-10 补）：此前 CI 只跑 tsc + build，vitest 从不执行——
       # 改 lib/* 消费方时单测红过而 main 无人察觉。全部 mock、不依赖 docker 栈。
-      - run: npx vitest run
+      # 2026-09-18 起带覆盖率：vitest.config.ts 锁了 5 个交付文件四项 100% 阈值，
+      # --coverage 让契约真正进门禁（实测只多 ~0.2s，只 instrument 这 5 个文件）。
+      - run: npx vitest run --coverage
       - run: npm run build

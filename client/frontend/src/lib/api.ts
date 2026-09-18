@@ -162,14 +162,14 @@ export async function request(
       throw e;
     }
     // detail 可能是对象（如删除题材 409 的 { message, projects }），透传 projects 供 UI 提示引用项目
-    const message =
-      typeof err.detail === "string"
-        ? err.detail
-        : err.detail?.message || `请求失败（HTTP ${res.status}）`;
+    // 不变量：4xx 的 message 恒非空——detail 可能是空串 / 对象无 message / 响应体为 null，
+    // 一律回落通用文案（调用方 `err.message || 兜底` 的右臂因此真的不可达，见各处 v8 ignore 注释）
+    const raw = typeof err.detail === "string" ? err.detail : err.detail?.message;
+    const message = raw || `请求失败（HTTP ${res.status}）`;
     // 附带 HTTP 状态码 + detail.reason（AI 前置三态分流用；旧口径只有 member_required）
     const e = new Error(message) as ApiError;
     e.status = res.status;
-    if (typeof err.detail === "object") {
+    if (err.detail && typeof err.detail === "object") {
       if (Array.isArray(err.detail.novels)) e.novels = err.detail.novels;
       if (typeof err.detail.reason === "string") e.reason = err.detail.reason;
       // 角色 rev 冲突（character-settings-v2）：透传冲突格与当前值供"刷新重试"UI

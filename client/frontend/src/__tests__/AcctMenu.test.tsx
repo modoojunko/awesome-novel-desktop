@@ -150,6 +150,7 @@ describe("AcctMenu 备份发起（鉴权头 + 错误文案守卫）", () => {
   }
 
   beforeEach(() => {
+    fetchMock.mockClear(); // 不清会跨用例累积（shuffle 下「called 1 times」会假红）
     vi.stubGlobal("fetch", fetchMock);
     localStorage.setItem("auth_token", "backup-token");
   });
@@ -190,6 +191,19 @@ describe("AcctMenu 备份发起（鉴权头 + 错误文案守卫）", () => {
     armBridge();
     await clickBackup();
     await waitFor(() => expect(alertMock).toHaveBeenCalledWith("已有下载任务在进行中"));
+  });
+
+  it("409 但 detail 为空串：显示通用文案（api.ts 保证 message 非空）", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ detail: "" }),
+    });
+    const alertMock = vi.fn();
+    vi.stubGlobal("alert", alertMock);
+    armBridge();
+    await clickBackup();
+    await waitFor(() => expect(alertMock).toHaveBeenCalledWith("请求失败（HTTP 409）"));
   });
 
   it("5xx / 网络层失败：中文兜底，不漏英文 statusText", async () => {
@@ -403,6 +417,42 @@ describe("AcctMenu 交互分支补齐", () => {
     fireEvent.click(document.querySelector('[data-od-id="acct-trigger"]') as HTMLElement);
     expect(screen.getByText("确认恢复")).toBeTruthy(); // 仍在预览步
     vi.unstubAllGlobals();
+  });
+
+  it("面板内空白处 mousedown：不触发外点关闭（短路臂）", async () => {
+    await openMenu();
+    fireEvent.mouseDown(document.querySelector('[data-od-id="acct-menu"]') as HTMLElement);
+    expect(document.querySelector('[data-od-id="acct-menu-head"]')).toBeTruthy(); // 仍开着
+  });
+
+  it("Shift+Tab 且焦点不在首项：回退一位（内层 cond 的另一臂）", async () => {
+    await openMenu();
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].filter(
+      (el) => !el.hasAttribute("hidden"),
+    );
+    items[1].focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(items[0]);
+  });
+
+  it("未登录态：头像降级图标、名字「未登录」、无 title、名字转 muted", async () => {
+    const { getUsername } = await import("@/lib/auth");
+    const mocked = getUsername as unknown as ReturnType<typeof vi.fn>;
+    const prev = mocked.getMockImplementation?.();
+    mocked.mockReturnValue(null);
+    try {
+      await openMenu();
+      const head = document.querySelector('[data-od-id="acct-menu-head"]') as HTMLElement;
+      const name = head.querySelector(".am-name") as HTMLElement;
+      expect(name.textContent).toBe("未登录");
+      expect(name.getAttribute("title")).toBeNull();
+      expect(name.getAttribute("style") ?? "").toContain("muted");
+      expect(head.querySelector(".avatar svg")).toBeTruthy(); // 无用户名 → Ico
+      // 触发钮同样走 Ico 分支
+      expect(document.querySelector('[data-od-id="acct-trigger"] .avatar svg')).toBeTruthy();
+    } finally {
+      mocked.mockImplementation?.(prev as never);
+    }
   });
 
   it("档位徽章：loading 呈省略号；无档位信息时不渲染徽章", async () => {

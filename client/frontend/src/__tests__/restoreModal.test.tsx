@@ -239,3 +239,141 @@ describe("RestoreModal 分支补齐", () => {
     await waitFor(() => expect(screen.getByText("下一步")).toBeTruthy()); // setStep("pick")
   });
 });
+
+// ---------------------------------------------------------------------------
+// 分支覆盖补齐：可选字段缺省 / 全失败汇总 / 接回数 > 0 / working 步锁关闭
+// ---------------------------------------------------------------------------
+
+describe("RestoreModal 分支补齐（分支覆盖率专项）", () => {
+  const okJson3 = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ code: 0, data }) });
+
+  it("选包返回空数组：静默不选（files?.[0] ?? null 的 null 臂）", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_open_file: vi.fn(async () => []) }, // 空数组 → files[0] 为 undefined
+    };
+    fetchMock.mockResolvedValue(okJson3({ books: [], config: null, warnings: [], schema_version: 1 }));
+    mount();
+    fireEvent.click(screen.getAllByText("选择文件")[0]);
+    await act(async () => {});
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((screen.getByText("下一步") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("书清单非数组 / 条目缺 name：不炸、不标重名（?? 兜底臂）", async () => {
+    armBridge();
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).includes("/backup/import/parse")) {
+        return okJson3({ books: [{ name: "星海拾遗", path: "p", source_zip: "z" }], config: null, warnings: [], schema_version: 1 });
+      }
+      // 非数组 → Array.isArray 假分支；下一轮再给「条目缺 name」形态
+      return { ok: true, status: 200, json: async () => ({ not: "an array" }) };
+    });
+    mount();
+    await pickAssets();
+    fireEvent.click(screen.getByText("下一步"));
+    await waitFor(() => expect(screen.getByText("确认恢复")).toBeTruthy());
+    expect(screen.queryByText("与现有书目重名·将以副本恢复")).toBeNull();
+  });
+
+  it("书清单条目缺 name：按空名处理（b.name ?? \"\" 兜底臂）", async () => {
+    armBridge();
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).includes("/backup/import/parse")) {
+        return okJson3({ books: [{ name: "星海拾遗", path: "p", source_zip: "z" }], config: null, warnings: [], schema_version: 1 });
+      }
+      return { ok: true, status: 200, json: async () => [{ path: "p" }] }; // 无 name 字段
+    });
+    mount();
+    await pickAssets();
+    fireEvent.click(screen.getByText("下一步"));
+    await waitFor(() => expect(screen.getByText("确认恢复")).toBeTruthy());
+  });
+
+  it("config 存在但无 api_configs：按 0 项渲染（?. ?? 兜底臂）", async () => {
+    armBridge();
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).includes("/backup/import/parse")) {
+        return okJson3({
+          books: [],
+          config: { format_version: 1, user: { display_name: "我" } }, // 无 api_configs
+          warnings: [],
+          schema_version: 1,
+        });
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    mount();
+    await pickAssets();
+    fireEvent.click(screen.getByText("下一步"));
+    await waitFor(() => expect(screen.getByText("模型配置（0 项）")).toBeTruthy());
+  });
+
+  it("只恢复配置包（0 本书）：完成页主叙事走「模型配置已恢复」分支", async () => {
+    armBridge();
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).includes("/backup/import/parse")) {
+        return okJson3({ books: [{ name: "书", path: "p", source_zip: "z" }], config: null, warnings: [], schema_version: 1 });
+      }
+      if (String(url).includes("/backup/import/persist")) {
+        // 只选了配置包 → results 为空（okCount === 0），主叙事 = 模型配置已恢复
+        return okJson3({ results: [], warnings: [], reattach: { mode: "auto", attached: 1 } });
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    mount();
+    await pickAssets();
+    fireEvent.click(screen.getByText("下一步"));
+    await waitFor(() => expect(screen.getByText("确认恢复")).toBeTruthy());
+    fireEvent.click(screen.getByText("确认恢复"));
+    await waitFor(() => expect(screen.getByText("模型配置已恢复")).toBeTruthy());
+    // 注：`okCount === 0` 时即使有失败明细也显示「模型配置已恢复」，文案与实际不符
+    // —— 属产品取舍，已登记在 docs/quality/coverage-baseline-2026-09-18.md 的遗留项
+  });
+
+  it("配置接回数 > 0：显示「模型配置已接回（N 本）」", async () => {
+    armBridge();
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).includes("/backup/import/parse")) {
+        return okJson3({ books: [{ name: "书", path: "p", source_zip: "z" }], config: null, warnings: [], schema_version: 1 });
+      }
+      if (String(url).includes("/backup/import/persist")) {
+        return okJson3({ results: [{ book_id: "b1", status: "ok" }], warnings: [], reattach: { mode: "auto", attached: 2 } });
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    mount();
+    await pickAssets();
+    fireEvent.click(screen.getByText("下一步"));
+    await waitFor(() => expect(screen.getByText("确认恢复")).toBeTruthy());
+    fireEvent.click(screen.getByText("确认恢复"));
+    await waitFor(() => expect(screen.getByText(/模型配置已接回（2 本）/)).toBeTruthy());
+  });
+
+  it("恢复中（working）点遮罩：锁定不放行 onClose（step !== working 的假臂）", async () => {
+    const onClose = vi.fn();
+    armBridge();
+    let releasePersist: ((v: unknown) => void) | undefined;
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).includes("/backup/import/parse")) {
+        return okJson3({ books: [{ name: "书", path: "p", source_zip: "z" }], config: null, warnings: [], schema_version: 1 });
+      }
+      if (String(url).includes("/backup/import/persist")) {
+        return new Promise((res) => {
+          releasePersist = res;
+        }) as Promise<unknown>;
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    render(<RestoreModal open onClose={onClose} onGoConfig={vi.fn()} />);
+    await pickAssets();
+    fireEvent.click(screen.getByText("下一步"));
+    await waitFor(() => expect(screen.getByText("确认恢复")).toBeTruthy());
+    fireEvent.click(screen.getByText("确认恢复"));
+    await waitFor(() => expect(screen.getByText("恢复中…")).toBeTruthy());
+    fireEvent.click(document.querySelector(".scrim") as HTMLElement);
+    expect(onClose).not.toHaveBeenCalled(); // working 步锁关闭
+    await act(async () => {
+      releasePersist?.(okJson3({ results: [], warnings: [], reattach: { mode: "none", attached: 0 } }));
+    });
+  });
+});

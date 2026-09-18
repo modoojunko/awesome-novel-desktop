@@ -385,6 +385,18 @@ describe("ManuscriptDownloadModal — 轮询语义与降级（PR #414 评审 fin
     expect(screen.getByText("开始下载")).toBeTruthy();
   });
 
+  it("409 但 detail 为空串：toast 显示通用文案（api.ts 保证 message 非空）", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ detail: "" }),
+    });
+    renderModal();
+    act(() => armForm());
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith("请求失败（HTTP 409）"));
+  });
+
   it("5xx 与网络层失败：回落中文兜底（不漏英文 statusText）", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: false,
@@ -828,5 +840,146 @@ describe("ManuscriptDownloadModal 分支补齐", () => {
     await act(async () => {});
     expect(toast.error).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 分支覆盖补齐：可选字段缺省 / 步骤行三态 / 选目录取消 / 自定义名不被覆盖
+// ---------------------------------------------------------------------------
+
+describe("ManuscriptDownloadModal 分支补齐（分支覆盖率专项）", () => {
+  const fmB = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("fetch", fmB);
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.removeItem("auth_token");
+    delete (window as unknown as { pywebview?: unknown }).pywebview;
+  });
+
+  const runningB = () => ({ ok: true, status: 200, json: async () => ({ code: 0, data: { state: "running", pct: 10, steps: [] } }) });
+
+  it("自定义文件名不被默认名覆盖（f && f !== lastDefault 的真臂）", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    fmB.mockResolvedValue(runningB());
+    const { rerender } = renderModal({ bookName: "星海拾遗" });
+    fireEvent.change(document.querySelector('[data-od-id="download-filename"]')!, { target: { value: "我的稿子" } });
+    // 换书（bookName 变化触发同一 effect）→ 用户改过的名字保留
+    rerender(
+      <ManuscriptDownloadModal
+        open
+        onClose={vi.fn()}
+        projectId="p1"
+        bookName="另一本书"
+        stats={{ chapters: 1, words: 1 }}
+      />,
+    );
+    expect((document.querySelector('[data-od-id="download-filename"]') as HTMLInputElement).value).toBe("我的稿子");
+  });
+
+  it("常用位置返回 null：按空列表处理（?? [] 兜底臂）", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => null) },
+    };
+    fmB.mockResolvedValue(runningB());
+    renderModal({ open: true });
+    await act(async () => {});
+    expect(document.querySelector(".ex-dirs .chip")).toBeNull();
+    expect(screen.getByText("选择…")).toBeTruthy();
+  });
+
+  it("用户取消目录选择：目录保持原值（if (picked) 的假臂）", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(async () => null), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    fmB.mockResolvedValue(runningB());
+    renderModal();
+    act(() => armForm("/tmp/keep"));
+    fireEvent.click(screen.getByText("选择…"));
+    await act(async () => {});
+    expect((document.querySelector('[data-od-id="download-dir"]') as HTMLInputElement).value).toBe("/tmp/keep");
+  });
+
+  it("完成响应缺 files/target_dir：toast 与清单按空兜底（?? 兜底臂）", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    fmB.mockImplementation(async (_u: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") return runningB();
+      return { ok: true, status: 200, json: async () => ({ code: 0, data: { state: "done" } }) }; // 无 files/steps/target_dir
+    });
+    renderModal();
+    act(() => armForm());
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(screen.getByText("下载完成")).toBeTruthy(), { timeout: 3000 });
+    expect(toast.success).toHaveBeenCalledWith("下载完成 · 0 个文件已保存到 ");
+    expect(screen.getByText(/0 个文件已保存到/)).toBeTruthy();
+  });
+
+  it("失败响应缺 error.message：兜底「下载失败」（?? 兜底臂）", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    fmB.mockImplementation(async (_u: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") return runningB();
+      return { ok: true, status: 200, json: async () => ({ code: 0, data: { state: "error" } }) }; // 无 error 字段
+    });
+    renderModal();
+    act(() => armForm());
+    fireEvent.click(screen.getByText("开始下载"));
+    // 断言精确落点：role=alert 里还有静态标题 <b>下载失败</b>，用整块 textContent 会假绿
+    await waitFor(() => expect(document.querySelector(".ex-error p")!.textContent).toBe("下载失败"), {
+      timeout: 3000,
+    });
+  });
+
+  it("步骤行三态：完成 ok / 下载中等 undefined / 失败 err 三种类名都出现", async () => {
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    let polls = 0;
+    fmB.mockImplementation(async (_u: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") return runningB();
+      polls += 1;
+      if (polls === 1) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            code: 0,
+            data: {
+              state: "running",
+              pct: 30,
+              steps: [
+                { format: "md", state: "完成", error: null }, // ok 类名臂
+                { format: "txt", state: "下载中", error: null },
+                { format: "docx", state: "失败", error: "炸" },
+              ],
+            },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 0, data: { state: "running", pct: 30, steps: [] } }),
+      };
+    });
+    renderModal({ pollStallLimit: 50 });
+    act(() => armForm());
+    fireEvent.click(screen.getByText("开始下载"));
+    await waitFor(() => expect(document.querySelector('[data-testid="dl-step-docx"] em.err')).toBeTruthy(), {
+      timeout: 3000,
+    });
+    const classes = [...document.querySelectorAll('[data-testid^="dl-step-"] em')].map((e) => e.className);
+    expect(classes).toContain("ok"); // 完成臂
+    expect(classes).toContain("err"); // 失败臂
+    expect(classes.filter((c) => c === "")).toHaveLength(1); // 下载中 → undefined 类名
   });
 });
