@@ -29,7 +29,11 @@ function renderModal(props: Partial<Record<string, unknown>> = {}) {
 describe("ManuscriptDownloadModal — 下载成稿", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    fetchMock.mockResolvedValue({ json: async () => ({ data: { state: "idle" } }), status: 200 });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { state: "idle" } }),
+      status: 200,
+    });
     vi.stubGlobal("fetch", fetchMock);
     delete (window as unknown as { pywebview?: unknown }).pywebview;
   });
@@ -147,7 +151,11 @@ describe("ManuscriptDownloadModal — 下载成稿", () => {
 describe("ManuscriptDownloadModal — 评审补强（PR #409 评审 findings）", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    fetchMock.mockResolvedValue({ json: async () => ({ data: { state: "idle" } }), status: 200 });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { state: "idle" } }),
+      status: 200,
+    });
     vi.stubGlobal("fetch", fetchMock);
     delete (window as unknown as { pywebview?: unknown }).pywebview;
   });
@@ -204,6 +212,44 @@ describe("ManuscriptDownloadModal — 评审补强（PR #409 评审 findings）"
     expect(screen.getByRole("alert").textContent).toContain("无法写入所选目录");
     expect(screen.getByText("返回修改")).toBeTruthy();
     expect(screen.getByText("重试")).toBeTruthy();
+  });
+
+  it("鉴权回归：发起与轮询都带 Authorization（裸 fetch 曾 401 全线不通）", async () => {
+    localStorage.setItem("auth_token", "regress-token");
+    (window as unknown as { pywebview?: unknown }).pywebview = {
+      api: { pick_folder: vi.fn(), open_folder: vi.fn(), default_dirs: vi.fn(async () => []) },
+    };
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") {
+        return { ok: true, status: 200, json: async () => ({ code: 0, data: { state: "running" } }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 0, data: { state: "running", pct: 10, steps: [] } }),
+      };
+    });
+    renderModal();
+    fireEvent.change(document.querySelector('[data-od-id="download-dir"]')!, {
+      target: { value: "/tmp/out" },
+    });
+    fireEvent.click(screen.getByText("开始下载"));
+    // 等到轮询也发过一轮（发起 + 至少一次 status）
+    await waitFor(
+      () =>
+        expect(
+          fetchMock.mock.calls.some(([u]) => String(u).includes("/download/status")),
+        ).toBe(true),
+      { timeout: 3000 },
+    );
+    const calls = fetchMock.mock.calls as Array<[string, RequestInit]>;
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    for (const [url, init] of calls) {
+      // 两个端点都必须带 Bearer（后端 auth_local.get_current_user 无头即 401）
+      expect(String(url)).toContain("/api/manuscript/download/");
+      expect((init?.headers as Record<string, string>)?.Authorization).toBe("Bearer regress-token");
+    }
+    localStorage.removeItem("auth_token");
   });
 
   it("文件名默认值跟随书名（首挂 bookName 为空后就绪的场景）", async () => {

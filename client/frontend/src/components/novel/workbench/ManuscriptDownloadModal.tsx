@@ -5,6 +5,7 @@
 //   术语：本弹层只用「下载」；409 按 running_kind 说人话（「已有备份在进行」/「已有下载在进行」）。
 import { useEffect, useRef, useState } from "react";
 import Modal from "@/components/design/Modal";
+import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
 type Phase = "form" | "running" | "done" | "error";
@@ -86,8 +87,9 @@ export default function ManuscriptDownloadModal({
     const tick = async () => {
       const my = ++seq;
       try {
-        const r = await fetch("/api/manuscript/download/status");
-        const data = (await r.json())?.data as JobStatus;
+        // 走 api 封装（自动带 Authorization；裸 fetch 曾致后端 401——见组件测试的鉴权回归）
+        const body = await api.get("/manuscript/download/status");
+        const data = body?.data as JobStatus;
         if (!alive || my !== seq || !data || data.state === "idle") return;
         setJob(data);
         if (data.state === "done") {
@@ -118,35 +120,20 @@ export default function ManuscriptDownloadModal({
 
   const start = async () => {
     if (!bridge()) return; // 无壳双保险（按钮已禁用）
-    let res: Response;
     try {
-      res = await fetch("/api/manuscript/download/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          book_id: projectId,
-          target_dir: dir,
-          filename,
-          formats,
-        }),
+      await api.post("/manuscript/download/start", {
+        book_id: projectId,
+        target_dir: dir,
+        filename,
+        formats,
       });
-    } catch {
-      toast.error("下载发起失败，请重试");
-      return;
-    }
-    if (res.status === 409) {
-      // 409 detail = {"message","running_kind"}——按在跑任务类型说人话
-      let msg = "已有任务在进行中";
-      try {
-        const detail = (await res.json())?.detail;
-        msg = detail?.message ?? msg;
-      } catch {
-        /* 保底文案 */
+    } catch (e) {
+      // api 封装把 409 的 detail.message 映射进 e.message（job_runner running_kind 文案）
+      const err = e as Error & { status?: number };
+      if (err.status === 409) {
+        toast.info(err.message || "已有任务在进行中");
+        return;
       }
-      toast.info(msg);
-      return;
-    }
-    if (!res.ok) {
       toast.error("下载发起失败，请重试");
       return;
     }

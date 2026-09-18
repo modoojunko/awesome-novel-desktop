@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import RestoreModal from "@/components/RestoreModal";
 import { Ico, P } from "@/components/icons";
 import { useTier } from "@/hooks/useTier";
+import { api } from "@/lib/api";
 import { getUsername, logout } from "@/lib/auth";
 import { supportUrl } from "@/lib/support";
 import { formatVersion, useClientVersion } from "@/lib/version";
@@ -153,24 +154,19 @@ export default function AcctMenu({
     }
     const dir = await bridge.pick_folder();
     if (!dir) return;
-    const res = await fetch("/api/backup/export/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "backup", target_dir: dir, include_config: true }),
-    });
-    if (res.ok) {
+    try {
+      // 走 api 封装（自动带 Authorization；裸 fetch 曾致 401，与下载成稿同一缺陷）
+      await api.post("/backup/export/start", {
+        kind: "backup",
+        target_dir: dir,
+        include_config: true,
+      });
       alert("备份已开始，完成后文件将保存在所选目录");
-    } else if (res.status === 409) {
-      // 409 detail 结构化（c-manuscript-download）：按在跑任务类型说人话，不裸显 JSON
-      let msg = "已有任务在进行中";
-      try {
-        msg = (await res.json())?.detail?.message ?? msg;
-      } catch {
-        /* 保底文案 */
-      }
-      alert(msg);
-    } else {
-      alert("备份启动失败：" + (await res.text()));
+    } catch (e) {
+      // 409 detail 结构化（job_runner running_kind）：api 封装已把 detail.message 映射进 message
+      const err = e as Error & { status?: number };
+      if (err.status === 409) alert(err.message || "已有任务在进行中");
+      else alert("备份启动失败：" + (err.message || "请重试"));
     }
   };
 

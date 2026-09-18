@@ -5,6 +5,7 @@
  */
 import { useState } from "react";
 import Modal from "@/components/design/Modal";
+import { api } from "@/lib/api";
 import { getUsername } from "@/lib/auth";
 import { BRAND } from "@/lib/brand";
 
@@ -69,33 +70,22 @@ export default function RestoreModal({
   const toPreview = async () => {
     setError(null);
     try {
-      const res = await fetch("/api/backup/import/parse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paths }),
-      });
-      if (!res.ok) {
-        setError(await res.text());
-        return;
-      }
-      const d = await res.json();
+      // 走 api 封装（自动带 Authorization；裸 fetch 曾致 401，与下载成稿同一缺陷）
+      const d = await api.post("/backup/import/parse", { paths });
       setParseData(d.data);
       // 同名书副本标记：对照现有书目（解析与恢复之间的确认信息）
       try {
-        const nl = await fetch("/api/novels");
-        if (nl.ok) {
-          const list = await nl.json();
-          const names: string[] = Array.isArray(list)
-            ? list.map((b: { name?: string }) => b.name ?? "")
-            : [];
-          setExistingNames(new Set(names));
-        }
+        const list = await api.get("/novels");
+        const names: string[] = Array.isArray(list)
+          ? list.map((b: { name?: string }) => b.name ?? "")
+          : [];
+        setExistingNames(new Set(names));
       } catch {
         // 书清单拿不到就不标重名，不阻断恢复
       }
       setStep("preview");
     } catch (e) {
-      setError(String(e));
+      setError((e as Error).message || String(e));
     }
   };
 
@@ -103,21 +93,14 @@ export default function RestoreModal({
     setError(null);
     setStep("working");
     try {
-      const res = await fetch("/api/backup/import/persist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paths, include_config: !!configPath }),
+      const d = await api.post("/backup/import/persist", {
+        paths,
+        include_config: !!configPath,
       });
-      if (!res.ok) {
-        setError(await res.text());
-        setStep("preview");
-        return;
-      }
-      const d = await res.json();
       setSummary(d.data);
       setStep("done");
     } catch (e) {
-      setError(String(e));
+      setError((e as Error).message || String(e));
       setStep("pick");
     }
   };
