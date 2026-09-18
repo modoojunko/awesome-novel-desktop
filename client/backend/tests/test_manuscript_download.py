@@ -18,8 +18,8 @@ from auth_local.middleware import get_current_user
 from db import async_session
 from main import app
 from manuscript.content import build_manuscript
-from manuscript.render import render_docx, render_md, render_txt
-from manuscript.service import sanitize_filename
+from manuscript.render import cn_num, render_docx, render_md, render_txt
+from manuscript.service import PROBE_NAME, sanitize_filename, strip_artifact_ext
 from models.chapter import Chapter, ChapterContent
 from models.project import Novel
 from models.volume import Volume
@@ -173,6 +173,87 @@ def test_docx_output_is_valid_zip_container():
 
     data = render_docx(_mini_ms())
     assert zipfile.is_zipfile(io.BytesIO(data))
+
+
+# ── P3：序号 ≥1000 回退阿拉伯（曾 IndexError 整单硬失败）────────────────────
+
+
+def test_cn_num_above_999_falls_back_to_arabic():
+    assert cn_num(9) == "九"
+    assert cn_num(12) == "十二"
+    assert cn_num(21) == "二十一"
+    assert cn_num(102) == "一百二"
+    assert cn_num(999) == "九百九十九"
+    assert cn_num(1000) == "1000"
+    assert cn_num(1234) == "1234"
+    assert cn_num(0) == "0" and cn_num(-3) == "-3"
+
+
+def test_render_volume_with_1000_chapters_does_not_crash():
+    """单卷满千章：修复前 _CN[hundreds] 越界 → md/txt/docx 全格式硬失败。"""
+    from manuscript.content import Manuscript, ManuscriptChapter, ManuscriptVolume
+
+    ms = Manuscript(title="长书", volumes=[ManuscriptVolume(
+        no=1, title="第一卷",
+        chapters=[ManuscriptChapter(no=i, title=f"第{i}章", prose="正文一句。") for i in range(1, 1002)],
+    )])
+    md = render_md(ms)
+    txt = render_txt(ms)
+    # 999 及以下走中文数字；≥1000 回退阿拉伯（标题「第1000章」本身是默认序号形态，
+    # 不再重复拼名称）
+    assert "### 第九百九十九章" in md
+    assert "### 第1000章" in md
+    assert "### 第1001章" in md
+    assert "第1001章" in txt
+    assert "第1000章 · 第1000章" not in md
+    assert "undefined" not in md
+    assert zipfile.is_zipfile(__import__("io").BytesIO(render_docx(ms)))
+
+
+# ── P3：手输文件名自带产物扩展名不双写 ──────────────────────────────────────
+
+
+def test_strip_artifact_ext():
+    assert strip_artifact_ext("我的小说.md") == "我的小说"
+    assert strip_artifact_ext("我的小说.MD") == "我的小说"
+    assert strip_artifact_ext("我的小说.docx") == "我的小说"
+    assert strip_artifact_ext("我的小说.txt") == "我的小说"
+    assert strip_artifact_ext("  我的小说.md  ") == "我的小说"
+    assert strip_artifact_ext("我的小说") == "我的小说"
+    assert strip_artifact_ext("我的小说.v2") == "我的小说.v2"
+    assert strip_artifact_ext(".md") == ""
+
+
+def test_filename_with_artifact_ext_not_doubled(client, seeded, tmp_path):
+    out = tmp_path / "out"
+    r = client.post("/api/manuscript/download/start", json={
+        "book_id": seeded["novel_id"],
+        "target_dir": str(out),
+        "filename": "我的稿子.md",
+        "formats": ["md", "docx"],
+    })
+    assert r.status_code == 200, r.text
+    data = _wait_done(client)
+    assert data["state"] == "done", data
+    names = sorted(p.name for p in out.iterdir())
+    assert names == ["我的稿子.docx", "我的稿子.md"], names
+
+
+# ── P3：探针不留残渣、历史残留不致撞名 ──────────────────────────────────────
+
+
+def test_probe_leaves_no_residue(client, seeded, tmp_path):
+    out = tmp_path / "out"
+    # 模拟上一次进程被 SIGKILL 留下的固定名残渣（老实现的名字）
+    out.mkdir()
+    (out / PROBE_NAME).write_text("stale")
+    r = _start(client, seeded, tmp_path)
+    assert r.status_code == 200, r.text
+    assert _wait_done(client)["state"] == "done"
+    # 唯一名探针已清理；老残渣不参与（唯一名不会撞上，也不再新增同类文件）
+    fresh = [p.name for p in out.iterdir() if p.name.startswith(PROBE_NAME) and p.name != PROBE_NAME]
+    assert fresh == []
+    assert (out / PROBE_NAME).read_text() == "stale"  # 别人的残渣不越权删
 
 
 # ── sanitize ────────────────────────────────────────────────────────────────

@@ -6,9 +6,13 @@
 
 const CN_DIGITS = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
 
-/** 数字 → 中文数字（1 → 一，12 → 十二，21 → 二十一，102 → 一百零二）。 */
+/** 数字 → 中文数字（1 → 一，12 → 十二，21 → 二十一，102 → 一百二）。
+ *  四位及以上回退阿拉伯数字（1000 → "1000"）——中文数字只排到百位；不回退时
+ *  `CN_DIGITS[10]` 是 undefined，标签会渲染成「第undefined百…章」（P3，2026-09-18）。
+ *  后端 `manuscript/render.py::cn_num` 同族同回退，改一处必须两处同改。 */
 export function cnNum(n: number): string {
   if (n <= 0 || !Number.isInteger(n)) return String(n);
+  if (n >= 1000) return String(n);
   if (n < 10) return CN_DIGITS[n];
   if (n < 20) return `十${n % 10 ? CN_DIGITS[n % 10] : ""}`;
   if (n < 100) {

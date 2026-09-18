@@ -6,6 +6,8 @@
 """
 
 import asyncio
+import re
+import uuid
 from pathlib import Path
 
 from job_runner import JobError, classify_os_error, run_thread, set_job
@@ -21,6 +23,15 @@ FORMATS: dict[str, dict] = {
 }
 
 PROBE_NAME = ".ainovel-write-probe"
+
+# 产物扩展名（手输文件名自带时先剥掉，防 我的小说.md.md）
+_ARTIFACT_EXT_RE = re.compile(r"\.(md|txt|docx)$", re.IGNORECASE)
+
+
+def strip_artifact_ext(name: str) -> str:
+    """剥掉手输文件名自带的产物扩展名——不加这步，用户输入「我的小说.md」会得到
+    我的小说.md.md（md）/ 我的小说.md.docx（docx）（P3，2026-09-18）。"""
+    return _ARTIFACT_EXT_RE.sub("", (name or "").strip())
 
 
 def sanitize_filename(name: str) -> str:
@@ -98,9 +109,13 @@ async def _download_async(payload: dict, user_id: str) -> None:
     set_job(phase="probe")
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
-        probe = target_dir / PROBE_NAME
-        probe.write_text("ok")
-        probe.unlink()
+        # 唯一名 + finally 清理：固定名时若在 write 与 unlink 之间被 SIGKILL，用户目录会
+        # 永久留一个隐藏探针文件（P3，2026-09-18）；唯一名也让历史残留不致撞名/堆积。
+        probe = target_dir / f"{PROBE_NAME}-{uuid.uuid4().hex[:8]}"
+        try:
+            probe.write_text("ok")
+        finally:
+            probe.unlink(missing_ok=True)
     except OSError as e:
         # 归因与渲染阶段同源（classify_os_error）：disk_full/permission_denied/invalid_path/io_error
         raise JobError(classify_os_error(e), f"无法写入所选目录：{target_dir}") from e
@@ -117,7 +132,9 @@ async def _download_async(payload: dict, user_id: str) -> None:
         ms: Manuscript = await build_manuscript(db, project)
         book_name = project.name  # 会话关闭前取值（防 detached 访问）
 
-    safe_name = sanitize_filename(payload["filename"] or default_filename(book_name))
+    safe_name = sanitize_filename(
+        strip_artifact_ext(payload["filename"]) or default_filename(book_name)
+    )
     set_job(
         chapter_count=ms.chapter_count,
         word_count=ms.word_count,

@@ -242,3 +242,24 @@ class TestHooksModelParity:
         front = {int(k): v for k, v in re.findall(r'(\d+):\s*"([^"]+)"', m.group(1))}
         assert front == PRIORITY_LABELS, "priority 标签前后端不一致"
 
+    def test_cn_num_matches(self):
+        """卷/章序号：nodeTitle.ts::cnNum ↔ manuscript/render.py::cn_num（同族同回退）。
+
+        对拍表定义在前端测试 `src/__tests__/nodeTitle.test.ts` 的 CN_NUM_CASES，
+        这里正则抽取逐项比对——只改一侧（尤其 ≥1000 的阿拉伯回退）会被 CI 拦住。
+        """
+        from manuscript.render import cn_num
+
+        cases_src = (
+            Path(__file__).resolve().parents[2]
+            / "frontend" / "src" / "__tests__" / "nodeTitle.test.ts"
+        ).read_text()
+        m = re.search(r"CN_NUM_CASES[^=]*=\s*\[([\s\S]*?)\];", cases_src)
+        assert m, "CN_NUM_CASES 形态变了"
+        pairs = [(int(n), t) for n, t in re.findall(r'\[(-?\d+),\s*"([^"]+)"\]', m.group(1))]
+        assert len(pairs) >= 7, f"对拍表被削小了：{pairs}"
+        for n, expected in pairs:
+            assert cn_num(n) == expected, f"cn_num({n}) 前后端不一致：{cn_num(n)!r} != {expected!r}"
+        # 边界必须在表里（999/1000 是这次修复的核心）
+        assert {n for n, _ in pairs} >= {999, 1000}
+
