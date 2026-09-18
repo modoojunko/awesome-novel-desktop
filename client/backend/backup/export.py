@@ -154,24 +154,30 @@ async def dump_book_into(zf, db, project, prefix: str = "") -> None:
             ).all():
                 put(f"prompts/{ch.ref}-{prompt.name}.md", prompt.content)
 
-        # 归档（原文 + manifest 旁路元数据）
-        archives = (
-            await db.scalars(
-                select(Archive).join(Chapter).where(Chapter.project_id == project.id)
-            )
-        ).all()
-        for arch in archives:
-            name = _archive_filename(arch.chapter.ref, arch.title)
-            put(f"archives/{name}", arch.content)
-            manifest_archives.append({
-                "filename": name,
-                "ref": arch.chapter.ref,
-                "title": arch.title,
-                "summary": arch.summary,
-                "archived_at": arch.archived_at.isoformat()
-                if arch.archived_at
-                else None,
-            })
+    # 归档（原文 + manifest 旁路元数据）——书级块，与卷遍历解耦（c-backup-archive-dedup：
+    # 误置卷循环内会致 N 卷书每条归档写 N 遍 + manifest N 倍追加 + 全文字段 SELECT 放大）；
+    # 显式排序（卷序+章序）保证 manifest 顺序确定，不依赖查询计划
+    archives = (
+        await db.scalars(
+            select(Archive)
+            .join(Chapter)
+            .join(Volume)
+            .where(Chapter.project_id == project.id)
+            .order_by(Volume.volume_no, Chapter.chapter_no)
+        )
+    ).all()
+    for arch in archives:
+        name = _archive_filename(arch.chapter.ref, arch.title)
+        put(f"archives/{name}", arch.content)
+        manifest_archives.append({
+            "filename": name,
+            "ref": arch.chapter.ref,
+            "title": arch.title,
+            "summary": arch.summary,
+            "archived_at": arch.archived_at.isoformat()
+            if arch.archived_at
+            else None,
+        })
 
     if manifest_archives:
         put_yaml("archives/manifest.yaml", {"archives": manifest_archives})

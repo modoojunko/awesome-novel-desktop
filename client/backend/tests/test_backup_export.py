@@ -215,3 +215,112 @@ class TestBackupJobSingleFlight:
         assert r.status_code == 200
         done = _wait_done(client)
         assert done["state"] == "done", done
+
+
+# ── 归档段唯一性与完整性（c-backup-archive-dedup，PR #409 评审定位的预存在缺陷）──
+# 缺陷：dump_book_into 的书级归档查询与写入误置卷循环内 → N 卷书每条归档写 N 遍。
+# 断言纪律（实测钉死）：zip 同名重复条目在 set() 下塌成 1——必须用 namelist list 计数。
+
+
+async def _seed_book_with_archives(user_id: str, tmp_root: str, vols: int):
+    """建 1 本书：vols 卷 × 每卷 1 章（有正文） × 每卷 1 条归档。"""
+    from models.archive import Archive
+    from models.chapter import Chapter, ChapterContent
+    from models.project import Novel
+    from models.volume import Volume
+
+    slug = f"arch-{uuid.uuid4().hex[:8]}"
+    async with async_session() as session:
+        proj = Novel(
+            user_id=user_id, name="归档去重测试书", slug=slug,
+            root_path=str(Path(tmp_root) / slug), source="manual",
+            current_phase="write",
+        )
+        session.add(proj)
+        await session.flush()
+        for vno in range(1, vols + 1):
+            vol = Volume(project_id=proj.id, volume_no=vno, title=f"第{vno}卷")
+            session.add(vol)
+            await session.flush()
+            content = f"第{vno}卷归档正文。" * 12
+            ch = Chapter(
+                project_id=proj.id, volume_id=vol.id, chapter_no=1,
+                ref=f"vol-{vno}-ch-1", title=f"第{vno}卷首章", status="archived",
+                word_count=len(content), has_prose=True,
+            )
+            session.add(ch)
+            await session.flush()
+            session.add(ChapterContent(chapter_id=ch.id, prose=content))
+            session.add(Archive(
+                chapter_id=ch.id, title=f"第{vno}卷首章", summary=f"第{vno}卷摘要",
+                content=content,
+            ))
+        await session.commit()
+        return proj.id, slug
+
+
+def _arch_client(tmp_path, monkeypatch, vols: int):
+    """建用户 + vols 卷带归档的书，返回 (client, novel_id, slug)。"""
+    user_id = asyncio.run(_seed_user_with_config())
+    book_root = tmp_path / "book-root"
+    book_root.mkdir()
+    novel_id, slug = asyncio.run(_seed_book_with_archives(user_id, str(book_root), vols))
+    monkeypatch.setattr("backup.router.DATA_ROOT", str(tmp_path / "data-root"))
+    app.dependency_overrides[get_current_user] = lambda: {"id": user_id}
+    return TestClient(app), novel_id, slug
+
+
+def _read_backup_archives(target_dir: Path, slug: str):
+    """从整库资产包读归档条目与 manifest（返回值即数据，不留句柄）。"""
+    with zipfile.ZipFile(target_dir / backup_zip_name()) as zf:
+        arch = [
+            n for n in zf.namelist()
+            if n.startswith(f"projects/{slug}/archives/") and n.endswith(".md")
+        ]
+        man = yaml.safe_load(zf.read(f"projects/{slug}/archives/manifest.yaml"))["archives"]
+        return arch, man
+
+
+class TestArchiveDedup:
+    def test_multi_volume_archives_unique(self, tmp_path, monkeypatch):
+        """2 卷 × 每卷 1 归档：条目恰 2（修复前 4，必红）、manifest 恰 2 且无重复 filename。
+
+        断言必须用 list 计数（set 会掩盖重复）；manifest 字段集锁定不变。
+        """
+        client, _novel_id, slug = _arch_client(tmp_path, monkeypatch, vols=2)
+        with client:
+            target_dir = tmp_path / "out"
+            r = client.post("/api/backup/export/start", json={
+                "kind": "backup", "target_dir": str(target_dir), "include_config": False,
+            })
+            assert r.status_code == 200, r.text
+            done = _wait_done(client)
+            assert done["state"] == "done", done
+
+            arch, man = _read_backup_archives(target_dir, slug)
+            assert len(arch) == 2, f"归档条目应恰 2（namelist 计数）: {arch}"  # 修复前 4
+            assert len(set(arch)) == 2
+            assert len(man) == 2, f"manifest 应恰 2 条: {man}"
+            assert len({m["filename"] for m in man}) == 2
+            assert set(man[0]) == {"filename", "ref", "title", "summary", "archived_at"}
+        app.dependency_overrides.clear()
+
+    def test_single_volume_bytes_unchanged(self, tmp_path, monkeypatch):
+        """1 卷 1 归档：条目恰 1、manifest 恰 1、条目内容字节等于库内 content（单卷行为不变）。"""
+        client, _novel_id, slug = _arch_client(tmp_path, monkeypatch, vols=1)
+        with client:
+            target_dir = tmp_path / "out1"
+            r = client.post("/api/backup/export/start", json={
+                "kind": "backup", "target_dir": str(target_dir), "include_config": False,
+            })
+            assert r.status_code == 200, r.text
+            done = _wait_done(client)
+            assert done["state"] == "done", done
+
+            arch, man = _read_backup_archives(target_dir, slug)
+            assert len(arch) == 1 and len(man) == 1
+            with zipfile.ZipFile(target_dir / backup_zip_name()) as zf:
+                content = zf.read(arch[0]).decode("utf-8")
+            assert content == "第1卷归档正文。" * 12
+            assert set(man[0]) == {"filename", "ref", "title", "summary", "archived_at"}
+        app.dependency_overrides.clear()
