@@ -50,7 +50,7 @@
 
 ## 7. e2e 与 parity
 
-- [ ] 7.1 存量改写：`e2e/workbench-features.spec.ts`（:231-285 信息差块、:287-345 卷纲旧面板断言、**:550-552 `remount()` 的「卷摘要」文案断言**）；`e2e/free-writing-flow.spec.ts:198-202`；`e2e/design-parity-book.spec.ts` volume case 处置（默认下线 case＋登记「卷纲屏事实源转 storyline.html」；`docs/design-c/baselines/book.volume.*.png` 同步清理；gate 若改判「重录」则 book.html 换稿重拍）。验证：三文件跑绿
+- [x] 7.1 存量改写：`e2e/workbench-features.spec.ts`（:231-285 信息差块、:287-345 卷纲旧面板断言、**:550-552 `remount()` 的「卷摘要」文案断言**）；`e2e/free-writing-flow.spec.ts:198-202`；`e2e/design-parity-book.spec.ts` volume case 处置（默认下线 case＋登记「卷纲屏事实源转 storyline.html」；`docs/design-c/baselines/book.volume.*.png` 同步清理；gate 若改判「重录」则 book.html 换稿重拍）。验证：三文件跑绿
 - [ ] 7.2 卷视图新 e2e 最小覆盖：选卷→四页签切换→编辑卷纲保存→进度线与右栏语境断言。验证：新 spec 绿
 - [ ] 7.3 全量门禁：**重建 C端 docker 容器后容器内全量 pytest**（既定规矩）＋`tsc --noEmit && npm run build`＋全量 e2e＋vitest 全量（S端零涉及，不适用双端 cross）。验证：各套全绿留输出
 

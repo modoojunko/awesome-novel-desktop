@@ -1,0 +1,10 @@
+# 本地隔离栈 override（e2e 临时用，不入库）：与主仓在跑栈共存，改容器名＋靠 env 改端口
+services:
+  server-backend:
+    container_name: volview-server-backend
+  server-frontend:
+    container_name: volview-server-frontend
+  client-backend:
+    container_name: volview-client-backend
+  client-frontend:
+    container_name: volview-client-frontend

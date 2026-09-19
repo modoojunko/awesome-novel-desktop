@@ -225,123 +225,86 @@ test("章纲：OgPane 真实表单编辑 + 保存草稿（概要/关键事件/�
 // -------------------------------------------------------------------------
 
 // -------------------------------------------------------------------------
-// ⑦ 信息差对齐（PR6）：章纲顶部只读块 = 卷级起止 + 本章规划行（章号对齐）
+// ⑦ 信息差对齐块：随卷纲换代退役（c-volume-view-storyline，ADJUSTMENTS ⑤）
 // -------------------------------------------------------------------------
 
-test("信息差对齐：章纲顶部只读块显示卷级起止 + 本章规划行", async ({
-  page,
-  request,
-}) => {
-  const { restore, token } = await setupSession(page);
+test("信息差对齐块已退役：章纲页签不再出现 og-info-gap", async ({ page }) => {
+  const { restore } = await setupSession(page);
   try {
-    const pid = await createNovel(page, `信息差e2e${Date.now()}`);
-    // 加卷 + 1 章，点章落在章纲页签
-    await page.getByTitle("添加卷").click();
-    await page.getByLabel("卷名", { exact: true }).fill("第一卷");
-    await page.getByLabel(/初始章数/).fill("1");
-    await page.getByRole("button", { name: "创建卷" }).click();
-    const chRow = page.locator(".col-tree .ch", { hasText: "第一章" });
-    await expect(chRow).toBeVisible({ timeout: 10000 });
-    await chRow.click();
-    await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({
-      timeout: 10000,
-    });
-    // 未配置信息差 → 块不渲染
+    await createNovel(page, `信息差退役${Date.now()}`);
+    await writeFirstChapter(page);
+    // 旧块消费的 info_gap_start/end 与 chapter_plans 已随卷纲换代退役
     await expect(page.getByTestId("og-info-gap")).toHaveCount(0);
-
-    // API 直写卷级信息差 + 章规划行（VolumeUpdate 部分更新语义，差异字段即可）
-    const put = await request.put(
-      `${ORIGIN}/api/novels/${pid}/volumes/vol-1`,
-      {
-        data: {
-          info_gap_start: "读者知道地契是假的",
-          info_gap_end: "读者知道仇家已到门口",
-          chapter_plans: [
-            {
-              chapter_no: 1,
-              title: "开张",
-              info_gap: "反派知道是陷阱 ↦ 主角不知道",
-            },
-          ],
-        },
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    );
-    expect(put.ok()).toBeTruthy();
-
-    // 重新点章触发信息差拉取（章选择是组件态，reload 后需重选）
-    await page.reload();
-    await expect(page.locator(".col-tree .ch", { hasText: "第一章" })).toBeVisible({
-      timeout: 10000,
-    });
-    await page.locator(".col-tree .ch", { hasText: "第一章" }).click();
-    const block = page.getByTestId("og-info-gap");
-    await expect(block).toBeVisible({ timeout: 10000 });
-    await expect(block).toContainText("读者知道地契是假的 → 读者知道仇家已到门口");
-    await expect(block).toContainText("反派知道是陷阱 ↦ 主角不知道");
   } finally {
     await restore();
   }
 });
 
-test("卷纲面板：点卷节点 → 常编辑态 → 摘要/核心冲突/子表行 → 保存 + 去配章纲", async ({
+test("卷视图：点卷节点 → 四页签 → 卷纲两态编辑保存 → 进度线与右栏卷语境", async ({
   page,
   request,
 }) => {
   const { restore, token } = await setupSession(page);
   try {
-    const pid = await createNovel(page, `卷页${Date.now() % 100000}`);
+    const pid = await createNovel(page, `卷视图${Date.now() % 100000}`);
     await writeFirstChapter(page);
 
-    // 点卷头 → 主区变卷纲面板（常编辑态，无「编辑」入口）；标题走 nodeLabel 口径（#164）
+    // 点卷头 → 中栏卷视图：头部（卷 · 分卷计划）＋四页签，默认查看态
     await page.locator(".col-tree .vol-head", { hasText: "第一卷" }).click();
-    await expect(
-      page.getByPlaceholder("一段话讲清本卷讲什么"),
-    ).toBeVisible({ timeout: 10000 });
-    await expect(
-      page.getByRole("heading", { name: /第一卷/ }),
-    ).toBeVisible();
-    await expect(page.getByRole("button", { name: "保存卷纲" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "去配章纲" })).toBeVisible();
+    await expect(page.getByText("卷 · 分卷计划")).toBeVisible({ timeout: 10000 });
+    for (const name of ["卷纲", "本卷章节", "角色关系", "伏笔"]) {
+      await expect(page.getByRole("tab", { name })).toBeVisible();
+    }
+    await expect(page.getByRole("button", { name: "编辑卷纲" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /第一卷/ })).toBeVisible();
 
-    // 9 标量：摘要 + 核心冲突；子表：阶段分配 + 冲突阶梯（新行工厂）
+    // 编辑态：主旨/核心矛盾必填；整体目标/伏笔一行一条；章数目标清空通道
+    await page.getByRole("button", { name: "编辑卷纲" }).click();
+    await expect(page.getByText("正在编辑卷纲")).toBeVisible();
+    await page.getByLabel(/本卷主旨/).fill("第一卷铺垫主角妹妹失踪的悬念，收尾进入边城。");
+    await page.getByLabel(/核心矛盾/).fill("匿名信与失踪案的真假之辨");
+    await page.getByLabel(/整体目标/).fill("查明匿名信来源");
+    await page.getByLabel(/预期结局/).fill("内鬼浮出水面");
     await page
-      .getByPlaceholder("一段话讲清本卷讲什么")
-      .fill("第一卷铺垫主角妹妹失踪的悬念，收尾进入边城。");
-    await page.getByPlaceholder("本卷贯穿的核心矛盾").fill("匿名信与失踪案的真假之辨");
-    await page.getByRole("button", { name: "添加阶段" }).click();
-    await page.getByPlaceholder("阶段名").fill("悬念建立");
-    await page.getByPlaceholder("该阶段的一句话功能").fill("匿名信把主角拖回旧案");
-    await page.getByTitle("章数").fill("4");
-    await page.getByRole("button", { name: "添加层级" }).click();
-    await page.getByPlaceholder("章节区间").fill("第 1-4 章");
-    await page.getByPlaceholder("本层障碍").fill("关键证人拒绝作证");
-
+      .getByLabel(/本卷埋下伏笔/)
+      .fill("妹妹留下的半页日记\n匿名信的邮戳");
     // 保存 → PUT /volumes/vol-1 → 统一 toast《title》卷纲已保存
     const volSave = page.waitForResponse(
       (r) =>
         r.request().method() === "PUT" &&
         r.url().includes("/volumes/vol-1"),
     );
-    await page.getByRole("button", { name: "保存卷纲" }).click();
+    await page.getByRole("button", { name: "保存" }).click();
     await volSave;
     await expect(page.getByText("卷纲已保存")).toBeVisible({ timeout: 5000 });
 
-    // 后端直查：标量 + 子表整族替换落库
+    // 后端直查：新字段集落库（plants 为 list 契约）
     const vol = await apiGetJSON(request, token, `/novels/${pid}/volumes/vol-1`);
     expect(vol.summary).toContain("妹妹失踪");
     expect(vol.core_conflict).toBe("匿名信与失踪案的真假之辨");
-    expect(vol.stages).toHaveLength(1);
-    expect(vol.stages[0].stage_name).toBe("悬念建立");
-    expect(vol.stages[0].chapter_count).toBe(4);
-    expect(vol.conflict_ladders).toHaveLength(1);
-    expect(vol.conflict_ladders[0].chapters_range).toBe("第 1-4 章");
+    expect(vol.goal).toBe("查明匿名信来源");
+    expect(vol.ending).toBe("内鬼浮出水面");
+    expect(vol.plants).toEqual(["妹妹留下的半页日记", "匿名信的邮戳"]);
 
-    // 去配章纲 → 跳本卷第一个未确认章并强制落「章纲」页签
-    await page.getByRole("button", { name: "去配章纲" }).click();
-    await expect(
-      page.getByRole("tab", { name: /^章纲/ }),
-    ).toBeVisible({ timeout: 10000 });
+    // 查看态回显 + 进度线（第一章有正文未归档 = 草稿；frontier 定位待写）
+    await expect(page.getByText("第一卷铺垫主角妹妹失踪的悬念，收尾进入边城。")).toBeVisible();
+    const progress = page.getByTestId("vol-progress");
+    await expect(progress).toContainText("草稿 1 章");
+    await expect(progress).toContainText("待写 第 1 章");
+
+    // 右栏卷语境随页签：卷纲 → 本卷章节
+    await expect(page.getByText("AI 辅助 · 卷纲")).toBeVisible();
+    const railStats = page.getByTestId("volume-rail-stats");
+    await expect(railStats).toContainText("章数目标");
+    await page.getByRole("tab", { name: "本卷章节" }).click();
+    await expect(page.getByText("AI 辅助 · 本卷章节")).toBeVisible();
+    // 台账行（章纲一句话列）＋点行跳章
+    const row = page.locator(".vol-chrow", { hasText: "第一章" });
+    await expect(row).toBeVisible();
+    await row.click();
+    await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({
+      timeout: 10000,
+    });
   } finally {
     await restore();
   }
@@ -548,7 +511,9 @@ test("点章强制落章纲：确认/有正文后重挂载仍落章纲 + 右栏�
     const tree = page.locator(".col-tree");
     const remount = async () => {
       await tree.locator(".vol-head", { hasText: "第一卷" }).click();
-      await expect(page.getByText("卷摘要")).toBeVisible({ timeout: 5000 });
+      await expect(
+        page.getByRole("button", { name: "编辑卷纲" }),
+      ).toBeVisible({ timeout: 5000 });
       await tree.locator(".ch", { hasText: "第一章" }).click();
       await expect(ogTab).toBeVisible({ timeout: 10000 });
     };

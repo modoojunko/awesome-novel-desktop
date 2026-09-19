@@ -22,9 +22,11 @@ const CONFIG_PATH = path.join(
 );
 
 async function sRegisterAndLogin() {
-  const name = `e2e_genreai_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  // 前缀收敛：S端 用户名硬上限 32（security-hardening 校验），12 字前缀＋时间戳必超
+  const name = `e2e_gai_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const password = "Test" + "Pass789!";
-  await fetch(`${S_API}/register`, {
+  // register 必须落窗再 login：并发抢跑会让 login 撞「用户名或密码错误」
+  const reg = await fetch(`${S_API}/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -34,6 +36,10 @@ async function sRegisterAndLogin() {
       security_answer: "蓝色",
     }),
   });
+  const regBody = await reg.json();
+  if (regBody.code !== 0) {
+    throw new Error(`S端 register 失败: ${JSON.stringify(regBody)}`);
+  }
   const login = await fetch(`${S_API}/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -54,7 +60,20 @@ async function setupSession(page: Page, tier = "trial") {
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+  // 竞态守卫（同 workbench-features writeOAuthSession）：上测 teardown 残留的
+  // check-auth 会异步回写 config.json 冲掉注入 token → 业务 401 弹登录。
+  // 写入后观察至连续两轮稳定，被冲掉即重写。
+  const mine = JSON.stringify(cfg, null, 2);
+  const writeMine = () => fs.writeFileSync(CONFIG_PATH, mine);
+  writeMine();
+  for (let stable = 0, tries = 0; stable < 2 && tries < 10; tries++) {
+    await new Promise((r) => setTimeout(r, 300));
+    if (fs.readFileSync(CONFIG_PATH, "utf-8") === mine) stable += 1;
+    else {
+      writeMine();
+      stable = 0;
+    }
+  }
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
   // 注入会话的 pc_hash 在 S端 无设备授权（code 1），后端会据此清空 config.json
   // 的注入 token → 业务 401；桩掉这次往返保住会话（见 settings-forms.spec.ts 同注）
