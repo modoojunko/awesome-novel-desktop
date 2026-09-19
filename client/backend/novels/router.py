@@ -20,10 +20,12 @@ from novels.service import (
     build_project_tree,
     create_project,
     delete_project,
+    finish_novel,
     get_novel,
     get_project_by_slug,
     list_projects,
     novel_to_dict,
+    reopen_novel,
     rename_project,
     slugify,
 )
@@ -464,6 +466,55 @@ async def rename(
         return novel_to_dict(project)  # idempotent same-name save
     renamed = await rename_project(db, project, new_name)
     return novel_to_dict(renamed)
+
+
+@router.post("/{project_id}/finish")
+async def finish(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """完本（works-finish-flow）：主线章全部归档后把书标为已完结（finished_at）。
+
+    守卫与书架卡片判据同源（主线口径 ghost_of IS NULL）——卡片亮出「完本」的
+    前提就是全归档，接口不放宽；旧稿支线章不挡完本也不计入。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Novel not found")
+    if project.finished_at:
+        raise HTTPException(409, "这本书已完结，不用重复完本")
+    from models.chapter import Chapter
+
+    statuses = (
+        await db.scalars(
+            select(Chapter.status).where(
+                Chapter.project_id == project.id,
+                Chapter.ghost_of.is_(None),
+            )
+        )
+    ).all()
+    total = len(statuses)
+    archived = sum(1 for s in statuses if s == "archived")
+    if total <= 0 or archived < total:
+        raise HTTPException(409, "还有主线章节未归档，完本前先把主线章节全部归档")
+    finished = await finish_novel(db, project)
+    return novel_to_dict(finished)
+
+
+@router.post("/{project_id}/reopen")
+async def reopen(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """撤完本（works-finish-flow）：清完结时间戳，书回到待完本/写作中（按章派生）。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Novel not found")
+    if not project.finished_at:
+        raise HTTPException(409, "这本书还未完结，不能撤完本")
+    reopened = await reopen_novel(db, project)
+    return novel_to_dict(reopened)
 
 
 @router.get("/{project_id}/story")

@@ -29,6 +29,9 @@ class Novel(Base):
     hook_seq_high: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     source: Mapped[str] = mapped_column(String(10), default="ai")
     backfill_status: Mapped[str] = mapped_column(String(20), default="none")
+    # 完本状态（works-finish-flow）：完本动作写、撤完本清；阶段仍派生（novelStage），
+    # finished_at 是「已完结」的唯一判据，「完结于 X」文案的数据源
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ai_config_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("api_configs.id", ondelete="SET NULL"), nullable=True
     )
