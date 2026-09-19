@@ -293,12 +293,12 @@ test("卷视图：点卷节点 → 四页签 → 卷纲两态编辑保存 → �
     await expect(progress).toContainText("拟定")
     await expect(progress).toContainText("第 1 章");
 
-    // 右栏卷语境随页签：卷纲 → 本卷章节
-    await expect(page.getByText("AI 辅助 · 卷纲")).toBeVisible();
+    // 右栏卷语境随页签：卷纲 → 本卷章节（#437 重绘后＝AI 助手头 + 当前页签 chip）
+    await expect(page.getByText("AI 助手")).toBeVisible();
     const railStats = page.getByTestId("volume-rail-stats");
     await expect(railStats).toContainText("章数目标");
     await page.getByRole("tab", { name: "本卷章节" }).click();
-    await expect(page.getByText("AI 辅助 · 本卷章节")).toBeVisible();
+    await expect(page.locator(".ai-ctx")).toContainText("本卷章节");
     // 台账行（章纲一句话列）＋点行跳章
     const row = page.locator(".vol-chrow", { hasText: "第一章" });
     await expect(row).toBeVisible();
