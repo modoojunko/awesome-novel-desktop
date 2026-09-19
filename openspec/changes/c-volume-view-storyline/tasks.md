@@ -2,9 +2,9 @@
 
 ## 0. 原型与登记先行（UI 变更固定首任务）
 
-- [ ] 0.1 `git add docs/design-c/drafts/storyline.html`（设计事实源现为 untracked，先入库）；核验原型卷视图段就绪（**以符号名检索为准**，行号随盘刷新：`volOutlineText`≈1609／`volReadHTML`≈3090／`volEditHTML`≈3122／`volOutlineHTML`≈3173／`volChaptersHTML`≈3195／`volumeEditorHTML`≈3208／卷域截断 `relsHTML(0, order, false)`、`hooksHTML(0, order)`／`aiVolHTML`≈3408）。验证：文件在 `git status` 中不再是 untracked
-- [ ] 0.2 `docs/design-c/prototypes/ADJUSTMENTS.md` 登记条先行（登记项清单，正文随实现收口）：①章数目标编辑态保留可编辑＋布局口径；②卷域动作清单暂缺另行立项（原型 `aiVolHTML` 动作段领先于实现，勿照补）；③装配全空返回空串（非原型占位符）；④结构模板字面沿产品单源「起承転結」；⑤章工作台「信息差对齐」块随字段换代退役；⑥book.html 卷纲段过时＋book 屏 parity `volume` case 处置；⑦卷域投影截至本卷末（原型截断语义）＋伏笔归类/关系图例为原型外新增标注；⑧本机库首启留档重置＋备份 N-1 读窗豁免（无用户口径）；⑨待写口径取 frontier（首个未归档章，含草稿），原型 `pendingInfo`（首个拟定章＋末端占位）为有意偏差；⑩ N-1 恢复演练豁免（新格式自身 roundtrip 仍须全绿）。验证：条目落盘可 grep
-- [ ] 0.3 **c-workbench-outline-fixes ② 摘除**（须在该 change 归档前完成，故前置于此）：摘其 `specs/workbench/spec.md` 的「章数目标布局」requirement（含 2 scenario）、`tasks.md` 对应条、登记条；代码面（旧 VolumePanel/.field.chtarget）随本 change 自然消失。验证：该 change 四件套复核一致（② 不再存在，①③ 保留）
+- [x] 0.1 `git add docs/design-c/drafts/storyline.html`（设计事实源现为 untracked，先入库）；核验原型卷视图段就绪（**以符号名检索为准**，行号随盘刷新：`volOutlineText`≈1609／`volReadHTML`≈3090／`volEditHTML`≈3122／`volOutlineHTML`≈3173／`volChaptersHTML`≈3195／`volumeEditorHTML`≈3208／卷域截断 `relsHTML(0, order, false)`、`hooksHTML(0, order)`／`aiVolHTML`≈3408）。验证：文件在 `git status` 中不再是 untracked
+- [x] 0.2 `docs/design-c/prototypes/ADJUSTMENTS.md` 登记条先行（登记项清单，正文随实现收口）：①章数目标编辑态保留可编辑＋布局口径；②卷域动作清单暂缺另行立项（原型 `aiVolHTML` 动作段领先于实现，勿照补）；③装配全空返回空串（非原型占位符）；④结构模板字面沿产品单源「起承転結」；⑤章工作台「信息差对齐」块随字段换代退役；⑥book.html 卷纲段过时＋book 屏 parity `volume` case 处置；⑦卷域投影截至本卷末（原型截断语义）＋伏笔归类/关系图例为原型外新增标注；⑧本机库首启留档重置＋备份 N-1 读窗豁免（无用户口径）；⑨待写口径取 frontier（首个未归档章，含草稿），原型 `pendingInfo`（首个拟定章＋末端占位）为有意偏差；⑩ N-1 恢复演练豁免（新格式自身 roundtrip 仍须全绿）。验证：条目落盘可 grep
+- [x] 0.3 **c-workbench-outline-fixes ② 摘除**（须在该 change 归档前完成，故前置于此）：摘其 `specs/workbench/spec.md` 的「章数目标布局」requirement（含 2 scenario）、`tasks.md` 对应条、登记条；代码面（旧 VolumePanel/.field.chtarget）随本 change 自然消失。验证：该 change 四件套复核一致（② 不再存在，①③ 保留）
 
 ## 1. 后端：模型换代与迁移验证（沿既有留档 doctrine，零新增迁移机制）
 
