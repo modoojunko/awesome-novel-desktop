@@ -1,7 +1,7 @@
 """ai-prompt-crafting — 正文三工序（铁律注入 / 字数校验 / 叙事自查）
 
 单元：run_narrative_self_check 各规则命中与干净正文空清单；铁律常量要素齐全。
-契约：POST /write/write 流式生成——system 含铁律；done 事件含 word_check
+契约：POST /write 流式生成——system 含铁律；done 事件含 word_check
 （不足 <90% 带文案 / 达标无警告）与 self_check；正文照常落库。
 
 用法：
@@ -260,7 +260,7 @@ class TestWritePipeline:
 
         monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
 
-        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
         assert r.status_code == 200, r.text
         # 工序①：system 含铁律
         assert "写作铁律" in fake.last_kwargs["system"]
@@ -281,7 +281,7 @@ class TestWritePipeline:
 
         monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
 
-        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
         assert r.status_code == 200, r.text
         done = _done_event(r.text)
         wc = done["word_check"]
@@ -314,7 +314,7 @@ class TestWritePipeline:
 
         monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
 
-        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
         assert r.status_code == 200, r.text
         done = _done_event(r.text)
         wc = done["word_check"]
@@ -341,7 +341,7 @@ class TestWritePipeline:
 
         monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
 
-        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
         assert r.status_code == 200, r.text
         done = _done_event(r.text)
         rules = " ".join(i["rule"] for i in done["self_check"])

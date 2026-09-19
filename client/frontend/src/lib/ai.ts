@@ -95,7 +95,11 @@ function doStreamFetch(
     .then(async (response) => {
       if (!response.ok) {
         const err = await response.json().catch(() => ({ detail: response.statusText }));
-        callbacks.onError(detailMessage(err?.detail, "写作出错"));
+        // 状态码随文案下发：路由错位/网关错误等非业务失败不再只剩一句「Not Found」
+        // （qa-night 2026-09-19 P1 附加项：AI 生成失败必须可读、可感知）
+        callbacks.onError(
+          `${detailMessage(err?.detail, "写作出错")}（HTTP ${response.status}）`,
+        );
         return;
       }
 
