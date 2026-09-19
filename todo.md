@@ -31,6 +31,8 @@
 >   ALTER TABLE device_grants ADD COLUMN challenge VARCHAR(64);
 > ③部署配置补 CORS_ALLOW_ORIGINS（www + 静态托管默认域名）。
 > ④部署后复核：bcrypt 登录耗时看 CLS；XFF 探针（event=proxy_probe）回填 TRUSTED_PROXY_HOPS 后移除。
+> ⑤ **v0.24 已发版**（tag + GitHub Release 源码版，对外文案已上）：安装包待 Actions 恢复后
+>   re-run 失败的发布流水线自动补挂；S端 部署已由本地完成（无需重复）。
 
 **现状对照**
 
