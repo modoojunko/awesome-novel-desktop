@@ -25,7 +25,7 @@ siteBeian.policeUrl = policeQueryUrl(police, policeLink)
 
 /**
  * 应用运行时覆盖（site-config.json 非空字段才生效；空/缺省回落构建期值）。
- * ⚠️ 仅限 main.ts bootstrap 在挂载前调用一次：siteBeian 是普通对象，变异不触发
+ * 注意：仅限 main.ts bootstrap 在挂载前调用一次：siteBeian 是普通对象，变异不触发
  * 响应式，挂载后才改不会重渲染。
  */
 export function applyBeianOverride(cfg: { beianIcp?: string; beianPolice?: string; beianPoliceLink?: string }): void {

@@ -44,7 +44,10 @@ export const paletteRegex =
 // 源码里出现裸 hex / rgb()/rgba() 字面量即违规。
 // 负向后行断言排除锚点 href="#features"（#fea 会伪装成三位色值）、
 // SVG url(#ref) 与路由 /#/hash 片段——它们不是颜色。
-export const hexRegex = /(?<!["'`(/])#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])/;
+// 负向先行断言 (?!\s*\p{Script=Han}) 排除注释里「#414 评审」这类 issue 号引用
+// （3/6/8 位数字后跟空白+中文）——与 C端 design-vocab 同批修改，两端同源。
+export const hexRegex =
+  /(?<!["'`(/])#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])(?!\s*\p{Script=Han})/u;
 export const rgbRegex = /\brgba?\(\s*\d/;
 
 // 图标一律走 @/components/ui/icons 注册表（原型 SVG 路径照抄）；
