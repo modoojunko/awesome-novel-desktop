@@ -27,7 +27,7 @@ const authorized = ref(false)
 const errorMsg = ref('')
 const authResult = ref<{ tier: string; expires_at: string }>({ tier: '', expires_at: '' })
 const isInvalid = ref(false)
-// 桌面端本机配对密钥的哈希（s-security-hardening）；缺失=客户端版本过旧
+// 桌面端本机配对密钥的哈希（s-security-hardening）；缺失=配对信息不全（模糊信号）
 const challenge = ref('')
 const isOutdatedClient = ref(false)
 // 升级出口：实时解析线上最新版（失败回落 Releases 页）
@@ -108,7 +108,7 @@ async function submitAuth() {
       </p>
     </template>
 
-    <!-- 版本错配兑底：授权入口缺少配对信息（桌面端版本过旧）-->
+    <!-- 配对信息不全兜底：授权入口缺少配对信息（需要更新，不断言版本旧）-->
     <template v-else-if="isOutdatedClient">
       <div class="brand-row">
         <span class="logo-mark">{{ brand.mark }}</span>
@@ -116,7 +116,7 @@ async function submitAuth() {
       </div>
       <h1>设备授权</h1>
       <p class="notice warn">
-        <Ico :d="P.alert" />当前桌面应用版本过旧，无法完成授权。请升级到最新版本后重新登录。
+        <Ico :d="P.alert" />此版本的桌面应用需要更新后才能完成授权。你的作品都保存在这台电脑上，更新不会改动它们。
       </p>
       <p class="foot-lnk">
         <a v-if="winUrl" :href="winUrl" target="_blank" rel="noopener noreferrer" class="lnk">下载 Windows 版</a>

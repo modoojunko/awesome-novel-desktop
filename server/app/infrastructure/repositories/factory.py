@@ -9,11 +9,13 @@ from app.infrastructure.repositories.pg_http.code_repo import PgHttpCodeRepo
 from app.infrastructure.repositories.pg_http.config_repo import PgHttpConfigRepo
 from app.infrastructure.repositories.pg_http.device_repo import PgHttpDeviceRepo
 from app.infrastructure.repositories.pg_http.grant_repo import PgHttpGrantRepo
+from app.infrastructure.repositories.pg_http.outdated_repo import PgHttpOutdatedMarkRepo
 from app.infrastructure.repositories.pg_http.user_repo import PgHttpUserRepo
 from app.infrastructure.repositories.sql.code_repo import SqlCodeRepo
 from app.infrastructure.repositories.sql.config_repo import SqlConfigRepo
 from app.infrastructure.repositories.sql.device_repo import SqlDeviceRepo
 from app.infrastructure.repositories.sql.grant_repo import SqlGrantRepo
+from app.infrastructure.repositories.sql.outdated_repo import SqlOutdatedMarkRepo
 from app.infrastructure.repositories.sql.user_repo import SqlUserRepo
 
 Db = Session | object  # Session（sqlite）/ PgRestClient（pg_http），具体类型见 get_db()
@@ -37,6 +39,10 @@ def device_repo(db: Db):
 
 def grant_repo(db: Db):
     return PgHttpGrantRepo(get_pg_client()) if _use_pg_http() else SqlGrantRepo(db)
+
+
+def outdated_mark_repo(db: Db):
+    return PgHttpOutdatedMarkRepo(get_pg_client()) if _use_pg_http() else SqlOutdatedMarkRepo(db)
 
 
 def config_repo(db: Db):

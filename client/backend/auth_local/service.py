@@ -495,6 +495,19 @@ async def browser_auth(silent: bool = False) -> dict:
                     "message": "账号注销申请处理中，付费与套餐功能已暂停；可到网页控制台撤销。本地作品不受影响。",
                 },
             }
+        if result.get("code") == 3:
+            # s-auth-outdated-signal：S端 标记该 pc_hash 客户端需更新——透传结构化
+            # 载荷给前端（登录页 UpgradeGate 消费）。不清凭据、不改 config。
+            data = result.get("data") or {}
+            return {
+                "code": 3,
+                "data": {
+                    "client_outdated": True,
+                    "latest_version": data.get("latest_version", ""),
+                    "download_url": data.get("download_url", ""),
+                    "message": "需要更新后才能登录。你的作品都在这台电脑上。",
+                },
+            }
         if result.get("code") == 1:
             # S端 明确「未登录/会话失效」：曾登录过（config.json 有 token）说明会话已被
             # 服务端作废（典型=账号已注销/会话丢失）——清凭据并发结构化失效信号（design D6）。
