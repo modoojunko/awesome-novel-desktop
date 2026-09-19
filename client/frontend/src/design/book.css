@@ -1264,7 +1264,9 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .rail-assist { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
 .rail-lead { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
 .rail-stats { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
-.rail-stats li { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.rail-stats li { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12.5px; }
+/* 标签/值禁折行：窄列下「章数目标」曾折成「章数目／标」（卷视图上线实测，同 QA ② 观感） */
+.rail-stats .k, .rail-stats .v { white-space: nowrap; }
 .rail-stats .k { color: var(--muted); }
 .rail-stats .v { font-weight: 600; }
 .rail-acts { display: flex; flex-direction: column; gap: 7px; }
