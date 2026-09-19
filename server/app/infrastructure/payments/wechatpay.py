@@ -123,8 +123,12 @@ class WechatPayGateway:
         from cryptography.hazmat.primitives.serialization import load_pem_private_key
         from wechatpayv3 import WeChatPay, WeChatPayType
 
-        private_key_pem = Path_read(settings.WXPAY_PRIVATE_KEY_PATH)
-        public_key_pem = Path_read(settings.WXPAY_PUB_KEY_PATH)
+        # 密钥来源二选一：环境变量 PEM 内容（代码库拉取部署形态，构建包无密钥文件）
+        # 优先；回退文件路径（CI 上传包形态，部署时写入 /app/secrets/）。
+        private_key_pem = (
+            settings.WXPAY_PRIVATE_KEY_PEM.strip() or Path_read(settings.WXPAY_PRIVATE_KEY_PATH))
+        public_key_pem = (
+            settings.WXPAY_PUB_KEY_PEM.strip() or Path_read(settings.WXPAY_PUB_KEY_PATH))
         # fail-fast：私钥必须可解析（错配商户/截断文件在启动时暴露，而非首笔下单）
         load_pem_private_key(private_key_pem.encode("UTF-8"), password=None)
 

@@ -78,6 +78,11 @@ class Settings:
     WXPAY_PUB_KEY_ID: str = os.getenv("WXPAY_PUB_KEY_ID", "")
     WXPAY_PUB_KEY_PATH: str = os.getenv("WXPAY_PUB_KEY_PATH", "")
     WXPAY_NOTIFY_URL: str = os.getenv("WXPAY_NOTIFY_URL", "")
+    # 微信支付密钥 PEM 内容直注入（GitHub 代码库拉取部署形态：构建包里没有密钥
+    # 文件，密钥必须走环境变量）。设置时优先于文件路径；与 CI 的
+    # WXPAY_PRIVATE_KEY_PEM/WXPAY_PUB_KEY_PEM secrets 同名同值。
+    WXPAY_PRIVATE_KEY_PEM: str = os.getenv("WXPAY_PRIVATE_KEY_PEM", "") or ""
+    WXPAY_PUB_KEY_PEM: str = os.getenv("WXPAY_PUB_KEY_PEM", "") or ""
 
     # 微信回调地址硬性校验（官方要求：https 全路径、无查询参数、外网可达）
     _WXPAY_INTERNAL_HOST_SUFFIXES = (".local", ".internal", ".lan")
@@ -89,11 +94,16 @@ class Settings:
         绝不允许缺配置静默回落 Mock 收真实付款。
         """
         errors: list[str] = []
-        required = (
+        key_pem = self.WXPAY_PRIVATE_KEY_PEM.strip()
+        pub_pem = self.WXPAY_PUB_KEY_PEM.strip()
+        required = [
             "WXPAY_MCH_ID", "WXPAY_APPID", "WXPAY_CERT_SERIAL",
-            "WXPAY_PRIVATE_KEY_PATH", "WXPAY_APIV3_KEY",
-            "WXPAY_PUB_KEY_ID", "WXPAY_PUB_KEY_PATH", "WXPAY_NOTIFY_URL",
-        )
+            "WXPAY_APIV3_KEY", "WXPAY_PUB_KEY_ID", "WXPAY_NOTIFY_URL",
+        ]
+        if not key_pem:
+            required.append("WXPAY_PRIVATE_KEY_PATH")  # PEM 内容模式可缺省文件
+        if not pub_pem:
+            required.append("WXPAY_PUB_KEY_PATH")
         for key in required:
             if not getattr(self, key):
                 errors.append(f"{key} 未配置")
@@ -106,11 +116,15 @@ class Settings:
         # 微信支付公钥 ID 固定前缀（公钥模式标识，区别于平台证书序列号）
         if not self.WXPAY_PUB_KEY_ID.startswith("PUB_KEY_ID_"):
             errors.append("WXPAY_PUB_KEY_ID 应以 PUB_KEY_ID_ 开头（公钥模式）")
-        # 密钥文件必须存在（可解析性在网关构造时校验）
-        for path_key in ("WXPAY_PRIVATE_KEY_PATH", "WXPAY_PUB_KEY_PATH"):
-            path_value = getattr(self, path_key)
+        # 文件路径模式：密钥文件必须存在（PEM 内容模式跳过；可解析性在网关构造时校验）
+        if not key_pem:
+            path_value = self.WXPAY_PRIVATE_KEY_PATH
             if not Path(path_value).is_file():
-                errors.append(f"{path_key} 文件不存在: {path_value}")
+                errors.append(f"WXPAY_PRIVATE_KEY_PATH 文件不存在: {path_value}")
+        if not pub_pem:
+            path_value = self.WXPAY_PUB_KEY_PATH
+            if not Path(path_value).is_file():
+                errors.append(f"WXPAY_PUB_KEY_PATH 文件不存在: {path_value}")
 
         errors.extend(self._notify_url_errors(self.WXPAY_NOTIFY_URL))
         return errors
