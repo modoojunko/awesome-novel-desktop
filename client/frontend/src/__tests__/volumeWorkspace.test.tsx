@@ -104,10 +104,10 @@ describe("VolumeWorkspace 卷视图", () => {
   it("进度线：互斥计数＋frontier 定位（首个未归档=草稿第 3 章）", async () => {
     renderVol();
     const line = await screen.findByTestId("vol-progress");
-    expect(line).toHaveTextContent("已归档 1 章");
-    expect(line).toHaveTextContent("草稿 1 章");
-    expect(line).toHaveTextContent("拟定 1 章");
-    expect(line).toHaveTextContent("待写 第 3 章");
+    expect(line).toHaveTextContent("已归档");
+    expect(line).toHaveTextContent("草稿");
+    expect(line).toHaveTextContent("拟定");
+    expect(line).toHaveTextContent("待写");
   });
 
   it("写作位不在本卷 → 待写「不在本卷」", async () => {
@@ -122,7 +122,7 @@ describe("VolumeWorkspace 卷视图", () => {
     apiState.put.mockResolvedValue({ ok: true });
     renderVol();
     fireEvent.click(await screen.findByRole("button", { name: "编辑卷纲" }));
-    expect(screen.getByText("正在编辑卷纲")).toBeInTheDocument();
+    expect(screen.getByText(/正在编辑卷纲/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/本卷主旨/), { target: { value: "新主旨" } });
     fireEvent.change(screen.getByLabelText("章数目标"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));

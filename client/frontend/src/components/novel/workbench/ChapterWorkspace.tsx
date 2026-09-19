@@ -144,6 +144,8 @@ export default function ChapterWorkspace({
     return vol?.chapters.find((c) => c.chapter === chNo) ?? null;
   }, [wb.volumes, chapterRef]);
   const label = nodeLabel("章", chMeta?.chapter ?? 0, chMeta?.title);
+  const vol = wb.volumes.find((v) => v.name === `vol-${volNoOf(chapterRef)}`);
+  const volLabel = vol ? nodeLabel("卷", volNoOf(chapterRef), vol.title) : `第${volNoOf(chapterRef)}卷`;
   const archived = !!chMeta?.archived;
 
   // 「信息差对齐」块随卷纲换代退役（c-volume-view-storyline：info_gap/chapter_plans
@@ -606,6 +608,14 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
   return (
     <div className="col-editor">
+      <header className="e-head">
+        <p className="e-kicker">{volLabel}</p>
+        <h2 className="e-title">{label}</h2>
+        <div className="e-meta">
+          <span className="tag">{archived ? "已归档" : wordCount ? "草稿" : "拟定"}</span>
+          <span className="tag">{fmt(wordCount)} 字</span>
+        </div>
+      </header>
       <div className="editor-toolbar">
         <span className="ch-name serif">{label}</span>
         {archived && <span className="arch-tag">已归档</span>}

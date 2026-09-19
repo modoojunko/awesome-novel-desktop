@@ -139,9 +139,20 @@ export default function Rail({
     }
   };
 
+  const TAB_NAME: Record<string, string> = {
+    og: "章纲", prompt: "提示词", prose: "正文", settings: "设定",
+    style: "文风", relations: "角色关系", hooks: "伏笔", actions: "操作",
+  };
   return (
     <div>
-      <p className="progress-head">AI 辅助 · 本章</p>
+      <div className="ai-head">
+        <span className="ai-title">AI 助手</span>
+        <span className="pill-pro">PRO</span>
+      </div>
+      <div className="ai-ctx">
+        <em>当前页签</em>
+        <span>{TAB_NAME[d?.tab ?? ""] ?? "—"}</span>
+      </div>
       {!isPro && (
         <LockedCard
           text="解锁后可由「设定 + 章纲」生成正文；续写、润色等能力规划中。免费版创作流程不受影响。"

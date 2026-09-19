@@ -866,3 +866,14 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     ——`.k/.v` 补 `white-space: nowrap`＋`li` 加 `align-items: baseline`（book.css 业务层；
     该族为章/卷模式共用，章模式同宽度下同样受益）。原型右栏较宽不出现此象，属实现宽度差。
     另实测四页签 centerY 全等（179.5），胶囊「下沉」为底色＋字重视觉错觉，不修。
+13. **中栏/右栏视觉语言整体对齐 storyline（用户 09-19 验收指出卷/章布局均不一致）**：初版
+    实施错在「映射到 app 现役组件族」（白卡片＋折叠卡＋胶囊页签），与原型编辑器的平面
+    编辑语言不符。本次整体换肤（类名保留、视觉替换，e2e 选择器零破坏）：中栏去卡片
+    （col-panel/panel 画布化）、头部改 e-head（kicker＋display 大标题＋tag 徽章 meta，章视图
+    补 kicker=卷全标签＋状态/字数徽章）、页签改下划线式（.chtab 选中绿字＋2px 底线，计数徽标
+    缩为 mono 小字）、分组改 cfgset 语言（＋/－ 标记＋分隔线，.cfg 类名保留）、卷纲查看态
+    fro 行式字段/fgrid/ledger 台账（lrow·lname·lstate）/node·stg 节点/pos-line em-b 结构/
+    flist 圆点列表；右栏改 aiShell 语言（AI 助手＋PRO 徽章＋当前页签 chip＋白卡 2×2 统计
+    ［.rail-stats 类名保留重绘］＋ai-foot 免费版说明；章模式同头）。**app 保留项（原型未画）**：
+    editor-toolbar 字号/行距/专注/版本历史/归档控件降为工具条右对齐保留，专注模式隐藏规则
+    随 .col-ai 新样式补特异性。editor 皮肤其余页签（OgPane 表单等）经 .cfg 作用域重绘自动对齐。

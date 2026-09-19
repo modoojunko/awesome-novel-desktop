@@ -25,8 +25,11 @@ export function VolumeAssistPanel({
   if (!data || !data.detail) {
     return (
       <div>
-        <p className="progress-head">AI 辅助 · 卷</p>
-        <p className="ai-sec">
+        <div className="ai-head">
+          <span className="ai-title">AI 助手</span>
+          <span className="pill-pro">PRO</span>
+        </div>
+        <p className="ai-lead">
           在左侧目录里选中一卷，这里会给出对应页签的卷语境：卷纲、本卷章节、关系与伏笔的统计。
         </p>
       </div>
@@ -70,9 +73,16 @@ function PanelBody({ projectId, data }: { projectId: string; data: VolumeRailDat
 
   return (
     <div>
-      <p className="progress-head">AI 辅助 · {TAB_NAME[tab]}</p>
+      <div className="ai-head">
+        <span className="ai-title">AI 助手</span>
+        <span className="pill-pro">PRO</span>
+      </div>
+      <div className="ai-ctx">
+        <em>当前页签</em>
+        <span>{TAB_NAME[tab]}</span>
+      </div>
       <div className="rail-assist">
-        <p className="ai-sec">{lead}</p>
+        <p className="ai-lead">{lead}</p>
         {tab === "outline" || tab === "chapters" ? (
           <ul className="rail-stats" data-testid="volume-rail-stats">
             {stats.map(([k, v]) => (
@@ -86,6 +96,9 @@ function PanelBody({ projectId, data }: { projectId: string; data: VolumeRailDat
         {tab === "rels" && <RelStats projectId={projectId} volume={data.volume} />}
         {tab === "hooks" && <HookStats projectId={projectId} volume={data.volume} />}
       </div>
+      <p className="ai-foot">
+        免费版：体检与建议只读；生成、改写与归档需 PRO。全书设定、关系、伏笔由全书统一维护；卷域投影截至本卷末，只读。
+      </p>
     </div>
   );
 }
