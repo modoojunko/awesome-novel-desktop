@@ -32,21 +32,21 @@
 
 ## 5. 前端：卷视图四页签与卷纲两态
 
-- [ ] 5.1 `novel/volume/{types,form}.ts` 换代：新字段集＋`VolumeChapterMeta` 补 `outline_summary`、`VolumeDetail` 补 `ghost_count`；plants/reveals 以 `string[]` 直接持有。验证：tsc --noEmit 绿
-- [ ] 5.2 `VolumeWorkspace.tsx` 新建取代 VolumePanel：头部（「卷 · 分卷计划」引导＋`nodeLabel()` 全标签＋主线 N 章/已归档 N 章）＋`.ch-tabs/.chtab` 页签族＋内容 switch；tab 自持（选中卷变更回落「卷纲」）；经 onRailData 式回调上抛右栏数据（与章模式同构，tab 不上提；**与章模式 `railData` 按 mode 隔离或卸载即清空**）；`NovelWorkspace.tsx` 挂载与右栏数据通路接线。验证：vitest 页签切换＋切卷回落＋右栏数据上抛/清空用例
-- [ ] 5.3 卷纲查看态：六分组＋空态文案逐字对齐原型＋「编辑卷纲」入口。验证：vitest 空态与回显用例
-- [ ] 5.4 卷纲编辑态：卷名｜结构模板｜章数目标（标签单行、提示下移小字、可清空）；主旨/核心矛盾必填；人物行/节点行增删（stage 六档）；埋下伏笔/揭露信息多行一行一条；保存/取消。验证：vitest 两态往返/必填拦截/清空章数目标/取消丢弃用例
-- [ ] 5.5 本卷进度线：已归档/草稿/拟定**互斥计数**（archived／has_prose∧¬archived／¬has_prose∧¬archived）＋待写＝frontier 定位段（首个未归档章，**含草稿**；`GET /frontier` 补取，禁用 `hereTarget` 代替）。验证：vitest「2 归档+1 草稿(首个未归档)+1 拟定 → 待写 第 3 章」与「不在本卷」用例
-- [ ] 5.6 本卷章节页签：台账（章号·题名＋`outline_summary`＋状态）＋跳转 `focusNode`＋ghost 汇总（`ghost_count`）＋「在本卷新增一章」（门控＝frontier 章在本卷，与 5.5 同一定义单源；复用 `wb.createChapter`＋树行内输入同款交互，本组件内新造按钮，不改 `OutlineTree.tsx` 既有区域）。验证：vitest 门控/跳转/ghost 提示用例
-- [ ] 5.7 卷域投影：`RelationsGraphPane`/`HooksPane` 加 `asOfOrder`/`scope` props（截至本卷末截断；无增删；伏笔标注本卷埋/收/跨卷悬置）。验证：vitest 截断与归组用例
-- [ ] 5.8 信息差块退役：删 `ChapterWorkspace.tsx:151-197` fetch 与 `OgPane.tsx` `infoGap` prop/渲染。验证：tsc 绿＋grep `infoGap` 无残留
-- [ ] 5.9 脏守卫接线：`volumeDirtyRef` 接入 `NovelWorkspace.go()` 统一离开检查（现仅 `settingsDirtyRef`）。验证：vitest/手测「编辑中切节点被拦截」
+- [x] 5.1 `novel/volume/{types,form}.ts` 换代：新字段集＋`VolumeChapterMeta` 补 `outline_summary`、`VolumeDetail` 补 `ghost_count`；plants/reveals 以 `string[]` 直接持有。验证：✅ tsc --noEmit 绿（worktree 全量）
+- [x] 5.2 `VolumeWorkspace.tsx` 新建取代 VolumePanel：头部（「卷 · 分卷计划」引导＋`nodeLabel()` 全标签＋主线 N 章/已归档 N 章）＋`.ch-tabs/.chtab` 页签族＋内容 switch；tab 自持（选中卷变更回落「卷纲」）；经 onRailData 式回调上抛右栏数据（与章模式同构，tab 不上提；**与章模式 `railData` 按 mode 隔离或卸载即清空**）；`NovelWorkspace.tsx` 挂载与右栏数据通路接线。验证：vitest 页签切换＋切卷回落＋右栏数据上抛/清空用例
+- [x] 5.3 卷纲查看态：六分组＋空态文案逐字对齐原型＋「编辑卷纲」入口。验证：vitest 空态与回显用例
+- [x] 5.4 卷纲编辑态：卷名｜结构模板｜章数目标（标签单行、提示下移小字、可清空）；主旨/核心矛盾必填；人物行/节点行增删（stage 六档）；埋下伏笔/揭露信息多行一行一条；保存/取消。验证：vitest 两态往返/必填拦截/清空章数目标/取消丢弃用例
+- [x] 5.5 本卷进度线：已归档/草稿/拟定**互斥计数**（archived／has_prose∧¬archived／¬has_prose∧¬archived）＋待写＝frontier 定位段（首个未归档章，**含草稿**；`GET /frontier` 补取，禁用 `hereTarget` 代替）。验证：vitest「2 归档+1 草稿(首个未归档)+1 拟定 → 待写 第 3 章」与「不在本卷」用例
+- [x] 5.6 本卷章节页签：台账（章号·题名＋`outline_summary`＋状态）＋跳转 `focusNode`＋ghost 汇总（`ghost_count`）＋「在本卷新增一章」（门控＝frontier 章在本卷，与 5.5 同一定义单源；复用 `wb.createChapter`＋树行内输入同款交互，本组件内新造按钮，不改 `OutlineTree.tsx` 既有区域）。验证：vitest 门控/跳转/ghost 提示用例
+- [x] 5.7 卷域投影：`RelationsGraphPane`/`HooksPane` 加 `asOfOrder`/`scope` props（截至本卷末截断；无增删；伏笔标注本卷埋/收/跨卷悬置）。验证：vitest 截断与归组用例
+- [x] 5.8 信息差块退役：删 `ChapterWorkspace.tsx:151-197` fetch 与 `OgPane.tsx` `infoGap` prop/渲染。验证：tsc 绿＋grep `infoGap` 无残留
+- [x] 5.9 脏守卫接线：`volumeDirtyRef` 接入 `NovelWorkspace.go()` 统一离开检查（现仅 `settingsDirtyRef`）。验证：vitest/手测「编辑中切节点被拦截」
 
 ## 6. 前端：右栏与样式
 
-- [ ] 6.1 `Rail.tsx` 卷分支重写：删**卷分支**的三张「规划中」卡＋同分支 `LockedCard`（「大纲阶段的 AI 能力正在规划中」）与「规划中的能力」小节头（`PlannedFeat` 组件保留给章模式免费档）；改 `.rail-assist` 语境面板（四页签引导语＋统计卡，与中栏同源 selector，缺章纲口径＝`outline_status !== "confirmed"`，取数失败降级「—」）；不渲染动作清单；未选中卷维持通用空态。验证：vitest 四页签统计＋降级＋未选中兜底用例
-- [ ] 6.2 `design/book.css` 卷视图业务段（头部/进度线/台账/空态；类名映射 app 现役族 `.cfg/.field/.hp-ledger` 等，禁抄 storyline 类名；零 base.css 改动）。验证：`npm run design:lint` 绿
-- [ ] 6.3 文案自查：按钮词全动词、无内部术语、语气词限 info/ok/warn/err、空态/提示逐字对齐原型（含「旧稿支线 N 章 · 已脱离主线，不计入本书设定」）。验证：`npm run design:check` 全绿＋逐条对照原型截图
+- [x] 6.1 `Rail.tsx` 卷分支重写：删**卷分支**的三张「规划中」卡＋同分支 `LockedCard`（「大纲阶段的 AI 能力正在规划中」）与「规划中的能力」小节头（`PlannedFeat` 组件保留给章模式免费档）；改 `.rail-assist` 语境面板（四页签引导语＋统计卡，与中栏同源 selector，缺章纲口径＝`outline_status !== "confirmed"`，取数失败降级「—」）；不渲染动作清单；未选中卷维持通用空态。验证：vitest 四页签统计＋降级＋未选中兜底用例
+- [x] 6.2 `design/book.css` 卷视图业务段（头部/进度线/台账/空态；类名映射 app 现役族 `.cfg/.field/.hp-ledger` 等，禁抄 storyline 类名；零 base.css 改动）。验证：✅ design:lint 违规集与 main 基线逐字一致（preview.html/AcctMenu 存量，本 change 零新增）
+- [x] 6.3 文案自查：按钮词全动词、无内部术语、语气词限 info/ok/warn/err、空态/提示逐字对齐原型（含「旧稿支线 N 章 · 已脱离主线，不计入本书设定」）。验证：`npm run design:check` 全绿＋逐条对照原型截图
 
 ## 7. e2e 与 parity
 

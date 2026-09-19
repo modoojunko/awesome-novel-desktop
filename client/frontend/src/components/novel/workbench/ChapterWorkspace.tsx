@@ -49,7 +49,6 @@ import { fillOutlineGaps, type AiCheckKind, type RefineMode } from "@/lib/aiChec
 import type { useOutline } from "@/hooks/useOutline";
 import type { useWorkbench } from "@/hooks/useWorkbench";
 import { api, request } from "@/lib/api";
-import type { VolumeDetail } from "@/components/novel/volume/types";
 import { nodeLabel } from "@/lib/nodeTitle";
 import {
   getBookArchiveAiSummary,
@@ -147,44 +146,8 @@ export default function ChapterWorkspace({
   const label = nodeLabel("章", chMeta?.chapter ?? 0, chMeta?.title);
   const archived = !!chMeta?.archived;
 
-  // ── 信息差对齐（PR6）：章纲顶部只读块 ────────────────────────────────
-  // 卷级 info_gap_start/end（卷纲 §三）+ 卷纲 §七章节规划行按章号对齐的本章 info_gap。
-  // 增强展示：卷未配/接口失败一律静默置 null（不渲染），不打扰章纲主流程。
-  const [infoGap, setInfoGap] = useState<{
-    volStart: string;
-    volEnd: string;
-    chapterGap: string;
-  } | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    const volRef = `vol-${volNoOf(chapterRef)}`;
-    const chNo = chapterNoOf(chapterRef);
-    if (!chNo) {
-      setInfoGap(null);
-      return;
-    }
-    api
-      .get(`/novels/${projectId}/volumes/${volRef}`)
-      .then((d: unknown) => {
-        if (cancelled) return;
-        const v = d as VolumeDetail;
-        const plan = (v.chapter_plans ?? []).find((p) => p.chapter_no === chNo);
-        const volStart = (v.info_gap_start ?? "").trim();
-        const volEnd = (v.info_gap_end ?? "").trim();
-        const chapterGap = (plan?.info_gap ?? "").trim();
-        setInfoGap(
-          volStart || volEnd || chapterGap
-            ? { volStart, volEnd, chapterGap }
-            : null,
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setInfoGap(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, chapterRef]);
+  // 「信息差对齐」块随卷纲换代退役（c-volume-view-storyline：info_gap/chapter_plans
+  // 为旧代字段，ADJUSTMENTS ⑤ 登记）。
 
   // ── 三页签：点章强制落「章纲」（设计稿行为） ─────────────────────────
   const [chTab, setChTab] = useState<
@@ -900,7 +863,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           form={ogForm}
           characterNames={characterNames}
           label={label}
-          infoGap={infoGap}
           onPatch={(patch) => setOgForm((f) => ({ ...f, ...patch }))}
           gaps={gaps}
           confirmed={confirmed}

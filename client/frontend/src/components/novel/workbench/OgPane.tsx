@@ -22,8 +22,6 @@ interface OgPaneProps {
   characterNames?: string[];
   /** 完整章标题（第X章 · 名称，nodeLabel 派生）——原型 panel-head 口径 */
   label: string;
-  /** 信息差对齐只读块（PR6）：卷级起止 + 本章规划行；null = 卷未配置，不渲染 */
-  infoGap?: { volStart: string; volEnd: string; chapterGap: string } | null;
   onPatch: (patch: Partial<OgForm>) => void;
   gaps: { key: string; label: string }[];
   confirmed: boolean;
@@ -56,7 +54,6 @@ export default function OgPane({
   form,
   characterNames,
   label,
-  infoGap,
   onPatch,
   gaps,
   confirmed,
@@ -139,25 +136,6 @@ export default function OgPane({
           )}
         </div>
         <p className="desc">章纲：明确「这一章写什么」，确认后可作为 AI 生成正文的章级上下文。</p>
-
-        {infoGap ? (
-          <div className="og-infogap" data-testid="og-info-gap">
-            {infoGap.volStart || infoGap.volEnd ? (
-              <div className="ig-row">
-                <span className="ig-k">本卷信息差</span>
-                <span className="ig-v">
-                  {infoGap.volStart || "（未设起点）"} → {infoGap.volEnd || "（未设终点）"}
-                </span>
-              </div>
-            ) : null}
-            {infoGap.chapterGap ? (
-              <div className="ig-row">
-                <span className="ig-k">本章信息差</span>
-                <span className="ig-v">{infoGap.chapterGap}</span>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
 
         <details className="cfg" open>
           <summary>

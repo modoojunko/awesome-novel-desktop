@@ -1,5 +1,5 @@
 // 右栏（book.html .col-ai 复刻）：
-//   卷选中 → AI 辅助·大纲（免费 ai-locked 卡 + 规划中三卡）
+//   卷选中 → AI 辅助·卷语境（随卷页签切换引导语＋统计卡；VolumeAssistPanel，无占位卡）
 //   章选中 → AI 辅助·本章 + 本章进度卡（大百分数/进度条/目标字数就地编辑）
 // 免费态与原型逐像素一致；PRO 态把续写/润色/扩写升为真实工具卡
 // （应用侧已有功能，换皮不减功能；原型标「规划中」——已登记 ADJUSTMENTS）。
@@ -9,6 +9,7 @@ import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { toast } from "@/lib/toast";
 import { DEFAULT_TARGET } from "@/hooks/useChapterData";
 import { AiAssistPanel, type OgStats } from "./AiAssistPanel";
+import { VolumeAssistPanel, type VolumeRailData } from "./VolumeAssistPanel";
 import type { AiCheckKind, RefineMode } from "@/lib/aiCheck";
 import { runReconcile } from "@/lib/reconcileApi";
 
@@ -52,6 +53,8 @@ interface RailProps {
   proseRef: RefObject<ProseHandle | null>;
   aiState: ProseAIState;
   data?: RailChapterData;
+  /** 卷选中态右栏语境（VolumeWorkspace 上抛；null=未选中卷，呈通用空态） */
+  volumeData?: VolumeRailData | null;
   /** AI 写入工具链入口（归档章先解锁；生成正文再经 AiModal 提示词预览） */
   onAiWrite: () => void;
   onAiContinue: () => void;
@@ -109,6 +112,7 @@ export default function Rail({
   proseRef,
   aiState,
   data,
+  volumeData,
   onAiWrite,
   onAiContinue,
   onAiSelection,
@@ -117,23 +121,8 @@ export default function Rail({
   const [targetDraft, setTargetDraft] = useState("");
 
   if (mode === "volume") {
-    return (
-      <div>
-        <p className="progress-head">AI 辅助 · 大纲</p>
-        {!isPro && (
-          <LockedCard
-            text="大纲阶段的 AI 能力正在规划中。升级后由设定与已有卷纲辅助生成，免费版创作流程不受影响。"
-            onUpgrade={onUpgrade}
-          />
-        )}
-        <p className="ai-sec">规划中的能力</p>
-        <div className={!isPro ? "rail-locked" : undefined}>
-          <PlannedFeat title="卷纲生成" desc="基于设定与卷摘要，生成卷纲草稿，一键填入。" />
-          <PlannedFeat title="矛盾检查" desc="扫描已确认章纲，标出人物状态与伏笔冲突。" />
-          <PlannedFeat title="提示词预览" desc="当前章的生成提示词（由设定 + 章纲组装），与正文生成共用。" />
-        </div>
-      </div>
-    );
+    // 卷语境面板（随卷页签切换）；三张「规划中」卡与 LockedCard 退役（ADJUSTMENTS ②）
+    return <VolumeAssistPanel projectId={projectId} data={volumeData ?? null} />;
   }
 
   const d = data;
