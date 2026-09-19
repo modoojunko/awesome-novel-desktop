@@ -85,3 +85,26 @@ class TestNotifyUrlRules:
     def test_public_domain_ok(self, tmp_path):
         s = _settings(tmp_path, WXPAY_NOTIFY_URL="https://www.xingweitouzi.cn/api/pay/notify")
         assert s.wxpay_config_errors() == []
+
+
+class TestWxpayKeyPemFromEnv:
+    """密钥 PEM 环境变量注入（代码库拉取部署形态）：PEM 内容与文件路径二选一。"""
+
+    def test_env_pem_passes_without_key_files(self, tmp_path):
+        """PEM 内容已提供 → 文件路径豁免（构建包里没有密钥文件也能过门禁）。"""
+        s = _settings(tmp_path,
+                      WXPAY_PRIVATE_KEY_PEM="-----BEGIN PRIVATE KEY-----\nX\n-----END PRIVATE KEY-----\n",
+                      WXPAY_PUB_KEY_PEM="-----BEGIN PUBLIC KEY-----\nY\n-----END PUBLIC KEY-----\n",
+                      WXPAY_PRIVATE_KEY_PATH="/nonexistent/key.pem",
+                      WXPAY_PUB_KEY_PATH="/nonexistent/pub.pem")
+        assert s.wxpay_config_errors() == []
+
+    def test_file_mode_still_requires_existing_files(self, tmp_path):
+        """PEM 内容缺省 → 走文件路径模式，文件缺失照常报错。"""
+        s = _settings(tmp_path,
+                      WXPAY_PRIVATE_KEY_PEM="", WXPAY_PUB_KEY_PEM="",
+                      WXPAY_PRIVATE_KEY_PATH="/nonexistent/key.pem",
+                      WXPAY_PUB_KEY_PATH="/nonexistent/pub.pem")
+        errs = s.wxpay_config_errors()
+        assert any("WXPAY_PRIVATE_KEY_PATH" in e for e in errs)
+        assert any("WXPAY_PUB_KEY_PATH" in e for e in errs)
