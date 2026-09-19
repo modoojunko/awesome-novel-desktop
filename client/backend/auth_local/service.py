@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import platform
+import re
 import subprocess
 import urllib.parse
 from datetime import UTC, date, datetime, timedelta
@@ -260,77 +261,110 @@ def load_or_create_config() -> dict:
     return cfg
 
 
-def generate_pc_hash() -> str:
-    info = []
+# ── 平台身份标识（设备指纹 / pc_hash 单一事实源）───────────────────────────
+# 同一台机器必须产出同一身份：只实现 Windows wmic 的旧采集在 macOS/Linux 上
+# 会静默退化为 sha256(主机名)，主机名随网络漂移 → S端 把同机反复注册成新设备。
+# 优先级链：macOS IOPlatformUUID → Windows SMBIOS UUID → Windows MachineGuid
+# → Linux machine-id → platform.node()；每级命令缺失/失败/占位值一律静默降级。
+
+_identity_memo: str | None = None
+
+
+def _reset_identity_memo() -> None:
+    """清身份缓存（仅测试用；monkeypatch 子进程前必须先清，防串味）。"""
+    global _identity_memo
+    _identity_memo = None
+
+
+def _run_command(cmd: list[str]) -> str:
+    """跑外部命令返回 stdout；命令缺失/超时/非零一律空串，由调用方降级。"""
     try:
-        for wmic_query in [
-            "cpu get ProcessorId",
-            "baseboard get SerialNumber",
-            "diskdrive get SerialNumber",
-        ]:
-            try:
-                result = subprocess.run(
-                    ["wmic"] + wmic_query.split(),
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    check=False,
-                )
-                if result.returncode == 0:
-                    lines = result.stdout.strip().split("\n")
-                    if len(lines) > 1:
-                        val = lines[1].strip()
-                        if val:
-                            info.append(val)
-            except OSError:
-                continue
-    except OSError:
-        pass
-    if not info:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=5, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _is_valid_identity(raw: str) -> bool:
+    """占位值检测：空串、去连字符后全 0 / 全 F（老主板占位 UUID）视为无效。"""
+    compact = raw.strip().strip('"').replace("-", "").lower()
+    if not compact:
+        return False
+    return compact.strip("0") != "" and compact.strip("f") != ""
+
+
+def _identity_darwin() -> str:
+    match = re.search(
+        r'"IOPlatformUUID"\s*=\s*"([^"]+)"',
+        _run_command(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"]),
+    )
+    return match.group(1) if match else ""
+
+
+def _identity_windows() -> str:
+    # wmic 自 Windows 11 24H2 起默认移除，统一走 PowerShell CIM；
+    # SMBIOS UUID 缺失/占位时降级注册表 MachineGuid（普通用户可读）。
+    ps_uuid = _run_command(
+        [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "(Get-CimInstance Win32_ComputerSystemProduct).UUID",
+        ]
+    )
+    if _is_valid_identity(ps_uuid):
+        return ps_uuid
+    match = re.search(
+        r"MachineGuid\s+REG_SZ\s+(\S+)",
+        _run_command(
+            [
+                "reg",
+                "query",
+                r"HKLM\SOFTWARE\Microsoft\Cryptography",
+                "/v",
+                "MachineGuid",
+            ]
+        ),
+    )
+    return match.group(1) if match else ""
+
+
+def _identity_linux() -> str:
+    for path in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
         try:
-            info.append(platform.node() or "")
-            result = subprocess.run(
-                ["wmic", "os", "get", "SerialNumber"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=False,
-            )
-            if result.returncode == 0:
-                lines = result.stdout.strip().split("\n")
-                if len(lines) > 1:
-                    info.append(lines[1].strip())
+            val = Path(path).read_text(encoding="utf-8").strip()
         except OSError:
-            pass
-    raw = "-".join(info) or platform.node() or "unknown"
-    return hashlib.sha256(raw.encode()).hexdigest()[:32]
+            continue
+        if _is_valid_identity(val):
+            return val
+    return ""
+
+
+def _platform_identity() -> str:
+    """当前机器的稳定身份标识（进程内 memoize；不落盘——硬件级标识本身稳定，
+    config.json 缓存反而在磁盘镜像克隆时带出源机旧身份）。"""
+    global _identity_memo
+    if _identity_memo is not None:
+        return _identity_memo
+    for collector in (_identity_darwin, _identity_windows, _identity_linux):
+        raw = collector()
+        if _is_valid_identity(raw):
+            _identity_memo = raw
+            return raw
+    _identity_memo = platform.node() or "unknown"
+    return _identity_memo
+
+
+def generate_pc_hash() -> str:
+    return hashlib.sha256(_platform_identity().encode()).hexdigest()[:32]
 
 
 def collect_device_profile() -> dict:
     """采集当前设备硬件信息，构造 DeviceProfile"""
-    info = []
-    for wmic_query in [
-        "cpu get ProcessorId",
-        "baseboard get SerialNumber",
-        "diskdrive get SerialNumber",
-    ]:
-        try:
-            result = subprocess.run(
-                ["wmic"] + wmic_query.split(),
-                capture_output=True, text=True, timeout=5, check=False
-            )
-            if result.returncode == 0:
-                lines = result.stdout.strip().split("\n")
-                if len(lines) > 1:
-                    val = lines[1].strip()
-                    if val:
-                        info.append(val)
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-
-    raw = "-".join(info) or platform.node() or "unknown"
-    fingerprint = hashlib.sha256(raw.encode()).hexdigest()
-
+    fingerprint = hashlib.sha256(_platform_identity().encode()).hexdigest()
     return {
         "fingerprint": fingerprint,
         "hostname": platform.node() or "",
