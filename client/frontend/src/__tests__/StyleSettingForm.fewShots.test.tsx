@@ -130,6 +130,8 @@ describe("禁用词收编（banned-words-into-style）", () => {
     // 右栏 AI 四行入口「蒸馏我的文风」→ 量化页签 → 画像确认 → 落卡
     const handle = ref.current as unknown as { runAi?: (key: string) => Promise<void> };
     await handle.runAi!("distill");
+    // 旧 draft 无 rows（跨部署边界）：确认卡预览段整段隐藏，不渲染空壳（c-style-paste-distill）
+    expect(screen.queryByTestId("portrait-baseline-preview")).toBeNull();
     fireEvent.click(await screen.findByText("就是这样，落卡"));
 
     // commit 后回读合并：等第二次 style GET（回读）落地再保存
@@ -145,8 +147,57 @@ describe("禁用词收编（banned-words-into-style）", () => {
   });
 });
 
-describe("撤并键零写回（评审 P0）", () => {
-  it("GET 带旧键（possible_mistakes/tone/narrator_role）时 PUT payload 只含白名单四键", async () => {
+describe("落卡基线预览（c-style-paste-distill）", () => {
+  it("确认卡渲染 rows 六行；锁定行显示上一版值＋「保留上一版」标记，不显示新值", async () => {
+    apiState.get.mockImplementation((url: string) => {
+      if (url.endsWith("/settings/style")) return Promise.resolve({ role: "r", banned_words: [], tic_patterns: [] });
+      if (url.endsWith("/settings/style-quant"))
+        return Promise.resolve({
+          confidence: 0,
+          baseline: { rhythm: { value: "旧配比", tolerance: 10, locked: true } },
+          draft: {
+            step: 3,
+            sample_chars: 5040,
+            step3: {
+              portrait: "像你的写法",
+              rows: {
+                narrative: { value: "第三人称限知", tolerance: 20 },
+                rhythm: { value: "对话 48% 动作 24%", tolerance: 20 },
+                syntax: { value: "平均句长 14 字", tolerance: 20 },
+                lexicon: { value: "修饰 8/百字", tolerance: 20 },
+                emotion: { value: "动作生理 58%", tolerance: 20 },
+                dialogue_verb: { value: "标签动作主导", tolerance: 20 },
+              },
+            },
+          },
+        });
+      if (url.endsWith("/settings/style-samples"))
+        return Promise.resolve({ files: [], chapters: [], min: 3000, max: 10000, in_range: false, hint: "x" });
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
+    apiState.post.mockResolvedValue({
+      ok: true,
+      quant: { confidence: 53, baseline: {}, history: [], draft: null, sample_chars: 5040, updated_at: "x" },
+      banned_added: 0,
+    });
+    const ref = createRef<SettingSaveHandle>();
+    render(<StyleSettingForm ref={ref} projectId="p1" settingKey="style" />);
+    await waitFor(() => expect(screen.getByTestId("input-style-role")).toBeTruthy());
+    const handle = ref.current as unknown as { runAi?: (key: string) => Promise<void> };
+    await handle.runAi!("distill");
+    const preview = await screen.findByTestId("portrait-baseline-preview");
+    // 非锁定行：新蒸馏值＋预览容差
+    expect(preview.textContent).toContain("约 第三人称限知（±20%）");
+    // 锁定行：value 如实显示落卡将保留的上一版（±20%＝新构建行值的容差，与 commit 合并
+    // 语义 {**新行, value: 上一版} 逐字段一致——mock 故意给 prev.tolerance=10 钉死容差取新行）
+    expect(preview.textContent).toContain("保留上一版");
+    expect(preview.textContent).toContain("约 旧配比（±20%）");
+    expect(preview.textContent).not.toContain("对话 48%"); // 锁定行新蒸馏值不出现
+    expect(preview.textContent).not.toContain("±10%"); // 旧落卡容差不出现（容差取新构建行值）
+  });
+});
+
+describe("撤并键零写回（评审 P0）", () => {  it("GET 带旧键（possible_mistakes/tone/narrator_role）时 PUT payload 只含白名单四键", async () => {
     mockGet({
       role: "冷静叙事者",
       core_principles: ["克制"],

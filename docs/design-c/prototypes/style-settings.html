@@ -273,6 +273,25 @@
   .portrait .pz-ask { margin-top: 12px; padding: 9px 12px; border-radius: 9px; background: var(--accent-soft); font-size: 12.5px; }
   .portrait .pz-act { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 
+  /* ── 粘贴样本弹窗（c-style-paste-distill；词表同 preview.html 弹窗底座，打开态不入 parity 基线场景） ── */
+  .modal { position: fixed; inset: 0; z-index: 60; display: none; }
+  .modal.on { display: block; }
+  .backdrop { position: absolute; inset: 0; background: color-mix(in oklch, var(--fg) 42%, transparent); }
+  .sheet { position: relative; margin: 6vh auto 0; width: min(560px, calc(100% - 32px)); background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 24px 26px 20px; max-height: 84vh; overflow: auto; }
+  .sheet h2 { font-family: var(--font-display); font-size: 20px; font-weight: 600; margin: 0; }
+  .sheet h2 .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: oklch(100% 0 0); margin-left: 8px; vertical-align: 2px; }
+  .modal-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; align-items: center; flex-wrap: wrap; }
+  .modal-foot .note { margin-right: auto; font-size: 12px; color: var(--muted); }
+  .paste-meta { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .paste-meta .warn { color: var(--warn); }
+  .paste-meta .ok { color: var(--ok); }
+
+  /* ── 落卡基线预览（确认卡内，与 quant-baseline 同构只读） ── */
+  .pv-row { padding: 8px 0; border-bottom: 1px dashed var(--border); }
+  .pv-row:last-child { border-bottom: none; }
+  .pv-row .bx-head { gap: 8px; }
+  .pv-row .bx-vals { margin-top: 3px; }
+
   /* ── 预设库（状态 C） ── */
   .genre-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
   .g-chip { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; font-size: 12px; }
@@ -531,7 +550,10 @@
           <div class="fp-empty" id="fpEmpty" hidden data-od-id="quant-empty">
             <p class="se-t">还没有量化参数</p>
             <p class="se-s">只用上面的「文字文风」就能写出合格的一章。<br />蒸馏是会员功能：交 3,000–10,000 字你认可的案例，AI 学出六行基线。</p>
-            <button class="btn btn-secondary btn-sm" id="fpEmptyGo" type="button">去蒸馏我的文风</button>
+            <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+              <button class="btn btn-primary btn-sm" id="fpEmptyPaste" type="button" data-od-id="btn-open-paste">粘贴文本蒸馏</button>
+              <button class="btn btn-secondary btn-sm" id="fpEmptyGo" type="button" data-od-id="btn-open-distill">从文件/章节选样本</button>
+            </div>
           </div>
           </div><!-- /tabQuant -->
 
@@ -543,6 +565,7 @@
         <div id="viewDistill" hidden data-od-id="distill-panel">
           <div class="sec-label"><span class="sl-no">①</span>样本<span class="badge ok">共 <span class="num">7,214</span> 字 · 在 3,000–10,000 区间</span></div>
           <div class="sample-box" data-od-id="distill-samples">
+            <div style="display:flex; justify-content:flex-end;"><button class="text-btn" id="btnOpenPaste" type="button" data-od-id="btn-open-paste">直接粘贴文本</button></div>
             <div class="sample-row"><span class="s-name">novel-samples/第一卷定稿摘选.md</span><span class="s-cnt num">4,102 字</span><span class="s-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M5 13l4 4L19 7"/></svg></span></div>
             <div class="sample-row"><span class="s-name">已归档章节：第 09 章 · 第 11 章 · 第 12 章</span><span class="s-cnt num">3,112 字</span><span class="s-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M5 13l4 4L19 7"/></svg></span></div>
             <div class="sample-total">
@@ -583,9 +606,37 @@
               <li>等声音停下来，他的左臂已经不自然地垂在身侧。</li>
             </ul>
             <p class="pz-ask">读起来像你的写法吗？不像 → 直接说「不像」，我会再学一次。</p>
+            <h4>落卡基线预览 <span class="opt" style="font-weight:400;">（确认后原样写入量化参数；带标记的行保留你的锁定，不更新）</span></h4>
+            <div data-od-id="portrait-baseline-preview">
+              <div class="pv-row">
+                <div class="bx-head"><span class="bx-name">镜头与人称</span></div>
+                <div class="bx-vals">约 第三人称限知 · 紧贴林拾（±10%）</div>
+              </div>
+              <div class="pv-row">
+                <div class="bx-head"><span class="bx-name">篇幅配比（五层）</span><span class="badge empty">保留上一版</span></div>
+                <div class="bx-vals">约 对话 52% 动作 22% 叙述 16% 环境 7% 内心独白 3%（±10%）</div>
+              </div>
+              <div class="pv-row">
+                <div class="bx-head"><span class="bx-name">句子与段落</span></div>
+                <div class="bx-vals">约 平均句长 14.6 字 · 单句段 31%（±10%）</div>
+              </div>
+              <div class="pv-row">
+                <div class="bx-head"><span class="bx-name">修饰密度</span></div>
+                <div class="bx-vals">约 修饰词 8.1/百字 · 比喻 0.8（±10%）</div>
+              </div>
+              <div class="pv-row">
+                <div class="bx-head"><span class="bx-name">情绪外化</span></div>
+                <div class="bx-vals">约 主通道：动作生理 58%（±10%）</div>
+              </div>
+              <div class="pv-row">
+                <div class="bx-head"><span class="bx-name">对话与动词质感</span></div>
+                <div class="bx-vals">约 对话 18 字/轮 · 动词力度 strong（±10%）</div>
+              </div>
+            </div>
             <div class="pz-act">
               <button class="btn btn-primary" id="btnPortraitKeep" type="button" data-od-id="btn-portrait-keep">就是这样，落卡</button>
               <button class="btn btn-ghost" id="btnPortraitRetry" type="button" data-od-id="btn-portrait-retry">不像，再学一次</button>
+              <button class="btn btn-ghost" id="btnPortraitLater" type="button" data-od-id="btn-portrait-later">取消，稍后再说</button>
             </div>
           </div>
         </div><!-- /viewDistill -->
@@ -619,7 +670,7 @@
         </div>
         <div class="ra-row">
           <button class="ra-step" type="button" data-aiask="s1" data-od-id="ai-distill">
-            <span class="ra-body"><b>蒸馏我的文风</b><i>交 3,000–10,000 字案例 → 出「作者画像」给你确认 → 六行基线落卡 · 输入：novel-samples 或已归档章节</i></span>
+            <span class="ra-body"><b>蒸馏我的文风</b><i>交 3,000–10,000 字案例 → 出「作者画像」给你确认 → 六行基线落卡 · 输入：粘贴文本、novel-samples 或已归档章节</i></span>
             <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
           </button>
         </div>
@@ -668,6 +719,26 @@
   <span>评审切换</span>
   <button type="button" data-view="card" class="on">文风卡</button>
   <button type="button" data-view="distill">蒸馏流程</button>
+</div>
+
+<!-- ═══ 粘贴文风样本弹窗（c-style-paste-distill；演示打开态，不入 parity 基线场景） ═══ -->
+<div class="modal" id="pasteModal" data-od-id="paste-modal">
+  <div class="backdrop" id="pasteBackdrop"></div>
+  <div class="sheet">
+    <h2>粘贴文风样本<span class="plan-badge">PRO</span></h2>
+    <p class="opt" style="margin:8px 0 10px;">把你认可的文字直接贴进来——小说正文、散文都行，越像你平时的写法越好。交 3,000–10,000 字，AI 学出六行基线。</p>
+    <textarea class="textarea" id="pasteText" data-od-id="input-paste-sample" rows="12" placeholder="粘贴你最满意的文章……"></textarea>
+    <div class="paste-meta">
+      <span>已贴 <b class="num" id="pasteCount">0</b> 字（不含空白）</span>
+      <span class="spacer"></span>
+      <span id="pasteHint">需 3,000–10,000 字</span>
+    </div>
+    <div class="modal-foot">
+      <span class="note">样本只用于这一次蒸馏；之后可随时「重新蒸馏」换掉。</span>
+      <button class="btn btn-secondary" id="pasteCancel" type="button" data-od-id="btn-paste-cancel">取消</button>
+      <button class="btn btn-primary" id="pasteStart" type="button" data-od-id="btn-paste-start" disabled>开始蒸馏</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -1026,6 +1097,38 @@
   $('#btnRedistill').addEventListener('click', () => setView('distill'));
   $('#fpEmptyGo').addEventListener('click', () => setView('distill'));
   $('#btnFpHistory').addEventListener('click', () => toast('版本快照：v1 · 2026-09-02（首蒸 5,900 字）｜v2 · 2026-09-14（补样 7,214 字）——快照只读，可对照不可回写'));
+  $('#btnPortraitLater').addEventListener('click', () => {
+    setView('card');
+    toast('好——画像先留着，随时回来「重新蒸馏」继续确认');
+  });
+
+  /* ═══ 粘贴样本弹窗（c-style-paste-distill）：字数去空白、区间外禁提交 ═══ */
+  const pasteModal = $('#pasteModal');
+  const pasteText = $('#pasteText');
+  function openPaste() { pasteModal.classList.add('on'); updatePasteMeta(); pasteText.focus(); }
+  function closePaste() { pasteModal.classList.remove('on'); }
+  $('#fpEmptyPaste').addEventListener('click', openPaste);
+  $('#btnOpenPaste').addEventListener('click', openPaste);
+  $('#pasteCancel').addEventListener('click', closePaste);
+  $('#pasteBackdrop').addEventListener('click', closePaste);
+  function pasteChars(t) { return Array.from(t.replace(/\s/g, '')).length; }
+  function updatePasteMeta() {
+    const n = pasteChars(pasteText.value);
+    $('#pasteCount').textContent = n.toLocaleString();
+    const hint = $('#pasteHint');
+    const start = $('#pasteStart');
+    if (n === 0) { hint.textContent = '需 3,000–10,000 字'; hint.className = ''; start.disabled = true; }
+    else if (n < 3000) { hint.textContent = '还差 ' + (3000 - n).toLocaleString() + ' 字——再补一些你认可的文章'; hint.className = 'warn'; start.disabled = true; }
+    else if (n <= 10000) { hint.textContent = '区间内，可以开始蒸馏'; hint.className = 'ok'; start.disabled = false; }
+    else { hint.textContent = '超过 10,000 字——挑最有代表性的几章'; hint.className = 'warn'; start.disabled = true; }
+  }
+  pasteText.addEventListener('input', updatePasteMeta);
+  $('#pasteStart').addEventListener('click', () => {
+    const n = $('#pasteCount').textContent;
+    closePaste();
+    setView('distill');
+    toast('蒸馏中——按你粘贴的 ' + n + ' 字样本学，三步完成后出画像给你确认');
+  });
 
   /* ═══ 回执条 ═══ */
   let pendingUndo = null;

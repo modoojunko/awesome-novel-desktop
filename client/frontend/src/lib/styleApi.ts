@@ -29,7 +29,11 @@ export interface StyleQuantHistoryItem {
 export interface StyleQuantDraft {
   step?: number;
   sample_chars?: number;
-  step3?: { portrait?: string };
+  step3?: {
+    portrait?: string;
+    /** 落卡行单源（c-style-paste-distill）：确认卡预览与 commit 共用同一构建产物（服务端 build_baseline）。 */
+    rows?: Record<string, { value: string; tolerance: number }>;
+  };
   [k: string]: unknown;
 }
 
@@ -64,6 +68,20 @@ export const BASELINE_ROWS: Array<[string, string]> = [
   ["emotion", "情绪外化"],
   ["dialogue_verb", "对话与动词质感"],
 ];
+
+/** 蒸馏样本区间（与后端 style_quant_model.SAMPLE_MIN/MAX 镜像——改两边同批）。 */
+export const SAMPLE_MIN = 3000;
+export const SAMPLE_MAX = 10000;
+
+/**
+ * 蒸馏样本字数：去空白口径，与后端 `len("".join(text.split()))` 同式。
+ * 码点迭代贴近 Python len（emoji 等代理对记 1）；已知残差：JS `\s` 含 U+FEFF
+ * 而 Python 不含、Python 空白含 \x1c-\x1f 与 \x85 而 JS 不含——仅区间边界
+ * ±1~2 字可见。前端计数只是预判，后端强校验为权威。
+ */
+export function countSampleChars(text: string): number {
+  return [...text.replace(/\s/g, "")].length;
+}
 
 export const styleQuantApi = {
   async get(projectId: string): Promise<StyleQuant> {

@@ -1628,8 +1628,11 @@ async def _save_quant_doc(root_path: str, doc: dict) -> None:
     await get_storage().write_yaml(root_path, STYLE_QUANT_PATH, doc)
 
 
-async def _assemble_distill_samples(project, body: dict, db) -> tuple[str, int, list[str]]:
-    """样本两路装配：novel-samples/ 文件＋勾选已归档章节；区间校验（3,000–10,000）。"""
+async def _assemble_distill_samples(project, body: dict, db) -> tuple[str, int, list[str], int]:
+    """样本两路装配：novel-samples/ 文件＋勾选已归档章节；区间校验（3,000–10,000）。
+
+    粘贴文本第三路不经此函数——step1 在调用前已受理 body.text 并自行校验。
+    """
     import os
 
     from models.archive import Archive
@@ -1750,9 +1753,28 @@ async def style_distill_ai(
         body = {}
 
     if action == "step1":
-        if draft.get("step1"):
+        # 粘贴样本（c-style-paste-distill）：text 非空＝显式重启——本分支必须置于
+        # 续跑短路之前，否则新样本会被「draft.step1 已存在即 resumed」吞掉。
+        # 清 draft 仅内存态：本端点 save-at-end，校验/LLM 失败时持久层旧 draft 零写入。
+        raw_text = body.get("text")
+        if raw_text is not None and not isinstance(raw_text, str):
+            raise HTTPException(400, "粘贴样本格式不对——请重新粘贴文本内容")
+        paste = raw_text.strip() if isinstance(raw_text, str) else ""
+        if paste:
+            from settings.style_quant_model import SAMPLE_MAX, SAMPLE_MIN
+
+            chars = len("".join(paste.split()))
+            if chars < SAMPLE_MIN:
+                raise HTTPException(400, f"样本合计 {chars} 字，少于 {SAMPLE_MIN} 字统计噪声大——再补一些你认可的文章")
+            if chars > SAMPLE_MAX:
+                raise HTTPException(400, f"样本合计 {chars} 字，超过 {SAMPLE_MAX} 字——挑最有代表性的几章")
+            draft = {}
+        elif draft.get("step1"):
             return {"ok": True, "resumed": True, "step": draft.get("step", 0)}
-        text, chars, used, matched_chapters = await _assemble_distill_samples(project, body, db)
+        if paste:
+            text, chars, used, matched_chapters = paste, chars, ["粘贴文本"], 0
+        else:
+            text, chars, used, matched_chapters = await _assemble_distill_samples(project, body, db)
         prompt = load_prompt("style_distill_step1").format(sample=text)
         data = await _distill_llm(project, user, db, system="你是文风分析师。只输出 JSON，不要任何其他文字。", prompt=prompt)
         sections = data.get("sections") if isinstance(data, dict) else None
@@ -1802,12 +1824,20 @@ async def style_distill_ai(
     if not isinstance(data, dict) or not isinstance(data.get("baseline"), dict):
         raise HTTPException(502, "文风归纳返回结构不对，可重试")
     banned = data.get("banned")
+    # 落卡行单源（c-style-paste-distill）：确认卡预览与 commit 共用同一构建产物。
+    # confidence 必须显式注入——build_baseline 缺省 0 会全员落 ±30%（一致地错且断言照样绿）。
+    from settings.style_quant_model import build_baseline, confidence_for
+
+    rows = build_baseline(
+        {**data, "confidence": confidence_for(int(draft.get("sample_chars") or 0), int(draft.get("chapter_count") or 0))}
+    )
     draft["step"] = 3
     draft["step3"] = {
         "baseline": data.get("baseline"),
         "details": data.get("details") or {},
         "portrait": _clamp_str(data.get("portrait"), 1200),
         "banned": [str(x).strip()[:50] for x in banned if str(x).strip()][:50] if isinstance(banned, list) else [],
+        "rows": rows,
     }
     doc["draft"] = draft
     await _save_quant_doc(project.root_path, doc)

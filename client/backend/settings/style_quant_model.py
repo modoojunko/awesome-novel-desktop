@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import copy
+
 QUANT_KEY = "style-quant"
 
 # 六行基线（行序固定；行名 → 人话标签，渲染与前端共用此表）
@@ -41,16 +43,18 @@ _EMPTY = {
 
 
 def empty_quant() -> dict:
-    import copy
-
     return copy.deepcopy(_EMPTY)
 
 
 def quant_doc(raw: dict | None) -> dict:
-    """读边界：补默认形状（不抛错、缺省安全）。"""
+    """读边界：补默认形状（不抛错、缺省安全）。
+
+    deepcopy 而非浅拷贝：_EMPTY 的可变默认值（history 等）若跨文档共享，
+    一个无 history 键的文档经 commit setdefault 后会把快照串给下一个新文档。
+    """
     if not isinstance(raw, dict):
         return empty_quant()
-    doc = dict(_EMPTY)
+    doc = copy.deepcopy(_EMPTY)
     doc.update({k: v for k, v in raw.items() if k in _EMPTY})
     return doc
 
@@ -113,14 +117,26 @@ def build_baseline(step3: dict) -> dict:
 def commit_draft(doc: dict, *, sample_chars: int, chapter_count: int, at: str) -> dict:
     """draft → 正式区＋history 追加；幂等（draft 空时原样返回）。
 
-    锁定行跳过重蒸馏：保留上一版值，history.mixture 如实记录混合来源。
+    落卡行优先复用 step3 构建好的 rows（确认卡预览与落卡同一产物，c-style-paste-distill）；
+    rows 缺失/形状异常回落现算。复用后仍执行锁定行覆盖环——锁定语义按落卡时点的
+    正式区锁定态新解（step3 之后、落卡之前锁被改也不会陈旧）。锁定行保留上一版值，
+    history.mixture 如实记录混合来源。
     """
     draft = doc.get("draft") or {}
     step3 = draft.get("step3")
     if not isinstance(step3, dict) or not step3:
         return doc
     confidence = confidence_for(sample_chars, chapter_count)
-    baseline = build_baseline({**step3, "confidence": confidence})
+    stored_rows = step3.get("rows")
+    if (
+        isinstance(stored_rows, dict)
+        and set(stored_rows) == set(BASELINE_KEYS)
+        and all(isinstance(v, dict) for v in stored_rows.values())
+    ):
+        baseline = {k: dict(v) for k, v in stored_rows.items()}
+    else:
+        # 键不全或行值损坏（非 dict）→ 整体回落现算，绝不落残缺基线
+        baseline = build_baseline({**step3, "confidence": confidence})
     prev = doc.get("baseline") or {}
     mixture: dict = {}
     for row, item in baseline.items():
