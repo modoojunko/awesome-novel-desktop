@@ -1451,3 +1451,9 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .wb .view.on.three-col .panel-head { display: flex; align-items: center; gap: 9px 12px; flex-wrap: wrap; padding: 11px 0; border-bottom: 1px solid var(--border); margin: 0 0 10px; }
 .wb .view.on.three-col .panel-head h2 { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .06em; font-weight: 400; color: var(--muted); margin: 0; }
 .wb .view.on.three-col .panel-head .desc { display: none; }
+
+/* 编辑态顶层字段与查看态同宽约束（原型 volEditHTML 的 fro/fgrid 均在 76ch 内；
+   漏约束时卷名/结构模板/主旨等铺满 ~1200px 中栏，用户 09-19 截图指出） */
+.wb .view.on.three-col .vol-shell .tpl-row,
+.wb .view.on.three-col .vol-shell > .field,
+.wb .view.on.three-col .vol-shell .e-pad > .field { max-width: 76ch; }
