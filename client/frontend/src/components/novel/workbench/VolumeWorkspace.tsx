@@ -302,20 +302,23 @@ function VolumeOutlinePane({
             </button>
           </span>
         </div>
-        <div className="tpl-row">
-          <div className="field">
-            <label htmlFor="vol-name">卷名</label>
+        <div className="fgrid">
+          <div className="fro">
+            <em>卷名</em>
             <input
               id="vol-name"
+              aria-label="卷名"
               className="input"
               maxLength={200}
               value={form.title}
               onChange={(e) => onPatch({ title: e.target.value })}
             />
           </div>
-          <div className="field tpl-select">
-            <label>结构模板</label>
+          <div className="fro">
+            <em>结构模板</em>
             <select
+              id="vol-template"
+              aria-label="结构模板"
               className="input"
               value={form.template_name}
               onChange={(e) => onPatch({ template_name: e.target.value })}
@@ -334,27 +337,29 @@ function VolumeOutlinePane({
                 ))}
             </select>
           </div>
-          <div className="field chtarget">
-            <label htmlFor="vol-target">章数目标</label>
-            <input
-              id="vol-target"
-              className="input num"
-              type="number"
-              min={1}
-              max={9999}
-              placeholder="如 20"
-              value={form.chapter_target}
-              onChange={(e) => onPatch({ chapter_target: e.target.value })}
-            />
-            <span className="opt chtarget-hint">1-9999，留空为不设</span>
-          </div>
         </div>
-        <div className="field">
-          <label htmlFor="vol-summary">
-            本卷主旨 <span className="req">*</span>
-          </label>
+        <div className="fro">
+          <em>章数目标</em>
+          <input
+            id="vol-target"
+            aria-label="章数目标"
+            className="input num"
+            type="number"
+            min={1}
+            max={9999}
+            placeholder="如 20"
+            value={form.chapter_target}
+            onChange={(e) => onPatch({ chapter_target: e.target.value })}
+          />
+          <span className="none">1-9999，留空为不设</span>
+        </div>
+        <div className="fro">
+          <em>
+            本卷主旨 <span className="req">必填</span>
+          </em>
           <textarea
             id="vol-summary"
+            aria-label="本卷主旨"
             className="textarea"
             rows={2}
             maxLength={300}
@@ -369,12 +374,13 @@ function VolumeOutlinePane({
             本卷剧情 <Chev />
           </summary>
           <div className="inner">
-            <div className="field">
-              <label htmlFor="vol-conflict">
-                核心矛盾 <span className="req">*</span>
-              </label>
+            <div className="fro">
+              <em>
+                核心矛盾 <span className="req">必填</span>
+              </em>
               <textarea
                 id="vol-conflict"
+                aria-label="核心矛盾"
                 className="textarea"
                 rows={2}
                 maxLength={150}
@@ -383,10 +389,11 @@ function VolumeOutlinePane({
                 onChange={(e) => onPatch({ core_conflict: e.target.value })}
               />
             </div>
-            <div className="field">
-              <label htmlFor="vol-goal">整体目标</label>
+            <div className="fro">
+              <em>整体目标</em>
               <textarea
                 id="vol-goal"
+                aria-label="整体目标"
                 className="textarea"
                 rows={2}
                 maxLength={300}
@@ -395,10 +402,11 @@ function VolumeOutlinePane({
                 onChange={(e) => onPatch({ goal: e.target.value })}
               />
             </div>
-            <div className="field">
-              <label htmlFor="vol-ending">预期结局</label>
+            <div className="fro">
+              <em>预期结局</em>
               <textarea
                 id="vol-ending"
+                aria-label="预期结局"
                 className="textarea"
                 rows={2}
                 maxLength={300}
@@ -420,48 +428,51 @@ function VolumeOutlinePane({
                 <p className="sub-empty">还没有登记登场人物，点下方添加。</p>
               )}
               {form.cast_members.map((m, i) => (
-                <div className="sub-row cast" key={i}>
-                  <input
-                    className="input"
-                    maxLength={50}
-                    placeholder="角色"
-                    value={m.who}
-                    onChange={(e) =>
-                      onPatch({
-                        cast_members: form.cast_members.map((x, j) =>
-                          j === i ? { ...x, who: e.target.value } : x,
-                        ),
-                      })
-                    }
-                  />
-                  <input
-                    className="input"
-                    maxLength={150}
-                    placeholder="本卷要做什么"
-                    value={m.target}
-                    onChange={(e) =>
-                      onPatch({
-                        cast_members: form.cast_members.map((x, j) =>
-                          j === i ? { ...x, target: e.target.value } : x,
-                        ),
-                      })
-                    }
-                  />
-                  <input
-                    className="input"
-                    maxLength={150}
-                    placeholder="本卷结束时变成什么样"
-                    value={m.change}
-                    onChange={(e) =>
-                      onPatch({
-                        cast_members: form.cast_members.map((x, j) =>
-                          j === i ? { ...x, change: e.target.value } : x,
-                        ),
-                      })
-                    }
-                  />
+                <div className="rowx" key={i}>
+                  <span className="num">{i + 1}</span>
+                  <div className="cols c3">
+                    <input
+                      className="input"
+                      maxLength={50}
+                      placeholder="角色"
+                      value={m.who}
+                      onChange={(e) =>
+                        onPatch({
+                          cast_members: form.cast_members.map((x, j) =>
+                            j === i ? { ...x, who: e.target.value } : x,
+                          ),
+                        })
+                      }
+                    />
+                    <input
+                      className="input"
+                      maxLength={150}
+                      placeholder="本卷要做什么"
+                      value={m.target}
+                      onChange={(e) =>
+                        onPatch({
+                          cast_members: form.cast_members.map((x, j) =>
+                            j === i ? { ...x, target: e.target.value } : x,
+                          ),
+                        })
+                      }
+                    />
+                    <input
+                      className="input"
+                      maxLength={150}
+                      placeholder="本卷结束时变成什么样"
+                      value={m.change}
+                      onChange={(e) =>
+                        onPatch({
+                          cast_members: form.cast_members.map((x, j) =>
+                            j === i ? { ...x, change: e.target.value } : x,
+                          ),
+                        })
+                      }
+                    />
+                  </div>
                   <button
-                    className="icon-btn"
+                    className="icon-btn xbtn"
                     title="删除本行"
                     onClick={() =>
                       onPatch({
@@ -474,7 +485,7 @@ function VolumeOutlinePane({
                 </div>
               ))}
             </div>
-            <div className="sub-add">
+            <div className="edit-bar">
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={() =>
@@ -486,7 +497,7 @@ function VolumeOutlinePane({
                   })
                 }
               >
-                <PlusIcon /> 加一行人物
+                ＋ 加一行人物
               </button>
             </div>
           </div>
@@ -502,40 +513,43 @@ function VolumeOutlinePane({
                 <p className="sub-empty">还没有排剧情节点，点下方添加。</p>
               )}
               {form.plot_nodes.map((n, i) => (
-                <div className="sub-row node" key={i}>
-                  <select
-                    className="input"
-                    value={n.stage}
-                    onChange={(e) =>
-                      onPatch({
-                        plot_nodes: form.plot_nodes.map((x, j) =>
-                          j === i ? { ...x, stage: e.target.value } : x,
-                        ),
-                      })
-                    }
-                  >
-                    {(PLOT_STAGES as unknown as string[]).map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                  <textarea
-                    className="textarea"
-                    rows={2}
-                    maxLength={300}
-                    placeholder="这一节点发生什么、结果是什么"
-                    value={n.text}
-                    onChange={(e) =>
-                      onPatch({
-                        plot_nodes: form.plot_nodes.map((x, j) =>
-                          j === i ? { ...x, text: e.target.value } : x,
-                        ),
-                      })
-                    }
-                  />
+                <div className="rowx" key={i}>
+                  <span className="num">{i + 1}</span>
+                  <div className="cols cn">
+                    <select
+                      className="input"
+                      value={n.stage}
+                      onChange={(e) =>
+                        onPatch({
+                          plot_nodes: form.plot_nodes.map((x, j) =>
+                            j === i ? { ...x, stage: e.target.value } : x,
+                          ),
+                        })
+                      }
+                    >
+                      {(PLOT_STAGES as unknown as string[]).map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                    <textarea
+                      className="textarea"
+                      rows={2}
+                      maxLength={300}
+                      placeholder="这一节点发生什么、结果是什么"
+                      value={n.text}
+                      onChange={(e) =>
+                        onPatch({
+                          plot_nodes: form.plot_nodes.map((x, j) =>
+                            j === i ? { ...x, text: e.target.value } : x,
+                          ),
+                        })
+                      }
+                    />
+                  </div>
                   <button
-                    className="icon-btn"
+                    className="icon-btn xbtn"
                     title="删除本行"
                     onClick={() =>
                       onPatch({
@@ -548,7 +562,7 @@ function VolumeOutlinePane({
                 </div>
               ))}
             </div>
-            <div className="sub-add">
+            <div className="edit-bar">
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={() =>
@@ -560,7 +574,7 @@ function VolumeOutlinePane({
                   })
                 }
               >
-                <PlusIcon /> 加一个节点
+                ＋ 加一个节点
               </button>
             </div>
           </div>
@@ -571,12 +585,13 @@ function VolumeOutlinePane({
             伏笔与信息披露 <Chev />
           </summary>
           <div className="inner">
-            <div className="field">
-              <label htmlFor="vol-plants">
-                本卷埋下伏笔 <span className="opt">一行一条 · 后续卷回收</span>
-              </label>
+            <div className="fro">
+              <em>
+                本卷埋下伏笔 <span className="req">一行一条 · 后续卷回收</span>
+              </em>
               <textarea
                 id="vol-plants"
+                aria-label="本卷埋下伏笔"
                 className="textarea"
                 rows={3}
                 placeholder={"后续卷要回收的线，一行一条"}
@@ -587,12 +602,13 @@ function VolumeOutlinePane({
                 <p className="none">这一卷没有新埋伏笔。</p>
               )}
             </div>
-            <div className="field">
-              <label htmlFor="vol-reveals">
-                本卷揭露信息 <span className="opt">一行一条</span>
-              </label>
+            <div className="fro">
+              <em>
+                本卷揭露信息 <span className="req">一行一条</span>
+              </em>
               <textarea
                 id="vol-reveals"
+                aria-label="本卷揭露信息"
                 className="textarea"
                 rows={3}
                 placeholder={"本卷要揭开的真相，一行一条"}

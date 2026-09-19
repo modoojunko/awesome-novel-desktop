@@ -1457,3 +1457,22 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .wb .view.on.three-col .vol-shell .tpl-row,
 .wb .view.on.three-col .vol-shell > .field,
 .wb .view.on.three-col .vol-shell .e-pad > .field { max-width: 76ch; }
+
+/* 编辑表单统一到原型语言（ADJUSTMENTS 13 续）：fro/rowx/fgrid 同卷纲章纲两态一致 */
+.wb .view.on.three-col .fro > .input,
+.wb .view.on.three-col .fro > select.input,
+.wb .view.on.three-col .fro > .textarea { width: 100%; }
+.view.on.three-col .rowx { display: flex; gap: 11px; align-items: flex-start; padding: 11px 0; border-bottom: 1px solid color-mix(in oklch, var(--border) 45%, transparent); max-width: 76ch; }
+.view.on.three-col .rowx:last-child { border-bottom: 0; }
+.view.on.three-col .rowx .num { flex: none; width: 22px; text-align: right; font-family: var(--font-mono); font-size: 11px; color: var(--faint); padding-top: 9px; }
+.view.on.three-col .rowx .cols { flex: 1; min-width: 0; display: grid; gap: 9px; }
+.view.on.three-col .rowx .cols.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.view.on.three-col .rowx .cols.cn { grid-template-columns: 142px minmax(0, 1fr); }
+.view.on.three-col .rowx .cols .lbl { display: block; margin-bottom: 4px; font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.view.on.three-col .rowx .xbtn { flex: none; align-self: center; }
+/* 章纲等窗格的 .field 就地获得 fro 语言（结构不动、皮肤统一） */
+.wb .view.on.three-col .field { display: flex; flex-direction: column; gap: 5px; padding: 12px 0; border-bottom: 1px solid color-mix(in oklch, var(--border) 55%, transparent); max-width: 76ch; }
+.wb .view.on.three-col .field:last-child { border-bottom: 0; }
+.wb .view.on.three-col .field > label { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.wb .view.on.three-col .field > label .req { color: var(--accent); margin-left: 5px; }
+.wb .view.on.three-col .field > label .opt { margin-left: 5px; color: var(--faint); }
