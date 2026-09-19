@@ -861,3 +861,8 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
 11. **标准正文随批登记**：`docs/ux/design-language.html` 的 SubTable 范式示例（卷纲四子表）
     随字段换代失去实体——示例待标准正文下一版更新为「行集（登场人物/剧情节点）＋一行一条」
     口径；本 change 不改标准正文。
+12. **右栏统计卡窄列折行修正（上线后实测）**：`.rail-stats` 两列网格在右栏实宽下标签折行
+    （「章数目标」折成「章数目／标」，与 QA ② 同款观感；playwright 实测标签高 38.75px＝两行）
+    ——`.k/.v` 补 `white-space: nowrap`＋`li` 加 `align-items: baseline`（book.css 业务层；
+    该族为章/卷模式共用，章模式同宽度下同样受益）。原型右栏较宽不出现此象，属实现宽度差。
+    另实测四页签 centerY 全等（179.5），胶囊「下沉」为底色＋字重视觉错觉，不修。
