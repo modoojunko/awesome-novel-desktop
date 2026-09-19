@@ -506,7 +506,7 @@ details.cfg .inner { padding: 4px 14px 14px; }
 .benefit-row p { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
 
 /* ─── 专注模式 ─────────────────────────────────────────── */
-body.focus .col-tree, body.focus .col-progress, body.focus .col-ai { display: none; }
+body.focus .col-tree, body.focus .col-progress, body.focus .wb .view.on.three-col .col-ai { display: none; }
 body.focus .view.on.three-col { grid-template-columns: 1fr; }
 body.focus .editor-wrap { padding-inline: 8vw; }
 
@@ -1347,3 +1347,107 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .vol-addrow .input { flex: 1; min-width: 0; }
 .sub-row.cast { grid-template-columns: 1fr 1fr 1fr 30px; }
 .sub-row.node { grid-template-columns: 9rem 1fr 30px; }
+
+/* ── storyline 编辑器皮肤（ADJUSTMENTS 卷视图条 13）：卷/章中栏＋右栏对齐原型视觉语言 ──
+   类名保留（.ch-tabs/.cfg/.panel-head/.rail-stats 等 e2e 依赖），视觉语言整体替换：
+   去卡片画布 / e-head 头部 / 下划线页签 / cfgset 分节 / fro 行式字段 / ledger 台账 / 右栏 aiShell。 */
+.wb .view.on.three-col { --faint: color-mix(in oklch, var(--muted) 68%, transparent); --hl: var(--fg-soft); }
+
+/* 中栏容器：去卡片，头部/工具条/内容三段式 */
+.wb .view.on.three-col .col-panel { padding: 0; background: var(--surface); }
+.wb .view.on.three-col .panel { max-width: none; }
+
+/* e-head：kicker + display 大标题 + tag 徽章 meta */
+.e-head { padding: 16px 22px 13px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.e-kicker { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+.e-title { font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -.012em; margin: 0; display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.e-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; white-space: nowrap; background: none; }
+
+/* 工具条：下划线页签（.ch-tabs/.chtab 类名保留） */
+.wb .view.on.three-col .ch-tabs { display: flex; flex-wrap: wrap; min-width: 0; height: auto; padding: 0 14px; align-items: stretch; background: color-mix(in oklch, var(--bg) 55%, var(--surface)); border-bottom: 1px solid var(--border); }
+.wb .view.on.three-col .chtab { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; height: auto; padding: 11px 14px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.wb .view.on.three-col .chtab:hover { color: var(--fg); background: none; }
+.wb .view.on.three-col .chtab.on { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent); background: none; }
+.wb .view.on.three-col .chtab .cnt { font-family: var(--font-mono); font-size: 10px; }
+
+/* 分节：details.cfg → cfgset 语言（＋/－ 标记、分隔线、无卡片） */
+.wb .view.on.three-col details.cfg { background: none; border: 0; border-radius: 0; margin: 0 0 4px; max-width: 76ch; }
+.wb .view.on.three-col details.cfg > summary { display: block; padding: 13px 0 9px; font-size: 13px; font-weight: 400; }
+.wb .view.on.three-col details.cfg > summary::before { content: '＋'; display: inline-block; width: 14px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+.wb .view.on.three-col details.cfg[open] > summary::before { content: '－'; }
+.wb .view.on.three-col details.cfg[open] > summary { border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.wb .view.on.three-col details.cfg > summary .chev { display: none; }
+.wb .view.on.three-col details.cfg > .inner { padding: 0; }
+
+/* fro 行式字段（原型移植，替换早前卷视图自造版） */
+.view.on.three-col .fro { display: flex; flex-direction: column; gap: 5px; padding: 12px 0; border-bottom: 1px solid color-mix(in oklch, var(--border) 55%, transparent); max-width: 76ch; }
+.view.on.three-col .fro:last-child { border-bottom: 0; }
+.view.on.three-col .fro > em { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.view.on.three-col .fro > em .req { color: var(--accent); margin-left: 5px; background: none; padding: 0; border-radius: 0; font-size: 10px; }
+.view.on.three-col .fro > p { margin: 0; font-size: 13.5px; line-height: 1.75; color: var(--fg); }
+.view.on.three-col .fro > p.lead { font-family: var(--font-display); font-size: 16.5px; line-height: 1.85; }
+.view.on.three-col .fro .none { color: var(--faint); font-size: 12.5px; margin: 0; }
+.view.on.three-col .fgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 30px; max-width: 76ch; }
+.view.on.three-col .fgrid .fro { max-width: none; }
+
+/* ledger 台账（本卷章节）＋节点/人物 */
+.ledger { display: flex; flex-direction: column; max-width: 76ch; }
+.lrow { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); width: 100%; background: none; border-left: 0; border-right: 0; border-top: 0; border-radius: 0; text-align: left; font: inherit; color: var(--fg); cursor: pointer; }
+.lrow:last-child { border-bottom: 0; }
+.chrow:hover { background: var(--hl); }
+.chrow:hover .lname { color: var(--accent); }
+.lname { font-size: 13.5px; min-width: 0; }
+.lname em { display: block; font-style: normal; font-family: var(--font-mono); font-size: 10px; color: var(--faint); margin-top: 3px; }
+.lstate { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; flex: none; }
+.lstate.open { color: var(--fg); font-weight: 600; }
+.node { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid color-mix(in oklch, var(--border) 50%, transparent); background: none; border-radius: 0; }
+.node:last-child { border-bottom: 0; }
+.node .stg { flex: none; min-width: 66px; text-align: center; font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 3px 7px; white-space: nowrap; background: none; }
+.node p { margin: 0; font-size: 13px; line-height: 1.7; color: var(--fg); }
+.flist { margin: 0; padding: 0; list-style: none; max-width: 76ch; }
+.flist li { position: relative; padding: 5px 0 5px 15px; font-size: 13px; line-height: 1.7; color: var(--fg); }
+.flist li::before { content: ''; position: absolute; left: 2px; top: 13px; width: 4px; height: 4px; border-radius: 50%; background: var(--faint); }
+.graph-iso { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); margin: 10px 0 0; }
+
+/* ol-top 条（编辑态/窗格头）＋ seg-h */
+.ol-top { display: flex; align-items: center; gap: 9px 12px; flex-wrap: wrap; margin: 0 0 10px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+.ol-top > .note { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .06em; color: var(--muted); }
+.ol-top .push { margin-left: auto; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.edit-bar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-top: 15px; }
+.view.on.three-col .seg-h { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 20px 0 8px; font-weight: 400; }
+.view.on.three-col .seg-h .note { font-family: var(--font-body); letter-spacing: 0; text-transform: none; font-size: 11.5px; color: var(--faint); margin-left: 6px; font-weight: 400; }
+.view.on.three-col .hint { background: none; padding: 7px 0 0; margin: 7px 0 0; }
+
+/* 进度线（原型式：em 标签上 / b 值下） */
+.view.on.three-col .pos-line { display: flex; flex-wrap: wrap; gap: 10px 30px; max-width: 76ch; padding: 0; border: 0; border-radius: 0; background: none; font-size: inherit; color: inherit; }
+.view.on.three-col .pos-line .pos { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.view.on.three-col .pos-line .pos em { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.view.on.three-col .pos-line .pos b { font-size: 12.5px; font-weight: 500; color: var(--fg); }
+
+/* 右栏 aiShell 语言 */
+.wb .view.on.three-col .col-ai { background: var(--bg); border-left: 1px solid var(--border); padding: 16px 15px 22px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+.ai-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ai-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; }
+.pill-pro { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; }
+.ai-ctx { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--muted); }
+.ai-ctx em { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-style: normal; }
+.ai-ctx span { color: var(--fg); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; background: var(--surface); }
+.ai-lead { font-size: 12.5px; color: var(--muted); line-height: 1.65; margin: 0; }
+.ai-foot { font-size: 11px; color: var(--faint); line-height: 1.6; border-top: 1px solid var(--border); padding-top: 12px; margin-top: auto; }
+/* 统计卡：白卡 2×2、标签上/大数值下（.rail-stats 类名保留，章/卷共用） */
+.wb .view.on.three-col .rail-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin: 0; padding: 0; list-style: none; }
+.wb .view.on.three-col .rail-stats li { background: var(--surface); padding: 10px 11px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.wb .view.on.three-col .rail-stats .k { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.wb .view.on.three-col .rail-stats .v { font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--fg); white-space: nowrap; }
+
+/* 章视图：editor-toolbar 降为工具条（标题/徽章信息上移 e-head，去重复） */
+.wb .view.on.three-col .editor-toolbar { border-bottom: 0; background: none; padding: 8px 22px 0; }
+.wb .view.on.three-col .editor-toolbar .ch-name { display: none; }
+.wb .view.on.three-col .editor-toolbar .arch-tag { display: none; }
+.wb .view.on.three-col .editor-toolbar .grow { display: none; }
+.wb .view.on.three-col .editor-toolbar { display: flex; justify-content: flex-end; }
+/* 窗格头统一降为 ol-top 条语言 */
+.wb .view.on.three-col .panel-head { display: flex; align-items: center; gap: 9px 12px; flex-wrap: wrap; padding: 11px 0; border-bottom: 1px solid var(--border); margin: 0 0 10px; }
+.wb .view.on.three-col .panel-head h2 { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .06em; font-weight: 400; color: var(--muted); margin: 0; }
+.wb .view.on.three-col .panel-head .desc { display: none; }

@@ -187,8 +187,7 @@ export default function VolumeWorkspace({
     detail?.chapters.filter((c) => c.archived).length ?? 0;
 
   return (
-    <div className="col-panel">
-      <div className="panel">
+    <div className="col-panel vol-shell">
         {loading ? (
           <p className="desc">卷视图加载中…</p>
         ) : error || !detail ? (
@@ -200,15 +199,14 @@ export default function VolumeWorkspace({
           </div>
         ) : (
           <>
-            <div className="panel-head vol-head">
-              <div className="vol-head-main">
-                <p className="vol-kicker">卷 · 分卷计划</p>
-                <h2>{label}</h2>
+            <header className="e-head">
+              <p className="e-kicker">卷 · 分卷计划</p>
+              <h2 className="e-title">{label}</h2>
+              <div className="e-meta">
+                <span className="tag">{mainlineCount} 章</span>
+                <span className="tag">已归档 {archivedCount} 章</span>
               </div>
-              <span className="vol-meta">
-                {mainlineCount} 章 · 已归档 {archivedCount} 章
-              </span>
-            </div>
+            </header>
 
             <div className="ch-tabs" role="tablist" aria-label="分卷计划">
               {TABS.map(([key, text]) => (
@@ -224,6 +222,7 @@ export default function VolumeWorkspace({
               ))}
             </div>
 
+            <div className="e-pad">
             {tab === "outline" && (
               <VolumeOutlinePane
                 detail={detail}
@@ -253,9 +252,9 @@ export default function VolumeWorkspace({
             {tab === "hooks" && (
               <HooksPane projectId={projectId} volumeScope={detail.volume} />
             )}
+            </div>
           </>
         )}
-      </div>
     </div>
   );
 }
@@ -292,15 +291,16 @@ function VolumeOutlinePane({
   if (form) {
     return (
       <>
-        <div className="vol-editbar">
-          <span className="note">正在编辑卷纲</span>
-          <span style={{ marginRight: "auto" }} />
-          <button className="btn btn-secondary btn-sm" disabled={saving} onClick={onSave}>
-            保存
-          </button>
-          <button className="btn btn-ghost btn-sm" disabled={saving} onClick={onCancel}>
-            取消
-          </button>
+        <div className="ol-top">
+          <span className="note">正在编辑卷纲 · {detail.title}</span>
+          <span className="push">
+            <button className="btn btn-secondary btn-sm" disabled={saving} onClick={onSave}>
+              保存
+            </button>
+            <button className="btn btn-ghost btn-sm" disabled={saving} onClick={onCancel}>
+              取消
+            </button>
+          </span>
         </div>
         <div className="tpl-row">
           <div className="field">
@@ -584,7 +584,7 @@ function VolumeOutlinePane({
                 onChange={(e) => onPatch({ plantsText: e.target.value })}
               />
               {splitLines(form.plantsText).length === 0 && (
-                <p className="vol-none">这一卷没有新埋伏笔。</p>
+                <p className="none">这一卷没有新埋伏笔。</p>
               )}
             </div>
             <div className="field">
@@ -600,7 +600,7 @@ function VolumeOutlinePane({
                 onChange={(e) => onPatch({ revealsText: e.target.value })}
               />
               {splitLines(form.revealsText).length === 0 && (
-                <p className="vol-none">这一卷没有需要揭露的信息。</p>
+                <p className="none">这一卷没有需要揭露的信息。</p>
               )}
             </div>
           </div>
@@ -616,12 +616,13 @@ function VolumeOutlinePane({
   // ── 查看态 ────────────────────────────────────────────────────────────
   return (
     <>
-      <div className="vol-editbar">
+      <div className="ol-top">
         <span className="note">卷纲 · 规划本卷剧情</span>
-        <span style={{ marginRight: "auto" }} />
-        <button className="btn btn-secondary btn-sm" onClick={onEdit}>
-          编辑卷纲
-        </button>
+        <span className="push">
+          <button className="btn btn-secondary btn-sm" onClick={onEdit}>
+            编辑卷纲
+          </button>
+        </span>
       </div>
 
       <details className="cfg" open>
@@ -672,9 +673,9 @@ function VolumeOutlinePane({
         </summary>
         <div className="inner">
           {detail.cast_members.length === 0 ? (
-            <p className="vol-none">这一卷还没有登记登场人物。</p>
+            <p className="none">这一卷还没有登记登场人物。</p>
           ) : (
-            <div className="vol-cast">
+            <div className="ledger">
               {detail.cast_members.map((m, i) => (
                 <div className="node" key={i}>
                   <span className="stg">{m.who}</span>
@@ -696,10 +697,10 @@ function VolumeOutlinePane({
         </summary>
         <div className="inner">
           {detail.plot_nodes.length === 0 ? (
-            <p className="vol-none">还没有排剧情节点。</p>
+            <p className="none">还没有排剧情节点。</p>
           ) : (
             detail.plot_nodes.map((n, i) => (
-              <div className="node vol-node" key={i}>
+              <div className="node" key={i}>
                 <span className="stg">{n.stage}</span>
                 <p>{n.text}</p>
               </div>
@@ -718,25 +719,25 @@ function VolumeOutlinePane({
               本卷埋下伏笔 <span className="req">后续卷回收</span>
             </em>
             {detail.plants.length ? (
-              <ul className="vol-flist">
+              <ul className="flist">
                 {detail.plants.map((x, i) => (
                   <li key={i}>{x}</li>
                 ))}
               </ul>
             ) : (
-              <p className="vol-none">这一卷没有新埋伏笔。</p>
+              <p className="none">这一卷没有新埋伏笔。</p>
             )}
           </div>
           <div className="fro">
             <em>本卷揭露信息</em>
             {detail.reveals.length ? (
-              <ul className="vol-flist">
+              <ul className="flist">
                 {detail.reveals.map((x, i) => (
                   <li key={i}>{x}</li>
                 ))}
               </ul>
             ) : (
-              <p className="vol-none">这一卷没有需要揭露的信息。</p>
+              <p className="none">这一卷没有需要揭露的信息。</p>
             )}
           </div>
         </div>
@@ -758,16 +759,20 @@ function VolumeOutlinePane({
       </p>
       <div className="pos-line" data-testid="vol-progress">
         <span className="pos">
-          已归档 <b>{archived} 章</b>
+          <em>已归档</em>
+          <b>{archived} 章</b>
         </span>
         <span className="pos">
-          草稿 <b>{draft} 章</b>
+          <em>草稿</em>
+          <b>{draft} 章</b>
         </span>
         <span className="pos">
-          拟定 <b>{planned} 章</b>
+          <em>拟定</em>
+          <b>{planned} 章</b>
         </span>
         <span className="pos">
-          待写 <b>{here}</b>
+          <em>待写</em>
+          <b>{here}</b>
         </span>
       </div>
     </>
@@ -830,34 +835,36 @@ function ChapterLedgerPane({
       {detail.chapters.length === 0 ? (
         <p className="vempty">这一卷还没有章节。</p>
       ) : (
-        <div className="vol-chrows">
+        <div className="ledger">
           {detail.chapters.map((c) => {
             const state = c.archived
-              ? { text: "已归档", cls: "pill" }
+              ? "已归档"
               : c.has_prose
-                ? { text: "草稿", cls: "pill pill-accent" }
-                : { text: "拟定", cls: "pill pill-faint" };
+                ? "草稿"
+                : "拟定";
             return (
               <button
-                className="vol-chrow"
+                className="lrow chrow vol-chrow"
                 key={c.ref}
                 onClick={() => onGoChapter(c.ref)}
               >
-                <span className="vol-ch-name">
+                <span className="lname">
                   第 {c.chapter} 章 · {c.title || "（未命名）"}
                   <em>
                     {c.outline_summary ||
                       (c.has_prose ? "（没有章纲）" : "（待补章纲）")}
                   </em>
                 </span>
-                <span className={state.cls}>{state.text}</span>
+                <span className={`lstate${!c.archived && c.has_prose ? " open" : ""}`}>
+                  {state}
+                </span>
               </button>
             );
           })}
         </div>
       )}
       {detail.ghost_count > 0 && (
-        <p className="vol-ghost-note">
+        <p className="graph-iso">
           旧稿支线 {detail.ghost_count} 章 · 已脱离主线，不计入本书设定
         </p>
       )}
@@ -888,7 +895,7 @@ function ChapterLedgerPane({
             </button>
           </div>
         ) : (
-          <div className="vol-addbar">
+          <div className="edit-bar">
             <button className="btn btn-secondary btn-sm" onClick={() => setAdding(true)}>
               <PlusIcon /> 在本卷新增一章
             </button>

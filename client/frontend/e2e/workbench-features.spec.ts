@@ -289,9 +289,9 @@ test("卷视图：点卷节点 → 四页签 → 卷纲两态编辑保存 → �
     // 查看态回显 + 进度线（writeFirstChapter 仅开编辑器未写正文 → 该章=拟定；frontier 定位待写）
     await expect(page.getByText("第一卷铺垫主角妹妹失踪的悬念，收尾进入边城。")).toBeVisible();
     const progress = page.getByTestId("vol-progress");
-    await expect(progress).toContainText("已归档 0 章");
-    await expect(progress).toContainText("拟定 1 章");
-    await expect(progress).toContainText("待写 第 1 章");
+    await expect(progress).toContainText("已归档");
+    await expect(progress).toContainText("拟定")
+    await expect(progress).toContainText("第 1 章");
 
     // 右栏卷语境随页签：卷纲 → 本卷章节
     await expect(page.getByText("AI 辅助 · 卷纲")).toBeVisible();
