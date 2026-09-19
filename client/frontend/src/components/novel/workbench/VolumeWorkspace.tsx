@@ -304,8 +304,9 @@ function VolumeOutlinePane({
         </div>
         <div className="tpl-row">
           <div className="field">
-            <label>卷名</label>
+            <label htmlFor="vol-name">卷名</label>
             <input
+              id="vol-name"
               className="input"
               maxLength={200}
               value={form.title}
@@ -369,10 +370,11 @@ function VolumeOutlinePane({
           </summary>
           <div className="inner">
             <div className="field">
-              <label>
+              <label htmlFor="vol-conflict">
                 核心矛盾 <span className="req">*</span>
               </label>
               <textarea
+                id="vol-conflict"
                 className="textarea"
                 rows={2}
                 maxLength={150}
@@ -382,8 +384,9 @@ function VolumeOutlinePane({
               />
             </div>
             <div className="field">
-              <label>整体目标</label>
+              <label htmlFor="vol-goal">整体目标</label>
               <textarea
+                id="vol-goal"
                 className="textarea"
                 rows={2}
                 maxLength={300}
@@ -393,8 +396,9 @@ function VolumeOutlinePane({
               />
             </div>
             <div className="field">
-              <label>预期结局</label>
+              <label htmlFor="vol-ending">预期结局</label>
               <textarea
+                id="vol-ending"
                 className="textarea"
                 rows={2}
                 maxLength={300}
@@ -568,10 +572,11 @@ function VolumeOutlinePane({
           </summary>
           <div className="inner">
             <div className="field">
-              <label>
+              <label htmlFor="vol-plants">
                 本卷埋下伏笔 <span className="opt">一行一条 · 后续卷回收</span>
               </label>
               <textarea
+                id="vol-plants"
                 className="textarea"
                 rows={3}
                 placeholder={"后续卷要回收的线，一行一条"}
@@ -583,10 +588,11 @@ function VolumeOutlinePane({
               )}
             </div>
             <div className="field">
-              <label>
+              <label htmlFor="vol-reveals">
                 本卷揭露信息 <span className="opt">一行一条</span>
               </label>
               <textarea
+                id="vol-reveals"
                 className="textarea"
                 rows={3}
                 placeholder={"本卷要揭开的真相，一行一条"}

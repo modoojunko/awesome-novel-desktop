@@ -10,7 +10,7 @@
 
 - [x] 1.1 `models/volume.py` 换代：volumes 加 `goal/ending`（VARCHAR 300）、`plants/reveals`（TEXT）；新子表 `VolumeCastMember`/`VolumePlotNode`（沿 `_VolumeChildMixin`）；删六旧列与四旧子表模型；`models/__init__.py` re-export 同批清理；`volumes/__init__.py` 过时 docstring（"双写 YAML"）顺手修。验证：import 冒烟＋ruff 全绿
 - [x] 1.2 `main.py`：**精确删除**六条旧列 ADD（两块：213-219；234-268），保留 220-233（template_name/core_conflict）与 269-275（chapter_target）三条补列；**不写 DROP 迁移**（换代走既有留档路径）。死列残留的真实后果＝未来加法迁移被 `classify_drift` 误判 breaking（评审核正，非二次留档）。验证：✅ upgrade_drill boot-new 三件套留档＋空库启动断言过；PRAGMA/sqlite_master 断言脚本通过（六旧列不在/四旧子表不在/新列新子表齐）；二次启动 current（指纹戳短路）。注：drill 的 export-v2 阶段失败为存量问题（main 基线同败，UNIQUE users.email），与本 change 无关
-- [x] 1.3 迁移口径验证（既有机制零改动）：留档文件 `.legacy-*` 在盘、既有只读检测端点可见；本机 docker 栈重建后首启即完成重置（作为前端 e2e 前置步骤写进 runbook 注记）。验证：演练/手工启动实测通过
+- [x] 1.3 迁移口径验证（既有机制零改动）：留档文件 `.legacy-*` 在盘、既有只读检测端点可见；本机 docker 栈重建后首启即完成重置（作为前端 e2e 前置步骤写进 runbook 注记）。验证：✅ upgrade_drill boot-new 留档断言过（export-v2 败为存量，main 基线同败）；drill 后段由 test_zz_disaster_recovery_drill 全量覆盖
 
 ## 2. 后端：接口与仓储
 
@@ -51,11 +51,11 @@
 ## 7. e2e 与 parity
 
 - [x] 7.1 存量改写：`e2e/workbench-features.spec.ts`（:231-285 信息差块、:287-345 卷纲旧面板断言、**:550-552 `remount()` 的「卷摘要」文案断言**）；`e2e/free-writing-flow.spec.ts:198-202`；`e2e/design-parity-book.spec.ts` volume case 处置（默认下线 case＋登记「卷纲屏事实源转 storyline.html」；`docs/design-c/baselines/book.volume.*.png` 同步清理；gate 若改判「重录」则 book.html 换稿重拍）。验证：三文件跑绿
-- [ ] 7.2 卷视图新 e2e 最小覆盖：选卷→四页签切换→编辑卷纲保存→进度线与右栏语境断言。验证：新 spec 绿
-- [ ] 7.3 全量门禁：**重建 C端 docker 容器后容器内全量 pytest**（既定规矩）＋`tsc --noEmit && npm run build`＋全量 e2e＋vitest 全量（S端零涉及，不适用双端 cross）。验证：各套全绿留输出
+- [x] 7.2 卷视图新 e2e 最小覆盖：选卷→四页签切换→编辑卷纲保存→进度线与右栏语境断言。验证：新 spec 绿
+- [x] 7.3 全量门禁：**重建 C端 docker 容器后容器内全量 pytest**（既定规矩）＋`tsc --noEmit && npm run build`＋全量 e2e＋vitest 全量（S端零涉及，不适用双端 cross）。验证：各套全绿留输出
 
 ## 8. 收尾核账
 
-- [ ] 8.1 ADJUSTMENTS 登记条定稿（0.2 清单逐条落实）＋book.html 卷纲段标过时＋`docs/ux/design-language.html:247` SubTable 示例随四子表退役留待更新登记。验证：条目可 grep
-- [ ] 8.2 c-workbench-outline-fixes 收窄复核：0.3 已执行摘除，此处仅复核其四件套一致（② 不存、①③ 完整）并跟进其归档状态。验证：该 change `openspec validate` 绿
-- [ ] 8.3 specs 核账：**6 张 delta** 与实现一致（volume-outline／workbench／prompt-crafting／backup-restore／volume-chapter-service／workbench-3-label）；book.html 卷纲段过时标 + design-language SubTable 示例待更新登记。验证：`openspec validate c-volume-view-storyline --strict` 全绿
+- [x] 8.1 ADJUSTMENTS 登记条定稿（0.2 清单逐条落实）＋book.html 卷纲段标过时＋`docs/ux/design-language.html:247` SubTable 示例随四子表退役留待更新登记。验证：条目可 grep
+- [x] 8.2 c-workbench-outline-fixes 收窄复核：0.3 已执行摘除，此处仅复核其四件套一致（② 不存、①③ 完整）并跟进其归档状态。验证：✅ fixes change validate 绿（② 已摘、①③ 完整）
+- [x] 8.3 specs 核账：**6 张 delta** 与实现一致（volume-outline／workbench／prompt-crafting／backup-restore／volume-chapter-service／workbench-3-label）；book.html 卷纲段过时标 + design-language SubTable 示例待更新登记。验证：✅ `openspec validate --strict` 绿（6 delta 齐备）

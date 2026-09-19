@@ -26,7 +26,7 @@ const CONFIG_PATH = path.join(process.cwd(), "..", "..", ".docker-data", "client
 test.describe("书架请求预算守卫", () => {
   test("空闲 3 秒 /api 请求 ≤8：壳层重挂风暴守卫", async ({ page }) => {
     // ── 标准 e2e 会话（与其余 spec 同款：S端 注册登录 → 写 config → 注入 token）──
-    const name = `e2e_budget_${Date.now()}_${randomUUID().slice(0, 8)}`;
+    const name = `e2e_bud_${Date.now()}_${randomUUID().slice(0, 8)}`  // 前缀收敛：S端 用户名硬上限 32;
     const password = "Test" + "Budget789!"; // 测试口令运行时拼装（门禁：源码不落明文口令）
     const reg = await fetch(`${S_WEB}/register`, {
       method: "POST",

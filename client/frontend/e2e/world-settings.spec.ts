@@ -24,9 +24,10 @@ const CONFIG_PATH = path.join(
 );
 
 async function sRegisterAndLogin() {
-  const name = `e2e_worldv2_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const name = `e2e_wv2_${Date.now()}_${randomUUID().slice(0, 8)}`  // 前缀收敛：S端 用户名硬上限 32;
   const password = "Test" + "Pass789!";
-  await fetch(`${S_API}/register`, {
+  // register 必须落窗并查码再 login（否则 login 抢跑/吞错 →「用户名或密码错误」）
+  const reg = await fetch(`${S_API}/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -36,6 +37,10 @@ async function sRegisterAndLogin() {
       security_answer: "蓝色",
     }),
   });
+  const regBody = await reg.json();
+  if (regBody.code !== 0) {
+    throw new Error(`S端 register 失败: ${JSON.stringify(regBody)}`);
+  }
   const login = await fetch(`${S_API}/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
