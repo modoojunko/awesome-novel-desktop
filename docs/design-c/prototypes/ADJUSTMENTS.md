@@ -877,3 +877,9 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     ［.rail-stats 类名保留重绘］＋ai-foot 免费版说明；章模式同头）。**app 保留项（原型未画）**：
     editor-toolbar 字号/行距/专注/版本历史/归档控件降为工具条右对齐保留，专注模式隐藏规则
     随 .col-ai 新样式补特异性。editor 皮肤其余页签（OgPane 表单等）经 .cfg 作用域重绘自动对齐。
+14. **编辑表单统一（同批续）**：卷纲编辑态初版残留旧 .field/.tpl-row/.sub-row 结构，与章纲
+    编辑（olFormHTML）不一致——原型两编辑态本就是同一套语言。统一：卷名/结构模板入
+    .fgrid、章数目标独立 fro（提示下移，沿偏差①）、主旨/剧情三字段/伏笔两块改 fro（mono
+    标签＋req/em）；登场人物/剧情节点行改 rowx（序号＋cols.c3/.cn＋xbtn）、添加改 edit-bar
+    （＋ 加一行人物／＋ 加一个节点）；章纲 OgPane 等 .field 经作用域 CSS 就地获得 fro 语言
+    （结构不动）；控件补 aria-label（em 替换 label 后可访问名保持）。
