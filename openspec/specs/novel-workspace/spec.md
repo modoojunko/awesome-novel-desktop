@@ -10,10 +10,12 @@ TBD - created by archiving change 004-free-workspace. Update Purpose after archi
 - The system SHALL provide `components/novel/NovelWorkspace.tsx` as the single workspace replacing `pages/NovelPage.tsx`.
 - The workspace SHALL expose exactly four views: `workbench | advanced-settings | advanced-outline | archives`.
 - **The default landing view SHALL be derived from the book's stage, not fixed to `workbench`**（2026-09-10 用户拍板，取代原「writing is always the primary surface / C5 / P0-5」口径）：
-  - 阶段判据 SHALL 只看**章节**（`stageFromChapters(totalChapters, archivedChapters)`，单源 `lib/novelStage.ts`），**SHALL NOT** 用 `current_phase`——phase 只是「最近一次操作」的记账，归档过一章即停在 `archive`，不代表整本写完。
-  - **无章节 → `advanced-settings`（设定）**；**全部章节已归档 → `archives`（预览）**；**其余（有章节未全归档）→ `workbench`（写作）**。
+  - 阶段判据 SHALL 只看**章节与完结状态**（`stageFromChapters(totalChapters, archivedChapters, finishedAt?)`，单源 `lib/novelStage.ts`），**SHALL NOT** 用 `current_phase`——phase 只是「最近一次操作」的记账，归档过一章即停在 `archive`，不代表整本写完。
+  - **四态**（c-works-finish-flow 扩展，取代原三态）：**`finished_at` 非空 → `done`（已完结）**；**无章节 → `setting`（设定中）**；**主线章节全部归档且未完结 → `ready`（待完本）**；**其余（有章节未全归档）→ `writing`（写作中）**。「已归档」标签 SHALL 退役（全归档未完结＝待完本，不是写完）。
+  - 落点：**无章节 → `advanced-settings`（设定）**；**待完本 → `workbench`（写作，仍可加章/改稿）**；**已完结 → `archives`（预览）**；**其余 → `workbench`（写作）**。预览视图 SHALL 由书架卡片「回看/查看」显式进入（一次性落点覆盖，见下），SHALL NOT 作为待完本书的默认落点。
   - 落点 SHALL 只在**首次书树加载后应用一次**；用户/深链已显式选择视图时 SHALL NOT 覆盖（`setView` 标记主动导航；自动聚焦第一章不算主动导航）。
-  - **书架列表的阶段标签与判据 SHALL 复用同一单源**（`stageFromChapters` + `STAGE_LABEL`，均取自 `lib/novelStage.ts`）——**SHALL NOT** 再按 `current_phase` 派生（2026-09-10 用户拍板「卡片状态应该落在写作」）。卡片与落点必须同结论：归档过几章但整本未完＝卡片「写作中」、点开落写作，不出现「卡片已归档 / 落点写作」的自相矛盾。
+  - **书架卡片的落点覆盖请求**：书架「回看」SHALL 以一次性 location state（`landingView`，白名单四视图）请求落预览；工作台落点 effect SHALL 认领该覆盖并**立即清除 state**（防刷新重放），认领动作视同用户显式选择。
+  - **书架列表的阶段标签与判据 SHALL 复用同一单源**（`stageFromChapters` + `STAGE_LABEL`，均取自 `lib/novelStage.ts`）——**SHALL NOT** 再按 `current_phase` 派生（2026-09-10 用户拍板「卡片状态应该落在写作」）。卡片与落点必须同结论：归档过几章但整本未完＝卡片「写作中」、点开落写作，不出现「卡片已归档 / 落点写作」的自相矛盾；全归档未完结＝卡片「待完本」、点开落写作。
   - 卡片判据依赖的 `total_archives` SHALL 语义为**已归档章节数**：归档 SHALL 幂等（重复归档同一章不重复计数）、取消归档 SHALL 对称回减且不为负。
   - **`total_chapters` / `total_archives` / `word_count` 三个书级统计 SHALL 只统计主线章**（`chapters.ghost_of` 为空；2026-09-17 用户拍板「主线变了后，在主线上的才统计」）——回退转入旧稿支线的章正文原样保留可读，但 SHALL NOT 计入书架卡片的字数与章数；工作台卷章树与全书字数为同口径（三处必须同结论）。
 - The `workbench` view SHALL remain mounted at all times; switching to another view SHALL hide it via a `hidden` class (display:none) rather than unmounting, so un-saved prose input and cursor position within the 1.5s autosave debounce window are preserved.
@@ -37,16 +39,28 @@ TBD - created by archiving change 004-free-workspace. Update Purpose after archi
 - When 打开这本书
 - Then 默认落在「写作」视图
 
+#### Scenario: 待完本（全归档未完结）默认落写作
+- Given 该书主线章节全部归档且 `finished_at` 为空
+- When 打开这本书
+- Then 默认落在「写作」视图（SHALL NOT 自动落预览）
+
 #### Scenario: 全部章节已归档默认落预览
-- Given 该书全部章节均已归档（写完）
+- Given 该书主线章节全部归档**且已完本（`finished_at` 非空）**
 - When 打开这本书
 - Then 默认落在「预览」视图
+- **AND** 全归档但未完本（待完本）时 SHALL NOT 落预览（见上条场景）
 
 #### Scenario: 卡片阶段与落点同结论
 - Given 该书已建卷建章、其中部分章节已归档但并非全部
 - When 查看书架卡片
 - Then 卡片阶段标签为「写作中」（SHALL NOT 因 `current_phase=archive` 显示「已归档」）
 - And 点开这本书默认落「写作」视图，与卡片标签一致
+
+#### Scenario: 书架回看一次性落预览
+- Given 书架上一本待完本书
+- When 在卡片页脚点「回看」（携带一次性 `landingView: "archives"` location state 进入）
+- Then 该书打开后落在「预览」视图
+- **AND** 刷新或再次从书架点开该书时，落点恢复按阶段派生（待完本→写作），SHALL NOT 重放「落预览」
 
 #### Scenario: 回退后书架统计归主线
 - Given 一本书 2 章：第 1 章已归档、第 2 章有正文（未归档）
