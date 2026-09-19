@@ -141,7 +141,7 @@ def _session_test_db():
 # ── 章族入库后的通用种子（跨测试文件复用）────────────────────────────────────
 
 
-async def seed_chapter_db(root: str, chapter: dict, *, volume_summary: str = "") -> None:
+async def seed_chapter_db(root: str, chapter: dict, *, summary: str = "") -> None:
     """种 Novel/Volume/Chapter 行并经统一写入口落章数据。
 
     slug 取 root 目录名保证跨测试唯一（UNIQUE(user_id, slug)）；
@@ -164,7 +164,7 @@ async def seed_chapter_db(root: str, chapter: dict, *, volume_summary: str = "")
         await session.flush()
         vol = Volume(
             project_id=proj.id, volume_no=int(chapter.get("volume", 1) or 1),
-            title="第一卷", summary=volume_summary,
+            title="第一卷", summary=summary,
         )
         session.add(vol)
         await session.flush()

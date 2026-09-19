@@ -1,36 +1,35 @@
 // GET /novels/{pid}/volumes/{ref} 详情契约（client/backend/volumes/service.get_volume）
-// 标量字段 DB 可空，缺失时后端省略键 → 这里标 optional
+// 标量字段 DB 可空，缺失时后端省略键 → 这里标 optional；
+// plants/reveals 契约 = list[str]（一行一条），行集 = 登场人物/剧情节点（c-volume-view-storyline 换代）
 
-export interface VolumeStage {
-  stage_name: string;
-  stage_function: string;
-  chapter_count: number;
+export interface VolumeCastMember {
+  who: string;
+  target: string;
+  change: string;
 }
 
-export interface VolumeConflictLadder {
-  layer_no: number;
-  chapters_range: string;
-  obstacle: string;
-  turning_type: string;
-  turning_point: string;
+export interface VolumePlotNode {
+  stage: string;
+  text: string;
 }
 
-export interface VolumeChapterPlan {
-  chapter_no: number;
-  title: string;
-  summary: string;
-  emotional_anchor: string;
-  info_gap: string;
-  arc_position: string;
-}
+/** 剧情节点阶段（固定六档，与后端 schemas.PLOT_STAGES 同源字面） */
+export const PLOT_STAGES = [
+  "开局铺垫",
+  "冲突初现",
+  "矛盾升级",
+  "重要转折",
+  "高潮爆发",
+  "卷末收束",
+] as const;
 
-export interface VolumeCharacterVoice {
-  character_name: string;
-  situation: string;
-  unfinished: string;
-  interlude_thought: string;
-  next_action: string;
-}
+/** 结构模板（产品单源字面；ADJUSTMENTS ④ 登记不改「起承転結」） */
+export const TEMPLATE_OPTIONS = [
+  "三幕式",
+  "起承転結",
+  "悬疑递进",
+  "人物弧线",
+] as const;
 
 export interface VolumeChapterMeta {
   ref: string;
@@ -42,6 +41,8 @@ export interface VolumeChapterMeta {
   has_prose: boolean;
   outline_status: string;
   archived: boolean;
+  /** 本卷章节台账「章纲一句话」（Chapter.summary；可缺省） */
+  outline_summary?: string;
 }
 
 export interface VolumeDetail {
@@ -49,18 +50,17 @@ export interface VolumeDetail {
   volume: number;
   title: string;
   summary: string;
-  direction_method?: string | null;
   template_name?: string | null;
   core_conflict?: string | null;
-  emotional_arc?: string | null;
-  arc_mode?: string | null;
-  primary_drive?: string | null;
-  info_gap_start?: string | null;
-  info_gap_end?: string | null;
+  goal?: string | null;
+  ending?: string | null;
   chapter_target?: number | null;
-  stages: VolumeStage[];
-  conflict_ladders: VolumeConflictLadder[];
-  chapter_plans: VolumeChapterPlan[];
-  character_voices: VolumeCharacterVoice[];
+  plants: string[];
+  reveals: string[];
+  cast_members: VolumeCastMember[];
+  plot_nodes: VolumePlotNode[];
+  /** 本卷旧稿支线章数（不混入台账/计数，仅汇总提示） */
+  ghost_count: number;
+  /** 主线章列表（ghost 已滤除，按章序） */
   chapters: VolumeChapterMeta[];
 }

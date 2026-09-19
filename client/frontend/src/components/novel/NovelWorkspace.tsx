@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import ProContainer from "@/components/novel/ProContainer";
 import OnboardingCard from "@/components/novel/OnboardingCard";
 import OutlineTree from "@/components/novel/workbench/OutlineTree";
-import VolumePanel from "@/components/novel/workbench/VolumePanel";
+import VolumeWorkspace, { type VolumeRailData } from "@/components/novel/workbench/VolumeWorkspace";
 import ChapterWorkspace from "@/components/novel/workbench/ChapterWorkspace";
 import SettingsView from "@/components/novel/workbench/SettingsView";
 import PreviewView from "@/components/novel/workbench/PreviewView";
@@ -126,12 +126,23 @@ export default function NovelWorkspace() {
     [focusNode, guardedLeave],
   );
 
-  // ── 选中节点解析：章 → 章对象工作台；卷 → 卷纲面板 ────────────────────
+  // ── 卷视图（四页签整页）＋右栏卷语境数据通路（onRailData 同构；卸载即清空） ──
+  const [volumeRailData, setVolumeRailData] = useState<VolumeRailData | null>(null);
+  const handleVolumeRail = useCallback((d: VolumeRailData | null) => {
+    setVolumeRailData(d);
+  }, []);
+
+  // ── 选中节点解析：章 → 章对象工作台；卷 → 卷视图（四页签） ──────────────
   // ref 语法单源（chapterRef）：主线与旧稿 `-r{8hex}` 双形制都算「章对象」
   const chapterRef =
     selectedRef && parseChapterRef(selectedRef) ? selectedRef : null;
   const volumeSelId =
     !chapterRef && selectedId && /^vol-\d+$/.test(selectedId) ? selectedId : null;
+
+  // 未选中卷（空书/章选中态）时清残留，防右栏出现已卸载卷的统计
+  useEffect(() => {
+    if (!volumeSelId) setVolumeRailData(null);
+  }, [volumeSelId]);
 
   // ── novelbar：书名双击改名（#164 口径：名称即标题且必填） ─────────────
   const [nameDraft, setNameDraft] = useState<string | null>(null);
@@ -595,12 +606,14 @@ export default function NovelWorkspace() {
               aiWriteSignal={aiWriteSignal}
             />
           ) : volumeSelId ? (
-            <VolumePanel
+            <VolumeWorkspace
               projectId={projectId}
               volumeRef={volumeSelId}
+              wb={wb}
               onGoChapter={handleChapterJump}
               onVolumeMutated={() => void refresh()}
               onDirtyChange={handleVolumeDirty}
+              onRailData={handleVolumeRail}
             />
           ) : (
             <div className="col-panel">
@@ -631,6 +644,7 @@ export default function NovelWorkspace() {
                   : undefined
                 : undefined
             }
+            volumeData={volumeRailData}
             onAiWrite={() => requestAi({ kind: "write" })}
             onAiContinue={() =>
               requestAi({ kind: "continue", capture: proseRef.current?.captureNow() ?? null })

@@ -823,3 +823,41 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
    novel-samples 或已归档章节」（实现侧 `SettingsView.tsx` 同批改）。
 7. **弹窗与字数为演示逻辑**：原型内联 JS 只做字数统计（码点口径）与区间提示演示；实现
    走 `Modal` 组件（wbStyle 版式）＋`StylePasteModal.tsx`，后端强校验为权威口径。
+
+---
+
+## storyline.html 卷视图整页落地（c-volume-view-storyline，2026-09-19）
+
+设计源：`docs/design-c/drafts/storyline.html` 卷视图段（`volumeEditorHTML` 头部＋四页签
+「卷纲｜本卷章节｜角色关系｜伏笔」、`volOutlineHTML` 两态卷纲、`volChaptersHTML` 本卷章节
+台账、卷域投影 `relsHTML(0, order, false)`/`hooksHTML(0, order)`、右栏 `aiVolHTML`），
+本稿入库为该屏事实源（同 #27 口径：drafts 目录、不入像素 parity 基线）。逐项偏差：
+
+1. **章数目标编辑态保留可编辑输入**：原型编辑表单无此输入（total 恒承旧值，字段将永为
+   「不设」），产品保留输入框；布局沿 c-workbench-outline-fixes ② 口径——标签单行、提示
+   「1-9999，留空为不设」移输入框下方小字。
+2. **卷域 AI 动作清单暂缺**：原型 `aiVolHTML` 四页签均渲染动作清单，本 change 右栏只落
+   引导语＋统计卡，不渲染动作、无「规划中」占位（卷域动作需新端点，另行立项）。**原型该段
+   领先于实现，勿按原型补卡**。
+3. **装配全空返回空串**：原型 `volOutlineText` 全空返回占位符「（卷纲未填）」；产品返回
+   空串以维持 prompt-sources「未填＝chars 0/empty=true」既有断言，占位语义由来源投影的
+   未填标注承担。
+4. **结构模板字面沿产品单源**：原型「起承转結」vs 产品枚举「起承転結」——沿产品单源不改字面。
+5. **章工作台「信息差对齐」块退役**：该块（ChapterWorkspace 顶部只读块）消费本 change 退役的
+   `info_gap_start/end` 与 `chapter_plans`，随字段换代整体退役（ADJUSTMENTS #14 的 parity
+   gapless 桩同步处置）。
+6. **book.html 卷纲面板段过时**：storyline 卷视图为其事实源；book 屏 parity 的 `volume`
+   用例与 `book.volume.*.png` 基线下线（事实源转移登记）；如未来重录需先换 book.html 该段。
+7. **卷域投影截至本卷末**：按原型 `relsHTML(0, order, false)`/`hooksHTML(0, order)` 截断语义
+   实现；**伏笔归类标注（本卷埋下/本卷回收/跨卷悬置）与关系图例「截止本卷末」说明为原型外
+   新增**（原型仅右栏统计，无页签内标注）。
+8. **本机库首启留档重置＋备份 N-1 读窗/演练豁免**：无用户口径，schema 换代走既有留档
+   doctrine（不做旧字段映射/迁移）；format_version 升 4，v0-v3 包卷纲段不承诺恢复；
+   破坏性版本 N-1 恢复演练对本版豁免，验收＝留档断言＋新格式自身八层 roundtrip。
+9. **待写口径取 frontier**：原型 `pendingInfo` 待写＝首个拟定章＋末端占位；产品取「首个未
+   归档章（含草稿）」与排队门禁/写章 409 同源（非 frontier 章不可写，指向拟定章会误导）。
+10. **卷名编辑入口移入卷纲编辑表单**：原型 `v-name` 即如此；树上铅笔改名维持（两入口同写
+    一列，不冲突）。
+11. **标准正文随批登记**：`docs/ux/design-language.html` 的 SubTable 范式示例（卷纲四子表）
+    随字段换代失去实体——示例待标准正文下一版更新为「行集（登场人物/剧情节点）＋一行一条」
+    口径；本 change 不改标准正文。

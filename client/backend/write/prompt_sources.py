@@ -73,7 +73,7 @@ async def prompt_sources(
         book_lines.append(world)
 
     # ② 大纲 · 卷纲：本卷概要
-    volume = ctx.volume_summary or ""
+    volume = ctx.volume_outline or ""
 
     # ③ 本章章纲：概要 + 关键情节点 + 场景 + 出场角色
     outline = ctx.chapter_outline if isinstance(ctx.chapter_outline, dict) else {}

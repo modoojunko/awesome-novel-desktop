@@ -2,8 +2,8 @@
 
 - list_volumes：DB 查询全量卷+章树元数据（含 has_prose/outline_status/archived）。
 - create_volume：MAX(volume_no)+1 + tier_or_gate + DB 行（唯一存储，失败即 500 不降级）。
-- get_volume：卷行标量 + 4 张卷纲子表 + 章列表（Chapter 行）组装详情。
-- update_volume：标量按传入键更新；子表传入即整体替换；Pydantic 已做四档长度校验。
+- get_volume：卷行标量 + 登场人物/剧情节点行集 + 主线章列表（含 outline_summary/ghost_count）。
+- update_volume：显式传入键才写（fields_set，显式 null/[] 即清空）；行集传入即整体替换。
 - delete_volume：删 DB 行（CASCADE 删章行/卷纲子表/版本快照/归档/提示词）+ 清残留章 YAML（PR⑤ 前仍是文件）+ 计数维护。
 """
 
@@ -119,20 +119,23 @@ async def create_volume(
 
 # 组装详情时输出的卷纲标量键（None 的不输出，保持响应干净）
 _DETAIL_SCALARS = [
-    "direction_method",
     "template_name",
     "core_conflict",
-    "emotional_arc",
-    "arc_mode",
-    "primary_drive",
-    "info_gap_start",
-    "info_gap_end",
+    "goal",
+    "ending",
     "chapter_target",
 ]
 
 
+def _split_lines(value: str | None) -> list[str]:
+    """TEXT 一行一条列 → list[str]（读回契约；复用 schemas 归一保单语义）。"""
+    from volumes.schemas import normalize_line_list
+
+    return normalize_line_list([value or ""])
+
+
 async def get_volume(db, project, ref: str) -> dict | None:
-    """卷详情组装：标量 + 卷纲四族子表 + 章列表；{ref} 容 .yaml 尾缀。"""
+    """卷详情组装：标量 + 登场人物/剧情节点行集 + 主线章列表；{ref} 容 .yaml 尾缀。"""
     vol_no = int(strip_suffix(ref).replace("vol-", ""))
     vol = await volume_repo.get_by_volume_no(db, project.id, vol_no)
     if vol is None:
@@ -148,46 +151,21 @@ async def get_volume(db, project, ref: str) -> dict | None:
         value = getattr(vol, key)
         if value is not None:
             data[key] = value
-    data["stages"] = [
-        {
-            "stage_name": s.stage_name,
-            "stage_function": s.stage_function,
-            "chapter_count": s.chapter_count,
-        }
-        for s in vol.stages
+    data["plants"] = _split_lines(vol.plants)
+    data["reveals"] = _split_lines(vol.reveals)
+    data["cast_members"] = [
+        {"who": m.who, "target": m.target, "change": m.change}
+        for m in vol.cast_members
     ]
-    data["conflict_ladders"] = [
-        {
-            "layer_no": l.layer_no,
-            "chapters_range": l.chapters_range,
-            "obstacle": l.obstacle,
-            "turning_type": l.turning_type,
-            "turning_point": l.turning_point,
-        }
-        for l in vol.conflict_ladders
-    ]
-    data["chapter_plans"] = [
-        {
-            "chapter_no": p.chapter_no,
-            "title": p.title,
-            "summary": p.summary,
-            "emotional_anchor": p.emotional_anchor,
-            "info_gap": p.info_gap,
-            "arc_position": p.arc_position,
-        }
-        for p in vol.chapter_plans
-    ]
-    data["character_voices"] = [
-        {
-            "character_name": v.character_name,
-            "situation": v.situation,
-            "unfinished": v.unfinished,
-            "interlude_thought": v.interlude_thought,
-            "next_action": v.next_action,
-        }
-        for v in vol.character_voices
+    data["plot_nodes"] = [
+        {"stage": n.stage, "text": n.text}
+        for n in vol.plot_nodes
     ]
 
+    all_chapters = await chapter_repo.list_by_volume(db, vol.id)
+    mainline = [c for c in all_chapters if not c.ghost_of]
+    # 旧稿支线不入台账与计数，仅以 ghost_count 汇总（卷视图提示「旧稿支线 N 章」）
+    data["ghost_count"] = len(all_chapters) - len(mainline)
     data["chapters"] = [
         {
             "ref": c.ref,
@@ -199,87 +177,59 @@ async def get_volume(db, project, ref: str) -> dict | None:
             "has_prose": c.has_prose,
             "outline_status": c.outline_status,
             "archived": c.status == "archived",
+            # 本卷章节台账「章纲一句话」（Chapter.summary 随章纲落库）
+            "outline_summary": (c.summary or "").strip(),
         }
-        for c in await chapter_repo.list_by_volume(db, vol.id)
+        for c in sorted(mainline, key=lambda x: x.chapter_no)
     ]
     return data
 
 
 def _replace_children(vol, body: VolumeUpdate) -> None:
     """子表整体替换：传入即删旧插新（sort_order 按列表序 0 起）。"""
-    from models.volume import (
-        VolumeChapterPlan,
-        VolumeCharacterVoice,
-        VolumeConflictLadder,
-        VolumeStage,
-    )
+    from models.volume import VolumeCastMember, VolumePlotNode
 
-    if body.stages is not None:
-        vol.stages = [
-            VolumeStage(
+    if body.cast_members is not None:
+        vol.cast_members = [
+            VolumeCastMember(
                 sort_order=i,
-                stage_name=s.stage_name,
-                stage_function=s.stage_function,
-                chapter_count=s.chapter_count,
+                who=m.who,
+                target=m.target,
+                change=m.change,
             )
-            for i, s in enumerate(body.stages)
+            for i, m in enumerate(body.cast_members)
         ]
-    if body.conflict_ladders is not None:
-        vol.conflict_ladders = [
-            VolumeConflictLadder(
+    if body.plot_nodes is not None:
+        vol.plot_nodes = [
+            VolumePlotNode(
                 sort_order=i,
-                layer_no=l.layer_no,
-                chapters_range=l.chapters_range,
-                obstacle=l.obstacle,
-                turning_type=l.turning_type,
-                turning_point=l.turning_point,
+                stage=n.stage,
+                text=n.text,
             )
-            for i, l in enumerate(body.conflict_ladders)
-        ]
-    if body.chapter_plans is not None:
-        vol.chapter_plans = [
-            VolumeChapterPlan(
-                sort_order=i,
-                chapter_no=p.chapter_no,
-                title=p.title,
-                summary=p.summary,
-                emotional_anchor=p.emotional_anchor,
-                info_gap=p.info_gap,
-                arc_position=p.arc_position,
-            )
-            for i, p in enumerate(body.chapter_plans)
-        ]
-    if body.character_voices is not None:
-        vol.character_voices = [
-            VolumeCharacterVoice(
-                sort_order=i,
-                character_name=v.character_name,
-                situation=v.situation,
-                unfinished=v.unfinished,
-                interlude_thought=v.interlude_thought,
-                next_action=v.next_action,
-            )
-            for i, v in enumerate(body.character_voices)
+            for i, n in enumerate(body.plot_nodes)
         ]
 
 
 async def update_volume(db, project, ref: str, body: VolumeUpdate) -> dict:
-    """标量按传入键更新（None 跳过）；子表传入即整体替换。"""
+    """显式传入的键才写（fields_set 判定，显式 null/[] 即清空）；行集传入即整体替换。"""
     vol_no = int(strip_suffix(ref).replace("vol-", ""))
     vol = await volume_repo.get_by_volume_no(db, project.id, vol_no)
     if vol is None:
         raise HTTPException(404, "Volume not found")
 
+    fields_set = body.model_fields_set
     for key in _DETAIL_SCALARS:
-        value = getattr(body, key)
-        if value is not None:
-            setattr(vol, key, value)
+        if key in fields_set:
+            setattr(vol, key, getattr(body, key))
+    for key in ("plants", "reveals"):
+        if key in fields_set:
+            setattr(vol, key, "\n".join(getattr(body, key) or []))
     if body.title is not None:
         vol.title = body.title
     if body.summary is not None:
         vol.summary = body.summary
     # 先清旧子行并 flush（flush 内插入先于删除，会撞 UNIQUE(volume_id, sort_order)）
-    for _attr in ("stages", "conflict_ladders", "chapter_plans", "character_voices"):
+    for _attr in ("cast_members", "plot_nodes"):
         if getattr(body, _attr) is not None:
             getattr(vol, _attr).clear()
     await db.flush()

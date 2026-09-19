@@ -345,8 +345,8 @@ def _material_from_ctx(ctx, chapter: dict) -> str:
     blocks: list[str] = []
     if ctx.story_arc:
         blocks.append("【全书主线】\n" + ctx.story_arc)
-    if ctx.volume_summary:
-        blocks.append("【本卷卷纲】\n" + ctx.volume_summary)
+    if ctx.volume_outline:
+        blocks.append("【本卷卷纲】\n" + ctx.volume_outline)
     prev = ctx.previous_context or ctx.previous_chapter_recap
     if prev:
         blocks.append("【前情】\n" + prev[:800])
@@ -394,8 +394,8 @@ async def ai_draft_outline(
     bg = []
     if ctx.premise:
         bg.append(f"故事前提：{ctx.premise}")
-    if ctx.volume_summary:
-        bg.append(f"本卷概要：{ctx.volume_summary}")
+    if ctx.volume_outline:
+        bg.append("本卷卷纲：\n" + ctx.volume_outline)
     if bg:
         blocks.append("【故事背景】\n" + "\n".join(bg))
     if ctx.characters:

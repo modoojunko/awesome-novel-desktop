@@ -1,1 +1,1 @@
-"""volumes — 卷服务（双写：YAML 先写、DB 后更；change 006）。"""
+"""volumes — 卷服务（数据全量入库；卷纲字段集见 models/volume.py）。"""

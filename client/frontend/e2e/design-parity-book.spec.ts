@@ -15,7 +15,6 @@
 //   modnav「设定 3/7」与设定视图左栏进度两侧一致。
 //
 // PR 4 新增三屏（screen 字段；原型 LS 不还原 preview 视图 → 统一运行时点击）：
-//   volume：点卷行 → 卷纲面板（GET /volumes/vol-1 对齐 buildBook v1.og 全字段）。
 //   settings：modnav 设定 → two-col 默认题材面板（GET /settings/genre → genre_id
 //   + GET /genres/{id} 对齐 SET_GENRE；category 用 slug、label 派生「科幻系」）。
 //   （preview 场景已迁移 design-parity-preview.spec.ts —— 预览独立成屏，c-preview-reader）
@@ -252,7 +251,8 @@ const SEED = (() => {
 // modal-upgrade=右栏 locked 卡升级 PRO；两侧同路径打开弹窗后整页比对（遮罩+弹窗）。
 const CASES = [
   { state: "free", pro: false, screen: "workbench" },
-  { state: "volume", pro: false, screen: "volume" },
+  // volume case 已下线（c-volume-view-storyline）：卷纲屏事实源转 storyline.html
+  // （book.html 卷纲面板段过时，ADJUSTMENTS 已登记；基线 book.volume.*.png 同批清理）。
   { state: "settings", pro: false, screen: "settings" },
   { state: "modal-delete", pro: false, screen: "modal-delete" },
   { state: "modal-prefs", pro: false, screen: "modal-prefs" },

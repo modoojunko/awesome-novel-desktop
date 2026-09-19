@@ -195,10 +195,10 @@ test("加卷加章：即达编辑器，实时字数 + 自动保存，空章三�
     await expect(tree.getByText("第一章")).toBeVisible();
     await expect(tree.locator(".ch .dot-empty").first()).toBeVisible();
 
-    // 点卷节点 → 卷纲面板（PR4：常编辑态全字段，无独立右栏）
+    // 点卷节点 → 卷视图（c-volume-view-storyline：四页签整页，查看态默认）
     await tree.locator(".vol-head", { hasText: "第一卷" }).click();
     await expect(
-      page.getByRole("button", { name: "保存卷纲" }),
+      page.getByRole("button", { name: "编辑卷纲" }),
     ).toBeVisible({ timeout: 10000 });
 
     // 点回第一章 → 强制落「章纲」页签 → 切「正文」→ 编辑器恢复 → ⑤ 实时字数 + 自动保存

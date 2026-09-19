@@ -516,13 +516,7 @@ async def _import_single_book(
     from models.character import CharacterRelation
     from models.project import Novel
     from models.project_setting import ProjectSetting
-    from models.volume import (
-        Volume,
-        VolumeChapterPlan,
-        VolumeCharacterVoice,
-        VolumeConflictLadder,
-        VolumeStage,
-    )
+    from models.volume import Volume, VolumeCastMember, VolumePlotNode
 
     names = set(zf.namelist())
     pn = "project.yaml" if f"{book_dir}project.yaml" in names else "project.json"
@@ -586,7 +580,9 @@ async def _import_single_book(
             content=json.dumps(data, ensure_ascii=False),
         ))
 
-    # 卷 + 卷纲四子表
+    # 卷 + 卷纲行集（v4 键集）。v0-v3 包的旧卷纲键（direction_method/stages/
+    # conflict_ladders/chapter_plans/character_voices 等）不承载、静默忽略——
+    # N-1 读窗对本版豁免（backup-restore 契约 v4；ADJUSTMENTS 登记，无用户口径）
     for name in sorted(names):
         if not name.startswith(f"{book_dir}volumes/") or not name.endswith(".yaml"):
             continue
@@ -594,34 +590,24 @@ async def _import_single_book(
         vol = Volume(
             project_id=novel.id, volume_no=vol_data.get("volume", 1),
             title=vol_data.get("title", ""), summary=vol_data.get("summary", ""),
-            direction_method=vol_data.get("direction_method"),
             template_name=vol_data.get("template_name"),
             core_conflict=vol_data.get("core_conflict"),
-            emotional_arc=vol_data.get("emotional_arc"),
-            arc_mode=vol_data.get("arc_mode"),
-            primary_drive=vol_data.get("primary_drive"),
-            info_gap_start=vol_data.get("info_gap_start"),
-            info_gap_end=vol_data.get("info_gap_end"),
+            goal=vol_data.get("goal"),
+            ending=vol_data.get("ending"),
+            plants="\n".join(vol_data.get("plants") or []),
+            reveals="\n".join(vol_data.get("reveals") or []),
             chapter_target=vol_data.get("chapter_target"),
         )
         db.add(vol)
         await db.flush()
 
-        for i, s in enumerate(vol_data.get("stages") or []):
-            db.add(VolumeStage(volume_id=vol.id, sort_order=i, **{
-                k: s.get(k) for k in ("stage_name", "stage_function", "chapter_count")
+        for i, m in enumerate(vol_data.get("cast_members") or []):
+            db.add(VolumeCastMember(volume_id=vol.id, sort_order=i, **{
+                k: (m.get(k) or "") for k in ("who", "target", "change")
             }))
-        for i, c in enumerate(vol_data.get("conflict_ladders") or []):
-            db.add(VolumeConflictLadder(volume_id=vol.id, sort_order=i, **{
-                k: c.get(k) for k in ("layer_no", "chapters_range", "obstacle", "turning_type", "turning_point")
-            }))
-        for i, p in enumerate(vol_data.get("chapter_plans") or []):
-            db.add(VolumeChapterPlan(volume_id=vol.id, sort_order=i, **{
-                k: p.get(k) for k in ("chapter_no", "title", "summary", "emotional_anchor", "info_gap", "arc_position")
-            }))
-        for i, v in enumerate(vol_data.get("character_voices") or []):
-            db.add(VolumeCharacterVoice(volume_id=vol.id, sort_order=i, **{
-                k: v.get(k) for k in ("character_name", "situation", "unfinished", "interlude_thought", "next_action")
+        for i, n in enumerate(vol_data.get("plot_nodes") or []):
+            db.add(VolumePlotNode(volume_id=vol.id, sort_order=i, **{
+                k: (n.get(k) or "") for k in ("stage", "text")
             }))
 
     # 章 + 正文 + 子表 + 版本 + 提示词

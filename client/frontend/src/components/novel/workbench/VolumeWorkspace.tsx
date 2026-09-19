@@ -1,0 +1,934 @@
+/** 卷视图（storyline 卷视图整页，c-volume-view-storyline）：头部＋四页签。
+ *  卷纲＝查看/编辑两态（六分组＋本卷进度线）；本卷章节＝主线台账（ghost 只汇总）；
+ *  角色关系/伏笔＝卷域投影（截至本卷末，只读）。右栏卷语境经 onRailData 上抛
+ *  （与章模式 onRailData 同构；卸载即清空防残留）。 */
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { nodeLabel } from "@/lib/nodeTitle";
+import type { UseWorkbenchReturn } from "@/hooks/useWorkbench";
+import {
+  splitLines,
+  toVolumeFormData,
+  volumeFormToPayload,
+  type VolumeFormData,
+} from "../volume/form";
+import {
+  PLOT_STAGES,
+  TEMPLATE_OPTIONS,
+  type VolumeDetail,
+} from "../volume/types";
+import { RelationsGraphPane } from "./RelationsGraphPane";
+import { HooksPane } from "./HooksPane";
+
+export type VolumeTab = "outline" | "chapters" | "rels" | "hooks";
+
+/** 上抛右栏的卷语境（Rail mode="volume" 消费；与 RailChapterData 平级） */
+export interface VolumeRailData {
+  volume: number;
+  title: string;
+  tab: VolumeTab;
+  detail: VolumeDetail;
+}
+
+interface VolumeWorkspaceProps {
+  projectId: string;
+  volumeRef: string;
+  wb: UseWorkbenchReturn;
+  onGoChapter: (ref: string) => void;
+  onVolumeMutated: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+  onRailData: (data: VolumeRailData | null) => void;
+}
+
+const TABS: Array<[VolumeTab, string]> = [
+  ["outline", "卷纲"],
+  ["chapters", "本卷章节"],
+  ["rels", "角色关系"],
+  ["hooks", "伏笔"],
+];
+
+export default function VolumeWorkspace({
+  projectId,
+  volumeRef,
+  wb,
+  onGoChapter,
+  onVolumeMutated,
+  onDirtyChange,
+  onRailData,
+}: VolumeWorkspaceProps) {
+  const [detail, setDetail] = useState<VolumeDetail | null>(null);
+  const [form, setForm] = useState<VolumeFormData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState<VolumeTab>("outline");
+  // 主线写作位（首个未归档章，含草稿；与排队门禁同源）
+  const [frontier, setFrontier] = useState<{ vol: number; ch: number } | null>(
+    null,
+  );
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = (await api.get(
+        `/novels/${projectId}/volumes/${volumeRef}`,
+      )) as VolumeDetail;
+      setDetail(data);
+      setForm(null);
+    } catch (e: any) {
+      setError(e?.message || "加载卷详情失败");
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId, volumeRef]);
+
+  // 换卷：页签回落「卷纲」并重取详情
+  useEffect(() => {
+    setTab("outline");
+    void load();
+  }, [load]);
+
+  // 主线写作位（详情变化后随刷：建章/归档会改变 frontier）
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const d = (await api.get(`/novels/${projectId}/frontier`)) as {
+          frontier: { volume_no: number; chapter_no: number } | null;
+        };
+        if (alive) {
+          setFrontier(
+            d.frontier
+              ? { vol: d.frontier.volume_no, ch: d.frontier.chapter_no }
+              : null,
+          );
+        }
+      } catch {
+        if (alive) setFrontier(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectId, detail]);
+
+  const dirty = useMemo(
+    () =>
+      form !== null &&
+      detail !== null &&
+      JSON.stringify(form) !== JSON.stringify(toVolumeFormData(detail)),
+    [form, detail],
+  );
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+
+  // 右栏卷语境上抛：卸载/换卷/换页签先清空（防未选中卷时残留统计）
+  useEffect(() => {
+    if (detail) {
+      onRailData({
+        volume: detail.volume,
+        title: nodeLabel("卷", detail.volume, detail.title),
+        tab,
+        detail,
+      });
+    } else {
+      onRailData(null);
+    }
+    return () => onRailData(null);
+  }, [detail, tab, onRailData]);
+
+  const patch = useCallback((p: Partial<VolumeFormData>) => {
+    setForm((f) => (f ? { ...f, ...p } : f));
+  }, []);
+
+  const startEdit = () => {
+    if (detail) setForm(toVolumeFormData(detail));
+  };
+  const cancelEdit = () => setForm(null);
+
+  const save = async () => {
+    if (!form || !detail || saving) return;
+    if (!form.summary.trim() || !form.core_conflict.trim()) {
+      toast.error("本卷主旨与核心矛盾为必填，补上再保存");
+      return;
+    }
+    const target = form.chapter_target.trim();
+    if (target !== "" && (!/^\d+$/.test(target) || Number(target) < 1 || Number(target) > 9999)) {
+      toast.error("章数目标须为 1-9999，留空为不设");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.put(
+        `/novels/${projectId}/volumes/${volumeRef}`,
+        volumeFormToPayload(form),
+      );
+      setForm(null);
+      await load();
+      onVolumeMutated();
+      toast.success(`《${detail.title}》卷纲已保存`);
+    } catch (e: any) {
+      toast.error(
+        e?.status === 422
+          ? "部分字段超长或格式有误，请检查后重试"
+          : e?.message || "保存失败",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const label = detail ? nodeLabel("卷", detail.volume, detail.title) : "";
+  const mainlineCount = detail?.chapters.length ?? 0;
+  const archivedCount =
+    detail?.chapters.filter((c) => c.archived).length ?? 0;
+
+  return (
+    <div className="col-panel">
+      <div className="panel">
+        {loading ? (
+          <p className="desc">卷视图加载中…</p>
+        ) : error || !detail ? (
+          <div className="field">
+            <p className="desc">{error || "卷不存在"}</p>
+            <button className="btn btn-secondary btn-sm" onClick={() => void load()}>
+              重试
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="panel-head vol-head">
+              <div className="vol-head-main">
+                <p className="vol-kicker">卷 · 分卷计划</p>
+                <h2>{label}</h2>
+              </div>
+              <span className="vol-meta">
+                {mainlineCount} 章 · 已归档 {archivedCount} 章
+              </span>
+            </div>
+
+            <div className="ch-tabs" role="tablist" aria-label="分卷计划">
+              {TABS.map(([key, text]) => (
+                <button
+                  key={key}
+                  className={`chtab${tab === key ? " on" : ""}`}
+                  role="tab"
+                  aria-selected={tab === key}
+                  onClick={() => setTab(key)}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+
+            {tab === "outline" && (
+              <VolumeOutlinePane
+                detail={detail}
+                form={form}
+                saving={saving}
+                frontier={frontier}
+                onPatch={patch}
+                onEdit={startEdit}
+                onCancel={cancelEdit}
+                onSave={() => void save()}
+              />
+            )}
+            {tab === "chapters" && (
+              <ChapterLedgerPane
+                projectId={projectId}
+                volumeRef={volumeRef}
+                detail={detail}
+                frontier={frontier}
+                wb={wb}
+                onGoChapter={onGoChapter}
+                onMutated={() => void load()}
+              />
+            )}
+            {tab === "rels" && (
+              <RelationsGraphPane projectId={projectId} volumeScope={detail.volume} />
+            )}
+            {tab === "hooks" && (
+              <HooksPane projectId={projectId} volumeScope={detail.volume} />
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── 卷纲页签：查看/编辑两态 ────────────────────────────────────────────────
+
+function VolumeOutlinePane({
+  detail,
+  form,
+  saving,
+  frontier,
+  onPatch,
+  onEdit,
+  onCancel,
+  onSave,
+}: {
+  detail: VolumeDetail;
+  form: VolumeFormData | null;
+  saving: boolean;
+  frontier: { vol: number; ch: number } | null;
+  onPatch: (p: Partial<VolumeFormData>) => void;
+  onEdit: () => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const here =
+    frontier && frontier.vol === detail.volume
+      ? `第 ${frontier.ch} 章`
+      : "不在本卷";
+  const archived = detail.chapters.filter((c) => c.archived).length;
+  const draft = detail.chapters.filter((c) => c.has_prose && !c.archived).length;
+  const planned = detail.chapters.filter((c) => !c.has_prose && !c.archived).length;
+
+  if (form) {
+    return (
+      <>
+        <div className="vol-editbar">
+          <span className="note">正在编辑卷纲</span>
+          <span style={{ marginRight: "auto" }} />
+          <button className="btn btn-secondary btn-sm" disabled={saving} onClick={onSave}>
+            保存
+          </button>
+          <button className="btn btn-ghost btn-sm" disabled={saving} onClick={onCancel}>
+            取消
+          </button>
+        </div>
+        <div className="tpl-row">
+          <div className="field">
+            <label htmlFor="vol-name">卷名</label>
+            <input
+              id="vol-name"
+              className="input"
+              maxLength={200}
+              value={form.title}
+              onChange={(e) => onPatch({ title: e.target.value })}
+            />
+          </div>
+          <div className="field tpl-select">
+            <label>结构模板</label>
+            <select
+              className="input"
+              value={form.template_name}
+              onChange={(e) => onPatch({ template_name: e.target.value })}
+            >
+              <option value="">（未选择）</option>
+              {(form.template_name &&
+              !TEMPLATE_OPTIONS.includes(form.template_name as (typeof TEMPLATE_OPTIONS)[number])
+                ? [form.template_name]
+                : []
+              )
+                .concat(TEMPLATE_OPTIONS as unknown as string[])
+                .map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div className="field chtarget">
+            <label htmlFor="vol-target">章数目标</label>
+            <input
+              id="vol-target"
+              className="input num"
+              type="number"
+              min={1}
+              max={9999}
+              placeholder="如 20"
+              value={form.chapter_target}
+              onChange={(e) => onPatch({ chapter_target: e.target.value })}
+            />
+            <span className="opt chtarget-hint">1-9999，留空为不设</span>
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="vol-summary">
+            本卷主旨 <span className="req">*</span>
+          </label>
+          <textarea
+            id="vol-summary"
+            className="textarea"
+            rows={2}
+            maxLength={300}
+            placeholder="一句话概括这一卷的核心意义"
+            value={form.summary}
+            onChange={(e) => onPatch({ summary: e.target.value })}
+          />
+        </div>
+
+        <details className="cfg" open>
+          <summary>
+            本卷剧情 <Chev />
+          </summary>
+          <div className="inner">
+            <div className="field">
+              <label htmlFor="vol-conflict">
+                核心矛盾 <span className="req">*</span>
+              </label>
+              <textarea
+                id="vol-conflict"
+                className="textarea"
+                rows={2}
+                maxLength={150}
+                placeholder="本卷要解决或对抗的冲突"
+                value={form.core_conflict}
+                onChange={(e) => onPatch({ core_conflict: e.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="vol-goal">整体目标</label>
+              <textarea
+                id="vol-goal"
+                className="textarea"
+                rows={2}
+                maxLength={300}
+                placeholder="本卷结束时想达成的局面"
+                value={form.goal}
+                onChange={(e) => onPatch({ goal: e.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="vol-ending">预期结局</label>
+              <textarea
+                id="vol-ending"
+                className="textarea"
+                rows={2}
+                maxLength={300}
+                placeholder="收尾状态；多结局在此列分支"
+                value={form.ending}
+                onChange={(e) => onPatch({ ending: e.target.value })}
+              />
+            </div>
+          </div>
+        </details>
+
+        <details className="cfg" open>
+          <summary>
+            本卷登场人物 <Chev />
+          </summary>
+          <div className="inner">
+            <div className="sub-list">
+              {form.cast_members.length === 0 && (
+                <p className="sub-empty">还没有登记登场人物，点下方添加。</p>
+              )}
+              {form.cast_members.map((m, i) => (
+                <div className="sub-row cast" key={i}>
+                  <input
+                    className="input"
+                    maxLength={50}
+                    placeholder="角色"
+                    value={m.who}
+                    onChange={(e) =>
+                      onPatch({
+                        cast_members: form.cast_members.map((x, j) =>
+                          j === i ? { ...x, who: e.target.value } : x,
+                        ),
+                      })
+                    }
+                  />
+                  <input
+                    className="input"
+                    maxLength={150}
+                    placeholder="本卷要做什么"
+                    value={m.target}
+                    onChange={(e) =>
+                      onPatch({
+                        cast_members: form.cast_members.map((x, j) =>
+                          j === i ? { ...x, target: e.target.value } : x,
+                        ),
+                      })
+                    }
+                  />
+                  <input
+                    className="input"
+                    maxLength={150}
+                    placeholder="本卷结束时变成什么样"
+                    value={m.change}
+                    onChange={(e) =>
+                      onPatch({
+                        cast_members: form.cast_members.map((x, j) =>
+                          j === i ? { ...x, change: e.target.value } : x,
+                        ),
+                      })
+                    }
+                  />
+                  <button
+                    className="icon-btn"
+                    title="删除本行"
+                    onClick={() =>
+                      onPatch({
+                        cast_members: form.cast_members.filter((_, j) => j !== i),
+                      })
+                    }
+                  >
+                    <TrashIcon />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="sub-add">
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() =>
+                  onPatch({
+                    cast_members: [
+                      ...form.cast_members,
+                      { who: "", target: "", change: "" },
+                    ],
+                  })
+                }
+              >
+                <PlusIcon /> 加一行人物
+              </button>
+            </div>
+          </div>
+        </details>
+
+        <details className="cfg" open>
+          <summary>
+            本卷关键剧情节点 <Chev />
+          </summary>
+          <div className="inner">
+            <div className="sub-list">
+              {form.plot_nodes.length === 0 && (
+                <p className="sub-empty">还没有排剧情节点，点下方添加。</p>
+              )}
+              {form.plot_nodes.map((n, i) => (
+                <div className="sub-row node" key={i}>
+                  <select
+                    className="input"
+                    value={n.stage}
+                    onChange={(e) =>
+                      onPatch({
+                        plot_nodes: form.plot_nodes.map((x, j) =>
+                          j === i ? { ...x, stage: e.target.value } : x,
+                        ),
+                      })
+                    }
+                  >
+                    {(PLOT_STAGES as unknown as string[]).map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                  <textarea
+                    className="textarea"
+                    rows={2}
+                    maxLength={300}
+                    placeholder="这一节点发生什么、结果是什么"
+                    value={n.text}
+                    onChange={(e) =>
+                      onPatch({
+                        plot_nodes: form.plot_nodes.map((x, j) =>
+                          j === i ? { ...x, text: e.target.value } : x,
+                        ),
+                      })
+                    }
+                  />
+                  <button
+                    className="icon-btn"
+                    title="删除本行"
+                    onClick={() =>
+                      onPatch({
+                        plot_nodes: form.plot_nodes.filter((_, j) => j !== i),
+                      })
+                    }
+                  >
+                    <TrashIcon />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="sub-add">
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() =>
+                  onPatch({
+                    plot_nodes: [
+                      ...form.plot_nodes,
+                      { stage: PLOT_STAGES[0], text: "" },
+                    ],
+                  })
+                }
+              >
+                <PlusIcon /> 加一个节点
+              </button>
+            </div>
+          </div>
+        </details>
+
+        <details className="cfg" open>
+          <summary>
+            伏笔与信息披露 <Chev />
+          </summary>
+          <div className="inner">
+            <div className="field">
+              <label htmlFor="vol-plants">
+                本卷埋下伏笔 <span className="opt">一行一条 · 后续卷回收</span>
+              </label>
+              <textarea
+                id="vol-plants"
+                className="textarea"
+                rows={3}
+                placeholder={"后续卷要回收的线，一行一条"}
+                value={form.plantsText}
+                onChange={(e) => onPatch({ plantsText: e.target.value })}
+              />
+              {splitLines(form.plantsText).length === 0 && (
+                <p className="vol-none">这一卷没有新埋伏笔。</p>
+              )}
+            </div>
+            <div className="field">
+              <label htmlFor="vol-reveals">
+                本卷揭露信息 <span className="opt">一行一条</span>
+              </label>
+              <textarea
+                id="vol-reveals"
+                className="textarea"
+                rows={3}
+                placeholder={"本卷要揭开的真相，一行一条"}
+                value={form.revealsText}
+                onChange={(e) => onPatch({ revealsText: e.target.value })}
+              />
+              {splitLines(form.revealsText).length === 0 && (
+                <p className="vol-none">这一卷没有需要揭露的信息。</p>
+              )}
+            </div>
+          </div>
+        </details>
+
+        <p className="hint">
+          卷纲只做剧情规划，人物的具体言行交给角色设定去推导。
+        </p>
+      </>
+    );
+  }
+
+  // ── 查看态 ────────────────────────────────────────────────────────────
+  return (
+    <>
+      <div className="vol-editbar">
+        <span className="note">卷纲 · 规划本卷剧情</span>
+        <span style={{ marginRight: "auto" }} />
+        <button className="btn btn-secondary btn-sm" onClick={onEdit}>
+          编辑卷纲
+        </button>
+      </div>
+
+      <details className="cfg" open>
+        <summary>
+          卷基础信息 <Chev />
+        </summary>
+        <div className="inner">
+          <div className="fro">
+            <em>本卷主旨</em>
+            <p className="lead">{detail.summary || "（未填）"}</p>
+          </div>
+          <div className="fgrid">
+            <div className="fro">
+              <em>结构模板</em>
+              <p>{detail.template_name || "—"}</p>
+            </div>
+            <div className="fro">
+              <em>章数目标</em>
+              <p>{detail.chapter_target != null ? `${detail.chapter_target} 章` : "不设"}</p>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details className="cfg" open>
+        <summary>
+          本卷剧情 <Chev />
+        </summary>
+        <div className="inner">
+          <div className="fro">
+            <em>核心矛盾</em>
+            <p>{detail.core_conflict || "（未填）"}</p>
+          </div>
+          <div className="fro">
+            <em>整体目标</em>
+            <p>{detail.goal || "（未填）"}</p>
+          </div>
+          <div className="fro">
+            <em>预期结局</em>
+            <p>{detail.ending || "（未填）"}</p>
+          </div>
+        </div>
+      </details>
+
+      <details className="cfg" open>
+        <summary>
+          本卷登场人物 <Chev />
+        </summary>
+        <div className="inner">
+          {detail.cast_members.length === 0 ? (
+            <p className="vol-none">这一卷还没有登记登场人物。</p>
+          ) : (
+            <div className="vol-cast">
+              {detail.cast_members.map((m, i) => (
+                <div className="node" key={i}>
+                  <span className="stg">{m.who}</span>
+                  <p>
+                    本卷目标 · {m.target || "—"}
+                    <br />
+                    预期变化 · {m.change || "—"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </details>
+
+      <details className="cfg" open>
+        <summary>
+          本卷关键剧情节点 <Chev />
+        </summary>
+        <div className="inner">
+          {detail.plot_nodes.length === 0 ? (
+            <p className="vol-none">还没有排剧情节点。</p>
+          ) : (
+            detail.plot_nodes.map((n, i) => (
+              <div className="node vol-node" key={i}>
+                <span className="stg">{n.stage}</span>
+                <p>{n.text}</p>
+              </div>
+            ))
+          )}
+        </div>
+      </details>
+
+      <details className="cfg" open>
+        <summary>
+          伏笔与信息披露 <Chev />
+        </summary>
+        <div className="inner">
+          <div className="fro">
+            <em>
+              本卷埋下伏笔 <span className="req">后续卷回收</span>
+            </em>
+            {detail.plants.length ? (
+              <ul className="vol-flist">
+                {detail.plants.map((x, i) => (
+                  <li key={i}>{x}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="vol-none">这一卷没有新埋伏笔。</p>
+            )}
+          </div>
+          <div className="fro">
+            <em>本卷揭露信息</em>
+            {detail.reveals.length ? (
+              <ul className="vol-flist">
+                {detail.reveals.map((x, i) => (
+                  <li key={i}>{x}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="vol-none">这一卷没有需要揭露的信息。</p>
+            )}
+          </div>
+        </div>
+      </details>
+
+      <details className="cfg">
+        <summary>
+          章节拆分 <Chev />
+        </summary>
+        <div className="inner">
+          <p className="hint">
+            每一章的蓝图长在该章的「章纲」里，本页不重复维护。节点与人物是本层的计划，往下拆章时逐章落到章纲。
+          </p>
+        </div>
+      </details>
+
+      <p className="seg-h">
+        本卷进度 <span className="note">由各章实际归属推导</span>
+      </p>
+      <div className="pos-line" data-testid="vol-progress">
+        <span className="pos">
+          已归档 <b>{archived} 章</b>
+        </span>
+        <span className="pos">
+          草稿 <b>{draft} 章</b>
+        </span>
+        <span className="pos">
+          拟定 <b>{planned} 章</b>
+        </span>
+        <span className="pos">
+          待写 <b>{here}</b>
+        </span>
+      </div>
+    </>
+  );
+}
+
+// ── 本卷章节页签 ──────────────────────────────────────────────────────────
+
+function ChapterLedgerPane({
+  projectId,
+  volumeRef,
+  detail,
+  frontier,
+  wb,
+  onGoChapter,
+  onMutated,
+}: {
+  projectId: string;
+  volumeRef: string;
+  detail: VolumeDetail;
+  frontier: { vol: number; ch: number } | null;
+  wb: UseWorkbenchReturn;
+  onGoChapter: (ref: string) => void;
+  onMutated: () => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const create = async () => {
+    const t = title.trim();
+    if (!t) {
+      toast.error("章节标题必填");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.post(`/novels/${projectId}/volumes/${volumeRef}/chapters`, {
+        title: t,
+      });
+      toast.success("已新增一章，先写它的章纲");
+      setTitle("");
+      setAdding(false);
+      onMutated();
+      wb.refresh();
+    } catch {
+      toast.error("创建章失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const canAdd = frontier != null && frontier.vol === detail.volume;
+
+  return (
+    <>
+      <p className="seg-h">
+        本卷章节 <span className="note">主线章按章序排列 · 点行进入该章</span>
+      </p>
+      {detail.chapters.length === 0 ? (
+        <p className="vempty">这一卷还没有章节。</p>
+      ) : (
+        <div className="vol-chrows">
+          {detail.chapters.map((c) => {
+            const state = c.archived
+              ? { text: "已归档", cls: "pill" }
+              : c.has_prose
+                ? { text: "草稿", cls: "pill pill-accent" }
+                : { text: "拟定", cls: "pill pill-faint" };
+            return (
+              <button
+                className="vol-chrow"
+                key={c.ref}
+                onClick={() => onGoChapter(c.ref)}
+              >
+                <span className="vol-ch-name">
+                  第 {c.chapter} 章 · {c.title || "（未命名）"}
+                  <em>
+                    {c.outline_summary ||
+                      (c.has_prose ? "（没有章纲）" : "（待补章纲）")}
+                  </em>
+                </span>
+                <span className={state.cls}>{state.text}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {detail.ghost_count > 0 && (
+        <p className="vol-ghost-note">
+          旧稿支线 {detail.ghost_count} 章 · 已脱离主线，不计入本书设定
+        </p>
+      )}
+      {canAdd ? (
+        adding ? (
+          <div className="vol-addrow">
+            <input
+              className="input"
+              autoFocus
+              placeholder="章节标题（必填）"
+              value={title}
+              disabled={busy}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void create();
+                if (e.key === "Escape") setAdding(false);
+              }}
+            />
+            <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void create()}>
+              确定
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={busy}
+              onClick={() => setAdding(false)}
+            >
+              取消
+            </button>
+          </div>
+        ) : (
+          <div className="vol-addbar">
+            <button className="btn btn-secondary btn-sm" onClick={() => setAdding(true)}>
+              <PlusIcon /> 在本卷新增一章
+            </button>
+          </div>
+        )
+      ) : (
+        <p className="hint">新增章节排在主线末端；这一卷要等前面写到这里。</p>
+      )}
+    </>
+  );
+}
+
+function Chev() {
+  return (
+    <svg
+      className="chev"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      width="13"
+      height="13"
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+    </svg>
+  );
+}

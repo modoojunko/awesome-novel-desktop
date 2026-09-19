@@ -48,45 +48,24 @@ async def get_by_volume_no(
     return await db.scalar(stmt)
 
 
-async def get_summary_by_root(
+async def get_outline_by_root(
     db: AsyncSession, root_path: str, volume_no: int
 ) -> str:
-    """AI 生成链路（仅持有 root_path）取卷概要。"""
-    stmt = (
-        select(Volume.summary)
-        .join(Novel, Volume.project_id == Novel.id)
-        .where(Novel.root_path == root_path, Volume.volume_no == volume_no)
-    )
-    return await db.scalar(stmt) or ""
+    """AI 生成链路（仅持有 root_path）取卷纲装配文本（卷视图换代素材单源）。
 
-
-async def get_info_gap_by_root(
-    db: AsyncSession, root_path: str, volume_no: int, chapter_no: int | None = None
-) -> tuple[str, str, str]:
-    """卷级信息差起止 + 该章规划行信息差（卷纲 §七 chapter_plans 按章号对齐）。
-
-    返回 (start, end, chapter_gap)，任一缺失为空串；供提示词注入。
+    载入 Volume（selectinload plot_nodes）后交 volumes/render 装配；卷缺失返回空串。
     """
-    from models.volume import VolumeChapterPlan
+    from volumes.render import volume_outline_text
 
-    vol_stmt = (
+    stmt = (
         select(Volume)
         .join(Novel, Volume.project_id == Novel.id)
         .where(Novel.root_path == root_path, Volume.volume_no == volume_no)
     )
-    vol = await db.scalar(vol_stmt)
+    vol = await db.scalar(stmt)
     if vol is None:
-        return ("", "", "")
-    start = vol.info_gap_start or ""
-    end = vol.info_gap_end or ""
-    chapter_gap = ""
-    if chapter_no is not None:
-        plan_stmt = select(VolumeChapterPlan.info_gap).where(
-            VolumeChapterPlan.volume_id == vol.id,
-            VolumeChapterPlan.chapter_no == chapter_no,
-        )
-        chapter_gap = (await db.scalar(plan_stmt) or "").strip()
-    return (start, end, chapter_gap)
+        return ""
+    return volume_outline_text(vol)
 
 
 async def max_volume_no(db: AsyncSession, project_id: str) -> int:

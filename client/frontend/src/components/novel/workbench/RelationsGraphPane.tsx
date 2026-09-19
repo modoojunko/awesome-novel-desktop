@@ -1,9 +1,11 @@
 /** 「角色关系」页签（workbench-relations-graph）：全书关系图。
  *  节点=角色（主角加重），边=单向视角关系（rel_type · stance，带来源章）。
- *  布局＝确定性环形（storyline.html graphLayout 同款），无随机、可截图。 */
+ *  布局＝确定性环形（storyline.html graphLayout 同款），无随机、可截图。
+ *  volumeScope（卷选中态）：截至该卷末的关系投影——来源卷号 > 该卷的边不显示，
+ *  只读无章高亮（c-volume-view-storyline）。 */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { chapterNoOf } from "@/lib/chapterRef";
+import { chapterNoOf, parseChapterRef } from "@/lib/chapterRef";
 
 interface GraphNode {
   id: string;
@@ -47,10 +49,13 @@ function layout(nodes: GraphNode[]): Map<string, { x: number; y: number }> {
 export function RelationsGraphPane({
   projectId,
   chapterRef,
+  volumeScope,
 }: {
   projectId: string;
   /** 当前章 ref：本章新建/变化的关系在图上高亮（storyline rels 页签口径） */
   chapterRef?: string;
+  /** 卷选中态：截至该卷末的关系投影（来源卷号 > 该卷的边不显示） */
+  volumeScope?: number;
 }) {
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [chapters, setChapters] = useState<
@@ -115,6 +120,16 @@ export function RelationsGraphPane({
     [graph],
   );
 
+  // 卷域投影：来源卷号 > 该卷的边不显示（开书设定无来源章，始终可见）
+  const visibleEdges = useMemo(() => {
+    if (!graph) return [];
+    if (volumeScope == null) return graph.edges;
+    return graph.edges.filter((e) => {
+      const p = parseChapterRef(e.origin_chapter || "");
+      return p == null || p.vol <= volumeScope;
+    });
+  }, [graph, volumeScope]);
+
   if (error) return <p className="vempty">{error}</p>;
   if (!graph) return <p className="vempty">加载中……</p>;
   if (graph.nodes.length === 0)
@@ -129,7 +144,7 @@ export function RelationsGraphPane({
         style={{ width: "100%", height: "auto" }}
       >
         {/* 边：视角单向，画带箭头直线；标签取中点 */}
-        {graph.edges.map((e, i) => {
+        {visibleEdges.map((e, i) => {
           const a = pos.get(e.owner_id);
           const b = pos.get(e.other_id);
           if (!a || !b) return null;
@@ -169,12 +184,13 @@ export function RelationsGraphPane({
         })}
       </svg>
       <p className="rg-legend">
-        {graph.nodes.length} 个角色 · {graph.edges.length} 条关系
+        {graph.nodes.length} 个角色 · {visibleEdges.length} 条关系
+        {volumeScope != null && ` · 截至第 ${volumeScope} 卷末（只读投影）`}
         {chapterRef && " · 本章新建或变化的关系在图上高亮"}
       </p>
-      {graph.edges.length > 0 && (
+      {visibleEdges.length > 0 && (
         <ul className="rg-list">
-          {graph.edges.map((e, i) => {
+          {visibleEdges.map((e, i) => {
             const hit = !!chapterRef && e.origin_chapter === chapterRef;
             const origin = chapters.find((c) => c.ref === e.origin_chapter);
             const state = !e.origin_chapter

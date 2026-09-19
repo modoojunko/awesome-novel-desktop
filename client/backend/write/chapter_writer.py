@@ -130,7 +130,7 @@ class ChapterContext:
         # 本章文风影子（chapter-style-shadow）：命中行覆盖基线渲染；直建 ctx 默认空
         self.style_shadow: dict = {}
         self.hooks = []
-        self.volume_summary = ""
+        self.volume_outline = ""
         self.chapter_outline = {}
         self.characters = []
         self.previous_chapter_recap = ""
@@ -193,15 +193,15 @@ class ChapterContext:
         if prev:
             blocks.append(f"【前情上下文】\n{prev}")
 
-        if self.premise or self.world_setting or self.volume_summary:
+        if self.premise or self.world_setting or self.volume_outline:
             bg = ["故事前提：" + self.premise] if self.premise else []
             if self.story_arc:
                 bg.append("全书主线：" + self.story_arc)
             world_block = self._world_block()
             if world_block:
                 bg.append(world_block)
-            if self.volume_summary:
-                bg.append(f"本卷概要：{self.volume_summary}")
+            if self.volume_outline:
+                bg.append("本卷卷纲：\n" + self.volume_outline)
             blocks.append("【故事背景】\n" + "\n".join(bg))
 
         scene = self._scene_material_text()
@@ -362,8 +362,8 @@ class ChapterContext:
         world_block = self._world_block()
         if world_block:
             lines.append(world_block)
-        if self.volume_summary:
-            lines.append(f"本卷概要：{self.volume_summary}")
+        if self.volume_outline:
+            lines.append("本卷卷纲：\n" + self.volume_outline)
         lines.append("")
 
         # Chapter outline + 场景原材料
@@ -620,7 +620,7 @@ async def build_chapter_context(
         vol_no = int(vol_match.group(1))
         ctx.volume_no = vol_no
         async with async_session() as session:
-            ctx.volume_summary = await volume_repo.get_summary_by_root(
+            ctx.volume_outline = await volume_repo.get_outline_by_root(
                 session, root_path, vol_no
             )
 

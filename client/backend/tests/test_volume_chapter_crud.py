@@ -156,7 +156,7 @@ def test_get_volume_tolerates_yaml_suffix():
 
 
 def test_volume_structured_fields_roundtrip():
-    """卷纲结构化：扩列标量 + 4 张子表整体替换 + get_volume 组装。"""
+    """卷纲结构化（storyline 换代字段集）：标量 + 登场人物/剧情节点行集 + 一行一条。"""
     async def _run():
         project = await _new_project("sv1")
         async with async_session() as session:
@@ -165,64 +165,81 @@ def test_volume_structured_fields_roundtrip():
             await _update_volume(
                 session, proj, "vol-1",
                 {
-                    "direction_method": "template",
                     "template_name": "悬疑递进",
                     "core_conflict": "主角想查清真相，被幕后组织追杀",
-                    "emotional_arc": "压抑→更压抑→提升→打脸→装逼",
-                    "arc_mode": "先压后爽",
-                    "primary_drive": "悬疑",
-                    "info_gap_start": "读者知道有内鬼↦主角不知道",
-                    "info_gap_end": "主角识破内鬼↦反派不知已暴露",
+                    "goal": "查清师父死因并把内鬼逼出水面",
+                    "ending": "内鬼落网，但主角也失去警队身份",
                     "chapter_target": 40,
-                    "stages": [
-                        {"stage_name": "起", "stage_function": "建立日常并埋雷",
-                         "chapter_count": 8},
-                        {"stage_name": "承", "stage_function": "追查遇阻升级",
-                         "chapter_count": 12},
+                    "plants": ["内鬼的真实身份", "师父留下的暗号本",
+                               "被销毁的卷宗残页"],
+                    "reveals": ["内鬼是副队长"],
+                    "cast_members": [
+                        {"who": "林拓", "target": "查清师父死因",
+                         "change": "从守规矩到游走灰色地带"},
+                        {"who": "沈青", "target": "保护证人",
+                         "change": "对体制产生怀疑"},
                     ],
-                    "conflict_ladders": [
-                        {"layer_no": 1, "chapters_range": "1-1~1-2",
-                         "obstacle": "线人失联", "turning_type": "信息转折",
-                         "turning_point": "线人留下的暗号指向内部"},
-                    ],
-                    "chapter_plans": [
-                        {"chapter_no": 1, "title": "雨夜接头",
-                         "summary": "主角接头拿档案，对方被灭口，档案失踪",
-                         "emotional_anchor": "压抑↑——开场即失手",
-                         "info_gap": "读者知道接头人是内鬼↦主角不知",
-                         "arc_position": "第1章/共40章——起段开篇"},
-                    ],
-                    "character_voices": [
-                        {"character_name": "林拓",
-                         "situation": "被停职调查，孤身查案",
-                         "unfinished": "还没查完师父的死因",
-                         "interlude_thought": "卷间思考：信任是否已是奢侈品",
-                         "next_action": "顺着暗号查内部档案室"},
+                    "plot_nodes": [
+                        {"stage": "开局铺垫", "text": "雨夜接头，线人被灭口"},
+                        {"stage": "重要转折", "text": "暗号指向队内，信任崩塌"},
                     ],
                 },
             )
             data = await _get_volume(session, proj, "vol-1")
-            assert data["direction_method"] == "template"
+            assert data["template_name"] == "悬疑递进"
+            assert data["goal"] == "查清师父死因并把内鬼逼出水面"
+            assert data["ending"] == "内鬼落网，但主角也失去警队身份"
             assert data["chapter_target"] == 40
-            assert len(data["stages"]) == 2
-            assert data["stages"][0]["stage_name"] == "起"
-            assert data["stages"][0]["chapter_count"] == 8
-            assert data["conflict_ladders"][0]["layer_no"] == 1
-            assert data["chapter_plans"][0]["title"] == "雨夜接头"
-            assert data["character_voices"][0]["character_name"] == "林拓"
+            assert data["plants"] == ["内鬼的真实身份", "师父留下的暗号本",
+                                      "被销毁的卷宗残页"]
+            assert data["reveals"] == ["内鬼是副队长"]
+            assert len(data["cast_members"]) == 2
+            assert data["cast_members"][0]["who"] == "林拓"
+            assert data["plot_nodes"][1]["stage"] == "重要转折"
 
-            # 子表整体替换：stages 换成一行，其余族不动
+            # 行集整体替换：剧情节点换成一行，登场人物族不动；章数目标显式清空
             await _update_volume(
                 session, proj, "vol-1",
-                {"stages": [{"stage_name": "合", "stage_function": "收束反转",
-                             "chapter_count": 5}]},
+                {"plot_nodes": [{"stage": "卷末收束", "text": "收网与告别"}],
+                 "chapter_target": None},
             )
             data = await _get_volume(session, proj, "vol-1")
-            assert len(data["stages"]) == 1
-            assert data["stages"][0]["stage_name"] == "合"
-            # 未传的族保持原值
-            assert len(data["conflict_ladders"]) == 1
-            assert data["chapter_target"] == 40
+            assert len(data["plot_nodes"]) == 1
+            assert data["plot_nodes"][0]["stage"] == "卷末收束"
+            # 未传的族保持原值；chapter_target 显式 null = 清空（不设）
+            assert len(data["cast_members"]) == 2
+            assert "chapter_target" not in data
+
+    _run_async(_run())
+
+
+def test_volume_line_list_validation():
+    """一行一条契约：归一（\r\n→\n、strip、丢空行）＋ 逐行 150 上限 ＋ stage 六档 422。"""
+    from volumes.schemas import PlotNodeIn, VolumeUpdate, normalize_line_list
+
+    body = VolumeUpdate(plants=["  a\r\nb  ", "", "c"])
+    assert body.plants == ["a", "b", "c"]
+    assert normalize_line_list(["x\r\ny"]) == ["x", "y"]
+
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        VolumeUpdate(plants=["长" * 151])
+    with pytest.raises(ValidationError):
+        PlotNodeIn(stage="不属于六档", text="x")
+
+    async def _run():
+        project = await _new_project("llv1")
+        async with async_session() as session:
+            proj = await session.get(Novel, project.id)
+            await _create_volume(session, proj, title="校验卷")
+            await _update_volume(session, proj, "vol-1",
+                                 {"reveals": [], "plot_nodes": [
+                                     {"stage": "高潮爆发", "text": "终局对撞"}]})
+            data = await _get_volume(session, proj, "vol-1")
+            assert data["reveals"] == []
+            assert data["plot_nodes"][0]["stage"] == "高潮爆发"
 
     _run_async(_run())
 
