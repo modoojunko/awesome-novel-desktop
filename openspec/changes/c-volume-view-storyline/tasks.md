@@ -8,27 +8,27 @@
 
 ## 1. 后端：模型换代与迁移验证（沿既有留档 doctrine，零新增迁移机制）
 
-- [ ] 1.1 `models/volume.py` 换代：volumes 加 `goal/ending`（VARCHAR 300）、`plants/reveals`（TEXT）；新子表 `VolumeCastMember`/`VolumePlotNode`（沿 `_VolumeChildMixin`）；删六旧列与四旧子表模型；`models/__init__.py` re-export 同批清理；`volumes/__init__.py` 过时 docstring（"双写 YAML"）顺手修。验证：import 冒烟＋ruff 全绿
-- [ ] 1.2 `main.py`：**精确删除**六条旧列 ADD（两块：213-219；234-268），保留 220-233（template_name/core_conflict）与 269-275（chapter_target）三条补列；**不写 DROP 迁移**（换代走既有留档路径）。死列残留的真实后果＝未来加法迁移被 `classify_drift` 误判 breaking（评审核正，非二次留档）。验证：旧形态 fixture 库启动→三件套留档＋空库新 schema；启动后 `PRAGMA table_info(volumes)` 无六旧列、`sqlite_master` 无四旧子表；二次启动判定 current
-- [ ] 1.3 迁移口径验证（既有机制零改动）：留档文件 `.legacy-*` 在盘、既有只读检测端点可见；本机 docker 栈重建后首启即完成重置（作为前端 e2e 前置步骤写进 runbook 注记）。验证：演练/手工启动实测通过
+- [x] 1.1 `models/volume.py` 换代：volumes 加 `goal/ending`（VARCHAR 300）、`plants/reveals`（TEXT）；新子表 `VolumeCastMember`/`VolumePlotNode`（沿 `_VolumeChildMixin`）；删六旧列与四旧子表模型；`models/__init__.py` re-export 同批清理；`volumes/__init__.py` 过时 docstring（"双写 YAML"）顺手修。验证：import 冒烟＋ruff 全绿
+- [x] 1.2 `main.py`：**精确删除**六条旧列 ADD（两块：213-219；234-268），保留 220-233（template_name/core_conflict）与 269-275（chapter_target）三条补列；**不写 DROP 迁移**（换代走既有留档路径）。死列残留的真实后果＝未来加法迁移被 `classify_drift` 误判 breaking（评审核正，非二次留档）。验证：✅ upgrade_drill boot-new 三件套留档＋空库启动断言过；PRAGMA/sqlite_master 断言脚本通过（六旧列不在/四旧子表不在/新列新子表齐）；二次启动 current（指纹戳短路）。注：drill 的 export-v2 阶段失败为存量问题（main 基线同败，UNIQUE users.email），与本 change 无关
+- [x] 1.3 迁移口径验证（既有机制零改动）：留档文件 `.legacy-*` 在盘、既有只读检测端点可见；本机 docker 栈重建后首启即完成重置（作为前端 e2e 前置步骤写进 runbook 注记）。验证：演练/手工启动实测通过
 
 ## 2. 后端：接口与仓储
 
-- [ ] 2.1 `volumes/schemas.py` 换代：新字段集＋行长纪律（who 50/target 150/change 150/node text 300/逐行 ≤150/行数上限 200）；`plants/reveals` 契约＝`list[str]`＋归一 validator（`\r\n→\n`、逐行 strip、丢空行）；`node.stage` 用枚举 422；显式 `extra="ignore"`；`chapter_target` 补清空通道（删除字段语义）。验证：422 用例（超长/非法 stage/行数超限）＋往返用例
-- [ ] 2.2 `volumes/service.py` get/put 换代：`get_volume` 章节改**主线过滤**＋逐行补 `outline_summary`（取 `Chapter.summary`）＋补 `ghost_count`；PUT 沿 clear→flush→insert 整族替换；删旧 `_DETAIL_SCALARS`/`_replace_children` 旧字段。验证：pytest（往返含行序、主线过滤、ghost_count、清空 chapter_target）
-- [ ] 2.3 `repositories/volume_repo.py`：删死码 `get_info_gap_by_root`（引用待删模型）；`get_summary_by_root` 改名 `get_outline_by_root` 并**载入 `Volume(+selectinload plot_nodes)` 调用 `volumes/render.volume_outline_text` 返回装配文本**（接线点，勿只改名）。验证：grep 全仓无残留＋装配单测经此路径断言含节点行
+- [x] 2.1 `volumes/schemas.py` 换代：新字段集＋行长纪律（who 50/target 150/change 150/node text 300/逐行 ≤150/行数上限 200）；`plants/reveals` 契约＝`list[str]`＋归一 validator（`\r\n→\n`、逐行 strip、丢空行）；`node.stage` 用枚举 422；显式 `extra="ignore"`；`chapter_target` 补清空通道（删除字段语义）。验证：422 用例（超长/非法 stage/行数超限）＋往返用例
+- [x] 2.2 `volumes/service.py` get/put 换代：`get_volume` 章节改**主线过滤**＋逐行补 `outline_summary`（取 `Chapter.summary`）＋补 `ghost_count`；PUT 沿 clear→flush→insert 整族替换；删旧 `_DETAIL_SCALARS`/`_replace_children` 旧字段。验证：pytest（往返含行序、主线过滤、ghost_count、清空 chapter_target）
+- [x] 2.3 `repositories/volume_repo.py`：删死码 `get_info_gap_by_root`（引用待删模型）；`get_summary_by_root` 改名 `get_outline_by_root` 并**载入 `Volume(+selectinload plot_nodes)` 调用 `volumes/render.volume_outline_text` 返回装配文本**（接线点，勿只改名）。验证：grep 全仓无残留＋装配单测经此路径断言含节点行
 
 ## 3. 后端：装配单源与消费点
 
-- [ ] 3.1 新增 `volumes/render.py::volume_outline_text`：行标签与格式逐字对齐 `volOutlineText`（1609-1620：本卷主旨/核心矛盾/整体目标/预期结局/关键节点单行 ｜ 编号/本卷待埋伏笔/本卷待揭信息），空段整行略过，**全空返回空串**；复用 schemas 归一函数。验证：单测断言行标签、单行 ｜ 格式、空段、全空空串
-- [ ] 3.2 8 处消费点同批切换并改名 `ctx.volume_summary→ctx.volume_outline`：`write/chapter_writer.py`（声明:133/gate:196/文案:203-204/文案:365-366）、`write/prompt_sources.py:76`、`write/ai_check.py:103`、`chapters/ai_draft.py:348-349,397-398`；`tests/conftest.py:144/167` 形参同步改名；多行文本下「本卷概要：」前缀文案定一版（小节标题或保留前缀，随批写死）。验证：`ctx.volume_summary` 与 `get_summary_by_root` 全仓 grep 清零（不含历史文档）
-- [ ] 3.3 pytest 收口：prompt-sources 投影「卷纲含节点行/不含言行」＋「全空 chars=0」断言；`tests/test_volume_chapter_crud.py` 结构化往返用例改写为新字段集。验证：`uv run pytest` 全量绿（存量 brand/entitlement 基线 2 红除外）
+- [x] 3.1 新增 `volumes/render.py::volume_outline_text`：行标签与格式逐字对齐 `volOutlineText`（1609-1620：本卷主旨/核心矛盾/整体目标/预期结局/关键节点单行 ｜ 编号/本卷待埋伏笔/本卷待揭信息），空段整行略过，**全空返回空串**；复用 schemas 归一函数。验证：单测断言行标签、单行 ｜ 格式、空段、全空空串
+- [x] 3.2 8 处消费点同批切换并改名 `ctx.volume_summary→ctx.volume_outline`：`write/chapter_writer.py`（声明:133/gate:196/文案:203-204/文案:365-366）、`write/prompt_sources.py:76`、`write/ai_check.py:103`、`chapters/ai_draft.py:348-349,397-398`；`tests/conftest.py:144/167` 形参同步改名；多行文本下「本卷概要：」前缀文案定一版（小节标题或保留前缀，随批写死）。验证：`ctx.volume_summary` 与 `get_summary_by_root` 全仓 grep 清零（不含历史文档）
+- [x] 3.3 pytest 收口：prompt-sources 投影「卷纲含节点行/不含言行」＋「全空 chars=0」断言；`tests/test_volume_chapter_crud.py` 结构化往返用例改写为新字段集。验证：✅ 全量 pytest 1214 passed（含新增 test_volume_render 2 例、改写 crud/layer3、conftest 改名）；uvx ruff 触碰文件全绿
 
 ## 4. 后端：备份链（format v4，无兼容分支）
 
-- [ ] 4.1 `backup/format.py`：`FORMAT_VERSION` 3→4（卷纲删键升版）；版本门槛形状照旧（≤4 过、>4 拒）；**docstring 里「导入端保留 N-1 读窗」措辞同批更正**（读窗按当次 change 裁定、本版豁免）。验证：format 单测
-- [ ] 4.2 `backup/importer.py` 卷段换代：删旧模型 import（:519-525 函数体内 import）；按新键建 Volume＋两新子表；**不写旧键映射/容错分支**（N-1 豁免已登记）。验证：新格式包导入用例绿
-- [ ] 4.3 导出两链回归：`backup/export.py:126-130`、`novels/router.py:659-670` 带新字段正确导出；`tests/test_backup_roundtrip.py` 层 3 改写为新字段断言；连带 21 个经 importer fixture 的用例按新格式更新（不新增兼容用例）。验证：`pytest tests/test_backup_*.py tests/test_rewrite_roundtrip.py tests/test_zz_disaster_recovery_drill.py` 全绿
+- [x] 4.1 `backup/format.py`：`FORMAT_VERSION` 3→4（卷纲删键升版）；版本门槛形状照旧（≤4 过、>4 拒）；**docstring 里「导入端保留 N-1 读窗」措辞同批更正**（读窗按当次 change 裁定、本版豁免）。验证：format 单测
+- [x] 4.2 `backup/importer.py` 卷段换代：删旧模型 import（:519-525 函数体内 import）；按新键建 Volume＋两新子表；**不写旧键映射/容错分支**（N-1 豁免已登记）。验证：新格式包导入用例绿
+- [x] 4.3 导出两链回归：`backup/export.py:126-130`、`novels/router.py:659-670` 带新字段正确导出；`tests/test_backup_roundtrip.py` 层 3 改写为新字段断言；连带 21 个经 importer fixture 的用例按新格式更新（不新增兼容用例）。验证：✅ backup 全家＋rewrite/drill 全绿（test_backup_roundtrip 15 passed，Layer3 断言 v4 字段逐字往返）
 
 ## 5. 前端：卷视图四页签与卷纲两态
 

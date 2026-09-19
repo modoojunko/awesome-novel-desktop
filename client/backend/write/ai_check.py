@@ -100,7 +100,7 @@ def _material(kind: str, chapter: dict, ctx) -> str:
         blocks.append("【本章正文（节选）】\n" + prose[:4000])
 
     if kind == "volume_conflict":
-        blocks.append("【本卷卷纲】\n" + (ctx.volume_summary or "（未配置）"))
+        blocks.append("【本卷卷纲】\n" + (ctx.volume_outline or "（未配置）"))
         if ctx.story_arc:
             blocks.append("【全书主线】\n" + ctx.story_arc)
     elif kind == "hooks_conflict":

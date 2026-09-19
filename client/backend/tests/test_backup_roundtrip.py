@@ -57,7 +57,7 @@ async def _seed_full_book(tmp_root: str) -> str:
     )
     from models.project import Novel
     from models.user import User
-    from models.volume import Volume
+    from models.volume import Volume, VolumeCastMember, VolumePlotNode
 
     uid = f"rt-{uuid.uuid4().hex[:8]}"
     slug = f"rt-{uuid.uuid4().hex[:8]}"
@@ -75,13 +75,23 @@ async def _seed_full_book(tmp_root: str) -> str:
         await session.flush()
 
         root = proj.root_path
-        # 层 3：卷 + 四族子表
+        # 层 3：卷 + 卷纲字段集（v4 往返）
         vol = Volume(
             id=str(uuid.uuid4()), project_id=proj.id, volume_no=1, title="第一卷",
-            summary="开局卷",
+            summary="开局卷", template_name="三幕式",
+            core_conflict="追查真相 vs 保全同伴",
+            goal="拿到关键证据", ending="证据到手，同伴远走",
+            plants="内鬼的徽章\n半张航线图", reveals="接头的正是内鬼",
+            chapter_target=12,
         )
         session.add(vol)
         await session.flush()
+        session.add_all([
+            VolumeCastMember(volume_id=vol.id, sort_order=0,
+                             who="林拓", target="查清真相", change="学会独行"),
+            VolumePlotNode(volume_id=vol.id, sort_order=0,
+                           stage="重要转折", text="接头人反水"),
+        ])
 
         # 层 4：章 + 全子表
         ch = Chapter(
@@ -259,12 +269,7 @@ class TestLayer2Settings:
 
 class TestLayer3Volume:
     def test_volume_structures_survive_without_chapters(self, roundtrip):
-        from models.volume import (
-            Volume,
-            VolumeChapterPlan,
-            VolumeConflictLadder,
-            VolumeStage,
-        )
+        from models.volume import Volume, VolumeCastMember, VolumePlotNode
 
         _src_id, dst_id, _blob, _slug, _root = roundtrip
 
@@ -275,18 +280,26 @@ class TestLayer3Volume:
                 )).all()
                 assert len(vols) == 1
                 vol = vols[0]
-                stages = (await db.scalars(select(VolumeStage).where(
-                    VolumeStage.volume_id == vol.id))).all()
-                ladders = (await db.scalars(select(VolumeConflictLadder).where(
-                    VolumeConflictLadder.volume_id == vol.id))).all()
-                plans = (await db.scalars(select(VolumeChapterPlan).where(
-                    VolumeChapterPlan.volume_id == vol.id))).all()
-                return vol.title, len(stages), len(ladders), len(plans)
+                casts = (await db.scalars(select(VolumeCastMember).where(
+                    VolumeCastMember.volume_id == vol.id))).all()
+                nodes = (await db.scalars(select(VolumePlotNode).where(
+                    VolumePlotNode.volume_id == vol.id))).all()
+                return (
+                    vol.title, vol.template_name, vol.goal, vol.ending,
+                    vol.plants, vol.reveals, vol.chapter_target,
+                    len(casts), len(nodes),
+                )
 
-        title, n_stages, n_ladders, n_plans = _run(run())
+        (title, template, goal, ending, plants, reveals, target,
+         n_casts, n_nodes) = _run(run())
         assert title == "第一卷"
-        # 种子未造四族子表行时为 0——断言的是"不炸、不为 None"，形状随种子扩展
-        assert n_stages >= 0 and n_ladders >= 0 and n_plans >= 0
+        # v4 卷纲段往返：标量与行集逐字
+        assert template == "三幕式"
+        assert goal == "拿到关键证据" and ending == "证据到手，同伴远走"
+        assert plants == "内鬼的徽章\n半张航线图"
+        assert reveals == "接头的正是内鬼"
+        assert target == 12
+        assert n_casts == 1 and n_nodes == 1
 
 
 # ── 层 4：章全字段 ────────────────────────────────────────────────────────

@@ -213,13 +213,6 @@ async def lifespan(app: FastAPI):
     try:
         async with engine.begin() as conn:
             await conn.execute(
-                text("ALTER TABLE volumes ADD COLUMN direction_method VARCHAR(50)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
                 text("ALTER TABLE volumes ADD COLUMN template_name VARCHAR(50)")
             )
     except Exception:
@@ -228,41 +221,6 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.execute(
                 text("ALTER TABLE volumes ADD COLUMN core_conflict VARCHAR(150)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE volumes ADD COLUMN emotional_arc VARCHAR(150)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE volumes ADD COLUMN arc_mode VARCHAR(50)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE volumes ADD COLUMN primary_drive VARCHAR(50)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE volumes ADD COLUMN info_gap_start VARCHAR(300)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE volumes ADD COLUMN info_gap_end VARCHAR(300)")
             )
     except Exception:
         pass  # 列已存在

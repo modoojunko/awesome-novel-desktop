@@ -1,13 +1,14 @@
 """备份包格式契约头——FORMAT_VERSION 的唯一事实源。
 
-演进规则（backup-restore spec）：加键=兼容不升版；删键/改布局=升版且导入端
-保留 N-1 读窗。character-settings-v2：角色段布局变化 → v2。
+演进规则（backup-restore spec）：加键=兼容不升版；删键/改布局=升版，读窗策略
+按当次 change 裁定。character-settings-v2：角色段布局变化 → v2。
 foreshadow-settings-v2：新增 hooks/hooks.yaml 伏笔段、settings 树摘除 hooks
-键（删键+加段）→ v3；导入端保留 ≤3 读窗（v1 KV 三数组→真表行的读窗见
-importer._hooks_v1_to_entries）。
+键（删键+加段）→ v3。
+卷纲换代（c-volume-view-storyline）：volumes 键集退役旧代字段 → v4；无用户
+口径豁免 N-1 读窗——v0-v3 包可过版本门槛，但卷纲段旧键不承载（静默忽略）。
 """
 
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 
 
 # ── 产物归属单源（chapter-rewrite）─────────────────────────────────────────
