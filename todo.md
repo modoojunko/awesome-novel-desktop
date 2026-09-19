@@ -18,6 +18,12 @@
 > ①部署被 Actions 基建故障卡着（所有 workflow 秒挂无日志，09-18 晚起，疑似私有仓 2000 分钟额度用尽；
 >   查额度：头像 → Settings → Billing and licensing → Actions——在账号设置不在仓库设置）。恢复后
 >   `gh workflow run s-server-deploy.yml` 全自动部署（secrets 全在 GitHub，旧 TCB_API_KEY 仍有效）。
+> **部署路线已定（09-19 实测）**：控制台绑 GitHub 仓库自动部署。新建的 API 密钥**数据面有效**
+> （PG 网关 200；schema 门禁 11 表 127 列全绿，token_version/challenge 两新列已生效=DDL 免做），
+> 但管理面 `tcb login --cloudbase-api-key` 不认（本地 tcb 部署路线关闭）。控制台操作：云托管 →
+> novel-s-server → 部署方式改代码库拉取 → 授权 GitHub App → main + server/ 子目录；环境变量按
+> 现网清单配，新增 WXPAY_PRIVATE_KEY_PEM / WXPAY_PUB_KEY_PEM（内容在本地 server/secrets/ 两个
+> pem 文件），删两个 PATH 旧项（代码已支持 PEM 注入，#433）。
 > ②生产库 DDL 两条（控制台数据库执行，与部署顺序无关）：
 >   ALTER TABLE users ADD COLUMN token_version INT NOT NULL DEFAULT 0;
 >   ALTER TABLE device_grants ADD COLUMN challenge VARCHAR(64);
