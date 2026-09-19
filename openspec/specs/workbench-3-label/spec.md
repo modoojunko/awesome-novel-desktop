@@ -25,19 +25,21 @@ TBD - created by archiving change 011-workbench-3-label. Update Purpose after ar
 - When the user opens 预览
 - Then the reading preview renders with the catalog column, the reading column, and the reading-configuration column
 
-### Requirement: 卷节点点击弹出右侧抽屉（卷纲编辑）
+### Requirement: 卷节点点击打开中栏卷视图（卷 · 分卷计划）
 
-- Clicking a volume node in the left tree SHALL open a right-side overlay drawer editing that volume (title + 卷纲 + chapter list + add/delete chapter), reusing `VolumeEditor`.
-- The drawer SHALL render a semi-transparent full-screen backdrop (click closes), a right panel of width 400px, a header with a 关闭 button, and SHALL close on `Escape`.
-- Selecting a chapter from within the drawer SHALL close the drawer and focus that chapter in the main editor.
-- Creating a volume (`创建第一卷` / tree「新建卷」) SHALL auto-open the drawer for the new volume; closing the drawer SHALL NOT re-open it for the same volume selection.
+- Clicking a volume node in the left tree SHALL open that volume's 卷视图 in the 中栏（头部＋「卷纲｜本卷章节｜角色关系｜伏笔」四页签；行为细节见 volume-outline 能力）；右侧抽屉形态（backdrop/400px 面板/Escape 关闭）与 `VolumeEditor` 复用口径 SHALL 退役。
+- Selecting a chapter from within the 卷视图（「本卷章节」页签点行）SHALL switch the 中栏 to that chapter's workspace and sync the left-tree selection.
+- Creating a volume (`创建第一卷` / tree「新建卷」) SHALL select the new volume and open its 卷视图 in the 中栏（离开后对同一选中不重复自动打开）。
 
-#### Scenario: Click volume opens drawer
+#### Scenario: Click volume opens middle-column volume view
 - Given a novel with a volume and a chapter
 - When the user clicks the volume node in the tree
-- Then a right-side drawer appears with the volume editor (卷纲 header, chapter list)
-- When the user presses Escape or clicks the backdrop or 关闭
-- Then the drawer closes and the main area returns to its previous state
+- Then the 中栏 renders the volume view with the four tabs and no right-side drawer appears
+
+#### Scenario: 卷视图内进入章节
+- Given 卷视图「本卷章节」页签可见
+- When 点击其中一章
+- Then 中栏切换为该章工作台，左树选中同步到该章
 
 ### Requirement: 章节点点击 → 中部子 label 切换 正文 / 章纲 / 提示词
 
