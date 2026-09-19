@@ -17,7 +17,11 @@
 > ✅ **已部署上线（2026-09-19 本地部署完成，生产验证全过）**：skus 200、授权页 200、
 > 注入护栏 400+可读提示、正常形态放行、/docs 404、CORS 无放行头、check-auth 契约 ✓。
 > 后续项：
-> ①Actions 基建故障（部署已由本地完成，此卡点仅影响以后的 CI 部署）（所有 workflow 秒挂无日志，09-18 晚起，疑似私有仓 2000 分钟额度用尽；
+> ①**省额度整改（09-19 已执行）**：本地可做的 6 条 workflow 已禁用（C端/S端 后端与前端 CI、
+>   Docker 构建、e2e-scheduled、S端 自动发布 CloudBase）——配额 10-01 重置后按需
+>   `gh workflow enable <名称>` 逐条恢复；保留 active 的只有 GitHub 原生项
+>   （Dependency Graph、CodeQL×2、pages、C端 打包、secret-fingerprint）。
+>   Actions 基建故障（部署已由本地完成，此卡点仅影响以后的 CI 部署）（所有 workflow 秒挂无日志，09-18 晚起，疑似私有仓 2000 分钟额度用尽；
 >   查额度：头像 → Settings → Billing and licensing → Actions——在账号设置不在仓库设置）。恢复后
 >   `gh workflow run s-server-deploy.yml` 全自动部署（secrets 全在 GitHub，旧 TCB_API_KEY 仍有效）。
 > **部署路线已定（09-19 实测）**：控制台绑 GitHub 仓库自动部署。新建的 API 密钥**数据面有效**
