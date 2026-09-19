@@ -487,7 +487,7 @@ class TestStreamSaveFailureNotMisclassified:
                 assert r.status_code in (200, 201), r.text
                 ref = r.json()["chapter_ref"]
 
-                r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write",
+                r = client.post(f"/api/novels/{pid}/chapters/{ref}/write",
                                 json={})
                 body = r.text
                 assert "保存失败" in body, body

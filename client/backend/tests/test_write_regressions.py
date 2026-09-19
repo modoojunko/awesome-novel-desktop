@@ -1,7 +1,7 @@
 """ai-prompt-crafting — PR #198 review 三项 major 的回归测试
 
 矩阵：
-- major 1：无覆盖直写（POST /write/write 空 body）不得用粗组兜底覆盖已润色的
+- major 1：无覆盖直写（POST /write 空 body）不得用粗组兜底覆盖已润色的
   write-prompt 存量行；显式 override 仍正常覆盖。
 - major 2：阶段机不允许回退（write→prompt 重润色 / archive→write 返工）时，
   polish / write 端点宽容跳过推进，不再 500。
@@ -231,7 +231,7 @@ class TestDirectWriteKeepsStoredPrompt:
 
         monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
 
-        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
         assert r.status_code == 200, r.text
         assert _done_event(r.text)["type"] == "done"
         # 发给模型的就是存量润色版，而非粗组兜底
@@ -251,7 +251,7 @@ class TestDirectWriteKeepsStoredPrompt:
 
         monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
 
-        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
         assert r.status_code == 200, r.text
         # 无存量 → 粗组组装并落库（粗组草稿以角色定位开头，非润色锚词形态）
         assert _read_stored_prompt(pid, ref).startswith("## 角色定位")
@@ -270,7 +270,7 @@ class TestDirectWriteKeepsStoredPrompt:
         monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
 
         r = client.post(
-            f"/api/novels/{pid}/chapters/{ref}/write/write",
+            f"/api/novels/{pid}/chapters/{ref}/write",
             json={"prompt": "作家手动编辑版"},
         )
         assert r.status_code == 200, r.text
@@ -312,7 +312,7 @@ class TestPhaseRegressionsTolerated:
 
         monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
 
-        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/write", json={})
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
         assert r.status_code == 200, r.text
         assert _done_event(r.text)["type"] == "done"
 
