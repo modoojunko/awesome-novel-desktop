@@ -75,7 +75,10 @@ export const paletteRegex =
 // ── PR 7 新增：裸色值 / emoji / daisyUI 回归 ───────────────────
 // 颜色一律走 design/*.css 的 oklch token（或 color-mix 派生），
 // 源码里出现裸 hex / rgb()/rgba() 字面量即违规（原型 CSS 同理）。
-export const hexRegex = /#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])/;
+// lookbehind 部分：(?!\s*\p{Script=Han}) 排除注释里「#346 起」「#414 评审」这类
+// issue 号引用（3/6/8 位数字后跟空白+中文）——真实色值后跟引号/分号/括号，不受影响。
+export const hexRegex =
+  /#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])(?!\s*\p{Script=Han})/u;
 export const rgbRegex = /\brgba?\(\s*\d/;
 
 // 图标一律走 @/components/icons 注册表（原型 SVG 路径照抄）；

@@ -210,21 +210,28 @@ export function sweepResidue({
     log(
       ok
         ? "· 已重启 C端 后端（外部写库会删掉 -wal，必须让它重开库，否则后续写入成为幽灵）"
-        : "· ⚠️ 未能重启 C端 后端：请手动 `docker compose restart client-backend`，" +
+        : "· ⚠️ 未能重启 C端 后端：请手动 `docker restart ai-novel-client-backend`，" +
           "否则后端持有已删除的 WAL、后续写入重启后会丢",
     );
   }
   return { applied: true, dirsRemoved, ...plan };
 }
 
-/** 重启 C端 后端（best-effort；在容器里没有 docker 就安静放弃）。 */
+/**
+ * 重启 C端 后端（best-effort；在容器里没有 docker 就安静放弃）。
+ *
+ * 按**容器名**重启而非 `docker compose restart`（#440 收尾复盘）：compose 会按 cwd
+ * 解析项目，worktree/并行栈场景下解析到错误项目，曾把另一套栈的容器改名/重建搅局
+ * （全量 e2e 中途 123 秒挂的根因）。容器名与被扫的 DEFAULT_DB 数据目录恒同源
+ * （compose 的 container_name 硬编码），docker restart 只动这一个容器，不可能波及
+ * 别的项目；容器名可用 E2E_CLIENT_BACKEND_CONTAINER 覆盖（真正并行的隔离栈场景）。
+ */
 function tryRestartBackend(log) {
   try {
     const { execFileSync } = require("node:child_process");
-    // 仓库根：scripts/ → client/frontend/ → client/ → 仓库根
-    const repoRoot = path.resolve(HERE, "..", "..", "..");
-    execFileSync("docker", ["compose", "restart", "client-backend"], {
-      cwd: repoRoot,
+    const container =
+      process.env.E2E_CLIENT_BACKEND_CONTAINER || "ai-novel-client-backend";
+    execFileSync("docker", ["restart", container], {
       stdio: "pipe",
       timeout: 60_000,
     });
