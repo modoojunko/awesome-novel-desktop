@@ -203,6 +203,12 @@ export const api = {
   /** Rename a novel (display name only). */
   renameNovel: (novelId: string, name: string): Promise<{ id: string; name: string }> =>
     request(`/novels/${novelId}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  /** 完本（works-finish-flow）：主线章全归档后标为已完结；守卫不满足后端 409。 */
+  finishNovel: (novelId: string): Promise<{ id: string; name: string; finished_at: string | null; updated_at: string }> =>
+    request(`/novels/${novelId}/finish`, { method: 'POST', body: JSON.stringify({}) }),
+  /** 撤完本：清完结时间戳，书回到待完本/写作中；未完结时后端 409。 */
+  reopenNovel: (novelId: string): Promise<{ id: string; name: string; finished_at: string | null; updated_at: string }> =>
+    request(`/novels/${novelId}/reopen`, { method: 'POST', body: JSON.stringify({}) }),
   /** Read story.yaml synopsis. */
   fetchStory: (novelId: string): Promise<{ synopsis: string }> =>
     request(`/novels/${novelId}/story`),

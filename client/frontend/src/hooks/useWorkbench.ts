@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { parseChapterRef } from "@/lib/chapterRef";
 import { api } from "@/lib/api";
@@ -16,6 +17,9 @@ export type WorkspaceView =
   | "workbench"
   | "advanced-settings"
   | "archives";
+
+/** 落点覆盖白名单（location state `landingView` 的合法值）。 */
+const LANDING_VIEWS: WorkspaceView[] = ["workbench", "advanced-settings", "archives"];
 
 export interface WorkbenchChapter {
   chapter: number;
@@ -92,6 +96,9 @@ function parseRef(ref: string): { vol: number; ch: number } | null {
 export function useWorkbench(): UseWorkbenchReturn {
   const { project } = useProject();
   const projectId = project?.id ?? "";
+  // 书架「回看」一次性落点覆盖的载体（c-works-finish-flow）
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const [volumes, setVolumes] = useState<WorkbenchVolume[]>([]);
   const [ghosts, setGhosts] = useState<
@@ -253,23 +260,33 @@ export function useWorkbench(): UseWorkbenchReturn {
   }, [volumes, focusNode]);
 
   // -----------------------------------------------------------------------
-  // 首次打开书的默认落点（用户 2026-09-10 拍板）：
-  //   无章节 → 设定页；全部章节已归档 → 预览；否则 → 写作。
+  // 首次打开书的默认落点（用户 2026-09-10 拍板；c-works-finish-flow 四态）：
+  //   无章节 → 设定页；待完本（全归档未完结）→ 写作；已完结 → 预览；否则 → 写作。
   // 只在首次树加载后应用一次；用户/深链已主动决定视图时不覆盖。
+  // 落点覆盖：书架「回看」携带一次性 location state（landingView）——认领即视为
+  // 显式选择，并立即清 state（replace 导航），防刷新重放。
   // 声明在「自动聚焦第一章」之后 —— 聚焦只负责选中，视图仍由落点决定。
   // -----------------------------------------------------------------------
   useEffect(() => {
     if (landingAppliedRef.current || !loadedRef.current) return;
     landingAppliedRef.current = true;
+    const override = location.state?.landingView;
+    if (typeof override === "string" && LANDING_VIEWS.includes(override as WorkspaceView)) {
+      navigate(location.pathname, { replace: true }); // 认领即清，刷新不重放
+      if (override !== "workbench") setViewState(override as WorkspaceView);
+      return;
+    }
     if (navigatedRef.current || viewPayloadRef.current) return;
     const total = volumes.reduce((n, v) => n + v.chapters.length, 0);
     const archived = volumes.reduce(
       (n, v) => n + v.chapters.filter((c) => c.archived).length,
       0,
     );
-    const target = landingViewFor(stageFromChapters(total, archived));
+    const target = landingViewFor(
+      stageFromChapters(total, archived, project?.finished_at ?? null),
+    );
     if (target !== "workbench") setViewState(target);
-  }, [volumes]);
+  }, [volumes, location.state, location.pathname, navigate, project?.finished_at]);
 
   const onToggle = useCallback((id: string) => {
     setExpandedIds((prev) => {
