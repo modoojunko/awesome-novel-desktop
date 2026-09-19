@@ -99,22 +99,31 @@ test("卡片阶段与落点同源：部分归档＝卡片写作中 + 落点写�
     await page.locator(".mtab").first().waitFor({ state: "visible", timeout: 15000 }); // 工作台就绪（替代固定 sleep）
     await expect(page.locator(".mtab.on")).toContainText("写作", { timeout: 10000 });
 
-    // 两章全归档 → 卡片「已归档」+ 落点预览，仍同源
+    // 两章全归档（未完结）→ 卡片「待完本」+ 落点写作（c-works-finish-flow：预览改由回看/查看显式进入），仍同源
     await api("POST", `/api/novels/${pid}/chapters/${volRef}-ch-2/archive`, {
       full_text: "第二章正文。" + "内容。".repeat(60),
       ai_summary: false,
     });
     await openShelf(page);
-    await expect(cardStage(page, bookName)).toContainText("已归档", { timeout: 15000 });
+    await expect(cardStage(page, bookName)).toContainText("待完本", { timeout: 15000 });
     await page.goto(`${ORIGIN}/#/novel/${pid}`);
     await page.locator(".mtab").first().waitFor({ state: "visible", timeout: 15000 }); // 工作台就绪（替代固定 sleep）
+    await expect(page.locator(".mtab.on")).toContainText("写作", { timeout: 10000 });
+
+    // 完本 → 卡片「已完结」+ 落点预览（finished_at 落库后四态闭合，同源性不断）
+    const fin = await api("POST", `/api/novels/${pid}/finish`);
+    expect(fin.status).toBe(200);
+    await openShelf(page);
+    await expect(cardStage(page, bookName)).toContainText("已完结", { timeout: 15000 });
+    await page.goto(`${ORIGIN}/#/novel/${pid}`);
+    await page.locator(".mtab").first().waitFor({ state: "visible", timeout: 15000 });
     await expect(page.locator(".mtab.on")).toContainText("预览", { timeout: 10000 });
   } finally {
     await restore();
   }
 });
 
-test("默认落点：空书→设定 / 有章节→写作 / 全归档→预览", async ({ page }) => {
+test("默认落点：空书→设定 / 有章节→写作 / 待完本→写作 / 完结→预览", async ({ page }) => {
   test.setTimeout(180000);
   const { token, restore } = await setupSession(page);
   try {
@@ -147,15 +156,21 @@ test("默认落点：空书→设定 / 有章节→写作 / 全归档→预览",
     await openFromShelf(page, pid);
     await expect(page.locator(".mtab.on")).toContainText("写作");
 
-    // ③ 全部章节归档（写完）→ 预览
+    // ③ 全部章节归档（未完结）→ 写作（待完本不落预览）
     await api("POST", `/api/novels/${pid}/chapters/${ref}/archive`, {
       full_text: "第一章正文。" + "内容。".repeat(60),
       ai_summary: false,
     });
     await openFromShelf(page, pid);
+    await expect(page.locator(".mtab.on")).toContainText("写作");
+
+    // ④ 完本 → 已完结，落点预览
+    const fin = await api("POST", `/api/novels/${pid}/finish`);
+    expect(fin.status).toBe(200);
+    await openFromShelf(page, pid);
     await expect(page.locator(".mtab.on")).toContainText("预览");
 
-    // ④ 用户手动切回写作 → 不被落点拽回去（落点只在首次加载判一次）
+    // ⑤ 用户手动切回写作 → 不被落点拽回去（落点只在首次加载判一次）
     await page.locator(".mtab", { hasText: "写作" }).click();
     // tab 切换由下方断言自动重试收敛（替代固定 sleep）
     await expect(page.locator(".mtab.on")).toContainText("写作", { timeout: 10000 });

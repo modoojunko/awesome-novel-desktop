@@ -116,6 +116,15 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass  # 列已存在
 
+    # ── Migrate (works-finish-flow): 完结状态列 ───────────────────────
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("ALTER TABLE novels ADD COLUMN finished_at TIMESTAMP")
+            )
+    except Exception:
+        pass  # 列已存在
+
     # ── Migrate (archive-reconcile): 来源章/状态变化列 ────────────────
     # character_relations.origin_chapter_id（截至本章投影的来源章，NULL=不受
     # 章界约束）；chapter_characters.state_change（本章角色状态变化一句话）。

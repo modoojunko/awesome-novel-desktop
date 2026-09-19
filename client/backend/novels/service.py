@@ -1,5 +1,6 @@
 import re
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -123,6 +124,23 @@ async def rename_project(db: AsyncSession, project: Novel, new_name: str) -> Nov
     return project
 
 
+async def finish_novel(db: AsyncSession, project: Novel) -> Novel:
+    """完本（works-finish-flow）：写完结时间戳。时间戳口径与 archived_at 同款
+    （naive UTC）；守卫（主线全归档、未完结）在路由层查章表判定后才能进来。"""
+    project.finished_at = datetime.now(UTC).replace(tzinfo=None)
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+
+async def reopen_novel(db: AsyncSession, project: Novel) -> Novel:
+    """撤完本：清完结时间戳，书回到待完本/写作中（按章派生）。"""
+    project.finished_at = None
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+
 # ── Serialization ─────────────────────────────────────────────────────────
 
 
@@ -142,6 +160,7 @@ def novel_to_dict(p) -> dict:
         "ai_model": p.ai_model,
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+        "finished_at": p.finished_at.isoformat() if p.finished_at else None,
     }
 
 

@@ -13,12 +13,16 @@ const getMock = vi.fn();
 const postMock = vi.fn();
 const deleteMock = vi.fn();
 const renameMock = vi.fn();
+const finishMock = vi.fn();
+const reopenMock = vi.fn();
 vi.mock("@/lib/api", () => ({
   api: {
     get: (...a: unknown[]) => getMock(...a),
     post: (...a: unknown[]) => postMock(...a),
     delete: (...a: unknown[]) => deleteMock(...a),
     renameNovel: (...a: unknown[]) => renameMock(...a),
+    finishNovel: (...a: unknown[]) => finishMock(...a),
+    reopenNovel: (...a: unknown[]) => reopenMock(...a),
   },
   request: vi.fn(),
 }));
@@ -105,6 +109,8 @@ beforeEach(() => {
   getMock.mockResolvedValue([novel()]);
   deleteMock.mockResolvedValue({ ok: true });
   renameMock.mockResolvedValue({ id: "n1", name: "新名字" });
+  finishMock.mockResolvedValue({ id: "n1", name: "星海拾遗", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+  reopenMock.mockResolvedValue({ id: "n1", name: "星海拾遗", finished_at: null, updated_at: new Date().toISOString() });
   postMock.mockResolvedValue({});
   Object.assign(tierState, { tier: "pro", isMember: true, expired: false, trialRemainingDays: 0 });
 });
@@ -132,17 +138,29 @@ describe("列表状态与卡片", () => {
     ).toBeNull();
   });
 
-  it("阶段派生：全归档=已归档（查看）/无章=设定；题材缺失显示待定胶囊", async () => {
+  it("阶段派生：全归档未完结=待完本（回看＋完本）/完结=已完结/无章=设定；题材缺失待定胶囊", async () => {
     getMock.mockResolvedValue([
       novel({ id: "a", name: "全归档", total_chapters: 3, total_archives: 3 }),
       novel({ id: "b", name: "空书", total_chapters: 0, total_archives: 0, genre: null }),
+      novel({
+        id: "c",
+        name: "完本书",
+        total_chapters: 9,
+        total_archives: 9,
+        finished_at: new Date(Date.now() - 3 * 86400_000).toISOString(),
+      }),
     ]);
     renderPage();
     await waitFor(() => expect(screen.getByText("《全归档》")).toBeTruthy());
-    expect(screen.getByText("已归档")).toBeTruthy();
-    expect(screen.getByText("查看")).toBeTruthy();
+    expect(screen.getByText("待完本")).toBeTruthy();
+    expect(screen.getByText("全书 3 章已归档")).toBeTruthy();
+    expect(screen.getByText("回看")).toBeTruthy();
+    expect(screen.getByText("完本")).toBeTruthy();
+    expect(screen.getByText("已完结")).toBeTruthy();
+    expect(screen.getByText(/完结于/)).toBeTruthy();
     expect(screen.getByText("设定中")).toBeTruthy();
     expect(screen.getByText("待定题材")).toBeTruthy();
+    expect(screen.getByText("继续创作")).toBeTruthy();
   });
 
   it("相对时间口径：分钟/小时/昨天/天/日期", async () => {
@@ -523,4 +541,84 @@ describe("覆盖补齐（收尾）", () => {
     expect(screen.queryByText("重命名")).toBeNull();
   });
 
+});
+
+describe("完本链路（works-finish-flow）", () => {
+  const hookRow = {
+    id: "h1",
+    description: "旧航图缺口上的摩挲痕迹",
+    status: "active",
+    introduced_chapter_id: "ch-uuid-2",
+  };
+
+  /** 书架带一本全归档未完结书 + hooks/volumes 打桩 */
+  const stubReadyBook = () => {
+    getMock.mockImplementation(async (path: string) => {
+      if (path === "/novels") return [novel({ id: "n1", total_chapters: 3, total_archives: 3 })];
+      if (path === "/novels/n1/hooks") return { data: { count: 1, items: [hookRow] } };
+      if (path === "/novels/n1/volumes")
+        return [{ ref: "vol-1", chapters: [{ id: "ch-uuid-2", chapter: 2 }] }];
+      return {};
+    });
+  };
+
+  it("待完本提示条：出现→知道了关闭（会话内）；去完本打开弹窗", async () => {
+    stubReadyBook();
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/主线已收齐/)).toBeTruthy());
+    expect(screen.getByText("3 章全部归档 · 可以完本了")).toBeTruthy();
+    fireEvent.click(screen.getByText("知道了"));
+    expect(screen.queryByText(/主线已收齐/)).toBeNull(); // 卡片仍在，只关提示条
+    expect(screen.getByText("《星海拾遗》")).toBeTruthy();
+  });
+
+  it("完本清单弹窗：三行检查＋active 伏笔逐条＋留白切换不落库＋完结成功卡片转已完结", async () => {
+    stubReadyBook();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+    fireEvent.click(screen.getByText(/主线已收齐/).closest(".notice")!.querySelector("[data-od-id='ready-finish']") as HTMLElement);
+    await waitFor(() => expect(screen.getByText("完结《星海拾遗》？")).toBeTruthy());
+    expect(screen.getByText("章节已全部归档")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("还有 1 条伏笔悬着")).toBeTruthy());
+    expect(screen.getByText("旧航图缺口上的摩挲痕迹")).toBeTruthy();
+    expect(screen.getByText("第 2 章埋下")).toBeTruthy();
+
+    // 留白切换：未收 → 留白（纯弹窗内状态；api mock 无 patch 可走，调了即炸）
+    fireEvent.click(screen.getByText(/旧航图缺口/));
+    expect(screen.getByText("留白")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("完结这本书"));
+    await waitFor(() => expect(finishMock).toHaveBeenCalledWith("n1"));
+    expect(toast.success).toHaveBeenCalledWith(
+      "《星海拾遗》已完结 · 归档收尾提案可在书的「操作」页逐条确认",
+    );
+    await waitFor(() => expect(screen.getByText("已完结")).toBeTruthy());
+    expect(screen.getByText(/完结于/)).toBeTruthy();
+    expect(screen.queryByText(/主线已收齐/)).toBeNull(); // 完结后提示条消失
+  });
+
+  it("已完结书：⋯菜单「完本信息 · 撤完本」→ 撤完本回待完本", async () => {
+    getMock.mockResolvedValue([
+      novel({
+        id: "n1",
+        total_chapters: 3,
+        total_archives: 3,
+        finished_at: new Date(Date.now() - 86400_000).toISOString(),
+      }),
+    ]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("已完结")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("更多操作"));
+    fireEvent.click(screen.getByText("完本信息 · 撤完本"));
+    await waitFor(() => expect(screen.getByText("《星海拾遗》已完结")).toBeTruthy());
+    expect(screen.getByText("撤完本 · 继续写")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("撤完本 · 继续写"));
+    await waitFor(() => expect(reopenMock).toHaveBeenCalledWith("n1"));
+    expect(toast.success).toHaveBeenCalledWith(
+      "已撤完本 · 《星海拾遗》回到待完本，可以接着写或加新章",
+    );
+    await waitFor(() => expect(screen.getByText("待完本")).toBeTruthy());
+    expect(screen.getByText(/主线已收齐/)).toBeTruthy(); // 回到待完本：提示条重新出现
+  });
 });

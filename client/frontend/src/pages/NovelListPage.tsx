@@ -7,6 +7,7 @@ import DeleteConfirmModal from "@/components/novel/DeleteConfirmModal";
 import CreateProjectModal from "@/components/novel/CreateProjectModal";
 import ImportNovelModal from "@/components/novel/ImportNovelModal";
 import RenameModal from "@/components/novel/RenameModal";
+import FinishModal, { type FinishTarget } from "@/components/novel/FinishModal";
 import { Ico, P, genreIconPath } from "@/components/icons";
 import { PORTAL_URL } from "@/lib/portal";
 import { supportUrl } from "@/lib/support";
@@ -24,6 +25,8 @@ interface Novel {
   /** 已归档章节数（list 接口以章表聚合覆盖下发，见 novels/router.py）——卡片阶段判据 */
   total_archives?: number;
   updated_at: string;
+  /** 完结时间戳（works-finish-flow）：非空＝已完结；null/缺省＝按章派生 */
+  finished_at?: string | null;
   /** 卡片富化字段（list 接口附加；缺失时优雅降级） */
   word_count?: number;
   synopsis?: string;
@@ -31,11 +34,12 @@ interface Novel {
 }
 
 // 阶段标签 + 派生规则单源在 @/lib/novelStage（与「打开书的默认落点」同一模型）：
-// 无章=设定、全归档=已归档、其余=写作。原先按 current_phase 派生，会把
-// 「归档过几章但整本未完」的书显示成已归档，与落点（写作）自相矛盾。
+// 无章=设定、全归档未完结=待完本、完结=已完结、其余=写作（c-works-finish-flow 四态）。
+// ready 徽标用旗形（原型 STAGE_ICON.ready）：待完本＝就差完本这个动作的可行动召唤。
 const STAGE_DOT = {
   writing: '<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
   setting: '<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
+  ready: '<path d="M6 4v16M6 5h11l-2 3 2 3H6"/>',
   done: '<path d="M5 13l4 4L19 7"/>',
 } as const;
 
@@ -54,6 +58,11 @@ function relTime(iso: string): string {
 }
 
 const fmt = (n: number) => n.toLocaleString("zh-CN");
+
+/** 卡片阶段派生（四态单源）：列表聚合章数 + finished_at（works-finish-flow）。 */
+function stageOf(p: Novel) {
+  return stageFromChapters(p.total_chapters || 0, p.total_archives || 0, p.finished_at ?? null);
+}
 
 export default function NovelListPage() {
   return (
@@ -74,6 +83,9 @@ function NovelList() {
   const [renameTarget, setRenameTarget] = useState<Novel | null>(null);
   const [showKeyHint, setShowKeyHint] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [finishTarget, setFinishTarget] = useState<Novel | null>(null);
+  /** 待完本提示条「知道了」：按书记忆（会话内），完结或关闭后可提示下一条 */
+  const [readyDismissedId, setReadyDismissedId] = useState<string | null>(null);
   const [entDegraded, setEntDegraded] = useState(false);
   const [entDetail, setEntDetail] = useState('');
   const [supportLink, setSupportLink] = useState('');
@@ -162,6 +174,30 @@ function NovelList() {
     navigate(`/novel/${novelId}`);
   }
 
+  // 完本/撤完本后本地更新（响应带服务端时钟的 finished_at/updated_at），不整表重拉
+  const handleFinished = useCallback(
+    (u: { id: string; finished_at: string | null; updated_at: string }) => {
+      setNovels((prev: Novel[]) =>
+        prev.map((p) =>
+          p.id === u.id ? { ...p, finished_at: u.finished_at, updated_at: u.updated_at } : p,
+        ),
+      );
+      setReadyDismissedId(null);
+    },
+    [],
+  );
+
+  const handleReopened = useCallback(
+    (u: { id: string; finished_at: string | null; updated_at: string }) => {
+      setNovels((prev: Novel[]) =>
+        prev.map((p) =>
+          p.id === u.id ? { ...p, finished_at: u.finished_at, updated_at: u.updated_at } : p,
+        ),
+      );
+    },
+    [],
+  );
+
   // 免费待遇 = 非有效会员（免费层或套餐过期），与后端 require_project_limit 口径一致
   const freeLimitReached = !isMember && novels.length >= 1;
 
@@ -174,6 +210,13 @@ function NovelList() {
 
   const guideUpgrade = () =>
     window.open(portalUrl || PORTAL_URL, "_blank", "noopener,noreferrer");
+
+  // 待完本提示条：排序最前的一条待完本书（完结或「知道了」后提示下一条）
+  const readyBook = useMemo(
+    () =>
+      sortedNovels.find((p) => stageOf(p) === "ready" && p.id !== readyDismissedId) ?? null,
+    [sortedNovels, readyDismissedId],
+  );
 
   const upgradeBtn = (label: string) =>
     portalUrl ? (
@@ -292,6 +335,26 @@ function NovelList() {
         </div>
       </div>
 
+      {/* 待完本提示条（works-finish-flow）：「在哪完本」的常驻入口；知道了＝会话内按书记忆 */}
+      {readyBook && (
+        <div className="notice info" role="status" data-od-id="ready-notice">
+          <span className="nt">
+            <b>《{readyBook.name}》主线已收齐</b>
+            <span>{readyBook.total_chapters} 章全部归档 · 可以完本了</span>
+          </span>
+          <button
+            className="btn btn-primary btn-sm"
+            data-od-id="ready-finish"
+            onClick={() => setFinishTarget(readyBook)}
+          >
+            去完本
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setReadyDismissedId(readyBook.id)}>
+            知道了
+          </button>
+        </div>
+      )}
+
       {loadError ? (
         <div className="empty">
           <div className="serif">作品加载失败</div>
@@ -362,10 +425,7 @@ function NovelList() {
       ) : (
         <div className="cards">
           {sortedNovels.map((p) => {
-            const stage = stageFromChapters(
-              p.total_chapters || 0,
-              p.total_archives || 0,
-            );
+            const stage = stageOf(p);
             const words = p.word_count ?? 0;
             return (
               <div
@@ -419,12 +479,52 @@ function NovelList() {
                     <b className="num">{fmt(words)}</b>总字数
                   </span>
                 </div>
+                {/* 分状态页脚（works.html 原型）：待完本＝回看＋完本；已完结＝完结于＋查看 */}
                 <div className="foot">
-                  <span className="updated">更新于 {relTime(p.updated_at)}</span>
-                  <span className="go">
-                    {stage === "done" ? "查看" : "继续创作"}
-                    <Ico d={P.arrowRight} />
-                  </span>
+                  {stage === "ready" ? (
+                    <>
+                      <span className="updated">全书 {p.total_chapters} 章已归档</span>
+                      <span className="foot-acts">
+                        {/* 回看：一次性落点覆盖（useWorkbench 认领后即清，刷新不重放） */}
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/novel/${p.id}`, { state: { landingView: "archives" } });
+                          }}
+                        >
+                          回看
+                        </button>
+                        <button
+                          className="btn btn-primary btn-sm"
+                          data-od-id={`finish-open-${p.id}`}
+                          title="全书章节都已归档 · 完结这本书"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFinishTarget(p);
+                          }}
+                        >
+                          完本
+                        </button>
+                      </span>
+                    </>
+                  ) : stage === "done" ? (
+                    <>
+                      <span className="updated">完结于{relTime(p.finished_at || p.updated_at)}</span>
+                      <span className="go">
+                        查看
+                        <Ico d={P.arrowRight} />
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="updated">更新于 {relTime(p.updated_at)}</span>
+                      <span className="go">
+                        继续创作
+                        <Ico d={P.arrowRight} />
+                      </span>
+                    </>
+                  )}
                 </div>
                 {menuFor === p.id && (
                   <div ref={menuRef} className="card-menu" onClick={(e) => e.stopPropagation()}>
@@ -437,6 +537,17 @@ function NovelList() {
                       <Ico d={P.pencil} />
                       重命名
                     </button>
+                    {stage === "done" && (
+                      <button
+                        onClick={() => {
+                          setMenuFor(null);
+                          setFinishTarget(p);
+                        }}
+                      >
+                        <Ico d={P.check} />
+                        完本信息 · 撤完本
+                      </button>
+                    )}
                     <button
                       className="danger"
                       onClick={() => {
@@ -509,6 +620,16 @@ function NovelList() {
           name={renameTarget.name}
           onConfirm={handleRename}
           onCancel={() => setRenameTarget(null)}
+        />
+      )}
+
+      {/* 完本清单弹窗（works-finish-flow）：待完本态三行检查；已完结态撤完本 */}
+      {finishTarget && (
+        <FinishModal
+          target={finishTarget}
+          onClose={() => setFinishTarget(null)}
+          onFinished={handleFinished}
+          onReopened={handleReopened}
         />
       )}
     </main>
