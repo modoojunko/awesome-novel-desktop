@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from auth_local.middleware import get_current_user
+from auth_local.middleware import get_current_user, get_user_or_local
 from config import DATA_ROOT
 from db import get_db
 from legacy_archive import inspect_library
@@ -36,8 +36,9 @@ def _scan_legacy_archives(data_root: Path) -> list[dict]:
 
 
 @router.get("/legacy-db/status")
-async def legacy_db_status(user: dict = Depends(get_current_user)):
-    """首启检测/设置徽标数据源（quiet：前端对 401/失败自行降级，不弹提示）。"""
+async def legacy_db_status():
+    """首启检测/设置徽标/登录页计数行数据源（loginless-data-exit：免登——
+    登录页升级卡与迁入向导都要在登录前读它；只读旧文件，无敏感载荷）。"""
     root = Path(DATA_ROOT)
     archives = _scan_legacy_archives(root)
     latest = archives[0] if archives else None
@@ -86,13 +87,39 @@ def _mask_config_block(cfg: dict | None) -> dict | None:
     return out
 
 
+def _guard_target_outside_data_root(*candidate: str | None) -> None:
+    """导出目标路径守卫（loginless-data-exit）：拒绝落在 DATA_ROOT 内——
+    防「导出写文件」路径直指 novel.db / config.json（免登态尤其必须）。
+    读 config.DATA_ROOT 实时值（模块级 from-import 会固化，测试 monkeypatch 失真）。"""
+    import config as _config
+
+    root = Path(_config.DATA_ROOT).resolve()
+    for c in candidate:
+        if not c:
+            continue
+        p = Path(c)
+        # 显式路径前缀判定 + resolve 后包含判定双保险（相对路径/.. 穿越都兜住）
+        try:
+            rp = p.resolve()
+        except OSError:
+            rp = p
+        if rp == root or root in rp.parents:
+            raise HTTPException(422, "保存位置不能选在应用数据目录内，请换个文件夹")
+
+
 @router.post("/export/start")
 async def export_start(
     body: ExportStartBody,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_user_or_local),
     db=Depends(get_db),
 ):
     from backup import export as export_mod
+
+    # loginless-data-exit：免登态（user["id"] is None）整库无主化、强制不含
+    # 配置包（配置含 api_key 明文——永不免登）；登录态语义不变
+    loginless = user["id"] is None
+    include_config = False if loginless else body.include_config
+    _guard_target_outside_data_root(body.target_dir, body.target_file)
 
     if body.kind == "backup":
         if not body.target_dir:
@@ -100,7 +127,7 @@ async def export_start(
         started = export_mod.start_backup_job(
             target_dir=body.target_dir,
             user_id=user["id"],
-            include_config=body.include_config,
+            include_config=include_config,
         )
     elif body.kind == "single":
         if not (body.target_file and body.book_id):
@@ -126,7 +153,7 @@ async def export_start(
 
 
 @router.get("/export/status")
-async def export_status(user: dict = Depends(get_current_user)):
+async def export_status(user: dict = Depends(get_user_or_local)):
     from backup import export as export_mod
 
     return {"code": 0, "data": export_mod.job_status()}

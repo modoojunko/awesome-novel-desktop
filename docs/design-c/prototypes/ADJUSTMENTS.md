@@ -693,13 +693,6 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     ＋ai_summary 开关）＋收尾提案（设定变化/关系/伏笔）＋设定页签「本章变化」；
     下一章建议＝下一章章纲的 AI 起草（以主线/前情/设定为输入）。故两项从占位清单
     撤销，不再列入补货批次。
-    **⑪-a AI 入口唯一化右栏（2026-09-20 用户拍板「卷、章页面的AI功能都挪到右侧
-    AI助手」）**：章 body 的 AI 按钮全部退役——头部「AI 生成正文」（右栏生成正文卡
-    本就同链路）、章纲页签「AI 起草／剧情推演」（右栏章纲页签动作本就有）、「文风
-    建议本章调整」触发按钮（新增右栏文风页签动作，经信号触发页签内拉取；结果与
-    逐项采纳仍留在文风页签）。免费态语义随之变化：入口不再隐藏而是右栏 rail-locked
-    置灰（e2e 两处免费态断言已同步）。卷页面 body 本无 AI 入口，右栏 VolumeAssistPanel
-    既有口径不变（卷域 AI 动作清单仍另立项）。
     ⑫ **右栏检测/精修族落地＋三项重复动作撤销（2026-09-17 补货批次）**：⑧ 的占位清单
     按页签逐个补实现——检测族（六类 ai-check：`POST …/ai-check {kind}` 就地弹窗，finding
     列表/空态/重试，`data-testid=ai-check-list|ai-check-empty`）＝章纲「与卷纲冲突检测」、
@@ -884,13 +877,6 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     ［.rail-stats 类名保留重绘］＋ai-foot 免费版说明；章模式同头）。**app 保留项（原型未画）**：
     editor-toolbar 字号/行距/专注/版本历史/归档控件降为工具条右对齐保留，专注模式隐藏规则
     随 .col-ai 新样式补特异性。editor 皮肤其余页签（OgPane 表单等）经 .cfg 作用域重绘自动对齐。
-    **修订（2026-09-19，用户裁定章/卷页签须同位）**：撤 editor-toolbar 独立工具行——字号/
-    行距/专注/版本历史/归档本章/AI 生成正文并入 e-head 右侧（.e-head-row/.prose-ctrls），
-    章页签条紧贴头部＝卷视图同位＝原型 e-head→e-toolbar 两段式；章页签顺序同步对齐原型
-    （章纲→正文→提示词→…，原 app 为提示词在前）。**同批修订**：卷视图皮肤漏了原型
-    `.e-pad{padding:18px 22px 24px}`（col-panel 衬垫被归零后无人接管，内容贴边＝用户
-    指出的内部错位）——补 scoped 规则＋清旧版 tpl-row/.field 死选择器；「章节拆分」
-    分节补 open 对齐原型默认展开。
 14. **编辑表单统一（同批续）**：卷纲编辑态初版残留旧 .field/.tpl-row/.sub-row 结构，与章纲
     编辑（olFormHTML）不一致——原型两编辑态本就是同一套语言。统一：卷名/结构模板入
     .fgrid、章数目标独立 fro（提示下移，沿偏差①）、主旨/剧情三字段/伏笔两块改 fro（mono
@@ -923,8 +909,6 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
    办的事」，持久关闭会错过后续第二本待完本；完结或关闭后顺延提示下一条（排序最前）。
 6. **卡片排序仍按 updated_at 倒排**：原型 SEED 顺序为演示摆位；产品排序不变，parity 注入
    数据按排序结论摆位（写作中 2 小时前→待完本 昨天→设定中 昨天→已完结 3 天前）。
-   **【2026-09-20 已被 v2 章第 1 条取代】**：works.html v2（工具栏换代）改为状态 rank 恒优先，
-   本条口径作废，见文末「书架屏换代 v2」章。
 7. **待完本卡本体点击落写作（不落预览）**：预览由页脚「回看/查看」显式进入（一次性
    location state 落点覆盖，认领即清防刷新重放）；与「卡片标签与落点同结论」口径一致。
 8. **Banner 群（权益/试用/满额）不入 parity 图**：quota 场景只比额度墙＋锁卡（既有口径
@@ -937,127 +921,22 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     「埋下章未定」）。
 11. **lint 存量不随批**：`design:lint` 的严格范围违规（preview.html / AcctMenu.tsx 裸 hex）
     为 main 存量（本 change 前已红），不随批处置、不阻断本换代（parity 四场景全绿）。
-12. **间距随草稿补齐晋级（c-works-spacing-align，2026-09-20）**：换代时只并了内容家族，
-    works.html 草稿改的垂直间距三值漏抄（双侧同错故 parity 仍全绿、缺口被遮蔽；用户实测
-    5174 与草稿整体差 31px 后裁定以原型为准）。本批补齐：`.main` 顶距 48→40、`.page-head`
-    下缘距 36→26、`.page-head .sub` 下缘距 0（≤480px 断点同步 28/14/22）。`.sub` 的 1em 考古：
-    系 #181 复刻旧 list.html 时把**未重置的 UA 默认 `p` margin-bottom 显式写死**（旧原型无
-    `p{margin:0}` 重置，「意外」同值故从未报警）；works.html 已加 `p{margin:0}` 归零，原型侧
-    以 `.page-head .sub { margin-bottom: 0 }` 显式落笔。实现侧走 `.pg-works` 屏级作用域
-    （`.pg-config` 先例——各屏节奏本就不同：list 40/26、model-config 44/28、backup-restore
-    48/36），`base.css` 全局壳与其余屏零改动。已知微差豁免：`.update-strip` 原型侧窄屏值
-    （16px 16px 0）两版原型本就同值；实现侧 strip 由 UpdateNotice 组件样式承担（非 design
-    css 家族），其窄屏微差不属屏级作用域可达范围，不入本批。works.html `body
-    padding-bottom:26px` 属全局壳层状态栏让位，现实现由 `.main` padding-bottom 承担同职，
-    亦不入本批。
 
-## list.html 书架屏换代 v2：工具栏＋分组＋分页（c-works-toolbar，2026-09-20）
+---
 
-设计源：`docs/design-c/drafts/works.html` v2（2026-09-20 11:44）晋级为 `prototypes/list.html`
-基线（v2 正文并入＋**保留 v1 两块应用侧扩展**：first-run 三步引导〔零书态〕与 quota
-免费额度墙〔`.lock-tile`／`ainovel.member`／quota notice／主按钮带锁〕）。v2 新增页头
-工具栏（书名搜索＋四态筛选 chips＋四键排序）、生命周期分组视图（分组头 dot/计数/待完本
-组「去完本」）、分页（12/页＋加载更多＋触底自动加载）、`bk-empty` 筛选无果空态。逐项偏差：
+## login.html 登录屏立卷（c-loginless-data-exit，2026-09-19）
 
-1. **排序语义反转（改写前章 #6）**：v2 的状态 rank 恒优先（待完本→写作中→设定中→已完结）
-   取代 2026-08-29「按 updated_at 倒排」裁定——「全部」视图完本书刚更新也沉底，
-   书架默认序不再等价「最近有进展」。数据事实：`updated_at` 语义为最后一次**书级动作**
-   （归档/完本/改名），正文与章纲保存不刷新，「最近更新」排序口径即此（非「最近写过」）。
-2. **first-run 沿用（前章 #7 口径不变）**：v2 零书支简空态（「没有找到符合条件的作品」+
-   「这是你的第一本书，从设定开始。」）**不采用**——用户裁定 2026-09-20 保留三步引导；
-   `bk-empty` 仅用于筛选/搜索无果支（该支的「没有找到符合条件的作品」语义成立）。
-3. **工具栏不随零书/加载/失败渲染**（对 v2「恒渲染」的偏差）：零书入口职能由 first-run 承担，
-   空架上放搜索/筛选是死控件；实现与基线同步（基线零书支隐藏 `.bk-toolbar`）。
-4. **`.chip` 同名两义裁决**：`.chip/.chip.on` 系**现役同名类**（`src/design/book.css` 设置页/
-   工作台在用；标准 §6.2 已把 13 类胶囊归并 `.pill-tag`，本批不扩围）。书架屏以
-   `.bk-chips .chip` 作用域化（选中＝accent 实底＋`--on-accent` 字，与原型逐字同值），
-   跨屏零影响；裸写 `.chip` 会被 book.css 覆盖且像素差（≈0.1%）低于 parity 阈值会静默绿。
-5. **`--radius-pill` → 字面 `999px`**：C端 `base.css` 无该 token（原型 `:root` 有），
-   「逐字照抄」会得方角 chip；实现沿现状字面值，补 token 属另一 change（触碰共享段）。
-6. **`清除筛选`修正原型缺陷**：原型重置 kind/sort/q/shown 但未回写 `#sort.value`（DOM 与实际
-   状态不一致）；实现侧受控 select 修正——清除后排序回「最近更新」界面同步。
-7. **新档位人工登记**（design-vocab/design-lint 不扫 `src/**/*.css`、不查字号高度）：
-   `.chip` 30px 高/12.5px 字、`.bk-search input` 与 `.bk-sort` 36px 高、`.gh-label` 15px serif、
-   `.gh-count`/`.bk-search input` 13.5px、`.bk-empty .em` 18px serif。
-8. **quota 保留说明**：v2 完全删了免费额度墙（`lock-tile`/`ainovel.member` 零命中）——基线与
-   实现均保留 v1 块（应用侧扩展先例），parity quota 场景继续有效；v2 未建模「锁卡与分页
-   共存」形态，锁卡随行入当前页网格（顺延项，非本批）。
-9. **v2 壳层微差豁免**（1440px parity 不可见，按 #12 体例记一行）：`.icon-btn{flex:none}`、
-   `.logo{white-space:nowrap}`、`.notice .nt{min-width:0}`、`.genre/.b{white-space:nowrap}`、
-   `body{padding-bottom:26px}`（状态栏让位）；实现侧 `.b` 的 nowrap 随批补齐，其余不入。
-10. **`bk-empty` 不入 `.cards` 网格**：v2 中 `.bk-empty` 是 `#cards` 直接子节点；实现侧新增
-    无样式包裹层 `.bk-list` 承载 `.cards`/`.bk-group`/`.load-more`（使 `.bk-group:first-child`
-    结构成立），`.bk-empty` 挂包裹层下、不落入 1/3 列宽网格。
-11. **parity 注入契约随换代更名**：注入键 `ainovel.books`→`od.works.v1`；书字段
-    `stage/stageLabel/finished`→`state/finishedAt`＋数字 `createdAt/updatedAt`（缺失会触发
-    v2 归一化改写为同一时刻、排序静默退化）；`ainovel.member` 继续供 quota 场景。
-12. **更新条与完本弹窗文案沿用现状口径**：v2 把 update-strip 写成 v0.19 演示字面、弹窗 lead 带「全书收尾随即在后台跑」叙事——前者沿前章 #9（stub 字面 v0.13/v0.11·提升章纲 AI 起草的稳定性），后者沿前章 #2（现实口径，不提后台任务）；弹窗③行恢复「未处理的在书的『操作』页逐条确认」。**随 v2 采用**：已完结态新增「读者与编辑看到的状态是「已完结 · 连载结束」。」句（app FinishModal 同批落笔）。
+**补历史欠账＋新增建模**：登录屏此前从未有原型基线（LoginPage.tsx 无基线直跑），本稿收编
+现状 auth-card 形态并新增 UpgradeGate 两场景与免登备份入口（2026-09-19 事故直接对策）。
 
-## 0vol0ch-empty-state.html 空书态落地（c-0vol0ch-empty-state，2026-09-20）
-
-设计源：`docs/design-c/drafts/0vol0ch-empty-state.html`（2026-09-20 12:58，storyline.html
-派生：数据清空为 0 卷 0 章 ＋ 新增空态三处）。**零卷零章的写作页**从此有明确起点，不再
-三栏各自为政。设计稿逐项与 `storyline.html` 的差异即本批范围（其余保留 storyline 语言）：
-
-1. **顶栏主线定位补「状态零：空书」分支**（原型 `hereBarHTML` 首分支）：`空书`（mono kicker）
-   ＋ `第 1 章 待写` ＋ `未开始` 徽 ＋ `还没有卷与章节` ＋ 「＋ 新增一卷」。实现侧此前
-   `hereTarget === null` 时 `bar-here` 整块留空；现按 `volumes.length === 0` 渲染该卡。
-   徽标沿用 `.bh-tag`（storyline `.tag` 收编名，前章 #26），按钮 `.btn-primary`＝原型
-   `.btn-accent`（同源换名）。
-2. **中栏空态两分支**（原型 `editorHTML` → `bookEmptyHTML()`）：零卷零章＝`.e-empty`
-   （「这本书还没有开始」＋双入口「＋ 新增一卷 / ＋ 新增一章」）；**有卷但未选中**＝同容器
-   一句选章引导（「在左侧目录里选一章…重写与回退收在「操作」页签里」）。实现侧原先两种
-   情形共用「开始创作」面板（`.panel-head h2` ＋ desc），该面板**退役**；新增 `.e-empty`/
-   `.be-k`/`.be-t`/`.be-acts` 三条规则逐字照抄原型（`--ink` → 实现 `--fg`，C端 无该别名）。
-3. **左栏空态**：提示文案改为原型 `tocEmpty` 原文（「点下方「＋ 新增一章」会先垫好第一卷并
-   排上第一章，或点「＋ 新增一卷」先写卷纲」），`.empty-tree` 度量对齐原型 `.toc-empty`
-   （12.5px / `padding:14px 6px`，与 `.tree` 的 8px 侧衬垫叠成列缘 14px）；空书态底部新增
-   `.tree-add` 两入口（原型同款虚线按钮）。
-4. **空书态底部入口替代批量确认**：`.tree-add` 与「确认全部已填章节」互斥——空书无章可确认，
-   批量按钮在空书态让位（非空书态左栏结构**零改动**：本轮不采用 storyline 的
-   `.tree-tools`（搜索/计数/回到当前）与常驻 `.tree-add`，书树仍按 book.html 基线，属另一批）。
-5. **行为：新增一章先垫第一卷**（原型 `addPlanned` → `firstVol`）：空书点「＋ 新增一章」＝
-   先建「第一卷」（程序默认序号形态，`isDefaultTitle` 命中故树上只显示序号）再排「第一章」，
-   落章纲页签并 toast。实现侧原来 `createChapter` 无卷直接 toast「请先创建卷」——空书死路，
-   这就是设计稿要治的断点。
-6. **`.tree-add` 贴列底**：空书态给 `.col-tree` 加 `.empty-book` 修饰类（`display:flex;
-   flex-direction:column`＋`.tree{flex:1}`），按钮组落到列底与原型同位；**非空书态不入此
-   修饰类**，左栏滚动容器行为与 book.html parity 均不变（parity 场景无空书屏）。
-7. **「添加卷」弹窗上移壳层**（实现侧结构，零视觉）：原居 `OutlineTree`（树头「＋」唯一入口），
-   空书态三处入口（顶栏卡 / 中栏 / 左栏底部）共用 → 移入 `modals.tsx` 由 `NovelWorkspace`
-   持有；openapi 契约与弹窗内部（卷名必填/卷摘要/初始章数）逐字不动。
-8. **口径沿革**：空书默认落点仍是「设定」（2026-09-10 拍板，`novelStage` 不动）；本批只治
-   **用户点进「写作」时**的空态。空区「＋ 新增一卷」仍走建卷弹窗（#164 名称即标题且必填），
-   不采用原型的 `第一卷 · 未命名` 直建——实现侧名称由用户起名，序号程序排定。
-9. **右栏「未选中」态补齐**（原型 `aiHTML` 无语境分支）：原实现只给一句卷语境引导语
-   （「在左侧目录里选中一卷…」——空书里是死路文案），现按原型补：`当前页签 / 未选` 行 ＋
-   通用引导语（「选中一章或一卷…章纲检查、正文续写、提示词组装、设定与关系伏笔的检测」）＋
-   四格统计（当前主线 / 悬置伏笔 / 全书章节 / 基于旧设定）＋ 免费档脚注。数据源：主线端点章号、
-   全书章节数、基于旧设定章数由壳层给（`RailIdleData`），悬置伏笔按需拉 `GET /hooks` 计
-   `status=active`（失败降级「—」，与卷域统计同口径）；该态与「刚删完章未选中」共用。
-10. **本批不动的壳层文本（登记留档）**：设计稿 modnav 右侧是静态提示（「顶部定位当前主线 ·
-    左栏章节目录 · 中栏正文/提示词/设定/角色关系/伏笔」），实现侧为**分视图动态句**
-    （设定/写作/预览各一句）；设计稿「设定」页签无计数，实现侧带 `N/7`。两处均为换皮期
-    壳层既有口径、跨全部书内视图，非本 change 范围，随本批登记不改。
-
-## 书内中栏节奏单源（c-workbench-col-rhythm，2026-09-20）
-
-**背景**：storyline 皮肤曾以两条「整列归零」规则（`.col-panel` 衬垫→0、`.panel` 版心→不限，命
-中书内全部三栏页）切换维护中栏节奏，随后靠「各面板自己补衬垫」——09-19 卷视图、09-20 设定页
-与写作空态两轮漏补（用户截图指出贴边/铺满）。本 change 把节奏收成**单源变量**，逐项：
-
-1. **单源定义**（`.wb .view.on.three-col`）：`--col-pad-t/-x/-b`（26px / clamp(20px,4vw,48px) /
-   60px，book.html 列衬垫口径）、`--col-pad-editor`（18px 22px 24px，storyline `.e-pad` 口径）、
-   `--col-measure`（76ch）。内容型面板与 `.e-pad` 一律引用变量，SHALL NOT 再各自硬编码。
-2. **版心默认＋豁免清单**：删除 `.panel{max-width:none}` 归零；默认 660（book.html `.panel`）；
-   豁免仅三处——settings-v 1180（贴 AI 栏既有决策）、`sub-fill` 双栏（角色/伏笔满栏）、卷壳
-   （字段自带 76ch）。实质等同 book.html `.panel{max-width:660px}` 与原型一致。
-3. **通栏条出血**：设定页 `.panel-head/.panel-foot` 以负边距保持横跨整栏（底栏「确认完成」条
-   观感不变），文字与内容区对齐；章页签 e-head/ch-tabs 依赖 `.col-panel` 零衬垫（保留）。
-4. **行级版心**：文风表单行/操作卡等直接子级 ≤76ch（修复 838px 铺满）。
-5. **节奏值两域并存（有意）**：设定域 26/clamp/60（book.html/genre-signup 口径）、卷章编辑区
-   18/22/24（storyline `.e-pad` 口径）——两值各有原型出处，均已收进变量；是否合并待设计侧裁决。
-6. **范围切分**：写作空态（0 卷 0 章）贴边问题由并行 change `c-0vol0ch-empty-state` 按其新原型
-   （`0vol0ch-empty-state.html`，空态重构为 `.e-empty` 起手卡）处理，本 change 不重复。
-7. **sub-fill 双栏分隔线随衬垫内缩**：角色/伏笔两栏分隔线此前贴栏、今在列衬垫内——更贴近原型
-   列衬垫口径，登记为有意变化。
+1. **s1 常规登录**为现状收编（parity 首立以 s1 为界）；新增常驻「不登录也能备份作品」
+   text-btn（数据出口不设墙——任何登录态可备份）。
+2. **升级卡两场景分档**（s2 需要更新/s3 暂时无法登录）：首答句「你的作品都在这台电脑上」
+   ＋可核对计数为情绪主角；主按钮=去下载新版/重试登录，「先备份作品」恒 secondary
+   （恐慌由证据化解，不由按钮排序放大）；「版本过旧」全站禁用（challenge 缺失是模糊信号，
+   禁止断言客户端版本——事故文案误导根因修正）；s2 空库变体文案行一并立卷。
+3. **s4 免登备份弹窗**借 backup-restore 屏 .bk-* 家族口径：无配置开关（服务端强制
+   include_config=false，UI 只留静态说明「登录后可一并备份」）；step-tag/zip 预览/
+   pick-row 与屏 2 同构，弹窗后三步（进度/完成/失败）复用该屏不另立段。
+4. 实现侧 LoginForm 语言不引入工作台 storyline 词汇（e-head/cfgset 等）——登录页非
+   工作台语境，防语言越界。

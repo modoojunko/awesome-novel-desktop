@@ -126,7 +126,9 @@ class TestLegacyDbStatusEndpoint:
         assert len(d["all"]) == 2
         assert "20260902" in d["filename"]  # 最新在前
 
-    def test_unauthorized_401(self, monkeypatch, tmp_path):
+    def test_loginless_200(self, monkeypatch, tmp_path):
+        """loginless-data-exit：legacy-db/status 免登（登录页计数行/迁入向导
+        登录前消费）——原 401 断言随语义变更改写（specs L6）。"""
         from fastapi.testclient import TestClient as _TC
 
         from main import app
@@ -134,4 +136,5 @@ class TestLegacyDbStatusEndpoint:
         monkeypatch.setattr("backup.router.DATA_ROOT", str(tmp_path))
         with _TC(app) as c:
             r = c.get("/api/backup/legacy-db/status")
-        assert r.status_code == 401
+        assert r.status_code == 200
+        assert r.json()["code"] == 0

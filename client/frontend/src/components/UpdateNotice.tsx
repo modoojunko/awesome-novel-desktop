@@ -15,7 +15,7 @@ interface UpdateCheckState {
 /** 会话内复查节奏：只打本地端点；真实外呼由后端 1 小时节流统一裁决 */
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
 
-const DOWNLOAD_HOME = "https://www.awesomenovel.com/";
+import { DOWNLOAD_HOME } from "@/lib/updateUrl";
 
 /**
  * 全局更新提示条（client-update-notify）。

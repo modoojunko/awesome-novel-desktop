@@ -529,12 +529,43 @@ async def _storage_busy_handler(request, exc):
     )
 
 
+# ── loginless-data-exit 三层防护之二：CORS 收窄 ──────────────────────────────
+# 生产=同源（SPA 由本进程 StaticFiles 伺服，通配符是纯遗留）；开发=vite 白名单。
+# 收窄后「JSON POST 必触发预检 + 预检不批 + 响应不可读」封死浏览器 drive-by
+# 对免登端点（免登导出/迁入）的读写两端。
+import os as _os
+
+_DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+_allow_origins = _DEV_ORIGINS if _os.getenv("DEV_CORS", "") else []
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allow_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 之三：回环来源中间件——免登端点只许本机调用（Docker 0.0.0.0 部署的硬边界）
+from fastapi import Request as _Request
+
+_LOGINLESS_PATHS = (
+    "/api/backup/export/start",
+    "/api/backup/export/status",
+    "/api/backup/legacy-db/status",
+    "/api/backup/db-migration",  # c-db-generation-migration 免登面前缀
+    "/api/update-check",
+)
+
+
+@app.middleware("http")
+async def _loginless_loopback_guard(request: _Request, call_next):
+    if request.url.path in _LOGINLESS_PATHS or request.url.path.startswith(
+        "/api/backup/db-migration"
+    ):
+        host = request.client.host if request.client else ""
+        if host not in ("127.0.0.1", "::1", "testclient"):
+            return JSONResponse(status_code=403, content={"detail": "仅限本机访问"})
+    return await call_next(request)
 
 # License 验证路由
 app.include_router(auth_local_router, prefix="/api/auth", tags=["auth"])

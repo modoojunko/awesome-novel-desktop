@@ -84,7 +84,12 @@ def seeded(tmp_path, monkeypatch):
 @pytest.fixture
 def client(seeded, monkeypatch):
     monkeypatch.setattr("backup.router.DATA_ROOT", seeded["data_root"])
+    # loginless-data-exit：export 端点换挂 get_user_or_local——登录态语义（双包）
+    # 需同时 override 它，否则无 Authorization 头被当免登态（强制单包）
+    from auth_local.middleware import get_user_or_local
+
     app.dependency_overrides[get_current_user] = lambda: {"id": seeded["user_id"]}
+    app.dependency_overrides[get_user_or_local] = lambda: {"id": seeded["user_id"]}
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()

@@ -449,16 +449,27 @@ async def export_backup_to_dir(target_dir: str, user_id: str, include_config: bo
     probe.unlink()
 
     async with async_session() as db:
-        user = await db.get(User, user_id)
-        if user is None:
-            raise ExportJobError("user_not_found", "用户不存在")
-        books = (
-            await db.scalars(
-                select(Novel)
-                .where(Novel.user_id == user_id, Novel.status != "deleted")
-                .order_by(Novel.created_at)
-            )
-        ).all()
+        # loginless-data-exit：user_id=None → 免登整库无主化（事故场景可能
+        # User 行残缺——不再以 User 行存在为前提）；登录态按用户范围不变
+        if user_id is None:
+            books = (
+                await db.scalars(
+                    select(Novel)
+                    .where(Novel.status != "deleted")
+                    .order_by(Novel.created_at)
+                )
+            ).all()
+        else:
+            user = await db.get(User, user_id)
+            if user is None:
+                raise ExportJobError("user_not_found", "用户不存在")
+            books = (
+                await db.scalars(
+                    select(Novel)
+                    .where(Novel.user_id == user_id, Novel.status != "deleted")
+                    .order_by(Novel.created_at)
+                )
+            ).all()
         _set(books_total=len(books))
 
         _phase("assets")

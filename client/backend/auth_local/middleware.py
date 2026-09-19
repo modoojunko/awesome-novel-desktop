@@ -23,6 +23,25 @@ def get_local_config() -> dict:
     return {}
 
 
+def get_user_or_local(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+) -> dict:
+    """免登数据出口的身份依赖（loginless-data-exit）。
+
+    有合法会话 → {"id": username}（与 get_current_user 同口径）；
+    无会话/不合法 → {"id": None}——免登端点以 None 走整库无主化口径，
+    不 401（数据出口不设墙：登录保护的是生成服务，不是用户硬盘上的文件）。
+    """
+    if credentials is None:
+        return {"id": None}
+    cfg = get_local_config()
+    stored_token = cfg.get("token", "")
+    if not stored_token or credentials.credentials != stored_token:
+        return {"id": None}
+    username = cfg.get("username", "")
+    return {"id": username if username else None}
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> dict:
