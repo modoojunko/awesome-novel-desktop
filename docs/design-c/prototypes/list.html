@@ -94,6 +94,8 @@
   .b { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 500; }
   .b.writing { background: var(--warn-soft); color: var(--warn); }
   .b.setting { background: var(--fg-soft); color: var(--muted); }
+  /* 待完本（c-works-finish-flow）：accent 底＝可行动召唤——全书已归档、就差完本这个动作 */
+  .b.ready { background: var(--accent-soft); color: var(--accent-strong); }
   .b.done { background: var(--ok-soft); color: var(--ok); }
   .b svg { width: 11px; height: 11px; }
   .book-card h3 { font-family: var(--font-display); font-size: 21px; font-weight: 600; margin: 14px 0 0; letter-spacing: 0.01em; }
@@ -105,6 +107,33 @@
   .book-card .go { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--fg); }
   .book-card:hover .go { color: var(--accent); }
   .book-card .go svg { width: 14px; height: 14px; }
+  /* 待完本页脚的动作组（回看＋完本，c-works-finish-flow） */
+  .foot-acts { display: inline-flex; gap: 8px; flex: none; }
+
+  /* ═══ 完本清单弹窗（c-works-finish-flow）：完结前的最后一眼 ═══ */
+  .modal .mcard.wide { width: min(560px, 92vw); }
+  .fin-title { font-size: 19px; font-weight: 600; margin: 6px 0 0; }
+  .fin-lead { font-size: 12.5px; color: var(--muted); line-height: 1.75; margin: 8px 0 0; }
+  .fin-sec { display: flex; flex-direction: column; margin-top: 14px; }
+  .fin-row { display: flex; align-items: flex-start; gap: 12px; padding: 13px 0; border-top: 1px solid var(--border); }
+  .fin-ico { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; margin-top: 1px; border: 1px solid var(--border); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 1; }
+  .fin-ico svg { width: 11px; height: 11px; }
+  .fin-ico.ok { background: color-mix(in oklch, var(--ok) 13%, var(--bg)); border-color: color-mix(in oklch, var(--ok) 42%, var(--border)); color: var(--ok); }
+  .fin-ico.warn { background: color-mix(in oklch, var(--warn) 13%, var(--bg)); border-color: color-mix(in oklch, var(--warn) 42%, var(--border)); color: var(--warn); }
+  .fin-t { flex: 1 1 auto; min-width: 0; }
+  .fin-t b { font-size: 13.5px; font-weight: 600; }
+  .fin-t p { margin: 3px 0 0; font-size: 12.5px; line-height: 1.7; color: var(--muted); }
+  .fin-hooks { margin: 10px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .fin-hook { display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; background: var(--surface); color: var(--fg); font: inherit; font-size: 12.5px; }
+  .fin-hook:hover { border-color: var(--muted); }
+  .fin-hook.on { border-color: color-mix(in oklch, var(--accent) 42%, var(--border)); background: color-mix(in oklch, var(--accent) 6%, transparent); }
+  .fin-hook .mk { flex: none; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; }
+  .fin-hook.on .mk { color: var(--accent-strong); border-color: color-mix(in oklch, var(--accent) 45%, var(--border)); }
+  .fin-hook .nm { font-weight: 600; }
+  .fin-hook .from { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+  .fin-done { display: flex; gap: 12px; align-items: flex-start; border: 1px solid color-mix(in oklch, var(--accent) 40%, var(--border)); background: color-mix(in oklch, var(--accent) 6%, transparent); border-radius: var(--radius); padding: 13px 14px; }
+  .fin-done b { font-size: 13.5px; }
+  .fin-done p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); }
 
   .empty { border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 64px 32px; text-align: center; color: var(--muted); }
   .empty .serif { font-family: var(--font-display); font-size: 19px; color: var(--fg); }
@@ -253,9 +282,26 @@
       </button>
     </div>
   </div>
+  <div id="readySlot"></div>
   <div class="cards" id="cards"></div>
   <div id="firstRunSlot"></div>
 </main>
+
+<!-- ══════════════ 完本清单 / 全书收尾弹窗（c-works-finish-flow）══════════════ -->
+<div class="modal" id="modalFinish" hidden data-od-id="finish-modal" role="dialog" aria-modal="true" aria-labelledby="finTitle">
+  <div class="mcard wide">
+    <div class="mcard-head">
+      <span class="mh serif" id="finKick">完本 · 全书收尾</span>
+      <button class="icon-btn x" data-close="modalFinish" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body">
+      <h2 class="fin-title serif" id="finTitle"></h2>
+      <p class="fin-lead" id="finLead"></p>
+      <div id="finBody"></div>
+    </div>
+    <div class="mcard-foot" id="finFoot"></div>
+  </div>
+</div>
 
 <!-- ═══ 创建弹窗 ═══ -->
 <div class="scrim" id="scrim" hidden></div>
@@ -311,10 +357,13 @@
 
 <script>
 /* ═══════════ 数据 ═══════════ */
+/* 四态（c-works-finish-flow）：writing 写作中 / setting 设定中 / ready 待完本（全归档未完结）/
+   done 已完结（完本动作落库，finished=「完结于 X」字面量）。 */
 const SEED_BOOKS = [
   { title: '星海拾遗', genre: '科幻', stage: 'writing', stageLabel: '写作中', vols: 2, chs: 4, words: 1371, updated: '2 小时前', summary: '废弃星港上，导航员沉舟捡到一枚不属于人类纪元的导航信标，决定修好旧船去追一段回声。' },
-  { title: '长夜灯', genre: '悬疑', stage: 'setting', stageLabel: '设定中', vols: 1, chs: 2, words: 0, updated: '昨天', summary: '一座永远天亮不了的县城，一个在深夜点灯的人。' },
-  { title: '雾中法庭', genre: '都市', stage: 'done', stageLabel: '已归档', vols: 3, chs: 9, words: 12842, updated: '3 天前', summary: '律所新人姜序被卷入一场横跨十二年的旧案，迷雾散去时，法槌落下。' }
+  { title: '沙漏之下', genre: '玄幻', stage: 'ready', stageLabel: '待完本', vols: 2, chs: 6, words: 21400, updated: '昨天', summary: '时间在城外的沙丘上倒流，捡贝壳的少年成了唯一记得明天的人。' },
+  { title: '长夜灯', genre: '悬疑', stage: 'setting', stageLabel: '设定中', vols: 1, chs: 0, words: 0, updated: '昨天', summary: '一座永远天亮不了的县城，一个在深夜点灯的人。' },
+  { title: '雾中法庭', genre: '都市', stage: 'done', stageLabel: '已完结', finished: '3 天前', vols: 3, chs: 9, words: 12842, updated: '3 天前', summary: '律所新人姜序被卷入一场横跨十二年的旧案，迷雾散去时，法槌落下。' }
 ];
 let books = [];
 try {
@@ -338,7 +387,7 @@ const GENRE_ICON = {
   '历史': '<path d="M12 8a4 4 0 100 8 4 4 0 000-8z"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
   '其他': '<path d="M12 3v18M3 12h18"/>'
 };
-const STAGE_DOT = { writing: '<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>', setting: '<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>', done: '<path d="M5 13l4 4L19 7"/>' };
+const STAGE_DOT = { writing: '<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>', setting: '<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>', ready: '<path d="M6 4v16M6 5h11l-2 3 2 3H6"/>', done: '<path d="M5 13l4 4L19 7"/>' };
 
 function toast(msg) {
   const t = document.createElement('div');
@@ -397,6 +446,7 @@ function renderCards() {
   if (!books.length) {
     // 首启空态独占容器（.first-run 非 .cards 网格项，与实现侧同构）
     $('cards').hidden = true;
+    $('readySlot').innerHTML = '';
     $('firstRunSlot').innerHTML = FIRST_RUN_HTML;
     $('frCreate').addEventListener('click', () => { openModal('modalCreate'); setTimeout(() => { $('bkTitle').focus(); }, 60); });
     $('frImport').addEventListener('click', () => toast('导入入口在顶栏「导入」按钮'));
@@ -415,6 +465,20 @@ function renderCards() {
     card.href = 'book.html';
     card.dataset.odId = `book-card-${i}`;
     const icon = GENRE_ICON[b.genre] || GENRE_ICON['其他'];
+    // 分状态页脚（c-works-finish-flow）：待完本＝回看＋完本；已完结＝完结于＋查看
+    const ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+    let foot;
+    if (b.stage === 'ready') {
+      foot = `<span class="updated">全书 ${b.chs} 章已归档</span>`
+        + `<span class="foot-acts">`
+        + `<button class="btn btn-secondary btn-sm" data-preview="${i}">回看</button>`
+        + `<button class="btn btn-primary btn-sm" data-finish="${i}" data-od-id="finish-open-${i}" title="全书章节都已归档 · 完结这本书">完本</button>`
+        + `</span>`;
+    } else if (b.stage === 'done') {
+      foot = `<span class="updated">完结于${b.finished || '刚刚'}</span><span class="go">查看${ARROW}</span>`;
+    } else {
+      foot = `<span class="updated">更新于 ${b.updated}</span><span class="go">继续创作${ARROW}</span>`;
+    }
     card.innerHTML = `
       <div class="top">
         <span class="mono">${(b.title || '书')[0]}</span>
@@ -428,14 +492,83 @@ function renderCards() {
         <span><b class="num">${b.chs} 章</b>章节</span>
         <span><b class="num">${fmt(b.words)}</b>总字数</span>
       </div>
-      <div class="foot">
-        <span class="updated">更新于 ${b.updated}</span>
-        <span class="go">${b.stage === 'done' ? '查看' : '继续创作'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
-      </div>`;
+      <div class="foot">${foot}</div>`;
     $('cards').appendChild(card);
   });
   if (quota) $('cards').insertAdjacentHTML('beforeend', LOCK_TILE_HTML);
+  renderReadyNotice();
 }
+
+/* 待完本提示条（c-works-finish-flow）：首本待完本书的「在哪完本」常驻入口 */
+let dismissedReady = -1;
+function renderReadyNotice() {
+  const slot = $('readySlot');
+  const i = books.findIndex(b => b.stage === 'ready');
+  if (i < 0 || dismissedReady === i) { slot.innerHTML = ''; return; }
+  const b = books[i];
+  slot.innerHTML = `<div class="notice info" data-od-id="ready-notice" role="status">`
+    + `<span class="nt"><b>《${b.title}》主线已收齐</b><span>${b.chs} 章全部归档 · 可以完本了</span></span>`
+    + `<button class="btn btn-primary btn-sm" data-finish="${i}" data-od-id="ready-finish">去完本</button>`
+    + `<button class="btn btn-ghost btn-sm" data-dismiss-ready>知道了</button>`
+    + `</div>`;
+}
+
+/* ═══════════ 完本清单 → 完结 → 撤完本（c-works-finish-flow）═══════════ */
+const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 13l4 4L19 7"/></svg>';
+let finIdx = -1;
+function openFinish(i) { finIdx = i; renderFinish(); openModal('modalFinish'); }
+function renderFinish() {
+  const b = books[finIdx];
+  if (!b) return;
+  if (b.stage !== 'done') {
+    $('finKick').textContent = '完本 · 全书收尾';
+    $('finTitle').textContent = `完结《${b.title}》？`;
+    $('finLead').textContent = `主线 ${b.chs} 章 · ${b.vols} 卷 · 约 ${fmt(b.words)} 字都已归档。`
+      + '完本是一个动作，按下后这本书标为已完结；收尾结论都留在这本书的「操作」页等你逐条确认。';
+    $('finBody').innerHTML = `<div class="fin-sec">
+      <div class="fin-row"><span class="fin-ico ok">${CHECK_SVG}</span><div class="fin-t"><b>章节已全部归档</b><p>没有草稿、待写或拟定章，主线完整。</p></div></div>
+      <div class="fin-row"><span class="fin-ico ok">${CHECK_SVG}</span><div class="fin-t"><b>伏笔都已回收</b><p>没有埋下未收的伏笔，这本书的线都收干净了。</p></div></div>
+      <div class="fin-row"><span class="fin-ico ok">${CHECK_SVG}</span><div class="fin-t"><b>归档收尾都已清</b><p>每一章归档后的写回提案都处理完了；未处理的在书的「操作」页逐条确认。</p></div></div>
+    </div>`;
+    $('finFoot').innerHTML = '<button class="btn btn-secondary" data-close="modalFinish">再想想</button>'
+      + '<button class="btn btn-primary" id="finConfirm">完结这本书</button>';
+    $('finConfirm').addEventListener('click', confirmFinish);
+    return;
+  }
+  $('finKick').textContent = '已完结 · 全书收尾';
+  $('finTitle').textContent = `《${b.title}》已完结`;
+  $('finLead').textContent = `主线 ${b.chs} 章 · ${b.vols} 卷 · 约 ${fmt(b.words)} 字 · 完结于${b.finished || '刚刚'}。`;
+  $('finBody').innerHTML = `<div class="fin-sec"><div class="fin-done"><span class="fin-ico ok">${CHECK_SVG}</span><div><b>已完结</b><p>想加新章或改结局，就先撤完本。</p></div></div></div>`;
+  $('finFoot').innerHTML = '<button class="btn btn-secondary" id="finReopen">撤完本 · 继续写</button>'
+    + '<button class="btn btn-primary" data-close="modalFinish">关闭</button>';
+  $('finReopen').addEventListener('click', reopenBook);
+}
+function confirmFinish() {
+  const b = books[finIdx];
+  if (!b || b.stage === 'done') return;
+  b.stage = 'done'; b.stageLabel = '已完结'; b.finished = '刚刚';
+  try { localStorage.setItem('ainovel.books', JSON.stringify(books)); } catch (e) {}
+  closeModal('modalFinish');
+  renderCards();
+  toast(`《${b.title}》已完结 · 归档收尾提案可在书的「操作」页逐条确认`);
+}
+function reopenBook() {
+  const b = books[finIdx];
+  if (!b || b.stage !== 'done') return;
+  b.stage = 'ready'; b.stageLabel = '待完本'; delete b.finished;
+  try { localStorage.setItem('ainovel.books', JSON.stringify(books)); } catch (e) {}
+  closeModal('modalFinish');
+  renderCards();
+  toast(`已撤完本 · 《${b.title}》回到待完本，可以接着写或加新章`);
+}
+/* 完本/提示条/回看的交互委派（弹窗外层不冒泡，防触发卡片导航） */
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-finish],[data-dismiss-ready],[data-preview]');
+  if (!t) return;
+  if (t.hasAttribute('data-finish')) { e.preventDefault(); e.stopPropagation(); openFinish(parseInt(t.getAttribute('data-finish'), 10)); return; }
+  if (t.hasAttribute('data-dismiss-ready')) { const i = books.findIndex(b => b.stage === 'ready'); dismissedReady = i; renderReadyNotice(); return; }
+  if (t.hasAttribute('data-preview')) { e.preventDefault(); toast('演示稿：回看落预览视图'); }
+});
 
 /* ═══════════ 创建 ═══════════ */
 const LOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>';

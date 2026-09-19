@@ -42,6 +42,21 @@ const FIXED_NOVELS = () => [
     genre: "科幻",
     synopsis: "废弃星港上，导航员沉舟捡到一枚不属于人类纪元的导航信标，决定修好旧船去追一段回声。",
     updated_at: new Date(Date.now() - 2 * H).toISOString(), // → 2 小时前
+    finished_at: null,
+  },
+  {
+    id: "parity-ready",
+    name: "沙漏之下",
+    slug: "parity-ready",
+    current_phase: "write",
+    total_volumes: 2,
+    total_chapters: 6,
+    total_archives: 6, // 全归档未完结 → 待完本（页脚＝回看＋完本）
+    word_count: 21400,
+    genre: "玄幻",
+    synopsis: "时间在城外的沙丘上倒流，捡贝壳的少年成了唯一记得明天的人。",
+    updated_at: new Date(Date.now() - 24 * H).toISOString(), // → 昨天
+    finished_at: null,
   },
   {
     id: "parity-2",
@@ -54,13 +69,14 @@ const FIXED_NOVELS = () => [
     word_count: 0,
     genre: "悬疑",
     synopsis: "一座永远天亮不了的县城，一个在深夜点灯的人。",
-    updated_at: new Date(Date.now() - 24 * H).toISOString(), // → 昨天
+    updated_at: new Date(Date.now() - 26 * H).toISOString(), // → 昨天
+    finished_at: null,
   },
   {
     id: "parity-3",
     name: "雾中法庭",
     slug: "parity-3",
-    current_phase: "archive", // → 已归档（9 章全归档）
+    current_phase: "archive",
     total_volumes: 3,
     total_chapters: 9,
     total_archives: 9,
@@ -68,11 +84,12 @@ const FIXED_NOVELS = () => [
     genre: "都市",
     synopsis: "律所新人姜序被卷入一场横跨十二年的旧案，迷雾散去时，法槌落下。",
     updated_at: new Date(Date.now() - 72 * H).toISOString(), // → 3 天前
+    finished_at: new Date(Date.now() - 72 * H).toISOString(), // → 已完结：完结于 3 天前
   },
 ];
 
-// 原型侧 localStorage 注入用（字段名与 SEED_BOOKS 一致；stage/stageLabel/updated 为原型字面量）
-// 与上面 FIXED_NOVELS 同数据：原型 `stage` 是手写字面量，这里显式写出新口径下的结论值。
+// 原型侧 localStorage 注入用（字段名与 SEED_BOOKS 一致；stage/stageLabel/updated 为原型字面量）。
+// 与上面 FIXED_NOVELS 同数据（排序＝updated_at 倒排）：写作中(2h) → 待完本(昨天) → 设定中(昨天) → 已完结(3 天前)。
 const PROTO_BOOKS = [
   {
     title: "星海拾遗", genre: "科幻", stage: "writing", stageLabel: "写作中",
@@ -80,12 +97,17 @@ const PROTO_BOOKS = [
     summary: "废弃星港上，导航员沉舟捡到一枚不属于人类纪元的导航信标，决定修好旧船去追一段回声。",
   },
   {
+    title: "沙漏之下", genre: "玄幻", stage: "ready", stageLabel: "待完本",
+    vols: 2, chs: 6, words: 21400, updated: "昨天",
+    summary: "时间在城外的沙丘上倒流，捡贝壳的少年成了唯一记得明天的人。",
+  },
+  {
     title: "长夜灯", genre: "悬疑", stage: "setting", stageLabel: "设定中",
     vols: 1, chs: 0, words: 0, updated: "昨天",
     summary: "一座永远天亮不了的县城，一个在深夜点灯的人。",
   },
   {
-    title: "雾中法庭", genre: "都市", stage: "done", stageLabel: "已归档",
+    title: "雾中法庭", genre: "都市", stage: "done", stageLabel: "已完结", finished: "3 天前",
     vols: 3, chs: 9, words: 12842, updated: "3 天前",
     summary: "律所新人姜序被卷入一场横跨十二年的旧案，迷雾散去时，法槌落下。",
   },
@@ -100,6 +122,7 @@ const CASES = [
   { state: "books", books: PROTO_BOOKS, member: true },
   { state: "empty", books: [] as unknown[], member: true },
   { state: "quota", books: [PROTO_BOOKS[0]], member: false }, // 免费额度墙：1/1
+  { state: "finish", books: PROTO_BOOKS, member: true }, // 完本清单弹窗：点「完本」后采样
 ] as const;
 
 test.describe("design-parity 书架屏（list.html）", () => {
@@ -125,6 +148,11 @@ test.describe("design-parity 书架屏（list.html）", () => {
       // 帧位标定（e2e-speedup-infra 判保留）：parity 截图需两侧同一确定性帧，
       // 固定等待即标定值，非脆弱等待——勿换 pageSettled（遮罩动画帧位会漂，实测 84% 差异）
       await protoPage.waitForTimeout(700);
+      // finish 场景：两侧同步点开完本清单弹窗（待完本卡页脚「完本」），动画收敛后采样
+      if (c.state === "finish") {
+        await protoPage.getByText("完本", { exact: true }).click();
+        await protoPage.waitForTimeout(700);
+      }
       const protoShot = await protoPage.screenshot();
       await protoCtx.close();
 
@@ -135,8 +163,15 @@ test.describe("design-parity 书架屏（list.html）", () => {
         localStorage.setItem("auth_username", "modoojunko"); // 与原型头像首字一致（像素级比对）
       });
       const appPage = await appCtx.newPage();
-      const novels = c.state === "books" ? FIXED_NOVELS() : c.state === "quota" ? [FIXED_NOVELS()[0]] : [];
+      const novels =
+        c.state === "empty" ? [] : c.state === "quota" ? [FIXED_NOVELS()[0]] : FIXED_NOVELS();
       await appPage.route("**/api/novels", (r) => r.fulfill({ json: novels }));
+      // finish 场景：完本清单弹窗的数据源打桩（无 active 伏笔 → 第二行 ok 形态）
+      if (c.state === "finish") {
+        await appPage.route("**/api/novels/parity-ready/hooks", (r) =>
+          r.fulfill({ json: { ok: true, data: { count: 0, items: [] } } }));
+        await appPage.route("**/api/novels/parity-ready/volumes", (r) => r.fulfill({ json: [] }));
+      }
       // 原型常显更新提示条（ADJUSTMENTS #15）→ 应用侧同文案打桩，保持像素基线
       await stubUpdateNotice(appPage, "update");
       await appPage
@@ -151,6 +186,10 @@ test.describe("design-parity 书架屏（list.html）", () => {
       await appPage.evaluate(() => document.fonts.ready);
       // 帧位标定（同上）：page-enter 0.4s 收敛后采样
       await appPage.waitForTimeout(700);
+      if (c.state === "finish") {
+        await appPage.getByText("完本", { exact: true }).click();
+        await appPage.waitForTimeout(700);
+      }
       const appShot = await appPage.screenshot();
       await appCtx.close();
 

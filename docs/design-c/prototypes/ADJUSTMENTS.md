@@ -883,3 +883,41 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     标签＋req/em）；登场人物/剧情节点行改 rowx（序号＋cols.c3/.cn＋xbtn）、添加改 edit-bar
     （＋ 加一行人物／＋ 加一个节点）；章纲 OgPane 等 .field 经作用域 CSS 就地获得 fro 语言
     （结构不动）；控件补 aria-label（em 替换 label 后可访问名保持）。
+
+---
+
+## list.html 书架屏换代：四态＋完本链路（c-works-finish-flow，2026-09-19）
+
+设计源：`docs/design-c/drafts/works.html`（2026-09-17）晋级为 `prototypes/list.html` 基线
+换代（books/empty/quota 场景数据扩四态、新增 finish 弹窗场景；drafts 原样留存）。原型并入
+`.b.ready`（accent 底待完本徽标）、`.foot-acts`（回看＋完本动作组）、`fin-*` 完本清单弹窗
+家族、待完本提示条（`#readySlot`）；SEED_BOOKS 与 parity PROTO_BOOKS 同步四态
+（写作中/待完本/设定中/已完结）。逐项偏差：
+
+1. **「已归档」标签退役、`done` 语义更名已完结**：全归档未完结＝`ready` 待完本（原型
+   works.html 口径）；完结需要完本动作落库（`novels.finished_at`＋finish/reopen 端点）。
+2. **「全书收尾后台跑」文案对齐现实**：书级收尾后台任务不建（另行立项）——完结 toast 与
+   弹窗③行改为「归档收尾提案可在书的『操作』页逐条确认」（章级 archive-reconcile 既有
+   机制）；原型 works.html 的后台叙事不照搬。
+3. **伏笔「留白」勾选不落库**：弹窗内 useState 辅助确认（重开重置），SHALL NOT 写伏笔表
+   （「故意留白≠弃坑」的持久语义待书级收尾专项定夺）；落库后的行级形态（fin-hook.on）
+   原型已备，实现侧后续启用零视觉差。parity finish 场景按空 hooks（第二行 ok 形态）采样。
+4. **⋯ 菜单保留＋已完结书补「完本信息 · 撤完本」入口**：原型无卡片菜单也无撤完本入口
+   （演示稿程序可达）——产品保留重命名/删除菜单，并为已完结书加弹窗入口（应用侧扩展，
+   不入 parity 图，沿本簿既有口径）。
+5. **待完本提示条「知道了」＝会话内按书记忆**：不落 localStorage——提示条语义是「当期可
+   办的事」，持久关闭会错过后续第二本待完本；完结或关闭后顺延提示下一条（排序最前）。
+6. **卡片排序仍按 updated_at 倒排**：原型 SEED 顺序为演示摆位；产品排序不变，parity 注入
+   数据按排序结论摆位（写作中 2 小时前→待完本 昨天→设定中 昨天→已完结 3 天前）。
+7. **待完本卡本体点击落写作（不落预览）**：预览由页脚「回看/查看」显式进入（一次性
+   location state 落点覆盖，认领即清防刷新重放）；与「卡片标签与落点同结论」口径一致。
+8. **Banner 群（权益/试用/满额）不入 parity 图**：quota 场景只比额度墙＋锁卡（既有口径
+   延续）；待完本提示条**入图**（books/finish 场景，原型已建模）。
+9. **更新提示条文案沿 stub 字面**：list.html 的 update-strip 保留「发现新版本 v0.13（当前
+   v0.11）·提升章纲 AI 起草的稳定性」（stubUpdateNotice 同文案打桩，既有 #15 口径）；
+   works.html 草稿里的 v0.19 文案为演示字面，不采用。
+10. **完本弹窗伏笔行数据源**：`hooksApi.list` 过滤 active＋卷章树换算「第 N 章埋下」（原型
+    SEED 的 `from: N` 字面量在产品里由 introduced_chapter_id→章号映射得出，映射缺失显示
+    「埋下章未定」）。
+11. **lint 存量不随批**：`design:lint` 的严格范围违规（preview.html / AcctMenu.tsx 裸 hex）
+    为 main 存量（本 change 前已红），不随批处置、不阻断本换代（parity 四场景全绿）。
