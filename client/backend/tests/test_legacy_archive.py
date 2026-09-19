@@ -55,41 +55,6 @@ class TestFingerprint:
         assert _fp(md1) != _fp(md2)
 
 
-class TestArchiveIfLegacy:
-    def test_fresh_no_file(self, tmp_path):
-        result = legacy_archive.archive_if_legacy(tmp_path / "novel.db", "fp123")
-        assert result["archived"] is False
-        assert result["reason"] == "fresh"
-
-    def test_legacy_db_archived(self, tmp_path):
-        db = tmp_path / "novel.db"
-        _make_legacy_db(db, books=3)
-        result = legacy_archive.archive_if_legacy(db, "target_fp")
-        assert result["archived"] is True
-        archived = Path(result["archived_path"])
-        assert archived.exists() and "legacy-" in archived.name
-        # 原位文件已搬走
-        assert not db.exists()
-        # 留档内容完好
-        conn = sqlite3.connect(archived)
-        assert conn.execute("SELECT COUNT(*) FROM novels").fetchone()[0] == 3
-        conn.close()
-
-    def test_current_db_not_archived(self, tmp_path):
-        db = tmp_path / "novel.db"
-        _make_current_db(db, "target_fp")
-        result = legacy_archive.archive_if_legacy(db, "target_fp")
-        assert result["archived"] is False
-        assert db.exists()
-
-    def test_unreadable_archived_as_legacy(self, tmp_path):
-        db = tmp_path / "novel.db"
-        db.write_bytes(b"not a sqlite file at all")
-        result = legacy_archive.archive_if_legacy(db, "target_fp")
-        assert result["archived"] is True
-        assert result["reason"] == "unreadable"
-
-
 class TestLegacyDbStatusEndpoint:
     @pytest.fixture
     def client(self):

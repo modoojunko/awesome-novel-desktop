@@ -54,32 +54,31 @@ from write.style_shadow import router as style_shadow_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── 旧库留档（c-novel-export-roundtrip PR0）：必须先于任何 engine 连接 ──
-    # schema 指纹不匹配 → 三件套改名留档（零接触）→ 全新空库启动。
-    # 单轨升级：兼容责任在资产包 format_version，库层零迁移零召回。
+    # ── 库文件代数治理（db-generation）：先于任何 engine 连接 ──────────────
+    # 首启状态机：novel-v{V}.db 存在→指纹校验梯（current/additive 补列/tolerant
+    # 超集放行+审计/breaking·不可读→.corrupt 隔离）；不存在→空库（create_all
+    # 兜底）＋迁入候选由 migration 端点扫描。「升级即整库留档重置」机制退役。
     import logging as _logging
     from pathlib import Path
 
-    import legacy_archive
     from config import DATABASE_URL
-
-    _schema_fp = legacy_archive.compute_schema_fingerprint(Base.metadata)
-    _db_path = Path(DATABASE_URL.split("///")[-1])
-    # 纯新增差异（旧库表/列是新库子集）→ 原地迁移不存档（2026-09-17）；
-    # 破坏性差异仍走三件套留档。
-    _legacy_info = legacy_archive.archive_if_legacy(
-        _db_path, _schema_fp, metadata=Base.metadata
+    from db_lifecycle import (
+        DRIFT_ACCEPTED_KEY,
+        SCHEMA_ID_KEY as _SCHEMA_ID_KEY,
+        boot_lifecycle,
+        compute_schema_fingerprint,
     )
-    if _legacy_info["archived"]:
-        _logging.getLogger("uvicorn.error").info(
-            "Legacy library archived: %s (%s)",
-            _legacy_info["archived_path"],
-            _legacy_info["reason"],
-        )
-    elif _legacy_info.get("needs_migration"):
-        _logging.getLogger("uvicorn.error").info(
-            "Additive schema migration in place (data preserved)"
-        )
+    from schema_version import SCHEMA_VERSION
+
+    _schema_fp = compute_schema_fingerprint(Base.metadata)
+    _db_path = Path(DATABASE_URL.split("///")[-1])
+    _boot = boot_lifecycle(_db_path, Base.metadata, _schema_fp)
+    _boot_kind = _boot["boot"]
+    _logging.getLogger("uvicorn.error").info(
+        "db_lifecycle boot=%s db=%s", _boot_kind, _db_path.name
+    )
+    if _boot_kind == "tolerant_booted":
+        _tolerant_extra = _boot.get("extra_cols") or {}
 
     try:
         async with engine.begin() as conn:
@@ -89,347 +88,45 @@ async def lifespan(app: FastAPI):
 
         logging.getLogger("uvicorn.error").warning("Failed to create tables: %s", e)
 
-    # ── 给（新的）当前库打 schema 指纹戳：重启/重装同版本幂等 ───────────
+    # ── 给（新的）当前库打 schema 指纹戳 ───────────────────────────────
+    # additive 补列完成→刷新戳；tolerant 放行不改戳（回升 newer build 即 current）
+    # 并写 drift_accepted 审计键（诊断面可见——无声放行=慢性事故）。
     from models.app_meta import AppMeta
 
     try:
         async with async_session() as session:
-            existing = await session.get(AppMeta, legacy_archive.SCHEMA_ID_KEY)
+            existing = await session.get(AppMeta, _SCHEMA_ID_KEY)
             if existing is None:
-                session.add(
-                    AppMeta(key=legacy_archive.SCHEMA_ID_KEY, value=_schema_fp)
-                )
+                session.add(AppMeta(key=_SCHEMA_ID_KEY, value=_schema_fp))
                 await session.commit()
+            elif _boot_kind == "tolerant_booted":
+                audit = await session.get(AppMeta, DRIFT_ACCEPTED_KEY)
+                if audit is None:
+                    session.add(AppMeta(key=DRIFT_ACCEPTED_KEY, value="tolerant"))
+                    await session.commit()
+                    _logging.getLogger("uvicorn.error").warning(
+                        "db_lifecycle: tolerant drift accepted (extra cols preserved): %s",
+                        list(_tolerant_extra.items())[:5],
+                    )
             elif existing.value != _schema_fp:
-                # 纯增量迁移落地后刷新戳（否则每次启动都重复走迁移判定）
                 existing.value = _schema_fp
                 await session.commit()
     except SQLAlchemyError:
         pass
 
-    # ── Migrate: add source column to projects ───────────────────────
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE novels ADD COLUMN source TEXT DEFAULT 'ai'")
-            )
-    except Exception:
-        pass  # 列已存在
+    # ── 代内 additive 补列（db-generation ADDITIVE_COLUMNS 声明式）────────
+    # 历史 20+ 段 ad-hoc ALTER（含一处代内 DROP COLUMN 违例）已随版本化命名
+    # 退役：新库由 create_all 全量建出；代内补列今后只在 ADDITIVE_COLUMNS
+    # 登记（幂等、checkfirst 语义），删/改列一律 SCHEMA_VERSION+1 走迁入。
+    ADDITIVE_COLUMNS: dict[str, list[str]] = {}  # 首代无存量需求
 
-    # ── Migrate (works-finish-flow): 完结状态列 ───────────────────────
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE novels ADD COLUMN finished_at TIMESTAMP")
-            )
-    except Exception:
-        pass  # 列已存在
-
-    # ── Migrate (archive-reconcile): 来源章/状态变化列 ────────────────
-    # character_relations.origin_chapter_id（截至本章投影的来源章，NULL=不受
-    # 章界约束）；chapter_characters.state_change（本章角色状态变化一句话）。
-    # 表新建走 create_all；两列给存量库补。
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "ALTER TABLE character_relations ADD COLUMN "
-                    "origin_chapter_id VARCHAR(36) REFERENCES chapters(id) "
-                    "ON DELETE SET NULL"
-                )
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "ALTER TABLE chapter_characters ADD COLUMN "
-                    "state_change TEXT NOT NULL DEFAULT ''"
-                )
-            )
-    except Exception:
-        pass  # 列已存在
-
-    # ── Migrate (chapter-style-shadow): 本章文风影子 ─────────────────
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "ALTER TABLE chapters ADD COLUMN "
-                    "style_shadow TEXT NOT NULL DEFAULT '{}'"
-                )
-            )
-    except Exception:
-        pass  # 列已存在
-
-    # ── Migrate (revert-ghost): 旧稿支线标记 ─────────────────────────
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN ghost_of VARCHAR(64)")
-            )
-    except Exception:
-        pass  # 列已存在
-
-    # ── Migrate (chapter-rewrite): stale 列（基于旧设定角标）──────────
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN stale BOOLEAN DEFAULT 0 NOT NULL")
-            )
-    except Exception:
-        pass  # 列已存在
-
-    # 存量回填（一次性）：ch_ref 可解析（vol-N-ch-M）→ origin_chapter_id；
-    # 不可解析留空＝不受章界约束。以 SQL 关联 chapters.ref 自然去重。
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "UPDATE character_relations SET origin_chapter_id = ("
-                    " SELECT c.id FROM chapters c"
-                    " WHERE c.novel_id = character_relations.novel_id"
-                    "   AND c.ref = character_relations.ch_ref)"
-                    " WHERE origin_chapter_id IS NULL AND ch_ref != ''"
-                )
-            )
-    except Exception:
-        pass  # 首次迁移之外的失败按幂等吞掉（下次启动重试）
-
-    # ── Migrate: add backfill_status column ──────────────────────────
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE novels ADD COLUMN backfill_status TEXT DEFAULT 'none'")
-            )
-    except Exception:
-        pass  # 列已存在
-
-    # ── Migrate: drop legacy projects.index_status ────────────────────
-    # 模型已删列（PR⑤），但存量库该列 NOT NULL 无默认值——不删的话
-    # INSERT projects 不写此列必违反约束（建项目 500）。列不存在 /
-    # sqlite < 3.35 无 DROP COLUMN 时报错，按幂等吞掉。
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE novels DROP COLUMN index_status")
-            )
-    except Exception:
-        pass
-
-    # ── 卷族入库：volumes 扩列（新库走 create_all；存量表幂等补列）─────
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE volumes ADD COLUMN template_name VARCHAR(50)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE volumes ADD COLUMN core_conflict VARCHAR(150)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE volumes ADD COLUMN chapter_target INTEGER")
-            )
-    except Exception:
-        pass  # 列已存在
-
-    # ── 章族入库：chapters 扩列（新库走 create_all；存量表幂等补列）─────
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN summary VARCHAR(300)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN location VARCHAR(200)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN story_time VARCHAR(150)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN narrative_pov VARCHAR(50)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN current_task VARCHAR(300)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN word_target INTEGER")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN primary_mood VARCHAR(50)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN mood_progression VARCHAR(300)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN intensity_peak VARCHAR(300)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN intensity_level INTEGER")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN emotional_hook VARCHAR(150)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN expectation_state VARCHAR(150)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN expectation_strategy VARCHAR(50)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN expectation_detail VARCHAR(300)")
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text("ALTER TABLE chapters ADD COLUMN perspective_guidance VARCHAR(300)")
-            )
-    except Exception:
-        pass  # 列已存在
-
-    # ── 提示词格子：chapters/scene_cards 扩列（存在性守卫，幂等补列）──
-    # DDL 标识符无法走绑定参数；列名/类型取自静态元组，不掺运行期输入。
-    _ADD_COLUMNS: tuple[tuple[str, str, str], ...] = (
-        ("chapters", "ladder_exit", "VARCHAR(300)"),
-        ("chapter_scene_cards", "weight", "VARCHAR(10)"),
-        ("chapter_scene_cards", "focus", "VARCHAR(50)"),
-    )
-    async with engine.begin() as conn:
-
-        def _add_missing(sync_conn):
-            from sqlalchemy import inspect
-
-            insp = inspect(sync_conn)
-            for tbl, col, col_type in _ADD_COLUMNS:
-                if tbl in insp.get_table_names() and col not in (
-                    c["name"] for c in insp.get_columns(tbl)
-                ):
-                    sync_conn.execute(
-                        # nosec B608：静态元组拼接，无用户输入
-                        text(f"ALTER TABLE {tbl} ADD COLUMN {col} {col_type}")
-                    )
-
-        await conn.run_sync(_add_missing)
-
-    # ── Migrate: api_configs.api_format（接口格式显式化，幂等）────────
-    # 新库走 create_all 已带列；存量表幂等补列 + 回填。回填条件与旧版运行时
-    # URL 嗅探严格等价（URL 含 anthropic 或 vendor=anthropic → anthropic），
-    # 升级零行为变化；UPDATE 每次启动执行，无匹配行即 no-op。
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "ALTER TABLE api_configs ADD COLUMN api_format "
-                    "VARCHAR(20) NOT NULL DEFAULT 'openai'"
-                )
-            )
-    except Exception:
-        pass  # 列已存在
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "UPDATE api_configs SET api_format='anthropic' "
-                    "WHERE (base_url LIKE '%anthropic%' OR vendor='anthropic') "
-                    "AND api_format <> 'anthropic'"
-                )
-            )
-    except Exception:
-        pass
-
-    # ── Seed preset genres ──────────────────────────────────────────
-    try:
-        from genres.service import ensure_seed_genres
-
-        await ensure_seed_genres()
-    except Exception as e:
-        import logging
-
-        logging.getLogger("uvicorn.error").warning("Genre seed failed: %s", e)
-
-    # ── Seed genre vocab（题材候选源，D19 关系化） ───────────────────
-    try:
-        from genres.novel_genre_service import ensure_seed_genre_vocab
-
-        await ensure_seed_genre_vocab()
-    except Exception as e:
-        import logging
-
-        logging.getLogger("uvicorn.error").warning("Genre vocab seed failed: %s", e)
-
-    # ── Migrate: create events table ─────────────────────────────────
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "CREATE TABLE IF NOT EXISTS events "
-                    "(id TEXT PRIMARY KEY, user_id TEXT, event_type TEXT, "
-                    "payload TEXT, created_at TEXT)"
-                )
-            )
-    except Exception:
-        pass
+    for _table, _cols in ADDITIVE_COLUMNS.items():
+        for _col_ddl in _cols:
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text(_col_ddl))
+            except Exception:
+                pass  # 列已存在
 
     # ── Migrate config.json → User table ────────────────────────────
     # 身份识别统一用 S端 用户标识：users.username 是 S端 主键，C端 User.id /
