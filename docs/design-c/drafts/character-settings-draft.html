@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>评审稿 v1.0 · 角色（创建期 ④）</title>
+<style>
+  /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致（--radius-lg 沿世界稿 = 14px） ═══ */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* display 声明（flex 等）会压过 hidden 的 UA 规则——全局兜底，防流程条/时间线操作区「藏不住」 */
+  [hidden] { display: none !important; }
+  button { font-family: inherit; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.55; padding: 40px 24px 80px; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1320px; margin: 0 auto; }
+
+  /* ─── 稿头 ─── */
+  .draft-banner { display: flex; align-items: center; gap: 9px; padding: 10px 16px; border: 1px dashed var(--warn); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: 13px; margin-bottom: 28px; }
+  .draft-banner b { color: var(--fg); font-weight: 600; }
+  h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; }
+  h1 .ver { font-family: var(--font-mono); font-size: 13px; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 2px 10px; vertical-align: 6px; margin-left: 10px; letter-spacing: 0.06em; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 6px 0 14px; line-height: 1.8; }
+  .caliber { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 16px; font-size: 12.5px; color: var(--muted); margin-bottom: 36px; line-height: 1.8; }
+  .caliber b { color: var(--fg); font-weight: 600; }
+  .caliber li { margin: 4px 0 4px 18px; }
+
+  /* ─── 模拟窗口（与世界稿同构） ─── */
+  .win { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: clip; box-shadow: var(--shadow-card); margin-bottom: 52px; }
+
+  /* ── 应用框架（窗口标题栏 / 顶栏 / 书栏 / 书的设定树 / 状态栏——设计稿以整屏形态出现） ── */
+  .win-titlebar { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .dot { width: 11px; height: 11px; border-radius: 999px; flex: none; }
+  .dot.r { background: var(--err); } .dot.y { background: var(--warn); } .dot.g { background: var(--ok); }
+  .win-title { flex: 1; text-align: center; font-size: 12px; color: var(--muted); margin-right: 51px; }
+  .appbar { height: 48px; display: flex; align-items: center; padding: 0 20px; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; }
+  .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--surface); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; flex: none; }
+  .appbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; flex: none; }
+  .appbar .back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; padding: 5px 9px; border-radius: 8px; }
+  .appbar .back:hover { color: var(--fg); background: var(--fg-soft); }
+  .appbar .back svg { width: 14px; height: 14px; }
+  .appbar .spacer { flex: 1; }
+  .novelbar { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 20px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
+  .novelbar .nb-title { font-family: var(--font-display); font-size: 13.5px; color: var(--fg); font-weight: 600; }
+  .novelbar .nb-sep { width: 1px; height: 16px; background: var(--border); }
+  .modnav { display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .modnav span { display: inline-flex; padding: 8px 14px 9px; font-size: 13px; color: var(--muted); }
+  .modnav span.on { color: var(--fg); font-weight: 500; border-bottom: 2px solid var(--accent); }
+  /* ── 设定页三栏（真实结构）：设定树(230) ｜ 角色面板(1fr) ｜ AI 栏(236) —— 上部与左树不动，本稿设计中/右 ── */
+  .view.three-col.settings-v { display: grid; grid-template-columns: 230px minmax(0, 1fr) 236px; align-items: start; }
+  .col-middle { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .col-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 18px 20px; }
+  .panel.sub-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px 14px; overflow: hidden; }
+  .desc { font-size: 12.5px; color: var(--muted); margin: 0 0 14px; line-height: 1.8; }
+  .desc b { color: var(--fg); font-weight: 600; }
+  .sub-wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: 252px minmax(0, 1fr); gap: 0 16px; align-items: start; }
+  /* 设定树（复刻现有 col-tree） */
+  .col-tree { border-right: 1px solid var(--border); background: var(--bg); padding: 12px 10px 14px; }
+  .tree-head { padding: 0 8px 8px; }
+  .tree-head .t { font-size: 13px; color: var(--muted); }
+  .tree-head .t b { color: var(--fg); font-weight: 600; }
+  .settings-progress { padding: 0 8px 10px; border-bottom: 1px dashed var(--border); }
+  .settings-progress .pl { font-size: 12px; color: var(--muted); }
+  .settings-progress .pl b { color: var(--fg); }
+  .pbar { height: 6px; border-radius: 999px; background: var(--fg-soft); margin-top: 6px; overflow: hidden; }
+  .pbar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  .settings-nav-wrap { padding-top: 6px; }
+  .s-item { display: flex; align-items: center; gap: 6px; padding: 8px 9px; border-radius: 8px; cursor: pointer; }
+  .s-item:hover { background: var(--fg-soft); }
+  .s-item.on { background: var(--accent-soft); }
+  .s-item .nm { font-size: 12.5px; color: var(--fg); }
+  .s-item.on .nm { color: var(--accent-strong); font-weight: 600; }
+  .s-item .defer-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+  .s-item .spacer { flex: 1; }
+  .tree-foot { border-top: 1px dashed var(--border); margin-top: 8px; padding: 8px 8px 0; }
+  /* 角色列表（char-tree）与右 AI 栏：桌面端贴顶滚动 */
+  .char-tree { position: sticky; top: 12px; align-self: start; max-height: calc(100vh - 24px); display: flex; flex-direction: column; border-right: 1px solid var(--border); padding: 0 12px 10px 0; min-height: 0; }
+  .char-main { min-width: 0; }
+  .col-ai { border-left: 1px solid var(--border); padding: 16px; background: var(--bg); overflow-y: auto; }
+  @media (min-width: 861px) {
+    .col-ai { position: sticky; top: 12px; max-height: calc(100vh - 24px); }
+  }
+  @media (max-width: 1080px) { .view.three-col.settings-v { grid-template-columns: 208px minmax(0, 1fr) 222px; } }
+  @media (max-width: 900px) {
+    .view.three-col.settings-v { grid-template-columns: minmax(0, 1fr); }
+    .col-tree { border-right: 0; border-bottom: 1px solid var(--border); }
+    .col-ai { border-left: 0; border-top: 1px solid var(--border); }
+    .char-tree { position: static; max-height: 300px; border-right: 0; border-bottom: 1px dashed var(--border); padding-right: 0; }
+    .sub-wrap { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  /* ── 角色树（单树＋类型标签；语义对齐 TDesign Tree：搜索/计数/添加；实现走现有词表） ── */
+  .tree-top { display: flex; align-items: center; gap: 6px; padding: 2px 8px 8px; font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .04em; }
+  .tree-top .cnt { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; font-weight: 400; }
+  .tree-search { width: 100%; padding: 7px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font-size: 12.5px; margin-bottom: 8px; }
+  .tree-search:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .tree-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 6px 8px; border: none; background: transparent; border-radius: 8px; cursor: pointer; font: inherit; }
+  .tree-item:hover { background: var(--fg-soft); }
+  .tree-item.on { background: var(--accent-soft); }
+  .tree-item.on .ti-name { color: var(--accent-strong); font-weight: 600; }
+  .ti-ava { width: 22px; height: 22px; border-radius: 50%; background: var(--fg-soft); color: var(--fg); display: grid; place-items: center; font-size: 11px; font-weight: 600; flex: none; }
+  .tree-item.on .ti-ava { background: var(--accent); color: oklch(100% 0 0); }
+  .tree-item.add .ti-ava { background: transparent; border: 1px dashed var(--border); color: var(--muted); }
+  .ti-b { min-width: 0; flex: 1; }
+  .ti-name { display: block; font-size: 12.5px; color: var(--fg); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ti-sub { display: block; font-size: 10.5px; color: var(--muted); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ti-tag { flex: none; font-size: 10px; padding: 1px 7px; border-radius: 999px; }
+  .ti-tag.acc { background: var(--accent-soft); color: var(--accent); }
+  .ti-tag.empty { background: var(--fg-soft); color: var(--muted); }
+  .ti-tag.err { background: var(--err-soft); color: var(--err); }
+  /* 「＋添加角色」固定在树顶部（几百个角色时不用滚到底） */
+  .tree-add { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 30px; margin-bottom: 8px; border: 1px dashed color-mix(in oklch, var(--accent) 40%, var(--border)); border-radius: 8px; background: var(--surface); color: var(--accent); font-size: 12.5px; font-weight: 500; cursor: pointer; flex: none; }
+  .tree-add:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .tree-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding-right: 2px; }
+  .char-tree, .tree-list, .col-ai { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .tree-list::-webkit-scrollbar, .col-ai::-webkit-scrollbar { width: 8px; }
+  .tree-list::-webkit-scrollbar-thumb, .col-ai::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .tree-list::-webkit-scrollbar-thumb:hover, .col-ai::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ── 人物卡紧凑布局：卡头一行（头像＋称呼＋定位）＋两列字段网格（09-12 三次修订，替代一格一块的大堆叠） ── */
+  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .card-head .ch-ava { width: 34px; height: 34px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-strong); display: grid; place-items: center; font-size: 15px; font-weight: 600; flex: none; }
+  .card-head .input { flex: 1 1 220px; min-width: 180px; height: 36px; font-size: 14px; font-weight: 600; }
+  .card-head .cap-row { margin-left: auto; }
+  .card-head .ch-name { font-size: 15px; font-weight: 600; }
+  .sec-label { font-family: var(--font-display); font-size: 14px; font-weight: 600; margin: 18px 0 10px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .sec-label .sl-tag { font-family: var(--font-body); font-size: 11px; font-weight: 500; color: var(--accent-strong); background: var(--accent-soft); border-radius: 999px; padding: 2px 10px; }
+  .f-text { font-size: 12.5px; line-height: 1.7; color: var(--fg); min-width: 0; }
+  .fgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
+  @media (max-width: 700px) { .fgrid { grid-template-columns: 1fr; } }
+  .f { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .f .f-label { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .f .f-label b { font-size: 12.5px; font-weight: 600; color: var(--fg); flex: none; }
+  .f .f-label .hint { font-size: 11px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .f .textarea { min-height: 0; padding: 7px 10px; font-size: 12.5px; line-height: 1.6; }
+  .f .ai-sink { margin: 8px 0 0; }
+  .f-span2 { grid-column: 1 / -1; }
+
+  /* （空态已瘦身为字段直写；AI 辅助全部在右栏助手卡下，编辑区零 AI 按钮） */
+  @media (max-width: 720px) {
+    body { padding: 24px 12px 60px; }
+    h1 { font-size: 22px; }
+    .col-panel { padding: 20px 14px 24px; }
+    .caliber { padding: 10px 12px; }
+  }
+
+  /* ─── 通用件（与世界稿逐字同词表） ─── */
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 11px; }
+  .badge.done { background: var(--ok-soft); color: var(--ok); }
+  .badge.empty { background: var(--fg-soft); color: var(--muted); }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .badge.err { background: var(--err-soft); color: var(--err); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .badge.acc { background: var(--accent-soft); color: var(--accent); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--accent); color: oklch(100% 0 0); }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--muted); }
+  .btn-ghost { background: transparent; color: var(--muted); padding: 0 10px; }
+  .btn-ghost:hover { color: var(--fg); }
+  .btn-sm { height: 28px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; }
+  .btn:disabled { opacity: .45; cursor: default; pointer-events: none; }
+  .input, .textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+  .input:focus, .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .textarea { min-height: 58px; resize: vertical; line-height: 1.7; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .field label { font-size: 13px; color: var(--fg); font-weight: 600; display: flex; flex-direction: column; gap: 2px; }
+  .field label .hint { font-size: 11.5px; color: var(--muted); font-weight: 400; line-height: 1.6; }
+  .opt { font-size: 12px; color: var(--muted); }
+  .cap { display: inline-flex; align-items: center; padding: 7px 14px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; color: var(--fg); background: var(--surface); cursor: pointer; user-select: none; }
+  .cap:hover { border-color: var(--muted); }
+  .cap.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+  .cap-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .soft-note { font-size: 11.5px; color: var(--warn); margin-top: 8px; }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 7px; }
+  .icon-btn:hover { color: var(--err); background: var(--err-soft); }
+  .text-btn { display: inline-flex; align-items: center; gap: 5px; border: none; background: transparent; color: var(--accent); font-size: 12.5px; cursor: pointer; padding: 4px 2px; font-weight: 500; }
+  .text-btn:hover { color: var(--accent-strong); }
+  .text-btn.gray { color: var(--muted); }
+  .text-btn.gray:hover { color: var(--fg); }
+
+  /* ─── 右栏 AI 轨（与简介/题材/世界稿同构） ─── */
+  .ai-sink .ans-act { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .ai-sink .ans-act button { height: 26px; padding: 0 12px; font-size: 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .ai-sink .ans-act button.primary { background: var(--accent); border-color: transparent; color: oklch(100% 0 0); }
+  .chk-line { display: flex; gap: 8px; align-items: baseline; }
+  .chk-line .chk-name { flex: none; width: 84px; font-size: 12px; }
+  .chk-line .chk-res { font-size: 12px; font-weight: 500; flex: none; }
+  .chk-line .chk-res.ok { color: var(--ok); }
+  .chk-line .chk-res.miss { color: var(--err); }
+  .chk-line .chk-res.warn { color: var(--warn); }
+  .chk-line .chk-note { font-size: 11.5px; color: var(--muted); min-width: 0; }
+
+  /* ── 面板骨架 ── */
+  .panel-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+  .panel-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 600; margin: 0; }
+  .panel-head .ph-tools { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+  .defline { font-size: 12.5px; color: var(--muted); margin: 0 0 22px; line-height: 1.8; }
+  .defline b { color: var(--fg); font-weight: 600; }
+  .panel-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); margin-top: 8px; flex-wrap: wrap; }
+  .panel-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+  .panel-foot .warnline { font-size: 12px; color: var(--warn); margin-right: auto; }
+
+  /* ── 「怎么写」搭建法 ── */
+  .guide { margin: 0 0 20px; }
+  .guide-toggle { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 13px; border: 1px dashed var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; color: var(--fg); font: inherit; }
+  .guide-toggle:hover { border-color: var(--accent); }
+  .guide-toggle .gt-b { font-size: 13px; font-weight: 600; flex: none; color: var(--accent); }
+  .guide-toggle .gt-s { font-size: 11.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .guide-toggle .gt-c { margin-left: auto; flex: none; color: var(--muted); transition: transform .18s ease; }
+  .guide-toggle[aria-expanded="true"] .gt-c { transform: rotate(180deg); }
+  .guide-body { margin-top: 8px; padding: 5px 16px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  .guide-body[hidden] { display: none; }
+  .g-row { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px dashed var(--border); }
+  .g-row:last-of-type { border-bottom: none; }
+  .g-row .g-name { flex: none; width: 108px; font-size: 12.5px; font-weight: 600; color: var(--fg); }
+  .g-row .g-body { font-size: 12px; color: var(--muted); line-height: 1.7; min-width: 0; }
+  .g-row .g-body em { font-style: normal; color: var(--fg); }
+  .g-formula { margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 12.5px; color: var(--fg); display: inline-block; }
+  .g-formula b { color: var(--accent); }
+  .g-dont { margin-top: 10px; font-size: 11.5px; color: var(--warn); line-height: 1.8; }
+
+  /* ── AI 结果区（TintPanel，落对应格下方）与回执 ── */
+  .ai-sink { margin: 10px 0 0; background: var(--fg-soft); border-radius: 10px; padding: 12px 16px; font-size: 12.5px; line-height: 1.8; color: var(--fg); }
+  .ai-sink[hidden] { display: none; }
+  .ai-sink .aiz-head { font-size: 11px; font-weight: 600; letter-spacing: .05em; color: var(--accent); margin-bottom: 6px; }
+  .ai-sink .aiz-hist { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+  .ai-sink .aiz-hist .ah-t { font-size: 11px; color: var(--muted); }
+  .ai-sink .aiz-hist .ah-chip { height: 20px; padding: 0 9px; font-size: 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; }
+  .ai-sink .aiz-hist .ah-chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+  .receipt-bar { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 8px 12px; border: 1px solid color-mix(in oklch, var(--accent) 30%, var(--border)); border-radius: 9px; background: var(--accent-soft); font-size: 12px; color: var(--fg); }
+  .receipt-bar[hidden] { display: none; }
+  .receipt-bar .rb-undo { margin-left: auto; flex: none; height: 24px; padding: 0 12px; font-size: 11.5px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .receipt-bar .rb-undo:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── 右栏 AI 写作助手卡 ── */
+  .rail-assist { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
+  .rail-assist .ra-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+  .rail-assist .ra-head .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: oklch(100% 0 0); flex: none; }
+  .rail-assist .ra-head .rh-t b { display: block; font-size: 13px; font-weight: 600; }
+  .rail-assist .ra-head .rh-t span { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .rail-assist .ra-row { margin-bottom: 8px; }
+  .rail-assist .ra-step { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; }
+  .rail-assist .ra-step:hover { border-color: var(--accent); }
+  .rail-assist .ra-body { min-width: 0; flex: 1; }
+  .rail-assist .ra-body b { display: block; font-size: 12.5px; font-weight: 600; }
+  .rail-assist .ra-body i { display: block; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 2px; }
+  .rail-assist .ra-arrow { color: var(--muted); flex: none; }
+  .rail-assist .ra-foot { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+  .rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
+
+  /* ── 结论 ─── */
+  .rec-box { border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: var(--radius); background: var(--accent-soft); padding: 16px 20px; font-size: 13.5px; line-height: 1.8; }
+  .rec-box b { font-weight: 600; }
+  .rec-box ol { margin: 8px 0 0 20px; }
+  .rec-box li { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 12.5px; margin-top: 14px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="draft-banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="16" height="16"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <span><b>评审稿 v1.0（DRAFT）· 设定树「角色」节点选中态的中/右两栏设计，待用户拍板</b> · <b>上部与左侧设定树＝现有设定页原样复刻（不动）</b> · 中＝角色列表（单树＋类型标签＋搜索，「＋添加角色」置顶）＋人物卡（四部分：角色名称 / 角色类型 / 基础信息 / 认知模型——六维单向闭环，主角 / 配角 / 反派落全模型，路人不展开）· 右＝AI 助手（全部 AI 辅助功能都在右栏，编辑区零 AI 按钮）· <b>写作期生长（收件箱 / 成长轨迹 / 回退联动）＝移交「正文归档」change</b> · 演示数据沿世界稿 v2.7 云梁界宇宙 · 不改动 <span class="num">prototypes/</span> 与任何实现代码</span>
+  </div>
+
+  <h1>角色 · 创建期 ④<span class="ver">v1.0</span></h1>
+  <p class="sub">设定树 9 项里选中「角色」后，中/右两栏的界面设计：中＝角色列表＋人物卡（一人一卡），右＝AI 助手；<b>上部与左侧设定树是现有设定页，原样复刻、零改动</b>。写作期生长（收件箱 / 成长轨迹 / 回退）移交「正文归档」change；「主线 / 文风 / 伏笔 / 禁用词句」等节点按此形态同构另批。</p>
+
+  <div class="caliber">
+    <b>口径前提</b>
+    <li><b>批次定位（09-12 修订：多角色入创建期）</b>：④ 角色＝创建期收口步，<b>只强制开场主角</b>；配角、反派<b>想先立就在左树「＋添加」随手立卡</b>（配角/反派卡＝主角卡减「金手指」「开场处境」，多「在故事里干什么」，可留空后补），不急的后补（归档识别推送随「正文归档」change 设计）——伏笔、风格仍是写作期工具，沿 genre-signup 口径不动；<b>金手指收进「能力系统」组（天赋 / 主修能力＋强制代价）</b>，与简介「转机」段互相印证，没有超常能力的书就写他的过人之处（资源、性格、出身带来的优势）。</li>
+    <li><b>人物卡四部分（09-12 字段拍板：就这四块）</b>：<b>① 角色名称</b>（姓名 / 别名 / 称号 / 代号，卡头）→ <b>② 角色类型</b>（主角 / 配角 / 反派 / 路人胶囊，卡头）→ <b>③ 基础信息</b>（一句话人设 / 剧情定位 / 性别年龄种族 / 常驻势力身份·含阶级 / 外貌标签——常驻可见，不再分层）→ <b>④ 认知模型</b>（六维单向闭环折叠组：①世界观 ②自我观 ③价值观 ④能力 ⑤行为 ⑥环境，组头带层级标签；认知盲区与能力上限/代价为强制字段）。独立剧本不设组：个人目标与归宿由 价值观 / 宿命观 承接，成长迭代随「正文归档」change，伏笔属写作期工具；路人只填基础信息。</li>
+    <li><b>六维认知链（09-12 认知拍板：单向闭环，主角 / 配角 / 反派落全模型，路人不展开）</b>：<b>世界观→自我观→价值观⇒能力→行为⇒环境</b>——认知层（①②③）内生决定执行层（④⑤），行为单向塑造环境（⑥，结果层被动、不反向塑人），全程严格不可逆。UI＝卡内<b>链路示意条＋六枚折叠组按链序排</b>（组头带层级标签）；六维字段：① 世界规则认知度 / 局势主观判定 / 运行规则信仰 / 人性认知 / <b>核心认知盲区（必填，锁定前期人设上限）</b> ② 身份定位 / 价值判定（自卑自负通透卑微）/ 优势与缺陷认知（区分真实与自认——错位生自负）/ 宿命观 ③ 价值优先级（全程不轻改）/ 可牺牲区间 / 个人善恶标准 ④ 能力上限阈值与代价短板双强制 ⑤ 日常范式 / 危机本能 / 决策习惯 / 社交两面孔 ⑥ 地域阶级 / 资源权限 / 人际生态（含关系网）/ 时代局势 / 关键塑人事件。基础元数据补齐：<b>角色唯一 ID（系统生成）、剧情定位（必填）、人设状态（初始稳定 / 认知崩塌 / 立场反转 / 实力蜕变 / 结局落幕，随剧情实时更新）</b>；首屏「内核三要素」＝价值观 / 自我观的速写，深填走六维组；写章 AI 溯源沿链走（认知→行为→环境），防人设崩塌、行为矛盾。</li></li>
+    <li><b>三栏布局（09-12 二次修订：单树＋类型标签，AI 收右栏）</b>：左＝<b>角色树</b>——<b>一棵树不分组成块</b>，每个角色一条、右侧挂类型标签（<b>主角 / 配角 / 反派 / 路人，由作家添加与指定</b>；「配角/反派卡＝主角卡减金手指与开场处境」随定位走）、名字/别名即时搜索、排序＝首次出场、「＋添加角色」<b>固定在树顶部</b>（几百个角色时不用滚到底）、树列表独立滚动带滑块；中＝当前角色卡；右＝AI 写作助手——<b>全部 AI 辅助功能只在此栏助手卡下</b>，卡片编辑区不放 AI 按钮。点树切卡，一人一卡。</li>
+    <li><b>外壳复刻口径</b>：设计稿窗口＝macOS 标题栏＋顶栏＋novelbar（书名 / 类型胶囊 / PRO）＋modnav（设定 3/8 · 写作 0/3 章纲 · 预览）——均按现有应用复刻，<b>非本稿设计范围</b>；本稿设计从「设定树选中角色」之后开始。</li>
+    <li><b>必有主角（硬门槛）</b>：确认「角色」<b>至少要有一个主角</b>——最低门槛＝称呼＋一句话人设（写章提示词的地基），其余格可空可后补；空态＝字段直接写，<b>AI 起草等辅助功能全部只在右栏助手卡下</b>（卡片编辑区零 AI 按钮）。</li>
+    <li><b>写作期生长＝移交后续「正文归档」change（09-12 拍板）</b>：归档识别收件箱（新角色预填 / 变化建议 / 疑似同一人合并，badge＋toast 推送不拦写作，采纳入册即上树）、成长轨迹（收获 / 能力 / 认知 / 关系 / 处境，条目带剧情点 origin，写章按 as-of 注入）、回退三账联动（按剧情点截断 origin 晚于该点的写作期产物，创建期手写骨架永不改写，快照一步撤销）——<b>本稿不做，待正文归档单独设计</b>；世界稿 lore「人物变化路由角色面板」的落地随彼时一并落。</li>
+    <li><b>人物卡布局（09-12 三次修订：紧凑两列，替代一格一块的大堆叠）</b>：卡头一行（头像＋称呼＋定位胶囊）＋<b>两列字段网格</b>——一句话人设通栏 / 外在｜性格与说话 / 想要什么怕什么｜金手指与代价 / 开场处境通栏（主角卡）；配角/反派/路人卡＝一句话人设通栏＋在故事里干什么，无金手指与开场处境。格编号退役，<b>字段名即问题、例句进占位符</b>；AI 答案仍落对应字段下方；写章注入口径不变。</li>
+    <li><b>注入口径（写章提示词怎么消费这页）</b>：创建期＝主角卡全量注入（每次写章必带，建议 ≤400 字），总口子沿用 600 字截断、超长择要；<b>创建期手写的骨架归档永不改写</b>；出场摘要、成长条目等完整口径随「正文归档」change 设计。<b>本口径为后台注入规则，不在界面呈现（09-12 拍板）</b>。</li>
+    <li><b>右栏 AI 同构</b>：四行（起草主角卡 / 人设精修 / 能力与代价校准 / 一致性体检四方）；采纳 · 覆盖才写回、回执一步撤销、每行保留最近 5 次；门控与简介/题材/世界同构（ai_state，免费版字段照常手填）。本稿演示 PRO 视角。</li>
+    <li><b>组件口径</b>：全页复用 C端 词表（btn / badge / cap / seg / ai-sink / receipt-bar / cfg / inherit-line / mod 格骨架）；新形态：左<b>角色树</b>（单树＋类型标签＋搜索＋计数，语义对齐 TDesign Tree/TreeSelect）；不引第三方库。时间线 / 计数徽标 / 两步弹窗随「正文归档」change 再引入。</li>
+  </div>
+
+  <!-- ═══ 角色窗 ═══ -->
+  <div class="win" id="winChar">
+
+    <div class="win-titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="win-title">残卷听澜 — 爱小说</span></div>
+    <div class="appbar">
+      <span class="logo"><span class="logo-mark">爱</span>爱小说</span>
+      <span class="sep"></span>
+      <button class="back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="m15 18-6-6 6-6"/></svg>返回工作台</button>
+      <span class="spacer"></span>
+      <button class="back" type="button">客服</button>
+      <button class="back" type="button">设置</button>
+    </div>
+    <div class="novelbar">
+      <span class="nb-title">《残卷听澜》</span>
+      <span class="nb-sep"></span>
+      <span>仙侠/修真 · 凡人流</span>
+      <span class="spacer" style="flex:1;"></span>
+      <span class="badge acc">PRO</span>
+    </div>
+
+    <div class="view three-col on settings-v">
+
+    <!-- ═══ 左栏 · 设定树＝现有设定页原样复刻（不动）；本稿只设计选中「角色」后的中/右两栏 ═══ -->
+    <aside class="col-tree">
+      <div class="tree-head"><span class="t">设定 · <b>8</b> 项 + 1 工具</span></div>
+      <div class="settings-progress">
+        <span class="pl num">设定 <b>3</b>/8</span>
+        <div class="pbar"><i style="width: 37.5%;"></i></div>
+      </div>
+      <div class="settings-nav-wrap">
+        <div class="s-item"><span class="nm">模型设定</span><span class="defer-tag">工具</span><span class="spacer"></span><span class="badge empty">不参与进度</span></div>
+        <div class="s-item"><span class="nm">简介</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item"><span class="nm">题材</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item"><span class="nm">世界</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item on"><span class="nm">角色</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+        <div class="s-item"><span class="nm">主线</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+        <div class="s-item"><span class="nm">文风</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+        <div class="s-item"><span class="nm">伏笔</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+        <div class="s-item"><span class="nm">禁用词句</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+      </div>
+      <div class="tree-foot"><span style="font-size: 12px; color: var(--muted); line-height: 1.7;">可后补项确认后计入设定进度 · 确认即前进到下一项</span></div>
+    </aside>
+
+    <main class="col-middle">
+     <div class="col-panel">
+      <div class="panel sub-fill">
+       <div class="panel-head">
+        <h2>角色</h2>
+        <span class="badge warn" id="badgeCreate">未立主角</span>
+       </div>
+       <p class="desc">人物是 AI 写章时「<b>谁在场、谁想干什么</b>」的事实源。<b>主角必立</b>：从称呼直接写起（AI 起草在右栏助手）；其余角色想先立就在左侧「＋添加角色」，定位自己定。</p>
+       <div class="sub-wrap">
+
+        <!-- ═══ 子栏左 · 角色列表（单树：类型是节点上的标签，由作家添加与指定） ═══ -->
+        <nav class="char-tree" id="treeCreate">
+      <div class="tree-top">角色<span class="cnt num" id="tcTotalCreate">1</span></div>
+      <button class="tree-add" id="tiAdd" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 5v14M5 12h14"/></svg>添加角色</button>
+      <input class="tree-search" id="treeSearchCreate" type="search" placeholder="搜名字 / 别名…" />
+      <div class="tree-list" id="flatListCreate">
+        <button class="tree-item on" id="tiProt" type="button">
+          <span class="ti-ava" id="tiAvaProt">？</span><span class="ti-b"><span class="ti-name" id="tiNameProt">主角</span><span class="ti-sub" id="tiSubProt">待立 · 必填</span></span><span class="ti-tag acc">主角</span>
+        </button>
+      </div>
+      <p class="opt" id="treeEmptyCreate" hidden style="padding:4px 8px;">没有找到——换个名字试试。</p>
+      <p class="opt" style="padding:8px 4px 0;">压力演示：41 人；几百人同理——搜名字/别名直达，按首次出场排序。</p>
+    </nav>
+
+        <div class="char-main">
+
+        <!-- 「怎么写」搭建法 -->
+        <div class="guide">
+          <button class="guide-toggle" type="button" id="guideToggle" aria-expanded="false">
+            <span class="gt-b">「怎么写」搭建法</span>
+            <span class="gt-s">三样凑齐立主角 → 金手指带代价 → 反派是立场 → 说话有辨识度 → 卡片要瘦 · 点开看每条怎么写</span>
+            <svg class="gt-c" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="guide-body" id="guideBody" hidden>
+            <div class="g-row"><span class="g-name">三样凑齐</span><span class="g-body">主角立得住＝<em>想要什么＋怕什么＋凭什么</em>。<em>例：想查清父亲失踪、怕欠人情、凭一副能听出破绽的耳。</em></span></div>
+            <div class="g-row"><span class="g-name">能力要有限制</span><span class="g-body">没有代价的能力写不了冲突——代价是强制字段。<em>例：听漏一次自瞎一日——用不用、什么时候用，都是戏。</em></span></div>
+            <div class="g-row"><span class="g-name">反派是立场</span><span class="g-body">每个对手都认为自己是正义的，冲突才有得写。<em>例：丹阁要为残卷讨一个说法，不是单纯使坏。</em></span></div>
+            <div class="g-row"><span class="g-name">说话有辨识度</span><span class="g-body">一句口头禅、一种语气，胜过十行性格描述。<em>例：嘴笨，急了才吐真话。</em></span></div>
+            <div class="g-row"><span class="g-name">配角别贪多</span><span class="g-body">出场就该有用——推剧情、衬主角、给信息，三者占一；<em>不用一次立全：想先立的随手「＋添加」，其余归档时 AI 会识出来。</em></span></div>
+            <div class="g-row"><span class="g-name">卡片要瘦</span><span class="g-body">这页全文进写章提示词，越瘦越省越准。<em>装饰性设定别往人物卡里塞。</em></span></div>
+            <span class="g-formula">立人设公式：<b>想要什么 + 怕什么 + 凭什么 + 付什么代价</b></span>
+            <p class="g-dont">别踩：人物小传写八百字（提示词装不下）；金手指无代价（后期崩书）；反派纯坏（立场扁平）；开场给主角满级装备（后面没得写）。</p>
+          </div>
+        </div>
+
+        <!-- 主角卡（必立；紧凑两列字段网格；AI 辅助全部在右栏，编辑区零 AI 按钮） -->
+        <div id="cardProt">
+          <div class="card-head">
+            <span class="ch-ava" id="chAvaProt">？</span>
+            <input class="input" id="cName" placeholder="称呼——姓名 / 别名 / 称号 / 代号" />
+            <span class="num" style="font-size:10.5px;color:var(--muted);flex:none;">#C-0001</span>
+            <div class="cap-row"><span class="cap on">主角</span><span class="cap">配角</span><span class="cap">反派</span><span class="cap">路人</span></div>
+          </div>
+          <div class="sec-label">基础信息</div>
+          <div class="fgrid">
+            <div class="f f-span2">
+              <div class="f-label"><b>一句话人设</b><span class="hint">此人是谁、凭什么是他——写章必带的全卡摘要</span></div>
+              <textarea class="textarea" rows="2" id="cPersona" placeholder="例：青梧宗杂役弟子，资质平平却记性过人——别人当废纸的残页，他能一字不差背下来。"></textarea>
+              <div class="ai-sink" id="sinkC2" hidden></div>
+            </div>
+            <div class="f f-span2">
+              <div class="f-label"><b>剧情定位</b><span class="hint">在故事里干什么：剧情作用、核心冲突——必填</span></div>
+              <input class="input" id="cPlot" placeholder="例：主角——以弱破强；核心冲突＝查旧案 × 躲丹阁" />
+            </div>
+          </div>
+
+          <!-- 认知模型：六维单向闭环（世界观→自我观→价值观⇒能力→行为⇒环境） -->
+                    <div class="sec-label">认知模型<span class="sl-tag">世界观 → 自我观 → 价值观 ⇒ 能力 → 行为 ⇒ 环境 · 单向不可逆</span></div>
+          <div class="chain">
+            <span class="ch-layer">认知层</span>
+            <span class="ch-node">① 世界观</span><span class="ch-arrow">→</span>
+            <span class="ch-node">② 自我观</span><span class="ch-arrow">→</span>
+            <span class="ch-node">③ 价值观</span>
+            <span class="ch-arrow">⇒</span>
+            <span class="ch-layer">执行层</span>
+            <span class="ch-node">④ 能力</span><span class="ch-arrow">→</span>
+            <span class="ch-node">⑤ 行为</span>
+            <span class="ch-arrow">⇒</span>
+            <span class="ch-layer">结果层</span>
+            <span class="ch-node">⑥ 环境</span>
+          </div>
+          <p class="opt" style="margin:0 0 10px;">单向闭环：<b>认知决定行为，行为决定所处环境</b>——严格不可逆，环境不是人设前提、是被塑造的结果。写章溯源沿此链走，防人设崩塌、行为矛盾。</p>
+
+          <details class="cfg" style="margin-top:4px;">
+            <summary>基础档案<span class="tag">全角色</span><span class="chint">性别年龄种族、外貌标签、常驻地势力身份（含阶级）</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="inner">
+              <div class="fgrid">
+                <div class="f"><div class="f-label"><b>性别 · 年龄 · 种族</b><span class="hint">种族绑定世界观枚举</span></div><input class="input" id="cMini" placeholder="例：男 · 十七 · 人族" /></div>
+                <div class="f"><div class="f-label"><b>常驻地 · 势力 · 身份</b><span class="hint">含阶级：底层 / 中层 / 高层 / 掌权者 / 世外者</span></div><input class="input" id="cRegion" placeholder="例：青梧宗外门 · 柳安坊市 · 杂役弟子（底层）" /></div>
+                <div class="f f-span2"><div class="f-label"><b>外貌标签</b><span class="hint">记忆点特征、气质、辨识度——两三个就够</span></div><textarea class="textarea" rows="1" id="cLook" placeholder="例：瘦长个，旧道袍洗得发白；左眉一道疤（火场留的）。"></textarea></div>
+              </div>
+            </div>
+          </details>
+          <details class="cfg">
+            <summary>① 世界观<span class="tag">认知层 · 本源</span><span class="chint">第一层认知，纯内生——向下生成自我观；盲区必填（锁定前期人设上限）</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="inner">
+              <div class="fgrid">
+                <div class="f f-span2"><div class="f-label"><b>世界规则认知度</b><span class="hint">已知 / 未知 / 被蒙蔽——AI 溯源第一层</span></div><textarea class="textarea" rows="1" id="w1" placeholder="例：知道九境之上的事被宗门刻意捂着；不知道「听漏」的代价会累加。"></textarea></div>
+                <div class="f"><div class="f-label"><b>局势主观判定</b><span class="hint">区分客观局势与认知偏差</span></div><input class="input" id="w2" placeholder="例：以为丹阁只是来查账——其实早盯上他了" /></div>
+                <div class="f"><div class="f-label"><b>世界运行规则信仰</b><span class="hint">唯一核心规则，不允许多重矛盾</span></div><input class="input" id="w3" placeholder="例：规则只护有钱有势的人——所以只能自己挣" /></div>
+                <div class="f"><div class="f-label"><b>人性通用认知</b><span class="hint">善恶、人性取舍</span></div><input class="input" id="w4" placeholder="例：人多半是先自保再谈善恶——不怪他们" /></div>
+                <div class="f"><div class="f-label"><b>核心认知盲区</b><span class="hint">必填——不可突破的局限</span></div><input class="input" id="w5" placeholder="例：以为代价睡一觉就能好——不知在累积" /></div>
+              </div>
+            </div>
+          </details>
+          <details class="cfg">
+            <summary>② 自我观<span class="tag">认知层</span><span class="chint">由世界观单向生成——向下锁定价值取舍</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="inner">
+              <div class="fgrid">
+                <div class="f"><div class="f-label"><b>自我身份定位</b><span class="hint">我是谁、该担什么</span></div><input class="input" id="s1" placeholder="例：我就是个杂役——但记性是我的本钱" /></div>
+                <div class="f"><div class="f-label"><b>自我价值判定</b><span class="hint">自卑 / 自负 / 通透 / 卑微</span></div><input class="input" id="s2" placeholder="例：表面自轻（杂役嘛），骨子里不服" /></div>
+                <div class="f f-span2"><div class="f-label"><b>深层软肋</b><span class="hint">恐惧、遗憾、执念、创伤来源——危机戏的引信</span></div><textarea class="textarea" rows="1" id="s3" placeholder="例：怕火（火场创伤）；怕欠人情——收了恩情就得还。"></textarea></div>
+                <div class="f f-span2"><div class="f-label"><b>优势与缺陷认知</b><span class="hint">区分「真实」与「自我认知」——错位生自负，隐藏缺陷是翻车点</span></div><textarea class="textarea" rows="1" id="s4" placeholder="例：自认只要肯背就能赢（低估境界差）；自知嘴笨，不知自己把什么都憋着。"></textarea></div>
+                <div class="f"><div class="f-label"><b>宿命认知观</b><span class="hint">唯一态度——决定终极追求与抗争方式</span></div><input class="input" id="s5" placeholder="例：命是牌面，打法自己定" /></div>
+              </div>
+            </div>
+          </details>
+          <details class="cfg">
+            <summary>③ 价值观<span class="tag">认知层 · 准则</span><span class="chint">由自我观单向生成——一切取舍的最高刚性准则</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="inner">
+              <div class="fgrid">
+                <div class="f"><div class="f-label"><b>核心追求</b><span class="hint">终极执念——终身稳定的行为驱动力</span></div><input class="input" id="v1" placeholder="例：查清父亲失踪的真相" /></div>
+                <div class="f"><div class="f-label"><b>三观底线</b><span class="hint">绝不逾越——触碰即黑化 / 决裂 / 暴走</span></div><input class="input" id="v2" placeholder="例：不对坊市平民下手" /></div>
+                <div class="f f-span2"><div class="f-label"><b>核心价值优先级</b><span class="hint">含可牺牲区间：排序写清可牺牲什么、绝不牺牲什么——全程不轻改</span></div><textarea class="textarea" rows="1" id="v3" placeholder="例：亲人真相 ＞ 恩义 ＞ 安稳 ＞ 修行前程；可押眼睛和前程，不押别人的命。"></textarea></div>
+                <div class="f f-span2"><div class="f-label"><b>个人善恶判定标准</b><span class="hint">独立于大众善恶——理念冲突之源</span></div><input class="input" id="v4" placeholder="例：为护人撒谎是善；按规矩见死不救才是恶" /></div>
+              </div>
+            </div>
+          </details>
+          <details class="cfg" id="grpPower">
+            <summary>④ 能力<span class="tag">执行层</span><span class="chint">由价值观约束成型——上限与代价强制必填，杜绝无敌崩书</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="inner">
+              <div class="fgrid">
+                <div class="f"><div class="f-label"><b>先天天赋</b><span class="hint">绑定种族 / 世界观，不可更改</span></div><input class="input" id="pTalent" placeholder="例：记性过人——抄过的残页一字不差" /></div>
+                <div class="f"><div class="f-label"><b>后天综合能力</b><span class="hint">贴合世界观力量体系</span></div><input class="input" id="pPower" placeholder="例：听漏之耳——听见灵力流动的「漏洞」" /></div>
+                <div class="f"><div class="f-label"><b>能力上限阈值</b><span class="hint">必填——严格贴合世界观上限</span></div><input class="input" id="pCap" placeholder="例：练气前期垫底；耳力只到金丹，再高反噬" /></div>
+                <div class="f"><div class="f-label"><b>能力代价 · 短板</b><span class="hint">必填不可空，无例外——与世界 03 印证</span></div><input class="input" id="pCost" placeholder="例：每用一次自瞎一日；连用三次丢一段记忆" /></div>
+                <div class="f f-span2"><div class="f-label"><b>隐藏底牌后手</b><span class="hint">触发条件、使用限制——绝境翻盘用</span></div><input class="input" id="pTrump" placeholder="例：左眉封印（自己也不知道）——火场濒死才会醒" /></div>
+              </div>
+              <div class="ai-sink" id="sinkC3" hidden></div>
+            </div>
+          </details>
+          <details class="cfg">
+            <summary>⑤ 行为<span class="tag">执行层 · 输出</span><span class="chint">由认知＋能力单向生成——唯一能改变环境的维度</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="inner">
+              <div class="fgrid">
+                <div class="f f-span2"><div class="f-label"><b>性格与说话</b><span class="hint">表层性格、待人态度、口头禅——写对话全靠这格</span></div><textarea class="textarea" rows="1" id="bVoice" placeholder="例：憨直嘴笨，急了才吐真话；口头禅「让我再想想」。"></textarea></div>
+                <div class="f f-span2"><div class="f-label"><b>行为习惯 · 小动作 · 喜忌</b><span class="hint">长期稳定的日常范式</span></div><textarea class="textarea" rows="1" id="bHabit" placeholder="例：想事情摩挲左眉；吃饭坐门口；甜粥；别人碰残页会炸。"></textarea></div>
+                <div class="f f-span2"><div class="f-label"><b>危机本能行为</b><span class="hint">危机下的本能＝最深层内核的真实显影</span></div><textarea class="textarea" rows="1" id="bCrisis" placeholder="例：再怕火也会往火里冲——如果里面有人。"></textarea></div>
+                <div class="f"><div class="f-label"><b>决策思维习惯</b><span class="hint">统一全程决策风格</span></div><input class="input" id="bDecision" placeholder="例：先「让我再想想」，再赌一把信息差" /></div>
+                <div class="f"><div class="f-label"><b>社交表现形态</b><span class="hint">表层 / 真实两副面孔</span></div><input class="input" id="bSocial" placeholder="例：表层憨笑不接话；真实＝记下每个人说过什么" /></div>
+              </div>
+            </div>
+          </details>
+          <details class="cfg">
+            <summary>⑥ 环境<span class="tag">结果层 · 被动</span><span class="chint">由行为单向塑造——不参与、不前置、不反向塑人</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="inner">
+              <div class="fgrid">
+                <div class="f"><div class="f-label"><b>地域与阶级环境</b><span class="hint">长期行为选择的结果</span></div><input class="input" id="eRegion" placeholder="例：外门柴房——自己挣来的落脚处" /></div>
+                <div class="f"><div class="f-label"><b>资源与权限条件</b><span class="hint">能力运用、资源取舍行为的产出</span></div><input class="input" id="eRes" placeholder="例：藏经阁外围通行——帮抄书抄来的" /></div>
+                <div class="f f-span2"><div class="f-label"><b>人际生态环境</b><span class="hint">羁绊（亲人 / 挚友 / 仇敌 / 恩人）、明暗立场、对主角态度——社交行为的固化</span></div><textarea class="textarea" rows="1" id="eRel" placeholder="例：柳掌柜——半个人情；赵执事——睁只眼闭只眼；丹阁——敌，尚未照面。"></textarea></div>
+                <div class="f"><div class="f-label"><b>时代局势背景</b><span class="hint">同步世界观；格局行为最终影响所处局势</span></div><input class="input" id="eEra" placeholder="例：残卷案风声再起，坊市暗流——他的处境随之收紧" /></div>
+                <div class="f"><div class="f-label"><b>关键塑人事件</b><span class="hint">关键抉择造就——纯结果归档</span></div><input class="input" id="eEvent" placeholder="例：火场（父失踪）；第 09 章雷雨夜初用「听漏」" /></div>
+              </div>
+            </div>
+          </details>
+                    <div class="ai-sink" id="sinkC4" hidden></div>
+        </div><!-- /cardProt -->
+
+        <!-- 配角/反派卡（创建期可选先立）：紧凑卡头＋两列；比主角卡少金手指与开场处境 -->
+        <div id="cardNewChar" hidden>
+          <div class="card-head">
+            <span class="ch-ava" id="chAvaNew">？</span>
+            <input class="input" id="ncName" placeholder="称呼——姓名 / 别名 / 称号 / 代号" />
+            <span class="num" id="ncId" style="font-size:10.5px;color:var(--muted);flex:none;">#C-0042</span>
+            <div class="cap-row" id="ncRoleRow"><span class="cap">主角</span><span class="cap on">配角</span><span class="cap">反派</span><span class="cap">路人</span></div>
+          </div>
+          <div class="sec-label">基础信息</div>
+          <div class="fgrid">
+            <div class="f f-span2">
+              <div class="f-label"><b>一句话人设</b><span class="hint">此人是谁、凭什么是他</span></div>
+              <textarea class="textarea" rows="2" placeholder="例：青梧宗内门弟子，另一个想查丹阁旧案的人——比林拾有修为，也比他多顾虑。"></textarea>
+            </div>
+            <div class="f f-span2">
+              <div class="f-label"><b>剧情定位</b><span class="hint">在故事里干什么：推剧情 / 衬主角 / 给信息；首次出场可留空，归档自动带章节来源</span></div>
+              <input class="input" placeholder="例：第 11 章起＝林拾的同盟与制衡" />
+            </div>
+          </div>
+          <p class="opt" style="margin:8px 0 0;">基础档案＋六维认知链（世界观→自我观→价值观⇒能力→行为⇒环境）与主角卡同构——配角 / 反派填全，路人只填基础＋剧情定位即可入册。切换回主角：点左树「主角」。</p>
+        </div>
+
+        <!-- 其余角色简卡（点树任意角色即入；完整卡结构与上面同构，点字段即改） -->
+        <div id="cardGeneric" hidden>
+          <div class="card-head">
+            <span class="ch-ava" id="genAva">？</span>
+            <span class="ch-name" id="genName">—</span>
+            <span class="ti-tag empty" id="genRoleB">配角</span>
+          </div>
+          <div class="fgrid">
+            <div class="f f-span2">
+              <div class="f-label"><b>一句话人设</b></div>
+              <p class="f-text" id="genLine">—</p>
+            </div>
+            <div class="f">
+              <div class="f-label"><b>首次出场</b></div>
+              <p class="f-text" id="genCh">—</p>
+            </div>
+            <div class="f">
+              <div class="f-label"><b>在故事里干什么</b></div>
+              <p class="f-text" id="genJob">—</p>
+            </div>
+          </div>
+          <p class="opt" id="genNote" style="margin:8px 0 0;">路人：基础＋剧情定位即达标，认知链不展开——编辑态与上面同构，点字段即改。</p>
+        </div>
+
+      </div><!-- /char-main -->
+      </div><!-- /sub-wrap -->
+
+      <div class="receipt-bar" id="receiptCreate" hidden>
+          <span id="receiptCreateText"></span>
+          <button class="rb-undo" id="receiptCreateUndo" type="button">撤销</button>
+        </div>
+
+        <div class="panel-foot">
+          <span class="note" id="protHint" hidden style="color:var(--warn);">确认「角色」需要先立主角——至少写称呼和一句话人设</span>
+          <span class="note" id="protOkNote" hidden>确认只需主角 · 先立的角色随卡保存</span>
+          <button class="btn btn-secondary" type="button" id="btnCharDraft">存草稿</button>
+          <button class="btn btn-primary" type="button" id="btnCharConfirm">确认完成</button>
+        </div>
+      </div><!-- /panel.sub-fill -->
+     </div><!-- /col-panel -->
+    </main><!-- /col-middle -->
+
+    <!-- ═══ 右栏 · AI 助手（现有 col-ai 位置，内容＝本稿设计） ═══ -->
+    <aside class="col-ai">
+      <!-- 创建期 -->
+      <div class="rail-assist" id="railCreate">
+        <div class="ra-head">
+          <span class="plan-badge">PRO</span>
+          <div class="rh-t"><b>AI 写作助手</b><span>已解锁 · 包含在你的 PRO 套餐（Max 同享）· 只加工你写的，不代写</span></div>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiask="c1">
+            <span class="ra-body"><b>起草主角卡</b><i>从简介＋题材＋世界起草一版主角，基础＋内核＋能力一次填好 · 输入：简介＋题材＋世界</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiask="c2">
+            <span class="ra-body"><b>人设精修</b><i>给一句话人设加记忆点 · 输入：01＋简介</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiask="c3">
+            <span class="ra-body"><b>能力与代价校准</b><i>过人之处与代价配平，和简介「转机」对齐 · 输入：能力组＋简介＋世界 02/03</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiask="c4">
+            <span class="ra-body"><b>一致性体检</b><i>简介、题材、世界、角色四方对照，扫矛盾与漏洞 · 只提醒不拦确认</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <p class="ra-foot">答案落对应字段或折叠组内，<b>采纳 · 覆盖</b>才写回，脚部有回执可一步撤销；每行保留最近 5 次结果可切回。<b>所有 AI 辅助功能都在本栏</b>，卡片编辑区不放 AI 按钮；免费版字段照常手填，AI 卡可见＋锁定（与世界页同门控）。</p>
+      </div>
+
+      <p class="opt" style="margin-top:12px;">未配置模型？去左侧「AI 模型」。</p>
+    </aside>
+    </div><!-- /view.three-col -->
+  </div>
+
+  <!-- ═══ 结论 ═══ -->
+  <div style="margin-bottom:24px;">
+    <div class="rec-box">
+      <b>终态结构（本批范围：角色设定页 · 创建期 ④）</b>
+      <ol>
+        <li><b>页面定位</b>：本稿＝<b>现有设定页选中「角色」节点后，col-middle（角色列表＋人物卡）＋col-ai（AI 助手）的设计</b>；上部（novelbar 书名/类型/PRO＋modnav 设定 N/8·写作·预览）与左设定树（模型设定＋8 项，进度与确认徽标）＝<b>原样复刻零改动</b>。「主线 / 文风 / 伏笔 / 禁用词句」按本形态同构另批。</li>
+        <li><b>必有主角（硬门槛）＋多角色（09-12 修订）</b>：确认「角色」至少一个主角，最低门槛＝称呼＋一句话人设；空态＝字段直接写，<b>AI 辅助功能全部只在右栏助手卡下（卡片编辑区零 AI 按钮）</b>；其余角色想先立就在左树「＋添加角色」即开新卡，定位自选（主角 / 配角 / 反派 / 路人）；确认永远可达（有理由的拦截，不是灰按钮）。</li>
+        <li><b>单棵角色树</b>：不分组成块——每角色一条、右侧类型标签（由作家添加与指定）、名字/别名即时搜索、排序＝首次出场、树底「＋添加角色」；称呼落字即上树，点树切卡，一人一卡。</li>
+        <li><b>人物卡＝四部分</b>：<b>① 角色名称＋② 角色类型</b>（卡头一行：头像＋名称＋编号＋类型胶囊）→ <b>③ 基础信息</b>（一句话人设通栏 / 剧情定位｜性别年龄种族 / 常驻势力身份·含阶级 / 外貌标签——常驻可见网格）→ <b>④ 认知模型</b>（链路示意条＋六维折叠组按链序排，认知盲区与能力上限/代价强制）；字段名即问题、例句进占位符。</li>
+        <li><b>六维认知链（主角 / 配角 / 反派落全模型，路人不展开）</b>：世界观→自我观→价值观⇒能力→行为⇒环境，单向不可逆闭环（认知层→执行层→结果层）；六枚折叠组按链序排、组头带层级标签；核心认知盲区与能力上限/代价为强制字段；元数据＝角色唯一 ID＋剧情定位＋人设状态（五种，实时更新）；写章 AI 沿链溯源防人设崩塌。</li>
+        <li><b>右栏 AI 四行</b>（起草主角卡 / 人设精修 / 能力与代价校准 / 体检四方）：与世界页同构——采纳才写回、回执一步撤销、5 次历史、免费版可见＋锁定（ai_state 门控）；答案落对应字段下方。</li>
+        <li><b>注入口径（后台规则，不上界面）</b>：创建期写章＝主角卡全量注入（≤400 字，沿 600 字总口子超长择要）；创建期手写骨架归档永不改写。</li>
+        <li><b>写作期生长（09-12 拍板移交）</b>：归档识别收件箱（新角色预填 / 变化建议 / 疑似同一人合并、采纳入册即上树）、成长轨迹（收获 / 能力 / 认知 / 关系 / 处境，条目带剧情点 origin，写章按 as-of 注入）、回退三账联动（按剧情点截断 origin 晚于该点的写作期产物，创建期手写骨架永不改写，快照一步撤销）——<b>全部移交后续「正文归档」change 单独设计</b>；本稿的三栏形态（树 / 紧凑卡 / AI 收右栏）即其地基。</li>
+      </ol>
+    </div>
+    <p class="muted">拍板后建议：openspec 立项。前端：CharacterSettingForm（紧凑两列字段网格＋卡头定位胶囊）、CharacterTree（左栏单树：类型标签/搜索/添加入口，称呼落字上树，点树切卡）、AiWriterAssistant 接线（no_key/missing_model 分流与世界页同；全部 AI 入口收右栏，卡片编辑区零 AI 按钮）、e2e（空态拦截 / 多角色上树切卡 / 主角门槛）。后端：characters KV v1（protagonist + cast[]，role 定位枚举 protagonist/support/villain/extra 由作家指定；六维认知链字段组——世界观/自我观/价值观/能力/行为/环境，单向联动约束规则＋人设状态机＋按定位（主角配角全模型 / 路人基础+定位）的字段完整度适配）、readiness._check_characters（≥1 主角判据）、inject_characters 创建期口径（主角卡全量，600 字总口子）、一致性体检扩四方（简介×题材×世界×角色）。组件映射：新增形态语义对齐 TDesign Tree（角色树），落实现复用现有词表与 AppModal，不引第三方库。<b>移交后续「正文归档」change（2026-09-12 拍板）</b>：归档角色识别三路（新角色 / 变化 / 疑似合并，同名去重）、收件箱与采纳入册上树、成长轨迹与 as-of 注入、回退事务（按剧情点截断 origin、快照、一步撤销）、体检的成长链核对、时间线/计数徽标/两步弹窗组件——设计底稿见桌面知识库「character-settings-draft-v1-with-archive-growth-2026-09-12.html」。演示数据沿世界稿 v2.7 云梁界宇宙（林拾 / 青梧宗 / 丹阁 / 听漏），金手指代价与世界 03 一字对上——体检的联动价值才看得见。本稿不改动 prototypes/ 与任何实现代码。</p>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  function toast(msg) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;right:22px;bottom:22px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);z-index:99;';
+    t.textContent = msg; document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2400);
+  }
+  const esc = t => String(t).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const $ = s => document.querySelector(s);
+  const $$ = s => Array.prototype.slice.call(document.querySelectorAll(s));
+
+  /* ═══ 「怎么写」搭建法 ═══ */
+  const guideToggle = $('#guideToggle'), guideBody = $('#guideBody');
+  guideToggle.addEventListener('click', () => {
+    const open = guideBody.hidden;
+    guideBody.hidden = !open;
+    guideToggle.setAttribute('aria-expanded', String(open));
+  });
+
+  /* ═══ 树内搜索（创建期）：名字/别名即时过滤 ═══ */
+  function bindTreeSearch(inputSel, listSel, emptySel) {
+    $(inputSel).addEventListener('input', e => {
+      const q = e.target.value.trim();
+      let hit = 0;
+      $$(listSel + ' .tree-item').forEach(it => {
+        const nameEl = it.querySelector('.ti-name');
+        const text = nameEl ? nameEl.textContent + (it.dataset.alias || '') : '';
+        const okm = !q || text.indexOf(q) >= 0;
+        it.hidden = !okm;
+        if (okm) hit++;
+      });
+      $(emptySel).hidden = !(q && hit === 0);
+    });
+  }
+  bindTreeSearch('#treeSearchCreate', '#flatListCreate', '#treeEmptyCreate');
+
+  /* ═══ 创建期：必有主角门槛（含左树主角条目同步） ═══ */
+  const badgeCreate = $('#badgeCreate');
+  const PROT_FIELDS = ['cName', 'cPersona', 'cPlot', 'cMini', 'cRegion', 'cLook', 'w1', 'w2', 'w3', 'w4', 'w5', 's1', 's2', 's3', 's4', 's5', 'v1', 'v2', 'v3', 'v4', 'pTalent', 'pPower', 'pCap', 'pCost', 'pTrump', 'bVoice', 'bHabit', 'bCrisis', 'bDecision', 'bSocial', 'eRegion', 'eRes', 'eRel', 'eEra', 'eEvent'];
+  function protReady() {
+    return $('#cName').value.trim().length > 0 && $('#cPersona').value.trim().length > 0;
+  }
+  function syncCreate() {
+    const ok = protReady();
+    badgeCreate.textContent = ok ? '已立主角' : '未立主角';
+    badgeCreate.className = 'badge ' + (ok ? 'done' : 'warn');
+    $('#protHint').hidden = ok;
+    $('#protOkNote').hidden = !ok;
+    const nm = $('#cName').value.trim();
+    $('#tiAvaProt').textContent = nm ? nm[0] : '？';
+    $('#chAvaProt').textContent = nm ? nm[0] : '？';
+    $('#tiNameProt').textContent = nm || '主角';
+    $('#tiSubProt').textContent = ok ? '主角 · 已立' : (nm ? '主角 · 补一句话人设' : '待立 · 必填');
+  }
+  PROT_FIELDS.forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('input', syncCreate); });
+
+  /* 创建期左树（单树）：主角卡 / 新角色卡 / 已有角色简卡；称呼落字即上树 */
+  function selectCreateTree(item) {
+    $$('#flatListCreate .tree-item').forEach(x => x.classList.toggle('on', x === item));
+  }
+  const CHARS = {
+    su: { name: '苏晚芜', role: '配角', line: '青梧宗内门弟子，另一个想查丹阁旧案的人——比林拾有修为，也比他多顾虑。', ch: '第 11 章', job: '林拾的同盟与制衡：交换秘密、各留一手。' },
+    liu: { name: '柳掌柜', role: '配角', line: '柳安坊市当铺掌柜，什么都收，什么都不问。', ch: '第 03 章', job: '坊市情报节点：什么都能打听，什么都收钱。' },
+    zhao2: { name: '赵执事', role: '配角', line: '青梧宗管杂役名录的执事——林拾偷进藏经阁那次，他睁一只眼闭一只眼。', ch: '第 05 章', job: '给林拾递关键信息，偶尔收点好处。' },
+    jie: { name: '戒律堂主', role: '配角', line: '青梧宗戒律堂主，铁面，认规矩不认人。', ch: '第 06 章', job: '给林拾立规矩、设障碍的宗门面孔。' },
+    dan: { name: '丹阁首座', role: '反派', line: '丹阁当家——当年那场火是他默许烧的，如今要抢在所有人前头把残卷收干净。', ch: '第 07 章', job: '中期主压力：用规矩与资源困住林拾，不亲自动手。' },
+    zhi: { name: '执法长老', role: '反派', line: '丹阁执法长老，通缉令的执行人，出手狠。', ch: '第 09 章', job: '明面上的追捕者，逼林拾离宗。' }
+  };
+  function renderGeneric(key) {
+    const c = CHARS[key]; if (!c) return;
+    $('#genAva').textContent = c.name[0];
+    $('#genName').textContent = c.name;
+    const b = $('#genRoleB');
+    b.textContent = c.role; b.className = 'ti-tag ' + (c.role === '反派' ? 'err' : 'empty');
+    $('#genNote').textContent = c.role === '路人'
+      ? '路人：基础＋剧情定位即达标，认知链不展开。'
+      : '配角 / 反派：与主角卡同构——六维认知链（世界观→自我观→价值观⇒能力→行为⇒环境）全部可展开填。';
+    $('#genLine').textContent = c.line;
+    $('#genCh').textContent = c.ch;
+    $('#genJob').textContent = c.job;
+  }
+  $('#flatListCreate').addEventListener('click', e => {
+    const item = e.target.closest('.tree-item'); if (!item) return;
+    selectCreateTree(item);
+    const isProt = item.id === 'tiProt';
+    $('#cardProt').hidden = !isProt;
+    $('#cardNewChar').hidden = isProt || !!item.dataset.gen;
+    if (item.dataset.gen) { renderGeneric(item.dataset.gen); $('#cardGeneric').hidden = false; }
+    else { $('#cardGeneric').hidden = true; }
+  });
+  $('#tiAdd').addEventListener('click', () => {
+    selectCreateTree(null);
+    $('#cardProt').hidden = true; $('#cardNewChar').hidden = false;
+    $('#ncId').textContent = '#C-' + String($('#flatListCreate').children.length + 1).padStart(4, '0');
+    $('#ncName').focus();
+    toast('称呼一落字就上树，定位胶囊一点就归类——身份就这三样，搞定');
+  });
+  /* 卡头类别胶囊：单选；新角色的类别改动同步树标签 */
+  $$('.card-head .cap-row').forEach(row => {
+    row.addEventListener('click', e => {
+      const cap = e.target.closest('.cap'); if (!cap) return;
+      row.querySelectorAll('.cap').forEach(c => c.classList.toggle('on', c === cap));
+      if (row.id === 'ncRoleRow' && ncItem) {
+        const tag = ncItem.querySelector('.ti-tag');
+        const t = cap.textContent.trim();
+        tag.textContent = t;
+        tag.className = 'ti-tag ' + (t === '主角' ? 'acc' : t === '反派' ? 'err' : 'empty');
+      }
+      if (row.closest('#cardProt') && !cap.textContent.includes('主角')) {
+        toast('演示稿：定位换配角 / 反派 / 路人＝认知链细项按该定位收窄（卡面结构随之调整）');
+      }
+    });
+  });
+  let ncItem = null;
+  $('#ncName').addEventListener('input', () => {
+    const nm = $('#ncName').value.trim();
+    if (!nm && !ncItem) return;
+    if (!ncItem) {
+      ncItem = document.createElement('button');
+      ncItem.type = 'button'; ncItem.className = 'tree-item';
+      ncItem.innerHTML = '<span class="ti-ava">？</span><span class="ti-b"><span class="ti-name">新角色</span><span class="ti-sub">待定位</span></span><span class="ti-tag empty">配角</span>';
+      $('#flatListCreate').appendChild(ncItem);
+    }
+    ncItem.querySelector('.ti-name').textContent = nm || '新角色';
+    ncItem.querySelector('.ti-ava').textContent = nm ? nm[0] : '？';
+    $('#chAvaNew').textContent = nm ? nm[0] : '？';
+    $('#tcTotalCreate').textContent = String($('#flatListCreate').children.length);
+  });
+
+  /* 压力演示：批量铺角色（配角/反派/路人），验证几百人时树滚动＋搜索可用 */
+  function cnNum(n) {
+    const C = '一二三四五六七八九十';
+    if (n <= 10) return C[n - 1];
+    if (n < 20) return '十' + C[n - 11];
+    if (n === 20) return '二十';
+    if (n < 30) return '二十' + C[n - 21];
+    if (n === 30) return '三十';
+    return '三十' + C[n - 31];
+  }
+  (function seedTree() {
+    const list = $('#flatListCreate');
+    function addItem(key, ava, name, sub, tag, tagCls) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'tree-item'; b.dataset.gen = key;
+      b.innerHTML = '<span class="ti-ava">' + esc(ava) + '</span><span class="ti-b"><span class="ti-name">' + esc(name) + '</span><span class="ti-sub">' + esc(sub) + '</span></span><span class="ti-tag ' + tagCls + '">' + esc(tag) + '</span>';
+      list.appendChild(b);
+    }
+    Object.keys(CHARS).forEach(key => {
+      const c = CHARS[key];
+      addItem(key, c.name[0], c.name, c.ch, c.role, c.role === '反派' ? 'err' : 'empty');
+    });
+    for (let i = 1; i <= 34; i++) {
+      const key = 'm' + i, name = '外门弟子·' + cnNum(i), ch = '第 ' + (11 + i) + ' 章';
+      CHARS[key] = { name, role: '路人', line: '青梧宗外门弟子，出场带过一笔的背景人物。', ch, job: '暂无更多戏份——需要时再补卡。' };
+      addItem(key, '弟', name, ch, '路人', 'empty');
+    }
+    $('#tcTotalCreate').textContent = String(list.children.length);
+  })();
+
+  /* AI 起草主角（右栏「起草主角卡」行触发；卡片编辑区无 AI 按钮） */
+  let pendingCreate = null;
+  function aiDraftProtagonist() {
+    const snap = {}; PROT_FIELDS.forEach(id => { snap[id] = document.getElementById(id).value; });
+    const F = {
+      cName: '林拾',
+      cPersona: '青梧宗杂役弟子，资质平平却记性过人——别人当废纸的残页，他能一字不差背下来。',
+      cPlot: '主角——以弱破强；核心冲突＝查旧案 × 躲丹阁',
+      cMini: '男 · 十七 · 人族',
+      cRegion: '青梧宗外门 · 柳安坊市 · 杂役弟子（底层）',
+      cLook: '瘦长个，旧道袍洗得发白；左眉一道疤（火场留的）。',
+      s3: '怕火（火场创伤）；怕欠人情——收了恩情就得还。',
+      v1: '查清父亲失踪的真相',
+      v2: '不对坊市平民下手',
+      bVoice: '憨直嘴笨，急了才吐真话；口头禅「让我再想想」。',
+      w5: '不知道「听漏」的代价会累加——他以为睡一觉就能好。',
+      pTalent: '记性过人——抄过的残页一字不差。',
+      pPower: '听漏之耳——听见灵力流动的「漏洞」，看穿修为破绽。',
+      pCap: '练气前期垫底；耳力只到金丹，再高反噬。',
+      pCost: '每用一次自瞎一日；连用三次永久丢一段记忆（与世界 03 印证）。',
+      bDaily: '想事情摩挲左眉；吃饭坐门口；别人碰残页会炸。',
+      bCrisis: '再怕火也会往火里冲——如果里面有人。',
+      bDecision: '先「让我再想想」，再赌一把信息差。',
+      bSocial: '表层憨笑不接话；真实＝记下每个人说过什么。'
+    };
+    PROT_FIELDS.forEach(id => { document.getElementById(id).value = F[id]; });
+    syncCreate();
+    pendingCreate = snap;
+    $('#receiptCreateText').textContent = '已采纳「AI 起草主角」（基础＋认知＋能力一次写入，可改）';
+    $('#receiptCreate').hidden = false;
+    toast('已起草主角卡，落回各字段，可撤销或继续改');
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { /* jsdom 无实现 */ }
+  }
+  $('#receiptCreateUndo').addEventListener('click', () => {
+    if (!pendingCreate) return;
+    PROT_FIELDS.forEach(id => { const el = document.getElementById(id); if (el) el.value = pendingCreate[id]; });
+    $('#receiptCreate').hidden = true; pendingCreate = null; syncCreate();
+    toast('已撤销，恢复采纳前的内容');
+  });
+
+  /* ═══ AI 行：人设精修 / 金手指校准（采纳写回 + 回执撤销） ═══ */
+  const AI = {
+    c2: {
+      list: [
+        { txt: '青梧宗杂役弟子林拾：资质被判「不堪修」，却把抄过的每一页都记进了脑子——宗门当废纸处理的残卷，是他的宝库。' },
+        { txt: '林拾，青梧宗最不起眼的杂役：灵根残缺，记性却是个无底洞——他背下的残页，够把宗门的底细拼出一半。' }
+      ], apply: v => { $('#cPersona').value = v; }
+    },
+    c3: {
+      list: [
+        { txt: '代价与限制：每用一次自瞎一日，连用三次永久丢一段记忆——与世界 03 一字对上；短板：灵根残缺，正面硬拼必输。' },
+        { txt: '代价与世界 03 对齐——用一次瞎一日；用在金丹修士身上反噬翻倍；短板：身板薄，只能取巧不能缠斗。' }
+      ], apply: v => { $('#pCost').value = v; }
+    }
+  };
+  const AI_HIST = {};
+  function renderSink(key, box, idx) {
+    const h = AI_HIST[key]; const o = h.list[idx];
+    const histHtml = h.list.length > 1
+      ? '<div class="aiz-hist"><span class="ah-t">最近 ' + h.list.length + ' 次</span>' +
+        h.list.map((_, i) => '<button class="ah-chip' + (i === idx ? ' on' : '') + '" type="button" data-idx="' + i + '">第 ' + (i + 1) + ' 次</button>').join('') + '</div>'
+      : '';
+    const label = key === 'c2' ? 'AI 填 · 人设精修' : 'AI 填 · 能力与代价校准';
+    box.innerHTML = '<div class="aiz-head">' + label + '</div>' + histHtml + esc(o.txt) +
+      '<div class="ans-act"><button class="primary" type="button">采纳 · 覆盖</button><button type="button">重试</button></div>';
+    box.hidden = false;
+    const btns = box.querySelectorAll('.ans-act button');
+    btns[0].addEventListener('click', () => {
+      const el = key === 'c2' ? document.getElementById('cPersona') : document.getElementById('pCost');
+      pendingCreate = {}; PROT_FIELDS.forEach(id => { pendingCreate[id] = document.getElementById(id).value; });
+      AI[key].apply(o.txt);
+      $('#receiptCreateText').textContent = '已采纳「' + (key === 'c2' ? '人设精修' : '能力与代价校准') + '」（覆盖原内容 ' + el.value.length + ' 字）';
+      $('#receiptCreate').hidden = false;
+      syncCreate();
+      toast('已采纳，落回对应字段，可撤销或继续改');
+    });
+    btns[1].addEventListener('click', () => {
+      h.list.push(h.list[h.list.length % 2 === 0 ? 0 : 1]);
+      if (h.list.length > 5) h.list.shift();
+      renderSink(key, box, h.list.length - 1);
+      toast('已重试，给了一版新的');
+    });
+    box.querySelectorAll('.ah-chip').forEach(ch => ch.addEventListener('click', () => renderSink(key, box, +ch.dataset.idx)));
+    try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* jsdom 无实现 */ }
+  }
+
+  /* ═══ 一致性体检（简介 × 题材 × 世界 × 角色 四方对照；重跑在两版演示间切换） ═══ */
+  function chkCreate(alt) {
+    if (alt) return [
+      ['简介 × 角色', 'ok', '金手指「听漏」与简介「转机」段对得上'],
+      ['世界 × 角色', 'ok', '自瞎一日＝世界 03 的代价，一字不差'],
+      ['题材 × 角色', 'ok', '题材主打以弱破强，主角资质平平有发力点'],
+      ['对手落地', 'ok', '丹阁已落到「首座」这个具体人物'],
+      ['说话辨识度', 'ok', '口头禅与语气样本够写章用']
+    ];
+    return [
+      ['简介 × 角色', 'ok', '金手指「听漏」与简介「转机」段对得上'],
+      ['世界 × 角色', 'ok', '自瞎一日＝世界 03 的代价，一字不差'],
+      ['题材 × 角色', 'ok', '题材主打以弱破强，主角资质平平有发力点'],
+      ['对手落地', 'miss', '世界 04 的丹阁还没落成具体人物——先给个名字'],
+      ['说话辨识度', 'warn', '口头禅有了，语气样本太少——写章容易串腔调']
+    ];
+  }
+  function chkHtml(lines, foot) {
+    return lines.map(l =>
+      '<div class="chk-line"><span class="chk-name">' + esc(l[0]) + '</span>' +
+      '<span class="chk-res ' + l[1] + '">' + (l[1] === 'ok' ? '达标' : l[1] === 'warn' ? '风险' : '缺失') + '</span>' +
+      '<span class="chk-note">' + esc(l[2]) + '</span></div>'
+    ).join('') + '<p style="margin:8px 0 0;font-size:11.5px;color:var(--muted);">' + esc(foot) + '</p>';
+  }
+  let chkAlt = false;
+  function renderCheck(box) {
+    const lines = chkCreate(chkAlt);
+    const head = 'AI 体检 · 简介 × 题材 × 世界 × 角色';
+    const foot = chkAlt ? '四方对齐，可以确认开写。' : '风险 / 缺失不拦确认；点对应字段补完可重跑。';
+    box.innerHTML = '<div class="aiz-head">' + head + '</div>' + chkHtml(lines, foot) +
+      '<div class="ans-act"><button class="primary" type="button">重跑</button></div>';
+    box.hidden = false;
+    box.querySelector('.ans-act button').addEventListener('click', () => {
+      chkAlt = !chkAlt; renderCheck(box);
+      toast(chkAlt ? '已重跑，这一版全过' : '已重跑 · 按当前设定重新体检');
+    });
+    try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* jsdom 无实现 */ }
+  }
+
+  /* 右栏能力行接线（全部 AI 辅助入口都在右栏，编辑区零 AI 按钮） */
+  $$('[data-aiask]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.aiask;
+      if (key === 'c1') { aiDraftProtagonist(); return; }
+      if (key === 'c3') { const grp = document.getElementById('grpPower'); if (grp) grp.open = true; }
+      if (key === 'c4') { renderCheck($('#sinkC4')); return; }
+      if (!AI_HIST[key]) AI_HIST[key] = { list: [] };
+      const h = AI_HIST[key];
+      if (h.list.length === 0) { h.list.push(AI[key].list[0]); }
+      else { h.list.push(AI[key].list[h.list.length % 2]); }
+      if (h.list.length > 5) h.list.shift();
+      renderSink(key, key === 'c2' ? $('#sinkC2') : $('#sinkC3'), h.list.length - 1);
+    });
+  });
+
+  /* ═══ 创建期底部动作 ═══ */
+  $('#btnCharDraft').addEventListener('click', () => toast('「角色」已存草稿 · 未计入设定进度，随时回来继续'));
+  $('#btnCharConfirm').addEventListener('click', () => {
+    if (!protReady()) { toast('先立主角：至少写称呼和一句话人设——这是写章提示词的地基'); return; }
+    $('#protHint').hidden = true;
+    $('#badgeCreate').textContent = '已确认';
+    $('#badgeCreate').className = 'badge done';
+    toast('已确认「角色」· 设定树里下一项：主线');
+  });
+
+  /* 应用框架：顶栏（演示稿说明——上部为现有设定页外壳，非本稿范围） */
+  $$('.appbar .back').forEach(b => b.addEventListener('click', () => toast('演示稿：上部为现有设定页外壳——本稿只设计「角色」的中/右两栏')));
+
+  syncCreate();
+})();
+</script>
+</body>
+</html>

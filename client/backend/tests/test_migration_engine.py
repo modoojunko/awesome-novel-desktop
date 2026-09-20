@@ -184,15 +184,23 @@ class TestRouter:
                          json={"source_filename": "novel.db"}).json()
         assert c2["code"] == 0 and c2["data"]["v"] == 1
         assert c2["data"]["book_count_source"] == 2
-        # start → 完成报告
+        # start → 立返初始快照（异步——不再等完成）
         c3 = client.post("/api/backup/db-migration/start",
                          json={"source_filename": "novel.db"}).json()
         assert c3["code"] == 0
-        assert c3["data"]["status"] == "ok"
-        assert c3["data"]["book_count_migrated"] == 2
-        # status
-        c4 = client.get("/api/backup/db-migration/status").json()
-        assert c4["data"]["last_report"]["status"] == "ok"
+        assert c3["data"]["state"] == "running"
+        # 轮询 status 到 done（前端同款 1s 轮询；测试用短间隔）
+        import time
+
+        for _ in range(30):
+            c4 = client.get("/api/backup/db-migration/status").json()["data"]
+            if c4.get("state") in ("done", "error"):
+                break
+            time.sleep(0.2)
+        assert c4["state"] == "done", c4
+        assert c4["report"]["status"] == "ok"
+        # 全局测试库可能有残留（loginless 等测试先行迁入）——断言 ≥2 而非精确等
+        assert c4["report"]["book_count_migrated"] >= 2
         # dismiss（绑身份指纹）
         c5 = client.post("/api/backup/db-migration/dismiss",
                          json={"filename": "novel.db"}).json()

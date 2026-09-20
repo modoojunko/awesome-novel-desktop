@@ -1,0 +1,75 @@
+# qa-night 专用隔离栈（本会话 UI 走查测试）
+# 与默认栈（.docker-data/ + 5173/5174/8000/19000）完全隔离：
+#   - 独立 compose 项目 qa-night（独立网络，服务名仅项目内解析）
+#   - 端口：S端前端 6173 / C端前端 6174 / C端后端 8001 / S端后端 29000
+#   - 数据：.docker-data-qa-night/{server,client}，全新空白
+# 复用默认栈同源构建的镜像（不重编）；生产环境（CloudBase）零接触。
+services:
+  server-backend:
+    image: ai-novel-server-backend:latest
+    container_name: qa-night-server-backend
+    environment:
+      DB_DIR: /app/data
+      HOST: 0.0.0.0
+      PORT: "19000"
+      JWT_SECRET: qa-night-local-secret
+      ADMIN_TOKEN: admin123
+      # 本地测试栈放开登录限流（与默认 compose 本地口径一致）
+      RATE_LIMIT_LOGIN_PER_MIN: "600"
+    ports:
+      - "29000:19000"
+    volumes:
+      - /Users/modoojunko/Desktop/coding/ai-novel/.docker-data-qa-night/server:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(0 if s.connect_ex(('127.0.0.1',19000))==0 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  server-frontend:
+    # 本地构建特调版：VITE_API_BASE=/api（见 qa 报告 Bug1——官方镜像烘焙了生产域名）
+    image: qa-night-server-frontend:local
+    volumes:
+      # 部署级运行时配置本地化：apiBase 置空=回落构建期 /api（官方镜像内该文件指向生产域名）
+      - /Users/modoojunko/Desktop/coding/ai-novel/.docker-data-qa-night/server-frontend-site-config.json:/usr/share/nginx/html/site-config.json:ro
+    container_name: qa-night-server-frontend
+    depends_on:
+      - server-backend
+    ports:
+      - "6173:80"
+    restart: unless-stopped
+
+  client-backend:
+    image: ai-novel-client-backend:latest
+    container_name: qa-night-client-backend
+    environment:
+      DATA_ROOT: /app/data
+      SERVER_API_BASE: http://server-backend:19000/api
+      SERVER_API_FALLBACK: ""
+      # 宿主可达的 S端 前端（OAuth 授权页由前端 SPA 承载），指向本栈 6173
+      PUBLIC_SERVER_API: http://localhost:6173/api
+      ENTITLEMENT_LEGACY_TRIAL: "1"
+    depends_on:
+      - server-backend
+    ports:
+      - "8001:8000"
+    volumes:
+      - /Users/modoojunko/Desktop/coding/ai-novel/.docker-data-qa-night/client:/app/data
+    restart: unless-stopped
+
+  client-frontend:
+    image: ai-novel-client-frontend:latest
+    container_name: qa-night-client-frontend
+    depends_on:
+      - client-backend
+    ports:
+      - "6174:80"
+    restart: unless-stopped

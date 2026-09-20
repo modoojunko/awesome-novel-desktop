@@ -8,6 +8,14 @@ const logoutMock = vi.fn((..._a: unknown[]) => {
   /* 原实现写 hash 回落地页；此处只断言调用 */
 });
 
+vi.mock("@/hooks/useLegacyDb", () => ({
+  useLegacyDb: () => ({
+    status: null,
+    refresh: vi.fn(async () => {}),
+    dismiss: vi.fn(async () => {}),
+  }),
+}));
+
 vi.mock("@/hooks/useTier");
 vi.mock("@/lib/auth", () => ({
   getUsername: vi.fn(() => "writer01"),

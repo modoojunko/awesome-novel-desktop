@@ -138,7 +138,7 @@ def test_l4_loopback_guard_rejects_non_localhost(seeded, monkeypatch):
     from main import _loginless_loopback_guard
 
     class FakeClient:
-        host = "192.168.1.50"
+        host = "8.8.8.8"  # 公网 IP（192.168.x 私网已放宽——Docker 网关合法路径）
 
     class FakeRequest:
         url = type("U", (), {"path": "/api/backup/export/status"})()

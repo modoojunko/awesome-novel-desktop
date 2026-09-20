@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>爱小说 · 设定｜角色（角色列表＋四部分人物卡）</title>
+<!--
+  交付说明（设计侧工件 · 不动任何 src/；OpenDesign 原型，交互可直接预览）
+
+  裁定：角色设定＝现有设定页选中「角色」节点后，col-middle＋col-ai 两栏的内容设计。
+    上部（novelbar 书名/类型/PRO ＋ modnav 设定 N/8 · 写作 · 预览）与左侧设定树
+    （模型设定＋8 项、进度与确认徽标）＝现有设定页原样复刻，零改动、非本稿范围。
+
+  人物卡四部分（本稿核心裁定）：
+    ① 角色名称（姓名/别名/称号/代号，卡头输入，系统自动派发唯一 ID）
+    ② 角色类型（主角/配角/反派/路人 胶囊，卡头单选；类型标签同步角色列表）
+    ③ 基础信息（一句话人设 / 剧情定位 / 性别年龄种族 / 常驻势力身份·含阶级 / 外貌标签——常驻可见）
+    ④ 认知模型（六维单向闭环：世界观→自我观→价值观⇒能力→行为⇒环境；
+       认知层内生决定执行层，行为单向塑造环境，不可反向；
+       核心认知盲区与能力上限/代价为强制字段）
+    独立剧本不设组：个人目标与归宿由 价值观/宿命观 承接，成长迭代随「正文归档」change，
+    伏笔属写作期工具。角色列表树：单棵、类型标签、搜索、「＋添加角色」置顶、独立滚动。
+
+  规范：tokens 与 client/frontend/src/design/{base,book}.css 逐字同源；交互模块全部
+    挂 data-od-id（kebab-case）；零外部资源、零裸色、零 emoji。
+-->
+<style>
+  /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致（--radius-lg 沿世界稿 = 14px） ═══ */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* display 声明（flex 等）会压过 hidden 的 UA 规则——全局兜底，防流程条/时间线操作区「藏不住」 */
+  [hidden] { display: none !important; }
+  button { font-family: inherit; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.55; padding: 40px 24px 80px; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1320px; margin: 0 auto; }
+
+  /* ─── 稿头 ─── */
+  .draft-banner { display: flex; align-items: center; gap: 9px; padding: 10px 16px; border: 1px dashed var(--warn); border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); font-size: 13px; margin-bottom: 28px; }
+  .draft-banner b { color: var(--fg); font-weight: 600; }
+  h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; }
+  h1 .ver { font-family: var(--font-mono); font-size: 13px; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 2px 10px; vertical-align: 6px; margin-left: 10px; letter-spacing: 0.06em; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 6px 0 14px; line-height: 1.8; }
+  .caliber { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 16px; font-size: 12.5px; color: var(--muted); margin-bottom: 36px; line-height: 1.8; }
+  .caliber b { color: var(--fg); font-weight: 600; }
+  .caliber li { margin: 4px 0 4px 18px; }
+
+  /* ─── 模拟窗口（与世界稿同构） ─── */
+  .win { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: clip; box-shadow: var(--shadow-card); margin-bottom: 52px; }
+
+  /* ── 应用框架（窗口标题栏 / 顶栏 / 书栏 / 书的设定树 / 状态栏——设计稿以整屏形态出现） ── */
+  .win-titlebar { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .dot { width: 11px; height: 11px; border-radius: 999px; flex: none; }
+  .dot.r { background: var(--err); } .dot.y { background: var(--warn); } .dot.g { background: var(--ok); }
+  .win-title { flex: 1; text-align: center; font-size: 12px; color: var(--muted); margin-right: 51px; }
+  .appbar { height: 48px; display: flex; align-items: center; padding: 0 20px; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; }
+  .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--surface); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; flex: none; }
+  .appbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; flex: none; }
+  .appbar .back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; padding: 5px 9px; border-radius: 8px; }
+  .appbar .back:hover { color: var(--fg); background: var(--fg-soft); }
+  .appbar .back svg { width: 14px; height: 14px; }
+  .appbar .spacer { flex: 1; }
+  .novelbar { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 20px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
+  .novelbar .nb-title { font-family: var(--font-display); font-size: 13.5px; color: var(--fg); font-weight: 600; }
+  .novelbar .nb-sep { width: 1px; height: 16px; background: var(--border); }
+  .modnav { display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .modnav span { display: inline-flex; padding: 8px 14px 9px; font-size: 13px; color: var(--muted); }
+  .modnav span.on { color: var(--fg); font-weight: 500; border-bottom: 2px solid var(--accent); }
+  /* ── 设定页三栏（真实结构）：设定树(230) ｜ 角色面板(1fr) ｜ AI 栏(236) —— 上部与左树不动，本稿设计中/右 ── */
+  .view.three-col.settings-v { display: grid; grid-template-columns: 230px minmax(0, 1fr) 236px; align-items: start; }
+  .col-middle { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .col-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 18px 20px; }
+  .panel.sub-fill { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px 14px; overflow: hidden; }
+  .desc { font-size: 12.5px; color: var(--muted); margin: 0 0 14px; line-height: 1.8; }
+  .desc b { color: var(--fg); font-weight: 600; }
+  .sub-wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: 252px minmax(0, 1fr); gap: 0 16px; align-items: start; }
+  /* 设定树（复刻现有 col-tree） */
+  .col-tree { border-right: 1px solid var(--border); background: var(--bg); padding: 12px 10px 14px; }
+  .tree-head { padding: 0 8px 8px; }
+  .tree-head .t { font-size: 13px; color: var(--muted); }
+  .tree-head .t b { color: var(--fg); font-weight: 600; }
+  .settings-progress { padding: 0 8px 10px; border-bottom: 1px dashed var(--border); }
+  .settings-progress .pl { font-size: 12px; color: var(--muted); }
+  .settings-progress .pl b { color: var(--fg); }
+  .pbar { height: 6px; border-radius: 999px; background: var(--fg-soft); margin-top: 6px; overflow: hidden; }
+  .pbar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  .settings-nav-wrap { padding-top: 6px; }
+  .s-item { display: flex; align-items: center; gap: 6px; padding: 8px 9px; border-radius: 8px; cursor: pointer; }
+  .s-item:hover { background: var(--fg-soft); }
+  .s-item.on { background: var(--accent-soft); }
+  .s-item .nm { font-size: 12.5px; color: var(--fg); }
+  .s-item.on .nm { color: var(--accent-strong); font-weight: 600; }
+  .s-item .defer-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+  .s-item .spacer { flex: 1; }
+  .tree-foot { border-top: 1px dashed var(--border); margin-top: 8px; padding: 8px 8px 0; }
+  /* 角色列表（char-tree）与右 AI 栏：桌面端贴顶滚动 */
+  .char-tree { position: sticky; top: 12px; align-self: start; max-height: calc(100vh - 24px); display: flex; flex-direction: column; border-right: 1px solid var(--border); padding: 0 12px 10px 0; min-height: 0; }
+  .char-main { min-width: 0; }
+  .col-ai { border-left: 1px solid var(--border); padding: 16px; background: var(--bg); overflow-y: auto; }
+  @media (min-width: 861px) {
+    .col-ai { position: sticky; top: 12px; max-height: calc(100vh - 24px); }
+  }
+  @media (max-width: 1080px) { .view.three-col.settings-v { grid-template-columns: 208px minmax(0, 1fr) 222px; } }
+  @media (max-width: 900px) {
+    .view.three-col.settings-v { grid-template-columns: minmax(0, 1fr); }
+    .col-tree { border-right: 0; border-bottom: 1px solid var(--border); }
+    .col-ai { border-left: 0; border-top: 1px solid var(--border); }
+    .char-tree { position: static; max-height: 300px; border-right: 0; border-bottom: 1px dashed var(--border); padding-right: 0; }
+    .sub-wrap { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  /* ── 角色树（单树＋类型标签；语义对齐 TDesign Tree：搜索/计数/添加；实现走现有词表） ── */
+  .tree-top { display: flex; align-items: center; gap: 6px; padding: 2px 8px 8px; font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .04em; }
+  .tree-top .cnt { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; font-weight: 400; }
+  .tree-search { width: 100%; padding: 7px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font-size: 12.5px; margin-bottom: 8px; }
+  .tree-search:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .tree-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 6px 8px; border: none; background: transparent; border-radius: 8px; cursor: pointer; font: inherit; }
+  .tree-item:hover { background: var(--fg-soft); }
+  .tree-item.on { background: var(--accent-soft); }
+  .tree-item.on .ti-name { color: var(--accent-strong); font-weight: 600; }
+  .ti-ava { width: 22px; height: 22px; border-radius: 50%; background: var(--fg-soft); color: var(--fg); display: grid; place-items: center; font-size: 11px; font-weight: 600; flex: none; }
+  .tree-item.on .ti-ava { background: var(--accent); color: oklch(100% 0 0); }
+  .tree-item.add .ti-ava { background: transparent; border: 1px dashed var(--border); color: var(--muted); }
+  .ti-b { min-width: 0; flex: 1; }
+  .ti-name { display: block; font-size: 12.5px; color: var(--fg); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ti-sub { display: block; font-size: 10.5px; color: var(--muted); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ti-tag { flex: none; font-size: 10px; padding: 1px 7px; border-radius: 999px; }
+  .ti-tag.acc { background: var(--accent-soft); color: var(--accent); }
+  .ti-tag.empty { background: var(--fg-soft); color: var(--muted); }
+  .ti-tag.err { background: var(--err-soft); color: var(--err); }
+  /* 「＋添加角色」固定在树顶部（几百个角色时不用滚到底） */
+  .tree-add { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 30px; margin-bottom: 8px; border: 1px dashed color-mix(in oklch, var(--accent) 40%, var(--border)); border-radius: 8px; background: var(--surface); color: var(--accent); font-size: 12.5px; font-weight: 500; cursor: pointer; flex: none; }
+  .tree-add:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .tree-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding-right: 2px; }
+  .char-tree, .tree-list, .col-ai { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .tree-list::-webkit-scrollbar, .col-ai::-webkit-scrollbar { width: 8px; }
+  .tree-list::-webkit-scrollbar-thumb, .col-ai::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .tree-list::-webkit-scrollbar-thumb:hover, .col-ai::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ── 人物卡紧凑布局：卡头一行（头像＋称呼＋定位）＋两列字段网格（09-12 三次修订，替代一格一块的大堆叠） ── */
+  .kv-row select.input { appearance: auto; cursor: pointer; }
+  .kv-static { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+  .kv-value { flex: 1; min-width: 0; font-size: 12.5px; color: var(--fg); line-height: 1.7; }
+  .sec-label { font-family: var(--font-display); font-size: 14px; font-weight: 600; margin: 18px 0 10px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .sec-label .sl-tag { font-family: var(--font-body); font-size: 11px; font-weight: 500; color: var(--accent-strong); background: var(--accent-soft); border-radius: 999px; padding: 2px 10px; }
+
+  /* ── 档案表（基础信息：label 左、值右，虚线分行——区别于旧「格」堆叠） ── */
+  .kv { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+  .kv-row { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-bottom: 1px dashed var(--border); }
+  .kv-row:last-child { border-bottom: none; }
+  .kv-row.span2 { }
+  .kv-k { width: 112px; flex: none; font-size: 12px; color: var(--muted); font-weight: 600; }
+  .kv-k .req { font-style: normal; color: var(--warn); font-size: 10px; margin-left: 4px; border: 1px solid color-mix(in oklch, var(--warn) 35%, transparent); border-radius: 999px; padding: 0 5px; }
+  .kv-row .input, .kv-row .textarea { flex: 1; min-width: 0; border: none; background: transparent; padding: 2px 0; font-size: 12.5px; resize: vertical; }
+  .kv-row .input:focus, .kv-row .textarea:focus { outline: none; }
+  .kv-row { position: relative; }
+  .kv-row:focus-within { background: var(--accent-soft); }
+  .kv-tri { display: flex; gap: 8px; flex: 1; min-width: 0; }
+  .kv-tri .input { flex: 1; min-width: 0; }
+  /* ── 认知模型：六维卡（默认收起，链上节点/卡头点击展开） ── */
+  .dim-head { display: flex; align-items: center; gap: 8px; cursor: pointer; flex-wrap: wrap; }
+  .dim-no { font-family: var(--font-mono); font-size: 11px; color: var(--accent); border: 1px dashed color-mix(in oklch, var(--accent) 40%, transparent); border-radius: 999px; padding: 0 7px; flex: none; }
+  .dim-head b { font-size: 13.5px; font-weight: 600; }
+  .dim-tag { font-size: 10px; color: var(--accent-strong); background: var(--accent-soft); border-radius: 999px; padding: 1px 8px; flex: none; }
+  .dim-hint { font-size: 11px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .dim-req { font-size: 10px; color: var(--warn); border: 1px solid color-mix(in oklch, var(--warn) 35%, transparent); border-radius: 999px; padding: 0 7px; flex: none; }
+  .dim-head .chev { color: var(--muted); transition: transform .18s ease; flex: none; }
+  .dim-body { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
+  .dim-body[hidden] { display: none; }
+  .chain .ch-node { cursor: pointer; }
+  .chain .ch-node:hover { border-color: var(--accent); color: var(--accent); }
+  .f-text { font-size: 12.5px; line-height: 1.7; color: var(--fg); min-width: 0; }
+  .fgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
+  @media (max-width: 700px) { .fgrid { grid-template-columns: 1fr; } }
+  .f { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .f .f-label { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .f .f-label b { font-size: 12.5px; font-weight: 600; color: var(--fg); flex: none; }
+  .f .f-label .hint { font-size: 11px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .f .textarea { min-height: 0; padding: 7px 10px; font-size: 12.5px; line-height: 1.6; }
+  .f .ai-sink { margin: 8px 0 0; }
+  .f-span2 { grid-column: 1 / -1; }
+
+  /* （空态已瘦身为字段直写；AI 辅助全部在右栏助手卡下，编辑区零 AI 按钮） */
+  @media (max-width: 720px) {
+    body { padding: 24px 12px 60px; }
+    h1 { font-size: 22px; }
+    .col-panel { padding: 20px 14px 24px; }
+    .caliber { padding: 10px 12px; }
+  }
+
+  /* ─── 通用件（与世界稿逐字同词表） ─── */
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 11px; }
+  .badge.done { background: var(--ok-soft); color: var(--ok); }
+  .badge.empty { background: var(--fg-soft); color: var(--muted); }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .badge.err { background: var(--err-soft); color: var(--err); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .badge.acc { background: var(--accent-soft); color: var(--accent); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--accent); color: oklch(100% 0 0); }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--muted); }
+  .btn-ghost { background: transparent; color: var(--muted); padding: 0 10px; }
+  .btn-ghost:hover { color: var(--fg); }
+  .btn-sm { height: 28px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; }
+  .btn:disabled { opacity: .45; cursor: default; pointer-events: none; }
+  .input, .textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+  .input:focus, .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .textarea { min-height: 58px; resize: vertical; line-height: 1.7; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .field label { font-size: 13px; color: var(--fg); font-weight: 600; display: flex; flex-direction: column; gap: 2px; }
+  .field label .hint { font-size: 11.5px; color: var(--muted); font-weight: 400; line-height: 1.6; }
+  .opt { font-size: 12px; color: var(--muted); }
+  .cap { display: inline-flex; align-items: center; padding: 7px 14px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; color: var(--fg); background: var(--surface); cursor: pointer; user-select: none; }
+  .cap:hover { border-color: var(--muted); }
+  .cap.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+  .cap-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .soft-note { font-size: 11.5px; color: var(--warn); margin-top: 8px; }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 7px; }
+  .icon-btn:hover { color: var(--err); background: var(--err-soft); }
+  .text-btn { display: inline-flex; align-items: center; gap: 5px; border: none; background: transparent; color: var(--accent); font-size: 12.5px; cursor: pointer; padding: 4px 2px; font-weight: 500; }
+  .text-btn:hover { color: var(--accent-strong); }
+  .text-btn.gray { color: var(--muted); }
+  .text-btn.gray:hover { color: var(--fg); }
+
+  /* ─── 右栏 AI 轨（与简介/题材/世界稿同构） ─── */
+  .ai-sink .ans-act { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .ai-sink .ans-act button { height: 26px; padding: 0 12px; font-size: 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .ai-sink .ans-act button.primary { background: var(--accent); border-color: transparent; color: oklch(100% 0 0); }
+  .chk-line { display: flex; gap: 8px; align-items: baseline; }
+  .chk-line .chk-name { flex: none; width: 84px; font-size: 12px; }
+  .chk-line .chk-res { font-size: 12px; font-weight: 500; flex: none; }
+  .chk-line .chk-res.ok { color: var(--ok); }
+  .chk-line .chk-res.miss { color: var(--err); }
+  .chk-line .chk-res.warn { color: var(--warn); }
+  .chk-line .chk-note { font-size: 11.5px; color: var(--muted); min-width: 0; }
+
+  /* ── 面板骨架 ── */
+  .panel-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+  .panel-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 600; margin: 0; }
+  .panel-head .ph-tools { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+  .defline { font-size: 12.5px; color: var(--muted); margin: 0 0 22px; line-height: 1.8; }
+  .defline b { color: var(--fg); font-weight: 600; }
+  .panel-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); margin-top: 8px; flex-wrap: wrap; }
+  .panel-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+  .panel-foot .warnline { font-size: 12px; color: var(--warn); margin-right: auto; }
+
+  /* ── 「怎么写」搭建法 ── */
+  .guide { margin: 0 0 20px; }
+  .guide-toggle { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 13px; border: 1px dashed var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; color: var(--fg); font: inherit; }
+  .guide-toggle:hover { border-color: var(--accent); }
+  .guide-toggle .gt-b { font-size: 13px; font-weight: 600; flex: none; color: var(--accent); }
+  .guide-toggle .gt-s { font-size: 11.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .guide-toggle .gt-c { margin-left: auto; flex: none; color: var(--muted); transition: transform .18s ease; }
+  .guide-toggle[aria-expanded="true"] .gt-c { transform: rotate(180deg); }
+  .guide-body { margin-top: 8px; padding: 5px 16px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  .guide-body[hidden] { display: none; }
+  .g-row { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px dashed var(--border); }
+  .g-row:last-of-type { border-bottom: none; }
+  .g-row .g-name { flex: none; width: 108px; font-size: 12.5px; font-weight: 600; color: var(--fg); }
+  .g-row .g-body { font-size: 12px; color: var(--muted); line-height: 1.7; min-width: 0; }
+  .g-row .g-body em { font-style: normal; color: var(--fg); }
+  .g-formula { margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 12.5px; color: var(--fg); display: inline-block; }
+  .g-formula b { color: var(--accent); }
+  .g-dont { margin-top: 10px; font-size: 11.5px; color: var(--warn); line-height: 1.8; }
+
+  /* ── AI 结果区（TintPanel，落对应格下方）与回执 ── */
+  .ai-sink { margin: 10px 0 0; background: var(--fg-soft); border-radius: 10px; padding: 12px 16px; font-size: 12.5px; line-height: 1.8; color: var(--fg); }
+  .ai-sink[hidden] { display: none; }
+  .ai-sink .aiz-head { font-size: 11px; font-weight: 600; letter-spacing: .05em; color: var(--accent); margin-bottom: 6px; }
+  .ai-sink .aiz-hist { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+  .ai-sink .aiz-hist .ah-t { font-size: 11px; color: var(--muted); }
+  .ai-sink .aiz-hist .ah-chip { height: 20px; padding: 0 9px; font-size: 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; }
+  .ai-sink .aiz-hist .ah-chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+  .receipt-bar { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 8px 12px; border: 1px solid color-mix(in oklch, var(--accent) 30%, var(--border)); border-radius: 9px; background: var(--accent-soft); font-size: 12px; color: var(--fg); }
+  .receipt-bar[hidden] { display: none; }
+  .receipt-bar .rb-undo { margin-left: auto; flex: none; height: 24px; padding: 0 12px; font-size: 11.5px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
+  .receipt-bar .rb-undo:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── 右栏 AI 写作助手卡 ── */
+  .rail-assist { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
+  .rail-assist .ra-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+  .rail-assist .ra-head .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: oklch(100% 0 0); flex: none; }
+  .rail-assist .ra-head .rh-t b { display: block; font-size: 13px; font-weight: 600; }
+  .rail-assist .ra-head .rh-t span { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .rail-assist .ra-row { margin-bottom: 8px; }
+  .rail-assist .ra-step { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; }
+  .rail-assist .ra-step:hover { border-color: var(--accent); }
+  .rail-assist .ra-body { min-width: 0; flex: 1; }
+  .rail-assist .ra-body b { display: block; font-size: 12.5px; font-weight: 600; }
+  .rail-assist .ra-body i { display: block; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 2px; }
+  .rail-assist .ra-arrow { color: var(--muted); flex: none; }
+  .rail-assist .ra-foot { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+  .rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
+
+  /* ── 结论 ─── */
+  .rec-box { border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: var(--radius); background: var(--accent-soft); padding: 16px 20px; font-size: 13.5px; line-height: 1.8; }
+  .rec-box b { font-weight: 600; }
+  .rec-box ol { margin: 8px 0 0 20px; }
+  .rec-box li { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 12.5px; margin-top: 14px; line-height: 1.7; }
+
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="win" id="winChar">
+
+    <div class="win-titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="win-title">残卷听澜 — 爱小说</span></div>
+    <div class="appbar">
+      <span class="logo"><span class="logo-mark">爱</span>爱小说</span>
+      <span class="sep"></span>
+      <button class="back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="m15 18-6-6 6-6"/></svg>返回工作台</button>
+      <span class="spacer"></span>
+      <button class="back" type="button">客服</button>
+      <button class="back" type="button">设置</button>
+    </div>
+    <div class="novelbar">
+      <span class="nb-title">《残卷听澜》</span>
+      <span class="nb-sep"></span>
+      <span>仙侠/修真 · 凡人流</span>
+      <span class="spacer" style="flex:1;"></span>
+      <span class="badge acc">PRO</span>
+    </div>
+
+    <div class="view three-col on settings-v">
+
+    <!-- ═══ 左栏 · 设定树＝现有设定页原样复刻（不动）；本稿只设计选中「角色」后的中/右两栏 ═══ -->
+    <aside class="col-tree">
+      <div class="tree-head"><span class="t">设定 · <b>8</b> 项 + 1 工具</span></div>
+      <div class="settings-progress">
+        <span class="pl num">设定 <b>3</b>/8</span>
+        <div class="pbar"><i style="width: 37.5%;"></i></div>
+      </div>
+      <div class="settings-nav-wrap">
+        <div class="s-item"><span class="nm">模型设定</span><span class="defer-tag">工具</span><span class="spacer"></span><span class="badge empty">不参与进度</span></div>
+        <div class="s-item"><span class="nm">简介</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item"><span class="nm">题材</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item"><span class="nm">世界</span><span class="spacer"></span><span class="badge done">已确认</span></div>
+        <div class="s-item on"><span class="nm">角色</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+        <div class="s-item"><span class="nm">主线</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+        <div class="s-item"><span class="nm">文风</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+        <div class="s-item"><span class="nm">伏笔</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+        <div class="s-item"><span class="nm">禁用词句</span><span class="defer-tag">可后补</span><span class="spacer"></span><span class="badge empty">未填</span></div>
+      </div>
+      <div class="tree-foot"><span style="font-size: 12px; color: var(--muted); line-height: 1.7;">可后补项确认后计入设定进度 · 确认即前进到下一项</span></div>
+    </aside>
+
+    <main class="col-middle">
+     <div class="col-panel">
+      <div class="panel sub-fill">
+       <div class="panel-head">
+        <h2>角色</h2>
+        <span class="badge warn" id="badgeCreate">未立主角</span>
+       </div>
+       <p class="desc">人物是 AI 写章时「<b>谁在场、谁想干什么</b>」的事实源。<b>主角必立</b>：从称呼直接写起（AI 起草在右栏助手）；其余角色想先立就在左侧「＋添加角色」，定位自己定。</p>
+       <div class="sub-wrap">
+
+        <!-- ═══ 子栏左 · 角色列表（单树：类型是节点上的标签，由作家添加与指定） ═══ -->
+        <nav class="char-tree" id="treeCreate" data-od-id="tree-chars">
+      <div class="tree-top">角色<span class="cnt num" id="tcTotalCreate">1</span></div>
+      <button class="tree-add" id="tiAdd" data-od-id="btn-add-char" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 5v14M5 12h14"/></svg>添加角色</button>
+      <input class="tree-search" id="treeSearchCreate" data-od-id="search-char" type="search" placeholder="搜名字 / 别名…" />
+      <div class="tree-list" id="flatListCreate">
+        <button class="tree-item on" id="tiProt" type="button">
+          <span class="ti-ava" id="tiAvaProt">？</span><span class="ti-b"><span class="ti-name" id="tiNameProt">主角</span><span class="ti-sub" id="tiSubProt">待立 · 必填</span></span><span class="ti-tag acc">主角</span>
+        </button>
+      </div>
+      <p class="opt" id="treeEmptyCreate" hidden style="padding:4px 8px;">没有找到——换个名字试试。</p>
+      <p class="opt" style="padding:8px 4px 0;">压力演示：41 人；几百人同理——搜名字/别名直达，按首次出场排序。</p>
+    </nav>
+
+        <div class="char-main">
+
+        <!-- 人物卡：一张档案表＝基础信息（角色名称 / 类型 / 编号 / 人设 / 定位 / 档案项）＋认知模型（六维卡） --><div id="cardProt">
+          <div class="sec-label" style="margin-top:0;">基础信息</div>
+          <div class="kv" data-od-id="kv-basics">
+            <div class="kv-row">
+              <span class="kv-k">角色名称</span>
+              <input class="input" id="cName" data-od-id="input-char-name" placeholder="姓名 / 别名 / 称号 / 代号" />
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">角色类型</span>
+              <select class="input" id="selType" data-od-id="select-char-type">
+                <option selected>主角</option><option>配角</option><option>反派</option><option>路人</option>
+              </select>
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">角色编号</span>
+              <span class="kv-static num" data-od-id="meta-char-id">#C-0001</span>
+            </div>
+            <div class="kv-row span2">
+              <span class="kv-k">一句话人设</span>
+              <textarea class="textarea" rows="2" id="cPersona" data-od-id="input-char-persona" placeholder="此人是谁、凭什么是他——写章必带的全卡摘要。例：青梧宗杂役弟子，资质平平却记性过人。"></textarea>
+              <div class="ai-sink" id="sinkC2" hidden></div>
+            </div>
+            <div class="kv-row span2">
+              <span class="kv-k">剧情定位<i class="req">必填</i></span>
+              <input class="input" id="cPlot" data-od-id="input-char-plot" placeholder="在故事里干什么、核心冲突。例：主角——以弱破强；查旧案 × 躲丹阁" />
+            </div>
+            <div class="kv-row span2">
+              <span class="kv-k">性别 / 年龄 / 种族</span>
+              <span class="kv-tri">
+                <input class="input" id="cGender" data-od-id="input-char-gender" placeholder="性别" />
+                <input class="input" id="cAge" data-od-id="input-char-age" placeholder="年龄" />
+                <input class="input" id="cRace" data-od-id="input-char-race" placeholder="种族（绑定世界观枚举）" />
+              </span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">常驻 / 势力 / 身份</span>
+              <input class="input" id="cRegion" data-od-id="input-char-region" placeholder="例：青梧宗外门 · 杂役弟子（底层）" />
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">外貌标签</span>
+              <input class="input" id="cLook" data-od-id="input-char-appearance" placeholder="例：瘦长个 · 旧道袍 · 左眉疤" />
+            </div>
+          </div>
+
+          <div class="sec-label">认知模型<span class="sl-tag">世界观 → 自我观 → 价值观 ⇒ 能力 → 行为 ⇒ 环境 · 单向不可逆</span></div>
+          <p class="opt" style="margin:0 0 10px;">认知决定行为，行为决定所处环境——环境是被塑造的结果，不反向塑人。点链上维度直达对应卡；写章溯源沿此链走，防人设崩塌、行为矛盾。</p>
+          <div class="chain" data-od-id="chain-cognition">
+            <span class="ch-layer">认知层</span>
+            <span class="ch-node" data-dim="dimWorldview">① 世界观</span><span class="ch-arrow">→</span>
+            <span class="ch-node" data-dim="dimSelf">② 自我观</span><span class="ch-arrow">→</span>
+            <span class="ch-node" data-dim="dimValues">③ 价值观</span>
+            <span class="ch-arrow">⇒</span>
+            <span class="ch-layer">执行层</span>
+            <span class="ch-node" data-dim="dimPower">④ 能力</span><span class="ch-arrow">→</span>
+            <span class="ch-node" data-dim="dimBehavior">⑤ 行为</span>
+            <span class="ch-arrow">⇒</span>
+            <span class="ch-layer">结果层</span>
+            <span class="ch-node" data-dim="dimEnv">⑥ 环境</span>
+          </div>
+
+                    <div class="kv" data-od-id="kv-cognition">
+            <div class="kv-row">
+              <span class="kv-k">① 世界观</span>
+              <textarea class="textarea" rows="1" id="w1" data-od-id="input-dim-worldview" placeholder="他眼中的世界：规则、局势、人性，及没看破的盲区。例：知道九境之上被宗门捂着——但没看破「听漏」的代价会累加。"></textarea>
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">② 自我观</span>
+              <textarea class="textarea" rows="1" id="s1" data-od-id="input-dim-self" placeholder="我是谁、怕什么、凭什么。例：自认靠记性吃饭的杂役，怕火、怕欠人情。"></textarea>
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">③ 价值观</span>
+              <textarea class="textarea" rows="1" id="v1" data-od-id="input-dim-values" placeholder="追求什么、绝不做什么、可牺牲什么。例：查清父亲失踪；绝不对平民下手。"></textarea>
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">④ 能力</span>
+              <textarea class="textarea" rows="1" id="p1" data-od-id="input-dim-power" placeholder="天赋/习得的能力＋上限与代价。例：听漏之耳——上限到金丹；每用一次自瞎一日。"></textarea>
+              <div class="ai-sink" id="sinkP1" hidden></div>
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">⑤ 行为</span>
+              <textarea class="textarea" rows="1" id="b1" data-od-id="input-dim-behavior" placeholder="怎么说话、行事习惯、危机本能。例：憨直嘴笨；再怕火也会往火里冲——如果里面有人。"></textarea>
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">⑥ 环境</span>
+              <textarea class="textarea" rows="1" id="e1" data-od-id="input-dim-env" placeholder="他的处境（行为的产出）。例：外门柴房；柳掌柜欠半个人情；丹阁通缉。"></textarea>
+            </div>
+          </div>
+          <div class="ai-sink" id="sinkC4" hidden></div>
+        </div><!-- /cardProt -->
+
+        <!-- 配角/反派卡（创建期可选先立）：紧凑卡头＋两列；比主角卡少金手指与开场处境 -->
+        <div id="cardNewChar" hidden>
+          <div class="sec-label" style="margin-top:0;">基础信息</div>
+          <div class="kv" data-od-id="kv-basics-new">
+            <div class="kv-row">
+              <span class="kv-k">角色名称</span>
+              <input class="input" id="ncName" data-od-id="input-newchar-name" placeholder="姓名 / 别名 / 称号 / 代号" />
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">角色类型</span>
+              <select class="input" id="ncRole" data-od-id="select-newchar-type">
+                <option>主角</option><option selected>配角</option><option>反派</option><option>路人</option>
+              </select>
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">角色编号</span>
+              <span class="kv-static num" id="ncId" data-od-id="meta-newchar-id">#C-0042</span>
+            </div>
+            <div class="kv-row span2">
+              <span class="kv-k">一句话人设</span>
+              <textarea class="textarea" rows="2" placeholder="例：青梧宗内门弟子，另一个想查丹阁旧案的人——比林拾有修为，也比他多顾虑。"></textarea>
+            </div>
+            <div class="kv-row span2">
+              <span class="kv-k">剧情定位</span>
+              <input class="input" placeholder="例：第 11 章起＝林拾的同盟与制衡；首次出场可留空，归档自动带章节来源" />
+            </div>
+          </div>
+          <p class="opt" style="margin:8px 0 0;">基础信息＋认知模型（六维：世界观→自我观→价值观⇒能力→行为⇒环境）与主角卡同构——<b>认知模型主角、配角、反派都要有</b>；路人没有认知模型，只要有基础信息即可入册。切换回主角：点左树「主角」。</p>
+        </div>
+
+        <!-- 其余角色简卡（点树任意角色即入；完整卡结构与上面同构，点字段即改） -->
+        <div id="cardGeneric" hidden>
+          <div class="kv" data-od-id="kv-generic">
+            <div class="kv-row">
+              <span class="kv-k">角色名称</span>
+              <span class="kv-value" id="genName">—</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">角色类型</span>
+              <span class="kv-value" id="genRoleB">—</span>
+            </div>
+            <div class="kv-row span2">
+              <span class="kv-k">一句话人设</span>
+              <span class="kv-value" id="genLine">—</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">首次出场</span>
+              <span class="kv-value" id="genCh">—</span>
+            </div>
+            <div class="kv-row">
+              <span class="kv-k">在故事里干什么</span>
+              <span class="kv-value" id="genJob">—</span>
+            </div>
+          </div>
+          <p class="opt" id="genNote" style="margin:8px 0 0;">路人：只有基础信息，没有认知模型——编辑态与上面同构，点字段即改。</p>
+        </div>
+
+      </div><!-- /char-main -->
+      </div><!-- /sub-wrap -->
+
+      <div class="receipt-bar" id="receiptCreate" hidden data-od-id="receipt-adopt">
+          <span id="receiptCreateText"></span>
+          <button class="rb-undo" id="receiptCreateUndo" type="button">撤销</button>
+        </div>
+
+        <div class="panel-foot">
+          <span class="note" id="protHint" hidden style="color:var(--warn);">确认「角色」需要先立主角——至少写称呼和一句话人设</span>
+          <span class="note" id="protOkNote" hidden>确认只需主角 · 先立的角色随卡保存</span>
+          <button class="btn btn-secondary" type="button" id="btnCharDraft">存草稿</button>
+          <button class="btn btn-primary" type="button" id="btnCharConfirm">确认完成</button>
+        </div>
+      </div><!-- /panel.sub-fill -->
+     </div><!-- /col-panel -->
+    </main><!-- /col-middle -->
+
+    <!-- ═══ 右栏 · AI 助手（现有 col-ai 位置，内容＝本稿设计） ═══ -->
+    <aside class="col-ai">
+      <!-- 创建期 -->
+      <div class="rail-assist" id="railCreate">
+        <div class="ra-head">
+          <span class="plan-badge">PRO</span>
+          <div class="rh-t"><b>AI 写作助手</b><span>已解锁 · 包含在你的 PRO 套餐（Max 同享）· 只加工你写的，不代写</span></div>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiask="c1" data-od-id="ai-draft-protagonist">
+            <span class="ra-body"><b>起草角色卡</b><i>对当前选中的角色生效——从简介＋题材＋世界起草其卡面 · 输入：简介＋题材＋世界</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiask="c2" data-od-id="ai-polish-persona">
+            <span class="ra-body"><b>人设精修</b><i>给一句话人设加记忆点 · 输入：01＋简介</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiask="c3" data-od-id="ai-powercost-align">
+            <span class="ra-body"><b>能力与代价校准</b><i>过人之处与代价配平，和简介「转机」对齐 · 输入：能力组＋简介＋世界 02/03</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="ra-row">
+          <button class="ra-step" type="button" data-aiask="c4" data-od-id="ai-check">
+            <span class="ra-body"><b>一致性体检</b><i>只查当前选中角色 × 简介/题材/世界：设定是否合适、有无矛盾 · 只提醒不拦确认</i></span>
+            <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+        <p class="ra-foot">答案落对应字段或折叠组内，<b>采纳 · 覆盖</b>才写回，脚部有回执可一步撤销；每行保留最近 5 次结果可切回。<b>所有 AI 辅助功能都在本栏</b>，卡片编辑区不放 AI 按钮；免费版字段照常手填，AI 卡可见＋锁定（与世界页同门控）。</p>
+      </div>
+
+      <p class="opt" style="margin-top:12px;">未配置模型？去左侧「AI 模型」。</p>
+    </aside>
+    </div><!-- /view.three-col -->
+  </div><!-- /winChar -->
+</div>
+
+<script>
+(function () {
+  function toast(msg) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;right:22px;bottom:22px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);z-index:99;';
+    t.textContent = msg; document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2400);
+  }
+  const esc = t => String(t).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const $ = s => document.querySelector(s);
+  const $$ = s => Array.prototype.slice.call(document.querySelectorAll(s));
+
+  /* ═══ 树内搜索（创建期）：名字/别名即时过滤 ═══ */
+  function bindTreeSearch(inputSel, listSel, emptySel) {
+    $(inputSel).addEventListener('input', e => {
+      const q = e.target.value.trim();
+      let hit = 0;
+      $$(listSel + ' .tree-item').forEach(it => {
+        const nameEl = it.querySelector('.ti-name');
+        const text = nameEl ? nameEl.textContent + (it.dataset.alias || '') : '';
+        const okm = !q || text.indexOf(q) >= 0;
+        it.hidden = !okm;
+        if (okm) hit++;
+      });
+      $(emptySel).hidden = !(q && hit === 0);
+    });
+  }
+  bindTreeSearch('#treeSearchCreate', '#flatListCreate', '#treeEmptyCreate');
+
+  /* ═══ 创建期：必有主角门槛（含左树主角条目同步） ═══ */
+  const badgeCreate = $('#badgeCreate');
+  const PROT_FIELDS = ['cName', 'cPersona', 'cPlot', 'cGender', 'cAge', 'cRace', 'cRegion', 'cLook', 'w1', 's1', 'v1', 'p1', 'b1', 'e1'];
+  function protReady() {
+    return $('#cName').value.trim().length > 0 && $('#cPersona').value.trim().length > 0;
+  }
+  function syncCreate() {
+    const ok = protReady();
+    badgeCreate.textContent = ok ? '已立主角' : '未立主角';
+    badgeCreate.className = 'badge ' + (ok ? 'done' : 'warn');
+    $('#protHint').hidden = ok;
+    $('#protOkNote').hidden = !ok;
+    const nm = $('#cName').value.trim();
+    $('#tiAvaProt').textContent = nm ? nm[0] : '？';
+    $('#tiNameProt').textContent = nm || '主角';
+    $('#tiSubProt').textContent = ok ? '主角 · 已立' : (nm ? '主角 · 补一句话人设' : '待立 · 必填');
+  }
+  PROT_FIELDS.forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('input', syncCreate); });
+
+  /* 创建期左树（单树）：主角卡 / 新角色卡 / 已有角色简卡；称呼落字即上树 */
+  function selectCreateTree(item) {
+    $$('#flatListCreate .tree-item').forEach(x => x.classList.toggle('on', x === item));
+  }
+  const CHARS = {
+    su: { name: '苏晚芜', role: '配角', line: '青梧宗内门弟子，另一个想查丹阁旧案的人——比林拾有修为，也比他多顾虑。', ch: '第 11 章', job: '林拾的同盟与制衡：交换秘密、各留一手。' },
+    liu: { name: '柳掌柜', role: '配角', line: '柳安坊市当铺掌柜，什么都收，什么都不问。', ch: '第 03 章', job: '坊市情报节点：什么都能打听，什么都收钱。' },
+    zhao2: { name: '赵执事', role: '配角', line: '青梧宗管杂役名录的执事——林拾偷进藏经阁那次，他睁一只眼闭一只眼。', ch: '第 05 章', job: '给林拾递关键信息，偶尔收点好处。' },
+    jie: { name: '戒律堂主', role: '配角', line: '青梧宗戒律堂主，铁面，认规矩不认人。', ch: '第 06 章', job: '给林拾立规矩、设障碍的宗门面孔。' },
+    dan: { name: '丹阁首座', role: '反派', line: '丹阁当家——当年那场火是他默许烧的，如今要抢在所有人前头把残卷收干净。', ch: '第 07 章', job: '中期主压力：用规矩与资源困住林拾，不亲自动手。' },
+    zhi: { name: '执法长老', role: '反派', line: '丹阁执法长老，通缉令的执行人，出手狠。', ch: '第 09 章', job: '明面上的追捕者，逼林拾离宗。' }
+  };
+  function renderGeneric(key) {
+    const c = CHARS[key]; if (!c) return;
+    $('#genName').textContent = c.name;
+    const b = $('#genRoleB');
+    b.textContent = c.role; b.style.color = c.role === '反派' ? 'var(--err)' : '';
+    $('#genNote').textContent = c.role === '路人'
+      ? '路人：只有基础信息，没有认知模型。'
+      : '主角 / 配角 / 反派：都有认知模型（六维：世界观→自我观→价值观⇒能力→行为⇒环境），可展开填写。';
+    $('#genLine').textContent = c.line;
+    $('#genCh').textContent = c.ch;
+    $('#genJob').textContent = c.job;
+  }
+  $('#flatListCreate').addEventListener('click', e => {
+    const item = e.target.closest('.tree-item'); if (!item) return;
+    selectCreateTree(item);
+    const isProt = item.id === 'tiProt';
+    $('#cardProt').hidden = !isProt;
+    $('#cardNewChar').hidden = isProt || !!item.dataset.gen;
+    if (item.dataset.gen) { renderGeneric(item.dataset.gen); $('#cardGeneric').hidden = false; }
+    else { $('#cardGeneric').hidden = true; }
+    currentSel = item.id === 'tiProt' ? 'prot' : (item.dataset.gen || 'new');
+  });
+  $('#tiAdd').addEventListener('click', () => {
+    selectCreateTree(null);
+    $('#cardProt').hidden = true; $('#cardNewChar').hidden = false;
+    $('#ncId').textContent = '#C-' + String($('#flatListCreate').children.length + 1).padStart(4, '0');
+    $('#ncName').focus();
+    toast('称呼一落字就上树，定位胶囊一点就归类——身份就这三样，搞定');
+  });
+  /* 角色类型：下拉选择；新角色的类型改动同步树标签 */
+  $('#ncRole').addEventListener('change', e => {
+    if (ncItem) {
+      const tag = ncItem.querySelector('.ti-tag');
+      const t = e.target.value;
+      tag.textContent = t;
+      tag.className = 'ti-tag ' + (t === '主角' ? 'acc' : t === '反派' ? 'err' : 'empty');
+    }
+  });
+  $('#selType').addEventListener('change', e => {
+    if (e.target.value !== '主角') toast('演示稿：类型换配角 / 反派 / 路人＝认知链细项按该定位收窄（卡面结构随之调整）');
+  });
+  let currentSel = 'prot';
+  let ncItem = null;
+  $('#ncName').addEventListener('input', () => {
+    const nm = $('#ncName').value.trim();
+    if (!nm && !ncItem) return;
+    if (!ncItem) {
+      ncItem = document.createElement('button');
+      ncItem.type = 'button'; ncItem.className = 'tree-item';
+      ncItem.innerHTML = '<span class="ti-ava">？</span><span class="ti-b"><span class="ti-name">新角色</span><span class="ti-sub">待定位</span></span><span class="ti-tag empty">配角</span>';
+      $('#flatListCreate').appendChild(ncItem);
+    }
+    ncItem.querySelector('.ti-name').textContent = nm || '新角色';
+    ncItem.querySelector('.ti-ava').textContent = nm ? nm[0] : '？';
+    $('#tcTotalCreate').textContent = String($('#flatListCreate').children.length);
+  });
+
+  /* 压力演示：批量铺角色（配角/反派/路人），验证几百人时树滚动＋搜索可用 */
+  function cnNum(n) {
+    const C = '一二三四五六七八九十';
+    if (n <= 10) return C[n - 1];
+    if (n < 20) return '十' + C[n - 11];
+    if (n === 20) return '二十';
+    if (n < 30) return '二十' + C[n - 21];
+    if (n === 30) return '三十';
+    return '三十' + C[n - 31];
+  }
+  (function seedTree() {
+    const list = $('#flatListCreate');
+    function addItem(key, ava, name, sub, tag, tagCls) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'tree-item'; b.dataset.gen = key;
+      b.innerHTML = '<span class="ti-ava">' + esc(ava) + '</span><span class="ti-b"><span class="ti-name">' + esc(name) + '</span><span class="ti-sub">' + esc(sub) + '</span></span><span class="ti-tag ' + tagCls + '">' + esc(tag) + '</span>';
+      list.appendChild(b);
+    }
+    Object.keys(CHARS).forEach(key => {
+      const c = CHARS[key];
+      addItem(key, c.name[0], c.name, c.ch, c.role, c.role === '反派' ? 'err' : 'empty');
+    });
+    for (let i = 1; i <= 34; i++) {
+      const key = 'm' + i, name = '外门弟子·' + cnNum(i), ch = '第 ' + (11 + i) + ' 章';
+      CHARS[key] = { name, role: '路人', line: '青梧宗外门弟子，出场带过一笔的背景人物。', ch, job: '暂无更多戏份——需要时再补卡。' };
+      addItem(key, '弟', name, ch, '路人', 'empty');
+    }
+    $('#tcTotalCreate').textContent = String(list.children.length);
+  })();
+
+  /* AI 起草角色卡（右栏行触发，对当前选中角色生效；卡片编辑区无 AI 按钮） */
+  let pendingCreate = null;
+  function aiDraftProtagonist() {
+    const snap = {}; PROT_FIELDS.forEach(id => { snap[id] = document.getElementById(id).value; });
+    const F = {
+      cName: '林拾',
+      cPersona: '青梧宗杂役弟子，资质平平却记性过人——别人当废纸的残页，他能一字不差背下来。',
+      cPlot: '主角——以弱破强；核心冲突＝查旧案 × 躲丹阁',
+      cGender: '男',
+      cAge: '十七',
+      cRace: '人族',
+      cRegion: '青梧宗外门 · 柳安坊市 · 杂役弟子（底层）',
+      cLook: '瘦长个，旧道袍洗得发白；左眉一道疤（火场留的）。',
+      w1: '知道九境之上的事被宗门刻意捂着；不知道「听漏」的代价会累加。',
+      w3: '规则只护有钱有势的人——所以只能自己挣',
+      w4: '人多半是先自保再谈善恶——不怪他们',
+      s3: '怕火（火场创伤）；怕欠人情——收了恩情就得还。',
+      v1: '查清父亲失踪的真相',
+      v2: '不对坊市平民下手',
+      bVoice: '憨直嘴笨，急了才吐真话；口头禅「让我再想想」。',
+      w1: '知道九境之上被宗门捂着，规则只护有钱有势的人——但没看破「听漏」的代价会累加（盲区）。',
+      s1: '自认只是个靠记性吃饭的杂役，怕火、怕欠人情——不知道自己把什么都憋着。',
+      v1: '追查父亲失踪的真相；绝不对平民下手；可押眼睛和前程，不押别人的命。',
+      p1: '听漏之耳，能听见修为破绽——上限到金丹；每用一次自瞎一日，连用三次丢一段记忆（与世界 03 印证）。',
+      b1: '憨直嘴笨急了才吐真话；遇事先「让我再想想」再赌信息差；再怕火也会往火里冲——如果里面有人。',
+      e1: '青梧宗外门柴房；柳掌柜欠半个人情；丹阁通缉——他的世界越收越紧。'
+    };
+    PROT_FIELDS.forEach(id => { if (F[id] !== undefined) document.getElementById(id).value = F[id]; });
+    syncCreate();
+    pendingCreate = snap;
+    $('#receiptCreateText').textContent = '已采纳「AI 起草主角」（基础＋认知＋能力一次写入，可改）';
+    $('#receiptCreate').hidden = false;
+    toast('已起草「主角」角色卡，落回各字段，可撤销或继续改');
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { /* jsdom 无实现 */ }
+  }
+  $('#receiptCreateUndo').addEventListener('click', () => {
+    if (!pendingCreate) return;
+    PROT_FIELDS.forEach(id => { const el = document.getElementById(id); if (el) el.value = pendingCreate[id]; });
+    $('#receiptCreate').hidden = true; pendingCreate = null; syncCreate();
+    toast('已撤销，恢复采纳前的内容');
+  });
+
+  /* ═══ AI 行：人设精修 / 金手指校准（采纳写回 + 回执撤销） ═══ */
+  const AI = {
+    c2: {
+      list: [
+        { txt: '青梧宗杂役弟子林拾：资质被判「不堪修」，却把抄过的每一页都记进了脑子——宗门当废纸处理的残卷，是他的宝库。' },
+        { txt: '林拾，青梧宗最不起眼的杂役：灵根残缺，记性却是个无底洞——他背下的残页，够把宗门的底细拼出一半。' }
+      ], apply: v => { $('#cPersona').value = v; }
+    },
+    c3: {
+      list: [
+        { txt: '代价与限制：每用一次自瞎一日，连用三次永久丢一段记忆——与世界 03 一字对上；短板：灵根残缺，正面硬拼必输。' },
+        { txt: '代价与世界 03 对齐——用一次瞎一日；用在金丹修士身上反噬翻倍；短板：身板薄，只能取巧不能缠斗。' }
+      ], apply: v => { $('#p1').value = v; }
+    }
+  };
+  const AI_HIST = {};
+  function renderSink(key, box, idx) {
+    const h = AI_HIST[key]; const o = h.list[idx];
+    const histHtml = h.list.length > 1
+      ? '<div class="aiz-hist"><span class="ah-t">最近 ' + h.list.length + ' 次</span>' +
+        h.list.map((_, i) => '<button class="ah-chip' + (i === idx ? ' on' : '') + '" type="button" data-idx="' + i + '">第 ' + (i + 1) + ' 次</button>').join('') + '</div>'
+      : '';
+    const label = key === 'c2' ? 'AI 填 · 人设精修' : 'AI 填 · 能力与代价校准';
+    box.innerHTML = '<div class="aiz-head">' + label + '</div>' + histHtml + esc(o.txt) +
+      '<div class="ans-act"><button class="primary" type="button">采纳 · 覆盖</button><button type="button">重试</button></div>';
+    box.hidden = false;
+    const btns = box.querySelectorAll('.ans-act button');
+    btns[0].addEventListener('click', () => {
+      const el = key === 'c2' ? document.getElementById('cPersona') : document.getElementById('p1');
+      pendingCreate = {}; PROT_FIELDS.forEach(id => { pendingCreate[id] = document.getElementById(id).value; });
+      AI[key].apply(o.txt);
+      $('#receiptCreateText').textContent = '已采纳「' + (key === 'c2' ? '人设精修' : '能力与代价校准') + '」（覆盖原内容 ' + el.value.length + ' 字）';
+      $('#receiptCreate').hidden = false;
+      syncCreate();
+      toast('已采纳，落回对应字段，可撤销或继续改');
+    });
+    btns[1].addEventListener('click', () => {
+      h.list.push(h.list[h.list.length % 2 === 0 ? 0 : 1]);
+      if (h.list.length > 5) h.list.shift();
+      renderSink(key, box, h.list.length - 1);
+      toast('已重试，给了一版新的');
+    });
+    box.querySelectorAll('.ah-chip').forEach(ch => ch.addEventListener('click', () => renderSink(key, box, +ch.dataset.idx)));
+    try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* jsdom 无实现 */ }
+  }
+
+  /* ═══ 一致性体检（当前选中角色 × 简介/题材/世界；重跑在两版演示间切换） ═══ */
+  function chkCreate(alt) {
+    if (alt) return [
+      ['简介 × 角色', 'ok', '金手指「听漏」与简介「转机」段对得上'],
+      ['世界 × 角色', 'ok', '自瞎一日＝世界 03 的代价，一字不差'],
+      ['题材 × 角色', 'ok', '题材主打以弱破强，主角资质平平有发力点'],
+      ['对手落地', 'ok', '丹阁已落到「首座」这个具体人物'],
+      ['说话辨识度', 'ok', '口头禅与语气样本够写章用']
+    ];
+    return [
+      ['简介 × 角色', 'ok', '金手指「听漏」与简介「转机」段对得上'],
+      ['世界 × 角色', 'ok', '自瞎一日＝世界 03 的代价，一字不差'],
+      ['题材 × 角色', 'ok', '题材主打以弱破强，主角资质平平有发力点'],
+      ['对手落地', 'miss', '世界 04 的丹阁还没落成具体人物——先给个名字'],
+      ['说话辨识度', 'warn', '口头禅有了，语气样本太少——写章容易串腔调']
+    ];
+  }
+  function chkHtml(lines, foot) {
+    return lines.map(l =>
+      '<div class="chk-line"><span class="chk-name">' + esc(l[0]) + '</span>' +
+      '<span class="chk-res ' + l[1] + '">' + (l[1] === 'ok' ? '达标' : l[1] === 'warn' ? '风险' : '缺失') + '</span>' +
+      '<span class="chk-note">' + esc(l[2]) + '</span></div>'
+    ).join('') + '<p style="margin:8px 0 0;font-size:11.5px;color:var(--muted);">' + esc(foot) + '</p>';
+  }
+  let chkAlt = false;
+  function renderCheck(box) {
+    const lines = chkCreate(chkAlt);
+    const head = 'AI 体检 · 当前角色 × 简介 / 题材 / 世界';
+    const foot = chkAlt ? '四方对齐，可以确认开写。' : '风险 / 缺失不拦确认；点对应字段补完可重跑。';
+    box.innerHTML = '<div class="aiz-head">' + head + '</div>' + chkHtml(lines, foot) +
+      '<div class="ans-act"><button class="primary" type="button">重跑</button></div>';
+    box.hidden = false;
+    box.querySelector('.ans-act button').addEventListener('click', () => {
+      chkAlt = !chkAlt; renderCheck(box);
+      toast(chkAlt ? '已重跑，这一版全过' : '已重跑 · 按当前设定重新体检');
+    });
+    try { box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) { /* jsdom 无实现 */ }
+  }
+
+  /* 右栏能力行接线（全部 AI 辅助入口都在右栏，编辑区零 AI 按钮） */
+  $$('[data-aiask]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.aiask;
+      if (key === 'c1') {
+        if (currentSel === 'prot') { aiDraftProtagonist(); }
+        else if (currentSel === 'new') { toast('已起草当前新角色卡（演示）'); }
+        else if (CHARS[currentSel]) {
+          $('#genLine').textContent = CHARS[currentSel].line + '（AI 起草：已按设定补全说话风格与行事细节，可改。）';
+          $('#genNote').textContent = '已起草「' + CHARS[currentSel].name + '」的角色卡——对当前选中角色生效。';
+          toast('已起草「' + CHARS[currentSel].name + '」的角色卡');
+        } else { toast('演示稿：起草对当前选中的角色生效'); }
+        return;
+      }
+      if (key === 'c3') { const r = document.getElementById('p1'); if (r) r.focus(); }
+      if (key === 'c4') { renderCheck($('#sinkC4')); return; }
+      if (!AI_HIST[key]) AI_HIST[key] = { list: [] };
+      const h = AI_HIST[key];
+      if (h.list.length === 0) { h.list.push(AI[key].list[0]); }
+      else { h.list.push(AI[key].list[h.list.length % 2]); }
+      if (h.list.length > 5) h.list.shift();
+      renderSink(key, key === 'c2' ? $('#sinkC2') : key === 'c3' ? $('#sinkP1') : $('#sinkC4'), h.list.length - 1);
+    });
+  });
+
+  /* ═══ 创建期底部动作 ═══ */
+  $('#btnCharDraft').addEventListener('click', () => toast('「角色」已存草稿 · 未计入设定进度，随时回来继续'));
+  $('#btnCharConfirm').addEventListener('click', () => {
+    if (!protReady()) { toast('先立主角：至少写称呼和一句话人设——这是写章提示词的地基'); return; }
+    $('#protHint').hidden = true;
+    $('#badgeCreate').textContent = '已确认';
+    $('#badgeCreate').className = 'badge done';
+    toast('已确认「角色」· 设定树里下一项：主线');
+  });
+
+  /* 应用框架：顶栏（演示稿说明——上部为现有设定页外壳，非本稿范围） */
+  $$('.appbar .back').forEach(b => b.addEventListener('click', () => toast('演示稿：上部为现有设定页外壳——本稿只设计「角色」的中/右两栏')));
+
+
+  /* ── 认知模型：链上节点直达（聚焦对应行） ── */
+  $$('.chain .ch-node').forEach(n => n.addEventListener('click', () => {
+    const map = { dimWorldview: 'w1', dimSelf: 's1', dimValues: 'v1', dimPower: 'p1', dimBehavior: 'b1', dimEnv: 'e1' };
+    const r = document.getElementById(map[n.dataset.dim]);
+    if (r) { r.focus(); try { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* jsdom 无实现 */ } }
+  }));
+
+  syncCreate();
+})();
+
+</script>
+</body>
+</html>

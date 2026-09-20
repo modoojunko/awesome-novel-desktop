@@ -179,7 +179,12 @@ def build_plan(staged: Path) -> dict:
 
 def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                   report_progress=None) -> dict:
-    """完整迁入。任何异常下源文件零接触；目标库写入由 OR IGNORE 幂等。"""
+    """完整迁入。任何异常下源文件零接触；目标库写入由 OR IGNORE 幂等。
+
+    report_progress 回调收 dict 事件（内部契约 v1，唯一消费方 router._run）：
+    {"stage": "copy"|"prepare"|"plan"|"transfer"|"verify",
+     "tables_total": N, "tables_done": k, "table": t, "rows_inserted": r}
+    """
     data_root = Path(data_root)
     src = data_root / source_filename
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -188,6 +193,11 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
               "tables": [], "tables_skipped": [], "fk_violations": [],
               "book_count_source": None, "book_count_migrated": None,
               "status": "ok", "notes": []}
+
+    def _emit(stage: str, **kw) -> None:
+        if report_progress:
+            report_progress({"stage": stage, **kw})
+
     try:
         # 0 预检
         pc = precheck(data_root, source_filename, active_db_path)
@@ -197,6 +207,7 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
             return report
 
         # 1 暂存三件套拷贝（源零接触）
+        _emit("copy")
         staging.mkdir(parents=True, exist_ok=True)
         staged = staging / source_filename
         shutil.copy2(src, staged)
@@ -206,6 +217,7 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                 shutil.copy2(side, str(staged) + suf)
 
         # 2 副本整备：checkpoint 收编 WAL（只写副本）+ integrity
+        _emit("prepare")
         con = _sqlite_rw(staged)
         try:
             con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -221,11 +233,14 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                 side.unlink()  # checkpoint 后边车可清（副本域内）
 
         # 3 计划
+        _emit("plan")
         plan = build_plan(staged)
         if plan.get("error"):
             report["status"] = "source_corrupt"
             return report
         report["tables_skipped"] = plan["tables_skipped"]
+        tables_total = len(plan["tables"])
+        tables_done = 0
 
         # 4 搬运：ATTACH ro 副本 → 目标（FK OFF 逐表 OR IGNORE）
         tgt = _sqlite_rw(active_db_path)
@@ -252,9 +267,11 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                 entry["rows_source"] = rows_src
                 entry["rows_inserted"] = cur.rowcount if cur.rowcount >= 0 else 0
                 report["tables"].append(entry)
-                if report_progress:
-                    report_progress(t, entry["rows_inserted"])
+                tables_done += 1
+                _emit("transfer", tables_total=tables_total, tables_done=tables_done,
+                      table=t, rows_inserted=entry["rows_inserted"])
             # 5 核对：FK 违规只报不删 + 书计数
+            _emit("verify", tables_total=tables_total, tables_done=tables_done)
             for row in tgt.execute("PRAGMA foreign_key_check"):
                 report["fk_violations"].append({"table": row[0], "rowid": row[1],
                                                 "parent": row[2]})

@@ -1,4 +1,3 @@
-import LegacyMigrateModal from '@/components/LegacyMigrateModal';
 import { useLegacyDb } from '@/hooks/useLegacyDb';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -120,10 +119,16 @@ function NovelList() {
   const [entDetail, setEntDetail] = useState('');
   const [supportLink, setSupportLink] = useState('');
   const navigate = useNavigate();
-  // db-generation：旧库检测（免登端点；空书架开口行 + 向导）
+  // db-generation：旧库检测（免登端点；空书架开口行→AcctMenu 弹窗）
   const legacyDb = useLegacyDb();
-  const [legacyModal, setLegacyModal] = useState(false);
   const legacyAutoShown = useRef(false);
+
+  // 找回完成后书架自动刷新（AcctMenu 的 migrateModal onDone dispatch）
+  useEffect(() => {
+    const on = () => void fetchNovels();
+    window.addEventListener("novels:changed", on);
+    return () => window.removeEventListener("novels:changed", on);
+  }, []);
   const menuRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   // 套餐状态走 LicenseProvider 上下文（Provider 挂在认证路由根壳，两跳刷新后自动更新）
@@ -636,7 +641,7 @@ function NovelList() {
             {legacyDb.status?.candidates?.length ? (
               <p className="fr-note">
                 这台电脑上有旧版作品 ·{' '}
-                <button className="text-btn" onClick={() => setLegacyModal(true)}>找回我的书</button>
+                <button className="text-btn" onClick={() => window.dispatchEvent(new CustomEvent('legacy-migrate:open'))}>找回我的书</button>
               </p>
             ) : null}
             <div className="fr-steps">
@@ -679,12 +684,6 @@ function NovelList() {
               免费版可创建 <span className="num">1</span> 部作品 · 无需绑卡
             </p>
           </div>
-          <LegacyMigrateModal
-            open={legacyModal}
-            candidates={legacyDb.status?.candidates ?? []}
-            onClose={() => setLegacyModal(false)}
-            onDone={() => void legacyDb.refresh()}
-          />
         </div>
       ) : (
         /* 检索无果：bk-empty（不放进 .cards 网格避免 1/3 列宽）；其余走列表/分组 */

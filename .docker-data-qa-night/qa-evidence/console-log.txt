@@ -1,0 +1,145 @@
+2026-09-18T17:31:06.695Z PAGE-OPEN about:blank
+2026-09-18T17:31:07.626Z PAGE-OPEN http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3
+2026-09-18T17:31:07.921Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:31:07.923Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:31:07.923Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:31:09.050Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/authorize' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:31:09.051Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] POST https://www.awesomenovel.com/api/authorize net::ERR_FAILED
+2026-09-18T17:31:09.051Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:31:23.020Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:31:23.020Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:31:23.020Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:31:38.167Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:31:38.168Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:31:38.168Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:31:53.272Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:31:53.272Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:31:53.273Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:32:08.387Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:32:08.388Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:32:08.388Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:33:12.878Z PAGE-OPEN http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3
+2026-09-18T17:33:13.014Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:33:13.014Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:33:13.014Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:33:14.290Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/authorize' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:33:14.291Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] POST https://www.awesomenovel.com/api/authorize net::ERR_FAILED
+2026-09-18T17:33:14.291Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:33:28.216Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:33:28.217Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:33:28.217Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:33:43.327Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:33:43.328Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:33:43.328Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:33:58.446Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:33:58.446Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:33:58.447Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:34:13.595Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:34:13.596Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:34:13.596Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:34:17.198Z PAGE-OPEN http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3
+2026-09-18T17:34:17.398Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:34:17.399Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:34:17.399Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:34:18.494Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/authorize' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:34:18.496Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] POST https://www.awesomenovel.com/api/authorize net::ERR_FAILED
+2026-09-18T17:34:18.496Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:34:32.503Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:34:32.504Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:34:32.504Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:34:47.609Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:34:47.610Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:34:47.610Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:35:02.734Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:35:02.734Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:35:02.735Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:35:17.886Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:35:17.886Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:35:17.886Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:35:30.509Z PAGE-OPEN http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3
+2026-09-18T17:35:30.653Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:35:30.653Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:35:30.653Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:35:31.826Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/authorize' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:35:31.827Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] POST https://www.awesomenovel.com/api/authorize net::ERR_FAILED
+2026-09-18T17:35:31.827Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:35:45.846Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:35:45.847Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:35:45.847Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:36:00.958Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Access to XMLHttpRequest at 'https://www.awesomenovel.com/api/check-auth?pc_hash=' from origin 'http://localhost:6173' has been blocked by CORS policy: The 'Access-Control-Allow-Origin' header contains multiple values 'http://localhost:6173,*', but only one is allowed.
+2026-09-18T17:36:00.959Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [requestfailed] GET https://www.awesomenovel.com/api/check-auth?pc_hash= net::ERR_FAILED
+2026-09-18T17:36:00.959Z http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3 [error] Failed to load resource: net::ERR_FAILED
+2026-09-18T17:36:26.990Z PAGE-OPEN about:blank
+2026-09-18T17:36:27.918Z PAGE-OPEN http://localhost:6173/auth?pc_hash=78b4f6516e504f90de48bd522ee653a2&pc_name=dee3
+2026-09-18T17:57:31.887Z http://localhost:6174/#/config [requestfailed] GET http://localhost:6174/api/v1/api-configs/usage-summary net::ERR_ABORTED
+2026-09-18T17:57:31.888Z http://localhost:6174/#/config [requestfailed] GET http://localhost:6174/api/v1/api-configs/usage-summary net::ERR_ABORTED
+2026-09-18T17:57:31.888Z http://localhost:6174/#/config [requestfailed] GET http://localhost:6174/api/v1/api-configs net::ERR_ABORTED
+2026-09-18T17:57:31.888Z http://localhost:6174/#/config [requestfailed] GET http://localhost:6174/api/v1/user/profile net::ERR_ABORTED
+2026-09-18T18:01:10.508Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/auth/check-auth net::ERR_ABORTED
+2026-09-18T18:01:10.508Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/novels/68740d38-2ef2-48ba-bdf2-6a53181d353a net::ERR_ABORTED
+2026-09-18T18:06:15.526Z PAGE-OPEN about:blank
+2026-09-18T18:27:51.809Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+2026-09-19T03:06:31.370Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T03:06:31.371Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T03:21:31.395Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T03:21:31.396Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T03:36:31.406Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T03:36:31.406Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T03:51:31.427Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T03:51:31.427Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T04:06:31.425Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T04:06:31.425Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T04:21:31.435Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T04:21:31.435Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T04:36:31.378Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T04:36:31.379Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T04:51:31.383Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T04:51:31.384Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T05:06:31.354Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T05:06:31.354Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T05:21:31.332Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T05:21:31.332Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T05:36:31.323Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T05:36:31.324Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T05:51:31.337Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T05:51:31.338Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T06:06:31.315Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T06:06:31.315Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T06:21:31.319Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T06:21:31.319Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T06:36:31.314Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T06:36:31.314Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T06:51:31.321Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T06:51:31.321Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T07:06:31.364Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T07:06:31.364Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T07:21:31.210Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T07:21:31.210Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T07:36:31.193Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T07:36:31.193Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T07:51:31.178Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T07:51:31.178Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T08:06:31.165Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T08:06:31.165Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T08:21:31.148Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T08:21:31.148Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T08:36:31.256Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T08:36:31.257Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T08:51:31.254Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T08:51:31.255Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T09:06:31.259Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T09:06:31.259Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T09:21:31.258Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T09:21:31.258Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T09:36:31.326Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T09:36:31.326Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T09:51:31.331Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T09:51:31.331Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T10:06:31.157Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T10:06:31.157Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T10:21:31.144Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T10:21:31.144Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T10:36:30.970Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T10:36:30.971Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+2026-09-19T10:51:30.943Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [requestfailed] GET http://localhost:6174/api/update-check net::ERR_CONNECTION_REFUSED
+2026-09-19T10:51:30.943Z http://localhost:6174/#/novel/68740d38-2ef2-48ba-bdf2-6a53181d353a [error] Failed to load resource: net::ERR_CONNECTION_REFUSED

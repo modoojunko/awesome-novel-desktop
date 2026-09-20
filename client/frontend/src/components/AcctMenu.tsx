@@ -10,8 +10,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
+import LegacyMigrateModal from "@/components/LegacyMigrateModal";
 import RestoreModal from "@/components/RestoreModal";
 import { Ico, P } from "@/components/icons";
+import { useLegacyDb } from "@/hooks/useLegacyDb";
 import { useTier } from "@/hooks/useTier";
 import { api, errMessage, type ApiError } from "@/lib/api";
 import { getUsername, logout } from "@/lib/auth";
@@ -41,8 +43,19 @@ export default function AcctMenu({
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [support, setSupport] = useState("");
   const [restoreOpen, setRestoreOpen] = useState(false);
+  // db-generation：找回旧书（条件菜单项——有未抑制候选才显示；单点渲染弹窗）
+  const [migrateOpen, setMigrateOpen] = useState(false);
+  const legacyDb = useLegacyDb();
+  const migrateCandidates = (legacyDb.status?.candidates ?? []).filter((c) => !c.suppressed);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // 空态按钮 CustomEvent → 打开同一弹窗（避免双实例双轮询）
+  useEffect(() => {
+    const on = () => setMigrateOpen(true);
+    window.addEventListener("legacy-migrate:open", on);
+    return () => window.removeEventListener("legacy-migrate:open", on);
+  }, []);
 
   useEffect(() => {
     supportUrl().then(setSupport);
@@ -136,6 +149,22 @@ export default function AcctMenu({
       onGoConfig={() => {
         setRestoreOpen(false);
         navigate("/config");
+      }}
+    />
+  );
+
+  // db-generation：找回旧书弹窗（单点渲染；完成后刷书架+跳转）
+  const migrateModal = (
+    <LegacyMigrateModal
+      open={migrateOpen}
+      candidates={migrateCandidates}
+      onClose={() => {
+        setMigrateOpen(false);
+        void legacyDb.refresh();
+      }}
+      onDone={() => {
+        navigate("/novels");
+        window.dispatchEvent(new CustomEvent("novels:changed"));
       }}
     />
   );
@@ -258,6 +287,21 @@ export default function AcctMenu({
             恢复
             <span className="am-hint">从备份文件导入</span>
           </button>
+          {migrateCandidates.length > 0 && (
+            <button
+              className="am-item"
+              role="menuitem"
+              data-od-id="acct-menu-migrate"
+              onClick={() => {
+                close();
+                setMigrateOpen(true);
+              }}
+            >
+              <Ico d={P.doc} sw={1.7} />
+              找回旧书
+              <span className="am-hint">从旧版数据找回</span>
+            </button>
+          )}
           <button
             className="am-item"
             role="menuitem"
@@ -314,6 +358,7 @@ export default function AcctMenu({
         document.body,
       )}
       {restoreModal}
+      {migrateModal}
     </>
   );
 
