@@ -15,6 +15,10 @@ const deleteMock = vi.fn();
 const renameMock = vi.fn();
 const finishMock = vi.fn();
 const reopenMock = vi.fn();
+
+vi.mock("@/hooks/useLegacyDb", () => ({
+  useLegacyDb: () => ({ status: null, refresh: vi.fn(async () => {}), dismiss: vi.fn(async () => {}) }),
+}));
 vi.mock("@/lib/api", () => ({
   api: {
     get: (...a: unknown[]) => getMock(...a),

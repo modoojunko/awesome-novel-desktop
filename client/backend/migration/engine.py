@@ -134,15 +134,24 @@ def build_plan(staged: Path) -> dict:
         entry_backfill: dict[str, str] = {}
         for c in meta[tname].columns:
             if c.name in missing_tgt:
-                # NOT NULL 且无 server_default → SQL 直插必须显式给值：
-                # Python 侧 default 不经 ORM 不生效（total_archives 被 OR
-                # IGNORE 静默吞行的根因）→ backfill 中性字面量
+                # NOT NULL 且无 server_default → SQL 直插必须显式给值。
+                # 注意：server_default=func.now() 是 SQLAlchemy 的函数引用，
+                # create_all 生成的 DDL 里有 DEFAULT CURRENT_TIMESTAMP——但源库
+                # 没有 created_at 列时 INSERT SELECT 不会用到该 DEFAULT（显式列
+                # 清单里没它就行）。真正要 backfill 的是 DDL 里没 DEFAULT 的
+                # NOT NULL 列（如 total_archives）。
                 if not c.nullable and c.server_default is None:
                     lit = _neutral_literal(c)
                     if lit is None:
                         blocker.append(c.name)
                     else:
                         entry_backfill[c.name] = lit
+                elif not c.nullable and c.server_default is not None:
+                    # 有 server_default 的 NOT NULL 列：不显式给值——INSERT
+                    # SELECT 的列清单里不包含它，DDL DEFAULT 会自动填。
+                    # 但 created_at 的 server_default=func.now() 在 create_all
+                    # DDL 里是 DEFAULT CURRENT_TIMESTAMP——不进列清单即可。
+                    pass
         entry = {
             "table": tname,
             "columns": inter,

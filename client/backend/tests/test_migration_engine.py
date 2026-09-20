@@ -60,21 +60,26 @@ def sandbox(tmp_path, monkeypatch):
 
 
 def _old_gen0(root: Path, name: str = "novel.db", books: int = 2) -> Path:
-    """第 0 代旧库：核心业务表形态（列是当前 schema 子集）。"""
+    """第 0 代旧库：核心业务表形态（列是当前 schema 子集）。
+    INSERT 一律显式列名——永不依赖 CREATE 的列序（占位符计数陷阱已吃透）。"""
     p = root / name
     conn = sqlite3.connect(p)
-    # 列集＝当前 novels schema 的子集，且覆盖全部 NOT NULL 无默认列
-    # （id/user_id/name——缺则被整表跳过，那是 M6 的用例不是本夹具）
     conn.execute("CREATE TABLE novels (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, slug TEXT, root_path TEXT, current_phase TEXT, status TEXT, total_volumes INTEGER, total_chapters INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP)")
     conn.execute("CREATE TABLE volumes (id TEXT PRIMARY KEY, novel_id TEXT, volume_no INTEGER, title TEXT, summary TEXT, chapter_count INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP)")
+    conn.execute("CREATE TABLE chapters (id TEXT PRIMARY KEY, novel_id TEXT, volume_id TEXT, chapter_no INTEGER, ref TEXT, title TEXT, status TEXT)")
     conn.execute("CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT)")
-    conn.execute("INSERT INTO app_meta VALUES ('schema_id', 'old_fp_should_not_migrate')")
+    conn.execute("INSERT INTO app_meta (key, value) VALUES ('schema_id', 'old_fp_should_not_migrate')")
+    conn.execute("INSERT INTO app_meta (key, value) VALUES ('other_key', 'pollution')")
     for i in range(books):
-        conn.execute("INSERT INTO novels VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                     (f"n{i}", f"u{i}", f"旧书{i}", f"old-{i}", f"./data/old-{i}",
-                      "write", "active", 1, 3, "2026-01-01", "2026-01-02"))
-        conn.execute("INSERT INTO volumes VALUES (?,?,?,?,?,?,?,?)",
-                     (f"v{i}", f"n{i}", 1, "第一卷", "概要", 3, "2026-01-01", "2026-01-02"))
+        conn.execute(
+            "INSERT INTO novels (id, user_id, name, slug, root_path, current_phase, status, total_volumes, total_chapters, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (f"n{i}", f"u{i}", f"旧书{i}", f"old-{i}", f"./data/old-{i}", "write", "active", 1, 3, "2026-01-01 00:00:00", "2026-01-02 00:00:00"))
+        conn.execute(
+            "INSERT INTO volumes (id, novel_id, volume_no, title, summary, chapter_count, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+            (f"v{i}", f"n{i}", 1, "第一卷", "概要", 3, "2026-01-01 00:00:00", "2026-01-02 00:00:00"))
+        conn.execute(
+            "INSERT INTO chapters (id, novel_id, volume_id, chapter_no, ref, title, status) VALUES (?,?,?,?,?,?,?)",
+            (f"c{i}-1", f"n{i}", f"v{i}", 1, f"第 {i+1} 章", f"章节{i}", "draft"))
     conn.commit()
     conn.close()
     return p

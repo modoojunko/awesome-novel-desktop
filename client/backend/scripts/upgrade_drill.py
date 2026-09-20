@@ -36,6 +36,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend 根入 path
 
+from schema_version import SCHEMA_VERSION
+
 UID = "drill-user"
 SLUG = "drill-book"
 
@@ -207,7 +209,7 @@ def _raw_insert(conn: sqlite3.Connection, table: str, **kv) -> None:
 
 # ── 阶段 1：旧版形态真库 + v1 包 ────────────────────────────────────────────
 def phase_seed_old(root: str, work: Path) -> None:
-    os.environ["DATA_ROOT"] = root
+    os.environ["DATA_ROOT"] = str(root)
     Path(root).mkdir(parents=True, exist_ok=True)
     # 当前 schema 造库，再退回"旧版形态"：减去本 change 的角色四件套 +
     # character_seq_high + chapter_characters.character_id + app_meta
@@ -299,7 +301,7 @@ def phase_seed_old(root: str, work: Path) -> None:
 
 # ── 阶段 2：新版指向旧库 → 留档 + 空库 ─────────────────────────────────────
 def phase_boot_new(root: str, work: Path) -> None:
-    os.environ["DATA_ROOT"] = root
+    os.environ["DATA_ROOT"] = str(root)
     from pathlib import Path as _P
 
     from fastapi.testclient import TestClient
@@ -310,9 +312,11 @@ def phase_boot_new(root: str, work: Path) -> None:
     with TestClient(app):
         pass
     db_path = _P(root) / "novel.db"
-    archived = sorted(db_path.parent.glob("novel.db.legacy-*"))
-    assert archived, "留档未触发（无 .legacy-* 文件）"
-    live = sqlite3.connect(db_path)
+    # db-generation 新语义：版本化命名后 novel.db 为第 0 代库——新版启动建
+    # novel-v{V}.db 空库，旧库原位不动（不再三件套改名留档）
+    v_db = _P(root) / f"novel-v{SCHEMA_VERSION}.db"
+    assert v_db.exists(), "版本化新库未创建"
+    live = sqlite3.connect(v_db)
     n_novels = live.execute("SELECT COUNT(*) FROM novels").fetchone()[0]
     has_characters = live.execute(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='characters'"
@@ -324,13 +328,17 @@ def phase_boot_new(root: str, work: Path) -> None:
     assert n_novels == 0, f"空库启动失败：还有 {n_novels} 本书"
     assert has_characters == 1, "新库缺 characters 表"
     assert has_hooks == 1, "新库缺 novel_hooks 表"
-    _save_state(work, boot={"archived": True, "trio": [p.name for p in archived]})
-    print(f"[boot-new] 三件套留档 {[p.name for p in archived]}；空库启动（characters/novel_hooks 表已建）")
+    # 旧库字节级原位不动（db-generation 红线 R6：版本互不侵入）
+    old_after = db_path.read_bytes()
+    assert old_after, "旧库必须原位保留（不得改名/删除/清空）"
+    _save_state(work, boot={"archived": False, "versioned": True,
+                            "old_db_intact": True})
+    print(f"[boot-new] 版本化语义：novel-v{SCHEMA_VERSION}.db 空库启动（旧库 novel.db 原位不动）；characters/novel_hooks 表已建")
 
 
 # ── 阶段 3：新空库 ← v1 包 ─────────────────────────────────────────────────
 def phase_import_v1(root: str, work: Path) -> None:
-    os.environ["DATA_ROOT"] = root
+    os.environ["DATA_ROOT"] = str(root)
     Path(root).mkdir(parents=True, exist_ok=True)
     import asyncio
 
@@ -464,7 +472,7 @@ def phase_export_v2(root: str, work: Path) -> None:
     import asyncio
     import time
 
-    os.environ["DATA_ROOT"] = root
+    os.environ["DATA_ROOT"] = str(root)
     _ensure_user()
     _fake_auth()
     from db import engine as _engine
@@ -515,7 +523,7 @@ def phase_export_v2(root: str, work: Path) -> None:
 
 # ── 阶段 4b：新库导入 v2 包（roundtrip 抽查）───────────────────────────────
 def phase_roundtrip_v2(root: str, work: Path) -> None:
-    os.environ["DATA_ROOT"] = root
+    os.environ["DATA_ROOT"] = str(root)
     Path(root).mkdir(parents=True, exist_ok=True)
     import asyncio
 
@@ -614,7 +622,81 @@ def phase_downgrade(root: str, work: Path) -> None:
     print("[downgrade] v99 包被响亮拒绝（请先升级应用到最新版本再恢复）")
 
 
-PHASES = ["seed-old", "boot-new", "import-v1", "export-v2", "roundtrip-v2", "downgrade"]
+# ── db-generation 阶段：版本化命名 + 一键迁入（c-db-generation-migration）──
+def phase_gen_bump_seed(root: Path, work: Path) -> None:
+    """seed 低代库：novel.db（第 0 代，含书/卷/章形态）。
+    INSERT 一律显式列名——与测试夹具同款纪律（永不数占位符）。"""
+    data_dir = root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "novel.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript("""
+        CREATE TABLE novels (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, slug TEXT,
+            root_path TEXT, current_phase TEXT, status TEXT, total_volumes INTEGER,
+            total_chapters INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP);
+        CREATE TABLE volumes (id TEXT PRIMARY KEY, novel_id TEXT, volume_no INTEGER,
+            title TEXT, summary TEXT, chapter_count INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE chapters (id TEXT PRIMARY KEY, novel_id TEXT, volume_id TEXT,
+            chapter_no INTEGER, ref TEXT, title TEXT, status TEXT);
+        CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT);
+    """)
+    conn.execute(
+        "INSERT INTO novels (id, user_id, name, slug, root_path, current_phase, status, total_volumes, total_chapters, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("g1", "u1", "换代演练书", "drill-gen", "./data/drill-gen", "write", "active", 1, 2, "2026-01-01 00:00:00", "2026-01-02 00:00:00"))
+    conn.execute(
+        "INSERT INTO volumes (id, novel_id, volume_no, title, summary, chapter_count) VALUES (?,?,?,?,?,?)",
+        ("gv1", "g1", 1, "演练卷", "卷概要", 2))
+    conn.execute(
+        "INSERT INTO chapters (id, novel_id, volume_id, chapter_no, ref, title, status) VALUES (?,?,?,?,?,?,?)",
+        ("gc1", "g1", "gv1", 1, "vol-1-ch-1", "第一章", "draft"))
+    conn.execute(
+        "INSERT INTO chapters (id, novel_id, volume_id, chapter_no, ref, title, status) VALUES (?,?,?,?,?,?,?)",
+        ("gc2", "g1", "gv1", 2, "vol-1-ch-2", "第二章", "draft"))
+    conn.commit()
+    conn.close()
+    _save_state(work, gen_old_db=str(db_path), gen_books=1)
+    print(f"[gen-bump-seed] 第 0 代库就绪：{db_path}（1 本书）")
+
+
+def phase_gen_bump_boot(root: Path, work: Path) -> None:
+    """db-generation 核心断言：源文件逐字节不变 + 空库 + 候选检出 +
+    一键迁入计数对拍。"""
+    from migration.engine import precheck, run_migration
+    from schema_version import SCHEMA_VERSION
+
+    data_dir = root / "data"
+    old_db = data_dir / "novel.db"
+    before = old_db.read_bytes()
+    active = data_dir / f"novel-v{SCHEMA_VERSION}.db"
+
+    pc = precheck(data_dir, "novel.db", active)
+    assert pc["ok"], f"预检失败：{pc}"
+    assert pc["generation"] == 0
+
+    # 目标库须先建好全量当前 schema（模拟新版 create_all 首启）
+    import models  # noqa: F401 —— 注册全表
+    from db import Base
+    from sqlalchemy import create_engine as _ce
+
+    _se = _ce(f"sqlite:///{active}")
+    Base.metadata.create_all(_se)
+    _se.dispose()
+
+    rep = run_migration(data_dir, "novel.db", active)
+    assert rep["status"] == "ok", rep
+    assert rep["book_count_source"] == 1, rep
+    assert rep["book_count_migrated"] == 1, rep
+    assert old_db.read_bytes() == before, "源库字节必须不变"
+    live = sqlite3.connect(active)
+    n = live.execute("SELECT COUNT(*) FROM novels").fetchone()[0]
+    live.close()
+    assert n == 1, f"迁后书数 {n} != 1"
+    _save_state(work, gen_migrated=True)
+    print(f"[gen-bump-boot] 版本化 v{SCHEMA_VERSION}：源只读迁入成功（1 本书），源文件字节不变")
+
+
+PHASES = ["seed-old", "boot-new", "gen-bump-seed", "gen-bump-boot", "import-v1", "export-v2", "roundtrip-v2", "downgrade"]
 
 
 def main() -> None:
@@ -636,6 +718,9 @@ def main() -> None:
             "export-v2": "root-a",   # 回到 v1 导入后的源库
             "roundtrip-v2": "root-b",  # 另一个新空库
             "downgrade": "root-c",
+            # db-generation：gen-bump 两阶段共用 root-gen（低代库→迁入）
+            "gen-bump-seed": "root-gen",
+            "gen-bump-boot": "root-gen",
         }
         roots = {p: str(work / d) for p, d in shared.items()}
         for ph in PHASES:
@@ -661,10 +746,12 @@ def main() -> None:
         sys.exit(1 if fails else 0)
 
     assert args.phase, "--phase 或 --all 必填"
-    root = args.root or str(work / f"root-{PHASES.index(args.phase)}")
+    root = Path(args.root or str(work / f"root-{PHASES.index(args.phase)}"))
     {
         "seed-old": phase_seed_old,
         "boot-new": phase_boot_new,
+        "gen-bump-seed": phase_gen_bump_seed,
+        "gen-bump-boot": phase_gen_bump_boot,
         "import-v1": phase_import_v1,
         "export-v2": phase_export_v2,
         "roundtrip-v2": phase_roundtrip_v2,
