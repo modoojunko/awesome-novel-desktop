@@ -1349,11 +1349,41 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 /* ── storyline 编辑器皮肤（ADJUSTMENTS 卷视图条 13）：卷/章中栏＋右栏对齐原型视觉语言 ──
    类名保留（.ch-tabs/.cfg/.panel-head/.rail-stats 等 e2e 依赖），视觉语言整体替换：
    去卡片画布 / e-head 头部 / 下划线页签 / cfgset 分节 / fro 行式字段 / ledger 台账 / 右栏 aiShell。 */
-.wb .view.on.three-col { --faint: color-mix(in oklch, var(--muted) 68%, transparent); --hl: var(--fg-soft); }
+.wb .view.on.three-col {
+  --faint: color-mix(in oklch, var(--muted) 68%, transparent); --hl: var(--fg-soft);
+  /* ── 中栏节奏单源（c-workbench-col-rhythm）──────────────────────────
+     内容衬垫与表单版心在此定义一次，内容型面板继承；通栏条（e-head/ch-tabs/
+     panel-head/panel-foot）保持出血，满栏面板显式豁免（见下方豁免清单）。
+     事故索引：皮肤曾以「整列归零＋逐面板补衬垫」维护，09-19 卷视图、09-20
+     设定页与写作空态两次漏补（内容贴边/铺满）；本变量即补丁模式的替代。 */
+  --col-pad-t: 26px; --col-pad-x: clamp(20px, 4vw, 48px); --col-pad-b: 60px;
+  --col-pad-editor: 18px 22px 24px;   /* 卷/章编辑区节奏（storyline .e-pad 口径）*/
+  --col-measure: 76ch;                 /* 表单内容宽度上限 */
+}
 
-/* 中栏容器：去卡片，头部/工具条/内容三段式 */
+/* 中栏容器：去卡片，头部/工具条/内容三段式（通栏条依赖 col-panel 零衬垫） */
 .wb .view.on.three-col .col-panel { padding: 0; background: var(--surface); }
-.wb .view.on.three-col .panel { max-width: none; }
+/* 版心豁免清单（仅此三处）：① settings-v 1180（贴 AI 栏，既有决策——下方 :not 已排除）
+   ② sub-fill 双栏（角色/伏笔满栏）③ 卷壳（字段自带 76ch）。其余面板默认 660（book.html .panel）。 */
+.wb .view.on.three-col .vol-shell .panel { max-width: none; }
+.wb .view.on.three-col:not(.settings-v) .panel { max-width: 660px; }
+
+/* 内容型面板衬垫：单源继承（替代各面板自补/漏补） */
+.wb .view.on.three-col .settings-pane,
+.wb .view.on.three-col .style-pane,
+.wb .view.on.three-col .relations-pane,
+.wb .view.on.three-col .actions-pane,
+.wb .view.on.three-col .hooks-wrap { padding: var(--col-pad-t) var(--col-pad-x) var(--col-pad-b); }
+
+/* 行级版心：文风表单行/操作卡等内容行不超过 --col-measure（修复 838px 铺满） */
+.wb .view.on.three-col .style-pane > *,
+.wb .view.on.three-col .actions-pane > *,
+.wb .view.on.three-col .settings-pane > * { max-width: var(--col-measure); }
+
+/* 设定页面板：内容衬垫单源；通栏条（面板头/底部保存条）负边距出血、文字与内容对齐 */
+.wb .view.on.three-col.settings-v .panel { padding: var(--col-pad-t) var(--col-pad-x) var(--col-pad-b); }
+.wb .view.on.three-col.settings-v .panel > .panel-head,
+.wb .view.on.three-col.settings-v .panel > .panel-foot { margin-inline: calc(-1 * var(--col-pad-x)); padding-inline: var(--col-pad-x); }
 
 /* e-head：kicker + display 大标题 + tag 徽章 meta */
 .e-head { padding: 16px 22px 13px; border-bottom: 1px solid var(--border); background: var(--surface); }
@@ -1453,7 +1483,7 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 /* 卷视图内容衬垫：对齐原型 .e-pad{padding:18px 22px 24px}——漏衬垫时 ol-top/分节
    贴死页签条与中栏左右缘（用户 09-19 指出内部错位）；fro/fgrid 的 76ch 宽约束
    已由上文 1384/1391 承担（旧 tpl-row/.field 选择器随旧版卷表单退役删除） */
-.wb .view.on.three-col .vol-shell .e-pad { padding: 18px 22px 24px; }
+.wb .view.on.three-col .vol-shell .e-pad { padding: var(--col-pad-editor); }
 
 /* 编辑表单统一到原型语言（ADJUSTMENTS 13 续）：fro/rowx/fgrid 同卷纲章纲两态一致 */
 .wb .view.on.three-col .fro > .input,
