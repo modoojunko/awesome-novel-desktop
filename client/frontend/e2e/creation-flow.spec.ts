@@ -292,11 +292,13 @@ test("空书无门控：建书即写，加卷加章直达编辑器", async ({ pa
   try {
     const pid = await createNovel(page, `直接写${Date.now() % 100000}`);
 
-    // 落点即写作工作台（非设定页）：空面板 + 左树空态
-    await expect(page.getByText("开始创作")).toBeVisible({ timeout: 10000 });
+    // 落点即写作工作台（非设定页）：空书态（c-0vol0ch-empty-state 设计稿）+ 左树空态
+    await expect(page.getByText("这本书还没有开始")).toBeVisible({ timeout: 10000 });
     await expect(
-      page.getByText("还没有卷与章节。点击左上「＋」添加第一卷。"),
+      page.getByText("还没有任何卷与章节。点下方「＋ 新增一章」"),
     ).toBeVisible();
+    // 顶栏空书卡：空书 · 第 1 章待写 · 未开始 · ＋ 新增一卷
+    await expect(page.locator(".bar-here .bh-k")).toHaveText("空书");
 
     // 全程无阶段催促 UI（软门控已移除）
     await expect(page.getByText("设定尚未全部完成")).toHaveCount(0);
@@ -328,6 +330,44 @@ test("空书无门控：建书即写，加卷加章直达编辑器", async ({ pa
     await page.getByRole("tab", { name: /^正文/ }).click();
     await expect(page.locator(".editor")).toBeVisible({ timeout: 10000 });
     await expect(page.locator(".editor")).toBeEditable();
+  } finally {
+    await restore();
+  }
+});
+
+// -------------------------------------------------------------------------
+// c-0vol0ch-empty-state：空书起手链——「＋ 新增一章」先垫第一卷再排第一章
+// （原型 firstVol → addPlanned）；三处「＋ 新增一卷」同一建卷弹窗
+// -------------------------------------------------------------------------
+
+test("空书起手：中栏「＋ 新增一章」先垫第一卷并排上第一章", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    await createNovel(page, `起手${Date.now() % 100000}`);
+    await expect(page.getByText("这本书还没有开始")).toBeVisible({ timeout: 10000 });
+
+    // 左栏底部两入口（空书态替代「确认全部已填章节」）
+    const tree = page.locator(".col-tree");
+    await expect(page.locator(".col-tree.empty-book .tree-add")).toBeVisible();
+    // 「＋ 新增一卷」＝建卷弹窗（空书态三处入口同一实体）
+    await page.locator('[data-od-id="add-volume"]').click();
+    await expect(page.getByRole("heading", { name: "添加卷" })).toBeVisible({
+      timeout: 5000,
+    });
+    await page.getByRole("button", { name: "取消" }).click();
+    await expect(page.getByRole("heading", { name: "添加卷" })).toHaveCount(0);
+
+    // 「＋ 新增一章」：先垫「第一卷」（程序默认序号形态）再排「第一章」
+    await page.locator('[data-od-id="empty-cta-ch"]').click();
+    await expect(tree.getByText("第一卷")).toBeVisible({ timeout: 10000 });
+    await expect(tree.locator(".ch", { hasText: "第一章" })).toBeVisible({
+      timeout: 5000,
+    });
+    // 新章即达章纲（原型：新增一章先进章纲）；顶栏卡随卷落位换「当前主线」
+    await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.locator(".bar-here .bh-k")).toHaveText("当前主线");
   } finally {
     await restore();
   }

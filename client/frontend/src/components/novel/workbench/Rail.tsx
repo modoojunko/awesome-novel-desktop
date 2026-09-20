@@ -9,7 +9,11 @@ import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { toast } from "@/lib/toast";
 import { DEFAULT_TARGET } from "@/hooks/useChapterData";
 import { AiAssistPanel, type OgStats } from "./AiAssistPanel";
-import { VolumeAssistPanel, type VolumeRailData } from "./VolumeAssistPanel";
+import {
+  VolumeAssistPanel,
+  type RailIdleData,
+  type VolumeRailData,
+} from "./VolumeAssistPanel";
 import type { AiCheckKind, RefineMode } from "@/lib/aiCheck";
 import { runReconcile } from "@/lib/reconcileApi";
 
@@ -57,6 +61,8 @@ interface RailProps {
   data?: RailChapterData;
   /** 卷选中态右栏语境（VolumeWorkspace 上抛；null=未选中卷，呈通用空态） */
   volumeData?: VolumeRailData | null;
+  /** 未选中态统计（壳层给数：空书/刚落删除都走这态） */
+  railIdle: RailIdleData;
   /** AI 写入工具链入口（归档章先解锁；生成正文再经 AiModal 提示词预览） */
   onAiWrite: () => void;
   onAiContinue: () => void;
@@ -115,6 +121,7 @@ export default function Rail({
   aiState,
   data,
   volumeData,
+  railIdle,
   onAiWrite,
   onAiContinue,
   onAiSelection,
@@ -124,7 +131,9 @@ export default function Rail({
 
   if (mode === "volume") {
     // 卷语境面板（随卷页签切换）；三张「规划中」卡与 LockedCard 退役（ADJUSTMENTS ②）
-    return <VolumeAssistPanel projectId={projectId} data={volumeData ?? null} />;
+    return (
+      <VolumeAssistPanel projectId={projectId} data={volumeData ?? null} idle={railIdle} />
+    );
   }
 
   const d = data;

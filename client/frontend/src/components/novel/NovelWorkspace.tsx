@@ -10,7 +10,7 @@ import SettingsView from "@/components/novel/workbench/SettingsView";
 import PreviewView from "@/components/novel/workbench/PreviewView";
 import ManuscriptDownloadModal from "@/components/novel/workbench/ManuscriptDownloadModal";
 import Rail, { type RailChapterData } from "@/components/novel/workbench/Rail";
-import { AiModal, UnlockModal } from "@/components/novel/workbench/modals";
+import { AiModal, UnlockModal, AddVolumeModal } from "@/components/novel/workbench/modals";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import AcctMenu from "@/components/AcctMenu";
 import BookPrefsModal from "@/components/novel/BookPrefsModal";
@@ -57,6 +57,7 @@ export default function NovelWorkspace() {
     viewPayload,
     focusNode,
     refresh,
+    createVolume,
     createChapter,
   } = wb;
   const { updateProject } = useProject();
@@ -431,6 +432,37 @@ export default function NovelWorkspace() {
   const pct = hereTarget
     ? Math.round(Math.min(1, hereTarget.archivedN / hereTarget.total) * 100)
     : 0;
+
+  // ── 空书起手（c-0vol0ch-empty-state）：零卷零章时给明确起点 ──────────────
+  // 「添加卷」弹窗上提到壳层持有，空书态三处入口（顶栏卡 / 中栏空态 / 左栏底部）共用。
+  const [addVolOpen, setAddVolOpen] = useState(false);
+  const openAddVolume = useCallback(() => setAddVolOpen(true), []);
+  /** 建卷弹窗内批量建章后刷树（原 OutlineTree 内联；随弹窗上移） */
+  const onVolumeCreated = useCallback(() => void outline.refetchTree(), [outline]);
+  /** 右栏「未选中」态统计（原型无语境 aiShell：主线端点 / 全书章节 / 基于旧设定） */
+  const railIdle = useMemo(() => {
+    let chapters = 0;
+    let stale = 0;
+    for (const v of volumes) {
+      chapters += v.chapters.length;
+      stale += v.chapters.filter((c) => c.stale).length;
+    }
+    return { frontierNo: hereTarget?.no ?? null, chapters, stale };
+  }, [volumes, hereTarget]);
+  /** 「＋ 新增一章」：空书先垫第一卷（原型 firstVol 口径），再在主线末端排第一章 */
+  const addFirstChapter = useCallback(async () => {
+    const last = volumes[volumes.length - 1]?.name;
+    if (!last) {
+      const volRef = await createVolume(`第${cnNum(1)}卷`);
+      if (!volRef) return;
+      if (await createChapter(`第${cnNum(1)}章`, volRef)) {
+        toast.success("已垫好第一卷并排上第一章，先写章纲");
+      }
+      return;
+    }
+    await createChapter(`第${cnNum(1)}章`, last);
+  }, [volumes, createVolume, createChapter]);
+
   const hereBar = hereTarget ? (
     <>
       <p className="bh-k">当前主线</p>
@@ -466,6 +498,27 @@ export default function NovelWorkspace() {
         onClick={() => void onResume()}
       >
         续写
+      </button>
+    </>
+  ) : volumes.length === 0 ? (
+    /* 状态零：空书（原型 hereBarHTML 空书分支）——还没有卷与章节，起手只有建第一卷 */
+    <>
+      <p className="bh-k">空书</p>
+      <span className="bh-rule" aria-hidden="true" />
+      <p className="bh-t">
+        <span className="n">第 1 章</span>待写
+      </p>
+      <span className="bh-tag">未开始</span>
+      <div className="bh-prog">
+        <span className="bh-vol">还没有卷与章节</span>
+      </div>
+      <button
+        className="btn btn-primary btn-sm"
+        data-od-id="empty-add-vol"
+        title="从一卷卷纲开始这本书"
+        onClick={openAddVolume}
+      >
+        ＋ 新增一卷
       </button>
     </>
   ) : null;
@@ -569,7 +622,7 @@ export default function NovelWorkspace() {
 
       {/* 写作：three-col 常驻挂载（.view.on 切换，正文脏状态/流式现场不丢） */}
       <div className={`view three-col${view === "workbench" ? " on" : ""}`}>
-        <aside className="col-tree">
+        <aside className={`col-tree${volumes.length === 0 ? " empty-book" : ""}`}>
           <OutlineTree
             wb={wb}
             outline={outline}
@@ -582,6 +635,8 @@ export default function NovelWorkspace() {
                 ? { ref: chapterRef, words: railData.wordCount }
                 : null
             }
+            onAddVolume={openAddVolume}
+            onAddChapter={() => void addFirstChapter()}
           />
         </aside>
 
@@ -616,14 +671,35 @@ export default function NovelWorkspace() {
             />
           ) : (
             <div className="col-panel">
-              <div className="panel">
-                <div className="panel-head">
-                  <h2>开始创作</h2>
+              {volumes.length === 0 ? (
+                /* 空书（原型 bookEmptyHTML）：还没建卷、没排章 —— 给一个明确的起点 */
+                <div className="e-empty" data-od-id="book-empty">
+                  <p className="be-k">这本书还没有开始</p>
+                  <p className="be-t">
+                    先建第一卷，写清卷名与卷主旨；也可以直接排第一章，系统会先垫好第一卷。
+                  </p>
+                  <p className="be-acts">
+                    <button
+                      className="btn btn-primary"
+                      data-od-id="empty-cta-vol"
+                      onClick={openAddVolume}
+                    >
+                      ＋ 新增一卷
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      data-od-id="empty-cta-ch"
+                      onClick={() => void addFirstChapter()}
+                    >
+                      ＋ 新增一章
+                    </button>
+                  </p>
                 </div>
-                <p className="desc">
-                  在左侧树头点「＋」添加第一卷，再为每卷添加章节，点章即可配章纲并写正文。
-                </p>
-              </div>
+              ) : (
+                <div className="e-empty">
+                  在左侧目录里选一章，上面一行页签会展开它的章纲、正文、提示词、设定与关系伏笔，重写与回退收在「操作」页签里。
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -644,6 +720,7 @@ export default function NovelWorkspace() {
                 : undefined
             }
             volumeData={volumeRailData}
+            railIdle={railIdle}
             onAiWrite={() => requestAi({ kind: "write" })}
             onAiContinue={() =>
               requestAi({ kind: "continue", capture: proseRef.current?.captureNow() ?? null })
@@ -686,6 +763,16 @@ export default function NovelWorkspace() {
         projectId={projectId}
         bookName={project?.name ?? ""}
         stats={msStats}
+      />
+
+      {/* 添加卷（c-0vol0ch-empty-state 起由壳层持有）：空书态顶栏/中栏/左栏三处入口共用 */}
+      <AddVolumeModal
+        open={addVolOpen}
+        onClose={() => setAddVolOpen(false)}
+        projectId={projectId}
+        createVolume={createVolume}
+        createChapter={createChapter}
+        onCreated={onVolumeCreated}
       />
 
       {/* PR 5 弹窗群：升级 PRO / 只读章 AI 解锁链 / AI 生成（提示词预览） */}

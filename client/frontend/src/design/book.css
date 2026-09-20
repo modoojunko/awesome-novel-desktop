@@ -223,7 +223,16 @@
 .tree-foot { padding: 0 14px 4px; }
 .tree-foot .batch { color: var(--muted); }
 .tree-foot .batch:hover { color: var(--fg); }
-.empty-tree { padding: 24px 18px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+/* 空目录提示（c-0vol0ch-empty-state）：口径＝原型 .toc-empty（12.5px / 14px 6px），
+   与 .tree 的 8px 侧衬垫叠成 14px 列缘内缩 */
+.empty-tree { padding: 14px 6px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+/* 空书态左栏底部入口（原型 .tree-add/.add-btn）：虚线按钮在列底常驻
+   —— 空书时替代「确认全部已填章节」（无章可确认），列内改 flex 纵排令其贴底 */
+.tree-add { flex: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 11px 8px 12px; border-top: 1px solid var(--border); background: var(--surface); }
+.tree-add .add-btn { flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: none; border: 1px dashed var(--border); border-radius: var(--radius); padding: 8px 10px; font-size: 12px; color: var(--muted); }
+.tree-add .add-btn:hover { border-color: var(--accent); color: var(--accent); border-style: solid; }
+.wb .view.on.three-col .col-tree.empty-book { display: flex; flex-direction: column; padding-bottom: 0; }
+.wb .view.on.three-col .col-tree.empty-book .tree { flex: 1 1 auto; min-height: 0; }
 
 /* ─── 编辑器 ───────────────────────────────────────────── */
 /* （editor-toolbar 独立工具行已撤：控件并入 e-head 右侧，页签条贴头与卷视图同位） */
@@ -1484,6 +1493,13 @@ body.focus .editor-wrap { padding-inline: 8vw; }
    贴死页签条与中栏左右缘（用户 09-19 指出内部错位）；fro/fgrid 的 76ch 宽约束
    已由上文 1384/1391 承担（旧 tpl-row/.field 选择器随旧版卷表单退役删除） */
 .wb .view.on.three-col .vol-shell .e-pad { padding: var(--col-pad-editor); }
+
+/* 中栏空态（c-0vol0ch-empty-state，原型 0vol0ch-empty-state.html .e-empty）：
+   零卷零章＝「这本书还没有开始」＋两条起手入口；有卷但未选中＝一句选章引导 */
+.e-empty { padding: 64px 26px; color: var(--muted); font-size: 13.5px; text-align: center; }
+.e-empty .be-k { margin: 0 0 8px; font-family: var(--font-display); font-size: 19px; color: var(--fg); }
+.e-empty .be-t { margin: 0 auto 20px; max-width: 380px; line-height: 1.7; }
+.e-empty .be-acts { margin: 0; display: flex; gap: 10px; justify-content: center; }
 
 /* 编辑表单统一到原型语言（ADJUSTMENTS 13 续）：fro/rowx/fgrid 同卷纲章纲两态一致 */
 .wb .view.on.three-col .fro > .input,
