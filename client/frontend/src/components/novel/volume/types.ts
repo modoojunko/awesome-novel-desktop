@@ -55,6 +55,10 @@ export interface VolumeDetail {
   goal?: string | null;
   ending?: string | null;
   chapter_target?: number | null;
+  /** 展开依据（作者那一句/选中走法；卷纲表单只读行回看） */
+  plan_line?: string | null;
+  /** 进场（resolve_prev_ending 单源：事实优先） */
+  prev_ending?: { text: string; source: string } | null;
   plants: string[];
   reveals: string[];
   cast_members: VolumeCastMember[];

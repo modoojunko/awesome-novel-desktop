@@ -63,6 +63,12 @@ interface RailProps {
   volumeData?: VolumeRailData | null;
   /** 未选中态统计（壳层给数：空书/刚落删除都走这态） */
   railIdle: RailIdleData;
+  /** 卷域 AI（volume-plan-ai）：规划台入口与「卷的验证」点行回调 */
+  genreLabel: string;
+  onPlanVolume: (volNo: number) => void;
+  onSelectVolume: (ref: string) => void;
+  /** 选中卷自动体检信号（点行选中时递增） */
+  autoCheckSeq: number;
   /** AI 写入工具链入口（归档章先解锁；生成正文再经 AiModal 提示词预览） */
   onAiWrite: () => void;
   onAiContinue: () => void;
@@ -122,6 +128,10 @@ export default function Rail({
   data,
   volumeData,
   railIdle,
+  genreLabel,
+  onPlanVolume,
+  onSelectVolume,
+  autoCheckSeq,
   onAiWrite,
   onAiContinue,
   onAiSelection,
@@ -130,9 +140,17 @@ export default function Rail({
   const [targetDraft, setTargetDraft] = useState("");
 
   if (mode === "volume") {
-    // 卷语境面板（随卷页签切换）；三张「规划中」卡与 LockedCard 退役（ADJUSTMENTS ②）
+    // 卷语境右栏（volume-plan-ai 三态：验证面板 / 规划入口 / 接着往下规划＋卷的验证）
     return (
-      <VolumeAssistPanel projectId={projectId} data={volumeData ?? null} idle={railIdle} />
+      <VolumeAssistPanel
+        projectId={projectId}
+        data={volumeData ?? null}
+        idle={railIdle}
+        genreLabel={genreLabel}
+        onPlanVolume={onPlanVolume}
+        onSelectVolume={onSelectVolume}
+        autoCheckSeq={autoCheckSeq}
+      />
     );
   }
 

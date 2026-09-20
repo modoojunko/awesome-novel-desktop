@@ -59,6 +59,8 @@ class Volume(Base):
     reveals: Mapped[str | None] = mapped_column(Text)
     # 预估章节数（章数目标；留空为不设）
     chapter_target: Mapped[int | None] = mapped_column(Integer)
+    # 展开依据：本卷是照哪句话铺出来的（作者写的那一句或选中的那套走法；可空）
+    plan_line: Mapped[str | None] = mapped_column(String(150))
 
     # Relationships
     project = relationship("Novel", back_populates="volumes")
