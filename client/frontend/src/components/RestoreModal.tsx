@@ -150,6 +150,30 @@ export default function RestoreModal({
               path={configPath}
               onPick={() => pick("config")}
             />
+            {/* B/S 模式兜底：无原生文件弹窗时手动输入路径（桌面版也可用） */}
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                className="input"
+                placeholder="或输入文件完整路径（浏览器模式）"
+                style={{ flex: 1, fontSize: 12.5 }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const v = (e.target as HTMLInputElement).value.trim();
+                    if (v) { setAssetsPath(v); setError(null); }
+                  }
+                }}
+              />
+              <button
+                className="btn btn-sm"
+                onClick={(e) => {
+                  const input = (e.target as HTMLElement).previousElementSibling as HTMLInputElement;
+                  const v = input?.value?.trim();
+                  if (v) { setAssetsPath(v); setError(null); }
+                }}
+              >
+                填入作品包
+              </button>
+            </div>
           </div>
           {error && (
             <div role="alert" style={{ marginTop: 12 }}>

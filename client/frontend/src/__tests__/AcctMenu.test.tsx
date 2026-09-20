@@ -297,16 +297,22 @@ describe("AcctMenu 交互分支补齐", () => {
     expect(document.activeElement).toBe(items[0]);
   });
 
-  it("无壳：备份与恢复都给出桌面版提示（不静默）", async () => {
+  it("无壳：备份走 prompt 路径输入（B/S 兜底）；恢复直接开弹窗（内置路径输入）", async () => {
     const alertMock = vi.fn();
+    const promptMock = vi.fn(() => null); // 用户取消 prompt
     vi.stubGlobal("alert", alertMock);
+    vi.stubGlobal("prompt", promptMock);
     delete (window as unknown as { pywebview?: unknown }).pywebview;
     await openMenu();
     fireEvent.click(item("acct-menu-backup") as HTMLElement);
-    await waitFor(() => expect(alertMock).toHaveBeenCalledWith("备份功能需要桌面版应用"));
+    // B/S 兜底：prompt 路径输入（不再 alert 阻断）
+    await waitFor(() => expect(promptMock).toHaveBeenCalled());
+    // 恢复：不再 alert 阻断——直接开弹窗（RestoreModal 内有路径输入兜底）
     fireEvent.click(document.querySelector('[data-od-id="acct-trigger"]') as HTMLElement);
     fireEvent.click(item("acct-menu-restore") as HTMLElement);
-    await waitFor(() => expect(alertMock).toHaveBeenCalledWith("恢复功能需要桌面版应用"));
+    await waitFor(() =>
+      expect(document.querySelector('[role="dialog"]')).toBeTruthy(),
+    );
     vi.unstubAllGlobals();
   });
 

@@ -231,12 +231,15 @@ export default function AcctMenu({
   const runBackup = async () => {
     close();
     const bridge = (window as any).pywebview?.api;
-    if (!bridge) {
-      alert("备份功能需要桌面版应用");
-      return;
+    let dir: string | null = null;
+    if (bridge) {
+      dir = await bridge.pick_folder();
+    } else {
+      // B/S 模式：无原生文件夹弹窗，路径输入兜底（后端直写，API 同一条）
+      dir = prompt("备份保存到哪个文件夹？（输入完整路径，如 ~/Backups）", "");
     }
-    const dir = await bridge.pick_folder();
-    if (!dir) return;
+    if (!dir || !dir.trim()) return;
+    dir = dir.trim();
     try {
       // 走 api 封装（自动带 Authorization；裸 fetch 曾致 401，与下载成稿同一缺陷）
       await api.post("/backup/export/start", {
@@ -333,11 +336,6 @@ export default function AcctMenu({
             data-od-id="acct-menu-restore"
             onClick={() => {
               close();
-              const bridge = (window as any).pywebview?.api;
-              if (!bridge) {
-                alert("恢复功能需要桌面版应用");
-                return;
-              }
               setRestoreOpen(true);
             }}
           >
