@@ -159,8 +159,14 @@ export default function AcctMenu({
       open={migrateOpen}
       candidates={migrateCandidates}
       onClose={() => {
+        // 弹窗关闭时如果迁移还在跑 → 启动后台守望（完成→toast+刷书架）
         setMigrateOpen(false);
         void legacyDb.refresh();
+        void api.get("/backup/db-migration/status", { quiet: true }).then((res) => {
+          if (res.data?.state === "running" && res.data?.kind === "migration") {
+            startBgWatch();
+          }
+        }).catch(() => {});
       }}
       onDone={() => {
         navigate("/novels");
@@ -168,6 +174,58 @@ export default function AcctMenu({
       }}
     />
   );
+
+  // 后台迁移守望（弹窗关闭后：轮询到完成→toast＋书架刷新；>120s→超时提示）
+  const bgWatchRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bgStartRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      if (bgWatchRef.current) clearInterval(bgWatchRef.current);
+    };
+  }, []);
+
+  const startBgWatch = useCallback(() => {
+    if (bgWatchRef.current) clearInterval(bgWatchRef.current);
+    bgStartRef.current = Date.now();
+    bgWatchRef.current = setInterval(async () => {
+      try {
+        const res = await api.get("/backup/db-migration/status", { quiet: true });
+        const d = res.data;
+        if (d?.state === "done") {
+          clearInterval(bgWatchRef.current!);
+          bgWatchRef.current = null;
+          const rep = d.report;
+          if (rep?.status === "ok") {
+            import("@/lib/toast").then(({ toast }) => {
+              toast.success(`已找回 ${rep.book_count_migrated ?? "?"} 本书`);
+            });
+          } else {
+            import("@/lib/toast").then(({ toast }) => {
+              toast.error("找回没有完成，可从菜单重新打开向导重试");
+            });
+          }
+          window.dispatchEvent(new CustomEvent("novels:changed"));
+          void legacyDb.refresh();
+        } else if (d?.state === "error" || d?.state === "idle") {
+          clearInterval(bgWatchRef.current!);
+          bgWatchRef.current = null;
+          import("@/lib/toast").then(({ toast }) => {
+            toast.info("找回已停止，可从菜单重新打开向导");
+          });
+          void legacyDb.refresh();
+        } else if (Date.now() - bgStartRef.current > 120_000) {
+          clearInterval(bgWatchRef.current!);
+          bgWatchRef.current = null;
+          import("@/lib/toast").then(({ toast }) => {
+            toast.info("找回耗时较长，可从菜单「找回旧书」查看进度");
+          });
+        }
+      } catch {
+        /* 静默重试 */
+      }
+    }, 1000);
+  }, [legacyDb]);
 
   // 备份：桌面壳选文件夹 → 本地后端直写导出（原全局设置弹窗流程原样迁移）
   const runBackup = async () => {
