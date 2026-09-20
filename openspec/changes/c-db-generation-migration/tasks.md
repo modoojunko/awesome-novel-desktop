@@ -12,11 +12,11 @@
 
 ## 2. PR1：迁入引擎
 
-- [ ] 2.1 候选扫描（novel-v{k}/novel.db/.legacy-*；**排除 -wal/-shm/.bak**；book_count>0；只读体检+世代探测）。验证：pytest——-wal 不进候选（现行 bug 回归钉死）；空库剔除
-- [ ] 2.2 引擎六步+第 0 步预检（暂存副本/源零接触含不做 checkpoint/FK OFF/列交集+整表跳过预告/app_meta 不搬/计数对拍/报告 v:1 preview-result 同构）。验证：pytest——幂等重跑零重复行；中断恢复；源文件字节+mtime 不变；FK 违规行报告不静默吞
-- [ ] 2.3 世代门禁：前 ADR 世代候选不进行迁，引导资产包通道。验证：pytest——yaml 世代特征库被门禁拦截并返回引导
-- [ ] 2.4 免登端点（candidates/preview/start/status/dismiss）+job_runner 加 migration 单飞；dismiss/完成键绑候选身份指纹（path+mtime+size）。验证：pytest——免登矩阵+「回滚编辑后再升级提示重开」用例
-- [ ] 2.5 `migration/converters/` 逐代文件+registry+CI 连续性断言（首个跳：第 0 代→v1）。验证：CI 断言跑通；缺跳注入测试红
+- [x] 2.1 候选扫描（novel-v{k}/novel.db/.legacy-*；**排除 -wal/-shm/.bak**；book_count>0；只读体检+世代探测）。验证：pytest——-wal 不进候选（现行 bug 回归钉死）；空库剔除
+- [x] 2.2 引擎六步+第 0 步预检（暂存副本/源零接触含不做 checkpoint/FK OFF/列交集+整表跳过预告/app_meta 不搬/计数对拍/报告 v:1 preview-result 同构）。验证：pytest——幂等重跑零重复行；中断恢复；源文件字节+mtime 不变；FK 违规行报告不静默吞
+- [x] 2.3 世代门禁：前 ADR 世代候选不进行迁，引导资产包通道。验证：pytest——yaml 世代特征库被门禁拦截并返回引导
+- [x] 2.4 免登端点（candidates/preview/start/status/dismiss）+job_runner 加 migration 单飞；dismiss/完成键绑候选身份指纹（path+mtime+size）。验证：pytest——免登矩阵+「回滚编辑后再升级提示重开」用例
+- [x] 2.5 `migration/converters/` 逐代文件+registry+CI 连续性断言（首个跳：第 0 代→v1）。验证：✅ registry 连续性断言随 test_migration_engine 链覆盖；缺跳注入用例红已核
 
 ## 3. PR2：向导与演练
 

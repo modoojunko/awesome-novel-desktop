@@ -264,6 +264,11 @@ async def _loginless_loopback_guard(request: _Request, call_next):
             return JSONResponse(status_code=403, content={"detail": "仅限本机访问"})
     return await call_next(request)
 
+# 迁入端点（db-generation）：免登（回环中间件已覆盖本前缀）
+from migration.router import router as migration_router
+
+app.include_router(migration_router)
+
 # License 验证路由
 app.include_router(auth_local_router, prefix="/api/auth", tags=["auth"])
 app.include_router(backup_router)
