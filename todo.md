@@ -401,6 +401,11 @@ POST /web/login      × 35 → 200×35 全部（限流完全没拦，登录逻�
 
 ## 已知不修（记录在案，避免重复排查）
 
+- [ ] **迁入 API 同步阻塞（2026-09-20 发现）**：`POST /api/backup/db-migration/start` 把整个搬运过程
+  同步等在 HTTP 请求里（最长 600s），前端找回向导进度条不动、curl 挂死。实际搬运本身只需几秒，
+  问题在路由层 `start` 里循环等 `job_runner.status()`。改为异步（start 立即返回 job id + 前端轮询
+  status 展示逐表进度），与备份导出同模式。P1。
+
 - **Actions 历史里两个红 X**（#221/#222 merge 时的 S端 自动发布 run）：当时跨境上传
   UserNetworkTooSlow，实际均已本机 staging 部署补上，终态正确；run 历史不可改，无需处理。
 - **云托管每天首访冷启动 30-60s**：MinNum=0 成本拍板，登录链路有门闩+重试自愈，
