@@ -4,6 +4,8 @@
 //   ArchiveModal        归档本章
 //   HistoryModal        版本历史（wide · ver-rows + 恢复；产品扩展=行内对比）
 //   AiModal             AI 生成正文（tall · 提示词预览可编辑 + 追加语义提示）
+//   AddVolumeModal      添加卷（卷名*＋卷摘要＋初始章数；c-0vol0ch-empty-state 起
+//                       改由工作台壳层持有，供空书态三处入口共用）
 // 文案与结构与原型 modalDelete/modalUnlock/modalArchive/modalHistory/modalAi 逐字对齐；
 // 产品化差异（升级跳 S端 等）见 docs/design-c/prototypes/ADJUSTMENTS.md。
 import { useEffect, useState } from "react";
@@ -11,6 +13,7 @@ import Modal from "@/components/design/Modal";
 import VersionDiff from "@/components/novel/VersionDiff";
 import { api, request } from "@/lib/api";
 import { polishWritePrompt } from "@/lib/ai";
+import { cnNum } from "@/lib/nodeTitle";
 import { toast } from "@/lib/toast";
 
 const fmt = (n: number) => n.toLocaleString("zh-CN");
@@ -600,6 +603,133 @@ export function RewriteModal({
           <span>归档时确认本章变化；开书设定永不改写，之后累积的条目跟着重算。</span>
         </li>
       </ul>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 添加卷弹窗（design/Modal）：卷名* + 卷摘要 + 初始章数 → loop 建章「第N章」
+// 原居 OutlineTree（树头「＋」唯一入口）；c-0vol0ch-empty-state 起移入弹窗群，
+// 由工作台壳层持有——空书态三处入口（顶栏卡/中栏空态/左栏底部）共用同一实例。
+// ---------------------------------------------------------------------------
+
+export function AddVolumeModal({
+  open,
+  onClose,
+  projectId,
+  createVolume,
+  createChapter,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  projectId: string;
+  createVolume: (title: string) => Promise<string | null>;
+  createChapter: (title: string, volName?: string) => Promise<string | null>;
+  onCreated: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [summary, setSummary] = useState("");
+  const [chapters, setChapters] = useState("0");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setTitle("");
+      setSummary("");
+      setChapters("0");
+      setSubmitting(false);
+    }
+  }, [open]);
+
+  const handleConfirm = async () => {
+    const t = title.trim();
+    if (!t) {
+      toast.error("请填写卷名");
+      return;
+    }
+    setSubmitting(true);
+    const volRef = await createVolume(t);
+    if (!volRef) {
+      setSubmitting(false); // 失败：toast 已提示，弹窗保持可重试
+      return;
+    }
+    // 卷摘要：建卷后补写（createVolume 只提交卷名）
+    if (summary.trim()) {
+      try {
+        const detail = await api.get(`/novels/${projectId}/volumes/${volRef}`);
+        await api.put(`/novels/${projectId}/volumes/${volRef}`, {
+          ...detail,
+          summary: summary.trim(),
+        });
+      } catch {
+        // 摘要补写失败不阻断建卷
+      }
+    }
+    const n = Math.min(20, Math.max(0, parseInt(chapters || "0", 10) || 0));
+    for (let i = 1; i <= n; i++) {
+      await createChapter(`第${cnNum(i)}章`, volRef);
+    }
+    setSubmitting(false);
+    onClose();
+    onCreated();
+    toast.success(`已创建《${t}》`);
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => !submitting && onClose()}
+      title="添加卷"
+      locked={submitting}
+      wbStyle
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose} disabled={submitting}>
+            取消
+          </button>
+          <button className="btn btn-primary" onClick={() => void handleConfirm()} disabled={submitting}>
+            创建卷
+          </button>
+        </>
+      }
+    >
+      <div className="field">
+        <label htmlFor="add-vol-title">卷名</label>
+        <input
+          id="add-vol-title"
+          className="input"
+          placeholder="如：第一卷 · 风起"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="add-vol-summary">
+          卷摘要 <span className="opt">选填</span>
+        </label>
+        <textarea
+          id="add-vol-summary"
+          className="textarea"
+          placeholder="这一卷讲什么？一句话即可"
+          value={summary}
+          onChange={(e) => setSummary(e.target.value)}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="add-vol-chapters">
+          初始章数 <span className="opt">可在树中随时增删</span>
+        </label>
+        <input
+          id="add-vol-chapters"
+          className="input num"
+          type="number"
+          min={0}
+          max={20}
+          value={chapters}
+          onChange={(e) => setChapters(e.target.value)}
+        />
+      </div>
     </Modal>
   );
 }

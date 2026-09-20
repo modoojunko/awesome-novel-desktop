@@ -2,11 +2,13 @@
 // + 行内加章 + 批量确认 + 默认全展开（ADJUSTMENTS #4）。
 // 应用侧扩展（ADJUSTMENTS #6）：hover 操作补「铅笔」行内重命名（#164 名称即标题口径）。
 // PR 5：删除走分级确认弹窗（空章无盘点；有内容 chips 盘点；卷带章数字数）。
+// c-0vol0ch-empty-state：空书态（零卷零章）底部改为「＋ 新增一章 / ＋ 新增一卷」
+// 两入口（原型 .tree-add；「确认全部已填章节」在空书里无对象故让位），加卷弹窗
+// 随之上交壳层（NovelWorkspace 持有，顶栏/中栏/左栏三处共用）。
 import { useEffect, useRef, useState } from "react";
 import { Ico, P } from "@/components/icons";
-import Modal from "@/components/design/Modal";
 import { DeleteConfirmModal } from "./modals";
-import { api, request } from "@/lib/api";
+import { request } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { cnNum, editName, nodeLabel } from "@/lib/nodeTitle";
 import type { UseOutlineReturn } from "@/hooks/useOutline";
@@ -21,6 +23,10 @@ interface OutlineTreeProps {
   guardedLeave: () => boolean;
   /** 选中章实时字数（原型 askDelete 用 live 内容计数；树计数要等刷新） */
   liveWords: { ref: string; words: number } | null;
+  /** 打开「添加卷」弹窗（弹窗实体在壳层：空书态三处入口共用） */
+  onAddVolume: () => void;
+  /** 空书态「＋ 新增一章」：先垫第一卷再排第一章（壳层实现） */
+  onAddChapter: () => void;
 }
 
 function volNo(name: string): number {
@@ -34,9 +40,10 @@ export default function OutlineTree({
   projectId,
   guardedLeave,
   liveWords,
+  onAddVolume,
+  onAddChapter,
 }: OutlineTreeProps) {
   const { volumes, selectedId, expandedIds, onToggle } = wb;
-  const [addVolOpen, setAddVolOpen] = useState(false);
   // 行内加章：目标卷
   const [inlineAddVol, setInlineAddVol] = useState<string | null>(null);
   // 行内重命名：{ kind, id, no, value }
@@ -193,7 +200,7 @@ export default function OutlineTree({
         <button
           className="icon-btn"
           title="添加卷"
-          onClick={() => setAddVolOpen(true)}
+          onClick={onAddVolume}
         >
           <Ico d={P.plus} sw={1.8} />
         </button>
@@ -356,7 +363,9 @@ export default function OutlineTree({
           );
         })}
         {volumes.length === 0 && (
-          <div className="empty-tree">还没有卷与章节。点击左上「＋」添加第一卷。</div>
+          <div className="empty-tree">
+            {"还没有任何卷与章节。点下方「＋ 新增一章」会先垫好第一卷并排上第一章，或点「＋ 新增一卷」先写卷纲。"}
+          </div>
         )}
       </div>  {wb.ghosts.length > 0 && (
     <div className="ghost-group" data-od-id="ghost-group">
@@ -378,20 +387,33 @@ export default function OutlineTree({
   )}
 
 
-      <div className="tree-foot">
-        <button className="btn btn-ghost btn-sm batch" onClick={() => void handleBatchConfirm()}>
-          确认全部已填章节
-        </button>
-      </div>
-
-      <AddVolumeModal
-        open={addVolOpen}
-        onClose={() => setAddVolOpen(false)}
-        projectId={projectId}
-        createVolume={wb.createVolume}
-        createChapter={wb.createChapter}
-        onCreated={() => void outline.refetchTree()}
-      />
+      {volumes.length === 0 ? (
+        /* 空书态底部入口（原型 .tree-add）：无章可确认，「确认全部已填章节」让位 */
+        <div className="tree-add" data-od-id="tree-create">
+          <button
+            className="add-btn"
+            data-od-id="add-chapter"
+            title="首页排一章，先进章纲"
+            onClick={onAddChapter}
+          >
+            ＋ 新增一章
+          </button>
+          <button
+            className="add-btn"
+            data-od-id="add-volume"
+            title="从一卷卷纲开始这本书"
+            onClick={onAddVolume}
+          >
+            ＋ 新增一卷
+          </button>
+        </div>
+      ) : (
+        <div className="tree-foot">
+          <button className="btn btn-ghost btn-sm batch" onClick={() => void handleBatchConfirm()}>
+            确认全部已填章节
+          </button>
+        </div>
+      )}
 
       <DeleteConfirmModal
         open={!!delTarget}
@@ -422,129 +444,4 @@ function findCurrentTitle(
   if (!chNo) return null;
   const vol = wb.volumes.find((v) => v.name === volName);
   return vol?.chapters.find((c) => c.chapter === chNo)?.title ?? null;
-}
-
-// ---------------------------------------------------------------------------
-// 添加卷弹窗（design/Modal）：卷名* + 卷摘要 + 初始章数 → loop 建章「第N章 · 未命名」
-// ---------------------------------------------------------------------------
-
-function AddVolumeModal({
-  open,
-  onClose,
-  projectId,
-  createVolume,
-  createChapter,
-  onCreated,
-}: {
-  open: boolean;
-  onClose: () => void;
-  projectId: string;
-  createVolume: UseWorkbenchReturn["createVolume"];
-  createChapter: UseWorkbenchReturn["createChapter"];
-  onCreated: () => void;
-}) {
-  const [title, setTitle] = useState("");
-  const [summary, setSummary] = useState("");
-  const [chapters, setChapters] = useState("0");
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setTitle("");
-      setSummary("");
-      setChapters("0");
-      setSubmitting(false);
-    }
-  }, [open]);
-
-  const handleConfirm = async () => {
-    const t = title.trim();
-    if (!t) {
-      toast.error("请填写卷名");
-      return;
-    }
-    setSubmitting(true);
-    const volRef = await createVolume(t);
-    if (!volRef) {
-      setSubmitting(false); // 失败：toast 已提示，弹窗保持可重试
-      return;
-    }
-    // 卷摘要：建卷后补写（createVolume 只提交卷名）
-    if (summary.trim()) {
-      try {
-        const detail = await api.get(`/novels/${projectId}/volumes/${volRef}`);
-        await api.put(`/novels/${projectId}/volumes/${volRef}`, {
-          ...detail,
-          summary: summary.trim(),
-        });
-      } catch {
-        // 摘要补写失败不阻断建卷
-      }
-    }
-    const n = Math.min(20, Math.max(0, parseInt(chapters || "0", 10) || 0));
-    for (let i = 1; i <= n; i++) {
-      await createChapter(`第${cnNum(i)}章`, volRef);
-    }
-    setSubmitting(false);
-    onClose();
-    onCreated();
-    toast.success(`已创建《${t}》`);
-  };
-
-  return (
-    <Modal
-      open={open}
-      onClose={() => !submitting && onClose()}
-      title="添加卷"
-      locked={submitting}
-      wbStyle
-      footer={
-        <>
-          <button className="btn btn-secondary" onClick={onClose} disabled={submitting}>
-            取消
-          </button>
-          <button className="btn btn-primary" onClick={() => void handleConfirm()} disabled={submitting}>
-            创建卷
-          </button>
-        </>
-      }
-    >
-      <div className="field">
-        <label htmlFor="add-vol-title">卷名</label>
-        <input
-          id="add-vol-title"
-          className="input"
-          placeholder="如：第一卷 · 风起"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-      </div>
-      <div className="field">
-        <label htmlFor="add-vol-summary">
-          卷摘要 <span className="opt">选填</span>
-        </label>
-        <textarea
-          id="add-vol-summary"
-          className="textarea"
-          placeholder="这一卷讲什么？一句话即可"
-          value={summary}
-          onChange={(e) => setSummary(e.target.value)}
-        />
-      </div>
-      <div className="field">
-        <label htmlFor="add-vol-chapters">
-          初始章数 <span className="opt">可在树中随时增删</span>
-        </label>
-        <input
-          id="add-vol-chapters"
-          className="input num"
-          type="number"
-          min={0}
-          max={20}
-          value={chapters}
-          onChange={(e) => setChapters(e.target.value)}
-        />
-      </div>
-    </Modal>
-  );
 }

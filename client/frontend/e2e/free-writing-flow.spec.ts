@@ -142,10 +142,10 @@ test("免费建书直达写作工作台：零 phase-status，无阶段催促，m
 
     await createNovel(page, `免费${Date.now() % 100000}`);
 
-    // ① 落点即写作工作台（而非设定页）：空面板 + 左树空态
-    await expect(page.getByText("开始创作")).toBeVisible({ timeout: 10000 });
+    // ① 落点即写作工作台（而非设定页）：空书态（c-0vol0ch-empty-state）+ 左树空态
+    await expect(page.getByText("这本书还没有开始")).toBeVisible({ timeout: 10000 });
     await expect(
-      page.getByText("还没有卷与章节。点击左上「＋」添加第一卷。"),
+      page.getByText("还没有任何卷与章节。点下方「＋ 新增一章」"),
     ).toBeVisible();
     // 免费标识（行头归一后 = 顶栏账户胶囊档位徽「免费版」）
     await expect(page.locator('[data-od-id="acct-badge"]')).toHaveText("免费版");
@@ -168,7 +168,7 @@ test("免费建书直达写作工作台：零 phase-status，无阶段催促，m
       page.locator(".settings-v .col-tree").getByText("世界", { exact: true }),
     ).toBeVisible({ timeout: 5000 });
     await page.getByRole("button", { name: /^写作/ }).click();
-    await expect(page.getByText("开始创作")).toBeVisible();
+    await expect(page.getByText("这本书还没有开始")).toBeVisible();
     // 全程仍零 phase-status（设定确认 refetch 免费态为 no-op）
     expect(phaseReqs.length).toBe(0);
   } finally {
@@ -249,7 +249,8 @@ test("树 CRUD：hover 铅笔重命名 + 删除（N2）", async ({ page }) => {
     await expect(delModal.getByText(/确定删除章节/)).toBeVisible();
     await expect(delModal.locator(".inv-chip")).toHaveCount(0);
     await delModal.getByTestId("del-confirm").click();
-    await expect(page.getByText("开始创作")).toBeVisible({ timeout: 5000 });
+    // 卷仍在、只是没选中 → 中栏空态换成「选一章」引导（c-0vol0ch-empty-state 第二分支）
+    await expect(page.getByText("在左侧目录里选一章")).toBeVisible({ timeout: 5000 });
   } finally {
     await restore();
   }

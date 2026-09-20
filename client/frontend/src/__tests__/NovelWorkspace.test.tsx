@@ -63,7 +63,7 @@ function ProjectProvider({ children }: { children: ReactNode }) {
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
 }
 
-/** 空卷树：中栏呈现「开始创作」空面板。 */
+/** 空卷树：中栏呈现「这本书还没有开始」空态（c-0vol0ch-empty-state）。 */
 function mockEmptyTree() {
   apiState.get.mockImplementation((path: string) => {
     if (path === "/novels/p1/volumes") return Promise.resolve([]);
@@ -177,6 +177,13 @@ function threeColClass(): string {
   return document.querySelector(".view.three-col")?.className ?? "";
 }
 
+/** 空书阶段落点＝「设定」（novelStage 单一事实源；e2e landing-view.spec 覆盖该口径）。
+ *  本文件关注写作视图 → 显式点「写作」进入（幂等；点击即标记已主动导航，落点不再回切），
+ *  避免与落点异步应用的竞态（曾出现「单跑绿、同文件跑红」的时序抖动）。 */
+function goWriteView() {
+  fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
+}
+
 beforeEach(() => {
   apiState.get.mockReset();
   apiState.post.mockReset();
@@ -193,11 +200,25 @@ describe("默认落写作视图（免费）", () => {
   it("渲染后即呈现 three-col 写作工作台，无阶段催促 UI", async () => {
     mockEmptyTree();
     renderWorkspace("none");
-    // 中栏空面板 + 左树空态
-    expect(await screen.findByText("开始创作")).toBeVisible();
+    // 中栏空书态（原型 bookEmptyHTML）+ 左树空态提示 + 顶栏空书卡
+    expect(await screen.findByText("这本书还没有开始")).toBeVisible();
     expect(
-      screen.getByText("还没有卷与章节。点击左上「＋」添加第一卷。"),
+      screen.getByText(
+        "还没有任何卷与章节。点下方「＋ 新增一章」会先垫好第一卷并排上第一章，或点「＋ 新增一卷」先写卷纲。",
+      ),
     ).toBeVisible();
+    expect(document.querySelector(".bar-here .bh-k")?.textContent).toBe("空书");
+    expect(screen.getByText("还没有卷与章节")).toBeVisible();
+    // 空书态两处起手入口（中栏 CTA + 左栏底部）＝新增一卷 ×2 / 新增一章 ×2
+    expect(document.querySelectorAll(".e-empty .be-acts .btn").length).toBe(2);
+    expect(document.querySelector(".col-tree.empty-book .tree-add")).toBeTruthy();
+    // 右栏「未选中」态（原型无语境 aiShell）：当前页签未选 ＋ 四格统计
+    expect(document.querySelector(".col-ai .ai-ctx")?.textContent).toContain("未选");
+    expect(screen.getByTestId("idle-rail-stats").querySelectorAll("li").length).toBe(4);
+    // 无包裹层：统计卡是 .col-ai 直接子级（原型 aiShell 同级；勿再套 .rail-assist
+    // ——设定页右栏同名，写作视图常驻挂载会让 `.col-ai .rail-assist` 歧义）
+    expect(document.querySelector(".col-ai > .rail-stats")).toBeTruthy();
+    expect(document.querySelector(".col-ai .rail-assist")).toBeNull();
     // 应用栏（行头归一）：书名在顶栏；免费标识收敛到账户档位徽（未登录不渲染，e2e 断言）
     expect(screen.getAllByText("测试小说").length).toBeGreaterThan(0);
     expect(screen.queryByText(/免费模式 · 写作功能完整/)).toBeNull();
@@ -206,13 +227,74 @@ describe("默认落写作视图（免费）", () => {
     expect(screen.getByRole("button", { name: /^设定/ })).toBeDefined();
     expect(screen.getByRole("button", { name: /^写作/ })).toBeDefined();
     expect(screen.getByRole("button", { name: "预览" })).toBeDefined();
+    goWriteView();
+    await waitFor(() => expect(threeColClass()).toContain("on"));
     expect(screen.getByRole("button", { name: /^写作/ }).className).toContain("on");
-    expect(threeColClass()).toContain("on");
     // 免费态零 phase-status 请求（ProContainer 整棵不渲染）
     expect(apiState.get).not.toHaveBeenCalledWith(
       "/novels/p1/workflow/phase-status",
     );
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("空书起手链（c-0vol0ch-empty-state）", () => {
+  it("「＋ 新增一章」先垫第一卷再排第一章；「＋ 新增一卷」开建卷弹窗", async () => {
+    // 有状态的建卷/建章 mock：POST 后 GET /volumes 跟着长出来（原型 firstVol 口径）
+    let vols: unknown[] = [];
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/novels/p1/volumes") return Promise.resolve(vols);
+      if (path === "/novels/p1/readiness")
+        return Promise.resolve({ complete: false, missing: [], warning: "" });
+      return Promise.resolve({});
+    });
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+    apiState.post.mockImplementation((path: string) => {
+      if (path === "/novels/p1/volumes") {
+        vols = [{ ref: "vol-1", title: "第一卷", summary: "", chapter_count: 0, chapters: [] }];
+        return Promise.resolve({ ref: "vol-1" });
+      }
+      if (path === "/novels/p1/volumes/vol-1/chapters") {
+        vols = [
+          {
+            ref: "vol-1",
+            title: "第一卷",
+            summary: "",
+            chapter_count: 1,
+            chapters: [
+              {
+                ref: "vol-1-ch-1", volume: 1, chapter: 1, title: "第一章",
+                status: "outline", word_count: 0, has_prose: false,
+                outline_status: "unfilled", archived: false,
+              },
+            ],
+          },
+        ];
+        return Promise.resolve({ chapter_ref: "vol-1-ch-1" });
+      }
+      return Promise.resolve({});
+    });
+
+    renderWorkspace("none");
+    await screen.findByText("这本书还没有开始");
+    // 三处「＋ 新增一卷」（顶栏空书卡 / 中栏空态 / 左栏底部）都开同一个建卷弹窗
+    for (const id of ["empty-add-vol", "empty-cta-vol", "add-volume"]) {
+      expect(document.querySelector(`[data-od-id="${id}"]`)).toBeTruthy();
+    }
+    fireEvent.click(document.querySelector('[data-od-id="add-volume"]') as HTMLElement);
+    expect(await screen.findByRole("heading", { name: "添加卷" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    // 中栏「＋ 新增一章」＝空书垫卷链（原型 firstVol → 新增一章）
+    fireEvent.click(document.querySelector('[data-od-id="empty-cta-ch"]') as HTMLElement);
+    await waitFor(() =>
+      expect(apiState.post).toHaveBeenCalledWith("/novels/p1/volumes", { title: "第一卷" }),
+    );
+    await waitFor(() =>
+      expect(apiState.post).toHaveBeenCalledWith("/novels/p1/volumes/vol-1/chapters", {
+        title: "第一章",
+      }),
+    );
   });
 });
 
@@ -264,8 +346,9 @@ describe("设定视图懒挂载 / 离开卸载", () => {
   it("经 modnav「设定」进入设定视图，点「写作」返回后卸载", async () => {
     mockEmptyTree();
     renderWorkspace("none");
-    await screen.findByText("开始创作");
-    expect(threeColClass()).toContain("on");
+    await screen.findByText("这本书还没有开始");
+    goWriteView();
+    await waitFor(() => expect(threeColClass()).toContain("on"));
 
     fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
     await waitFor(() =>
