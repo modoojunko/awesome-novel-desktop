@@ -4,6 +4,17 @@
    不进 parity 基线（悬浮态与提示条在比对截图里不可见）。
    ═══════════════════════════════════════════════════════════════════ */
 
+/* 屏级垂直节奏（works.html 口径，ADJUSTMENTS 换代节 #12）：各屏节奏有意不同
+   （本屏 40/26，模型配置 .pg-config 44/28），故以屏级类覆盖全局壳、base.css 零改动。
+   与 base.css 同特异性，依赖 main.tsx 装载顺序（base→list）取胜，勿调换。 */
+.pg-works { padding-top: 40px; }
+.pg-works .page-head { margin-bottom: 26px; }
+.pg-works .page-head .sub { margin-bottom: 0; }
+@media (max-width: 480px) {
+  .pg-works { padding: 28px 16px 64px; }
+  .pg-works .page-head { gap: 14px; margin-bottom: 22px; }
+}
+
 .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 @media (max-width: 900px) { .cards { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 600px) { .cards { grid-template-columns: 1fr; } }
