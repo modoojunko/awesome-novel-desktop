@@ -326,12 +326,12 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
 
     await selectFirstChapter();
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
-    // 工具栏 AI 入口（PRO-only）+ 右栏真实工具卡
-    expect(
-      await screen.findByRole("button", { name: "AI 生成正文" }),
-    ).toBeVisible();
-    // 顶栏 bar-here 也有「续写」CTA（行头归一），右栏工具卡断言限定右栏范围
+    // AI 入口唯一化右栏（2026-09-20）：章 body 无「AI 生成正文」按钮，
+    // 右栏 AI 助手卡有「生成正文」（data-testid=ai-write-btn）＋真实工具卡
+    expect(screen.queryByRole("button", { name: "AI 生成正文" })).toBeNull();
     const rail = document.querySelector(".col-ai") as HTMLElement;
+    expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
+    // 顶栏 bar-here 也有「续写」CTA（行头归一），右栏工具卡断言限定右栏范围
     expect(within(rail).getByRole("button", { name: "续写" })).toBeDefined();
     expect(within(rail).getByRole("button", { name: "润色选段" })).toBeDefined();
     expect(within(rail).getByRole("button", { name: "扩写选段" })).toBeDefined();

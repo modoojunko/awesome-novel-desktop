@@ -1,7 +1,9 @@
 /** 右栏「AI 辅助」面板（storyline.html col-ai 复刻，workbench-storyline-ai-panel）：
  *  随中栏页签切换——每页签一条引导语＋统计卡＋动作清单。
  *  动作清单已全部落地（2026-09-17）：占位机制退役——onClick 改为必填，各动作按门控禁用。
- *  已在中栏页签内提供的动作不在此重复（文风调参/收尾确认等）。
+ *  2026-09-20 AI 入口收口右栏（用户拍板）：章页签 body 的 AI 按钮全部退役，
+ *  起草/推演/建议调整等触发动作唯一化在此；结果呈现仍在对应页签（文风建议逐项采纳、
+ *  推演弹窗、章纲回填表单）。
  *  2026-09-17 撤三个重复动作（ADJUSTMENTS #27 ⑫）：「重新组装提示词」＝提示词页签内
  *  AI 润色（组装＋落库同一动作，且粗组稿本就每次重算）；「本章关系变化检测」＝操作页签
  *  reconcile 关系收尾；「建议本章回收」＝reconcile 伏笔收尾的「收束」提案。
@@ -35,6 +37,8 @@ interface Act {
   onClick: () => void;
   disabled?: boolean;
   busy?: boolean;
+  /** e2e 稳定锚（入口收口右栏后沿用原 testid，如 og-ai-draft/og-simulate） */
+  testid?: string;
 }
 
 function raStats(pairs: Array<[string, string]>) {
@@ -71,6 +75,7 @@ function raActs(acts: Act[], locked: boolean) {
         <button
           key={a.label}
           className="btn btn-secondary btn-sm"
+          data-testid={a.testid}
           disabled={locked || a.disabled}
           onClick={a.onClick}
         >
@@ -103,6 +108,7 @@ export function AiAssistPanel({
   gapsLoading,
   onAiCheck,
   onPromptRefine,
+  onStyleSuggest,
 }: {
   projectId: string;
   chapterRef: string;
@@ -134,6 +140,8 @@ export function AiAssistPanel({
   onAiCheck?: (kind: AiCheckKind) => void;
   /** 提示词精修（提案制弹窗；采纳后走提示词保存链） */
   onPromptRefine?: (mode: RefineMode) => void;
+  /** 文风「AI 建议本章调整」（触发 StyleShadowPane 拉取；结果在页签内逐项采纳） */
+  onStyleSuggest?: () => void;
 }) {
   // 页签内轻量数据（与中栏页签同端点；只在对应页签激活时取）
   const [promptSrc, setPromptSrc] = useState<{ total: number; cast: number } | null>(null);
@@ -286,9 +294,15 @@ export function AiAssistPanel({
         {raList("还缺", ogStats.missingLabels ?? [], "warn")}
         {raActs(
           [
-            { label: "剧情推演 · 按回合走一遍", onClick: onSimulate, disabled: archived },
+            {
+              label: "剧情推演 · 按回合走一遍",
+              testid: "og-simulate",
+              onClick: onSimulate,
+              disabled: archived,
+            },
             {
               label: aiDrafting ? "AI 起草中" : "AI 起草",
+              testid: "og-ai-draft",
               onClick: onAiDraft,
               disabled: !canAiDraft || aiDrafting || archived,
               busy: aiDrafting,
@@ -402,7 +416,7 @@ export function AiAssistPanel({
       <div className="rail-assist" data-testid="rail-assist">
         <p className="ai-sec">AI 辅助 · 文风</p>
         <p className="rail-lead">
-          全书文风基线只读；本章只改这一章的差异项，不写回全书文风。AI 调参在本页签内逐项确认。
+          全书文风基线只读；本章只改这一章的差异项，不写回全书文风。AI 建议在此生成、页签内逐项采纳。
         </p>
         {raStats([
           ["全书基线", styleStats ? `${styleStats.rows} 行` : "—"],
@@ -411,6 +425,12 @@ export function AiAssistPanel({
         ])}
         {raActs(
           [
+            {
+              label: "AI 建议本章调整",
+              testid: "style-suggest-btn",
+              onClick: () => onStyleSuggest?.(),
+              disabled: !onStyleSuggest || archived,
+            },
             {
               label: "文风一致性检查",
               onClick: () => onAiCheck?.("style_consistency"),
