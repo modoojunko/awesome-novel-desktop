@@ -2,8 +2,8 @@ import { test, expect, type Page } from "@playwright/test";
 import { stubUpdateNotice } from "./helpers";
 
 /**
- * 完本链路（works-finish-flow）：待完本徽章/页脚、待完本提示条、完本清单弹窗
- * （伏笔留白勾选）、完结、⋯菜单撤完本。
+ * 完本链路（works-finish-flow）：待完本徽章/页脚、待完本分组头完本入口（提示条已退役，
+ * c-works-toolbar）、完本清单弹窗（伏笔留白勾选）、完结、⋯菜单撤完本。
  * 全打桩 spec（runbook ③：/api/** 全部 route 拦截，不起真后端）；
  * 请求头守卫（runbook #17）：完本/撤完本必须带 Bearer（先例 manuscript-download）。
  */
@@ -84,8 +84,9 @@ async function stubFinishData(page: Page, novelId: string) {
 }
 
 test.describe("完本链路（works-finish-flow）", () => {
-  test("待完本：徽章/分态页脚/提示条；知道了只关提示条", async ({ page }) => {
+  test("待完本：徽章/分态页脚；提示条退役；分组头去完本开弹窗", async ({ page }) => {
     await stubShell(page, [readyNovel]);
+    await stubFinishData(page, "fin-ready");
     await page.goto("/#/novels");
 
     const card = page.locator(".book-card");
@@ -94,13 +95,16 @@ test.describe("完本链路（works-finish-flow）", () => {
     await expect(card.getByRole("button", { name: "回看" })).toBeVisible();
     await expect(card.getByRole("button", { name: "完本" })).toBeVisible();
 
-    const notice = page.locator('[data-od-id="ready-notice"]');
-    await expect(notice).toContainText("《沙漏之下》主线已收齐");
-    await expect(notice).toContainText("6 章全部归档 · 可以完本了");
-
-    await notice.getByRole("button", { name: "知道了" }).click();
+    // 待完本提示条退役（c-works-toolbar，ADJUSTMENTS 换代 v2 章 #2）：入口＝分组头/卡页脚
     await expect(page.locator('[data-od-id="ready-notice"]')).toHaveCount(0);
-    await expect(card).toBeVisible(); // 卡片仍在，只关提示条
+    await expect(page.getByText(/主线已收齐/)).toHaveCount(0);
+
+    // 分组头：待完本 chip → 「N 本 · 主线已收齐」＋去完本（同一 FinishModal）
+    await page.locator('[data-od-id="filter-ready"]').click();
+    const head = page.locator(".bk-group-head");
+    await expect(head).toContainText("1 本 · 主线已收齐");
+    await page.locator('[data-od-id="group-finish"]').click();
+    await expect(page.locator(".modal")).toContainText("完结《沙漏之下》？");
   });
 
   test("完本清单：三行检查＋伏笔留白（不落库）＋完结转已完结", async ({ page }) => {
@@ -146,14 +150,13 @@ test.describe("完本链路（works-finish-flow）", () => {
     expect(finishCalled).toBe(1);
     expect(finishHeaders.every((h) => h.startsWith("Bearer "))).toBe(true); // 请求头守卫
 
-    // 卡片转已完结：徽章/页脚/提示条
+    // 卡片转已完结：徽章/页脚（不再有提示条可消失——已退役）
     const card = page.locator(".book-card");
     await expect(card).toContainText("已完结");
     await expect(card).toContainText(/完结于/);
-    await expect(page.locator('[data-od-id="ready-notice"]')).toHaveCount(0);
   });
 
-  test("完本守卫 409：toast 提示且弹窗不关", async ({ page }) => {
+  test("完本守卫 409：toast 透出服务端原因且弹窗不关", async ({ page }) => {
     await stubShell(page, [readyNovel]);
     await stubFinishData(page, "fin-ready");
     await page.route("**/api/novels/fin-ready/finish", (r) =>
@@ -164,11 +167,12 @@ test.describe("完本链路（works-finish-flow）", () => {
     const modal = page.locator(".modal");
     await expect(modal).toBeVisible();
     await modal.getByRole("button", { name: "完结这本书" }).click();
-    await expect(page.locator(".toast")).toContainText("完本前先把主线章节全部归档");
+    // 服务端 detail 透出（errMessage 口径，rider F3.1）——不再是硬编码单一文案
+    await expect(page.locator(".toast")).toContainText("还有主线章节未归档，完本前先把主线章节全部归档");
     await expect(modal).toBeVisible(); // 不关闭，可先回去归档
   });
 
-  test("已完结：⋯菜单撤完本 → 回待完本＋提示条重现", async ({ page }) => {
+  test("已完结：⋯菜单撤完本 → 回待完本（徽章/页脚复原）", async ({ page }) => {
     await stubShell(page, [doneNovel]);
     const reopenHeaders: string[] = [];
     page.on("request", (req) => {
@@ -183,7 +187,6 @@ test.describe("完本链路（works-finish-flow）", () => {
     const card = page.locator(".book-card");
     await expect(card).toContainText("已完结");
     await expect(card).toContainText(/完结于/);
-    await expect(page.locator('[data-od-id="ready-notice"]')).toHaveCount(0);
 
     await card.getByLabel("更多操作").click();
     await card.getByRole("button", { name: "完本信息 · 撤完本" }).click();
@@ -193,9 +196,8 @@ test.describe("完本链路（works-finish-flow）", () => {
     await expect(modal).toHaveCount(0);
     expect(reopenHeaders.every((h) => h.startsWith("Bearer "))).toBe(true);
 
-    // 回到待完本（全归档未完结）：徽章/页脚复原＋提示条重现
+    // 回到待完本（全归档未完结）：徽章/页脚复原
     await expect(card).toContainText("待完本");
     await expect(card).toContainText("全书 9 章已归档");
-    await expect(page.locator('[data-od-id="ready-notice"]')).toContainText("《雾中法庭》主线已收齐");
   });
 });

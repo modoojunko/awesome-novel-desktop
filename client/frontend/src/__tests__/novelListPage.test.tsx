@@ -124,7 +124,9 @@ describe("列表状态与卡片", () => {
   it("正常渲染卡片：阶段标签/题材胶囊/统计/简介/相对时间", async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
-    expect(screen.getByText("写作中")).toBeTruthy();
+    // 状态文案与工具栏 chips 同字（c-works-toolbar），徽章断言收窄到卡内
+    const card = screen.getByText("《星海拾遗》").closest(".book-card") as HTMLElement;
+    expect(within(card).getByText("写作中")).toBeTruthy();
     expect(screen.getByText("科幻")).toBeTruthy();
     expect(screen.getByText("2 卷")).toBeTruthy();
     expect(screen.getByText("3 章")).toBeTruthy();
@@ -152,13 +154,17 @@ describe("列表状态与卡片", () => {
     ]);
     renderPage();
     await waitFor(() => expect(screen.getByText("《全归档》")).toBeTruthy());
-    expect(screen.getByText("待完本")).toBeTruthy();
+    const cardOf = (n: string) =>
+      screen.getByText(`《${n}》`).closest(".book-card") as HTMLElement;
+    expect(within(cardOf("全归档")).getByText("待完本")).toBeTruthy();
     expect(screen.getByText("全书 3 章已归档")).toBeTruthy();
-    expect(screen.getByText("回看")).toBeTruthy();
+    // 回看（待完本）与回看（已完结，v2 新增）同名——收窄到各自卡内
+    expect(within(cardOf("全归档")).getByText("回看")).toBeTruthy();
+    expect(within(cardOf("完本书")).getByText("回看")).toBeTruthy();
     expect(screen.getByText("完本")).toBeTruthy();
-    expect(screen.getByText("已完结")).toBeTruthy();
+    expect(within(cardOf("完本书")).getByText("已完结")).toBeTruthy();
     expect(screen.getByText(/完结于/)).toBeTruthy();
-    expect(screen.getByText("设定中")).toBeTruthy();
+    expect(within(cardOf("空书")).getByText("设定中")).toBeTruthy();
     expect(screen.getByText("待定题材")).toBeTruthy();
     expect(screen.getByText("继续创作")).toBeTruthy();
   });
@@ -562,21 +568,21 @@ describe("完本链路（works-finish-flow）", () => {
     });
   };
 
-  it("待完本提示条：出现→知道了关闭（会话内）；去完本打开弹窗", async () => {
+  it("待完本入口：卡页脚「完本」打开弹窗；（分组头去完本见工具栏用例）", async () => {
     stubReadyBook();
     renderPage();
-    await waitFor(() => expect(screen.getByText(/主线已收齐/)).toBeTruthy());
-    expect(screen.getByText("3 章全部归档 · 可以完本了")).toBeTruthy();
-    fireEvent.click(screen.getByText("知道了"));
-    expect(screen.queryByText(/主线已收齐/)).toBeNull(); // 卡片仍在，只关提示条
-    expect(screen.getByText("《星海拾遗》")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+    // 提示条已退役（c-works-toolbar）：完本入口＝卡页脚「完本」/ 待完本分组头「去完本」
+    expect(screen.queryByText(/主线已收齐/)).toBeNull();
+    fireEvent.click(screen.getByText("完本"));
+    await waitFor(() => expect(screen.getByText("完结《星海拾遗》？")).toBeTruthy());
   });
 
   it("完本清单弹窗：三行检查＋active 伏笔逐条＋留白切换不落库＋完结成功卡片转已完结", async () => {
     stubReadyBook();
     renderPage();
     await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
-    fireEvent.click(screen.getByText(/主线已收齐/).closest(".notice")!.querySelector("[data-od-id='ready-finish']") as HTMLElement);
+    fireEvent.click(screen.getByText("完本"));
     await waitFor(() => expect(screen.getByText("完结《星海拾遗》？")).toBeTruthy());
     expect(screen.getByText("章节已全部归档")).toBeTruthy();
     await waitFor(() => expect(screen.getByText("还有 1 条伏笔悬着")).toBeTruthy());
@@ -592,9 +598,11 @@ describe("完本链路（works-finish-flow）", () => {
     expect(toast.success).toHaveBeenCalledWith(
       "《星海拾遗》已完结 · 归档收尾提案可在书的「操作」页逐条确认",
     );
-    await waitFor(() => expect(screen.getByText("已完结")).toBeTruthy());
+    const card = await screen.findByText("《星海拾遗》").then(
+      (el) => el.closest(".book-card") as HTMLElement,
+    );
+    expect(within(card).getByText("已完结")).toBeTruthy();
     expect(screen.getByText(/完结于/)).toBeTruthy();
-    expect(screen.queryByText(/主线已收齐/)).toBeNull(); // 完结后提示条消失
   });
 
   it("已完结书：⋯菜单「完本信息 · 撤完本」→ 撤完本回待完本", async () => {
@@ -607,7 +615,9 @@ describe("完本链路（works-finish-flow）", () => {
       }),
     ]);
     renderPage();
-    await waitFor(() => expect(screen.getByText("已完结")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+    const cardOf = () => screen.getByText("《星海拾遗》").closest(".book-card") as HTMLElement;
+    expect(within(cardOf()).getByText("已完结")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("更多操作"));
     fireEvent.click(screen.getByText("完本信息 · 撤完本"));
     await waitFor(() => expect(screen.getByText("《星海拾遗》已完结")).toBeTruthy());
@@ -618,7 +628,29 @@ describe("完本链路（works-finish-flow）", () => {
     expect(toast.success).toHaveBeenCalledWith(
       "已撤完本 · 《星海拾遗》回到待完本，可以接着写或加新章",
     );
-    await waitFor(() => expect(screen.getByText("待完本")).toBeTruthy());
-    expect(screen.getByText(/主线已收齐/)).toBeTruthy(); // 回到待完本：提示条重新出现
+    await waitFor(() => expect(within(cardOf()).getByText("待完本")).toBeTruthy());
+  });
+
+  it("工具栏：状态 chip 进分组视图（计数＋去完本）；搜索无果出 bk-empty，清除筛选复原", async () => {
+    stubReadyBook();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+
+    // 待完本分组：分组头计数 + 「主线已收齐」+ 去完本（本轮完本清单的直接入口）
+    fireEvent.click(within(screen.getByRole("group", { name: "按状态筛选" })).getByText("待完本"));
+    expect(screen.getByText(/1 本 · 主线已收齐/)).toBeTruthy();
+    fireEvent.click(screen.getByText("去完本"));
+    await waitFor(() => expect(screen.getByText("完结《星海拾遗》？")).toBeTruthy());
+    fireEvent.click(screen.getByText("再想想"));
+
+    // 搜索无果：bk-empty + 清除筛选复原（chip 回全部、搜索清空）
+    fireEvent.change(screen.getByLabelText("搜索书名"), { target: { value: "不存在" } });
+    expect(screen.getByText("没有找到符合条件的作品")).toBeTruthy();
+    fireEvent.click(screen.getByText("清除筛选"));
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+    expect((screen.getByLabelText("搜索书名") as HTMLInputElement).value).toBe("");
+    expect(
+      within(screen.getByRole("group", { name: "按状态筛选" })).getByText("全部").getAttribute("aria-pressed"),
+    ).toBe("true");
   });
 });

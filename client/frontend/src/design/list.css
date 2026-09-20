@@ -15,6 +15,43 @@
   .pg-works .page-head { gap: 14px; margin-bottom: 22px; }
 }
 
+/* ─── 书架检索与组织（c-works-toolbar，works.html v2 逐字照抄）──────────
+   工具栏（搜索/状态筛选 chips/排序）＋生命周期分组（单态筛选视图）＋
+   筛选无果空态＋分页。.bk-list 为无样式包裹层（承载 .cards/.bk-group/.load-more，
+   令 .bk-group:first-child 结构成立、对齐原型 DOM）。 */
+.bk-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 6px; }
+.bk-search { position: relative; flex: 1 1 240px; min-width: 200px; }
+.bk-search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--muted); pointer-events: none; }
+.bk-search input { width: 100%; height: 36px; padding: 0 12px 0 35px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--fg); font-size: 13.5px; }
+.bk-search input::placeholder { color: var(--muted); }
+.bk-search input:focus { border-color: var(--accent); outline: none; }
+.bk-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+/* .chip 同名两义作用域化（ADJUSTMENTS 换代 v2 章 #4）：book.css 已有 .chip（设置页/工作台
+   在用），裸写会被后者按装载序覆盖且像素差低于 parity 阈值（静默绿）——本屏只在
+   .bk-chips 下生效，取值逐字照抄原型（--radius-pill 不存在于 C端，用字面 999px）。 */
+.bk-chips .chip { height: 30px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12.5px; transition: border-color .15s ease, color .15s ease, background .15s ease; }
+.bk-chips .chip:hover { border-color: var(--fg); color: var(--fg); }
+.bk-chips .chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.bk-sort { height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--fg); font-size: 13px; margin-left: auto; cursor: pointer; }
+.bk-sort:hover { border-color: var(--fg); }
+.bk-group { margin-bottom: 26px; }
+.bk-group-head { display: flex; align-items: center; gap: 12px; padding: 20px 0 4px; border-top: 1px solid var(--border); }
+.bk-group:first-child .bk-group-head { border-top: 0; padding-top: 0; }
+.gh-label { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 15px; font-weight: 600; }
+.gh-label .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.gh-label .dot.ready { background: var(--accent); }
+.gh-label .dot.writing { background: var(--warn); }
+.gh-label .dot.setting { background: color-mix(in oklch, var(--fg) 22%, transparent); }
+.gh-label .dot.done { background: var(--ok); }
+.gh-count { font-size: 12px; color: var(--muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.bk-group .cards { margin-top: 14px; }
+.gh-acts { margin-left: auto; display: inline-flex; gap: 8px; }
+.bk-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 64px 24px; text-align: center; background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius-lg); color: var(--muted); }
+.bk-empty .em { font-family: var(--font-display); font-size: 18px; font-weight: 600; color: var(--fg); }
+.bk-empty .es { font-size: 12.5px; line-height: 1.7; }
+.bk-empty .acts { display: inline-flex; gap: 8px; margin-top: 8px; }
+.load-more { display: flex; justify-content: center; padding: 22px 0 4px; }
+
 .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 @media (max-width: 900px) { .cards { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 600px) { .cards { grid-template-columns: 1fr; } }
@@ -29,7 +66,7 @@
 .genre { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--muted); background: var(--bg); flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .genre svg { width: 12px; height: 12px; }
 .top .b { margin-left: auto; }
-.b { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 500; }
+.b { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 500; white-space: nowrap; }
 .b.writing { background: var(--warn-soft); color: var(--warn); }
 .b.setting { background: var(--fg-soft); color: var(--muted); }
 /* 待完本（works-finish-flow）：accent 底＝可行动召唤——全书已归档、就差完本这个动作 */
@@ -41,7 +78,7 @@
 /* .stats 清零声明原为反制 daisyUI 同名类；daisyUI 已退役，保留作为无害防御 */
 .book-card .stats { display: flex; gap: 18px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); background: none; border-radius: 0; }
 .book-card .stats b { display: block; color: var(--fg); font-weight: 500; margin-bottom: 1px; }
-.book-card .foot { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; }
+.book-card .foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 18px; }
 .book-card .updated { font-size: 11.5px; color: var(--muted); }
 .book-card .go { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--fg); }
 .book-card:hover .go { color: var(--accent); }
