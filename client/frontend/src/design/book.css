@@ -226,9 +226,7 @@
 .empty-tree { padding: 24px 18px; color: var(--muted); font-size: 13px; line-height: 1.7; }
 
 /* ─── 编辑器 ───────────────────────────────────────────── */
-.editor-toolbar { flex: none; display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
-.editor-toolbar .ch-name { font-family: var(--font-display); font-size: 15px; font-weight: 600; margin-right: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.editor-toolbar .grow { flex: 1; }
+/* （editor-toolbar 独立工具行已撤：控件并入 e-head 右侧，页签条贴头与卷视图同位） */
 .tsep { width: 1px; height: 20px; background: var(--border); }
 .readonly-banner { flex: none; display: flex; align-items: center; gap: 9px; padding: 8px 20px; background: var(--fg-soft); color: var(--muted); font-size: 12.5px; border-bottom: 1px solid var(--border); }
 .readonly-banner svg { width: 14px; height: 14px; }
@@ -1441,22 +1439,21 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .wb .view.on.three-col .rail-stats .k { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .wb .view.on.three-col .rail-stats .v { font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--fg); white-space: nowrap; }
 
-/* 章视图：editor-toolbar 降为工具条（标题/徽章信息上移 e-head，去重复） */
-.wb .view.on.three-col .editor-toolbar { border-bottom: 0; background: none; padding: 8px 22px 0; }
-.wb .view.on.three-col .editor-toolbar .ch-name { display: none; }
-.wb .view.on.three-col .editor-toolbar .arch-tag { display: none; }
-.wb .view.on.three-col .editor-toolbar .grow { display: none; }
-.wb .view.on.three-col .editor-toolbar { display: flex; justify-content: flex-end; }
+/* 章视图：编辑器控件（排版/专注/版本历史/归档/AI）并入 e-head 右侧
+   （ADJUSTMENTS 卷视图条 13 修订：撤独立工具行，页签条紧贴头部＝卷视图同位＝原型 e-head→e-toolbar 两段式） */
+.wb .view.on.three-col .e-head.e-head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.wb .view.on.three-col .e-head-main { min-width: 0; }
+.wb .view.on.three-col .e-head-main .e-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb .view.on.three-col .e-head-row .prose-ctrls { flex: none; flex-wrap: wrap; justify-content: flex-end; }
 /* 窗格头统一降为 ol-top 条语言 */
 .wb .view.on.three-col .panel-head { display: flex; align-items: center; gap: 9px 12px; flex-wrap: wrap; padding: 11px 0; border-bottom: 1px solid var(--border); margin: 0 0 10px; }
 .wb .view.on.three-col .panel-head h2 { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .06em; font-weight: 400; color: var(--muted); margin: 0; }
 .wb .view.on.three-col .panel-head .desc { display: none; }
 
-/* 编辑态顶层字段与查看态同宽约束（原型 volEditHTML 的 fro/fgrid 均在 76ch 内；
-   漏约束时卷名/结构模板/主旨等铺满 ~1200px 中栏，用户 09-19 截图指出） */
-.wb .view.on.three-col .vol-shell .tpl-row,
-.wb .view.on.three-col .vol-shell > .field,
-.wb .view.on.three-col .vol-shell .e-pad > .field { max-width: 76ch; }
+/* 卷视图内容衬垫：对齐原型 .e-pad{padding:18px 22px 24px}——漏衬垫时 ol-top/分节
+   贴死页签条与中栏左右缘（用户 09-19 指出内部错位）；fro/fgrid 的 76ch 宽约束
+   已由上文 1384/1391 承担（旧 tpl-row/.field 选择器随旧版卷表单退役删除） */
+.wb .view.on.three-col .vol-shell .e-pad { padding: 18px 22px 24px; }
 
 /* 编辑表单统一到原型语言（ADJUSTMENTS 13 续）：fro/rowx/fgrid 同卷纲章纲两态一致 */
 .wb .view.on.three-col .fro > .input,

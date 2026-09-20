@@ -759,7 +759,7 @@ function VolumeOutlinePane({
         </div>
       </details>
 
-      <details className="cfg">
+      <details className="cfg" open>
         <summary>
           章节拆分 <Chev />
         </summary>
