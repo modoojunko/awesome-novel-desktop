@@ -1,6 +1,7 @@
-// 章对象工作台（book.html #chWorkspace 复刻）：
-//   工具栏（章名 + 归档标 + 排版 seg + 专注 + 版本历史 + 归档 + AI 生成正文）
-//   三页签（章纲/提示词/正文，cnt 徽标）· 点章强制落章纲
+// 章对象工作台（storyline.html 章编辑器复刻）：
+//   头部（卷名 kicker + 章标题 + 状态徽章；排版 seg/专注/版本历史/归档收在头部右侧，
+//   页签条紧贴头部——与卷视图同位，原型 e-head→e-toolbar 两段式；AI 入口全部在右栏）
+//   八页签（章纲/正文/提示词/设定/文风/角色关系/伏笔/操作）· 点章强制落章纲
 //   正文常驻挂载 hidden 切换（脏状态/流式现场不丢）
 //   底部状态栏（字数 + 保存四态聚合 + AI 流式指示 + 停止）
 // 章纲表单状态提升于此（页签徽标 / 保存 / 3s 静默自动保存共用）。
@@ -70,7 +71,7 @@ interface ChapterWorkspaceProps {
   chapterRef: string;
   outline: OutlineApi;
   wb: WorkbenchApi;
-  /** PRO 才渲染「AI 生成正文」按钮（右栏同口径；免费态见 ai-locked 卡） */
+  /** PRO 档位（提示词页签 PRO-only；AI 入口已全部收口右栏 AI 助手） */
   isPro: boolean;
   /** ProPane ref 由页面持有（右栏 AI 工具共用同一实例） */
   proseRef: RefObject<ProseHandle | null>;
@@ -80,8 +81,6 @@ interface ChapterWorkspaceProps {
   bookWords: number;
   /** 右栏本章进度数据实时上抛（字数/目标/归档随 store 变化） */
   onRailData: (data: RailChapterData | null) => void;
-  /** AI 生成正文（页面级解锁链入口：归档章先弹「解除只读」→ AiModal） */
-  onAiWrite: () => void;
   /** 生成启动信号（计数器递增）：切正文页签 + 聚焦（真 bug #2） */
   aiWriteSignal: number;
   /** 续写恢复信号（顶栏 CTA）：n 递增触发，落正文页签并滚回上次位置 */
@@ -107,7 +106,6 @@ export default function ChapterWorkspace({
   onAIStateChange,
   bookWords,
   onRailData,
-  onAiWrite,
   aiWriteSignal,
   resumeSignal,
   onWriteProgress,
@@ -151,7 +149,7 @@ export default function ChapterWorkspace({
   // 「信息差对齐」块随卷纲换代退役（c-volume-view-storyline：info_gap/chapter_plans
   // 为旧代字段，ADJUSTMENTS ⑤ 登记）。
 
-  // ── 三页签：点章强制落「章纲」（设计稿行为） ─────────────────────────
+  // ── 页签：点章强制落「章纲」（设计稿行为） ───────────────────────────
   const [chTab, setChTab] = useState<
     "og" | "prompt" | "prose" | "settings" | "relations" | "hooks" | "actions"
    | "style">("og");
@@ -573,6 +571,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       aiDrafting,
       onAiDraft: () => void handleAiDraft(),
       onSimulate: () => setShowSim(true),
+      onStyleSuggest: () => setStyleSuggestSignal((n) => n + 1),
       onFillGaps: () => void handleFillGaps(),
       gapsLoading,
       onAiCheck: setAiCheckKind,
@@ -581,6 +580,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     return () => onRailDataRef.current(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, aiDrafting, gapsLoading, handleFillGaps]);
+
+  // ── 文风建议信号（右栏 AI 助手触发 → StyleShadowPane 内执行拉取；2026-09-20
+  //    AI 入口收口右栏：页签 body 不再设 AI 按钮，建议结果仍在页签内逐项采纳） ──
+  const [styleSuggestSignal, setStyleSuggestSignal] = useState(0);
 
   // ── 页签徽标 ──────────────────────────────────────────────────────────
   const ogCnt =
@@ -608,19 +611,16 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
   return (
     <div className="col-editor">
-      <header className="e-head">
-        <p className="e-kicker">{volLabel}</p>
-        <h2 className="e-title">{label}</h2>
-        <div className="e-meta">
-          <span className="tag">{archived ? "已归档" : wordCount ? "草稿" : "拟定"}</span>
-          <span className="tag">{fmt(wordCount)} 字</span>
+      <header className="e-head e-head-row">
+        <div className="e-head-main">
+          <p className="e-kicker">{volLabel}</p>
+          <h2 className="e-title">{label}</h2>
+          <div className="e-meta">
+            <span className="tag">{archived ? "已归档" : wordCount ? "草稿" : "拟定"}</span>
+            <span className="tag">{fmt(wordCount)} 字</span>
+          </div>
         </div>
-      </header>
-      <div className="editor-toolbar">
-        <span className="ch-name serif">{label}</span>
-        {archived && <span className="arch-tag">已归档</span>}
-        <span className="grow" />
-        <span className="prose-ctrls" hidden={chTab !== "prose"}>
+        <span className="prose-ctrls">
           <span className="seg" role="group" aria-label="字号">
             {(
               [
@@ -686,24 +686,16 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           >
             归档本章
           </button>
-          {isPro && (
-            <button className="btn btn-primary btn-sm" onClick={onAiWrite}>
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z" />
-              </svg>
-              AI 生成正文
-            </button>
-          )}
         </span>
-      </div>
+      </header>
 
       <div className="ch-tabs" role="tablist" aria-label="章节对象">
         {(
           [
             ["og", "章纲", ogCnt],
+            ["prose", "正文", proseCnt],
             // 提示词子 label PRO-only：免费态隐藏（workbench-3-label spec）
             ...(isPro ? ([["prompt", "提示词", promptCnt]] as const) : []),
-            ["prose", "正文", proseCnt],
             ["settings", "设定", { text: "", cls: "" }],
             ["style", "文风", { text: "", cls: "" }],
             ["relations", "角色关系", { text: "", cls: "" }],
@@ -775,7 +767,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             projectId={projectId}
             chapterRef={chapterRef}
             archived={archived}
-            isPro={isPro}
+            suggestSignal={styleSuggestSignal}
           />
         </div>
       )}
@@ -880,11 +872,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           onSaveDraft={() => void handleSaveDraft()}
           onConfirm={() => void handleConfirm()}
           onGoWrite={() => void handleGoWrite()}
-          canAiDraft={isPro}
-          aiDrafting={aiDrafting}
-          onAiDraft={() => void handleAiDraft()}
-          canSimulate={isPro && !archived && !ghostOf}
-          onSimulate={() => setShowSim(true)}
         />
       )}
 

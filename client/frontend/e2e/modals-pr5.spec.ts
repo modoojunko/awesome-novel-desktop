@@ -262,8 +262,8 @@ test("解锁链：归档章点 AI → 解除只读 → AiModal 提示词；确�
     });
     await expect(editor).toHaveAttribute("contenteditable", "false");
 
-    // 归档章点「AI 生成正文」→ 解除只读确认（真 bug #1 门控）
-    await page.getByRole("button", { name: "AI 生成正文" }).click();
+    // 归档章点右栏「生成正文」→ 解除只读确认（真 bug #1 门控；2026-09-20 AI 入口唯一化右栏）
+    await page.getByTestId("ai-write-btn").click();
     // Modal 退场有 200ms 卸载窗口期，链式弹窗可能短暂并存 → 一律按 accessible name 限定
     const unlock = page.getByRole("dialog", { name: "解除只读" });
     await expect(unlock.getByText(/AI 生成将解除只读并继续/)).toBeVisible();

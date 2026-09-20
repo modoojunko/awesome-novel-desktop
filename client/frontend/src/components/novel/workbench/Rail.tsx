@@ -42,6 +42,8 @@ export interface RailChapterData {
   onAiCheck?: (kind: AiCheckKind) => void;
   /** 提示词精修（提案制弹窗） */
   onPromptRefine?: (mode: RefineMode) => void;
+  /** 文风「AI 建议本章调整」触发（StyleShadowPane 信号拉取；2026-09-20 入口收口右栏） */
+  onStyleSuggest?: () => void;
 }
 
 interface RailProps {
@@ -172,6 +174,7 @@ export default function Rail({
           <p>提示词由设定 + 章纲组装，可编辑后流式写入正文末尾。</p>
           <button
             className="btn btn-primary btn-sm"
+            data-testid="ai-write-btn"
             disabled={aiState.streaming}
             onClick={onAiWrite}
           >
@@ -272,6 +275,7 @@ export default function Rail({
           gapsLoading={d.gapsLoading}
           onAiCheck={d.onAiCheck}
           onPromptRefine={d.onPromptRefine}
+          onStyleSuggest={d.onStyleSuggest}
           onRunReconcile={(kind) => {
             const ref = d.chapterRef;
             if (!ref) return;

@@ -804,7 +804,7 @@ test("预览阅读器：三栏/跨卷翻页/配置持久化/写作选中不变",
     // PR3 口径：点章/重挂载默认落「章纲」页签 → 先切「正文」再看编辑器
     await page.getByRole("tab", { name: /^正文/ }).click();
     await expect(page.locator(".editor")).toBeVisible({ timeout: 10000 });
-    await expect(page.locator(".editor-toolbar .ch-name")).toContainText("第一章");
+    await expect(page.locator(".col-editor .e-title")).toContainText("第一章");
 
     // ── 再进预览：阅读配置仍在（书级持久化）──
     await page.locator(".mtab", { hasText: "预览" }).click();

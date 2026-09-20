@@ -192,7 +192,7 @@ test("两段式：AiModal 粗组→AI 润色→编辑→生成 + 完工检查横
 
     // ── 阶段一：AiModal 打开 → 粗组稿「未润色」 ────────────────────────
     await page.getByRole("tab", { name: /^正文/ }).click();
-    await page.getByRole("button", { name: "AI 生成正文" }).click();
+    await page.getByTestId("ai-write-btn").click(); // 2026-09-20 AI 入口唯一化右栏
     const ai = page.getByRole("dialog", { name: "AI 生成正文" });
     await expect(ai.getByTestId("ai-prompt")).toBeEnabled({ timeout: 10000 });
     await expect(ai.getByTestId("ai-raw-tag")).toHaveText("未润色");

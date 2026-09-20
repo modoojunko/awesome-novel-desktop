@@ -1,7 +1,8 @@
 /** 「文风」页签（chapter-style-shadow，拍板③记章节档案）：
  *  全书基线（style-quant 六行，只读）＋ 本章影子行（手工增/改/还原，免费可用）
- *  ＋「AI 建议本章调整」（PRO；建议逐条采纳写入影子）。 */
-import { useCallback, useEffect, useState } from "react";
+ *  ＋ AI 建议结果区（右栏 AI 助手触发拉取，建议逐条采纳写入影子；
+ *  2026-09-20 AI 入口收口右栏，页签内只留结果与采纳）。 */
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 interface BaselineRow {
@@ -34,18 +35,20 @@ export function StyleShadowPane({
   projectId,
   chapterRef,
   archived,
-  isPro,
+  suggestSignal = 0,
 }: {
   projectId: string;
   chapterRef: string;
   archived: boolean;
-  isPro: boolean;
+  /** 右栏「AI 建议本章调整」触发信号（计数器递增；0=初始不触发） */
+  suggestSignal?: number;
 }) {
   const [baseline, setBaseline] = useState<BaselineRow[]>([]);
   const [confidence, setConfidence] = useState(0);
   const [shadow, setShadow] = useState<Record<string, ShadowRow>>({});
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   // 手工添加覆盖行（免费可用的手工编辑面）
   const [newDim, setNewDim] = useState("");
@@ -94,6 +97,8 @@ export function StyleShadowPane({
   );
 
   const suggest = useCallback(async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy("suggest");
     setError(null);
     try {
@@ -105,9 +110,21 @@ export function StyleShadowPane({
     } catch (e) {
       setError((e as Error).message || "建议获取失败");
     } finally {
+      busyRef.current = false;
       setBusy(null);
     }
   }, [projectId, chapterRef]);
+
+  // 右栏信号触发拉取（重复点击由 busyRef 挡住；重挂载信号未变不重拉）
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    if (suggestSignal) void suggest();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestSignal]);
 
   const adopt = useCallback(
     (s: Suggestion) => {
@@ -237,17 +254,11 @@ export function StyleShadowPane({
         </div>
       )}
 
-      {isPro ? (
+      {/* AI 建议结果区：入口在右栏 AI 助手（PRO 门控在此），页签内逐项采纳 */}
+      {(busy === "suggest" || suggestions !== null) && (
         <>
           <p className="ss-lead">AI 建议本章调整</p>
-          <button
-            className="btn btn-secondary btn-sm"
-            data-od-id="style-suggest-btn"
-            disabled={busy === "suggest" || archived}
-            onClick={() => void suggest()}
-          >
-            {busy === "suggest" ? "生成中……" : "AI 建议本章调整"}
-          </button>
+          {busy === "suggest" && <p className="ss-note">建议生成中……</p>}
           {suggestions && suggestions.length === 0 && (
             <p className="ss-note">按本章章纲，基线不需要偏离。</p>
           )}
@@ -271,10 +282,6 @@ export function StyleShadowPane({
             </div>
           ))}
         </>
-      ) : (
-        <p className="ss-note" data-od-id="style-suggest-locked">
-          AI 建议本章调整 · PRO 可用——手动覆盖行不限档位。
-        </p>
       )}
       {error && <p className="ss-error">{error}</p>}
     </div>

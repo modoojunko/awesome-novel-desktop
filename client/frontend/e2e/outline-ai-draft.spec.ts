@@ -298,11 +298,13 @@ test("失败：502 toast 提示且表单不动", async ({ page, request }) => {
   }
 });
 
-test("免费态：AI 起草入口不渲染", async ({ page }) => {
+test("免费态：AI 起草入口在右栏置灰（不隐藏）", async ({ page }) => {
   const { restore } = await setupSession(page, "none");
   try {
     await setupFirstChapter(page, `e2e-oad-免费-${Date.now()}`);
-    await expect(page.getByTestId("og-ai-draft")).toHaveCount(0);
+    // 2026-09-20 AI 入口收口右栏：免费态动作组 rail-locked 置灰、按钮禁点
+    await expect(page.getByTestId("og-ai-draft")).toBeVisible();
+    await expect(page.getByTestId("og-ai-draft")).toBeDisabled();
   } finally {
     await restore();
   }

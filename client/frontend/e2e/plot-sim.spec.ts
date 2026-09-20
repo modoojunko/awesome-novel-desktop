@@ -206,11 +206,13 @@ test("PRO：按回合推演 → 收进章纲写预期策略 → 刷新回读", a
   }
 });
 
-test("免费态：剧情推演入口不渲染", async ({ page }) => {
+test("免费态：剧情推演入口在右栏置灰（不隐藏）", async ({ page }) => {
   const { restore } = await setupSession(page, "none");
   try {
     await setupFirstChapter(page, `e2e-sim-免费-${Date.now()}`);
-    await expect(page.getByTestId("og-simulate")).toHaveCount(0);
+    // 2026-09-20 AI 入口收口右栏：免费态动作组 rail-locked 置灰、按钮禁点
+    await expect(page.getByTestId("og-simulate")).toBeVisible();
+    await expect(page.getByTestId("og-simulate")).toBeDisabled();
   } finally {
     await restore();
   }
