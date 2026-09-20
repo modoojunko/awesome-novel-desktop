@@ -63,7 +63,7 @@ function ProjectProvider({ children }: { children: ReactNode }) {
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
 }
 
-/** 空卷树：中栏呈现「这本书还没有开始」空态（c-0vol0ch-empty-state）。 */
+/** 空卷树：中栏呈现起手卡「这本书怎么开始？」（c-0vol0ch-empty-state）。 */
 function mockEmptyTree() {
   apiState.get.mockImplementation((path: string) => {
     if (path === "/novels/p1/volumes") return Promise.resolve([]);
@@ -200,11 +200,12 @@ describe("默认落写作视图（免费）", () => {
   it("渲染后即呈现 three-col 写作工作台，无阶段催促 UI", async () => {
     mockEmptyTree();
     renderWorkspace("none");
-    // 中栏空书态（原型 bookEmptyHTML）+ 左树空态提示 + 顶栏空书卡
-    expect(await screen.findByText("这本书还没有开始")).toBeVisible();
+    // 中栏空书起手卡（volume-plan-ai 作家口径）：眉标＋标题＋说明句
+    expect(await screen.findByText("这本书怎么开始？")).toBeVisible();
+    expect(screen.getByText("设定 0/7 已确认")).toBeVisible();
     expect(
       screen.getByText(
-        "还没有任何卷与章节。点下方「＋ 新增一章」会先垫好第一卷并排上第一章，或点「＋ 新增一卷」先写卷纲。",
+        "自己动手：先建一卷、排上第一章就能开写；想让 AI 按主线拆分卷，用右侧的 AI 助手。",
       ),
     ).toBeVisible();
     expect(document.querySelector(".bar-here .bh-k")?.textContent).toBe("空书");
@@ -212,12 +213,13 @@ describe("默认落写作视图（免费）", () => {
     // 空书态两处起手入口（中栏 CTA + 左栏底部）＝新增一卷 ×2 / 新增一章 ×2
     expect(document.querySelectorAll(".e-empty .be-acts .btn").length).toBe(2);
     expect(document.querySelector(".col-tree.empty-book .tree-add")).toBeTruthy();
-    // 右栏「未选中」态（原型无语境 aiShell）：当前页签未选 ＋ 四格统计
+    // 右栏「未选中」态（volume-plan-ai 空书）：规划第一卷入口＋分卷依据；四格统计退役
     expect(document.querySelector(".col-ai .ai-ctx")?.textContent).toContain("未选");
-    expect(screen.getByTestId("idle-rail-stats").querySelectorAll("li").length).toBe(4);
-    // 无包裹层：统计卡是 .col-ai 直接子级（原型 aiShell 同级；勿再套 .rail-assist
-    // ——设定页右栏同名，写作视图常驻挂载会让 `.col-ai .rail-assist` 歧义）
-    expect(document.querySelector(".col-ai > .rail-stats")).toBeTruthy();
+    expect(screen.getByTestId("plan-first-volume")).toBeDefined();
+    expect(screen.getByTestId("plan-basis")).toBeDefined();
+    expect(screen.queryByTestId("idle-rail-stats")).toBeNull();
+    expect(document.querySelector(".col-ai .rail-stats")).toBeNull();
+    // 常驻挂载态不占 .rail-assist（设定页右栏同名歧义坑）
     expect(document.querySelector(".col-ai .rail-assist")).toBeNull();
     // 应用栏（行头归一）：书名在顶栏；免费标识收敛到账户档位徽（未登录不渲染，e2e 断言）
     expect(screen.getAllByText("测试小说").length).toBeGreaterThan(0);
@@ -276,7 +278,7 @@ describe("空书起手链（c-0vol0ch-empty-state）", () => {
     });
 
     renderWorkspace("none");
-    await screen.findByText("这本书还没有开始");
+    await screen.findByText("这本书怎么开始？");
     // 三处「＋ 新增一卷」（顶栏空书卡 / 中栏空态 / 左栏底部）都开同一个建卷弹窗
     for (const id of ["empty-add-vol", "empty-cta-vol", "add-volume"]) {
       expect(document.querySelector(`[data-od-id="${id}"]`)).toBeTruthy();
@@ -346,7 +348,7 @@ describe("设定视图懒挂载 / 离开卸载", () => {
   it("经 modnav「设定」进入设定视图，点「写作」返回后卸载", async () => {
     mockEmptyTree();
     renderWorkspace("none");
-    await screen.findByText("这本书还没有开始");
+    await screen.findByText("这本书怎么开始？");
     goWriteView();
     await waitFor(() => expect(threeColClass()).toContain("on"));
 

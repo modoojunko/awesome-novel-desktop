@@ -59,6 +59,7 @@ class PlotNodeIn(BaseModel):
 class VolumeCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     summary: str = Field(default="", max_length=300)
+    plan_line: str = Field(default="", max_length=150)
 
 
 class VolumeUpdate(BaseModel):
@@ -83,6 +84,7 @@ class VolumeUpdate(BaseModel):
     # 行集整体替换（传入即全量重写该族，未传不动）
     cast_members: list[CastMemberIn] | None = None
     plot_nodes: list[PlotNodeIn] | None = None
+    plan_line: str | None = Field(default=None, max_length=150)
 
     @field_validator("plants", "reveals")
     @classmethod

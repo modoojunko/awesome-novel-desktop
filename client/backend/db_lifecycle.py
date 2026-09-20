@@ -22,6 +22,8 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+from sqlalchemy import text
+
 logger = logging.getLogger("uvicorn.error")
 
 SCHEMA_ID_KEY = "schema_id"
@@ -244,3 +246,28 @@ def boot_lifecycle(db_path: Path, metadata, schema_fp: str) -> dict:
     to = quarantine_corrupt(db_path)
     logger.warning("db_lifecycle: breaking drift quarantined to %s", to)
     return {"boot": "quarantined_new", "quarantined_to": to}
+
+# ── 代内 additive 补列（声明式登记；幂等 checkfirst）────────────────────────
+# 新表/新列一律在此登记（新库 create_all 全量建出；旧库由 apply_additive_columns
+# 代内补列）；删/改列一律 SCHEMA_VERSION+1 走迁入。列名单一来源，DDL 由它派生。
+ADDITIVE_COLUMNS: dict[str, list[str]] = {
+    "volumes": ["ALTER TABLE volumes ADD COLUMN plan_line VARCHAR(150)"],
+}
+
+
+async def apply_additive_columns(engine, columns: dict[str, list[str]] | None = None) -> list[str]:
+    """代内补列：逐条执行 DDL（列已存在＝幂等跳过）；其他异常向上抛——
+    列缺失若被静默，会被指纹戳永久掩盖（runtime 才炸 no such column）。"""
+    cols = columns if columns is not None else ADDITIVE_COLUMNS
+    applied: list[str] = []
+    for _table, ddls in cols.items():
+        for ddl in ddls:
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text(ddl))
+                applied.append(ddl)
+            except Exception as exc:
+                if "duplicate column" not in str(exc).lower() and "already exists" not in str(exc).lower():
+                    raise
+    return applied
+

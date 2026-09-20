@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 import brand
@@ -43,6 +43,7 @@ from settings.status import router as settings_status_router
 from settings.style_quant_router import router as style_quant_router
 from story.router import router as story_router
 from update_check import router as update_check_router
+from volumes.ai_plan import router as volume_ai_plan_router
 from workflow.router import backfill_router as workflow_backfill_router
 from workflow.router import router as workflow_router
 from write.ai_check import router as ai_check_router
@@ -64,11 +65,12 @@ async def lifespan(app: FastAPI):
     from config import DATABASE_URL
     from db_lifecycle import (
         DRIFT_ACCEPTED_KEY,
-        SCHEMA_ID_KEY as _SCHEMA_ID_KEY,
         boot_lifecycle,
         compute_schema_fingerprint,
     )
-    from schema_version import SCHEMA_VERSION
+    from db_lifecycle import (
+        SCHEMA_ID_KEY as _SCHEMA_ID_KEY,
+    )
 
     _schema_fp = compute_schema_fingerprint(Base.metadata)
     _db_path = Path(DATABASE_URL.split("///")[-1])
@@ -87,6 +89,16 @@ async def lifespan(app: FastAPI):
         import logging
 
         logging.getLogger("uvicorn.error").warning("Failed to create tables: %s", e)
+
+    # ── 代内 additive 补列：在打指纹戳之前补齐（补列失败不得刷戳）──────
+    from db_lifecycle import apply_additive_columns
+
+    await apply_additive_columns(engine)
+
+    # ── 代内 additive 补列：在打指纹戳之前补齐（补列失败不得刷戳）──────
+    from db_lifecycle import apply_additive_columns
+
+    await apply_additive_columns(engine)
 
     # ── 给（新的）当前库打 schema 指纹戳 ───────────────────────────────
     # additive 补列完成→刷新戳；tolerant 放行不改戳（回升 newer build 即 current）
@@ -114,19 +126,6 @@ async def lifespan(app: FastAPI):
     except SQLAlchemyError:
         pass
 
-    # ── 代内 additive 补列（db-generation ADDITIVE_COLUMNS 声明式）────────
-    # 历史 20+ 段 ad-hoc ALTER（含一处代内 DROP COLUMN 违例）已随版本化命名
-    # 退役：新库由 create_all 全量建出；代内补列今后只在 ADDITIVE_COLUMNS
-    # 登记（幂等、checkfirst 语义），删/改列一律 SCHEMA_VERSION+1 走迁入。
-    ADDITIVE_COLUMNS: dict[str, list[str]] = {}  # 首代无存量需求
-
-    for _table, _cols in ADDITIVE_COLUMNS.items():
-        for _col_ddl in _cols:
-            try:
-                async with engine.begin() as conn:
-                    await conn.execute(text(_col_ddl))
-            except Exception:
-                pass  # 列已存在
 
     # ── Migrate config.json → User table ────────────────────────────
     # 身份识别统一用 S端 用户标识：users.username 是 S端 主键，C端 User.id /
@@ -199,6 +198,14 @@ async def lifespan(app: FastAPI):
 
     yield
 
+
+# ── 代内 additive 补列（声明式登记；幂等 checkfirst）──────────
+# 新表/新列一律在此登记（新库 create_all 全量建出；旧库由 lifespan 补列）；
+# 删/改列一律 SCHEMA_VERSION+1 走迁入。列名单一来源，DDL 由它派生。
+ADDITIVE_VOLUME_COLS = ("plan_line",)
+ADDITIVE_COLUMNS: dict[str, list[str]] = {
+    "volumes": [f"ALTER TABLE volumes ADD COLUMN {c} VARCHAR(150)" for c in ADDITIVE_VOLUME_COLS]
+}
 
 app = FastAPI(title=f"{brand.BRAND_NAME} (Local)", version="0.2.0", lifespan=lifespan)
 
@@ -302,6 +309,7 @@ app.include_router(settings_router)
 app.include_router(settings_ai_router)
 app.include_router(chapters_router)
 app.include_router(chapters_ai_draft_router)
+app.include_router(volume_ai_plan_router)  # 卷域 AI：3 套方案/展开/体检（volume-plan-ai）
 app.include_router(prompt_router)
 app.include_router(write_router)
 app.include_router(ai_check_router)

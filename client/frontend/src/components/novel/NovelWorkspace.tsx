@@ -10,6 +10,9 @@ import SettingsView from "@/components/novel/workbench/SettingsView";
 import PreviewView from "@/components/novel/workbench/PreviewView";
 import ManuscriptDownloadModal from "@/components/novel/workbench/ManuscriptDownloadModal";
 import Rail, { type RailChapterData } from "@/components/novel/workbench/Rail";
+import { VolumePlanModal } from "@/components/novel/workbench/VolumePlanModal";
+import { useVolumePlan } from "@/hooks/useVolumePlan";
+import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
 import { AiModal, UnlockModal, AddVolumeModal } from "@/components/novel/workbench/modals";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import AcctMenu from "@/components/AcctMenu";
@@ -56,6 +59,8 @@ export default function NovelWorkspace() {
     selectedRef,
     viewPayload,
     focusNode,
+    clearSelection,
+    selectVolume,
     refresh,
     createVolume,
     createChapter,
@@ -439,16 +444,77 @@ export default function NovelWorkspace() {
   const openAddVolume = useCallback(() => setAddVolOpen(true), []);
   /** 建卷弹窗内批量建章后刷树（原 OutlineTree 内联；随弹窗上移） */
   const onVolumeCreated = useCallback(() => void outline.refetchTree(), [outline]);
-  /** 右栏「未选中」态统计（原型无语境 aiShell：主线端点 / 全书章节 / 基于旧设定） */
-  const railIdle = useMemo(() => {
-    let chapters = 0;
-    let stale = 0;
-    for (const v of volumes) {
-      chapters += v.chapters.length;
-      stale += v.chapters.filter((c) => c.stale).length;
+  /** 右栏「未选中」态数据（volume-plan-ai：卷的验证行单源；四格全书统计已退役） */
+  const railIdle = useMemo(
+    () => ({
+      volumes,
+      chapters: volumes.reduce((a, v) => a + v.chapters.length, 0),
+    }),
+    [volumes],
+  );
+
+  // ── 分卷规划（volume-plan-ai）：状态机挂壳层（弹窗开着背景静止的关键） ──
+  const plan = useVolumePlan(projectId);
+  const openPlanVolume = useCallback((volNo: number) => plan.open(volNo), [plan]);
+  /** 「卷的验证」点行：选中该卷＋立刻体检（seq 信号传右栏） */
+  const [autoCheck, setAutoCheck] = useState<{ ref: string; seq: number }>({ ref: "", seq: 0 });
+  const handleSelectVolume = useCallback(
+    (ref: string) => {
+      if (!guardedLeave()) return;
+      selectVolume(ref);
+      setAutoCheck((s) => ({ ref, seq: s.seq + 1 }));
+    },
+    [selectVolume, guardedLeave],
+  );
+
+  /** 回填载荷：VolumeWorkspace 按 seq 触发逐段落下 */
+  const [backfill, setBackfill] = useState<{
+    seq: number;
+    draft: VolumeExpandDraft;
+    planLine: string;
+  } | null>(null);
+  const backfillSeqRef = useRef(0);
+  /** 采纳路径：保存后落写作默认页（清选中）而非停留在卷纲页 */
+  const landAfterSaveRef = useRef(false);
+  const startBackfill = useCallback(
+    (draft: VolumeExpandDraft, planLine: string) => {
+      const volNo = plan.state.volNo;
+      const target = `vol-${volNo}`;
+      if (!volumes.some((v) => v.name === target)) {
+        // 空书采纳：先建卷行（卷名取 AI 建议或「第N卷」兜底——建卷接口要求名称非空）
+        landAfterSaveRef.current = true;
+        void (async () => {
+          const ref = await createVolume(draft.name?.trim() || `第${cnNum(volNo)}卷`);
+          if (!ref) return;
+          void outline.refetchTree();
+        })();
+      } else if (selectedId !== target) {
+        focusNode(target);
+      } else {
+        // 已在该卷：重挂 backfill 序列即可（seq 递增）
+      }
+      backfillSeqRef.current += 1;
+      setBackfill({ seq: backfillSeqRef.current, draft, planLine });
+    },
+    [plan.state.volNo, volumes, selectedId, focusNode, createVolume, outline],
+  );
+  const handlePlanBackfill = useCallback(() => {
+    const d = plan.state.draft;
+    plan.close();
+    if (d) startBackfill(d, plan.state.planLine);
+  }, [plan, startBackfill]);
+  // 生成中关弹窗 → 完成后中栏直接回填（spec：不必再点一次「回填」）
+  useEffect(() => {
+    if (plan.state.open || plan.state.phase !== "done") return;
+    const payload = plan.takeAutoBackfill();
+    if (payload) startBackfill(payload.draft, payload.planLine);
+  }, [plan.state.open, plan.state.phase, plan, startBackfill]);
+  const handleVolumeSaved = useCallback(() => {
+    if (landAfterSaveRef.current) {
+      landAfterSaveRef.current = false;
+      clearSelection();
     }
-    return { frontierNo: hereTarget?.no ?? null, chapters, stale };
-  }, [volumes, hereTarget]);
+  }, [clearSelection]);
   /** 「＋ 新增一章」：空书先垫第一卷（原型 firstVol 口径），再在主线末端排第一章 */
   const addFirstChapter = useCallback(async () => {
     const last = volumes[volumes.length - 1]?.name;
@@ -462,6 +528,26 @@ export default function NovelWorkspace() {
     }
     await createChapter(`第${cnNum(1)}章`, last);
   }, [volumes, createVolume, createChapter]);
+
+  // 落点卡（volume-plan-ai）：最后一卷就绪态——仅「从未排过章」；曾排过章的书
+  // 删空后仍回选章引导（规格判据：localStorage 排章标记，e2e 钉死该口径）
+  const totalChapters = railIdle.chapters;
+  const everPlanned =
+    totalChapters > 0 ||
+    localStorage.getItem(`pref.book.${id}.ever_planned`) === "1";
+  const lastVol = volumes[volumes.length - 1];
+  const lastVolName = lastVol?.name ?? "vol-1";
+  const lastVolNo = Number((lastVolName.match(/^vol-(\d+)$/) ?? [])[1] ?? 1);
+  const lastVolTitle = lastVol?.title || `第${cnNum(lastVolNo)}卷`;
+  /** 在指定卷排第一章（落点卡主入口） */
+  const addFirstChapterIn = useCallback(
+    async (volName: string) => {
+      if (await createChapter(`第${cnNum(1)}章`, volName)) {
+        toast.success("第一章已排上，先写章纲");
+      }
+    },
+    [createChapter],
+  );
 
   const hereBar = hereTarget ? (
     <>
@@ -668,15 +754,19 @@ export default function NovelWorkspace() {
               onVolumeMutated={() => void refresh()}
               onDirtyChange={handleVolumeDirty}
               onRailData={handleVolumeRail}
+              backfill={backfill}
+              onSaved={handleVolumeSaved}
             />
           ) : (
             <div className="col-panel">
               {volumes.length === 0 ? (
-                /* 空书（原型 bookEmptyHTML）：还没建卷、没排章 —— 给一个明确的起点 */
+                /* 空书起手卡（作家口径）：自己动手双入口；AI 入口只在右栏 */
                 <div className="e-empty" data-od-id="book-empty">
-                  <p className="be-k">这本书还没有开始</p>
-                  <p className="be-t">
-                    先建第一卷，写清卷名与卷主旨；也可以直接排第一章，系统会先垫好第一卷。
+                  <p className="be-k">设定 {settingsDone}/7 已确认</p>
+                  <p className="be-t">这本书怎么开始？</p>
+                  <p className="be-desc">
+                    自己动手：先建一卷、排上第一章就能开写；想让 AI
+                    按主线拆分卷，用右侧的 AI 助手。
                   </p>
                   <p className="be-acts">
                     <button
@@ -692,6 +782,31 @@ export default function NovelWorkspace() {
                       onClick={() => void addFirstChapter()}
                     >
                       ＋ 新增一章
+                    </button>
+                  </p>
+                </div>
+              ) : totalChapters === 0 && !everPlanned ? (
+                /* 落点卡（volume-plan-ai）：有卷从未排章——规划完卷落这里 */
+                <div className="e-empty" data-testid="landing-card">
+                  <p className="be-k">
+                    第{lastVolNo}卷 · {lastVolTitle} 已就绪
+                  </p>
+                  <p className="be-t">开始写第一章？</p>
+                  <p className="be-desc">点左栏的卷排第一章；卷纲随时能回来改。</p>
+                  <p className="be-acts">
+                    <button
+                      className="btn btn-primary"
+                      data-testid="landing-add-chapter"
+                      onClick={() => void addFirstChapterIn(lastVolName)}
+                    >
+                      ＋ 在本卷排第一章
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      data-testid="landing-open-outline"
+                      onClick={() => focusNode(lastVolName)}
+                    >
+                      看第{lastVolNo}卷的卷纲
                     </button>
                   </p>
                 </div>
@@ -721,6 +836,10 @@ export default function NovelWorkspace() {
             }
             volumeData={volumeRailData}
             railIdle={railIdle}
+            genreLabel={genreLabel}
+            onPlanVolume={openPlanVolume}
+            onSelectVolume={handleSelectVolume}
+            autoCheckSeq={autoCheck.seq}
             onAiWrite={() => requestAi({ kind: "write" })}
             onAiContinue={() =>
               requestAi({ kind: "continue", capture: proseRef.current?.captureNow() ?? null })
@@ -763,6 +882,18 @@ export default function NovelWorkspace() {
         projectId={projectId}
         bookName={project?.name ?? ""}
         stats={msStats}
+      />
+
+      {/* 规划台（volume-plan-ai）：状态在壳层——弹窗开着背景静止，生成不随弹窗关闭中断 */}
+      <VolumePlanModal
+        projectId={projectId}
+        plan={plan}
+        isPro={isPro}
+        onUpgrade={onUpgrade}
+        volumes={volumes}
+        genreLabel={genreLabel}
+        onBackfill={handlePlanBackfill}
+        onClose={plan.close}
       />
 
       {/* 添加卷（c-0vol0ch-empty-state 起由壳层持有）：空书态顶栏/中栏/左栏三处入口共用 */}

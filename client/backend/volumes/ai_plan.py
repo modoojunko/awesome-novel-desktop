@@ -8,19 +8,21 @@
   仍挂 require_novel_model——没配模型给 503，前端引导先接模型）。
 - 记账：每次尝试（含失败）走 record_usage，operation 名 volume_options/_fail 等。
 - 模型：`haiku` 符号别名（落到本书模型，与章纲起草同口径）；max_tokens 4096
-  （判定类先例：2048 偶发「无文本输出」，见 settings/ai_router.py）。
+  （判定类先例：2048 偶发「无文本输出」，见 settings/ai_router.py 注释）。
 """
 
 import difflib
 import json
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_client import AITimeoutError, get_ai_client_for_novel
 from ai_state import effective_model
-from auth_local.deps import require_novel_model
+from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from filesystem.storage import get_storage
@@ -29,7 +31,9 @@ from novels.router import _arc_normalize
 from novels.service import get_novel
 from prompt.context import load_active_hooks, render_hooks_block
 from prompts import load as load_prompt
+from repositories import volume_repo
 from settings import character_service
+from settings.world_model import world_summary_text
 from volumes.render import volume_outline_text
 from volumes.service import resolve_prev_ending
 
@@ -39,129 +43,12 @@ _MODEL = "haiku"  # 符号别名，落到本书模型（D12；与章纲起草同
 _MAX_TOKENS = 4096  # 判定类先例：2048 偶发「无文本输出」（settings/ai_router.py 注释）
 SPINE_SIM_LIMIT = 0.6  # 两套走向相似度超过此值视为同质（触发一次复核）
 FOCUS_AXES = ("代价", "关系", "认知", "节奏", "势力", "线索")
-
-_LINE_MAX = 150
-_PLAN_FIELDS = ("spine", "conflict", "ending", "focus_note")
-_EXPAND_LIMITS = {"summary": 80, "conflict": 60, "goal": 60, "ending": 60}
+MAX_PLANS = 3
+LINE_MAX = 150
 
 
-class PlanLineBody(BaseModel):
-    """作者那一句（可空——空则走 3 套方案）。"""
-
-    line: str = Field(default="", max_length=_LINE_MAX)
-
-
-class PlanPickBody(BaseModel):
-    """选中的那套走法：走向 + 侧重（轴 + 一句话），填回输入框并直接展开。"""
-
-    spine: str = Field(min_length=1, max_length=_LINE_MAX)
-    conflict: str = Field(default="", max_length=150)
-    ending: str = Field(default="", max_length=300)
-    focus_note: str = Field(default="", max_length=60)
-
-
-# ── 素材（非章域单源；0 章书可用）────────────────────────────────────────────
-
-
-async def _book_material(db, project, *, hooks: bool) -> dict:
-    """主线（arc 归一）＋世界摘要（铁律全量）＋核心人物＋伏笔台账＋题材段。"""
-    storage = get_storage()
-    story = await storage.read_yaml(project.root_path, "story.yaml") or {}
-    arc = _arc_normalize(story.get("story_arc") or {})
-    world_raw = await storage.read_yaml(project.root_path, "settings/world-setting.yaml") or {}
-    gctx = await resolve_genre_context(project.root_path, project.id)
-    chars = await character_service.list_characters(db, project.id)
-    cast_brief = "\n".join(
-        f"- {it.get('name', '')}（{it.get('role', '')}）：{(it.get('persona') or '')[:80]}"
-        for it in chars.get("items", [])[:6]
-    )
-    hooks_block = ""
-    if hooks:
-        hooks_view = await load_active_hooks(project.id)
-        hooks_block = render_hooks_block(hooks_view)
-    return {
-        "fullstory": arc["fullstory"],
-        "ending": arc["ending"],
-        "world_brief": world_summary_text(world_raw, 1200),
-        "cast_brief": cast_brief,
-        "hooks_block": hooks_block,
-        "genre_section": build_genre_section(gctx),
-        "genre_name": (gctx or {}).get("genre_id") or "",
-    }
-
-
-def _material_blocks(mat: dict, *, with_hooks: bool) -> str:
-    blocks = [f"【全书主线】\n{mat['fullstory']}"]
-    ending = mat["ending"]
-    blocks.append(
-        "【结局（作者写的）】最后一幕：{scene}｜主角变成：{hero}｜读者感觉：{tone}".format(
-            scene=ending.get("scene", ""), hero=ending.get("hero", ""), tone=ending.get("tone", "")
-        )
-    )
-    if mat["world_brief"]:
-        blocks.append(f"【世界观摘要】\n{mat['world_brief']}")
-    if mat["cast_brief"]:
-        blocks.append(f"【核心人物】\n{mat['cast_brief']}")
-    if with_hooks and mat["hooks_block"]:
-        blocks.append(f"【伏笔台账（active）】\n{mat['hooks_block']}")
-    if mat["genre_section"]:
-        blocks.append(f"【题材与节奏】\n{mat['genre_section']}")
-    return "\n\n".join(blocks)
-
-
-# ── 上一卷的结尾（事实优先）──────────────────────────────────────────────────
-
-
-async def _prev_ending(db, project, plan_vol_no: int) -> tuple[str, str]:
-    """进场材料：plan_vol_no-1 卷收在哪里。事实优先——有归档章取实际收尾。"""
-    if plan_vol_no <= 1:
-        return "（第一卷从全景的起步开始）", "起点"
-    from repositories import volume_repo, chapter_repo
-
-    prev = await volume_repo.get_by_volume_no(db, project.id, plan_vol_no - 1)
-    if prev is None:
-        return "（还没写到这一卷之前的内容）", "上一卷"
-    archived = [
-        c
-        for c in await chapter_repo.list_by_volume(db, prev.id)
-        if c.status == "archived" and not c.ghost_of
-    ]
-    if archived:
-        last = max(archived, key=lambda c: c.chapter_no)
-        text = (last.summary or "").strip() or last.title
-        return text, f"第{plan_vol_no - 1}卷 · 实际收尾（第{last.chapter_no}章）"
-    return (prev.ending or "").strip(), f"第{plan_vol_no - 1}卷 · 预期结局（还没写到，先按卷纲）"
-
-
-# ── JSON 解析与校验兜底 ───────────────────────────────────────────────────────
-
-
-def _parse_json(raw: str) -> dict | None:
-    text = (raw or "").strip()
-    text = re.sub(r"^```(?:json)?", "", text).strip()
-    text = re.sub(r"```$", "", text).strip()
-    i, k = text.find("{"), text.rfind("}")
-    if i < 0 or k <= i:
-        return None
-    try:
-        obj = json.loads(text[i : k + 1])
-    except (ValueError, TypeError):
-        return None
-    return obj if isinstance(obj, dict) else None
-
-
-def _new_entity_hints(plans: list[dict], material_text: str) -> list[str]:
-    """实体名对拍（软提示）：模型申报的 cast/factions 里不在素材文本中的名字。"""
-    hints: list[str] = []
-    for p in plans:
-        for name in p.get("cast", []) or []:
-            if isinstance(name, str) and name.strip() and name.strip() not in material_text:
-                hints.append(f"{p.get('k', '')}：申报了素材里没有的「{name.strip()}」")
-    return hints[:3]
-
-
-async def _generate(project, system: str, user_msg: str, *, temperature: float, db, user, operation: str) -> str:
-    """单次生成 + 失败重试一次（把失败原因喂回）＋ 全程计量（含失败留痕）。"""
+async def _generate(project, system: str, user_msg: str, *, temperature: float, db, user, operation: str) -> tuple[str, dict]:
+    """单次生成 ＋ 失败重试一次（把失败原因喂回）＋ 全程计量（含失败留痕）。"""
     client = await get_ai_client_for_novel(project.id)
     usage: dict = {}
     try:
@@ -196,33 +83,300 @@ async def _generate(project, system: str, user_msg: str, *, temperature: float, 
         tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
     )
     if raw.strip():
-        return raw
+        return raw, usage
 
     # 空 text 块（偶发：预算全用在思考/供应商只回 thinking）——照 _judge_chat 口径重试一次
     retry: dict = {}
-    try:
-        raw = await client.chat(
-            model=_MODEL, system=system,
-            messages=[
-                {"role": "user", "content": user_msg},
-                {"role": "assistant", "content": "（上一条没有输出正文）"},
-                {"role": "user", "content": "请输出正文。"},
-            ],
-            max_tokens=_MAX_TOKENS, temperature=min(temperature, 0.2), usage=retry,
-        )
-    except Exception:  # noqa: BLE001 — 重试失败按原样报
-        raise HTTPException(502, "AI 输出为空，可重试")
+    raw2 = await client.chat(
+        model=_MODEL, system=system,
+        messages=[
+            {"role": "user", "content": user_msg},
+            {"role": "assistant", "content": "（上一条没有输出正文）"},
+            {"role": "user", "content": "请输出正文。"},
+        ],
+        max_tokens=_MAX_TOKENS, temperature=min(temperature, 0.2), usage=retry,
+    )
     from api_configs.usage import record_usage
 
     await record_usage(
-        db, user_id=user["id"], project_id=project.id, operation=operation,
+        db, user_id=user["id"], project_id=project.id, operation=f"{operation}_retry",
         model=effective_model(project) or _MODEL,
         tokens_in=retry.get("tokens_in", 0), tokens_out=retry.get("tokens_out", 0),
     )
-    return raw
+    return raw2, usage
 
 
-# ── 3 套可行走法 ─────────────────────────────────────────────────────────────
+class PlanLineBody(BaseModel):
+    """作者那一句（可空——空则走 3 套方案）。"""
+
+    line: str = Field(default="", max_length=LINE_MAX)
+
+
+class PlanPickBody(BaseModel):
+    """选中的那套走法：走向 + 侧重，填回输入框并直接展开。"""
+
+    spine: str = Field(min_length=1, max_length=200)
+    conflict: str = Field(default="", max_length=150)
+    ending: str = Field(default="", max_length=300)
+    focus_note: str = Field(default="", max_length=60)
+
+
+class ExpandBody(BaseModel):
+    """展开：作者那一句（或选中的走法）→ 卷纲草稿。`vol_no` 缺省＝下一卷。
+
+    line 放行空串（422 由端点给人类可读提示，不走 Pydantic 默认报文）。
+    """
+
+    line: str = Field(default="", max_length=LINE_MAX)
+    vol_no: int | None = Field(default=None, ge=1, le=99)
+    plan_no: int | None = Field(default=None, ge=1, le=3)
+
+
+# ═══════════════ 素材（非章域单源；0 章书可用）═══════════════
+
+
+def _rules_sections() -> tuple[str, str]:
+    """七条硬规则与体检判据的文本单源（spec：两个模板用占位符引用，配逐字对拍测试）。"""
+    src = load_prompt("volume_rules")
+    i = src.find("【体检判据】")
+    if i < 0:
+        return src.strip(), ""
+    return src[:i].strip(), src[i:].strip()
+
+
+def _faction_names(world_raw: dict) -> list[str]:
+    """世界设定里已命名的势力名（实体集合差的已知侧）。"""
+    out: list[str] = []
+    for f in world_raw.get("factions") or []:
+        if isinstance(f, dict):
+            n = str(f.get("name") or "").strip()
+            if n:
+                out.append(n)
+    return out
+
+
+async def _closed_hooks_summary(novel_id: str) -> str:
+    """已收/已弃伏笔各一条摘要——体检判「漏收/提前揭」需台账全貌，只看 active 不够。"""
+    if not novel_id:
+        return ""
+    from db import async_session
+    from models.hook import NovelHook
+
+    async with async_session() as session:
+        rows = (
+            await session.scalars(
+                select(NovelHook).where(
+                    NovelHook.novel_id == novel_id,
+                    NovelHook.status.in_(["resolved", "abandoned"]),
+                )
+            )
+        ).all()
+    lines: list[str] = []
+    for status, label in (("resolved", "已收"), ("abandoned", "已弃")):
+        row = next((r for r in rows if r.status == status), None)
+        if row is not None:
+            lines.append(f"- {label}：[H-{row.seq:04d}] {row.description[:60]}")
+    return "\n".join(lines)
+
+
+async def _book_material(db, project, *, with_hooks: bool, author_line: str = "") -> dict:
+    """主线（arc 归一）＋世界摘要（铁律全量）＋核心人物＋伏笔台账＋题材段。
+
+    人物口径（spec）：主角卡置顶，上一卷结尾/作者那句话点名的人挤进上限；每人 ≤80 字、上限 6 张。
+    另带 known_entities（角色 name+aliases＋势力名）供模型申报实体的集合差。
+    """
+    storage = get_storage()
+    story = await storage.read_yaml(project.root_path, "story.yaml") or {}
+    arc = _arc_normalize(story.get("story_arc") or {})
+    world_raw = await storage.read_yaml(project.root_path, "settings/world-setting.yaml") or {}
+    gctx = await resolve_genre_context(project.root_path, project.id)
+    chars = await character_service.list_characters(db, project.id)
+    items = list(chars.get("items", []))
+    items.sort(key=lambda it: 0 if it.get("role") == "主角" else 1)
+
+    known: set[str] = set(_faction_names(world_raw))
+    spotlight = author_line + str(arc["fullstory"])[:200]
+    for it in items:
+        nm = str(it.get("name") or "").strip()
+        if nm:
+            known.add(nm)
+        for a in it.get("aliases") or []:
+            na = str(a).strip()
+            if na:
+                known.add(na)
+
+    chosen = items[:6]
+    in_view = {str(it.get("name") or "") for it in chosen}
+    for it in items[6:]:
+        nm = str(it.get("name") or "").strip()
+        if nm and nm in spotlight and nm not in in_view:
+            chosen[-1] = it
+            in_view.add(nm)
+            break
+    cast_brief = "\n".join(
+        f"- {it.get('name', '')}（{it.get('role', '')}）：{(it.get('persona') or '')[:80]}"
+        for it in chosen
+    )
+    hooks_view = await load_active_hooks(project.id)
+    constraints = world_raw.get("constraints")
+    return {
+        "fullstory": arc["fullstory"],
+        "ending": arc["ending"],
+        "world_brief": world_summary_text(world_raw, 1200),
+        "world_rules": constraints if isinstance(constraints, str) else "",
+        "cast_brief": cast_brief,
+        "hooks_block": render_hooks_block(hooks_view),
+        "closed_hooks": await _closed_hooks_summary(project.id),
+        "genre_section": build_genre_section(gctx),
+        "genre_name": (gctx or {}).get("genre_id") or "",
+        "known_entities": known,
+    }
+
+
+def _blocks(mat: dict, *, hooks: bool) -> str:
+    parts = [f"【全书主线】\n{mat['fullstory']}"]
+    e = mat["ending"]
+    parts.append(
+        "【结局（作者写的）】最后一幕：{s}｜主角变成：{h}｜读者感觉：{t}".format(
+            s=e.get("scene", ""), h=e.get("hero", ""), t=e.get("tone", "")
+        )
+    )
+    if mat["world_brief"]:
+        parts.append(f"【世界观摘要】\n{mat['world_brief']}")
+    if mat["cast_brief"]:
+        parts.append(f"【核心人物】\n{mat['cast_brief']}")
+    if hooks and (mat["hooks_block"] or mat["closed_hooks"]):
+        active = mat["hooks_block"] or "（还没有悬而未决的伏笔）"
+        closed = "\n" + mat["closed_hooks"] if mat["closed_hooks"] else ""
+        parts.append(f"【伏笔台账】\n{active}{closed}")
+    if mat["genre_section"]:
+        parts.append(f"【题材与节奏】\n{mat['genre_section']}")
+    return "\n\n".join(parts)
+
+
+# ═══════════════ JSON 解析与校验兜底 ═══════════════
+
+
+def _render(tpl: str, **vals) -> str:
+    """<<key>> 占位符替换（不用 str.format——模板里的 JSON 示例带花括号）。"""
+    out = tpl
+    for k, v in vals.items():
+        out = out.replace("<<" + k + ">>", str(v))
+    return out
+
+
+def _parse_json(raw: str) -> dict | None:
+    text = (raw or "").strip()
+    text = re.sub(r"^```(?:json)?", "", text).strip()
+    text = re.sub(r"```$", "", text).strip()
+    i, k = text.find("{"), text.rfind("}")
+    if i < 0 or k <= i:
+        return None
+    try:
+        obj = json.loads(text[i : k + 1])
+    except (ValueError, TypeError):
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _lines(v, cap: int) -> list[str]:
+    if not isinstance(v, list):
+        return []
+    return [str(x).strip()[:120] for x in v if str(x).strip()][:cap]
+
+
+# ═══════════════ 3 套可行走法 ═══════════════
+
+
+def _entity_warnings(declared_cast, declared_factions, known: set[str]) -> list[str]:
+    """模型申报实体 vs 已知集合（角色 name+aliases＋势力名）做差——差集非空才标记，不拦。"""
+    warnings: list[str] = []
+    for kind, vals in (("人物", declared_cast), ("势力", declared_factions)):
+        for n in vals if isinstance(vals, list) else []:
+            ns = str(n).strip()
+            if ns and ns not in known:
+                warnings.append(f"设定里没有这个{kind}：「{ns[:20]}」")
+    return warnings[:5]
+
+
+def _degrade_text(raw: str) -> str:
+    return (raw or "").strip()[:2000]
+
+
+async def _last_chapter_tail(root_path: str, chapter_ref: str) -> str:
+    """末章正文末段（≤200 字）——体检「已写内容」对照用；读不到就空串，不拦。"""
+    if not chapter_ref:
+        return ""
+    try:
+        from workflow.engine import load_chapter
+
+        ch = await load_chapter(root_path, chapter_ref) or {}
+        paras = [
+            ln.strip()
+            for ln in str(ch.get("content") or "").split("\n")
+            if ln.strip()
+        ]
+        return paras[-1][:200] if paras else ""
+    except Exception:  # noqa: BLE001 — 素材补强失败不挡体检
+        return ""
+
+
+def _sanitize_plans(parsed: dict | None) -> dict | None:
+    """逐套兜底：走向/卷末齐 + 侧重轴互不相同（同质的那套丢弃）；<2 套视为整体失败。
+
+    出参带 note／volume_estimate 透传与 cast／factions 申报（供实体集合差）。
+    """
+    if not isinstance(parsed, dict):
+        return None
+    plans_raw = parsed.get("plans")
+    if not isinstance(plans_raw, list):
+        return None
+    axes: list[str] = []
+    out: list[dict] = []
+    for p in plans_raw:
+        if not isinstance(p, dict):
+            continue
+        spine = str(p.get("spine", "") or "").strip()
+        conflict = str(p.get("conflict", "") or "").strip()
+        ending = str(p.get("ending", "") or "").strip()
+        if not spine or not ending:
+            continue
+        axis = str(p.get("focus_axis", "") or "").strip() or next(
+            (a for a in FOCUS_AXES if a not in axes), FOCUS_AXES[len(axes) % len(FOCUS_AXES)]
+        )
+        if axis in axes:
+            continue  # 同轴＝同质，丢弃
+        axes.append(axis)
+        out.append(
+            {
+                "no": len(out) + 1,
+                "spine": spine[:60],
+                "conflict": conflict[:120],
+                "ending": ending[:120],
+                "focus": str(p.get("focus", "") or "").strip()[:60],
+                "focus_axis": axis,
+            }
+        )
+        if len(out) == MAX_PLANS:
+            break
+    if len(out) < 2:
+        return None
+    return {
+        "plans": out,
+        "note": str(parsed.get("note", "") or "").strip()[:120],
+        "volume_estimate": str(parsed.get("volume_estimate", "") or "").strip()[:60],
+        "cast": [str(x).strip() for x in parsed.get("cast") or [] if str(x).strip()],
+        "factions": [str(x).strip() for x in parsed.get("factions") or [] if str(x).strip()],
+    }
+
+
+def _plans_too_similar(plans: list[dict]) -> bool:
+    spines = [p["spine"] for p in plans]
+    for i, a in enumerate(spines):
+        for b in spines[i + 1 :]:
+            if difflib.SequenceMatcher(None, a, b).ratio() > SPINE_SIM_LIMIT:
+                return True
+    return False
 
 
 @router.post("/ai/options")
@@ -238,81 +392,100 @@ async def ai_volume_options(
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Novel not found")
-    mat = await _book_material(db, project, hooks=False)
+    author_line = (body.line or "").strip()
+    mat = await _book_material(db, project, with_hooks=False, author_line=author_line)
     if not mat["fullstory"] and not any(mat["ending"].values()):
         raise HTTPException(422, "主线为空，请先在设定中完成主线（全景或结局三问）再拆卷")
 
-    author_line = body.line.strip()
-    system = load_prompt("volume_options").format(
-        fullstory=mat["fullstory"],
-        scene=mat["ending"].get("scene", ""),
-        hero=mat["ending"].get("hero", ""),
-        tone=mat["ending"].get("tone", ""),
-        world_brief=mat["world_brief"],
-        cast_brief=mat["cast_brief"],
-        genre=mat["genre_section"] or mat["genre_name"],
+    prev = await resolve_prev_ending(db, project, 1)
+    system = _render(
+        load_prompt("volume_options"),
+        material_blocks=_blocks(mat, hooks=False),
+        prev_ending=prev["text"] + "（" + prev["source"] + "）",
         author_line=author_line or "（作者还没写——三套都要是你按设定推出的可行走法）",
+        focus_axes="／".join(FOCUS_AXES),
     )
-    raw = await _generate(
+    raw, _u0 = await _generate(
         project, system, "请给出 3 套可行走法（只输出 JSON）。",
         temperature=0.7, db=db, user=user, operation="volume_options",
     )
-    parsed = _parse_json(raw)
-    if parsed is None:
-        retry_raw = await _generate(
+    result = _sanitize_plans(_parse_json(raw))
+    if result is None or _plans_too_similar(result["plans"]):
+        reason = (
+            "不足两套或不合法"
+            if result is None
+            else "有几套走向太像——请重写成结构上不同的版本"
+        )
+        retry_raw, _u1 = await _generate(
             project,
-            system + "\n\n（上一次输出不是合法 JSON 或结构不完整——请只输出 JSON。）",
-            "请给出 3 套可行走法（只输出 JSON）。", temperature=0.3,
-            db=db, user=user, operation="volume_options_retry",
+            system + f"\n\n（上一次{reason}。）",
+            "请给出 2 到 3 套可行走法（只输出 JSON）。",
+            temperature=0.3, db=db, user=user, operation="volume_options_retry",
         )
-        parsed = _parse_json(retry_raw)
-    if parsed is None:
-        raise HTTPException(502, "AI 输出无法解析，可重试")
-
-    plans = _sanitize_plans(parsed, author_line)
-    if not plans:
-        raise HTTPException(502, "AI 没给出可用的走法，可重试")
-    return {"ok": True, "plans": plans, "note": str(parsed.get("note", "") or "")[:200]}
-
-
-def _sanitize_plans(parsed: dict, author_line: str) -> list[dict]:
-    """逐套兜底：四字段齐 + 侧重轴互不相同（同质的那套丢弃）。"""
-    axes: list[str] = []
-    out: list[dict] = []
-    for p in parsed.get("plans", []) if isinstance(parsed.get("plans"), list) else []:
-        if not isinstance(p, dict):
-            continue
-        spine = str(p.get("spine", "") or "").strip()
-        conflict = str(p.get("conflict", "") or "").strip()
-        ending = str(p.get("ending", "") or "").strip()
-        if not spine or not ending:
-            continue
-        axis = str(p.get("focus_axis", "") or "").strip() or "代价"
-        if axis in axes:
-            continue  # 同轴的第二套＝同质，丢弃
-        axes.append(axis)
-        out.append(
-            {
-                "k": axis,
-                "spine": spine[:60],
-                "conflict": conflict[:120],
-                "ending": ending[:120],
-                "focus": (str(p.get("focus", "") or "").strip() or axis)[:60],
-                "focus_axis": axis,
-            }
-        )
-        if len(out) == MAX_OPTIONS:
-            break
-    return out
+        retry_result = _sanitize_plans(_parse_json(retry_raw))
+        if retry_result is not None:
+            result = retry_result
+    if result is None:
+        # spec：校验两次仍失败 → 降级为纯文本（不 502），提示可重试
+        return {
+            "ok": True, "degraded": True, "text": _degrade_text(raw),
+            "hint": "AI 的输出没法结构化——可重试，或按上面这段手动定走向",
+        }
+    warnings = _entity_warnings(result["cast"], result["factions"], mat["known_entities"])
+    return {
+        "ok": True,
+        "plans": result["plans"],
+        "note": result["note"],
+        "volume_estimate": result["volume_estimate"],
+        "similar": _plans_too_similar(result["plans"]),
+        "warnings": warnings,
+    }
 
 
-# ── 展开卷纲草稿 ─────────────────────────────────────────────────────────────
+# ═══════════════ 展开卷纲草稿 ═══════════════
+
+
+def _sanitize_expand(obj: dict | None) -> dict | None:
+    """卷纲草稿兜底：四件事必须齐（spec 上限：主旨 80／矛盾 60／目标 60／结局 60）。
+
+    cast/factions 申报不入 draft，由端点提出到顶层做实体集合差。
+    """
+    if not isinstance(obj, dict):
+        return None
+    summary = str(obj.get("summary", "") or "").strip()
+    conflict = str(obj.get("conflict", "") or "").strip()
+    goal = str(obj.get("goal", "") or "").strip()
+    ending = str(obj.get("ending", "") or "").strip()
+    if not summary or not conflict or not goal or not ending:
+        return None  # 四件事必须齐——缺一件宁可重试/降级
+    try:
+        total = int(obj.get("chapter_target"))
+    except (TypeError, ValueError):
+        total = 0
+    checks = [str(x).strip()[:40] for x in obj.get("checks", []) if str(x).strip()]
+    return {
+        "name": str(obj.get("name", "") or "").strip()[:6],
+        "summary": summary[:80],
+        "conflict": conflict[:60],
+        "goal": goal[:60],
+        "ending": ending[:60],
+        "plants": _lines(obj.get("plants"), 2),
+        "reveals": _lines(obj.get("reveals"), 2),
+        "chapter_target": min(9999, max(0, total)),
+        "checks": checks[:3],
+        "cast": [str(x).strip() for x in obj.get("cast") or [] if str(x).strip()],
+        "factions": [str(x).strip() for x in obj.get("factions") or [] if str(x).strip()],
+    }
+
+
+async def _next_volume_no(db, project) -> int:
+    return await volume_repo.max_volume_no(db, project.id) + 1
 
 
 @router.post("/ai/expand")
 async def ai_volume_expand(
     project_id: str,
-    body: PlanExpandBody,
+    body: ExpandBody,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
     __: bool = Depends(require_novel_model),
@@ -325,74 +498,79 @@ async def ai_volume_expand(
     line = (body.line or "").strip()
     if not line:
         raise HTTPException(422, "先写一句这一卷想看什么——走向由你定，AI 只铺结构")
-    plan_vol_no = state_plan_vol_no(body)
-    prev_text, prev_src = await resolve_prev_ending(db, project, plan_vol_no)
-    mat = await _book_material(db, project, hooks=True)
-
-    system = load_prompt("volume_expand").format(
-        fullstory=mat["fullstory"],
-        scene=mat["ending"].get("scene", ""),
-        hero=mat["ending"].get("hero", ""),
-        world_brief=mat["world_brief"],
-        cast_brief=mat["cast_brief"],
-        prev_ending=prev_text,
-        prev_src=prev_src,
-        author_line=line,
-        genre=mat["genre_section"] or mat["genre_name"],
-        hooks=mat["hooks_block"] or "（还没有登记伏笔）",
+    vol_no = body.vol_no or (await _next_volume_no(db, project))
+    prev = await resolve_prev_ending(db, project, vol_no)
+    mat = await _book_material(db, project, with_hooks=True, author_line=line)
+    # spec 素材契约：expand 含上一卷卷纲文本（options 不含）
+    prev_vol_row = (
+        await volume_repo.get_by_volume_no(db, project.id, vol_no - 1)
+        if vol_no > 1
+        else None
     )
-    raw = await _generate(
+    prev_outline = volume_outline_text(prev_vol_row) if prev_vol_row is not None else ""
+    material_blocks = _blocks(mat, hooks=True)
+    if prev_outline:
+        material_blocks += f"\n\n【上一卷卷纲】\n{prev_outline}"
+
+    system = _render(
+        load_prompt("volume_expand"),
+        material_blocks=material_blocks,
+        prev_ending=prev["text"] + "（" + prev["source"] + "）",
+        author_line=line,
+        hard_rules=_rules_sections()[0],
+    )
+    raw, _u0 = await _generate(
         project, system, "请把这句话铺成这一卷的卷纲（只输出 JSON）。",
         temperature=0.4, db=db, user=user, operation="volume_expand",
     )
     draft = _sanitize_expand(_parse_json(raw))
     if draft is None:
-        retry_raw = await _generate(
+        retry_raw, _u1 = await _generate(
             project,
             system + "\n\n（上一次输出不是合法 JSON 或四字段不齐——请只输出 JSON，四字段必须齐全。）",
             "请把这句话铺成这一卷的卷纲（只输出 JSON）。", temperature=0.2,
             db=db, user=user, operation="volume_expand_retry",
         )
         draft = _sanitize_expand(_parse_json(retry_raw))
+        raw = retry_raw
     if draft is None:
-        raise HTTPException(502, "展开结果为空或结构不完整，可重试")
-    return {"ok": True, "plan_line": line, "draft": draft}
+        # spec：校验两次仍失败 → 降级为纯文本（不 502），提示可重试
+        return {
+            "ok": True, "vol_no": vol_no, "plan_line": line,
+            "degraded": True, "text": _degrade_text(raw),
+            "hint": "AI 的输出没法结构化——可重试，或按上面这段手动填卷纲",
+        }
+    warnings = _entity_warnings(draft.pop("cast", []), draft.pop("factions", []), mat["known_entities"])
+    return {"ok": True, "vol_no": vol_no, "plan_line": line, "draft": draft, "warnings": warnings}
 
 
-def _sanitize_expand(obj: dict | None) -> dict | None:
-    if not isinstance(obj, dict):
+# ═══════════════ 卷纲体检（验证）═══════════════
+
+
+def _report_groups(groups) -> list[dict] | None:
+    if not isinstance(groups, list) or not groups:
         return None
-    summary = str(obj.get("summary", "") or "").strip()
-    conflict = str(obj.get("conflict", "") or "").strip()
-    if not summary or not conflict:
-        return None
-    goal = str(obj.get("goal", "") or "").strip()
-    ending = str(obj.get("ending", "") or "").strip()
-    if not goal or not ending:
-        return None
-    try:
-        total = int(obj.get("chapter_target"))
-    except (TypeError, ValueError):
-        total = 0
-    return {
-        "summary": summary[:80],
-        "conflict": conflict[:60],
-        "goal": goal[:300],
-        "ending": ending[:300],
-        "plants": _lines(obj.get("plants"), 2),
-        "reveals": _lines(obj.get("reveals"), 2),
-        "chapter_target": min(9999, max(0, total)),
-        "name": str(obj.get("name", "") or "").strip()[:6],
-    }
-
-
-def _lines(v, cap: int) -> list[str]:
-    if not isinstance(v, list):
-        return []
-    return [str(x).strip()[:120] for x in v if str(x).strip()][:cap]
-
-
-# ── 卷纲体检 ────────────────────────────────────────────────────────────────
+    out: list[dict] = []
+    for g in groups:
+        if not isinstance(g, dict):
+            continue
+        name = str(g.get("name", "") or "").strip()
+        items = []
+        for it in g.get("items", []) if isinstance(g.get("items"), list) else []:
+            if not isinstance(it, dict):
+                continue
+            status = it.get("status")
+            text = str(it.get("text", "") or "").strip()
+            if status in ("ok", "warn", "none") and text:
+                item: dict = {"status": status, "text": text[:60]}
+                ev = str(it.get("evidence", "") or "").strip()
+                if ev:
+                    item["evidence"] = ev[:30]
+                items.append(item)
+        if not name or not items:
+            return None
+        out.append({"name": name, "items": items})
+    return out if len(out) >= 2 else None
 
 
 @router.post("/{ref}/ai/check")
@@ -414,30 +592,56 @@ async def ai_volume_check(
     if vol is None:
         raise HTTPException(404, "Volume not found")
     detail = await get_volume(db, project, ref)
-    prev_text, prev_src = await resolve_prev_ending(db, project, vol_no, detail=detail)
+    prev = await resolve_prev_ending(db, project, vol_no)
+    mat = await _book_material(db, project, with_hooks=True)
 
-    system = load_prompt("volume_check").format(
-        vol=volume_outline_text(vol),
-        fullstory=detail.get("fullstory", ""),
-        scene=detail.get("ending_scene", ""),
-        rules=detail.get("world_rules", ""),
-        cast=detail.get("cast_brief", ""),
-        hooks=detail.get("hooks_block", ""),
-        written=detail.get("written_brief", "（还没写）"),
-        prev=prev_text,
+    outline_text = volume_outline_text(vol)
+    written_brief = "（还没有章节——写到之后，这里换成实际写出来的对照）"
+    chapters = detail.get("chapters") or []
+    archived = [c for c in chapters if c.get("archived")]
+    if archived:
+        last = archived[-1]
+        # spec：P1 只取该卷末章的摘要与末段，SHALL NOT 整卷正文入包
+        tail = await _last_chapter_tail(project.root_path, str(last.get("ref") or ""))
+        written_brief = (
+            f"已写到第{last['chapter_no']}章「{last['title']}」｜{last.get('outline_summary') or '（无章纲）'}"
+            + (f"\n末段：{tail}" if tail else "")
+        )
+    else:
+        tail = ""
+
+    system = _render(
+        load_prompt("volume_check"),
+        vol_outline=outline_text,
+        fullstory=mat["fullstory"],
+        scene=mat["ending"].get("scene", ""),
+        rules=mat["world_rules"] or "（世界设定未登记铁律）",
+        cast=mat["cast_brief"],
+        hooks=mat["hooks_block"] or "（还没有登记伏笔）",
+        written=written_brief,
+        prev_ending=prev["text"] + "（" + prev["source"] + "）",
+        criteria=_rules_sections()[1],
     )
-    raw = await _generate(
+    raw, _u0 = await _generate(
         project, system, "请按三组给出这一卷的体检结论（只输出 JSON）。",
         temperature=0.2, db=db, user=user, operation="volume_check",
     )
     parsed = _parse_json(raw)
-    if parsed is None:
-        retry_raw = await _generate(
+    report = _report_groups(parsed.get("groups") if isinstance(parsed, dict) else None)
+    if report is None:
+        retry_raw, _u2 = await _generate(
             project, system, "请按三组给出体检结论（只输出 JSON）。", temperature=0.1,
             db=db, user=user, operation="volume_check_retry",
         )
-        parsed = _parse_json(retry_raw)
-    report = _sanitize_report(parsed)
+        parsed2 = _parse_json(retry_raw)
+        report = _report_groups(
+            parsed2.get("groups") if isinstance(parsed2, dict) else None
+        )
     if report is None:
-        raise HTTPException(502, "体检输出无法解析，可重试")
-    return {"ok": True, "report": report}
+        # spec：校验两次仍失败 → 降级为纯文本（不 502），提示可重试
+        return {
+            "ok": True, "vol_no": vol_no, "name": vol.title,
+            "degraded": True, "text": _degrade_text(raw),
+            "hint": "AI 的输出没法结构化——可重试",
+        }
+    return {"ok": True, "vol_no": vol_no, "name": vol.title, "report": report}

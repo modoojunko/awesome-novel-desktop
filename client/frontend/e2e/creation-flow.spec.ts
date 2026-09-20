@@ -293,9 +293,11 @@ test("空书无门控：建书即写，加卷加章直达编辑器", async ({ pa
     const pid = await createNovel(page, `直接写${Date.now() % 100000}`);
 
     // 落点即写作工作台（非设定页）：空书态（c-0vol0ch-empty-state 设计稿）+ 左树空态
-    await expect(page.getByText("这本书还没有开始")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("这本书怎么开始？")).toBeVisible({ timeout: 10000 });
     await expect(
-      page.getByText("还没有任何卷与章节。点下方「＋ 新增一章」"),
+      page.getByText(
+        "自己动手：先建一卷、排上第一章就能开写；想让 AI 按主线拆分卷，用右侧的 AI 助手。",
+      ),
     ).toBeVisible();
     // 顶栏空书卡：空书 · 第 1 章待写 · 未开始 · ＋ 新增一卷
     await expect(page.locator(".bar-here .bh-k")).toHaveText("空书");
@@ -344,7 +346,7 @@ test("空书起手：中栏「＋ 新增一章」先垫第一卷并排上第一�
   const { restore } = await setupSession(page);
   try {
     await createNovel(page, `起手${Date.now() % 100000}`);
-    await expect(page.getByText("这本书还没有开始")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("这本书怎么开始？")).toBeVisible({ timeout: 10000 });
 
     // 左栏底部两入口（空书态替代「确认全部已填章节」）
     const tree = page.locator(".col-tree");

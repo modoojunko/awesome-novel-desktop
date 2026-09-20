@@ -1,49 +1,233 @@
-/** 右栏「AI 辅助 · 卷」语境面板（storyline aiVolHTML 复刻）：随卷页签切换引导语＋统计卡。
- *  卷域 AI 动作另行立项——不渲染动作清单、无「规划中」占位（workbench delta 口径）。
- *  rels/hooks 统计按页签懒取，失败降级「—」（与章模式统计降级同口径）。
- *  c-0vol0ch-empty-state：未选中（空书/刚删完）分支补齐原型的无语境 aiShell——
- *  当前页签「未选」＋引导语＋四格统计（当前主线/悬置伏笔/全书章节/基于旧设定）＋免费档脚注。 */
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
-import { hooksApi } from "@/lib/hooksApi";
-import { parseChapterRef } from "@/lib/chapterRef";
+/** 右栏「AI 辅助 · 卷」语境面板（volume-plan-ai 三态）：
+ *  1) 选中卷＝验证面板（引导语＋「体检这一卷」＋三组报告；免费、只读、可重复）；
+ *  2) 未选中 · 零卷（空书）＝「规划第一卷（AI）」入口＋「分卷依据 · 来自你的设定」；
+ *  3) 未选中 · 有卷（写作默认页）＝「接着往下规划」（规划第N卷）＋「卷的验证」（各卷一行，
+ *     卷号 · 名字 · 章数目标；点一行＝选中该卷并立刻体检）。
+ *  原「卷选中态四页签统计卡」与「未选中态四格全书统计」由本 change 退役（workbench delta）。 */
+import { useCallback, useEffect, useState } from "react";
+import { volumePlanApi, type VolumeCheckResult } from "@/lib/volumePlanApi";
 import type { VolumeRailData } from "./VolumeWorkspace";
+import type { WorkbenchVolume } from "@/hooks/useWorkbench";
 
 export type { VolumeRailData };
 
-/** 壳层注入的「未选中」态统计（空书/刚落删除都走这态） */
+/** 壳层注入的「未选中」态数据（空书 / 有卷未选中两态共用） */
 export interface RailIdleData {
-  /** 主线端点章号（无章＝null → 「—」） */
-  frontierNo: number | null;
-  /** 全书章节数（卷树口径，与写作业「N/N 章纲」同源） */
+  /** 已有卷（树单源；卷的验证卡逐行用） */
+  volumes: Array<WorkbenchVolume>;
+  /** 全书章节总数（判空书/落点口径同源） */
   chapters: number;
-  /** 挂「基于旧设定」的章数 */
-  stale: number;
 }
 
-const TAB_NAME = {
-  outline: "卷纲",
-  chapters: "本卷章节",
-  rels: "角色关系",
-  hooks: "伏笔",
-} as const;
+const STATUS_GLYPH: Record<string, string> = { ok: "✓", warn: "⚠", none: "—" };
+
+/** 分卷依据 · 来自你的设定（空书态 5 行；缺口标出、不拦） */
+function BasisCard({
+  projectId,
+  active,
+  genreLabel,
+}: {
+  projectId: string;
+  active: boolean;
+  genreLabel: string;
+}) {
+  const [rows, setRows] = useState<Array<[string, string, boolean]>>([
+    ["主线全景", "…", false],
+    ["结局三问", "…", false],
+    ["题材阶段", genreLabel || "待定（不拦）", !!genreLabel],
+    ["主要角色", "…", false],
+    ["目标篇幅", "未设（可不设）", false],
+  ]);
+  useEffect(() => {
+    if (!active || !projectId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const arc = (await apiFetchStoryArc(projectId)) ?? {};
+        const full = String(arc.fullstory ?? "").trim();
+        const e = arc.ending ?? {};
+        const chars = await apiGetCharacters(projectId);
+        if (alive) {
+          setRows([
+            ["主线全景", full ? "已填" : "缺口 · 先去设定补主线", !!full],
+            ["结局三问", e.scene || e.hero || e.tone ? "已填" : "缺口 · 只作参照", !!(e.scene || e.hero || e.tone)],
+            ["题材阶段", genreLabel || "待定（不拦）", !!genreLabel],
+            ["主要角色", chars > 0 ? `${chars} 人` : "还没有角色卡（不拦）", chars > 0],
+            ["目标篇幅", "按结局估——打开规划台看 AI 的估算", false],
+          ]);
+        }
+      } catch {
+        if (alive) setRows((rs) => rs.map(([k, , ])=> [k, "（读取失败，不拦）", false] as [string,string,boolean]));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectId, active, genreLabel]);
+  return (
+    <details className="cfg">
+      <summary>分卷依据 · 来自你的设定</summary>
+      <ul className="pv-mat" data-testid="plan-basis">
+        {rows.map(([k, v, ok]) => (
+          <li key={k}>
+            <span className="k">{k}</span>
+            <span className={ok ? "v ok" : "v gap"}>{v}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/* 轻封装：便于组件测试打桩（api 模块级 import 会连带拖进测试环境） */
+async function apiFetchStoryArc(projectId: string) {
+  const { api } = await import("@/lib/api");
+  return api.fetchStoryArc(projectId);
+}
+async function apiGetCharacters(projectId: string): Promise<number> {
+  const { api } = await import("@/lib/api");
+  const d = (await api.get(`/novels/${projectId}/characters`)) as {
+    items?: unknown[];
+  };
+  return Array.isArray(d?.items) ? d.items.length : 0;
+}
+
+/** 选中卷＝验证面板（体检动作＋三组报告；免费、只读、不代笔） */
+function VolumeVerifyPanel({
+  projectId,
+  data,
+  autoCheckSeq,
+}: {
+  projectId: string;
+  data: VolumeRailData;
+  autoCheckSeq: number;
+}) {
+  const [checking, setChecking] = useState(false);
+  const [report, setReport] = useState<VolumeCheckResult | null>(null);
+  const [error, setError] = useState("");
+  const volRef = `vol-${data.volume}`;
+
+  const runCheck = useCallback(async () => {
+    setChecking(true);
+    setError("");
+    try {
+      const d = await volumePlanApi.check(projectId, volRef);
+      setReport(d);
+    } catch (e: unknown) {
+      const msg = (e as { message?: string })?.message || "体检失败，请重试";
+      setError(
+        msg.includes("模型")
+          ? "先在模型配置里接一个模型，再回来体检"
+          : msg,
+      );
+    } finally {
+      setChecking(false);
+    }
+  }, [projectId, volRef]);
+
+  // 「卷的验证」点行 → 选中即立刻体检（autoCheckSeq 变化触发）
+  useEffect(() => {
+    if (autoCheckSeq > 0) void runCheck();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoCheckSeq, volRef]);
+
+  return (
+    <div>
+      <div className="ai-head">
+        <span className="ai-title">AI 助手</span>
+        <span className="pill-pro">PRO</span>
+      </div>
+      <div className="ai-ctx">
+        <em>当前页签</em>
+        <span>卷的验证</span>
+      </div>
+      <div className="rail-assist" data-testid="volume-verify-panel">
+        <p className="ai-lead">
+          这一卷的验证：对不对得上全书设定、接不接得上主线、跟已经写出来的部分有没有出入。只给判断，不代笔。
+        </p>
+        <button
+          className="btn btn-secondary btn-sm"
+          data-testid="volume-check-btn"
+          disabled={checking}
+          onClick={() => void runCheck()}
+        >
+          {checking ? "体检中…" : "体检这一卷"}
+        </button>
+        {error && (
+          <p className="pv-error" data-testid="volume-check-error">
+            {error}
+          </p>
+        )}
+        {report?.degraded && (
+          <div className="pv-degraded" data-testid="volume-check-degraded">
+            <p className="pv-degraded-t">体检输出没法结构化</p>
+            <p className="pv-degraded-x">{report.text}</p>
+            <p className="none">{report.hint || "可重试"}</p>
+          </div>
+        )}
+        {report && !report.degraded && (
+          <div data-testid="volume-check-report">
+            {report.report.map((g) => (
+              <div className="pv-group" key={g.name}>
+                <p className="pv-group-t">{g.name}</p>
+                <ul>
+                  {g.items.map((it, i) => (
+                    <li key={i} className={`pv-item ${it.status}`}>
+                      <span className="pv-glyph">{STATUS_GLYPH[it.status] ?? "—"}</span>
+                      <span className="pv-text">
+                        {it.text}
+                        {it.evidence ? <em className="pv-ev">（{it.evidence}）</em> : null}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <p className="ai-foot">
+        免费版：体检与建议只读；生成、改写与归档需 PRO。体检随时可重复，不会改动任何内容。
+      </p>
+    </div>
+  );
+}
 
 export function VolumeAssistPanel({
   projectId,
   data,
   idle,
+  genreLabel,
+  onPlanVolume,
+  onSelectVolume,
+  autoCheckSeq,
 }: {
   projectId: string;
   data: VolumeRailData | null;
   idle: RailIdleData;
+  genreLabel: string;
+  /** 打开规划台（空书＝1；写作默认页＝最大卷号+1） */
+  onPlanVolume: (volNo: number) => void;
+  /** 「卷的验证」点行：选中该卷（外层会立刻触发体检） */
+  onSelectVolume: (ref: string) => void;
+  /** 选中卷自动体检信号（点行选中时递增） */
+  autoCheckSeq: number;
 }) {
-  // 未选中态才取悬置伏笔数（选中卷时由卷域投影页签自取，不重复请求）
   const idleActive = !data || !data.detail;
-  const openHooks = useOpenHookCount(projectId, idleActive);
-  if (idleActive) {
-    // 无包裹层（原型 aiShell 就是同级元素）：纵向节奏由 .col-ai 的 flex gap 给，
-    // 且不占用 .rail-assist 类名——设定页右栏同名（AiWriterAssistant），
-    // 写作视图常驻挂载时会给 `.col-ai .rail-assist` 造成选择器歧义（e2e 实测）。
+  if (!idleActive) {
+    return (
+      <VolumeVerifyPanel
+        key={`${data.volume}`}
+        projectId={projectId}
+        data={data}
+        autoCheckSeq={autoCheckSeq}
+      />
+    );
+  }
+
+  const vols = idle.volumes;
+  // 空书（0 卷）：规划第一卷入口＋分卷依据
+  if (vols.length === 0) {
     return (
       <>
         <div className="ai-head">
@@ -54,275 +238,71 @@ export function VolumeAssistPanel({
           <em>当前页签</em>
           <span>未选</span>
         </div>
-        <p className="ai-lead">
-          在左侧目录里选中一章或一卷，这里会给出对应页签的 AI 辅助：章纲检查、正文续写、提示词组装、设定与关系伏笔的检测。
-        </p>
-        <ul className="rail-stats" data-testid="idle-rail-stats">
-          <li>
-            <span className="k">当前主线</span>
-            <span className="v num">
-              {idle.frontierNo == null ? "—" : `第 ${idle.frontierNo} 章`}
-            </span>
-          </li>
-          <li>
-            <span className="k">悬置伏笔</span>
-            <span className="v num">{openHooks == null ? "—" : `${openHooks} 条`}</span>
-          </li>
-          <li>
-            <span className="k">全书章节</span>
-            <span className="v num">{idle.chapters} 章</span>
-          </li>
-          <li>
-            <span className="k">基于旧设定</span>
-            <span className="v num">{idle.stale} 章</span>
-          </li>
-        </ul>
+        <div className="pv-entry" data-testid="plan-entry-empty">
+          <p className="ai-lead">
+            让 AI 按你的主线拆分卷：先给第一卷定走向，再逐卷往下规划。也可以自己动手——先建一卷、排上第一章。
+          </p>
+          <button
+            className="btn btn-primary btn-sm"
+            data-testid="plan-first-volume"
+            onClick={() => onPlanVolume(1)}
+          >
+            规划第一卷（AI）
+          </button>
+          <BasisCard projectId={projectId} active genreLabel={genreLabel} />
+        </div>
         <p className="ai-foot">
-          免费版：体检与建议只读；生成、改写与归档需 PRO。全书设定、关系、伏笔由全书统一维护；关系可在本章新增，记为本章变化，归档时并进全书。
+          免费版：体检与建议只读；生成、改写与归档需 PRO。规划台里材料与规则随时可看，输入也能先写。
         </p>
       </>
     );
   }
-  // key 换卷/换页签即重挂：懒取统计随页签刷新
-  return <PanelBody key={`${data.volume}-${data.tab}`} projectId={projectId} data={data} />;
-}
 
-/** 悬置伏笔数（未选中态统计用；失败降级 null → 「—」，与卷域统计同口径）。 */
-function useOpenHookCount(projectId: string, active: boolean): number | null {
-  const [n, setN] = useState<number | null>(null);
-  useEffect(() => {
-    if (!active) return;
-    let alive = true;
-    (async () => {
-      try {
-        const d = await hooksApi.list(projectId);
-        const items = d.items ?? [];
-        if (alive) setN(items.filter((h) => h.status === "active").length);
-      } catch {
-        if (alive) setN(null);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [projectId, active]);
-  return n;
-}
-
-function PanelBody({ projectId, data }: { projectId: string; data: VolumeRailData }) {
-  const { tab, detail } = data;
-  const lead =
-    tab === "outline"
-      ? "卷纲只定剧情走向——核心矛盾、目标、关键节点与伏笔；角色的具体言行交给角色设定推导。"
-      : tab === "chapters"
-        ? `本卷共 ${detail.chapters.length} 章；缺章纲的章节会直接影响 AI 生成的稳定性。`
-        : tab === "rels"
-          ? "关系图是本卷章节写完后向上回写的结果，卷纲本身不改动。"
-          : "本卷该埋与该收的伏笔；跨卷悬置的会继续挂在全书台账上。";
-
-  let stats: Array<[string, string]> = [];
-  if (tab === "outline") {
-    stats = [
-      ["章数目标", detail.chapter_target != null ? `${detail.chapter_target} 章` : "不设"],
-      ["已写章节", `${detail.chapters.length} 章`],
-      ["关键节点", `${detail.plot_nodes.length} 个`],
-      ["登场人物", `${detail.cast_members.length} 人`],
-    ];
-  } else if (tab === "chapters") {
-    const archived = detail.chapters.filter((c) => c.archived).length;
-    const draft = detail.chapters.filter((c) => c.has_prose && !c.archived).length;
-    const planned = detail.chapters.filter((c) => !c.has_prose && !c.archived).length;
-    const need = detail.chapters.filter((c) => c.outline_status !== "confirmed").length;
-    stats = [
-      ["章节总数", `${detail.chapters.length} 章`],
-      ["已归档", `${archived} 章`],
-      ["草稿 / 拟定", `${draft} / ${planned}`],
-      ["缺章纲", `${need} 章`],
-    ];
-  }
-
+  // 有卷未选中（写作默认页）：接着往下规划＋卷的验证
+  const nextNo = vols.length + 1;
   return (
-    <div>
+    <>
       <div className="ai-head">
         <span className="ai-title">AI 助手</span>
         <span className="pill-pro">PRO</span>
       </div>
       <div className="ai-ctx">
         <em>当前页签</em>
-        <span>{TAB_NAME[tab]}</span>
+        <span>未选</span>
       </div>
-      <div className="rail-assist">
-        <p className="ai-lead">{lead}</p>
-        {tab === "outline" || tab === "chapters" ? (
-          <ul className="rail-stats" data-testid="volume-rail-stats">
-            {stats.map(([k, v]) => (
-              <li key={k}>
-                <span className="k">{k}</span>
-                <span className="v">{v}</span>
-              </li>
-            ))}
+      <div className="pv-entry" data-testid="plan-entry-next">
+        <p className="ai-lead">接着往下规划，或挑一卷做验证。</p>
+        <button
+          className="btn btn-primary btn-sm"
+          data-testid="plan-next-volume"
+          onClick={() => onPlanVolume(nextNo)}
+        >
+          规划第{nextNo}卷（AI）
+        </button>
+        <div className="cfg">
+          <p className="pv-group-t">卷的验证</p>
+          <ul className="pv-vols" data-testid="volume-verify-list">
+            {vols.map((v) => {
+              const no = Number((v.name.match(/^vol-(\d+)$/) ?? [])[1] ?? 0);
+              return (
+                <li key={v.name}>
+                  <button
+                    className="pv-vol-row"
+                    data-testid={`verify-vol-${no}`}
+                    onClick={() => onSelectVolume(v.name)}
+                  >
+                    第{no}卷 · {v.title || "未命名"} ·{" "}
+                    {v.chapter_target != null ? `${v.chapter_target} 章` : "不设章数"}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
-        ) : null}
-        {tab === "rels" && <RelStats projectId={projectId} volume={data.volume} />}
-        {tab === "hooks" && <HookStats projectId={projectId} volume={data.volume} />}
+        </div>
       </div>
       <p className="ai-foot">
-        免费版：体检与建议只读；生成、改写与归档需 PRO。全书设定、关系、伏笔由全书统一维护；卷域投影截至本卷末，只读。
+        免费版：体检与建议只读；生成、改写与归档需 PRO。点一卷立刻体检，只读不拦。
       </p>
-    </div>
+    </>
   );
-}
-
-function StatList({ rows }: { rows: Array<[string, string]> | null }) {
-  return (
-    <ul className="rail-stats" data-testid="volume-rail-stats">
-      {(rows ?? []).map(([k, v]) => (
-        <li key={k}>
-          <span className="k">{k}</span>
-          <span className="v">{v}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** 角色关系页签统计：本卷关系边 / 涉及人物与势力 / 全书关系边（懒取，失败「—」）。 */
-function RelStats({ projectId, volume }: { projectId: string; volume: number }) {
-  const [rows, setRows] = useState<Array<[string, string]> | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const d = (await api.get(
-          `/novels/${projectId}/characters/graph`,
-        )) as {
-          ok: boolean;
-          data: {
-            nodes: Array<{ name: string }>;
-            edges: Array<{
-              owner_name: string;
-              other_name: string;
-              origin_chapter: string;
-            }>;
-          };
-        };
-        const edges = d.data?.edges ?? [];
-        const inVol = edges.filter((e) => {
-          const p = parseChapterRef(e.origin_chapter || "");
-          return p != null && p.vol === volume;
-        });
-        const names = new Set<string>();
-        inVol.forEach((e) => {
-          names.add(e.owner_name);
-          names.add(e.other_name);
-        });
-        if (alive) {
-          setRows([
-            ["本卷关系边", `${inVol.length} 条`],
-            ["涉及人物与势力", `${names.size} 个`],
-            ["全书关系边", `${edges.length} 条`],
-          ]);
-        }
-      } catch {
-        if (alive) setFailed(true);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [projectId, volume]);
-
-  if (failed) {
-    return (
-      <StatList
-        rows={[
-          ["本卷关系边", "—"],
-          ["涉及人物与势力", "—"],
-          ["全书关系边", "—"],
-        ]}
-      />
-    );
-  }
-  return <StatList rows={rows} />;
-}
-
-interface HookRow {
-  id: string;
-  status: string;
-  introduced_chapter_id: string | null;
-  resolved_chapter_id: string | null;
-}
-
-/** 伏笔页签统计：本卷埋下 / 本卷悬置 / 本卷回收 / 全书悬置（懒取，失败「—」）。 */
-function HookStats({ projectId, volume }: { projectId: string; volume: number }) {
-  const [rows, setRows] = useState<Array<[string, string]> | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const d = (await api.get(`/novels/${projectId}/hooks`)) as {
-          data?: { items?: HookRow[] };
-          items?: HookRow[];
-        };
-        const hooks = d.data?.items ?? d.items ?? [];
-        const tree = (await api.get(`/novels/${projectId}/volumes`)) as Array<{
-          chapters?: Array<{ id?: string; ref?: string; chapter: number }>;
-        }>;
-        // 章 id → 卷号（伏笔只挂 id，卷归属经章解析）
-        const volOf = new Map<string, number>();
-        for (const v of tree ?? []) {
-          for (const c of v.chapters ?? []) {
-            const p = parseChapterRef(c.ref ?? "");
-            if (c.id && p) volOf.set(c.id, p.vol);
-          }
-        }
-        const volOfId = (id: string | null | undefined): number | null => {
-          if (!id) return null;
-          const v = volOf.get(id);
-          return v == null ? null : v;
-        };
-        const plantedVol = (h: HookRow): number | null =>
-          volOfId(h.introduced_chapter_id) ?? 0;
-        const resolvedVol = (h: HookRow): number | null =>
-          volOfId(h.resolved_chapter_id);
-        const plantedHere = hooks.filter((h) => plantedVol(h) === volume).length;
-        const openHere = hooks.filter(
-          (h) => h.status === "active" && plantedVol(h) === volume,
-        ).length;
-        const resolvedHere = hooks.filter((h) => resolvedVol(h) === volume).length;
-        const openAll = hooks.filter((h) => h.status === "active").length;
-        if (alive) {
-          setRows([
-            ["本卷埋下", `${plantedHere} 条`],
-            ["本卷悬置", `${openHere} 条`],
-            ["本卷回收", `${resolvedHere} 条`],
-            ["全书悬置", `${openAll} 条`],
-          ]);
-        }
-      } catch {
-        if (alive) setFailed(true);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [projectId, volume]);
-
-  if (failed) {
-    return (
-      <StatList
-        rows={[
-          ["本卷埋下", "—"],
-          ["本卷悬置", "—"],
-          ["本卷回收", "—"],
-          ["全书悬置", "—"],
-        ]}
-      />
-    );
-  }
-  return <StatList rows={rows} />;
 }

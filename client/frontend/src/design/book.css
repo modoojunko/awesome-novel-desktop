@@ -1495,7 +1495,7 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .wb .view.on.three-col .vol-shell .e-pad { padding: var(--col-pad-editor); }
 
 /* 中栏空态（c-0vol0ch-empty-state，原型 0vol0ch-empty-state.html .e-empty）：
-   零卷零章＝「这本书还没有开始」＋两条起手入口；有卷但未选中＝一句选章引导 */
+   零卷零章＝起手卡（这本书怎么开始？）＋两条起手入口；有卷但未选中＝一句选章引导或落点卡 */
 .e-empty { padding: 64px 26px; color: var(--muted); font-size: 13.5px; text-align: center; }
 .e-empty .be-k { margin: 0 0 8px; font-family: var(--font-display); font-size: 19px; color: var(--fg); }
 .e-empty .be-t { margin: 0 auto 20px; max-width: 380px; line-height: 1.7; }

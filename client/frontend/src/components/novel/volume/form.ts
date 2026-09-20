@@ -18,6 +18,8 @@ export interface VolumeFormData {
   ending: string;
   /** 输入框字符串；"" = 不设（payload 置 null 清空） */
   chapter_target: string;
+  /** 展开依据（只读行；随表单整包回传） */
+  plan_line: string;
   /** textarea 一行一条原文本 */
   plantsText: string;
   revealsText: string;
@@ -43,6 +45,7 @@ export function toVolumeFormData(d: VolumeDetail): VolumeFormData {
     goal: d.goal || "",
     ending: d.ending || "",
     chapter_target: d.chapter_target != null ? String(d.chapter_target) : "",
+    plan_line: d.plan_line || "",
     plantsText: (d.plants || []).join("\n"),
     revealsText: (d.reveals || []).join("\n"),
     cast_members: (d.cast_members || []).map((m) => ({ ...m })),
@@ -61,6 +64,7 @@ export function volumeFormToPayload(f: VolumeFormData): Record<string, unknown> 
     ending: f.ending,
     // 留空 = 显式 null 清空（后端 fields_set 通道）
     chapter_target: target === "" ? null : Number(target),
+    plan_line: f.plan_line,
     plants: splitLines(f.plantsText),
     reveals: splitLines(f.revealsText),
     cast_members: f.cast_members.map((m) => ({

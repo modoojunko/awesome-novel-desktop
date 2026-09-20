@@ -12,6 +12,7 @@ from collections import defaultdict
 
 from fastapi import HTTPException
 
+from filesystem.storage import get_storage
 from repositories import chapter_repo, volume_repo
 from volumes.schemas import VolumeUpdate
 from workflow.engine import strip_suffix, update_phase
@@ -39,6 +40,8 @@ async def list_volumes(db, project) -> list[dict]:
                 "ref": f"vol-{v.volume_no}",
                 "title": v.title,
                 "summary": v.summary,
+                # 卷的验证卡（volume-plan-ai）：写作默认页右栏一行「卷号 · 名字 · 章数目标」
+                "chapter_target": v.chapter_target,
                 # 章数以主线实测为准（缓存列在旧稿支线存在时不代表主线章数）
                 "chapter_count": len(chs),
                 "chapters": [
@@ -98,7 +101,7 @@ def _vol_no_of(c) -> int:
 
 
 async def create_volume(
-    db, project, *, title: str, summary: str = ""
+    db, project, *, title: str, summary: str = "", plan_line: str = ""
 ) -> dict:
     """MAX+1（忽略 body.vol_num）+ tier 门控 + DB 行 + 计数自增。"""
     vol_no = await volume_repo.max_volume_no(db, project.id) + 1
@@ -109,7 +112,7 @@ async def create_volume(
         raise HTTPException(400, f"Settings incomplete: {result.warnings}")
 
     update_phase(project, "outline")
-    await volume_repo.upsert(db, project.id, vol_no, title=title, summary=summary)
+    await volume_repo.upsert(db, project.id, vol_no, title=title, summary=summary, plan_line=plan_line)
     project.total_volumes += 1
     await db.commit()
     logger.info("created volume %s for project %s", vol_no, project.id)
@@ -124,6 +127,7 @@ _DETAIL_SCALARS = [
     "goal",
     "ending",
     "chapter_target",
+    "plan_line",
 ]
 
 
@@ -151,6 +155,8 @@ async def get_volume(db, project, ref: str) -> dict | None:
         value = getattr(vol, key)
         if value is not None:
             data[key] = value
+    # 规划台/卷纲表单「进场」行单源（事实优先：归档章收尾 > 上一卷预期结局 > 首卷全景起步）
+    data["prev_ending"] = await resolve_prev_ending(db, project, vol.volume_no)
     data["plants"] = _split_lines(vol.plants)
     data["reveals"] = _split_lines(vol.reveals)
     data["cast_members"] = [
@@ -251,3 +257,48 @@ async def delete_volume(db, project, ref: str) -> dict:
     project.total_chapters = max(0, (project.total_chapters or 0) - deleted_chapters)
     await db.commit()
     return {"ok": True}
+
+
+async def resolve_prev_ending(
+    db, project, vol_no: int, *, actual_first: bool = True
+) -> dict:
+    """进场材料：这一卷从上一卷的哪里接着写（事实优先）。
+
+    - 有归档章：取上一卷最后一个归档章的章纲一句话（实际写到的收尾）。
+    - 没写到：回落上一卷卷纲的「预期结局」（计划口径），来源说明里注明。
+    - 首卷：取主线全景的起步（story.yaml.synopsis 前段）。
+    返回 {"text", "source"}——text 给 prompt/界面，source 是来源说明（界面小字）。
+    """
+    storage = get_storage()
+    if vol_no <= 1:
+        story = await storage.read_yaml(project.root_path, "story.yaml") or {}
+        arc = story.get("story_arc") or {}
+        full = str(arc.get("fullstory", "") or "").strip()
+        text = full[:120] if full else "（主线还没写起步——先去设定补主线）"
+        return {"text": text, "source": "第一卷 · 来自主线全景的「他从哪起步」"}
+
+    from repositories import chapter_repo
+
+    prev = await volume_repo.get_by_volume_no(db, project.id, vol_no - 1)
+    if prev is None:
+        return {
+            "text": "（上一卷不存在）",
+            "source": f"第{vol_no - 1}卷 · 未找到",
+        }
+
+    archived = [
+        c
+        for c in await chapter_repo.list_by_volume(db, prev.id)
+        if c.status == "archived" and not c.ghost_of
+    ]
+    if archived:
+        last = max(archived, key=lambda c: c.chapter_no)
+        text = (last.summary or "").strip() or last.title
+        return {
+            "text": text,
+            "source": f"第{vol_no - 1}卷 · 实际收尾（第{last.chapter_no}章）——写到那里之后，这里以实际为准",
+        }
+    return {
+        "text": (prev.ending or "").strip() or "（上一卷还没定收尾）",
+        "source": f"第{vol_no - 1}卷 · 预期结局（还没写到，先按卷纲）",
+    }

@@ -2,11 +2,12 @@
  *  卷纲＝查看/编辑两态（六分组＋本卷进度线）；本卷章节＝主线台账（ghost 只汇总）；
  *  角色关系/伏笔＝卷域投影（截至本卷末，只读）。右栏卷语境经 onRailData 上抛
  *  （与章模式 onRailData 同构；卸载即清空防残留）。 */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { nodeLabel } from "@/lib/nodeTitle";
 import type { UseWorkbenchReturn } from "@/hooks/useWorkbench";
+import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
 import {
   splitLines,
   toVolumeFormData,
@@ -39,6 +40,14 @@ interface VolumeWorkspaceProps {
   onVolumeMutated: () => void;
   onDirtyChange: (dirty: boolean) => void;
   onRailData: (data: VolumeRailData | null) => void;
+  /** 规划台回填（volume-plan-ai）：seq 递增触发一次逐段落下 */
+  backfill?: {
+    seq: number;
+    draft: VolumeExpandDraft;
+    planLine: string;
+  } | null;
+  /** 保存成功后回调（采纳路径：落写作默认页） */
+  onSaved?: () => void;
 }
 
 const TABS: Array<[VolumeTab, string]> = [
@@ -56,6 +65,8 @@ export default function VolumeWorkspace({
   onVolumeMutated,
   onDirtyChange,
   onRailData,
+  backfill,
+  onSaved,
 }: VolumeWorkspaceProps) {
   const [detail, setDetail] = useState<VolumeDetail | null>(null);
   const [form, setForm] = useState<VolumeFormData | null>(null);
@@ -67,6 +78,18 @@ export default function VolumeWorkspace({
   const [frontier, setFrontier] = useState<{ vol: number; ch: number } | null>(
     null,
   );
+
+  // ── 规划台回填（volume-plan-ai）：逐段落下、跳过作者已改字段、期间保存禁用 ──
+  const [filling, setFilling] = useState(false);
+  const filledSeqRef = useRef(0);
+  const touchedRef = useRef<Set<string>>(new Set());
+  const fillTimerRef = useRef<number | null>(null);
+
+  const patch = useCallback((p: Partial<VolumeFormData>) => {
+    // 回填期间作者动过的字段记入 touched（后续步骤跳过，不吞输入）
+    if (filling) Object.keys(p).forEach((k) => touchedRef.current.add(k));
+    setForm((f) => (f ? { ...f, ...p } : f));
+  }, [filling]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,9 +163,49 @@ export default function VolumeWorkspace({
     return () => onRailData(null);
   }, [detail, tab, onRailData]);
 
-  const patch = useCallback((p: Partial<VolumeFormData>) => {
-    setForm((f) => (f ? { ...f, ...p } : f));
-  }, []);
+  // 回填执行：进场/展开依据只读（不占表单步骤），其余按段序 160ms/段
+  useEffect(() => {
+    if (!backfill || !detail || backfill.seq === filledSeqRef.current) return;
+    filledSeqRef.current = backfill.seq;
+    const base = toVolumeFormData(detail);
+    const d = backfill.draft;
+    touchedRef.current = new Set();
+    setForm({
+      ...base,
+      plan_line: backfill.planLine,
+      title: d.name?.trim() ? d.name.slice(0, 6) : base.title,
+    });
+    const steps: Array<[keyof VolumeFormData, string]> = [
+      ["summary", d.summary],
+      ["core_conflict", d.conflict],
+      ["goal", d.goal],
+      ["ending", d.ending],
+      ["chapter_target", d.chapter_target > 0 ? String(d.chapter_target) : ""],
+      ["plantsText", (d.plants ?? []).join("\n")],
+      ["revealsText", (d.reveals ?? []).join("\n")],
+    ];
+    setFilling(true);
+    let i = 0;
+    let alive = true;
+    const tick = () => {
+      if (!alive) return;
+      if (i >= steps.length) {
+        setFilling(false);
+        toast.success("卷纲已填好 · 改完点保存");
+        return;
+      }
+      const [k, v] = steps[i++];
+      if (!touchedRef.current.has(k)) setForm((f) => (f ? { ...f, [k]: v } : f));
+      fillTimerRef.current = window.setTimeout(tick, 160);
+    };
+    fillTimerRef.current = window.setTimeout(tick, 120);
+    return () => {
+      alive = false;
+      if (fillTimerRef.current != null) window.clearTimeout(fillTimerRef.current);
+      setFilling(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backfill?.seq, detail?.ref]);
 
   const startEdit = () => {
     if (detail) setForm(toVolumeFormData(detail));
@@ -150,7 +213,7 @@ export default function VolumeWorkspace({
   const cancelEdit = () => setForm(null);
 
   const save = async () => {
-    if (!form || !detail || saving) return;
+    if (!form || !detail || saving || filling) return;
     if (!form.summary.trim() || !form.core_conflict.trim()) {
       toast.error("本卷主旨与核心矛盾为必填，补上再保存");
       return;
@@ -170,6 +233,7 @@ export default function VolumeWorkspace({
       await load();
       onVolumeMutated();
       toast.success(`《${detail.title}》卷纲已保存`);
+      onSaved?.();
     } catch (e: any) {
       toast.error(
         e?.status === 422
@@ -228,6 +292,7 @@ export default function VolumeWorkspace({
                 detail={detail}
                 form={form}
                 saving={saving}
+                filling={filling}
                 frontier={frontier}
                 onPatch={patch}
                 onEdit={startEdit}
@@ -265,6 +330,7 @@ function VolumeOutlinePane({
   detail,
   form,
   saving,
+  filling,
   frontier,
   onPatch,
   onEdit,
@@ -274,6 +340,8 @@ function VolumeOutlinePane({
   detail: VolumeDetail;
   form: VolumeFormData | null;
   saving: boolean;
+  /** 规划台回填进行中（保存禁用，防半截写库） */
+  filling: boolean;
   frontier: { vol: number; ch: number } | null;
   onPatch: (p: Partial<VolumeFormData>) => void;
   onEdit: () => void;
@@ -294,79 +362,38 @@ function VolumeOutlinePane({
         <div className="ol-top">
           <span className="note">正在编辑卷纲 · {detail.title}</span>
           <span className="push">
-            <button className="btn btn-secondary btn-sm" disabled={saving} onClick={onSave}>
-              保存
+            <button
+              className="btn btn-secondary btn-sm"
+              disabled={saving || filling}
+              onClick={onSave}
+            >
+              {filling ? "回填中…" : "保存"}
             </button>
-            <button className="btn btn-ghost btn-sm" disabled={saving} onClick={onCancel}>
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={saving || filling}
+              onClick={onCancel}
+            >
               取消
             </button>
           </span>
         </div>
-        <div className="fgrid">
-          <div className="fro">
-            <em>卷名</em>
-            <input
-              id="vol-name"
-              aria-label="卷名"
-              className="input"
-              maxLength={200}
-              value={form.title}
-              onChange={(e) => onPatch({ title: e.target.value })}
-            />
-          </div>
-          <div className="fro">
-            <em>结构模板</em>
-            <select
-              id="vol-template"
-              aria-label="结构模板"
-              className="input"
-              value={form.template_name}
-              onChange={(e) => onPatch({ template_name: e.target.value })}
-            >
-              <option value="">（未选择）</option>
-              {(form.template_name &&
-              !TEMPLATE_OPTIONS.includes(form.template_name as (typeof TEMPLATE_OPTIONS)[number])
-                ? [form.template_name]
-                : []
-              )
-                .concat(TEMPLATE_OPTIONS as unknown as string[])
-                .map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-            </select>
-          </div>
+        {/* 段序（volume-plan-ai）：进场 → 展开依据 → 本卷剧情 → 卷基础信息 → 登场人物 → 关键节点 → 伏笔 */}
+        <div className="fro">
+          <em>进场</em>
+          <p className="pv-ro" data-testid="vol-prev-ending">
+            {detail.prev_ending?.text || "（还没有上一卷的记录）"}
+          </p>
+          <span className="none">
+            {detail.prev_ending?.source || "写到那里之后，这里会换成实际的样子"}
+          </span>
         </div>
         <div className="fro">
-          <em>章数目标</em>
-          <input
-            id="vol-target"
-            aria-label="章数目标"
-            className="input num"
-            type="number"
-            min={1}
-            max={9999}
-            placeholder="如 20"
-            value={form.chapter_target}
-            onChange={(e) => onPatch({ chapter_target: e.target.value })}
-          />
-          <span className="none">1-9999，留空为不设</span>
-        </div>
-        <div className="fro">
-          <em>
-            本卷主旨 <span className="req">必填</span>
-          </em>
-          <textarea
-            id="vol-summary"
-            aria-label="本卷主旨"
-            className="textarea"
-            rows={2}
-            maxLength={300}
-            placeholder="一句话概括这一卷的核心意义"
-            value={form.summary}
-            onChange={(e) => onPatch({ summary: e.target.value })}
-          />
+          <em>展开依据</em>
+          <p className="pv-ro" data-testid="vol-plan-line">
+            {form.plan_line || "（手写的卷纲没有展开依据）"}
+          </p>
+          <span className="none">你当时给 AI 的那一句，或选中的那套走法</span>
         </div>
 
         <details className="cfg" open>
@@ -374,6 +401,21 @@ function VolumeOutlinePane({
             本卷剧情 <Chev />
           </summary>
           <div className="inner">
+            <div className="fro">
+              <em>
+                本卷主旨 <span className="req">必填</span>
+              </em>
+              <textarea
+                id="vol-summary"
+                aria-label="本卷主旨"
+                className="textarea"
+                rows={2}
+                maxLength={300}
+                placeholder="一句话概括这一卷的核心意义"
+                value={form.summary}
+                onChange={(e) => onPatch({ summary: e.target.value })}
+              />
+            </div>
             <div className="fro">
               <em>
                 核心矛盾 <span className="req">必填</span>
@@ -414,6 +456,65 @@ function VolumeOutlinePane({
                 value={form.ending}
                 onChange={(e) => onPatch({ ending: e.target.value })}
               />
+            </div>
+          </div>
+        </details>
+
+        <details className="cfg" open>
+          <summary>
+            卷基础信息 <Chev />
+          </summary>
+          <div className="inner">
+            <div className="fgrid">
+              <div className="fro">
+                <em>卷名</em>
+                <input
+                  id="vol-name"
+                  aria-label="卷名"
+                  className="input"
+                  maxLength={200}
+                  value={form.title}
+                  onChange={(e) => onPatch({ title: e.target.value })}
+                />
+              </div>
+              <div className="fro">
+                <em>结构模板</em>
+                <select
+                  id="vol-template"
+                  aria-label="结构模板"
+                  className="input"
+                  value={form.template_name}
+                  onChange={(e) => onPatch({ template_name: e.target.value })}
+                >
+                  <option value="">（未选择）</option>
+                  {(form.template_name &&
+                  !TEMPLATE_OPTIONS.includes(form.template_name as (typeof TEMPLATE_OPTIONS)[number])
+                    ? [form.template_name]
+                    : []
+                  )
+                    .concat(TEMPLATE_OPTIONS as unknown as string[])
+                    .map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+            <div className="fro">
+              <em>章数目标</em>
+              <input
+                id="vol-target"
+                aria-label="章数目标"
+                className="input num"
+                type="number"
+                min={1}
+                max={9999}
+                placeholder="如 20"
+                value={form.chapter_target}
+                onChange={(e) => onPatch({ chapter_target: e.target.value })}
+              />
+              <span className="none">1-9999，留空为不设</span>
             </div>
           </div>
         </details>

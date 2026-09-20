@@ -40,6 +40,8 @@ export interface WorkbenchVolume {
   /** vol-1 */
   name: string;
   title?: string;
+  /** 章数目标（volume-plan-ai：右栏「卷的验证」一行展示） */
+  chapter_target?: number | null;
   chapters: WorkbenchChapter[];
 }
 
@@ -76,6 +78,10 @@ export interface UseWorkbenchReturn {
   deleteNode: (nodeId: string) => Promise<void>;
   refresh: () => Promise<void>;
   focusNode: (ref: string) => void;
+  /** 清选中（volume-plan-ai：采纳保存后落写作默认页） */
+  clearSelection: () => void;
+  /** 直选一卷（volume-plan-ai「卷的验证」点行） */
+  selectVolume: (name: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +143,7 @@ export function useWorkbench(): UseWorkbenchReturn {
       const vols: Array<{
         ref: string;
         title?: string;
+        chapter_target?: number | null;
         chapters?: Array<{
           id?: string;
           chapter: number;
@@ -173,6 +180,8 @@ export function useWorkbench(): UseWorkbenchReturn {
       const mapped = vols.map((v) => ({
         name: v.ref,
         title: v.title,
+        // 章数目标（volume-plan-ai：右栏「卷的验证」一行展示）
+        chapter_target: v.chapter_target ?? null,
         chapters: (v.chapters || []).map((c) => {
           const hasProse = c.has_prose ?? c.word_count > 0;
           return {
@@ -244,6 +253,25 @@ export function useWorkbench(): UseWorkbenchReturn {
     setSelectedRef(ref);
     setViewState("workbench");
     setViewPayload(null);
+  }, []);
+
+  /** 清选中（volume-plan-ai：采纳保存后落写作默认页） */
+  const clearSelection = useCallback(() => {
+    setSelectedId(null);
+    setSelectedRef(null);
+  }, []);
+
+  /** 直选一卷（卷 ref 不经章 ref 解析；volume-plan-ai「卷的验证」点行用） */
+  const selectVolume = useCallback((name: string) => {
+    setSelectedId(name);
+    setSelectedRef(null);
+    setViewState("workbench");
+    setViewPayload(null);
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      next.add(name);
+      return next;
+    });
   }, []);
 
   // 初次进入：书里有章但未选中 → 自动聚焦第一章（book.html 默认 selCh=c1）。
@@ -362,6 +390,8 @@ export function useWorkbench(): UseWorkbenchReturn {
           { title },
         );
         await refresh();
+        // 「本书排过章」持久信号（volume-plan-ai 落点卡判据：删空后仍回选章引导）
+        localStorage.setItem(`pref.book.${projectId}.ever_planned`, "1");
         const ref = (result.chapter_ref as string) || `${volRef}-ch-${nextCh}`;
         focusNode(ref);
         return ref;
@@ -456,6 +486,8 @@ export function useWorkbench(): UseWorkbenchReturn {
     deleteNode,
     refresh,
     focusNode,
+    clearSelection,
+    selectVolume,
   };
 }
 
