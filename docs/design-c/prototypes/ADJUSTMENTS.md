@@ -992,3 +992,24 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     `stage/stageLabel/finished`→`state/finishedAt`＋数字 `createdAt/updatedAt`（缺失会触发
     v2 归一化改写为同一时刻、排序静默退化）；`ainovel.member` 继续供 quota 场景。
 12. **更新条与完本弹窗文案沿用现状口径**：v2 把 update-strip 写成 v0.19 演示字面、弹窗 lead 带「全书收尾随即在后台跑」叙事——前者沿前章 #9（stub 字面 v0.13/v0.11·提升章纲 AI 起草的稳定性），后者沿前章 #2（现实口径，不提后台任务）；弹窗③行恢复「未处理的在书的『操作』页逐条确认」。**随 v2 采用**：已完结态新增「读者与编辑看到的状态是「已完结 · 连载结束」。」句（app FinishModal 同批落笔）。
+## 书内中栏节奏单源（c-workbench-col-rhythm，2026-09-20）
+
+**背景**：storyline 皮肤曾以两条「整列归零」规则（`.col-panel` 衬垫→0、`.panel` 版心→不限，命
+中书内全部三栏页）切换维护中栏节奏，随后靠「各面板自己补衬垫」——09-19 卷视图、09-20 设定页
+与写作空态两轮漏补（用户截图指出贴边/铺满）。本 change 把节奏收成**单源变量**，逐项：
+
+1. **单源定义**（`.wb .view.on.three-col`）：`--col-pad-t/-x/-b`（26px / clamp(20px,4vw,48px) /
+   60px，book.html 列衬垫口径）、`--col-pad-editor`（18px 22px 24px，storyline `.e-pad` 口径）、
+   `--col-measure`（76ch）。内容型面板与 `.e-pad` 一律引用变量，SHALL NOT 再各自硬编码。
+2. **版心默认＋豁免清单**：删除 `.panel{max-width:none}` 归零；默认 660（book.html `.panel`）；
+   豁免仅三处——settings-v 1180（贴 AI 栏既有决策）、`sub-fill` 双栏（角色/伏笔满栏）、卷壳
+   （字段自带 76ch）。实质等同 book.html `.panel{max-width:660px}` 与原型一致。
+3. **通栏条出血**：设定页 `.panel-head/.panel-foot` 以负边距保持横跨整栏（底栏「确认完成」条
+   观感不变），文字与内容区对齐；章页签 e-head/ch-tabs 依赖 `.col-panel` 零衬垫（保留）。
+4. **行级版心**：文风表单行/操作卡等直接子级 ≤76ch（修复 838px 铺满）。
+5. **节奏值两域并存（有意）**：设定域 26/clamp/60（book.html/genre-signup 口径）、卷章编辑区
+   18/22/24（storyline `.e-pad` 口径）——两值各有原型出处，均已收进变量；是否合并待设计侧裁决。
+6. **范围切分**：写作空态（0 卷 0 章）贴边问题由并行 change `c-0vol0ch-empty-state` 按其新原型
+   （`0vol0ch-empty-state.html`，空态重构为 `.e-empty` 起手卡）处理，本 change 不重复。
+7. **sub-fill 双栏分隔线随衬垫内缩**：角色/伏笔两栏分隔线此前贴栏、今在列衬垫内——更贴近原型
+   列衬垫口径，登记为有意变化。
