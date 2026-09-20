@@ -260,7 +260,20 @@ async def _loginless_loopback_guard(request: _Request, call_next):
         "/api/backup/db-migration"
     ):
         host = request.client.host if request.client else ""
-        if host not in ("127.0.0.1", "::1", "testclient"):
+        # 回环＋Docker 端口映射网关（172.x/192.168.x——宿主→容器的正常路径；
+        # 外部机器不可能经此网段到达本容器）＋测试客户端
+        import ipaddress as _ip
+
+        def _is_local(h: str) -> bool:
+            if h in ("127.0.0.1", "::1", "testclient"):
+                return True
+            try:
+                addr = _ip.ip_address(h)
+                return addr.is_private or addr.is_loopback
+            except ValueError:
+                return False
+
+        if not _is_local(host):
             return JSONResponse(status_code=403, content={"detail": "仅限本机访问"})
     return await call_next(request)
 
