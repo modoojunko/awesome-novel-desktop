@@ -1,0 +1,52 @@
+appbar.textContent: 爱爱小说 我的作品 模型配置 mPRO 会员
+first-notice: 发现新版本 v0.19（当前 v0.18） 完本后全书收尾更稳，修复若干问题 去下载 查看更新内容 知道了
+notices.count: 2
+notice[0]: 发现新版本 v0.19（当前 v0.18） 完本后全书收尾更稳，修复若干问题 去下载 查看更新内容 知道了
+notice[1]: 《沙漏之下》主线已收齐6 章全部归档 · 可以完本了去完本知道了
+h1: 我的作品
+sub: 建书即写 · 设定与大纲是高级配置，随时可补
+cards.count: 4
+card[0].text: 星 | 科幻 | 写作中 | 《星海拾遗》 | 废弃星港上，导航员沉舟捡到一枚不属于人类纪元的导航信标，决定修好旧船去追一段回声。 | 2 | 卷 | 结构 | 4 | 章 | 章节 | 1,371 | 总字数 | 更新于 | 2 | 小时前 | 继续创作
+card[0].rect: 212,321 325x298
+card[0].style: pad=22px radius=16px border=oklch(0.9 0.006 240)
+card[0].odid: book-card-0
+card[0].mono: 40pxx40px r=10px fs=19px
+card[0].genre: 科幻
+card[0].badge: 写作中
+card[0].h3: 《星海拾遗》 fs=21px
+card[0].hasMenuBtn: no
+card[1].text: 沙 | 玄幻 | 待完本 | 《沙漏之下》 | 时间在城外的沙丘上倒流，捡贝壳的少年成了唯一记得明天的人。 | 2 | 卷 | 结构 | 6 | 章 | 章节 | 21,400 | 总字数 | 全书 | 6 | 章已归档 | 回看 | 完本
+card[1].rect: 557,321 325x298
+card[1].style: pad=22px radius=16px border=oklch(0.9 0.006 240)
+card[1].odid: book-card-1
+card[1].mono: 40pxx40px r=10px fs=19px
+card[1].genre: 玄幻
+card[1].badge: 待完本
+card[1].h3: 《沙漏之下》 fs=21px
+card[1].hasMenuBtn: no
+card[2].text: 长 | 悬疑 | 设定中 | 《长夜灯》 | 一座永远天亮不了的县城，一个在深夜点灯的人。 | 1 | 卷 | 结构 | 0 | 章 | 章节 | 0 | 总字数 | 更新于 | 昨天 | 继续创作
+card[2].rect: 903,321 325x298
+card[2].style: pad=22px radius=16px border=oklch(0.9 0.006 240)
+card[2].odid: book-card-2
+card[2].mono: 40pxx40px r=10px fs=19px
+card[2].genre: 悬疑
+card[2].badge: 设定中
+card[2].h3: 《长夜灯》 fs=21px
+card[2].hasMenuBtn: no
+card[3].text: 雾 | 都市 | 已完结 | 《雾中法庭》 | 律所新人姜序被卷入一场横跨十二年的旧案，迷雾散去时，法槌落下。 | 3 | 卷 | 结构 | 9 | 章 | 章节 | 12,842 | 总字数 | 完结于3 | 天前 | 查看
+card[3].rect: 212,638 325x290
+card[3].style: pad=22px radius=16px border=oklch(0.9 0.006 240)
+card[3].odid: book-card-3
+card[3].mono: 40pxx40px r=10px fs=19px
+card[3].genre: 都市
+card[3].badge: 已完结
+card[3].h3: 《雾中法庭》 fs=21px
+card[3].hasMenuBtn: no
+cards.grid: cols=325.328px 325.328px 325.344px gap=20px
+main.rect: 180,118 1080x890
+main.style: pad=40px 32px 80px maxw=none width=1080px
+statusbar: © 2026 爱小说v0.19
+statusbar.rect: 0,874 1440x26
+acctTrigger: mPRO 会员
+nav: 我的作品(on) / 模型配置
+bodyScrollH: 1034

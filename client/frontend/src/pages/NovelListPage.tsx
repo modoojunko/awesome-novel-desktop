@@ -231,7 +231,8 @@ function NovelList() {
     );
 
   return (
-    <main className="main">
+    // pg-works：书架屏垂直节奏（works.html 口径，list.css 屏级作用域；ADJUSTMENTS 换代节 #12）
+    <main className="main pg-works">
       {/* 权益快照异常（c-s-entitlement-sync）：后端已按档位标准兜底，可复制详情找客服 */}
       {entDegraded && (
         <div className="notice">

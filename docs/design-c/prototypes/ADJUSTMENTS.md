@@ -693,6 +693,13 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     ＋ai_summary 开关）＋收尾提案（设定变化/关系/伏笔）＋设定页签「本章变化」；
     下一章建议＝下一章章纲的 AI 起草（以主线/前情/设定为输入）。故两项从占位清单
     撤销，不再列入补货批次。
+    **⑪-a AI 入口唯一化右栏（2026-09-20 用户拍板「卷、章页面的AI功能都挪到右侧
+    AI助手」）**：章 body 的 AI 按钮全部退役——头部「AI 生成正文」（右栏生成正文卡
+    本就同链路）、章纲页签「AI 起草／剧情推演」（右栏章纲页签动作本就有）、「文风
+    建议本章调整」触发按钮（新增右栏文风页签动作，经信号触发页签内拉取；结果与
+    逐项采纳仍留在文风页签）。免费态语义随之变化：入口不再隐藏而是右栏 rail-locked
+    置灰（e2e 两处免费态断言已同步）。卷页面 body 本无 AI 入口，右栏 VolumeAssistPanel
+    既有口径不变（卷域 AI 动作清单仍另立项）。
     ⑫ **右栏检测/精修族落地＋三项重复动作撤销（2026-09-17 补货批次）**：⑧ 的占位清单
     按页签逐个补实现——检测族（六类 ai-check：`POST …/ai-check {kind}` 就地弹窗，finding
     列表/空态/重试，`data-testid=ai-check-list|ai-check-empty`）＝章纲「与卷纲冲突检测」、
@@ -877,6 +884,13 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     ［.rail-stats 类名保留重绘］＋ai-foot 免费版说明；章模式同头）。**app 保留项（原型未画）**：
     editor-toolbar 字号/行距/专注/版本历史/归档控件降为工具条右对齐保留，专注模式隐藏规则
     随 .col-ai 新样式补特异性。editor 皮肤其余页签（OgPane 表单等）经 .cfg 作用域重绘自动对齐。
+    **修订（2026-09-19，用户裁定章/卷页签须同位）**：撤 editor-toolbar 独立工具行——字号/
+    行距/专注/版本历史/归档本章/AI 生成正文并入 e-head 右侧（.e-head-row/.prose-ctrls），
+    章页签条紧贴头部＝卷视图同位＝原型 e-head→e-toolbar 两段式；章页签顺序同步对齐原型
+    （章纲→正文→提示词→…，原 app 为提示词在前）。**同批修订**：卷视图皮肤漏了原型
+    `.e-pad{padding:18px 22px 24px}`（col-panel 衬垫被归零后无人接管，内容贴边＝用户
+    指出的内部错位）——补 scoped 规则＋清旧版 tpl-row/.field 死选择器；「章节拆分」
+    分节补 open 对齐原型默认展开。
 14. **编辑表单统一（同批续）**：卷纲编辑态初版残留旧 .field/.tpl-row/.sub-row 结构，与章纲
     编辑（olFormHTML）不一致——原型两编辑态本就是同一套语言。统一：卷名/结构模板入
     .fgrid、章数目标独立 fro（提示下移，沿偏差①）、主旨/剧情三字段/伏笔两块改 fro（mono
@@ -921,3 +935,16 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     「埋下章未定」）。
 11. **lint 存量不随批**：`design:lint` 的严格范围违规（preview.html / AcctMenu.tsx 裸 hex）
     为 main 存量（本 change 前已红），不随批处置、不阻断本换代（parity 四场景全绿）。
+12. **间距随草稿补齐晋级（c-works-spacing-align，2026-09-20）**：换代时只并了内容家族，
+    works.html 草稿改的垂直间距三值漏抄（双侧同错故 parity 仍全绿、缺口被遮蔽；用户实测
+    5174 与草稿整体差 31px 后裁定以原型为准）。本批补齐：`.main` 顶距 48→40、`.page-head`
+    下缘距 36→26、`.page-head .sub` 下缘距 0（≤480px 断点同步 28/14/22）。`.sub` 的 1em 考古：
+    系 #181 复刻旧 list.html 时把**未重置的 UA 默认 `p` margin-bottom 显式写死**（旧原型无
+    `p{margin:0}` 重置，「意外」同值故从未报警）；works.html 已加 `p{margin:0}` 归零，原型侧
+    以 `.page-head .sub { margin-bottom: 0 }` 显式落笔。实现侧走 `.pg-works` 屏级作用域
+    （`.pg-config` 先例——各屏节奏本就不同：list 40/26、model-config 44/28、backup-restore
+    48/36），`base.css` 全局壳与其余屏零改动。已知微差豁免：`.update-strip` 原型侧窄屏值
+    （16px 16px 0）两版原型本就同值；实现侧 strip 由 UpdateNotice 组件样式承担（非 design
+    css 家族），其窄屏微差不属屏级作用域可达范围，不入本批。works.html `body
+    padding-bottom:26px` 属全局壳层状态栏让位，现实现由 `.main` padding-bottom 承担同职，
+    亦不入本批。
