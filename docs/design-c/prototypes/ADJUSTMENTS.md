@@ -923,6 +923,8 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
    办的事」，持久关闭会错过后续第二本待完本；完结或关闭后顺延提示下一条（排序最前）。
 6. **卡片排序仍按 updated_at 倒排**：原型 SEED 顺序为演示摆位；产品排序不变，parity 注入
    数据按排序结论摆位（写作中 2 小时前→待完本 昨天→设定中 昨天→已完结 3 天前）。
+   **【2026-09-20 已被 v2 章第 1 条取代】**：works.html v2（工具栏换代）改为状态 rank 恒优先，
+   本条口径作废，见文末「书架屏换代 v2」章。
 7. **待完本卡本体点击落写作（不落预览）**：预览由页脚「回看/查看」显式进入（一次性
    location state 落点覆盖，认领即清防刷新重放）；与「卡片标签与落点同结论」口径一致。
 8. **Banner 群（权益/试用/满额）不入 parity 图**：quota 场景只比额度墙＋锁卡（既有口径
@@ -948,3 +950,45 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
     css 家族），其窄屏微差不属屏级作用域可达范围，不入本批。works.html `body
     padding-bottom:26px` 属全局壳层状态栏让位，现实现由 `.main` padding-bottom 承担同职，
     亦不入本批。
+
+## list.html 书架屏换代 v2：工具栏＋分组＋分页（c-works-toolbar，2026-09-20）
+
+设计源：`docs/design-c/drafts/works.html` v2（2026-09-20 11:44）晋级为 `prototypes/list.html`
+基线（v2 正文并入＋**保留 v1 两块应用侧扩展**：first-run 三步引导〔零书态〕与 quota
+免费额度墙〔`.lock-tile`／`ainovel.member`／quota notice／主按钮带锁〕）。v2 新增页头
+工具栏（书名搜索＋四态筛选 chips＋四键排序）、生命周期分组视图（分组头 dot/计数/待完本
+组「去完本」）、分页（12/页＋加载更多＋触底自动加载）、`bk-empty` 筛选无果空态。逐项偏差：
+
+1. **排序语义反转（改写前章 #6）**：v2 的状态 rank 恒优先（待完本→写作中→设定中→已完结）
+   取代 2026-08-29「按 updated_at 倒排」裁定——「全部」视图完本书刚更新也沉底，
+   书架默认序不再等价「最近有进展」。数据事实：`updated_at` 语义为最后一次**书级动作**
+   （归档/完本/改名），正文与章纲保存不刷新，「最近更新」排序口径即此（非「最近写过」）。
+2. **first-run 沿用（前章 #7 口径不变）**：v2 零书支简空态（「没有找到符合条件的作品」+
+   「这是你的第一本书，从设定开始。」）**不采用**——用户裁定 2026-09-20 保留三步引导；
+   `bk-empty` 仅用于筛选/搜索无果支（该支的「没有找到符合条件的作品」语义成立）。
+3. **工具栏不随零书/加载/失败渲染**（对 v2「恒渲染」的偏差）：零书入口职能由 first-run 承担，
+   空架上放搜索/筛选是死控件；实现与基线同步（基线零书支隐藏 `.bk-toolbar`）。
+4. **`.chip` 同名两义裁决**：`.chip/.chip.on` 系**现役同名类**（`src/design/book.css` 设置页/
+   工作台在用；标准 §6.2 已把 13 类胶囊归并 `.pill-tag`，本批不扩围）。书架屏以
+   `.bk-chips .chip` 作用域化（选中＝accent 实底＋`--on-accent` 字，与原型逐字同值），
+   跨屏零影响；裸写 `.chip` 会被 book.css 覆盖且像素差（≈0.1%）低于 parity 阈值会静默绿。
+5. **`--radius-pill` → 字面 `999px`**：C端 `base.css` 无该 token（原型 `:root` 有），
+   「逐字照抄」会得方角 chip；实现沿现状字面值，补 token 属另一 change（触碰共享段）。
+6. **`清除筛选`修正原型缺陷**：原型重置 kind/sort/q/shown 但未回写 `#sort.value`（DOM 与实际
+   状态不一致）；实现侧受控 select 修正——清除后排序回「最近更新」界面同步。
+7. **新档位人工登记**（design-vocab/design-lint 不扫 `src/**/*.css`、不查字号高度）：
+   `.chip` 30px 高/12.5px 字、`.bk-search input` 与 `.bk-sort` 36px 高、`.gh-label` 15px serif、
+   `.gh-count`/`.bk-search input` 13.5px、`.bk-empty .em` 18px serif。
+8. **quota 保留说明**：v2 完全删了免费额度墙（`lock-tile`/`ainovel.member` 零命中）——基线与
+   实现均保留 v1 块（应用侧扩展先例），parity quota 场景继续有效；v2 未建模「锁卡与分页
+   共存」形态，锁卡随行入当前页网格（顺延项，非本批）。
+9. **v2 壳层微差豁免**（1440px parity 不可见，按 #12 体例记一行）：`.icon-btn{flex:none}`、
+   `.logo{white-space:nowrap}`、`.notice .nt{min-width:0}`、`.genre/.b{white-space:nowrap}`、
+   `body{padding-bottom:26px}`（状态栏让位）；实现侧 `.b` 的 nowrap 随批补齐，其余不入。
+10. **`bk-empty` 不入 `.cards` 网格**：v2 中 `.bk-empty` 是 `#cards` 直接子节点；实现侧新增
+    无样式包裹层 `.bk-list` 承载 `.cards`/`.bk-group`/`.load-more`（使 `.bk-group:first-child`
+    结构成立），`.bk-empty` 挂包裹层下、不落入 1/3 列宽网格。
+11. **parity 注入契约随换代更名**：注入键 `ainovel.books`→`od.works.v1`；书字段
+    `stage/stageLabel/finished`→`state/finishedAt`＋数字 `createdAt/updatedAt`（缺失会触发
+    v2 归一化改写为同一时刻、排序静默退化）；`ainovel.member` 继续供 quota 场景。
+12. **更新条与完本弹窗文案沿用现状口径**：v2 把 update-strip 写成 v0.19 演示字面、弹窗 lead 带「全书收尾随即在后台跑」叙事——前者沿前章 #9（stub 字面 v0.13/v0.11·提升章纲 AI 起草的稳定性），后者沿前章 #2（现实口径，不提后台任务）；弹窗③行恢复「未处理的在书的『操作』页逐条确认」。**随 v2 采用**：已完结态新增「读者与编辑看到的状态是「已完结 · 连载结束」。」句（app FinishModal 同批落笔）。

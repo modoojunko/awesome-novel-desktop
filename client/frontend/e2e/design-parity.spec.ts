@@ -4,14 +4,15 @@
 // 仅 design:check（DESIGN_PARITY=1）运行；常规 `playwright test` 跳过，
 // 且 docs/design-c/ 本地资产缺失时自动跳过（不入 git，fresh clone 无此目录）。
 //
-// 基线 = Open Design v2 原型 list.html（自包含单文件，系统字体栈，无 tw.css）。
-// 原型状态注入：localStorage ainovel.books（显式空数组=空态，见 ADJUSTMENTS.md）。
-// 应用侧打桩 /api/novels 与原型 SEED_BOOKS 逐字段对齐；updated_at 用相对 now
-// 计算，使「N 小时前/昨天/N 天前」文案与原型字面量一致。
+// 基线 = prototypes/list.html（v2 换代：工具栏＋分组＋分页，c-works-toolbar；2026-09-20）。
+// 原型状态注入：localStorage od.works.v1（显式空数组=空态；书含 state/createdAt/updatedAt
+// 数字时间戳——缺失会触发 v2 归一化改写、排序静默退化，见 ADJUSTMENTS 换代 v2 章 #11）；
+// quota 场景另注 ainovel.member='0'。应用侧打桩 /api/novels 与原型数据逐字段对齐；
+// updated_at 用相对 now 计算，使「N 小时前/昨天/N 天前」文案与原型注入字面量一致。
 // 设计为单一亮色主题——无主题矩阵（旧 novelforge/parchment 双主题已废）。
 import fs from "fs";
 import path from "path";
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
 import { stubUpdateNotice } from "./helpers";
@@ -23,27 +24,12 @@ const RUN_PARITY = process.env.DESIGN_PARITY === "1";
 const VIEWPORT = { width: 1440, height: 900, deviceScaleFactor: 1 } as const;
 const MAX_DIFF_RATIO = 0.002; // 0.2% 像素阈值（抗锯齿容差）
 
-// 与原型 SEED_BOOKS 同源固定数据（相对时间由 stub 时动态计算）。
-// **章数口径（2026-09-10 起）**：应用侧卡片阶段由 `stageFromChapters(章数, 已归档章数)`
-// 派生（与「打开书的落点」同源）——「无章节＝设定中」是该规则的定义。原型 SEED_BOOKS 里
-// 「长夜灯 2 章 + 设定中」在新口径下不可能成立（原型 `stage` 是手写字面量、非派生），
-// 故两侧注入数据统一改为 0 章，保持「同数据比布局」的前提；原型文件本身不改（docs/ 归设计线）。
+// 与原型注入同源固定数据（相对时间由 stub 时动态计算；排序结论＝状态 rank 恒优先：
+// 待完本→写作中→设定中→已完结，组内 updated_at 倒序）。
 const H = 3600_000;
+const D = 86400_000;
+const NOW = Date.now();
 const FIXED_NOVELS = () => [
-  {
-    id: "parity-1",
-    name: "星海拾遗",
-    slug: "parity-1",
-    current_phase: "write", // 阶段只由章数派生，phase 不再参与（保留字段以贴近真实响应）
-    total_volumes: 2,
-    total_chapters: 4,
-    total_archives: 0, // 4 章未全归档 → 写作中
-    word_count: 1371,
-    genre: "科幻",
-    synopsis: "废弃星港上，导航员沉舟捡到一枚不属于人类纪元的导航信标，决定修好旧船去追一段回声。",
-    updated_at: new Date(Date.now() - 2 * H).toISOString(), // → 2 小时前
-    finished_at: null,
-  },
   {
     id: "parity-ready",
     name: "沙漏之下",
@@ -51,25 +37,42 @@ const FIXED_NOVELS = () => [
     current_phase: "write",
     total_volumes: 2,
     total_chapters: 6,
-    total_archives: 6, // 全归档未完结 → 待完本（页脚＝回看＋完本）
+    total_archives: 6, // 全归档未完结 → 待完本（rank 0，恒置顶）
     word_count: 21400,
     genre: "玄幻",
     synopsis: "时间在城外的沙丘上倒流，捡贝壳的少年成了唯一记得明天的人。",
-    updated_at: new Date(Date.now() - 24 * H).toISOString(), // → 昨天
+    updated_at: new Date(NOW - 26 * H).toISOString(), // → 昨天
+    created_at: new Date(NOW - 60 * D).toISOString(),
+    finished_at: null,
+  },
+  {
+    id: "parity-1",
+    name: "星海拾遗",
+    slug: "parity-1",
+    current_phase: "write",
+    total_volumes: 2,
+    total_chapters: 4,
+    total_archives: 0, // 4 章未全归档 → 写作中（rank 1）
+    word_count: 1371,
+    genre: "科幻",
+    synopsis: "废弃星港上，导航员沉舟捡到一枚不属于人类纪元的导航信标，决定修好旧船去追一段回声。",
+    updated_at: new Date(NOW - 2 * H).toISOString(), // → 2 小时前
+    created_at: new Date(NOW - 90 * D).toISOString(),
     finished_at: null,
   },
   {
     id: "parity-2",
     name: "长夜灯",
     slug: "parity-2",
-    current_phase: "settings", // → 设定中（0 章）
+    current_phase: "settings", // → 设定中（0 章，rank 2）
     total_volumes: 1,
     total_chapters: 0,
     total_archives: 0,
     word_count: 0,
     genre: "悬疑",
     synopsis: "一座永远天亮不了的县城，一个在深夜点灯的人。",
-    updated_at: new Date(Date.now() - 26 * H).toISOString(), // → 昨天
+    updated_at: new Date(NOW - 26 * H).toISOString(), // → 昨天
+    created_at: new Date(NOW - 5 * D).toISOString(),
     finished_at: null,
   },
   {
@@ -83,49 +86,108 @@ const FIXED_NOVELS = () => [
     word_count: 12842,
     genre: "都市",
     synopsis: "律所新人姜序被卷入一场横跨十二年的旧案，迷雾散去时，法槌落下。",
-    updated_at: new Date(Date.now() - 72 * H).toISOString(), // → 3 天前
-    finished_at: new Date(Date.now() - 72 * H).toISOString(), // → 已完结：完结于 3 天前
+    updated_at: new Date(NOW - 72 * H).toISOString(), // → 3 天前
+    created_at: new Date(NOW - 200 * D).toISOString(),
+    finished_at: new Date(NOW - 72 * H).toISOString(), // → 已完结：完结于 3 天前
   },
 ];
 
-// 原型侧 localStorage 注入用（字段名与 SEED_BOOKS 一致；stage/stageLabel/updated 为原型字面量）。
-// 与上面 FIXED_NOVELS 同数据（排序＝updated_at 倒排）：写作中(2h) → 待完本(昨天) → 设定中(昨天) → 已完结(3 天前)。
+// 原型侧 od.works.v1 注入（v2 schema：state/finishedAt＋数字 createdAt/updatedAt；
+// updated 为展示字面量，与 FIXED_NOVELS 的相对时间结论逐字一致）
 const PROTO_BOOKS = [
   {
-    title: "星海拾遗", genre: "科幻", stage: "writing", stageLabel: "写作中",
-    vols: 2, chs: 4, words: 1371, updated: "2 小时前",
-    summary: "废弃星港上，导航员沉舟捡到一枚不属于人类纪元的导航信标，决定修好旧船去追一段回声。",
-  },
-  {
-    title: "沙漏之下", genre: "玄幻", stage: "ready", stageLabel: "待完本",
+    title: "沙漏之下", genre: "玄幻", state: "ready",
     vols: 2, chs: 6, words: 21400, updated: "昨天",
+    createdAt: NOW - 60 * D, updatedAt: NOW - 26 * H, parked: {},
     summary: "时间在城外的沙丘上倒流，捡贝壳的少年成了唯一记得明天的人。",
   },
   {
-    title: "长夜灯", genre: "悬疑", stage: "setting", stageLabel: "设定中",
+    title: "星海拾遗", genre: "科幻", state: "writing",
+    vols: 2, chs: 4, words: 1371, updated: "2 小时前",
+    createdAt: NOW - 90 * D, updatedAt: NOW - 2 * H, parked: {},
+    summary: "废弃星港上，导航员沉舟捡到一枚不属于人类纪元的导航信标，决定修好旧船去追一段回声。",
+  },
+  {
+    title: "长夜灯", genre: "悬疑", state: "setting",
     vols: 1, chs: 0, words: 0, updated: "昨天",
+    createdAt: NOW - 5 * D, updatedAt: NOW - 26 * H, parked: {},
     summary: "一座永远天亮不了的县城，一个在深夜点灯的人。",
   },
   {
-    title: "雾中法庭", genre: "都市", stage: "done", stageLabel: "已完结", finished: "3 天前",
+    title: "雾中法庭", genre: "都市", state: "done", finishedAt: "3 天前",
     vols: 3, chs: 9, words: 12842, updated: "3 天前",
+    createdAt: NOW - 200 * D, updatedAt: NOW - 72 * H,
     summary: "律所新人姜序被卷入一场横跨十二年的旧案，迷雾散去时，法槌落下。",
   },
 ];
+
+// 分页场景：13 本同名写作中（rank 同组、updated 递减），两侧同数据
+const PAGE_N = 13;
+const paginationAppNovels = () =>
+  Array.from({ length: PAGE_N }, (_, i) => ({
+    id: `parity-p${i}`,
+    name: `分页书${String(i).padStart(2, "0")}`,
+    slug: `parity-p${i}`,
+    current_phase: "write",
+    total_volumes: 1,
+    total_chapters: 2,
+    total_archives: 1, // 未全归档 → 写作中
+    word_count: 1000 + i,
+    genre: "玄幻",
+    synopsis: "分页演示书。",
+    updated_at: new Date(NOW - i * H).toISOString(),
+    created_at: new Date(NOW - (i + 10) * D).toISOString(),
+    finished_at: null,
+  }));
+const paginationProtoBooks = () =>
+  Array.from({ length: PAGE_N }, (_, i) => ({
+    title: `分页书${String(i).padStart(2, "0")}`,
+    genre: "玄幻",
+    state: "writing",
+    vols: 1, chs: 2, words: 1000 + i,
+    updated: `${i} 小时前`,
+    createdAt: NOW - (i + 10) * D,
+    updatedAt: NOW - i * H,
+    parked: {},
+    summary: "分页演示书。",
+  }));
 
 const MEMBER_VERIFY = { tier: "monthly", is_member: true, expired: false, trial_remaining_days: 0 };
 // quota 场景隔离口径：is_member=false 触发免费额度墙，但 tier 非 none/trial 且未过期，
 // 屏蔽账号 Banner（原型无 Banner），只比额度墙本身
 const FREE_VERIFY = { tier: "monthly", is_member: false, expired: false, trial_remaining_days: 0 };
 
-const CASES = [
-  { state: "books", books: PROTO_BOOKS, member: true },
-  { state: "empty", books: [] as unknown[], member: true },
-  { state: "quota", books: [PROTO_BOOKS[0]], member: false }, // 免费额度墙：1/1
-  { state: "finish", books: PROTO_BOOKS, member: true }, // 完本清单弹窗：点「完本」后采样
-] as const;
+type Case = {
+  state: string;
+  books: unknown[];
+  protoBooks?: unknown[];
+  member: boolean;
+  /** 两侧同点操作（点击选择器各自给） */
+  act?: { proto: string; app: string } | { proto: string; app: string }[];
+  fill?: { proto: string; app: string; text: string };
+};
 
-test.describe("design-parity 书架屏（list.html）", () => {
+const CASES: Case[] = [
+  { state: "books", books: FIXED_NOVELS(), protoBooks: PROTO_BOOKS, member: true },
+  // 单态分组：钉 ready（「主线已收齐 · 去完本」入口唯一出现处）
+  { state: "group", books: FIXED_NOVELS(), protoBooks: PROTO_BOOKS, member: true, act: { proto: "#filters .chip[data-kind='ready']", app: '[data-od-id="filter-ready"]' } },
+  // 筛选无果：已完结 chip ＋ 搜索不中 → bk-empty（标题＋清除筛选）
+  {
+    state: "empty-filter",
+    books: FIXED_NOVELS(),
+    protoBooks: PROTO_BOOKS,
+    member: true,
+    act: { proto: "#filters .chip[data-kind='done']", app: '[data-od-id="filter-done"]' },
+    fill: { proto: "#q", app: 'input[type="search"]', text: "不存在的书名" },
+  },
+  { state: "empty", books: [], protoBooks: [], member: true },
+  { state: "finish", books: FIXED_NOVELS(), protoBooks: PROTO_BOOKS, member: true }, // 完本清单弹窗：点「完本」后采样
+  // 免费额度墙：1/1＋锁卡（两侧同为一本，protoBooks 必须显式配对——回退 PROTO_BOOKS 会 4 本 vs 1 本）
+  { state: "quota", books: [FIXED_NOVELS()[1]], protoBooks: [PROTO_BOOKS[1]], member: false },
+  { state: "pagination", books: paginationAppNovels(), protoBooks: paginationProtoBooks(), member: true },
+];
+
+test.describe("design-parity 书架屏（list.html v2）", () => {
   test.skip(
     !RUN_PARITY || !fs.existsSync(PROTO_FILE),
     !RUN_PARITY ? "仅 design:check 运行（DESIGN_PARITY=1）" : "原型缺失：docs/design-c/ 为本地资产"
@@ -133,14 +195,17 @@ test.describe("design-parity 书架屏（list.html）", () => {
 
   for (const c of CASES) {
     test(c.state, async ({ browser }) => {
+      const books = typeof c.books === "function" ? (c.books as () => unknown[])() : c.books;
+      const protoBooks = c.protoBooks ?? PROTO_BOOKS;
+
       // ── 原型侧（设计真值）──────────────────────────────────
       const protoCtx = await browser.newContext({ viewport: VIEWPORT });
       await protoCtx.addInitScript(
-        ({ books, member }) => {
-          localStorage.setItem("ainovel.books", JSON.stringify(books));
+        ({ books: pb, member }) => {
+          localStorage.setItem("od.works.v1", JSON.stringify(pb));
           localStorage.setItem("ainovel.member", member ? "1" : "0");
         },
-        { books: c.books, member: c.member },
+        { books: protoBooks, member: c.member },
       );
       const protoPage = await protoCtx.newPage();
       await protoPage.goto(`file://${PROTO_FILE}`);
@@ -148,11 +213,7 @@ test.describe("design-parity 书架屏（list.html）", () => {
       // 帧位标定（e2e-speedup-infra 判保留）：parity 截图需两侧同一确定性帧，
       // 固定等待即标定值，非脆弱等待——勿换 pageSettled（遮罩动画帧位会漂，实测 84% 差异）
       await protoPage.waitForTimeout(700);
-      // finish 场景：两侧同步点开完本清单弹窗（待完本卡页脚「完本」），动画收敛后采样
-      if (c.state === "finish") {
-        await protoPage.getByText("完本", { exact: true }).click();
-        await protoPage.waitForTimeout(700);
-      }
+      await driveBoth(protoPage, c, "proto");
       const protoShot = await protoPage.screenshot();
       await protoCtx.close();
 
@@ -163,9 +224,7 @@ test.describe("design-parity 书架屏（list.html）", () => {
         localStorage.setItem("auth_username", "modoojunko"); // 与原型头像首字一致（像素级比对）
       });
       const appPage = await appCtx.newPage();
-      const novels =
-        c.state === "empty" ? [] : c.state === "quota" ? [FIXED_NOVELS()[0]] : FIXED_NOVELS();
-      await appPage.route("**/api/novels", (r) => r.fulfill({ json: novels }));
+      await appPage.route("**/api/novels", (r) => r.fulfill({ json: books }));
       // finish 场景：完本清单弹窗的数据源打桩（无 active 伏笔 → 第二行 ok 形态）
       if (c.state === "finish") {
         await appPage.route("**/api/novels/parity-ready/hooks", (r) =>
@@ -186,10 +245,7 @@ test.describe("design-parity 书架屏（list.html）", () => {
       await appPage.evaluate(() => document.fonts.ready);
       // 帧位标定（同上）：page-enter 0.4s 收敛后采样
       await appPage.waitForTimeout(700);
-      if (c.state === "finish") {
-        await appPage.getByText("完本", { exact: true }).click();
-        await appPage.waitForTimeout(700);
-      }
+      await driveBoth(appPage, c, "app");
       const appShot = await appPage.screenshot();
       await appCtx.close();
 
@@ -218,3 +274,21 @@ test.describe("design-parity 书架屏（list.html）", () => {
     });
   }
 });
+
+/** 场景动作（两侧同一操作，选择器各给）：finish 点完本、group/empty-filter 切筛选、搜不中。 */
+async function driveBoth(page: Page, c: Case, side: "proto" | "app") {
+  if (c.state === "finish") {
+    await page.getByText("完本", { exact: true }).click();
+    await page.waitForTimeout(700);
+    return;
+  }
+  const acts = c.act ? (Array.isArray(c.act) ? c.act : [c.act]) : [];
+  for (const a of acts) {
+    await page.locator(a[side]).click();
+    await page.waitForTimeout(300);
+  }
+  if (c.fill) {
+    await page.locator(c.fill[side]).fill(c.fill.text);
+    await page.waitForTimeout(300);
+  }
+}

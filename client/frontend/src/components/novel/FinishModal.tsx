@@ -11,9 +11,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Modal from "@/components/design/Modal";
 import { Ico } from "@/components/icons";
-import { api } from "@/lib/api";
+import { api, errMessage } from "@/lib/api";
 import { hooksApi, type HookEntry } from "@/lib/hooksApi";
 import { toast } from "@/lib/toast";
+import { parseServerTime } from "@/lib/serverTime";
 
 export interface FinishTarget {
   id: string;
@@ -81,9 +82,10 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
       toast.success(`《${target.name}》已完结 · 归档收尾提案可在书的「操作」页逐条确认`);
       onFinished(updated);
       onClose();
-    } catch {
-      // 守卫 409（还有主线章未归档）或网络异常：提示后留在弹窗，可先回去归档
-      toast.error("完本前先把主线章节全部归档");
+    } catch (e) {
+      // 守卫 409 或网络异常：透出服务端 detail（如「这本书已完结，不用重复完本」——
+      // 分组头「去完本」入口使「已完结 409」可达，不能只报「未归档」）；无响应时回落，留在弹窗
+      toast.error(errMessage(e, "完本前先把主线章节全部归档"));
     } finally {
       setBusy(false);
     }
@@ -97,8 +99,8 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
       toast.success(`已撤完本 · 《${target.name}》回到待完本，可以接着写或加新章`);
       onReopened(updated);
       onClose();
-    } catch {
-      toast.error("撤完本失败，请重试");
+    } catch (e) {
+      toast.error(errMessage(e, "撤完本失败，请重试"));
     } finally {
       setBusy(false);
     }
@@ -151,7 +153,7 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
             </span>
             <div>
               <b>已完结</b>
-              <p>想加新章或改结局，就先撤完本。</p>
+              <p>读者与编辑看到的状态是「已完结 · 连载结束」。想加新章或改结局，就先撤完本。</p>
             </div>
           </div>
         </div>
@@ -234,7 +236,8 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
 /** 「完结于 X」文案口径与书架 relTime 一致：刚完结显示「刚刚」，其余落日期。 */
 function relDay(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const ms = Date.now() - new Date(iso).getTime();
+  const t = parseServerTime(iso);
+  const ms = Date.now() - t.getTime();
   if (ms < 60_000) return "刚刚";
-  return new Date(iso).toLocaleDateString("zh-CN");
+  return t.toLocaleDateString("zh-CN");
 }
