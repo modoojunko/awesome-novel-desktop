@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { type AxiosRequestConfig } from 'axios'
 import type { AxiosInstance, AxiosResponse } from 'axios'
 
 export interface ApiResponse<T = any> {
@@ -65,6 +65,17 @@ function handleUnauthorized(): void {
 }
 
 // ── 响应拦截器：统一错误处理 ──
+// 公共冷启动自愈（云托管 MinNum=0 缩零）：传输层失败（无响应=断连/网关 503 无 CORS 头，
+// 或 502/503/504）且非 429 限频时——失败请求本身已触发扩容——先等预热门闩就绪，
+// 再把原请求重放一次。调用方从此不需要各自 await 门闩或自写重试（AuthPage 曾因此
+// 把 503 直接甩给用户）。
+// 防循环：标记写在 config 上（axios mergeConfig 会携带自定义字段，代际传递——
+// WeakSet 标在旧对象上不随重放传递，会让重放无限循环）；每请求至多重放一次。
+type ColdHealableConfig = AxiosRequestConfig & { _coldHealed?: boolean }
+// 预热探针豁免：探针自身失败时若再进自愈分支，等于等待自己所在的 warmPromise——
+// 用进行中标志短路（单例单飞，同一时刻至多一个探针）
+let warmingProbe = false
+
 request.interceptors.response.use(
   (response: AxiosResponse<ApiResponse>) => {
     const data = response.data
@@ -89,14 +100,27 @@ request.interceptors.response.use(
 
     return response
   },
-  (error) => {
-    if (error.response?.status === 401) {
+  async (error) => {
+    const status = error.response?.status
+    const cfg = error.config as ColdHealableConfig | undefined
+    const transportFail =
+      error.response === undefined || status === 502 || status === 503 || status === 504
+    if (!warmingProbe && cfg && transportFail && !cfg._coldHealed) {
+      cfg._coldHealed = true
+      try {
+        await warmUpBackend()
+        return await request.request(cfg)
+      } catch {
+        // 自愈重放仍失败 → 落回统一错误映射
+      }
+    }
+    if (status === 401) {
       handleUnauthorized()
     }
     const msg = error.response?.data?.msg || (error.response ? '服务器错误' : '网络连接失败')
     // 把 HTTP status 挂到 Error 上：调用方需区分限频 429 等传输层语义（message 可能不含状态码）
     const err = new Error(msg) as Error & { status?: number }
-    err.status = error.response?.status
+    err.status = status
     return Promise.reject(err)
   }
 )
@@ -120,7 +144,12 @@ export function warmUpBackend(attemptDelaysMs: number[] = [15_000, 15_000, 15_00
   warmPromise ??= (async () => {
     for (let attempt = 0; ; attempt++) {
       try {
-        await request.get('/check-auth', { params: { pc_hash: '' } })
+        warmingProbe = true
+        try {
+          await request.get('/check-auth', { params: { pc_hash: '' } })
+        } finally {
+          warmingProbe = false
+        }
         return
       } catch (e: any) {
         // 带 code 的拒绝 = 后端已应答（如 code 1 缺少 pc_hash）= 已就绪，无需重试
