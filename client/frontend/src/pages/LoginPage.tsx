@@ -5,6 +5,9 @@ import { toast } from '../lib/toast';
 import { useDeviceActivation } from '../hooks/useDeviceActivation';
 import { Ico, P } from '@/components/icons';
 import { BRAND } from '@/lib/brand';
+import UpgradeGate from '@/components/auth/UpgradeGate';
+import OfflineExportModal from '@/components/OfflineExportModal';
+import { api } from '@/lib/api';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -33,6 +36,10 @@ export default function LoginPage() {
     return () => window.removeEventListener('auth-notice-updated', reread);
   }, []);
   const [authUrl, setAuthUrl] = useState('');
+  // loginless-data-exit：升级卡（两场景）＋免登备份弹窗＋本地库计数行
+  const [outdated, setOutdated] = useState<{ scenario: 'upgrade' | 'unavailable'; latest?: string; download_url?: string } | null>(null);
+  const [offlineExport, setOfflineExport] = useState<null | 'gate' | 'plain'>(null);
+  const [libraryCount, setLibraryCount] = useState<{ books: number; words: number } | null>(null);
   const cancelledRef = useRef(false);
   const pollingRef = useRef(false);
   const { refreshStatus, showToast } = useDeviceActivation();
@@ -41,6 +48,15 @@ export default function LoginPage() {
   const checkAuthorized = useCallback(async (successMsg: string) => {
     try {
       const res = await request('/auth/check-auth');
+      // s-auth-outdated-signal：S端 判定客户端需更新 → 停轮询就地升级卡（场景一）
+      if (res.code === 3 && res.data?.client_outdated) {
+        setOutdated({
+          scenario: 'upgrade',
+          latest: res.data.latest_version || undefined,
+          download_url: res.data.download_url || undefined,
+        });
+        return 'outdated' as const;
+      }
       if (res.code === 0 && res.data?.token && res.data.token !== 'dev-token') {
         localStorage.setItem('auth_token', res.data.token);
         if (res.data.username) localStorage.setItem('auth_username', res.data.username);
@@ -52,7 +68,7 @@ export default function LoginPage() {
         return true;
       }
     } catch {
-      // S端 不可用或未登录
+      // S端 不可用或未登录（code=-1 绝不升级卡——防误闸，场景二由显式错误触发）
     }
     return false;
   }, [navigate, refreshStatus, showToast]);
@@ -74,8 +90,8 @@ export default function LoginPage() {
       return;
     }
     (async () => {
-      const ok = await checkAuthorized('自动登录成功');
-      if (!ok) setChecking(false);
+      await checkAuthorized('自动登录成功'); // outdated 态已 setOutdated；一律解除 checking
+      setChecking(false);
     })();
   }, [checkAuthorized]);
 
@@ -89,6 +105,21 @@ export default function LoginPage() {
     const t = setTimeout(() => setCheckingSlow(true), 2000);
     return () => clearTimeout(t);
   }, [checking]);
+
+  // loginless-data-exit：本地库计数行（免登 legacy-db/status + 轻量书统计）
+  useEffect(() => {
+    (async () => {
+      try {
+        const st = await api.get('/backup/legacy-db/status', { quiet: true });
+        const latest = st.data?.all?.[0] ?? st.data;
+        if (st.data?.present && latest?.book_count) {
+          setLibraryCount({ books: latest.book_count, words: 0 });
+          return;
+        }
+      } catch { /* 静默 */ }
+      setLibraryCount({ books: 0, words: 0 });
+    })();
+  }, []);
 
   const handleBrowserAuth = async () => {
     setLoading(true);
@@ -127,6 +158,7 @@ export default function LoginPage() {
           await new Promise((r) => setTimeout(r, 2000));
           if (cancelledRef.current) break;
           const checked = await checkAuthorized('登录成功');
+          if (checked === 'outdated') return;
           if (checked) { ok = true; break; }
         }
       } finally {
@@ -169,6 +201,25 @@ export default function LoginPage() {
     );
   }
 
+  if (outdated) {
+    return (
+      <div className="auth-wrap">
+        <div className="auth-card">
+          <h1>{BRAND.name}</h1>
+          <UpgradeGate
+            scenario={outdated.scenario}
+            latest={outdated.latest}
+            current={undefined}
+            downloadHint={outdated.download_url}
+            libraryCount={libraryCount}
+            onBackup={() => setOfflineExport('gate')}
+          />
+        </div>
+        <OfflineExportModal open={offlineExport !== null} onClose={() => setOfflineExport(null)} entry={offlineExport ?? 'plain'} />
+      </div>
+    );
+  }
+
   return (
     <div className="auth-wrap">
       <div className="auth-card">
@@ -193,8 +244,10 @@ export default function LoginPage() {
           </button>
         )}
         <p className="note">将在系统浏览器中打开登录页面</p>
+        <button className="text-btn" onClick={() => setOfflineExport('plain')}>不登录也能备份作品</button>
         <Link to="/" className="lnk">返回首页</Link>
       </div>
+      <OfflineExportModal open={offlineExport !== null} onClose={() => setOfflineExport(null)} entry={offlineExport ?? 'plain'} />
     </div>
   );
 }

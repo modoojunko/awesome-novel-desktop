@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>爱小说 · 登录（c-loginless-data-exit 基线）</title>
+<!-- ═════════════════════════════════════════════════════════════════
+  登录屏原型基线（c-loginless-data-exit，2026-09-19 立卷）。
+  补历史欠账：登录屏此前从未有原型（LoginPage.tsx 一直无基线），本稿收编
+  现状 auth-card 形态并新增建模：升级卡（UpgradeGate 两场景）与免登备份
+  入口（数据出口不设墙——2026-09-19 事故直接对策）。
+
+  场景：
+    s1 常规登录（现状收编）
+    s2 升级卡 · 需要更新（首答句+可核对计数+版本事实对照）
+    s3 升级卡 · 暂时无法登录（服务异常归因，不出版本对照）
+    s4 免登备份弹窗 · 确认步（借 backup-restore 屏 .bk-* 家族口径）
+
+  词汇纪律：tokens 与 prototypes/CLAUDE.md §2 同源；文案逐字采用
+  c-loginless-data-exit 五路评审 UX 规格；「版本过旧」全站禁用（事故
+  文案误导根因修正——challenge 缺失是模糊信号，禁止断言客户端版本）。
+══════════════════════════════════════════════════════════════════ -->
+<style>
+/* tokens（与 base.css §2 逐字同源） */
+:root{
+  --bg:oklch(0.985 0.002 260); --surface:oklch(1 0 0); --fg:oklch(0.24 0.012 260);
+  --muted:oklch(0.52 0.014 260); --faint:oklch(0.72 0.01 260);
+  --border:oklch(0.90 0.006 260); --fg-soft:oklch(0.955 0.003 260);
+  --accent:oklch(0.55 0.13 200); --accent-strong:oklch(0.42 0.11 205);
+  --accent-soft:oklch(0.95 0.025 205);
+  --warn:oklch(0.55 0.11 75); --warn-soft:oklch(0.955 0.03 80);
+  --ok:oklch(0.55 0.12 155); --err:oklch(0.52 0.19 25);
+  --radius:9px; --radius-lg:14px;
+  --font-display:"Songti SC","Noto Serif SC",serif;
+  --font-body:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  --font-mono:"SF Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 var(--font-body)}
+.auth-wrap{min-height:calc(100vh - 26px);display:grid;place-items:center;background:var(--bg);padding:24px}
+.auth-card{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;max-width:400px;width:100%}
+.auth-card h1{font-family:var(--font-display);font-size:30px;font-weight:600;margin:0}
+.auth-card .sub{font-size:13.5px;color:var(--muted);margin:0 0 18px}
+.auth-card .note{font-size:12px;color:var(--muted);margin:14px 0 0}
+.auth-card .err{font-size:13px;color:var(--err);margin:10px 0 0}
+.auth-card .lnk{font-size:13px;margin-top:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--border);background:var(--surface);color:var(--fg);border-radius:var(--radius);padding:8px 16px;font:inherit;font-size:13.5px;cursor:pointer;text-decoration:none}
+.btn:hover{border-color:var(--accent)}
+.btn-primary{background:var(--accent);border-color:transparent;color:oklch(1 0 0);font-weight:500}
+.btn-primary:hover{background:var(--accent-strong)}
+.btn-lg{padding:11px 22px;font-size:15px}
+.btn-block{width:100%}
+.btn-sm{padding:5px 12px;font-size:12.5px}
+.text-btn{background:none;border:0;color:var(--accent);font:inherit;font-size:12.5px;cursor:pointer;padding:0}
+a{color:var(--accent)}
+/* 升级卡（s2/s3）：首答句+计数为情绪主角，按钮次之 */
+.gate-badge{display:inline-flex;align-items:center;gap:5px;border:1px solid color-mix(in oklch,var(--warn) 35%,transparent);background:var(--warn-soft);color:var(--warn);border-radius:999px;padding:2px 10px;font-size:11.5px;font-weight:500}
+.gate-first{font-family:var(--font-display);font-size:19px;font-weight:600;margin:14px 0 4px}
+.gate-count{font-family:var(--font-mono);font-size:13px;color:var(--fg);margin:0 0 2px}
+.gate-count b{color:var(--accent-strong)}
+.gate-diag{font-size:13px;color:var(--muted);line-height:1.7;margin:10px 0 0}
+.gate-ver{font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin:8px 0 0}
+.gate-actions{display:flex;flex-direction:column;gap:9px;width:100%;margin-top:18px}
+.gate-foot{font-size:12px;color:var(--muted);margin-top:14px;line-height:1.7}
+.gate-exit{display:flex;gap:14px;margin-top:10px;font-size:12.5px}
+.gate-exit .text-btn{color:var(--muted)}
+/* 空库计数变体 */
+.gate-empty{font-size:13px;color:var(--muted);margin:6px 0 0}
+/* s4 免登备份弹窗（借 .bk-* 口径，单场景确认步） */
+.modal-scrim{position:fixed;inset:0;background:color-mix(in oklch,var(--fg) 32%,transparent);display:grid;place-items:center;padding:20px;z-index:40}
+.modal{width:min(480px,100%);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px 24px;display:flex;flex-direction:column;gap:12px}
+.modal h2{font-family:var(--font-display);font-size:18px;font-weight:600;margin:0;display:flex;align-items:center;gap:10px}
+.step-tag{font-family:var(--font-mono);font-size:10.5px;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:1px 8px}
+.bk-file{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-size:13px;background:var(--fg-soft)}
+.bk-file .mono{font-family:var(--font-mono);font-size:11.5px;color:var(--muted)}
+.bk-note{font-size:12px;color:var(--muted);line-height:1.7;margin:0}
+.bk-warn{display:flex;gap:8px;border:1px solid color-mix(in oklch,var(--warn) 35%,transparent);background:var(--warn-soft);border-radius:var(--radius);padding:9px 11px;font-size:12.5px;color:var(--warn)}
+.modal-foot{display:flex;justify-content:space-between;align-items:center;margin-top:4px}
+.pick-row{display:flex;align-items:center;gap:9px;font-size:13px}
+.pick-row .mono{font-family:var(--font-mono);font-size:11.5px;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<!-- s1 常规登录（现状收编）＋常驻免登出口 -->
+<div class="auth-wrap" id="s1">
+  <div class="auth-card">
+    <h1>爱小说</h1>
+    <p class="sub">登录后即可开始创作</p>
+    <button class="btn btn-primary btn-lg btn-block">打开浏览器登录</button>
+    <p class="note">将在系统浏览器中打开登录页面</p>
+    <button class="text-btn">不登录也能备份作品</button>
+    <a class="lnk" href="#">返回首页</a>
+  </div>
+</div>
+
+<!-- s2 升级卡 · 需要更新 -->
+<div class="auth-wrap" id="s2">
+  <div class="auth-card">
+    <h1>爱小说</h1>
+    <div style="margin-top:10px"><span class="gate-badge">需要更新</span></div>
+    <p class="gate-first">你的作品都在这台电脑上</p>
+    <p class="gate-count"><b>5 本书</b> · 386,400 字，完好无损</p>
+    <p class="gate-diag">此版本的桌面应用已无法连接登录服务，更新后即可继续使用。</p>
+    <p class="gate-ver">当前 v0.11 · 需更新至 v0.13 起</p>
+    <div class="gate-actions">
+      <a class="btn btn-primary btn-lg btn-block" href="#">去下载新版</a>
+      <button class="btn btn-lg btn-block">先备份作品</button>
+    </div>
+    <div class="gate-exit">
+      <button class="text-btn">查看更新内容</button>
+      <button class="text-btn">复制下载地址</button>
+    </div>
+    <p class="gate-foot">备份无需登录；更新只更换程序，不会改动这台电脑上的任何作品。</p>
+  </div>
+</div>
+
+<!-- s3 升级卡 · 暂时无法登录（服务异常归因，无版本对照） -->
+<div class="auth-wrap" id="s3">
+  <div class="auth-card">
+    <h1>爱小说</h1>
+    <div style="margin-top:10px"><span class="gate-badge">暂时无法登录</span></div>
+    <p class="gate-first">你的作品都在这台电脑上</p>
+    <p class="gate-count"><b>5 本书</b> · 386,400 字，完好无损</p>
+    <p class="gate-diag">现在连不上登录服务，稍后重试即可。不是你的操作有问题，作品也没有任何变化。</p>
+    <div class="gate-actions">
+      <button class="btn btn-primary btn-lg btn-block">重试登录</button>
+      <button class="btn btn-lg btn-block">先备份作品</button>
+    </div>
+    <div class="gate-exit"><button class="text-btn">联系客服</button></div>
+    <p class="gate-foot">备份无需登录；可以随时再来登录。</p>
+  </div>
+</div>
+
+<!-- s2 空库计数变体（文案行，防断档） -->
+<div class="auth-wrap" id="s2e" hidden>
+  <div class="auth-card">
+    <p class="gate-first">你的作品都在这台电脑上</p>
+    <p class="gate-empty">这台电脑上没有存作品 · <button class="text-btn">查看找回办法</button></p>
+  </div>
+</div>
+
+<!-- s4 免登备份弹窗 · 确认步 -->
+<div class="modal-scrim" id="s4">
+  <div class="modal">
+    <h2>备份 <span class="step-tag">1 / 4</span></h2>
+    <div class="bk-file">
+      <span class="mono">ZIP</span>
+      <span>爱小说-备份-2026-09-19.zip<br><span class="mono">全部作品 · 5 本书，含正文、大纲与设定</span></span>
+    </div>
+    <div class="pick-row"><span class="mono">保存位置</span> <button class="btn btn-sm">选择文件夹</button> <span class="mono">~/Backups</span></div>
+    <p class="bk-note">无需登录即可完成备份。配置包含敏感信息（登录账号与模型密钥），登录后可一并备份；本次仅备份作品。</p>
+    <div class="bk-warn">备份文件请像保管密码一样妥善保存</div>
+    <div class="modal-foot">
+      <button class="btn">取消</button>
+      <button class="btn btn-primary">开始备份</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

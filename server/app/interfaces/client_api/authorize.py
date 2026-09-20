@@ -32,6 +32,11 @@ async def api_authorize(
     db: Db = Depends(get_db),
 ):
     logger.info("event=authorize.start user=%s", req.username)
+    from app.infrastructure.repositories.factory import outdated_mark_repo
+
+    def _mark_outdated(pc_hash: str) -> None:
+        outdated_mark_repo(db).mark(pc_hash)
+
     result = authorize_device(
         user_repo(db), code_repo(db), device_repo(db), grant_repo(db),
         username=req.username.strip(),
@@ -40,10 +45,11 @@ async def api_authorize(
         pc_name=req.pc_name,
         device_profile_b64=req.device_profile,
         challenge=req.challenge,
+        _mark_outdated=_mark_outdated,
     )
     logger.info("event=authorize.result user=%s code=%d", req.username, result["code"])
-    if result["code"] == 0:
-        db.commit()
+    if result["code"] in (0, 3):
+        db.commit()  # 3=client_outdated：标记落库也要提交
     return result
 
 
@@ -91,6 +97,18 @@ async def api_check_auth(pc_hash: str = "", db: Db = Depends(get_db)):
             data = build_license_snapshot(db, grant.username)
             data["username"] = grant.username
             return {"code": 0, "data": data}
+        # s-auth-outdated-signal：无 grant 且该 pc_hash TTL 内有 outdated 标记 →
+        # 独立 code=3（MUST NOT 挂 code=1——旧 C端 code-1 分支会清本地凭据）
+        from app.infrastructure.repositories.factory import outdated_mark_repo
+
+        if outdated_mark_repo(db).fresh(pc_hash):
+            from app.config import settings as _settings
+
+            data = {"client_outdated": True,
+                    "download_url": _settings.CLIENT_DOWNLOAD_URL}
+            if _settings.CLIENT_MIN_VERSION:
+                data["latest_version"] = _settings.CLIENT_MIN_VERSION
+            return {"code": 3, "msg": "需要更新后重试", "data": data}
         return {"code": 1, "msg": "等待授权"}
     except Exception:
         logger.exception("event=check_auth_error pc_hash=%s", pc_hash)

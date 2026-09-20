@@ -63,6 +63,12 @@ class Settings:
     SERVERCHAN_SENDKEY: str = os.getenv("SERVERCHAN_SENDKEY", "")
     # 定时扫描端点（R1-R4）令牌：pay-cron 云函数以 X-Cron-Token 头携带；空 = 端点全拒
     CRON_TOKEN: str = os.getenv("CRON_TOKEN", "")
+
+    # s-auth-outdated-signal：authorize 分档拒绝携带的客户端版本提示（env 注入；
+    # latest_version 未配置时省略字段——C端 端上有 update-check 三级回落兜底）
+    CLIENT_MIN_VERSION: str = os.getenv("CLIENT_MIN_VERSION", "")
+    CLIENT_DOWNLOAD_URL: str = os.getenv(
+        "CLIENT_DOWNLOAD_URL", "https://github.com/modoojunko/ai-novel/releases")
     # 演练白名单：逗号分隔用户名。购买开关=rehearsal 时仅名单内用户可下单，
     # 且对账/计税报表排除名单用户（演练数据不进资金口径）
     PAYMENTS_REHEARSAL_USERNAMES: str = os.getenv("PAYMENTS_REHEARSAL_USERNAMES", "")

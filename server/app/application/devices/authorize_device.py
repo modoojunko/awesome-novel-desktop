@@ -27,6 +27,8 @@ def authorize_device(
     device_repo: DeviceRepo,
     grant_repo: GrantRepo,
     username: str,
+    *,
+    _mark_outdated=None,
     password: str,
     pc_hash: str,
     pc_name: str = "",
@@ -34,14 +36,27 @@ def authorize_device(
     challenge: str = "",
 ) -> dict:
     # 0) 配对挑战（s-security-hardening）：缺失/不合法即拒——令牌只发给持有本机
-    #    配对密钥的客户端；缺失典型=客户端版本过旧（S端 /auth 页会先拦并给升级出口）。
-    if not _CHALLENGE_RE.fullmatch(challenge or ""):
-        return {"code": 1, "msg": "桌面端版本过旧，请升级后重试"}
+    #    配对密钥的客户端。
+    #    s-auth-outdated-signal：分档为独立 code=3（client_outdated）——challenge
+    #    缺失是模糊信号（≠版本旧），msg 用动作导向；**先验密码再落标记**（防匿名
+    #    刷标记表）；密码错误不暴露 outdated 语义（防探测）。
+    challenge_ok = bool(_CHALLENGE_RE.fullmatch(challenge or ""))
 
     # 1) 验证用户
     user = user_repo.get(username)
     if not user or not verify_password(password, user.password_hash):
         return {"code": 1, "msg": "用户名或密码错误"}
+    if not challenge_ok:
+        from app.config import settings as _settings
+        # 标记写库走调用方同一 db 事务：接口层注入回调（测试亦可注入桩）
+        if _mark_outdated is not None:
+            _mark_outdated(pc_hash)
+        data = {"client_outdated": True,
+                "download_url": _settings.CLIENT_DOWNLOAD_URL}
+        if _settings.CLIENT_MIN_VERSION:
+            data["latest_version"] = _settings.CLIENT_MIN_VERSION
+        return {"code": 3, "msg": "需要更新后重试", "reason": "client_outdated",
+                "data": data}
     # 惰性升级（s-security-hardening）：存量 PBKDF2 哈希验证成功即改写为 bcrypt
     if needs_rehash(user.password_hash):
         user_repo.update_password(username, hash_password(password))

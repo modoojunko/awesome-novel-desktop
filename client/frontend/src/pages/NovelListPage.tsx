@@ -1,3 +1,5 @@
+import LegacyMigrateModal from '@/components/LegacyMigrateModal';
+import { useLegacyDb } from '@/hooks/useLegacyDb';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
@@ -118,6 +120,10 @@ function NovelList() {
   const [entDetail, setEntDetail] = useState('');
   const [supportLink, setSupportLink] = useState('');
   const navigate = useNavigate();
+  // db-generation：旧库检测（免登端点；空书架开口行 + 向导）
+  const legacyDb = useLegacyDb();
+  const [legacyModal, setLegacyModal] = useState(false);
+  const legacyAutoShown = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   // 套餐状态走 LicenseProvider 上下文（Provider 挂在认证路由根壳，两跳刷新后自动更新）
@@ -627,6 +633,12 @@ function NovelList() {
           <div className="empty" style={{ padding: "56px 44px 48px" }}>
             <span className="fr-title serif">开始你的第一本书</span>
             <p>本地优先的 AI 长篇小说工作台——大纲、设定、正文，都保存在你这台电脑上。</p>
+            {legacyDb.status?.candidates?.length ? (
+              <p className="fr-note">
+                这台电脑上有旧版作品 ·{' '}
+                <button className="text-btn" onClick={() => setLegacyModal(true)}>找回我的书</button>
+              </p>
+            ) : null}
             <div className="fr-steps">
               <div className="step">
                 <span className="fr-n">STEP 01</span>
@@ -667,6 +679,12 @@ function NovelList() {
               免费版可创建 <span className="num">1</span> 部作品 · 无需绑卡
             </p>
           </div>
+          <LegacyMigrateModal
+            open={legacyModal}
+            candidates={legacyDb.status?.candidates ?? []}
+            onClose={() => setLegacyModal(false)}
+            onDone={() => void legacyDb.refresh()}
+          />
         </div>
       ) : (
         /* 检索无果：bk-empty（不放进 .cards 网格避免 1/3 列宽）；其余走列表/分组 */

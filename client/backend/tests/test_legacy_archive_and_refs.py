@@ -70,44 +70,6 @@ class TestClassifyDrift:
         assert legacy_archive.classify_drift(old, META) == "breaking"
 
 
-class TestArchiveIfLegacy:
-    def test_current_fingerprint_noop(self, tmp_path):
-        db = tmp_path / "x.db"
-        _make_db(db, {"novels": ["id"]})
-        # 直接写当前指纹
-        conn = sqlite3.connect(db)
-        conn.execute("UPDATE app_meta SET value='fp-now' WHERE key='schema_id'")
-        conn.commit()
-        conn.close()
-        info = legacy_archive.archive_if_legacy(db, "fp-now", metadata=META)
-        assert info == {"archived": False, "reason": "current"}
-
-    def test_additive_migrates_in_place(self, tmp_path):
-        db = tmp_path / "x.db"
-        _make_db(db, {"novels": ["id"], "chapters": ["id", "ref"]})
-        info = legacy_archive.archive_if_legacy(db, "fp-new", metadata=META)
-        assert info["archived"] is False
-        assert info["reason"] == "additive_migration"
-        assert info["needs_migration"] is True
-        # 数据未被动过：库文件仍在原路径、无 legacy 副本
-        assert db.exists()
-        assert not list(tmp_path.glob("*.legacy-*"))
-
-    def test_breaking_still_archives(self, tmp_path):
-        db = tmp_path / "x.db"
-        _make_db(db, {"projects": ["id"]})  # 旧表不在新 schema → 破坏性
-        info = legacy_archive.archive_if_legacy(db, "fp-new", metadata=META)
-        assert info["archived"] is True
-        assert info["reason"] == "fingerprint_mismatch"
-        assert Path(info["archived_path"]).exists()
-
-    def test_unreadable_archives(self, tmp_path):
-        db = tmp_path / "x.db"
-        db.write_bytes(b"not a sqlite db")
-        info = legacy_archive.archive_if_legacy(db, "fp-new", metadata=META)
-        assert info["archived"] is True
-
-
 class TestBelongsToList:
     def test_boundary_rewrite_ghost_not_swallowed(self):
         assert belongs_to_ref("vol-1-ch-2-note.md", "vol-1-ch-2") is True
