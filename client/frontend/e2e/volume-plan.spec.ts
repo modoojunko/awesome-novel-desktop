@@ -253,6 +253,39 @@ test("规划全链：入口A→3套（不落库直查）→选卡展开（门闩
   }
 });
 
+test("手点「回填」只发一次建卷请求（双发曾撞 UNIQUE 500）", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `手点回填${Date.now() % 100000}`);
+    await expect(page.getByText("这本书怎么开始？")).toBeVisible({ timeout: 10000 });
+
+    let createCalls = 0;
+    await page.route("**/api/novels/*/volumes/ai/expand", (r) =>
+      r.fulfill({ json: EXPAND }),
+    );
+    // 只计数、请求透传真后端（真落库——GET vol-1 才能回读；曾拦 POST 致 404）
+    await page.route("**/api/novels/*/volumes", async (route) => {
+      if (route.request().method() === "POST") createCalls += 1;
+      await route.fallback();
+    });
+    await page.getByTestId("plan-first-volume").click();
+    await page
+      .getByTestId("plan-line-input")
+      .fill(EXPAND.plan_line);
+    await page.getByTestId("plan-expand-btn").click();
+    // 弹窗开着等生成完成 → 手点「回填 →」（曾与关弹窗后的自动 effect 双发）
+    await expect(page.getByTestId("plan-backfill-btn")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("plan-backfill-btn").click();
+    await expect(page.getByTestId("vol-plan-line")).toHaveText(EXPAND.plan_line, {
+      timeout: 15000,
+    });
+    await page.waitForTimeout(800); // 给可能的第二次双发留窗口
+    expect(createCalls).toBe(1); // 只允许一次建卷 POST
+  } finally {
+    await restore();
+  }
+});
+
 test("免费档：规划台可进、生成置灰带 PRO 说明；体检照常可用", async ({ page }) => {
   // 免费档全库限建 1 本（真实用户书占额）→ 先试用档建书，再翻免费档刷新（同一本书）
   const { restore } = await setupSession(page, "trial");
