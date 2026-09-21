@@ -455,7 +455,10 @@ export default function NovelWorkspace() {
 
   // ── 分卷规划（volume-plan-ai）：状态机挂壳层（弹窗开着背景静止的关键） ──
   const plan = useVolumePlan(projectId);
-  const openPlanVolume = useCallback((volNo: number) => plan.open(volNo), [plan]);
+  const openPlanVolume = useCallback((volNo: number) => {
+    backfillFiredRef.current = false; // 新规划会话：允许新的采纳
+    plan.open(volNo);
+  }, [plan]);
   /** 「卷的验证」点行：选中该卷＋立刻体检（seq 信号传右栏） */
   const [autoCheck, setAutoCheck] = useState<{ ref: string; seq: number }>({ ref: "", seq: 0 });
   const handleSelectVolume = useCallback(
@@ -476,8 +479,12 @@ export default function NovelWorkspace() {
   const backfillSeqRef = useRef(0);
   /** 采纳路径：保存后落写作默认页（清选中）而非停留在卷纲页 */
   const landAfterSaveRef = useRef(false);
+  /** 本轮规划会话内只允许一次回填采纳（双触发防线的第二道闸；开新一轮规划时复位） */
+  const backfillFiredRef = useRef(false);
   const startBackfill = useCallback(
     (draft: VolumeExpandDraft, planLine: string) => {
+      if (backfillFiredRef.current) return;
+      backfillFiredRef.current = true;
       const volNo = plan.state.volNo;
       const target = `vol-${volNo}`;
       if (!volumes.some((v) => v.name === target)) {
@@ -485,7 +492,10 @@ export default function NovelWorkspace() {
         landAfterSaveRef.current = true;
         void (async () => {
           const ref = await createVolume(draft.name?.trim() || `第${cnNum(volNo)}卷`);
-          if (!ref) return;
+          if (!ref) {
+            toast.error("建卷失败，请重试——卷纲草稿还留在规划台里");
+            return;
+          }
           void outline.refetchTree();
         })();
       } else if (selectedId !== target) {
@@ -499,9 +509,11 @@ export default function NovelWorkspace() {
     [plan.state.volNo, volumes, selectedId, focusNode, createVolume, outline],
   );
   const handlePlanBackfill = useCallback(() => {
-    const d = plan.state.draft;
+    // 与自动回填共用单发信号（takeAutoBackfill 读走即清）——否则手点一次＋
+    // 关弹窗后的自动 effect 各触发一次，空书采纳会双发 createVolume 撞 UNIQUE 500
+    const payload = plan.takeAutoBackfill();
     plan.close();
-    if (d) startBackfill(d, plan.state.planLine);
+    if (payload) startBackfill(payload.draft, payload.planLine);
   }, [plan, startBackfill]);
   // 生成中关弹窗 → 完成后中栏直接回填（spec：不必再点一次「回填」）
   useEffect(() => {
