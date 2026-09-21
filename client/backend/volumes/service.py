@@ -150,30 +150,41 @@ def _split_lines(value: str | None) -> list[str]:
 
 
 async def _aggregate_cast(db, vol) -> list[dict]:
-    """卷角色聚合（只读视图）：卷下各章章纲出场角色合集（去重保序）。
+    """卷角色聚合（只读视图）：卷下各**主线章**章纲出场角色合集（去重保序、主角置顶）。
 
-    空态＝无章即空（主角仅在与聚合集有交集时参与排序，不凭空入列——评审拍板）；
-    名字在 antagonist_line 中命中者标反派；行形状 {name, role}。
+    - 空态＝无章即空；主角只在聚合集里出现时置顶（不凭空入列——评审拍板）；
+    - 旧稿支线章（ghost_of 非空）不参与（与同一响应的 chapters 口径一致）；
+    - 名字在 antagonist_line 中命中者标反派；行形状 {name, role}；
+    - 一条 JOIN 取全（旧实现逐章一条 SELECT：200 章 ≈ 200 条语句，导出链再乘卷数）。
     """
     from sqlalchemy import select
 
-    from models.chapter import ChapterCharacter
-    from repositories import chapter_repo
+    from models.chapter import Chapter, ChapterCharacter
+    from models.character import Character
 
+    rows = await db.execute(
+        select(ChapterCharacter.character_name)
+        .join(Chapter, Chapter.id == ChapterCharacter.chapter_id)
+        .where(Chapter.volume_id == vol.id, Chapter.ghost_of.is_(None))
+        .order_by(Chapter.chapter_no, ChapterCharacter.sort_order)
+    )
     names: list[str] = []
     seen: set[str] = set()
-    chapters = await chapter_repo.list_by_volume(db, vol.id)
-    for ch in chapters:
-        rows = await db.scalars(
-            select(ChapterCharacter)
-            .where(ChapterCharacter.chapter_id == ch.id)
-            .order_by(ChapterCharacter.sort_order)
+    for (raw,) in rows.all():
+        nm = (raw or "").strip()
+        if nm and nm not in seen:
+            seen.add(nm)
+            names.append(nm)
+
+    # 主角置顶：本卷聚合集里若含主角（role='主角'），排到最前
+    protagonist = await db.scalar(
+        select(Character.name).where(
+            Character.novel_id == vol.project_id, Character.role == "主角"
         )
-        for r in rows:
-            nm = (r.character_name or "").strip()
-            if nm and nm not in seen:
-                seen.add(nm)
-                names.append(nm)
+    )
+    if protagonist and protagonist in seen:
+        names = [protagonist] + [n for n in names if n != protagonist]
+
     ant_line = (vol.antagonist_line or "").strip()
     return [
         {"name": nm, "role": ("反派" if ant_line and nm in ant_line else "")}
@@ -257,6 +268,10 @@ async def update_volume(db, project, ref: str, body: VolumeUpdate) -> dict:
         raise HTTPException(404, "Volume not found")
 
     fields_set = body.model_fields_set
+    # goal 一次性固化（检视 P1-3）：读侧把旧 goal 并进 ending 尾句，作者改完保存时把派生值
+    # 写回 ending → 若不清 goal，下一次 GET 会再拼一遍（每保存一次长一节）。清列即幂等。
+    if "ending" in fields_set and getattr(vol, "goal", None):
+        vol.goal = None
     for key in _DETAIL_SCALARS:
         if key in fields_set:
             setattr(vol, key, getattr(body, key))

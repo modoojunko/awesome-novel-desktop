@@ -1,6 +1,7 @@
 // GET /novels/{pid}/volumes/{ref} 详情契约（client/backend/volumes/service.get_volume）
 // 标量字段 DB 可空，缺失时后端省略键 → 这里标 optional；
-// plants/reveals 契约 = list[str]（一行一条），行集 = 登场人物/剧情节点（c-volume-view-storyline 换代）
+// c-volume-antagonist：template_name/goal/plants/reveals 已退役（GET 不回、PUT 422 拒收），
+// 卷角色＝各章章纲聚合只读；剧情节点行集沿用。
 
 export interface VolumePlotNode {
   stage: string;
@@ -15,14 +16,6 @@ export const PLOT_STAGES = [
   "重要转折",
   "高潮爆发",
   "卷末收束",
-] as const;
-
-/** 结构模板（产品单源字面；ADJUSTMENTS ④ 登记不改「起承転結」） */
-export const TEMPLATE_OPTIONS = [
-  "三幕式",
-  "起承転結",
-  "悬疑递进",
-  "人物弧线",
 ] as const;
 
 export interface VolumeChapterMeta {
@@ -44,9 +37,7 @@ export interface VolumeDetail {
   volume: number;
   title: string;
   summary: string;
-  template_name?: string | null;
   core_conflict?: string | null;
-  goal?: string | null;
   ending?: string | null;
   chapter_target?: number | null;
   /** 进场（resolve_prev_ending 单源：事实优先） */

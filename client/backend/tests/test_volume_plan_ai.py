@@ -622,6 +622,18 @@ class TestRetiredKeys:
         assert "goal" not in d and "template_name" not in d and "plan_line" not in d
         assert "plants" not in d and "reveals" not in d
 
+        # 幂等（检视 P1-3）：读到的 ending（已并 goal）原样存回 → 不得再拼一遍；
+        # 固化时顺手清 goal 列，此后 GET 稳定。
+        merged = d["ending"]
+        client.put(f"/api/novels/{pid}/volumes/vol-1", json={"ending": merged})
+        d2 = client.get(f"/api/novels/{pid}/volumes/vol-1").json()
+        assert d2["ending"] == merged
+        assert d2["ending"].count("局面：她没有退路") == 1
+        # 再存一次（第二次保存）也不重复
+        client.put(f"/api/novels/{pid}/volumes/vol-1", json={"ending": d2["ending"]})
+        d3 = client.get(f"/api/novels/{pid}/volumes/vol-1").json()
+        assert d3["ending"] == merged
+
 
 class TestAggregateCast:
     def _mkvol_with_ch(self, client):
@@ -650,6 +662,34 @@ class TestAggregateCast:
         villain = next(c for c in d["cast_members"] if c["name"] == "执法官雷")
         assert villain["role"] == "反派"
         assert all(c["role"] == "" for c in d["cast_members"] if c["name"] != "执法官雷")
+
+    def test_protagonist_pinned_first_and_ghost_excluded(self, client):
+        """主角置顶（聚合集里有时排最前）＋旧稿支线章不参与（检视 P1-6）。"""
+        pid = self._mkvol_with_ch(client)
+        # 主角卡：走角色表（role='主角' 唯一索引）
+        r = client.post(f"/api/novels/{pid}/characters", json={
+            "name": "林野", "role": "主角", "brief": "夜班巡护员"})
+        assert r.status_code in (200, 201), r.text
+        client.post(f"/api/novels/{pid}/volumes/vol-1/chapters", json={"title": "第一章"})
+        ch_ref = client.get(f"/api/novels/{pid}/volumes").json()[0]["chapters"][0]["ref"]
+        client.put(f"/api/novels/{pid}/chapters/{ch_ref}", json={
+            "outline": {"summary": "x", "characters": ["老聋", "林野"]}})
+        d = client.get(f"/api/novels/{pid}/volumes/vol-1").json()
+        assert [c["name"] for c in d["cast_members"]] == ["林野", "老聋"]  # 主角置顶
+
+        # 旧稿支线章（ghost_of 非空）的出场角色不入聚合
+        async def _ghost():
+            async with async_session() as s:
+                from sqlalchemy import text as _t
+                await s.execute(_t(
+                    "UPDATE chapters SET ghost_of='vol-1-ch-1' WHERE ref=:r"
+                ), {"r": ch_ref})
+                await s.commit()
+
+        _run_async(_ghost())
+        d2 = client.get(f"/api/novels/{pid}/volumes/vol-1").json()
+        assert d2["cast_members"] == []
+        assert d2["ghost_count"] == 1
 
 
 class TestHooksBatch:
@@ -730,6 +770,104 @@ class TestMetricsEvents:
 
 
 # ═══════════════ c-volume-antagonist 2.x：契约扩展 ═══════════════
+
+
+class TestReviewFixes:
+    """检视整改回归（P2-5/P2-6/P2-1）：闭集、坎名字入差集、同毫秒双条不撞主键。"""
+
+    def test_options_focus_axis_closed_set(self, client, monkeypatch):
+        """模型自造侧重轴不收（FR-2 闭集）。"""
+        from volumes.ai_plan import FOCUS_AXES, _sanitize_plans
+
+        parsed = {"plans": [
+            {"spine": "甲", "conflict": "c", "ending": "e", "focus_axis": "自造轴A"},
+            {"spine": "乙", "conflict": "c", "ending": "e", "focus_axis": "自造轴B"},
+        ]}
+        out = _sanitize_plans(parsed)
+        assert out is not None
+        assert all(p["focus_axis"] in FOCUS_AXES for p in out["plans"])
+
+    def test_options_warns_invented_antagonist_name(self, client, monkeypatch):
+        """坎（人物型）点到的名字不在设定里 → warnings 提示（不再只靠 cast 字段）。"""
+        from volumes.ai_plan import _antagonist_candidates
+
+        assert _antagonist_candidates([
+            {"antagonist_type": "人物", "antagonist_line": "执法官雷——点名要他停手"},
+            {"antagonist_type": "难题", "antagonist_line": "信号封装层"},
+            {"antagonist_type": "势力", "antagonist_line": "拾荒船队·规矩不同"},
+        ]) == ["执法官雷", "拾荒船队"]
+
+        _set_tier("trial")
+        pid = _mk_project(client)
+        plans = json.dumps({
+            "plans": [
+                {"spine": "甲", "conflict": "c", "ending": "e", "focus_axis": "代价",
+                 "antagonist_type": "人物", "antagonist_line": "凭空捏造将军——要他停手"},
+                {"spine": "乙", "conflict": "c", "ending": "e", "focus_axis": "关系",
+                 "antagonist_type": "难题", "antagonist_line": "信号的封装层"},
+            ],
+            "cast": [], "factions": [], "note": "", "volume_estimate": "",
+        }, ensure_ascii=False)
+        _setup_ai(monkeypatch, [plans])
+        r = client.post(f"/api/novels/{pid}/volumes/ai/options", json={"line": ""})
+        assert r.status_code == 200, r.text
+        assert any("凭空捏造将军" in w for w in r.json()["warnings"])
+
+    def test_events_same_millisecond_both_persist(self, client):
+        """同一用户同一毫秒两条事件都要落库（旧主键 {ms}_{uid} 会撞 UNIQUE 丢一条）。"""
+        _set_tier("trial")
+        _mk_project(client)
+        before = len(_events("desk_manual_create"))
+        for _ in range(2):
+            client.post("/api/events", json={
+                "event_type": "desk_manual_create", "payload": {"vol_no": 1}})
+        rows = _events("desk_manual_create")
+        assert len(rows) - before == 2
+
+
+class TestBossStepHint:
+    """FR-11 boss 台阶提示：玄幻/都市系卷体检素材含，其余题材不含；
+    且不落共享题材段（写章链 system 同源，不能跟着变）。"""
+
+    @pytest.mark.parametrize(
+        ("genre", "expect"),
+        [("玄幻奇幻", True), ("都市日常", True), ("悬疑推理", False), ("", False)],
+    )
+    def test_hint_by_genre(self, client, monkeypatch, genre, expect):
+        from genres.service import build_genre_section
+        from volumes.ai_plan import _boss_step_hint
+
+        # 助手单测（纯函数，不依赖 DB）
+        assert bool(_boss_step_hint(genre)) is expect
+        # 共享题材段不含这条（写章链与卷链共用同一份题材注入 → 只能在本模块追加）
+        assert "BOSS" not in build_genre_section({"theme": genre, "sub_genre": ""})
+
+    def test_check_material_includes_hint_for_fantasy(self, client, monkeypatch):
+        _set_tier("trial")
+        pid = _mk_project(client)
+        client.post(f"/api/novels/{pid}/volumes", json={"title": "第一卷"})
+
+        async def _seed_genre():
+            async with async_session() as s:
+                proj = await s.get(Novel, pid)
+                root = proj.root_path
+                await s.close()
+                story = await get_storage().read_yaml(root, "story.yaml") or {}
+                story["genre"] = "玄幻奇幻"
+                await get_storage().write_yaml(root, "story.yaml", story)
+
+        _run_async(_seed_genre())
+        reply = json.dumps(
+            {"groups": [
+                {"name": "对主线", "items": [{"status": "ok", "text": "接得上。", "evidence": "进场"}]},
+                {"name": "对设定", "items": [{"status": "ok", "text": "无冲突。"}]},
+            ]},
+            ensure_ascii=False,
+        )
+        fake = _setup_ai(monkeypatch, [reply])
+        r = client.post(f"/api/novels/{pid}/volumes/vol-1/ai/check")
+        assert r.status_code == 200, r.text
+        assert "BOSS" in str(fake.calls[0].get("system", ""))
 
 
 class TestContractExpansion:

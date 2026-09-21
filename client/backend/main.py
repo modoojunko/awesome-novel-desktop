@@ -92,14 +92,21 @@ async def lifespan(app: FastAPI):
         logging.getLogger("uvicorn.error").warning("Failed to create tables: %s", e)
 
     # ── 代内 additive 补列：在打指纹戳之前补齐（补列失败不得刷戳）──────
-    from db_lifecycle import apply_additive_columns
+    # （合并残留的重复块已清：幂等所以无害，但两遍 import＋两遍调用会误导读者）
+    from db_lifecycle import apply_additive_columns, unregistered_missing_columns
 
     await apply_additive_columns(engine)
 
-    # ── 代内 additive 补列：在打指纹戳之前补齐（补列失败不得刷戳）──────
-    from db_lifecycle import apply_additive_columns
+    # 自检（检视 P2-9）：「models 加了列但没登记 ADDITIVE_COLUMNS」＝本代最贵的错
+    # （补列后刷戳会把该库永久判 current，之后再修也不救）——启动即告警，不阻断。
+    unregistered = await unregistered_missing_columns(engine)
+    if unregistered:
+        import logging
 
-    await apply_additive_columns(engine)
+        logging.getLogger("uvicorn.error").warning(
+            "event=db.additive_unregistered columns=%s（新列须登记 db_lifecycle.ADDITIVE_COLUMNS）",
+            ",".join(unregistered),
+        )
 
     # ── 给（新的）当前库打 schema 指纹戳 ───────────────────────────────
     # additive 补列完成→刷新戳；tolerant 放行不改戳（回升 newer build 即 current）

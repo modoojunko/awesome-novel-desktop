@@ -1,9 +1,9 @@
 """卷纲文本装配单源（settings/render 同型先例；新增依赖边 write/* → volumes.render）。
 
 行标签与格式逐字对齐原型 volOutlineText（storyline.html 1609-1620）：
-- 本卷主旨：…／- 核心矛盾：…／- 整体目标：…／- 预期结局：…
+- 本卷主旨：…／- 本卷对抗物：〈类型〉·〈一句话〉／- 核心矛盾：…／- 预期结局：…
 - 关键节点：1. 〈阶段〉：〈内容〉 ｜ 2. …（单行 ｜ 连接）
-- 本卷待埋伏笔：a ｜ b／- 本卷待揭信息：x ｜ y
+（c-volume-antagonist：整体目标与两条伏笔行退役——goal 并入 ending，伏笔只走台账注入）
 空段整行略过；**有意偏差（ADJUSTMENTS ③）**：全空返回空串而非原型占位符，
 以维持 prompt-sources「未填＝chars 0/empty=true」断言。只做剧情规划，不含角色言行。
 """

@@ -150,8 +150,18 @@ async def batch_create_hooks(
 
     逐条与 active 台账 difflib≥0.6 判同：重复不入册、返回对齐的已有编号；
     逐条返回结果，不整批 4xx（失败不回滚已建条目——评审拍板 best-effort＋补偿）。
+
+    超额（>20 条）**显式返回 `truncated: 已收条数`**，不静默丢（检视 P2-2）；
+    `planned_volume_no` 归一为 int 且限 1..9999，非法即置 None（不把字符串写进 Integer 列）。
     """
     import difflib
+
+    def _vol_no(raw: object) -> int | None:
+        try:
+            n = int(raw)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return n if 1 <= n <= 9999 else None
 
     novel = await _load_novel(session, novel_id)
     rows = (
@@ -162,7 +172,8 @@ async def batch_create_hooks(
     actives = [h for h in rows if h.status == "active"]
     created: list[dict] = []
     skipped: list[dict] = []
-    for item in items[:20]:  # 单次上限防灌爆
+    accepted = items[:20]  # 单次上限防灌爆
+    for item in accepted:
         desc = str((item or {}).get("description") or "").strip()
         if not desc:
             skipped.append({"description": "", "reason": "empty"})
@@ -185,7 +196,7 @@ async def batch_create_hooks(
             novel_id=novel_id,
             seq=novel.hook_seq_high,
             description=desc[:300],
-            planned_volume_no=(item or {}).get("planned_volume_no"),
+            planned_volume_no=_vol_no((item or {}).get("planned_volume_no")),
         )
         session.add(h)
         actives.append(h)
@@ -193,13 +204,16 @@ async def batch_create_hooks(
     await session.commit()
     for h in created:
         await session.refresh(h)
-    return {
+    out = {
         "created": [
             {"code": f"#H-{h.seq:04d}", "description": h.description[:60]}
             for h in created
         ],
         "skipped": skipped,
     }
+    if len(items) > len(accepted):
+        out["truncated"] = len(accepted)  # 只收前 20 条：调用方需知道自己被截了
+    return out
 
 
 async def create_hook(session: AsyncSession, novel_id: str, body: dict) -> NovelHook:

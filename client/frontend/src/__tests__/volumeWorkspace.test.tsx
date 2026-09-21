@@ -100,8 +100,10 @@ describe("VolumeWorkspace 卷视图", () => {
     // 聚合角色（有章→合集，含反派标注）＋伏笔指引行
     expect(screen.getByText(/副队长（反派）/)).toBeInTheDocument();
     expect(screen.getByText(/住在台账里/)).toBeInTheDocument();
+    // 章数目标进头部 meta（P2-4：spec「头部卷名＋章数，不设则不显」）
+    expect(screen.getByTestId("vol-target-tag")).toHaveTextContent("目标 12 章");
     // 退役字段不再出现
-    expect(screen.queryByText("12 章")).toBeNull();
+    expect(screen.queryByText(/整体目标/)).toBeNull();
     expect(screen.queryByText(/整体目标/)).toBeNull();
     expect(screen.queryByText(/结构模板/)).toBeNull();
     expect(screen.queryByText(/待埋伏笔/)).toBeNull();

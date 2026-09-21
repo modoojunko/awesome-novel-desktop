@@ -113,12 +113,14 @@ export function useVolumePlan(projectId: string) {
     });
   }, []);
 
-  /** 确认成卷：expand（卡面四问胜出）→ 外层回调落库 → 关弹窗（token 守卫可取消） */
+  /** 确认成卷：expand（卡面四问胜出）→ 外层回调落库 → 关弹窗（token 守卫可取消）。
+   *  `onPersist` 返回 false ＝ 落库失败：不关弹窗、不置 confirmResult、保留选中与三卡
+   *  （PRD §6「expand/建卷/hooks 失败：保留选中与卡片、toast 可重试」）。 */
   const confirmCard = useCallback(
     async (
       card: VolumePlanCard,
-      onPersist: (draft: VolumeExpandDraft, warnings: string[]) => Promise<void>,
-    ) => {
+      onPersist: (draft: VolumeExpandDraft, warnings: string[]) => Promise<boolean>,
+    ): Promise<boolean> => {
       const token = nextToken();
       setState((s) => ({ ...s, confirming: true }));
       try {
@@ -133,24 +135,34 @@ export function useVolumePlan(projectId: string) {
           },
           state.volNo,
         );
-        if (token !== tokenRef.current) return; // 已取消
+        if (token !== tokenRef.current) return false; // 已取消
         if (!d.draft) {
           track("pick_confirm_fail", { reason: "degraded" });
           setState((s) => ({ ...s, confirming: false, pickPhase: "error", pickError: d.hint || "铺稿失败，可重试" }));
-          return;
+          return false;
         }
-        await onPersist(d.draft, d.warnings ?? []);
-        if (token !== tokenRef.current) return;
+        const persisted = await onPersist(d.draft, d.warnings ?? []);
+        if (token !== tokenRef.current) return false;
+        if (!persisted) {
+          track("pick_confirm_fail", { reason: "persist" });
+          setState((s) => ({
+            ...s, confirming: false, pickPhase: "error",
+            pickError: "这一卷没落库（网络或服务异常）——选中还在，可重试确认",
+          }));
+          return false;
+        }
         const done = d.draft;
         track("pick_confirm_ok", { vol_no: d.vol_no });
         setState((s) => ({
           ...s, confirming: false, pickOpen: false,
           confirmResult: { volNo: d.vol_no, draft: done, warnings: d.warnings ?? [] },
         }));
+        return true;
       } catch (e) {
-        if (token !== tokenRef.current) return;
+        if (token !== tokenRef.current) return false;
         track("pick_confirm_fail", { reason: "error" });
         setState((s) => ({ ...s, confirming: false, pickError: (e as { message?: string })?.message || "确认失败，可重试" }));
+        return false;
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
@@ -174,13 +186,16 @@ export function useVolumePlan(projectId: string) {
     setState((s) => ({ ...s, answers: { ...s.answers, [key]: value } }));
   }, []);
 
-  /** 手写路：让 AI 铺完剩下的问题 */
+  /** 手写路：让 AI 铺完剩下的问题。
+   *  四问取 answersNow()（ref 最新值）——闭包里的 state.answers 是首次渲染那份：
+   *  本回调依赖只有 [projectId, state.volNo]，用户敲字期间不会重建，直接读闭包会发空答案，
+   *  与「作家答过的它不改」（FR-5）正好相反。 */
   const expandDesk = useCallback(async () => {
     const token = nextToken();
     track("desk_expand", { vol_no: state.volNo });
     setState((s) => ({ ...s, deskPhase: "generating", error: "", degradedText: "" }));
     try {
-      const d = await volumePlanApi.expand(projectId, state.answers, state.volNo);
+      const d = await volumePlanApi.expand(projectId, answersNow(), state.volNo);
       if (token !== tokenRef.current) return;
       consumedRef.current = false;
       if (!d.draft) {

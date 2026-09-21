@@ -553,7 +553,7 @@ describe("useVolumePlan 状态机", () => {
     await act(async () => {
       await result.current.confirmCard(
         { no: 1, spine: "走向一", conflict: "冲突一", ending: "卷末一", focus: "", focus_axis: "", antagonist_type: "人物", antagonist_line: "执法官雷" },
-        async () => {},
+        async () => true,
       );
     });
     expect(result.current.state.pickOpen).toBe(false);
@@ -612,8 +612,8 @@ describe("useVolumePlan 状态机", () => {
     // ② 确认请求挂起 → 取消 → 成功回来也不落库、不置 confirmResult
     stubGate(EXPAND_RESULT);
     act(() => result.current.open(2, true));
-    const onPersist = vi.fn(async () => {});
-    let confirming: Promise<void> | null = null;
+    const onPersist = vi.fn(async () => true);
+    let confirming: Promise<boolean> | null = null;
     act(() => {
       confirming = result.current.confirmCard(card, onPersist);
     });
@@ -630,12 +630,12 @@ describe("useVolumePlan 状态机", () => {
     stubGate(EXPAND_RESULT);
     const slowPersist = vi.fn(
       () =>
-        new Promise<void>((resolve) => {
-          releasePersist = resolve;
+        new Promise<boolean>((resolve) => {
+          releasePersist = () => resolve(true);
         }),
     );
     act(() => result.current.open(3, true));
-    let chain: Promise<void> | null = null;
+    let chain: Promise<boolean> | null = null;
     act(() => {
       chain = result.current.confirmCard(card, slowPersist);
     });
@@ -653,9 +653,9 @@ describe("useVolumePlan 状态机", () => {
     // ④ 确认请求挂起 → 取消 → 失败回来也不写 pickError
     stubGate(new Error("晚到的失败"), true);
     act(() => result.current.open(4, true));
-    let failed: Promise<void> | null = null;
+    let failed: Promise<boolean> | null = null;
     act(() => {
-      failed = result.current.confirmCard(card, async () => {});
+      failed = result.current.confirmCard(card, async () => true);
     });
     act(() => result.current.closePick());
     await act(async () => {
@@ -699,7 +699,7 @@ describe("useVolumePlan 状态机", () => {
     const { result } = renderHook(() => useVolumePlan("p1"));
     act(() => result.current.open(1, true));
     await act(async () => {});
-    const onPersist = vi.fn(async () => {});
+    const onPersist = vi.fn(async () => true);
     await act(async () => {
       await result.current.confirmCard(
         { no: 1, spine: "走向一", conflict: "", ending: "", focus: "", focus_axis: "", antagonist_type: "", antagonist_line: "" },
@@ -758,7 +758,7 @@ describe("useVolumePlan 状态机", () => {
     await act(async () => {});
     expect(result.current.state.plans[0].focus_axis).toBe("");
     await act(async () => {
-      await result.current.confirmCard(result.current.state.plans[0], async () => {});
+      await result.current.confirmCard(result.current.state.plans[0], async () => true);
     });
     expect(result.current.state.confirmResult?.warnings).toEqual([]);
 
@@ -792,10 +792,58 @@ describe("useVolumePlan 状态机", () => {
     await act(async () => {
       await result.current.confirmCard(
         { no: 1, spine: "走向一", conflict: "", ending: "", focus: "", focus_axis: "", antagonist_type: "", antagonist_line: "" },
-        async () => {},
+        async () => true,
       );
     });
     expect(result.current.state.pickError).toBe("铺稿失败，可重试");
+  });
+
+  it("已答四问随 expand 原样上送（P0-1：闭包 stale 会让 AI 拿到空答案）", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    apiState.post.mockImplementation((path: string, body?: unknown) => {
+      if (path === "/events") return Promise.resolve({ ok: true });
+      bodies.push(body as Record<string, unknown>);
+      return Promise.resolve(EXPAND_RESULT);
+    });
+    const { result } = renderHook(() => useVolumePlan("p1"));
+    act(() => result.current.open(2, false));
+    act(() => result.current.setAnswer("q1", "她按下注销键"));
+    act(() => result.current.setAnswer("conflict", "补给单上没有她的名字"));
+    act(() => result.current.setAnswer("antagonist_type", "自我"));
+    act(() => result.current.setAnswer("antagonist_line", "体内饥渴"));
+    act(() => result.current.setAnswer("q4", "没有退路"));
+    await act(async () => {
+      await result.current.expandDesk();
+    });
+    expect(bodies[0]).toMatchObject({
+      line: "她按下注销键",
+      conflict: "补给单上没有她的名字",
+      antagonist_type: "自我",
+      antagonist_line: "体内饥渴",
+      ending: "没有退路",
+      vol_no: 2,
+    });
+  });
+
+  it("落库失败（onPersist 返 false）→ 不关弹窗、不置 confirmResult、保留选中（P1-5）", async () => {
+    stubPostSeq([EXPAND_RESULT]);
+    const { result } = renderHook(() => useVolumePlan("p1"));
+    act(() => result.current.open(1, true));
+    await act(async () => {});
+    act(() => result.current.selectCard(1));
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.confirmCard(
+        { no: 1, spine: "走向一", conflict: "", ending: "", focus: "", focus_axis: "", antagonist_type: "", antagonist_line: "" },
+        async () => false,
+      );
+    });
+    expect(ok).toBe(false);
+    expect(result.current.state.pickOpen).toBe(true); // 弹窗还在
+    expect(result.current.state.pickPick).toBe(1); // 选中还在
+    expect(result.current.state.confirmResult).toBeNull();
+    expect(result.current.state.pickPhase).toBe("error");
+    expect(result.current.state.pickError).toContain("没落库");
   });
 
   it("互切手写页保留已答；卷号随 open 传入", () => {
@@ -955,7 +1003,7 @@ describe("度量事件（PRD §7 / tasks 5.3）", () => {
           <button data-testid="open" onClick={() => plan.open(1, true)}>open</button>
           <PickCardsModal
             plan={plan}
-            onConfirm={(card) => void plan.confirmCard(card, async () => {})}
+            onConfirm={(card) => void plan.confirmCard(card, async () => true)}
             onToDesk={noop}
             onClose={plan.closePick}
           />
@@ -972,12 +1020,6 @@ describe("度量事件（PRD §7 / tasks 5.3）", () => {
 });
 
 describe("volume/form 契约（表单态 ↔ payload）", () => {
-  it("splitLines：CRLF 归一、逐行 trim、丢空行", async () => {
-    const { splitLines } = await import("@/components/novel/volume/form");
-    expect(splitLines("甲\r\n  乙  \r\n\n丙")).toEqual(["甲", "乙", "丙"]);
-    expect(splitLines("")).toEqual([]);
-  });
-
   it("toVolumeFormData：缺字段回落空串；chapter_target null → 空串；节点深拷", async () => {
     const { toVolumeFormData } = await import("@/components/novel/volume/form");
     const f = toVolumeFormData({

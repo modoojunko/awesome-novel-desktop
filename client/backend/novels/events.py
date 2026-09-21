@@ -7,14 +7,17 @@
 """
 
 import json
+import logging
 import os
-import time
+import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from models.event import Event
+
+logger = logging.getLogger(__name__)
 
 
 def events_enabled() -> bool:
@@ -26,12 +29,21 @@ def events_enabled() -> bool:
     )
 
 
+# 单条 payload 上限（本地表，防联调/误用灌大行）；超限截断而不是拒绝（埋点不该拦业务）
+_PAYLOAD_MAX = 2000
+
+
 def _entry(user_id: str, event_type: str, payload: dict | None) -> Event:
+    # 主键用 uuid：旧口径 `{ms}_{user_id}` 在同一用户同一毫秒发两条时撞 UNIQUE
+    # （前端 desk_manual_create + volume_saved 就是同 tick 连发）→ 只剩一条。
+    text = json.dumps(payload or {}, ensure_ascii=False)
+    if len(text) > _PAYLOAD_MAX:
+        text = json.dumps({"_truncated": True, "_raw_len": len(text)}, ensure_ascii=False)
     return Event(
-        id=f"{int(time.time() * 1000)}_{user_id}",
+        id=str(uuid.uuid4()),
         user_id=user_id,
         event_type=event_type,
-        payload=json.dumps(payload or {}, ensure_ascii=False),
+        payload=text,
         created_at=datetime.now(UTC).isoformat(),
     )
 
@@ -46,8 +58,13 @@ def log_event(db: Session, user_id: str, event_type: str, payload: dict | None =
 async def log_event_async(
     db: AsyncSession, user_id: str, event_type: str, payload: dict | None = None
 ) -> None:
-    """异步会话版本（真落库）。事件失败不得影响主流程——由调用方 best-effort 包住。"""
+    """异步会话版本（真落库）。**自带 best-effort**：事件写失败只记日志，绝不冒泡——
+    埋点不得把已经成功的业务动作变成 500（如 hooks 已入册却回「登记失败」）。"""
     if not events_enabled():
         return
-    db.add(_entry(user_id, event_type, payload))
-    await db.commit()
+    try:
+        db.add(_entry(user_id, event_type, payload))
+        await db.commit()
+    except Exception:  # noqa: BLE001 —— 埋点失败绝不影响主流程
+        logger.warning("event=metrics.write_failed type=%s", event_type, exc_info=True)
+        await db.rollback()

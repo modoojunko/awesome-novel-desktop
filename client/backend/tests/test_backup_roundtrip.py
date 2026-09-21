@@ -271,10 +271,12 @@ class TestLayer3Volume:
     def test_volume_structures_survive_without_chapters(self, roundtrip):
         """c-volume-antagonist 终版字段集往返：标量＋antagonist＋节点行集。
 
-        退役字段（template/goal/plants/reveals/cast 行集）不再断言——导出导入链
-        对旧行数据只搬运不清理（退役不迁移），显式断言它们可为 None/残留即可。
+        退役字段（template/goal/plants/reveals/cast 行集）**导入侧不再写入**（检视 P1-8）：
+        导出侧已改走 get_volume 形状（ending 含 goal 派生值、cast 行是 {name,role}），
+        导入若按旧形状搬运会把退役列写满、把 {name,role} 解析成空行——故本用例连
+        「导入后仍为空」一起断言。
         """
-        from models.volume import Volume, VolumePlotNode
+        from models.volume import Volume, VolumeCastMember, VolumePlotNode
 
         _src_id, dst_id, _blob, _slug, _root = roundtrip
 
@@ -287,14 +289,17 @@ class TestLayer3Volume:
                 vol = vols[0]
                 nodes = (await db.scalars(select(VolumePlotNode).where(
                     VolumePlotNode.volume_id == vol.id))).all()
+                casts = (await db.scalars(select(VolumeCastMember).where(
+                    VolumeCastMember.volume_id == vol.id))).all()
                 return (
                     vol.title, vol.core_conflict, vol.ending,
                     vol.antagonist_type, vol.antagonist_line,
-                    vol.chapter_target, len(nodes),
+                    vol.chapter_target, len(nodes), len(casts),
+                    vol.template_name, vol.goal, vol.plants, vol.reveals,
                 )
 
         (title, conflict, ending, ant_type, ant_line,
-         target, n_nodes) = _run(run())
+         target, n_nodes, n_casts, template, goal, plants, reveals) = _run(run())
         assert title == "第一卷"
         assert conflict
         # goal 并入尾句（读侧合并口径：导出→导入走了 get_volume 形状）
@@ -303,6 +308,12 @@ class TestLayer3Volume:
         assert ant_line is None or isinstance(ant_line, str)
         assert target == 12
         assert n_nodes == 1
+        # 退役键：导入不写（源库里 seed 过这些值，导出包不再承载 → 落回 None/空）
+        assert n_casts == 0
+        assert template in (None, "")
+        assert goal in (None, "")
+        assert plants in (None, "")
+        assert reveals in (None, "")
 
 # ── 层 4：章全字段 ────────────────────────────────────────────────────────
 

@@ -22,7 +22,15 @@ export function PickCardsModal({
   const cn = cnNum(state.volNo);
 
   return (
-    <Modal open={state.pickOpen} onClose={onClose} title={`规划第${cn}卷 · 三选一`} width={940} wbStyle>
+    <Modal
+      open={state.pickOpen}
+      onClose={onClose}
+      title={`规划第${cn}卷 · 三选一`}
+      width={940}
+      wbStyle
+      // 写请求发出后 locked（P1-4）：卷已落库却不置 confirmResult 会让自查条永远不出现
+      locked={state.confirming}
+    >
       <div className="pick-modal" data-testid="pick-modal">
         <p className="kicker">规划第{cn}卷 · 三选一</p>
         <p className="pa-lead" data-testid="pick-lead">

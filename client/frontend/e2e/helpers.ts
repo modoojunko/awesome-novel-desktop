@@ -117,16 +117,24 @@ export function writeConfigAtomic(configPath: string, content: string) {
  * 卷名「第一卷」为默认序号形态（树上只显示序号），章标题=程序默认「第一章」。
  */
 export async function addFirstChapterViaTree(page: Page) {
+  // 章详情 GET 与点击并发等待：空书垫卷后第一章恒为 vol-1-ch-1（**载入完成**才交出
+  // 控制权——载入那一下 setOgForm 会复位表单，调用方紧跟的 fill 会被冲掉）
+  const loaded = page
+    .waitForResponse(
+      (r) => r.request().method() === "GET" && /\/chapters\/vol-1-ch-1$/.test(r.url()),
+      { timeout: 15000 },
+    )
+    .catch(() => null); // 已在选中态/无请求时不当失败，下面还有表单就绪闸门兜底
   await page.locator('[data-od-id="tree-create"] [data-od-id="add-chapter"]').click();
   const chRow = page.locator(".col-tree .ch", { hasText: "第一章" });
   await expect(chRow).toBeVisible({ timeout: 15000 });
   await chRow.click();
+  await loaded;
   await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({
     timeout: 10000,
   });
-  // 章纲**载入完成**才交出控制权：载入期「保存草稿」禁用（ogLoading），载入那一下会
-  // setOgForm 复位表单——调用方紧跟的 fill 会被冲掉（旧「添加卷弹窗」链多一次整树
-  // 刷新，天然避开这个窗口；「＋ 新增一章」是即时选中，窗口暴露出来）。
+  // 表单就绪闸门：章纲载入期「保存草稿」禁用（saving={ogLoading || ogSaving}），
+  // 载入完成那一帧才可点——与 setOgForm 同帧，故这是**直接**信号而非猜测。
   await expect(page.getByRole("button", { name: "保存草稿" })).toBeEnabled({
     timeout: 10000,
   });

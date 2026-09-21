@@ -1,7 +1,7 @@
-// 卷纲表单态 ↔ PUT /volumes/{ref} payload（c-volume-view-storyline 换代）
+// 卷纲表单态 ↔ PUT /volumes/{ref} payload（c-volume-antagonist 终版）
 // 语义：字符串标量随整包提交（后端 fields_set 判定，显式 null/[] 即清空）；
-// chapter_target 留空 → payload null（清空通道）；plants/reveals textarea 一行一条
-// ↔ list[str]；行集提交即整族替换。
+// chapter_target 留空 → payload null（清空通道）；剧情节点行集提交即整族替换。
+// 退役键（template_name/goal/plants/reveals）不在此层出现——后端 PUT 会 422 拒收。
 
 import type { VolumeDetail, VolumePlotNode } from "./types";
 
@@ -16,15 +16,6 @@ export interface VolumeFormData {
   /** 输入框字符串；"" = 不设（payload 置 null 清空） */
   chapter_target: string;
   plot_nodes: VolumePlotNode[];
-}
-
-/** textarea 一行一条 → list[str]（与后端 normalize_line_list 同语义） */
-export function splitLines(text: string): string[] {
-  return text
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
 }
 
 export function toVolumeFormData(d: VolumeDetail): VolumeFormData {

@@ -186,27 +186,41 @@ test("付费抽卡链：打开即三卡→选 B→确认成卷→落点卡→卷
   }
 });
 
-test("确认中 Esc 取消不落库", async ({ page, request }) => {
+test("取消与锁定：写请求发出前 Esc＝不落库；发出后 Esc 不关弹窗（locked）", async ({ page, request }) => {
   const { restore, token } = await setupSession(page);
+  const H = { Authorization: `Bearer ${token}` };
+  const volsOf = async (pid: string) =>
+    (await (await request.get(`${ORIGIN}/api/novels/${pid}/volumes`, { headers: H })).json()) as
+      Array<{ ref: string }>;
   try {
     const pid = await createNovel(page, `取消${Date.now() % 100000}`);
     await expect(page.getByText("这本书怎么开始？")).toBeVisible({ timeout: 10000 });
     await page.route("**/api/novels/*/volumes/ai/options", (r) => r.fulfill({ json: THREE_PLANS }));
     let releaseExpand!: (v?: unknown) => void;
     const gate = new Promise<void>((r) => { releaseExpand = r; });
-    await page.route("**/api/novels/*/volumes/ai/expand", async (r) => { await gate; await r.fulfill({ json: EXPAND }); });
+    await page.route("**/api/novels/*/volumes/ai/expand", async (r) => {
+      await gate;
+      await r.fulfill({ json: EXPAND });
+    });
+
+    // ① 写请求发出**前**取消：expand 尚未发出 → Esc 关弹窗 → 后端零卷（token 守卫丢弃 pending）
+    await page.getByTestId("plan-first-volume").click();
+    await page.getByTestId("pick-card-1").click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("pick-modal")).toHaveCount(0);
+    expect(await volsOf(pid)).toEqual([]);
+
+    // ② 写请求发出**后**：弹窗 locked —— Esc 不得关窗，落库照常完成并承接落点卡
     await page.getByTestId("plan-first-volume").click();
     await page.getByTestId("pick-card-1").click();
     await page.getByTestId("pick-confirm").click();
     await expect(page.getByText("正在铺这一卷…")).toBeVisible();
-    await page.keyboard.press("Escape"); // 写请求已发出→弹窗 locked（不落库路径由外层取消语义承接）
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("pick-modal")).toBeVisible(); // locked：关不掉
     releaseExpand();
-    await page.waitForTimeout(600);
-    const H = { Authorization: `Bearer ${token}` };
-    const tree = await (await request.get(`${ORIGIN}/api/novels/${pid}/volumes`, { headers: H })).json();
-    // 取消或落库皆可——本用例主断言：无重复卷（UNIQUE 防线）
-    const nos = tree.map((v: { ref: string }) => v.ref);
-    expect(new Set(nos).size).toBe(nos.length);
+    await expect(page.getByTestId("landing-card")).toBeVisible({ timeout: 10000 });
+    const vols = await volsOf(pid);
+    expect(vols.map((v) => v.ref)).toEqual(["vol-1"]); // 恰好一卷、无重复
   } finally {
     await restore();
   }

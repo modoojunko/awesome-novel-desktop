@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import {
   chapterNoOf,
   isGhostRef,
+  nextVolNo,
   parseChapterRef,
   volNoOf,
+  volumeNoOf,
 } from "@/lib/chapterRef";
 
 describe("chapterRef 双形制解析", () => {
@@ -59,5 +61,27 @@ describe("ref 解析源码守卫", () => {
     };
     walk(root);
     expect(offenders, `请改用 @/lib/chapterRef：${offenders.join(", ")}`).toEqual([]);
+  });
+});
+
+describe("nextVolNo（检视 P0-2：卷号只信最大卷号+1）", () => {
+  it("空树 → 1；连续卷 → 末号+1", () => {
+    expect(nextVolNo([])).toBe(1);
+    expect(nextVolNo([{ name: "vol-1" }, { name: "vol-2" }])).toBe(3);
+  });
+
+  it("删过中间卷：vol-1/vol-3 → 4（不是 length+1=3，否则会撞已存在的 vol-3）", () => {
+    expect(nextVolNo([{ name: "vol-1" }, { name: "vol-3" }])).toBe(4);
+  });
+
+  it("乱序/非法名不干扰（非卷 ref 记 0）", () => {
+    expect(nextVolNo([{ name: "vol-7" }, { name: "vol-2" }])).toBe(8);
+    expect(nextVolNo([{ name: "vol-1-ch-1" }])).toBe(1);
+  });
+
+  it("volumeNoOf：卷 ref 取号，章 ref/非法串记 0", () => {
+    expect(volumeNoOf("vol-12")).toBe(12);
+    expect(volumeNoOf("vol-1-ch-1")).toBe(0);
+    expect(volumeNoOf("")).toBe(0);
   });
 });

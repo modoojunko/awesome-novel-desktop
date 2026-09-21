@@ -153,3 +153,62 @@ class TestCandidateScan:
                       rows={"novels": [(f"b{i}", "书") for i in range(books)]})
         cands = db_lifecycle.scan_migration_candidates(tmp_path, 4)
         assert [c["generation"] for c in cands] == [3, 2, 0]
+
+# ── 补列自检（检视 P2-9）─────────────────────────────────────────────────
+
+
+class TestUnregisteredMissingColumns:
+    """现有库缺列 × 未登记 → 点名（空＝健康）。"""
+
+    def test_clean_when_registry_complete(self, tmp_path):
+        import asyncio
+
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        import models  # noqa: F401 —— 注册 metadata
+        from db import Base
+        from db_lifecycle import unregistered_missing_columns
+
+        db_path = tmp_path / "gen.db"
+
+        async def run():
+            engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            missing = await unregistered_missing_columns(engine)
+            await engine.dispose()
+            return missing
+
+        assert asyncio.run(run()) == []
+
+    def test_points_at_unregistered_missing_column(self, tmp_path):
+        import asyncio
+
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        import models  # noqa: F401
+        from db import Base
+        from db_lifecycle import unregistered_missing_columns
+
+        db_path = tmp_path / "gen2.db"
+
+        async def run():
+            engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+                # 模拟「库缺列且注册表没登记」：造一个不带 volume 列的 volumes 表
+                await conn.exec_driver_sql("DROP TABLE volumes")
+                await conn.exec_driver_sql(
+                    "CREATE TABLE volumes (id VARCHAR(36) PRIMARY KEY, novel_id VARCHAR(36))"
+                )
+            missing = await unregistered_missing_columns(engine)
+            await engine.dispose()
+            return missing
+
+        found = asyncio.run(run())
+        # 未登记的缺列被点名
+        assert "volumes.title" in found
+        assert "volumes.core_conflict" in found
+        # 已登记的两列不算（注册表里就有 → 由 apply_additive_columns 负责补）
+        assert "volumes.antagonist_type" not in found
+        assert "volumes.antagonist_line" not in found

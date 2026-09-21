@@ -6,6 +6,7 @@
  *  原「卷选中态四页签统计卡」与「未选中态四格全书统计」由本 change 退役（workbench delta）。 */
 import { useCallback, useEffect, useState } from "react";
 import { volumePlanApi, type VolumeCheckResult } from "@/lib/volumePlanApi";
+import { nextVolNo as nextVolumeNo } from "@/lib/chapterRef";
 import type { VolumeRailData } from "./VolumeWorkspace";
 import type { WorkbenchVolume } from "@/hooks/useWorkbench";
 
@@ -265,7 +266,7 @@ export function VolumeAssistPanel({
   }
 
   // 有卷未选中（写作默认页）：接着往下规划＋卷的验证
-  const nextNo = vols.length + 1;
+  const nextNo = nextVolumeNo(vols); // 最大卷号+1（与后端 MAX+1 同口径，见 chapterRef.nextVolNo）
   return (
     <>
       <div className="ai-head">

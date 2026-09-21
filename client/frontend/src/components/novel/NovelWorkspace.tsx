@@ -39,7 +39,7 @@ import { cnNum, isDefaultTitle } from "@/lib/nodeTitle";
 import { track } from "@/lib/metrics";
 import { getLastWriteSession, type LastWriteSession } from "@/lib/prefs";
 import { revertToChapter } from "@/lib/reconcileApi";
-import { chapterNoOf, parseChapterRef, volNoOf } from "@/lib/chapterRef";
+import { chapterNoOf, nextVolNo as nextVolumeNo, parseChapterRef, volNoOf } from "@/lib/chapterRef";
 
 // ---------------------------------------------------------------------------
 // NovelWorkspace — book.html 复刻（PR 3：壳 + 大纲树 + 章对象工作台）
@@ -465,6 +465,8 @@ export default function NovelWorkspace() {
     [plan, isPro],
   );
   const [autoCheck, setAutoCheck] = useState<{ ref: string; seq: number }>({ ref: "", seq: 0 });
+  /** 自查条「展开全部」（P1-9：checks 逐条可读，不静默丢弃） */
+  const [showChecks, setShowChecks] = useState(false);
   const handleSelectVolume = useCallback(
     (ref: string) => {
       if (!guardedLeave()) return;
@@ -535,17 +537,15 @@ export default function NovelWorkspace() {
     [projectId, volumes, outline, refresh],
   );
 
-  /** 抽卡确认（付费路）：落库→清选中→落点卡＋自查条可关闭提示 */
-  const confirmResultRef = useRef(0);
+  /** 抽卡确认（付费路）：落库→清选中→落点卡＋自查条可关闭提示。
+   *  落库失败（persistVolume 返 false）由 confirmCard 承接：不关弹窗、保留选中可重试
+   *  （PRD §6），故此处只在成功时清选中。 */
   const handlePickConfirm = useCallback(
     async (card: VolumePlanCard) => {
       const volNo = plan.state.volNo;
       landAfterSaveRef.current = true;
-      const ok = await plan.confirmCard(card, async (draft) => {
-        await persistVolume(volNo, draft);
-      });
-      void ok;
-      clearSelection();
+      const ok = await plan.confirmCard(card, (draft) => persistVolume(volNo, draft));
+      if (ok) clearSelection();
     },
     [plan, persistVolume, clearSelection],
   );
@@ -555,7 +555,6 @@ export default function NovelWorkspace() {
     const a = plan.state.answers;
     const volNo = plan.state.volNo;
     landAfterSaveRef.current = true;
-    plan.closeDesk();
     try {
       await api.post(`/novels/${projectId}/volumes`, {
         title: `第${cnNum(volNo)}卷`,
@@ -566,6 +565,7 @@ export default function NovelWorkspace() {
       });
       track("desk_manual_create", { vol_no: volNo });
       track("volume_saved", { vol_no: volNo, source: "manual" });
+      plan.closeDesk(); // 成功后才关：失败时四问留在弹窗里可直接重试（P2-3）
       toast.success(`第${cnNum(volNo)}卷已建好——进卷纲可改，排第一章就能开写`);
       void outline.refetchTree();
       void refresh();
@@ -617,7 +617,7 @@ export default function NovelWorkspace() {
       clearSelection();
     }
   }, [clearSelection]);
-  const nextVolNo = volumes.length + 1;
+  const nextVolNo = nextVolumeNo(volumes); // 最大卷号+1（勿用 length+1：删过中间卷会撞号）
   /** 「＋ 新增一章」：空书先垫第一卷（原型 firstVol 口径），再在主线末端排第一章 */
   const addFirstChapter = useCallback(async () => {
     const last = volumes[volumes.length - 1]?.name;
@@ -1006,23 +1006,43 @@ export default function NovelWorkspace() {
         onClose={plan.closeDesk}
         onGoSettings={() => go("advanced-settings")}
       />
-      {/* 抽卡确认结果：自查条可关闭提示（落点卡已由 clearSelection 承接） */}
+      {/* 抽卡确认结果：自查条可关闭提示（落点卡已由 clearSelection 承接）。
+          checks **逐条可读**（P1-9：只给第一条前 30 字＝静默丢弃其余）——「展开全部」就地看。 */}
       {(() => {
         const r = plan.state.confirmResult;
         if (!r) return null;
+        const checks = r.draft.checks;
         return (
           <div className="selfcheck-toast" data-testid="confirm-checks">
             <span>
-              AI 自查 {r.draft.checks.length} 条 ·{" "}
-              {r.draft.checks[0]?.slice(0, 30) ?? "无"}
-              {r.draft.checks.length > 1 ? "…" : ""}
+              AI 自查 {checks.length} 条 ·{" "}
+              {checks[0]?.slice(0, 30) ?? "无"}
+              {checks.length > 1 ? "…" : ""}
             </span>
+            {checks.length > 1 && (
+              <button
+                className="btn btn-ghost btn-sm"
+                data-testid="confirm-checks-all"
+                onClick={() => setShowChecks((v) => !v)}
+              >
+                {showChecks ? "收起" : "展开全部"}
+              </button>
+            )}
             <button className="btn btn-ghost btn-sm" onClick={() => plan.consumeConfirm()}>
               知道了
             </button>
           </div>
         );
       })()}
+      {showChecks && plan.state.confirmResult && (
+        <div className="selfcheck-list" data-testid="confirm-checks-list">
+          <ol>
+            {plan.state.confirmResult.draft.checks.map((c, i) => (
+              <li key={i}>{c}</li>
+            ))}
+          </ol>
+        </div>
+      )}
 
 
       {/* PR 5 弹窗群：升级 PRO / 只读章 AI 解锁链 / AI 生成（提示词预览） */}

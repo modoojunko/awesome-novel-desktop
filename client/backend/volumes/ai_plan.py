@@ -228,8 +228,24 @@ async def _book_material(db, project, *, with_hooks: bool, author_line: str = ""
         "closed_hooks": await _closed_hooks_summary(project.id),
         "genre_section": build_genre_section(gctx),
         "genre_name": (gctx or {}).get("genre_id") or "",
+        "genre_theme": f"{(gctx or {}).get('theme', '')}{(gctx or {}).get('sub_genre', '')}",
         "known_entities": known,
     }
+
+
+# boss 台阶默认提示（FR-11）：只对「阶段性大敌是类型期待」的题材追加。
+# 落点在本模块的卷体检素材里——不动 `build_genre_section` 共享单源，
+# 因此写章链 system 不含这条（题材段是同一份）。
+_BOSS_STEP_GENRE_HINTS = ("玄幻", "奇幻", "仙侠", "都市")
+
+
+def _boss_step_hint(genre_theme: str) -> str:
+    if not any(k in (genre_theme or "") for k in _BOSS_STEP_GENRE_HINTS):
+        return ""
+    return (
+        "题材提示（玄幻/都市系）：本卷若按题材期待有阶段性大敌（BOSS／台阶），"
+        "请在「对主线」组判它是否在卷末有了结、与上一卷是否递进；题材无此期待则跳过。"
+    )
 
 
 def _blocks(mat: dict, *, hooks: bool) -> str:
@@ -340,9 +356,13 @@ def _sanitize_plans(parsed: dict | None) -> dict | None:
         ending = str(p.get("ending", "") or "").strip()
         if not spine or not ending:
             continue
-        axis = str(p.get("focus_axis", "") or "").strip() or next(
-            (a for a in FOCUS_AXES if a not in axes), FOCUS_AXES[len(axes) % len(FOCUS_AXES)]
-        )
+        axis = str(p.get("focus_axis", "") or "").strip()
+        if axis not in FOCUS_AXES:
+            # 闭集（FR-2）：模型给的自造轴不收——落到本组未用过的下一个闭集值
+            axis = next(
+                (a for a in FOCUS_AXES if a not in axes),
+                FOCUS_AXES[len(axes) % len(FOCUS_AXES)],
+            )
         if axis in axes:
             continue  # 同轴＝同质，丢弃
         axes.append(axis)
@@ -372,6 +392,25 @@ def _sanitize_plans(parsed: dict | None) -> dict | None:
         "cast": [str(x).strip() for x in parsed.get("cast") or [] if str(x).strip()],
         "factions": [str(x).strip() for x in parsed.get("factions") or [] if str(x).strip()],
     }
+
+
+def _antagonist_candidates(plans: list[dict]) -> list[str]:
+    """从「这一卷的坎」取候选实体名（只取人物/势力型）。
+
+    prompt 约定线形「名字——一句话」；取首个分隔段作名字，无分隔符时取前 12 字
+    （够命中「执法官雷」这类短名）。名字不在设定里 → 由 _entity_warnings 提示。
+    """
+    names: list[str] = []
+    for p in plans:
+        if p.get("antagonist_type") not in ("人物", "势力"):
+            continue
+        line = str(p.get("antagonist_line") or "").strip()
+        if not line:
+            continue
+        head = re.split(r"[——·，,、：:\s（(]", line, maxsplit=1)[0].strip()
+        if head:
+            names.append(head[:12])
+    return names
 
 
 def _plans_too_similar(plans: list[dict]) -> bool:
@@ -443,7 +482,12 @@ async def ai_volume_options(
             "ok": True, "degraded": True, "text": _degrade_text(raw),
             "hint": "AI 的输出没法结构化——可重试，或按上面这段手动定走向",
         }
-    warnings = _entity_warnings(result["cast"], result["factions"], mat["known_entities"])
+    # 实体差集：模型申报的 cast ＋ 坎（人物/势力型）点到的名字 ＋ factions（tasks 2.1 口径）
+    warnings = _entity_warnings(
+        _antagonist_candidates(result["plans"]) + result["cast"],
+        result["factions"],
+        mat["known_entities"],
+    )
     return {
         "ok": True,
         "plans": result["plans"],
@@ -661,9 +705,11 @@ async def ai_volume_check(
         ((vol.antagonist_type or "") + "·" + (vol.antagonist_line or "")).strip("·")
         if (vol.antagonist_type or vol.antagonist_line) else "（未填——判据输出 warn，不编造）"
     )
+    boss_hint = _boss_step_hint(mat.get("genre_theme", ""))
     system = _render(
         load_prompt("volume_check"),
-        vol_outline=outline_text + "\n上一卷与本卷的坎：" + ant_pair,
+        vol_outline=outline_text + "\n上一卷与本卷的坎：" + ant_pair
+        + (("\n" + boss_hint) if boss_hint else ""),
         fullstory=mat["fullstory"],
         scene=mat["ending"].get("scene", ""),
         rules=mat["world_rules"] or "（世界设定未登记铁律）",

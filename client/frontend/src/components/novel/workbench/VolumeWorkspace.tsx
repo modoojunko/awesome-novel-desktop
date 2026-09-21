@@ -9,14 +9,12 @@ import { nodeLabel } from "@/lib/nodeTitle";
 import type { UseWorkbenchReturn } from "@/hooks/useWorkbench";
 import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
 import {
-  splitLines,
   toVolumeFormData,
   volumeFormToPayload,
   type VolumeFormData,
 } from "../volume/form";
 import {
   PLOT_STAGES,
-  TEMPLATE_OPTIONS,
   type VolumeDetail,
 } from "../volume/types";
 import { RelationsGraphPane } from "./RelationsGraphPane";
@@ -266,6 +264,12 @@ export default function VolumeWorkspace({
               <div className="e-meta">
                 <span className="tag">{mainlineCount} 章</span>
                 <span className="tag">已归档 {archivedCount} 章</span>
+                {/* 章数目标（spec：头部卷名＋章数，不设则不显） */}
+                {detail.chapter_target ? (
+                  <span className="tag" data-testid="vol-target-tag">
+                    目标 {detail.chapter_target} 章
+                  </span>
+                ) : null}
               </div>
             </header>
 
