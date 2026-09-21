@@ -142,7 +142,9 @@ test.describe('Landing Page', () => {
 
   test('底部页脚包含链接和版权', async ({ page }) => {
     const footer = page.locator('footer')
-    await expect(footer.getByText('爱小说 · AI Novel')).toBeVisible()
+    // 版权行 = ©年 + 主体 + 组合名：主体名与品牌名是字面量＝故意钉住
+    // （主体与 brand/brand.json 的 company 同值，改名须同批改本断言）
+    await expect(footer.getByText(/© \d{4} 星纬（海口）投资有限公司 · 爱小说 · AI Novel/)).toBeVisible()
     await expect(footer.getByText('你的小说永远属于你')).toBeVisible()
   })
 
