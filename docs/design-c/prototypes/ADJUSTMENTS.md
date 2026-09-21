@@ -966,3 +966,14 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
    「体检只给判断与定位、不代笔」省略；报告行渲染对齐原型 rp-row（状态点＋结论＋evidence）。
 7. **（09-21 追加）卷数行**：原型首卷锚点静态「大约 4 卷」；产品在首次「给我 3 套方案」后才带回
    volume_estimate（明示假设），之前显示引导占位。进场锚点走后端 plan-anchor 单源（事实优先）。
+
+## 版权行加经营主体（© 主体口径统一，2026-09-21）
+
+法定主体「星纬（海口）投资有限公司」进版权行：brand/brand.json 新增 `company` 键
+（经营主体单源），两端版权行派生改为「©年 + 主体 + 品牌」——S端 `brandCopyright()`
+= ©年+主体+组合名、C端 `copyrightLine` = ©年+主体+name（各自形状不变，仅前置主体）。
+Windows 发布者同批对齐（build.spec 读同一 company 键烘版本资源；installer.iss 的
+MyAppPublisher 是 Inno 读不了 JSON 的唯一手写字面量副本）。原型同步 6 处 © 行：
+list/book/model-config/preview 状态条＋backup-restore pagefoot（旧版式）＋home 落地
+页脚；index.html 的「© 爱小说 · 界面重设计 v2」是设计稿 meta 落款、非产品 UI，不改。
+对应 e2e 断言同批钉住主体名（statusbar.spec / landing.spec）。

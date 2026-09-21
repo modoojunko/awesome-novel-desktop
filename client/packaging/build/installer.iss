@@ -11,7 +11,11 @@
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
 #endif
-#define MyAppPublisher "AI Novel"
+; 发布者（= 版权人/经营主体）：与品牌单源 brand/brand.json 的 company 键同值——
+; Inno 读不了 JSON，此处是全仓唯一的手写字面量副本，改主体名必须与 json 同批改。
+; 编码约束：本文件 UTF-8 无 BOM（Inno ≥6.3 起官方推荐；中文主体名靠此正确解码，
+; 保存时勿改成 ANSI/带 BOM——ANSI 会乱码，≥7.0.2 遇非法字节直接编译失败）。
+#define MyAppPublisher "星纬（海口）投资有限公司"
 #define MyAppURL "https://github.com/modoojunko/ai-novel"
 #define MyAppExeName "AI Novel.exe"
 

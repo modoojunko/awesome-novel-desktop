@@ -124,6 +124,8 @@ agent/
 
 # 发布期注入产物（CI 生成）
 client/packaging/build/release.json
+# Windows 版本资源（build.spec 在 Windows 构建时生成，勿提交）
+client/packaging/build/version_info.txt
 
 # 品牌评审稿（色向/概念决策过程稿，不入库；定稿资产在 brand/ 根）
 brand/drafts/

@@ -48,6 +48,23 @@ jobs:
           pip install ruff
           ruff check --select F821 client/packaging/build/pywebview_app.py
 
+      # 主体名防漂移：installer.iss 的 MyAppPublisher 是 brand.json company 的唯一
+      # 手写字面量副本（Inno 读不了 JSON），两侧漂移没有任何运行时测试能红——在此钉死
+      - name: Assert installer publisher matches brand.json
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+          company = json.loads(Path("brand/brand.json").read_text(encoding="utf-8"))["company"].strip()
+          iss = Path("client/packaging/build/installer.iss").read_text(encoding="utf-8")
+          m = re.search(r'#define MyAppPublisher "(.+)"', iss)
+          assert m, "installer.iss 缺 MyAppPublisher 定义"
+          assert m.group(1) == company, (
+              f"AppPublisher 字面量与 brand.json company 漂移：iss={m.group(1)!r} vs json={company!r}——两处须同批改")
+          print("publisher sync OK:", company)
+          PY
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -111,6 +128,10 @@ jobs:
 
       - name: Build app (PyInstaller)
         shell: bash
+        env:
+          # exe 版本资源（发布者/FileVersion 元数据）的版本口径——build.spec 内
+          # 做 tag 去 v 前缀与清洗，与 iscc 安装包同源
+          APP_VERSION: ${{ github.ref_name }}
         run: |
           cd client/packaging/build
           rm -rf dist build_py

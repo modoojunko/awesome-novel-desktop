@@ -36,8 +36,9 @@ test.describe("底部状态条", () => {
     const bar = page.locator('[data-od-id="app-status-bar"]');
     await expect(bar).toBeVisible();
     await expect(bar).toContainText("v0.15.1");
-    // 版权年份动态化（brand-name-single-source）：断言年份无关，防跨年必挂
-    await expect(bar).toContainText(/© \d{4} 爱小说/);
+    // 版权年份动态化（brand-name-single-source）：断言年份无关，防跨年必挂；
+    // 主体名+品牌名是字面量＝故意钉住（改主体须与 brand/brand.json 同批改本断言）
+    await expect(bar).toContainText(/© \d{4} 星纬（海口）投资有限公司 · 爱小说/);
   });
 
   test("未登录登录页：状态条仍常驻；顶栏不新增版本元素", async ({ page }) => {

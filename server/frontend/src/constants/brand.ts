@@ -3,7 +3,7 @@
  * 构建期读仓库根 brand/brand.json（前端侧唯一入口）；运行时 site-config.json
  * 的 brandName 非空时覆盖 name——免重建改名，与备案号同一换发点、同一优先级语义。
  * 派生值在代码拼装、禁止写回 json。注意与 C端 桥派生不同构：S端 页脚版权行
- * = ©年 + 组合名（C端为 ©年 + name），勿混用（landing.spec 断言依赖）。
+ * = ©年 + 主体 + 组合名（C端为 ©年 + 主体 + name），勿混用（landing.spec 断言依赖）。
  */
 import brandJson from '../../../../brand/brand.json'
 
@@ -14,14 +14,21 @@ export const brand = {
   tagline: brandJson.tagline,
 }
 
+/**
+ * 经营主体（版权人/发布者）：「星纬（海口）投资有限公司」。
+ * 法定名称，与法务页「经营者」、Windows 发布者（build.spec 读同一键）同口径；
+ * 属备案信息类事实，**不参与**运行时 brandName 覆盖，改名须整体换发。
+ */
+export const companyName = brandJson.company
+
 /** 组合名：「爱小说 · AI Novel」（name 可被运行时覆盖） */
 export function brandFull(): string {
   return `${brand.name} · ${brand.nameEn}`
 }
 
-/** S端 页脚版权行：「© 2026 爱小说 · AI Novel」（年份动态取，勿写死） */
+/** S端 页脚版权行：「© 2026 星纬（海口）投资有限公司 · 爱小说 · AI Novel」（年份动态取，勿写死） */
 export function brandCopyright(): string {
-  return `© ${new Date().getFullYear()} ${brandFull()}`
+  return `© ${new Date().getFullYear()} ${companyName} · ${brandFull()}`
 }
 
 /**
