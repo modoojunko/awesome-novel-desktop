@@ -19,9 +19,7 @@ export interface RailIdleData {
   chapters: number;
 }
 
-const STATUS_GLYPH: Record<string, string> = { ok: "✓", warn: "⚠", none: "—" };
-
-/** 分卷依据 · 来自你的设定（空书态 5 行；缺口标出、不拦） */
+/** 分卷依据 · 来自你的设定（空书态；dep-row 台账，原型类名；缺口标出、不拦） */
 function BasisCard({
   projectId,
   active,
@@ -31,12 +29,14 @@ function BasisCard({
   active: boolean;
   genreLabel: string;
 }) {
-  const [rows, setRows] = useState<Array<[string, string, boolean]>>([
-    ["主线全景", "…", false],
-    ["结局三问", "…", false],
-    ["题材阶段", genreLabel || "待定（不拦）", !!genreLabel],
-    ["主要角色", "…", false],
-    ["目标篇幅", "未设（可不设）", false],
+  const [rows, setRows] = useState<
+    Array<{ k: string; v: string; s: string; cls: string }>
+  >([
+    { k: "主线全景", v: "…", s: "读取中", cls: "muted" },
+    { k: "结局三问", v: "…", s: "读取中", cls: "muted" },
+    { k: "题材", v: genreLabel || "待定（不拦）", s: genreLabel ? "已定" : "待定", cls: genreLabel ? "" : "muted" },
+    { k: "主要角色", v: "…", s: "读取中", cls: "muted" },
+    { k: "目标篇幅", v: "未设（可不设）", s: "未设", cls: "muted" },
   ]);
   useEffect(() => {
     if (!active || !projectId) return;
@@ -46,18 +46,20 @@ function BasisCard({
         const arc = (await apiFetchStoryArc(projectId)) ?? {};
         const full = String(arc.fullstory ?? "").trim();
         const e = arc.ending ?? {};
+        const ending = [e.scene, e.hero, e.tone].filter(Boolean).join("｜");
         const chars = await apiGetCharacters(projectId);
         if (alive) {
           setRows([
-            ["主线全景", full ? "已填" : "缺口 · 先去设定补主线", !!full],
-            ["结局三问", e.scene || e.hero || e.tone ? "已填" : "缺口 · 只作参照", !!(e.scene || e.hero || e.tone)],
-            ["题材阶段", genreLabel || "待定（不拦）", !!genreLabel],
-            ["主要角色", chars > 0 ? `${chars} 人` : "还没有角色卡（不拦）", chars > 0],
-            ["目标篇幅", "按结局估——打开规划台看 AI 的估算", false],
+            { k: "主线全景", v: full ? full.slice(0, 80) : "缺口——先去设定补主线", s: full ? "已填" : "缺口", cls: full ? "" : "warn" },
+            { k: "结局三问", v: ending ? ending.slice(0, 60) : "缺口——只作参照，不拦拆卷", s: ending ? "已填" : "缺口", cls: ending ? "" : "warn" },
+            { k: "题材", v: genreLabel || "待定（不拦）", s: genreLabel ? "已定" : "待定", cls: genreLabel ? "" : "muted" },
+            { k: "主要角色", v: chars > 0 ? `${chars} 人` : "还没有角色卡（不拦）", s: chars > 0 ? "已登记" : "缺口", cls: chars > 0 ? "" : "muted" },
+            { k: "目标篇幅", v: "未设（可不设）", s: "未设", cls: "muted" },
           ]);
         }
       } catch {
-        if (alive) setRows((rs) => rs.map(([k, , ])=> [k, "（读取失败，不拦）", false] as [string,string,boolean]));
+        if (alive)
+          setRows((rs) => rs.map((r) => ({ ...r, v: "（读取失败，不拦）", s: "缺口", cls: "warn" })));
       }
     })();
     return () => {
@@ -65,16 +67,17 @@ function BasisCard({
     };
   }, [projectId, active, genreLabel]);
   return (
-    <details className="cfg">
+    <details className="cfgset rail-cfg" open>
       <summary>分卷依据 · 来自你的设定</summary>
-      <ul className="pv-mat" data-testid="plan-basis">
-        {rows.map(([k, v, ok]) => (
-          <li key={k}>
-            <span className="k">{k}</span>
-            <span className={ok ? "v ok" : "v gap"}>{v}</span>
-          </li>
+      <div data-testid="plan-basis">
+        {rows.map((r) => (
+          <div className="dep-row" key={r.k}>
+            <span className="dep-k">{r.k}</span>
+            <span className="dep-v">{r.v}</span>
+            <span className={`dep-s ${r.cls}`}>{r.s}</span>
+          </div>
         ))}
-      </ul>
+      </div>
     </details>
   );
 }
@@ -168,21 +171,24 @@ function VolumeVerifyPanel({
         {report && !report.degraded && (
           <div data-testid="volume-check-report">
             {report.report.map((g) => (
-              <div className="pv-group" key={g.name}>
-                <p className="pv-group-t">{g.name}</p>
-                <ul>
+              <div key={g.name}>
+                <p className="rp-k">{g.name}</p>
+                <ul className="rp-list">
                   {g.items.map((it, i) => (
-                    <li key={i} className={`pv-item ${it.status}`}>
-                      <span className="pv-glyph">{STATUS_GLYPH[it.status] ?? "—"}</span>
-                      <span className="pv-text">
+                    <li key={i} className={`rp-row ${it.status}`}>
+                      <span className="rp-dot" aria-hidden="true" />
+                      <span className="rp-tx">
                         {it.text}
-                        {it.evidence ? <em className="pv-ev">（{it.evidence}）</em> : null}
+                        {it.evidence ? <em className="rp-ev">（{it.evidence}）</em> : null}
                       </span>
                     </li>
                   ))}
                 </ul>
               </div>
             ))}
+            <p className="ai-note" style={{ marginTop: 10 }}>
+              只读 · 不拦；你是最后确认的人。
+            </p>
           </div>
         )}
       </div>
@@ -238,7 +244,7 @@ export function VolumeAssistPanel({
           <em>当前页签</em>
           <span>未选</span>
         </div>
-        <div className="pv-entry" data-testid="plan-entry-empty">
+        <div className="pv-entry plan-acts" data-testid="plan-entry-empty">
           <p className="ai-lead">
             让 AI 按你的主线拆分卷：先给第一卷定走向，再逐卷往下规划。也可以自己动手——先建一卷、排上第一章。
           </p>
@@ -281,23 +287,25 @@ export function VolumeAssistPanel({
         </button>
         <div className="cfg">
           <p className="pv-group-t">卷的验证</p>
-          <ul className="pv-vols" data-testid="volume-verify-list">
+          <div className="ledger" data-testid="volume-verify-list">
             {vols.map((v) => {
               const no = Number((v.name.match(/^vol-(\d+)$/) ?? [])[1] ?? 0);
               return (
-                <li key={v.name}>
-                  <button
-                    className="pv-vol-row"
-                    data-testid={`verify-vol-${no}`}
-                    onClick={() => onSelectVolume(v.name)}
-                  >
-                    第{no}卷 · {v.title || "未命名"} ·{" "}
-                    {v.chapter_target != null ? `${v.chapter_target} 章` : "不设章数"}
-                  </button>
-                </li>
+                <button
+                  className="lrow chrow"
+                  data-testid={`verify-vol-${no}`}
+                  key={v.name}
+                  onClick={() => onSelectVolume(v.name)}
+                >
+                  <span className="lname">
+                    第{no}卷 · {v.title || "未命名"}
+                    <em>{v.chapter_target != null ? `${v.chapter_target} 章目标` : "未设章数"}</em>
+                  </span>
+                  <span className="lstate">体检 →</span>
+                </button>
               );
             })}
-          </ul>
+          </div>
         </div>
       </div>
       <p className="ai-foot">

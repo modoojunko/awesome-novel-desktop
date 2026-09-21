@@ -186,6 +186,10 @@ input, textarea, select { font: inherit; }
 .mcard.wb-style .mcard-body { padding: 14px 22px 20px; flex: 1; min-height: 0; overflow-y: auto; }
 .mcard.wb-style .mcard-foot { padding: 12px 22px 18px; }
 .mcard.wb-style .mcard-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+/* 工作台弹窗 portal 到 body（脱离 .wb 作用域）→ 表单控件样式在此补一份（与 .wb 同源） */
+.mcard.wb-style .input, .mcard.wb-style .textarea { width: 100%; height: auto; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+.mcard.wb-style .input:focus, .mcard.wb-style .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.mcard.wb-style .textarea { min-height: 72px; resize: vertical; line-height: 1.7; }
 
 /* 主线卡基调选择题：整行可点的单选项，选中描边高亮（再点一次取消） */
 .tone-opt { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); cursor: pointer; text-align: left; font-size: 13px; color: var(--fg); }

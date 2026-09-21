@@ -894,6 +894,7 @@ export default function NovelWorkspace() {
         genreLabel={genreLabel}
         onBackfill={handlePlanBackfill}
         onClose={plan.close}
+        onGoSettings={() => go("advanced-settings")}
       />
 
       {/* 添加卷（c-0vol0ch-empty-state 起由壳层持有）：空书态顶栏/中栏/左栏三处入口共用 */}

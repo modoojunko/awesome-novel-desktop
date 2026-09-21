@@ -957,3 +957,12 @@ modalAi/modalPrefs 标记与 CSS 在 PR 3/PR 4 已随屏落地（spec-report §6
    实现以 spec 为准、原型不再回改——按「原型=定稿输入，spec=权威字面」口径处理。
 
 设计门禁：`design:lint` 通过（新增 pv-* 类不触严格范围）；本 change 无 parity 场景新增。
+5. **（09-21 追加）弹窗壳与按钮类映射**：弹窗用产品 Modal 封装（.mcard.wb-style，680 宽）而非
+   原型 .modal/.sheet——C端 弹窗纪律（portal 到 body、防 daisyUI 事故）；内部件类名逐件对齐原型
+   （plan-anchor/pa-*、cfgset、dep-row、plan-label、cand 族、genbox/ex-steps、rp-族、plan-foot）。
+   原型 `.btn-accent` 映射产品 `.btn-primary`（产品无 accent 档）。portal 弹窗脱离 .wb 作用域，
+   表单控件样式在 base.css `.mcard.wb-style` 补一份（与 .wb 同源）。
+6. **（09-21 追加）体检报告不带「让 AI 改」按钮**：原型 warn 行带 sc-fix，产品按 spec 口径
+   「体检只给判断与定位、不代笔」省略；报告行渲染对齐原型 rp-row（状态点＋结论＋evidence）。
+7. **（09-21 追加）卷数行**：原型首卷锚点静态「大约 4 卷」；产品在首次「给我 3 套方案」后才带回
+   volume_estimate（明示假设），之前显示引导占位。进场锚点走后端 plan-anchor 单源（事实优先）。

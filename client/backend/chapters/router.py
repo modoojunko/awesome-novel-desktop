@@ -46,6 +46,24 @@ async def list_ghosts(
     return await list_ghosts_db(db, project)
 
 
+@router.get("/volumes/plan-anchor")
+async def get_plan_anchor(
+    project_id: str,
+    vol_no: int = 1,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """规划台锚点材料（volume-plan-ai）：这一卷从哪里进场（resolve_prev_ending 单源，
+    事实优先——上一卷归档章实际收尾 > 上一卷卷纲预期结局；首卷＝全景起步）。只读。"""
+    from volumes.service import resolve_prev_ending
+
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    vol_no = max(1, min(99, vol_no))
+    return {"vol_no": vol_no, "prev_ending": await resolve_prev_ending(db, project, vol_no)}
+
+
 @router.post("/volumes")
 async def create_volume(
     project_id: str,
