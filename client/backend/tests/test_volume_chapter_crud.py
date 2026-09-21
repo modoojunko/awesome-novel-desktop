@@ -156,7 +156,10 @@ def test_get_volume_tolerates_yaml_suffix():
 
 
 def test_volume_structured_fields_roundtrip():
-    """卷纲结构化（storyline 换代字段集）：标量 + 登场人物/剧情节点行集 + 一行一条。"""
+    """卷纲结构化（c-volume-antagonist 终版字段集）：标量＋antagonist＋剧情节点行集。
+
+    退役键（template_name/goal/plants/reveals/cast_members）显式携带＝422（同文件另测）。
+    """
     async def _run():
         project = await _new_project("sv1")
         async with async_session() as session:
@@ -165,83 +168,47 @@ def test_volume_structured_fields_roundtrip():
             await _update_volume(
                 session, proj, "vol-1",
                 {
-                    "template_name": "悬疑递进",
                     "core_conflict": "主角想查清真相，被幕后组织追杀",
-                    "goal": "查清师父死因并把内鬼逼出水面",
                     "ending": "内鬼落网，但主角也失去警队身份",
                     "chapter_target": 40,
-                    "plants": ["内鬼的真实身份", "师父留下的暗号本",
-                               "被销毁的卷宗残页"],
-                    "reveals": ["内鬼是副队长"],
-                    "cast_members": [
-                        {"who": "林拓", "target": "查清师父死因",
-                         "change": "从守规矩到游走灰色地带"},
-                        {"who": "沈青", "target": "保护证人",
-                         "change": "对体制产生怀疑"},
-                    ],
+                    "antagonist_type": "人物",
+                    "antagonist_line": "副队长——一边查案一边销毁证据",
                     "plot_nodes": [
-                        {"stage": "开局铺垫", "text": "雨夜接头，线人被灭口"},
-                        {"stage": "重要转折", "text": "暗号指向队内，信任崩塌"},
+                        {"stage": "开局铺垫", "text": "师父死讯传来"},
+                        {"stage": "高潮爆发", "text": "码头对峙"},
                     ],
                 },
             )
             data = await _get_volume(session, proj, "vol-1")
-            assert data["template_name"] == "悬疑递进"
-            assert data["goal"] == "查清师父死因并把内鬼逼出水面"
-            assert data["ending"] == "内鬼落网，但主角也失去警队身份"
-            assert data["chapter_target"] == 40
-            assert data["plants"] == ["内鬼的真实身份", "师父留下的暗号本",
-                                      "被销毁的卷宗残页"]
-            assert data["reveals"] == ["内鬼是副队长"]
-            assert len(data["cast_members"]) == 2
-            assert data["cast_members"][0]["who"] == "林拓"
-            assert data["plot_nodes"][1]["stage"] == "重要转折"
+            assert data["core_conflict"].startswith("主角想查")
+            assert data["antagonist_type"] == "人物"
+            assert "副队长" in data["antagonist_line"]
+            assert [n["stage"] for n in data["plot_nodes"]] == ["开局铺垫", "高潮爆发"]
+            # 退役键不再回显
+            for gone in ("template_name", "goal", "plan_line", "plants", "reveals"):
+                assert gone not in data
+            # 卷角色＝聚合视图：无章即空
+            assert data["cast_members"] == []
 
-            # 行集整体替换：剧情节点换成一行，登场人物族不动；章数目标显式清空
-            await _update_volume(
-                session, proj, "vol-1",
-                {"plot_nodes": [{"stage": "卷末收束", "text": "收网与告别"}],
-                 "chapter_target": None},
-            )
-            data = await _get_volume(session, proj, "vol-1")
-            assert len(data["plot_nodes"]) == 1
-            assert data["plot_nodes"][0]["stage"] == "卷末收束"
-            # 未传的族保持原值；chapter_target 显式 null = 清空（不设）
-            assert len(data["cast_members"]) == 2
-            assert "chapter_target" not in data
+    asyncio.run(_run())
 
-    _run_async(_run())
 
 
 def test_volume_line_list_validation():
-    """一行一条契约：归一（\r\n→\n、strip、丢空行）＋ 逐行 150 上限 ＋ stage 六档 422。"""
-    from volumes.schemas import PlotNodeIn, VolumeUpdate, normalize_line_list
-
-    body = VolumeUpdate(plants=["  a\r\nb  ", "", "c"])
-    assert body.plants == ["a", "b", "c"]
-    assert normalize_line_list(["x\r\ny"]) == ["x", "y"]
-
+    """终版校验：antagonist_type 闭集 422；退役键 422；stage 六档 422。"""
     import pytest
     from pydantic import ValidationError
 
+    from volumes.schemas import PlotNodeIn, VolumeUpdate
+
     with pytest.raises(ValidationError):
-        VolumeUpdate(plants=["长" * 151])
+        VolumeUpdate(antagonist_type="不属于闭集")
+    with pytest.raises(ValidationError):
+        VolumeUpdate(plants=["a"])  # 退役键硬拒
     with pytest.raises(ValidationError):
         PlotNodeIn(stage="不属于六档", text="x")
-
-    async def _run():
-        project = await _new_project("llv1")
-        async with async_session() as session:
-            proj = await session.get(Novel, project.id)
-            await _create_volume(session, proj, title="校验卷")
-            await _update_volume(session, proj, "vol-1",
-                                 {"reveals": [], "plot_nodes": [
-                                     {"stage": "高潮爆发", "text": "终局对撞"}]})
-            data = await _get_volume(session, proj, "vol-1")
-            assert data["reveals"] == []
-            assert data["plot_nodes"][0]["stage"] == "高潮爆发"
-
-    _run_async(_run())
+    ok = VolumeUpdate(antagonist_type="自我", antagonist_line="体内饥渴——越压越饿")
+    assert ok.antagonist_type == "自我"
 
 
 def test_delete_volume_cascades_chapters_and_files():

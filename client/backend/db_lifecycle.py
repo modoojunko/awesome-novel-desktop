@@ -251,8 +251,49 @@ def boot_lifecycle(db_path: Path, metadata, schema_fp: str) -> dict:
 # 新表/新列一律在此登记（新库 create_all 全量建出；旧库由 apply_additive_columns
 # 代内补列）；删/改列一律 SCHEMA_VERSION+1 走迁入。列名单一来源，DDL 由它派生。
 ADDITIVE_COLUMNS: dict[str, list[str]] = {
-    "volumes": ["ALTER TABLE volumes ADD COLUMN plan_line VARCHAR(150)"],
+    "volumes": [
+        "ALTER TABLE volumes ADD COLUMN plan_line VARCHAR(150)",
+        # c-volume-antagonist：本卷的坎（对抗物）——类型闭集＋一句话
+        "ALTER TABLE volumes ADD COLUMN antagonist_type VARCHAR(20)",
+        "ALTER TABLE volumes ADD COLUMN antagonist_line VARCHAR(150)",
+    ],
+    # c-volume-antagonist：伏笔建议入台账时的计划收束卷（确认成卷链写入）
+    "novel_hooks": [
+        "ALTER TABLE novel_hooks ADD COLUMN planned_volume_no INTEGER",
+    ],
 }
+
+
+async def unregistered_missing_columns(engine, registered: dict[str, list[str]] | None = None) -> list[str]:
+    """自检（检视 P2-9）：**现有库缺**的列里，注册表没登记的那些。
+
+    「models 加了列但忘了登记」是本代最贵的错：启动期补列后会刷新指纹戳，该库此后永久
+    判成 current（指纹匹配 → 不再算 additive 计划），**之后再修也不救** → runtime 才炸
+    `no such column`。这里在补列之后按真实库结构复核一次，返回 `表.列`（空＝健康）；
+    只告警不阻断（外部导入库/历史库允许漂移）。
+    """
+    from sqlalchemy import inspect as sa_inspect
+
+    from db import Base  # 延迟导入：本模块主体只做 sqlite 文件级工作，不依赖 ORM
+
+    reg = registered if registered is not None else ADDITIVE_COLUMNS
+    out: list[str] = []
+    async with engine.connect() as conn:
+        existing_tables = set(await conn.run_sync(lambda c: sa_inspect(c).get_table_names()))
+        for table in Base.metadata.sorted_tables:
+            if table.name not in existing_tables:
+                continue  # 表都没有 → 由 create_all 建全，不算「缺列」
+            cols = await conn.run_sync(
+                lambda c, t=table.name: {x["name"] for x in sa_inspect(c).get_columns(t)}
+            )
+            registered_cols = {
+                d.split("ADD COLUMN")[-1].strip().split()[0]
+                for d in reg.get(table.name, [])
+                if "ADD COLUMN" in d
+            }
+            for name in sorted({c.name for c in table.columns} - cols - registered_cols):
+                out.append(f"{table.name}.{name}")
+    return out
 
 
 async def apply_additive_columns(engine, columns: dict[str, list[str]] | None = None) -> list[str]:

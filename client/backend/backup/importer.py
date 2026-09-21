@@ -516,7 +516,7 @@ async def _import_single_book(
     from models.character import CharacterRelation
     from models.project import Novel
     from models.project_setting import ProjectSetting
-    from models.volume import Volume, VolumeCastMember, VolumePlotNode
+    from models.volume import Volume, VolumePlotNode
 
     names = set(zf.namelist())
     pn = "project.yaml" if f"{book_dir}project.yaml" in names else "project.json"
@@ -587,24 +587,21 @@ async def _import_single_book(
         if not name.startswith(f"{book_dir}volumes/") or not name.endswith(".yaml"):
             continue
         vol_data = yaml.safe_load(zf.read(name))
+        # c-volume-antagonist（FR-12）：template_name/goal/plants/reveals 与 cast 行集
+        # 停读停写——导入不再搬运（旧包里这些键静默忽略；旧包 goal 已由导出侧的 ending
+        # 派生值承载，见 backup/export.py 走 get_volume）。导入后卷角色由章纲聚合自动长出来。
         vol = Volume(
             project_id=novel.id, volume_no=vol_data.get("volume", 1),
             title=vol_data.get("title", ""), summary=vol_data.get("summary", ""),
-            template_name=vol_data.get("template_name"),
             core_conflict=vol_data.get("core_conflict"),
-            goal=vol_data.get("goal"),
             ending=vol_data.get("ending"),
-            plants="\n".join(vol_data.get("plants") or []),
-            reveals="\n".join(vol_data.get("reveals") or []),
+            antagonist_type=vol_data.get("antagonist_type"),
+            antagonist_line=vol_data.get("antagonist_line"),
             chapter_target=vol_data.get("chapter_target"),
         )
         db.add(vol)
         await db.flush()
 
-        for i, m in enumerate(vol_data.get("cast_members") or []):
-            db.add(VolumeCastMember(volume_id=vol.id, sort_order=i, **{
-                k: (m.get(k) or "") for k in ("who", "target", "change")
-            }))
         for i, n in enumerate(vol_data.get("plot_nodes") or []):
             db.add(VolumePlotNode(volume_id=vol.id, sort_order=i, **{
                 k: (n.get(k) or "") for k in ("stage", "text")

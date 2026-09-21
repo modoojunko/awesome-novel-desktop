@@ -128,7 +128,7 @@ export function useWorkbench(): UseWorkbenchReturn {
   // 删卷后清选中用：卷选中时 selectedRef 为空，需对照 selectedId
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
-  // 建卷→建章链路（AddVolumeModal 循环）里闭包 volumes 是 refresh 前的旧值，
+  // 建卷→建章链路（「＋ 新增一章」先垫卷再排章）里闭包 volumes 是 refresh 前的旧值，
   // 会把刚建的卷当不存在（「请先创建卷」误报）。创建类操作一律读 ref 拿最新树。
   const volumesRef = useRef<WorkbenchVolume[]>([]);
   volumesRef.current = volumes;

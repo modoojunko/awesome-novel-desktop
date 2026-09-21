@@ -47,3 +47,20 @@ export function chapterNoOf(ref: string): number {
 export function volNoOf(ref: string): number {
   return parseChapterRef(ref)?.vol ?? 0;
 }
+
+/** 卷 ref（`vol-{N}`，无章段）→ 卷号；不是卷 ref 返回 0。 */
+export function volumeNoOf(ref: string): number {
+  const m = ref.match(/^vol-(\d+)$/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+/** 下一个卷号＝现有**最大**卷号 + 1。
+ *
+ * 不是 `volumes.length + 1`：删过中间卷之后两者不等（vol-1/vol-3 的 length=2 → 会算出 3），
+ * 而卷引用按 `vol-{n}` 落库——算小了就命中已存在的卷 → 后端按 ref 命中旧卷 → **静默覆盖**
+ * 那一卷的主旨/冲突/坎/卷末/章数（检视 P0-2）。与后端 `max_volume_no + 1`
+ * （volumes/service.py::create_volume）同口径。
+ */
+export function nextVolNo(vols: Array<{ name: string }>): number {
+  return vols.reduce((max, v) => Math.max(max, volumeNoOf(v.name)), 0) + 1;
+}

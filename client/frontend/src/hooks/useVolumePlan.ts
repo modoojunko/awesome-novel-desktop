@@ -1,195 +1,247 @@
-// useVolumePlan — 分卷规划状态机（挂 NovelWorkspace 壳层，不挂弹窗内）：
-// 生成中关弹窗不中断（state 在外层），完成后经 takeAutoBackfill 交给中栏直接回填。
-// 规划台六态：material（输入）→ generating（进度）→ done（卷名·建议章数·自查条数＋回填）。
+// useVolumePlan — 分卷规划状态机（c-volume-antagonist 终版，挂 NovelWorkspace 壳层）。
+// 双路：付费＝三选一抽卡（打开即出卡、选中确认成卷——token 守卫可取消）；免费＝四问手写页。
+// 四问已答 answers 跨弹窗互切保留，作 options/expand 约束（作家答过的不被改写）。
 import { useCallback, useRef, useState } from "react";
+import { track } from "@/lib/metrics";
 import {
+  EMPTY_ANSWERS,
   volumePlanApi,
+  type PlanAnswers,
   type VolumeExpandDraft,
   type VolumePlanCard,
 } from "@/lib/volumePlanApi";
 
-export type PlanPhase = "idle" | "generating" | "done";
+export type { VolumePlanCard };
 
-const GEN_STEPS = ["读主线与结局", "对齐题材节奏", "展开剧情层", "自查"] as const;
+export const GEN_STEPS = ["读主线与结局", "对齐题材节奏", "展开剧情层", "自查"] as const;
+
+export type PickPhase = "idle" | "busy" | "error";
+export type DeskPhase = "idle" | "generating" | "done";
 
 export interface VolumePlanState {
-  open: boolean;
-  /** 本卷卷号（空书＝1） */
-  volNo: number;
-  /** 作者那一句（可空——空则先取 3 套） */
-  line: string;
-  phase: PlanPhase;
-  /** 生成中进度步（0..GEN_STEPS.length-1；纯进度指示，非真实阶段回调） */
-  step: number;
-  mode: "options" | "expand" | null;
+  /** 抽卡弹窗（付费默认路径） */
+  pickOpen: boolean;
+  pickPhase: PickPhase;
+  pickError: string;
   plans: VolumePlanCard[];
   note: string;
-  volumeEstimate: string;
-  warnings: string[];
-  similar: boolean;
+  pickPick: number | null; // 选中卡 no
+  confirming: boolean;
+  /** 确认结果（落库后交外层：落点卡/自查条） */
+  confirmResult: {
+    volNo: number;
+    draft: VolumeExpandDraft;
+    warnings: string[];
+  } | null;
+  /** 四问手写页 */
+  deskOpen: boolean;
+  deskPhase: DeskPhase;
+  answers: PlanAnswers;
   draft: VolumeExpandDraft | null;
-  planLine: string;
+  deskWarnings: string[];
   degradedText: string;
   hint: string;
   error: string;
-  /** 生成中关弹窗 → 完成后中栏直接回填（不必再点「回填」）；回填/读走即清 */
+  volNo: number;
+  /** 手写路自动回填信号 */
   autoBackfill: boolean;
 }
 
 const INITIAL: VolumePlanState = {
-  open: false,
-  volNo: 1,
-  line: "",
-  phase: "idle",
-  step: 0,
-  mode: null,
-  plans: [],
-  note: "",
-  volumeEstimate: "",
-  warnings: [],
-  similar: false,
-  draft: null,
-  planLine: "",
-  degradedText: "",
-  hint: "",
-  error: "",
-  autoBackfill: false,
+  pickOpen: false, pickPhase: "idle", pickError: "", plans: [], note: "",
+  pickPick: null, confirming: false, confirmResult: null,
+  deskOpen: false, deskPhase: "idle", answers: { ...EMPTY_ANSWERS },
+  draft: null, deskWarnings: [], degradedText: "", hint: "", error: "",
+  volNo: 1, autoBackfill: false,
 };
 
 export function useVolumePlan(projectId: string) {
   const [state, setState] = useState<VolumePlanState>(INITIAL);
-  const stepTimer = useRef<number | null>(null);
+  const tokenRef = useRef(0);
   const consumedRef = useRef(false);
+  const answersRef = useRef<PlanAnswers>({ ...EMPTY_ANSWERS });
+  answersRef.current = state.answers;
+  const pickPickRef = useRef<number | null>(null);
+  pickPickRef.current = state.pickPick;
+  const answersNow = () => answersRef.current;
 
-  const stopSteps = useCallback(() => {
-    if (stepTimer.current != null) {
-      window.clearInterval(stepTimer.current);
-      stepTimer.current = null;
-    }
-  }, []);
+  const nextToken = () => ++tokenRef.current;
+  const cancelPending = () => { nextToken(); };
 
-  const startSteps = useCallback(() => {
-    stopSteps();
-    setState((s) => ({ ...s, phase: "generating", step: 0 }));
-    stepTimer.current = window.setInterval(() => {
-      setState((s) =>
-        s.step < GEN_STEPS.length - 1 ? { ...s, step: s.step + 1 } : s,
-      );
-    }, 900);
-  }, [stopSteps]);
-
-  const open = useCallback((volNo: number) => {
-    consumedRef.current = false;
-    setState({ ...INITIAL, open: true, volNo });
-  }, []);
-
-  const close = useCallback(() => {
-    setState((s) => ({ ...s, open: false }));
-  }, []);
-
-  const setLine = useCallback((line: string) => {
-    setState((s) => ({ ...s, line }));
-  }, []);
-
-  const resetError = useCallback(() => {
-    setState((s) => ({ ...s, error: "" }));
-  }, []);
-
-  /** 给我 3 套方案（PRO） */
-  const generateOptions = useCallback(async () => {
-    startSteps();
-    setState((s) => ({ ...s, mode: "options", plans: [], error: "", degradedText: "" }));
-    try {
-      const d = await volumePlanApi.options(projectId, state.line);
-      stopSteps();
-      if (d.degraded) {
-        /* v8 ignore start -- 防御兜底：降级字段缺省给空串（后端契约恒带键） */
-        setState((s) => ({
-          ...s, phase: "done", degradedText: d.text ?? "", hint: d.hint ?? "",
-        }));
-        /* v8 ignore stop */
-        return;
-      }
-      /* v8 ignore start -- 防御兜底：note/warnings 缺键给中性缺省（后端契约恒带） */
-      setState((s) => ({
-        ...s, phase: "done", plans: d.plans ?? [], note: d.note ?? "",
-        volumeEstimate: d.volume_estimate, similar: d.similar, warnings: d.warnings ?? [],
-      }));
-      /* v8 ignore stop */
-    } catch (e: any) {
-      stopSteps();
-      /* v8 ignore start -- 防御兜底：非 Error 拒绝给通用文案 */
-      setState((s) => ({ ...s, phase: "idle", error: e?.message || "生成失败，请重试" }));
-      /* v8 ignore stop */
-    }
-  }, [projectId, state.line, startSteps, stopSteps]);
-
-  /** 按这一句展开（或选中的一套走法填回后展开）（PRO） */
-  const generateExpand = useCallback(async (rawLine?: string) => {
-    const line = (rawLine ?? state.line).trim();
-    if (!line) return;
-    startSteps();
-    setState((s) => ({
-      ...s, mode: "expand", line, phase: "generating", plans: [], error: "", degradedText: "",
-    }));
-    try {
-      const d = await volumePlanApi.expand(projectId, line, state.volNo);
-      stopSteps();
+  /** 打开规划（统一入口）：付费出抽卡（自动拉卡）、免费出四问页 */
+  const open = useCallback(
+    (volNo: number, isPro: boolean) => {
       consumedRef.current = false;
-      if (d.degraded) {
-        /* v8 ignore start -- 防御兜底：降级字段缺省给空串（后端契约恒带键） */
-        setState((s) => ({
-          ...s, phase: "done", degradedText: d.text ?? "", hint: d.hint ?? "",
-        }));
-        /* v8 ignore stop */
-        return;
-      }
-      /* v8 ignore start -- 防御兜底：draft/plan_line/warnings 缺键给中性缺省 */
-      setState((s) => ({
-        ...s, phase: "done", draft: d.draft ?? null, planLine: d.plan_line ?? "",
-        warnings: d.warnings ?? [], autoBackfill: true,
-      }));
-      /* v8 ignore stop */
-    } catch (e: any) {
-      stopSteps();
-      /* v8 ignore start -- 防御兜底：非 Error 拒绝给通用可重试文案 */
-      const msg = String(e?.message || "");
-      setState((s) => ({
-        ...s, phase: "idle",
-        error: msg.includes("主线")
-          ? "主线还是空的——先到设定补主线（全景或结局三问），再回来拆卷"
-          : msg || "生成失败，请重试",
-      }));
-      /* v8 ignore stop */
-    }
-  }, [projectId, state.line, state.volNo, startSteps, stopSteps]);
-
-  /** 选一套 → 填回输入框并直接展开 */
-  const adoptPlan = useCallback(
-    (card: VolumePlanCard) => {
-      const line = card.spine;
-      setState((s) => ({ ...s, line }));
-      void generateExpand(line);
+      // 开新一轮＝丢弃在飞请求（P3）：否则上一轮慢 expand 回来会置 done+autoBackfill，
+      // 自动回填拿本轮 volNo 去建卷 → 把上一卷的卷纲写到这一卷上
+      cancelPending();
+      setState({
+        ...INITIAL, volNo,
+        ...(isPro ? { pickOpen: true } : { deskOpen: true }),
+      });
+      if (isPro) void drawCards();
     },
-    [generateExpand],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [projectId],
   );
 
-  /** 中栏消费自动回填（生成中关弹窗 → 完成后直落）；读走即清，防重复 */
-  const takeAutoBackfill = useCallback((): {
-    volNo: number;
-    draft: VolumeExpandDraft;
-    planLine: string;
-  } | null => {
+  const drawCards = useCallback(async (kind: "first" | "redraw" = "first") => {
+    const token = nextToken();
+    track(kind === "redraw" ? "pick_redraw" : "pick_drawn");
+    setState((s) => ({ ...s, pickPhase: "busy", pickError: "", pickPick: null }));
+    try {
+      const d = await volumePlanApi.options(projectId, answersNow());
+      if (token !== tokenRef.current) return;
+      if (d.degraded) {
+        setState((s) => ({ ...s, pickPhase: "error", pickError: d.hint || "AI 的输出没法结构化——可重试，或自己答四个问题" }));
+        return;
+      }
+      setState((s) => ({ ...s, pickPhase: "idle", plans: d.plans ?? [], note: d.note ?? "" }));
+    } catch (e) {
+      if (token !== tokenRef.current) return;
+      const msg = (e as { message?: string })?.message || "";
+      setState((s) => ({
+        ...s, pickPhase: "error",
+        pickError: msg.includes("模型") || msg.includes("503")
+          ? "还没接模型——先去模型配置里接一个，或者自己答四个问题"
+          : msg || "出卡失败，可重试",
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  const selectCard = useCallback((no: number) => {
+    // 埋点放 updater 外：updater 必须是纯函数（StrictMode dev 下会被调用两次 → 记两条）
+    const next = pickPickRef.current === no ? null : no;
+    if (next != null) track("pick_select", { no });
+    setState((s) => ({ ...s, pickPick: next }));
+  }, []);
+
+  /** 确认成卷：expand（卡面四问胜出）→ 外层回调落库 → 关弹窗（token 守卫可取消）。
+   *  `onPersist` 返回 false ＝ 落库失败：不关弹窗、不置 confirmResult、保留选中与三卡
+   *  （PRD §6「expand/建卷/hooks 失败：保留选中与卡片、toast 可重试」）。 */
+  const confirmCard = useCallback(
+    async (
+      card: VolumePlanCard,
+      onPersist: (draft: VolumeExpandDraft, warnings: string[]) => Promise<boolean>,
+    ): Promise<boolean> => {
+      const token = nextToken();
+      setState((s) => ({ ...s, confirming: true }));
+      try {
+        const d = await volumePlanApi.expand(
+          projectId,
+          {
+            q1: card.spine,
+            conflict: card.conflict,
+            antagonist_type: card.antagonist_type,
+            antagonist_line: card.antagonist_line,
+            q4: card.ending,
+          },
+          state.volNo,
+        );
+        if (token !== tokenRef.current) return false; // 已取消
+        if (!d.draft) {
+          track("pick_confirm_fail", { reason: "degraded" });
+          setState((s) => ({ ...s, confirming: false, pickPhase: "error", pickError: d.hint || "铺稿失败，可重试" }));
+          return false;
+        }
+        const persisted = await onPersist(d.draft, d.warnings ?? []);
+        if (token !== tokenRef.current) return false;
+        if (!persisted) {
+          track("pick_confirm_fail", { reason: "persist" });
+          setState((s) => ({
+            ...s, confirming: false, pickPhase: "error",
+            pickError: "这一卷没落库（网络或服务异常）——选中还在，可重试确认",
+          }));
+          return false;
+        }
+        const done = d.draft;
+        track("pick_confirm_ok", { vol_no: d.vol_no });
+        setState((s) => ({
+          ...s, confirming: false, pickOpen: false,
+          confirmResult: { volNo: d.vol_no, draft: done, warnings: d.warnings ?? [] },
+        }));
+        return true;
+      } catch (e) {
+        if (token !== tokenRef.current) return false;
+        track("pick_confirm_fail", { reason: "error" });
+        setState((s) => ({ ...s, confirming: false, pickError: (e as { message?: string })?.message || "确认失败，可重试" }));
+        return false;
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [projectId, state.volNo],
+  );
+
+  /** 取消（Esc/背景/关钮）：写请求发出前＝丢弃 pending；发出后由 confirming 锁 UI */
+  const closePick = useCallback(() => {
+    cancelPending();
+    setState((s) => ({ ...s, pickOpen: false, confirming: false }));
+  }, []);
+
+  const toDesk = useCallback(() => {
+    setState((s) => ({ ...s, pickOpen: false, deskOpen: true }));
+  }, []);
+  const closeDesk = useCallback(() => {
+    setState((s) => ({ ...s, deskOpen: false }));
+  }, []);
+
+  const setAnswer = useCallback(<K extends keyof PlanAnswers>(key: K, value: string) => {
+    setState((s) => ({ ...s, answers: { ...s.answers, [key]: value } }));
+  }, []);
+
+  /** 手写路：让 AI 铺完剩下的问题。
+   *  四问取 answersNow()（ref 最新值）——闭包里的 state.answers 是首次渲染那份：
+   *  本回调依赖只有 [projectId, state.volNo]，用户敲字期间不会重建，直接读闭包会发空答案，
+   *  与「作家答过的它不改」（FR-5）正好相反。 */
+  const expandDesk = useCallback(async () => {
+    const token = nextToken();
+    track("desk_expand", { vol_no: state.volNo });
+    setState((s) => ({ ...s, deskPhase: "generating", error: "", degradedText: "" }));
+    try {
+      const d = await volumePlanApi.expand(projectId, answersNow(), state.volNo);
+      if (token !== tokenRef.current) return;
+      consumedRef.current = false;
+      if (!d.draft) {
+        setState((s) => ({ ...s, deskPhase: "idle", degradedText: d.text ?? "", hint: d.hint ?? "" }));
+        return;
+      }
+      const fin = d.draft;
+      setState((s) => ({
+        ...s, deskPhase: "done", draft: fin,
+        deskWarnings: d.warnings ?? [], autoBackfill: true,
+      }));
+    } catch (e) {
+      if (token !== tokenRef.current) return;
+      const msg = (e as { message?: string })?.message || "";
+      setState((s) => ({
+        ...s, deskPhase: "idle",
+        error: msg.includes("主线") ? "主线还是空的——先到设定补主线，再回来拆卷" : msg || "生成失败，请重试",
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, state.volNo]);
+
+  const takeAutoBackfill = useCallback(() => {
     if (consumedRef.current) return null;
-    /* v8 ignore next -- 防御兜底：autoBackfill 与 draft 恒同真同假（同一次 setState 写入） */
     if (!state.autoBackfill || !state.draft) return null;
     consumedRef.current = true;
     setState((s) => ({ ...s, autoBackfill: false }));
-    return { volNo: state.volNo, draft: state.draft, planLine: state.planLine };
-  }, [state.autoBackfill, state.draft, state.planLine, state.volNo]);
+    return { volNo: state.volNo, draft: state.draft };
+  }, [state.autoBackfill, state.draft, state.volNo]);
 
-  return { state, open, close, setLine, resetError, generateOptions, generateExpand, adoptPlan, takeAutoBackfill };
+  const consumeConfirm = useCallback(() => {
+    const r = state.confirmResult;
+    if (r) setState((s) => ({ ...s, confirmResult: null }));
+    return r;
+  }, [state.confirmResult]);
+
+  const resetError = useCallback(() => setState((s) => ({ ...s, error: "" })), []);
+
+  return {
+    state, open, drawCards, selectCard, confirmCard, closePick, toDesk,
+    closeDesk, setAnswer, expandDesk, takeAutoBackfill, consumeConfirm, resetError,
+  };
 }
 
 export type VolumePlanController = ReturnType<typeof useVolumePlan>;
-export { GEN_STEPS };

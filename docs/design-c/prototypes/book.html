@@ -285,6 +285,9 @@
   /* 章纲 · 段落规划行 + 主情绪选择（产品全字段扩展，见 ADJUSTMENTS.md PR 3） */
   .mood-row { display: flex; gap: 8px; }
   .mood-row select.input { flex: 0 0 150px; }
+  .form-note { margin: 2px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+  #modalAddVolume label .qno { color: var(--accent); margin-right: 6px; font-family: var(--font-mono); font-size: 11px; }
+  #modalAddVolume .vol-tail { display: grid; grid-template-columns: 1fr 130px; gap: 0 14px; margin-top: 4px; padding-top: 10px; border-top: 1px dashed var(--border); }
   .mood-row input.input { flex: 1; }
   .seg-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
   .seg-row .seg-i { width: 20px; text-align: center; color: var(--muted); font-size: 12px; flex-shrink: 0; padding-top: 9px; }
@@ -758,9 +761,23 @@
   <div class="mcard">
     <div class="mcard-head"><span class="mh serif">添加卷</span><button class="icon-btn x" data-close="modalAddVolume"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
     <div class="mcard-body">
-      <div class="field"><label>卷名</label><input class="input" id="avTitle" placeholder="如：第一卷 · 风起" /></div>
-      <div class="field"><label>卷摘要 <span class="opt">选填</span></label><textarea class="textarea" id="avSummary" placeholder="这一卷讲什么？一句话即可"></textarea></div>
-      <div class="field"><label>初始章数 <span class="opt">可在树中随时增删</span></label><input class="input num" id="avChapters" type="number" min="0" max="20" value="0" /></div>
+      <p class="form-note" style="margin: 0 0 8px;">四个问题答出一卷的骨架——答不出的先空着，进卷纲或用 AI 规划台再补。</p>
+      <div class="field"><label><span class="qno">1</span>这一卷讲什么？</label><textarea class="textarea" id="avSummary" rows="2" placeholder="一句话概括这一卷"></textarea></div>
+      <div class="field"><label><span class="qno">2</span>主要冲突是什么？</label><textarea class="textarea" id="avConflict" rows="2" placeholder="想做什么，被什么拦住"></textarea></div>
+      <div class="field"><label><span class="qno">3</span>这一卷的坎是谁／是什么？</label>
+        <div class="mood-row">
+          <select class="input" id="avAntType">
+            <option value="">先不选</option><option>人物</option><option>难题</option><option>环境</option><option>自我</option><option>势力</option>
+          </select>
+          <input class="input" id="avAntLine" placeholder="例：执法官雷——点名要他停手" />
+        </div>
+      </div>
+      <div class="field"><label><span class="qno">4</span>卷末收在哪里？</label><textarea class="textarea" id="avEnding" rows="2" placeholder="这一卷结束时，局面变成什么样"></textarea></div>
+      <div class="vol-tail">
+        <div class="field"><label>卷名 <span class="opt">最后起——空着先用「第N卷」</span></label><input class="input" id="avTitle" placeholder="顺着这一卷写什么来起名，不急" /></div>
+        <div class="field"><label>初始章数 <span class="opt">随时增删</span></label><input class="input num" id="avChapters" type="number" min="0" max="20" value="0" /></div>
+      </div>
+      <p class="form-note">角色不用在创建时登记——写章纲登记谁出场，卷的角色清单自动长出来。</p>
     </div>
     <div class="mcard-foot"><button class="btn btn-secondary" data-close="modalAddVolume">取消</button><button class="btn btn-primary" id="avConfirm">创建卷</button></div>
   </div>
@@ -1248,12 +1265,16 @@ $('treeOutline').addEventListener('click', e => {
 /* 树：添加卷 / 行内加章 */
 $('btnAddVolume').addEventListener('click', () => openModal('modalAddVolume'));
 $('avConfirm').addEventListener('click', () => {
-  const title = $('avTitle').value.trim();
-  if (!title) { toast('请填写卷名'); $('avTitle').focus(); return; }
+  const CN = ['一','二','三','四','五','六','七','八','九','十'];
+  const idx = BOOK.volumes.length;
+  const title = $('avTitle').value.trim() || ('第' + (CN[idx] || (idx + 1)) + '卷');
   const n = Math.min(20, parseInt($('avChapters').value || '0', 10));
   const chapters = [];
   for (let i = 1; i <= n; i++) chapters.push(newCh('c' + Date.now() + 'x' + i, `第${['一','二','三','四','五','六','七','八','九','十'][i-1] || i}章 · 未命名`));
   const v = newVol('v' + Date.now(), title, $('avSummary').value.trim());
+  v.conflict = $('avConflict').value.trim();
+  v.ant = { type: $('avAntType').value, line: $('avAntLine').value.trim() };
+  v.ending = $('avEnding').value.trim();
   v.chapters = chapters;
   BOOK.volumes.push(v);
   closeModal('modalAddVolume');

@@ -743,6 +743,40 @@
   .cand-foot{display:flex;align-items:center;gap:9px;margin-top:1px;padding-top:10px;border-top:1px dashed var(--border)}
   .cand-foot .note{font-size:11.5px;color:var(--faint)}
   .cand-foot .btn{margin-left:auto;flex:none}
+
+  /* ═══ c-volume-antagonist 原型先行：追问行 / 登场人物清单 / 落点卡概要行 / 手动建卷五问弹窗 ═══ */
+  .hurdle-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;margin-top:8px}
+  .hurdle-row .box-sm{width:100%}
+  .plan-hurdle .link,.plan-desk .link{background:none;border:0;padding:0;font:inherit;font-size:11.5px;color:var(--accent-strong);border-bottom:1px solid transparent;cursor:pointer}
+  .plan-desk .link:hover{border-bottom-color:var(--accent-strong)}
+  .plan-desk .fro{padding:10px 0}
+  .plan-desk .fro>em .qno{color:var(--accent);margin-right:6px;font-weight:500}
+  .seg-h .qno{color:var(--accent);margin-right:6px;font-weight:500;font-family:var(--font-mono)}
+  .plan-hurdle .link:hover{border-bottom-color:var(--accent-strong)}
+  .cast-block{margin-top:14px;padding-top:12px;border-top:1px dashed var(--border)}
+  .cast-row{display:flex;gap:9px;align-items:center;padding:6px 0;border-bottom:1px dashed color-mix(in oklch,var(--border) 60%,transparent)}
+  .cast-row:last-of-type{border-bottom:0}
+  .cast-row .who{flex:0 0 120px;min-width:0}
+  .cast-row input:not(.who){flex:1 1 auto;min-width:0}
+  .cast-foot{display:flex;align-items:center;gap:9px;margin-top:8px;flex-wrap:wrap}
+  .cast-foot .note{font-size:11.5px;color:var(--faint)}
+  .cast-foot .push{margin-left:auto}
+  .be-sub{margin:8px 0 0;font-size:12px;line-height:1.7;color:var(--muted)}
+  /* 三选一抽卡弹窗（付费默认路径）：横排三卡，点选→确认→卷纲直接成 */
+  .sheet.pick-sheet{width:min(940px,calc(100% - 32px))}
+  .pick-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px;margin-top:14px}
+  @media (max-width:820px){.pick-grid{grid-template-columns:1fr}}
+  .pick-card{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:13px 14px;display:flex;flex-direction:column;gap:8px;cursor:pointer;text-align:left;font:inherit;color:var(--fg);transition:border-color .13s,box-shadow .13s,transform .13s}
+  .pick-card:hover{border-color:var(--muted)}
+  .pick-card.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .pick-card .pk-axis{align-self:flex-start;display:inline-block;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;border-radius:999px;padding:1px 8px;color:var(--accent-strong);border:1px solid color-mix(in oklch,var(--accent) 34%,var(--border))}
+  .pick-card .pk-title{margin:0;font-family:var(--font-display);font-size:15.5px;font-weight:600;line-height:1.6}
+  .pick-card .pk-row{display:flex;flex-direction:column;gap:1px;padding-top:7px;border-top:1px dashed color-mix(in oklch,var(--border) 60%,transparent)}
+  .pick-card .pk-row>b{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;font-weight:400;color:var(--faint)}
+  .pick-card .pk-row>span{font-size:12px;line-height:1.62;color:var(--fg);opacity:.9}
+  .pick-card .pk-cast span{display:block}
+  .pick-card.on .pk-picked{align-self:flex-end;font-family:var(--font-mono);font-size:10px;color:var(--accent)}
+  .av-sheet .fro:first-of-type{padding-top:2px}
   .cand-note{display:flex;align-items:baseline;gap:7px;margin-top:14px;padding:8px 11px;border:1px solid color-mix(in oklch,var(--accent) 26%,var(--border));background:var(--accent-faint);border-radius:var(--radius-sm);font-size:12px;color:var(--muted)}
   .cand-note b{color:var(--fg);font-weight:600}
   .cand-again{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin-top:17px;padding-top:14px;border-top:1px solid var(--border)}
@@ -888,6 +922,18 @@
   </div>
 </div>
 
+<!-- 三选一抽卡（付费默认路径）：点右侧「规划第N卷」直接弹这里——三套五问答案横排，选一套确认即成卷 -->
+<div class="modal" id="pick-modal" data-od-id="pick-modal">
+  <div class="backdrop" data-act="pick-close"></div>
+  <div class="sheet pick-sheet" role="dialog" aria-modal="true" aria-labelledby="pick-title">
+    <p class="kicker" id="pick-kick">规划第N卷 · 三选一</p>
+    <h2 id="pick-title">AI 想好了三套思路</h2>
+    <p class="pa-lead">都按你的全书设定和上一卷的结尾推——四个问题的答案各不相同，选一套，这一卷的卷纲就成了。</p>
+    <div class="pick-grid" id="pick-grid"></div>
+    <div class="plan-foot" id="pick-foot"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- 演示控制（非基线）：跳状态与切身份，收编前删除 -->
@@ -941,6 +987,9 @@ const CANDS = [
       conflict:'想追，与追了就回不去——注销意味着母港再也不会应答。',
       goal:'航图上多出一个只属于她的坐标；星海拾遗号脱离所有已知航线。',
       ending:'她第一次为自己的选择负责：没有退路，也没有人可以怪。',
+      ant:{ type:'环境', line:'母港制度——注销之后，就没有回程' },
+      cast:[ {n:'她',l:'按下注销键的人——全卷只信自己'},
+             {n:'老聋',l:'启航前夜出现在港口——本卷要给他一件要做的事'} ],
       plants:['信标的应答周期与三百年前的记录不一致','老聋在启航前夜出现在港口的理由'],
       reveals:['中继站不是废弃的——它还在被人维护'],
       report:{ head:'接得上主线；与设定 2 处冲突，1 处要留意。',
@@ -949,7 +998,8 @@ const CANDS = [
             ['ok','进场接得上全景的「她从哪起步」——母港断联、唯一船员，正是这一卷的起点。'],
             ['ok','照你写的那一句展开：「按下注销键」成了整卷的推力，没替你改走向。'],
             ['ok','这一卷要解决的事，正是主线走到这一步该解决的事——没有另起炉灶。'],
-            ['warn','卷末偏虚：「不在册」只是个状态，她没付出看得见的代价——离你写的那一幕还差一股推力。']
+            ['warn','卷末偏虚：「不在册」只是个状态，她没付出看得见的代价——离你写的那一幕还差一股推力。'],
+            ['ok','这一卷的坎说得清：环境 · 母港制度；卷末她越过了它（注销即越界），没有躲过去。']
           ]],
           ['对设定', [
             ['warn','伏笔重复：本卷埋的「信标应答周期不一致」与台账里的 H-003 是同一件事。'],
@@ -970,6 +1020,9 @@ const VOL2 = {
   dir:'借命 · 以半个坐标换补给，独航到此为止，船上多了一笔债',
   why:'这一卷要结束她的独航——推力来自别人给的账，所以要把「账」写实。',
   ol:{ name:'借命', struct:'人物弧线', total:45,
+    ant:{ type:'难题', line:'补给单上没有她的名字——半个坐标换燃料的账，怎么还' },
+    cast:[ {n:'拾荒船队账房',l:'把坐标标了价的人——本卷她第一次欠人情'},
+           {n:'老聋',l:'留在船上的人——替她守着回程的最后一段'} ],
     summary:'她用半个坐标换来继续上路的燃料——独航到此为止。',
     conflict:'追信号，与欠人情：她想只靠自己，可补给单上没有她的名字。',
     goal:'航线推进到下一段；船上第一次出现「别人」的位置。',
@@ -1003,10 +1056,13 @@ const PLANS = {
   1:[
     { k:'A', spine:'她按下注销键的另一半，把自己从航图上擦掉',
       focus:'侧重代价——把「回不去」在这一卷里就付清。',
+      ant:'环境 · 母港制度——注销之后，就没有回程',
       ol:CANDS[0].ol, checks:CANDS[0].checks },
     { k:'B', spine:'她第一次用自己的手艺跟拾荒船队换补给，独航的规矩松了一条缝',
       focus:'侧重关系——第一次让别人掺进她的船。',
+      ant:'势力 · 拾荒船队——他们的规矩和她的不一样，都得让一步',
       ol:{ name:'换工', struct:'人物弧线', total:40,
+        cast:[ {n:'船队老赵',l:'收她手艺的人——第一个跟她讨价还价的对手'} ],
         summary:'她第一次用自己的手艺跟人换东西，独航的规矩松了一条缝。',
         conflict:'不想欠人，与得靠人——她只信校准表，不信人开的价。',
         goal:'船上多了一个外人留下的工具包；她开始记「谁欠谁」。',
@@ -1017,7 +1073,9 @@ const PLANS = {
               '与后面可能的一卷挨得近：如果再讲一次「欠人情」，两卷的推力会重复。'] },
     { k:'C', spine:'信号比母港的档案还老，她开始怀疑应答的不是人',
       focus:'侧重认知——问题的性质从求生变成求证。',
+      ant:'难题 · 信号的封装层——每一层都像有人维护过',
       ol:{ name:'回声前', struct:'悬疑递进', total:38,
+        cast:[ {n:'老聋',l:'唯一可能认得维护手法的人——他不肯说'} ],
         summary:'她拆开信号的每一层封装，越拆越像一个被人维持的习惯。',
         conflict:'想确认，与怕确认——答案如果不在这边，她追的到底是什么。',
         goal:'信号来源被缩小到三个候选坐标，其中一个指向母港旧址。',
@@ -1030,16 +1088,20 @@ const PLANS = {
   2:[
     { k:'A', spine:'她为继续追信号，把半个坐标押给拾荒船队换补给',
       focus:'侧重关系——把「别人」引进她的船。',
+      ant:'难题 · 补给单上没有她的名字——半个坐标换燃料的账，怎么还',
       ol:VOL2.ol, checks:VOL2.checks },
     { k:'B', spine:'她跟船队讨价还价，用校准手艺换一次同行',
-      focus:'侧重博弈——跟船队来回谈条件。',
+      focus:'侧重关系——对手戏里建立又拆掉信任。',
+      ant:'势力 · 船队账房——把坐标标了价的人',
       over:{ conflict:'信谁，与防谁——船队要的是坐标，她要的是航线。',
+             cast:[ {n:'船队账房',l:'对手戏的人——来回三个回合的讨价'} ],
              ending:'她拿到航线，也第一次被人盯上。',
              goal:'航线推进到下一段；她手里多了一张不敢全信的图。' },
       checks:['博弈写得再实一点：现在只有一次讨价，读者看不出她赢在哪——补一个她先让一步的回合。',
               '卷末的「被人盯上」要留一个具体的眼睛（谁在看），否则钩子落不了地。'] },
     { k:'C', spine:'补给只够两个人，她得决定丢下谁',
       focus:'侧重代价——让她的原则第一次松动。',
+      ant:'自我 · 「不扔下任何人」——她自己的规矩',
       over:{ conflict:'活下去，与守住底线——补给只够两个人。',
              ending:'她保住了船，也第一次主动放弃了一个人。',
              summary:'她用半个坐标换来补给，代价是第一次把「不扔下任何人」这条规矩放到一边。' },
@@ -1050,14 +1112,44 @@ const PLANS = {
 
 const CHIPS = ['更早断','更晚断','更狠','更暖'];
 /* 中栏回填的顺序＝卷纲表单的段序：一条条落下来，最后落自查 */
-const FORM_BLOCKS = ['enter','line','plot','conflict','end','base','hooks','defer','check'];
+const FORM_BLOCKS = ['enter','plot','conflict','ant','end','base','cast','hooks','defer','check'];
 const DEMO = [['empty','① 空书起手'],['desk','② 规划台'],['genDone','③ 生成完成'],['saved','④ 已保存（写作页）'],['vol','⑤ 卷纲与体检'],['next','⑥ 规划下一卷']];
 
+/* 换一组：roguelike 式重抽——不满意就再来三套（演示数据一组；实现侧重调 options 换温度重抽） */
+const PLANS_ALT = {
+  1:[
+    { k:'A', spine:'她把船开进没人去的雾带，用一次失踪换一次靠近',
+      focus:'侧重代价——把「回不去」在这一卷里就付清。',
+      ant:'环境 · 雾带——地图上标着「勿入」的地方',
+      ol:{ name:'入雾', struct:'三幕式', total:36, conflict:'想靠近，与回不来——雾带里的航线只认进去的人。',
+        ending:'她从雾里出来，船身上多了一道别人的焊痕。',
+        cast:[ {n:'老聋',l:'雾带里唯一清醒的人——替她数着氧气'} ] } },
+    { k:'B', spine:'她把信号录下来在黑市播，想钓出认得它的人',
+      focus:'侧重线索——用假消息钓出认得它的人。',
+      ant:'势力 · 黑市的中人——买消息的人也想买她',
+      ol:{ name:'钓声', struct:'悬疑递进', total:40, conflict:'想被找到，与怕被找到——播出去的不止是信号。',
+        ending:'有人来认领，来的却不是发信号的人。',
+        cast:[ {n:'黑市中人',l:'出价的人——第一个说破她底细的对手'} ] } },
+    { k:'C', spine:'母港注销她的船籍那天，她反过来去注销母港的档案',
+      focus:'侧重势力——被删掉的人去删体制。',
+      ant:'势力 · 母港档案局——盖章的手比她以为的长',
+      ol:{ name:'除名', struct:'人物弧线', total:42, conflict:'想抹掉记录，与记录也在抹她——两边都在删对方。',
+        ending:'档案里没了她的船，也没了那个被涂掉的名字。',
+        cast:[ {n:'档案局老吏',l:'盖最后一个章的人——他记得三百年前的事'} ] } },
+  ],
+  2:[]
+};
 const state = { phase:'empty', pro:true, input:'', pick:null, submittedLine:'', check:null,
   scIgnored:false, vols:[], modal:false, planVol:1, demo:'empty', genToken:0,
-  fill:0, genDone:false, genView:false, selVol:-1, plans:null };
+  fill:0, genDone:false, genView:false, selVol:-1, plans:null,
+  antType:'先不选', antLine:'', cast:[], castIgnored:false, avModal:false,
+  q1:'', q2:'', q5:'', plansRound:0, pickModal:false, pickPick:null, pickGen:false };
 
 /* ═══════════ 工具 ═══════════ */
+/* 演示级新面孔识别：坎一句话里取「——」前的名字，与已知角色表对拍 */
+const KNOWN = ['她','老聋','拾荒船队','中继站看守'];
+function newNameOf(line){ return String(line||'').split(/[——（(,，]/)[0].trim().slice(0,12); }
+function knownCast(line){ const n=newNameOf(line); return !n || KNOWN.includes(n); }
 const $ = (s,r)=> (r||document).querySelector(s);
 const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const attr = s => esc(s).replace(/"/g,'&quot;');
@@ -1189,7 +1281,7 @@ function genHTML(){
   ];
   return '<div class="e-pad"><div class="genbox" data-od-id="gen-box">'
     + '<p class="gen-k">正在展开第'+CN[state.planVol]+'卷</p>'
-    + '<p class="gen-t">按'+who+'，把卷纲的剧情层填起来——核心矛盾、整体目标、预期结局、埋与揭、章数建议。</p>'
+    + '<p class="gen-t">按'+who+'，把卷纲的剧情层填起来——核心矛盾、卷末结局、埋与揭、章数建议。</p>'
     + '<div class="ex-bar"><i style="width:38%"></i></div>'
     + '<ul class="ex-steps">'+steps.map(s=>'<li><span>'+s[0]+'</span><em class="'+s[1]+'">'
         + (s[1]==='ok' ? '✓ ' : '<span class="ra-spin"></span>') + s[2] + '</em></li>').join('')+'</ul>'
@@ -1207,34 +1299,40 @@ function volForm(){
     enter: '<p class="seg-h">进场 <span class="note">上一卷收在哪里，这一卷就从哪里开始</span></p>'
       + '<div class="fro" data-od-id="enter-row"><em>'+esc(enterK)+' <span class="tag">只读</span></em>'
       + '<p>'+esc(enterV)+'</p><p class="none">'+esc(enterS)+'</p></div>',
-    line: '<p class="seg-h">展开依据 <span class="note">你写的那一句——展开只按它铺结构</span></p>'
-      + '<div class="fro" data-od-id="line-row"><em>'+(curPlan() ? '选的那一套走法' : '你写的那一句')+' <span class="tag">只读</span></em>'
-      + '<p>'+esc(state.submittedLine || curLine())+'</p></div>',
-    plot: '<p class="seg-h">本卷剧情 <span class="note">这一卷讲什么</span></p>'
+    ant: '<p class="seg-h"><span class="qno">3</span>这一卷的坎是谁／是什么？ <span class="note">反派 · 难题 · 环境 · 自我</span></p>'
+      + '<div class="fro ai"><em>类型与那一句 <span class="ovb ai">AI 初稿</span></em>'
+      + '<div class="hurdle-row">'
+      +   '<select class="box box-sm" id="v-ant-type">' + ['先不选','人物','难题','环境','自我','势力']
+          .map(t=>'<option'+(t===(ol.ant&&ol.ant.type)?' selected':'')+'>'+t+'</option>').join('') + '</select>'
+      +   '<input class="box box-sm" id="v-ant-line" value="'+attr((ol.ant&&ol.ant.line)||'')+'" placeholder="例：体内饥渴——越压越饿" autocomplete="off" />'
+      + '</div></div>',
+    plot: '<p class="seg-h"><span class="qno">1</span>这一卷讲什么？</p>'
       + '<div class="fro ai"><em>本卷主旨 <span class="req">必填</span> <span class="ovb ai">AI 初稿</span></em>'
       + '<textarea class="box box-sm" id="v-summary" rows="2" spellcheck="false">'+esc(ol.summary)+'</textarea></div>',
-    conflict: '<p class="seg-h">冲突 <span class="note">这一卷要对抗什么</span></p>'
+    conflict: '<p class="seg-h"><span class="qno">2</span>主要冲突是什么？</p>'
       + '<div class="fro ai"><em>核心矛盾 <span class="req">必填</span> <span class="ovb ai">AI 初稿</span></em>'
       + '<textarea class="box box-sm" id="v-conflict" rows="2" spellcheck="false">'+esc(ol.conflict)+'</textarea></div>',
-    end: '<p class="seg-h">卷末结局 <span class="note">这一卷收在哪里</span></p>'
-      + '<div class="fro ai"><em>整体目标 <span class="ovb ai">AI 初稿</span></em>'
-      + '<textarea class="box box-sm" id="v-goal" rows="2" spellcheck="false">'+esc(ol.goal)+'</textarea></div>'
-      + '<div class="fro ai"><em>预期结局 <span class="ovb ai">AI 初稿</span></em>'
-      + '<textarea class="box box-sm" id="v-ending" rows="2" spellcheck="false">'+esc(ol.ending)+'</textarea></div>',
+    end: '<p class="seg-h"><span class="qno">4</span>卷末收在哪里？ <span class="note">收在哪＋局面变成什么样</span></p>'
+      + '<div class="fro ai"><em>卷末结局 <span class="ovb ai">AI 初稿</span></em>'
+      + '<textarea class="box box-sm" id="v-ending" rows="3" spellcheck="false">'+esc((ol.goal?ol.goal+' ':'')+ol.ending)+'</textarea></div>',
     base: '<p class="seg-h">卷基础信息 <span class="note">名字与体量，随手填</span></p>'
       + '<div class="fgrid">'
       +   '<div class="fro ai"><em>卷名 <span class="ovb ai">AI 初稿</span></em><input class="box box-sm" id="v-name" value="'+attr(ol.name)+'" placeholder="顺着一卷写什么来起名，不急" autocomplete="off" /></div>'
-      +   '<div class="fro ai"><em>结构模板 <span class="ovb ai">AI 初稿</span></em><select class="box box-sm" id="v-struct">'
-      +     VOL_STRUCT.map(s=>'<option'+(s===ol.struct?' selected':'')+'>'+esc(s)+'</option>').join('')+'</select></div>'
       +   '<div class="fro ai"><em>章数目标 <span class="ovb ai">AI 建议</span></em><input class="box box-sm" id="v-total" value="'+attr(ol.total||'')+'" inputmode="numeric" placeholder="1-9999，留空为不设" autocomplete="off" /></div>'
       + '</div>',
-    hooks: '<p class="seg-h">伏笔与信息披露 <span class="note">一行一条；远的可以先空着</span></p>'
-      + '<div class="fro ai"><em>本卷埋下伏笔 <span class="ovb ai">AI 初稿</span></em>'
-      +   '<textarea class="box box-sm" id="v-plants" rows="2" spellcheck="false">'+esc((ol.plants||[]).join('\n'))+'</textarea></div>'
-      + '<div class="fro ai"><em>本卷揭露信息 <span class="ovb ai">AI 初稿</span></em>'
-      +   '<textarea class="box box-sm" id="v-reveals" rows="2" spellcheck="false">'+esc((ol.reveals||[]).join('\n'))+'</textarea></div>',
+    cast: '<p class="seg-h">本卷角色 <span class="note">自动聚合——写到谁，这里就有谁</span></p>'
+      + '<div class="fro"><em>出场合集 <span class="tag">只读</span></em>'
+      + (state.vols.length && viewedVolHasChapters()
+          ? '<p>'+esc(aggCastLine())+'</p>'
+          : '<p class="none">还没有章——角色不用规划，写章纲登记谁出场，这里自动长出来。</p>')
+      + '<p class="none">主角来自全书设定；这一卷的坎（反派）在上方「本卷对抗物」。新角色写章纲时点名字建卡。</p></div>',
+    hooks: '<p class="seg-h">这一卷的伏笔 <span class="note">登记进台账——埋下、悬置、收束都在台账办</span></p>'
+      + '<div class="fro"><em>台账建议 <span class="ovb ai">AI 初稿</span> <span class="tag">确认成卷时自动登记</span></em>'
+      + flatList(ol.plants,'这一卷没有建议的伏笔。')
+      + '<p class="none" style="margin-top:4px">—— 揭露：'+esc((ol.reveals||[]).join(' ｜ ')||'无')+'</p>'
+      + '<p class="none">确认成卷后以台账为准（带编号与计划收束卷）；查看与收束切「伏笔」页签。</p></div>',
     defer: '<div class="defer-note" data-od-id="defer-layer"><b>留到写的时候</b>'
-      +   '<span>关键剧情节点与登场人物（谁 → 变成什么）：写到这一卷时再展开——那时前文的信息更足，也不至于把远处的卷编得像已经定下的事。</span></div>',
+      +   '<span>关键剧情节点（谁 → 变成什么）：写到这一卷时再展开——那时前文的信息更足，也不至于把远处的卷编得像已经定下的事。</span></div>',
     check: state.scIgnored ? '' : selfcheckHTML(curChecks())
   };
   const total = FORM_BLOCKS.length, filling = state.fill < total;
@@ -1255,29 +1353,16 @@ function savedBody(v){
   const enterS = prev ? '第'+CN[i]+'卷的计划收尾——还没写到；写到那里，这里会换成实际的样子' : '来自主线全景的「他从哪起步」';
   return olTopHTML('<span class="note">卷纲 · 规划本卷剧情</span>',
       '<button class="btn btn-sm" data-act="stub" data-label="卷纲编辑">编辑卷纲</button>')
-    + '<p class="seg-h">进场 <span class="note">这一卷是从哪里开始的</span></p>'
+    /* 四问一页纸：抽卡卡上选的答案，翻开卷就是这四行——同一骨架 */
     + '<div class="fro" data-od-id="enter-row"><em>'+esc(enterK)+' <span class="tag">只读</span></em>'
     +   '<p>'+esc(enterV)+'</p><p class="none">'+esc(enterS)+'</p></div>'
-    + '<p class="seg-h">展开依据 <span class="note">这一卷是照哪句话铺出来的</span></p>'
-    + '<div class="fro" data-od-id="line-row"><em>你写的那一句 <span class="tag">只读</span></em>'
-    +   '<p>'+esc(v.line || '（没有记录）')+'</p></div>'
-    + '<details class="cfgset" open><summary>卷基础信息</summary>'
-    +   '<div class="fro"><em>本卷主旨</em><p class="lead">'+esc(v.summary||'（未填）')+'</p></div>'
-    +   '<div class="fgrid">'
-    +     '<div class="fro"><em>结构模板</em><p>'+esc(v.struct||'—')+'</p></div>'
-    +     '<div class="fro"><em>章数目标</em><p>'+(v.total ? v.total+' 章' : '不设')+'</p></div>'
-    +   '</div>'
-    + '</details>'
-    + '<details class="cfgset" open><summary>本卷剧情</summary>'
-    +   '<div class="fro"><em>核心矛盾</em><p>'+esc(v.conflict||'（未填）')+'</p></div>'
-    +   '<div class="fro"><em>整体目标</em><p>'+esc(v.goal||'（未填）')+'</p></div>'
-    +   '<div class="fro"><em>预期结局</em><p>'+esc(v.ending||'（未填）')+'</p></div>'
-    + '</details>'
-    + '<details class="cfgset" open><summary>伏笔与信息披露</summary>'
-    +   '<div class="fro"><em>本卷埋下伏笔 <span class="req">后续卷回收</span></em>'+flatList(v.plants,'这一卷没有新埋伏笔。')+'</div>'
-    +   '<div class="fro"><em>本卷揭露信息</em>'+flatList(v.reveals,'这一卷没有需要揭露的信息。')+'</div>'
-    + '</details>'
-    + '<div class="defer-note"><b>留到写的时候</b><span>关键剧情节点与登场人物，写到这一卷时在卷纲编辑里补。</span></div>'
+    + '<div class="fro"><em><span class="qno">1</span>这一卷讲什么</em><p class="lead">'+esc(v.summary||'（未填）')+'</p></div>'
+    + '<div class="fro"><em><span class="qno">2</span>主要冲突</em><p>'+esc(v.conflict||'（未填）')+'</p></div>'
+    + '<div class="fro"><em><span class="qno">3</span>这一卷的坎</em><p>'+esc((v.ant&&v.ant.line) ? ((v.ant.type||'')+' · '+v.ant.line) : '（未填）')+'</p></div>'
+    + '<div class="fro"><em><span class="qno">4</span>卷末收在哪里</em><p>'+esc(v.ending||'（未填）')+'</p></div>'
+    + '<div class="fro" style="margin-top:2px"><em>本卷角色 <span class="tag">自动聚合</span></em><p class="none">还没有章——写到谁（章纲登记出场），这里自动有谁。</p></div>'
+    + '<div class="fro"><em>这一卷的伏笔</em><p class="none">住在台账里——切「伏笔」页签看本卷埋下、悬置与回收；登记与收束都在台账办。</p></div>'
+    + '<div class="defer-note"><b>留到写的时候</b><span>关键剧情节点，写到这一卷时在卷纲编辑里补。</span></div>'
     + '<p class="seg-h">本卷进度 <span class="note">由各章实际归属推导</span></p>'
     + '<div class="pos-line">'+pos('已归档','0 章')+pos('草稿','0 章')+pos('拟定','0 章')+pos('待写','第 1 章')+'</div>'
     + '<div class="edit-bar">'
@@ -1290,9 +1375,12 @@ function landingHTML(){
   const n = state.vols.length;
   const v = lastVol() || {};
   const nm = (v.name && String(v.name).trim()) ? v.name : ('第'+CN[n]+'卷');
+  const ant = (v.ant && v.ant.line) ? ('跟「'+v.ant.line+'」'+((v.ant.type&&v.ant.type!=='先不选')?'（'+v.ant.type+'）':'')+'过不去') : '';
+  const sub = [v.summary, ant].filter(Boolean).join('——');
   return '<div class="e-empty" data-od-id="write-default">'
     + '<p class="be-mark">第'+CN[n]+'卷 · '+esc(nm)+' 已就绪</p>'
     + '<p class="be-k">开始写第一章？</p>'
+    + (sub ? '<p class="be-sub">'+esc(sub)+'</p>' : '')
     + '<p class="be-t">点左栏的「'+esc(nm)+'」排第一章；卷纲随时能回来改，写作时也能回设定里补。</p>'
     + '<p class="be-acts">'
     +   '<button class="btn btn-accent" data-act="add-ch-in-vol" data-od-id="cta-first-chapter">＋ 在本卷排第一章</button>'
@@ -1303,7 +1391,7 @@ function emptyCardHTML(){
   return '<div class="e-empty" data-od-id="book-empty">'
       + '<p class="be-mark">设定 7/7 已确认 · 主线与结局在册</p>'
       + '<p class="be-k">这本书怎么开始？</p>'
-      + '<p class="be-t">自己动手：先建一卷、排上第一章就能开写。想让 AI 按主线拆分卷，用右侧的 AI 助手。</p>'
+      + '<p class="be-t">自己动手：点「＋ 新增一卷」回答四个问题——讲什么、主要冲突、跟谁/跟什么过不去、卷末收在哪（答不出的可以空着）。想让 AI 按设定替你铺，也在同一页。</p>'
       + '<p class="be-acts">'
       +   '<button class="btn btn-accent" data-act="manual-vol" data-od-id="empty-cta-vol">＋ 新增一卷</button>'
       +   '<button class="btn" data-act="manual-ch" data-od-id="empty-cta-ch">＋ 新增一章</button>'
@@ -1327,7 +1415,7 @@ function editorHTML(){
   return volFrame(
     '<p class="e-kicker">卷 · 分卷计划</p>'
     + '<h2 class="e-title">'+esc(nm)+'</h2>'
-    + '<div class="e-meta"><span class="tag">'+(v.total||0)+' 章目标</span><span class="hash">已归档 0 章</span></div>',
+    + '<div class="e-meta"><span class="tag">'+(v.total ? v.total+' 章目标' : '章数不设')+'</span><span class="hash">已归档 0 章</span></div>',
     savedBody(v));
 }
 
@@ -1414,27 +1502,84 @@ function railHTML(){
     + foot;
 }
 
+/* ═══════════ 渲染：三选一抽卡（付费默认路径）═══════════ */
+/* 每卡＝五个问题的答案，只摆对后续章纲/正文生成有帮助的字段：
+   讲什么（主旨）／主要冲突／这一卷的坎（类型+是谁）／角色（谁登场·作用）／卷末（收在哪） */
+function pickCardsHTML(){
+  const list = state.plans;
+  const g = $('#pick-grid'); if(!g) return;
+  if(!list || list==='busy'){
+    g.innerHTML = '<div style="grid-column:1/-1" class="ai-note"><span class="ra-spin"></span>'
+      + (list==='busy' ? '正在想三套思路——都按你的设定和上一卷的结尾推…' : '') + '</div>';
+    return;
+  }
+  g.innerHTML = list.map(p=>{
+    const o = planOl(p);
+    const cast = (o.cast||[]).map(c=>'<span>'+esc(c.n)+' · '+esc(c.l)+'</span>').join('');
+    return '<button type="button" class="pick-card'+(state.pickPick===p.k?' on':'')+'" data-act="pick-select" data-k="'+p.k+'" data-od-id="pick-card-'+p.k.toLowerCase()+'">'
+    + '<span class="pk-axis">'+esc(p.focus.split('——')[0].replace('侧重','').trim())+'</span>'
+    + '<p class="pk-title">'+esc(p.spine)+'</p>'
+    + '<div class="pk-row"><b>主要冲突</b><span>'+esc(o.conflict)+'</span></div>'
+    + (p.ant ? '<div class="pk-row"><b>这一卷的坎</b><span>'+esc(p.ant)+'</span></div>' : '')
+    + '<div class="pk-row"><b>卷末</b><span>'+esc(o.ending)+'</span></div>'
+    + (state.pickPick===p.k?'<span class="pk-picked">✓ 已选这一套</span>':'')
+    + '</button>';
+  }).join('');
+}
+function pickFootHTML(){
+  const f = $('#pick-foot'); if(!f) return;
+  const chosen = state.pickPick;
+  f.innerHTML =
+      '<button class="btn btn-sm" data-act="plans-again" data-od-id="cta-plans-again">↻ 都不满意？换 3 套</button>'
+    + '<span class="note">换一批新思路——或<button class="link" data-act="pick-to-desk">自己答四个问题</button>（答多少 AI 铺多少）</span>'
+    + (state.pickGen
+        ? '<button class="btn btn-sm btn-accent" disabled><span class="ra-spin"></span>正在铺这一卷…</button>'
+        : '<button class="btn btn-sm btn-accent" data-act="pick-confirm" data-od-id="cta-pick-confirm"'+(chosen?'':' disabled')+'>确认这一套，成卷 →</button>');
+}
+function pickModalHTML(){
+  const m = $('#pick-modal'); if(!m) return;
+  if(!state.pickModal){ m.classList.remove('on'); $('#pick-grid').innerHTML=''; $('#pick-foot').innerHTML=''; return; }
+  const n = state.planVol;
+  $('#pick-kick').textContent = '规划第'+CN[n]+'卷 · 三选一';
+  $('#pick-title').textContent = 'AI 想好了三套思路';
+  pickCardsHTML(); pickFootHTML();
+  m.classList.add('on');
+}
+
 /* ═══════════ 渲染：规划台（弹出） ═══════════ */
 /* 3 套方案：每套＝走向 + 冲突 + 卷末 + 侧重（差异写在明面上） */
 function plansHTML(){
+  return '';  /* 三套卡已前移为独立抽卡弹窗（#pick-modal）；本函数退役留空防旧调用 */
+}
+function plansHTMLLegacy(){
   const list = state.plans;
   if(!list) return '';
   if(list==='busy') return '<div class="plans" data-od-id="plans">'
-    + '<p class="plans-h">正在想 3 套可行走法…</p>'
-    + '<p class="ai-note"><span class="ra-spin"></span>都按你的全书设定和上一卷的结尾推，只在中间走向、冲突和侧重点上不同。</p></div>';
+    + '<p class="plans-h">正在想 3 套思路…</p>'
+    + '<p class="ai-note"><span class="ra-spin"></span>每套都是四个问题的完整答案——都按你的全书设定和上一卷的结尾推。</p></div>';
+  const castLine = o => {
+    const cs = (o.cast||[]).filter(Boolean);
+    return cs.length ? cs.map(c=>esc(c.n)+'·'+esc(String(c.l||'').split('——')[0])).join('　') : '（AI 补）';
+  };
   return '<div class="plans" data-od-id="plans">'
-    + '<p class="plans-h">3 套可行走法 · 都忠于全书设定与上一卷的结尾</p>'
+    + '<p class="plans-h">AI 想了 3 套 · 每套都是五个问题的答案——选一套就用，可改</p>'
     + list.map(p=>{
         const o = planOl(p);
         return '<div class="cand" data-od-id="plan-'+p.k.toLowerCase()+'">'
         + '<p class="cand-dir"><span class="cand-k">'+p.k+'</span>'+esc(p.spine)+'</p>'
-        + '<p class="cand-line"><b>冲突</b><span>'+esc(o.conflict)+'</span></p>'
+        + '<p class="cand-line"><b>主要冲突</b><span>'+esc(o.conflict)+'</span></p>'
+        + (p.ant ? '<p class="cand-line"><b>这一卷的坎</b><span>'+esc(p.ant)+'</span></p>' : '')
+        + '<p class="cand-line"><b>角色</b><span>'+castLine(o)+'</span></p>'
         + '<p class="cand-line"><b>卷末</b><span>'+esc(o.ending)+'</span></p>'
         + '<p class="cand-line"><b>侧重</b><span>'+esc(p.focus)+'</span></p>'
-        + '<div class="cand-foot"><span class="note">选它 → 展开这一卷的卷纲，可改</span>'
+        + '<div class="cand-foot"><span class="note">选它 → 五个答案填进上面，AI 再铺细稿——都可改</span>'
         +   '<button class="btn btn-sm btn-accent" data-act="pick" data-k="'+p.k+'" data-od-id="pick-'+p.k.toLowerCase()+'">选它</button>'
         + '</div></div>';
       }).join('')
+    + '<div class="cast-foot" style="margin-top:12px">'
+    +   '<button class="btn btn-sm" data-act="plans-again" data-od-id="cta-plans-again">都不满意？换 3 套</button>'
+    +   '<span class="note">换个思路重抽——或者自己往下答五个问题，答多少 AI 铺多少</span>'
+    + '</div>'
     + '</div>';
 }
 /* 规划台的第一块材料：这一卷从哪里进场（上一卷的结尾／首卷用全景起步）＋全书卷数估计 */
@@ -1467,15 +1612,16 @@ function genProgressHTML(done){
   const list = '<ul class="ex-steps">'+steps.map(s=>'<li><span>'+s[0]+'</span><em class="'+s[1]+'">'
     + (s[1]==='ok' ? '✓ ' : '<span class="ra-spin"></span>') + s[2] + '</em></li>').join('')+'</ul>';
   if(done){
+    const castBlock = '';
     return '<div class="genbox" data-od-id="gen-box">'
       + '<p class="gen-k">第'+CN[state.planVol]+'卷的卷纲已备好</p>'
       + '<p class="gen-t">'+esc(ol.name||'（卷名待定）')+' · 建议 '+(ol.total||'—')+' 章 · 自查 2 处要留意。'
       + '点「回填」，它会一条条写进中栏的卷纲表单——你改完再保存。</p>'
-      + list + '</div>';
+      + list + castBlock + '</div>';
   }
   return '<div class="genbox" data-od-id="gen-box">'
     + '<p class="gen-k">正在展开第'+CN[state.planVol]+'卷</p>'
-    + '<p class="gen-t">按'+(curPlan() ? '选的那一套走法' : '你写的那一句')
+    + '<p class="gen-t">按'+(curPlan() ? '选的那一套走法' : (state.submittedLine ? '你写的那一句' : '你的全书设定'))
     + '，把这一卷的卷纲填起来——冲突、卷末、埋与揭，最后自己先过一遍。</p>'
     + '<div class="ex-bar"><i style="width:64%"></i></div>'
     + list + '</div>';
@@ -1483,7 +1629,10 @@ function genProgressHTML(done){
 function planHTML(){
   const modal = $('#plan-modal');
   if(!modal) return;
-  if(!state.modal){ modal.classList.remove('on'); return; }
+  if(!state.modal){ modal.classList.remove('on');
+    /* 关弹窗即清内容：防隐藏 DOM 里的 data 属性双份（完成态清单等） */
+    const d=$('#plan-desk'), c=$('#plan-cands'), f=$('#plan-foot');
+    if(d) d.innerHTML=''; if(c) c.innerHTML=''; if(f) f.innerHTML=''; return; }
   const n = state.planVol, v2 = n>1;
   $('#plan-kick').textContent = '分卷规划 · 第'+CN[n]+'卷';
   $('#plan-title').textContent = '规划第'+CN[n]+'卷';
@@ -1505,20 +1654,35 @@ function planHTML(){
   }
   $('#plan-deps').innerHTML = '<details class="cfgset plan-deps"><summary>分卷依据 · 来自你的设定 <span class="note">全书结局也在这儿，只作参照</span></summary>'
     + '<div class="dep-ledger">'+depRows()+'</div></details>';
-  const empty = !state.input.trim();
   $('#plan-cands').innerHTML = '';
   $('#plan-again').innerHTML = '';
   $('#plan-again').classList.add('empty');
-  $('#plan-desk').innerHTML = '<span class="plan-label">这一卷想看什么？ <span class="note">可写可不写——写了就按你的来</span></span>'
-    + '<textarea class="box box-sm" id="plan-input" rows="3" spellcheck="false" placeholder="'
-      + (v2 ? '一句话说清：谁想干什么、被什么拦住、最后落到哪' : '例：她为追信号把坐标押给船队，欠下一条命——这一卷以她第一次主动骗人收尾') + '">'+esc(state.input)+'</textarea>'
-    + '<div class="plan-desk-acts">'
-    +   '<button class="btn btn-accent" data-act="expand" data-od-id="cta-expand"'+(empty||!state.pro?' disabled':'')+'>按这一句展开</button>'
-    +   '<button class="btn" data-act="plans" data-od-id="cta-plans"'+(!state.pro?' disabled':'')+'>给我 3 套方案</button>'
-    +   '<span class="push">'+(state.pro ? '走向由你定——AI 不替你改' : '<span class="pill-pro">PRO</span> 生成需 PRO；体检与手写不受限')+'</span>'
+  /* 五问页：一卷的规划＝回答五个问题；答得出的手写（免费），答不出的交给 AI 铺（PRO）。
+     卷名与章数不在此页（卷名最后起；章数进卷纲）——手动「新增一卷」与本台同一入口。 */
+  $('#plan-desk').innerHTML = '<p class="plans-h" style="margin-top:12px">四个问题 · 答得出就答，答不出的交给 AI</p>'
+    + '<div class="fro"><em><span class="qno">1</span>这一卷讲什么？ <span class="note">可空——空着 AI 按设定推</span></em>'
+    +   '<textarea class="box box-sm" id="q-what" rows="2" spellcheck="false" placeholder="'
+      + (v2 ? '一句话说清：接着上一卷的结尾，谁想干什么' : '例：她为追信号把坐标押给船队，欠下一条命') + '">'+esc(state.q1)+'</textarea>'
+    +   '<button class="link" data-act="plans" data-od-id="cta-plans"'+(!state.pro?' disabled':'')+' style="margin-top:6px">没想法？让 AI 给 3 套方案</button></div>'
+    + '<div class="fro"><em><span class="qno">2</span>主要冲突是什么？ <span class="note">想做什么，被什么拦住</span></em>'
+    +   '<textarea class="box box-sm" id="q-conflict" rows="2" spellcheck="false" placeholder="例：想只靠自己，可补给单上没有她的名字">'+esc(state.q2)+'</textarea></div>'
+    + '<div class="fro plan-hurdle"><em><span class="qno">3</span>这一卷的坎是谁／是什么？ <span class="note">反派 · 难题 · 环境 · 自我——卷与卷要递进</span></em>'
+    +   '<div class="hurdle-row">'
+    +     '<select class="box box-sm" id="p-ant-type">' + ['先不选','人物','难题','环境','自我','势力']
+        .map(t=>'<option'+(t===state.antType?' selected':'')+'>'+t+'</option>').join('') + '</select>'
+    +     '<input class="box box-sm" id="p-ant-line" placeholder="例：体内饥渴——越压越饿，还是得用它" value="'+attr(state.antLine)+'" autocomplete="off" />'
+    +   '</div>'
+    +   (state.antLine.trim() && !knownCast(state.antLine)
+        ? '<p class="ai-note" style="margin-top:6px">「'+esc(newNameOf(state.antLine))+'」还不在角色表——<button class="link" data-act="quick-card" data-name="'+attr(newNameOf(state.antLine))+'">先建一张卡（名字＋定位一句话）</button>，建完它就进设定。</p>' : '')
     + '</div>'
-    + '<p class="hint">3 套都忠于全书主线、世界观、核心人物和终极目标——不同的只是中间走向、冲突和侧重点。</p>'
-    + plansHTML()
+    + '<div class="fro"><em><span class="qno">4</span>卷末收在哪里？ <span class="note">这一卷结束时，局面变成什么样</span></em>'
+    +   '<textarea class="box box-sm" id="q-ending" rows="2" spellcheck="false" placeholder="例：没有退路，也没有人可以怪">'+esc(state.q5)+'</textarea></div>'
+    + '<div class="plan-desk-acts">'
+    +   '<button class="btn btn-accent" data-act="expand" data-od-id="cta-expand"'+(!state.pro?' disabled':'')+'>让 AI 铺完剩下的问题</button>'
+    +   '<button class="btn" data-act="manual-create" data-od-id="cta-manual-create">直接创建这一卷</button>'
+    +   '<span class="push">'+(state.pro ? '你答过的它不改——AI 只铺空着的' : '<span class="pill-pro">PRO</span> 铺空缺需 PRO；手写与创建不受限')+'</span>'
+    + '</div>'
+    + '<p class="hint">三套都忠于全书主线、世界观、核心人物和终极目标——不同的只是走向、冲突和侧重点。</p>'
     + '<details class="cfgset plan-rules" data-od-id="plan-rules"><summary>展开时遵守的规则 · 每卷都带上</summary>'
     +   '<ul class="rp-list">'+RULES.map(r=>'<li class="rp-row"><span class="rp-dot" aria-hidden="true"></span><span class="rp-tx">'+esc(r)+'</span></li>').join('')+'</ul>'
     +   '<p class="ai-note" style="margin-top:10px">每次展开都守着这七条；「卷纲体检」也是照它们复核。</p>'
@@ -1538,6 +1702,9 @@ function demoHTML(){
 }
 
 function render(){
+  pickModalHTML();
+  const av = $('#av-modal');
+  if(av) av.classList.toggle('on', !!state.avModal);
   $('#here-bar-slot').innerHTML = barHere();
   const vols = state.vols.length;
   $('#modWriteCnt').textContent = vols ? '0/'+vols+' 章纲' : '0/0 章纲';
@@ -1549,13 +1716,51 @@ function render(){
   planHTML(); demoHTML();
 }
 
+/* ═══════════ 抽卡数据加载 ═══════════ */
+function drawPlans(){
+  state.plans='busy'; if(state.pickModal) pickCardsHTML(); else render();
+  const token = ++state.genToken;
+  setTimeout(()=>{
+    if(state.genToken!==token) return;
+    state.plans = (state.plansRound ? PLANS_ALT[state.planVol] : PLANS[state.planVol]) || PLANS[state.planVol];
+    if(!state.plans || !state.plans.length){ state.plans = PLANS[state.planVol]; }
+    state.pickPick = null;
+    if(state.pickModal){ pickCardsHTML(); pickFootHTML(); } else render();
+  }, 900);
+}
+
+/* 卷角色＝聚合视图（demo 恒空——本稿没有章数据；实现＝卷下各章章纲 characters 合集） */
+function viewedVolHasChapters(){ return false; }
+function aggCastLine(){ return ''; }
+
+/* ═══════════ 手动创建（四问页的免费路径）═══════════ */
+/* 不经 AI：五问页上答了多少建多少，卷名兜底「第N卷」（卷名最后起），落点卡承接 */
+function manualCreate(){
+  syncDesk();
+  const n = state.vols.length + 1;
+  const vol = { name:'第'+CN[n]+'卷', summary:state.q1.trim(), conflict:state.q2.trim(),
+    ending:state.q5.trim(),
+    ant:{ type:state.antType==='先不选'?'':state.antType, line:state.antLine.trim() }, total:0 };
+  state.vols.push(vol);
+  Object.assign(state,{ modal:false, phase:'saved', selVol:-1, planVol:n, demo:'' });
+  render();
+  toast('第'+CN[n]+'卷已建好——卷名与章数进卷纲再定，角色清单也在卷纲里等你');
+}
+/* 五问页 → state（展开/创建前兜底同步；输入事件已即时同步，这里兜底失焦漏网） */
+function syncDesk(){
+  const g=id=>{ const el=$('#'+id); return el ? el.value : ''; };
+  state.q1=g('q-what'); state.q2=g('q-conflict'); state.q5=g('q-ending');
+  const t=$('#p-ant-type'), l=$('#p-ant-line');
+  if(t) state.antType=t.value;
+  if(l) state.antLine=l.value;
+}
+
 /* ═══════════ 动作 ═══════════ */
 function collectVolEdits(){
   const g = id=>{ const el=$('#'+id); return el ? el.value : ''; };
-  const lines = id => g(id).split('\n').map(s=>s.trim()).filter(Boolean);
-  return { name:g('v-name').trim(), struct:g('v-struct'), total:parseInt(g('v-total'),10)||0,
-    summary:g('v-summary').trim(), conflict:g('v-conflict').trim(), goal:g('v-goal').trim(), ending:g('v-ending').trim(),
-    plants:lines('v-plants'), reveals:lines('v-reveals') };
+  return { name:g('v-name').trim(), total:parseInt(g('v-total'),10)||0,
+    summary:g('v-summary').trim(), conflict:g('v-conflict').trim(), ending:g('v-ending').trim(),
+    ant:{ type:(()=>{ const el=$('#v-ant-type'); return el?el.value:''; })(), line:g('v-ant-line').trim() } };
 }
 function saveVol(){
   const d = collectVolEdits();
@@ -1576,6 +1781,12 @@ function startGen(){
   render();
   setTimeout(()=>{
     if(state.genToken!==token || state.phase!=='gen') return;
+    const ol = curOl();
+    /* 作家答过的它不改：Q1→主旨来源；Q2/Q4 非空覆盖 AI 稿；Q3（坎）覆盖 */
+    if(state.q2.trim()) ol.conflict = state.q2.trim();
+    if(state.q5.trim()) ol.ending = state.q5.trim();
+    if(state.antLine.trim()) ol.ant = { type: state.antType==='先不选' ? '' : state.antType, line: state.antLine.trim() };
+
     state.genDone = true; render();
     if(!state.modal) beginFill();   /* 弹窗被关掉：不必再点一次，直接回填 */
   }, 2600);
@@ -1607,14 +1818,23 @@ function openPlan(n){
   if(n>2){ toast('演示稿：本稿演到第二卷为止'); return; }
   state.planVol = n; state.pick = null; state.check = null; state.scIgnored = false;
   state.genView = false; state.genDone = false; state.fill = 0; state.submittedLine = ''; state.plans = null;
-  state.input = curLine();   /* 首卷＝演示里作家写好的那一句；第二卷留空，由作家写或抽 3 套 */
-  state.modal = true; state.demo = (n===2 ? 'next' : 'desk');
-  render();
+  state.q1=''; state.q2=''; state.q5=''; state.antType='先不选'; state.antLine=''; state.cast=[]; state.castIgnored=false;
+  state.input = curLine();   /* 首卷＝演示里作家写好的那一句；第二卷留空 */
+  state.plansRound = 0; state.pickPick = null; state.pickGen = false;
+  /* 付费＝三选一抽卡弹窗（roguelike：AI 先把五问答好三份，作家决策）；免费＝五问手写页 */
+  if(state.pro){
+    state.pickModal = true; state.modal = false; state.demo = (n===2 ? 'next' : 'desk');
+    render(); drawPlans();
+  } else {
+    state.modal = true; state.pickModal = false; state.demo = (n===2 ? 'next' : 'desk');
+    render();
+  }
 }
 function mkVol(c){ return Object.assign({}, JSON.parse(JSON.stringify(c.ol)), { dir:c.dir, why:c.why }); }
 function setDemo(k){
   if(k==='empty'){ Object.assign(state,{phase:'empty',pick:null,vols:[],check:null,scIgnored:false,modal:false,input:'',submittedLine:'',planVol:1,genView:false,genDone:false,fill:0,selVol:-1}); }
-  else if(k==='desk'){ Object.assign(state,{phase:'empty',pick:null,vols:[],check:null,scIgnored:false,modal:true,input:CANDS[0].dir,submittedLine:'',planVol:1,genView:false,genDone:false,fill:0,selVol:-1,plans:PLANS[1]}); }
+  else if(k==='desk'){ Object.assign(state,{phase:'empty',pick:null,vols:[],check:null,scIgnored:false,modal:false,pickModal:false,input:CANDS[0].dir,submittedLine:'',planVol:1,genView:false,genDone:false,fill:0,selVol:-1,plans:null,plansRound:0,pickPick:null});
+    if(state.pro){ state.pickModal=true; render(); drawPlans(); } else { state.modal=true; render(); } }
   else if(k==='genDone'){ Object.assign(state,{pick:'A',vols:[],modal:true,phase:'gen',planVol:1,genView:true,genDone:true,fill:0,check:null,scIgnored:false,input:CANDS[0].dir,submittedLine:CANDS[0].dir,selVol:-1}); }
   else if(k==='saved'){ Object.assign(state,{pick:'A',vols:[mkVol(CANDS[0])],modal:false,phase:'saved',planVol:1,selVol:-1,check:null,genView:false,genDone:false,fill:FORM_BLOCKS.length,submittedLine:CANDS[0].dir}); }
   else if(k==='vol'){ Object.assign(state,{pick:'A',vols:[mkVol(CANDS[0])],modal:false,phase:'saved',planVol:1,selVol:0,check:'done',genView:false,genDone:false,fill:FORM_BLOCKS.length,submittedLine:CANDS[0].dir}); }
@@ -1628,13 +1848,59 @@ const ACTS = {
   'next-vol': ()=>{ openPlan(nextNo()); },
   'plan-close': ()=>{ state.modal=false; state.genView=false; if(state.phase==='gen' && state.genDone) beginFill(); else render(); },
   'fill': ()=>{ beginFill(); },
-  'expand': ()=>{ const v=(state.input||'').trim(); if(!v){ toast('先写一句——这一卷的走向由你定'); return; }
-    state.submittedLine = v; state.pick = (v===curLine() ? 'A' : 'custom'); state.modal=false; startGen(); },
+  'expand': ()=>{ if(!state.pro){ toast('生成需 PRO'); return; }
+    syncDesk();
+    state.submittedLine = state.q1.trim(); state.pick = (curPlan() ? state.pick : (state.submittedLine ? 'custom' : null));
+    state.modal=false; startGen(); },
+  'manual-create': ()=>{ manualCreate(); },
   'plan-again': ()=>{ state.modal=true; state.genView=false; state.genDone=false; render(); },
-  'plans': ()=>{ if(!state.pro){ toast('生成需 PRO'); return; } state.plans='busy'; state.pick=null; render();
-    setTimeout(()=>{ state.plans = PLANS[state.planVol]; render(); toast('给了 3 套走法 · 都忠于全书设定与上一卷的结尾'); }, 900); },
+  'plans': ()=>{ if(!state.pro){ toast('生成需 PRO'); return; }
+    state.modal=false; state.pickModal=true; state.pickPick=null; state.plans='busy'; render(); drawPlans(); },
+  'pick-select': el=>{ state.pickPick = el.dataset.k; pickCardsHTML(); pickFootHTML(); },
+  'pick-close': ()=>{ state.pickModal=false; state.pickGen=false; state.genToken++; render(); },
+  'pick-to-desk': ()=>{ state.pickModal=false; state.modal=true; render(); },
+  'pick-confirm': ()=>{
+    const p = (state.plans||[]).find(x=>x.k===state.pickPick);
+    if(!p) return;
+    state.pickGen = true; pickFootHTML();
+    const token = ++state.genToken;   /* 确认中关闭＝取消不落库 */
+    setTimeout(()=>{
+      if(state.genToken!==token) return;
+      const n = state.planVol;
+      const o = planOl(p);
+      const vol = Object.assign(JSON.parse(JSON.stringify(o)), {
+        name:o.name||('第'+CN[n]+'卷'),
+        ant:(p.ant?{type:String(p.ant).split(' · ')[0], line:String(p.ant).split(' · ').slice(1).join(' · ')}:{type:'',line:''}),
+        total:o.total||0 });
+      if(state.vols[n-1]) state.vols[n-1]=vol; else state.vols.push(vol);
+      Object.assign(state,{ pickModal:false, pickGen:false, pickPick:null, phase:'saved',
+        selVol:-1, check:null, scIgnored:false, submittedLine:p.spine, demo:'' });
+      render();
+      const nPlant = (o.plants||[]).length;
+      toast('第'+CN[n]+'卷「'+vol.name+'」已生成 · 建议 '+(vol.total||'—')+' 章'
+        + (nPlant ? ' · '+nPlant+' 条伏笔建议已登记台账（编号可查）' : '') + '——进卷纲可改，排第一章就能开写');
+    }, 1200);
+  },
+  'plans-again': ()=>{ if(!state.pro){ toast('换思路需 PRO'); return; }
+    state.pickPick=null; state.plans='busy'; state.pick=null;
+    if(state.pickModal) pickCardsHTML(); else render();
+    setTimeout(()=>{
+      state.plansRound = 1 - state.plansRound;
+      const alt = PLANS_ALT[state.planVol];
+      if(!alt || !alt.length){ state.plans = PLANS[state.planVol]; render(); toast('演示稿：这一卷的备选组待补——实现侧会重抽'); return; }
+      state.plans = alt; render(); if(state.pickModal) pickCardsHTML(); toast('换了 3 套 · 还是那本书，只是走法不同');
+    }, 900); },
   'pick': el=>{ const p=(state.plans||[]).find(x=>x.k===el.dataset.k); if(!p) return;
-    state.pick=p.k; state.input=p.spine; state.submittedLine=p.spine; state.modal=false; startGen(); },
+    const o=planOl(p);
+    state.pick=p.k; state.q1=p.spine; state.q2=o.conflict; state.q5=o.ending;
+    if(p.ant){ const m=String(p.ant).split(' · '); state.antType=(m.length>1?m[0]:''); state.antLine=(m.length>1?m.slice(1).join(' · '):p.ant); }
+    state.cast=(o.cast||[]).map(c=>({n:c.n,l:c.l}));
+    state.input=p.spine; state.submittedLine=p.spine; state.modal=false; startGen(); },
+  'cast-del': el=>{ state.cast[+el.dataset.i].del = true; render(); },
+  'cast-add': ()=>{ state.cast.push({n:'', l:''}); render(); },
+  'cast-ignore': ()=>{ state.castIgnored=true; state.cast=[]; render(); toast('已忽略 · 登场人物留到写的时候再补'); },
+  'quick-card': el=>{ KNOWN.push(el.dataset.name); toast('已建最小卡：「'+el.dataset.name+'」——名字＋定位一句话，设定页可补全'); render(); },
+
   'vol-save': ()=>{ saveVol(); },
   'vol-cancel': ()=>{ Object.assign(state,{phase:'empty',pick:null,vols:[],check:null,scIgnored:false,planVol:1,genView:false,genDone:false,fill:0}); state.demo='empty'; render(); toast('已放弃这一版 · 方向可以重选'); },
   'check': ()=>{ runCheck(); },
@@ -1643,7 +1909,7 @@ const ACTS = {
   'sc-fix': ()=>{ toast('演示稿：让 AI 按这条自查改一版（本稿不覆盖）'); },
   'sc-ignore': ()=>{ state.scIgnored=true; render(); },
   'dep': el=>{ toast('演示稿：跳回设定页「'+el.dataset.name+'」——本原型未覆盖设定视图'); },
-  'manual-vol': ()=>{ toast('演示稿：手动建卷走现有「添加卷」弹窗（本稿不覆盖）'); },
+  'manual-vol': ()=>openPlan(nextNo()),
   'manual-ch': ()=>{ toast('演示稿：手动排章走现有「先垫第一卷」路径（本稿不覆盖）'); },
   'add-ch-in-vol': ()=>{ toast('演示稿：排第一章走现有章工作台（本稿不覆盖）'); },
   'jump': ()=>{ state.selVol = -1; state.check = null; render(); toast('回到写作页 · 没有选中卷或章'); },
@@ -1660,14 +1926,36 @@ document.addEventListener('click', e=>{
   if(fn){ e.preventDefault(); fn(t); }
 });
 document.addEventListener('input', e=>{
-  if(e.target && e.target.id==='plan-input'){
-    state.input = e.target.value;
-    const b = $('#cta-expand');
-    if(b) b.disabled = !state.input.trim() || !state.pro;
+  const t = e.target;
+  if(!t) return;
+  if(t.id==='plan-input'){ state.input = t.value; }
+  if(t.id==='q-what'){ state.q1 = t.value; }
+  if(t.id==='q-conflict'){ state.q2 = t.value; }
+  if(t.id==='q-ending'){ state.q5 = t.value; }
+  if(t.id==='p-ant-line'){
+    state.antLine = t.value;
+    const h = t.closest('.plan-hurdle');
+    if(h){
+      let note = h.querySelector('.quick-note');
+      const n = newNameOf(t.value);
+      if(t.value.trim() && n && !KNOWN.includes(n)){
+        if(!note){ note = document.createElement('p'); note.className='ai-note quick-note'; note.style.marginTop='6px'; h.appendChild(note); }
+        note.innerHTML = '「'+esc(n)+'」还不在角色表——<button class="link" data-act="quick-card" data-name="'+attr(n)+'">先建一张卡（名字＋定位一句话）</button>，建完它就进设定。';
+      } else if(note){ note.remove(); }
+    }
   }
+  if(t.dataset.castN!==undefined){ state.cast[+t.dataset.castN].n = t.value; }
+  if(t.dataset.castL!==undefined){ state.cast[+t.dataset.castL].l = t.value; }
+});
+document.addEventListener('change', e=>{
+  const t = e.target;
+  if(t && t.id==='p-ant-type'){ state.antType = t.value; }
 });
 document.addEventListener('keydown', e=>{
-  if(e.key==='Escape' && state.modal){ state.modal=false; render(); }
+  if(e.key!=='Escape') return;
+  if(state.pickModal){ state.pickModal=false; render(); return; }
+  if(state.avModal){ state.avModal=false; render(); return; }
+  if(state.modal){ state.modal=false; render(); }
 });
 $('#btn-home').addEventListener('click',()=>toast('演示稿：返回我的作品（作品列表）不在本原型范围'));
 $('#btn-acct').addEventListener('click',()=>toast('演示稿：账号与设置不在本原型范围'));

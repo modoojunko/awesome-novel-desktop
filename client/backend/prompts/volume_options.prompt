@@ -13,8 +13,9 @@
 5. 作者写了想法时，每一套都要说明「怎么执行这句话」。
 
 每套给四个字段：spine（一句话走向，≤40 字）｜conflict（一句话冲突，≤40 字）｜ending（这一卷收在哪里，必须能当下一卷的进场，≤40 字）｜focus（这一套相对另外两套的侧重，≤20 字，从侧重轴里取一个词）。
+「这一卷的坎」用 antagonist_type（人物/难题/环境/自我/势力）+ antagonist_line（一句话）：是人物或势力时**把名字照设定原文写全**（如「执法官雷——点名要他停手」），便于与设定对拍。
 
 只输出 JSON，不要其他文字：
-{"plans":[{"spine":"…","conflict":"…","ending":"…","focus":"…","focus_axis":"代价"}],"note":"…","volume_estimate":"…","cast":["…"],"factions":["…"]}
+{"plans":[{"spine":"…","conflict":"…","ending":"…","focus":"…","focus_axis":"代价","antagonist_type":"人物","antagonist_line":"…≤150字"}],"note":"…","volume_estimate":"…","cast":["…"],"factions":["…"]}
 
 cast 与 factions：把三套里用到的所有人物名与势力名显式列出（照设定里的原文写；没有就给空数组）。

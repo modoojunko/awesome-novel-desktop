@@ -60,6 +60,8 @@ class NovelHook(Base):
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     # active | resolved | abandoned（单列；状态切换只改此列，归档不碰）
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    # 计划收束卷（c-volume-antagonist：卷规划期伏笔建议入台账时的目标卷号，可空）
+    planned_volume_no: Mapped[int | None] = mapped_column(Integer)
     # 章节引用存 chapter id（FK SET NULL）：删章/删卷后置 NULL，前端显「章节已删」
     introduced_chapter_id: Mapped[str | None] = mapped_column(
         String(36),

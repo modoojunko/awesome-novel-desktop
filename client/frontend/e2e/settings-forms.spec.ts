@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext, type Dialog } from "@playwright/test";
-import { cleanupSessionNovels, pollBackend, stableClick } from "./helpers";
+import { cleanupSessionNovels, pollBackend, stableClick, writeFirstChapter } from "./helpers";
 
 // =========================================================================
 // 设定真实表单 + 预览只读 E2E（PR4 v2 设定视图 two-col + 预览视图复刻后改版）
@@ -129,23 +129,6 @@ async function createNovel(page: Page, name: string): Promise<string> {
   return m[1];
 }
 
-/** 加卷 + 初始 1 章 → 点章 → 切「正文」→ 编辑器就绪（PR3：添加卷弹窗 + 点章强制落章纲）。 */
-async function writeFirstChapter(page: Page) {
-  await page.getByTitle("添加卷").click();
-  await page.getByLabel("卷名", { exact: true }).fill("第一卷");
-  await page.getByLabel(/初始章数/).fill("1");
-  await page.getByRole("button", { name: "创建卷" }).click();
-  const chRow = page.locator(".three-col .ch", { hasText: "第一章" });
-  await expect(chRow).toBeVisible({ timeout: 10000 });
-  await chRow.click();
-  await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({
-    timeout: 10000,
-  });
-  await page.getByRole("tab", { name: /^正文/ }).click();
-  const editor = page.locator(".three-col .editor");
-  await expect(editor).toBeVisible({ timeout: 10000 });
-  return editor;
-}
 
 /** 带 Bearer token 的 API GET 并解析 JSON。 */
 async function apiGetJSON(request: APIRequestContext, token: string, path: string) {

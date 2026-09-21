@@ -4,11 +4,14 @@
  * 新增交付批时只改这里；目录完整性由契约测试把守（api-config 目录不能漏文件）。
  */
 export const COVERAGE_CONTRACT_FILES = [
-  // volume-plan-ai（分卷规划：规划台/状态机/API 契约）
+  // volume-plan-ai + c-volume-antagonist（分卷规划：抽卡/四问页/状态机/API 契约）
+  "src/components/novel/workbench/PickCardsModal.tsx",
+  "src/components/novel/volume/form.ts",
   "src/lib/volumePlanApi.ts",
   "src/hooks/useVolumePlan.ts",
   "src/components/novel/workbench/VolumePlanModal.tsx",
   "src/components/novel/workbench/VolumeAssistPanel.tsx",
+  "src/lib/metrics.ts",
   // 批 0（#417/#418 交付触及的 5 个文件）
   "src/lib/api.ts",
   "src/lib/nodeTitle.ts",

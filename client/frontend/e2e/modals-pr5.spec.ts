@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
-import { cleanupSessionNovels, stableClick } from "./helpers";
+import { cleanupSessionNovels, stableClick, writeFirstChapter } from "./helpers";
 
 // =========================================================================
 // PR 5 弹窗群 E2E（book.html 3/3：删除分级 / 只读章 AI 解锁链 / 版本历史 / 本书偏好）
@@ -140,23 +140,6 @@ async function createNovel(page: Page, name: string): Promise<string> {
   return m[1];
 }
 
-/** 加卷 + 初始 1 章 → 点章 → 切「正文」→ 编辑器就绪（PR3 口径）。 */
-async function writeFirstChapter(page: Page) {
-  await page.getByTitle("添加卷").click();
-  await page.getByLabel("卷名", { exact: true }).fill("第一卷");
-  await page.getByLabel(/初始章数/).fill("1");
-  await page.getByRole("button", { name: "创建卷" }).click();
-  const chRow = page.locator(".col-tree .ch", { hasText: "第一章" });
-  await expect(chRow).toBeVisible({ timeout: 10000 });
-  await chRow.click();
-  await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({
-    timeout: 10000,
-  });
-  await page.getByRole("tab", { name: /^正文/ }).click();
-  const editor = page.locator(".editor");
-  await expect(editor).toBeVisible({ timeout: 10000 });
-  return editor;
-}
 
 /** 等一次正文自动保存成功落库（PUT /chapters/vol-1-ch-1），注册须先于触发动作。 */
 async function waitForProseSave(page: Page) {

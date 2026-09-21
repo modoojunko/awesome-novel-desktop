@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
-import { cleanupSessionNovels, stableClick } from "./helpers";
+import { addFirstChapterViaTree, cleanupSessionNovels, stableClick } from "./helpers";
 
 // =========================================================================
 // 两段式提示词 → 正文生成 全链路 E2E（ai-prompt-crafting，打桩 AI）：
@@ -127,16 +127,9 @@ async function ensurePromptAccess(request: APIRequestContext, token: string) {
   expect(r.ok()).toBeTruthy();
 }
 
-/** 加卷 + 初始 1 章 → 点章 → 停在「章纲」页签 */
+/** 空书起手：树底「＋ 新增一章」垫第一卷排第一章 → 点章 → 停在「章纲」页签 */
 async function setupFirstChapter(page: Page) {
-  await page.getByTitle("添加卷").click();
-  await page.getByLabel("卷名", { exact: true }).fill("第一卷");
-  await page.getByLabel(/初始章数/).fill("1");
-  await page.getByRole("button", { name: "创建卷" }).click();
-  const chRow = page.locator(".col-tree .ch", { hasText: "第一章" });
-  await expect(chRow).toBeVisible({ timeout: 10000 });
-  await chRow.click();
-  await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({ timeout: 10000 });
+  await addFirstChapterViaTree(page);
 }
 
 const POLISHED_PROMPT = [

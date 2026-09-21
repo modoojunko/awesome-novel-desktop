@@ -101,10 +101,18 @@ def _vol_no_of(c) -> int:
 
 
 async def create_volume(
-    db, project, *, title: str, summary: str = "", plan_line: str = ""
+    db, project, *, title: str, summary: str = "",
+    core_conflict: str = "", ending: str = "",
+    antagonist_type: str | None = None, antagonist_line: str = "",
+    chapter_target: int | None = None,
 ) -> dict:
-    """MAX+1（忽略 body.vol_num）+ tier 门控 + DB 行 + 计数自增。"""
+    """MAX+1（忽略 body.vol_num）+ tier 门控 + DB 行 + 计数自增。
+
+    四问＋章数一次写入（c-volume-antagonist：抽卡确认与免费「直接创建」共用）；
+    卷名可空——**服务端兜底「第N卷」**（VolumeCreate.title 已放宽为空，别再依赖调用方兜底）。
+    """
     vol_no = await volume_repo.max_volume_no(db, project.id) + 1
+    title = (title or "").strip() or f"第{vol_no}卷"
     result = await tier_or_gate(
         db, project, gate_settings_complete, project.root_path, project.id
     )
@@ -112,7 +120,12 @@ async def create_volume(
         raise HTTPException(400, f"Settings incomplete: {result.warnings}")
 
     update_phase(project, "outline")
-    await volume_repo.upsert(db, project.id, vol_no, title=title, summary=summary, plan_line=plan_line)
+    vol = await volume_repo.upsert(db, project.id, vol_no, title=title, summary=summary)
+    vol.core_conflict = core_conflict
+    vol.ending = ending
+    vol.antagonist_type = antagonist_type or None
+    vol.antagonist_line = antagonist_line
+    vol.chapter_target = chapter_target
     project.total_volumes += 1
     await db.commit()
     logger.info("created volume %s for project %s", vol_no, project.id)
@@ -122,12 +135,11 @@ async def create_volume(
 
 # 组装详情时输出的卷纲标量键（None 的不输出，保持响应干净）
 _DETAIL_SCALARS = [
-    "template_name",
     "core_conflict",
-    "goal",
     "ending",
     "chapter_target",
-    "plan_line",
+    "antagonist_type",
+    "antagonist_line",
 ]
 
 
@@ -136,6 +148,49 @@ def _split_lines(value: str | None) -> list[str]:
     from volumes.schemas import normalize_line_list
 
     return normalize_line_list([value or ""])
+
+
+async def _aggregate_cast(db, vol) -> list[dict]:
+    """卷角色聚合（只读视图）：卷下各**主线章**章纲出场角色合集（去重保序、主角置顶）。
+
+    - 空态＝无章即空；主角只在聚合集里出现时置顶（不凭空入列——评审拍板）；
+    - 旧稿支线章（ghost_of 非空）不参与（与同一响应的 chapters 口径一致）；
+    - 名字在 antagonist_line 中命中者标反派；行形状 {name, role}；
+    - 一条 JOIN 取全（旧实现逐章一条 SELECT：200 章 ≈ 200 条语句，导出链再乘卷数）。
+    """
+    from sqlalchemy import select
+
+    from models.chapter import Chapter, ChapterCharacter
+    from models.character import Character
+
+    rows = await db.execute(
+        select(ChapterCharacter.character_name)
+        .join(Chapter, Chapter.id == ChapterCharacter.chapter_id)
+        .where(Chapter.volume_id == vol.id, Chapter.ghost_of.is_(None))
+        .order_by(Chapter.chapter_no, ChapterCharacter.sort_order)
+    )
+    names: list[str] = []
+    seen: set[str] = set()
+    for (raw,) in rows.all():
+        nm = (raw or "").strip()
+        if nm and nm not in seen:
+            seen.add(nm)
+            names.append(nm)
+
+    # 主角置顶：本卷聚合集里若含主角（role='主角'），排到最前
+    protagonist = await db.scalar(
+        select(Character.name).where(
+            Character.novel_id == vol.project_id, Character.role == "主角"
+        )
+    )
+    if protagonist and protagonist in seen:
+        names = [protagonist] + [n for n in names if n != protagonist]
+
+    ant_line = (vol.antagonist_line or "").strip()
+    return [
+        {"name": nm, "role": ("反派" if ant_line and nm in ant_line else "")}
+        for nm in names
+    ]
 
 
 async def get_volume(db, project, ref: str) -> dict | None:
@@ -157,12 +212,12 @@ async def get_volume(db, project, ref: str) -> dict | None:
             data[key] = value
     # 规划台/卷纲表单「进场」行单源（事实优先：归档章收尾 > 上一卷预期结局 > 首卷全景起步）
     data["prev_ending"] = await resolve_prev_ending(db, project, vol.volume_no)
-    data["plants"] = _split_lines(vol.plants)
-    data["reveals"] = _split_lines(vol.reveals)
-    data["cast_members"] = [
-        {"who": m.who, "target": m.target, "change": m.change}
-        for m in vol.cast_members
-    ]
+    # 旧 goal 并入卷末尾句（评审拍板：读侧合并，PUT 保存即固化；goal 不再独立回显）
+    if getattr(vol, "goal", None):
+        base = data.get("ending") or ""
+        data["ending"] = (base + ("。 " if base else "") + vol.goal).strip()
+    # 卷角色＝聚合视图（c-volume-antagonist）：卷下各章出场角色合集，无章即空
+    data["cast_members"] = await _aggregate_cast(db, vol)
     data["plot_nodes"] = [
         {"stage": n.stage, "text": n.text}
         for n in vol.plot_nodes
@@ -193,18 +248,8 @@ async def get_volume(db, project, ref: str) -> dict | None:
 
 def _replace_children(vol, body: VolumeUpdate) -> None:
     """子表整体替换：传入即删旧插新（sort_order 按列表序 0 起）。"""
-    from models.volume import VolumeCastMember, VolumePlotNode
+    from models.volume import VolumePlotNode
 
-    if body.cast_members is not None:
-        vol.cast_members = [
-            VolumeCastMember(
-                sort_order=i,
-                who=m.who,
-                target=m.target,
-                change=m.change,
-            )
-            for i, m in enumerate(body.cast_members)
-        ]
     if body.plot_nodes is not None:
         vol.plot_nodes = [
             VolumePlotNode(
@@ -224,20 +269,20 @@ async def update_volume(db, project, ref: str, body: VolumeUpdate) -> dict:
         raise HTTPException(404, "Volume not found")
 
     fields_set = body.model_fields_set
+    # goal 一次性固化（检视 P1-3）：读侧把旧 goal 并进 ending 尾句，作者改完保存时把派生值
+    # 写回 ending → 若不清 goal，下一次 GET 会再拼一遍（每保存一次长一节）。清列即幂等。
+    if "ending" in fields_set and getattr(vol, "goal", None):
+        vol.goal = None
     for key in _DETAIL_SCALARS:
         if key in fields_set:
             setattr(vol, key, getattr(body, key))
-    for key in ("plants", "reveals"):
-        if key in fields_set:
-            setattr(vol, key, "\n".join(getattr(body, key) or []))
     if body.title is not None:
         vol.title = body.title
     if body.summary is not None:
         vol.summary = body.summary
     # 先清旧子行并 flush（flush 内插入先于删除，会撞 UNIQUE(volume_id, sort_order)）
-    for _attr in ("cast_members", "plot_nodes"):
-        if getattr(body, _attr) is not None:
-            getattr(vol, _attr).clear()
+    if body.plot_nodes is not None:
+        vol.plot_nodes.clear()
     await db.flush()
     _replace_children(vol, body)
     await db.commit()

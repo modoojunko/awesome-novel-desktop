@@ -2,12 +2,12 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
-import { cleanupSessionNovels, pageSettled, stableClick } from "./helpers";
+import { cleanupSessionNovels, pageSettled, stableClick, writeFirstChapter } from "./helpers";
 
 // =========================================================================
 // 免费主流程 E2E（FE-34 / TE-17，change 004）—— P0 断点 1 第 8 条纵切
 //   免费 = 完整手动写作（限 1 部作品）；PRO = 同一界面 + AI 解锁。
-//   覆盖：① 建书直达写作工作台可写 ② 树头「+添加卷」→ 加章即达编辑器
+//   覆盖：① 建书直达写作工作台可写 ② 树底「＋ 新增一章」→ 加章即达编辑器
 //   ③ 树 CRUD + hover 铅笔重命名/删除 + 空章三态点 ⑤ 自动保存 + 实时字数
 //   ⑥ 归档只读 + 树「已归档」同步 + 免费归档不 500 ⑦ modnav 三态（设定/写作/预览）
 //   ⑧ 全程无阶段催促 UI、无 AI 字段、免费零 phase-status 请求
@@ -106,25 +106,6 @@ async function createNovel(page: Page, name: string): Promise<string> {
   return m[1];
 }
 
-/** 加卷 + 初始 1 章 → 点章 → 切「正文」→ 编辑器就绪（PR3：添加卷弹窗 + 点章强制落章纲）。
- *  卷名「第一卷」为默认序号形态（树上只显示序号），章标题=程序默认「第一章」。 */
-async function writeFirstChapter(page: Page) {
-  await page.getByTitle("添加卷").click();
-  await page.getByLabel("卷名", { exact: true }).fill("第一卷");
-  await page.getByLabel(/初始章数/).fill("1");
-  await page.getByRole("button", { name: "创建卷" }).click();
-  const chRow = page.locator(".col-tree .ch", { hasText: "第一章" });
-  await expect(chRow).toBeVisible({ timeout: 10000 });
-  await chRow.click();
-  await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({
-    timeout: 10000,
-  });
-  await page.getByRole("tab", { name: /^正文/ }).click();
-  const editor = page.locator(".editor");
-  await expect(editor).toBeVisible({ timeout: 10000 });
-  return editor;
-}
-
 // -------------------------------------------------------------------------
 // ①⑦⑧ 免费建书直达正文工作台：无阶段催促、无 AI 字段、3 label 导航
 // -------------------------------------------------------------------------
@@ -190,8 +171,8 @@ test("加卷加章：即达编辑器，实时字数 + 自动保存，空章三�
     await createNovel(page, `直写${Date.now() % 100000}`);
     await writeFirstChapter(page);
 
-    // ② 树头「+添加卷」常驻；新章在树上可见（三态点：未填=空心）
-    await expect(page.getByTitle("添加卷")).toBeVisible();
+    // ② 树头「＋」（规划台入口）常驻；新章在树上可见（三态点：未填=空心）
+    await expect(page.getByTitle("新增一卷")).toBeVisible();
     const tree = page.locator(".col-tree");
     await expect(tree.getByText("第一卷")).toBeVisible();
     await expect(tree.getByText("第一章")).toBeVisible();

@@ -7,7 +7,7 @@ plants/reveals 契约是 list[str]（一行一条）：normalize_line_list 归�
 volumes/render.py 装配端复用（校验与装配同一语义，禁止两套）。
 """
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # 剧情节点阶段（固定六档，storyline 卷视图）
 PLOT_STAGES = ["开局铺垫", "冲突初现", "矛盾升级", "重要转折", "高潮爆发", "卷末收束"]
@@ -57,9 +57,24 @@ class PlotNodeIn(BaseModel):
 
 
 class VolumeCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
+    """建卷（统一入口）：四问可选直写＋章数——抽卡确认与免费「直接创建」共用（一次写入）。"""
+
+    title: str = Field(default="", max_length=200)
     summary: str = Field(default="", max_length=300)
-    plan_line: str = Field(default="", max_length=150)
+    core_conflict: str = Field(default="", max_length=150)
+    ending: str = Field(default="", max_length=300)
+    antagonist_type: str | None = Field(default=None, max_length=20)
+    antagonist_line: str = Field(default="", max_length=150)
+    chapter_target: int | None = Field(default=None, ge=1, le=9999)
+
+    @field_validator("antagonist_type")
+    @classmethod
+    def _ant_enum(cls, v: str | None) -> str | None:
+        if not v:
+            return v
+        if v not in ("人物", "难题", "环境", "自我", "势力"):
+            raise ValueError("antagonist_type 须为闭集之一：人物/难题/环境/自我/势力")
+        return v
 
 
 class VolumeUpdate(BaseModel):
@@ -73,26 +88,32 @@ class VolumeUpdate(BaseModel):
 
     title: str | None = Field(default=None, min_length=1, max_length=200)
     summary: str | None = Field(default=None, max_length=300)
-    template_name: str | None = Field(default=None, max_length=50)
     core_conflict: str | None = Field(default=None, max_length=150)
-    goal: str | None = Field(default=None, max_length=300)
     ending: str | None = Field(default=None, max_length=300)
     chapter_target: int | None = Field(default=None, ge=1, le=9999)
-    # 一行一条：list[str] 契约（未传=不动；显式 []=清空）
-    plants: list[str] | None = Field(default=None, max_length=LINE_LIST_MAX_LINES)
-    reveals: list[str] | None = Field(default=None, max_length=LINE_LIST_MAX_LINES)
+    # 本卷的坎（c-volume-antagonist）
+    antagonist_type: str | None = Field(default=None, max_length=20)
+    antagonist_line: str | None = Field(default=None, max_length=150)
     # 行集整体替换（传入即全量重写该族，未传不动）
-    cast_members: list[CastMemberIn] | None = None
     plot_nodes: list[PlotNodeIn] | None = None
-    plan_line: str | None = Field(default=None, max_length=150)
 
-    @field_validator("plants", "reveals")
+    # 退役键（c-volume-antagonist）：显式携带＝422——静默 ignore 会让调用方误以为写入
+    # 成功（评审拍板：六键硬拒，其余未知键维持 ignore）
+    @model_validator(mode="before")
     @classmethod
-    def _normalize_lines(cls, v: list[str] | None) -> list[str] | None:
-        if v is None:
+    def _retired_reject(cls, data):
+        if isinstance(data, dict):
+            hit = [k for k in ("template_name", "plan_line", "goal", "plants",
+                               "reveals", "cast_members") if k in data]
+            if hit:
+                raise ValueError(f"字段已退役（c-volume-antagonist）：{','.join(hit)}——伏笔请走台账接口")
+        return data
+
+    @field_validator("antagonist_type")
+    @classmethod
+    def _ant_type_enum(cls, v: str | None) -> str | None:
+        if not v:
             return v
-        lines = normalize_line_list(v)
-        for line in lines:
-            if len(line) > LINE_MAX:
-                raise ValueError(f"一行一条字段的单行长度上限 {LINE_MAX}")
-        return lines
+        if v not in ("人物", "难题", "环境", "自我", "势力"):
+            raise ValueError("antagonist_type 须为闭集之一：人物/难题/环境/自我/势力")
+        return v
