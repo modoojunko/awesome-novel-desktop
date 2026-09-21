@@ -90,6 +90,28 @@ async def lifespan(app: FastAPI):
 
         logging.getLogger("uvicorn.error").warning("Failed to create tables: %s", e)
 
+    # ── 预置题材播种（#453 重写 lifespan 时被误删，2026-09-21 补回）──────────
+    # 两个都是幂等（只插缺失、不覆盖用户改动）；缺了它们**新建库的题材目录是空的**：
+    # GET /genres/candidates 返回空 → 题材面板的预置词条 PUT 会 400「未知的候选词汇」，
+    # 题材这一步直接确认不了（老库因为历史已播种而看不见这个问题）。
+    try:
+        from genres.service import ensure_seed_genres
+
+        await ensure_seed_genres()
+    except Exception as e:  # noqa: BLE001 —— 播种失败不阻断启动
+        import logging
+
+        logging.getLogger("uvicorn.error").warning("Genre seed failed: %s", e)
+
+    try:
+        from genres.novel_genre_service import ensure_seed_genre_vocab
+
+        await ensure_seed_genre_vocab()
+    except Exception as e:  # noqa: BLE001
+        import logging
+
+        logging.getLogger("uvicorn.error").warning("Genre vocab seed failed: %s", e)
+
     # ── 代内 additive 补列：在打指纹戳之前补齐（补列失败不得刷戳）──────
     from db_lifecycle import apply_additive_columns
 
