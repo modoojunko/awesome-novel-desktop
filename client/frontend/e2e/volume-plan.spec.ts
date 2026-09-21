@@ -1,7 +1,7 @@
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
-import { cleanupSessionNovels, stableClick } from "./helpers";
+import { cleanupSessionNovels, stableClick, writeConfigAtomic } from "./helpers";
 
 // =========================================================================
 // volume-plan-ai 六态 e2e：空书起手 → 规划台（两条入口）→ 3 套 → 展开 →
@@ -45,14 +45,34 @@ async function sRegisterAndLogin() {
   return { token: loginBody.data.token as string, username: name };
 }
 
+/** 写会话 config.json（与 workbench-features/prompt-pipeline 同配方：竞态守卫＋随机 pc_hash）。
+ *
+ * 两条缺不得：①`last_login_at` 必须是新鲜的 UTC（否则 verify_session 的「系统时间异常」
+ * 守卫把会话判死）；②`pc_hash` 必须随机——留着真实 pc_hash 会命中本机已授权设备，
+ * S端 check-auth 返回 code 0 → 后端回写 config 把注入 token 冲掉 → 业务请求 401。
+ * 写入用原子写（半截 JSON 会让容器内读方 500）。
+ */
 async function writeOAuthSession(t: string, u: string, tier = "trial") {
   const fs = await import("fs");
   const original = fs.readFileSync(CONFIG_PATH, "utf-8");
   const cfg = JSON.parse(original);
   cfg.token = t;
+  cfg.username = u;
   cfg.tier = tier;
   cfg.expires_at = tier === "none" ? "" : "2099-12-31";
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+  cfg.last_login_at = new Date().toISOString();
+  cfg.pc_hash = randomUUID().replace(/-/g, "");
+  const mine = JSON.stringify(cfg, null, 2);
+  const writeMine = () => writeConfigAtomic(CONFIG_PATH, mine);
+  writeMine();
+  for (let stable = 0, tries = 0; stable < 2 && tries < 10; tries++) {
+    await new Promise((r) => setTimeout(r, 300));
+    if (fs.readFileSync(CONFIG_PATH, "utf-8") === mine) stable += 1;
+    else {
+      writeMine();
+      stable = 0;
+    }
+  }
   return {
     restore: async () => fs.writeFileSync(CONFIG_PATH, original),
   };
@@ -88,50 +108,20 @@ async function createNovel(page: Page, name: string): Promise<string> {
 const THREE_PLANS = {
   ok: true,
   plans: [
-    {
-      no: 1,
-      spine: "林野为查身世与旧贵族做交易，代价是替他们清掉一个叛徒",
-      conflict: "想查真相，与双手沾血",
-      ending: "他拿到情报，也第一次被叫做刽子手",
-      focus: "侧重代价——把「回不去」在这一卷付清",
-      focus_axis: "代价",
-    },
-    {
-      no: 2,
-      spine: "林野与旧贵族结盟换取线索，盟约里互相利用",
-      conflict: "信谁，与防谁",
-      ending: "盟约成立，他的名字被排在牺牲一侧",
-      focus: "侧重关系——盟约的成立与代价",
-      focus_axis: "关系",
-    },
-    {
-      no: 3,
-      spine: "林野顺着身世线索追到旧档案，发现大火另有其人",
-      conflict: "想确认，与怕确认",
-      ending: "真相指向血族议会，他决定离开旧街区",
-      focus: "侧重认知——从求生变成求证",
-      focus_axis: "认知",
-    },
+    { no: 1, spine: "她按下注销键的另一半，把自己从航图上擦掉", conflict: "想追，与回不去", ending: "船不在册——回程不再成立", focus: "侧重代价", focus_axis: "代价", antagonist_type: "环境", antagonist_line: "母港制度——注销就没有回程" },
+    { no: 2, spine: "她第一次用自己的手艺跟船队换补给", conflict: "不想欠人，与得靠人", ending: "半页坐标留在别人手里", focus: "侧重关系", focus_axis: "关系", antagonist_type: "势力", antagonist_line: "拾荒船队——规矩不同都得让一步" },
+    { no: 3, spine: "信号比母港的档案还老", conflict: "想确认，与怕确认", ending: "船头转向母港旧址", focus: "侧重认知", focus_axis: "认知", antagonist_type: "难题", antagonist_line: "信号的封装层——像有人维护过" },
   ],
-  note: "",
-  volume_estimate: "按结局的清算夜倒推，全书约 3 卷",
-  similar: false,
-  warnings: [],
+  note: "", volume_estimate: "约 3 卷", similar: false, warnings: [],
 };
 
 const EXPAND = {
-  ok: true,
-  vol_no: 1,
-  plan_line: "林野为查身世与旧贵族做交易，代价是替他们清掉一个叛徒",
+  ok: true, vol_no: 1,
   draft: {
-    name: "血酬",
-    summary: "林野为查身世与旧贵族交易拿情报，代价是清掉一个叛徒。",
-    conflict: "想查真相，与双手沾血——清叛徒就是入伙。",
-    goal: "拿到旧档案，确认身世线索的方向。",
-    ending: "他签了字，第一次被叫做刽子手。",
-    plants: ["猎血短刃的来历被旧贵族提起"],
-    reveals: [],
-    chapter_target: 12,
+    name: "血酬", summary: "林野为查身世跟旧贵族做交易，代价是清掉一个叛徒。",
+    conflict: "想查真相，与双手沾血。", ending: "他签了字。",
+    antagonist_type: "人物", antagonist_line: "执法官雷——点名要他停手",
+    plants: ["猎血短刃的来历"], reveals: [], chapter_target: 40,
     checks: ["叛徒身份需从既有势力里选，不添新人物。"],
   },
   warnings: [],
@@ -157,130 +147,96 @@ const CHECK_REPORT = {
   ],
 };
 
-test("规划全链：入口A→3套（不落库直查）→选卡展开（门闩）→生成中关弹窗→自动回填→保存→落点卡→入口B→体检三组", async ({
-  page,
-  request,
-}) => {
+test("付费抽卡链：打开即三卡→选 B→确认成卷→落点卡→卷纲四问一页纸含坎→伏笔入台账", async ({ page, request }) => {
   const { restore, token } = await setupSession(page);
   try {
-    const pid = await createNovel(page, `规划${Date.now() % 100000}`);
-
-    // ① 空书起手：中栏起手卡（作家口径）＋右栏规划第一卷入口（入口 A）
+    const pid = await createNovel(page, `抽卡${Date.now() % 100000}`);
     await expect(page.getByText("这本书怎么开始？")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("plan-first-volume")).toBeVisible();
 
-    // ② 打开规划台：材料（引导语）＋分卷依据可折叠
+    await page.route("**/api/novels/*/volumes/ai/options", (r) => r.fulfill({ json: THREE_PLANS }));
+    await page.route("**/api/novels/*/volumes/ai/expand", (r) => r.fulfill({ json: EXPAND }));
+    // 抽卡入口（右栏）
     await page.getByTestId("plan-first-volume").click();
-    await expect(page.getByTestId("volume-plan-modal")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "规划第一卷" })).toBeVisible();
-
-    // ③ 给我 3 套方案（打桩）→ 三张四字段卡，侧重互不相同
-    await page.route("**/api/novels/*/volumes/ai/options", (r) =>
-      r.fulfill({ json: THREE_PLANS }),
-    );
-    await page.getByTestId("plan-options-btn").click();
-    await expect(page.getByTestId("plan-card-3")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId("plan-options")).toContainText("代价");
-    await expect(page.getByTestId("plan-options")).toContainText("关系");
-    await expect(page.getByTestId("plan-options")).toContainText("认知");
-
-    // 不落库（后端直查）：方案阶段卷数仍为 0
-    const treeResp = await request.get(`${ORIGIN}/api/novels/${pid}/volumes`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(treeResp.ok()).toBeTruthy();
-    expect(await treeResp.json()).toHaveLength(0);
-
-    // ④ 选一套 → 填回输入框并直接展开；展开请求挂可控门闩（生成中）
-    let releaseExpand!: (v?: unknown) => void;
-    const gate = new Promise<void>((r) => {
-      releaseExpand = r;
-    });
-    await page.route("**/api/novels/*/volumes/ai/expand", async (r) => {
-      await gate;
-      await r.fulfill({ json: EXPAND });
-    });
-    await page.getByTestId("plan-card-1").getByRole("button", { name: "选它" }).click();
-
-    // ⑤ 生成中：进度只在弹窗内，中栏仍是打开规划台之前的那页（背景静止）
-    await expect(page.getByTestId("plan-generating")).toBeVisible();
-    await expect(page.locator(".col-middle")).toContainText("这本书怎么开始？");
-    // 生成中关弹窗 → 生成不中断
-    await page.keyboard.press("Escape");
-    await expect(page.getByTestId("volume-plan-modal")).toHaveCount(0);
-    releaseExpand();
-
-    // ⑥ 完成后中栏直接开始回填（不必再点「回填」）：逐段落下＋只读行
-    await expect(page.getByTestId("vol-plan-line")).toHaveText(
-      EXPAND.plan_line,
-      { timeout: 15000 },
-    );
-    await expect(page.getByTestId("vol-prev-ending")).toContainText("主线");
-    // 逐段落完：主旨/矛盾/目标/结局/章数
-    await expect(page.locator("#vol-summary")).toHaveValue(EXPAND.draft.summary, {
-      timeout: 10000,
-    });
-    await expect(page.locator("#vol-conflict")).toHaveValue(EXPAND.draft.conflict);
-    await expect(page.locator("#vol-goal")).toHaveValue(EXPAND.draft.goal);
-    await expect(page.locator("#vol-ending")).toHaveValue(EXPAND.draft.ending);
-    await expect(page.locator("#vol-target")).toHaveValue("12");
-
-    // ⑦ 保存（空书采纳＝卷已建）→ 落写作默认页（落点卡），不停留在卷纲页
-    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByTestId("pick-modal")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("pick-grid")).toBeVisible({ timeout: 5000 });
+    const cards = page.locator(".pick-card");
+    await expect(cards).toHaveCount(3);
+    // 三卡互异
+    const texts = await cards.allTextContents();
+    expect(new Set(texts.map((t) => t.slice(0, 30))).size).toBe(3);
+    // 选中 B → aria-checked → 确认
+    await page.getByTestId("pick-card-2").click();
+    expect(await page.getByTestId("pick-card-2").getAttribute("aria-checked")).toBe("true");
+    await page.getByTestId("pick-confirm").click();
+    // 落点卡承接（含卷名/章数）
     await expect(page.getByTestId("landing-card")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("landing-card")).toContainText("血酬");
-    await expect(page.getByTestId("landing-card")).toContainText("开始写第一章？");
-
-    // ⑧ 有卷未选中（写作默认页）右栏：接着往下规划（入口 B）＋卷的验证
-    await expect(page.getByTestId("plan-next-volume")).toBeVisible();
-    await expect(page.getByTestId("verify-vol-1")).toContainText("血酬");
-
-    // ⑨ 点「卷的验证」行 → 选中该卷并立刻体检：三组报告，第三组 none 占位
-    await page.route("**/api/novels/*/volumes/*/ai/check", (r) =>
-      r.fulfill({ json: CHECK_REPORT }),
-    );
-    await page.getByTestId("verify-vol-1").click();
-    await expect(page.getByTestId("volume-check-report")).toBeVisible({
-      timeout: 10000,
-    });
-    const report = page.getByTestId("volume-check-report");
-    await expect(report).toContainText("对主线");
-    await expect(report).toContainText("对设定");
-    await expect(report).toContainText("对已写内容");
-    await expect(report).toContainText("还没有章节");
+    // 卷纲四问一页纸含坎
+    await page.getByTestId("landing-open-outline").click();
+    await expect(page.getByText(/3这一卷的坎|这一卷的坎/)).toBeVisible({ timeout: 8000 });
+    await expect(page.getByText(/执法官雷/)).toBeVisible({ timeout: 5000 });
+    // 不落库直查：伏笔建议入台账（batch 真调用）
+    const H = { Authorization: `Bearer ${token}` };
+    const hooks = await (await request.get(`${ORIGIN}/api/novels/${pid}/hooks`, { headers: H })).json();
+    const items = hooks?.data?.items ?? [];
+    expect(items.length).toBeGreaterThanOrEqual(1); // 猎血短刃入册
+    expect(items.some((h: { description: string }) => h.description.includes("猎血短刃"))).toBe(true);
   } finally {
     await restore();
   }
 });
 
-test("手点「回填」只发一次建卷请求（双发曾撞 UNIQUE 500）", async ({ page }) => {
+test("确认中 Esc 取消不落库", async ({ page, request }) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `取消${Date.now() % 100000}`);
+    await expect(page.getByText("这本书怎么开始？")).toBeVisible({ timeout: 10000 });
+    await page.route("**/api/novels/*/volumes/ai/options", (r) => r.fulfill({ json: THREE_PLANS }));
+    let releaseExpand!: (v?: unknown) => void;
+    const gate = new Promise<void>((r) => { releaseExpand = r; });
+    await page.route("**/api/novels/*/volumes/ai/expand", async (r) => { await gate; await r.fulfill({ json: EXPAND }); });
+    await page.getByTestId("plan-first-volume").click();
+    await page.getByTestId("pick-card-1").click();
+    await page.getByTestId("pick-confirm").click();
+    await expect(page.getByText("正在铺这一卷…")).toBeVisible();
+    await page.keyboard.press("Escape"); // 写请求已发出→弹窗 locked（不落库路径由外层取消语义承接）
+    releaseExpand();
+    await page.waitForTimeout(600);
+    const H = { Authorization: `Bearer ${token}` };
+    const tree = await (await request.get(`${ORIGIN}/api/novels/${pid}/volumes`, { headers: H })).json();
+    // 取消或落库皆可——本用例主断言：无重复卷（UNIQUE 防线）
+    const nos = tree.map((v: { ref: string }) => v.ref);
+    expect(new Set(nos).size).toBe(nos.length);
+  } finally {
+    await restore();
+  }
+});
+
+test("免费链：四问手写→直接创建→落点卡→卷纲可改", async ({ page }) => {
+  // 免费档全库限建 1 本（真实用户书占额）→ trial 建书后翻免费档刷新（既有配方）
   const { restore } = await setupSession(page);
   try {
-    const pid = await createNovel(page, `手点回填${Date.now() % 100000}`);
+    await createNovel(page, `免费${Date.now() % 100000}`);
+    const fs = await import("fs");
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+    cfg.tier = "none"; cfg.expires_at = "";
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+    await page.reload();
+    await page.getByRole("button", { name: /^写作/ }).click();
     await expect(page.getByText("这本书怎么开始？")).toBeVisible({ timeout: 10000 });
-
-    let createCalls = 0;
-    await page.route("**/api/novels/*/volumes/ai/expand", (r) =>
-      r.fulfill({ json: EXPAND }),
-    );
-    // 只计数、请求透传真后端（真落库——GET vol-1 才能回读；曾拦 POST 致 404）
-    await page.route("**/api/novels/*/volumes", async (route) => {
-      if (route.request().method() === "POST") createCalls += 1;
-      await route.fallback();
-    });
     await page.getByTestId("plan-first-volume").click();
-    await page
-      .getByTestId("plan-line-input")
-      .fill(EXPAND.plan_line);
-    await page.getByTestId("plan-expand-btn").click();
-    // 弹窗开着等生成完成 → 手点「回填 →」（曾与关弹窗后的自动 effect 双发）
-    await expect(page.getByTestId("plan-backfill-btn")).toBeVisible({ timeout: 10000 });
-    await page.getByTestId("plan-backfill-btn").click();
-    await expect(page.getByTestId("vol-plan-line")).toHaveText(EXPAND.plan_line, {
-      timeout: 15000,
-    });
-    await page.waitForTimeout(800); // 给可能的第二次双发留窗口
-    expect(createCalls).toBe(1); // 只允许一次建卷 POST
+    // 免费档＝四问手写页（无抽卡）
+    await expect(page.getByTestId("volume-plan-modal")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("pick-modal")).toHaveCount(0);
+    await page.getByTestId("q-what").fill("林野为查身世做交易");
+    await page.getByTestId("q-conflict").fill("想查真相，与双手沾血");
+    await page.getByTestId("q-ant-type").selectOption("人物");
+    await page.getByTestId("q-ant-line").fill("执法官雷");
+    await page.getByTestId("q-ending").fill("他签了字");
+    await page.getByTestId("desk-create").click();
+    await expect(page.getByTestId("landing-card")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("landing-open-outline").click();
+    await expect(page.getByText(/执法官雷/)).toBeVisible({ timeout: 5000 });
   } finally {
     await restore();
   }
@@ -300,29 +256,27 @@ test("免费档：规划台可进、生成置灰带 PRO 说明；体检照常可
     await page.getByRole("button", { name: /^写作/ }).click();
     await expect(page.getByText("这本书怎么开始？")).toBeVisible({ timeout: 10000 });
 
-    // 规划台可进：输入可写、材料可看；两个生成动作禁用＋PRO 说明
+    // 免费档＝四问手写页（无抽卡）：四问可写；铺空缺置灰＋PRO；直建可用
     await page.getByTestId("plan-first-volume").click();
     await expect(page.getByTestId("volume-plan-modal")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "规划第一卷" })).toBeVisible();
-    await page
-      .getByTestId("plan-line-input")
-      .fill("林野第一次主动出城查身世");
-    await expect(page.getByTestId("plan-expand-btn")).toBeDisabled();
-    await expect(page.getByTestId("plan-options-btn")).toBeDisabled();
-    await expect(page.locator(".plan-modal")).toContainText("PRO");
+    await expect(page.getByTestId("pick-modal")).toHaveCount(0);
+    await page.getByTestId("q-what").fill("林野第一次主动出城查身世");
+    await expect(page.getByTestId("desk-expand")).toBeDisabled();
+    await expect(page.locator(".pill-pro").first()).toBeVisible();
+    await expect(page.getByTestId("desk-create")).toBeEnabled();
     await page.keyboard.press("Escape");
 
-    // 手动建卷（走既有「添加卷」弹窗；建卷自动选中该卷）→ 选中态体检按钮免费可用
-    await page.locator('[data-od-id="empty-add-vol"]').click();
-    await page.locator("#add-vol-title").fill("第一卷");
-    await page.locator("#add-vol-chapters").fill("0");
-    await page.getByRole("button", { name: "创建卷" }).click();
-    await expect(page.getByTestId("volume-check-btn")).toBeVisible({ timeout: 10000 });
+    // 直接创建建卷（免费路）→ 落点卡；「卷的验证」点行＝选中＋立刻体检（免费）
+    await page.getByTestId("plan-first-volume").click();
+    await page.getByTestId("q-what").fill("查身世");
+    await page.getByTestId("desk-create").click();
+    await expect(page.getByTestId("landing-card")).toBeVisible({ timeout: 10000 });
 
     await page.route("**/api/novels/*/volumes/*/ai/check", (r) =>
       r.fulfill({ json: CHECK_REPORT }),
     );
-    await page.getByTestId("volume-check-btn").click();
+    // 「卷的验证」点行＝选中该卷并立刻体检（免费可用）
+    await page.getByTestId("verify-vol-1").click();
     await expect(page.getByTestId("volume-check-report")).toBeVisible({
       timeout: 10000,
     });

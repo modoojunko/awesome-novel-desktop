@@ -3,27 +3,18 @@
 // chapter_target 留空 → payload null（清空通道）；plants/reveals textarea 一行一条
 // ↔ list[str]；行集提交即整族替换。
 
-import type {
-  VolumeCastMember,
-  VolumeDetail,
-  VolumePlotNode,
-} from "./types";
+import type { VolumeDetail, VolumePlotNode } from "./types";
 
 export interface VolumeFormData {
   title: string;
   summary: string;
-  template_name: string;
   core_conflict: string;
-  goal: string;
   ending: string;
+  /** 本卷的坎（c-volume-antagonist）：类型闭集＋一句话 */
+  antagonist_type: string;
+  antagonist_line: string;
   /** 输入框字符串；"" = 不设（payload 置 null 清空） */
   chapter_target: string;
-  /** 展开依据（只读行；随表单整包回传） */
-  plan_line: string;
-  /** textarea 一行一条原文本 */
-  plantsText: string;
-  revealsText: string;
-  cast_members: VolumeCastMember[];
   plot_nodes: VolumePlotNode[];
 }
 
@@ -40,15 +31,11 @@ export function toVolumeFormData(d: VolumeDetail): VolumeFormData {
   return {
     title: d.title || "",
     summary: d.summary || "",
-    template_name: d.template_name || "",
     core_conflict: d.core_conflict || "",
-    goal: d.goal || "",
     ending: d.ending || "",
+    antagonist_type: d.antagonist_type || "",
+    antagonist_line: d.antagonist_line || "",
     chapter_target: d.chapter_target != null ? String(d.chapter_target) : "",
-    plan_line: d.plan_line || "",
-    plantsText: (d.plants || []).join("\n"),
-    revealsText: (d.reveals || []).join("\n"),
-    cast_members: (d.cast_members || []).map((m) => ({ ...m })),
     plot_nodes: (d.plot_nodes || []).map((n) => ({ ...n })),
   };
 }
@@ -58,23 +45,11 @@ export function volumeFormToPayload(f: VolumeFormData): Record<string, unknown> 
   return {
     title: f.title.trim(),
     summary: f.summary,
-    template_name: f.template_name,
     core_conflict: f.core_conflict,
-    goal: f.goal,
     ending: f.ending,
-    // 留空 = 显式 null 清空（后端 fields_set 通道）
+    antagonist_type: f.antagonist_type || null,
+    antagonist_line: f.antagonist_line,
     chapter_target: target === "" ? null : Number(target),
-    plan_line: f.plan_line,
-    plants: splitLines(f.plantsText),
-    reveals: splitLines(f.revealsText),
-    cast_members: f.cast_members.map((m) => ({
-      who: m.who.trim(),
-      target: m.target.trim(),
-      change: m.change.trim(),
-    })),
-    plot_nodes: f.plot_nodes.map((n) => ({
-      stage: n.stage,
-      text: n.text.trim(),
-    })),
+    plot_nodes: f.plot_nodes.map((n) => ({ stage: n.stage, text: n.text.trim() })),
   };
 }

@@ -9,7 +9,6 @@
 """
 
 from models.volume import Volume
-from volumes.schemas import normalize_line_list
 
 _SEPARATOR = " ｜ "
 
@@ -19,10 +18,11 @@ def volume_outline_text(vol: Volume) -> str:
     lines: list[str] = []
     if vol.summary:
         lines.append(f"- 本卷主旨：{vol.summary}")
+    if vol.antagonist_line:
+        ant = ((vol.antagonist_type + " · ") if vol.antagonist_type else "") + vol.antagonist_line
+        lines.append(f"- 本卷对抗物：{ant}")
     if vol.core_conflict:
         lines.append(f"- 核心矛盾：{vol.core_conflict}")
-    if vol.goal:
-        lines.append(f"- 整体目标：{vol.goal}")
     if vol.ending:
         lines.append(f"- 预期结局：{vol.ending}")
     nodes = list(vol.plot_nodes or [])
@@ -31,10 +31,5 @@ def volume_outline_text(vol: Volume) -> str:
             f"{i + 1}. {n.stage}：{n.text}" for i, n in enumerate(nodes)
         )
         lines.append(f"- 关键节点：{joined}")
-    plants = normalize_line_list([vol.plants or ""])
-    if plants:
-        lines.append("- 本卷待埋伏笔：" + _SEPARATOR.join(plants))
-    reveals = normalize_line_list([vol.reveals or ""])
-    if reveals:
-        lines.append("- 本卷待揭信息：" + _SEPARATOR.join(reveals))
+    # c-volume-antagonist：整体目标与伏笔两行退役（goal 并入 ending；伏笔只走台账注入）
     return "\n".join(lines)

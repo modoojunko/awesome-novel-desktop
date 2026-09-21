@@ -27,6 +27,7 @@ from auth_local.middleware import get_current_user
 from db import get_db
 from filesystem.storage import get_storage
 from genres.service import build_genre_section, resolve_genre_context
+from novels.events import log_event_async
 from novels.router import _arc_normalize
 from novels.service import get_novel
 from prompt.context import load_active_hooks, render_hooks_block
@@ -107,18 +108,13 @@ async def _generate(project, system: str, user_msg: str, *, temperature: float, 
 
 
 class PlanLineBody(BaseModel):
-    """作者那一句（可空——空则走 3 套方案）。"""
+    """抽卡/四问约束（可空——空则 AI 自由推）。作家已答的照抄不改写。"""
 
     line: str = Field(default="", max_length=LINE_MAX)
-
-
-class PlanPickBody(BaseModel):
-    """选中的那套走法：走向 + 侧重，填回输入框并直接展开。"""
-
-    spine: str = Field(min_length=1, max_length=200)
     conflict: str = Field(default="", max_length=150)
+    antagonist_type: str = Field(default="", max_length=20)
+    antagonist_line: str = Field(default="", max_length=150)
     ending: str = Field(default="", max_length=300)
-    focus_note: str = Field(default="", max_length=60)
 
 
 class ExpandBody(BaseModel):
@@ -128,8 +124,11 @@ class ExpandBody(BaseModel):
     """
 
     line: str = Field(default="", max_length=LINE_MAX)
+    conflict: str = Field(default="", max_length=150)
+    antagonist_type: str = Field(default="", max_length=20)
+    antagonist_line: str = Field(default="", max_length=150)
+    ending: str = Field(default="", max_length=300)
     vol_no: int | None = Field(default=None, ge=1, le=99)
-    plan_no: int | None = Field(default=None, ge=1, le=3)
 
 
 # ═══════════════ 素材（非章域单源；0 章书可用）═══════════════
@@ -347,6 +346,9 @@ def _sanitize_plans(parsed: dict | None) -> dict | None:
         if axis in axes:
             continue  # 同轴＝同质，丢弃
         axes.append(axis)
+        p_ant_type = str(p.get("antagonist_type", "") or "").strip()
+        if p_ant_type not in ("人物", "难题", "环境", "自我", "势力"):
+            p_ant_type = "人物" if p_ant_type else ""
         out.append(
             {
                 "no": len(out) + 1,
@@ -355,6 +357,8 @@ def _sanitize_plans(parsed: dict | None) -> dict | None:
                 "ending": ending[:120],
                 "focus": str(p.get("focus", "") or "").strip()[:60],
                 "focus_axis": axis,
+                "antagonist_type": p_ant_type,
+                "antagonist_line": str(p.get("antagonist_line", "") or "").strip()[:150],
             }
         )
         if len(out) == MAX_PLANS:
@@ -396,6 +400,14 @@ async def ai_volume_options(
     mat = await _book_material(db, project, with_hooks=False, author_line=author_line)
     if not mat["fullstory"] and not any(mat["ending"].values()):
         raise HTTPException(422, "主线为空，请先在设定中完成主线（全景或结局三问）再拆卷")
+    # 四问已答约束（作家答过的不被改写）：并入 author_line 素材位
+    answered_extra = "／".join(filter(None, [
+        body.conflict.strip(),
+        ((body.antagonist_type + "·" + body.antagonist_line.strip()).strip("·")) if (body.antagonist_type or body.antagonist_line.strip()) else "",
+        body.ending.strip(),
+    ]))
+    if answered_extra:
+        author_line = (author_line + "｜已答：" + answered_extra) if author_line else ("已答：" + answered_extra)
 
     prev = await resolve_prev_ending(db, project, 1)
     system = _render(
@@ -446,29 +458,33 @@ async def ai_volume_options(
 
 
 def _sanitize_expand(obj: dict | None) -> dict | None:
-    """卷纲草稿兜底：四件事必须齐（spec 上限：主旨 80／矛盾 60／目标 60／结局 60）。
+    """卷纲草稿兜底：四问必须齐（c-volume-antagonist 上限：主旨 80／冲突 60／卷末 60）。
 
-    cast/factions 申报不入 draft，由端点提出到顶层做实体集合差。
+    cast/factions 申报不入 draft，由端点提出到顶层做实体集合差；
+    `goal`（整体目标）随字段瘦身退役——卷表停读停写，草稿也不再产出。
     """
     if not isinstance(obj, dict):
         return None
     summary = str(obj.get("summary", "") or "").strip()
     conflict = str(obj.get("conflict", "") or "").strip()
-    goal = str(obj.get("goal", "") or "").strip()
     ending = str(obj.get("ending", "") or "").strip()
-    if not summary or not conflict or not goal or not ending:
-        return None  # 四件事必须齐——缺一件宁可重试/降级
+    if not summary or not conflict or not ending:
+        return None  # 四问必须齐——缺一件宁可重试/降级
     try:
         total = int(obj.get("chapter_target"))
     except (TypeError, ValueError):
         total = 0
     checks = [str(x).strip()[:40] for x in obj.get("checks", []) if str(x).strip()]
+    ant_type = str(obj.get("antagonist_type", "") or "").strip()
+    if ant_type not in ("人物", "难题", "环境", "自我", "势力"):
+        ant_type = "人物" if ant_type else ""
     return {
         "name": str(obj.get("name", "") or "").strip()[:6],
         "summary": summary[:80],
         "conflict": conflict[:60],
-        "goal": goal[:60],
         "ending": ending[:60],
+        "antagonist_type": ant_type,
+        "antagonist_line": str(obj.get("antagonist_line", "") or "").strip()[:150],
         "plants": _lines(obj.get("plants"), 2),
         "reveals": _lines(obj.get("reveals"), 2),
         "chapter_target": min(9999, max(0, total)),
@@ -500,7 +516,15 @@ async def ai_volume_expand(
         raise HTTPException(422, "先写一句这一卷想看什么——走向由你定，AI 只铺结构")
     vol_no = body.vol_no or (await _next_volume_no(db, project))
     prev = await resolve_prev_ending(db, project, vol_no)
-    mat = await _book_material(db, project, with_hooks=True, author_line=line)
+    answered_extra = "／".join(filter(None, [
+        body.conflict.strip(),
+        ((body.antagonist_type + "·" + body.antagonist_line.strip()).strip("·")) if (body.antagonist_type or body.antagonist_line.strip()) else "",
+        body.ending.strip(),
+    ]))
+    mat = await _book_material(
+        db, project, with_hooks=True,
+        author_line=(line + ("｜已答：" + answered_extra if answered_extra else "")),
+    )
     # spec 素材契约：expand 含上一卷卷纲文本（options 不含）
     prev_vol_row = (
         await volume_repo.get_by_volume_no(db, project.id, vol_no - 1)
@@ -536,12 +560,20 @@ async def ai_volume_expand(
     if draft is None:
         # spec：校验两次仍失败 → 降级为纯文本（不 502），提示可重试
         return {
-            "ok": True, "vol_no": vol_no, "plan_line": line,
+            "ok": True, "vol_no": vol_no,
             "degraded": True, "text": _degrade_text(raw),
             "hint": "AI 的输出没法结构化——可重试，或按上面这段手动填卷纲",
         }
+    # 卡面四问胜出（评审拍板：expand 只补空缺，不覆盖带入值）
+    if body.conflict.strip():
+        draft["conflict"] = body.conflict.strip()[:60]
+    if body.antagonist_line.strip():
+        draft["antagonist_type"] = body.antagonist_type or "人物"
+        draft["antagonist_line"] = body.antagonist_line.strip()[:150]
+    if body.ending.strip():
+        draft["ending"] = body.ending.strip()[:60]
     warnings = _entity_warnings(draft.pop("cast", []), draft.pop("factions", []), mat["known_entities"])
-    return {"ok": True, "vol_no": vol_no, "plan_line": line, "draft": draft, "warnings": warnings}
+    return {"ok": True, "vol_no": vol_no, "draft": draft, "warnings": warnings}
 
 
 # ═══════════════ 卷纲体检（验证）═══════════════
@@ -571,6 +603,13 @@ def _report_groups(groups) -> list[dict] | None:
             return None
         out.append({"name": name, "items": items})
     return out if len(out) >= 2 else None
+
+
+def _count_warn(report: list[dict]) -> int:
+    """体检报告里 warn 判据条数（度量 check_run{warn}）。"""
+    return sum(
+        1 for g in report for it in g.get("items", []) if it.get("status") == "warn"
+    )
 
 
 @router.post("/{ref}/ai/check")
@@ -610,9 +649,21 @@ async def ai_volume_check(
     else:
         tail = ""
 
+    prev_vol_row = (
+        await volume_repo.get_by_volume_no(db, project.id, vol_no - 1)
+        if vol_no > 1 else None
+    )
+    ant_pair = "上一卷的坎：" + (
+        ((prev_vol_row.antagonist_type or "") + "·" + (prev_vol_row.antagonist_line or "")).strip("·")
+        if prev_vol_row is not None and (prev_vol_row.antagonist_type or prev_vol_row.antagonist_line)
+        else "（无记录）"
+    ) + "｜本卷的坎：" + (
+        ((vol.antagonist_type or "") + "·" + (vol.antagonist_line or "")).strip("·")
+        if (vol.antagonist_type or vol.antagonist_line) else "（未填——判据输出 warn，不编造）"
+    )
     system = _render(
         load_prompt("volume_check"),
-        vol_outline=outline_text,
+        vol_outline=outline_text + "\n上一卷与本卷的坎：" + ant_pair,
         fullstory=mat["fullstory"],
         scene=mat["ending"].get("scene", ""),
         rules=mat["world_rules"] or "（世界设定未登记铁律）",
@@ -644,4 +695,9 @@ async def ai_volume_check(
             "degraded": True, "text": _degrade_text(raw),
             "hint": "AI 的输出没法结构化——可重试",
         }
+    # 度量（PRD §7 check_run{warn}）：判据条数只有服务端知道
+    await log_event_async(
+        db, user["id"], "check_run",
+        {"vol_no": vol_no, "warn": _count_warn(report)},
+    )
     return {"ok": True, "vol_no": vol_no, "name": vol.title, "report": report}

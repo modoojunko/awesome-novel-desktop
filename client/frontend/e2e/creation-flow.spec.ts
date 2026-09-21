@@ -306,23 +306,29 @@ test("空书无门控：建书即写，加卷加章直达编辑器", async ({ pa
     await expect(page.getByText("设定尚未全部完成")).toHaveCount(0);
     await expect(page.getByText(/尚未完成设定/)).toHaveCount(0);
 
-    // 树头「＋」→「添加卷」弹窗：卷名必填 + 初始章数（程序批量建章，默认序号形态标题）
-    await page.getByTitle("添加卷").click();
-    await expect(
-      page.getByRole("heading", { name: "添加卷" }),
-    ).toBeVisible({ timeout: 5000 });
-    const volCreate = page.getByRole("button", { name: "创建卷" });
-    await expect(volCreate).toBeEnabled(); // 初始章数 0 也允许（卷名才是必填）
-    await page.getByLabel("卷名", { exact: true }).fill("风起晋北");
-    await page.getByLabel(/初始章数/).fill("1");
-    await volCreate.click();
+    // 树头「＋」→ 规划台（c-volume-antagonist 统一入口）：付费出三选一抽卡。
+    // 本用例只验「建卷入口统一」＋手写路直达编辑器 → 抽卡接口打桩成失败，走「自己答四个问题」。
+    await page.route("**/api/novels/*/volumes/ai/options", (r) =>
+      r.fulfill({ status: 500, json: { detail: "还没接模型" } }),
+    );
+    await page.getByTitle("新增一卷").click();
+    await expect(page.getByTestId("pick-modal")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("pick-error")).toBeVisible({ timeout: 10000 });
+    await page.getByRole("button", { name: "自己答四个问题" }).click();
 
-    // 卷章创建成功 → 树上「第一卷 · 风起晋北」「第一章」（默认标题=纯序号形态）
+    // 四问手写页：答第一问即可建卷（答多少建多少）
+    await expect(page.getByTestId("volume-plan-modal")).toBeVisible({ timeout: 5000 });
+    await page.getByTestId("q-what").fill("风起晋北：她在边城追查匿名信的来路。");
+    await page.getByTestId("desk-create").click();
+
+    // 卷创建成功 → 树上「第一卷」（默认标题=纯序号形态）＋落点卡
     await expect(
-      page.locator(".col-tree").getByText("第一卷 · 风起晋北"),
+      page.locator(".col-tree").getByText("第一卷"),
     ).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("landing-card")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("landing-add-chapter").click();
     const chRow = page.locator(".col-tree .ch", { hasText: "第一章" });
-    await expect(chRow).toBeVisible({ timeout: 5000 });
+    await expect(chRow).toBeVisible({ timeout: 10000 });
 
     // 点章 → 强制落「章纲」页签（PR3 设计稿行为）→ 切「正文」即达编辑器
     await chRow.click();
@@ -351,13 +357,14 @@ test("空书起手：中栏「＋ 新增一章」先垫第一卷并排上第一�
     // 左栏底部两入口（空书态替代「确认全部已填章节」）
     const tree = page.locator(".col-tree");
     await expect(page.locator(".col-tree.empty-book .tree-add")).toBeVisible();
-    // 「＋ 新增一卷」＝建卷弹窗（空书态三处入口同一实体）
+    // 「＋ 新增一卷」＝规划台（空书态三处入口同一实体）：付费出抽卡，Esc 关闭
+    await page.route("**/api/novels/*/volumes/ai/options", (r) =>
+      r.fulfill({ status: 500, json: { detail: "还没接模型" } }),
+    );
     await page.locator('[data-od-id="add-volume"]').click();
-    await expect(page.getByRole("heading", { name: "添加卷" })).toBeVisible({
-      timeout: 5000,
-    });
-    await page.getByRole("button", { name: "取消" }).click();
-    await expect(page.getByRole("heading", { name: "添加卷" })).toHaveCount(0);
+    await expect(page.getByTestId("pick-modal")).toBeVisible({ timeout: 5000 });
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("pick-modal")).toHaveCount(0);
 
     // 「＋ 新增一章」：先垫「第一卷」（程序默认序号形态）再排「第一章」
     await page.locator('[data-od-id="empty-cta-ch"]').click();

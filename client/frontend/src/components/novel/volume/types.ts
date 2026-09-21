@@ -2,12 +2,6 @@
 // 标量字段 DB 可空，缺失时后端省略键 → 这里标 optional；
 // plants/reveals 契约 = list[str]（一行一条），行集 = 登场人物/剧情节点（c-volume-view-storyline 换代）
 
-export interface VolumeCastMember {
-  who: string;
-  target: string;
-  change: string;
-}
-
 export interface VolumePlotNode {
   stage: string;
   text: string;
@@ -55,13 +49,13 @@ export interface VolumeDetail {
   goal?: string | null;
   ending?: string | null;
   chapter_target?: number | null;
-  /** 展开依据（作者那一句/选中走法；卷纲表单只读行回看） */
-  plan_line?: string | null;
   /** 进场（resolve_prev_ending 单源：事实优先） */
   prev_ending?: { text: string; source: string } | null;
-  plants: string[];
-  reveals: string[];
-  cast_members: VolumeCastMember[];
+  /** 本卷的坎（c-volume-antagonist） */
+  antagonist_type?: string | null;
+  antagonist_line?: string | null;
+  /** 角色聚合视图（只读）：{name, role}——role 为「反派」或空 */
+  cast_members: Array<{ name: string; role: string }>;
   plot_nodes: VolumePlotNode[];
   /** 本卷旧稿支线章数（不混入台账/计数，仅汇总提示） */
   ghost_count: number;

@@ -108,6 +108,39 @@ export function writeConfigAtomic(configPath: string, content: string) {
   fs.renameSync(tmp, configPath);
 }
 
+// ── 空书起手（各 spec 共用的「先垫一卷一章再写」准备步）────────────────────
+/** 空书 → 树底「＋ 新增一章」垫第一卷并排上第一章 → 点章 → 停在「章纲」页签。
+ *
+ * c-volume-antagonist 后：建卷入口统一走规划台（付费抽卡／免费四问页），
+ * 但本助手只是准备步——走 `addFirstChapter()` 那条免弹窗路径（「＋ 新增一章」
+ * 先垫卷再排章，原型 firstVol 口径），不依赖模型、不弹窗、免费付费同路径。
+ * 卷名「第一卷」为默认序号形态（树上只显示序号），章标题=程序默认「第一章」。
+ */
+export async function addFirstChapterViaTree(page: Page) {
+  await page.locator('[data-od-id="tree-create"] [data-od-id="add-chapter"]').click();
+  const chRow = page.locator(".col-tree .ch", { hasText: "第一章" });
+  await expect(chRow).toBeVisible({ timeout: 15000 });
+  await chRow.click();
+  await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({
+    timeout: 10000,
+  });
+  // 章纲**载入完成**才交出控制权：载入期「保存草稿」禁用（ogLoading），载入那一下会
+  // setOgForm 复位表单——调用方紧跟的 fill 会被冲掉（旧「添加卷弹窗」链多一次整树
+  // 刷新，天然避开这个窗口；「＋ 新增一章」是即时选中，窗口暴露出来）。
+  await expect(page.getByRole("button", { name: "保存草稿" })).toBeEnabled({
+    timeout: 10000,
+  });
+}
+
+/** 同上 + 切「正文」→ 编辑器就绪（写正文的用例共用）。 */
+export async function writeFirstChapter(page: Page) {
+  await addFirstChapterViaTree(page);
+  await page.getByRole("tab", { name: /^正文/ }).click();
+  const editor = page.locator(".editor");
+  await expect(editor).toBeVisible({ timeout: 10000 });
+  return editor;
+}
+
 // ── 测试自建书的 teardown（2026-09-10 用户拍板「要加」）────────────────────
 // 背景：e2e 每个用例都建一本新书、从不删除 → 跑一次全量往书架塞 80+ 本，
 // 本地库曾累积到 858 本（清理脚本扫掉 856 本）。

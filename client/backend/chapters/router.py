@@ -76,9 +76,13 @@ async def create_volume(
         raise HTTPException(404, "Project not found")
     from volumes.service import create_volume as create_volume_db
 
-    # body.vol_num 忽略（MAX+1，防撞 UNIQUE，B9/P2-N）
+    # body.vol_num 忽略（MAX+1，防撞 UNIQUE，B9/P2-N）；四问＋antagonist＋章数透传（一次写入）
     return await create_volume_db(
-        db, project, title=body.title, summary=body.summary
+        db, project,
+        title=body.title, summary=body.summary,
+        core_conflict=body.core_conflict, ending=body.ending,
+        antagonist_type=body.antagonist_type, antagonist_line=body.antagonist_line,
+        chapter_target=body.chapter_target,
     )
 
 

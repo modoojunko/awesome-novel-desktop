@@ -15,6 +15,6 @@
 每套给四个字段：spine（一句话走向，≤40 字）｜conflict（一句话冲突，≤40 字）｜ending（这一卷收在哪里，必须能当下一卷的进场，≤40 字）｜focus（这一套相对另外两套的侧重，≤20 字，从侧重轴里取一个词）。
 
 只输出 JSON，不要其他文字：
-{"plans":[{"spine":"…","conflict":"…","ending":"…","focus":"…","focus_axis":"代价"}],"note":"…","volume_estimate":"…","cast":["…"],"factions":["…"]}
+{"plans":[{"spine":"…","conflict":"…","ending":"…","focus":"…","focus_axis":"代价","antagonist_type":"人物","antagonist_line":"…≤150字"}],"note":"…","volume_estimate":"…","factions":["…"]}
 
 cast 与 factions：把三套里用到的所有人物名与势力名显式列出（照设定里的原文写；没有就给空数组）。

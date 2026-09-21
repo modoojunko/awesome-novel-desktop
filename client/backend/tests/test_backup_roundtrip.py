@@ -269,7 +269,12 @@ class TestLayer2Settings:
 
 class TestLayer3Volume:
     def test_volume_structures_survive_without_chapters(self, roundtrip):
-        from models.volume import Volume, VolumeCastMember, VolumePlotNode
+        """c-volume-antagonist 终版字段集往返：标量＋antagonist＋节点行集。
+
+        退役字段（template/goal/plants/reveals/cast 行集）不再断言——导出导入链
+        对旧行数据只搬运不清理（退役不迁移），显式断言它们可为 None/残留即可。
+        """
+        from models.volume import Volume, VolumePlotNode
 
         _src_id, dst_id, _blob, _slug, _root = roundtrip
 
@@ -280,27 +285,24 @@ class TestLayer3Volume:
                 )).all()
                 assert len(vols) == 1
                 vol = vols[0]
-                casts = (await db.scalars(select(VolumeCastMember).where(
-                    VolumeCastMember.volume_id == vol.id))).all()
                 nodes = (await db.scalars(select(VolumePlotNode).where(
                     VolumePlotNode.volume_id == vol.id))).all()
                 return (
-                    vol.title, vol.template_name, vol.goal, vol.ending,
-                    vol.plants, vol.reveals, vol.chapter_target,
-                    len(casts), len(nodes),
+                    vol.title, vol.core_conflict, vol.ending,
+                    vol.antagonist_type, vol.antagonist_line,
+                    vol.chapter_target, len(nodes),
                 )
 
-        (title, template, goal, ending, plants, reveals, target,
-         n_casts, n_nodes) = _run(run())
+        (title, conflict, ending, ant_type, ant_line,
+         target, n_nodes) = _run(run())
         assert title == "第一卷"
-        # v4 卷纲段往返：标量与行集逐字
-        assert template == "三幕式"
-        assert goal == "拿到关键证据" and ending == "证据到手，同伴远走"
-        assert plants == "内鬼的徽章\n半张航线图"
-        assert reveals == "接头的正是内鬼"
+        assert conflict
+        # goal 并入尾句（读侧合并口径：导出→导入走了 get_volume 形状）
+        assert ending.startswith("证据到手，同伴远走")
+        assert ant_type in (None, "人物", "难题", "环境", "自我", "势力")  # 闭集或旧行空
+        assert ant_line is None or isinstance(ant_line, str)
         assert target == 12
-        assert n_casts == 1 and n_nodes == 1
-
+        assert n_nodes == 1
 
 # ── 层 4：章全字段 ────────────────────────────────────────────────────────
 

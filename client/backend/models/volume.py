@@ -61,6 +61,9 @@ class Volume(Base):
     chapter_target: Mapped[int | None] = mapped_column(Integer)
     # 展开依据：本卷是照哪句话铺出来的（作者写的那一句或选中的那套走法；可空）
     plan_line: Mapped[str | None] = mapped_column(String(150))
+    # 本卷的坎（c-volume-antagonist）：类型闭集（人物/难题/环境/自我/势力）＋一句话
+    antagonist_type: Mapped[str | None] = mapped_column(String(20))
+    antagonist_line: Mapped[str | None] = mapped_column(String(150))
 
     # Relationships
     project = relationship("Novel", back_populates="volumes")

@@ -80,7 +80,6 @@ async def upsert(
     *,
     title: str,
     summary: str = "",
-    plan_line: str = "",
 ) -> Volume:
     """按 UNIQUE(project_id, volume_no) 找，缺则 insert；flush 但不 commit（交调用方事务）。"""
     row = await get_by_volume_no(db, project_id, volume_no)
@@ -89,15 +88,12 @@ async def upsert(
             row.title = title
         if summary and summary != row.summary:
             row.summary = summary
-        if plan_line and plan_line != row.plan_line:
-            row.plan_line = plan_line
         return row
     row = Volume(
         project_id=project_id,
         volume_no=volume_no,
         title=title,
         summary=summary,
-        plan_line=plan_line or "",
     )
     db.add(row)
     await db.flush()

@@ -4,11 +4,12 @@
 照 characters_router 的先例（main.py）。
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.deps import get_current_user
 from db import get_db
+from novels.events import log_event_async
 from settings import hooks_service as svc
 
 router = APIRouter(prefix="/api/novels/{project_id}/hooks", tags=["hooks"])
@@ -29,6 +30,27 @@ async def list_hooks(
 ):
     data = await svc.list_hooks(db, project_id)
     return {"ok": True, "data": data}
+
+
+@router.post("/batch")
+async def batch_create_hooks(
+    project_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """批量登记（c-volume-antagonist 确认成卷链）：服务端查重，逐条返回 created/skipped。"""
+    items = (body or {}).get("items") or []
+    if not isinstance(items, list):
+        raise HTTPException(422, "items 须为数组")
+    result = await svc.batch_create_hooks(db, project_id, items)
+    # 度量（PRD §7 hooks_registered{dupe_skipped}）：服务端才知道查重结果
+    dupe = sum(1 for x in result.get("skipped", []) if x.get("existing_code"))
+    await log_event_async(
+        db, _user["id"], "hooks_registered",
+        {"created": len(result.get("created", [])), "dupe_skipped": dupe},
+    )
+    return {"ok": True, "data": result}
 
 
 @router.post("")

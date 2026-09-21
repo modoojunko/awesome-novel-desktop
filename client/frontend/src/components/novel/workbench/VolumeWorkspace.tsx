@@ -40,11 +40,10 @@ interface VolumeWorkspaceProps {
   onVolumeMutated: () => void;
   onDirtyChange: (dirty: boolean) => void;
   onRailData: (data: VolumeRailData | null) => void;
-  /** 规划台回填（volume-plan-ai）：seq 递增触发一次逐段落下 */
+  /** 规划台回填（c-volume-antagonist）：seq 递增触发一次逐段落下 */
   backfill?: {
     seq: number;
     draft: VolumeExpandDraft;
-    planLine: string;
   } | null;
   /** 保存成功后回调（采纳路径：落写作默认页） */
   onSaved?: () => void;
@@ -172,17 +171,15 @@ export default function VolumeWorkspace({
     touchedRef.current = new Set();
     setForm({
       ...base,
-      plan_line: backfill.planLine,
       title: d.name?.trim() ? d.name.slice(0, 6) : base.title,
     });
     const steps: Array<[keyof VolumeFormData, string]> = [
       ["summary", d.summary],
       ["core_conflict", d.conflict],
-      ["goal", d.goal],
+      ["antagonist_type", d.antagonist_type || ""],
+      ["antagonist_line", d.antagonist_line || ""],
       ["ending", d.ending],
       ["chapter_target", d.chapter_target > 0 ? String(d.chapter_target) : ""],
-      ["plantsText", (d.plants ?? []).join("\n")],
-      ["revealsText", (d.reveals ?? []).join("\n")],
     ];
     setFilling(true);
     let i = 0;
@@ -378,7 +375,7 @@ function VolumeOutlinePane({
             </button>
           </span>
         </div>
-        {/* 段序（volume-plan-ai）：进场 → 展开依据 → 本卷剧情 → 卷基础信息 → 登场人物 → 关键节点 → 伏笔 */}
+        {/* 编辑态（c-volume-antagonist 终版）：四问编号序＋卷名/章数＋节点（与查看态、抽卡卡同骨架） */}
         <div className="fro">
           <em>进场</em>
           <p className="pv-ro" data-testid="vol-prev-ending">
@@ -389,224 +386,118 @@ function VolumeOutlinePane({
           </span>
         </div>
         <div className="fro">
-          <em>展开依据</em>
-          <p className="pv-ro" data-testid="vol-plan-line">
-            {form.plan_line || "（手写的卷纲没有展开依据）"}
-          </p>
-          <span className="none">你当时给 AI 的那一句，或选中的那套走法</span>
+          <em>
+            <span className="qno">1</span>这一卷讲什么？ <span className="req">必填</span>
+          </em>
+          <textarea
+            id="vol-summary"
+            aria-label="本卷主旨"
+            className="textarea"
+            rows={2}
+            maxLength={300}
+            placeholder="一句话概括这一卷的核心意义"
+            value={form.summary}
+            onChange={(e) => onPatch({ summary: e.target.value })}
+          />
         </div>
-
-        <details className="cfg" open>
-          <summary>
-            本卷剧情 <Chev />
-          </summary>
-          <div className="inner">
-            <div className="fro">
-              <em>
-                本卷主旨 <span className="req">必填</span>
-              </em>
-              <textarea
-                id="vol-summary"
-                aria-label="本卷主旨"
-                className="textarea"
-                rows={2}
-                maxLength={300}
-                placeholder="一句话概括这一卷的核心意义"
-                value={form.summary}
-                onChange={(e) => onPatch({ summary: e.target.value })}
-              />
-            </div>
-            <div className="fro">
-              <em>
-                核心矛盾 <span className="req">必填</span>
-              </em>
-              <textarea
-                id="vol-conflict"
-                aria-label="核心矛盾"
-                className="textarea"
-                rows={2}
-                maxLength={150}
-                placeholder="本卷要解决或对抗的冲突"
-                value={form.core_conflict}
-                onChange={(e) => onPatch({ core_conflict: e.target.value })}
-              />
-            </div>
-            <div className="fro">
-              <em>整体目标</em>
-              <textarea
-                id="vol-goal"
-                aria-label="整体目标"
-                className="textarea"
-                rows={2}
-                maxLength={300}
-                placeholder="本卷结束时想达成的局面"
-                value={form.goal}
-                onChange={(e) => onPatch({ goal: e.target.value })}
-              />
-            </div>
-            <div className="fro">
-              <em>预期结局</em>
-              <textarea
-                id="vol-ending"
-                aria-label="预期结局"
-                className="textarea"
-                rows={2}
-                maxLength={300}
-                placeholder="收尾状态；多结局在此列分支"
-                value={form.ending}
-                onChange={(e) => onPatch({ ending: e.target.value })}
-              />
-            </div>
-          </div>
-        </details>
-
-        <details className="cfg" open>
-          <summary>
-            卷基础信息 <Chev />
-          </summary>
-          <div className="inner">
-            <div className="fgrid">
-              <div className="fro">
-                <em>卷名</em>
-                <input
-                  id="vol-name"
-                  aria-label="卷名"
-                  className="input"
-                  maxLength={200}
-                  value={form.title}
-                  onChange={(e) => onPatch({ title: e.target.value })}
-                />
-              </div>
-              <div className="fro">
-                <em>结构模板</em>
-                <select
-                  id="vol-template"
-                  aria-label="结构模板"
-                  className="input"
-                  value={form.template_name}
-                  onChange={(e) => onPatch({ template_name: e.target.value })}
-                >
-                  <option value="">（未选择）</option>
-                  {(form.template_name &&
-                  !TEMPLATE_OPTIONS.includes(form.template_name as (typeof TEMPLATE_OPTIONS)[number])
-                    ? [form.template_name]
-                    : []
-                  )
-                    .concat(TEMPLATE_OPTIONS as unknown as string[])
-                    .map((o) => (
-                      <option key={o} value={o}>
-                        {o}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            </div>
-            <div className="fro">
-              <em>章数目标</em>
-              <input
-                id="vol-target"
-                aria-label="章数目标"
-                className="input num"
-                type="number"
-                min={1}
-                max={9999}
-                placeholder="如 20"
-                value={form.chapter_target}
-                onChange={(e) => onPatch({ chapter_target: e.target.value })}
-              />
-              <span className="none">1-9999，留空为不设</span>
-            </div>
-          </div>
-        </details>
-
-        <details className="cfg" open>
-          <summary>
-            本卷登场人物 <Chev />
-          </summary>
-          <div className="inner">
-            <div className="sub-list">
-              {form.cast_members.length === 0 && (
-                <p className="sub-empty">还没有登记登场人物，点下方添加。</p>
-              )}
-              {form.cast_members.map((m, i) => (
-                <div className="rowx" key={i}>
-                  <span className="num">{i + 1}</span>
-                  <div className="cols c3">
-                    <input
-                      className="input"
-                      maxLength={50}
-                      placeholder="角色"
-                      value={m.who}
-                      onChange={(e) =>
-                        onPatch({
-                          cast_members: form.cast_members.map((x, j) =>
-                            j === i ? { ...x, who: e.target.value } : x,
-                          ),
-                        })
-                      }
-                    />
-                    <input
-                      className="input"
-                      maxLength={150}
-                      placeholder="本卷要做什么"
-                      value={m.target}
-                      onChange={(e) =>
-                        onPatch({
-                          cast_members: form.cast_members.map((x, j) =>
-                            j === i ? { ...x, target: e.target.value } : x,
-                          ),
-                        })
-                      }
-                    />
-                    <input
-                      className="input"
-                      maxLength={150}
-                      placeholder="本卷结束时变成什么样"
-                      value={m.change}
-                      onChange={(e) =>
-                        onPatch({
-                          cast_members: form.cast_members.map((x, j) =>
-                            j === i ? { ...x, change: e.target.value } : x,
-                          ),
-                        })
-                      }
-                    />
-                  </div>
-                  <button
-                    className="icon-btn xbtn"
-                    title="删除本行"
-                    onClick={() =>
-                      onPatch({
-                        cast_members: form.cast_members.filter((_, j) => j !== i),
-                      })
-                    }
-                  >
-                    <TrashIcon />
-                  </button>
-                </div>
+        <div className="fro">
+          <em>
+            <span className="qno">2</span>主要冲突是什么？ <span className="req">必填</span>
+          </em>
+          <textarea
+            id="vol-conflict"
+            aria-label="核心矛盾"
+            className="textarea"
+            rows={2}
+            maxLength={150}
+            placeholder="想做什么，被什么拦住"
+            value={form.core_conflict}
+            onChange={(e) => onPatch({ core_conflict: e.target.value })}
+          />
+        </div>
+        <div className="fro">
+          <em>
+            <span className="qno">3</span>这一卷的坎是谁／是什么？
+          </em>
+          <div className="hurdle-row">
+            <select
+              id="vol-ant-type"
+              aria-label="坎的类型"
+              className="input"
+              value={form.antagonist_type}
+              onChange={(e) => onPatch({ antagonist_type: e.target.value })}
+            >
+              <option value="">先不选</option>
+              {["人物", "难题", "环境", "自我", "势力"].map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
               ))}
-            </div>
-            <div className="edit-bar">
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() =>
-                  onPatch({
-                    cast_members: [
-                      ...form.cast_members,
-                      { who: "", target: "", change: "" },
-                    ],
-                  })
-                }
-              >
-                ＋ 加一行人物
-              </button>
-            </div>
+            </select>
+            <input
+              id="vol-ant-line"
+              aria-label="坎的一句话"
+              className="input"
+              maxLength={150}
+              placeholder="例：执法官雷——点名要他停手"
+              value={form.antagonist_line}
+              onChange={(e) => onPatch({ antagonist_line: e.target.value })}
+            />
           </div>
-        </details>
-
+        </div>
+        <div className="fro">
+          <em>
+            <span className="qno">4</span>卷末收在哪里？
+          </em>
+          <textarea
+            id="vol-ending"
+            aria-label="卷末结局"
+            className="textarea"
+            rows={3}
+            maxLength={300}
+            placeholder="这一卷结束时，局面变成什么样"
+            value={form.ending}
+            onChange={(e) => onPatch({ ending: e.target.value })}
+          />
+        </div>
+        <div className="fgrid">
+          <div className="fro">
+            <em>卷名</em>
+            <input
+              id="vol-name"
+              aria-label="卷名"
+              className="input"
+              maxLength={200}
+              value={form.title}
+              onChange={(e) => onPatch({ title: e.target.value })}
+            />
+          </div>
+          <div className="fro">
+            <em>章数目标</em>
+            <input
+              id="vol-target"
+              aria-label="章数目标"
+              className="input num"
+              type="number"
+              min={1}
+              max={9999}
+              placeholder="1-9999，留空为不设"
+              value={form.chapter_target}
+              onChange={(e) => onPatch({ chapter_target: e.target.value })}
+            />
+          </div>
+        </div>
+        <div className="fro">
+          <em>本卷角色 <span className="tag">自动聚合</span></em>
+          <p className="pv-ro">
+            {detail.cast_members.length
+              ? detail.cast_members.map((c) => c.name + (c.role ? `（${c.role}）` : "")).join("　")
+              : "还没有章——写到谁（章纲登记出场），这里自动有谁"}
+          </p>
+        </div>
         <details className="cfg" open>
           <summary>
-            本卷关键剧情节点 <Chev />
+            关键剧情节点 <Chev />
           </summary>
           <div className="inner">
             <div className="sub-list">
@@ -628,9 +519,9 @@ function VolumeOutlinePane({
                         })
                       }
                     >
-                      {(PLOT_STAGES as unknown as string[]).map((s) => (
-                        <option key={s} value={s}>
-                          {s}
+                      {(PLOT_STAGES as unknown as string[]).map((st) => (
+                        <option key={st} value={st}>
+                          {st}
                         </option>
                       ))}
                     </select>
@@ -680,57 +571,17 @@ function VolumeOutlinePane({
             </div>
           </div>
         </details>
+        <div className="fro">
+          <em>这一卷的伏笔</em>
+          <p className="pv-ro">住在台账里——切「伏笔」页签看与办；登记与收束都在台账。</p>
+        </div>
 
-        <details className="cfg" open>
-          <summary>
-            伏笔与信息披露 <Chev />
-          </summary>
-          <div className="inner">
-            <div className="fro">
-              <em>
-                本卷埋下伏笔 <span className="req">一行一条 · 后续卷回收</span>
-              </em>
-              <textarea
-                id="vol-plants"
-                aria-label="本卷埋下伏笔"
-                className="textarea"
-                rows={3}
-                placeholder={"后续卷要回收的线，一行一条"}
-                value={form.plantsText}
-                onChange={(e) => onPatch({ plantsText: e.target.value })}
-              />
-              {splitLines(form.plantsText).length === 0 && (
-                <p className="none">这一卷没有新埋伏笔。</p>
-              )}
-            </div>
-            <div className="fro">
-              <em>
-                本卷揭露信息 <span className="req">一行一条</span>
-              </em>
-              <textarea
-                id="vol-reveals"
-                aria-label="本卷揭露信息"
-                className="textarea"
-                rows={3}
-                placeholder={"本卷要揭开的真相，一行一条"}
-                value={form.revealsText}
-                onChange={(e) => onPatch({ revealsText: e.target.value })}
-              />
-              {splitLines(form.revealsText).length === 0 && (
-                <p className="none">这一卷没有需要揭露的信息。</p>
-              )}
-            </div>
-          </div>
-        </details>
-
-        <p className="hint">
-          卷纲只做剧情规划，人物的具体言行交给角色设定去推导。
-        </p>
+        <p className="hint">卷纲只做剧情规划，人物的具体言行交给角色设定去推导。</p>
       </>
     );
   }
 
-  // ── 查看态 ────────────────────────────────────────────────────────────
+  // ── 查看态：四问一页纸（无折叠块；与抽卡卡同骨架）──
   return (
     <>
       <div className="ol-top">
@@ -742,134 +593,64 @@ function VolumeOutlinePane({
         </span>
       </div>
 
-      <details className="cfg" open>
-        <summary>
-          卷基础信息 <Chev />
-        </summary>
-        <div className="inner">
-          <div className="fro">
-            <em>本卷主旨</em>
-            <p className="lead">{detail.summary || "（未填）"}</p>
-          </div>
-          <div className="fgrid">
-            <div className="fro">
-              <em>结构模板</em>
-              <p>{detail.template_name || "—"}</p>
-            </div>
-            <div className="fro">
-              <em>章数目标</em>
-              <p>{detail.chapter_target != null ? `${detail.chapter_target} 章` : "不设"}</p>
-            </div>
-          </div>
-        </div>
-      </details>
-
-      <details className="cfg" open>
-        <summary>
-          本卷剧情 <Chev />
-        </summary>
-        <div className="inner">
-          <div className="fro">
-            <em>核心矛盾</em>
-            <p>{detail.core_conflict || "（未填）"}</p>
-          </div>
-          <div className="fro">
-            <em>整体目标</em>
-            <p>{detail.goal || "（未填）"}</p>
-          </div>
-          <div className="fro">
-            <em>预期结局</em>
-            <p>{detail.ending || "（未填）"}</p>
-          </div>
-        </div>
-      </details>
-
-      <details className="cfg" open>
-        <summary>
-          本卷登场人物 <Chev />
-        </summary>
-        <div className="inner">
-          {detail.cast_members.length === 0 ? (
-            <p className="none">这一卷还没有登记登场人物。</p>
-          ) : (
-            <div className="ledger">
-              {detail.cast_members.map((m, i) => (
-                <div className="node" key={i}>
-                  <span className="stg">{m.who}</span>
-                  <p>
-                    本卷目标 · {m.target || "—"}
-                    <br />
-                    预期变化 · {m.change || "—"}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </details>
-
-      <details className="cfg" open>
-        <summary>
-          本卷关键剧情节点 <Chev />
-        </summary>
-        <div className="inner">
-          {detail.plot_nodes.length === 0 ? (
-            <p className="none">还没有排剧情节点。</p>
-          ) : (
-            detail.plot_nodes.map((n, i) => (
+      <div className="fro" data-od-id="enter-row">
+        <em>
+          {detail.volume > 1 ? "上一卷的结尾" : "起点"} <span className="tag">只读</span>
+        </em>
+        <p>{detail.prev_ending?.text || "（还没有记录）"}</p>
+        <span className="none">
+          {detail.prev_ending?.source || "写到那里之后，这里会换成实际的样子"}
+        </span>
+      </div>
+      <div className="fro">
+        <em><span className="qno">1</span>这一卷讲什么</em>
+        <p className="lead">{detail.summary || "（未填）"}</p>
+      </div>
+      <div className="fro">
+        <em><span className="qno">2</span>主要冲突</em>
+        <p>{detail.core_conflict || "（未填）"}</p>
+      </div>
+      <div className="fro">
+        <em><span className="qno">3</span>这一卷的坎</em>
+        <p>
+          {detail.antagonist_line
+            ? [detail.antagonist_type, detail.antagonist_line].filter(Boolean).join(" · ")
+            : "（未填）"}
+        </p>
+      </div>
+      <div className="fro">
+        <em><span className="qno">4</span>卷末收在哪里</em>
+        <p>{detail.ending || "（未填）"}</p>
+      </div>
+      <div className="fro" style={{ marginTop: 2 }}>
+        <em>本卷角色 <span className="tag">自动聚合</span></em>
+        <p className="none">
+          {detail.cast_members.length
+            ? detail.cast_members.map((c) => c.name + (c.role ? `（${c.role}）` : "")).join("　")
+            : "还没有章——写到谁（章纲登记出场），这里自动有谁"}
+        </p>
+      </div>
+      <div className="fro">
+        <em>这一卷的伏笔</em>
+        <p className="none">住在台账里——切「伏笔」页签看与办；登记与收束都在台账。</p>
+      </div>
+      {detail.plot_nodes.length > 0 && (
+        <details className="cfg" open>
+          <summary>关键剧情节点 <Chev /></summary>
+          <div className="inner">
+            {detail.plot_nodes.map((n, i) => (
               <div className="node" key={i}>
                 <span className="stg">{n.stage}</span>
                 <p>{n.text}</p>
               </div>
-            ))
-          )}
-        </div>
-      </details>
-
-      <details className="cfg" open>
-        <summary>
-          伏笔与信息披露 <Chev />
-        </summary>
-        <div className="inner">
-          <div className="fro">
-            <em>
-              本卷埋下伏笔 <span className="req">后续卷回收</span>
-            </em>
-            {detail.plants.length ? (
-              <ul className="flist">
-                {detail.plants.map((x, i) => (
-                  <li key={i}>{x}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="none">这一卷没有新埋伏笔。</p>
-            )}
+            ))}
           </div>
-          <div className="fro">
-            <em>本卷揭露信息</em>
-            {detail.reveals.length ? (
-              <ul className="flist">
-                {detail.reveals.map((x, i) => (
-                  <li key={i}>{x}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="none">这一卷没有需要揭露的信息。</p>
-            )}
-          </div>
-        </div>
-      </details>
-
-      <details className="cfg" open>
-        <summary>
-          章节拆分 <Chev />
-        </summary>
-        <div className="inner">
-          <p className="hint">
-            每一章的蓝图长在该章的「章纲」里，本页不重复维护。节点与人物是本层的计划，往下拆章时逐章落到章纲。
-          </p>
-        </div>
-      </details>
+        </details>
+      )}
+      <div className="defer-note">
+        <b>留到写的时候</b>
+        <span>关键剧情节点，写到这一卷时在卷纲编辑里补。</span>
+      </div>
 
       <p className="seg-h">
         本卷进度 <span className="note">由各章实际归属推导</span>

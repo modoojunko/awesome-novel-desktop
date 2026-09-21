@@ -241,7 +241,7 @@ describe("默认落写作视图（免费）", () => {
 });
 
 describe("空书起手链（c-0vol0ch-empty-state）", () => {
-  it("「＋ 新增一章」先垫第一卷再排第一章；「＋ 新增一卷」开建卷弹窗", async () => {
+  it("「＋ 新增一章」先垫第一卷再排第一章；「＋ 新增一卷」开规划台", async () => {
     // 有状态的建卷/建章 mock：POST 后 GET /volumes 跟着长出来（原型 firstVol 口径）
     let vols: unknown[] = [];
     apiState.get.mockImplementation((path: string) => {
@@ -279,13 +279,16 @@ describe("空书起手链（c-0vol0ch-empty-state）", () => {
 
     renderWorkspace("none");
     await screen.findByText("这本书怎么开始？");
-    // 三处「＋ 新增一卷」（顶栏空书卡 / 中栏空态 / 左栏底部）都开同一个建卷弹窗
+    // 三处「＋ 新增一卷」（顶栏空书卡 / 中栏空态 / 左栏底部）都开同一个规划流（免费＝四问页）
     for (const id of ["empty-add-vol", "empty-cta-vol", "add-volume"]) {
       expect(document.querySelector(`[data-od-id="${id}"]`)).toBeTruthy();
     }
     fireEvent.click(document.querySelector('[data-od-id="add-volume"]') as HTMLElement);
-    expect(await screen.findByRole("heading", { name: "添加卷" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    // c-volume-antagonist：添加卷弹窗退役——统一接规划流（免费档＝四问手写页）
+    await waitFor(() => expect(screen.getByTestId("volume-plan-modal")).toBeDefined());
+    expect(screen.getByTestId("desk-create")).toBeDefined();
+    expect(screen.queryByRole("heading", { name: "添加卷" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /先不规划/ }));
 
     // 中栏「＋ 新增一章」＝空书垫卷链（原型 firstVol → 新增一章）
     fireEvent.click(document.querySelector('[data-od-id="empty-cta-ch"]') as HTMLElement);
@@ -296,6 +299,28 @@ describe("空书起手链（c-0vol0ch-empty-state）", () => {
       expect(apiState.post).toHaveBeenCalledWith("/novels/p1/volumes/vol-1/chapters", {
         title: "第一章",
       }),
+    );
+    // 度量（PRD §7）：垫卷排第一章记 first_chapter_in_vol
+    await waitFor(() =>
+      expect(apiState.post).toHaveBeenCalledWith(
+        "/events",
+        { event_type: "first_chapter_in_vol", payload: { vol_no: 1 } },
+        { quiet: true },
+      ),
+    );
+  });
+
+  it("入口埋点：三处「＋ 新增一卷」记 plan_entry_open{tier}", async () => {
+    mockEmptyTree();
+    renderWorkspace("none");
+    await screen.findByText("这本书怎么开始？");
+    fireEvent.click(document.querySelector('[data-od-id="empty-cta-vol"]') as HTMLElement);
+    await waitFor(() =>
+      expect(apiState.post).toHaveBeenCalledWith(
+        "/events",
+        { event_type: "plan_entry_open", payload: { tier: "free" } },
+        { quiet: true },
+      ),
     );
   });
 });

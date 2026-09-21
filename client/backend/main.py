@@ -31,6 +31,7 @@ from db import Base, async_session, engine
 from genres.router import router as genres_router
 from manuscript.router import router as manuscript_router
 from models.user import User
+from novels.events_router import router as events_router
 from novels.router import ai_router
 from novels.router import router as novels_router
 from prompt.router import router as prompt_router
@@ -202,10 +203,6 @@ async def lifespan(app: FastAPI):
 # ── 代内 additive 补列（声明式登记；幂等 checkfirst）──────────
 # 新表/新列一律在此登记（新库 create_all 全量建出；旧库由 lifespan 补列）；
 # 删/改列一律 SCHEMA_VERSION+1 走迁入。列名单一来源，DDL 由它派生。
-ADDITIVE_VOLUME_COLS = ("plan_line",)
-ADDITIVE_COLUMNS: dict[str, list[str]] = {
-    "volumes": [f"ALTER TABLE volumes ADD COLUMN {c} VARCHAR(150)" for c in ADDITIVE_VOLUME_COLS]
-}
 
 app = FastAPI(title=f"{brand.BRAND_NAME} (Local)", version="0.2.0", lifespan=lifespan)
 
@@ -300,6 +297,7 @@ app.include_router(update_check_router)
 # 业务路由
 app.include_router(ai_router)
 app.include_router(novels_router)
+app.include_router(events_router)  # 度量落点（PRD §7）：前端意图事件白名单收口
 app.include_router(settings_status_router)  # 先注册：GET /settings/status 不能被 /{type} 抢先匹配
 app.include_router(characters_router)  # 角色端点同理：不能被 GET /settings/{type} 兜底吃掉
 app.include_router(hooks_router)  # 伏笔端点同理：不能被 GET /settings/{type} 兜底吃掉

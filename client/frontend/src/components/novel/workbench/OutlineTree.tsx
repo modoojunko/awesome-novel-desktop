@@ -23,7 +23,7 @@ interface OutlineTreeProps {
   guardedLeave: () => boolean;
   /** 选中章实时字数（原型 askDelete 用 live 内容计数；树计数要等刷新） */
   liveWords: { ref: string; words: number } | null;
-  /** 打开「添加卷」弹窗（弹窗实体在壳层：空书态三处入口共用） */
+  /** 打开规划台建卷（c-volume-antagonist 统一入口；弹窗实体在壳层，三处入口共用） */
   onAddVolume: () => void;
   /** 空书态「＋ 新增一章」：先垫第一卷再排第一章（壳层实现） */
   onAddChapter: () => void;
@@ -199,7 +199,7 @@ export default function OutlineTree({
         </span>
         <button
           className="icon-btn"
-          title="添加卷"
+          title="新增一卷"
           onClick={onAddVolume}
         >
           <Ico d={P.plus} sw={1.8} />

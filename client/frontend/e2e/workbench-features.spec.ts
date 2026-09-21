@@ -2,12 +2,12 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
-import { cleanupSessionNovels, stableClick } from "./helpers";
+import { addFirstChapterViaTree, cleanupSessionNovels, stableClick, writeFirstChapter } from "./helpers";
 
 // =========================================================================
 // 工作台非 AI 功能 E2E（PR3 book.html 复刻后适配：章对象三页签 / 卷纲面板 / 专注 / 提示词）
 //   ① 章纲：选中章 →「章纲」页签 → OgPane 平面全字段表单编辑 + 保存草稿
-//   ② 卷纲面板（PR4）：点卷节点 → 常编辑态全字段 + 子表行 → 保存卷纲 + 去配章纲
+//   ② 卷纲（c-volume-antagonist）：点卷节点 → 四问一页纸查看态 → 编辑态四问＋坎 → 保存卷纲
 //   ③ 专注模式：body.focus 隐藏左树右栏 + Esc 退出
 //   ④ 提示词面板：整章单卡（ai-prompt-crafting）——种子查看/编辑；无分段列表/生成按钮
 //   ⑤ 免费态提示词子 label 隐藏（PRO-only 口径，取代 #152 入口可见）
@@ -132,23 +132,6 @@ async function createNovel(page: Page, name: string): Promise<string> {
   return m[1];
 }
 
-/** 加卷 + 初始 1 章 → 点章 → 切「正文」→ 编辑器就绪（PR3：添加卷弹窗 + 点章强制落章纲）。 */
-async function writeFirstChapter(page: Page) {
-  await page.getByTitle("添加卷").click();
-  await page.getByLabel("卷名", { exact: true }).fill("第一卷");
-  await page.getByLabel(/初始章数/).fill("1");
-  await page.getByRole("button", { name: "创建卷" }).click();
-  const chRow = page.locator(".col-tree .ch", { hasText: "第一章" });
-  await expect(chRow).toBeVisible({ timeout: 10000 });
-  await chRow.click();
-  await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({
-    timeout: 10000,
-  });
-  await page.getByRole("tab", { name: /^正文/ }).click();
-  const editor = page.locator(".editor");
-  await expect(editor).toBeVisible({ timeout: 10000 });
-  return editor;
-}
 
 /** 带 Bearer token 的 API GET。 */
 async function apiGetJSON(request: APIRequestContext, token: string, path: string) {
@@ -221,7 +204,7 @@ test("章纲：OgPane 真实表单编辑 + 保存草稿（概要/关键事件/�
 });
 
 // -------------------------------------------------------------------------
-// ② 卷纲面板（PR4：book.html 复刻）：点卷节点 → 常编辑态全字段 + 子表 → 保存卷纲
+// ② 卷纲（c-volume-antagonist 四问一页纸）：点卷节点 → 查看态 → 编辑态 → 保存卷纲
 // -------------------------------------------------------------------------
 
 // -------------------------------------------------------------------------
@@ -258,16 +241,18 @@ test("卷视图：点卷节点 → 四页签 → 卷纲两态编辑保存 → �
     await expect(page.getByRole("button", { name: "编辑卷纲" })).toBeVisible();
     await expect(page.getByRole("heading", { name: /第一卷/ })).toBeVisible();
 
-    // 编辑态：主旨/核心矛盾必填；整体目标/伏笔一行一条；章数目标清空通道
+    // 编辑态（c-volume-antagonist 四问一页纸）：主旨/冲突必填；坎＝类型＋一句话；卷末
     await page.getByRole("button", { name: "编辑卷纲" }).click();
     await expect(page.getByText("正在编辑卷纲")).toBeVisible();
-    await page.getByLabel(/本卷主旨/).fill("第一卷铺垫主角妹妹失踪的悬念，收尾进入边城。");
-    await page.getByLabel(/核心矛盾/).fill("匿名信与失踪案的真假之辨");
-    await page.getByLabel(/整体目标/).fill("查明匿名信来源");
-    await page.getByLabel(/预期结局/).fill("内鬼浮出水面");
-    await page
-      .getByLabel(/本卷埋下伏笔/)
-      .fill("妹妹留下的半页日记\n匿名信的邮戳");
+    await page.getByLabel("本卷主旨").fill("第一卷铺垫主角妹妹失踪的悬念，收尾进入边城。");
+    await page.getByLabel("核心矛盾").fill("匿名信与失踪案的真假之辨");
+    await page.getByLabel("坎的类型").selectOption("人物");
+    await page.getByLabel("坎的一句话").fill("执法官雷——点名要他停手");
+    await page.getByLabel("卷末结局").fill("内鬼浮出水面");
+    await page.getByLabel("章数目标").fill("12");
+    // 伏笔不在卷纲里手写——住台账（本卷的伏笔指向「伏笔」页签）
+    await expect(page.getByText(/住在台账里/)).toBeVisible();
+    await expect(page.getByLabel(/本卷埋下伏笔/)).toHaveCount(0);
     // 保存 → PUT /volumes/vol-1 → 统一 toast《title》卷纲已保存
     const volSave = page.waitForResponse(
       (r) =>
@@ -278,16 +263,23 @@ test("卷视图：点卷节点 → 四页签 → 卷纲两态编辑保存 → �
     await volSave;
     await expect(page.getByText("卷纲已保存")).toBeVisible({ timeout: 5000 });
 
-    // 后端直查：新字段集落库（plants 为 list 契约）
+    // 后端直查：四问字段集落库；退役键（goal/plants/reveals/plan_line）不出现在契约里
     const vol = await apiGetJSON(request, token, `/novels/${pid}/volumes/vol-1`);
     expect(vol.summary).toContain("妹妹失踪");
     expect(vol.core_conflict).toBe("匿名信与失踪案的真假之辨");
-    expect(vol.goal).toBe("查明匿名信来源");
+    expect(vol.antagonist_type).toBe("人物");
+    expect(vol.antagonist_line).toBe("执法官雷——点名要他停手");
     expect(vol.ending).toBe("内鬼浮出水面");
-    expect(vol.plants).toEqual(["妹妹留下的半页日记", "匿名信的邮戳"]);
+    expect(vol.chapter_target).toBe(12);
+    for (const k of ["goal", "plants", "reveals", "plan_line", "template_name"]) {
+      expect(vol[k]).toBeUndefined();
+    }
+    // 本卷角色＝聚合只读（第一章未登记出场 → 空态文案）
+    expect(vol.cast_members).toEqual([]);
 
-    // 查看态回显 + 进度线（writeFirstChapter 仅开编辑器未写正文 → 该章=拟定；frontier 定位待写）
+    // 查看态回显（四问一页纸）＋进度线（writeFirstChapter 仅开编辑器未写正文 → 该章=拟定；frontier 定位待写）
     await expect(page.getByText("第一卷铺垫主角妹妹失踪的悬念，收尾进入边城。")).toBeVisible();
+    await expect(page.getByText("人物 · 执法官雷——点名要他停手")).toBeVisible();
     const progress = page.getByTestId("vol-progress");
     await expect(progress).toContainText("已归档");
     await expect(progress).toContainText("拟定")
@@ -464,13 +456,9 @@ test("点章强制落章纲：确认/有正文后重挂载仍落章纲 + 右栏�
   try {
     const pid = await createNovel(page, `矩阵${Date.now() % 100000}`);
 
-    // 建卷 + 初始 1 章（停在默认落点「章纲」页签）
-    await page.getByTitle("添加卷").click();
-    await page.getByLabel("卷名", { exact: true }).fill("第一卷");
-    await page.getByLabel(/初始章数/).fill("1");
-    await page.getByRole("button", { name: "创建卷" }).click();
+    // 建卷 + 排 1 章（停在默认落点「章纲」页签）
+    await addFirstChapterViaTree(page);
     const chRow = page.locator(".col-tree .ch", { hasText: "第一章" });
-    await expect(chRow).toBeVisible({ timeout: 10000 });
 
     // 行①：新章（未确认/无提示词/无正文）→ 章纲选中
     await chRow.click();

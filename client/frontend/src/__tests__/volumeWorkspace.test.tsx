@@ -33,14 +33,15 @@ const DETAIL = {
   volume: 1,
   title: "风起晋北",
   summary: "开局卷主旨",
-  template_name: "三幕式",
   core_conflict: "追查真相 vs 保全同伴",
-  goal: "拿到证据",
   ending: "同伴远走",
+  antagonist_type: "人物",
+  antagonist_line: "副队长——销毁证据",
   chapter_target: 12,
-  plants: ["内鬼的徽章"],
-  reveals: [],
-  cast_members: [],
+  cast_members: [
+    { name: "雨夜主角", role: "" },
+    { name: "副队长", role: "反派" },
+  ],
   plot_nodes: [],
   ghost_count: 1,
   chapters: [
@@ -91,14 +92,19 @@ describe("VolumeWorkspace 卷视图", () => {
     expect(screen.getByRole("tab", { name: "本卷章节" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "角色关系" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "伏笔" })).toBeInTheDocument();
+    // c-volume-antagonist 查看态：四问一页纸
     expect(screen.getByText("开局卷主旨")).toBeInTheDocument();
     expect(screen.getByText("追查真相 vs 保全同伴")).toBeInTheDocument();
-    expect(screen.getByText("12 章")).toBeInTheDocument();
-    expect(screen.getByText("这一卷还没有登记登场人物。")).toBeInTheDocument();
-    expect(screen.getByText("还没有排剧情节点。")).toBeInTheDocument();
-    expect(screen.getByText("内鬼的徽章")).toBeInTheDocument();
-    expect(screen.getByText("这一卷没有需要揭露的信息。")).toBeInTheDocument();
-    expect(screen.getByText(/每一章的蓝图长在该章的「章纲」里/)).toBeInTheDocument();
+    expect(screen.getByText("人物 · 副队长——销毁证据")).toBeInTheDocument();
+    expect(screen.getByText("同伴远走")).toBeInTheDocument();
+    // 聚合角色（有章→合集，含反派标注）＋伏笔指引行
+    expect(screen.getByText(/副队长（反派）/)).toBeInTheDocument();
+    expect(screen.getByText(/住在台账里/)).toBeInTheDocument();
+    // 退役字段不再出现
+    expect(screen.queryByText("12 章")).toBeNull();
+    expect(screen.queryByText(/整体目标/)).toBeNull();
+    expect(screen.queryByText(/结构模板/)).toBeNull();
+    expect(screen.queryByText(/待埋伏笔/)).toBeNull();
   });
 
   it("进度线：互斥计数＋frontier 定位（首个未归档=草稿第 3 章）", async () => {
@@ -117,20 +123,27 @@ describe("VolumeWorkspace 卷视图", () => {
     expect(line).toHaveTextContent("不在本卷");
   });
 
-  it("编辑→保存：PUT 新字段集（含 plants list 与 chapter_target null 清空通道）", async () => {
+  it("编辑→保存：PUT 终版字段集（antagonist＋chapter_target null 清空通道）", async () => {
     const onMutated = vi.fn();
     apiState.put.mockResolvedValue({ ok: true });
     renderVol();
     fireEvent.click(await screen.findByRole("button", { name: "编辑卷纲" }));
     expect(screen.getByText(/正在编辑卷纲/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/本卷主旨/), { target: { value: "新主旨" } });
+    fireEvent.change(screen.getByLabelText("坎的一句话"), { target: { value: "执法官——盯上主角" } });
     fireEvent.change(screen.getByLabelText("章数目标"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(apiState.put).toHaveBeenCalled());
     const payload = apiState.put.mock.calls[0][1] as Record<string, unknown>;
     expect(payload.summary).toBe("新主旨");
     expect(payload.chapter_target).toBeNull();
-    expect(payload.plants).toEqual(["内鬼的徽章"]);
+    expect(payload.antagonist_line).toBe("执法官——盯上主角");
+    expect(payload.antagonist_type).toBe("人物");
+    // 退役键不再发
+    expect(payload.plants).toBeUndefined();
+    expect(payload.goal).toBeUndefined();
+    expect(payload.template_name).toBeUndefined();
+    expect(payload.cast_members).toBeUndefined();
     await waitFor(() => expect(onMutated_called_helper()));
   });
 

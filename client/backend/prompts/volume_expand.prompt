@@ -7,10 +7,10 @@
 
 <<hard_rules>>
 
-字段上限：summary ≤80 字｜conflict ≤60｜goal ≤60｜ending ≤60｜plants ≤2 条｜reveals ≤2 条｜chapter_target 数字｜name ≤6 字（可从内容里长，允许留空）。
+字段上限：summary ≤80 字｜conflict ≤60｜ending ≤60｜plants ≤2 条｜reveals ≤2 条｜chapter_target 数字｜name ≤6 字（可从内容里长，允许留空）。
 checks：0–3 条，只写你拿不准、或与作者那句话有张力的地方，每条 ≤40 字。
 
 只输出 JSON，不要其他文字：
-{"name":"…","summary":"…","conflict":"…","goal":"…","ending":"…","plants":["…"],"reveals":["…"],"chapter_target":40,"checks":["…"],"cast":["…"],"factions":["…"]}
+{"name":"…","summary":"…","conflict":"…","ending":"…","antagonist_type":"人物","antagonist_line":"…≤150字","plants":["…"],"reveals":["…"],"chapter_target":40,"checks":["…"],"factions":["…"]}
 
 cast 与 factions：把这一卷用到的人物名与势力名显式列出（照设定里的原文写；没有就给空数组）。

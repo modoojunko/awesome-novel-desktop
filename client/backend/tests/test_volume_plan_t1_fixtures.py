@@ -58,8 +58,10 @@ def test_fixture_expand_outputs_parse_and_sanitize():
         assert isinstance(parsed, dict), name
         draft = _sanitize_expand(parsed)
         assert draft is not None, name
-        # 四件事必须齐
-        assert draft["summary"] and draft["conflict"] and draft["goal"] and draft["ending"], name
+        # 四问必须齐（fixtures 是旧 prompt 的真模型输出，带 goal——瘦身后 sanitize 不再
+        # 要求也不再产出该键，故断言「三问在、goal 不在」）
+        assert draft["summary"] and draft["conflict"] and draft["ending"], name
+        assert "goal" not in draft, name
         assert 0 <= len(draft["checks"]) <= 3, name
         assert draft["chapter_target"] >= 0, name
 

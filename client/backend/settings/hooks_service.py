@@ -40,6 +40,7 @@ _PATCHABLE = {
     "planned_chapter_id",
     "resolved_chapter_id",
     "payoff_note",
+    "planned_volume_no",
 }
 _CHAPTER_REFS = (
     "introduced_chapter_id",
@@ -80,6 +81,7 @@ def hook_to_dict(h: NovelHook) -> dict:
         "resolved_chapter_id": h.resolved_chapter_id,
         "mentioned_chapter_id": h.mentioned_chapter_id,
         "payoff_note": h.payoff_note,
+        "planned_volume_no": h.planned_volume_no,
         "created_at": h.created_at.isoformat() if h.created_at else None,
         "updated_at": h.updated_at.isoformat() if h.updated_at else None,
     }
@@ -136,6 +138,68 @@ def _validate_text(column: str, value, max_len: int) -> str:
     if len(text) > max_len:
         raise Unprocessable("too_long", f"「{column}」最多 {max_len} 字")
     return text
+
+
+HOOK_DUP_SIM_LIMIT = 0.6  # 与 ai_plan.SPINE_SIM_LIMIT 同档：序列相似度判同（单源常量）
+
+
+async def batch_create_hooks(
+    session: AsyncSession, novel_id: str, items: list[dict]
+) -> dict:
+    """批量登记（c-volume-antagonist：确认成卷时伏笔建议入台账）。
+
+    逐条与 active 台账 difflib≥0.6 判同：重复不入册、返回对齐的已有编号；
+    逐条返回结果，不整批 4xx（失败不回滚已建条目——评审拍板 best-effort＋补偿）。
+    """
+    import difflib
+
+    novel = await _load_novel(session, novel_id)
+    rows = (
+        await session.scalars(
+            select(NovelHook).where(NovelHook.novel_id == novel_id).order_by(NovelHook.seq)
+        )
+    ).all()
+    actives = [h for h in rows if h.status == "active"]
+    created: list[dict] = []
+    skipped: list[dict] = []
+    for item in items[:20]:  # 单次上限防灌爆
+        desc = str((item or {}).get("description") or "").strip()
+        if not desc:
+            skipped.append({"description": "", "reason": "empty"})
+            continue
+        dup = next(
+            (a for a in actives
+             if difflib.SequenceMatcher(None, desc, a.description).ratio() >= HOOK_DUP_SIM_LIMIT),
+            None,
+        )
+        if dup is not None:
+            skipped.append({
+                "description": desc[:60],
+                "reason": "duplicate",
+                "existing_code": f"#H-{dup.seq:04d}",
+                "existing_description": dup.description[:60],
+            })
+            continue
+        novel.hook_seq_high += 1
+        h = NovelHook(
+            novel_id=novel_id,
+            seq=novel.hook_seq_high,
+            description=desc[:300],
+            planned_volume_no=(item or {}).get("planned_volume_no"),
+        )
+        session.add(h)
+        actives.append(h)
+        created.append(h)
+    await session.commit()
+    for h in created:
+        await session.refresh(h)
+    return {
+        "created": [
+            {"code": f"#H-{h.seq:04d}", "description": h.description[:60]}
+            for h in created
+        ],
+        "skipped": skipped,
+    }
 
 
 async def create_hook(session: AsyncSession, novel_id: str, body: dict) -> NovelHook:

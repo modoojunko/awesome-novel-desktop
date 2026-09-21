@@ -251,7 +251,16 @@ def boot_lifecycle(db_path: Path, metadata, schema_fp: str) -> dict:
 # 新表/新列一律在此登记（新库 create_all 全量建出；旧库由 apply_additive_columns
 # 代内补列）；删/改列一律 SCHEMA_VERSION+1 走迁入。列名单一来源，DDL 由它派生。
 ADDITIVE_COLUMNS: dict[str, list[str]] = {
-    "volumes": ["ALTER TABLE volumes ADD COLUMN plan_line VARCHAR(150)"],
+    "volumes": [
+        "ALTER TABLE volumes ADD COLUMN plan_line VARCHAR(150)",
+        # c-volume-antagonist：本卷的坎（对抗物）——类型闭集＋一句话
+        "ALTER TABLE volumes ADD COLUMN antagonist_type VARCHAR(20)",
+        "ALTER TABLE volumes ADD COLUMN antagonist_line VARCHAR(150)",
+    ],
+    # c-volume-antagonist：伏笔建议入台账时的计划收束卷（确认成卷链写入）
+    "novel_hooks": [
+        "ALTER TABLE novel_hooks ADD COLUMN planned_volume_no INTEGER",
+    ],
 }
 
 

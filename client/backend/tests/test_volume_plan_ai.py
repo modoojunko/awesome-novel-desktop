@@ -99,6 +99,20 @@ def _setup_overrides():
     app.dependency_overrides.clear()
 
 
+def _events(event_type: str) -> list[dict]:
+    """本地事件表直查（度量断言用）：该类型事件的 payload 列表，按时间序。"""
+
+    async def _s():
+        async with async_session() as session:
+            rows = (await session.execute(
+                text("SELECT payload FROM events WHERE event_type = :t ORDER BY created_at"),
+                {"t": event_type},
+            )).all()
+            return [json.loads(r[0]) for r in rows]
+
+    return _run_async(_s())
+
+
 def _ensure_user():
     """播种 USER_ID 的真实用户行——TokenLog 对 users/novels 有 FK（PRAGMA ON），
     record_usage 的 commit 异常会被静默回滚（计量断言将恒 0），必须先有用户行。
@@ -159,8 +173,9 @@ VALID_EXPAND = json.dumps(
         "name": "血酬",
         "summary": "林野为查身世跟豢养派旧贵族做交易，代价是替他们清掉一个叛徒。",
         "conflict": "想查真相，与双手沾血——清叛徒就是入伙。",
-        "goal": "他拿到情报，也第一次被人称为「刽子手」。",
         "ending": "盟约里他的名字排在牺牲一侧，而他签了。",
+        "antagonist_type": "人物",
+        "antagonist_line": "执法官雷——点名要他停手",
         "plants": ["那把猎血短刃的来历被旧贵族提起"],
         "reveals": ["纵火的命令出自血族议会"],
         "chapter_target": 40,
@@ -351,10 +366,12 @@ class TestVolumeExpand:
         r = client.post(f"/api/novels/{pid}/volumes/ai/expand", json={"line": line})
         assert r.status_code == 200, r.text
         d = r.json()
-        assert d["plan_line"] == line  # 展开依据回显
+        assert d["vol_no"] >= 1  # 出参不再回显 plan_line（已退役）
         draft = d["draft"]
-        for k in ("name", "summary", "conflict", "goal", "ending", "chapter_target"):
+        for k in ("name", "summary", "conflict", "ending", "chapter_target"):
             assert draft[k], f"{k} 不应为空"
+        assert "goal" not in draft  # 字段瘦身：草稿不再产出「整体目标」
+        assert draft["antagonist_type"] in ("人物", "难题", "环境", "自我", "势力", "")
         assert 0 <= len(draft["checks"]) <= 3
         # 不落库：卷数仍为 0（采纳才写卷表）
         assert _volume_count(pid) == 0
@@ -436,6 +453,34 @@ class TestVolumeCheck:
         assert crit in fake.last_kwargs["system"]
 
 
+class TestCheckRunEvent:
+    def test_check_logs_check_run_with_warn(self, client, monkeypatch):
+        """度量（PRD §7）：check_run{warn} 判据条数由服务端数出来。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        client.post(f"/api/novels/{pid}/volumes", json={"title": "第一卷"})
+        reply = json.dumps(
+            {
+                "groups": [
+                    {"name": "对主线", "items": [
+                        {"status": "warn", "text": "坎未填。", "evidence": "对抗物"},
+                        {"status": "ok", "text": "进场接得上。", "evidence": "进场"},
+                    ]},
+                    {"name": "对设定", "items": [
+                        {"status": "warn", "text": "伏笔重复埋。", "evidence": "H-0001"},
+                        {"status": "none", "text": "还没有章节。"},
+                    ]},
+                ]
+            },
+            ensure_ascii=False,
+        )
+        _setup_ai(monkeypatch, [reply])
+        before = len(_events("check_run"))  # 模块级共享库：只看本次新增
+        r = client.post(f"/api/novels/{pid}/volumes/vol-1/ai/check")
+        assert r.status_code == 200, r.text
+        assert _events("check_run")[before:] == [{"vol_no": 1, "warn": 2}]
+
+
 class TestPlanAnchor:
     def test_first_volume_anchor_from_synopsis(self, client):
         """首卷锚点＝全景起步（story.yaml.story_arc.fullstory 前段）。"""
@@ -479,6 +524,11 @@ class TestMigrationAdditive:
                     " volume_no INTEGER, title VARCHAR(200), summary VARCHAR(300),"
                     " chapter_count INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP)"
                 ))
+                await conn.execute(text(
+                    "CREATE TABLE novel_hooks (id VARCHAR(36) PRIMARY KEY, novel_id VARCHAR(36),"
+                    " seq INTEGER, description VARCHAR(300), type VARCHAR(20), priority INTEGER,"
+                    " status VARCHAR(20), created_at TIMESTAMP, updated_at TIMESTAMP)"
+                ))
 
             # 旧库没有该列
             async with engine.connect() as conn:
@@ -496,3 +546,260 @@ class TestMigrationAdditive:
             await engine.dispose()
 
         _run_async(_flow())
+
+
+# ═══════════════ c-volume-antagonist：迁移/聚合/退役/batch ═══════════════
+
+
+class TestAntagonistColumns:
+    def test_additive_registered(self):
+        from db_lifecycle import ADDITIVE_COLUMNS
+        assert any("antagonist_type VARCHAR(20)" in d for d in ADDITIVE_COLUMNS["volumes"])
+        assert any("antagonist_line VARCHAR(150)" in d for d in ADDITIVE_COLUMNS["volumes"])
+        assert any("planned_volume_no INTEGER" in d for d in ADDITIVE_COLUMNS.get("novel_hooks", []))
+
+    def test_old_db_upgraded_and_roundtrip(self, tmp_path):
+        """旧库缺列 → apply_additive_columns 补齐 → ORM 写读 antagonist。"""
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        from db_lifecycle import ADDITIVE_COLUMNS, apply_additive_columns
+
+        eng = create_async_engine(f"sqlite+aiosqlite:///{tmp_path/'old2.db'}")
+
+        async def flow():
+            async with eng.begin() as conn:
+                await conn.execute(text(
+                    "CREATE TABLE volumes (id VARCHAR(36) PRIMARY KEY, novel_id VARCHAR(36),"
+                    " volume_no INTEGER, title VARCHAR(200), summary VARCHAR(300),"
+                    " chapter_count INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP)"
+                ))
+                await conn.execute(text(
+                    "CREATE TABLE novel_hooks (id VARCHAR(36) PRIMARY KEY, novel_id VARCHAR(36),"
+                    " seq INTEGER, description VARCHAR(300), type VARCHAR(20), priority INTEGER,"
+                    " status VARCHAR(20), created_at TIMESTAMP, updated_at TIMESTAMP)"
+                ))
+            await apply_additive_columns(eng, ADDITIVE_COLUMNS)
+            async with eng.connect() as conn:
+                vcols = [r[1] for r in await conn.execute(text("PRAGMA table_info(volumes)"))]
+                hcols = [r[1] for r in await conn.execute(text("PRAGMA table_info(novel_hooks)"))]
+            assert "antagonist_type" in vcols and "antagonist_line" in vcols
+            assert "planned_volume_no" in hcols
+            await eng.dispose()
+
+        _run_async(flow())
+
+
+class TestRetiredKeys:
+    def test_put_rejects_retired_keys_422(self, client):
+        _set_tier("trial")
+        pid = _mk_project(client)
+        client.post(f"/api/novels/{pid}/volumes", json={"title": "第一卷"})
+        r = client.put(f"/api/novels/{pid}/volumes/vol-1", json={"goal": "x"})
+        assert r.status_code == 422
+        assert "退役" in r.text
+        r2 = client.put(f"/api/novels/{pid}/volumes/vol-1", json={"plants": ["a"]})
+        assert r2.status_code == 422
+
+    def test_goal_merged_into_ending_tail(self, client):
+        """旧卷 goal 非空 → GET 卷纲 ending 尾句并入、goal 不再独立回显。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        client.post(f"/api/novels/{pid}/volumes", json={"title": "第一卷"})
+
+        async def seed():
+            async with async_session() as s:
+                from sqlalchemy import text as _t
+                await s.execute(_t(
+                    "UPDATE volumes SET goal='局面：她没有退路' WHERE novel_id=:p"
+                ), {"p": pid})
+                await s.commit()
+
+        _run_async(seed())
+        r = client.get(f"/api/novels/{pid}/volumes/vol-1")
+        d = r.json()
+        assert "局面：她没有退路" in d.get("ending", "")
+        assert "goal" not in d and "template_name" not in d and "plan_line" not in d
+        assert "plants" not in d and "reveals" not in d
+
+
+class TestAggregateCast:
+    def _mkvol_with_ch(self, client):
+        _set_tier("trial")
+        pid = _mk_project(client)
+        client.post(f"/api/novels/{pid}/volumes", json={"title": "第一卷"})
+        return pid
+
+    def test_no_chapters_empty_array(self, client):
+        pid = self._mkvol_with_ch(client)
+        d = client.get(f"/api/novels/{pid}/volumes/vol-1").json()
+        assert d["cast_members"] == []
+
+    def test_chapter_chars_aggregate_and_villain(self, client):
+        pid = self._mkvol_with_ch(client)
+        client.post(f"/api/novels/{pid}/volumes/vol-1/chapters", json={"title": "第一章"})
+        client.put(f"/api/novels/{pid}/volumes/vol-1", json={
+            "antagonist_type": "人物", "antagonist_line": "执法官雷——点名要他停手"})
+        # 章纲出场角色（经章对象写入链——直接进 outline.characters）
+        ch_ref = client.get(f"/api/novels/{pid}/volumes").json()[0]["chapters"][0]["ref"]
+        client.put(f"/api/novels/{pid}/chapters/{ch_ref}", json={
+            "outline": {"summary": "x", "characters": ["林野", "老聋", "执法官雷"]}})
+        d = client.get(f"/api/novels/{pid}/volumes/vol-1").json()
+        names = [c["name"] for c in d["cast_members"]]
+        assert names == ["林野", "老聋", "执法官雷"]  # 去重保序
+        villain = next(c for c in d["cast_members"] if c["name"] == "执法官雷")
+        assert villain["role"] == "反派"
+        assert all(c["role"] == "" for c in d["cast_members"] if c["name"] != "执法官雷")
+
+
+class TestHooksBatch:
+    def test_batch_dedup_and_create(self, client):
+        _set_tier("trial")
+        pid = _mk_project(client)
+        # 先建一条 active
+        client.post(f"/api/novels/{pid}/hooks", json={"description": "信标的应答周期与三百年前记录不一致"})
+        r = client.post(f"/api/novels/{pid}/hooks/batch", json={"items": [
+            {"description": "信标的应答周期与三百年前的记录不一致", "planned_volume_no": 2},  # 近似重复
+            {"description": "老聋在启航前夜出现在港口的理由", "planned_volume_no": 1},  # 全新
+        ]})
+        assert r.status_code == 200, r.text
+        d = r.json()["data"]
+        assert len(d["created"]) == 1 and d["created"][0]["code"].startswith("#H-")
+        assert len(d["skipped"]) == 1
+        assert d["skipped"][0]["reason"] == "duplicate"
+        assert d["skipped"][0]["existing_code"] == "#H-0001"
+        # planned_volume_no 落库回读
+        hooks = client.get(f"/api/novels/{pid}/hooks").json()["data"]["items"]
+        planned = [h for h in hooks if h["planned_volume_no"] == 1]
+        assert planned and planned[0]["description"].startswith("老聋")
+
+    def test_batch_empty_items(self, client):
+        _set_tier("trial")
+        pid = _mk_project(client)
+        r = client.post(f"/api/novels/{pid}/hooks/batch", json={"items": []})
+        assert r.status_code == 200
+        assert r.json()["data"] == {"created": [], "skipped": []}
+
+    def test_batch_logs_hooks_registered_event(self, client):
+        """度量（PRD §7）：入册与查重拦截都落本地 events 表（服务端才知道查重结果）。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        client.post(
+            f"/api/novels/{pid}/hooks",
+            json={"description": "信标的应答周期与三百年前记录不一致"},
+        )
+        before = len(_events("hooks_registered"))  # 模块级共享库：只看本次新增
+        client.post(f"/api/novels/{pid}/hooks/batch", json={"items": [
+            {"description": "信标的应答周期与三百年前的记录不一致"},  # 重复
+            {"description": "老聋在启航前夜出现在港口的理由"},  # 全新
+        ]})
+        assert _events("hooks_registered")[before:] == [{"created": 1, "dupe_skipped": 1}]
+
+
+class TestMetricsEvents:
+    """度量落点（PRD §7 / tasks 5.3）：前端意图事件白名单 + 总开关 + 体检事件。"""
+
+    def test_client_event_whitelist(self, client):
+        _set_tier("trial")
+        _mk_project(client)
+        ok = client.post("/api/events", json={
+            "event_type": "plan_entry_open", "payload": {"tier": "pro"},
+        })
+        assert ok.status_code == 200 and ok.json()["ok"] is True
+        assert _events("plan_entry_open") == [{"tier": "pro"}]
+        # 白名单外一律 422（不做通用写入口）
+        bad = client.post("/api/events", json={"event_type": "whatever"})
+        assert bad.status_code == 422
+        assert _events("whatever") == []
+
+    def test_payload_must_be_object(self, client):
+        _set_tier("trial")
+        _mk_project(client)
+        r = client.post("/api/events", json={"event_type": "pick_select", "payload": "x"})
+        assert r.status_code == 200
+        assert _events("pick_select") == [{}]
+
+    def test_switch_off_writes_nothing(self, client, monkeypatch):
+        """可关（PRD §7）：NOVEL_EVENTS=off → 收下不落库。"""
+        _set_tier("trial")
+        _mk_project(client)
+        monkeypatch.setenv("NOVEL_EVENTS", "off")
+        r = client.post("/api/events", json={"event_type": "desk_expand", "payload": {}})
+        assert r.status_code == 200 and r.json()["skipped"] is True
+        assert _events("desk_expand") == []
+
+
+# ═══════════════ c-volume-antagonist 2.x：契约扩展 ═══════════════
+
+
+class TestContractExpansion:
+    def test_expand_carried_answers_win(self, client, monkeypatch):
+        """卡面/手写已答的四问带入 expand → 出参不被 AI 覆盖（作家答案胜出）。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        _setup_ai(monkeypatch, [VALID_EXPAND])
+        r = client.post(f"/api/novels/{pid}/volumes/ai/expand", json={
+            "line": "林野为查身世做交易",
+            "conflict": "作家定的冲突",
+            "antagonist_type": "人物",
+            "antagonist_line": "执法官雷——点名要他停手",
+            "ending": "作家定的卷末",
+        })
+        assert r.status_code == 200, r.text
+        d = r.json()["draft"]
+        assert d["conflict"] == "作家定的冲突"
+        assert d["antagonist_type"] == "人物" and "执法官雷" in d["antagonist_line"]
+        assert d["ending"] == "作家定的卷末"
+
+    def test_options_plans_carry_antagonist_and_type_fallback(self, client, monkeypatch):
+        """每套出参带 antagonist 两字段；类型非法回退「人物」。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        payload = {
+            "plans": [
+                {"spine": "走向甲", "conflict": "c", "ending": "e", "focus_axis": "代价",
+                 "antagonist_type": "宇宙怪物", "antagonist_line": "雾带"},
+                {"spine": "走向乙", "conflict": "c", "ending": "e", "focus_axis": "关系",
+                 "antagonist_line": "账房"},
+            ],
+            "note": "", "volume_estimate": "",
+        }
+        _setup_ai(monkeypatch, [json.dumps(payload, ensure_ascii=False)])
+        r = client.post(f"/api/novels/{pid}/volumes/ai/options", json={"line": ""})
+        assert r.status_code == 200
+        plans = r.json()["plans"]
+        assert plans[0]["antagonist_type"] == "人物"  # 非法回退
+        assert plans[0]["antagonist_line"] == "雾带"
+        assert plans[1]["antagonist_type"] == ""  # 未填留空
+        assert plans[1]["antagonist_line"] == "账房"
+
+    def test_options_answered_goes_into_system(self, client, monkeypatch):
+        """四问已答作为约束素材进 prompt（作家答过的不被改写）。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        fake = _setup_ai(monkeypatch, [json.dumps(VALID_PLANS_SOURCE, ensure_ascii=False)])
+        r = client.post(f"/api/novels/{pid}/volumes/ai/options", json={
+            "line": "", "conflict": "我的冲突", "antagonist_type": "自我",
+            "antagonist_line": "体内饥渴", "ending": "我的卷末",
+        })
+        assert r.status_code == 200
+        system = fake.last_kwargs["system"]
+        assert "我的冲突" in system and "体内饥渴" in system and "我的卷末" in system
+
+    def test_check_material_has_antagonist_pair(self, client, monkeypatch):
+        """体检素材含上一卷与本卷的坎两行（首卷＝无记录）。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        client.post(f"/api/novels/{pid}/volumes", json={
+            "title": "第一卷", "antagonist_type": "环境",
+            "antagonist_line": "母港制度——注销之后就没有回程"})
+        reply = json.dumps({"groups": [
+            {"name": "对主线", "items": [{"status": "ok", "text": "x"}]},
+            {"name": "对设定", "items": [{"status": "ok", "text": "y"}]},
+        ]}, ensure_ascii=False)
+        fake = _setup_ai(monkeypatch, [reply])
+        r = client.post(f"/api/novels/{pid}/volumes/vol-1/ai/check")
+        assert r.status_code == 200, r.text
+        system = fake.last_kwargs["system"]
+        assert "本卷的坎：环境·母港制度" in system
+        assert "上一卷的坎：（无记录）" in system
