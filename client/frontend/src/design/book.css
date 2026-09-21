@@ -1519,3 +1519,107 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .wb .view.on.three-col .field > label { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .wb .view.on.three-col .field > label .req { color: var(--accent); margin-left: 5px; }
 .wb .view.on.three-col .field > label .opt { margin-left: 5px; color: var(--faint); }
+
+/* ── 整书拆纲 · 规划台（volume-plan-ai，原型 ai-novel-c端-整书拆纲.html 逐件对齐）──
+   弹窗内容 portal 到 body（.mcard 外壳）→ 本节类不挂 .wb 作用域；
+   令牌用 :root 全局。cand/cfgset 等可能撞名的一律挂 .plan-modal 前缀。 */
+
+/* 规划台 · 锚点块：进场（上一卷结尾/全景起步）＋ 卷数估计 */
+.plan-modal .kicker{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
+.plan-anchor{display:flex;flex-direction:column;gap:10px;margin-top:4px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius);background:color-mix(in oklch,var(--bg) 60%,var(--surface))}
+.plan-anchor .pa-lead{margin:0 0 2px;font-size:12.5px;line-height:1.65;color:var(--fg)}
+.plan-anchor .pa-row{display:flex;flex-direction:column;gap:2px}
+.plan-anchor .pa-k{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;color:var(--muted)}
+.plan-anchor .pa-v{font-size:13px;line-height:1.7;color:var(--fg)}
+.plan-anchor .pa-v b{font-weight:600}
+.plan-anchor .pa-src{display:block;margin-top:3px;font-family:var(--font-mono);font-size:10px;letter-spacing:.02em;color:var(--faint)}
+
+/* 分卷依据 · 台账行（来源 + 内容 + 状态；规划台与右栏共用） */
+button.dep-row{display:flex;align-items:baseline;gap:10px;width:100%;text-align:left;background:none;border:0;padding:9px 0;font:inherit;color:var(--fg);cursor:pointer;transition:background .12s}
+button.dep-row:hover{background:var(--hl)}
+.dep-row+.dep-row{border-top:1px solid var(--border)}
+.dep-k{flex:none;width:56px;font-family:var(--font-mono);font-size:10.5px;color:var(--muted)}
+.dep-v{flex:1 1 auto;min-width:0;font-size:12.5px;line-height:1.6;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.dep-s{flex:none;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.06em;color:var(--ok);padding-top:1px}
+.dep-s.muted{color:var(--faint)}
+.dep-s.warn{color:var(--warn)}
+
+/* 规划台 · 折叠块（分卷依据 / 七条规则） */
+.plan-modal .cfgset{max-width:none}
+.plan-modal .cfgset>summary{cursor:pointer;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:13px 0 9px;list-style:none}
+.plan-modal .cfgset>summary::-webkit-details-marker{display:none}
+.plan-modal .cfgset>summary:hover{color:var(--fg)}
+.plan-modal .cfgset>summary:before{content:'＋';display:inline-block;width:14px;color:var(--faint)}
+.plan-modal .cfgset[open]>summary:before{content:'－'}
+.plan-modal .cfgset[open]>summary{border-bottom:1px solid var(--border);margin-bottom:4px}
+.plan-modal .cfgset>summary .note{font-family:var(--font-body);letter-spacing:0;text-transform:none;color:var(--faint);margin-left:6px}
+
+/* 规划台 · 写一句台面 */
+.plan-label{display:block;margin:14px 0 8px;font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.plan-label .note{font-family:var(--font-body);letter-spacing:0;text-transform:none;color:var(--faint);margin-left:6px}
+.plan-desk-acts{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}
+.plan-desk-acts .push{margin-left:auto;font-size:11.5px;color:var(--faint);display:inline-flex;align-items:center;gap:5px}
+.plan-modal .hint{font-size:11.5px;color:var(--muted);margin-top:7px}
+
+/* 规划台 · 3 套可行走法 */
+.plans{margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
+.plans-h{margin:0 0 11px;font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;color:var(--muted)}
+.cand-list{display:flex;flex-direction:column;gap:11px;margin-top:6px}
+.plan-modal .cand{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:14px 15px;display:flex;flex-direction:column;gap:9px;text-align:left;transition:border-color .14s,background .14s}
+.plan-modal .cand:hover{border-color:var(--muted)}
+.cand-dir{margin:0;font-family:var(--font-display);font-size:16px;font-weight:600;line-height:1.62;letter-spacing:-.004em;color:var(--fg)}
+.cand-k{display:inline-block;vertical-align:3px;margin-right:7px;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;border-radius:999px;padding:1px 7px;color:var(--accent-strong);border:1px solid color-mix(in oklch,var(--accent) 34%,var(--border))}
+.cand-line{display:flex;gap:9px;margin:0;font-size:12.5px;line-height:1.66}
+.cand-line>b{flex:none;padding-top:2px;font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;font-weight:400;color:var(--faint)}
+.cand-line>span{color:var(--fg);opacity:.84}
+.cand-foot{display:flex;align-items:center;gap:9px;margin-top:1px;padding-top:10px;border-top:1px dashed var(--border)}
+.cand-foot .note{font-size:11.5px;color:var(--faint)}
+.cand-foot .btn{margin-left:auto;flex:none}
+
+/* 规划台 · 生成中 / 生成完成（genbox） */
+.genbox{max-width:66ch;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:18px 20px}
+.genbox .gen-k{margin:0 0 6px;font-family:var(--font-display);font-size:17px;font-weight:600}
+.genbox .gen-t{margin:0 0 4px;font-size:13px;line-height:1.72;color:var(--muted)}
+.genbox .ex-bar{margin-top:10px}
+.genbox .ex-steps li:first-child{border-top:0}
+.genbox .ex-steps li span{color:var(--fg)}
+.genbox .ex-steps li em{font-style:normal;font-size:11.5px;color:var(--faint)}
+.genbox .ex-steps li em.ok{color:var(--ok)}
+.ra-spin{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:-1px;border:1.6px solid color-mix(in oklch,var(--accent) 28%,transparent);border-top-color:var(--accent);border-radius:50%;animation:ra-spin .8s linear infinite}
+@keyframes ra-spin{to{transform:rotate(360deg)}}
+.ai-note{font-size:12.5px;color:var(--muted);line-height:1.6}
+.ai-note+.ai-note{margin-top:7px}
+
+/* 卷级体检报告（三组判据；规划台规则列表同款行） */
+.rp-head{margin:0 0 10px;font-size:12.5px;line-height:1.6;color:var(--fg)}
+.rp-k{margin:12px 0 6px;font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;color:var(--muted)}
+.rp-k:first-of-type{margin-top:0}
+.rp-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.rp-row{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;line-height:1.6;color:var(--fg)}
+.rp-dot{flex:none;width:6px;height:6px;margin-top:6px;border-radius:50%;background:var(--muted)}
+.rp-row.ok .rp-dot{background:var(--ok)}
+.rp-row.warn .rp-dot{background:var(--warn)}
+.rp-row.none{color:var(--muted)}
+.rp-row.none .rp-dot{background:transparent;border:1px dashed var(--muted)}
+.rp-tx{flex:1 1 auto;min-width:0}
+.rp-ev{font-family:var(--font-mono);font-size:10px;color:var(--faint)}
+
+/* 规划台 · 底条 */
+.plan-foot{display:flex;align-items:center;gap:10px;margin-top:20px;padding-top:14px;border-top:1px solid var(--border)}
+.plan-foot .note{font-size:11.5px;color:var(--faint)}
+.plan-foot .btn{margin-left:auto;flex:none}
+
+/* 右栏 · 分卷规划入口件（volume-plan-ai；作用域在 .col-ai 下防污染） */
+.plan-acts{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.plan-acts .btn{width:100%;justify-content:center}
+.pv-entry{display:flex;flex-direction:column;gap:4px}
+.col-ai .rail-cfg{margin-top:10px}
+.col-ai .rail-cfg>summary{cursor:pointer;font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:8px 0 6px;list-style:none}
+.col-ai .rail-cfg>summary::-webkit-details-marker{display:none}
+.col-ai .rail-cfg>summary:before{content:'＋';display:inline-block;width:14px;color:var(--faint)}
+.col-ai .rail-cfg[open]>summary:before{content:'－'}
+.col-ai .rail-cfg>summary:hover{color:var(--fg)}
+.col-ai .cfgset-title{margin:10px 0 4px;font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+
+/* 卷纲表单 · 只读行（进场 / 展开依据） */
+.fro .pv-ro{margin:0;font-size:13px;line-height:1.7;color:var(--fg);opacity:.92}

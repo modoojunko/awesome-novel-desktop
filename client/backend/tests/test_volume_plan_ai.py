@@ -436,6 +436,25 @@ class TestVolumeCheck:
         assert crit in fake.last_kwargs["system"]
 
 
+class TestPlanAnchor:
+    def test_first_volume_anchor_from_synopsis(self, client):
+        """首卷锚点＝全景起步（story.yaml.story_arc.fullstory 前段）。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        r = client.get(f"/api/novels/{pid}/volumes/plan-anchor?vol_no=1")
+        assert r.status_code == 200, r.text
+        d = r.json()["prev_ending"]
+        assert "林野" in d["text"]  # 全景起步句
+        assert "第一卷" in d["source"]
+
+    def test_second_volume_anchor_requires_prev(self, client):
+        _set_tier("trial")
+        pid = _mk_project(client)
+        r = client.get(f"/api/novels/{pid}/volumes/plan-anchor?vol_no=2")
+        assert r.status_code == 200, r.text
+        assert "上一卷不存在" in r.json()["prev_ending"]["text"]
+
+
 # ═══════════════ 迁移（additive 补列）═══════════════
 
 

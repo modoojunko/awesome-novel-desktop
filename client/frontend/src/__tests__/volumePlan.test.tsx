@@ -217,7 +217,7 @@ describe("VolumePlanModal", () => {
     expect((screen.getByTestId("plan-expand-btn") as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId("plan-options-btn") as HTMLButtonElement).disabled).toBe(true);
     // 免费仍可看材料与规则（规划台可进）；输入可写（写了也不放行生成）
-    expect(screen.getByText("规划第2卷（AI）")).toBeDefined();
+    expect(screen.getByText("规划第二卷")).toBeDefined();
     fireEvent.change(screen.getByTestId("plan-line-input"), {
       target: { value: "林野第一次主动出城" },
     });
@@ -225,7 +225,7 @@ describe("VolumePlanModal", () => {
     expect((screen.getByTestId("plan-expand-btn") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByText("分卷依据 · 来自你的设定"));
     expect(screen.getByTestId("volume-plan-modal").textContent).toContain("主线全景");
-    fireEvent.click(screen.getByText("展开时遵守的规则（七条）"));
+    fireEvent.click(screen.getByText("展开时遵守的规则 · 每卷都带上"));
     expect(screen.getByTestId("volume-plan-modal").textContent).toContain("不凭空添人添事");
   });
 
@@ -245,7 +245,7 @@ describe("VolumePlanModal", () => {
     fireEvent.click(screen.getByTestId("open-plan"));
     fireEvent.click(await screen.findByText("分卷依据 · 来自你的设定"));
     const rows = screen.getByTestId("volume-plan-modal").textContent;
-    expect(rows).toContain("缺口 · 先去设定补主线");
+    expect(rows).toContain("缺口——先去设定补主线");
     expect(rows).toContain("还没有角色卡（不拦）");
     expect(rows).toContain("未设（可不设）");
   });
@@ -286,7 +286,7 @@ describe("VolumePlanModal", () => {
     expect(screen.getByTestId("plan-options").textContent).toContain("代价");
     expect(screen.getByTestId("plan-options").textContent).toContain("关系");
     expect(screen.getByTestId("plan-options").textContent).toContain("认知");
-    fireEvent.click(screen.getByTestId("plan-card-2"));
+    fireEvent.click(screen.getByTestId("plan-card-2").querySelector("button")!);
     // 选一套 → 填回输入框并直接展开（先填回再请求）
     await waitFor(() =>
       expect(apiState.post).toHaveBeenCalledWith("/novels/p1/volumes/ai/expand", {
@@ -298,7 +298,7 @@ describe("VolumePlanModal", () => {
     await waitFor(() => expect(screen.getByTestId("plan-backfill-btn")).toBeDefined());
     expect(screen.getByTestId("plan-done").textContent).toContain("血誓");
     expect(screen.getByTestId("plan-done").textContent).toContain("30");
-    expect(screen.getByTestId("plan-done").textContent).toContain("自查 1 条");
+    expect(screen.getByTestId("plan-done").textContent).toContain("自查 1 处要留意");
     fireEvent.click(screen.getByTestId("plan-backfill-btn"));
     expect(onBackfill).toHaveBeenCalledTimes(1);
   });
@@ -329,8 +329,8 @@ describe("VolumePlanModal", () => {
     expect((screen.getByTestId("plan-expand-btn") as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByTestId("plan-expand-btn"));
     await waitFor(() => expect(screen.getByTestId("plan-backfill-btn")).toBeDefined());
-    expect(screen.getByTestId("plan-done").textContent).toContain("第2卷");
-    expect(screen.getByTestId("plan-done").textContent).toContain("不设");
+    expect(screen.getByTestId("plan-done").textContent).toContain("第二卷的卷纲已备好");
+    expect(screen.getByTestId("plan-done").textContent).toContain("— 章");
     expect(screen.getByTestId("plan-done").textContent).toContain("夜行人");
   });
 
@@ -392,36 +392,42 @@ describe("VolumePlanModal", () => {
   it("生成中进度只在弹窗内（背景静止的组件侧证据）；步进条随时间推进", async () => {
     vi.useFakeTimers();
     try {
-      let resolveOptions: (v: unknown) => void = () => {};
+      let resolveExpand: (v: unknown) => void = () => {};
       apiState.post.mockImplementation(
         () =>
           new Promise((resolve) => {
-            resolveOptions = resolve;
+            resolveExpand = resolve;
           }),
       );
       render(<ModalHarness onBackfill={noop} />);
       fireEvent.click(screen.getByTestId("open-plan"));
-      fireEvent.click(screen.getByTestId("plan-options-btn"));
+      fireEvent.change(screen.getByTestId("plan-line-input"), {
+        target: { value: "林野第一次主动出城" },
+      });
+      fireEvent.click(screen.getByTestId("plan-expand-btn"));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50);
       });
       expect(screen.getByTestId("plan-generating")).toBeDefined();
-      // 进度元素在弹窗容器内；中栏（.col-panel）不存在生成文案
+      expect(screen.getByTestId("plan-generating").textContent).toContain("正在展开第二卷");
+      // 进度元素在弹窗容器内；中栏（.col-panel）不存在生成文案（背景静止）
       const modal = screen.getByTestId("volume-plan-modal");
       expect(modal.contains(screen.getByTestId("plan-generating"))).toBe(true);
-      expect(document.querySelector(".col-panel")?.textContent ?? "").not.toContain("生成中");
+      expect(document.querySelector(".col-panel")?.textContent ?? "").not.toContain("正在展开");
+      // 底条：生成在后台跑，关掉也不影响
+      expect(modal.textContent).toContain("生成在后台跑，关掉它也不影响");
       // 步进：900ms/步——推到最后一档后不再前进
       await act(async () => {
         await vi.advanceTimersByTimeAsync(4000);
       });
       expect(screen.getByTestId("plan-generating").textContent).toContain("自查");
       await act(async () => {
-        resolveOptions(THREE_PLANS);
+        resolveExpand(EXPAND_RESULT);
       });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50);
       });
-      expect(screen.getByTestId("plan-card-1")).toBeDefined();
+      expect(screen.getByTestId("plan-backfill-btn")).toBeDefined();
     } finally {
       vi.useRealTimers();
     }

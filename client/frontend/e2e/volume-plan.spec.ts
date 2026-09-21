@@ -171,7 +171,8 @@ test("规划全链：入口A→3套（不落库直查）→选卡展开（门闩
 
     // ② 打开规划台：材料（引导语）＋分卷依据可折叠
     await page.getByTestId("plan-first-volume").click();
-    await expect(page.getByText("规划第1卷（AI）")).toBeVisible();
+    await expect(page.getByTestId("volume-plan-modal")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "规划第一卷" })).toBeVisible();
 
     // ③ 给我 3 套方案（打桩）→ 三张四字段卡，侧重互不相同
     await page.route("**/api/novels/*/volumes/ai/options", (r) =>
@@ -199,7 +200,7 @@ test("规划全链：入口A→3套（不落库直查）→选卡展开（门闩
       await gate;
       await r.fulfill({ json: EXPAND });
     });
-    await page.getByTestId("plan-card-1").click();
+    await page.getByTestId("plan-card-1").getByRole("button", { name: "选它" }).click();
 
     // ⑤ 生成中：进度只在弹窗内，中栏仍是打开规划台之前的那页（背景静止）
     await expect(page.getByTestId("plan-generating")).toBeVisible();
@@ -268,13 +269,14 @@ test("免费档：规划台可进、生成置灰带 PRO 说明；体检照常可
 
     // 规划台可进：输入可写、材料可看；两个生成动作禁用＋PRO 说明
     await page.getByTestId("plan-first-volume").click();
-    await expect(page.getByText("规划第1卷（AI）")).toBeVisible();
+    await expect(page.getByTestId("volume-plan-modal")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "规划第一卷" })).toBeVisible();
     await page
       .getByTestId("plan-line-input")
       .fill("林野第一次主动出城查身世");
     await expect(page.getByTestId("plan-expand-btn")).toBeDisabled();
     await expect(page.getByTestId("plan-options-btn")).toBeDisabled();
-    await expect(page.locator(".vp-modal")).toContainText("PRO");
+    await expect(page.locator(".plan-modal")).toContainText("PRO");
     await page.keyboard.press("Escape");
 
     // 手动建卷（走既有「添加卷」弹窗；建卷自动选中该卷）→ 选中态体检按钮免费可用
