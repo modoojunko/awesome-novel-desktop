@@ -280,3 +280,43 @@ class TestGenreAuth:
             assert r.status_code in (401, 403)
         finally:
             app.dependency_overrides[get_current_user] = _override_current_user
+
+
+# ── 启动期播种（#453 重写 lifespan 时被误删，2026-09-21 补回）──────────────────
+
+
+def test_lifespan_seeds_genres_and_vocab(tmp_path):
+    """新建库启动后题材目录与候选词表都必须已播种。
+
+    缺了它们：GET /genres/candidates 返回空 → 题材面板预置词条 PUT 400
+    「未知的候选词汇」→ 题材这一步确认不了（老库因历史已播种而看不见）。
+    """
+    import os
+    import subprocess
+    import sys
+
+    env = dict(os.environ)
+    env["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp_path}/seed-probe.db"
+    env["DATA_ROOT"] = str(tmp_path / "data")
+    code = (
+        "import asyncio, sqlite3, sys\n"
+        "from fastapi.testclient import TestClient\n"
+        "from main import app\n"
+        "with TestClient(app):\n"
+        "    pass\n"
+        "c = sqlite3.connect(sys.argv[1])\n"
+        "print(c.execute('select count(*) from genres').fetchone()[0],\n"
+        "      c.execute('select count(*) from genre_vocab').fetchone()[0])\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code, env["DATABASE_URL"].split("///")[-1]],
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,  # 断言看 returncode 与 stderr，便于给出可读失败信息
+    )
+    assert out.returncode == 0, out.stderr[-800:]
+    n_genres, n_vocab = (int(x) for x in out.stdout.split())
+    assert n_genres >= 24, f"预置题材未播种：{n_genres}"
+    assert n_vocab >= 17, f"候选词表未播种：{n_vocab}"
