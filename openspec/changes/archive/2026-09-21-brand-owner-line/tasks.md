@@ -45,7 +45,7 @@
 
 ## 7. 收尾（剩余）
 
-- [ ] 7.1 提交：按文件域分批或单 commit（brand 单源＋两端桥／打包层＋CI／原型＋ADJUSTMENTS＋两 e2e 断言＋openspec 工件），开 PR；注意与并行在途改动同树不同文件，勿 `git add -A`
-- [ ] 7.2 CI 核对：PR 触发 `client-package.yml`，Windows job 绿＝Inno 编译＋版本资源真机验证；下载 artifact 在 Windows 属性页/任务管理器核对发布者署名（端到端终验）
-- [ ] 7.3 与 relicense-proprietary 对账：其 tasks 2.1 的 `MyAppPublisher=星纬（海口）投资有限公司` 已被本 change 提前满足（apply 时核对即可），`MyAppURL` 换官网与 `LicenseFile` 仍归该 change
-- [ ] 7.4 归档：specs sync（brand-identity 三 MODIFIED＋installer-release 一 ADDED 落 `openspec/specs/`），归档总结记桌面知识库
+- [x] 7.1 提交：按文件域分批或单 commit（brand 单源＋两端桥／打包层＋CI／原型＋ADJUSTMENTS＋两 e2e 断言＋openspec 工件），开 PR；注意与并行在途改动同树不同文件，勿 `git add -A`
+- [ ] 7.2 CI 核对：PR 触发 `client-package.yml`，Windows job 绿＝Inno 编译＋版本资源真机验证；下载 artifact 在 Windows 属性页/任务管理器核对发布者署名（端到端终验）——**归档时仍未完成**：Actions 额度尽（09-20 起秒挂），等额度恢复后在 main 重跑打包并 pefile 终验
+- [x] 7.3 与 relicense-proprietary 对账：其 tasks 2.1 的 `MyAppPublisher=星纬（海口）投资有限公司` 已被本 change 提前满足（apply 时核对即可），`MyAppURL` 换官网与 `LicenseFile` 仍归该 change
+- [x] 7.4 归档：specs sync（brand-identity 三 MODIFIED＋installer-release 一 ADDED 落 `openspec/specs/`），归档总结记桌面知识库
