@@ -110,7 +110,7 @@ export function PickCardsModal({
               </button>
               <span className="note">
                 换一批新思路——或
-                <button className="link" onClick={onToDesk}>
+                <button className="link" disabled={state.confirming} onClick={onToDesk}>
                   自己答四个问题
                 </button>
                 （答多少 AI 铺多少）

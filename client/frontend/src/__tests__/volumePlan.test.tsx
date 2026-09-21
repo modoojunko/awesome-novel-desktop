@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import {
@@ -844,6 +845,51 @@ describe("useVolumePlan 状态机", () => {
     expect(result.current.state.confirmResult).toBeNull();
     expect(result.current.state.pickPhase).toBe("error");
     expect(result.current.state.pickError).toContain("没落库");
+  });
+
+  it("重新 open 会丢弃在飞 expand（P3：否则上一卷草稿会落到新一轮的卷上）", async () => {
+    let release: () => void = () => {};
+    apiState.post.mockImplementation((path: string) => {
+      if (path === "/events") return Promise.resolve({ ok: true });
+      return new Promise((resolve) => {
+        release = () => resolve(EXPAND_RESULT);
+      });
+    });
+    const { result } = renderHook(() => useVolumePlan("p1"));
+    act(() => result.current.open(2, false));
+    let expanding: Promise<void> | null = null;
+    act(() => {
+      expanding = result.current.expandDesk();
+    });
+    // 关弹窗（不取消）后对**下一卷**重新打开规划台——免费路 open 不经过 drawCards
+    act(() => result.current.closeDesk());
+    act(() => result.current.open(3, false));
+    await act(async () => {
+      release();
+      await expanding;
+    });
+    expect(result.current.state.volNo).toBe(3);
+    expect(result.current.state.draft).toBeNull(); // 上一轮的草稿不得写进这一轮
+    expect(result.current.takeAutoBackfill()).toBeNull();
+  });
+
+  it("selectCard：切换语义正确，且埋点每次点击只记一条（updater 保持纯）", () => {
+    // 用 StrictMode 包一层：dev 下 React 会双调用 updater——埋点写在 updater 内会被记两条
+    const { result } = renderHook(() => useVolumePlan("p1"), {
+      wrapper: ({ children }) => <StrictMode>{children}</StrictMode>,
+    });
+    act(() => result.current.open(1, true));
+    const events = () =>
+      apiState.post.mock.calls.filter(
+        (c) => c[0] === "/events" && (c[1] as { event_type: string }).event_type === "pick_select",
+      ).length;
+    apiState.post.mockClear();
+    act(() => result.current.selectCard(2));
+    expect(result.current.state.pickPick).toBe(2);
+    expect(events()).toBe(1); // 一条，不是两条（StrictMode dev 双调用不再放大）
+    act(() => result.current.selectCard(2));
+    expect(result.current.state.pickPick).toBeNull(); // 再点同一张＝取消选中
+    expect(events()).toBe(1); // 取消不记
   });
 
   it("互切手写页保留已答；卷号随 open 传入", () => {

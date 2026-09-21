@@ -443,8 +443,6 @@ export default function NovelWorkspace() {
 
   // ── 空书起手（c-0vol0ch-empty-state）：零卷零章时给明确起点 ──────────────
   // 建卷统一入口（c-volume-antagonist）：三处空书入口＋树头「＋」都接 openPlanVolume 按档分流。
-  /** 建卷弹窗内批量建章后刷树（原 OutlineTree 内联；随弹窗上移） */
-  const onVolumeCreated = useCallback(() => void outline.refetchTree(), [outline]);
   /** 右栏「未选中」态数据（volume-plan-ai：卷的验证行单源；四格全书统计已退役） */
   const railIdle = useMemo(
     () => ({
@@ -543,7 +541,8 @@ export default function NovelWorkspace() {
   const handlePickConfirm = useCallback(
     async (card: VolumePlanCard) => {
       const volNo = plan.state.volNo;
-      landAfterSaveRef.current = true;
+      // 不置 landAfterSaveRef：本路径自己 clearSelection（卷页不挂载 → 该标志无人消费，
+      // 留成 true 会让用户下一次在卷页点「保存」时被 handleVolumeSaved 弹出去）
       const ok = await plan.confirmCard(card, (draft) => persistVolume(volNo, draft));
       if (ok) clearSelection();
     },
@@ -554,7 +553,7 @@ export default function NovelWorkspace() {
   const handleDirectCreate = useCallback(async () => {
     const a = plan.state.answers;
     const volNo = plan.state.volNo;
-    landAfterSaveRef.current = true;
+    // 同上：本路径自己 clearSelection，不置 landAfterSaveRef
     try {
       await api.post(`/novels/${projectId}/volumes`, {
         title: `第${cnNum(volNo)}卷`,
@@ -1028,7 +1027,13 @@ export default function NovelWorkspace() {
                 {showChecks ? "收起" : "展开全部"}
               </button>
             )}
-            <button className="btn btn-ghost btn-sm" onClick={() => plan.consumeConfirm()}>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => {
+                setShowChecks(false); // 复位：下一次确认不该自动展开（P3）
+                plan.consumeConfirm();
+              }}
+            >
               知道了
             </button>
           </div>

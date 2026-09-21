@@ -61,6 +61,8 @@ export function useVolumePlan(projectId: string) {
   const consumedRef = useRef(false);
   const answersRef = useRef<PlanAnswers>({ ...EMPTY_ANSWERS });
   answersRef.current = state.answers;
+  const pickPickRef = useRef<number | null>(null);
+  pickPickRef.current = state.pickPick;
   const answersNow = () => answersRef.current;
 
   const nextToken = () => ++tokenRef.current;
@@ -70,6 +72,9 @@ export function useVolumePlan(projectId: string) {
   const open = useCallback(
     (volNo: number, isPro: boolean) => {
       consumedRef.current = false;
+      // 开新一轮＝丢弃在飞请求（P3）：否则上一轮慢 expand 回来会置 done+autoBackfill，
+      // 自动回填拿本轮 volNo 去建卷 → 把上一卷的卷纲写到这一卷上
+      cancelPending();
       setState({
         ...INITIAL, volNo,
         ...(isPro ? { pickOpen: true } : { deskOpen: true }),
@@ -106,11 +111,10 @@ export function useVolumePlan(projectId: string) {
   }, [projectId]);
 
   const selectCard = useCallback((no: number) => {
-    setState((s) => {
-      const next = s.pickPick === no ? null : no;
-      if (next != null) track("pick_select", { no });
-      return { ...s, pickPick: next };
-    });
+    // 埋点放 updater 外：updater 必须是纯函数（StrictMode dev 下会被调用两次 → 记两条）
+    const next = pickPickRef.current === no ? null : no;
+    if (next != null) track("pick_select", { no });
+    setState((s) => ({ ...s, pickPick: next }));
   }, []);
 
   /** 确认成卷：expand（卡面四问胜出）→ 外层回调落库 → 关弹窗（token 守卫可取消）。

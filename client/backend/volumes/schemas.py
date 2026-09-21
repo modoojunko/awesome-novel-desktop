@@ -67,12 +67,6 @@ class VolumeCreate(BaseModel):
     antagonist_line: str = Field(default="", max_length=150)
     chapter_target: int | None = Field(default=None, ge=1, le=9999)
 
-    @field_validator("title")
-    @classmethod
-    def _title_or_default(cls, v: str) -> str:
-        # 卷名可空——服务层兜底「第N卷」（标题必填的旧校验退役）
-        return v
-
     @field_validator("antagonist_type")
     @classmethod
     def _ant_enum(cls, v: str | None) -> str | None:

@@ -109,9 +109,10 @@ async def create_volume(
     """MAX+1（忽略 body.vol_num）+ tier 门控 + DB 行 + 计数自增。
 
     四问＋章数一次写入（c-volume-antagonist：抽卡确认与免费「直接创建」共用）；
-    卷名空由调用方兜底「第N卷」（title 保留必填签名以兼容既有调用点）。
+    卷名可空——**服务端兜底「第N卷」**（VolumeCreate.title 已放宽为空，别再依赖调用方兜底）。
     """
     vol_no = await volume_repo.max_volume_no(db, project.id) + 1
+    title = (title or "").strip() or f"第{vol_no}卷"
     result = await tier_or_gate(
         db, project, gate_settings_complete, project.root_path, project.id
     )

@@ -825,6 +825,23 @@ class TestReviewFixes:
         assert len(rows) - before == 2
 
 
+class TestReviewFixes2:
+    """第二轮检视整改回归（卷名兜底）。"""
+
+    def test_create_volume_empty_title_falls_back(self, client):
+        """卷名可空：服务端兜底「第N卷」（VolumeCreate.title 已放宽为空）。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        r = client.post(f"/api/novels/{pid}/volumes", json={})
+        assert r.status_code in (200, 201), r.text
+        d = client.get(f"/api/novels/{pid}/volumes").json()
+        assert d[0]["title"] == "第1卷"
+        # 第二卷同样兜底（不因空名撞 UNIQUE/空标题）
+        client.post(f"/api/novels/{pid}/volumes", json={"title": "   "})
+        d2 = client.get(f"/api/novels/{pid}/volumes").json()
+        assert [v["title"] for v in d2] == ["第1卷", "第2卷"]
+
+
 class TestBossStepHint:
     """FR-11 boss 台阶提示：玄幻/都市系卷体检素材含，其余题材不含；
     且不落共享题材段（写章链 system 同源，不能跟着变）。"""
