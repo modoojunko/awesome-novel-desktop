@@ -76,7 +76,10 @@
 ## 8. 过程中发现的存量问题（非本 change，登记备查）
 
 - [x] 8.1 `volume-plan.spec.ts` 会话注入缺 `username`：C端 `get_current_user` 要求 `config.json` 有登录用户名，该 spec 只写 token/tier/expires_at，干净库（`{}` 播种）下书架恒 401「未获取到登录用户」；本机因共享 `.docker-data` 残留旧 username 才假绿（CI 的 `echo '{}' > config.json` 播种会真撞）。已按其余 10+ 份 spec 同款补 `cfg.username = u`（本文件内 1 行）
-- [x] 8.2 新装库题材候选词汇为空：HEAD 上 `ensure_seed_genre_vocab()`（`genres/novel_genre_service.py:67`）**无调用点**，全新库 `genre_vocab`＝0 行且 `genres`＝0 行（主栈存量库：17 / 24 行）→ 题材面板候选词可点、保存恒 400「未知的候选词汇」。本 change 未涉及该链路，登记待立项；本轮验证用 `ensure_seed_genre_vocab()` 补种＋**重启后端**（运行中的进程看不到外部补种，补种后必须 restart）后复跑全绿
+- [x] 8.2 新装库题材候选词汇为空（**归档复核：已由 main 修复，无需立项**）：当时量的基线是 `dfceb17d`，
+  彼时 `ensure_seed_genre_vocab()` 无调用点；现在 `origin/main` 的 `client/backend/main.py` 启动期会调它
+  （`main.py:108-110`），全新库的候选词汇不再为空。本轮验证时的「空词汇」现象来自**运行中的旧容器**
+  （镜像早于该修复）＋ 外部补种后未重启进程
 
 ## 9. 评审修复（review-agent 四条 findings，2026-09-22）
 
@@ -153,3 +156,13 @@
 - [x] 12.5 门禁：tsc 0 error；vitest **77 文件 / 754 passed**；`openspec validate --strict` 绿；
       隔离栈（重建镜像）聚焦 e2e creation-flow＋volume-plan **11 passed**（含加号页无 AI 动作断言）
 - [x] 12.6 全量 e2e：隔离栈 **174 passed / 0 failed / 17 skipped（8.5min）**
+
+## 13. 归档（2026-09-22）
+
+- [x] 13.1 增量同步进主 spec：`workbench`（新增「页签回默认主页（写作／设定／预览）」；改 N4／右栏「AI 辅助」／书内顶栏
+      三块）、`preview-reader`（新增「预览定档＝全书首章」）、`volume-plan-ai`（新增「抽卡卡片自带进场（上接）」；
+      改「两条并行入口」／「卷纲体检（卷级验证）」）；`openspec validate --specs` **60 passed / 0 failed**
+- [x] 13.2 归档操作口径核对：本次未新增令牌/档位/语气词，`pk-in` 只是 book.css 业务层的截断修饰类
+      （`design:lint` 严格范围通过）→ 无需回填 `design-vocab.mjs`；未用 uikit 候选组件；
+      未更名/新增共享类（未触 `base.css`／`server/`）→ 免 `cross-end` 回填；Capability 不属 `design-system`
+- [x] 13.3 change 目录移入 `openspec/changes/archive/2026-09-22-c-write-home-rail-anchor/`
