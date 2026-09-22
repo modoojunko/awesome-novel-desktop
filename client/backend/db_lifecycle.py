@@ -67,7 +67,8 @@ def compute_schema_fingerprint(metadata) -> str:
 def inspect_library(db_path: Path) -> dict:
     """只读体检：exists/unreadable/schema_id/book_count/has_app_meta/has_tables。"""
     out = {"exists": db_path.exists(), "unreadable": False, "schema_id": None,
-           "book_count": None, "has_app_meta": False, "has_tables": False}
+           "book_count": None, "has_app_meta": False, "has_tables": False,
+           "has_projects": False}
     if not out["exists"]:
         return out
     try:
@@ -83,10 +84,11 @@ def inspect_library(db_path: Path) -> dict:
                 ).fetchone()
                 if row:
                     out["schema_id"] = row[0]
-            for t in ("novels", "projects"):
-                if t in tables:
-                    out["book_count"] = con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-                    break
+            # 书数只认 novels：`projects` 是「novel 正名」之前的世代，行级搬运搬不到
+            # 它的数据（表名/外键列都不同）——计它会把「搬不到书的库」标成有书
+            out["has_projects"] = "projects" in tables
+            if "novels" in tables:
+                out["book_count"] = con.execute("SELECT COUNT(*) FROM novels").fetchone()[0]
         finally:
             con.close()
     except sqlite3.Error:
@@ -167,10 +169,8 @@ def migration_probe(db_path: Path) -> dict:
         nonlocal tables, roots, book_count
         tables = {r[0] for r in con.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
-        for t in ("novels", "projects"):
-            if t in tables:
-                book_count = con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-                break
+        if "novels" in tables:
+            book_count = con.execute("SELECT COUNT(*) FROM novels").fetchone()[0]
         if "novels" in tables:
             roots = [r[0] for r in con.execute("SELECT root_path FROM novels LIMIT 200")]
 

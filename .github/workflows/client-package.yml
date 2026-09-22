@@ -167,24 +167,7 @@ jobs:
             echo "::error::release.json 未打进安装包——检查 build.spec datas 条件与生成步骤"
             exit 1
           fi
-          python -c "
-          import json, sys
-          d = json.load(open(sys.argv[1], encoding='utf-8'))
-          assert str(d.get('server_api_base', '')).startswith('https://'), d
-          assert str(d.get('client_version', '')).strip(), d
-          assert str(d.get('client_update_url', '')).startswith('https://'), d
-          assert str(d.get('client_update_url_fallback', '')).startswith('https://'), d
-          # c-db-per-version：组件清单（BOM）——缺失或与后端单源不一致即失败
-          comp = d.get('components')
-          assert isinstance(comp, dict), ('release.json 缺 components 键', d)
-          sys.path.insert(0, 'client/backend')
-          from backup.format import FORMAT_VERSION
-          from schema_version import db_filename_for
-          assert comp['db_filename'] == db_filename_for(d['client_version']), (comp, d['client_version'])
-          assert comp['backup_format_version'] == FORMAT_VERSION, (comp, FORMAT_VERSION)
-          print('baked:', sys.argv[1], '->', d['client_version'], d['client_update_url'],
-                'components=', comp)
-          " "$F"
+          python client/backend/scripts/release_json_assert.py "$F"
 
       # 冒烟：跑真实产物（--smoke 无头模式，不起 GUI），轮询 /api/health + 断言前端被服务。
       # 不跑这步，缺失 datas/hiddenimport 的坏包照样绿（历史上漏过 prompts/env.js）。

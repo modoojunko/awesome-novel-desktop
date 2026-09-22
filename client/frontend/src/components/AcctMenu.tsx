@@ -165,6 +165,7 @@ export default function AcctMenu({
     <LegacyMigrateModal
       open={migrateOpen}
       candidates={migrateCandidates}
+      quarantined={legacyDb.status?.quarantined ?? []}
       onClose={() => {
         // 弹窗关闭时如果迁移还在跑 → 启动后台守望（完成→toast+刷书架）
         setMigrateOpen(false);

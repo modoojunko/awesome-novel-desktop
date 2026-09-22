@@ -77,6 +77,10 @@ def precheck(data_root: Path, source_filename: str, active_db_path: Path) -> dic
     # 不依赖文件名（版本命名轴换代后这一条天然可留）
     parsed = parse_db_filename(source_filename)
     label = {"source_version": parsed.version, "legacy_generation": parsed.generation}
+    if "novels" not in set(probe.get("tables") or []) and "projects" in set(probe.get("tables") or []):
+        # 「novel 正名」之前的世代：业务数据挂在 projects/项目外键下，行级搬运行列交集
+        # 与表名都对不上 → 搬过去会是「成功但 0 本书」。响亮引走资产包通道（宁少勿错）。
+        return {"ok": False, "reason": "pre_rename_generation", **label}
     if _is_pre_adr_generation(data_root, probe):
         return {"ok": False, "reason": "pre_adr_generation", **label}
     return {"ok": True, **label}
@@ -196,7 +200,10 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
     staging = data_root / "migration-staging" / stamp
     report = {"v": 1, "source": source_filename, "at": _now_iso(),
               "tables": [], "tables_skipped": [], "fk_violations": [],
+              # source＝源库书数；migrated＝**本次真正带回**的书数（目标已有书时不得虚高）；
+              # target_after＝合并后目标库总数（诊断用）
               "book_count_source": None, "book_count_migrated": None,
+              "book_count_target_after": None,
               "status": "ok", "notes": []}
 
     def _emit(stage: str, **kw) -> None:
@@ -290,7 +297,11 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
             book_tgt = tgt.execute("SELECT COUNT(*) FROM main.novels").fetchone()[0] \
                 if _has_table(tgt, "main.novels") else 0
             report["book_count_source"] = book_src
-            report["book_count_migrated"] = book_tgt
+            report["book_count_target_after"] = book_tgt
+            inserted = next((e.get("rows_inserted") for e in report["tables"]
+                             if e["table"] == "novels"), None)
+            report["book_count_migrated"] = (inserted if inserted is not None
+                                             else max(0, book_tgt))
             # 库自证来源：把本机版本与组件快照写进目标库（app_meta 不随行搬运）
             if _has_table(tgt, "main.app_meta"):
                 for k, v in version_stamp_payload().items():

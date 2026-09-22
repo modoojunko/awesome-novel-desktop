@@ -372,7 +372,10 @@ def test_up06b_rerun_is_idempotent(tmp_path):
     _make_target(tmp_path)
     assert run_migration(tmp_path, src.name, target)["status"] == "ok"
     rep2 = run_migration(tmp_path, src.name, target)
-    assert rep2["status"] == "ok" and rep2["book_count_migrated"] == 3
+    # 新语义：migrated＝**本次真正带回**的书数 → 重复点一次带回 0 本（幂等的正面证据），
+    # 目标库总数不变
+    assert rep2["status"] == "ok" and rep2["book_count_migrated"] == 0, rep2
+    assert rep2["book_count_target_after"] == 3
     con = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
     try:
         assert _count(con, "novels") == 3
@@ -654,3 +657,32 @@ def test_up14_components_single_source(tmp_path):
     from backup.format import FORMAT_VERSION
 
     assert comp["backup_format_version"] == FORMAT_VERSION
+
+
+# ── UP-16b 改名前世代门禁（真数据演练现场发现）────────────────────────────
+
+
+def test_up16b_pre_rename_generation_gated(tmp_path):
+    """`projects` 世代（novel 正名之前）→ 不进候选 + precheck 引走备份包通道。
+
+    现场发现（UP-16 真数据演练）：本机 `client/backend/data/novel.db` 无 `novels` 表、
+    业务数据挂在 `projects` 下——行级搬运行列交集与表名都对不上，**搬过去会是「成功但
+    0 本书」**。故书数只认 `novels`（不进候选），直接点名则响亮拒绝。
+    """
+    from migration.engine import precheck
+
+    src = tmp_path / "novel.db"
+    conn = sqlite3.connect(src)
+    conn.execute("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT)")
+    conn.execute("INSERT INTO projects (id, name) VALUES ('p1', '改名前的书')")
+    conn.execute("CREATE TABLE volumes (id TEXT PRIMARY KEY, project_id TEXT, volume_no INTEGER)")
+    conn.commit()
+    conn.close()
+    target = tmp_path / db_filename_for(CUR)
+    _make_target(tmp_path)
+
+    cands = scan_migration_candidates(tmp_path, CUR, target)
+    assert cands == [], f"projects 世代不计书数、不进候选：{cands}"
+    pc = precheck(tmp_path, "novel.db", target)
+    assert pc["ok"] is False and pc["reason"] == "pre_rename_generation", pc
+    print(f"[UP-16b] gated: book_count 不计 projects → 候选为空；precheck={pc['reason']}")

@@ -141,10 +141,10 @@ async def preview(body: StartBody):
 
     pc = precheck(Path(DATA_ROOT), body.source_filename, _active_db_path())
     if not pc["ok"]:
-        if pc["reason"] == "pre_adr_generation":
+        if pc["reason"] in ("pre_adr_generation", "pre_rename_generation"):
             return {"code": 1, "data": {
-                "reason": "pre_adr_generation",
-                "message": "这份旧版数据的设定存于旧版文件格式，请改用「备份包导入」找回。",
+                "reason": pc["reason"],
+                "message": "这份旧版数据是更早的版本写下的格式，请改用「备份包导入」带回作品。",
             }}
         raise HTTPException(422, {"message": _precheck_msg(pc["reason"])})
 
@@ -258,6 +258,7 @@ def _precheck_msg(reason: str) -> str:
         "disk_full": "磁盘空间不足（需约旧数据体积两倍），请先清理后重试",
         "source_unreadable": "旧库文件无法读取",
         "source_busy": "旧版数据正在被另一个程序写入，请先关闭旧版本应用再试",
+        "pre_rename_generation": "这份旧版数据是更早的版本写下的格式，请改用「备份包导入」带回作品",
     }.get(reason, reason)
 
 

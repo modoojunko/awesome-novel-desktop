@@ -103,7 +103,9 @@ class TestEngine:
 
         # 重跑幂等（specs：中断重跑语义同一引擎）
         rep2 = run_migration(root, "novel.db", active)
-        assert rep2["book_count_migrated"] == 2, "OR IGNORE 重跑零重复"
+        # migrated＝本次真正写入 → 重跑 0 本；目标总数仍 2（OR IGNORE 零重复）
+        assert rep2["book_count_migrated"] == 0, "OR IGNORE 重跑零重复（本次写入 0 行）"
+        assert rep2["book_count_target_after"] == 2
         con = sqlite3.connect(f"file:{active}?mode=ro", uri=True)
         try:
             n = con.execute("SELECT COUNT(*) FROM novels").fetchone()[0]

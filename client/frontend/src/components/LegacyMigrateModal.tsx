@@ -8,7 +8,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Modal from '@/components/design/Modal';
 import { api } from '@/lib/api';
-import type { LegacyCandidate } from '@/hooks/useLegacyDb';
+import { toast } from '@/lib/toast';
+import type { LegacyCandidate, QuarantinedLibrary } from '@/hooks/useLegacyDb';
 
 interface ProgressEvent {
   stage: 'copy' | 'prepare' | 'plan' | 'transfer' | 'verify';
@@ -25,11 +26,20 @@ interface PreviewReport {
   book_count_source: number | null;
 }
 
+export interface RetentionItem {
+  filename: string;
+  book_count: number | null;
+  size_bytes: number;
+  mtime: number;
+}
+
 interface MigrationReport {
   status: string;
   reason?: string;
   book_count_source?: number;
   book_count_migrated?: number;
+  book_count_target_after?: number;
+  fk_violations?: unknown[];
 }
 
 type Step = 'detect' | 'preview' | 'working' | 'result' | 'error';
@@ -45,11 +55,14 @@ const STAGE_LABEL: Record<string, string> = {
 export default function LegacyMigrateModal({
   open,
   candidates,
+  quarantined = [],
   onClose,
   onDone,
 }: {
   open: boolean;
   candidates: LegacyCandidate[];
+  /** 不可读的隔离件：只读清单（原地保留、不进候选、不提供带回动作） */
+  quarantined?: QuarantinedLibrary[];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -60,6 +73,12 @@ export default function LegacyMigrateModal({
   const [progressPct, setProgressPct] = useState(0);
   const [result, setResult] = useState<MigrationReport | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  /* 旧库留存（c-db-per-version）：待删清单由后端单源给（仅「已成功带回」的件、
+     默认保留最近 2 份）；两段确认——展开清单 → 确认删除，全程可关 */
+  const [retention, setRetention] = useState<RetentionItem[] | null>(null);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const failCountRef = useRef(0);
 
@@ -134,11 +153,28 @@ export default function LegacyMigrateModal({
 
   useEffect(() => () => clearPoll(), [clearPoll]);
 
-  const startPreview = async () => {
+  /* 一次确认（specs：常态为单次确认完成搬运）：可搬运候选恰一份时，打开即预演——
+     用户从空态出口行点进来后只需点一次主按钮。多候选/异常仍走发现步选来源。 */
+  const autoPreviewedRef = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      autoPreviewedRef.current = false;
+      return;
+    }
+    if (autoPreviewedRef.current || candidates.length !== 1) return;
+    autoPreviewedRef.current = true;
+    setPicked(candidates[0].filename);
+    void startPreview(candidates[0].filename);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在「打开且单候选」时触发一次
+  }, [open, candidates]);
+
+  const startPreview = async (source: string = picked) => {
     setErrorMsg('');
     try {
-      const res = await api.post('/backup/db-migration/preview', { source_filename: picked }, { quiet: true });
-      if (res.code === 1 && res.data?.reason === 'pre_adr_generation') {
+      const res = await api.post('/backup/db-migration/preview', { source_filename: source }, { quiet: true });
+      // 两道人话通道：ADR 前世代（设定在盘上 yaml）与「novel 正名」之前世代
+      if (res.code === 1 && (res.data?.reason === 'pre_adr_generation'
+        || res.data?.reason === 'pre_rename_generation')) {
         setErrorMsg(res.data.message);
         return;
       }
@@ -146,6 +182,42 @@ export default function LegacyMigrateModal({
       setStep('preview');
     } catch (e: unknown) {
       setErrorMsg(e instanceof Error ? e.message : '预览失败');
+    }
+  };
+
+  /** 清理入口的显示条件：**全部成功**才出现（部分失败不得引导删旧文件）。 */
+  const cleanupEligible = (rep: MigrationReport | null): boolean =>
+    !!rep && rep.status === 'ok'
+    && (rep.fk_violations?.length ?? 0) === 0
+    && (rep.book_count_source ?? 0) === (rep.book_count_migrated ?? -1);
+
+  const loadRetention = async () => {
+    setBusy(true);
+    try {
+      const res = await api.get('/backup/db-migration/retention', { quiet: true });
+      setRetention((res.data?.items ?? []) as RetentionItem[]);
+      setCleanupOpen(true);
+    } catch {
+      toast.error('读不到可清理的旧文件，请稍后重试');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runCleanup = async () => {
+    setBusy(true);
+    try {
+      const names = (retention ?? []).map((r) => r.filename);
+      const res = await api.post('/backup/db-migration/cleanup', { filenames: names }, { quiet: true });
+      const deleted = (res.data?.deleted ?? []) as string[];
+      toast.success(`已清理 ${deleted.length} 份旧文件`);
+      setRetention((retention ?? []).filter((r) => !deleted.includes(r.filename)));
+      setConfirmingDelete(false);
+      setCleanupOpen(false);
+    } catch {
+      toast.error('清理没有完成，可稍后重试');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -193,6 +265,20 @@ export default function LegacyMigrateModal({
             <p style={{ fontSize: 13.5, fontWeight: 500, margin: '0 0 8px' }}>
               {new Date((candidates[0]?.mtime || 0) * 1000).toLocaleDateString('zh-CN')} 的数据 · {candidates[0]?.book_count ?? '?'} 本书
             </p>
+          )}
+          {quarantined.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 6px' }}>
+                另有 {quarantined.length} 份旧文件读不出来（已原地保留，不会自动删除）：
+              </p>
+              <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                {quarantined.map((q) => (
+                  <li key={q.filename} style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    {Math.round(q.size_bytes / 1024)} KB · {new Date(q.mtime * 1000).toLocaleDateString('zh-CN')}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 16px' }}>
             带回是把作品复制回书架，原来的文件一个字都不会动（旧文件原位保留，可随时装回旧版本）。
@@ -255,6 +341,49 @@ export default function LegacyMigrateModal({
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             <button className="btn btn-primary" onClick={() => { onDone(); onClose(); }}>去书架看看</button>
           </div>
+          {cleanupEligible(result) && (
+            <div style={{ marginTop: 16, borderTop: '1px solid var(--line, #2a2a2a)', paddingTop: 12 }}>
+              {!cleanupOpen ? (
+                <button className="text-btn" disabled={busy} onClick={() => void loadRetention()}>
+                  清理旧文件（默认保留最近 2 份）
+                </button>
+              ) : (retention ?? []).length === 0 ? (
+                <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: 0 }}>
+                  没有可清理的旧文件（最近 2 份会被保留）。
+                </p>
+              ) : (
+                <div>
+                  <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+                    将清理下列旧文件——删除不可撤销，已带回的内容不受影响。建议先
+                    <button className="text-btn" onClick={() => { onClose(); onDone(); }}>备份一份</button>。
+                  </p>
+                  <ul style={{ margin: '0 0 10px', padding: 0, listStyle: 'none' }}>
+                    {(retention ?? []).map((r) => (
+                      <li key={r.filename} style={{ fontSize: 12.5, display: 'flex', gap: 10, padding: '2px 0' }}>
+                        <span className="num">{r.book_count ?? '?'} 本</span>
+                        <span style={{ color: 'var(--muted)' }}>{Math.round(r.size_bytes / 1024)} KB</span>
+                        <span style={{ color: 'var(--muted)' }}>
+                          {new Date(r.mtime * 1000).toLocaleDateString()}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {!confirmingDelete ? (
+                    <button className="btn btn-danger btn-sm" onClick={() => setConfirmingDelete(true)}>
+                      删除这些旧文件
+                    </button>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn btn-sm" onClick={() => setConfirmingDelete(false)}>取消</button>
+                      <button className="btn btn-danger btn-sm" disabled={busy} onClick={() => void runCleanup()}>
+                        确认删除（不可撤销）
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
       {step === 'error' && (
