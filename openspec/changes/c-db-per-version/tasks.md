@@ -17,7 +17,28 @@
 - 11.1/11.2 components＋冒烟正负例 ✓ 本地同命令预演通过（CI 侧随 tag 触发）
 - 12.1–12.4 门禁 ✓ pytest 1277 / vitest 716 / tsc / design:lint / 反断言四条 0 行
 
-**未完成或带口径（交付时如实登记）**
+**09-22 续：剩余验收全部补完**（PR #464 追加 commit）
+
+- UP-16 **真数据演练** ✓ `scripts/up16_real_data_drill.py`：35MB 真库（含 4MB 未 checkpoint WAL）
+  1213 本一次带回 / 38 表 / 零跳过 / 零 FK；搬后 roundtrip 覆盖全部活书 128；**两个源的三件套
+  sha256+mtime_ns 全不变**；证据 `evidence/up16-real-data.md`。现场发现并修：`projects` 世代
+  （novel 正名之前）行级搬运会「成功但 0 本书」→ 书数只认 `novels` ＋ 新增
+  `pre_rename_generation` 门禁（含 UP-16b 回归用例）
+- UP-11 **playwright e2e** ✓ `e2e/db-version-upgrade.spec.ts`（真后端不打桩候选端点）：
+  换目录双出口可达 ＋ 同机升级全链（候选 → 一次确认 → 结果页 → 宿主侧库文件核对 → 源不变）；
+  配套实装单候选**一次确认**；**全量 e2e 内通过**（168 passed / 4 failed 存量 / 17 skipped，
+  见 `evidence/up11-full-e2e.md`）；UP-12 前端半（清理清单两态与两段确认）＋隔离件只读清单
+  已实装（5 条 vitest）
+- UP-14 **CI 产物断言脚本化** ✓ `scripts/release_json_assert.py`（CI 调同一脚本）＋ 正/负例 4 条
+- 10.3 清理清单 UI／隔离件只读清单 ✓；11.3 `notes-release.md` 底稿 ✓（待用户过目）
+- 语义修正：`book_count_migrated` 改「本次真正带回数」（原为合并后目标总数，目标已有书时虚高）
+
+**仍带口径（非本 change 引入）**
+
+- UP-14 的 **CI 真产物侧**未跑（未打 tag；本地同命令预演 ＋ 脚本正/负例已覆盖断言逻辑）
+- 全量 e2e 4 条失败与 parity `list.empty` 均为**存量红**（基线栈/基线 commit 对照证明）
+- `notes-release.md` 待拍板人过目
+
 
 - 10.3 后半：**清理清单 UI 与隔离件只读清单** 未实现（后端 `retention`/`cleanup` 与 `quarantined` 只读数据已就绪；前端仅做了文案口径与双出口）
 - 11.3 `notes-release.md` 未写（首个新版本发布说明需写明「升级后需把上一版的作品带过来」＋平台差异）

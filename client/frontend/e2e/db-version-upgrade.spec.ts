@@ -15,9 +15,11 @@ import { test, expect, type Page } from "@playwright/test";
  * 「已带回 N 本书」；④**经真实后端接口核对**书确实落进当前版本的库。
  */
 const DATA_DIR = process.env.UP11_DATA_DIR || "";
+// 种子 id 每轮唯一：迁移是 INSERT OR IGNORE——固定 id 在「同库已被上一次全量跑
+// 写过」时会插入 0 行，结果页如实报「已带回 0 本书」而断言写死 2 就会假红（实测踩过）
 const SEED_PY = `
 import sqlite3, sys
-p = sys.argv[1]
+p, tag = sys.argv[1], sys.argv[2]
 con = sqlite3.connect(p)
 con.execute("CREATE TABLE novels (id TEXT PRIMARY KEY, user_id TEXT, name TEXT,"
             " slug TEXT, root_path TEXT, current_phase TEXT, status TEXT,"
@@ -27,7 +29,8 @@ for i in range(2):
     con.execute("INSERT INTO novels (id, user_id, name, slug, root_path, current_phase,"
                 " status, total_volumes, total_chapters, created_at, updated_at)"
                 " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (f"up11-{i}", "up11", f"上一版的书{i}", f"up11-{i}", f"./data/up11-{i}",
+                (f"up11-{tag}-{i}", "up11", f"上一版的书{i}", f"up11-{tag}-{i}",
+                 f"./data/up11-{tag}-{i}",
                  "write", "active", 1, 1, "2026-01-01 00:00:00", "2026-01-02 00:00:00"))
 con.commit()
 con.close()
@@ -46,7 +49,8 @@ function clearLibraries(): void {
 
 function seedLegacyLibrary(): string {
   const p = join(DATA_DIR, "novel-v1.db");
-  execFileSync(process.env.PYTHON || "python3", ["-c", SEED_PY, p]);
+  execFileSync(process.env.PYTHON || "python3",
+               ["-c", SEED_PY, p, String(Date.now()).slice(-9)]);
   // mtime 拉开：确保候选扫描把这份遗留库当“刚写过的旧版数据”
   const t = new Date();
   utimesSync(p, t, t);
