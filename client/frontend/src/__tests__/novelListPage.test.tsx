@@ -16,9 +16,19 @@ const renameMock = vi.fn();
 const finishMock = vi.fn();
 const reopenMock = vi.fn();
 
-vi.mock("@/hooks/useLegacyDb", () => ({
-  useLegacyDb: () => ({ status: null, refresh: vi.fn(async () => {}), dismiss: vi.fn(async () => {}) }),
-}));
+const legacyStatusMock = vi.hoisted(() => ({ value: null as unknown }));
+vi.mock("@/hooks/useLegacyDb", async () => {
+  const actual = await vi.importActual<typeof import("@/hooks/useLegacyDb")>("@/hooks/useLegacyDb");
+  return {
+    useLegacyDb: () => ({
+      status: legacyStatusMock.value,
+      refresh: vi.fn(async () => {}),
+      dismiss: vi.fn(async () => {}),
+    }),
+    migratableCandidates: actual.migratableCandidates,
+    recommendedCandidate: actual.recommendedCandidate,
+  };
+});
 vi.mock("@/lib/api", () => ({
   api: {
     get: (...a: unknown[]) => getMock(...a),
@@ -228,6 +238,52 @@ describe("列表状态与卡片", () => {
     fireEvent.click(screen.getByText("关闭创建"));
     fireEvent.click(screen.getByText("导入已有文稿"));
     expect(screen.getByTestId("import-modal")).toBeTruthy();
+  });
+
+  it("首启空态出口行常驻并列两条出路（c-db-per-version）：无候选时「从备份包恢复」仍在", async () => {
+    legacyStatusMock.value = null;   // 换安装目录场景：候选扫描看不到任何旧库
+    getMock.mockResolvedValue([]);   // 空书架（首启态）
+    renderPage();
+    await screen.findByText("开始你的第一本书");
+    const restore = screen.getByText("从备份包恢复");
+    expect(screen.queryByText("把上一版的作品带过来")).toBeNull();
+    // 点第二出口 → 派发 restore:open 事件（AcctMenu 单实例消费；避免双弹窗双轮询）
+    const opened = vi.fn();
+    window.addEventListener("restore:open", opened);
+    fireEvent.click(restore);
+    window.removeEventListener("restore:open", opened);
+    expect(opened).toHaveBeenCalledTimes(1);
+  });
+
+  it("首启空态出口行：有旧版作品时并列两出口并给出书数", async () => {
+    legacyStatusMock.value = {
+      current_version: "0.25",
+      quarantined: [],
+      candidates: [
+        {
+          filename: "novel-v0.24.db", version: "0.24", kind: "semver",
+          legacy_generation: null, size_bytes: 10, mtime: 1, book_count: 3,
+          unreadable: false, recommended: true, stamp: "s", suppressed: false,
+        },
+        {
+          filename: "novel-v0.23.db", version: "0.23", kind: "semver",
+          legacy_generation: null, size_bytes: 10, mtime: 1, book_count: 2,
+          unreadable: false, recommended: false, stamp: "s2", suppressed: false,
+        },
+      ],
+    };
+    getMock.mockResolvedValue([]);
+    renderPage();
+    await screen.findByText("开始你的第一本书");
+    const bring = screen.getByText("把上一版的作品带过来");
+    expect(bring.closest(".fr-note")!.textContent).toContain("5");   // 3 + 2
+    expect(screen.getByText("从备份包恢复")).toBeTruthy();
+    const opened = vi.fn();
+    window.addEventListener("legacy-migrate:open", opened);
+    fireEvent.click(bring);
+    window.removeEventListener("legacy-migrate:open", opened);
+    expect(opened).toHaveBeenCalledTimes(1);
+    legacyStatusMock.value = null;
   });
 
   it("新建/导入入口：创建与导入成功都跳工作台", async () => {

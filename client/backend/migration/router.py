@@ -1,13 +1,17 @@
-"""迁入免登端点（db-generation PR1 → 异步化）：candidates / preview / start / status / dismiss。
+"""迁入免登端点（c-db-per-version）：candidates / preview / start / status / dismiss
+＋ retention / cleanup。
 
 specs：迁入端点全家免登录（复用 loginless-data-exit 防护面：回环中间件已在
 main.py 注册本前缀）；与导出/下载 job_runner 跨 kind 单飞互斥；dismiss 与
-完成态绑定候选身份指纹（回滚编辑后 mtime 变化→重新提示合并）。
+完成态绑定候选身份指纹（回滚编辑后三件套 max(mtime)/体积变化→重新提示合并）。
 
-异步化（2026-09-20 评审实施）：start 立即返回初始快照（不再 600s 同步等待）；
-引擎进度经 job_runner.phase/set_job 上报（stage/tables_done/tables_total）；
-status 透传 job_runner.status()（含 running/report/progress 字段）；
-完成记录 _record_completion 在线程体内执行（run_thread 包装保证 state=done）。
+本版改动（c-db-per-version）：
+- 候选载荷改版本语义（`version`/`kind`/`legacy_generation`/`recommended`＋顶层
+  `current_version`），退役 `generation`/`schema_version`；
+- 活跃库按**路径**排除、白名单形状枚举、`recommended` 后端单源；
+- 新增 retention/cleanup：**只允许删「已成功带回」的件**（`migration.history`），
+  默认保留最近 2 份，路径校验收口在 `db_lifecycle.delete_candidate`；
+- dismiss 补路径校验（原实现直接 `DATA_ROOT / filename`）。
 """
 from __future__ import annotations
 
@@ -19,14 +23,33 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from config import DATA_ROOT
-from db_lifecycle import scan_migration_candidates
-from schema_version import SCHEMA_VERSION
+from db_lifecycle import (
+    clean_stale_staging,
+    deletable_candidates,
+    delete_candidate,
+    list_quarantined,
+    scan_migration_candidates,
+)
+from schema_version import app_version, candidate_stamp
 
 router = APIRouter(prefix="/api/backup/db-migration", tags=["db-migration"])
+
+# 旧库留存：带回多少份之后才允许清理（不自动删；用户动作才删）
+RETENTION_KEEP = 2
+HISTORY_KEY = "migration.history"
+HISTORY_LIMIT = 20
 
 
 class StartBody(BaseModel):
     source_filename: str
+
+
+class DismissBody(BaseModel):
+    filename: str
+
+
+class CleanupBody(BaseModel):
+    filenames: list[str]
 
 
 def _active_db_path() -> Path:
@@ -51,13 +74,27 @@ def _app_meta_value(key: str) -> str | None:
         con.close()
 
 
+def _migrated_stamps() -> set[str]:
+    """历史成功带回的源身份指纹集合（cleanup 白名单的来源）。"""
+    raw = _app_meta_value(HISTORY_KEY)
+    if not raw:
+        return set()
+    try:
+        items = json.loads(raw)
+    except json.JSONDecodeError:
+        return set()
+    if not isinstance(items, list):
+        return set()
+    return {str(it.get("source_stamp") or "") for it in items if isinstance(it, dict)} - {""}
+
+
 @router.get("/candidates")
 async def candidates():
     """候选列表＋隔离件只读展示＋提示抑制状态（登录前可调——登录页计数行同源）。"""
     root = Path(DATA_ROOT)
-    items = scan_migration_candidates(root, SCHEMA_VERSION)
-    done = _app_meta_value("migration.last")
+    items = scan_migration_candidates(root, app_version(), _active_db_path())
     done_stamp = ""
+    done = _app_meta_value("migration.last")
     if done:
         try:
             done_stamp = json.loads(done).get("source_stamp", "")
@@ -65,22 +102,42 @@ async def candidates():
             pass
     dismissed_stamp = _app_meta_value("migration.dismissed") or ""
     for it in items:
-        p = root / it["filename"]
-        it["stamp"] = f"{it['filename']}:{it['mtime']}:{it['size_bytes']}"
         it["suppressed"] = it["stamp"] in (done_stamp, dismissed_stamp)
-    quarantined = [
-        {"filename": f.name, "size_bytes": f.stat().st_size}
-        for f in sorted(root.glob("novel*.corrupt-*"))
-        if f.is_file() and not f.name.endswith(("-wal", "-shm"))
-    ]
-    return {"code": 0, "data": {"candidates": items, "quarantined": quarantined,
-                                "schema_version": SCHEMA_VERSION}}
+    return {"code": 0, "data": {"candidates": items, "quarantined": list_quarantined(root),
+                                "current_version": app_version()}}
+
+
+@router.get("/retention")
+async def retention():
+    """待删清单：仅**已成功带回**的件，默认保留最近 2 份（无用户动作永不删）。"""
+    root = Path(DATA_ROOT)
+    items = deletable_candidates(root, _migrated_stamps(), keep=RETENTION_KEEP)
+    return {"code": 0, "data": {"items": items, "keep": RETENTION_KEEP}}
+
+
+@router.post("/cleanup")
+async def cleanup(body: CleanupBody):
+    """删除用户勾选的旧库（服务端再次收口：只认待删清单内的名字）。"""
+    root = Path(DATA_ROOT)
+    allowed = {it["filename"] for it in deletable_candidates(root, _migrated_stamps(), keep=RETENTION_KEEP)}
+    deleted: list[str] = []
+    refused: list[str] = []
+    for name in body.filenames:
+        if name not in allowed:
+            refused.append(name)
+            continue
+        (deleted if delete_candidate(root, name, _active_db_path()) else refused).append(name)
+    return {"code": 0, "data": {"deleted": deleted, "refused": refused}}
 
 
 @router.post("/preview")
 async def preview(body: StartBody):
     """第 3 步计划的只读预演（与 result 同构 v:1）。"""
-    from migration.engine import precheck
+    import shutil
+    import tempfile
+
+    from db_lifecycle import copy_sidecars, prepare_staged
+    from migration.engine import build_plan, precheck
 
     pc = precheck(Path(DATA_ROOT), body.source_filename, _active_db_path())
     if not pc["ok"]:
@@ -90,30 +147,20 @@ async def preview(body: StartBody):
                 "message": "这份旧版数据的设定存于旧版文件格式，请改用「备份包导入」找回。",
             }}
         raise HTTPException(422, {"message": _precheck_msg(pc["reason"])})
-    import shutil
-    import tempfile
 
     src = Path(DATA_ROOT) / body.source_filename
     tmpdir = tempfile.mkdtemp(prefix="mig-preview-")
     staged = Path(tmpdir) / body.source_filename
     try:
-        shutil.copy2(src, staged)
-        for suf in ("-wal", "-shm"):
-            side = Path(str(src) + suf)
-            if side.exists():
-                shutil.copy2(side, str(staged) + suf)
-        import sqlite3 as _sq
-
-        con = _sq.connect(str(staged))
-        try:
-            con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        finally:
-            con.close()
-        from migration.engine import build_plan
-
+        copy_sidecars(src, staged)
+        prepare_staged(staged)
         plan = build_plan(staged)
         plan["source"] = body.source_filename
+        plan["source_version"] = pc.get("source_version")
+        plan["legacy_generation"] = pc.get("legacy_generation")
         try:
+            import sqlite3 as _sq
+
             con2 = _sq.connect(f"file:{staged}?mode=ro", uri=True)
             try:
                 plan["book_count_source"] = con2.execute(
@@ -149,7 +196,7 @@ async def start(body: StartBody):
         进度回调→set_job（遵守 job_runner「只经 set() 整值替换」纪律）；
         report_progress 收 dict 事件 {stage, tables_total, tables_done, table, rows_inserted}。
         必须 run_thread 包装（与 backup/export._run_backup_thread 同款）——否则
-        state 永远停在 running，单飞槽卡死到重启（2026-09-20 评审 P0 修复）。
+        state 永远停在 running，单飞槽卡死到重启。
         """
         import asyncio
 
@@ -186,19 +233,22 @@ async def status():
     return {"code": 0, "data": job_runner.status()}
 
 
-class DismissBody(BaseModel):
-    filename: str
-
-
 @router.post("/dismiss")
 async def dismiss(body: DismissBody):
     """「保留旧文件，不再提醒」——dismiss 键绑候选身份指纹（新数据自动重开）。"""
-    p = Path(DATA_ROOT) / body.filename
-    if not p.exists():
+    from db_lifecycle import validate_candidate_filename
+
+    p = validate_candidate_filename(Path(DATA_ROOT), body.filename, _active_db_path())
+    if p is None or not p.exists():
         return {"code": 1, "msg": "文件不存在"}
-    stamp = f"{body.filename}:{int(p.stat().st_mtime)}:{p.stat().st_size}"
-    await _set_app_meta("migration.dismissed", stamp)
+    await _set_app_meta("migration.dismissed", candidate_stamp(body.filename, p))
     return {"code": 0}
+
+
+@router.post("/staging-sweep")
+async def staging_sweep():
+    """清理 `migration-staging/*` 残留（硬杀/断电遗留；启动期同源调用）。"""
+    return {"code": 0, "data": {"removed": clean_stale_staging(Path(DATA_ROOT))}}
 
 
 def _precheck_msg(reason: str) -> str:
@@ -207,6 +257,7 @@ def _precheck_msg(reason: str) -> str:
         "source_is_active_db": "不能迁移当前正在使用的库",
         "disk_full": "磁盘空间不足（需约旧数据体积两倍），请先清理后重试",
         "source_unreadable": "旧库文件无法读取",
+        "source_busy": "旧版数据正在被另一个程序写入，请先关闭旧版本应用再试",
     }.get(reason, reason)
 
 
@@ -225,9 +276,27 @@ async def _set_app_meta(key: str, value: str) -> None:
 
 
 async def _record_completion(source_filename: str, report: dict) -> None:
+    """完成记录：`migration.last`（幂等/重开判定）＋`migration.history`（cleanup 白名单）。"""
     src = Path(DATA_ROOT) / source_filename
-    stamp = f"{source_filename}:{int(src.stat().st_mtime)}:{src.stat().st_size}"
+    stamp = candidate_stamp(source_filename, src)
     payload = {"source_filename": source_filename, "source_stamp": stamp,
+               "source_version": report.get("source_version"),
+               "legacy_generation": report.get("legacy_generation"),
+               "book_count_migrated": report.get("book_count_migrated"),
                "finished_at": datetime.now(timezone.utc).isoformat(), "report": report}
     await _set_app_meta("migration.last", json.dumps(payload, ensure_ascii=False))
     await _set_app_meta("migration.dismissed", "")
+    raw = _app_meta_value(HISTORY_KEY)
+    history: list[dict] = []
+    if raw:
+        try:
+            loaded = json.loads(raw)
+            if isinstance(loaded, list):
+                history = [it for it in loaded if isinstance(it, dict)]
+        except json.JSONDecodeError:
+            history = []
+    history = [it for it in history if it.get("source_stamp") != stamp]
+    history.append({k: payload[k] for k in
+                    ("source_filename", "source_stamp", "source_version",
+                     "legacy_generation", "book_count_migrated", "finished_at")})
+    await _set_app_meta(HISTORY_KEY, json.dumps(history[-HISTORY_LIMIT:], ensure_ascii=False))

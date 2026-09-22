@@ -90,6 +90,8 @@ jobs:
       # 未配置 Variable（含 fork PR 场景）回落默认值——开箱可用、与营销域名解耦。
       # 运行时优先级：用户 config.json / 环境变量 > 包内 release.json（见 pywebview_app.start_server）。
       # client_version：tag 构建写去 v 前缀真实版本；PR/手动构建写 dev（应用侧跳过更新检测）。
+      # 注意：本步骤在「Install deps」之前，故 components 只 import 后端**零依赖叶子**
+      # （schema_version / backup.format），不得触碰 models/config。
       - name: Generate release.json (bake S端 endpoints + version + update urls)
         working-directory: client/packaging/build
         shell: bash
@@ -104,17 +106,36 @@ jobs:
           else
             CLIENT_VERSION="dev"
           fi
+          # c-db-per-version：版本形态门禁——库文件名＝版本派生，纯数字 tag（v1）
+          # 会与遗留代数名 novel-v1.db 同形、后缀形态必须能被单源解析
           python - "$CLIENT_VERSION" <<'PY'
-          import json, os, sys
+          import re, sys
+          v = sys.argv[1]
+          if v != "dev":
+              ok = re.fullmatch(r"[0-9]+(\.[0-9]+)+([-._][A-Za-z0-9._-]+)?", v)
+              assert ok, f"tag 清洗后版本形态非法：{v!r}（需 0.x(.y) 形态，可带后缀）"
+              assert not re.fullmatch(r"[0-9]+", v), f"纯数字 tag 禁用：v{v} 与遗留代数库名同形"
+          print("version-shape ok:", v)
+          PY
+          python - "$CLIENT_VERSION" <<'PY'
+          import json, os, subprocess, sys
+          version = sys.argv[1]
+          # 组件清单：构建期从后端单源读取（脚本在 backend 内 import 真源）
+          comp = json.loads(subprocess.check_output(
+              [sys.executable, "scripts/release_components.py", version],
+              cwd="client/backend", text=True))
           cfg = {
               "server_api_base": os.environ["RELEASE_SERVER_API_BASE"],
               "server_api_fallback": os.environ["RELEASE_SERVER_API_FALLBACK"],
-              "client_version": sys.argv[1],
+              "client_version": version,
               "client_update_url": os.environ["RELEASE_DOWNLOAD_BASE"].rstrip("/") + "/latest.json",
               "client_update_url_fallback": os.environ["RELEASE_DOWNLOAD_FALLBACK_BASE"].rstrip("/") + "/latest.json",
+              "components": comp,
           }
           for k in ("server_api_base", "client_update_url", "client_update_url_fallback"):
               assert str(cfg[k]).startswith("https://"), (k, cfg[k])
+          assert comp.get("db_filename") == (f"novel-v{version}.db" if version != "dev" else "novel-dev.db"), comp
+          assert isinstance(comp.get("backup_format_version"), int), comp
           with open("release.json", "w", encoding="utf-8") as f:
               json.dump(cfg, f, ensure_ascii=False, indent=2)
           print(json.dumps(cfg, ensure_ascii=False))
@@ -153,7 +174,16 @@ jobs:
           assert str(d.get('client_version', '')).strip(), d
           assert str(d.get('client_update_url', '')).startswith('https://'), d
           assert str(d.get('client_update_url_fallback', '')).startswith('https://'), d
-          print('baked:', sys.argv[1], '->', d['client_version'], d['client_update_url'])
+          # c-db-per-version：组件清单（BOM）——缺失或与后端单源不一致即失败
+          comp = d.get('components')
+          assert isinstance(comp, dict), ('release.json 缺 components 键', d)
+          sys.path.insert(0, 'client/backend')
+          from backup.format import FORMAT_VERSION
+          from schema_version import db_filename_for
+          assert comp['db_filename'] == db_filename_for(d['client_version']), (comp, d['client_version'])
+          assert comp['backup_format_version'] == FORMAT_VERSION, (comp, FORMAT_VERSION)
+          print('baked:', sys.argv[1], '->', d['client_version'], d['client_update_url'],
+                'components=', comp)
           " "$F"
 
       # 冒烟：跑真实产物（--smoke 无头模式，不起 GUI），轮询 /api/health + 断言前端被服务。

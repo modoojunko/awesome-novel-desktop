@@ -7,14 +7,22 @@ import json
 import logging
 import shutil
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import models  # noqa: F401 —— 注册全表（Base.metadata 依赖副作用 import）
 from config import DATA_ROOT
 from db import Base
-from db_lifecycle import generation_of, inspect_library, inspect_schema
-from schema_version import SCHEMA_VERSION
+from db_lifecycle import (
+    copy_sidecars,
+    inspect_schema,
+    migration_probe,
+    prepare_staged,
+    snapshot_signature,
+    version_stamp_payload,
+)
+from schema_version import parse_db_filename
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -61,36 +69,33 @@ def precheck(data_root: Path, source_filename: str, active_db_path: Path) -> dic
         free = 0
     if free < size * 2:
         return {"ok": False, "reason": "disk_full"}
-    info = inspect_library(src)
-    if info.get("unreadable"):
+    # 体检与引擎同口径（一次暂存口径：WAL 库不在源目录留痕迹）
+    probe = migration_probe(src)
+    if probe["unreadable"]:
         return {"ok": False, "reason": "source_unreadable"}
-    # 世代门禁：ADR 前世代（设定在盘上 yaml）不进行级迁入
-    gen = generation_of(source_filename)
-    root = data_root / ".."
-    if _is_pre_adr_generation(src):
-        return {"ok": False, "reason": "pre_adr_generation", "generation": gen}
-    return {"ok": True, "generation": gen}
+    # 版本门禁：ADR 前世代（设定在盘上 yaml）不进行级迁入——按 schema 体检判定，
+    # 不依赖文件名（版本命名轴换代后这一条天然可留）
+    parsed = parse_db_filename(source_filename)
+    label = {"source_version": parsed.version, "legacy_generation": parsed.generation}
+    if _is_pre_adr_generation(data_root, probe):
+        return {"ok": False, "reason": "pre_adr_generation", **label}
+    return {"ok": True, **label}
 
 
-def _is_pre_adr_generation(src: Path) -> bool:
+def _is_pre_adr_generation(data_root: Path, probe: dict) -> bool:
     """探测 ADR 前世代：库内无 settings 承载表（project_settings）而盘上
-    root_path 存在 settings yaml（含 genre.yaml 标记）。"""
-    try:
-        con = _sqlite_ro(src)
-        try:
-            tables = {r[0] for r in con.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'")}
-            if "project_settings" in tables:
-                return False  # 设定已入库（ADR 后）
-            if "novels" not in tables:
-                return False
-            roots = [r[0] for r in con.execute("SELECT root_path FROM novels LIMIT 200")]
-        finally:
-            con.close()
-    except sqlite3.Error:
+    root_path 存在 settings yaml（含 genre.yaml 标记）。
+
+    判定只用 `migration_probe` 的读取结果（不在源上另开连接：WAL 库的只读连接会
+    改写 `-shm` 字节）。
+    """
+    tables = set(probe.get("tables") or [])
+    if "project_settings" in tables:
+        return False  # 设定已入库（ADR 后）
+    if "novels" not in tables:
         return False
-    base = Path(src).parent.parent  # root_path 相对 DATA_ROOT 父目录解析
-    for r in roots:
+    base = Path(data_root).parent  # root_path 相对 DATA_ROOT 父目录解析
+    for r in probe.get("novels_roots") or []:
         if r and (base / r / LEGACY_YAML_MARKER).exists():
             return True
     return False
@@ -205,28 +210,32 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
             report["status"] = "precheck_failed"
             report["reason"] = pc["reason"]
             return report
+        report["source_version"] = pc.get("source_version")
+        report["legacy_generation"] = pc.get("legacy_generation")
 
-        # 1 暂存三件套拷贝（源零接触）
+        # 1 暂存拷贝（源零接触；不拷 -shm）＋一致性守卫：拷贝窗口内源被写（旧版本
+        #    应用还在跑，自动 checkpoint 与拷贝交错）→ 重试一次，仍变化即拒绝——
+        #    否则会「成功但少若干次提交」地静默搬入陈旧快照
         _emit("copy")
         staging.mkdir(parents=True, exist_ok=True)
         staged = staging / source_filename
-        shutil.copy2(src, staged)
-        for suf in ("-wal", "-shm"):
-            side = Path(str(src) + suf)
-            if side.exists():
-                shutil.copy2(side, str(staged) + suf)
-
-        # 2 副本整备：checkpoint 收编 WAL（只写副本）+ integrity
-        _emit("prepare")
-        con = _sqlite_rw(staged)
-        try:
-            con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            ok = con.execute("PRAGMA integrity_check").fetchone()
-            if not ok or ok[0] != "ok":
-                report["status"] = "source_corrupt"
+        for attempt in (1, 2):
+            before = snapshot_signature(src)
+            copy_sidecars(src, staged)
+            if snapshot_signature(src) == before:
+                break
+            if attempt == 2:
+                report["status"] = "source_busy"
+                report["reason"] = "source_busy"
+                report["notes"].append("旧版本应用可能仍在运行，请关闭后重试")
                 return report
-        finally:
-            con.close()
+            time.sleep(0.3)
+
+        # 2 副本整备：可写打开（按需重建 -shm）→ checkpoint 收编 WAL → integrity
+        _emit("prepare")
+        if not prepare_staged(staged):
+            report["status"] = "source_corrupt"
+            return report
         for suf in ("-wal", "-shm"):
             side = Path(str(staged) + suf)
             if side.exists():
@@ -282,6 +291,14 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                 if _has_table(tgt, "main.novels") else 0
             report["book_count_source"] = book_src
             report["book_count_migrated"] = book_tgt
+            # 库自证来源：把本机版本与组件快照写进目标库（app_meta 不随行搬运）
+            if _has_table(tgt, "main.app_meta"):
+                for k, v in version_stamp_payload().items():
+                    tgt.execute(
+                        "INSERT INTO main.app_meta (key, value) VALUES (?, ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        (k, v),
+                    )
             tgt.commit()
         finally:
             try:

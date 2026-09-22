@@ -1,5 +1,6 @@
-/** 找回向导（db-generation）：发现 → 预览 → 进度（异步轮询）→ 结果。
- *  文案对齐 UX 规格（用户层禁「迁入/数据库」——「找回」「旧版数据」）。
+/** 带回向导（c-db-per-version）：发现 → 预览 → 进度（异步轮询）→ 结果。
+ *  文案口径＝「带回」——新版本用新库，把上一版的作品带过来（用户层禁
+ *  「迁入/迁移/数据库/版本号/文件路径」）。
  *  异步化（2026-09-20 评审实施）：start 立返→1s 轮询 status 的 progress 事件
  *  （stage/tables_done/tables_total→百分比）；可关弹窗（迁移后台继续，
  *  源只读＋OR IGNORE 幂等保证中断无损）；重开时先探测 status 附着现有任务。 */
@@ -37,7 +38,7 @@ const STAGE_LABEL: Record<string, string> = {
   copy: '正在复制安全副本…',
   prepare: '正在检查数据完整性…',
   plan: '正在分析数据结构…',
-  transfer: '正在找回作品…',
+  transfer: '正在带回作品…',
   verify: '正在核对写入结果…',
 };
 
@@ -90,15 +91,15 @@ export default function LegacyMigrateModal({
           const rep = d.report as MigrationReport;
           setResult(rep);
           setStep(rep?.status === 'ok' ? 'result' : 'error');
-          if (rep?.status !== 'ok') setErrorMsg(rep?.reason || '找回未完成');
+          if (rep?.status !== 'ok') setErrorMsg(rep?.reason || '带回未完成');
         } else if (d?.state === 'error') {
           clearPoll();
           setStep('error');
-          setErrorMsg(d.error?.message || '找回过程中出现错误');
+          setErrorMsg(d.error?.message || '带回过程中出现错误');
         } else if (d?.state === 'idle') {
           clearPoll();
           setStep('error');
-          setErrorMsg('找回可能未完成（应用曾重启），可重新执行——已迁入的部分不会重复。');
+          setErrorMsg('带回可能未完成（应用曾重启），可重新执行——已带过来的部分不会重复。');
         }
       } catch {
         failCountRef.current += 1;
@@ -158,7 +159,7 @@ export default function LegacyMigrateModal({
       startPolling();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('迁入') || msg.includes('migration')) {
+      if (msg.includes('迁入') || msg.includes('迁移') || msg.includes('migration')) {
         startPolling();
         return;
       }
@@ -171,12 +172,12 @@ export default function LegacyMigrateModal({
   const stageText = progress ? STAGE_LABEL[progress.stage] || progress.stage : '准备中…';
 
   return (
-    <Modal open={open} onClose={onClose} width={440} title="找回作品">
+    <Modal open={open} onClose={onClose} width={440} title="把上一版的作品带过来">
       {step === 'detect' && (
         <div>
           <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 12px' }}>
             没有丢失——在这台电脑上找到了旧版作品。
-            {candidates.length > 1 && ` 找到 ${candidates.length} 份，选一份先找回。`}
+            {candidates.length > 1 && ` 找到 ${candidates.length} 份，选一份先带回。`}
           </p>
           {candidates.length > 1 && (
             <select className="input" value={picked} onChange={(e) => setPicked(e.target.value)} style={{ marginBottom: 10 }}>
@@ -194,7 +195,7 @@ export default function LegacyMigrateModal({
             </p>
           )}
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 16px' }}>
-            找回是把作品复制回书架，原来的文件一个字都不会动。
+            带回是把作品复制回书架，原来的文件一个字都不会动（旧文件原位保留，可随时装回旧版本）。
           </p>
           {errorMsg && <p style={{ fontSize: 12.5, color: 'var(--err)', margin: '0 0 10px' }}>{errorMsg}</p>}
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -205,7 +206,7 @@ export default function LegacyMigrateModal({
       )}
       {step === 'preview' && preview && (
         <div>
-          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 8px' }}>将找回以下作品：</p>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 8px' }}>将带回以下作品：</p>
           <p style={{ fontSize: 14, fontWeight: 500, margin: '0 0 8px' }}>{preview.book_count_source ?? '?'} 本书</p>
           {(preview.tables_skipped || []).length > 0 && (
             <p style={{ fontSize: 12, color: 'var(--warn)', margin: '0 0 8px' }}>
@@ -217,7 +218,7 @@ export default function LegacyMigrateModal({
           </p>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <button className="btn" onClick={() => setStep('detect')}>上一步</button>
-            <button className="btn btn-primary" onClick={() => void startMigrate()}>开始找回</button>
+            <button className="btn btn-primary" onClick={() => void startMigrate()}>把上一版的作品带过来</button>
           </div>
         </div>
       )}
@@ -236,7 +237,7 @@ export default function LegacyMigrateModal({
             </p>
           )}
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px', textAlign: 'center' }}>
-            可以关闭此窗口，找回会在后台继续完成
+            可以关闭此窗口，带回会在后台继续完成
           </p>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             <button className="btn" onClick={onClose}>后台继续</button>
@@ -246,7 +247,7 @@ export default function LegacyMigrateModal({
       {step === 'result' && result && (
         <div>
           <p style={{ fontSize: 18, fontFamily: 'var(--font-display)', fontWeight: 600, margin: '0 0 8px', textAlign: 'center' }}>
-            已找回 {result.book_count_migrated ?? '?'} 本书
+            已带回 {result.book_count_migrated ?? '?'} 本书
           </p>
           <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px', textAlign: 'center' }}>
             原来的旧文件没有改动，保留在原处。
@@ -258,7 +259,7 @@ export default function LegacyMigrateModal({
       )}
       {step === 'error' && (
         <div>
-          <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--err)', margin: '0 0 8px' }}>找回没有完成</p>
+          <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--err)', margin: '0 0 8px' }}>带回没有完成</p>
           <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px' }}>{errorMsg || '请稍后重试。'}</p>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <button className="btn" onClick={onClose}>关闭</button>

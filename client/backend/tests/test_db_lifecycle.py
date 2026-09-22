@@ -1,17 +1,19 @@
-"""db_lifecycle 状态机测试（db-generation）——specs 场景逐一对应。
+"""db_lifecycle 状态机测试（c-db-per-version）——specs 场景逐一对应。
 
-D1 破坏性升代首启：v1 代码首启、无 novel-v1.db、有 novel.db → fresh_boot
-   ＋旧文件原位不动＋候选检出（specs：库文件代数与首启状态机）
-D2 同代 additive 后退旧 build：超集库 → tolerant 放行（现状为误判 breaking
-   清空——本测试钉死回归）
-D3 隔离件不自动迁入：损坏 v1 库 → .corrupt 隔离＋不进候选
-D4 候选扫描排除 -wal/-shm/.bak/空库（现行扫描器实 bug 回归钉死）
-D5 current 态直接启动；breaking → 隔离
+V1 每版新建自己的库：当前版本库不存在、盘上有第 0 代 `novel.db` → fresh_boot
+   ＋旧文件原位不动＋候选检出
+V2 current 态直接启动（指纹匹配）
+V3 形状不符分流：可读而异形 → `.mismatch-<stamp>` 且**可作候选带回**（同 tag
+   重打包/删 tag 重打/dev 连续开发三种事故的出口——原 tolerant/additive 两态已退役）
+V4 损坏库 → `.corrupt-<stamp>` 隔离＋不进候选＋只读可见
+V5 空壳（0 表无 schema_id）→ fresh_boot 复用，不积隔离件
+V6 候选扫描白名单形状枚举：边车/`.bak`/磁盘残件/空库/空壳/`migration-staging` 全排除
+V7 排序：语义化版本降序 → 遗留代数名 → 第 0 代 → dev 哨兵；遗留名不得被版本过滤排除
 另：指纹稳定性（自旧套迁移）。
 """
 
-import json
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
@@ -20,6 +22,10 @@ from sqlalchemy import Column, MetaData, String, Table
 import db_lifecycle
 import legacy_archive  # 兼容薄层：re-export 校验
 from db import Base
+from schema_version import db_filename_for
+
+CUR = db_filename_for("0.25")          # 被测「当前版本」库名
+LEGACY = "novel-v1.db"                 # 遗留代数名（本 change 之前的落地形态）
 
 
 def _fp(metadata) -> str:
@@ -61,154 +67,162 @@ class TestBootStateMachine:
         Table("novels", md, Column("id", String, primary_key=True), Column("name", String))
         return md
 
-    def test_d1_fresh_boot_old_untouched(self, tmp_path):
-        """D1：v1 首启无 novel-v1.db（有 novel.db 旧命名）→ fresh_boot，
-        旧文件原位不动、候选检出。"""
+    def test_v1_fresh_boot_old_untouched(self, tmp_path):
+        """V1：当前版本库不存在、盘上有第 0 代 → fresh_boot，旧文件原位不动。"""
         old = tmp_path / "novel.db"
         _write_db(old, {"novels": ["id TEXT PRIMARY KEY", "name TEXT"]},
                   rows={"novels": [("b1", "书一"), ("b2", "书二"), ("b3", "书三")]})
         before = old.read_bytes()
 
-        result = db_lifecycle.boot_lifecycle(tmp_path / "novel-v1.db", self._simple_meta(), "fp1")
+        result = db_lifecycle.boot_lifecycle(tmp_path / CUR, self._simple_meta(), "fp1")
         assert result["boot"] == "fresh_boot"
         assert old.read_bytes() == before, "旧库必须字节不变"
-        cands = db_lifecycle.scan_migration_candidates(tmp_path, 1)
+        cands = db_lifecycle.scan_migration_candidates(tmp_path, "0.25", tmp_path / CUR)
         assert [c["filename"] for c in cands] == ["novel.db"]
         assert cands[0]["book_count"] == 3
+        assert cands[0]["recommended"] is True
 
-    def test_current_direct_boot(self, tmp_path):
-        db = tmp_path / "novel-v1.db"
+    def test_v2_current_direct_boot(self, tmp_path):
+        db = tmp_path / CUR
         fp = _fp(self._simple_meta())
         _write_db(db, {"novels": ["id TEXT PRIMARY KEY", "name TEXT"]}, schema_id=fp)
         result = db_lifecycle.boot_lifecycle(db, self._simple_meta(), fp)
         assert result["boot"] == "current"
 
-    def test_d2_tolerant_superset_not_quarantined(self, tmp_path):
-        """D2：库为超集（多一列）→ tolerant 放行不隔离（现状回归钉死：
-        旧 classify_drift 判 breaking→整库留档清空）。"""
-        md = self._simple_meta()
-        db = tmp_path / "novel-v1.db"
-        # 无 schema_id（指纹必不符）＋多 extra_col 列（metadata 没有）
-        _write_db(db, {"novels": ["id TEXT PRIMARY KEY", "name TEXT", "extra_col TEXT"]},
-                  rows={"novels": [("b1", "书一", "x")]})
-        result = db_lifecycle.boot_lifecycle(db, md, "fp-not-matching")
-        assert result["boot"] == "tolerant_booted", result
-        assert db.exists(), "tolerant 不得隔离/改名"
-        assert "extra_col" in result["extra_cols"]["novels"]
+    @pytest.mark.parametrize("cols", [
+        ["id TEXT PRIMARY KEY", "name TEXT", "extra_col TEXT"],   # 超集（旧 tolerant 场景）
+        ["id TEXT PRIMARY KEY"],                                   # 子集（旧 additive 场景）
+    ])
+    def test_v3_shape_mismatch_bringable(self, tmp_path, cols):
+        """V3：形状不符（无论超集还是子集）→ `.mismatch-<stamp>`＋**可带回**。
 
-    def test_additive_subset(self, tmp_path):
-        """库为子集（缺列）→ additive_booted 带补列计划。"""
-        md = MetaData()
-        Table("novels", md, Column("id", String, primary_key=True),
-              Column("name", String), Column("source", String))
-        db = tmp_path / "novel-v1.db"
-        _write_db(db, {"novels": ["id TEXT PRIMARY KEY", "name TEXT"]})
-        result = db_lifecycle.boot_lifecycle(db, md, "fp")
-        assert result["boot"] == "additive_booted"
-        assert result["additive_tables"]["novels"] == ["source"]
+        tolerant/additive 两态随「代内就地补列」退役：同名库只能来自「同一版本的
+        另一份构建」，此时数据必须仍可达（改名前字节不变、改名后进候选）。
+        """
+        db = tmp_path / CUR
+        _write_db(db, {"novels": cols}, rows={"novels": [(f"b{i}",) + ("x",) * (len(cols) - 1)
+                                                        for i in range(3)]})
+        before = db.read_bytes()
+        result = db_lifecycle.boot_lifecycle(db, self._simple_meta(), "fp-not-matching")
+        assert result["boot"] == "mismatch_renamed", result
+        moved = Path(result["renamed_to"])
+        assert moved.is_file() and ".mismatch-" in moved.name
+        assert moved.read_bytes() == before, "分流不得改字节"
+        assert not db.exists(), "当前版本库位已让出（由空库顶上）"
 
-    def test_d3_unreadable_quarantined_not_candidate(self, tmp_path):
-        """D3：损坏 v1 库 → .corrupt 隔离；隔离件不进迁入候选。"""
-        db = tmp_path / "novel-v1.db"
+        cands = db_lifecycle.scan_migration_candidates(tmp_path, "0.25", tmp_path / CUR)
+        assert [c["filename"] for c in cands] == [moved.name], cands
+        assert cands[0]["kind"] == "mismatch" and cands[0]["version"] == "0.25"
+        assert cands[0]["book_count"] == 3
+
+    def test_v4_unreadable_quarantined_not_candidate(self, tmp_path):
+        """V4：损坏库 → `.corrupt-<stamp>` 隔离；不进候选；只读可见。"""
+        db = tmp_path / CUR
         db.write_bytes(b"not a sqlite file at all" * 100)
         result = db_lifecycle.boot_lifecycle(db, self._simple_meta(), "fp")
         assert result["boot"] == "quarantined_new"
         assert result["quarantined_to"] and ".corrupt-" in result["quarantined_to"]
-        cands = db_lifecycle.scan_migration_candidates(tmp_path, 1)
-        # 损坏件（.corrupt-*）不进候选（generation_of 返回 None——带 .corrupt 后缀）
+        assert not db.exists()
+        cands = db_lifecycle.scan_migration_candidates(tmp_path, "0.25", tmp_path / CUR)
         assert all(".corrupt" not in c["filename"] for c in cands)
+        quarantined = db_lifecycle.list_quarantined(tmp_path)
+        assert [q["filename"] for q in quarantined] == [Path(result["quarantined_to"]).name]
+        assert quarantined[0]["size_bytes"] > 0 and quarantined[0]["mtime"] > 0
 
-    def test_breaking_quarantined(self, tmp_path):
-        """列类型/集合既非子集也非安全超集 → breaking 隔离。"""
-        md = self._simple_meta()
-        db = tmp_path / "novel-v1.db"
-        # novels 列改名（id→pk）：子集不成立（metadata 的 id 缺）；超集不成立（pk 不在 metadata）
-        _write_db(db, {"novels": ["pk TEXT PRIMARY KEY", "name TEXT", "other TEXT"]})
-        result = db_lifecycle.boot_lifecycle(db, md, "fp")
-        assert result["boot"] == "quarantined_new"
+    def test_v5_empty_shell_reused_not_quarantined(self, tmp_path):
+        """V5：0 表且无 schema_id 的空壳 → fresh_boot 复用（不积隔离件）。"""
+        db = tmp_path / CUR
+        sqlite3.connect(db).close()  # 合法 SQLite 文件但无表
+        result = db_lifecycle.boot_lifecycle(db, self._simple_meta(), "fp")
+        assert result["boot"] == "fresh_boot" and result.get("empty_shell") is True
+        assert db.exists(), "空壳必须原位复用"
+        assert db_lifecycle.list_quarantined(tmp_path) == []
 
 
 class TestCandidateScan:
-    def test_d4_excludes_wal_shm_bak_and_empty(self, tmp_path):
-        """D4：-wal/-shm/.bak 不进候选（现行扫描器实 bug：WAL 常是 mtime
-        最新→book_count 取自不可读文件）；空库剔除。"""
+    def test_v6_shape_whitelist_excludes_noise(self, tmp_path):
+        """V6：白名单形状枚举——边车/`.bak`/磁盘残件/空库/空壳/staging 全排除。"""
         good = tmp_path / "novel.db"
         _write_db(good, {"novels": ["id TEXT PRIMARY KEY", "name TEXT"]},
                   rows={"novels": [("b1", "书一")]})
         (tmp_path / "novel.db-wal").write_bytes(b"\x00" * 64)
         (tmp_path / "novel.db-shm").write_bytes(b"\x00" * 32)
         (tmp_path / "novel.db.bak-20260919").write_bytes(b"\x00" * 16)
-        empty = tmp_path / "novel-v0.db"
-        _write_db(empty, {"novels": ["id TEXT PRIMARY KEY", "name TEXT"]})
-        cands = db_lifecycle.scan_migration_candidates(tmp_path, 1)
-        names = [c["filename"] for c in cands]
-        assert names == ["novel.db"], names
-        assert all(not n.endswith(("-wal", "-shm")) and ".bak" not in n for n in names)
+        # 真实磁盘残件（本机 .docker-data/client 实存同名形态）——不得成为候选
+        (tmp_path / "novel.db.e2e-20260909-223352").write_bytes(b"\x00" * 64)
+        (tmp_path / "novel.db.fresh-20260906-guard").write_bytes(b"\x00" * 64)
+        (tmp_path / "novel.db.recovered-20260917-052608").write_bytes(b"\x00" * 64)
+        (tmp_path / "novels.db").write_bytes(b"")
+        _write_db(tmp_path / "novel-v0.9.db", {"novels": ["id TEXT PRIMARY KEY", "name TEXT"]})
+        _write_db(tmp_path / "novel-v0.8.db", {"novels": ["id TEXT PRIMARY KEY", "name TEXT"]})
+        sqlite3.connect(tmp_path / "novel-v0.7.db").close()  # 空壳
+        staging = tmp_path / "migration-staging" / "20260922-000000"
+        staging.mkdir(parents=True)
+        (staging / "novel-v0.6.db").write_bytes(b"\x00" * 32)
+        cands = db_lifecycle.scan_migration_candidates(tmp_path, "0.25", tmp_path / CUR)
+        assert [c["filename"] for c in cands] == ["novel.db"], cands
 
-    def test_generation_priority(self, tmp_path):
-        """v3>v2>novel.db 排序；.legacy-* 计第 0 代。"""
-        for name, books in [("novel-v2.db", 2), ("novel-v3.db", 5),
-                            ("novel.db.legacy-20260901-0", 7)]:
+    def test_v7_order_and_legacy_not_filtered(self, tmp_path):
+        """V7：语义化版本降序 → 遗留代数名 → 第 0 代 → dev 哨兵；遗留名不被排除。
+
+        `novel-v1.db` 若按语义化比较是 `1 > 0.25`，用「版本 ≥ 当前不收」会把它
+        静默排除（本机 1213 本的真实形态）——必须走遗留分支进候选。
+        """
+        for name, books in [("novel-v0.24.db", 2), ("novel-v0.23.db", 5),
+                            (LEGACY, 7), ("novel.db", 1), ("novel-dev.db", 9)]:
             _write_db(tmp_path / name, {"novels": ["id TEXT PRIMARY KEY", "name TEXT"]},
                       rows={"novels": [(f"b{i}", "书") for i in range(books)]})
-        cands = db_lifecycle.scan_migration_candidates(tmp_path, 4)
-        assert [c["generation"] for c in cands] == [3, 2, 0]
+        cands = db_lifecycle.scan_migration_candidates(tmp_path, "0.25", tmp_path / CUR)
+        assert [c["filename"] for c in cands] == [
+            "novel-v0.24.db", "novel-v0.23.db", LEGACY, "novel.db", "novel-dev.db"]
+        assert cands[0]["recommended"] is True, "推荐位＝第一个不新于当前的候选"
+        assert [c["kind"] for c in cands] == ["semver", "semver", "legacy", "gen0", "sentinel"]
+        assert cands[2]["legacy_generation"] == 1
 
-# ── 补列自检（检视 P2-9）─────────────────────────────────────────────────
+    def test_v7b_newer_versions_listed_but_not_recommended(self, tmp_path):
+        """新于当前版本的候选列出但不推荐（排除会让它们彻底不可达）。"""
+        for name in ("novel-v0.99.db", "novel-v0.24.db"):
+            _write_db(tmp_path / name, {"novels": ["id TEXT PRIMARY KEY", "name TEXT"]},
+                      rows={"novels": [("b1", "书")]})
+        cands = db_lifecycle.scan_migration_candidates(tmp_path, "0.25", tmp_path / CUR)
+        names = [c["filename"] for c in cands]
+        assert names == ["novel-v0.99.db", "novel-v0.24.db"]
+        assert [c["recommended"] for c in cands] == [False, True]
 
+    def test_v7c_active_db_excluded_by_path(self, tmp_path):
+        """活跃库按**路径**排除（不靠版本比较）：版本相等的两份不同文件。"""
+        active = tmp_path / CUR            # 0.25
+        same_version_sibling = tmp_path / "novel-v0.24.db"
+        for name in (CUR, "novel-v0.24.db"):
+            _write_db(tmp_path / name, {"novels": ["id TEXT PRIMARY KEY", "name TEXT"]},
+                      rows={"novels": [("b1", "书")]})
+        cands = db_lifecycle.scan_migration_candidates(tmp_path, "0.25", active)
+        assert [c["filename"] for c in cands] == ["novel-v0.24.db"]
+        assert same_version_sibling.exists()
 
-class TestUnregisteredMissingColumns:
-    """现有库缺列 × 未登记 → 点名（空＝健康）。"""
+    def test_v7d_three_file_mtime_ordering(self, tmp_path):
+        """同族排序按三件套 max(mtime)：只看主文件会被 WAL 滞后骗到。"""
+        older = tmp_path / "novel-v0.21.db"
+        newer = tmp_path / "novel-v0.22.db"
+        for p in (older, newer):
+            _write_db(p, {"novels": ["id TEXT PRIMARY KEY", "name TEXT"]},
+                      rows={"novels": [("b1", "书")]})
+        base = time.time()
+        import os
 
-    def test_clean_when_registry_complete(self, tmp_path):
-        import asyncio
+        os.utime(older, (base + 10, base + 10))            # 主文件 mtime 更新
+        os.utime(newer, (base, base))
+        (Path(f"{newer}-wal")).write_bytes(b"\x00" * 8)     # 但 v0.22 的 WAL 刚写过
+        os.utime(Path(f"{newer}-wal"), (base + 100, base + 100))
+        cands = db_lifecycle.scan_migration_candidates(tmp_path, "0.25", tmp_path / CUR)
+        # 同族（同为 semver、不同版本）先按版本降序：0.22 在前；此处只钉 mtime 参与
+        assert [c["filename"] for c in cands] == ["novel-v0.22.db", "novel-v0.21.db"]
+        assert cands[0]["mtime"] == int(base + 100), "mtime 取三件套 max"
 
-        from sqlalchemy.ext.asyncio import create_async_engine
-
-        import models  # noqa: F401 —— 注册 metadata
-        from db import Base
-        from db_lifecycle import unregistered_missing_columns
-
-        db_path = tmp_path / "gen.db"
-
-        async def run():
-            engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-            missing = await unregistered_missing_columns(engine)
-            await engine.dispose()
-            return missing
-
-        assert asyncio.run(run()) == []
-
-    def test_points_at_unregistered_missing_column(self, tmp_path):
-        import asyncio
-
-        from sqlalchemy.ext.asyncio import create_async_engine
-
-        import models  # noqa: F401
-        from db import Base
-        from db_lifecycle import unregistered_missing_columns
-
-        db_path = tmp_path / "gen2.db"
-
-        async def run():
-            engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-                # 模拟「库缺列且注册表没登记」：造一个不带 volume 列的 volumes 表
-                await conn.exec_driver_sql("DROP TABLE volumes")
-                await conn.exec_driver_sql(
-                    "CREATE TABLE volumes (id VARCHAR(36) PRIMARY KEY, novel_id VARCHAR(36))"
-                )
-            missing = await unregistered_missing_columns(engine)
-            await engine.dispose()
-            return missing
-
-        found = asyncio.run(run())
-        # 未登记的缺列被点名
-        assert "volumes.title" in found
-        assert "volumes.core_conflict" in found
-        # 已登记的两列不算（注册表里就有 → 由 apply_additive_columns 负责补）
-        assert "volumes.antagonist_type" not in found
-        assert "volumes.antagonist_line" not in found
+    def test_v6b_stale_staging_cleaned(self, tmp_path):
+        """staging 残留清理（硬杀/断电遗留的整份副本）。"""
+        staging = tmp_path / "migration-staging" / "20260922-000000"
+        staging.mkdir(parents=True)
+        (staging / "novel-v0.6.db").write_bytes(b"\x00" * 32)
+        assert db_lifecycle.clean_stale_staging(tmp_path) == 1
+        assert not staging.exists()

@@ -14,6 +14,9 @@ vi.mock("@/hooks/useLegacyDb", () => ({
     refresh: vi.fn(async () => {}),
     dismiss: vi.fn(async () => {}),
   }),
+  // c-db-per-version：出口行的两个纯函数（mock 模块必须齐导出，否则组件取值即抛）
+  migratableCandidates: () => [],
+  recommendedCandidate: () => null,
 }));
 
 vi.mock("@/hooks/useTier");

@@ -56,32 +56,40 @@ from write.style_shadow import router as style_shadow_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── 库文件代数治理（db-generation）：先于任何 engine 连接 ──────────────
-    # 首启状态机：novel-v{V}.db 存在→指纹校验梯（current/additive 补列/tolerant
-    # 超集放行+审计/breaking·不可读→.corrupt 隔离）；不存在→空库（create_all
-    # 兜底）＋迁入候选由 migration 端点扫描。「升级即整库留档重置」机制退役。
+    # ── 库文件版本治理（c-db-per-version）：先于任何 engine 连接 ──────────
+    # 首启状态机（novel-v{本机版本}.db）：不存在或空壳→空库（create_all 兜底）；
+    # 指纹匹配→current；指纹不符且可读→改名 .mismatch-<stamp>（可作候选带回）；
+    # 不可读→.corrupt 隔离（只读可见）。**没有**代内补列路径（不再对既有库 DDL）。
+    # 旧版数据的带路由 migration 端点（候选扫描）；数据目录里的 staging 残留同批清。
     import logging as _logging
     from pathlib import Path
 
     from config import DATABASE_URL
     from db_lifecycle import (
-        DRIFT_ACCEPTED_KEY,
-        boot_lifecycle,
+        clean_stale_staging,
         compute_schema_fingerprint,
+        version_stamp_payload,
     )
     from db_lifecycle import (
         SCHEMA_ID_KEY as _SCHEMA_ID_KEY,
     )
 
+    _log = _logging.getLogger("uvicorn.error")
     _schema_fp = compute_schema_fingerprint(Base.metadata)
     _db_path = Path(DATABASE_URL.split("///")[-1])
-    _boot = boot_lifecycle(_db_path, Base.metadata, _schema_fp)
+    from db_lifecycle import boot_lifecycle as _boot_lifecycle
+
+    _boot = _boot_lifecycle(_db_path, Base.metadata, _schema_fp)
     _boot_kind = _boot["boot"]
-    _logging.getLogger("uvicorn.error").info(
-        "db_lifecycle boot=%s db=%s", _boot_kind, _db_path.name
-    )
-    if _boot_kind == "tolerant_booted":
-        _tolerant_extra = _boot.get("extra_cols") or {}
+    _log.info("db_lifecycle boot=%s db=%s", _boot_kind, _db_path.name)
+    if _boot_kind in ("quarantined_new", "mismatch_renamed"):
+        _log.warning("db_lifecycle relocated=%s kind=%s", _boot.get("quarantined_to")
+                     or _boot.get("renamed_to"), _boot_kind)
+    elif _boot_kind in ("quarantine_failed", "mismatch_rename_failed"):
+        _log.error("db_lifecycle 改名失败（文件原位保留，应用继续启动）：%s", _db_path.name)
+    _stale = clean_stale_staging(_db_path.parent)
+    if _stale:
+        _log.info("db_lifecycle: cleaned %d stale staging dir(s)", _stale)
 
     try:
         async with engine.begin() as conn:
@@ -113,26 +121,8 @@ async def lifespan(app: FastAPI):
 
         logging.getLogger("uvicorn.error").warning("Genre vocab seed failed: %s", e)
 
-    # ── 代内 additive 补列：在打指纹戳之前补齐（补列失败不得刷戳）──────
-    # （合并残留的重复块已清：幂等所以无害，但两遍 import＋两遍调用会误导读者）
-    from db_lifecycle import apply_additive_columns, unregistered_missing_columns
-
-    await apply_additive_columns(engine)
-
-    # 自检（检视 P2-9）：「models 加了列但没登记 ADDITIVE_COLUMNS」＝本代最贵的错
-    # （补列后刷戳会把该库永久判 current，之后再修也不救）——启动即告警，不阻断。
-    unregistered = await unregistered_missing_columns(engine)
-    if unregistered:
-        import logging
-
-        logging.getLogger("uvicorn.error").warning(
-            "event=db.additive_unregistered columns=%s（新列须登记 db_lifecycle.ADDITIVE_COLUMNS）",
-            ",".join(unregistered),
-        )
-
-    # ── 给（新的）当前库打 schema 指纹戳 ───────────────────────────────
-    # additive 补列完成→刷新戳；tolerant 放行不改戳（回升 newer build 即 current）
-    # 并写 drift_accepted 审计键（诊断面可见——无声放行=慢性事故）。
+    # ── 当前库打戳：schema 指纹 ＋ 本机版本/组件快照（库自证来源） ───────────
+db): 库文件名＝C端 版本（单一方案）——每版新建自己的库、旧库只读、带回搬运)
     from models.app_meta import AppMeta
 
     try:
@@ -140,19 +130,15 @@ async def lifespan(app: FastAPI):
             existing = await session.get(AppMeta, _SCHEMA_ID_KEY)
             if existing is None:
                 session.add(AppMeta(key=_SCHEMA_ID_KEY, value=_schema_fp))
-                await session.commit()
-            elif _boot_kind == "tolerant_booted":
-                audit = await session.get(AppMeta, DRIFT_ACCEPTED_KEY)
-                if audit is None:
-                    session.add(AppMeta(key=DRIFT_ACCEPTED_KEY, value="tolerant"))
-                    await session.commit()
-                    _logging.getLogger("uvicorn.error").warning(
-                        "db_lifecycle: tolerant drift accepted (extra cols preserved): %s",
-                        list(_tolerant_extra.items())[:5],
-                    )
             elif existing.value != _schema_fp:
                 existing.value = _schema_fp
-                await session.commit()
+            for _k, _v in version_stamp_payload().items():
+                _row = await session.get(AppMeta, _k)
+                if _row is None:
+                    session.add(AppMeta(key=_k, value=_v))
+                elif _row.value != _v:
+                    _row.value = _v
+            await session.commit()
     except SQLAlchemyError:
         pass
 
@@ -229,9 +215,9 @@ async def lifespan(app: FastAPI):
     yield
 
 
-# ── 代内 additive 补列（声明式登记；幂等 checkfirst）──────────
-# 新表/新列一律在此登记（新库 create_all 全量建出；旧库由 lifespan 补列）；
-# 删/改列一律 SCHEMA_VERSION+1 走迁入。列名单一来源，DDL 由它派生。
+# ── 代内 additive 补列机制已退役（c-db-per-version）────────────────────────
+# 每版只读写自己的库文件：列/表形状变化由「新版本新建自己的库 + 从旧库副本搬运」
+# 承接，不再存在任何对既有库执行 DDL 的路径（ADDITIVE_COLUMNS 一并删除）。
 
 app = FastAPI(title=f"{brand.BRAND_NAME} (Local)", version="0.2.0", lifespan=lifespan)
 
