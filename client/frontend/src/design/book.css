@@ -1359,7 +1359,7 @@ body.focus .editor-wrap { padding-inline: 8vw; }
    类名保留（.ch-tabs/.cfg/.panel-head/.rail-stats 等 e2e 依赖），视觉语言整体替换：
    去卡片画布 / e-head 头部 / 下划线页签 / cfgset 分节 / fro 行式字段 / ledger 台账 / 右栏 aiShell。 */
 .wb .view.on.three-col {
-  --faint: color-mix(in oklch, var(--muted) 68%, transparent); --hl: var(--fg-soft);
+  /* --faint 已上移 base.css :root（弹窗内 var 需全局可见） */ --hl: var(--fg-soft);
   /* ── 中栏节奏单源（c-workbench-col-rhythm）──────────────────────────
      内容衬垫与表单版心在此定义一次，内容型面板继承；通栏条（e-head/ch-tabs/
      panel-head/panel-foot）保持出血，满栏面板显式豁免（见下方豁免清单）。

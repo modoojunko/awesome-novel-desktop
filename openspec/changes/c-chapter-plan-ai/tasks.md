@@ -5,7 +5,7 @@
 ## 1. 原型收编（C端硬性流程第一项，先于实现）
 
 - [x] 1.1 原型从 `drafts/ai-novel-c端-卷下拆章.html` 收编进 `prototypes/book.html`（拆章弹层＋右栏 AI 入口＋卷页派生视图），`ADJUSTMENTS.md` 逐处登记偏差；按 H1 删常驻 DOM 补丁（`.modal:not(.show)`/`.plan-modal.wide`）、按 H3 对齐卡面行序（进场行 `pk-in` 打头）、补 820px 断点、补 testid；验证：`design:lint` 通过 ✓；**基线自证**＝独立浏览器上下文渲染 HEAD 与收编后截图**字节级相同**（169765B，比 <0.2% 阈值更严）✓；`design:check` 全量（原型 vs 应用）待应用栈就绪后随 7.6 跑（此刻拆章段未实现，全量比对无对象）
-- [ ] 1.2 `design/book.css` 末尾追加 9 个新类（`.pk-corner`＋`i`/`g-S|g-A|g-B`、`.pk-read`、`.pk-grade`、`.split-row`＋`.s-no/.s-main/.s-lab/.s-entry`、`.node-tx`、`.pick-card.top`）；同批修 `--faint` 弹窗失效（与产品卷纲抽卡弹窗同病，H2）；**给 `.pick-card` 补定位锚**（产品 CSS 无 `position:relative`，原型那条是专属补丁——角标 `absolute` 不补锚会逃到弹窗层）＋右上占位防首行压字；验证：design:lint 通过、grep 断言 `base.css` 零 diff、弹窗内小灰字计算色为 `--faint`、design:check 截图核对角标不与首行重叠
+- [x] 1.2 `design/book.css` 末尾追加 9 个新类（`.pk-corner`＋`i`/`g-S|g-A|g-B`、`.pk-read`、`.pk-grade`、`.split-row`＋`.s-no/.s-main/.s-lab/.s-entry`、`.node-tx`、`.pick-card.top`）；同批修 `--faint` 弹窗失效——**实际修法**：`--faint` 上移 `base.css :root`（book.css 无 :root，令牌单源在 base.css），book.css 作用域内定义删除；与产品卷纲抽卡弹窗同病一并治好（H2）；**给 `.pick-card` 补定位锚**（产品 CSS 无 `position:relative`，原型那条是专属补丁——角标 `absolute` 不补锚会逃到弹窗层）＋右上占位防首行压字；验证：design:lint 通过、grep 断言 `base.css` 零 diff、弹窗内小灰字计算色为 `--faint`、design:check 截图核对角标不与首行重叠
 
 ## 2. 数据契约与节点退役（后端）
 
