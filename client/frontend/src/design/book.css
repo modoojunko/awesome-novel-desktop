@@ -1497,6 +1497,11 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 /* 中栏空态（c-0vol0ch-empty-state，原型 0vol0ch-empty-state.html .e-empty）：
    零卷零章＝起手卡（这本书怎么开始？）＋两条起手入口；有卷但未选中＝一句选章引导或落点卡 */
 .e-empty { padding: 64px 26px; color: var(--muted); font-size: 13.5px; text-align: center; }
+/* 四档角色（与原型 0vol0ch-empty-state / 整书拆纲 逐条对齐）：
+   眉标 .be-mark（小号 mono 强调）→ 主句 .be-k（19px 展示体）→ 说明 .be-t（380 字宽正文）→ 动作 .be-acts。
+   2026-09-22 修正：眉标此前误占 .be-k、主句被挤进 .be-t、说明还挂了个无定义的 .be-desc——
+   三张卡（起手卡/落点卡/书主页卡）同批改回档位。 */
+.e-empty .be-mark { margin: 0 0 10px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .14em; color: var(--accent); }
 .e-empty .be-k { margin: 0 0 8px; font-family: var(--font-display); font-size: 19px; color: var(--fg); }
 .e-empty .be-t { margin: 0 auto 20px; max-width: 380px; line-height: 1.7; }
 .e-empty .be-acts { margin: 0; display: flex; gap: 10px; justify-content: center; }
