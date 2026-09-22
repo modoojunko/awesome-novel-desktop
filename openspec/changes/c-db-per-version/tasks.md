@@ -1,3 +1,32 @@
+## 落地状态（2026-09-22 开工后回填；PR #464）
+
+**已完成并验证**（证据：命令输出摘要如下，PR #464 内可复现）
+
+- 0.1 归档前序 change ✓ `openspec list --specs | grep -c db-generation` = 1；本 change validate 无 INFO
+- 1.1/1.2/1.3 原型与登记 ✓ `list.html` 首启出口行（两出口；变体段 `display:none`）＋`ADJUSTMENTS.md` 第 8 条
+- 2.1–2.3 命名单源/解析/比较 ✓ 单测覆盖 `0.9<0.10`、`0.24==0.24.0`、`0.24-rc1<0.24`、遗留名/哨兵/`.mismatch` 判别；`update_check` 委托（`0.11-beta` 不再抛）
+- 2.4 tag 形态门禁 ✓ CI 内联断言（纯数字 tag 拒绝）＋本地样例预演
+- 3.1–3.4 三态＋分流／改名稳健／补列链退役／版本戳 ✓ `test_db_lifecycle.py`（V1–V7）＋反断言 grep 0 行
+- 4.1–4.5 候选白名单/排序/推荐/体检/载荷/残留清理 ✓ UP-03/UP-10/UP-15 ＋ 端点反断言（无 `generation`/`schema_version` 键）
+- 5.1–5.3 快照与守卫（不拷 -shm、暂存 checkpoint、一致性拒绝、source_version）✓ UP-04/UP-04b ＋ `test_migration_engine.py`
+- 6.1/6.2 清理端点与路径收口 ✓ UP-12/UP-12b（含 `../` 与未带回件拒绝）
+- 7.1 死面改由候选扫描供数 ✓ `legacy-db/status` 消费方零改动
+- 8.1–8.5 验收矩阵 ✓ UP-01…UP-15（17 用例）全绿；UP-14 单源部分绿
+- 9.1–9.3 drill 全阶段命名单源＋version-chain ✓ `upgrade_drill.py --all` 全部通过（摘要含四项结论与版本对）
+- 10.1/10.2/10.4 类型/双出口/契约同步 ✓ tsc 0 错；`vitest` 716 通过（含新增双出口两用例）
+- 11.1/11.2 components＋冒烟正负例 ✓ 本地同命令预演通过（CI 侧随 tag 触发）
+- 12.1–12.4 门禁 ✓ pytest 1277 / vitest 716 / tsc / design:lint / 反断言四条 0 行
+
+**未完成或带口径（交付时如实登记）**
+
+- 10.3 后半：**清理清单 UI 与隔离件只读清单** 未实现（后端 `retention`/`cleanup` 与 `quarantined` 只读数据已就绪；前端仅做了文案口径与双出口）
+- 11.3 `notes-release.md` 未写（首个新版本发布说明需写明「升级后需把上一版的作品带过来」＋平台差异）
+- UP-11 的 **playwright e2e** 未落（需 docker 栈）：换目录双出口已在 vitest 层覆盖（两用例：无候选时第二出口仍在 / 有候选时并列且书数正确）
+- UP-16 **真实数据演练**未跑（需把本机 `client/backend/data/novel.db` 与 `.docker-data/client/novel-v1.db`（35MB，活跃 WAL）拷到会话私有目录再走 首启→候选→搬运）
+- UP-14 的 **CI 产物侧**断言未真跑（未打 tag；本地同命令预演已过）
+- `design:check` 未全量跑：parity 7 场景中 `list.empty` **1.449% → 1.463% 为 HEAD 存量红**（已用基线 worktree `dfceb17d` 对照证明非本次引入；本次新增约 0.014%）
+- 13.1 文档（dev 说明/帮助文档两条人工路径）未落
+
 ## 0. 前置：归档前序 change
 
 - [ ] 0.1 归档 `openspec/changes/c-db-generation-migration/`（16/16 已完成、代码随 #453 在 main）→ 把 `db-generation` 立进 `openspec/specs/`、`backup-restore` delta 同步；归档后手改 `openspec/specs/db-generation/spec.md` 的 Purpose 段（代数→版本）。验证：`openspec list --specs | grep -c db-generation` ＝1，且 `openspec validate c-db-per-version` 不再出现「target spec does not exist」
