@@ -8,7 +8,7 @@
 - expand 成功：四字段齐（四件事）＋ checks ≤3 ＋ plan_line 回显＋七条硬规则逐字入包；不落库；
 - expand 缺四件事：重试一次后降级纯文本 ＋ 每次尝试计量；
 - 体检：免费可用（三组、无章节时 none 占位、evidence 独立字段、判据逐字入包）、只读不拦；
-- 迁移：旧库缺 plan_line 列经 apply_additive_columns 补列后可见并可读写。
+- 升级路径：旧库缺 plan_line 列 → 经「新版本新建自己的库＋副本搬运」落位（不再就地补列）。
 
 用法：
     cd client/backend
