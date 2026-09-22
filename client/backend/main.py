@@ -122,7 +122,6 @@ async def lifespan(app: FastAPI):
         logging.getLogger("uvicorn.error").warning("Genre vocab seed failed: %s", e)
 
     # ── 当前库打戳：schema 指纹 ＋ 本机版本/组件快照（库自证来源） ───────────
-db): 库文件名＝C端 版本（单一方案）——每版新建自己的库、旧库只读、带回搬运)
     from models.app_meta import AppMeta
 
     try:

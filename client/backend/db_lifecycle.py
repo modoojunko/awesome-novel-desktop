@@ -166,13 +166,21 @@ def migration_probe(db_path: Path) -> dict:
     book_count = None
 
     def _read(con: sqlite3.Connection) -> None:
+        """读结构/计数/root_path。**可读性只由「打开＋读表清单」决定**——某条具体查询
+        失败（如老库 `novels` 没有 `root_path` 列）不得被误判成整库不可读（会连带把
+        precheck 打成 source_unreadable）。"""
         nonlocal tables, roots, book_count
         tables = {r[0] for r in con.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         if "novels" in tables:
-            book_count = con.execute("SELECT COUNT(*) FROM novels").fetchone()[0]
-        if "novels" in tables:
-            roots = [r[0] for r in con.execute("SELECT root_path FROM novels LIMIT 200")]
+            try:
+                book_count = con.execute("SELECT COUNT(*) FROM novels").fetchone()[0]
+            except sqlite3.Error:
+                book_count = None
+            try:
+                roots = [r[0] for r in con.execute("SELECT root_path FROM novels LIMIT 200")]
+            except sqlite3.Error:
+                roots = []
 
     def _open(target: Path) -> sqlite3.Connection:
         return sqlite3.connect(f"file:{target}?mode=ro", uri=True, timeout=3)
