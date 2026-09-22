@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>星海拾遗 · 卷下拆章（把这一卷的剧情拆成章） — 爱小说</title>
+<title>星海拾遗 · 卷下拆章（一章一章拆） — 爱小说</title>
 <style>
   /* 绑定 docs/ux/design-language.html v2.1 令牌，与 design-c 原型同源 */
   :root{
@@ -900,12 +900,11 @@
     预览
   </button>
   <span class="spacer"></span>
-  <span class="side">本稿聚焦**卷下拆章** · 卷页入口 → 拆章台（手写 / 三选一）→ 生成 → 逐章可改 → 采纳排章 → 落点卡</span>
+  <span class="side">本稿聚焦**逐章拆分** · 卷页 → 拆下一章（手写 / 3 个剧情方向）→ 本章卡可改 → 排上 → 再拆下一章</span>
 </nav>
 
 <!-- ══════════════ 写作工作台（三栏） ══════════════
-     卷页（四问一页纸）＝入口所在；左树显示本卷章行；右栏＝卷的验证（既有三态）。
-     拆章台是**弹窗**（与分卷规划台同壳），不占栏位——拆完落回卷页。 -->
+     卷页（四问一页纸）＝入口与进度所在；左树随拆章一行行长出来。 -->
 <main class="work" id="write-work" data-od-id="workbench">
 
   <aside class="col-tree" data-od-id="story-tree">
@@ -922,7 +921,7 @@
     <nav class="toc" id="toc" aria-label="章节目录"></nav>
     <div class="tree-add" data-od-id="tree-create">
       <button class="add-btn" data-act="manual-ch" title="本卷末尾排一章，先进章纲" data-od-id="add-chapter">＋ 新增一章</button>
-      <button class="add-btn" data-act="open-desk" title="把这一卷的剧情拆成章" data-od-id="add-split">⤨ 按剧情拆章</button>
+      <button class="add-btn" data-act="open-desk" title="只拆下一章：AI 给 3 个剧情方向" data-od-id="add-split">⤨ 拆下一章</button>
     </div>
   </aside>
 
@@ -932,15 +931,14 @@
 
 </main>
 
-<!-- ══════════════ 拆章台（弹出）══════════════
-     与分卷规划台同壳同骨架：材料（本卷四问＋关键剧情节点）在上，中间是拆法
-     （免费＝手写每章一句；付费＝三选一抽节奏），下面是生成进度 / 分章表 / 采纳。
-     ⚠ 复用清单见文件末尾「组件复用台账」。 -->
+<!-- ══════════════ 拆章台（弹出，一次只拆一章）══════════════
+     与「整书拆卷」同一个范式：材料在上，中间写一句或三选一，选一条才成章。
+     差异只在产物：这一章 = 标题 + 小故事（目标→阻碍→结果）+ 章末落点（推给下一章）。 -->
 <div class="modal" id="split-modal" data-od-id="split-modal">
   <div class="backdrop" data-act="split-close"></div>
   <div class="sheet plan-sheet" role="dialog" aria-modal="true" aria-labelledby="split-title">
-    <p class="kicker" id="split-kick">卷下拆章 · 第一卷</p>
-    <h2 id="split-title">把这一卷拆成章</h2>
+    <p class="kicker" id="split-kick"></p>
+    <h2 id="split-title"></h2>
     <div class="plan-anchor" id="split-anchor"></div>
     <div id="split-deps"></div>
     <div class="plan-desk" id="split-desk"></div>
@@ -956,39 +954,30 @@
 
 <script>
 /* ══════════════════════════════════════════════════════════════════════════
-   卷下拆章（本原型的设计主张）
+   卷下拆章（逐章版，用户拍板：不要一次拆好多章）
 
-   1. **范式照搬分卷规划**（用户指定参考）：材料 → 拆法（手写/三选一）→ 生成（genbox）
-      → 逐条可改 → 采纳落库 → 落点卡。差异只在「产物是章而不是卷」。
-   2. **入口三处，都在既有位置上**：卷页卷纲查看态的底部按钮（主）、左树底部
-      「⤨ 按剧情拆章」、本卷章节页签空态里的同一按钮。不新增导航层。
-   3. **材料是卷自己已经有的东西**：四问一页纸（只读，同骨架）＋ 关键剧情节点（六阶段行集）
-      ＋ 章数目标。**不新增字段**——拆章就是把已有节点分配到章。
-   4. **免费也能拆**：手写「拆成几章＋每章一句」，复用关键剧情节点的行集编辑形态；
-      付费多的是「让 AI 铺」（PRO 置灰口径与分卷规划一致）。
-   5. **抽卡的卡＝三种节奏**（不是三套剧情）：紧凑 4 章 / 标准 6 章 / 细铺 9 章，
-      每卡给章数、侧重轴与每章一行预览——作者选的是「多细」，剧情走向早已在卷纲里定了。
-   6. **逐章可改**：生成结果是一张表（序号·标题·一句话·阶段·操作），可改字、可换阶段、
-      可上下移、可删、可加——采纳前不落库。
-   7. **衔接是一等公民**：每章三个字段——进场（接上一章落点）／小故事（目标→阻碍→结果）／
-      章末落点（推给下一章）。首章进场＝上一卷实际收尾（或主线起步），末章落点＝卷末（四问④）。
-      改一处落点，下一章进场实时跟——链在表里看得见。
-   9. **采纳＝批量排章**：一次建 N 章（标题＋小故事进章纲概要、章末落点进「章末落点」、进场进开场），
-      落在本卷末尾、状态「拟定」，与手写「＋ 新增一章」同一落点语义。
-   8. **落点卡**：拆完直接给「去写第一章」，与分卷规划落点卡同款。
+   1. **一章一章拆**——与「整书拆卷」同一个节奏：每次只定**下一章**，AI 给 3 个剧情方向，
+      选一个、改一改、排上；然后基于新章的落点再拆下一章。
+   2. **衔接天然成立**：第 N+1 章的进场＝第 N 章的落点。拆章台顶上永远摆着
+      「进场 ← 上一章落点」，作者看着它写，不会断链。
+   3. **材料永远是卷自己已有的**：四问一页纸＋剩余的关键剧情节点＋剩余章数配额。
+      AI 的工作是把「还没落到章上的节点」变成 3 个**互斥的剧情方向**——走向不越卷纲。
+   4. **免费也能拆**：自己写这一章（标题/小故事/落点/阶段）；PRO 才多「让 AI 给 3 个方向」
+      （置灰口径与分卷规划一致）。
+   5. **排上即落库**：一次只建这一章（拟定），左树长一行；落点卡给「写这一章／继续拆下一章」。
+      拆错了删掉重拆——与「＋ 新增一章」同一落点语义。
    ══════════════════════════════════════════════════════════════════════════ */
 
 const CN = ['一','二','三','四','五','六','七','八','九','十'];
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const attr = s => esc(s);
 
-/* ── 本卷数据（= 卷页上已有的东西；拆章只消费它） ───────────────────── */
+/* ── 本卷（= 卷页上已有的东西） ───────────────────────────────────── */
 const VOL = {
   no: 1,
   name: '星海初航',
   target: 6,
-  /* 链头：第一章的进场。有上一卷＝上一卷的实际收尾（resolve_prev_ending，事实优先）；
-     第一卷＝主线全景的起步。 */
+  /* 链头：第一章的进场。有上一卷＝上一卷实际收尾（事实优先）；第一卷＝主线起步 */
   entry: '导航员在旧星图上圈出一个不该存在的航标——全书从这里起步。',
   q: {
     what: '导航员沉舟在废弃星港捡到一枚不属于人类纪元的导航信标，为确认它指向哪里，她把坐标押给了船队。',
@@ -997,7 +986,8 @@ const VOL = {
     antLine: '母港制度——信标要登记，登记就等于交出去',
     ending: '船头转向母港旧址：她拿到了坐标，也成了制度要处理的人。'
   },
-  /* 关键剧情节点：六阶段固定档（与产品 PLOT_STAGES 同源字面） */
+  stages: ['开局铺垫','冲突初现','矛盾升级','重要转折','高潮爆发','卷末收束'],
+  /* 关键剧情节点（六阶段）：拆章就是把还没落到章上的节点，变成章 */
   nodes: [
     { stage: '开局铺垫', text: '沉舟在废弃星港检修时，信标随残骸漂进舱门' },
     { stage: '冲突初现', text: '船队要求登记信标，她谎称只是块废铁' },
@@ -1005,150 +995,147 @@ const VOL = {
     { stage: '重要转折', text: '她发现信标的应答周期，与三百年前的失踪船队一致' },
     { stage: '高潮爆发', text: '母港封港，她用未登记的坐标换出一条出港航道' },
     { stage: '卷末收束', text: '出港后坐标失效——信标认的是她，不是航线' }
-  ],
-  stages: ['开局铺垫','冲突初现','矛盾升级','重要转折','高潮爆发','卷末收束']
-};
-
-/* ── 三种节奏（抽卡的三张卡）────────────────────────────────────────
-   卡面只给「多细」：章数、侧重轴、每章一行预览。剧情走向来自卷纲，不在这里重开。 */
-const CARDS = [
-  { k: 'tight', axis: '节奏', title: '紧凑 · 4 章',
-    conflict: '节点不拆开：一章一个转折，章章有推进',
-    ending: '适合一口气读完的一卷，代价是关系铺垫薄',
-    lines: ['① 信标进舱（开局铺垫）','② 登记处的同名档案（冲突初现＋矛盾升级）','③ 应答周期对上三百年前（重要转折）','④ 封港与出港（高潮＋卷末）'],
-    count: 4 },
-  { k: 'std', axis: '线索', title: '标准 · 6 章',
-    conflict: '一个节点一章，转折单独成章',
-    ending: '线索层层递进，每章末尾留一个钩子',
-    lines: ['① 信标进舱','② 登记与谎话','③ 同名领航记录','④ 应答周期','⑤ 封港','⑥ 坐标失效'],
-    count: 6,
-    /* 完整链（小故事=目标→阻碍→结果；exit 推给下一章；末章 exit=卷末） */
-    rows: [
-      { title:'废港拾荒', text:'沉舟替船队检修废弃星港，信标随残骸漂进舱门——她认出那不是人类的造物，先藏了下来。',
-        stage:'开局铺垫', exit:'她把信标藏进舱底，却被补给单点名要她出舱清点' },
-      { title:'登记与谎话', text:'要领工钱就必须登记信标；她谎称那只是块废铁，第一次对船队说谎。',
-        stage:'冲突初现', exit:'登记处的旧档案里，翻出一份与她同名的领航记录' },
-      { title:'同名档案', text:'档案里的领航员与她同名同籍，三百年前就已注销——她开始查这个人是谁。',
-        stage:'矛盾升级', exit:'档案页脚的编号，与信标的应答周期对得上' },
-      { title:'应答周期', text:'信标的应答周期与三百年前的失踪船队一致：它认的不是航线，是人。',
-        stage:'重要转折', exit:'她决定不登记，用信标自己找出路' },
-      { title:'封港', text:'母港封港清查未登记造物；她用未登记的坐标，换出一条出港航道。',
-        stage:'高潮爆发', exit:'出港放行——但她的名字进了清查名录' },
-      { title:'坐标失效', text:'出港后坐标失效：信标认的是她，不是航线。她成了制度要处理的人。',
-        stage:'卷末收束', exit:'卷末＝船头转向母港旧址：她拿到了坐标，也成了制度要处理的人' }
-    ] },
-  { k: 'loose', axis: '关系', title: '细铺 · 9 章',
-    conflict: '节点之间补日常与关系：船队的人、港区的规矩',
-    ending: '人物立得更稳，代价是前 3 章推进慢',
-    lines: ['① 检修日常','② 信标进舱','③ 与船队的第一次交易','④ 登记处','⑤ 同名档案','⑥ 旧港区的人情','⑦ 应答周期','⑧ 封港','⑨ 出港与失效'],
-    count: 9 }
-];
-
-/* ── 状态 ───────────────────────────────────────────────────────────── */
-const state = {
-  view: 'vol',        // vol | desk | pick | gen | done | landed
-  pro: true,
-  pick: 'std',
-  rows: null,         // 生成/手写的分章表
-  freeMode: false,    // 免费档：抽卡置灰，手写可用
-  checks: [
-    '衔接：第 2 章进场「补给单点名」与第 1 章落点「藏进舱底」稍有出入——已按前者对齐，可再改。',
-    '第 5 章「封港」同时承担高潮与出港，可能挤——要么拆成两章，要么把出港挪到第 6 章开头。',
-    '卷末卡口：末章落点已落在四问④「她成了制度要处理的人」✓；若你改写卷末，记得同步末章。'
-  ],
-  scIgnored: false,
-  draftCount: 6,
-  manual: [
-    { title: '信标进舱', text: '沉舟在废弃星港检修时，信标随残骸漂进舱门', stage: '开局铺垫' },
-    { title: '登记与谎话', text: '船队要求登记，她谎称只是块废铁', stage: '冲突初现' }
   ]
 };
 
-/* ── 小工具 ─────────────────────────────────────────────────────────── */
-function toast(msg){ const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('on'), 1600); }
-function draft(){ return state.rows || CARDS.find(c=>c.k===state.pick); }
-function rowCount(){ return state.rows ? state.rows.length : draft().count; }
-/* 已排章＝数据驱动（不看我停在哪一屏）：采纳过就有 rows，回卷页/切状态都一致 */
-function hasRows(){ return !!(state.rows && state.rows.length); }
+/* ── 已拆的章（逐章长出来的；每章的落点是下一章的进场）────────────── */
+const state = {
+  view: 'vol',        // vol | desk | pick | done | landed
+  pro: true,
+  freeMode: false,
+  chapters: [
+    { title: '信标进舱', text: '沉舟在废弃星港检修时，信标随残骸漂进舱门——她认出那不是人类的造物，先藏了下来。',
+      stage: '开局铺垫', exit: '她把信标藏进舱底，却被补给单点名要她出舱清点', node: 0 },
+    { title: '登记与谎话', text: '要领工钱就必须登记信标；她谎称那只是块废铁，第一次对船队说谎。',
+      stage: '冲突初现', exit: '登记处的旧档案里，翻出一份与她同名的领航记录', node: 1 }
+  ],
+  pick: null,
+  pending: null,      // AI 给的 3 个剧情方向
+  draft: null,        // 本章卡（选定后可改）
+  checks: [
+    '衔接：本章进场已自动接上第 2 章落点「登记处的旧档案…」✓',
+    '节奏：目标 6 章、还剩 4 个节点——本章建议一次只吃 1 个节点，别把「应答周期」提前。'
+  ],
+  scIgnored: false
+};
 
-/* ═══════════ 渲染：顶栏当前主线 ═══════════ */
+/* ── AI 给的 3 个剧情方向（下一章写什么；走向不越卷纲）────────────── */
+const DIRECTIONS = [
+  { k: 'clue', axis: '线索', title: '同名档案',
+    story: '她顺着档案里的领航记录查下去：领航员与她同名同籍，三百年前就已注销——记录的最后一页被撕掉了。',
+    exit: '她把撕页的残角收进怀里，决定去港区旧档堆里碰运气',
+    stage: '矛盾升级', node: 2,
+    after: '吃掉「同名领航记录」节点；悬念加深，节奏不变' },
+  { k: 'deal', axis: '关系', title: '船队的条件',
+    story: '船队长其实早发现她藏了信标，却没告发——他把信标变成交易的筹码：用半条航线，换她跟船队合作。',
+    exit: '她第一次让出一半航线，换到继续留在船上的许可',
+    stage: '矛盾升级', node: 2,
+    after: '引入船队长这条关系线；「坎」从制度压到人情' },
+  { k: 'raid', axis: '危机', title: '突击清查',
+    story: '港警提前突击清查未登记造物，她带着信标出逃，慌乱中信标当众亮了一下。',
+    exit: '信标暴露——全港都知道她手里有东西',
+    stage: '重要转折', node: 3,
+    after: '高潮提前：节奏加快，但后面要补一段躲避戏' }
+];
+
+/* ── 小工具 ─────────────────────────────────────────────────────────── */
+function toast(msg){ const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('on'), 1800); }
+function chapters(){ return state.chapters; }
+function hasChapters(){ return state.chapters.length > 0; }
+function lastChapter(){ return state.chapters[state.chapters.length-1] || null; }
+/* 下一章的进场：有上一章＝它的落点；第一章＝卷链头 */
+function nextEntry(){ return lastChapter() ? ('接上章：' + lastChapter().exit) : VOL.entry; }
+/* 还没落到章上的节点 */
+function openNodes(){ return VOL.nodes.filter((n,i)=> !state.chapters.some(c=>c.node===i)); }
+function coveredCount(){ return VOL.nodes.length - openNodes().length; }
+function remainQuota(){ return Math.max(0, VOL.target - state.chapters.length); }
+
+/* ═══════════ 渲染：顶栏 ═══════════ */
 function hereBarHTML(){
-  const landed = hasRows();
-  const n = landed ? rowCount() : 0;
-  return ''
-  + '<p class="bh-k">当前主线</p>'
-  + '<span class="bh-rule" aria-hidden="true"></span>'
-  + '<p class="bh-t"><span class="n">第 ' + (n ? 1 : 1) + ' 章</span>' + (n ? '信标进舱' : '待写') + '</p>'
-  + (landed ? '<span class="tag">拟定</span>' : '<span class="tag">未开始</span>')
-  + '<div class="bh-prog"><span class="bh-vol">第' + CN[VOL.no-1] + '卷 · 0/' + (n || '—') + '</span>'
+  const n = state.chapters.length;
+  const last = lastChapter();
+  if (!hasChapters())
+    return '<p class="bh-k">空书</p><span class="bh-rule" aria-hidden="true"></span>'
+    + '<p class="bh-t"><span class="n">第 1 章</span>待写</p><span class="tag">未开始</span>'
+    + '<div class="bh-prog"><span class="bh-vol">还没有卷与章节</span></div>'
+    + '<button class="btn btn-sm btn-accent" data-act="open-desk" data-od-id="empty-add-ch">⤨ 拆第一章</button>';
+  return '<p class="bh-k">当前主线</p><span class="bh-rule" aria-hidden="true"></span>'
+  + '<p class="bh-t"><span class="n">第 ' + n + ' 章</span>' + esc(last.title) + '</p>'
+  + '<span class="tag">' + (state.view==='landed' ? '拟定' : '未开始') + '</span>'
+  + '<div class="bh-prog"><span class="bh-vol">第' + CN[VOL.no-1] + '卷 · 0/' + n + '</span>'
   +   '<span class="prog-bar"><span style="width:0%"></span></span></div>'
-  + '<button class="btn btn-sm btn-accent" data-act="' + (landed ? 'go-write' : 'open-desk') + '" data-od-id="continue-cta" title="' + (landed ? '去写第一章' : '先拆章') + '">' + (landed ? '去写第一章' : '拆章') + '</button>';
+  + '<button class="btn btn-sm btn-accent" data-act="stub" data-label="写这一章">写这一章</button>';
 }
 
-/* ═══════════ 渲染：左栏目录 ═══════════ */
+/* ═══════════ 渲染：左树 ═══════════ */
 function tocHTML(){
-  const rows = hasRows() ? state.rows : [];
-  const body = rows.length
-    ? rows.map((r,i)=> '<button class="trow' + (i===0?' pending':'') + '" data-act="stub" data-label="章工作台" data-status="' + (i===0?'pending':'planned') + '">'
-        + '<span class="tno">' + String(i+1).padStart(2,'0') + '</span><span class="ttl">' + esc(r.title) + '</span><span class="tdot" aria-hidden="true"></span></button>').join('')
-    : '<button class="trow pending" data-act="stub" data-label="章工作台" data-status="pending"><span class="tno">01</span><span class="ttl">待写</span><span class="tdot" aria-hidden="true"></span></button>';
+  const rows = state.chapters.map((c,i)=>'<button class="trow pending" data-act="stub" data-label="章工作台" data-status="pending">'
+    + '<span class="tno">' + String(i+1).padStart(2,'0') + '</span><span class="ttl">' + esc(c.title) + '</span><span class="tdot" aria-hidden="true"></span></button>').join('');
   return '<div class="volgrp">'
     + '<div class="volgrp-head on current sel">'
-    +   '<button class="vg-chev" data-act="stub" data-label="展开与收起卷" aria-expanded="true" aria-label="展开第一卷"><span class="chev" aria-hidden="true">▶</span></button>'
-    +   '<button class="vg-name" data-act="view-vol" title="查看与编辑卷纲">第' + CN[VOL.no-1] + '卷 · ' + VOL.name + '</button>'
-    +   '<span class="range">' + (rows.length ? rows.length + ' 章' : '0 章') + '</span>'
-    + '</div>' + body + '</div>';
+    +   '<button class="vg-chev" data-act="stub" aria-expanded="true" aria-label="展开第一卷"><span class="chev" aria-hidden="true">▶</span></button>'
+    +   '<button class="vg-name" data-act="view-vol">第' + CN[VOL.no-1] + '卷 · ' + VOL.name + '</button>'
+    +   '<span class="range">' + state.chapters.length + ' 章</span>'
+    + '</div>' + rows + '</div>';
 }
 
-/* ═══════════ 渲染：卷页（四问一页纸 = 产品查看态）═══════════ */
+/* ═══════════ 渲染：卷页 ═══════════ */
 function volPageHTML(){
   const q = VOL.q;
+  const open = openNodes();
   return '<div class="e-head"><p class="e-kicker">卷 · 分卷计划</p>'
     + '<h2 class="e-title">第' + CN[VOL.no-1] + '卷 · ' + VOL.name + '</h2>'
-    + '<div class="e-meta"><span class="tag">' + (hasRows()? rowCount() : 0) + ' 章</span><span class="tag">已归档 0 章</span><span class="tag">目标 ' + VOL.target + ' 章</span></div></div>'
+    + '<div class="e-meta"><span class="tag">' + state.chapters.length + ' 章</span><span class="tag">已归档 0 章</span><span class="tag">目标 ' + VOL.target + ' 章</span></div></div>'
     + '<div class="e-toolbar">' + volTabs() + '</div>'
     + '<div class="e-scroll"><div class="e-pad">'
     +   '<div class="ol-top"><span class="note">卷纲 · 规划本卷剧情</span><span class="push">'
-    +     '<button class="btn btn-sm btn-accent" data-act="open-desk" data-od-id="split-cta-top">' + (hasRows() ? '⤨ 重拆一遍' : '⤨ 按剧情拆章') + '</button>'
+    +     '<button class="btn btn-sm btn-accent" data-act="open-desk" data-od-id="split-cta-top">'
+    +       (hasChapters() ? '⤨ 拆下一章（第 ' + (state.chapters.length+1) + ' 章）' : '⤨ 按剧情拆第一章') + '</button>'
     +     '<button class="btn btn-sm btn-secondary" data-act="stub" data-label="编辑卷纲">编辑卷纲</button></span></div>'
-    +   '<div class="fro" data-od-id="enter-row"><em>起点 <span class="tag">只读</span></em>'
-    +     '<p>导航员在旧星图上圈出一个不该存在的航标——全书从这里起步。</p>'
-    +     '<span class="none">第一卷 · 来自主线全景的「他从哪起步」</span></div>'
+    +   '<div class="fro" data-od-id="enter-row"><em>进场起点 <span class="tag">第一章从这里接</span></em>'
+    +     '<p>' + esc(VOL.entry) + '</p><span class="none">第一卷 · 来自主线全景的「他从哪起步」</span></div>'
     +   qRow(1, '这一卷讲什么', q.what, true)
     +   qRow(2, '主要冲突', q.conflict, true)
     +   qRow(3, '这一卷的坎', q.antType + ' · ' + q.antLine, false)
     +   qRow(4, '卷末收在哪里', q.ending, false)
+    +   nodeBlock(open)
     +   '<div class="fro"><em>本卷角色 <span class="tag">自动聚合</span></em>'
-    +     '<p class="none">还没有章——写到谁（章纲登记出场），这里自动有谁</p></div>'
-    +   nodeBlock()
-    +   '<div class="defer-note"><b>留到写的时候</b><span>关键剧情节点，写到这一卷时在卷纲编辑里补。</span></div>'
-    +   splitEntry()
+    +     '<p class="none">还没有写——写到谁（章纲登记出场），这里自动有谁</p></div>'
+    +   splitProgress()
     +   '<p class="seg-h">本卷进度 <span class="note">由各章实际归属推导</span></p>'
-    +   '<div class="pos-line" data-od-id="vol-progress">' + pos('已归档','0 章') + pos('草稿','0 章') + pos('拟定', (hasRows()? rowCount()+' 章':'0 章')) + pos('待写','第 1 章') + '</div>'
+    +   '<div class="pos-line" data-od-id="vol-progress">' + pos('已归档','0 章') + pos('草稿','0 章')
+    +     pos('拟定', state.chapters.length + ' 章') + pos('待写', '第 ' + (state.chapters.length+1) + ' 章') + '</div>'
     + '</div></div>';
 }
 function qRow(n, label, text, lead){
   return '<div class="fro"><em><span class="qno">' + n + '</span>' + label + '</em>'
     + '<p' + (lead?' class="lead"':'') + '>' + esc(text) + '</p></div>';
 }
-function nodeBlock(){
-  const rows = VOL.nodes.map(n=> '<div class="node"><span class="stg">' + esc(n.stage) + '</span><p>' + esc(n.text) + '</p></div>').join('');
+/* 节点块：拆过的节点标「已排进第 N 章」——拆章就是把节点一个个吃掉 */
+function nodeBlock(open){
+  const rows = VOL.nodes.map((n,i)=>{
+    const used = state.chapters.find(c=>c.node===i);
+    return '<div class="node"><span class="stg">' + esc(n.stage) + '</span><p>' + esc(n.text)
+      + (used ? ' <span class="tag">已排进第 ' + used.no + ' 章</span>' : ' <span class="tag">未排</span>') + '</p></div>';
+  }).join('');
   return '<details class="cfgset" open><summary>关键剧情节点 <span class="chev" aria-hidden="true">▶</span></summary>'
     + '<div class="inner">' + rows + '</div></details>';
 }
-/* 入口：与卷页其它动作同一排按钮，不新增导航层 */
-function splitEntry(){
-  if (hasRows()) {
-    return '<div class="fro" data-od-id="split-entry-done"><em>拆章</em>'
-      + '<p>已按剧情排好 ' + rowCount() + ' 章（拟定）。改章纲、调顺序都在左树里做；想重拆就再来一次。</p>'
-      + '<div class="split-sum"><button class="btn btn-sm btn-accent" data-act="go-write">去写第一章 →</button>'
-      + '<button class="btn btn-sm btn-secondary" data-act="open-desk">重拆一遍</button></div></div>';
+/* 拆章进度区：入口＋配额（剩余章数配额＝目标−已拆） */
+function splitProgress(){
+  const left = remainQuota(), leftNodes = openNodes().length;
+  if (!state.chapters.length) {
+    return '<div class="fro" data-od-id="split-entry"><em>拆章 <span class="tag">一章一章来</span></em>'
+      + '<p>每次只拆**下一章**：AI 给 3 个剧情方向，选一个、改一改、排上；然后基于它的落点再拆下一章。</p>'
+      + '<span class="none">免费可自己写；PRO 才有 AI 方向。拆完这一卷正好 ' + VOL.target + ' 章。</span>'
+      + '<div class="split-sum"><button class="btn btn-sm btn-accent" data-act="open-desk" data-od-id="split-cta">⤨ 拆第一章</button>'
+      + '<span>目标 ' + VOL.target + ' 章 · 现有 0 章</span></div></div>';
   }
-  return '<div class="fro" data-od-id="split-entry"><em>拆章 <span class="tag">本卷剧情 → 章</span></em>'
-    + '<p>把上面六个关键剧情节点排成章：一次给出每章写什么、落在哪个阶段。</p>'
-    + '<span class="none">免费可手写；PRO 让 AI 按你的卷纲一次铺完，铺完还能逐章改。</span>'
-    + '<div class="split-sum"><button class="btn btn-sm btn-accent" data-act="open-desk" data-od-id="split-cta">⤨ 按剧情拆章</button>'
-    + '<span>目标 ' + VOL.target + ' 章 · 现有 0 章</span></div></div>';
+  return '<div class="fro" data-od-id="split-entry"><em>拆章进度 <span class="tag">一章一章来</span></em>'
+    + '<p>已拆 ' + state.chapters.length + ' 章（最后：第' + CN[state.chapters.length-1] + '章「' + esc(lastChapter().title) + '」）。'
+    + '还剩 ' + leftNodes + ' 个剧情节点、' + left + ' 章配额。</p>'
+    + '<div class="split-sum"><button class="btn btn-sm btn-accent" data-act="open-desk" data-od-id="split-cta">⤨ 拆下一章（第 ' + (state.chapters.length+1) + ' 章）</button>'
+    + '<span>剩余节点：' + openNodes().map(n=>n.stage).join('、') + '</span></div></div>';
 }
 function volTabs(){
   const t = [['outline','卷纲'],['chapters','本卷章节'],['rels','角色关系'],['hooks','伏笔']];
@@ -1156,210 +1143,150 @@ function volTabs(){
 }
 function pos(k,v){ return '<span class="pos"><em>' + esc(k) + '</em><b>' + esc(v) + '</b></span>'; }
 
-/* ═══════════ 渲染：右栏（卷的验证 = 既有三态，不新增）═══════════ */
+/* ═══════════ 渲染：右栏（卷的验证）═══════════ */
 function railHTML(){
   return '<div class="ai-head"><span class="ai-k">AI 助手</span><span class="pill-pro">PRO</span></div>'
   + '<div class="ai-ctx"><em>当前页签</em><span>卷 · 卷纲</span></div>'
   + '<div class="ai-card"><p class="ai-title">卷的验证</p>'
   +   '<p class="ai-lead">只读检查：拆出来的章合不合你的卷纲，一眼看得出。</p>'
   +   '<div class="ai-stats">'
-  +     '<div class="ai-stat"><b>' + (hasRows()? rowCount():0) + '</b><span>本卷章数</span></div>'
+  +     '<div class="ai-stat"><b>' + state.chapters.length + '</b><span>本卷章数</span></div>'
   +     '<div class="ai-stat"><b>' + VOL.nodes.length + '</b><span>剧情节点</span></div>'
-  +     '<div class="ai-stat"><b>' + (hasRows()? Math.max(0, VOL.nodes.length - new Set(state.rows.map(r=>r.stage)).size) : 0) + '</b><span>未覆盖节点</span></div>'
+  +     '<div class="ai-stat"><b>' + openNodes().length + '</b><span>未排节点</span></div>'
   +   '</div>'
   +   '<button class="btn btn-sm btn-secondary" data-act="stub" data-label="立刻体检">立刻体检</button>'
   +   '<p class="ai-note">体检免费、只读；不代笔。</p></div>'
   + '<div class="ai-card"><p class="ai-title">分卷依据 · 来自你的设定</p>'
-  +   depRow('主线全景','已填','') + depRow('结局三问','已填','') + depRow('题材','已定','') + depRow('主要角色','2 人','') + depRow('目标篇幅','6 章','')
+  +   depRow('主线全景','已填') + depRow('结局三问','已填') + depRow('题材','已定') + depRow('主要角色','2 人') + depRow('目标篇幅', VOL.target + ' 章')
   + '</div>';
 }
-function depRow(k,v,s){ return '<div class="dep-row"><span class="dep-k">' + esc(k) + '</span><span class="dep-v">' + esc(v) + '</span><span class="dep-s ' + (s||'') + '">' + (s==='warn'?'缺口':'已就绪') + '</span></div>'; }
+function depRow(k,v){ return '<div class="dep-row"><span class="dep-k">' + esc(k) + '</span><span class="dep-v">' + esc(v) + '</span><span class="dep-s">已就绪</span></div>'; }
 
-/* ═══════════ 渲染：拆章台 ═══════════ */
+/* ═══════════ 渲染：拆章台（一次只拆一章）═══════════ */
 function splitAnchor(){
+  const last = lastChapter();
   return '<div class="plan-anchor">'
-  + '<p class="kicker">材料 · 你这一卷已经有的</p>'
-  + '<div class="fro"><em>进场起点 <span class="tag">第一章从这里接</span></em><p>' + esc(VOL.entry) + '</p></div>'
-  + '<div class="fro"><em><span class="qno">1</span>这一卷讲什么</em><p>' + esc(VOL.q.what) + '</p></div>'
-  + '<div class="fro"><em><span class="qno">2</span>主要冲突</em><p>' + esc(VOL.q.conflict) + '</p></div>'
-  + '<div class="fro"><em><span class="qno">3</span>这一卷的坎</em><p>' + esc(VOL.q.antType + ' · ' + VOL.q.antLine) + '</p></div>'
-  + '<div class="fro"><em><span class="qno">4</span>卷末收在哪里</em><p>' + esc(VOL.q.ending) + '</p></div></div>';
+  + '<p class="kicker">这一章从哪里接</p>'
+  + '<div class="fro"><em>进场 <span class="tag">' + (last ? '上一章落点' : '卷的起点') + '</span></em>'
+  +   '<p>' + esc(nextEntry()) + '</p></div>'
+  + '<div class="fro"><em>剩余材料</em><p>还没排的剧情节点：'
+  +   (openNodes().length ? openNodes().map(n=>esc(n.stage + '·' + n.text)).join('；') : '（都排完了）')
+  +   '</p></div>'
+  + '<div class="fro"><em>章数配额</em><p>目标 ' + VOL.target + ' 章，已拆 ' + state.chapters.length + ' 章，这一章是第 '
+  +   (state.chapters.length+1) + ' 章' + (remainQuota() ? '（还剩 ' + remainQuota() + ' 章配额）' : '（已是目标章数，再拆就超了——可以拆，或先把前面的写了）') + '</p></div>'
+  + '</div>';
 }
-/* 材料摘要（折叠态）：一行说清「材料是什么」——点开才铺开四问与节点 */
-function materialSummary(){
-  return '<details class="cfgset plan-deps" data-od-id="material-fold"><summary>材料 · 本卷四问已填 · ' + VOL.nodes.length + ' 个关键剧情节点 <span class="chev" aria-hidden="true">▶</span></summary>'
-  + '<div class="inner">' + splitAnchor() + splitDeps() + '</div></details>';
-}
-function splitDeps(){
-  return '<details class="cfgset plan-deps"><summary>关键剧情节点 · ' + VOL.nodes.length + ' 个 <span class="chev" aria-hidden="true">▶</span></summary>'
-  + '<div class="inner">' + VOL.nodes.map(n=>'<div class="dep-row"><span class="dep-k">' + esc(n.stage) + '</span><span class="dep-v">' + esc(n.text) + '</span><span class="dep-s">已就位</span></div>').join('') + '</div></details>';
-}
-/* 免费手写：行集编辑（与卷页「关键剧情节点」同款 .sub-list/.rowx/.cols） */
+function splitDeps(){ return ''; }
+
 function deskHTML(){
   if (state.freeMode) {
-    return '<p class="plans-h">拆成几章 · 每章一句（免费可手写，答多少建多少）</p>'
-    + '<div class="fro"><em>这一卷排几章</em>'
-    +   '<div class="hurdle-row"><input class="input" id="d-count" type="number" min="1" max="60" value="' + state.draftCount + '" aria-label="这一卷排几章" />'
-    +   '<span class="note" style="align-self:center">目标 ' + VOL.target + ' 章；写的时候还能加</span></div></div>'
-    + manualRows()
+    return '<p class="plans-h">自己写这一章（免费可写；写完排上，落点留给下一章接）</p>'
+    + '<div class="fro"><em>章标题</em><input class="input" id="m-title" aria-label="章标题" placeholder="如：同名档案" /></div>'
+    + '<div class="fro"><em>这一章的小故事 <span class="note">目标 → 阻碍 → 结果</span></em>'
+    +   '<textarea class="textarea" id="m-text" rows="3" aria-label="这一章的小故事" placeholder="她顺着档案里的领航记录查下去……"></textarea></div>'
+    + '<div class="fro"><em>章末落点 <span class="note">推给下一章；末章应落在卷末</span></em>'
+    +   '<input class="input" id="m-exit" aria-label="章末落点" /></div>'
+    + '<div class="fro"><em>阶段</em><div class="hurdle-row"><select class="input" id="m-stage">'
+    +   VOL.stages.map(s=>'<option>' + s + '</option>').join('') + '</select>'
+    +   '<span class="note" style="align-self:center">决定这一章在卷里的位置</span></div></div>'
     + '<div class="plan-desk-acts">'
-    +   '<button class="btn btn-primary" data-act="ai-fill" disabled title="铺章节需 PRO——升级后可用">让 AI 铺满每章</button>'
-    +   '<button class="btn btn-secondary" data-act="use-manual">就按这两章先排上</button>'
-    +   '<span class="push"><span class="pill-pro">PRO</span><span>铺空缺需 PRO；手写与排章不受限</span>'
+    +   '<button class="btn btn-primary" data-act="ai-fill" disabled title="给剧情方向需 PRO——升级后可用">让 AI 给 3 个剧情方向</button>'
+    +   '<button class="btn btn-secondary" data-act="adopt-manual">就按我写的排上</button>'
+    +   '<span class="push"><span class="pill-pro">PRO</span><span>剧情方向需 PRO；手写与排章不受限</span>'
     +     '<button class="btn btn-ghost btn-sm" data-act="stub" data-label="了解升级">了解升级</button></span>'
     + '</div>';
   }
-  return '<p class="plans-h">拆法 · 手写一行一章，或让 AI 按卷纲铺</p>'
-  + '<div class="fro"><em>这一卷排几章</em>'
-  +   '<div class="hurdle-row"><input class="input" id="d-count" type="number" min="1" max="60" value="' + state.draftCount + '" aria-label="这一卷排几章" />'
-  +   '<span class="note" style="align-self:center">目标 ' + VOL.target + ' 章；AI 会按节点多少给建议</span></div></div>'
-  + manualRows()
+  return '<p class="plans-h">3 个剧情方向 · 走向不越你的卷纲，选一个、改一改、排上</p>'
   + '<div class="plan-desk-acts">'
-  +   '<button class="btn btn-primary" data-act="draw">让 AI 给 3 种拆法</button>'
-  +   '<button class="btn btn-secondary" data-act="use-manual">就按手写的排</button>'
-  +   '<span class="push">你手写的章，AI 会照抄不改写——它只补空着的</span>'
+  +   '<button class="btn btn-primary" data-act="draw" data-od-id="draw-cta">让 AI 给 3 个剧情方向</button>'
+  +   '<button class="btn btn-secondary" data-act="to-manual">自己写这一章</button>'
+  +   '<span class="push">每次只拆一章——拆完基于它的落点再拆下一章</span>'
   + '</div>';
 }
-function manualRows(){
-  const rows = state.manual.map((m,i)=>'<div class="rowx manual">'
-    + '<span class="num">' + (i+1) + '</span>'
-    + '<div class="cols"><input class="input" value="' + attr(m.title) + '" aria-label="第' + (i+1) + '章标题" data-manual-title="' + i + '" />'
-    +   '<input class="input" value="' + attr(m.text) + '" aria-label="第' + (i+1) + '章一句" data-manual-text="' + i + '" /></div>'
-    + '<select class="input" aria-label="第' + (i+1) + '章阶段" data-manual-stage="' + i + '">'
-    +   VOL.stages.map(s=>'<option' + (s===m.stage?' selected':'') + '>' + s + '</option>').join('') + '</select>'
-    + '<button class="icon-btn" data-act="manual-del" data-i="' + i + '" title="删掉这一行" aria-label="删掉第' + (i+1) + '行">×</button>'
-    + '</div>').join('');
-  return '<div class="sub-list scroll" data-od-id="manual-rows">' + rows
-    + '<div class="split-sum"><button class="btn btn-sm btn-quiet" data-act="manual-add">＋ 加一章</button>'
-    + '<span>' + state.manual.length + ' 章 · 阶段决定它在卷里的位置</span></div></div>';
-}
-/* 抽卡：三张「节奏卡」 */
+/* 三选一：3 个剧情方向（每卡=标题＋小故事＋落点＋阶段＋影响） */
 function pickHTML(){
-  if (state.view === 'gen') {
-    return '<div class="genbox" data-od-id="gen-box"><p class="gen-k">正在把第' + CN[VOL.no-1] + '卷拆成章</p>'
-    + '<p class="gen-t">按你选的「' + esc(CARDS.find(c=>c.k===state.pick).title) + '」，把六个关键剧情节点排成章——每章一句写什么、落在哪个阶段。</p>'
-    + '<div class="ex-bar"><i style="width:42%"></i></div>'
-    + '<ul class="ex-steps">'
-    +   '<li><span>读本卷四问与剧情节点</span><em class="ok">✓ 已读</em></li>'
-    +   '<li><span>对齐题材节奏（科幻 · 星际远航）</span><em class="ok">✓ 已对齐</em></li>'
-    +   '<li><span>把节点排成章：谁在哪一章发生</span><em><span class="ra-spin"></span>进行中</em></li>'
-    +   '<li><span>自查：有没有节点没落到章上</span><em>排队中</em></li>'
-    + '</ul></div>';
-  }
-  const cards = CARDS.map(c=>'<button type="button" class="pick-card' + (state.pick===c.k?' on':'') + '" data-act="pick" data-k="' + c.k + '" aria-checked="' + (state.pick===c.k) + '" role="radio">'
-    + '<span class="pk-axis">' + esc(c.axis) + '</span>'
-    + '<p class="pk-title">' + esc(c.title) + '</p>'
-    + '<div class="pk-row"><b>每章</b><ul class="pk-lines">' + c.lines.slice(0,4).map(l=>'<li>' + esc(l) + '</li>').join('')
-    +   (c.count > 4 ? '<li>…共 ' + c.count + ' 章</li>' : '') + '</ul></div>'
-    + '<div class="pk-row"><b>取舍</b><span>' + esc(c.ending) + '</span></div>'
-    + (state.pick===c.k ? '<span class="pk-picked">✓ 已选这一种</span>' : '')
+  const cards = DIRECTIONS.map((d,i)=>'<button type="button" class="pick-card' + (state.pick===i?' on':'') + '" data-act="pick" data-i="' + i + '" aria-checked="' + (state.pick===i) + '" role="radio">'
+    + '<span class="pk-axis">' + esc(d.axis) + '</span>'
+    + '<p class="pk-title">' + esc(d.title) + '</p>'
+    + '<div class="pk-row"><b>小故事</b><span>' + esc(d.story) + '</span></div>'
+    + '<div class="pk-row"><b>章末落点</b><span>' + esc(d.exit) + '</span></div>'
+    + '<div class="pk-row"><b>阶段 · 影响</b><span>' + esc(d.stage) + ' · ' + esc(d.after) + '</span></div>'
+    + (state.pick===i ? '<span class="pk-picked">✓ 就要这个方向</span>' : '')
     + '</button>').join('');
-  return '<p class="plans-h">三种拆法 · 走向已在卷纲里定了，这里只选「多细」</p>'
-  + '<div class="pick-grid" data-od-id="pick-grid">' + cards + '</div>'
-  + '<div class="pick-foot"><button class="btn btn-sm" data-act="draw">↻ 都不满意？换 3 种</button>'
-  +   '<span class="note">换一批节奏——或<button class="link" data-act="to-manual">自己写每章一句</button>（手写也免费）</span>'
-  +   '<button class="btn btn-sm btn-primary" data-act="gen" data-od-id="pick-confirm">确认这一种，排章 →</button></div>';
+  return '<p class="plans-h">第' + CN[state.chapters.length] + '章的 3 个剧情方向 · 进场已接上：' + esc(nextEntry()) + '</p>'
+  + '<div class="pick-grid" data-od-id="pick-grid">' + cards + '</div>';
 }
-/* 生成完成 / 手写确认：分章表（逐章可改） */
-function tableHTML(){
-  const all = state.rows || [];
-  const last = all.length - 1;
-  const rows = all.map((r,i)=>{
-    const isLast = i === last;
-    return '<div class="split-row" data-od-id="split-row-' + (i+1) + '">'
-    + '<span class="s-no">' + String(i+1).padStart(2,'0') + '</span>'
-    + '<div class="s-main">'
-    +   '<p class="s-entry" data-row-entry="' + i + '">进场 ← ' + esc(r.entry) + '</p>'
-    +   '<input class="input ttl" value="' + attr(r.title) + '" aria-label="第' + (i+1) + '章标题" data-row-title="' + i + '" />'
-    +   '<input class="input txt" value="' + attr(r.text) + '" aria-label="第' + (i+1) + '章小故事" data-row-text="' + i + '" />'
-    +   '<div class="s-exit"><span class="s-k">' + (isLast ? '卷末落点' : '章末落点') + '</span>'
-    +     '<input class="input" value="' + attr(r.exit) + '" aria-label="第' + (i+1) + '章末落点" data-row-exit="' + i + '"'
-    +     (isLast ? ' title="末章落点应落在卷末收在哪里（四问④）"' : '') + ' /></div>'
-    + '</div>'
-    + '<select class="input s-stg" aria-label="第' + (i+1) + '章阶段" data-row-stage="' + i + '">'
-    +   VOL.stages.map(s=>'<option' + (s===r.stage?' selected':'') + '>' + s + '</option>').join('') + '</select>'
-    + '<button class="icon-btn" data-act="row-up" data-i="' + i + '" title="连落点一起上移" aria-label="第' + (i+1) + '章上移" ' + (i===0?'disabled':'') + '>↑</button>'
-    + '<button class="icon-btn" data-act="row-del" data-i="' + i + '" title="删掉这一章（进场链自动重排）" aria-label="删掉第' + (i+1) + '章">×</button>'
-    + '</div>';
-  }).join('');
-  const covered = new Set(all.map(r=>r.stage)).size;
-  return '<div class="split-head"><span></span><span>进场 → 标题 · 这一章的小故事 → 章末落点</span><span>阶段</span><span></span></div>'
-  + '<div class="sub-list" data-od-id="split-table">' + rows + '</div>'
-  + '<div class="split-sum"><button class="btn btn-sm btn-quiet" data-act="row-add">＋ 加一章</button>'
-  +   '<span>共 <b>' + all.length + '</b> 章 · 覆盖 <b>' + covered + '/' + VOL.nodes.length + '</b> 个剧情节点 · 末章落点应＝卷末 · 状态将记为「拟定」</span></div>'
+/* 本章卡（选定后可改）＋自查 */
+function doneHTML(){
+  const d = state.draft;
+  return '<div class="split-row" data-od-id="chapter-card">'
+  + '<span class="s-no">' + String(state.chapters.length+1).padStart(2,'0') + '</span>'
+  + '<div class="s-main">'
+  +   '<p class="s-entry" data-testid="entry-line">进场 ← ' + esc(nextEntry()) + '</p>'
+  +   '<input class="input ttl" value="' + attr(d.title) + '" aria-label="章标题" data-draft-title="1" />'
+  +   '<input class="input txt" value="' + attr(d.story) + '" aria-label="这一章的小故事" data-draft-story="1" />'
+  +   '<div class="s-exit"><span class="s-k">章末落点</span>'
+  +     '<input class="input" value="' + attr(d.exit) + '" aria-label="章末落点" data-draft-exit="1" /></div>'
+  + '</div>'
+  + '<select class="input s-stg" aria-label="阶段" data-draft-stage="1">'
+  +   VOL.stages.map(s=>'<option' + (s===d.stage?' selected':'') + '>' + s + '</option>').join('') + '</select>'
+  + '</div>'
   + (state.scIgnored ? '' : selfcheckHTML());
 }
 function selfcheckHTML(){
-  return '<details class="selfcheck" data-od-id="selfcheck" open><summary class="sc-h">AI 自查 · 排完它自己先过了一遍（' + state.checks.length + ' 条）</summary>'
-  + '<ul>' + state.checks.map(t=>'<li><p>' + esc(t) + '</p><button class="btn btn-sm btn-quiet" data-act="stub" data-label="让 AI 改">让 AI 改</button></li>').join('') + '</ul>'
-  + '<div class="edit-bar"><button class="btn btn-sm btn-quiet" data-act="sc-ignore">先不管，我自己改</button></div></details>';
+  return '<details class="selfcheck" data-od-id="selfcheck" open><summary class="sc-h">AI 自查 · 这个方向它自己先过了一遍（' + state.checks.length + ' 条）</summary>'
+  + '<ul>' + state.checks.map(t=>'<li><p>' + esc(t) + '</p></li>').join('') + '</ul>'
+  + '<div class="edit-bar"><button class="btn btn-sm btn-quiet" data-act="sc-ignore">先不管</button></div></details>';
 }
-/* 采纳后的落点卡（与分卷规划落点卡同款） */
+/* 排上后：中栏落点卡（与分卷规划落点卡同款） */
 function landedHTML(){
+  const c = state.chapters[state.chapters.length-1];
   return '<div class="e-empty" data-od-id="landing-card">'
-  + '<p class="be-k">第' + CN[VOL.no-1] + '卷 · ' + VOL.name + ' 已排好 ' + rowCount() + ' 章</p>'
-  + '<p class="be-t">开始写第一章？</p>'
-  + '<p class="be-desc">章是「拟定」——点左栏的章写章纲，章纲确认后再写正文。想重排就再拆一次。</p>'
-  + '<p class="be-acts"><button class="btn btn-primary" data-act="go-write" data-od-id="landing-go">＋ 去写第一章</button>'
-  + '<button class="btn btn-secondary" data-act="view-vol" data-od-id="landing-outline">看第' + CN[VOL.no-1] + '卷的卷纲</button></p></div>';
+  + '<p class="be-k">第' + CN[state.chapters.length-1] + '章「' + esc(c.title) + '」已排上（拟定）</p>'
+  + '<p class="be-t">写这一章，还是继续拆下一章？</p>'
+  + '<p class="be-desc">下一章的进场已经接上：「' + esc(c.exit) + '」。写的时候随时能改。</p>'
+  + '<p class="be-acts">'
+  +   '<button class="btn btn-primary" data-act="stub" data-label="写这一章" data-od-id="landing-write">写这一章</button>'
+  +   '<button class="btn btn-secondary" data-act="open-desk" data-od-id="landing-next">⤨ 继续拆下一章</button>'
+  + '</p></div>';
 }
 
 /* ═══════════ 主渲染 ═══════════ */
 function render(){
   document.getElementById('here-bar-slot').innerHTML = hereBarHTML();
   document.getElementById('toc').innerHTML = tocHTML();
-  document.getElementById('modWriteCnt').textContent = (hasRows()? rowCount() : 0) + ' 章';
-  document.getElementById('toc-count').textContent = '1 卷 · ' + (hasRows()? rowCount() : 0) + ' 章';
-  document.getElementById('editor').innerHTML = (state.view === 'landed' && hasRows()) ? landedHTML() : volPageHTML();
+  document.getElementById('modWriteCnt').textContent = state.chapters.length + ' 章';
+  document.getElementById('toc-count').textContent = '1 卷 · ' + state.chapters.length + ' 章';
+  document.getElementById('editor').innerHTML = (state.view === 'landed' && hasChapters()) ? landedHTML() : volPageHTML();
   document.getElementById('ai-panel').innerHTML = railHTML();
 
-  const open = ['desk','pick','gen','done'].includes(state.view);
+  const open = ['desk','pick','done'].includes(state.view);
   const modal = document.getElementById('split-modal');
   modal.classList.toggle('on', open);
-  document.querySelector('.sheet.plan-sheet').classList.toggle('wide', state.view === 'pick' || state.view === 'gen');
+  document.querySelector('.sheet.plan-sheet').classList.toggle('wide', state.view === 'pick');
   if (open) {
-    document.getElementById('split-kick').textContent = '卷下拆章 · 第' + CN[VOL.no-1] + '卷';
-    document.getElementById('split-title').textContent = state.view === 'done' ? '第' + CN[VOL.no-1] + '卷 · 拆成 ' + rowCount() + ' 章' : '把这一卷拆成章';
-    const compact = state.view !== 'desk';   // 选拆法/生成/成表时材料折起来，弹窗不被顶出视口
-    document.getElementById('split-anchor').innerHTML = compact ? materialSummary() : splitAnchor();
-    document.getElementById('split-deps').innerHTML = compact ? '' : splitDeps();
-    document.getElementById('split-anchor').firstElementChild?.classList.add('scroll');
+    const nextNo = state.chapters.length + 1;
+    document.getElementById('split-kick').textContent = '卷下拆章 · 第' + CN[VOL.no-1] + '卷 · 第' + nextNo + '章';
+    document.getElementById('split-title').textContent = '拆第' + CN[nextNo-1] + '章';
+    document.getElementById('split-anchor').innerHTML = splitAnchor();
+    document.getElementById('split-deps').innerHTML = splitDeps();
     document.getElementById('split-desk').innerHTML = (state.view === 'desk') ? deskHTML() : '';
-    document.getElementById('split-body').innerHTML = (state.view === 'pick' || state.view === 'gen') ? pickHTML() : (state.view === 'done' ? tableHTML() : '');
+    document.getElementById('split-body').innerHTML = (state.view === 'pick') ? pickHTML() : (state.view === 'done' ? doneHTML() : '');
     document.getElementById('split-foot').innerHTML = footHTML();
   }
   renderDemo();
 }
 function footHTML(){
   if (state.view === 'done') {
-    return '<span class="note">点「排进这一卷」，' + rowCount() + ' 章会一次落到左树（拟定），你逐章写章纲。</span>'
-      + '<button class="btn btn-sm btn-primary" data-act="adopt" data-od-id="split-adopt">排进这一卷（' + rowCount() + ' 章）</button>';
+    const d = state.draft;
+    return '<span class="note">排上后左树长一行（拟定）；下一章的进场会自动接「' + esc((d||{}).exit || '') + '」。</span>'
+      + '<button class="btn btn-sm btn-primary" data-act="adopt" data-od-id="split-adopt">排上这一章（第 ' + (state.chapters.length+1) + ' 章）</button>';
   }
-  if (state.view === 'gen') return '<span class="note">生成在后台跑，关掉它也不影响——排好会落到这一卷。</span><button class="btn btn-sm btn-secondary" data-act="split-close">关掉</button>';
-  if (state.view === 'pick') return '<span class="note">卡上写的是「多细」，剧情走向来自你的卷纲；选了还能改。</span>';
-  return '<span class="note">拆章不改卷纲：四问与剧情节点是材料，章是它们排出来的。</span><button class="btn btn-sm btn-secondary" data-act="split-close">先不拆</button>';
+  if (state.view === 'pick') return '<span class="note">三个方向都接得住上一章落点；选了还能改，排上之前不落库。</span>';
+  return '<span class="note">一次只拆一章——拆完基于它的落点再拆下一章。</span><button class="btn btn-sm btn-secondary" data-act="split-close">先不拆</button>';
 }
 
 /* ═══════════ 交互 ═══════════ */
-function toView(v){ state.view = v; if (v === 'desk' && state.freeMode) { /* 手写页 */ } render(); }
-function rowsFromCard(k){
-  const c = CARDS.find(x=>x.k===k);
-  if (c.rows) return c.rows.map(r=>Object.assign({ entry: '' }, r));   // 手写的完整链照抄
-  /* 机械链：把六节点均分到 N 章；exit=该章最后一个节点的事实，entry=承接上一章 */
-  const rows = [];
-  for (let i = 0; i < c.count; i++) {
-    const node = VOL.nodes[Math.min(VOL.nodes.length - 1, Math.floor(i * VOL.nodes.length / c.count))];
-    rows.push({ title: c.lines[i] ? c.lines[i].replace(/^[①②③④⑤⑥⑦⑧⑨]\s*/, '').split('（')[0] : ('第' + (i+1) + '章'),
-                text: node.text, stage: node.stage, exit: node.text });
-  }
-  rows[rows.length-1].exit = '卷末＝' + VOL.q.ending;
-  return rows;
-}
-/* 把 entry/exit 补成链：首章进场=卷链头；第 i+1 章进场=第 i 章 exit */
-function chain(rows){
-  rows.forEach((r, i) => { r.entry = (i === 0) ? VOL.entry : ('接上章：' + rows[i-1].exit); });
-  return rows;
-}
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]');
   if (!el) return;
@@ -1367,64 +1294,53 @@ document.addEventListener('click', (e) => {
   if (act === 'stub') { toast((el.dataset.label || '本原型未覆盖') + '（原型示意）'); return; }
   if (act === 'open-desk') { state.view = 'desk'; state.scIgnored = false; render(); return; }
   if (act === 'split-close') { state.view = 'vol'; render(); return; }
-  if (act === 'manual-add') { state.manual.push({ title: '', text: '', stage: VOL.stages[0] }); render(); return; }
-  if (act === 'manual-del') { state.manual.splice(Number(el.dataset.i), 1); render(); return; }
-  if (act === 'draw') { state.view = 'pick'; render(); return; }
-  if (act === 'pick') { state.pick = el.dataset.k; render(); return; }
-  if (act === 'to-manual') { state.freeMode = true; state.view = 'desk'; render(); return; }
-  if (act === 'gen') {
-    state.view = 'gen'; render();
-    setTimeout(() => { state.rows = chain(rowsFromCard(state.pick)); state.view = 'done'; render(); }, 900);
-    return;
-  }
-  if (act === 'use-manual') {
-    const picked = state.manual.filter(m=>m.title || m.text).map(m=>({ title: m.title || '（未命名）', text: m.text, stage: m.stage, exit: '' }));
-    state.rows = chain(picked);   // 手写也成链：进场自动=上一章落点（落点可自己补）
-    if (!state.rows.length) { toast('先写一行「这一章写什么」'); return; }
+  if (act === 'to-manual') { state.freeMode = true; render(); return; }
+  if (act === 'draw') { state.pending = DIRECTIONS; state.view = 'pick'; render(); return; }
+  if (act === 'ai-fill') { toast('给剧情方向需 PRO——升级后可用（原型示意）'); return; }
+  if (act === 'pick') {
+    state.pick = Number(el.dataset.i);
+    const d = state.pending[state.pick];
+    state.draft = { title: d.title, story: d.story, exit: d.exit, stage: d.stage, node: d.node };
     state.view = 'done'; render(); return;
   }
-  if (act === 'ai-fill') { toast('铺章节需 PRO——升级后可用（原型示意）'); return; }
-  if (act === 'row-add') { state.rows.push({ title: '', text: '', stage: VOL.stages[Math.min(VOL.stages.length-1, state.rows.length)] }); render(); return; }
-  if (act === 'row-del') { state.rows.splice(Number(el.dataset.i), 1); chain(state.rows); render(); return; }
-  if (act === 'row-up') {
-    const i = Number(el.dataset.i);
-    if (i > 0) { const t = state.rows[i-1]; state.rows[i-1] = state.rows[i]; state.rows[i] = t; chain(state.rows); render(); }
+  if (act === 'adopt-manual') {
+    const t = document.getElementById('m-title'), x = document.getElementById('m-text'),
+          x2 = document.getElementById('m-exit'), s = document.getElementById('m-stage');
+    if (!t.value.trim()) { toast('先写个章标题'); return; }
+    state.draft = { title: t.value.trim(), story: x.value.trim(), exit: x2.value.trim(), stage: s.value, node: -1 };
+    state.view = 'done'; render(); return;
+  }
+  if (act === 'adopt') {
+    const d = state.draft;
+    state.chapters.push({ title: d.title, text: d.story, exit: d.exit, stage: d.stage, node: d.node });
+    state.view = 'landed'; render();
+    toast('已排上第 ' + state.chapters.length + ' 章「' + d.title + '」（拟定）');
     return;
   }
-  if (act === 'sc-ignore') { state.scIgnored = true; toast('自查先放着——采纳后可随时在卷页重跑体检'); render(); return; }
-  if (act === 'adopt') { state.view = 'landed'; render(); toast('已排进第' + CN[VOL.no-1] + '卷 · ' + rowCount() + ' 章（拟定）'); return; }
-  if (act === 'go-write') { toast('进第一章章纲（原型示意）'); return; }
+  if (act === 'sc-ignore') { state.scIgnored = true; render(); return; }
   if (act === 'jump') { toast('回到当前（原型示意）'); return; }
   if (act === 'view-vol') { state.view = 'vol'; render(); return; }
+  if (act === 'manual-ch') { toast('本卷末尾排一章（原型示意）'); return; }
 });
 document.addEventListener('input', (e) => {
   const t = e.target;
-  if (t.dataset.manualTitle !== undefined) state.manual[Number(t.dataset.manualTitle)].title = t.value;
-  else if (t.dataset.manualText !== undefined) state.manual[Number(t.dataset.manualText)].text = t.value;
-  else if (t.dataset.rowTitle !== undefined) state.rows[Number(t.dataset.rowTitle)].title = t.value;
-  else if (t.dataset.rowText !== undefined) state.rows[Number(t.dataset.rowText)].text = t.value;
-  else if (t.dataset.rowExit !== undefined) {
-    const i = Number(t.dataset.rowExit);
-    state.rows[i].exit = t.value;
-    const next = document.querySelector('[data-row-entry="' + (i+1) + '"]');
-    if (next) next.textContent = '进场 ← 接上章：' + t.value;   // 链实时可见，不打断输入
-  }
-  else if (t.id === 'd-count') state.draftCount = Number(t.value) || 1;
+  if (t.dataset.draftTitle) state.draft.title = t.value;
+  else if (t.dataset.draftStory) state.draft.story = t.value;
+  else if (t.dataset.draftExit) state.draft.exit = t.value;
+  else if (t.dataset.draftStage) state.draft.stage = t.value;
 });
 document.addEventListener('change', (e) => {
   const t = e.target;
-  if (t.dataset.manualStage !== undefined) { state.manual[Number(t.dataset.manualStage)].stage = t.value; }
-  else if (t.dataset.rowStage !== undefined) { state.rows[Number(t.dataset.rowStage)].stage = t.value; render(); }
+  if (t.dataset.draftStage) { state.draft.stage = t.value; render(); }
 });
 
 /* ═══════════ 演示控制条（非基线）═══════════ */
 const VIEWS = [
-  ['vol','① 卷页 · 入口'],
-  ['desk','② 拆章台 · 手写（免费）'],
-  ['pick','③ 三选一 · 三种拆法'],
-  ['gen','④ 生成中'],
-  ['done','⑤ 拆完可改 · 自查'],
-  ['landed','⑥ 已排进本卷 · 落点卡']
+  ['vol','① 卷页 · 已拆 2 章'],
+  ['desk','② 拆下一章 · 手写（免费）'],
+  ['pick','③ 三选一 · 3 个剧情方向'],
+  ['done','④ 本章卡 · 可改'],
+  ['landed','⑤ 排上后 · 落点卡']
 ];
 function renderDemo(){
   const bar = document.getElementById('demo-bar');
@@ -1433,16 +1349,23 @@ function renderDemo(){
     + '<span class="spacer"></span>'
     + '<button class="chip-btn' + (!state.freeMode?' on':'') + '" data-tier="pro">PRO</button>'
     + '<button class="chip-btn' + (state.freeMode?' on':'') + '" data-tier="free">免费</button>'
-    + '<span class="demo-note">卷下拆章 · 复用清单见文件末尾注释</span>';
+    + '<span class="demo-note">逐章拆分 · 复用清单见文件末尾注释</span>';
 }
 document.addEventListener('click', (e) => {
   const v = e.target.closest('[data-view]');
   if (v) {
     const k = v.dataset.view;
-    if (k === 'done' || k === 'landed') state.rows = state.rows || rowsFromCard(state.pick);
-    if (k === 'landed' && !state.rows) state.rows = rowsFromCard(state.pick);
+    if ((k === 'pick' || k === 'done') && !state.pending) state.pending = DIRECTIONS;
+    if ((k === 'done' || k === 'landed') && !state.draft) {
+      const d = DIRECTIONS[0];
+      state.draft = { title: d.title, story: d.story, exit: d.exit, stage: d.stage, node: d.node };
+    }
     state.view = k;
     if (k === 'desk') state.freeMode = true;
+    if (k === 'landed' && state.chapters.length < 3) {
+      const d = DIRECTIONS[2];
+      state.chapters.push({ title: '突击清查', text: d.story, exit: d.exit, stage: d.stage, node: 3 });
+    }
     render(); return;
   }
   const t = e.target.closest('[data-tier]');
@@ -1450,31 +1373,6 @@ document.addEventListener('click', (e) => {
 });
 
 render();
-
-/* ══════════════════════════════════════════════════════════════════════════
-   组件复用台账（收编时逐条对照产品实现；本原型零新组件形态）
-
-   | 本原型处 | 复用产品既有 | 出处 |
-   |---|---|---|
-   | 卷页四问四行 | `.fro` + `.qno` + `.lead`/`.none` | VolumeWorkspace 查看态（四问一页纸） |
-   | 关键剧情节点块 | `.cfgset`+`.inner`+`.node`+`.stg`（查看） | VolumeWorkspace 查看态 |
-   | 拆章入口按钮排 | `.fro` 内嵌 `.split-sum`（=`.be-acts` 同款按钮排） | 卷页/落点卡按钮排 |
-   | 拆章台弹窗壳 | Modal(wbStyle)＝`.mcard`；原型沿用参考稿 `.sheet.plan-sheet` | VolumePlanModal |
-   | 材料/依据 | `.dep-row`（三列：键·值·状态） | 右栏「分卷依据」台账 |
-   | 手写行集编辑 | `.sub-list`+`.rowx`+`.cols`+`.num`+`.icon-btn` | VolumeWorkspace 编辑态「关键剧情节点」 |
-   | 三选一抽卡 | `.pick-grid`+`.pick-card`+`.pk-axis/.pk-title/.pk-row/.pk-picked`+`.pick-foot` | PickCardsModal |
-   | 生成进度 | `.genbox`+`.ex-bar`+`.ex-steps`（四步） | VolumePlanModal genbox |
-   | 分章表 | `.split-row`（=`.rowx` 的行骨架：序号·输入·选择·操作） | 同「关键剧情节点」行，仅列宽不同 |
-   | 自查条 | `.selfcheck`（产品 `.selfcheck-toast` 的可展开形态） | 抽卡确认后的自查条 |
-   | 落点卡 | `.e-empty`+`.be-k/.be-t/.be-desc/.be-acts` | NovelWorkspace 落点卡 |
-   | 左树章行 | `.trow`+`.tno`+`.ttl`+`.tdot`（pending/planned 三态点） | OutlineTree |
-   | 树底两入口 | `.tree-add`+`.add-btn` | OutlineTree 空书态 |
-   | PRO 说明 | `.pill-pro`+置灰+`了解升级` | 分卷规划台/免费档口径 |
-   | 进度线 | `.pos-line`+`.pos`（四格互斥计数） | 卷页「本卷进度」 |
-   | 右栏 | `.ai-head/.ai-ctx/.ai-card/.ai-stat/.ai-note` | Rail 卷语境 |
-
-   仅两处新类，且只是既有行骨架的列宽变体：`.split-row`（分章表行）、`.split-head`（表头）。
-   ══════════════════════════════════════════════════════════════════════════ */
 </script>
 </body>
 </html>
