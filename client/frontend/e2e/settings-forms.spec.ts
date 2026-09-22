@@ -690,7 +690,7 @@ test("预览：只读树 + 只读正文（草稿/归档章皆可读）→ 恢复
     });
 
     // ── 预览视图：三栏阅读器（preview-reader，c-preview-reader），
-    //    初始定档 = 工作台当前章；目录头主线计数；成稿状态标签 ──
+    //    定档 = 全书首章（不继承写作页当前章）；目录头主线计数；成稿状态标签 ──
     await page.getByRole("button", { name: "预览", exact: true }).click();
     const pvChapter = page.getByTestId("pv-chapter");
     await expect(pvChapter).toContainText("第一章", { timeout: 10000 });
@@ -714,8 +714,12 @@ test("预览：只读树 + 只读正文（草稿/归档章皆可读）→ 恢复
     await expect(pvChapter).toContainText("第二章 · 风起渡口");
     await expect(pvProse.locator("p", { hasText: "渡口的雾" })).toBeVisible();
 
-    // ── 回写作：归档章只读横幅 + 恢复编辑（换皮不减功能，入口在正文编辑页）──
+    // ── 回写作：点「写作」回书主页（页签回默认主页），点回第一章看归档只读横幅 ──
     await page.getByRole("button", { name: /^写作/ }).click();
+    await expect(page.getByTestId("write-home")).toBeVisible({ timeout: 10000 });
+    await page.locator(".three-col .col-tree .ch").first().click();
+    // 点章强制落「章纲」页签（PR3 口径）→ 只读正文在「正文」页签
+    await page.getByRole("tab", { name: /^正文/ }).click();
     await expect(page.getByText(/本章已归档 · 只读/).first()).toBeVisible({
       timeout: 5000,
     });
@@ -735,7 +739,7 @@ test("预览：只读树 + 只读正文（草稿/归档章皆可读）→ 恢复
     // 写作树「已归档」只剩 API 归档的第二章（第一章恢复后撤下）
     await expect(page.locator(".three-col .col-tree .arch-tag")).toHaveCount(1);
 
-    // 再进预览：重挂载回初始定档（工作台当前章=第一章）；已归档 pill 只剩第二章，
+    // 再进预览：重挂载定档＝首章；已归档 pill 只剩第二章，
     // 第一章恢复后转为「草稿」（有正文未归档）
     await page.getByRole("button", { name: "预览", exact: true }).click();
     await expect(page.getByTestId("pv-chapter")).toContainText("第一章", { timeout: 10000 });

@@ -85,6 +85,8 @@ function BadgeIcon({ ok }: { ok?: boolean }) {
 export interface SettingsViewProps {
   projectId: string;
   initialPanel?: string;
+  /** 页签回默认主页：值变化＝把面板拨回默认项（第一项「简介」）；脏表单由外壳先确认 */
+  homeSeq?: number;
   settingsStatus: Record<string, boolean> | null;
   /** 角色项"内容有变"（character-settings-v2）：确认存档与当前内容指纹不一致 */
   charStale?: boolean;
@@ -108,7 +110,7 @@ function normalizePanel(v: string | undefined): string {
 }
 
 export default function SettingsView({
-  projectId, initialPanel, settingsStatus, confirmedStatus, charStale, confirmSetting, onDirtyChange, onGoWrite, novelName,
+  projectId, initialPanel, homeSeq, settingsStatus, confirmedStatus, charStale, confirmSetting, onDirtyChange, onGoWrite, novelName,
 }: SettingsViewProps) {
   const [panel, setPanel] = useState(() => normalizePanel(initialPanel));
   /** 改动回执（用户 2026-09-10）：三面板里"一键改变内容"的动作在脚部留一条 + 一步撤销。 */
@@ -432,6 +434,15 @@ export default function SettingsView({
   useEffect(() => {
     if (initialPanel) setPanel(normalizePanel(initialPanel));
   }, [initialPanel]);
+
+  // 页签回默认主页（c-write-home-rail-anchor）：重复点「设定」→ 面板拨回默认项。
+  // 只认值变化（首帧的 0 不算），回执由既有 [panel] effect 一并清。
+  const firstHomeSeq = useRef(homeSeq ?? 0);
+  useEffect(() => {
+    if (homeSeq === undefined || homeSeq === firstHomeSeq.current) return;
+    firstHomeSeq.current = homeSeq;
+    setPanel(normalizePanel(undefined));
+  }, [homeSeq]);
 
   const handleDirtyChange = useCallback(
     (v: boolean) => {

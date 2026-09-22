@@ -2,16 +2,49 @@
 // 原型 #pick-modal 直译：940 宽横排三卡（窄屏纵排）、每卡四问答案＋侧重轴、busy/error 态、
 // 选中→「确认这一套，成卷」（token 守卫：写请求前可取消）、「↻ 换 3 套」重抽、
 // 「自己答四个问题」切手写页（已答保留）。
+import { useEffect, useState } from "react";
 import Modal from "@/components/design/Modal";
+import { api } from "@/lib/api";
 import { cnNum } from "@/lib/nodeTitle";
 import type { VolumePlanCard, VolumePlanController } from "@/hooks/useVolumePlan";
 
+/** 这一卷的进场（后端 plan-anchor 单源，事实优先）：抽卡卡片各带一份，
+ *  滚到卡片区、看不到别处材料时也能判断接不接得上上一卷。 */
+function useAnchor(projectId: string, volNo: number, active: boolean) {
+  const [anchor, setAnchor] = useState<{ text: string; source: string } | null>(null);
+  useEffect(() => {
+    if (!active || !projectId) return;
+    let alive = true;
+    setAnchor(null);
+    (async () => {
+      try {
+        const d = (await api.get(
+          `/novels/${projectId}/volumes/plan-anchor?vol_no=${volNo}`,
+        )) as { prev_ending?: { text?: string; source?: string } };
+        if (alive)
+          setAnchor({
+            text: d?.prev_ending?.text ?? "",
+            source: d?.prev_ending?.source ?? "",
+          });
+      } catch {
+        if (alive) setAnchor({ text: "（取不到上一卷的记录）", source: "" });
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectId, volNo, active]);
+  return anchor;
+}
+
 export function PickCardsModal({
+  projectId,
   plan,
   onConfirm,
   onToDesk,
   onClose,
 }: {
+  projectId: string;
   plan: VolumePlanController;
   /** 确认＝外层执行落库（建/更卷＋hooks/batch＋落点卡） */
   onConfirm: (card: VolumePlanCard) => void;
@@ -20,6 +53,8 @@ export function PickCardsModal({
 }) {
   const { state, selectCard } = plan;
   const cn = cnNum(state.volNo);
+  const first = state.volNo <= 1;
+  const anchor = useAnchor(projectId, state.volNo, state.pickOpen);
 
   return (
     <Modal
@@ -77,6 +112,10 @@ export function PickCardsModal({
                   disabled={state.confirming}
                   onClick={() => selectCard(p.no)}
                 >
+                  <div className="pk-row pk-in" data-testid={`pick-enter-${p.no}`}>
+                    <b>{first ? "起点" : "上接"}</b>
+                    <span title={anchor?.text ?? ""}>{anchor?.text || "…"}</span>
+                  </div>
                   <span className="pk-axis">{p.focus_axis || "走向"}</span>
                   <p className="pk-title">{p.spine}</p>
                   <div className="pk-row">

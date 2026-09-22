@@ -1,6 +1,7 @@
 // 预览阅读器（preview-reader，c-preview-reader）组件契约：
 //   三栏渲染 / 目录头计数 / 成稿状态标签（已归档优先）/ 章级导航首末禁用 /
-//   initialRef 回退链 / 切章为预览本地态 / 阅读配置立即生效且落 localStorage。
+//   定档＝全书首章（不继承写作页当前章；homeSeq 变化拨回首章）/
+//   切章为预览本地态 / 阅读配置立即生效且落 localStorage。
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import PreviewView from "@/components/novel/workbench/PreviewView";
@@ -39,7 +40,7 @@ function renderView(overrides: Partial<Parameters<typeof PreviewView>[0]> = {}) 
     projectId: "p1",
     volumes: VOLUMES,
     onRefresh,
-    initialRef: null as string | null,
+    homeSeq: 0,
     onGoWrite,
     onDownload,
     ...overrides,
@@ -86,7 +87,7 @@ describe("PreviewView — 三栏阅读器", () => {
     await waitFor(() => expect(document.querySelectorAll(".pv-ch").length).toBe(4));
     expect(screen.getByTestId("pv-prev").getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByTestId("pv-next").getAttribute("aria-disabled")).toBe("false");
-    // 初始章 = initialRef 缺省回退首章
+    // 定档＝全书首章（不继承写作页当前章）
     expect(screen.getByTestId("pv-chapter").textContent).toContain("第一章 · 锚点");
 
     fireEvent.click(screen.getByTestId("pv-next"));
@@ -100,13 +101,24 @@ describe("PreviewView — 三栏阅读器", () => {
     expect(onGoWrite).not.toHaveBeenCalled();
   });
 
-  it("initialRef 定档；失效回退首章", async () => {
-    const first = renderView({ initialRef: "vol-1-ch-2" });
+  it("定档＝首章：不继承写作页当前章（页签回默认主页）", async () => {
+    // 页内切到第二章后，re-render 传新的 homeSeq（＝重复点「预览」）→ 拨回首章
+    const { rerender, onRefresh } = renderView({ homeSeq: 0 });
     await waitFor(() =>
-      expect(screen.getByTestId("pv-chapter").textContent).toContain("第二章 · 跃迁"),
+      expect(screen.getByTestId("pv-chapter").textContent).toContain("第一章 · 锚点"),
     );
-    first.unmount();
-    renderView({ initialRef: "vol-1-ch-99" });
+    fireEvent.click(screen.getByTestId("pv-next"));
+    expect(screen.getByTestId("pv-chapter").textContent).toContain("第二章 · 跃迁");
+    rerender(
+      <PreviewView
+        projectId="p1"
+        volumes={VOLUMES}
+        onRefresh={onRefresh}
+        homeSeq={1}
+        onGoWrite={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    );
     await waitFor(() =>
       expect(screen.getByTestId("pv-chapter").textContent).toContain("第一章 · 锚点"),
     );

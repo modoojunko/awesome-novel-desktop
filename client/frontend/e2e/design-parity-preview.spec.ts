@@ -9,7 +9,7 @@
 // 状态口径（成稿状态，非章纲三态）：
 //   archived → 已归档（优先）；has_prose → 草稿；其余 → 拟定。
 //   种子：c1-c15 已归档（有正文）· c16 拟定（无正文）· c17 草稿（有正文未归档）。
-//   初始章 = 写作视图当前章（ADJUSTMENTS #13 本地态），parity 态默认第一章
+//   定档＝全书首章（c-write-home-rail-anchor 起不再继承写作页当前章），parity 态即第一章
 //   vol-1-ch-1，与原型「默认选首章」一致。
 import fs from "fs";
 import path from "path";
@@ -101,7 +101,7 @@ const SEED = (() => {
   };
   // GET /readiness：题材/简介/风格 done → 设定 3/7（＝原型计数）
   const readiness = { missing: ["world", "hooks", "characters"].map((key) => ({ key })) };
-  // GET /chapters/vol-1-ch-1（预览初始章 = 写作视图当前章）
+  // GET /chapters/vol-1-ch-1（预览定档＝全书首章）
   const first = prose.c1 ?? "";
   const chapterDetail = {
     volume: 1,

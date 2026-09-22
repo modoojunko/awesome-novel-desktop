@@ -1,10 +1,12 @@
 /** 右栏「AI 辅助 · 卷」语境面板（volume-plan-ai 三态）：
- *  1) 选中卷＝验证面板（引导语＋「体检这一卷」＋三组报告；免费、只读、可重复）；
+ *  1) 选中卷＝验证面板（引导语＋「体检这一卷」＋三组报告；免费、只读、可重复；
+ *     c-write-home-rail-anchor 起随卷页签重排：当前页签＝真实页签名、引导语换焦、
+ *     组序按页签前置，卷纲页签另有「重新规划这一卷（AI）」）；
  *  2) 未选中 · 零卷（空书）＝「规划第一卷（AI）」入口＋「分卷依据 · 来自你的设定」；
  *  3) 未选中 · 有卷（写作默认页）＝「接着往下规划」（规划第N卷）＋「卷的验证」（各卷一行，
  *     卷号 · 名字 · 章数目标；点一行＝选中该卷并立刻体检）。
  *  原「卷选中态四页签统计卡」与「未选中态四格全书统计」由本 change 退役（workbench delta）。 */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { volumePlanApi, type VolumeCheckResult } from "@/lib/volumePlanApi";
 import { nextVolNo as nextVolumeNo } from "@/lib/chapterRef";
 import type { VolumeRailData } from "./VolumeWorkspace";
@@ -96,20 +98,67 @@ async function apiGetCharacters(projectId: string): Promise<number> {
   return Array.isArray(d?.items) ? d.items.length : 0;
 }
 
-/** 选中卷＝验证面板（体检动作＋三组报告；免费、只读、不代笔） */
+/** 卷页签 → 右栏语境（c-write-home-rail-anchor）：同一条「卷的验证」，随页签换视角与组序 */
+const VOL_TAB_NAME: Record<string, string> = {
+  outline: "卷纲",
+  chapters: "本卷章节",
+  rels: "角色关系",
+  hooks: "伏笔",
+};
+const VOL_TAB_LEAD: Record<string, string> = {
+  outline:
+    "这一卷的走向与结构：进场接不接得上上一卷、卷末收不收得住、核心矛盾是不是主线在这一阶段的子集。只给判断，不代笔。",
+  chapters:
+    "本卷已写内容与卷纲的出入：实际写出来的是不是照卷纲走的。只给判断，不代笔。",
+  rels: "本卷人物在全书口径下是否成立：有没有空转、有没有违背性格。只给判断，不代笔。",
+  hooks: "本卷伏笔在全书口径上是否成立：有没有重复埋、提前揭、漏收。只给判断，不代笔。",
+};
+/** 报告组序：按页签把相关一组前置（组名与后端 `volume_check` 的分组同名同义） */
+const VOL_TAB_ORDER: Record<string, string[]> = {
+  outline: ["对主线", "对设定", "对已写内容"],
+  chapters: ["对已写内容", "对主线", "对设定"],
+  rels: ["对设定", "对主线", "对已写内容"],
+  hooks: ["对设定", "对主线", "对已写内容"],
+};
+/** 组名归一：模型偶尔把组名写成「对主线（进场与收束）」这类变体——取规范前缀；
+ *  认不出的组名原样保留（渲染时按模型原序追加在尾，一个都不丢）。 */
+const GROUP_KEYS = ["对主线", "对设定", "对已写内容"];
+const normGroupKey = (name: string): string => {
+  const t = (name ?? "").trim();
+  return GROUP_KEYS.find((k) => t.startsWith(k)) ?? t;
+};
+
+/** 选中卷＝验证面板（体检动作＋三组报告；免费、只读、不代笔。随卷页签重排） */
 function VolumeVerifyPanel({
   projectId,
   data,
   autoCheckSeq,
+  onPlanVolume,
 }: {
   projectId: string;
   data: VolumeRailData;
   autoCheckSeq: number;
+  /** 卷纲页签的「重新规划这一卷（AI）」：打开规划台，卷号＝本卷 */
+  onPlanVolume: (volNo: number) => void;
 }) {
   const [checking, setChecking] = useState(false);
   const [report, setReport] = useState<VolumeCheckResult | null>(null);
   const [error, setError] = useState("");
   const volRef = `vol-${data.volume}`;
+  const tab = data.tab;
+  /** 组序按页签重排（不重跑、不改写结论）。逐实例消费（splice）：模型输出重名组时
+   *  一组都不吞；顺序表之外/认不出的组名按模型原序追加在尾。 */
+  const groups = useMemo(() => {
+    if (!report || report.degraded) return [];
+    const order = (VOL_TAB_ORDER[tab] ?? VOL_TAB_ORDER.outline).map(normGroupKey);
+    const rest = [...report.report];
+    const out: VolumeCheckResult["report"] = [];
+    for (const key of order) {
+      const i = rest.findIndex((g) => normGroupKey(g.name) === key);
+      if (i >= 0) out.push(...rest.splice(i, 1));
+    }
+    return [...out, ...rest];
+  }, [report, tab]);
 
   const runCheck = useCallback(async () => {
     setChecking(true);
@@ -143,11 +192,12 @@ function VolumeVerifyPanel({
       </div>
       <div className="ai-ctx">
         <em>当前页签</em>
-        <span>卷的验证</span>
+        <span data-testid="volume-rail-tab">{VOL_TAB_NAME[tab] ?? "卷纲"}</span>
       </div>
       <div className="rail-assist" data-testid="volume-verify-panel">
-        <p className="ai-lead">
-          这一卷的验证：对不对得上全书设定、接不接得上主线、跟已经写出来的部分有没有出入。只给判断，不代笔。
+        <p className="ai-lead" data-testid="volume-rail-lead">
+          {VOL_TAB_LEAD[tab] ??
+            "这一卷的验证：对不对得上全书设定、接不接得上主线、跟已经写出来的部分有没有出入。只给判断，不代笔。"}
         </p>
         <button
           className="btn btn-secondary btn-sm"
@@ -157,6 +207,16 @@ function VolumeVerifyPanel({
         >
           {checking ? "体检中…" : "体检这一卷"}
         </button>
+        {tab === "outline" && (
+          <button
+            className="btn btn-secondary btn-sm"
+            data-testid="volume-replan"
+            title="打开规划台，卷号＝本卷；采纳后仍逐段落进卷纲表单，保存才落库"
+            onClick={() => onPlanVolume(data.volume)}
+          >
+            重新规划这一卷（AI）
+          </button>
+        )}
         {error && (
           <p className="pv-error" data-testid="volume-check-error">
             {error}
@@ -171,8 +231,8 @@ function VolumeVerifyPanel({
         )}
         {report && !report.degraded && (
           <div data-testid="volume-check-report">
-            {report.report.map((g) => (
-              <div key={g.name}>
+            {groups.map((g, gi) => (
+              <div key={`${g.name}#${gi}`}>
                 <p className="rp-k">{g.name}</p>
                 <ul className="rp-list">
                   {g.items.map((it, i) => (
@@ -228,6 +288,7 @@ export function VolumeAssistPanel({
         projectId={projectId}
         data={data}
         autoCheckSeq={autoCheckSeq}
+        onPlanVolume={onPlanVolume}
       />
     );
   }

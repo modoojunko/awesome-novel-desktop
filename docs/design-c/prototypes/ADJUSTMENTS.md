@@ -1048,3 +1048,33 @@ cast-row，坎行复用 hurdle-row；色彩与组件零新形态。
    列/表的物理清理另立项（todo 已登记，属破坏性 schema 变更）。
 8. **design:check**：book.html 的添加卷弹窗段与实现同批改到四问版式；parity CASES 不含该弹窗与
    卷纲屏（卷屏事实源早已转 storyline.html），故 parity 不受影响；design:lint 词汇门禁随批次跑。
+
+---
+
+## 三页签回默认主页＋卷页签右栏＋抽卡「上接」（c-write-home-rail-anchor，2026-09-22）
+
+设计源：`drafts/storyline.html` 卷选中态右栏段（`aiVolHTML`）＋ `drafts/ai-novel-c端-整书拆纲.html`
+（抽卡卡片 `pickCardsHTML`、默认页段）。两份稿件同属 drafts 目录、**不进像素 parity 基线**（同 #27 口径）。
+本 change 同时改实现（`client/frontend`）与这两段原型，逐项：
+
+1. **卷选中态右栏由「四页签统计卡＋卷域动作清单」收窄为「验证面板随页签」**：storyline 稿 `aiVolHTML`
+   原四分支渲染统计卡与动作清单（动作无端点、从未落地，见上「卷域 AI 动作清单暂缺」条），本稿按
+   `volume-plan-ai` 既有口径收窄——「当前页签」显示真实页签名（卷纲／本卷章节／角色关系／伏笔）、
+   引导语随页签、体检报告三组按页签前置、卷纲页签另给「重新规划这一卷（AI）」。**不复活统计卡与动作清单**。
+   为收窄所加：`AI_VOL_TAB_NAME`（`outline` 在卷页签叫「卷纲」，章页签才叫「章纲」）＋`aiShell(tab,lead,body,tabName)`
+   可选形参＋rp-* 报告类搬入。
+2. **抽卡卡片自带上接**：拆纲稿 `pickCardsHTML` 每张 `.pick-card` 卡首插一行 `.pk-row.pk-in`
+   （`enterText()` 单源：第二卷起＝上一卷的结尾、首卷＝起点），两行截断（新增 `.pk-in` 截断规则）＋`title` 全文；
+   `data-od-id="pick-enter-*"`。实现侧同款落在 `PickCardsModal`（组件内 `useAnchor` 取 `plan-anchor`）。
+3. **书主页卡（写作默认页第三态）**：拆纲稿原只有「① 空书起手卡」与「④ 落点卡」，本稿补 `homeCardHTML`
+   ＋ demo ⑦；落点卡同批补「＋ 新增一卷」——三态恒有建书入口。实现侧类名角色沿产品既有三态
+   （`.be-k` 眉标 / `.be-t` 主句 / `.be-desc` 说明 / `.be-acts` 动作），与原型自有 `.be-mark` 不同名不同层，
+   **不为新卡引入未登记类**。
+4. **设定与预览的回默认只改落点、不改版式**：设定重复点「设定」拨回默认面板（第一项「简介」）、
+   预览定档一律落首章（不再继承写作页当前章）——两处无新版式，故两份原型未改版式段；
+   行为口径以 `workbench` / `preview-reader` spec 为准。
+5. **基线换基说明（2026-09-22）**：本 change 首版分支切自 c-volume-antagonist（#458）之前；#458 重写规划台后
+   本稿把三件事重新落到 origin/main（卡面由 `cand` 族改落 `pick-card` 族、建卷统一走规划流、
+   「添加卷」独立弹窗退役）——两段原型与实现同批对齐，`prototypes/book.html` 与全部 parity 基线**不动**。
+6. **验证**：两份稿件脚本 `node --check` 通过；Playwright 走查零 JS 报错（卷四页签的「当前页签／组序／动作」
+   与抽卡卡片「上接」文本均按预期渲染）。

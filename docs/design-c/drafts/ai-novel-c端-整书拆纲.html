@@ -774,6 +774,8 @@
   .pick-card .pk-row{display:flex;flex-direction:column;gap:1px;padding-top:7px;border-top:1px dashed color-mix(in oklch,var(--border) 60%,transparent)}
   .pick-card .pk-row>b{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;font-weight:400;color:var(--faint)}
   .pick-card .pk-row>span{font-size:12px;line-height:1.62;color:var(--fg);opacity:.9}
+  /* 卡片自带的「上接」行（c-write-home-rail-anchor）：与锚点同源，长文本两行内截断（全文走 title） */
+  .pick-card .pk-row.pk-in>span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .pick-card .pk-cast span{display:block}
   .pick-card.on .pk-picked{align-self:flex-end;font-family:var(--font-mono);font-size:10px;color:var(--accent)}
   .av-sheet .fro:first-of-type{padding-top:2px}
@@ -1113,7 +1115,7 @@ const PLANS = {
 const CHIPS = ['更早断','更晚断','更狠','更暖'];
 /* 中栏回填的顺序＝卷纲表单的段序：一条条落下来，最后落自查 */
 const FORM_BLOCKS = ['enter','plot','conflict','ant','end','base','cast','hooks','defer','check'];
-const DEMO = [['empty','① 空书起手'],['desk','② 规划台'],['genDone','③ 生成完成'],['saved','④ 已保存（写作页）'],['vol','⑤ 卷纲与体检'],['next','⑥ 规划下一卷']];
+const DEMO = [['empty','① 空书起手'],['desk','② 规划台'],['genDone','③ 生成完成'],['saved','④ 已保存（写作页）'],['home','⑦ 书主页（有章）'],['vol','⑤ 卷纲与体检'],['next','⑥ 规划下一卷']];
 
 /* 换一组：roguelike 式重抽——不满意就再来三套（演示数据一组；实现侧重调 options 换温度重抽） */
 const PLANS_ALT = {
@@ -1385,6 +1387,21 @@ function landingHTML(){
     + '<p class="be-acts">'
     +   '<button class="btn btn-accent" data-act="add-ch-in-vol" data-od-id="cta-first-chapter">＋ 在本卷排第一章</button>'
     +   '<button class="btn" data-act="view-vol" data-i="'+(n-1)+'" data-od-id="cta-open-vol">看第'+CN[n]+'卷的卷纲</button>'
+    +   '<button class="btn" data-act="manual-vol" data-od-id="cta-add-vol">＋ 新增一卷</button>'
+    + '</p></div>';
+}
+/* 书主页（写作默认页的第三态）：有章时的落点——进度眉标＋续写＋建书双入口。
+   与起手卡/落点卡同容器：三态恒有「＋ 新增一卷 / ＋ 新增一章」。
+   实现侧类名角色＝be-k 眉标 / be-t 主句 / be-desc 说明 / be-acts 动作（沿用产品既有三态口径）。 */
+function homeCardHTML(){
+  return '<div class="e-empty" data-od-id="write-home">'
+    + '<p class="be-mark">2 卷 · 3 章 · 已归档 1 章 · 共 4.2 万字</p>'
+    + '<p class="be-k">接着写第 3 章？</p>'
+    + '<p class="be-t">在左侧目录里选一章，上面一行页签会展开它的章纲、正文、提示词、设定与关系伏笔，重写与回退收在「操作」页签里。</p>'
+    + '<p class="be-acts">'
+    +   '<button class="btn btn-accent" data-act="resume" data-od-id="home-resume">续写</button>'
+    +   '<button class="btn" data-act="manual-vol" data-od-id="home-add-vol">＋ 新增一卷</button>'
+    +   '<button class="btn" data-act="manual-ch" data-od-id="home-add-ch">＋ 新增一章</button>'
     + '</p></div>';
 }
 function emptyCardHTML(){
@@ -1409,7 +1426,8 @@ function editorHTML(){
       + '<div class="e-meta"><span class="tag">建议 '+(ol.total||'—')+' 章</span><span class="hash">还没保存 · 改完点「保存卷纲」</span></div>',
       volForm());
   }
-  if(state.selVol < 0) return landingHTML();   /* 规划完就回写作默认页 */
+  /* 有章 → 书主页卡（写作默认页第三态）；无章 → 落点卡 */
+  if(state.selVol < 0) return state.demo==='home' ? homeCardHTML() : landingHTML();
   const v = viewedVol() || {};
   const nm = (v.name && String(v.name).trim()) ? v.name : '第一卷';
   return volFrame(
@@ -1516,7 +1534,9 @@ function pickCardsHTML(){
   g.innerHTML = list.map(p=>{
     const o = planOl(p);
     const cast = (o.cast||[]).map(c=>'<span>'+esc(c.n)+' · '+esc(c.l)+'</span>').join('');
+    const en = enterText();
     return '<button type="button" class="pick-card'+(state.pickPick===p.k?' on':'')+'" data-act="pick-select" data-k="'+p.k+'" data-od-id="pick-card-'+p.k.toLowerCase()+'">'
+    + '<div class="pk-row pk-in" data-od-id="pick-enter-'+p.k.toLowerCase()+'"><b>'+esc(en.k)+'</b><span title="'+attr(en.v)+'">'+esc(en.v)+'</span></div>'
     + '<span class="pk-axis">'+esc(p.focus.split('——')[0].replace('侧重','').trim())+'</span>'
     + '<p class="pk-title">'+esc(p.spine)+'</p>'
     + '<div class="pk-row"><b>主要冲突</b><span>'+esc(o.conflict)+'</span></div>'
@@ -1535,6 +1555,15 @@ function pickFootHTML(){
     + (state.pickGen
         ? '<button class="btn btn-sm btn-accent" disabled><span class="ra-spin"></span>正在铺这一卷…</button>'
         : '<button class="btn btn-sm btn-accent" data-act="pick-confirm" data-od-id="cta-pick-confirm"'+(chosen?'':' disabled')+'>确认这一套，成卷 →</button>');
+}
+/* 这一卷从哪里进场（第二卷起＝上一卷的结尾；首卷＝全景起步）。
+   锚点块与每张抽卡卡片的「上接」行**同源**——滚到卡片区、锚点不在视野时仍能判断衔接。 */
+function enterText(){
+  const n = state.planVol;
+  const prev = n > 1 ? state.vols[n-2] : null;
+  return prev
+    ? { k:'上接', v:(prev.ending || '（上一卷还没写卷末结局）') }
+    : { k:'起点', v:BOOK.start };
 }
 function pickModalHTML(){
   const m = $('#pick-modal'); if(!m) return;
@@ -1836,6 +1865,7 @@ function setDemo(k){
   else if(k==='desk'){ Object.assign(state,{phase:'empty',pick:null,vols:[],check:null,scIgnored:false,modal:false,pickModal:false,input:CANDS[0].dir,submittedLine:'',planVol:1,genView:false,genDone:false,fill:0,selVol:-1,plans:null,plansRound:0,pickPick:null});
     if(state.pro){ state.pickModal=true; render(); drawPlans(); } else { state.modal=true; render(); } }
   else if(k==='genDone'){ Object.assign(state,{pick:'A',vols:[],modal:true,phase:'gen',planVol:1,genView:true,genDone:true,fill:0,check:null,scIgnored:false,input:CANDS[0].dir,submittedLine:CANDS[0].dir,selVol:-1}); }
+  else if(k==='home'){ Object.assign(state,{pick:null,vols:[mkVol(CANDS[0]),mkVol(VOL2)],modal:false,phase:'saved',planVol:2,selVol:-1,check:null,genView:false,genDone:false,fill:FORM_BLOCKS.length,submittedLine:''}); }
   else if(k==='saved'){ Object.assign(state,{pick:'A',vols:[mkVol(CANDS[0])],modal:false,phase:'saved',planVol:1,selVol:-1,check:null,genView:false,genDone:false,fill:FORM_BLOCKS.length,submittedLine:CANDS[0].dir}); }
   else if(k==='vol'){ Object.assign(state,{pick:'A',vols:[mkVol(CANDS[0])],modal:false,phase:'saved',planVol:1,selVol:0,check:'done',genView:false,genDone:false,fill:FORM_BLOCKS.length,submittedLine:CANDS[0].dir}); }
   else if(k==='next'){ Object.assign(state,{pick:'A',vols:[mkVol(CANDS[0])],modal:true,phase:'saved',planVol:2,selVol:-1,input:'',submittedLine:'',check:null,genView:false,genDone:false,fill:0}); }
@@ -1911,6 +1941,7 @@ const ACTS = {
   'dep': el=>{ toast('演示稿：跳回设定页「'+el.dataset.name+'」——本原型未覆盖设定视图'); },
   'manual-vol': ()=>openPlan(nextNo()),
   'manual-ch': ()=>{ toast('演示稿：手动排章走现有「先垫第一卷」路径（本稿不覆盖）'); },
+  'resume': ()=>{ toast('演示稿：续写回到上次写到的那一章（本稿不覆盖章工作台）'); },
   'add-ch-in-vol': ()=>{ toast('演示稿：排第一章走现有章工作台（本稿不覆盖）'); },
   'jump': ()=>{ state.selVol = -1; state.check = null; render(); toast('回到写作页 · 没有选中卷或章'); },
   'tab': ()=>{ toast('演示稿：本稿只覆盖「卷纲」页签'); },
