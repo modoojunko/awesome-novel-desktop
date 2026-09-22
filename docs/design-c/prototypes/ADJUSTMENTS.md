@@ -1091,3 +1091,22 @@ cast-row，坎行复用 hurdle-row；色彩与组件零新形态。
    右栏 AI 入口打开的手写页（免费档）**保留**铺空缺按钮与 PRO 说明（那是 AI 链路的唯一可达页）。
    原型：拆纲稿 `state.manual` ＋ desk 动作条件渲染；实现：`useVolumePlan.state.openMode` ＋
    `VolumePlanModal` 的 `manual` 分支。
+
+## 中栏空态三张卡的层级对齐（c-empty-card-hierarchy，2026-09-22）
+
+**问题**（存量、v0.24 起）：`.e-empty` 家族四档里，实现把**眉标**塞进了 `.be-k`（19px 展示体＋墨色），
+**主句**（提问）被挤进 `.be-t`（13.5px muted），说明句还挂了一个**产品 CSS 里根本没有定义的** `.be-desc`
+——于是三张卡都是「数字/状态当大字、提问变灰变小」，提问与说明同为灰色小字，读不出这一屏在问什么。
+原型是对的（`.be-mark` 眉标 / `.be-k` 主句 / `.be-t` 说明），实现映射错位。
+
+**本稿处置**（原型无需改动）：
+
+1. `client/frontend/src/design/book.css` 的 `.e-empty` 段补回 `.be-mark` 一档（照原型：mono 10px／字距 .14em／
+   `--accent` 色／margin 0 0 10px），并把该段注释写成四档角色（`.be-mark`→`.be-k`→`.be-t`→`.be-acts`）。
+2. 三张卡（起手卡 `book-empty`／落点卡 `landing-card`／书主页卡 `write-home`）同批改回档位：眉标 → `.be-mark`、
+   提问 → `.be-k`、说明 → `.be-t`；**`.be-desc` 退役**（不再有任何使用点）。
+3. 影响面：`.e-empty` 只在中栏默认页三态使用；**不在像素 parity 基线**（book.html 基线是「默认章工作台」），
+   故无基线漂移。窄窗复核 1024 无溢出（三按钮行实测 506/558）。
+4. 验证：真实栈走查三张卡的档位顺序均为 `["be-mark","be-k","be-t","be-acts"]`（断言实测）；
+   对照截图 `/tmp/card-1-empty.png`、`/tmp/card-2-landing.png`、`/tmp/card-3-home.png`、`/tmp/card-3-home-1024.png`；
+   `design:lint` exit 0、`tsc` 0 error、`vitest` 754 passed、全量 e2e 见 PR。

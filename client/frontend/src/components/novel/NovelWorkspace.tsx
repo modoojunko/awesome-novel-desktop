@@ -927,9 +927,9 @@ export default function NovelWorkspace() {
               {volumes.length === 0 ? (
                 /* 空书起手卡（作家口径）：自己动手双入口；AI 入口只在右栏 */
                 <div className="e-empty" data-od-id="book-empty">
-                  <p className="be-k">设定 {settingsDone}/7 已确认</p>
-                  <p className="be-t">这本书怎么开始？</p>
-                  <p className="be-desc">
+                  <p className="be-mark">设定 {settingsDone}/7 已确认</p>
+                  <p className="be-k">这本书怎么开始？</p>
+                  <p className="be-t">
                     自己动手：先建一卷、排上第一章就能开写；想让 AI
                     按主线拆分卷，用右侧的 AI 助手。
                   </p>
@@ -953,11 +953,11 @@ export default function NovelWorkspace() {
               ) : totalChapters === 0 && !everPlanned ? (
                 /* 落点卡（volume-plan-ai）：有卷从未排章——规划完卷落这里 */
                 <div className="e-empty" data-testid="landing-card">
-                  <p className="be-k">
+                  <p className="be-mark">
                     第{lastVolNo}卷 · {lastVolTitle} 已就绪
                   </p>
-                  <p className="be-t">开始写第一章？</p>
-                  <p className="be-desc">点左栏的卷排第一章；卷纲随时能回来改。</p>
+                  <p className="be-k">开始写第一章？</p>
+                  <p className="be-t">点左栏的卷排第一章；卷纲随时能回来改。</p>
                   <p className="be-acts">
                     <button
                       className="btn btn-primary"
@@ -984,14 +984,14 @@ export default function NovelWorkspace() {
                 </div>
               ) : (
                 /* 书主页卡（页签回默认主页）：有章时的默认落点——进度眉标＋续写＋建书双入口
-                   类名角色与同容器另两态一致：be-k 眉标 / be-t 主句 / be-desc 说明 / be-acts 动作 */
+                   四档角色与同容器另两态一致：be-mark 眉标 / be-k 主句 / be-t 说明 / be-acts 动作 */
                 <div className="e-empty" data-testid="write-home">
-                  <p className="be-k" data-testid="home-progress">
+                  <p className="be-mark" data-testid="home-progress">
                     {volumes.length} 卷 · {totalChapters} 章 · 已归档 {archivedTotal} 章 · 共{" "}
                     {bookWords.toLocaleString("zh-CN")} 字
                   </p>
                   {hereTarget ? (
-                    <p className="be-t">
+                    <p className="be-k">
                       接着写第 {hereTarget.no} 章？
                       {/* 「待写」是端点占位不是章名，不拼进问句（顶栏同款口径） */}
                       {hereTarget.state === "pending" ||
@@ -1000,9 +1000,9 @@ export default function NovelWorkspace() {
                         : hereTarget.title}
                     </p>
                   ) : (
-                    <p className="be-t">这本书怎么继续？</p>
+                    <p className="be-k">这本书怎么继续？</p>
                   )}
-                  <p className="be-desc">
+                  <p className="be-t">
                     在左侧目录里选一章，上面一行页签会展开它的章纲、正文、提示词、设定与关系伏笔，重写与回退收在「操作」页签里。
                   </p>
                   <p className="be-acts">
