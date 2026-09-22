@@ -135,3 +135,21 @@
       隔离栈（重建镜像）聚焦 e2e creation-flow＋volume-plan＋workbench-features **25 passed**；
       全量 e2e 见 11.7
 - [x] 11.7 全量 e2e（换基后第二轮）：隔离栈 **174 passed / 0 failed / 17 skipped（8.4min）**
+
+## 12. 手动入口的手写页撤 AI 动作（用户 2026-09-22 追加）
+
+口径：加号打开的四问手写页是**纯手动页**，SHALL NOT 出现「让 AI 铺完剩下的问题」；四问提示文案也不承诺
+「答不出的交给 AI」，改为一句指向右栏 AI 入口的说明。右栏 AI 入口打开的手写页（免费档）**保留**铺空缺
+按钮与 PRO 说明（AI 链路的唯一可达页）。
+
+- [x] 12.1 `useVolumePlan.state.openMode`（`open()` 落）＋ `VolumePlanModal` 的 `manual` 分支：
+      手动入口下撤 `desk-expand`＋其说明，lead 改「答不出的可以空着」、Q1 注改「可空」，
+      push 区改「想让 AI 铺空缺：用右侧 AI 助手的「规划第N卷（AI）」」
+- [x] 12.2 测试：vitest 新增「手动入口：手写页不出现 AI 动作，只留直接创建＋指向右栏的说明」
+      （含「不再承诺交给 AI」断言）；`creation-flow.spec` 树头加号用例补 `desk-expand` 计数 0 断言
+- [x] 12.3 spec：workbench 的 N4 建卷 bullet 补「该页 SHALL NOT 出现任何 AI 动作＋须给右栏指引」；
+      volume-plan-ai 的「两条并行入口」手动入口 bullet 同款
+- [x] 12.4 原型与登记：拆纲稿 `state.manual` ＋ desk 动作条件渲染；ADJUSTMENTS 第 8 条
+- [x] 12.5 门禁：tsc 0 error；vitest **77 文件 / 754 passed**；`openspec validate --strict` 绿；
+      隔离栈（重建镜像）聚焦 e2e creation-flow＋volume-plan **11 passed**（含加号页无 AI 动作断言）
+- [x] 12.6 全量 e2e：隔离栈 **174 passed / 0 failed / 17 skipped（8.5min）**

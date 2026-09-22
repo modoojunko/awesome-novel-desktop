@@ -311,6 +311,9 @@ test("空书无门控：建书即写，加卷加章直达编辑器", async ({ pa
     await page.getByTitle("新增一卷").click();
     await expect(page.getByTestId("volume-plan-modal")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("pick-modal")).toHaveCount(0);
+    // 手写页＝纯手动：不出现 AI 动作（「让 AI 铺完剩下的问题」），只留「直接创建这一卷」
+    await expect(page.getByTestId("desk-expand")).toHaveCount(0);
+    await expect(page.getByTestId("desk-create")).toBeVisible();
     await page.getByTestId("q-what").fill("风起晋北：她在边城追查匿名信的来路。");
     await page.getByTestId("desk-create").click();
 

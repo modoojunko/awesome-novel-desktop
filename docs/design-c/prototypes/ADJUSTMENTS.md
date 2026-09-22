@@ -1084,3 +1084,10 @@ cast-row，坎行复用 hurdle-row；色彩与组件零新形态。
    **不分档位**；三选一抽卡 SHALL 只从右栏「规划第N卷（AI）」进（该入口仍按档分流：付费＝抽卡、免费＝四问页）。
    原型：拆纲稿 `openPlan(n, manual)` 加 manual 参数、`manual-vol` 传 true；实现：`useVolumePlan.open(volNo, isPro, mode)`，
    `NovelWorkspace` 拆 `openPlanVolumeManual`（加号）与 `openPlanVolume`（右栏 AI）。
+
+8. **（09-22 追加）手动入口的手写页 SHALL NOT 出现 AI 动作**（用户拍板）：加号（各处「＋ 新增一卷」）
+   打开的四问手写页只留「直接创建这一卷」，**不出现「让 AI 铺完剩下的问题」**；四问提示文案不承诺
+   「答不出的交给 AI」，改为一句指向右栏 AI 入口的说明（「想让 AI 铺空缺：用右侧 AI 助手的『规划第N卷（AI）』」）。
+   右栏 AI 入口打开的手写页（免费档）**保留**铺空缺按钮与 PRO 说明（那是 AI 链路的唯一可达页）。
+   原型：拆纲稿 `state.manual` ＋ desk 动作条件渲染；实现：`useVolumePlan.state.openMode` ＋
+   `VolumePlanModal` 的 `manual` 分支。
