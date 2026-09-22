@@ -280,6 +280,99 @@ POST /web/login      × 35 → 200×35 全部（限流完全没拦，登录逻�
 
 ## 中优先（质量治理）
 
+- [x] **库文件名＝C端 版本（单一方案，不区分破坏性/小改）｜2026-09-21 拍板 → 09-22 已实现（PR #464，待审/待合）**
+  **✅ 已实现（2026-09-22）**：`openspec/changes/c-db-per-version/`（propose 四工件齐）→
+  实现＋双评审整改＋PR 检视整改全落，**PR #464**（7 commits，MERGEABLE）。本地门禁：
+  pytest 1314 / vitest 746 / tsc 0 错 / drill --all 全绿 / UP-11 e2e 2 条通过 /
+  UP-16 真数据演练（1213 本带回、源三件套不变）。**CI 红＝额度/基建签名**（job `steps: []`，
+  与 09-05 先例同款；额度 10-01 重置）。合并后待办：①归档本 change（specs sync + Purpose
+  改词）②发 v0.25 时用 `notes-release.md` 底稿写 tag 附注（升级须带一次旧版作品）。
+  前置任务 0.1＝**先归档 `c-db-generation-migration`**（16/16 已完成、代码随 #453 在 main）——
+  `db-generation` 目标 spec 只在那个未归档 change 里，`openspec validate` 已实测报
+  「target spec does not exist，归档会拒绝 MODIFIED/RENAMED」；归档后本 change 的 delta 才有
+  可对齐的规格文本。触发词：**「开工」**。以下为拍板与实测记录（立项依据）。
+  现状（三轴各自独立，已逐处实测）：①**库文件名 = `novel-v{SCHEMA_VERSION}.db`**
+  （`client/backend/schema_version.py:12-14`，现 `SCHEMA_VERSION = 1` → 用户机上恒为
+  `novel-v1.db`）：这是**代数计数器**，不是版本号——只在破坏性 schema 变更（删表/删列/
+  列改名/类型收窄/约束变更）时 +1；additive（新表/可空列/带默认列）不升代，走启动期
+  `ADDITIVE_COLUMNS` 幂等补列（`db_lifecycle.py:253`，现仅 1 条 `volumes.plan_line`）。
+  ②**C端 版本 = git tag**（v0.24）：只进安装包名 `AI_Novel_Setup_v0.24.exe` / dmg 与
+  打包期烘焙的 `release.json.client_version`（`client-package.yml:85-97`），运行时仅被
+  更新检测消费（`update_check.py:50`）——**从不进库文件名**。③备份包契约 =
+  `backup.FORMAT_VERSION`（现 4，`backup/format.py:11`）。
+  解耦是有意的：`schema_version.py:6` 写死「与 FORMAT_VERSION 各自演进、绝不共用」，
+  db-generation spec 也明写「库文件 SHALL 按 `novel-v{SCHEMA_VERSION}.db` 命名」
+  （在 `openspec/changes/c-db-generation-migration/specs/db-generation/spec.md:9`，
+  该 change 已随 #453 合入但**尚未归档**）。
+  痛点：`novel-v1.db` 里的 `v1` 极易被读成「C端 v1 的库」（产品实际已到 v0.24，从没有过
+  v1）；数据目录看不出「这份库最后被哪版客户端写过」——排障/客服只能靠 mtime 猜；
+  `app_meta` 里只有 `schema_id` 指纹戳，没有任何版本戳。
+  **拍板（2026-09-21，用户三次收敛后的定论）：单一方案——库文件名＝C端 版本，每版首启新建
+  自己的库，旧库只读留存、靠「找回」把书带过来；不区分破坏性改字段/小改字段**。
+  形态必须钉死成「**拷贝前进：永不改名、永不就地改**」——这是全部安全性的来源，也是它与
+  我先前提议否决的「改名版」的区别：新版首启若 `novel-v{本版}.db` 不存在 → 建空库；旧版
+  文件**一个字节都不动**（直接用现有迁入引擎的副本搬运语义）。于是：
+  · 回滚（装回 v0.24）→ 它自己的 `novel-v0.24.db` 还在 → 直接可用，无空书架；
+  · 无「改名」→ 无三件套改名非原子/Windows 文件锁问题，#453 的「回滚互踩」不会复发。
+  **红利（正对「不要区分」这条）**：`ADDITIVE_COLUMNS` 整条链退役（再无就地 ALTER），
+  本轮核出的「漏登记→静默刷戳→永久 current→再修不救」洞随之消失；`tolerant` 超集放行
+  退为不需要。
+  **必须同批定死的五件事（否则会换出一批新坑）**：
+  ①**每版都走一次「把上一版的书带过来」＝升级仪式**（用户已选，代价明说：每次发版点一次）。
+  产品口径要从「救火·找回丢了的数据」改成「把上一版的书带过来」——空态不能写成丢书；
+  用户可见层仍禁出现文件名/版本号。建议：**单候选且是紧邻上一版时降为「一键/首启自动搬运」
+  ＋结果提示**（五步向导保留给多候选/异常场景），否则每次发版都让用户走五步太重。
+  ②**旧库留存与清理**：每版一个文件＝磁盘线性增长；默认永不自动删，提供「保留最近 N 个
+  ＋一键清理」（复用既有 L2 ConfirmGuard 盘点确认）。
+  ③**命名与排序**：文件名用 semver（`novel-v0.24.db`）；候选排序必须 semver 比较（字符串序
+  会错：0.9 vs 0.10）；排除条件从 `gen >= SCHEMA_VERSION` 改为「版本 ≥ 当前版的不收」；
+  `dev`/PR 构建（`client_version=dev`，`client-package.yml:85-88`）必须有**固定哨兵名**，
+  否则每次 CI 构建乱窜。
+  ④**`SCHEMA_VERSION`/世代门禁退役**：SCHEMA_VERSION 不再决定文件名；pre-ADR 门禁天然可留
+  （`migration/engine._is_pre_adr_generation` 是按 schema 体检判的，不看文件名）。
+  ⑤**转换器/drill 纪律改挂「每版」**：引擎的列交集搬运已通用，语义转换按需加转换器；
+  `upgrade_drill` 的 `gen-bump` 改按版本链走（v(N)→v(N+1)→v(N+2) 链式搬运）。
+  **B（BOM）缩水但保留（成本极小，作排障兜底）**：文件名已自述 db 版本后，B 只剩两处——
+  `release.json` 加 `components = {backup_format_version, …}`（CI 构建期从单源读
+  `backup.format.FORMAT_VERSION`；`config.RELEASE_OVERRIDE_KEYS` 加键即生效）＋ 启动期把版本
+  写进库的 `app_meta`（`app_version`＋组件快照）→ **库文件被拷走/改名时仍能自证**。
+  **方案背景·现状实测（2026-09-21 核）**：①今天 additive 版本＝同一库文件原地补列
+  （lifespan：`create_all`→`apply_additive_columns`→刷指纹戳；如 #454 的
+  `volumes.plan_line`），无新库无导入、安装即完成——**正是本 change 要取消的分叉**。
+  ②「装完库真的是新的」的现实来源更可能是**数据目录随 exe 走**：Windows 便携式
+  `install_dir/data`（`pywebview_app.get_install_dir` → frozen Windows = exe 同目录），
+  macOS 例外（Application Support，跨版本稳定）；**换路径安装／卸载重装才会空库**，与版本
+  命名无关（安装器不删数据：`[Files]` 白名单复制、无 InstallDelete/UninstallDelete；
+  `[UninstallRun]` 清的 `%APPDATA%\AI Novel` 是运行时目录不是 data）。
+  ③本轮核出的真洞：additive 登记纪律**无强制校验**——models 加列但漏登记不会报错，而
+  「补列后刷指纹戳」把该库永久判成 current，此后**再修也不救**（指纹匹配→不再算 additive
+  计划），runtime 才炸 `no such column`。**本方案集中 ADDITIVE 链退役即消解**；若落地前仍有
+  过渡期，补一条测试断言 `Base.metadata` 的列 ⊆（升代基线 ∪ 登记表）。
+  ④**数据目录布局：拍板维持便携式（2026-09-21 用户裁定，撤销我先前「必须一起解决」的建议）**
+  ——数据跟随程序目录（`pywebview_app.get_install_dir`：frozen Windows = exe 同目录下的 `data/`）
+  是**设计意图**，不改；**用户自己换了安装目录＝用户自担**，标准动作＝**在老版本里「备份」导出
+  包 → 装新版 → 「恢复」导入**。已核实这条逃逸路径今天就是通的：账户菜单「数据」组有
+  「备份」（原生选文件夹、`include_config: true` 含 API Key，`AcctMenu.runBackup`）＋
+  「恢复」（`RestoreModal` 选包→预览→恢复）＋「找回旧书」（`LegacyMigrateModal`）。
+  执行边界：安装器不删旧目录（无 InstallDelete/UninstallDelete），所以旧库不会自动消失、有得救。
+  本 change 只需做低成本的三件事（不做数据目录迁移）：
+  ·①**说清规则**（产品文档/帮助）：换安装目录、换电脑＝走备份包往返；
+  ·②**空态并列两条出路**：换路径后的新版会看到空书架且「找回」扫不到东西（只扫当前 data 目录），
+    空态需要同时给「找回旧书」与「从备份包恢复」，别让用户只看到一条走不通的路；
+  ·③**写一条更省事的人工路径**（无需重装老版本）：把旧安装目录里的 `data\` 拷进新安装目录——
+    新版启动即会发现旧库并走找回（拷入的文件名版本低于当前即合格；本方案下仍需点一次「带过来」，
+    而现行同名代数库则是直接续用）。
+  验收口径：装 v(N+1) → 空库＋「把上一版的 N 本书带过来」→ 搬运后书全在、**v(N) 库字节
+  不变**；回滚装回 v(N) → 直接可用（自己的库还在）；v(N)→v(N+1)→v(N+2) 链式搬运走通；
+  命名/排序 semver 正确（0.9 < 0.10）；dev 构建命名稳定；**零就地 ALTER**（`ADDITIVE_COLUMNS`
+  链已删）；`upgrade_drill` 按版本链全绿；db-generation spec 改词（该 spec 现仍在未归档的
+  c-db-generation-migration 里，同批归档）。
+  触发方式：对话里说「立项库文件名对齐版本」。
+  附（同文件区顺手项，随本 change 一并清）：`client/backend/main.py:94-101`
+  `apply_additive_columns` 的注释＋import＋调用**整块重复两遍**，且 `main.py:205-208` 还留着
+  一份**无人消费的 `ADDITIVE_COLUMNS` 副本**（真单源是 `db_lifecycle.py:253`）——幂等所以无害，
+  属 #453 收编未尽的残留。
+
 - [ ] **设定面板「挂载未完成点确认＝空表单覆盖」竞态守卫（2026-09-16 发现，单独立项）**
   问题：设定面板打开时数据异步载入，载入完成前点「确认完成」会把**空表单**整卡
   覆盖存回——已写内容被静默清空（e2e 机器手实测稳定复现：确认点击后
@@ -426,3 +519,14 @@ POST /web/login      × 35 → 200×35 全部（限流完全没拦，登录逻�
 - **云托管每天首访冷启动 30-60s**：MinNum=0 成本拍板，登录链路有门闩+重试自愈，
   勿再提保温（[[cloudbase-cold-start-503]] 既定裁定）。
 - **主题切换入口在「账户设置」页**：如后续觉得入口深，可挪控制台首页快捷卡/顶栏（用户未提需求，不动）。
+
+## macOS .app 主体/版权元数据缺失（2026-09-21 登记，待立项；触发词「立项 mac 主体元数据」）
+
+- [ ] **问题**：`build.spec` 的 `BUNDLE` 只设 name/icon/bundle_identifier，Info.plist 无
+  `NSHumanReadableCopyright` 等主体字段，Finder 简介无版权信息；mac 签名身份
+  `awesome-novel-design` 与公司主体（星纬（海口）投资有限公司）无关联。
+  来源：brand-owner-line change 的后端架构师检视「遗漏面」条目——Windows 侧
+  发布者已由 brand-owner-line 落地（brand.json `company` 单源），mac 侧零触达。
+- [ ] **承接**：独立 change（installer-release spec 为 Windows-scoped，mac 侧需自己的
+  delta 或新 capability）；实现面＝BUNDLE 注入 Info.plist 键＋（可选）签名身份与
+  主体对齐。brand.json `company` 键已就位，实现时直接消费。

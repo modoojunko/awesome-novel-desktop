@@ -25,6 +25,19 @@ python local_server.py          # 终端 1: S端 模拟器 (端口 19000)
 DATA_ROOT=./data uvicorn main:app --reload --port 8000  # 终端 2: C端 后端
 ```
 
+### 库文件与升级（c-db-per-version）
+
+库文件名 = **C端 版本派生**（`novel-v{版本}.db`）：每个版本首启新建自己的库，
+旧库只读留存、靠「带回」把作品搬过来（不再对既有库执行任何 DDL）。开发时注意：
+
+- **不设 `CLIENT_VERSION` 用哨兵名** `novel-dev.db`（PR/手动构建同此）；要按版本名跑就
+  `CLIENT_VERSION=0.24 uvicorn main:app ...`。
+- **改 schema 会被分流**：同名库指纹不符 → 可读时改名为 `novel-v{X}.db.mismatch-<stamp>`
+  （仍可作候选带回）、不可读时 `.corrupt-<stamp>` 隔离。想保住本地开发数据，把
+  `DATA_ROOT` 指到独立目录（e2e/docker 栈本来就这么做）。
+- **新增列/表**：不需要登记任何补列清单（旧的 `ADDITIVE_COLUMNS` 机制已退役）——
+  新库由 `create_all` 全量建出，老库经「带回」按列交集搬运。
+
 ## 测试
 
 ```bash
