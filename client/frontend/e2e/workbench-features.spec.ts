@@ -289,8 +289,13 @@ test("卷视图：点卷节点 → 四页签 → 卷纲两态编辑保存 → �
     await expect(page.getByText("AI 助手")).toBeVisible();
     await expect(page.getByTestId("volume-verify-panel")).toBeVisible();
     await expect(page.getByTestId("volume-check-btn")).toBeVisible();
+    // 右栏随卷页签（c-write-home-rail-anchor）：当前页签＝真实页签名；卷纲页签多一个重新规划入口
+    await expect(page.getByTestId("volume-rail-tab")).toHaveText("卷纲");
+    await expect(page.getByTestId("volume-replan")).toBeVisible();
     await page.getByRole("tab", { name: "本卷章节" }).click();
-    await expect(page.locator(".ai-ctx")).toContainText("卷的验证");
+    await expect(page.locator(".ai-ctx")).toContainText("本卷章节");
+    await expect(page.getByTestId("volume-rail-lead")).toContainText("已写内容与卷纲的出入");
+    await expect(page.getByTestId("volume-replan")).toHaveCount(0);
     // 台账行（章纲一句话列）＋点行跳章
     const row = page.locator(".vol-chrow", { hasText: "第一章" });
     await expect(row).toBeVisible();
@@ -751,7 +756,7 @@ test("预览阅读器：三栏/跨卷翻页/配置持久化/写作选中不变",
       timeout: 10000,
     });
 
-    // ── 进预览：三栏可见 + 目录头计数 + 初始章 = 写作视图当前章 ──
+    // ── 进预览：三栏可见 + 目录头计数 + 定档＝首章（不继承写作页当前章）──
     await page.locator(".mtab", { hasText: "预览" }).click();
     await expect(page.locator(".pv-tree")).toBeVisible();
     await expect(page.locator(".pv-read")).toBeVisible();
@@ -787,8 +792,10 @@ test("预览阅读器：三栏/跨卷翻页/配置持久化/写作选中不变",
     );
     expect(readTheme).toBe("night");
 
-    // ── 回写作：选中章仍是最初的第一章（预览切章不回写写作视图）──
+    // ── 回写作：落书主页卡（页签回默认主页）；续写仍指向最初的第一章（预览切章不回写写作视图）──
     await page.locator(".mtab", { hasText: "写作" }).click();
+    await expect(page.getByTestId("write-home")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("home-resume").click();
     // PR3 口径：点章/重挂载默认落「章纲」页签 → 先切「正文」再看编辑器
     await page.getByRole("tab", { name: /^正文/ }).click();
     await expect(page.locator(".editor")).toBeVisible({ timeout: 10000 });
@@ -798,6 +805,83 @@ test("预览阅读器：三栏/跨卷翻页/配置持久化/写作选中不变",
     await page.locator(".mtab", { hasText: "预览" }).click();
     await expect(page.locator(".view.preview-v")).toHaveClass(/pv-theme-night/);
     await expect(page.getByTestId("pv-chapter")).toContainText("第一章");
+  } finally {
+    await restore();
+  }
+});
+
+test("页签回默认主页：点「写作」落书主页卡（建书入口在场），删空后仍是主页卡", async ({
+  page,
+  request,
+}) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `主页${Date.now() % 100000}`);
+    await writeFirstChapter(page);
+
+    // 有章 → 点「写作」回书主页（清选中）：进度眉标 + 续写 + 建书双入口
+    await page.locator(".mtab", { hasText: "写作" }).click();
+    await expect(page.getByTestId("write-home")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("home-progress")).toContainText("1 卷 · 1 章");
+    await expect(page.getByTestId("home-add-volume")).toBeVisible();
+    await expect(page.getByTestId("home-add-chapter")).toBeVisible();
+
+    // 续写回到该章（主线端点）
+    await page.getByTestId("home-resume").click();
+    await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({
+      timeout: 10000,
+    });
+    // 重复点「写作」仍回主页（不是无操作）
+    await page.locator(".mtab", { hasText: "写作" }).click();
+    await expect(page.getByTestId("write-home")).toBeVisible({ timeout: 10000 });
+
+    // 删空最后一章：仍见书主页卡与建书入口（判据＝曾排过章）
+    const del = await request.delete(
+      `${ORIGIN}/api/novels/${pid}/chapters/vol-1-ch-1`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(del.ok()).toBeTruthy();
+    await page.reload();
+    await page.locator(".mtab", { hasText: "写作" }).click();
+    await expect(page.getByTestId("write-home")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("home-progress")).toContainText("0 章");
+    await expect(page.getByTestId("home-add-chapter")).toBeVisible();
+  } finally {
+    await restore();
+  }
+});
+
+test("页签回默认主页守卫：卷纲未保存先确认（取消留卷页 / 确认回主页）", async ({
+  page,
+}) => {
+  const { restore } = await setupSession(page);
+  try {
+    await createNovel(page, `守卫${Date.now() % 100000}`);
+    await writeFirstChapter(page);
+    // 点卷头 → 卷视图 → 进编辑态弄脏
+    await page.locator(".col-tree .vol-head", { hasText: "第一卷" }).click();
+    await expect(page.getByRole("tab", { name: "卷纲" })).toBeVisible({
+      timeout: 10000,
+    });
+    await page.getByRole("button", { name: "编辑卷纲" }).click();
+    await page.getByLabel("本卷主旨").fill("守卫用主旨，未保存。");
+
+    // 取消分支：confirm dismiss → 留在卷纲编辑态，输入保留
+    let dialogText = "";
+    page.once("dialog", (d) => {
+      dialogText = d.message();
+      void d.dismiss();
+    });
+    await page.locator(".mtab", { hasText: "写作" }).click();
+    await expect(page.getByTestId("write-home")).toHaveCount(0);
+    expect(dialogText).toContain("卷信息有未保存的修改");
+    await expect(page.getByText("正在编辑卷纲")).toBeVisible();
+    await expect(page.getByLabel("本卷主旨")).toHaveValue("守卫用主旨，未保存。");
+
+    // 确认分支：accept → 回书主页
+    page.once("dialog", (d) => void d.accept());
+    await page.locator(".mtab", { hasText: "写作" }).click();
+    await expect(page.getByTestId("write-home")).toBeVisible({ timeout: 10000 });
   } finally {
     await restore();
   }

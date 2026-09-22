@@ -5,7 +5,7 @@
 //   选中章与阅读配置均为预览本地态（ADJUSTMENTS #12/#13）：切章不回写写作视图；
 //   阅读配置走 pref.book.{pid}.read.*（独立于写作偏好 fs/lh，互不污染）。
 //   语义沿 ADJUSTMENTS #12：全书只读通读（草稿与归档章皆可读）；旧稿支线不进目录与概览。
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { nodeLabel } from "@/lib/nodeTitle";
 import {
@@ -20,8 +20,8 @@ interface PreviewViewProps {
   /** 全量卷章结构（wb.volumes 常驻内存可能滞后 → 挂载时对齐一次） */
   volumes: WorkbenchVolume[];
   onRefresh: () => void;
-  /** 初始定档章（写作视图当前章；缺省/失效回退首章） */
-  initialRef?: string | null;
+  /** 页签回默认主页：值变化＝定档拨回首章（进入预览本就落首章，不继承写作页当前章） */
+  homeSeq?: number;
   /** 空书出口：去写作视图建卷建章 */
   onGoWrite: () => void;
   /** 下载成稿入口（manuscript-download）：弹层挂壳层，这里只开 */
@@ -80,7 +80,7 @@ export default function PreviewView({
   projectId,
   volumes,
   onRefresh,
-  initialRef,
+  homeSeq,
   onGoWrite,
   onDownload,
 }: PreviewViewProps) {
@@ -97,6 +97,15 @@ export default function PreviewView({
     onRefresh();
   }, [onRefresh]);
 
+  // 页签回默认主页（c-write-home-rail-anchor）：重复点「预览」→ 定档拨回首章。
+  // 只认值变化（首帧的 0 不算）；页内选择由 selRef 持有，清空后回落首章。
+  const firstHomeSeq = useRef(homeSeq ?? 0);
+  useEffect(() => {
+    if (homeSeq === undefined || homeSeq === firstHomeSeq.current) return;
+    firstHomeSeq.current = homeSeq;
+    setSelRef(null);
+  }, [homeSeq]);
+
   const chTotal = volumes.reduce((a, v) => a + v.chapters.length, 0);
 
   /** 全书主线扁平序（卷升序 + 章升序；旧稿支线不在 volumes 主列表内） */
@@ -112,13 +121,9 @@ export default function PreviewView({
     [flatChapters],
   );
 
-  // 有效选中：本地选择失效（章已删）→ 回退初始章 → 回退首章
+  // 有效选中：本地选择失效（章已删）→ 回退首章（定档＝全书首章，不继承写作页当前章）
   const activeRef =
-    selRef && chapterIndex.has(selRef)
-      ? selRef
-      : initialRef && chapterIndex.has(initialRef)
-        ? initialRef
-        : (flatChapters[0]?.ref ?? null);
+    selRef && chapterIndex.has(selRef) ? selRef : (flatChapters[0]?.ref ?? null);
   const active = activeRef ? chapterIndex.get(activeRef) : undefined;
   const activeIdx = active ? flatChapters.findIndex((f) => f.ref === active.ref) : -1;
   const prev = activeIdx > 0 ? flatChapters[activeIdx - 1] : null;

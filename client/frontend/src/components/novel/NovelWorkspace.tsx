@@ -75,28 +75,6 @@ export default function NovelWorkspace() {
   const outline = useOutline(projectId);
   const { settingsDone, settingsStatus, confirmedStatus, charStale, confirmSetting } = useOnboarding(projectId, []);
 
-  // ── 视图映射：modnav 三态 ↔ 内部视图名（默认 workbench = 写作） ──────
-  const go = useCallback(
-    (
-      next: "workbench" | "advanced-settings" | "archives",
-      payload?: Record<string, any>,
-    ) => {
-      if (
-        view === "advanced-settings" &&
-        next !== "advanced-settings" &&
-        settingsDirtyRef.current
-      ) {
-        const ok = window.confirm(
-          "当前设定有未保存的修改，离开将丢失这些修改。确定继续吗？",
-        );
-        if (!ok) return;
-      }
-      if (next === "advanced-settings" && view !== "advanced-settings")
-        settingsDirtyRef.current = false;
-      setView(next, payload);
-    },
-    [view, setView],
-  );
   const settingsDirtyRef = useRef(false);
   const handleSettingsDirty = useCallback((v: boolean) => {
     settingsDirtyRef.current = v;
@@ -174,6 +152,58 @@ export default function NovelWorkspace() {
   const proseRef = useRef<ProseHandle | null>(null);
   const [aiState, setAIState] = useState<ProseAIState>(INITIAL_PROSE_AI_STATE);
 
+  // ── 页签回默认主页（c-write-home-rail-anchor）：三个 modnav 页签都是「回该页默认落点」──
+  //   写作＝书主页（清选中）；设定＝默认面板（第一项「简介」）；预览＝全书首章。
+  //   重复点当前页签也回默认（不是无操作）；任一路径先过守卫，取消则留在原位。
+  const [settingsHomeSeq, setSettingsHomeSeq] = useState(0);
+  const [previewHomeSeq, setPreviewHomeSeq] = useState(0);
+  const goTab = useCallback(
+    (next: "workbench" | "advanced-settings" | "archives") => {
+      const leavingSettings = view === "advanced-settings" && next !== "advanced-settings";
+      if (leavingSettings && settingsDirtyRef.current) {
+        const ok = window.confirm(
+          "当前设定有未保存的修改，离开将丢失这些修改。确定继续吗？",
+        );
+        if (!ok) return;
+      }
+
+      if (next === "advanced-settings") {
+        if (view === "advanced-settings") {
+          // 已在设定 → 拨回默认面板（脏表单先确认，与离开设定同一套守卫）
+          if (
+            settingsDirtyRef.current &&
+            !window.confirm("当前设定有未保存的修改，回到默认面板将丢失这些修改。确定继续吗？")
+          )
+            return;
+          settingsDirtyRef.current = false;
+          setSettingsHomeSeq((n) => n + 1);
+          return;
+        }
+        settingsDirtyRef.current = false;
+        setView(next);
+        return;
+      }
+
+      if (next === "archives") {
+        // 进预览：定档一律首章（PreviewView 不再继承写作页当前章）
+        if (view === "archives") setPreviewHomeSeq((n) => n + 1);
+        setView(next);
+        return;
+      }
+
+      // 写作 → 书主页：卷纲脏 / 正文 AI 流式中先确认
+      if (!guardedLeave()) return;
+      if (
+        aiState.streaming &&
+        !window.confirm("AI 正在生成正文，回书主页会中断这次生成。确定继续吗？")
+      )
+        return;
+      clearSelection();
+      setView("workbench");
+    },
+    [view, setView, guardedLeave, clearSelection, aiState.streaming],
+  );
+
   // ── 右栏本章进度数据（ChapterWorkspace 实时上抛；含 target 编辑器） ────
   const [railData, setRailData] = useState<RailChapterData | null>(null);
   const bookWords = useMemo(
@@ -183,6 +213,11 @@ export default function NovelWorkspace() {
           sum + v.chapters.reduce((s, c) => s + (c.word_count ?? 0), 0),
         0,
       ),
+    [volumes],
+  );
+  /** 全书已归档章数（书主页卡进度眉标） */
+  const archivedTotal = useMemo(
+    () => volumes.reduce((a, v) => a + v.chapters.filter((c) => c.archived).length, 0),
     [volumes],
   );
 
@@ -440,6 +475,14 @@ export default function NovelWorkspace() {
   const pct = hereTarget
     ? Math.round(Math.min(1, hereTarget.archivedN / hereTarget.total) * 100)
     : 0;
+  /** 「续写」按钮文案说明：顶栏与书主页卡同源（同判据、同 title） */
+  const resumeTitle = hereTarget
+    ? hereTarget.state === "draft"
+      ? "回到上次退出前的位置"
+      : hereTarget.state === "pending"
+        ? "创建本章并开始写作"
+        : "打开这一章的章纲"
+    : "";
 
   // ── 空书起手（c-0vol0ch-empty-state）：零卷零章时给明确起点 ──────────────
   // 建卷统一入口（c-volume-antagonist）：三处空书入口＋树头「＋」都接 openPlanVolume 按档分流。
@@ -631,6 +674,16 @@ export default function NovelWorkspace() {
     }
     await createChapter(`第${cnNum(1)}章`, last);
   }, [volumes, createVolume, createChapter]);
+  /** 书主页卡「＋ 新增一章」：排到主线末端（末卷的下一章号；零卷回落到先垫第一卷） */
+  const addChapterAtEnd = useCallback(async () => {
+    const last = volumes[volumes.length - 1];
+    if (!last) {
+      await addFirstChapter();
+      return;
+    }
+    const no = (last.chapters[last.chapters.length - 1]?.chapter ?? 0) + 1;
+    await createChapter(`第${cnNum(no)}章`, last.name);
+  }, [volumes, createChapter, addFirstChapter]);
 
   // 落点卡（volume-plan-ai）：最后一卷就绪态——仅「从未排过章」；曾排过章的书
   // 删空后仍回选章引导（规格判据：localStorage 排章标记，e2e 钉死该口径）
@@ -659,8 +712,11 @@ export default function NovelWorkspace() {
       <span className="bh-rule" aria-hidden="true" />
       <p className="bh-t">
         <span className="n">第 {hereTarget.no} 章</span>
-        {/* 默认名（「第一章」等序号形态）不再拼名称，避免「第 1 章第一章」（nodeLabel 同口径） */}
-        {isDefaultTitle("章", hereTarget.no, hereTarget.title) ? null : hereTarget.title}
+        {/* 默认名（序号形态）与端点占位「待写」不拼名称——占位已有 bh-tag 徽，避免「第 3 章待写 待写」 */}
+        {hereTarget.state === "pending" ||
+        isDefaultTitle("章", hereTarget.no, hereTarget.title)
+          ? null
+          : hereTarget.title}
       </p>
       {hereTarget.state === "draft" && (
         <span className="bh-tag bh-tag-live">草稿</span>
@@ -678,13 +734,7 @@ export default function NovelWorkspace() {
       <button
         className="btn btn-primary btn-sm"
         data-od-id="resume-cta"
-        title={
-          hereTarget.state === "draft"
-            ? "回到上次退出前的位置"
-            : hereTarget.state === "pending"
-              ? "创建本章并开始写作"
-              : "打开这一章的章纲"
-        }
+        title={resumeTitle}
         onClick={() => void onResume()}
       >
         续写
@@ -767,7 +817,7 @@ export default function NovelWorkspace() {
         <ProPhaseSurface
           projectId={projectId}
           source={project?.source}
-          onGoSettings={() => go("advanced-settings")}
+          onGoSettings={() => goTab("advanced-settings")}
           registerRefetch={registerPhaseRefetch}
           inSettings={view === "advanced-settings"}
         />
@@ -777,7 +827,7 @@ export default function NovelWorkspace() {
       <nav className="modnav">
         <button
           className={`mtab${view === "advanced-settings" ? " on" : ""}`}
-          onClick={() => go("advanced-settings")}
+          onClick={() => goTab("advanced-settings")}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="15" height="15">
             <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
@@ -786,7 +836,7 @@ export default function NovelWorkspace() {
         </button>
         <button
           className={`mtab${view === "workbench" ? " on" : ""}`}
-          onClick={() => go("workbench")}
+          onClick={() => goTab("workbench")}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="15" height="15">
             <path d="M4 6h16M4 12h16M4 18h10" />
@@ -798,7 +848,7 @@ export default function NovelWorkspace() {
         </button>
         <button
           className={`mtab${view === "archives" ? " on" : ""}`}
-          onClick={() => go("archives")}
+          onClick={() => goTab("archives")}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="15" height="15">
             <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z" />
@@ -912,11 +962,64 @@ export default function NovelWorkspace() {
                     >
                       看第{lastVolNo}卷的卷纲
                     </button>
+                    <button
+                      className="btn btn-secondary"
+                      data-testid="landing-add-volume"
+                      onClick={() => openPlanVolume(nextVolNo)}
+                    >
+                      ＋ 新增一卷
+                    </button>
                   </p>
                 </div>
               ) : (
-                <div className="e-empty">
-                  在左侧目录里选一章，上面一行页签会展开它的章纲、正文、提示词、设定与关系伏笔，重写与回退收在「操作」页签里。
+                /* 书主页卡（页签回默认主页）：有章时的默认落点——进度眉标＋续写＋建书双入口
+                   类名角色与同容器另两态一致：be-k 眉标 / be-t 主句 / be-desc 说明 / be-acts 动作 */
+                <div className="e-empty" data-testid="write-home">
+                  <p className="be-k" data-testid="home-progress">
+                    {volumes.length} 卷 · {totalChapters} 章 · 已归档 {archivedTotal} 章 · 共{" "}
+                    {bookWords.toLocaleString("zh-CN")} 字
+                  </p>
+                  {hereTarget ? (
+                    <p className="be-t">
+                      接着写第 {hereTarget.no} 章？
+                      {/* 「待写」是端点占位不是章名，不拼进问句（顶栏同款口径） */}
+                      {hereTarget.state === "pending" ||
+                      isDefaultTitle("章", hereTarget.no, hereTarget.title)
+                        ? null
+                        : hereTarget.title}
+                    </p>
+                  ) : (
+                    <p className="be-t">这本书怎么继续？</p>
+                  )}
+                  <p className="be-desc">
+                    在左侧目录里选一章，上面一行页签会展开它的章纲、正文、提示词、设定与关系伏笔，重写与回退收在「操作」页签里。
+                  </p>
+                  <p className="be-acts">
+                    {hereTarget && (
+                      <button
+                        className="btn btn-primary"
+                        data-testid="home-resume"
+                        title={resumeTitle}
+                        onClick={() => void onResume()}
+                      >
+                        续写
+                      </button>
+                    )}
+                    <button
+                      className="btn btn-secondary"
+                      data-testid="home-add-volume"
+                      onClick={() => openPlanVolume(nextVolNo)}
+                    >
+                      ＋ 新增一卷
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      data-testid="home-add-chapter"
+                      onClick={() => void addChapterAtEnd()}
+                    >
+                      ＋ 新增一章
+                    </button>
+                  </p>
                 </div>
               )}
             </div>
@@ -958,12 +1061,14 @@ export default function NovelWorkspace() {
         <SettingsView
           projectId={projectId}
           initialPanel={wb.viewPayload?.panel as string | undefined}
+          /** 重复点「设定」回默认面板的信号（页签回默认主页） */
+          homeSeq={settingsHomeSeq}
           settingsStatus={settingsStatus}
           confirmedStatus={confirmedStatus}
           charStale={charStale}
           confirmSetting={handleConfirmSetting}
           onDirtyChange={handleSettingsDirty}
-          onGoWrite={() => setView("workbench")}
+          onGoWrite={() => goTab("workbench")}
           novelName={project?.name ?? ""}
         />
       )}
@@ -972,9 +1077,10 @@ export default function NovelWorkspace() {
         <PreviewView
           projectId={projectId}
           volumes={volumes}
-          initialRef={chapterRef}
+          /** 定档一律首章：不继承写作页当前章（页签回默认主页）；重复点「预览」回首章 */
+          homeSeq={previewHomeSeq}
           onRefresh={handleArchivesRefresh}
-          onGoWrite={() => go("workbench")}
+          onGoWrite={() => goTab("workbench")}
           onDownload={() => setShowDownload(true)}
         />
       )}
@@ -990,6 +1096,7 @@ export default function NovelWorkspace() {
 
       {/* 分卷规划双路（c-volume-antagonist）：抽卡（付费默认）＋四问手写页——状态在壳层 */}
       <PickCardsModal
+        projectId={projectId}
         plan={plan}
         onConfirm={(card) => void handlePickConfirm(card)}
         onToDesk={plan.toDesk}
@@ -1003,7 +1110,7 @@ export default function NovelWorkspace() {
         onDirectCreate={() => void handleDirectCreate()}
         onBackfill={handlePlanBackfill}
         onClose={plan.closeDesk}
-        onGoSettings={() => go("advanced-settings")}
+        onGoSettings={() => goTab("advanced-settings")}
       />
       {/* 抽卡确认结果：自查条可关闭提示（落点卡已由 clearSelection 承接）。
           checks **逐条可读**（P1-9：只给第一条前 30 字＝静默丢弃其余）——「展开全部」就地看。 */}

@@ -1637,6 +1637,8 @@ button.dep-row:hover{background:var(--hl)}
 .pick-card .pk-row{display:flex;flex-direction:column;gap:1px;padding-top:7px;border-top:1px dashed color-mix(in oklch,var(--border) 60%,transparent)}
 .pick-card .pk-row>b{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;font-weight:400;color:var(--faint)}
 .pick-card .pk-row>span{font-size:12px;line-height:1.62;color:var(--fg);opacity:.9}
+/* 卡片自带的「上接」行（c-write-home-rail-anchor）：与锚点同源，长文本两行内截断（全文走 title） */
+.pick-card .pk-row.pk-in>span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pick-card.on .pk-picked{align-self:flex-end;font-family:var(--font-mono);font-size:10px;color:var(--accent)}
 .pick-foot{display:flex;align-items:center;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap}
 .pick-foot .note{font-size:11.5px;color:var(--faint)}

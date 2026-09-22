@@ -71,7 +71,7 @@ function PickHarness({
   return (
     <>
       <button data-testid="open" onClick={() => plan.open(1, true)}>open</button>
-      <PickCardsModal plan={plan} onConfirm={onConfirm} onToDesk={onToDesk} onClose={plan.closePick} />
+      <PickCardsModal projectId="p1" plan={plan} onConfirm={onConfirm} onToDesk={onToDesk} onClose={plan.closePick} />
     </>
   );
 }
@@ -180,6 +180,28 @@ describe("PickCardsModal", () => {
     const card = screen.getByTestId("pick-card-1");
     expect(card.textContent).toContain("走向");
     expect(card.textContent).not.toContain("这一卷的坎");
+  });
+
+  it("每张卡自带「上接」＝这一卷的进场（与 plan-anchor 同源；首卷＝起点）", async () => {
+    const ANCHOR = {
+      prev_ending: { text: "上一卷她按下注销键，成为不在册的船", source: "第一卷 · 预期结局" },
+    };
+    apiState.get.mockImplementation((path: string) =>
+      String(path).includes("/plan-anchor")
+        ? Promise.resolve(ANCHOR)
+        : Promise.resolve({}),
+    );
+    apiState.post.mockResolvedValue(THREE_PLANS);
+    render(<PickHarness onConfirm={noop} onToDesk={noop} />);
+    fireEvent.click(screen.getByTestId("open"));
+    await waitFor(() => expect(screen.getByTestId("pick-grid")).toBeDefined());
+    for (const no of [1, 2, 3]) {
+      const row = screen.getByTestId(`pick-enter-${no}`);
+      expect(row.textContent).toContain("起点"); // 第 1 卷：进场＝全景起步
+      expect(row.textContent).toContain(ANCHOR.prev_ending.text);
+      // 全文挂 title（卡内两行截断）
+      expect(row.querySelector("span")?.getAttribute("title")).toBe(ANCHOR.prev_ending.text);
+    }
   });
 
   it("套数=2 时 note 呈现卡区顶部", async () => {
@@ -451,6 +473,82 @@ const EXPAND_RESULT = {
   },
   warnings: [],
 };
+
+describe("卷页签右栏（c-write-home-rail-anchor）", () => {
+  beforeEach(() => {
+    apiState.get.mockReset();
+    apiState.post.mockReset();
+    apiState.fetchStoryArc.mockReset();
+    apiState.get.mockResolvedValue({ items: [] });
+    apiState.post.mockResolvedValue({
+      ok: true,
+      vol_no: 2,
+      report: [
+        { name: "对主线", items: [{ status: "ok", text: "接得上" }] },
+        { name: "对设定", items: [{ status: "warn", text: "伏笔重复" }] },
+        { name: "对已写内容", items: [{ status: "none", text: "占位" }] },
+      ],
+    });
+  });
+
+  const railData = (tab: string) =>
+    ({ volume: 2, title: "借命", tab, detail: { chapters: [] } }) as unknown as Parameters<
+      typeof VolumeAssistPanel
+    >[0]["data"];
+
+  const CASES: Array<[string, string, string[]]> = [
+    ["outline", "卷纲", ["对主线", "对设定", "对已写内容"]],
+    ["chapters", "本卷章节", ["对已写内容", "对主线", "对设定"]],
+    ["rels", "角色关系", ["对设定", "对主线", "对已写内容"]],
+    ["hooks", "伏笔", ["对设定", "对主线", "对已写内容"]],
+  ];
+
+  for (const [tab, name, order] of CASES) {
+    it(`${tab} 页签：「当前页签」=${name}，组序 ${order.join(" → ")}，重新规划入口=${tab === "outline" ? "有" : "无"}`, async () => {
+      const { onPlanVolume } = renderPanel({ data: railData(tab), autoCheckSeq: 1 });
+      await waitFor(() => expect(screen.getByTestId("volume-check-report")).toBeDefined());
+      expect(screen.getByTestId("volume-rail-tab").textContent).toBe(name);
+      const groups = Array.from(
+        screen.getByTestId("volume-check-report").querySelectorAll(".rp-k"),
+      ).map((el) => el.textContent);
+      expect(groups).toEqual(order);
+      expect(screen.queryByTestId("volume-replan") !== null).toBe(tab === "outline");
+      if (tab === "outline") {
+        fireEvent.click(screen.getByTestId("volume-replan"));
+        expect(onPlanVolume).toHaveBeenCalledWith(2);
+      }
+    });
+  }
+
+  it("组名变体按前缀归一仍重排；重名组一组都不吞（逐实例消费）", async () => {
+    apiState.post.mockResolvedValue({
+      ok: true,
+      vol_no: 2,
+      report: [
+        { name: "对主线（进场与收束）", items: [{ status: "ok", text: "接得上" }] },
+        { name: "对已写内容", items: [{ status: "none", text: "占位" }] },
+        { name: "对主线", items: [{ status: "warn", text: "第二条主线结论" }] },
+        { name: "对设定", items: [{ status: "warn", text: "伏笔重复" }] },
+      ],
+    });
+    renderPanel({ data: railData("chapters"), autoCheckSeq: 1 });
+    await waitFor(() => expect(screen.getByTestId("volume-check-report")).toBeDefined());
+    const names = Array.from(
+      screen.getByTestId("volume-check-report").querySelectorAll(".rp-k"),
+    ).map((el) => el.textContent);
+    // chapters 页签把「对已写内容」前置；变体按前缀命中参与重排；4 组一个不丢
+    // （重名的第二条视为「顺序表外的组」按模型原序跟在尾）
+    expect(names).toEqual(["对已写内容", "对主线（进场与收束）", "对设定", "对主线"]);
+  });
+
+  it("未体检时只给引导语与动作，不预置空报告", () => {
+    renderPanel({ data: railData("chapters") });
+    expect(screen.getByTestId("volume-rail-tab").textContent).toBe("本卷章节");
+    expect(screen.getByTestId("volume-rail-lead").textContent).toContain("已写内容与卷纲的出入");
+    expect(screen.queryByTestId("volume-check-report")).toBeNull();
+    expect(screen.getByTestId("volume-check-btn")).toBeDefined();
+  });
+});
 
 describe("useVolumePlan 状态机", () => {
   beforeEach(() => {
@@ -1048,6 +1146,7 @@ describe("度量事件（PRD §7 / tasks 5.3）", () => {
         <>
           <button data-testid="open" onClick={() => plan.open(1, true)}>open</button>
           <PickCardsModal
+            projectId="p1"
             plan={plan}
             onConfirm={(card) => void plan.confirmCard(card, async () => true)}
             onToDesk={noop}

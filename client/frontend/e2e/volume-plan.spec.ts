@@ -155,12 +155,27 @@ test("付费抽卡链：打开即三卡→选 B→确认成卷→落点卡→卷
 
     await page.route("**/api/novels/*/volumes/ai/options", (r) => r.fulfill({ json: THREE_PLANS }));
     await page.route("**/api/novels/*/volumes/ai/expand", (r) => r.fulfill({ json: EXPAND }));
+    // 锚点单源（plan-anchor）：每张卡的「上接」取它
+    const ANCHOR = {
+      vol_no: 1,
+      prev_ending: {
+        text: "全景起步：她从母港出发，是船上唯一的人",
+        source: "来自主线全景的「他从哪起步」",
+      },
+    };
+    await page.route("**/volumes/plan-anchor**", (r) => r.fulfill({ json: ANCHOR }));
     // 抽卡入口（右栏）
     await page.getByTestId("plan-first-volume").click();
     await expect(page.getByTestId("pick-modal")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("pick-grid")).toBeVisible({ timeout: 5000 });
     const cards = page.locator(".pick-card");
     await expect(cards).toHaveCount(3);
+    // 每张卡自带「上接」（c-write-home-rail-anchor）：与锚点同源；第 1 卷＝起点
+    for (const no of [1, 2, 3]) {
+      const row = page.getByTestId(`pick-enter-${no}`);
+      await expect(row).toContainText("起点");
+      await expect(row).toContainText(ANCHOR.prev_ending.text);
+    }
     // 三卡互异
     const texts = await cards.allTextContents();
     expect(new Set(texts.map((t) => t.slice(0, 30))).size).toBe(3);
@@ -300,6 +315,63 @@ test("免费档：规划台可进、生成置灰带 PRO 说明；体检照常可
       timeout: 10000,
     });
     await expect(page.getByTestId("volume-check-report")).toContainText("对已写内容");
+  } finally {
+    await restore();
+  }
+});
+
+test("卷页签右栏跟随与「重新规划这一卷」：组序随页签 + 确认不新建卷", async ({
+  page,
+  request,
+}) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `重规划${Date.now() % 100000}`);
+    await expect(page.getByText("这本书怎么开始？")).toBeVisible({ timeout: 10000 });
+    await page.route("**/api/novels/*/volumes/ai/options", (r) => r.fulfill({ json: THREE_PLANS }));
+    await page.route("**/api/novels/*/volumes/ai/expand", (r) => r.fulfill({ json: EXPAND }));
+    await page.route("**/api/novels/*/volumes/*/ai/check", (r) => r.fulfill({ json: CHECK_REPORT }));
+    // 先建出第一卷（付费＝抽卡）
+    await page.getByTestId("plan-first-volume").click();
+    await expect(page.getByTestId("pick-grid")).toBeVisible({ timeout: 5000 });
+    await page.getByTestId("pick-card-1").click();
+    await page.getByTestId("pick-confirm").click();
+    await expect(page.getByTestId("landing-card")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("landing-open-outline").click();
+    await expect(page.getByTestId("volume-verify-panel")).toBeVisible({ timeout: 10000 });
+
+    // 体检 → 组序随页签（卷纲＝对主线打头；本卷章节＝对已写内容打头）
+    await page.getByTestId("volume-check-btn").click();
+    const report = page.getByTestId("volume-check-report");
+    await expect(report).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("volume-rail-tab")).toHaveText("卷纲");
+    await expect(report.locator(".rp-k").first()).toHaveText("对主线");
+    await expect(page.getByTestId("volume-replan")).toBeVisible();
+    await page.getByRole("tab", { name: "本卷章节" }).click();
+    await expect(page.getByTestId("volume-rail-tab")).toHaveText("本卷章节");
+    await expect(report.locator(".rp-k").first()).toHaveText("对已写内容");
+    await expect(page.getByTestId("volume-replan")).toHaveCount(0);
+    await page.getByRole("tab", { name: "卷纲" }).click();
+
+    // 重新规划这一卷：卷号＝本卷；确认后更新原卷，不新建卷
+    let createCalls = 0;
+    await page.route("**/api/novels/*/volumes", (r) => {
+      if (r.request().method() === "POST") createCalls += 1;
+      return r.fallback();
+    });
+    await page.getByTestId("volume-replan").click();
+    await expect(page.getByTestId("pick-modal")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/规划第一卷/).first()).toBeVisible();
+    await page.getByTestId("pick-card-2").click();
+    await page.getByTestId("pick-confirm").click();
+    // 确认后回默认页（本书 0 章且从未排章 → 落点卡）
+    await expect(page.getByTestId("landing-card")).toBeVisible({ timeout: 10000 });
+    expect(createCalls).toBe(0);
+    const H = { Authorization: `Bearer ${token}` };
+    const vols = await (
+      await request.get(`${ORIGIN}/api/novels/${pid}/volumes`, { headers: H })
+    ).json();
+    expect(vols).toHaveLength(1);
   } finally {
     await restore();
   }

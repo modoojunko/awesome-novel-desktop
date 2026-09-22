@@ -487,6 +487,17 @@
   .ai-stat{background:var(--surface);padding:10px 11px;display:flex;flex-direction:column;gap:3px}
   .ai-stat em{font-style:normal;font-size:11px;color:var(--muted)}
   .ai-stat b{font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--fg)}
+  /* 卷级体检报告：三组判据（对主线 / 对设定 / 对已写内容）——组序随卷页签把相关一组前置 */
+  .rp-k{margin:12px 0 6px;font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;color:var(--muted)}
+  .rp-k:first-of-type{margin-top:0}
+  .rp-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+  .rp-row{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;line-height:1.6;color:var(--fg)}
+  .rp-dot{flex:none;width:6px;height:6px;margin-top:6px;border-radius:50%;background:var(--muted)}
+  .rp-row.ok .rp-dot{background:var(--ok)}
+  .rp-row.warn .rp-dot{background:var(--warn)}
+  .rp-row.none{color:var(--muted)}
+  .rp-row.none .rp-dot{background:transparent;border:1px dashed var(--muted)}
+  .rp-tx{flex:1 1 auto;min-width:0}
   .ai-foot{font-size:11px;color:var(--faint);line-height:1.6;border-top:1px solid var(--border);padding-top:12px;margin-top:auto}
   .ai-sub{margin-top:13px}
   /* 文风 tab：AI 按章纲调参 · 参数上直接标「基线 → 建议」，由作者逐项确认 */
@@ -3256,9 +3267,10 @@ function styleProposalCard(pr){
     : '';
   return '<p class="ai-note">已按本章章纲推来 <b>'+pr.changes.length+'</b> 项量化调整，涉及 <b>'+Object.keys(pr.dimWhy||{}).length+'</b> 个大类。中栏「九维量化参数」里，受影响的每一维都写明了「为什么调这一维」，每个参数都标出「基线 → 建议」——逐项点选，确认后写进这一章的文风。</p>'+sig;
 }
-function aiShell(tab,lead,body){
+/* tabName：卷页签的空缺（outline 在章页签叫「章纲」、在卷页签叫「卷纲」）由调用方显式给 */
+function aiShell(tab,lead,body,tabName){
   return '<div class="ai-head"><span class="ai-title">AI 助手</span><span class="pill-pro">PRO</span></div>'
-    + '<p class="ai-ctx"><em>当前页签</em><span>'+esc(AI_TAB_NAME[tab]||'未选')+'</span></p>'
+    + '<p class="ai-ctx"><em>当前页签</em><span>'+esc(tabName || AI_TAB_NAME[tab] || '未选')+'</span></p>'
     + '<p class="ai-lead">'+lead+'</p>'
     + body
     + '<p class="ai-foot">免费版：体检与建议只读；生成、改写与归档需 PRO。全书设定、关系、伏笔由全书统一维护；关系可在本章新增，记为本章变化，归档时并进全书。</p>';
@@ -3404,49 +3416,50 @@ function aiGhostHTML(ctx){
     + aiActs('对照辅助', [['与主线差异摘要','比较第 '+c.no+' 章旧稿与主线的差异'],
         ['提取可复用片段','从第 '+c.no+' 章旧稿里提取可复用片段']]));
 }
-/* 卷语境：卷纲 / 本卷章节 / 角色关系 / 伏笔 */
+/* 卷语境：卷纲 / 本卷章节 / 角色关系 / 伏笔 —— 同一条「卷的验证」，随页签换视角与组序。
+   2026-09-22（c-write-home-rail-anchor）：原四页签统计卡＋卷域动作清单已退役（volume-plan-ai
+   把卷选中态收窄为验证面板），本段按「验证面板随页签」收窄——勿按旧稿补卡。 */
+const AI_VOL_TAB_NAME = { outline:'卷纲', chapters:'本卷章节', rels:'角色关系', hooks:'伏笔' };
+/* 这一卷体检的三组判据（演示数据） */
+const VOL_CHECK = [
+  ['对主线', [
+    ['ok','进场接得上上一卷的收尾：母港断联、独航上路，正是这一卷的起点。'],
+    ['warn','卷末偏虚：「不在册」只是状态——她没付出看得见的代价，离你写的结局还差一股推力。'],
+  ]],
+  ['对设定', [
+    ['ok','人物：本卷登场的三人各有本卷要做的事，没有空转。'],
+    ['warn','伏笔重复埋：本卷埋伏的「信标应答周期不一致」与台账里的 H-003 是同一件事。'],
+  ]],
+  ['对已写内容', [
+    ['none','还没有章节——写到之后，这里换成「实际写出来的」与卷纲的对照。'],
+  ]],
+];
 function aiVolHTML(ctx){
-  const v = ctx.vol, tab = ctx.tab;
-  const main = mainOf(v.id), plan = plannedOf(v.id);
-  const arch = main.filter(c=>c.status==='archived').length;
-  const draft = main.filter(c=>c.status==='draft').length;
-  const needOl = main.concat(plan).filter(c=>{ const x = CH_OL[c.id]; return !x || !x.task; }).length;
-  let lead = '', cards = '';
-  if(tab==='outline'){
-    lead = '卷纲只定剧情走向——核心矛盾、目标、关键节点与伏笔；角色的具体言行交给角色设定推导。';
-    cards = aiStats([['章数目标', v.total?v.total+' 章':'不设'],['已写章节', main.length+' 章'],
-        ['关键节点', (v.nodes?v.nodes.length:0)+' 个'],['登场人物', (v.cast?v.cast.length:0)+' 人']])
-      + aiActs('卷纲辅助', [['按卷纲补全本卷章纲','按'+v.name+'卷纲补全本卷章节的章纲'],
-          ['卷内节奏体检','体检'+v.name+'的节奏与节点分布'],
-          ['生成卷末钩子建议','为'+v.name+'建议卷末钩子']]);
-  } else if(tab==='chapters'){
-    lead = '本卷共 '+main.length+' 章（另有 '+plan.length+' 章拟定）；缺章纲的章节会直接影响 AI 生成的稳定性。';
-    cards = aiStats([['章节总数', main.length+' 章'],['已归档', arch+' 章'],
-        ['草稿 / 拟定', draft+' / '+plan.length],['缺章纲', needOl+' 章']])
-      + aiActs('章节辅助', [['章纲一致性检查','检查'+v.name+'各章章纲是否互相一致'],
-          ['补全缺失章纲','补全'+v.name+'缺失的章纲'],
-          ['重排章序建议','为'+v.name+'建议章节顺序']]);
-  } else if(tab==='rels'){
-    const all = graph(Infinity);
-    const es = all.edges.filter(e=>!e.origin || e.origin.vol===v.id);
-    const ns = {}; es.forEach(e=>{ ns[e.a]=1; ns[e.b]=1; });
-    lead = '关系图是本卷章节写完后向上回写的结果，卷纲本身不改动。';
-    cards = aiStats([['本卷关系边', es.length+' 条'],['涉及人物与势力', Object.keys(ns).length+' 个'],
-        ['全书关系边', all.edges.length+' 条'],['开书设定关系', GRAPH_BASE.length+' 条']])
-      + aiActs('关系辅助', [['本卷关系变化检测','检测'+v.name+'的关系变化'],
-          ['关系冲突检测','检查'+v.name+'关系与全书关系图是否冲突']]);
-  } else {
-    const all = hooks(Infinity);
-    const plantedHere = all.filter(h=>h.planted && h.planted.vol===v.id);
-    const openHere = plantedHere.filter(h=>!h.resolved);
-    const resHere = all.filter(h=>h.resolved && h.resolved.vol===v.id);
-    lead = '本卷该埋与该收的伏笔；跨卷悬置的会继续挂在全书台账上。';
-    cards = aiStats([['本卷埋下', plantedHere.length+' 条'],['本卷悬置', openHere.length+' 条'],
-        ['本卷回收', resHere.length+' 条'],['全书悬置', all.filter(h=>!h.resolved).length+' 条']])
-      + aiActs('伏笔辅助', [['本卷伏笔回收提醒','列出'+v.name+'该回收的伏笔'],
-          ['伏笔冲突检测','检查'+v.name+'伏笔与全书台账是否冲突']]);
-  }
-  return aiShell(tab, lead, cards);
+  const tab = ctx.tab;
+  const lead = {
+    outline:'这一卷的走向与结构：进场接不接得上上一卷、卷末收不收得住、核心矛盾是不是主线在这一阶段的子集。只提醒，不拦你。',
+    chapters:'本卷已写内容与卷纲的出入：实际写出来的是不是照卷纲走的。只提醒，不拦你。',
+    rels:'本卷人物在全书口径下是否成立：有没有空转、有没有违背性格。只提醒，不拦你。',
+    hooks:'本卷伏笔在全书口径上是否成立：有没有重复埋、提前揭、漏收。只提醒，不拦你。',
+  }[tab] || '这一卷的验证：对不对得上全书设定、接不接得上主线、跟已经写出来的部分有没有出入。只提醒，不拦你。';
+  /* 组序随页签：卷纲看「对不对得上主线」，本卷章节看「跟已写内容有没有出入」，
+     关系与伏笔看「在设定那一侧成不成立」 */
+  const order = {
+    outline:['对主线','对设定','对已写内容'],
+    chapters:['对已写内容','对主线','对设定'],
+  }[tab] || ['对设定','对主线','对已写内容'];
+  const groups = order.map(k=>VOL_CHECK.find(g=>g[0]===k)).filter(Boolean);
+  const body = '<div class="ai-acts">'
+      + '<button class="btn btn-sm btn-accent" data-ai="check" data-od-id="cta-check">体检这一卷</button>'
+      + (tab==='outline'
+        ? '<button class="btn btn-sm" data-ai="replan" data-od-id="cta-replan">重新规划这一卷（AI）</button>'
+        : '')
+      + '</div>'
+    + '<p class="hint">免费可用、只读；卷纲改过之后随时可以再体检一次。</p>'
+    + groups.map(g=>'<p class="rp-k">'+esc(g[0])+'</p>'
+      + '<ul class="rp-list">'+g[1].map(x=>'<li class="rp-row '+x[0]+'"><span class="rp-dot" aria-hidden="true"></span>'
+        + '<span class="rp-tx">'+esc(x[1])+'</span></li>').join('')+'</ul>').join('');
+  return aiShell(tab, lead, body, AI_VOL_TAB_NAME[tab]);
 }
 function aiHTML(){
   const ctx = aiCtx();
@@ -3914,6 +3927,8 @@ document.addEventListener('click', e=>{
       openSim(target.id);
       return;
     }
+    if(act==='check'){ toast('演示稿：体检这一卷 · 免费只读——三组判据就在上方，随页签换组序'); return; }
+    if(act==='replan'){ toast('演示稿：打开规划台（卷号＝本卷）——规划台形态见「整书拆纲」稿'); return; }
     toast('演示稿：AI 助手「'+act+'」不在本原型范围'); return;
   }
   if(t.dataset.proPick){

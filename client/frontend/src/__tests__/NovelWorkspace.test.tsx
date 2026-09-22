@@ -14,8 +14,9 @@ import {
 
 // ---------------------------------------------------------------------------
 // TE-16 — NovelWorkspace（PR3 book.html 复刻）：
-//   modnav 三态（设定/写作/预览），默认落写作视图（three-col 常驻挂载）；
-//   免费态零 phase-status 请求；点章强制落章纲页签；正文脏状态切视图不丢；
+//   modnav 三态（设定/写作/预览）＝回各自默认主页（c-write-home-rail-anchor）；
+//   three-col 常驻挂载：切设定/预览不卸载，点「写作」清选中回书主页；
+//   免费态零 phase-status 请求；点章强制落章纲页签；
 //   PRO 态工具栏 AI 生成正文入口 + 右栏真实工具卡。
 // jsdom 无 CSS：视图切换断言走 .view.three-col 的 on class 而非可见性。
 // ---------------------------------------------------------------------------
@@ -32,6 +33,17 @@ const apiState = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/api", () => ({ api: apiState, request: apiState.request }));
+
+// 流式写入挂起不结束：让 aiState.streaming 稳定为 true（回主页守卫的测试前提）。
+// 返回真 AbortController（ProsePane 卸载时会调 .abort()），但永不回调 → 流式不结束。
+// 其余 AI 函数保持真实现（本文件其它用例不触流式）。
+vi.mock("@/lib/ai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ai")>();
+  return {
+    ...actual,
+    streamChapterWrite: () => new AbortController(),
+  };
+});
 
 function TierProvider({ tier, children }: { tier: string; children: ReactNode }) {
   const isMember = tier !== "none";
@@ -392,8 +404,8 @@ describe("设定视图懒挂载 / 离开卸载", () => {
   });
 });
 
-describe("写作视图常驻挂载：切视图 prose 不丢", () => {
-  it("选中章输入后切到设定再返回，正文内容保留", async () => {
+describe("写作视图常驻挂载：切到设定编辑器不卸载（点「写作」才清选中回主页）", () => {
+  it("选中章输入后切到设定，正文编辑器仍挂载（不卸载）", async () => {
     mockOneChapterTree();
     renderWorkspace("none");
     await selectFirstChapter();
@@ -406,17 +418,120 @@ describe("写作视图常驻挂载：切视图 prose 不丢", () => {
     editor.innerHTML = "<p>我在专注写作</p>";
     fireEvent.input(editor);
 
-    // 切到设定 → 经 modnav「写作」返回
+    // 切到设定：three-col 只摘 on class，编辑器仍在 DOM（jsdom 无 CSS → 断言 class 与节点）
     fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
     await waitFor(() =>
       expect(screen.getAllByText("伏笔").length).toBeGreaterThan(0),
     );
-    fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
+    expect(threeColClass()).not.toContain("on");
+    expect(document.querySelector(".editor")?.textContent).toBe("我在专注写作");
+  });
+});
 
-    // prose 保留（ProsePane hidden 切换、不卸载）
+describe("页签回默认主页（c-write-home-rail-anchor）", () => {
+  it("有章时点「写作」→ 书主页卡（清选中）；点「续写」回到该章", async () => {
+    mockOneChapterTree();
+    renderWorkspace("none");
+    await selectFirstChapter();
+    expect(document.querySelector(".editor") ?? document.querySelector(".col-panel")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
+    const home = await screen.findByTestId("write-home");
+    // 进度眉标 + 建书双入口 + 续写（与顶栏同判据）
+    expect(screen.getByTestId("home-progress").textContent).toContain("1 卷 · 1 章");
+    expect(screen.getByTestId("home-add-volume")).toBeTruthy();
+    expect(screen.getByTestId("home-add-chapter")).toBeTruthy();
+    expect(home.textContent).toContain("在左侧目录里选一章");
+    // 清选中 → 章工作台卸载（tab 条消失）
+    await waitFor(() => expect(screen.queryByRole("tab", { name: /^章纲/ })).toBeNull());
+
+    fireEvent.click(screen.getByTestId("home-resume"));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^章纲/ })).toBeTruthy());
+  });
+
+  it("重复点「写作」也回书主页（不是无操作）", async () => {
+    mockOneChapterTree();
+    renderWorkspace("none");
+    await selectFirstChapter();
+    fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
+    await screen.findByTestId("write-home");
+    await selectFirstChapter();
+    fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
+    await screen.findByTestId("write-home");
+    expect(screen.queryByRole("tab", { name: /^章纲/ })).toBeNull();
+  });
+
+  it("重复点「设定」把面板拨回默认项（简介）", async () => {
+    mockEmptyTree();
+    renderWorkspace("none");
+    fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
     await waitFor(() =>
-      expect(document.querySelector(".editor")?.textContent).toBe("我在专注写作"),
+      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("简介"),
     );
+    // 切到「世界」面板
+    fireEvent.click(screen.getByText("世界"));
+    await waitFor(() =>
+      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("世界"),
+    );
+    // 重复点「设定」→ 拨回默认面板
+    fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
+    await waitFor(() =>
+      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("简介"),
+    );
+  });
+
+  it("设定脏表单时重复点「设定」先确认：取消留原面板，确认拨回默认", async () => {
+    mockEmptyTree();
+    renderWorkspace("none");
+    fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
+    await waitFor(() =>
+      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("简介"),
+    );
+    fireEvent.click(screen.getByText("世界"));
+    await waitFor(() =>
+      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("世界"),
+    );
+    // 弄脏世界面板（舞台输入）
+    const stage = await waitFor(() => {
+      const el = document.querySelector('[data-od-id="stage-input"]');
+      expect(el).toBeTruthy();
+      return el as HTMLTextAreaElement;
+    });
+    fireEvent.change(stage, { target: { value: "边境城邦" } });
+
+    // 取消分支：confirm 返回 false → 留在世界面板、输入保留
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("回到默认面板将丢失"));
+    expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("世界");
+    expect((document.querySelector('[data-od-id="stage-input"]') as HTMLTextAreaElement).value).toBe(
+      "边境城邦",
+    );
+
+    // 确认分支：拨回默认面板
+    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: /^设定/ }));
+    await waitFor(() =>
+      expect(document.querySelector(".s-item.on .nm")?.textContent).toBe("简介"),
+    );
+    confirmSpy.mockRestore();
+  });
+
+  it("AI 流式中点「写作」先确认：取消留在原章不回主页", async () => {
+    mockOneChapterTree();
+    renderWorkspace("none");
+    await selectFirstChapter();
+    // 右栏「生成正文」→ AiModal 确认 → 流式开始（@/lib/ai 的 streamChapterWrite 已桩为挂起）
+    fireEvent.click(screen.getByTestId("ai-write-btn"));
+    fireEvent.click(await screen.findByTestId("ai-confirm"));
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("会中断这次生成"));
+    // 取消 → 留在原章（章对象工作台仍在，未回书主页）
+    expect(screen.queryByTestId("write-home")).toBeNull();
+    expect(screen.getByRole("tab", { name: /^章纲/ })).toBeTruthy();
+    confirmSpy.mockRestore();
   });
 });
 
