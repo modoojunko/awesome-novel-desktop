@@ -17,7 +17,6 @@ import asyncio
 import ipaddress
 import json
 import os
-import re
 import socket
 import time
 from pathlib import Path
@@ -28,6 +27,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from config import DATA_ROOT
+from schema_version import app_version, is_newer, is_valid_version
 
 router = APIRouter(tags=["update-check"])
 
@@ -42,15 +42,16 @@ _DEFAULT_UPDATE_URL_FALLBACK = (
 _CHECK_INTERVAL = 3600
 _FETCH_TIMEOUT = 6.0
 
-_VERSION_RE = re.compile(r"^\d+(\.\d+)*$")
-
 _state_path = Path(DATA_ROOT) / "update-check.json"
 
 
 def get_client_version() -> str:
-    """本机版本：env（打包态由 release.json 注入）> dev。"""
-    v = (os.environ.get("CLIENT_VERSION") or "").strip()
-    return v if v else "dev"
+    """本机版本：env（打包态由 release.json 注入）> dev。
+
+    c-db-per-version：委托 `schema_version.app_version()`——库文件名与更新检测
+    必须共用同一份版本口径（否则两处会各自漂）。
+    """
+    return app_version()
 
 
 def _candidate_urls() -> list[str]:
@@ -110,19 +111,13 @@ async def _validate_outbound_url(url: str) -> bool:
     return True
 
 
-def _parse_version(v: str) -> tuple[int, ...]:
-    """数值段版本（'0.10.1' → (0,10,1)）；格式非法抛 ValueError。"""
-    if not isinstance(v, str) or not _VERSION_RE.match(v.strip()):
-        raise ValueError(f"invalid version: {v!r}")
-    return tuple(int(seg) for seg in v.strip().split("."))
-
-
 def _has_newer(latest: str, current: str) -> bool:
-    la, cu = _parse_version(latest), _parse_version(current)
-    width = max(len(la), len(cu))
-    la += (0,) * (width - len(la))
-    cu += (0,) * (width - len(cu))
-    return la > cu
+    """版本比较委托单源（c-db-per-version）：逐段数值、右侧补零、**永不抛异常**。
+
+    旧实现在非纯数字段（如 `0.11-beta`）抛 ValueError，调用点无保护 → 装带后缀
+    版本的包点开更新检测即 500。现在非法/带后缀一律给出确定序。
+    """
+    return is_newer(latest, current)
 
 
 def _load_state() -> dict:
@@ -153,7 +148,8 @@ async def _fetch_one(url: str) -> dict | None:
             return None
         data = resp.json()
         latest = str(data.get("version") or "").strip()
-        _parse_version(latest)  # 格式非法按本次失败处理
+        if not is_valid_version(latest):
+            return None  # 格式非法按本次失败处理（载荷校验边界）
         notes = data.get("notes")
         return {
             "latest": latest,
@@ -249,9 +245,7 @@ async def read_update_check():
 @router.post("/api/update-check/dismiss")
 async def dismiss_update(payload: DismissIn):
     version = payload.version.strip()
-    try:
-        _parse_version(version)
-    except ValueError:
+    if not is_valid_version(version):
         raise HTTPException(status_code=422, detail="invalid version format")
     state = _load_state()
     state["dismissed_version"] = version

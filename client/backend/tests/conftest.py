@@ -107,10 +107,14 @@ if "openai" not in sys.modules:
 # 覆盖这两个变量（engine 模块级缓存，第一个 import 者生效），维持现状。
 _TMP_DATA_ROOT = tempfile.mkdtemp(prefix="ai-novel-test-data-")
 os.environ["DATA_ROOT"] = _TMP_DATA_ROOT
-# db-generation：测试库随 SCHEMA_VERSION 版本化命名（novel-v{k}.db）
-from schema_version import DB_FILENAME as _DB_FN
+# c-db-per-version：测试库名＝「本机版本」派生（不设 CLIENT_VERSION 时是 dev 哨兵，
+# 会话库会被按 dev 语义对待）——显式钉一个版本，测试库名与断言口径一致
+os.environ.setdefault("CLIENT_VERSION", "0.25")
+from schema_version import active_db_filename as _active_db_filename
 
-os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{os.path.join(_TMP_DATA_ROOT, _DB_FN)}"
+os.environ["DATABASE_URL"] = (
+    f"sqlite+aiosqlite:///{os.path.join(_TMP_DATA_ROOT, _active_db_filename())}"
+)
 
 
 @pytest.fixture(scope="session", autouse=True)

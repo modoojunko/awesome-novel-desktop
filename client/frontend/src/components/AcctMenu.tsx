@@ -57,6 +57,13 @@ export default function AcctMenu({
     return () => window.removeEventListener("legacy-migrate:open", on);
   }, []);
 
+  // c-db-per-version：空态第二出口「从备份包恢复」（换安装目录/换机用户的唯一出路）
+  useEffect(() => {
+    const on = () => setRestoreOpen(true);
+    window.addEventListener("restore:open", on);
+    return () => window.removeEventListener("restore:open", on);
+  }, []);
+
   useEffect(() => {
     supportUrl().then(setSupport);
   }, []);
@@ -158,6 +165,7 @@ export default function AcctMenu({
     <LegacyMigrateModal
       open={migrateOpen}
       candidates={migrateCandidates}
+      quarantined={legacyDb.status?.quarantined ?? []}
       onClose={() => {
         // 弹窗关闭时如果迁移还在跑 → 启动后台守望（完成→toast+刷书架）
         setMigrateOpen(false);
@@ -198,11 +206,11 @@ export default function AcctMenu({
           const rep = d.report;
           if (rep?.status === "ok") {
             import("@/lib/toast").then(({ toast }) => {
-              toast.success(`已找回 ${rep.book_count_migrated ?? "?"} 本书`);
+              toast.success(`已带回 ${rep.book_count_migrated ?? "?"} 本书`);
             });
           } else {
             import("@/lib/toast").then(({ toast }) => {
-              toast.error("找回没有完成，可从菜单重新打开向导重试");
+              toast.error("带回没有完成，可从菜单重新打开向导重试");
             });
           }
           window.dispatchEvent(new CustomEvent("novels:changed"));
@@ -211,14 +219,14 @@ export default function AcctMenu({
           clearInterval(bgWatchRef.current!);
           bgWatchRef.current = null;
           import("@/lib/toast").then(({ toast }) => {
-            toast.info("找回已停止，可从菜单重新打开向导");
+            toast.info("带回已停止，可从菜单重新打开向导");
           });
           void legacyDb.refresh();
         } else if (Date.now() - bgStartRef.current > 120_000) {
           clearInterval(bgWatchRef.current!);
           bgWatchRef.current = null;
           import("@/lib/toast").then(({ toast }) => {
-            toast.info("找回耗时较长，可从菜单「找回旧书」查看进度");
+            toast.info("带回耗时较长，可从菜单「带回旧版作品」查看进度");
           });
         }
       } catch {
@@ -354,8 +362,8 @@ export default function AcctMenu({
               }}
             >
               <Ico d={P.doc} sw={1.7} />
-              找回旧书
-              <span className="am-hint">从旧版数据找回</span>
+              带回旧版作品
+              <span className="am-hint">把上一版的作品带过来</span>
             </button>
           )}
           <button

@@ -20,7 +20,10 @@ from fastapi.testclient import TestClient
 import models  # noqa: F401 —— 注册全表
 
 from migration.engine import build_plan, precheck, run_migration
-from schema_version import SCHEMA_VERSION
+from schema_version import db_filename_for
+
+# 被测「当前版本」库名（c-db-per-version：库名＝C端 版本派生；conftest 钉 0.25）
+CUR = db_filename_for("0.25")
 
 
 def _write_db(path: Path, tables: dict[str, str], rows: dict[str, list] | None = None,
@@ -40,23 +43,23 @@ def _write_db(path: Path, tables: dict[str, str], rows: dict[str, list] | None =
 
 @pytest.fixture()
 def sandbox(tmp_path, monkeypatch):
-    """独立 DATA_ROOT + 已建好的 novel-v1 目标库（当前 schema 的最小集）。"""
+    """独立 DATA_ROOT + 已建好的当前版本库（当前 schema 的最小集）。"""
     import db as db_mod
     from db import Base
 
     root = tmp_path / "data"
     root.mkdir()
     # 目标库：用 Base.metadata create_all（全量当前 schema）
-    engine_sync = sqlite3.connect(root / f"novel-v{SCHEMA_VERSION}.db")
+    engine_sync = sqlite3.connect(root / CUR)
     engine_sync.close()
     from sqlalchemy import create_engine
 
-    se = create_engine(f"sqlite:///{root / f'novel-v{SCHEMA_VERSION}.db'}")
+    se = create_engine(f"sqlite:///{root / CUR}")
     Base.metadata.create_all(se)
     se.dispose()
     monkeypatch.setattr("migration.engine.DATA_ROOT", root)
     monkeypatch.setattr("migration.router.DATA_ROOT", root)
-    return root, root / f"novel-v{SCHEMA_VERSION}.db"
+    return root, root / CUR
 
 
 def _old_gen0(root: Path, name: str = "novel.db", books: int = 2) -> Path:
@@ -100,7 +103,9 @@ class TestEngine:
 
         # 重跑幂等（specs：中断重跑语义同一引擎）
         rep2 = run_migration(root, "novel.db", active)
-        assert rep2["book_count_migrated"] == 2, "OR IGNORE 重跑零重复"
+        # migrated＝本次真正写入 → 重跑 0 本；目标总数仍 2（OR IGNORE 零重复）
+        assert rep2["book_count_migrated"] == 0, "OR IGNORE 重跑零重复（本次写入 0 行）"
+        assert rep2["book_count_target_after"] == 2
         con = sqlite3.connect(f"file:{active}?mode=ro", uri=True)
         try:
             n = con.execute("SELECT COUNT(*) FROM novels").fetchone()[0]

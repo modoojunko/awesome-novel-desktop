@@ -8,12 +8,13 @@ DATA_ROOT = os.environ.get("DATA_ROOT", "./data")
 PROJECTS_DIR = os.path.join(DATA_ROOT, "projects")
 
 # 数据库路径
-# db-generation：库文件版本化命名（novel-v{V}.db）；显式 DATABASE_URL 仍优先
+# c-db-per-version：库文件名＝C端 版本（novel-v{版本}.db；dev/PR 构建＝固定哨兵名）
+# —— 命名与版本比较单源在 schema_version.py；显式 DATABASE_URL 仍优先
 # （测试 conftest 用独立库文件注入）
-from schema_version import DB_FILENAME as _DB_FILENAME
+from schema_version import active_db_filename as _active_db_filename
 
 DATABASE_URL = os.environ.get(
-    "DATABASE_URL", f"sqlite+aiosqlite:///{DATA_ROOT}/{_DB_FILENAME}"
+    "DATABASE_URL", f"sqlite+aiosqlite:///{DATA_ROOT}/{_active_db_filename()}"
 )
 
 # AI 配置（通过 C端 UI 配置，写入 config.json）

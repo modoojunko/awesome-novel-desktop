@@ -1,6 +1,6 @@
 """备份导出/恢复导入路由（c-novel-export-roundtrip）。
 
-PR0：旧库留档检测（legacy-db/status）。
+PR0：旧版数据检测（legacy-db/status——c-db-per-version 起数据源改为候选扫描）。
 PR1：备份导出任务化（目录选择+后端直写+真进度）+ 配置包掩码预览。
 包导入端点随 PR2 落地。
 """
@@ -13,24 +13,31 @@ from pydantic import BaseModel
 from auth_local.middleware import get_current_user, get_user_or_local
 from config import DATA_ROOT
 from db import get_db
-from legacy_archive import inspect_library
+from db_lifecycle import scan_migration_candidates
+from schema_version import app_version
 
 # 持有自己的 APIRouter，由 main.py 显式 include（与 account/devices 同款）。
 router = APIRouter(prefix="/api/backup", tags=["backup"])
 
 
-def _scan_legacy_archives(data_root: Path) -> list[dict]:
-    """枚举 novel.legacy-*.db 留档，最新在前；逐个只读体检。"""
+def _scan_prior_libraries(data_root: Path) -> list[dict]:
+    """本机旧版数据盘点（最新的在前）。
+
+    c-db-per-version：数据源改由**候选扫描**供给——「升级即整库留档」的 `.legacy-*`
+    机制已退役，该端点此前恒 `present:false`（死面）。载荷键保持不变，登录页计数行
+    与设置徽标消费方零改动。
+    """
+    from config import DATABASE_URL
+
+    active = Path(DATABASE_URL.split("///")[-1])
     items = []
-    for f in sorted(data_root.glob("novel.db.legacy-*"), key=lambda p: p.stat().st_mtime, reverse=True):
-        stat = f.stat()
-        info = inspect_library(f)
+    for it in scan_migration_candidates(data_root, app_version(), active):
         items.append({
-            "filename": f.name,
-            "size_bytes": stat.st_size,
-            "archived_at": int(stat.st_mtime),
-            "book_count": info.get("book_count"),
-            "unreadable": info.get("unreadable", False),
+            "filename": it["filename"],
+            "size_bytes": it["size_bytes"],
+            "archived_at": it["mtime"],
+            "book_count": it["book_count"],
+            "unreadable": it["unreadable"],
         })
     return items
 
@@ -38,9 +45,9 @@ def _scan_legacy_archives(data_root: Path) -> list[dict]:
 @router.get("/legacy-db/status")
 async def legacy_db_status():
     """首启检测/设置徽标/登录页计数行数据源（loginless-data-exit：免登——
-    登录页升级卡与迁入向导都要在登录前读它；只读旧文件，无敏感载荷）。"""
+    登录页升级卡与找回向导都要在登录前读它；只读旧文件，无敏感载荷）。"""
     root = Path(DATA_ROOT)
-    archives = _scan_legacy_archives(root)
+    archives = _scan_prior_libraries(root)
     latest = archives[0] if archives else None
     return {"code": 0, "data": {
         "present": bool(archives),

@@ -124,11 +124,25 @@ def test_numeric_segment_compare():
     assert uc._has_newer("1.0", "0.99.99") is True
 
 
+def test_version_compare_never_raises():
+    """c-db-per-version：比较**永不抛异常**（旧实现在非纯数字段抛 ValueError，
+    调用点无保护 → 装 `0.11-beta` 的包点开更新检测即 500）。
+
+    带后缀/非法串一律给出确定序：`0.11-beta < 0.11`、非法串降最低。
+    """
+    assert uc._has_newer("0.11", "0.11-beta") is True    # rc/beta 早于正式版
+    assert uc._has_newer("0.11-beta", "0.11") is False
+    assert uc._has_newer("0.11-beta", "0.11-alpha") is True
+    assert uc._has_newer("abc", "0.11") is False          # 非法串不新于任何版本
+    assert uc._has_newer("0.11", "abc") is True
+
+
 def test_invalid_version_payload_rejected():
-    with pytest.raises(ValueError):
-        uc._parse_version("abc")
-    with pytest.raises(ValueError):
-        uc._parse_version("0.11-beta")
+    """载荷校验边界（非比较路径）：非法串拒收，带后缀版本合法。"""
+    assert uc.is_valid_version("abc") is False
+    assert uc.is_valid_version("") is False
+    assert uc.is_valid_version("0.11") is True
+    assert uc.is_valid_version("0.11-beta") is True
 
 
 # ── 出站安全校验（async：DNS 走事件循环，不再阻塞）─────────────────────

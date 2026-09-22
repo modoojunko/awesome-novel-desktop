@@ -8,7 +8,7 @@
 - expand 成功：四字段齐（四件事）＋ checks ≤3 ＋ plan_line 回显＋七条硬规则逐字入包；不落库；
 - expand 缺四件事：重试一次后降级纯文本 ＋ 每次尝试计量；
 - 体检：免费可用（三组、无章节时 none 占位、evidence 独立字段、判据逐字入包）、只读不拦；
-- 迁移：旧库缺 plan_line 列经 apply_additive_columns 补列后可见并可读写。
+- 升级路径：旧库缺 plan_line 列 → 经「新版本新建自己的库＋副本搬运」落位（不再就地补列）。
 
 用法：
     cd client/backend
@@ -500,94 +500,159 @@ class TestPlanAnchor:
         assert "上一卷不存在" in r.json()["prev_ending"]["text"]
 
 
-# ═══════════════ 迁移（additive 补列）═══════════════
+# ═══════════════ 升级路径（c-db-per-version：代内补列已退役）═══════════════
 
 
-class TestMigrationAdditive:
-    def test_additive_column_declared(self):
-        from db_lifecycle import ADDITIVE_COLUMNS
+class TestMigrationNoInPlaceDdl:
+    def test_additive_chain_retired(self):
+        """`ADDITIVE_COLUMNS`/`apply_additive_columns` 随版本化命名退役。
 
-        assert "volumes" in ADDITIVE_COLUMNS
-        assert any("plan_line" in ddl for ddl in ADDITIVE_COLUMNS["volumes"])
+        列/表形状变化不再就地补列，改由「新版本新建自己的库 + 从旧库副本搬运」
+        承接（列交集 + 中性回填）——所以这两个符号必须不存在（防回归：任何形式
+        的就地 ALTER 都是数据风险）。
+        """
+        import db_lifecycle
 
-    def test_additive_column_applied_and_roundtrip(self, tmp_path):
-        """旧库缺 plan_line 列 → apply_additive_columns 补列后可见并写入。"""
-        from db_lifecycle import ADDITIVE_COLUMNS, apply_additive_columns
+        assert not hasattr(db_lifecycle, "ADDITIVE_COLUMNS")
+        assert not hasattr(db_lifecycle, "apply_additive_columns")
 
-        old_db = tmp_path / "old.db"
-        engine = create_async_engine(f"sqlite+aiosqlite:///{old_db}")
+    def test_old_library_without_plan_line_migrates_with_backfill(self, tmp_path):
+        """旧库缺 plan_line 列 → 搬运到新库后该列存在且旧行可读（中性回填）。"""
+        import sqlite3
 
-        async def _flow():
-            async with engine.begin() as conn:
-                await conn.execute(text(
-                    "CREATE TABLE volumes (id VARCHAR(36) PRIMARY KEY, novel_id VARCHAR(36),"
-                    " volume_no INTEGER, title VARCHAR(200), summary VARCHAR(300),"
-                    " chapter_count INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP)"
-                ))
-                await conn.execute(text(
-                    "CREATE TABLE novel_hooks (id VARCHAR(36) PRIMARY KEY, novel_id VARCHAR(36),"
-                    " seq INTEGER, description VARCHAR(300), type VARCHAR(20), priority INTEGER,"
-                    " status VARCHAR(20), created_at TIMESTAMP, updated_at TIMESTAMP)"
-                ))
+        from db_lifecycle import compute_schema_fingerprint
+        from migration.engine import run_migration
+        from schema_version import db_filename_for
+        from sqlalchemy import create_engine as _create_engine
 
-            # 旧库没有该列
-            async with engine.connect() as conn:
-                rows = await conn.execute(text("PRAGMA table_info(volumes)"))
-                cols = [r[1] for r in rows]
-            assert "plan_line" not in cols
+        import models  # noqa: F401 —— 注册全表
+        from db import Base
 
-            await apply_additive_columns(engine, ADDITIVE_COLUMNS)
+        cur = db_filename_for("0.25")
+        active = tmp_path / cur
+        se = _create_engine(f"sqlite:///{active}")
+        Base.metadata.create_all(se)
+        se.dispose()
 
-            async with engine.connect() as conn:
-                rows = await conn.execute(text("PRAGMA table_info(volumes)"))
-                cols = [r[1] for r in rows]
-            assert "plan_line" in cols
+        old = tmp_path / "novel-v0.24.db"
+        conn = sqlite3.connect(old)
+        conn.execute(
+            "CREATE TABLE novels (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, slug TEXT,"
+            " root_path TEXT, current_phase TEXT, status TEXT, total_volumes INTEGER,"
+            " total_chapters INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP)"
+        )
+        conn.execute(
+            "CREATE TABLE volumes (id TEXT PRIMARY KEY, novel_id TEXT, volume_no INTEGER,"
+            " title TEXT, summary TEXT, chapter_count INTEGER, created_at TIMESTAMP,"
+            " updated_at TIMESTAMP)"  # 旧库无 plan_line
+        )
+        conn.execute(
+            "INSERT INTO novels VALUES ('n1','u1','书','s','./data/s','write','active',1,1,"
+            "'2026-01-01 00:00:00','2026-01-02 00:00:00')"
+        )
+        conn.execute(
+            "INSERT INTO volumes VALUES ('v1','n1',1,'第一卷','概要',0,"
+            "'2026-01-01 00:00:00','2026-01-02 00:00:00')"
+        )
+        conn.commit()
+        conn.close()
 
-            await engine.dispose()
-
-        _run_async(_flow())
+        rep = run_migration(tmp_path, "novel-v0.24.db", active)
+        assert rep["status"] == "ok", rep
+        con = sqlite3.connect(f"file:{active}?mode=ro", uri=True)
+        try:
+            cols = [r[1] for r in con.execute("PRAGMA table_info(volumes)")]
+            row = con.execute("SELECT volume_no, title, plan_line FROM volumes").fetchone()
+        finally:
+            con.close()
+        assert "plan_line" in cols, "新库自带该列（create_all 全量）"
+        assert row == (1, "第一卷", None), "旧行经列交集搬运过来，缺列按中性值落位"
+        assert rep["source_version"] == "0.24"
+        # 源库不被就地 DDL（字节不变由引擎测试覆盖；此处钉列集合不变）
+        con = sqlite3.connect(f"file:{old}?mode=ro", uri=True)
+        try:
+            src_cols = [r[1] for r in con.execute("PRAGMA table_info(volumes)")]
+        finally:
+            con.close()
+        assert "plan_line" not in src_cols, "源库绝不被就地补列"
+        assert compute_schema_fingerprint(Base.metadata)
 
 
 # ═══════════════ c-volume-antagonist：迁移/聚合/退役/batch ═══════════════
 
 
 class TestAntagonistColumns:
-    def test_additive_registered(self):
-        from db_lifecycle import ADDITIVE_COLUMNS
-        assert any("antagonist_type VARCHAR(20)" in d for d in ADDITIVE_COLUMNS["volumes"])
-        assert any("antagonist_line VARCHAR(150)" in d for d in ADDITIVE_COLUMNS["volumes"])
-        assert any("planned_volume_no INTEGER" in d for d in ADDITIVE_COLUMNS.get("novel_hooks", []))
+    """对抗物/坎字段的升级路径＝**新的库名 + 副本搬运**（代内补列已退役）。
 
-    def test_old_db_upgraded_and_roundtrip(self, tmp_path):
-        """旧库缺列 → apply_additive_columns 补齐 → ORM 写读 antagonist。"""
-        from sqlalchemy import text
-        from sqlalchemy.ext.asyncio import create_async_engine
+    等价断言替换旧的两条（旧库缺列 → apply_additive_columns 补齐 → ORM 读写）：
+    新库自带宽列（create_all 全量建出），旧库经搬运把行带过来、缺列按中性值落位。
+    """
 
-        from db_lifecycle import ADDITIVE_COLUMNS, apply_additive_columns
+    def test_fresh_library_has_columns(self, tmp_path):
+        import sqlite3 as _sq
 
-        eng = create_async_engine(f"sqlite+aiosqlite:///{tmp_path/'old2.db'}")
+        from sqlalchemy import create_engine as _ce
 
-        async def flow():
-            async with eng.begin() as conn:
-                await conn.execute(text(
-                    "CREATE TABLE volumes (id VARCHAR(36) PRIMARY KEY, novel_id VARCHAR(36),"
-                    " volume_no INTEGER, title VARCHAR(200), summary VARCHAR(300),"
-                    " chapter_count INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP)"
-                ))
-                await conn.execute(text(
-                    "CREATE TABLE novel_hooks (id VARCHAR(36) PRIMARY KEY, novel_id VARCHAR(36),"
-                    " seq INTEGER, description VARCHAR(300), type VARCHAR(20), priority INTEGER,"
-                    " status VARCHAR(20), created_at TIMESTAMP, updated_at TIMESTAMP)"
-                ))
-            await apply_additive_columns(eng, ADDITIVE_COLUMNS)
-            async with eng.connect() as conn:
-                vcols = [r[1] for r in await conn.execute(text("PRAGMA table_info(volumes)"))]
-                hcols = [r[1] for r in await conn.execute(text("PRAGMA table_info(novel_hooks)"))]
-            assert "antagonist_type" in vcols and "antagonist_line" in vcols
-            assert "planned_volume_no" in hcols
-            await eng.dispose()
+        import models  # noqa: F401
+        from db import Base
 
-        _run_async(flow())
+        fresh = tmp_path / "novel-v0.25.db"
+        se = _ce(f"sqlite:///{fresh}")
+        Base.metadata.create_all(se)
+        se.dispose()
+        con = _sq.connect(f"file:{fresh}?mode=ro", uri=True)
+        try:
+            vcols = [r[1] for r in con.execute("PRAGMA table_info(volumes)")]
+            hcols = [r[1] for r in con.execute("PRAGMA table_info(novel_hooks)")]
+        finally:
+            con.close()
+        assert "antagonist_type" in vcols and "antagonist_line" in vcols
+        assert "planned_volume_no" in hcols
+
+    def test_old_library_migrates_without_in_place_ddl(self, tmp_path):
+        """旧库缺 antagonist/坎列 → 搬运到新库后列在、旧行可读；源库零改动。"""
+        import sqlite3 as _sq
+
+        from schema_version import db_filename_for
+        from sqlalchemy import create_engine as _ce
+
+        import models  # noqa: F401
+        from db import Base
+        from migration.engine import run_migration
+
+        active = tmp_path / db_filename_for("0.25")
+        se = _ce(f"sqlite:///{active}")
+        Base.metadata.create_all(se)
+        se.dispose()
+
+        old = tmp_path / "novel-v0.24.db"
+        con = _sq.connect(old)
+        con.execute("CREATE TABLE novels (id TEXT PRIMARY KEY, user_id TEXT, name TEXT)")
+        con.execute("CREATE TABLE volumes (id TEXT PRIMARY KEY, novel_id TEXT, volume_no INTEGER,"
+                    " title TEXT, summary TEXT, chapter_count INTEGER, plan_line VARCHAR(150))")
+        con.execute("INSERT INTO novels (id, user_id, name) VALUES ('n1','u1','旧书')")
+        con.execute("INSERT INTO volumes (id, novel_id, volume_no, title, summary, chapter_count,"
+                    " plan_line) VALUES ('v1','n1',1,'第一卷','概要',0,NULL)")
+        con.commit()
+        con.close()
+        before_cols = None
+
+        rep = run_migration(tmp_path, "novel-v0.24.db", active)
+        assert rep["status"] == "ok", rep
+        con = _sq.connect(f"file:{active}?mode=ro", uri=True)
+        try:
+            vcols = [r[1] for r in con.execute("PRAGMA table_info(volumes)")]
+            row = con.execute("SELECT volume_no, title, antagonist_type FROM volumes").fetchone()
+        finally:
+            con.close()
+        assert "antagonist_type" in vcols, "新库自带宽列"
+        assert row == (1, "第一卷", None), "旧行经列交集搬运，缺列中性落位"
+        con = _sq.connect(f"file:{old}?mode=ro", uri=True)
+        try:
+            before_cols = [r[1] for r in con.execute("PRAGMA table_info(volumes)")]
+        finally:
+            con.close()
+        assert "antagonist_type" not in before_cols, "源库绝不被就地补列（无就地 DDL 路径）"
 
 
 class TestRetiredKeys:

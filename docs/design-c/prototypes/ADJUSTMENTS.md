@@ -1110,3 +1110,19 @@ cast-row，坎行复用 hurdle-row；色彩与组件零新形态。
 4. 验证：真实栈走查三张卡的档位顺序均为 `["be-mark","be-k","be-t","be-acts"]`（断言实测）；
    对照截图 `/tmp/card-1-empty.png`、`/tmp/card-2-landing.png`、`/tmp/card-3-home.png`、`/tmp/card-3-home-1024.png`；
    `design:lint` exit 0、`tsc` 0 error、`vitest` 754 passed、全量 e2e 见 PR。
+
+---
+
+---
+
+## c-db-per-version 原型先行（2026-09-22）
+
+**首启空态出口行常驻并列两出口**：`list.html` 首启 `fr-note`
+   由「免费版可创建 1 部」单句改为常驻出口行——「把上一版的作品带过来」（有可搬运旧版数据时）
+   与「从备份包恢复」（恒在）并列，形态与 `backup-restore.html` 屏 4 既有 `fr-note` 模式同源
+   （有备份文件？从备份恢复 · 没有备份？查看找回办法）。理由：库文件名＝C端 版本后，每版升级
+   都要把上一版的作品带过来一次；换安装目录（便携式布局数据不跟随）时候选扫描看不到任何旧库，
+   必须第二条出口可达。产品侧实现见 `NovelListPage.tsx` 首启态出口行（`data-od-id` 同名）。
+   文案口径：用户可见层不出现文件名/版本号（「找回我的书」→「把上一版的作品带过来」）。
+   parity 口径：原型把「旧版作品…带过来」段按状态变体处理（`data-od-id="fr-note-prior"`
+   默认 `display:none`，对应 app 在无候选时不渲染该段）——parity 只拍默认态，故两侧一致。

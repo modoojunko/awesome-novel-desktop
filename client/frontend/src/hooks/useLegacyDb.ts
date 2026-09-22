@@ -1,23 +1,53 @@
-/** 旧库检测 hook（db-generation）：candidates 免登端点消费，静默降级。 */
+/** 旧版数据检测 hook（c-db-per-version）：candidates 免登端点消费，静默降级。
+ *
+ * 载荷改版本语义（`version`/`kind`/`legacy_generation`/`recommended`＋顶层
+ * `current_version`）：`generation`/`schema_version` 代数口径已随库文件名换代退役。
+ * `recommended` **由后端单源给出**——前端不得按列表顺序推断推荐位。
+ */
 
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 
+export type LegacyCandidateKind = 'semver' | 'legacy' | 'gen0' | 'sentinel' | 'mismatch';
+
 export interface LegacyCandidate {
   filename: string;
-  generation: number;
+  /** 语义化版本（legacy/gen0/sentinel 为 null） */
+  version: string | null;
+  kind: LegacyCandidateKind;
+  /** 遗留代数名（纯数字 novel-v{k}.db）的代际号，其余为 null */
+  legacy_generation: number | null;
   size_bytes: number;
+  /** 三件套 max(mtime)：只看主文件会被 WAL 滞后骗到 */
   mtime: number;
   book_count: number | null;
   unreadable: boolean;
+  recommended: boolean;
   stamp: string;
   suppressed: boolean;
 }
 
+export interface QuarantinedLibrary {
+  filename: string;
+  size_bytes: number;
+  mtime: number;
+}
+
 export interface LegacyStatus {
   candidates: LegacyCandidate[];
-  quarantined: Array<{ filename: string; size_bytes: number }>;
-  schema_version: number;
+  quarantined: QuarantinedLibrary[];
+  current_version: string;
+}
+
+/** 可搬运候选（不可读件只作只读展示，不提供带回动作）。 */
+export function migratableCandidates(status: LegacyStatus | null): LegacyCandidate[] {
+  return (status?.candidates ?? []).filter((c) => !c.unreadable);
+}
+
+/** 推荐源：后端给的推荐位优先，否则列表首位（列表已按后端顺序排好）。 */
+export function recommendedCandidate(status: LegacyStatus | null): LegacyCandidate | null {
+  const items = migratableCandidates(status);
+  return items.find((c) => c.recommended) ?? items[0] ?? null;
 }
 
 export function useLegacyDb(): {

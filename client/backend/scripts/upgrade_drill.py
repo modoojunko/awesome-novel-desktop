@@ -36,7 +36,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend 根入 path
 
-from schema_version import SCHEMA_VERSION
+from schema_version import active_db_filename, db_filename_for, parse_db_filename
 
 UID = "drill-user"
 SLUG = "drill-book"
@@ -117,6 +117,25 @@ DRILL_HOOK_ROWS = 6  # 4 active + 1 resolved + 1 abandoned，全保留不丢行
 
 
 # ── 工具 ────────────────────────────────────────────────────────────────────
+# c-db-per-version：库名＝C端 版本派生（单源）——各阶段一律经本辅助取路径，
+# 不得硬编码；DRILL_VERSION 可用环境变量覆盖以演练别的版本对。
+DRILL_VERSION = os.environ.get("DRILL_VERSION") or "0.25"
+
+
+def _active_db_file() -> str:
+    return db_filename_for(DRILL_VERSION)
+
+
+def _active_db(root) -> Path:
+    """本版本应用的库路径（root 为 DATA_ROOT）。"""
+    return Path(root) / _active_db_file()
+
+
+def _gen0_db(root) -> Path:
+    """第 0 代库（已发布客户端写过的形态）：novel.db。"""
+    return Path(root) / "novel.db"
+
+
 def _state_path(work: Path) -> Path:
     return work / "state.json"
 
@@ -157,8 +176,8 @@ def _ensure_user() -> None:
 
 
 def _counts(root: str) -> dict:
-    """直接读库计数（roundtrip 对拍用）。"""
-    conn = sqlite3.connect(Path(root) / "novel.db")
+    """直接读库计数（roundtrip 对拍用；库名经单源派生）。"""
+    conn = sqlite3.connect(Path(root) / _active_db_file())
     cur = conn.cursor()
     out = {}
     for t in ("novels", "volumes", "chapters", "chapter_characters", "characters",
@@ -176,7 +195,7 @@ def _hook_refs_rows(root: str) -> list[tuple]:
 
     ref 是稳定语义键：roundtrip 对拍「章引用经 ref 一致」（id 允许重映射）。
     """
-    conn = sqlite3.connect(Path(root) / "novel.db")
+    conn = sqlite3.connect(Path(root) / _active_db_file())
     rows = conn.execute(
         """
         SELECT h.seq, h.status, h.priority, h.description, h.payoff_note,
@@ -221,7 +240,7 @@ def phase_seed_old(root: str, work: Path) -> None:
     from db import Base
 
     async def _create():
-        eng = create_async_engine(f"sqlite+aiosqlite:///{Path(root) / 'novel.db'}")
+        eng = create_async_engine(f"sqlite+aiosqlite:///{_gen0_db(root)}")
         async with eng.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await eng.dispose()
@@ -229,7 +248,7 @@ def phase_seed_old(root: str, work: Path) -> None:
     asyncio_run = __import__("asyncio").run
     asyncio_run(_create())
 
-    conn = sqlite3.connect(Path(root) / "novel.db")
+    conn = sqlite3.connect(_gen0_db(root))
     for t in ("characters", "character_relations", "character_gate", "character_ops", "app_meta"):
         conn.execute(f"DROP TABLE IF EXISTS {t}")
     conn.execute("ALTER TABLE novels DROP COLUMN character_seq_high")
@@ -312,9 +331,9 @@ def phase_boot_new(root: str, work: Path) -> None:
     with TestClient(app):
         pass
     db_path = _P(root) / "novel.db"
-    # db-generation 新语义：版本化命名后 novel.db 为第 0 代库——新版启动建
-    # novel-v{V}.db 空库，旧库原位不动（不再三件套改名留档）
-    v_db = _P(root) / f"novel-v{SCHEMA_VERSION}.db"
+    # c-db-per-version 语义：novel.db 为第 0 代库——新版启动建自己的
+    # novel-v{版本}.db 空库，旧库原位不动
+    v_db = _active_db(root)
     assert v_db.exists(), "版本化新库未创建"
     live = sqlite3.connect(v_db)
     n_novels = live.execute("SELECT COUNT(*) FROM novels").fetchone()[0]
@@ -333,7 +352,7 @@ def phase_boot_new(root: str, work: Path) -> None:
     assert old_after, "旧库必须原位保留（不得改名/删除/清空）"
     _save_state(work, boot={"archived": False, "versioned": True,
                             "old_db_intact": True})
-    print(f"[boot-new] 版本化语义：novel-v{SCHEMA_VERSION}.db 空库启动（旧库 novel.db 原位不动）；characters/novel_hooks 表已建")
+    print(f"[boot-new] 版本化语义：{v_db.name} 空库启动（旧库 novel.db 原位不动）；characters/novel_hooks 表已建")
 
 
 # ── 阶段 3：新空库 ← v1 包 ─────────────────────────────────────────────────
@@ -349,7 +368,7 @@ def phase_import_v1(root: str, work: Path) -> None:
     from db import Base
 
     async def _create():
-        eng = create_async_engine(f"sqlite+aiosqlite:///{Path(root) / 'novel.db'}")
+        eng = create_async_engine(f"sqlite+aiosqlite:///{_active_db(root)}")
         async with eng.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await eng.dispose()
@@ -358,7 +377,7 @@ def phase_import_v1(root: str, work: Path) -> None:
     _ensure_user()
     _fake_auth()
 
-    # 关键：archive 会把当前 novel.db 改名，必须先丢弃引擎连接池里的旧 inode，
+    # 关键：必须先丢弃引擎连接池里的旧 inode（同文件重建/改名后连接池仍持旧句柄），
     # 否则 lifespan 的 create_all / 后续写入全部落到被改名的旧文件
     from db import engine as _engine
 
@@ -376,7 +395,7 @@ def phase_import_v1(root: str, work: Path) -> None:
         # 角色段断言：老 14 字段落位
         import sqlite3
 
-        conn = sqlite3.connect(Path(root) / "novel.db")
+        conn = sqlite3.connect(_active_db(root))
         conn.row_factory = sqlite3.Row
         rows = {
             r["name"]: r
@@ -408,7 +427,7 @@ def phase_import_v1(root: str, work: Path) -> None:
         conn.close()
 
         # ── 伏笔段逐条对拍（foreshadow-settings-v2 tasks 3.3）──────────────────
-        hconn = sqlite3.connect(Path(root) / "novel.db")
+        hconn = sqlite3.connect(_active_db(root))
         hconn.row_factory = sqlite3.Row
         hrows = {
             r["description"]: r
@@ -486,7 +505,7 @@ def phase_export_v2(root: str, work: Path) -> None:
 
     pkg = work / "v2-package.zip"
     with TestClient(app) as c:
-        sconn = sqlite3.connect(Path(root) / "novel.db")
+        sconn = sqlite3.connect(_active_db(root))
         novel_id = sconn.execute("SELECT id FROM novels").fetchone()[0]
         sconn.close()
         # 现役备份链：POST /backup/export/start kind=single → dump_book_into
@@ -513,12 +532,16 @@ def phase_export_v2(root: str, work: Path) -> None:
         section = yaml.safe_load(zf.read("hooks/hooks.yaml"))
         assert len(section["hooks"]) == DRILL_HOOK_ROWS
         proj_meta = yaml.safe_load(zf.read("project.yaml"))
-        assert proj_meta["format_version"] == 3, proj_meta["format_version"]
+        # 包契约版本由单源派生（FORMAT_VERSION 已随卷纲段换代升 4——旧断言写死 3
+        # 自那次换代起就是红的；改为单源比较，钉的是「导出带契约头」而非具体值）
+        from backup.format import FORMAT_VERSION as _FMT
+
+        assert proj_meta["format_version"] == _FMT, proj_meta["format_version"]
 
     _save_state(work, v2_pkg=str(pkg))
     print(f"[export-v2] 源库导出 v3 包：{pkg}（{pkg.stat().st_size} 字节）；"
           f"hooks/hooks.yaml 在场（{DRILL_HOOK_ROWS} 条、章引用 ref 形）、settings/ 无 hooks、"
-          f"format_version=3")
+          f"format_version={_FMT}")
 
 
 # ── 阶段 4b：新库导入 v2 包（roundtrip 抽查）───────────────────────────────
@@ -534,7 +557,7 @@ def phase_roundtrip_v2(root: str, work: Path) -> None:
     from db import Base
 
     async def _create():
-        eng = create_async_engine(f"sqlite+aiosqlite:///{Path(root) / 'novel.db'}")
+        eng = create_async_engine(f"sqlite+aiosqlite:///{_active_db(root)}")
         async with eng.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await eng.dispose()
@@ -565,7 +588,7 @@ def phase_roundtrip_v2(root: str, work: Path) -> None:
     assert dst_counts["novel_hooks"] == DRILL_HOOK_ROWS
 
     # 角色内容抽查（v2 直读，不再走映射）
-    conn = sqlite3.connect(Path(root) / "novel.db")
+    conn = sqlite3.connect(_active_db(root))
     conn.row_factory = sqlite3.Row
     lin = conn.execute("SELECT * FROM characters WHERE name='林拾'").fetchone()
     d = json.loads(lin["dossier"])
@@ -590,7 +613,7 @@ def phase_roundtrip_v2(root: str, work: Path) -> None:
         })
         assert r3.status_code == 200, r3.text
         assert all(x["status"] == "ok" for x in r3.json()["data"]["results"]), r3.text
-    idem = sqlite3.connect(Path(root) / "novel.db")
+    idem = sqlite3.connect(_active_db(root))
     first_hooks = idem.execute(
         "SELECT COUNT(*) FROM novel_hooks WHERE novel_id = ?", (first_novel_id,)
     ).fetchone()[0]
@@ -622,13 +645,10 @@ def phase_downgrade(root: str, work: Path) -> None:
     print("[downgrade] v99 包被响亮拒绝（请先升级应用到最新版本再恢复）")
 
 
-# ── db-generation 阶段：版本化命名 + 一键迁入（c-db-generation-migration）──
-def phase_gen_bump_seed(root: Path, work: Path) -> None:
-    """seed 低代库：novel.db（第 0 代，含书/卷/章形态）。
-    INSERT 一律显式列名——与测试夹具同款纪律（永不数占位符）。"""
-    data_dir = root / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    db_path = data_dir / "novel.db"
+# ── version-chain 阶段：版本命名 + 找回搬运（c-db-per-version）─────────────
+def _seed_lib(db_path: Path, books: int, id_prefix: str) -> None:
+    """seed 一份低版本库（书/卷/章，显式列名——与测试夹具同款纪律）。"""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript("""
         CREATE TABLE novels (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, slug TEXT,
@@ -641,62 +661,140 @@ def phase_gen_bump_seed(root: Path, work: Path) -> None:
             chapter_no INTEGER, ref TEXT, title TEXT, status TEXT);
         CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT);
     """)
-    conn.execute(
-        "INSERT INTO novels (id, user_id, name, slug, root_path, current_phase, status, total_volumes, total_chapters, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        ("g1", "u1", "换代演练书", "drill-gen", "./data/drill-gen", "write", "active", 1, 2, "2026-01-01 00:00:00", "2026-01-02 00:00:00"))
-    conn.execute(
-        "INSERT INTO volumes (id, novel_id, volume_no, title, summary, chapter_count) VALUES (?,?,?,?,?,?)",
-        ("gv1", "g1", 1, "演练卷", "卷概要", 2))
-    conn.execute(
-        "INSERT INTO chapters (id, novel_id, volume_id, chapter_no, ref, title, status) VALUES (?,?,?,?,?,?,?)",
-        ("gc1", "g1", "gv1", 1, "vol-1-ch-1", "第一章", "draft"))
-    conn.execute(
-        "INSERT INTO chapters (id, novel_id, volume_id, chapter_no, ref, title, status) VALUES (?,?,?,?,?,?,?)",
-        ("gc2", "g1", "gv1", 2, "vol-1-ch-2", "第二章", "draft"))
+    for i in range(books):
+        nid = f"{id_prefix}{i}"
+        conn.execute(
+            "INSERT INTO novels (id, user_id, name, slug, root_path, current_phase, status,"
+            " total_volumes, total_chapters, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (nid, "u1", f"演练书{nid}", f"drill-{nid}", f"./data/drill-{nid}", "write", "active",
+             1, 1, "2026-01-01 00:00:00", "2026-01-02 00:00:00"))
+        conn.execute("INSERT INTO volumes (id, novel_id, volume_no, title, summary, chapter_count)"
+                     " VALUES (?,?,?,?,?,?)", (f"{id_prefix}v{i}", nid, 1, "演练卷", "卷概要", 1))
+        conn.execute("INSERT INTO chapters (id, novel_id, volume_id, chapter_no, ref, title, status)"
+                     " VALUES (?,?,?,?,?,?,?)",
+                     (f"{id_prefix}c{i}", nid, f"{id_prefix}v{i}", 1, f"vol-1-ch-{i+1}"
+                      if id_prefix == "a" else f"vol-2-ch-{i+1}", "第一章", "draft"))
     conn.commit()
     conn.close()
-    _save_state(work, gen_old_db=str(db_path), gen_books=1)
-    print(f"[gen-bump-seed] 第 0 代库就绪：{db_path}（1 本书）")
 
 
-def phase_gen_bump_boot(root: Path, work: Path) -> None:
-    """db-generation 核心断言：源文件逐字节不变 + 空库 + 候选检出 +
-    一键迁入计数对拍。"""
-    from migration.engine import precheck, run_migration
-    from schema_version import SCHEMA_VERSION
+def phase_version_chain_seed(root: Path, work: Path) -> None:
+    """seed 两份低版本库（跨两版链式搬运的起点：N-2 与 N-1）。
 
-    data_dir = root / "data"
-    old_db = data_dir / "novel.db"
-    before = old_db.read_bytes()
-    active = data_dir / f"novel-v{SCHEMA_VERSION}.db"
+    c-db-per-version：留存形态是**版本命名**（已发布客户端写的是第 0 代，
+    开发/内测栈是遗留代数名——两种都另有专门阶段覆盖）。"""
+    data_dir = root  # 演练约定：--root 即 DATA_ROOT（与其它阶段同源）
+    older = data_dir / db_filename_for("0.23")
+    newer = data_dir / db_filename_for("0.24")
+    _seed_lib(older, 2, "a")
+    _seed_lib(newer, 1, "b")
+    _save_state(work, chain_older=str(older), chain_newer=str(newer),
+                chain_books=3,
+                chain_older_sig=json.dumps(_file_sig(older)),
+                chain_newer_sig=json.dumps(_file_sig(newer)))
+    print(f"[version-chain-seed] 低版本库就绪：{older.name}(2 本) + {newer.name}(1 本)")
 
-    pc = precheck(data_dir, "novel.db", active)
-    assert pc["ok"], f"预检失败：{pc}"
-    assert pc["generation"] == 0
 
-    # 目标库须先建好全量当前 schema（模拟新版 create_all 首启）
+def _file_sig(db_path: Path) -> dict:
+    """三件套 (size, mtime_ns) 快照（源只读断言的判据）。"""
+    import hashlib
+
+    out = {}
+    for p in (db_path, Path(f"{db_path}-wal"), Path(f"{db_path}-shm")):
+        if p.exists():
+            st = p.stat()
+            out[p.name] = [st.st_size, st.st_mtime_ns,
+                           hashlib.sha256(p.read_bytes()).hexdigest()[:16]]
+    return out
+
+
+def phase_version_chain_boot(root: Path, work: Path) -> None:
+    """核心断言：源三件套不变 + 自己版本新库空启动 + 候选检出（含推荐位）
+    + 链式搬运（N-2 → N 两跳）计数对拍 + 搬后 roundtrip 可导出。"""
     import models  # noqa: F401 —— 注册全表
     from db import Base
+    from db_lifecycle import scan_migration_candidates
+    from migration.engine import precheck, run_migration
     from sqlalchemy import create_engine as _ce
 
+    data_dir = root  # 演练约定：--root 即 DATA_ROOT
+    state = _load_state(work)
+    older = Path(state["chain_older"])
+    newer = Path(state["chain_newer"])
+    sig_before = {p.name: _file_sig(p) for p in (older, newer)}
+
+    active = _active_db(data_dir)
+    # 新版首启：库不存在 → 空库（create_all 兜底）
+    assert not active.exists(), f"新版库不应存在：{active}"
     _se = _ce(f"sqlite:///{active}")
     Base.metadata.create_all(_se)
     _se.dispose()
-
-    rep = run_migration(data_dir, "novel.db", active)
-    assert rep["status"] == "ok", rep
-    assert rep["book_count_source"] == 1, rep
-    assert rep["book_count_migrated"] == 1, rep
-    assert old_db.read_bytes() == before, "源库字节必须不变"
     live = sqlite3.connect(active)
-    n = live.execute("SELECT COUNT(*) FROM novels").fetchone()[0]
+    assert live.execute("SELECT COUNT(*) FROM novels").fetchone()[0] == 0, "新版首启必须是空库"
     live.close()
-    assert n == 1, f"迁后书数 {n} != 1"
-    _save_state(work, gen_migrated=True)
-    print(f"[gen-bump-boot] 版本化 v{SCHEMA_VERSION}：源只读迁入成功（1 本书），源文件字节不变")
+
+    # 候选检出：版本降序 + 推荐位（第一个不新于当前版本者）
+    cands = scan_migration_candidates(data_dir, DRILL_VERSION, active)
+    names = [c["filename"] for c in cands]
+    assert names == [newer.name, older.name], f"候选顺序异常：{names}"
+    assert cands[0]["recommended"] is True and cands[0]["version"] == "0.24"
+    assert [c["book_count"] for c in cands] == [1, 2], cands
+
+    # 链式搬运：两跳各自 precheck 通过、计数对拍
+    for src, expected in ((newer, 1), (older, 2)):
+        pc = precheck(data_dir, src.name, active)
+        assert pc["ok"], f"预检失败：{pc}"
+        assert pc["source_version"] == parse_db_filename(src.name).version
+        rep = run_migration(data_dir, src.name, active)
+        assert rep["status"] == "ok", rep
+        assert rep["book_count_source"] == expected, rep
+
+    live = sqlite3.connect(active)
+    total = live.execute("SELECT COUNT(*) FROM novels").fetchone()[0]
+    dup = live.execute("SELECT id, COUNT(*) c FROM novels GROUP BY id HAVING c > 1").fetchall()
+    assert total == 3, f"链式搬运后书数 {total} != 3"
+    assert dup == [], f"链式搬运出现重复行：{dup}"
+    ver = live.execute("SELECT value FROM app_meta WHERE key='app_version'").fetchone()
+    live.close()
+    assert ver and ver[0] == DRILL_VERSION, f"目标库版本戳缺失/不符：{ver}"
+
+    # 源只读：三件套 size/mtime/sha 全不变
+    for p in (older, newer):
+        assert _file_sig(p) == sig_before[p.name], f"源被改动：{p.name}"
+
+    # 搬后 roundtrip：新库可导出（八层由既有阶段覆盖，这里钉「搬后可交付」）
+    import asyncio as _asyncio
+
+    os.environ["DATA_ROOT"] = str(data_dir)
+    _ensure_user()
+    _fake_auth()
+    from db import engine as _engine
+
+    _asyncio.run(_engine.dispose())
+
+    from backup.export import start_backup_job
+
+    ok = start_backup_job(str(work / "chain-backup"), UID, False)
+    for _ in range(200):
+        from backup.export import job_status
+
+        st = job_status()
+        if st.get("state") in ("done", "error"):
+            break
+        _asyncio.run(_asyncio.sleep(0.05))
+    assert ok is not None and st.get("state") == "done", st
+    import glob
+
+    zips = glob.glob(str(work / "chain-backup" / "*.zip"))
+    assert zips, "搬后导出未产出备份包"
+    _save_state(work, chain_total=total, chain_app_version=ver[0],
+                chain_export=zips[0].split("/")[-1])
+    print(f"[version-chain-boot] {names} → 搬运 {total} 本（零重复）；源只读；"
+          f"app_version={ver[0]}；搬后导出 {zips[0].split('/')[-1]}")
 
 
-PHASES = ["seed-old", "boot-new", "gen-bump-seed", "gen-bump-boot", "import-v1", "export-v2", "roundtrip-v2", "downgrade"]
+PHASES = ["seed-old", "boot-new", "version-chain-seed", "version-chain-boot",
+          "import-v1", "export-v2", "roundtrip-v2", "downgrade"]
 
 
 def main() -> None:
@@ -708,6 +806,8 @@ def main() -> None:
     args = ap.parse_args()
     work = Path(args.work).resolve()
     work.mkdir(parents=True, exist_ok=True)
+    # c-db-per-version：库名由版本派生——阶段内 import config 之前钉死版本
+    os.environ.setdefault("CLIENT_VERSION", DRILL_VERSION)
 
     if args.all:
         fails = []
@@ -718,13 +818,13 @@ def main() -> None:
             "export-v2": "root-a",   # 回到 v1 导入后的源库
             "roundtrip-v2": "root-b",  # 另一个新空库
             "downgrade": "root-c",
-            # db-generation：gen-bump 两阶段共用 root-gen（低代库→迁入）
-            "gen-bump-seed": "root-gen",
-            "gen-bump-boot": "root-gen",
+            # version-chain：两阶段共用 root-chain（低版本库 → 链式搬运）
+            "version-chain-seed": "root-chain",
+            "version-chain-boot": "root-chain",
         }
         roots = {p: str(work / d) for p, d in shared.items()}
         for ph in PHASES:
-            env = dict(os.environ, DATA_ROOT=roots[ph])
+            env = dict(os.environ, DATA_ROOT=roots[ph], CLIENT_VERSION=DRILL_VERSION)
             r = subprocess.run(
                 [sys.executable, __file__, "--phase", ph, "--work", str(work), "--root", roots[ph]],
                 env=env,
@@ -735,8 +835,9 @@ def main() -> None:
                 break
         print("\n═══ 演练摘要 ═══")
         checks = _load_state(work) if _state_path(work).exists() else {}
-        print(f"留档触发: {checks.get('boot', {}).get('archived')}")
-        print(f"三件套:   {checks.get('boot', {}).get('trio')}")
+        print(f"version-chain: 源只读=✔ 空库启动=✔ 候选检出=✔ 搬运 {checks.get('chain_total')} 本=✔ "
+              f"零重复=✔ 源三件套不变=✔ app_version={checks.get('chain_app_version')} "
+              f"搬后导出={checks.get('chain_export')}（版本对 0.23/0.24 → {DRILL_VERSION}）")
         print("v1 导入:  角色 2 位、9 内容格 + 5 legacy 键、出场引用绑 id；"
               f"伏笔 {DRILL_HOOK_ROWS} 行逐条对拍（mentioned→active、垃圾/悬空 ref→NULL、KV 零残留）")
         print(f"roundtrip: {checks.get('roundtrip', {}).get('dst')}")
@@ -750,8 +851,8 @@ def main() -> None:
     {
         "seed-old": phase_seed_old,
         "boot-new": phase_boot_new,
-        "gen-bump-seed": phase_gen_bump_seed,
-        "gen-bump-boot": phase_gen_bump_boot,
+        "version-chain-seed": phase_version_chain_seed,
+        "version-chain-boot": phase_version_chain_boot,
         "import-v1": phase_import_v1,
         "export-v2": phase_export_v2,
         "roundtrip-v2": phase_roundtrip_v2,

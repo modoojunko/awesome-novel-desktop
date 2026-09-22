@@ -1,4 +1,4 @@
-import { useLegacyDb } from '@/hooks/useLegacyDb';
+import { migratableCandidates, useLegacyDb } from '@/hooks/useLegacyDb';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
@@ -121,6 +121,10 @@ function NovelList() {
   const navigate = useNavigate();
   // db-generation：旧库检测（免登端点；空书架开口行→AcctMenu 弹窗）
   const legacyDb = useLegacyDb();
+  // 旧版数据出口行（c-db-per-version）：可搬运候选的书数合计（推荐位由后端单源给，
+  // 弹窗自己按 `recommended` 预选，这里不需要再算一遍）
+  const priorCandidates = migratableCandidates(legacyDb.status);
+  const priorBooks = priorCandidates.reduce((n, c) => n + (c.book_count ?? 0), 0);
   const legacyAutoShown = useRef(false);
 
   // 找回完成后书架自动刷新（AcctMenu 的 migrateModal onDone dispatch）
@@ -638,12 +642,32 @@ function NovelList() {
           <div className="empty" style={{ padding: "56px 44px 48px" }}>
             <span className="fr-title serif">开始你的第一本书</span>
             <p>本地优先的 AI 长篇小说工作台——大纲、设定、正文，都保存在你这台电脑上。</p>
-            {legacyDb.status?.candidates?.length ? (
-              <p className="fr-note">
-                这台电脑上有旧版作品 ·{' '}
-                <button className="text-btn" onClick={() => window.dispatchEvent(new CustomEvent('legacy-migrate:open'))}>找回我的书</button>
-              </p>
-            ) : null}
+            {/* c-db-per-version：出口行**常驻**并并列两条出路——「把上一版的作品
+                带过来」（有可搬运候选时）与「从备份包恢复」（恒在：换安装目录/换机的
+                用户候选扫描看不到，必须第二条出口可达）。 */}
+            <p className="fr-note">
+              {priorBooks > 0 ? (
+                <>
+                  这台电脑上有旧版作品（<span className="num">{priorBooks}</span> 本）·{' '}
+                  <button
+                    className="text-btn"
+                    data-od-id="first-run-bring-back"
+                    onClick={() => window.dispatchEvent(new CustomEvent('legacy-migrate:open'))}
+                  >
+                    把上一版的作品带过来
+                  </button>
+                  {' · '}
+                </>
+              ) : null}
+              <button
+                className="text-btn"
+                data-od-id="first-run-restore"
+                onClick={() => window.dispatchEvent(new CustomEvent('restore:open'))}
+              >
+                从备份包恢复
+              </button>
+              {' · '}免费版可创建 <span className="num">1</span> 部作品 · 无需绑卡
+            </p>
             <div className="fr-steps">
               <div className="step">
                 <span className="fr-n">STEP 01</span>
