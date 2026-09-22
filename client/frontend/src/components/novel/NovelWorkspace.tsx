@@ -485,7 +485,9 @@ export default function NovelWorkspace() {
     : "";
 
   // ── 空书起手（c-0vol0ch-empty-state）：零卷零章时给明确起点 ──────────────
-  // 建卷统一入口（c-volume-antagonist）：三处空书入口＋树头「＋」都接 openPlanVolume 按档分流。
+  // 建卷两条入口（用户 2026-09-22 拍板）：
+  //   ① 手动入口（各处「＋ 新增一卷」＋树头「＋」）→ 四问手写页，让作家填空，不分档位；
+  //   ② AI 入口（右栏「规划第N卷（AI）」）→ 按档分流：付费＝三选一抽卡，免费＝四问页。
   /** 右栏「未选中」态数据（volume-plan-ai：卷的验证行单源；四格全书统计已退役） */
   const railIdle = useMemo(
     () => ({
@@ -502,6 +504,15 @@ export default function NovelWorkspace() {
       backfillFiredRef.current = false;
       track("plan_entry_open", { tier: isPro ? "pro" : "free" });
       plan.open(volNo, isPro);
+    },
+    [plan, isPro],
+  );
+  /** 手动建卷入口：加号一律进四问手写页（作家填空），AI 抽卡只在右栏 */
+  const openPlanVolumeManual = useCallback(
+    (volNo: number) => {
+      backfillFiredRef.current = false;
+      track("plan_entry_open", { tier: isPro ? "pro" : "free" });
+      plan.open(volNo, isPro, "manual");
     },
     [plan, isPro],
   );
@@ -756,7 +767,7 @@ export default function NovelWorkspace() {
         className="btn btn-primary btn-sm"
         data-od-id="empty-add-vol"
         title="从一卷卷纲开始这本书"
-        onClick={() => openPlanVolume(nextVolNo)}
+        onClick={() => openPlanVolumeManual(nextVolNo)}
       >
         ＋ 新增一卷
       </button>
@@ -875,7 +886,7 @@ export default function NovelWorkspace() {
                 ? { ref: chapterRef, words: railData.wordCount }
                 : null
             }
-            onAddVolume={() => openPlanVolume(nextVolNo)}
+            onAddVolume={() => openPlanVolumeManual(nextVolNo)}
             onAddChapter={() => void addFirstChapter()}
           />
         </aside>
@@ -926,7 +937,7 @@ export default function NovelWorkspace() {
                     <button
                       className="btn btn-primary"
                       data-od-id="empty-cta-vol"
-                      onClick={() => openPlanVolume(nextVolNo)}
+                      onClick={() => openPlanVolumeManual(nextVolNo)}
                     >
                       ＋ 新增一卷
                     </button>
@@ -965,7 +976,7 @@ export default function NovelWorkspace() {
                     <button
                       className="btn btn-secondary"
                       data-testid="landing-add-volume"
-                      onClick={() => openPlanVolume(nextVolNo)}
+                      onClick={() => openPlanVolumeManual(nextVolNo)}
                     >
                       ＋ 新增一卷
                     </button>
@@ -1008,7 +1019,7 @@ export default function NovelWorkspace() {
                     <button
                       className="btn btn-secondary"
                       data-testid="home-add-volume"
-                      onClick={() => openPlanVolume(nextVolNo)}
+                      onClick={() => openPlanVolumeManual(nextVolNo)}
                     >
                       ＋ 新增一卷
                     </button>

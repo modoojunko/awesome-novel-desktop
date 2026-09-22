@@ -322,6 +322,30 @@ describe("空书起手链（c-0vol0ch-empty-state）", () => {
     );
   });
 
+  it("PRO 档：加号「＋ 新增一卷」进四问手写页（不弹抽卡）；抽卡只从右栏 AI 入口进", async () => {
+    // PRO 档会挂 ProPhaseSurface（读 phase-status）→ 补该桩，避免上游抛错
+    mockEmptyTree();
+    const baseGet = apiState.get.getMockImplementation()!;
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/novels/p1/workflow/phase-status")
+        return Promise.resolve({
+          phases: { settings: "pending", outline: "pending", prompt: "pending", write: "pending", archive: "pending" },
+          warnings: [],
+        });
+      return baseGet(path);
+    });
+    renderWorkspace("monthly");
+    await screen.findByText("这本书怎么开始？");
+    // 加号＝手动入口：恒进四问手写页
+    fireEvent.click(document.querySelector('[data-od-id="empty-cta-vol"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId("volume-plan-modal")).toBeDefined());
+    expect(screen.queryByTestId("pick-modal")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /先不规划/ }));
+    // 右栏 AI 入口：PRO 档＝三选一抽卡
+    fireEvent.click(screen.getByTestId("plan-first-volume"));
+    await waitFor(() => expect(screen.getByTestId("pick-modal")).toBeDefined());
+  });
+
   it("入口埋点：三处「＋ 新增一卷」记 plan_entry_open{tier}", async () => {
     mockEmptyTree();
     renderWorkspace("none");
