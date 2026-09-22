@@ -115,3 +115,23 @@
 - [x] 10.8 全量 e2e（换基后）：隔离栈 **174 passed / 0 failed / 17 skipped（8.4min）**（含换基后新增的
   6 条用例）；`settings-forms` 首轮曾因我把该文件整份取回旧版（#458 已改过它）而红——已改为「保留 main 版＋
   我的 3 处最小改动」，复跑绿
+
+## 11. 入口分叉（用户 2026-09-22 追加口径）
+
+口径：**加号（各处「＋ 新增一卷」／树头「＋」）＝手动建卷 → 恒进四问手写页，让作家填空（不分档位）**；
+三选一抽卡只从右栏「规划第N卷（AI）」进（该入口仍按档分流：付费＝抽卡、免费＝四问页）。
+
+- [x] 11.1 `useVolumePlan.open(volNo, isPro, mode)` 增 mode（默认 "ai"）：`mode==="manual"` 恒 `deskOpen`；
+      仅 AI 入口且付费才 `pickOpen`＋`drawCards`
+- [x] 11.2 `NovelWorkspace` 拆两条入口：`openPlanVolumeManual`（5 处加号＋树头走它）与
+      `openPlanVolume`（右栏 `onPlanVolume` 保持 AI 语义）；埋点仍记 `plan_entry_open{tier}`（口径不变）
+- [x] 11.3 测试：vitest 新增「PRO 档加号＝四问页（不弹抽卡）＋抽卡只从右栏进」与 hook 级
+      「open(mode)：manual 恒四问页／ai 按档」；`creation-flow.spec` 两处加号断言改四问页（原先钉的是旧口径）
+- [x] 11.4 spec 增量改口径：workbench 的 N4 建卷 bullet＋场景「新增一卷按档分流」（改为「加号＝手填页；
+      按档分流只发生在右栏 AI 入口」）＋我 ADDED 需求同款 bullet＋**新增 书内顶栏 的 MODIFIED 块**
+      （bar-here 空书卡按钮口径）；volume-plan-ai 的「两条并行入口」补手动入口恒进手写页
+- [x] 11.5 原型与登记：拆纲稿 `openPlan(n, manual)`（`manual-vol` 传 true）＋ ADJUSTMENTS 第 7 条
+- [x] 11.6 门禁：tsc 0 error；vitest **77 文件 / 753 passed**；`openspec validate --strict` 绿；
+      隔离栈（重建镜像）聚焦 e2e creation-flow＋volume-plan＋workbench-features **25 passed**；
+      全量 e2e 见 11.7
+- [x] 11.7 全量 e2e（换基后第二轮）：隔离栈 **174 passed / 0 failed / 17 skipped（8.4min）**

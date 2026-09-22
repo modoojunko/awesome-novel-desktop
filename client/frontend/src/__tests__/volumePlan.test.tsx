@@ -550,6 +550,35 @@ describe("卷页签右栏（c-write-home-rail-anchor）", () => {
   });
 });
 
+describe("入口分叉（c-write-home-rail-anchor）", () => {
+  beforeEach(() => {
+    apiState.get.mockReset();
+    apiState.post.mockReset();
+    apiState.post.mockResolvedValue(THREE_PLANS);
+  });
+
+  it("open(mode)：manual 恒进四问页；ai 按档（付费＝抽卡 / 免费＝四问页）", async () => {
+    const { result } = renderHook(() => useVolumePlan("p1"));
+    await act(async () => {
+      result.current.open(1, true, "manual");
+    });
+    expect(result.current.state.deskOpen).toBe(true);
+    expect(result.current.state.pickOpen).toBe(false);
+
+    await act(async () => {
+      result.current.open(1, true);
+    });
+    expect(result.current.state.pickOpen).toBe(true);
+    expect(result.current.state.deskOpen).toBe(false);
+
+    await act(async () => {
+      result.current.open(1, false);
+    });
+    expect(result.current.state.deskOpen).toBe(true);
+    expect(result.current.state.pickOpen).toBe(false);
+  });
+});
+
 describe("useVolumePlan 状态机", () => {
   beforeEach(() => {
     apiState.get.mockReset();

@@ -306,18 +306,11 @@ test("空书无门控：建书即写，加卷加章直达编辑器", async ({ pa
     await expect(page.getByText("设定尚未全部完成")).toHaveCount(0);
     await expect(page.getByText(/尚未完成设定/)).toHaveCount(0);
 
-    // 树头「＋」→ 规划台（c-volume-antagonist 统一入口）：付费出三选一抽卡。
-    // 本用例只验「建卷入口统一」＋手写路直达编辑器 → 抽卡接口打桩成失败，走「自己答四个问题」。
-    await page.route("**/api/novels/*/volumes/ai/options", (r) =>
-      r.fulfill({ status: 500, json: { detail: "还没接模型" } }),
-    );
+    // 树头「＋」＝手动入口（用户 2026-09-22 拍板）：恒进四问手写页，付费档也不出抽卡
+    // （三选一抽卡只从右栏 AI 入口「规划第N卷（AI）」进）——本用例只验手写路直达编辑器。
     await page.getByTitle("新增一卷").click();
-    await expect(page.getByTestId("pick-modal")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId("pick-error")).toBeVisible({ timeout: 10000 });
-    await page.getByRole("button", { name: "自己答四个问题" }).click();
-
-    // 四问手写页：答第一问即可建卷（答多少建多少）
     await expect(page.getByTestId("volume-plan-modal")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("pick-modal")).toHaveCount(0);
     await page.getByTestId("q-what").fill("风起晋北：她在边城追查匿名信的来路。");
     await page.getByTestId("desk-create").click();
 
@@ -357,14 +350,12 @@ test("空书起手：中栏「＋ 新增一章」先垫第一卷并排上第一�
     // 左栏底部两入口（空书态替代「确认全部已填章节」）
     const tree = page.locator(".col-tree");
     await expect(page.locator(".col-tree.empty-book .tree-add")).toBeVisible();
-    // 「＋ 新增一卷」＝规划台（空书态三处入口同一实体）：付费出抽卡，Esc 关闭
-    await page.route("**/api/novels/*/volumes/ai/options", (r) =>
-      r.fulfill({ status: 500, json: { detail: "还没接模型" } }),
-    );
+    // 「＋ 新增一卷」＝手动入口（空书态三处入口同一实体）：恒进四问手写页，Esc 关闭
     await page.locator('[data-od-id="add-volume"]').click();
-    await expect(page.getByTestId("pick-modal")).toBeVisible({ timeout: 5000 });
-    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("volume-plan-modal")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("pick-modal")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("volume-plan-modal")).toHaveCount(0);
 
     // 「＋ 新增一章」：先垫「第一卷」（程序默认序号形态）再排「第一章」
     await page.locator('[data-od-id="empty-cta-ch"]').click();

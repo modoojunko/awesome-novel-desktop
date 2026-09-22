@@ -1078,3 +1078,9 @@ cast-row，坎行复用 hurdle-row；色彩与组件零新形态。
    「添加卷」独立弹窗退役）——两段原型与实现同批对齐，`prototypes/book.html` 与全部 parity 基线**不动**。
 6. **验证**：两份稿件脚本 `node --check` 通过；Playwright 走查零 JS 报错（卷四页签的「当前页签／组序／动作」
    与抽卡卡片「上接」文本均按预期渲染）。
+
+7. **（09-22 追加）入口分叉：加号＝手填页，抽卡只在右栏**（用户拍板）：各处「＋ 新增一卷」（顶栏空书卡／
+   中栏起手卡／中栏落点卡／中栏书主页卡／左栏底部／树头「＋」）SHALL 恒进**四问手写页**，让作家填空、
+   **不分档位**；三选一抽卡 SHALL 只从右栏「规划第N卷（AI）」进（该入口仍按档分流：付费＝抽卡、免费＝四问页）。
+   原型：拆纲稿 `openPlan(n, manual)` 加 manual 参数、`manual-vol` 传 true；实现：`useVolumePlan.open(volNo, isPro, mode)`，
+   `NovelWorkspace` 拆 `openPlanVolumeManual`（加号）与 `openPlanVolume`（右栏 AI）。

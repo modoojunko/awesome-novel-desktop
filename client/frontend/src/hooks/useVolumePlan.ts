@@ -70,16 +70,19 @@ export function useVolumePlan(projectId: string) {
 
   /** 打开规划（统一入口）：付费出抽卡（自动拉卡）、免费出四问页 */
   const open = useCallback(
-    (volNo: number, isPro: boolean) => {
+    (volNo: number, isPro: boolean, mode: "ai" | "manual" = "ai") => {
       consumedRef.current = false;
       // 开新一轮＝丢弃在飞请求（P3）：否则上一轮慢 expand 回来会置 done+autoBackfill，
       // 自动回填拿本轮 volNo 去建卷 → 把上一卷的卷纲写到这一卷上
       cancelPending();
+      // 入口分叉（用户 2026-09-22 拍板）：手动入口（各处「＋ 新增一卷」）恒进**四问手写页**，
+      // 让作家填空；三选一抽卡只从 AI 入口（右栏「规划第N卷（AI）」）进，并按档分流。
+      const toPick = mode === "ai" && isPro;
       setState({
         ...INITIAL, volNo,
-        ...(isPro ? { pickOpen: true } : { deskOpen: true }),
+        ...(toPick ? { pickOpen: true } : { deskOpen: true }),
       });
-      if (isPro) void drawCards();
+      if (toPick) void drawCards();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [projectId],

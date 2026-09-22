@@ -1843,15 +1843,16 @@ function runCheck(){
   const warn = rows.filter(r=>r[0]==='warn').length, ok = rows.filter(r=>r[0]==='ok').length;
   setTimeout(()=>{ if(state.check==='busy'){ state.check='done'; render(); toast('卷纲体检完成：'+warn+' 条要留意，'+ok+' 条通过 · 只读不拦'); } }, 900);
 }
-function openPlan(n){
+function openPlan(n, manual){
   if(n>2){ toast('演示稿：本稿演到第二卷为止'); return; }
   state.planVol = n; state.pick = null; state.check = null; state.scIgnored = false;
   state.genView = false; state.genDone = false; state.fill = 0; state.submittedLine = ''; state.plans = null;
   state.q1=''; state.q2=''; state.q5=''; state.antType='先不选'; state.antLine=''; state.cast=[]; state.castIgnored=false;
   state.input = curLine();   /* 首卷＝演示里作家写好的那一句；第二卷留空 */
   state.plansRound = 0; state.pickPick = null; state.pickGen = false;
-  /* 付费＝三选一抽卡弹窗（roguelike：AI 先把五问答好三份，作家决策）；免费＝五问手写页 */
-  if(state.pro){
+  /* 入口分叉（用户 2026-09-22 拍板）：手动入口（各处「＋ 新增一卷」）恒进四问手写页，让作家填空；
+     三选一抽卡只从右栏 AI 入口（plan-open / next-vol）进——付费＝抽卡，免费＝手写页 */
+  if(state.pro && !manual){
     state.pickModal = true; state.modal = false; state.demo = (n===2 ? 'next' : 'desk');
     render(); drawPlans();
   } else {
@@ -1939,7 +1940,7 @@ const ACTS = {
   'sc-fix': ()=>{ toast('演示稿：让 AI 按这条自查改一版（本稿不覆盖）'); },
   'sc-ignore': ()=>{ state.scIgnored=true; render(); },
   'dep': el=>{ toast('演示稿：跳回设定页「'+el.dataset.name+'」——本原型未覆盖设定视图'); },
-  'manual-vol': ()=>openPlan(nextNo()),
+  'manual-vol': ()=>openPlan(nextNo(), true),
   'manual-ch': ()=>{ toast('演示稿：手动排章走现有「先垫第一卷」路径（本稿不覆盖）'); },
   'resume': ()=>{ toast('演示稿：续写回到上次写到的那一章（本稿不覆盖章工作台）'); },
   'add-ch-in-vol': ()=>{ toast('演示稿：排第一章走现有章工作台（本稿不覆盖）'); },
