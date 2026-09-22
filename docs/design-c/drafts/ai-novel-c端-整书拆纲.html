@@ -1707,9 +1707,10 @@ function planHTML(){
     + '<div class="fro"><em><span class="qno">4</span>卷末收在哪里？ <span class="note">这一卷结束时，局面变成什么样</span></em>'
     +   '<textarea class="box box-sm" id="q-ending" rows="2" spellcheck="false" placeholder="例：没有退路，也没有人可以怪">'+esc(state.q5)+'</textarea></div>'
     + '<div class="plan-desk-acts">'
-    +   '<button class="btn btn-accent" data-act="expand" data-od-id="cta-expand"'+(!state.pro?' disabled':'')+'>让 AI 铺完剩下的问题</button>'
+    /* 手动入口（加号）＝纯手写页：不出现 AI 动作（用户 2026-09-22 拍板），只留「直接创建这一卷」 */
+    +   (state.manual ? '' : '<button class="btn btn-accent" data-act="expand" data-od-id="cta-expand"'+(!state.pro?' disabled':'')+'>让 AI 铺完剩下的问题</button>')
     +   '<button class="btn" data-act="manual-create" data-od-id="cta-manual-create">直接创建这一卷</button>'
-    +   '<span class="push">'+(state.pro ? '你答过的它不改——AI 只铺空着的' : '<span class="pill-pro">PRO</span> 铺空缺需 PRO；手写与创建不受限')+'</span>'
+    +   '<span class="push">'+(state.manual ? '想让 AI 铺空缺：用右侧 AI 助手的「规划第N卷（AI）」' : (state.pro ? '你答过的它不改——AI 只铺空着的' : '<span class="pill-pro">PRO</span> 铺空缺需 PRO；手写与创建不受限'))+'</span>'
     + '</div>'
     + '<p class="hint">三套都忠于全书主线、世界观、核心人物和终极目标——不同的只是走向、冲突和侧重点。</p>'
     + '<details class="cfgset plan-rules" data-od-id="plan-rules"><summary>展开时遵守的规则 · 每卷都带上</summary>'
@@ -1850,6 +1851,7 @@ function openPlan(n, manual){
   state.q1=''; state.q2=''; state.q5=''; state.antType='先不选'; state.antLine=''; state.cast=[]; state.castIgnored=false;
   state.input = curLine();   /* 首卷＝演示里作家写好的那一句；第二卷留空 */
   state.plansRound = 0; state.pickPick = null; state.pickGen = false;
+  state.manual = !!manual;   /* 手动入口：手写页不出 AI 动作 */
   /* 入口分叉（用户 2026-09-22 拍板）：手动入口（各处「＋ 新增一卷」）恒进四问手写页，让作家填空；
      三选一抽卡只从右栏 AI 入口（plan-open / next-vol）进——付费＝抽卡，免费＝手写页 */
   if(state.pro && !manual){

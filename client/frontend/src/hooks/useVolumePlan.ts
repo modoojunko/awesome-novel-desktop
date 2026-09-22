@@ -20,6 +20,9 @@ export type DeskPhase = "idle" | "generating" | "done";
 
 export interface VolumePlanState {
   /** 抽卡弹窗（付费默认路径） */
+  /** 入口来源（用户 2026-09-22）："manual"＝加号手动入口（手写页不出现任何 AI 动作）；
+   *  "ai"＝右栏 AI 入口（手写页保留「让 AI 铺完剩下的问题」） */
+  openMode: "ai" | "manual";
   pickOpen: boolean;
   pickPhase: PickPhase;
   pickError: string;
@@ -48,6 +51,7 @@ export interface VolumePlanState {
 }
 
 const INITIAL: VolumePlanState = {
+  openMode: "ai",
   pickOpen: false, pickPhase: "idle", pickError: "", plans: [], note: "",
   pickPick: null, confirming: false, confirmResult: null,
   deskOpen: false, deskPhase: "idle", answers: { ...EMPTY_ANSWERS },
@@ -79,7 +83,7 @@ export function useVolumePlan(projectId: string) {
       // 让作家填空；三选一抽卡只从 AI 入口（右栏「规划第N卷（AI）」）进，并按档分流。
       const toPick = mode === "ai" && isPro;
       setState({
-        ...INITIAL, volNo,
+        ...INITIAL, volNo, openMode: mode,
         ...(toPick ? { pickOpen: true } : { deskOpen: true }),
       });
       if (toPick) void drawCards();

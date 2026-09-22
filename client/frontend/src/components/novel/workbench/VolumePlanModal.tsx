@@ -1,6 +1,8 @@
 // VolumePlanModal — 四问手写页（c-volume-antagonist 免费路径/付费转手写）。
 // 四问：①讲什么②主要冲突③这一卷的坎（类型＋一句话）④卷末收在哪里；
 // 底部两动作：「让 AI 铺完剩下的问题」（PRO）＋「直接创建这一卷」（免费）。
+// 手动入口（各处「＋ 新增一卷」，state.openMode==="manual"）下 SHALL NOT 出现 AI 动作：
+// 手写页只留「直接创建这一卷」，AI 铺空缺改由右栏 AI 助手入口进（用户 2026-09-22 拍板）。
 // 生成中 genbox 进度只在弹窗内；关弹窗不中断（完成后中栏自动回填）。
 import { useEffect } from "react";
 import Modal from "@/components/design/Modal";
@@ -48,6 +50,8 @@ export function VolumePlanModal({
     if (!state.deskOpen) resetError();
   }, [state.deskOpen, resetError]);
 
+  /** 手动入口（加号）＝纯手写页：不出现任何 AI 动作与 AI 承诺文案 */
+  const manual = state.openMode === "manual";
   const genBusy = state.deskPhase === "generating";
   const genDone = state.deskPhase === "done" && state.draft && !state.degradedText;
 
@@ -57,12 +61,14 @@ export function VolumePlanModal({
         <p className="kicker">分卷规划 · 第{cn}卷</p>
 
         <p className="plans-h" style={{ marginTop: 12 }}>
-          四个问题 · 答得出就答，答不出的交给 AI
+          {manual
+            ? "四个问题 · 答得出就答，答不出的可以空着"
+            : "四个问题 · 答得出就答，答不出的交给 AI"}
         </p>
 
         <div className="fro">
           <em>
-            <span className="qno">1</span>这一卷讲什么？ <span className="note">可空——空着 AI 按设定推</span>
+            <span className="qno">1</span>这一卷讲什么？ <span className="note">{manual ? "可空" : "可空——空着 AI 按设定推"}</span>
           </em>
           <textarea
             className="textarea"
@@ -132,20 +138,24 @@ export function VolumePlanModal({
         </div>
 
         <div className="plan-desk-acts">
-          <button
-            className="btn btn-primary"
-            data-testid="desk-expand"
-            disabled={!isPro || state.error.includes("主线")}
-            title={isPro ? undefined : "铺空缺需 PRO——升级后可用"}
-            onClick={() => void expandDesk()}
-          >
-            让 AI 铺完剩下的问题
-          </button>
+          {!manual && (
+            <button
+              className="btn btn-primary"
+              data-testid="desk-expand"
+              disabled={!isPro || state.error.includes("主线")}
+              title={isPro ? undefined : "铺空缺需 PRO——升级后可用"}
+              onClick={() => void expandDesk()}
+            >
+              让 AI 铺完剩下的问题
+            </button>
+          )}
           <button className="btn btn-secondary" data-testid="desk-create" onClick={onDirectCreate}>
             直接创建这一卷
           </button>
           <span className="push">
-            {isPro ? (
+            {manual ? (
+              "想让 AI 铺空缺：用右侧 AI 助手的「规划第N卷（AI）」"
+            ) : isPro ? (
               "你答过的它不改——AI 只铺空着的"
             ) : (
               <>

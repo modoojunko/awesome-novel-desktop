@@ -76,11 +76,19 @@ function PickHarness({
   );
 }
 
-function DeskHarness({ onDirectCreate, onBackfill }: { onDirectCreate: () => void; onBackfill: () => void }) {
+function DeskHarness({
+  onDirectCreate,
+  onBackfill,
+  manual,
+}: {
+  onDirectCreate: () => void;
+  onBackfill: () => void;
+  manual?: boolean;
+}) {
   const plan = useVolumePlan("p1");
   return (
     <>
-      <button data-testid="open" onClick={() => plan.open(1, false)}>open</button>
+      <button data-testid="open" onClick={() => plan.open(1, false, manual ? "manual" : "ai")}>open</button>
       <VolumePlanModal
         projectId="p1" plan={plan} isPro={true} onUpgrade={noop}
         onDirectCreate={onDirectCreate} onBackfill={onBackfill} onClose={plan.closeDesk}
@@ -218,6 +226,19 @@ describe("VolumePlanModal（四问手写页）", () => {
   beforeEach(() => {
     apiState.get.mockReset();
     apiState.post.mockReset();
+  });
+
+  it("手动入口（加号）：手写页不出现 AI 动作，只留「直接创建这一卷」＋指向右栏的说明", async () => {
+    render(<DeskHarness onDirectCreate={noop} onBackfill={noop} manual />);
+    fireEvent.click(screen.getByTestId("open"));
+    await waitFor(() => expect(screen.getByTestId("volume-plan-modal")).toBeDefined());
+    expect(screen.queryByTestId("desk-expand")).toBeNull();
+    expect(screen.getByTestId("desk-create")).toBeDefined();
+    expect(screen.getByTestId("volume-plan-modal").textContent).toContain("右侧 AI 助手");
+    // 四问仍可写，且不再承诺「交给 AI」
+    fireEvent.change(screen.getByTestId("q-what"), { target: { value: "只靠自己" } });
+    expect((screen.getByTestId("q-what") as HTMLTextAreaElement).value).toBe("只靠自己");
+    expect(screen.getByTestId("volume-plan-modal").textContent).not.toContain("交给 AI");
   });
 
   it("四问输入＋免费直建出口＋PRO 铺空缺；免费档 PRO 说明", async () => {
