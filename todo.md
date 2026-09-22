@@ -280,13 +280,25 @@ POST /web/login      × 35 → 200×35 全部（限流完全没拦，登录逻�
 
 ## 中优先（质量治理）
 
-- [x] **库文件名＝C端 版本（单一方案，不区分破坏性/小改）｜2026-09-21 拍板 → 09-22 已实现（PR #464，待审/待合）**
+- [ ] **打 v0.25（闸门：卷下拆卷拆章那批做完）｜2026-09-22 拍板**
+  库文件名＝C端 版本（c-db-per-version：已合 #464 → `cd008dad`＋已归档 #471 → `29f223d2`）
+  只有在**下一个正式版本**里才真正生效：届时存量用户（含本机）首启会看到空书架，需点一次
+  「把上一版的作品带过来」——旧文件原样保留、可随时装回旧版本。
+  **用户 2026-09-22 拍板：等「卷下拆卷拆章」完成后一起打 0.25，不单独为库文件名换代发一版。**
+  打版清单：①tag 附注用发布说明底稿
+  `openspec/changes/archive/2026-09-22-c-db-per-version/notes-release.md`（首行进 `latest.json.notes`
+  ＝应用内提醒条，**文案需用户过目**）②流水线含新的 `components` 冒烟断言（#464 内已修）③Actions
+  额度 10-01 重置后补跑一次 main dispatch 验 CI。触发方式：对话里说「打 0.25」。
+
+- [x] **库文件名＝C端 版本（单一方案，不区分破坏性/小改）｜2026-09-21 拍板 → 09-22 已实现＋已合＋已归档**
   **✅ 已实现（2026-09-22）**：`openspec/changes/c-db-per-version/`（propose 四工件齐）→
-  实现＋双评审整改＋PR 检视整改全落，**PR #464**（7 commits，MERGEABLE）。本地门禁：
-  pytest 1314 / vitest 746 / tsc 0 错 / drill --all 全绿 / UP-11 e2e 2 条通过 /
+  实现＋双评审整改＋PR 检视整改全落：**#464 合 main（`cd008dad`）＋#471 归档（`29f223d2`，specs 立
+  `db-generation`／`installer-release` 补 `components`）**。本地门禁：
+  pytest 1314 / vitest 761 / tsc 0 错 / drill --all 全绿 / UP-11 e2e 2 条通过 /
   UP-16 真数据演练（1213 本带回、源三件套不变）。**CI 红＝额度/基建签名**（job `steps: []`，
   与 09-05 先例同款；额度 10-01 重置）。合并后待办：①归档本 change（specs sync + Purpose
-  改词）②发 v0.25 时用 `notes-release.md` 底稿写 tag 附注（升级须带一次旧版作品）。
+  改词）②发 v0.25 时用 `notes-release.md` 底稿写 tag 附注（升级须带一次旧版作品）——**归档已完成
+  （#471），发版闸门见下一条「打 v0.25」。**
   前置任务 0.1＝**先归档 `c-db-generation-migration`**（16/16 已完成、代码随 #453 在 main）——
   `db-generation` 目标 spec 只在那个未归档 change 里，`openspec validate` 已实测报
   「target spec does not exist，归档会拒绝 MODIFIED/RENAMED」；归档后本 change 的 delta 才有
