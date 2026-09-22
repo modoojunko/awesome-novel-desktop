@@ -120,10 +120,12 @@ jobs:
           python - "$CLIENT_VERSION" <<'PY'
           import json, os, subprocess, sys
           version = sys.argv[1]
-          # 组件清单：构建期从后端单源读取（脚本在 backend 内 import 真源）
+          # 组件清单：构建期从后端单源读取（脚本在 backend 内 import 真源）。
+          # 路径相对**本步骤的 working-directory**（client/packaging/build）解析——
+          # 写成 "client/backend" 会 FileNotFoundError 把每个 tag 构建打挂（检视 P0）
           comp = json.loads(subprocess.check_output(
               [sys.executable, "scripts/release_components.py", version],
-              cwd="client/backend", text=True))
+              cwd="../../backend", text=True))
           cfg = {
               "server_api_base": os.environ["RELEASE_SERVER_API_BASE"],
               "server_api_fallback": os.environ["RELEASE_SERVER_API_FALLBACK"],

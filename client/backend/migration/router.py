@@ -111,7 +111,8 @@ async def candidates():
 async def retention():
     """待删清单：仅**已成功带回**的件，默认保留最近 2 份（无用户动作永不删）。"""
     root = Path(DATA_ROOT)
-    items = deletable_candidates(root, _migrated_stamps(), keep=RETENTION_KEEP)
+    items = deletable_candidates(root, _migrated_stamps(), keep=RETENTION_KEEP,
+                                 active_db_path=_active_db_path())
     return {"code": 0, "data": {"items": items, "keep": RETENTION_KEEP}}
 
 
@@ -119,7 +120,8 @@ async def retention():
 async def cleanup(body: CleanupBody):
     """删除用户勾选的旧库（服务端再次收口：只认待删清单内的名字）。"""
     root = Path(DATA_ROOT)
-    allowed = {it["filename"] for it in deletable_candidates(root, _migrated_stamps(), keep=RETENTION_KEEP)}
+    allowed = {it["filename"] for it in deletable_candidates(
+        root, _migrated_stamps(), keep=RETENTION_KEEP, active_db_path=_active_db_path())}
     deleted: list[str] = []
     refused: list[str] = []
     for name in body.filenames:

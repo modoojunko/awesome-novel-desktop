@@ -1,4 +1,4 @@
-import { migratableCandidates, recommendedCandidate, useLegacyDb } from '@/hooks/useLegacyDb';
+import { migratableCandidates, useLegacyDb } from '@/hooks/useLegacyDb';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
@@ -121,10 +121,10 @@ function NovelList() {
   const navigate = useNavigate();
   // db-generation：旧库检测（免登端点；空书架开口行→AcctMenu 弹窗）
   const legacyDb = useLegacyDb();
-  // 旧版数据出口行（c-db-per-version）：可搬运候选的书数合计；推荐位由后端单源给
+  // 旧版数据出口行（c-db-per-version）：可搬运候选的书数合计（推荐位由后端单源给，
+  // 弹窗自己按 `recommended` 预选，这里不需要再算一遍）
   const priorCandidates = migratableCandidates(legacyDb.status);
   const priorBooks = priorCandidates.reduce((n, c) => n + (c.book_count ?? 0), 0);
-  void recommendedCandidate(legacyDb.status);
   const legacyAutoShown = useRef(false);
 
   // 找回完成后书架自动刷新（AcctMenu 的 migrateModal onDone dispatch）

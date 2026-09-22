@@ -316,7 +316,9 @@ def boot_lifecycle(db_path: Path, metadata, schema_fp: str) -> dict:
         if renamed:
             logger.warning("db_lifecycle: corrupt library quarantined to %s", renamed)
             return {"boot": "quarantined_new", "quarantined_to": renamed}
-        logger.error("db_lifecycle: quarantine failed for %s (file kept in place)", db_path.name)
+        logger.error(
+            "db_lifecycle: quarantine incomplete for %s (main file moved=%s；未移动的边车原位保留)",
+            db_path.name, not db_path.exists())
         return {"boot": "quarantine_failed"}
 
     if not info.get("has_tables") and not info.get("schema_id"):
@@ -331,7 +333,9 @@ def boot_lifecycle(db_path: Path, metadata, schema_fp: str) -> dict:
             "db_lifecycle: schema mismatch renamed to %s (可作候选带回)", renamed
         )
         return {"boot": "mismatch_renamed", "renamed_to": renamed}
-    logger.error("db_lifecycle: mismatch rename failed for %s (file kept in place)", db_path.name)
+    logger.error(
+        "db_lifecycle: mismatch rename incomplete for %s (main file moved=%s；未移动的边车原位保留)",
+        db_path.name, not db_path.exists())
     return {"boot": "mismatch_rename_failed"}
 
 
@@ -472,7 +476,7 @@ def clean_stale_staging(data_root: Path) -> int:
 
 
 def deletable_candidates(data_root: Path, migrated_stamps: str | set[str] | None,
-                         keep: int = 2) -> list[dict]:
+                         keep: int = 2, active_db_path: Path | None = None) -> list[dict]:
     """待删清单：仅「已成功带回」的候选，且默认保留最近 `keep` 份。
 
     `migrated_stamps` 来自运行库 `app_meta['migration.history']` 的 source_stamp 集合
@@ -482,7 +486,8 @@ def deletable_candidates(data_root: Path, migrated_stamps: str | set[str] | None
     if not migrated_stamps:
         return []
     stamps = {migrated_stamps} if isinstance(migrated_stamps, str) else set(migrated_stamps)
-    items = [it for it in scan_migration_candidates(data_root) if it["stamp"] in stamps]
+    items = [it for it in scan_migration_candidates(data_root, None, active_db_path)
+             if it["stamp"] in stamps]
     items.sort(key=lambda it: it["mtime"], reverse=True)
     return items[keep:] if len(items) > keep else []
 

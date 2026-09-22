@@ -67,7 +67,10 @@ export default function LegacyMigrateModal({
   onDone: () => void;
 }) {
   const [step, setStep] = useState<Step>('detect');
-  const [picked, setPicked] = useState<string>(candidates[0]?.filename ?? '');
+  // 来源初值＝**后端给的推荐位**（`recommended` 单源），不得用列表顺序推断（specs）
+  const [picked, setPicked] = useState<string>(
+    candidates.find((c) => c.recommended)?.filename ?? candidates[0]?.filename ?? '',
+  );
   const [preview, setPreview] = useState<PreviewReport | null>(null);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [progressPct, setProgressPct] = useState(0);
@@ -163,8 +166,9 @@ export default function LegacyMigrateModal({
     }
     if (autoPreviewedRef.current || candidates.length !== 1) return;
     autoPreviewedRef.current = true;
-    setPicked(candidates[0].filename);
-    void startPreview(candidates[0].filename);
+    const only = candidates.find((c) => c.recommended) ?? candidates[0];
+    setPicked(only.filename);
+    void startPreview(only.filename);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在「打开且单候选」时触发一次
   }, [open, candidates]);
 

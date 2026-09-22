@@ -298,10 +298,11 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                 if _has_table(tgt, "main.novels") else 0
             report["book_count_source"] = book_src
             report["book_count_target_after"] = book_tgt
+            # migrated＝本次真正写入；books 表被跳过（NOT NULL 阻塞等）时**只能是 0**——
+            # 回退成目标总数会把「什么都没带过来」报成「带回了一堆」（检视 P2）
             inserted = next((e.get("rows_inserted") for e in report["tables"]
                              if e["table"] == "novels"), None)
-            report["book_count_migrated"] = (inserted if inserted is not None
-                                             else max(0, book_tgt))
+            report["book_count_migrated"] = inserted or 0
             # 库自证来源：把本机版本与组件快照写进目标库（app_meta 不随行搬运）
             if _has_table(tgt, "main.app_meta"):
                 for k, v in version_stamp_payload().items():

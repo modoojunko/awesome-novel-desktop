@@ -175,9 +175,9 @@ def _ensure_user() -> None:
     asyncio.run(_add())
 
 
-def _counts(root: str, db_name: str | None = None) -> dict:
-    """直接读库计数（roundtrip 对拍用）。"""
-    conn = sqlite3.connect(Path(root) / (db_name or _active_db_file()))
+def _counts(root: str) -> dict:
+    """直接读库计数（roundtrip 对拍用；库名经单源派生）。"""
+    conn = sqlite3.connect(Path(root) / _active_db_file())
     cur = conn.cursor()
     out = {}
     for t in ("novels", "volumes", "chapters", "chapter_characters", "characters",

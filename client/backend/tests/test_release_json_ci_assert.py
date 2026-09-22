@@ -93,3 +93,25 @@ def test_up14_components_not_runtime_override():
 
     assert "components" not in RELEASE_OVERRIDE_KEYS
     assert "db_filename" not in RELEASE_OVERRIDE_KEYS
+
+
+def test_ci_components_step_cwd_resolves():
+    """静态守卫（检视 P0）：生成步骤的内联 `cwd="…"` 必须相对该步骤的
+    `working-directory` 解析后存在。
+
+    实锤过的挂法：步骤 `working-directory: client/packaging/build` 里写
+    `cwd="client/backend"` → 解析成 `client/packaging/build/client/backend`（不存在）
+    → 每个 tag/PR 构建都在 release.json 生成步 FileNotFoundError。
+    """
+    import re
+
+    wf = (BACKEND.parent.parent / ".github" / "workflows" / "client-package.yml").read_text(
+        encoding="utf-8")
+    step_start = wf.index("- name: Generate release.json")
+    step = wf[step_start: wf.index("\n      - name:", step_start)]
+    wd = re.search(r"working-directory:\s*(\S+)", step).group(1)
+    cwd_arg = re.search(r'cwd="([^"]+)"', step).group(1)
+    resolved = (BACKEND.parent.parent / wd / cwd_arg).resolve()
+    assert resolved.is_dir(), (
+        f"生成步骤 cwd 解析失败：working-directory={wd} + cwd={cwd_arg} → {resolved}")
+    assert (resolved / "scripts" / "release_components.py").is_file()

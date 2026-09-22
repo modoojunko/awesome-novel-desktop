@@ -686,3 +686,57 @@ def test_up16b_pre_rename_generation_gated(tmp_path):
     pc = precheck(tmp_path, "novel.db", target)
     assert pc["ok"] is False and pc["reason"] == "pre_rename_generation", pc
     print(f"[UP-16b] gated: book_count 不计 projects → 候选为空；precheck={pc['reason']}")
+
+
+# ── 检视整改回归（2026-09-22） ────────────────────────────────────────────
+
+
+def test_up_review_books_skipped_reports_zero_migrated(tmp_path, monkeypatch):
+    """检视 P2：`novels` 表被跳过时 `book_count_migrated` 必须是 0。
+
+    旧实现回退成「目标库总数」——目标已有书时会把「本次什么都没带过来」报成
+    「带回了一堆」，结果页数字虚高。
+    """
+    import migration.engine as eng
+
+    src = _make_lib(tmp_path / "novel-v0.24.db", books=2)
+    target = tmp_path / db_filename_for(CUR)
+    _make_target(tmp_path)
+    # 造一个「目标已有书」的现场
+    con = sqlite3.connect(target)
+    _insert_novel(con, "existing-1", "目标里已有的书")
+    con.commit()
+    con.close()
+
+    # 让 novels 表进 tables_skipped（模拟 NOT NULL 阻塞）
+    real_build_plan = eng.build_plan
+
+    def _plan_without_novels(staged):
+        plan = real_build_plan(staged)
+        plan["tables"] = [e for e in plan["tables"] if e["table"] != "novels"]
+        plan["tables_skipped"].append({"table": "novels", "reason": "notnull_nodefault",
+                                       "columns": ["x"]})
+        return plan
+
+    monkeypatch.setattr(eng, "build_plan", _plan_without_novels)
+    rep = eng.run_migration(tmp_path, "novel-v0.24.db", target)
+    assert rep["status"] == "ok", rep
+    assert rep["book_count_source"] == 2
+    assert rep["book_count_migrated"] == 0, "跳过 novels 时本次写入必须是 0（不得回退成目标总数）"
+    assert rep["book_count_target_after"] == 1
+
+
+def test_up_review_retention_excludes_active_db(tmp_path):
+    """检视 P3：待删清单按**路径**排除活跃库（stamp 恰好命中历史时也不得列出）。"""
+    from db_lifecycle import deletable_candidates
+    from schema_version import candidate_stamp
+
+    active = _make_lib(tmp_path / db_filename_for(CUR), books=1)
+    old = _make_lib(tmp_path / db_filename_for(PREV), books=1)
+    stamps = {candidate_stamp(active.name, active), candidate_stamp(old.name, old)}
+
+    without_exclusion = deletable_candidates(tmp_path, stamps, keep=0)
+    assert {it["filename"] for it in without_exclusion} == {active.name, old.name}
+
+    with_exclusion = deletable_candidates(tmp_path, stamps, keep=0, active_db_path=active)
+    assert {it["filename"] for it in with_exclusion} == {old.name}
