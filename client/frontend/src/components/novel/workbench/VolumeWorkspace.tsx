@@ -522,6 +522,13 @@ function VolumeOutlinePane({
       <div className="ol-top">
         <span className="note">卷纲 · 规划本卷剧情</span>
         <span className="push">
+          <button
+            className="btn btn-secondary btn-sm"
+            data-testid="volume-split-manual"
+            onClick={onSplitManual}
+          >
+            拆下一章
+          </button>
           <button className="btn btn-secondary btn-sm" onClick={onEdit}>
             编辑卷纲
           </button>
