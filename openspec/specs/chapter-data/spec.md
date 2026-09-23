@@ -108,6 +108,7 @@ TBD - created by archiving change 004-free-workspace. Update Purpose after archi
 #### Scenario: 未填新列的旧章读取等价
 - **WHEN** 读取一个从未拆过章的旧章
 - **THEN** 装配结果不含挑战/行动/阶段键或以空值呈现，其余字段与新增前等价
+- **列退役（c-og-fields-slim）**：`current_task`（核心任务）与 `expectation_state`（读者当前状态）两列 SHALL 转**只留不读写**——存量列留在库中（SQLite 无迁移链，删列无路径），但章档案读写、归档门槛、AI 体检/推演/起草补缺 SHALL NOT 再消费；对应表单格一并退役，必填门槛改四项（预期策略/必须完成的变化/主情绪/段落规划）。
 
 ### Requirement: 重写旧稿支线章（后缀 ref）
 
