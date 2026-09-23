@@ -187,6 +187,10 @@ def _existing_outline_markdown(chapter: dict) -> str:
         or bool(chapter.get("scene_cards"))
         or bool(chapter.get("micro_payoffs"))
         or str(chapter.get("ladder_exit", "") or "").strip()
+        # c-chapter-plan-ai：拆章三格也计入「有现有章纲」——拆完的章不得被判空而遭起草覆盖
+        or str(chapter.get("challenge", "") or "").strip()
+        or bool(chapter.get("chapter_acts"))
+        or str(chapter.get("plot_stage", "") or "").strip()
     )
     if not has:
         return "（无现有章纲，从零起草）"
@@ -199,6 +203,9 @@ def _existing_outline_markdown(chapter: dict) -> str:
             "scene_cards": chapter.get("scene_cards") or [],
             "micro_payoffs": chapter.get("micro_payoffs") or [],
             "ladder_exit": chapter.get("ladder_exit", ""),
+            "challenge": chapter.get("challenge", ""),
+            "chapter_acts": chapter.get("chapter_acts", []),
+            "plot_stage": chapter.get("plot_stage", ""),
             "word_target": chapter.get("word_target"),
         },
         ensure_ascii=False,

@@ -146,6 +146,10 @@ class ChapterContext:
         self.scene_cards: list[dict] = []
         self.micro_payoffs: list[dict] = []
         self.ladder_exit: str = ""
+        # c-chapter-plan-ai：拆章五段（挑战/行动/阶段）——写正文素材消费
+        self.challenge: str = ""
+        self.chapter_acts: list[str] = []
+        self.plot_stage: str = ""
         self.required_changes: list[str] = []
         self.payoff_plan: dict = {}
         self.prohibitions: list[str] = []
@@ -240,6 +244,13 @@ class ChapterContext:
             )
         if self.ladder_exit:
             blocks.append(f"【本章章末落点】{self.ladder_exit}")
+        # c-chapter-plan-ai：拆章五段另三块进素材（填了就要被读到，否则拆章白拆）
+        if self.challenge:
+            blocks.append(f"【本章要撞的墙】{self.challenge}")
+        if self.chapter_acts:
+            blocks.append("【本章必须发生的动作】\n" + "\n".join(f"- {a}" for a in self.chapter_acts))
+        if self.plot_stage:
+            blocks.append(f"【本章在卷剧情里的位置】{self.plot_stage}")
 
         return "\n\n".join(blocks)
 
@@ -593,6 +604,9 @@ async def build_chapter_context(
         mp for mp in chapter.get("micro_payoffs") or [] if isinstance(mp, dict)
     ]
     ctx.ladder_exit = str(chapter.get("ladder_exit", "") or "").strip()
+    ctx.challenge = str(chapter.get("challenge", "") or "").strip()
+    ctx.chapter_acts = [str(a).strip() for a in (chapter.get("chapter_acts") or []) if str(a).strip()]
+    ctx.plot_stage = str(chapter.get("plot_stage", "") or "").strip()
     memo = chapter.get("memo") or {}
     ctx.required_changes = [
         str(c) for c in (memo.get("required_changes") or []) if str(c).strip()

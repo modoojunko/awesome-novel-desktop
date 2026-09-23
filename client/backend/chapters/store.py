@@ -44,6 +44,23 @@ _EXPECTATION_SCALARS = [
     ("detail", "expectation_detail", 300),
 ]
 
+def _join_acts(value) -> str | None:
+    """本章行动归一（c-chapter-plan-ai）：列表或文本 → 一行一条；去空白/丢空行/逐行 ≤60/上限 4 行。
+    装配端（assemble_chapter 的 split("\\n")）与前端行编辑共用同一纪律。"""
+    if value is None:
+        return None
+    items = value if isinstance(value, list) else str(value).split("\n")
+    out = []
+    for ln in items:
+        t = str(ln).strip()
+        if not t:
+            continue
+        out.append(t[:60])
+        if len(out) >= 4:
+            break
+    return "\n".join(out) or None
+
+
 _KEY_POINT_TAG = re.compile(r"^\[([^\]]+)\](.*)$", re.DOTALL)
 
 
@@ -130,6 +147,13 @@ def assemble_chapter(row) -> dict:
         data["word_target"] = row.word_target
     if row.ladder_exit:
         data["ladder_exit"] = row.ladder_exit
+    # 拆章五段（c-chapter-plan-ai）：challenge/plot_stage 标量直出；chapter_acts 一行一条（列表同形）
+    if row.challenge:
+        data["challenge"] = row.challenge
+    if row.plot_stage:
+        data["plot_stage"] = row.plot_stage
+    if row.chapter_acts:
+        data["chapter_acts"] = [ln for ln in row.chapter_acts.split("\n") if ln.strip()]
     # 本章文风影子（chapter-style-shadow）：JSON 直出，加键兼容
     try:
         import json as _json
@@ -262,6 +286,10 @@ def _disassemble_scalars(row, data: dict) -> None:
         setattr(row, col, _fit(emotional.get(json_key), width))
     row.word_target = _int_or_none(data.get("word_target"))
     row.ladder_exit = _fit(data.get("ladder_exit"), 300)
+    # 拆章五段（c-chapter-plan-ai）：challenge/plot_stage 标量；chapter_acts 清单外定制（_fit 会 str 化列表）
+    row.challenge = _fit(data.get("challenge"), 150)
+    row.plot_stage = _fit(data.get("plot_stage"), 20)
+    row.chapter_acts = _join_acts(data.get("chapter_acts"))
     # 本章文风影子：仅收 dict 形状 {dim: {value, reason}}，越界值置空
     shadow = data.get("style_shadow")
     if isinstance(shadow, dict):

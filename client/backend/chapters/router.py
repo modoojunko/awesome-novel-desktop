@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.middleware import get_current_user
+from chapters.schemas import validate_chapter_fields
 from chapters.service import get_chapter_row, save_chapter, save_prose
 from db import get_db
 from novels.service import get_novel
@@ -190,6 +191,7 @@ async def update_chapter(
     if not project:
         raise HTTPException(404, "Project not found")
     _validate_ref(chapter_ref)
+    validate_chapter_fields(body)  # 拆章三列：闭集/长度先于写入（422，不靠装配端截断）
     warnings = await save_chapter(db, project, chapter_ref, body)
     # 出场角色未命中告警（character-settings-v2）：前端上屏提示
     return {"ok": True, "warnings": warnings}

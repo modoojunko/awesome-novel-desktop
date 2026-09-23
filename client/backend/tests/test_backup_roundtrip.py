@@ -99,6 +99,9 @@ async def _seed_full_book(tmp_root: str) -> str:
             ref="vol-1-ch-1", title="第一章 试手", chapter_no=1, status="archived",
             word_count=4, has_prose=True, summary="开端", location="青梧宗",
             story_time="开国三十年", narrative_pov="林拾", primary_mood="紧",
+            # c-chapter-plan-ai：拆章五段（三新列）
+            challenge="旧档堆不对活人开放", plot_stage="矛盾升级",
+            chapter_acts="她：调档\n文书：记台账",
         )
         session.add(ch)
         await session.flush()
@@ -357,6 +360,10 @@ class TestLayer4Chapter:
         assert ch.summary == "开端" and ch.location == "青梧宗"
         assert ch.story_time == "开国三十年" and ch.narrative_pov == "林拾"
         assert ch.primary_mood == "紧"
+        # 拆章三列随导出导入往返（c-chapter-plan-ai；chapter_acts 一行一条）
+        assert ch.challenge == "旧档堆不对活人开放"
+        assert ch.plot_stage == "矛盾升级"
+        assert ch.chapter_acts == "她：调档\n文书：记台账"
         assert [k.content for k in kp] == ["主角登场"]
         assert [p.content for p in payoff] == ["残页来历"]
         assert [s.summary for s in segs] == ["柴房夜谈"]

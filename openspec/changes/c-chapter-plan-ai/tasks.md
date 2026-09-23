@@ -9,11 +9,11 @@
 
 ## 2. 数据契约与节点退役（后端）
 
-- [ ] 2.1 三列落模型（`models/chapter.py`：`challenge VARCHAR(150)`／`chapter_acts TEXT`／`plot_stage VARCHAR(20)`）——随版本换代自动建出（新版本库 `create_all` 全量建出；旧库按 db-generation 指纹/版本分流留档只读；无显式版本常量或 DDL 步骤，`SCHEMA_VERSION`/`ADDITIVE_COLUMNS` 均已退役不得复活）；验证三条：**(a)** 新库 `PRAGMA table_info(chapters)` 三列可见；**(b)** ORM 写入回读；**(c)** `git grep ADDITIVE_COLUMNS` 仅命中「已退役」注释与测试
-- [ ] 2.2 标量清单登记（`store.py`：`challenge`/`plot_stage` 入 (json_key, col, width) 三组；`chapter_acts` 照 `ladder_exit` 先例**清单外定制**——`_fit` 会把列表 str 化，join/拆行走同一归一函数）＋ `plot_stage` 六档闭集校验（越界 422）＋ `chapter_acts` 归一化（换行归一、去空白、丢空行、逐行 ≤60、上限 4 行，装配端复用同一归一）；验证：`assemble_chapter` 含三键、越界/超行 422、归一化单测
-- [ ] 2.3 has-outline 判定补三格（`chapters/ai_draft.py`）：五段齐而六项必填未填的章判为「有现有章纲」，五段作为改写基底进素材包，起草只补缺不推翻；验证：单测「仅拆章的章被判有纲」「起草采纳后五段保留」
-- [ ] 2.4 写正文素材三块（`write/chapter_writer.py`）：挑战＝【本章要撞的墙】、行动＝【本章必须发生的动作】、阶段＝【本章在卷剧情里的位置】；验证：单测断言已填章素材含三块、未填章不含、空段不出现占位符
-- [ ] 2.5 备份往返：`test_backup_roundtrip` 扩展——排上章（五段齐）导出→导入后 summary/challenge/chapter_acts（列表同形）/plot_stage/ladder_exit 原样；验证：往返测试绿
+- [x] 2.1 三列落模型（`models/chapter.py`：`challenge VARCHAR(150)`／`chapter_acts TEXT`／`plot_stage VARCHAR(20)`）——随版本换代自动建出（新版本库 `create_all` 全量建出；旧库按 db-generation 指纹/版本分流留档只读；无显式版本常量或 DDL 步骤，`SCHEMA_VERSION`/`ADDITIVE_COLUMNS` 均已退役不得复活）；验证：`tests/test_chapter_plan_ai_t1.py` 4 项（归一化/闭集 422/装配写回往返/缺键即清空的整表回传契约）＋全量 pytest **1318 通过** ✓
+- [x] 2.2 标量清单登记（`store.py`：`challenge`/`plot_stage` 入 (json_key, col, width) 三组；`chapter_acts` 照 `ladder_exit` 先例**清单外定制**——`_fit` 会把列表 str 化，join/拆行走同一归一函数）＋ `plot_stage` 六档闭集校验（越界 422）＋ `chapter_acts` 归一化（换行归一、去空白、丢空行、逐行 ≤60、上限 4 行，装配端复用同一归一）；验证：`assemble_chapter` 含三键、越界/超行 422、归一化单测
+- [x] 2.3 has-outline 判定补三格（`chapters/ai_draft.py`）：五段齐而六项必填未填的章判为「有现有章纲」，五段作为改写基底进素材包，起草只补缺不推翻；验证：单测「仅拆章的章被判有纲」「起草采纳后五段保留」
+- [x] 2.4 写正文素材三块（`write/chapter_writer.py`）：挑战＝【本章要撞的墙】、行动＝【本章必须发生的动作】、阶段＝【本章在卷剧情里的位置】；验证：单测断言已填章素材含三块、未填章不含、空段不出现占位符
+- [x] 2.5 备份往返：`test_backup_roundtrip` 扩展——排上章（五段齐）导出→导入后 summary/challenge/chapter_acts（列表同形）/plot_stage/ladder_exit 原样；验证：往返测试绿
 - [ ] 2.6 节点表退役（D6）：删 `models/volume.py::VolumePlotNode`、`models/__init__.py` 导入、`volumes/service.py`（`_replace_children` 节点分支与装配 9 处）、`volumes/render.py` 节点行、`volumes/schemas.py` 节点 schema、`repositories/volume_repo.py` selectinload、`backup/importer.py` 节点还原；前端 `volume/types.ts`/`volume/form.ts`/`VolumeWorkspace.tsx` 节点段；测试清理（后端 3 文件＋前端 2 文件共 22 处断言）；验证：`git grep -n "plot_nodes\|VolumePlotNode"` 全仓零命中（决策记录与本文除外）、`create_all` 后 `PRAGMA` 无 `volume_plot_nodes`、pytest/vitest 全绿
 
 ## 3. AI 端点与评分
