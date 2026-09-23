@@ -596,6 +596,50 @@ export default function OgPane({
                 添加读者获得
               </button>
             </div>
+            {/* 拆章三格（c-chapter-plan-ai）：拆章填过的这里能看到、能改；整表回传，别清空 */}
+            <div className="tpl-row">
+              <div className="field">
+                <label>
+                  碰到的挑战 <span className="opt">拆章填的「这一章要撞的墙」</span>
+                </label>
+                <input
+                  className="input"
+                  id="wf-challenge"
+                  placeholder="如：旧档堆不对活人开放——查档本身就要违规"
+                  value={form.challenge}
+                  onChange={(e) => onPatch({ challenge: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>
+                  阶段 <span className="opt">本章在卷剧情里的位置</span>
+                </label>
+                <select
+                  className="input"
+                  id="wf-stage"
+                  value={form.stage}
+                  onChange={(e) => onPatch({ stage: e.target.value })}
+                >
+                  {["开局铺垫", "冲突初现", "矛盾升级", "重要转折", "高潮爆发", "卷末收束"].map((st) => (
+                    <option key={st} value={st}>{st}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="field">
+              <label>
+                本章行动 <span className="opt">谁做了什么，一行一条（最多 4 条）</span>
+              </label>
+              <textarea
+                className="textarea"
+                id="wf-acts"
+                rows={3}
+                maxLength={244}
+                placeholder="如：沉舟：调档、撕页收存"
+                value={form.acts}
+                onChange={(e) => onPatch({ acts: e.target.value })}
+              />
+            </div>
             <div className="tpl-row">
               <div className="field">
                 <label>

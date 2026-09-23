@@ -493,6 +493,102 @@
   .am-item.danger svg { color: var(--warn); }
   .am-foot { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
   .am-version { display: block; padding: 4px 12px 6px; font-size: 11px; color: var(--muted); text-align: right; }
+
+  /* 原型常驻 DOM 补丁（实现侧不抄——见 ADJUSTMENTS H1） */
+  .modal:not(.show), .scrim:not(.show){display:none}
+
+  /* ── c-chapter-plan-ai：卷下拆章新类（收编自 drafts/ai-novel-c端-卷下拆章.html Part C） ── */
+/* 卷页 · 关键剧情节点行（本设计新增：节点被哪一章吃掉；行骨架用产品 .rowx/.cols.cn） */
+  .node-tx{margin:0;font-size:13px;line-height:1.7;color:var(--fg)}
+
+  .pk-corner{position:absolute;top:0;right:0;display:flex;align-items:baseline;gap:3px;
+    padding:3px 10px 4px 11px;border-radius:0 calc(var(--radius) - 1px) 0 11px;
+    border-left:1px solid var(--border);border-bottom:1px solid var(--border);
+    background:color-mix(in srgb,var(--fg) 6%,var(--surface));color:var(--muted);
+    font-family:var(--font-mono);font-size:12px;font-weight:700;letter-spacing:.08em;line-height:1.3}
+
+  .pk-corner i{font-style:normal;font-weight:400;font-size:9px;letter-spacing:.02em;opacity:.85}
+
+  .pk-corner.g-S{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+
+  .pk-corner.g-A{color:var(--fg)}
+
+  .pk-corner.g-B{color:var(--muted)}
+
+  .pick-card.top{border-color:color-mix(in oklch,var(--accent) 45%,var(--border))}
+
+
+  /* 三方向卡：读者视角两块（好在哪 / 差在哪） */
+  .pick-card .pk-read{margin-top:7px;padding-top:6px;border-top:1px dashed var(--border);display:flex;flex-direction:column;gap:2px}
+
+  .pick-card .pk-read p{margin:0;font-size:11px;line-height:1.55;color:var(--muted)}
+
+  .pick-card .pk-read p>b{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.06em;font-weight:400;color:var(--faint);margin-right:5px}
+
+
+  /* 等级徽标（落点卡等正文形态；角标之外的复用） */
+  .pk-grade{flex:none;display:inline-flex;align-items:baseline;gap:4px;font-family:var(--font-mono);
+    font-size:11px;font-weight:700;letter-spacing:.06em;padding:1px 7px;border-radius:999px;
+    border:1px solid var(--border);color:var(--muted)}
+
+  .pk-grade i{font-style:normal;font-weight:400;font-size:9px;letter-spacing:.04em;opacity:.85}
+
+  .pk-grade.g-S{color:var(--accent-strong);border-color:var(--accent);background:var(--accent-soft)}
+
+  .pk-grade.g-A{color:var(--fg);border-color:var(--muted)}
+
+
+  /* 本章卡：五段表单（标签 + 控件），进场只读行同排 */
+  .split-row{position:relative;overflow:hidden;display:grid;grid-template-columns:26px minmax(0,1fr);gap:8px;align-items:start}
+
+  .split-row .s-no{font-family:var(--font-mono);font-size:11px;color:var(--faint);text-align:right;padding-top:9px}
+
+  .split-row .s-main{display:flex;flex-direction:column;gap:6px}
+
+  .split-row .s-lab{display:grid;grid-template-columns:76px minmax(0,1fr);gap:9px;align-items:center}
+
+  .split-row .s-lab>b{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;color:var(--faint);font-weight:500;text-align:right}
+
+  .split-row .s-lab.entry>b{color:var(--muted)}
+
+  .split-row .s-entry{margin:0;font-size:11px;line-height:1.5;color:var(--faint)}
+
+  .split-sum{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:10px 0 0;font-size:12px;color:var(--muted)}
+
+
+  /* 拆章弹窗＝卷纲弹窗加宽版（.plan-modal 已有，这里只加宽与滚动体） */
+  .plan-modal.wide .mcard{width:min(940px,92vw)}
+
+  .plan-modal .mcard-body{overflow:auto;min-height:0}
+
+
+  /* 演示舞台（壳不复刻：收编时壳用线上代码，本原型只承载拆章新设计） */
+  .stage{min-height:100vh;padding:40px 24px 80px;max-width:880px;margin:0 auto}
+  .stage-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:26px 28px;box-shadow:var(--shadow-card)}
+  .stage-card .e-empty{padding:10px 4px}
+  .stage-hint{margin:40px auto;text-align:center;color:var(--faint, var(--muted));font-size:13px}
+  .stage .cfgset{margin-bottom:14px}
+
+  /* 演示控制条（非基线；收编前删除） */
+  .demo-bar{position:fixed;bottom:0;left:0;right:0;z-index:70;display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+    padding:7px 12px;background:color-mix(in oklch,var(--fg) 92%,transparent);color:var(--surface);font-size:11.5px}
+
+  .demo-bar .demo-h{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;opacity:.7;margin-right:2px}
+
+  .demo-bar .demo-note{font-size:10.5px;opacity:.6;margin-left:6px}
+
+  .demo-bar .spacer{flex:1}
+
+  .chip-btn{height:24px;padding:0 9px;border-radius:7px;border:1px solid color-mix(in oklch,var(--surface) 22%,transparent);
+    background:transparent;color:inherit;font:inherit;font-size:11.5px;cursor:pointer}
+
+  .chip-btn:hover{background:color-mix(in oklch,var(--surface) 14%,transparent)}
+
+  .chip-btn.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+  /* Part C 覆盖（必须排在 Part A/B 之后：同名选择器以本段为准） */
+  .pick-card{position:relative;overflow:hidden}
+  .pick-card .pk-axis{margin-right:74px}
+
 </style>
 </head>
 <body>
@@ -2605,5 +2701,23 @@ document.addEventListener('keydown', (e) => {
 });
 window.addEventListener('resize', () => { if (!acctMenu.hidden) positionAcctMenu(); });
 </script>
+
+  <!-- ══════ c-chapter-plan-ai：卷下拆章（弹层＋派生视图舞台） ══════ -->
+  <div class="stage" id="stage" hidden><p class="stage-hint">拆章弹窗演示中——关闭弹窗可看落点卡与章节推进。</p></div>
+  <div class="scrim" id="split-scrim"></div>
+  <div class="modal plan-modal wide" id="split-modal" role="dialog" aria-modal="true" aria-labelledby="split-title">
+    <div class="mcard wb-style" id="split-card">
+      <div class="mcard-head">
+        <span class="mh serif" id="split-title" role="heading" aria-level="2">拆第一章</span>
+        <button class="icon-btn x" aria-label="关闭" data-act="split-close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" width="15" height="15"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="mcard-body">
+        <p class="kicker" id="split-kick">卷下拆章 · 第一卷 · 第1章</p>
+        <div class="plan-anchor"></div>
+        <div id="split-body"></div>
+      </div>
+      <div class="mcard-foot" id="split-foot"></div>
+    </div>
+  </div>
 </body>
 </html>

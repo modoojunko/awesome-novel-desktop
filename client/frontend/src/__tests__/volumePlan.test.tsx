@@ -383,6 +383,9 @@ function renderPanel(props: Partial<Parameters<typeof VolumeAssistPanel>[0]> = {
       idle={IDLE_EMPTY}
       genreLabel="悬疑"
       onPlanVolume={onPlanVolume}
+      onSplitAi={vi.fn()}
+      isPro
+      onUpgrade={vi.fn()}
       onSelectVolume={onSelectVolume}
       autoCheckSeq={0}
       {...props}
@@ -1068,7 +1071,6 @@ const VOL_DETAIL: VolumeDetail = {
   chapter_target: 0,
   prev_ending: { text: "上一卷他签了字", source: "第1卷 · 预期结局（还没写到，先按卷纲）" },
   cast_members: [],
-  plot_nodes: [],
   ghost_count: 0,
   chapters: [],
 };
@@ -1112,6 +1114,8 @@ describe("VolumeWorkspace 回填", () => {
               checks: [],
             },
           }}
+        onSplitManual={vi.fn()}
+        onEditChapter={() => {}}
         />,
       );
       await act(async () => {
@@ -1215,38 +1219,32 @@ describe("度量事件（PRD §7 / tasks 5.3）", () => {
 });
 
 describe("volume/form 契约（表单态 ↔ payload）", () => {
-  it("toVolumeFormData：缺字段回落空串；chapter_target null → 空串；节点深拷", async () => {
+  it("toVolumeFormData：缺字段回落空串；chapter_target null → 空串", async () => {
     const { toVolumeFormData } = await import("@/components/novel/volume/form");
     const f = toVolumeFormData({
       ref: "vol-1", volume: 1, title: "第一卷",
       // 故意留空/缺省：验证 `|| ""` 与 `!= null` 两条兜底
       summary: undefined, core_conflict: "", ending: "结局",
       antagonist_type: null, antagonist_line: undefined,
-      chapter_target: null, plot_nodes: [{ stage: "起", text: "开" }],
       prev_ending: null, cast_members: [], ghost_count: 0, chapters: [],
     } as unknown as Parameters<typeof toVolumeFormData>[0]);
     expect(f).toEqual({
       title: "第一卷", summary: "", core_conflict: "", ending: "结局",
       antagonist_type: "", antagonist_line: "", chapter_target: "",
-      plot_nodes: [{ stage: "起", text: "开" }],
     });
-    // 标题空 + plot_nodes 缺键 → 空串/空数组兜底
     const bare = toVolumeFormData({
       ref: "vol-1", volume: 1, title: "", summary: "", core_conflict: "",
       ending: "", antagonist_type: "", antagonist_line: "", chapter_target: 0,
       prev_ending: null, cast_members: [], ghost_count: 0, chapters: [],
     } as unknown as Parameters<typeof toVolumeFormData>[0]);
     expect(bare.title).toBe("");
-    expect(bare.plot_nodes).toEqual([]);
     // 章数有值 → 字符串；节点为副本（不共享引用）
     const g = toVolumeFormData({
       ref: "vol-1", volume: 1, title: "第二卷", summary: "s", core_conflict: "c",
-      ending: "e", antagonist_type: "人物", antagonist_line: "雷",
-      chapter_target: 12, plot_nodes: [], prev_ending: null,
+      ending: "e", antagonist_type: "人物", antagonist_line: "雷", chapter_target: 12,
       cast_members: [], ghost_count: 0, chapters: [],
     } as unknown as Parameters<typeof toVolumeFormData>[0]);
     expect(g.chapter_target).toBe("12");
-    expect(g.plot_nodes).toEqual([]);
   });
 
   it("volumeFormToPayload：章数留空置 null；坎类型空串置 null；节点 text trim", async () => {
@@ -1255,18 +1253,15 @@ describe("volume/form 契约（表单态 ↔ payload）", () => {
       volumeFormToPayload({
         title: " 第一卷 ", summary: "s", core_conflict: "c", ending: "e",
         antagonist_type: "", antagonist_line: " 雷 ", chapter_target: "",
-        plot_nodes: [{ stage: "起", text: "  开  " }],
       }),
     ).toEqual({
       title: "第一卷", summary: "s", core_conflict: "c", ending: "e",
       antagonist_type: null, antagonist_line: " 雷 ", chapter_target: null,
-      plot_nodes: [{ stage: "起", text: "开" }],
     });
     expect(
       volumeFormToPayload({
         title: "t", summary: "", core_conflict: "", ending: "",
         antagonist_type: "人物", antagonist_line: "", chapter_target: " 12 ",
-        plot_nodes: [],
       }).chapter_target,
     ).toBe(12);
   });

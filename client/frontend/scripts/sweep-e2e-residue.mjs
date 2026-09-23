@@ -38,7 +38,26 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const DEFAULT_DB = path.resolve(HERE, "..", "..", "..", ".docker-data", "client", "novel.db");
+export const DEFAULT_DATA_DIR = path.resolve(HERE, "..", "..", "..", ".docker-data", "client");
+
+/** 库文件名＝C端版本（c-db-per-version）：`novel-v{版本}.db`，dev/PR 构建＝`novel-dev.db`。
+ *  旧的固定名 `novel.db` 只作兜底（本 change 之前的落地形态）。多个候选取最新一个。 */
+export function resolveDbPath(dataDir = DEFAULT_DATA_DIR) {
+  let names = [];
+  try {
+    names = fs.readdirSync(dataDir);
+  } catch {
+    return path.join(dataDir, "novel.db");
+  }
+  const cands = names.filter((n) => /^novel-v[A-Za-z0-9._-]+\.db$/.test(n) || n === "novel-dev.db");
+  if (!cands.length) return path.join(dataDir, "novel.db");
+  const newest = cands
+    .map((n) => ({ n, t: fs.statSync(path.join(dataDir, n)).mtimeMs }))
+    .sort((a, b) => b.t - a.t)[0];
+  return path.join(dataDir, newest.n);
+}
+
+export const DEFAULT_DB = resolveDbPath();
 
 /** e2e 会话注册出来的用户（前缀即 spec 的 session 名）。 */
 const TEST_USER_RE = /^(e2e|probe|mm|shot)[-_]/;
@@ -110,6 +129,56 @@ export function scanResidue(dbPath) {
   }
 }
 
+
+/**
+ * 在 C端 容器内执行删除（**唯一**允许写这个库的进程＝容器里的应用自身）。
+ *
+ * 为什么不在宿主删：SQLite 的 WAL 由「打开它的进程」持有，宿主进程写一遍会让容器内
+ * 应用的连接读到坏页（实测 `disk I/O error` → `database disk image is malformed`，
+ * 且 PRAGMA integrity_check 仍报 ok——只有应用侧炸）。宿主只做两件安全事：
+ * **只读扫描**（readOnly 打开）与**删数据目录**（纯 FS）。
+ */
+function applyInContainer(plan, log, dbPath) {
+  const { execFileSync } = require("node:child_process");
+  const container = process.env.E2E_CLIENT_BACKEND_CONTAINER || "ai-novel-client-backend";
+  const payload = JSON.stringify({
+    db: path.basename(dbPath), // 库名随版本变（novel-v{版本}.db / novel-dev.db），按宿主同名取
+    novels: plan.testBooks.map((b) => ({ id: b.id, root_path: b.root_path || "" })),
+    users: plan.staleUsers.map((u) => u.id),
+    configs: plan.staleConfigs.map((c) => c.id),
+  });
+  const py = [
+    "import json, sqlite3, sys",
+    "p = json.loads(sys.argv[1])",
+    'c = sqlite3.connect("/app/data/" + p["db"])',
+    'c.execute("PRAGMA foreign_keys = ON")',
+    'c.execute("BEGIN")',
+    'for b in p["novels"]:',
+    '    c.execute("DELETE FROM token_log WHERE novel_id = ?", (b["id"],))',
+    '    if b["root_path"]:',
+    '        c.execute("DELETE FROM project_settings WHERE root_path = ?", (b["root_path"],))',
+    '    c.execute("DELETE FROM novels WHERE id = ?", (b["id"],))',
+    'for uid in p["users"]:',
+    '    c.execute("DELETE FROM token_log WHERE user_id = ?", (uid,))',
+    '    c.execute("DELETE FROM users WHERE id = ?", (uid,))',
+    'for cid in p["configs"]:',
+    '    c.execute("DELETE FROM api_configs WHERE id = ?", (cid,))',
+    'c.execute("COMMIT")',
+    "c.close()",
+    'print(json.dumps({"ok": True}))',
+  ].join("\n");
+  try {
+    const out = execFileSync("docker", ["exec", container, "python3", "-c", py, payload], {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 60_000,
+    });
+    return JSON.parse(String(out).trim().split("\n").pop() || "{}").ok === true;
+  } catch (e) {
+    log(`  （容器内删除失败：${String(e.message).split("\n")[0]}）`);
+    return false;
+  }
+}
+
 /**
  * 执行清理。
  * @param {{dbPath?: string, apply?: boolean, log?: (s: string) => void}} opts
@@ -144,48 +213,58 @@ export function sweepResidue({
     return { applied: false, ...plan };
   }
 
-  const { DatabaseSync } = loadSqlite();
-  const db = new DatabaseSync(dbPath);
+  // 首选：容器内删（宿主写库会写坏容器里活着的库——本会话两次实锤）；失败才回退宿主直连
+  let removedInContainer = false;
   try {
-    db.exec("PRAGMA foreign_keys = ON");
-    db.exec("BEGIN");
-    // token_log 是 NO ACTION，必须先删；其余靠 novels 的 CASCADE 清干净
-    const delTokenLog = db.prepare("DELETE FROM token_log WHERE novel_id = ?");
-    const delSettings = db.prepare("DELETE FROM project_settings WHERE root_path = ?");
-    const delNovel = db.prepare("DELETE FROM novels WHERE id = ?");
-    for (const b of plan.testBooks) {
-      delTokenLog.run(b.id);
-      if (b.root_path) delSettings.run(b.root_path);
-      delNovel.run(b.id);
-    }
-    // e2e 用户：先清其 token_log（NO ACTION），再删用户（api_configs/审计日志 CASCADE）
-    const delUserTokenLog = db.prepare("DELETE FROM token_log WHERE user_id = ?");
-    const delUser = db.prepare("DELETE FROM users WHERE id = ?");
-    for (const u of plan.staleUsers) {
-      delUserTokenLog.run(u.id);
-      delUser.run(u.id);
-    }
-    // 陈旧 e2e 配置（书的 ai_config_id 是 SET NULL，不会连带删书）
-    const delConfig = db.prepare("DELETE FROM api_configs WHERE id = ?");
-    for (const c of plan.staleConfigs) delConfig.run(c.id);
-    db.exec("COMMIT");
-  } catch (e) {
+    removedInContainer = applyInContainer(plan, log, dbPath);
+  } catch {
+    removedInContainer = false;
+  }
+  if (!removedInContainer) {
+    log("· ⚠️ 未能在容器内清理，回退宿主直连（可能让运行中的应用读到坏页，建议随后重启后端）");
+    const { DatabaseSync } = loadSqlite();
+    const db = new DatabaseSync(dbPath);
     try {
-      db.exec("ROLLBACK");
-    } catch {
-      /* 回滚失败不掩盖原错 */
+      db.exec("PRAGMA foreign_keys = ON");
+      db.exec("BEGIN");
+      // token_log 是 NO ACTION，必须先删；其余靠 novels 的 CASCADE 清干净
+      const delTokenLog = db.prepare("DELETE FROM token_log WHERE novel_id = ?");
+      const delSettings = db.prepare("DELETE FROM project_settings WHERE root_path = ?");
+      const delNovel = db.prepare("DELETE FROM novels WHERE id = ?");
+      for (const b of plan.testBooks) {
+        delTokenLog.run(b.id);
+        if (b.root_path) delSettings.run(b.root_path);
+        delNovel.run(b.id);
+      }
+      // e2e 用户：先清其 token_log（NO ACTION），再删用户（api_configs/审计日志 CASCADE）
+      const delUserTokenLog = db.prepare("DELETE FROM token_log WHERE user_id = ?");
+      const delUser = db.prepare("DELETE FROM users WHERE id = ?");
+      for (const u of plan.staleUsers) {
+        delUserTokenLog.run(u.id);
+        delUser.run(u.id);
+      }
+      // 陈旧 e2e 配置（书的 ai_config_id 是 SET NULL，不会连带删书）
+      const delConfig = db.prepare("DELETE FROM api_configs WHERE id = ?");
+      for (const c of plan.staleConfigs) delConfig.run(c.id);
+      db.exec("COMMIT");
+    } catch (e) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        /* 回滚失败不掩盖原错 */
+      }
+      log(`· 残留清理失败（已回滚）：${e.message}`);
+      return { skipped: true, error: String(e) };
+    } finally {
+      // 关闭前把 WAL 内容并回主库：这样即使后端此刻正握着旧句柄，
+      // 主库也是完整的（后端重启后读到的就是这份）
+      try {
+        db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      } catch {
+        /* checkpoint 失败不影响已提交的数据 */
+      }
+      db.close();
     }
-    log(`· 残留清理失败（已回滚）：${e.message}`);
-    return { skipped: true, error: String(e) };
-  } finally {
-    // 关闭前把 WAL 内容并回主库：这样即使后端此刻正握着旧句柄，
-    // 主库也是完整的（后端重启后读到的就是这份）
-    try {
-      db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-    } catch {
-      /* checkpoint 失败不影响已提交的数据 */
-    }
-    db.close();
   }
 
   // 目录清理放在事务之后：库先干净，目录再对齐（删不掉只影响磁盘）
@@ -205,11 +284,14 @@ export function sweepResidue({
       `e2e 配置 ${plan.staleConfigs.length} 条 · 目录 ${dirsRemoved} 个`,
   );
 
+  if (!restartBackend) {
+    log("· ⚠️ 已跳过重启：应用可能仍握着旧句柄（后续请求或读到已删行）——正式流程请让它重启");
+  }
   if (restartBackend) {
     const ok = tryRestartBackend(log);
     log(
       ok
-        ? "· 已重启 C端 后端（外部写库会删掉 -wal，必须让它重开库，否则后续写入成为幽灵）"
+        ? "· 已重启 C端 后端（清库后让它重开库，避免旧句柄读到已删行）"
         : "· ⚠️ 未能重启 C端 后端：请手动 `docker restart ai-novel-client-backend`，" +
           "否则后端持有已删除的 WAL、后续写入重启后会丢",
     );

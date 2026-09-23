@@ -1,6 +1,6 @@
 """卷纲文本装配单源（volumes/render）— 六段行序／空段略过／全空空串。"""
 
-from models.volume import Volume, VolumePlotNode
+from models.volume import Volume
 from volumes.render import volume_outline_text
 
 
@@ -16,8 +16,6 @@ def test_full_six_sections_in_order():
     vol = _vol(summary="开局卷", core_conflict="A vs B",
                ending="同伴远走",
                antagonist_type="人物", antagonist_line="副队长——销毁证据")
-    vol.plot_nodes = [VolumePlotNode(stage="开局铺垫", text="雨夜接头"),
-                      VolumePlotNode(stage="重要转折", text="暗号指向内部")]
     vol.plants = "徽章"  # 退役字段存在也不渲染
     text = volume_outline_text(vol)
     lines = text.split("\n")
@@ -25,14 +23,12 @@ def test_full_six_sections_in_order():
     assert lines[1] == "- 本卷对抗物：人物 · 副队长——销毁证据"
     assert lines[2] == "- 核心矛盾：A vs B"
     assert lines[3] == "- 预期结局：同伴远走"
-    assert lines[4] == "- 关键节点：1. 开局铺垫：雨夜接头 ｜ 2. 重要转折：暗号指向内部"
     # 整体目标与伏笔两行退役（伏笔只走台账注入）
     assert "整体目标" not in text and "待埋伏笔" not in text and "待揭信息" not in text
 
 
 def test_empty_sections_skipped_and_all_empty_is_blank():
     vol = _vol(summary="", core_conflict=None, goal="", ending=None)
-    vol.plot_nodes = []
     # 有意偏差（ADJUSTMENTS ③）：全空返回空串，而非原型占位符「（卷纲未填）」
     assert volume_outline_text(vol) == ""
     vol.summary = "只有主旨"

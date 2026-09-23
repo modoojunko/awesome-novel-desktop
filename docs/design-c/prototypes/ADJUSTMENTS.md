@@ -1126,3 +1126,28 @@ cast-row，坎行复用 hurdle-row；色彩与组件零新形态。
    文案口径：用户可见层不出现文件名/版本号（「找回我的书」→「把上一版的作品带过来」）。
    parity 口径：原型把「旧版作品…带过来」段按状态变体处理（`data-od-id="fr-note-prior"`
    默认 `display:none`，对应 app 在无候选时不渲染该段）——parity 只拍默认态，故两侧一致。
+
+
+## c-chapter-plan-ai（卷下拆章）收编登记 — 2026-09-23
+
+- **新增 9 个业务类**（追加于文件末尾，来源＝drafts/ai-novel-c端-卷下拆章.html Part C）：
+  `.pk-corner`(三方向卡/本章卡右上角标：S 实心「最吸引」、A/B 描边；需 `.pick-card`/`.split-row` 补 `position:relative;overflow:hidden`)、
+  `.pk-read`(卡尾「剧情吸引力/差在哪」两块)、`.pk-grade`(落点卡等级徽)、`.pick-card.top`(S 卡淡描边)、
+  `.split-row/.s-no/.s-main/.s-lab/.s-entry`(本章卡五段标签行)、`.node-tx`(派生视图行文本)、
+  `.stage-card/.stage-hint`(演示舞台，仅原型)。**复用**：`.pick-*/.field/.input/.textarea/.cfgset/.rp-*/.rowx/.cols.cn/.pos-line` 全为既有类，未新增第二套。
+- **`--faint` 弹窗失效（同批修）**：令牌仅定义于 `.wb .view.on.three-col`，弹窗（portal 至 body）内 `.pk-row>b` 等失效——book.html 收编段与实现侧同批把令牌上移 `:root`（或 `.mcard.wb-style` 补定义）。
+- **弹层结构**：`.scrim + .modal.plan-modal > .mcard.wb-style`（同卷纲规划台）；`.plan-anchor:empty` 不占位。
+- **拆章入口**：中栏卷纲页 ol-top 增「拆下一章」（手写五段，全档）；右栏卷的验证面板增「拆下一章（AI）」（PRO；生成类仍 PRO）。中栏 SHALL NOT 出现 AI 卡（口径不变）。
+- **派生视图**：卷纲查看态「剧情推进（派生）」＝已排章阶段序列（从章派生、只读、零章空态），替代已退役的关键剧情节点段。
+
+### 检视后追加（2026-09-23，产品超出原型/收编实况登记）
+
+- **收编实况更正**：`book.html` 收编的是 **Part C 样式 ＋ 隐藏空壳容器**（`#split-scrim/#split-body/#split-foot` 为空、无 JS 填充）——拆章屏的 DOM/交互住在应用实现里，原型只承载样式与骨架；`design:check` 因此**没有拆章屏用例**（收编时的「基线自证＝截图字节级相同」只证明原有屏未被改坏，不构成收编内容就位的证据）。
+- **产品相对原型多出 4 处入口**（原型未画，规格 5.6/D12 要求）：
+  1. 左树章行 hover 动作「改这一章」（`ch-edit`）——不改「点击章行＝选中章」既有行为；
+  2. 卷页派生视图行**可点**（`vol-plot-row-N`）开同一张回改卡；
+  3. 落点卡第四个出口「改这一章」（`chapter-landing-edit`，ghost 小按钮）；
+  4. 免费档锁定态里的**可点**「升级 PRO」（`volume-split-ai-upgrade`）——原型只有说明文字，规格要求「＋升级出口」。
+- **回改＝同一张卡面**：`GET /chapters/{ref}/plan-card` 读五段预填，标题「改第N章」、按钮「保存这一章」，保存走章保存链（PUT，不新建）。
+- **弹窗内新增两块**：降级原文（`split-degraded`，照卷纲规划台先例）与卡面就地错误行（`chapter-card-error`：读卡失败/排上 422/空草稿拦截都上屏，不静默）。
+- **手写输入长度**：五段 `maxLength` 与 AI 输出预算同值（标题 12/剧情 150/挑战 60/结尾 80/行动 4×60），章纲表单「本章行动」同批补 `maxLength=244` ＋ 就地校验（单行 ≤60、≤4 行）。

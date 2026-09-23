@@ -13,6 +13,10 @@ export interface ChapterData {
   chapter: number;
   title: string;
   status: string;
+  /** 拆章三格（c-chapter-plan-ai；顶层键，与 ladder_exit 同层） */
+  challenge?: string;
+  chapter_acts?: string[];
+  plot_stage?: string;
   outline?: {
     summary?: string;
     key_points?: string[];

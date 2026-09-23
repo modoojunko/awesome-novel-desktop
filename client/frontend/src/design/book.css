@@ -1359,7 +1359,7 @@ body.focus .editor-wrap { padding-inline: 8vw; }
    类名保留（.ch-tabs/.cfg/.panel-head/.rail-stats 等 e2e 依赖），视觉语言整体替换：
    去卡片画布 / e-head 头部 / 下划线页签 / cfgset 分节 / fro 行式字段 / ledger 台账 / 右栏 aiShell。 */
 .wb .view.on.three-col {
-  --faint: color-mix(in oklch, var(--muted) 68%, transparent); --hl: var(--fg-soft);
+  /* --faint 已上移 base.css :root（弹窗内 var 需全局可见） */ --hl: var(--fg-soft);
   /* ── 中栏节奏单源（c-workbench-col-rhythm）──────────────────────────
      内容衬垫与表单版心在此定义一次，内容型面板继承；通栏条（e-head/ch-tabs/
      panel-head/panel-foot）保持出血，满栏面板显式豁免（见下方豁免清单）。
@@ -1672,3 +1672,35 @@ button.dep-row:hover{background:var(--hl)}
 .selfcheck-list{position:fixed;right:20px;bottom:76px;z-index:60;max-width:min(520px,92vw);max-height:40vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);box-shadow:0 4px 14px rgb(0 0 0/8%);padding:12px 16px}
 .selfcheck-list ol{margin:0;padding-left:18px;font-size:12.5px;line-height:1.72;color:var(--fg)}
 .selfcheck-list li+li{margin-top:6px}
+
+/* ── c-chapter-plan-ai：卷下拆章（收编自 prototypes/book.html Part C，逐字同源） ── */
+.node-tx{margin:0;font-size:13px;line-height:1.7;color:var(--fg)}
+/* 三方向卡：等级角标（绝对定位，需 .pick-card 定位锚；右上留位防压首行） */
+.pick-card{position:relative;overflow:hidden}
+.pick-card .pk-axis{margin-right:74px}
+.pk-corner{position:absolute;top:0;right:0;display:flex;align-items:baseline;gap:3px;padding:3px 10px 4px 11px;border-radius:0 calc(var(--radius) - 1px) 0 11px;border-left:1px solid var(--border);border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--fg) 6%,var(--surface));color:var(--muted);font-family:var(--font-mono);font-size:12px;font-weight:700;letter-spacing:.08em;line-height:1.3}
+.pk-corner i{font-style:normal;font-weight:400;font-size:9px;letter-spacing:.02em;opacity:.85}
+.pk-corner.g-S{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.pk-corner.g-A{color:var(--fg)}
+.pk-corner.g-B{color:var(--muted)}
+.pick-card.top{border-color:color-mix(in oklch,var(--accent) 45%,var(--border))}
+/* 三方向卡：读者视角两块（剧情吸引力 / 差在哪） */
+.pick-card .pk-read{margin-top:7px;padding-top:6px;border-top:1px dashed var(--border);display:flex;flex-direction:column;gap:2px}
+.pick-card .pk-read p{margin:0;font-size:11px;line-height:1.55;color:var(--muted)}
+.pick-card .pk-read p>b{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.06em;font-weight:400;color:var(--faint);margin-right:5px}
+/* 等级徽标（落点卡等正文形态；角标之外的复用） */
+.pk-grade{flex:none;display:inline-flex;align-items:baseline;gap:4px;font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:.06em;padding:1px 7px;border-radius:999px;border:1px solid var(--border);color:var(--muted)}
+.pk-grade i{font-style:normal;font-weight:400;font-size:9px;letter-spacing:.04em;opacity:.85}
+.pk-grade.g-S{color:var(--accent-strong);border-color:var(--accent);background:var(--accent-soft)}
+.pk-grade.g-A{color:var(--fg);border-color:var(--muted)}
+/* 本章卡：五段表单（行号 + 标签 + 控件），进场只读行同排 */
+.split-row{position:relative;overflow:hidden;display:grid;grid-template-columns:26px minmax(0,1fr);gap:8px;align-items:start}
+.split-row .s-no{font-family:var(--font-mono);font-size:11px;color:var(--faint);text-align:right;padding-top:9px}
+.split-row .s-main{display:flex;flex-direction:column;gap:6px}
+.split-row .s-lab{display:grid;grid-template-columns:76px minmax(0,1fr);gap:9px;align-items:center}
+.split-row .s-lab>b{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;color:var(--faint);font-weight:500;text-align:right}
+.split-row .s-lab.entry>b{color:var(--muted)}
+.split-row .s-entry{margin:0;font-size:11px;line-height:1.5;color:var(--faint)}
+.split-sum{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:10px 0 0;font-size:12px;color:var(--muted)}
+/* 拆章弹窗＝卷纲弹窗加宽版（宽度由 Modal 的 width 属性给，这里只补滚动体） */
+.plan-modal .mcard-body{overflow:auto;min-height:0}

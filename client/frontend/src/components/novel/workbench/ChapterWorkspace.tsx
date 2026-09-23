@@ -252,6 +252,20 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   const gaps = ogGaps(ogForm);
   const confirmed = ogStatus === "confirmed";
 
+  /** 回改「本章结尾」不静默（c-chapter-plan-ai D14）：下一章已排上 → 一次性提示，
+   *  并刷新树让下一章的「基于旧设定」标记上屏（置位在服务端章保存事务内完成）。 */
+  const notifyExitChange = useCallback(
+    (beforeExit: string) => {
+      const afterExit = String(ogForm.ladder ?? "").trim();
+      const hasNext = (vol?.chapters ?? []).some((c) => c.chapter > (chMeta?.chapter ?? 0));
+      if (hasNext && afterExit !== beforeExit) {
+        toast.info("下一章的进场会跟着变——它已标上「基于旧设定」");
+        void wb.refresh();
+      }
+    },
+    [ogForm.ladder, vol, chMeta, wb],
+  );
+
   const saveOg = useCallback(async (): Promise<boolean> => {
     if (ogLoadingRef.current) return false;
     const issues = ogFormIssues(ogForm);
@@ -261,11 +275,13 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     }
     setOgSaving(true);
     try {
+      const beforeExit = String(outline.chaptersMap.get(chapterRef)?.ladder_exit ?? "").trim();
       await outline.saveChapter(
         chapterRef,
         ogToPartial(ogForm, outline.chaptersMap.get(chapterRef)),
       );
       ogSnapRef.current = JSON.stringify(ogForm);
+      notifyExitChange(beforeExit);
       return true;
     } catch {
       toast.error("章纲保存失败，请重试");
@@ -274,7 +290,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       setOgSaving(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [outline.saveChapter, outline.chaptersMap, chapterRef, ogForm]);
+  }, [outline.saveChapter, outline.chaptersMap, chapterRef, ogForm, vol, chMeta, wb]);
 
   // 3s 静默后台保存（不改 status；设计稿之外的应用侧扩展，已登记 ADJUSTMENTS）
   const ogKey = JSON.stringify(ogForm);
@@ -284,10 +300,12 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // 校验不过时静默跳过（不打扰），待用户补齐后下一次输入触发重试
     if (ogFormIssues(ogForm).length > 0) return;
     const t = setTimeout(() => {
+      const beforeExit = String(outline.chaptersMap.get(chapterRef)?.ladder_exit ?? "").trim();
       outline
         .saveChapter(chapterRef, ogToPartial(ogForm, outline.chaptersMap.get(chapterRef)))
         .then(() => {
           ogSnapRef.current = ogKey;
+          notifyExitChange(beforeExit);
         })
         .catch(() => {
           /* 静默：失败不打扰，下一次输入重试 */

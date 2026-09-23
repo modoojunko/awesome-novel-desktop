@@ -56,8 +56,8 @@ async def _seed_full_book(tmp_root: str) -> str:
         ChapterVersion,
     )
     from models.project import Novel
+    from models.volume import Volume, VolumeCastMember
     from models.user import User
-    from models.volume import Volume, VolumeCastMember, VolumePlotNode
 
     uid = f"rt-{uuid.uuid4().hex[:8]}"
     slug = f"rt-{uuid.uuid4().hex[:8]}"
@@ -89,8 +89,6 @@ async def _seed_full_book(tmp_root: str) -> str:
         session.add_all([
             VolumeCastMember(volume_id=vol.id, sort_order=0,
                              who="林拓", target="查清真相", change="学会独行"),
-            VolumePlotNode(volume_id=vol.id, sort_order=0,
-                           stage="重要转折", text="接头人反水"),
         ])
 
         # 层 4：章 + 全子表
@@ -99,6 +97,9 @@ async def _seed_full_book(tmp_root: str) -> str:
             ref="vol-1-ch-1", title="第一章 试手", chapter_no=1, status="archived",
             word_count=4, has_prose=True, summary="开端", location="青梧宗",
             story_time="开国三十年", narrative_pov="林拾", primary_mood="紧",
+            # c-chapter-plan-ai：拆章五段（三新列）
+            challenge="旧档堆不对活人开放", plot_stage="矛盾升级",
+            chapter_acts="她：调档\n文书：记台账",
         )
         session.add(ch)
         await session.flush()
@@ -276,30 +277,28 @@ class TestLayer3Volume:
         导入若按旧形状搬运会把退役列写满、把 {name,role} 解析成空行——故本用例连
         「导入后仍为空」一起断言。
         """
-        from models.volume import Volume, VolumeCastMember, VolumePlotNode
 
         _src_id, dst_id, _blob, _slug, _root = roundtrip
 
         async def run():
+            from models.volume import Volume, VolumeCastMember  # noqa: PLC0415
             async with async_session() as db:
                 vols = (await db.scalars(
                     select(Volume).where(Volume.project_id == dst_id)
                 )).all()
                 assert len(vols) == 1
                 vol = vols[0]
-                nodes = (await db.scalars(select(VolumePlotNode).where(
-                    VolumePlotNode.volume_id == vol.id))).all()
                 casts = (await db.scalars(select(VolumeCastMember).where(
                     VolumeCastMember.volume_id == vol.id))).all()
                 return (
                     vol.title, vol.core_conflict, vol.ending,
                     vol.antagonist_type, vol.antagonist_line,
-                    vol.chapter_target, len(nodes), len(casts),
+                    vol.chapter_target, len(casts),
                     vol.template_name, vol.goal, vol.plants, vol.reveals,
                 )
 
         (title, conflict, ending, ant_type, ant_line,
-         target, n_nodes, n_casts, template, goal, plants, reveals) = _run(run())
+         target, n_casts, template, goal, plants, reveals) = _run(run())
         assert title == "第一卷"
         assert conflict
         # goal 并入尾句（读侧合并口径：导出→导入走了 get_volume 形状）
@@ -307,7 +306,7 @@ class TestLayer3Volume:
         assert ant_type in (None, "人物", "难题", "环境", "自我", "势力")  # 闭集或旧行空
         assert ant_line is None or isinstance(ant_line, str)
         assert target == 12
-        assert n_nodes == 1
+        # c-chapter-plan-ai：剧情节点表退役——节点维度不再存在（本用例改为只断言 cast 退役行为）
         # 退役键：导入不写（源库里 seed 过这些值，导出包不再承载 → 落回 None/空）
         assert n_casts == 0
         assert template in (None, "")
@@ -357,6 +356,10 @@ class TestLayer4Chapter:
         assert ch.summary == "开端" and ch.location == "青梧宗"
         assert ch.story_time == "开国三十年" and ch.narrative_pov == "林拾"
         assert ch.primary_mood == "紧"
+        # 拆章三列随导出导入往返（c-chapter-plan-ai；chapter_acts 一行一条）
+        assert ch.challenge == "旧档堆不对活人开放"
+        assert ch.plot_stage == "矛盾升级"
+        assert ch.chapter_acts == "她：调档\n文书：记台账"
         assert [k.content for k in kp] == ["主角登场"]
         assert [p.content for p in payoff] == ["残页来历"]
         assert [s.summary for s in segs] == ["柴房夜谈"]

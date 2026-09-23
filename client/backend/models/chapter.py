@@ -102,6 +102,14 @@ class Chapter(Base):
     # 章末落点 — 结尾停在哪个紧张度上，须给下一章更高起点（提示词前情消费）
     ladder_exit: Mapped[str | None] = mapped_column(String(300))
 
+    # ── 拆章五段（c-chapter-plan-ai；JSON 键路径＝章档案顶层，与 ladder_exit 同层）──
+    # 碰到的挑战 — 剧情推进时撞上的那道墙（拆章第一步写入）
+    challenge: Mapped[str | None] = mapped_column(String(150))
+    # 本章行动 — 谁做了什么，一行一条（≤4 行×60；标量清单外定制，照 ladder_exit 先例）
+    chapter_acts: Mapped[str | None] = mapped_column(Text)
+    # 阶段 — 本章在卷剧情里的位置（六档闭集：开局铺垫/冲突初现/矛盾升级/重要转折/高潮爆发/卷末收束）
+    plot_stage: Mapped[str | None] = mapped_column(String(20))
+
     # Relationships
     project = relationship("Novel", back_populates="chapters")
     # selectin：组装章 JSON 需要 volume_no，异步会话里禁止隐性 lazy IO

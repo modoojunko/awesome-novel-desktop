@@ -66,6 +66,8 @@ interface RailProps {
   /** 卷域 AI（volume-plan-ai）：规划台入口与「卷的验证」点行回调 */
   genreLabel: string;
   onPlanVolume: (volNo: number) => void;
+  /** 拆下一章（AI）——卷纲页签 PRO 入口（c-chapter-plan-ai） */
+  onSplitAi: () => void;
   onSelectVolume: (ref: string) => void;
   /** 选中卷自动体检信号（点行选中时递增） */
   autoCheckSeq: number;
@@ -130,6 +132,7 @@ export default function Rail({
   railIdle,
   genreLabel,
   onPlanVolume,
+  onSplitAi,
   onSelectVolume,
   autoCheckSeq,
   onAiWrite,
@@ -150,6 +153,9 @@ export default function Rail({
         onPlanVolume={onPlanVolume}
         onSelectVolume={onSelectVolume}
         autoCheckSeq={autoCheckSeq}
+        onSplitAi={onSplitAi}
+        isPro={isPro}
+        onUpgrade={onUpgrade}
       />
     );
   }

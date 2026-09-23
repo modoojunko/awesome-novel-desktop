@@ -516,7 +516,7 @@ async def _import_single_book(
     from models.character import CharacterRelation
     from models.project import Novel
     from models.project_setting import ProjectSetting
-    from models.volume import Volume, VolumePlotNode
+    from models.volume import Volume
 
     names = set(zf.namelist())
     pn = "project.yaml" if f"{book_dir}project.yaml" in names else "project.json"
@@ -602,10 +602,6 @@ async def _import_single_book(
         db.add(vol)
         await db.flush()
 
-        for i, n in enumerate(vol_data.get("plot_nodes") or []):
-            db.add(VolumePlotNode(volume_id=vol.id, sort_order=i, **{
-                k: (n.get(k) or "") for k in ("stage", "text")
-            }))
 
     # 章 + 正文 + 子表 + 版本 + 提示词
     for name in sorted(names):

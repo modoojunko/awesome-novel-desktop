@@ -17,6 +17,7 @@ import {
   PLOT_STAGES,
   type VolumeDetail,
 } from "../volume/types";
+import { ResplitConfirmModal } from "./modals";
 import { RelationsGraphPane } from "./RelationsGraphPane";
 import { HooksPane } from "./HooksPane";
 
@@ -28,6 +29,8 @@ export interface VolumeRailData {
   title: string;
   tab: VolumeTab;
   detail: VolumeDetail;
+  /** 主线写作位所在卷号（c-chapter-plan-ai 末端门禁；null＝全书无章） */
+  frontierVol: number | null;
 }
 
 interface VolumeWorkspaceProps {
@@ -45,6 +48,10 @@ interface VolumeWorkspaceProps {
   } | null;
   /** 保存成功后回调（采纳路径：落写作默认页） */
   onSaved?: () => void;
+  /** 「拆下一章」手写五段（c-chapter-plan-ai；全档） */
+  onSplitManual: () => void;
+  /** 回改这一章（5.6）：派生视图行／左树共用同一张本章卡 */
+  onEditChapter: (ref: string) => void;
 }
 
 const TABS: Array<[VolumeTab, string]> = [
@@ -62,8 +69,10 @@ export default function VolumeWorkspace({
   onVolumeMutated,
   onDirtyChange,
   onRailData,
+  onEditChapter,
   backfill,
   onSaved,
+  onSplitManual,
 }: VolumeWorkspaceProps) {
   const [detail, setDetail] = useState<VolumeDetail | null>(null);
   const [form, setForm] = useState<VolumeFormData | null>(null);
@@ -145,6 +154,24 @@ export default function VolumeWorkspace({
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
 
+  // 重拆整卷（c-chapter-plan-ai D14）：盘点确认 → 清拟定章（降序）→ 刷新树与详情
+  const [resplitOpen, setResplitOpen] = useState(false);
+  const doResplit = useCallback(async () => {
+    try {
+      const r = (await api.post(
+        `/novels/${projectId}/volumes/${volumeRef}/chapters/resplit`,
+        {},
+      )) as { removed?: string[] };
+      const n = r?.removed?.length ?? 0;
+      toast.success(n ? `已清掉 ${n} 章拟定章——可以重新拆了` : "没有可清掉的拟定章");
+      await load();
+      onVolumeMutated();
+    } catch (e: any) {
+      toast.error(e?.message || "重拆失败，请重试");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, volumeRef, load, onVolumeMutated]);
+
   // 右栏卷语境上抛：卸载/换卷/换页签先清空（防未选中卷时残留统计）
   useEffect(() => {
     if (detail) {
@@ -153,12 +180,13 @@ export default function VolumeWorkspace({
         title: nodeLabel("卷", detail.volume, detail.title),
         tab,
         detail,
+        frontierVol: frontier ? frontier.vol : null,
       });
     } else {
       onRailData(null);
     }
     return () => onRailData(null);
-  }, [detail, tab, onRailData]);
+  }, [detail, tab, frontier, onRailData]);
 
   // 回填执行：进场/展开依据只读（不占表单步骤），其余按段序 160ms/段
   useEffect(() => {
@@ -299,6 +327,9 @@ export default function VolumeWorkspace({
                 onEdit={startEdit}
                 onCancel={cancelEdit}
                 onSave={() => void save()}
+                onSplitManual={onSplitManual}
+                onResplit={() => setResplitOpen(true)}
+                onEditChapter={onEditChapter}
               />
             )}
             {tab === "chapters" && (
@@ -321,6 +352,15 @@ export default function VolumeWorkspace({
             </div>
           </>
         )}
+      <ResplitConfirmModal
+        open={resplitOpen}
+        onClose={() => setResplitOpen(false)}
+        onConfirm={() => void doResplit()}
+        planned={(detail?.chapters ?? [])
+          .filter((c) => !c.has_prose && !c.archived)
+          .map((c) => ({ no: c.chapter, title: c.title }))}
+        kept={(detail?.chapters ?? []).filter((c) => c.has_prose || c.archived).length}
+      />
     </div>
   );
 }
@@ -337,6 +377,9 @@ function VolumeOutlinePane({
   onEdit,
   onCancel,
   onSave,
+  onSplitManual,
+  onResplit,
+  onEditChapter,
 }: {
   detail: VolumeDetail;
   form: VolumeFormData | null;
@@ -348,11 +391,21 @@ function VolumeOutlinePane({
   onEdit: () => void;
   onCancel: () => void;
   onSave: () => void;
+  /** 「拆下一章」手写五段（c-chapter-plan-ai；全档） */
+  onSplitManual: () => void;
+  /** 「重拆本卷」盘点确认（c-chapter-plan-ai D14）：清掉拟定章重排 */
+  onResplit: () => void;
+  /** 回改这一章（5.6）：派生视图行可点开同一张本章卡 */
+  onEditChapter: (ref: string) => void;
 }) {
   const here =
     frontier && frontier.vol === detail.volume
       ? `第 ${frontier.ch} 章`
       : "不在本卷";
+  // 主线末端门禁（c-chapter-plan-ai）：只挡「写作位之前的卷」（那才会插进主线中段）；
+  // 写作位所在卷及其之后的卷都可拆——上一卷写完后开新卷第一拆时，frontier 的全归档
+  // 待写占位仍落在旧卷，严格等值会把它堵死。
+  const splitBlocked = frontier != null && detail.volume < frontier.vol;
   const archived = detail.chapters.filter((c) => c.archived).length;
   const draft = detail.chapters.filter((c) => c.has_prose && !c.archived).length;
   const planned = detail.chapters.filter((c) => !c.has_prose && !c.archived).length;
@@ -499,82 +552,6 @@ function VolumeOutlinePane({
               : "还没有章——写到谁（章纲登记出场），这里自动有谁"}
           </p>
         </div>
-        <details className="cfg" open>
-          <summary>
-            关键剧情节点 <Chev />
-          </summary>
-          <div className="inner">
-            <div className="sub-list">
-              {form.plot_nodes.length === 0 && (
-                <p className="sub-empty">还没有排剧情节点，点下方添加。</p>
-              )}
-              {form.plot_nodes.map((n, i) => (
-                <div className="rowx" key={i}>
-                  <span className="num">{i + 1}</span>
-                  <div className="cols cn">
-                    <select
-                      className="input"
-                      value={n.stage}
-                      onChange={(e) =>
-                        onPatch({
-                          plot_nodes: form.plot_nodes.map((x, j) =>
-                            j === i ? { ...x, stage: e.target.value } : x,
-                          ),
-                        })
-                      }
-                    >
-                      {(PLOT_STAGES as unknown as string[]).map((st) => (
-                        <option key={st} value={st}>
-                          {st}
-                        </option>
-                      ))}
-                    </select>
-                    <textarea
-                      className="textarea"
-                      rows={2}
-                      maxLength={300}
-                      placeholder="这一节点发生什么、结果是什么"
-                      value={n.text}
-                      onChange={(e) =>
-                        onPatch({
-                          plot_nodes: form.plot_nodes.map((x, j) =>
-                            j === i ? { ...x, text: e.target.value } : x,
-                          ),
-                        })
-                      }
-                    />
-                  </div>
-                  <button
-                    className="icon-btn xbtn"
-                    title="删除本行"
-                    onClick={() =>
-                      onPatch({
-                        plot_nodes: form.plot_nodes.filter((_, j) => j !== i),
-                      })
-                    }
-                  >
-                    <TrashIcon />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <div className="edit-bar">
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() =>
-                  onPatch({
-                    plot_nodes: [
-                      ...form.plot_nodes,
-                      { stage: PLOT_STAGES[0], text: "" },
-                    ],
-                  })
-                }
-              >
-                ＋ 加一个节点
-              </button>
-            </div>
-          </div>
-        </details>
         <div className="fro">
           <em>这一卷的伏笔</em>
           <p className="pv-ro">住在台账里——切「伏笔」页签看与办；登记与收束都在台账。</p>
@@ -591,6 +568,29 @@ function VolumeOutlinePane({
       <div className="ol-top">
         <span className="note">卷纲 · 规划本卷剧情</span>
         <span className="push">
+          <button
+            className="btn btn-secondary btn-sm"
+            data-testid="volume-split-manual"
+            disabled={splitBlocked}
+            title={
+              splitBlocked
+                ? `写作位在第${frontier!.vol}卷——这一卷还没轮到`
+                : "手写这一章的关键剧情（五段），排上后再补章纲"
+            }
+            onClick={onSplitManual}
+          >
+            拆下一章
+          </button>
+          {planned > 0 && (
+            <button
+              className="btn btn-ghost btn-sm"
+              data-testid="volume-resplit"
+              title="清掉本卷拟定章（有正文/已归档的保留），之后重新拆"
+              onClick={onResplit}
+            >
+              重拆本卷
+            </button>
+          )}
           <button className="btn btn-secondary btn-sm" onClick={onEdit}>
             编辑卷纲
           </button>
@@ -638,23 +638,51 @@ function VolumeOutlinePane({
         <em>这一卷的伏笔</em>
         <p className="none">住在台账里——切「伏笔」页签看与办；登记与收束都在台账。</p>
       </div>
-      {detail.plot_nodes.length > 0 && (
-        <details className="cfg" open>
-          <summary>关键剧情节点 <Chev /></summary>
-          <div className="inner">
-            {detail.plot_nodes.map((n, i) => (
-              <div className="node" key={i}>
-                <span className="stg">{n.stage}</span>
-                <p>{n.text}</p>
-              </div>
-            ))}
-          </div>
-        </details>
+      {splitBlocked && (
+        <p className="hint" data-testid="volume-split-blocked">
+          写作位在第{frontier!.vol}卷——这一卷还没轮到，先去第{frontier!.vol}卷拆章。
+        </p>
       )}
-      <div className="defer-note">
-        <b>留到写的时候</b>
-        <span>关键剧情节点，写到这一卷时在卷纲编辑里补。</span>
-      </div>
+      {/* 剧情推进（派生）——c-chapter-plan-ai：从已排章派生，只读；替代已退役的关键剧情节点段 */}
+      <details className="cfg" open data-testid="vol-plot-progress">
+        <summary>
+          剧情推进（派生）{" "}
+          <span className="tag">{detail.chapters.length} 章</span>
+          <Chev />
+        </summary>
+        <div className="inner">
+          {detail.chapters.length === 0 ? (
+            <p className="sub-empty">还没有排章——拆下一章后这里会按章列出推进。</p>
+          ) : (
+            <div className="sub-list">
+              {detail.chapters.map((c, i) => (
+                  <div
+                    className="rowx"
+                    key={c.ref}
+                    role="button"
+                    tabIndex={0}
+                    data-testid={`vol-plot-row-${c.chapter}`}
+                    title="改这一章（关键剧情五段）"
+                    style={{ cursor: "pointer" }}
+                    onClick={() => onEditChapter(c.ref)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") onEditChapter(c.ref);
+                    }}
+                  >
+                    <span className="num">{i + 1}</span>
+                    <div className="cols cn">
+                      <span className="qno">{c.plot_stage || "（未定阶段）"}</span>
+                      <p className="node-tx">{c.title}</p>
+                    </div>
+                    <span className="tag">
+                      {c.archived ? "已归档" : c.has_prose ? "草稿" : "已排"}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      </details>
 
       <p className="seg-h">
         本卷进度 <span className="note">由各章实际归属推导</span>

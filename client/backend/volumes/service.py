@@ -218,10 +218,6 @@ async def get_volume(db, project, ref: str) -> dict | None:
         data["ending"] = (base + ("。 " if base else "") + vol.goal).strip()
     # 卷角色＝聚合视图（c-volume-antagonist）：卷下各章出场角色合集，无章即空
     data["cast_members"] = await _aggregate_cast(db, vol)
-    data["plot_nodes"] = [
-        {"stage": n.stage, "text": n.text}
-        for n in vol.plot_nodes
-    ]
 
     all_chapters = await chapter_repo.list_by_volume(db, vol.id)
     mainline = [c for c in all_chapters if not c.ghost_of]
@@ -240,25 +236,12 @@ async def get_volume(db, project, ref: str) -> dict | None:
             "archived": c.status == "archived",
             # 本卷章节台账「章纲一句话」（Chapter.summary 随章纲落库）
             "outline_summary": (c.summary or "").strip(),
+            # c-chapter-plan-ai：派生视图数据（剧情推进＝按章列出阶段）
+            "plot_stage": (c.plot_stage or "").strip(),
         }
         for c in sorted(mainline, key=lambda x: x.chapter_no)
     ]
     return data
-
-
-def _replace_children(vol, body: VolumeUpdate) -> None:
-    """子表整体替换：传入即删旧插新（sort_order 按列表序 0 起）。"""
-    from models.volume import VolumePlotNode
-
-    if body.plot_nodes is not None:
-        vol.plot_nodes = [
-            VolumePlotNode(
-                sort_order=i,
-                stage=n.stage,
-                text=n.text,
-            )
-            for i, n in enumerate(body.plot_nodes)
-        ]
 
 
 async def update_volume(db, project, ref: str, body: VolumeUpdate) -> dict:
@@ -280,11 +263,6 @@ async def update_volume(db, project, ref: str, body: VolumeUpdate) -> dict:
         vol.title = body.title
     if body.summary is not None:
         vol.summary = body.summary
-    # 先清旧子行并 flush（flush 内插入先于删除，会撞 UNIQUE(volume_id, sort_order)）
-    if body.plot_nodes is not None:
-        vol.plot_nodes.clear()
-    await db.flush()
-    _replace_children(vol, body)
     await db.commit()
     return {"ok": True}
 

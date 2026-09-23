@@ -173,17 +173,12 @@ def test_volume_structured_fields_roundtrip():
                     "chapter_target": 40,
                     "antagonist_type": "人物",
                     "antagonist_line": "副队长——一边查案一边销毁证据",
-                    "plot_nodes": [
-                        {"stage": "开局铺垫", "text": "师父死讯传来"},
-                        {"stage": "高潮爆发", "text": "码头对峙"},
-                    ],
                 },
             )
             data = await _get_volume(session, proj, "vol-1")
             assert data["core_conflict"].startswith("主角想查")
             assert data["antagonist_type"] == "人物"
             assert "副队长" in data["antagonist_line"]
-            assert [n["stage"] for n in data["plot_nodes"]] == ["开局铺垫", "高潮爆发"]
             # 退役键不再回显
             for gone in ("template_name", "goal", "plan_line", "plants", "reveals"):
                 assert gone not in data
@@ -198,15 +193,12 @@ def test_volume_line_list_validation():
     """终版校验：antagonist_type 闭集 422；退役键 422；stage 六档 422。"""
     import pytest
     from pydantic import ValidationError
-
-    from volumes.schemas import PlotNodeIn, VolumeUpdate
+    from volumes.schemas import VolumeUpdate
 
     with pytest.raises(ValidationError):
         VolumeUpdate(antagonist_type="不属于闭集")
     with pytest.raises(ValidationError):
         VolumeUpdate(plants=["a"])  # 退役键硬拒
-    with pytest.raises(ValidationError):
-        PlotNodeIn(stage="不属于六档", text="x")
     ok = VolumeUpdate(antagonist_type="自我", antagonist_line="体内饥渴——越压越饿")
     assert ok.antagonist_type == "自我"
 

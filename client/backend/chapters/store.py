@@ -44,6 +44,23 @@ _EXPECTATION_SCALARS = [
     ("detail", "expectation_detail", 300),
 ]
 
+def _join_acts(value) -> str | None:
+    """本章行动归一（c-chapter-plan-ai）：列表或文本 → 一行一条；去空白/丢空行/逐行 ≤60/上限 4 行。
+    装配端（assemble_chapter 的 split("\\n")）与前端行编辑共用同一纪律。"""
+    if value is None:
+        return None
+    items = value if isinstance(value, list) else str(value).split("\n")
+    out = []
+    for ln in items:
+        t = str(ln).strip()
+        if not t:
+            continue
+        out.append(t[:60])
+        if len(out) >= 4:
+            break
+    return "\n".join(out) or None
+
+
 _KEY_POINT_TAG = re.compile(r"^\[([^\]]+)\](.*)$", re.DOTALL)
 
 
@@ -130,6 +147,13 @@ def assemble_chapter(row) -> dict:
         data["word_target"] = row.word_target
     if row.ladder_exit:
         data["ladder_exit"] = row.ladder_exit
+    # 拆章五段（c-chapter-plan-ai）：challenge/plot_stage 标量直出；chapter_acts 一行一条（列表同形）
+    if row.challenge:
+        data["challenge"] = row.challenge
+    if row.plot_stage:
+        data["plot_stage"] = row.plot_stage
+    if row.chapter_acts:
+        data["chapter_acts"] = [ln for ln in row.chapter_acts.split("\n") if ln.strip()]
     # 本章文风影子（chapter-style-shadow）：JSON 直出，加键兼容
     try:
         import json as _json
@@ -262,6 +286,10 @@ def _disassemble_scalars(row, data: dict) -> None:
         setattr(row, col, _fit(emotional.get(json_key), width))
     row.word_target = _int_or_none(data.get("word_target"))
     row.ladder_exit = _fit(data.get("ladder_exit"), 300)
+    # 拆章五段（c-chapter-plan-ai）：challenge/plot_stage 标量；chapter_acts 清单外定制（_fit 会 str 化列表）
+    row.challenge = _fit(data.get("challenge"), 150)
+    row.plot_stage = _fit(data.get("plot_stage"), 20)
+    row.chapter_acts = _join_acts(data.get("chapter_acts"))
     # 本章文风影子：仅收 dict 形状 {dim: {value, reason}}，越界值置空
     shadow = data.get("style_shadow")
     if isinstance(shadow, dict):
@@ -531,6 +559,7 @@ async def save_chapter(root_path: str, chapter_ref: str, data: dict) -> list[str
             row.title = str(data["title"])[:200]
         prose = data.get("prose") or ""
         status = data.get("status") or row.status
+        old_exit = (row.ladder_exit or "").strip()  # 变更前快照（stale 判定用）
         # 状态机系统维护：首次落非空正文 outline → writing（页面已无状态选择器，
         # 覆盖正文保存/AI 写本章/续写三条路径——它们都经本统一写入口）
         if prose.strip() and status == "outline":
@@ -541,6 +570,9 @@ async def save_chapter(root_path: str, chapter_ref: str, data: dict) -> list[str
         # 「基于旧设定」角标在单写入口统一清除
         if row.stale:
             row.stale = False
+        # c-chapter-plan-ai 第二触发面：上游章末落点**实质变更**（trim 后不同）且
+        # 下一主线章已有正文 → 给下一章置「基于旧设定」（拆章改落点会让下一章进场过期）。
+        await _mark_next_stale_on_exit_change(session, row, data, old_exit)
         await session.commit()
 
     # 版本快照：prose / outline.summary 实质变化才写（正文已落库，快照失败不回滚）
@@ -620,6 +652,33 @@ async def _write_version_snapshot(
         for old_row in stale:
             await session.delete(old_row)
         await session.commit()
+
+
+async def _mark_next_stale_on_exit_change(session, row, data: dict, old_exit: str) -> None:
+    """上游章末落点实质变更 → 下一主线章置 stale（已有正文才置；措辞微调不触发）。"""
+    if "ladder_exit" not in data:
+        return
+    new_exit = str(data.get("ladder_exit") or "").strip()
+    if new_exit == old_exit:
+        return
+    from sqlalchemy import select
+
+    from models.chapter import Chapter
+
+    nxt = (
+        await session.scalars(
+            select(Chapter)
+            .where(
+                Chapter.volume_id == row.volume_id,
+                Chapter.chapter_no > row.chapter_no,
+                Chapter.ghost_of.is_(None),
+            )
+            .order_by(Chapter.chapter_no)
+            .limit(1)
+        )
+    ).first()
+    if nxt is not None and nxt.has_prose:
+        nxt.stale = True
 
 
 async def collect_prose_by_root(root_path: str) -> str:

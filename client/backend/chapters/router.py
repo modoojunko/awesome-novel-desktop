@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.middleware import get_current_user
+from chapters.schemas import validate_chapter_fields
 from chapters.service import get_chapter_row, save_chapter, save_prose
 from db import get_db
 from novels.service import get_novel
@@ -146,15 +147,36 @@ async def create_chapter_in_volume(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """卷内建章（替代旧 POST /chapters）：定位卷 → MAX+1 → 双写。"""
+    """卷内建章（替代旧 POST /chapters）：定位卷 → MAX+1 → DB 行＋可选五段（同事务）。"""
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
     from chapters.service import create_chapter
 
+    fields = {k: body.get(k) for k in ("plot", "challenge", "ending", "acts", "stage") if body.get(k)}
+    # 校验与写入**同键**（卡面口径 stage/acts）：先于建章，422 不留半章
+    validate_chapter_fields(fields)
     return await create_chapter(
-        db, project, ref, body.get("title", "新章节")
+        db, project, ref, body.get("title") or "新章节", fields or None,
+        client_token=str(body.get("client_token") or ""),
     )
+
+
+@router.post("/volumes/{ref}/chapters/resplit")
+async def resplit_volume_endpoint(
+    project_id: str,
+    ref: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """重拆整卷（c-chapter-plan-ai D14）：清掉本卷拟定章（有正文/已归档保留），
+    按章号降序逐章删——供作者重新拆章。盘点确认在卷页弹窗里做，本端点直接执行。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    from chapters.service import resplit_volume
+
+    return await resplit_volume(db, project, ref)
 
 
 @router.get("/chapters/{chapter_ref}")
@@ -190,6 +212,7 @@ async def update_chapter(
     if not project:
         raise HTTPException(404, "Project not found")
     _validate_ref(chapter_ref)
+    validate_chapter_fields(body)  # 拆章三列：闭集/长度先于写入（422，不靠装配端截断）
     warnings = await save_chapter(db, project, chapter_ref, body)
     # 出场角色未命中告警（character-settings-v2）：前端上屏提示
     return {"ok": True, "warnings": warnings}
@@ -386,9 +409,24 @@ async def delete_chapter(
 
     row = await chapter_repo.get_by_ref(db, project.id, chapter_ref)
     if row is not None:
-        await chapter_repo.delete(db, row.id)
+        # 守卫（c-chapter-plan-ai D14）：仅「本卷最后一章＋拟定＋无正文」可单删——
+        # 中间删章会留永久章号空洞（MAX+1 建章不复用）；有正文/已归档删了会连正文一起没。
         parts = strip_suffix(chapter_ref).split("-")
         vol = await volume_repo.get_by_volume_no(db, project.id, int(parts[1]))
+        if vol is not None:
+            siblings = [
+                c
+                for c in await chapter_repo.list_by_volume(db, vol.id)
+                if not c.ghost_of
+            ]
+            max_no = max((c.chapter_no for c in siblings), default=0)
+            if row.chapter_no != max_no:
+                raise HTTPException(
+                    409, "只允许删本卷最后一章——先删其后的章节，或走「重拆本卷」"
+                )
+        if row.has_prose or row.status == "archived":
+            raise HTTPException(409, "这一章已有正文——请走重写或归档，别直接删")
+        await chapter_repo.delete(db, row.id)
         if vol is not None:
             vol.chapter_count = max(0, vol.chapter_count - 1)
         project.total_chapters = max(0, (project.total_chapters or 0) - 1)

@@ -3,11 +3,6 @@
 // c-volume-antagonist：template_name/goal/plants/reveals 已退役（GET 不回、PUT 422 拒收），
 // 卷角色＝各章章纲聚合只读；剧情节点行集沿用。
 
-export interface VolumePlotNode {
-  stage: string;
-  text: string;
-}
-
 /** 剧情节点阶段（固定六档，与后端 schemas.PLOT_STAGES 同源字面） */
 export const PLOT_STAGES = [
   "开局铺垫",
@@ -30,6 +25,8 @@ export interface VolumeChapterMeta {
   archived: boolean;
   /** 本卷章节台账「章纲一句话」（Chapter.summary；可缺省） */
   outline_summary?: string;
+  /** 本章在卷剧情里的位置（拆章阶段六档；派生视图用，可缺省） */
+  plot_stage?: string;
 }
 
 export interface VolumeDetail {
@@ -47,7 +44,6 @@ export interface VolumeDetail {
   antagonist_line?: string | null;
   /** 角色聚合视图（只读）：{name, role}——role 为「反派」或空 */
   cast_members: Array<{ name: string; role: string }>;
-  plot_nodes: VolumePlotNode[];
   /** 本卷旧稿支线章数（不混入台账/计数，仅汇总提示） */
   ghost_count: number;
   /** 主线章列表（ghost 已滤除，按章序） */

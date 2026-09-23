@@ -53,7 +53,7 @@ async def get_outline_by_root(
 ) -> str:
     """AI 生成链路（仅持有 root_path）取卷纲装配文本（卷视图换代素材单源）。
 
-    载入 Volume（selectinload plot_nodes）后交 volumes/render 装配；卷缺失返回空串。
+    载入 Volume 后交 volumes/render 装配；卷缺失返回空串。
     """
     from volumes.render import volume_outline_text
 

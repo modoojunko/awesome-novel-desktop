@@ -199,11 +199,13 @@ test("删除分级：章盘点 chips / 删卷带章数字数 / 取消与确认",
     await page.getByRole("dialog").getByRole("button", { name: "取消" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
 
-    // 确认删除章 → 树清空回中栏空态（与免费主流程同一断言口径；卷仍在＝选章引导分支）
+    // 确认删除章 → 守卫 409（c-chapter-plan-ai：有正文的章不许直删，引导重写/归档）
+    // 前端不再静默：toast 透出服务端原因；树行保留
     await chRow.hover();
     await chRow.getByTitle("删除章节").click();
     await page.getByTestId("del-confirm").click();
-    await expect(page.getByText("在左侧目录里选一章")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/已有正文——请走重写或归档/)).toBeVisible({ timeout: 5000 });
+    await expect(chRow).toBeVisible();
   } finally {
     await restore();
   }

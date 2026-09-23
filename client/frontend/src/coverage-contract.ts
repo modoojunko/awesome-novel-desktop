@@ -4,6 +4,10 @@
  * 新增交付批时只改这里；目录完整性由契约测试把守（api-config 目录不能漏文件）。
  */
 export const COVERAGE_CONTRACT_FILES = [
+  // c-chapter-plan-ai（卷下拆章：拆章弹窗/状态机/API 契约）
+  "src/lib/chapterPlanApi.ts",
+  "src/hooks/useChapterPlan.ts",
+  "src/components/novel/workbench/ChapterPlanModal.tsx",
   // volume-plan-ai + c-volume-antagonist（分卷规划：抽卡/四问页/状态机/API 契约）
   "src/components/novel/workbench/PickCardsModal.tsx",
   "src/components/novel/volume/form.ts",

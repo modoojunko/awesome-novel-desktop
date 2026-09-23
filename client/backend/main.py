@@ -44,6 +44,7 @@ from settings.status import router as settings_status_router
 from settings.style_quant_router import router as style_quant_router
 from story.router import router as story_router
 from update_check import router as update_check_router
+from chapters.ai_plan import router as chapter_ai_plan_router
 from volumes.ai_plan import router as volume_ai_plan_router
 from workflow.router import backfill_router as workflow_backfill_router
 from workflow.router import router as workflow_router
@@ -322,6 +323,7 @@ app.include_router(settings_ai_router)
 app.include_router(chapters_router)
 app.include_router(chapters_ai_draft_router)
 app.include_router(volume_ai_plan_router)  # 卷域 AI：3 套方案/展开/体检（volume-plan-ai）
+app.include_router(chapter_ai_plan_router)  # 章域 AI：拆章 3 方向/自检/进场（c-chapter-plan-ai）
 app.include_router(prompt_router)
 app.include_router(write_router)
 app.include_router(ai_check_router)
