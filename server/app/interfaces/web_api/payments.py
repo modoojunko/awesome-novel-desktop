@@ -380,7 +380,7 @@ async def refund_preview(order_no: str, request: Request, db: Db = Depends(get_d
         reason = "in_progress" if "refund" in order["status"] else "not_paid"
         return {"code": 0, "data": {"refundable": False, "reason": reason}}
 
-    now = datetime.utcnow()  # naive UTC（折算域口径）
+    now = datetime.now(UTC).replace(tzinfo=None)  # naive UTC（折算域口径）
     snapshot = order.get("sku_snapshot") or {}
     total_sec = snapshot.get("period_days", 30) * 86400
     grant_start, expires, paid_at = resolve_refund_basis(

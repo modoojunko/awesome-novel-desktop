@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -73,7 +73,7 @@ def test_s3_mark_survives_restart_within_ttl(client, user):
             DeviceOutdatedMarkORM.pc_hash == "pc-out-3").first()
         assert row is not None, "标记必须持久化"
         # 过期路径：rejected_at 拨回 11 分钟前 → fresh=False
-        row.rejected_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=11)
+        row.rejected_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=11)
         s.commit()
     r = client.get("/api/check-auth", params={"pc_hash": "pc-out-3"}).json()
     assert r["code"] == 1 and r["msg"] == "等待授权", "TTL 过期退化为等待授权"

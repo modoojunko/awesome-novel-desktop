@@ -4,6 +4,7 @@ from app.models.code import ActivationCodeORM
 from app.models.config import GlobalConfigORM
 from app.models.device import DeviceRegistryORM
 from app.models.grant import DeviceGrantORM
+from app.models.outdated_mark import DeviceOutdatedMarkORM
 from app.models.payments import (
     InvoiceORM,
     OrderORM,
@@ -18,6 +19,7 @@ __all__ = [
     "ActivationCodeORM",
     "Base",
     "DeviceGrantORM",
+    "DeviceOutdatedMarkORM",
     "DeviceRegistryORM",
     "GlobalConfigORM",
     "InvoiceORM",

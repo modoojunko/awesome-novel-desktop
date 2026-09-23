@@ -1,6 +1,8 @@
 """CloudBase PG HTTP 客户端需更新标记仓储（s-auth-outdated-signal）。"""
 from __future__ import annotations
 
+from datetime import UTC
+
 from app.infrastructure.repositories.pg_http.client import PgRestClient, parse_dt
 
 _TABLE = "device_outdated_marks"
@@ -11,9 +13,9 @@ class PgHttpOutdatedMarkRepo:
         self.client = client
 
     def mark(self, pc_hash: str) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         existing = self.client.find_one(_TABLE, {"pc_hash": pc_hash})
         if existing:
             self.client.update(_TABLE, {"pc_hash": pc_hash}, {"rejected_at": now})
@@ -21,7 +23,7 @@ class PgHttpOutdatedMarkRepo:
             self.client.insert(_TABLE, {"pc_hash": pc_hash, "rejected_at": now})
 
     def fresh(self, pc_hash: str) -> bool:
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         if not pc_hash:
             return False
@@ -32,5 +34,5 @@ class PgHttpOutdatedMarkRepo:
         if rejected is None:
             return False
         if rejected.tzinfo is None:
-            rejected = rejected.replace(tzinfo=timezone.utc)
-        return datetime.now(timezone.utc) - rejected <= timedelta(minutes=10)
+            rejected = rejected.replace(tzinfo=UTC)
+        return datetime.now(UTC) - rejected <= timedelta(minutes=10)
