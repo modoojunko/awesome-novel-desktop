@@ -78,12 +78,6 @@ class Volume(Base):
         order_by="VolumeCastMember.sort_order",
         lazy="selectin",
     )
-    plot_nodes = relationship(
-        "VolumePlotNode",
-        cascade="all, delete-orphan",
-        order_by="VolumePlotNode.sort_order",
-        lazy="selectin",
-    )
 
 
 class _VolumeChildMixin:
@@ -116,15 +110,3 @@ class VolumeCastMember(_VolumeChildMixin, Base):
     change: Mapped[str] = mapped_column(String(150), nullable=False, default="")
 
 
-class VolumePlotNode(_VolumeChildMixin, Base):
-    """本卷关键剧情节点：阶段（六档枚举，schemas 校验）＋ 节点内容与结果。"""
-
-    __tablename__ = "volume_plot_nodes"
-    __table_args__ = (
-        UniqueConstraint("volume_id", "sort_order", name="uq_volume_nodes_order"),
-    )
-
-    # 阶段：开局铺垫/冲突初现/矛盾升级/重要转折/高潮爆发/卷末收束
-    stage: Mapped[str] = mapped_column(String(50), nullable=False, default="")
-    # 这一节点发生什么、结果是什么（≤300）
-    text: Mapped[str] = mapped_column(String(300), nullable=False, default="")

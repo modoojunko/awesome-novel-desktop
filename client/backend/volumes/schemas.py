@@ -39,22 +39,6 @@ class CastMemberIn(BaseModel):
     change: str = Field(default="", max_length=150)
 
 
-class PlotNodeIn(BaseModel):
-    """本卷关键剧情节点行：阶段（固定六档）＋ 节点内容与结果。"""
-
-    stage: str = Field(max_length=50)
-    text: str = Field(default="", max_length=300)
-
-    @field_validator("stage")
-    @classmethod
-    def _stage_enum(cls, v: str) -> str:
-        if v not in PLOT_STAGES:
-            raise ValueError(f"stage 须为固定六档之一：{'/'.join(PLOT_STAGES)}")
-        return v
-
-
-# ── 卷本体 ──────────────────────────────────────────────────────────────────
-
 
 class VolumeCreate(BaseModel):
     """建卷（统一入口）：四问可选直写＋章数——抽卡确认与免费「直接创建」共用（一次写入）。"""
@@ -95,7 +79,6 @@ class VolumeUpdate(BaseModel):
     antagonist_type: str | None = Field(default=None, max_length=20)
     antagonist_line: str | None = Field(default=None, max_length=150)
     # 行集整体替换（传入即全量重写该族，未传不动）
-    plot_nodes: list[PlotNodeIn] | None = None
 
     # 退役键（c-volume-antagonist）：显式携带＝422——静默 ignore 会让调用方误以为写入
     # 成功（评审拍板：六键硬拒，其余未知键维持 ignore）

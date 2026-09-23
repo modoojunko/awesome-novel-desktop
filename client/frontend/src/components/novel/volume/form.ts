@@ -3,7 +3,7 @@
 // chapter_target 留空 → payload null（清空通道）；剧情节点行集提交即整族替换。
 // 退役键（template_name/goal/plants/reveals）不在此层出现——后端 PUT 会 422 拒收。
 
-import type { VolumeDetail, VolumePlotNode } from "./types";
+import type { VolumeDetail } from "./types";
 
 export interface VolumeFormData {
   title: string;
@@ -15,7 +15,6 @@ export interface VolumeFormData {
   antagonist_line: string;
   /** 输入框字符串；"" = 不设（payload 置 null 清空） */
   chapter_target: string;
-  plot_nodes: VolumePlotNode[];
 }
 
 export function toVolumeFormData(d: VolumeDetail): VolumeFormData {
@@ -27,7 +26,6 @@ export function toVolumeFormData(d: VolumeDetail): VolumeFormData {
     antagonist_type: d.antagonist_type || "",
     antagonist_line: d.antagonist_line || "",
     chapter_target: d.chapter_target != null ? String(d.chapter_target) : "",
-    plot_nodes: (d.plot_nodes || []).map((n) => ({ ...n })),
   };
 }
 
@@ -41,6 +39,5 @@ export function volumeFormToPayload(f: VolumeFormData): Record<string, unknown> 
     antagonist_type: f.antagonist_type || null,
     antagonist_line: f.antagonist_line,
     chapter_target: target === "" ? null : Number(target),
-    plot_nodes: f.plot_nodes.map((n) => ({ stage: n.stage, text: n.text.trim() })),
   };
 }

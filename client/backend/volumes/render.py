@@ -25,11 +25,6 @@ def volume_outline_text(vol: Volume) -> str:
         lines.append(f"- 核心矛盾：{vol.core_conflict}")
     if vol.ending:
         lines.append(f"- 预期结局：{vol.ending}")
-    nodes = list(vol.plot_nodes or [])
-    if nodes:
-        joined = _SEPARATOR.join(
-            f"{i + 1}. {n.stage}：{n.text}" for i, n in enumerate(nodes)
-        )
-        lines.append(f"- 关键节点：{joined}")
+    # c-chapter-plan-ai：关键节点行随剧情节点退役移除（拆章素材包改取已排章的阶段序列）
     # c-volume-antagonist：整体目标与伏笔两行退役（goal 并入 ending；伏笔只走台账注入）
     return "\n".join(lines)

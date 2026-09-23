@@ -42,7 +42,6 @@ const DETAIL = {
     { name: "雨夜主角", role: "" },
     { name: "副队长", role: "反派" },
   ],
-  plot_nodes: [],
   ghost_count: 1,
   chapters: [
     { ref: "vol-1-ch-1", volume: 1, chapter: 1, title: "雨夜", status: "archived", word_count: 100, has_prose: true, outline_status: "confirmed", archived: true, outline_summary: "接头遇袭" },

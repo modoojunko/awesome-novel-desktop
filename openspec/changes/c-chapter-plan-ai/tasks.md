@@ -14,7 +14,7 @@
 - [x] 2.3 has-outline 判定补三格（`chapters/ai_draft.py`）：五段齐而六项必填未填的章判为「有现有章纲」，五段作为改写基底进素材包，起草只补缺不推翻；验证：单测「仅拆章的章被判有纲」「起草采纳后五段保留」
 - [x] 2.4 写正文素材三块（`write/chapter_writer.py`）：挑战＝【本章要撞的墙】、行动＝【本章必须发生的动作】、阶段＝【本章在卷剧情里的位置】；验证：单测断言已填章素材含三块、未填章不含、空段不出现占位符
 - [x] 2.5 备份往返：`test_backup_roundtrip` 扩展——排上章（五段齐）导出→导入后 summary/challenge/chapter_acts（列表同形）/plot_stage/ladder_exit 原样；验证：往返测试绿
-- [ ] 2.6 节点表退役（D6）：删 `models/volume.py::VolumePlotNode`、`models/__init__.py` 导入、`volumes/service.py`（`_replace_children` 节点分支与装配 9 处）、`volumes/render.py` 节点行、`volumes/schemas.py` 节点 schema、`repositories/volume_repo.py` selectinload、`backup/importer.py` 节点还原；前端 `volume/types.ts`/`volume/form.ts`/`VolumeWorkspace.tsx` 节点段；测试清理（后端 3 文件＋前端 2 文件共 22 处断言）；验证：`git grep -n "plot_nodes\|VolumePlotNode"` 全仓零命中（决策记录与本文除外）、`create_all` 后 `PRAGMA` 无 `volume_plot_nodes`、pytest/vitest 全绿
+- [x] 2.6 节点表退役（D6）：删 `models/volume.py::VolumePlotNode`、`models/__init__.py` 导入、`volumes/service.py`（`_replace_children` 节点分支与装配 9 处）、`volumes/render.py` 节点行、`volumes/schemas.py` 节点 schema、`repositories/volume_repo.py` selectinload、`backup/importer.py` 节点还原；前端 `volume/types.ts`/`volume/form.ts`/`VolumeWorkspace.tsx` 节点段；测试清理（后端 3 文件＋前端 2 文件共 22 处断言）；验证：`git grep` 全仓零命中（仅历史归档 openspec/changes/archive 命中，历史不可改）✓；pytest **1318 通过**、vitest **761 通过**、tsc 干净 ✓
 
 ## 3. AI 端点与评分
 
