@@ -11,7 +11,18 @@ import "./design/model-config.css";
 import "./design/book.css";
 import "./design/landing.css";
 
-const queryClient = new QueryClient();
+// 默认值对齐既有取数语义（c-query-cache-layer 评审 P2）：
+// retry:false——失败立即进错误态（原单次请求口径；401 每次重试都会重复触发踢出）；
+// refetchOnWindowFocus:false——仅挂载与显式失效取数（桌面壳频繁发 focus 事件，
+// 默认开启会让书架每次切回窗口都闪加载骨架并多发请求）。
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

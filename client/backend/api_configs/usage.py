@@ -33,6 +33,8 @@ async def record_usage(
     # c-ai-usage-correctness：记账走**独立会话**——实测 flush 失败会把调用方
     # 会话标记为 deactive（必须整体 rollback），SAVEPOINT 保不住主流程写入；
     # 独立会话让记账失败的事故半径严格为自身。`db` 参数保留仅为调用方兼容。
+    # 已知边界：独立会话直连主库，测试若经 get_db 覆写指向隔离库，记账行
+    # 仍落主库（当前无用例断言覆写库中的 token_log，新增此类用例时需先改这里）。
     from db import async_session
 
     try:
