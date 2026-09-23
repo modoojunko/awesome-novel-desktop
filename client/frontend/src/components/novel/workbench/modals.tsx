@@ -95,6 +95,82 @@ export function DeleteConfirmModal({
 }
 
 // ---------------------------------------------------------------------------
+// 重拆整卷（c-chapter-plan-ai D14）：盘点将被移除的拟定章 → 确认后逐章删（降序）
+// ---------------------------------------------------------------------------
+
+export function ResplitConfirmModal({
+  open,
+  onClose,
+  onConfirm,
+  planned,
+  kept,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  /** 将被移除的拟定章（章号 + 标题） */
+  planned: Array<{ no: number; title: string }>;
+  /** 保留的章（有正文/已归档） */
+  kept: number;
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="重拆本卷"
+      wbStyle
+      hideClose
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose}>
+            取消
+          </button>
+          <button
+            className="btn btn-primary"
+            data-testid="resplit-confirm"
+            disabled={planned.length === 0}
+            onClick={() => {
+              onClose();
+              onConfirm();
+            }}
+          >
+            清掉这 {planned.length} 章，重新拆
+          </button>
+        </>
+      }
+    >
+      {planned.length === 0 ? (
+        <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.7 }}>
+          本卷没有可清掉的拟定章——有正文或已归档的章不会被移除。
+        </p>
+      ) : (
+        <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.7 }}>
+          将清掉本卷 <b>{planned.length}</b> 章拟定章（没有正文的），卷纲保留；之后可以重新拆。
+        </p>
+      )}
+      {planned.length > 0 && (
+        <div className="del-inventory" data-testid="resplit-list">
+          <span className="inv-title">将被移除</span>
+          {planned.map((c) => (
+            <span key={c.no} className="inv-chip">
+              第{c.no}章 {c.title}
+            </span>
+          ))}
+        </div>
+      )}
+      {kept > 0 && (
+        <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
+          另有 {kept} 章有正文或已归档，保留不动。
+        </p>
+      )}
+      <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
+        此操作不可恢复。
+      </p>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 解除只读（归档章点 AI → 确认解锁并继续）
 // ---------------------------------------------------------------------------
 

@@ -153,6 +153,9 @@ function VolumeVerifyPanel({
   const [error, setError] = useState("");
   const volRef = `vol-${data.volume}`;
   const tab = data.tab;
+  // 主线末端门禁（c-chapter-plan-ai，与中栏「拆下一章」同判据）
+  const frontierVol = data.frontierVol;
+  const splitBlocked = frontierVol != null && data.volume < frontierVol;
   /** 组序按页签重排（不重跑、不改写结论）。逐实例消费（splice）：模型输出重名组时
    *  一组都不吞；顺序表之外/认不出的组名按模型原序追加在尾。 */
   const groups = useMemo(() => {
@@ -228,8 +231,13 @@ function VolumeVerifyPanel({
           <button
             className="btn btn-primary btn-sm"
             data-testid="volume-split-ai"
-            disabled={!isPro}
-            onClick={() => (isPro ? onSplitAi() : onUpgrade())}
+            disabled={!isPro || splitBlocked}
+            title={
+              splitBlocked
+                ? `写作位在第${frontierVol}卷——新章要排在写作位所在卷及其之后`
+                : undefined
+            }
+            onClick={() => (isPro && !splitBlocked ? onSplitAi() : isPro ? undefined : onUpgrade())}
           >
             拆下一章（AI）
           </button>
@@ -237,6 +245,11 @@ function VolumeVerifyPanel({
         {tab === "outline" && !isPro && (
           <p className="none" data-testid="volume-split-ai-locked">
             AI 三方向需 PRO——「自己写这一章」在中栏卷纲页随时可用
+          </p>
+        )}
+        {tab === "outline" && splitBlocked && (
+          <p className="none" data-testid="volume-split-ai-blocked">
+            写作位在第{frontierVol}卷——先去那一卷拆章
           </p>
         )}
         {error && (

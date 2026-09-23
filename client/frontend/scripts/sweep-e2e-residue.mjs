@@ -38,7 +38,26 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const DEFAULT_DB = path.resolve(HERE, "..", "..", "..", ".docker-data", "client", "novel.db");
+export const DEFAULT_DATA_DIR = path.resolve(HERE, "..", "..", "..", ".docker-data", "client");
+
+/** 库文件名＝C端版本（c-db-per-version）：`novel-v{版本}.db`，dev/PR 构建＝`novel-dev.db`。
+ *  旧的固定名 `novel.db` 只作兜底（本 change 之前的落地形态）。多个候选取最新一个。 */
+export function resolveDbPath(dataDir = DEFAULT_DATA_DIR) {
+  let names = [];
+  try {
+    names = fs.readdirSync(dataDir);
+  } catch {
+    return path.join(dataDir, "novel.db");
+  }
+  const cands = names.filter((n) => /^novel-v[A-Za-z0-9._-]+\.db$/.test(n) || n === "novel-dev.db");
+  if (!cands.length) return path.join(dataDir, "novel.db");
+  const newest = cands
+    .map((n) => ({ n, t: fs.statSync(path.join(dataDir, n)).mtimeMs }))
+    .sort((a, b) => b.t - a.t)[0];
+  return path.join(dataDir, newest.n);
+}
+
+export const DEFAULT_DB = resolveDbPath();
 
 /** e2e 会话注册出来的用户（前缀即 spec 的 session 名）。 */
 const TEST_USER_RE = /^(e2e|probe|mm|shot)[-_]/;

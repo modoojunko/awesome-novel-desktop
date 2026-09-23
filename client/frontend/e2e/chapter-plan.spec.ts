@@ -146,10 +146,13 @@ test("手写路径全链：中栏拆下一章 → 五段 → 排上 → 落点�
     await expect(page.getByTestId("chapter-landing-outline")).toBeVisible();
     await expect(page.getByTestId("chapter-landing-next")).toBeVisible();
     await expect(page.getByTestId("chapter-landing-unsplit")).toBeVisible();
-    // 不落库直查：五段真落库（章档案）
+    // 不落库直查：五段真落库（assemble 直出键 outline.summary／challenge／ladder_exit／chapter_acts）
     const H = { Authorization: `Bearer ${token}` };
     const ch = await (await request.get(`${ORIGIN}/api/novels/${pid}/chapters/vol-1-ch-1`, { headers: H })).json();
-    expect(ch?.data?.plot ?? ch?.plot ?? "").toContain("沉舟在废弃星港");
+    expect(ch?.outline?.summary ?? "").toContain("沉舟在废弃星港");
+    expect(ch?.challenge ?? "").toContain("没人相信一个见习导航员");
+    expect(ch?.ladder_exit ?? "").toContain("舱底夹层");
+    expect((ch?.chapter_acts ?? []).join("|")).toContain("藏信标");
   } finally {
     await restore();
   }
@@ -214,6 +217,42 @@ test("只出两套：降级说明＋两张卡", async ({ page }) => {
   }
 });
 
+test("自检：手写卡底条「AI 看一眼这一章」→ 三组（衔接/配额/四维短评）", async ({ page, request }) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovelWithVolume(page, `拆章自检${Date.now() % 100000}`);
+    await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
+    await page.route("**/ai-selfcheck", (r) =>
+      r.fulfill({
+        json: {
+          ok: true,
+          link: { ok: true, text: "本章进场已自动接上上一章结尾" },
+          quota: { ok: true, text: "第 1 章，本卷目标 6 章" },
+          critiques: { 反转: "撕页立住了", 递增: "阻力偏程序化", 推进: "处境变了", 拉力: "停在决定上" },
+          weakest: "递增",
+        },
+      }));
+    await page.getByTestId("volume-split-manual").click();
+    await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("d-plot").fill("捡到信标");
+    await page.getByTestId("selfcheck-run").click();
+    const box = page.getByTestId("selfcheck");
+    await expect(box).toContainText("衔接：本章进场已自动接上上一章结尾", { timeout: 10000 });
+    await expect(box).toContainText("配额：第 1 章，本卷目标 6 章");
+    await expect(box).toContainText("剧情吸引力 · 反转：撕页立住了");
+    await expect(box).toContainText("最弱一维：递增");
+    // 排上之前也能自检（章未落库）——真后端不许 404/422：卡面草稿随请求体走
+    const r = await request.post(`${ORIGIN}/api/novels/${pid}/chapters/ai-selfcheck`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { vol_ref: "vol-1", entry_text: "", title: "信标进舱", plot: "捡到信标", acts: ["沉舟：藏信标"] },
+    });
+    // 200＝有模型；503＝未配模型的引导（设计如此，不 500）。404/422 即路径或请求体契约错
+    expect([200, 503]).toContain(r.status());
+  } finally {
+    await restore();
+  }
+});
+
 test("派生视图：排上后卷页「剧情推进（派生）」按章列出阶段", async ({ page }) => {
   const { restore } = await setupSession(page);
   try {
@@ -225,7 +264,11 @@ test("派生视图：排上后卷页「剧情推进（派生）」按章列出�
     await page.getByTestId("d-stage").selectOption("开局铺垫");
     await page.getByTestId("split-adopt").click();
     await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
+    // 「补这 6 项，开始写」→ 落到这一章的章纲
     await page.getByTestId("chapter-landing-outline").click();
+    await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
+    // 回卷页（左树点卷行）看派生块
+    await page.locator(".vol-head .vt").first().click();
     await expect(page.getByTestId("vol-plot-progress")).toContainText("开局铺垫", { timeout: 10000 });
     await expect(page.getByTestId("vol-plot-progress")).toContainText("信标进舱");
   } finally {
@@ -243,6 +286,8 @@ test("免费档：右栏 AI 入口锁定（PRO 说明），中栏手写照常可
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
     await page.reload();
     await page.getByRole("button", { name: /^写作/ }).click();
+    // reload 后无选中节点 → 点左树卷行回卷纲视图（右栏才是卷语境）
+    await page.locator(".vol-head .vt").first().click();
     // 锁定态
     await expect(page.getByTestId("volume-split-ai")).toBeDisabled();
     await expect(page.getByTestId("volume-split-ai-locked")).toBeVisible();
@@ -256,24 +301,215 @@ test("免费档：右栏 AI 入口锁定（PRO 说明），中栏手写照常可
 });
 
 test("删章守卫：非尾章 409（先删其后或重拆）", async ({ page, request }) => {
+  test.setTimeout(60000); // 两轮拆章＋两发直查，30s 不够
   const { restore, token } = await setupSession(page);
   try {
     const pid = await createNovelWithVolume(page, `拆章守卫${Date.now() % 100000}`);
     await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
-    // 排两章
-    for (const t of ["第一章", "第二章"]) {
-      await page.getByTestId("volume-split-manual").click();
+    // 排两章：首轮走中栏入口；次轮由落点卡「继续拆下一章」打开手写卡（弹窗已开，别再点入口）
+    for (const [i, t] of ["第一章", "第二章"].entries()) {
+      if (i === 0) await page.getByTestId("volume-split-manual").click();
+      await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
       await page.getByTestId("d-title").fill(t);
       await page.getByTestId("d-plot").fill(`${t}的剧情`);
       await page.getByTestId("split-adopt").click();
       await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
-      await page.getByTestId("chapter-landing-next").click();
+      if (i === 0) await page.getByTestId("chapter-landing-next").click();
     }
     const H = { Authorization: `Bearer ${token}` };
     const r = await request.delete(`${ORIGIN}/api/novels/${pid}/chapters/vol-1-ch-1`, { headers: H });
     expect(r.status()).toBe(409);
     const r2 = await request.delete(`${ORIGIN}/api/novels/${pid}/chapters/vol-1-ch-2`, { headers: H });
     expect(r2.status()).toBe(200);
+  } finally {
+    await restore();
+  }
+});
+
+test("换方向：点「换 3 个方向」重新出卡（第二次响应覆盖第一次）", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    await createNovelWithVolume(page, `拆章换向${Date.now() % 100000}`);
+    let n = 0;
+    await page.route("**/ai-directions", (r) => {
+      n += 1;
+      const alt = {
+        ...DIRECTIONS,
+        directions: DIRECTIONS.directions.map((d, i) => ({ ...d, title: `第二版${i + 1}` })),
+        grades: ["B", "A", "S"],
+      };
+      return r.fulfill({ json: n === 1 ? DIRECTIONS : alt });
+    });
+    await page.getByTestId("volume-split-ai").click();
+    await expect(page.getByTestId("pick-card-1")).toContainText("同名档案", { timeout: 10000 });
+    await page.getByTestId("split-redraw").click();
+    await expect(page.getByTestId("pick-card-1")).toContainText("第二版1", { timeout: 10000 });
+    await expect(page.locator(".pick-card")).toHaveCount(3);
+    expect(n).toBe(2);
+  } finally {
+    await restore();
+  }
+});
+
+test("双击幂等：连点两次「排上这一章」只建一章", async ({ page, request }) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovelWithVolume(page, `拆章幂等${Date.now() % 100000}`);
+    await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
+    await page.getByTestId("volume-split-manual").click();
+    await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("d-title").fill("信标进舱");
+    await page.getByTestId("d-plot").fill("捡到信标");
+    await page.getByTestId("split-adopt").click();
+    // 第二次点：提交中锁定（disabled 的按钮不派发 click 处理器）——force 绕过可点性检查仍落空
+    await page.getByTestId("split-adopt").click({ force: true }).catch(() => {});
+    await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
+    const d = await (
+      await request.get(`${ORIGIN}/api/novels/${pid}/volumes/vol-1`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+    expect((d?.chapters ?? []).length).toBe(1);
+  } finally {
+    await restore();
+  }
+});
+
+test("重拆整卷：盘点确认 → 拟定章清空、卷纲保留、可重新拆", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    await createNovelWithVolume(page, `拆章重拆${Date.now() % 100000}`);
+    await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
+    for (const [i, t] of ["第一章", "第二章"].entries()) {
+      if (i === 0) await page.getByTestId("volume-split-manual").click();
+      await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
+      await page.getByTestId("d-title").fill(t);
+      await page.getByTestId("d-plot").fill(`${t}的剧情`);
+      await page.getByTestId("split-adopt").click();
+      await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
+      if (i === 0) await page.getByTestId("chapter-landing-next").click();
+    }
+    // 落点卡占着中栏（桥）——先走「补这 6 项，开始写」消解，再回卷纲
+    await page.getByTestId("chapter-landing-outline").click();
+    await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
+    // 回卷纲 → 重拆本卷：盘点列出将被移除的拟定章
+    await page.locator(".vol-head .vt").first().click();
+    await page.getByTestId("volume-resplit").click();
+    await expect(page.getByTestId("resplit-list")).toContainText("第1章 第一章");
+    await expect(page.getByTestId("resplit-list")).toContainText("第2章 第二章");
+    await page.getByTestId("resplit-confirm").click();
+    await expect(page.getByText(/已清掉 2 章拟定章/)).toBeVisible({ timeout: 10000 });
+    // 派生视图归零；卷纲保留（四问原文还在）；重拆入口随拟定章清零消失
+    await expect(page.getByTestId("vol-plot-progress")).toContainText("0 章");
+    await expect(page.getByText("沉舟捡到一枚不属于人类纪元的导航信标")).toBeVisible();
+    await expect(page.getByTestId("volume-resplit")).toHaveCount(0);
+    // 可重新拆：章号从 1 复用（不留空洞）
+    await page.getByTestId("volume-split-manual").click();
+    await page.getByTestId("d-title").fill("重拆后第一章");
+    await page.getByTestId("split-adopt").click();
+    await expect(page.getByTestId("chapter-landing-card")).toContainText("重拆后第一章", { timeout: 10000 });
+  } finally {
+    await restore();
+  }
+});
+
+test("非末端卷：拆章两入口置灰并指向写作位所在卷", async ({ page, request }) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovelWithVolume(page, `拆章末端${Date.now() % 100000}`);
+    await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
+    // 用产品接口垫第 2 卷并在那里排一章 → 写作位落到第 2 卷
+    const H = { Authorization: `Bearer ${token}` };
+    const v2 = await request.post(`${ORIGIN}/api/novels/${pid}/volumes`, {
+      headers: H,
+      data: {
+        title: "第二卷",
+        summary: "信标把她引向母港旧址",
+        core_conflict: "要查清，与母港不认她",
+        ending: "她站在母港旧址的闸门前",
+      },
+    });
+    expect(v2.ok()).toBeTruthy();
+    const ch = await request.post(`${ORIGIN}/api/novels/${pid}/volumes/vol-2/chapters`, {
+      headers: H,
+      data: { title: "第2卷第一章", plot: "她抵近母港" },
+    });
+    expect(ch.ok()).toBeTruthy();
+    // 回第 1 卷卷纲：两个入口都置灰
+    await page.reload();
+    await page.getByRole("button", { name: /^写作/ }).click();
+    await page.locator(".vol-head .vt").first().click();
+    await expect(page.getByTestId("volume-split-manual")).toBeDisabled();
+    await expect(page.getByTestId("volume-split-blocked")).toContainText("写作位在第2卷");
+    await expect(page.getByTestId("volume-split-ai")).toBeDisabled();
+    await expect(page.getByTestId("volume-split-ai-blocked")).toContainText("先去那一卷拆章");
+  } finally {
+    await restore();
+  }
+});
+
+test("未配模型：出卡失败给「去接一个模型」的就地引导（不报 500）", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    await createNovelWithVolume(page, `拆章缺模${Date.now() % 100000}`);
+    // 本栈未配模型：真打端点 → 503 前置 → 卡片给可操作引导（不是通用「出卡失败」）
+    await page.getByTestId("volume-split-ai").click();
+    await expect(page.getByTestId("split-error")).toContainText("还没接模型", { timeout: 10000 });
+    await expect(page.getByTestId("split-retry")).toBeVisible();
+    await expect(page.getByTestId("split-to-manual")).toBeVisible();
+  } finally {
+    await restore();
+  }
+});
+
+test("回改结尾：上一章落点改了 → 不静默（提示下一章进场会变）", async ({ page, request }) => {
+  test.setTimeout(60000);
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovelWithVolume(page, `拆章回改${Date.now() % 100000}`);
+    await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
+    // 排两章（第 1 章落点＝旧落点）
+    for (const [i, t] of ["第一章", "第二章"].entries()) {
+      if (i === 0) await page.getByTestId("volume-split-manual").click();
+      await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
+      await page.getByTestId("d-title").fill(t);
+      await page.getByTestId("d-plot").fill(`${t}的剧情`);
+      if (i === 0) await page.getByTestId("d-ending").fill("旧落点：她把信标藏进夹层");
+      await page.getByTestId("split-adopt").click();
+      await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
+      if (i === 0) await page.getByTestId("chapter-landing-next").click();
+    }
+    // 落点卡占着中栏：先「补这 6 项，开始写」进第二章，再从树里回第一章
+    await page.getByTestId("chapter-landing-outline").click();
+    await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
+
+    // 回第 1 章改落点 → 3s 静默自动保存承接（落点组默认折叠，先展开）
+    await page.locator(".col-tree .ch", { hasText: "第一章" }).click();
+    await page.getByRole("tab", { name: /^章纲/ }).click();
+    await page.locator("#wf-payoffs > summary").click();
+    const savedOutline = page.waitForResponse(
+      (x) => x.request().method() === "PUT" && x.url().includes("/chapters/vol-1-ch-1"),
+      { timeout: 20000 },
+    );
+    await page.locator("#wf-ladder").fill("新落点：她烧掉了那张登记单");
+    expect((await savedOutline).ok()).toBeTruthy();
+    // 不静默：下一章已排上 → 就地提示「下一章的进场会跟着变」
+    await expect(page.getByText(/下一章的进场会跟着变/)).toBeVisible({ timeout: 10000 });
+    // 落点真落库（下一章「基于旧设定」标记的置位由后端章保存事务完成——
+    // 需下一章已有正文才置位，正文受 frontier 排队门禁约束，故该分支由 pytest 覆盖：
+    // tests/test_chapter_plan_ai_t3.py::TestStaleSecondTrigger）
+    const vols = await (
+      await request.get(`${ORIGIN}/api/novels/${pid}/volumes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+    expect(vols[0]?.chapters?.[0]?.ref).toBe("vol-1-ch-1");
+    const ch = await (
+      await request.get(`${ORIGIN}/api/novels/${pid}/chapters/vol-1-ch-1`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+    expect(ch?.ladder_exit).toContain("烧掉了那张登记单");
   } finally {
     await restore();
   }

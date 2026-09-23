@@ -62,7 +62,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   api.anchor.mockResolvedValue({ ok: true, ...ENTRY });
   api.directions.mockResolvedValue(DIRS);
-  api.selfcheck.mockResolvedValue({ ok: true, critiques: { 反转: "撕页立住了", 递增: "阻力偏程序化", 推进: "处境变了", 拉力: "停在决定上" }, weakest: "递增" });
+  api.selfcheck.mockResolvedValue({
+    ok: true,
+    link: { ok: true, text: "本章进场已自动接上上一章结尾" },
+    quota: { ok: true, text: "第 3 章，本卷目标 6 章" },
+    critiques: { 反转: "撕页立住了", 递增: "阻力偏程序化", 推进: "处境变了", 拉力: "停在决定上" },
+    weakest: "递增",
+  });
   api.adopt.mockResolvedValue({ ok: true, ref: "vol-1-ch-3" });
 });
 
@@ -80,12 +86,21 @@ describe("拆章界面 · 手写五段（中栏入口，全档）", () => {
     expect(api.directions).not.toHaveBeenCalled();
   });
 
-  it("自检：免费触发，出四维短评＋最弱一维，不给字母", async () => {
+  it("自检：免费触发，卡面草稿随请求携带，出三组（衔接/配额/四维短评）不给字母", async () => {
     render(<Host />);
     fireEvent.click(screen.getByTestId("open-manual"));
+    fireEvent.change(screen.getByTestId("d-plot"), { target: { value: "她顺着档案查下去" } });
     fireEvent.click(screen.getByTestId("selfcheck-run"));
     await waitFor(() => expect(api.selfcheck).toHaveBeenCalled());
+    // 自检发生在「排上」之前（章未落库）→ 草稿与卡面进场随请求体走
+    expect(api.selfcheck.mock.calls[0][1]).toMatchObject({
+      vol_ref: "vol-1",
+      entry_text: ENTRY.text,
+      plot: "她顺着档案查下去",
+    });
     const box = await screen.findByTestId("selfcheck");
+    expect(box).toHaveTextContent("衔接：本章进场已自动接上上一章结尾");
+    expect(box).toHaveTextContent("配额：第 3 章，本卷目标 6 章");
     expect(box).toHaveTextContent("反转");
     expect(box).toHaveTextContent("最弱一维：递增");
     expect(box.textContent).not.toMatch(/\bS\b|\bA\b|\bB\b/);

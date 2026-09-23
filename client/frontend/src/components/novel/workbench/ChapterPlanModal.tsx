@@ -188,16 +188,29 @@ export function ChapterPlanModal({
           </div>
         )}
 
-        {/* ⑥ 自检（手写卡；免费） */}
+        {/* ⑥ 自检（手写卡；免费）——三组：衔接/配额（本地）＋剧情吸引力（AI 四维短评） */}
         {!isAi && (
           <details className="cfgset" open data-testid="selfcheck">
             <summary>AI 看一眼这一章</summary>
             <div className="inner">
               <ul className="rp-list">
-                <li className="rp-row ok">
-                  <span className="rp-dot" aria-hidden="true" />
-                  <span className="rp-tx">衔接：本章进场已自动接上上一章结尾</span>
-                </li>
+                {state.selfcheck?.link ? (
+                  <li className={"rp-row " + (state.selfcheck.link.ok ? "ok" : "warn")}>
+                    <span className="rp-dot" aria-hidden="true" />
+                    <span className="rp-tx">衔接：{state.selfcheck.link.text}</span>
+                  </li>
+                ) : (
+                  <li className="rp-row ok">
+                    <span className="rp-dot" aria-hidden="true" />
+                    <span className="rp-tx">衔接：本章进场已自动接上上一章结尾</span>
+                  </li>
+                )}
+                {state.selfcheck?.quota && (
+                  <li className={"rp-row " + (state.selfcheck.quota.ok ? "ok" : "warn")}>
+                    <span className="rp-dot" aria-hidden="true" />
+                    <span className="rp-tx">配额：{state.selfcheck.quota.text}</span>
+                  </li>
+                )}
                 {state.selfcheck && !state.selfcheck.failed && state.selfcheck.critiques &&
                   Object.entries(state.selfcheck.critiques).map(([k, v]) => (
                     <li className="rp-row warn" key={k}>
@@ -205,10 +218,10 @@ export function ChapterPlanModal({
                       <span className="rp-tx">剧情吸引力 · {k}：{v}</span>
                     </li>
                   ))}
-                {state.selfcheck?.failed && (
+                {(state.selfcheck?.failed || state.selfcheck?.degraded) && (
                   <li className="rp-row warn">
                     <span className="rp-dot" aria-hidden="true" />
-                    <span className="rp-tx">AI 这一眼没看成，可再试</span>
+                    <span className="rp-tx">{state.selfcheck?.hint || "AI 这一眼没看成，可再试"}</span>
                   </li>
                 )}
               </ul>
@@ -229,7 +242,7 @@ export function ChapterPlanModal({
                 <button
                   className="btn btn-ghost btn-sm"
                   data-testid="selfcheck-run"
-                  onClick={() => void runSelfcheck(state.landed?.ref || "")}
+                  onClick={() => void runSelfcheck()}
                 >
                   AI 看一眼这一章
                 </button>

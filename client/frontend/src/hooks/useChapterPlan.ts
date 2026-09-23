@@ -56,9 +56,17 @@ export interface ChapterPlanState {
   degradedText: string;
   pick: number | null;
   draft: ChapterDraft;
-  /** 自检（手写卡底条触发；免费） */
+  /** 自检（手写卡底条触发；免费）——三组：衔接/配额（本地）＋剧情吸引力（AI 四维短评） */
   selfchecked: boolean;
-  selfcheck: { critiques?: Record<string, string>; weakest?: string; failed?: boolean } | null;
+  selfcheck: {
+    link?: { ok: boolean; text: string };
+    quota?: { ok: boolean; text: string };
+    critiques?: Record<string, string>;
+    weakest?: string;
+    hint?: string;
+    degraded?: boolean;
+    failed?: boolean;
+  } | null;
   volNo: number;
   volRef: string;
 }
@@ -123,9 +131,12 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
     } catch (e) {
       if (token !== tokenRef.current) return;
       const msg = (e as { message?: string })?.message || "";
+      // 三类可操作前置给就地引导，其余（含 5xx）落通用可重试：
+      // 未配模型（503「AI 服务未配置 — 请先…API Key」）／卷纲为空（422 门槛）
+      const noModel =
+        msg.includes("模型") || msg.includes("API Key") || msg.includes("未配置") || msg.includes("503");
       setState((s) => ({ ...s, phase: "error",
-        error: msg.includes("模型") || msg.includes("503")
-          ? "还没接模型——先去模型配置里接一个"
+        error: noModel ? "还没接模型——先去模型配置里接一个"
           : msg.includes("卷纲") ? msg : "出卡失败，可重试" }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -153,17 +164,39 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
     setState((s) => ({ ...s, entrySource: "manual", phase: "idle", error: "" }));
   }, []);
 
-  /** 自检（手写卡底条；免费） */
-  const runSelfcheck = useCallback(async (chapterRef: string) => {
+  /** 自检（手写卡底条；免费）——卡面草稿随请求携带（排上之前章未落库） */
+  const runSelfcheck = useCallback(async () => {
+    const d = state.draft;
     setState((s) => ({ ...s, selfchecked: true, selfcheck: null }));
+    // 衔接组要拿「卡面当前显示进场」比对：进场是异步载入的，还没到就先补一次
+    let entryText = state.entry.text;
+    if (!entryText) {
+      try {
+        const a = await chapterPlanApi.anchor(projectId, volRef);
+        entryText = a.text;
+        setState((s) => ({ ...s, entry: { text: a.text, source: a.source } }));
+      } catch {
+        // 取不到就不带进场——服务端按「无可比对」不判漂移（不误报 warn）
+      }
+    }
     try {
-      const d = await chapterPlanApi.selfcheck(projectId, chapterRef);
-      setState((s) => ({ ...s, selfcheck: d.degraded ? { failed: true } : d }));
+      const r = await chapterPlanApi.selfcheck(projectId, {
+        vol_ref: volRef,
+        entry_text: entryText,
+        chapter_ref: state.landed?.ref,
+        title: d.title,
+        plot: d.plot,
+        challenge: d.obstacle,
+        ending: d.ending,
+        acts: d.acts.split(/[；;\n]/).map((x) => x.trim()).filter(Boolean).slice(0, 4),
+        stage: d.stage,
+      });
+      setState((s) => ({ ...s, selfcheck: r }));
     } catch {
-      setState((s) => ({ ...s, selfcheck: { failed: true } }));
+      setState((s) => ({ ...s, selfcheck: { ok: false, failed: true } }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, volRef, state.draft, state.entry, state.landed]);
 
   /** 排上：建章＋五段（同一事务）；成功 → 关弹窗＋落点卡数据 */
   const adopt = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {

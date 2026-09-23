@@ -41,6 +41,19 @@ async def create_chapter(db, project, volume_ref: str, title: str, fields: dict 
     if vol is None:
         raise HTTPException(404, "Volume not found")
 
+    # 主线末端门禁（c-chapter-plan-ai，与「在本卷新增一章」同一判据）：新章只能排在
+    # 写作位所在卷**及其之后**——否则会插进主线中段（frontier 排队模型下永远轮不到写）。
+    # 前端两个入口同判据置灰；这里是绕过 UI 时的兜底。
+    from chapters.frontier import frontier_info
+
+    front = (await frontier_info(db, project.id))["frontier"]
+    if front is not None and vol.volume_no < front["volume_no"]:
+        raise HTTPException(
+            409,
+            f"写作位在第{front['volume_no']}卷——新章要排在写作位所在卷及其之后，"
+            f"先去第{front['volume_no']}卷拆章",
+        )
+
     chapter_no = await chapter_repo.max_chapter_no(db, project.id, vol.id) + 1
     ref = f"vol-{vol.volume_no}-ch-{chapter_no}"
 
@@ -107,3 +120,34 @@ async def get_chapter_row(db, project, ref: str) -> dict | None:
         "confirmed_at": row.confirmed_at.isoformat() if row.confirmed_at else None,
         "archived_at": row.archived_at.isoformat() if row.archived_at else None,
     }
+
+
+async def resplit_volume(db, project, volume_ref: str) -> dict:
+    """重拆整卷（c-chapter-plan-ai D14）：清掉本卷**拟定章**（无正文未归档），
+    供作者重新拆章；有正文/已归档的章一律保留。
+
+    按章号**降序**逐章删——每步都满足「尾章＋拟定＋无正文」单章守卫（不留章号空洞）。
+    卷级级联删除不受单章守卫约束（既有语义），此处走单章路径故必须守序。
+    """
+    from repositories import chapter_repo
+
+    vol_no = int(strip_suffix(volume_ref).replace("vol-", ""))
+    vol = await volume_repo.get_by_volume_no(db, project.id, vol_no)
+    if vol is None:
+        raise HTTPException(404, "Volume not found")
+    rows = [
+        c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of
+    ]
+    removable = [
+        c for c in rows if c.status == "outline" and not c.has_prose
+    ]
+    kept = [c.ref for c in rows if c not in removable]
+    removed: list[str] = []
+    for row in sorted(removable, key=lambda c: c.chapter_no, reverse=True):
+        await chapter_repo.delete(db, row.id)
+        vol.chapter_count = max(0, vol.chapter_count - 1)
+        project.total_chapters = max(0, (project.total_chapters or 0) - 1)
+        removed.append(row.ref)
+    await db.commit()
+    logger.info("resplit volume %s: removed %d chapters", volume_ref, len(removed))
+    return {"ok": True, "removed": removed, "kept": kept}

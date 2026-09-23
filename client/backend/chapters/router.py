@@ -160,6 +160,23 @@ async def create_chapter_in_volume(
     )
 
 
+@router.post("/volumes/{ref}/chapters/resplit")
+async def resplit_volume_endpoint(
+    project_id: str,
+    ref: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """重拆整卷（c-chapter-plan-ai D14）：清掉本卷拟定章（有正文/已归档保留），
+    按章号降序逐章删——供作者重新拆章。盘点确认在卷页弹窗里做，本端点直接执行。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    from chapters.service import resplit_volume
+
+    return await resplit_volume(db, project, ref)
+
+
 @router.get("/chapters/{chapter_ref}")
 async def get_chapter(
     project_id: str,

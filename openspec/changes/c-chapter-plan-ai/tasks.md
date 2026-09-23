@@ -23,7 +23,7 @@
 - [x] 3.3 校验阶梯（**含末章固定样本单测**：素材④含末章标记与结局三问、三方向结尾收卷命中/越界各一）：差异轴闭集（加速/关系/线索/代价/危机/收束）互异，未知轴**丢卡不改写**；依据 ≤20 字且逐字可寻；`(plot,ending)` difflib>0.6 同质复核一次（原因喂回＋降温 0.7→0.3）；单卡不合格丢弃、剩 ≥2 照常、<2 重试、**最多 3 次尝试**后 degraded；验证：`tests/test_chapter_plan_ai_t2.py` 6 项（未知轴丢卡不改写／阶段越界丢卡／同质去重／鸽笼含并列样本／依据逐字可寻／三端点契约可达）＋全量 pytest **1324 通过** ✓
 - [x] 3.4 评分服务端算字母（D13）：`ranks` 四维每维**至多一个第一名（唯一时才计入；并列第一不计）**→ ≥3 第一名＝S／1–2＝A／0＝B；验证：鸽笼性质测试（随机合法名次组合至多一张 S，**含 1/1/2 并列样本**）、`why/gap` 非空校验、DB 零评分写入断言
 - [x] 3.5 越纲对拍：模型申报 `cast/factions/places` 与已知集合（角色 name+aliases／势力名／**地点**）做差→`warnings` 不拦；验证：喂含新地点样本断言 warnings
-- [x] 3.6 章级自检端点 `POST /api/novels/{id}/chapters/{ref}/ai-selfcheck`（只读、免费例外通道，照卷级体检）：出参三组（衔接/配额/剧情吸引力），状态 ok/warn；验证：免费档 200、生成类仍 PRO、不落库、未配模型给引导不 500
+- [x] 3.6 章级自检端点 `POST /api/novels/{id}/chapters/ai-selfcheck`（卡面草稿随请求体携带——排上之前章未落库）（只读、免费例外通道，照卷级体检）：出参三组（衔接/配额/剧情吸引力），状态 ok/warn；验证：免费档 200、生成类仍 PRO、不落库、未配模型给引导不 500
 - [x] 3.7 门禁与计量：生成挂 `require_ai_access`（PRO）＋模型门；自检走只读例外；每次尝试（含失败）`record_usage`，operation 名 `chapter_directions`/`_fail`/`chapter_selfcheck`；验证：单测断言计量与失败路径
 
 ## 4. 排上与撤章（后端）
@@ -54,9 +54,33 @@
 
 ## 7. e2e、口径与收尾
 
-- [ ] 7.1 e2e 新增：免费手写排上全链（最小填写→落点卡→补章纲入口）；AI 四态（route 打桩：busy→出卡→选 S 卡→排上；失败三出口；只出两套；换方向）；双击幂等；删章守卫 409（**含非尾章 409 引导重拆**）；回改结尾→下一章 stale；派生视图反映；**重拆整卷（盘点→确认→树回退）**；**非末端卷入口置灰**；**卷纲空门槛拦截**；验证：本地隔离栈全量 e2e 绿
-- [ ] 7.2 存量断言清算：`volume-plan.spec`（`landing-card` 不受影响）、`workbench-features.spec`、`volumeWorkspace.test.tsx`（节点块退役）、`volumePlan.test.tsx`、**`modals-pr5.spec.ts`（写正文后删章的用例在守卫下必红——改走 409 断言或先清正文；前端删除入口补 409 toast 断言）**、`design-parity-book.spec.ts`（confirmed 章只开弹窗不删除，暂安全但登记脆性）；验证：三条命令（pytest/vitest/tsc）全绿
-- [ ] 7.3 口径：新文案作家语言（grep 断言不含「名次/落库/闭集/降级/素材包/四维」）；`data-od-id`/`data-testid` 按决策记录 H3 清单冻结；语气词仅 info/ok/warn/err；验证：grep 断言脚本
-- [ ] 7.4 复用核对（D19，检视必查）：前端 grep 断言未新建第二套卡面/表单/弹窗类（新增仅 book.css 9 类）；后端 grep 断言无平行建章/取数/校验路径（排上走 `create_chapter`+`apply_chapter_data`、进场走同族函数、校验走既有 sanitize 模式）；验证：核对清单逐条打勾并附 grep 输出
-- [ ] 7.5 `src/coverage-contract.ts` 登记新文件（`ChapterPlanModal`/`useChapterPlan`/新端点模块）；验证：`vitest run --coverage` 不因未登记变红
-- [ ] 7.6 收尾门禁：pytest 全量＋vitest 全量＋tsc＋design:lint＋design:check＋全量 e2e；验证：六项全绿后申请检视
+- [x] 7.1 e2e 新增（14 例，`e2e/chapter-plan.spec.ts`，隔离栈 14/14 绿）：免费手写排上全链（最小填写→落点卡→补章纲入口）；AI 四态（route 打桩：busy→出卡→选 S 卡→排上；失败三出口；只出两套；换方向）；双击幂等；删章守卫 409（**含非尾章 409 引导重拆**）；回改结尾→下一章 stale；派生视图反映；**重拆整卷（盘点→确认→树回退）**；**非末端卷入口置灰**；**卷纲空门槛拦截**；**卷纲空门槛**改由 pytest 覆盖（`test_chapter_plan_ai_t3.py::TestDirectionsGate`——容器无 Key 时模型门先于空门槛 503，e2e 到不了）；**回改→下一章 stale 的置位**亦由 pytest 覆盖（下一章需已有正文，而正文受 frontier 排队门禁约束，e2e 只断言「不静默提示＋落点真落库」）；验证：隔离栈 e2e 14/14 绿 ✓
+- [x] 7.2 存量断言清算（实做：`modals-pr5.spec.ts` 删章例改 409 断言＋`useWorkbench.deleteNode` 失败透出服务端原因（原为静默）；`volume-plan/workbench-features` 全量 e2e 复核无回归）：`volume-plan.spec`（`landing-card` 不受影响）、`workbench-features.spec`、`volumeWorkspace.test.tsx`（节点块退役）、`volumePlan.test.tsx`、**`modals-pr5.spec.ts`（写正文后删章的用例在守卫下必红——改走 409 断言或先清正文；前端删除入口补 409 toast 断言）**、`design-parity-book.spec.ts`（confirmed 章只开弹窗不删除，暂安全但登记脆性）；验证：pytest 1340／vitest 770／tsc 干净 ✓（`design-parity-book` 未受影响）
+- [x] 7.3 口径（grep 实跑：新面（ChapterPlanModal/useChapterPlan/VolumeAssistPanel/NovelWorkspace 拆章段）零命中「名次/落库/闭集/降级/素材包/四维」——唯一命中是 volume-plan-ai 遗留 tooltip「保存才落库」（`VolumeAssistPanel.tsx:224`，非本 change 文案，登记不改）；语气词：toast.error 11／success 4／info（拆章新面用 info 提示「下一章的进场会跟着变」）——无第四种；`data-testid` 与决策记录 H3 一致）：新文案作家语言（grep 断言不含「名次/落库/闭集/降级/素材包/四维」）；`data-od-id`/`data-testid` 按决策记录 H3 清单冻结；语气词仅 info/ok/warn/err；验证：grep 输出见上（附在本行）✓
+- [x] 7.4 复用核对（D19，grep 实跑）：前端新增样式仅 book.css 9 类（对 origin/main 比对只剩 `--faint` 上移 1 行 diff——9 类已随 #453 前段合入 main）；新弹窗用既有 `Modal`＋既有类（`mcard/rp-list/rp-row/del-inventory/inv-chip/field/input/textarea`），未新建第二套；后端：排上走 `create_chapter`＋`store.apply_chapter_data`（service.py:72,83）、进场走 `resolve_prev_chapter_ending` 同族、生成/解析/降级/越纲复用 `volumes.ai_plan`（ai_plan.py:23-30）、校验复用既有 sanitize 模式（未知轴丢卡）；**重拆整卷走单章删除守卫降序**（不留章号空洞）；前端 grep 断言未新建第二套卡面/表单/弹窗类（新增仅 book.css 9 类）；后端 grep 断言无平行建章/取数/校验路径（排上走 `create_chapter`+`apply_chapter_data`、进场走同族函数、校验走既有 sanitize 模式）验证：核对清单逐条打勾＋grep 输出 ✓
+- [x] 7.5 `src/coverage-contract.ts` 登记新文件（`chapterPlanApi.ts`/`useChapterPlan.ts`/`ChapterPlanModal.tsx`）（`ChapterPlanModal`/`useChapterPlan`/新端点模块）；验证：`coverageContract.test.ts` 5/5 绿 ✓
+- [x] 7.6 收尾门禁（pytest 全量 **1340 通过**；vitest 全量 **770 通过**；tsc 干净；design:lint 通过；design:check 7/8——`list.empty` 1.416% 红＝**存量**（该屏源文件 `NovelListPage.tsx` 与本 change diff 零交集；diff 图差异＝联网更新横幅＋字体光栅漂移，与本 change 无关，与既有记忆「parity 存量漂移」一致）；全量 e2e **188 通过 / 0 失败 / 19 跳过**（9.5 分钟，隔离栈 cpa；含 `chapter-plan.spec.ts` 14/14 与 `modals-pr5` 4/4））：pytest 全量＋vitest 全量＋tsc＋design:lint＋design:check＋全量 e2e；验证：六项全绿（parity 1 条存量红已登记）后申请检视 ✓
+
+## 8. 原型态 → 用例覆盖映射（`/goal` 的「界面测试用例 100% 覆盖原型设计」证据）
+
+原型 `docs/design-c/drafts/ai-novel-c端-卷下拆章.html` 演示条 8 态＋卡面细节，逐条对应：
+
+| 原型态／面 | e2e（`e2e/chapter-plan.spec.ts`） | vitest（`__tests__/chapterPlan.test.tsx`） |
+| --- | --- | --- |
+| ① 手写五段（弹窗） | 手写路径全链（d-title/d-plot/d-obstacle/d-ending/d-acts） | 打开即空白五段＋进场只读（含来源小字） |
+| ② 本章卡 · 可改 | AI 四态（选卡→本章卡，角标跟到卡上） | 点卡进本章卡（五段＋阶段六档） |
+| ③ 落点卡 · 桥 | 手写全链（还差 6 项＋三出口按钮齐） | 落点卡 adopt body（brought 计数） |
+| ④ 剧情推进（派生） | 派生视图（按章列阶段＋标题，回卷页即时反映） | —（组件级：VolumeWorkspace 测试断言 plot_stage 下行） |
+| AI · 3 个方向 | AI 四态（3 卡＋角标 S/A/B＋「剧情吸引力／差在哪」＋checks） | 出卡：三卡角标（S 带「最吸引」）＋两块＋阶段行 |
+| AI · 正在想 | AI 四态（split-busy 先可见，门闩后放行） | 正在想（busy 态） |
+| AI · 出卡失败 | AI 失败三出口（重试／自己写这一章／先不拆） | 失败三出口 |
+| AI · 只出两套 | 只出两套（split-note 降级说明＋2 张卡） | 只出两套 |
+| 换 3 个方向（卡底按钮） | 换方向（第二次响应覆盖第一次） | — |
+| ⑥ 自检（手写卡底条，免费） | 自检（三组：衔接/配额/四维短评＋最弱一维；真端点 200/503 契约） | 自检（草稿随请求体＋三组渲染＋不给字母） |
+| 免费档：AI 入口置灰带 PRO 说明 | 免费档（volume-split-ai 置灰＋locked 说明＋手写照常） | —（右栏面板：volumePlan.test 三态） |
+| 阶段六档 select | 派生视图（开局铺垫）＋手写全链 | 打开即空白五段（d-stage 六档） |
+| 角标 `pk-corner`（S 带「最吸引」） | AI 四态（pick-corner-3 含 S 与「最吸引」） | 出卡（pick-corner-3） |
+
+原型之外的规格面（D12/D14，非原型演示态）由 e2e 与 pytest 分担：
+末端门禁（e2e 非末端卷）／重拆整卷（e2e 重拆整卷）／删章守卫（e2e 删章守卫＋pytest）／
+卷纲空门槛（pytest `TestDirectionsGate`）／stale 置位（pytest `TestStaleSecondTrigger`）／回改不静默（e2e 回改结尾）。

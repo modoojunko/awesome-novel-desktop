@@ -86,7 +86,7 @@ def test_endpoints_contract_and_gates():
     spec = m.app.openapi()
     paths = spec["paths"]
     d = paths["/api/novels/{project_id}/volumes/{vol_ref}/chapters/ai-directions"]["post"]
-    s = paths["/api/novels/{project_id}/chapters/{chapter_ref}/ai-selfcheck"]["post"]
+    s = paths["/api/novels/{project_id}/chapters/ai-selfcheck"]["post"]
     a = paths["/api/novels/{project_id}/volumes/{vol_ref}/next-chapter-anchor"]["get"]
     assert d and s and a
     # 出卡/自检/进场 三端点均已注册（路由可达性——防 #255 的 404 先例）

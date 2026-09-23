@@ -1,7 +1,7 @@
 """卷下拆章 · AI 链路（c-chapter-plan-ai）
 
 - 出卡：POST /api/novels/{id}/volumes/{ref}/chapters/ai-directions（PRO；生成类）
-- 自检：POST /api/novels/{id}/chapters/{ref}/ai-selfcheck（免费；只读例外——不挂 require_ai_access）
+- 自检：POST /api/novels/{id}/chapters/ai-selfcheck（免费；只读例外——不挂 require_ai_access；卡面草稿随请求携带）
 - 进场：GET  /api/novels/{id}/volumes/{ref}/next-chapter-anchor（全档；手写路径也要进场）
 
 复用纪律（D19）：生成/解析/降级/越纲对拍一律复用 volumes.ai_plan 的既有实现，
@@ -13,6 +13,7 @@ from __future__ import annotations
 import difflib
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.deps import get_current_user, require_ai_access, require_novel_model
@@ -344,33 +345,70 @@ async def ai_chapter_directions(
     }
 
 
-@router.post("/chapters/{chapter_ref}/ai-selfcheck")
+class SelfcheckBody(BaseModel):
+    """卡面草稿（自检发生在「排上」之前，此时章未落库——五段一律取请求体）。
+
+    entry_text＝卡面当前显示的进场（衔接组比对用；进场系派生不落库）。
+    """
+
+    vol_ref: str
+    entry_text: str = ""
+    chapter_ref: str = ""
+    title: str = ""
+    plot: str = ""
+    challenge: str = ""
+    ending: str = ""
+    acts: list[str] = []
+    stage: str = ""
+
+
+@router.post("/chapters/ai-selfcheck")
 async def ai_chapter_selfcheck(
     project_id: str,
-    chapter_ref: str,
+    body: SelfcheckBody,
     user: dict = Depends(get_current_user),
     __: bool = Depends(require_novel_model),  # 只读例外：不挂 require_ai_access（免费可用）
     db: AsyncSession = Depends(get_db),
 ):
-    """章级 AI 自检：只承担「剧情吸引力」四维短评（衔接/配额为前端本地判定）。"""
-    from chapters.store import assemble_chapter
-    from repositories import chapter_repo
+    """章级自检三组：衔接（本地）＋配额（本地）＋剧情吸引力（AI 只读四维短评）。
+
+    卡面按钮在手写卡底条（未排上即可点）——故不按 ref 读章，五段取请求体；
+    AI 组失败/未配模型只让该组给引导文案，本地两组照常返回（不 500）。
+    """
+    from repositories import chapter_repo, volume_repo
     from workflow.engine import strip_suffix
 
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Novel not found")
-    row = await chapter_repo.get_by_ref(db, project.id, strip_suffix(chapter_ref))
-    if row is None:
-        raise HTTPException(404, "Chapter not found")
-    data = assemble_chapter(row)
-    vol = row.volume
-    entry = await resolve_prev_chapter_ending(db, project, vol, row.chapter_no)
-    prev_line = ""
-    siblings = sorted(
-        [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of and c.chapter_no < row.chapter_no],
+    vol_no = int(strip_suffix(body.vol_ref).replace("vol-", ""))
+    vol = await volume_repo.get_by_volume_no(db, project.id, vol_no)
+    if vol is None:
+        raise HTTPException(404, "Volume not found")
+    rows = sorted(
+        [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of],
         key=lambda c: c.chapter_no,
     )
+    # 目标章号：已排上取该章，未排上取本卷末章 +1（进场与配额都按「这一章」算）
+    ch_no = len(rows) + 1
+    if body.chapter_ref:
+        row = await chapter_repo.get_by_ref(db, project.id, strip_suffix(body.chapter_ref))
+        if row is not None:
+            ch_no = row.chapter_no
+    entry = await resolve_prev_chapter_ending(db, project, vol, ch_no)
+    # 衔接组（本地）：本次重新派生的进场 与 卡面当前显示进场（trim 后逐字比对）
+    # 卡面没带进场（未载入/取数失败）＝无可比对，不判漂移（避免误报 warn）
+    link_ok = (not body.entry_text.strip()) or entry["text"].strip() == body.entry_text.strip()
+    # 配额组（本地）：这一章是否超出卷的目标章数
+    target = vol.chapter_target or 0
+    over = bool(target) and ch_no > target
+    quota = (
+        f"已排 {ch_no} 章，超出本卷目标 {target} 章——可以拆，但建议回卷纲核对节奏"
+        if over
+        else (f"第 {ch_no} 章，本卷目标 {target} 章" if target else "本卷还没设目标章数")
+    )
+    prev_line = ""
+    siblings = [c for c in rows if c.chapter_no < ch_no]
     if siblings:
         last = siblings[-1]
         prev_line = f"第{last.chapter_no}章：{(last.summary or last.title or '').strip()[:60]}"
@@ -378,16 +416,24 @@ async def ai_chapter_selfcheck(
         load_prompt("chapter_selfcheck"),
         entry=entry["text"] + "（" + entry["source"] + "）",
         prev_line=prev_line or "（这是第一卷第一章）",
-        plot=data.get("summary") or "",
-        obstacle=data.get("challenge") or "",
-        ending=data.get("ladder_exit") or "",
-        acts="\n".join(f"- {a}" for a in (data.get("chapter_acts") or [])) or "（还没写）",
-        stage=data.get("plot_stage") or "（未定）",
+        plot=_fit(body.plot, "plot"),
+        obstacle=_fit(body.challenge, "obstacle"),
+        ending=_fit(body.ending, "ending"),
+        acts="\n".join(f"- {a}" for a in body.acts[:_ACT_MAX_LINES]) or "（还没写）",
+        stage=body.stage if body.stage in STAGE_SET else "（未定）",
     )
-    raw, _u = await _generate(
-        project, system, "请按四维给这一章的短评，并点出最弱一维（只输出 JSON）。",
-        temperature=0.2, db=db, user=user, operation="chapter_selfcheck",
-    )
+    out: dict = {
+        "ok": True,
+        "link": {"ok": link_ok, "text": "本章进场已自动接上上一章结尾" if link_ok else "上一章结尾已变化"},
+        "quota": {"ok": not over, "text": quota},
+    }
+    try:
+        raw, _u = await _generate(
+            project, system, "请按四维给这一章的短评，并点出最弱一维（只输出 JSON）。",
+            temperature=0.2, db=db, user=user, operation="chapter_selfcheck",
+        )
+    except HTTPException:
+        return {**out, "degraded": True, "hint": "AI 这一眼没看成，可再试"}
     parsed = _parse_json(raw) or {}
     crit = parsed.get("critiques") or {}
     ok = (
@@ -397,5 +443,9 @@ async def ai_chapter_selfcheck(
         and str(parsed.get("weakest") or "") in DIMENSIONS
     )
     if not ok:
-        return {"ok": True, "degraded": True, "hint": "AI 这一眼没看成，可再试"}
-    return {"ok": True, "critiques": {k: str(crit[k]).strip()[:30] for k in DIMENSIONS}, "weakest": parsed["weakest"]}
+        return {**out, "degraded": True, "hint": "AI 这一眼没看成，可再试"}
+    return {
+        **out,
+        "critiques": {k: str(crit[k]).strip()[:30] for k in DIMENSIONS},
+        "weakest": parsed["weakest"],
+    }

@@ -46,6 +46,10 @@ export interface ChapterDirectionsResult {
 
 export interface ChapterSelfcheckResult {
   ok: boolean;
+  /** 衔接（本地）：本次重新派生的进场 vs 卡面当前显示进场 */
+  link?: { ok: boolean; text: string };
+  /** 配额（本地）：这一章是否超出卷的目标章数 */
+  quota?: { ok: boolean; text: string };
   critiques?: Record<string, string>;
   weakest?: string;
   degraded?: boolean;
@@ -62,6 +66,19 @@ export interface ChapterAdoptBody {
   stage?: string;
 }
 
+/** 自检请求体：卡面草稿（自检发生在排上之前，章未落库）＋卡面当前显示进场 */
+export interface ChapterSelfcheckBody {
+  vol_ref: string;
+  entry_text: string;
+  chapter_ref?: string;
+  title?: string;
+  plot?: string;
+  challenge?: string;
+  ending?: string;
+  acts?: string[];
+  stage?: string;
+}
+
 export const chapterPlanApi = {
   /** 下一章进场（全档只读；手写路径也要） */
   anchor: (pid: string, volRef: string): Promise<{ ok: boolean } & ChapterEntry> =>
@@ -69,9 +86,9 @@ export const chapterPlanApi = {
   /** 3 个互斥剧情方向（PRO） */
   directions: (pid: string, volRef: string): Promise<ChapterDirectionsResult> =>
     api.post(`/novels/${pid}/volumes/${volRef}/chapters/ai-directions`, {}),
-  /** 章级自检（免费 · 只读例外） */
-  selfcheck: (pid: string, chapterRef: string): Promise<ChapterSelfcheckResult> =>
-    api.post(`/novels/${pid}/chapters/${chapterRef}/ai-selfcheck`, {}),
+  /** 章级自检（免费 · 只读例外；卡面草稿随请求携带——未排上也能自检） */
+  selfcheck: (pid: string, body: ChapterSelfcheckBody): Promise<ChapterSelfcheckResult> =>
+    api.post(`/novels/${pid}/chapters/ai-selfcheck`, body),
   /** 排上：建章＋五段（同一事务；重复提交幂等） */
   adopt: (pid: string, volRef: string, body: ChapterAdoptBody): Promise<{ ok: boolean; ref: string }> =>
     api.post(`/novels/${pid}/volumes/${volRef}/chapters`, body),

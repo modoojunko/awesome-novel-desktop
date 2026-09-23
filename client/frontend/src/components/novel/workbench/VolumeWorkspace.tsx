@@ -17,6 +17,7 @@ import {
   PLOT_STAGES,
   type VolumeDetail,
 } from "../volume/types";
+import { ResplitConfirmModal } from "./modals";
 import { RelationsGraphPane } from "./RelationsGraphPane";
 import { HooksPane } from "./HooksPane";
 
@@ -28,6 +29,8 @@ export interface VolumeRailData {
   title: string;
   tab: VolumeTab;
   detail: VolumeDetail;
+  /** 主线写作位所在卷号（c-chapter-plan-ai 末端门禁；null＝全书无章） */
+  frontierVol: number | null;
 }
 
 interface VolumeWorkspaceProps {
@@ -148,6 +151,24 @@ export default function VolumeWorkspace({
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
 
+  // 重拆整卷（c-chapter-plan-ai D14）：盘点确认 → 清拟定章（降序）→ 刷新树与详情
+  const [resplitOpen, setResplitOpen] = useState(false);
+  const doResplit = useCallback(async () => {
+    try {
+      const r = (await api.post(
+        `/novels/${projectId}/volumes/${volumeRef}/chapters/resplit`,
+        {},
+      )) as { removed?: string[] };
+      const n = r?.removed?.length ?? 0;
+      toast.success(n ? `已清掉 ${n} 章拟定章——可以重新拆了` : "没有可清掉的拟定章");
+      await load();
+      onVolumeMutated();
+    } catch (e: any) {
+      toast.error(e?.message || "重拆失败，请重试");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, volumeRef, load, onVolumeMutated]);
+
   // 右栏卷语境上抛：卸载/换卷/换页签先清空（防未选中卷时残留统计）
   useEffect(() => {
     if (detail) {
@@ -156,12 +177,13 @@ export default function VolumeWorkspace({
         title: nodeLabel("卷", detail.volume, detail.title),
         tab,
         detail,
+        frontierVol: frontier ? frontier.vol : null,
       });
     } else {
       onRailData(null);
     }
     return () => onRailData(null);
-  }, [detail, tab, onRailData]);
+  }, [detail, tab, frontier, onRailData]);
 
   // 回填执行：进场/展开依据只读（不占表单步骤），其余按段序 160ms/段
   useEffect(() => {
@@ -303,6 +325,7 @@ export default function VolumeWorkspace({
                 onCancel={cancelEdit}
                 onSave={() => void save()}
                 onSplitManual={onSplitManual}
+                onResplit={() => setResplitOpen(true)}
               />
             )}
             {tab === "chapters" && (
@@ -325,6 +348,15 @@ export default function VolumeWorkspace({
             </div>
           </>
         )}
+      <ResplitConfirmModal
+        open={resplitOpen}
+        onClose={() => setResplitOpen(false)}
+        onConfirm={() => void doResplit()}
+        planned={(detail?.chapters ?? [])
+          .filter((c) => !c.has_prose && !c.archived)
+          .map((c) => ({ no: c.chapter, title: c.title }))}
+        kept={(detail?.chapters ?? []).filter((c) => c.has_prose || c.archived).length}
+      />
     </div>
   );
 }
@@ -342,6 +374,7 @@ function VolumeOutlinePane({
   onCancel,
   onSave,
   onSplitManual,
+  onResplit,
 }: {
   detail: VolumeDetail;
   form: VolumeFormData | null;
@@ -355,11 +388,15 @@ function VolumeOutlinePane({
   onSave: () => void;
   /** 「拆下一章」手写五段（c-chapter-plan-ai；全档） */
   onSplitManual: () => void;
+  /** 「重拆本卷」盘点确认（c-chapter-plan-ai D14）：清掉拟定章重排 */
+  onResplit: () => void;
 }) {
   const here =
     frontier && frontier.vol === detail.volume
       ? `第 ${frontier.ch} 章`
       : "不在本卷";
+  // 主线末端门禁（c-chapter-plan-ai）：只有写作位所在卷及其之后能排新章
+  const splitBlocked = frontier != null && detail.volume < frontier.vol;
   const archived = detail.chapters.filter((c) => c.archived).length;
   const draft = detail.chapters.filter((c) => c.has_prose && !c.archived).length;
   const planned = detail.chapters.filter((c) => !c.has_prose && !c.archived).length;
@@ -525,10 +562,26 @@ function VolumeOutlinePane({
           <button
             className="btn btn-secondary btn-sm"
             data-testid="volume-split-manual"
+            disabled={splitBlocked}
+            title={
+              splitBlocked
+                ? `写作位在第${frontier!.vol}卷——新章要排在写作位所在卷及其之后`
+                : "手写这一章的关键剧情（五段），排上后再补章纲"
+            }
             onClick={onSplitManual}
           >
             拆下一章
           </button>
+          {planned > 0 && (
+            <button
+              className="btn btn-ghost btn-sm"
+              data-testid="volume-resplit"
+              title="清掉本卷拟定章（有正文/已归档的保留），之后重新拆"
+              onClick={onResplit}
+            >
+              重拆本卷
+            </button>
+          )}
           <button className="btn btn-secondary btn-sm" onClick={onEdit}>
             编辑卷纲
           </button>
@@ -576,6 +629,11 @@ function VolumeOutlinePane({
         <em>这一卷的伏笔</em>
         <p className="none">住在台账里——切「伏笔」页签看与办；登记与收束都在台账。</p>
       </div>
+      {splitBlocked && (
+        <p className="hint" data-testid="volume-split-blocked">
+          写作位在第{frontier!.vol}卷——新章要排在写作位所在卷及其之后，先去第{frontier!.vol}卷拆章。
+        </p>
+      )}
       {/* 剧情推进（派生）——c-chapter-plan-ai：从已排章派生，只读；替代已退役的关键剧情节点段 */}
       <details className="cfg" open data-testid="vol-plot-progress">
         <summary>

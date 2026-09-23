@@ -461,8 +461,10 @@ export function useWorkbench(): UseWorkbenchReturn {
           }
         }
         await refresh();
-      } catch {
-        // 删除失败
+      } catch (e) {
+        // 删除失败：透出服务端原因（c-chapter-plan-ai 删章守卫 409 给出口引导——
+        // 「只允许删本卷最后一章」「已有正文请走重写/归档」；静默失败＝无引导）
+        toast.error((e as Error)?.message || "删除失败，请重试");
       }
     },
     [projectId, refresh],
