@@ -576,30 +576,33 @@ class TestDirectionsValidation:
         assert r.status_code == 200, r.text
         assert r.json().get("degraded") is True
 
-    def test_non_dict_shapes_degrade_not_500(self, client, monkeypatch):
-        """模型把 diff/ranks 拍平成数组 → 不 500（按不合形走阶梯）。"""
+    def test_non_dict_shapes_not_500_all_B(self, client, monkeypatch):
+        """模型把 diff/ranks 拍平成数组 → 不 500：卡照出，名次形态不合法只让各维不计分（全 B）。"""
         pid = _seed_vol(client)
         bad = json.dumps(
             {"diff": ["加速", "关系"], "directions": CARDS, "ranks": [1, 2, 3],
              "reasons": "不是对象", "checks": "不是数组", "note": None},
             ensure_ascii=False,
         )
-        _setup_ai(monkeypatch, bad)
+        fake = _setup_ai(monkeypatch, bad)
         r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
         assert r.status_code == 200, r.text
         d = r.json()
-        assert d.get("degraded") is True or d["grades"] == []  # 不出字母，但绝不 500
+        assert d.get("degraded") is not True  # 卡面结构合法，不该降级
+        assert len(d["directions"]) == 3
+        assert d["grades"] == ["B", "B", "B"]  # 名次不可读 → 无人得分；不重抽
+        assert len(fake.calls) == 1
 
-    def test_unverifiable_reasons_go_through_ladder(self, client, monkeypatch):
-        """名次依据不可寻 → 重试阶梯；三次仍不可寻 → 出卡但不给字母。"""
+    def test_unverifiable_reasons_do_not_retry(self, client, monkeypatch):
+        """依据对不上卡面字段 → 参考文本而已：一次调用、字母照出、不再有「不出等级」。"""
         pid = _seed_vol(client)
         bad_reasons = {"反转": "这是一个非常精彩的反转", "递增": "旧档堆不对活人开放",
                        "推进": "她调出那份记录", "拉力": "她把残角收进怀里"}
         fake = _setup_ai(monkeypatch, _directions_reply(reasons=bad_reasons))
         d = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={}).json()
-        assert d["grades"] == [], d
-        assert any("不出等级" in w for w in d["warnings"])
-        assert len(fake.calls) >= 2  # 走了重试，不是一次就放行
+        assert len(fake.calls) == 1, "依据瑕疵不得消耗重试预算"
+        assert d["grades"] == ["S", "B", "B"], d  # 名次合法 → 字母照出（默认样本：卡 1 四维全第一）
+        assert not any("不出等级" in w for w in d["warnings"]), d["warnings"]
 
 
 def _seed_multi_chapters(pid: str, n: int) -> None:
