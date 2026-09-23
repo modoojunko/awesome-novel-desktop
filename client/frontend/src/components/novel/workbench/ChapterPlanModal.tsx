@@ -14,7 +14,7 @@ export function ChapterPlanModal({
   onAdopt: () => void;
   onClose: () => void;
 }) {
-  const { state, pickCard, patchDraft, toManual, draw, runSelfcheck } = plan;
+  const { state, pickCard, patchDraft, toManual, draw, runSelfcheck, openEdit } = plan;
   const cn = cnNum(state.volNo);
   // 章号单源＝服务端 anchor 的 next_no（原实现是常量占位，每章都写「拆第一章」）
   const chCn = cnNum(state.nextNo);
@@ -248,6 +248,16 @@ export function ChapterPlanModal({
         {(!isAi || state.pick != null) && state.error && (
           <p className="pv-error" data-testid="chapter-card-error">
             {state.error}
+            {/* 回改读卡失败的唯一出口：重试（未装载前保存禁用，防止脏草稿写进目标章） */}
+            {state.editing && !state.cardLoaded && (
+              <button
+                className="btn btn-ghost btn-sm"
+                data-testid="split-retry-load"
+                onClick={() => state.editing && void openEdit(state.editing)}
+              >
+                重试
+              </button>
+            )}
           </p>
         )}
 
@@ -272,9 +282,10 @@ export function ChapterPlanModal({
                 <button
                   className="btn btn-ghost btn-sm"
                   data-testid="selfcheck-run"
+                  disabled={state.selfchecking}
                   onClick={() => void runSelfcheck()}
                 >
-                  AI 看一眼这一章
+                  {state.selfchecking ? "正在看…" : "AI 看一眼这一章"}
                 </button>
               )}
               {!state.editing && (
@@ -285,7 +296,7 @@ export function ChapterPlanModal({
               <button
                 className="btn btn-primary btn-sm"
                 data-testid="split-adopt"
-                disabled={state.submitting}
+                disabled={state.submitting || (state.editing != null && !state.cardLoaded)}
                 onClick={onAdopt}
               >
                 {state.submitting

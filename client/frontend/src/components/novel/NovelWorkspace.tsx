@@ -573,7 +573,10 @@ export default function NovelWorkspace() {
   const handleChapterAdopt = useCallback(async () => {
     const r = await chapterPlan.adopt();
     if (r.ok) {
-      toast.success("已排上（拟定）——先补章纲再写正文");
+      // 回执与实际动作一致：回改＝保存（没有新章），排上＝新章落列表（c-chapter-plan-guards）
+      toast.success(
+        r.mode === "edit" ? "已保存——这一章已更新" : "已排上（拟定）——先补章纲再写正文",
+      );
       void refresh();
     } else if (r.error) {
       toast.error(r.error);

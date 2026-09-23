@@ -234,11 +234,14 @@ export default function LegacyMigrateModal({
       if (res.code !== 0) throw new Error(res.msg || '发起失败');
       startPolling();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('迁入') || msg.includes('迁移') || msg.includes('migration')) {
+      // 409＝已有任务在跑（备份/导出/搬运单飞互斥）——转进度态 attach 轮询；
+      // 不按文案子串判定（后端 409 文案「已有任务在进行中」不含「迁入/迁移」，
+      // 旧分支实为死路，双击/互斥时永远退回发现步）
+      if ((e as { status?: number })?.status === 409) {
         startPolling();
         return;
       }
+      const msg = e instanceof Error ? e.message : '';
       setErrorMsg(msg || '发起失败');
       setStep('detect');
     }
