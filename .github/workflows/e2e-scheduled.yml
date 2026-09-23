@@ -97,6 +97,16 @@ jobs:
           python -m pip install --quiet -r requirements.txt
           python scripts/upgrade_drill.py --all --work /tmp/drill-work
 
+      # s-contract-live-check：S web ↔ S 后端 契约活体冒烟（不打桩）。compose 的
+      # server-backend 在宿主 19000，vite dev（5175）proxy 指向它；S_LIVE_BASE_URL
+      # 不设则该组自动 skip，故放 nightly 显式设置真跑。
+      - name: S web 契约活体冒烟
+        run: |
+          cd server/frontend
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          S_LIVE_BASE_URL=http://localhost:19000 npx playwright test e2e/tests/live/
+
       - name: 上传失败报告
         if: failure()
         uses: actions/upload-artifact@v4
