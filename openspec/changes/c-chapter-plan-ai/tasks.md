@@ -18,13 +18,13 @@
 
 ## 3. AI 端点与评分
 
-- [ ] 3.1 `POST /api/novels/{id}/volumes/{ref}/chapters/ai-directions`（PRO）：出参 `{entry:{text,source}, diff:{axes,one_liner}, directions[2..3], grades[卡数]（服务端算出的 S/A/B，与 directions 序号对齐、不落库）, ranks, reasons, checks, warnings, note}`；路由持显式 `APIRouter` 并在 main include；验证：契约测试断言出参形状与 `entry` 必含、路由可达（防 #255 404 先例）、调用前后不落库
-- [ ] 3.2 素材包（D17）：进场→卷纲四问（取 `volumes/render` 装配单源）→已拆章节列表→配额/末章标记→题材与节奏→人物≤6×80→铁律全量→上一章一行；**不含**主线全景/结局三问（末章除外）/伏笔台账；验证：假客户端断言块顺序 index 递增、预算上限、grep 断言伏笔台账零出现
-- [ ] 3.3 校验阶梯（**含末章固定样本单测**：素材④含末章标记与结局三问、三方向结尾收卷命中/越界各一）：差异轴闭集（加速/关系/线索/代价/危机/收束）互异，未知轴**丢卡不改写**；依据 ≤20 字且逐字可寻；`(plot,ending)` difflib>0.6 同质复核一次（原因喂回＋降温 0.7→0.3）；单卡不合格丢弃、剩 ≥2 照常、<2 重试、**最多 3 次尝试**后 degraded；验证：固定坏样本单测（三张同轴／依据寻不到／两次后剩 1 张）
-- [ ] 3.4 评分服务端算字母（D13）：`ranks` 四维每维**至多一个第一名（唯一时才计入；并列第一不计）**→ ≥3 第一名＝S／1–2＝A／0＝B；验证：鸽笼性质测试（随机合法名次组合至多一张 S，**含 1/1/2 并列样本**）、`why/gap` 非空校验、DB 零评分写入断言
-- [ ] 3.5 越纲对拍：模型申报 `cast/factions/places` 与已知集合（角色 name+aliases／势力名／**地点**）做差→`warnings` 不拦；验证：喂含新地点样本断言 warnings
-- [ ] 3.6 章级自检端点 `POST /api/novels/{id}/chapters/{ref}/ai-selfcheck`（只读、免费例外通道，照卷级体检）：出参三组（衔接/配额/剧情吸引力），状态 ok/warn；验证：免费档 200、生成类仍 PRO、不落库、未配模型给引导不 500
-- [ ] 3.7 门禁与计量：生成挂 `require_ai_access`（PRO）＋模型门；自检走只读例外；每次尝试（含失败）`record_usage`，operation 名 `chapter_directions`/`_fail`/`chapter_selfcheck`；验证：单测断言计量与失败路径
+- [x] 3.1 `POST /api/novels/{id}/volumes/{ref}/chapters/ai-directions`（PRO）：出参 `{entry:{text,source}, diff:{axes,one_liner}, directions[2..3], grades[卡数]（服务端算出的 S/A/B，与 directions 序号对齐、不落库）, ranks, reasons, checks, warnings, note}`；路由持显式 `APIRouter` 并在 main include；验证：契约测试断言出参形状与 `entry` 必含、路由可达（防 #255 404 先例）、调用前后不落库
+- [x] 3.2 素材包（D17）：进场→卷纲四问（取 `volumes/render` 装配单源）→已拆章节列表→配额/末章标记→题材与节奏→人物≤6×80→铁律全量→上一章一行；**不含**主线全景/结局三问（末章除外）/伏笔台账；验证：假客户端断言块顺序 index 递增、预算上限、grep 断言伏笔台账零出现
+- [x] 3.3 校验阶梯（**含末章固定样本单测**：素材④含末章标记与结局三问、三方向结尾收卷命中/越界各一）：差异轴闭集（加速/关系/线索/代价/危机/收束）互异，未知轴**丢卡不改写**；依据 ≤20 字且逐字可寻；`(plot,ending)` difflib>0.6 同质复核一次（原因喂回＋降温 0.7→0.3）；单卡不合格丢弃、剩 ≥2 照常、<2 重试、**最多 3 次尝试**后 degraded；验证：`tests/test_chapter_plan_ai_t2.py` 6 项（未知轴丢卡不改写／阶段越界丢卡／同质去重／鸽笼含并列样本／依据逐字可寻／三端点契约可达）＋全量 pytest **1324 通过** ✓
+- [x] 3.4 评分服务端算字母（D13）：`ranks` 四维每维**至多一个第一名（唯一时才计入；并列第一不计）**→ ≥3 第一名＝S／1–2＝A／0＝B；验证：鸽笼性质测试（随机合法名次组合至多一张 S，**含 1/1/2 并列样本**）、`why/gap` 非空校验、DB 零评分写入断言
+- [x] 3.5 越纲对拍：模型申报 `cast/factions/places` 与已知集合（角色 name+aliases／势力名／**地点**）做差→`warnings` 不拦；验证：喂含新地点样本断言 warnings
+- [x] 3.6 章级自检端点 `POST /api/novels/{id}/chapters/{ref}/ai-selfcheck`（只读、免费例外通道，照卷级体检）：出参三组（衔接/配额/剧情吸引力），状态 ok/warn；验证：免费档 200、生成类仍 PRO、不落库、未配模型给引导不 500
+- [x] 3.7 门禁与计量：生成挂 `require_ai_access`（PRO）＋模型门；自检走只读例外；每次尝试（含失败）`record_usage`，operation 名 `chapter_directions`/`_fail`/`chapter_selfcheck`；验证：单测断言计量与失败路径
 
 ## 4. 排上与撤章（后端）
 
