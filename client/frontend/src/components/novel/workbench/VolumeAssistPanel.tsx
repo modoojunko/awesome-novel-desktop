@@ -134,12 +134,19 @@ function VolumeVerifyPanel({
   data,
   autoCheckSeq,
   onPlanVolume,
+  onSplitAi,
+  isPro,
+  onUpgrade,
 }: {
   projectId: string;
   data: VolumeRailData;
   autoCheckSeq: number;
   /** 卷纲页签的「重新规划这一卷（AI）」：打开规划台，卷号＝本卷 */
   onPlanVolume: (volNo: number) => void;
+  /** 卷纲页签的「拆下一章（AI）」（c-chapter-plan-ai） */
+  onSplitAi: () => void;
+  isPro: boolean;
+  onUpgrade: () => void;
 }) {
   const [checking, setChecking] = useState(false);
   const [report, setReport] = useState<VolumeCheckResult | null>(null);
@@ -217,6 +224,21 @@ function VolumeVerifyPanel({
             重新规划这一卷（AI）
           </button>
         )}
+        {tab === "outline" && (
+          <button
+            className="btn btn-primary btn-sm"
+            data-testid="volume-split-ai"
+            disabled={!isPro}
+            onClick={() => (isPro ? onSplitAi() : onUpgrade())}
+          >
+            拆下一章（AI）
+          </button>
+        )}
+        {tab === "outline" && !isPro && (
+          <p className="none" data-testid="volume-split-ai-locked">
+            AI 三方向需 PRO——「自己写这一章」在中栏卷纲页随时可用
+          </p>
+        )}
         {error && (
           <p className="pv-error" data-testid="volume-check-error">
             {error}
@@ -268,11 +290,18 @@ export function VolumeAssistPanel({
   onPlanVolume,
   onSelectVolume,
   autoCheckSeq,
+  onSplitAi,
+  isPro,
+  onUpgrade,
 }: {
   projectId: string;
   data: VolumeRailData | null;
   idle: RailIdleData;
   genreLabel: string;
+  /** 「拆下一章（AI）」——逐章拆分的 PRO 入口（c-chapter-plan-ai） */
+  onSplitAi: () => void;
+  isPro: boolean;
+  onUpgrade: () => void;
   /** 打开规划台（空书＝1；写作默认页＝最大卷号+1） */
   onPlanVolume: (volNo: number) => void;
   /** 「卷的验证」点行：选中该卷（外层会立刻触发体检） */
@@ -289,6 +318,9 @@ export function VolumeAssistPanel({
         data={data}
         autoCheckSeq={autoCheckSeq}
         onPlanVolume={onPlanVolume}
+        onSplitAi={onSplitAi}
+        isPro={isPro}
+        onUpgrade={onUpgrade}
       />
     );
   }

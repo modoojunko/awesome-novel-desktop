@@ -70,6 +70,10 @@ export interface OgForm {
   payoffs: OgPayoff[]; // → micro_payoffs[]
   ladder: string; // → ladder_exit 章末落点
   wt: string; // → word_target 本章目标字数（500-6000）
+  // ── 拆章五段（c-chapter-plan-ai；非必填，但**必须整表回传**——缺键即清空）──
+  challenge: string; // → challenge 碰到的挑战
+  acts: string; // → chapter_acts 本章行动（一行一条 ≤4×60）
+  stage: string; // → plot_stage 阶段（六档闭集）
 }
 
 export const REQ_FIELDS: { key: keyof OgForm; label: string }[] = [
@@ -82,6 +86,9 @@ export const REQ_FIELDS: { key: keyof OgForm; label: string }[] = [
 ];
 
 export const EMPTY_OG_FORM: OgForm = {
+  challenge: "",
+  acts: "",
+  stage: "开局铺垫",
   title: "",
   summary: "",
   keys: "",
@@ -233,6 +240,9 @@ export function ogToForm(d: ChapterData | null | undefined): OgForm {
       l: PAYOFF_LOC_SET.has(mp.location ?? "") ? (mp.location as OgPayoff["l"]) : "",
     })),
     ladder: d?.ladder_exit ?? "",
+    challenge: d?.challenge ?? "",
+    acts: (d?.chapter_acts ?? []).join("\n"),
+    stage: d?.plot_stage ?? "",
     wt: d?.word_target != null ? String(d.word_target) : "",
   };
 }
@@ -316,6 +326,10 @@ export function ogToPartial(
         ...(mp.l ? { location: mp.l } : {}),
       })),
     ladder_exit: form.ladder.trim(),
+    // 拆章三格：整表回传（缺键会被装配端写空——见 chapter-data 场景）
+    challenge: form.challenge.trim(),
+    chapter_acts: form.acts.split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 4),
+    plot_stage: form.stage.trim(),
     // 兜底 clamp（正常路径已被 ogFormIssues 拦截，此处防绕过）
     word_target: Number.isFinite(wt) && wt > 0 ? Math.min(6000, Math.max(500, wt)) : null,
   };

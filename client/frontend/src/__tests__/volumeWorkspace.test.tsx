@@ -74,6 +74,7 @@ function renderVol() {
       onVolumeMutated={vi.fn()}
       onDirtyChange={vi.fn()}
       onRailData={vi.fn()}
+        onSplitManual={vi.fn()}
     />,
   );
 }
@@ -194,6 +195,7 @@ describe("VolumeWorkspace 卷视图", () => {
         onVolumeMutated={vi.fn()}
         onDirtyChange={vi.fn()}
         onRailData={onRail}
+        onSplitManual={vi.fn()}
       />,
     );
     await screen.findByText("卷 · 分卷计划");

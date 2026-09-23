@@ -383,6 +383,9 @@ function renderPanel(props: Partial<Parameters<typeof VolumeAssistPanel>[0]> = {
       idle={IDLE_EMPTY}
       genreLabel="悬疑"
       onPlanVolume={onPlanVolume}
+      onSplitAi={vi.fn()}
+      isPro
+      onUpgrade={vi.fn()}
       onSelectVolume={onSelectVolume}
       autoCheckSeq={0}
       {...props}
@@ -1111,6 +1114,7 @@ describe("VolumeWorkspace 回填", () => {
               checks: [],
             },
           }}
+        onSplitManual={vi.fn()}
         />,
       );
       await act(async () => {

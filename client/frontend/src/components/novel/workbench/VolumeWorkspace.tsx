@@ -45,6 +45,8 @@ interface VolumeWorkspaceProps {
   } | null;
   /** 保存成功后回调（采纳路径：落写作默认页） */
   onSaved?: () => void;
+  /** 「拆下一章」手写五段（c-chapter-plan-ai；全档） */
+  onSplitManual: () => void;
 }
 
 const TABS: Array<[VolumeTab, string]> = [
@@ -64,6 +66,7 @@ export default function VolumeWorkspace({
   onRailData,
   backfill,
   onSaved,
+  onSplitManual,
 }: VolumeWorkspaceProps) {
   const [detail, setDetail] = useState<VolumeDetail | null>(null);
   const [form, setForm] = useState<VolumeFormData | null>(null);
@@ -299,6 +302,7 @@ export default function VolumeWorkspace({
                 onEdit={startEdit}
                 onCancel={cancelEdit}
                 onSave={() => void save()}
+                onSplitManual={onSplitManual}
               />
             )}
             {tab === "chapters" && (
@@ -337,6 +341,7 @@ function VolumeOutlinePane({
   onEdit,
   onCancel,
   onSave,
+  onSplitManual,
 }: {
   detail: VolumeDetail;
   form: VolumeFormData | null;
@@ -348,6 +353,8 @@ function VolumeOutlinePane({
   onEdit: () => void;
   onCancel: () => void;
   onSave: () => void;
+  /** 「拆下一章」手写五段（c-chapter-plan-ai；全档） */
+  onSplitManual: () => void;
 }) {
   const here =
     frontier && frontier.vol === detail.volume
