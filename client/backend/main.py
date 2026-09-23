@@ -25,6 +25,7 @@ from archive.router import router as archive_router
 from auth_local.router import router as auth_local_router
 from backup.router import router as backup_router
 from chapters.ai_draft import router as chapters_ai_draft_router
+from chapters.ai_plan import router as chapter_ai_plan_router
 from chapters.router import router as chapters_router
 from chapters.versions import router as chapters_versions_router
 from db import Base, async_session, engine
@@ -45,7 +46,6 @@ from settings.status import router as settings_status_router
 from settings.style_quant_router import router as style_quant_router
 from story.router import router as story_router
 from update_check import router as update_check_router
-from chapters.ai_plan import router as chapter_ai_plan_router
 from volumes.ai_plan import router as volume_ai_plan_router
 from workflow.router import backfill_router as workflow_backfill_router
 from workflow.router import router as workflow_router
@@ -101,10 +101,6 @@ async def lifespan(app: FastAPI):
     from db_lifecycle import (
         clean_stale_staging,
         compute_schema_fingerprint,
-        version_stamp_payload,
-    )
-    from db_lifecycle import (
-        SCHEMA_ID_KEY as _SCHEMA_ID_KEY,
     )
 
     _log = _logging.getLogger("uvicorn.error")

@@ -1,7 +1,6 @@
 """本地事件表（PRD §7 度量）：只落本机 SQLite，不外发、不上报。
 
 两条入口：
-- `log_event`（同步 Session）：历史调用点（workflow/router.py）沿用；
 - `log_event_async`（AsyncSession）：异步路由用——`db.commit()` 是协程，同步版在
   异步会话下不落库（静默丢事件），新调用点一律用异步版。
 """
@@ -13,7 +12,6 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
 
 from models.event import Event
 
@@ -48,23 +46,20 @@ def _entry(user_id: str, event_type: str, payload: dict | None) -> Event:
     )
 
 
-def log_event(db: Session, user_id: str, event_type: str, payload: dict | None = None):
-    if not events_enabled():
-        return
-    db.add(_entry(user_id, event_type, payload))
-    db.commit()
-
-
 async def log_event_async(
     db: AsyncSession, user_id: str, event_type: str, payload: dict | None = None
 ) -> None:
     """异步会话版本（真落库）。**自带 best-effort**：事件写失败只记日志，绝不冒泡——
-    埋点不得把已经成功的业务动作变成 500（如 hooks 已入册却回「登记失败」）。"""
+    埋点不得把已经成功的业务动作变成 500（如 hooks 已入册却回「登记失败」）。
+    独立会话承载写入（c-ai-usage-correctness）：调用方会话零接触，埋点失败
+    只回滚自身。"""
     if not events_enabled():
         return
+    from db import async_session
+
     try:
-        db.add(_entry(user_id, event_type, payload))
-        await db.commit()
+        async with async_session() as session:
+            session.add(_entry(user_id, event_type, payload))
+            await session.commit()
     except Exception:  # noqa: BLE001 —— 埋点失败绝不影响主流程
         logger.warning("event=metrics.write_failed type=%s", event_type, exc_info=True)
-        await db.rollback()

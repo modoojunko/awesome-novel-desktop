@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import shutil
-import tempfile
 import sqlite3
+import tempfile
 import time
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import models  # noqa: F401 —— 注册全表（Base.metadata 依赖副作用 import）
-from config import DATA_ROOT
+from config import (
+    DATA_ROOT,  # noqa: F401 —— 测试经 monkeypatch(engine, "DATA_ROOT") 注入数据目录
+)
 from db import Base
 from db_lifecycle import (
     copy_sidecars,
@@ -37,7 +37,7 @@ LEGACY_YAML_MARKER = "settings/genre.yaml"
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _sqlite_ro(path: Path) -> sqlite3.Connection:
@@ -273,7 +273,10 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
         src_con = _sqlite_ro(work)
         try:
             # ATTACH 传普通路径：file: URI 仅在连接以 uri=True 打开时才被解析
-            tgt.execute(f"ATTACH DATABASE '{work}' AS mig_src")
+            # 字面量转义（c-backend-infra-hygiene）：sqlite3 不支持 ATTACH 参数绑定，
+            # 白名单形状已排除引号，转义为纵深防御
+            staged_sql = str(work).replace("'", "''")
+            tgt.execute(f"ATTACH DATABASE '{staged_sql}' AS mig_src")
             for entry in plan["tables"]:
                 t = entry["table"]
                 cols = list(entry["columns"])
@@ -291,7 +294,7 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                     f'INSERT OR IGNORE INTO main."{t}" ({cl}) SELECT {sl} FROM mig_src."{t}"'
                 )
                 entry["rows_source"] = rows_src
-                entry["rows_inserted"] = cur.rowcount if cur.rowcount >= 0 else 0
+                entry["rows_inserted"] = max(cur.rowcount, 0)
                 report["tables"].append(entry)
                 tables_done += 1
                 _emit("transfer", tables_total=tables_total, tables_done=tables_done,

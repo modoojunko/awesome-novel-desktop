@@ -4,9 +4,13 @@
 零 token 的调用不落库，避免噪音。
 """
 
+import logging
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.token_log import TokenLog
+
+logger = logging.getLogger(__name__)
 
 
 async def record_usage(
@@ -26,19 +30,27 @@ async def record_usage(
     # 成功调用零 token 仍早退（防噪音）。
     if not tokens_in and not tokens_out and not force:
         return
-    db.add(
-        TokenLog(
-            user_id=user_id,
-            project_id=project_id,
-            api_config_id=api_config_id,
-            chapter_id=chapter_id,
-            operation=operation,
-            model=model or "haiku",
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-        )
-    )
+    # c-ai-usage-correctness：记账走**独立会话**——实测 flush 失败会把调用方
+    # 会话标记为 deactive（必须整体 rollback），SAVEPOINT 保不住主流程写入；
+    # 独立会话让记账失败的事故半径严格为自身。`db` 参数保留仅为调用方兼容。
+    from db import async_session
+
     try:
-        await db.commit()
-    except Exception:  # noqa: BLE001 — 用量记录失败不影响主流程
-        await db.rollback()
+        async with async_session() as session:
+            session.add(
+                TokenLog(
+                    user_id=user_id,
+                    project_id=project_id,
+                    api_config_id=api_config_id,
+                    chapter_id=chapter_id,
+                    operation=operation,
+                    model=model or "haiku",
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                )
+            )
+            await session.commit()
+    except Exception:  # noqa: BLE001 — 记账失败不影响主流程，但必须可观测
+        logger.warning(
+            "event=usage.write_failed op=%s model=%s", operation, model, exc_info=True
+        )

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.ai_backfill import step1_backfill, step2_backfill
-from novels.events import log_event
+from novels.events import log_event_async
 from novels.service import get_novel
 from workflow.gates import (
     PHASE_ORDER,
@@ -219,5 +219,5 @@ async def confirm_backfill_step(
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Novel not found")
-    log_event(db, user["id"], "ai_backfill_saved", {"novel_id": project_id})
+    await log_event_async(db, user["id"], "ai_backfill_saved", {"novel_id": project_id})
     return {"ok": True, "backfill_status": project.backfill_status}

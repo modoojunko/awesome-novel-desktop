@@ -102,6 +102,7 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
                     operation="write_chapter",
                     model=model,
                     tokens_out=event.tokens,
+                    tokens_in=event.tokens_in,
                 )
                 done: dict = {"type": "done", "full_text": full_text, "tokens": event.tokens}
                 # 工序②：写完字数校验（<90% 显式提示，不拦落库）

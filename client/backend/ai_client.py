@@ -81,7 +81,10 @@ def _to_sdk_timeout(provider: str, t: Any) -> Any:
 class StreamEvent:
     text: str = ""
     is_done: bool = False
+    # 输出侧 tokens（c-ai-usage-correctness：语义收窄，OpenAI 流不再误记 total）
     tokens: int = 0
+    # 输入侧 tokens（anthropic=message_start.input_tokens；OpenAI=prompt_tokens）
+    tokens_in: int = 0
     error: str = ""
 
 
@@ -334,16 +337,20 @@ class AIClient:
                     timeout=_to_sdk_timeout("openai", _stream_timeout()),
                     **kwargs,
                 )
+                done_out, done_in = 0, 0
                 async for chunk in stream:
+                    # 兼容供应商流末会发 choices=[] 的 usage-only 块——裸取 [0] 是
+                    # IndexError（不在 _NETWORK_ERRORS 内，会把成功生成记成 _fail）
+                    usage = getattr(chunk, "usage", None)
+                    if usage is not None:
+                        done_out = getattr(usage, "completion_tokens", 0) or 0
+                        done_in = getattr(usage, "prompt_tokens", 0) or 0
+                    if not chunk.choices:
+                        continue
                     delta = chunk.choices[0].delta
                     if delta and delta.content:
                         yield StreamEvent(text=delta.content)
-                yield StreamEvent(
-                    is_done=True,
-                    tokens=getattr(chunk, "usage", None)
-                    and chunk.usage.total_tokens
-                    or 0,
-                )
+                yield StreamEvent(is_done=True, tokens=done_out, tokens_in=done_in)
             except _NETWORK_ERRORS as e:
                 raise AITimeoutError(f"AI 服务连接超时或失败：{e}") from e
         else:
@@ -358,8 +365,12 @@ class AIClient:
                     timeout=_to_sdk_timeout("anthropic", _stream_timeout()),
                     **kwargs,
                 ) as stream:
+                    tokens_in = 0
                     async for event in stream:
-                        if event.type == "content_block_delta":
+                        if event.type == "message_start":
+                            usage = getattr(event.message, "usage", None)
+                            tokens_in = getattr(usage, "input_tokens", 0) or 0
+                        elif event.type == "content_block_delta":
                             delta_type = getattr(event.delta, "type", "")
                             if delta_type == "text_delta":
                                 yield StreamEvent(text=event.delta.text)
@@ -367,7 +378,7 @@ class AIClient:
                             tokens = 0
                             if hasattr(event, "usage") and event.usage:
                                 tokens = event.usage.output_tokens
-                            yield StreamEvent(is_done=True, tokens=tokens)
+                            yield StreamEvent(is_done=True, tokens=tokens, tokens_in=tokens_in)
             except _NETWORK_ERRORS as e:
                 raise AITimeoutError(f"AI 服务连接超时或失败：{e}") from e
 

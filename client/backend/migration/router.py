@@ -17,7 +17,7 @@ main.py 注册本前缀）；与导出/下载 job_runner 跨 kind 单飞互斥�
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -119,6 +119,18 @@ def _history_entries() -> list[dict]:
     return [it for it in items if isinstance(it, dict)] if isinstance(items, list) else []
 
 
+def _validated_source(filename: str) -> Path:
+    """start/preview 入参走与 dismiss/cleanup 同源的白名单校验
+    （c-backend-infra-hygiene）：这两条路径会读文件、复制并 ATTACH，
+    MUST NOT 未过校验即操作。不合法 → 400 可读拒绝。"""
+    from db_lifecycle import validate_candidate_filename
+
+    p = validate_candidate_filename(Path(DATA_ROOT), filename, _active_db_path())
+    if p is None or not p.exists():
+        raise HTTPException(400, "文件名不合法或不在数据目录内")
+    return p
+
+
 @router.get("/candidates")
 async def candidates():
     """候选列表＋隔离件只读展示＋提示抑制状态（登录前可调——登录页计数行同源）。"""
@@ -174,6 +186,7 @@ async def preview(body: StartBody):
     from db_lifecycle import copy_sidecars, prepare_staged
     from migration.engine import build_plan, precheck
 
+    _validated_source(body.source_filename)
     pc = precheck(Path(DATA_ROOT), body.source_filename, _active_db_path())
     if not pc["ok"]:
         if pc["reason"] in ("pre_adr_generation", "pre_rename_generation"):
@@ -221,6 +234,7 @@ async def start(body: StartBody):
         raise HTTPException(409, {"message": f"已有{label}任务在进行中", "running_kind": rk})
     from migration.engine import precheck
 
+    _validated_source(body.source_filename)
     pc = precheck(Path(DATA_ROOT), body.source_filename, _active_db_path())
     if not pc["ok"]:
         raise HTTPException(422, {"message": _precheck_msg(pc["reason"])})
@@ -319,7 +333,7 @@ async def _record_completion(source_filename: str, report: dict) -> None:
                "source_version": report.get("source_version"),
                "legacy_generation": report.get("legacy_generation"),
                "book_count_migrated": report.get("book_count_migrated"),
-               "finished_at": datetime.now(timezone.utc).isoformat(), "report": report}
+               "finished_at": datetime.now(UTC).isoformat(), "report": report}
     await _set_app_meta("migration.last", json.dumps(payload, ensure_ascii=False))
     await _set_app_meta("migration.dismissed", "")
     raw = _app_meta_value(HISTORY_KEY)
