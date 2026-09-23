@@ -3,7 +3,7 @@
 // 手写卡底条「AI 看一眼这一章」（免费只读例外）。落点卡由外层渲染（关窗后回中栏）。
 import Modal from "@/components/design/Modal";
 import { cnNum } from "@/lib/nodeTitle";
-import { STAGES, type ChapterPlanController } from "@/hooks/useChapterPlan";
+import { STAGES, joinActs, type ChapterPlanController } from "@/hooks/useChapterPlan";
 
 export function ChapterPlanModal({
   plan,
@@ -105,7 +105,7 @@ export function ChapterPlanModal({
                   <div className="pk-row"><b>本章剧情</b><span>{d.plot}</span></div>
                   <div className="pk-row"><b>碰到的挑战</b><span>{d.obstacle}</span></div>
                   <div className="pk-row"><b>本章结尾</b><span>{d.ending}</span></div>
-                  <div className="pk-row"><b>本章行动</b><span>{d.acts.join("；")}</span></div>
+                  <div className="pk-row"><b>本章行动</b><span>{joinActs(d.acts)}</span></div>
                   <div className="pk-row"><b>阶段</b><span>{d.stage}</span></div>
                   <div className="pk-read" data-testid={`pick-read-${i + 1}`}>
                     <p><b>剧情吸引力</b>{d.why}</p>
@@ -131,8 +131,8 @@ export function ChapterPlanModal({
           </>
         )}
 
-        {/* 出口行恒在（三卡态与选卡后都可换一批/转手写——原型选卡后无回头路，产品侧留此出口） */}
-        {isAi && state.phase === "idle" && (
+        {/* 出口行——只在三卡态出现在网格下方（原型位）；选卡后两出口下沉到底条，不在卡面上方悬空 */}
+        {isAi && state.phase === "idle" && state.pick == null && (
           <div className="pick-foot">
             <button className="btn btn-secondary btn-sm" data-testid="split-redraw" onClick={() => void draw()}>
               ↻ 都不满意？换 3 个方向
@@ -258,10 +258,15 @@ export function ChapterPlanModal({
           )}
           {(!isAi || state.pick != null) && state.phase !== "busy" && (
             <>
-              {!state.editing && (
-                <span className="note">
-                  排上后章节列表多出这一章（拟定）；下一章的进场会自动接「{state.draft.ending || state.draft.plot || "本章结尾"}」。
-                </span>
+              {isAi && state.pick != null && (
+                <>
+                  <button className="btn btn-ghost btn-sm" data-testid="split-redraw" onClick={() => void draw()}>
+                    ↻ 换 3 个方向
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={toManual}>
+                    自己写这一章
+                  </button>
+                </>
               )}
               {!isAi && (
                 <button
@@ -271,6 +276,11 @@ export function ChapterPlanModal({
                 >
                   AI 看一眼这一章
                 </button>
+              )}
+              {!state.editing && (
+                <span className="note">
+                  排上后章节列表多出这一章（拟定）；下一章的进场会自动接「{state.draft.ending || state.draft.plot || "本章结尾"}」。
+                </span>
               )}
               <button
                 className="btn btn-primary btn-sm"

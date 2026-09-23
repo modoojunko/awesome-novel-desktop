@@ -19,6 +19,10 @@ export const STAGES: DraftStage[] = [
   "开局铺垫", "冲突初现", "矛盾升级", "重要转折", "高潮爆发", "卷末收束",
 ];
 
+/** 行动行展示拼接：剥每行行尾句读再以「；」相连——模型输出自带「。」时不出「。；」双标点 */
+export const joinActs = (acts: string[]) =>
+  acts.map((a) => a.replace(/[。;;．]+\s*$/u, "").trim()).filter(Boolean).join("；");
+
 export interface ChapterDraft {
   title: string;
   plot: string;
@@ -122,8 +126,8 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
             plot: d.plot || "",
             obstacle: d.challenge || "",
             ending: d.ending || "",
-            acts: (d.acts || []).join("\n"),
-            stage: d.stage || "开局铺垫",
+        acts: joinActs(d.acts || []),
+        stage: d.stage || "开局铺垫",
           },
         }));
       } catch {
@@ -198,7 +202,7 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
       if (!d) return s;
       return { ...s, pick: i, draft: {
         title: d.title, plot: d.plot, obstacle: d.obstacle, ending: d.ending,
-        acts: d.acts.join("；"), stage: d.stage, grade: s.grades[i], why: d.why, gap: d.gap, axis: d.axis,
+        acts: joinActs(d.acts), stage: d.stage, grade: s.grades[i], why: d.why, gap: d.gap, axis: d.axis,
       } };
     });
   }, []);
