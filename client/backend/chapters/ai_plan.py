@@ -85,7 +85,9 @@ async def resolve_prev_chapter_ending(db, project, vol, ch_no: int) -> dict:
 
 
 async def _chapter_material(db, project, vol, ch_no: int) -> dict:
-    mat = await _book_material(db, project, with_hooks=False)  # 不给伏笔台账（防"提前揭"）
+    # 卷纲点名的人须挤得进人物块：主旨/冲突/坎提到的名字作聚光（_book_material 的单换位机制只认 author_line＋主线前 200 字）
+    spotlight = "｜".join(filter(None, [vol.summary, vol.core_conflict, vol.antagonist_line]))
+    mat = await _book_material(db, project, with_hooks=False, author_line=spotlight)  # 不给伏笔台账（防"提前揭"）
     entry = await resolve_prev_chapter_ending(db, project, vol, ch_no)
     from repositories import chapter_repo
 

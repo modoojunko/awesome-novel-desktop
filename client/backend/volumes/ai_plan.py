@@ -380,10 +380,11 @@ def _sanitize_plans(parsed: dict | None) -> dict | None:
         out.append(
             {
                 "no": len(out) + 1,
-                "spine": spine[:60],
-                "conflict": conflict[:120],
-                "ending": ending[:120],
-                "focus": str(p.get("focus", "") or "").strip()[:60],
+                # 钳位＝提示词字段上限（对齐——上限说明不该被更宽的兜底架空）
+                "spine": spine[:40],
+                "conflict": conflict[:40],
+                "ending": ending[:40],
+                "focus": str(p.get("focus", "") or "").strip()[:20],
                 "focus_axis": axis,
                 "antagonist_type": p_ant_type,
                 "antagonist_line": str(p.get("antagonist_line", "") or "").strip()[:150],
@@ -396,7 +397,7 @@ def _sanitize_plans(parsed: dict | None) -> dict | None:
     return {
         "plans": out,
         "note": str(parsed.get("note", "") or "").strip()[:120],
-        "volume_estimate": str(parsed.get("volume_estimate", "") or "").strip()[:60],
+        "volume_estimate": str(parsed.get("volume_estimate", "") or "").strip()[:20],
         "cast": [str(x).strip() for x in parsed.get("cast") or [] if str(x).strip()],
         "factions": [str(x).strip() for x in parsed.get("factions") or [] if str(x).strip()],
     }

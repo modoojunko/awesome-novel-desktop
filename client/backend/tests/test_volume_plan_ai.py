@@ -1023,3 +1023,29 @@ class TestContractExpansion:
         system = fake.last_kwargs["system"]
         assert "本卷的坎：环境·母港制度" in system
         assert "上一卷的坎：（无记录）" in system
+
+
+# ── 模板契约（提示词对齐修复的逐字钉子）────────────────────────────────
+def _read_prompt(name: str) -> str:
+    with open(
+        os.path.join(os.path.dirname(__file__), "..", "prompts", name),
+        encoding="utf-8",
+    ) as f:
+        return f.read()
+
+
+def test_options_template_declares_focus_and_axis_separately():
+    """focus（侧重说明）与 focus_axis（闭集轴）分开声明——服务端只从 focus_axis 读轴，
+    模型按旧说明把轴词填进 focus 时会落到服务端顺位补轴（轴与内容脱钩）。"""
+    src = _read_prompt("volume_options.prompt")
+    assert "focus（这一套相对另外两套侧重什么" in src
+    assert "focus_axis（侧重轴：从 <<focus_axes>> 里选一个词" in src
+    assert "volume_estimate：这一卷预计的章数范围" in src
+
+
+def test_expand_template_declares_antagonist_closed_set_and_summary_cast():
+    """expand 的 antagonist_type 补闭集声明（防「组织/门派」类非法值被静默改成「人物」）；
+    summary 字段带「关键配角点名」口径——拆章时主角才不全程独角戏。"""
+    src = _read_prompt("volume_expand.prompt")
+    assert "antagonist_type：从 人物／难题／环境／自我／势力 里选一个" in src
+    assert "关键配角" in src

@@ -708,3 +708,52 @@ class TestPlanCard:
         pid = _seed_multi(client, [(1, [{"no": 1}])])
         r = client.get(f"/api/novels/{pid}/chapters/vol-1-ch-9/plan-card")
         assert r.status_code == 404
+
+
+# ── 模板契约＋卷纲聚光（提示词对齐修复的钉子）────────────────────────────
+def test_split_template_scene_state_rules():
+    """章卡模板钉住「客观局面」三处：硬规则 10、acts 含在场者、checks 缺席示例；负面清单不破。"""
+    with open(
+        os.path.join(os.path.dirname(__file__), "..", "prompts", "chapter_split.prompt"),
+        encoding="utf-8",
+    ) as f:
+        src = f.read()
+    assert "10. 剧情写整个场面，不只写主角" in src
+    assert "在场其他人物的关键动作也各占一条" in src
+    assert "这一章没出场" in src
+    assert "【伏笔台账】" not in src and "【主线全景】" not in src  # 负面清单（§5）不破
+
+
+def test_volume_named_character_spotlights_into_cast(client, monkeypatch):
+    """卷纲点名的人须挤进【核心人物】：>6 张时，主旨/冲突/坎点到的配角换进队尾卡。
+
+    修复前 _chapter_material 不传 author_line，聚光只扫主线前 200 字——
+    卷纲点名的关键配角对拆章 AI 不可见，而硬规则 2 又禁止凭空添人。
+    """
+    from sqlalchemy import select as _sel
+
+    from models.character import Character
+
+    pid = _seed_vol(client, target=6)
+
+    async def _seed_cast():
+        async with async_session() as s:
+            vol = (await s.scalars(_sel(Volume).where(Volume.project_id == pid))).first()
+            vol.antagonist_line = "执法官老聋点名要她停手——船队通行证被扣"
+            s.add(Character(novel_id=pid, seq=1, name="沉舟", role="主角", persona="见习导航员，不信教科书"))
+            for i in range(2, 7):
+                s.add(Character(novel_id=pid, seq=i, name=f"船员{i}", role="配角", persona=f"船员{i}的专属人设标记"))
+            s.add(Character(novel_id=pid, seq=7, name="老聋", role="配角", persona="港务局的眼线，只在雾天出现"))
+            await s.commit()
+
+    _run_async(_seed_cast())
+    fake = _setup_ai(monkeypatch, _directions_reply())
+    r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
+    assert r.status_code == 200, r.text
+    system = fake.calls[-1]["system"]
+    block = system.split("【核心人物】\n", 1)[1].split("\n\n", 1)[0]
+    assert "港务局的眼线，只在雾天出现" in block  # 卷纲点名者进块
+    assert "见习导航员，不信教科书" in block  # 主角置顶不动
+    lines = [ln for ln in block.splitlines() if ln.startswith("- ")]
+    assert len(lines) == 6  # ≤6 张上限守恒
+    assert "船员6的专属人设标记" not in block  # 让位的是队尾非点名卡
