@@ -16,14 +16,16 @@ export function ChapterPlanModal({
 }) {
   const { state, pickCard, patchDraft, toManual, draw, runSelfcheck } = plan;
   const cn = cnNum(state.volNo);
-  const chCn = cnNum((state.landed?.brought ? 0 : 0) + 1); // 章号由外层标题呈现，这里只做文案占位
+  // 章号单源＝服务端 anchor 的 next_no（原实现是常量占位，每章都写「拆第一章」）
+  const chCn = cnNum(state.nextNo);
+  const no2 = String(state.nextNo).padStart(2, "0");
   const isAi = state.entrySource === "ai";
 
   return (
     <Modal
       open={state.open}
       onClose={onClose}
-      title={`拆第${chCn}章`}
+      title={state.editing ? `改第${chCn}章` : `拆第${chCn}章`}
       width={940}
       wbStyle
       locked={state.submitting}
@@ -37,7 +39,8 @@ export function ChapterPlanModal({
         {isAi && state.phase === "busy" && (
           <div className="pick-busy" data-testid="split-busy">
             <span className="ra-spin" aria-hidden="true" />
-            <span aria-live="polite">正在想这一章的 3 个方向…</span>
+            <span aria-live="polite">正在想第{chCn}章的 3 个方向…</span>
+            <span className="none">都按你的卷纲和上一章结尾推——3 个方向接的是同一句进场</span>
           </div>
         )}
 
@@ -56,6 +59,11 @@ export function ChapterPlanModal({
                 先不拆，回卷页
               </button>
             </div>
+            {state.degradedText && (
+              <div className="pick-degraded" data-testid="split-degraded">
+                <p className="ai-note">{state.degradedText}</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -144,7 +152,7 @@ export function ChapterPlanModal({
                 {state.draft.grade === "S" && <i>最吸引</i>}
               </span>
             )}
-            <span className="s-no">03</span>
+            <span className="s-no">{no2}</span>
             <div className="s-main">
               <div className="s-lab entry">
                 <b>上一章结尾</b>
@@ -154,27 +162,27 @@ export function ChapterPlanModal({
               </div>
               <div className="s-lab">
                 <b>章标题</b>
-                <input className="input" aria-label="章标题" data-testid="d-title"
+                <input className="input" aria-label="章标题" data-testid="d-title" maxLength={12}
                   value={state.draft.title} onChange={(e) => patchDraft({ title: e.target.value })} />
               </div>
               <div className="s-lab">
                 <b>本章剧情</b>
-                <input className="input" aria-label="本章剧情" data-testid="d-plot"
+                <input className="input" aria-label="本章剧情" data-testid="d-plot" maxLength={150}
                   value={state.draft.plot} onChange={(e) => patchDraft({ plot: e.target.value })} />
               </div>
               <div className="s-lab">
                 <b>碰到的挑战</b>
-                <input className="input" aria-label="碰到的挑战" data-testid="d-obstacle"
+                <input className="input" aria-label="碰到的挑战" data-testid="d-obstacle" maxLength={60}
                   value={state.draft.obstacle} onChange={(e) => patchDraft({ obstacle: e.target.value })} />
               </div>
               <div className="s-lab">
                 <b>本章结尾</b>
-                <input className="input" aria-label="本章结尾" data-testid="d-ending"
+                <input className="input" aria-label="本章结尾" data-testid="d-ending" maxLength={80}
                   value={state.draft.ending} onChange={(e) => patchDraft({ ending: e.target.value })} />
               </div>
               <div className="s-lab">
                 <b>本章行动</b>
-                <input className="input" aria-label="本章行动" data-testid="d-acts"
+                <input className="input" aria-label="本章行动" data-testid="d-acts" maxLength={240}
                   value={state.draft.acts} onChange={(e) => patchDraft({ acts: e.target.value })} />
               </div>
               <div className="s-lab">
@@ -232,6 +240,13 @@ export function ChapterPlanModal({
           </details>
         )}
 
+        {/* 卡面就地错误（读卡失败／排上 422／保存失败）：不静默——手写与选卡后都算 */}
+        {(!isAi || state.pick != null) && state.error && (
+          <p className="pv-error" data-testid="chapter-card-error">
+            {state.error}
+          </p>
+        )}
+
         {/* 底条 */}
         <div className="mcard-foot" style={{ padding: 0, border: 0 }}>
           {isAi && state.phase === "busy" ? (
@@ -253,7 +268,9 @@ export function ChapterPlanModal({
                 disabled={state.submitting}
                 onClick={onAdopt}
               >
-                {state.submitting ? "正在排上…" : "排上这一章"}
+                {state.submitting
+                  ? state.editing ? "正在保存…" : "正在排上…"
+                  : state.editing ? "保存这一章" : "排上这一章"}
               </button>
             </>
           )}

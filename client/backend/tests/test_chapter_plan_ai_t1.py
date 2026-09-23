@@ -169,9 +169,15 @@ def test_adopt_writes_five_fields_in_one_transaction():
             assert row.chapter_acts == "清查队：登船搜舱\n沉舟：跳帮出逃"
             assert row.plot_stage == "重要转折"
 
-            # 重复提交同一 ref（并发下两请求算出同一 MAX+1）→ upsert 命中既有行，不 500
-            out2 = await create_chapter(s, proj, "vol-1", "重复")
-            assert out2["ref"] == "vol-1-ch-2"  # 正常续号（幂等由 upsert 保证）
+            # ① 同 client_token 重放（双击/超时重发）→ 返回首次建出的章，不再建
+            tok = "tok-abc-123"
+            out_a = await create_chapter(s, proj, "vol-1", "第一章", client_token=tok)
+            out_b = await create_chapter(s, proj, "vol-1", "第一章", client_token=tok)
+            assert out_a["ref"] == out_b["ref"] == "vol-1-ch-2"
+            assert out_b.get("idempotent") is True
+            # ② 无 token 的裸重放＝作者真的想再排一章 → 正常续号（不是错误）
+            out_c = await create_chapter(s, proj, "vol-1", "重复")
+            assert out_c["ref"] == "vol-1-ch-3"
 
     asyncio.run(_run())
 

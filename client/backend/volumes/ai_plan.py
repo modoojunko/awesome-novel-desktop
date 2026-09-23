@@ -303,10 +303,18 @@ def _lines(v, cap: int) -> list[str]:
 # ═══════════════ 3 套可行走法 ═══════════════
 
 
-def _entity_warnings(declared_cast, declared_factions, known: set[str]) -> list[str]:
-    """模型申报实体 vs 已知集合（角色 name+aliases＋势力名）做差——差集非空才标记，不拦。"""
+def _entity_warnings(
+    declared_cast, declared_factions, known: set[str], declared_places=None
+) -> list[str]:
+    """模型申报实体 vs 已知集合（角色 name+aliases＋势力名[＋地点]）做差——差集非空才标记，不拦。
+
+    地点为可选第三类（c-chapter-plan-ai 章级对拍扩项；卷级调用不传＝行为不变）。
+    """
     warnings: list[str] = []
-    for kind, vals in (("人物", declared_cast), ("势力", declared_factions)):
+    pairs = [("人物", declared_cast), ("势力", declared_factions)]
+    if declared_places is not None:
+        pairs.append(("地点", declared_places))
+    for kind, vals in pairs:
         for n in vals if isinstance(vals, list) else []:
             ns = str(n).strip()
             if ns and ns not in known:

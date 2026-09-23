@@ -151,12 +151,14 @@ async def create_chapter_in_volume(
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
-    validate_chapter_fields(body)  # 拆章三列闭集/长度：先于建章（422 不留半章）
     from chapters.service import create_chapter
 
     fields = {k: body.get(k) for k in ("plot", "challenge", "ending", "acts", "stage") if body.get(k)}
+    # 校验与写入**同键**（卡面口径 stage/acts）：先于建章，422 不留半章
+    validate_chapter_fields(fields)
     return await create_chapter(
-        db, project, ref, body.get("title") or "新章节", fields or None
+        db, project, ref, body.get("title") or "新章节", fields or None,
+        client_token=str(body.get("client_token") or ""),
     )
 
 

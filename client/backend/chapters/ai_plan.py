@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import difflib
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -39,6 +40,7 @@ SIM_LIMIT = 0.6  # (plot, ending) 相似度阈值（照卷级 SPINE_SIM_LIMIT �
 MAX_ATTEMPTS = 3  # 重试预算：3 次尝试后仍不足 2 张 → degraded
 
 _LIMITS = {"title": 12, "plot": 150, "obstacle": 60, "ending": 80, "why": 30, "gap": 30}
+_PLACE_SPLIT_RE = re.compile(r"[、，,；;。\n\r\t 　]+")
 _ACT_MAX_LINES, _ACT_MAX_LEN = 4, 60
 
 
@@ -98,6 +100,8 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
     target = vol.chapter_target or 0
     quota_left = max(0, target - len(rows)) if target else 0
     is_final = bool(target) and quota_left == 1
+    # 已排满（含超出）：目标已设且剩余额度为 0 且不是末章
+    quota_overshot = bool(target) and quota_left == 0 and not is_final
     prev_line = ""
     if rows:
         last = rows[-1]
@@ -108,11 +112,43 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
             "vol_outline": volume_outline_text(vol),
             "done_chapters": done,
             "quota_left": quota_left,
+            "quota_overshot": quota_overshot,
             "is_final": is_final,
             "prev_line": prev_line,
+            "known_places": await _known_places(db, project),
         }
     )
     return mat
+
+
+async def _known_places(db, project) -> set[str]:
+    """已知地点集合（越纲对拍的已知侧·地点类）。
+
+    来源两处，都是作者已经写下的地名：①各章章纲的「地点」字段（结构化记录）；
+    ②世界舞台那段自由文本里圈出的地点短语（顿号/逗号/分号切分，2–12 字）。
+    判据宽松是有意的——差集只用来提醒，误报会吵到作者。
+    """
+    from filesystem.storage import get_storage
+    from repositories import chapter_repo
+
+    out: set[str] = set()
+    rows = await chapter_repo.list_by_project(db, project.id)
+    for c in rows:
+        if c.ghost_of:
+            continue
+        loc = str(getattr(c, "location", "") or "").strip()
+        if loc:
+            out.add(loc[:20])
+    try:
+        world = await get_storage().read_yaml(project.root_path, "settings/world-setting.yaml") or {}
+        stage = str((world or {}).get("stage") or "")
+        for tok in _PLACE_SPLIT_RE.split(stage):
+            t = tok.strip()
+            if 2 <= len(t) <= 12:
+                out.add(t)
+    except Exception:  # noqa: BLE001 — 世界设定读不到不影响出卡
+        pass
+    return out
 
 
 def _blocks_chapter(mat: dict) -> str:
@@ -122,11 +158,25 @@ def _blocks_chapter(mat: dict) -> str:
         parts.append(f"【本卷卷纲（四问）】\n{mat['vol_outline']}")
     if mat["done_chapters"]:
         parts.append("【已经拆过的章】\n" + "\n".join(mat["done_chapters"][-12:]))
-    quota = "（目标章数未设）" if not mat["quota_left"] and not mat["is_final"] else ""
+    # 配额：末章 / 已排满 / 还剩 N 章 / 未设目标——四态分明（「已排满」不得报成「未设」）
     if mat["is_final"]:
         quota = "本章是本卷末章——三个方向的结尾都必须收在卷纲第四问「预期结局」上。"
-    if quota:
-        parts.append(f"【章数配额】\n{quota}")
+    elif mat["quota_left"] > 0:
+        quota = f"本卷还剩 {mat['quota_left']} 章额度。"
+    elif mat["quota_overshot"]:
+        quota = "本卷已排满甚至超出目标章数——可以继续拆，但建议回卷纲核对节奏。"
+    else:
+        quota = "（目标章数未设）"
+    parts.append(f"【章数配额】\n{quota}")
+    # 末章：硬规则 5 要求「收束以【结局（作者写的）】为准」——该块只在末章给（与卷级素材同源同文案）
+    if mat["is_final"]:
+        e = mat.get("ending") or {}
+        if any(str(v or "").strip() for v in e.values()):
+            parts.append(
+                "【结局（作者写的）】最后一幕：{s}｜主角变成：{h}｜读者感觉：{t}".format(
+                    s=e.get("scene", ""), h=e.get("hero", ""), t=e.get("tone", "")
+                )
+            )
     if mat["genre_section"]:
         parts.append(f"【题材与节奏】\n{mat['genre_section']}")
     if mat["cast_brief"]:
@@ -162,8 +212,10 @@ def _sanitize_directions(parsed: dict | None) -> tuple[list[dict], list[str]]:
     warn: list[str] = []
     if not isinstance(parsed, dict):
         return [], ["出卡不是合法 JSON"]
-    diff = parsed.get("diff") or {}
-    axes = [str(a).strip() for a in (diff.get("axes") or [])]
+    diff = parsed.get("diff")
+    diff = diff if isinstance(diff, dict) else {}  # 模型拍平（数组/字符串）时按缺失处理，不 500
+    axes_raw = diff.get("axes")
+    axes = [str(a).strip() for a in (axes_raw if isinstance(axes_raw, list) else [])]
     cards_in = parsed.get("directions")
     if not isinstance(cards_in, list):
         return [], ["directions 缺失"]
@@ -179,6 +231,10 @@ def _sanitize_directions(parsed: dict | None) -> tuple[list[dict], list[str]]:
             continue
         if axes and (i >= len(axes) or axes[i] != axis):
             warn.append(f"第 {i + 1} 张 axis 与 diff 不一致，已丢弃")
+            continue
+        # 三轴互不相同（spec）：与已收卡同轴 → 丢卡；丢到 <2 张由端点重试阶梯接管
+        if any(c["axis"] == axis for c in out):
+            warn.append(f"第 {i + 1} 张 axis「{axis}」与前面某张重复，已丢弃")
             continue
         out.append(
             {
@@ -208,14 +264,17 @@ def _sanitize_directions(parsed: dict | None) -> tuple[list[dict], list[str]]:
 
 def _reasons_verifiable(parsed: dict, cards: list[dict]) -> bool:
     """每维第一名的依据必须能在得胜卡对应字段里逐字找到（找不到判不合法 → 降级）。"""
-    ranks, reasons = parsed.get("ranks") or {}, parsed.get("reasons") or {}
+    ranks_raw, reasons_raw = parsed.get("ranks"), parsed.get("reasons")
+    ranks = ranks_raw if isinstance(ranks_raw, dict) else {}
+    reasons = reasons_raw if isinstance(reasons_raw, dict) else {}
     field_of = {"反转": ("plot", "ending"), "递增": ("obstacle", "plot"), "推进": ("plot", "ending"), "拉力": ("ending",)}
     for dim in DIMENSIONS:
         rs = ranks.get(dim)
         if not isinstance(rs, list) or len(rs) != len(cards):
             return False
         reason = str(reasons.get(dim) or "").strip()
-        if not reason:
+        # 依据 ≤20 字（spec 与 tasks 3.3 的预算口径）
+        if not reason or len(reason) > 20:
             return False
         firsts = [i for i, r in enumerate(rs) if r == 1]
         if len(firsts) == 1:  # 唯一第一名 → 依据必须可寻
@@ -227,9 +286,28 @@ def _reasons_verifiable(parsed: dict, cards: list[dict]) -> bool:
     return True
 
 
+def _as_dict(parsed: dict | None, key: str) -> dict:
+    """模型把该键拍平成数组/字符串时按空对象处理（不 500；sanitize 层为这类不合形而存在）。"""
+    v = (parsed or {}).get(key)
+    return v if isinstance(v, dict) else {}
+
+
+def _as_str_list(parsed: dict | None, key: str, limit: int) -> list[str]:
+    v = (parsed or {}).get(key)
+    if not isinstance(v, list):
+        return []  # 字符串会被逐字符切碎——非 list 一律当空
+    return [str(x).strip()[:limit] for x in v if str(x).strip()]
+
+
+def _as_text(parsed: dict | None, key: str, limit: int) -> str:
+    v = (parsed or {}).get(key)
+    return (v if isinstance(v, str) else "").strip()[:limit]
+
+
 def _grades(parsed: dict, n: int) -> list[str]:
     """四维名次 → S/A/B：唯一第一名才计入；≥3 → S，1–2 → A，0 → B（至多一张 S）。"""
-    ranks = parsed.get("ranks") or {}
+    ranks_raw = parsed.get("ranks")
+    ranks = ranks_raw if isinstance(ranks_raw, dict) else {}
     counts = [0] * n
     for dim in DIMENSIONS:
         rs = ranks.get(dim)
@@ -264,7 +342,9 @@ async def next_chapter_anchor(
         raise HTTPException(404, "Volume not found")
     rows = [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of]
     entry = await resolve_prev_chapter_ending(db, project, vol, len(rows) + 1)
-    return {"ok": True, **entry}
+    # 章号/卷号单源：卡面标题「拆第N章」、行号 0N、kicker「第X卷」都取这里，
+    # 前端不再自造（曾用常量占位 → 每章都写「拆第一章」）
+    return {"ok": True, **entry, "next_no": len(rows) + 1, "vol_no": vol.volume_no}
 
 
 @router.post("/volumes/{vol_ref}/chapters/ai-directions")
@@ -287,9 +367,14 @@ async def ai_chapter_directions(
     vol = await volume_repo.get_by_volume_no(db, project.id, vol_no)
     if vol is None:
         raise HTTPException(404, "Volume not found")
-    # 卷纲空门槛（与主线空门同构）
-    if not (vol.summary or "").strip() and not (vol.core_conflict or "").strip():
-        raise HTTPException(422, "卷纲为空，请先在卷纲里填「这一卷讲什么」再拆章")
+    # 卷纲空门槛（与主线空门同构）：主旨/冲突/卷末三项——末章边界靠卷末，缺它出卡会越界
+    missing = [
+        label
+        for label, val in (("这一卷讲什么", vol.summary), ("主要冲突", vol.core_conflict), ("卷末收在哪里", vol.ending))
+        if not str(val or "").strip()
+    ]
+    if missing:
+        raise HTTPException(422, f"卷纲还没填全（{'、'.join(missing)}）——先去卷纲补齐再拆章")
     rows = [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of]
     ch_no = len(rows) + 1
     mat = await _chapter_material(db, project, vol, ch_no)
@@ -304,9 +389,11 @@ async def ai_chapter_directions(
     parsed = _parse_json(raw)
     cards, warn = _sanitize_directions(parsed)
     attempts = 1
-    # 不足 2 张 → 重试（原因喂回＋降温）；共最多 MAX_ATTEMPTS 次
-    while len(cards) < 2 and attempts < MAX_ATTEMPTS:
-        cause = "；".join(warn[:2]) or "的方向不合法"
+    # 不足 2 张**或名次依据不可寻** → 重试（原因喂回＋降温）；共最多 MAX_ATTEMPTS 次
+    # （依据不可寻 = 该维第一名判不合法 → 按 spec 走降级阶梯，不得照旧出 S/A/B）
+    bad_reasons = bool(parsed) and not _reasons_verifiable(parsed, cards)
+    while (len(cards) < 2 or bad_reasons) and attempts < MAX_ATTEMPTS:
+        cause = "；".join(warn[:2]) or ("的名次依据在得胜卡里找不到" if bad_reasons else "的方向不合法")
         retry_system = system + f"\n\n（上一次{cause}。）"
         raw, _u = await _generate(
             project, retry_system, "请给出 2 到 3 个剧情方向（只输出 JSON）。",
@@ -314,6 +401,7 @@ async def ai_chapter_directions(
         )
         parsed = _parse_json(raw)
         cards, warn = _sanitize_directions(parsed)
+        bad_reasons = bool(parsed) and not _reasons_verifiable(parsed, cards)
         attempts += 1
     if len(cards) < 2:
         return {
@@ -322,26 +410,67 @@ async def ai_chapter_directions(
             "hint": "出卡失败，可重试，或自己写这一章",
             "entry": mat["entry"],
         }
-    if parsed and not _reasons_verifiable(parsed, cards):
-        warn.append("名次依据在得胜卡字段里找不到，等级仅供参考")
-    grades = _grades(parsed or {}, len(cards))
+    # 走完阶梯仍不可寻：出卡照给（不拦作者），但**不给等级**——名次判不合法就不该落字母
+    if bad_reasons:
+        warn.append("名次依据在得胜卡字段里找不到，本次不出等级")
+    grades = [] if bad_reasons else _grades(parsed or {}, len(cards))
     known = mat["known_entities"]
     all_cast = [n for c in cards for n in c["cast"]]
     all_factions = [n for c in cards for n in c["factions"]]
-    warn.extend(_entity_warnings(all_cast, all_factions, known))
+    all_places = [n for c in cards for n in c["places"]]
+    # 已知地点侧＝章纲「地点」字段 ∪ 世界舞台里圈出的地名（_known_places）
+    warn.extend(_entity_warnings(all_cast, all_factions, known | mat["known_places"], all_places))
     return {
         "ok": True,
         "entry": mat["entry"],
         "is_final": mat["is_final"],
         "quota_left": mat["quota_left"],
-        "diff": (parsed or {}).get("diff") or {},
+        "diff": _as_dict(parsed, "diff"),
         "directions": cards,
         "grades": grades,
-        "ranks": (parsed or {}).get("ranks") or {},
-        "reasons": (parsed or {}).get("reasons") or {},
-        "checks": [str(x).strip()[:40] for x in ((parsed or {}).get("checks") or []) if str(x).strip()][:3],
-        "note": str((parsed or {}).get("note") or "").strip()[:60],
+        "ranks": _as_dict(parsed, "ranks"),
+        "reasons": _as_dict(parsed, "reasons"),
+        "checks": _as_str_list(parsed, "checks", 40)[:3],
+        "note": _as_text(parsed, "note", 60),
         "warnings": warn[:5],
+    }
+
+
+@router.get("/chapters/{chapter_ref}/plan-card")
+async def chapter_plan_card(
+    project_id: str,
+    chapter_ref: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """回改卡面：既有拟定章的五段＋进场（与新建共用同一张卡面；全档只读）。
+
+    spec 5.6：左树章行／卷页派生视图章行／落点卡三处通向同一张本章卡——三处都读这里。
+    """
+    from chapters.store import assemble_chapter
+    from repositories import chapter_repo
+    from workflow.engine import strip_suffix
+
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Novel not found")
+    row = await chapter_repo.get_by_ref(db, project.id, strip_suffix(chapter_ref))
+    if row is None:
+        raise HTTPException(404, "Chapter not found")
+    data = assemble_chapter(row)
+    entry = await resolve_prev_chapter_ending(db, project, row.volume, row.chapter_no)
+    return {
+        "ok": True,
+        "title": data.get("title") or "",
+        # summary 在 outline 内（装配口径：outline.summary 对应章纲「本章剧情」）
+        "plot": (data.get("outline") or {}).get("summary") or "",
+        "challenge": data.get("challenge") or "",
+        "ending": data.get("ladder_exit") or "",
+        "acts": data.get("chapter_acts") or [],
+        "stage": data.get("plot_stage") or "",
+        "entry_text": entry["text"],
+        "entry_source": entry["source"],
+        "next_no": row.chapter_no,
     }
 
 

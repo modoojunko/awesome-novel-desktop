@@ -50,6 +50,8 @@ interface VolumeWorkspaceProps {
   onSaved?: () => void;
   /** 「拆下一章」手写五段（c-chapter-plan-ai；全档） */
   onSplitManual: () => void;
+  /** 回改这一章（5.6）：派生视图行／左树共用同一张本章卡 */
+  onEditChapter: (ref: string) => void;
 }
 
 const TABS: Array<[VolumeTab, string]> = [
@@ -67,6 +69,7 @@ export default function VolumeWorkspace({
   onVolumeMutated,
   onDirtyChange,
   onRailData,
+  onEditChapter,
   backfill,
   onSaved,
   onSplitManual,
@@ -326,6 +329,7 @@ export default function VolumeWorkspace({
                 onSave={() => void save()}
                 onSplitManual={onSplitManual}
                 onResplit={() => setResplitOpen(true)}
+                onEditChapter={onEditChapter}
               />
             )}
             {tab === "chapters" && (
@@ -375,6 +379,7 @@ function VolumeOutlinePane({
   onSave,
   onSplitManual,
   onResplit,
+  onEditChapter,
 }: {
   detail: VolumeDetail;
   form: VolumeFormData | null;
@@ -390,12 +395,16 @@ function VolumeOutlinePane({
   onSplitManual: () => void;
   /** 「重拆本卷」盘点确认（c-chapter-plan-ai D14）：清掉拟定章重排 */
   onResplit: () => void;
+  /** 回改这一章（5.6）：派生视图行可点开同一张本章卡 */
+  onEditChapter: (ref: string) => void;
 }) {
   const here =
     frontier && frontier.vol === detail.volume
       ? `第 ${frontier.ch} 章`
       : "不在本卷";
-  // 主线末端门禁（c-chapter-plan-ai）：只有写作位所在卷及其之后能排新章
+  // 主线末端门禁（c-chapter-plan-ai）：只挡「写作位之前的卷」（那才会插进主线中段）；
+  // 写作位所在卷及其之后的卷都可拆——上一卷写完后开新卷第一拆时，frontier 的全归档
+  // 待写占位仍落在旧卷，严格等值会把它堵死。
   const splitBlocked = frontier != null && detail.volume < frontier.vol;
   const archived = detail.chapters.filter((c) => c.archived).length;
   const draft = detail.chapters.filter((c) => c.has_prose && !c.archived).length;
@@ -565,7 +574,7 @@ function VolumeOutlinePane({
             disabled={splitBlocked}
             title={
               splitBlocked
-                ? `写作位在第${frontier!.vol}卷——新章要排在写作位所在卷及其之后`
+                ? `写作位在第${frontier!.vol}卷——这一卷还没轮到`
                 : "手写这一章的关键剧情（五段），排上后再补章纲"
             }
             onClick={onSplitManual}
@@ -631,7 +640,7 @@ function VolumeOutlinePane({
       </div>
       {splitBlocked && (
         <p className="hint" data-testid="volume-split-blocked">
-          写作位在第{frontier!.vol}卷——新章要排在写作位所在卷及其之后，先去第{frontier!.vol}卷拆章。
+          写作位在第{frontier!.vol}卷——这一卷还没轮到，先去第{frontier!.vol}卷拆章。
         </p>
       )}
       {/* 剧情推进（派生）——c-chapter-plan-ai：从已排章派生，只读；替代已退役的关键剧情节点段 */}
@@ -647,7 +656,19 @@ function VolumeOutlinePane({
           ) : (
             <div className="sub-list">
               {detail.chapters.map((c, i) => (
-                  <div className="rowx" key={c.ref}>
+                  <div
+                    className="rowx"
+                    key={c.ref}
+                    role="button"
+                    tabIndex={0}
+                    data-testid={`vol-plot-row-${c.chapter}`}
+                    title="改这一章（关键剧情五段）"
+                    style={{ cursor: "pointer" }}
+                    onClick={() => onEditChapter(c.ref)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") onEditChapter(c.ref);
+                    }}
+                  >
                     <span className="num">{i + 1}</span>
                     <div className="cols cn">
                       <span className="qno">{c.plot_stage || "（未定阶段）"}</span>

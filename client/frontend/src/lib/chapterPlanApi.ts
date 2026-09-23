@@ -8,6 +8,10 @@ import { api } from "./api";
 export interface ChapterEntry {
   text: string;
   source: string;
+  /** 下一章章号（服务端算，前端不再自造——标题「拆第N章」/行号 0N 取这里） */
+  next_no?: number;
+  /** 本卷卷号（同上，kicker 用） */
+  vol_no?: number;
 }
 
 export interface ChapterDirection {
@@ -59,6 +63,8 @@ export interface ChapterSelfcheckResult {
 /** 排上请求体（五段；与章档案键路径一致：plot→outline.summary，其余顶层） */
 export interface ChapterAdoptBody {
   title: string;
+  /** 幂等键（同一次排上意图的重发同值；服务端据此返回同一章） */
+  client_token?: string;
   plot?: string;
   challenge?: string;
   ending?: string;
@@ -89,6 +95,30 @@ export const chapterPlanApi = {
   /** 章级自检（免费 · 只读例外；卡面草稿随请求携带——未排上也能自检） */
   selfcheck: (pid: string, body: ChapterSelfcheckBody): Promise<ChapterSelfcheckResult> =>
     api.post(`/novels/${pid}/chapters/ai-selfcheck`, body),
+  /** 回改：读一章的五段（同一张卡面；进场/章号由服务端算） */
+  chapter: (
+    pid: string,
+    ref: string,
+  ): Promise<{
+    title?: string;
+    plot?: string;
+    challenge?: string;
+    ending?: string;
+    acts?: string[];
+    stage?: string;
+    entry_text?: string;
+    entry_source?: string;
+    next_no?: number;
+  }> => api.get(`/novels/${pid}/chapters/${ref}/plan-card`),
+  /** 回改保存：五段写回既有章（复用章保存链，不新建） */
+  saveEdit: (pid: string, ref: string, body: ChapterAdoptBody): Promise<{ ok: boolean }> =>
+    api.put(`/novels/${pid}/chapters/${ref}`, {
+      outline: { summary: body.plot ?? "" },
+      challenge: body.challenge ?? "",
+      ladder_exit: body.ending ?? "",
+      chapter_acts: body.acts ?? [],
+      plot_stage: body.stage ?? "",
+    }),
   /** 排上：建章＋五段（同一事务；重复提交幂等） */
   adopt: (pid: string, volRef: string, body: ChapterAdoptBody): Promise<{ ok: boolean; ref: string }> =>
     api.post(`/novels/${pid}/volumes/${volRef}/chapters`, body),

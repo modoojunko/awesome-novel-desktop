@@ -500,11 +500,42 @@ export default function NovelWorkspace() {
   );
 
   // ── 卷下拆章（c-chapter-plan-ai）：双路状态机挂壳层（中栏＝手写；右栏＝AI 三方向）──
+  // 目标卷＝此刻的写作位上下文：选中卷用它；选中章用章所属卷；都没选（书主页）用末卷。
+  // 打开时**钉住**（planVolRef）：否则左树点章会把 volumeSelId 置空，落点卡「继续拆下一章」
+  // 会静默排进第 1 卷（拆章流程必须落回作者正在拆的那一卷）。
+  const activeVolRef =
+    volumeSelId ??
+    (chapterRef ? `vol-${volNoOf(chapterRef)}` : null) ??
+    wb.volumes[wb.volumes.length - 1]?.name ??
+    "vol-1";
+  const [planVolRef, setPlanVolRef] = useState<string | null>(null);
+  const planTargetVolRef = planVolRef ?? activeVolRef;
   const chapterPlan = useChapterPlan(
     projectId,
-    Number((volumeSelId?.match(/^vol-(\d+)$/) ?? [])[1] ?? 1),
-    volumeSelId ?? "vol-1",
+    Number(planTargetVolRef.replace("vol-", "")) || 1,
+    planTargetVolRef,
   );
+  /** 拆章入口统一走这里：先把目标卷钉住，再开对应卡面 */
+  const openChapterPlan = useCallback(
+    (src: "manual" | "ai") => {
+      setPlanVolRef(activeVolRef);
+      if (src === "manual") chapterPlan.openManual();
+      else chapterPlan.openAi();
+    },
+    [activeVolRef, chapterPlan],
+  );
+  /** 回改入口（spec 5.6）：左树 hover／派生视图行／落点卡三处共用同一张本章卡 */
+  const openChapterEdit = useCallback(
+    (ref: string) => {
+      setPlanVolRef(`vol-${volNoOf(ref)}`);
+      void chapterPlan.openEdit(ref);
+    },
+    [chapterPlan],
+  );
+  const closeChapterPlan = useCallback(() => {
+    setPlanVolRef(null);
+    chapterPlan.close();
+  }, [chapterPlan]);
 
   // ── 分卷规划（c-volume-antagonist 终版）：双路状态机挂壳层 ──
   const plan = useVolumePlan(projectId);
@@ -921,6 +952,7 @@ export default function NovelWorkspace() {
             }
             onAddVolume={() => openPlanVolumeManual(nextVolNo)}
             onAddChapter={() => void addFirstChapter()}
+            onEditChapter={openChapterEdit}
           />
         </aside>
 
@@ -931,7 +963,10 @@ export default function NovelWorkspace() {
                 「{chapterPlan.state.landed.title}」已排上（拟定）
               </p>
               <p className="be-desc">
-                已带入 {chapterPlan.state.landed.brought} 项；下一章的进场会自动接本章结尾。
+                已带入 {chapterPlan.state.landed.brought} 项
+                {chapterPlan.state.landed.items.length > 0 &&
+                  `：${chapterPlan.state.landed.items.join("、")}`}
+                ；下一章的进场会自动接本章结尾。
                 还差 6 项才能开写：核心任务、读者当前状态、预期策略、必须完成的变化、主情绪、段落规划。
               </p>
               <p className="be-acts">
@@ -950,10 +985,20 @@ export default function NovelWorkspace() {
                   data-testid="chapter-landing-next"
                   onClick={() => {
                     chapterPlan.consumeLanded();
-                    chapterPlan.openManual();
+                    openChapterPlan("manual");
                   }}
                 >
                   继续拆下一章
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  data-testid="chapter-landing-edit"
+                  onClick={() => {
+                    const l = chapterPlan.consumeLanded();
+                    if (l) openChapterEdit(l.ref);
+                  }}
+                >
+                  改这一章
                 </button>
                 <button
                   className="btn btn-ghost"
@@ -991,7 +1036,8 @@ export default function NovelWorkspace() {
               onVolumeMutated={() => void refresh()}
               onDirtyChange={handleVolumeDirty}
               onRailData={handleVolumeRail}
-              onSplitManual={chapterPlan.openManual}
+              onSplitManual={() => openChapterPlan("manual")}
+              onEditChapter={openChapterEdit}
               backfill={backfill}
               onSaved={handleVolumeSaved}
             />
@@ -1129,7 +1175,7 @@ export default function NovelWorkspace() {
             railIdle={railIdle}
             genreLabel={genreLabel}
             onPlanVolume={openPlanVolume}
-            onSplitAi={chapterPlan.openAi}
+            onSplitAi={() => openChapterPlan("ai")}
             onSelectVolume={handleSelectVolume}
             autoCheckSeq={autoCheck.seq}
             onAiWrite={() => requestAi({ kind: "write" })}
@@ -1199,7 +1245,7 @@ export default function NovelWorkspace() {
       />
 
       {/* 卷下拆章（c-chapter-plan-ai）：弹窗＋落点卡（关窗后中栏呈现） */}
-      <ChapterPlanModal plan={chapterPlan} onAdopt={() => void handleChapterAdopt()} onClose={chapterPlan.close} />
+      <ChapterPlanModal plan={chapterPlan} onAdopt={() => void handleChapterAdopt()} onClose={closeChapterPlan} />
       {/* 抽卡确认结果：自查条可关闭提示（落点卡已由 clearSelection 承接）。
           checks **逐条可读**（P1-9：只给第一条前 30 字＝静默丢弃其余）——「展开全部」就地看。 */}
       {(() => {

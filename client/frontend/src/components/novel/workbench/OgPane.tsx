@@ -634,6 +634,7 @@ export default function OgPane({
                 className="textarea"
                 id="wf-acts"
                 rows={3}
+                maxLength={244}
                 placeholder="如：沉舟：调档、撕页收存"
                 value={form.acts}
                 onChange={(e) => onPatch({ acts: e.target.value })}

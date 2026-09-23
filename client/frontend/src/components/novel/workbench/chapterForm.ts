@@ -263,6 +263,10 @@ export function ogFormIssues(form: OgForm): string[] {
       issues.push("本章目标字数需在 500-6000 之间（留空默认 2500）");
     }
   }
+  // 本章行动：单行 ≤60、≤4 行（与服务端 422 同判据——就地提示，别等静默保存失败）
+  const actLines = form.acts.split("\n").map((x) => x.trim()).filter(Boolean);
+  if (actLines.length > 4) issues.push("本章行动最多 4 行（一行一个动作）");
+  if (actLines.some((l) => l.length > 60)) issues.push("本章行动单行不超过 60 字");
   return issues;
 }
 

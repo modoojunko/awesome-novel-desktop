@@ -8,6 +8,7 @@
 """
 
 import logging
+import time
 
 from fastapi import HTTPException
 
@@ -15,6 +16,37 @@ from repositories import chapter_repo, volume_repo
 from workflow.engine import strip_suffix
 
 logger = logging.getLogger("uvicorn.error")
+
+# 排上幂等（c-chapter-plan-ai，spec「重复提交 SHALL 幂等：返回既有章」）：
+# 前端每次「排上意图」带一个 client_token（同一次提交的重发/双击同 token），
+# 服务端按 token 记住首次建出的章，TTL 内重放直接返回同一章、不再建。
+# 进程内表——C端 是单进程桌面应用，双击/超时重发不会跨进程重启，够用且不占库。
+_ADOPT_TOKENS: dict[str, tuple[str, float]] = {}
+_ADOPT_TTL_SECONDS = 120.0
+
+
+def _adopt_lookup(token: str) -> str | None:
+    if not token:
+        return None
+    hit = _ADOPT_TOKENS.get(token)
+    if hit is None:
+        return None
+    ref, ts = hit
+    if time.monotonic() - ts > _ADOPT_TTL_SECONDS:
+        _ADOPT_TOKENS.pop(token, None)
+        return None
+    return ref
+
+
+def _adopt_remember(token: str, ref: str) -> None:
+    if not token:
+        return
+    if len(_ADOPT_TOKENS) > 512:  # 防无界增长：清过期项
+        now = time.monotonic()
+        for k, (_r, ts) in list(_ADOPT_TOKENS.items()):
+            if now - ts > _ADOPT_TTL_SECONDS:
+                _ADOPT_TOKENS.pop(k, None)
+    _ADOPT_TOKENS[token] = (ref, time.monotonic())
 
 
 def _parse_chapter_ref(ref: str) -> tuple[int, int]:
@@ -29,13 +61,23 @@ def _parse_chapter_ref(ref: str) -> tuple[int, int]:
         raise HTTPException(400, f"Invalid chapter reference: {ref}")
 
 
-async def create_chapter(db, project, volume_ref: str, title: str, fields: dict | None = None) -> dict:
+async def create_chapter(
+    db, project, volume_ref: str, title: str, fields: dict | None = None, client_token: str = ""
+) -> dict:
     """卷内建章：定位卷 → MAX+1 → DB 行（空章纲）+ 计数同事务。
 
     c-chapter-plan-ai「排上」：`fields` 携带拆章五段（plot/challenge/ending/acts/stage），
     **同一事务**内经既有装配写回（store.apply_chapter_data，其不自行 commit）——
-    不出现「章已建、关键剧情字段为空」的中间态；重复提交经 upsert 幂等（不冒 500）。
+    不出现「章已建、关键剧情字段为空」的中间态。
+
+    幂等：`client_token` 命中（TTL 内）直接返回首次建出的章；无 token 的裸重放仍按
+    新章处理（那是作者真的想再排一章）。
     """
+    cached = _adopt_lookup(client_token)
+    if cached is not None:
+        logger.info("adopt idempotent hit: %s -> %s", client_token[:8], cached)
+        return {"ok": True, "ref": cached, "idempotent": True}
+
     vol_no = int(strip_suffix(volume_ref).replace("vol-", ""))
     vol = await volume_repo.get_by_volume_no(db, project.id, vol_no)
     if vol is None:
@@ -47,10 +89,13 @@ async def create_chapter(db, project, volume_ref: str, title: str, fields: dict 
     from chapters.frontier import frontier_info
 
     front = (await frontier_info(db, project.id))["frontier"]
+    # 主线末端门禁：只挡「写作位**之前**的卷」——那才会插进主线中段（frontier 排队模型下
+    # 永远轮不到写）。写作位所在卷及其之后的卷都可拆：上一卷写完后要开新卷的第一拆，
+    # 此时 frontier 的「全归档待写占位」仍落在旧卷（_next_ref 同卷续号），严格等值会把它堵死。
     if front is not None and vol.volume_no < front["volume_no"]:
         raise HTTPException(
             409,
-            f"写作位在第{front['volume_no']}卷——新章要排在写作位所在卷及其之后，"
+            f"写作位在第{front['volume_no']}卷——这一卷还没轮到，"
             f"先去第{front['volume_no']}卷拆章",
         )
 
@@ -82,6 +127,7 @@ async def create_chapter(db, project, volume_ref: str, title: str, fields: dict 
         clean = {k: v for k, v in payload.items() if v and not (k == "outline" and not v.get("summary"))}
         await apply_chapter_data(db, row, clean)
     await db.commit()
+    _adopt_remember(client_token, ref)
     logger.info("created chapter %s for project %s", ref, project.id)
 
     return {"chapter_ref": ref, "ref": ref}

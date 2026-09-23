@@ -27,6 +27,8 @@ interface OutlineTreeProps {
   onAddVolume: () => void;
   /** 空书态「＋ 新增一章」：先垫第一卷再排第一章（壳层实现） */
   onAddChapter: () => void;
+  /** 回改这一章（c-chapter-plan-ai 5.6）：hover 动作开同一张本章卡（五段可改） */
+  onEditChapter: (ref: string) => void;
 }
 
 function volNo(name: string): number {
@@ -42,6 +44,7 @@ export default function OutlineTree({
   liveWords,
   onAddVolume,
   onAddChapter,
+  onEditChapter,
 }: OutlineTreeProps) {
   const { volumes, selectedId, expandedIds, onToggle } = wb;
   // 行内加章：目标卷
@@ -316,6 +319,17 @@ export default function OutlineTree({
                         </span>
                       )}
                       <span className="acts">
+                        <button
+                          className="icon-btn"
+                          title="改这一章（关键剧情五段）"
+                          data-testid="ch-edit"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditChapter(ref);
+                          }}
+                        >
+                          <Ico d={P.pencil} sw={1.6} />
+                        </button>
                         <button
                           className="icon-btn"
                           title="重命名章节"

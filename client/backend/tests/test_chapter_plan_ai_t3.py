@@ -353,8 +353,30 @@ class TestDirectionsGate:
         fake = _setup_ai(monkeypatch, VALID_SELFCHECK)
         r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
         assert r.status_code == 422, r.text
-        assert "卷纲为空" in r.json()["detail"]
+        # 三项缺项点名（主旨/冲突/卷末）——文案作家语言，不吐内部列名
+        assert "卷纲还没填全" in r.json()["detail"]
+        assert "卷末收在哪里" in r.json()["detail"]
         assert fake.calls == []  # 空门槛先于模型调用
+
+    def test_directions_requires_volume_ending(self, client, monkeypatch):
+        """只缺「卷末」也要拦（spec：主旨/冲突/卷末 三项关键项）。"""
+        pid = _seed_multi(client, [])
+        from sqlalchemy import text as _t
+
+        async def _mk():
+            async with async_session() as session:
+                session.add(Volume(
+                    project_id=pid, volume_no=1, title="缺卷末卷",
+                    summary="沉舟捡到信标", core_conflict="想自己查清，与得靠船队", ending=None,
+                ))
+                await session.commit()
+
+        _run_async(_mk())
+        fake = _setup_ai(monkeypatch, VALID_SELFCHECK)
+        r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
+        assert r.status_code == 422, r.text
+        assert "卷末收在哪里" in r.json()["detail"]
+        assert fake.calls == []
 
 
 class TestStaleSecondTrigger:
@@ -404,3 +426,282 @@ class TestStaleSecondTrigger:
 
         rows = _run_async(_q())
         assert dict((r[0], r[1]) for r in rows)["vol-1-ch-2"] == 0, rows
+
+
+# ── 出卡校验阶梯（tasks 3.2/3.3/3.5 的缺失验证面）────────────────────────
+CARDS = [
+    {"axis": "线索", "title": "同名档案", "plot": "她调出那份记录，最后一页被撕掉了",
+     "obstacle": "旧档堆不对活人开放", "ending": "她把残角收进怀里", "acts": ["她：调档"],
+     "stage": "矛盾升级", "cast": ["沉舟"], "factions": [], "places": ["旧档堆"],
+     "why": "撕页钩子立住了", "gap": ""},
+    {"axis": "关系", "title": "船队的条件", "plot": "船队长开价换航线",
+     "obstacle": "让出航线＝交出一半生存空间", "ending": "她换来留在船上的许可",
+     "acts": ["船队长：开价"], "stage": "矛盾升级", "cast": [], "factions": [], "places": [],
+     "why": "让出航线真的疼", "gap": ""},
+    {"axis": "危机", "title": "突击清查", "plot": "清查队登船前她带信标出逃",
+     "obstacle": "挨船搜舱，藏无可藏", "ending": "信标暴露——全港都知道",
+     "acts": ["清查队：搜舱"], "stage": "重要转折", "cast": [], "factions": [], "places": [],
+     "why": "外部事件当面压上来", "gap": ""},
+]
+
+
+def _directions_reply(cards=None, *, axes=None, reasons=None, weakest="递增"):
+    cards = cards if cards is not None else CARDS
+    axes = axes if axes is not None else [c["axis"] for c in cards]
+    n = len(cards)
+    ranks = {d: [1] + [2] * (n - 1) for d in ("反转", "递增", "推进", "拉力")}
+    rs = reasons if reasons is not None else {
+        "反转": "最后一页被撕掉了", "递增": "旧档堆不对活人开放",
+        "推进": "她调出那份记录", "拉力": "她把残角收进怀里",
+    }
+    return json.dumps(
+        {"diff": {"axes": axes, "one_liner": [f"推向{i + 1}" for i in range(n)]},
+         "directions": cards, "ranks": ranks, "reasons": rs, "checks": [], "note": ""},
+        ensure_ascii=False,
+    )
+
+
+def _seed_vol(client, *, target: int | None = None, ending: str = "船头转向母港旧址") -> str:
+    """建书＋建一卷（卷纲三问齐，可指定章数目标/卷末）。"""
+    name = f"cpa3d-{uuid.uuid4().hex[:6]}"
+    r = client.post("/api/novels", json={"name": name})
+    assert r.status_code in (200, 201), r.text
+    pid = r.json()["id"]
+
+    async def _s():
+        async with async_session() as session:
+            if await session.get(User, USER_ID) is None:
+                session.add(User(id=USER_ID, email=f"{USER_ID}@test.local", password_hash="x"))
+                await session.flush()
+            session.add(Volume(
+                project_id=pid, volume_no=1, title="第一卷",
+                summary="沉舟捡到一枚不属于人类纪元的导航信标",
+                core_conflict="想自己查清，与得靠船队", ending=ending, chapter_target=target,
+            ))
+            await session.commit()
+
+    _run_async(_s())
+    return pid
+
+
+class TestDirectionsValidation:
+    def test_happy_path_material_and_grades(self, client, monkeypatch):
+        """出卡成功：素材八块齐、字母齐、计量入账、不落库。"""
+        pid = _seed_vol(client, target=6)
+        fake = _setup_ai(monkeypatch, _directions_reply())
+        r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert len(d["directions"]) == 3 and len(d["grades"]) == 3
+        assert d["grades"].count("S") <= 1  # 鸽笼：至多一张 S
+        system = fake.calls[-1]["system"]
+        for block in ("【进场（本章从哪接）】", "【本卷卷纲（四问）】", "【章数配额】"):
+            assert block in system, block
+        # 空数据块不出现占位符（tasks 2.4 口径）：本用例的书没题材/人物
+        # （「世界铁律」四字在硬规则里出现，故只查素材块标题形态）
+        for block in ("【题材与节奏】", "【核心人物】"):
+            assert block not in system, block
+        assert "【世界铁律】\n" not in system
+        assert "【伏笔台账】" not in system  # 不给台账（防提前揭）
+        # 不落库：卷内章数仍 0
+        from sqlalchemy import text as _t
+
+        async def _q():
+            async with async_session() as s:
+                return (
+                    await s.execute(_t("select count(*) from chapters where novel_id = :p"), {"p": pid})
+                ).scalar()
+
+        assert _run_async(_q()) == 0
+
+        # 计量入账（tasks 3.7）：operation 名独立，含失败留痕口径
+        from sqlalchemy import select as _sel
+
+        from models.token_log import TokenLog
+
+        async def _logs():
+            async with async_session() as s:
+                rows = (await s.scalars(_sel(TokenLog).where(TokenLog.project_id == pid))).all()
+                return [r.operation for r in rows]
+
+        ops = _run_async(_logs())
+        assert "chapter_directions" in ops, ops
+
+    def test_quota_four_states(self, client, monkeypatch):
+        """配额四态：未设/还剩 N/已排满/末章——「已排满」不得报成「未设目标」。"""
+        # 未设目标
+        pid = _seed_vol(client)
+        fake = _setup_ai(monkeypatch, _directions_reply())
+        client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
+        assert "（目标章数未设）" in fake.calls[-1]["system"]
+        # 已排满：目标 1 章、已排 1 章（非末章）
+        pid2 = _seed_vol(client, target=1)
+        _seed_multi_chapters(pid2, 1)
+        client.post(f"/api/novels/{pid2}/volumes/vol-1/chapters/ai-directions", json={})
+        sys2 = fake.calls[-1]["system"]
+        assert "已排满甚至超出目标章数" in sys2
+        assert "未设" not in sys2
+        # 末章：目标 1 章、已排 0 章
+        pid3 = _seed_vol(client, target=1)
+        client.post(f"/api/novels/{pid3}/volumes/vol-1/chapters/ai-directions", json={})
+        sys3 = fake.calls[-1]["system"]
+        assert "本章是本卷末章" in sys3
+        assert "【结局（作者写的）】" in sys3  # 末章给结局块（硬规则 5 引用它）
+
+    def test_new_place_warns(self, client, monkeypatch):
+        """越纲：卡面申报的地点不在已知集合 → warnings（不拦）。"""
+        pid = _seed_vol(client)
+        cards = [dict(CARDS[0], places=["幽灵港口"]), CARDS[1], CARDS[2]]
+        _setup_ai(monkeypatch, _directions_reply(cards))
+        d = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={}).json()
+        assert any("幽灵港口" in w for w in d["warnings"]), d["warnings"]
+        assert len(d["directions"]) == 3  # 卡仍可用
+
+    def test_same_axis_dropped(self, client, monkeypatch):
+        """三轴必须互不相同：重复轴丢卡（余量不足则重试，最终降级）。"""
+        pid = _seed_vol(client)
+        # 第 2 张与第 1 张同轴 → 丢第 2 张；剩 2 张（线索/危机）→ 不降级
+        same = [CARDS[0], dict(CARDS[1], axis="线索"), CARDS[2]]
+        _setup_ai(monkeypatch, _directions_reply(same, axes=["线索", "线索", "危机"]))
+        d = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={}).json()
+        assert [c["axis"] for c in d["directions"]] == ["线索", "危机"]
+        assert any("重复" in w for w in d["warnings"]), d["warnings"]
+
+    def test_all_same_axis_degrades(self, client, monkeypatch):
+        """三张全同轴 → 只剩 1 张 → 走重试阶梯，三次后降级（不 500、不出错批）。"""
+        pid = _seed_vol(client)
+        same = [CARDS[0], dict(CARDS[1], axis="线索"), dict(CARDS[2], axis="线索")]
+        _setup_ai(monkeypatch, _directions_reply(same, axes=["线索", "线索", "线索"]))
+        r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
+        assert r.status_code == 200, r.text
+        assert r.json().get("degraded") is True
+
+    def test_non_dict_shapes_degrade_not_500(self, client, monkeypatch):
+        """模型把 diff/ranks 拍平成数组 → 不 500（按不合形走阶梯）。"""
+        pid = _seed_vol(client)
+        bad = json.dumps(
+            {"diff": ["加速", "关系"], "directions": CARDS, "ranks": [1, 2, 3],
+             "reasons": "不是对象", "checks": "不是数组", "note": None},
+            ensure_ascii=False,
+        )
+        _setup_ai(monkeypatch, bad)
+        r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d.get("degraded") is True or d["grades"] == []  # 不出字母，但绝不 500
+
+    def test_unverifiable_reasons_go_through_ladder(self, client, monkeypatch):
+        """名次依据不可寻 → 重试阶梯；三次仍不可寻 → 出卡但不给字母。"""
+        pid = _seed_vol(client)
+        bad_reasons = {"反转": "这是一个非常精彩的反转", "递增": "旧档堆不对活人开放",
+                       "推进": "她调出那份记录", "拉力": "她把残角收进怀里"}
+        fake = _setup_ai(monkeypatch, _directions_reply(reasons=bad_reasons))
+        d = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={}).json()
+        assert d["grades"] == [], d
+        assert any("不出等级" in w for w in d["warnings"])
+        assert len(fake.calls) >= 2  # 走了重试，不是一次就放行
+
+
+def _seed_multi_chapters(pid: str, n: int) -> None:
+    async def _s():
+        async with async_session() as session:
+            from sqlalchemy import select as _sel
+
+            vol = (await session.execute(_sel(Volume).where(Volume.project_id == pid))).scalars().first()
+            for i in range(1, n + 1):
+                session.add(Chapter(
+                    project_id=pid, volume_id=vol.id, chapter_no=i,
+                    ref=f"vol-1-ch-{i}", title=f"第{i}章", has_prose=False, status="outline",
+                ))
+            await session.commit()
+
+    _run_async(_s())
+
+
+class TestAdoptContract:
+    def test_adopt_validates_stage_before_create(self, client):
+        """排上路径的闭集校验真的生效（曾因键名不匹配成死代码）：越界 422 且不建章。"""
+        pid = _seed_vol(client)
+        r = client.post(
+            f"/api/novels/{pid}/volumes/vol-1/chapters",
+            json={"title": "越界章", "plot": "剧情", "stage": "高潮"},
+        )
+        assert r.status_code == 422, r.text
+        assert "阶段只能是" in r.json()["detail"]  # 作家语言，不吐内部列名
+
+        from sqlalchemy import text as _t
+
+        async def _q():
+            async with async_session() as s:
+                return (
+                    await s.execute(_t("select count(*) from chapters where novel_id = :p"), {"p": pid})
+                ).scalar()
+
+        assert _run_async(_q()) == 0
+
+    def test_adopt_validates_acts_length(self, client):
+        pid = _seed_vol(client)
+        r = client.post(
+            f"/api/novels/{pid}/volumes/vol-1/chapters",
+            json={"title": "长行动章", "acts": ["x" * 61]},
+        )
+        assert r.status_code == 422, r.text
+        assert "本章行动单行不超过 60 字" in r.json()["detail"]
+
+    def test_adopt_idempotent_by_client_token(self, client):
+        """同一 client_token 重放 → 同一章（spec「重复提交 SHALL 幂等」）。"""
+        pid = _seed_vol(client)
+        body = {"title": "幂等章", "plot": "捡到信标", "client_token": "tok-e2e-1"}
+        r1 = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters", json=body)
+        r2 = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters", json=body)
+        assert r1.status_code == r2.status_code == 200, r2.text
+        assert r1.json()["ref"] == r2.json()["ref"] == "vol-1-ch-1"
+
+        from sqlalchemy import text as _t
+
+        async def _q():
+            async with async_session() as s:
+                return (
+                    await s.execute(_t("select count(*) from chapters where novel_id = :p"), {"p": pid})
+                ).scalar()
+
+        assert _run_async(_q()) == 1
+
+
+class TestPlanCard:
+    def test_plan_card_maps_five_fields(self, client):
+        """回改卡面：五段键路径正确（summary 在 outline 内）——e2e 曾因读错路径拿到空剧情。"""
+        pid = _seed_multi(client, [
+            (1, [{"no": 1, "status": "outline", "exit": "藏进夹层"}]),
+        ])
+        from sqlalchemy import select as _sel
+
+        async def _fill():
+            async with async_session() as s:
+                row = (
+                    await s.scalars(
+                        _sel(Chapter).where(Chapter.project_id == pid, Chapter.ref == "vol-1-ch-1")
+                    )
+                ).first()
+                row.title = "信标进舱"
+                row.summary = "捡到信标"
+                row.challenge = "没人信她"
+                row.chapter_acts = "沉舟：藏信标"
+                row.plot_stage = "重要转折"
+                await s.commit()
+
+        _run_async(_fill())
+        d = client.get(f"/api/novels/{pid}/chapters/vol-1-ch-1/plan-card").json()
+        assert d["title"] == "信标进舱"
+        assert d["plot"] == "捡到信标"
+        assert d["challenge"] == "没人信她"
+        assert d["ending"] == "藏进夹层"
+        assert d["acts"] == ["沉舟：藏信标"]
+        assert d["stage"] == "重要转折"
+        assert d["next_no"] == 1
+        assert "entry_text" in d and "entry_source" in d
+
+    def test_plan_card_404(self, client):
+        pid = _seed_multi(client, [(1, [{"no": 1}])])
+        r = client.get(f"/api/novels/{pid}/chapters/vol-1-ch-9/plan-card")
+        assert r.status_code == 404

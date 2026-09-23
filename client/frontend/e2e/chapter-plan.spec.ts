@@ -143,6 +143,9 @@ test("手写路径全链：中栏拆下一章 → 五段 → 排上 → 落点�
     // 落点卡（桥）
     await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("chapter-landing-card")).toContainText("还差 6 项才能开写");
+    // 逐项列出实际带入的五段（空项不冒充：这里填了 剧情/挑战/结尾/行动 + 阶段默认值）
+    await expect(page.getByTestId("chapter-landing-card")).toContainText("已带入 5 项");
+    await expect(page.getByTestId("chapter-landing-card")).toContainText("本章剧情、碰到的挑战、本章结尾、本章行动、阶段");
     await expect(page.getByTestId("chapter-landing-outline")).toBeVisible();
     await expect(page.getByTestId("chapter-landing-next")).toBeVisible();
     await expect(page.getByTestId("chapter-landing-unsplit")).toBeVisible();
@@ -291,6 +294,8 @@ test("免费档：右栏 AI 入口锁定（PRO 说明），中栏手写照常可
     // 锁定态
     await expect(page.getByTestId("volume-split-ai")).toBeDisabled();
     await expect(page.getByTestId("volume-split-ai-locked")).toBeVisible();
+    // 锁定态要有**可点的**升级出口（原实现把 onUpgrade 放在 disabled 按钮里＝死代码）
+    await expect(page.getByTestId("volume-split-ai-upgrade")).toBeEnabled();
     // 手写照常
     await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
     await page.getByTestId("volume-split-manual").click();
@@ -351,7 +356,7 @@ test("换方向：点「换 3 个方向」重新出卡（第二次响应覆盖�
   }
 });
 
-test("双击幂等：连点两次「排上这一章」只建一章", async ({ page, request }) => {
+test("双击幂等：提交中锁定＋同 client_token 重放返回同一章", async ({ page, request }) => {
   const { restore, token } = await setupSession(page);
   try {
     const pid = await createNovelWithVolume(page, `拆章幂等${Date.now() % 100000}`);
@@ -364,12 +369,18 @@ test("双击幂等：连点两次「排上这一章」只建一章", async ({ pa
     // 第二次点：提交中锁定（disabled 的按钮不派发 click 处理器）——force 绕过可点性检查仍落空
     await page.getByTestId("split-adopt").click({ force: true }).catch(() => {});
     await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
-    const d = await (
-      await request.get(`${ORIGIN}/api/novels/${pid}/volumes/vol-1`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-    ).json();
+    const H = { Authorization: `Bearer ${token}` };
+    const d = await (await request.get(`${ORIGIN}/api/novels/${pid}/volumes/vol-1`, { headers: H })).json();
     expect((d?.chapters ?? []).length).toBe(1);
+
+    // 服务端幂等（真断言）：同一 client_token 重放 → 同一章，不再建
+    const body = { title: "重放章", plot: "重放", client_token: `e2e-tok-${Date.now()}` };
+    const r1 = await request.post(`${ORIGIN}/api/novels/${pid}/volumes/vol-1/chapters`, { headers: H, data: body });
+    const r2 = await request.post(`${ORIGIN}/api/novels/${pid}/volumes/vol-1/chapters`, { headers: H, data: body });
+    expect(r1.ok() && r2.ok()).toBeTruthy();
+    expect(r2.json().ref).toBe(r1.json().ref);
+    const after = await (await request.get(`${ORIGIN}/api/novels/${pid}/volumes/vol-1`, { headers: H })).json();
+    expect((after?.chapters ?? []).length).toBe(2); // 首次那章 + 重放章（不是 3）
   } finally {
     await restore();
   }
@@ -510,6 +521,78 @@ test("回改结尾：上一章落点改了 → 不静默（提示下一章进场
       })
     ).json();
     expect(ch?.ladder_exit).toContain("烧掉了那张登记单");
+  } finally {
+    await restore();
+  }
+});
+
+test("回改：左树 hover「改这一章」→ 同一张卡面（预填五段）→ 保存不新建", async ({ page, request }) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovelWithVolume(page, `拆章回改面${Date.now() % 100000}`);
+    await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
+    // 先排一章（五段齐）
+    await page.getByTestId("volume-split-manual").click();
+    await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("d-title").fill("信标进舱");
+    await page.getByTestId("d-plot").fill("捡到信标");
+    await page.getByTestId("d-obstacle").fill("没人信她");
+    await page.getByTestId("d-ending").fill("藏进夹层");
+    await page.getByTestId("d-acts").fill("沉舟：藏信标");
+    await page.getByTestId("d-stage").selectOption("重要转折");
+    await page.getByTestId("split-adopt").click();
+    await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("chapter-landing-outline").click();
+    await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
+
+    // 左树章行 hover 动作「改这一章」→ 同一张卡面（预填）
+    const chRow = page.locator(".col-tree .ch", { hasText: "第一章" });
+    await chRow.hover();
+    await chRow.getByTestId("ch-edit").click();
+    await expect(page.getByTestId("chapter-plan-modal")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("d-title")).toHaveValue("信标进舱", { timeout: 10000 });
+    await expect(page.getByTestId("d-plot")).toHaveValue("捡到信标");
+    await expect(page.getByTestId("d-obstacle")).toHaveValue("没人信她");
+    await expect(page.getByTestId("d-ending")).toHaveValue("藏进夹层");
+    await expect(page.getByTestId("d-acts")).toHaveValue("沉舟：藏信标");
+    await expect(page.getByTestId("d-stage")).toHaveValue("重要转折");
+    await expect(page.getByTestId("split-adopt")).toContainText("保存这一章");
+
+    // 改两段 → 保存：走章保存链（不新建章），改后回读一致
+    await page.getByTestId("d-ending").fill("改过的落点：她烧掉了登记单");
+    await page.getByTestId("d-stage").selectOption("高潮爆发");
+    await page.getByTestId("split-adopt").click();
+    await expect(page.getByTestId("chapter-plan-modal")).toHaveCount(0, { timeout: 10000 });
+    const H = { Authorization: `Bearer ${token}` };
+    const ch = await (await request.get(`${ORIGIN}/api/novels/${pid}/chapters/vol-1-ch-1`, { headers: H })).json();
+    expect(ch?.ladder_exit).toContain("烧掉了登记单");
+    expect(ch?.plot_stage).toBe("高潮爆发");
+    const vols = await (await request.get(`${ORIGIN}/api/novels/${pid}/volumes/vol-1`, { headers: H })).json();
+    expect((vols?.chapters ?? []).length).toBe(1); // 回改不新建
+  } finally {
+    await restore();
+  }
+});
+
+test("回改入口三处：派生视图行也可点开同一张卡面", async ({ page }) => {
+  const { restore } = await setupSession(page);
+  try {
+    await createNovelWithVolume(page, `拆章回改派生${Date.now() % 100000}`);
+    await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
+    await page.getByTestId("volume-split-manual").click();
+    await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("d-title").fill("信标进舱");
+    await page.getByTestId("d-plot").fill("捡到信标");
+    await page.getByTestId("split-adopt").click();
+    await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("chapter-landing-outline").click();
+    await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
+    await page.locator(".vol-head .vt").first().click();
+    // 派生视图行 → 同一张卡面
+    await page.getByTestId("vol-plot-row-1").click();
+    await expect(page.getByTestId("chapter-plan-modal")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("d-title")).toHaveValue("信标进舱", { timeout: 10000 });
+    await expect(page.getByTestId("split-adopt")).toContainText("保存这一章");
   } finally {
     await restore();
   }

@@ -1115,6 +1115,7 @@ describe("VolumeWorkspace 回填", () => {
             },
           }}
         onSplitManual={vi.fn()}
+        onEditChapter={() => {}}
         />,
       );
       await act(async () => {

@@ -46,7 +46,7 @@ export interface ChapterPlanState {
   /** 排上写请求在途（Modal locked：Esc/遮罩/关闭钮失效） */
   submitting: boolean;
   /** 落点卡（排上成功后的桥） */
-  landed: { ref: string; title: string; brought: number } | null;
+  landed: { ref: string; title: string; brought: number; items: string[] } | null;
   entry: ChapterEntry;
   directions: ChapterDirection[];
   grades: string[];
@@ -57,6 +57,10 @@ export interface ChapterPlanState {
   pick: number | null;
   draft: ChapterDraft;
   /** 自检（手写卡底条触发；免费）——三组：衔接/配额（本地）＋剧情吸引力（AI 四维短评） */
+  /** 下一章章号（服务端 anchor 单源；打开即取，标题/行号用） */
+  nextNo: number;
+  /** 回改目标（非空＝在改已有拟定章；排上按钮变「保存这一章」，不新建） */
+  editing: string | null;
   selfchecked: boolean;
   selfcheck: {
     link?: { ok: boolean; text: string };
@@ -67,45 +71,88 @@ export interface ChapterPlanState {
     degraded?: boolean;
     failed?: boolean;
   } | null;
-  volNo: number;
-  volRef: string;
 }
 
-const INITIAL = (volNo: number, volRef: string): ChapterPlanState => ({
+const INITIAL = (): ChapterPlanState => ({
   entrySource: "manual", open: false, phase: "idle", error: "", submitting: false,
   landed: null, entry: { text: "", source: "" }, directions: [], grades: [], checks: [],
   note: "", warnings: [], degradedText: "", pick: null, draft: { ...EMPTY_DRAFT },
-  selfchecked: false, selfcheck: null, volNo, volRef,
+  nextNo: 1, editing: null, selfchecked: false, selfcheck: null,
 });
 
 export function useChapterPlan(projectId: string, volNo: number, volRef: string) {
-  const [state, setState] = useState<ChapterPlanState>(() => INITIAL(volNo, volRef));
+  const [state, setState] = useState<ChapterPlanState>(() => INITIAL());
   const tokenRef = useRef(0);
   const nextToken = () => ++tokenRef.current;
+  // 进场锚独立 token：它是「当前上下文」的读，不该被同一开的 draw/adopt 作废
+  const anchorTokenRef = useRef(0);
+  // 排上幂等键：每次打开卡面生成一个，重发/双击同 token（服务端据此返回同一章）
+  const clientTokenRef = useRef<string>("");
 
   /** 打开：手写路直接空白五段；AI 路先拉进场再出卡（busy→idle/error） */
   const openManual = useCallback(() => {
     nextToken();
+    clientTokenRef.current = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     setState((s) => ({ ...s, entrySource: "manual", open: true, phase: "idle", error: "",
       draft: { ...EMPTY_DRAFT }, pick: null, selfchecked: false, selfcheck: null, degradedText: "", warnings: [] }));
     void loadAnchor();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, volRef]);
 
+  /** 回改：把已有拟定章的五段读进同一张卡面（左树 hover／派生视图行／落点卡三处共用） */
+  const openEdit = useCallback(
+    async (ref: string) => {
+      nextToken();
+      clientTokenRef.current = "";
+      setState((s) => ({
+        ...s, entrySource: "manual", open: true, phase: "idle", error: "",
+        editing: ref, pick: null, selfchecked: false, selfcheck: null,
+        degradedText: "", warnings: [],
+      }));
+      const token = nextToken();
+      try {
+        const d = await chapterPlanApi.chapter(projectId, ref);
+        if (token !== tokenRef.current) return;
+        setState((s) => ({
+          ...s,
+          entry: { text: d.entry_text || "", source: d.entry_source || "" },
+          nextNo: d.next_no ?? s.nextNo,
+          draft: {
+            title: d.title || "",
+            plot: d.plot || "",
+            obstacle: d.challenge || "",
+            ending: d.ending || "",
+            acts: (d.acts || []).join("\n"),
+            stage: d.stage || "开局铺垫",
+          },
+        }));
+      } catch {
+        setState((s) => ({ ...s, error: "这一章读不出来，可重试" }));
+      }
+    },
+    [projectId],
+  );
+
   const openAi = useCallback(() => {
     nextToken();
+    clientTokenRef.current = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     setState((s) => ({ ...s, entrySource: "ai", open: true, pick: null, checks: [],
       warnings: [], degradedText: "", selfchecked: false, selfcheck: null }));
+    void loadAnchor(); // 章号/进场先就位（忙碌态文案与卡面标题都用它）
     void draw();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, volRef]);
 
   const loadAnchor = useCallback(async () => {
-    const token = nextToken();
+    const token = ++anchorTokenRef.current;
     try {
       const d = await chapterPlanApi.anchor(projectId, volRef);
-      if (token !== tokenRef.current) return;
-      setState((s) => ({ ...s, entry: { text: d.text, source: d.source } }));
+      if (token !== anchorTokenRef.current) return;
+      setState((s) => ({
+        ...s,
+        entry: { text: d.text, source: d.source },
+        nextNo: d.next_no ?? s.nextNo,
+      }));
     } catch {
       if (token !== tokenRef.current) return;
       setState((s) => ({ ...s, entry: { text: "（进场读不到）", source: "" } }));
@@ -115,7 +162,9 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
 
   const draw = useCallback(async () => {
     const token = nextToken();
-    setState((s) => ({ ...s, phase: "busy", error: "" }));
+    // 换一批不累积：先前的选择与卡面草稿不再显示（否则新批里第 i 张仍显选中，
+    // 排上会落库上一批方向的五段）
+    setState((s) => ({ ...s, phase: "busy", error: "", pick: null, draft: { ...EMPTY_DRAFT } }));
     try {
       const d: ChapterDirectionsResult = await chapterPlanApi.directions(projectId, volRef);
       if (token !== tokenRef.current) return;
@@ -155,7 +204,7 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
   }, []);
 
   const patchDraft = useCallback((patch: Partial<ChapterDraft>) => {
-    setState((s) => ({ ...s, draft: { ...s.draft, ...patch } }));
+    setState((s) => ({ ...s, error: "", draft: { ...s.draft, ...patch } }));
   }, []);
 
   /** 切手写（AI 失败出口之一；已填内容保留） */
@@ -202,11 +251,14 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
   const adopt = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
     const d = state.draft;
     if (!d.title.trim() && !d.plot.trim()) {
-      return { ok: false, error: "至少写个标题或一句「本章剧情」" };
+      const msg = "至少写个标题或一句「本章剧情」";
+      setState((s) => ({ ...s, error: msg }));  // 就地提示：不能只 return 让作者看不见
+      return { ok: false, error: msg };
     }
-    const title = d.title.trim() || `第${state.directions.length ? "" : ""}章`;
+    // 默认标题＝「第N章」（N 由 anchor 单源给出；原实现三元两支皆空 → 恒落「第章」）
+    const title = d.title.trim() || `第${state.nextNo}章`;
     const body: ChapterAdoptBody = {
-      title: title || "新章节",
+      title,
       plot: d.plot.trim() || undefined,
       challenge: d.obstacle.trim() || undefined,
       ending: d.ending.trim() || undefined,
@@ -215,9 +267,31 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
     };
     setState((s) => ({ ...s, submitting: true, error: "" }));
     try {
-      const r = await chapterPlanApi.adopt(projectId, volRef, body);
-      const brought = [d.plot, d.obstacle, d.ending, d.acts, d.stage].filter((x) => String(x || "").trim()).length;
-      setState((s) => ({ ...s, submitting: false, open: false, landed: { ref: r.ref, title: body.title, brought } }));
+      // 回改：同一张卡面走章保存链（不新建章、不落落点卡）
+      if (state.editing) {
+        await chapterPlanApi.saveEdit(projectId, state.editing, body);
+        setState((s) => ({ ...s, submitting: false, open: false, editing: null }));
+        return { ok: true };
+      }
+      const r = await chapterPlanApi.adopt(projectId, volRef, {
+        ...body,
+        client_token: clientTokenRef.current,
+      });
+      // 逐项列出实际带入的五段（spec：空项 SHALL NOT 冒充——手写最小可排时 N 可小于 5）
+      const pairs: Array<[string, string]> = [
+        ["本章剧情", d.plot],
+        ["碰到的挑战", d.obstacle],
+        ["本章结尾", d.ending],
+        ["本章行动", d.acts],
+        ["阶段", d.stage],
+      ];
+      const items = pairs.filter(([, v]) => String(v || "").trim()).map(([k]) => k);
+      setState((s) => ({
+        ...s,
+        submitting: false,
+        open: false,
+        landed: { ref: r.ref, title: body.title, brought: items.length, items },
+      }));
       return { ok: true };
     } catch (e) {
       const msg = (e as { message?: string })?.message || "排上失败，可重试";
@@ -230,7 +304,9 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
   /** 关窗（submitting 中由 Modal locked 挡住，这里兜底） */
   const close = useCallback(() => {
     nextToken();
-    setState((s) => (s.submitting ? s : { ...s, open: false, phase: "idle", error: "" }));
+    setState((s) =>
+      s.submitting ? s : { ...s, open: false, phase: "idle", error: "", editing: null },
+    );
   }, []);
 
   const consumeLanded = useCallback(() => {
@@ -240,7 +316,9 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
   }, [state.landed]);
 
   return {
-    state, openManual, openAi, draw, pickCard, patchDraft, toManual,
+    // 卷号/卷 ref 以**当前入参**为准（打开时由壳层钉住——见 NovelWorkspace.openChapterPlan）
+    state: { ...state, volNo, volRef },
+    openManual, openAi, openEdit, draw, pickCard, patchDraft, toManual,
     runSelfcheck, adopt, close, consumeLanded,
   };
 }
