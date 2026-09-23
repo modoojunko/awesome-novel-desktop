@@ -1,13 +1,10 @@
+// 模型配置域数据源（c-fetch-unify 收编）：原 9 处手写 fetch + 自拼 authHeaders
+// 全部迁回中心栈 request()——401 踢出／503 全局提示／member_required 广播不再缺位。
 import { useCallback, useEffect, useState } from "react";
 import type { ApiConfig } from "../types/api-config";
-import { getToken } from "../lib/auth";
+import { errMessage, request } from "../lib/api";
 
-const API_BASE = "/api/v1";
-
-function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { "Authorization": `Bearer ${token}` } : {};
-}
+const V1 = "/api/v1";
 
 export function useApiConfigs() {
   const [configs, setConfigs] = useState<ApiConfig[]>([]);
@@ -18,16 +15,14 @@ export function useApiConfigs() {
     setLoading(true);
     setError(null);
     try {
-      const resp = await fetch(`${API_BASE}/api-configs`, { headers: authHeaders() });
-      if (resp.status === 503) {
-        // 本页就是 /config：503 只会是云托管冷启动，就地报错不强跳
-        throw new Error("云端服务唤醒中，请稍后重试");
-      }
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
+      const data = await request<ApiConfig[]>(`${V1}/api-configs`);
       setConfigs(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load configs");
+      // 本页就是 /config：503 只会是云托管冷启动，就地报错不强跳
+      const msg = (e as { status?: number })?.status === 503
+        ? "云端服务唤醒中，请稍后重试"
+        : errMessage(e, "加载配置失败");
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -44,14 +39,16 @@ export function useApiConfigs() {
     api_key: string;
     api_format: "openai" | "anthropic";
   }): Promise<ApiConfig> => {
-    const resp = await fetch(`${API_BASE}/api-configs`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify(body),
-    });
-    if (resp.status === 409) throw new Error("名称已被使用");
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const config = await resp.json();
+    let config: ApiConfig;
+    try {
+      config = await request<ApiConfig>(`${V1}/api-configs`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      if ((e as { status?: number })?.status === 409) throw new Error("名称已被使用");
+      throw e;
+    }
     setConfigs((prev) => [config, ...prev]);
     return config;
   };
@@ -60,14 +57,16 @@ export function useApiConfigs() {
     id: string,
     body: Record<string, any>,
   ): Promise<ApiConfig> => {
-    const resp = await fetch(`${API_BASE}/api-configs/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify(body),
-    });
-    if (resp.status === 409) throw new Error("名称已被使用");
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const config = await resp.json();
+    let config: ApiConfig;
+    try {
+      config = await request<ApiConfig>(`${V1}/api-configs/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      if ((e as { status?: number })?.status === 409) throw new Error("名称已被使用");
+      throw e;
+    }
     setConfigs((prev) => prev.map((c) => (c.id === id ? config : c)));
     return config;
   };
@@ -75,75 +74,67 @@ export function useApiConfigs() {
   const deleteConfig = async (
     id: string,
   ): Promise<{ affected_projects: number; affected_names: string[] }> => {
-    const resp = await fetch(`${API_BASE}/api-configs/${id}`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const result = await resp.json();
+    const result = await request<{ affected_projects: number; affected_names: string[] }>(
+      `${V1}/api-configs/${id}`,
+      { method: "DELETE" },
+    );
     setConfigs((prev) => prev.filter((c) => c.id !== id));
     return result;
   };
 
   const restoreConfig = async (id: string): Promise<ApiConfig> => {
     // 撤销删除：后端软删后 restore 复活同一 id
-    const resp = await fetch(`${API_BASE}/api-configs/${id}/restore`, {
+    const config = await request<ApiConfig>(`${V1}/api-configs/${id}/restore`, {
       method: "POST",
-      headers: authHeaders(),
     });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const config = await resp.json();
     setConfigs((prev) => [config, ...prev]);
     return config;
   };
 
   const refresh = fetchConfigs;
 
+  // 后台状态探针（挂载/轮询形态）：保持静默降级——非 ok/网络失败不惊动用户
   const refreshStatus = useCallback(async () => {
     try {
-      const resp = await fetch(`${API_BASE}/api-configs/status`, { headers: authHeaders() });
-      if (resp.ok) {
-        const data = await resp.json();
-        setConfigs((prev) =>
-          prev.map((c) => {
-            const statusEntry = data.find((s: any) => s.id === c.id);
-            return statusEntry
-              ? {
-                  ...c,
-                  last_test_status: statusEntry.last_test_status,
-                  models: statusEntry.models,
-                }
-              : c;
-          }),
-        );
-      }
+      const data = await request<Array<Partial<ApiConfig> & { id: string }>>(
+        `${V1}/api-configs/status`,
+        { quiet: true },
+      );
+      setConfigs((prev) =>
+        prev.map((c) => {
+          const statusEntry = data.find((s) => s.id === c.id);
+          return statusEntry
+            ? {
+                ...c,
+                last_test_status: statusEntry.last_test_status ?? null,
+                models: statusEntry.models ?? c.models,
+              }
+            : c;
+        }),
+      );
     } catch {
-      /* ignore */
+      /* 探测失败保持静默（原口径）；真实故障由 fetchConfigs 的错误态兜底 */
     }
   }, []);
 
   const refreshModels = async (id: string) => {
-    const resp = await fetch(`${API_BASE}/api-configs/${id}/refresh-models`, {
-      method: "POST",
-      headers: authHeaders(),
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    return resp.json();
+    return request(`${V1}/api-configs/${id}/refresh-models`, { method: "POST" });
   };
 
   const testConfig = async (id: string): Promise<{ ok: boolean; status: string; models?: string[]; error?: string }> => {
-    const resp = await fetch(`${API_BASE}/api-configs/${id}/test`, {
-      method: "POST",
-      headers: authHeaders(),
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const result = await resp.json();
+    const result = await request<
+      Partial<ApiConfig> & { ok: boolean; status: string; error?: string }
+    >(`${V1}/api-configs/${id}/test`, { method: "POST" });
     // Refresh configs to pick up persisted test status
     if (result.ok || result.status) {
       setConfigs((prev) =>
         prev.map((c) =>
           c.id === id
-            ? { ...c, last_test_status: result.status, models: result.models ?? c.models }
+            ? {
+                ...c,
+                last_test_status: (result.status ?? c.last_test_status) as ApiConfig["last_test_status"],
+                models: result.models ?? c.models,
+              }
             : c,
         ),
       );
@@ -157,13 +148,10 @@ export function useApiConfigs() {
     api_key: string;
     api_format: "openai" | "anthropic";
   }): Promise<{ ok: boolean; status: string; models?: string[]; error?: string }> => {
-    const resp = await fetch(`${API_BASE}/api-configs/test-connection`, {
+    return request(`${V1}/api-configs/test-connection`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
     });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    return resp.json();
   };
 
   return {

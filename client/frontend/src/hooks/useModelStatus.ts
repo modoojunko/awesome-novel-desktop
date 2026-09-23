@@ -1,14 +1,11 @@
+// 模型就绪态与选型（c-fetch-unify 收编）：手写 fetch 迁回中心栈 request()。
+// fetchModel 失败不再静默停留旧值——错误态可见（c-silent-data-guards 同型口径）。
 import { useCallback, useEffect, useState } from "react";
 import type { AiState, FlatModelOption, ModelStatus } from "../types/api-config";
 import { useApiConfigs } from "./useApiConfigs";
-import { getToken } from "../lib/auth";
+import { errMessage, request } from "../lib/api";
 
-const API_BASE = "/api/v1";
-
-function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { "Authorization": `Bearer ${token}` } : {};
-}
+const V1 = "/api/v1";
 
 export function useModelStatus(projectId: string | undefined) {
   const { configs, loading: configsLoading, updateConfig, refresh: refreshConfigs } = useApiConfigs();
@@ -27,17 +24,22 @@ export function useModelStatus(projectId: string | undefined) {
       return;
     }
     try {
-      const resp = await fetch(`${API_BASE}/novels/${projectId}/ai-model`, { headers: authHeaders() });
-      if (resp.ok) {
-        const data = await resp.json();
-        setCurrentConfigId(data.api_config_id);
-        setCurrentConfigName(data.config_name || null);
-        setCurrentModel(data.model);
-        if (data.ai_state) setAiState(data.ai_state as AiState);
-        setAiMessage(data.message || "");
-      }
+      const data = await request<{
+        api_config_id?: string;
+        config_name?: string;
+        model?: string;
+        ai_state?: AiState;
+        message?: string;
+      }>(`${V1}/novels/${projectId}/ai-model`);
+      setCurrentConfigId(data.api_config_id ?? null);
+      setCurrentConfigName(data.config_name || null);
+      setCurrentModel(data.model ?? null);
+      if (data.ai_state) setAiState(data.ai_state as AiState);
+      setAiMessage(data.message ?? "");
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
+      // 失败可见：就绪态不静默停留旧值误导「可写」（返回值仍保留上一次快照供展示）
+      setError(errMessage(e, "模型状态没读出来，可重试"));
     } finally {
       setLoading(false);
     }
@@ -78,33 +80,27 @@ export function useModelStatus(projectId: string | undefined) {
     model: string | null,
   ) => {
     if (!projectId) return;
-    const resp = await fetch(`${API_BASE}/novels/${projectId}/ai-model`, {
+    // 绑定校验 400：request() 已把后端可读 detail 透成 message（前端保留 draft + 行内报错，D12）
+    await request(`${V1}/novels/${projectId}/ai-model`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ api_config_id: apiConfigId, model }),
     });
-    if (!resp.ok) {
-      // 绑定校验 400：把后端可读原因透出（前端保留 draft + 行内报错，D12）
-      const body = await resp.json().catch(() => ({}));
-      const detail = body?.detail;
-      const message =
-        typeof detail === "string"
-          ? detail
-          : detail?.message || `保存失败（HTTP ${resp.status}）`;
-      throw new Error(message);
-    }
     setCurrentConfigId(apiConfigId);
     setCurrentModel(model);
     await fetchModel();
   };
 
-  /** 该配置的候选模型 id（端点不提供 /models 时的起点；不触网）。 */
+  /** 该配置的候选模型 id（端点不提供 /models 时的起点；不触网）。
+   *  探测类：失败静默回空（quiet 不踢出），不阻塞补模型路径。 */
   const fetchCandidates = useCallback(async (configId: string) => {
-    const resp = await fetch(`${API_BASE}/api-configs/${configId}/model-candidates`, {
-      headers: authHeaders(),
-    });
-    if (!resp.ok) return { candidates: [] as string[], note: "" };
-    return (await resp.json()) as { candidates: string[]; note: string };
+    try {
+      return await request<{ candidates: string[]; note: string }>(
+        `${V1}/api-configs/${configId}/model-candidates`,
+        { quiet: true },
+      );
+    } catch {
+      return { candidates: [] as string[], note: "" };
+    }
   }, []);
 
   /** 给某个配置补模型 id（供应商不提供 /models 列表时的手动出口）。 */

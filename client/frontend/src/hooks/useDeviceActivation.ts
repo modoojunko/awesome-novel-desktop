@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { getToken } from '../lib/auth';
-import { getApiBaseUrl } from '../lib/env';
+import { request } from '../lib/api';
 import { toast } from '../lib/toast';
 
 interface DeviceStatus {
@@ -22,11 +22,8 @@ export function useDeviceActivation() {
 
     setLoading(true);
     try {
-      const resp = await fetch(`${getApiBaseUrl()}/api/auth/devices/current`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!resp.ok) return null;
-      const data: DeviceStatus = await resp.json();
+      // 探测类（quiet）：失败/401 一律静默回 null（原口径），不触发全局副作用
+      const data = await request<DeviceStatus>('/auth/devices/current', { quiet: true });
       setStatus(data);
       return data;
     } catch {

@@ -11,15 +11,10 @@ import type { ApiConfigFormData } from "../components/api-config/ApiConfigForm";
 import { DeleteConfirmDialog } from "../components/api-config/DeleteConfirmDialog";
 import { UndoToast } from "../components/api-config/UndoToast";
 import { Ico, P } from "../components/icons";
-import { getToken, isLoggedIn } from "../lib/auth";
-import { getApiBaseUrl } from "../lib/env";
+import { isLoggedIn } from "../lib/auth";
+import { request } from "../lib/api";
 import { relTime } from "../lib/reltime";
 import { toast } from "../lib/toast";
-
-function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { "Authorization": `Bearer ${token}` } : {};
-}
 
 /** 模型配置屏（model-config.html parity：notice + 用量面板 + cfg-cards + 弹窗群） */
 export default function ApiKeyConfigPage() {
@@ -47,11 +42,11 @@ export default function ApiKeyConfigPage() {
     }
   }, [searchParams]);
 
-  // Fetch migration status
+  // Fetch migration status（c-fetch-unify：迁中心栈；探测类静默失败，
+  // 原实现连 r.ok 都不查——非 2xx 的 HTML/空体在这里会抛解析错，同样被静默兜住）
   useEffect(() => {
-    fetch(`${getApiBaseUrl()}/api/v1/user/profile`, { headers: authHeaders() })
-      .then((r) => r.json())
-      .then((data) => {
+    request("/v1/user/profile", { apiBase: "/api/v1", quiet: true })
+      .then((data: any) => {
         if (data.migration_completed !== undefined) {
           setMigrationStatus({ completed: data.migration_completed, configName: data.migration_config_name });
         }

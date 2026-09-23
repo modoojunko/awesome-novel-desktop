@@ -40,6 +40,8 @@ export interface RequestOptions {
   quiet?: boolean;
   /** 503 不弹全局提示：抛带 status 的错误，由调用方就地提示（如 PromptManagementPage） */
   soft503?: boolean;
+  /** 路径前缀覆盖（c-fetch-unify）：默认 /api；/api/v1 手写族迁回中心栈时传 "/api/v1" */
+  apiBase?: string;
 }
 
 /** 带 HTTP 状态的错误（request() 抛出形状；调用方断言用同一类型，勿再就地重复声明）。 */
@@ -51,6 +53,18 @@ export type ApiError = Error & {
   current?: unknown;
   rev?: number;
 };
+
+/**
+ * 认证失效统一出口（c-fetch-unify）：清凭据 + 写反弹熔断时间戳 + 回登录页。
+ * 主栈 401、导入解析、AI 非流式/SSE 的 401 全部经此，不存在各自为政的第二套；
+ * 「至多一次踢出」的防循环由 LoginPage 消费的 last_auth_kick_at 熔断兜底
+ * （c-session-flip-stability）。
+ */
+export function handleAuthExpiry() {
+  localStorage.removeItem("auth_token");
+  sessionStorage.setItem("last_auth_kick_at", String(Date.now()));
+  window.location.href = "/#/login";
+}
 
 /**
  * 统一错误文案取值（仓库口径，同 useStoryArc）：**只有确有后端响应（status 存在）
@@ -69,10 +83,10 @@ export function errMessage(e: unknown, fallback: string): string {
   return usable ? (err.message as string) : fallback;
 }
 
-export async function request(
+export async function request<T = any>(
   path: string,
   options?: RequestOptions,
-): Promise<any> {
+): Promise<T> {
   const method = options?.method || 'GET';
   const headers: Record<string, string> = { ...(options?.headers || {}) };
 
@@ -86,7 +100,7 @@ export async function request(
 
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, {
+    res = await fetch(`${options?.apiBase ?? BASE}${path}`, {
       method,
       headers,
       body: options?.body,
@@ -102,11 +116,7 @@ export async function request(
     // 不再把用户正在编辑的页面踢飞；显式失效信号（useAuthHeal code 1 +
     // session_invalid）不经过此分支，不受本豁免影响。
     if (!options?.quiet) {
-      localStorage.removeItem("auth_token");
-      // 记录踢出时刻：LoginPage 自动登录以此做反弹熔断（c-session-flip-stability
-      // 「失效处理不循环」）——否则「自动登录写回凭据 ↔ 业务 401 踢出」互踢成环
-      sessionStorage.setItem("last_auth_kick_at", String(Date.now()));
-      window.location.href = "/#/login";
+      handleAuthExpiry();
     }
     const e = new Error("登录状态已失效，请重新登录") as Error & { status?: number };
     e.status = 401;
@@ -267,10 +277,10 @@ export async function importParse(
     headers,
     signal,
   });
-  // 401 踢出不豁免：导入是用户动作请求（无 quiet 形态），口径见 request()
+  // 401 踢出不豁免：导入是用户动作请求（无 quiet 形态）；经统一出口补齐
+  // 反弹熔断时间戳（c-fetch-unify——原实现只清凭据+跳转，绕过了登录页熔断）
   if (res.status === 401) {
-    localStorage.removeItem("auth_token");
-    window.location.href = "/#/login";
+    handleAuthExpiry();
     throw new Error("Unauthorized");
   }
   if (res.status === 503) {

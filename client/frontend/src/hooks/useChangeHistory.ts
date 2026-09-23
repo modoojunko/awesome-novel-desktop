@@ -1,13 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ChangeEntry } from "../types/api-config";
-import { getToken } from "../lib/auth";
+import { errMessage, request } from "../lib/api";
 
-const API_BASE = "/api/v1";
-
-function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { "Authorization": `Bearer ${token}` } : {};
-}
+// c-fetch-unify：手写 fetch 迁回中心栈（apiBase 整体替换默认 /api 前缀）
+const V1 = "/api/v1";
 
 export function useChangeHistory(projectId: string | undefined) {
   const [history, setHistory] = useState<ChangeEntry[]>([]);
@@ -22,24 +18,13 @@ export function useChangeHistory(projectId: string | undefined) {
     setLoading(true);
     setError(null);
     try {
-      const resp = await fetch(
-        `${API_BASE}/novels/${projectId}/model-history`,
-        { headers: authHeaders() },
+      // 503 storage_busy 等结构化错误：request() 已把可读 detail 透成 message
+      const data = await request<{ history: ChangeEntry[] }>(
+        `${V1}/novels/${projectId}/model-history`,
       );
-      if (!resp.ok) {
-        // 503 storage_busy 等结构化错误 → 取可读 message（否则用户只看到 HTTP 500）
-        const body = await resp.json().catch(() => null);
-        const detail = body?.detail;
-        throw new Error(
-          typeof detail === "string"
-            ? detail
-            : detail?.message || `HTTP ${resp.status}`,
-        );
-      }
-      const data = await resp.json();
       setHistory(data.history || []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
+      setError(errMessage(e, "切换历史没读出来，可重试"));
     } finally {
       setLoading(false);
     }
@@ -51,15 +36,13 @@ export function useChangeHistory(projectId: string | undefined) {
 
   const restoreVersion = async (entryId: string) => {
     if (!projectId) return;
-    const resp = await fetch(
-      `${API_BASE}/novels/${projectId}/model-history/${entryId}/restore`,
-      { method: "POST", headers: authHeaders() },
-    );
-    if (resp.status === 400) {
-      const err = await resp.json();
-      throw new Error(err.detail || "恢复失败");
+    try {
+      await request(`${V1}/novels/${projectId}/model-history/${entryId}/restore`, {
+        method: "POST",
+      });
+    } catch (e) {
+      throw new Error(errMessage(e, "恢复失败"));
     }
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     await fetchHistory();
   };
 
