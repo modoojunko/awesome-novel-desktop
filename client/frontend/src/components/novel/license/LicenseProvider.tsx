@@ -1,14 +1,21 @@
-import { createContext, useCallback, useEffect, useState } from "react";
+import { createContext, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { api } from "@/lib/api";
 import { isLoggedIn } from "@/lib/auth";
+import {
+  getVerifyCache,
+  getLastRefreshAt,
+  getLastRefreshPath,
+  resetVerifyCache,
+  resetLicenseCache,
+  setLastRefresh,
+  setVerifyCache,
+  type EntitlementSnapshot,
+  type LicenseVerify,
+} from "@/lib/licenseCache";
 
 /** 权益快照（entitlement 契约 v1，S端 check-auth 下发 / C端 verify 透传） */
-export interface EntitlementSnapshot {
-  v: number;
-  features: string[];
-  limits: { max_projects: number | null };
-}
+export type { EntitlementSnapshot };
 
 export interface TierState {
   tier: string;
@@ -32,24 +39,9 @@ export interface TierState {
   refetch: () => void;
 }
 
-interface VerifyResponse {
-  tier?: string;
-  is_member?: boolean;
-  expired?: boolean;
-  expires_at?: string;
-  trial_remaining_days?: number;
-  entitlement?: EntitlementSnapshot;
-  entitlement_degraded?: boolean;
-}
-
-// module 级缓存：同会话多 Provider/重挂载不重复请求（/auth/verify 仅 1 次）。
-let cachedVerify: VerifyResponse | null = null;
-
 // 两跳刷新节流（c-s-entitlement-sync Q1）：路由切换 → /auth/check-auth（S端
 // 静默往返写快照）→ refetch 刷上下文；60 秒窗口内不重复打 S端。无定时轮询。
 const REFRESH_THROTTLE_MS = 60_000;
-let lastRefreshAt = 0;
-let lastRefreshPath: string | null = null;
 
 function isEntitlementRoute(pathname: string): boolean {
   return pathname === "/novels" || pathname.startsWith("/novel/");
@@ -63,6 +55,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
   // 注 null，消费方 useTier 已有 SAFE_FREE 兜底），壳层子树身份稳定不重挂。
   // 未登录时不发 verify/check-auth，与旧「壳层条件不挂 Provider」语义一致。
   const loggedIn = isLoggedIn();
+  const cachedVerify = getVerifyCache();
   const [tier, setTier] = useState(cachedVerify?.tier ?? "none");
   const [isMember, setIsMember] = useState(cachedVerify?.is_member ?? false);
   const [expired, setExpired] = useState(cachedVerify?.expired ?? false);
@@ -79,23 +72,43 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
   const [syncFailed, setSyncFailed] = useState(false);
   const [loading, setLoading] = useState(!cachedVerify);
   const [error, setError] = useState<string | null>(null);
+  // 登录态上升沿探测：false→true（登出后再登录／换账号）时清残留判定
+  const prevLoggedInRef = useRef(loggedIn);
+
+  // 登录上升沿（c-silent-data-guards）：清上一账号的 verify 缓存与节流状态，
+  // 本地判定同步回免费默认——首个请求发出前徽章也不得显示上一账号的档位
+  useEffect(() => {
+    if (loggedIn && !prevLoggedInRef.current) {
+      resetLicenseCache();
+      setTier("none");
+      setIsMember(false);
+      setExpired(false);
+      setExpiresAt("");
+      setTrialRemainingDays(0);
+      setEntitlement(null);
+      setEntitlementDegraded(false);
+      setSyncFailed(false);
+    }
+    prevLoggedInRef.current = loggedIn;
+  }, [loggedIn]);
 
   const load = useCallback(async (useCache: boolean) => {
-    if (useCache && cachedVerify) {
-      setTier(cachedVerify.tier ?? "none");
-      setIsMember(cachedVerify.is_member ?? false);
-      setExpired(cachedVerify.expired ?? false);
-      setExpiresAt(cachedVerify.expires_at ?? "");
-      setTrialRemainingDays(cachedVerify.trial_remaining_days ?? 0);
-      setEntitlement(cachedVerify.entitlement ?? null);
-      setEntitlementDegraded(cachedVerify.entitlement_degraded ?? false);
+    const cache = getVerifyCache();
+    if (useCache && cache) {
+      setTier(cache.tier ?? "none");
+      setIsMember(cache.is_member ?? false);
+      setExpired(cache.expired ?? false);
+      setExpiresAt(cache.expires_at ?? "");
+      setTrialRemainingDays(cache.trial_remaining_days ?? 0);
+      setEntitlement(cache.entitlement ?? null);
+      setEntitlementDegraded(cache.entitlement_degraded ?? false);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const r = (await api.post("/auth/verify")) as VerifyResponse;
-      cachedVerify = r;
+      const r = (await api.post("/auth/verify")) as LicenseVerify;
+      setVerifyCache(r);
       setTier(r.tier ?? "none");
       setIsMember(r.is_member ?? false);
       setExpired(r.expired ?? false);
@@ -120,7 +133,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
   }, [load, loggedIn]);
 
   const refetch = useCallback(() => {
-    cachedVerify = null;
+    resetVerifyCache();
     void load(false);
   }, [load]);
 
@@ -128,14 +141,13 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!loggedIn) return;
     const path = location.pathname;
-    if (!isEntitlementRoute(path) || path === lastRefreshPath) return;
+    if (!isEntitlementRoute(path) || path === getLastRefreshPath()) return;
     const now = Date.now();
-    if (now - lastRefreshAt < REFRESH_THROTTLE_MS) {
-      lastRefreshPath = path;
+    if (now - getLastRefreshAt() < REFRESH_THROTTLE_MS) {
+      setLastRefresh(now, path);
       return;
     }
-    lastRefreshAt = now;
-    lastRefreshPath = path;
+    setLastRefresh(now, path);
     void (async () => {
       try {
         await api.get("/auth/check-auth"); // S端 静默往返，更新本地快照
@@ -153,8 +165,8 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
     if (!loggedIn) return;
     const onFocus = () => {
       const now = Date.now();
-      if (now - lastRefreshAt < REFRESH_THROTTLE_MS) return;
-      lastRefreshAt = now;
+      if (now - getLastRefreshAt() < REFRESH_THROTTLE_MS) return;
+      setLastRefresh(now, getLastRefreshPath());
       void (async () => {
         try {
           await api.get("/auth/check-auth");

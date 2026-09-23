@@ -10,6 +10,7 @@ from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from models.archive import ChapterPrompt
+from models.chapter import Chapter
 from novels.service import get_novel
 from repositories import chapter_repo
 from workflow.engine import _validate_ref, load_chapter
@@ -23,6 +24,37 @@ router = APIRouter(
     prefix="/api/novels/{project_id}/chapters/{chapter_ref}",
     tags=["prompts"],
 )
+
+# 书级路由（c-silent-data-guards）：提示词总览批量取数用——
+# 逐章串行 300 请求的 N+1 在此收口。只读聚合，不返回提示词内容。
+book_router = APIRouter(prefix="/api/novels/{project_id}", tags=["prompts"])
+
+
+@book_router.get("/prompt-summary")
+async def prompt_summary(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
+    db: AsyncSession = Depends(get_db),
+):
+    """全书各章是否已有整章提示词（一次聚合；与章级 /prompts 同口径只认 write-prompt）。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    stored = set(
+        await db.scalars(
+            select(Chapter.ref)
+            .join(ChapterPrompt, ChapterPrompt.chapter_id == Chapter.id)
+            .where(
+                Chapter.project_id == project.id,
+                ChapterPrompt.name == "write-prompt",
+            )
+        )
+    )
+    refs = await db.scalars(
+        select(Chapter.ref).where(Chapter.project_id == project.id)
+    )
+    return {"chapters": [{"ref": r, "has_stored": r in stored} for r in refs]}
 
 
 @router.post("/perspective")

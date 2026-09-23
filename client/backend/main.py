@@ -34,6 +34,7 @@ from models.user import User
 from novels.events_router import router as events_router
 from novels.router import ai_router
 from novels.router import router as novels_router
+from prompt.router import book_router as prompt_book_router
 from prompt.router import router as prompt_router
 from settings.ai_router import router as settings_ai_router
 from settings.characters_ai import router as characters_ai_router
@@ -325,6 +326,7 @@ app.include_router(chapters_ai_draft_router)
 app.include_router(volume_ai_plan_router)  # 卷域 AI：3 套方案/展开/体检（volume-plan-ai）
 app.include_router(chapter_ai_plan_router)  # 章域 AI：拆章 3 方向/自检/进场（c-chapter-plan-ai）
 app.include_router(prompt_router)
+app.include_router(prompt_book_router)  # 书级批量：prompt-summary（提示词总览 N+1 收口）
 app.include_router(write_router)
 app.include_router(ai_check_router)
 app.include_router(archive_router)

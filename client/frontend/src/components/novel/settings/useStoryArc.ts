@@ -26,9 +26,12 @@ export interface ArcCtl {
   projectId: string;
   arc: ArcData;
   loading: boolean;
+  /** 加载失败——失败后 SHALL NOT 以空卡作可保存基线（保存入口禁用，重试成功后恢复） */
+  loadError: boolean;
   saving: boolean;
   patch: (p: Partial<ArcData>) => void;
   save: () => Promise<boolean>;
+  reload: () => void;
 }
 
 export function useStoryArc(
@@ -38,7 +41,9 @@ export function useStoryArc(
 ): ArcCtl {
   const [arc, setArc] = useState<ArcData>(EMPTY_ARC);
   const [loading, setLoading] = useState(enabled);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loadTick, setLoadTick] = useState(0);
   // P3-4：晚到的挂载 fetch 不得覆盖用户输入
   const editedRef = useRef(false);
   const { snapshotLoaded, markSaved } = useDirtyState(arc, onDirtyChange);
@@ -47,6 +52,7 @@ export function useStoryArc(
     if (!enabled) return;
     let cancelled = false;
     setLoading(true);
+    setLoadError(false);
     editedRef.current = false;
     api
       .fetchStoryArc(projectId)
@@ -64,12 +70,16 @@ export function useStoryArc(
         setArc(next);
         snapshotLoaded(next);
       })
-      .catch(() => !cancelled && snapshotLoaded(EMPTY_ARC))
+      // 加载失败不再落 EMPTY_ARC 干净基线（c-silent-data-guards）：
+      // 那会把「没加载到」伪装成「内容为空」，保存即整卡覆盖库里已有内容
+      .catch(() => !cancelled && setLoadError(true))
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
-    // snapshotLoaded 引用稳定；仅项目/启用态变化重拉
+    // snapshotLoaded 引用稳定；仅项目/启用态/手动重载变化重拉
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, enabled]);
+  }, [projectId, enabled, loadTick]);
+
+  const reload = useCallback(() => setLoadTick((t) => t + 1), []);
 
   const patch = useCallback((p: Partial<ArcData>) => {
     editedRef.current = true;
@@ -77,6 +87,10 @@ export function useStoryArc(
   }, []);
 
   const save = useCallback(async (): Promise<boolean> => {
+    if (loadError) {
+      toast.error("主线卡还没加载成功——先重新加载再保存");
+      return false;
+    }
     if (saving) return false;
     setSaving(true);
     try {
@@ -94,7 +108,7 @@ export function useStoryArc(
     } finally {
       setSaving(false);
     }
-  }, [projectId, arc, saving, markSaved]);
+  }, [projectId, arc, saving, loadError, markSaved]);
 
-  return { projectId, arc, loading, saving, patch, save };
+  return { projectId, arc, loading, loadError, saving, patch, save, reload };
 }

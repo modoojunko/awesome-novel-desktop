@@ -408,6 +408,7 @@ export default function OutlineTree({
             className="add-btn"
             data-od-id="add-chapter"
             title="首页排一章，先进章纲"
+            disabled={wb.creating}
             onClick={onAddChapter}
           >
             ＋ 新增一章

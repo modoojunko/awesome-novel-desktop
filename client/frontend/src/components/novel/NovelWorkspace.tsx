@@ -670,11 +670,16 @@ export default function NovelWorkspace() {
     [plan, persistVolume, clearSelection],
   );
 
-  /** 免费直建（四问手写页）：答多少建多少 */
+  /** 免费直建（四问手写页）：答多少建多少。in-flight 闸防双击双发（c-silent-data-guards） */
+  const directCreatingRef = useRef(false);
+  const [directCreating, setDirectCreating] = useState(false);
   const handleDirectCreate = useCallback(async () => {
+    if (directCreatingRef.current) return;
     const a = plan.state.answers;
     const volNo = plan.state.volNo;
     // 同上：本路径自己 clearSelection，不置 landAfterSaveRef
+    directCreatingRef.current = true;
+    setDirectCreating(true);
     try {
       await api.post(`/novels/${projectId}/volumes`, {
         title: `第${cnNum(volNo)}卷`,
@@ -692,6 +697,9 @@ export default function NovelWorkspace() {
     } catch (e: unknown) {
       toast.error((e as { message?: string })?.message || "建卷失败，请重试");
       return;
+    } finally {
+      directCreatingRef.current = false;
+      setDirectCreating(false);
     }
     clearSelection();
   }, [plan, projectId, outline, refresh, clearSelection]);
@@ -1066,6 +1074,7 @@ export default function NovelWorkspace() {
                     <button
                       className="btn btn-secondary"
                       data-od-id="empty-cta-ch"
+                      disabled={wb.creating}
                       onClick={() => void addFirstChapter()}
                     >
                       ＋ 新增一章
@@ -1084,6 +1093,7 @@ export default function NovelWorkspace() {
                     <button
                       className="btn btn-primary"
                       data-testid="landing-add-chapter"
+                      disabled={wb.creating}
                       onClick={() => void addFirstChapterIn(lastVolName)}
                     >
                       ＋ 在本卷排第一章
@@ -1148,6 +1158,7 @@ export default function NovelWorkspace() {
                     <button
                       className="btn btn-secondary"
                       data-testid="home-add-chapter"
+                      disabled={wb.creating}
                       onClick={() => void addChapterAtEnd()}
                     >
                       ＋ 新增一章
@@ -1242,6 +1253,7 @@ export default function NovelWorkspace() {
         isPro={isPro}
         onUpgrade={onUpgrade}
         onDirectCreate={() => void handleDirectCreate()}
+        creating={directCreating}
         onBackfill={handlePlanBackfill}
         onClose={plan.closeDesk}
         onGoSettings={() => goTab("advanced-settings")}

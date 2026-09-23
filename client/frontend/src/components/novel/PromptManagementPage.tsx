@@ -58,8 +58,11 @@ async function fetchPromptText(
     { headers: { Authorization: `Bearer ${token}` } },
   );
   if (!res.ok) {
+    // 404＝确无存量（空态引导）；其余（5xx/网络）由调用方走失败态（c-silent-data-guards）
     const errText = await res.text().catch(() => res.statusText);
-    throw new Error(errText || "获取提示词失败");
+    const err = new Error(errText || "获取提示词失败") as Error & { status?: number };
+    err.status = res.status;
+    throw err;
   }
   return res.text();
 }
@@ -83,6 +86,11 @@ export default function PromptManagementPage({
     Record<string, ChapterPromptInfo>
   >({});
   const [overviewLoading, setOverviewLoading] = useState(true);
+  // 加载失败≠「没有卷章/没有提示词」：显式失败态＋重试（c-silent-data-guards）
+  const [volumesError, setVolumesError] = useState(false);
+  const [promptsError, setPromptsError] = useState(false);
+  const [reloadTick, setReloadTick] = useState(0);
+  const reload = useCallback(() => setReloadTick((t) => t + 1), []);
   // 未配 AI Key（prompts 端点 503）：就地提示 + 去配置，不再整页跳 /config
   const [aiUnavailable, setAiUnavailable] = useState(false);
   const [expandedChapters, setExpandedChapters] = useState<Set<string>>(
@@ -107,6 +115,7 @@ export default function PromptManagementPage({
   const [viewerChapterRef, setViewerChapterRef] = useState("");
   const [viewerContent, setViewerContent] = useState("");
   const [viewerLoading, setViewerLoading] = useState(false);
+  const [viewerError, setViewerError] = useState(false);
   const [polishing, setPolishing] = useState(false);
   const [polishError, setPolishError] = useState<string | null>(null);
 
@@ -125,6 +134,7 @@ export default function PromptManagementPage({
 
     async function load() {
       setOverviewLoading(true);
+      setVolumesError(false);
       try {
         // change 006：GET /volumes 返回 DB 全量树（卷含 ref + chapters 元数据），
         // 卷章一次到位，无需逐卷二次请求。
@@ -140,7 +150,8 @@ export default function PromptManagementPage({
         });
         if (!cancelled) setVolumes(result);
       } catch {
-        // volumes may not exist yet
+        // 失败要可见：静默呈现为「没有卷章」会诱导作者以为书空了
+        if (!cancelled) setVolumesError(true);
       } finally {
         if (!cancelled) setOverviewLoading(false);
       }
@@ -150,55 +161,48 @@ export default function PromptManagementPage({
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, reloadTick]);
 
-  // Fetch stored-prompt existence per chapter（chapterRef 时仅拉该章）
+  // Fetch stored-prompt existence（批量端点一次取全书，替代逐章串行 N+1）
   useEffect(() => {
     if (volumes.length === 0) return;
     let cancelled = false;
 
     async function loadAllPrompts() {
-      const allChapters = visibleChapters;
+      setPromptsError(false);
       setAiUnavailable(false);
-
-      const newMap: Record<string, ChapterPromptInfo> = {};
-      for (const ch of allChapters) {
-        try {
-          // 整章单卡：list 只回 [{ref}-write-prompt.md] 一条（存量 seg 行不返回）
-          const files: string[] = await request(
-            `/novels/${projectId}/chapters/${ch.ref}/prompts`,
-            { soft503: true },
-          );
-          const hasStored = files.some((f) => f.endsWith("-write-prompt.md"));
+      try {
+        const res = (await request(`/novels/${projectId}/prompt-summary`, { soft503: true })) as {
+          chapters: { ref: string; has_stored: boolean }[];
+        };
+        const stored = new Set(res.chapters.filter((c: { has_stored: boolean }) => c.has_stored).map((c: { ref: string }) => c.ref));
+        const newMap: Record<string, ChapterPromptInfo> = {};
+        for (const ch of visibleChapters) {
+          const hasStored = stored.has(ch.ref);
           newMap[ch.ref] = {
             chapterRef: ch.ref,
             chapterTitle: ch.title,
             hasStored,
             status: hasStored ? "saved" : "none",
           };
-        } catch (e: any) {
-          // 503 = 会员但未配 AI Key：就地提示并终止加载（其余章必然同样 503）
-          if (e?.status === 503) {
-            if (!cancelled) setAiUnavailable(true);
-            return;
-          }
-          newMap[ch.ref] = {
-            chapterRef: ch.ref,
-            chapterTitle: ch.title,
-            hasStored: false,
-            status: "none",
-          };
         }
+        if (!cancelled) setChapterPrompts(newMap);
+      } catch (e: any) {
+        if (cancelled) return;
+        // 503 = 会员但未配 AI Key：就地提示（沿用原口径）
+        if (e?.status === 503) {
+          setAiUnavailable(true);
+          return;
+        }
+        setPromptsError(true);
       }
-
-      if (!cancelled) setChapterPrompts(newMap);
     }
 
     loadAllPrompts();
     return () => {
       cancelled = true;
     };
-  }, [visibleChapters, projectId]);
+  }, [visibleChapters, projectId, reloadTick]);
 
   // =====================================================================
   // Actions
@@ -210,13 +214,18 @@ export default function PromptManagementPage({
       setViewerChapterRef(chRef);
       setViewerLoading(true);
       setPolishError(null);
+      setViewerError(false);
       setViewerContent("");
       try {
         const text = await fetchPromptText(projectId, chRef);
         setViewerContent(text);
-      } catch {
-        // 无存量（404/空）→ 展示空态引导（润色或生成时会落库）
-        setViewerContent("");
+      } catch (e: any) {
+        // 404＝确无存量 → 空态引导（润色或生成时会落库）；其余失败≠「没有」，要能重试
+        if (e?.status === 404) {
+          setViewerContent("");
+        } else {
+          setViewerError(true);
+        }
       } finally {
         setViewerLoading(false);
       }
@@ -358,6 +367,26 @@ export default function PromptManagementPage({
       return (
         <div className="pm-loading">
           <Ico d={P.spinner} className="spin" size={18} style={{ color: "var(--accent)" }} />
+        </div>
+      );
+    }
+
+    // 卷章骨架/提示词清单加载失败：显式失败态＋重试，不冒充「没有卷章」（c-silent-data-guards）
+    if (volumesError || promptsError) {
+      return (
+        <div className="pm-empty" data-testid="pm-load-error">
+          <Ico d={P.doc} size={28} style={{ color: "var(--muted)" }} />
+          <div className="pm-empty-text">
+            <p>提示词清单没加载出来</p>
+            <p className="sub">
+              {volumesError
+                ? "章节列表没读到，为避免误显为「没有章节」，请重新加载。"
+                : "各章提示词状态没读到，请重新加载。"}
+            </p>
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={reload}>
+            重新加载
+          </button>
         </div>
       );
     }
@@ -530,6 +559,20 @@ export default function PromptManagementPage({
         {viewerLoading ? (
           <div className="pm-loading">
             <Ico d={P.spinner} className="spin" size={18} style={{ color: "var(--accent)" }} />
+          </div>
+        ) : viewerError ? (
+          <div className="pm-empty" data-testid="pm-write-error">
+            <Ico d={P.doc} size={28} style={{ color: "var(--muted)" }} />
+            <div className="pm-empty-text">
+              <p>提示词没读出来</p>
+              <p className="sub">读取失败与「还没有提示词」是两回事——请重试后再看。</p>
+            </div>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => void openViewer(viewerChapterRef)}
+            >
+              重新加载
+            </button>
           </div>
         ) : viewerContent ? (
           <div data-testid="pm-write-view">
