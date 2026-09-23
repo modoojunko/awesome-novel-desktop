@@ -1,5 +1,7 @@
 import { migratableCandidates, useLegacyDb } from '@/hooks/useLegacyDb';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queryKeys";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
@@ -102,9 +104,23 @@ export default function NovelListPage() {
 }
 
 function NovelList() {
-  const [novels, setNovels] = useState<Novel[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
+  // 书架列表迁查询缓存（c-query-cache-layer 试点）：写操作经 setQueryData/invalidate，
+  // 事件广播保留双轨（试点期）
+  const queryClient = useQueryClient();
+  const {
+    data: novelsData,
+    isFetching: loading,
+    error: queryError,
+    refetch: fetchNovels,
+  } = useQuery<Novel[]>({
+    queryKey: queryKeys.novels,
+    queryFn: async () => api.get("/novels"),
+  });
+  const novels = novelsData ?? [];
+  const loadError = queryError != null;
+  const setNovels = (
+    updater: (prev: Novel[]) => Novel[],
+  ) => queryClient.setQueryData<Novel[]>(queryKeys.novels, (prev) => updater(prev ?? []));
   const [portalUrl, setPortalUrl] = useState<string>('');
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -169,21 +185,7 @@ function NovelList() {
     }
   }
 
-  const fetchNovels = useCallback(async () => {
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const data = await api.get("/novels");
-      setNovels(data);
-    } catch {
-      setLoadError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    fetchNovels();
     api.post("/auth/verify").then((r: any) => {
       // 权益快照异常（c-s-entitlement-sync）：后端已按档位标准兜底，提示用户可求助
       if (r.entitlement_degraded !== undefined) setEntDegraded(r.entitlement_degraded);

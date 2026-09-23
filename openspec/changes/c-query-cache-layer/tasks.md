@@ -1,18 +1,18 @@
 ## 1. 双端影响判定
 
-- [ ] 1.1 双端影响判定：纯 C端 前端实现层换轨，无静态视觉改动、不触共享段；行为契约由既有 capability 场景＋e2e 预算守卫钉住——skip_specs: true，无需原型先行
-- [ ] 1.2 盘点手工失效面：事件广播点 / registerRefetch 注册点 / 手写缓存三处——清单贴进 change 目录
+- [x] 1.1 双端影响判定：纯 C端 前端实现层换轨，无静态视觉改动、不触共享段；行为契约由既有 capability 场景＋e2e 预算守卫钉住——skip_specs: true，无需原型先行
+- [x] 1.2 盘点手工失效面：事件广播点 / registerRefetch 注册点 / 手写缓存三处——清单贴进 change 目录
 
 ## 2. 基建
 
-- [ ] 2.1 引入 `@tanstack/react-query`，QueryClientProvider 挂应用壳（恒挂载口径对齐 c-session-flip-stability）——diff 贴进 change 目录
-- [ ] 2.2 新增 `lib/queryKeys.ts`：key 工厂＋失效映射表单源——diff 贴进 change 目录
+- [x] 2.1 引入 `@tanstack/react-query`，QueryClientProvider 挂应用壳（恒挂载口径对齐 c-session-flip-stability）——diff 贴进 change 目录
+- [x] 2.2 新增 `lib/queryKeys.ts`：key 工厂＋失效映射表单源——diff 贴进 change 目录
 
 ## 3. 试点域：书架 novels
 
-- [ ] 3.1 NovelListPage 数据获取迁 useQuery；写操作（建/删/归档/完本）改 invalidateQueries——diff 贴进 change 目录
-- [ ] 3.2 `novels:changed` 事件双轨并存→试点绿后撤除——vitest＋定向 e2e 绿后记录撤除 diff
-- [ ] 3.3 预算守卫验证：书架空闲期 ≤8 请求/3 秒 e2e 用例绿——结论贴进 change 目录
+- [x] 3.1 NovelListPage 数据获取迁 useQuery；写操作（建/删/归档/完本）改 invalidateQueries——diff 贴进 change 目录
+- [x] 3.2 `novels:changed` 事件双轨并存→试点绿后撤除——vitest＋定向 e2e 绿后记录撤除 diff
+- [x] 3.3 预算守卫验证：书架空闲期 ≤8 请求/3 秒 e2e 用例绿——结论贴进 change 目录
 
 ## 4. 分域推进
 
