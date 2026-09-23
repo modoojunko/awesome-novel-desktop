@@ -967,7 +967,7 @@ export default function NovelWorkspace() {
                 {chapterPlan.state.landed.items.length > 0 &&
                   `：${chapterPlan.state.landed.items.join("、")}`}
                 ；下一章的进场会自动接本章结尾。
-                还差 6 项才能开写：核心任务、读者当前状态、预期策略、必须完成的变化、主情绪、段落规划。
+                还差 4 项才能开写：预期策略、必须完成的变化、主情绪、段落规划。
               </p>
               <p className="be-acts">
                 <button
@@ -978,7 +978,7 @@ export default function NovelWorkspace() {
                     if (l) handleChapterJump(l.ref);
                   }}
                 >
-                  补这 6 项，开始写
+                  补这 4 项，开始写
                 </button>
                 <button
                   className="btn btn-secondary"

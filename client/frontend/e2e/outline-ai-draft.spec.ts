@@ -176,7 +176,9 @@ test("空章纲：AI 起草回填表单 → 保存草稿 → 刷新回读", asyn
     await page.getByTestId("og-ai-draft").click();
     // 回填不落库：表单出现草稿内容
     await expect(page.locator("#wf-summary")).toHaveValue(DRAFT.outline.summary);
-    await expect(page.locator("#wf-task")).toHaveValue(DRAFT.memo.current_task);
+    // c-og-fields-slim：核心任务格退役，草稿 memo.current_task 不再回填
+    await expect(page.locator("#wf-task")).toHaveCount(0);
+    await expect(page.locator("#wf-rstrat")).toHaveValue(DRAFT.memo.reader_expectation.strategy);
     await expect(page.locator("#wf-wt")).toHaveValue("1800");
     // 场景卡行回填
     await expect(page.locator("#wf-scenes input").first()).toHaveValue("账房");

@@ -132,9 +132,7 @@ const SEED = (() => {
       perspective_guidance: "",
     },
     memo: {
-      current_task: "建立「回声」悬念：让读者与沉舟一起看见信标，并想知道信号的源头。",
       reader_expectation: {
-        state: "被精准的信号节奏勾起好奇，尚不知信标与旧船的关联。",
         strategy: "感官先行 + 克制揭示：只给现象，不给解释。",
         detail: "",
       },

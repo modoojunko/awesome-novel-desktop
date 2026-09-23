@@ -46,8 +46,6 @@ function stubContent(prompt: string): string {
   if (prompt.includes("你是长篇小说章纲编辑")) {
     return JSON.stringify({
       fills: {
-        current_task: "问出货源的来路",
-        state: "读者以为船家可信",
         strategy: "顺着章纲推进，不提前揭破",
         changes: ["主角与师父决裂"],
         mood: "紧张",
@@ -263,11 +261,11 @@ test("PRO：检测族六类弹窗＋章纲补缺＋提示词精修采纳", async
     // ── 章纲补缺：AI 回填表单（含段落规划），缺口清零 ────────────────────
     await rail.getByRole("button", { name: /补全缺失字段/ }).click();
     await expect(page.getByText(/已补 \d+ 项/)).toBeVisible({ timeout: 20000 });
-    await expect(page.locator("textarea#wf-task")).toHaveValue(
-      "问出货源的来路",
+    await expect(page.locator("textarea#wf-rstrat")).toHaveValue(
+      "顺着章纲推进，不提前揭破",
       { timeout: 10000 },
     );
-    // 六项必填补齐 → 「还缺」清单消失（右栏随表单刷新）
+    // 四项必填补齐 → 「还缺」清单消失（右栏随表单刷新；c-og-fields-slim）
     await expect(rail.getByText("还缺")).toHaveCount(0, { timeout: 10000 });
 
     // ── 文风页签：一致性检查（有 findings）＋标记偏离段落（空态）────────

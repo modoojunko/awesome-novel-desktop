@@ -157,10 +157,10 @@ async function ensurePromptAccess(request: APIRequestContext, token: string) {
 }
 
 // -------------------------------------------------------------------------
-// ① 章纲：OgPane 平面全字段表单（概要/关键事件/核心任务/主情绪）→ 保存草稿
+// ① 章纲：OgPane 平面全字段表单（概要/关键事件/预期策略/主情绪）→ 保存草稿
 // -------------------------------------------------------------------------
 
-test("章纲：OgPane 真实表单编辑 + 保存草稿（概要/关键事件/核心任务/主情绪）", async ({
+test("章纲：OgPane 真实表单编辑 + 保存草稿（概要/关键事件/预期策略/主情绪）", async ({
   page,
   request,
 }) => {
@@ -176,10 +176,10 @@ test("章纲：OgPane 真实表单编辑 + 保存草稿（概要/关键事件/�
     ).toBeVisible({ timeout: 10000 });
     await expect(page.locator(".gap-chip").first()).toBeVisible();
 
-    // 填 4 个代表字段（概要 / 关键事件列表 / 核心任务 / 主情绪选择）
+    // 填 4 个代表字段（概要 / 关键事件列表 / 预期策略 / 主情绪选择）
     await page.locator("#wf-summary").fill("主角在边境城邦发现妹妹失踪的线索");
     await page.locator("#wf-keys").fill("收到匿名信");
-    await page.locator("#wf-task").fill("查明妹妹失踪的真相");
+    await page.locator("#wf-rstrat").fill("读者会猜寄信人是故人");
     await page.locator("#wf-mood select").selectOption({ label: "悬疑" });
 
     // 保存草稿 → PUT /chapters/vol-1-ch-1 落盘（仍有必填缺口 → 不自动确认）
@@ -196,7 +196,7 @@ test("章纲：OgPane 真实表单编辑 + 保存草稿（概要/关键事件/�
     const ch = await apiGetJSON(request, token, `/novels/${pid}/chapters/vol-1-ch-1`);
     expect(ch.outline.summary).toContain("妹妹失踪");
     expect(ch.outline.key_points).toContain("收到匿名信");
-    expect(ch.memo.current_task).toContain("真相");
+    expect(ch.memo.reader_expectation.strategy).toContain("寄信人");
     expect(ch.emotional_design.primary_mood).toBe("悬疑");
   } finally {
     await restore();
@@ -472,7 +472,7 @@ test("点章强制落章纲：确认/有正文后重挂载仍落章纲 + 右栏�
     await expect(ogTab).toHaveAttribute("aria-selected", "true");
     await expect(page.getByText(/章纲：明确「这一章写什么」/)).toBeVisible();
 
-    // API 备齐必填（核心任务/读者状态/预期策略/必须变化/主情绪/段落规划）→ 确认
+    // API 备齐必填（预期策略/必须变化/主情绪/段落规划，c-og-fields-slim 四项）→ 确认
     const auth = { Authorization: `Bearer ${token}` };
     const ready = (await apiGetJSON(
       request,
@@ -480,9 +480,7 @@ test("点章强制落章纲：确认/有正文后重挂载仍落章纲 + 右栏�
       `/novels/${pid}/chapters/vol-1-ch-1`,
     )) as Record<string, unknown>;
     ready.memo = {
-      current_task: "查明妹妹失踪的真相",
       reader_expectation: {
-        state: "担忧妹妹安危",
         strategy: "抛出线索钩子",
         detail: "",
       },
@@ -559,10 +557,8 @@ test("章纲新格子：场景卡/读者获得/章末落点/目标字数填值�
       page.getByText(/章纲：明确「这一章写什么」/),
     ).toBeVisible({ timeout: 10000 });
 
-    // 必填六项补齐（新建章 segments 为空数组 → 段落规划也是缺口）——
-    // 缺口未清空前「确认章纲」禁用
-    await page.locator("#wf-task").fill("查明妹妹失踪的真相");
-    await page.locator("#wf-rstate").fill("不知道匿名信从何而来");
+    // 必填四项补齐（c-og-fields-slim：核心任务/读者当前状态退役；新建章 segments
+    // 为空数组 → 段落规划也是缺口）——缺口未清空前「确认章纲」禁用
     await page.locator("#wf-rstrat").fill("读者会猜测寄信人是故人");
     await page.locator("#wf-changes").fill("主角拿到入城许可");
     await page.locator("#wf-mood select").selectOption({ label: "悬疑" });
