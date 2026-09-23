@@ -576,7 +576,7 @@ class TestDirectionsValidation:
         assert r.status_code == 200, r.text
         assert r.json().get("degraded") is True
 
-    def test_non_dict_shapes_degrade_not_500(self, client, monkeypatch):
+    def test_non_dict_shapes_not_500_all_B(self, client, monkeypatch):
         """模型把 diff/ranks 拍平成数组 → 不 500：卡照出，名次形态不合法只让各维不计分（全 B）。"""
         pid = _seed_vol(client)
         bad = json.dumps(

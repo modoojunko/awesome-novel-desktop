@@ -6,7 +6,7 @@ c-chapter-plan-draw-latency 后口径变更：依据（reasons）是**参考文�
 名次按模型输出的原始卡序给，经 keep_map 映射到保留卡（丢卡不连带作废名次）。
 """
 
-import chapters.ai_plan as ai_plan
+from chapters import ai_plan
 from chapters.ai_plan import (
     DIMENSIONS,
     _as_reason_map,
@@ -91,7 +91,6 @@ def test_grades_map_after_drop():
 def test_reasons_are_reference_only():
     """依据降为参考文本：不参与机判、退役逐字可寻校验；`_reasons_verifiable` 不得复活。"""
     assert not hasattr(ai_plan, "_reasons_verifiable")
-    cards = [_card(), _card(axis="关系", title="船队的条件", plot="船队长开价换航线", ending="她换来继续留在船上的许可")]
     # 依据与卡面毫无字面关系，也不影响字母（名次合法即出）
     ranks = {d: [1, 2] for d in DIMENSIONS}
     assert _grades({"ranks": ranks, "reasons": {d: "这是一个非常精彩的走向" for d in DIMENSIONS}}, 2, [0, 1]) == ["S", "B"]
