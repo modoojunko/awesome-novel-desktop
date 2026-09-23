@@ -29,8 +29,13 @@ def _parse_chapter_ref(ref: str) -> tuple[int, int]:
         raise HTTPException(400, f"Invalid chapter reference: {ref}")
 
 
-async def create_chapter(db, project, volume_ref: str, title: str) -> dict:
-    """卷内建章：定位卷 → MAX+1 → DB 行（空章纲）+ 计数同事务。"""
+async def create_chapter(db, project, volume_ref: str, title: str, fields: dict | None = None) -> dict:
+    """卷内建章：定位卷 → MAX+1 → DB 行（空章纲）+ 计数同事务。
+
+    c-chapter-plan-ai「排上」：`fields` 携带拆章五段（plot/challenge/ending/acts/stage），
+    **同一事务**内经既有装配写回（store.apply_chapter_data，其不自行 commit）——
+    不出现「章已建、关键剧情字段为空」的中间态；重复提交经 upsert 幂等（不冒 500）。
+    """
     vol_no = int(strip_suffix(volume_ref).replace("vol-", ""))
     vol = await volume_repo.get_by_volume_no(db, project.id, vol_no)
     if vol is None:
@@ -39,13 +44,30 @@ async def create_chapter(db, project, volume_ref: str, title: str) -> dict:
     chapter_no = await chapter_repo.max_chapter_no(db, project.id, vol.id) + 1
     ref = f"vol-{vol.volume_no}-ch-{chapter_no}"
 
-    await chapter_repo.upsert(
+    row = await chapter_repo.upsert(
         db, project.id, vol.id, chapter_no=chapter_no, ref=ref,
         title=title, status="outline", word_count=0, has_prose=False,
         outline_status="unfilled",
     )
     vol.chapter_count += 1
     project.total_chapters += 1
+    if fields:
+        # 排上：五段与建章同一事务写入（复用既有装配，不新写标量路径）
+        # upsert 返回的是新插入行——先 refresh 预载 selectin 关系，
+        # 否则装配内的关系访问会在同步上下文触发懒加载（MissingGreenlet）。
+        await db.refresh(row)
+        from chapters.store import apply_chapter_data
+
+        # 键路径与章档案一致：summary 在 outline 内；challenge/chapter_acts/plot_stage/ladder_exit 在顶层
+        payload = {
+            "outline": {"summary": (fields.get("plot") or "").strip() or None},
+            "challenge": (fields.get("challenge") or "").strip() or None,
+            "ladder_exit": (fields.get("ending") or "").strip() or None,
+            "chapter_acts": fields.get("acts") or None,
+            "plot_stage": (fields.get("stage") or "").strip() or None,
+        }
+        clean = {k: v for k, v in payload.items() if v and not (k == "outline" and not v.get("summary"))}
+        await apply_chapter_data(db, row, clean)
     await db.commit()
     logger.info("created chapter %s for project %s", ref, project.id)
 

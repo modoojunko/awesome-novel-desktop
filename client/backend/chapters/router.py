@@ -147,14 +147,16 @@ async def create_chapter_in_volume(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """卷内建章（替代旧 POST /chapters）：定位卷 → MAX+1 → 双写。"""
+    """卷内建章（替代旧 POST /chapters）：定位卷 → MAX+1 → DB 行＋可选五段（同事务）。"""
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
+    validate_chapter_fields(body)  # 拆章三列闭集/长度：先于建章（422 不留半章）
     from chapters.service import create_chapter
 
+    fields = {k: body.get(k) for k in ("plot", "challenge", "ending", "acts", "stage") if body.get(k)}
     return await create_chapter(
-        db, project, ref, body.get("title", "新章节")
+        db, project, ref, body.get("title") or "新章节", fields or None
     )
 
 
@@ -388,9 +390,24 @@ async def delete_chapter(
 
     row = await chapter_repo.get_by_ref(db, project.id, chapter_ref)
     if row is not None:
-        await chapter_repo.delete(db, row.id)
+        # 守卫（c-chapter-plan-ai D14）：仅「本卷最后一章＋拟定＋无正文」可单删——
+        # 中间删章会留永久章号空洞（MAX+1 建章不复用）；有正文/已归档删了会连正文一起没。
         parts = strip_suffix(chapter_ref).split("-")
         vol = await volume_repo.get_by_volume_no(db, project.id, int(parts[1]))
+        if vol is not None:
+            siblings = [
+                c
+                for c in await chapter_repo.list_by_volume(db, vol.id)
+                if not c.ghost_of
+            ]
+            max_no = max((c.chapter_no for c in siblings), default=0)
+            if row.chapter_no != max_no:
+                raise HTTPException(
+                    409, "只允许删本卷最后一章——先删其后的章节，或走「重拆本卷」"
+                )
+        if row.has_prose or row.status == "archived":
+            raise HTTPException(409, "这一章已有正文——请走重写或归档，别直接删")
+        await chapter_repo.delete(db, row.id)
         if vol is not None:
             vol.chapter_count = max(0, vol.chapter_count - 1)
         project.total_chapters = max(0, (project.total_chapters or 0) - 1)

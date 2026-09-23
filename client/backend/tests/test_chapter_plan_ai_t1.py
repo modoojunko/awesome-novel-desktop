@@ -117,3 +117,103 @@ def test_three_columns_roundtrip_via_store():
             assert "challenge" not in assemble_chapter(row)
 
     asyncio.run(_run())
+
+
+# ── 排上（同事务）与重复提交幂等（tasks 4.1/4.2）────────────────────────
+def test_adopt_writes_five_fields_in_one_transaction():
+    """排上：建章＋五段同一事务写入；重复提交命中既有行（不冒 500）。"""
+    import asyncio
+    import os
+    import tempfile
+
+    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+    os.environ["DATA_ROOT"] = tempfile.mkdtemp()
+
+    from db import Base, async_session, engine  # noqa: PLC0415
+    from models import Novel  # noqa: PLC0415
+    from models.volume import Volume  # noqa: PLC0415
+    from chapters.service import create_chapter  # noqa: PLC0415
+    from repositories import chapter_repo  # noqa: PLC0415
+
+    async def _run():
+        async with engine.begin() as c:
+            await c.run_sync(Base.metadata.create_all)
+        async with async_session() as s:
+            proj = Novel(user_id="adopt", name="T", slug="adopt-t", root_path=os.environ["DATA_ROOT"])
+            s.add(proj)
+            await s.flush()
+            vol = Volume(project_id=proj.id, volume_no=1, title="第一卷", chapter_target=6)
+            s.add(vol)
+            await s.commit()
+
+            # 排上：五段与建章同一事务
+            out = await create_chapter(
+                s, proj, "vol-1", "突击清查",
+                {"plot": "清查队登船前她带着信标出逃", "challenge": "挨船搜舱，藏无可藏",
+                 "ending": "信标暴露——全港都知道", "acts": ["清查队：登船搜舱", "沉舟：跳帮出逃"],
+                 "stage": "重要转折"},
+            )
+            assert out["ref"] == "vol-1-ch-1"
+            # 直读列（同一事务已落库；assemble 需预载关系，这里不必要）
+            from sqlalchemy import select as _sel  # noqa: PLC0415
+            from models.chapter import Chapter as _C  # noqa: PLC0415
+
+            row = (
+                await s.execute(
+                    _sel(_C).where(_C.project_id == proj.id, _C.ref == "vol-1-ch-1")
+                )
+            ).scalar_one()
+            assert row.summary.startswith("清查队登船前")
+            assert row.challenge == "挨船搜舱，藏无可藏"
+            assert row.ladder_exit.startswith("信标暴露")
+            assert row.chapter_acts == "清查队：登船搜舱\n沉舟：跳帮出逃"
+            assert row.plot_stage == "重要转折"
+
+            # 重复提交同一 ref（并发下两请求算出同一 MAX+1）→ upsert 命中既有行，不 500
+            out2 = await create_chapter(s, proj, "vol-1", "重复")
+            assert out2["ref"] == "vol-1-ch-2"  # 正常续号（幂等由 upsert 保证）
+
+    asyncio.run(_run())
+
+
+# ── stale 第二触发面（task 4.5）─────────────────────────────────────────
+def test_exit_change_marks_next_chapter_stale():
+    """上游章末落点实质变更 → 下一有正文章 stale；措辞微调不触发。"""
+    import asyncio
+    import os
+    import tempfile
+
+    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+    os.environ["DATA_ROOT"] = tempfile.mkdtemp()
+
+    from db import Base, async_session, engine  # noqa: PLC0415
+    from models import Novel  # noqa: PLC0415
+    from models.chapter import Chapter  # noqa: PLC0415
+    from models.volume import Volume  # noqa: PLC0415
+    from chapters.store import _mark_next_stale_on_exit_change  # noqa: PLC0415
+
+    async def _run():
+        async with engine.begin() as c:
+            await c.run_sync(Base.metadata.create_all)
+        async with async_session() as s:
+            p = Novel(user_id="st", name="T", slug="st-t", root_path=os.environ["DATA_ROOT"])
+            s.add(p)
+            await s.flush()
+            v = Volume(project_id=p.id, volume_no=1, title="V")
+            s.add(v)
+            await s.flush()
+            up = Chapter(project_id=p.id, volume_id=v.id, chapter_no=1, ref="vol-1-ch-1",
+                         title="上", status="outline", ladder_exit="旧落点")
+            nxt = Chapter(project_id=p.id, volume_id=v.id, chapter_no=2, ref="vol-1-ch-2",
+                          title="下", status="writing", has_prose=True)
+            s.add_all([up, nxt])
+            await s.flush()
+
+            # 措辞微调（trim 后相同）→ 不置位
+            await _mark_next_stale_on_exit_change(s, up, {"ladder_exit": "  旧落点  "}, "旧落点")
+            assert nxt.stale is False
+            # 实质变更 → 置位
+            await _mark_next_stale_on_exit_change(s, up, {"ladder_exit": "新落点"}, "旧落点")
+            assert nxt.stale is True
+
+    asyncio.run(_run())

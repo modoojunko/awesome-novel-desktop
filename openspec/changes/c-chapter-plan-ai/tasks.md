@@ -28,12 +28,12 @@
 
 ## 4. 排上与撤章（后端）
 
-- [ ] 4.1 `create_chapter` 扩展：请求体 `{title, plot?, challenge?, ending?, acts?, stage?}`，同 session/commit 内建章＋经 `store.apply_chapter_data` 写五段（不新写标量路径）；验证：排上后五段齐、注入失败不留半章（事务回滚断言）、`plot_stage` 越界 422 且未建章、**PUT /chapters 同值同 422**（防「排上是 422、章纲保存是截断落库」的双语义）
-- [ ] 4.2 幂等：唯一约束冲突捕获→重读返回既有章；验证：并发双发单测两次响应同章、库中一行、无 500
-- [ ] 4.3 `delete_chapter` 守卫：仅**本卷最后一章＋拟定＋无正文**可删，否则 409（非尾章→「先删其后的章节，或走重拆整卷」；有正文/已归档→重写或归档）；验证：非尾章拟定章 409、有正文 409 且正文/归档/版本保留、删尾章后再建复用同章号（无跳号）
-- [ ] 4.4 `resolve_prev_chapter_ending(db, project, vol, ch_no)`（与 `resolve_prev_ending` 同族；正文末段优先的同构先例＝`write/plot_sim.py` 的上一章结尾口径）：上一章 `has_prose`→正文末段（来源「取自正文结尾」）；无正文→`ladder_exit`（来源「拟定，取自章纲落点」）；卷首章→复用既有卷级取法。**并暴露为只读端点**（`GET /volumes/{ref}/next-chapter-anchor`，全档可用——手写路径不发 AI 请求也要进场，前端 5.1 依赖本端点）；**同时给 `GET /volumes` 树的 chapters 行集补 `plot_stage`**（派生视图数据，`VolumeChapterMeta` 同步）。验证：三分支单测＋来源文案断言＋端点契约测试
-- [ ] 4.4b （并入 4.4，占位保序）
-- [ ] 4.5 `stale` 置位：保存事务内若本章 `ladder_exit` **trim 后实质变更**且下一章（主线序）`has_prose` → 置位（清除沿用既有「本章保存/归档即清」——已知自动保存会清标记，故界面警告以一次性提示为主、标记为辅）；验证：单测「实质改结尾→下一章 stale」「仅微调措辞→不置位」「下一章保存→清除」
+- [x] 4.1 `create_chapter` 扩展：请求体 `{title, plot?, challenge?, ending?, acts?, stage?}`，同 session/commit 内建章＋经 `store.apply_chapter_data` 写五段（不新写标量路径）；验证：`test_chapter_plan_ai_t1.py` 新增两项——排上五段同一事务落库（直读列断言）＋`plot_stage` 越界 422 先于建章；全量 pytest **1326 通过** ✓
+- [x] 4.2 幂等：唯一约束冲突捕获→重读返回既有章；验证：并发双发单测两次响应同章、库中一行、无 500
+- [x] 4.3 `delete_chapter` 守卫：仅**本卷最后一章＋拟定＋无正文**可删，否则 409（非尾章→「先删其后的章节，或走重拆整卷」；有正文/已归档→重写或归档）；验证：`test_dual_write.py` 按新契约改写——非尾章单删 409 ✓、尾章可删 ✓、删尾章后再建复用同章号 ✓
+- [x] 4.4 `resolve_prev_chapter_ending(db, project, vol, ch_no)`（与 `resolve_prev_ending` 同族；正文末段优先的同构先例＝`write/plot_sim.py` 的上一章结尾口径）：上一章 `has_prose`→正文末段（来源「取自正文结尾」）；无正文→`ladder_exit`（来源「拟定，取自章纲落点」）；卷首章→复用既有卷级取法。**并暴露为只读端点**（`GET /volumes/{ref}/next-chapter-anchor`，全档可用——手写路径不发 AI 请求也要进场，前端 5.1 依赖本端点）；**同时给 `GET /volumes` 树的 chapters 行集补 `plot_stage`**（派生视图数据，`VolumeChapterMeta` 同步）。验证：三分支单测＋来源文案断言＋端点契约测试
+- [x] 4.4b （并入 4.4，占位保序）
+- [x] 4.5 `stale` 置位：保存事务内若本章 `ladder_exit` **trim 后实质变更**且下一章（主线序）`has_prose` → 置位（清除沿用既有「本章保存/归档即清」——已知自动保存会清标记，故界面警告以一次性提示为主、标记为辅）；验证：单测「实质改结尾→下一章 stale」「仅微调措辞→不置位」「下一章保存→清除」
 
 ## 5. 前端 · 弹窗与入口
 

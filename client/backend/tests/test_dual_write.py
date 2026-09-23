@@ -297,23 +297,31 @@ def test_delete_chapter_db_row_and_counts(client):
 
     assert _run_async(_before()) == 2
 
-    r2 = client.delete(f"/api/novels/{pid}/chapters/vol-1-ch-1")
+    # c-chapter-plan-ai 守卫：非尾章单删 → 409（防章号空洞）
+    r_non_tail = client.delete(f"/api/novels/{pid}/chapters/vol-1-ch-1")
+    assert r_non_tail.status_code == 409, r_non_tail.text
+
+    # 尾章（拟定无正文）可删
+    r2 = client.delete(f"/api/novels/{pid}/chapters/vol-1-ch-2")
     assert r2.status_code == 200, r2.text
 
     async def _after():
         async with async_session() as session:
-            row = await chapter_repo.get_by_ref(session, pid, "vol-1-ch-1")
+            row = await chapter_repo.get_by_ref(session, pid, "vol-1-ch-2")
             assert row is None
             vol = await volume_repo.get_by_volume_no(session, pid, 1)
             assert vol.chapter_count == 1
             proj = await session.get(Novel, pid)
             assert proj.total_chapters == 1
-            # 章文件已删
-            assert not await storage.read_yaml(
-                proj.root_path, "chapters/vol-1-ch-1.yaml"
-            )
 
     _run_async(_after())
+
+    # 删尾章后章号复用：再建仍是 ch-2（无跳号）
+    r3 = client.post(
+        f"/api/novels/{pid}/volumes/vol-1/chapters", json={"title": "第三章"}
+    )
+    assert r3.status_code in (200, 201), r3.text
+    assert r3.json()["ref"] == "vol-1-ch-2", "删尾章后章号应复用"
 
 
 # ── service 包装 ──────────────────────────────────────────────────────────

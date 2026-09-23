@@ -559,6 +559,7 @@ async def save_chapter(root_path: str, chapter_ref: str, data: dict) -> list[str
             row.title = str(data["title"])[:200]
         prose = data.get("prose") or ""
         status = data.get("status") or row.status
+        old_exit = (row.ladder_exit or "").strip()  # 变更前快照（stale 判定用）
         # 状态机系统维护：首次落非空正文 outline → writing（页面已无状态选择器，
         # 覆盖正文保存/AI 写本章/续写三条路径——它们都经本统一写入口）
         if prose.strip() and status == "outline":
@@ -569,6 +570,9 @@ async def save_chapter(root_path: str, chapter_ref: str, data: dict) -> list[str
         # 「基于旧设定」角标在单写入口统一清除
         if row.stale:
             row.stale = False
+        # c-chapter-plan-ai 第二触发面：上游章末落点**实质变更**（trim 后不同）且
+        # 下一主线章已有正文 → 给下一章置「基于旧设定」（拆章改落点会让下一章进场过期）。
+        await _mark_next_stale_on_exit_change(session, row, data, old_exit)
         await session.commit()
 
     # 版本快照：prose / outline.summary 实质变化才写（正文已落库，快照失败不回滚）
@@ -648,6 +652,33 @@ async def _write_version_snapshot(
         for old_row in stale:
             await session.delete(old_row)
         await session.commit()
+
+
+async def _mark_next_stale_on_exit_change(session, row, data: dict, old_exit: str) -> None:
+    """上游章末落点实质变更 → 下一主线章置 stale（已有正文才置；措辞微调不触发）。"""
+    if "ladder_exit" not in data:
+        return
+    new_exit = str(data.get("ladder_exit") or "").strip()
+    if new_exit == old_exit:
+        return
+    from sqlalchemy import select
+
+    from models.chapter import Chapter
+
+    nxt = (
+        await session.scalars(
+            select(Chapter)
+            .where(
+                Chapter.volume_id == row.volume_id,
+                Chapter.chapter_no > row.chapter_no,
+                Chapter.ghost_of.is_(None),
+            )
+            .order_by(Chapter.chapter_no)
+            .limit(1)
+        )
+    ).first()
+    if nxt is not None and nxt.has_prose:
+        nxt.stale = True
 
 
 async def collect_prose_by_root(root_path: str) -> str:
