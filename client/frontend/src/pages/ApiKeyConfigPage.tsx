@@ -45,7 +45,7 @@ export default function ApiKeyConfigPage() {
   // Fetch migration status（c-fetch-unify：迁中心栈；探测类静默失败，
   // 原实现连 r.ok 都不查——非 2xx 的 HTML/空体在这里会抛解析错，同样被静默兜住）
   useEffect(() => {
-    request("/v1/user/profile", { apiBase: "/api/v1", quiet: true })
+    request("/user/profile", { apiBase: "/api/v1", quiet: true })
       .then((data: any) => {
         if (data.migration_completed !== undefined) {
           setMigrationStatus({ completed: data.migration_completed, configName: data.migration_config_name });

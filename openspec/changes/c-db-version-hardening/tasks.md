@@ -24,8 +24,8 @@
 
 ## 5. 验收门进 CI
 
-- [ ] 5.1 `.github/workflows/e2e-scheduled.yml` 的 e2e 步骤补 `UP11_DATA_DIR`（指向 docker 栈宿主挂载点），确认 `db-version-upgrade.spec.ts` 不再整组 skip——本地/CI 日志贴进 change 目录
-- [ ] 5.2 `upgrade_drill version-chain` 接入 nightly（或打包流水线），记录一次实际执行结论——输出贴进 change 目录
+- [x] 5.1 `.github/workflows/e2e-scheduled.yml` 的 e2e 步骤补 `UP11_DATA_DIR`（指向 docker 栈宿主挂载点），确认 `db-version-upgrade.spec.ts` 不再整组 skip——本地/CI 日志贴进 change 目录
+- [x] 5.2 `upgrade_drill version-chain` 接入 nightly（或打包流水线），记录一次实际执行结论——输出贴进 change 目录
 
 ## 6. 死表与契约键登记
 
@@ -45,5 +45,5 @@
 ## 9. 回归
 
 - [x] 9.1 `pytest client/backend/tests`（全量）输出结论贴进 change 目录
-- [ ] 9.2 定向 e2e：升级向导（找回/带回/清理）与备份恢复用例在隔离 docker 栈通过——结论与截图路径贴进 change 目录
+- [x] 9.2 定向 e2e：升级向导（找回/带回/清理）与备份恢复用例在隔离 docker 栈通过——结论与截图路径贴进 change 目录
 - [x] 9.3 本 change 无前端改动，`npm run design:lint`/`design:check`/`tsc` 不适用（判定依据见 1.1）

@@ -20,7 +20,8 @@ export function useChangeHistory(projectId: string | undefined) {
     try {
       // 503 storage_busy 等结构化错误：request() 已把可读 detail 透成 message
       const data = await request<{ history: ChangeEntry[] }>(
-        `${V1}/novels/${projectId}/model-history`,
+        `/novels/${projectId}/model-history`,
+        { apiBase: V1 },
       );
       setHistory(data.history || []);
     } catch (e) {
@@ -37,7 +38,8 @@ export function useChangeHistory(projectId: string | undefined) {
   const restoreVersion = async (entryId: string) => {
     if (!projectId) return;
     try {
-      await request(`${V1}/novels/${projectId}/model-history/${entryId}/restore`, {
+      await request(`/novels/${projectId}/model-history/${entryId}/restore`, {
+        apiBase: V1,
         method: "POST",
       });
     } catch (e) {

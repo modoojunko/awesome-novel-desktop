@@ -33,7 +33,7 @@
 
 ## 7. 回归
 
-- [ ] 7.1 `npm run design:lint`、`npm run design:check`（C端）输出结论贴进 change 目录
+- [x] 7.1 `npm run design:lint`、`npm run design:check`（C端）输出结论贴进 change 目录
 - [x] 7.2 `tsc --noEmit`（C端）输出结论贴进 change 目录
 - [x] 7.3 `npx vitest run`（全量）输出结论贴进 change 目录
-- [ ] 7.4 定向 e2e（拆章手写/回改/排上/自检、搬运发起）在隔离 docker 栈通过——结论与截图路径贴进 change 目录
+- [x] 7.4 定向 e2e（拆章手写/回改/排上/自检、搬运发起）在隔离 docker 栈通过——结论与截图路径贴进 change 目录

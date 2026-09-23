@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import shutil
+import tempfile
 import sqlite3
 import time
 from datetime import UTC, datetime, timezone
@@ -198,6 +199,7 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
     src = data_root / source_filename
     stamp = datetime.now(UTC).replace(tzinfo=None).strftime("%Y%m%d-%H%M%S")
     staging = data_root / "migration-staging" / stamp
+    work_dir: Path | None = None  # 早退路径（precheck/拷贝失败）时 finally 不误清
     report = {"v": 1, "source": source_filename, "at": _now_iso(),
               "tables": [], "tables_skipped": [], "fk_violations": [],
               # source＝源库书数；migrated＝**本次真正带回**的书数（目标已有书时不得虚高）；
@@ -248,6 +250,14 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
             if side.exists():
                 side.unlink()  # checkpoint 后边车可清（副本域内）
 
+        # 2.5 搬运用**容器本地**副本（c-db-version-hardening）：数据目录在 docker
+        # 部署下是 bind mount，macOS VirtioFS 等共享挂载对刚拷贝文件的 ATTACH
+        # 加锁会随机 disk I/O error。落到本地临时目录再 ATTACH；staging 里的
+        # 副本仍是清理/审计口径，本地副本用完即删。
+        work_dir = Path(tempfile.mkdtemp(prefix="mig-work-"))
+        work = work_dir / staged.name
+        shutil.copy2(staged, work)
+
         # 3 计划
         _emit("plan")
         plan = build_plan(staged)
@@ -260,10 +270,10 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
 
         # 4 搬运：ATTACH ro 副本 → 目标（FK OFF 逐表 OR IGNORE）
         tgt = _sqlite_rw(active_db_path)
-        src_con = _sqlite_ro(staged)
+        src_con = _sqlite_ro(work)
         try:
             # ATTACH 传普通路径：file: URI 仅在连接以 uri=True 打开时才被解析
-            tgt.execute(f"ATTACH DATABASE '{staged}' AS mig_src")
+            tgt.execute(f"ATTACH DATABASE '{work}' AS mig_src")
             for entry in plan["tables"]:
                 t = entry["table"]
                 cols = list(entry["columns"])
@@ -328,6 +338,8 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
         report["status"] = "error"
     finally:
         shutil.rmtree(staging, ignore_errors=True)
+        if work_dir is not None:
+            shutil.rmtree(work_dir, ignore_errors=True)
     return report
 
 

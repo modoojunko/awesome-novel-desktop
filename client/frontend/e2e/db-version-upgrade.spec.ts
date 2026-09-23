@@ -38,7 +38,18 @@ con.close()
 
 /** 只清「旧版数据」：**绝不动应用自己的当前库**（删了它后端连接会指向已删除 inode，
  *  后续迁移会以 `no such table` 失败——实测踩过）。当前库由 CLIENT_VERSION 派生。 */
-const ACTIVE_FILES = ["novel-v0.25.db", "novel-v0.25.db-wal", "novel-v0.25.db-shm"];
+// 当前库文件名＝CLIENT_VERSION 派生（db-generation）：dev 构建＝固定哨兵 novel-dev.db，
+// 发布版＝novel-v{版本}.db。**不得写死**——曾写死 novel-v0.25，dev 栈上
+// clearLibraries 把活跃库 novel-dev.db 当旧库删掉：迁移对空库 INSERT 报
+// `no such table: main.novels`，且删文件时后端仍持已删 inode，全 suite 级联超时。
+const CLIENT_VERSION_FOR_LIB = process.env.CLIENT_VERSION || "dev";
+const ACTIVE_BASE =
+  CLIENT_VERSION_FOR_LIB === "dev" ? "novel-dev" : `novel-v${CLIENT_VERSION_FOR_LIB}`;
+const ACTIVE_FILES = [
+  `${ACTIVE_BASE}.db`,
+  `${ACTIVE_BASE}.db-wal`,
+  `${ACTIVE_BASE}.db-shm`,
+];
 
 function clearLibraries(): void {
   for (const f of readdirSync(DATA_DIR)) {
@@ -128,7 +139,7 @@ con = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
 print(con.execute("SELECT COUNT(*) FROM novels").fetchone()[0],
       "|", ",".join(r[0] for r in con.execute("SELECT name FROM novels ORDER BY id")))
 con.close()
-`, join(DATA_DIR, "novel-v0.25.db")], { encoding: "utf8" }).trim();
+`, join(DATA_DIR, `${ACTIVE_BASE}.db`)], { encoding: "utf8" }).trim();
     // 全量跑时同一库被别的 spec 写过——只钉「这两本在」＋计数 ≥ 2，不写死等于 2
     const bookCount = Number(probe.split("|")[0].trim());
     expect(bookCount).toBeGreaterThanOrEqual(2);

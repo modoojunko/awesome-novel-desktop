@@ -22,11 +22,11 @@ export function useUsageStats(options: {
     setError(null);
     try {
       let path = "";
-      if (options.configId) path = `${V1}/api-configs/${options.configId}/usage`;
+      if (options.configId) path = `/api-configs/${options.configId}/usage`;
       else if (options.projectId)
-        path = `${V1}/novels/${options.projectId}/usage`;
-      else path = `${V1}/api-configs/usage-summary`;
-      const json = await request(path);
+        path = `/novels/${options.projectId}/usage`;
+      else path = `/api-configs/usage-summary`;
+      const json = await request(path, { apiBase: V1 });
       setData(json);
     } catch (e) {
       setError(errMessage(e, "用量统计没读出来，可重试"));

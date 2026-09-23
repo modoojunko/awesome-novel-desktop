@@ -30,4 +30,4 @@
 - [x] 6.1 `npm run design:lint`、`npm run design:check`（C端）输出结论贴进 change 目录
 - [x] 6.2 `tsc --noEmit`（C端）输出结论贴进 change 目录
 - [x] 6.3 `npx vitest run`（全量）输出结论贴进 change 目录
-- [ ] 6.4 定向 e2e（会话过期踢出、配置页失败态、AI 请求 401）在隔离 docker 栈通过——结论与截图路径贴进 change 目录
+- [x] 6.4 定向 e2e（会话过期踢出、配置页失败态、AI 请求 401）在隔离 docker 栈通过——结论与截图路径贴进 change 目录

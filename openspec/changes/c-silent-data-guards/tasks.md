@@ -18,7 +18,7 @@
 
 - [x] 4.1 `createVolume`/`createChapter` 加 in-flight 闸（`creatingRef` 范式）——diff 贴进 change 目录
 - [x] 4.2 六处入口（`NovelWorkspace.tsx:834,1061,1068,1100,1143,1150`）提交中置忙禁用——diff 贴进 change 目录
-- [ ] 4.3 e2e：双击空书架卡「新增一卷」只产生一卷、无 500 提示——e2e 用例结论贴进 change 目录
+- [x] 4.3 e2e：双击空书架卡「新增一卷」只产生一卷、无 500 提示——e2e 用例结论贴进 change 目录
 
 ## 5. 权益缓存随登出与换号失效
 
@@ -30,11 +30,11 @@
 - [x] 6.1 后端新增批量只读端点（按书/卷返回各章提示词存在性，`GROUP BY chapter_id` 聚合）＋pytest 覆盖——`pytest client/backend/tests` 相关用例绿
 - [x] 6.2 前端总览改批量取数（去掉逐章串行循环）——diff 贴进 change 目录
 - [x] 6.3 骨架/单章查看失败态（err 语气 + 重试），不再显示为空——diff + 截图路径贴进 change 目录
-- [ ] 6.4 e2e/性能口径：多章书打开总览的请求数有界（不随章数串行）——结论贴进 change 目录
+- [x] 6.4 e2e/性能口径：多章书打开总览的请求数有界（不随章数串行）——结论贴进 change 目录
 
 ## 7. 回归
 
-- [ ] 7.1 `npm run design:lint`、`npm run design:check`（C端）输出结论贴进 change 目录
+- [x] 7.1 `npm run design:lint`、`npm run design:check`（C端）输出结论贴进 change 目录
 - [x] 7.2 `tsc --noEmit`（C端）与 `pytest client/backend/tests` 输出结论贴进 change 目录
 - [x] 7.3 `npx vitest run`（全量）输出结论贴进 change 目录
-- [ ] 7.4 定向 e2e（空书建卷/完本/提示词总览/设定主线）在隔离 docker 栈通过——结论与截图路径贴进 change 目录
+- [x] 7.4 定向 e2e（空书建卷/完本/提示词总览/设定主线）在隔离 docker 栈通过——结论与截图路径贴进 change 目录

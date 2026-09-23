@@ -15,7 +15,7 @@ export function useApiConfigs() {
     setLoading(true);
     setError(null);
     try {
-      const data = await request<ApiConfig[]>(`${V1}/api-configs`);
+      const data = await request<ApiConfig[]>(`/api-configs`, { apiBase: V1 });
       setConfigs(data);
     } catch (e) {
       // 本页就是 /config：503 只会是云托管冷启动，就地报错不强跳
@@ -41,7 +41,8 @@ export function useApiConfigs() {
   }): Promise<ApiConfig> => {
     let config: ApiConfig;
     try {
-      config = await request<ApiConfig>(`${V1}/api-configs`, {
+      config = await request<ApiConfig>(`/api-configs`, {
+        apiBase: V1,
         method: "POST",
         body: JSON.stringify(body),
       });
@@ -59,7 +60,8 @@ export function useApiConfigs() {
   ): Promise<ApiConfig> => {
     let config: ApiConfig;
     try {
-      config = await request<ApiConfig>(`${V1}/api-configs/${id}`, {
+      config = await request<ApiConfig>(`/api-configs/${id}`, {
+        apiBase: V1,
         method: "PUT",
         body: JSON.stringify(body),
       });
@@ -75,8 +77,8 @@ export function useApiConfigs() {
     id: string,
   ): Promise<{ affected_projects: number; affected_names: string[] }> => {
     const result = await request<{ affected_projects: number; affected_names: string[] }>(
-      `${V1}/api-configs/${id}`,
-      { method: "DELETE" },
+      `/api-configs/${id}`,
+      { apiBase: V1, method: "DELETE" },
     );
     setConfigs((prev) => prev.filter((c) => c.id !== id));
     return result;
@@ -84,7 +86,8 @@ export function useApiConfigs() {
 
   const restoreConfig = async (id: string): Promise<ApiConfig> => {
     // 撤销删除：后端软删后 restore 复活同一 id
-    const config = await request<ApiConfig>(`${V1}/api-configs/${id}/restore`, {
+    const config = await request<ApiConfig>(`/api-configs/${id}/restore`, {
+      apiBase: V1,
       method: "POST",
     });
     setConfigs((prev) => [config, ...prev]);
@@ -97,8 +100,8 @@ export function useApiConfigs() {
   const refreshStatus = useCallback(async () => {
     try {
       const data = await request<Array<Partial<ApiConfig> & { id: string }>>(
-        `${V1}/api-configs/status`,
-        { quiet: true },
+        `/api-configs/status`,
+        { apiBase: V1, quiet: true },
       );
       setConfigs((prev) =>
         prev.map((c) => {
@@ -118,13 +121,13 @@ export function useApiConfigs() {
   }, []);
 
   const refreshModels = async (id: string) => {
-    return request(`${V1}/api-configs/${id}/refresh-models`, { method: "POST" });
+    return request(`/api-configs/${id}/refresh-models`, { apiBase: V1, method: "POST" });
   };
 
   const testConfig = async (id: string): Promise<{ ok: boolean; status: string; models?: string[]; error?: string }> => {
     const result = await request<
       Partial<ApiConfig> & { ok: boolean; status: string; error?: string }
-    >(`${V1}/api-configs/${id}/test`, { method: "POST" });
+    >(`/api-configs/${id}/test`, { apiBase: V1, method: "POST" });
     // Refresh configs to pick up persisted test status
     if (result.ok || result.status) {
       setConfigs((prev) =>
@@ -148,7 +151,8 @@ export function useApiConfigs() {
     api_key: string;
     api_format: "openai" | "anthropic";
   }): Promise<{ ok: boolean; status: string; models?: string[]; error?: string }> => {
-    return request(`${V1}/api-configs/test-connection`, {
+    return request(`/api-configs/test-connection`, {
+      apiBase: V1,
       method: "POST",
       body: JSON.stringify(body),
     });

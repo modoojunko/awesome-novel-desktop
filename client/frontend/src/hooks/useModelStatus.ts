@@ -30,7 +30,7 @@ export function useModelStatus(projectId: string | undefined) {
         model?: string;
         ai_state?: AiState;
         message?: string;
-      }>(`${V1}/novels/${projectId}/ai-model`);
+      }>(`/novels/${projectId}/ai-model`, { apiBase: V1 });
       setCurrentConfigId(data.api_config_id ?? null);
       setCurrentConfigName(data.config_name || null);
       setCurrentModel(data.model ?? null);
@@ -81,7 +81,8 @@ export function useModelStatus(projectId: string | undefined) {
   ) => {
     if (!projectId) return;
     // 绑定校验 400：request() 已把后端可读 detail 透成 message（前端保留 draft + 行内报错，D12）
-    await request(`${V1}/novels/${projectId}/ai-model`, {
+    await request(`/novels/${projectId}/ai-model`, {
+      apiBase: V1,
       method: "PUT",
       body: JSON.stringify({ api_config_id: apiConfigId, model }),
     });
@@ -95,8 +96,8 @@ export function useModelStatus(projectId: string | undefined) {
   const fetchCandidates = useCallback(async (configId: string) => {
     try {
       return await request<{ candidates: string[]; note: string }>(
-        `${V1}/api-configs/${configId}/model-candidates`,
-        { quiet: true },
+        `/api-configs/${configId}/model-candidates`,
+        { apiBase: V1, quiet: true },
       );
     } catch {
       return { candidates: [] as string[], note: "" };
