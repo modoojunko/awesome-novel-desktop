@@ -352,6 +352,78 @@ describe("拆章界面 · AI 三方向（右栏入口，PRO）", () => {
   });
 });
 
+describe("拆章界面 · 原型对齐（kicker／底条分态／选卡切卡面）", () => {
+  it("kicker 点名卷号与章号（「卷下拆章 · 第N卷 · 第X章」，X＝锚的 next_no）", async () => {
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-manual"));
+    await waitFor(() => expect(screen.getByTestId("chapter-plan-modal")).toBeInTheDocument());
+    expect(document.querySelector(".chapter-plan .kicker")).toHaveTextContent("卷下拆章 · 第一卷 · 第3章");  });
+
+  it("AI 三卡态：底条只有换一批与转手写（不出现「排上」死按钮）；进场行点名章号", async () => {
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-grid")).toBeInTheDocument());
+    expect(screen.getByTestId("split-entry-line"))
+      .toHaveTextContent("第三章的 3 个剧情方向 · 进场已接上");
+    expect(screen.getByTestId("split-redraw")).toBeInTheDocument();
+    expect(screen.queryByTestId("split-adopt")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chapter-card")).not.toBeInTheDocument();
+  });
+
+  it("AI 出卡失败态：底条收空（三出口在错误块里，不再挂「排上」）", async () => {
+    mockApi.post.mockRejectedValue(new Error("AI 没接上"));
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("split-error")).toBeInTheDocument());
+    expect(screen.queryByTestId("split-adopt")).not.toBeInTheDocument();
+  });
+
+  it("点卡＝切到本章卡：三卡收起，排上按钮点名章号，落地提示接本章结尾", async () => {
+    mockApi.post.mockImplementation((url: string) =>
+      Promise.resolve(url.includes("ai-directions") ? DIRS : { ok: true, ref: "vol-1-ch-3" }));
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-3")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("pick-card-3"));
+    await waitFor(() => expect(screen.getByTestId("chapter-card")).toBeInTheDocument());
+    // 原型：选卡后弹窗＝本章卡（三卡收起），出口行保留（换一批/转手写）
+    expect(screen.queryByTestId("pick-grid")).not.toBeInTheDocument();
+    expect(screen.getByTestId("split-redraw")).toBeInTheDocument();
+    expect(screen.getByTestId("split-adopt")).toHaveTextContent("排上这一章（第 3 章）");
+    expect(document.querySelector(".mcard-foot .note"))
+      .toHaveTextContent("排上后章节列表多出这一章（拟定）；下一章的进场会自动接「信标暴露——全港都知道」。");
+  });
+
+  it("手写卡底条：落地提示＋自检＋排上三件齐（note 接已填结尾，没填回退剧情）", async () => {
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-manual"));
+    await waitFor(() => expect(screen.getByTestId("d-plot")).toBeInTheDocument());
+    expect(screen.getByTestId("selfcheck-run")).toBeInTheDocument();
+    expect(screen.getByTestId("split-adopt")).toHaveTextContent("排上这一章（第 3 章）");
+    expect(document.querySelector(".mcard-foot .note"))
+      .toHaveTextContent("下一章的进场会自动接「本章结尾」");
+    fireEvent.change(screen.getByTestId("d-ending"), { target: { value: "她把信标交了出去" } });
+    expect(document.querySelector(".mcard-foot .note"))
+      .toHaveTextContent("下一章的进场会自动接「她把信标交了出去」");
+  });
+
+  it("回改态：不出现「排上后多出这一章」的落地提示（措辞不适用于已有章）", async () => {
+    mockApi.get.mockImplementation((url: string) =>
+      url.includes("/plan-card")
+        ? Promise.resolve({
+            ok: true, title: "同名档案", plot: "她调出那份记录", challenge: "", ending: "",
+            acts: [], stage: "矛盾升级", entry_text: "", entry_source: "", next_no: 2,
+          })
+        : Promise.resolve({ ok: true, ...ENTRY }),
+    );
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-edit"));
+    await waitFor(() => expect(screen.getByTestId("d-title")).toHaveValue("同名档案"));
+    expect(screen.getByTestId("split-adopt")).toHaveTextContent("保存这一章");
+    expect(document.querySelector(".mcard-foot .note")).not.toBeInTheDocument();
+  });
+});
+
 describe("拆章界面 · 边界与兜底（覆盖三文件 100%）", () => {
   it("出卡降级（degraded）：给 hint 与降级文本，走失败三出口", async () => {
     mockApi.post.mockResolvedValue({ ok: true, degraded: true, hint: "三次都不合形", text: "原始输出…" });

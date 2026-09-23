@@ -88,3 +88,16 @@
 原型之外的规格面（D12/D14，非原型演示态）由 e2e 与 pytest 分担：
 末端门禁（e2e 非末端卷）／重拆整卷（e2e 重拆整卷）／删章守卫（e2e 删章守卫＋pytest）／
 卷纲空门槛（pytest `TestDirectionsGate`）／stale 置位（pytest `TestStaleSecondTrigger`）／回改不静默（e2e 回改结尾）。
+
+### 8.1 视觉对拍（`/goal` 的「100% 符合原型设计」证据，2026-09-23 补做）
+
+七态截图逐对比对（应用隔离栈 ↔ 原型 demo 条；`/tmp/vis-app-*.png` ↔ `/tmp/vis-proto-*.png`），
+比对发现五处偏差**同批修齐**（明细在 `docs/design-c/prototypes/ADJUSTMENTS.md`「视觉对拍后追加」）：
+kicker 补章号／三方向态与失败态底条收「排上」死按钮／点卡切单卡视图（三卡收起）／
+排上按钮点名章号＋底条落地提示／进场行点名章号。修后七态复核一致：
+①手写（kicker 第N章＋note＋自检＋排上（第 N 章））②三卡（首行「第N章的 3 个方向」＋底条两钮）
+③本章卡（单卡面＋出口行）④两套（降级 hint）⑤失败（三出口、底条空）⑥落点卡（带入 N 项逐列＋接引句）
+⑦派生（剧情推进（派生）＋N 章标签＋行结构）。选卡后保留「换 3 个方向／自己写这一章」出口行＝
+产品超出原型第 5 处（原型该态无回头路），已在 ADJUSTMENTS 登记。
+修齐后门禁：vitest 816（本文件 55）／tsc 0／design:lint 0／design:check 7-8（list.empty 存量）／
+chapter-plan e2e 16/16（新增 kicker、底条分态、选卡切卡面断言）。
