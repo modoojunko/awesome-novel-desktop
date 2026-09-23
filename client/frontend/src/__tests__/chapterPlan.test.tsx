@@ -386,12 +386,31 @@ describe("拆章界面 · 原型对齐（kicker／底条分态／选卡切卡面
     await waitFor(() => expect(screen.getByTestId("pick-card-3")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("pick-card-3"));
     await waitFor(() => expect(screen.getByTestId("chapter-card")).toBeInTheDocument());
-    // 原型：选卡后弹窗＝本章卡（三卡收起），出口行保留（换一批/转手写）
+    // 原型：选卡后弹窗＝本章卡（三卡收起）；出口下沉到底条（不另立行悬在卡面上方）
     expect(screen.queryByTestId("pick-grid")).not.toBeInTheDocument();
-    expect(screen.getByTestId("split-redraw")).toBeInTheDocument();
+    expect(screen.queryByTestId("split-redraw")).toBeInTheDocument();
+    expect(document.querySelector(".pick-foot")).not.toBeInTheDocument();
     expect(screen.getByTestId("split-adopt")).toHaveTextContent("排上这一章（第 3 章）");
     expect(document.querySelector(".mcard-foot .note"))
       .toHaveTextContent("排上后章节列表多出这一章（拟定）；下一章的进场会自动接「信标暴露——全港都知道」。");
+  });
+
+  it("行动行拼接剥行尾句读：模型自带「。」不出现「。；」双标点（卡面与底条 note 同值）", async () => {
+    mockApi.post.mockImplementation((url: string) =>
+      Promise.resolve({
+        ...DIRS,
+        directions: DIRS.directions.map((d, i) =>
+          i === 0 ? { ...d, acts: ["她：调出同名记录。", "文书：记下出入；未起疑"] } : d),
+      }));
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    // 三卡态的行动行已剥行尾「。」
+    expect(screen.getByTestId("pick-card-1")).toHaveTextContent("她：调出同名记录；文书：记下出入；未起疑");
+    fireEvent.click(screen.getByTestId("pick-card-1"));
+    await waitFor(() => expect(screen.getByTestId("chapter-card")).toBeInTheDocument());
+    // 本章卡的输入框同值（回车进库的也是干净行）
+    expect(screen.getByTestId("d-acts")).toHaveValue("她：调出同名记录；文书：记下出入；未起疑");
   });
 
   it("手写卡底条：落地提示＋自检＋排上三件齐（note 接已填结尾，没填回退剧情）", async () => {
