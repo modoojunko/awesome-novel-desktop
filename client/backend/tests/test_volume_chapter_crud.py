@@ -406,9 +406,7 @@ def test_chapter_structured_fields_roundtrip():
                     "characters": ["林拓", "刀疤男"],
                 },
                 "memo": {
-                    "current_task": "守住面馆不低头",
                     "reader_expectation": {
-                        "state": "担心主角安危",
                         "strategy": "must_resolve",
                         "detail": "读者在等地头蛇出招",
                     },
@@ -461,8 +459,9 @@ def test_chapter_structured_fields_roundtrip():
             ]
             assert out["characters"] == ["林拓", "刀疤男"]
             memo = data["memo"]
-            assert memo["current_task"] == "守住面馆不低头"
-            assert memo["reader_expectation"]["state"] == "担心主角安危"
+            # c-og-fields-slim：current_task/reader_expectation.state 退役——不回读
+            assert "current_task" not in memo
+            assert "state" not in memo["reader_expectation"]
             assert memo["reader_expectation"]["strategy"] == "must_resolve"
             assert memo["payoff_plan"]["must_resolve"] == ["上供冲突落地"]
             assert memo["payoff_plan"]["must_hold"] == ["师父死因悬念"]

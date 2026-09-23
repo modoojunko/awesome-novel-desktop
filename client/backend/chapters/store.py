@@ -38,8 +38,8 @@ _EMOTIONAL_SCALARS = [
     ("intensity_level", "intensity_level", None),
     ("emotional_hook", "emotional_hook", 150),
 ]
+# c-og-fields-slim：state（读者当前状态）退役——列 expectation_state 只留不读写，dump/apply 均不再含
 _EXPECTATION_SCALARS = [
-    ("state", "expectation_state", 150),
     ("strategy", "expectation_strategy", 50),
     ("detail", "expectation_detail", 300),
 ]
@@ -188,7 +188,6 @@ def assemble_chapter(row) -> dict:
     for p in row.payoff_items:
         payoff.setdefault(p.kind, []).append(p.content)
     memo: dict = {
-        "current_task": row.current_task or "",
         "reader_expectation": {
             json_key: getattr(row, col) or ""
             for json_key, col, _w in _EXPECTATION_SCALARS
@@ -279,7 +278,6 @@ def _disassemble_scalars(row, data: dict) -> None:
     for json_key, col, width in _OUTLINE_SCALARS:
         setattr(row, col, _fit(outline.get(json_key), width))
     row.perspective_guidance = _fit(outline.get("perspective_guidance"), 300)
-    row.current_task = _fit(memo.get("current_task"), 300)
     for json_key, col, width in _EXPECTATION_SCALARS:
         setattr(row, col, _fit(expectation.get(json_key), width))
     for json_key, col, width in _EMOTIONAL_SCALARS:

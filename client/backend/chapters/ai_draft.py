@@ -215,9 +215,10 @@ def _existing_outline_markdown(chapter: dict) -> str:
 # 可补字段白名单＝前端 OgForm 能承接的键（前端 chapterForm 补丁表同单源口径）：
 # 覆盖归档门槛六项（task/state/strategy/changes/mood/segs）与章纲其余可写格子。
 # 后端只做白名单收口；具体下发哪些缺项由前端按缺口清单决定。
+# c-og-fields-slim：current_task／state（核心任务／读者当前状态）退役，不入白名单
 _FILLABLE_KEYS = {
     "summary", "key_points", "characters", "location", "time",
-    "current_task", "state", "strategy", "detail", "changes",
+    "strategy", "detail", "changes",
     "prohibitions", "mood", "segments",
 }
 _LIST_KEYS = {"key_points", "characters", "changes", "prohibitions"}

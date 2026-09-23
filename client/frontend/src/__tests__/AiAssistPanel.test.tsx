@@ -17,7 +17,7 @@ const OG_STATS = {
   planWords: 1800,
   keyCount: 2,
   castCount: 1,
-  missingLabels: ["核心任务", "主情绪"],
+  missingLabels: ["预期策略", "主情绪"],
 };
 
 function renderPanel(tab: string, extra: Partial<Parameters<typeof AiAssistPanel>[0]> = {}) {
@@ -58,7 +58,7 @@ describe("AiAssistPanel（随页签）", () => {
     // 还缺清单（原型 aiList('还缺')）
     const list = document.querySelector(".rail-list")?.textContent ?? "";
     expect(list).toContain("还缺");
-    expect(list).toContain("核心任务");
+    expect(list).toContain("预期策略");
     expect(list).toContain("主情绪");
 
     fireEvent.click(screen.getByRole("button", { name: /AI 起草/ }));

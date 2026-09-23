@@ -271,13 +271,16 @@ class TestAiDraftSuccess:
             root = proj.root_path
             await session.close()
             await chapters_store.save_chapter(
-                root, ref, {"memo": {"current_task": "作者已定的任务"}}
+                root, ref,
+                {"outline": {"summary": "作者已定的开场"},
+                 "memo": {"prohibitions": ["不得惊动管家"]}},
             )
 
         _run_async(_seed())
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/outline/ai-draft")
         assert r.status_code == 200
-        assert "作者已定的任务" in fake.last_kwargs["system"]
+        # c-og-fields-slim：核心任务退役——重写底稿用在册字段（禁令）证明素材携带
+        assert "不得惊动管家" in fake.last_kwargs["system"]
         assert "无现有章纲" not in fake.last_kwargs["system"]
         # 首章（前情=哨兵）：素材包不含前情段
         assert "【前情" not in fake.last_kwargs["system"]

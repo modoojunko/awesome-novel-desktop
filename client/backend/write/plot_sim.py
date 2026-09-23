@@ -90,9 +90,6 @@ def _fallback_rounds(
 ) -> list[dict]:
     """原型 simBuild 的确定性推演：关键事件环＋模板走法（AI 不可用时的保底）。"""
     beats = _str_list(outline.get("key_points")) or []
-    task = _s(memo.get("current_task"))
-    if not beats and task:
-        beats = [task]
     if not beats:
         beats = [_DEFAULT_BEAT]
     beats = beats[:MAX_ROUNDS]
@@ -159,8 +156,6 @@ def _material(chapter: dict, prev: dict | None, entry: str) -> str:
     cast = _str_list(outline.get("characters"))
     if cast:
         chapter_lines.append("出场角色：" + "、".join(cast))
-    if _s(memo.get("current_task")):
-        chapter_lines.append("核心任务：" + _s(memo.get("current_task"), 300))
     re_ = memo.get("reader_expectation") if isinstance(memo.get("reader_expectation"), dict) else {}
     if _s(re_.get("strategy")):
         chapter_lines.append("预期策略：" + _s(re_.get("strategy"), 200))

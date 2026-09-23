@@ -15,7 +15,7 @@ import type { ChapterData } from "@/hooks/useOutline";
 const FILLED: ChapterData = {
   title: "第三章",
   outline: { summary: "s", characters: ["林昭"] },
-  memo: { current_task: "t" },
+  memo: {},
   emotional_design: { primary_mood: "紧张" },
   segments: [{ summary: "a", target_words: 800 }],
   scene_cards: [
@@ -98,11 +98,11 @@ describe("ogToForm/ogToPartial round-trip（章纲新格子）", () => {
 });
 
 describe("存量章纲空值不警告", () => {
-  it("新格子全空的存量章不进必填缺口（口径仍是六项）", () => {
+  it("新格子全空的存量章不进必填缺口（c-og-fields-slim 后口径四项）", () => {
     const form = ogToForm(FILLED);
     const gaps = ogGaps(form).map((g) => g.key);
-    // 六项必填与 ai-prompt-crafting 之前口径一致，新格子不新增缺口
-    expect(gaps).toEqual(["rstate", "rstrat", "changes"]);
+    // 四项必填（预期策略/必须完成的变化/主情绪/段落规划）；新格子不新增缺口
+    expect(gaps).toEqual(["rstrat", "changes"]);
     expect(gaps).not.toContain("scenes");
     expect(gaps).not.toContain("payoffs");
     expect(gaps).not.toContain("ladder");
@@ -168,7 +168,7 @@ describe("AI 起草回填映射（outline-ai-draft）", () => {
     } as ChapterData;
     const draft = {
       outline: { summary: "夜探账房" },
-      memo: { current_task: "拿到亏空证据" },
+      memo: {},
       segments: [{ summary: "潜入", target_words: 800 }],
       scene_cards: [
         { scene_name: "账房", goal: "取证", obstacle: "守夜", hook: "暗格" },
@@ -178,7 +178,6 @@ describe("AI 起草回填映射（outline-ai-draft）", () => {
     const form = ogToForm({ ...server, ...draft } as ChapterData);
     expect(form.title).toBe("第三章（作者定名）"); // title 保留服务端值
     expect(form.summary).toBe("夜探账房");
-    expect(form.task).toBe("拿到亏空证据");
     expect(form.scenes).toEqual([
       { n: "账房", g: "取证", o: "守夜", h: "暗格", w: "", f: "" },
     ]); // 草稿场景卡覆盖服务端旧卡

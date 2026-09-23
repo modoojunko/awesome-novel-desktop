@@ -86,7 +86,6 @@ async def _seed() -> tuple[str, str]:
             ref=REF, title="风起渡口", status="outline",
             summary="林晚在渡口等一班不存在的船。",
             location="临江渡口", story_time="清晨",
-            current_task="查清匿名信的来路",
             expectation_strategy="先铺垫不安，再给一次喘息",
             primary_mood="悬疑",
         )
@@ -163,7 +162,6 @@ class TestOkPath:
         # 素材注入：章纲关键事件 + 任务 + 悬念 + 上一章正文结尾
         system = captured[-1]["system"]
         assert "匿名信被尾随" in system
-        assert "查清匿名信的来路" in system
         assert "谁在暗中跟着她" in system
         assert "解开" in system  # 上一章正文结尾摘录进素材
 

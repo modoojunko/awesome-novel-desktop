@@ -54,8 +54,6 @@ export interface OgForm {
   time: string;
   pov: string;
   pguid: string;
-  task: string; // * → memo.current_task
-  rstate: string; // * → memo.reader_expectation.state
   rstrat: string; // * → memo.reader_expectation.strategy
   rdetail: string; // → memo.reader_expectation.detail
   mres: string; // 一行一个 → memo.payoff_plan.must_resolve[]
@@ -77,8 +75,6 @@ export interface OgForm {
 }
 
 export const REQ_FIELDS: { key: keyof OgForm; label: string }[] = [
-  { key: "task", label: "核心任务" },
-  { key: "rstate", label: "读者当前状态" },
   { key: "rstrat", label: "预期策略" },
   { key: "changes", label: "必须完成的变化" },
   { key: "mood", label: "主情绪" },
@@ -97,8 +93,6 @@ export const EMPTY_OG_FORM: OgForm = {
   time: "",
   pov: "",
   pguid: "",
-  task: "",
-  rstate: "",
   rstrat: "",
   rdetail: "",
   mres: "",
@@ -116,8 +110,6 @@ export const EMPTY_OG_FORM: OgForm = {
 
 /** 章纲缺口标签键 → fill-gaps 白名单键（与后端 chapters/ai_draft.py _FILLABLE_KEYS 同口径）。 */
 export const GAP_TO_FILL_KEY: Record<string, string> = {
-  task: "current_task",
-  rstate: "state",
   rstrat: "strategy",
   changes: "changes",
   mood: "mood",
@@ -150,8 +142,6 @@ export function ogPatchFromFills(fills: Record<string, unknown>): Partial<OgForm
         case "summary": patch.summary = text; break;
         case "location": patch.loc = text; break;
         case "time": patch.time = text; break;
-        case "current_task": patch.task = text; break;
-        case "state": patch.rstate = text; break;
         case "strategy": patch.rstrat = text; break;
         case "detail": patch.rdetail = text; break;
         case "mood": patch.mood = text; break;
@@ -212,8 +202,6 @@ export function ogToForm(d: ChapterData | null | undefined): OgForm {
     time: o.time ?? "",
     pov: o.narrative_pov ?? "",
     pguid: o.perspective_guidance ?? "",
-    task: m.current_task ?? "",
-    rstate: re.state ?? "",
     rstrat: re.strategy ?? "",
     rdetail: re.detail ?? "",
     mres: (pp.must_resolve ?? []).join("\n"),
@@ -290,10 +278,8 @@ export function ogToPartial(
     },
     memo: {
       ...(existing?.memo ?? {}),
-      current_task: form.task,
       reader_expectation: {
         ...(existing?.memo?.reader_expectation ?? {}),
-        state: form.rstate,
         strategy: form.rstrat,
         detail: form.rdetail,
       },

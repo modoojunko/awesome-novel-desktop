@@ -235,8 +235,9 @@ class TestFillGaps:
         # 记账：outline_fill_gaps（与 AI 起草同族留痕）
         assert "outline_fill_gaps" in _ops(nid)
 
-    def test_segments_structured_and_state_whitelisted(self, monkeypatch):
-        """segments 是结构化段落（旧实现会把 dict 字符串化）；state 属白名单。"""
+    def test_segments_structured_and_state_dropped(self, monkeypatch):
+        """segments 是结构化段落（旧实现会把 dict 字符串化）；state 已退役（c-og-fields-slim），
+        模型即便返回也被白名单丢弃。"""
         _root, nid = asyncio.run(_seed())
         reply = (
             '{"fills": {"state": "读者刚知道船家撒谎",'
@@ -248,7 +249,7 @@ class TestFillGaps:
         r = _post(nid, "outline/fill-gaps", {"missing": ["state", "segments"]})
         assert r.status_code == 200, r.text
         fills = r.json()["fills"]
-        assert fills["state"] == "读者刚知道船家撒谎"
+        assert "state" not in fills
         assert fills["segments"] == [
             {"summary": "上船", "target_words": 900},
             {"summary": "夜谈", "target_words": 4000},

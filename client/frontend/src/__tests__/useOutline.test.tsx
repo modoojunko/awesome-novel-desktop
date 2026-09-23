@@ -46,7 +46,7 @@ async function mountHook(projectId = "p1") {
 
 describe("confirmChapter", () => {
   it("确认失败 → toast.error 透传后端具体缺失项，吞错不 rethrow", async () => {
-    apiState.post.mockRejectedValue(new Error("章纲确认失败，请先填写：核心任务、段落规划"));
+    apiState.post.mockRejectedValue(new Error("章纲确认失败，请先填写：预期策略、段落规划"));
     const { result } = await mountHook();
 
     let resolved = false;
@@ -56,7 +56,7 @@ describe("confirmChapter", () => {
     });
     expect(resolved).toBe(true);
     expect(apiState.post).toHaveBeenCalledWith("/novels/p1/chapters/vol-1-ch-1/confirm");
-    expect(toastState.error).toHaveBeenCalledWith("章纲确认失败，请先填写：核心任务、段落规划");
+    expect(toastState.error).toHaveBeenCalledWith("章纲确认失败，请先填写：预期策略、段落规划");
   });
 
   it("确认失败且无错误详情 → 兜底文案", async () => {

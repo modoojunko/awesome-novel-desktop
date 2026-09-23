@@ -1164,7 +1164,7 @@ try {
 
 const $ = id => document.getElementById(id);
 const REQUIRED = ['task', 'rstate', 'rstrat', 'changes', 'mood', 'segs'];
-const REQ_LABELS = { task: '核心任务', rstate: '读者当前状态', rstrat: '预期策略', changes: '必须完成的变化', mood: '主情绪', segs: '段落规划' };
+const REQ_LABELS = { rstrat: '预期策略', changes: '必须完成的变化', mood: '主情绪', segs: '段落规划' };
 const MOODS = ['紧张', '悬疑', '温暖', '悲伤', '激昂', '轻松', '压抑', '浪漫', '惊悚'];
 let saveTimer = null, savePhase = 'idle', streamTimer = null, aiAbort = false;
 
@@ -1732,10 +1732,8 @@ function chapterFormHTML(c, P, C) {
         </div>
       </details>
       <details class="cfg" open>
-        <summary>核心任务 ${chev}</summary>
+        <summary>预期策略 ${chev}</summary>
         <div class="inner">
-          <div class="field"><label>核心任务 <span class="req" data-req="task">*</span></label><textarea class="textarea" id="${P}task" placeholder="这一章必须完成什么">${escapeHtml(c.og?.task || '')}</textarea></div>
-          <div class="field"><label>读者当前状态 <span class="req" data-req="rstate">*</span></label><textarea class="textarea" id="${P}rstate" placeholder="读者此时的情感状态">${escapeHtml(c.og?.rstate || '')}</textarea></div>
           <div class="field"><label>预期策略 <span class="req" data-req="rstrat">*</span></label><textarea class="textarea" id="${P}rstrat" placeholder="希望读者如何感受">${escapeHtml(c.og?.rstrat || '')}</textarea></div>
           <div class="field"><label>预期细节说明 <span class="opt">可后补</span></label><textarea class="textarea" id="${P}rdetail" placeholder="策略的展开方式与分寸">${escapeHtml(c.og?.rdetail || '')}</textarea></div>
         </div>
@@ -2164,7 +2162,7 @@ function assemblePrompt(ch) {
 }
 function openAiModal(ch) {
   $('aiPrompt').value = assemblePrompt(ch);
-  const hasOutline = !!(ch.summary || S.pro && ch.og?.task);
+  const hasOutline = !!ch.summary;
   $('aiHint').textContent = hasOutline
     ? '提示词已由设定与章纲组装 · 可直接编辑。生成内容将追加到本章末尾。'
     : '本章尚未配置章纲，将仅依据设定生成。建议先去「大纲」补章纲（不强制）。';
