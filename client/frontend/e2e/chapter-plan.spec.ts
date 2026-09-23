@@ -133,6 +133,8 @@ test("手写路径全链：中栏拆下一章 → 五段 → 排上 → 落点�
     // 中栏入口（全档）
     await page.getByTestId("volume-split-manual").click();
     await expect(page.getByTestId("chapter-plan-modal")).toBeVisible({ timeout: 5000 });
+    // kicker 点名卷号与章号（照原型：卷＝汉字、章＝数字，X＝锚的 next_no）
+    await expect(page.locator(".chapter-plan .kicker")).toHaveText("卷下拆章 · 第一卷 · 第1章");
     await expect(page.getByTestId("d-prev")).toBeVisible();
     await page.getByTestId("d-title").fill("信标进舱");
     await page.getByTestId("d-plot").fill("沉舟在废弃星港捡到信标，先藏了下来");
@@ -174,13 +176,21 @@ test("AI 四态：正在想 → 三卡（角标＋剧情吸引力）→ 选卡 �
     release();
     await expect(page.getByTestId("pick-grid")).toBeVisible({ timeout: 10000 });
     await expect(page.locator(".pick-card")).toHaveCount(3);
+    // 三卡态底条＝换一批＋转手写（照原型：不出现「排上」死按钮）；进场行点名章号
+    await expect(page.getByTestId("split-entry-line")).toContainText("第一章的 3 个剧情方向 · 进场已接上");
+    await expect(page.getByTestId("split-redraw")).toBeVisible();
+    await expect(page.getByTestId("split-adopt")).toHaveCount(0);
     await expect(page.getByTestId("pick-corner-3")).toContainText("S");
     await expect(page.getByTestId("pick-corner-3")).toContainText("最吸引");
     await expect(page.getByTestId("pick-read-1")).toContainText("剧情吸引力");
     await expect(page.getByTestId("split-checks")).toContainText("信标暴露");
-    // 选 S 卡 → 本章卡（角标跟到卡上）→ 排上
+    // 选 S 卡 → 弹窗切到本章卡（三卡收起，照原型「点卡进入本章卡」）→ 排上按钮点名章号
     await page.getByTestId("pick-card-3").click();
     await expect(page.getByTestId("chapter-card-grade")).toContainText("S");
+    await expect(page.getByTestId("pick-grid")).toHaveCount(0);
+    await expect(page.getByTestId("split-adopt")).toContainText("排上这一章（第 1 章）");
+    await expect(page.locator(".mcard-foot .note"))
+      .toContainText("下一章的进场会自动接「信标暴露——全港都知道」");
     await page.getByTestId("split-adopt").click();
     await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
   } finally {

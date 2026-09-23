@@ -32,7 +32,7 @@ export function ChapterPlanModal({
     >
       <div className="chapter-plan" data-testid="chapter-plan-modal">
         <p className="kicker">
-          卷下拆章 · 第{cn}卷 · 一次只拆一章
+          卷下拆章 · 第{cn}卷 · 第{state.nextNo}章
         </p>
 
         {/* ① 正在想 */}
@@ -74,11 +74,11 @@ export function ChapterPlanModal({
           </p>
         )}
 
-        {/* ④ 三方向卡（点卡进本章卡） */}
-        {isAi && state.phase === "idle" && (
+        {/* ④ 三方向卡（点卡切本章卡——三卡收起，同原型「点卡进入本章卡」） */}
+        {isAi && state.phase === "idle" && state.pick == null && (
           <>
             <p className="plans-h" data-testid="split-entry-line">
-              进场已接上：{state.entry.text}（{state.entry.source}）
+              第{chCn}章的 3 个剧情方向 · 进场已接上：{state.entry.text}（{state.entry.source}）
             </p>
             <div className="pick-grid" data-testid="pick-grid">
               {state.directions.map((d, i) => (
@@ -128,15 +128,19 @@ export function ChapterPlanModal({
                 ))}
               </ul>
             )}
-            <div className="pick-foot">
-              <button className="btn btn-secondary btn-sm" data-testid="split-redraw" onClick={() => void draw()}>
-                ↻ 都不满意？换 3 个方向
-              </button>
-              <button className="btn btn-ghost btn-sm" onClick={toManual}>
-                自己写这一章
-              </button>
-            </div>
           </>
+        )}
+
+        {/* 出口行恒在（三卡态与选卡后都可换一批/转手写——原型选卡后无回头路，产品侧留此出口） */}
+        {isAi && state.phase === "idle" && (
+          <div className="pick-foot">
+            <button className="btn btn-secondary btn-sm" data-testid="split-redraw" onClick={() => void draw()}>
+              ↻ 都不满意？换 3 个方向
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={toManual}>
+              自己写这一章
+            </button>
+          </div>
         )}
 
         {/* ⑤ 本章卡 / 手写五段（同一张卡面） */}
@@ -247,12 +251,18 @@ export function ChapterPlanModal({
           </p>
         )}
 
-        {/* 底条 */}
+        {/* 底条（照原型：AI 出卡失败/三卡未选＝空；卡面在＝落地提示＋排上；手写另挂自检） */}
         <div className="mcard-foot" style={{ padding: 0, border: 0 }}>
-          {isAi && state.phase === "busy" ? (
+          {isAi && state.phase === "busy" && (
             <button className="btn btn-ghost btn-sm" onClick={toManual}>自己写这一章</button>
-          ) : (
+          )}
+          {(!isAi || state.pick != null) && state.phase !== "busy" && (
             <>
+              {!state.editing && (
+                <span className="note">
+                  排上后章节列表多出这一章（拟定）；下一章的进场会自动接「{state.draft.ending || state.draft.plot || "本章结尾"}」。
+                </span>
+              )}
               {!isAi && (
                 <button
                   className="btn btn-ghost btn-sm"
@@ -270,7 +280,7 @@ export function ChapterPlanModal({
               >
                 {state.submitting
                   ? state.editing ? "正在保存…" : "正在排上…"
-                  : state.editing ? "保存这一章" : "排上这一章"}
+                  : state.editing ? "保存这一章" : `排上这一章（第 ${state.nextNo} 章）`}
               </button>
             </>
           )}
