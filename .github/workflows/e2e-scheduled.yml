@@ -79,8 +79,23 @@ jobs:
       - name: 安装依赖与 Playwright Chromium
         run: cd client/frontend && npm ci && npx playwright install --with-deps chromium
 
+      # UP11_DATA_DIR（c-db-version-hardening）：库版本升级活体链路（db-version-upgrade.spec）
+      # 需要宿主侧多版本旧库目录；不设则该组整体 skip＝规格「每版本 PR 以演练全绿为
+      # 验收门」沦为纸面。指向宿主挂载目录（compose 已 bind mount .docker-data）。
+      - name: 播种 UP-11 多版本旧库目录
+        run: |
+          mkdir -p .docker-data/up11
+          echo '{}' > .docker-data/up11/config.json
       - name: 跑全量功能 e2e
         run: cd client/frontend && npx playwright test
+        env:
+          UP11_DATA_DIR: ${{ github.workspace }}/.docker-data/up11
+
+      - name: 库版本链演练（upgrade_drill --all）
+        run: |
+          cd client/backend
+          python -m pip install --quiet -r requirements.txt
+          python scripts/upgrade_drill.py --all --work /tmp/drill-work
 
       - name: 上传失败报告
         if: failure()

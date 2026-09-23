@@ -561,14 +561,27 @@ def test_up12b_retention_endpoints(tmp_path, monkeypatch):
     root.mkdir()
     for ver in ("0.21", "0.22", "0.23"):
         _make_lib(root / db_filename_for(ver), books=1)
-    history = [{"source_filename": db_filename_for(v),
-                "source_stamp": candidate_stamp(db_filename_for(v), root / db_filename_for(v))}
-               for v in ("0.21", "0.22", "0.23")]
+    stamps = {v: candidate_stamp(db_filename_for(v), root / db_filename_for(v))
+              for v in ("0.21", "0.22", "0.23")}
+    # history：0.21＝本次成功带回（完整）；0.22＝半途（整表跳过）；0.23＝老格式（缺完整性字段）
+    history = [
+        {"source_filename": db_filename_for("0.21"), "source_stamp": stamps["0.21"],
+         "book_count_migrated": 1, "book_count_source": 1,
+         "tables_skipped": 0, "fk_violations": 0},
+        {"source_filename": db_filename_for("0.22"), "source_stamp": stamps["0.22"],
+         "book_count_migrated": 1, "book_count_source": 1,
+         "tables_skipped": 1, "fk_violations": 0},
+        {"source_filename": db_filename_for("0.23"), "source_stamp": stamps["0.23"],
+         "book_count_migrated": 1},
+    ]
     target = root / db_filename_for(CUR)
     _make_target(root)
     con = sqlite3.connect(target)
     con.execute("INSERT INTO app_meta (key, value) VALUES ('migration.history', ?)",
                 (json.dumps(history),))
+    con.execute("INSERT INTO app_meta (key, value) VALUES ('migration.last', ?)",
+                (json.dumps({"source_filename": db_filename_for("0.21"),
+                             "source_stamp": stamps["0.21"]}),))
     con.commit()
     con.close()
 
@@ -580,14 +593,18 @@ def test_up12b_retention_endpoints(tmp_path, monkeypatch):
     monkeypatch.setattr(mr, "_active_db_path", lambda: target)
     with TestClient(app) as client:
         d = client.get("/api/backup/db-migration/retention").json()["data"]
+        # 新契约（c-db-version-hardening）：只认 migration.last 且搬运完整——
+        # 半途的 0.22 与老格式的 0.23 即使在 history 里也 SHALL NOT 进待删清单
         assert [it["filename"] for it in d["items"]] == [db_filename_for("0.21")], d
-        assert d["keep"] == 2
+        assert d["keep"] == 0  # 白名单收窄后保留窗口由白名单承载（keep 置 0）
         r = client.post("/api/backup/db-migration/cleanup",
-                        json={"filenames": [db_filename_for("0.21"), db_filename_for("0.23"),
-                                            "../../etc/passwd"]}).json()["data"]
+                        json={"filenames": [db_filename_for("0.21"), db_filename_for("0.22"),
+                                            db_filename_for("0.23"), "../../etc/passwd"]}).json()["data"]
         assert r["deleted"] == [db_filename_for("0.21")]
-        assert set(r["refused"]) == {db_filename_for("0.23"), "../../etc/passwd"}
+        assert set(r["refused"]) == {db_filename_for("0.22"), db_filename_for("0.23"),
+                                     "../../etc/passwd"}
     assert not (root / db_filename_for("0.21")).exists()
+    assert (root / db_filename_for("0.22")).exists()
     assert (root / db_filename_for("0.23")).exists()
     print(f"[UP-12b] retention={d} cleanup={r}")
 

@@ -8,7 +8,7 @@ import logging
 import shutil
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 
 import models  # noqa: F401 —— 注册全表（Base.metadata 依赖副作用 import）
@@ -196,7 +196,7 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
     """
     data_root = Path(data_root)
     src = data_root / source_filename
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(UTC).replace(tzinfo=None).strftime("%Y%m%d-%H%M%S")
     staging = data_root / "migration-staging" / stamp
     report = {"v": 1, "source": source_filename, "at": _now_iso(),
               "tables": [], "tables_skipped": [], "fk_violations": [],

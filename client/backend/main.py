@@ -56,6 +56,37 @@ from write.router import router as write_router
 from write.style_shadow import router as style_shadow_router
 
 
+async def stamp_current_library(schema_fp: str) -> None:
+    """把 schema 指纹与版本/组件快照写入当前库 app_meta（库自证来源）。
+
+    c-db-version-hardening：失败 MUST 记 error 日志（含库路径与异常摘要）且 MUST NOT
+    静默——下次启动该库会因 schema_id 缺失被判 mismatch 改名（书架空），日志里必须
+    留得住这条前因。失败不阻断启动。"""
+    from db_lifecycle import SCHEMA_ID_KEY, version_stamp_payload
+    from models.app_meta import AppMeta
+
+    try:
+        async with async_session() as session:
+            existing = await session.get(AppMeta, SCHEMA_ID_KEY)
+            if existing is None:
+                session.add(AppMeta(key=SCHEMA_ID_KEY, value=schema_fp))
+            elif existing.value != schema_fp:
+                existing.value = schema_fp
+            for _k, _v in version_stamp_payload().items():
+                _row = await session.get(AppMeta, _k)
+                if _row is None:
+                    session.add(AppMeta(key=_k, value=_v))
+                elif _row.value != _v:
+                    _row.value = _v
+            await session.commit()
+    except SQLAlchemyError as e:
+        _logger = logging.getLogger("uvicorn.error")
+        _logger.error(
+            "event=app.stamp result=fail db=%s error=%s hint=库指纹/版本快照未写入，下次启动可能按 mismatch 分流",
+            os.environ.get("DATA_ROOT", "./data"), e,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── 库文件版本治理（c-db-per-version）：先于任何 engine 连接 ──────────
@@ -124,24 +155,7 @@ async def lifespan(app: FastAPI):
         logging.getLogger("uvicorn.error").warning("Genre vocab seed failed: %s", e)
 
     # ── 当前库打戳：schema 指纹 ＋ 本机版本/组件快照（库自证来源） ───────────
-    from models.app_meta import AppMeta
-
-    try:
-        async with async_session() as session:
-            existing = await session.get(AppMeta, _SCHEMA_ID_KEY)
-            if existing is None:
-                session.add(AppMeta(key=_SCHEMA_ID_KEY, value=_schema_fp))
-            elif existing.value != _schema_fp:
-                existing.value = _schema_fp
-            for _k, _v in version_stamp_payload().items():
-                _row = await session.get(AppMeta, _k)
-                if _row is None:
-                    session.add(AppMeta(key=_k, value=_v))
-                elif _row.value != _v:
-                    _row.value = _v
-            await session.commit()
-    except SQLAlchemyError:
-        pass
+    await stamp_current_library(_schema_fp)
 
 
     # ── Migrate config.json → User table ────────────────────────────

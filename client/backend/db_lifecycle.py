@@ -25,7 +25,7 @@ import shutil
 import sqlite3
 import tempfile
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from schema_version import (
@@ -279,7 +279,7 @@ def relocate(db_path: Path, marker: str) -> str | None:
     照常起得来，由调用方给出可展示状态。形态与 `parse_db_filename` 的
     `.mismatch-*` / `.corrupt-*` 白名单一致（旧版留下的单文件隔离件同样可识别）。
     """
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(UTC).replace(tzinfo=None).strftime("%Y%m%d-%H%M%S")
     target = Path(f"{db_path}.{marker}-{stamp}")
     _best_effort_checkpoint(db_path)
     for attempt in (1, 2):

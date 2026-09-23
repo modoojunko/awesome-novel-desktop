@@ -32,7 +32,7 @@ from models.project_setting import ProjectSetting
 from models.reconcile import ChapterReconcile
 from models.token_log import TokenLog
 from models.user import User
-from models.volume import Volume, VolumeCastMember
+from models.volume import Volume
 
 __all__ = [
     "ApiConfig",
@@ -71,5 +71,4 @@ __all__ = [
     "TokenLog",
     "User",
     "Volume",
-    "VolumeCastMember",
 ]

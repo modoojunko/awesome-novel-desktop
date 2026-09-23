@@ -9,8 +9,9 @@ main.py 注册本前缀）；与导出/下载 job_runner 跨 kind 单飞互斥�
 - 候选载荷改版本语义（`version`/`kind`/`legacy_generation`/`recommended`＋顶层
   `current_version`），退役 `generation`/`schema_version`；
 - 活跃库按**路径**排除、白名单形状枚举、`recommended` 后端单源；
-- 新增 retention/cleanup：**只允许删「已成功带回」的件**（`migration.history`），
-  默认保留最近 2 份，路径校验收口在 `db_lifecycle.delete_candidate`；
+- 新增 retention/cleanup：**只允许删「本次成功带回且搬运完整」的件**（`migration.last`
+  ＋ history 完整性字段，c-db-version-hardening），默认保留最近 2 份，
+  路径校验收口在 `db_lifecycle.delete_candidate`；
 - dismiss 补路径校验（原实现直接 `DATA_ROOT / filename`）。
 """
 from __future__ import annotations
@@ -75,17 +76,47 @@ def _app_meta_value(key: str) -> str | None:
 
 
 def _migrated_stamps() -> set[str]:
-    """历史成功带回的源身份指纹集合（cleanup 白名单的来源）。"""
+    """可删白名单：仅「本次成功带回且搬运完整」的源（c-db-version-hardening）。
+
+    规格口径（db-generation）：仅 `migration.last.source_stamp` 可删，且含整表跳过/
+    FK 违规的搬运 SHALL NOT 出现清理入口。history 条目缺完整性字段（老数据）或
+    book_count 对不上时保守排除——少删优于误删。
+    """
+    last_raw = _app_meta_value("migration.last")
+    if not last_raw:
+        return set()
+    try:
+        last = json.loads(last_raw)
+    except json.JSONDecodeError:
+        return set()
+    if not isinstance(last, dict):
+        return set()
+    stamp = str(last.get("source_stamp") or "")
+    if not stamp:
+        return set()
+    for entry in _history_entries():
+        if entry.get("source_stamp") != stamp:
+            continue
+        if entry.get("tables_skipped") != 0 or entry.get("fk_violations") != 0:
+            return set()
+        src = entry.get("book_count_source")
+        mig = entry.get("book_count_migrated")
+        if src is not None and mig is not None and src != mig:
+            return set()
+        return {stamp}
+    return set()
+
+
+def _history_entries() -> list[dict]:
+    """migration.history 条目（非 list/坏 JSON 一律空表）。"""
     raw = _app_meta_value(HISTORY_KEY)
     if not raw:
-        return set()
+        return []
     try:
         items = json.loads(raw)
     except json.JSONDecodeError:
-        return set()
-    if not isinstance(items, list):
-        return set()
-    return {str(it.get("source_stamp") or "") for it in items if isinstance(it, dict)} - {""}
+        return []
+    return [it for it in items if isinstance(it, dict)] if isinstance(items, list) else []
 
 
 @router.get("/candidates")
@@ -109,11 +140,13 @@ async def candidates():
 
 @router.get("/retention")
 async def retention():
-    """待删清单：仅**已成功带回**的件，默认保留最近 2 份（无用户动作永不删）。"""
+    """待删清单：仅**本次成功带回且搬运完整**的件（无用户动作永不删）。"""
     root = Path(DATA_ROOT)
-    items = deletable_candidates(root, _migrated_stamps(), keep=RETENTION_KEEP,
+    # keep 保留窗口随白名单收窄（c-db-version-hardening）失去意义：可删集至多一项，
+    # 再套 keep=2 会把唯一可删项也保住＝清理功能死亡。置 0，保留窗口由白名单本身承载。
+    items = deletable_candidates(root, _migrated_stamps(), keep=0,
                                  active_db_path=_active_db_path())
-    return {"code": 0, "data": {"items": items, "keep": RETENTION_KEEP}}
+    return {"code": 0, "data": {"items": items, "keep": 0}}
 
 
 @router.post("/cleanup")
@@ -121,7 +154,7 @@ async def cleanup(body: CleanupBody):
     """删除用户勾选的旧库（服务端再次收口：只认待删清单内的名字）。"""
     root = Path(DATA_ROOT)
     allowed = {it["filename"] for it in deletable_candidates(
-        root, _migrated_stamps(), keep=RETENTION_KEEP, active_db_path=_active_db_path())}
+        root, _migrated_stamps(), keep=0, active_db_path=_active_db_path())}
     deleted: list[str] = []
     refused: list[str] = []
     for name in body.filenames:
@@ -299,7 +332,15 @@ async def _record_completion(source_filename: str, report: dict) -> None:
         except json.JSONDecodeError:
             history = []
     history = [it for it in history if it.get("source_stamp") != stamp]
-    history.append({k: payload[k] for k in
-                    ("source_filename", "source_stamp", "source_version",
-                     "legacy_generation", "book_count_migrated", "finished_at")})
+    skipped = report.get("tables_skipped") or report.get("skipped") or []
+    fk = report.get("fk_violations") or []
+    history.append({
+        **{k: payload[k] for k in
+           ("source_filename", "source_stamp", "source_version",
+            "legacy_generation", "book_count_migrated", "finished_at")},
+        # 完整性字段（c-db-version-hardening）：cleanup 白名单据此拒绝半途搬运的源
+        "book_count_source": report.get("book_count_source"),
+        "tables_skipped": len(skipped) if isinstance(skipped, list) else skipped,
+        "fk_violations": len(fk) if isinstance(fk, list) else fk,
+    })
     await _set_app_meta(HISTORY_KEY, json.dumps(history[-HISTORY_LIMIT:], ensure_ascii=False))
