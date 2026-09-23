@@ -65,7 +65,6 @@ def _sanitize_draft(d: dict) -> dict | None:
     pp = memo.get("payoff_plan") if isinstance(memo.get("payoff_plan"), dict) else {}
 
     summary = str(outline.get("summary", "") or "").strip()
-    task = str(memo.get("current_task", "") or "").strip()
     segments = [
         {
             "summary": str(s.get("summary", "") or "").strip(),
@@ -74,7 +73,7 @@ def _sanitize_draft(d: dict) -> dict | None:
         for s in (d.get("segments") if isinstance(d.get("segments"), list) else [])
         if isinstance(s, dict) and str(s.get("summary", "") or "").strip()
     ]
-    if not summary or not task or not segments:
+    if not summary or not segments:
         return None
 
     scenes = [
@@ -119,9 +118,7 @@ def _sanitize_draft(d: dict) -> dict | None:
             "perspective_guidance": str(outline.get("perspective_guidance", "") or "").strip(),
         },
         "memo": {
-            "current_task": task,
             "reader_expectation": {
-                "state": str(re_.get("state", "") or "").strip(),
                 "strategy": str(re_.get("strategy", "") or "").strip(),
                 "detail": str(re_.get("detail", "") or "").strip(),
             },
@@ -179,7 +176,6 @@ def _existing_outline_markdown(chapter: dict) -> str:
     # 全格子口径：任一章纲格子有内容即视为「有现有章纲」（与前端覆盖确认判定同范围）
     has = (
         any(str(v or "").strip() for v in o.values())
-        or str(memo.get("current_task", "") or "").strip()
         or any(
             isinstance(s, dict) and str(s.get("summary", "") or "").strip()
             for s in chapter.get("segments") or []

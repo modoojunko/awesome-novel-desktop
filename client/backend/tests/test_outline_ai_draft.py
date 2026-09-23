@@ -242,7 +242,9 @@ class TestAiDraftSuccess:
         assert r.status_code == 200, r.text
         d = r.json()
         # 骨架完整
-        assert d["memo"]["current_task"] == "拿到亏空证据并全身而退"
+        # c-og-fields-slim：模型即便输出 current_task/state，响应也 SHALL 丢弃
+        assert "current_task" not in d["memo"]
+        assert "state" not in d["memo"]["reader_expectation"]
         assert len(d["segments"]) == 2
         # 枚举非法回落（weight/focus 清空键、kind 回落 clue、location 清空键）
         sc = d["scene_cards"][0]
