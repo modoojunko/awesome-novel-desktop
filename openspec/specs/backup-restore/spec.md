@@ -11,6 +11,7 @@ C端 备份导出与恢复导入：把用户的全部小说资产打包为与数
 
 - `chapters/{ref}.yaml` 的出场引用行 SHALL 携带 `state_change`（可空）；导入 SHALL 原样落库。
 - `relations.yaml` 的关系记录 SHALL 携带 `origin_chapter`（章 ref 形式，可空）；导入 SHALL 按 ref→id 重绑为 `origin_chapter_id`，目标章不存在时 SHALL 留空并计入导入告警（不阻断）。
+- `hooks/hooks.yaml` 的伏笔行 SHALL 携带 `planned_volume_no`（可空，计划收束卷号）；导入 SHALL 原样落库，键缺失按空处理（加键兼容，格式版本号不变）。
 - `chapter_reconcile`（归档收尾提案/进度）SHALL 属**运行态待办，不随包**——包边界原则：丢了不心疼的内容不进包；登记归属即界外。
 - 导出 SHALL 在包内 `manifest` 或相应段登记上述字段的存在（格式版本号不变，加键兼容）。
 - 既有约束 SHALL 原样保留：包为数据库无关 yaml/md、章引用一律 ref 形态、versions/archives 冻结原文不重排、token_log/模型历史/events 不随包。
@@ -38,14 +39,22 @@ C端 备份导出与恢复导入：把用户的全部小说资产打包为与数
 - **AND** 未来演进：加键=兼容不升版；删键/改布局=升版，读窗策略按当次 change 另行裁定（本版按无用户口径豁免 N-1）
 
 #### Scenario: 出场引用带状态变化跨机恢复
+
 - **WHEN** 导出含「第 3 章出场沉舟 state_change=从犹豫到决意」的包并在新机导入
 - **THEN** 该字段原样恢复，且「截至本章」视图可显示
 
 #### Scenario: 关系来源章跨机重绑
+
 - **WHEN** 导出关系记录 origin_chapter=vol-1-ch-5 并在新机导入
 - **THEN** 来源章重绑为对应章 id；若该章缺失则来源留空并出现导入告警
 
+#### Scenario: 计划收束卷跨机恢复
+
+- **WHEN** 导出含「伏笔 #H-0007 planned_volume_no=3」的包并在新机导入
+- **THEN** 该字段原样恢复；旧包（无此键）导入按空处理且不报错
+
 #### Scenario: 收尾提案不随包
+
 - **WHEN** 作者有 3 条待确认提案未处理即导出全书
 - **THEN** 包内不含提案数据，新机导入后提案区为空（不视为数据丢失）
 
