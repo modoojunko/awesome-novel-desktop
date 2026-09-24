@@ -226,3 +226,54 @@ class TestCandidateScan:
         (staging / "novel-v0.6.db").write_bytes(b"\x00" * 32)
         assert db_lifecycle.clean_stale_staging(tmp_path) == 1
         assert not staging.exists()
+
+
+class TestSentinelDisposedShapes:
+    """dev 哨兵分流件形状（c-dev-sentinel-migration-candidate）。
+
+    实锤盲区：relocate 对哨兵库产出 `novel-dev.db.mismatch-*`（本机版本为 dev、
+    无 {X} 可代入），旧形状枚举判 None → 候选扫描永不可见——书只能靠手工改名找回。
+    """
+
+    def _simple_meta(self) -> MetaData:
+        md = MetaData()
+        Table("novels", md, Column("id", String, primary_key=True), Column("name", String))
+        return md
+
+    def test_v8_parse_sentinel_disposed(self):
+        from schema_version import parse_db_filename
+
+        mm = parse_db_filename("novel-dev.db.mismatch-20260924-091835")
+        assert mm.kind == "mismatch" and mm.is_candidate and mm.version is None
+        co = parse_db_filename("novel-dev.db.corrupt-20260924-091835")
+        assert co.kind == "corrupt" and not co.is_candidate
+        # 哨兵残件（非分流 stamp 形态）仍排除
+        assert parse_db_filename("novel-dev.db.e2e-20260909-223352").kind is None
+        # 版本构建路径逐字回归
+        old = parse_db_filename("novel-v0.25.db.mismatch-20260924-091835")
+        assert old.kind == "mismatch" and old.version == "0.25"
+
+    def test_v8b_sentinel_mismatch_boot_and_scan(self, tmp_path):
+        """哨兵库指纹不符 → 分流件可被候选扫描（boot→scan 端到端）。"""
+        db = tmp_path / "novel-dev.db"
+        _write_db(db, {"novels": ["id TEXT PRIMARY KEY", "name TEXT"]},
+                  rows={"novels": [("b1", "我在夜晚打吸血鬼")]})
+        result = db_lifecycle.boot_lifecycle(db, self._simple_meta(), "fp-not-matching")
+        assert result["boot"] == "mismatch_renamed", result
+        moved = Path(result["renamed_to"])
+        assert moved.name.startswith("novel-dev.db.mismatch-")
+        cands = db_lifecycle.scan_migration_candidates(tmp_path, "dev", tmp_path / "novel-dev.db")
+        assert [c["filename"] for c in cands] == [moved.name], cands
+        assert cands[0]["kind"] == "mismatch" and cands[0]["version"] is None
+        assert cands[0]["book_count"] == 1
+
+    def test_v8c_sentinel_corrupt_quarantined_not_candidate(self, tmp_path):
+        db = tmp_path / "novel-dev.db"
+        db.write_bytes(b"not a sqlite file at all" * 100)
+        result = db_lifecycle.boot_lifecycle(db, self._simple_meta(), "fp")
+        assert result["boot"] == "quarantined_new"
+        assert "novel-dev.db.corrupt-" in result["quarantined_to"]
+        cands = db_lifecycle.scan_migration_candidates(tmp_path, "dev", tmp_path / "novel-dev.db")
+        assert all(".corrupt" not in c["filename"] for c in cands)
+        quarantined = db_lifecycle.list_quarantined(tmp_path)
+        assert [q["filename"] for q in quarantined] == [Path(result["quarantined_to"]).name]
