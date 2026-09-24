@@ -760,6 +760,18 @@ def test_selfcheck_template_pull_natural_breakpoint():
     assert "还没完" not in pull
 
 
+def test_position_fragment_ch1_ending_aligned():
+    """#488 位置片段章尾行与硬规则 4 同口径：「大钩」导向词退役，密度要求原词保留。"""
+    with open(
+        os.path.join(os.path.dirname(__file__), "..", "prompts", "pos_ch1.prompt"),
+        encoding="utf-8",
+    ) as f:
+        ch1 = f.read()
+    assert "大钩" not in ch1
+    assert "不收场、不喘息" in ch1  # pacing 对拍钉子原样存活
+    assert "停在新麻烦刚炸开、主角还没接招的局面" in ch1
+
+
 def test_volume_named_character_spotlights_into_cast(client, monkeypatch):
     """卷纲点名的人须挤进【核心人物】：>6 张时，主旨/冲突/坎点到的配角换进队尾卡。
 
