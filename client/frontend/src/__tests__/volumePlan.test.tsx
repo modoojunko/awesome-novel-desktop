@@ -510,6 +510,7 @@ describe("卷页签右栏（c-write-home-rail-anchor）", () => {
       report: [
         { name: "对主线", items: [{ status: "ok", text: "接得上" }] },
         { name: "对设定", items: [{ status: "warn", text: "伏笔重复" }] },
+        { name: "对节奏", items: [{ status: "warn", text: "卷末未点名高潮" }] },
         { name: "对已写内容", items: [{ status: "none", text: "占位" }] },
       ],
     });
@@ -521,10 +522,10 @@ describe("卷页签右栏（c-write-home-rail-anchor）", () => {
     >[0]["data"];
 
   const CASES: Array<[string, string, string[]]> = [
-    ["outline", "卷纲", ["对主线", "对设定", "对已写内容"]],
-    ["chapters", "本卷章节", ["对已写内容", "对主线", "对设定"]],
-    ["rels", "角色关系", ["对设定", "对主线", "对已写内容"]],
-    ["hooks", "伏笔", ["对设定", "对主线", "对已写内容"]],
+    ["outline", "卷纲", ["对主线", "对节奏", "对设定", "对已写内容"]],
+    ["chapters", "本卷章节", ["对已写内容", "对主线", "对节奏", "对设定"]],
+    ["rels", "角色关系", ["对设定", "对主线", "对节奏", "对已写内容"]],
+    ["hooks", "伏笔", ["对设定", "对主线", "对节奏", "对已写内容"]],
   ];
 
   for (const [tab, name, order] of CASES) {
