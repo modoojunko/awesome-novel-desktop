@@ -45,7 +45,6 @@ os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
 os.environ["DATA_ROOT"] = _tmp_data_root
 
 from sqlalchemy import select, text  # noqa: E402
-from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
 
 import auth_local.service as _service  # noqa: E402
 from auth_local.deps import require_novel_model  # noqa: E402
@@ -520,13 +519,13 @@ class TestMigrationNoInPlaceDdl:
         """旧库缺 plan_line 列 → 搬运到新库后该列存在且旧行可读（中性回填）。"""
         import sqlite3
 
-        from db_lifecycle import compute_schema_fingerprint
-        from migration.engine import run_migration
-        from schema_version import db_filename_for
         from sqlalchemy import create_engine as _create_engine
 
         import models  # noqa: F401 —— 注册全表
         from db import Base
+        from db_lifecycle import compute_schema_fingerprint
+        from migration.engine import run_migration
+        from schema_version import db_filename_for
 
         cur = db_filename_for("0.25")
         active = tmp_path / cur
@@ -613,12 +612,12 @@ class TestAntagonistColumns:
         """旧库缺 antagonist/坎列 → 搬运到新库后列在、旧行可读；源库零改动。"""
         import sqlite3 as _sq
 
-        from schema_version import db_filename_for
         from sqlalchemy import create_engine as _ce
 
         import models  # noqa: F401
         from db import Base
         from migration.engine import run_migration
+        from schema_version import db_filename_for
 
         active = tmp_path / db_filename_for("0.25")
         se = _ce(f"sqlite:///{active}")
@@ -1049,3 +1048,132 @@ def test_expand_template_declares_antagonist_closed_set_and_summary_cast():
     src = _read_prompt("volume_expand.prompt")
     assert "antagonist_type：从 人物／难题／环境／自我／势力 里选一个" in src
     assert "关键配角" in src
+
+
+# ── c-plan-material-fullinfo：素材全量（世界/人物/已拆卷/无卡名单）────────
+
+
+def _seed_world(pid: str) -> None:
+    async def _s():
+        session = async_session()
+        proj = await session.get(Novel, pid)
+        root = proj.root_path
+        await session.close()
+        await get_storage().write_yaml(root, "settings/world-setting.yaml", {
+            "stage": "灰港，蒸汽与煤气灯并存的工业港城，血族在夜禁后公开巡行。" * 6,
+            "factions": [
+                {"name": f"守夜人{i}", "note": f"守夜人{i}的立场注记，暗中向血族出售巡逻路线换取停战。" * 5}
+                for i in range(3)
+            ],
+        })
+
+    _run_async(_s())
+
+
+def _plans_reply() -> str:
+    return json.dumps({
+        "plans": [
+            {"spine": "甲走向", "conflict": "c", "ending": "e", "focus_axis": "代价",
+             "antagonist_type": "难题", "antagonist_line": "信号的封装层"},
+            {"spine": "乙走向", "conflict": "c", "ending": "e", "focus_axis": "关系",
+             "antagonist_type": "环境", "antagonist_line": "母港制度"},
+        ],
+        "cast": [], "factions": [], "note": "", "volume_estimate": "",
+    }, ensure_ascii=False)
+
+
+class TestMaterialFullInfo:
+    def test_options_world_full_and_volume_ledger(self, client, monkeypatch):
+        """世界块全量（三家势力全进、无从略）＋已拆卷清单进 options 素材。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        _seed_world(pid)
+        r1 = client.post(f"/api/novels/{pid}/volumes", json={
+            "title": "第一卷", "summary": "猎杀越多越失控",
+            "conflict": "与自己的兽性赛跑", "antagonist_type": "自我",
+            "antagonist_line": "体内的血源饥渴", "ending": "带着饥渴走进黎明"})
+        assert r1.status_code in (200, 201), r1.text
+        fake = _setup_ai(monkeypatch, [_plans_reply()])
+        r = client.post(f"/api/novels/{pid}/volumes/ai/options", json={"line": ""})
+        assert r.status_code == 200, r.text
+        system = fake.last_kwargs["system"]
+        assert "守夜人0的立场注记" in system and "守夜人2的立场注记" in system  # 势力全量
+        assert "另有" not in system  # 全量＝无从略注
+        assert "【已拆卷】" in system and "卷1·第一卷" in system
+        assert "坎：自我·体内的血源饥渴" in system
+
+    def test_expand_ledger_excludes_target_volume(self, client, monkeypatch):
+        """expand 的已拆卷清单排除目标卷自身（vol_no=2 展开时不含卷 2 行）。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        for t in ("第一卷", "第二卷"):
+            r = client.post(f"/api/novels/{pid}/volumes", json={"title": t, "summary": "s"})
+            assert r.status_code in (200, 201), r.text
+        fake = _setup_ai(monkeypatch, [VALID_EXPAND])
+        r = client.post(f"/api/novels/{pid}/volumes/ai/expand",
+                        json={"line": "追查内鬼", "vol_no": 2})
+        assert r.status_code == 200, r.text
+        system = fake.last_kwargs["system"]
+        assert "卷1·" in system
+        assert "卷2·第二卷" not in system
+
+    def test_cardless_name_known_no_warning(self, client, monkeypatch):
+        """出场名单无卡名字进已知侧：申报「哑叔」不进 warnings；无卡名单块进素材。"""
+        from sqlalchemy import select as _select
+
+        from models.chapter import Chapter, ChapterCharacter
+        from models.volume import Volume
+
+        _set_tier("trial")
+        pid = _mk_project(client)
+        rv = client.post(f"/api/novels/{pid}/volumes", json={"title": "第一卷", "summary": "s"})
+        assert rv.status_code in (200, 201), rv.text
+
+        async def _s():
+            session = async_session()
+            vol = (await session.scalars(
+                _select(Volume).where(Volume.project_id == pid)
+            )).first()
+            ch = Chapter(project_id=pid, volume_id=vol.id, chapter_no=1,
+                         ref="vol-1-ch-1", title="初夜")
+            session.add(ch)
+            await session.flush()
+            session.add(ChapterCharacter(chapter_id=ch.id, sort_order=0, character_name="哑叔"))
+            await session.commit()
+            await session.close()
+
+        _run_async(_s())
+        plans = json.dumps({
+            "plans": [
+                {"spine": "甲", "conflict": "c", "ending": "e", "focus_axis": "代价",
+                 "antagonist_type": "难题", "antagonist_line": "封装层"},
+                {"spine": "乙", "conflict": "c", "ending": "e", "focus_axis": "关系",
+                 "antagonist_type": "环境", "antagonist_line": "母港制度"},
+            ],
+            "cast": ["哑叔"], "factions": [], "note": "", "volume_estimate": "",
+        }, ensure_ascii=False)
+        fake = _setup_ai(monkeypatch, [plans])
+        r = client.post(f"/api/novels/{pid}/volumes/ai/options", json={"line": ""})
+        assert r.status_code == 200, r.text
+        assert not any("哑叔" in w for w in r.json()["warnings"])  # 已知侧含无卡名
+        system = fake.last_kwargs["system"]
+        assert "【无卡出场名单】" in system and "哑叔（第1章）" in system
+
+    def test_check_material_has_world_block(self, client, monkeypatch):
+        """卷体检素材含全量世界块（现状只注铁律不含世界块）。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        _seed_world(pid)
+        client.post(f"/api/novels/{pid}/volumes", json={
+            "title": "第一卷", "antagonist_type": "环境",
+            "antagonist_line": "母港制度——注销之后就没有回程"})
+        reply = json.dumps({"groups": [
+            {"name": "对主线", "items": [{"status": "ok", "text": "x"}]},
+            {"name": "对设定", "items": [{"status": "ok", "text": "y"}]},
+        ]}, ensure_ascii=False)
+        fake = _setup_ai(monkeypatch, [reply])
+        r = client.post(f"/api/novels/{pid}/volumes/vol-1/ai/check")
+        assert r.status_code == 200, r.text
+        system = fake.last_kwargs["system"]
+        assert "【世界观】" in system
+        assert "守夜人0的立场注记" in system  # 全量进体检

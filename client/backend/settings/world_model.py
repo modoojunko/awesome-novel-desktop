@@ -297,11 +297,12 @@ def _entry_line(e: dict) -> str:
     return f"{key}：{value}" if value else key
 
 
-def render_world_block(raw) -> str:
-    """世界设定 → 「世界观」注入块（预算 600 字，整条为单元截断 + 显式从略）。
+def render_world_block(raw, char_budget: int | None = WORLD_BLOCK_BUDGET) -> str:
+    """世界设定 → 「世界观」注入块（默认预算 600 字，整条为单元截断 + 显式从略）。
 
     结构：三段骨架（舞台/力量/代价，no_power 跳过力量与代价）永远注入；
-    条目区（势力/历史/细节）按整条顺序装箱，放不下的整条跳过并计数显式声明。
+    条目区（势力/历史/细节）按整条顺序装箱，放不下的整条跳过并按类别计数显式声明。
+    `char_budget=None`＝不截（c-plan-material-fullinfo：拆卷/拆章/体检等结构决策链路传全量）。
     铁律 SHALL NOT 出现在本块（走红线区，见 render_red_lines）。
     """
     v2 = normalize_world(raw)
@@ -325,24 +326,28 @@ def render_world_block(raw) -> str:
     if not pooled and not lines:
         return ""
     header = "世界观：\n"
-    budget = WORLD_BLOCK_BUDGET - len(header) - paragraphs_len
-    skipped = 0
+    budget = (
+        None if char_budget is None else char_budget - len(header) - paragraphs_len
+    )
+    skipped: dict[str, int] = {}
     for title, rendered in pooled:
         # 条目为最小渲染单元（D5）：单条放不下只跳该条，段头随首个存活条目出现
         header_len = len(f"- {title}：\n")
         body: list[str] = []
         for line_text in rendered:
             item = f"  - {line_text}"
-            cost = (header_len if not body else 0) + len(item) + 1
-            if cost <= budget:
-                body.append(item)
+            if budget is not None:
+                cost = (header_len if not body else 0) + len(item) + 1
+                if cost > budget:
+                    skipped[title] = skipped.get(title, 0) + 1
+                    continue
                 budget -= cost
-            else:
-                skipped += 1
+            body.append(item)
         if body:
             lines.append(f"- {title}：\n" + "\n".join(body))
     if skipped:
-        lines.append(f"（另有 {skipped} 条世界细节从略）")
+        note = "、".join(f"{title} {n} 条" for title, n in skipped.items())
+        lines.append(f"（另有 {note} 从略）")
     if not lines:
         return ""
     return header + "\n".join(lines)
@@ -367,9 +372,10 @@ def render_red_lines(raw) -> list[str]:
 def world_summary_text(raw, char_budget: int = 1200) -> str:
     """世界设定 → 紧凑文本（AI 一致性体检/lore-suggest 的世界侧输入）。
 
-    预算只约束世界块；铁律走红线逐条全量附后（与写章链路同口径，不截断）。
+    预算直达 `render_world_block` 的整条装箱语义（c-plan-material-fullinfo 修活——
+    旧实现内部按 600 先截、外层二次切片永不生效）；铁律走红线逐条全量附后（与写章链路同口径，不截断）。
     """
-    body = render_world_block(raw)[:char_budget].rstrip()
+    body = render_world_block(raw, char_budget).rstrip()
     reds = render_red_lines(raw)
     if reds:
         body = (body + "\n" if body else "") + "\n".join(reds)
