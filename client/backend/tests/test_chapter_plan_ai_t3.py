@@ -724,6 +724,42 @@ def test_split_template_scene_state_rules():
     assert "【伏笔台账】" not in src and "【主线全景】" not in src  # 负面清单（§5）不破
 
 
+def test_split_template_ending_natural_breakpoint():
+    """章尾钉住「自然断点」：规则 4 教局面不教钩子，ending 定义呼应；末章例外（规则 5）保留。"""
+    with open(
+        os.path.join(os.path.dirname(__file__), "..", "prompts", "chapter_split.prompt"),
+        encoding="utf-8",
+    ) as f:
+        rule4 = next(
+            line for line in f.read().splitlines() if line.startswith("4. ")
+        )
+    assert "自然断点" in rule4
+    assert "悬念道具" in rule4
+    assert "还没完" not in rule4
+    with open(
+        os.path.join(os.path.dirname(__file__), "..", "prompts", "chapter_split.prompt"),
+        encoding="utf-8",
+    ) as f:
+        src = f.read()
+    assert "停在场面状态（剧情自然断点）" in src  # ending 字段定义呼应
+    assert "5. 素材标注「本章是本卷末章」时例外" in src  # 末章收卷不变
+
+
+def test_selfcheck_template_pull_natural_breakpoint():
+    """章级自检的「拉力」问句与生成模板同批：自然断点口径，钩子导向问法退役。"""
+    with open(
+        os.path.join(os.path.dirname(__file__), "..", "prompts", "chapter_selfcheck.prompt"),
+        encoding="utf-8",
+    ) as f:
+        pull = next(
+            line
+            for line in f.read().splitlines()
+            if line.startswith("- 拉力（只看本章结尾）")
+        )
+    assert "自然断点" in pull
+    assert "还没完" not in pull
+
+
 def test_volume_named_character_spotlights_into_cast(client, monkeypatch):
     """卷纲点名的人须挤进【核心人物】：>6 张时，主旨/冲突/坎点到的配角换进队尾卡。
 
