@@ -19,7 +19,7 @@ import { cleanupSessionNovels, stableClick, writeFirstChapter } from "./helpers"
 // 凭据说明：E2E 临时账号 / 假 ApiConfig 仅面向本地 docker 栈，非可用凭据
 // （与 workbench-features.spec.ts 同一套），拼串构造以示非密钥。
 
-const S_API = "http://127.0.0.1:19000/api/web";
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 // E2E 临时账号口令（本地 docker S端 专用，非真实凭据）
 const E2E_PASSWORD = ["Test", "Pass", "789", "!"].join("");

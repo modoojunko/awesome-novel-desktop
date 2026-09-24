@@ -22,3 +22,4 @@
 - [x] 4.1 后端全量 pytest 绿；ruff 零新增
 - [x] 4.2 前端 vitest（触及文件）＋tsc 零错
 - [x] 4.3 openspec validate --strict；spec 措辞与实现逐条对上
+- [x] 4.4 e2e（隔离栈 wt21：worktree 构建，前端 5674/后端 8600/S端 19600）：chapter-plan 10＋volume-plan 6＋outline-ai-draft/plot-sim/modals-pr5 12＝全绿；顺带把三条老 spec 的 S端地址参数化（E2E_S_API 可覆盖）

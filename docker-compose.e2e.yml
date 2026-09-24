@@ -1,0 +1,13 @@
+# 会话隔离栈（per-session 规则）：独立容器名/端口/数据目录，供 e2e 在 worktree 上跑
+services:
+  server-backend:
+    container_name: wt21-server-backend
+    ports: !override ["19600:19000"]
+  client-backend:
+    container_name: wt21-client-backend
+    ports: !override ["8600:8000"]
+    environment:
+      SERVER_API_BASE: "http://host.docker.internal:19600/api"
+  client-frontend:
+    container_name: wt21-client-frontend
+    ports: !override ["5674:80"]
