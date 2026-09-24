@@ -233,3 +233,40 @@ class TestRouter:
                         json={"source_filename": "novel.db"})
         assert r.status_code == 409
         assert "备份" in r.json()["detail"]["message"]
+
+
+class TestDeadKeyMigrationNote:
+    def test_dead_key_configs_reported_in_notes(self, sandbox):
+        """key-crypto-selfcontained：迁入带 enc: 密文的 api_configs 而源库钥匙不随行
+        （app_meta 不搬）——按当前钥匙解不开的迁入配置在报告 notes 显式提示重填。"""
+        from cryptography.fernet import Fernet
+
+        root, active = sandbox
+        p = root / "novel.db"
+        dead_cipher = "enc:" + Fernet(Fernet.generate_key()).encrypt(b"sk-dead").decode()
+        conn = sqlite3.connect(p)
+        conn.execute(
+            "CREATE TABLE api_configs (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, "
+            "vendor TEXT, api_format TEXT, base_url TEXT, api_key TEXT, models TEXT, status TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO api_configs (id, user_id, name, vendor, api_format, base_url, api_key, models, status) "
+            "VALUES ('c-dead', 'u1', '旧配置', 'deepseek', 'openai', 'https://x', ?, '[\"m\"]', 'active')",
+            (dead_cipher,),
+        )
+        conn.execute(
+            "CREATE TABLE novels (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, slug TEXT, root_path TEXT, "
+            "current_phase TEXT, status TEXT, total_volumes INTEGER, total_chapters INTEGER, "
+            "created_at TIMESTAMP, updated_at TIMESTAMP)"
+        )
+        conn.execute(
+            "INSERT INTO novels (id, user_id, name, slug, root_path, current_phase, status, "
+            "total_volumes, total_chapters, created_at, updated_at) VALUES ('n1','u1','书','s','./d','write','active',0,0,'2026-01-01','2026-01-01')"
+        )
+        conn.commit()
+        conn.close()
+
+        rep = run_migration(root, "novel.db", active)
+        assert rep["status"] == "ok", rep
+        notes = "\n".join(rep["notes"])
+        assert "不可解" in notes and "重新粘贴保存" in notes, rep["notes"]

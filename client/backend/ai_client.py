@@ -396,6 +396,8 @@ async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:
         async with async_session() as session:
             if user_id:
                 # Check for active ApiConfig records (new system)
+                # key-crypto-selfcontained：候选取全量倒序逐个解密（原 limit(1)
+                # 在「最新一条死文、第二条活」时误落 User 兜底）
                 result = await session.execute(
                     select(ApiConfig)
                     .where(
@@ -404,28 +406,27 @@ async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:
                         ApiConfig.api_key != "",
                     )
                     .order_by(ApiConfig.created_at.desc())
-                    .limit(1)
                 )
-                cfg = result.scalar_one_or_none()
-                if cfg:
+                for cfg in result.scalars().all():
                     plain_key = decrypt_api_key(cfg.api_key)
-                    if plain_key:
-                        models_list: list[str] = []
-                        if cfg.models:
-                            try:
-                                parsed = json.loads(cfg.models)
-                                if isinstance(parsed, list):
-                                    models_list = parsed
-                            except (json.JSONDecodeError, TypeError):
-                                pass
-                        # Use first model as the default, or empty
-                        model = models_list[0] if models_list else ""
-                        return AIClient(
-                            api_key=plain_key,
-                            base_url=cfg.base_url,
-                            model=model or "",
-                            api_format=getattr(cfg, "api_format", None),
-                        )
+                    if not plain_key:
+                        continue
+                    models_list: list[str] = []
+                    if cfg.models:
+                        try:
+                            parsed = json.loads(cfg.models)
+                            if isinstance(parsed, list):
+                                models_list = parsed
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                    # Use first model as the default, or empty
+                    model = models_list[0] if models_list else ""
+                    return AIClient(
+                        api_key=plain_key,
+                        base_url=cfg.base_url,
+                        model=model or "",
+                        api_format=getattr(cfg, "api_format", None),
+                    )
 
                 # Fallback: old User.api_key (migration period)
                 result = await session.execute(select(User).where(User.id == user_id))
@@ -437,32 +438,31 @@ async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:
                         model=user.api_model,
                     )
             else:
-                # No user_id: find any user with a config
+                # No user_id: find any user with a config（同上：逐个可解密判定）
                 result = await session.execute(
                     select(ApiConfig)
                     .where(ApiConfig.status == "active", ApiConfig.api_key != "")
                     .order_by(ApiConfig.created_at.desc())
-                    .limit(1)
                 )
-                cfg = result.scalar_one_or_none()
-                if cfg:
+                for cfg in result.scalars().all():
                     plain_key = decrypt_api_key(cfg.api_key)
-                    if plain_key:
-                        models_list: list[str] = []
-                        if cfg.models:
-                            try:
-                                parsed = json.loads(cfg.models)
-                                if isinstance(parsed, list):
-                                    models_list = parsed
-                            except (json.JSONDecodeError, TypeError):
-                                pass
-                        model = models_list[0] if models_list else ""
-                        return AIClient(
-                            api_key=plain_key,
-                            base_url=cfg.base_url,
-                            model=model,
-                            api_format=getattr(cfg, "api_format", None),
-                        )
+                    if not plain_key:
+                        continue
+                    models_list: list[str] = []
+                    if cfg.models:
+                        try:
+                            parsed = json.loads(cfg.models)
+                            if isinstance(parsed, list):
+                                models_list = parsed
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                    model = models_list[0] if models_list else ""
+                    return AIClient(
+                        api_key=plain_key,
+                        base_url=cfg.base_url,
+                        model=model,
+                        api_format=getattr(cfg, "api_format", None),
+                    )
 
                 # Fallback: any user with old api_key
                 result = await session.execute(
@@ -498,8 +498,14 @@ async def get_ai_client_for_novel(novel_id: str) -> AIClient:
     `ai_model` 权威、与 `ai_config_id` 绑定同一配置；调用方 `chat(model="haiku")`
     经 `resolve()` 落到本书模型，**不要在业务层传字面模型名**。
 
-    前置未就绪（无书/未绑/配置已删/无 Key）抛 `ValueError`——业务层应先挂
-    `require_novel_model` 门控，正常路径不会走到这里。
+    前置未就绪（无书/未绑/配置已删/无 Key——含 Key 密文解不开）抛 `ValueError`
+    ——业务层应先挂 `require_novel_model` 门控，正常路径不会走到这里。
+
+    门禁（grep ④，key-crypto-selfcontained）：本函数每个调用文件，其所在路由
+    模块（或上游路由模块）须出现 `require_novel_model` 或 `ensure_novel_model_ready`
+    （路径无 project_id 的场景如 story/，用后者从会话引擎取值）。豁免：`tests/`、
+    `ai_prefill.py`、`novels/router.py` suggest-meta、`archive/service.py` 与
+    `archive/reconcile.py`（try/except 降级路径，非门控对象）。
     """
     async with async_session() as session:
         novel = await session.get(Novel, novel_id)

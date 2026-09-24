@@ -8,9 +8,19 @@ OUT = pathlib.Path('/tmp/vp/exp/out'); OUT.mkdir(parents=True, exist_ok=True)
 M = json.loads(pathlib.Path('/tmp/vp/exp/material.json').read_text())
 
 # ── 密钥：只解密使用，不打印 ──
+# key-crypto-selfcontained：钥匙已迁入库 app_meta.fernet_key 行；本脚本兼容
+# 两种来源——优先读库行，旧数据目录（无钥匙行）回退 .fernet_key 文件遗留。
 db = sqlite3.connect('file:' + str(DD / 'novel.db') + '?mode=ro', uri=True); db.row_factory = sqlite3.Row
 row = db.execute("select api_key, base_url from api_configs where vendor='deepseek'").fetchone()
-fk = (DD / '.fernet_key').read_text().strip()
+def _load_key():
+    try:
+        kr = db.execute("select value from app_meta where key='fernet_key'").fetchone()
+        if kr:
+            return kr[0].strip()
+    except sqlite3.Error:
+        pass
+    return (DD / '.fernet_key').read_text().strip()
+fk = _load_key()
 tok = row['api_key']
 KEY = Fernet(fk).decrypt(tok[4:].encode()).decode() if tok.startswith('enc:') else tok
 BASE = row['base_url'].rstrip('/')          # https://api.deepseek.com/anthropic

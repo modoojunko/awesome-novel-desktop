@@ -131,7 +131,7 @@ export default function SettingsView({
   const introRef = useRef<IntroHandle>(null);
   /** 世界面板句柄：save 落库；runAi 由右栏 AI 卡/格头快捷钮调用（world-setting-v2）。 */
 // D13：AI 行的门控只读后端 ai_state 一次分派（不再 useFeature + 本地推导两处判）
-  const { aiState, refresh: refreshAiState } = useModelStatus(projectId);
+  const { aiState, aiMessage, refresh: refreshAiState } = useModelStatus(projectId);
   /** AI 行运行态（受控下发给卡片）：点即置位、promise 落地即清，用户看得见后台在跑。 */
   const [aiRunningKey, setAiRunningKey] = useState<string | null>(null);
   const aiRowBusyRef = useRef(false);
@@ -903,6 +903,7 @@ export default function SettingsView({
             rows={introAiRows}
             footNote="输入：书名 + 简介本文（题材可后补）。结果统一落在简介框下方结果区，采纳才写回。"
             aiState={aiState}
+            aiStateMessage={aiMessage}
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}
           />
@@ -911,6 +912,7 @@ export default function SettingsView({
             rows={genreAiRows}
             footNote="点某行，AI 建议落到左侧对应格下方；采纳才写回，随时可改可重试。"
             aiState={aiState}
+            aiStateMessage={aiMessage}
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}
             data-od-id="ai-assist-genre"
@@ -920,6 +922,7 @@ export default function SettingsView({
             rows={arcAiRows}
             footNote="建议落在对应问题的下方，点「采纳 · 覆盖」才会写入，面板底部可一步撤销；每个功能保留最近 5 次结果，随时切回。"
             aiState={aiState}
+            aiStateMessage={aiMessage}
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}
             data-od-id="ai-assist-arc"
@@ -933,6 +936,7 @@ export default function SettingsView({
                 : "答案落对应格下方，采纳 · 覆盖才写回，脚部有回执可一步撤销；每行保留最近 5 次结果可切回。体检缺输入走降级，不拦确认。"
             }
             aiState={aiState}
+            aiStateMessage={aiMessage}
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}
             data-od-id="ai-assist-world"
@@ -950,6 +954,7 @@ export default function SettingsView({
             rows={foreshadowAiRows}
             footNote="答案落对应字段或卡底，采纳 · 覆盖才写回（覆盖已有收束记录时按钮明示「覆盖并收束」，采纳仍可一步撤销）；回执只留最近一条、8 秒内可点撤销；起草伏笔保留最近 5 次结果可切回。所有 AI 辅助功能都在本栏，伏笔卡编辑区不放 AI 按钮；免费版四行可见＋锁定，点击走统一升级提示。"
             aiState={aiState}
+            aiStateMessage={aiMessage}
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}
             data-od-id="ai-assist-foreshadow"
@@ -959,6 +964,7 @@ export default function SettingsView({
             rows={styleAiRows}
             footNote="蒸馏学到的禁用词会自动并入硬约束区下方的「禁用词」组并去重；机器写的章永不回写文风卡——重蒸馏只由你触发，每次蒸馏都有版本快照；要保住的基线行锁定即可，重蒸馏跳过。所有 AI 辅助功能都在本栏，编辑区不放 AI 按钮；免费版四行可见＋锁定，点击走统一升级提示。"
             aiState={aiState}
+            aiStateMessage={aiMessage}
             onBlocked={handleAiBlocked}
             runningKey={aiRunningKey}
             data-od-id="ai-assist-style"
@@ -1267,7 +1273,7 @@ const IntroPanel = forwardRef<
             if (reason === "member_required") {
               toast.info("AI 是会员功能，升级 PRO 后解锁");
             } else if (reason === "no_key") {
-              toast.info("先去「模型配置」添加 API Key");
+              toast.info((e as Error).message || "先去「模型配置」添加 API Key");
             } else if (reason === "missing_model" || reason === "invalid") {
               toast.info("先在本书选择模型");
             } else {

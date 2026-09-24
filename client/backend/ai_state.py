@@ -23,6 +23,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api_configs.crypto import decrypt_api_key
 from models.api_config import ApiConfig
 from models.project import Novel
 from models.user import User
@@ -79,9 +80,25 @@ def model_is_bound(novel: Novel | None, config: ApiConfig | None) -> bool:
 FAILED_TEST_STATUSES = {"auth_error", "timeout", "network_error", "error", "not_found"}
 
 
+def key_undecryptable(config: ApiConfig | None) -> bool:
+    """字段非空但密文解不出非空明文（钥匙更换/丢失）——死文态。
+
+    no_key 文案三分支判别用；固定优先级「解不开 优先于 测试失败」
+    （key-crypto-selfcontained：明文（无 enc: 前缀）原样返回非空＝可用，兼容既有明文兜底）。
+    """
+    if config is None:
+        return False
+    stored = (config.api_key or "").strip()
+    if not stored:
+        return False
+    return not decrypt_api_key(stored)
+
+
 def config_key_usable(config: ApiConfig | None) -> bool:
-    """本书绑定配置的 Key 是否可用：非空 且 最近一次连接测试非失败态（O-9）。"""
+    """本书绑定配置的 Key 是否可用：非空、**可解密出非空明文**、且最近一次连接测试非失败态（O-9）。"""
     if config is None or not (config.api_key or "").strip():
+        return False
+    if key_undecryptable(config):
         return False
     return (config.last_test_status or "ok") not in FAILED_TEST_STATUSES
 
@@ -144,17 +161,18 @@ async def user_has_ai_key(db: AsyncSession, user_id: str) -> bool:
     与门控层 `require_ai_access` 的 Key 判据同源——判定层的入参只在这里取一次。
     """
     try:
+        # key-crypto-selfcontained：候选取全量逐个按可解密口径判定
+        # （原 limit(1) 单发在「最新一条死文、第二条活」时误判有 Key）
         result = await db.execute(
-            select(ApiConfig)
-            .where(
+            select(ApiConfig).where(
                 ApiConfig.user_id == user_id,
                 ApiConfig.status == "active",
                 ApiConfig.api_key != "",
             )
-            .limit(1)
         )
-        if result.scalar_one_or_none():
-            return True
+        for cfg in result.scalars().all():
+            if decrypt_api_key((cfg.api_key or "").strip()):
+                return True
     except Exception:  # noqa: BLE001, S110
         pass
 
@@ -203,7 +221,9 @@ async def ai_state_for_novel(
 
 
 def no_key_message(config: ApiConfig | None) -> str:
-    """`no_key` 文案区分「未配置」/「测试失败，请检查」（O-9）。"""
+    """`no_key` 文案三分支，固定优先级「解不开 优先于 测试失败」（O-9＋key-crypto-selfcontained）。"""
+    if config is not None and key_undecryptable(config):
+        return "API Key 无法解密（加密钥匙已更换）— 请重新粘贴保存"
     if config is not None and (config.api_key or "").strip():
         return "API Key 连接测试失败 — 请检查或重测"
     return "暂无可用 API Key — 先去「模型配置」添加"

@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import require_ai_access
+from auth_local.deps import ensure_novel_model_ready, require_ai_access
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
@@ -34,6 +34,10 @@ async def init_deduction(
     chapter_ref = body.get("chapter_ref")
     if not project_id:
         raise HTTPException(400, "project_id is required")
+
+    # key-crypto-selfcontained：模型链路未就绪（含 Key 死文）在装载前早拦，
+    # 不让会话建到一半才在首轮 503/静默空回合
+    await ensure_novel_model_ready(db, user["id"], project_id)
 
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -83,10 +87,14 @@ async def set_seed(
 async def run_round(
     deduction_id: str,
     user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     _: bool = Depends(require_ai_access),
 ):
     """Execute one deduction round."""
     engine = _get_engine(deduction_id)
+    # key-crypto-selfcontained：路径无 project_id（在会话引擎内）——取值后复用
+    # 判定核心，模型链路未就绪（含 Key 死文）503 拦截，不再静默空回合
+    await ensure_novel_model_ready(db, user["id"], engine.project_id)
     result = await engine.run_round()
     return _round_to_dict(result)
 

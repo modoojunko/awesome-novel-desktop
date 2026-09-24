@@ -89,13 +89,15 @@ def ai_access_granted() -> bool:
         return False
 
 
-async def require_novel_model(
+async def ensure_novel_model_ready(
+    db: AsyncSession,
+    user_id: str,
     project_id: str,
-    user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """门控层（D11 ⑤）：本书模型就绪——与 `require_ai_access` 并列挂载，会员在前。
+) -> bool:
+    """本书模型就绪判定核心（key-crypto-selfcontained 抽取）。
 
+    `require_novel_model` 复用本函数；路由路径无 `project_id` 的场景
+    （story 推演：`project_id` 在会话引擎内）在端点内取值后直调本函数。
     判据**复用判定层** `compute_ai_state`（不得内联重写）。未就绪一律 503 +
     `detail={reason, message}`，reason 与前端 `ai_state` 共用同一枚举；
     `reason=missing_model` 是前置未满足，**不可当瞬时故障重试**。
@@ -108,7 +110,7 @@ async def require_novel_model(
     )
 
     result = await db.execute(
-        select(Novel).where(Novel.id == project_id, Novel.user_id == user["id"])
+        select(Novel).where(Novel.id == project_id, Novel.user_id == user_id)
     )
     novel = result.scalar_one_or_none()
     if novel is None:
@@ -118,12 +120,25 @@ async def require_novel_model(
     if novel.ai_config_id:
         config = await db.get(ApiConfig, novel.ai_config_id)
 
-    state = compute_ai_state(novel, config, await user_has_ai_key(db, user["id"]))
+    state = compute_ai_state(novel, config, await user_has_ai_key(db, user_id))
     if state == "ready":
         return True
 
     message = no_key_message(config) if state == "no_key" else state_message(state)
     raise HTTPException(503, detail={"reason": state, "message": message})
+
+
+async def require_novel_model(
+    project_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """门控层（D11 ⑤）：本书模型就绪——与 `require_ai_access` 并列挂载，会员在前。
+
+    判定核心见 `ensure_novel_model_ready`（判据复用判定层，本函数只做 DI 绑定）。
+    """
+    await ensure_novel_model_ready(db, user["id"], project_id)
+    return True
 
 
 async def require_project_limit(

@@ -223,3 +223,38 @@ describe("AiWriterAssistant · 运行态受控（父组件下发 runningKey）",
     expect(row.disabled).toBe(false);
   });
 });
+
+// key-crypto-selfcontained：no_key 态透传后端文案（死文＝「重新粘贴保存」），无 message 回退本地映射
+describe("AiWriterAssistant · no_key 文案透传（key-crypto-selfcontained）", () => {
+  it("no_key + aiStateMessage → 副标题与 guard toast 显示后端 message", () => {
+    const onFill = vi.fn();
+    const { container } = render(
+      <AiWriterAssistant
+        rows={[{ key: "fill", name: "补缺失", desc: "只补缺的段", onClick: onFill }]}
+        footNote="x"
+        aiState="no_key"
+        aiStateMessage="API Key 无法解密（加密钥匙已更换）— 请重新粘贴保存"
+      />,
+    );
+    expect(screen.getByText(/重新粘贴保存/)).toBeTruthy();
+    expect(screen.queryByText("先去「模型配置」添加 API Key")).toBeNull();
+  });
+
+  it("no_key 无 aiStateMessage → 回退本地映射文案", () => {
+    render(<AiWriterAssistant rows={ROWS} footNote="x" aiState="no_key" />);
+    expect(screen.getByText("先去「模型配置」添加 API Key")).toBeTruthy();
+  });
+
+  it("missing_model 等其他态不受 aiStateMessage 影响", () => {
+    render(
+      <AiWriterAssistant
+        rows={ROWS}
+        footNote="x"
+        aiState="missing_model"
+        aiStateMessage="不应显示"
+      />,
+    );
+    expect(screen.getByText("先在本书选择模型")).toBeTruthy();
+    expect(screen.queryByText("不应显示")).toBeNull();
+  });
+});

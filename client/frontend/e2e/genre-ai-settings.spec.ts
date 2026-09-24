@@ -269,10 +269,12 @@ test.describe("题材/简介 AI 链路", () => {
     const { restore } = await setupSession(page);
     try {
       const pid = await createNovel(page, `AI分流${Date.now() % 100000}`);
-      await stubAiState(page, pid, "no_key", "暂无可用 API Key");
+      // key-crypto-selfcontained：no_key 文案单源在后端（ai_state.state_message），
+      // 前端副标题优先后端 message——stub 须按真实契约文案，否则与本地兜底映射对不上
+      await stubAiState(page, pid, "no_key", "暂无可用 API Key — 先去「模型配置」添加");
       await page.getByRole("button", { name: /^设定/ }).click();
       const card = page.locator(".col-ai .rail-assist");
-      await expect(card).toContainText("先去「模型配置」添加 API Key", { timeout: 10000 });
+      await expect(card).toContainText("先去「模型配置」添加", { timeout: 10000 });
 
       // no_key → 去模型配置（hash 跳转）
       await page.locator('[data-aiact="check"]').click();
