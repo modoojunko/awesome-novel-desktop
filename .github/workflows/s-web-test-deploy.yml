@@ -35,9 +35,8 @@ jobs:
 
       # 账号级 API key 可跨环境操作；-e 仅设默认 env
       - name: CloudBase 登录（test 环境）
+        # 与生产工作流（s-server-deploy.yml）同款登录命令，对齐已验证用法
         run: tcb login --cloudbase-api-key ${{ secrets.TCB_API_KEY }} -e d1ghsr86ra814c12c
-        env:
-          TCB_CLI_LATEST: '1'
 
       # 构建配方与生产逐字相同（design D1）：test 站＝main 前端预览（生产 API）
       - name: 构建前端
