@@ -55,40 +55,41 @@ CASES = {
 }
 
 
-async def _seed(db_url_unused: None, data_root: Path, repeat_books: int) -> list[str]:
+def _init_env(data_root: Path) -> None:
     import os
 
     os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{data_root}/sentinel.db")
     os.environ.setdefault("DATA_ROOT", str(data_root))
 
+
+async def _new_book() -> str:
+    """独立新书（书名带 uuid）——每个 case×n 各建一本，杜绝跨 case 的章状态泄漏
+    （曾把书轮转复用：golden3 先插 ch-1，vol_start 再插同名 ref 撞 UNIQUE，且全局章号漂移出假证据）。"""
     from db import async_session
     from filesystem.storage import get_storage
     from models import Novel
-    from models.user import User
     from models.volume import Volume
 
-    pids: list[str] = []
     async with async_session() as session:
         if await session.get(User, "sentinel") is None:
             session.add(User(id="sentinel", email="sentinel@test.local", password_hash="x"))
-        await session.commit()
-    for i in range(repeat_books):
-        async with async_session() as session:
-            proj = Novel(
-                id=f"sentinel-{uuid.uuid4().hex[:8]}", name=f"{BOOK_A['name']}-{i + 1}",
-                user_id="sentinel",
-            )
-            session.add(proj)
-            await session.flush()
-            vol = BOOK_A["volumes"][0]
-            session.add(Volume(project_id=proj.id, **vol))
             await session.commit()
-            pids.append(proj.id)
-        root = (await _get_root(pids[-1]))
-        story = await get_storage().read_yaml(root, "story.yaml") or {}
-        story["story_arc"] = BOOK_A["arc"]
-        await get_storage().write_yaml(root, "story.yaml", story)
-    return pids
+    async with async_session() as session:
+        proj = Novel(
+            id=f"sentinel-{uuid.uuid4().hex[:8]}",
+            name=f"{BOOK_A['name']}-{uuid.uuid4().hex[:6]}",
+            user_id="sentinel",
+        )
+        session.add(proj)
+        await session.flush()
+        session.add(Volume(project_id=proj.id, **BOOK_A["volumes"][0]))
+        await session.commit()
+        pid = proj.id
+    root = await _get_root(pid)
+    story = await get_storage().read_yaml(root, "story.yaml") or {}
+    story["story_arc"] = BOOK_A["arc"]
+    await get_storage().write_yaml(root, "story.yaml", story)
+    return pid
 
 
 async def _get_root(pid: str) -> str:
@@ -100,7 +101,7 @@ async def _get_root(pid: str) -> str:
         return proj.root_path
 
 
-async def _run_cases(pids: list[str], repeat: int, prompts_dir: Path) -> dict:
+async def _run_cases(repeat: int, prompts_dir: Path) -> dict:
     from fastapi.testclient import TestClient
 
     from auth_local.deps import require_novel_model
@@ -147,7 +148,7 @@ async def _run_cases(pids: list[str], repeat: int, prompts_dir: Path) -> dict:
             ok = parsed = 0
             stage_floor_ok = 0
             for n in range(repeat):
-                pid = pids[n % len(pids)]
+                pid = await _new_book()  # 每 case×n 独立新书（防跨 case 章状态泄漏）
                 if stages:
                     await _ensure_chapters(pid, stages)
                 r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
@@ -175,7 +176,7 @@ async def _run_cases(pids: list[str], repeat: int, prompts_dir: Path) -> dict:
         # expand 卷末位置词率（vol1）
         pos = 0
         for n in range(repeat):
-            pid = pids[n % len(pids)]
+            pid = await _new_book()
             r = client.post(f"/api/novels/{pid}/volumes/ai/expand", json={"line": "她为追信号把坐标押给船队", "vol_no": 1})
             d = r.json() if r.status_code == 200 else {}
             ending = str((d.get("draft") or {}).get("ending") or "")
@@ -221,15 +222,10 @@ def main() -> None:
     else:
         raise SystemExit(f"--config 目录里没有 config.json：{src}")
 
-    import os
-
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{data_root}/sentinel.db"
-    os.environ["DATA_ROOT"] = str(data_root)
-
     prompts_dir = EVIDENCE_DIR / "prompts"
     prompts_dir.mkdir(exist_ok=True)
-    pids = asyncio.run(_seed(None, data_root, max(args.repeat, 1)))
-    report = asyncio.run(_run_cases(pids, args.repeat, prompts_dir))
+    _init_env(data_root)
+    report = asyncio.run(_run_cases(args.repeat, prompts_dir))
     report["data_root"] = str(data_root)
     out = EVIDENCE_DIR / "sentinel-report.json"
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

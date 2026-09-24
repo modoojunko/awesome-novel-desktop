@@ -141,6 +141,30 @@ def _seed(client, vols: list[tuple[int, list[dict]]], *, target: int | None = No
     return pid
 
 
+def _directions_reply_with(cards, *, axes) -> str:
+    return json.dumps(
+        {"diff": {"axes": axes, "one_liner": [f"推向{i + 1}" for i in range(len(cards))]},
+         "directions": cards,
+         "ranks": {d: [1] + [2] * (len(cards) - 1) for d in ("反转", "递增", "推进", "拉力")},
+         "reasons": {d: "理由" for d in ("反转", "递增", "推进", "拉力")},
+         "checks": [], "note": ""},
+        ensure_ascii=False,
+    )
+
+
+CARDS = [
+    {"axis": "线索", "title": "同名档案", "plot": "她调出那份记录，最后一页被撕掉了",
+     "obstacle": "旧档堆不对活人开放", "ending": "她把残角收进怀里", "acts": ["她：调档"],
+     "stage": "矛盾升级", "cast": [], "factions": [], "places": [], "why": "钩子", "gap": ""},
+    {"axis": "关系", "title": "船队的条件", "plot": "船队长开价换航线",
+     "obstacle": "交出一半生存空间", "ending": "她换来留下的许可", "acts": ["船队长：开价"],
+     "stage": "矛盾升级", "cast": [], "factions": [], "places": [], "why": "疼", "gap": ""},
+    {"axis": "危机", "title": "突击清查", "plot": "清查队登船前她带信标出逃",
+     "obstacle": "藏无可藏", "ending": "信标暴露", "acts": ["清查队：搜舱"],
+     "stage": "重要转折", "cast": [], "factions": [], "places": [], "why": "压上来", "gap": ""},
+]
+
+
 def _directions_reply() -> str:
     cards = [
         {"axis": "线索", "title": "同名档案", "plot": "她调出那份记录，最后一页被撕掉了",
@@ -288,6 +312,20 @@ class TestDirectionsRendering:
         for marker in ("【本章是全书第 1 章】", "【本章是全书第 2–3 章】", "【本章是新卷的第 1 章】"):
             assert marker not in system
 
+    def test_dual_fragment_titles_on_own_lines(self, client, monkeypatch):
+        """双片段叠加（全局第 3 章＋卷首）：以空行拼接，两片段标题各占行首（曾粘连成一行）。"""
+        pid = _seed(client, [
+            (1, [{"no": 1, "stage": "冲突初现", "summary": "一"}, {"no": 2, "stage": "冲突初现", "summary": "二"}]),
+            (2, []),
+        ])
+        fake = _setup_ai(monkeypatch, _directions_reply())
+        r = client.post(f"/api/novels/{pid}/volumes/vol-2/chapters/ai-directions", json={})
+        assert r.status_code == 200, r.text
+        system = _last_system(fake)
+        assert "\n\n【本章是新卷的第 1 章】\n" in system  # 第二片段标题独立成行
+        lines = system.splitlines()
+        assert "【本章是全书第 2–3 章】" in lines  # 第一片段标题也是独立一行
+
     def test_resplit_same_state_same_prompt(self, client, monkeypatch):
         """幂等：同状态下两次出卡，位置行与片段逐字一致。"""
         pid = _seed(client, [(1, [])])
@@ -319,8 +357,7 @@ class TestCadenceReminder:
         fake = _setup_ai(monkeypatch, _directions_reply())
         client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
         system = _last_system(fake)
-        assert "【节奏提醒】已连续 3 章停在「冲突初现」没升档" in system
-        assert "stage 至少「矛盾升级」" in system
+        assert "【节奏提醒】已连续 3 章停在「冲突初现」没升档：本章三个方向都必须把冲突推上新台阶，stage 至少「矛盾升级」；上一章的坎要在这一章撞出更大的。" in system
         assert system.index("【上一章发生了什么】") < system.index("【节奏提醒】")  # ⑨在⑧后
 
     def test_escalating_stages_no_trigger(self, client, monkeypatch):
@@ -378,6 +415,23 @@ class TestQuotaFullHint:
         d = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={}).json()
         assert any("已排满但还没到高潮" in w for w in d["warnings"]), d["warnings"]
         assert len(d["directions"]) == 3  # 不拦卡
+
+    def test_full_hint_keeps_seat_among_five_warnings(self, client, monkeypatch):
+        """告警挤满 5 条（丢卡 1＋实体差集 5）时，排满提示仍追加在场且居末位。"""
+        pid = _seed(client, [(1, [
+            {"no": 1, "stage": "冲突初现", "summary": "一"},
+            {"no": 2, "stage": "矛盾升级", "summary": "二"},
+        ])], target=2)
+        dropped = [
+            dict(CARDS[0], places=[f"幽灵港{i}" for i in range(5)]),
+            dict(CARDS[1], axis="线索"),  # 同轴丢卡 → 1 条告警
+            CARDS[2],
+        ]
+        _setup_ai(monkeypatch, _directions_reply_with(dropped, axes=["线索", "线索", "危机"]))
+        d = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={}).json()
+        ws = d["warnings"]
+        assert ws[-1] == "这一卷已排满但还没到高潮——回卷纲核对节奏", ws
+        assert len(ws) == 6, ws
 
     def test_full_with_climax_no_warn(self, client, monkeypatch):
         pid = _seed(client, [(1, [

@@ -688,7 +688,7 @@ async def ai_volume_check(
     __: bool = Depends(require_novel_model),  # 只读例外：免费可用（不挂 require_ai_access）
     db: AsyncSession = Depends(get_db),
 ):
-    """卷级验证：对主线／对设定／对已写内容（只读、不拦、不代笔；免费可重复）。"""
+    """卷级验证：对主线／对设定／对节奏／对已写内容（只读、不拦、不代笔；免费可重复）。"""
     from volumes.service import get_volume
 
     project = await get_novel(db, project_id, user["id"])
@@ -744,14 +744,14 @@ async def ai_volume_check(
         criteria=_rules_sections()[1],
     )
     raw, _u0 = await _generate(
-        project, system, "请按三组给出这一卷的体检结论（只输出 JSON）。",
+        project, system, "请按四组给出这一卷的体检结论（只输出 JSON）。",
         temperature=0.2, db=db, user=user, operation="volume_check",
     )
     parsed = _parse_json(raw)
     report = _report_groups(parsed.get("groups") if isinstance(parsed, dict) else None)
     if report is None:
         retry_raw, _u2 = await _generate(
-            project, system, "请按三组给出体检结论（只输出 JSON）。", temperature=0.1,
+            project, system, "请按四组给出体检结论（只输出 JSON）。", temperature=0.1,
             db=db, user=user, operation="volume_check_retry",
         )
         parsed2 = _parse_json(retry_raw)

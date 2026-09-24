@@ -470,7 +470,7 @@ async def ai_chapter_directions(
     system = _render(
         load_prompt("chapter_split"),
         material_blocks=_blocks_chapter(mat),
-        position_rules="".join(load_fragment(POS_FRAGMENTS[t]) for t in mat["position_tags"]),
+        position_rules="\n\n".join(load_fragment(POS_FRAGMENTS[t]) for t in mat["position_tags"]),
         split_axes="／".join(SPLIT_AXES),
         plot_stages="／".join(STAGE_SET),
     )
@@ -508,6 +508,7 @@ async def ai_chapter_directions(
     all_places = [n for c in cards for n in c["places"]]
     # 已知地点侧＝章纲「地点」字段 ∪ 世界舞台里圈出的地名（_known_places）
     warn.extend(_entity_warnings(all_cast, all_factions, known | mat["known_places"], all_places))
+    warn = warn[:5]  # 既有告警（丢卡＋实体差集）合计截到 5 条——排满提示在截断后 append，必在场
     # 排满提示（软信号，可忽略）：排满且从未触达「高潮爆发」——不阻断、不自动重拆（作者可写刻意的过渡卷）
     if mat["quota_overshot"] and not mat["stage_hit_climax"]:
         warn.append("这一卷已排满但还没到高潮——回卷纲核对节奏")
@@ -523,7 +524,7 @@ async def ai_chapter_directions(
         "reasons": _as_reason_map(parsed),
         "checks": _as_str_list(parsed, "checks", 40)[:3],
         "note": _as_text(parsed, "note", 60),
-        "warnings": warn[:6],  # 上限 5 条实体差集＋1 条排满节奏提示（节奏提示不因实体告警挤掉）
+        "warnings": warn,  # ≤5 条既有告警＋1 条排满节奏提示
     }
 
 
