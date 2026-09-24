@@ -342,7 +342,6 @@ class TestDirectionsGate:
         """卷纲空门槛：卷纲（讲什么/主要冲突）全空 → 422 引导，AI 不被触达。"""
         pid = _seed_multi(client, [])  # 只建书，不落卷
         # 落一卷「只填标题」的空卷纲
-        from sqlalchemy import text as _t
 
         async def _mk():
             async with async_session() as session:
@@ -361,7 +360,6 @@ class TestDirectionsGate:
     def test_directions_requires_volume_ending(self, client, monkeypatch):
         """只缺「卷末」也要拦（spec：主旨/冲突/卷末 三项关键项）。"""
         pid = _seed_multi(client, [])
-        from sqlalchemy import text as _t
 
         async def _mk():
             async with async_session() as session:
@@ -773,10 +771,10 @@ def test_position_fragment_ch1_ending_aligned():
 
 
 def test_volume_named_character_spotlights_into_cast(client, monkeypatch):
-    """卷纲点名的人须挤进【核心人物】：>6 张时，主旨/冲突/坎点到的配角换进队尾卡。
+    """c-plan-material-fullinfo：人物块＝全名单——卷纲点名者自然在包，6 张上限与聚光换位退役。
 
-    修复前 _chapter_material 不传 author_line，聚光只扫主线前 200 字——
-    卷纲点名的关键配角对拆章 AI 不可见，而硬规则 2 又禁止凭空添人。
+    旧口径：>6 张时卷纲点名的配角挤进队尾卡（聚光单换位）；全量后该机制退役，
+    全册进块，覆盖只增不减（场景名留作历史标识）。
     """
     from sqlalchemy import select as _sel
 
@@ -800,8 +798,51 @@ def test_volume_named_character_spotlights_into_cast(client, monkeypatch):
     assert r.status_code == 200, r.text
     system = fake.calls[-1]["system"]
     block = system.split("【核心人物】\n", 1)[1].split("\n\n", 1)[0]
-    assert "港务局的眼线，只在雾天出现" in block  # 卷纲点名者进块
+    assert "港务局的眼线，只在雾天出现" in block  # 卷纲点名者进块（全量，无需换位）
     assert "见习导航员，不信教科书" in block  # 主角置顶不动
     lines = [ln for ln in block.splitlines() if ln.startswith("- ")]
-    assert len(lines) == 6  # ≤6 张上限守恒
-    assert "船员6的专属人设标记" not in block  # 让位的是队尾非点名卡
+    assert len(lines) == 7  # 全名单：角色表 7 张全进（SHALL NOT 截到 6 张）
+    assert "船员6的专属人设标记" in block  # 队尾不再让位
+
+
+def test_chapter_material_world_block_and_volume_cardless(client, monkeypatch):
+    from sqlalchemy import select as _sel  # noqa: E402
+
+    """c-plan-material-fullinfo：⑩ 世界观块（全量势力）＋⑥ 本卷无卡名单进拆章素材。"""
+    from filesystem.storage import get_storage
+    from models.chapter import ChapterCharacter  # noqa: E402
+
+    pid = _seed_vol(client, target=6)
+
+    async def _s():
+        async with async_session() as session:
+            vol = (await session.scalars(
+                _sel(Volume).where(Volume.project_id == pid)
+            )).first()
+            ch = Chapter(project_id=pid, volume_id=vol.id, chapter_no=1,
+                         ref="vol-1-ch-1", title="信标")
+            session.add(ch)
+            await session.flush()
+            session.add(ChapterCharacter(chapter_id=ch.id, sort_order=0, character_name="哑叔"))
+            await session.commit()
+
+    _run_async(_s())
+
+    async def _w():
+        session = async_session()
+        proj = await session.get(Novel, pid)
+        root = proj.root_path
+        await session.close()
+        await get_storage().write_yaml(root, "settings/world-setting.yaml", {
+            "stage": "灰港旧街区",
+            "factions": [{"name": "夜巡守夜人", "note": "暗中向血族出售巡逻路线换取停战的官方巡护组织"}],
+        })
+
+    _run_async(_w())
+    fake = _setup_ai(monkeypatch, _directions_reply())
+    r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
+    assert r.status_code == 200, r.text
+    system = fake.calls[-1]["system"]
+    assert "【世界观】" in system and "出售巡逻路线换取停战" in system  # ⑩ 全量世界块
+    assert "【无卡出场名单（本卷已拆章出现、未建卡）】" in system
+    assert "哑叔（第1章）" in system  # 本卷口径

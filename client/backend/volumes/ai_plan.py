@@ -190,11 +190,52 @@ async def _closed_hooks_summary(novel_id: str) -> str:
     return "\n".join(lines)
 
 
-async def _book_material(db, project, *, with_hooks: bool, author_line: str = "") -> dict:
-    """主线（arc 归一）＋世界摘要（铁律全量）＋核心人物＋伏笔台账＋题材段。
+async def _cardless_cast_rows(
+    db: AsyncSession, project_id: str, carded: set[str], volume_id: str | None = None
+) -> list[dict]:
+    """已拆章出场名单中的无卡名字（派生块，零新存储；剔旧稿支线，与 `_aggregate_cast` 同口径）。
 
-    人物口径（spec）：主角卡置顶，上一卷结尾/作者那句话点名的人挤进上限；每人 ≤80 字、上限 6 张。
-    另带 known_entities（角色 name+aliases＋势力名）供模型申报实体的集合差。
+    `carded`＝角色表名字＋别名（命中即有卡）；`volume_id` 限本卷（拆章用），None＝全书（拆卷用）。
+    """
+    from models.chapter import Chapter, ChapterCharacter
+    from models.volume import Volume
+
+    stmt = (
+        select(Volume.volume_no, Chapter.chapter_no, ChapterCharacter.character_name)
+        .join(Chapter, Chapter.id == ChapterCharacter.chapter_id)
+        .join(Volume, Volume.id == Chapter.volume_id)
+        .where(Chapter.project_id == project_id, Chapter.ghost_of.is_(None))
+        .order_by(Volume.volume_no, Chapter.chapter_no, ChapterCharacter.sort_order)
+    )
+    if volume_id is not None:
+        stmt = stmt.where(Chapter.volume_id == volume_id)
+    rows = (await db.execute(stmt)).all()
+    seen: dict[str, list[str]] = {}
+    for _vol_no, chapter_no, raw_name in rows:
+        nm = (raw_name or "").strip()
+        if not nm or nm in carded:
+            continue
+        seen.setdefault(nm, []).append(str(chapter_no))
+    return [{"name": nm, "chapters": chs} for nm, chs in seen.items()]
+
+
+def _cardless_brief(rows: list[dict]) -> str:
+    out = []
+    for r in rows:
+        chs = r["chapters"]
+        tail = f"…等{len(chs)}章" if len(chs) > 6 else ""
+        out.append(f"- {r['name']}（第{'、'.join(chs[:6])}章{tail}）")
+    return "\n".join(out)
+
+
+async def _book_material(
+    db, project, *, with_hooks: bool, author_line: str = "", exclude_vol_no: int | None = None
+) -> dict:
+    """主线（arc 归一）＋世界块（全量）＋核心人物全名单＋已拆卷清单＋无卡出场名单＋伏笔台账＋题材段。
+
+    人物口径（c-plan-material-fullinfo）：全名单一行卡，主角置顶，不设数量上限（6 张×80 与聚光单换位已退役）。
+    另带 known_entities（角色 name+aliases＋势力名＋出场名单无卡名字）供模型申报实体的集合差。
+    `exclude_vol_no`：已拆卷清单排除该卷（expand 展开目标卷自身时用）。
     """
     storage = get_storage()
     story = await storage.read_yaml(project.root_path, "story.yaml") or {}
@@ -206,36 +247,55 @@ async def _book_material(db, project, *, with_hooks: bool, author_line: str = ""
     items.sort(key=lambda it: 0 if it.get("role") == "主角" else 1)
 
     known: set[str] = set(_faction_names(world_raw))
-    spotlight = author_line + str(arc["fullstory"])[:200]
+    card_names: set[str] = set()
     for it in items:
         nm = str(it.get("name") or "").strip()
         if nm:
             known.add(nm)
+            card_names.add(nm)
         for a in it.get("aliases") or []:
             na = str(a).strip()
             if na:
                 known.add(na)
+                card_names.add(na)
 
-    chosen = items[:6]
-    in_view = {str(it.get("name") or "") for it in chosen}
-    for it in items[6:]:
-        nm = str(it.get("name") or "").strip()
-        if nm and nm in spotlight and nm not in in_view:
-            chosen[-1] = it
-            in_view.add(nm)
-            break
     cast_brief = "\n".join(
         f"- {it.get('name', '')}（{it.get('role', '')}）：{(it.get('persona') or '')[:80]}"
-        for it in chosen
+        for it in items
     )
+
+    vols = await volume_repo.list_by_project(db, project.id)
+    vols.sort(key=lambda v: v.volume_no)
+    vol_lines: list[str] = []
+    for v in vols:
+        if exclude_vol_no is not None and v.volume_no == exclude_vol_no:
+            continue
+        ant = (
+            (v.antagonist_type or "")
+            + ("·" if v.antagonist_type and v.antagonist_line else "")
+            + (v.antagonist_line or "")
+        ).strip()
+        line = f"卷{v.volume_no}·{v.title}｜{(v.summary or '')[:60]}"
+        if ant:
+            line += f"｜坎：{ant[:60]}"
+        if v.ending:
+            line += f"｜卷末：{(v.ending or '')[:60]}"
+        vol_lines.append(line)
+
+    cardless_rows = await _cardless_cast_rows(db, project.id, card_names)
+    known |= {r["name"] for r in cardless_rows}
+
     hooks_view = await load_active_hooks(project.id)
     constraints = world_raw.get("constraints")
     return {
         "fullstory": arc["fullstory"],
         "ending": arc["ending"],
-        "world_brief": world_summary_text(world_raw, 1200),
+        "world_brief": world_summary_text(world_raw, None),
         "world_rules": constraints if isinstance(constraints, str) else "",
         "cast_brief": cast_brief,
+        "card_names": card_names,
+        "volumes_brief": "\n".join(vol_lines),
+        "cardless_brief": _cardless_brief(cardless_rows),
         "hooks_block": render_hooks_block(hooks_view),
         "closed_hooks": await _closed_hooks_summary(project.id),
         "genre_section": build_genre_section(gctx),
@@ -272,6 +332,10 @@ def _blocks(mat: dict, *, hooks: bool) -> str:
         parts.append(f"【世界观摘要】\n{mat['world_brief']}")
     if mat["cast_brief"]:
         parts.append(f"【核心人物】\n{mat['cast_brief']}")
+    if mat.get("volumes_brief"):
+        parts.append(f"【已拆卷】\n{mat['volumes_brief']}")
+    if mat.get("cardless_brief"):
+        parts.append(f"【无卡出场名单】\n{mat['cardless_brief']}")
     if hooks and (mat["hooks_block"] or mat["closed_hooks"]):
         active = mat["hooks_block"] or "（还没有悬而未决的伏笔）"
         closed = "\n" + mat["closed_hooks"] if mat["closed_hooks"] else ""
@@ -589,6 +653,7 @@ async def ai_volume_expand(
     mat = await _book_material(
         db, project, with_hooks=True,
         author_line=(line + ("｜已答：" + answered_extra if answered_extra else "")),
+        exclude_vol_no=vol_no,
     )
     # spec 素材契约：expand 含上一卷卷纲文本（options 不含）
     prev_vol_row = (
@@ -735,6 +800,7 @@ async def ai_volume_check(
         vol_outline=outline_text + "\n上一卷与本卷的坎：" + ant_pair
         + (("\n" + boss_hint) if boss_hint else ""),
         fullstory=mat["fullstory"],
+        world=mat["world_brief"] or "（世界设定还空着）",
         scene=mat["ending"].get("scene", ""),
         rules=mat["world_rules"] or "（世界设定未登记铁律）",
         cast=mat["cast_brief"],

@@ -240,6 +240,29 @@ class TestRender:
         block = render_world_block({"stage": "云梁界", "extra": extra})
         assert len(block) < 3000  # 不再是段落+全量硬塞
         assert "从略" in block
+        assert "另有 世界细节" in block  # 按类别计数
+
+    def test_world_block_no_budget_full(self):
+        # c-plan-material-fullinfo：char_budget=None＝不截，全部条目整条进块
+        extra = [{"key": f"条目{i}", "value": "长" * 200} for i in range(10)]
+        factions = [{"name": f"势力{i}", "note": "注" * 100} for i in range(3)]
+        block = render_world_block(
+            {"stage": "云梁界", "extra": extra, "factions": factions}, char_budget=None
+        )
+        for i in range(10):
+            assert f"条目{i}" in block
+        for i in range(3):
+            assert f"势力{i}" in block
+        assert "从略" not in block
+
+    def test_world_block_skip_note_by_category(self):
+        # 从略注按类别计数，SHALL NOT 混称「世界细节」
+        factions = [{"name": f"势力{i}", "note": "注" * 200} for i in range(3)]
+        extra = [{"key": f"条目{i}", "value": "长" * 200} for i in range(4)]
+        block = render_world_block({"stage": "云梁界", "factions": factions, "extra": extra})
+        assert "另有" in block and "从略" in block
+        assert "势力 1 条、世界细节 4 条" in block  # 按类别分别计数
+        assert "另有 3 条世界细节从略" not in block  # 旧混称退役
 
     def test_constraints_never_in_world_block(self):
         world = {"stage": "云梁界", "constraints": [{"key": "不可推翻的事", "value": "死者不可复生"}]}
@@ -541,7 +564,7 @@ class TestReviewRegression:
         block = render_world_block(raw)
         assert "小一" in block and "小二" in block, "小条目不被大条目拖累"
         assert block.count("字" * 200) == 2, "只装得下两条大条目"
-        assert "另有 1 条世界细节从略" in block
+        assert "另有 历史与旧账 1 条 从略" in block  # c-plan-material-fullinfo：按类别计数（旧混称「世界细节」退役）
         # 无半截条目
         for line in block.splitlines():
             if line.startswith("  - "):

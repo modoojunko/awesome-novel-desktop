@@ -23,6 +23,8 @@ from novels.service import get_novel
 from prompts import load as load_prompt
 from volumes.ai_plan import (
     _book_material,
+    _cardless_brief,
+    _cardless_cast_rows,
     _degrade_text,
     _entity_warnings,
     _generate,
@@ -157,9 +159,13 @@ def cadence_reminder(rows, *, is_final: bool, target: int) -> str:
 
 
 async def _chapter_material(db, project, vol, ch_no: int) -> dict:
-    # 卷纲点名的人须挤得进人物块：主旨/冲突/坎提到的名字作聚光（_book_material 的单换位机制只认 author_line＋主线前 200 字）
-    spotlight = "｜".join(filter(None, [vol.summary, vol.core_conflict, vol.antagonist_line]))
-    mat = await _book_material(db, project, with_hooks=False, author_line=spotlight)  # 不给伏笔台账（防"提前揭"）
+    # c-plan-material-fullinfo：聚光退役，人物块＝全名单；无卡名单改本卷口径（覆盖 _book_material 的全书块）
+    mat = await _book_material(db, project, with_hooks=False)  # 不给伏笔台账（防"提前揭"）
+    cardless_rows = await _cardless_cast_rows(
+        db, project.id, mat.get("card_names") or set(), volume_id=vol.id
+    )
+    mat["cardless_brief"] = _cardless_brief(cardless_rows)
+    mat["known_entities"] |= {r["name"] for r in cardless_rows}
     entry = await resolve_prev_chapter_ending(db, project, vol, ch_no)
     from repositories import chapter_repo
 
@@ -234,7 +240,7 @@ async def _known_places(db, project) -> set[str]:
 
 
 def _blocks_chapter(mat: dict) -> str:
-    """⓪位置 → ①进场 → ②卷纲四问 → ③已拆章节 → ④配额/末章 → ⑤题材 → ⑥人物 → ⑦铁律 → ⑧上一章一行 → ⑨节奏提醒（条件）。"""
+    """⓪位置 → ①进场 → ②卷纲四问 → ③已拆章节 → ④配额/末章 → ⑤题材 → ⑥人物全名单＋无卡名单 → ⑦铁律 → ⑧上一章一行 → ⑨节奏提醒（条件）→ ⑩世界观（c-plan-material-fullinfo）。"""
     pos_line = f"【本章位置】全书第 {mat['global_ch']} 章｜本卷第 {mat['ch_no']} 章"
     if mat.get("vol_total"):
         pos_line += f"（本卷共 {mat['vol_total']} 章）"
@@ -269,12 +275,16 @@ def _blocks_chapter(mat: dict) -> str:
         parts.append(f"【题材与节奏】\n{mat['genre_section']}")
     if mat["cast_brief"]:
         parts.append(f"【核心人物】\n{mat['cast_brief']}")
+    if mat.get("cardless_brief"):
+        parts.append(f"【无卡出场名单（本卷已拆章出现、未建卡）】\n{mat['cardless_brief']}")
     if mat["world_rules"]:
         parts.append(f"【世界铁律】\n{mat['world_rules']}")
     if mat["prev_line"]:
         parts.append(f"【上一章发生了什么】\n{mat['prev_line']}")
     if mat.get("cadence"):
         parts.append(mat["cadence"])
+    if mat.get("world_brief"):
+        parts.append(f"【世界观】\n{mat['world_brief']}")
     return "\n\n".join(parts)
 
 
