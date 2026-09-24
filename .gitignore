@@ -143,3 +143,7 @@ server/secrets/*.pem
 # 本地隔离栈运行时数据（qa-night 变体含 Fernet key/JWT_SECRET，一律不入库；
 # 磁盘上的证据文件保留，仅退 git 跟踪）
 .docker-data-*/
+
+# 会话私有隔离栈残留防护（#485 误提交修复）：
+docker-compose.override.yml
+.env.chb
