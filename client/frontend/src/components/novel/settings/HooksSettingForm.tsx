@@ -584,7 +584,7 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
         const reason = aiBlockReason(e);
         // 403 member_required 已由 request() 广播全局升级引导，这里只兜底文案
         if (reason === "member_required") toast.info("AI 是会员功能，升级 PRO 后解锁");
-        else if (reason === "no_key") toast.info("先去「模型配置」添加 API Key");
+        else if (reason === "no_key") toast.info((e as Error).message || "先去「模型配置」添加 API Key");
         else if (reason === "missing_model" || reason === "invalid")
           toast.info("先在本书选择模型");
         else toast.error((e as Error).message || "生成失败，请重试");

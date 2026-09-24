@@ -324,6 +324,24 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                         (k, v),
                     )
+            # key-crypto-selfcontained：api_configs 密文随表迁入而源库钥匙（app_meta
+            # 行）不随行——统计口径＝库内全部 enc: 密文（含目标库既有死文），故文案
+            # 只报事实不断言成因；运行期由「密文无法解密」的 503 no_key 引导承接。
+            if any(e["table"] == "api_configs" and e.get("rows_inserted") for e in report["tables"]):
+                try:
+                    from api_configs.crypto import decrypt_api_key
+
+                    enc_rows = tgt.execute(
+                        "SELECT api_key FROM main.api_configs WHERE api_key LIKE 'enc:%'"
+                    ).fetchall()
+                    dead = sum(1 for (k,) in enc_rows if not decrypt_api_key(k))
+                    if dead:
+                        report["notes"].append(
+                            f"库内 {dead} 条配置的 API Key 按当前加密钥匙不可解"
+                            "——请在「模型配置」重新粘贴保存"
+                        )
+                except Exception:  # noqa: BLE001 —— 提示失败不阻断迁入
+                    logger.warning("migration: 死文配置统计失败", exc_info=True)
             tgt.commit()
         finally:
             try:

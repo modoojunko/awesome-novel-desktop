@@ -39,6 +39,8 @@ export interface AiWriterAssistantProps {
    * （不再 useFeature + ai_state 两处判）；不传则退回 tier 门控（兼容旧调用方）。
    */
   aiState?: AiState;
+  /** 后端下发的 no_key 引导文案（key-crypto-selfcontained：死文态＝重新粘贴保存）；no_key 时优先生效 */
+  aiStateMessage?: string;
   /** 被前置拦下时的跳转（如去模型配置 / 去选模型）；不传则只弹提示。 */
   onBlocked?: (reason: AiState) => void;
   /**
@@ -62,6 +64,7 @@ export default function AiWriterAssistant({
   targetLine,
   title = "AI 写作助手",
   aiState,
+  aiStateMessage,
   onBlocked,
   runningKey: runningKeyProp,
   "data-od-id": odId = "ai-assist",
@@ -79,8 +82,10 @@ export default function AiWriterAssistant({
   const guard = (key: string, fn: () => void | Promise<void>) => async () => {
     if (busyRef.current) return;
     if (state !== "ready") {
+      const blockText =
+        state === "no_key" && aiStateMessage ? aiStateMessage : BLOCK_TEXT[state] ?? "AI 暂不可用";
       if (onBlocked) onBlocked(state);
-      else toast.info(BLOCK_TEXT[state] ?? "AI 暂不可用");
+      else toast.info(blockText);
       return;
     }
     busyRef.current = true;
@@ -104,6 +109,8 @@ export default function AiWriterAssistant({
               ? "未解锁 · 升级 PRO 后本书 AI 即可用"
               : state === "ready"
                 ? "你的 PRO 已包含 · 只加工你写的，不代写"
+                : state === "no_key" && aiStateMessage
+                ? aiStateMessage
                 : BLOCK_TEXT[state]}
           </span>
         </div>

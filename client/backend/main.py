@@ -153,6 +153,16 @@ async def lifespan(app: FastAPI):
     # ── 当前库打戳：schema 指纹 ＋ 本机版本/组件快照（库自证来源） ───────────
     await stamp_current_library(_schema_fp)
 
+    # ── API Key 加密钥匙初始化（key-crypto-selfcontained）─────────────────
+    # 钥匙存 app_meta 行（库自包含：搬库/备份/恢复随行）；旧 .fernet_key 文件
+    # 仅首启迁移期一次性读取（合法→原样抄库零重加密；非法→新钥匙＋warning），
+    # 迁移后文件保留为只读遗留（同机新旧版本混跑/回滚安全）。必须在
+    # config.json→User 与 migrate_user_configs（内含 encrypt_api_key）之前、
+    # 任何 AI 加解密之前——失败即快速失败（不静默降级）。
+    from api_configs.crypto import init_crypto
+
+    async with async_session() as _crypto_session:
+        await init_crypto(_crypto_session)
 
     # ── Migrate config.json → User table ────────────────────────────
     # 身份识别统一用 S端 用户标识：users.username 是 S端 主键，C端 User.id /
