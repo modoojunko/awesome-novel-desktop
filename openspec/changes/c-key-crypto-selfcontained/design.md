@@ -28,8 +28,8 @@
    注意：**库间迁移引擎会搬 `api_configs`**——`migration/engine.py` 的 `EXCLUDED_TABLES` 只有 `app_meta`，旧库配置密文随迁入计划进新库而钥匙行不随行，新库钥匙若非源库钥匙即成死文。有 503 引导兜底非灾难，但迁入报告（`report["notes"]` 机制）SHALL 对此给出显式提示（见 model-api-config delta）；legacy 手工救援链路（列交集搬运）同样适用。
 
 2. **同步/异步边界＝模块级缓存 + 启动期异步初始化。**
-   `encrypt_api_key`/`decrypt_api_key` 保持同步签名（调用面 12 处不动）：`_get_fernet()` 改读模块级 `_fernet` 缓存；新增 `async init_crypto(session)` 在 lifespan **打指纹戳之后、`config.json`→User 迁移与 `migrate_user_configs` 之前**调用（`main.py:130-197` 两步内含 `encrypt_api_key`，`service.py:751`——若 init 排在其后：新 fail-fast 语义下 RuntimeError 启动崩，或静默明文降级）——读 `app_meta.fernet_key` 行（有→装载；无→旧文件抄库或新生成），写缓存；并发首启 INSERT 撞 PK → rollback → 重读装载先到者。**未初始化即调用 → `RuntimeError` 快速失败**（生产 lifespan 必初始化；pytest conftest 全局夹具初始化；crypto 提供 `_reset_for_tests()` 供钥匙轮转/迁移态用例重置模块缓存）。**双源一致性观测**：「文件在＋行在＋内容不等」（破约唯一可观测时刻）→ `uvicorn.error` warning（只报事实，不碰钥匙内容）；init 顺手统计死文配置数打进启动日志（判定层之外的补偿面，设置页徽标不入本次 scope）。备选「每次调用现开 session 异步读库」要改 12 处调用点为 await 且引入每请求 IO——弃。
-   `_fallback_plaintext` 语义保留但**置位条件收窄**：该标志仅 init 失败路径可达（库/目录不可写等），正常启动恒 False（过渡期保留——钥匙入库后「目录不可写」不再映射真实状态，不把它接到「DB 读失败」以免与 fail-fast 矛盾）。
+   `encrypt_api_key`/`decrypt_api_key` 保持同步签名（调用面 12 处不动）：`_get_fernet()` 改读模块级 `_fernet` 缓存；新增 `async init_crypto(session)` 在 lifespan **打指纹戳之后、`config.json`→User 迁移与 `migrate_user_configs` 之前**调用（`main.py:130-197` 两步内含 `encrypt_api_key`，`service.py:751`——若 init 排在其后，fail-fast 语义下 RuntimeError 启动崩）——读 `app_meta.fernet_key` 行（有→装载；无→旧文件抄库或新生成），写缓存；并发首启 INSERT 撞 PK → rollback → 重读装载先到者。**未初始化即调用 → `RuntimeError` 快速失败**（生产 lifespan 必初始化；pytest conftest 全局夹具初始化；crypto 提供 `_reset_for_tests()` 供钥匙轮转/迁移态用例重置模块缓存）。**双源一致性观测**：「文件在＋行在＋内容不等」（破约唯一可观测时刻）→ `uvicorn.error` warning（只报事实，不碰钥匙内容）；init 顺手统计死文配置数打进启动日志（判定层之外的补偿面，设置页徽标不入本次 scope）。备选「每次调用现开 session 异步读库」要改 12 处调用点为 await 且引入每请求 IO——弃。
+   明文降级机制（旧 `_fallback_plaintext`）**随重写退役**：init 失败一律 RuntimeError 快速失败，不存在任何明文存储降级路径——目录不可写时 SQLite 本就无法建库/写行，应用先于 crypto 不可用，该通道在钥匙入库后已无意义（spec 钉的是 fail-fast，实现从之）。
    并发首启（多栈共享 DATA_DIR，09-24 事故土壤）：INSERT 钥匙行捕获 `IntegrityError` → rollback → 重读该行装载先到者（迁移来源相同则内容一致，零分叉）。
 
 3. **迁移＝文件内容原样抄库，零重加密；旧文件保留不删。**
@@ -49,7 +49,7 @@
 ## Risks / Trade-offs
 
 - **「db 单独流出时 Key 不可读」的保护随钥匙入库而消失**（db 流出即钥匙流出）——现状该保护已名存实亡（钥匙文件与库同目录，整目录泄露时两者同丢），本次显式放弃以换结构自包含；若未来威胁模型升级（云同步备份、多设备同步），应引入用户口令派生钥匙或 OS 钥匙链，而非回退文件方案。
-- **fail-fast 与 `_fallback_plaintext` 的边界**：未初始化即调用加解密 → `RuntimeError`；库/目录不可写时维持既有「明文原样存」降级。只读 FS 下 SQLite 本就写不了、应用起不来，故 fail-fast 无新增不可用面。
+- **fail-fast 边界**：未初始化即调用加解密 → `RuntimeError`；init 失败（库读写异常）→ `RuntimeError` 启动崩——无明文降级通道（见决策 2 的退役说明）。只读 FS 下 SQLite 本就写不了、应用起不来，故 fail-fast 无新增不可用面。
 - **`no_key` 文案三分支依赖判定时能区分「字段空/测试失败/解不开」**——`no_key_message` 需要在 `config_key_usable` 之外多解一次密（或返回细分原因）；实现取「解不开优先于测试失败」的判定顺序，两处解密的微小开销可接受。
 - **前端文案透传：已核实 6 处本地映射会盖掉后端 message**（`AiWriterAssistant.tsx:54`、`HooksSettingForm.tsx:587`、`WorldSettingPanel.tsx:257`、`SettingsView.tsx:1259`、`StoryArcForm.tsx:202`、`GenreSettingForm.tsx:776`；`useModelStatus.ts:37` 直取 message 无问题）——死文态若不透传会显示「先去模型配置添加」而非「重新粘贴保存」，tasks 1.7 承接，proposal Impact 已按「仅文案透传小改」表述。**回滚边界声明**：「旧文件买回滚安全」只对**能开库的旧版**兑现——更老版本（无 tolerant 逻辑，`db_lifecycle.py:93-137` 是新代码）面对超集库会整库隔离，该风险先于本 change 存在，不在本次范围。
-- **迁移写库失败时旧文件保留**（不删）——下次启动重试；期间若密文被读，走旧文件路径不受影响（文件尚在），无死文窗口。
+- **迁移写库失败时旧文件保留**（不删）——RuntimeError 启动崩，下次启动重试；期间应用未完成启动、无密文读取发生，无死文窗口。

@@ -154,8 +154,6 @@ export default function AiWriterAssistant({
 export function CharsAiRail(props: {
   ctx: CharAiCtx | null;
   aiState?: AiState;
-  /** 后端下发的 no_key 引导文案（key-crypto-selfcontained：死文态＝重新粘贴保存） */
-  aiStateMessage?: string;
   onBlocked?: (reason: AiState) => void;
   runningKey?: string | null;
   onRun: (key: string) => void | Promise<void>;
