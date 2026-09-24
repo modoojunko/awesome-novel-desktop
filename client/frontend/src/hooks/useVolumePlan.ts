@@ -10,6 +10,7 @@ import {
   type VolumeExpandDraft,
   type VolumePlanCard,
 } from "@/lib/volumePlanApi";
+import { appendExclude, clearDraw, drawKey, loadDraw, saveDraw, type DrawExcludeItem } from "@/lib/drawSession";
 
 export type { VolumePlanCard };
 
@@ -48,6 +49,8 @@ export interface VolumePlanState {
   volNo: number;
   /** 手写路自动回填信号 */
   autoBackfill: boolean;
+  /** 重抽排除清单（c-plan-draw-exclude）：跟目标卷走，SHALL NOT 落库 */
+  exclude: DrawExcludeItem[];
 }
 
 const INITIAL: VolumePlanState = {
@@ -56,7 +59,7 @@ const INITIAL: VolumePlanState = {
   pickPick: null, confirming: false, confirmResult: null,
   deskOpen: false, deskPhase: "idle", answers: { ...EMPTY_ANSWERS },
   draft: null, deskWarnings: [], degradedText: "", hint: "", error: "",
-  volNo: 1, autoBackfill: false,
+  volNo: 1, autoBackfill: false, exclude: [],
 };
 
 export function useVolumePlan(projectId: string) {
@@ -67,6 +70,10 @@ export function useVolumePlan(projectId: string) {
   answersRef.current = state.answers;
   const pickPickRef = useRef<number | null>(null);
   pickPickRef.current = state.pickPick;
+  // 排除清单（c-plan-draw-exclude）：ref 供异步流程读写，state 供 UI/测试观察
+  const excludeRef = useRef<DrawExcludeItem[]>([]);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const answersNow = () => answersRef.current;
 
   const nextToken = () => ++tokenRef.current;
@@ -82,6 +89,27 @@ export function useVolumePlan(projectId: string) {
       // 入口分叉（用户 2026-09-22 拍板）：手动入口（各处「＋ 新增一卷」）恒进**四问手写页**，
       // 让作家填空；三选一抽卡只从 AI 入口（右栏「规划第N卷（AI）」）进，并按档分流。
       const toPick = mode === "ai" && isPro;
+      if (toPick) {
+        const cur = stateRef.current;
+        // 恢复①内存批：同卷号且存在未消费批（误关重开）——不重抽、不重复计量
+        if (cur.volNo === volNo && cur.plans.length > 0 && cur.pickPhase === "idle") {
+          // 恢复批次，但一次性载荷（落点/回填）不得复活
+          setState((s) => ({ ...s, volNo, openMode: mode, pickOpen: true, confirmResult: null, autoBackfill: false }));
+          return;
+        }
+        // 恢复②localStorage（页面刷新兜底）
+        const stored = loadDraw<{ v: number; plans: VolumePlanCard[]; note: string; exclude: DrawExcludeItem[] }>(
+          drawKey.volume(projectId, volNo));
+        if (stored?.plans?.length) {
+          excludeRef.current = stored.exclude ?? [];
+          setState({
+            ...INITIAL, volNo, openMode: mode, pickOpen: true,
+            plans: stored.plans, note: stored.note ?? "", exclude: stored.exclude ?? [],
+          });
+          return;
+        }
+        excludeRef.current = [];
+      }
       setState({
         ...INITIAL, volNo, openMode: mode,
         ...(toPick ? { pickOpen: true } : { deskOpen: true }),
@@ -92,17 +120,28 @@ export function useVolumePlan(projectId: string) {
     [projectId],
   );
 
-  const drawCards = useCallback(async (kind: "first" | "redraw" = "first") => {
+  const drawCards = useCallback(async (kind: "first" | "redraw" | "fresh" = "first") => {
     const token = nextToken();
+    if (kind === "redraw") {
+      // 当前批并入排除清单（作者按「换 3 套」＝这批不要了）
+      const batch = stateRef.current.plans
+        .map((p) => ({ axis: p.focus_axis, line: p.spine }))
+        .filter((x) => x.axis && x.line);
+      excludeRef.current = appendExclude(excludeRef.current, batch);
+    }
+    if (kind === "fresh") excludeRef.current = [];
     track(kind === "redraw" ? "pick_redraw" : "pick_drawn");
-    setState((s) => ({ ...s, pickPhase: "busy", pickError: "", pickPick: null }));
+    setState((s) => ({ ...s, exclude: [...excludeRef.current], pickPhase: "busy", pickError: "", pickPick: null }));
     try {
-      const d = await volumePlanApi.options(projectId, answersNow());
+      const d = await volumePlanApi.options(projectId, answersNow(), excludeRef.current);
       if (token !== tokenRef.current) return;
       if (d.degraded) {
         setState((s) => ({ ...s, pickPhase: "error", pickError: d.hint || "AI 的输出没法结构化——可重试，或自己答四个问题" }));
         return;
       }
+      saveDraw(drawKey.volume(projectId, stateRef.current.volNo), {
+        v: 1, plans: d.plans ?? [], note: d.note ?? "", exclude: excludeRef.current,
+      });
       setState((s) => ({ ...s, pickPhase: "idle", plans: d.plans ?? [], note: d.note ?? "" }));
     } catch (e) {
       if (token !== tokenRef.current) return;
@@ -164,8 +203,12 @@ export function useVolumePlan(projectId: string) {
         }
         const done = d.draft;
         track("pick_confirm_ok", { vol_no: d.vol_no });
+        // 成卷即清（c-plan-draw-exclude）：目标卷推进，抽卡会话与排除清单作废；
+        // plans 一并清空——同卷再开规划＝全新一轮，不得「恢复」已成卷的旧批
+        excludeRef.current = [];
+        clearDraw(drawKey.volume(projectId, d.vol_no));
         setState((s) => ({
-          ...s, confirming: false, pickOpen: false,
+          ...s, confirming: false, pickOpen: false, exclude: [], plans: [],
           confirmResult: { volNo: d.vol_no, draft: done, warnings: d.warnings ?? [] },
         }));
         return true;

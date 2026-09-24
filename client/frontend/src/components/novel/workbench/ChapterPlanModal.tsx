@@ -14,7 +14,7 @@ export function ChapterPlanModal({
   onAdopt: () => void;
   onClose: () => void;
 }) {
-  const { state, pickCard, patchDraft, toManual, draw, runSelfcheck, openEdit } = plan;
+  const { state, pickCard, patchDraft, toManual, draw, redraw, freshRedraw, runSelfcheck, openEdit } = plan;
   const cn = cnNum(state.volNo);
   // 章号单源＝服务端 anchor 的 next_no（原实现是常量占位，每章都写「拆第一章」）
   const chCn = cnNum(state.nextNo);
@@ -134,9 +134,14 @@ export function ChapterPlanModal({
         {/* 出口行——只在三卡态出现在网格下方（原型位）；选卡后两出口下沉到底条，不在卡面上方悬空 */}
         {isAi && state.phase === "idle" && state.pick == null && (
           <div className="pick-foot">
-            <button className="btn btn-secondary btn-sm" data-testid="split-redraw" onClick={() => void draw()}>
+            <button className="btn btn-secondary btn-sm" data-testid="split-redraw" onClick={() => void redraw()}>
               ↻ 都不满意？换 3 个方向
             </button>
+            {state.exclude.length > 0 && (
+              <button className="btn btn-secondary btn-sm" data-testid="split-fresh" onClick={() => void freshRedraw()}>
+                从头再来
+              </button>
+            )}
             <button className="btn btn-ghost btn-sm" onClick={toManual}>
               自己写这一章
             </button>
@@ -268,7 +273,7 @@ export function ChapterPlanModal({
               排上后章节列表多出这一章（拟定）；下一章的进场会自动接「{state.draft.ending || state.draft.plot || "本章结尾"}」。
             </p>
             <div className="pick-foot">
-              <button className="btn btn-ghost btn-sm" data-testid="split-redraw" onClick={() => void draw()}>
+              <button className="btn btn-ghost btn-sm" data-testid="split-redraw" onClick={() => void redraw()}>
                 ↻ 换 3 个方向
               </button>
               <button className="btn btn-ghost btn-sm" onClick={toManual}>
@@ -295,7 +300,7 @@ export function ChapterPlanModal({
             <>
               {isAi && state.pick != null && (
                 <>
-                  <button className="btn btn-ghost btn-sm" data-testid="split-redraw" onClick={() => void draw()}>
+                  <button className="btn btn-ghost btn-sm" data-testid="split-redraw" onClick={() => void redraw()}>
                     ↻ 换 3 个方向
                   </button>
                   <button className="btn btn-ghost btn-sm" onClick={toManual}>

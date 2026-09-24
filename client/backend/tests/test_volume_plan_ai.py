@@ -1177,3 +1177,45 @@ class TestMaterialFullInfo:
         system = fake.last_kwargs["system"]
         assert "【世界观】" in system
         assert "守夜人0的立场注记" in system  # 全量进体检
+
+
+# ── c-plan-draw-exclude：重抽排除对拍 ────────────────────────────────────────
+
+
+class TestDrawExclude:
+    def test_options_exclude_drops_clashing_and_retries(self, client, monkeypatch):
+        """撞车套（同轴且走向相似）丢弃后不足 2 套 → 既有重试；重试请求仍带禁令块。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        first = json.dumps({"plans": [
+            {"spine": "护送密船出港——半路折返", "conflict": "c", "ending": "e", "focus": "", "focus_axis": "代价"},
+            {"spine": "另一条走向完全不同", "conflict": "c", "ending": "e", "focus": "", "focus_axis": "关系"}],
+            "cast": [], "factions": [], "note": "", "volume_estimate": ""}, ensure_ascii=False)
+        second = json.dumps({"plans": [
+            {"spine": "全新走向一号", "conflict": "c", "ending": "e", "focus": "", "focus_axis": "代价"},
+            {"spine": "全新走向二号", "conflict": "c", "ending": "e", "focus": "", "focus_axis": "关系"}],
+            "cast": [], "factions": [], "note": "", "volume_estimate": ""}, ensure_ascii=False)
+        fake = _setup_ai(monkeypatch, [first, second])
+        r = client.post(f"/api/novels/{pid}/volumes/ai/options", json={
+            "line": "", "exclude": [{"axis": "代价", "line": "护送密船出港——半路折返"}]})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert len(d["plans"]) == 2
+        assert all(p["spine"] != "护送密船出港——半路折返" for p in d["plans"])
+        assert "已出过的方向（作者已否决）" in fake.calls[0]["system"]
+        assert "已出过的方向（作者已否决）" in fake.calls[1]["system"]  # 重试同样带禁令块
+
+    def test_options_exclude_same_line_different_axis_kept(self, client, monkeypatch):
+        """异轴同句＝不判撞车（短串 difflib 噪声守卫：须同轴且相似）。"""
+        _set_tier("trial")
+        pid = _mk_project(client)
+        reply = json.dumps({"plans": [
+            {"spine": "同一句话", "conflict": "c", "ending": "e", "focus": "", "focus_axis": "关系"},
+            {"spine": "护航编队改走外海航道", "conflict": "c", "ending": "e", "focus": "", "focus_axis": "线索"}],
+            "cast": [], "factions": [], "note": "", "volume_estimate": ""}, ensure_ascii=False)
+        fake = _setup_ai(monkeypatch, [reply])
+        r = client.post(f"/api/novels/{pid}/volumes/ai/options", json={
+            "line": "", "exclude": [{"axis": "代价", "line": "同一句话"}]})
+        assert r.status_code == 200, r.text
+        assert len(r.json()["plans"]) == 2  # 轴不同＝保留
+        assert len(fake.calls) == 1  # 无重试

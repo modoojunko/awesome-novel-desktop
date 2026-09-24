@@ -846,3 +846,37 @@ def test_chapter_material_world_block_and_volume_cardless(client, monkeypatch):
     assert "【世界观】" in system and "出售巡逻路线换取停战" in system  # ⑩ 全量世界块
     assert "【无卡出场名单（本卷已拆章出现、未建卡）】" in system
     assert "哑叔（第1章）" in system  # 本卷口径
+
+
+def test_directions_exclude_drops_clashing_card(client, monkeypatch):
+    """c-plan-draw-exclude：同轴且一句话相似（≥0.6）的卡丢弃，名次经 keep_map 对齐保留卡。"""
+    pid = _seed_vol(client, target=6)
+    fake = _setup_ai(monkeypatch, _directions_reply())
+    r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions",
+                    json={"exclude": [{"axis": "线索", "line": "推向1"}]})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert len(d["directions"]) == 2  # 撞车卡被丢
+    assert len(d["grades"]) == 2  # 名次经 keep_map 对齐保留卡
+    assert any("与已出方向雷同" in w for w in d["warnings"])
+    assert "已出过的方向（作者已否决）" in fake.calls[-1]["system"]  # 禁令块进素材
+
+
+def test_directions_exclude_same_line_different_axis_kept(client, monkeypatch):
+    """异轴同句＝不判撞车（短串 difflib 噪声守卫：须同轴且相似）。"""
+    pid = _seed_vol(client, target=6)
+    # 自定义互异的一句话（夹具「推向N」两两相似 0.667，会污染异轴用例）
+    reply = json.dumps({
+        "diff": {"axes": ["线索", "关系", "危机"],
+                 "one_liner": ["她把残角收进怀里", "船队长开价换航线", "信标在雾夜当众暴露"]},
+        "directions": json.loads(_directions_reply())["directions"],
+        "ranks": {"反转": [1, 2, 3], "递增": [1, 2, 3], "推进": [1, 2, 3], "拉力": [3, 2, 1]},
+        "reasons": {"反转": "撕页钩子立住了", "递增": "开价真的疼", "推进": "外部事件压上来", "拉力": "全港都知道了"},
+        "checks": [], "note": "",
+    }, ensure_ascii=False)
+    _setup_ai(monkeypatch, reply)
+    r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions",
+                    json={"exclude": [{"axis": "危机", "line": "她把残角收进怀里"}]})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert len(d["directions"]) == 3  # 同句异轴＝不判撞车，三卡全保留

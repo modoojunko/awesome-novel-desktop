@@ -3,7 +3,7 @@
 //
 // **打桩层＝`@/lib/api`**（不是 chapterPlanApi 本身）：契约模块的 URL/请求体/兜底逻辑
 // 因此真的执行（曾整体 mock 掉 → 该文件 20% 覆盖且「路径写错也测不出」）。
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/api", () => ({
@@ -13,6 +13,11 @@ vi.mock("@/lib/api", () => ({
 import { api } from "@/lib/api";
 import { useChapterPlan } from "@/hooks/useChapterPlan";
 import { ChapterPlanModal } from "@/components/novel/workbench/ChapterPlanModal";
+
+// c-plan-draw-exclude：抽卡批次会写 localStorage——用例间清场，避免「恢复」污染「首次出卡」断言
+beforeEach(() => {
+  localStorage.clear();
+});
 
 const mockApi = api as unknown as {
   get: ReturnType<typeof vi.fn>;
@@ -25,6 +30,7 @@ const ENTRY = { text: "她把信标藏进舱底夹层，签了那张登记单", 
 const DIRS = {
   ok: true,
   entry: ENTRY,
+  diff: { axes: ["线索", "关系", "危机"], one_liner: ["撕掉的那页藏进怀里", "开价换航线", "信标在雾夜暴露"] },
   directions: [
     { axis: "线索", title: "同名档案", plot: "她调出那份记录，最后一页被撕掉了", obstacle: "旧档堆不对活人开放",
       ending: "她把残角收进怀里", acts: ["她：调档"], stage: "矛盾升级", cast: ["沉舟"], factions: [], places: [], why: "撕页钩子立住了", gap: "阻力偏程序化" },
@@ -832,6 +838,7 @@ describe("拆章界面 · 守卫分支收口", () => {
     mockApi.post.mockReturnValueOnce(first.promise).mockResolvedValue(DIRS);
     render(<Host />);
     fireEvent.click(screen.getByTestId("open-ai"));
+    await act(async () => {});  // c-plan-draw-exclude：新的打开会在旧 draw 发请求前掐断它——先冲刷让第一次 draw 真正在途
     fireEvent.click(screen.getByTestId("open-ai"));     // 第二次成功
     await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
     first.reject(new Error("迟到的失败"));
@@ -982,5 +989,63 @@ describe("拆章界面 · 保存安全守卫（c-chapter-plan-guards）", () => 
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.getByTestId("selfcheck")).toHaveTextContent("新的");   // 未被旧响应覆盖
     expect(screen.getByTestId("selfcheck")).not.toHaveTextContent("旧的");
+  });
+});
+
+// ── c-plan-draw-exclude：重抽排除＋会话跟目标章走 ────────────────────────────
+
+describe("拆章界面 · 重抽排除与会话恢复（c-plan-draw-exclude）", () => {
+  it("换 3 个方向：请求体携带排除清单（当前批并入），恢复不含 excludes 的旧调用不携带", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    mockApi.post.mockImplementation((_url: string, body?: Record<string, unknown>) => {
+      bodies.push(body ?? {});
+      return Promise.resolve(DIRS);
+    });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));   // 首次：不带 exclude
+    await waitFor(() => expect(screen.getByTestId("split-redraw")).toBeInTheDocument());
+    expect(bodies[0].exclude).toBeUndefined();        // 首抽无排除
+    fireEvent.click(screen.getByTestId("split-redraw")); // 换 3 个方向：当前批并入排除
+    await waitFor(() => expect(bodies.length).toBe(2));
+    const ex = bodies[1].exclude as Array<{ axis: string; line: string }>;
+    expect(ex?.length).toBeGreaterThan(0);
+    expect(ex[0].axis).toBe("线索");                  // 当前批的轴进了排除
+  });
+
+  it("误关重开：同目标章原批恢复，不发新的出卡请求；从头再来清空排除重抽", async () => {
+    const postSpy = vi.fn((_url: string, body?: Record<string, unknown>) => Promise.resolve(DIRS));
+    mockApi.post.mockImplementation((_url: string, body?: Record<string, unknown>) => postSpy(_url, body));
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("split-redraw")).toBeInTheDocument());
+    const callsAfterFirstDraw = postSpy.mock.calls.length;
+    fireEvent.click(screen.getByTestId("do-close"));  // 误关（批次还在）
+    fireEvent.click(screen.getByTestId("open-ai"));   // 重开＝原批恢复
+    await waitFor(() => expect(screen.getByTestId("split-redraw")).toBeInTheDocument());
+    expect(postSpy.mock.calls.length).toBe(callsAfterFirstDraw);  // 无新模型请求
+    // 从头再来：清空排除后重抽（有新请求，且请求体不带 exclude）
+    fireEvent.click(screen.getByTestId("split-redraw"));  // 先制造一条排除
+    await waitFor(() => expect(postSpy.mock.calls.length).toBe(callsAfterFirstDraw + 1));
+    fireEvent.click(screen.getByTestId("split-fresh"));
+    await waitFor(() => expect(postSpy.mock.calls.length).toBe(callsAfterFirstDraw + 2));
+    const lastBody = (postSpy.mock.calls[callsAfterFirstDraw + 1]?.[1] ?? {}) as Record<string, unknown>;
+    expect(lastBody.exclude).toBeUndefined();
+  });
+
+  it("排上即清：成功排上后 storage 与排除清零，重开走全新一轮", async () => {
+    const onAdopt = vi.fn();
+    mockApi.post.mockImplementation((url: string, body?: Record<string, unknown>) => {
+      if (String(url).endsWith("/chapters") && body?.title != null) {
+        return Promise.resolve({ ok: true, ref: "vol-1-ch-1" });
+      }
+      return Promise.resolve(DIRS);
+    });
+    render(<Host onAdopt={onAdopt} />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("pick-card-1"));
+    fireEvent.click(screen.getByTestId("split-adopt"));
+    await waitFor(() => expect(onAdopt).toHaveBeenCalled());
+    expect(localStorage.getItem("cp-draw:p1:vol-1")).toBeNull();
   });
 });

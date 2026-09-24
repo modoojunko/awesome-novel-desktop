@@ -14,7 +14,7 @@ import difflib
 import re
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.deps import get_current_user, require_ai_access, require_novel_model
@@ -22,11 +22,13 @@ from db import get_db
 from novels.service import get_novel
 from prompts import load as load_prompt
 from volumes.ai_plan import (
+    ExcludeItem,
     _book_material,
     _cardless_brief,
     _cardless_cast_rows,
     _degrade_text,
     _entity_warnings,
+    _exclude_block,
     _generate,
     _parse_json,
     _render,
@@ -237,6 +239,36 @@ async def _known_places(db, project) -> set[str]:
     except Exception:  # noqa: BLE001, S110 — 世界设定读不到不影响出卡
         pass
     return out
+
+
+def _drop_excluded_directions(
+    cards: list[dict],
+    keep_map: list[int],
+    one_liners: list[str],
+    exclude: list[tuple[str, str]],
+    warn: list[str],
+) -> tuple[list[dict], list[int]]:
+    """排除对拍（c-plan-draw-exclude）：**同轴且一句话相似**才判撞车丢弃。
+
+    one_liners＝模型 diff.one_liner（按原始卡序）；keep_map 保持与保留卡对齐，
+    名次映射不受丢卡影响。短串 difflib 噪声大——单轴相似不丢，须同轴且相似。
+    """
+    kept_cards: list[dict] = []
+    kept_map: list[int] = []
+    for card, oi in zip(cards, keep_map):
+        line = one_liners[oi].strip() if oi < len(one_liners) else ""
+        clash = any(
+            e_a == card["axis"]
+            and line
+            and difflib.SequenceMatcher(None, line, e_l).ratio() >= SIM_LIMIT
+            for e_a, e_l in exclude
+        )
+        if clash:
+            warn.append(f"「{card['axis']}｜{line[:20]}」与已出方向雷同，已丢弃")
+            continue
+        kept_cards.append(card)
+        kept_map.append(oi)
+    return kept_cards, kept_map
 
 
 def _blocks_chapter(mat: dict) -> str:
@@ -455,10 +487,17 @@ async def next_chapter_anchor(
     return {"ok": True, **entry, "next_no": len(rows) + 1, "vol_no": vol.volume_no}
 
 
+class DirectionsBody(BaseModel):
+    """重抽排除（c-plan-draw-exclude）：已出批的轴＋一句话。请求携带，SHALL NOT 落库。"""
+
+    exclude: list[ExcludeItem] = Field(default_factory=list, max_length=9)
+
+
 @router.post("/volumes/{vol_ref}/chapters/ai-directions")
 async def ai_chapter_directions(
     project_id: str,
     vol_ref: str,
+    body: DirectionsBody = DirectionsBody(),
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),  # 生成类归 PRO
     __: bool = Depends(require_novel_model),
@@ -485,9 +524,11 @@ async def ai_chapter_directions(
     rows = [c for c in await chapter_repo.list_by_volume(db, vol.id) if not c.ghost_of]
     ch_no = len(rows) + 1
     mat = await _chapter_material(db, project, vol, ch_no)
+    # 重抽排除（D21）：已出批的轴＋一句话；中性禁令入素材，服务端同轴相似丢卡
+    exclude = [(i.axis.strip(), i.line.strip()) for i in body.exclude if i.axis.strip() and i.line.strip()][:9]
     system = _render(
         load_prompt("chapter_split"),
-        material_blocks=_blocks_chapter(mat),
+        material_blocks=_blocks_chapter(mat) + _exclude_block(exclude),
         position_rules="\n\n".join(load_fragment(POS_FRAGMENTS[t]) for t in mat["position_tags"]),
         split_axes="／".join(SPLIT_AXES),
         plot_stages="／".join(STAGE_SET),
@@ -496,19 +537,35 @@ async def ai_chapter_directions(
     raw, _u = await _generate(project, system, user_msg, temperature=0.7, db=db, user=user, operation="chapter_directions")
     parsed = _parse_json(raw)
     cards, keep_map, warn = _sanitize_directions(parsed)
+    if exclude:
+        one_liners = (
+            [str(x).strip() for x in (parsed.get("diff", {}).get("one_liner") or [])]
+            if isinstance(parsed, dict)
+            else []
+        )
+        cards, keep_map = _drop_excluded_directions(cards, keep_map, one_liners, exclude, warn)
     attempts = 1
     # 整批重试只由**结构性失败**触发（可用卡不足 2 张：轴/阶段越界、同轴、同质丢到只剩一张、
     # 输出不可解析）。等级质量与依据可寻性一律不构成重抽理由——它们是对同一批数据的判读，
     # 重抽改不了判读，只让作者白等一次完整生成（曾因此每次固定跑满 3 次 ≈18 秒）。
     while len(cards) < 2 and attempts < MAX_ATTEMPTS:
         cause = "；".join(warn[:2]) or "的方向不合法"
+        # 排除触发（D21）：求差异 SHALL NOT 降温；纯结构性失败照既有阶梯降温
+        retry_temp = 0.7 if (exclude and any("与已出方向雷同" in w for w in warn)) else 0.3
         retry_system = system + f"\n\n（上一次{cause}。）"
         raw, _u = await _generate(
             project, retry_system, "请给出 2 到 3 个剧情方向（只输出 JSON）。",
-            temperature=0.3, db=db, user=user, operation="chapter_directions_retry",
+            temperature=retry_temp, db=db, user=user, operation="chapter_directions_retry",
         )
         parsed = _parse_json(raw)
         cards, keep_map, warn = _sanitize_directions(parsed)
+        if exclude:
+            one_liners = (
+                [str(x).strip() for x in (parsed.get("diff", {}).get("one_liner") or [])]
+                if isinstance(parsed, dict)
+                else []
+            )
+            cards, keep_map = _drop_excluded_directions(cards, keep_map, one_liners, exclude, warn)
         attempts += 1
     if len(cards) < 2:
         return {

@@ -147,6 +147,16 @@ export function PickCardsModal({
               >
                 ↻ 都不满意？换 3 套
               </button>
+              {state.exclude.length > 0 && (
+                <button
+                  className="btn btn-sm"
+                  data-testid="pick-fresh"
+                  disabled={state.confirming}
+                  onClick={() => void plan.drawCards("fresh")}
+                >
+                  从头再来
+                </button>
+              )}
               <span className="note">
                 换一批新思路——或
                 <button className="link" disabled={state.confirming} onClick={onToDesk}>
