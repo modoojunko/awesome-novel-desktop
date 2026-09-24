@@ -585,23 +585,30 @@ async def ai_volume_options(
         temperature=0.7, db=db, user=user, operation="volume_options",
     )
     result = _sanitize_plans(_parse_json(raw))
+    excluded_dropped = 0
     if exclude and result is not None:
+        before = len(result["plans"])
         result["plans"] = _drop_excluded_plans(result["plans"], exclude)
-    need_retry = result is None or _plans_too_similar(result["plans"]) or (
-        exclude != [] and result is not None and len(result["plans"]) < 2
-    )
+        excluded_dropped = before - len(result["plans"])
+    too_similar = result is not None and _plans_too_similar(result["plans"])
+    below_min = result is not None and exclude != [] and len(result["plans"]) < 2
+    need_retry = result is None or too_similar or below_min
     if need_retry:
         if result is None:
             reason = "不足两套或不合法"
-        elif _plans_too_similar(result["plans"]):
+            retry_temp = 0.3
+        elif too_similar:
             reason = "有几套走向太像——请重写成结构上不同的版本"
+            retry_temp = 0.3
         else:
+            # 排除触发（D21）：求差异，SHALL NOT 降温——降温是保合法率的手段，与此相悖
             reason = "有的套与已出过的方向雷同——请换结构上不同的版本"
+            retry_temp = 0.7
         retry_raw, _u1 = await _generate(
             project,
             system + f"\n\n（上一次{reason}。）",
             "请给出 2 到 3 套可行走法（只输出 JSON）。",
-            temperature=0.3, db=db, user=user, operation="volume_options_retry",
+            temperature=retry_temp, db=db, user=user, operation="volume_options_retry",
         )
         retry_result = _sanitize_plans(_parse_json(retry_raw))
         if exclude and retry_result is not None:
@@ -614,6 +621,11 @@ async def ai_volume_options(
             "ok": True, "degraded": True, "text": _degrade_text(raw),
             "hint": "AI 的输出没法结构化——可重试，或按上面这段手动定走向",
         }
+    if excluded_dropped:
+        # 作者可见（对齐章级丢卡提示）：静默少卡会让作者以为模型只会出两套
+        tail = f"另有 {excluded_dropped} 套与已出方向雷同被剔除"
+        result["note"] = ((result["note"] + "｜") if result["note"] else "") + tail
+        result["note"] = result["note"][:120]
     # 实体差集：模型申报的 cast ＋ 坎（人物/势力型）点到的名字 ＋ factions（tasks 2.1 口径）
     warnings = _entity_warnings(
         _antagonist_candidates(result["plans"]) + result["cast"],

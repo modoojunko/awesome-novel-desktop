@@ -550,10 +550,12 @@ async def ai_chapter_directions(
     # 重抽改不了判读，只让作者白等一次完整生成（曾因此每次固定跑满 3 次 ≈18 秒）。
     while len(cards) < 2 and attempts < MAX_ATTEMPTS:
         cause = "；".join(warn[:2]) or "的方向不合法"
+        # 排除触发（D21）：求差异 SHALL NOT 降温；纯结构性失败照既有阶梯降温
+        retry_temp = 0.7 if (exclude and any("与已出方向雷同" in w for w in warn)) else 0.3
         retry_system = system + f"\n\n（上一次{cause}。）"
         raw, _u = await _generate(
             project, retry_system, "请给出 2 到 3 个剧情方向（只输出 JSON）。",
-            temperature=0.3, db=db, user=user, operation="chapter_directions_retry",
+            temperature=retry_temp, db=db, user=user, operation="chapter_directions_retry",
         )
         parsed = _parse_json(raw)
         cards, keep_map, warn = _sanitize_directions(parsed)
