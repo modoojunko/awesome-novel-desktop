@@ -85,13 +85,20 @@ export interface ChapterSelfcheckBody {
   stage?: string;
 }
 
+/** 重抽排除项（c-plan-draw-exclude）：已出批的轴＋一句话；请求携带，SHALL NOT 落库 */
+export interface DrawExcludeItem {
+  axis: string;
+  line: string;
+}
+
 export const chapterPlanApi = {
   /** 下一章进场（全档只读；手写路径也要） */
   anchor: (pid: string, volRef: string): Promise<{ ok: boolean } & ChapterEntry> =>
     api.get(`/novels/${pid}/volumes/${volRef}/next-chapter-anchor`),
-  /** 3 个互斥剧情方向（PRO） */
-  directions: (pid: string, volRef: string): Promise<ChapterDirectionsResult> =>
-    api.post(`/novels/${pid}/volumes/${volRef}/chapters/ai-directions`, {}),
+  /** 3 个互斥剧情方向（PRO）；exclude＝重抽排除清单（会话期用品） */
+  directions: (pid: string, volRef: string, exclude?: DrawExcludeItem[]): Promise<ChapterDirectionsResult> =>
+    api.post(`/novels/${pid}/volumes/${volRef}/chapters/ai-directions`,
+      exclude?.length ? { exclude } : {}),
   /** 章级自检（免费 · 只读例外；卡面草稿随请求携带——未排上也能自检） */
   selfcheck: (pid: string, body: ChapterSelfcheckBody): Promise<ChapterSelfcheckResult> =>
     api.post(`/novels/${pid}/chapters/ai-selfcheck`, body),

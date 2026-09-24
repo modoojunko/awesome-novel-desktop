@@ -3,6 +3,7 @@
 // c-volume-antagonist 终版：plans/expand 带结构化 antagonist 两字段；answered 四问可作约束。
 
 import { api } from "./api";
+import type { DrawExcludeItem } from "./drawSession";
 
 export interface VolumePlanCard {
   no: number;
@@ -85,13 +86,14 @@ const path = (pid: string, suffix: string) => `/novels/${pid}/volumes${suffix}`;
 
 export const volumePlanApi = {
   /** 3 套可行走法（PRO）——answers 带四问已答约束 */
-  options: (pid: string, answers: PlanAnswers): Promise<VolumeOptionsResult> =>
+  options: (pid: string, answers: PlanAnswers, exclude?: DrawExcludeItem[]): Promise<VolumeOptionsResult> =>
     api.post(path(pid, "/ai/options"), {
       line: answers.q1,
       conflict: answers.conflict,
       antagonist_type: answers.antagonist_type,
       antagonist_line: answers.antagonist_line,
       ending: answers.q4,
+      ...(exclude?.length ? { exclude } : {}),
     }),
   /** 展开卷纲草稿（PRO）——卡面/手写四问带入，AI 不覆盖 */
   expand: (

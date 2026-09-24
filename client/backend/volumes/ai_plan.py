@@ -107,6 +107,13 @@ async def _generate(project, system: str, user_msg: str, *, temperature: float, 
     return raw2, usage
 
 
+class ExcludeItem(BaseModel):
+    """重抽排除项（c-plan-draw-exclude）：已出批的轴＋一句话。请求携带，SHALL NOT 落库。"""
+
+    axis: str = Field(default="", max_length=20)
+    line: str = Field(default="", max_length=40)
+
+
 class PlanLineBody(BaseModel):
     """抽卡/四问约束（可空——空则 AI 自由推）。作家已答的照抄不改写。"""
 
@@ -115,6 +122,21 @@ class PlanLineBody(BaseModel):
     antagonist_type: str = Field(default="", max_length=20)
     antagonist_line: str = Field(default="", max_length=150)
     ending: str = Field(default="", max_length=300)
+    exclude: list[ExcludeItem] = Field(default_factory=list, max_length=9)
+
+
+def _exclude_block(exclude: list[tuple[str, str]]) -> str:
+    """重抽禁令块（D21）：中性措辞（不贴负面评判标签，防模型过度纠偏）。
+
+    服务端拼进素材串（<<material_blocks>> 吸纳），SHALL NOT 改模板——对拍三件套不受影响。
+    """
+    if not exclude:
+        return ""
+    lines = [f"- {a}｜{l}" for a, l in exclude]
+    return (
+        "\n\n【已出过的方向（作者已否决）】\n" + "\n".join(lines)
+        + "\n重抽时给出结构上不同的新方向：同轴也可以，但走向一句话不得与上面雷同。"
+    )
 
 
 class ExpandBody(BaseModel):
@@ -507,6 +529,20 @@ def _plans_too_similar(plans: list[dict]) -> bool:
     return False
 
 
+def _drop_excluded_plans(plans: list[dict], exclude: list[tuple[str, str]]) -> list[dict]:
+    """排除对拍（D21）：**同轴且走向相似**才判撞车——短串 difflib 噪声大，单凭相似会误杀。"""
+    out: list[dict] = []
+    for p in plans:
+        clash = any(
+            e_a == p.get("focus_axis")
+            and difflib.SequenceMatcher(None, p.get("spine", ""), e_l).ratio() >= SPINE_SIM_LIMIT
+            for e_a, e_l in exclude
+        )
+        if not clash:
+            out.append(p)
+    return out
+
+
 @router.post("/ai/options")
 async def ai_volume_options(
     project_id: str,
@@ -533,10 +569,13 @@ async def ai_volume_options(
     if answered_extra:
         author_line = (author_line + "｜已答：" + answered_extra) if author_line else ("已答：" + answered_extra)
 
+    # 重抽排除（D21）：已出批的轴＋走向；中性禁令入素材，服务端对拍丢撞车套
+    exclude = [(i.axis.strip(), i.line.strip()) for i in body.exclude if i.axis.strip() and i.line.strip()][:9]
+
     prev = await resolve_prev_ending(db, project, 1)
     system = _render(
         load_prompt("volume_options"),
-        material_blocks=_blocks(mat, hooks=False),
+        material_blocks=_blocks(mat, hooks=False) + _exclude_block(exclude),
         prev_ending=prev["text"] + "（" + prev["source"] + "）",
         author_line=author_line or "（作者还没写——三套都要是你按设定推出的可行走法）",
         focus_axes="／".join(FOCUS_AXES),
@@ -546,12 +585,18 @@ async def ai_volume_options(
         temperature=0.7, db=db, user=user, operation="volume_options",
     )
     result = _sanitize_plans(_parse_json(raw))
-    if result is None or _plans_too_similar(result["plans"]):
-        reason = (
-            "不足两套或不合法"
-            if result is None
-            else "有几套走向太像——请重写成结构上不同的版本"
-        )
+    if exclude and result is not None:
+        result["plans"] = _drop_excluded_plans(result["plans"], exclude)
+    need_retry = result is None or _plans_too_similar(result["plans"]) or (
+        exclude != [] and result is not None and len(result["plans"]) < 2
+    )
+    if need_retry:
+        if result is None:
+            reason = "不足两套或不合法"
+        elif _plans_too_similar(result["plans"]):
+            reason = "有几套走向太像——请重写成结构上不同的版本"
+        else:
+            reason = "有的套与已出过的方向雷同——请换结构上不同的版本"
         retry_raw, _u1 = await _generate(
             project,
             system + f"\n\n（上一次{reason}。）",
@@ -559,6 +604,8 @@ async def ai_volume_options(
             temperature=0.3, db=db, user=user, operation="volume_options_retry",
         )
         retry_result = _sanitize_plans(_parse_json(retry_raw))
+        if exclude and retry_result is not None:
+            retry_result["plans"] = _drop_excluded_plans(retry_result["plans"], exclude)
         if retry_result is not None:
             result = retry_result
     if result is None:

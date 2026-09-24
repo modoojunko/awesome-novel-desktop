@@ -52,6 +52,11 @@ const EXPAND = {
   warnings: [],
 };
 
+// c-plan-draw-exclude：抽卡批次会写 localStorage——用例间清场
+beforeEach(() => {
+  localStorage.clear();
+});
+
 const noop = () => {};
 
 function PickHarness({

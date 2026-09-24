@@ -9,7 +9,9 @@ import {
   type ChapterDirection,
   type ChapterDirectionsResult,
   type ChapterEntry,
+  type DrawExcludeItem,
 } from "@/lib/chapterPlanApi";
+import { appendExclude, clearDraw, drawKey, loadDraw, saveDraw } from "@/lib/drawSession";
 
 export type PlanPhase = "idle" | "busy" | "error";
 export type DraftStage =
@@ -79,6 +81,12 @@ export interface ChapterPlanState {
     degraded?: boolean;
     failed?: boolean;
   } | null;
+  /** 重抽排除清单（c-plan-draw-exclude）：跟目标章走，SHALL NOT 落库 */
+  exclude: DrawExcludeItem[];
+  /** 当前批各卡的一句话（与 directions 对齐；重抽排除用） */
+  oneLiners: string[];
+  /** 当前批的目标章号（恢复判定：与 nextNo 一致才算同章） */
+  drawnNo: number | null;
 }
 
 const INITIAL = (): ChapterPlanState => ({
@@ -86,6 +94,7 @@ const INITIAL = (): ChapterPlanState => ({
   landed: null, entry: { text: "", source: "" }, directions: [], grades: [], checks: [],
   note: "", warnings: [], degradedText: "", pick: null, draft: { ...EMPTY_DRAFT },
   nextNo: 1, editing: null, cardLoaded: false, selfchecked: false, selfchecking: false, selfcheck: null,
+  exclude: [], oneLiners: [], drawnNo: null,
 });
 
 export function useChapterPlan(projectId: string, volNo: number, volRef: string) {
@@ -98,6 +107,10 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
   const clientTokenRef = useRef<string>("");
   // 自检独立 token：晚到响应不得覆盖当前卡面（draw/anchor 都有守卫，唯此处曾缺）
   const selfcheckTokenRef = useRef(0);
+  // 排除清单（c-plan-draw-exclude）：ref 供异步流程读写，state 供 UI/测试观察
+  const excludeRef = useRef<DrawExcludeItem[]>([]);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   /** 打开：手写路直接空白五段；AI 路先拉进场再出卡（busy→idle/error） */
   const openManual = useCallback(() => {
@@ -153,31 +166,64 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
   );
 
   const openAi = useCallback(() => {
-    nextToken();
+    const gen = nextToken();
     clientTokenRef.current = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     setState((s) => ({ ...s, entrySource: "ai", open: true, pick: null, checks: [],
-      entry: { text: "", source: "" }, editing: null, cardLoaded: true,
+      entry: { text: "", source: "" }, editing: null, cardLoaded: true, phase: "busy",
       warnings: [], degradedText: "", selfchecked: false, selfchecking: false, selfcheck: null }));
-    void loadAnchor(); // 章号/进场先就位（忙碌态文案与卡面标题都用它）
-    void draw();
+    // 章号/进场先就位（忙碌态文案与卡面标题都用它），再决定恢复还是重抽（c-plan-draw-exclude）
+    void (async () => {
+      const anchor = await loadAnchor();
+      // 代际守卫只拦「更新的打开」——draw() 自身的 nextToken 不算换代（否则异步链被自己误杀）
+      if (gen !== tokenRef.current) return;
+      const nextNo = anchor?.next_no ?? stateRef.current.nextNo;
+      const cur = stateRef.current;
+      const key = drawKey.chapter(projectId, volRef);
+      // ① 内存批恢复：同目标章存在未消费批（误关重开）——不重抽、不重复计量；
+      // 且必须把 upfront busy 拨回 idle（否则恢复批永远显示「正在想」）
+      if (cur.directions.length > 0 && cur.drawnNo !== null && cur.drawnNo === nextNo) {
+        setState((x) => ({ ...x, phase: "idle" }));
+        return;
+      }
+      // ② localStorage 恢复（页面刷新兜底）
+      const stored = loadDraw<{ v: number; nextNo: number; directions: ChapterDirection[];
+        grades: string[]; oneLiners: string[]; checks: string[]; note: string;
+        exclude: DrawExcludeItem[] }>(key);
+      if (stored && stored.nextNo === nextNo && stored.directions?.length) {
+        excludeRef.current = stored.exclude ?? [];
+        setState((x) => ({ ...x, phase: "idle", directions: stored.directions,
+          grades: stored.grades ?? [], oneLiners: stored.oneLiners ?? [],
+          checks: stored.checks ?? [], note: stored.note ?? "",
+          exclude: stored.exclude ?? [], drawnNo: stored.nextNo }));
+        return;
+      }
+      // ③ 目标章变化：排除清单清零后重抽
+      if (cur.drawnNo !== null && cur.drawnNo !== nextNo) {
+        excludeRef.current = [];
+        setState((x) => ({ ...x, exclude: [] }));
+      }
+      await draw();
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, volRef]);
 
-  const loadAnchor = useCallback(async () => {
+  const loadAnchor = useCallback(async (): Promise<ChapterEntry & { next_no?: number } | null> => {
     const token = ++anchorTokenRef.current;
     try {
       const d = await chapterPlanApi.anchor(projectId, volRef);
-      if (token !== anchorTokenRef.current) return;
+      if (token !== anchorTokenRef.current) return null;
       setState((s) => ({
         ...s,
         entry: { text: d.text, source: d.source },
         nextNo: d.next_no ?? s.nextNo,
       }));
+      return { text: d.text, source: d.source, next_no: d.next_no };
     } catch {
       // 同一代际守卫：晚到的失败不得覆盖新开的卡面（原实现在这里比错了计数器，
       // 兜底文案被 return 掉 → 换卷残留上一卷进场）
-      if (token !== anchorTokenRef.current) return;
+      if (token !== anchorTokenRef.current) return null;
       setState((s) => ({ ...s, entry: { text: "（进场读不到）", source: "" } }));
+      return null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, volRef]);
@@ -188,7 +234,7 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
     // 排上会落库上一批方向的五段）
     setState((s) => ({ ...s, phase: "busy", error: "", pick: null, draft: { ...EMPTY_DRAFT } }));
     try {
-      const d: ChapterDirectionsResult = await chapterPlanApi.directions(projectId, volRef);
+      const d: ChapterDirectionsResult = await chapterPlanApi.directions(projectId, volRef, excludeRef.current);
       if (token !== tokenRef.current) return;
       if (d.degraded) {
         setState((s) => ({ ...s, phase: "error",
@@ -196,9 +242,14 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
           degradedText: d.text || "" }));
         return;
       }
+      const oneLiners = d.diff?.one_liner ?? [];
+      const drawnNo = d.entry?.next_no ?? stateRef.current.nextNo;
+      saveDraw(drawKey.chapter(projectId, volRef), { v: 1, nextNo: drawnNo,
+        directions: d.directions, grades: d.grades ?? [], oneLiners,
+        checks: d.checks ?? [], note: d.note ?? "", exclude: excludeRef.current });
       setState((s) => ({ ...s, phase: "idle", entry: d.entry, directions: d.directions,
-        grades: d.grades ?? [], checks: d.checks ?? [], note: d.note ?? "",
-        warnings: d.warnings ?? [] }));
+        grades: d.grades ?? [], oneLiners, checks: d.checks ?? [], note: d.note ?? "",
+        warnings: d.warnings ?? [], drawnNo }));
     } catch (e) {
       if (token !== tokenRef.current) return;
       const msg = (e as { message?: string })?.message || "";
@@ -212,6 +263,26 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, volRef]);
+
+  /** 换 3 个方向（D21）：当前批并入排除清单后重抽——请求携带 exclude，服务端对拍丢撞车卡 */
+  const redraw = useCallback((): Promise<void> => {
+    const s = stateRef.current;
+    const batch = s.directions
+      .map((dd, i) => ({ axis: dd.axis, line: s.oneLiners[i] || "" }))
+      .filter((x) => x.axis && x.line);
+    excludeRef.current = appendExclude(excludeRef.current, batch);
+    setState((x) => ({ ...x, exclude: [...excludeRef.current] }));
+    return draw();
+  }, [draw]);
+
+  /** 从头再来（D21 逃生口）：清空排除清单后重抽——防转一圈又想要第一批 */
+  const freshRedraw = useCallback((): Promise<void> => {
+    excludeRef.current = [];
+    clearDraw(drawKey.chapter(projectId, volRef));
+    setState((x) => ({ ...x, exclude: [] }));
+    return draw();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, volRef, draw]);
 
   /** 点卡：把卡面内容装进 draft 并进入本章卡（grade 供角标/卡尾） */
   const pickCard = useCallback((i: number) => {
@@ -315,10 +386,14 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
         ["阶段", d.stage],
       ];
       const items = pairs.filter(([, v]) => String(v || "").trim()).map(([k]) => k);
+      // 排上即清（c-plan-draw-exclude）：目标章推进，抽卡会话与排除清单作废
+      excludeRef.current = [];
+      clearDraw(drawKey.chapter(projectId, volRef));
       setState((s) => ({
         ...s,
         submitting: false,
         open: false,
+        exclude: [], oneLiners: [], drawnNo: null,
         landed: { ref: r.ref, title: body.title, brought: items.length, items },
       }));
       return { ok: true, mode: "adopt" };
@@ -347,7 +422,7 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
   return {
     // 卷号/卷 ref 以**当前入参**为准（打开时由壳层钉住——见 NovelWorkspace.openChapterPlan）
     state: { ...state, volNo, volRef },
-    openManual, openAi, openEdit, draw, pickCard, patchDraft, toManual,
+    openManual, openAi, openEdit, draw, redraw, freshRedraw, pickCard, patchDraft, toManual,
     runSelfcheck, adopt, close, consumeLanded,
   };
 }
