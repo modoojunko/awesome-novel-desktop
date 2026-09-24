@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const requestMock = vi.fn();
 
+// c-query-cache-layer：缓存并入 React Query——共享同一 QueryClient 才能复现
+// 「应用级缓存跨消费方共享/失败不缓存/成功广播拉起」语义。
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
 beforeEach(() => {
   requestMock.mockReset();
-  vi.resetModules();
+  queryClient.clear();
   vi.doMock("@/lib/api", () => ({ request: requestMock }));
 });
 
@@ -15,7 +22,11 @@ async function mountProbe() {
     const v = mod.useClientVersion();
     return <div data-testid="v">{mod.formatVersion(v)}</div>;
   }
-  return render(<Probe />);
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <Probe />
+    </QueryClientProvider>,
+  );
 }
 
 describe("formatVersion 文案单源", () => {
@@ -33,7 +44,8 @@ describe("useClientVersion 应用级缓存", () => {
   it("首次挂载 quiet 取 current 并显示；同会话第二消费者吃缓存不再发请求", async () => {
     requestMock.mockResolvedValue({ current: "0.11", has_update: false });
     await mountProbe();
-    expect(await screen.findByTestId("v")).toHaveTextContent("v0.11");
+    // useQuery 数据到达是异步微任务——findByTestId 只等元素出现，不等数据
+    await waitFor(() => expect(screen.getByTestId("v")).toHaveTextContent("v0.11"));
     expect(requestMock).toHaveBeenCalledTimes(1);
     expect(requestMock).toHaveBeenCalledWith("/update-check", { quiet: true });
 
@@ -53,7 +65,7 @@ describe("useClientVersion 应用级缓存", () => {
 
     requestMock.mockResolvedValue({ current: "0.13", has_update: false });
     await mountProbe();
-    expect(await screen.findByTestId("v")).toHaveTextContent("v0.13");
+    await waitFor(() => expect(screen.getByTestId("v")).toHaveTextContent("v0.13"));
     expect(requestMock).toHaveBeenCalledTimes(2); // 失败未缓存，重试发生
   });
 
@@ -65,7 +77,7 @@ describe("useClientVersion 应用级缓存", () => {
 
     requestMock.mockResolvedValue({ current: "0.14", has_update: false });
     await mountProbe();
-    expect(await screen.findByTestId("v")).toHaveTextContent("v0.14");
+    await waitFor(() => expect(screen.getByTestId("v")).toHaveTextContent("v0.14"));
   });
 
   it("先挂载方失败后，后挂载方重试成功会广播拉起先挂载方（状态条不滞后于弹窗）", async () => {

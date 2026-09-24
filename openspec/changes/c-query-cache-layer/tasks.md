@@ -16,16 +16,16 @@
 
 ## 4. 分域推进
 
-- [ ] 4.1 工作台卷/章树：useOutline.refresh / useWorkbench.refresh 迁失效语义——diff 与测试结论贴进 change 目录
-- [ ] 4.2 用量/版本/portal 缓存并入（staleTime 对齐既有节流：60s/5min）——diff 贴进 change 目录
+- [x] 4.1 工作台卷/章树：useOutline.refresh / useWorkbench.refresh 迁失效语义——diff 与测试结论贴进 change 目录
+- [x] 4.2 用量/版本/portal 缓存并入（staleTime 对齐既有节流：60s/5min）——diff 贴进 change 目录
 
 ## 5. 退役与收口
 
-- [ ] 5.1 撤 `registerRefetch` 注册表与残留事件广播（确认零消费方后删）——codegraph callers 截图/diff 贴进 change 目录
-- [ ] 5.2 `lib/version.ts`、`lib/portal.ts` 手写缓存删除——diff 贴进 change 目录
+- [x] 5.1 撤 `registerRefetch` 注册表与残留事件广播（确认零消费方后删）——codegraph callers 截图/diff 贴进 change 目录
+- [x] 5.2 `lib/version.ts`、`lib/portal.ts` 手写缓存删除——diff 贴进 change 目录
 
 ## 6. 回归
 
-- [ ] 6.1 `npm run design:lint`、`npm run design:check`（C端）输出结论贴进 change 目录
-- [ ] 6.2 `tsc --noEmit`（C端）与 `npx vitest run`（全量）输出结论贴进 change 目录
-- [ ] 6.3 全量 e2e（隔离 docker 栈）通过，重点：书架/工作台/预览/预算守卫——结论与截图路径贴进 change 目录
+- [x] 6.1 `npm run design:lint`、`npm run design:check`（C端）输出结论贴进 change 目录
+- [x] 6.2 `tsc --noEmit`（C端）与 `npx vitest run`（全量）输出结论贴进 change 目录
+- [x] 6.3 全量 e2e（隔离 docker 栈）通过，重点：书架/工作台/预览/预算守卫——结论与截图路径贴进 change 目录

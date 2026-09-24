@@ -143,12 +143,8 @@ function NovelList() {
   const priorBooks = priorCandidates.reduce((n, c) => n + (c.book_count ?? 0), 0);
   const legacyAutoShown = useRef(false);
 
-  // 找回完成后书架自动刷新（AcctMenu 的 migrateModal onDone dispatch）
-  useEffect(() => {
-    const on = () => void fetchNovels();
-    window.addEventListener("novels:changed", on);
-    return () => window.removeEventListener("novels:changed", on);
-  }, []);
+  // 找回完成后书架自动刷新：AcctMenu 已改 queryClient 失效 novels key
+  // （c-query-cache-layer 5.1：事件广播退役，失效语义由查询缓存承载）
   const menuRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   // 套餐状态走 LicenseProvider 上下文（Provider 挂在认证路由根壳，两跳刷新后自动更新）
