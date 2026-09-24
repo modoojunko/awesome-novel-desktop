@@ -29,6 +29,6 @@
 
 - [x] 5.1 后端 pytest 全量＋前端 vitest 全量；对拍族（片段×4、volume_rules、提醒行）全绿，验证：pytest 1386 绿＋vitest 817 绿＋tsc 零错＋ruff 零新增（S110 为存量）
 - [x] 5.2 出卡素材特征串断言（实做于后端 pytest 层——本仓 e2e 的 AI 全在 page.route 桩上，看不到后端系统提示词）：vol1ch1 含 ch1 片段、卷中普通章不含任何片段、vol2ch1（全局≥4）不含 golden3，验证：test_plan_pacing_rules 27 绿
-- [ ] 5.3 确定性哨兵（一次性脚本，结果记 change evidence，不建常驻框架）：ch1 三卡 stage 铺垫占比趋零、JSON 契约零回归（解析率/字段超长/名次形态）、expand 卷末字段位置词（前/中/后）出现率，验证：报告落 `evidence/`
-- [ ] 5.4 人工抽检 20 例盯 `diff.one_liner` 互换通过率与「小兑现」三卡互异（golden3 第 3 章），结论记 evidence；劣化则按 design 风险节单变量回退（收窄 ch1 第 3 条或 golden3 措辞），验证：evidence 有结论与回退决策
-- [ ] 5.5 全量回归：C端 e2e 全量（隔离栈照 per-session 配方）＋相关 parity 无新增红，验证：跑批输出留痕
+- [ ] 5.3 确定性哨兵（一次性脚本，结果记 change evidence，不建常驻框架）：ch1 三卡 stage 铺垫占比趋零、JSON 契约零回归（解析率/字段超长/名次形态）、expand 卷末字段位置词（前/中/后）出现率，验证：报告落 `evidence/`（→ 验证尾巴移交主检出 todo.md 低优先段，2026-09-24 归档时移账；工具已备：哨兵脚本在 evidence/）
+- [ ] 5.4 人工抽检 20 例盯 `diff.one_liner` 互换通过率与「小兑现」三卡互异（golden3 第 3 章），结论记 evidence；劣化则按 design 风险节单变量回退（收窄 ch1 第 3 条或 golden3 措辞），验证：evidence 有结论与回退决策（→ 验证尾巴移交主检出 todo.md 低优先段，2026-09-24 归档时移账；工具已备：哨兵脚本在 evidence/）
+- [ ] 5.5 全量回归：C端 e2e 全量（隔离栈照 per-session 配方）＋相关 parity 无新增红，验证：跑批输出留痕（→ 验证尾巴移交主检出 todo.md 低优先段，2026-09-24 归档时移账；工具已备：哨兵脚本在 evidence/）
