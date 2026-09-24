@@ -135,12 +135,24 @@ class ExpandBody(BaseModel):
 
 
 def _rules_sections() -> tuple[str, str]:
-    """七条硬规则与体检判据的文本单源（spec：两个模板用占位符引用，配逐字对拍测试）。"""
+    """八条硬规则与体检判据的文本单源（spec：两个模板用占位符引用，配逐字对拍测试）。"""
     src = load_prompt("volume_rules")
     i = src.find("【体检判据】")
     if i < 0:
         return src.strip(), ""
     return src[:i].strip(), src[i:].strip()
+
+
+def load_fragment(name: str) -> str:
+    """节奏片段加载（c-plan-pacing-rules）：剥掉文件头 `## ` 版本注释行（changelog 用，不入模型提示词）。
+
+    无片段场景由调用方不注入（占位符渲染为空串、连标题不留——spec 口径）。
+    """
+    lines = load_prompt(name).splitlines()
+    i = 0
+    while i < len(lines) and lines[i].lstrip().startswith("##"):
+        i += 1
+    return "\n".join(lines[i:]).strip()
 
 
 def _faction_names(world_raw: dict) -> list[str]:
@@ -595,6 +607,9 @@ async def ai_volume_expand(
         prev_ending=prev["text"] + "（" + prev["source"] + "）",
         author_line=line,
         hard_rules=_rules_sections()[0],
+        # 首卷位置片段（c-plan-pacing-rules）：只进 expand（options 保三套互斥，节奏由 expand 统一执行）；
+        # 独立占位符不拼进 hard_rules——保 rules 单源＋锚点切分＋对拍测试三件套
+        volume_pos_rules=load_fragment("volume_pos_first") if vol_no == 1 else "",
     )
     raw, _u0 = await _generate(
         project, system, "请把这句话铺成这一卷的卷纲（只输出 JSON）。",
@@ -673,7 +688,7 @@ async def ai_volume_check(
     __: bool = Depends(require_novel_model),  # 只读例外：免费可用（不挂 require_ai_access）
     db: AsyncSession = Depends(get_db),
 ):
-    """卷级验证：对主线／对设定／对已写内容（只读、不拦、不代笔；免费可重复）。"""
+    """卷级验证：对主线／对设定／对节奏／对已写内容（只读、不拦、不代笔；免费可重复）。"""
     from volumes.service import get_volume
 
     project = await get_novel(db, project_id, user["id"])
@@ -729,14 +744,14 @@ async def ai_volume_check(
         criteria=_rules_sections()[1],
     )
     raw, _u0 = await _generate(
-        project, system, "请按三组给出这一卷的体检结论（只输出 JSON）。",
+        project, system, "请按四组给出这一卷的体检结论（只输出 JSON）。",
         temperature=0.2, db=db, user=user, operation="volume_check",
     )
     parsed = _parse_json(raw)
     report = _report_groups(parsed.get("groups") if isinstance(parsed, dict) else None)
     if report is None:
         retry_raw, _u2 = await _generate(
-            project, system, "请按三组给出体检结论（只输出 JSON）。", temperature=0.1,
+            project, system, "请按四组给出体检结论（只输出 JSON）。", temperature=0.1,
             db=db, user=user, operation="volume_check_retry",
         )
         parsed2 = _parse_json(retry_raw)

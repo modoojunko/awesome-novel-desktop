@@ -28,6 +28,7 @@ from volumes.ai_plan import (
     _generate,
     _parse_json,
     _render,
+    load_fragment,
 )
 from volumes.render import volume_outline_text
 from workflow.engine import strip_suffix
@@ -48,6 +49,10 @@ DIMENSIONS = ("反转", "递增", "推进", "拉力")  # 四维：反转/冲突�
 STAGE_SET = ("开局铺垫", "冲突初现", "矛盾升级", "重要转折", "高潮爆发", "卷末收束")
 SIM_LIMIT = 0.6  # (plot, ending) 相似度阈值（照卷级 SPINE_SIM_LIMIT 先例）
 MAX_ATTEMPTS = 3  # 重试预算：3 次尝试后仍不足 2 张 → degraded
+
+# —— 位置感知（c-plan-pacing-rules）：角色 → 片段文件；低三档停同档 3 章 → 升档提醒 ——
+POS_FRAGMENTS = {"ch1": "pos_ch1", "golden3": "pos_golden3", "vol_start": "pos_vol_start"}
+_NEXT_STAGE = {"开局铺垫": "冲突初现", "冲突初现": "矛盾升级", "矛盾升级": "重要转折"}
 
 _LIMITS = {"title": 12, "plot": 150, "obstacle": 60, "ending": 80, "why": 30, "gap": 30}
 _PLACE_SPLIT_RE = re.compile(r"[、，,；;。\n\r\t 　]+")
@@ -91,7 +96,64 @@ async def resolve_prev_chapter_ending(db, project, vol, ch_no: int) -> dict:
     }
 
 
-# ═══════════════ 素材装配（①→⑧；预算见 prompt-draft §5） ═══════════════
+# ═══════════════ 位置感知（c-plan-pacing-rules）：全局章号／角色选择器／升档提醒 ═══════════════
+
+
+def chapter_position_tags(global_ch: int, ch_no: int) -> list[str]:
+    """位置角色（纯函数，只依赖入参——同状态同输出，重拆幂等）：
+    全书第 1 章 → ch1；第 2–3 章 → golden3；各卷第 1 章且非全书第 1 章 → vol_start；其余无片段。"""
+    tags: list[str] = []
+    if global_ch == 1:
+        tags.append("ch1")
+    elif global_ch <= 3:
+        tags.append("golden3")
+    if ch_no == 1 and global_ch != 1:
+        tags.append("vol_start")
+    return tags
+
+
+async def _global_chapter_no(db, project, vol, ch_no: int) -> int:
+    """全书全局章号＝前面各卷已拆章数（滤 ghost）＋本章卷内序号（插卷/回改后随当前状态重算）。"""
+    if vol.volume_no <= 1:
+        return ch_no
+    from repositories import chapter_repo, volume_repo
+
+    early = {
+        v.id
+        for v in await volume_repo.list_by_project(db, project.id)
+        if v.volume_no < vol.volume_no
+    }
+    if not early:
+        return ch_no
+    rows = [c for c in await chapter_repo.list_by_project(db, project.id) if not c.ghost_of]
+    return sum(1 for c in rows if c.volume_id in early) + ch_no
+
+
+def cadence_reminder(rows, *, is_final: bool, target: int) -> str:
+    """本地升档提醒（软信号：只进素材装配与作者可见提示，SHALL NOT 进出卡校验/重试链路）。
+
+    触发＝本卷末 3 章 stage 同档且落在低三档（rows 只含本卷——跨卷边界自然重置）且
+    本章非末章、目标已设时剩余配额 > 1（末章义务是收束不是升档；目标未设无末章约束）。
+    高三档（重要转折/高潮爆发/卷末收束）已到顶或属收束、stage 未定的手写章，均不触发。
+    """
+    if is_final:
+        return ""
+    if target and len(rows) >= target - 1:
+        return ""  # 剩余配额 ≤ 1：升档义务让位于收束
+    stages = [(c.plot_stage or "").strip() for c in rows][-3:]
+    if len(stages) < 3 or len(set(stages)) != 1:
+        return ""
+    stuck = stages[0]
+    nxt = _NEXT_STAGE.get(stuck)
+    if nxt is None:
+        return ""
+    return (
+        f"【节奏提醒】已连续 3 章停在「{stuck}」没升档：本章三个方向都必须把冲突推上新台阶，"
+        f"stage 至少「{nxt}」；上一章的坎要在这一章撞出更大的。"
+    )
+
+
+# ═══════════════ 素材装配（⓪位置 → ①→⑧ → ⑨节奏提醒；预算见 prompt-draft §5） ═══════════════
 
 
 async def _chapter_material(db, project, vol, ch_no: int) -> dict:
@@ -118,6 +180,7 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
     if rows:
         last = rows[-1]
         prev_line = f"第{last.chapter_no}章：{(last.summary or last.title or '').strip()[:60]}"
+    global_ch = await _global_chapter_no(db, project, vol, ch_no)
     mat.update(
         {
             "entry": entry,
@@ -128,6 +191,13 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
             "is_final": is_final,
             "prev_line": prev_line,
             "known_places": await _known_places(db, project),
+            # 位置感知（⓪数据行＋片段角色）与本地节奏提醒（⑨；软信号，不进校验链路）
+            "global_ch": global_ch,
+            "ch_no": ch_no,
+            "vol_total": target or None,
+            "position_tags": chapter_position_tags(global_ch, ch_no),
+            "cadence": cadence_reminder(rows, is_final=is_final, target=target),
+            "stage_hit_climax": any((c.plot_stage or "").strip() == "高潮爆发" for c in rows),
         }
     )
     return mat
@@ -164,8 +234,14 @@ async def _known_places(db, project) -> set[str]:
 
 
 def _blocks_chapter(mat: dict) -> str:
-    """①进场 → ②卷纲四问 → ③已拆章节 → ④配额/末章 → ⑤题材 → ⑥人物 → ⑦铁律 → ⑧上一章一行。"""
-    parts = [f"【进场（本章从哪接）】\n{mat['entry']['text']}（{mat['entry']['source']}）"]
+    """⓪位置 → ①进场 → ②卷纲四问 → ③已拆章节 → ④配额/末章 → ⑤题材 → ⑥人物 → ⑦铁律 → ⑧上一章一行 → ⑨节奏提醒（条件）。"""
+    pos_line = f"【本章位置】全书第 {mat['global_ch']} 章｜本卷第 {mat['ch_no']} 章"
+    if mat.get("vol_total"):
+        pos_line += f"（本卷共 {mat['vol_total']} 章）"
+    parts = [
+        pos_line,
+        f"【进场（本章从哪接）】\n{mat['entry']['text']}（{mat['entry']['source']}）",
+    ]
     if mat["vol_outline"]:
         parts.append(f"【本卷卷纲（四问）】\n{mat['vol_outline']}")
     if mat["done_chapters"]:
@@ -197,6 +273,8 @@ def _blocks_chapter(mat: dict) -> str:
         parts.append(f"【世界铁律】\n{mat['world_rules']}")
     if mat["prev_line"]:
         parts.append(f"【上一章发生了什么】\n{mat['prev_line']}")
+    if mat.get("cadence"):
+        parts.append(mat["cadence"])
     return "\n\n".join(parts)
 
 
@@ -400,6 +478,7 @@ async def ai_chapter_directions(
     system = _render(
         load_prompt("chapter_split"),
         material_blocks=_blocks_chapter(mat),
+        position_rules="\n\n".join(load_fragment(POS_FRAGMENTS[t]) for t in mat["position_tags"]),
         split_axes="／".join(SPLIT_AXES),
         plot_stages="／".join(STAGE_SET),
     )
@@ -437,6 +516,10 @@ async def ai_chapter_directions(
     all_places = [n for c in cards for n in c["places"]]
     # 已知地点侧＝章纲「地点」字段 ∪ 世界舞台里圈出的地名（_known_places）
     warn.extend(_entity_warnings(all_cast, all_factions, known | mat["known_places"], all_places))
+    warn = warn[:5]  # 既有告警（丢卡＋实体差集）合计截到 5 条——排满提示在截断后 append，必在场
+    # 排满提示（软信号，可忽略）：排满且从未触达「高潮爆发」——不阻断、不自动重拆（作者可写刻意的过渡卷）
+    if mat["quota_overshot"] and not mat["stage_hit_climax"]:
+        warn.append("这一卷已排满但还没到高潮——回卷纲核对节奏")
     return {
         "ok": True,
         "entry": mat["entry"],
@@ -449,7 +532,7 @@ async def ai_chapter_directions(
         "reasons": _as_reason_map(parsed),
         "checks": _as_str_list(parsed, "checks", 40)[:3],
         "note": _as_text(parsed, "note", 60),
-        "warnings": warn[:5],
+        "warnings": warn,  # ≤5 条既有告警＋1 条排满节奏提示
     }
 
 
