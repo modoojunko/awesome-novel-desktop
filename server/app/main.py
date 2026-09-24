@@ -155,27 +155,34 @@ def on_startup():
     # 先跑 alembic 迁移（空库上正常建表并打标 alembic_version），
     # 再 create_all 兜底（checkfirst 默认跳过已存在表）——避免 fresh DB 上
     # create_all 先建表导致 alembic 迁移的 create_table 冲突。
+    # c-s-db-migrate-pipeline：迁移失败 fail-closed——坏迁移带伤启动会把缺列/缺表
+    # 拖到请求期才炸（no such column），且 create_all 不 ALTER 已存在表，漂移被静默固化。
     alembic_dir = Path(__file__).parent.parent / "alembic"
     if alembic_dir.exists():
-        try:
-            from alembic.config import Config
+        from alembic.config import Config
 
-            from alembic import command
-            server_dir = Path(__file__).parent.parent
-            # 不加载 alembic.ini（config_file_name=None）：env.py 里 fileConfig(ini)
-            # 默认 disable_existing_loggers=True，会把 app/api/uvicorn 的 logger 全部禁用，
-            # 而 dictConfig(disable_existing_loggers=False) 无法复活未显式配置的子 logger
-            # （如 api.access），导致访问日志全程失声。script_location 显式传入即可。
-            alembic_cfg = Config()
-            alembic_cfg.set_main_option("script_location", str(server_dir / "alembic"))
+        from alembic import command
+        server_dir = Path(__file__).parent.parent
+        # 不加载 alembic.ini（config_file_name=None）：env.py 里 fileConfig(ini)
+        # 默认 disable_existing_loggers=True，会把 app/api/uvicorn 的 logger 全部禁用，
+        # 而 dictConfig(disable_existing_loggers=False) 无法复活未显式配置的子 logger
+        # （如 api.access），导致访问日志全程失声。script_location 显式传入即可。
+        alembic_cfg = Config()
+        alembic_cfg.set_main_option("script_location", str(server_dir / "alembic"))
+        try:
             command.upgrade(alembic_cfg, "head")
-            setup_logging()
-            logger = logging.getLogger("app")
-            logger.info("event=app.migration action=alembic_upgrade result=ok")
         except Exception as e:
             setup_logging()
-            logger = logging.getLogger("app")
-            logger.warning("event=app.migration action=alembic_upgrade result=fail error=%s", e)
+            fail_logger = logging.getLogger("app")
+            fail_logger.error(
+                "event=app.migration action=alembic_upgrade result=fail error=%s "
+                "hint=先查 server/alembic/versions 是否多头（alembic heads 应恰一个）；修复迁移后重启",
+                e,
+            )
+            raise SystemExit(1) from e
+        setup_logging()
+        logger = logging.getLogger("app")
+        logger.info("event=app.migration action=alembic_upgrade result=ok")
 
     logger.info("event=app.migration action=create_all")
     Base.metadata.create_all(bind=engine)

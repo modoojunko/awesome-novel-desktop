@@ -19,6 +19,8 @@ import { api, errMessage, type ApiError } from "@/lib/api";
 import { getUsername, logout } from "@/lib/auth";
 import { supportUrl } from "@/lib/support";
 import { formatVersion, useClientVersion } from "@/lib/version";
+import { queryClient } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
 import { tierLabel, tierShort } from "@/lib/tier";
 
 type Tone = "accent" | "muted" | "warn";
@@ -178,7 +180,7 @@ export default function AcctMenu({
       }}
       onDone={() => {
         navigate("/novels");
-        window.dispatchEvent(new CustomEvent("novels:changed"));
+        queryClient.invalidateQueries({ queryKey: queryKeys.novels });
       }}
     />
   );
@@ -213,7 +215,7 @@ export default function AcctMenu({
               toast.error("带回没有完成，可从菜单重新打开向导重试");
             });
           }
-          window.dispatchEvent(new CustomEvent("novels:changed"));
+          queryClient.invalidateQueries({ queryKey: queryKeys.novels });
           void legacyDb.refresh();
         } else if (d?.state === "error" || d?.state === "idle") {
           clearInterval(bgWatchRef.current!);

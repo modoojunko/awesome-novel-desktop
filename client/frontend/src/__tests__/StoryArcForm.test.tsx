@@ -314,3 +314,22 @@ describe("AI 四能力 runAi 句柄（右栏三行分发）", () => {
     expect(screen.queryByText("AI 填 · 结局基调")).toBeNull();
   });
 });
+
+describe("主线面板 · 加载失败守卫（c-silent-data-guards）", () => {
+  it("加载失败：面板换失败态，表单不可达且不产生 PUT；重试成功恢复", async () => {
+    apiState.fetchStoryArc.mockRejectedValue(new Error("网络挂了"));
+    render(<StoryArcForm projectId="p1" />);
+    await waitFor(() => expect(screen.getByTestId("arc-load-error")).toBeInTheDocument());
+    expect(screen.queryByTestId("arc-fullstory")).toBeNull();
+    expect(apiState.updateStoryArc).not.toHaveBeenCalled();
+    // 重试成功 → 失败态退场、表单恢复（fullstory 用 od-id 定位）
+    apiState.fetchStoryArc.mockResolvedValue({ ...EMPTY, fullstory: "恢复后的主线" });
+    fireEvent.click(screen.getByTestId("arc-reload"));
+    await waitFor(() => expect(screen.queryByTestId("arc-load-error")).toBeNull());
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-od-id="arc-fullstory"]') as HTMLTextAreaElement,
+      ).toHaveValue("恢复后的主线"),
+    );
+  });
+});

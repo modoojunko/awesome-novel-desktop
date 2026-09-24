@@ -5,6 +5,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import NovelListPage from "@/pages/NovelListPage";
 import { toast } from "@/lib/toast";
@@ -105,16 +106,23 @@ const novel = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const renderPage = () =>
-  render(
-    <MemoryRouter initialEntries={["/novels"]}>
-      <Routes>
-        <Route path="/novels" element={<NovelListPage />} />
-        <Route path="/login" element={<div data-testid="login-slot" />} />
-        <Route path="/novel/:id" element={<div data-testid="workspace" />} />
-      </Routes>
-    </MemoryRouter>,
+const renderPage = () => {
+  // 书架数据已迁查询缓存（c-query-cache-layer）：测试需包 Provider
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/novels"]}>
+        <Routes>
+          <Route path="/novels" element={<NovelListPage />} />
+          <Route path="/login" element={<div data-testid="login-slot" />} />
+          <Route path="/novel/:id" element={<div data-testid="workspace" />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
+};
 
 beforeEach(() => {
   vi.clearAllMocks();

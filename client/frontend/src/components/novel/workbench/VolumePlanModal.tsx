@@ -31,6 +31,7 @@ export function VolumePlanModal({
   onBackfill,
   onClose,
   onGoSettings,
+  creating = false,
 }: {
   projectId: string;
   plan: VolumePlanController;
@@ -41,6 +42,8 @@ export function VolumePlanModal({
   onBackfill: () => void;
   onClose: () => void;
   onGoSettings?: () => void;
+  /** 建卷请求在途（双发闸，c-silent-data-guards） */
+  creating?: boolean;
 }) {
   const { state, setAnswer, expandDesk, resetError } = plan;
   const cn = cnNum(state.volNo);
@@ -149,8 +152,13 @@ export function VolumePlanModal({
               让 AI 铺完剩下的问题
             </button>
           )}
-          <button className="btn btn-secondary" data-testid="desk-create" onClick={onDirectCreate}>
-            直接创建这一卷
+          <button
+            className="btn btn-secondary"
+            data-testid="desk-create"
+            disabled={creating}
+            onClick={onDirectCreate}
+          >
+            {creating ? "创建中…" : "直接创建这一卷"}
           </button>
           <span className="push">
             {manual ? (

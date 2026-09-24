@@ -75,62 +75,13 @@ class ActivateRequest(BaseModel):
 @r.get("/skus")
 async def get_skus(request: Request, db: Db = Depends(get_db)):
     """Z.2 公开端点：商品目录（登录时含 current 态）。"""
-    from app.infrastructure.repositories.payments_repo import SkuRepo, TierRepo
-    sku_repo = SkuRepo(db)
-    tier_repo = TierRepo(db)
-
-    skus = sku_repo.find_on_sale()
-    tiers = tier_repo.find_all()
-
-    # 三态开关
+    from app.application.payments.skus_view import build_skus_view
     from app.infrastructure.repositories.factory import config_repo
-    cfg = config_repo(db)
-    enabled = cfg.get("payments.purchase.enabled") or "off"
-    rehearsal_list = (cfg.get("payments.rehearsal.usernames") or "").split(",")
+    from app.infrastructure.repositories.payments_repo import SkuRepo, TierRepo
 
-    # 构建响应（附录 Z.4 SkusView；s-pay-plans-picker：selling_points/is_planned 扩容，只增不删）
-    import json as _json
-
-    from app.domain.payments.pricing import calc_discount_display
-
-    def _selling_points(raw) -> list[str]:
-        """tiers.selling_points 列（JSON 数组文本）→ 字符串数组；失败/空回 []。"""
-        if isinstance(raw, list):
-            return [str(x) for x in raw]
-        try:
-            v = _json.loads(raw or "[]")
-            return [str(x) for x in v] if isinstance(v, list) else []
-        except (ValueError, TypeError):
-            return []
-
-    sku_list = []
-    for s in skus:
-        sku_list.append({
-            "sku_key": s.get("sku_key", ""),
-            "tier_key": s.get("tier_key", ""),
-            "period": s.get("period", ""),
-            "period_days": s.get("period_days", 0),
-            "base_price_fen": s.get("base_price_fen", 0),
-            "discount_display": calc_discount_display(s.get("discount_permille", 1000)),
-            "price_fen": s.get("base_price_fen", 0) * s.get("discount_permille", 1000) // 1000,
-            "device_limit": s.get("device_limit", 1),
-        })
-
-    popular = next((s["sku_key"] for s in sku_list if s.get("sku_key", "").endswith("yearly")), "")
-
-    return {"code": 0, "data": {
-        "purchase_enabled": enabled != "off",
-        "agreement_version": "v2026.08",
-        "tiers": [
-            {"key": t.get("key"), "label": t.get("display_name"),
-             "is_live": t.get("status") == "live",
-             "is_planned": t.get("status") == "planned",
-             "selling_points": _selling_points(t.get("selling_points"))}
-            for t in tiers if t.get("status") != "retired"
-        ],
-        "skus": sku_list,
-        "popular_sku": popular,
-    }}
+    # 规则单点在 application 层（s-payments-application）；此处仅 HTTP 适配
+    view = build_skus_view(SkuRepo(db), TierRepo(db), config_repo(db))
+    return {"code": 0, "data": view}
 
 
 @r.post("/orders", dependencies=[guard_identifiers(body=("sku_key",))])
@@ -380,7 +331,7 @@ async def refund_preview(order_no: str, request: Request, db: Db = Depends(get_d
         reason = "in_progress" if "refund" in order["status"] else "not_paid"
         return {"code": 0, "data": {"refundable": False, "reason": reason}}
 
-    now = datetime.utcnow()  # naive UTC（折算域口径）
+    now = datetime.now(UTC).replace(tzinfo=None)  # naive UTC（折算域口径）
     snapshot = order.get("sku_snapshot") or {}
     total_sec = snapshot.get("period_days", 30) * 86400
     grant_start, expires, paid_at = resolve_refund_basis(

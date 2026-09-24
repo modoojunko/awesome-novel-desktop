@@ -1,9 +1,8 @@
 """SQL 客户端需更新标记仓储（s-auth-outdated-signal）。"""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import DateTime
 from sqlalchemy.orm import Session
 
 from app.models.outdated_mark import DeviceOutdatedMarkORM
@@ -13,11 +12,11 @@ OUTDATED_MARK_TTL = timedelta(minutes=10)
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _as_utc(dt: datetime) -> datetime:
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
 class SqlOutdatedMarkRepo:

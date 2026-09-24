@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import NovelWorkspace from "@/components/novel/NovelWorkspace";
 import {
@@ -160,16 +161,22 @@ function mockOneChapterTreePro() {
 }
 
 function renderWorkspace(tier = "none") {
+  // useClientVersion 已迁 React Query（c-query-cache-layer）：渲染需包 Provider
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={["/novel/p1"]}>
-      <TierProvider tier={tier}>
-        <ProjectProvider>
-          <Routes>
-            <Route path="/novel/:id" element={<NovelWorkspace />} />
-          </Routes>
-        </ProjectProvider>
-      </TierProvider>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/novel/p1"]}>
+        <TierProvider tier={tier}>
+          <ProjectProvider>
+            <Routes>
+              <Route path="/novel/:id" element={<NovelWorkspace />} />
+            </Routes>
+          </ProjectProvider>
+        </TierProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

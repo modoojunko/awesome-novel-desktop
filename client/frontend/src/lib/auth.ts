@@ -1,3 +1,5 @@
+import { resetLicenseCache } from '@/lib/licenseCache';
+
 const TOKEN_KEY = 'auth_token';
 const USERNAME_KEY = 'auth_username';
 
@@ -18,10 +20,12 @@ export function isLoggedIn(): boolean {
   return !!getToken();
 }
 
-/** 手动退出（区别于会话过期）：清凭据并回首页。 */
+/** 手动退出（区别于会话过期）：清凭据并回首页。权益缓存同批清——
+ *  换账号登录不得沿用上一账号的 verify 快照（c-silent-data-guards）。 */
 export function logout() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USERNAME_KEY);
   sessionStorage.setItem('manual_logout', '1');
+  resetLicenseCache();
   window.location.hash = '#/';
 }

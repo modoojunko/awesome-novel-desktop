@@ -1,12 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { getToken } from "../lib/auth";
+import { errMessage, request } from "../lib/api";
 
-const API_BASE = "/api/v1";
-
-function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { "Authorization": `Bearer ${token}` } : {};
-}
+// c-fetch-unify：手写 fetch 迁回中心栈
+const V1 = "/api/v1";
 
 type Period = "month" | "week" | "custom";
 
@@ -25,17 +21,15 @@ export function useUsageStats(options: {
     setLoading(true);
     setError(null);
     try {
-      let url = "";
-      if (options.configId) url = `${API_BASE}/api-configs/${options.configId}/usage`;
+      let path = "";
+      if (options.configId) path = `/api-configs/${options.configId}/usage`;
       else if (options.projectId)
-        url = `${API_BASE}/novels/${options.projectId}/usage`;
-      else url = `${API_BASE}/api-configs/usage-summary`;
-      const resp = await fetch(url, { headers: authHeaders() });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const json = await resp.json();
+        path = `/novels/${options.projectId}/usage`;
+      else path = `/api-configs/usage-summary`;
+      const json = await request(path, { apiBase: V1 });
       setData(json);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
+      setError(errMessage(e, "用量统计没读出来，可重试"));
     } finally {
       setLoading(false);
     }

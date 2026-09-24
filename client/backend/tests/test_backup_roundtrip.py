@@ -56,7 +56,7 @@ async def _seed_full_book(tmp_root: str) -> str:
         ChapterVersion,
     )
     from models.project import Novel
-    from models.volume import Volume, VolumeCastMember
+    from models.volume import Volume
     from models.user import User
 
     uid = f"rt-{uuid.uuid4().hex[:8]}"
@@ -86,10 +86,7 @@ async def _seed_full_book(tmp_root: str) -> str:
         )
         session.add(vol)
         await session.flush()
-        session.add_all([
-            VolumeCastMember(volume_id=vol.id, sort_order=0,
-                             who="林拓", target="查清真相", change="学会独行"),
-        ])
+        # VolumeCastMember 死表随 c-db-version-hardening 退役（导入端不再读写）
 
         # 层 4：章 + 全子表
         ch = Chapter(
@@ -151,6 +148,7 @@ async def _seed_full_book(tmp_root: str) -> str:
                 novel_id=proj.id, seq=1, description="残页的来历没有交代",
                 type="clue", priority=1, status="active",
                 introduced_chapter_id=ch.id, planned_chapter_id=ch.id,
+                planned_volume_no=2,
             ),
             NovelHook(
                 novel_id=proj.id, seq=2, description="老周说过他会认古字",
@@ -281,19 +279,18 @@ class TestLayer3Volume:
         _src_id, dst_id, _blob, _slug, _root = roundtrip
 
         async def run():
-            from models.volume import Volume, VolumeCastMember  # noqa: PLC0415
+            from models.volume import Volume  # noqa: PLC0415
             async with async_session() as db:
                 vols = (await db.scalars(
                     select(Volume).where(Volume.project_id == dst_id)
                 )).all()
                 assert len(vols) == 1
                 vol = vols[0]
-                casts = (await db.scalars(select(VolumeCastMember).where(
-                    VolumeCastMember.volume_id == vol.id))).all()
+                # 登场人物死表退役后无行可数：位数保留 0 兼容既有断言形状
                 return (
                     vol.title, vol.core_conflict, vol.ending,
                     vol.antagonist_type, vol.antagonist_line,
-                    vol.chapter_target, len(casts),
+                    vol.chapter_target, 0,
                     vol.template_name, vol.goal, vol.plants, vol.reveals,
                 )
 
@@ -488,12 +485,15 @@ class TestLayer10Hooks:
         assert by_seq[2]["resolved_chapter_ref"] == "vol-1-ch-1"
         assert by_seq[4]["mentioned_chapter_ref"] == "vol-1-ch-1"
         assert by_seq[3]["introduced_chapter_ref"] == ""
-        # 字段白名单逐键（spec 冻结列序）
-        assert set(by_seq[1]) == {
+        # 字段契约改为「必含键」（c-db-version-hardening：键集相等断言会把
+        # 白名单漏键冻成缺陷——planned_volume_no 即实证）。加键兼容不升版。
+        assert {
             "seq", "description", "type", "priority", "status",
             "introduced_chapter_ref", "planned_chapter_ref",
             "resolved_chapter_ref", "mentioned_chapter_ref", "payoff_note",
-        }
+        } < set(by_seq[1])
+        assert "planned_volume_no" in set(by_seq[1])
+        assert by_seq[1]["planned_volume_no"] == 2
 
     def test_hooks_count_refs_and_status_survive_by_ref(self, roundtrip):
         from models.chapter import Chapter

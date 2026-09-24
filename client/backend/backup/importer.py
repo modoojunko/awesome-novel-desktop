@@ -403,11 +403,27 @@ def _hook_row_fields(raw: dict, warnings: list[str], index: int, ref_to_id: dict
             return None
         return chapter_id
 
+    def _volume_no(value: object) -> int | None:
+        """计划收束卷：正整数或空；非法值降级为空并记 warning（不丢行）。"""
+        if value is None or value == "":
+            return None
+        try:
+            no = int(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            warnings.append(f"伏笔第 {index} 条的计划收束卷非法，已置空")
+            return None
+        if no <= 0:
+            warnings.append(f"伏笔第 {index} 条的计划收束卷非法，已置空")
+            return None
+        return no
+
     return {
         "description": str(raw.get("description") or "").strip()[:DESCRIPTION_MAX],
         "type": hook_type,
         "priority": priority,
         "status": status,
+        # 计划收束卷（c-db-version-hardening）：键缺失（旧包）按空，加键兼容不升版
+        "planned_volume_no": _volume_no(raw.get("planned_volume_no")),
         "introduced_chapter_id": _bind("introduced_chapter_ref"),
         "planned_chapter_id": _bind("planned_chapter_ref"),
         "resolved_chapter_id": _bind("resolved_chapter_ref"),

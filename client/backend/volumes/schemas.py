@@ -87,7 +87,7 @@ class VolumeUpdate(BaseModel):
     def _retired_reject(cls, data):
         if isinstance(data, dict):
             hit = [k for k in ("template_name", "plan_line", "goal", "plants",
-                               "reveals", "cast_members") if k in data]
+                               "reveals", "cast_members", "plot_nodes") if k in data]
             if hit:
                 raise ValueError(f"字段已退役（c-volume-antagonist）：{','.join(hit)}——伏笔请走台账接口")
         return data

@@ -40,7 +40,7 @@ const DIRS = {
 };
 
 /** 渲染宿主：hook ＋ 弹窗（与 NovelWorkspace 同构的接线） */
-function Host({ onAdopt = vi.fn() }: { onAdopt?: () => void }) {
+function Host({ onAdopt = vi.fn() }: { onAdopt?: (r: { ok: boolean; mode?: string }) => void }) {
   const plan = useChapterPlan("p1", 1, "vol-1");
   return (
     <>
@@ -54,7 +54,14 @@ function Host({ onAdopt = vi.fn() }: { onAdopt?: () => void }) {
         {plan.state.landed ? plan.state.landed.items.join("、") : "-"}
       </span>
       <span data-testid="landed-brought">{plan.state.landed?.brought ?? -1}</span>
-      <ChapterPlanModal plan={plan} onAdopt={() => { void plan.adopt().then((r) => r.ok && onAdopt()); }} onClose={plan.close} />
+      <span data-testid="entry-text">{plan.state.entry.text}</span>
+      <button
+        data-testid="selfcheck-race"
+        onClick={() => { void plan.runSelfcheck(); void plan.runSelfcheck(); }}
+      >
+        并发自检
+      </button>
+      <ChapterPlanModal plan={plan} onAdopt={() => { void plan.adopt().then((r) => r.ok && onAdopt(r)); }} onClose={plan.close} />
     </>
   );
 }
@@ -512,15 +519,20 @@ describe("拆章界面 · 边界与兜底（覆盖三文件 100%）", () => {
     await waitFor(() => expect(screen.queryByTestId("chapter-plan-modal")).not.toBeInTheDocument());
   });
 
-  it("契约层：saveEdit 缺字段按空写（不塞 undefined 进库）", async () => {
+  it("契约层：saveEdit 读全量→合并→全量 PUT（未提交字段不得清空）", async () => {
     const { chapterPlanApi } = await import("@/lib/chapterPlanApi");
+    mockApi.get.mockResolvedValueOnce({
+      title: "旧标题", prose: "已有正文若干字", word_target: 2000, status: "writing",
+      outline: { summary: "旧概要", key_points: ["要点一"] },
+      key_points: ["子表要点"], characters: ["沉舟"],
+    });
     await chapterPlanApi.saveEdit("p1", "vol-1-ch-2", { title: "只有标题" });
+    expect(mockApi.get).toHaveBeenCalledWith("/novels/p1/chapters/vol-1-ch-2");
     expect(mockApi.put).toHaveBeenCalledWith("/novels/p1/chapters/vol-1-ch-2", {
-      outline: { summary: "" },
-      challenge: "",
-      ladder_exit: "",
-      chapter_acts: [],
-      plot_stage: "",
+      title: "旧标题", prose: "已有正文若干字", word_target: 2000, status: "writing",
+      outline: { summary: "", key_points: ["要点一"] },
+      key_points: ["子表要点"], characters: ["沉舟"],
+      challenge: "", ladder_exit: "", chapter_acts: [], plot_stage: "",
     });
   });
 
@@ -541,6 +553,7 @@ describe("拆章界面 · 边界与兜底（覆盖三文件 100%）", () => {
     expect(mockApi.post).toHaveBeenCalledWith("/novels/p1/chapters/ai-selfcheck", { vol_ref: "vol-2", entry_text: "起点" });
     expect(mockApi.post).toHaveBeenCalledWith("/novels/p1/volumes/vol-2/chapters", { title: "t" });
     expect(mockApi.put).toHaveBeenCalledWith("/novels/p1/chapters/vol-2-ch-1", {
+      ok: true,
       outline: { summary: "p" }, challenge: "c", ladder_exit: "e", chapter_acts: ["a"], plot_stage: "开局铺垫",
     });
   });
@@ -871,5 +884,103 @@ describe("拆章界面 · 进场已在卡面时自检", () => {
     expect(mockApi.get.mock.calls.length).toBe(before);   // 没多发锚请求
     const [, body] = mockApi.post.mock.calls.at(-1) as [string, { entry_text?: string }];
     expect(body.entry_text).toBe(ENTRY.text);
+  });
+});
+
+describe("拆章界面 · 保存安全守卫（c-chapter-plan-guards）", () => {
+  const deferred = () => {
+    let resolve!: (v: unknown) => void;
+    const promise = new Promise((res) => { resolve = res; });
+    return { promise, resolve };
+  };
+
+  it("回改读卡失败：草稿清空、保存禁用、给重试；重试再失败仍无 PUT", async () => {
+    mockApi.get.mockRejectedValue(new Error("404"));
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-edit"));
+    await waitFor(() => expect(screen.getByTestId("chapter-card-error")).toBeInTheDocument());
+    expect(screen.getByTestId("split-adopt")).toBeDisabled();
+    expect(screen.getByTestId("split-retry-load")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("split-retry-load"));
+    await waitFor(() => expect(screen.getByTestId("chapter-card-error")).toBeInTheDocument());
+    expect(mockApi.put).not.toHaveBeenCalled();
+  });
+
+  it("回改读卡成功：保存恢复可用", async () => {
+    mockApi.get.mockImplementation((url: string) =>
+      url.includes("/plan-card")
+        ? Promise.resolve({ ok: true, title: "旧", plot: "p", acts: [], stage: "矛盾升级" })
+        : Promise.resolve({ ok: true, ...ENTRY }),
+    );
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-edit"));
+    await waitFor(() => expect(screen.getByTestId("split-adopt")).not.toBeDisabled());
+  });
+
+  it("回改保存返回 mode=edit（回执据此分流，不冒充「已排上」）", async () => {
+    const onAdopt = vi.fn();
+    mockApi.get.mockImplementation((url: string) =>
+      url.includes("/plan-card")
+        ? Promise.resolve({ ok: true, title: "旧标题", plot: "一句剧情", acts: [], stage: "" })
+        : Promise.resolve({ ok: true, ...ENTRY }),
+    );
+    render(<Host onAdopt={onAdopt} />);
+    fireEvent.click(screen.getByTestId("open-edit"));
+    await waitFor(() => expect(screen.getByTestId("split-adopt")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("split-adopt"));
+    await waitFor(() =>
+      expect(onAdopt).toHaveBeenCalledWith(expect.objectContaining({ ok: true, mode: "edit" })),
+    );
+  });
+
+  it("重开卡不残留上一次进场（open 重置 entry；失败走兜底）", async () => {
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-manual"));
+    await waitFor(() => expect(screen.getByTestId("entry-text")).toHaveTextContent(ENTRY.text));
+    fireEvent.click(screen.getByTestId("do-close"));
+    mockApi.get.mockRejectedValueOnce(new Error("500"));
+    fireEvent.click(screen.getByTestId("open-manual"));
+    await waitFor(() => expect(screen.getByTestId("entry-text")).toHaveTextContent("（进场读不到）"));
+  });
+
+  it("进场失败兜底不被关窗作废（catch 比对 anchor 代际）", async () => {
+    let rejectAnchor!: (e: unknown) => void;
+    mockApi.get.mockImplementationOnce(() => new Promise((_, rej) => { rejectAnchor = rej; }));
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-manual"));
+    fireEvent.click(screen.getByTestId("do-close"));   // 关窗 bump tokenRef——旧实现在这里吞掉兜底
+    rejectAnchor(new Error("500"));
+    await waitFor(() => expect(screen.getByTestId("entry-text")).toHaveTextContent("（进场读不到）"));
+  });
+
+  it("自检在途置忙（按钮禁用防重复）", async () => {
+    const { promise, resolve } = deferred();
+    mockApi.post.mockImplementationOnce(() => promise);
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-manual"));
+    await waitFor(() => expect(screen.getByTestId("selfcheck-run")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("selfcheck-run"));
+    await waitFor(() => expect(screen.getByTestId("selfcheck-run")).toHaveTextContent("正在看…"));
+    expect(screen.getByTestId("selfcheck-run")).toBeDisabled();
+    resolve({ ok: true, weakest: "挑战" });
+    await waitFor(() => expect(screen.getByTestId("selfcheck-run")).toHaveTextContent("AI 看一眼这一章"));
+  });
+
+  it("自检晚到响应被守卫丢弃（并发两次只留后者）", async () => {
+    const first = deferred();
+    let calls = 0;
+    mockApi.post.mockImplementation(() => {
+      calls += 1;
+      return calls === 1 ? first.promise : Promise.resolve({ ok: true, weakest: "新的" });
+    });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-manual"));
+    await waitFor(() => expect(screen.getByTestId("selfcheck-run")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("selfcheck-race"));
+    await waitFor(() => expect(screen.getByTestId("selfcheck")).toHaveTextContent("新的"));
+    first.resolve({ ok: true, weakest: "旧的" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId("selfcheck")).toHaveTextContent("新的");   // 未被旧响应覆盖
+    expect(screen.getByTestId("selfcheck")).not.toHaveTextContent("旧的");
   });
 });

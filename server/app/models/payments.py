@@ -8,6 +8,7 @@ from __future__ import annotations
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -58,6 +59,21 @@ class SkuORM(Base):
 class OrderORM(Base):
     """订单（根对象）：含退款环节列族 + sku_snapshot。"""
     __tablename__ = "orders"
+    # CHECK 与迁移 a002 的建表 DDL 逐字对齐（s-db-migrate-pipeline：
+    # 迁移链是 schema 事实源，元数据必须同口径——否则 fresh 库两条建表路不等价）
+    __table_args__ = (
+        CheckConstraint("amount_fen > 0", name="ck_orders_amount"),
+        CheckConstraint(
+            "status IN ('pending','paid','fulfilled','refund_pending','refund_processing','refunded','closed','exception')",
+            name="ck_orders_status",
+        ),
+        CheckConstraint("prepay_status IN ('none','created','failed')", name="ck_orders_prepay"),
+        CheckConstraint(
+            "refund_status IN (NULL,'none','cooldown','processing','succeeded','canceled','abnormal')",
+            name="ck_orders_refund_status",
+        ),
+        CheckConstraint("channel IN ('wxpay','alipay')", name="ck_orders_channel"),
+    )
 
     id = Column(BigIntPK, autoincrement=True, primary_key=True)
     order_no = Column(String(32), nullable=False, unique=True, index=True)

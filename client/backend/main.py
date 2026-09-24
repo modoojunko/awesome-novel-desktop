@@ -25,6 +25,7 @@ from archive.router import router as archive_router
 from auth_local.router import router as auth_local_router
 from backup.router import router as backup_router
 from chapters.ai_draft import router as chapters_ai_draft_router
+from chapters.ai_plan import router as chapter_ai_plan_router
 from chapters.router import router as chapters_router
 from chapters.versions import router as chapters_versions_router
 from db import Base, async_session, engine
@@ -34,6 +35,7 @@ from models.user import User
 from novels.events_router import router as events_router
 from novels.router import ai_router
 from novels.router import router as novels_router
+from prompt.router import book_router as prompt_book_router
 from prompt.router import router as prompt_router
 from settings.ai_router import router as settings_ai_router
 from settings.characters_ai import router as characters_ai_router
@@ -44,7 +46,6 @@ from settings.status import router as settings_status_router
 from settings.style_quant_router import router as style_quant_router
 from story.router import router as story_router
 from update_check import router as update_check_router
-from chapters.ai_plan import router as chapter_ai_plan_router
 from volumes.ai_plan import router as volume_ai_plan_router
 from workflow.router import backfill_router as workflow_backfill_router
 from workflow.router import router as workflow_router
@@ -53,6 +54,37 @@ from write.plot_sim import router as plot_sim_router
 from write.prompt_sources import router as prompt_sources_router
 from write.router import router as write_router
 from write.style_shadow import router as style_shadow_router
+
+
+async def stamp_current_library(schema_fp: str) -> None:
+    """把 schema 指纹与版本/组件快照写入当前库 app_meta（库自证来源）。
+
+    c-db-version-hardening：失败 MUST 记 error 日志（含库路径与异常摘要）且 MUST NOT
+    静默——下次启动该库会因 schema_id 缺失被判 mismatch 改名（书架空），日志里必须
+    留得住这条前因。失败不阻断启动。"""
+    from db_lifecycle import SCHEMA_ID_KEY, version_stamp_payload
+    from models.app_meta import AppMeta
+
+    try:
+        async with async_session() as session:
+            existing = await session.get(AppMeta, SCHEMA_ID_KEY)
+            if existing is None:
+                session.add(AppMeta(key=SCHEMA_ID_KEY, value=schema_fp))
+            elif existing.value != schema_fp:
+                existing.value = schema_fp
+            for _k, _v in version_stamp_payload().items():
+                _row = await session.get(AppMeta, _k)
+                if _row is None:
+                    session.add(AppMeta(key=_k, value=_v))
+                elif _row.value != _v:
+                    _row.value = _v
+            await session.commit()
+    except SQLAlchemyError as e:
+        _logger = logging.getLogger("uvicorn.error")
+        _logger.error(
+            "event=app.stamp result=fail db=%s error=%s hint=库指纹/版本快照未写入，下次启动可能按 mismatch 分流",
+            os.environ.get("DATA_ROOT", "./data"), e,
+        )
 
 
 @asynccontextmanager
@@ -69,10 +101,6 @@ async def lifespan(app: FastAPI):
     from db_lifecycle import (
         clean_stale_staging,
         compute_schema_fingerprint,
-        version_stamp_payload,
-    )
-    from db_lifecycle import (
-        SCHEMA_ID_KEY as _SCHEMA_ID_KEY,
     )
 
     _log = _logging.getLogger("uvicorn.error")
@@ -123,24 +151,7 @@ async def lifespan(app: FastAPI):
         logging.getLogger("uvicorn.error").warning("Genre vocab seed failed: %s", e)
 
     # ── 当前库打戳：schema 指纹 ＋ 本机版本/组件快照（库自证来源） ───────────
-    from models.app_meta import AppMeta
-
-    try:
-        async with async_session() as session:
-            existing = await session.get(AppMeta, _SCHEMA_ID_KEY)
-            if existing is None:
-                session.add(AppMeta(key=_SCHEMA_ID_KEY, value=_schema_fp))
-            elif existing.value != _schema_fp:
-                existing.value = _schema_fp
-            for _k, _v in version_stamp_payload().items():
-                _row = await session.get(AppMeta, _k)
-                if _row is None:
-                    session.add(AppMeta(key=_k, value=_v))
-                elif _row.value != _v:
-                    _row.value = _v
-            await session.commit()
-    except SQLAlchemyError:
-        pass
+    await stamp_current_library(_schema_fp)
 
 
     # ── Migrate config.json → User table ────────────────────────────
@@ -325,6 +336,7 @@ app.include_router(chapters_ai_draft_router)
 app.include_router(volume_ai_plan_router)  # 卷域 AI：3 套方案/展开/体检（volume-plan-ai）
 app.include_router(chapter_ai_plan_router)  # 章域 AI：拆章 3 方向/自检/进场（c-chapter-plan-ai）
 app.include_router(prompt_router)
+app.include_router(prompt_book_router)  # 书级批量：prompt-summary（提示词总览 N+1 收口）
 app.include_router(write_router)
 app.include_router(ai_check_router)
 app.include_router(archive_router)

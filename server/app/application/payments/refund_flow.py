@@ -77,7 +77,7 @@ def request_refund(
     Returns:
         {order_no, amount_fen, refund_fen, status, cooldown_remaining_seconds}
     """
-    now = datetime.utcnow()  # naive UTC（表列/域口径一致，避免 aware/naive 混比）
+    now = datetime.now(UTC).replace(tzinfo=None)  # naive UTC（表列/域口径一致，避免 aware/naive 混比）
     order_no = order["order_no"]
 
     # 前置校验
@@ -162,7 +162,7 @@ def cancel_refund(
     CAS 赢后解冻该单 frozen 行（取消路径只解冻，从不触碰 revoked 行）；
     解冻写半截由扫描 F 补解冻。
     """
-    now = datetime.utcnow()  # naive UTC（表列/域口径一致，避免 aware/naive 混比）
+    now = datetime.now(UTC).replace(tzinfo=None)  # naive UTC（表列/域口径一致，避免 aware/naive 混比）
     order_no = order["order_no"]
 
     if order["status"] != "refund_pending":
@@ -206,7 +206,7 @@ def cooldown_submit(
     code_repo=None,
 ) -> dict:
     """冷静期到点：CAS refund_pending→refund_processing，然后提交微信。"""
-    now = datetime.utcnow()  # naive UTC（表列/域口径一致，避免 aware/naive 混比）
+    now = datetime.now(UTC).replace(tzinfo=None)  # naive UTC（表列/域口径一致，避免 aware/naive 混比）
     order_no = order["order_no"]
 
     if order["status"] != "refund_pending":
@@ -278,7 +278,7 @@ def complete_refund(
     if not order:
         return {"error": "not_found"}
 
-    now = datetime.utcnow()  # naive UTC（表列/域口径一致，避免 aware/naive 混比）
+    now = datetime.now(UTC).replace(tzinfo=None)  # naive UTC（表列/域口径一致，避免 aware/naive 混比）
 
     # 步骤 1：refund_status→succeeded（幂等：已 succeeded→继续）
     if order.get("refund_status") != "succeeded":

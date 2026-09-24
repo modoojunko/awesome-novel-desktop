@@ -36,7 +36,9 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:19000',
+        // s-contract-live-check：活体冒烟档需要 proxy 可指向会话自己的后端
+        // （隔离栈并行时 19000 属于别的栈）；默认 19000 不变。
+        target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:19000',
         changeOrigin: true,
       },
     },

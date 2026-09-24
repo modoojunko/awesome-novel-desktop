@@ -1,5 +1,6 @@
 import { getToken } from "./auth";
 import { getApiBaseUrl } from "./env";
+import { handleAuthExpiry, request } from "./api";
 
 const API_BASE = `${getApiBaseUrl()}/api`;
 
@@ -94,6 +95,13 @@ function doStreamFetch(
   fetch(url, init)
     .then(async (response) => {
       if (!response.ok) {
+        // 401 走认证失效统一出口（c-fetch-unify）：SSE 流式无法复用 request()，
+        // 但踢出语义必须与主栈一致（原实现只报一条文案、人留在原页）
+        if (response.status === 401) {
+          handleAuthExpiry();
+          callbacks.onError("登录状态已失效，请重新登录");
+          return;
+        }
         const err = await response.json().catch(() => ({ detail: response.statusText }));
         // 状态码随文案下发：路由错位/网关错误等非业务失败不再只剩一句「Not Found」
         // （qa-night 2026-09-19 P1 附加项：AI 生成失败必须可读、可感知）
@@ -157,44 +165,21 @@ async function doJsonPost(
   url: string,
   body: Record<string, unknown>,
 ): Promise<any> {
-  const token = getToken();
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => null);
-    // 无 JSON 体的 5xx = 网关层（nginx 无上游/服务重启中），不是应用错误——
-    // 别把 "Bad Gateway" 直接丢给用户
-    if (!err) {
-      const infra = res.status === 502 || res.status === 503 || res.status === 504;
-      throw new Error(
-        infra ? "服务暂时不可用（可能正在重启），请稍后重试" : `请求失败（HTTP ${res.status}）`,
-      );
+  // c-fetch-unify：非流式 AI 请求改走中心栈 request()——401 统一踢出、503 全局
+  // 提示、member_required 广播不再各自实现（本函数保留仅为调用方少改）
+  const path = url.startsWith(API_BASE) ? url.slice(API_BASE.length) : url;
+  try {
+    return await request(path, { method: "POST", body: JSON.stringify(body) });
+  } catch (e) {
+    const err = e as { status?: number; message?: string };
+    // 网关层 5xx 且后端无可读 detail（request 回落「请求失败（HTTP xxx）」）时才换
+    // infra 文案；应用层 AI 失败带 JSON detail 的保留原文（introAi 502 契约）
+    const generic = !err.message || err.message.startsWith("请求失败（HTTP");
+    if ((err.status === 502 || err.status === 504) && generic) {
+      throw new Error("服务暂时不可用（可能正在重启），请稍后重试");
     }
-    // AI 会员拦截：403 detail={reason:"member_required"} → 广播全局升级引导（与 lib/api 同口径）
-    if (res.status === 403 && err?.detail?.reason === "member_required") {
-      const message = err.detail.message || "AI 是会员功能";
-      window.dispatchEvent(new CustomEvent("member-block", { detail: { message } }));
-      const e = new Error(message) as Error & { reason?: string; status?: number };
-      e.reason = "member_required";
-      e.status = res.status;
-      throw e;
-    }
-    // 附带 HTTP 状态码 + detail.reason（AI 前置三态分流用：no_key/missing_model/invalid）
-    const e = new Error(detailMessage(err?.detail, "请求出错")) as Error & {
-      reason?: string;
-      status?: number;
-    };
-    e.status = res.status;
-    if (err?.detail?.reason) e.reason = err.detail.reason;
     throw e;
   }
-  return res.json();
 }
 
 export async function polishText(

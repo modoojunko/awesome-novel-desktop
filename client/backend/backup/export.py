@@ -15,7 +15,7 @@ import asyncio
 import io
 import re
 import zipfile
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -43,7 +43,7 @@ def sanitize_book_filename(name: str) -> str:
 
 
 def _d(now: datetime | None = None) -> str:
-    return (now or datetime.now()).strftime("%Y-%m-%d")
+    return (now or datetime.now(UTC).replace(tzinfo=None)).strftime("%Y-%m-%d")
 
 
 def backup_zip_name(now: datetime | None = None) -> str:
@@ -64,7 +64,7 @@ def single_zip_name(book_name: str, now: datetime | None = None) -> str:
 def _contract_header() -> dict:
     return {
         "format_version": FORMAT_VERSION,
-        "exported_at": datetime.now().isoformat(timespec="seconds"),
+        "exported_at": datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds"),
     }
 
 
@@ -289,6 +289,8 @@ async def _dump_hooks(zf, db, project, prefix: str = "") -> None:
                 "type": h.type,
                 "priority": h.priority,
                 "status": h.status,
+                # 计划收束卷（c-db-version-hardening：白名单漏键致备份→恢复丢字段）
+                "planned_volume_no": h.planned_volume_no,
                 "introduced_chapter_ref": _ref(h.introduced_chapter_id),
                 "planned_chapter_ref": _ref(h.planned_chapter_id),
                 "resolved_chapter_ref": _ref(h.resolved_chapter_id),
@@ -320,7 +322,7 @@ async def build_config_package_bytes(db, user_id: str) -> tuple[bytes, str]:
 
     payload = {
         "format_version": FORMAT_VERSION,
-        "exported_at": datetime.now().isoformat(timespec="seconds"),
+        "exported_at": datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds"),
         "user": {
             "display_name": user.display_name or "",
             # legacy 默认 AI 三件套：仅非空时导出（导入端同口径只补空）

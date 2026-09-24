@@ -1,0 +1,65 @@
+# s-deploy-on-merge —— S web 前端合 main 自动发布 test 站
+
+# 语义：main 前端预览站（生产 API 配置），非生产发布。
+# 生产仍走 s-server-deploy.yml（tag v*/dispatch 手动触发）。
+# 后端自动发布明确不做（见 design Non-Goals——真栈集成测试只在 nightly）。
+
+name: s-web-test-deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/frontend/**"
+      - "brand/**"
+      - ".github/workflows/s-web-test-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同一时刻只保留一次发布（老 published 状态优先）
+concurrency:
+  group: s-web-test-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 账号级 API key 可跨环境操作；-e 仅设默认 env
+      - name: CloudBase 登录（test 环境）
+        # 与生产工作流（s-server-deploy.yml）同款登录命令，对齐已验证用法
+        run: tcb login --cloudbase-api-key ${{ secrets.TCB_API_KEY }} -e d1ghsr86ra814c12c
+
+      # 构建配方与生产逐字相同（design D1）：test 站＝main 前端预览（生产 API）
+      - name: 构建前端
+        working-directory: server/frontend
+        run: |
+          npm ci
+          BASE="$(printf '%s' "${{ vars.TCB_BACKEND_DOMAIN }}" | sed -E 's#/*$##; s#/api$##')"
+          export VITE_API_BASE="${BASE}/api"
+          export VITE_BEIAN_ICP="${{ secrets.VITE_BEIAN_ICP }}"
+          export VITE_BEIAN_POLICE="${{ secrets.VITE_BEIAN_POLICE }}"
+          export VITE_BEIAN_POLICE_LINK="${{ secrets.VITE_BEIAN_POLICE_LINK }}"
+          {
+            printf 'VITE_BEIAN_ICP=%s\n' "$VITE_BEIAN_ICP"
+            printf 'VITE_BEIAN_POLICE=%s\n' "$VITE_BEIAN_POLICE"
+            printf 'VITE_BEIAN_POLICE_LINK=%s\n' "$VITE_BEIAN_POLICE_LINK"
+          } > .env.production.local
+          npm run build
+
+      # test 托管应用（既有，见 portal.ts 兜底 URL / 升级弹窗测试域名）
+      # ⚠️ 应用标识如与平台侧不同，首跑即失败——改本行即可（非生产，失败无害）
+      - name: 部署 S 前端到 test 站
+        run: tcb app deploy novel-s-web-ai-novel-test --env-id d1ghsr86ra814c12c --cwd server/frontend --install-command "" --build-command "" --output-dir dist --deploy-path / --force --ignore "**/node_modules/**,**/e2e/**,**/playwright-report/**"
+
+      - name: 部署结果
+        run: |
+          echo "test 站: https://novel-s-web-ai-novel-test-d1ghsr86ra814c12c.webapps.tcloudbase.com"

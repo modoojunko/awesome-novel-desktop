@@ -30,8 +30,18 @@ from volumes.ai_plan import (
     _render,
 )
 from volumes.render import volume_outline_text
+from workflow.engine import strip_suffix
 
 router = APIRouter(prefix="/api/novels/{project_id}", tags=["chapter-plan-ai"])
+
+
+def _vol_no(vol_ref: str) -> int:
+    """`vol-{N}` → N；非法引用 400（c-backend-infra-hygiene）——原裸 int() 会把
+    非法引用炸成未处理异常（500）。"""
+    raw = strip_suffix(vol_ref or "").replace("vol-", "")
+    if not raw.isdigit():
+        raise HTTPException(400, "卷引用不合法")
+    return int(raw)
 
 SPLIT_AXES = ("加速", "关系", "线索", "代价", "危机", "收束")
 DIMENSIONS = ("反转", "递增", "推进", "拉力")  # 四维：反转/冲突层层递增/剧情推进/结尾拉力
@@ -148,7 +158,7 @@ async def _known_places(db, project) -> set[str]:
             t = tok.strip()
             if 2 <= len(t) <= 12:
                 out.add(t)
-    except Exception:  # noqa: BLE001 — 世界设定读不到不影响出卡
+    except Exception:  # noqa: BLE001, S110 — 世界设定读不到不影响出卡
         pass
     return out
 
@@ -342,12 +352,11 @@ async def next_chapter_anchor(
 ):
     """下一章的进场（全档只读）——手写路径不发 AI 请求也要进场。"""
     from repositories import chapter_repo, volume_repo
-    from workflow.engine import strip_suffix
 
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Novel not found")
-    vol_no = int(strip_suffix(vol_ref).replace("vol-", ""))
+    vol_no = _vol_no(vol_ref)
     vol = await volume_repo.get_by_volume_no(db, project.id, vol_no)
     if vol is None:
         raise HTTPException(404, "Volume not found")
@@ -369,12 +378,11 @@ async def ai_chapter_directions(
 ):
     """同一章的 3 个互斥剧情方向（不落库）。名次在模型侧、字母在服务端算。"""
     from repositories import chapter_repo, volume_repo
-    from workflow.engine import strip_suffix
 
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Novel not found")
-    vol_no = int(strip_suffix(vol_ref).replace("vol-", ""))
+    vol_no = _vol_no(vol_ref)
     vol = await volume_repo.get_by_volume_no(db, project.id, vol_no)
     if vol is None:
         raise HTTPException(404, "Volume not found")
@@ -519,7 +527,7 @@ async def ai_chapter_selfcheck(
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Novel not found")
-    vol_no = int(strip_suffix(body.vol_ref).replace("vol-", ""))
+    vol_no = _vol_no(body.vol_ref)
     vol = await volume_repo.get_by_volume_no(db, project.id, vol_no)
     if vol is None:
         raise HTTPException(404, "Volume not found")

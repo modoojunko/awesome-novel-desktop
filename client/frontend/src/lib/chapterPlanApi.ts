@@ -110,15 +110,25 @@ export const chapterPlanApi = {
     entry_source?: string;
     next_no?: number;
   }> => api.get(`/novels/${pid}/chapters/${ref}/plan-card`),
-  /** 回改保存：五段写回既有章（复用章保存链，不新建） */
-  saveEdit: (pid: string, ref: string, body: ChapterAdoptBody): Promise<{ ok: boolean }> =>
-    api.put(`/novels/${pid}/chapters/${ref}`, {
-      outline: { summary: body.plot ?? "" },
+  /** 回改保存：读章全量 → 合并五段 → 全量 PUT。
+   *  后端写入口对缺键按空写（prose/子表/word_target），局部提交会清空正文与章纲子表——
+   *  必须先取全量再合并（c-chapter-plan-guards）。 */
+  saveEdit: async (pid: string, ref: string, body: ChapterAdoptBody): Promise<{ ok: boolean }> => {
+    const full = await api.get(`/novels/${pid}/chapters/${ref}`) as {
+      outline?: Record<string, unknown> | null;
+      [key: string]: unknown;
+    };
+    const merged = {
+      ...full,
+      outline: { ...(full.outline ?? {}), summary: body.plot ?? "" },
       challenge: body.challenge ?? "",
       ladder_exit: body.ending ?? "",
       chapter_acts: body.acts ?? [],
       plot_stage: body.stage ?? "",
-    }),
+    };
+    await api.put(`/novels/${pid}/chapters/${ref}`, merged);
+    return { ok: true };
+  },
   /** 排上：建章＋五段（同一事务；重复提交幂等） */
   adopt: (pid: string, volRef: string, body: ChapterAdoptBody): Promise<{ ok: boolean; ref: string }> =>
     api.post(`/novels/${pid}/volumes/${volRef}/chapters`, body),

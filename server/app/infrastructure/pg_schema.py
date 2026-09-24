@@ -47,7 +47,12 @@ REQUIRED: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "device_grants": (
         ("pc_hash", "text"), ("user_id", "typed"), ("token", "text"), ("challenge", "text"),
-        ("enrolled", "typed"), ("fingerprint", "text"),
+        ("enrolled", "typed"), ("fingerprint", "text"), ("created_at", "typed"),
+    ),
+    # 客户端需更新标记（s-auth-outdated-signal）：authorize code=3 分档拒绝落库、
+    # check-auth 无 grant 且 TTL 内有标记 → code=3——pg_http outdated_repo 读写，入清单
+    "device_outdated_marks": (
+        ("pc_hash", "text"), ("rejected_at", "typed"),
     ),
     "global_config": (("key", "text"), ("value", "text")),
     # ── payments 域（payments_repo.py，pg_http 同通道；2026-09-01 补录）──

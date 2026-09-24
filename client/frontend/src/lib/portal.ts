@@ -4,30 +4,35 @@
  * （config.json 可覆盖），此处为未登录页（Landing 等）的兜底值。
  */
 import { api } from "./api";
+import { queryClient } from "./queryClient";
 
 export const PORTAL_URL =
   (import.meta.env.VITE_PORTAL_URL as string | undefined) ||
   "https://novel-s-web-ai-novel-test-d1ghsr86ra814c12c.webapps.tcloudbase.com";
 
-let portalUrlCache: string | null = null;
+const PORTAL_URL_KEY = ["portal-url"] as const;
 
 /** 测试钩子：重置门户地址缓存。 */
 export function resetPortalUrlCache() {
-  portalUrlCache = null;
+  queryClient.removeQueries({ queryKey: PORTAL_URL_KEY });
 }
 
-/** 拉取（并缓存）S 端门户地址；失败降级空串。MemberBlockPrompt 与 UpgradeModal 同源取用。 */
-export async function fetchPortalUrl(): Promise<string> {
-  if (portalUrlCache !== null) return portalUrlCache;
-  let url = "";
-  try {
-    const cfg = await api.get("/auth/config");
-    url = cfg?.portal_url || "";
-  } catch {
-    url = "";
-  }
-  portalUrlCache = url;
-  return url;
+/** 拉取（并缓存）S 端门户地址；失败降级空串。MemberBlockPrompt 与 UpgradeModal 同源取用。
+ * c-query-cache-layer：缓存并入应用级 QueryClient（fetchQuery，staleTime Infinity
+ * ＝原模块级缓存「取一次整会话用」语义）。 */
+export function fetchPortalUrl(): Promise<string> {
+  return queryClient.fetchQuery({
+    queryKey: PORTAL_URL_KEY,
+    staleTime: Infinity,
+    queryFn: async () => {
+      try {
+        const cfg = await api.get("/auth/config");
+        return cfg?.portal_url || "";
+      } catch {
+        return "";
+      }
+    },
+  });
 }
 
 /** 外跳地址安全校验：仅 http/https，拒绝 localhost/环回/私有/保留地址。 */

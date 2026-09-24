@@ -43,6 +43,9 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
   const finished = !!target?.finished_at;
   const [hooks, setHooks] = useState<HookEntry[] | null>(null);
   const [hookChapter, setHookChapter] = useState<Map<string, number>>(new Map());
+  /** 清单加载失败——失败不得呈现为「无伏笔」（c-silent-data-guards：确认钮禁用至重试成功） */
+  const [hooksError, setHooksError] = useState(false);
+  const [reloadTick, setReloadTick] = useState(0);
   /** 留白标记：仅本弹窗内确认辅助，不落库 */
   const [parked, setParked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -51,6 +54,7 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
   useEffect(() => {
     setHooks(null);
     setParked(new Set());
+    setHooksError(false);
     if (!target || target.finished_at) return;
     let alive = true;
     hooksApi
@@ -59,7 +63,9 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
         if (!alive) return;
         setHooks(d.items.filter((h) => h.status === "active"));
       })
-      .catch(() => alive && setHooks([]));
+      .catch(() => {
+        if (alive) setHooksError(true); // 失败≠没有伏笔：不再静默置空数组
+      });
     hooksApi
       .volumes(target.id)
       .then((vols) => {
@@ -68,11 +74,15 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
         for (const v of vols) for (const c of v.chapters || []) if (c.id) m.set(c.id, c.chapter);
         setHookChapter(m);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (alive) setHooksError(true);
+      });
     return () => {
       alive = false;
     };
-  }, [target?.id, target?.finished_at]);
+  }, [target?.id, target?.finished_at, reloadTick]);
+
+  const reload = useCallback(() => setReloadTick((t) => t + 1), []);
 
   const doFinish = useCallback(async () => {
     if (!target) return;
@@ -135,7 +145,12 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
             <button className="btn btn-secondary" disabled={busy} onClick={onClose}>
               再想想
             </button>
-            <button className="btn btn-primary" disabled={busy} onClick={() => void doFinish()}>
+            <button
+              className="btn btn-primary"
+              disabled={busy || hooksError}
+              data-testid="finish-confirm"
+              onClick={() => void doFinish()}
+            >
               完结这本书
             </button>
           </>
@@ -171,22 +186,31 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
           </div>
           {/* ② 伏笔：active 真数据；留白＝弹窗内确认辅助，不写伏笔表 */}
           <div className="fin-row">
-            <span className={"fin-ico" + (hooks && hooks.length > 0 ? " warn" : " ok")}>
-              {hooks && hooks.length > 0 ? "!" : <Ico d={CHECK} />}
+            <span className={"fin-ico" + ((hooksError || (hooks != null && hooks.length > 0)) ? " warn" : " ok")}>
+              {hooksError || (hooks != null && hooks.length > 0) ? "!" : <Ico d={CHECK} />}
             </span>
             <div className="fin-t">
               <b>
-                {hooks === null
-                  ? "正在读取伏笔…"
-                  : hooks.length > 0
-                    ? `还有 ${hooks.length} 条伏笔悬着`
-                    : "伏笔都已回收"}
+                {hooksError
+                  ? "伏笔清单没加载出来"
+                  : hooks === null
+                    ? "正在读取伏笔…"
+                    : hooks.length > 0
+                      ? `还有 ${hooks.length} 条伏笔悬着`
+                      : "伏笔都已回收"}
               </b>
               <p>
-                {hooks !== null && hooks.length > 0
-                  ? "下面是全书里埋下却还没回收的伏笔。确认是故意留白的就勾上，完本照常；否则先回去收掉。"
-                  : "没有埋下未收的伏笔，这本书的线都收干净了。"}
+                {hooksError
+                  ? "为避免没核对伏笔就完本，请重新加载后再确认。"
+                  : hooks !== null && hooks.length > 0
+                    ? "下面是全书里埋下却还没回收的伏笔。确认是故意留白的就勾上，完本照常；否则先回去收掉。"
+                    : "没有埋下未收的伏笔，这本书的线都收干净了。"}
               </p>
+              {hooksError && (
+                <button className="btn btn-ghost btn-sm" data-testid="finish-reload" onClick={reload}>
+                  重新加载
+                </button>
+              )}
               {hooks !== null && hooks.length > 0 && (
                 <ul className="fin-hooks">
                   {hooks.map((h) => {

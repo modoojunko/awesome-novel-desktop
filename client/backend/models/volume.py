@@ -72,12 +72,6 @@ class Volume(Base):
         cascade="all, delete-orphan",
         back_populates="volume",
     )
-    cast_members = relationship(
-        "VolumeCastMember",
-        cascade="all, delete-orphan",
-        order_by="VolumeCastMember.sort_order",
-        lazy="selectin",
-    )
 
 
 class _VolumeChildMixin:
@@ -93,20 +87,5 @@ class _VolumeChildMixin:
         index=True,
     )
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-
-
-class VolumeCastMember(_VolumeChildMixin, Base):
-    """本卷登场人物（卷纲 §登场人物）：角色 + 本卷目标 + 预期变化。"""
-
-    __tablename__ = "volume_cast_members"
-    __table_args__ = (
-        UniqueConstraint("volume_id", "sort_order", name="uq_volume_cast_order"),
-    )
-
-    who: Mapped[str] = mapped_column(String(50), nullable=False, default="")
-    # 本卷目标：本卷要做什么
-    target: Mapped[str] = mapped_column(String(150), nullable=False, default="")
-    # 预期变化：本卷结束时变成什么样
-    change: Mapped[str] = mapped_column(String(150), nullable=False, default="")
 
 

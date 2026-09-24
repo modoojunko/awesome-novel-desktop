@@ -217,6 +217,19 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
     return <p className="opt">加载主线卡…</p>;
   }
 
+  // 加载失败＝没有可保存的基线：面板替换为失败态（重试成功后恢复表单），
+  // 防止「表单显示为空 → 作者补两句 → 保存整卡覆盖库里已有内容」（c-silent-data-guards）
+  if (c.loadError) {
+    return (
+      <div className="opt" data-testid="arc-load-error" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <span>主线卡没加载出来——为避免覆盖已有内容，暂时不能编辑保存。</span>
+        <button className="btn btn-ghost btn-sm" data-testid="arc-reload" onClick={c.reload}>
+          重新加载
+        </button>
+      </div>
+    );
+  }
+
   const renderSink = (action: ArcAiAction, odId: string, adoptText?: string) => {
     const st = sinks[action];
     if (!st) return null;

@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import shutil
 import sqlite3
+import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import models  # noqa: F401 —— 注册全表（Base.metadata 依赖副作用 import）
-from config import DATA_ROOT
+from config import (
+    DATA_ROOT,  # noqa: F401 —— 测试经 monkeypatch(engine, "DATA_ROOT") 注入数据目录
+)
 from db import Base
 from db_lifecycle import (
     copy_sidecars,
@@ -36,7 +37,7 @@ LEGACY_YAML_MARKER = "settings/genre.yaml"
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _sqlite_ro(path: Path) -> sqlite3.Connection:
@@ -196,8 +197,9 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
     """
     data_root = Path(data_root)
     src = data_root / source_filename
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(UTC).replace(tzinfo=None).strftime("%Y%m%d-%H%M%S")
     staging = data_root / "migration-staging" / stamp
+    work_dir: Path | None = None  # 早退路径（precheck/拷贝失败）时 finally 不误清
     report = {"v": 1, "source": source_filename, "at": _now_iso(),
               "tables": [], "tables_skipped": [], "fk_violations": [],
               # source＝源库书数；migrated＝**本次真正带回**的书数（目标已有书时不得虚高）；
@@ -248,6 +250,14 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
             if side.exists():
                 side.unlink()  # checkpoint 后边车可清（副本域内）
 
+        # 2.5 搬运用**容器本地**副本（c-db-version-hardening）：数据目录在 docker
+        # 部署下是 bind mount，macOS VirtioFS 等共享挂载对刚拷贝文件的 ATTACH
+        # 加锁会随机 disk I/O error。落到本地临时目录再 ATTACH；staging 里的
+        # 副本仍是清理/审计口径，本地副本用完即删。
+        work_dir = Path(tempfile.mkdtemp(prefix="mig-work-"))
+        work = work_dir / staged.name
+        shutil.copy2(staged, work)
+
         # 3 计划
         _emit("plan")
         plan = build_plan(staged)
@@ -260,10 +270,13 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
 
         # 4 搬运：ATTACH ro 副本 → 目标（FK OFF 逐表 OR IGNORE）
         tgt = _sqlite_rw(active_db_path)
-        src_con = _sqlite_ro(staged)
+        src_con = _sqlite_ro(work)
         try:
             # ATTACH 传普通路径：file: URI 仅在连接以 uri=True 打开时才被解析
-            tgt.execute(f"ATTACH DATABASE '{staged}' AS mig_src")
+            # 字面量转义（c-backend-infra-hygiene）：sqlite3 不支持 ATTACH 参数绑定，
+            # 白名单形状已排除引号，转义为纵深防御
+            staged_sql = str(work).replace("'", "''")
+            tgt.execute(f"ATTACH DATABASE '{staged_sql}' AS mig_src")
             for entry in plan["tables"]:
                 t = entry["table"]
                 cols = list(entry["columns"])
@@ -281,7 +294,7 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                     f'INSERT OR IGNORE INTO main."{t}" ({cl}) SELECT {sl} FROM mig_src."{t}"'
                 )
                 entry["rows_source"] = rows_src
-                entry["rows_inserted"] = cur.rowcount if cur.rowcount >= 0 else 0
+                entry["rows_inserted"] = max(cur.rowcount, 0)
                 report["tables"].append(entry)
                 tables_done += 1
                 _emit("transfer", tables_total=tables_total, tables_done=tables_done,
@@ -328,6 +341,8 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
         report["status"] = "error"
     finally:
         shutil.rmtree(staging, ignore_errors=True)
+        if work_dir is not None:
+            shutil.rmtree(work_dir, ignore_errors=True)
     return report
 
 

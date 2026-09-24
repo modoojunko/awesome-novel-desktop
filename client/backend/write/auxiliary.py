@@ -188,6 +188,7 @@ async def stream_continue(
                     operation="continue",
                     model=resolved_model,
                     tokens_out=event.tokens,
+                    tokens_in=event.tokens_in,
                 )
 
                 yield f"data: {json.dumps({'type': 'done', 'full_text': generated_text, 'tokens': event.tokens}, ensure_ascii=False)}\n\n"

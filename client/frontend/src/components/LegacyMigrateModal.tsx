@@ -234,15 +234,35 @@ export default function LegacyMigrateModal({
       if (res.code !== 0) throw new Error(res.msg || '发起失败');
       startPolling();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('迁入') || msg.includes('迁移') || msg.includes('migration')) {
+      // 409＝已有任务在跑（备份/导出/搬运单飞互斥）——转进度态 attach 轮询；
+      // 不按文案子串判定（后端 409 文案「已有任务在进行中」不含「迁入/迁移」，
+      // 旧分支实为死路，双击/互斥时永远退回发现步）
+      if ((e as { status?: number })?.status === 409) {
         startPolling();
         return;
       }
+      const msg = e instanceof Error ? e.message : '';
       setErrorMsg(msg || '发起失败');
       setStep('detect');
     }
   };
+
+  /** 隔离件只读清单（规格「损坏库只读可见」）：detect 与 preview 两步都渲染——
+   *  单候选自动预演会跳过发现步，清单必须仍可达（c-db-version-hardening）。 */
+  const quarantinedList = quarantined.length > 0 ? (
+    <div style={{ marginBottom: 12 }} data-testid="migrate-quarantined">
+      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 6px' }}>
+        另有 {quarantined.length} 份旧文件读不出来（已原地保留，不会自动删除）：
+      </p>
+      <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+        {quarantined.map((q) => (
+          <li key={q.filename} style={{ fontSize: 12, color: 'var(--muted)' }}>
+            {Math.round(q.size_bytes / 1024)} KB · {new Date(q.mtime * 1000).toLocaleDateString('zh-CN')}
+          </li>
+        ))}
+      </ul>
+    </div>
+  ) : null;
 
   const pct = progressPct;
   const stageText = progress ? STAGE_LABEL[progress.stage] || progress.stage : '准备中…';
@@ -270,20 +290,7 @@ export default function LegacyMigrateModal({
               {new Date((candidates[0]?.mtime || 0) * 1000).toLocaleDateString('zh-CN')} 的数据 · {candidates[0]?.book_count ?? '?'} 本书
             </p>
           )}
-          {quarantined.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 6px' }}>
-                另有 {quarantined.length} 份旧文件读不出来（已原地保留，不会自动删除）：
-              </p>
-              <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-                {quarantined.map((q) => (
-                  <li key={q.filename} style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    {Math.round(q.size_bytes / 1024)} KB · {new Date(q.mtime * 1000).toLocaleDateString('zh-CN')}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {quarantinedList}
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 16px' }}>
             带回是把作品复制回书架，原来的文件一个字都不会动（旧文件原位保留，可随时装回旧版本）。
           </p>
@@ -296,6 +303,7 @@ export default function LegacyMigrateModal({
       )}
       {step === 'preview' && preview && (
         <div>
+          {quarantinedList}
           <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 8px' }}>将带回以下作品：</p>
           <p style={{ fontSize: 14, fontWeight: 500, margin: '0 0 8px' }}>{preview.book_count_source ?? '?'} 本书</p>
           {(preview.tables_skipped || []).length > 0 && (

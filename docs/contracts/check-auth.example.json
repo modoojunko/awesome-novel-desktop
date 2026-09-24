@@ -1,0 +1,44 @@
+{
+  "$comment": "check-auth 契约单源（s-contract-live-check）：S端 handler 与 C端 消费两侧对拍。键集/类型族锚定，不含真实凭据；演进规则＝加键兼容不升版，删键/改形须两侧同批并升格说明。",
+  "endpoint": "GET /api/check-auth?pc_hash={pc_hash}",
+  "consumers": [
+    "C端 设备授权轮询（desktop，poll）",
+    "C端 套餐刷新（auth_local 代打）"
+  ],
+  "top_level": {
+    "code": "int，四值闭集 {0,1,2,3}",
+    "data": "object，可选",
+    "msg": "string，可选（code≠0 时携带可读原因）"
+  },
+  "codes": {
+    "0": {
+      "meaning": "已授权；data 携带套餐快照（build_license_snapshot）＋ username",
+      "data_required": [
+        "username"
+      ]
+    },
+    "1": {
+      "meaning": "未授权/未登录/已注销（msg 必带）；data 可选携带 deleted=true（注销兜底分支）"
+    },
+    "2": {
+      "meaning": "账号注销进行中（付费功能暂停）",
+      "data_required": [
+        "deletion_pending",
+        "days_left"
+      ],
+      "data_optional": [
+        "deadline"
+      ]
+    },
+    "3": {
+      "meaning": "客户端过期（s-auth-outdated-signal；MUST NOT 与 code=1 混淆——旧端会清凭据）",
+      "data_required": [
+        "client_outdated",
+        "download_url"
+      ],
+      "data_optional": [
+        "latest_version"
+      ]
+    }
+  }
+}

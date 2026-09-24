@@ -333,8 +333,8 @@ describe("ApiKeyConfigPage 覆盖补齐", () => {
     stubFull({ listError: "库打不开" });
     const failed = renderPage();
     expect(await screen.findByText("配置加载失败")).toBeTruthy();
-    // hook 把失败归一成 `HTTP <status>`（不透后端 detail），断言可读即可
-    expect(document.querySelector(".empty p")!.textContent).toMatch(/HTTP 500/);
+    // 5xx 走中文兜底（errMessage 口径：仅 4xx 透后端原文），不再露 `HTTP <status>`
+    expect(document.querySelector(".empty p")!.textContent).toMatch(/加载配置失败/);
     const before = calls.filter((c) => c.url.endsWith("/api-configs")).length;
     fireEvent.click(screen.getByText("重新加载"));
     await waitFor(() => expect(calls.filter((c) => c.url.endsWith("/api-configs")).length).toBeGreaterThan(before));

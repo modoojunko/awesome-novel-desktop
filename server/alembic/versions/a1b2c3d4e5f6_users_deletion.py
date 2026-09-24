@@ -13,7 +13,10 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'a1b2c3d4e5f6'
-down_revision: str | None = 'c3a51e09d7e2'
+# 线性化（s-db-migrate-pipeline）：原挂 c3a51e09d7e2 时与 a001_users_surrogate 形成
+# 双头，且 alembic merge 按 revision 字符串排序会先跑本加列支、后跑 a001 重建支——
+# 重建的显式列清单会把注销四列吃掉。改挂重建支尾（e8f2a4b6c8d0）锁定「先重建后加列」。
+down_revision: str | None = 'e8f2a4b6c8d0'
 branch_labels: str | None = None
 depends_on: str | None = None
 

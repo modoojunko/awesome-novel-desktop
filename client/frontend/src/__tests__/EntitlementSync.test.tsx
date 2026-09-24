@@ -189,3 +189,17 @@ describe("两跳刷新（路由切换）", () => {
     expect(order.filter((x) => x === "get").length).toBe(0);
   });
 });
+
+
+describe("登出清权益缓存（c-silent-data-guards）", () => {
+  it("logout() 清 verify 缓存与节流状态（换账号不沿用上一账号快照）", async () => {
+    const { setVerifyCache, getVerifyCache, getLastRefreshAt, setLastRefresh } = await import("@/lib/licenseCache");
+    const { logout } = await import("@/lib/auth");
+    setVerifyCache({ tier: "pro", is_member: true });
+    setLastRefresh(Date.now(), "/novels");
+    expect(getVerifyCache()).not.toBeNull();
+    logout();
+    expect(getVerifyCache()).toBeNull();
+    expect(getLastRefreshAt()).toBe(0);
+  });
+});

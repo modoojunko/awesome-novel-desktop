@@ -74,6 +74,8 @@ export interface UseWorkbenchReturn {
   onSelectNode: (node: TreeNode) => void;
   createVolume: (title: string) => Promise<string | null>;
   createChapter: (title: string, volName?: string) => Promise<string | null>;
+  /** 建卷/建章请求在途（CTA 置忙禁用——双发闸，c-silent-data-guards） */
+  creating: boolean;
   renameNode: (nodeId: string, newTitle: string) => Promise<void>;
   deleteNode: (nodeId: string) => Promise<void>;
   refresh: () => Promise<void>;
@@ -132,6 +134,10 @@ export function useWorkbench(): UseWorkbenchReturn {
   // 会把刚建的卷当不存在（「请先创建卷」误报）。创建类操作一律读 ref 拿最新树。
   const volumesRef = useRef<WorkbenchVolume[]>([]);
   volumesRef.current = volumes;
+  // 创建 in-flight 闸（c-silent-data-guards）：双击/慢响应重试不得产生第二次创建请求
+  // （后端 MAX+1+upsert 会把裸重放当「作者想再排一章」→ 静默多建）
+  const creatingRef = useRef(false);
+  const [creating, setCreating] = useState(false);
 
   // -----------------------------------------------------------------------
   // Load volumes（DB 全量树：GET /volumes 一次返回卷+章元数据，change 006）
@@ -342,7 +348,9 @@ export function useWorkbench(): UseWorkbenchReturn {
 
   const createVolume = useCallback(
     async (title: string): Promise<string | null> => {
-      if (!projectId) return null;
+      if (!projectId || creatingRef.current) return null;
+      creatingRef.current = true;
+      setCreating(true);
       const volNum = volumesRef.current.length + 1;
       try {
         const result = await api.post(`/novels/${projectId}/volumes`, { title });
@@ -359,6 +367,9 @@ export function useWorkbench(): UseWorkbenchReturn {
       } catch {
         toast.error("创建卷失败");
         return null;
+      } finally {
+        creatingRef.current = false;
+        setCreating(false);
       }
     },
     [projectId, refresh],
@@ -370,7 +381,9 @@ export function useWorkbench(): UseWorkbenchReturn {
 
   const createChapter = useCallback(
     async (title: string, volName?: string): Promise<string | null> => {
-      if (!projectId) return null;
+      if (!projectId || creatingRef.current) return null;
+      creatingRef.current = true;
+      setCreating(true);
       // 指定卷 > 选中卷 > 第一卷；无卷由调用方（Workbench）先走建卷弹窗
       // （读 volumesRef/selectedIdRef：建卷弹窗连续建章时闭包 state 尚未更新）
       const vols = volumesRef.current;
@@ -398,6 +411,9 @@ export function useWorkbench(): UseWorkbenchReturn {
       } catch {
         toast.error("创建章失败");
         return null;
+      } finally {
+        creatingRef.current = false;
+        setCreating(false);
       }
     },
     [projectId, refresh, focusNode],
@@ -484,6 +500,7 @@ export function useWorkbench(): UseWorkbenchReturn {
     onSelectNode,
     createVolume,
     createChapter,
+    creating,
     renameNode,
     deleteNode,
     refresh,

@@ -73,8 +73,10 @@ describe("鉴权不变量：src 内不得新增未带头部的 fetch", () => {
       }
     }
 
-    // 自检：扫到的调用数应远大于 0（防 walk/正则失效导致的假绿）
-    expect(scanned).toBeGreaterThan(5);
+    // 自检：扫到的调用数应大于 0（防 walk/正则失效导致的假绿）。
+    // c-fetch-unify 后 src 裸 fetch 已收敛到个位数（SSE/FormData/文本下载等
+    // request() 覆盖不了的形态），阈值同步下调——白名单本身仍受第 2 条守卫。
+    expect(scanned).toBeGreaterThan(2);
     expect(offenders).toEqual([]);
   });
 
