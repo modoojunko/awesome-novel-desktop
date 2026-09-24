@@ -124,7 +124,7 @@ const DIRECTIONS = {
   note: "",
 };
 
-test("手写路径全链：中栏拆下一章 → 五段 → 排上 → 落点卡（已带入 N 项＋还差 6 项＋三出口）", async ({ page, request }) => {
+test("手写路径全链：中栏拆下一章 → 五段 → 排上 → 落点卡（已带入 N 项＋还差 4 项＋三出口）", async ({ page, request }) => {
   const { restore, token } = await setupSession(page);
   try {
     const pid = await createNovelWithVolume(page, `拆章手写${Date.now() % 100000}`);
@@ -144,7 +144,9 @@ test("手写路径全链：中栏拆下一章 → 五段 → 排上 → 落点�
     await page.getByTestId("split-adopt").click();
     // 落点卡（桥）
     await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("chapter-landing-card")).toContainText("还差 6 项才能开写");
+    await expect(page.getByTestId("chapter-landing-card")).toContainText("还差 4 项才能开写");
+    await expect(page.getByTestId("chapter-landing-card")).not.toContainText("核心任务");
+    await expect(page.getByTestId("chapter-landing-card")).not.toContainText("读者当前状态");
     // 逐项列出实际带入的五段（空项不冒充：这里填了 剧情/挑战/结尾/行动 + 阶段默认值）
     await expect(page.getByTestId("chapter-landing-card")).toContainText("已带入 5 项");
     await expect(page.getByTestId("chapter-landing-card")).toContainText("本章剧情、碰到的挑战、本章结尾、本章行动、阶段");
@@ -189,7 +191,8 @@ test("AI 四态：正在想 → 三卡（角标＋剧情吸引力）→ 选卡 �
     await expect(page.getByTestId("chapter-card-grade")).toContainText("S");
     await expect(page.getByTestId("pick-grid")).toHaveCount(0);
     await expect(page.getByTestId("split-adopt")).toContainText("排上这一章（第 1 章）");
-    await expect(page.locator(".mcard-foot .note"))
+    // c-og-fields-slim 前身 #478：落地提示独立 hint 行
+    await expect(page.locator(".chapter-plan .hint"))
       .toContainText("下一章的进场会自动接「信标暴露——全港都知道」");
     await page.getByTestId("split-adopt").click();
     await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
@@ -277,7 +280,7 @@ test("派生视图：排上后卷页「剧情推进（派生）」按章列出�
     await page.getByTestId("d-stage").selectOption("开局铺垫");
     await page.getByTestId("split-adopt").click();
     await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
-    // 「补这 6 项，开始写」→ 落到这一章的章纲
+    // 「补这 4 项，开始写」→ 落到这一章的章纲
     await page.getByTestId("chapter-landing-outline").click();
     await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
     // 回卷页（左树点卷行）看派生块
@@ -410,7 +413,7 @@ test("重拆整卷：盘点确认 → 拟定章清空、卷纲保留、可重新
       await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
       if (i === 0) await page.getByTestId("chapter-landing-next").click();
     }
-    // 落点卡占着中栏（桥）——先走「补这 6 项，开始写」消解，再回卷纲
+    // 落点卡占着中栏（桥）——先走「补这 4 项，开始写」消解，再回卷纲
     await page.getByTestId("chapter-landing-outline").click();
     await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
     // 回卷纲 → 重拆本卷：盘点列出将被移除的拟定章
@@ -500,7 +503,7 @@ test("回改结尾：上一章落点改了 → 不静默（提示下一章进场
       await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
       if (i === 0) await page.getByTestId("chapter-landing-next").click();
     }
-    // 落点卡占着中栏：先「补这 6 项，开始写」进第二章，再从树里回第一章
+    // 落点卡占着中栏：先「补这 4 项，开始写」进第二章，再从树里回第一章
     await page.getByTestId("chapter-landing-outline").click();
     await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
 

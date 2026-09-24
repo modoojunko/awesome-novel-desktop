@@ -25,8 +25,6 @@ describe("ogPatchFromFills（后端 fills → 章纲表单补丁）", () => {
       characters: ["林晚"],
       location: "临江渡口",
       time: "入夜",
-      current_task: "问出货源",
-      state: "读者刚知道船家撒谎",
       strategy: "顺着章纲推进",
       detail: "把悬念压在货箱上",
       changes: ["主角与师父决裂"],
@@ -41,8 +39,6 @@ describe("ogPatchFromFills（后端 fills → 章纲表单补丁）", () => {
       chars: "林晚",
       loc: "临江渡口",
       time: "入夜",
-      task: "问出货源",
-      rstate: "读者刚知道船家撒谎",
       rstrat: "顺着章纲推进",
       rdetail: "把悬念压在货箱上",
       changes: "主角与师父决裂",
@@ -72,10 +68,8 @@ describe("ogPatchFromFills（后端 fills → 章纲表单补丁）", () => {
     expect(ogPatchFromFills({ summary: "", key_points: [] })).toEqual({});
   });
 
-  it("补丁可直接合入 OgForm 并补齐必填缺口（六项全补＝无缺口）", () => {
+  it("补丁可直接合入 OgForm 并补齐必填缺口（四项全补＝无缺口）", () => {
     const fills = {
-      current_task: "问出货源",
-      state: "读者以为船家可信",
       strategy: "顺推",
       changes: ["拿到货单"],
       mood: "紧张",
@@ -87,15 +81,13 @@ describe("ogPatchFromFills（后端 fills → 章纲表单补丁）", () => {
 });
 
 describe("GAP_TO_FILL_KEY（缺口 → 后端白名单键）", () => {
-  it("六项必填全部有映射，且键在后端白名单口径内", () => {
+  it("四项必填全部有映射，且键在后端白名单口径内（c-og-fields-slim）", () => {
     const backendKeys = new Set([
       "summary",
       "key_points",
       "characters",
       "location",
       "time",
-      "current_task",
-      "state",
       "strategy",
       "detail",
       "changes",

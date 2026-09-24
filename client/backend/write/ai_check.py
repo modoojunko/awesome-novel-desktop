@@ -93,8 +93,6 @@ def _material(kind: str, chapter: dict, ctx) -> str:
     kps = [str(k) for k in (outline.get("key_points") or []) if str(k).strip()]
     if kps:
         ol_lines.append("关键事件：" + "；".join(kps))
-    if memo.get("current_task"):
-        ol_lines.append(f"核心任务：{memo['current_task']}")
     blocks.append("【本章章纲】\n" + "\n".join(ol_lines))
     if prose.strip():
         blocks.append("【本章正文（节选）】\n" + prose[:4000])

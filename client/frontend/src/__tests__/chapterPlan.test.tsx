@@ -393,13 +393,16 @@ describe("拆章界面 · 原型对齐（kicker／底条分态／选卡切卡面
     await waitFor(() => expect(screen.getByTestId("pick-card-3")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("pick-card-3"));
     await waitFor(() => expect(screen.getByTestId("chapter-card")).toBeInTheDocument());
-    // 原型：选卡后弹窗＝本章卡（三卡收起）；出口下沉到底条（不另立行悬在卡面上方）
+    // 原型：选卡后弹窗＝本章卡（三卡收起）；落地提示独立行（hint），出口＋排上归一行右聚
     expect(screen.queryByTestId("pick-grid")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("split-redraw")).toBeInTheDocument();
-    expect(document.querySelector(".pick-foot")).not.toBeInTheDocument();
-    expect(screen.getByTestId("split-adopt")).toHaveTextContent("排上这一章（第 3 章）");
-    expect(document.querySelector(".mcard-foot .note"))
+    expect(screen.getByTestId("split-redraw")).toBeInTheDocument();
+    expect(screen.getByTestId("split-adopt")).toBeInTheDocument();
+    expect(document.querySelector(".chapter-plan .pick-foot"))
+      .toHaveTextContent("排上这一章（第 3 章）");
+    expect(document.querySelector(".chapter-plan .mcard-foot .note")).not.toBeInTheDocument();
+    expect(document.querySelector(".chapter-plan .hint"))
       .toHaveTextContent("排上后章节列表多出这一章（拟定）；下一章的进场会自动接「信标暴露——全港都知道」。");
+    expect(screen.getByTestId("split-adopt")).toHaveTextContent("排上这一章（第 3 章）");
   });
 
   it("行动行拼接剥行尾句读：模型自带「。」不出现「。；」双标点（卡面与底条 note 同值）", async () => {

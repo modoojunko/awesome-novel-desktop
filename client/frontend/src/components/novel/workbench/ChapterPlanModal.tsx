@@ -261,12 +261,37 @@ export function ChapterPlanModal({
           </p>
         )}
 
-        {/* 底条（照原型：AI 出卡失败/三卡未选＝空；卡面在＝落地提示＋排上；手写另挂自检） */}
+        {/* AI 选卡态＝落地提示独立行＋动作行归底（出口 ghost＋排上右对齐；挤一行会挤断按钮） */}
+        {isAi && state.pick != null && state.phase !== "busy" && !state.editing && (
+          <>
+            <p className="hint">
+              排上后章节列表多出这一章（拟定）；下一章的进场会自动接「{state.draft.ending || state.draft.plot || "本章结尾"}」。
+            </p>
+            <div className="pick-foot">
+              <button className="btn btn-ghost btn-sm" data-testid="split-redraw" onClick={() => void draw()}>
+                ↻ 换 3 个方向
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={toManual}>
+                自己写这一章
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                data-testid="split-adopt"
+                disabled={state.submitting}
+                onClick={onAdopt}
+              >
+                {state.submitting ? "正在排上…" : `排上这一章（第 ${state.nextNo} 章）`}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* 底条（照原型：AI 出卡失败/三卡未选＝空；手写/回改＝提示＋排上；busy＝转手写） */}
         <div className="mcard-foot" style={{ padding: 0, border: 0 }}>
           {isAi && state.phase === "busy" && (
             <button className="btn btn-ghost btn-sm" onClick={toManual}>自己写这一章</button>
           )}
-          {(!isAi || state.pick != null) && state.phase !== "busy" && (
+          {!isAi && state.phase !== "busy" && (
             <>
               {isAi && state.pick != null && (
                 <>

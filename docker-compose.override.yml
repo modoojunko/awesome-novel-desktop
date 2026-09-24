@@ -1,0 +1,11 @@
+# 会话私有隔离栈（chb = code-health-b1）——本会话专用，勿提交：
+# 容器名/端口/数据目录与主检出及其他会话栈（ogf/cpa）完全隔离
+services:
+  server-backend:
+    container_name: chb-server-backend
+  server-frontend:
+    container_name: chb-server-frontend
+  client-backend:
+    container_name: chb-client-backend
+  client-frontend:
+    container_name: chb-client-frontend

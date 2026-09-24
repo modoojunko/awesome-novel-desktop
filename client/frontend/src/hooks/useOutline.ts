@@ -28,9 +28,7 @@ export interface ChapterData {
     [key: string]: unknown;
   };
   memo?: {
-    current_task?: string;
     reader_expectation?: {
-      state?: string;
       strategy?: string;
       detail?: string;
     };
@@ -136,9 +134,7 @@ function deriveOutlineStatus(
 ): OutlineStatus {
   if (meta.status === "confirmed") return "confirmed";
   if (chapterData) {
-    const hasContent = !!(
-      chapterData.outline?.summary || chapterData.memo?.current_task
-    );
+    const hasContent = !!chapterData.outline?.summary;
     return hasContent ? "in_progress" : "unfilled";
   }
   // Infer from tree-level status — if it's not 'outline', someone has been working on it

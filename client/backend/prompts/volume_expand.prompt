@@ -7,7 +7,9 @@
 
 <<hard_rules>>
 
-字段上限：summary ≤80 字｜conflict ≤60｜ending ≤60｜plants ≤2 条｜reveals ≤2 条｜chapter_target 数字｜name ≤6 字（可从内容里长，允许留空）。
+字段上限：summary ≤80 字｜conflict ≤60｜ending ≤60｜plants ≤2 条｜reveals ≤2 条｜chapter_target 数字｜name ≤6 字（可从内容里长，允许留空）｜antagonist_line ≤150 字。
+antagonist_type：从 人物／难题／环境／自我／势力 里选一个。
+summary（本卷讲什么）：以主角经历为主线；这一卷要唱重头戏的关键配角，把名字带一笔（照设定原文写全）——拆章时才不会让主角全程独角戏。
 checks：0–3 条，只写你拿不准、或与作者那句话有张力的地方，每条 ≤40 字。
 
 只输出 JSON，不要其他文字：

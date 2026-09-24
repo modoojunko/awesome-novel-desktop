@@ -278,7 +278,22 @@ POST /web/login      × 35 → 200×35 全部（限流完全没拦，登录逻�
   卷内各章的组装稿列表）。免费/PRO 门控口径随章级一致（AI 归 PRO）。
   触发方式：对话里说「立项卷级 AI 辅助」。
 
+- [ ] **拆章卡面「三维依据」上屏与否（2026-09-23 登记；c-chapter-plan-draw-latency 明确不做）**
+  spec 早年写过「S 卡卡面显示三维依据」，实现从未渲染——依据随出卡响应返回（`reasons`，
+  c-chapter-plan-draw-latency 后按 ≤20 字 clamp、不再参与任何机判），但前端
+  `chapterPlanApi.ts` 只有类型声明、组件不读它。该 change 已把 spec 口径改成与实现一致
+  （依据＝供作者参考的文本），**上屏与否留作设计侧话题**：要上屏就得定位置（卡尾
+  「剧情吸引力」块内？）、原型先行、`ADJUSTMENTS.md` 登记。触发方式：对话里说「立项依据上屏」。
+
 ## 中优先（质量治理）
+
+- [ ] **拆章 e2e 一条存量红：提示行的 locator 过期（2026-09-23 登记，c-chapter-plan-draw-latency 跑 e2e 时发现）**
+  `e2e/chapter-plan.spec.ts:192` 断言 `.mcard-foot .note` 含「下一章的进场会自动接「…」」，
+  但 #478（`df309798`「AI 选卡态底条二次收口」）已把 AI 选卡态那句提示搬出 `.mcard-foot`、
+  改成独立行 `<p className="hint">`（`.mcard-foot .note` 只剩手写/回改态）→ 该断言恒找不到元素。
+  **存量红，与后端无关**（该用例的 ai-directions 全打桩）：隔离栈实测 16 条跑 15 绿 1 红、
+  单跑复现同一处。修法＝把 locator 改成提示行本身（`page.locator("p.hint")` 或给该行加
+  testid 后按 testid 断言），并顺手把同一断言在「回改」用例里的兄弟写法一起对齐。
 
 - [ ] **打 v0.25（闸门：卷下拆卷拆章那批做完）｜2026-09-22 拍板**
   库文件名＝C端 版本（c-db-per-version：已合 #464 → `cd008dad`＋已归档 #471 → `29f223d2`）

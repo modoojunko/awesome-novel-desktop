@@ -359,7 +359,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   const handleAiDraft = useCallback(async () => {
     // 覆盖确认判定覆盖全部章纲格子（含 ai-prompt-crafting 新格子）
     const hasContent =
-      [ogForm.task, ogForm.summary, ogForm.mood, ogForm.rstate, ogForm.rstrat, ogForm.changes, ogForm.ladder, ogForm.wt].some(
+      [ogForm.summary, ogForm.mood, ogForm.rstrat, ogForm.changes, ogForm.ladder, ogForm.wt].some(
         (v) => String(v ?? "").trim() !== "",
       ) ||
       ogForm.segs.length > 0 ||

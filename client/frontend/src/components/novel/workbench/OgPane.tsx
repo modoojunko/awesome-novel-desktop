@@ -4,7 +4,7 @@
 // 读者获得列表（7 类型 + 描述 + 前中后位置）、章末落点、本章目标字数。
 // 确认缺读者获得时仅提醒不阻断（存量章不回溯）。
 // + gap-line 缺字段 chip（点击滚动 flash 1400ms + focus）+ 底部三按钮。
-// 必填口径 = 后端 gate_chapter_ready 六项（task/rstate/rstrat/changes/mood/segs）。
+// 必填口径 = 后端 gate_chapter_ready 四项（rstrat/changes/mood/segs；c-og-fields-slim 六改四）。
 import { useState } from "react";
 import {
   PAYOFF_KINDS,
@@ -218,33 +218,9 @@ export default function OgPane({
 
         <details className="cfg" open>
           <summary>
-            核心任务 <Chev />
+            预期策略 <Chev />
           </summary>
           <div className="inner">
-            <div className="field">
-              <label>
-                核心任务 <span className="req">*</span>
-              </label>
-              <textarea
-                className="textarea"
-                id="wf-task"
-                placeholder="这一章必须完成什么"
-                value={form.task}
-                onChange={(e) => onPatch({ task: e.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label>
-                读者当前状态 <span className="req">*</span>
-              </label>
-              <textarea
-                className="textarea"
-                id="wf-rstate"
-                placeholder="读者此时的情感状态"
-                value={form.rstate}
-                onChange={(e) => onPatch({ rstate: e.target.value })}
-              />
-            </div>
             <div className="field">
               <label>
                 预期策略 <span className="req">*</span>

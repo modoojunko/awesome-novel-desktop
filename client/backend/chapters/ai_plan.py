@@ -95,7 +95,9 @@ async def resolve_prev_chapter_ending(db, project, vol, ch_no: int) -> dict:
 
 
 async def _chapter_material(db, project, vol, ch_no: int) -> dict:
-    mat = await _book_material(db, project, with_hooks=False)  # 不给伏笔台账（防"提前揭"）
+    # 卷纲点名的人须挤得进人物块：主旨/冲突/坎提到的名字作聚光（_book_material 的单换位机制只认 author_line＋主线前 200 字）
+    spotlight = "｜".join(filter(None, [vol.summary, vol.core_conflict, vol.antagonist_line]))
+    mat = await _book_material(db, project, with_hooks=False, author_line=spotlight)  # 不给伏笔台账（防"提前揭"）
     entry = await resolve_prev_chapter_ending(db, project, vol, ch_no)
     from repositories import chapter_repo
 
@@ -198,7 +200,7 @@ def _blocks_chapter(mat: dict) -> str:
     return "\n\n".join(parts)
 
 
-# ═══════════════ 出卡校验：字段/闭集/依据可寻/同质 ═══════════════
+# ═══════════════ 出卡校验：字段/闭集/名次形态/同质（依据只做参考，不参与机判） ═══════════════
 
 
 def _fit(v, key: str) -> str:
@@ -216,20 +218,21 @@ def _similar(a: dict, b: dict) -> bool:
     return difflib.SequenceMatcher(None, ra, rb).ratio() > SIM_LIMIT
 
 
-def _sanitize_directions(parsed: dict | None) -> tuple[list[dict], list[str]]:
+def _sanitize_directions(parsed: dict | None) -> tuple[list[dict], list[int], list[str]]:
     """逐卡兜底：字段/闭集不合法 → 丢卡；轴与 diff 不一致/未知轴 → 丢卡（不改写）。
-    返回 (可用卡, warnings)。"""
+    返回 (可用卡, 各保留卡在模型输出里的原始下标, warnings)——原始下标供名次按位映射：
+    丢一张卡是合法结局（「只出了 2 个方向」），不得连带作废整批名次而白烧一次生成。"""
     warn: list[str] = []
     if not isinstance(parsed, dict):
-        return [], ["出卡不是合法 JSON"]
+        return [], [], ["出卡不是合法 JSON"]
     diff = parsed.get("diff")
     diff = diff if isinstance(diff, dict) else {}  # 模型拍平（数组/字符串）时按缺失处理，不 500
     axes_raw = diff.get("axes")
     axes = [str(a).strip() for a in (axes_raw if isinstance(axes_raw, list) else [])]
     cards_in = parsed.get("directions")
     if not isinstance(cards_in, list):
-        return [], ["directions 缺失"]
-    out: list[dict] = []
+        return [], [], ["directions 缺失"]
+    out: list[tuple[int, dict]] = []
     for i, c in enumerate(cards_in):
         if not isinstance(c, dict):
             continue
@@ -243,63 +246,66 @@ def _sanitize_directions(parsed: dict | None) -> tuple[list[dict], list[str]]:
             warn.append(f"第 {i + 1} 张 axis 与 diff 不一致，已丢弃")
             continue
         # 三轴互不相同（spec）：与已收卡同轴 → 丢卡；丢到 <2 张由端点重试阶梯接管
-        if any(c["axis"] == axis for c in out):
+        if any(card["axis"] == axis for _, card in out):
             warn.append(f"第 {i + 1} 张 axis「{axis}」与前面某张重复，已丢弃")
             continue
         out.append(
-            {
-                "axis": axis,
-                "title": _fit(c.get("title"), "title"),
-                "plot": plot,
-                "obstacle": _fit(c.get("obstacle"), "obstacle"),
-                "ending": ending,
-                "acts": _acts(c.get("acts")),
-                "stage": stage,
-                "cast": [str(x).strip()[:20] for x in (c.get("cast") or []) if str(x).strip()][:6],
-                "factions": [str(x).strip()[:20] for x in (c.get("factions") or []) if str(x).strip()][:6],
-                "places": [str(x).strip()[:20] for x in (c.get("places") or []) if str(x).strip()][:6],
-                "why": _fit(c.get("why"), "why"),
-                "gap": _fit(c.get("gap"), "gap"),
-            }
+            (
+                i,
+                {
+                    "axis": axis,
+                    "title": _fit(c.get("title"), "title"),
+                    "plot": plot,
+                    "obstacle": _fit(c.get("obstacle"), "obstacle"),
+                    "ending": ending,
+                    "acts": _acts(c.get("acts")),
+                    "stage": stage,
+                    "cast": [str(x).strip()[:20] for x in (c.get("cast") or []) if str(x).strip()][:6],
+                    "factions": [str(x).strip()[:20] for x in (c.get("factions") or []) if str(x).strip()][:6],
+                    "places": [str(x).strip()[:20] for x in (c.get("places") or []) if str(x).strip()][:6],
+                    "why": _fit(c.get("why"), "why"),
+                    "gap": _fit(c.get("gap"), "gap"),
+                },
+            )
         )
-    # 同质：保留先出现者（复核一次的动作由端点按 attempt 控制）
-    kept: list[dict] = []
-    for c in out:
-        if any(_similar(c, k) for k in kept):
-            warn.append(f"「{c['title'] or c['axis']}」与前面某张太像，已丢弃")
+    # 同质：保留先出现者（复核一次的动作由端点按 attempt 控制）；原始下标随保留卡一路带走
+    kept: list[tuple[int, dict]] = []
+    for i, card in out:
+        if any(_similar(card, k) for _, k in kept):
+            warn.append(f"「{card['title'] or card['axis']}」与前面某张太像，已丢弃")
             continue
-        kept.append(c)
-    return kept, warn
+        kept.append((i, card))
+    return [c for _, c in kept], [i for i, _ in kept], warn
 
 
-def _reasons_verifiable(parsed: dict, cards: list[dict]) -> bool:
-    """每维第一名的依据必须能在得胜卡对应字段里逐字找到（找不到判不合法 → 降级）。"""
-    ranks_raw, reasons_raw = parsed.get("ranks"), parsed.get("reasons")
-    ranks = ranks_raw if isinstance(ranks_raw, dict) else {}
-    reasons = reasons_raw if isinstance(reasons_raw, dict) else {}
-    field_of = {"反转": ("plot", "ending"), "递增": ("obstacle", "plot"), "推进": ("plot", "ending"), "拉力": ("ending",)}
-    for dim in DIMENSIONS:
-        rs = ranks.get(dim)
-        if not isinstance(rs, list) or len(rs) != len(cards):
+def _ranks_ok(rs, n_orig: int) -> bool:
+    """某维名次形态：个数与模型输出卡数一致、取值 1–3、从 1 起不跳档（合法 1/1/2，非法 1/1/3）。
+    形态不合法只让该维不计分——不重抽、不丢卡（等级质量不是结构性失败）。"""
+    if not isinstance(rs, list) or len(rs) != n_orig:
+        return False
+    vals: list[int] = []
+    for r in rs:
+        if isinstance(r, bool) or not isinstance(r, (int, float)) or r != int(r):
             return False
-        reason = str(reasons.get(dim) or "").strip()
-        # 依据 ≤20 字（spec 与 tasks 3.3 的预算口径）
-        if not reason or len(reason) > 20:
-            return False
-        firsts = [i for i, r in enumerate(rs) if r == 1]
-        if len(firsts) == 1:  # 唯一第一名 → 依据必须可寻
-            i = firsts[0]
-            fields = field_of[dim]
-            hay = "".join(str(cards[i].get(f) or "") for f in fields)
-            if reason not in hay:
-                return False
-    return True
+        vals.append(int(r))
+    if any(v < 1 or v > 3 for v in vals):
+        return False
+    uniq = sorted(set(vals))
+    return uniq == list(range(1, len(uniq) + 1))
 
 
 def _as_dict(parsed: dict | None, key: str) -> dict:
     """模型把该键拍平成数组/字符串时按空对象处理（不 500；sanitize 层为这类不合形而存在）。"""
     v = (parsed or {}).get(key)
     return v if isinstance(v, dict) else {}
+
+
+def _as_reason_map(parsed: dict | None) -> dict:
+    """依据＝供作者参考的文本（≤20 字 clamp）；服务端不再校验其能否逐字对上卡面字段。"""
+    v = (parsed or {}).get("reasons")
+    if not isinstance(v, dict):
+        return {}
+    return {str(k): str(x).strip()[:20] for k, x in v.items() if str(x).strip()}
 
 
 def _as_str_list(parsed: dict | None, key: str, limit: int) -> list[str]:
@@ -314,18 +320,23 @@ def _as_text(parsed: dict | None, key: str, limit: int) -> str:
     return (v if isinstance(v, str) else "").strip()[:limit]
 
 
-def _grades(parsed: dict, n: int) -> list[str]:
-    """四维名次 → S/A/B：唯一第一名才计入；≥3 → S，1–2 → A，0 → B（至多一张 S）。"""
+def _grades(parsed: dict, n_orig: int, keep_map: list[int]) -> list[str]:
+    """四维名次 → S/A/B：唯一第一名才计入；≥3 → S，1–2 → A，0 → B（至多一张 S）。
+
+    名次按模型输出的**原始卡序**给，经 keep_map 映射到保留卡后计分；某维形态不合法、
+    或该维第一名所在的卡已被丢弃 ⇒ 该维不计分（丢卡/形态瑕疵不升级为整批重抽）。
+    """
     ranks_raw = parsed.get("ranks")
     ranks = ranks_raw if isinstance(ranks_raw, dict) else {}
-    counts = [0] * n
+    counts = [0] * len(keep_map)
     for dim in DIMENSIONS:
         rs = ranks.get(dim)
-        if not isinstance(rs, list) or len(rs) != n:
+        if not _ranks_ok(rs, n_orig):
             continue
         firsts = [i for i, r in enumerate(rs) if r == 1]
-        if len(firsts) == 1:
-            counts[firsts[0]] += 1
+        if len(firsts) != 1 or firsts[0] not in keep_map:
+            continue
+        counts[keep_map.index(firsts[0])] += 1
     return ["S" if c >= 3 else "A" if c >= 1 else "B" for c in counts]
 
 
@@ -395,21 +406,20 @@ async def ai_chapter_directions(
     user_msg = f"请给出第 {ch_no} 章的 3 个剧情方向（只输出 JSON）。"
     raw, _u = await _generate(project, system, user_msg, temperature=0.7, db=db, user=user, operation="chapter_directions")
     parsed = _parse_json(raw)
-    cards, warn = _sanitize_directions(parsed)
+    cards, keep_map, warn = _sanitize_directions(parsed)
     attempts = 1
-    # 不足 2 张**或名次依据不可寻** → 重试（原因喂回＋降温）；共最多 MAX_ATTEMPTS 次
-    # （依据不可寻 = 该维第一名判不合法 → 按 spec 走降级阶梯，不得照旧出 S/A/B）
-    bad_reasons = bool(parsed) and not _reasons_verifiable(parsed, cards)
-    while (len(cards) < 2 or bad_reasons) and attempts < MAX_ATTEMPTS:
-        cause = "；".join(warn[:2]) or ("的名次依据在得胜卡里找不到" if bad_reasons else "的方向不合法")
+    # 整批重试只由**结构性失败**触发（可用卡不足 2 张：轴/阶段越界、同轴、同质丢到只剩一张、
+    # 输出不可解析）。等级质量与依据可寻性一律不构成重抽理由——它们是对同一批数据的判读，
+    # 重抽改不了判读，只让作者白等一次完整生成（曾因此每次固定跑满 3 次 ≈18 秒）。
+    while len(cards) < 2 and attempts < MAX_ATTEMPTS:
+        cause = "；".join(warn[:2]) or "的方向不合法"
         retry_system = system + f"\n\n（上一次{cause}。）"
         raw, _u = await _generate(
             project, retry_system, "请给出 2 到 3 个剧情方向（只输出 JSON）。",
             temperature=0.3, db=db, user=user, operation="chapter_directions_retry",
         )
         parsed = _parse_json(raw)
-        cards, warn = _sanitize_directions(parsed)
-        bad_reasons = bool(parsed) and not _reasons_verifiable(parsed, cards)
+        cards, keep_map, warn = _sanitize_directions(parsed)
         attempts += 1
     if len(cards) < 2:
         return {
@@ -418,10 +428,9 @@ async def ai_chapter_directions(
             "hint": "出卡失败，可重试，或自己写这一章",
             "entry": mat["entry"],
         }
-    # 走完阶梯仍不可寻：出卡照给（不拦作者），但**不给等级**——名次判不合法就不该落字母
-    if bad_reasons:
-        warn.append("名次依据在得胜卡字段里找不到，本次不出等级")
-    grades = [] if bad_reasons else _grades(parsed or {}, len(cards))
+    # 字母恒按名次算（名次按模型输出的原始卡序，经 keep_map 映射到保留卡）
+    n_orig = len(parsed.get("directions") or []) if isinstance(parsed, dict) else 0
+    grades = _grades(parsed or {}, n_orig, keep_map)
     known = mat["known_entities"]
     all_cast = [n for c in cards for n in c["cast"]]
     all_factions = [n for c in cards for n in c["factions"]]
@@ -437,7 +446,7 @@ async def ai_chapter_directions(
         "directions": cards,
         "grades": grades,
         "ranks": _as_dict(parsed, "ranks"),
-        "reasons": _as_dict(parsed, "reasons"),
+        "reasons": _as_reason_map(parsed),
         "checks": _as_str_list(parsed, "checks", 40)[:3],
         "note": _as_text(parsed, "note", 60),
         "warnings": warn[:5],

@@ -65,7 +65,6 @@ def _sanitize_draft(d: dict) -> dict | None:
     pp = memo.get("payoff_plan") if isinstance(memo.get("payoff_plan"), dict) else {}
 
     summary = str(outline.get("summary", "") or "").strip()
-    task = str(memo.get("current_task", "") or "").strip()
     segments = [
         {
             "summary": str(s.get("summary", "") or "").strip(),
@@ -74,7 +73,7 @@ def _sanitize_draft(d: dict) -> dict | None:
         for s in (d.get("segments") if isinstance(d.get("segments"), list) else [])
         if isinstance(s, dict) and str(s.get("summary", "") or "").strip()
     ]
-    if not summary or not task or not segments:
+    if not summary or not segments:
         return None
 
     scenes = [
@@ -119,9 +118,7 @@ def _sanitize_draft(d: dict) -> dict | None:
             "perspective_guidance": str(outline.get("perspective_guidance", "") or "").strip(),
         },
         "memo": {
-            "current_task": task,
             "reader_expectation": {
-                "state": str(re_.get("state", "") or "").strip(),
                 "strategy": str(re_.get("strategy", "") or "").strip(),
                 "detail": str(re_.get("detail", "") or "").strip(),
             },
@@ -179,7 +176,6 @@ def _existing_outline_markdown(chapter: dict) -> str:
     # 全格子口径：任一章纲格子有内容即视为「有现有章纲」（与前端覆盖确认判定同范围）
     has = (
         any(str(v or "").strip() for v in o.values())
-        or str(memo.get("current_task", "") or "").strip()
         or any(
             isinstance(s, dict) and str(s.get("summary", "") or "").strip()
             for s in chapter.get("segments") or []
@@ -215,9 +211,10 @@ def _existing_outline_markdown(chapter: dict) -> str:
 # 可补字段白名单＝前端 OgForm 能承接的键（前端 chapterForm 补丁表同单源口径）：
 # 覆盖归档门槛六项（task/state/strategy/changes/mood/segs）与章纲其余可写格子。
 # 后端只做白名单收口；具体下发哪些缺项由前端按缺口清单决定。
+# c-og-fields-slim：current_task／state（核心任务／读者当前状态）退役，不入白名单
 _FILLABLE_KEYS = {
     "summary", "key_points", "characters", "location", "time",
-    "current_task", "state", "strategy", "detail", "changes",
+    "strategy", "detail", "changes",
     "prohibitions", "mood", "segments",
 }
 _LIST_KEYS = {"key_points", "characters", "changes", "prohibitions"}

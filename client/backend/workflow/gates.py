@@ -61,11 +61,7 @@ def gate_chapter_ready(chapter_data: dict) -> GateResult:
     missing = []
     memo = chapter_data.get("memo", {})
 
-    if not memo.get("current_task"):
-        missing.append("核心任务")
     rexp = memo.get("reader_expectation", {})
-    if not rexp.get("state"):
-        missing.append("读者当前状态")
     if not rexp.get("strategy"):
         missing.append("预期策略")
     changes = memo.get("required_changes", [])

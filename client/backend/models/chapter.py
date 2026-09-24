@@ -77,7 +77,7 @@ class Chapter(Base):
     story_time: Mapped[str | None] = mapped_column(String(150))
     # outline.narrative_pov — 叙事视角
     narrative_pov: Mapped[str | None] = mapped_column(String(50))
-    # memo.current_task — 本章任务
+    # memo.current_task — 本章任务（c-og-fields-slim 退役：只留不读写，列留存因 SQLite 无迁移链）
     current_task: Mapped[str | None] = mapped_column(String(300))
     # 字数目标（默认 2500）
     word_target: Mapped[int | None] = mapped_column(Integer)
