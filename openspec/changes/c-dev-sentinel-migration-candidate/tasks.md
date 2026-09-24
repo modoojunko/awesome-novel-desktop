@@ -2,13 +2,13 @@
 
 ## 1. 形状枚举
 
-- [ ] 1.1 `client/backend/schema_version.py`：新增 `SENTINEL_DISPOSED_RE`（`^novel-dev\.db\.(mismatch|corrupt)-[0-9TZ:._-]+$`），`parse_db_filename` 在 gen0 判断后、`_DISPOSED_RE` 前插入分支——mismatch → `DBName("mismatch")`（version/generation 均 None），corrupt → `DBName("corrupt")`。验证：`python3 -c` 直调 parse 断言三形状（dev mismatch/dev corrupt/残件 None）。
-- [ ] 1.2 既有 `novel-v{X}` 路径回归：`_DISPOSED_RE`/`_NOVEL_V_RE` 行为零变化。验证：`pytest tests/test_db_lifecycle.py -q` 全绿。
+- [x] 1.1 `client/backend/schema_version.py`：新增 `SENTINEL_DISPOSED_RE`（`^novel-dev\.db\.(mismatch|corrupt)-[0-9TZ:._-]+$`），`parse_db_filename` 在 gen0 判断后、`_DISPOSED_RE` 前插入分支——mismatch → `DBName("mismatch")`（version/generation 均 None），corrupt → `DBName("corrupt")`。验证：`python3 -c` 直调 parse 断言三形状（dev mismatch/dev corrupt/残件 None）。
+- [x] 1.2 既有 `novel-v{X}` 路径回归：`_DISPOSED_RE`/`_NOVEL_V_RE` 行为零变化。验证：`pytest tests/test_db_lifecycle.py -q` 全绿。
 
 ## 2. 测试
 
-- [ ] 2.1 `tests/test_db_lifecycle.py` 新增：parse 三例单测＋scan 集成用例（tmp 目录造含 1 书的 `novel-dev.db.mismatch-<stamp>` → `scan_migration_candidates` 命中且 book_count=1；空壳分流件不进候选；`novel-dev.db.corrupt-*` 不进候选）。验证：新用例绿。
-- [ ] 2.2 全量后端门禁。验证：`cd client/backend && <venv-python> -m pytest tests/ -q` 全绿。
+- [x] 2.1 `tests/test_db_lifecycle.py` 新增：parse 三例单测＋scan 集成用例（tmp 目录造含 1 书的 `novel-dev.db.mismatch-<stamp>` → `scan_migration_candidates` 命中且 book_count=1；空壳分流件不进候选；`novel-dev.db.corrupt-*` 不进候选）。验证：新用例绿。
+- [x] 2.2 全量后端门禁。验证：`cd client/backend && <venv-python> -m pytest tests/ -q` 全绿。
 
 ## 3. 收尾
 

@@ -23,6 +23,9 @@ _PURE_DIGITS_RE = re.compile(r"^[0-9]+$")
 _NOVEL_V_RE = re.compile(r"^novel-v([A-Za-z0-9._-]+)\.db$")
 # 分流件：novel-v{X}.db.mismatch-<stamp> / novel-v{X}.db.corrupt-<stamp>（三件套同前缀）
 _DISPOSED_RE = re.compile(r"^novel-v([A-Za-z0-9._-]+)\.db\.(mismatch|corrupt)-[0-9TZ:._-]+$")
+# dev 哨兵分流件：首启状态机对哨兵库分流时本机版本为 dev、无 {X} 可代入，
+# 产出哨兵前缀名——不认它则候选扫描永久盲区（c-dev-sentinel-migration-candidate）
+_SENTINEL_DISPOSED_RE = re.compile(r"^novel-dev\.db\.(mismatch|corrupt)-[0-9TZ:._-]+$")
 _NUM_HEAD_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)*)(?:[-._](.+))?$")
 _SEG_SPLIT_RE = re.compile(r"[-._]")
 
@@ -103,6 +106,10 @@ def parse_db_filename(name: str) -> DBName:
         if marker == "corrupt":
             return DBName("corrupt")
         return _versioned(inner, kind_if_version="mismatch")
+    m = _SENTINEL_DISPOSED_RE.match(name)
+    if m:
+        # 哨兵分流件无版本语义：version 留 None（排序键走非法串降级，全域垫底）
+        return DBName("corrupt" if m.group(1) == "corrupt" else "mismatch")
     m = _NOVEL_V_RE.match(name)
     if m:
         return _versioned(m.group(1), kind_if_version="semver")
