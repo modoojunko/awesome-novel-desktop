@@ -67,7 +67,7 @@ init → settings → outline → prompt → write → archive
 
 ```bash
 # 克隆
-git clone git@github.com:modoojunko/awesome-novel-desktop.git.git
+git clone git@github.com:modoojunko/awesome-novel-desktop.git
 cd ai-novel
 
 # 启动后端（无需 License）
