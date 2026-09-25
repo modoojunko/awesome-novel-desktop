@@ -31,6 +31,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      # 依赖许可证门禁（relicense-proprietary）：插在运行时依赖与 dev 工具安装之间——
+      # 扫描面＝纯 requirements venv（dev 工具不进面）；严禁复用到 client-package.yml
+      # （那里把 pyinstaller 装进同一 venv，bootloader 许可会在白名单外）
+      - name: Dependency license gate
+        run: python scripts/check_py_licenses.py
       - run: pip install ruff pytest pytest-timeout pytest-asyncio
       - name: Lint
         run: ruff check .

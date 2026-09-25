@@ -137,6 +137,10 @@ a = Analysis(
         *([(str(spec_dir / "release.json"), ".")] if (spec_dir / "release.json").exists() else []),
         # 品牌单源（brand-name-single-source）：brand.json 落资源根，backend/brand.py 运行时探测读取
         (str(root_dir / "brand" / "brand.json"), "."),
+        # EULA 与第三方开源声明随包（relicense-proprietary）：PyInstaller ≥6 落 _internal/
+        # （macOS 唯一通道；Windows 另由 installer.iss [Files] 显式落 {app} 根，双份属预期冗余）
+        (str(root_dir / "LICENSE"), "."),
+        (str(root_dir / "THIRD-PARTY-NOTICES.txt"), "."),
     ],
     hiddenimports=[
         'main', 'config', 'brand', 'db', 'ai_client',

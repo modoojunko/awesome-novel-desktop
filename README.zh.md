@@ -67,7 +67,7 @@ init → settings → outline → prompt → write → archive
 
 ```bash
 # 克隆
-git clone https://github.com/modoojunko/ai-novel.git
+git clone git@github.com:modoojunko/awesome-novel-desktop.git.git
 cd ai-novel
 
 # 启动后端（无需 License）
@@ -142,9 +142,9 @@ C端默认使用本地文件存储，所有数据在 `data/` 目录下：
 
 也可通过 `STORAGE_BACKEND=database` 切换到数据库存储（将内容写入 `novel_files` 表）。
 
-## 许可证
+## 许可证（License）
 
-GNU GPLv3。详见 [LICENSE](LICENSE)。
+本软件（含全部源代码与分发产物）为专有软件，版权归 **星纬（海口）投资有限公司** 所有，按仓库根 [LICENSE](LICENSE)（《爱小说》桌面软件最终用户许可协议 v2026.09）授权——软件本体可免费使用，增值功能/服务按已购授权提供。随分发附带的第三方开源组件按其自身许可提供，归属与声明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)；协议全文亦在官网公示（https://www.awesomenovel.com/legal/eula.html）。
 
 ## 联系方式
 

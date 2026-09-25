@@ -11,7 +11,7 @@ import {
   fetchLatestRelease,
   windowsInstallerUrl,
   macosInstallerUrl,
-  RELEASES_PAGE_URL,
+  SITE_HOME_URL,
 } from '@/constants/client-release'
 import { brand } from '@/constants/brand'
 
@@ -33,7 +33,7 @@ const isOutdatedClient = ref(false)
 // 升级出口：实时解析线上最新版（失败回落 Releases 页）
 const winUrl = ref('')
 const macUrl = ref('')
-const releasesUrl = RELEASES_PAGE_URL
+const releasesUrl = SITE_HOME_URL
 
 // 无有效套餐（none/free/空）不展示档位 pill，避免裸代码出丑
 const showTier = computed(() => tierHasPlan(authResult.value.tier))

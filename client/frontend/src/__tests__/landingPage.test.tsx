@@ -75,7 +75,7 @@ describe("LandingPage", () => {
     const tutorial = document.querySelector('[data-od-id="btn-tutorial"]') as HTMLAnchorElement;
     expect(tutorial.getAttribute("target")).toBe("_blank");
     expect(tutorial.getAttribute("rel")).toContain("noopener");
-    expect(tutorial.getAttribute("href")).toContain("github.com");
+    expect(tutorial.getAttribute("href")).toContain("awesomenovel.com");
     expect(screen.getByText(/免费版可创建/)).toBeTruthy();
   });
 });

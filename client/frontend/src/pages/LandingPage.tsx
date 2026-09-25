@@ -6,8 +6,8 @@ import { Link } from "react-router-dom";
 import { request } from "@/lib/api";
 import { BRAND } from "@/lib/brand";
 
-// 教程页未建：暂指 GitHub 使用说明，站内引导流立项后替换
-const TUTORIAL_URL = "https://github.com/modoojunko/ai-novel#readme";
+// 教程内容页未建（relicense-proprietary：仓库已私有、GitHub 链接 404），暂指官网；内容页立项后替换
+const TUTORIAL_URL = "https://www.awesomenovel.com";
 
 /** 版本胶囊：读后端烘包版本（release.json → /update-check，quiet 静默）；dev 构建不展示。 */
 function useBakedVersion(): string {
