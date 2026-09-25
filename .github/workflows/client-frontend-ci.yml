@@ -33,6 +33,9 @@ jobs:
           cache: "npm"
           cache-dependency-path: client/frontend/package-lock.json
       - run: npm ci
+      # 依赖许可证门禁（relicense-proprietary）：npm 分发面禁 copyleft——白名单制，
+      # 误红补白名单（=许可评审），勿改脚本
+      - run: node scripts/check-npm-licenses.mjs
       - run: npx tsc --noEmit
       # 单测门禁（2026-09-10 补）：此前 CI 只跑 tsc + build，vitest 从不执行——
       # 改 lib/* 消费方时单测红过而 main 无人察觉。全部 mock、不依赖 docker 栈。

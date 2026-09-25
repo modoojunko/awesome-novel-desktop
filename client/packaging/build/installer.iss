@@ -16,11 +16,15 @@
 ; 编码约束：本文件 UTF-8 无 BOM（Inno ≥6.3 起官方推荐；中文主体名靠此正确解码，
 ; 保存时勿改成 ANSI/带 BOM——ANSI 会乱码，≥7.0.2 遇非法字节直接编译失败）。
 #define MyAppPublisher "星纬（海口）投资有限公司"
-#define MyAppURL "https://github.com/modoojunko/ai-novel"
+#define MyAppURL "https://www.awesomenovel.com"
 #define MyAppExeName "AI Novel.exe"
 
 [Setup]
 ; 基础设置
+; 许可协议页：展示仓库根 LICENSE（EULA v2026.09），未点「我接受」不能继续；
+; 静默安装（/SILENT）按 EULA 条款视同接受。路径相对本文件：..\..\..\ = 仓库根。
+; 全局 directive 对双语言生效（现有 [Languages] 均无 per-language LicenseFile 覆盖）。
+LicenseFile=..\..\..\LICENSE
 AppId={{B8F1A2D3-4E5F-6A7B-8C9D-0E1F2A3B4C5D}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
@@ -58,6 +62,9 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 [Files]
 ; PyInstaller onedir 输出的所有文件
 Source: "dist\AI Novel\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; EULA 与第三方声明落安装目录根（与 _internal\ 内 PyInstaller datas 双份属预期冗余）
+Source: "..\..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\..\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

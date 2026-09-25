@@ -23,6 +23,12 @@ test.describe('Landing Page', () => {
     await expect(page.getByRole('link', { name: /下载 macOS/ })).toBeVisible()
   })
 
+  test('激活指引文案走官网下载口径（relicense-proprietary：去 GitHub Releases 化）', async ({ page }) => {
+    await expect(page.getByText(/在官网 www\.awesomenovel\.com 下载页获取/)).toBeVisible()
+    // 全页无 GitHub Releases 引导残留
+    await expect(page.getByText(/GitHub Releases/)).toHaveCount(0)
+  })
+
   test('导航栏显示登录和注册链接（未登录）', async ({ page }) => {
     const loginBtn = page.locator('.mkt-nav a[href="/login"]').first()
     await expect(loginBtn).toBeVisible()

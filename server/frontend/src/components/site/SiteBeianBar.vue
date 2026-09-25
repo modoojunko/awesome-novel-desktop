@@ -6,6 +6,7 @@ import { siteBeian, hasBeianInfo } from '@/constants/site-beian'
   <!-- 全站统一备案信息条；两段皆空整条隐藏，不留占位空壳 -->
   <footer v-if="hasBeianInfo()" class="beian-bar">
     <nav class="legal-links" aria-label="法律文件">
+      <a href="/legal/eula.html">软件许可协议</a>
       <a href="/legal/user-agreement.html">用户服务协议</a>
       <a href="/legal/payment-notice.html">付费须知</a>
       <a href="/legal/refund-policy.html">退款政策</a>

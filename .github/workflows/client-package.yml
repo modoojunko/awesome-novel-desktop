@@ -171,6 +171,19 @@ jobs:
           fi
           python client/backend/scripts/release_json_assert.py "$F"
 
+      # 法律文件随包断言（relicense-proprietary）：EULA 与第三方声明必须烘进产物
+      - name: Assert LICENSE & THIRD-PARTY-NOTICES baked into bundle
+        shell: bash
+        run: |
+          for FNAME in LICENSE THIRD-PARTY-NOTICES.txt; do
+            F="$(find "client/packaging/build/dist" -name "$FNAME" -print -quit)"
+            if [ -z "$F" ]; then
+              echo "::error::$FNAME 未打进安装包——检查 build.spec datas 条目"
+              exit 1
+            fi
+            echo "baked: $F"
+          done
+
       # 冒烟：跑真实产物（--smoke 无头模式，不起 GUI），轮询 /api/health + 断言前端被服务。
       # 不跑这步，缺失 datas/hiddenimport 的坏包照样绿（历史上漏过 prompts/env.js）。
       - name: Smoke test (exe — backend + SPA)
@@ -299,6 +312,8 @@ jobs:
           STAGE=.dmg_stage
           rm -rf "$STAGE"; mkdir -p "$STAGE"
           cp -R "dist/AI Novel.app" "$STAGE/"
+          # EULA 与第三方声明随包：DMG 根与 .app 内 _internal/ 双份（relicense-proprietary）
+          cp "LICENSE" "THIRD-PARTY-NOTICES.txt" "$STAGE/"
           ln -s /Applications "$STAGE/Applications"
           # 输出名带 v 前缀，与 exe（installer.iss 模板内置 v）统一——
           # 落地页版本化直链按此文件名拼接（src/constants/client-release.ts）
@@ -455,7 +470,8 @@ jobs:
 
       # ── 托管旧版本清理：发布校验全绿后，按版本语义序只保留最近 2 个版本目录 ──
       # 每版净增约 70MB 且托管无生命周期机制；旧版本无任何引用入口（latest.json / 落地页直链 /
-      # notes.html 都只指当前版），历史版本获取由 GitHub Release 承接。latest.json 永不在删除
+      # notes.html 都只指当前版），历史版本获取由官网版本化 notes.html 直链承接（仓库已私有，
+      # 无 GitHub Release）。latest.json 永不在删除
       # 路径；dry-run 预览先行；从未上过托管的 tag（如本地遗留 tag）报错降级为 warning；清理
       # 失败不阻塞发版（发布已成功，下个版本自动重试）。本步骤不设 if: always()——发布或校验
       # 失败时旧版本目录是当时唯一可下载来源，绝不能先删后建。

@@ -11,7 +11,7 @@ import {
   fetchLatestRelease,
   windowsInstallerUrl,
   macosInstallerUrl,
-  RELEASES_PAGE_URL,
+  SITE_HOME_URL,
 } from '@/constants/client-release'
 import { brand } from '@/constants/brand'
 
@@ -30,10 +30,10 @@ const isInvalid = ref(false)
 // 桌面端本机配对密钥的哈希（s-security-hardening）；缺失=配对信息不全（模糊信号）
 const challenge = ref('')
 const isOutdatedClient = ref(false)
-// 升级出口：实时解析线上最新版（失败回落 Releases 页）
+// 升级出口：实时解析线上最新版（失败回落官网首页——版本无关目标）
 const winUrl = ref('')
 const macUrl = ref('')
-const releasesUrl = RELEASES_PAGE_URL
+const downloadFallbackUrl = SITE_HOME_URL
 
 // 无有效套餐（none/free/空）不展示档位 pill，避免裸代码出丑
 const showTier = computed(() => tierHasPlan(authResult.value.tier))
@@ -121,7 +121,7 @@ async function submitAuth() {
       <p class="foot-lnk">
         <a v-if="winUrl" :href="winUrl" target="_blank" rel="noopener noreferrer" class="lnk">下载 Windows 版</a>
         <a v-if="macUrl" :href="macUrl" target="_blank" rel="noopener noreferrer" class="lnk">下载 macOS 版</a>
-        <a v-if="!winUrl && !macUrl" :href="releasesUrl" target="_blank" rel="noopener noreferrer" class="lnk">前往下载最新版桌面应用</a>
+        <a v-if="!winUrl && !macUrl" :href="downloadFallbackUrl" target="_blank" rel="noopener noreferrer" class="lnk">前往下载最新版桌面应用</a>
       </p>
     </template>
 

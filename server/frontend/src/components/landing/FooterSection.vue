@@ -6,7 +6,6 @@ import { brandCopyright } from '@/constants/brand'
 <template>
   <footer class="mkt-foot">
     <div class="mkt-foot-in">
-      <a href="https://github.com/modoojunko/ai-novel" target="_blank" rel="noopener">GitHub</a>
       <router-link to="/support">联系客服</router-link>
       <router-link to="/login">控制台登录</router-link>
     </div>
