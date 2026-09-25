@@ -109,6 +109,10 @@ class Chapter(Base):
     chapter_acts: Mapped[str | None] = mapped_column(Text)
     # 阶段 — 本章在卷剧情里的位置（六档闭集：开局铺垫/冲突初现/矛盾升级/重要转折/高潮爆发/卷末收束）
     plot_stage: Mapped[str | None] = mapped_column(String(20))
+    # 章内剧情条目（c-plot-split）：「这一章怎么演」的场景描述条目（string[] 直存
+    # JSON 文本列，无子表/排序列）。读侧损坏按 []（assemble_chapter）；写侧
+    # presence-gate（缺键保持现值、显式 [] 清空）；预算单源 chapters/schemas。
+    plot_items: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
 
     # Relationships
     project = relationship("Novel", back_populates="chapters")

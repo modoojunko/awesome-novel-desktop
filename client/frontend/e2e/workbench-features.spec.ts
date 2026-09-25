@@ -19,15 +19,12 @@ import { addFirstChapterViaTree, cleanupSessionNovels, stableClick, writeFirstCh
 // 提示词后端接口经 require_ai_access 门控（需存在 active ApiConfig）：
 // ④ 内先 POST /api/v1/api-configs 注入假配置（仅过门控，不测真实连接）。
 
-const S_API = "http://127.0.0.1:19000/api/web";
+// 隔离栈可参数化（per-session 规则：自己的 S端端口/数据目录；默认仍是主栈口径）
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 // docker C端 后端的 config.json（bind mount .docker-data/client → /app/data）
 const CONFIG_PATH = path.join(
-  process.cwd(),
-  "..",
-  "..",
-  ".docker-data",
-  "client",
+  process.env.E2E_CLIENT_DATA || path.join(process.cwd(), "..", "..", ".docker-data", "client"),
   "config.json",
 );
 

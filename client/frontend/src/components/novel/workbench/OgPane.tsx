@@ -5,10 +5,13 @@
 // 确认缺读者获得时仅提醒不阻断（存量章不回溯）。
 // + gap-line 缺字段 chip（点击滚动 flash 1400ms + focus）+ 底部三按钮。
 // 必填口径 = 后端 gate_chapter_ready 四项（rstrat/changes/mood/segs；c-og-fields-slim 六改四）。
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { toast } from "@/lib/toast";
 import {
   PAYOFF_KINDS,
   PAYOFF_LOCATIONS,
+  PLOT_MAX_ITEMS,
+  PLOT_MAX_LEN,
   SCENE_FOCUS,
   SCENE_WEIGHTS,
   type OgForm,
@@ -23,6 +26,8 @@ interface OgPaneProps {
   /** 完整章标题（第X章 · 名称，nodeLabel 派生）——原型 panel-head 口径 */
   label: string;
   onPatch: (patch: Partial<OgForm>) => void;
+  /** 剧情区编辑（输入/加/删任一动作）：上层用来收掉常驻采纳回执（拍板②）＋触发润色软提示检查 */
+  onPlotEdit?: () => void;
   gaps: { key: string; label: string }[];
   confirmed: boolean;
   saving: boolean;
@@ -33,13 +38,21 @@ interface OgPaneProps {
 
 const MOODS = ["紧张", "悬疑", "温暖", "悲伤", "激昂", "轻松", "压抑", "浪漫", "惊悚"];
 
-function flashField(key: string) {
+const PLOT_PLACEHOLDER =
+  "写这一段发生什么：谁在场、在哪、遇到了什么——是场景不是正文，200 字以内";
+
+export function flashField(key: string) {
   const el = document.getElementById(`wf-${key}`);
   if (!el) return;
+  // 收起的 details 组先展开（挑战/落点在默认收起组里，不然滚动聚焦都落空）
+  el.closest("details")?.setAttribute("open", "");
   el.scrollIntoView({ behavior: "smooth", block: "start" });
   el.classList.add("flash");
   setTimeout(() => el.classList.remove("flash"), 1400);
-  const focusable = el.querySelector("input, textarea, select") as HTMLElement | null;
+  // 容器 id（details/field）里找可聚焦控件；id 挂在控件自身时聚焦自身
+  const focusable = (
+    el.matches("input, textarea, select") ? el : el.querySelector("input, textarea, select")
+  ) as HTMLElement | null;
   focusable?.focus({ preventScroll: true });
 }
 
@@ -48,6 +61,7 @@ export default function OgPane({
   characterNames,
   label,
   onPatch,
+  onPlotEdit,
   gaps,
   confirmed,
   saving,
@@ -64,6 +78,14 @@ export default function OgPane({
   const [payoffReminded, setPayoffReminded] = useState(false);
   const showPayoffHint = payoffReminded && !payoffFilled;
 
+  // 剧情行稳定 key（禁 index key——删除时 React 不得错位复用 textarea）：
+  // 平行 id 数组随显示行数伸缩，删除在 delPlot 里同步摘掉对应 id
+  const plotSeq = useRef(0);
+  const plotIds = useRef<number[]>([]);
+  const plotRows = form.plots.length ? form.plots : [""];
+  while (plotIds.current.length < plotRows.length) plotIds.current.push(++plotSeq.current);
+  if (plotIds.current.length > plotRows.length) plotIds.current.length = plotRows.length;
+
   const patchScene = (i: number, patch: Partial<OgScene>) => {
     const scenes = form.scenes.slice();
     scenes[i] = { ...scenes[i], ...patch };
@@ -73,6 +95,30 @@ export default function OgPane({
     const payoffs = form.payoffs.slice();
     payoffs[i] = { ...payoffs[i], ...patch };
     onPatch({ payoffs });
+  };
+  const patchPlot = (i: number, v: string) => {
+    const plots = form.plots.slice();
+    while (plots.length <= i) plots.push("");
+    plots[i] = v;
+    onPatch({ plots });
+    onPlotEdit?.();
+  };
+  const addPlot = () => {
+    if (form.plots.length >= PLOT_MAX_ITEMS) {
+      toast.info("最多 12 条剧情");
+      return;
+    }
+    // 空表点「加一条」＝两行（原型口径：先把隐含的第一行落成真行，再加一行）
+    onPatch({ plots: form.plots.length ? form.plots.concat([""]) : ["", ""] });
+    onPlotEdit?.();
+  };
+  const delPlot = (i: number) => {
+    const plots = form.plots.slice();
+    if (i >= plots.length) return; // 空态占位行：删不动真实数据
+    plots.splice(i, 1);
+    plotIds.current.splice(i, 1);
+    onPatch({ plots });
+    onPlotEdit?.();
   };
 
   return (
@@ -648,6 +694,54 @@ export default function OgPane({
             </div>
           </div>
         </details>
+
+        {/* 章内剧情（c-plot-split）：条目=场景描述非正文；一条一段、≤200 字、≤12 条；不填也能写 */}
+        <section className="plot-sec" data-od-id="plot-section">
+          <div className="plot-sec-head">
+            <h3>剧情</h3>
+            <span className="hint-inline">一条一段 · 每条 200 字以内 · 不填也能写</span>
+          </div>
+          <div className="pi-list">
+            {plotRows.map((t, i) => (
+              <div key={plotIds.current[i]} data-i={i}>
+                <p className="pi-no">{String(i + 1).padStart(2, "0")}</p>
+                <div className="pi-row">
+                  <textarea
+                    aria-label={`第 ${i + 1} 条剧情`}
+                    maxLength={PLOT_MAX_LEN}
+                    placeholder={PLOT_PLACEHOLDER}
+                    value={t}
+                    onChange={(e) => patchPlot(i, e.target.value)}
+                  />
+                  <button
+                    className="icon-btn"
+                    title="删掉这一条"
+                    aria-label="删掉这一条"
+                    style={{ color: "var(--warn)" }}
+                    onClick={() => delPlot(i)}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="plot-sum">
+            <button
+              className="btn btn-secondary btn-sm"
+              disabled={form.plots.length >= PLOT_MAX_ITEMS}
+              onClick={addPlot}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              加一条
+            </button>
+            <span className="f-hint">写了就自动保存</span>
+          </div>
+        </section>
 
         <details className="cfg" id="wf-segs" open>
           <summary>

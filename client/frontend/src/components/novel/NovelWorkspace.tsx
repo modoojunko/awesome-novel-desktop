@@ -1037,6 +1037,7 @@ export default function NovelWorkspace() {
               onRevert={onRevert}
               onTreeRefresh={refresh}
               aiWriteSignal={aiWriteSignal}
+              onOpenAiModal={() => requestAi({ kind: "write" })}
             />
           ) : volumeSelId ? (
             <VolumeWorkspace

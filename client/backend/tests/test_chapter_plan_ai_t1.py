@@ -116,6 +116,18 @@ def test_three_columns_roundtrip_via_store():
             await s.flush()
             assert "challenge" not in assemble_chapter(row)
 
+            # c-plot-split 新口径：plot_items 是缺键语义的例外（presence-gate，
+            # 与 style_shadow 同款）——缺键/None 保持现值、显式 [] 清空；
+            # 标量族缺键即清空的旧口径不变（上方钉住），差异在 c-plot-split 登记。
+            _disassemble_scalars(row, {"plot_items": ["开场：荒庙接头", "结尾：她回头"]})
+            await s.flush()
+            _disassemble_scalars(row, {"summary": "还是只传 summary"})
+            await s.flush()
+            assert assemble_chapter(row)["plot_items"] == ["开场：荒庙接头", "结尾：她回头"]
+            _disassemble_scalars(row, {"plot_items": []})
+            await s.flush()
+            assert assemble_chapter(row)["plot_items"] == []
+
     asyncio.run(_run())
 
 

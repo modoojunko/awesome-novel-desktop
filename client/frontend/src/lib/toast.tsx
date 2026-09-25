@@ -13,6 +13,8 @@ interface Toast {
   message: string;
   type: ToastType;
   action?: ToastAction;
+  /** 常驻（不自动消失）：采纳回执的撤销入口须活到下次编辑（c-plot-split 拍板②） */
+  sticky?: boolean;
 }
 
 let _toasts: Toast[] = [];
@@ -23,25 +25,33 @@ function notify() {
   for (const fn of _listeners) fn([..._toasts]);
 }
 
-function addToast(type: ToastType, msg: string, action?: ToastAction) {
+function addToast(type: ToastType, msg: string, opts?: { action?: ToastAction; sticky?: boolean }): number {
   const id = _nextId++;
-  _toasts.push({ id, message: msg, type, action });
+  _toasts.push({ id, message: msg, type, action: opts?.action, sticky: opts?.sticky });
   notify();
-  setTimeout(() => {
-    _toasts = _toasts.filter((t) => t.id !== id);
-    notify();
-  }, 4000);
+  if (!opts?.sticky) {
+    setTimeout(() => {
+      _toasts = _toasts.filter((t) => t.id !== id);
+      notify();
+    }, 4000);
+  }
+  return id;
 }
 
 export const toast = {
-  error(msg: string, opts?: { action?: ToastAction }) {
-    addToast("error", msg, opts?.action);
+  error(msg: string, opts?: { action?: ToastAction; sticky?: boolean }) {
+    return addToast("error", msg, opts);
   },
-  success(msg: string, opts?: { action?: ToastAction }) {
-    addToast("success", msg, opts?.action);
+  success(msg: string, opts?: { action?: ToastAction; sticky?: boolean }) {
+    return addToast("success", msg, opts);
   },
-  info(msg: string, opts?: { action?: ToastAction }) {
-    addToast("info", msg, opts?.action);
+  info(msg: string, opts?: { action?: ToastAction; sticky?: boolean }) {
+    return addToast("info", msg, opts);
+  },
+  /** 主动收掉一条（「下次编辑即收」语义） */
+  dismiss(id: number) {
+    _toasts = _toasts.filter((t) => t.id !== id);
+    notify();
   },
 };
 

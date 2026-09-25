@@ -33,7 +33,7 @@ LABELS = [
 ]
 
 
-async def _seed() -> tuple[str, str]:
+async def _seed(plots: list | None = None) -> tuple[str, str]:
     root = tempfile.mkdtemp(prefix="test_prompt_sources_")
     slug = f"psrc-{os.path.basename(root)}"
     async with async_session() as session:
@@ -55,6 +55,8 @@ async def _seed() -> tuple[str, str]:
             location="临江渡口",
             current_task="查清匿名信的来路",
         )
+        if plots:
+            ch.plot_items = json.dumps(plots, ensure_ascii=False)
         # 本章文风影子：syntax 行覆盖基线（提示词来源应显示「本章覆盖」）
         ch.style_shadow = json.dumps(
             {"syntax": {"value": "短句为主", "reason": "打斗章节奏"}}, ensure_ascii=False
@@ -109,6 +111,8 @@ class TestPromptSources:
         # ③ 章纲：概要 + 关键情节点（带标签格式）
         assert "等一班不存在的船" in by_key["outline"]["preview"]
         assert "[造悬念]匿名信被尾随" in by_key["outline"]["preview"]
+        # 剧情条目空则不计（c-plot-split）
+        assert "剧情条目" not in by_key["outline"]["preview"]
         # ④ 文风：影子行覆盖基线（本章覆盖标记）+ 禁用词单源
         style = by_key["style"]
         assert "短句为主" in style["preview"]
@@ -120,6 +124,22 @@ class TestPromptSources:
         # ⑥ 本章涉及角色（认知层投影入口）
         assert "林晚" in by_key["cast"]["preview"]
         assert d["cast_count"] == 1
+
+    def test_plot_items_in_outline_source(self):
+        """4.3（c-plot-split）：剧情条目计入「本章章纲」来源（一条一行），
+        chars 计入该行与总数；六处行序不变。"""
+        plots = ["甲一：她翻墙进了库房", "乙一：灯下的账册是假的", "丙一：她吹熄了灯"]
+        _root, nid = asyncio.run(_seed(plots=plots))
+        r = _get(nid)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert [s["label"] for s in d["sources"]] == LABELS
+        outline = {s["key"]: s for s in d["sources"]}["outline"]
+        assert "剧情条目：" in outline["preview"]
+        for p in plots:
+            assert p in outline["preview"]
+        assert outline["chars"] >= sum(len(p) for p in plots)
+        assert d["total_chars"] == sum(s["chars"] for s in d["sources"])
 
     def test_not_found(self):
         with TestClient(app) as c:

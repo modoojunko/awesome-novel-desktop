@@ -19,6 +19,7 @@ import time
 
 from sqlalchemy import select
 
+from chapters.schemas import normalize_plot_items
 from novels.service import count_chars
 from workflow.engine import MAX_VERSIONS_PER_CHAPTER, strip_suffix
 
@@ -161,6 +162,13 @@ def assemble_chapter(row) -> dict:
         data["style_shadow"] = _json.loads(row.style_shadow or "{}")
     except Exception:  # noqa: BLE001 — 影子损坏按空处理，不阻塞章读取
         data["style_shadow"] = {}
+    # 章内剧情条目（c-plot-split）：string[] 直出、恒带键；空串/损坏/非数组按 []，
+    # 不阻塞章读取（旧库无此列时 server_default "[]" 兜住）
+    try:
+        _items = json.loads(row.plot_items or "[]")
+        data["plot_items"] = [str(x) for x in _items] if isinstance(_items, list) else []
+    except Exception:  # noqa: BLE001 — 剧情条目损坏按空处理，不阻塞章读取
+        data["plot_items"] = []
 
     outline: dict = {
         "key_points": [_format_key_point(k.func_tag, k.content) for k in row.key_points],
@@ -301,6 +309,13 @@ def _disassemble_scalars(row, data: dict) -> None:
         import json as _json
 
         row.style_shadow = _json.dumps(clean, ensure_ascii=False)
+    # 章内剧情条目（c-plot-split）：presence-gate——缺键/None 保持现值（导入旧包
+    # 缺失键走列默认 []），显式 [] 清空；形状非列表按缺键处理（不误清现值）。
+    # 预算越界静默夹（normalize_plot_items 单源）——保存链不报错。
+    if "plot_items" in data and isinstance(data["plot_items"], list):
+        row.plot_items = json.dumps(
+            normalize_plot_items(data["plot_items"]), ensure_ascii=False
+        )
 
 
 _CHILD_ATTRS = (

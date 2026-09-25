@@ -16,8 +16,9 @@ import {
   useState,
   type RefObject,
 } from "react";
-import OgPane from "./OgPane";
+import OgPane, { flashField } from "./OgPane";
 import SimModal from "./SimModal";
+import { useNavigate } from "react-router-dom";
 import { charactersApi } from "@/lib/charactersApi";
 import PromptPane from "./PromptPane";
 import { StyleShadowPane } from "./StyleShadowPane";
@@ -37,14 +38,17 @@ import {
   GAP_TO_FILL_KEY,
   ogFormIssues,
   ogGaps,
+  ogHasDraftContent,
   ogPatchFromFills,
   ogToForm,
   ogToPartial,
   type OgForm,
 } from "./chapterForm";
+import PlotDrawModal from "./PlotDrawModal";
 import AiCheckModal from "./AiCheckModal";
 import RefinePromptModal from "./RefinePromptModal";
 import { useChapterData } from "@/hooks/useChapterData";
+import { usePlotDraw } from "@/hooks/usePlotDraw";
 import { draftOutline } from "@/lib/ai";
 import { fillOutlineGaps, type AiCheckKind, type RefineMode } from "@/lib/aiCheck";
 import type { useOutline } from "@/hooks/useOutline";
@@ -91,6 +95,8 @@ interface ChapterWorkspaceProps {
   onRevert: (ref: string) => void;
   /** chapter-rewrite：树刷新（useWorkbench.refresh——旧稿分组与角标只在树 hook 里） */
   onTreeRefresh: () => Promise<void> | void;
+  /** 重新润色出口（已润色章改剧情软提示）：打开 AI 生成正文弹窗（内含 AI 润色） */
+  onOpenAiModal?: () => void;
 }
 
 const fmt = (n: number) => n.toLocaleString("zh-CN");
@@ -111,6 +117,7 @@ export default function ChapterWorkspace({
   onWriteProgress,
   onRevert,
   onTreeRefresh,
+  onOpenAiModal,
 }: ChapterWorkspaceProps) {
   const store = useChapterData(projectId, chapterRef);
   const { wordCount, saveState, targetWords, setTargetWords } = store;
@@ -357,16 +364,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   // ── AI 起草章纲（outline-ai-draft）：草稿回填表单不落库，3s 自动保存/手动保存承接 ──
   const [aiDrafting, setAiDrafting] = useState(false);
   const handleAiDraft = useCallback(async () => {
-    // 覆盖确认判定覆盖全部章纲格子（含 ai-prompt-crafting 新格子）
-    const hasContent =
-      [ogForm.summary, ogForm.mood, ogForm.rstrat, ogForm.changes, ogForm.ladder, ogForm.wt].some(
-        (v) => String(v ?? "").trim() !== "",
-      ) ||
-      ogForm.segs.length > 0 ||
-      ogForm.scenes.some((sc) =>
-        [sc.n, sc.g, sc.o, sc.h].some((v) => v.trim() !== "") || sc.w !== "" || sc.f !== "",
-      ) ||
-      ogForm.payoffs.some((p) => p.d.trim() !== "");
+    // 覆盖确认判定覆盖全部章纲格子（含 ai-prompt-crafting 新格子；剧情列表不参与）
+    const hasContent = ogHasDraftContent(ogForm);
     if (hasContent && !window.confirm("AI 起草将覆盖当前表单内容（未保存的修改会丢失），继续？")) {
       return;
     }
@@ -416,6 +415,137 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, chapterRef, ogForm]);
+
+  // ── 章内剧情（c-plot-split）：门槛拦截 → 三版抽卡 → 采纳/撤销 → 润色软提示 ──
+  const plotDraw = usePlotDraw(projectId, chapterRef);
+  const navigate = useNavigate();
+  /** 替换明示 N＝已写的非空条数（拍板②） */
+  const writtenCount = ogForm.plots.filter((s) => s.trim() !== "").length;
+
+  // 采纳回执（常驻到下次编辑，拍板②）：撤销快照＝采纳前列表
+  const plotReceiptRef = useRef<{ id: number; prev: string[] } | null>(null);
+  const killPlotReceipt = useCallback(() => {
+    const r = plotReceiptRef.current;
+    if (!r) return;
+    plotReceiptRef.current = null;
+    toast.dismiss(r.id);
+  }, []);
+  // 切章/卸载即收（回执的撤销只对当章有意义）
+  useEffect(() => () => killPlotReceipt(), [chapterRef, killPlotReceipt]);
+
+  const handlePlotUndo = useCallback(() => {
+    const r = plotReceiptRef.current;
+    if (!r) return;
+    killPlotReceipt();
+    // 只回滚 plots（函数式，别的格子不碰）；借 3s 自动保存回写（design.md 既定口径）
+    setOgForm((f) => ({ ...f, plots: r.prev.slice() }));
+    toast.info("已恢复到 AI 填写前的列表");
+  }, [killPlotReceipt]);
+
+  // 已润色章改剧情软提示（拍板⑥）：quiet 探提示词，润色产物才提示，不自动重算
+  const polishHintShownRef = useRef(false);
+  const polishHintTimerRef = useRef<number | null>(null);
+  // 切章/卸载：清挂起的软提示 timer、重置「已提示」（新章要重新判定）
+  useEffect(() => {
+    polishHintShownRef.current = false;
+    return () => {
+      if (polishHintTimerRef.current) clearTimeout(polishHintTimerRef.current);
+      polishHintTimerRef.current = null;
+    };
+  }, [chapterRef]);
+  const maybeHintPolish = useCallback(() => {
+    if (!isPro || polishHintShownRef.current) return;
+    if (polishHintTimerRef.current) clearTimeout(polishHintTimerRef.current);
+    polishHintTimerRef.current = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const d = (await request(
+            `/novels/${projectId}/chapters/${chapterRef}/write/prompt`,
+            { quiet: true },
+          )) as { polished?: boolean };
+          if (!d?.polished || polishHintShownRef.current) return;
+          polishHintShownRef.current = true;
+          toast.info("提示词还是旧版、没带上新剧情——可以重新润色", {
+            action: {
+              label: "去重新润色",
+              onClick: () => {
+                polishHintShownRef.current = false; // 重润后下次改动还能再提示
+                onOpenAiModal?.();
+              },
+            },
+          });
+        } catch {
+          /* 静默：探测失败不打扰 */
+        }
+      })();
+    }, 1200);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, chapterRef, isPro, onOpenAiModal]);
+
+  // 剧情编辑（输入/加/删任一动作，OgPane 上抛）：下次编辑即收回执（拍板②）＋润色软提示
+  const saveOgRef = useRef(saveOg);
+  saveOgRef.current = saveOg;
+  const outlineRef = useRef(outline);
+  outlineRef.current = outline;
+  const handlePlotEdit = useCallback(() => {
+    killPlotReceipt();
+    maybeHintPolish();
+  }, [killPlotReceipt, maybeHintPolish]);
+
+  /** 「AI 帮写剧情」（右栏动作）：先 flush 表单，门槛读服务端值（拍板⑦三样） */
+  const handlePlotDraw = useCallback(async () => {
+    // saveOg/outline 走 ref 读最新值——其身份随渲染变（wb 每渲染新建），进依赖会经
+    // onRailData effect → setRailData → 父重渲 → wb 又新 → 无限循环（e2e 不炸但空转
+    // 烧 CPU；vitest jsdom 里表现为 worker 堆 OOM，NovelWorkspace.test 曾 16 分钟不归）。
+    await saveOgRef.current(); // 尽力 flush：失败也继续——门槛读服务端值，缺就拦
+    const server = outlineRef.current.chaptersMap.get(chapterRef);
+    const missing = [
+      { key: "summary", label: "章纲概要", val: server?.outline?.summary },
+      { key: "challenge", label: "碰到的挑战", val: server?.challenge },
+      { key: "ladder", label: "章末落点", val: server?.ladder_exit },
+    ].filter((m) => !String(m.val ?? "").trim());
+    if (missing.length > 0) {
+      for (const m of missing) {
+        toast.error(`AI 写剧情要有依据：「${m.label}」还没填`, {
+          action: { label: "去补填", onClick: () => flashField(m.key) },
+        });
+      }
+      return;
+    }
+    plotDraw.openDraw();
+  }, [chapterRef, plotDraw]);
+
+  /** 「就填这版」：整表替换（拍板②）＋常驻回执（撤销恢复填写前列表，含非空） */
+  const handlePlotAdopt = useCallback(async () => {
+    const { pick, versions } = plotDraw.state;
+    if (pick == null) return;
+    const items = versions[pick].slice();
+    const prev = ogForm.plots.slice();
+    const patched: OgForm = { ...ogForm, plots: items };
+    plotDraw.close();
+    try {
+      await outline.saveChapter(
+        chapterRef,
+        ogToPartial(patched, outline.chaptersMap.get(chapterRef)),
+      );
+      setOgForm(patched);
+      ogSnapRef.current = JSON.stringify(patched);
+    } catch {
+      toast.error("章纲保存失败，请重试");
+      return;
+    }
+    killPlotReceipt();
+    plotReceiptRef.current = {
+      prev,
+      id: toast.success(`剧情已由 AI 填好（${items.length} 条）`, {
+        sticky: true,
+        action: { label: "撤销 · 恢复填写前的列表", onClick: handlePlotUndo },
+      }),
+    };
+    maybeHintPolish();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plotDraw, ogForm, outline.saveChapter, outline.chaptersMap, chapterRef,
+      killPlotReceipt, handlePlotUndo, maybeHintPolish]);
 
   // ── 剧情推演（plot-sim）：弹窗按回合走一遍；收进章纲＝写预期策略后走既有保存链 ──
   const [showSim, setShowSim] = useState(false);
@@ -589,6 +719,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       aiDrafting,
       onAiDraft: () => void handleAiDraft(),
       onSimulate: () => setShowSim(true),
+      onPlotDraw: () => void handlePlotDraw(),
       onStyleSuggest: () => setStyleSuggestSignal((n) => n + 1),
       onFillGaps: () => void handleFillGaps(),
       gapsLoading,
@@ -597,7 +728,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     });
     return () => onRailDataRef.current(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, aiDrafting, gapsLoading, handleFillGaps]);
+  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, aiDrafting, gapsLoading, handleFillGaps, handlePlotDraw]);
 
   // ── 文风建议信号（右栏 AI 助手触发 → StyleShadowPane 内执行拉取；2026-09-20
   //    AI 入口收口右栏：页签 body 不再设 AI 按钮，建议结果仍在页签内逐项采纳） ──
@@ -884,6 +1015,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           characterNames={characterNames}
           label={label}
           onPatch={(patch) => setOgForm((f) => ({ ...f, ...patch }))}
+          onPlotEdit={handlePlotEdit}
           gaps={gaps}
           confirmed={confirmed}
           saving={ogLoading || ogSaving}
@@ -901,6 +1033,18 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         chapterLabel={label}
         planWords={parseInt(ogForm.wt, 10) || targetWords || undefined}
         onAdopt={handleSimAdopt}
+      />
+
+      <PlotDrawModal
+        state={plotDraw.state}
+        chapterLabel={label}
+        writtenCount={writtenCount}
+        onPick={plotDraw.pickCard}
+        onAdopt={() => void handlePlotAdopt()}
+        onRedraw={plotDraw.redraw}
+        onManual={plotDraw.close}
+        onClose={plotDraw.close}
+        onOpenConfig={() => navigate("/config")}
       />
 
       {chTab === "prompt" && (

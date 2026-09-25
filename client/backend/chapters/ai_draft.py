@@ -212,6 +212,8 @@ def _existing_outline_markdown(chapter: dict) -> str:
 # 覆盖归档门槛六项（task/state/strategy/changes/mood/segs）与章纲其余可写格子。
 # 后端只做白名单收口；具体下发哪些缺项由前端按缺口清单决定。
 # c-og-fields-slim：current_task／state（核心任务／读者当前状态）退役，不入白名单
+# c-plot-split：plot_items 显式排除——剧情条目走手写/AI 抽卡专属链路（3 版挑一），
+# 不吃「整卡 JSON 灌单字段」的补缺；缺口清单带 plot_items 也只当没看见（tests 钉住）
 _FILLABLE_KEYS = {
     "summary", "key_points", "characters", "location", "time",
     "strategy", "detail", "changes",

@@ -13,14 +13,10 @@ import { addFirstChapterViaTree, cleanupSessionNovels, stableClick } from "./hel
 // config.json 注入 trial；AI 端点用 page.route fulfill（不依赖真实模型）。
 // =========================================================================
 
-const S_API = "http://127.0.0.1:19000/api/web";
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 const CONFIG_PATH = path.join(
-  process.cwd(),
-  "..",
-  "..",
-  ".docker-data",
-  "client",
+  process.env.E2E_CLIENT_DATA || path.join(process.cwd(), "..", "..", ".docker-data", "client"),
   "config.json",
 );
 // e2e 一次性账号夹具（本地 docker 栈，非真实凭据）

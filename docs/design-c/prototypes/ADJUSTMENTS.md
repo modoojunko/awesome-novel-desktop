@@ -1190,3 +1190,22 @@ cast-row，坎行复用 hurdle-row；色彩与组件零新形态。
 - 依据：两格在写正文提示词中无消费点（语义被「本章剧情」与上章衔接块覆盖）；DB 列 `current_task`/`expectation_state`
   只留不读写。实现侧同批：OgPane 表单、chapterForm 门槛与映射、落点卡「还差 4 项／补这 4 项」、
   归档门（workflow/gates）、AI 体检/推演/起草补缺白名单。
+## c-plot-split（章内剧情拆分）— 2026-09-25
+
+原型 `book.html`（对齐 `docs/design-c/drafts/ai-novel-c端-章内剧情拆分.html` v3.4），任务 1.1 收编登记：
+
+- **新增类**（Part D 段，排在 Part C 覆盖前）：`.plot-sec/.plot-sec-head(+h3/.hint-inline)/.pi-row(+textarea/:focus/.icon-btn)/.pi-no/.plot-sum/.mcard.draw-style(+.mcard-body/.mcard-head .x)/.draw-lead/.f-hint`、`.toast .t-act`（回执动作钮）、`#plotToolWrap.locked .ai-tool`（免费态置灰禁点）。
+- **pick 词汇复用（非新增）**：`.plan-modal .kicker/.plans-h/.pick-grid(+820px 降列)/.pick-card(+:hover/.on)/.pk-axis/.pk-title/.pk-row(+/b/span/.pk-in)/.pk-picked/.pick-foot(+/note/.btn/.link)/.pick-busy/.pick-error(+.pv-error)/.pick-error-acts/.ra-spin(+keyframes)/.ai-note` 逐字收编自 book.css（c-volume-antagonist 段）；Part C 的 `.pick-card{position:relative;overflow:hidden}`、`.pk-axis{margin-right:74px}`、`.pk-corner` 角标覆盖仍生效。
+- **`.pk-picked` 唯一偏差**：补 `display:inline-flex;align-items:center;gap:4px` 承载勾形 SVG（book.css 原规则无）——实现侧 5.2 需同批进 book.css。
+- **`--faint` token 补进原型 :root**（`color-mix(in oklch, var(--muted) 68%, transparent)`，与 base.css:26 同值）：原型原缺，`.pi-no/.pk-row>b` 会渲染差异。
+- **draft 字形「✓」换勾形 SVG**：design:lint `emojiRegex`（U+2600–27BF）把 ✓ 当 emoji 拦（实测撞线）；文案「就填这版」不变。
+- **免费态口径裁定（draft ↔ spec 分歧，取 spec）**：draft 画独立 `.ai-locked` 卡＋btn-secondary 升级；spec/tasks 承诺「既有 locked 口径置灰禁点不隐藏＋升级出口」→ 落地＝`#plotToolWrap` rail-locked 置灰＋升级出口（btn-secondary「升级 PRO」）在包裹外可点。同时保住 modal-upgrade parity 严格定位器 `.ai-locked .btn-primary` 的唯一性（新卡不造第二处）。
+- **弹窗**：`.mcard.draw-style`＝940px（`min(940px, 92vw)`）；kicker「三选一 · 挑一版」、draw-lead 共用首尾说明、三卡 `.pick-grid`（S/A/B `.pk-corner` 角标，S 卡 `.top`＋「最抓人」）、失败块三出口（去模型配置→`model-config.html` 真链／再试一次／先自己写）、底条（换一批／自己写／就填这版）。演示开关一律不加（parity 截图安全）。
+- **输入约束**：每条 `maxlength=200`（场景描述不是正文，拍板④）；≤12 条，满 12「加一条」置灰＋越界 toast「最多 12 条剧情」。
+- **六态点击路径（自然点击可达）**：①空＝新开（单条空输入框＋placeholder）②已填＝输入／加一条 ③免费＝默认免费态（rail-locked＋升级出口）④AI 出 3 版＝升级 PRO（modalUpgrade 确认）→「给我 3 版剧情」⑤失败＝第一次「换一批」模拟「没凑满 3 版」面板（「再试一次」回卡）⑥填好＝选卡＋「就填这版」→常驻回执。演示种子＝draft v3.4 三版逐字（P_START/P_END 三版共用）。
+- **采纳/撤销语义（拍板②）**：整表替换；列表非空时按钮明示「就填这版 · 将替换已写的 N 条」；回执复用 `.toast` 词汇（「剧情已由 AI 填好（N 条）」＋「撤销 · 恢复填写前的列表」），常驻到下次编辑（input/加删条即收），撤销恢复填写前列表（含非空，不清空）；「自己写」/关窗退回原列表不丢内容；代际守卫（`plotGen`）＋「关窗丢晚到」。
+- **共享 helper 两处顺手修（超出剧情处，同批登记）**：
+  1. `closeModal` 200ms 退场计时器补守卫「退场期间被重开则跳过收尾」——原缺陷：采纳后立刻重开抽卡会被旧计时器闪关（实测撞出）；
+  2. `.toast` 补 `pointer-events:auto`（base.css:120 同款，注释即「撤销按钮」用例）——原缺陷：`.toast-wrap` 的 none 穿透导致回执撤销钮不可点。
+- **文案自查（design-language §13）**：按钮词动词（加一条／删掉这一条／换一批／自己写／就填这版／再试一次／去模型配置／升级 PRO／给我 3 版剧情）；失败语句带三个可点击出口；无内部术语；语气沿用 info/ok/warn/err 无新形态；剧情这处用作家大白话，其他字段叫法未动。
+- **验收证据**：Playwright 六态冒烟 20/20 PASS（零 console 错误，含撤销/常驻/下次编辑收掉/自己写不丢内容断言）＋ design:lint 0 违规；对照截图 `docs/design-c/drafts/c-plot-split-shots/`（01-empty/02-filled/03-free-locked/04-draw-cards/05-draw-error/06-adopted-receipt）。视觉观感未做结论（模型看不了图），待用户过目。
