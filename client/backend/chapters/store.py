@@ -14,7 +14,6 @@
 import contextlib
 import json
 import logging
-import re
 import time
 
 from sqlalchemy import select
@@ -189,8 +188,9 @@ def assemble_chapter(row) -> dict:
 
 
 def _disassemble_scalars(row, data: dict) -> None:
+    # memo 的标量族（reader_expectation）已随 c-og-slim-v2 退役：memo 只剩子表族，
+    # 在 _replace_children_impl 里拆装——此处不再读取。
     outline = data.get("outline") or {}
-    memo = data.get("memo") or {}
     emotional = data.get("emotional_design") or {}
 
     for json_key, col, width in _OUTLINE_SCALARS:

@@ -3,7 +3,7 @@
  *
  * 契约见 write/plot_sim.py：AI 按章纲＋上一章结尾推 2-4 回合；AI 不可用时
  * 后端回落确定性推演（source=fallback 仅作留痕，UI 口径一致）。
- * 产物只返回不落库；「收进章纲」走既有章纲保存链写 memo.reader_expectation.strategy。
+ * 产物只返回不落库；「收进章纲」走既有章纲保存链**追加为本章一条剧情条目**（c-og-slim-v2：原落点「预期策略」退役）。
  */
 
 import { request } from "./api";

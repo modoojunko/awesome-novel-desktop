@@ -274,3 +274,24 @@ class TestParseRounds:
         assert _parse_rounds("不是 JSON") == []
         assert _parse_rounds('{"rounds": "x"}') == []
         assert _parse_rounds('{"other": 1}') == []
+
+
+def test_fallback_without_must_hold_no_nameerror():
+    """c-og-slim-v2 回归钉：兜底在「无必须维持悬念」时不得崩。
+
+    曾因换源删掉「预期策略」赋值而漏删 `elif strategy` 分支：剧情条目 ≥2 且
+    payoff_plan 为空的章一进兜底就 NameError → 端点 500，违反「兜底永远可用」SHALL。
+    种子章恒有 must_hold 的 API 用例盖不到这条分支，故直接单测兜底函数。"""
+    from write.plot_sim import _fallback_rounds
+
+    rounds = _fallback_rounds(
+        {"summary": "她夜探库房调包账册"},
+        {},  # 无 payoff_plan → suspense 空 → 原 `elif strategy` 分支被求值
+        {},
+        ["林晚"],
+        "上一章结尾",
+        ["她翻墙进了库房", "灯下的账册是假的"],
+    )
+    assert [r["beat"] for r in rounds] == ["她翻墙进了库房", "灯下的账册是假的"]
+    # 非「末回合」且无悬念可压 → 落默认句（原 `elif strategy` 分支位置）
+    assert rounds[0]["shift"] == "局势往前一格"

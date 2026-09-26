@@ -13,31 +13,21 @@ export interface ChapterData {
   chapter: number;
   title: string;
   status: string;
-  /** 拆章三格（c-chapter-plan-ai；顶层键，与 ladder_exit 同层） */
+  /** 拆章两格（c-chapter-plan-ai；顶层键，与 ladder_exit 同层；
+   *  c-og-slim-v2：「本章行动」随该列退役） */
   challenge?: string;
-  chapter_acts?: string[];
   plot_stage?: string;
   /** 章内剧情（c-plot-split；顶层键，presence-gate：缺键保持原样、显式 [] 清空） */
   plot_items?: string[];
   outline?: {
     summary?: string;
-    key_points?: string[];
     characters?: string[];
-    location?: string;
-    time?: string;
-    narrative_pov?: string;
-    perspective_guidance?: string;
     [key: string]: unknown;
   };
   memo?: {
-    reader_expectation?: {
-      strategy?: string;
-      detail?: string;
-    };
     payoff_plan?: {
       must_resolve?: string[];
       must_hold?: string[];
-      partial_advance?: string[];
     };
     required_changes?: string[];
     prohibitions?: string[];
@@ -118,7 +108,6 @@ export interface UseOutlineReturn {
   filledCount: number;
   confirmedCount: number;
   allConfirmed: boolean;
-  allHavePerspectiveGuidance: boolean;
   loadChapterData(ref: string): Promise<ChapterData>;
   saveChapter(ref: string, data: Partial<ChapterData>): Promise<{ warnings?: string[] }>;
   confirmChapter(ref: string): Promise<void>;
@@ -335,7 +324,6 @@ export function useOutline(projectId: string): UseOutlineReturn {
     let total = 0;
     let filled = 0;
     let confirmed = 0;
-    let allHavePerspectiveGuidance = true;
 
     for (const vol of volumes) {
       for (const ch of vol.chapters) {
@@ -344,10 +332,6 @@ export function useOutline(projectId: string): UseOutlineReturn {
         if (status === "in_progress" || status === "confirmed") filled++;
         if (status === "confirmed") {
           confirmed++;
-          // For confirmed chapters, check perspective_guidance
-          const chData = chaptersMap.get(ch.ref);
-          const hasPG = !!chData?.outline?.perspective_guidance;
-          if (!hasPG) allHavePerspectiveGuidance = false;
         }
       }
     }
@@ -357,7 +341,6 @@ export function useOutline(projectId: string): UseOutlineReturn {
       filledCount: filled,
       confirmedCount: confirmed,
       allConfirmed: total > 0 && confirmed === total,
-      allHavePerspectiveGuidance,
     };
   }, [volumes, chapterStatuses, chaptersMap]);
 

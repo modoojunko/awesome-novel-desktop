@@ -4,16 +4,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_client import AITimeoutError, get_ai_client_for_novel
-from ai_state import effective_model
-from auth_local.deps import require_ai_access, require_novel_model
+from auth_local.deps import require_ai_access
 from auth_local.middleware import get_current_user
 from db import get_db
 from models.archive import ChapterPrompt
 from models.chapter import Chapter
 from novels.service import get_novel
 from repositories import chapter_repo
-from workflow.engine import _validate_ref, load_chapter
+from workflow.engine import _validate_ref
 
 
 class UpdatePromptRequest(BaseModel):

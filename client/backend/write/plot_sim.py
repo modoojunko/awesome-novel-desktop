@@ -1,9 +1,9 @@
 """剧情推演（plot-sim，storyline.html 四期尾）：从上一章结尾，按回合走一遍本章。
 
 策略：AI 按章纲＋上一章结尾生成 2-4 个回合（每回合含顺/拗两条走法结果）；
-调用失败或产物不合格时回落原型同款确定性推演（关键事件环＋模板走法），
-保证弹窗永远可用。产物只返回不落库；「收进章纲」由前端写回
-memo.reader_expectation.strategy（章纲既有字段，零新表）。
+调用失败或产物不合格时回落原型同款确定性推演（剧情条目环＋模板走法），
+保证弹窗永远可用。产物只返回不落库；「收进章纲」由前端把走法行**追加为本章
+一条剧情条目**（c-og-slim-v2：原落点「预期策略」随该字段退役）。
 """
 
 import json
@@ -126,9 +126,9 @@ def _fallback_rounds(
             tail_txt = change[0] if change else (_s(outline.get("summary"), 200) or "本章收束")
         elif suspense:
             tail_txt = f"维持悬念：{suspense[i] if i < len(suspense) else suspense[0]}"
-        elif strategy:
-            tail_txt = f"按预期策略推进：{strategy}"
         else:
+            # （c-og-slim-v2：原 `elif strategy` 分支随「预期策略」退役——
+            #   赋值已删而分支未删曾致兜底 NameError、端点 500）
             tail_txt = "局势往前一格"
         suspend_tail = (
             f"「{suspense[0]}」被压得更紧" if suspense else "悬念再多压一层"
@@ -136,8 +136,9 @@ def _fallback_rounds(
         rounds.append({
             "beat": beat,
             "who": who,
-            "place": _s(outline.get("location"), 100),
-            "time": _s(outline.get("time"), 100),
+            # place/time 的来源（章纲 location/time）已随 c-og-slim-v2 退役：兜底恒空串
+            "place": "",
+            "time": "",
             "at": at,
             "shift": tail_txt,
             "ok": f"事件按章纲落地，主情绪停在「{mood}」，不多加波折。",
