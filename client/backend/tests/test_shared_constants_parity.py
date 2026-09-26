@@ -75,6 +75,29 @@ class TestIntroTemplateParity:
         assert "剧透" not in body
 
 
+class TestPayoffKindParity:
+    """读者获得类型标签（c-og-slim-v2）：后端渲染中文标签，前端是同一张表的镜像。
+
+    不一致 = 章纲页下拉显示一种说法、正文提示词里出现另一种（或退回英文 slug），
+    作者按界面理解选的类型在提示词里对不上。
+    """
+
+    def test_kind_labels_match(self):
+        from write.chapter_writer import MICRO_PAYOFF_LABELS
+
+        src = _read("../components/novel/workbench/chapterForm.ts")
+        block = re.search(r"PAYOFF_KINDS\s*=\s*\[(.*?)\]", src, re.DOTALL)
+        assert block, "找不到 PAYOFF_KINDS"
+        frontend = dict(
+            re.findall(r'value:\s*"(\w+)",\s*label:\s*"([^"]+)"', block.group(1))
+        )
+        assert frontend, "PAYOFF_KINDS 解析为空"
+        assert frontend == MICRO_PAYOFF_LABELS, (
+            "读者获得类型标签前后端不一致——以 write/chapter_writer.py 的 "
+            "MICRO_PAYOFF_LABELS 为准同步 chapterForm.ts 的 PAYOFF_KINDS"
+        )
+
+
 class TestThemeCatalogParity:
     """题材目录（01 格「什么题材」+ 每项解读/案例）前后端逐字一致。
 

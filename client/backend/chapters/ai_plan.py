@@ -60,7 +60,6 @@ _NEXT_STAGE = {"开局铺垫": "冲突初现", "冲突初现": "矛盾升级", "
 
 _LIMITS = {"title": 12, "plot": 150, "obstacle": 60, "ending": 80, "why": 30, "gap": 30}
 _PLACE_SPLIT_RE = re.compile(r"[、，,；;。\n\r\t 　]+")
-_ACT_MAX_LINES, _ACT_MAX_LEN = 4, 60
 
 
 # ═══════════════ 进场（章级；has_prose 分流） ═══════════════
@@ -327,11 +326,6 @@ def _fit(v, key: str) -> str:
     return str(v or "").strip()[:_LIMITS[key]]
 
 
-def _acts(v) -> list[str]:
-    out = [str(x).strip()[:_ACT_MAX_LEN] for x in (v if isinstance(v, list) else []) if str(x).strip()]
-    return out[:_ACT_MAX_LINES]
-
-
 def _similar(a: dict, b: dict) -> bool:
     ra = f"{a.get('plot', '')}{a.get('ending', '')}"
     rb = f"{b.get('plot', '')}{b.get('ending', '')}"
@@ -378,7 +372,6 @@ def _sanitize_directions(parsed: dict | None) -> tuple[list[dict], list[int], li
                     "plot": plot,
                     "obstacle": _fit(c.get("obstacle"), "obstacle"),
                     "ending": ending,
-                    "acts": _acts(c.get("acts")),
                     "stage": stage,
                     "cast": [str(x).strip()[:20] for x in (c.get("cast") or []) if str(x).strip()][:6],
                     "factions": [str(x).strip()[:20] for x in (c.get("factions") or []) if str(x).strip()][:6],
@@ -633,7 +626,6 @@ async def chapter_plan_card(
         "plot": (data.get("outline") or {}).get("summary") or "",
         "challenge": data.get("challenge") or "",
         "ending": data.get("ladder_exit") or "",
-        "acts": data.get("chapter_acts") or [],
         "stage": data.get("plot_stage") or "",
         "entry_text": entry["text"],
         "entry_source": entry["source"],
@@ -654,7 +646,6 @@ class SelfcheckBody(BaseModel):
     plot: str = ""
     challenge: str = ""
     ending: str = ""
-    acts: list[str] = []
     stage: str = ""
 
 
@@ -715,7 +706,6 @@ async def ai_chapter_selfcheck(
         plot=_fit(body.plot, "plot"),
         obstacle=_fit(body.challenge, "obstacle"),
         ending=_fit(body.ending, "ending"),
-        acts="\n".join(f"- {a}" for a in body.acts[:_ACT_MAX_LINES]) or "（还没写）",
         stage=body.stage if body.stage in STAGE_SET else "（未定）",
     )
     out: dict = {

@@ -144,6 +144,8 @@ VALID_DRAFT = """```json
   "scene_cards": [{"scene_name": "账房", "goal": "取证", "obstacle": "守夜", "hook": "暗格",
                    "weight": "超高", "focus": "不知道"}],
   "micro_payoffs": [{"kind": "unknown", "description": "账本缺页", "location": "结尾"}],
+  "challenge": "船家改口要加钱",
+  "plot_stage": "重要转折",
   "ladder_exit": "带着半本账册越墙而出",
   "word_target": 99999
 }
@@ -241,16 +243,22 @@ class TestAiDraftSuccess:
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/outline/ai-draft")
         assert r.status_code == 200, r.text
         d = r.json()
-        # 骨架完整
-        # c-og-fields-slim：模型即便输出 current_task/state，响应也 SHALL 丢弃
-        assert "current_task" not in d["memo"]
-        assert "state" not in d["memo"]["reader_expectation"]
-        assert len(d["segments"]) == 2
-        # 枚举非法回落（weight/focus 清空键、kind 回落 clue、location 清空键）
-        sc = d["scene_cards"][0]
-        assert sc["scene_name"] == "账房" and "weight" not in sc and "focus" not in sc
+        # 骨架完整（c-og-slim-v2：段落规划/场景卡/读者预期/关键事件等退役键一律丢弃）
+        for dead in ("current_task", "reader_expectation"):
+            assert dead not in d["memo"]
+        assert "partial_advance" not in d["memo"]["payoff_plan"]
+        for dead in ("segments", "scene_cards", "chapter_acts", "key_points"):
+            assert dead not in d
+        for dead in ("location", "time", "narrative_pov", "perspective_guidance"):
+            assert dead not in d["outline"]
+        for dead in ("mood_progression", "emotional_hook"):
+            assert dead not in d["emotional_design"]
+        # 枚举非法回落（kind 回落 clue；位置档退役）
         mp = d["micro_payoffs"][0]
         assert mp["kind"] == "clue" and "location" not in mp
+        # 拆章两格随草稿返回
+        assert d["challenge"] == "船家改口要加钱"
+        assert d["plot_stage"] == "重要转折"
         # word_target clamp 到 6000
         assert d["word_target"] == 6000
         # 不落库：章数据与 status 不变
@@ -287,7 +295,7 @@ class TestAiDraftSuccess:
         # 首章（前情=哨兵）：素材包不含前情段
         assert "【前情" not in fake.last_kwargs["system"]
 
-    def test_segments_only_counts_as_rewrite_base(self, client, monkeypatch):
+    def test_retired_field_only_does_not_count_as_rewrite_base(self, client, monkeypatch):
         """hardening：只填段落/场景卡的章不再被判「无现有章纲」（review P3）。"""
         _set_tier("trial")
         calls: list = []
@@ -303,33 +311,36 @@ class TestAiDraftSuccess:
                 root,
                 ref,
                 {
-                    "segments": [{"summary": "既定段落", "target_words": 900}],
-                    "scene_cards": [{"scene_name": "渡口", "goal": "出城"}],
+                    # c-og-slim-v2：拆章格子计入「有现有章纲」（原口径用段落规划）
+                    "challenge": "渡口封航，出不了城",
                 },
             )
 
         _run_async(_seed())
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/outline/ai-draft")
         assert r.status_code == 200
-        assert "既定段落" in fake.last_kwargs["system"]
+        assert "渡口封航" in fake.last_kwargs["system"]
         assert "无现有章纲" not in fake.last_kwargs["system"]
 
 
 class TestAiDraftGuarded:
-    def test_seg_target_words_coerced(self, client, monkeypatch):
-        """段落字数规整：字符串转 int，非法/缺省回落 800（hardening）。"""
+    def test_retired_draft_keys_dropped(self, client, monkeypatch):
+        """c-og-slim-v2：模型返回段落规划/场景卡/关键事件等退役键 → 整体丢弃、不落草稿。"""
         _set_tier("trial")
         calls: list = []
         reply = VALID_DRAFT.replace(
-            '"segments": [{"summary": "潜入", "target_words": 800}, {"summary": "翻账", "target_words": 1000}]',
-            '"segments": [{"summary": "潜入", "target_words": "800"},'
-            ' {"summary": "翻账", "target_words": "很多"}, {"summary": "收尾"}]',
+            '"micro_payoffs": [',
+            '"segments": [{"summary": "潜入", "target_words": "800"}],'
+            ' "scene_cards": [{"scene_name": "渡口"}],'
+            ' "outline_extra": 1, "micro_payoffs": [',
         )
         _setup_ai(monkeypatch, calls, reply=reply)
         pid, ref = _create_project_and_chapter(client)
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/outline/ai-draft")
         assert r.status_code == 200, r.text
-        assert [s["target_words"] for s in r.json()["segments"]] == [800, 800, 800]
+        d = r.json()
+        for dead in ("segments", "scene_cards", "outline_extra"):
+            assert dead not in d
 
     def test_no_story_arc_422_and_ai_not_called(self, client, monkeypatch):
         _set_tier("trial")
@@ -363,13 +374,26 @@ class TestAiDraftGuarded:
         assert _token_log_count(pid) == 1
 
     def test_missing_skeleton_502(self, client, monkeypatch):
+        """c-og-slim-v2：必备骨架只剩「章纲概要」——概要为空才 502。"""
         _set_tier("trial")
         calls: list = []
-        reply = '{"outline": {"summary": "s"}, "memo": {"current_task": "t"}, "segments": []}'
-        _setup_ai(monkeypatch, calls, reply=reply)
+        _setup_ai(monkeypatch, calls, reply='{"outline": {"summary": ""}, "memo": {}}')
         pid, ref = _create_project_and_chapter(client)
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/outline/ai-draft")
         assert r.status_code == 502
+
+    def test_summary_only_counts_as_skeleton(self, client, monkeypatch):
+        """概要非空即合格（段落规划退役后不再作骨架）。"""
+        _set_tier("trial")
+        calls: list = []
+        _setup_ai(
+            monkeypatch, calls,
+            reply='{"outline": {"summary": "s"}, "memo": {"current_task": "t"}}',
+        )
+        pid, ref = _create_project_and_chapter(client)
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/outline/ai-draft")
+        assert r.status_code == 200, r.text
+        assert r.json()["outline"]["summary"] == "s"
 
     def test_model_error_502(self, client, monkeypatch):
         _set_tier("trial")

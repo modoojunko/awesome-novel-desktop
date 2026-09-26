@@ -6,61 +6,35 @@
 起草标准：
 - 章是整卷冲突的一步推进：必须服务于主线前提与本卷冲突，不做与主线无关的填充戏；
 - 前情有内容时承接上一章结尾的处境，不得与已发生情节矛盾；
-- 段落规划 3-6 段，target_words 之和约等于 word_target；
-- 场景卡 1-4 张，每张必须有场景名；读者获得 1-3 条；
+- 读者获得 1-3 条；
 - 现有章纲有内容的字段是作者已定的方向，优先保留其意图、只补齐和打磨，不要推翻重来。
 
 字段口径：
-- weight 只能是 high/mid/low；focus 只能是 核心冲突/人物情绪/信息差；
-- kind 只能是 clue/reveal/twist/emotion/power/relation/relief；location 只能是 前段/中段/后段；
+- kind 只能是 clue/reveal/twist/emotion/power/relation/relief；
+- plot_stage 只能是 开局铺垫/冲突初现/矛盾升级/重要转折/高潮爆发/卷末收束 之一；
 - word_target 为 500-6000 的整数，拿不准给 2500。
 
 只输出 JSON，不要其他文字：
 {{
   "outline": {{
     "summary": "本章一句话梗概",
-    "key_points": ["情节要点，2-5 条"],
-    "characters": ["本章出场角色名"],
-    "location": "主场景",
-    "time": "时间",
-    "narrative_pov": "叙事视角",
-    "perspective_guidance": "视角运用提示（可空字符串）"
+    "characters": ["本章出场角色名"]
   }},
   "memo": {{
-    "current_task": "本章核心任务（谁+想达成什么+什么拦着）",
-    "reader_expectation": {{
-      "state": "读者此刻对故事的认知/情绪状态",
-      "strategy": "本章要如何利用这个状态（预期策略）",
-      "detail": "补充说明（可空字符串）"
-    }},
     "payoff_plan": {{
       "must_resolve": ["本章必须回收/交代的点"],
-      "must_hold": ["本章必须按住不揭的点"],
-      "partial_advance": ["只推进半步的点"]
+      "must_hold": ["本章必须按住不揭的点"]
     }},
     "required_changes": ["本章必须完成的变化（情节/关系/信息）"],
     "prohibitions": ["本章禁止出现的内容或写法"]
   }},
   "emotional_design": {{
-    "primary_mood": "本章主情绪",
-    "mood_progression": "情绪推进路径（可空字符串）",
-    "emotional_hook": "章末情绪钩子（可空字符串）"
+    "primary_mood": "本章主情绪"
   }},
-  "segments": [
-    {{ "summary": "本段写什么", "target_words": 800 }}
-  ],
-  "scene_cards": [
-    {{
-      "scene_name": "场景名（必填）",
-      "goal": "场景内目标",
-      "obstacle": "阻碍",
-      "hook": "钩子",
-      "weight": "high",
-      "focus": "核心冲突"
-    }}
-  ],
+  "challenge": "碰到的挑战：剧情推进时撞上的那道墙（≤60 字）",
+  "plot_stage": "矛盾升级",
   "micro_payoffs": [
-    {{ "kind": "clue", "description": "一句话描述读者获得感", "location": "前段" }}
+    {{ "kind": "clue", "description": "一句话描述读者获得感" }}
   ],
   "ladder_exit": "章末落点：本章最后一步把读者引向哪里",
   "word_target": 2500

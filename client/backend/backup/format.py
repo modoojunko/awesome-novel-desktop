@@ -6,9 +6,12 @@ foreshadow-settings-v2：新增 hooks/hooks.yaml 伏笔段、settings 树摘除 
 键（删键+加段）→ v3。
 卷纲换代（c-volume-view-storyline）：volumes 键集退役旧代字段 → v4；无用户
 口径豁免 N-1 读窗——v0-v3 包可过版本门槛，但卷纲段旧键不承载（静默忽略）。
+c-og-slim-v2：章档案删键（关键事件/地点/时间/叙事视角/视角指导/预期策略/
+预期细节/可部分推进/段落规划/本章行动/场景卡/强度峰值·等级/情绪微弧线·钩子）
+→ v5；同口径：v4 及更早包可过版本门槛，退役键按忽略处理（不落库、不报错）。
 """
 
-FORMAT_VERSION = 4
+FORMAT_VERSION = 5
 
 
 # ── 产物归属单源（chapter-rewrite）─────────────────────────────────────────

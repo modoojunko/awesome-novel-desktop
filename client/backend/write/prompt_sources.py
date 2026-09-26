@@ -75,21 +75,11 @@ async def prompt_sources(
     # ② 大纲 · 卷纲：本卷概要
     volume = ctx.volume_outline or ""
 
-    # ③ 本章章纲：概要 + 关键情节点 + 场景 + 出场角色
+    # ③ 本章章纲：概要 + 出场角色 + 剧情条目（c-og-slim-v2：关键情节点与场景行退役）
     outline = ctx.chapter_outline if isinstance(ctx.chapter_outline, dict) else {}
     outline_lines = []
     if outline.get("summary"):
         outline_lines.append(f"章纲概要：{outline.get('summary')}")
-    kps = [str(k) for k in (outline.get("key_points") or []) if str(k).strip()]
-    if kps:
-        outline_lines.append("关键情节点：" + "；".join(kps[:5]))
-    meta = " · ".join(
-        str(outline.get(k) or "").strip()
-        for k in ("location", "time")
-        if str(outline.get(k) or "").strip()
-    )
-    if meta:
-        outline_lines.append(f"场景：{meta}")
     cast = [str(c).strip() for c in (outline.get("characters") or []) if str(c).strip()]
     if cast:
         outline_lines.append("出场角色：" + "、".join(cast))

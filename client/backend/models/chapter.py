@@ -71,42 +71,20 @@ class Chapter(Base):
     # ── 章纲标量字段（章纲设定指南；全部可空，建章后逐步填充）──────────
     # outline.summary — 一句话概要（谁做了什么+冲突+结束时什么变了）
     summary: Mapped[str | None] = mapped_column(String(300))
-    # outline.location — 场景
-    location: Mapped[str | None] = mapped_column(String(200))
-    # outline.time — 故事时间（"下午两点"）
-    story_time: Mapped[str | None] = mapped_column(String(150))
-    # outline.narrative_pov — 叙事视角
-    narrative_pov: Mapped[str | None] = mapped_column(String(50))
-    # memo.current_task — 本章任务（c-og-fields-slim 退役：只留不读写，列留存因 SQLite 无迁移链）
-    current_task: Mapped[str | None] = mapped_column(String(300))
+    # c-og-slim-v2 退役：outline.location / outline.time(story_time) / outline.narrative_pov /
+    # memo.current_task —— 页面无控件或提示词不读，列随模型摘除（旧库经迁入走列交集）。
     # 字数目标（默认 2500）
     word_target: Mapped[int | None] = mapped_column(Integer)
     # 情绪设计·主情绪
     primary_mood: Mapped[str | None] = mapped_column(String(50))
-    # 章内微弧线（至少三步："平静→不安→紧张"）
-    mood_progression: Mapped[str | None] = mapped_column(String(300))
-    # 强度峰值（具体到场景）
-    intensity_peak: Mapped[str | None] = mapped_column(String(300))
-    # 强度等级 1-10
-    intensity_level: Mapped[int | None] = mapped_column(Integer)
-    # 章末情绪钩子
-    emotional_hook: Mapped[str | None] = mapped_column(String(150))
-    # memo.reader_expectation.state — 读者预期状态
-    expectation_state: Mapped[str | None] = mapped_column(String(150))
-    # memo.reader_expectation.strategy — 兑现策略
-    expectation_strategy: Mapped[str | None] = mapped_column(String(50))
-    # memo.reader_expectation.detail — 一句话说明
-    expectation_detail: Mapped[str | None] = mapped_column(String(300))
-    # outline.perspective_guidance — 视角转换产物（prompt/router 持久化）
-    perspective_guidance: Mapped[str | None] = mapped_column(String(300))
+    # c-og-slim-v2 退役：mood_progression / intensity_peak / intensity_level / emotional_hook /
+    # expectation_state / expectation_strategy / expectation_detail / perspective_guidance。
     # 章末落点 — 结尾停在哪个紧张度上，须给下一章更高起点（提示词前情消费）
     ladder_exit: Mapped[str | None] = mapped_column(String(300))
 
     # ── 拆章五段（c-chapter-plan-ai；JSON 键路径＝章档案顶层，与 ladder_exit 同层）──
     # 碰到的挑战 — 剧情推进时撞上的那道墙（拆章第一步写入）
     challenge: Mapped[str | None] = mapped_column(String(150))
-    # 本章行动 — 谁做了什么，一行一条（≤4 行×60；标量清单外定制，照 ladder_exit 先例）
-    chapter_acts: Mapped[str | None] = mapped_column(Text)
     # 阶段 — 本章在卷剧情里的位置（六档闭集：开局铺垫/冲突初现/矛盾升级/重要转折/高潮爆发/卷末收束）
     plot_stage: Mapped[str | None] = mapped_column(String(20))
     # 章内剧情条目（c-plot-split）：「这一章怎么演」的场景描述条目（string[] 直存
@@ -118,22 +96,10 @@ class Chapter(Base):
     project = relationship("Novel", back_populates="chapters")
     # selectin：组装章 JSON 需要 volume_no，异步会话里禁止隐性 lazy IO
     volume = relationship("Volume", back_populates="chapters", lazy="selectin")
-    key_points = relationship(
-        "ChapterKeyPoint",
-        cascade="all, delete-orphan",
-        order_by="ChapterKeyPoint.sort_order",
-        lazy="selectin",
-    )
     characters = relationship(
         "ChapterCharacter",
         cascade="all, delete-orphan",
         order_by="ChapterCharacter.sort_order",
-        lazy="selectin",
-    )
-    scene_cards = relationship(
-        "ChapterSceneCard",
-        cascade="all, delete-orphan",
-        order_by="ChapterSceneCard.sort_order",
         lazy="selectin",
     )
     micro_payoffs = relationship(
@@ -178,12 +144,6 @@ class Chapter(Base):
         order_by="ChapterKnowledgeState.sort_order",
         lazy="selectin",
     )
-    segments = relationship(
-        "ChapterSegment",
-        cascade="all, delete-orphan",
-        order_by="ChapterSegment.sort_order",
-        lazy="selectin",
-    )
     content = relationship(
         "ChapterContent",
         cascade="all, delete-orphan",
@@ -205,18 +165,6 @@ class _ChapterChildMixin:
         index=True,
     )
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-
-
-class ChapterKeyPoint(_ChapterChildMixin, Base):
-    """outline.key_points — [功能标签]笔记体锚点（前端契约：string[]）。"""
-
-    __tablename__ = "chapter_key_points"
-    __table_args__ = (
-        UniqueConstraint("chapter_id", "sort_order", name="uq_chkp_chapter_sort"),
-    )
-    # [推进剧情·对话] / [造悬念] / [过渡] 等；无标签时空串
-    func_tag: Mapped[str] = mapped_column(String(50), nullable=False, default="")
-    content: Mapped[str] = mapped_column(String(300), nullable=False)
 
 
 class ChapterCharacter(_ChapterChildMixin, Base):
@@ -245,27 +193,6 @@ class ChapterCharacter(_ChapterChildMixin, Base):
     character_name: Mapped[str] = mapped_column(String(50), nullable=False)
 
 
-class ChapterSceneCard(_ChapterChildMixin, Base):
-    """章纲场景卡三要素（一章 2-5 卡，spec §场景卡）。
-
-    weight/focus 为提示词格子：权重定笔墨分配（high ≥70% 笔墨 / low ≤100 字转场），
-    焦点三选一（核心冲突/人物情绪/信息差）。
-    """
-
-    __tablename__ = "chapter_scene_cards"
-    __table_args__ = (
-        UniqueConstraint("chapter_id", "sort_order", name="uq_chsc_chapter_sort"),
-    )
-    scene_name: Mapped[str] = mapped_column(String(200), nullable=False, default="")
-    goal: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    obstacle: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    hook: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    # high / mid / low（可空=未标注）
-    weight: Mapped[str | None] = mapped_column(String(10))
-    # 核心冲突 / 人物情绪 / 信息差（可空=未标注）
-    focus: Mapped[str | None] = mapped_column(String(50))
-
-
 class ChapterMicroPayoff(_ChapterChildMixin, Base):
     """memo 读者获得（爽点）— 每章 ≥1 只警告不拦（D1 口径），提示词叙事目标消费。"""
 
@@ -276,18 +203,16 @@ class ChapterMicroPayoff(_ChapterChildMixin, Base):
     # info/relationship/emotion/clue/ability/resource/recognition
     kind: Mapped[str] = mapped_column(String(50), nullable=False, default="")
     description: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    # 前段 / 中段 / 后段
-    location: Mapped[str] = mapped_column(String(20), nullable=False, default="")
 
 
 class ChapterPayoffItem(_ChapterChildMixin, Base):
-    """memo.payoff_plan 三列表：must_resolve / must_hold / partial_advance。"""
+    """memo.payoff_plan 两列表：must_resolve / must_hold（partial_advance 随 c-og-slim-v2 退役）。"""
 
     __tablename__ = "chapter_payoff_items"
     __table_args__ = (
         UniqueConstraint("chapter_id", "sort_order", name="uq_chpi_chapter_sort"),
     )
-    # must_resolve / must_hold / partial_advance
+    # must_resolve / must_hold
     kind: Mapped[str] = mapped_column(String(50), nullable=False)
     content: Mapped[str] = mapped_column(String(300), nullable=False)
 
@@ -347,30 +272,6 @@ class ChapterKnowledgeState(_ChapterChildMixin, Base):
     unknowns: Mapped[str] = mapped_column(String(300), nullable=False, default="")
     gap_relation: Mapped[str] = mapped_column(String(300), nullable=False, default="")
     gap_change: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-
-
-class ChapterSegment(_ChapterChildMixin, Base):
-    """章纲分段元数据（前端可编辑：summary/target_words；AI 生成附加上报键）。
-
-    分段提示词全文（assemble 产物）属生成物，入 chapter_prompts（PR④）。
-    """
-
-    __tablename__ = "chapter_segments"
-    __table_args__ = (
-        UniqueConstraint("chapter_id", "sort_order", name="uq_chsg_chapter_sort"),
-    )
-    # 这段写什么（人类编辑主字段）
-    summary: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    target_words: Mapped[int | None] = mapped_column(Integer)
-    # AI 生成时的增强键（分段提示词链路已退役，保留存量数据；人工分段通常为空）
-    what_to_write: Mapped[str | None] = mapped_column(String(300))
-    goal: Mapped[str | None] = mapped_column(String(300))
-    emotional_tone: Mapped[str | None] = mapped_column(String(50))
-    # 逗号分隔的角色名列表（原 JSON list 的紧凑存储）
-    characters: Mapped[str | None] = mapped_column(String(200))
-    function: Mapped[str | None] = mapped_column(String(150))
-    word_target: Mapped[int | None] = mapped_column(Integer)
-    seg_number: Mapped[int | None] = mapped_column(Integer)
 
 
 class ChapterContent(Base):

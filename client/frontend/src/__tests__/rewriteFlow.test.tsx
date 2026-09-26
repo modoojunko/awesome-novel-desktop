@@ -67,7 +67,7 @@ describe("AiAssistPanel 操作页签统计", () => {
       chapterRef: "vol-1-ch-2",
       tab: "actions",
       isPro: true,
-      ogStats: { reqOk: 6, planWords: 1800, keyCount: 2, castCount: 1 },
+      ogStats: { reqOk: 6, planWords: 1800, plotCount: 2, castCount: 1 },
       wordCount: 500,
       planWords: 1800,
       archived: false,

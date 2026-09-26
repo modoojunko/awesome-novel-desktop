@@ -1,6 +1,6 @@
 // AI 辅助·检测族（ai-check / fill-gaps / refine）前端契约测试：
-// - ogPatchFromFills：后端 fills → OgForm 补丁（白名单外丢弃、行列表拼接、段落结构化）
-// - GAP_TO_FILL_KEY：缺口标签键与后端白名单键的映射全覆盖（六项必填）
+// - ogPatchFromFills：后端 fills → OgForm 补丁（白名单外/已退役键丢弃、行列表拼接）
+// - GAP_TO_FILL_KEY：缺口标签键与后端白名单键的映射全覆盖（c-og-slim-v2 两项必填）
 // - lib 包装：端点路径与出入参（runAiCheck / fillOutlineGaps / refinePrompt / 采纳保存）
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -18,49 +18,38 @@ const apiState = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => ({ api: apiState }));
 
 describe("ogPatchFromFills（后端 fills → 章纲表单补丁）", () => {
-  it("字符串/行列表/段落三类各自落位；白名单外键丢弃", () => {
+  it("字符串/行列表两类各自落位；白名单外与已退役键丢弃", () => {
     const patch = ogPatchFromFills({
       summary: "渡口夜谈",
-      key_points: ["上船", "  ", "验货"],
       characters: ["林晚"],
+      changes: ["主角与师父决裂"],
+      prohibitions: ["不得提前揭开玉佩来历"],
+      mood: "紧张",
+      // 已退役键（c-og-slim-v2）：给到了也必须丢弃
+      key_points: ["上船", "  ", "验货"],
       location: "临江渡口",
       time: "入夜",
       strategy: "顺着章纲推进",
       detail: "把悬念压在货箱上",
-      changes: ["主角与师父决裂"],
-      prohibitions: ["不得提前揭开玉佩来历"],
-      mood: "紧张",
+      segments: [{ summary: "上船", target_words: 900 }],
       bogus: "不该出现",
       empty_text: "   ",
     });
     expect(patch).toEqual({
       summary: "渡口夜谈",
-      keys: "上船\n验货",
       chars: "林晚",
-      loc: "临江渡口",
-      time: "入夜",
-      rstrat: "顺着章纲推进",
-      rdetail: "把悬念压在货箱上",
       changes: "主角与师父决裂",
       ban: "不得提前揭开玉佩来历",
       mood: "紧张",
     });
   });
 
-  it("segments 结构化：非法条目剔除、缺字数补 800", () => {
-    const patch = ogPatchFromFills({
-      segments: [
-        { summary: "上船", target_words: 900 },
-        { summary: "  " },
-        { target_words: 500 },
-        "乱入",
-      ],
-    });
-    expect(patch.segs).toEqual([{ s: "上船", w: 900 }]);
-    expect(ogPatchFromFills({ segments: [] }).segs).toBeUndefined();
-    expect(ogPatchFromFills({ segments: [{ summary: "夜谈" }] }).segs).toEqual([
-      { s: "夜谈", w: 800 },
-    ]);
+  it("段落规划等退役键不给补丁（补缺产出一律丢弃）", () => {
+    expect(ogPatchFromFills({ segments: [] })).toEqual({});
+    expect(
+      ogPatchFromFills({ segments: [{ summary: "夜谈", target_words: 800 }] }),
+    ).toEqual({});
+    expect(ogPatchFromFills({ location: "渡口", perspective_guidance: "贴主角" })).toEqual({});
   });
 
   it("空输入 → 空补丁（不覆盖既有表单）", () => {
@@ -68,12 +57,10 @@ describe("ogPatchFromFills（后端 fills → 章纲表单补丁）", () => {
     expect(ogPatchFromFills({ summary: "", key_points: [] })).toEqual({});
   });
 
-  it("补丁可直接合入 OgForm 并补齐必填缺口（四项全补＝无缺口）", () => {
+  it("补丁可直接合入 OgForm 并补齐必填缺口（两项全补＝无缺口）", () => {
     const fills = {
-      strategy: "顺推",
       changes: ["拿到货单"],
       mood: "紧张",
-      segments: [{ summary: "上船", target_words: 800 }],
     };
     const form = { ...EMPTY_OG_FORM, ...ogPatchFromFills(fills) };
     expect(ogGaps(form)).toEqual([]);
@@ -81,19 +68,13 @@ describe("ogPatchFromFills（后端 fills → 章纲表单补丁）", () => {
 });
 
 describe("GAP_TO_FILL_KEY（缺口 → 后端白名单键）", () => {
-  it("四项必填全部有映射，且键在后端白名单口径内（c-og-fields-slim）", () => {
+  it("两项必填全部有映射，且键在后端白名单口径内（c-og-slim-v2）", () => {
     const backendKeys = new Set([
       "summary",
-      "key_points",
       "characters",
-      "location",
-      "time",
-      "strategy",
-      "detail",
       "changes",
       "prohibitions",
       "mood",
-      "segments",
     ]);
     for (const { key } of REQ_FIELDS) {
       const fillKey = GAP_TO_FILL_KEY[key];

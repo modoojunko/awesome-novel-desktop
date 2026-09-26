@@ -172,9 +172,8 @@ async def get_write_prompt(
         project.root_path, chapter_ref, project.name, novel_id=project.id
     )
     outline = ctx.chapter_outline or {}
-    has_outline = bool(
-        outline.get("summary") or outline.get("key_points") or outline.get("segments")
-    )
+    # c-og-slim-v2：关键事件/段落规划退役 → 有章纲的判定＝概要或剧情条目
+    has_outline = bool(outline.get("summary") or ctx.plot_items)
     existing = await load_prompt(project.root_path, chapter_ref, "write-prompt")
     if existing.strip():
         return {"prompt": existing, "has_outline": has_outline, "polished": True}

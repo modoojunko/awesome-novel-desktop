@@ -1,6 +1,6 @@
 /** 「剧情推演」弹窗（storyline.html sim modal 复刻）：
  * 从上一章结尾按回合走一遍本章——每回合先替角色选一次走法（顺 / 拗），
- * 全部回合走完可「按这条走法收进章纲」（写 memo.reader_expectation.strategy）。
+ * 全部回合走完可「按这条走法收进章纲」（c-og-slim-v2：追加为本章一条剧情条目）。
  * 走法只作参考，不自动改动章纲；推演产物不落库。
  */
 import { useCallback, useEffect, useState } from "react";
@@ -17,13 +17,13 @@ interface SimModalProps {
   chapterLabel: string;
   /** 计划篇幅（章目标字数；未定显示「未定」） */
   planWords?: number;
-  /** 收进章纲：把走法行写入本章「预期策略」（失败由上层 toast） */
+  /** 收进章纲：把走法行追加为本章一条剧情条目（失败由上层 toast） */
   onAdopt: (strategyLine: string) => Promise<boolean>;
 }
 
 const fmt = (n: number) => n.toLocaleString("zh-CN");
 
-/** 走法 → 预期策略行（原型 simAdopt 口径：任一回合一「拗」即中途接意外） */
+/** 走法 → 收进章纲的剧情条目行（原型 simAdopt 口径：任一回合一「拗」即中途接意外） */
 export function strategyLineOf(picks: Record<number, "ok" | "warn">): string {
   const anyWarn = Object.values(picks).includes("warn");
   return anyWarn
@@ -88,7 +88,7 @@ export default function SimModal({
     try {
       const ok = await onAdopt(strategyLineOf(picks));
       if (ok) {
-        toast.success(`${chapterLabel}「预期策略」已按推演走法更新`);
+        toast.success(`${chapterLabel}已按推演走法加了一条剧情`);
         onClose();
       }
     } finally {

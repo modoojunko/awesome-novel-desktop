@@ -386,8 +386,8 @@ describe("免费态：选中章 → 章对象工作台", () => {
     expect(screen.getAllByText("第一章").length).toBeGreaterThanOrEqual(2);
     // bar-here（顶栏主线定位）：默认名「第一章」不重复序号（nodeLabel 同口径）
     expect(document.querySelector(".bar-here .bh-t")?.textContent).toBe("第 1 章");
-    // 章纲面板必填字段在渲染（c-og-fields-slim 四项口径）
-    expect(screen.queryAllByText(/预期策略/).length).toBeGreaterThan(0);
+    // 章纲面板必填字段在渲染（c-og-slim-v2 两项口径）
+    expect(screen.queryAllByText(/必须完成的变化/).length).toBeGreaterThan(0);
     // 点「正文」→ contenteditable 编辑器挂载；免费无 AI 按钮
     fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
     await waitFor(() => expect(document.querySelector(".editor")).toBeTruthy());

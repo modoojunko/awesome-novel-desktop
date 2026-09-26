@@ -1,9 +1,9 @@
 """剧情推演（plot-sim，storyline.html 四期尾）：从上一章结尾，按回合走一遍本章。
 
 策略：AI 按章纲＋上一章结尾生成 2-4 个回合（每回合含顺/拗两条走法结果）；
-调用失败或产物不合格时回落原型同款确定性推演（关键事件环＋模板走法），
-保证弹窗永远可用。产物只返回不落库；「收进章纲」由前端写回
-memo.reader_expectation.strategy（章纲既有字段，零新表）。
+调用失败或产物不合格时回落原型同款确定性推演（剧情条目环＋模板走法），
+保证弹窗永远可用。产物只返回不落库；「收进章纲」由前端把走法行**追加为本章
+一条剧情条目**（c-og-slim-v2：原落点「预期策略」随该字段退役）。
 """
 
 import json
@@ -86,17 +86,28 @@ def _parse_rounds(text: str) -> list[dict]:
 
 
 def _fallback_rounds(
-    outline: dict, memo: dict, emotional: dict, cast: list[str], entry: str
+    outline: dict,
+    memo: dict,
+    emotional: dict,
+    cast: list[str],
+    entry: str,
+    plot_items: list[str] | None = None,
 ) -> list[dict]:
-    """原型 simBuild 的确定性推演：关键事件环＋模板走法（AI 不可用时的保底）。"""
-    beats = _str_list(outline.get("key_points")) or []
+    """原型 simBuild 的确定性推演：剧情条目环＋模板走法（AI 不可用时的保底）。
+
+    c-og-slim-v2：环源由「关键事件」改为「剧情条目」（章纲主干）；条目空则回落概要，
+    连概要也没有才用固定句。
+    """
+    beats = _str_list(plot_items) or []
+    if not beats:
+        summary = _s(outline.get("summary"), 200)
+        beats = [summary] if summary else []
     if not beats:
         beats = [_DEFAULT_BEAT]
     beats = beats[:MAX_ROUNDS]
 
     payoffs = memo.get("payoff_plan") if isinstance(memo.get("payoff_plan"), dict) else {}
     suspense = _str_list(payoffs.get("must_hold"))
-    strategy = _s((memo.get("reader_expectation") or {}).get("strategy"))
     mood = _s((emotional or {}).get("primary_mood"), 50) or "紧张"
     change = _str_list(memo.get("required_changes"), 1)
     who_pool = cast or ["主角"]
@@ -115,9 +126,9 @@ def _fallback_rounds(
             tail_txt = change[0] if change else (_s(outline.get("summary"), 200) or "本章收束")
         elif suspense:
             tail_txt = f"维持悬念：{suspense[i] if i < len(suspense) else suspense[0]}"
-        elif strategy:
-            tail_txt = f"按预期策略推进：{strategy}"
         else:
+            # （c-og-slim-v2：原 `elif strategy` 分支随「预期策略」退役——
+            #   赋值已删而分支未删曾致兜底 NameError、端点 500）
             tail_txt = "局势往前一格"
         suspend_tail = (
             f"「{suspense[0]}」被压得更紧" if suspense else "悬念再多压一层"
@@ -125,8 +136,9 @@ def _fallback_rounds(
         rounds.append({
             "beat": beat,
             "who": who,
-            "place": _s(outline.get("location"), 100),
-            "time": _s(outline.get("time"), 100),
+            # place/time 的来源（章纲 location/time）已随 c-og-slim-v2 退役：兜底恒空串
+            "place": "",
+            "time": "",
             "at": at,
             "shift": tail_txt,
             "ok": f"事件按章纲落地，主情绪停在「{mood}」，不多加波折。",
@@ -145,20 +157,17 @@ def _material(chapter: dict, prev: dict | None, entry: str) -> str:
     )
     blocks: list[str] = []
     chapter_lines = [f"概要：{_s(outline.get('summary'), 300) or '（未填）'}"]
-    kps = _str_list(outline.get("key_points"), 6)
-    if kps:
-        chapter_lines.append("关键事件：" + "；".join(kps))
-    meta = " · ".join(
-        x for x in (_s(outline.get("location"), 100), _s(outline.get("time"), 100)) if x
-    )
-    if meta:
-        chapter_lines.append(f"场景：{meta}")
+    # c-og-slim-v2：关键事件/场景/预期策略退役，素材改取剧情条目
+    items = _str_list(chapter.get("plot_items"), 12)
+    if items:
+        chapter_lines.append("剧情条目：\n" + "\n".join(f"- {x}" for x in items))
     cast = _str_list(outline.get("characters"))
     if cast:
         chapter_lines.append("出场角色：" + "、".join(cast))
-    re_ = memo.get("reader_expectation") if isinstance(memo.get("reader_expectation"), dict) else {}
-    if _s(re_.get("strategy")):
-        chapter_lines.append("预期策略：" + _s(re_.get("strategy"), 200))
+    if _s(chapter.get("challenge")):
+        chapter_lines.append("碰到的挑战：" + _s(chapter.get("challenge"), 150))
+    if _s(chapter.get("plot_stage")):
+        chapter_lines.append("本章在卷剧情里的位置：" + _s(chapter.get("plot_stage"), 20))
     if _s(emotional.get("primary_mood")):
         chapter_lines.append("主情绪：" + _s(emotional.get("primary_mood"), 50))
     payoffs = memo.get("payoff_plan") if isinstance(memo.get("payoff_plan"), dict) else {}
@@ -175,9 +184,9 @@ def _material(chapter: dict, prev: dict | None, entry: str) -> str:
         p_outline = prev.get("outline") if isinstance(prev.get("outline"), dict) else {}
         if _s(p_outline.get("summary")):
             prev_lines.append("上一章概要：" + _s(p_outline.get("summary"), 300))
-        p_kps = _str_list(p_outline.get("key_points"), 4)
-        if p_kps:
-            prev_lines.append("上一章关键事件：" + "；".join(p_kps))
+        p_items = _str_list(prev.get("plot_items"), 4)
+        if p_items:
+            prev_lines.append("上一章剧情：" + "；".join(p_items))
         # 截断方向：先放宽到全书量级再取尾 120——直接默认截断会把「结尾摘录」摘成中段
         prose = _s(prev.get("prose"), 100000) or ""
         if prose:
@@ -298,7 +307,14 @@ async def plot_simulate(
                 source = "ai"
 
     if not rounds:
-        rounds = _fallback_rounds(outline, memo, emotional, cast, entry)
+        rounds = _fallback_rounds(
+            outline,
+            memo,
+            emotional,
+            cast,
+            entry,
+            _str_list(chapter.get("plot_items"), 12),
+        )
 
     # 回合编号 + 走法结构化（label/out 由后端定形，前端只做展示与选择）
     out_rounds = []

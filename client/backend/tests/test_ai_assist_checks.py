@@ -222,38 +222,37 @@ class TestFillGaps:
         _root, nid = asyncio.run(_seed())
         captured: list = []
         reply = (
-            '{"fills": {"summary": "渡口夜谈", "key_points": ["上船", " "],'
-            ' "bogus_key": "不该收", "mood": "紧张", "location": "   "}}'
+            '{"fills": {"summary": "渡口夜谈", "characters": ["林晚", " "],'
+            ' "bogus_key": "不该收", "mood": "紧张",'
+            ' "key_points": ["上船"], "location": "   "}}'
         )
         _patch(monkeypatch, "chapters.ai_draft", _FakeClient(reply, captured))
-        r = _post(nid, "outline/fill-gaps", {"missing": ["summary", "key_points", "bogus_key"]})
+        r = _post(nid, "outline/fill-gaps", {"missing": ["summary", "characters", "bogus_key"]})
         assert r.status_code == 200, r.text
         fills = r.json()["fills"]
-        assert fills == {"summary": "渡口夜谈", "key_points": ["上船"], "mood": "紧张"}
+        # 白名单＝留存可写格；退役键（key_points/location）即便返回也被丢弃
+        assert fills == {"summary": "渡口夜谈", "characters": ["林晚"], "mood": "紧张"}
         # 越界键不进提示词：missing 白名单过滤
         assert "bogus_key" not in captured[-1]["system"].split("## 素材")[0]
         # 记账：outline_fill_gaps（与 AI 起草同族留痕）
         assert "outline_fill_gaps" in _ops(nid)
 
-    def test_segments_structured_and_state_dropped(self, monkeypatch):
-        """segments 是结构化段落（旧实现会把 dict 字符串化）；state 已退役（c-og-fields-slim），
-        模型即便返回也被白名单丢弃。"""
+    def test_retired_keys_dropped(self, monkeypatch):
+        """c-og-slim-v2：段落规划/预期策略/关键事件等退役键即便被模型返回也一律丢弃。"""
         _root, nid = asyncio.run(_seed())
         reply = (
-            '{"fills": {"state": "读者刚知道船家撒谎",'
-            ' "segments": [{"summary": "上船", "target_words": "900"},'
-            ' {"summary": "", "target_words": 800},'
-            ' {"summary": "夜谈", "target_words": 99999}, "乱入"]}}'
+            '{"fills": {"mood": "紧张",'
+            ' "segments": [{"summary": "上船", "target_words": "900"}],'
+            ' "strategy": "顺推", "key_points": ["上船"],'
+            ' "changes": ["拿到货单"]}}'
         )
         _patch(monkeypatch, "chapters.ai_draft", _FakeClient(reply))
-        r = _post(nid, "outline/fill-gaps", {"missing": ["state", "segments"]})
+        r = _post(nid, "outline/fill-gaps", {"missing": ["mood", "changes"]})
         assert r.status_code == 200, r.text
         fills = r.json()["fills"]
-        assert "state" not in fills
-        assert fills["segments"] == [
-            {"summary": "上船", "target_words": 900},
-            {"summary": "夜谈", "target_words": 4000},
-        ]
+        assert "segments" not in fills and "strategy" not in fills
+        assert "key_points" not in fills
+        assert fills == {"mood": "紧张", "changes": ["拿到货单"]}
 
     def test_missing_list_400(self):
         _root, nid = asyncio.run(_seed())

@@ -14,7 +14,6 @@
 import contextlib
 import json
 import logging
-import re
 import time
 
 from sqlalchemy import select
@@ -26,43 +25,14 @@ from workflow.engine import MAX_VERSIONS_PER_CHAPTER, strip_suffix
 logger = logging.getLogger("uvicorn.error")
 
 # 章纲标量列映射：(JSON 键, 列名, 列宽)
+# c-og-slim-v2：location/time/narrative_pov 与 reader_expectation 两键、情绪设计两暗字段
+# （mood_progression/emotional_hook）与 intensity_* 一并退役——列随模型摘除，拆装链不再含。
 _OUTLINE_SCALARS = [
     ("summary", "summary", 300),
-    ("location", "location", 200),
-    ("time", "story_time", 150),
-    ("narrative_pov", "narrative_pov", 50),
 ]
 _EMOTIONAL_SCALARS = [
     ("primary_mood", "primary_mood", 50),
-    ("mood_progression", "mood_progression", 300),
-    ("intensity_peak", "intensity_peak", 300),
-    ("intensity_level", "intensity_level", None),
-    ("emotional_hook", "emotional_hook", 150),
 ]
-# c-og-fields-slim：state（读者当前状态）退役——列 expectation_state 只留不读写，dump/apply 均不再含
-_EXPECTATION_SCALARS = [
-    ("strategy", "expectation_strategy", 50),
-    ("detail", "expectation_detail", 300),
-]
-
-def _join_acts(value) -> str | None:
-    """本章行动归一（c-chapter-plan-ai）：列表或文本 → 一行一条；去空白/丢空行/逐行 ≤60/上限 4 行。
-    装配端（assemble_chapter 的 split("\\n")）与前端行编辑共用同一纪律。"""
-    if value is None:
-        return None
-    items = value if isinstance(value, list) else str(value).split("\n")
-    out = []
-    for ln in items:
-        t = str(ln).strip()
-        if not t:
-            continue
-        out.append(t[:60])
-        if len(out) >= 4:
-            break
-    return "\n".join(out) or None
-
-
-_KEY_POINT_TAG = re.compile(r"^\[([^\]]+)\](.*)$", re.DOTALL)
 
 
 def _fit(value, width: int | None):
@@ -73,18 +43,6 @@ def _fit(value, width: int | None):
     if width is not None and len(s) > width:
         return s[:width]
     return s
-
-
-def _parse_key_point(item: str) -> tuple[str, str]:
-    """'[推进剧情·对话] 内容' → ('推进剧情·对话', '内容')；无标签 → ('', 原文)。"""
-    m = _KEY_POINT_TAG.match(item or "")
-    if m:
-        return m.group(1).strip()[:50], m.group(2)
-    return "", item or ""
-
-
-def _format_key_point(tag: str, content: str) -> str:
-    return f"[{tag}]{content}" if tag else content
 
 
 def _split_labeled(item: str) -> tuple[str, str]:
@@ -117,16 +75,6 @@ def _int_or_none(value):
         return None
 
 
-def _normalize_enum(value, allowed: set, width: int):
-    """枚举列写入守卫：合法值截断落库，非法/空值置 None（读侧 ``or ""`` 语义不变）。"""
-    if value is None:
-        return None
-    s = str(value).strip()
-    if s not in allowed:
-        return None
-    return _fit(s, width)
-
-
 # ── 组装：DB 行 → 章 JSON（形态对齐 YAML 时代）──────────────────────────────
 
 
@@ -148,13 +96,12 @@ def assemble_chapter(row) -> dict:
         data["word_target"] = row.word_target
     if row.ladder_exit:
         data["ladder_exit"] = row.ladder_exit
-    # 拆章五段（c-chapter-plan-ai）：challenge/plot_stage 标量直出；chapter_acts 一行一条（列表同形）
+    # 拆章两格（c-chapter-plan-ai）：challenge/plot_stage 标量直出
+    # （c-og-slim-v2：「本章行动」退役，其「谁在场」语义由概要＋剧情条目承载）
     if row.challenge:
         data["challenge"] = row.challenge
     if row.plot_stage:
         data["plot_stage"] = row.plot_stage
-    if row.chapter_acts:
-        data["chapter_acts"] = [ln for ln in row.chapter_acts.split("\n") if ln.strip()]
     # 本章文风影子（chapter-style-shadow）：JSON 直出，加键兼容
     try:
         import json as _json
@@ -171,7 +118,6 @@ def assemble_chapter(row) -> dict:
         data["plot_items"] = []
 
     outline: dict = {
-        "key_points": [_format_key_point(k.func_tag, k.content) for k in row.key_points],
         "characters": [c.character_name for c in row.characters],
     }
     # archive-reconcile：本章各出场角色的状态变化（加键兼容，API 契约不变）
@@ -184,22 +130,15 @@ def assemble_chapter(row) -> dict:
         outline["character_states"] = char_states
     for json_key, col, _w in _OUTLINE_SCALARS:
         outline[json_key] = getattr(row, col) or ""
-    if row.perspective_guidance:
-        outline["perspective_guidance"] = row.perspective_guidance
     data["outline"] = outline
 
     payoff: dict[str, list[str]] = {
         "must_resolve": [],
         "must_hold": [],
-        "partial_advance": [],
     }
     for p in row.payoff_items:
         payoff.setdefault(p.kind, []).append(p.content)
     memo: dict = {
-        "reader_expectation": {
-            json_key: getattr(row, col) or ""
-            for json_key, col, _w in _EXPECTATION_SCALARS
-        },
         "payoff_plan": payoff,
         "downtime_functions": [
             f"{d.scene}：{d.func}" if d.scene else d.func
@@ -222,24 +161,11 @@ def assemble_chapter(row) -> dict:
     if emotional:
         data["emotional_design"] = emotional
 
-    if row.scene_cards:
-        data["scene_cards"] = [
-            {
-                "scene_name": s.scene_name,
-                "goal": s.goal,
-                "obstacle": s.obstacle,
-                "hook": s.hook,
-                **({"weight": s.weight} if s.weight else {}),
-                **({"focus": s.focus} if s.focus else {}),
-            }
-            for s in row.scene_cards
-        ]
     if row.micro_payoffs:
         data["micro_payoffs"] = [
             {
                 "kind": m.kind,
                 "description": m.description,
-                "location": m.location,
             }
             for m in row.micro_payoffs
         ]
@@ -255,39 +181,20 @@ def assemble_chapter(row) -> dict:
             for k in row.knowledge_states
         ]
 
-    data["segments"] = [_assemble_segment(s) for s in row.segments]
     return data
-
-
-def _assemble_segment(s) -> dict:
-    seg: dict = {"summary": s.summary or "", "target_words": s.target_words or 0}
-    for key in ("what_to_write", "goal", "emotional_tone", "function"):
-        value = getattr(s, key)
-        if value:
-            seg[key] = value
-    if s.characters:
-        seg["characters"] = [n.strip() for n in s.characters.split(",") if n.strip()]
-    if s.word_target is not None:
-        seg["word_target"] = s.word_target
-    if s.seg_number is not None:
-        seg["seg_number"] = s.seg_number
-    return seg
 
 
 # ── 拆装：章 JSON → DB 行（子表整体替换）───────────────────────────────────
 
 
 def _disassemble_scalars(row, data: dict) -> None:
+    # memo 的标量族（reader_expectation）已随 c-og-slim-v2 退役：memo 只剩子表族，
+    # 在 _replace_children_impl 里拆装——此处不再读取。
     outline = data.get("outline") or {}
-    memo = data.get("memo") or {}
     emotional = data.get("emotional_design") or {}
-    expectation = memo.get("reader_expectation") or {}
 
     for json_key, col, width in _OUTLINE_SCALARS:
         setattr(row, col, _fit(outline.get(json_key), width))
-    row.perspective_guidance = _fit(outline.get("perspective_guidance"), 300)
-    for json_key, col, width in _EXPECTATION_SCALARS:
-        setattr(row, col, _fit(expectation.get(json_key), width))
     for json_key, col, width in _EMOTIONAL_SCALARS:
         setattr(row, col, _fit(emotional.get(json_key), width))
     row.word_target = _int_or_none(data.get("word_target"))
@@ -295,7 +202,6 @@ def _disassemble_scalars(row, data: dict) -> None:
     # 拆章五段（c-chapter-plan-ai）：challenge/plot_stage 标量；chapter_acts 清单外定制（_fit 会 str 化列表）
     row.challenge = _fit(data.get("challenge"), 150)
     row.plot_stage = _fit(data.get("plot_stage"), 20)
-    row.chapter_acts = _join_acts(data.get("chapter_acts"))
     # 本章文风影子：仅收 dict 形状 {dim: {value, reason}}，越界值置空
     shadow = data.get("style_shadow")
     if isinstance(shadow, dict):
@@ -318,15 +224,12 @@ def _disassemble_scalars(row, data: dict) -> None:
         )
 
 
+# 子表整体替换面（c-og-slim-v2：key_points/scene_cards/segments 三表退役）
 _CHILD_ATTRS = (
-    "key_points", "characters", "payoff_items", "downtime_functions",
+    "characters", "payoff_items", "downtime_functions",
     "key_choices", "required_changes", "prohibitions",
-    "scene_cards", "micro_payoffs", "knowledge_states", "segments",
+    "micro_payoffs", "knowledge_states",
 )
-
-# 场景卡权重/焦点的合法值（越界值置空，防脏数据进提示词）
-_SCENE_WEIGHTS = {"high", "mid", "low"}
-_SCENE_FOCUS = {"核心冲突", "人物情绪", "信息差"}
 
 
 async def _resolve_names(session, project_id: str, names: list[str]) -> dict[str, str]:
@@ -382,24 +285,16 @@ async def _replace_children_impl(session, row, data: dict, name_map: dict[str, s
         ChapterContent,
         ChapterDowntimeFunction,
         ChapterKeyChoice,
-        ChapterKeyPoint,
         ChapterKnowledgeState,
         ChapterMicroPayoff,
         ChapterPayoffItem,
         ChapterProhibition,
         ChapterRequiredChange,
-        ChapterSceneCard,
-        ChapterSegment,
     )
 
     outline = data.get("outline") or {}
     memo = data.get("memo") or {}
 
-    row.key_points = [
-        ChapterKeyPoint(sort_order=i, func_tag=tag, content=_fit(content, 300) or "")
-        for i, item in enumerate(outline.get("key_points") or [])
-        for tag, content in [_parse_key_point(str(item))]
-    ]
     names = [str(name).strip()[:50] for name in (outline.get("characters") or []) if str(name).strip()]
     warnings = [
         f"出场角色「{name}」没有对应的角色卡，已按原文保留"
@@ -427,7 +322,7 @@ async def _replace_children_impl(session, row, data: dict, name_map: dict[str, s
 
     payoff_rows: list[tuple[int, str, str]] = []
     payoff_order = 0
-    for kind in ("must_resolve", "must_hold", "partial_advance"):
+    for kind in ("must_resolve", "must_hold"):
         for item in memo.get("payoff_plan", {}).get(kind) or []:
             # 三类共用一个递增序号：逐类从 0 编号会撞 UNIQUE(chapter_id, sort_order)
             payoff_rows.append((payoff_order, kind, str(item)))
@@ -461,25 +356,11 @@ async def _replace_children_impl(session, row, data: dict, name_map: dict[str, s
         for i, item in enumerate(memo.get("prohibitions") or [])
     ]
 
-    row.scene_cards = [
-        ChapterSceneCard(
-            sort_order=i,
-            scene_name=_fit(sc.get("scene_name", ""), 200) or "",
-            goal=_fit(sc.get("goal", ""), 300) or "",
-            obstacle=_fit(sc.get("obstacle", ""), 300) or "",
-            hook=_fit(sc.get("hook", ""), 300) or "",
-            weight=_normalize_enum(sc.get("weight"), _SCENE_WEIGHTS, 10),
-            focus=_normalize_enum(sc.get("focus"), _SCENE_FOCUS, 50),
-        )
-        for i, sc in enumerate(data.get("scene_cards") or [])
-        if isinstance(sc, dict)
-    ]
     row.micro_payoffs = [
         ChapterMicroPayoff(
             sort_order=i,
             kind=_fit(mp.get("kind", ""), 50) or "",
             description=_fit(mp.get("description", ""), 300) or "",
-            location=_fit(mp.get("location", ""), 20) or "",
         )
         for i, mp in enumerate(data.get("micro_payoffs") or [])
         if isinstance(mp, dict) and str(mp.get("description") or "").strip()
@@ -497,24 +378,6 @@ async def _replace_children_impl(session, row, data: dict, name_map: dict[str, s
         if isinstance(ks, dict)
     ]
 
-    row.segments = [
-        ChapterSegment(
-            sort_order=i,
-            summary=_fit(seg.get("summary", ""), 300) or "",
-            target_words=_int_or_none(seg.get("target_words")),
-            what_to_write=_fit(seg.get("what_to_write"), 300),
-            goal=_fit(seg.get("goal"), 300),
-            emotional_tone=_fit(seg.get("emotional_tone"), 50),
-            characters=_fit(
-                ",".join(str(n).strip() for n in seg.get("characters") or []), 200
-            ),
-            function=_fit(seg.get("function"), 150),
-            word_target=_int_or_none(seg.get("word_target")),
-            seg_number=_int_or_none(seg.get("seg_number")),
-        )
-        for i, seg in enumerate(data.get("segments") or [])
-        if isinstance(seg, dict)
-    ]
 
     prose = data.get("prose") or ""
     if row.content is not None:

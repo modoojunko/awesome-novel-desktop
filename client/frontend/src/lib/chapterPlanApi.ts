@@ -20,7 +20,6 @@ export interface ChapterDirection {
   plot: string;
   obstacle: string;
   ending: string;
-  acts: string[];
   stage: string;
   cast: string[];
   factions: string[];
@@ -60,7 +59,8 @@ export interface ChapterSelfcheckResult {
   hint?: string;
 }
 
-/** 排上请求体（五段；与章档案键路径一致：plot→outline.summary，其余顶层） */
+/** 排上请求体（四段；与章档案键路径一致：plot→outline.summary，其余顶层）
+ *  c-og-slim-v2：「本章行动」退役（键被服务端忽略，载荷不再携带） */
 export interface ChapterAdoptBody {
   title: string;
   /** 幂等键（同一次排上意图的重发同值；服务端据此返回同一章） */
@@ -68,7 +68,6 @@ export interface ChapterAdoptBody {
   plot?: string;
   challenge?: string;
   ending?: string;
-  acts?: string[];
   stage?: string;
 }
 
@@ -81,7 +80,6 @@ export interface ChapterSelfcheckBody {
   plot?: string;
   challenge?: string;
   ending?: string;
-  acts?: string[];
   stage?: string;
 }
 
@@ -102,7 +100,7 @@ export const chapterPlanApi = {
   /** 章级自检（免费 · 只读例外；卡面草稿随请求携带——未排上也能自检） */
   selfcheck: (pid: string, body: ChapterSelfcheckBody): Promise<ChapterSelfcheckResult> =>
     api.post(`/novels/${pid}/chapters/ai-selfcheck`, body),
-  /** 回改：读一章的五段（同一张卡面；进场/章号由服务端算） */
+  /** 回改：读一章的四段（同一张卡面；进场/章号由服务端算） */
   chapter: (
     pid: string,
     ref: string,
@@ -111,13 +109,12 @@ export const chapterPlanApi = {
     plot?: string;
     challenge?: string;
     ending?: string;
-    acts?: string[];
     stage?: string;
     entry_text?: string;
     entry_source?: string;
     next_no?: number;
   }> => api.get(`/novels/${pid}/chapters/${ref}/plan-card`),
-  /** 回改保存：读章全量 → 合并五段 → 全量 PUT。
+  /** 回改保存：读章全量 → 合并四段 → 全量 PUT。
    *  后端写入口对缺键按空写（prose/子表/word_target），局部提交会清空正文与章纲子表——
    *  必须先取全量再合并（c-chapter-plan-guards）。 */
   saveEdit: async (pid: string, ref: string, body: ChapterAdoptBody): Promise<{ ok: boolean }> => {
@@ -130,13 +127,12 @@ export const chapterPlanApi = {
       outline: { ...(full.outline ?? {}), summary: body.plot ?? "" },
       challenge: body.challenge ?? "",
       ladder_exit: body.ending ?? "",
-      chapter_acts: body.acts ?? [],
       plot_stage: body.stage ?? "",
     };
     await api.put(`/novels/${pid}/chapters/${ref}`, merged);
     return { ok: true };
   },
-  /** 排上：建章＋五段（同一事务；重复提交幂等） */
+  /** 排上：建章＋四段（同一事务；重复提交幂等） */
   adopt: (pid: string, volRef: string, body: ChapterAdoptBody): Promise<{ ok: boolean; ref: string }> =>
     api.post(`/novels/${pid}/volumes/${volRef}/chapters`, body),
 };

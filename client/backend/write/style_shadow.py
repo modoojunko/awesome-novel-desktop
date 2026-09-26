@@ -140,7 +140,8 @@ async def suggest_style_shadow(
         raise HTTPException(404, "Chapter not found")
     outline = chapter.get("outline") or {}
     summary = str(outline.get("summary") or "")
-    key_points = "；".join(str(k) for k in outline.get("key_points") or [])
+    # c-og-slim-v2：关键事件退役 → 文风建议改看剧情条目（本章主干）
+    plots = "；".join(str(x) for x in chapter.get("plot_items") or [] if str(x).strip())
 
     lines = [
         f"- {b['label']}（{b['row']}）：当前「{b['value']}」"
@@ -153,7 +154,7 @@ async def suggest_style_shadow(
         "只对确实值得偏离的行给出建议，每行=「行名：本章取值｜理由一句话」。"
         "没有偏离必要的行不要输出。最多 3 行。\n\n"
         "文风基线：\n" + "\n".join(lines) + "\n\n"
-        f"本章章纲：\n概要：{summary}\n关键事件：{key_points}\n\n"
+        f"本章章纲：\n概要：{summary}\n剧情：{plots}\n\n"
         'JSON 数组输出，形如 {"suggestions": [{"row": "syntax", "value": "更短的句子", "reason": "打斗章节奏需要"}]}'
     )
 

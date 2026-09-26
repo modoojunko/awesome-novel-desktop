@@ -54,7 +54,19 @@ def clip_story_arc(text: str, limit: int = STORY_ARC_INJECT_MAX) -> str:
             return cut[: i + 1]
     return cut
 
-_WEIGHT_LABELS = {"high": "高", "mid": "中", "low": "低"}
+# 读者获得类型（micro_payoffs.kind）中文标签单源（c-og-slim-v2）。
+# 进提示词一律用中文标签，禁英文枚举键（`clue`/`reveal`…）——中文提示词里夹 slug
+# 会让模型把它当英文关键词复读。前端镜像见 chapterForm.ts 的 PAYOFF_KINDS
+# （parity 测试逐字对拍，见 tests/test_shared_constants_parity.py）。
+MICRO_PAYOFF_LABELS = {
+    "clue": "线索",
+    "reveal": "真相揭示",
+    "twist": "反转",
+    "emotion": "情绪共鸣",
+    "power": "实力成长",
+    "relation": "关系进展",
+    "relief": "压力释放",
+}
 
 _CH1_PREVIOUS = "无前置章节，开篇直接切入角色当下行动，禁止大段世界观背景介绍。"
 
@@ -82,7 +94,7 @@ def clamp_word_target(value) -> int:
 
 
 # 润色产物必备锚词（模板「硬性纪律」要求保留；缺失即轻校验不合格）。
-# 前情/场景原材料与素材包是否有对应段落强相关（无场景卡的章不能要求模型凭空产场景段），
+# 前情与素材包是否有对应段落强相关（无前情/无剧情条目的章不能要求模型凭空产段），
 # 故不进无条件清单，改在 validate 内按素材有无条件校验。
 _POLISH_ANCHORS = ("任务指示", "红线", "质感")
 _PLACEHOLDER_RE = re.compile(r"\{[^}\n]*\}")
@@ -90,8 +102,7 @@ _PLACEHOLDER_RE = re.compile(r"\{[^}\n]*\}")
 # 剧情条目块（c-plot-split）：块名＋定位句钉死（两路同源 parity 回归校对到字）。
 _PLOT_BLOCK_TITLE = "【本章剧情走向（分条）】"
 _PLOT_BLOCK_ANCHOR = (
-    "定位：首尾以章卡（章末落点/要撞的墙/必须发生的动作）为锚，"
-    "中间推进以剧情条目为主干，【场景原材料】只定焦点与空间。"
+    "定位：首尾以章卡（章末落点/要撞的墙）为锚，中间推进以剧情条目为主干。"
 )
 
 
@@ -122,14 +133,14 @@ def strip_code_fences(text: str) -> str:
 def validate_polished_prompt(text: str, ctx: "ChapterContext") -> list[str]:
     """润色产物轻校验：返回缺失的必备锚词清单（空清单 = 合格）。
 
-    场景原材料段仅在素材包确有场景卡时才要求；爽点锚词仅在确有爽点时要求；
-    剧情走向段仅在 plot_items 非空时要求（c-plot-split 条件锚）。
+    爽点锚词仅在确有爽点时要求；剧情走向段仅在 plot_items 非空时要求
+    （c-plot-split 条件锚）；场景原材料锚随场景卡退役（c-og-slim-v2）。
     """
     missing = [a for a in _POLISH_ANCHORS if a not in text]
     if (ctx.previous_context or ctx.previous_chapter_recap) and "前情" not in text:
         missing.append("前情")
-    if ctx._scene_material_text() and "场景原材料" not in text:
-        missing.append("场景原材料")
+    if (ctx.chapter_outline or {}).get("summary") and "章纲概要" not in text:
+        missing.append("章纲概要")
     if ctx.micro_payoffs and "爽点" not in text:
         missing.append("爽点设计")
     if ctx.plot_items and "剧情走向" not in text:
@@ -167,20 +178,19 @@ class ChapterContext:
         # 前情上下文（语义化文本，build 时生成）；空则回退 previous_chapter_recap
         self.previous_context: str = ""
         self.previous_context_semantic: bool = False
-        self.scene_cards: list[dict] = []
         self.micro_payoffs: list[dict] = []
         self.ladder_exit: str = ""
-        # c-chapter-plan-ai：拆章五段（挑战/行动/阶段）——写正文素材消费
+        # c-chapter-plan-ai：拆章两格（挑战/阶段）——写正文素材消费
+        # （c-og-slim-v2：「本章行动」退役）
         self.challenge: str = ""
-        self.chapter_acts: list[str] = []
         self.plot_stage: str = ""
         # c-plot-split：本章剧情条目（场景描述清单，非正文）——素材包【本章剧情走向（分条）】原料
         self.plot_items: list[str] = []
         self.required_changes: list[str] = []
         self.payoff_plan: dict = {}
         self.prohibitions: list[str] = []
-        self.mood_progression: str = ""
-        self.emotional_hook: str = ""
+        # c-og-slim-v2：mood_progression / emotional_hook 退役（页面无控件、语义并入
+        # 主情绪与章末落点）——不再取数、不再注入。
         self.primary_mood: str = ""
 
     # ── 素材包（润色原料）───────────────────────────────────────────
@@ -234,14 +244,15 @@ class ChapterContext:
                 bg.append("本卷卷纲：\n" + self.volume_outline)
             blocks.append("【故事背景】\n" + "\n".join(bg))
 
-        # c-plot-split：剧情条目块（单源渲染）——插在场景原材料之前
+        # 章纲概要块（c-og-slim-v2）：删格批次之前此处缺失，润色产物（直接用于生成正文）
+        # 因此丢掉章纲主干。挑战/阶段两块在下方既有（非空时才出），此处只补概要。
+        if self.chapter_outline.get("summary"):
+            blocks.append(f"【章纲概要】{self.chapter_outline['summary']}")
+
+        # c-plot-split：剧情条目块（单源渲染）
         plot = _plot_block(self.plot_items)
         if plot:
             blocks.append(plot)
-
-        scene = self._scene_material_text()
-        if scene:
-            blocks.append("【场景原材料】\n" + scene)
 
         if self.characters:
             lines = []
@@ -278,8 +289,6 @@ class ChapterContext:
         # c-chapter-plan-ai：拆章五段另三块进素材（填了就要被读到，否则拆章白拆）
         if self.challenge:
             blocks.append(f"【本章要撞的墙】{self.challenge}")
-        if self.chapter_acts:
-            blocks.append("【本章必须发生的动作】\n" + "\n".join(f"- {a}" for a in self.chapter_acts))
         if self.plot_stage:
             blocks.append(f"【本章在卷剧情里的位置】{self.plot_stage}")
 
@@ -300,41 +309,19 @@ class ChapterContext:
 
     def _narrative_goals_lines(self) -> list[str]:
         goals = []
-        if self.emotional_hook:
-            goals.append(f"核心悬念：{self.emotional_hook}（本章解决/加深/转移）")
         if self.primary_mood:
             goals.append(f"读者情绪（离场感受）：{self.primary_mood}")
         if self.micro_payoffs:
-            payoff = "；".join(
-                f"{m.get('kind', '')}·{m.get('description', '')}"
-                f"（{m.get('location', '')}）".strip("（）")
-                for m in self.micro_payoffs
-                if str(m.get("description", "")).strip()
-            )
-            if payoff:
-                goals.append(f"爽点设计（读者获得）：{payoff}")
+            parts = []
+            for m in self.micro_payoffs:
+                desc = str(m.get("description", "")).strip()
+                if not desc:
+                    continue
+                label = MICRO_PAYOFF_LABELS.get(str(m.get("kind", "")).strip(), "")
+                parts.append(f"{label}·{desc}" if label else desc)
+            if parts:
+                goals.append("爽点设计（读者获得）：" + "；".join(parts))
         return goals
-
-    def _scene_material_text(self) -> str:
-        lines = []
-        for i, sc in enumerate(self.scene_cards, 1):
-            parts = [f"场景{i}｜{sc.get('scene_name', '')}".rstrip("｜")]
-            weight = _WEIGHT_LABELS.get(sc.get("weight", ""))
-            if weight:
-                parts.append(f"权重：{weight}")
-            if sc.get("focus"):
-                parts.append(f"焦点：{sc['focus']}")
-            lines.append("｜".join(parts))
-            chain = " → ".join(
-                str(sc.get(k, "")).strip()
-                for k in ("goal", "obstacle", "hook")
-                if str(sc.get(k, "")).strip()
-            )
-            if chain:
-                lines.append(f"  核心事件链（外部动作，非内心）：{chain}")
-        if self.mood_progression:
-            lines.append(f"情绪弧线：{self.mood_progression}")
-        return "\n".join(lines)
 
     def _red_lines(self) -> list[str]:
         reds: list[str] = []
@@ -408,22 +395,20 @@ class ChapterContext:
             lines.append("本卷卷纲：\n" + self.volume_outline)
         lines.append("")
 
-        # Chapter outline + 场景原材料
+        # Chapter outline
         outline = self.chapter_outline
         lines.append("## 当前章节")
         lines.append(f"章纲：{outline.get('summary', '')}")
-        key_points = outline.get("key_points", [])
-        if key_points:
-            lines.append(f"关键情节点：{'、'.join(key_points[:5])}")
-        # c-plot-split：剧情条目块（与 material_markdown 同源同字，插在场景原材料之前）
+        # 拆章两格（c-og-slim-v2 补齐）：此前只有素材包含这两块，未润色直写会丢拆章成果
+        if self.challenge:
+            lines.append(f"本章要撞的墙：{self.challenge}")
+        if self.plot_stage:
+            lines.append(f"本章在卷剧情里的位置：{self.plot_stage}")
+        # c-plot-split：剧情条目块（与 material_markdown 同源同字）
         plot = _plot_block(self.plot_items)
         if plot:
             lines.append("")
             lines.append(plot)
-        scene = self._scene_material_text()
-        if scene:
-            lines.append("")
-            lines.append(scene)
         goals = self._narrative_goals_lines()
         if goals:
             lines.append("")
@@ -512,38 +497,33 @@ async def _prev_chapter_ref(root_path: str, vol_no: int, ch_no: int) -> str | No
 
 
 def build_previous_context(prev_chapter: dict) -> tuple[str, bool]:
-    """上章章纲情绪设计 → 语义前情文本；章纲关键字段全空 → ("", False) 由调用方回退。"""
-    emotional = prev_chapter.get("emotional_design") or {}
+    """上章章纲留存字段 → 语义前情文本；全空 → ("", False) 由调用方回退。
+
+    c-og-slim-v2 换源：原来源「情绪设计（mood_progression 末段 / emotional_hook）＋
+    读者期待缺口」随字段退役，改为**上章概要 ＋ required_changes ＋ ladder_exit**——
+    这三项是作者可编辑、且拆章会写入的字段；被删的两项在页面上本就没有控件。
+    """
+    outline = prev_chapter.get("outline") or {}
     memo = prev_chapter.get("memo") or {}
 
-    mood_tail = str(emotional.get("mood_progression", "")).strip()
-    if mood_tail:
-        # 取末段（"平静→不安→紧张" 取最后一节）
-        mood_tail = mood_tail.split("->")[-1].split("→")[-1].strip()
-    hook = str(emotional.get("emotional_hook", "")).strip()
+    summary = str(outline.get("summary", "")).strip()
     changes = [
         str(c).strip()
         for c in (memo.get("required_changes") or [])
         if str(c).strip()
     ]
     ladder_exit = str(prev_chapter.get("ladder_exit", "")).strip()
-    expectation = (memo.get("reader_expectation") or {}).get("detail", "")
-    expectation = str(expectation).strip()
 
-    if not any((mood_tail, hook, changes, ladder_exit)):
+    if not any((summary, changes, ladder_exit)):
         return "", False
 
     parts = []
-    if mood_tail:
-        parts.append(f"上章结尾情绪：{mood_tail}")
-    if hook:
-        parts.append(f"上章章末情绪钩子：{hook}")
+    if summary:
+        parts.append(f"上章写的是：{summary}")
     if changes:
         parts.append("上章必须完成的改变：" + "；".join(changes))
     if ladder_exit:
         parts.append(f"上章章末落点（本章的更高起点）：{ladder_exit}")
-    if expectation:
-        parts.append(f"读者期待缺口：{expectation}")
     return "\n".join(parts), True
 
 
@@ -635,13 +615,11 @@ async def build_chapter_context(
         ctx.chapter_outline = {}
 
     # 提示词格子素材
-    ctx.scene_cards = [sc for sc in chapter.get("scene_cards") or [] if isinstance(sc, dict)]
     ctx.micro_payoffs = [
         mp for mp in chapter.get("micro_payoffs") or [] if isinstance(mp, dict)
     ]
     ctx.ladder_exit = str(chapter.get("ladder_exit", "") or "").strip()
     ctx.challenge = str(chapter.get("challenge", "") or "").strip()
-    ctx.chapter_acts = [str(a).strip() for a in (chapter.get("chapter_acts") or []) if str(a).strip()]
     ctx.plot_stage = str(chapter.get("plot_stage", "") or "").strip()
     # c-plot-split：剧情条目（assemble_chapter 恒带键；空/损坏按 [] 不阻塞）
     ctx.plot_items = [
@@ -656,8 +634,6 @@ async def build_chapter_context(
         str(p) for p in (memo.get("prohibitions") or []) if str(p).strip()
     ]
     emotional = chapter.get("emotional_design") or {}
-    ctx.mood_progression = str(emotional.get("mood_progression", "") or "").strip()
-    ctx.emotional_hook = str(emotional.get("emotional_hook", "") or "").strip()
     ctx.primary_mood = str(emotional.get("primary_mood", "") or "").strip()
 
     # 字数目标（夹取守卫；章纲未填走默认）

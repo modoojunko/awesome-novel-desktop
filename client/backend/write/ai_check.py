@@ -90,9 +90,10 @@ def _material(kind: str, chapter: dict, ctx) -> str:
     prose = str(chapter.get("prose") or "")
     blocks: list[str] = []
     ol_lines = [f"概要：{outline.get('summary', '') or '（未填）'}"]
-    kps = [str(k) for k in (outline.get("key_points") or []) if str(k).strip()]
-    if kps:
-        ol_lines.append("关键事件：" + "；".join(kps))
+    # c-og-slim-v2：关键事件退役，体检素材改取剧情条目（章纲主干）
+    plots = [str(x).strip() for x in (chapter.get("plot_items") or []) if str(x).strip()]
+    if plots:
+        ol_lines.append("剧情：" + "；".join(plots))
     blocks.append("【本章章纲】\n" + "\n".join(ol_lines))
     if prose.strip():
         blocks.append("【本章正文（节选）】\n" + prose[:4000])

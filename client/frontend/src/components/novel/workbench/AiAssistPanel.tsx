@@ -16,11 +16,12 @@ import { Ico, P } from "@/components/icons";
 import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { chapterNoOf } from "@/lib/chapterRef";
 import type { AiCheckKind, RefineMode } from "@/lib/aiCheck";
+import { REQ_FIELDS } from "./chapterForm";
 
 export interface OgStats {
-  reqOk: number; // 归档门槛已满足项（六项）
+  reqOk: number; // 归档门槛已满足项（分母＝必填项数，见 REQ_FIELDS）
   planWords: number | null;
-  keyCount: number;
+  plotCount: number;
   castCount: number;
   /** 还缺的必填项标签（原型 aiList('还缺'…)；「补全缺失字段」以它为输入） */
   missingLabels?: string[];
@@ -293,9 +294,9 @@ export function AiAssistPanel({
         <p className="ai-sec">AI 辅助 · 章纲</p>
         <p className="rail-lead">按本卷卷纲检查、补全第 {chapterNo} 章的章纲；必填项决定这一章能否归档。</p>
         {raStats([
-          ["归档门槛", `${ogStats.reqOk}/6`],
+          ["归档门槛", `${ogStats.reqOk}/${REQ_FIELDS.length}`],
           ["计划字数", ogStats.planWords ? `${ogStats.planWords.toLocaleString("zh-CN")} 字` : "未定"],
-          ["关键事件", `${ogStats.keyCount} 条`],
+          ["剧情", `${ogStats.plotCount} 条`],
           ["出场角色", `${ogStats.castCount} 人`],
         ])}
         {raList("还缺", ogStats.missingLabels ?? [], "warn")}
@@ -565,7 +566,7 @@ export function AiAssistPanel({
         重写、回退、归档都会改动主线与全书设定；归档后的写回提案在「操作」里逐条确认。
       </p>
       {raStats([
-        ["归档门槛", `${ogStats.reqOk}/6`],
+        ["归档门槛", `${ogStats.reqOk}/${REQ_FIELDS.length}`],
         ["当前状态", archived ? "已归档" : wordCount > 0 ? "草稿" : "待写"],
         [
           "下游挂着旧设定",

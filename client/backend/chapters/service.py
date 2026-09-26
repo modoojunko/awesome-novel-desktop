@@ -116,12 +116,12 @@ async def create_chapter(
         await db.refresh(row)
         from chapters.store import apply_chapter_data
 
-        # 键路径与章档案一致：summary 在 outline 内；challenge/chapter_acts/plot_stage/ladder_exit 在顶层
+        # 键路径与章档案一致：summary 在 outline 内；challenge/plot_stage/ladder_exit 在顶层
+        # （c-og-slim-v2：「本章行动」退役，「谁在场」语义由概要承载）
         payload = {
             "outline": {"summary": (fields.get("plot") or "").strip() or None},
             "challenge": (fields.get("challenge") or "").strip() or None,
             "ladder_exit": (fields.get("ending") or "").strip() or None,
-            "chapter_acts": fields.get("acts") or None,
             "plot_stage": (fields.get("stage") or "").strip() or None,
         }
         clean = {k: v for k, v in payload.items() if v and not (k == "outline" and not v.get("summary"))}

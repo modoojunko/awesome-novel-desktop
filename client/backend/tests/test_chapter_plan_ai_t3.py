@@ -640,14 +640,14 @@ class TestAdoptContract:
 
         assert _run_async(_q()) == 0
 
-    def test_adopt_validates_acts_length(self, client):
+    def test_retired_acts_accepted_and_ignored(self, client):
+        """c-og-slim-v2：「本章行动」退役——旧客户端仍发超长 acts 时不再 422，也不落库。"""
         pid = _seed_vol(client)
         r = client.post(
             f"/api/novels/{pid}/volumes/vol-1/chapters",
             json={"title": "长行动章", "acts": ["x" * 61]},
         )
-        assert r.status_code == 422, r.text
-        assert "本章行动单行不超过 60 字" in r.json()["detail"]
+        assert r.status_code == 200, r.text
 
     def test_adopt_idempotent_by_client_token(self, client):
         """同一 client_token 重放 → 同一章（spec「重复提交 SHALL 幂等」）。"""
@@ -670,8 +670,8 @@ class TestAdoptContract:
 
 
 class TestPlanCard:
-    def test_plan_card_maps_five_fields(self, client):
-        """回改卡面：五段键路径正确（summary 在 outline 内）——e2e 曾因读错路径拿到空剧情。"""
+    def test_plan_card_maps_four_fields(self, client):
+        """回改卡面：四段键路径正确（summary 在 outline 内）——e2e 曾因读错路径拿到空剧情。"""
         pid = _seed_multi(client, [
             (1, [{"no": 1, "status": "outline", "exit": "藏进夹层"}]),
         ])
@@ -687,7 +687,6 @@ class TestPlanCard:
                 row.title = "信标进舱"
                 row.summary = "捡到信标"
                 row.challenge = "没人信她"
-                row.chapter_acts = "沉舟：藏信标"
                 row.plot_stage = "重要转折"
                 await s.commit()
 
@@ -697,7 +696,7 @@ class TestPlanCard:
         assert d["plot"] == "捡到信标"
         assert d["challenge"] == "没人信她"
         assert d["ending"] == "藏进夹层"
-        assert d["acts"] == ["沉舟：藏信标"]
+        assert "acts" not in d  # c-og-slim-v2：本章行动退役
         assert d["stage"] == "重要转折"
         assert d["next_no"] == 1
         assert "entry_text" in d and "entry_source" in d
@@ -710,14 +709,16 @@ class TestPlanCard:
 
 # ── 模板契约＋卷纲聚光（提示词对齐修复的钉子）────────────────────────────
 def test_split_template_scene_state_rules():
-    """章卡模板钉住「客观局面」三处：硬规则 10、acts 含在场者、checks 缺席示例；负面清单不破。"""
+    """章卡模板钉住「客观局面」两处：硬规则 10（在场者写进剧情）、checks 缺席示例；负面清单不破。"""
     with open(
         os.path.join(os.path.dirname(__file__), "..", "prompts", "chapter_split.prompt"),
         encoding="utf-8",
     ) as f:
         src = f.read()
     assert "10. 剧情写整个场面，不只写主角" in src
-    assert "在场其他人物的关键动作也各占一条" in src
+    # c-og-slim-v2：在场者约束由「本章行动」移入剧情（该格退役）
+    assert "在场的其他人物、群体写进剧情里" in src
+    assert "acts" not in src
     assert "这一章没出场" in src
     assert "【伏笔台账】" not in src and "【主线全景】" not in src  # 负面清单（§5）不破
 

@@ -122,13 +122,10 @@ class TestExportFromDb:
         assert r3.status_code in (200, 201), r3.text
         ref = r3.json()["ref"]
 
-        # 章纲（分段）+ 正文
+        # 章纲（剧情条目）+ 正文（c-og-slim-v2：段落规划退役，改用剧情条目）
         ch = client.get(f"/api/novels/{pid}/chapters/{ref}").json()
         ch["prose"] = LONG_TEXT
-        ch["segments"] = [
-            {"summary": "城门初见", "target_words": 800},
-            {"summary": "遇到商人", "target_words": 1200},
-        ]
+        ch["plot_items"] = ["城门初见", "遇到商人"]
         r4 = client.put(f"/api/novels/{pid}/chapters/{ref}", json=ch)
         assert r4.status_code == 200, r4.text
 
@@ -173,7 +170,7 @@ class TestExportFromDb:
         chd = yaml.safe_load(zf.read(f"chapters/{ref}.yaml"))
         assert chd["title"] == "第一章"
         assert "灯火在雨里摇晃" in chd["prose"]
-        assert [s["summary"] for s in chd["segments"]] == ["城门初见", "遇到商人"]
+        assert chd["plot_items"] == ["城门初见", "遇到商人"]
 
         # 5. 版本快照（保存正文时统一入口落快照）
         version_names = [n for n in names if n.startswith(f"versions/{ref}/")]

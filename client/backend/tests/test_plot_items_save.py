@@ -92,7 +92,8 @@ def test_normalize_budget_and_newline_intact():
     out = normalize_plot_items(["汉" * 205, "含\n换行的一条", 5])
     assert len(out[0]) == PLOT_MAX_LEN
     assert out[1] == "含\n换行的一条"  # 含换行的条目单条完整保留，不切条
-    assert out[2] == "5"
+    # c-og-slim-v2：非字符串项丢弃（不再 str() 成 "5" / "{'text':…}" 落库）
+    assert len(out) == 2
     assert len(normalize_plot_items([f"第{i}条" for i in range(15)])) == PLOT_MAX_ITEMS
 
 

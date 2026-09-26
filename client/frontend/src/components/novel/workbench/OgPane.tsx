@@ -1,22 +1,19 @@
-// 章纲面板（book.html renderOgPane 复刻）：5 个 details.cfg 字段组全字段
-// + 主情绪选择（9 选 + 自定义 ≤50）+ 段落规划行（增删/上移/合计）
-// + 提示词格子（ai-prompt-crafting）：场景卡行（名/目标/阻碍/钩子 + 权重 + 焦点）、
-// 读者获得列表（7 类型 + 描述 + 前中后位置）、章末落点、本章目标字数。
+// 章纲面板（book.html renderOgPane 复刻）：留存格子按 details.cfg 分组
+// + 主情绪选择（9 选 + 自定义 ≤50）
+// + 读者获得列表（类型 + 描述）、章末落点、本章目标字数、碰到的挑战、阶段。
 // 确认缺读者获得时仅提醒不阻断（存量章不回溯）。
-// + gap-line 缺字段 chip（点击滚动 flash 1400ms + focus）+ 底部三按钮。
-// 必填口径 = 后端 gate_chapter_ready 四项（rstrat/changes/mood/segs；c-og-fields-slim 六改四）。
+// + 剧情区（c-plot-split 条目列表）、缺字段 chip（点击滚动 flash 1400ms + focus）+ 底部三按钮。
+// 必填口径 = 后端 gate_chapter_ready 两项（必须完成的变化、主情绪；c-og-slim-v2 四改二）。
+// c-og-slim-v2 退役格子：关键事件/地点/时间/叙事视角/视角指导/预期策略/预期细节/
+// 可部分推进/段落规划/本章行动/场景卡（含权重与焦点）——控件与折叠组整组摘除。
 import { useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
   PAYOFF_KINDS,
-  PAYOFF_LOCATIONS,
   PLOT_MAX_ITEMS,
   PLOT_MAX_LEN,
-  SCENE_FOCUS,
-  SCENE_WEIGHTS,
   type OgForm,
   type OgPayoff,
-  type OgScene,
 } from "./chapterForm";
 
 interface OgPaneProps {
@@ -72,7 +69,6 @@ export default function OgPane({
   const moodVal = form.mood || "";
   const moodCustom = moodVal && !MOODS.includes(moodVal) ? moodVal : "";
   const moodSel = moodCustom ? "__custom" : moodVal;
-  const segTotal = form.segs.reduce((a, s) => a + (parseInt(String(s.w), 10) || 0), 0);
   const payoffFilled = form.payoffs.some((p) => p.d.trim());
   // 缺读者获得的确认提醒：一次会话提醒一次，不阻断确认（存量章不回溯）
   const [payoffReminded, setPayoffReminded] = useState(false);
@@ -86,11 +82,6 @@ export default function OgPane({
   while (plotIds.current.length < plotRows.length) plotIds.current.push(++plotSeq.current);
   if (plotIds.current.length > plotRows.length) plotIds.current.length = plotRows.length;
 
-  const patchScene = (i: number, patch: Partial<OgScene>) => {
-    const scenes = form.scenes.slice();
-    scenes[i] = { ...scenes[i], ...patch };
-    onPatch({ scenes });
-  };
   const patchPayoff = (i: number, patch: Partial<OgPayoff>) => {
     const payoffs = form.payoffs.slice();
     payoffs[i] = { ...payoffs[i], ...patch };
@@ -169,18 +160,6 @@ export default function OgPane({
             </div>
             <div className="field">
               <label>
-                关键事件 <span className="opt">一行一个</span>
-              </label>
-              <textarea
-                className="textarea"
-                id="wf-keys"
-                placeholder="一个关键事件"
-                value={form.keys}
-                onChange={(e) => onPatch({ keys: e.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label>
                 出场角色 <span className="opt">点选角色卡；也可直接输入名字</span>
               </label>
               {characterNames && characterNames.length > 0 && (
@@ -218,78 +197,33 @@ export default function OgPane({
               />
             </div>
             <div className="tpl-row">
-              <div className="field tpl-select">
-                <label>地点</label>
+              <div className="field">
+                <label>
+                  碰到的挑战 <span className="opt">拆章填的「这一章要撞的墙」</span>
+                </label>
                 <input
                   className="input"
-                  id="wf-loc"
-                  placeholder="本章主要场景地点"
-                  value={form.loc}
-                  onChange={(e) => onPatch({ loc: e.target.value })}
+                  id="wf-challenge"
+                  placeholder="如：旧档堆不对活人开放——查档本身就要违规"
+                  value={form.challenge}
+                  onChange={(e) => onPatch({ challenge: e.target.value })}
                 />
               </div>
-              <div className="field stage-map">
-                <label>时间</label>
-                <input
+              <div className="field">
+                <label>
+                  阶段 <span className="opt">本章在卷剧情里的位置</span>
+                </label>
+                <select
                   className="input"
-                  id="wf-time"
-                  placeholder="本章时间背景"
-                  value={form.time}
-                  onChange={(e) => onPatch({ time: e.target.value })}
-                />
+                  id="wf-stage"
+                  value={form.stage}
+                  onChange={(e) => onPatch({ stage: e.target.value })}
+                >
+                  {["开局铺垫", "冲突初现", "矛盾升级", "重要转折", "高潮爆发", "卷末收束"].map((st) => (
+                    <option key={st} value={st}>{st}</option>
+                  ))}
+                </select>
               </div>
-            </div>
-            <div className="field">
-              <label>叙事视角</label>
-              <input
-                className="input"
-                id="wf-pov"
-                placeholder="如：第三人称有限"
-                value={form.pov}
-                onChange={(e) => onPatch({ pov: e.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label>视角指导</label>
-              <textarea
-                className="textarea"
-                id="wf-pguid"
-                placeholder="视角切换注意事项"
-                value={form.pguid}
-                onChange={(e) => onPatch({ pguid: e.target.value })}
-              />
-            </div>
-          </div>
-        </details>
-
-        <details className="cfg" open>
-          <summary>
-            预期策略 <Chev />
-          </summary>
-          <div className="inner">
-            <div className="field">
-              <label>
-                预期策略 <span className="req">*</span>
-              </label>
-              <textarea
-                className="textarea"
-                id="wf-rstrat"
-                placeholder="希望读者如何感受"
-                value={form.rstrat}
-                onChange={(e) => onPatch({ rstrat: e.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label>
-                预期细节说明 <span className="opt">可后补</span>
-              </label>
-              <textarea
-                className="textarea"
-                id="wf-rdetail"
-                placeholder="策略的展开方式与分寸"
-                value={form.rdetail}
-                onChange={(e) => onPatch({ rdetail: e.target.value })}
-              />
             </div>
           </div>
         </details>
@@ -321,18 +255,6 @@ export default function OgPane({
                 placeholder="一个必须维持的悬念"
                 value={form.mhold}
                 onChange={(e) => onPatch({ mhold: e.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label>
-                可部分推进 <span className="opt">一行一个</span>
-              </label>
-              <textarea
-                className="textarea"
-                id="wf-padv"
-                placeholder="一个可部分推进的线索"
-                value={form.padv}
-                onChange={(e) => onPatch({ padv: e.target.value })}
               />
             </div>
             <div className="field">
@@ -402,132 +324,6 @@ export default function OgPane({
           </div>
         </details>
 
-        <details className="cfg" id="wf-scenes">
-          <summary>
-            场景卡 <span className="opt">提示词原材料 · 可空</span>
-            <Chev />
-          </summary>
-          <div className="inner">
-            <p
-              className="note"
-              style={{ fontSize: "12.5px", color: "var(--muted)", margin: "0 0 10px" }}
-            >
-              每卡一条外部动作链（目标 → 阻碍 → 钩子）；权重决定笔墨分配，焦点决定展开方向。
-            </p>
-            <div className="seg-list" data-testid="scene-list">
-              {form.scenes.map((sc, i) => (
-                <div className="scene-card" key={i} data-scene={i}>
-                  <div className="scene-head">
-                    <span className="num seg-i">{i + 1}</span>
-                    <input
-                      className="input"
-                      data-scene="n"
-                      placeholder="场景名，如：酒馆对峙"
-                      value={sc.n}
-                      onChange={(e) => patchScene(i, { n: e.target.value })}
-                    />
-                    <select
-                      className="input"
-                      data-scene="w"
-                      title="权重（笔墨分配）"
-                      value={sc.w}
-                      onChange={(e) => patchScene(i, { w: e.target.value as OgScene["w"] })}
-                    >
-                      <option value="">权重</option>
-                      {SCENE_WEIGHTS.map((x) => (
-                        <option key={x.value} value={x.value}>
-                          {x.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className="input"
-                      data-scene="f"
-                      title="焦点（展开方向）"
-                      value={sc.f}
-                      onChange={(e) => patchScene(i, { f: e.target.value as OgScene["f"] })}
-                    >
-                      <option value="">焦点</option>
-                      {SCENE_FOCUS.map((f) => (
-                        <option key={f} value={f}>
-                          {f}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="acts">
-                      <button
-                        className="icon-btn"
-                        title="上移"
-                        disabled={i === 0}
-                        onClick={() => {
-                          const scenes = form.scenes.slice();
-                          const [x] = scenes.splice(i, 1);
-                          scenes.splice(i - 1, 0, x);
-                          onPatch({ scenes });
-                        }}
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M6 15l6-6 6 6" />
-                        </svg>
-                      </button>
-                      <button
-                        className="icon-btn"
-                        title="删除场景卡"
-                        onClick={() => {
-                          const scenes = form.scenes.slice();
-                          scenes.splice(i, 1);
-                          onPatch({ scenes });
-                        }}
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
-                        </svg>
-                      </button>
-                    </span>
-                  </div>
-                  <div className="scene-chain">
-                    <input
-                      className="input"
-                      data-scene="g"
-                      placeholder="目标（他想要什么）"
-                      value={sc.g}
-                      onChange={(e) => patchScene(i, { g: e.target.value })}
-                    />
-                    <input
-                      className="input"
-                      data-scene="o"
-                      placeholder="阻碍（谁/什么拦住他）"
-                      value={sc.o}
-                      onChange={(e) => patchScene(i, { o: e.target.value })}
-                    />
-                    <input
-                      className="input"
-                      data-scene="h"
-                      placeholder="钩子（留什么悬念）"
-                      value={sc.h}
-                      onChange={(e) => patchScene(i, { h: e.target.value })}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="seg-add-row">
-              <button
-                className="btn btn-secondary btn-sm sub-add"
-                data-add="scene"
-                onClick={() =>
-                  onPatch({ scenes: [...form.scenes, { n: "", g: "", o: "", h: "", w: "", f: "" }] })
-                }
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-                添加场景卡
-              </button>
-            </div>
-          </div>
-        </details>
-
         <details className="cfg" id="wf-payoffs">
           <summary>
             读者获得与章末落点 <span className="opt">提示词原材料 · 可空</span>
@@ -572,20 +368,6 @@ export default function OgPane({
                     value={mp.d}
                     onChange={(e) => patchPayoff(i, { d: e.target.value })}
                   />
-                  <select
-                    className="input"
-                    data-payoff="l"
-                    title="位置"
-                    value={mp.l}
-                    onChange={(e) => patchPayoff(i, { l: e.target.value as OgPayoff["l"] })}
-                  >
-                    <option value="">位置</option>
-                    {PAYOFF_LOCATIONS.map((l) => (
-                      <option key={l} value={l}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
                   <span className="acts">
                     <button
                       className="icon-btn"
@@ -609,7 +391,7 @@ export default function OgPane({
                 className="btn btn-secondary btn-sm sub-add"
                 data-add="payoff"
                 onClick={() =>
-                  onPatch({ payoffs: [...form.payoffs, { k: "clue", d: "", l: "" }] })
+                  onPatch({ payoffs: [...form.payoffs, { k: "clue", d: "" }] })
                 }
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -617,50 +399,6 @@ export default function OgPane({
                 </svg>
                 添加读者获得
               </button>
-            </div>
-            {/* 拆章三格（c-chapter-plan-ai）：拆章填过的这里能看到、能改；整表回传，别清空 */}
-            <div className="tpl-row">
-              <div className="field">
-                <label>
-                  碰到的挑战 <span className="opt">拆章填的「这一章要撞的墙」</span>
-                </label>
-                <input
-                  className="input"
-                  id="wf-challenge"
-                  placeholder="如：旧档堆不对活人开放——查档本身就要违规"
-                  value={form.challenge}
-                  onChange={(e) => onPatch({ challenge: e.target.value })}
-                />
-              </div>
-              <div className="field">
-                <label>
-                  阶段 <span className="opt">本章在卷剧情里的位置</span>
-                </label>
-                <select
-                  className="input"
-                  id="wf-stage"
-                  value={form.stage}
-                  onChange={(e) => onPatch({ stage: e.target.value })}
-                >
-                  {["开局铺垫", "冲突初现", "矛盾升级", "重要转折", "高潮爆发", "卷末收束"].map((st) => (
-                    <option key={st} value={st}>{st}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="field">
-              <label>
-                本章行动 <span className="opt">谁做了什么，一行一条（最多 4 条）</span>
-              </label>
-              <textarea
-                className="textarea"
-                id="wf-acts"
-                rows={3}
-                maxLength={244}
-                placeholder="如：沉舟：调档、撕页收存"
-                value={form.acts}
-                onChange={(e) => onPatch({ acts: e.target.value })}
-              />
             </div>
             <div className="tpl-row">
               <div className="field">
@@ -742,100 +480,6 @@ export default function OgPane({
             <span className="f-hint">写了就自动保存</span>
           </div>
         </section>
-
-        <details className="cfg" id="wf-segs" open>
-          <summary>
-            段落规划 <span className="req">*</span>{" "}
-            <span className="tag">章内节奏拆解；正文按整章生成</span>
-            <Chev />
-          </summary>
-          <div className="inner">
-            <div className="seg-list">
-              {form.segs.length === 0 && (
-                <p
-                  className="note"
-                  style={{ fontSize: "12.5px", color: "var(--muted)", margin: "0 0 10px" }}
-                >
-                  尚未规划段落 · 至少一段才能确认章纲
-                </p>
-              )}
-              {form.segs.map((s, i) => (
-                <div className="seg-row" key={i}>
-                  <span className="num seg-i">{i + 1}</span>
-                  <textarea
-                    className="input"
-                    data-seg="s"
-                    rows={2}
-                    placeholder="段落概要，如：港区之夜 · 信标亮起"
-                    value={s.s}
-                    onChange={(e) => {
-                      const segs = form.segs.slice();
-                      segs[i] = { ...segs[i], s: e.target.value };
-                      onPatch({ segs });
-                    }}
-                  />
-                  <input
-                    className="input num"
-                    data-seg="w"
-                    type="number"
-                    min={100}
-                    step={100}
-                    value={s.w}
-                    onChange={(e) => {
-                      const segs = form.segs.slice();
-                      segs[i] = { ...segs[i], w: parseInt(e.target.value, 10) || 0 };
-                      onPatch({ segs });
-                    }}
-                  />
-                  <span className="acts">
-                    <button
-                      className="icon-btn"
-                      title="上移"
-                      disabled={i === 0}
-                      onClick={() => {
-                        const segs = form.segs.slice();
-                        const [x] = segs.splice(i, 1);
-                        segs.splice(i - 1, 0, x);
-                        onPatch({ segs });
-                      }}
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M6 15l6-6 6 6" />
-                      </svg>
-                    </button>
-                    <button
-                      className="icon-btn"
-                      title="删除段落"
-                      onClick={() => {
-                        const segs = form.segs.slice();
-                        segs.splice(i, 1);
-                        onPatch({ segs });
-                      }}
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
-                      </svg>
-                    </button>
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div className="seg-add-row">
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() => onPatch({ segs: [...form.segs, { s: "", w: 800 }] })}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-                添加段落
-              </button>
-              <span className="seg-total">
-                合计 <b className="num">{segTotal.toLocaleString("zh-CN")}</b> 字
-              </span>
-            </div>
-          </div>
-        </details>
 
         <div className="panel-foot">
           {gaps.length > 0 ? (

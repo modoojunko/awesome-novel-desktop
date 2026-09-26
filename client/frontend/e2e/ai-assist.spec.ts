@@ -9,7 +9,7 @@ import { cleanupSessionNovels, stableClick } from "./helpers";
 // AI 辅助·检测/精修族 E2E（workbench-ai-acts 补货批次，本地桩 AI 全链）：
 //   ① 检测族六类（就地弹窗）：章纲「与卷纲冲突检测」→ 文风「文风一致性检查」
 //      「标记偏离段落」（空态）→ 关系「关系冲突检测」「建议补边」→ 伏笔「伏笔冲突检测」
-//   ② 章纲「补全缺失字段」：还缺清单 → AI 回填表单（含段落规划）→ 缺口清零
+//   ② 章纲「补全缺失字段」：还缺清单 → AI 回填表单（c-og-slim-v2：必填两项）→ 缺口清零
 //   ③ 提示词「精简提示词」：精修弹窗 → 采纳并保存 → 走既有提示词保存链
 //   ④ 免费档：检测/精修动作整体锁定，且不发 /ai-check 请求
 // 桩：node http（容器经 host.docker.internal 访问），OpenAI 兼容；按 system 指令
@@ -40,15 +40,14 @@ function stubContent(prompt: string): string {
     });
   }
   if (prompt.includes("你是长篇小说章纲编辑")) {
+    // c-og-slim-v2：白名单只剩留存可写格；此处的 strategy/segments 属退役键，
+    // 服务端会丢弃（同时验证「退役键不进回填」）
     return JSON.stringify({
       fills: {
-        strategy: "顺着章纲推进，不提前揭破",
         changes: ["主角与师父决裂"],
         mood: "紧张",
-        segments: [
-          { summary: "上船前讨价", target_words: 900 },
-          { summary: "雾中第二人", target_words: 900 },
-        ],
+        strategy: "顺着章纲推进，不提前揭破",
+        segments: [{ summary: "上船前讨价", target_words: 900 }],
       },
     });
   }
@@ -254,14 +253,13 @@ test("PRO：检测族六类弹窗＋章纲补缺＋提示词精修采纳", async
     await expect(list.getByText("渡口封江时间")).toBeVisible();
     await modal.locator(".mcard-foot").getByRole("button", { name: "关闭" }).click();
 
-    // ── 章纲补缺：AI 回填表单（含段落规划），缺口清零 ────────────────────
+    // ── 章纲补缺：AI 回填表单（必填两项），缺口清零 ──────────────────────
     await rail.getByRole("button", { name: /补全缺失字段/ }).click();
     await expect(page.getByText(/已补 \d+ 项/)).toBeVisible({ timeout: 20000 });
-    await expect(page.locator("textarea#wf-rstrat")).toHaveValue(
-      "顺着章纲推进，不提前揭破",
-      { timeout: 10000 },
-    );
-    // 四项必填补齐 → 「还缺」清单消失（右栏随表单刷新；c-og-fields-slim）
+    await expect(page.locator("textarea#wf-changes")).toHaveValue("主角与师父决裂", {
+      timeout: 10000,
+    });
+    // 两项必填补齐 → 「还缺」清单消失（右栏随表单刷新；c-og-slim-v2 两项口径）
     await expect(rail.getByText("还缺")).toHaveCount(0, { timeout: 10000 });
 
     // ── 文风页签：一致性检查（有 findings）＋标记偏离段落（空态）────────

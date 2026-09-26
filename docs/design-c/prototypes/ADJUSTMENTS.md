@@ -1126,6 +1126,11 @@ cast-row，坎行复用 hurdle-row；色彩与组件零新形态。
    文案口径：用户可见层不出现文件名/版本号（「找回我的书」→「把上一版的作品带过来」）。
    parity 口径：原型把「旧版作品…带过来」段按状态变体处理（`data-od-id="fr-note-prior"`
    默认 `display:none`，对应 app 在无候选时不渲染该段）——parity 只拍默认态，故两侧一致。
+   **2026-09-26 更正（c-og-slim-v2 顺带修）**：上述「两侧一致」与实际不符——实现侧当时把出口行
+   另起一个 `fr-note` 放在 `.fr-steps` **之前**，并在 CTA 下重复了一次「免费版可创建 1 部作品 ·
+   无需绑卡」，原型则只有 CTA 之后**一行**（出口与免费版文案同句）。后果：`design:check` 书架屏
+   `empty` 长期 1.44% 像素差（超 0.2% 阈值）。本批按「原型即基线」把实现收拢回一行（出口＋免费版
+   文案同句，位置＝CTA 之后），`design:check` 8/8 转绿；原型未改。
 
 
 ## c-chapter-plan-ai（卷下拆章）收编登记 — 2026-09-23
@@ -1209,3 +1214,20 @@ cast-row，坎行复用 hurdle-row；色彩与组件零新形态。
   2. `.toast` 补 `pointer-events:auto`（base.css:120 同款，注释即「撤销按钮」用例）——原缺陷：`.toast-wrap` 的 none 穿透导致回执撤销钮不可点。
 - **文案自查（design-language §13）**：按钮词动词（加一条／删掉这一条／换一批／自己写／就填这版／再试一次／去模型配置／升级 PRO／给我 3 版剧情）；失败语句带三个可点击出口；无内部术语；语气沿用 info/ok/warn/err 无新形态；剧情这处用作家大白话，其他字段叫法未动。
 - **验收证据**：Playwright 六态冒烟 20/20 PASS（零 console 错误，含撤销/常驻/下次编辑收掉/自己写不丢内容断言）＋ design:lint 0 违规；对照截图 `docs/design-c/drafts/c-plot-split-shots/`（01-empty/02-filled/03-free-locked/04-draw-cards/05-draw-error/06-adopted-receipt）。视觉观感未做结论（模型看不了图），待用户过目。
+
+## c-og-slim-v2（章纲字段瘦身：11 格退役＋必填两项）— 2026-09-26
+
+原型 `book.html`（章纲页签 `chapterFormHTML` 与 `readCh`/`chGaps` 同源改动；实现侧 `OgPane`/`chapterForm` 同批）：
+
+- **撤格**：章纲概要组删「关键事件／地点／时间／叙事视角／视角指导」；整组删「预期策略」（含预期细节说明）；
+  「兑现与约束」组删「可部分推进」；整组删「段落规划」（含 `segRowsHTML`/`bindSegRows`/`rerenderSegs`/`updateSegTotal`
+  四个辅助函数与行内增删上移绑定）。
+- **补格**：章纲概要组在「出场角色」后补 `tpl-row`＝「碰到的挑战」（input）＋「阶段」（六档 select，默认开局铺垫）——
+  拆章页签排上时写入的这两格，在章纲页此前只能看到不能改（实现侧同批补齐）。
+- **必填口径两项**：`REQUIRED = ['changes', 'mood']`、`REQ_LABELS` 同步；`chGaps` 去掉段落规划的特判分支。
+- **CSS 退役**：`.seg-row` 家族（9 行）与 `.seg-total`（2 行）删除；`.seg-add-row` 保留（实现侧「读者获得」列表复用）。
+- **理由与依据**：见 `openspec/changes/c-og-slim-v2/proposal.md`（同义堆积：发生什么 6 种说法、结尾 3 种、读者侧 4 种）
+  与 `design.md`（D1 删列走模型摘除、D2 子表三处收口、D7 场景卡权重不迁移）。
+- **parity 影响**：章纲全字段本就不在 parity 截图比对范围（§「未动原型」清单第 259 行口径），
+  本次原型与实现同批收缩，不新增偏差；`design:check` 基线不受影响（无新增/改名共享类）。
+- **文案自查（design-language §13）**：无新增文案；「碰到的挑战／阶段」沿用拆章页签既有措辞。

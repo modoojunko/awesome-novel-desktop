@@ -1,7 +1,8 @@
 """ai-prompt-crafting — 章纲新格子（提示词格子）拆装与迁移测试
 
-验证：ladder_exit 标量、scene_cards weight/focus（含非法枚举置空）、micro_payoffs
-子表的 JSON→表→JSON 往返；旧 JSON 无新键保存不报错；应用 lifespan 二次启动幂等。
+验证：ladder_exit 标量、micro_payoffs 子表的 JSON→表→JSON 往返（c-og-slim-v2：
+scene_cards 与读者获得位置档已退役——写入被忽略、装配不输出）；旧 JSON 无新键保存
+不报错；应用 lifespan 二次启动幂等。
 
 用法：
     cd client/backend
@@ -90,41 +91,24 @@ def test_prompt_crafting_fields_round_trip():
             "title": "第一章",
             "prose": "",
             "ladder_exit": "拿到半张地图，连夜出门，更不安",
+            # 已退役键：写入被忽略（不落库、不报错）
             "scene_cards": [
-                {
-                    "scene_name": "酒馆对峙",
-                    "goal": "问出货源",
-                    "obstacle": "掌柜装傻",
-                    "hook": "角落有人盯梢",
-                    "weight": "high",
-                    "focus": "核心冲突",
-                },
-                {
-                    "scene_name": "巷口转场",
-                    "goal": "脱身",
-                    "obstacle": "巡夜",
-                    "hook": "",
-                    "weight": "超界值",
-                    "focus": "信息差",
-                },
+                {"scene_name": "酒馆对峙", "weight": "high", "focus": "核心冲突"},
             ],
+            "segments": [{"summary": "酒馆", "target_words": 800}],
             "micro_payoffs": [
                 {"kind": "clue", "description": "主角拿到半块玉佩", "location": "中段"},
-                {"kind": "emotion", "description": "与师父决裂的痛感", "location": "后段"},
+                {"kind": "emotion", "description": "与师父决裂的痛感"},
             ],
         }
         await save_chapter(project.root_path, ref, data)
         loaded = await load_chapter(project.root_path, ref)
         assert loaded["ladder_exit"] == "拿到半张地图，连夜出门，更不安"
-        assert len(loaded["scene_cards"]) == 2
-        first, second = loaded["scene_cards"]
-        assert first["weight"] == "high" and first["focus"] == "核心冲突"
-        # 非法枚举置空：读侧不出现该键
-        assert "weight" not in second
-        assert second["focus"] == "信息差"
+        assert "scene_cards" not in loaded and "segments" not in loaded
+        # 读者获得：类型 + 描述往返，位置档不再输出
         assert loaded["micro_payoffs"] == [
-            {"kind": "clue", "description": "主角拿到半块玉佩", "location": "中段"},
-            {"kind": "emotion", "description": "与师父决裂的痛感", "location": "后段"},
+            {"kind": "clue", "description": "主角拿到半块玉佩"},
+            {"kind": "emotion", "description": "与师父决裂的痛感"},
         ]
 
     _run_async(_run())

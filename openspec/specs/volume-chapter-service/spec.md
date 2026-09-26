@@ -70,7 +70,7 @@ TBD - created by archiving change 006-volume-chapter-service. Update Purpose aft
 
 - The system SHALL provide `chapters/service.py` with `create_chapter(db, project, volume_ref, title, plot=None, challenge=None, ending=None, acts=None, stage=None)` locating the volume via `volume_repo.get_by_ref_or_number` (tolerating `.yaml`), computing `chapter_no = max_chapter_no + 1`, `ref = f"vol-{vol.volume_no}-ch-{chapter_no}"`.
 - 章 SHALL 以 **DB 行为唯一所有者**（本块同时修正此前规格残留的 YAML 双主表述：建章 SHALL NOT 写任何章 YAML 文件；读取即真相，不存在"从文件自愈"路径）。Creation SHALL insert the DB row (`status='outline'`, `word_count=0`, `has_prose=False`, `outline_status='unfilled'`) → `vol.chapter_count += 1` and `project.total_chapters += 1` in the same session/commit.
-- 拆章排上（请求体五段非空时）SHALL 在**同一事务**内经既有装配写回（`store.apply_chapter_data`——其 SHALL NOT 自行 commit）写入：本章剧情→`summary`、本章结尾→`ladder_exit`、挑战→`challenge`、行动→`chapter_acts`、阶段→`plot_stage`；SHALL NOT 出现"章已建、关键剧情字段为空"的中间态。SHALL NOT 为五段新写第二套标量写入路径。
+- 拆章排上（请求体四段非空时）SHALL 在**同一事务**内经既有装配写回（`store.apply_chapter_data`——其 SHALL NOT 自行 commit）写入：本章剧情→`summary`、本章结尾→`ladder_exit`、挑战→`challenge`、阶段→`plot_stage`（c-og-slim-v2：「本章行动」`chapter_acts` 退役，键被服务端忽略）；SHALL NOT 出现"章已建、关键剧情字段为空"的中间态。SHALL NOT 为四段新写第二套标量写入路径。
 - 请求校验 SHALL 在 API schema 层**先于建章**：`stage` 越出六档闭集、`acts` 超 4 行或单行超 60 字、任一字段超 DB 列宽 → 422 且 SHALL NOT 建章。
 - 重复提交 SHALL 幂等：`(novel_id, ref)` 唯一约束冲突 SHALL 被捕获、重读既有行并按成功返回（两响应指向同一章），SHALL NOT 冒 500（#457 卷上同类事故只修了前端的服务端补课）。
 - Creation SHALL **no longer write the embedded `chapters` list in `volumes/vol-N.yaml`**（卷 YAML 内嵌清单路径已随数据全量入库退役——卷详情即真相）。
@@ -83,7 +83,7 @@ TBD - created by archiving change 006-volume-chapter-service. Update Purpose aft
 
 #### Scenario: 拆章排上一次写全
 - **WHEN** `POST /volumes/vol-1/chapters` 携带 `{title, plot, challenge, ending, acts, stage}` 被调用
-- **THEN** 返回的章同时带齐五段（剧情/挑战/结尾/行动/阶段），任一环节失败 SHALL 回滚且不留章
+- **THEN** 返回的章同时带齐四段（剧情/挑战/结尾/阶段），任一环节失败 SHALL 回滚且不留章
 
 #### Scenario: 重复提交幂等
 - **WHEN** 同一请求在极短时间内到达两次
@@ -114,11 +114,11 @@ TBD - created by archiving change 006-volume-chapter-service. Update Purpose aft
 
 #### Scenario: 保存章纲保留拆章三列
 - **WHEN** 对拆章排上的章保存章纲（整表回传）
-- **THEN** challenge/chapter_acts/plot_stage 原样保留，word_count/status 按本次内容刷新
+- **THEN** challenge/plot_stage 原样保留，word_count/status 按本次内容刷新
 
 #### Scenario: 拆章三列在任一保存路径均不丢失
 - **WHEN** 正文自动保存与章纲保存先后发生
-- **THEN** 先写入方的 challenge/chapter_acts/plot_stage 在后一次保存后仍原样（无旧快照互抹窗口）
+- **THEN** 先写入方的 challenge/plot_stage 在后一次保存后仍原样（无旧快照互抹窗口）
 
 ### Requirement: chapter service — read-path self-heal + confirm + delete + versions restore
 

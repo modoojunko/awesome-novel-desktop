@@ -93,8 +93,8 @@ export function useVolumePlan(projectId: string) {
         const cur = stateRef.current;
         // 恢复①内存批：同卷号且存在未消费批（误关重开）——不重抽、不重复计量
         if (cur.volNo === volNo && cur.plans.length > 0 && cur.pickPhase === "idle") {
-          // 恢复批次，但一次性载荷（落点/回填）不得复活
-          setState((s) => ({ ...s, volNo, openMode: mode, pickOpen: true, confirmResult: null, autoBackfill: false }));
+          // 恢复批次，但一次性载荷（落点/回填）与选中态（pickPick）不得复活
+          setState((s) => ({ ...s, volNo, openMode: mode, pickOpen: true, confirmResult: null, autoBackfill: false, pickPick: null }));
           return;
         }
         // 恢复②localStorage（页面刷新兜底）
@@ -208,7 +208,7 @@ export function useVolumePlan(projectId: string) {
         excludeRef.current = [];
         clearDraw(drawKey.volume(projectId, d.vol_no));
         setState((s) => ({
-          ...s, confirming: false, pickOpen: false, exclude: [], plans: [],
+          ...s, confirming: false, pickOpen: false, exclude: [], plans: [], pickPick: null,
           confirmResult: { volNo: d.vol_no, draft: done, warnings: d.warnings ?? [] },
         }));
         return true;
@@ -223,10 +223,14 @@ export function useVolumePlan(projectId: string) {
     [projectId, state.volNo],
   );
 
-  /** 取消（Esc/背景/关钮）：写请求发出前＝丢弃 pending；发出后由 confirming 锁 UI */
+  /** 取消（Esc/背景/关钮）：写请求发出前＝丢弃 pending；发出后由 confirming 锁 UI。
+   *
+   *  选中态（pickPick）是**本次弹窗会话的临时态，关窗即弃**：否则「取消后重开」会走
+   *  恢复原批（c-plan-draw-exclude 恢复①），上次那张卡仍 `on`，用户再点同一张卡会被
+   *  selectCard 的 toggle 判成「取消选择」→ 确认钮恒禁用、卡死无法成卷。 */
   const closePick = useCallback(() => {
     cancelPending();
-    setState((s) => ({ ...s, pickOpen: false, confirming: false }));
+    setState((s) => ({ ...s, pickOpen: false, confirming: false, pickPick: null }));
   }, []);
 
   const toDesk = useCallback(() => {

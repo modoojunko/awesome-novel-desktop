@@ -17,7 +17,7 @@ from auth_local.middleware import get_current_user
 from db import async_session
 from filesystem.storage import get_storage
 from main import app
-from models.chapter import Chapter, ChapterCharacter, ChapterKeyPoint
+from models.chapter import Chapter, ChapterCharacter
 from models.hook import NovelHook
 from models.project import Novel
 from models.volume import Volume
@@ -52,8 +52,6 @@ async def _seed(plots: list | None = None) -> tuple[str, str]:
             project_id=proj.id, volume_id=vol.id, chapter_no=1,
             ref=REF, title="第1章", status="outline",
             summary="林晚在渡口等一班不存在的船。",
-            location="临江渡口",
-            current_task="查清匿名信的来路",
         )
         if plots:
             ch.plot_items = json.dumps(plots, ensure_ascii=False)
@@ -63,7 +61,6 @@ async def _seed(plots: list | None = None) -> tuple[str, str]:
         )
         session.add(ch)
         await session.flush()
-        session.add(ChapterKeyPoint(chapter_id=ch.id, sort_order=1, func_tag="造悬念", content="匿名信被尾随"))
         session.add(ChapterCharacter(chapter_id=ch.id, sort_order=1, character_name="林晚"))
         session.add(NovelHook(
             novel_id=proj.id, seq=1, description="谁在暗中跟着她",
@@ -108,9 +105,10 @@ class TestPromptSources:
         assert "匿名信牵出旧案" in by_key["book"]["preview"]
         # ② 卷纲未填 → empty
         assert by_key["volume"]["empty"] is True and by_key["volume"]["chars"] == 0
-        # ③ 章纲：概要 + 关键情节点（带标签格式）
+        # ③ 章纲：概要 + 出场角色；关键情节点与场景行随 c-og-slim-v2 退役
         assert "等一班不存在的船" in by_key["outline"]["preview"]
-        assert "[造悬念]匿名信被尾随" in by_key["outline"]["preview"]
+        assert "关键情节点" not in by_key["outline"]["preview"]
+        assert "场景：" not in by_key["outline"]["preview"]
         # 剧情条目空则不计（c-plot-split）
         assert "剧情条目" not in by_key["outline"]["preview"]
         # ④ 文风：影子行覆盖基线（本章覆盖标记）+ 禁用词单源

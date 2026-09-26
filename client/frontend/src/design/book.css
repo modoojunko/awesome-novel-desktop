@@ -341,18 +341,7 @@ details.cfg > summary .tag { font-size: 10.5px; color: var(--muted); font-weight
 .mood-row { display: flex; gap: 8px; }
 .mood-row select.input { flex: 0 0 150px; }
 .mood-row input.input { flex: 1; }
-.seg-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
-.seg-row .seg-i { width: 20px; text-align: center; color: var(--muted); font-size: 12px; flex-shrink: 0; padding-top: 9px; }
-.seg-row textarea.input[data-seg="s"] { flex: 1; min-height: 58px; resize: vertical; line-height: 1.6; }
-.seg-row .input[data-seg="w"] { width: 92px; flex: 0 0 auto; }
-.seg-row .acts { display: flex; gap: 2px; opacity: 0; transition: opacity 0.12s ease; }
-.seg-row:hover .acts, .seg-row:focus-within .acts { opacity: 1; }
-.seg-row .acts .icon-btn { width: 24px; height: 24px; }
-.seg-row .acts .icon-btn:disabled { opacity: 0.3; cursor: default; }
-.seg-row .acts .icon-btn:disabled:hover { color: var(--muted); background: none; }
 .seg-add-row { display: flex; align-items: center; }
-.seg-total { margin-left: auto; font-size: 12px; color: var(--muted); }
-.seg-total b { color: var(--fg); font-weight: 500; }
 /* 章内剧情（c-plot-split，原型 book.html .plot-sec 逐字）：条目=场景描述非正文 */
 .plot-sec { margin-top: 26px; }
 .plot-sec-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
