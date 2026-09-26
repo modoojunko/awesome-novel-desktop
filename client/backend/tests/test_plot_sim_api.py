@@ -24,7 +24,6 @@ from main import app
 from models.chapter import (
     Chapter,
     ChapterCharacter,
-    ChapterKeyPoint,
     ChapterPayoffItem,
     ChapterRequiredChange,
 )
@@ -85,14 +84,12 @@ async def _seed() -> tuple[str, str]:
             project_id=proj.id, volume_id=vol.id, chapter_no=2,
             ref=REF, title="风起渡口", status="outline",
             summary="林晚在渡口等一班不存在的船。",
-            location="临江渡口", story_time="清晨",
-            expectation_strategy="先铺垫不安，再给一次喘息",
             primary_mood="悬疑",
+            # c-og-slim-v2：推演素材与兜底环改源剧情条目（关键事件/地点/时间/预期策略退役）
+            plot_items=json.dumps(["匿名信被尾随", "渡口对质"], ensure_ascii=False),
         )
         session.add(ch2)
         await session.flush()
-        session.add(ChapterKeyPoint(chapter_id=ch2.id, sort_order=1, func_tag="造悬念", content="匿名信被尾随"))
-        session.add(ChapterKeyPoint(chapter_id=ch2.id, sort_order=2, func_tag="推进剧情", content="渡口对质"))
         session.add(ChapterCharacter(chapter_id=ch2.id, sort_order=1, character_name="林晚"))
         session.add(ChapterPayoffItem(chapter_id=ch2.id, sort_order=1, kind="must_hold", content="谁在暗中跟着她"))
         session.add(ChapterRequiredChange(chapter_id=ch2.id, sort_order=1, change_type="", content="她把信交给了陌生人"))
@@ -159,14 +156,14 @@ class TestOkPath:
         assert r1["moves"][0]["label"] == "林晚顺着当前节奏动手"
         assert r1["moves"][1]["tone"] == "warn"
         assert r1["moves"][0]["out"] == "顺线落地"
-        # 素材注入：章纲关键事件 + 任务 + 悬念 + 上一章正文结尾
+        # 素材注入：剧情条目 + 悬念 + 上一章正文结尾
         system = captured[-1]["system"]
         assert "匿名信被尾随" in system
         assert "谁在暗中跟着她" in system
         assert "解开" in system  # 上一章正文结尾摘录进素材
 
     def test_invalid_payload_falls_back_deterministic(self, monkeypatch):
-        """产物非 JSON → 原型同款确定性推演（关键事件环 + 模板走法）。"""
+        """产物非 JSON → 原型同款确定性推演（剧情条目环 + 模板走法）。"""
         _root, nid = asyncio.run(_seed())
         captured: list = []
         _with_client(monkeypatch, "抱歉，我无法输出 JSON。", captured)
@@ -174,7 +171,7 @@ class TestOkPath:
         assert r.status_code == 200, r.text
         d = r.json()
         assert d["source"] == "fallback"
-        assert [x["beat"] for x in d["rounds"]] == ["[造悬念]匿名信被尾随", "[推进剧情]渡口对质"]
+        assert [x["beat"] for x in d["rounds"]] == ["匿名信被尾随", "渡口对质"]
         assert d["rounds"][0]["at"] == "承上：" + d["entry"]
         assert d["rounds"][-1]["shift"] == "她把信交给了陌生人"
         assert "主情绪停在「悬疑」" in d["rounds"][0]["moves"][0]["out"]

@@ -29,28 +29,16 @@ def _rich_ctx() -> ChapterContext:
     ctx.style_quant = {}
     ctx.genre_section = "题材：古风悬疑"
     ctx.volume_outline = "本卷主旨：翻身"
-    ctx.chapter_outline = {"summary": "她夜探库房调包账册", "key_points": ["上船", "调包"]}
-    ctx.scene_cards = [
-        {
-            "scene_name": "库房",
-            "weight": "high",
-            "focus": "核心冲突",
-            "goal": "换账",
-            "obstacle": "守夜",
-            "hook": "灯灭",
-        }
-    ]
-    ctx.micro_payoffs = [{"kind": "反杀", "description": "守夜人认错人", "location": "库房"}]
+    ctx.chapter_outline = {"summary": "她夜探库房调包账册", "characters": ["林晚"]}
+    ctx.micro_payoffs = [{"kind": "reveal", "description": "守夜人认错人"}]
     ctx.ladder_exit = "假账册入箱"
     ctx.challenge = "船家改口要加钱"
-    ctx.chapter_acts = ["她翻墙进库房"]
     ctx.plot_stage = "卷中转折"
     ctx.required_changes = ["账册被调包"]
     ctx.prohibitions = ["不许杀人"]
-    ctx.mood_progression = "平静→紧张"
     ctx.characters = [{"name": "林晚", "state": "戒备", "speech": "短句"}]
     ctx.hooks = [{"description": "乌鸦面具", "code": "H-0001", "priority_label": "高"}]
-    ctx.previous_context = "上章结尾情绪：平静"
+    ctx.previous_context = "上章写的是：她在码头截住船家"
     ctx.word_target = 2000
     ctx.volume_no = 1
     ctx.chapter_no = 2
@@ -82,9 +70,10 @@ class TestPlotBlockTwoPaths:
         assert "- 乙一：她在渡口截住船家 暗线：有人尾随" in block.split("\n")
         assert "- 丙一：灯下的账册是假的" in block.split("\n")
         assert len(block.split("\n")) == 5  # 标题＋定位句＋3 条：换行条目没切条
-        # 块名＋定位句
+        # 块名＋定位句（c-og-slim-v2：场景原材料与「必须发生的动作」随退役字段出局）
         assert block.startswith("【本章剧情走向（分条）】\n定位：首尾以章卡")
-        assert "【场景原材料】只定焦点与空间" in block
+        assert "章末落点/要撞的墙" in block
+        assert "【场景原材料】" not in block
 
     def test_empty_plots_golden_unchanged(self):
         """4.1：空/缺剧情时两路产物与注入前逐字不变（golden 对拍）。"""
@@ -102,9 +91,9 @@ class TestPlotBlockTwoPaths:
 class TestPolishConditionalAnchor:
     _OK = (
         "## 任务指示\n第 2 章，目标字数约 2000 字。\n"
-        "## 前情上下文\n上章结尾情绪：平静。\n"
-        "## 场景原材料\n场景1｜库房｜权重：高。\n"
-        "## 爽点设计\n反杀·守夜人认错人（库房）。\n"
+        "## 前情上下文\n上章写的是：她在码头截住船家。\n"
+        "## 章纲概要\n她夜探库房调包账册；本章要撞的墙：船家改口要加钱。\n"
+        "## 爽点设计\n真相揭示·守夜人认错人。\n"
         "## 红线\n本章必须完成——账册被调包。\n"
         "## 质感要求\n留 1-2 个不服务主线的细碎生活细节。"
     )

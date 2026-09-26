@@ -1,4 +1,4 @@
-// 拆章界面测试（c-chapter-plan-ai）：覆盖原型各态——手写五段／AI 四态／角标与剧情吸引力／
+// 拆章界面测试（c-chapter-plan-ai；c-og-slim-v2 收窄为四段）：覆盖原型各态——手写四段／AI 四态／角标与剧情吸引力／
 // 落点卡三出口／自检（免费）／回改（同一张卡面）。
 //
 // **打桩层＝`@/lib/api`**（不是 chapterPlanApi 本身）：契约模块的 URL/请求体/兜底逻辑
@@ -33,11 +33,11 @@ const DIRS = {
   diff: { axes: ["线索", "关系", "危机"], one_liner: ["撕掉的那页藏进怀里", "开价换航线", "信标在雾夜暴露"] },
   directions: [
     { axis: "线索", title: "同名档案", plot: "她调出那份记录，最后一页被撕掉了", obstacle: "旧档堆不对活人开放",
-      ending: "她把残角收进怀里", acts: ["她：调档"], stage: "矛盾升级", cast: ["沉舟"], factions: [], places: [], why: "撕页钩子立住了", gap: "阻力偏程序化" },
+      ending: "她把残角收进怀里", stage: "矛盾升级", cast: ["沉舟"], factions: [], places: [], why: "撕页钩子立住了", gap: "阻力偏程序化" },
     { axis: "关系", title: "船队的条件", plot: "船队长开价换航线", obstacle: "让出航线＝交出一半生存空间",
-      ending: "她换来留在船上的许可", acts: ["船队长：开价"], stage: "矛盾升级", cast: [], factions: [], places: [], why: "让出航线真的疼", gap: "结尾停在安全" },
+      ending: "她换来留在船上的许可", stage: "矛盾升级", cast: [], factions: [], places: [], why: "让出航线真的疼", gap: "结尾停在安全" },
     { axis: "危机", title: "突击清查", plot: "清查队登船前她带信标出逃", obstacle: "挨船搜舱，藏无可藏",
-      ending: "信标暴露——全港都知道", acts: ["清查队：搜舱"], stage: "重要转折", cast: [], factions: [], places: [], why: "外部事件当面压上来", gap: "" },
+      ending: "信标暴露——全港都知道", stage: "重要转折", cast: [], factions: [], places: [], why: "外部事件当面压上来", gap: "" },
   ],
   grades: ["A", "B", "S"],
   checks: ["这一章把信标暴露提前了，注意下一章的代价"],
@@ -79,14 +79,14 @@ beforeEach(() => {
   mockApi.put.mockResolvedValue({ ok: true });
 });
 
-describe("拆章界面 · 手写五段（中栏入口，全档）", () => {
-  it("打开即空白五段＋进场只读（含来源小字）", async () => {
+describe("拆章界面 · 手写四段（中栏入口，全档）", () => {
+  it("打开即空白四段＋进场只读（含来源小字）", async () => {
     render(<Host />);
     fireEvent.click(screen.getByTestId("open-manual"));
     await waitFor(() => expect(screen.getByTestId("chapter-plan-modal")).toBeInTheDocument());
     expect(screen.getByTestId("d-prev")).toHaveTextContent(ENTRY.text);
     expect(screen.getByTestId("d-prev")).toHaveTextContent("拟定，取自章纲落点");
-    for (const k of ["d-title", "d-plot", "d-obstacle", "d-ending", "d-acts", "d-stage"]) {
+    for (const k of ["d-title", "d-plot", "d-obstacle", "d-ending", "d-stage"]) {
       expect(screen.getByTestId(k)).toBeInTheDocument();
     }
     // 手写路不调模型
@@ -186,12 +186,12 @@ describe("拆章界面 · 手写五段（中栏入口，全档）", () => {
 });
 
 describe("拆章界面 · 回改（同一张卡面，5.6）", () => {
-  it("读卡装五段 → 标题变「改第N章」、按钮变「保存这一章」→ 保存走章保存链（不新建）", async () => {
+  it("读卡装四段 → 标题变「改第N章」、按钮变「保存这一章」→ 保存走章保存链（不新建）", async () => {
     mockApi.get.mockImplementation((url: string) => {
       if (url.includes("/plan-card")) {
         return Promise.resolve({
           ok: true, title: "同名档案", plot: "她调出那份记录", challenge: "旧档堆不对活人开放",
-          ending: "她把残角收进怀里", acts: ["她：调档"], stage: "矛盾升级",
+          ending: "她把残角收进怀里", stage: "矛盾升级",
           entry_text: "上一章结尾", entry_source: "取自正文结尾", next_no: 2,
         });
       }
@@ -203,7 +203,6 @@ describe("拆章界面 · 回改（同一张卡面，5.6）", () => {
     expect(mockApi.get).toHaveBeenCalledWith("/novels/p1/chapters/vol-1-ch-2/plan-card");
     expect(screen.getByTestId("d-plot")).toHaveValue("她调出那份记录");
     expect(screen.getByTestId("d-obstacle")).toHaveValue("旧档堆不对活人开放");
-    expect(screen.getByTestId("d-acts")).toHaveValue("她：调档");
     expect(screen.getByTestId("d-stage")).toHaveValue("矛盾升级");
     expect(screen.getByTestId("split-adopt")).toHaveTextContent("保存这一章");
 
@@ -349,8 +348,7 @@ describe("拆章界面 · AI 三方向（右栏入口，PRO）", () => {
     mockApi.get.mockImplementation((url: string) =>
       url.includes("/plan-card")
         ? Promise.resolve({
-            ok: true, title: "同名档案", plot: "她调出那份记录", challenge: "", ending: "",
-            acts: [], stage: "矛盾升级", entry_text: "", entry_source: "", next_no: 2,
+            ok: true, title: "同名档案", plot: "她调出那份记录", challenge: "", ending: "", stage: "矛盾升级", entry_text: "", entry_source: "", next_no: 2,
           })
         : Promise.resolve({ ok: true, ...ENTRY }),
     );
@@ -411,24 +409,6 @@ describe("拆章界面 · 原型对齐（kicker／底条分态／选卡切卡面
     expect(screen.getByTestId("split-adopt")).toHaveTextContent("排上这一章（第 3 章）");
   });
 
-  it("行动行拼接剥行尾句读：模型自带「。」不出现「。；」双标点（卡面与底条 note 同值）", async () => {
-    mockApi.post.mockImplementation((url: string) =>
-      Promise.resolve({
-        ...DIRS,
-        directions: DIRS.directions.map((d, i) =>
-          i === 0 ? { ...d, acts: ["她：调出同名记录。", "文书：记下出入；未起疑"] } : d),
-      }));
-    render(<Host />);
-    fireEvent.click(screen.getByTestId("open-ai"));
-    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
-    // 三卡态的行动行已剥行尾「。」
-    expect(screen.getByTestId("pick-card-1")).toHaveTextContent("她：调出同名记录；文书：记下出入；未起疑");
-    fireEvent.click(screen.getByTestId("pick-card-1"));
-    await waitFor(() => expect(screen.getByTestId("chapter-card")).toBeInTheDocument());
-    // 本章卡的输入框同值（回车进库的也是干净行）
-    expect(screen.getByTestId("d-acts")).toHaveValue("她：调出同名记录；文书：记下出入；未起疑");
-  });
-
   it("手写卡底条：落地提示＋自检＋排上三件齐（note 接已填结尾，没填回退剧情）", async () => {
     render(<Host />);
     fireEvent.click(screen.getByTestId("open-manual"));
@@ -446,8 +426,7 @@ describe("拆章界面 · 原型对齐（kicker／底条分态／选卡切卡面
     mockApi.get.mockImplementation((url: string) =>
       url.includes("/plan-card")
         ? Promise.resolve({
-            ok: true, title: "同名档案", plot: "她调出那份记录", challenge: "", ending: "",
-            acts: [], stage: "矛盾升级", entry_text: "", entry_source: "", next_no: 2,
+            ok: true, title: "同名档案", plot: "她调出那份记录", challenge: "", ending: "", stage: "矛盾升级", entry_text: "", entry_source: "", next_no: 2,
           })
         : Promise.resolve({ ok: true, ...ENTRY }),
     );
@@ -488,7 +467,7 @@ describe("拆章界面 · 边界与兜底（覆盖三文件 100%）", () => {
     expect(mockApi.post).not.toHaveBeenCalled();
   });
 
-  it("五段逐格可改（每个输入的 onChange 都接线）", async () => {
+  it("四段逐格可改（每个输入的 onChange 都接线）", async () => {
     render(<Host />);
     fireEvent.click(screen.getByTestId("open-manual"));
     await waitFor(() => expect(screen.getByTestId("d-title")).toBeInTheDocument());
@@ -496,12 +475,10 @@ describe("拆章界面 · 边界与兜底（覆盖三文件 100%）", () => {
     fireEvent.change(screen.getByTestId("d-plot"), { target: { value: "捡到信标" } });
     fireEvent.change(screen.getByTestId("d-obstacle"), { target: { value: "没人信她" } });
     fireEvent.change(screen.getByTestId("d-ending"), { target: { value: "藏进夹层" } });
-    fireEvent.change(screen.getByTestId("d-acts"), { target: { value: "沉舟：藏信标" } });
     fireEvent.change(screen.getByTestId("d-stage"), { target: { value: "重要转折" } });
     expect(screen.getByTestId("d-title")).toHaveValue("信标进舱");
     expect(screen.getByTestId("d-obstacle")).toHaveValue("没人信她");
     expect(screen.getByTestId("d-ending")).toHaveValue("藏进夹层");
-    expect(screen.getByTestId("d-acts")).toHaveValue("沉舟：藏信标");
     expect(screen.getByTestId("d-stage")).toHaveValue("重要转折");
   });
 
@@ -538,7 +515,7 @@ describe("拆章界面 · 边界与兜底（覆盖三文件 100%）", () => {
       title: "旧标题", prose: "已有正文若干字", word_target: 2000, status: "writing",
       outline: { summary: "", key_points: ["要点一"] },
       key_points: ["子表要点"], characters: ["沉舟"],
-      challenge: "", ladder_exit: "", chapter_acts: [], plot_stage: "",
+      challenge: "", ladder_exit: "", plot_stage: "",
     });
   });
 
@@ -551,7 +528,7 @@ describe("拆章界面 · 边界与兜底（覆盖三文件 100%）", () => {
     await chapterPlanApi.directions("p1", "vol-2");
     await chapterPlanApi.selfcheck("p1", { vol_ref: "vol-2", entry_text: "起点" });
     await chapterPlanApi.chapter("p1", "vol-2-ch-1");
-    await chapterPlanApi.saveEdit("p1", "vol-2-ch-1", { title: "t", plot: "p", challenge: "c", ending: "e", acts: ["a"], stage: "开局铺垫" });
+    await chapterPlanApi.saveEdit("p1", "vol-2-ch-1", { title: "t", plot: "p", challenge: "c", ending: "e", stage: "开局铺垫" });
     await chapterPlanApi.adopt("p1", "vol-2", { title: "t" });
     expect(mockApi.get).toHaveBeenCalledWith("/novels/p1/volumes/vol-2/next-chapter-anchor");
     expect(mockApi.get).toHaveBeenCalledWith("/novels/p1/chapters/vol-2-ch-1/plan-card");
@@ -560,7 +537,7 @@ describe("拆章界面 · 边界与兜底（覆盖三文件 100%）", () => {
     expect(mockApi.post).toHaveBeenCalledWith("/novels/p1/volumes/vol-2/chapters", { title: "t" });
     expect(mockApi.put).toHaveBeenCalledWith("/novels/p1/chapters/vol-2-ch-1", {
       ok: true,
-      outline: { summary: "p" }, challenge: "c", ladder_exit: "e", chapter_acts: ["a"], plot_stage: "开局铺垫",
+      outline: { summary: "p" }, challenge: "c", ladder_exit: "e", plot_stage: "开局铺垫",
     });
   });
 });
@@ -773,7 +750,6 @@ describe("拆章界面 · 竞态与稀疏响应（覆盖守卫分支）", () => 
     fireEvent.click(screen.getByTestId("open-edit"));
     await waitFor(() => expect(screen.getByTestId("d-title")).toHaveValue(""));
     expect(screen.getByTestId("d-stage")).toHaveValue("开局铺垫");
-    expect(screen.getByTestId("d-acts")).toHaveValue("");
   });
 });
 
@@ -916,7 +892,7 @@ describe("拆章界面 · 保存安全守卫（c-chapter-plan-guards）", () => 
   it("回改读卡成功：保存恢复可用", async () => {
     mockApi.get.mockImplementation((url: string) =>
       url.includes("/plan-card")
-        ? Promise.resolve({ ok: true, title: "旧", plot: "p", acts: [], stage: "矛盾升级" })
+        ? Promise.resolve({ ok: true, title: "旧", plot: "p", stage: "矛盾升级" })
         : Promise.resolve({ ok: true, ...ENTRY }),
     );
     render(<Host />);
@@ -928,7 +904,7 @@ describe("拆章界面 · 保存安全守卫（c-chapter-plan-guards）", () => 
     const onAdopt = vi.fn();
     mockApi.get.mockImplementation((url: string) =>
       url.includes("/plan-card")
-        ? Promise.resolve({ ok: true, title: "旧标题", plot: "一句剧情", acts: [], stage: "" })
+        ? Promise.resolve({ ok: true, title: "旧标题", plot: "一句剧情", stage: "" })
         : Promise.resolve({ ok: true, ...ENTRY }),
     );
     render(<Host onAdopt={onAdopt} />);

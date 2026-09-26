@@ -36,6 +36,8 @@ import type { RailChapterData } from "./Rail";
 import {
   EMPTY_OG_FORM,
   GAP_TO_FILL_KEY,
+  PLOT_MAX_ITEMS,
+  REQ_FIELDS,
   ogFormIssues,
   ogGaps,
   ogHasDraftContent,
@@ -561,11 +563,15 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   }, [plotDraw, ogForm, outline.saveChapter, outline.chaptersMap, chapterRef,
       killPlotReceipt, handlePlotUndo, maybeHintPolish]);
 
-  // ── 剧情推演（plot-sim）：弹窗按回合走一遍；收进章纲＝写预期策略后走既有保存链 ──
+  // ── 剧情推演（plot-sim）：弹窗按回合走一遍；收进章纲＝追加一条剧情条目后走既有保存链
+  // （c-og-slim-v2：原落点「预期策略」已退役，改追加剧情条目，既有条目不动）──
   const [showSim, setShowSim] = useState(false);
   const handleSimAdopt = useCallback(
     async (line: string): Promise<boolean> => {
-      const patched: OgForm = { ...ogForm, rstrat: line };
+      const walking = line.trim();
+      if (!walking) return false;
+      const plots = [...ogForm.plots, walking].slice(0, PLOT_MAX_ITEMS);
+      const patched: OgForm = { ...ogForm, plots };
       const issues = ogFormIssues(patched);
       if (issues.length > 0) {
         toast.error(issues[0]);
@@ -709,7 +715,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   unarchiveRef.current = store.unarchive;
   useEffect(() => {
     // 章纲统计（右栏 AI 辅助·章纲页签）：归档门槛/计划字数/关键事件/出场角色
-    const keyLines = ogForm.keys.split("\n").filter((x) => x.trim());
+    // 章纲统计（右栏 AI 辅助·章纲页签）：归档门槛/计划字数/剧情/出场角色
+    // c-og-slim-v2：门槛分母由必填项数派生（原 6 是六改四时遗留的错值）；
+    // 「关键事件」计数随该格退役，改报剧情条目数。
+    const plotCount = ogForm.plots.filter((x) => x.trim()).length;
     const castLines = ogForm.chars.split("\n").filter((x) => x.trim());
     const wtParsed = parseInt(ogForm.wt, 10);
     onRailDataRef.current({
@@ -723,9 +732,9 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       tab: chTab,
       chapterRef,
       ogStats: {
-        reqOk: 6 - ogGaps(ogForm).length,
+        reqOk: REQ_FIELDS.length - ogGaps(ogForm).length,
         planWords: Number.isFinite(wtParsed) && wtParsed > 0 ? wtParsed : (targetWords ?? null),
-        keyCount: keyLines.length,
+        plotCount,
         castCount: castLines.length,
         missingLabels: ogGaps(ogForm).map((g) => g.label),
       },

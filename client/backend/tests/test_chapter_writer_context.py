@@ -114,11 +114,9 @@ def test_clamp_word_target(raw, expected):
 
 
 def test_previous_context_semantic_from_outline():
+    """c-og-slim-v2 换源：前情取上章概要＋必须完成的变化＋章末落点。"""
     prev = {
-        "emotional_design": {
-            "mood_progression": "平静→不安→紧张",
-            "emotional_hook": "师父的身份成谜",
-        },
+        "outline": {"summary": "她夜探库房调包账册"},
         "memo": {
             "required_changes": ["主角与师父决裂"],
             "reader_expectation": {"detail": "想知道师父到底是谁"},
@@ -127,11 +125,9 @@ def test_previous_context_semantic_from_outline():
     }
     text, semantic = build_previous_context(prev)
     assert semantic is True
-    assert "上章结尾情绪：紧张" in text
-    assert "上章章末情绪钩子" in text
+    assert "上章写的是：她夜探库房调包账册" in text
     assert "上章必须完成的改变" in text
     assert "上章章末落点" in text
-    assert "读者期待缺口" in text
 
 
 def test_previous_context_fallback_when_outline_empty():
@@ -161,19 +157,12 @@ def _rich_context() -> ChapterContext:
     }
     ctx.hooks = [{"description": f"伏笔{i}"} for i in range(12)]
     ctx.characters = [{"name": f"角色{i}", "state": "在场"} for i in range(8)]
-    ctx.scene_cards = [
-        {
-            "scene_name": "酒馆对峙",
-            "goal": "问出货源",
-            "obstacle": "掌柜装傻",
-            "hook": "角落有人盯梢",
-            "weight": "high",
-            "focus": "核心冲突",
-        },
-        {"scene_name": "巷口转场", "weight": "low", "focus": "信息差"},
-    ]
+    ctx.chapter_outline = {"summary": "她夜探库房调包账册", "characters": ["角色0"]}
+    ctx.challenge = "旧档堆不对活人开放"
+    ctx.plot_stage = "矛盾升级"
+    ctx.plot_items = ["她翻墙进了库房", "灯下的账册是假的"]
     ctx.micro_payoffs = [
-        {"kind": "clue", "description": "半块玉佩", "location": "中段"},
+        {"kind": "clue", "description": "半块玉佩"},
     ]
     ctx.ladder_exit = "拿到地图，出门，更不安"
     ctx.required_changes = ["主角与师父决裂"]
@@ -248,15 +237,21 @@ def test_no_placeholders_in_prompt_or_material():
     assert not _PLACEHOLDER.search(empty.material_markdown())
 
 
-def test_prompt_consumes_new_grid_fields():
+def test_prompt_consumes_surviving_fields():
+    """c-og-slim-v2：粗组兜底消费留存格子（章纲概要/挑战/阶段/剧情条目/爽点/落点）。"""
     ctx = _rich_context()
     prompt = ctx.to_prompt()
-    assert "权重：高" in prompt
-    assert "焦点：核心冲突" in prompt
-    assert "核心事件链（外部动作，非内心）：问出货源 → 掌柜装傻 → 角落有人盯梢" in prompt
-    assert "爽点设计（读者获得）" in prompt
+    assert "章纲：她夜探库房调包账册" in prompt
+    assert "本章要撞的墙：旧档堆不对活人开放" in prompt
+    assert "本章在卷剧情里的位置：矛盾升级" in prompt
+    assert "- 她翻墙进了库房" in prompt  # 剧情条目块
+    assert "爽点设计（读者获得）：线索·半块玉佩" in prompt
     assert "章末落点：拿到地图，出门，更不安" in prompt
     assert "雨点砸在铁皮棚上，他没抬头。" in prompt
+    # 退役面：场景原材料/权重/关键情节点一律不进提示词
+    assert "场景原材料" not in prompt
+    assert "权重：" not in prompt
+    assert "关键情节点" not in prompt
     # 字数动态化：1800 而非硬编码 2500
     assert "约 1800 字" in prompt
     assert "约 2500 字" not in prompt
@@ -270,13 +265,17 @@ def test_material_markdown_skeleton():
         "【任务指示】",
         "【前情上下文】",
         "【故事背景】",
-        "【场景原材料】",
+        "【章纲概要】",
+        "【本章要撞的墙】",
+        "【本章在卷剧情里的位置】",
         "【角色初始状态】",
         "【活跃伏笔】",
         "【约束红线（最高优先级，任何压缩不得删改）】",
         "【文风例句（案例段原料）】",
     ):
         assert label in md
+    # 场景原材料块随场景卡退役（c-og-slim-v2）
+    assert "【场景原材料】" not in md
     assert "目标字数：约 1800 字" in md
     assert "压缩策略" in md
 
@@ -285,7 +284,7 @@ def test_material_markdown_skeleton():
 
 
 def test_build_context_semantic_previous():
-    """ch-2 且上章章纲有情绪设计 → 语义前情，不读上章正文。"""
+    """ch-2 且上章章纲有留存字段 → 语义前情，不读上章正文。"""
 
     async def _run():
         project = await _new_project("cwc_sem")
@@ -295,16 +294,14 @@ def test_build_context_semantic_previous():
             {
                 "title": "第一章",
                 "prose": "第一章的正文内容。",
-                "emotional_design": {
-                    "mood_progression": "平静→不安",
-                    "emotional_hook": "信件来路不明",
-                },
+                "outline": {"summary": "她在码头截住船家"},
                 "ladder_exit": "主角决定查到底，焦虑升级",
             },
         )
         ref2 = await _make_chapter(project, 1, {"title": "第二章"})
         ctx = await build_chapter_context(project.root_path, ref2, "暗流")
         assert ctx.previous_context_semantic is True
+        assert "上章写的是：她在码头截住船家" in ctx.previous_context
         assert "上章章末落点" in ctx.previous_context
         assert "主角决定查到底" in ctx.previous_context
         # 语义模式不注入上章正文
@@ -363,7 +360,7 @@ def test_build_context_volume_first_chapter_reads_prev_volume_tail():
             1,
             {
                 "title": "1-2",
-                "emotional_design": {"emotional_hook": "卷一收官钩子"},
+                "outline": {"summary": "卷一收官：她拿回族谱"},
                 "ladder_exit": "卷一末章落点",
             },
         )
@@ -371,7 +368,7 @@ def test_build_context_volume_first_chapter_reads_prev_volume_tail():
         ctx = await build_chapter_context(project.root_path, ref_v2, "暗流")
         assert ctx.volume_no == 2
         assert ctx.previous_context_semantic is True
-        assert "卷一收官钩子" in ctx.previous_context
+        assert "她拿回族谱" in ctx.previous_context
         assert "卷一末章落点" in ctx.previous_context
 
     _run_async(_run())

@@ -153,39 +153,34 @@ prose = (
 )
 
 requests.put(f"{API}/projects/{pid}/chapters/{cr}", json={
-    "segments": [
-        {"type": "narration", "summary": "艾伦抵达佣兵工会，初见铁锤", "target_words": 800},
-        {"type": "dialogue", "summary": "铁锤考核艾伦剑术", "target_words": 1200},
-        {"type": "action", "summary": "考核通过，接取第一个任务", "target_words": 1000},
-        {"type": "ending", "summary": "神秘人注视，留下伏笔", "target_words": 500},
-    ],
+    # c-og-slim-v2：只写留存字段（段落规划/关键事件/地点/时间/视角/预期策略/可部分推进
+    # 等已退役，写了也不落库）
     "emotional_design": {"primary_mood": "紧张"},
     "memo": {
-        "current_task": "完成第一章：建立世界观、引入主角和关键配角、设置初始冲突",
-        "reader_expectation": {
-            "state": "好奇",
-            "strategy": "细腻场景和战斗描写吸引读者",
-            "detail": "让读者感受到中世纪佣兵世界的气息",
-        },
         "payoff_plan": {
             "must_resolve": [],
             "must_hold": ["古剑伏笔"],
-            "partial_advance": ["主角身世线索"],
         },
         "required_changes": ["增加战斗场景的紧张感", "突出艾伦的性格特点"],
         "prohibitions": ["避免过度描写环境", "不要在第一章揭示神秘人身份"],
-        "downtime_functions": ["展示艾伦的内心世界", "通过对话展现铁锤的性格"],
-        "key_choices": ["艾伦接下任务展现勇敢", "选择不询问神秘人身份"],
     },
     "outline": {
         "summary": "艾伦初入佣兵工会，结识铁锤副团长，通过剑术考核，接下第一个护送任务。神秘斗篷人在暗中注视。",
-        "key_points": ["佣兵工会环境描写", "铁锤出场和考核", "精彩剑术对决", "接取护送任务", "神秘斗篷人伏笔"],
         "characters": ["艾伦", "铁锤", "神秘人"],
-        "location": "铁拳佣兵团总部 — 大厅、训练场",
-        "time": "某日正午至午后",
-        "narrative_pov": "第三人称有限视角",
-        "perspective_guidance": "全程保持艾伦视角，不切换到其他角色。神秘人的描写仅限于艾伦能观察到的程度。",
     },
+    "plot_items": [
+        "艾伦走进佣兵工会大厅，铁锤坐在柜台后打量他。",
+        "训练场上两人过招，铁锤用铁锤招式试出他的路数。",
+        "艾伦接下护送任务走出大厅，角落里斗篷人跟了上来。",
+    ],
+    "challenge": "铁锤不信新人能打赢，考核不过就别想接任务",
+    "plot_stage": "开局铺垫",
+    "ladder_exit": "他签下任务书出门，斗篷人也跟着动了",
+    "micro_payoffs": [
+        {"kind": "power", "description": "艾伦空手接住铁锤的锤子"},
+        {"kind": "clue", "description": "斗篷人腰间的古剑纹样眼熟"},
+    ],
+    "word_target": 2500,
     "prose": prose,
 }, headers=headers)
 print("  ✅ Chapter data (all fields)")

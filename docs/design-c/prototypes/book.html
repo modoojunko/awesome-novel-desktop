@@ -290,18 +290,7 @@
   #modalAddVolume label .qno { color: var(--accent); margin-right: 6px; font-family: var(--font-mono); font-size: 11px; }
   #modalAddVolume .vol-tail { display: grid; grid-template-columns: 1fr 130px; gap: 0 14px; margin-top: 4px; padding-top: 10px; border-top: 1px dashed var(--border); }
   .mood-row input.input { flex: 1; }
-  .seg-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
-  .seg-row .seg-i { width: 20px; text-align: center; color: var(--muted); font-size: 12px; flex-shrink: 0; padding-top: 9px; }
-  .seg-row textarea.input[data-seg="s"] { flex: 1; min-height: 58px; resize: vertical; line-height: 1.6; }
-  .seg-row .input[data-seg="w"] { width: 92px; flex: 0 0 auto; }
-  .seg-row .acts { display: flex; gap: 2px; opacity: 0; transition: opacity 0.12s ease; }
-  .seg-row:hover .acts, .seg-row:focus-within .acts { opacity: 1; }
-  .seg-row .acts .icon-btn { width: 24px; height: 24px; }
-  .seg-row .acts .icon-btn:disabled { opacity: 0.3; cursor: default; }
-  .seg-row .acts .icon-btn:disabled:hover { color: var(--muted); background: none; }
   .seg-add-row { display: flex; align-items: center; }
-  .seg-total { margin-left: auto; font-size: 12px; color: var(--muted); }
-  .seg-total b { color: var(--fg); font-weight: 500; }
   details.cfg .inner { padding: 4px 14px 14px; }
   .tpl-row { display: flex; gap: 10px; }
   .tpl-select { flex: 1; }
@@ -1272,8 +1261,9 @@ try {
 } catch (e) {}
 
 const $ = id => document.getElementById(id);
-const REQUIRED = ['task', 'rstate', 'rstrat', 'changes', 'mood', 'segs'];
-const REQ_LABELS = { rstrat: '预期策略', changes: '必须完成的变化', mood: '主情绪', segs: '段落规划' };
+/* c-og-slim-v2：字段收敛到 13 格，必填两项（必须完成的变化、主情绪） */
+const REQUIRED = ['changes', 'mood'];
+const REQ_LABELS = { changes: '必须完成的变化', mood: '主情绪' };
 const MOODS = ['紧张', '悬疑', '温暖', '悲伤', '激昂', '轻松', '压抑', '浪漫', '惊悚'];
 let saveTimer = null, savePhase = 'idle', streamTimer = null, aiAbort = false;
 
@@ -1287,7 +1277,7 @@ function curCh() { const v = curVol(); return v ? v.chapters.find(c => c.id === 
 function findCh(id) { for (const v of BOOK.volumes) { const c = v.chapters.find(x => x.id === id); if (c) return c; } return null; }
 function volOfCh(id) { return BOOK.volumes.find(v => v.chapters.some(c => c.id === id)); }
 function isArchived(ch) { return !!ch.archived; }
-function chGaps(ch) { return REQUIRED.filter(k => k === 'segs' ? !(ch.og?.segs || []).length : !String(ch.og?.[k] || '').trim()); }
+function chGaps(ch) { return REQUIRED.filter(k => !String(ch.og?.[k] || '').trim()); }
 function bookWords() { return BOOK.volumes.reduce((a, v) => a + v.chapters.reduce((b, c) => b + countWords(chContent(c)), 0), 0); }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function toast(msg) {
@@ -1778,45 +1768,6 @@ function renderOutlinePanel() {
 /* 章纲表单生成器（大纲面板与正文「章纲」页签共用；P 字段前缀，C 控件前缀）
    字段集 = 产品现行全字段（数据模型不动），必填口径 = 后端 gate_chapter_ready 六项 */
 function chGapEntries(c) { return chGaps(c).map(k => ({ key: k, label: REQ_LABELS[k] })); }
-function segRowsHTML(c) {
-  const segs = c.og?.segs || [];
-  if (!segs.length) return '<p class="note" style="font-size:12.5px;color:var(--muted);margin:0 0 10px;">尚未规划段落 · 至少一段才能确认章纲</p>';
-  return segs.map((s, i) => `
-      <div class="seg-row" data-i="${i}">
-        <span class="num seg-i">${i + 1}</span>
-        <textarea class="input" data-seg="s" rows="2" placeholder="段落概要，如：港区之夜 · 信标亮起">${escapeHtml(s.s || '')}</textarea>
-        <input class="input num" data-seg="w" type="number" min="100" step="100" value="${s.w || 800}" />
-        <span class="acts">
-          <button class="icon-btn" data-segact="up" title="上移" ${i === 0 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 15l6-6 6 6"/></svg></button>
-          <button class="icon-btn" data-segact="del" title="删除段落"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
-        </span>
-      </div>`).join('');
-}
-function segTotalText(c) { return fmt((c.og?.segs || []).reduce((a, s) => a + (parseInt(s.w, 10) || 0), 0)); }
-function bindSegRows(scope, c) {
-  scope.querySelectorAll('[data-act="addseg"]').forEach(b => b.addEventListener('click', () => {
-    c.og = c.og || {};
-    c.og.segs = (c.og.segs || []).concat([{ s: '', w: 800 }]);
-    rerenderSegs(scope, c);
-  }));
-  scope.querySelectorAll('.seg-row').forEach(row => {
-    const i = +row.dataset.i;
-    row.querySelector('[data-seg="s"]').addEventListener('input', e => { c.og.segs[i].s = e.target.value; });
-    row.querySelector('[data-seg="w"]').addEventListener('input', () => { updateSegTotal(scope, c); });
-    row.querySelector('[data-segact="del"]').addEventListener('click', () => {
-      c.og.segs.splice(i, 1); rerenderSegs(scope, c); refreshChConfirm(c, 'wf-', 'wf-');
-    });
-    row.querySelector('[data-segact="up"]').addEventListener('click', () => {
-      if (i > 0) { const [x] = c.og.segs.splice(i, 1); c.og.segs.splice(i - 1, 0, x); rerenderSegs(scope, c); }
-    });
-  });
-}
-function rerenderSegs(scope, c) {
-  scope.querySelector('.seg-list').innerHTML = segRowsHTML(c);
-  updateSegTotal(scope, c);
-  bindSegRows(scope, c);
-}
-function updateSegTotal(scope, c) { scope.querySelector('.seg-total b').textContent = segTotalText(c); }
 function chapterFormHTML(c, P, C) {
   const gaps = chGapEntries(c);
   const st = c.og?.status;
@@ -1830,21 +1781,13 @@ function chapterFormHTML(c, P, C) {
         <summary>章纲概要 ${chev}</summary>
         <div class="inner">
           <div class="field"><label>章纲概要</label><textarea class="textarea" id="${P}summary" placeholder="这一章写什么，一两句话说清">${escapeHtml(c.summary || '')}</textarea></div>
-          <div class="field"><label>关键事件 <span class="opt">一行一个</span></label><textarea class="textarea" id="${P}keys" placeholder="一个关键事件">${escapeHtml(c.og?.keys || '')}</textarea></div>
           <div class="field"><label>出场角色 <span class="opt">一行一个角色名</span></label><textarea class="textarea" id="${P}chars" placeholder="角色名">${escapeHtml(c.og?.chars || '')}</textarea></div>
           <div class="tpl-row">
-            <div class="field tpl-select"><label>地点</label><input class="input" id="${P}loc" ${val(c.og?.loc)} placeholder="本章主要场景地点" /></div>
-            <div class="field stage-map"><label>时间</label><input class="input" id="${P}time" ${val(c.og?.time)} placeholder="本章时间背景" /></div>
+            <div class="field"><label>碰到的挑战 <span class="opt">拆章填的「这一章要撞的墙」</span></label><input class="input" id="${P}challenge" ${val(c.og?.challenge)} placeholder="如：旧档堆不对活人开放——查档本身就要违规" /></div>
+            <div class="field"><label>阶段 <span class="opt">本章在卷剧情里的位置</span></label><select class="input" id="${P}stageSel">
+              ${['开局铺垫', '冲突初现', '矛盾升级', '重要转折', '高潮爆发', '卷末收束'].map(o => `<option ${((c.og?.stage || '开局铺垫') === o) ? 'selected' : ''}>${o}</option>`).join('')}
+            </select></div>
           </div>
-          <div class="field"><label>叙事视角</label><input class="input" id="${P}pov" ${val(c.og?.pov)} placeholder="如：第三人称有限" /></div>
-          <div class="field"><label>视角指导</label><textarea class="textarea" id="${P}pguid" placeholder="视角切换注意事项">${escapeHtml(c.og?.pguid || '')}</textarea></div>
-        </div>
-      </details>
-      <details class="cfg" open>
-        <summary>预期策略 ${chev}</summary>
-        <div class="inner">
-          <div class="field"><label>预期策略 <span class="req" data-req="rstrat">*</span></label><textarea class="textarea" id="${P}rstrat" placeholder="希望读者如何感受">${escapeHtml(c.og?.rstrat || '')}</textarea></div>
-          <div class="field"><label>预期细节说明 <span class="opt">可后补</span></label><textarea class="textarea" id="${P}rdetail" placeholder="策略的展开方式与分寸">${escapeHtml(c.og?.rdetail || '')}</textarea></div>
         </div>
       </details>
       <details class="cfg" open>
@@ -1852,7 +1795,6 @@ function chapterFormHTML(c, P, C) {
         <div class="inner">
           <div class="field"><label>必须在本章回收 <span class="opt">一行一个</span></label><textarea class="textarea" id="${P}mres" placeholder="一个必须回收的伏笔">${escapeHtml(c.og?.mres || '')}</textarea></div>
           <div class="field"><label>必须维持悬念 <span class="opt">一行一个</span></label><textarea class="textarea" id="${P}mhold" placeholder="一个必须维持的悬念">${escapeHtml(c.og?.mhold || '')}</textarea></div>
-          <div class="field"><label>可部分推进 <span class="opt">一行一个</span></label><textarea class="textarea" id="${P}padv" placeholder="一个可部分推进的线索">${escapeHtml(c.og?.padv || '')}</textarea></div>
           <div class="field"><label>必须完成的变化 <span class="req" data-req="changes">*</span></label><textarea class="textarea" id="${P}changes" placeholder="一个必须发生的变化">${escapeHtml(c.og?.changes || '')}</textarea></div>
           <div class="field"><label>禁止事项 <span class="opt">一行一个</span></label><textarea class="textarea" id="${P}ban" placeholder="一个禁止发生的事">${escapeHtml(c.og?.ban || '')}</textarea></div>
         </div>
@@ -1883,16 +1825,6 @@ function chapterFormHTML(c, P, C) {
           <span class="f-hint">写了就自动保存</span>
         </div>
       </section>
-      <details class="cfg" open>
-        <summary>段落规划 <span class="req" data-req="segs">*</span> <span class="tag">每段 = 一次 AI 生成的单元</span>${chev}</summary>
-        <div class="inner">
-          <div class="seg-list" id="${P}segs">${segRowsHTML(c)}</div>
-          <div class="seg-add-row">
-            <button class="btn btn-secondary btn-sm" data-act="addseg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>添加段落</button>
-            <span class="seg-total">合计 <b class="num">${segTotalText(c)}</b> 字</span>
-          </div>
-        </div>
-      </details>
       <div class="panel-foot">
         <span class="gap-line" id="${C}gapLine" ${gaps.length ? '' : 'hidden'}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
@@ -1964,10 +1896,10 @@ function readCh(c, P) {
   const Q = id => $(P + id)?.value.trim() || '';
   c.og = c.og || {};
   c.summary = Q('summary');
-  c.og.keys = Q('keys'); c.og.chars = Q('chars'); c.og.loc = Q('loc'); c.og.time = Q('time');
-  c.og.pov = Q('pov'); c.og.pguid = Q('pguid');
-  c.og.task = Q('task'); c.og.rstate = Q('rstate'); c.og.rstrat = Q('rstrat'); c.og.rdetail = Q('rdetail');
-  c.og.mres = Q('mres'); c.og.mhold = Q('mhold'); c.og.padv = Q('padv');
+  c.og.chars = Q('chars');
+  c.og.challenge = Q('challenge');
+  c.og.stage = $(P + 'stageSel')?.value || '';
+  c.og.mres = Q('mres'); c.og.mhold = Q('mhold');
   c.og.changes = Q('changes'); c.og.ban = Q('ban');
   const sel = $(P + 'moodSel')?.value || '';
   c.og.mood = sel === '__custom' ? Q('moodCustom') : sel;
@@ -2030,7 +1962,6 @@ function renderOgPane(ch) {
   });
   bindGapChips(pane);
   refreshChConfirm(ch, 'wf-', 'wf-');
-  bindSegRows(pane, ch);
   bindPlotRows(pane, ch);
   const moodSel = pane.querySelector('#wf-moodSel');
   moodSel?.addEventListener('change', () => {

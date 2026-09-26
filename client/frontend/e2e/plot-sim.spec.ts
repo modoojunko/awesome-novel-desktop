@@ -6,7 +6,7 @@ import { addFirstChapterViaTree, cleanupSessionNovels, stableClick } from "./hel
 
 // =========================================================================
 // 剧情推演 + 提示词六来源 E2E（storyline.html 四期尾，打桩 AI）：
-//   ① PRO：章纲「剧情推演」→ 回合推进需先选走法 → 收进章纲写预期策略 → 刷新回读
+//   ① PRO：章纲「剧情推演」→ 回合推进需先选走法 → 收进章纲追加一条剧情 → 刷新回读
 //   ② 免费态：推演入口不渲染
 //   ③ 提示词页签：六来源 chips + 只读清单（含未填标注）
 // 手法与 outline-ai-draft.spec.ts 一致：S端 真注册登录 + config.json 注入；
@@ -154,7 +154,7 @@ const SIM = {
 
 const STRATEGY_WARN = "推演走法 · 中途先接一次意外，再拉回主线";
 
-test("PRO：按回合推演 → 收进章纲写预期策略 → 刷新回读", async ({ page, request }) => {
+test("PRO：按回合推演 → 收进章纲追加一条剧情 → 刷新回读", async ({ page, request }) => {
   const { restore, token } = await setupSession(page);
   try {
     await ensurePromptAccess(request, token);
@@ -176,18 +176,18 @@ test("PRO：按回合推演 → 收进章纲写预期策略 → 刷新回读", a
     await page.getByTestId("sim-next").click();
     await expect(page.getByTestId("sim-round-2")).toContainText("待你定");
     await expect(page.getByTestId("sim-adopt")).toBeVisible();
-    // 末回合选拗 → 收进章纲（含拗 → 中途意外口径）
+    // 末回合选拗 → 收进章纲（c-og-slim-v2：追加为一条剧情条目，不再写预期策略）
     await page.getByTestId("sim-pick-2-warn").click();
     await page.getByTestId("sim-adopt").click();
-    await expect(page.getByText("「预期策略」已按推演走法更新")).toBeVisible({
+    await expect(page.getByText(/已按推演走法加了一条剧情/)).toBeVisible({
       timeout: 10000,
     });
-    await expect(page.locator("#wf-rstrat")).toHaveValue(STRATEGY_WARN);
+    await expect(page.getByLabel("第 1 条剧情")).toHaveValue(STRATEGY_WARN);
 
     // 刷新回读
     await page.reload();
     await page.locator(".col-tree .ch", { hasText: "第一章" }).click();
-    await expect(page.locator("#wf-rstrat")).toHaveValue(STRATEGY_WARN, {
+    await expect(page.getByLabel("第 1 条剧情")).toHaveValue(STRATEGY_WARN, {
       timeout: 10000,
     });
   } finally {

@@ -13,11 +13,11 @@ const apiState = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("@/lib/api", () => ({ api: apiState }));
 
 const OG_STATS = {
-  reqOk: 4,
+  reqOk: 1, // 必填两项里已填一项（分母＝REQ_FIELDS.length）
   planWords: 1800,
-  keyCount: 2,
+  plotCount: 2,
   castCount: 1,
-  missingLabels: ["预期策略", "主情绪"],
+  missingLabels: ["主情绪"],
 };
 
 function renderPanel(tab: string, extra: Partial<Parameters<typeof AiAssistPanel>[0]> = {}) {
@@ -52,13 +52,12 @@ describe("AiAssistPanel（随页签）", () => {
     const cb = renderPanel("og", { onFillGaps, onAiCheck });
     expect(screen.getByText("AI 辅助 · 章纲")).toBeTruthy();
     const stats = document.querySelector(".rail-stats")?.textContent ?? "";
-    expect(stats).toContain("4/6");
+    expect(stats).toContain("1/2");
     expect(stats).toContain("1,800 字");
     expect(stats).toContain("2 条");
     // 还缺清单（原型 aiList('还缺')）
     const list = document.querySelector(".rail-list")?.textContent ?? "";
     expect(list).toContain("还缺");
-    expect(list).toContain("预期策略");
     expect(list).toContain("主情绪");
 
     fireEvent.click(screen.getByRole("button", { name: /AI 起草/ }));

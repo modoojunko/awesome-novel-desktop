@@ -25,7 +25,7 @@ from auth_local.middleware import get_current_user
 from db import async_session
 from filesystem.storage import get_storage
 from main import app
-from models.chapter import Chapter, ChapterKeyPoint
+from models.chapter import Chapter, ChapterMicroPayoff
 from models.project import Novel
 from models.volume import Volume
 from settings.style_quant_model import BASELINE_KEYS
@@ -56,11 +56,19 @@ async def _seed_book_with_chapter(summary: str = "") -> tuple[str, str, str]:
         )
         session.add(ch)
         await session.flush()
-        session.add(ChapterKeyPoint(
-            chapter_id=ch.id, sort_order=1, func_tag="造悬念", content="荒庙接头",
-        ))
         await session.commit()
-        return root, proj.id, "vol-1-ch-1"
+    # c-og-slim-v2：关键事件退役 → 文风建议素材改取剧情条目（此处以剧情条目供断言）
+    from chapters.store import save_chapter as _save
+
+    await _save(
+        root,
+        "vol-1-ch-1",
+        {
+            "outline": {"summary": "林晚在荒庙接头时被尾随。"},
+            "plot_items": ["荒庙接头：她被尾随进屋"],
+        },
+    )
+    return root, proj.id, "vol-1-ch-1"
 
 
 async def _seed_quant(root: str, *, distilled: bool) -> None:
@@ -279,7 +287,7 @@ class TestSuggestOk:
             prompt = captured[-1]["messages"][0]["content"]
             assert "中长句为主" in prompt  # 基线当前值注入
             assert "林晚在荒庙接头" in prompt  # 章纲概要注入
-            assert "[造悬念]荒庙接头" in prompt  # 关键事件注入
+            assert "荒庙接头：她被尾随进屋" in prompt  # 剧情条目注入（c-og-slim-v2 换源）
             app.dependency_overrides.clear()
 
 

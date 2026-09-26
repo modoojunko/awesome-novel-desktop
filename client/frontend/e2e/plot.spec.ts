@@ -76,7 +76,7 @@ async function setupSession(page: Page, tier = "trial") {
   return { restore: restoreAndCleanup, token };
 }
 
-/** 建书 → 建第一卷（四问手写）→ 手写拆下一章（五段，顺带把门槛三字段落库）→ 开章纲 */
+/** 建书 → 建第一卷（四问手写）→ 手写拆下一章（四段，顺带把门槛字段落库）→ 开章纲 */
 async function createNovelWithChapter(page: Page, name: string): Promise<string> {
   await page.goto(`${ORIGIN}/#/novels`);
   await stableClick(page.getByRole("button", { name: "新建作品" }).first());
@@ -103,14 +103,13 @@ async function createNovelWithChapter(page: Page, name: string): Promise<string>
   await page.getByTestId("desk-create").click();
   await expect(page.getByTestId("landing-card")).toBeVisible({ timeout: 10000 });
   await page.getByTestId("landing-open-outline").click();
-  // 手写拆下一章：五段落库（outline.summary/challenge/ladder_exit——AI 写剧情的门槛三样）
+  // 手写拆下一章：四段落库（outline.summary/challenge/ladder_exit——AI 写剧情的门槛三样；c-og-slim-v2 去「本章行动」）
   await page.getByTestId("volume-split-manual").click();
   await expect(page.getByTestId("chapter-plan-modal")).toBeVisible({ timeout: 5000 });
   await page.getByTestId("d-title").fill("信标进舱");
   await page.getByTestId("d-plot").fill("沉舟在废弃星港捡到信标，先藏了下来");
   await page.getByTestId("d-obstacle").fill("没人相信一个见习导航员");
   await page.getByTestId("d-ending").fill("她把信标藏进舱底夹层");
-  await page.getByTestId("d-acts").fill("沉舟：藏信标");
   await page.getByTestId("split-adopt").click();
   await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
   await page.getByTestId("chapter-landing-outline").click();

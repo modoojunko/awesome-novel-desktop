@@ -125,36 +125,24 @@ async function setupFirstChapter(page: Page, name: string) {
 const DRAFT = {
   outline: {
     summary: "林昭夜探账房发现亏空",
-    key_points: ["潜入账房", "翻出缺页账册"],
     characters: ["林昭"],
+    // c-og-slim-v2：已退役键仍在载荷里——用于断言表单不回填、不显示
+    key_points: ["潜入账房", "翻出缺页账册"],
     location: "账房",
     time: "深夜",
     narrative_pov: "第三人称限知",
     perspective_guidance: "",
   },
   memo: {
-    current_task: "拿到亏空证据并全身而退",
-    reader_expectation: { state: "怀疑管家", strategy: "证实怀疑", detail: "" },
-    payoff_plan: { must_resolve: ["账本去向"], must_hold: ["幕后主使"], partial_advance: [] },
+    payoff_plan: { must_resolve: ["账本去向"], must_hold: ["幕后主使"] },
     required_changes: ["林昭掌握实证"],
     prohibitions: ["不得动武"],
+    reader_expectation: { strategy: "证实怀疑" },
   },
-  emotional_design: { primary_mood: "紧张", mood_progression: "", emotional_hook: "" },
-  segments: [
-    { summary: "潜入账房", target_words: 800 },
-    { summary: "翻账取证", target_words: 1000 },
-  ],
-  scene_cards: [
-    {
-      scene_name: "账房",
-      goal: "取证",
-      obstacle: "守夜",
-      hook: "暗格",
-      weight: "high",
-      focus: "核心冲突",
-    },
-  ],
-  micro_payoffs: [{ kind: "clue", description: "账本缺页", location: "中段" }],
+  emotional_design: { primary_mood: "紧张" },
+  micro_payoffs: [{ kind: "clue", description: "账本缺页" }],
+  challenge: "守夜人换班前必须离场",
+  plot_stage: "重要转折",
   ladder_exit: "带着半本账册越墙而出",
   word_target: 1800,
 };
@@ -170,14 +158,16 @@ test("空章纲：AI 起草回填表单 → 保存草稿 → 刷新回读", asyn
 
     await expect(page.getByTestId("og-ai-draft")).toBeVisible();
     await page.getByTestId("og-ai-draft").click();
-    // 回填不落库：表单出现草稿内容
+    // 回填不落库：表单出现草稿内容（c-og-slim-v2：留存格子）
     await expect(page.locator("#wf-summary")).toHaveValue(DRAFT.outline.summary);
-    // c-og-fields-slim：核心任务格退役，草稿 memo.current_task 不再回填
-    await expect(page.locator("#wf-task")).toHaveCount(0);
-    await expect(page.locator("#wf-rstrat")).toHaveValue(DRAFT.memo.reader_expectation.strategy);
+    await expect(page.locator("#wf-changes")).toHaveValue("林昭掌握实证");
+    await expect(page.locator("#wf-challenge")).toHaveValue("守夜人换班前必须离场");
+    await expect(page.locator("#wf-stage")).toHaveValue("重要转折");
     await expect(page.locator("#wf-wt")).toHaveValue("1800");
-    // 场景卡行回填
-    await expect(page.locator("#wf-scenes input").first()).toHaveValue("账房");
+    // 退役格不在表单里（关键事件/地点/时间/视角/预期策略/段落规划/场景卡）
+    for (const dead of ["#wf-keys", "#wf-loc", "#wf-time", "#wf-pov", "#wf-pguid", "#wf-rstrat", "#wf-segs", "#wf-scenes", "#wf-acts"]) {
+      await expect(page.locator(dead)).toHaveCount(0);
+    }
 
     // 保存草稿（回填内容过 ogFormIssues）→ toast + 落库
     await page.getByRole("button", { name: "保存草稿" }).click();
@@ -227,7 +217,7 @@ test("已有内容：confirm 覆盖后才发起起草", async ({ page, request }
   }
 });
 
-test("只填场景卡：同样要覆盖确认；取消保留表单（hardening）", async ({ page, request }) => {
+test("只填挑战格：同样要覆盖确认；取消保留表单（hardening）", async ({ page, request }) => {
   const { restore, token } = await setupSession(page);
   let draftCalls = 0;
   try {
@@ -242,22 +232,20 @@ test("只填场景卡：同样要覆盖确认；取消保留表单（hardening�
       });
     });
 
-    // 只填场景卡一行（其余格子全空）：先加一行再填场景名
-    await page.locator("#wf-scenes summary").click();
-    await page.getByRole("button", { name: "添加场景卡" }).click();
-    await page.locator("#wf-scenes input[data-scene='n']").first().fill("渡口");
+    // 只填「碰到的挑战」（其余格子全空；c-og-slim-v2：原口径为只填场景卡）
+    await page.locator("#wf-challenge").fill("渡口封江在即");
 
     // 第一次：dismiss 取消 → 不发请求、表单保留
     page.once("dialog", (d) => void d.dismiss());
     await page.getByTestId("og-ai-draft").click();
     // 先走完表单断言的自动重试窗（=观察期），再断言零请求（替代固定 sleep）
-    await expect(page.locator("#wf-scenes input[data-scene='n']").first()).toHaveValue("渡口");
+    await expect(page.locator("#wf-challenge")).toHaveValue("渡口封江在即");
     expect(draftCalls).toBe(0);
 
     // 第二次：accept → 发起并回填
     page.once("dialog", (d) => void d.accept());
     await page.getByTestId("og-ai-draft").click();
-    await expect(page.locator("#wf-scenes input[data-scene='n']").first()).toHaveValue("账房", {
+    await expect(page.locator("#wf-challenge")).toHaveValue("守夜人换班前必须离场", {
       timeout: 10000,
     });
     expect(draftCalls).toBe(1);
@@ -275,7 +263,7 @@ test("失败：502 toast 提示且表单不动", async ({ page, request }) => {
       route.fulfill({
         status: 502,
         contentType: "application/json",
-        body: JSON.stringify({ detail: "草稿结构不完整（缺梗概/核心任务/段落规划），未返回，可重试" }),
+        body: JSON.stringify({ detail: "草稿结构不完整（缺梗概），未返回，可重试" }),
       }),
     );
 

@@ -369,6 +369,40 @@ def _hooks_v1_to_entries(data: dict) -> list[dict]:
     return entries
 
 
+# c-og-slim-v2：已退役的章纲键（导入时按忽略处理，不落库、不报错）。
+# 计数只为在导入报告里给出可核对的「忽略 N 处」——与 v4 卷纲段「静默忽略」的差别
+# 是本批删除面更宽，作者需要知道包里的内容没有被带走。
+_RETIRED_CHAPTER_TOP = frozenset({"segments", "scene_cards", "chapter_acts"})
+_RETIRED_OUTLINE = frozenset(
+    {"key_points", "location", "time", "narrative_pov", "perspective_guidance"}
+)
+_RETIRED_EMOTIONAL = frozenset(
+    {"mood_progression", "emotional_hook", "intensity_peak", "intensity_level"}
+)
+
+
+def _count_retired_chapter_fields(ch_data: dict) -> int:
+    """数出该章载荷里落在已退役键上的处数（含嵌套的 reader_expectation / partial_advance）。"""
+    if not isinstance(ch_data, dict):
+        return 0
+    n = len(_RETIRED_CHAPTER_TOP.intersection(ch_data))
+    outline = ch_data.get("outline")
+    if isinstance(outline, dict):
+        n += len(_RETIRED_OUTLINE.intersection(outline))
+    memo = ch_data.get("memo")
+    if isinstance(memo, dict):
+        rexp = memo.get("reader_expectation")
+        if isinstance(rexp, dict):
+            n += len(rexp)
+        pp = memo.get("payoff_plan")
+        if isinstance(pp, dict) and pp.get("partial_advance"):
+            n += 1
+    emotional = ch_data.get("emotional_design")
+    if isinstance(emotional, dict):
+        n += len(_RETIRED_EMOTIONAL.intersection(emotional))
+    return n
+
+
 def _hook_row_fields(raw: dict, warnings: list[str], index: int, ref_to_id: dict) -> dict:
     """v3 条目 → NovelHook 列 dict（白名单外键一律忽略，混形兜底不丢行）。"""
     from settings.hooks_model import (
@@ -620,10 +654,12 @@ async def _import_single_book(
 
 
     # 章 + 正文 + 子表 + 版本 + 提示词
+    retired_field_hits = 0
     for name in sorted(names):
         if not name.startswith(f"{book_dir}chapters/") or not name.endswith(".yaml"):
             continue
         ch_data = yaml.safe_load(zf.read(name))
+        retired_field_hits += _count_retired_chapter_fields(ch_data)
         ref = Path(name).stem
         ch_id = str(uuid.uuid4())
 
@@ -696,6 +732,13 @@ async def _import_single_book(
             db.add(Archive(
                 chapter_id=ch_id, title=Path(an).stem, content=zf.read(an).decode("utf-8"),
             ))
+
+    if retired_field_hits and warnings is not None:
+        warnings.append(
+            f"本包有 {retired_field_hits} 处章纲字段已退役（关键事件/地点/时间/叙事视角/"
+            "视角指导/预期策略/预期细节/可部分推进/段落规划/本章行动/场景卡/强度与情绪暗字段），"
+            "已按忽略处理——这些内容不会恢复"
+        )
 
     # 伏笔段恢复（foreshadow-settings-v2）：必须在「章循环落库之后」执行——
     # ref→id 重绑按本书已落库的 chapters 解析（顺序约束与上方「角色段必须在

@@ -133,8 +133,8 @@ def client():
 VALID_POLISHED = (
     "## 任务指示\n第 1 章，目标字数约 1800 字（±10%）。\n"
     "## 前情上下文\n无前置章节，开篇直接切入角色当下行动。\n"
-    "## 场景原材料\n场景1｜酒馆对峙｜权重：高｜焦点：核心冲突。\n"
-    "爽点设计：clue·半块玉佩（中段）。\n"
+    "## 章纲概要\n她夜探库房调包账册；本章要撞的墙：旧档堆不对活人开放。\n"
+    "爽点设计：线索·半块玉佩。\n"
     "## 不可违反规则\n红线：本章必须完成——主角与师父决裂。\n"
     "## 质感要求\n留 1-2 个不服务主线的细碎生活细节。"
 )
@@ -165,7 +165,8 @@ def _create_project_and_chapter(client, plots: list | None = None) -> tuple[str,
     r2 = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters", json={"title": "第1章"})
     assert r2.status_code in (200, 201), r2.text
     ref = r2.json()["chapter_ref"]
-    # 章纲素材：场景卡 + 爽点 + 字数目标（直接走 store 写全量章数据）
+    # 章纲素材：概要 + 挑战 + 阶段 + 爽点 + 字数目标（直接走 store 写全量章数据）
+    # c-og-slim-v2：场景卡退役，素材包改以【章纲概要】块承载主干
 
     async def _seed():
         root = await _get_root(pid)
@@ -175,17 +176,11 @@ def _create_project_and_chapter(client, plots: list | None = None) -> tuple[str,
             {
                 "title": "第1章",
                 "word_target": 1800,
-                "scene_cards": [
-                    {
-                        "scene_name": "酒馆对峙",
-                        "goal": "问出货源",
-                        "obstacle": "掌柜装傻",
-                        "weight": "high",
-                        "focus": "核心冲突",
-                    }
-                ],
+                "outline": {"summary": "她夜探库房调包账册。"},
+                "challenge": "旧档堆不对活人开放",
+                "plot_stage": "矛盾升级",
                 "micro_payoffs": [
-                    {"kind": "clue", "description": "半块玉佩", "location": "中段"}
+                    {"kind": "clue", "description": "半块玉佩"}
                 ],
                 "memo": {"required_changes": ["主角与师父决裂"]},
                 "plot_items": list(plots or []),
@@ -256,8 +251,9 @@ class TestPolishPrompt:
         assert "任务指示" in body["prompt"]
         # system 用 prompt_crafting 模板（十段骨架清单特征）
         assert "十段要素" in fake.last_kwargs["system"]
-        # user 内容是素材包（带场景原材料原料 + 约束红线）
-        assert "【场景原材料】" in fake.last_kwargs["messages"][0]["content"]
+        # user 内容是素材包（带章纲概要原料 + 约束红线；场景原材料随场景卡退役）
+        assert "【章纲概要】" in fake.last_kwargs["messages"][0]["content"]
+        assert "【场景原材料】" not in fake.last_kwargs["messages"][0]["content"]
         assert "【约束红线" in fake.last_kwargs["messages"][0]["content"]
         # 落库为 write-prompt 行
         stored = _read_stored_prompt(pid, ref)

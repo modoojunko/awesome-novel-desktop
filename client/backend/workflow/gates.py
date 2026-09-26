@@ -57,22 +57,19 @@ def gate_chapter_ready(chapter_data: dict) -> GateResult:
     """Check if chapter outline is ready for prompt generation.
 
     Hard gate — missing fields block transition to prompt.
+
+    c-og-slim-v2：必填由四项降为两项。退役的「预期策略」「段落规划」在正文组装链
+    里没有任何消费点（不进粗组兜底、也不进润色素材包），继续做门槛只是卡作者。
     """
     missing = []
     memo = chapter_data.get("memo", {})
 
-    rexp = memo.get("reader_expectation", {})
-    if not rexp.get("strategy"):
-        missing.append("预期策略")
     changes = memo.get("required_changes", [])
     if not changes:
         missing.append("必须完成的变化")
     ed = chapter_data.get("emotional_design", {})
     if not ed.get("primary_mood"):
         missing.append("主情绪")
-    segments = chapter_data.get("segments", [])
-    if not segments:
-        missing.append("段落规划")
 
     return GateResult(
         valid=len(missing) == 0,

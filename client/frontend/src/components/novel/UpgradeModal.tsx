@@ -74,7 +74,7 @@ export default function UpgradeModal({ open, onClose }: { open: boolean; onClose
         </svg>
         <div>
           <b>卷/章高级字段</b>
-          <p>结构模板、冲突阶梯、key_points、情绪设计——作为生成上下文与创作规范。</p>
+          <p>结构模板、冲突阶梯、剧情条目、情绪设计——作为生成上下文与创作规范。</p>
         </div>
       </div>
     </Modal>

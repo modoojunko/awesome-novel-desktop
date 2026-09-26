@@ -45,30 +45,27 @@ CHAPTER_DATA='{
   "status":"outline",
   "outline":{
     "summary":"陆征接到苏沫的委托，调查她姐姐苏棠的失踪案。警方判定为普通失踪，但苏沫坚持认为事有蹊跷。",
-    "key_points":["苏沫来访","查看苏棠公寓","发现遗留的线索"],
-    "characters":["陆征","苏沫"],
-    "location":"陆征的办公室、苏棠的公寓",
-    "time":"早晨到下午",
-    "narrative_pov":"第三人称有限视角"
+    "characters":["陆征","苏沫"]
   },
   "memo":{
-    "current_task":"陆征接手苏棠失踪案的调查，初步了解案情",
-    "reader_expectation":{"state":"好奇","strategy":"制造新缺口","detail":"苏棠为什么失踪？她发现了什么？"},
+    "payoff_plan":{"must_resolve":[],"must_hold":["灰短袖的身份"]},
     "required_changes":["陆征从观望转为正式介入调查"],
-    "prohibitions":["不要过早揭示灰短袖的身份"],
-    "key_choices":["陆征决定是否接下这个案子"]
+    "prohibitions":["不要过早揭示灰短袖的身份"]
   },
   "emotional_design":{
-    "primary_mood":"好奇","mood_progression":"松驰→好奇→紧绷","intensity_peak":"公寓场景",
-    "satisfaction_beat":"陆征发现苏棠留下的纸条","emotional_hook":"悬念","intensity_level":4
+    "primary_mood":"好奇"
   },
-  "segments":[
-    {"seg_number":1,"function":"atmosphere","goal":"清晨办公室的日常氛围","what_to_write":"陆征坐在办公室整理旧案卷。窗外钟楼敲响三下。电话响起——前同事老方推荐了一个委托人。","characters":["陆征"],"emotional_tone":"放松","word_target":300,"ends_with":"苏沫推门进来——一个二十出头的女孩，眼圈发红，手里攥着一沓照片。"},
-    {"seg_number":2,"function":"dialogue_push","goal":"苏沫讲述案情","what_to_write":"苏沫描述姐姐苏棠失踪前的情况。苏棠是物流公司文员，失踪前两周行为异常——换了手机号，搬了住处，不再和任何人联系。警方判定为主动失踪，但苏沫不信。","characters":["陆征","苏沫"],"emotional_tone":"好奇","word_target":500,"ends_with":"陆征从苏沫手里接过照片——照片上的苏棠穿着蓝色工作服，站在物流仓库前，身后有个模糊的灰色人影。"},
-    {"seg_number":3,"function":"character_beat","goal":"陆征独自决定","what_to_write":"苏沫离开后，陆征翻看案卷。一个简单的失踪案，警方已经结案。但他注意到照片上的灰色人影——那个人身上穿的是保安制服，胸前有个徽章。他拿起电话拨给老方。","characters":["陆征"],"emotional_tone":"专注","word_target":400,"ends_with":"老方在电话里沉默了几秒，然后说：'那个片子……最好别碰。'挂了。"},
-    {"seg_number":4,"function":"revelation","goal":"发现关键线索","what_to_write":"陆征独自去了苏棠最后住的公寓。公寓已经被清空，只留下一个空衣柜和一张床垫。他在床垫下面找到一张揉皱的物流单——收货地址不是苏棠的住址，是一个城中村的门牌号。","characters":["陆征"],"emotional_tone":"紧绷","word_target":400,"ends_with":"物流单上的日期是苏棠失踪前三天。发货人写的不是苏棠的名字，写的是'老马'。"},
-    {"seg_number":5,"function":"emotional_landing","goal":"章末钩子——陆征决定查下去","what_to_write":"陆征把物流单夹进笔记本，开车回事务所。路过钟楼时，钟声敲了六下——晚高峰的车流把他堵在路口。后视镜里，他看到一辆灰色面包车跟在自己后面，和刚才来的时候一样。","characters":["陆征"],"emotional_tone":"不安","word_target":300,"ends_with":"面包车的雾灯亮了一下，然后关了。像是有人确认他在看。"}
-  ]
+  "plot_items":[
+    "苏沫推门进办公室，把一沓照片放在陆征桌上。",
+    "陆征翻看案卷，注意到照片背景里那个模糊的灰色人影。",
+    "他独自去苏棠最后住的公寓，在床垫下摸到一张揉皱的物流单。",
+    "回程路上后视镜里的灰色面包车亮了一下雾灯又关掉。"
+  ],
+  "challenge":"警方已按普通失踪结案，没人愿意重开",
+  "plot_stage":"开局铺垫",
+  "ladder_exit":"物流单上写着老马，面包车跟在后面",
+  "micro_payoffs":[{"kind":"clue","description":"床垫下的物流单"}],
+  "word_target":2500
 }'
 curl -sf -X PUT "$BASE/api/projects/$PROJ_ID/chapters/vol-1-ch-1" \
   -H "Content-Type: application/json" \

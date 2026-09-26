@@ -398,22 +398,12 @@ def test_chapter_structured_fields_roundtrip():
                 "word_target": 2500,
                 "outline": {
                     "summary": "主角在城中村落脚，地头蛇上门。",
-                    "location": "城中村面馆",
-                    "time": "初秋傍晚",
-                    "narrative_pov": "第三人称有限",
-                    "perspective_guidance": "贴着主角写",
-                    "key_points": ["[推进剧情·对话]主角拒绝上供", "[造悬念]刀疤男在门外"],
                     "characters": ["林拓", "刀疤男"],
                 },
                 "memo": {
-                    "reader_expectation": {
-                        "strategy": "must_resolve",
-                        "detail": "读者在等地头蛇出招",
-                    },
                     "payoff_plan": {
                         "must_resolve": ["上供冲突落地"],
                         "must_hold": ["师父死因悬念"],
-                        "partial_advance": ["仇家线索+1"],
                     },
                     "downtime_functions": ["收摊夜谈：交代背景"],
                     "key_choices": ["拒交保护费：验证不低头人设"],
@@ -422,24 +412,14 @@ def test_chapter_structured_fields_roundtrip():
                 },
                 "emotional_design": {
                     "primary_mood": "紧张",
-                    "mood_progression": "平静→警觉→对峙",
-                    "intensity_peak": "保护费摊牌对峙",
-                    "intensity_level": 7,
-                    "emotional_hook": "门外刀疤男",
                 },
-                "scene_cards": [
-                    {"scene_name": "傍晚面馆", "goal": "拒交保护费",
-                     "obstacle": "地头蛇威胁", "hook": "门外来了人"},
-                ],
+                "challenge": "旧档堆不对活人开放",
+                "plot_stage": "矛盾升级",
+                "plot_items": ["面馆里地头蛇来收保护费", "她掀了桌子走出门"],
                 "knowledge_states": [
                     {"character_name": "林拓", "knows": "哥哥曾来过此城",
                      "unknowns": "哥哥现状", "gap_relation": "仇家知道哥哥下落",
                      "gap_change": "无→怀疑"},
-                ],
-                "segments": [
-                    {"summary": "拒交保护费", "target_words": 1200, "goal": "守住底线",
-                     "emotional_tone": "紧张", "characters": ["林拓", "地头蛇"],
-                     "function": "主线推进"},
                 ],
             }
             await save_chapter(proj.root_path, "vol-1-ch-1", full)
@@ -450,22 +430,17 @@ def test_chapter_structured_fields_roundtrip():
             assert data["word_target"] == 2500
             out = data["outline"]
             assert out["summary"] == "主角在城中村落脚，地头蛇上门。"
-            assert out["location"] == "城中村面馆"
-            assert out["time"] == "初秋傍晚"
-            assert out["narrative_pov"] == "第三人称有限"
-            assert out["perspective_guidance"] == "贴着主角写"
-            assert out["key_points"] == [
-                "[推进剧情·对话]主角拒绝上供", "[造悬念]刀疤男在门外",
-            ]
             assert out["characters"] == ["林拓", "刀疤男"]
+            # c-og-slim-v2：关键事件/地点/时间/视角/视角指导一律不回读
+            for dead in ("key_points", "location", "time", "narrative_pov", "perspective_guidance"):
+                assert dead not in out
             memo = data["memo"]
-            # c-og-fields-slim：current_task/reader_expectation.state 退役——不回读
+            # 退役面：核心任务/读者预期/可部分推进
             assert "current_task" not in memo
-            assert "state" not in memo["reader_expectation"]
-            assert memo["reader_expectation"]["strategy"] == "must_resolve"
+            assert "reader_expectation" not in memo
             assert memo["payoff_plan"]["must_resolve"] == ["上供冲突落地"]
             assert memo["payoff_plan"]["must_hold"] == ["师父死因悬念"]
-            assert memo["payoff_plan"]["partial_advance"] == ["仇家线索+1"]
+            assert "partial_advance" not in memo["payoff_plan"]
             assert memo["downtime_functions"] == ["收摊夜谈：交代背景"]
             assert memo["key_choices"] == ["拒交保护费：验证不低头人设"]
             assert memo["required_changes"] == [
@@ -474,30 +449,25 @@ def test_chapter_structured_fields_roundtrip():
             assert memo["prohibitions"] == ["不让主角直接动手"]
             emo = data["emotional_design"]
             assert emo["primary_mood"] == "紧张"
-            assert emo["mood_progression"] == "平静→警觉→对峙"
-            assert emo["intensity_level"] == 7
-            assert emo["emotional_hook"] == "门外刀疤男"
-            assert data["scene_cards"][0]["scene_name"] == "傍晚面馆"
-            assert data["scene_cards"][0]["obstacle"] == "地头蛇威胁"
+            for dead in ("mood_progression", "intensity_level", "emotional_hook", "intensity_peak"):
+                assert dead not in emo
+            # 拆章两格与剧情条目随章往返
+            assert data["challenge"] == "旧档堆不对活人开放"
+            assert data["plot_stage"] == "矛盾升级"
+            assert data["plot_items"] == ["面馆里地头蛇来收保护费", "她掀了桌子走出门"]
+            assert "scene_cards" not in data and "segments" not in data
             ks = data["knowledge_states"][0]
             assert ks["character_name"] == "林拓"
             assert ks["gap_relation"] == "仇家知道哥哥下落"
-            seg = data["segments"][0]
-            assert seg["summary"] == "拒交保护费"
-            assert seg["target_words"] == 1200
-            assert seg["goal"] == "守住底线"
-            assert seg["emotional_tone"] == "紧张"
-            assert seg["characters"] == ["林拓", "地头蛇"]
-            assert seg["function"] == "主线推进"
 
-            # 子表整体替换：key_points 换一条，其余族不动
-            full["outline"]["key_points"] = ["[过渡]收摊打烊"]
+            # 子表整体替换：出场角色换一条，其余族不动
+            full["outline"]["characters"] = ["林拓"]
             await save_chapter(proj.root_path, "vol-1-ch-1", full)
             data2 = await load_chapter(proj.root_path, "vol-1-ch-1")
-            assert data2["outline"]["key_points"] == ["[过渡]收摊打烊"]
-            assert data2["outline"]["characters"] == ["林拓", "刀疤男"]
+            assert data2["outline"]["characters"] == ["林拓"]
+            assert data2["challenge"] == "旧档堆不对活人开放"
             assert len(data2["memo"]["payoff_plan"]["must_resolve"]) == 1
-            assert len(data2["segments"]) == 1
+            assert data2["plot_items"] == ["面馆里地头蛇来收保护费", "她掀了桌子走出门"]
 
     _run_async(_run())
 

@@ -1,37 +1,14 @@
 // 章纲表单模型（OgPane / ChapterWorkspace 共用）：
 // 扁平 OgForm ↔ 后端 ChapterData 的纯映射 + 必填缺口计算。
-// 必填口径 = 后端 gate_chapter_ready 六项（与 book.html REQUIRED 一致）。
-// ai-prompt-crafting：新增提示词格子（场景卡 weight/focus、读者获得、章末落点、
-// 目标字数）——全部可空，不进必填缺口。
+// 必填口径 = 后端 gate_chapter_ready 两项（必须完成的变化、主情绪）。
+// c-og-slim-v2：字段收敛到 13 格——关键事件/地点/时间/叙事视角/视角指导/预期策略/
+// 预期细节/可部分推进/段落规划/本章行动/场景卡整组退役（控件、映射、校验同批摘除）。
 import type { ChapterData } from "@/hooks/useOutline";
-
-export interface OgSeg {
-  s: string;
-  w: number;
-}
-
-export interface OgScene {
-  n: string; // scene_name 场景名
-  g: string; // goal 目标
-  o: string; // obstacle 阻碍
-  h: string; // hook 钩子
-  w: "" | "high" | "mid" | "low"; // 权重（高/中/低）
-  f: "" | "核心冲突" | "人物情绪" | "信息差"; // 焦点
-}
 
 export interface OgPayoff {
   k: string; // kind 类型枚举（PAYOFF_KINDS 的 key）
   d: string; // description 一句话描述
-  l: "" | "前段" | "中段" | "后段"; // location
 }
-
-export const SCENE_WEIGHTS = [
-  { value: "high", label: "高" },
-  { value: "mid", label: "中" },
-  { value: "low", label: "低" },
-] as const;
-
-export const SCENE_FOCUS = ["核心冲突", "人物情绪", "信息差"] as const;
 
 export const PAYOFF_KINDS = [
   { value: "clue", label: "线索" },
@@ -43,8 +20,6 @@ export const PAYOFF_KINDS = [
   { value: "relief", label: "压力释放" },
 ] as const;
 
-export const PAYOFF_LOCATIONS = ["前段", "中段", "后段"] as const;
-
 // ── 章内剧情（c-plot-split：条目=场景描述非正文）──
 export const PLOT_MAX_LEN = 200;
 export const PLOT_MAX_ITEMS = 12;
@@ -52,63 +27,38 @@ export const PLOT_MAX_ITEMS = 12;
 export interface OgForm {
   title: string;
   summary: string;
-  keys: string; // 一行一个 → outline.key_points[]
   chars: string; // 一行一个 → outline.characters[]
-  loc: string;
-  time: string;
-  pov: string;
-  pguid: string;
-  rstrat: string; // * → memo.reader_expectation.strategy
-  rdetail: string; // → memo.reader_expectation.detail
   mres: string; // 一行一个 → memo.payoff_plan.must_resolve[]
   mhold: string; // 一行一个 → memo.payoff_plan.must_hold[]
-  padv: string; // 一行一个 → memo.payoff_plan.partial_advance[]
   changes: string; // * 一行一个 → memo.required_changes[]
   ban: string; // 一行一个 → memo.prohibitions[]
   mood: string; // * → emotional_design.primary_mood
-  segs: OgSeg[]; // * → segments[{summary,target_words}]
-  // ── 提示词格子（ai-prompt-crafting，全可空）──
-  scenes: OgScene[]; // → scene_cards[]
   payoffs: OgPayoff[]; // → micro_payoffs[]
   ladder: string; // → ladder_exit 章末落点
   wt: string; // → word_target 本章目标字数（500-6000）
   // ── 章内剧情（c-plot-split；**必须整表回传**——缺键保持原样，显式 [] 清空）──
   plots: string[]; // → plot_items[]（一条=一段场景描述，≤200 字、≤12 条）
-  // ── 拆章五段（c-chapter-plan-ai；非必填，但**必须整表回传**——缺键即清空）──
+  // ── 拆章两格（c-chapter-plan-ai；非必填，但**必须整表回传**——缺键即清空）──
   challenge: string; // → challenge 碰到的挑战
-  acts: string; // → chapter_acts 本章行动（一行一条 ≤4×60）
   stage: string; // → plot_stage 阶段（六档闭集）
 }
 
 export const REQ_FIELDS: { key: keyof OgForm; label: string }[] = [
-  { key: "rstrat", label: "预期策略" },
   { key: "changes", label: "必须完成的变化" },
   { key: "mood", label: "主情绪" },
-  { key: "segs", label: "段落规划" },
 ];
 
 export const EMPTY_OG_FORM: OgForm = {
   challenge: "",
-  acts: "",
   stage: "开局铺垫",
   title: "",
   summary: "",
-  keys: "",
   chars: "",
-  loc: "",
-  time: "",
-  pov: "",
-  pguid: "",
-  rstrat: "",
-  rdetail: "",
   mres: "",
   mhold: "",
-  padv: "",
   changes: "",
   ban: "",
   mood: "",
-  segs: [{ s: "", w: 800 }],
-  scenes: [],
   payoffs: [],
   ladder: "",
   wt: "",
@@ -117,40 +67,20 @@ export const EMPTY_OG_FORM: OgForm = {
 
 /** 章纲缺口标签键 → fill-gaps 白名单键（与后端 chapters/ai_draft.py _FILLABLE_KEYS 同口径）。 */
 export const GAP_TO_FILL_KEY: Record<string, string> = {
-  rstrat: "strategy",
   changes: "changes",
   mood: "mood",
-  segs: "segments",
 };
 
 /** 后端 fills（白名单键）→ OgForm 补丁：未识别的键丢弃；行列表按行拼接。
- *  产物只回填表单，落库仍走既有保存链（3s 自动保存/手动保存）。 */
+ *  产物只回填表单，落库仍走既有保存链（自动保存/手动保存）。 */
 export function ogPatchFromFills(fills: Record<string, unknown>): Partial<OgForm> {
   const patch: Partial<OgForm> = {};
   for (const [k, v] of Object.entries(fills)) {
-    if (k === "segments") {
-      if (!Array.isArray(v)) continue;
-      const segs: OgSeg[] = [];
-      for (const it of v) {
-        if (!it || typeof it !== "object") continue;
-        const o = it as { summary?: unknown; target_words?: unknown };
-        const text = String(o.summary ?? "").trim();
-        if (!text) continue;
-        const w = Number(o.target_words);
-        segs.push({ s: text, w: Number.isFinite(w) && w > 0 ? w : 800 });
-      }
-      if (segs.length) patch.segs = segs;
-      continue;
-    }
     if (typeof v === "string") {
       const text = v.trim();
       if (!text) continue;
       switch (k) {
         case "summary": patch.summary = text; break;
-        case "location": patch.loc = text; break;
-        case "time": patch.time = text; break;
-        case "strategy": patch.rstrat = text; break;
-        case "detail": patch.rdetail = text; break;
         case "mood": patch.mood = text; break;
         default: break;
       }
@@ -163,7 +93,6 @@ export function ogPatchFromFills(fills: Record<string, unknown>): Partial<OgForm
         .join("\n");
       if (!joined) continue;
       switch (k) {
-        case "key_points": patch.keys = joined; break;
         case "characters": patch.chars = joined; break;
         case "changes": patch.changes = joined; break;
         case "prohibitions": patch.ban = joined; break;
@@ -177,20 +106,12 @@ export function ogPatchFromFills(fills: Record<string, unknown>): Partial<OgForm
 const lines = (s: string): string[] =>
   s.split("\n").map((x) => x.trim()).filter(Boolean);
 
-const SCENE_WEIGHT_SET = new Set<string>(SCENE_WEIGHTS.map((x) => x.value));
-const SCENE_FOCUS_SET = new Set<string>(SCENE_FOCUS);
 const PAYOFF_KIND_SET = new Set<string>(PAYOFF_KINDS.map((x) => x.value));
-const PAYOFF_LOC_SET = new Set<string>(PAYOFF_LOCATIONS);
 
 export function ogGaps(form: OgForm): { key: string; label: string }[] {
   const gaps: { key: string; label: string }[] = [];
   for (const { key, label } of REQ_FIELDS) {
-    const v = form[key];
-    const empty =
-      key === "segs"
-        ? (v as OgSeg[]).length === 0
-        : String(v ?? "").trim() === "";
-    if (empty) gaps.push({ key: String(key), label });
+    if (String(form[key] ?? "").trim() === "") gaps.push({ key: String(key), label });
   }
   return gaps;
 }
@@ -198,86 +119,54 @@ export function ogGaps(form: OgForm): { key: string; label: string }[] {
 export function ogToForm(d: ChapterData | null | undefined): OgForm {
   const o = d?.outline ?? {};
   const m = d?.memo ?? {};
-  const re = m.reader_expectation ?? {};
   const pp = m.payoff_plan ?? {};
   return {
     title: d?.title ?? "",
     summary: o.summary ?? "",
-    keys: (o.key_points ?? []).join("\n"),
     chars: (o.characters ?? []).join("\n"),
-    loc: o.location ?? "",
-    time: o.time ?? "",
-    pov: o.narrative_pov ?? "",
-    pguid: o.perspective_guidance ?? "",
-    rstrat: re.strategy ?? "",
-    rdetail: re.detail ?? "",
     mres: (pp.must_resolve ?? []).join("\n"),
     mhold: (pp.must_hold ?? []).join("\n"),
-    padv: (pp.partial_advance ?? []).join("\n"),
     changes: (m.required_changes ?? []).join("\n"),
     ban: (m.prohibitions ?? []).join("\n"),
     mood: d?.emotional_design?.primary_mood ?? "",
-    segs: (d?.segments ?? []).map((s) => ({
-      s: s.summary ?? "",
-      w: s.target_words ?? 800,
-    })),
-    scenes: (d?.scene_cards ?? []).map((sc) => ({
-      n: sc.scene_name ?? "",
-      g: sc.goal ?? "",
-      o: sc.obstacle ?? "",
-      h: sc.hook ?? "",
-      w: SCENE_WEIGHT_SET.has(sc.weight as OgScene["w"]) ? (sc.weight as OgScene["w"]) : "",
-      f: SCENE_FOCUS_SET.has(sc.focus ?? "") ? (sc.focus as OgScene["f"]) : "",
-    })),
     payoffs: (d?.micro_payoffs ?? []).map((mp) => ({
       k: PAYOFF_KIND_SET.has(mp.kind ?? "") ? (mp.kind as string) : "clue",
       d: mp.description ?? "",
-      l: PAYOFF_LOC_SET.has(mp.location ?? "") ? (mp.location as OgPayoff["l"]) : "",
     })),
     ladder: d?.ladder_exit ?? "",
     challenge: d?.challenge ?? "",
-    acts: (d?.chapter_acts ?? []).join("\n"),
     stage: d?.plot_stage ?? "",
     wt: d?.word_target != null ? String(d.word_target) : "",
     plots: (d?.plot_items ?? []).map((s) => String(s)),
   };
 }
 
-/** 场景名门槛 + 字数区间校验：返回用户可读问题列表，非空则保存被拦截。
- *  只拦「行内有内容但缺场景名」——整行空白仍允许（可空格子）。 */
+/** 字数区间校验：返回用户可读问题列表，非空则保存被拦截。 */
 export function ogFormIssues(form: OgForm): string[] {
   const issues: string[] = [];
-  form.scenes.forEach((sc, i) => {
-    const hasContent = [sc.g, sc.o, sc.h, sc.w, sc.f].some((v) => String(v ?? "").trim() !== "");
-    if (!sc.n.trim() && hasContent) {
-      issues.push(`场景卡第 ${i + 1} 行填写了内容但缺少场景名`);
-    }
-  });
   if (form.wt.trim() !== "") {
     const wt = parseInt(form.wt, 10);
     if (!Number.isFinite(wt) || wt < 500 || wt > 6000) {
       issues.push("本章目标字数需在 500-6000 之间（留空默认 2500）");
     }
   }
-  // 本章行动：单行 ≤60、≤4 行（与服务端 422 同判据——就地提示，别等静默保存失败）
-  const actLines = form.acts.split("\n").map((x) => x.trim()).filter(Boolean);
-  if (actLines.length > 4) issues.push("本章行动最多 4 行（一行一个动作）");
-  if (actLines.some((l) => l.length > 60)) issues.push("本章行动单行不超过 60 字");
   return issues;
 }
 
-/** AI 起草覆盖确认判定：章纲格子有内容即需二次确认。
+/** AI 起草覆盖确认判定：留存章纲格子有内容即需二次确认。
  *  **不含剧情 plots**——AI 起草只覆盖章纲格子，剧情列表不参与也不被动。 */
 export function ogHasDraftContent(form: OgForm): boolean {
   return (
-    [form.summary, form.mood, form.rstrat, form.changes, form.ladder, form.wt].some(
-      (v) => String(v ?? "").trim() !== "",
-    ) ||
-    form.segs.length > 0 ||
-    form.scenes.some(
-      (sc) => [sc.n, sc.g, sc.o, sc.h].some((v) => v.trim() !== "") || sc.w !== "" || sc.f !== "",
-    ) ||
-    form.payoffs.some((p) => p.d.trim() !== "")
+    [
+      form.summary,
+      form.mood,
+      form.changes,
+      form.ban,
+      form.ladder,
+      form.wt,
+      form.challenge,
+      form.stage,
+    ].some((v) => String(v ?? "").trim() !== "") || form.payoffs.some((p) => p.d.trim() !== "")
   );
 }
 
@@ -292,25 +181,14 @@ export function ogToPartial(
     outline: {
       ...(existing?.outline ?? {}),
       summary: form.summary,
-      key_points: lines(form.keys),
       characters: lines(form.chars),
-      location: form.loc,
-      time: form.time,
-      narrative_pov: form.pov,
-      perspective_guidance: form.pguid,
     },
     memo: {
       ...(existing?.memo ?? {}),
-      reader_expectation: {
-        ...(existing?.memo?.reader_expectation ?? {}),
-        strategy: form.rstrat,
-        detail: form.rdetail,
-      },
       payoff_plan: {
         ...(existing?.memo?.payoff_plan ?? {}),
         must_resolve: lines(form.mres),
         must_hold: lines(form.mhold),
-        partial_advance: lines(form.padv),
       },
       required_changes: lines(form.changes),
       prohibitions: lines(form.ban),
@@ -319,35 +197,22 @@ export function ogToPartial(
       ...(existing?.emotional_design ?? {}),
       primary_mood: form.mood,
     },
-    segments: form.segs.map((s) => ({ summary: s.s, target_words: s.w })),
-    // 提示词格子：场景卡只存非空场景名行（后端对空行 description 过滤同理）
-    scene_cards: form.scenes
-      .filter((sc) => sc.n.trim())
-      .map((sc) => ({
-        scene_name: sc.n.trim(),
-        goal: sc.g.trim(),
-        obstacle: sc.o.trim(),
-        hook: sc.h.trim(),
-        ...(sc.w ? { weight: sc.w } : {}),
-        ...(sc.f ? { focus: sc.f } : {}),
-      })),
+    // 读者获得：类型（中文标签由渲染侧映射）+ 一句话描述；位置档已退役
     micro_payoffs: form.payoffs
       .filter((mp) => mp.d.trim())
       .map((mp) => ({
         kind: mp.k,
         description: mp.d.trim(),
-        ...(mp.l ? { location: mp.l } : {}),
       })),
     ladder_exit: form.ladder.trim(),
     // 章内剧情：**恒带键**（presence-gate：缺键保持原样、显式 [] 清空——见 chapter-data 场景）。
-    // 输入侧已 maxLength/条数卡，此处防绕过再夹一次；空白条目不算一条（同 scene_cards 过滤口径）。
+    // 输入侧已 maxLength/条数卡，此处防绕过再夹一次；空白条目不算一条。
     plot_items: form.plots
       .map((s) => s.slice(0, PLOT_MAX_LEN))
       .filter((s) => s.trim() !== "")
       .slice(0, PLOT_MAX_ITEMS),
-    // 拆章三格：整表回传（缺键会被装配端写空——见 chapter-data 场景）
+    // 拆章两格：整表回传（缺键会被装配端写空——见 chapter-data 场景）
     challenge: form.challenge.trim(),
-    chapter_acts: form.acts.split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 4),
     plot_stage: form.stage.trim(),
     // 兜底 clamp（正常路径已被 ogFormIssues 拦截，此处防绕过）
     word_target: Number.isFinite(wt) && wt > 0 ? Math.min(6000, Math.max(500, wt)) : null,

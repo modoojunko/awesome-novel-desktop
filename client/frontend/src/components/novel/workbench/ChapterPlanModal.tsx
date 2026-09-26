@@ -3,7 +3,7 @@
 // 手写卡底条「AI 看一眼这一章」（免费只读例外）。落点卡由外层渲染（关窗后回中栏）。
 import Modal from "@/components/design/Modal";
 import { cnNum } from "@/lib/nodeTitle";
-import { STAGES, joinActs, type ChapterPlanController } from "@/hooks/useChapterPlan";
+import { STAGES, type ChapterPlanController } from "@/hooks/useChapterPlan";
 
 export function ChapterPlanModal({
   plan,
@@ -105,7 +105,6 @@ export function ChapterPlanModal({
                   <div className="pk-row"><b>本章剧情</b><span>{d.plot}</span></div>
                   <div className="pk-row"><b>碰到的挑战</b><span>{d.obstacle}</span></div>
                   <div className="pk-row"><b>本章结尾</b><span>{d.ending}</span></div>
-                  <div className="pk-row"><b>本章行动</b><span>{joinActs(d.acts)}</span></div>
                   <div className="pk-row"><b>阶段</b><span>{d.stage}</span></div>
                   <div className="pk-read" data-testid={`pick-read-${i + 1}`}>
                     <p><b>剧情吸引力</b>{d.why}</p>
@@ -188,11 +187,6 @@ export function ChapterPlanModal({
                 <b>本章结尾</b>
                 <input className="input" aria-label="本章结尾" data-testid="d-ending" maxLength={80}
                   value={state.draft.ending} onChange={(e) => patchDraft({ ending: e.target.value })} />
-              </div>
-              <div className="s-lab">
-                <b>本章行动</b>
-                <input className="input" aria-label="本章行动" data-testid="d-acts" maxLength={240}
-                  value={state.draft.acts} onChange={(e) => patchDraft({ acts: e.target.value })} />
               </div>
               <div className="s-lab">
                 <b>阶段</b>

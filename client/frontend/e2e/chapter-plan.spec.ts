@@ -4,7 +4,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { cleanupSessionNovels, stableClick, writeConfigAtomic } from "./helpers";
 
 // =========================================================================
-// c-chapter-plan-ai 卷下拆章 e2e：中栏手写五段全链／右栏 AI 四态（打桩）／
+// c-chapter-plan-ai 卷下拆章 e2e：中栏手写四段全链／右栏 AI 四态（打桩）／
 // 落点卡三出口／派生视图／免费档锁定／删章守卫 409。
 // AI 端点全部 page.route 打桩；章真落库；「不落库」后端直查。
 // =========================================================================
@@ -112,11 +112,11 @@ const DIRECTIONS = {
   entry: { text: "她把信标藏进舱底夹层，签了那张登记单", source: "拟定，取自章纲落点" },
   directions: [
     { axis: "线索", title: "同名档案", plot: "她调出那份记录，最后一页被撕掉了", obstacle: "旧档堆不对活人开放",
-      ending: "她把残角收进怀里", acts: ["她：调档"], stage: "矛盾升级", cast: ["沉舟"], factions: [], places: [], why: "撕页钩子立住了", gap: "阻力偏程序化" },
+      ending: "她把残角收进怀里", stage: "矛盾升级", cast: ["沉舟"], factions: [], places: [], why: "撕页钩子立住了", gap: "阻力偏程序化" },
     { axis: "关系", title: "船队的条件", plot: "船队长开价换航线", obstacle: "让出航线＝交出一半生存空间",
-      ending: "她换来留在船上的许可", acts: ["船队长：开价"], stage: "矛盾升级", cast: [], factions: [], places: [], why: "让出航线真的疼", gap: "结尾停在安全" },
+      ending: "她换来留在船上的许可", stage: "矛盾升级", cast: [], factions: [], places: [], why: "让出航线真的疼", gap: "结尾停在安全" },
     { axis: "危机", title: "突击清查", plot: "清查队登船前她带信标出逃", obstacle: "挨船搜舱，藏无可藏",
-      ending: "信标暴露——全港都知道", acts: ["清查队：搜舱"], stage: "重要转折", cast: [], factions: [], places: [], why: "外部事件当面压上来", gap: "" },
+      ending: "信标暴露——全港都知道", stage: "重要转折", cast: [], factions: [], places: [], why: "外部事件当面压上来", gap: "" },
   ],
   grades: ["A", "B", "S"],
   checks: ["这一章把信标暴露提前了"],
@@ -124,7 +124,7 @@ const DIRECTIONS = {
   note: "",
 };
 
-test("手写路径全链：中栏拆下一章 → 五段 → 排上 → 落点卡（已带入 N 项＋还差 4 项＋三出口）", async ({ page, request }) => {
+test("手写路径全链：中栏拆下一章 → 四段 → 排上 → 落点卡（已带入 N 项＋还差 2 项＋三出口）", async ({ page, request }) => {
   const { restore, token } = await setupSession(page);
   try {
     const pid = await createNovelWithVolume(page, `拆章手写${Date.now() % 100000}`);
@@ -140,26 +140,27 @@ test("手写路径全链：中栏拆下一章 → 五段 → 排上 → 落点�
     await page.getByTestId("d-plot").fill("沉舟在废弃星港捡到信标，先藏了下来");
     await page.getByTestId("d-obstacle").fill("没人相信一个见习导航员");
     await page.getByTestId("d-ending").fill("她把信标藏进舱底夹层");
-    await page.getByTestId("d-acts").fill("沉舟：藏信标");
     await page.getByTestId("split-adopt").click();
     // 落点卡（桥）
     await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("chapter-landing-card")).toContainText("还差 4 项才能开写");
+    await expect(page.getByTestId("chapter-landing-card")).toContainText("还差 2 项才能开写");
     await expect(page.getByTestId("chapter-landing-card")).not.toContainText("核心任务");
     await expect(page.getByTestId("chapter-landing-card")).not.toContainText("读者当前状态");
-    // 逐项列出实际带入的五段（空项不冒充：这里填了 剧情/挑战/结尾/行动 + 阶段默认值）
-    await expect(page.getByTestId("chapter-landing-card")).toContainText("已带入 5 项");
-    await expect(page.getByTestId("chapter-landing-card")).toContainText("本章剧情、碰到的挑战、本章结尾、本章行动、阶段");
+    // 逐项列出实际带入的四段（空项不冒充：这里填了 剧情/挑战/结尾 + 阶段默认值）
+    await expect(page.getByTestId("chapter-landing-card")).toContainText("已带入 4 项");
+    await expect(page.getByTestId("chapter-landing-card")).toContainText("本章剧情、碰到的挑战、本章结尾、阶段");
     await expect(page.getByTestId("chapter-landing-outline")).toBeVisible();
     await expect(page.getByTestId("chapter-landing-next")).toBeVisible();
     await expect(page.getByTestId("chapter-landing-unsplit")).toBeVisible();
-    // 不落库直查：五段真落库（assemble 直出键 outline.summary／challenge／ladder_exit／chapter_acts）
+    // 不落库直查：四段真落库（assemble 直出键 outline.summary／challenge／ladder_exit／plot_stage）
+    // c-og-slim-v2：「本章行动」退役——载荷不再带该键、装配也不再输出
     const H = { Authorization: `Bearer ${token}` };
     const ch = await (await request.get(`${ORIGIN}/api/novels/${pid}/chapters/vol-1-ch-1`, { headers: H })).json();
     expect(ch?.outline?.summary ?? "").toContain("沉舟在废弃星港");
     expect(ch?.challenge ?? "").toContain("没人相信一个见习导航员");
     expect(ch?.ladder_exit ?? "").toContain("舱底夹层");
-    expect((ch?.chapter_acts ?? []).join("|")).toContain("藏信标");
+    expect(ch?.plot_stage ?? "").toContain("开局铺垫");
+    expect(ch?.chapter_acts).toBeUndefined();
   } finally {
     await restore();
   }
@@ -211,7 +212,7 @@ test("AI 失败三出口：重试／自己写这一章／先不拆", async ({ pa
     await expect(page.getByTestId("split-retry")).toBeVisible();
     await expect(page.getByTestId("split-to-manual")).toBeVisible();
     await expect(page.getByTestId("split-close")).toBeVisible();
-    // 自己写这一章 → 手写五段
+    // 自己写这一章 → 手写四段
     await page.getByTestId("split-to-manual").click();
     await expect(page.getByTestId("d-plot")).toBeVisible();
   } finally {
@@ -260,7 +261,7 @@ test("自检：手写卡底条「AI 看一眼这一章」→ 三组（衔接/配
     // 排上之前也能自检（章未落库）——真后端不许 404/422：卡面草稿随请求体走
     const r = await request.post(`${ORIGIN}/api/novels/${pid}/chapters/ai-selfcheck`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: { vol_ref: "vol-1", entry_text: "", title: "信标进舱", plot: "捡到信标", acts: ["沉舟：藏信标"] },
+      data: { vol_ref: "vol-1", entry_text: "", title: "信标进舱", plot: "捡到信标" },
     });
     // 200＝有模型；503＝未配模型的引导（设计如此，不 500）。404/422 即路径或请求体契约错
     expect([200, 503]).toContain(r.status());
@@ -539,19 +540,18 @@ test("回改结尾：上一章落点改了 → 不静默（提示下一章进场
   }
 });
 
-test("回改：左树 hover「改这一章」→ 同一张卡面（预填五段）→ 保存不新建", async ({ page, request }) => {
+test("回改：左树 hover「改这一章」→ 同一张卡面（预填四段）→ 保存不新建", async ({ page, request }) => {
   const { restore, token } = await setupSession(page);
   try {
     const pid = await createNovelWithVolume(page, `拆章回改面${Date.now() % 100000}`);
     await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
-    // 先排一章（五段齐）
+    // 先排一章（四段齐）
     await page.getByTestId("volume-split-manual").click();
     await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("d-title").fill("信标进舱");
     await page.getByTestId("d-plot").fill("捡到信标");
     await page.getByTestId("d-obstacle").fill("没人信她");
     await page.getByTestId("d-ending").fill("藏进夹层");
-    await page.getByTestId("d-acts").fill("沉舟：藏信标");
     await page.getByTestId("d-stage").selectOption("重要转折");
     await page.getByTestId("split-adopt").click();
     await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
@@ -567,7 +567,6 @@ test("回改：左树 hover「改这一章」→ 同一张卡面（预填五段�
     await expect(page.getByTestId("d-plot")).toHaveValue("捡到信标");
     await expect(page.getByTestId("d-obstacle")).toHaveValue("没人信她");
     await expect(page.getByTestId("d-ending")).toHaveValue("藏进夹层");
-    await expect(page.getByTestId("d-acts")).toHaveValue("沉舟：藏信标");
     await expect(page.getByTestId("d-stage")).toHaveValue("重要转折");
     await expect(page.getByTestId("split-adopt")).toContainText("保存这一章");
 

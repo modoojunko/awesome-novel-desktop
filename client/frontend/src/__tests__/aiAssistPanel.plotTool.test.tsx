@@ -21,7 +21,7 @@ function renderPanel(opts: {
       chapterRef="vol-1-ch-2"
       tab="og"
       isPro={opts.isPro}
-      ogStats={{ reqOk: 6, planWords: 2500, keyCount: 1, castCount: 1 }}
+      ogStats={{ reqOk: 6, planWords: 2500, plotCount: 1, castCount: 1 }}
       wordCount={10}
       planWords={2500}
       archived={!!opts.archived}

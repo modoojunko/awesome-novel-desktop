@@ -318,7 +318,7 @@ class TestPhaseRegressionsTolerated:
 
 
 class TestAnchorValidationConditional:
-    """major 3：前情/场景原材料锚词按素材有无条件校验。"""
+    """major 3：前情/章纲概要锚词按素材有无条件校验（c-og-slim-v2：场景原材料锚退役）。"""
 
     def _ctx(self, **kw):
         from write.chapter_writer import ChapterContext
@@ -328,7 +328,7 @@ class TestAnchorValidationConditional:
             setattr(ctx, k, v)
         return ctx
 
-    def test_sparse_material_passes_without_scene_or_recap(self):
+    def test_sparse_material_passes_without_outline_or_recap(self):
         from write.chapter_writer import validate_polished_prompt
 
         no_recap_text = MINIMAL_VALID.replace(
@@ -337,12 +337,21 @@ class TestAnchorValidationConditional:
         ctx = self._ctx()  # 无场景卡、无前情、无爽点
         assert validate_polished_prompt(no_recap_text, ctx) == []
 
-    def test_scene_cards_require_scene_anchor(self):
+    def test_summary_requires_outline_anchor(self):
+        """有章纲概要原料 → 产物必须有章纲概要段（要素 6）。"""
         from write.chapter_writer import validate_polished_prompt
 
-        ctx = self._ctx(scene_cards=[{"scene_name": "城门对峙"}])
+        ctx = self._ctx(chapter_outline={"summary": "她夜探库房调包账册"})
         missing = validate_polished_prompt(MINIMAL_VALID, ctx)
-        assert "场景原材料" in missing
+        assert "章纲概要" in missing
+        with_outline = MINIMAL_VALID + "\n## 章纲概要\n她夜探库房调包账册。"
+        assert validate_polished_prompt(with_outline, ctx) == []
+
+    def test_no_summary_no_outline_anchor(self):
+        from write.chapter_writer import validate_polished_prompt
+
+        ctx = self._ctx(chapter_outline={})
+        assert validate_polished_prompt(MINIMAL_VALID, ctx) == []
 
     def test_prev_recap_requires_recap_anchor(self):
         from write.chapter_writer import validate_polished_prompt

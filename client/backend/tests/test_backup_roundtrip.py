@@ -47,12 +47,9 @@ async def _seed_full_book(tmp_root: str) -> str:
     from models.archive import Archive, ChapterPrompt
     from models.chapter import (
         Chapter,
-        ChapterKeyPoint,
         ChapterKnowledgeState,
         ChapterMicroPayoff,
         ChapterPayoffItem,
-        ChapterSceneCard,
-        ChapterSegment,
         ChapterVersion,
     )
     from models.project import Novel
@@ -92,32 +89,18 @@ async def _seed_full_book(tmp_root: str) -> str:
         ch = Chapter(
             id=str(uuid.uuid4()), project_id=proj.id, volume_id=vol.id,
             ref="vol-1-ch-1", title="第一章 试手", chapter_no=1, status="archived",
-            word_count=4, has_prose=True, summary="开端", location="青梧宗",
-            story_time="开国三十年", narrative_pov="林拾", primary_mood="紧",
-            # c-chapter-plan-ai：拆章五段（三新列）
+            word_count=4, has_prose=True, summary="开端", primary_mood="紧",
+            # c-chapter-plan-ai 拆章两格（c-og-slim-v2：本章行动等已退役）
             challenge="旧档堆不对活人开放", plot_stage="矛盾升级",
-            chapter_acts="她：调档\n文书：记台账",
         )
         session.add(ch)
         await session.flush()
         session.add_all([
-            ChapterKeyPoint(
-                chapter_id=ch.id, sort_order=0, func_tag="setup", content="主角登场",
-            ),
             ChapterPayoffItem(
                 chapter_id=ch.id, kind="must_resolve", content="残页来历",
             ),
-            ChapterSegment(
-                chapter_id=ch.id, seg_number=1, summary="柴房夜谈", target_words=800,
-                what_to_write="引出听漏", goal="立能力", emotional_tone="紧",
-                function="铺垫", characters="林拾,老周",
-            ),
-            ChapterSceneCard(
-                chapter_id=ch.id, sort_order=0, scene_name="柴房", goal="拿到残页",
-                obstacle="戒律堂巡查", hook="页角火痕", weight="高", focus="林拾",
-            ),
             ChapterMicroPayoff(
-                chapter_id=ch.id, kind="info", description="残页暗纹", location="段 1",
+                chapter_id=ch.id, kind="info", description="残页暗纹",
             ),
             ChapterKnowledgeState(
                 chapter_id=ch.id, character_name="老周", knows="残页是真的",
@@ -318,12 +301,9 @@ class TestLayer4Chapter:
     def test_chapter_full_fields_and_subtables(self, roundtrip):
         from models.chapter import (
             Chapter,
-            ChapterKeyPoint,
             ChapterKnowledgeState,
             ChapterMicroPayoff,
             ChapterPayoffItem,
-            ChapterSceneCard,
-            ChapterSegment,
         )
 
         _src_id, dst_id, _blob, _slug, _root = roundtrip
@@ -334,34 +314,22 @@ class TestLayer4Chapter:
                     select(Chapter).where(Chapter.project_id == dst_id)
                 )).first()
                 assert ch is not None
-                kp = (await db.scalars(select(ChapterKeyPoint).where(
-                    ChapterKeyPoint.chapter_id == ch.id))).all()
                 payoff = (await db.scalars(select(ChapterPayoffItem).where(
                     ChapterPayoffItem.chapter_id == ch.id))).all()
-                segs = (await db.scalars(select(ChapterSegment).where(
-                    ChapterSegment.chapter_id == ch.id))).all()
-                cards = (await db.scalars(select(ChapterSceneCard).where(
-                    ChapterSceneCard.chapter_id == ch.id))).all()
                 micros = (await db.scalars(select(ChapterMicroPayoff).where(
                     ChapterMicroPayoff.chapter_id == ch.id))).all()
                 ks = (await db.scalars(select(ChapterKnowledgeState).where(
                     ChapterKnowledgeState.chapter_id == ch.id))).all()
-                return ch, kp, payoff, segs, cards, micros, ks
+                return ch, payoff, micros, ks
 
-        ch, kp, payoff, segs, cards, micros, ks = _run(run())
+        ch, payoff, micros, ks = _run(run())
         assert ch.title == "第一章 试手"
-        assert ch.summary == "开端" and ch.location == "青梧宗"
-        assert ch.story_time == "开国三十年" and ch.narrative_pov == "林拾"
+        assert ch.summary == "开端"
         assert ch.primary_mood == "紧"
-        # 拆章三列随导出导入往返（c-chapter-plan-ai；chapter_acts 一行一条）
+        # 拆章两格随导出导入往返（c-chapter-plan-ai；c-og-slim-v2 收窄）
         assert ch.challenge == "旧档堆不对活人开放"
         assert ch.plot_stage == "矛盾升级"
-        assert ch.chapter_acts == "她：调档\n文书：记台账"
-        assert [k.content for k in kp] == ["主角登场"]
         assert [p.content for p in payoff] == ["残页来历"]
-        assert [s.summary for s in segs] == ["柴房夜谈"]
-        assert segs[0].characters == "林拾,老周"
-        assert [c.scene_name for c in cards] == ["柴房"]
         assert [m.description for m in micros] == ["残页暗纹"]
         assert [k.character_name for k in ks] == ["老周"]
 
