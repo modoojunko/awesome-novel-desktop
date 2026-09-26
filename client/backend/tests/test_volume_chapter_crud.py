@@ -405,8 +405,6 @@ def test_chapter_structured_fields_roundtrip():
                         "must_resolve": ["上供冲突落地"],
                         "must_hold": ["师父死因悬念"],
                     },
-                    "downtime_functions": ["收摊夜谈：交代背景"],
-                    "key_choices": ["拒交保护费：验证不低头人设"],
                     "required_changes": ["关系：与地头蛇撕破脸", "信息：得知哥哥失踪"],
                     "prohibitions": ["不让主角直接动手"],
                 },
@@ -416,11 +414,7 @@ def test_chapter_structured_fields_roundtrip():
                 "challenge": "旧档堆不对活人开放",
                 "plot_stage": "矛盾升级",
                 "plot_items": ["面馆里地头蛇来收保护费", "她掀了桌子走出门"],
-                "knowledge_states": [
-                    {"character_name": "林拓", "knows": "哥哥曾来过此城",
-                     "unknowns": "哥哥现状", "gap_relation": "仇家知道哥哥下落",
-                     "gap_change": "无→怀疑"},
-                ],
+
             }
             await save_chapter(proj.root_path, "vol-1-ch-1", full)
             data = await load_chapter(proj.root_path, "vol-1-ch-1")
@@ -441,8 +435,6 @@ def test_chapter_structured_fields_roundtrip():
             assert memo["payoff_plan"]["must_resolve"] == ["上供冲突落地"]
             assert memo["payoff_plan"]["must_hold"] == ["师父死因悬念"]
             assert "partial_advance" not in memo["payoff_plan"]
-            assert memo["downtime_functions"] == ["收摊夜谈：交代背景"]
-            assert memo["key_choices"] == ["拒交保护费：验证不低头人设"]
             assert memo["required_changes"] == [
                 "关系：与地头蛇撕破脸", "信息：得知哥哥失踪",
             ]
@@ -456,9 +448,6 @@ def test_chapter_structured_fields_roundtrip():
             assert data["plot_stage"] == "矛盾升级"
             assert data["plot_items"] == ["面馆里地头蛇来收保护费", "她掀了桌子走出门"]
             assert "scene_cards" not in data and "segments" not in data
-            ks = data["knowledge_states"][0]
-            assert ks["character_name"] == "林拓"
-            assert ks["gap_relation"] == "仇家知道哥哥下落"
 
             # 子表整体替换：出场角色换一条，其余族不动
             full["outline"]["characters"] = ["林拓"]

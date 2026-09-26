@@ -98,7 +98,7 @@ def _tables():
 
 def test_backup_format_bumped_to_v5():
     """删键 = 升版（backup/format.py 规则）；v4 及更早包走忽略读窗。"""
-    assert FORMAT_VERSION == 5
+    assert FORMAT_VERSION == 6
 
 
 def test_retired_keys_ignored_on_save_and_assemble():

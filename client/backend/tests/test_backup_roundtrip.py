@@ -47,7 +47,6 @@ async def _seed_full_book(tmp_root: str) -> str:
     from models.archive import Archive, ChapterPrompt
     from models.chapter import (
         Chapter,
-        ChapterKnowledgeState,
         ChapterMicroPayoff,
         ChapterPayoffItem,
         ChapterVersion,
@@ -101,10 +100,6 @@ async def _seed_full_book(tmp_root: str) -> str:
             ),
             ChapterMicroPayoff(
                 chapter_id=ch.id, kind="info", description="残页暗纹",
-            ),
-            ChapterKnowledgeState(
-                chapter_id=ch.id, character_name="老周", knows="残页是真的",
-                unknowns="林拾的目的", gap_relation="师徒", gap_change="更疑",
             ),
         ])
         # 层 5：快照（字节级稳定项）
@@ -301,8 +296,7 @@ class TestLayer4Chapter:
     def test_chapter_full_fields_and_subtables(self, roundtrip):
         from models.chapter import (
             Chapter,
-            ChapterKnowledgeState,
-            ChapterMicroPayoff,
+                ChapterMicroPayoff,
             ChapterPayoffItem,
         )
 
@@ -318,8 +312,7 @@ class TestLayer4Chapter:
                     ChapterPayoffItem.chapter_id == ch.id))).all()
                 micros = (await db.scalars(select(ChapterMicroPayoff).where(
                     ChapterMicroPayoff.chapter_id == ch.id))).all()
-                ks = (await db.scalars(select(ChapterKnowledgeState).where(
-                    ChapterKnowledgeState.chapter_id == ch.id))).all()
+                ks = []
                 return ch, payoff, micros, ks
 
         ch, payoff, micros, ks = _run(run())
@@ -331,7 +324,7 @@ class TestLayer4Chapter:
         assert ch.plot_stage == "矛盾升级"
         assert [p.content for p in payoff] == ["残页来历"]
         assert [m.description for m in micros] == ["残页暗纹"]
-        assert [k.character_name for k in ks] == ["老周"]
+
 
 
 # ── 层 5：快照字节级 ──────────────────────────────────────────────────────

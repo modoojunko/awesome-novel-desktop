@@ -10,7 +10,14 @@ import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(here, '..', '..', '..')
-const src = readFileSync(join(repoRoot, 'LICENSE'), 'utf-8').replace(/^\uFEFF/, '')
+let src;
+try {
+  src = readFileSync(join(repoRoot, 'LICENSE'), 'utf-8').replace(/^\uFEFF/, '');
+} catch (e) {
+  console.error(`copy-eula: LICENSE 不存在（repoRoot=${repoRoot}）——` +
+    `compose 须注入 repo=. 命名上下文并 COPY --from=repo LICENSE /LICENSE`);
+  process.exit(1);
+}
 
 const esc = (t) =>
   t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

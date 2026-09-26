@@ -2,6 +2,8 @@ name: C端 后端 CI
 
 on:
   push:
+    branches:
+      - main
     paths:
       - "client/backend/**"
       # 前后端对拍测试读前端源（tests/test_shared_constants_parity.py）：
@@ -15,6 +17,10 @@ on:
       - "client/frontend/src/lib/nodeTitle.ts"
       - "client/frontend/src/__tests__/nodeTitle.test.ts"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -38,7 +44,7 @@ jobs:
         run: python scripts/check_py_licenses.py
       - run: pip install ruff pytest pytest-timeout pytest-asyncio
       - name: Lint
-        run: ruff check .
+        run: ruff check --extend-select F811,F821,F841 .
       - name: Test
         # 不再用 || 掩盖 —— pytest 失败必须让 CI 红
         run: python -m pytest tests/ -q --timeout=30

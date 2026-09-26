@@ -89,6 +89,10 @@ export async function request<T = any>(
 ): Promise<T> {
   const method = options?.method || 'GET';
   const headers: Record<string, string> = { ...(options?.headers || {}) };
+  // c-shelf-request-budget Phase A：请求时间线诊断（DEV-only，生产构建零开销）
+  if (import.meta.env.DEV) {
+    console.debug(`[req-timeline] ${method} ${path} @ ${Math.round(performance.now())}ms`);
+  }
 
   const token = getToken();
   if (token) {

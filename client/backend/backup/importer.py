@@ -372,7 +372,7 @@ def _hooks_v1_to_entries(data: dict) -> list[dict]:
 # c-og-slim-v2：已退役的章纲键（导入时按忽略处理，不落库、不报错）。
 # 计数只为在导入报告里给出可核对的「忽略 N 处」——与 v4 卷纲段「静默忽略」的差别
 # 是本批删除面更宽，作者需要知道包里的内容没有被带走。
-_RETIRED_CHAPTER_TOP = frozenset({"segments", "scene_cards", "chapter_acts"})
+_RETIRED_CHAPTER_TOP = frozenset({"segments", "scene_cards", "chapter_acts", "knowledge_states", "downtime_functions", "key_choices"})
 _RETIRED_OUTLINE = frozenset(
     {"key_points", "location", "time", "narrative_pov", "perspective_guidance"}
 )
@@ -397,6 +397,9 @@ def _count_retired_chapter_fields(ch_data: dict) -> int:
         pp = memo.get("payoff_plan")
         if isinstance(pp, dict) and pp.get("partial_advance"):
             n += 1
+        for k in ("downtime_functions", "key_choices"):
+            if memo.get(k):
+                n += 1
     emotional = ch_data.get("emotional_design")
     if isinstance(emotional, dict):
         n += len(_RETIRED_EMOTIONAL.intersection(emotional))
