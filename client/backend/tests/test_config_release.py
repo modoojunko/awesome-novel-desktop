@@ -36,3 +36,46 @@ def test_client_update_keys_roundtrip(tmp_path):
         "client_version": "0.13",
         "client_update_url": "https://www.awesomenovel.com/download/latest.json",
     }
+
+
+def test_build_info_keys_roundtrip(tmp_path):
+    """c-version-build-info：构建信息两键必须过白名单——漏登记=打包链静默断链（评审 P0）。"""
+    d = _write(tmp_path, '{"client_build_branch": "pr-123", '
+                          '"client_build_commit": "f456e", '
+                          '"client_version": "dev", "components": {}}')
+    assert load_release_overrides(d) == {
+        "client_version": "dev",
+        "client_build_branch": "pr-123",
+        "client_build_commit": "f456e",
+    }
+
+
+def test_pywebview_injects_build_info_env(tmp_path, monkeypatch):
+    """注入段实跑（必选，不留 code review 逃生门）：假 release.json →
+    pywebview_app 注入段的**真源码行**把 CLIENT_BUILD_* 写进 env。"""
+    import os
+    import re as _re
+    import textwrap
+    from pathlib import Path
+
+    d = _write(tmp_path, '{"client_build_branch": "main", "client_build_commit": "f456e"}')
+    loaded = load_release_overrides(d)
+    assert loaded["client_build_branch"] == "main"
+
+    src = (Path(__file__).resolve().parent.parent.parent
+           / "packaging" / "build" / "pywebview_app.py").read_text(encoding="utf-8")
+    m = _re.search(r"( *def _env_with_release\(.*?\n)(?=        _env_with_release\()", src, _re.DOTALL)
+    assert m, "pywebview_app.py 注入段结构变了——本测试须同批更新"
+    injected = [_re.search(r'_env_with_release\("CLIENT_BUILD_BRANCH".*', src),
+                _re.search(r'_env_with_release\("CLIENT_BUILD_COMMIT".*', src)]
+    assert all(injected), "pywebview_app.py 缺 CLIENT_BUILD_* 注入行——打包链断链"
+
+    for env in ("CLIENT_BUILD_BRANCH", "CLIENT_BUILD_COMMIT"):
+        monkeypatch.delenv(env, raising=False)
+    globs = {"os": os, "release": loaded}
+    # 注入段实跑＝对 pywebview_app.py 真·源码行执行（S102 有意为之）
+    exec(compile(textwrap.dedent(m.group(1)), "<injection-smoke>", "exec"), globs)  # noqa: S102
+    for line in (injected[0].group(0).strip(), injected[1].group(0).strip()):
+        exec(compile(line, "<injection-smoke>", "exec"), globs)  # noqa: S102
+    assert os.environ.get("CLIENT_BUILD_BRANCH") == "main"
+    assert os.environ.get("CLIENT_BUILD_COMMIT") == "f456e"

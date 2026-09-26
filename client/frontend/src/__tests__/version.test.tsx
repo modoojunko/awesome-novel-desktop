@@ -38,6 +38,25 @@ describe("formatVersion 文案单源", () => {
     expect(formatVersion(undefined)).toBe("版本未知");
     expect(formatVersion("")).toBe("版本未知");
   });
+
+  it("c-version-build-info：dev＋构建信息显 {分支}@{commit前5位}；超长 commit 截前 5", async () => {
+    const { formatVersion } = await import("@/lib/version");
+    expect(formatVersion({ current: "dev", build: { branch: "main", commit: "f456e" } })).toBe("main@f456e");
+    expect(formatVersion({ current: "dev", build: { branch: "feature/foo", commit: "f456e8fa9b" } })).toBe("feature/foo@f456e");
+  });
+
+  it("c-version-build-info：半残构建信息（缺 branch/commit）降级「开发版 dev」", async () => {
+    const { formatVersion } = await import("@/lib/version");
+    expect(formatVersion({ current: "dev", build: { branch: "", commit: "f456e" } })).toBe("开发版 dev");
+    expect(formatVersion({ current: "dev", build: { branch: "main", commit: "" } })).toBe("开发版 dev");
+    expect(formatVersion({ current: "dev", build: null })).toBe("开发版 dev");
+    expect(formatVersion({ current: "dev", build: undefined as never })).toBe("开发版 dev");
+  });
+
+  it("c-version-build-info：正式版带构建信息仍显 v{X.Y.Z}（构建信息仅 dev 消费）", async () => {
+    const { formatVersion } = await import("@/lib/version");
+    expect(formatVersion({ current: "0.25", build: { branch: "main", commit: "f456e" } })).toBe("v0.25");
+  });
 });
 
 describe("useClientVersion 应用级缓存", () => {
@@ -78,6 +97,15 @@ describe("useClientVersion 应用级缓存", () => {
     requestMock.mockResolvedValue({ current: "0.14", has_update: false });
     await mountProbe();
     await waitFor(() => expect(screen.getByTestId("v")).toHaveTextContent("v0.14"));
+  });
+
+  it("c-version-build-info：响应带 build 时缓存对象透传，状态条呈 {分支}@{commit前5位}", async () => {
+    requestMock.mockResolvedValue({
+      current: "dev", has_update: false,
+      build: { branch: "main", commit: "f456e" },
+    });
+    await mountProbe();
+    await waitFor(() => expect(screen.getByTestId("v")).toHaveTextContent("main@f456e"));
   });
 
   it("先挂载方失败后，后挂载方重试成功会广播拉起先挂载方（状态条不滞后于弹窗）", async () => {

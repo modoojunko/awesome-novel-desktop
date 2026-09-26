@@ -25,14 +25,17 @@ const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 const E2E_PASSWORD = ["Test", "Pass", "789", "!"].join("");
 // 假 ApiConfig 的 key（base_url 指向不可达端口，仅过 require_ai_access 门控）
 const E2E_FAKE_KEY = ["sk-e2e", "not-real"].join("-");
-const CONFIG_PATH = path.join(
-  process.cwd(),
-  "..",
-  "..",
-  ".docker-data",
-  "client",
-  "config.json",
-);
+// 会话隔离（per-session 规则）：独立栈的数据目录用 E2E_CLIENT_CONFIG_PATH 指路；
+// 缺省维持共享栈口径（repo 根 .docker-data/client/config.json）
+const CONFIG_PATH = process.env.E2E_CLIENT_CONFIG_PATH
+  || path.join(
+    process.cwd(),
+    "..",
+    "..",
+    ".docker-data",
+    "client",
+    "config.json",
+  );
 
 /** S端 注册并登录，返回 JWT。 */
 async function sRegisterAndLogin() {
@@ -366,8 +369,12 @@ test("本书偏好：字号 per-book 持久 + 免费态升级 PRO 链升级弹�
       await expect(dlg.getByText(label, { exact: true })).toBeVisible();
     }
 
-    // 版本行（c-version-account-visibility）：吃应用级缓存；docker 后端无烘焙 → 「开发版 dev」
-    await expect(dlg.locator('[data-od-id="pref-version"]')).toHaveText(/^(v\d+\.\d+.*|开发版 dev|版本未知)$/);
+    // 版本行（c-version-account-visibility / c-version-build-info）：吃应用级缓存。
+    // docker 后端无烘焙无 .git → 「开发版 dev」；本地 dev e2e 直连 git 检出后端 →
+    // {分支}@{commit前5位}（分支名可含 /）；失败「版本未知」。
+    await expect(dlg.locator('[data-od-id="pref-version"]')).toHaveText(
+      /^(v\d+\.\d+.*|[A-Za-z0-9._/-]{1,40}@[0-9a-f]{5}|开发版 dev|版本未知)$/,
+    );
 
     // 免费态：账号行「升级 PRO」→ 关偏好弹窗、链出升级弹窗（S端 门户引导）
     await expect(dlg.locator("#pref-upgrade")).toBeVisible();

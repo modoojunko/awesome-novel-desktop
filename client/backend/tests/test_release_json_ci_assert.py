@@ -110,8 +110,48 @@ def test_ci_components_step_cwd_resolves():
     step_start = wf.index("- name: Generate release.json")
     step = wf[step_start: wf.index("\n      - name:", step_start)]
     wd = re.search(r"working-directory:\s*(\S+)", step).group(1)
-    cwd_arg = re.search(r'cwd="([^"]+)"', step).group(1)
-    resolved = (BACKEND.parent.parent / wd / cwd_arg).resolve()
-    assert resolved.is_dir(), (
-        f"生成步骤 cwd 解析失败：working-directory={wd} + cwd={cwd_arg} → {resolved}")
-    assert (resolved / "scripts" / "release_components.py").is_file()
+    # c-version-build-info 抽脚本后守卫对象从内联 cwd= 换成脚本调用行——
+    # 脚本路径仍相对该步骤 working-directory 解析，必须真实存在
+    script_arg = re.search(r"python\s+(\S*release_json_generate\.py)", step)
+    assert script_arg, "生成步骤未调用 release_json_generate.py——结构变了须同批更新本守卫"
+    resolved = (BACKEND.parent.parent / wd / script_arg.group(1)).resolve()
+    assert resolved.is_file(), (
+        f"生成步骤脚本路径解析失败：working-directory={wd} + script={script_arg.group(1)} → {resolved}")
+    assert (BACKEND / "scripts" / "release_components.py").is_file()
+
+
+# ── c-version-build-info：构建信息可选键 ─────────────────────────────────
+
+
+def test_build_info_keys_accepted(tmp_path):
+    """正例：非 tag 产物烘构建信息两键 → 断言通过。"""
+    path = _write_release_json(tmp_path, version="dev",
+                               client_build_branch="pr-123", client_build_commit="f456e")
+    assert check_release_json(path)["client_build_branch"] == "pr-123"
+    assert _run(path).returncode == 0
+
+
+def test_build_info_long_commit_accepted(tmp_path):
+    """`--short=5` 是「至少 5 位」语义：碰撞仓库输出更长合法 sha 不得误杀。"""
+    path = _write_release_json(tmp_path, version="dev",
+                               client_build_branch="main",
+                               client_build_commit="f456e8fa9b0123456789abcdef0123456789abcd")
+    assert _run(path).returncode == 0
+
+
+def test_build_info_dirty_branch_rejected(tmp_path):
+    path = _write_release_json(tmp_path, version="dev",
+                               client_build_branch="bad branch!", client_build_commit="f456e")
+    assert _run(path).returncode == 1
+
+
+def test_build_info_bad_commit_rejected(tmp_path):
+    path = _write_release_json(tmp_path, version="dev",
+                               client_build_branch="main", client_build_commit="zzzzz")
+    assert _run(path).returncode == 1
+
+
+def test_build_info_absent_tolerated(tmp_path):
+    """tag 构建/旧产物不烘构建信息键 → 容忍通过。"""
+    path = _write_release_json(tmp_path)  # version 0.25，无 build 键
+    assert _run(path).returncode == 0
