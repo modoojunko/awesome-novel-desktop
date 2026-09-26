@@ -17,6 +17,8 @@ export interface ChapterData {
   challenge?: string;
   chapter_acts?: string[];
   plot_stage?: string;
+  /** 章内剧情（c-plot-split；顶层键，presence-gate：缺键保持原样、显式 [] 清空） */
+  plot_items?: string[];
   outline?: {
     summary?: string;
     key_points?: string[];

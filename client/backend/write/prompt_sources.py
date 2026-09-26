@@ -93,6 +93,10 @@ async def prompt_sources(
     cast = [str(c).strip() for c in (outline.get("characters") or []) if str(c).strip()]
     if cast:
         outline_lines.append("出场角色：" + "、".join(cast))
+    # c-plot-split：剧情条目计入章纲来源（一条一行，空则不计）
+    plots = [str(p).strip() for p in ctx.plot_items if str(p).strip()]
+    if plots:
+        outline_lines.append("剧情条目：" + "\n".join(plots))
 
     # ④ 全书文风 ＋ 本章调整：定性层 + 量化基线（影子行显示为本章覆盖）
     style_lines = [style_section(ctx.style_setting)]

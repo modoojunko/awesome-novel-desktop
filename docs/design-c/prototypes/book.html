@@ -18,6 +18,7 @@
     --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
     --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
     --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --faint: color-mix(in oklch, var(--muted) 68%, transparent); /* 与 base.css 同值（c-plot-split 剧情区序号用到） */
     --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
     --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
                    0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
@@ -458,7 +459,7 @@
 
   /* ─── toast ────────────────────────────────────────────── */
   .toast-wrap { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
-  .toast { display: inline-flex; align-items: center; gap: 8px; background: var(--fg); color: var(--surface); padding: 9px 16px; border-radius: 10px; font-size: 13px; box-shadow: var(--shadow-card); animation: toast-in 0.22s ease; }
+  .toast { display: inline-flex; align-items: center; gap: 8px; background: var(--fg); color: var(--surface); padding: 9px 16px; border-radius: 10px; font-size: 13px; box-shadow: var(--shadow-card); animation: toast-in 0.22s ease; pointer-events: auto; }
   .toast svg { width: 14px; height: 14px; color: var(--ok); }
   @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 
@@ -496,6 +497,58 @@
 
   /* 原型常驻 DOM 补丁（实现侧不抄——见 ADJUSTMENTS H1） */
   .modal:not(.show), .scrim:not(.show){display:none}
+
+  /* ── c-plot-split：章内剧情（剧情区 + 三版选一弹窗 + 采纳回执）──
+     pick 词汇逐字收编自 book.css（c-volume-antagonist 段），排在 Part C 覆盖前，
+     Part C 的 .pick-card{position:relative;overflow:hidden}／.pk-axis{margin-right:74px} 仍生效 */
+  .plan-modal .kicker{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
+  .plans-h{margin:0 0 8px;font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;color:var(--muted)}
+  .pick-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px;margin-top:14px}
+  @media (max-width:820px){.pick-grid{grid-template-columns:1fr}}
+  .pick-card{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:13px 14px;display:flex;flex-direction:column;gap:8px;cursor:pointer;text-align:left;font:inherit;color:var(--fg);transition:border-color .13s,box-shadow .13s}
+  .pick-card:hover{border-color:var(--muted)}
+  .pick-card.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .pick-card .pk-axis{align-self:flex-start;display:inline-block;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;border-radius:999px;padding:1px 8px;color:var(--accent-strong);border:1px solid color-mix(in oklch,var(--accent) 34%,var(--border))}
+  .pick-card .pk-title{margin:0;font-family:var(--font-display);font-size:15.5px;font-weight:600;line-height:1.6}
+  .pick-card .pk-row{display:flex;flex-direction:column;gap:1px;padding-top:7px;border-top:1px dashed color-mix(in oklch,var(--border) 60%,transparent)}
+  .pick-card .pk-row>b{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;font-weight:400;color:var(--faint)}
+  .pick-card .pk-row>span{font-size:12px;line-height:1.62;color:var(--fg);opacity:.9}
+  .pick-card .pk-row.pk-in>span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .pick-card.on .pk-picked{align-self:flex-end;display:inline-flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10px;color:var(--accent)}
+  .pick-foot{display:flex;align-items:center;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap}
+  .pick-foot .note{font-size:11.5px;color:var(--faint)}
+  .pick-foot .btn{margin-left:auto;flex:none}
+  .pick-foot .link{background:none;border:0;padding:0;font:inherit;font-size:11.5px;color:var(--accent-strong);border-bottom:1px solid transparent;cursor:pointer}
+  .pick-busy{display:flex;align-items:center;gap:8px;padding:40px 0;color:var(--muted);font-size:13px;justify-content:center}
+  .pick-error{padding:24px 0;text-align:center}
+  .pick-error .pv-error{color:var(--warn);font-size:13px;margin:0 0 10px}
+  .pick-error-acts{display:flex;gap:10px;justify-content:center}
+  .ra-spin{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:-1px;border:1.6px solid color-mix(in oklch,var(--accent) 28%,transparent);border-top-color:var(--accent);border-radius:50%;animation:ra-spin .8s linear infinite}
+  @keyframes ra-spin{to{transform:rotate(360deg)}}
+  .ai-note{font-size:12.5px;color:var(--muted);line-height:1.6}
+
+  /* 剧情区（drafts/ai-novel-c端-章内剧情拆分.html v3.4 EXTRA 逐字；只用 token 派生色） */
+  .plot-sec { margin-top: 26px; }
+  .plot-sec-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
+  .plot-sec-head h3 { font-family: var(--font-display); font-size: 16px; font-weight: 600; margin: 0; }
+  .plot-sec-head .hint-inline { font-size: 12px; color: var(--muted); }
+  .pi-row { display: grid; grid-template-columns: minmax(0, 1fr) 30px; gap: 8px; align-items: start; margin-bottom: 8px; }
+  .pi-row textarea { width: 100%; min-height: 58px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13px; line-height: 1.7; resize: vertical; font-family: inherit; }
+  .pi-row textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .pi-row .icon-btn { margin-top: 4px; opacity: 0; transition: opacity 0.12s ease; }
+  .pi-row:hover .icon-btn, .pi-row .icon-btn:focus-visible { opacity: 1; }
+  .pi-no { font-family: var(--font-mono); font-size: 10px; color: var(--faint); margin: 0 0 4px 2px; }
+  .plot-sum { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+  .f-hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+  /* 三版选一弹窗（拆章三方向卡同族词汇） */
+  .mcard.draw-style { width: min(940px, 92vw); display: flex; flex-direction: column; }
+  .mcard.draw-style .mcard-body { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 4px; }
+  .mcard.draw-style .mcard-head .x { margin-left: auto; }
+  .draw-lead { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+  /* 右栏：剧情卡免费态 rail-locked 口径（置灰禁点不隐藏，升级出口在包裹外） */
+  #plotToolWrap.locked .ai-tool { opacity: 0.45; pointer-events: none; }
+  /* 采纳回执：复用 .toast 词汇，动作钮对齐应用 toast action（lib/toast.tsx 内联样式同款） */
+  .toast .t-act { color: inherit; font-weight: 500; text-decoration: underline; text-underline-offset: 2px; }
 
   /* ── c-chapter-plan-ai：卷下拆章新类（收编自 drafts/ai-novel-c端-卷下拆章.html Part C） ── */
 /* 卷页 · 关键剧情节点行（本设计新增：节点被哪一章吃掉；行骨架用产品 .rowx/.cols.cn） */
@@ -810,6 +863,18 @@
           <button class="btn btn-primary btn-sm" id="btnAi2" data-od-id="btn-ai-generate-2">生成正文</button>
         </div>
       </div>
+      <p class="ai-sec">剧情</p>
+      <div id="plotToolWrap">
+        <div class="ai-tool" data-od-id="rail-plot">
+          <div class="ai-feat-head"><b>AI 帮写剧情</b><span class="ai-tag"><svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z"/></svg>PRO</span></div>
+          <p>一次给 3 版剧情，挑一版填进去，之后随便改，填错了能撤销。这一章干什么、卡在哪、到哪收——这三样填齐了 AI 才有依据。</p>
+          <button class="btn btn-primary btn-sm" id="btnPlotDraw" data-od-id="btn-plot-draw">给我 3 版剧情</button>
+        </div>
+      </div>
+      <div id="plotUpgradeExit" hidden>
+        <p class="f-hint" style="margin-bottom:8px">AI 写剧情是 PRO 功能。剧情自己写全免费，随便加、随便改。</p>
+        <button class="btn btn-secondary btn-sm" id="btnPlotUpgrade">升级 PRO</button>
+      </div>
       <p class="ai-sec">规划中的能力</p>
       <div id="aiWritePlanned">
         <div class="ai-feat">
@@ -997,6 +1062,50 @@
       <span class="note">切换题材仅替换模板，已填内容保留</span>
       <button class="btn btn-secondary" data-close="modalGenre">取消</button>
       <button class="btn btn-primary" id="genreApply">应用题材</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ c-plot-split：三版选一弹窗（PRO「AI 帮写剧情」） ═══ -->
+<div class="modal" id="modalPlotDraw" hidden data-od-id="modal-plot-draw">
+  <div class="mcard draw-style" role="dialog" aria-modal="true" aria-label="AI 帮写剧情 · 三版选一">
+    <div class="mcard-head">
+      <span class="mh" id="plotDrawTitle">挑一版剧情</span>
+      <button class="x icon-btn" data-close="modalPlotDraw" aria-label="关掉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body plan-modal">
+      <p class="kicker">三选一 · 挑一版</p>
+      <p class="draw-lead">3 版都接着上一章的结尾写、到这一章的结尾收住——开头结尾都一样，只有中间怎么撞墙不同。挑一版填进去，之后能改、能删、能反悔。</p>
+
+      <!-- 正在写 -->
+      <div class="pick-busy" data-pane="busy">
+        <span class="ra-spin" aria-hidden="true"></span>
+        <span aria-live="polite" id="plotBusyText">正在写这一章的 3 版剧情…</span>
+      </div>
+
+      <!-- 3 版剧情 -->
+      <div data-pane="cards" hidden>
+        <p class="plans-h">3 版剧情 · 越靠上越抓人</p>
+        <div class="pick-grid" id="plotGrid" data-od-id="plot-draw-grid"></div>
+      </div>
+
+      <!-- 失败：三出口（去模型配置 / 再试一次 / 先自己写） -->
+      <div class="pick-error" data-pane="err" hidden>
+        <p class="pv-error">AI 没写出来</p>
+        <p class="ai-note" style="margin:0 0 12px">要么是还没设置 AI 模型——先去「模型配置」里加一个；要么是没凑满 3 版——凑不满就不给挑。可以再试一次，或者自己写。</p>
+        <div class="pick-error-acts">
+          <a class="btn btn-primary btn-sm" href="model-config.html">去模型配置</a>
+          <button class="btn btn-secondary btn-sm" id="plotRetry">再试一次</button>
+          <button class="btn btn-ghost btn-sm" data-act="plot-manual">先自己写</button>
+        </div>
+      </div>
+
+      <!-- 动作条：换一批 / 自己写 / 就填这版（列表非空时明示替换条数） -->
+      <div class="pick-foot" data-pane-foot="cards">
+        <button class="link" id="plotAgain">换一批</button>
+        <button class="btn btn-ghost btn-sm" data-act="plot-manual">自己写</button>
+        <button class="btn btn-primary btn-sm" id="plotAdopt" disabled>就填这版</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1763,6 +1872,17 @@ function chapterFormHTML(c, P, C) {
           </div>
         </div>
       </details>
+      <section class="plot-sec" data-od-id="plot-section">
+        <div class="plot-sec-head">
+          <h3>剧情</h3>
+          <span class="hint-inline">一条一段 · 每条 200 字以内 · 不填也能写</span>
+        </div>
+        <div class="pi-list" id="${P}plots">${plotRowsHTML(c)}</div>
+        <div class="plot-sum">
+          <button class="btn btn-secondary btn-sm" data-act="addplot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>加一条</button>
+          <span class="f-hint">写了就自动保存</span>
+        </div>
+      </section>
       <details class="cfg" open>
         <summary>段落规划 <span class="req" data-req="segs">*</span> <span class="tag">每段 = 一次 AI 生成的单元</span>${chev}</summary>
         <div class="inner">
@@ -1911,6 +2031,7 @@ function renderOgPane(ch) {
   bindGapChips(pane);
   refreshChConfirm(ch, 'wf-', 'wf-');
   bindSegRows(pane, ch);
+  bindPlotRows(pane, ch);
   const moodSel = pane.querySelector('#wf-moodSel');
   moodSel?.addEventListener('change', () => {
     pane.querySelector('#wf-moodCustom').hidden = moodSel.value !== '__custom';
@@ -2153,6 +2274,9 @@ function applyPro() {
   $('aiWriteLocked').hidden = S.pro;
   $('aiWriteTools').classList.toggle('locked', !S.pro);
   $('aiWritePlanned').classList.toggle('locked', !S.pro);
+  // c-plot-split：剧情卡免费态 rail-locked 置灰禁点不隐藏，升级出口在包裹外
+  $('plotToolWrap').classList.toggle('locked', !S.pro);
+  $('plotUpgradeExit').hidden = S.pro;
 }
 
 /* ═══════════ AI 生成正文（章有提示词） ═══════════ */
@@ -2654,11 +2778,225 @@ function closeModal(id) {
   const m = $(id);
   m.classList.remove('show');
   $('scrim').classList.remove('show');
-  setTimeout(() => { m.hidden = true; $('scrim').hidden = true; }, 200);
+  // 退场动画期间又被打开（如采纳后立刻重开抽卡）：跳过这次收尾，防止把新窗口闪关
+  setTimeout(() => { if (m.classList.contains('show')) return; m.hidden = true; $('scrim').hidden = true; }, 200);
 }
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => closeModal(b.dataset.close)));
 document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', e => { if (e.target === m) closeModal(m.id); }));
 $('scrim').addEventListener('click', () => { document.querySelectorAll('.modal').forEach(m => { if (!m.hidden) closeModal(m.id); }); });
+
+/* ═══════════ 章内剧情（c-plot-split）：列表编辑 + 三版选一 + 采纳/撤销 ═══════════ */
+const PLOT_PLACEHOLDER = '写这一段发生什么：谁在场、在哪、遇到了什么——是场景不是正文，200 字以内';
+const PLOT_MAX = 12;
+/* 演示种子：三版剧情，共用进场（起）与结尾（止），只在中段求异（拍板①） */
+const P_START = '起——气闸合拢，记忆的声音还在耳机里。陆沉压下收线的冲动，先查舱段结构、确认那盏灯还亮着。老航道的暗流随时会让磁钩脱钩，而那件不该存在的货物还锁在货舱里——这一章从这片进退两难的海域开始。';
+const P_END = '止——夜航出港，灯在船尾亮起，照出另一条更黑的航道入口。陆沉付清了这一章该付的代价，驶了进去。（这一章到此收住）';
+const PLOT_CARDS = [
+  { axis: '第一版 · 稳扎稳打', title: '先稳人心，再闯体制', grade: 'S', items: [
+    P_START,
+    '船员在气闸前分成两派：阿槎反对私藏记忆，老崔只问能卖多少。陆沉摊牌——这一单关母亲沉船，谁想走现在下船。没人走。墙从外面的暗流，转到了船上的人心。',
+    '港务司稽查艇抵近，要求登船查验：交记忆，还是交船。陆沉交出半张禁航图，换到一次夜航窗口——代价第一次明码标价。',
+    P_END ] },
+  { axis: '第二版 · 硬闯代价', title: '不交图，硬闯潮汐口', grade: 'A', items: [
+    P_START,
+    '陆沉不理会稽查艇的呼叫，把船压进潮汐口的暗流。暗流比海图上凶，磁钩连脱两次；阿槎带人抢修船壳，老崔守着记忆不撒手——船外是墙，船里也在裂。',
+    '稽查艇堵住出口，探照灯打在驾驶舱。陆沉用半张禁航图砸出一条缝，硬闯出去——代价从明码标价变成记在账上，夜航窗口是拿命换来的。',
+    P_END ] },
+  { axis: '第三版 · 借力翻盘', title: '把稽查艇变成借来的东风', grade: 'B', items: [
+    P_START,
+    '陆沉第一件事不是开船，是把记忆的信号调到公共频道——让港务司先听见，再谈条件。稽查长登船，反被记忆里那段沉船录音勾住：他也在找这条旧航道。',
+    '谈判在灯下进行：录音换夜航窗口，禁航图一张不交。阿槎第一次主动站到陆沉这边盯合同细节——墙变成了可以借的力，但借力就要分利。',
+    P_END ] }
+];
+let plotUndo = null;   // 采纳后的撤销快照 { prev }；回执常驻到下次编辑（拍板②）
+let plotGen = 0;       // 代际守卫：晚到结果不落表
+let plotDrawTried = 0; // 演示：第一次「换一批」模拟失败面板（⑤）
+
+function plotVals(c) { return (c && c.og && Array.isArray(c.og.plots)) ? c.og.plots : []; }
+/* 编辑入口用：保证 c.og.plots 是挂在章对象上的数组（否则输入会落进孤儿数组） */
+function plotList(c) {
+  c.og = c.og || {};
+  if (!Array.isArray(c.og.plots)) c.og.plots = [];
+  return c.og.plots;
+}
+function plotWritten(c) { return plotVals(c).filter(t => String(t || '').trim()).length; }
+function plotRowsHTML(c) {
+  const plots = plotVals(c);
+  const list = plots.length ? plots : [''];
+  return list.map((t, i) => `
+      <div data-i="${i}">
+        <p class="pi-no">${String(i + 1).padStart(2, '0')}</p>
+        <div class="pi-row">
+          <textarea aria-label="第 ${i + 1} 条剧情" maxlength="200" placeholder="${escapeHtml(PLOT_PLACEHOLDER)}">${escapeHtml(t || '')}</textarea>
+          <button class="icon-btn" data-plotact="del" title="删掉这一条" aria-label="删掉这一条" style="color:var(--warn)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+        </div>
+      </div>`).join('');
+}
+function renderPlotRows(scope, c) {
+  const list = scope.querySelector('.pi-list');
+  if (!list) return;
+  list.innerHTML = plotRowsHTML(c);
+  bindPlotRows(scope, c);
+}
+function bindPlotRows(scope, c) {
+  scope.querySelectorAll('[data-act="addplot"]').forEach(b => {
+    b.disabled = plotVals(c).length >= PLOT_MAX;
+    b.addEventListener('click', () => {
+      const plots = plotList(c);
+      if (plots.length >= PLOT_MAX) { toast('最多 12 条剧情'); return; }
+      killPlotReceipt();
+      c.og.plots = plots.length ? plots.concat(['']) : ['', ''];
+      renderPlotRows(scope, c);
+    });
+  });
+  scope.querySelectorAll('.pi-list > div').forEach(row => {
+    const i = +row.dataset.i;
+    const ta = row.querySelector('textarea');
+    ta.addEventListener('input', () => {
+      killPlotReceipt();
+      const plots = plotList(c);
+      while (plots.length <= i) plots.push('');
+      plots[i] = ta.value;
+      persist();
+    });
+    row.querySelector('[data-plotact="del"]').addEventListener('click', () => {
+      killPlotReceipt();
+      const plots = plotList(c);
+      if (i < plots.length) plots.splice(i, 1);
+      renderPlotRows(scope, c);
+      persist();
+    });
+  });
+}
+/* 采纳回执：常驻到下次编辑，撤销恢复填写前列表（含非空，拍板②） */
+function killPlotReceipt() {
+  if (!plotUndo) return;
+  plotUndo = null;
+  const t = $('plotReceipt');
+  if (t) t.remove();
+}
+function showPlotReceipt(n, prev, scope, c) {
+  killPlotReceipt();
+  plotUndo = { prev };
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.id = 'plotReceipt';
+  t.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 13l4 4L19 7"/></svg><span></span><button class="t-act"></button>';
+  t.querySelector('span').textContent = `剧情已由 AI 填好（${n} 条）`;
+  const b = t.querySelector('button');
+  b.textContent = '撤销 · 恢复填写前的列表';
+  b.addEventListener('click', () => {
+    if (!plotUndo) return;
+    const before = plotUndo.prev;
+    plotUndo = null;
+    t.remove();
+    c.og = c.og || {};
+    c.og.plots = before.slice();
+    renderPlotRows(scope, c);
+    persist();
+    toast('已恢复到 AI 填写前的列表');
+  });
+  $('toastWrap').appendChild(t);
+}
+
+/* 三版选一弹窗：busy → cards / err；采纳整表替换，自己写/关窗不丢已写内容 */
+function plotPane(name) {
+  document.querySelectorAll('#modalPlotDraw [data-pane]').forEach(el => { el.hidden = el.getAttribute('data-pane') !== name; });
+  document.querySelectorAll('#modalPlotDraw [data-pane-foot]').forEach(el => { el.hidden = el.getAttribute('data-pane-foot') !== name; });
+}
+function plotCardsHTML() {
+  return PLOT_CARDS.map((c, i) => `
+    <button type="button" class="pick-card${c.grade === 'S' ? ' top' : ''}" data-pick="${i}" aria-pressed="false">
+      <span class="pk-corner g-${c.grade}" title="抓人程度 ${c.grade}">${c.grade}${c.grade === 'S' ? '<i>最抓人</i>' : ''}</span>
+      <span class="pk-axis">${escapeHtml(c.axis)}</span>
+      <p class="pk-title">${escapeHtml(c.title)}</p>
+      ${c.items.map((t, j) => `<div class="pk-row pk-in"><b>第 ${j + 1} 条</b><span title="${escapeHtml(t)}">${escapeHtml(t)}</span></div>`).join('')}
+    </button>`).join('');
+}
+function renderPlotCards() {
+  const grid = $('plotGrid');
+  grid.innerHTML = plotCardsHTML();
+  grid.querySelectorAll('.pick-card').forEach(card => {
+    card.addEventListener('click', () => {
+      grid.querySelectorAll('.pick-card').forEach(x => {
+        x.classList.remove('on');
+        x.setAttribute('aria-pressed', 'false');
+        x.querySelector('.pk-picked')?.remove();
+      });
+      card.classList.add('on');
+      card.setAttribute('aria-pressed', 'true');
+      card.insertAdjacentHTML('beforeend', '<span class="pk-picked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" width="10" height="10"><path d="M5 13l4 4L19 7"/></svg>就填这版</span>');
+      updatePlotAdopt();
+    });
+  });
+}
+function updatePlotAdopt() {
+  const sel = $('plotGrid').querySelector('.pick-card.on');
+  const btn = $('plotAdopt');
+  btn.disabled = !sel;
+  const preN = plotWritten(curCh() || {});
+  btn.textContent = preN > 0 ? `就填这版 · 将替换已写的 ${preN} 条` : '就填这版';
+}
+function openPlotDraw() {
+  const ch = curCh();
+  if (!ch) return;
+  $('plotDrawTitle').textContent = `挑一版剧情 · ${ch.title}`;
+  $('plotBusyText').textContent = `正在写${ch.title}的 3 版剧情…`;
+  plotGen++;
+  plotDrawTried = 0;
+  $('plotGrid').innerHTML = '';
+  plotPane('busy');
+  openModal('modalPlotDraw');
+  const gen = plotGen;
+  setTimeout(() => {
+    if (gen !== plotGen || $('modalPlotDraw').hidden) return; // 关窗丢晚到
+    plotPane('cards');
+    renderPlotCards();
+    updatePlotAdopt();
+  }, 900);
+}
+function drawBusyThen(next, gen) {
+  plotPane('busy');
+  setTimeout(() => {
+    if (gen !== plotGen || $('modalPlotDraw').hidden) return;
+    if (next === 'err') { plotPane('err'); return; }
+    plotPane('cards');
+    renderPlotCards();
+    updatePlotAdopt();
+  }, 900);
+}
+$('btnPlotDraw').addEventListener('click', () => {
+  if (!S.pro) { openModal('modalUpgrade'); return; }
+  openPlotDraw();
+});
+$('btnPlotUpgrade').addEventListener('click', () => openModal('modalUpgrade'));
+$('plotAgain').addEventListener('click', () => {
+  plotGen++;
+  plotDrawTried++;
+  // 演示：第一次「换一批」模拟「没凑满 3 版」的失败面板（⑤）
+  drawBusyThen(plotDrawTried === 1 ? 'err' : 'cards', plotGen);
+});
+$('plotRetry').addEventListener('click', () => { plotGen++; drawBusyThen('cards', plotGen); });
+document.querySelectorAll('[data-act="plot-manual"]').forEach(b => b.addEventListener('click', () => {
+  plotGen++; // 自己写：关窗退回进入抽卡前的列表（不丢已写内容，拍板②）
+  closeModal('modalPlotDraw');
+}));
+$('plotAdopt').addEventListener('click', () => {
+  const sel = $('plotGrid').querySelector('.pick-card.on');
+  if (!sel) return;
+  const ch = curCh();
+  if (!ch) return;
+  const scope = $('ogPane');
+  const prev = plotVals(ch).slice();
+  const items = PLOT_CARDS[+sel.dataset.pick].items.slice();
+  ch.og = ch.og || {};
+  ch.og.plots = items; // 整表替换（拍板②）
+  closeModal('modalPlotDraw');
+  plotGen++;
+  renderPlotRows(scope, ch);
+  persist();
+  showPlotReceipt(items.length, prev, scope, ch);
+});
 
 /* ═══════════ 初始化 ═══════════ */
 renderTreeAll();

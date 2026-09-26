@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RefObject } from "react";
 import { api } from "@/lib/api";
+import { Ico, P } from "@/components/icons";
 import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { chapterNoOf } from "@/lib/chapterRef";
 import type { AiCheckKind, RefineMode } from "@/lib/aiCheck";
@@ -99,6 +100,8 @@ export function AiAssistPanel({
   aiDrafting,
   onAiDraft,
   onSimulate,
+  onPlotDraw,
+  onUpgrade,
   staleDownstream,
   aiState,
   proseRef,
@@ -122,6 +125,10 @@ export function AiAssistPanel({
   aiDrafting: boolean;
   onAiDraft: () => void;
   onSimulate: () => void;
+  /** AI 帮写剧情（三版选一弹层；生成类归 PRO，免费态 locked 置灰＋升级出口） */
+  onPlotDraw?: () => void;
+  /** 升级 PRO（免费态剧情卡升级出口） */
+  onUpgrade?: () => void;
   /** chapter-rewrite：下游「基于旧设定」章计数（无数据时显示「—」） */
   staleDownstream?: number;
   /** 正文页签的选区动作通道（压缩啰嗦段落；润色/扩写沿用页内工具卡） */
@@ -322,6 +329,48 @@ export function AiAssistPanel({
             },
           ],
           locked,
+        )}
+        {/* 章内剧情（c-plot-split，原型 rail-plot 逐字）：生成类归 PRO；
+            免费态 rail-locked 置灰禁点不隐藏，升级出口在包裹外（手写全档可用） */}
+        {onPlotDraw && (
+          <>
+            <p className="ai-sec">剧情</p>
+            <div className={locked ? "rail-locked" : undefined}>
+              <div className="ai-tool" data-od-id="rail-plot">
+                <div className="ai-feat-head">
+                  <b>AI 帮写剧情</b>
+                  <span className="ai-tag">
+                    <Ico d={P.star} fill size={10} />
+                    PRO
+                  </span>
+                </div>
+                <p>
+                  一次给 3
+                  版剧情，挑一版填进去，之后随便改，填错了能撤销。这一章干什么、卡在哪、到哪收——这三样填齐了
+                  AI 才有依据。
+                </p>
+                <button
+                  className="btn btn-primary btn-sm"
+                  data-od-id="btn-plot-draw"
+                  data-testid="og-plot-draw"
+                  disabled={archived || locked}
+                  onClick={onPlotDraw}
+                >
+                  给我 3 版剧情
+                </button>
+              </div>
+            </div>
+            {locked && (
+              <div data-testid="plot-upgrade-exit">
+                <p className="f-hint" style={{ marginBottom: 8 }}>
+                  AI 写剧情是 PRO 功能。剧情自己写全免费，随便加、随便改。
+                </p>
+                <button className="btn btn-secondary btn-sm" onClick={onUpgrade}>
+                  升级 PRO
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     );

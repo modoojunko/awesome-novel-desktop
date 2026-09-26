@@ -477,10 +477,11 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
       toast.success("画像已确认——六行基线更新了，写章时生效");
       publishReceipt({
         text: `已落卡：六行基线更新（置信度 ${out.quant.confidence}）· 蒸馏禁用词并入 ${out.banned_added} 条`,
-        undo: () =>
+        undo: () => {
           toast.info(
             "蒸馏落卡不走撤销——历史快照在「重新蒸馏」旁保留；要回到上一版可重新蒸馏并锁定差异行",
-          ),
+          );
+        },
       });
     } catch (e: unknown) {
       setError((e as Error).message || "落卡失败，可重试");

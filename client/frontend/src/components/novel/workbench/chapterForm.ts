@@ -45,6 +45,10 @@ export const PAYOFF_KINDS = [
 
 export const PAYOFF_LOCATIONS = ["前段", "中段", "后段"] as const;
 
+// ── 章内剧情（c-plot-split：条目=场景描述非正文）──
+export const PLOT_MAX_LEN = 200;
+export const PLOT_MAX_ITEMS = 12;
+
 export interface OgForm {
   title: string;
   summary: string;
@@ -68,6 +72,8 @@ export interface OgForm {
   payoffs: OgPayoff[]; // → micro_payoffs[]
   ladder: string; // → ladder_exit 章末落点
   wt: string; // → word_target 本章目标字数（500-6000）
+  // ── 章内剧情（c-plot-split；**必须整表回传**——缺键保持原样，显式 [] 清空）──
+  plots: string[]; // → plot_items[]（一条=一段场景描述，≤200 字、≤12 条）
   // ── 拆章五段（c-chapter-plan-ai；非必填，但**必须整表回传**——缺键即清空）──
   challenge: string; // → challenge 碰到的挑战
   acts: string; // → chapter_acts 本章行动（一行一条 ≤4×60）
@@ -106,6 +112,7 @@ export const EMPTY_OG_FORM: OgForm = {
   payoffs: [],
   ladder: "",
   wt: "",
+  plots: [],
 };
 
 /** 章纲缺口标签键 → fill-gaps 白名单键（与后端 chapters/ai_draft.py _FILLABLE_KEYS 同口径）。 */
@@ -232,6 +239,7 @@ export function ogToForm(d: ChapterData | null | undefined): OgForm {
     acts: (d?.chapter_acts ?? []).join("\n"),
     stage: d?.plot_stage ?? "",
     wt: d?.word_target != null ? String(d.word_target) : "",
+    plots: (d?.plot_items ?? []).map((s) => String(s)),
   };
 }
 
@@ -256,6 +264,21 @@ export function ogFormIssues(form: OgForm): string[] {
   if (actLines.length > 4) issues.push("本章行动最多 4 行（一行一个动作）");
   if (actLines.some((l) => l.length > 60)) issues.push("本章行动单行不超过 60 字");
   return issues;
+}
+
+/** AI 起草覆盖确认判定：章纲格子有内容即需二次确认。
+ *  **不含剧情 plots**——AI 起草只覆盖章纲格子，剧情列表不参与也不被动。 */
+export function ogHasDraftContent(form: OgForm): boolean {
+  return (
+    [form.summary, form.mood, form.rstrat, form.changes, form.ladder, form.wt].some(
+      (v) => String(v ?? "").trim() !== "",
+    ) ||
+    form.segs.length > 0 ||
+    form.scenes.some(
+      (sc) => [sc.n, sc.g, sc.o, sc.h].some((v) => v.trim() !== "") || sc.w !== "" || sc.f !== "",
+    ) ||
+    form.payoffs.some((p) => p.d.trim() !== "")
+  );
 }
 
 /** 保留 existing 中未知扩展键（后端 forward-compat），只覆写表单覆盖的字段 */
@@ -316,6 +339,12 @@ export function ogToPartial(
         ...(mp.l ? { location: mp.l } : {}),
       })),
     ladder_exit: form.ladder.trim(),
+    // 章内剧情：**恒带键**（presence-gate：缺键保持原样、显式 [] 清空——见 chapter-data 场景）。
+    // 输入侧已 maxLength/条数卡，此处防绕过再夹一次；空白条目不算一条（同 scene_cards 过滤口径）。
+    plot_items: form.plots
+      .map((s) => s.slice(0, PLOT_MAX_LEN))
+      .filter((s) => s.trim() !== "")
+      .slice(0, PLOT_MAX_ITEMS),
     // 拆章三格：整表回传（缺键会被装配端写空——见 chapter-data 场景）
     challenge: form.challenge.trim(),
     chapter_acts: form.acts.split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 4),

@@ -16,11 +16,7 @@ import { addFirstChapterViaTree, cleanupSessionNovels, stableClick } from "./hel
 const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 const CONFIG_PATH = path.join(
-  process.cwd(),
-  "..",
-  "..",
-  ".docker-data",
-  "client",
+  process.env.E2E_CLIENT_DATA || path.join(process.cwd(), "..", "..", ".docker-data", "client"),
   "config.json",
 );
 const TEST_PASSWORD = ["TestPass", "789!"].join("");

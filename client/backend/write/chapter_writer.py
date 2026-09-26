@@ -87,6 +87,27 @@ def clamp_word_target(value) -> int:
 _POLISH_ANCHORS = ("任务指示", "红线", "质感")
 _PLACEHOLDER_RE = re.compile(r"\{[^}\n]*\}")
 
+# 剧情条目块（c-plot-split）：块名＋定位句钉死（两路同源 parity 回归校对到字）。
+_PLOT_BLOCK_TITLE = "【本章剧情走向（分条）】"
+_PLOT_BLOCK_ANCHOR = (
+    "定位：首尾以章卡（章末落点/要撞的墙/必须发生的动作）为锚，"
+    "中间推进以剧情条目为主干，【场景原材料】只定焦点与空间。"
+)
+
+
+def _plot_block(items) -> str:
+    """剧情条目块单源渲染：一条一行（单条内换行折叠为空格），空清单回空串。
+
+    material_markdown 与 to_prompt 两路唯一渲染入口（禁再两处手写拼接）；
+    空剧情时两路产物逐字不变（golden 回归钉死）。
+    """
+    rows = [str(it) for it in (items or []) if str(it).strip()]
+    if not rows:
+        return ""
+    lines = [_PLOT_BLOCK_TITLE, _PLOT_BLOCK_ANCHOR]
+    lines += ["- " + " ".join(str(it).splitlines()).strip() for it in rows]
+    return "\n".join(lines)
+
 
 def strip_code_fences(text: str) -> str:
     """剥掉模型偶尔包裹的 ```markdown 围栏（保留内部文本）。"""
@@ -101,7 +122,8 @@ def strip_code_fences(text: str) -> str:
 def validate_polished_prompt(text: str, ctx: "ChapterContext") -> list[str]:
     """润色产物轻校验：返回缺失的必备锚词清单（空清单 = 合格）。
 
-    场景原材料段仅在素材包确有场景卡时才要求；爽点锚词仅在确有爽点时要求。
+    场景原材料段仅在素材包确有场景卡时才要求；爽点锚词仅在确有爽点时要求；
+    剧情走向段仅在 plot_items 非空时要求（c-plot-split 条件锚）。
     """
     missing = [a for a in _POLISH_ANCHORS if a not in text]
     if (ctx.previous_context or ctx.previous_chapter_recap) and "前情" not in text:
@@ -110,6 +132,8 @@ def validate_polished_prompt(text: str, ctx: "ChapterContext") -> list[str]:
         missing.append("场景原材料")
     if ctx.micro_payoffs and "爽点" not in text:
         missing.append("爽点设计")
+    if ctx.plot_items and "剧情走向" not in text:
+        missing.append("剧情走向")
     if _PLACEHOLDER_RE.search(text):
         missing.append("占位符残留")
     return missing
@@ -150,6 +174,8 @@ class ChapterContext:
         self.challenge: str = ""
         self.chapter_acts: list[str] = []
         self.plot_stage: str = ""
+        # c-plot-split：本章剧情条目（场景描述清单，非正文）——素材包【本章剧情走向（分条）】原料
+        self.plot_items: list[str] = []
         self.required_changes: list[str] = []
         self.payoff_plan: dict = {}
         self.prohibitions: list[str] = []
@@ -207,6 +233,11 @@ class ChapterContext:
             if self.volume_outline:
                 bg.append("本卷卷纲：\n" + self.volume_outline)
             blocks.append("【故事背景】\n" + "\n".join(bg))
+
+        # c-plot-split：剧情条目块（单源渲染）——插在场景原材料之前
+        plot = _plot_block(self.plot_items)
+        if plot:
+            blocks.append(plot)
 
         scene = self._scene_material_text()
         if scene:
@@ -384,6 +415,11 @@ class ChapterContext:
         key_points = outline.get("key_points", [])
         if key_points:
             lines.append(f"关键情节点：{'、'.join(key_points[:5])}")
+        # c-plot-split：剧情条目块（与 material_markdown 同源同字，插在场景原材料之前）
+        plot = _plot_block(self.plot_items)
+        if plot:
+            lines.append("")
+            lines.append(plot)
         scene = self._scene_material_text()
         if scene:
             lines.append("")
@@ -607,6 +643,10 @@ async def build_chapter_context(
     ctx.challenge = str(chapter.get("challenge", "") or "").strip()
     ctx.chapter_acts = [str(a).strip() for a in (chapter.get("chapter_acts") or []) if str(a).strip()]
     ctx.plot_stage = str(chapter.get("plot_stage", "") or "").strip()
+    # c-plot-split：剧情条目（assemble_chapter 恒带键；空/损坏按 [] 不阻塞）
+    ctx.plot_items = [
+        str(x) for x in (chapter.get("plot_items") or []) if str(x).strip()
+    ]
     memo = chapter.get("memo") or {}
     ctx.required_changes = [
         str(c) for c in (memo.get("required_changes") or []) if str(c).strip()

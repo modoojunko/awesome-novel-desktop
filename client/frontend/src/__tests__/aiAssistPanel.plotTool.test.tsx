@@ -1,0 +1,69 @@
+// 右栏「AI 帮写剧情」卡（c-plot-split 5.4）：三态＝可用（PRO）／归档禁用／
+// 免费态 rail-locked 置灰禁点不隐藏＋升级出口。
+import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/api", () => ({
+  api: { get: vi.fn().mockResolvedValue([]), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
+}));
+
+import { AiAssistPanel } from "@/components/novel/workbench/AiAssistPanel";
+
+function renderPanel(opts: {
+  isPro: boolean;
+  archived?: boolean;
+  onPlotDraw?: () => void;
+  onUpgrade?: () => void;
+}) {
+  return render(
+    <AiAssistPanel
+      projectId="p1"
+      chapterRef="vol-1-ch-2"
+      tab="og"
+      isPro={opts.isPro}
+      ogStats={{ reqOk: 6, planWords: 2500, keyCount: 1, castCount: 1 }}
+      wordCount={10}
+      planWords={2500}
+      archived={!!opts.archived}
+      canAiDraft={opts.isPro && !opts.archived}
+      aiDrafting={false}
+      onAiDraft={() => {}}
+      onSimulate={() => {}}
+      onPlotDraw={opts.onPlotDraw ?? (() => {})}
+      onUpgrade={opts.onUpgrade ?? (() => {})}
+    />,
+  );
+}
+
+describe("右栏 AI 帮写剧情卡（三态）", () => {
+  it("PRO 可用：按钮可点，点击开三版弹层", () => {
+    const onPlotDraw = vi.fn();
+    renderPanel({ isPro: true, onPlotDraw });
+    const btn = screen.getByTestId("og-plot-draw");
+    expect(btn).not.toBeDisabled();
+    fireEvent.click(btn);
+    expect(onPlotDraw).toHaveBeenCalledTimes(1);
+  });
+
+  it("免费态：locked 置灰禁点不隐藏＋升级出口（手写全档可用）", () => {
+    const onPlotDraw = vi.fn();
+    const onUpgrade = vi.fn();
+    renderPanel({ isPro: false, onPlotDraw, onUpgrade });
+    const btn = screen.getByTestId("og-plot-draw");
+    expect(btn).toBeVisible();
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    expect(onPlotDraw).not.toHaveBeenCalled();
+    // 升级出口在锁定包裹外，可点
+    const exit = screen.getByTestId("plot-upgrade-exit");
+    expect(exit).toHaveTextContent("剧情自己写全免费");
+    fireEvent.click(screen.getByText("升级 PRO"));
+    expect(onUpgrade).toHaveBeenCalledTimes(1);
+  });
+
+  it("归档章禁用", () => {
+    const onPlotDraw = vi.fn();
+    renderPanel({ isPro: true, archived: true, onPlotDraw });
+    expect(screen.getByTestId("og-plot-draw")).toBeDisabled();
+  });
+});

@@ -155,7 +155,7 @@ class _FakeAIClient:
         return self._reply
 
 
-def _create_project_and_chapter(client) -> tuple[str, str]:
+def _create_project_and_chapter(client, plots: list | None = None) -> tuple[str, str]:
     name = f"wpp-{uuid.uuid4().hex[:6]}"
     r = client.post("/api/novels", json={"name": name})
     assert r.status_code in (200, 201), r.text
@@ -188,6 +188,7 @@ def _create_project_and_chapter(client) -> tuple[str, str]:
                     {"kind": "clue", "description": "半块玉佩", "location": "中段"}
                 ],
                 "memo": {"required_changes": ["主角与师父决裂"]},
+                "plot_items": list(plots or []),
             },
         )
 
@@ -253,8 +254,8 @@ class TestPolishPrompt:
         body = r.json()
         assert body["polished"] is True
         assert "任务指示" in body["prompt"]
-        # system 用 prompt_crafting 模板（九段骨架清单特征）
-        assert "九段要素" in fake.last_kwargs["system"]
+        # system 用 prompt_crafting 模板（十段骨架清单特征）
+        assert "十段要素" in fake.last_kwargs["system"]
         # user 内容是素材包（带场景原材料原料 + 约束红线）
         assert "【场景原材料】" in fake.last_kwargs["messages"][0]["content"]
         assert "【约束红线" in fake.last_kwargs["messages"][0]["content"]
@@ -319,3 +320,80 @@ class TestPolishPrompt:
         assert r.status_code == 502, r.text
         assert "润色调用失败" in r.text
         assert _read_stored_prompt(pid, ref) == ""
+
+
+class TestPlotPolish:
+    """c-plot-split 4.2：剧情走向条件锚（非空必有、为空不要求）＋存量优先级不变。"""
+
+    def test_material_carries_plot_block_and_missing_section_502(self, client, monkeypatch):
+        """剧情非空：素材包带剧情块；产物缺剧情走向段判不合格、不落库。"""
+        _set_tier("monthly")
+        pid, ref = _create_project_and_chapter(client, plots=["甲一：她翻墙进了库房"])
+        _seed_stored_prompt(pid, ref, "既有润色行")
+
+        calls: list = []
+        fake = _FakeAIClient(calls, reply=VALID_POLISHED)  # 缺剧情走向段
+
+        async def _fake_get_ai_client(novel_id=None):
+            return fake
+
+        import ai_client as ai_client_mod
+
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
+
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/prompt/polish")
+        assert r.status_code == 502, r.text
+        assert "剧情走向" in r.text
+        material = fake.last_kwargs["messages"][0]["content"]
+        assert "【本章剧情走向（分条）】" in material
+        assert "甲一：她翻墙进了库房" in material
+        # 不合格不落库：既有行原样
+        assert _read_stored_prompt(pid, ref) == "既有润色行"
+
+    def test_polish_success_with_plot_section(self, client, monkeypatch):
+        """剧情非空：产物含剧情走向段→合格落库。"""
+        _set_tier("monthly")
+        pid, ref = _create_project_and_chapter(client, plots=["甲一：她翻墙进了库房"])
+        reply = VALID_POLISHED + "\n## 剧情走向\n- 甲一：她翻墙进了库房"
+
+        calls: list = []
+
+        async def _fake_get_ai_client(novel_id=None):
+            return _FakeAIClient(calls, reply=reply)
+
+        import ai_client as ai_client_mod
+
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
+
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/prompt/polish")
+        assert r.status_code == 200, r.text
+        assert "剧情走向" in r.json()["prompt"]
+        assert _read_stored_prompt(pid, ref) == r.json()["prompt"]
+
+    def test_empty_plots_needs_no_plot_section(self, client, monkeypatch):
+        """剧情为空：产物不要求剧情走向段（VALID_POLISHED 无该段照常合格）。"""
+        _set_tier("monthly")
+        pid, ref = _create_project_and_chapter(client)
+
+        calls: list = []
+
+        async def _fake_get_ai_client(novel_id=None):
+            return _FakeAIClient(calls)
+
+        import ai_client as ai_client_mod
+
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake_get_ai_client)
+
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/prompt/polish")
+        assert r.status_code == 200, r.text
+
+    def test_stored_prompt_priority_unchanged_with_plots(self, client):
+        """存量 write-prompt 优先于现场组装（含剧情时同样成立）——优先级不变。"""
+        _set_tier("monthly")
+        pid, ref = _create_project_and_chapter(client, plots=["甲一：她翻墙进了库房"])
+        _seed_stored_prompt(pid, ref, "既有润色行")
+        r = client.get(f"/api/novels/{pid}/chapters/{ref}/write/prompt")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["prompt"] == "既有润色行"
+        assert body["polished"] is True

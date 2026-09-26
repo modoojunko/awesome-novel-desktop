@@ -48,14 +48,20 @@ MAX_PLANS = 3
 LINE_MAX = 150
 
 
-async def _generate(project, system: str, user_msg: str, *, temperature: float, db, user, operation: str) -> tuple[str, dict]:
-    """单次生成 ＋ 失败重试一次（把失败原因喂回）＋ 全程计量（含失败留痕）。"""
+async def _generate(
+    project, system: str, user_msg: str, *, temperature: float, db, user, operation: str,
+    max_tokens: int = _MAX_TOKENS,
+) -> tuple[str, dict]:
+    """单次生成 ＋ 失败重试一次（把失败原因喂回）＋ 全程计量（含失败留痕）。
+
+    max_tokens：默认 4096 不动；单次多版产物的端点自己抬（c-plot-split 三版剧情 8192）。
+    """
     client = await get_ai_client_for_novel(project.id)
     usage: dict = {}
     try:
         raw = await client.chat(
             model=_MODEL, system=system, messages=[{"role": "user", "content": user_msg}],
-            max_tokens=_MAX_TOKENS, temperature=temperature, usage=usage,
+            max_tokens=max_tokens, temperature=temperature, usage=usage,
         )
     except AITimeoutError:
         from api_configs.usage import record_usage
@@ -95,7 +101,7 @@ async def _generate(project, system: str, user_msg: str, *, temperature: float, 
             {"role": "assistant", "content": "（上一条没有输出正文）"},
             {"role": "user", "content": "请输出正文。"},
         ],
-        max_tokens=_MAX_TOKENS, temperature=min(temperature, 0.2), usage=retry,
+        max_tokens=max_tokens, temperature=min(temperature, 0.2), usage=retry,
     )
     from api_configs.usage import record_usage
 
