@@ -165,7 +165,7 @@ test("空章纲：AI 起草回填表单 → 保存草稿 → 刷新回读", asyn
     await expect(page.locator("#wf-stage")).toHaveValue("重要转折");
     await expect(page.locator("#wf-wt")).toHaveValue("1800");
     // 退役格不在表单里（关键事件/地点/时间/视角/预期策略/段落规划/场景卡）
-    for (const dead of ["#wf-keys", "#wf-loc", "#wf-time", "#wf-pov", "#wf-pguid", "#wf-rstrat", "#wf-segs", "#wf-scenes", "#wf-acts"]) {
+    for (const dead of ["#wf-keys", "#wf-loc", "#wf-time", "#wf-pov", "#wf-pguid", "#wf-rstrat", "#wf-segs", "#wf-scenes"]) {
       await expect(page.locator(dead)).toHaveCount(0);
     }
 

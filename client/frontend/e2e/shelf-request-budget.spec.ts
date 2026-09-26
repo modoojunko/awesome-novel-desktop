@@ -13,7 +13,11 @@ import { writeConfigAtomic } from "./helpers";
 // detached、UI 建书又慢又脆。修复后翻转只切换上下文值；本用例把「空闲期
 // 请求预算」钉成回归口径：一旦壳层重挂回归，此用例必红并列出超预算明细。
 //
-// 口径：书架加载完成（新建作品按钮可见）后静止 3 秒，/api 请求总数 ≤8。
+// 口径：书架加载完成（新建作品按钮可见）后静止 3 秒，/api 请求总数 ≤10。
+// c-shelf-request-budget 校准依据：#464 后新增的 update-check 轮转请求跨界落入
+// 3 秒窗（全量明细实测 check-auth×5/update-check×4/verify×4/candidates×3/config×3
+// /novels×1/legacy-db×1 = 21 次含加载期；空闲窗稳态 7～8 个，轮转边界偶挤入第 9 个）。
+// 风暴判别力保留：壳层重挂风暴 ~20/3s 仍必红（20 ≫ 10）。
 // 这里的 waitForTimeout(3000) 是被测口径的观察窗本身，非脆弱等待。
 // =========================================================================
 
@@ -54,11 +58,15 @@ test.describe("书架请求预算守卫", () => {
     );
 
     const counts = new Map<string, number>();
+    const timeline: Array<{ url: string; method: string; offset: number }> = [];
+    let shelfReadyAt: number | null = null;
     page.on("request", (r) => {
       const u = new URL(r.url());
       if (u.pathname.startsWith("/api/")) {
         const k = `${r.method()} ${u.pathname}`;
         counts.set(k, (counts.get(k) ?? 0) + 1);
+        const offset = shelfReadyAt !== null ? Date.now() - shelfReadyAt : -1;
+        timeline.push({ url: u.pathname, method: r.method(), offset });
       }
     });
 
@@ -68,6 +76,7 @@ test.describe("书架请求预算守卫", () => {
         state: "visible",
         timeout: 15000,
       });
+      shelfReadyAt = Date.now();
 
       const snapshot = () => [...counts.values()].reduce((a, b) => a + b, 0);
       const before = snapshot();
@@ -78,10 +87,16 @@ test.describe("书架请求预算守卫", () => {
         .sort((a, b) => b[1] - a[1])
         .map(([k, v]) => `  ${String(v).padStart(4)}× ${k}`)
         .join("\n");
+      // Phase A 诊断：空闲窗逐请求时间线（URL＋偏移 ms）
+      const idleReqs = timeline.filter((r) => r.t >= 0);
+      console.log("[budget-diag] 空闲窗请求明细：");
+      for (const r of idleReqs) {
+        console.log(`  +${String(r.offset).padStart(5)}ms ${r.method} ${r.url}`);
+      }
       expect(
         idleDelta,
-        `书架空闲 3s 请求预算超支（${idleDelta} > 8）。全量明细：\n${detail}`,
-      ).toBeLessThanOrEqual(8);
+        `书架空闲 3s 请求预算超支（${idleDelta} > 10）。全量明细：\n${detail}`,
+      ).toBeLessThanOrEqual(10);
     } finally {
       fs.writeFileSync(CONFIG_PATH, original);
     }
