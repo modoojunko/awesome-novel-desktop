@@ -26,7 +26,15 @@
 - [x] 5.1 e2e 新断言走 **stub 路径**（`statusbar.spec.ts` 通篇 `page.route` 拦 `/api/update-check`，后端 env 到不了前端）：扩展 `stubUpdateNotice` 支持可选 `build`，加「dev＋build 呈 `main@f456e`、不出现开发版 dev」用例；docker e2e 栈**不注 env**（env 真链覆盖归 2.1/2.2 的 pytest）；`modals-pr5.spec.ts` 版本行正则同批扩展为也接受 `{分支}@{commit前5位}` 形态——本地 dev e2e（`E2E_BASE_URL=localhost:5173` 直连 git 检出后端）会拿到非空 build，不改必红；既有 docker 无 git 的「开发版 dev」断言不动仍绿；验证：`npx playwright test e2e/statusbar.spec.ts e2e/modals-pr5.spec.ts` 全绿（docker 与本地两路径各跑一次）
 - [x] 5.2 全量门禁：`npm run design:lint`（C端）→ `npm run design:check`（预期状态条文案像素差在 <0.2% 阈值内；若基线含该区域文字光栅差按 ADJUSTMENTS 登记处理）→ `tsc --noEmit` → pytest/vitest 全量；验证：各命令输出结论贴任务下
 - [x] 5.3 不触两端共享段判定复核：无新类/无令牌变化，`scripts/design-cross.mjs` 免跑（依据 proposal Design Impact 判定）；验证：判定理由引用落任务下——已复核：零新增 CSS 类/令牌/语义类，diff 仅 HTML 注释与文案逻辑，免跑判定成立
-  - 证据：statusbar.spec 11 passed（含新增「dev＋build 呈 main@f456e」用例，纯 stub）；modals-pr5.spec 4 passed（隔离 docker 栈＋真后端＋真 S端 注册流）；另做**容器真链实证**：client-backend 注入 CLIENT_BUILD_BRANCH=main/CLIENT_BUILD_COMMIT=f456e 后 /api/update-check 返回 `"build":{"branch":"main","commit":"f456e"}`——env→后端→载荷全链走通
-  - 附带：modals-pr5 CONFIG_PATH 改为 E2E_CLIENT_CONFIG_PATH 可覆盖（缺省不变）——per-session 隔离栈数据目录不在共享路径所必需，沿用 E2E_BASE_URL 同款 env 模
-  - 证据：tsc --noEmit 零错；design:lint 0 违规（存量分布行不变）；vitest 全量 874 passed（86 文件）；pytest 全量 1526 passed（本 change 相关 5 套件 53 条全绿；首跑 13 条挂为临时 venv 缺 pytest-asyncio，补装后清零且经干净 main 对照确认非本 change 引入）；design:check＝7 绿＋list.empty 1 红（像素差 0.292%）
+  - 证据（5.1）：statusbar.spec 11 passed（含新增「dev＋build 呈 main@f456e」用例，纯 stub）；modals-pr5.spec 4 passed（隔离 docker 栈＋真后端＋真 S端 注册流）；另做**容器真链实证**：client-backend 注入 CLIENT_BUILD_BRANCH=main/CLIENT_BUILD_COMMIT=f456e 后 /api/update-check 返回 `"build":{"branch":"main","commit":"f456e"}`——env→后端→载荷全链走通
+  - 附带（5.1）：modals-pr5 CONFIG_PATH 改为 E2E_CLIENT_CONFIG_PATH 可覆盖（缺省不变）——per-session 隔离栈数据目录不在共享路径所必需，沿用 E2E_BASE_URL 同款 env 模式
+  - 证据（5.2）：tsc --noEmit 零错；design:lint 0 违规（存量分布行不变）；vitest 全量 874 passed（86 文件）；pytest 全量 1526 passed（本 change 相关 5 套件 53 条全绿；首跑 13 条挂为临时 venv 缺 pytest-asyncio，补装后清零且经干净 main 对照确认非本 change 引入）；design:check＝7 绿＋list.empty 1 红（像素差 0.292%）
   - design:check 红项判定：干净 origin/main 同场景同为 0.292%（stash 后复跑逐位同值）＝存量光栅/文案漂移，非本 change 回归（与既往「main 本机 parity 漂移」记录一致）
+
+## 6. CI 实证（打包链真跑）
+
+- [ ] 6.1 手动 dispatch 一次非 tag 打包构建，下载产物解包验 release.json 含 `client_build_branch`/`client_build_commit` 且安装包状态条（或冒烟日志）呈现 `{分支}@{commit前5位}`；验证：Actions run 链接＋产物特征串核验（「容器里的东西确实是自己的构建」纪律）
+  - 本地等效验证已完成（09-27，macOS）：`release_json_generate.py` 以真实分支/commit 烘 release.json（`feat-c-version-build-info`/`0bf87`＝PR 提交指纹）→ PyInstaller 冻结 `.app` → `release_json_assert.py` 产物断言过 → `--smoke` 冻结态 `/api/update-check` 返回 `"build":{"branch":"feat-c-version-build-info","commit":"0bf87"}`——烘焙→打包→冻结自报全链实证（DATA_ROOT 重定向临时目录，真实 appdata 零触碰）
+- [ ] 6.2 tag 干跑核验（可用既有 v0.24 产物回归读）：tag 产物无新键、状态条仍 `v{X.Y.Z}`；验证：对拍记录贴任务下
+  - 本地等效验证已完成（09-27）：冻结态以 `CLIENT_VERSION=0.25`＋杂散 `CLIENT_BUILD_*` env 启动 → 载荷 `current=0.25`、`build:null`（dev 总闸冻结态成立）；tag 形态不烘新键由 generate 脚本 dry-run（push tags 形态）覆盖；顺带实证冻结包真实外呼更新检测（latest=0.23 ≤ 0.25 不提示）
+  - 仍属 CI-only 的残余：Windows exe（Inno）路径与 workflow 在真 runner 上的 env 接线——下次真实 dispatch/打版时顺带核验即可，无需单独烧额度
