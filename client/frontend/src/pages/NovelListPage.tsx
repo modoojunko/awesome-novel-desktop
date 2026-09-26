@@ -640,32 +640,6 @@ function NovelList() {
           <div className="empty" style={{ padding: "56px 44px 48px" }}>
             <span className="fr-title serif">开始你的第一本书</span>
             <p>本地优先的 AI 长篇小说工作台——大纲、设定、正文，都保存在你这台电脑上。</p>
-            {/* c-db-per-version：出口行**常驻**并并列两条出路——「把上一版的作品
-                带过来」（有可搬运候选时）与「从备份包恢复」（恒在：换安装目录/换机的
-                用户候选扫描看不到，必须第二条出口可达）。 */}
-            <p className="fr-note">
-              {priorBooks > 0 ? (
-                <>
-                  这台电脑上有旧版作品（<span className="num">{priorBooks}</span> 本）·{' '}
-                  <button
-                    className="text-btn"
-                    data-od-id="first-run-bring-back"
-                    onClick={() => window.dispatchEvent(new CustomEvent('legacy-migrate:open'))}
-                  >
-                    把上一版的作品带过来
-                  </button>
-                  {' · '}
-                </>
-              ) : null}
-              <button
-                className="text-btn"
-                data-od-id="first-run-restore"
-                onClick={() => window.dispatchEvent(new CustomEvent('restore:open'))}
-              >
-                从备份包恢复
-              </button>
-              {' · '}免费版可创建 <span className="num">1</span> 部作品 · 无需绑卡
-            </p>
             <div className="fr-steps">
               <div className="step">
                 <span className="fr-n">STEP 01</span>
@@ -702,8 +676,35 @@ function NovelList() {
                 导入已有文稿
               </button>
             </div>
+            {/* c-db-per-version：出口行**常驻**并并列两条出路——「把上一版的作品
+                带过来」（有可搬运候选时）与「从备份包恢复」（恒在：换安装目录/换机的
+                用户候选扫描看不到，必须第二条出口可达）。
+                位置＝原型 list.html 首启 `fr-note`（CTA 之后一行，出口与「免费版可创建
+                1 部作品 · 无需绑卡」同句）——实现侧曾把它另起一行放在 .fr-steps 之前、
+                并在 CTA 下重复了一次免费版文案，与原型基线不一致（design:check 书架屏
+                empty 1.44% 像素差）；本批按原型收拢为一行。 */}
             <p className="fr-note">
-              免费版可创建 <span className="num">1</span> 部作品 · 无需绑卡
+              {priorBooks > 0 ? (
+                <>
+                  这台电脑上有旧版作品（<span className="num">{priorBooks}</span> 本）·{' '}
+                  <button
+                    className="text-btn"
+                    data-od-id="first-run-bring-back"
+                    onClick={() => window.dispatchEvent(new CustomEvent('legacy-migrate:open'))}
+                  >
+                    把上一版的作品带过来
+                  </button>
+                  {' · '}
+                </>
+              ) : null}
+              <button
+                className="text-btn"
+                data-od-id="first-run-restore"
+                onClick={() => window.dispatchEvent(new CustomEvent('restore:open'))}
+              >
+                从备份包恢复
+              </button>
+              {' · '}免费版可创建 <span className="num">1</span> 部作品 · 无需绑卡
             </p>
           </div>
         </div>
