@@ -1235,3 +1235,28 @@ cast-row，坎行复用 hurdle-row；色彩与组件零新形态。
 - **parity 影响**：章纲全字段本就不在 parity 截图比对范围（§「未动原型」清单第 259 行口径），
   本次原型与实现同批收缩，不新增偏差；`design:check` 基线不受影响（无新增/改名共享类）。
 - **文案自查（design-language §13）**：无新增文案；「碰到的挑战／阶段」沿用拆章页签既有措辞。
+
+## c-og-rail-declutter（章工作台收敛：章纲统计上移头部＋排版 seg/版本历史/归档迁位）— 2026-09-27
+
+用户拍板（产品口径直接落实现；`book.html` 原型侧待下次原型同批更新）：
+
+- **章纲统计卡上移**：右栏 AI 助手·章纲页签的统计卡（归档门槛/计划字数/剧情/出场角色）退役，
+  四项改以 `.tag` 徽章进中栏头部 `.e-meta` 行（与既有「状态＋字数」两枚同排，e-meta 本就 flex-wrap）。
+  右栏该页签只剩引导语＋「还缺」清单＋动作清单；`OgStats` 类型保留（reqOk 供操作页签、
+  planWords 供正文页签、missingLabels 供还缺清单与补全动作）。
+- **排版 seg 退役**：头部右侧字号（小/中/大）与行距（紧凑/舒适/宽松）两组 seg 删除；
+  改值入口在账号菜单「本书偏好」（BookPrefsModal，pref.book.{pid}.* 全套保留）。
+  工作台只读回显（ProsePane 的 fs/lh 不变）；`.tsep` 一并撤（右侧只剩专注钮）。
+- **版本历史迁位**：头部右侧 → `.ch-tabs` 页签行右端（`.ch-history`＝btn-ghost btn-sm＋
+  margin-left:auto；three-col 下 align-self:center）。弹窗本体不变。
+- **归档迁位**：头部右侧「归档本章」→ 操作页签首张 `.revert-card` 卡（data-od-id=archive-card，
+  testid=archive-btn）；守卫不变（archived/wordCount===0 置灰，空章/已归档给 title 提示）；
+  旧稿支线章不渲染归档卡（与重写/回退卡同口径——支线无归档语义，顺手收口）。
+- **parity 影响**：workbench 屏与 `book.html` 头部不再逐像素一致（e-meta 六徽章/页签行右端钮/
+  头部右侧只剩专注）。design:check 为本地门禁（原型资产 gitignored、不在 CI），基线待原型
+  同批更新后重录；此前 run 的 workbench 基线作废不误判。
+- **e2e 适配**：四处按名字点「归档本章」的用例同批加「点操作页签」一步（settings-forms/
+  free-writing-flow/chapter-rewrite/modals-pr5）；四处 `S_API` 硬编码改吃
+  `E2E_S_API`（沿用 ai-assist/chapter-plan 既有约定，隔离栈端口可注入）。
+- **文案自查（design-language §13）**：新增卡描述「归档后本章写回主线、正文转只读；设定/关系/
+  伏笔的写回提案在下方逐条确认。」沿用操作页签既有句式；无内部术语；按钮词不动（归档本章）。

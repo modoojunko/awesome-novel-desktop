@@ -18,7 +18,7 @@ import { cleanupSessionNovels, pollBackend, stableClick, writeFirstChapter } fro
 // 与 creation-flow.spec.ts 共享鉴权与设定确认手法；与 free-writing-flow.spec.ts
 // 共享归档/正文工作台手法。前置条件：docker 4 服务已启动。
 
-const S_API = "http://127.0.0.1:19000/api/web";
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 // docker C端 后端的 config.json（bind mount .docker-data/client → /app/data）
 const CONFIG_PATH = path.join(
@@ -638,6 +638,8 @@ test("预览：只读树 + 只读正文（草稿/归档章皆可读）→ 恢复
     // （arch-confirm）；window.confirm 全兜底 accept（存量路径如 AI 摘要额度提示）
     const onDlg = (d: Dialog) => d.accept();
     page.on("dialog", onDlg);
+    // 归档入口在操作页签（2026-09-27 自头部移入）
+    await page.getByRole("tab", { name: /^操作/ }).click();
     await page.getByRole("button", { name: "归档本章" }).click();
     await page.getByTestId("arch-confirm").click();
     try {

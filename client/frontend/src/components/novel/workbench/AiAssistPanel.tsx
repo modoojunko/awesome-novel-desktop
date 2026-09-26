@@ -1,5 +1,7 @@
 /** 右栏「AI 辅助」面板（storyline.html col-ai 复刻，workbench-storyline-ai-panel）：
  *  随中栏页签切换——每页签一条引导语＋统计卡＋动作清单。
+ *  2026-09-27 用户拍板：章纲页签统计卡（归档门槛/计划字数/剧情/出场角色）上移
+ *  中栏头部 meta 行（ChapterWorkspace e-meta），右栏章纲页签只剩引导语＋还缺＋动作。
  *  动作清单已全部落地（2026-09-17）：占位机制退役——onClick 改为必填，各动作按门控禁用。
  *  2026-09-20 AI 入口收口右栏（用户拍板）：章页签 body 的 AI 按钮全部退役，
  *  起草/推演/建议调整等触发动作唯一化在此；结果呈现仍在对应页签（文风建议逐项采纳、
@@ -19,8 +21,11 @@ import type { AiCheckKind, RefineMode } from "@/lib/aiCheck";
 import { REQ_FIELDS } from "./chapterForm";
 
 export interface OgStats {
-  reqOk: number; // 归档门槛已满足项（分母＝必填项数，见 REQ_FIELDS）
+  /** 归档门槛已满足项（分母＝必填项数，见 REQ_FIELDS）；操作页签统计卡在用 */
+  reqOk: number;
+  /** 正文页签统计卡在用 */
   planWords: number | null;
+  /** 展示位已上移中栏头部 meta 行（2026-09-27）；随数据通道保留 */
   plotCount: number;
   castCount: number;
   /** 还缺的必填项标签（原型 aiList('还缺'…)；「补全缺失字段」以它为输入） */
@@ -293,12 +298,7 @@ export function AiAssistPanel({
       <div className="rail-assist" data-testid="rail-assist">
         <p className="ai-sec">AI 辅助 · 章纲</p>
         <p className="rail-lead">按本卷卷纲检查、补全第 {chapterNo} 章的章纲；必填项决定这一章能否归档。</p>
-        {raStats([
-          ["归档门槛", `${ogStats.reqOk}/${REQ_FIELDS.length}`],
-          ["计划字数", ogStats.planWords ? `${ogStats.planWords.toLocaleString("zh-CN")} 字` : "未定"],
-          ["剧情", `${ogStats.plotCount} 条`],
-          ["出场角色", `${ogStats.castCount} 人`],
-        ])}
+        {/* 归档门槛/计划字数/剧情/出场角色统计卡已上移中栏头部 meta 行（2026-09-27） */}
         {raList("还缺", ogStats.missingLabels ?? [], "warn")}
         {raActs(
           [
