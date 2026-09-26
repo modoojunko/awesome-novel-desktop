@@ -14,11 +14,17 @@
 ```
 docs/design-c/
 ├── README.md      本 runbook（只讲怎么跑；讲"长什么样"去 ../ux）
+├── pages/         现行页面集（opendesign 产物）：每页一个自包含 HTML＋components 组件库，
+│                  页间 hash 链接互跳、无后端调用；随实现演进而更新
 ├── prototypes/    视觉真值：index / list / book / model-config 自包含 HTML（oklch、无外部依赖）
 │   ├── ADJUSTMENTS.md   基线偏差登记簿（原型即基线：先改原型并登记，再改实现）
 │   ├── CLAUDE.md        原型交付约定
 │   └── assets/          v1 tailwind 编译残留，v2 原型不再引用
+├── drafts/        已清空（2026-09-26）：设计稿对应功能全部实现，两批清出至 docs/archive/
 └── baselines/     design:check 的 proto/app/diff 三联图（排障用）
+
+已实现设计稿归档：docs/archive/design-c-drafts-2026-09-25/ 与 -2026-09-26/
+（git 跟踪件在 git 历史；未跟踪件与过程文档原件在各批目录）。
 ```
 
 ## 命令（都在 client/frontend 下）
