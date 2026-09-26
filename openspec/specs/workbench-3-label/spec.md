@@ -45,7 +45,7 @@ TBD - created by archiving change 011-workbench-3-label. Update Purpose after ar
 
 - Selecting a chapter node SHALL render a sub-label bar in the main area: 正文 / 章纲 / 提示词.
 - 正文 SHALL render the existing `ChapterEditor` + `RightToolbar`; `ChapterEditor`'s internal 正文/提示词 view tabs SHALL be removed.
-- 章纲 SHALL render `OutlineEditor` fed by `useOutline` (chapter data loaded on demand via `loadChapterData`), including the prompt-crafting fields (场景卡权重/焦点、读者获得、章末落点).
+- 章纲 SHALL render `OutlineEditor` fed by `useOutline` (chapter data loaded on demand via `loadChapterData`), including the prompt-crafting fields (读者获得、章末落点——c-og-slim-v2 后场景卡与其权重/焦点退役).
 - 提示词 SHALL render the chapter's single whole-chapter prompt view: 当前整章提示词内容（查看/编辑保存）、「AI 润色」入口、润色状态说明；分段提示词文件列表 SHALL NOT 渲染.
 - With no chapter selected, the sub-label bar SHALL NOT render.
 

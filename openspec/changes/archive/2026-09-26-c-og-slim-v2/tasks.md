@@ -50,5 +50,9 @@
 
 ## 7. 收尾
 
-- [ ] 7.1 归档时手改 `openspec/specs/plot-sim/spec.md` 与 `workbench/spec.md` 的 Purpose 措辞（「收进章纲写预期策略」→ 追加剧情条目；delta 不支持改 Purpose）——归档时执行，不阻塞 apply
+- [x] 7.1 归档时手改 Purpose 与跨 capability 漂移（delta 不支持改 Purpose，归档后直接改主 spec）：
+  - `plot-sim` Purpose：「按本章章纲关键事件」→「按本章章纲的剧情条目」；「收进章纲写入预期策略」→「追加为本章一条剧情条目」；
+  - `workbench` Purpose 无需改（原文未提退役字段）；
+  - **顺手核出并修掉三处跨 capability 漂移**（本次改动导致、原不在 delta 声明范围内）：`volume-chapter-service`（排上「五段」→四段、去 `chapter_acts` 两处场景）、`volume-plan-ai`（「手写五段」→四段 两处）、`workbench-3-label`（提示词格子字段：场景卡权重/焦点退役）、`chapter-plan-ai` 自身的 Purpose 与 6 处「五段」→「四段」；
+  - **连带修在途 change**：`c-plan-material-fullinfo` 的 MODIFIED「拆章素材包与输出契约」块缺本次新增的继承场景「输出不含行动字段」→ 已补（`openspec validate --all` 72 passed / 0 failed）
 - [x] 7.2 归档时核对 `docs/ux/design-language.html` 与 `scripts/design-vocab.mjs` 无需变更（本次仅删除控件，未新增词汇/档位/状态）；在归档说明中登记该判定
