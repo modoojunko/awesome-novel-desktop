@@ -164,6 +164,33 @@ describe("门槛拦截（拍板⑦三样：概要/挑战/结尾）", () => {
       ),
     );
   });
+
+  it("补完最后一格立即点抽卡不误拦（flush 成功读表单值，评审 P2）", async () => {
+    mockApi.post.mockResolvedValue(THREE);
+    const { railData } = mount({ server: { ...FULL, challenge: "" } });
+    await waitFor(() => expect(railData()).not.toBeNull());
+    // 等表单载入（剧情行回显）再补挑战，模拟「填完立刻点」的主流程
+    await waitFor(() =>
+      expect(screen.getByLabelText("第 1 条剧情")).toHaveValue("旧的手写剧情甲"),
+    );
+    fireEvent.change(document.getElementById("wf-challenge")!, {
+      target: { value: "刚补上的挑战" },
+    });
+    await act(async () => {
+      await railData().onPlotDraw();
+    });
+    // 不误拦：直接开抽（无「还没填」拦截 toast）
+    expect(mockToast.error).not.toHaveBeenCalledWith(
+      expect.stringContaining("「碰到的挑战」还没填"),
+      expect.anything(),
+    );
+    await waitFor(() =>
+      expect(mockApi.post).toHaveBeenCalledWith(
+        `/novels/p1/chapters/${REF}/plot/ai-draw`,
+        {},
+      ),
+    );
+  });
 });
 
 describe("采纳与撤销（拍板②）", () => {
@@ -227,6 +254,39 @@ describe("采纳与撤销（拍板②）", () => {
       target: { value: "改一条" },
     });
     expect(mockToast.dismiss).toHaveBeenCalledWith(101);
+  });
+
+  it("采纳保存失败：弹层留在原地、选中版还在，可直接重试（评审 P3）", async () => {
+    mockApi.post.mockResolvedValue(THREE);
+    const { railData, outline } = mount({ server: { ...FULL } });
+    await waitFor(() => expect(railData()).not.toBeNull());
+    await act(async () => {
+      await railData().onPlotDraw();
+    });
+    await waitFor(() => expect(screen.getByTestId("plot-grid")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("plot-card-0"));
+    outline.saveChapter.mockRejectedValueOnce(new Error("boom"));
+    fireEvent.click(screen.getByTestId("plot-adopt"));
+    await waitFor(() =>
+      expect(mockToast.error).toHaveBeenCalledWith("章纲保存失败，请重试"),
+    );
+    // 弹层未关：候选与选中都在，无需重抽
+    expect(screen.getByTestId("plot-grid")).toBeInTheDocument();
+    expect(screen.getByTestId("plot-card-0")).toHaveClass("on");
+    // 重试（saveChapter 已恢复 resolve）：落库＋回执照常
+    fireEvent.click(screen.getByTestId("plot-adopt"));
+    await waitFor(() =>
+      expect(outline.saveChapter).toHaveBeenLastCalledWith(
+        REF,
+        expect.objectContaining({ plot_items: THREE.versions[0].items }),
+      ),
+    );
+    await waitFor(() =>
+      expect(mockToast.success).toHaveBeenCalledWith(
+        expect.stringContaining("剧情已由 AI 填好（3 条）"),
+        expect.anything(),
+      ),
+    );
   });
 });
 

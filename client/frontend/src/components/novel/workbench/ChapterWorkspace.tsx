@@ -487,6 +487,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   saveOgRef.current = saveOg;
   const outlineRef = useRef(outline);
   outlineRef.current = outline;
+  const ogFormRef = useRef(ogForm);
+  ogFormRef.current = ogForm;
   const handlePlotEdit = useCallback(() => {
     killPlotReceipt();
     maybeHintPolish();
@@ -497,13 +499,18 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // saveOg/outline 走 ref 读最新值——其身份随渲染变（wb 每渲染新建），进依赖会经
     // onRailData effect → setRailData → 父重渲 → wb 又新 → 无限循环（e2e 不炸但空转
     // 烧 CPU；vitest jsdom 里表现为 worker 堆 OOM，NovelWorkspace.test 曾 16 分钟不归）。
-    await saveOgRef.current(); // 尽力 flush：失败也继续——门槛读服务端值，缺就拦
+    const flushed = await saveOgRef.current(); // 尽力 flush：失败也继续——门槛读服务端值，缺就拦
+    // flush 成功 ⇒ 服务端此刻==表单（saveOg 刚 PUT 全量）→ 门槛读表单值：setChaptersMap
+    // 只调度重渲、outlineRef 仍是旧 map，读它会把刚补完的格子误拦成「还没填」（评审 P2）；
+    // flush 失败（loading/issues/网络）才回落 map——最后已知服务端态，与端点 422 同源。
     const server = outlineRef.current.chaptersMap.get(chapterRef);
+    const val = (formVal: string, srvVal: string | undefined) =>
+      flushed ? formVal : String(srvVal ?? "").trim();
     const missing = [
-      { key: "summary", label: "章纲概要", val: server?.outline?.summary },
-      { key: "challenge", label: "碰到的挑战", val: server?.challenge },
-      { key: "ladder", label: "章末落点", val: server?.ladder_exit },
-    ].filter((m) => !String(m.val ?? "").trim());
+      { key: "summary", label: "章纲概要", val: val(ogFormRef.current.summary, server?.outline?.summary) },
+      { key: "challenge", label: "碰到的挑战", val: val(ogFormRef.current.challenge, server?.challenge) },
+      { key: "ladder", label: "章末落点", val: val(ogFormRef.current.ladder, server?.ladder_exit) },
+    ].filter((m) => !m.val.trim());
     if (missing.length > 0) {
       for (const m of missing) {
         toast.error(`AI 写剧情要有依据：「${m.label}」还没填`, {
@@ -515,25 +522,31 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     plotDraw.openDraw();
   }, [chapterRef, plotDraw]);
 
-  /** 「就填这版」：整表替换（拍板②）＋常驻回执（撤销恢复填写前列表，含非空） */
+  /** 「就填这版」：整表替换（拍板②）＋常驻回执（撤销恢复填写前列表，含非空）。
+   *  关窗在落库成功之后——保存失败时弹层留在原地、选中版还在，直接再点即可重试
+   *  （先关后存会把失败变成「重抽一次烧 tokens」，评审 P3）；adoptingRef 挡落库期间重入。 */
+  const adoptingRef = useRef(false);
   const handlePlotAdopt = useCallback(async () => {
+    if (adoptingRef.current) return;
     const { pick, versions } = plotDraw.state;
     if (pick == null) return;
     const items = versions[pick].slice();
     const prev = ogForm.plots.slice();
     const patched: OgForm = { ...ogForm, plots: items };
-    plotDraw.close();
+    adoptingRef.current = true;
     try {
       await outline.saveChapter(
         chapterRef,
         ogToPartial(patched, outline.chaptersMap.get(chapterRef)),
       );
-      setOgForm(patched);
-      ogSnapRef.current = JSON.stringify(patched);
     } catch {
+      adoptingRef.current = false;
       toast.error("章纲保存失败，请重试");
       return;
     }
+    plotDraw.close();
+    setOgForm(patched);
+    ogSnapRef.current = JSON.stringify(patched);
     killPlotReceipt();
     plotReceiptRef.current = {
       prev,
@@ -542,6 +555,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         action: { label: "撤销 · 恢复填写前的列表", onClick: handlePlotUndo },
       }),
     };
+    adoptingRef.current = false;
     maybeHintPolish();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plotDraw, ogForm, outline.saveChapter, outline.chaptersMap, chapterRef,
