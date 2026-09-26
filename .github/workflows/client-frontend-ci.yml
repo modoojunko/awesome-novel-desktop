@@ -2,6 +2,8 @@ name: C端 前端 CI
 
 on:
   push:
+    branches:
+      - main
     paths:
       - "client/frontend/**"
       - ".github/workflows/client-frontend-ci.yml"
@@ -10,6 +12,10 @@ on:
       - "client/frontend/**"
       - ".github/workflows/client-frontend-ci.yml"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

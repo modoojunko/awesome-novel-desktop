@@ -55,6 +55,10 @@ services:
         # 品牌单源 brand.json 在仓库根（brand-name-single-source）：
         # Dockerfile 内 COPY --from=brand 注入，vite 构建期读取
         - brand=./brand
+        # 仓库根 LICENSE（relicense-proprietary）：copy-eula.mjs 构建期生成
+        # /legal/eula.html 的唯一来源——构建上下文只有 ./server/frontend，
+        # 脚本反推仓库根落在 / 读不到，必须经命名上下文注入
+        - repo=.
     container_name: ai-novel-server-frontend
     depends_on:
       - server-backend

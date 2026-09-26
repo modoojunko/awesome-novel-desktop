@@ -114,18 +114,6 @@ class Chapter(Base):
         order_by="ChapterPayoffItem.sort_order",
         lazy="selectin",
     )
-    downtime_functions = relationship(
-        "ChapterDowntimeFunction",
-        cascade="all, delete-orphan",
-        order_by="ChapterDowntimeFunction.sort_order",
-        lazy="selectin",
-    )
-    key_choices = relationship(
-        "ChapterKeyChoice",
-        cascade="all, delete-orphan",
-        order_by="ChapterKeyChoice.sort_order",
-        lazy="selectin",
-    )
     required_changes = relationship(
         "ChapterRequiredChange",
         cascade="all, delete-orphan",
@@ -136,12 +124,6 @@ class Chapter(Base):
         "ChapterProhibition",
         cascade="all, delete-orphan",
         order_by="ChapterProhibition.sort_order",
-        lazy="selectin",
-    )
-    knowledge_states = relationship(
-        "ChapterKnowledgeState",
-        cascade="all, delete-orphan",
-        order_by="ChapterKnowledgeState.sort_order",
         lazy="selectin",
     )
     content = relationship(
@@ -217,27 +199,6 @@ class ChapterPayoffItem(_ChapterChildMixin, Base):
     content: Mapped[str] = mapped_column(String(300), nullable=False)
 
 
-class ChapterDowntimeFunction(_ChapterChildMixin, Base):
-    """memo.downtime_functions — 日常场景的隐性功能。"""
-
-    __tablename__ = "chapter_downtime_functions"
-    __table_args__ = (
-        UniqueConstraint("chapter_id", "sort_order", name="uq_chdf_chapter_sort"),
-    )
-    scene: Mapped[str] = mapped_column(String(150), nullable=False, default="")
-    func: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-
-
-class ChapterKeyChoice(_ChapterChildMixin, Base):
-    """memo.key_choices — 选择+为什么+人设验证。"""
-
-    __tablename__ = "chapter_key_choices"
-    __table_args__ = (
-        UniqueConstraint("chapter_id", "sort_order", name="uq_chkc_chapter_sort"),
-    )
-    content: Mapped[str] = mapped_column(String(300), nullable=False)
-
-
 class ChapterRequiredChange(_ChapterChildMixin, Base):
     """memo.required_changes — 本章必须完成的改变（从什么变成什么）。"""
 
@@ -258,20 +219,6 @@ class ChapterProhibition(_ChapterChildMixin, Base):
         UniqueConstraint("chapter_id", "sort_order", name="uq_chpr_chapter_sort"),
     )
     content: Mapped[str] = mapped_column(String(300), nullable=False)
-
-
-class ChapterKnowledgeState(_ChapterChildMixin, Base):
-    """角色信息状态+信息差关系/变化（规范字段，模板缺、由 AI 链路逐步填充）。"""
-
-    __tablename__ = "chapter_knowledge_states"
-    __table_args__ = (
-        UniqueConstraint("chapter_id", "sort_order", name="uq_chks_chapter_sort"),
-    )
-    character_name: Mapped[str] = mapped_column(String(50), nullable=False, default="")
-    knows: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    unknowns: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    gap_relation: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    gap_change: Mapped[str] = mapped_column(String(300), nullable=False, default="")
 
 
 class ChapterContent(Base):

@@ -140,11 +140,6 @@ def assemble_chapter(row) -> dict:
         payoff.setdefault(p.kind, []).append(p.content)
     memo: dict = {
         "payoff_plan": payoff,
-        "downtime_functions": [
-            f"{d.scene}：{d.func}" if d.scene else d.func
-            for d in row.downtime_functions
-        ],
-        "key_choices": [k.content for k in row.key_choices],
         "required_changes": [
             f"{c.change_type}：{c.content}" if c.change_type else c.content
             for c in row.required_changes
@@ -168,17 +163,6 @@ def assemble_chapter(row) -> dict:
                 "description": m.description,
             }
             for m in row.micro_payoffs
-        ]
-    if row.knowledge_states:
-        data["knowledge_states"] = [
-            {
-                "character_name": k.character_name,
-                "knows": k.knows,
-                "unknowns": k.unknowns,
-                "gap_relation": k.gap_relation,
-                "gap_change": k.gap_change,
-            }
-            for k in row.knowledge_states
         ]
 
     return data
@@ -226,9 +210,9 @@ def _disassemble_scalars(row, data: dict) -> None:
 
 # 子表整体替换面（c-og-slim-v2：key_points/scene_cards/segments 三表退役）
 _CHILD_ATTRS = (
-    "characters", "payoff_items", "downtime_functions",
-    "key_choices", "required_changes", "prohibitions",
-    "micro_payoffs", "knowledge_states",
+    "characters", "payoff_items",
+    "required_changes", "prohibitions",
+    "micro_payoffs",
 )
 
 
@@ -283,9 +267,6 @@ async def _replace_children_impl(session, row, data: dict, name_map: dict[str, s
     from models.chapter import (
         ChapterCharacter,
         ChapterContent,
-        ChapterDowntimeFunction,
-        ChapterKeyChoice,
-        ChapterKnowledgeState,
         ChapterMicroPayoff,
         ChapterPayoffItem,
         ChapterProhibition,
@@ -331,17 +312,6 @@ async def _replace_children_impl(session, row, data: dict, name_map: dict[str, s
         ChapterPayoffItem(sort_order=i, kind=kind, content=_fit(content, 300) or "")
         for i, kind, content in payoff_rows
     ]
-    row.downtime_functions = [
-        ChapterDowntimeFunction(
-            sort_order=i, scene=_fit(scene, 150) or "", func=_fit(func, 300) or ""
-        )
-        for i, item in enumerate(memo.get("downtime_functions") or [])
-        for scene, func in [_split_labeled(str(item))]
-    ]
-    row.key_choices = [
-        ChapterKeyChoice(sort_order=i, content=_fit(str(item), 300) or "")
-        for i, item in enumerate(memo.get("key_choices") or [])
-    ]
     row.required_changes = [
         ChapterRequiredChange(
             sort_order=i,
@@ -364,18 +334,6 @@ async def _replace_children_impl(session, row, data: dict, name_map: dict[str, s
         )
         for i, mp in enumerate(data.get("micro_payoffs") or [])
         if isinstance(mp, dict) and str(mp.get("description") or "").strip()
-    ]
-    row.knowledge_states = [
-        ChapterKnowledgeState(
-            sort_order=i,
-            character_name=_fit(ks.get("character_name", ""), 50) or "",
-            knows=_fit(ks.get("knows", ""), 300) or "",
-            unknowns=_fit(ks.get("unknowns", ""), 300) or "",
-            gap_relation=_fit(ks.get("gap_relation", ""), 300) or "",
-            gap_change=_fit(ks.get("gap_change", ""), 300) or "",
-        )
-        for i, ks in enumerate(data.get("knowledge_states") or [])
-        if isinstance(ks, dict)
     ]
 
 
