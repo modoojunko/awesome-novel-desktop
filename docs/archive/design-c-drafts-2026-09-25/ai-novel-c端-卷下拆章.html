@@ -1,0 +1,1917 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>星海拾遗 · 卷下拆章（逐章拆分） — 爱小说</title>
+<style>  .tree-head .t { font-size: 12px; letter-spacing: 0.08em; color: var(--muted); font-family: var(--font-mono); }
+
+.tree-head .t b { color: var(--fg); font-weight: 500; }
+
+
+
+.ai-feat, .ai-tool { padding: 11px 0; border-bottom: 1px solid var(--border); }
+
+
+.ai-feat:last-child, .ai-tool:last-child { border-bottom: 0; }
+
+
+.ai-feat p, .ai-tool p { margin: 0 0 8px; font-size: 12px; color: var(--muted); line-height: 1.65; }
+
+
+.rail-locked .ai-feat, .rail-locked .ai-tool { opacity: 0.45; }
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+     卷下拆章 · 原型样式（自包含单文件）
+     **组件一律用项目统一词表，本文件不自造第二套组件样式。**
+       Part A ← docs/design-c/prototypes/book.html @ main（视觉真值，逐字）
+       Part B ← client/frontend/src/design/book.css + base.css @ main（逐字，含 .wb 作用域）
+       Part C ← 本设计新增（卷下拆章）；收编时只把这一段新增进 design/book.css
+     实现侧（React）挂 .wb 根，故这里也把工作台包进 .wb，Part B 的 .wb 作用域规则原样生效。
+     ══════════════════════════════════════════════════════════════════════════ */
+
+  /* ── Part A · 设计系统（逐字取自 prototypes/book.html @ main） ─────────── */
+
+/* ─── tokens（与全站一致） ─────────────────────────────── */
+  :root {
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong: oklch(41% 0.10 170);
+    --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+    --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+    --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+    --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+    --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+    --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                   0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+    --radius: 10px; --radius-lg: 14px;
+    --col-left: 280px;
+    /* 实现层补充令牌（原型 CLAUDE.md §2：不要求原型包含，但用了实现侧按钮/浮层规则就必须同值） */
+    --on-accent: oklch(100% 0 0);
+    --shadow-pop: 0 18px 50px -12px color-mix(in oklch, var(--fg) 26%, transparent);
+  }
+
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 14px; line-height: 1.55;
+  text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
+  min-height: 100vh; display: flex; flex-direction: column;
+}
+
+
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+
+  .serif { font-family: var(--font-display); }
+
+
+
+  /* ─── 按钮 ─────────────────────────────────────────────── */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); border: 1px solid transparent; font-size: 13.5px; font-weight: 500; letter-spacing: 0.01em; transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease; }
+
+
+  .btn:active { transform: translateY(1px); }
+
+
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+
+  .btn-primary { background: var(--accent); color: var(--surface); }
+
+
+  .btn-primary:hover:not(:disabled) { background: var(--accent-strong); }
+
+
+  .btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+
+
+  .btn-secondary:hover:not(:disabled) { border-color: var(--fg); }
+
+
+  .btn-ghost { background: transparent; color: var(--muted); padding: 0 8px; }
+
+
+  .btn-ghost:hover:not(:disabled) { color: var(--fg); background: var(--fg-soft); }
+
+
+  .btn-sm { height: 28px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; gap: 5px; }
+
+
+  .btn svg { width: 15px; height: 15px; }
+
+
+  .btn-sm svg { width: 13px; height: 13px; }
+
+
+  .icon-btn { width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: 8px; color: var(--muted); flex: none; }
+
+
+  .icon-btn:hover { color: var(--fg); background: var(--fg-soft); }
+
+
+  .icon-btn svg { width: 15px; height: 15px; }
+
+
+
+  /* ─── 应用栏 ───────────────────────────────────────────── */
+  .appbar { height: 48px; flex: none; display: flex; align-items: center; padding: 0 16px; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+
+
+  .logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; white-space: nowrap; flex: none; }
+
+
+  .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--surface); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; }
+
+
+  .appbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
+
+
+
+  /* ─── 顶栏书名 · 题材 · 当前主线定位（行头归一，storyline.html 口径：
+     原双行 appbar + novelbar 并成一行 48px，省出一整条给正文） ─── */
+  .novel-title { font-family: var(--font-display); font-size: 15.5px; font-weight: 600; white-space: nowrap; flex: none; }
+
+
+  .genre-tag { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--muted); background: var(--surface); white-space: nowrap; flex: none; }
+
+
+  .bar-here { display: flex; align-items: center; gap: 11px; flex: 1 1 auto; min-width: 0; }
+
+
+  .bh-k { flex: none; margin: 0; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; color: var(--accent); }
+
+
+  .bh-rule { width: 1px; height: 15px; background: var(--border); flex: none; }
+
+
+  .bh-t { flex: 0 1 auto; min-width: 0; margin: 0; font-family: var(--font-display); font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+
+  .bh-t .n { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-right: 7px; }
+
+
+  .bh-prog { display: flex; align-items: center; gap: 9px; flex: none; width: 168px; }
+
+
+  .bh-vol { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+
+
+  .bh-prog .prog-bar { flex: 1; }
+
+
+  .prog-bar { height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+
+
+  .prog-bar span { display: block; height: 100%; background: var(--fg); border-radius: 3px; }
+
+
+  /* 草稿徽（正在写的章；storyline .tag/.tag-live 同款收编，改名 bh-tag 避让 cfg 摘要 .tag） */
+  .bh-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+
+
+  .bh-tag-live { color: var(--fg); border-color: color-mix(in oklch, var(--fg) 38%, transparent); }
+
+
+
+  /* ─── 书内模块导航：设定 / 大纲 ─────────────────────────── */
+  .modnav { flex: none; display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+
+
+  .mtab { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 14px; border-radius: 9px; font-size: 13.5px; color: var(--muted); }
+
+
+  .mtab:hover { color: var(--fg); background: var(--fg-soft); }
+
+
+  .mtab.on { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+
+
+  .mtab .cnt { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.02em; }
+
+
+  .mtab.on .cnt { color: var(--accent); }
+
+
+  .modnav .spacer { flex: 1; }
+
+
+  .modnav .side { font-size: 12px; color: var(--muted); }
+
+
+
+  /* ─── 视图容器 ─────────────────────────────────────────── */
+  .view { flex: 1; min-height: 0; display: none; }
+
+
+  .view.on { display: block; }
+
+
+  .view.on.three-col { display: grid; grid-template-columns: var(--col-left) 1fr 236px; }
+
+
+  .col-tree { min-height: 0; overflow-y: auto; border-right: 1px solid var(--border); background: var(--bg); padding-bottom: 24px; }
+
+
+  /* 大纲视图中间列：卷选中显示卷纲面板，章选中显示章对象工作台（二者其一） */
+  .col-middle { min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+
+
+
+  /* ─── 大纲树（大纲 / 正文两视图共用样式） ─────────────────── */
+  .tree-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 14px 8px 18px; }
+
+
+  .tree { padding: 0 8px; }
+
+
+  .vol { margin-bottom: 2px; }
+
+
+  .vol-head { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px 0 6px; border-radius: 8px; cursor: pointer; user-select: none; }
+
+
+  .vol-head:hover { background: var(--fg-soft); }
+
+
+  .vol-head .chev { width: 14px; height: 14px; color: var(--muted); flex: none; transition: transform 0.15s ease; }
+
+
+  .vol-head .chev.open { transform: rotate(90deg); }
+
+
+  .vol-head .vt { font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+  .vol-head .acts { display: none; align-items: center; gap: 1px; margin-left: auto; }
+
+
+  .vol-head:hover .acts { display: inline-flex; }
+
+
+  .vol-head .acts .icon-btn { width: 24px; height: 24px; }
+
+
+  .vol-head .acts .icon-btn svg { width: 13px; height: 13px; }
+
+
+  .vol-head.sel { background: var(--accent-soft); }
+
+
+  .vol-head.sel .vt { color: var(--accent); font-weight: 500; }
+
+
+  .ch-list { margin-left: 14px; border-left: 1px solid var(--border); padding-left: 4px; }
+
+
+  .ch { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px 0 10px; border-radius: 8px; cursor: pointer; user-select: none; position: relative; }
+
+
+  .ch:hover { background: var(--fg-soft); }
+
+
+  .ch.sel { background: var(--accent-soft); }
+
+
+  .ch.sel .ct { color: var(--accent); font-weight: 500; }
+
+
+  .ch .ct { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+  .ch .acts { display: none; align-items: center; gap: 1px; margin-left: auto; }
+
+
+  .ch:hover .acts { display: inline-flex; }
+
+
+  .ch .acts .icon-btn { width: 22px; height: 22px; }
+
+
+  .ch .acts .icon-btn svg { width: 12px; height: 12px; }
+
+
+  .ch .dot-empty { width: 5px; height: 5px; border-radius: 50%; background: var(--border); flex: none; }
+
+
+  .ch.sel .dot-empty { background: color-mix(in oklch, var(--accent) 45%, transparent); }
+
+
+  .ch .dot-warn { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex: none; }
+
+
+  .ch .dot-ok { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
+
+
+  .arch-tag { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; background: var(--fg-soft); color: var(--muted); font-size: 10.5px; flex: none; letter-spacing: 0.02em; }
+
+
+  .ch.sel .arch-tag { background: color-mix(in oklch, var(--accent) 10%, transparent); color: var(--accent); }
+
+
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; flex: none; }
+
+
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+
+
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+
+
+  .badge svg { width: 10px; height: 10px; }
+
+
+  .inline-add { display: flex; align-items: center; gap: 6px; margin: 4px 0 4px 4px; padding-left: 10px; }
+
+
+  .inline-add input { flex: 1; height: 28px; border: 1px solid var(--accent); border-radius: 8px; padding: 0 10px; font-size: 13px; background: var(--surface); }
+
+
+  .tree-foot { padding: 0 14px 4px; }
+
+
+  .tree-foot .batch { color: var(--muted); }
+
+
+  .tree-foot .batch:hover { color: var(--fg); }
+
+
+  .empty-tree { padding: 24px 18px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+
+
+  @keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+
+
+  /* ─── 章对象三件套：正文 / 章纲 / 提示词 ─────────────────── */
+  .ch-tabs { flex: none; display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+
+
+  .chtab { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 8px; font-size: 13px; color: var(--muted); transition: background 0.15s ease, color 0.15s ease; }
+
+
+  .chtab:hover { color: var(--fg); background: var(--fg-soft); }
+
+
+  .chtab.on { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+
+
+  .chtab .cnt { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+
+  .chtab .cnt.ok { color: var(--ok); }
+
+
+  .chtab .cnt.warn { color: var(--warn); }
+
+
+  .ai-locked { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin-bottom: 14px; }
+
+
+  .ai-locked .lhead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+
+
+  .ai-locked .lhead svg { width: 15px; height: 15px; color: var(--accent); flex: none; }
+
+
+  .ai-locked .lhead b { font-size: 13.5px; }
+
+
+  .ai-locked p { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+
+
+  .ai-sec { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; color: var(--muted); margin: 18px 0 10px; }
+
+
+  .ai-feat-head { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+
+
+  .ai-feat-head b { font-size: 13px; }
+
+
+  .tag-plan { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; background: var(--fg-soft); color: var(--muted); font-size: 10px; letter-spacing: 0.04em; flex: none; }
+
+
+
+  /* ─── 大纲视图：上下文面板 ─────────────────────────────── */
+  .col-panel { min-height: 0; overflow-y: auto; padding: 28px clamp(20px, 4vw, 48px) 60px; background: var(--bg); }
+
+
+  .panel { max-width: 660px; }
+
+
+  .panel .desc { font-size: 13px; color: var(--muted); margin: 0 0 24px; }
+
+
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+
+
+  .field label { font-size: 12.5px; color: var(--muted); display: flex; align-items: baseline; gap: 7px; }
+
+
+  .field label .req { color: var(--err); }
+
+
+  .field label .opt { font-size: 11px; }
+
+
+  .input, .textarea, select.input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+
+
+  .input:focus, .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+
+
+  .textarea { min-height: 72px; resize: vertical; line-height: 1.7; }
+
+
+  @keyframes flash { 0% { box-shadow: 0 0 0 3px var(--accent-soft); } 100% { box-shadow: 0 0 0 3px transparent; } }
+
+
+  details.cfg { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 14px; background: var(--surface); }
+
+
+  details.cfg > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 11px 14px; font-size: 13px; font-weight: 500; }
+
+
+  details.cfg > summary::-webkit-details-marker { display: none; }
+
+
+  details.cfg > summary .chev { margin-left: auto; transition: transform 0.15s ease; }
+
+
+  details.cfg[open] > summary .chev { transform: rotate(180deg); }
+
+
+  details.cfg > summary .tag { font-size: 10.5px; color: var(--muted); font-weight: 400; border: 1px dashed var(--border); border-radius: 999px; padding: 1px 7px; }
+
+
+  /* 章纲 · 段落规划行 + 主情绪选择（产品全字段扩展，见 ADJUSTMENTS.md PR 3） */
+  .mood-row { display: flex; gap: 8px; }
+
+
+  .mood-row select.input { flex: 0 0 150px; }
+
+
+  #modalAddVolume label .qno { color: var(--accent); margin-right: 6px; font-family: var(--font-mono); font-size: 11px; }
+
+
+  .mood-row input.input { flex: 1; }
+
+
+  .seg-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+
+
+  .seg-row textarea.input[data-seg="s"] { flex: 1; min-height: 58px; resize: vertical; line-height: 1.6; }
+
+
+  .seg-row .input[data-seg="w"] { width: 92px; flex: 0 0 auto; }
+
+
+  .seg-row .acts { display: flex; gap: 2px; opacity: 0; transition: opacity 0.12s ease; }
+
+
+  .seg-row:hover .acts, .seg-row:focus-within .acts { opacity: 1; }
+
+
+  .seg-row .acts .icon-btn { width: 24px; height: 24px; }
+
+
+  .seg-row .acts .icon-btn:disabled { opacity: 0.3; cursor: default; }
+
+
+  .seg-row .acts .icon-btn:disabled:hover { color: var(--muted); background: none; }
+
+
+  details.cfg .inner { padding: 4px 14px 14px; }
+
+
+  .sub-list { display: flex; flex-direction: column; gap: 8px; }
+
+
+  .sub-row { display: grid; gap: 8px; align-items: center; }
+
+
+  .sub-row .input { min-width: 0; }
+
+
+  .sub-row .input.num { text-align: center; }
+
+
+  .sub-row.plans { grid-template-columns: 4.75rem 1fr 30px; }
+
+
+  .sub-empty { padding: 12px; border: 1px dashed var(--border); border-radius: 10px; font-size: 11.5px; color: var(--muted); text-align: center; }
+
+
+  .cnt { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+
+  .li-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+
+
+  .li-row .li-i { width: 20px; text-align: right; color: var(--muted); font-size: 12px; flex: none; }
+
+
+  .li-row .input { flex: 1; }
+
+
+  .li-row .acts { display: flex; opacity: 0; transition: opacity 0.12s ease; }
+
+
+  .li-row:hover .acts, .li-row:focus-within .acts { opacity: 1; }
+
+
+  .text-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--accent); opacity: .8; cursor: pointer; border: none; background: none; padding: 0; }
+
+
+  .text-btn:hover { opacity: 1; }
+
+
+  .hook-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+
+
+  .hook-row .input.desc { flex: 1; min-width: 0; }
+
+
+  .input.mono { font-family: var(--font-mono); font-size: 12px; }
+
+
+  .badge.empty { background: var(--fg-soft); color: var(--muted); }
+
+
+
+  /* ─── 弹窗 ─────────────────────────────────────────────── */
+  .scrim { position: fixed; inset: 0; background: color-mix(in oklch, var(--fg) 28%, transparent); z-index: 40; opacity: 0; transition: opacity 0.2s ease; }
+
+
+  .scrim.show { opacity: 1; }
+
+
+  .modal { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; }
+
+
+  .modal .mcard { width: min(440px, 92vw); background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-card); transform: translateY(8px) scale(0.98); opacity: 0; transition: transform 0.18s ease, opacity 0.18s ease; max-height: 86vh; display: flex; flex-direction: column; }
+
+
+  .modal.show .mcard { transform: none; opacity: 1; }
+
+
+  .mcard-head { flex: none; display: flex; align-items: center; padding: 18px 22px 0; }
+
+
+  .mcard-head .mh { font-family: var(--font-display); font-size: 17px; font-weight: 600; }
+
+
+  .mcard-head .x { margin-left: auto; }
+
+
+  .mcard-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 22px 20px; }
+
+
+  .mcard-foot { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 12px 22px 18px; }
+
+
+  .mcard-foot .note { font-size: 12px; color: var(--muted); margin-right: auto; }
+
+
+  .ai-tag { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; }
+
+
+  .ai-tag svg { width: 11px; height: 11px; }
+
+
+
+  /* ─── toast ────────────────────────────────────────────── */
+  .toast-wrap { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+
+
+  .toast { display: inline-flex; align-items: center; gap: 8px; background: var(--fg); color: var(--surface); padding: 9px 16px; border-radius: 10px; font-size: 13px; box-shadow: var(--shadow-card); animation: toast-in 0.22s ease; }
+
+
+  .toast svg { width: 14px; height: 14px; color: var(--ok); }
+
+
+  @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+
+
+
+  /* ═══ 控制中心面板（c-account-control-center）——头像胶囊唯一入口 ═══ */
+  .acct { display: inline-flex; }
+
+
+  .acct-trigger { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 5px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; font-size: 12.5px; }
+
+
+  .acct-trigger:hover { border-color: var(--accent); }
+
+
+  .acct-trigger.open { border-color: var(--accent); background: var(--accent-soft); }
+
+
+  .acct-trigger .caret { width: 14px; height: 14px; color: var(--muted); }
+
+
+  .avatar { width: 24px; height: 24px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+
+
+  .badge-accent { background: var(--accent-soft); color: var(--accent); }
+
+
+  .badge-muted { background: color-mix(in oklch, var(--fg) 6%, transparent); color: var(--muted); }
+
+
+  .badge-warn { background: var(--warn-soft); color: var(--warn); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   书工作台（/novel/:id）—— book.html 原样提取。
+   命名冲突类（.panel/.field/.input/.badge/.mcard 等）按 .wb 屏级作用域
+   覆盖，不污染书架/模型配置屏（口径同 model-config.css 的 .pg-config）。
+   --col-left 为本屏布局变量；book.html 的 --radius-lg:14px 在应用中无使用点，不覆盖。
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── 屏级变量 ─────────────────────────────────────────── */
+/* 原型 body（height:100% + flex column + overflow:hidden）的屏级等价物：
+   应用根布局（#root/.app-shell min-height:100vh）允许页面增长，这里自行
+   封顶到视口剩余高度并裁切，让 .view（flex:1 + min-height:0）与三列
+   （col-tree/col-editor/col-ai overflow-y:auto）恢复原型的列内滚动。 */
+.wb {
+  --col-left: 280px;
+  /* 26 = 底部状态条让位（c-version-account-visibility，StatusBar 垫 26px，
+     .wb 不让位会被固定条盖住列底且多出 26px 幽灵滚动）。
+     行头归一后书内顶栏（appbar 48）在 .wb 内部，不再从外层扣 48px。 */
+  height: calc(100vh - 26px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+
+
+/* ─── 应用栏（行头归一，storyline.html 口径：原 appbar + novelbar 双行
+   并成一行 48px，logo 即返回 · 书名 · 题材 · 当前主线定位 · 账户胶囊；
+   省出一整条给正文） ───────────────────── */
+.appbar.appbar-wb { padding: 0 16px; }
+
+
+.appbar .novel-title { font-family: var(--font-display); font-size: 15.5px; font-weight: 600; white-space: nowrap; flex: none; }
+
+
+.appbar .genre-tag { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--muted); background: var(--surface); white-space: nowrap; flex: none; }
+
+
+.bar-here .bh-k { flex: none; margin: 0; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; color: var(--accent); }
+
+
+.bar-here .bh-rule { width: 1px; height: 15px; background: var(--border); flex: none; }
+
+
+.bar-here .bh-t { flex: 0 1 auto; min-width: 0; margin: 0; font-family: var(--font-display); font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+
+.bar-here .bh-t .n { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-right: 7px; }
+
+
+.bar-here .bh-prog { display: flex; align-items: center; gap: 9px; flex: none; width: 168px; }
+
+
+.bar-here .bh-vol { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+
+
+/* 草稿徽（端点章有正文未归档）：中性款，值同原型 book.html（storyline .tag/.tag-live
+   收编改名，避让 cfg 摘要 .tag）；语气依据 = design-language §5 规则 S-R3
+   「警示性的常态化徽标禁止」——恒显常态属性不上 warn。live 须排在 .bh-tag 之后
+   （同特异性按顺序决胜） */
+.bar-here .bh-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+
+
+.bar-here .bh-tag-live { color: var(--fg); border-color: color-mix(in oklch, var(--fg) 38%, transparent); }
+
+
+.bar-here .prog-bar { flex: 1; height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+
+
+.bar-here .prog-bar span { display: block; height: 100%; background: var(--fg); border-radius: 3px; }
+
+
+.ex-bar { height: 6px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); overflow: hidden; }
+
+
+.ex-bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width 0.25s; }
+
+
+.ex-steps { list-style: none; margin: 14px 0 0; padding: 0; }
+
+
+.ex-steps li { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--border); font-size: 12.5px; }
+
+
+.ex-steps li:first-child { border-top: 0; }
+
+
+.ex-steps b { font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; color: var(--fg); }
+
+
+.ex-steps em { font-style: normal; font-size: 11.5px; color: var(--muted); }
+
+
+.ex-steps em.ok { color: var(--ok); }
+
+
+/* .badge 清零声明原为反制 daisyUI 同名类；daisyUI 已退役，保留作为无害防御 */
+.wb .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; flex: none; border: 0; background: none; text-transform: none; }
+
+
+/* 行头归一（appbar-single-row）：账户档位徽随合并顶栏进了 .wb 作用域，
+   豁免上面的 badge 清零——档位徽有底色（index.css .badge-accent/.badge-muted 同值；
+   warn=S端失联/试用临期警示态，同 index.css .badge-warn） */
+.wb .appbar .badge-accent { background: var(--accent-soft); color: var(--accent); }
+
+
+.wb .appbar .badge-muted { background: color-mix(in oklch, var(--fg) 6%, transparent); color: var(--muted); }
+
+
+.wb .appbar .badge-warn { background: var(--warn-soft); color: var(--warn); }
+
+
+.wb .badge.ok { background: var(--ok-soft); color: var(--ok); }
+
+
+.wb .badge.warn { background: var(--warn-soft); color: var(--warn); }
+
+
+.wb .badge.empty { background: var(--fg-soft); color: var(--muted); }
+
+
+.wb .badge svg { width: 10px; height: 10px; }
+
+
+/* 空书态左栏底部入口（原型 .tree-add/.add-btn）：虚线按钮在列底常驻
+   —— 空书时替代「确认全部已填章节」（无章可确认），列内改 flex 纵排令其贴底 */
+.tree-add { flex: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 11px 8px 12px; border-top: 1px solid var(--border); background: var(--surface); }
+
+
+.tree-add .add-btn { flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: none; border: 1px dashed var(--border); border-radius: var(--radius); padding: 8px 10px; font-size: 12px; color: var(--muted); }
+
+
+.tree-add .add-btn:hover { border-color: var(--accent); color: var(--accent); border-style: solid; }
+
+
+.wb .view.on.three-col .col-tree.empty-book { display: flex; flex-direction: column; padding-bottom: 0; }
+
+
+.wb .view.on.three-col .col-tree.empty-book .tree { flex: 1 1 auto; min-height: 0; }
+
+
+@keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+
+.rail-locked { pointer-events: none; }
+
+
+
+/* ─── 大纲视图：上下文面板 ─────────────────────────────── */
+/* model-config.css 的 .panel 是白卡容器（边框+底色）；本屏 .panel 是 660px 版心 —— .wb 作用域覆盖 */
+.wb .col-panel { min-height: 0; overflow-y: auto; padding: 28px clamp(20px, 4vw, 48px) 60px; background: var(--bg); }
+
+
+.wb .panel { max-width: 660px; background: none; border: 0; border-radius: 0; padding: 0; margin: 0; }
+
+
+/* 本屏 .field 节奏（16px 底距 + label 内联 req/opt）与书架弹窗（14px）不同 */
+.wb .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+
+
+.wb .field label { font-size: 12.5px; color: var(--muted); display: flex; align-items: baseline; gap: 7px; }
+
+
+.wb .field label .req { color: var(--err); }
+
+
+.wb .field label .opt { font-size: 11px; }
+
+
+.wb .input, .wb .textarea, .wb select.input { width: 100%; height: auto; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+
+
+.wb .input:focus, .wb .textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+
+
+.wb .textarea { min-height: 72px; resize: vertical; line-height: 1.7; }
+
+
+@keyframes flash { 0% { box-shadow: 0 0 0 3px var(--accent-soft); } 100% { box-shadow: 0 0 0 3px transparent; } }
+
+
+.ghost-group { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
+
+
+.ghost-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border: 0; background: none; text-align: left; font: inherit; color: var(--muted); cursor: pointer; border-radius: 6px; }
+
+
+.ghost-row:hover { background: var(--fg-soft); color: var(--fg); }
+
+
+
+
+/* ─── chapter-rewrite：基于旧设定角标与重写确认（storyline applyRewrite 口径） ── */
+.tag-stale { display: inline-flex; align-items: center; padding: 1px 7px; border: 1px dashed color-mix(in oklch, var(--fg) 45%, transparent); border-radius: 999px; font-size: 11px; color: var(--fg); }
+
+
+.fro { margin-bottom: 10px; }
+
+
+.fro em { display: block; font-style: normal; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+
+
+.fro em .req { margin-left: 6px; font-size: 11px; color: var(--accent-strong); background: var(--accent-soft); border-radius: 6px; padding: 0 6px; }
+
+
+.fgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+
+
+.pos-line { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 12.5px; color: var(--muted); }
+
+
+.pos-line .pos b { color: var(--fg); }
+
+
+
+/* ── storyline 编辑器皮肤（ADJUSTMENTS 卷视图条 13）：卷/章中栏＋右栏对齐原型视觉语言 ──
+   类名保留（.ch-tabs/.cfg/.panel-head/.rail-stats 等 e2e 依赖），视觉语言整体替换：
+   去卡片画布 / e-head 头部 / 下划线页签 / cfgset 分节 / fro 行式字段 / ledger 台账 / 右栏 aiShell。 */
+.wb .view.on.three-col {
+  --faint: color-mix(in oklch, var(--muted) 68%, transparent); --hl: var(--fg-soft);
+  /* ── 中栏节奏单源（c-workbench-col-rhythm）──────────────────────────
+     内容衬垫与表单版心在此定义一次，内容型面板继承；通栏条（e-head/ch-tabs/
+     panel-head/panel-foot）保持出血，满栏面板显式豁免（见下方豁免清单）。
+     事故索引：皮肤曾以「整列归零＋逐面板补衬垫」维护，09-19 卷视图、09-20
+     设定页与写作空态两次漏补（内容贴边/铺满）；本变量即补丁模式的替代。 */
+  --col-pad-t: 26px; --col-pad-x: clamp(20px, 4vw, 48px); --col-pad-b: 60px;
+  --col-pad-editor: 18px 22px 24px;   /* 卷/章编辑区节奏（storyline .e-pad 口径）*/
+  --col-measure: 76ch;                 /* 表单内容宽度上限 */
+}
+
+
+
+/* 中栏容器：去卡片，头部/工具条/内容三段式（通栏条依赖 col-panel 零衬垫） */
+.wb .view.on.three-col .col-panel { padding: 0; background: var(--surface); }
+
+
+/* 版心豁免清单（仅此三处）：① settings-v 1180（贴 AI 栏，既有决策——下方 :not 已排除）
+   ② sub-fill 双栏（角色/伏笔满栏）③ 卷壳（字段自带 76ch）。其余面板默认 660（book.html .panel）。 */
+.wb .view.on.three-col .vol-shell .panel { max-width: none; }
+
+
+
+/* e-head：kicker + display 大标题 + tag 徽章 meta */
+.e-head { padding: 16px 22px 13px; border-bottom: 1px solid var(--border); background: var(--surface); }
+
+
+.e-kicker { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+
+
+.e-title { font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -.012em; margin: 0; display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+
+
+.e-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+
+.tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; white-space: nowrap; background: none; }
+
+
+
+/* 工具条：下划线页签（.ch-tabs/.chtab 类名保留） */
+.wb .view.on.three-col .ch-tabs { display: flex; flex-wrap: wrap; min-width: 0; height: auto; padding: 0 14px; align-items: stretch; background: color-mix(in oklch, var(--bg) 55%, var(--surface)); border-bottom: 1px solid var(--border); }
+
+
+.wb .view.on.three-col .chtab { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; height: auto; padding: 11px 14px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+
+
+.wb .view.on.three-col .chtab:hover { color: var(--fg); background: none; }
+
+
+.wb .view.on.three-col .chtab.on { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent); background: none; }
+
+
+.wb .view.on.three-col .chtab .cnt { font-family: var(--font-mono); font-size: 10px; }
+
+
+
+/* 分节：details.cfg → cfgset 语言（＋/－ 标记、分隔线、无卡片） */
+.wb .view.on.three-col details.cfg { background: none; border: 0; border-radius: 0; margin: 0 0 4px; max-width: 76ch; }
+
+
+.wb .view.on.three-col details.cfg > summary { display: block; padding: 13px 0 9px; font-size: 13px; font-weight: 400; }
+
+
+.wb .view.on.three-col details.cfg > summary::before { content: '＋'; display: inline-block; width: 14px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+
+
+.wb .view.on.three-col details.cfg[open] > summary::before { content: '－'; }
+
+
+.wb .view.on.three-col details.cfg[open] > summary { border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+
+
+.wb .view.on.three-col details.cfg > summary .chev { display: none; }
+
+
+.wb .view.on.three-col details.cfg > .inner { padding: 0; }
+
+
+
+/* fro 行式字段（原型移植，替换早前卷视图自造版） */
+.view.on.three-col .fro { display: flex; flex-direction: column; gap: 5px; padding: 12px 0; border-bottom: 1px solid color-mix(in oklch, var(--border) 55%, transparent); max-width: 76ch; }
+
+
+.view.on.three-col .fro:last-child { border-bottom: 0; }
+
+
+.view.on.three-col .fro > em { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+
+
+.view.on.three-col .fro > em .req { color: var(--accent); margin-left: 5px; background: none; padding: 0; border-radius: 0; font-size: 10px; }
+
+
+.view.on.three-col .fro > p { margin: 0; font-size: 13.5px; line-height: 1.75; color: var(--fg); }
+
+
+.view.on.three-col .fro .none { color: var(--faint); font-size: 12.5px; margin: 0; }
+
+
+.view.on.three-col .fgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 30px; max-width: 76ch; }
+
+
+.view.on.three-col .fgrid .fro { max-width: none; }
+
+
+
+/* ol-top 条（编辑态/窗格头）＋ seg-h */
+.ol-top { display: flex; align-items: center; gap: 9px 12px; flex-wrap: wrap; margin: 0 0 10px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+
+
+.ol-top > .note { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .06em; color: var(--muted); }
+
+
+.ol-top .push { margin-left: auto; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+
+
+.edit-bar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-top: 15px; }
+
+
+.view.on.three-col .hint { background: none; padding: 7px 0 0; margin: 7px 0 0; }
+
+
+
+/* 进度线（原型式：em 标签上 / b 值下） */
+.view.on.three-col .pos-line { display: flex; flex-wrap: wrap; gap: 10px 30px; max-width: 76ch; padding: 0; border: 0; border-radius: 0; background: none; font-size: inherit; color: inherit; }
+
+
+.view.on.three-col .pos-line .pos { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+
+
+.view.on.three-col .pos-line .pos em { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+
+
+.view.on.three-col .pos-line .pos b { font-size: 12.5px; font-weight: 500; color: var(--fg); }
+
+
+
+/* 右栏 aiShell 语言 */
+.wb .view.on.three-col .col-ai { background: var(--bg); border-left: 1px solid var(--border); padding: 16px 15px 22px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+
+
+.ai-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+
+.ai-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; }
+
+
+.pill-pro { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; }
+
+
+.ai-ctx { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--muted); }
+
+
+.ai-ctx em { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-style: normal; }
+
+
+.ai-ctx span { color: var(--fg); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; background: var(--surface); }
+
+
+.ai-lead { font-size: 12.5px; color: var(--muted); line-height: 1.65; margin: 0; }
+
+
+
+/* 卷视图内容衬垫：对齐原型 .e-pad{padding:18px 22px 24px}
+
+——漏衬垫时 ol-top/分节
+   贴死页签条与中栏左右缘（用户 09-19 指出内部错位）；fro/fgrid 的 76ch 宽约束
+   已由上文 1384/1391 承担（旧 tpl-row/.field 选择器随旧版卷表单退役删除） */
+.wb .view.on.three-col .vol-shell .e-pad { padding: var(--col-pad-editor); }
+
+
+
+/* 中栏空态（c-0vol0ch-empty-state，原型 0vol0ch-empty-state.html .e-empty）：
+   零卷零章＝起手卡（这本书怎么开始？）＋两条起手入口；有卷但未选中＝一句选章引导或落点卡 */
+.e-empty { padding: 64px 26px; color: var(--muted); font-size: 13.5px; text-align: center; }
+
+
+.e-empty .be-k { margin: 0 0 8px; font-family: var(--font-display); font-size: 19px; color: var(--fg); }
+
+
+.e-empty .be-t { margin: 0 auto 20px; max-width: 380px; line-height: 1.7; }
+
+
+.e-empty .be-acts { margin: 0; display: flex; gap: 10px; justify-content: center; }
+
+
+
+/* 编辑表单统一到原型语言（ADJUSTMENTS 13 续）：fro/rowx/fgrid 同卷纲章纲两态一致 */
+.wb .view.on.three-col .fro > .input,
+.wb .view.on.three-col .fro > select.input,
+.wb .view.on.three-col .fro > .textarea { width: 100%; }
+
+
+.view.on.three-col .rowx { display: flex; gap: 11px; align-items: flex-start; padding: 11px 0; border-bottom: 1px solid color-mix(in oklch, var(--border) 45%, transparent); max-width: 76ch; }
+
+
+.view.on.three-col .rowx:last-child { border-bottom: 0; }
+
+
+.view.on.three-col .rowx .num { flex: none; width: 22px; text-align: right; font-family: var(--font-mono); font-size: 11px; color: var(--faint); padding-top: 9px; }
+
+
+.view.on.three-col .rowx .cols { flex: 1; min-width: 0; display: grid; gap: 9px; }
+
+
+.view.on.three-col .rowx .cols.cn { grid-template-columns: 142px minmax(0, 1fr); }
+
+
+.view.on.three-col .rowx .xbtn { flex: none; align-self: center; }
+
+
+/* 章纲等窗格的 .field 就地获得 fro 语言（结构不动、皮肤统一） */
+.wb .view.on.three-col .field { display: flex; flex-direction: column; gap: 5px; padding: 12px 0; border-bottom: 1px solid color-mix(in oklch, var(--border) 55%, transparent); max-width: 76ch; }
+
+
+.wb .view.on.three-col .field:last-child { border-bottom: 0; }
+
+
+.wb .view.on.three-col .field > label { font-style: normal; font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+
+
+.wb .view.on.three-col .field > label .req { color: var(--accent); margin-left: 5px; }
+
+
+.wb .view.on.three-col .field > label .opt { margin-left: 5px; color: var(--faint); }
+
+
+.plan-anchor{display:flex;flex-direction:column;gap:10px;margin-top:4px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius);background:color-mix(in oklch,var(--bg) 60%,var(--surface))}
+
+
+.plan-anchor .pa-lead{margin:0 0 2px;font-size:12.5px;line-height:1.65;color:var(--fg)}
+
+
+.plan-anchor .pa-row{display:flex;flex-direction:column;gap:2px}
+
+
+.plan-anchor .pa-k{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;color:var(--muted)}
+
+
+.plan-anchor .pa-v{font-size:13px;line-height:1.7;color:var(--fg)}
+
+
+.plan-anchor .pa-v b{font-weight:600}
+
+
+.plan-anchor .pa-src{display:block;margin-top:3px;font-family:var(--font-mono);font-size:10px;letter-spacing:.02em;color:var(--faint)}
+
+
+
+/* 分卷依据 · 台账行（来源 + 内容 + 状态；规划台与右栏共用） */
+button.dep-row{display:flex;align-items:baseline;gap:10px;width:100%;text-align:left;background:none;border:0;padding:9px 0;font:inherit;color:var(--fg);cursor:pointer;transition:background .12s}
+
+
+button.dep-row:hover{background:var(--hl)}
+
+
+.dep-row+.dep-row{border-top:1px solid var(--border)}
+
+
+.dep-k{flex:none;width:56px;font-family:var(--font-mono);font-size:10.5px;color:var(--muted)}
+
+
+.dep-v{flex:1 1 auto;min-width:0;font-size:12.5px;line-height:1.6;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+
+
+.dep-s{flex:none;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.06em;color:var(--ok);padding-top:1px}
+
+
+.dep-s.warn{color:var(--warn)}
+
+
+
+/* 规划台 · 写一句台面 */
+.plan-label{display:block;margin:14px 0 8px;font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+
+
+.plan-label .note{font-family:var(--font-body);letter-spacing:0;text-transform:none;color:var(--faint);margin-left:6px}
+
+
+.plan-desk-acts{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+
+.plan-desk-acts .push{margin-left:auto;font-size:11.5px;color:var(--faint);display:inline-flex;align-items:center;gap:5px}
+
+
+
+/* 规划台 · 3 套可行走法 */
+.plans{margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
+
+
+.plans-h{margin:0 0 11px;font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;color:var(--muted)}
+
+
+.cand-list{display:flex;flex-direction:column;gap:11px;margin-top:6px}
+
+
+.cand-dir{margin:0;font-family:var(--font-display);font-size:16px;font-weight:600;line-height:1.62;letter-spacing:-.004em;color:var(--fg)}
+
+
+.cand-k{display:inline-block;vertical-align:3px;margin-right:7px;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;border-radius:999px;padding:1px 7px;color:var(--accent-strong);border:1px solid color-mix(in oklch,var(--accent) 34%,var(--border))}
+
+
+.cand-line{display:flex;gap:9px;margin:0;font-size:12.5px;line-height:1.66}
+
+
+.cand-line>b{flex:none;padding-top:2px;font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;font-weight:400;color:var(--faint)}
+
+
+.cand-line>span{color:var(--fg);opacity:.84}
+
+
+.cand-foot{display:flex;align-items:center;gap:9px;margin-top:1px;padding-top:10px;border-top:1px dashed var(--border)}
+
+
+.cand-foot .note{font-size:11.5px;color:var(--faint)}
+
+
+.cand-foot .btn{margin-left:auto;flex:none}
+
+
+
+/* 规划台 · 生成中 / 生成完成（genbox） */
+.genbox{max-width:66ch;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:18px 20px}
+
+
+.genbox .gen-k{margin:0 0 6px;font-family:var(--font-display);font-size:17px;font-weight:600}
+
+
+.genbox .gen-t{margin:0 0 4px;font-size:13px;line-height:1.72;color:var(--muted)}
+
+
+.genbox .ex-bar{margin-top:10px}
+
+
+.genbox .ex-steps li:first-child{border-top:0}
+
+
+.genbox .ex-steps li span{color:var(--fg)}
+
+
+.genbox .ex-steps li em{font-style:normal;font-size:11.5px;color:var(--faint)}
+
+
+.genbox .ex-steps li em.ok{color:var(--ok)}
+
+
+.ra-spin{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:-1px;border:1.6px solid color-mix(in oklch,var(--accent) 28%,transparent);border-top-color:var(--accent);border-radius:50%;animation:ra-spin .8s linear infinite}
+
+
+@keyframes ra-spin{to{transform:rotate(360deg)}}
+
+
+.rp-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+
+
+.rp-row{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;line-height:1.6;color:var(--fg)}
+
+
+.rp-dot{flex:none;width:6px;height:6px;margin-top:6px;border-radius:50%;background:var(--muted)}
+
+
+.rp-row.ok .rp-dot{background:var(--ok)}
+
+
+.rp-row.warn .rp-dot{background:var(--warn)}
+
+
+.rp-row.none{color:var(--muted)}
+
+
+.rp-row.none .rp-dot{background:transparent;border:1px dashed var(--muted)}
+
+
+.rp-tx{flex:1 1 auto;min-width:0}
+
+
+
+/* 规划台 · 底条 */
+.plan-foot{display:flex;align-items:center;gap:10px;margin-top:20px;padding-top:14px;border-top:1px solid var(--border)}
+
+
+.plan-foot .note{font-size:11.5px;color:var(--faint)}
+
+
+.plan-foot .btn{margin-left:auto;flex:none}
+
+
+
+/* 卷纲表单 · 只读行（进场 / 展开依据） */
+.fro .pv-ro{margin:0;font-size:13px;line-height:1.7;color:var(--fg);opacity:.92}
+
+
+
+/* ── c-volume-antagonist：三选一抽卡弹窗（原型 #pick-modal 同名类直译）── */
+.pick-modal .kicker{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
+
+
+.pick-modal .pa-lead{margin:0 0 6px;font-size:12.5px;line-height:1.65;color:var(--fg)}
+
+
+.pick-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px;margin-top:14px}
+
+
+.pick-card{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:13px 14px;display:flex;flex-direction:column;gap:8px;cursor:pointer;text-align:left;font:inherit;color:var(--fg);transition:border-color .13s,box-shadow .13s}
+
+
+.pick-card:hover{border-color:var(--muted)}
+
+
+.pick-card.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+
+
+.pick-card .pk-axis{align-self:flex-start;display:inline-block;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;border-radius:999px;padding:1px 8px;color:var(--accent-strong);border:1px solid color-mix(in oklch,var(--accent) 34%,var(--border))}
+
+
+.pick-card .pk-title{margin:0;font-family:var(--font-display);font-size:15.5px;font-weight:600;line-height:1.6}
+
+
+.pick-card .pk-row{display:flex;flex-direction:column;gap:1px;padding-top:7px;border-top:1px dashed color-mix(in oklch,var(--border) 60%,transparent)}
+
+
+.pick-card .pk-row>b{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;font-weight:400;color:var(--faint)}
+
+
+.pick-card .pk-row>span{font-size:12px;line-height:1.62;color:var(--fg);opacity:.9}
+
+
+.pick-card.on .pk-picked{align-self:flex-end;font-family:var(--font-mono);font-size:10px;color:var(--accent)}
+
+
+.pick-foot{display:flex;align-items:center;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap}
+
+
+.pick-foot .note{font-size:11.5px;color:var(--faint)}
+
+
+.pick-foot .btn{margin-left:auto;flex:none}
+
+
+.pick-busy{display:flex;align-items:center;gap:8px;padding:40px 0;color:var(--muted);font-size:13px;justify-content:center}
+
+
+.pick-error{padding:24px 0;text-align:center}
+
+
+/* 四问页与卷页共用 */
+.qno{color:var(--accent);margin-right:6px;font-weight:500;font-family:var(--font-mono);font-size:11px}
+
+
+.fro .qno{font-size:10px}
+
+
+.hurdle-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;margin-top:8px}
+
+
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+
+.btn-primary:hover { background: var(--accent-strong); }
+
+
+.btn-secondary:hover { border-color: var(--fg); }
+
+
+.btn-ghost:hover { color: var(--fg); background: var(--fg-soft); }
+
+
+.btn-danger { background: var(--err); color: var(--on-accent); }
+
+
+.btn-danger:hover:not(:disabled) { background: color-mix(in oklch, var(--err) 88%, var(--fg)); }
+
+
+/* 密集工具行小按钮：设计系统扩展档 */
+.btn-xs { height: 24px; padding: 0 8px; font-size: 11.5px; border-radius: 7px; gap: 4px; }
+
+
+.btn-xs svg { width: 12px; height: 12px; }
+
+
+.appbar .spacer { flex: 1; }
+
+
+
+.empty { border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 64px 32px; text-align: center; color: var(--muted); }
+
+
+.empty .serif { font-family: var(--font-display); font-size: 19px; color: var(--fg); }
+
+
+.empty p { margin: 8px 0 0; font-size: 13.5px; }
+
+
+.input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 14px; }
+
+
+.input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+
+
+/* 原型 <p class=hint> 吃 UA 默认 p 外距（1em 0），preflight 清零后需还原 */
+.hint { font-size: 12.5px; color: var(--muted); line-height: 1.7; padding: 10px 12px; background: var(--fg-soft); border-radius: 9px; margin: 1em 0; }
+
+
+.hint b { color: var(--fg); font-weight: 500; }
+
+
+.toast.warn svg { color: var(--warn); }
+
+
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+
+
+@keyframes sk-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+
+
+
+/* 表单扩展：密码可见切换 + 错误态（两端同名可用） */
+.input-wrap { position: relative; }
+
+
+.input:disabled { opacity: 0.6; }
+
+
+.f-err { font-size: 12.5px; color: var(--err); margin: 0; }
+
+
+.f-hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+
+
+@keyframes rotate { to { transform: rotate(360deg); } }
+
+
+@keyframes fade-up { from { opacity: 0; transform: translateY(12px); } }
+
+
+/* ══════════════════════════════════════════════════════════════════════
+     Part C · 本设计新增（卷下拆章）——收编时只把这一段新增进 design/book.css。
+     其余组件一律用上面 Part A/B 的项目统一词表，本段不重定义任何已有组件。
+     ══════════════════════════════════════════════════════════════════════ */
+
+  /* 原型弹窗常驻 DOM（实现侧 React 是条件渲染）→ 未 .show 时不占位、不吃点击 */
+  .modal:not(.show), .scrim:not(.show){display:none}
+
+
+  /* 材料块不进拆章弹窗（进场在各卡上、剩余节点在卷页）→ 空块不占位 */
+  .plan-anchor:empty{display:none}
+
+
+  /* 卷页 · 关键剧情节点行（本设计新增：节点被哪一章吃掉；行骨架用产品 .rowx/.cols.cn） */
+  .node-tx{margin:0;font-size:13px;line-height:1.7;color:var(--fg)}
+
+  .pk-corner{position:absolute;top:0;right:0;display:flex;align-items:baseline;gap:3px;
+    padding:3px 10px 4px 11px;border-radius:0 calc(var(--radius) - 1px) 0 11px;
+    border-left:1px solid var(--border);border-bottom:1px solid var(--border);
+    background:color-mix(in srgb,var(--fg) 6%,var(--surface));color:var(--muted);
+    font-family:var(--font-mono);font-size:12px;font-weight:700;letter-spacing:.08em;line-height:1.3}
+
+  .pk-corner i{font-style:normal;font-weight:400;font-size:9px;letter-spacing:.02em;opacity:.85}
+
+  .pk-corner.g-S{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+
+  .pk-corner.g-A{color:var(--fg)}
+
+  .pk-corner.g-B{color:var(--muted)}
+
+  .pick-card.top{border-color:color-mix(in oklch,var(--accent) 45%,var(--border))}
+
+
+  /* 三方向卡：读者视角两块（好在哪 / 差在哪） */
+  .pick-card .pk-read{margin-top:7px;padding-top:6px;border-top:1px dashed var(--border);display:flex;flex-direction:column;gap:2px}
+
+  .pick-card .pk-read p{margin:0;font-size:11px;line-height:1.55;color:var(--muted)}
+
+  .pick-card .pk-read p>b{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.06em;font-weight:400;color:var(--faint);margin-right:5px}
+
+
+  /* 等级徽标（落点卡等正文形态；角标之外的复用） */
+  .pk-grade{flex:none;display:inline-flex;align-items:baseline;gap:4px;font-family:var(--font-mono);
+    font-size:11px;font-weight:700;letter-spacing:.06em;padding:1px 7px;border-radius:999px;
+    border:1px solid var(--border);color:var(--muted)}
+
+  .pk-grade i{font-style:normal;font-weight:400;font-size:9px;letter-spacing:.04em;opacity:.85}
+
+  .pk-grade.g-S{color:var(--accent-strong);border-color:var(--accent);background:var(--accent-soft)}
+
+  .pk-grade.g-A{color:var(--fg);border-color:var(--muted)}
+
+
+  /* 本章卡：五段表单（标签 + 控件），进场只读行同排 */
+  .split-row{position:relative;overflow:hidden;display:grid;grid-template-columns:26px minmax(0,1fr);gap:8px;align-items:start}
+
+  .split-row .s-no{font-family:var(--font-mono);font-size:11px;color:var(--faint);text-align:right;padding-top:9px}
+
+  .split-row .s-main{display:flex;flex-direction:column;gap:6px}
+
+  .split-row .s-lab{display:grid;grid-template-columns:76px minmax(0,1fr);gap:9px;align-items:center}
+
+  .split-row .s-lab>b{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;color:var(--faint);font-weight:500;text-align:right}
+
+  .split-row .s-lab.entry>b{color:var(--muted)}
+
+  .split-row .s-entry{margin:0;font-size:11px;line-height:1.5;color:var(--faint)}
+
+  .split-sum{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:10px 0 0;font-size:12px;color:var(--muted)}
+
+
+  /* 拆章弹窗＝卷纲弹窗加宽版（.plan-modal 已有，这里只加宽与滚动体） */
+  .plan-modal.wide .mcard{width:min(940px,92vw)}
+
+  .plan-modal .mcard-body{overflow:auto;min-height:0}
+
+
+  /* 演示舞台（壳不复刻：收编时壳用线上代码，本原型只承载拆章新设计） */
+  .stage{min-height:100vh;padding:40px 24px 80px;max-width:880px;margin:0 auto}
+  .stage-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:26px 28px;box-shadow:var(--shadow-card)}
+  .stage-card .e-empty{padding:10px 4px}
+  .stage-hint{margin:40px auto;text-align:center;color:var(--faint, var(--muted));font-size:13px}
+  .stage .cfgset{margin-bottom:14px}
+
+  /* 演示控制条（非基线；收编前删除） */
+  .demo-bar{position:fixed;bottom:0;left:0;right:0;z-index:70;display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+    padding:7px 12px;background:color-mix(in oklch,var(--fg) 92%,transparent);color:var(--surface);font-size:11.5px}
+
+  .demo-bar .demo-h{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;opacity:.7;margin-right:2px}
+
+  .demo-bar .demo-note{font-size:10.5px;opacity:.6;margin-left:6px}
+
+  .demo-bar .spacer{flex:1}
+
+  .chip-btn{height:24px;padding:0 9px;border-radius:7px;border:1px solid color-mix(in oklch,var(--surface) 22%,transparent);
+    background:transparent;color:inherit;font:inherit;font-size:11.5px;cursor:pointer}
+
+  .chip-btn:hover{background:color-mix(in oklch,var(--surface) 14%,transparent)}
+
+  .chip-btn.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+  /* Part C 覆盖（必须排在 Part A/B 之后：同名选择器以本段为准） */
+  .pick-card{position:relative;overflow:hidden}
+  .pick-card .pk-axis{margin-right:74px}
+</style></style>
+<body>
+
+<div class="stage" id="stage"></div>
+
+<!-- ══════════════ 拆下一章（弹窗）══════════════
+     与「整书拆卷」同构：PRO 打开＝弹窗直接给 3 个剧情方向（每张＝起草好的本章关键信息）；
+     免费＝手工表单。选一条 / 填完 → 本章卡可改 → 排上（一次只排这一章）。 -->
+<div class="scrim" id="split-scrim" data-act="split-close"></div>
+<div class="modal plan-modal wide" id="split-modal" data-od-id="split-modal" role="dialog" aria-modal="true" aria-labelledby="split-title">
+  <div class="mcard wb-style" id="split-card">
+    <div class="mcard-head">
+      <span class="mh serif" id="split-title" role="heading" aria-level="2"></span>
+      <button class="icon-btn x" aria-label="关闭" data-act="split-close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" width="15" height="15"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mcard-body">
+      <p class="kicker" id="split-kick"></p>
+      <div class="plan-anchor" id="split-anchor"></div>
+      <div id="split-body"></div>
+    </div>
+    <div class="mcard-foot" id="split-foot"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 演示控制（非基线）：跳状态与切身份，收编前删除 -->
+<div class="demo-bar" id="demo-bar" data-od-id="demo-bar"></div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   卷下拆章 · 领域设计（2026-09-22 定稿；决策记录＝docs/design-c/drafts/卷下拆章-决策记录.md D1–D19）
+   D5 卷只定义起止边界（进场＋卷末＋坎＋章数目标）；剧情由章定义——剧情节点表退役（D6）。
+   Q1 章节字段：⓪进场（上一章有正文取正文收尾/无正文取章末落点，只读不落库）
+      ①章标题 ②本章剧情（→summary）③碰到的挑战（→challenge）④本章结尾（→ladder_exit；末章落卷末）
+      ⑤本章行动（→chapter_acts）⑥阶段（六档→plot_stage，AI 建议作者可改）。
+   D9 两步模型：第一步＝关键剧情字段（五段齐建同事务）；第二步＝章纲六项必填；落点卡＝桥。
+   Q2 配额制：目标 N 章−已拆＝剩余配额（只提示不硬拦）；末章结尾须落卷末。
+   D13 剧情吸引力：四维（反转/冲突层层递增/剧情推进/结尾拉力），模型给名次、服务端算 S/A/B（并列第一不计），
+      不落库。卡面＝角标＋「剧情吸引力/差在哪」。
+   D8 入口：中栏「拆下一章」＝手写五段（全档）；右栏「拆下一章（AI）」＝3 方向（PRO）；共用同一卡面。
+   D12 AI 四态：正在想／出卡失败（三出口）／只出两套／换 3 个方向。门禁：主线末端卷＋卷纲非空。
+   D14 拆后能改：回改（同卡）／撤销排上（尾章且无正文）／重拆整卷。D15 进场不落库。
+   D16 章级 AI 自检免费（手写卡底条手动触发）。D18 不做埋点。
+   D19 复用约束：全部组件复用项目既有（本原型样式＝A/B 产品源逐字＋C 新增 9 类）。
+   ══════════════════════════════════════════════════════════════════════════ */
+const CN = ['一','二','三','四','五','六','七','八','九','十'];
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const attr = s => esc(s);
+
+const VOL = {
+  no: 1, name: '星海初航', target: 6,
+  entry: '导航员在旧星图上圈出一个不该存在的航标——全书从这里起步。',
+  q: {
+    what: '导航员沉舟在废弃星港捡到一枚不属于人类纪元的导航信标，为确认它指向哪里，她把坐标押给了船队。',
+    conflict: '想只靠自己查清信标来历，可补给单上没有她的名字——要用船队的手，就得让出航线。',
+    antType: '环境', antLine: '母港制度——信标要登记，登记就等于交出去',
+    ending: '船头转向母港旧址：她拿到了坐标，也成了制度要处理的人。'
+  },
+  stages: ['开局铺垫','冲突初现','矛盾升级','重要转折','高潮爆发','卷末收束']
+};
+
+const state = {
+  view: 'desk',       // desk(弹窗) | card | landed | progress
+  freeMode: false,    // 档位（演示用）
+  manual: true,       // 拆章路径：true＝手写五段（中栏入口）｜false＝AI 三方向（右栏入口）
+  aiPhase: 'idle',    // AI 四态：idle｜busy｜error｜degraded
+  aiNote: '',
+  selfchecked: false,
+  scIgnored: false,
+  pick: null,
+  editIdx: null,
+  draft: null,
+  chapters: [
+    { title: '信标进舱', story: '沉舟在废弃星港检修时，信标随残骸漂进舱门——她认出那不是人类的造物，先藏了下来。',
+      obstacle: '没人相信一个见习导航员的话', stage: '开局铺垫',
+      exit: '她把信标藏进舱底，却被补给单点名要她出舱清点' },
+    { title: '登记与谎话', story: '要领工钱就必须登记信标；她谎称那只是块废铁，第一次对船队说谎。',
+      obstacle: '登记处的规矩与她的秘密正面相撞', stage: '冲突初现',
+      exit: '她把信标藏进舱底夹层，签了那张登记单' }
+  ]
+};
+
+state.draft = blankDraft();
+
+/* AI 给的 3 个剧情方向：进场三卡共用；评分由服务端按四维名次算（演示数据为算好值） */
+const DIRECTIONS = [
+  { axis: '线索', title: '同名档案', stage: '矛盾升级',
+    plot: '沉舟瞒着船队调出那份记录：领航员与她同名同籍，三百年前就已注销——最后一页被人撕掉了。',
+    obstacle: '港区旧档堆不对活人开放——查档案这件事本身就要违规',
+    ending: '她把撕页的残角收进怀里，决定去旧档堆碰运气',
+    acts: '沉舟：调出同名记录、撕下残页收存；值班文书：把她的出入记进了台账',
+    grade: 'A', why: '撕页钩子立住了，读者想知道被撕掉的是什么', gap: '阻力偏程序化，结尾是「决定」不是「发生」' },
+  { axis: '关系', title: '船队的条件', stage: '矛盾升级',
+    plot: '船队长开价——半条航线换合作，信标归船队共有；答应就安全，拒绝就被丢在下一个港口。',
+    obstacle: '让出航线＝交出一半生存空间；不让＝连人带信标一起出局',
+    ending: '她第一次让出一半航线，换来继续留在船上的许可',
+    acts: '船队长：开出条件、写下航线让渡；沉舟：交出半条航线、私藏真实坐标',
+    grade: 'B', why: '最有人味：让出航线是真的疼', gap: '结尾停在「安全」，不推读者翻页' },
+  { axis: '危机', title: '突击清查', stage: '重要转折',
+    plot: '清查队登船的前一刻，她带着信标出逃；慌乱中信标当众亮了一下，把所有人的目光引到她身上。',
+    obstacle: '清查队挨船搜舱，藏无可藏',
+    ending: '信标暴露——全港都知道她手里有东西',
+    acts: '清查队：登船搜舱、出具搜查单；沉舟：带信标跳帮出逃',
+    grade: 'S', why: '外部事件当面压上来，结尾信标暴露', gap: '' }
+];
+
+/* ── 小工具 ── */
+function toast(msg){ const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('on'), 1800); }
+function lastChapter(){ return state.chapters[state.chapters.length-1] || null; }
+function entryText(){ return lastChapter() ? lastChapter().exit : VOL.entry; }
+function blankDraft(){
+  return { title:'', prev:'', plot:'', obstacle:'', ending:'', acts:'', stage: VOL.stages[Math.min(state.chapters.length, VOL.stages.length-1)] };
+}
+
+/* ── 三方向卡（AI 起草好的本章关键信息；进场三卡共用）── */
+function directionsHTML(){
+  const cards = DIRECTIONS.map((d,i)=>'<button type="button" class="pick-card' + (state.pick===i?' on':'') + (d.grade==='S'?' top':'') + '" data-act="pick" data-i="' + i + '" aria-checked="' + (state.pick===i) + '" role="radio">'
+    + '<span class="pk-corner g-' + esc(d.grade || '') + '" title="剧情吸引力 ' + esc(d.grade || '') + '">'
+    +   esc(d.grade || '') + (d.grade === 'S' ? '<i>最吸引</i>' : '') + '</span>'
+    + '<span class="pk-axis">' + esc(d.axis) + '</span>'
+    + '<p class="pk-title">' + esc(d.title) + '</p>'
+    + '<div class="pk-row"><b>上一章结尾 · 接上</b><span>' + esc(entryText()) + '</span></div>'
+    + '<div class="pk-row"><b>本章剧情</b><span>' + esc(d.plot || '') + '</span></div>'
+    + '<div class="pk-row"><b>碰到的挑战</b><span>' + esc(d.obstacle || '') + '</span></div>'
+    + '<div class="pk-row"><b>本章结尾</b><span>' + esc(d.ending || '') + '</span></div>'
+    + '<div class="pk-row"><b>本章行动</b><span>' + esc(d.acts || '') + '</span></div>'
+    + '<div class="pk-row"><b>阶段</b><span>' + esc(d.stage) + '</span></div>'
+    + '<div class="pk-read"><p><b>剧情吸引力</b>' + esc(d.why || '') + '</p>'
+    +   (d.gap ? '<p><b>差在哪</b>' + esc(d.gap) + '</p>' : '') + '</div>'
+    + (state.pick===i ? '<span class="pk-picked">✓ 就要这个方向</span>' : '')
+    + '</button>').join('');
+  return '<p class="plans-h">第' + CN[state.chapters.length] + '章的 3 个剧情方向 · 进场已接上：' + esc(entryText()) + '</p>'
+  + '<div class="pick-grid" data-od-id="pick-grid">' + cards + '</div>';
+}
+/* ── 手写五段（统一表单词汇 .field）── */
+function manualHTML(){
+  const d = state.draft;
+  const F = (label, opt, ctrl) =>
+    '<div class="field"><label>' + label + (opt ? '<span class="opt">' + opt + '</span>' : '') + '</label>' + ctrl + '</div>';
+  return '<p class="plans-h">自己写这一章 · 手工拆章（写完排上，结尾留给下一章接）</p>'
+  + F('进场（上一章结尾）', '只读 · 自动接上一章',
+      '<input class="input" value="' + attr(entryText()) + '" readonly aria-label="上一章结尾" />')
+  + F('章标题', '可空着，默认「第' + CN[state.chapters.length] + '章」',
+      '<input class="input" id="d-title" value="' + attr(d.title) + '" aria-label="章标题" placeholder="如：同名档案" />')
+  + F('本章剧情', '发生了什么：目标 → 阻碍 → 结果',
+      '<textarea class="textarea" id="d-plot" rows="3" aria-label="本章剧情" placeholder="她顺着档案里的领航记录查下去……">' + attr(d.plot || '') + '</textarea>')
+  + F('碰到的挑战', '剧情推进时撞上的那道墙',
+      '<input class="input" id="d-obstacle" value="' + attr(d.obstacle || '') + '" aria-label="碰到的挑战" placeholder="如：旧档堆不对活人开放——查档本身就要违规" />')
+  + F('本章结尾', '停在哪里；末章要落在卷末',
+      '<input class="input" id="d-ending" value="' + attr(d.ending || '') + '" aria-label="本章结尾" placeholder="如：她把残角收进怀里，决定去旧档堆碰运气" />')
+  + F('本章行动', '谁做了什么，一行一个',
+      '<input class="input" id="d-acts" value="' + attr(d.acts || '') + '" aria-label="本章行动" placeholder="如：沉舟：调档、撕页收存；文书：记下她的出入" />')
+  + F('阶段', '本章在卷剧情里的位置（六档）',
+      '<select class="input" id="d-stage" aria-label="阶段">'
+      + VOL.stages.map(st=>'<option' + (st===d.stage?' selected':'') + '>' + st + '</option>').join('') + '</select>');
+}
+/* ── 本章卡（选定/填写后可改再排上；进场只读）── */
+function cardHTML(){
+  const d = state.draft;
+  return '<div class="split-row" data-od-id="chapter-card">'
+  + (d.grade ? '<span class="pk-corner g-' + esc(d.grade) + '" title="剧情吸引力 ' + esc(d.grade) + '">' + esc(d.grade) + (d.grade === 'S' ? '<i>最吸引</i>' : '') + '</span>' : '')
+  + '<span class="s-no">' + String(state.chapters.length+1).padStart(2,'0') + '</span>'
+  + '<div class="s-main">'
+  +   '<div class="s-lab entry"><b>上一章结尾</b><span class="s-entry">' + esc(entryText()) + '（拟定，取自章纲落点 · 只读）</span></div>'
+  +   '<div class="s-lab"><b>章标题</b>'
+  +     '<input class="input" value="' + attr(d.title) + '" aria-label="章标题" data-draft-title="1" /></div>'
+  +   '<div class="s-lab"><b>本章剧情</b>'
+  +     '<input class="input" value="' + attr(d.plot || '') + '" aria-label="本章剧情" data-draft-plot="1" /></div>'
+  +   '<div class="s-lab"><b>碰到的挑战</b>'
+  +     '<input class="input" value="' + attr(d.obstacle || '') + '" aria-label="碰到的挑战" data-draft-obstacle="1" /></div>'
+  +   '<div class="s-lab"><b>本章结尾</b>'
+  +     '<input class="input" value="' + attr(d.ending || '') + '" aria-label="本章结尾" data-draft-ending="1" /></div>'
+  +   '<div class="s-lab"><b>本章行动</b>'
+  +     '<input class="input" value="' + attr(d.acts || '') + '" aria-label="本章行动" data-draft-acts="1" /></div>'
+  +   '<div class="s-lab"><b>阶段</b>'
+  +     '<select class="input" aria-label="阶段" data-draft-stage="1">'
+  +       VOL.stages.map(st=>'<option' + (st===d.stage?' selected':'') + '>' + st + '</option>').join('') + '</select></div>'
+  + '</div>'
+  + '</div>'
+  + (state.scIgnored ? '' : selfcheckHTML());
+}
+/* ── 自查（衔接/配额本地判；手写卡可触发 AI 四维短评，不给字母）── */
+function selfcheckHTML(){
+  const items = state.manual
+    ? [['ok', '衔接：本章进场已自动接上第 ' + state.chapters.length + ' 章结尾'],
+       [state.chapters.length >= VOL.target ? 'warn' : 'ok', '配额：目标 ' + VOL.target + ' 章、已拆 ' + state.chapters.length + ' 章']
+      ].concat(state.selfchecked ? [
+        ['ok', '剧情吸引力 · 反转：撕页的悬念立住了，读者想知道被撕掉的是什么'],
+        ['warn', '剧情吸引力 · 冲突递增：阻力偏程序化（查档要违规），没当面压到她身上'],
+        ['ok', '剧情吸引力 · 剧情推进：章末她的处境变了（从藏到查）'],
+        ['warn', '剧情吸引力 · 结尾拉力：结尾停在「决定」上——改成「已经闯进去」更推人；最弱一维：冲突递增']
+      ] : [])
+    : [['ok', '衔接：本章进场已自动接上第 ' + state.chapters.length + ' 章结尾'],
+       ['warn', '节奏：目标 ' + VOL.target + ' 章、已拆 ' + state.chapters.length + ' 章——本章建议只推进一个台阶。']];
+  return '<details class="cfgset" data-od-id="selfcheck" open><summary>AI 看一眼这一章'
+  + (state.manual && state.selfchecked ? ' <span class="tag">' + items.length + ' 条</span>' : '') + '</summary><div class="inner">'
+  + '<ul class="rp-list">'
+  + items.map(([st,tx])=>'<li class="rp-row ' + st + '"><span class="rp-dot" aria-hidden="true"></span><span class="rp-tx">' + esc(tx) + '</span></li>').join('')
+  + '</ul>'
+  + (state.manual && !state.selfchecked ? '<p class="hint">衔接与配额是本地判定；「剧情吸引力」由 AI 只读评估（免费可用）。点底条按钮触发。</p>' : '')
+  + '</div></details>';
+}
+/* ── 落点卡（第一步→第二步的桥）── */
+function landedHTML(){
+  const c = lastChapter();
+  const brought = [['本章剧情', c.story], ['碰到的挑战', c.obstacle], ['本章结尾', c.exit], ['本章行动', c.acts], ['阶段', c.stage]]
+    .filter(([k,v]) => v && String(v).trim());
+  return '<div class="e-empty" data-od-id="chapter-landing-card">'
+  + '<p class="be-k">第' + CN[state.chapters.length-1] + '章「' + esc(c.title) + '」已排上（拟定）'
+  +   (c.grade ? ' <span class="pk-grade g-' + esc(c.grade) + '">' + esc(c.grade) + '<i>剧情吸引力</i></span>' : '') + '</p>'
+  + '<p class="be-desc">已带入 ' + brought.length + ' 项：' + esc(brought.map(([k])=>k).join('、')) + '。'
+  +   '下一章的进场会自动接：「' + esc(c.exit) + '」。</p>'
+  + '<p class="be-desc">还差 6 项才能开写：核心任务、读者当前状态、预期策略、必须完成的变化、主情绪、段落规划'
+  +   '（去章纲页补；该章轮到可写时才能写正文）。</p>'
+  + '<p class="be-acts">'
+  +   '<button class="btn btn-primary" data-act="stub" data-label="补章纲（六项必填）" data-od-id="landing-write">补这 6 项，开始写</button>'
+  +   '<button class="btn btn-secondary" data-act="open-desk" data-od-id="landing-next">继续拆下一章</button>'
+  +   '<button class="btn btn-ghost" data-act="unsplit" data-od-id="landing-unsplit">撤销排上</button>'
+  + '</p></div>';
+}
+/* ── AI 四态 ── */
+function aiBodyHTML(){
+  if (state.aiPhase === 'busy')
+    return '<div class="pick-busy" data-od-id="split-busy"><span class="ra-spin" aria-hidden="true"></span>'
+      + '<span aria-live="polite">正在想第' + CN[state.chapters.length] + '章的 3 个方向…</span></div>'
+      + '<p class="hint">都按你的卷纲和上一章结尾推——3 个方向接的是同一句进场。</p>';
+  if (state.aiPhase === 'error')
+    return '<div class="pick-error" data-od-id="split-error"><p class="pv-error">出卡失败，可重试。</p>'
+      + '<div class="edit-bar"><button class="btn btn-secondary btn-sm" data-act="ai-redraw">重试</button>'
+      + '<button class="btn btn-ghost btn-sm" data-act="to-manual">自己写这一章</button>'
+      + '<button class="btn btn-ghost btn-sm" data-act="split-close">先不拆，回卷页</button></div></div>';
+  const cards = directionsHTML();
+  if (state.aiPhase === 'degraded')
+    return '<p class="hint" data-od-id="split-note">' + esc(state.aiNote || '只想出两套：另两个走向与这两张太接近。') + '</p>' + cards;
+  return cards;
+}
+function footHTML(){
+  if (state.view === 'card') {
+    const d = state.draft;
+    return '<span class="note">排上后章节列表多出这一章（拟定）；下一章的进场会自动接「' + esc(d.ending || d.plot || '本章结尾') + '」。</span>'
+      + '<button class="btn btn-primary btn-sm" data-act="adopt" data-od-id="split-adopt">排上这一章（第 ' + (state.chapters.length+1) + ' 章）</button>';
+  }
+  if (state.view === 'desk' && !state.manual) {
+    if (state.aiPhase === 'busy')
+      return '<button class="btn btn-ghost btn-sm" data-act="to-manual">自己写这一章</button>';
+    if (state.aiPhase === 'error')
+      return '';
+    return '<button class="btn btn-secondary btn-sm" data-act="ai-redraw" data-od-id="split-redraw">↻ 都不满意？换 3 个方向</button>'
+      + '<button class="btn btn-secondary btn-sm" data-act="to-manual">自己写这一章</button>';
+  }
+  if (state.view === 'desk' && state.manual)
+    return '<span class="note">排上后章节列表多出这一章（拟定）；下一章的进场会自动接「' + esc(entryText()) + '」。</span>'
+      + '<button class="btn btn-ghost btn-sm" data-act="selfcheck" data-od-id="selfcheck-run">AI 看一眼这一章</button>'
+      + '<button class="btn btn-primary btn-sm" data-act="adopt" data-od-id="adopt-form">排上这一章（第 ' + (state.chapters.length+1) + ' 章）</button>';
+  return '';
+}
+/* ── 主渲染：舞台（落点卡/章节推进）＋弹窗 ── */
+function render(){
+  const open = ['desk','card'].includes(state.view);
+  document.getElementById('split-modal').classList.toggle('show', open);
+  document.getElementById('split-scrim').classList.toggle('show', open);
+  const stage = document.getElementById('stage');
+  if (state.view === 'landed') {
+    stage.innerHTML = '<div class="stage-card">' + landedHTML() + '</div>';
+  } else if (state.view === 'progress') {
+    stage.innerHTML = '<div class="stage-card">' + chapterProgressHTML() + splitProgressHTML() + '</div>';
+  } else {
+    stage.innerHTML = '<p class="stage-hint">拆章弹窗演示中——关闭弹窗可看落点卡与章节推进。</p>';
+  }
+  if (open) {
+    const nextNo = state.chapters.length + 1;
+    document.getElementById('split-kick').textContent = '卷下拆章 · 第' + CN[VOL.no-1] + '卷 · 第' + nextNo + '章';
+    document.getElementById('split-title').textContent = '拆第' + CN[nextNo-1] + '章';
+    document.getElementById('split-anchor').innerHTML = '';
+    document.getElementById('split-body').innerHTML = (state.view === 'desk')
+      ? (state.manual
+          ? manualHTML() + (state.scIgnored ? '' : selfcheckHTML())
+          : aiBodyHTML())
+      : cardHTML();
+    document.getElementById('split-foot').innerHTML = footHTML();
+  }
+  renderDemo();
+}
+function chapterProgressHTML(){
+  if (!state.chapters.length)
+    return '<details class="cfgset" open data-od-id="chapter-progress"><summary>剧情推进（派生）</summary>'
+      + '<div class="inner"><p class="sub-empty">还没有排章——拆下一章后这里会按章列出推进。</p></div></details>';
+  const rows = state.chapters.map((c,i)=>
+    '<div class="rowx"><span class="num">' + (i+1) + '</span>'
+    + '<div class="cols cn"><span class="qno">' + esc(c.stage) + '</span>'
+    +   '<p class="node-tx">' + esc(c.title) + '</p></div>'
+    + '<span class="tag">已排</span></div>').join('');
+  return '<details class="cfgset" open data-od-id="chapter-progress"><summary>剧情推进（派生） <span class="tag">'
+    + state.chapters.length + ' 章</span></summary><div class="inner"><div class="sub-list">' + rows + '</div></div></details>';
+}
+function splitProgressHTML(){
+  const left = VOL.target - state.chapters.length;
+  const last = lastChapter();
+  return '<details class="cfgset" open data-od-id="split-progress"><summary>拆章进度</summary><div class="inner">'
+    + '<p class="node-tx">已拆 ' + state.chapters.length + ' 章'
+    + (last ? '（最新：第' + CN[state.chapters.length-1] + '章「' + esc(last.title) + '」）' : '')
+    + '；' + (left > 0 ? '剩余配额 ' + left + '。' : '已到目标章数——再拆会提示超配额。') + '</p>'
+    + '</div></details>';
+}
+/* ── 演示控制条（非基线）── */
+function renderDemo(){
+  const VIEWS = [
+    ['desk','① 手写五段（弹窗）'],
+    ['card','② 本章卡 · 可改'],
+    ['landed','③ 落点卡 · 桥'],
+    ['progress','④ 剧情推进（派生）']
+  ];
+  document.getElementById('demo-bar').innerHTML = '<span class="demo-h">状态</span>'
+    + VIEWS.map(v=>'<button class="chip-btn' + (state.view===v[0] && (v[0]!=='desk' || state.manual) ?' on':'') + '" data-view="' + v[0] + '">' + v[1] + '</button>').join('')
+    + '<button class="chip-btn' + (state.view==='desk' && !state.manual && state.aiPhase==='idle' ?' on':'') + '" data-view="ai-idle">AI · 3 个方向</button>'
+    + '<button class="chip-btn" data-view="ai-busy">AI · 正在想</button>'
+    + '<button class="chip-btn" data-view="ai-error">AI · 出卡失败</button>'
+    + '<button class="chip-btn" data-view="ai-degraded">AI · 只出两套</button>'
+    + '<span class="demo-note">原型只承载拆章新设计——壳（顶栏/左树/卷页）收编时用线上代码</span>';
+}
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const act = el.dataset.act;
+  if (act === 'stub') { toast((el.dataset.label || '本原型未覆盖') + '（原型示意）'); return; }
+  if (act === 'open-desk') {
+    state.view = 'desk'; state.manual = true; state.pick = null; state.editIdx = null;
+    state.draft = blankDraft(); state.scIgnored = false; state.selfchecked = false; render(); return;
+  }
+  if (act === 'open-ai') {
+    state.view = 'desk'; state.manual = false; state.pick = null; state.editIdx = null;
+    state.draft = blankDraft(); state.scIgnored = false; state.selfchecked = false; state.aiPhase = 'busy'; render();
+    setTimeout(() => { if (state.view === 'desk' && !state.manual && state.aiPhase === 'busy') { state.aiPhase = 'idle'; render(); } }, 1200);
+    return;
+  }
+  if (act === 'ai-redraw') { state.aiPhase = 'busy'; state.pick = null; render();
+    setTimeout(() => { if (state.view === 'desk' && !state.manual && state.aiPhase === 'busy') { state.aiPhase = 'idle'; render(); } }, 1200);
+    return; }
+  if (act === 'split-close') { state.view = 'progress'; render(); return; }
+  if (act === 'to-manual') { state.manual = true; state.view = 'desk'; state.draft = state.draft || blankDraft(); render(); return; }
+  if (act === 'pick') {
+    state.pick = Number(el.dataset.i);
+    const d = DIRECTIONS[state.pick];
+    state.draft = { title: d.title, prev: entryText(), plot: d.plot, obstacle: d.obstacle, ending: d.ending, acts: d.acts, stage: d.stage, grade: d.grade, why: d.why, gap: d.gap };
+    state.view = 'card'; render(); return;
+  }
+  if (act === 'adopt') {
+    const d = state.draft;
+    if (!d.title.trim() && !(d.plot || '').trim()) { toast('至少写个标题或一句「本章剧情」'); return; }
+    const title = d.title.trim() || ('第' + CN[state.chapters.length] + '章');
+    const row = { title, story: (d.plot||'').trim(), obstacle: (d.obstacle||'').trim(), acts: (d.acts||'').trim(), exit: (d.ending||'').trim(), stage: d.stage, grade: d.grade || '' };
+    if (state.editIdx != null && state.chapters[state.editIdx]) state.chapters[state.editIdx] = row;
+    else state.chapters.push(row);
+    const edited = state.editIdx != null;
+    state.editIdx = null;
+    state.view = edited ? 'progress' : 'landed'; state.draft = null; render();
+    toast('已排上「' + title + '」（拟定）');
+    return;
+  }
+  if (act === 'unsplit') {
+    if (!state.chapters.length) return;
+    const gone = state.chapters.pop();
+    state.view = 'progress'; render();
+    toast('已撤销「' + gone.title + '」（拟定）');
+    return;
+  }
+  if (act === 'edit-ch') {
+    const i = Number(el.dataset.i);
+    const c = state.chapters[i];
+    if (!c) return;
+    state.view = 'card'; state.manual = true; state.editIdx = i; state.scIgnored = false;
+    state.draft = { title: c.title, prev: entryText(), plot: c.story, obstacle: c.obstacle, ending: c.exit, acts: c.acts, stage: c.stage, grade: c.grade };
+    render(); return;
+  }
+  if (act === 'selfcheck') { state.selfchecked = true; render(); return; }
+  if (act === 'sc-ignore') { state.scIgnored = true; render(); return; }
+});
+const MANUAL_FIELD = { 'd-title':'title', 'd-plot':'plot', 'd-obstacle':'obstacle', 'd-ending':'ending', 'd-acts':'acts', 'd-stage':'stage' };
+const DRAFT_FIELD = { draftTitle:'title', draftPlot:'plot', draftObstacle:'obstacle', draftEnding:'ending', draftActs:'acts', draftStage:'stage' };
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (!state.draft) return;
+  if (MANUAL_FIELD[t.id]) { state.draft[MANUAL_FIELD[t.id]] = t.value; return; }
+  for (const k in DRAFT_FIELD) if (t.dataset[k] !== undefined) { state.draft[DRAFT_FIELD[k]] = t.value; return; }
+});
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (!state.draft) return;
+  if (t.id === 'd-stage' || t.dataset.draftStage !== undefined) { state.draft.stage = t.value; }
+});
+/* ── 演示控制条（非基线）── */
+function renderDemo(){
+  const VIEWS = [
+    ['desk','① 手写五段（弹窗）'],
+    ['card','② 本章卡 · 可改'],
+    ['landed','③ 落点卡 · 桥'],
+    ['progress','④ 剧情推进（派生）']
+  ];
+  document.getElementById('demo-bar').innerHTML = '<span class="demo-h">状态</span>'
+    + VIEWS.map(v=>'<button class="chip-btn' + (state.view===v[0] && (v[0]!=='desk' || state.manual) ?' on':'') + '" data-view="' + v[0] + '">' + v[1] + '</button>').join('')
+    + '<button class="chip-btn' + (state.view==='desk' && !state.manual && state.aiPhase==='idle' ?' on':'') + '" data-view="ai-idle">AI · 3 个方向</button>'
+    + '<button class="chip-btn" data-view="ai-busy">AI · 正在想</button>'
+    + '<button class="chip-btn" data-view="ai-error">AI · 出卡失败</button>'
+    + '<button class="chip-btn" data-view="ai-degraded">AI · 只出两套</button>'
+    + '<span class="demo-note">原型只承载拆章新设计——壳（顶栏/左树/卷页）收编时用线上代码</span>';
+}
+document.addEventListener('click', (e) => {
+  const v = e.target.closest('[data-view]');
+  if (v) {
+    const k = v.dataset.view;
+    if (k === 'desk') { state.manual = true; }
+    if (k === 'ai-idle') { state.manual = false; state.aiPhase = 'idle'; state.pick = null; state.draft = blankDraft(); state.view = 'desk'; render(); return; }
+    if (k === 'ai-busy' || k === 'ai-error' || k === 'ai-degraded') {
+      state.manual = false; state.view = 'desk'; state.pick = null; state.draft = blankDraft();
+      state.aiPhase = k === 'ai-busy' ? 'busy' : k === 'ai-error' ? 'error' : 'degraded';
+      if (state.aiPhase === 'busy') setTimeout(() => { if (state.aiPhase === 'busy') { state.aiPhase = 'idle'; render(); } }, 1200);
+      render(); return;
+    }
+    if (k === 'card' && !state.draft) {
+      const d = DIRECTIONS[0];
+      state.draft = { title: d.title, prev: entryText(), plot: d.plot, obstacle: d.obstacle, ending: d.ending, acts: d.acts, stage: d.stage, grade: d.grade, why: d.why, gap: d.gap };
+    }
+    state.view = k; render(); return;
+  }
+});
+render();
+</script>
+</body>
+</html>
