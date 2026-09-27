@@ -181,27 +181,8 @@ export default function Rail({
           onUpgrade={onUpgrade}
         />
       )}
-      {/* 原型 #aiWriteTools：免费态保留可见、rail-locked 置灰（opacity .45 + 禁点） */}
-      <div className={!isPro ? "rail-locked" : undefined}>
-        <div className="ai-tool">
-          <div className="ai-feat-head">
-            <b>AI 生成正文</b>
-            <span className="ai-tag">
-              <ProStar />
-              PRO
-            </span>
-          </div>
-          <p>提示词由设定 + 章纲组装，可编辑后流式写入正文末尾。</p>
-          <button
-            className="btn btn-primary btn-sm"
-            data-testid="ai-write-btn"
-            disabled={aiState.streaming}
-            onClick={onAiWrite}
-          >
-            生成正文
-          </button>
-        </div>
-      </div>
+      {/* 「AI 生成正文」常驻工具卡已退役（c-prose-write-entry 2026-09-27）：
+          入口收编 AiAssistPanel 正文页签动作清单（onAiWrite 下传，testid=ai-write-btn 沿用） */}
 
       {isPro && d?.tab === "prose" && (
         <>
@@ -279,6 +260,7 @@ export default function Rail({
           chapterRef={d.chapterRef}
           tab={d.tab}
           isPro={isPro}
+          onAiWrite={onAiWrite}
           ogStats={d.ogStats}
           wordCount={words}
           planWords={d.ogStats.planWords ?? d.targetWords ?? null}
