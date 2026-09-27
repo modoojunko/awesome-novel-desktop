@@ -296,12 +296,26 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   // ── 选区跟踪（AI 润色/扩写需要选中段落） ──────────────────────────────
   const captureNow = useCallback((): SelectionCapture | null => {
     if (!editor || editor.isDestroyed) return null;
-    const { state } = editor;
-    const { from, to } = state.selection;
-    if (from === to) return null;
-    const text = state.doc.textBetween(from, to, "\n");
+    // 读 DOM 选区而非 editor.state.selection：PM 消化 selectionchange 有延迟，
+    // 事件当刻 state 可能还是上一次的折叠选区（实测：键盘扩选后 state 停在旧点）。
+    const dom = editor.view.dom;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    if (!dom.contains(range.commonAncestorContainer)) return null;
+    let from: number;
+    let to: number;
+    try {
+      from = editor.view.posAtDOM(range.startContainer, range.startOffset);
+      to = editor.view.posAtDOM(range.endContainer, range.endOffset);
+    } catch {
+      return null; // DOM 位置不在文档视图内（切走中的半截选区）
+    }
+    if (to < from) [from, to] = [to, from];
+    // 文本取自 doc（\n 连接段间），与 fullText / 采纳替换的偏移坐标系一致
+    const text = editor.state.doc.textBetween(from, to, "\n");
     if (!text.trim()) return null;
-    const start = state.doc.textBetween(0, from, "\n").length;
+    const start = editor.state.doc.textBetween(0, from, "\n").length;
     const fullText = docToProse(editor.getJSON());
     return { start, end: start + text.length, text, fullText };
   }, [editor]);
@@ -642,10 +656,22 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           onAccept={() => {
             const { capture, text } = preview;
             if (text) {
-              const next =
-                capture.fullText.slice(0, capture.start) +
+              // 采纳替换走范围事务（c-prose-editor-tiptap）：选择区按 PM 位置替换为
+              // 段落集合（可撤销单元）；编辑器失联时回落「拼接 + 整档同步」老路
+              let next = capture.fullText.slice(0, capture.start) +
                 text +
                 capture.fullText.slice(capture.end);
+              if (editor && !editor.isDestroyed) {
+                const from = textOffsetToPmPos(editor.state.doc, capture.start);
+                const to = textOffsetToPmPos(editor.state.doc, capture.end);
+                editor
+                  .chain()
+                  .insertContentAt({ from, to }, linesToParagraphs(text), {
+                    updateSelection: false,
+                  })
+                  .run();
+                next = docToProse(editor.getJSON());
+              }
               lastSyncedRef.current = next;
               setProse(next);
               toast.success(
