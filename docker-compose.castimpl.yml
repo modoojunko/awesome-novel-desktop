@@ -1,0 +1,13 @@
+# 会话隔离栈（per-session 规则）：独立容器名/端口，供 cast-review e2e 在本 worktree 跑
+services:
+  server-backend:
+    container_name: castimpl-server-backend
+    ports: !override ["19700:19000"]
+  client-backend:
+    container_name: castimpl-client-backend
+    ports: !override ["8700:8000"]
+    environment:
+      SERVER_API_BASE: "http://host.docker.internal:19700/api"
+  client-frontend:
+    container_name: castimpl-client-frontend
+    ports: !override ["5774:80"]

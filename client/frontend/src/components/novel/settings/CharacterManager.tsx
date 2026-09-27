@@ -269,7 +269,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   const addCharacter = useCallback(async () => {
     try {
       // 首卡默认主角（character-bootstrap-from-intro）；之后添加仍默认配角
-      const created = await charactersApi.create(projectId, "", list.length === 0 ? "主角" : "配角");
+      const created = await charactersApi.create(projectId, "", { role: list.length === 0 ? "主角" : "配角" });
       await reloadList();
       selectedIdRef.current = created.id;
       setSelectedId(created.id);
@@ -320,7 +320,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         await loadCard(card.id);
         await reloadList();
       } else {
-        const created = await charactersApi.create(projectId, draft.name, "主角");
+        const created = await charactersApi.create(projectId, draft.name, { role: "主角" });
         selectedIdRef.current = created.id;
         setSelectedId(created.id);
         setOpsPanel("");

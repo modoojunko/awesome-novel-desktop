@@ -435,16 +435,24 @@ def _as_text(parsed: dict | None, key: str, limit: int) -> str:
     return (v if isinstance(v, str) else "").strip()[:limit]
 
 
-def _grades(parsed: dict, n_orig: int, keep_map: list[int]) -> list[str]:
-    """四维名次 → S/A/B：唯一第一名才计入；≥3 → S，1–2 → A，0 → B（至多一张 S）。
+def _grades(
+    parsed: dict,
+    n_orig: int,
+    keep_map: list[int],
+    dims: tuple[str, ...] = DIMENSIONS,
+    s_min: int = 3,
+) -> list[str]:
+    """名次 → S/A/B：唯一第一名才计入（并列第一不计该维）；≥s_min → S，1–s_min 之下的 1+ → A，0 → B。
 
     名次按模型输出的**原始卡序**给，经 keep_map 映射到保留卡后计分；某维形态不合法、
     或该维第一名所在的卡已被丢弃 ⇒ 该维不计分（丢卡/形态瑕疵不升级为整批重抽）。
+    **阈值按维数传参（c-character-intro 决策 4）**：拆章 4 维＝3、提案卡 3 维＝2——
+    共用函数不共用阈值（4 维若用 2 会出两张 S）。
     """
     ranks_raw = parsed.get("ranks")
     ranks = ranks_raw if isinstance(ranks_raw, dict) else {}
     counts = [0] * len(keep_map)
-    for dim in DIMENSIONS:
+    for dim in dims:
         rs = ranks.get(dim)
         if not _ranks_ok(rs, n_orig):
             continue
@@ -452,7 +460,7 @@ def _grades(parsed: dict, n_orig: int, keep_map: list[int]) -> list[str]:
         if len(firsts) != 1 or firsts[0] not in keep_map:
             continue
         counts[keep_map.index(firsts[0])] += 1
-    return ["S" if c >= 3 else "A" if c >= 1 else "B" for c in counts]
+    return ["S" if c >= s_min else "A" if c >= 1 else "B" for c in counts]
 
 
 # ═══════════════ 端点 ═══════════════

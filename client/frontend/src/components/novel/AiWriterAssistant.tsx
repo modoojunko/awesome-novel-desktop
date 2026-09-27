@@ -27,6 +27,8 @@ export interface AiCapabilityRow {
   hint?: string;
   /** e2e 稳定锚（data-testid；迁移自各域旧按钮的 testid 沿用）。 */
   testid?: string;
+  /** 设计走查锚（data-od-id 透传口，c-character-intro 4.2）。 */
+  odId?: string;
 }
 
 export interface AiWriterAssistantProps {
@@ -36,6 +38,11 @@ export interface AiWriterAssistantProps {
   /** 头部下的作用域行（可选；角色面板＝「当前角色：… 缺 n/m」）。 */
   targetLine?: ReactNode;
   title?: string;
+  /**
+   * 头部副行插槽（c-character-intro 3.3）：给了就用它替换默认套餐/就绪态副行
+   * （免费态章纲页签＝「免费行可用 · 标「需 PRO」的行升级后解锁」）。
+   */
+  subTitle?: ReactNode;
   /**
    * 后端判定层下发的本书 AI 就绪态（D13）。传了就**只读它**做一次分派
    * （不再 useFeature + ai_state 两处判）；不传则退回 tier 门控（兼容旧调用方）。
@@ -68,6 +75,7 @@ export default function AiWriterAssistant({
   footNote,
   targetLine,
   title = "AI 写作助手",
+  subTitle,
   aiState,
   aiStateMessage,
   onBlocked,
@@ -112,13 +120,14 @@ export default function AiWriterAssistant({
         <div className="rh-t">
           <b>{title}</b>
           <span>
-            {locked
-              ? "未解锁 · 升级 PRO 后本书 AI 即可用"
-              : state === "ready"
-                ? "你的 PRO 已包含 · 只加工你写的，不代写"
-                : state === "no_key" && aiStateMessage
-                ? aiStateMessage
-                : BLOCK_TEXT[state]}
+            {subTitle ??
+              (locked
+                ? "未解锁 · 升级 PRO 后本书 AI 即可用"
+                : state === "ready"
+                  ? "你的 PRO 已包含 · 只加工你写的，不代写"
+                  : state === "no_key" && aiStateMessage
+                  ? aiStateMessage
+                  : BLOCK_TEXT[state])}
           </span>
         </div>
       </div>
@@ -135,6 +144,7 @@ export default function AiWriterAssistant({
             className={`ra-step${r.disabled ? " ra-off" : ""}${running ? " ra-running" : ""}`}
             type="button"
             data-aiact={r.key}
+            data-od-id={r.odId}
             data-testid={r.testid}
             aria-busy={running || undefined}
             disabled={r.disabled || runningKey !== null}

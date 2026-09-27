@@ -51,6 +51,9 @@ export function AiAssistPanel({
   onAiDraft,
   onSimulate,
   onPlotDraw,
+  onCastReview,
+  castEmpty,
+  castBusy,
   onAiWrite,
   onContinue,
   onUpgrade,
@@ -80,6 +83,12 @@ export function AiAssistPanel({
   onSimulate: () => void;
   /** AI 帮写剧情（三版选一弹层；生成类归 PRO，免费态 locked 置灰＋升级出口） */
   onPlotDraw?: () => void;
+  /** 盘点出场人物（c-character-intro：免费只读盘点＋PRO 抽卡；行级门控只作用章纲页签） */
+  onCastReview?: () => void;
+  /** 空章（留存格与剧情条目全空）：盘点行禁用 hint「先写剧情再盘点」 */
+  castEmpty?: boolean;
+  /** 盘点/抽卡在途（railData 驱动「生成中…」） */
+  castBusy?: boolean;
   /** AI 生成正文（c-prose-write-entry：正文页签动作清单首项，走页面级解锁链 → AiModal） */
   onAiWrite?: () => void;
   /** 续写建议（正文页签；从光标处或选区末尾流式续写） */
@@ -259,8 +268,10 @@ export function AiAssistPanel({
     style: "文风", relations: "角色关系", hooks: "伏笔", actions: "操作",
   };
 
-  /** 门控与设定域同源：PRO＝ready，免费＝member_required（点击走统一升级出口） */
-  const state: AiState = isPro ? "ready" : "member_required";
+  /** 门控与设定域同源：PRO＝ready，免费＝member_required（点击走统一升级出口）。
+   *  c-character-intro 3.3：行级 PRO 映射只作用章纲页签——og 页签恒 ready（盘点行
+   *  免费可点，其余行 ra-off＋「需 PRO」）；其余页签维持 member_required 整卡锁定。 */
+  const state: AiState = isPro || tab === "og" ? "ready" : "member_required";
   const handleBlocked = (reason: AiState) => {
     if (reason === "member_required") {
       onUpgrade?.();
@@ -278,6 +289,7 @@ export function AiAssistPanel({
       disabled?: boolean;
       hint?: string;
       testid?: string;
+      odId?: string;
     } = {},
   ): AiCapabilityRow => ({
     key,
@@ -287,6 +299,7 @@ export function AiAssistPanel({
     disabled: opts.disabled,
     hint: opts.hint,
     testid: opts.testid,
+    odId: opts.odId,
   });
   const sel = () => proseRef?.current?.captureNow() ?? null;
 
@@ -297,34 +310,60 @@ export function AiAssistPanel({
 
   if (tab === "og") {
     const missing = ogStats.missingLabels ?? [];
-    running = aiDrafting ? "draft" : gapsLoading ? "fill" : null;
+    running = aiDrafting ? "draft" : gapsLoading ? "fill" : castBusy ? "cast-review" : null;
     targetLine = missing.length ? (
       <>还缺 {missing.length} 项：<b>{missing.join("、")}</b></>
     ) : (
       <>必填已齐 · 归档门槛 {ogStats.reqOk}/{REQ_FIELDS.length}</>
     );
+    // 行级 PRO 映射（c-character-intro 3.3）：只作用章纲页签——盘点行全档免费可点，
+    // 其余五行免费态 ra-off＋「需 PRO」（照 VolumeAssistPanel 先例）；
+    // 其余页签维持 member_required 整卡锁定，不因本 change 放行。
+    const proRow = (disabledExtra: boolean, hintExtra?: string) => ({
+      disabled: !isPro || disabledExtra,
+      hint: !isPro ? "需 PRO" : hintExtra,
+    });
     rows = [
       cap("simulate", "剧情推演 · 按回合走一遍", "先定走法再逐步推演；走法可收进本章剧情条目", {
-        onClick: onSimulate, disabled: archived, hint: archived ? "本章已归档" : undefined, testid: "og-simulate",
+        onClick: onSimulate, disabled: archived || !isPro, hint: archived ? "本章已归档" : !isPro ? "需 PRO" : undefined, testid: "og-simulate",
       }),
       cap("draft", "AI 起草", "按卷纲与设定出整份章纲草稿，回填表单后由你确认落库", {
         onClick: onAiDraft,
-        disabled: !canAiDraft || archived,
-        hint: archived ? "本章已归档" : !canAiDraft ? "需 PRO" : undefined,
+        disabled: !canAiDraft || archived || !isPro,
+        hint: archived ? "本章已归档" : !isPro ? "需 PRO" : undefined,
         testid: "og-ai-draft",
       }),
       cap("fill", "补全缺失字段", missing.length ? `只补还缺的 ${missing.length} 项，一稿回填` : "必填已齐，暂无可补", {
         onClick: () => onFillGaps?.(),
-        disabled: !onFillGaps || gapsLoading || missing.length === 0,
+        disabled: !onFillGaps || gapsLoading || missing.length === 0 || !isPro,
+        hint: !isPro ? "需 PRO" : undefined,
       }),
       cap("plot-draw", "AI 帮写剧情", "一次给 3 版剧情挑一版；要求概要、挑战、章末落点已填（手写剧情全免费）", {
-        onClick: onPlotDraw, disabled: archived, hint: archived ? "本章已归档" : undefined, testid: "og-plot-draw",
+        onClick: onPlotDraw,
+        disabled: archived || !isPro,
+        hint: archived ? "本章已归档" : !isPro ? "需 PRO" : undefined,
+        testid: "og-plot-draw",
       }),
+      cap(
+        "cast-review",
+        "盘点出场人物",
+        "逐段盘这一章缺不缺人；缺的人给三个方向抽卡（PRO）或你自己填，确认后写进角色表、本章出场角色与本卷出场清单",
+        {
+          onClick: () => onCastReview?.(),
+          disabled: archived || castEmpty || !onCastReview,
+          hint: archived ? "本章已归档" : castEmpty ? "先写剧情再盘点" : undefined,
+          testid: "og-cast-review",
+          odId: "rail-cast",
+        },
+      ),
       cap("conflict", "与卷纲冲突检测", "拿本章章纲去对卷纲，报出冲突点", {
         onClick: () => onAiCheck?.("volume_conflict"),
+        ...proRow(false),
       }),
     ];
-    footNote = "章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。";
+    footNote = isPro
+      ? "章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。"
+      : "免费版：盘点只读、不代笔；标「需 PRO」的行升级后可用。盘点结果要写进章纲的，走你平时那套保存。";
   } else if (tab === "prose") {
     running =
       aiState?.polishLoading ? "polish"
@@ -465,6 +504,19 @@ export function AiAssistPanel({
       footNote={footNote}
       rows={rows}
       data-od-id={`ai-assist-${tab}`}
-    />
+      // 免费态章纲页签：副行插槽＋统一升级出口（行级门控的升级口）
+      subTitle={
+        tab === "og" && !isPro ? "免费行可用 · 标「需 PRO」的行升级后解锁" : undefined
+      }
+    >
+      {tab === "og" && !isPro && (
+        <p className="none" data-testid="og-upgrade-exit">
+          标「需 PRO」的行升级后可用{" "}
+          <button className="btn btn-primary btn-sm" data-testid="og-upgrade-btn" onClick={onUpgrade}>
+            升级 PRO
+          </button>
+        </p>
+      )}
+    </AiWriterAssistant>
   );
 }

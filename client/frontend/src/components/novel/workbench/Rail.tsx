@@ -35,6 +35,12 @@ export interface RailChapterData {
   onSimulate?: () => void;
   /** AI 帮写剧情（章纲页签动作；三版选一弹层，生成类归 PRO） */
   onPlotDraw?: () => void;
+  /** 盘点出场人物（章纲页签动作；免费只读盘点＋PRO 抽卡，c-character-intro） */
+  onCastReview?: () => void;
+  /** 空章（留存格与剧情条目全空）：盘点行禁用 hint「先写剧情再盘点」 */
+  castEmpty?: boolean;
+  /** 盘点/抽卡在途（行「生成中…」） */
+  castBusy?: boolean;
   /** 当前章 ref（右栏辅助面板按章取数） */
   chapterRef?: string;
   /** chapter-rewrite：下游「基于旧设定」章计数（NovelWorkspace 由树计算注入） */
@@ -138,6 +144,9 @@ export default function Rail({
           onAiDraft={d.onAiDraft}
           onSimulate={d.onSimulate}
           onPlotDraw={d.onPlotDraw}
+          onCastReview={d.onCastReview}
+          castEmpty={d.castEmpty}
+          castBusy={d.castBusy}
           onUpgrade={onUpgrade}
           staleDownstream={d.staleDownstream}
           aiState={aiState}

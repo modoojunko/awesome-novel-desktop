@@ -913,3 +913,19 @@ def test_world_rules_block_renders_when_defined(client, monkeypatch):
     assert r.status_code == 200, r.text
     system = _layered_prompt(fake.calls[-1])
     assert "【世界铁律】\n世界铁律·死者不可复生：任何力量都不能把人从死亡里拉回来" in system
+
+def test_split_template_rule2_cast_sentence():
+    """c-character-intro 规则 2 补句（chapter-plan-ai MODIFIED delta 钉词源，逐字对拍）。"""
+    import os as _os
+
+    with open(
+        _os.path.join(_os.path.dirname(__file__), "..", "prompts", "chapter_split.prompt"),
+        encoding="utf-8",
+    ) as f:
+        rule2 = next(line for line in f.read().splitlines() if line.startswith("2. "))
+    for phrase in (
+        "无名配角（店伙计、路人、卫兵这类只递话、只在场的过场人物）可用泛称",
+        "泛称不得承担关键剧情作用",
+        "具名新人一律不添——要不要加新角色由章纲页的人物盘点决定",
+    ):
+        assert phrase in rule2, f"规则 2 补句缺钉词：{phrase}"

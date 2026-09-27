@@ -230,10 +230,11 @@ test("免费锁定：剧情卡置灰禁点＋升级出口；手写剧情照常�
   const { restore, token } = await setupSession(page, "none");
   try {
     const pid = await createNovelWithChapter(page, `剧情免费${Date.now() % 100000}`);
-    // 右栏剧情卡：locked 置灰禁点不隐藏；升级出口在包裹外（手写全档可用）
+    // 右栏剧情行：行级门控（c-character-intro 起 og 页签行级化，整卡锁退役）置灰禁点不隐藏；
+    // 升级出口＝统一 og-upgrade-exit（手写全档可用）
     await expect(page.getByTestId("og-plot-draw")).toBeVisible();
     await expect(page.getByTestId("og-plot-draw")).toBeDisabled();
-    await expect(page.getByTestId("plot-upgrade-exit")).toContainText("剧情自己写全免费");
+    await expect(page.getByTestId("og-upgrade-exit")).toContainText("需 PRO");
     // 手写剧情不被锁：加/写照常，且真落库
     await page.getByLabel("第 1 条剧情").fill("免费档也能自己写剧情");
     await page.getByRole("button", { name: "加一条" }).click();

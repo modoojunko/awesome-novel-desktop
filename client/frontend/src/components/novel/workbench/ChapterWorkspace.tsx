@@ -52,13 +52,21 @@ import {
 import PlotDrawModal from "./PlotDrawModal";
 import AiCheckModal from "./AiCheckModal";
 import RefinePromptModal from "./RefinePromptModal";
+import CastReviewModal from "./CastReviewModal";
 import { useChapterData } from "@/hooks/useChapterData";
 import { usePlotDraw } from "@/hooks/usePlotDraw";
+import { useCastReview } from "@/hooks/useCastReview";
+import {
+  castBackgroundLine,
+  type CastWriteOutcome,
+  type CastWriteRequest,
+} from "@/lib/castReviewApi";
+import { isNameTaken } from "@/lib/charactersApi";
 import { draftOutline } from "@/lib/ai";
 import { fillOutlineGaps, type AiCheckKind, type RefineMode } from "@/lib/aiCheck";
 import type { useOutline } from "@/hooks/useOutline";
 import type { useWorkbench } from "@/hooks/useWorkbench";
-import { api, request } from "@/lib/api";
+import { api, errMessage, request } from "@/lib/api";
 import { nodeLabel } from "@/lib/nodeTitle";
 import {
   getBookArchiveAiSummary,
@@ -208,21 +216,26 @@ export default function ChapterWorkspace({
   // ── 章纲表单：加载 / 缺口 / 保存 / 3s 静默自动保存 ────────────────────
     // 本书角色名清单（character-settings-v2）：章纲出场角色多选候选
   const [characterNames, setCharacterNames] = useState<string[]>([]);
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const data = await charactersApi.list(projectId);
-        if (alive) setCharacterNames(data.items.map((i) => i.name)
-            .filter((n) => n && !n.startsWith("\u0000")));
-      } catch {
-        /* 角色接口失败不阻塞章纲；textarea 兜底仍可用 */
+  /** 拉取角色名（含别名展开——别名不误标没卡，c-character-intro 4.1）；
+   *  建卡成功后显式刷新（3.5；原 effect deps 仅 projectId）。 */
+  const refreshCharacterNames = useCallback(async () => {
+    try {
+      const data = await charactersApi.list(projectId);
+      const names = new Set<string>();
+      for (const item of data.items) {
+        if (item.name && !item.name.startsWith("\u0000")) names.add(item.name);
+        for (const a of item.aliases ?? []) {
+          if (a && !a.startsWith("\u0000")) names.add(a);
+        }
       }
-    })();
-    return () => {
-      alive = false;
-    };
+      setCharacterNames([...names]);
+    } catch {
+      /* 角色接口失败不阻塞章纲；textarea 兜底仍可用 */
+    }
   }, [projectId]);
+  useEffect(() => {
+    void refreshCharacterNames();
+  }, [refreshCharacterNames]);
 
 const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   const [ogStatus, setOgStatus] = useState("");
@@ -234,6 +247,16 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   const [ogSaving, setOgSaving] = useState(false);
   const ogSnapRef = useRef<string>(JSON.stringify(EMPTY_OG_FORM));
   const ogLoadingRef = useRef(true);
+  // 自动保存 timer 提升为 ref（c-character-intro 3.4）：落账链写入前显式清，
+  // 防旧闭包在写入后 PUT 旧表单把新名字删掉；epoch 挡已插队的旧自动保存回写快照。
+  const ogAutoSaveTimerRef = useRef<number | null>(null);
+  const ogSaveEpochRef = useRef(0);
+  const clearOgAutoSave = useCallback(() => {
+    if (ogAutoSaveTimerRef.current !== null) {
+      clearTimeout(ogAutoSaveTimerRef.current);
+      ogAutoSaveTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -291,6 +314,11 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     [ogForm.ladder, vol, chMeta, wb],
   );
 
+  /** 保存警告上屏（保存/自动保存/写入三路径都消费；自动保存 warnings 存在才打扰） */
+  const consumeWarnings = useCallback((warnings?: string[]) => {
+    if (warnings && warnings.length > 0) toast.info(warnings.join("；"));
+  }, []);
+
   const saveOg = useCallback(async (): Promise<boolean> => {
     if (ogLoadingRef.current) return false;
     const issues = ogFormIssues(ogForm);
@@ -299,13 +327,16 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       return false;
     }
     setOgSaving(true);
+    ogSaveEpochRef.current++; // 手动保存插队：旧自动保存不再回写快照
+    clearOgAutoSave();
     try {
       const beforeExit = String(outline.chaptersMap.get(chapterRef)?.ladder_exit ?? "").trim();
-      await outline.saveChapter(
+      const res = await outline.saveChapter(
         chapterRef,
         ogToPartial(ogForm, outline.chaptersMap.get(chapterRef)),
       );
       ogSnapRef.current = JSON.stringify(ogForm);
+      consumeWarnings(res?.warnings);
       notifyExitChange(beforeExit);
       return true;
     } catch {
@@ -315,28 +346,33 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       setOgSaving(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [outline.saveChapter, outline.chaptersMap, chapterRef, ogForm, vol, chMeta, wb]);
+  }, [outline.saveChapter, outline.chaptersMap, chapterRef, ogForm, vol, chMeta, wb, consumeWarnings]);
 
-  // 3s 静默后台保存（不改 status；设计稿之外的应用侧扩展，已登记 ADJUSTMENTS）
+  // 3s 静默后台保存（不改 status；设计稿之外的应用侧扩展，已登记 ADJUSTMENTS）。
+  // timer 提升为 ref（c-character-intro 3.4）：落账链写入前显式清，防旧闭包 PUT 旧表单删掉新名字。
   const ogKey = JSON.stringify(ogForm);
   useEffect(() => {
     if (ogLoadingRef.current) return;
     if (ogKey === ogSnapRef.current) return;
     // 校验不过时静默跳过（不打扰），待用户补齐后下一次输入触发重试
     if (ogFormIssues(ogForm).length > 0) return;
-    const t = setTimeout(() => {
+    ogAutoSaveTimerRef.current = window.setTimeout(() => {
+      ogAutoSaveTimerRef.current = null;
+      const epoch = ogSaveEpochRef.current;
       const beforeExit = String(outline.chaptersMap.get(chapterRef)?.ladder_exit ?? "").trim();
       outline
         .saveChapter(chapterRef, ogToPartial(ogForm, outline.chaptersMap.get(chapterRef)))
-        .then(() => {
-          ogSnapRef.current = ogKey;
+        .then((res) => {
+          // 手动/写入保存插队后旧自动保存不再回写快照（防旧闭包覆盖新落库值）
+          if (ogSaveEpochRef.current === epoch) ogSnapRef.current = ogKey;
+          consumeWarnings(res?.warnings); // warnings 存在才打扰
           notifyExitChange(beforeExit);
         })
         .catch(() => {
           /* 静默：失败不打扰，下一次输入重试 */
         });
     }, 3000);
-    return () => clearTimeout(t);
+    return () => clearOgAutoSave();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ogKey, chapterRef, outline.saveChapter, outline.chaptersMap, ogForm]);
 
@@ -631,6 +667,162 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   );
 
 
+  // ── 章纲人物精盘（c-character-intro）：盘点（免费）→缺人三选一→抽卡（PRO）→
+  //    写入两出口落账。弹窗挂本层（NovelWorkspace 零改动）；申报输入受控态在弹窗内。 ──
+  const castInput = useMemo(() => {
+    const partial = ogToPartial(ogForm, outline.chaptersMap.get(chapterRef)) as Record<string, unknown>;
+    return {
+      body: {
+        summary: ogForm.summary,
+        challenge: ogForm.challenge,
+        plot_stage: ogForm.stage,
+        ladder_exit: ogForm.ladder,
+        plot_items: (partial.plot_items as string[] | undefined) ?? [],
+        characters: ogForm.chars.split("\n").map((x) => x.trim()).filter(Boolean),
+      },
+      partial,
+    };
+  }, [ogForm, outline.chaptersMap, chapterRef]);
+
+  /** 空章防呆：剧情条目零条且梗概/挑战/章末落点全空（阶段有默认值不计入） */
+  const castEmpty = useMemo(() => {
+    const hasPlot = ogForm.plots.some((x) => x.trim());
+    const hasRest = !!(
+      ogForm.summary.trim() ||
+      ogForm.challenge.trim() ||
+      ogForm.ladder.trim()
+    );
+    return !hasPlot && !hasRest;
+  }, [ogForm.plots, ogForm.summary, ogForm.challenge, ogForm.ladder]);
+
+  /** 建卡已成功的名字（保存失败重试只走名单写入；409 且 created 给「卡已建好」提示） */
+  const castCreatedRef = useRef(new Set<string>());
+
+  /** 写入两出口落账（3.4，正确性顺序照 handlePlotAdopt）：
+   *  chars 按行去重并入 → ogFormIssues 预检 → 主出口先建卡 → 清自动保存 timer →
+   *  立即 saveChapter → 成功 setOgForm(patched)＋ogSnapRef 双同步（不等 3s）→ 回结果页。 */
+  const handleCastWrite = useCallback(
+    async (req: CastWriteRequest): Promise<CastWriteOutcome> => {
+      const name = req.fields.name.trim();
+      const cur = ogFormRef.current;
+      const lines = cur.chars.split("\n").map((x) => x.trim()).filter(Boolean);
+      const dedup = [...new Set(lines)];
+      const castBefore = dedup.length;
+      if (!dedup.includes(name)) dedup.push(name);
+      const patched: OgForm = { ...cur, chars: dedup.join("\n") };
+      const issues = ogFormIssues(patched);
+      if (issues.length > 0) {
+        return {
+          ok: false,
+          kind: "save_failed",
+          message: issues[0],
+          created: castCreatedRef.current.has(name),
+        };
+      }
+      let created = castCreatedRef.current.has(name);
+      let note: string | undefined;
+      // 主出口先建卡（listOnlyAfterCreate/次出口不建）；409 撞名回落只加名单
+      if (req.mode === "with-card" && !req.listOnlyAfterCreate && !created) {
+        try {
+          await charactersApi.create(projectId, name, {
+            persona: req.fields.persona.trim() || undefined,
+            prefill: {
+              plot: req.fields.duty.trim() || undefined,
+              background: castBackgroundLine(req.fields) || undefined,
+            },
+          });
+          created = true;
+          castCreatedRef.current.add(name);
+          void refreshCharacterNames();
+        } catch (e) {
+          if (isNameTaken(e)) {
+            created = castCreatedRef.current.has(name);
+            note = created
+              ? "卡已建好，这就把名字写进名单。"
+              : "已有同名卡，名单会自动挂上。";
+          } else {
+            return {
+              ok: false,
+              kind: "create_failed",
+              message: errMessage(e, "建卡失败，请重试"),
+              created: false,
+            };
+          }
+        }
+      } else if (req.listOnlyAfterCreate && created) {
+        note = "卡已建好，这就把名字写进名单。";
+      }
+      // 落账前显式清自动保存 timer（防旧闭包 PUT 旧表单删掉新名字）
+      clearOgAutoSave();
+      ogSaveEpochRef.current++;
+      try {
+        const res = await outlineRef.current.saveChapter(
+          chapterRef,
+          ogToPartial(patched, outlineRef.current.chaptersMap.get(chapterRef)),
+        );
+        // 双同步缺一不可（照 handlePlotAdopt）：setOgForm＋ogSnapRef
+        setOgForm(patched);
+        ogSnapRef.current = JSON.stringify(patched);
+        consumeWarnings(res?.warnings);
+        return {
+          ok: true,
+          created,
+          name,
+          castBefore,
+          castAfter: dedup.length,
+          warnings: res?.warnings ?? [],
+          note,
+        };
+      } catch {
+        return {
+          ok: false,
+          kind: "save_failed",
+          message: "名单保存失败，请重试",
+          created,
+        };
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [projectId, chapterRef, consumeWarnings, clearOgAutoSave, refreshCharacterNames],
+  );
+
+  const castReview = useCastReview({
+    projectId,
+    chapterRef,
+    isPro,
+    input: castInput,
+    onWrite: handleCastWrite,
+    // 统一升级出口（member-block 全局升级引导；NovelWorkspace 零改动）
+    onUpgrade: () =>
+      window.dispatchEvent(
+        new CustomEvent("member-block", { detail: { message: "AI 抽人是 PRO 功能——升级后一次给 3 个方向" } }),
+      ),
+    onOpenConfig: () => navigate("/config"),
+  });
+
+  /** 行级/软提示建卡入口：只预填称呼（提案字段零新存储不留存，卡面回头在设定页补） */
+  const handleQuickCreateChar = useCallback(
+    async (name: string) => {
+      try {
+        await charactersApi.create(projectId, name.trim(), {});
+        toast.success(`已建卡「${name.trim()}」——只带名字，卡面回头在设定页补`);
+        void refreshCharacterNames();
+      } catch (e) {
+        if (isNameTaken(e)) toast.info("已有同名卡，名字会自动挂上");
+        else toast.error(errMessage(e, "建卡失败，请重试"));
+      }
+    },
+    [projectId, refreshCharacterNames],
+  );
+
+  // onRailData 死循环纪律：回调 useCallback＋saveOg 走 ref＋deps 只含 chapterRef
+  const castOpenRef = useRef(castReview.open);
+  castOpenRef.current = castReview.open;
+  const openCastReview = useCallback(() => {
+    void saveOgRef.current(); // 尽力 flush（失败也继续——盘点输入是表单快照）
+    castOpenRef.current();
+  }, [chapterRef]);
+
   // ── 排版偏好（per-book：pref.book.{pid}.*，全局默认兜底）。
   //    页内字号/行距切换控件已撤（2026-09-27）：只读回显供 ProsePane 排版，
   //    改值入口在账号菜单「本书偏好」（BookPrefsModal，切书时重读）。 ─────────────
@@ -760,6 +952,12 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       onAiDraft: () => void handleAiDraft(),
       onSimulate: () => setShowSim(true),
       onPlotDraw: () => void handlePlotDraw(),
+      onCastReview: () => openCastReview(),
+      castEmpty,
+      castBusy:
+        castReview.state.phase === "reviewing" ||
+        castReview.state.phase === "drawing" ||
+        castReview.state.writing,
       onStyleSuggest: () => setStyleSuggestSignal((n) => n + 1),
       onFillGaps: () => void handleFillGaps(),
       gapsLoading,
@@ -768,7 +966,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     });
     return () => onRailDataRef.current(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, aiDrafting, gapsLoading, promptSavedSignal, handleFillGaps, handlePlotDraw]);
+  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, aiDrafting, gapsLoading, promptSavedSignal, handleFillGaps, handlePlotDraw, openCastReview, castEmpty, castReview.state.phase, castReview.state.writing]);
 
   // ── 文风建议信号（右栏 AI 助手触发 → StyleShadowPane 内执行拉取；2026-09-20
   //    AI 入口收口右栏：页签 body 不再设 AI 按钮，建议结果仍在页签内逐项采纳） ──
@@ -1048,6 +1246,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           onSaveDraft={() => void handleSaveDraft()}
           onConfirm={() => void handleConfirm()}
           onGoWrite={() => void handleGoWrite()}
+          onQuickCreateChar={(name) => void handleQuickCreateChar(name)}
         />
       )}
 
@@ -1071,6 +1270,20 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         onManual={plotDraw.close}
         onClose={plotDraw.close}
         onOpenConfig={() => navigate("/config")}
+      />
+
+      <CastReviewModal
+        cast={castReview}
+        chapterLabel={label}
+        plotItems={castInput.body.plot_items}
+        isPro={isPro}
+        onUpgrade={() =>
+          window.dispatchEvent(
+            new CustomEvent("member-block", { detail: { message: "AI 抽人是 PRO 功能——升级后一次给 3 个方向" } }),
+          )
+        }
+        onOpenConfig={() => navigate("/config")}
+        onQuickCreateChar={(name) => void handleQuickCreateChar(name)}
       />
 
       <AiCheckModal

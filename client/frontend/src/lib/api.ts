@@ -48,6 +48,8 @@ export interface RequestOptions {
 export type ApiError = Error & {
   status?: number;
   reason?: string;
+  /** detail.code（如建卡撞名 409 的 name_taken） */
+  code?: string;
   novels?: string[];
   field?: string;
   current?: unknown;
@@ -186,6 +188,8 @@ export async function request<T = any>(
     if (err.detail && typeof err.detail === "object") {
       if (Array.isArray(err.detail.novels)) e.novels = err.detail.novels;
       if (typeof err.detail.reason === "string") e.reason = err.detail.reason;
+      // detail.code 透传（建卡撞名 409 的 name_taken 等语义码）
+      if (typeof err.detail.code === "string") (e as ApiError).code = err.detail.code;
       // 角色 rev 冲突（character-settings-v2）：透传冲突格与当前值供"刷新重试"UI
       if (typeof err.detail.field === "string") e.field = err.detail.field;
       if (err.detail.current !== undefined) e.current = err.detail.current;
