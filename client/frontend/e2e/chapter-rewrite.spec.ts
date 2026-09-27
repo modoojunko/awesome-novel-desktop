@@ -206,6 +206,7 @@ test("重写已归档章：旧稿入支线＋下游角标＋改写后角标消�
       await page.getByRole("tab", { name: /^正文/ }).click();
       await expect(page.locator(".editor")).toBeVisible({ timeout: 1500 });
     }).toPass({ timeout: 20000 });
+    await page.getByTestId("prose-edit").click(); // c-prose-edit-gate：先进编辑态
     await page.locator(".editor").click();
     await page.keyboard.type("补写一段。");
     await expect(page.getByText("已自动保存").first()).toBeVisible({ timeout: 8000 });

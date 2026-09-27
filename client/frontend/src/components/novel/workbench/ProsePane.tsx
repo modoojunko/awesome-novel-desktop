@@ -1,6 +1,9 @@
 // 正文页（book.html editor 复刻）：宋体 17/2.0 · 680 版心 · 段落缩进 ·
 // contenteditable 段落化输入 · 自动保存三态（useChapterData store）·
 // AI 流式写入（.generating + contentEditable=false + 停止）· 归档只读。
+// 2026-09-27 查看/编辑两态（c-prose-edit-gate，对齐卷纲口径）：默认只读阅读，
+// 「编辑正文」进编辑态；AI 生成/续写恢复/重写/去写正文四条链由上层自动进编辑；
+// 归档/排队/旧稿锁优先于编辑态（锁定期不可写，横幅照旧）。
 // 润色/扩写沿用 ContrastPreviewModal（过渡期 daisyUI 皮，PR 5 重皮）。
 import {
   forwardRef,
@@ -76,6 +79,11 @@ interface ProsePaneProps {
   locked?: { reason: string };
   /** 写作进度上抛（顶栏 bar-here 跟随显示上次写到的章） */
   onWriteProgress?: (session: { ref: string; scroll: number; ts: number }) => void;
+  /** 查看/编辑两态（c-prose-edit-gate，对齐卷纲口径）：false＝只读阅读（默认），
+   *  true＋非锁定＝可写。归档/排队/旧稿锁定 SHALL 优先于编辑态。 */
+  editing?: boolean;
+  /** 「编辑正文」入口回调（仅查看态且非锁定时出现） */
+  onStartEdit?: () => void;
 }
 
 function escapeHtml(s: string): string {
@@ -108,7 +116,7 @@ function collectParagraphs(div: HTMLDivElement): string[] {
 }
 
 const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
-  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress, locked },
+  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress, locked, editing, onStartEdit },
   ref,
 ) {
   const editorRef = useRef<HTMLDivElement>(null);
@@ -117,6 +125,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   const { prose, status, setProse } = store;
   const archived = status === "archived";
   const notEditable = archived || !!locked;
+  // 查看/编辑两态（c-prose-edit-gate）：编辑态＋非锁定才可写；锁定语义优先
+  const editable = !!editing && !notEditable;
   const [streaming, setStreaming] = useState(false);
 
   // 本地输入回路标记：store.prose 变化若来自本地输入则跳过重渲（保光标）
@@ -217,14 +227,14 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
 
   // ── 输入 → store（自动保存由 store 防抖；1.5s） ───────────────────────
   const handleInput = useCallback(() => {
-    if (archived || locked || streamingRef.current) return;
+    if (!editable || streamingRef.current) return;
     const div = editorRef.current;
     if (!div) return;
     const next = collectParagraphs(div).join("\n");
     lastRenderedRef.current = next;
     setProse(next);
     saveProgress();
-  }, [archived, locked, setProse, saveProgress]);
+  }, [editable, setProse, saveProgress]);
 
   // ── 续写恢复：每个信号号只恢复一次（appliedResumeRef 守卫）。
   //    换章加载时内容未就绪 → rAF 轮询等 scrollHeight 长出来（上限 2s），
@@ -451,13 +461,32 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           </span>
         </div>
       )}
+      {/* 查看态顶行（c-prose-edit-gate）：只读阅读＋「编辑正文」；
+          归档/排队/旧稿锁各有横幅，锁定期不出现本行。
+          条件渲染而非 hidden：.ol-top 是 display:flex，会压掉 hidden 属性（历史坑） */}
+      {!hidden && !editable && !notEditable && (
+        <div className="ol-top" data-od-id="prose-view-bar">
+          <span className="note">
+            正文 · {words ? `${words.toLocaleString("zh-CN")} 字` : "空章"}
+          </span>
+          <span className="push">
+            <button
+              className="btn btn-secondary"
+              data-testid="prose-edit"
+              onClick={onStartEdit}
+            >
+              编辑正文
+            </button>
+          </span>
+        </div>
+      )}
       <div className="editor-wrap" hidden={hidden} ref={wrapRef}>
         {/* contentEditable 用字符串 "false"：布尔 false 会被 React 整个丢掉属性，
-            归档/流式态需要 contenteditable="false" 保住只读语义（a11y + e2e 可判定） */}
+            只读/归档/流式态需要 contenteditable="false" 保住只读语义（a11y + e2e 可判定） */}
         <div
           ref={editorRef}
           className={`editor ${fs} ${lh}${streaming ? " generating" : ""}`}
-          contentEditable={!notEditable && !streaming ? true : "false"}
+          contentEditable={editable && !streaming ? true : "false"}
           data-placeholder={words ? "" : "从这一章开始写……"}
           suppressContentEditableWarning
           onInput={handleInput}

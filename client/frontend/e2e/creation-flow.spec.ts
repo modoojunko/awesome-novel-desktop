@@ -332,6 +332,7 @@ test("空书无门控：建书即写，加卷加章直达编辑器", async ({ pa
       timeout: 10000,
     });
     await page.getByRole("tab", { name: /^正文/ }).click();
+    await page.getByTestId("prose-edit").click(); // c-prose-edit-gate：先进编辑态
     await expect(page.locator(".editor")).toBeVisible({ timeout: 10000 });
     await expect(page.locator(".editor")).toBeEditable();
   } finally {

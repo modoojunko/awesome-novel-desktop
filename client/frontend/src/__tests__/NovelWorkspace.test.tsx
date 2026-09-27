@@ -446,6 +446,9 @@ describe("写作视图常驻挂载：切到设定编辑器不卸载（点「写�
       expect(el).toBeTruthy();
       return el as HTMLElement;
     });
+    // 正文查看/编辑两态（c-prose-edit-gate）：输入前先点「编辑正文」
+    fireEvent.click(screen.getByTestId("prose-edit"));
+    await waitFor(() => expect(editor).toHaveAttribute("contenteditable", "true"));
     editor.innerHTML = "<p>我在专注写作</p>";
     fireEvent.input(editor);
 
