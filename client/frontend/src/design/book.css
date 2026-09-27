@@ -271,6 +271,9 @@
 .chtab .cnt.ok { color: var(--ok); }
 .chtab .cnt.warn { color: var(--warn); }
 .chtab .cnt.err { color: var(--err); }
+/* 版本历史入口（2026-09-27 自 e-head 右侧移入页签行右端；非页签件不吃 ctab 视觉） */
+.ch-tabs .ch-history { margin-left: auto; flex: none; }
+.wb .view.on.three-col .ch-tabs .ch-history { align-self: center; }
 .prose-ctrls { display: inline-flex; align-items: center; gap: 8px; }
 .og-pane, .prompt-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 26px clamp(20px, 4vw, 48px) 60px; background: var(--bg); }
 

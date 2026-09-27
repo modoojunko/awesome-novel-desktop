@@ -13,7 +13,7 @@ import { cleanupSessionNovels, stableClick } from "./helpers";
 // 手法与 plot-sim.spec.ts 一致：S端 真注册登录 + config.json 注入。
 // =========================================================================
 
-const S_API = "http://127.0.0.1:19000/api/web";
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 const CONFIG_PATH = path.join(
   process.cwd(),
@@ -173,6 +173,8 @@ test("重写已归档章：旧稿入支线＋下游角标＋改写后角标消�
     // ③′ 归档（重写后的）本章 → 提示点名下游角标（spec：存在下游「基于旧设定」时追加）
     const onDlg = (d: import("@playwright/test").Dialog) => d.accept();
     page.on("dialog", onDlg);
+    // 归档入口在操作页签（2026-09-27 自头部移入）
+    await page.getByRole("tab", { name: /^操作/ }).click();
     await page.getByRole("button", { name: "归档本章" }).click();
     // 归档弹窗：收尾计划预览（PRO 五件事）
     const plan = page.getByTestId("archive-plan");

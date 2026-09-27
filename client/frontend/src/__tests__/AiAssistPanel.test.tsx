@@ -46,15 +46,13 @@ beforeEach(() => {
 });
 
 describe("AiAssistPanel（随页签）", () => {
-  it("章纲页签：统计卡＋还缺清单＋已实现动作全真按钮", () => {
+  it("章纲页签：统计卡不进右栏（上移头部 meta 行）＋还缺清单＋已实现动作全真按钮", () => {
     const onFillGaps = vi.fn();
     const onAiCheck = vi.fn();
     const cb = renderPanel("og", { onFillGaps, onAiCheck });
     expect(screen.getByText("AI 辅助 · 章纲")).toBeTruthy();
-    const stats = document.querySelector(".rail-stats")?.textContent ?? "";
-    expect(stats).toContain("1/2");
-    expect(stats).toContain("1,800 字");
-    expect(stats).toContain("2 条");
+    // 2026-09-27：归档门槛/计划字数/剧情/出场角色改由中栏头部 e-meta 展示
+    expect(document.querySelector(".rail-stats")).toBeNull();
     // 还缺清单（原型 aiList('还缺')）
     const list = document.querySelector(".rail-list")?.textContent ?? "";
     expect(list).toContain("还缺");
