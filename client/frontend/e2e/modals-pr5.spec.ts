@@ -269,7 +269,8 @@ test("解锁链：归档章点 AI → 解除只读 → AiModal 提示词；确�
       ai.getByText(/两段式：先「AI 润色」|本章尚未配置章纲/),
     ).toBeVisible();
 
-    // 弹窗取消 → 不生成，但解锁已生效（编辑器翻回可编辑、只读横幅撤下）
+    // 弹窗取消 → 不生成，但解锁已生效（编辑器翻回可编辑、只读横幅撤下；
+    // c-prose-edit-gate：本用例经 helper 已在编辑态且未切章，解锁后编辑态保持）
     await ai.getByRole("button", { name: "取消" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(editor).toHaveAttribute("contenteditable", "true", {

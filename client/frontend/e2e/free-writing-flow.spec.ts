@@ -188,6 +188,7 @@ test("加卷加章：即达编辑器，实时字数 + 自动保存，空章三�
     await tree.locator(".ch", { hasText: "第一章" }).click();
     await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({ timeout: 10000 });
     await page.getByRole("tab", { name: /^正文/ }).click();
+    await page.getByTestId("prose-edit").click(); // c-prose-edit-gate：先进编辑态
     const editor = page.locator(".editor");
     await expect(editor).toBeVisible({ timeout: 5000 });
     await editor.fill("你好 世界");
@@ -332,6 +333,7 @@ test("顶栏续写：回到上次退出前的章与位置", async ({ page }) => 
     for (let i = 0; i < 2 && !saved; i++) {
       await page.reload();
       await page.getByRole("tab", { name: /^正文/ }).click();
+      await page.getByTestId("prose-edit").click(); // c-prose-edit-gate
       const editor = page.locator(".editor");
       await expect(editor).toBeVisible({ timeout: 8000 });
       await editor.fill(LONG);

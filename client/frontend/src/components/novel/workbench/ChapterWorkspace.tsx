@@ -166,10 +166,13 @@ export default function ChapterWorkspace({
   const [showHistory, setShowHistory] = useState(false);
   // 章纲查看/编辑两态（对齐卷纲）：默认查看态，切章回落查看
   const [ogEditing, setOgEditing] = useState(false);
+  // 正文查看/编辑两态（c-prose-edit-gate）：默认只读阅读，切章回落查看
+  const [proseEditing, setProseEditing] = useState(false);
   useEffect(() => {
     setChTab("og");
     setShowHistory(false);
     setOgEditing(false);
+    setProseEditing(false);
   }, [chapterRef]);
 
   // 会员降级兜底：提示词页签 PRO-only，免费态强制回落章纲
@@ -177,20 +180,23 @@ export default function ChapterWorkspace({
     if (!isPro && chTab === "prompt") setChTab("og");
   }, [isPro, chTab]);
 
-  // 生成启动信号（页面解锁链/AiModal 确认后递增）：切正文页签 + 聚焦（真 bug #2）
+  // 生成启动信号（页面解锁链/AiModal 确认后递增）：切正文页签 + 进编辑态 + 聚焦（真 bug #2）
   useEffect(() => {
     if (!aiWriteSignal) return;
     setChTab("prose");
     setShowHistory(false);
+    setProseEditing(true);
     const t = setTimeout(() => proseRef.current?.focus(), 60);
     return () => clearTimeout(t);
   }, [aiWriteSignal, proseRef]);
 
-  // 续写恢复信号（顶栏 CTA）：落正文页签，滚动位置由 ProsePane 按 resumeScroll 恢复
+  // 续写恢复信号（顶栏 CTA）：落正文页签 + 进编辑态（续写＝写作意图），
+  // 滚动位置由 ProsePane 按 resumeScroll 恢复
   useEffect(() => {
     if (!resumeSignal || !resumeSignal.n) return;
     setChTab("prose");
     setShowHistory(false);
+    setProseEditing(true);
   }, [resumeSignal]);
 
   // 稳定标识：按信号记忆化，避免每次渲染生成新对象触发 ProsePane 恢复 effect 重跑
@@ -391,6 +397,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   const handleGoWrite = useCallback(async () => {
     void saveOg();
     setChTab("prose");
+    setProseEditing(true); // 去写正文＝写作意图，直接进编辑态
     // 切页签重渲后才可聚焦
     setTimeout(() => proseRef.current?.focus(), 60);
   }, [saveOg, proseRef]);
@@ -721,6 +728,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       await onTreeRefresh(); // 左树（useWorkbench）：旧稿分组 + 下游角标
       await outline.refetchTree(); // chMeta/落点树（useOutline）
       setChTab("prose");
+      setProseEditing(true); // 重写＝就地改写意图，直接进编辑态
       toast.success(
         d.unarchived
           ? "旧稿已留存 · 本章已解锁：改完归档即写回主线"
@@ -912,6 +920,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         onAIStateChange={onAIStateChange}
         resumeScroll={resumeScrollMemo}
         onWriteProgress={onWriteProgress}
+        editing={proseEditing}
+        onStartEdit={() => setProseEditing(true)}
         locked={
           ghostOf
             ? { reason: "旧稿支线 · 只读" }

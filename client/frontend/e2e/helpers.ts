@@ -143,12 +143,15 @@ export async function addFirstChapterViaTree(page: Page) {
   await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
 }
 
-/** 同上 + 切「正文」→ 编辑器就绪（写正文的用例共用）。 */
+/** 同上 + 切「正文」→「编辑正文」→ 编辑器就绪（写正文的用例共用）。
+ *  c-prose-edit-gate：正文默认只读阅读态，写/改前先进编辑态。 */
 export async function writeFirstChapter(page: Page) {
   await addFirstChapterViaTree(page);
   await page.getByRole("tab", { name: /^正文/ }).click();
+  await page.getByTestId("prose-edit").click();
   const editor = page.locator(".editor");
   await expect(editor).toBeVisible({ timeout: 10000 });
+  await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 10000 });
   return editor;
 }
 

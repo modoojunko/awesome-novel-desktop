@@ -730,7 +730,9 @@ test("预览：只读树 + 只读正文（草稿/归档章皆可读）→ 恢复
     );
     page.once("dialog", (d) => d.accept());
     await page.getByRole("button", { name: "恢复编辑" }).click();
-    // 恢复是异步 POST + 重拉，属性翻转有窗口期，须用可重试的属性断言等它变 "true"
+    // 恢复是异步 POST + 重拉；c-prose-edit-gate：预览往返卸载过工作台（编辑态已复位），
+    // 解锁后落查看态——点「编辑正文」进编辑态再断言可编辑
+    await page.getByTestId("prose-edit").click({ timeout: 10000 });
     await expect(page.locator(".three-col .editor")).toHaveAttribute(
       "contenteditable",
       "true",
