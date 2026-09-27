@@ -448,6 +448,9 @@ export function HistoryModal({
 // ---------------------------------------------------------------------------
 // AI 生成正文（tall；两段式 ai-prompt-crafting：打开展示存量/粗组 →
 // 「AI 润色」→ 作家过目/编辑 →「生成正文」流式追加）
+// c-prompt-tab-retire：提示词页签退役后本弹窗兼任「查看/编辑/存稿」入口——
+// 「存为本章提示词」把编辑稿落库（PUT prompts/write），此后每次生成本弹窗
+// 打开即显示这一版；只查看不生成＝打开后取消（零副作用）。
 // ---------------------------------------------------------------------------
 
 export function AiModal({
@@ -456,6 +459,7 @@ export function AiModal({
   projectId,
   chapterRef,
   onConfirm,
+  onPromptSaved,
 }: {
   open: boolean;
   onClose: () => void;
@@ -463,6 +467,8 @@ export function AiModal({
   chapterRef: string;
   /** 携带编辑后的提示词启动生成 */
   onConfirm: (prompt: string) => void;
+  /** 提示词落库成功（润色或「存为本章提示词」）→ 右栏状态行刷新 */
+  onPromptSaved?: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
   const [hasOutline, setHasOutline] = useState(true);
@@ -473,6 +479,7 @@ export function AiModal({
   const [reloadKey, setReloadKey] = useState(0);
   const [polishing, setPolishing] = useState(false);
   const [polishError, setPolishError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -515,11 +522,30 @@ export function AiModal({
       setPrompt(text);
       setPolished(true);
       toast.success("AI 润色完成 · 已保存，可继续编辑");
+      onPromptSaved?.();
     } catch (e) {
       // 502（润色未过校验/模型出错）不动既有行 → 就地提示可重试
       setPolishError((e as Error)?.message || "润色失败，请重试");
     } finally {
       setPolishing(false);
+    }
+  };
+
+  /** 「存为本章提示词」（c-prompt-tab-retire）：编辑稿落库，此后每次生成沿用 */
+  const handleSavePrompt = async () => {
+    if (saving || !prompt.trim()) return;
+    setSaving(true);
+    try {
+      await api.put(`/novels/${projectId}/chapters/${chapterRef}/prompts/write`, {
+        content: prompt,
+      });
+      setPolished(true);
+      toast.success("已存为本章提示词");
+      onPromptSaved?.();
+    } catch (e) {
+      toast.error((e as Error)?.message || "保存失败，请重试");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -589,6 +615,18 @@ export function AiModal({
           onChange={(e) => setPrompt(e.target.value)}
           data-testid="ai-prompt"
         />
+        {/* 存稿行（c-prompt-tab-retire）：编辑稿落库；不点＝仅本次生成用 */}
+        <div className="ai-prompt-save">
+          <span>直接「生成正文」＝这一版只用于本次；存下来则本章以后每次生成都用它。</span>
+          <button
+            className="btn btn-ghost btn-sm"
+            data-testid="ai-prompt-save"
+            disabled={loading || polishing || saving || !!error || !prompt.trim()}
+            onClick={() => void handleSavePrompt()}
+          >
+            {saving ? "保存中…" : "存为本章提示词"}
+          </button>
+        </div>
       </div>
       {polishError ? (
         <p style={{ margin: 0, fontSize: 12.5, color: "var(--err)" }}>

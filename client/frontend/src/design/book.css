@@ -275,7 +275,7 @@
 .ch-tabs .ch-history { margin-left: auto; flex: none; }
 .wb .view.on.three-col .ch-tabs .ch-history { align-self: center; }
 .prose-ctrls { display: inline-flex; align-items: center; gap: 8px; }
-.og-pane, .prompt-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 26px clamp(20px, 4vw, 48px) 60px; background: var(--bg); }
+.og-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 26px clamp(20px, 4vw, 48px) 60px; background: var(--bg); }
 
 /* ─── 本章进度卡 ───────────────────────────────────────── */
 /* margin-top: 原型未重置 <p> UA 默认（1em@11px=11px）；Tailwind preflight 归零后需显式补回 */
@@ -502,6 +502,9 @@ details.cfg .inner { padding: 4px 14px 14px; }
 .ver-row .cur { font-size: 11px; color: var(--accent); font-family: var(--font-mono); }
 .ai-prompt { width: 100%; min-height: 200px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; resize: vertical; color: var(--fg); }
 .ai-prompt:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+/* 存稿行（c-prompt-tab-retire）：提示词弹窗内「存为本章提示词」 */
+.ai-prompt-save { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.ai-prompt-save span { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
 .ai-tag { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; }
 .ai-tag svg { width: 11px; height: 11px; }
 /* 粘贴文风样本弹窗（c-style-paste-distill）：Modal portal 到 body，须用全局类 */
@@ -1244,20 +1247,8 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .sim-acts { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* ─── prompt-sources：提示词六来源只读展示（src-chips 口径） ────────── */
-.psrc { display: flex; flex-direction: column; gap: 10px; padding: 0 0 4px; }
-.psrc-stats { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px 22px; }
-.psrc-stats li { display: flex; gap: 7px; font-size: 13px; }
-.psrc-stats .k { color: var(--muted); }
-.psrc-stats .v { font-weight: 600; }
 .src-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
 .src-chips em { font-style: normal; font-size: 12.5px; color: var(--muted); }
-.psrc-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
-.psrc-list li { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; font-size: 12.5px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-.psrc-list li.empty { opacity: 0.6; }
-.psrc-list .k { color: var(--muted); }
-.psrc-list .v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.psrc-list .n { color: var(--muted); }
-
 /* ─── hooks-pane：章内伏笔台账投影（storyline hooksHTML 口径） ──────── */
 .hooks-wrap { padding: 16px 20px; }
 .hooks-pane { display: flex; flex-direction: column; gap: 10px; }

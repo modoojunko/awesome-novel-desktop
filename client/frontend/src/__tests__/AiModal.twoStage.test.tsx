@@ -1,11 +1,12 @@
 // ai-prompt-crafting 7.1 — AiModal 两段式交互：
 // 粗组稿标「未润色」+ AI 润色按钮；润色成功换稿换标；失败可重试；
 // 存量（polished）无润色按钮；编辑后确认透传提示词。
+// c-prompt-tab-retire：新增「存为本章提示词」（PUT prompts/write）与 onPromptSaved。
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AiModal } from "@/components/novel/workbench/modals";
 
-const reqState = vi.hoisted(() => ({ request: vi.fn() }));
+const reqState = vi.hoisted(() => ({ request: vi.fn(), put: vi.fn() }));
 const polishState = vi.hoisted(() => ({ polishWritePrompt: vi.fn() }));
 const toastState = vi.hoisted(() => ({
   success: vi.fn(),
@@ -13,11 +14,11 @@ const toastState = vi.hoisted(() => ({
   info: vi.fn(),
 }));
 
-vi.mock("@/lib/api", () => ({ request: reqState.request, api: {} }));
+vi.mock("@/lib/api", () => ({ request: reqState.request, api: { put: reqState.put } }));
 vi.mock("@/lib/ai", () => ({ polishWritePrompt: polishState.polishWritePrompt }));
 vi.mock("@/lib/toast", () => ({ toast: toastState }));
 
-function renderModal(onConfirm = vi.fn()) {
+function renderModal(onConfirm = vi.fn(), onPromptSaved = vi.fn()) {
   render(
     <AiModal
       open
@@ -25,13 +26,15 @@ function renderModal(onConfirm = vi.fn()) {
       projectId="p1"
       chapterRef="vol-1-ch-1"
       onConfirm={onConfirm}
+      onPromptSaved={onPromptSaved}
     />,
   );
-  return onConfirm;
+  return { onConfirm, onPromptSaved };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  reqState.put.mockResolvedValue({});
   reqState.request.mockResolvedValue({
     prompt: "## 角色定位\n粗组稿",
     has_outline: true,
@@ -97,8 +100,27 @@ describe("AiModal 两段式", () => {
     );
   });
 
+  it("存为本章提示词：PUT prompts/write + 转存量标 + onPromptSaved", async () => {
+    reqState.put.mockResolvedValue({});
+    const { onPromptSaved } = renderModal();
+    await screen.findByTestId("ai-prompt");
+    fireEvent.change(screen.getByTestId("ai-prompt"), {
+      target: { value: "## 任务指示\n作家存稿" },
+    });
+    fireEvent.click(screen.getByTestId("ai-prompt-save"));
+    await waitFor(() =>
+      expect(reqState.put).toHaveBeenCalledWith(
+        "/novels/p1/chapters/vol-1-ch-1/prompts/write",
+        { content: "## 任务指示\n作家存稿" },
+      ),
+    );
+    await screen.findByTestId("ai-polished-tag");
+    expect(toastState.success).toHaveBeenCalledWith("已存为本章提示词");
+    expect(onPromptSaved).toHaveBeenCalled();
+  });
+
   it("编辑后「生成正文」透传当前提示词", async () => {
-    const onConfirm = renderModal();
+    const { onConfirm } = renderModal();
     await screen.findByTestId("ai-prompt");
     fireEvent.change(screen.getByTestId("ai-prompt"), {
       target: { value: "## 任务指示\n作家手改稿" },

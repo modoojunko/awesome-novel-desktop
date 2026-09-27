@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { strategyLineOf } from "@/components/novel/workbench/SimModal";
 import SimModal from "@/components/novel/workbench/SimModal";
-import PromptPane from "@/components/novel/workbench/PromptPane";
 import type { SimResult } from "@/lib/plotSim";
 
 // ---------------------------------------------------------------------------
-// plot-sim（剧情推演弹窗）＋ prompt-sources（提示词六来源展示）
+// plot-sim（剧情推演弹窗）
+// c-prompt-tab-retire：PromptPane 六来源展示随提示词页签退役删除
 // 四期尾行为：回合推进需先选走法；走完全程才出现「收进章纲」；
 // 走法行 = 任一回合一「拗」则中途接意外（原型 simAdopt 口径）。
 // ---------------------------------------------------------------------------
@@ -15,9 +15,6 @@ const apiState = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("@/lib/api", () => ({ request: apiState.request }));
 vi.mock("@/lib/toast", () => ({
   toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
-}));
-vi.mock("@/components/novel/PromptManagementPage", () => ({
-  default: () => <div data-testid="pm-stub" />,
 }));
 
 const SIM: SimResult = {
@@ -120,44 +117,6 @@ describe("SimModal", () => {
       expect(onAdopt).toHaveBeenCalledWith(
         "推演走法 · 中途先接一次意外，再拉回主线",
       ),
-    );
-  });
-});
-
-describe("PromptPane 六来源", () => {
-  it("渲染六处来源 chips 与只读清单（未填标注）", async () => {
-    apiState.request.mockResolvedValue({
-      sources: [
-        { key: "book", label: "全书设定", chars: 12, preview: "故事前提：……", empty: false },
-        { key: "volume", label: "大纲 · 卷纲", chars: 0, preview: "", empty: true },
-        { key: "outline", label: "本章章纲", chars: 30, preview: "章纲概要：……", empty: false },
-        { key: "style", label: "全书文风 ＋ 本章调整", chars: 40, preview: "本章覆盖：……", empty: false },
-        { key: "hooks", label: "伏笔进展 · 截至上一章", chars: 10, preview: "谁在暗中跟着她", empty: false },
-        { key: "cast", label: "本章涉及角色", chars: 8, preview: "林晚：", empty: false },
-      ],
-      total_chars: 100,
-      cast_count: 1,
-    });
-    render(
-      <PromptPane projectId="p1" chapterRef="vol-1-ch-2" title="第 2 章" hasPrompts={false} />,
-    );
-    const box = await screen.findByTestId("prompt-sources");
-    expect(box.textContent).toContain("6 处");
-    expect(box.textContent).toContain("100 字");
-    for (const label of [
-      "全书设定",
-      "大纲 · 卷纲",
-      "本章章纲",
-      "全书文风 ＋ 本章调整",
-      "伏笔进展 · 截至上一章",
-      "本章涉及角色",
-    ]) {
-      expect(box.textContent).toContain(label);
-    }
-    expect(box.textContent).toContain("未填 · 不参与组装");
-    expect(apiState.request).toHaveBeenCalledWith(
-      "/novels/p1/chapters/vol-1-ch-2/prompt-sources",
-      { quiet: true },
     );
   });
 });

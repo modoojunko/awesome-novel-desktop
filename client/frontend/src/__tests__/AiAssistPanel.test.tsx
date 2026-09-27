@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AiAssistPanel } from "@/components/novel/workbench/AiAssistPanel";
 
 // ---------------------------------------------------------------------------
@@ -10,8 +10,11 @@ import { AiAssistPanel } from "@/components/novel/workbench/AiAssistPanel";
 // 注意：模板行点击经 busyRef 在途互斥（同 tick 连点会被吞），连续点击需 await act。
 // ---------------------------------------------------------------------------
 
-const apiState = vi.hoisted(() => ({ get: vi.fn() }));
-vi.mock("@/lib/api", () => ({ api: apiState }));
+const apiState = vi.hoisted(() => ({ get: vi.fn(), request: vi.fn() }));
+vi.mock("@/lib/api", () => ({
+  api: apiState,
+  request: apiState.request,
+}));
 
 const OG_STATS = {
   reqOk: 1, // 必填两项里已填一项（分母＝REQ_FIELDS.length）
@@ -51,6 +54,7 @@ async function clickRow(name: RegExp) {
 
 beforeEach(() => {
   apiState.get.mockReset().mockRejectedValue(new Error("no stubs"));
+  apiState.request.mockReset().mockRejectedValue(new Error("no stubs"));
 });
 
 describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
@@ -91,13 +95,32 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     expect(last.disabled).toBe(true);
   });
 
-  it("正文页签：统计进作用域行＋五动作行；选中才可点（走 onAiSelection）", async () => {
+  it("正文页签：统计＋提示词状态进作用域行；动作行含精修；选中才可点（走 onAiSelection）", async () => {
     const onAiSelection = vi.fn();
-    renderPanel("prose", { onAiSelection });
+    const onPromptRefine = vi.fn();
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.endsWith("/prompt-sources")) return { total_chars: 1234, cast_count: 3 };
+      throw new Error("unexpected " + p);
+    });
+    apiState.request.mockImplementation(async (p: string) => {
+      if (p.endsWith("/prompts")) return [];
+      throw new Error("unexpected " + p);
+    });
+    renderPanel("prose", { onAiSelection, onPromptRefine });
     const target = document.querySelector(".ai-target")?.textContent ?? "";
     expect(target).toContain("500 字");
     expect(target).toContain("28%"); // 500/1800
     expect(screen.getByText("AI 助手 · 正文")).toBeTruthy();
+    // c-prompt-tab-retire：提示词状态与组装来源收编正文页签作用域行（懒取回填后）
+    await waitFor(() =>
+      expect(document.querySelector(".ai-target")?.textContent).toContain("组装来源 1,234 字"),
+    );
+    expect(document.querySelector(".ai-target")?.textContent).toContain("自动组装");
+    // 精修两行随提示词页签退役收编（提案制）
+    await clickRow(/补全负向约束/);
+    expect(onPromptRefine).toHaveBeenCalledWith("negative");
+    await clickRow(/精简提示词/);
+    expect(onPromptRefine).toHaveBeenCalledWith("concise");
     // 未选中 → 润色/扩写/压缩禁用并带 hint
     const polish = screen.getByRole("button", { name: /段落润色/ }) as HTMLButtonElement;
     expect(polish.disabled).toBe(true);
@@ -119,26 +142,6 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
       fireEvent.click(btn);
     });
     expect(onAiSelection).toHaveBeenCalledWith("compress", capture);
-  });
-
-  it("提示词页签：拉取组装来源统计（作用域行）；精修两动作接线（「重新组装」已撤）", async () => {
-    apiState.get.mockImplementation(async (p: string) => {
-      if (p.endsWith("/prompt-sources")) return { total_chars: 1234, cast_count: 3 };
-      throw new Error("unexpected " + p);
-    });
-    const onPromptRefine = vi.fn();
-    renderPanel("prompt", { onPromptRefine });
-    expect(screen.getByText("AI 助手 · 提示词")).toBeTruthy();
-    await screen.findByText(/1,234 字/);
-    expect(screen.getByText(/3 人/)).toBeTruthy();
-    // 与提示词页签内「AI 润色」同动作 → 不设入口（ADJUSTMENTS #27 ⑫）
-    expect(screen.queryByRole("button", { name: /重新组装提示词/ })).toBeNull();
-    await clickRow(/补全负向约束/);
-    expect(onPromptRefine).toHaveBeenCalledWith("negative");
-    await clickRow(/精简提示词/);
-    expect(onPromptRefine).toHaveBeenCalledWith("concise");
-    // 只请求 prompt-sources（页签感知）
-    expect(apiState.get).toHaveBeenCalledTimes(1);
   });
 
   it("设定/关系/伏笔三入口按类触发收尾（未归档禁用）", async () => {

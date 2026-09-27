@@ -48,6 +48,8 @@ export interface RailChapterData {
   onPromptRefine?: (mode: RefineMode) => void;
   /** 文风「AI 建议本章调整」触发（StyleShadowPane 信号拉取；2026-09-20 入口收口右栏） */
   onStyleSuggest?: () => void;
+  /** 提示词落库信号（c-prompt-tab-retire）：弹窗润色/存稿后右栏提示词状态行刷新 */
+  promptSavedSignal?: number;
 }
 
 interface RailProps {
@@ -146,6 +148,7 @@ export default function Rail({
           onAiCheck={d.onAiCheck}
           onPromptRefine={d.onPromptRefine}
           onStyleSuggest={d.onStyleSuggest}
+          promptSavedSignal={d.promptSavedSignal}
           onRunReconcile={(kind) => {
             const ref = d.chapterRef;
             if (!ref) return;
