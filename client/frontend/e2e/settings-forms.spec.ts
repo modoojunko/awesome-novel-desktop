@@ -643,9 +643,8 @@ test("预览：只读树 + 只读正文（草稿/归档章皆可读）→ 恢复
     await page.getByRole("button", { name: "归档本章" }).click();
     await page.getByTestId("arch-confirm").click();
     try {
-      await expect(page.getByText(/本章已归档 · 只读/).first()).toBeVisible({
-        timeout: 10000,
-      });
+      // 头部「已归档」徽章（c-rail-ai-only：右栏归档卡退役，只读横幅在正文页签）
+      await expect(page.locator(".e-meta")).toContainText("已归档", { timeout: 10000 });
     } finally {
       page.off("dialog", onDlg);
     }

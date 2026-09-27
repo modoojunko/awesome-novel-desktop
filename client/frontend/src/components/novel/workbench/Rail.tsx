@@ -1,13 +1,14 @@
 // 右栏（book.html .col-ai 复刻）：
 //   卷选中 → AI 辅助·卷语境（随卷页签切换引导语＋统计卡；VolumeAssistPanel，无占位卡）
-//   章选中 → AI 辅助·本章 + 本章进度卡（大百分数/进度条/目标字数就地编辑）
+//   章选中 → 纯 AI 助手（随页签切换的 AiAssistPanel＋AI 工具卡）
+//   本章进度卡已退役（c-rail-ai-only 2026-09-27）：字数/完成度/本书总字数并入
+//   中栏头部 e-meta 徽章行，右栏 SHALL 只承载 AI 相关功能。
 // 免费态与原型逐像素一致；PRO 态把续写/润色/扩写升为真实工具卡
 // （应用侧已有功能，换皮不减功能；原型标「规划中」——已登记 ADJUSTMENTS）。
 // AI 写入工具全部经 onAi* 走页面级解锁链（归档章先弹「解除只读」，真 bug #1）。
-import { useState, type RefObject } from "react";
+import type { RefObject } from "react";
 import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { toast } from "@/lib/toast";
-import { DEFAULT_TARGET } from "@/hooks/useChapterData";
 import { AiAssistPanel, type OgStats } from "./AiAssistPanel";
 import {
   VolumeAssistPanel,
@@ -79,8 +80,6 @@ interface RailProps {
   onAiSelection: (mode: "polish" | "expand" | "compress", capture: ReturnType<ProseHandle["captureNow"]>) => void;
 }
 
-const fmt = (n: number) => n.toLocaleString("zh-CN");
-
 function ProStar({ size = 10 }: { size?: number }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" width={size} height={size}>
@@ -141,9 +140,6 @@ export default function Rail({
   onAiContinue,
   onAiSelection,
 }: RailProps) {
-  const [editingTarget, setEditingTarget] = useState(false);
-  const [targetDraft, setTargetDraft] = useState("");
-
   if (mode === "volume") {
     // 卷语境右栏（volume-plan-ai 三态：验证面板 / 规划入口 / 接着往下规划＋卷的验证）
     return (
@@ -164,17 +160,6 @@ export default function Rail({
 
   const d = data;
   const words = d?.wordCount ?? 0;
-  const target = d?.targetWords ?? DEFAULT_TARGET;
-  const pct = Math.min(100, Math.round((words / target) * 100));
-
-  const commitTarget = () => {
-    setEditingTarget(false);
-    const v = parseInt(targetDraft, 10);
-    if (v > 0 && d) {
-      d.setTargetWords(v);
-      toast.success("目标字数已更新");
-    }
-  };
 
   const TAB_NAME: Record<string, string> = {
     og: "章纲", prompt: "提示词", prose: "正文", settings: "设定",
@@ -332,85 +317,8 @@ export default function Rail({
         />
       )}
 
-      <p className="ai-sec">本章进度</p>
-      <div className="pct">
-        {pct}
-        <span className="sub">%</span>
-      </div>
-      <div className="pbar">
-        <i style={{ width: `${pct}%` }} />
-      </div>
-      <div className="target-row">
-        <span>目标字数</span>
-        <span>
-          <button
-            className="edit num"
-            hidden={editingTarget}
-            onClick={() => {
-              setTargetDraft(String(target));
-              setEditingTarget(true);
-            }}
-          >
-            {fmt(target)}
-          </button>
-          <input
-            className="num"
-            hidden={!editingTarget}
-            type="number"
-            min={100}
-            step={100}
-            value={targetDraft}
-            onChange={(e) => setTargetDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitTarget();
-              else if (e.key === "Escape") setEditingTarget(false);
-            }}
-            onBlur={commitTarget}
-            ref={(el) => {
-              if (el) {
-                el.focus();
-                el.select();
-              }
-            }}
-          />
-        </span>
-      </div>
-      <p className="progress-note">
-        {d?.archived ? (
-          <>本章已归档 · 正文锁定。</>
-        ) : words === 0 ? (
-          <>写下第一段，开始本章。</>
-        ) : pct >= 100 ? (
-          <>已达成目标 · 可以归档本章了。</>
-        ) : (
-          <>
-            再写 <b className="num">{fmt(Math.max(0, target - words))}</b> 字，完成本章目标。
-          </>
-        )}
-      </p>
-      {d?.archived && (
-        <div className="arch-card">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <rect x="4" y="10" width="16" height="10" rx="2" />
-            <path d="M8 10V7a4 4 0 018 0v3" />
-          </svg>
-          <span>本章已归档 · 只读查看</span>
-        </div>
-      )}
-      <div className="mini-stat">
-        <div className="row">
-          <span>本书总字数</span>
-          <b className="num">{fmt(d?.bookWords ?? 0)}</b>
-        </div>
-        <div className="row">
-          <span>本章草稿</span>
-          <b className="num">{fmt(words)}</b>
-        </div>
-        <div className="row">
-          <span>目标达成</span>
-          <b className="num">{pct}%</b>
-        </div>
-      </div>
+      {/* 本章进度卡已退役（c-rail-ai-only）：字数/完成度/本书总字数并入中栏头部
+          e-meta 徽章行，目标字数改值走章纲「本章目标字数」格与本书偏好。 */}
     </div>
   );
 }
