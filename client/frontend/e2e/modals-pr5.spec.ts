@@ -242,7 +242,8 @@ test("解锁链：归档章点 AI → 解除只读 → AiModal 提示词；确�
     );
     await save1;
 
-    // 归档（React 弹窗确认）→ 只读横幅 + 编辑器只读
+    // 归档（React 弹窗确认）→ 只读横幅 + 编辑器只读；入口在操作页签（2026-09-27 自头部移入）
+    await page.getByRole("tab", { name: /^操作/ }).click();
     await page.getByRole("button", { name: "归档本章" }).click();
     await page.getByTestId("arch-confirm").click();
     await expect(page.getByText(/本章已归档 · 只读/).first()).toBeVisible({

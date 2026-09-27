@@ -1,6 +1,9 @@
 // 章对象工作台（storyline.html 章编辑器复刻）：
-//   头部（卷名 kicker + 章标题 + 状态徽章；排版 seg/专注/版本历史/归档收在头部右侧，
+//   头部（卷名 kicker + 章标题 + 状态/章纲统计徽章行；专注收在头部右侧，
 //   页签条紧贴头部——与卷视图同位，原型 e-head→e-toolbar 两段式；AI 入口全部在右栏）
+//   2026-09-27 用户拍板收敛：章纲统计（归档门槛/计划字数/剧情/出场角色）自右栏
+//   AI 助手上移头部 meta 行；字号/行距 seg 撤（入口在账号菜单「本书偏好」）；
+//   版本历史移页签行右端；归档移操作页签卡片。
 //   八页签（章纲/正文/提示词/设定/文风/角色关系/伏笔/操作）· 点章强制落章纲
 //   正文常驻挂载 hidden 切换（脏状态/流式现场不丢）
 //   底部状态栏（字数 + 保存四态聚合 + AI 流式指示 + 停止）
@@ -61,10 +64,6 @@ import {
   getBookArchiveAiSummary,
   getBookFontSize,
   getBookLineHeight,
-  setBookFontSize,
-  setBookLineHeight,
-  type FontSizePref,
-  type LineHeightPref,
 } from "@/lib/prefs";
 import { toast } from "@/lib/toast";
 import { chapterNoOf, volNoOf } from "@/lib/chapterRef";
@@ -260,6 +259,12 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
   const gaps = ogGaps(ogForm);
   const confirmed = ogStatus === "confirmed";
+  // 章纲统计（头部 meta 行徽章；口径与 onRailData 上抛右栏的一致——一处算头、一处算栏）
+  const plotCount = ogForm.plots.filter((x) => x.trim()).length;
+  const castLines = ogForm.chars.split("\n").filter((x) => x.trim());
+  const wtParsed = parseInt(ogForm.wt, 10);
+  const planWords =
+    Number.isFinite(wtParsed) && wtParsed > 0 ? wtParsed : (targetWords ?? null);
 
   /** 回改「本章结尾」不静默（c-chapter-plan-ai D14）：下一章已排上 → 一次性提示，
    *  并刷新树让下一章的「基于旧设定」标记上屏（置位在服务端章保存事务内完成）。 */
@@ -619,12 +624,15 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     };
   }, [projectId, chapterRef, isPro]);
 
-  // ── 排版偏好（per-book：pref.book.{pid}.*，全局默认兜底） ─────────────
-  const [fs, setFs] = useState<FontSizePref>(() => getBookFontSize(projectId));
-  const [lh, setLh] = useState<LineHeightPref>(() => getBookLineHeight(projectId));
+  // ── 排版偏好（per-book：pref.book.{pid}.*，全局默认兜底）。
+  //    页内字号/行距切换控件已撤（2026-09-27）：只读回显供 ProsePane 排版，
+  //    改值入口在账号菜单「本书偏好」（BookPrefsModal，切书时重读）。 ─────────────
+  const [typo, setTypo] = useState(() => ({
+    fs: getBookFontSize(projectId),
+    lh: getBookLineHeight(projectId),
+  }));
   useEffect(() => {
-    setFs(getBookFontSize(projectId));
-    setLh(getBookLineHeight(projectId));
+    setTypo({ fs: getBookFontSize(projectId), lh: getBookLineHeight(projectId) });
   }, [projectId]);
 
   // ── 专注模式：body.focus + Esc 退出（卸载兜底清 class） ───────────────
@@ -790,50 +798,15 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           <div className="e-meta">
             <span className="tag">{archived ? "已归档" : wordCount ? "草稿" : "拟定"}</span>
             <span className="tag">{fmt(wordCount)} 字</span>
+            <span className="tag">
+              归档门槛 {REQ_FIELDS.length - gaps.length}/{REQ_FIELDS.length}
+            </span>
+            <span className="tag">计划字数 {planWords ? `${fmt(planWords)} 字` : "未定"}</span>
+            <span className="tag">剧情 {plotCount} 条</span>
+            <span className="tag">出场角色 {castLines.length} 人</span>
           </div>
         </div>
         <span className="prose-ctrls">
-          <span className="seg" role="group" aria-label="字号">
-            {(
-              [
-                ["fs-s", "小"],
-                ["fs-m", "中"],
-                ["fs-l", "大"],
-              ] as [FontSizePref, string][]
-            ).map(([v, t]) => (
-              <button
-                key={v}
-                className={fs === v ? "on" : undefined}
-                onClick={() => {
-                  setFs(v);
-                  setBookFontSize(projectId, v);
-                }}
-              >
-                {t}
-              </button>
-            ))}
-          </span>
-          <span className="seg" role="group" aria-label="行距">
-            {(
-              [
-                ["lh-tight", "紧凑"],
-                ["lh-comfy", "舒适"],
-                ["lh-loose", "宽松"],
-              ] as [LineHeightPref, string][]
-            ).map(([v, t]) => (
-              <button
-                key={v}
-                className={lh === v ? "on" : undefined}
-                onClick={() => {
-                  setLh(v);
-                  setBookLineHeight(projectId, v);
-                }}
-              >
-                {t}
-              </button>
-            ))}
-          </span>
-          <span className="tsep" />
           <button
             className="icon-btn"
             title="专注模式"
@@ -846,17 +819,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
             </svg>
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setShowHistory(true)}>
-            版本历史
-          </button>
-          <button
-            className="btn btn-secondary btn-sm"
-            disabled={archived || wordCount === 0}
-            title={archived ? "本章已归档" : wordCount === 0 ? "空章无需归档" : undefined}
-            onClick={() => setShowArchive(true)}
-          >
-            归档本章
           </button>
         </span>
       </header>
@@ -885,6 +847,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             {text} <span className={cnt.cls}>{cnt.text}</span>
           </button>
         ))}
+        {/* 版本历史（2026-09-27 自头部右侧移入页签行右端；弹窗不变） */}
+        <button className="btn btn-ghost btn-sm ch-history" onClick={() => setShowHistory(true)}>
+          版本历史
+        </button>
       </div>
 
       {chTab === "prose" && archived && (
@@ -909,8 +875,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         ref={proseRef}
         projectId={projectId}
         chapterRef={chapterRef}
-        fs={fs}
-        lh={lh}
+        fs={typo.fs}
+        lh={typo.lh}
         hidden={chTab !== "prose"}
         onAIStateChange={onAIStateChange}
         resumeScroll={resumeScrollMemo}
@@ -958,6 +924,25 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
       {chTab === "actions" && (
         <div className="actions-pane" data-od-id="actions-pane">
+          {/* 归档（2026-09-27 自头部移入操作页签；弹窗与守卫不变；旧稿支线无归档语义） */}
+          {!ghostOf && (
+            <div className="revert-card" data-od-id="archive-card">
+              <p className="rc-title">归档本章</p>
+              <p className="rc-desc">
+                归档后本章写回主线、正文转只读；设定/关系/伏笔的写回提案在下方逐条确认。
+              </p>
+              <button
+                className="btn btn-secondary btn-sm"
+                data-od-id="archive-btn"
+                data-testid="archive-btn"
+                disabled={archived || wordCount === 0}
+                title={archived ? "本章已归档" : wordCount === 0 ? "空章无需归档" : undefined}
+                onClick={() => setShowArchive(true)}
+              >
+                归档本章
+              </button>
+            </div>
+          )}
           {!ghostOf && (store.chapter?.prose ?? "").trim().length > 0 && (
             <div className="revert-card" data-od-id="rewrite-card">
               <p className="rc-title">重写这一章</p>

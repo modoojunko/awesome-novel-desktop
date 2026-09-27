@@ -15,7 +15,7 @@ import { cleanupSessionNovels, pageSettled, stableClick, writeFirstChapter } fro
 // 与 creation-flow.spec.ts 共享鉴权手法：S端 真实注册登录 → 写 docker 容器的
 // config.json（tier="none"）→ localStorage 注入 auth_token。docker 4 服务需已启动。
 
-const S_API = "http://127.0.0.1:19000/api/web";
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 const CONFIG_PATH = path.join(
   process.cwd(),
@@ -262,7 +262,8 @@ test("免费归档：不 500，正文只读，树已归档即时同步", async (
     await expect(barHere.locator(".bh-t")).toHaveText("第 1 章");
     await expect(barHere).toContainText("第一卷 · 0/1");
 
-    // 触发归档（PR 5：React 弹窗确认；免费档无 AI 摘要弹窗）
+    // 触发归档（PR 5：React 弹窗确认；免费档无 AI 摘要弹窗）；入口在操作页签（2026-09-27 自头部移入）
+    await page.getByRole("tab", { name: /^操作/ }).click();
     await page.getByRole("button", { name: "归档本章" }).click();
     await page.getByTestId("arch-confirm").click();
 
