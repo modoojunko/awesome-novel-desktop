@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>写作工作台 · 盘点出场人物 · 爱小说 C端 · 设计稿</title>
+<!-- ═════════════════════════════════════════════════════════════
+  爱小说 C端 · 「章纲页人物精盘（识别新角色→抽卡→入册）」高保真设计稿
+  2026-09-27 · v2（四路评审收口版）· 对应 openspec change c-character-intro
+  ── v2 评审收口（产品/UX/前端/后端 09-27，P0 全落＋P1 择要）─────
+  · 弹窗定名「盘点出场人物」（与入口同词，「人物精盘」退役）；
+    宽度与拆章弹窗同为 940（v1 注释「加宽版」有误，改准）。
+  · 免费锁定＝按钮级（缺口卡内「抽卡选人」禁点＋按钮外 PRO 标＋升级
+    出口＋「自己填一个」），v1 的「免费锁定假卡场景」删除——免费态
+    不调生成端点，真卡面不可能存在，画出来即门控自相矛盾（P0）。
+  · 申报页两出口各自独立落账：「只加名单，先不建卡」（次）／
+    「建卡并写入章纲」（主）；行级没卡标记的建卡入口保留但只预填
+    称呼（零新存储下提案字段无处存活——评审裁决，spec 同步重写）。
+  · 新增失败/未配模型态（⑨）：三出口（重试/去模型配置/先不盘点——盘点失败无「自己填」，v2.4 修），
+    未配模型给「先去模型配置接一个」＋跳转出口（判据照 useChapterPlan
+    先例）。失败态缺口补齐（P0）。
+  · 多缺口演示：剧情 4 第二缺口（已延后·中性观感）——每缺口独立
+    三选一与抽卡，互不影响；改段/延后=缺口卡转已处理观感＋补救出口
+    （「关掉弹窗，去改剧情」），残留的「自己填名字」入口随处理隐藏。
+  · 文案人话化（§13）：「不落库」→「不会改动你的任何内容」；
+    「聚合」→「自动汇总」；「申报」→「写入前最后改一遍」；
+    「功能位」→「缺的人」；「已落账」→「已写入」。
+  · 配额句改区间软话术并和 spec 5–8 对齐（v1 误写「≤5」）：「本卷刚
+    开始，有名有姓的角色一般 5–8 个就够讲……只影响 AI 建议，自己填
+    名单永远不受限」。
+  · 状态语言归位：cr-opt 选中改 accent-soft（accent 实底是 btn-primary
+    档，防「第四种胶囊」）；PRO 角标移出主按钮（accent-on-accent 实测
+    不可见）；cr-opt/pick-grid 补 role=radio/radiogroup＋aria-checked；
+    落账回执补 aria-live。
+  ── v2.1 文案人话化（09-27 用户反馈：「可扛不可扛」看不懂）────
+  · 三分类标签改人话，且即闭集取值（UI/模型输出同词，零映射层）：
+    旧人可扛→老角色能演／无名可扛→不起名也行／无人可扛→缺一个新角色。
+  · 卡面与表单标签改人话：功能定位→他是干什么的｜进场方式→怎么出场｜
+    退场计划→怎么退场｜为何不用旧人→老角色为什么不行｜评分三行→
+    合不合适／差别在哪／好不好落地；「缺口」话术→「缺的人」；
+    「泛称建议」→「不起名的话，叫他」。
+  ── v2.2 对齐线上统一布局（09-27，c-ai-rail-shared #515 一族）────
+  · 右栏换装全局统一 ra-* 模版（逐字对齐 book.css）：每页签一张
+    rail-assist 卡＝ra-head（plan-badge＋标题＋状态副行）＋ ai-target
+    作用域行（原统计卡口径）＋ ra-step 能力行（名称＋会读什么/落到哪
+    ＋箭头）＋ ra-foot 来源/去向声明；旧 rail-stats/rail-acts/ai-tool
+    形态随 #506/#510/#515 退役，本稿同步。
+  · 统计上移：归档门槛/计划字数/剧情/出场角色等徽章行＝中栏头部
+    e-meta 八枚（c-og-rail-declutter＋c-rail-ai-only），右栏不再有
+    统计卡与「本章进度」块。
+  · 入口形态换代（评审「自立人物区块」决策让位）：盘点出场人物＝
+    ra-step 能力行（第 5 行），行级门控照卷面板先例——盘点行免费
+    可点、PRO 行 ra-off＋「需 PRO」提示（demo ⑥ 缺人（免费态）同屏
+    演示免费行级形态，account 徽随动）。ra-off 词汇是统一模版自带，
+    评审时「动作清单整块置灰」的问题被它原生解决。
+  · 行描述沿统一口径「会做什么＋落到哪」；PRO 行文案照线上原文。
+  ── v2.3 二轮评审收口（09-27，产品/前端/后端/架构师）──────────
+  · P0-1 评分阈值改「≥2 项第一＝S（至多一张）、1 项＝A、0 项＝B」——
+    三维只有 3 个第一名，原「≥3=S」需横扫数学上不可达；A/B 角标补
+    小字（也行/备选）。
+  · P0-2 exclude 差异单位定稿「轴＋人设句」组合（批内三轴闭集齐出、
+    轴必然批间复用，禁轴本身不可满足）；底注改「换一批避开已出的
+    人物路数（同轴只换人设）」。
+  · P0-3 三选一预填＝suggest 字段（加人/改段/延后，不恒为加人），
+    预填项带「AI 建议」标，作者改动后消失。
+  · P0-4 多缺人回程：写入后回盘点结果页（缺口行转已处理），全部
+    处理完才收场；还有剩余时回执补「本章还有 N 个缺的人没处理」。
+  · P0-5 #513 只读两态：没卡标记/建卡入口查看态与编辑态都承接；
+    写入章纲＝显式落账不切编辑态（成功同步 ogSnapRef 是正确性要求）。
+  · P0-6 ra-off/ra-hint/ai-target 五条在 book.css 是 .settings-v 作用
+    域——实现须去前缀并跑设定/卷/写作三域右栏回归（v2.2「逐字对齐」
+    声明据此修正）。
+  · P0-7 chapter_split 规则 2 补句走 chapter-plan-ai MODIFIED delta
+    （该 spec 钉死「主体十条硬规则零改动」，钉词测试同步）。
+  · 新态⑩抽卡中／⑪抽卡失败（三出口）；壳层刷新＝七页签（提示词
+    退役/文风/角色关系/伏笔）＋REQ_FIELDS 分母 2；account 徽免费态
+    随动；名词统一「角色表／本章出场角色／本卷出场清单」（契约词「出场名单」＝UI 字段「出场角色」同一物）。
+  ── 边界注记（有 spec 场景、稿面不单占态）──────────────
+  · 空章防呆：留存格与剧情条目全空→入口行禁用，hint「先写剧情再盘点」。
+  · 归档章：入口行禁用，hint「本章已归档」。
+  · 建卡撞同名（409）：名单照写，提示「已有同名卡，名单会自动挂上」；
+    建卡成功但名单保存失败→重试只走名单写入，提示「卡已建好，这就
+    把名字写进名单」。
+  · 没卡警告上屏：保存返回的「按原文保留」警告走 toast/名单区行内
+    （保存、自动保存、写入三路径都消费）。
+  · 免费降档恢复：localStorage 恢复按档位裁剪——免费档只恢复盘点
+    结果与三选一，卡面不恢复（不展示任何 AI 生成卡面）。
+  · 关窗语义：关窗丢格子改动；已选卡与批次随抽卡会话保留。
+  · 判不出来的段：呈现「这一段没判出来」警示行＋重试入口（不静默少行）。
+  · 建卡失败（非撞名）：重试出口＋可改走「只加名单」，格内改动保留。
+  · suggest 出界缺省时打「默认」而非「AI 建议」标；一段只判缺一个（缺多个写最缺的，其余在依据短句点一句）。
+  ── 流程口径（对应 spec，v2.2 起入口＝统一卡片 ra-step 行）────
+  · 入口＝章纲页右栏「AI 助手 · 章纲」统一卡片的能力行「盘点出场
+    人物」（行级门控：盘点行免费、生成类行 ra-off＋「需 PRO」；旧
+    「自立人物区块」口径已废，见 v2.2 注释）。
+  · 弹窗十一态：盘点中 → 盘点结果（逐段三分类＋缺人三选一·多条缺人
+    各自独立）→ 零新增（一行收场）→ 抽卡三方向（PRO；≥2 个第一＝S
+    角标＋换一批＋从头再来＋返回盘点结果）→ 抽卡中 → 抽卡失败（三
+    出口）→ 缺人·免费态（按钮级锁定）→ 写入前确认（选卡＝预填＋返
+    回换一张；手填＝空格，两形态）→ 写入后回结果页（多缺人回程）→
+    失败/未配模型。
+  · 落账三处同步：角色表多一卡（建卡，作者点按）／本章出场角色多一
+    名字（走既有章纲保存链）／本卷出场清单自动汇总（派生，无独立编辑）。
+  · 硬底线：AI 永远不写角色卡；评估对象＝作者已定的剧情（剧情条目），
+    不推演剧情；零新增是常态输出；三选一预填按缺口上下文给出、
+    不恒为「加人」。
+  ── 文件性质 ───────────────────────────────────────────────
+  drafts/ 设计稿：全静态、零后端、vanilla JS 演示；token 与组件
+  词汇逐字取自实现（base.css／book.css／AiAssistPanel／
+  ChapterPlanModal 口径）。十一态右上角切换（演示条非产品 UI）。
+  新词与值差逐类登记（tasks 0.2③ 对照表）：cr-* 家族（cr-row/cr-top/
+  cr-no/cr-tx/cr-why/cr-who/cr-gap/cr-pick/cr-opt/cr-sug/cr-done）、
+  g-head/g-why/g-act/g-done、lock-card、no-card、pick-foot .push、
+  pick-busy .none、badge-muted；值差复用（rp-dot 7px、pick-error
+  .edit-bar、kicker）随 ADJUSTMENTS 登记。落账回执实现时用 toast
+  sticky 回执（先例 plot 采纳回执），稿内横条仅为演示。
+  ── v2.4 三轮评审收口（09-27）──────────────────────
+  · 确认页两形态：选卡进＝预填＋「返回换一张」；手填进＝空格表单
+    无返回（免费手填路径不再露出任何 AI 预填——付费分割命门）。
+    free-mode 跟档位不跟场景（s5b 起免费、s6/s7 继承）。
+  · 会话失效判据只盖剧情输入（条目＋留存格），落账写名字不失效；
+    「重新盘点」＝整章重跑＋按条目对回（未改条目处理记录沿用、
+    改过条目重来；gapId 锚段 idx）。
+  · 评分并列口径：名次唯一第一才计分（并列不计该维）；阈值按维数
+    传参（3 维 ≥2=S、拆章 4 维 ≥3=S 不变）。
+  · ⑧「已写入」卡归位剧情 3 行下；回执两出口都带本卷出场清单变化
+    并显式写「本章的缺的人都处理完了」（有剩余时为「本章还有 N 个
+    缺的人没处理」）。
+  · ⑨ 失败态出口＝重试/去模型配置/先不盘点（盘点失败无「自己填」——
+    缺谁未知）；词统一「抽卡」；换一批文案去黑话；「AI 建议」标随
+    改选消失。
+═══════════════════════════════════════════════════════════════ -->
+<style>
+/* ═══ tokens（与全站一致，取自 pages/works.html 注入口径）═══ */
+:root {
+  --bg:      oklch(98% 0.004 240);
+  --surface: oklch(100% 0 0);
+  --fg:      oklch(20% 0.02 240);
+  --muted:   oklch(50% 0.018 240);
+  --border:  oklch(90% 0.006 240);
+  --accent: oklch(48% 0.11 170);
+  --accent-strong: oklch(41% 0.10 170);
+  --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+  --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+  --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+  --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+  --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+  --faint: color-mix(in oklch, var(--muted) 68%, transparent);
+  --on-accent: oklch(100% 0 0);
+  --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                 0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+  --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+  --radius: 10px; --radius-lg: 16px;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 14px; line-height: 1.55;
+  text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
+  height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+}
+img, svg { display: block; }
+a { color: inherit; text-decoration: none; }
+button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; padding: 0; }
+input, textarea, select { font: inherit; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+
+/* ─── 按钮 / 徽标 / 表单（pages/ 逐字口径）─── */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); border: 1px solid transparent; font-size: 13.5px; font-weight: 500; letter-spacing: 0.01em; line-height: inherit; transition: background 0.15s ease, border-color 0.15s ease; }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-primary:hover { background: var(--accent-strong); }
+.btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+.btn-secondary:hover { border-color: var(--fg); }
+.btn-ghost { background: transparent; color: var(--muted); padding: 0 8px; }
+.btn-ghost:hover { color: var(--fg); background: var(--fg-soft); }
+.btn-sm { height: 28px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; gap: 5px; }
+.btn[disabled] { opacity: 0.45; cursor: default; pointer-events: none; }
+.pill { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 1.6; font-weight: 500; background: var(--surface); color: var(--muted); white-space: nowrap; }
+.pill-ok { background: var(--ok-soft); border-color: transparent; color: color-mix(in oklch, var(--ok) 88%, var(--fg)); }
+.pill-warn { background: var(--warn-soft); border-color: transparent; color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
+.pill-accent { background: var(--accent-soft); border-color: transparent; color: var(--accent-strong); }
+.lnk { color: var(--accent); cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
+.lnk:hover { color: var(--accent-strong); text-decoration: underline; }
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.field label { font-size: 12.5px; color: var(--muted); display: flex; align-items: baseline; gap: 7px; }
+.field label .opt { font-size: 11px; }
+.input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+.input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.textarea { width: 100%; min-height: 64px; resize: vertical; line-height: 1.7; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 13.5px; }
+.textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.notice { display: flex; align-items: center; gap: 12px; border: 1px solid color-mix(in oklch, var(--warn) 28%, var(--border)); background: var(--warn-soft); border-radius: var(--radius); padding: 10px 14px; font-size: 13px; }
+.notice.info { border-color: color-mix(in oklch, var(--accent) 30%, var(--border)); background: var(--accent-soft); }
+.notice .nt { flex: 1; }
+.notice .nt b { font-weight: 500; }
+.notice .nt span { color: var(--muted); font-size: 12.5px; margin-left: 8px; }
+
+/* ─── 弹窗（scrim/mcard 两段式；与拆章弹窗同为 940）─── */
+.scrim { position: fixed; inset: 0; background: color-mix(in oklch, var(--fg) 28%, transparent); z-index: 40; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; }
+.scrim.show { opacity: 1; pointer-events: auto; }
+.modal { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; }
+.modal .mcard { width: min(940px, 94vw); max-height: calc(100vh - 48px); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-card); transform: translateY(8px) scale(0.98); opacity: 0; transition: transform 0.18s ease, opacity 0.18s ease; }
+.modal.show .mcard { transform: none; opacity: 1; }
+.mcard-head { display: flex; align-items: center; padding: 20px 24px 0; }
+.mcard-head .mh { font-family: var(--font-display); font-size: 17px; font-weight: 600; }
+.mcard-head .x { margin-left: auto; }
+.icon-btn { width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: 8px; color: var(--muted); }
+.icon-btn:hover { color: var(--fg); background: var(--fg-soft); }
+.icon-btn svg { width: 15px; height: 15px; }
+.mcard-body { padding: 12px 24px 6px; overflow-y: auto; min-height: 0; }
+.mcard-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 14px 24px 18px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.mcard-foot .note { margin-right: auto; font-size: 11.5px; color: var(--faint); }
+.kicker { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; color: var(--muted); margin: 10px 0 12px; }
+
+/* ─── 写作工作台壳（book.css 口径：三栏＋行头顶栏）─── */
+.wb { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.appbar { height: 48px; flex-shrink: 0; display: flex; align-items: center; padding: 0 16px; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; }
+.logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; }
+.appbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
+.appbar .novel-title { font-family: var(--font-display); font-size: 15.5px; font-weight: 600; white-space: nowrap; }
+.appbar .genre-tag { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--muted); background: var(--surface); white-space: nowrap; }
+.bar-here { display: flex; align-items: center; gap: 11px; flex: 1 1 auto; min-width: 0; }
+.bar-here .bh-k { flex: none; margin: 0; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; color: var(--accent); }
+.bar-here .bh-rule { width: 1px; height: 15px; background: var(--border); flex: none; }
+.bar-here .bh-t { margin: 0; font-family: var(--font-display); font-size: 15.5px; font-weight: 600; white-space: nowrap; }
+.bar-here .bh-t .n { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--muted); margin-right: 7px; }
+.acct { display: inline-flex; align-items: center; gap: 8px; }
+.badge-accent { display: inline-flex; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 500; }
+.badge-muted { display: inline-flex; padding: 2px 9px; border-radius: 999px; background: var(--fg-soft); color: var(--muted); font-size: 11px; }
+.modnav { flex: none; display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.mtab { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 14px; border-radius: 9px; font-size: 13.5px; color: var(--muted); }
+.mtab:hover { color: var(--fg); background: var(--fg-soft); }
+.mtab.on { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+.modnav .spacer { flex: 1; }
+.view { flex: 1; min-height: 0; display: grid; grid-template-columns: 280px 1fr 236px; }
+.col-tree { min-height: 0; overflow-y: auto; border-right: 1px solid var(--border); background: var(--bg); padding-bottom: 24px; }
+.col-middle { min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+.col-ai { min-height: 0; overflow-y: auto; border-left: 1px solid var(--border); padding: 16px; background: var(--bg); }
+
+/* ─── 大纲树（book.css 口径）─── */
+.tree-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 14px 8px 18px; }
+.tree-head .t { font-size: 12px; letter-spacing: 0.08em; color: var(--muted); font-family: var(--font-mono); }
+.tree-head .t b { color: var(--fg); font-weight: 500; }
+.tree { padding: 0 8px; }
+.vol-head { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px 0 6px; border-radius: 8px; cursor: pointer; user-select: none; }
+.vol-head:hover { background: var(--fg-soft); }
+.vol-head .chev { width: 14px; height: 14px; color: var(--muted); flex: none; }
+.vol-head .vt { font-size: 13.5px; font-weight: 500; }
+.ch-list { margin-left: 14px; border-left: 1px solid var(--border); padding-left: 4px; }
+.ch { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px 0 10px; border-radius: 8px; cursor: pointer; user-select: none; }
+.ch:hover { background: var(--fg-soft); }
+.ch.sel { background: var(--accent-soft); }
+.ch.sel .ct { color: var(--accent); font-weight: 500; }
+.ch .ct { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch .dot-ok { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
+.ch .dot-warn { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex: none; }
+.ch .dot-empty { width: 5px; height: 5px; border-radius: 50%; background: var(--border); flex: none; }
+.ch .wc { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--faint); flex: none; }
+
+/* ─── 中栏：章对象页签＋章纲表单（book.css 口径）─── */
+.ch-tabs { flex: none; display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.chtab { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 8px; font-size: 13px; color: var(--muted); }
+.chtab:hover { color: var(--fg); background: var(--fg-soft); }
+.chtab.on { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+.og-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 26px clamp(20px, 4vw, 48px) 60px; }
+.og-pane .panel { max-width: 660px; }
+.panel-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+.panel-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 600; margin: 0; }
+.og-pane .desc { font-size: 13px; color: var(--muted); margin: 0 0 24px; }
+.og-pane .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.og-pane .field label { font-size: 12.5px; color: var(--muted); display: flex; align-items: baseline; gap: 7px; }
+.og-pane .field label .opt { font-size: 11px; }
+.og-char-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.chip { border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: 12px; color: var(--muted); background: var(--surface); display: inline-flex; align-items: center; gap: 5px; }
+button.chip:hover { color: var(--fg); border-color: var(--muted); }
+.chip.on { background: var(--fg-soft); color: var(--fg); font-weight: 500; border-color: transparent; }
+.chip .no-card { font-size: 10px; color: var(--warn); border: 1px dashed color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 999px; padding: 0 6px; }
+.chip .lnk { font-size: 10.5px; }
+.plot-sec { margin-top: 26px; }
+.plot-sec-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.plot-sec-head h3 { font-family: var(--font-display); font-size: 16px; font-weight: 600; margin: 0; }
+.hint-inline { font-size: 12px; color: var(--muted); }
+.plot-item { display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 8px; align-items: start; margin-bottom: 8px; }
+.plot-item .no { font-family: var(--font-mono); font-size: 11px; color: var(--faint); text-align: right; padding-top: 9px; }
+.plot-item .textarea { min-height: 0; }
+
+/* ─── 头部 e-head＋e-meta 徽章行（c-og-rail-declutter/c-rail-ai-only：统计上移头部）─── */
+.e-head { padding: 16px 22px 13px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.e-kicker { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+.e-title { font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -.012em; margin: 0; }
+.e-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; white-space: nowrap; background: none; }
+
+/* ─── 右栏 AI 助手（c-ai-rail-shared 全局统一 ra-* 模版，逐字对齐 book.css）─── */
+.rail-assist { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
+.rail-assist .ra-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+.rail-assist .ra-head .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: var(--on-accent); flex: none; }
+.rail-assist .ra-head .rh-t b { display: block; font-size: 13px; font-weight: 600; }
+.rail-assist .ra-head .rh-t span { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+.rail-assist .ai-target { font-size: 11px; color: var(--muted); line-height: 1.7; margin: 0 0 10px; padding: 0 2px; }
+.rail-assist .ai-target b { color: var(--fg); font-weight: 500; }
+.rail-assist .ra-step { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; margin-bottom: 6px; }
+.rail-assist .ra-step:last-of-type { margin-bottom: 0; }
+.rail-assist .ra-step:hover { border-color: var(--accent); }
+.rail-assist .ra-body { min-width: 0; flex: 1; }
+.rail-assist .ra-body b { display: block; font-size: 12.5px; font-weight: 600; }
+.rail-assist .ra-body i { display: block; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 2px; }
+.rail-assist .ra-arrow { color: var(--muted); flex: none; }
+.rail-assist .ra-foot { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+.rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
+.rail-assist .ra-step.ra-off { opacity: 0.5; cursor: not-allowed; }
+.rail-assist .ra-step.ra-off:hover { border-color: var(--border); }
+.rail-assist .ra-body b .ra-hint { margin-left: 6px; font-size: 10.5px; font-weight: 400; color: var(--warn); }
+/* 免费态＝行级门控（卷面板先例）：PRO 行走统一 ra-off 词汇＋「需 PRO」 */
+.ra-hint { display: none; }
+.ra-step.ra-off .ra-hint { display: inline; }
+.only-pro { display: inline; }
+.free-mode .only-pro { display: none; }
+.only-free { display: none; }
+.free-mode .only-free { display: inline; }
+/* rh-t 副行 span 是 block（ra-head 词汇），隐藏规则要压过它 */
+.rail-assist .ra-head .rh-t span.only-free { display: none; }
+.free-mode .rail-assist .ra-head .rh-t span.only-pro { display: none; }
+.free-mode .rail-assist .ra-head .rh-t span.only-free { display: block; }
+.ai-tag { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; }
+
+/* ─── 盘点出场人物弹窗（新增：cr-* 家族；其余复用 pick-*／rp-* 词汇）─── */
+.cr-row { display: flex; flex-direction: column; gap: 5px; padding: 12px 0; border-bottom: 1px dashed color-mix(in oklch, var(--border) 70%, transparent); }
+.cr-row:last-of-type { border-bottom: 0; }
+.cr-top { display: flex; align-items: baseline; gap: 10px; }
+.cr-no { font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); flex: none; letter-spacing: 0.06em; }
+.cr-tx { flex: 1; min-width: 0; font-size: 13px; line-height: 1.6; }
+.cr-why { font-size: 12px; color: var(--muted); line-height: 1.6; padding-left: 44px; }
+.cr-why b { font-weight: 500; color: var(--fg); }
+.cr-who { font-size: 12px; color: var(--muted); padding-left: 44px; }
+.cr-who .chip { padding: 1px 9px; font-size: 11px; }
+.cr-gap { border: 1px solid color-mix(in oklch, var(--warn) 32%, var(--border)); background: color-mix(in oklch, var(--warn) 5%, var(--surface)); border-radius: var(--radius); padding: 13px 15px; margin: 4px 0 10px; }
+.cr-gap.done { border-color: var(--border); background: var(--surface); }
+.cr-gap .g-head { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.cr-gap .g-head b { font-size: 13.5px; }
+.cr-gap .g-head .ai-tag { margin-left: auto; }
+.cr-gap .g-why { margin: 4px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.65; }
+.cr-gap .g-why b { color: var(--fg); font-weight: 500; }
+.cr-pick { display: flex; align-items: center; gap: 7px; margin-top: 10px; flex-wrap: wrap; }
+.cr-pick .k { font-size: 12px; color: var(--muted); margin-right: 2px; }
+.cr-opt { border: 1px solid var(--border); border-radius: 999px; padding: 3px 13px; font-size: 12px; color: var(--muted); background: var(--surface); }
+.cr-opt:hover { color: var(--fg); border-color: var(--muted); }
+.cr-opt.on { background: var(--accent-soft); border-color: transparent; color: var(--accent-strong); font-weight: 500; }
+.cr-opt .cr-sug { margin-left: 5px; font-size: 9.5px; color: var(--accent-strong); border: 1px dashed color-mix(in oklch, var(--accent) 45%, transparent); border-radius: 999px; padding: 0 5px; font-weight: 400; }
+.cr-gap .g-act { display: flex; align-items: center; gap: 10px; margin-top: 11px; flex-wrap: wrap; }
+.cr-gap .g-act .lnk { font-size: 12.5px; }
+.cr-gap .g-done { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.cr-gap .g-done .rp-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+.plans-h { margin: 0 0 11px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; color: var(--muted); }
+.rp-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rp-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.6; color: var(--fg); }
+.rp-row .rp-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); flex: none; margin-top: 6px; }
+.rp-row.ok .rp-dot { background: var(--ok); }
+.rp-row.warn .rp-dot { background: var(--warn); }
+.rp-row .lnk { margin-left: 6px; font-size: 12px; }
+
+/* ─── 抽卡三方向（ChapterPlanModal pick-* 逐字口径）─── */
+.pick-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 13px; margin-top: 14px; }
+.pick-card { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 13px 14px; display: flex; flex-direction: column; gap: 8px; cursor: pointer; text-align: left; font: inherit; color: var(--fg); transition: border-color 0.13s, box-shadow 0.13s; }
+.pick-card:hover { border-color: var(--muted); }
+.pick-card.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.pick-card.top { border-color: color-mix(in oklch, var(--accent) 45%, var(--border)); }
+.pick-card .pk-axis { align-self: flex-start; display: inline-block; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; border-radius: 999px; padding: 1px 8px; color: var(--accent-strong); border: 1px solid color-mix(in oklch, var(--accent) 34%, var(--border)); margin-right: 74px; }
+.pick-card .pk-title { margin: 0; font-family: var(--font-display); font-size: 15.5px; font-weight: 600; line-height: 1.6; }
+.pick-card .pk-row { display: flex; flex-direction: column; gap: 1px; padding-top: 7px; border-top: 1px dashed color-mix(in oklch, var(--border) 60%, transparent); }
+.pick-card .pk-row > b { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em; font-weight: 400; color: var(--faint); }
+.pick-card .pk-row > span { font-size: 12px; line-height: 1.62; color: var(--fg); opacity: 0.9; }
+.pick-card .pk-read { margin-top: 7px; padding-top: 6px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 2px; }
+.pick-card .pk-read p { margin: 0; font-size: 11px; line-height: 1.55; color: var(--muted); }
+.pick-card .pk-read p > b { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.06em; font-weight: 400; color: var(--faint); margin-right: 5px; }
+.pick-card .pk-picked { display: none; }
+.pick-card.on .pk-picked { display: block; align-self: flex-end; font-family: var(--font-mono); font-size: 10px; color: var(--accent); }
+.pk-corner { position: absolute; top: 0; right: 0; display: flex; align-items: baseline; gap: 3px; padding: 3px 10px 4px 11px; border-radius: 0 calc(var(--radius) - 1px) 0 11px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 6%, var(--surface)); color: var(--muted); font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; line-height: 1.3; }
+.pk-corner i { font-style: normal; font-weight: 400; font-size: 9px; letter-spacing: 0.02em; opacity: 0.85; }
+.pk-corner.g-S { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.pk-corner.g-A { color: var(--fg); }
+.pk-corner.g-B { color: var(--muted); }
+.pick-foot { display: flex; align-items: center; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.pick-foot .push { margin-left: auto; }
+.pick-busy { display: flex; align-items: center; gap: 8px; padding: 40px 0; color: var(--muted); font-size: 13px; justify-content: center; flex-direction: column; }
+.pick-busy .none { font-size: 12px; color: var(--faint); }
+.ra-spin { display: inline-block; width: 11px; height: 11px; margin-right: 5px; vertical-align: -1px; border: 1.6px solid color-mix(in oklch, var(--accent) 28%, transparent); border-top-color: var(--accent); border-radius: 50%; animation: ra-spin 0.8s linear infinite; }
+@keyframes ra-spin { to { transform: rotate(360deg); } }
+.hint { font-size: 12.5px; color: var(--muted); line-height: 1.7; padding: 10px 12px; background: var(--fg-soft); border-radius: 9px; margin: 1em 0; }
+.hint b { color: var(--fg); font-weight: 500; }
+.pick-error { padding: 18px 0 8px; text-align: center; }
+.pick-error .pv-error { color: var(--warn); font-size: 13px; margin: 0 0 12px; }
+.pick-error .edit-bar { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+/* ─── 选卡申报（split-row 表单词汇）─── */
+.split-row { position: relative; overflow: hidden; display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 8px; align-items: start; }
+.split-row .s-no { font-family: var(--font-mono); font-size: 11px; color: var(--faint); text-align: right; padding-top: 9px; }
+.split-row .s-main { display: flex; flex-direction: column; gap: 6px; }
+.split-row .s-lab { display: grid; grid-template-columns: 76px minmax(0,1fr); gap: 9px; align-items: center; }
+.split-row .s-lab > b { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em; color: var(--faint); font-weight: 500; text-align: right; }
+
+/* ─── 免费锁定（按钮级，照剧情卡 onPlotDraw 先例）─── */
+.lock-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 13px 15px; margin-top: 14px; }
+.lock-card b { font-size: 13.5px; display: block; }
+.lock-card p { margin: 4px 0 10px; font-size: 12.5px; color: var(--muted); line-height: 1.65; }
+
+/* ─── 状态切换器（设计稿演示导航，非产品 UI）─── */
+.demo-bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 16px; background: color-mix(in oklch, var(--fg) 4%, var(--surface)); border-bottom: 1px solid var(--border); flex-wrap: wrap; position: relative; z-index: 70; }
+.demo-bar .dl { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; color: var(--faint); margin-right: 6px; }
+.demo-bar .chip { padding: 2px 11px; font-size: 11.5px; cursor: pointer; }
+[data-wb="fresh-chip"] { display: none; }
+.show-fresh [data-wb="fresh-chip"] { display: inline-flex; }
+</style>
+</head>
+<body>
+
+<!-- 演示导航（非产品 UI） -->
+<div class="demo-bar" role="tablist" aria-label="设计稿状态切换">
+  <span class="dl">设计稿 · 11 态</span>
+  <button class="chip on" data-scene="s1">① 入口</button>
+  <button class="chip" data-scene="s2">② 盘点中</button>
+  <button class="chip" data-scene="s3">③ 盘点结果</button>
+  <button class="chip" data-scene="s4">④ 零新增</button>
+  <button class="chip" data-scene="s5">⑤ 抽卡（PRO）</button>
+  <button class="chip" data-scene="s5b">⑥ 缺人（免费态）</button>
+  <button class="chip" data-scene="s6">⑦ 写入前确认</button>
+  <button class="chip" data-scene="s7">⑧ 完成写入</button>
+  <button class="chip" data-scene="s9">⑨ 失败/未配模型</button>
+  <button class="chip" data-scene="s10">⑩ 抽卡中</button>
+  <button class="chip" data-scene="s11">⑪ 抽卡失败</button>
+</div>
+
+<!-- ══ 工作台实景（三栏；章纲页签激活） ══ -->
+<div class="wb" id="wb">
+  <header class="appbar">
+    <span class="logo"><span class="logo-mark">爱</span>爱小说</span>
+    <span class="sep"></span>
+    <span class="novel-title">我在夜晚打吸血鬼</span>
+    <span class="genre-tag">都市异能</span>
+    <div class="bar-here">
+      <p class="bh-k">当前主线</p>
+      <span class="bh-rule"></span>
+      <p class="bh-t"><span class="n">第02章</span>夜巡</p>
+    </div>
+    <div class="acct"><span class="badge-accent only-pro">PRO</span><span class="badge-muted only-free">免费版</span></div>
+  </header>
+  <nav class="modnav">
+    <button class="mtab">设定</button>
+    <button class="mtab on">写作</button>
+    <button class="mtab">预览</button>
+    <span class="spacer"></span>
+    <span class="acct" style="font-size:12px;color:var(--muted)">第一卷《血源之惑》 · 共 12 章</span>
+  </nav>
+  <div class="view">
+    <!-- 左栏树 -->
+    <aside class="col-tree">
+      <div class="tree-head"><span class="t">第 1 卷 · <b>血源之惑</b></span></div>
+      <div class="tree">
+        <div class="vol">
+          <div class="vol-head">
+            <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 4l4 4-4 4"/></svg>
+            <span class="vt">血源之惑</span>
+          </div>
+          <div class="ch-list">
+            <div class="ch"><span class="dot-ok"></span><span class="ct">第01章 · 巷口的第一滴血</span><span class="wc">2.9k</span></div>
+            <div class="ch sel"><span class="dot-warn"></span><span class="ct">第02章 · 夜巡</span><span class="wc">草稿</span></div>
+            <div class="ch"><span class="dot-empty"></span><span class="ct">第03章 · 未排</span></div>
+            <div class="ch"><span class="dot-empty"></span><span class="ct">第04章 · 未排</span></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 中栏：章纲 -->
+    <main class="col-middle">
+      <header class="e-head">
+        <p class="e-kicker">第一卷《血源之惑》</p>
+        <h2 class="e-title">第02章 · 夜巡</h2>
+        <div class="e-meta">
+          <span class="tag">草稿</span>
+          <span class="tag">620 字</span>
+          <span class="tag">归档门槛 1/2</span>
+          <span class="tag">计划字数 2,500 字</span>
+          <span class="tag">完成度 25%</span>
+          <span class="tag">剧情 4 条</span>
+          <span class="tag" id="stat-cast">出场角色 3 人</span>
+          <span class="tag">本书总字数 12,480</span>
+        </div>
+      </header>
+      <div class="ch-tabs">
+        <button class="chtab on">章纲</button>
+        <button class="chtab">正文</button>
+        <button class="chtab">设定</button>
+        <button class="chtab">文风</button>
+        <button class="chtab">角色关系</button>
+        <button class="chtab">伏笔</button>
+        <button class="chtab">操作</button>
+      </div>
+      <div class="og-pane">
+        <div class="panel">
+          <p class="desc">这一章写什么、谁出场、卡在哪——决定归档门槛与正文生成的输入。</p>
+          <div class="field">
+            <label>梗概 <span class="req" style="color:var(--err)">*</span></label>
+            <textarea class="textarea" rows="2" readonly>林野夜巡撞见第二起吸血袭击，现场留下的抓痕与卷一坎「自我」遥遥呼应。</textarea>
+          </div>
+          <div class="field">
+            <label>出场角色 <span class="opt">点选角色卡；也可直接输入名字</span></label>
+            <div class="og-char-picker" id="og-chips" aria-label="从角色卡选择出场角色">
+              <button class="chip on">林野</button>
+              <button class="chip on">陈叔</button>
+              <span class="chip" style="cursor:default">秦伯<span class="no-card">没卡</span><button class="lnk" data-testid="claim-qinbo" title="用这个名字建一张角色卡（只带名字，卡面回头在设定页补）">建卡</button></span>
+              <button class="chip" data-wb="fresh-chip">魏七<span class="pill pill-accent" style="padding:0 6px;font-size:10px" title="本次写入后展示，之后按普通名字对待">新</span></button>
+            </div>
+            <textarea class="textarea" rows="3" id="og-chars-ta" readonly>林野
+陈叔
+秦伯</textarea>
+          </div>
+          <div class="plot-sec">
+            <div class="plot-sec-head"><h3>剧情</h3><span class="hint-inline">一条一个场景 · 按顺序写</span></div>
+            <div class="plot-item"><span class="no">1</span><textarea class="textarea" rows="2" readonly>巷口又见袭击：抓痕三道，深浅与上一案一致，林野第一次觉出「这东西在学他」。</textarea></div>
+            <div class="plot-item"><span class="no">2</span><textarea class="textarea" rows="2" readonly>老药铺取止血散：铺子里只剩个守夜的伙计，多找了三文钱，没抬头。</textarea></div>
+            <div class="plot-item"><span class="no">3</span><textarea class="textarea" rows="2" readonly>城墙根收到血记号：图案不是威胁，是「邀请」——得找个认得城南水路的人问问。</textarea></div>
+            <div class="plot-item"><span class="no">4</span><textarea class="textarea" rows="2" readonly>码头夜渡：半夜要过河，得有人肯在这个时辰开船。</textarea></div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- 右栏：AI 助手（c-ai-rail-shared 全局统一 ra-* 卡；本稿=章纲页签） -->
+    <aside class="col-ai">
+      <div class="rail-assist" data-od-id="ai-assist-og" data-testid="rail-assist">
+        <div class="ra-head">
+          <span class="plan-badge">PRO</span>
+          <div class="rh-t">
+            <b>AI 助手 · 章纲</b>
+            <span class="only-pro">你的 PRO 已包含 · 只加工你写的，不代写</span>
+            <span class="only-free">免费行可用 · 标「需 PRO」的行升级后解锁</span>
+          </div>
+        </div>
+        <p class="ai-target" data-od-id="ai-target">还缺 1 项：<b>主情绪</b></p>
+        <button class="ra-step" data-pro type="button">
+          <span class="ra-body"><b>剧情推演 · 按回合走一遍<span class="ra-hint">需 PRO</span></b><i>先定走法再逐步推演；走法可收进本章剧情条目</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
+        <button class="ra-step" data-pro type="button">
+          <span class="ra-body"><b>AI 起草<span class="ra-hint">需 PRO</span></b><i>按卷纲与设定出整份章纲草稿，回填表单后由你确认</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
+        <button class="ra-step" data-pro type="button">
+          <span class="ra-body"><b>补全缺失字段<span class="ra-hint">需 PRO</span></b><i>只补还缺的 1 项，一稿回填</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
+        <button class="ra-step" data-pro type="button">
+          <span class="ra-body"><b>AI 帮写剧情<span class="ra-hint">需 PRO</span></b><i>一次给 3 版剧情挑一版；要求概要、挑战、章末落点已填（手写剧情全免费）</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
+        <button class="ra-step" id="btn-open-review" data-testid="og-cast-review" type="button">
+          <span class="ra-body"><b>盘点出场人物</b><i>逐段盘这一章缺不缺人；缺的人给三个方向抽卡（PRO）或你自己填，确认后写进角色表、本章出场角色与本卷出场清单</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
+        <button class="ra-step" data-pro type="button">
+          <span class="ra-body"><b>与卷纲冲突检测<span class="ra-hint">需 PRO</span></b><i>拿本章章纲去对卷纲，报出冲突点</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
+        <p class="ra-foot"><span class="only-pro">章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。</span><span class="only-free">免费版：盘点只读、不代笔；标「需 PRO」的行升级后可用。盘点结果要写进章纲的，走你平时那套保存。</span></p>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<!-- 完成写入回执（态⑧；实现时用 toast sticky 回执，先例 plot 采纳回执） -->
+<div id="done-notice" aria-live="polite" hidden style="position:fixed;left:50%;transform:translateX(-50%);bottom:22px;z-index:80;width:min(680px,92vw)">
+  <div class="notice info">
+    <div class="nt"><b id="done-title">已写入。</b><span id="done-detail">角色表多一卡「魏七」 · 本章出场角色 3→4 人 · 本卷出场清单 6→7 人（自动汇总）</span></div>
+    <button class="btn btn-ghost btn-sm" onclick="setScene('s1')">好</button>
+  </div>
+</div>
+
+<!-- ══ 盘点出场人物弹窗 ══ -->
+<div class="scrim" id="scrim"></div>
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-label="盘点出场人物" hidden>
+  <div class="mcard">
+    <div class="mcard-head">
+      <span class="mh">盘点出场人物</span>
+      <button class="icon-btn x" id="btn-x" aria-label="关闭">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </div>
+    <div class="mcard-body">
+      <p class="kicker">第 1 卷《血源之惑》 · 第 02 章 · 只看已写好的剧情与现有角色，不替你编剧情</p>
+
+      <!-- 态②：盘点中 -->
+      <div class="scene" id="sc-s2" hidden>
+        <div class="pick-busy">
+          <span><span class="ra-spin" aria-hidden="true"></span><span aria-live="polite">正在逐段对照这一章的剧情…</span></span>
+          <span class="none">四段剧情分别看：老角色能不能演、不起名的配角行不行、哪里缺新角色</span>
+        </div>
+      </div>
+
+      <!-- 态③：盘点结果（两缺口：剧情4已延后·中性观感；剧情3待处理） -->
+      <div class="scene" id="sc-s3" hidden>
+        <p class="plans-h">逐段盘点 · 4 段剧情 · 怎么判的：老角色能演／不起名也行／缺一个新角色</p>
+        <p class="ai-note" style="margin:-6px 0 10px">剧情改过了？<button class="lnk" data-testid="cr-recheck" onclick="setScene('s2')">重新盘点</button>——整章重新盘；已处理的按条目对回，改过的条目重来。</p>
+        <div class="cr-row">
+          <div class="cr-top">
+            <span class="cr-no">剧情 1</span>
+            <span class="cr-tx">巷口又见袭击：抓痕三道，深浅与上一案一致，林野第一次觉出「这东西在学他」。</span>
+            <span class="pill pill-ok">老角色能演</span>
+          </div>
+          <p class="cr-why">林野在场撞见，陈叔事后验痕——现有的「师徒夜巡」关系接得住。</p>
+          <p class="cr-who"><span class="chip">林野</span> <span class="chip">陈叔</span></p>
+        </div>
+        <div class="cr-row">
+          <div class="cr-top">
+            <span class="cr-no">剧情 2</span>
+            <span class="cr-tx">老药铺取止血散：铺子里只剩个守夜的伙计，多找了三文钱，没抬头。</span>
+            <span class="pill pill-ok">不起名也行</span>
+          </div>
+          <p class="cr-why">一段过场戏，不用起名字：守夜伙计就够了，不算进有名有姓的角色数。</p>
+          <p class="cr-who">不起名的话，叫他：<span class="chip">守夜伙计</span></p>
+        </div>
+        <div class="cr-row">
+          <div class="cr-top">
+            <span class="cr-no">剧情 3</span>
+            <span class="cr-tx">城墙根收到血记号：图案不是威胁，是「邀请」——得找个认得城南水路的人问问。</span>
+            <span class="pill pill-warn">缺一个新角色</span>
+          </div>
+          <p class="cr-why">林野不该未卜先知，陈叔的消息网到不了城南。</p>
+        </div>
+        <!-- 缺口A：待处理（三选一 AI 预填按缺口上下文给出，可改） -->
+        <div class="cr-gap" data-testid="gap-active">
+          <div class="g-head"><b>剧情 3 · 缺一个新角色</b><span class="pill pill-warn">缺 1 人</span></div>
+          <p class="g-why">这段戏缺的是：认得城南水路、肯给林野递话的线人。<br>老角色为什么不行：<b>陈叔的消息网到不了城南；不起名的配角递不出「邀请」这种要背账的话。</b></p>
+          <div class="cr-pick" role="radiogroup" aria-label="这段戏缺的人怎么处理">
+            <span class="k">怎么处理<span class="opt" style="font-size:10px">（AI 预填可改）</span></span>
+            <button class="cr-opt on" role="radio" aria-checked="true" data-cr="add" data-testid="cr-opt-add">加人<span class="cr-sug">AI 建议</span></button>
+            <button class="cr-opt" role="radio" aria-checked="false" data-cr="edit" data-testid="cr-opt-edit">改段</button>
+            <button class="cr-opt" role="radio" aria-checked="false" data-cr="defer" data-testid="cr-opt-defer">延后</button>
+          </div>
+          <div class="g-act">
+            <button class="btn btn-primary btn-sm" id="btn-draw" data-testid="cr-draw">抽卡选人</button>
+            <span class="ai-tag">PRO</span>
+            <button class="lnk" id="lnk-fill-manual" data-testid="cr-fill-manual">不抽了，自己填一个名字</button>
+            <span class="cr-done" hidden id="cr-done-note">已记下这个处理，只影响这次盘点结果。</span>
+            <button class="btn btn-secondary btn-sm" id="btn-go-edit" data-testid="cr-go-edit" hidden onclick="setScene('s1')">关掉弹窗，去改剧情</button>
+          </div>
+        </div>
+
+        <!-- 写入后回程（态⑧）：剧情 3 缺口转已处理——多缺人时其余缺口继续 -->
+        <div class="cr-gap done" data-testid="gap-written" hidden>
+          <div class="g-head"><b>剧情 3 · 缺一个新角色</b><span class="pill">已写入</span></div>
+          <p class="g-why" id="gap-written-line">已写入：魏七——建卡并写入章纲。角色表、本章出场角色、本卷出场清单都加了。</p>
+          <p class="g-done"><span class="rp-dot" aria-hidden="true"></span>这个缺的人处理完了；本章的缺的人都处理完了，可以关掉弹窗。</p>
+        </div>
+        <div class="cr-row">
+          <div class="cr-top">
+            <span class="cr-no">剧情 4</span>
+            <span class="cr-tx">码头夜渡：半夜要过河，得有人肯在这个时辰开船。</span>
+            <span class="pill pill-warn">缺一个新角色</span>
+          </div>
+          <p class="cr-why">守夜人不出城，更夫不离开岗——缺一个肯半夜开船的船家。</p>
+        </div>
+        <!-- 缺口B：已延后（已处理观感：中性底＋pill 转中性＋完成行；演示其他缺口的处理不影响本缺口） -->
+        <div class="cr-gap done" data-testid="gap-deferred">
+          <div class="g-head"><b>剧情 4 · 缺一个新角色</b><span class="pill">已延后</span></div>
+          <p class="g-why">这段戏缺的是：肯半夜开船的船家。老角色为什么不行：<b>守夜人不出城，更夫不离开岗。</b></p>
+          <p class="g-done"><span class="rp-dot" aria-hidden="true"></span>这次盘点里就算处理过了，不做任何记录——你自己把这段剧情挪到哪一章，就在哪一章再遇到。</p>
+        </div>
+        <!-- 软提示：无卡名字反复出场（由盘点结果带回，前端不算） -->
+        <ul class="rp-list">
+          <li class="rp-row warn">
+            <span class="rp-dot" aria-hidden="true"></span>
+            <span>无卡名字「秦伯」已出现在 2 章的出场名单里——<button class="lnk">顺手建一张卡</button>，不建也不影响写作。</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- 态④：零新增（一行收场） -->
+      <div class="scene" id="sc-s4" hidden>
+        <p class="plans-h">逐段盘点 · 4 段剧情</p>
+        <p class="ai-note" style="margin:-6px 0 10px">剧情改过了？<button class="lnk" onclick="setScene('s2')">重新盘点</button>——整章重新盘；已处理的按条目对回，改过的条目重来。</p>
+        <div class="cr-row">
+          <div class="cr-top"><span class="cr-no">剧情 1</span><span class="cr-tx">巷口又见袭击……</span><span class="pill pill-ok">老角色能演</span></div>
+          <p class="cr-who"><span class="chip">林野</span> <span class="chip">陈叔</span></p>
+        </div>
+        <div class="cr-row">
+          <div class="cr-top"><span class="cr-no">剧情 2</span><span class="cr-tx">老药铺取止血散……</span><span class="pill pill-ok">不起名也行</span></div>
+          <p class="cr-who">不起名的话，叫他：<span class="chip">守夜伙计</span></p>
+        </div>
+        <div class="cr-row">
+          <div class="cr-top"><span class="cr-no">剧情 3</span><span class="cr-tx">城墙根的血记号由陈叔代收，转述给林野——城里的消息网就够用。</span><span class="pill pill-ok">老角色能演</span></div>
+          <p class="cr-who"><span class="chip">陈叔</span> <span class="chip">林野</span></p>
+        </div>
+        <div class="cr-row">
+          <div class="cr-top"><span class="cr-no">剧情 4</span><span class="cr-tx">码头夜渡改为次日清早过渡，守灯人照常放行。</span><span class="pill pill-ok">不起名也行</span></div>
+          <p class="cr-who">不起名的话，叫他：<span class="chip">守灯人</span></p>
+        </div>
+        <ul class="rp-list">
+          <li class="rp-row ok">
+            <span class="rp-dot" aria-hidden="true"></span>
+            <span>这一章不用加人：四段剧情，老角色和不起名的配角都演得了。本卷刚开始，有名有姓的角色一般 5–8 个就够讲，现在 3 个——这只影响 AI 抽卡时的建议，你自己填名单永远不受限。</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- 态⑤：抽卡（PRO）三方向 -->
+      <div class="scene" id="sc-s5" hidden>
+        <p class="plans-h">剧情 3 缺的这个人，给 3 个互不相同的方向 · 挑一个</p>
+        <div class="pick-grid" id="pick-grid-5" role="radiogroup" aria-label="人物方向三选一">
+          <button type="button" class="pick-card top" role="radio" aria-checked="false" data-testid="cr-pick-card-1">
+            <span class="pk-corner g-S">S<i>最合适</i></span>
+            <span class="pk-axis">功能</span>
+            <p class="pk-title">魏七</p>
+            <div class="pk-row"><b>他是干什么的</b><span>城南消息贩子，什么都卖，就是不卖命</span></div>
+            <div class="pk-row"><b>一句人设</b><span>跛脚，笑面，账算得比命精</span></div>
+            <div class="pk-row"><b>怎么出场</b><span>巷口拦人，递来半张烧掉的城防水图</span></div>
+            <div class="pk-row"><b>怎么退场</b><span>本卷退场 · 把命卖错了主顾</span></div>
+            <div class="pk-row"><b>老角色为什么不行</b><span>陈叔的消息网到不了城南</span></div>
+            <div class="pk-read">
+              <p><b>合不合适</b>水路情报正是剧情 3 缺的口</p>
+              <p><b>差别在哪</b>与陈叔一正一邪，消息来源不相压</p>
+              <p><b>好不好落地</b>进场即递话，退场有交代</p>
+            </div>
+            <span class="pk-picked">✓ 就要这个人</span>
+          </button>
+          <button type="button" class="pick-card" role="radio" aria-checked="false" data-testid="cr-pick-card-2">
+            <span class="pk-corner g-A">A<i>也行</i></span>
+            <span class="pk-axis">关系</span>
+            <p class="pk-title">灯伯</p>
+            <div class="pk-row"><b>他是干什么的</b><span>水关的老更夫，认得每一条水路，不看名头只看灯</span></div>
+            <div class="pk-row"><b>一句人设</b><span>话少，记性太好，欠林家一段旧情</span></div>
+            <div class="pk-row"><b>怎么出场</b><span>替他们把关灯灭了三分钟，一句话不说</span></div>
+            <div class="pk-row"><b>怎么退场</b><span>章内退场 · 话没说完就被拖走</span></div>
+            <div class="pk-row"><b>老角色为什么不行</b><span>需要一双不问来历的眼睛</span></div>
+            <div class="pk-read">
+              <p><b>合不合适</b>能答「水路」，但情报给一半</p>
+              <p><b>差别在哪</b>旧情线与主角绑得比魏七深</p>
+              <p><b>好不好落地</b>章内退场干脆，不占后续额度</p>
+            </div>
+            <span class="pk-picked">✓ 就要这个人</span>
+          </button>
+          <button type="button" class="pick-card" role="radio" aria-checked="false" data-testid="cr-pick-card-3">
+            <span class="pk-corner g-B">B<i>备选</i></span>
+            <span class="pk-axis">身份</span>
+            <p class="pk-title">祝九娘</p>
+            <div class="pk-row"><b>他是干什么的</b><span>渡口船娘，黑白两道都给几分面子</span></div>
+            <div class="pk-row"><b>一句人设</b><span>船上不问来路，船下一概不认账</span></div>
+            <div class="pk-row"><b>怎么出场</b><span>收钱送三人夜渡，顺手捎一句城南忌讳</span></div>
+            <div class="pk-row"><b>怎么退场</b><span>申请常驻 · 河上的耳目，留作后手</span></div>
+            <div class="pk-row"><b>老角色为什么不行</b><span>过河的渠道只有她有</span></div>
+            <div class="pk-read">
+              <p><b>合不合适</b>渡口能带路，离「水路情报」隔一层</p>
+              <p><b>差别在哪</b>常驻意向强，占后续额度</p>
+              <p><b>好不好落地</b>进场偏顺拐，退场无定数</p>
+            </div>
+            <span class="pk-picked">✓ 就要这个人</span>
+          </button>
+        </div>
+        <div class="pick-foot">
+          <button class="btn btn-ghost btn-sm" data-testid="cr-back-review" onclick="setScene('s3')">‹ 返回盘点结果</button>
+          <button class="btn btn-secondary btn-sm" data-testid="cr-redraw" onclick="setScene('s10')">↻ 都不满意？换一批</button>
+          <button class="btn btn-secondary btn-sm" data-testid="cr-fresh" onclick="setScene('s10')">从头再来</button>
+          <button class="btn btn-ghost btn-sm" data-testid="cr-fill-manual-2" onclick="fillMode=true;setScene('s6')">自己填一个</button>
+          <span class="note push">换一批避开最近走过的方向（还是身份/关系/功能三类，人会完全不同）；从头再来＝清掉记录重出，可能再遇到之前的方向。选卡后每个格子还能改。</span>
+        </div>
+      </div>
+
+      <!-- 态⑥：缺口（免费态）＝按钮级锁定，无假卡（免费态不调生成端点） -->
+      <div class="scene" id="sc-s5b" hidden>
+        <p class="plans-h">剧情 3 缺的这个人</p>
+        <div class="cr-gap">
+          <div class="g-head"><b>剧情 3 · 缺一个新角色</b><span class="pill pill-warn">缺 1 人</span></div>
+          <p class="g-why">这段戏缺的是：认得城南水路、肯给林野递话的线人。<br>老角色为什么不行：<b>陈叔的消息网到不了城南；不起名的配角递不出「邀请」这种要背账的话。</b></p>
+          <div class="cr-pick" role="radiogroup" aria-label="这段戏缺的人怎么处理">
+            <span class="k">怎么处理<span class="opt" style="font-size:10px">（AI 预填可改）</span></span>
+            <button class="cr-opt on" role="radio" aria-checked="true">加人<span class="cr-sug">AI 建议</span></button>
+            <button class="cr-opt" role="radio" aria-checked="false">改段</button>
+            <button class="cr-opt" role="radio" aria-checked="false">延后</button>
+          </div>
+          <div class="g-act">
+            <button class="btn btn-primary btn-sm" disabled data-testid="cr-draw-locked">抽卡选人</button>
+            <span class="ai-tag">PRO</span>
+            <button class="lnk" onclick="fillMode=true;setScene('s6')">不抽了，自己填一个名字</button>
+          </div>
+        </div>
+        <div class="lock-card">
+          <b>AI 抽人是 PRO 功能</b>
+          <p>AI 能按这段戏缺的人一次给 3 个互不相同的人物方向——叫什么、什么性格、怎么出场怎么退场都配好，挑一个直接用。缺的人自己填全免费：在出场名单里直接加名字、建角色卡都不要钱。</p>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm">升级 PRO</button>
+            <button class="btn btn-secondary btn-sm" onclick="fillMode=true;setScene('s6')">自己填一个</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 态⑦：写入前确认（两路径通用文案；预填可改；两出口） -->
+      <div class="scene" id="sc-s6" hidden>
+        <p class="plans-h">写入前最后改一遍 · 每个格子都能改</p>
+        <div class="split-row">
+          <span class="s-no">新</span>
+          <div class="s-main">
+            <div class="s-lab"><b>称呼</b><input class="input" value="魏七" maxlength="12" aria-label="称呼" data-testid="claim-name"></div>
+            <div class="s-lab"><b>他是干什么的</b><input class="input" value="城南消息贩子，什么都卖，就是不卖命" aria-label="他是干什么的"></div>
+            <div class="s-lab"><b>一句人设</b><input class="input" value="跛脚，笑面，账算得比命精" aria-label="一句人设"></div>
+            <div class="s-lab"><b>怎么出场</b><input class="input" value="巷口拦人，递来半张烧掉的城防水图" aria-label="怎么出场"></div>
+            <div class="s-lab"><b>怎么退场</b>
+              <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+                <select class="input" style="width:130px" aria-label="怎么退场">
+                  <option>章内退场</option>
+                  <option selected>本卷退场</option>
+                  <option>申请常驻</option>
+                </select>
+                <input class="input" style="flex:1;min-width:180px" value="把命卖错了主顾" aria-label="退场说明">
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="hint">建卡＝角色表多一张卡，上面几格照抄进卡面，之后在设定页随便改；<b>只加名单＝本章出场角色多一行字，暂不建卡</b>（选它的话上面几格不保存，之后建卡只带称呼）。两样都算数，AI 都不会替你点。</p>
+      </div>
+
+      <!-- 态⑩：抽卡在途 -->
+      <div class="scene" id="sc-s10" hidden>
+        <div class="pick-busy">
+          <span><span class="ra-spin" aria-hidden="true"></span><span aria-live="polite">正在想「剧情 3」的 3 个人物方向…</span></span>
+          <span class="none">按这段戏缺的人和现有角色推——只给人物方向，不编剧情</span>
+        </div>
+      </div>
+
+      <!-- 态⑪：抽卡失败（三出口） -->
+      <div class="scene" id="sc-s11" hidden>
+        <div class="pick-error" data-testid="cr-draw-error">
+          <p class="pv-error">出卡失败，可再试——这一章缺的人还列着，什么都没变。</p>
+          <div class="edit-bar">
+            <button class="btn btn-primary btn-sm" onclick="setScene('s10')">重试</button>
+            <button class="btn btn-secondary btn-sm" onclick="fillMode=true;setScene('s6')">自己填一个</button>
+            <button class="btn btn-ghost btn-sm" onclick="setScene('s1')">先不抽了</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 态⑨：失败 / 未配模型 -->
+      <div class="scene" id="sc-s9" hidden>
+        <div class="pick-error" data-testid="cr-error">
+          <p class="pv-error">还没接模型——先在模型配置里接一个，再回来盘点。</p>
+          <div class="edit-bar">
+            <button class="btn btn-primary btn-sm" onclick="setScene('s2')">重试</button>
+            <button class="btn btn-secondary btn-sm" onclick="setScene('s1')">去模型配置</button>
+            <button class="btn btn-ghost btn-sm" onclick="setScene('s1')">先不盘点</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底条（按态切换） -->
+    <div class="mcard-foot">
+      <span class="note" id="foot-note">盘点不会改动你的任何内容；要写进章纲的，都走你平时那套保存。</span>
+      <button class="btn btn-ghost btn-sm" id="btn-cancel">先不调整</button>
+      <button class="btn btn-ghost btn-sm" id="btn-back-cards" data-testid="cr-back-cards" hidden onclick="setScene('s5')">‹ 返回换一张</button>
+      <button class="btn btn-secondary btn-sm" id="btn-list-only" data-testid="cr-list-only" hidden>只加名单，先不建卡</button>
+      <button class="btn btn-primary btn-sm" id="btn-primary" data-testid="cr-write" hidden>建卡并写入章纲</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── 演示导航：十一态切换（非产品逻辑）── */
+let fillMode = false;   // ⑦ 入口形态：选卡进=false（预填）/ 手填进=true（空格）
+let tierFree = false;   // 档位跟用户不跟场景
+const s6Defaults = [...document.querySelectorAll('#sc-s6 input.input')].map(i => i.value);
+const s6DefaultSel = document.querySelector('#sc-s6 select.input')?.selectedIndex ?? 1;
+const SCENES = {
+  s1:  { modal: false },
+  s2:  { modal: true,  body: 'sc-s2', note: '盘点不会改动你的任何内容；要写进章纲的，都走你平时那套保存。', cancel: '先不调整' },
+  s3:  { modal: true,  body: 'sc-s3', note: '改段／延后不留记录：改段去剧情区改那一条；延后的那条，剧情挪到哪一章就在哪一章再遇到。', cancel: '先不调整' },
+  s4:  { modal: true,  body: 'sc-s4', note: '零新增是正常结果，不是出错。', cancel: '知道了' },
+  s5:  { modal: true,  body: 'sc-s5', note: '这批卡跟这一章走：误关重开还是同一批，不会重复生成花钱。', cancel: '先不抽了' },
+  s5b: { modal: true,  body: 'sc-s5b', note: '盘点免费；AI 抽人是 PRO。自己填名字、建卡，全档免费。', cancel: '先不调整' },
+  s6:  { modal: true,  body: 'sc-s6', note: '两个出口各自独立写入——AI 永远不会替你点。', cancel: '先不写入', primary: '建卡并写入章纲', secondary: '只加名单，先不建卡', back: '‹ 返回换一张' },
+  s7:  { modal: true, body: 'sc-s3', done: true, note: '写完不关弹窗：缺口行转已处理，剩下的缺的人继续；全部处理完才收场。', cancel: '完成' },
+  s9:  { modal: true,  body: 'sc-s9', note: '失败不会动你的任何内容。', cancel: '先不盘点' },
+  s10: { modal: true,  body: 'sc-s10', note: '这批卡跟这一章走：误关重开还是同一批，不会重复生成花钱。', cancel: '先不抽了' },
+  s11: { modal: true,  body: 'sc-s11', note: '失败不会动你的任何内容。', cancel: '先不抽了' }
+};
+function setScene(id) {
+  document.querySelectorAll('.demo-bar .chip').forEach(c => c.classList.toggle('on', c.dataset.scene === id));
+  const sc = SCENES[id];
+  const modal = document.getElementById('modal');
+  const scrim = document.getElementById('scrim');
+  modal.hidden = !sc.modal; scrim.classList.toggle('show', !!sc.modal);
+  modal.classList.toggle('show', !!sc.modal);
+  document.querySelectorAll('.scene').forEach(s => { s.hidden = true; });
+  if (sc.body) document.getElementById(sc.body).hidden = false;
+  const note = document.getElementById('foot-note');
+  const cancel = document.getElementById('btn-cancel');
+  const primary = document.getElementById('btn-primary');
+  const secondary = document.getElementById('btn-list-only');
+  if (sc.modal) {
+    note.textContent = sc.note;
+    cancel.textContent = sc.cancel;
+    if (sc.primary) { primary.hidden = false; primary.textContent = sc.primary; } else { primary.hidden = true; }
+    if (sc.secondary) { secondary.hidden = false; secondary.textContent = sc.secondary; } else { secondary.hidden = true; }
+    const back = document.getElementById('btn-back-cards');
+    if (back) back.hidden = !sc.back || fillMode;
+  }
+  // 档位跟用户不跟场景：s5b 起免费，s6/s7 继承（手填路径全程免费视角），其余态回 PRO
+  if (id === 's5b') tierFree = true;
+  else if (id !== 's6' && id !== 's7') tierFree = false;
+  document.getElementById('wb').classList.toggle('free-mode', tierFree);
+  document.querySelectorAll('.rail-assist .ra-step[data-pro]').forEach(r => r.classList.toggle('ra-off', tierFree));
+  // ⑦ 两形态：选卡进＝预填＋返回换一张；手填进＝空格表单、无返回（不露 AI 预填）
+  if (sc.body === 'sc-s6') {
+    const inputs = document.querySelectorAll('#sc-s6 input.input');
+    inputs.forEach((inp, i) => { inp.value = fillMode ? '' : s6Defaults[i]; });
+    const sel = document.querySelector('#sc-s6 select.input');
+    if (sel) sel.selectedIndex = fillMode ? -1 : s6DefaultSel;
+    const ph = document.querySelector('#sc-s6 .plans-h');
+    if (ph) ph.textContent = fillMode ? '自己填——每个格子都可以自己写（不用 AI）' : '写入前最后改一遍 · 每个格子都能改';
+  }
+  // 演示节奏：busy 态自动出态（盘点中→结果、抽卡中→三方向）
+  if (id === 's2') setTimeout(() => { if (!document.getElementById('sc-s2').hidden) setScene('s3'); }, 900);
+  if (id === 's10') setTimeout(() => { if (!document.getElementById('sc-s10').hidden) setScene('s5'); }, 900);
+  // 多缺人回程（态⑧）：写入后回结果页——剧情 3 缺口转「已写入」，其余缺口继续
+  const gapLive = document.querySelector('#sc-s3 [data-testid="gap-active"]');
+  const gapWritten = document.querySelector('#sc-s3 [data-testid="gap-written"]');
+  if (gapLive && gapWritten) {
+    const written = id === 's7';
+    gapLive.hidden = written;
+    gapWritten.hidden = !written;
+  }
+  const done = document.getElementById('done-notice');
+  if (sc.done) {
+    done.hidden = false;
+    document.getElementById('wb').classList.add('show-fresh');
+    document.getElementById('stat-cast').textContent = '出场角色 4 人';
+    const ta = document.getElementById('og-chars-ta');
+    if (!ta.value.includes('魏七')) { ta.value += '\n魏七'; ta.setAttribute('rows', '4'); }
+  } else {
+    done.hidden = true;
+  }
+}
+document.querySelectorAll('.demo-bar .chip').forEach(c => c.addEventListener('click', () => { fillMode = false; setScene(c.dataset.scene); }));
+
+/* ── 入口：右栏按钮 → 态② → 自动进态③（演示节奏）── */
+document.getElementById('btn-open-review').addEventListener('click', () => {
+  setScene('s2');
+  setTimeout(() => { if (document.getElementById('sc-s2').hidden === false) setScene('s3'); }, 900);
+});
+document.getElementById('btn-x').addEventListener('click', () => setScene('s1'));
+document.getElementById('btn-cancel').addEventListener('click', () => setScene('s1'));
+
+/* 写入两出口（各自独立落账；AI 永不代点） */
+let doneMode = 'with-card';
+document.getElementById('btn-primary').addEventListener('click', () => {
+  doneMode = 'with-card'; setScene('s7');
+});
+document.getElementById('btn-list-only').addEventListener('click', () => {
+  doneMode = 'list-only'; setScene('s7');
+});
+const _origSetScene = setScene;
+setScene = function(id) {
+  if (id === 's7') {
+    document.getElementById('done-title').textContent = doneMode === 'list-only' ? '已写入名单。' : '已写入。';
+    document.getElementById('done-detail').textContent = doneMode === 'list-only'
+      ? '本章出场角色 3→4 人 · 本卷出场清单 6→7 人（自动汇总）（「魏七」暂未建卡，名字旁随时可点「建卡」补一张，只带名字）· 本章的缺的人都处理完了。'
+      : '角色表多一卡「魏七」 · 本章出场角色 3→4 人 · 本卷出场清单 6→7 人（自动汇总）· 本章的缺的人都处理完了。';
+  const gwl = document.getElementById('gap-written-line');
+  if (gwl) gwl.textContent = doneMode === 'list-only'
+    ? '已写入名单：魏七（暂未建卡）。本章出场角色 3→4 人 · 本卷出场清单 6→7 人（自动汇总）。'
+    : '已写入：魏七——建卡并写入章纲。角色表、本章出场角色、本卷出场清单都加了。';
+  }
+  _origSetScene(id);
+};
+
+/* 缺口三选一（预填按缺口上下文给出，可改；改段/延后→已处理观感＋补救出口） */
+document.querySelectorAll('#sc-s3 .cr-opt').forEach(o => o.addEventListener('click', () => {
+  document.querySelectorAll('#sc-s3 .cr-opt').forEach(x => {
+    const on = x === o;
+    x.classList.toggle('on', on);
+    x.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+  const gap = document.querySelector('#sc-s3 [data-testid="gap-active"]');
+  gap.querySelectorAll('.cr-sug').forEach(x => x.remove()); // AI 建议标随改选消失
+  const draw = document.getElementById('btn-draw');
+  const fill = document.getElementById('lnk-fill-manual');
+  const note = document.getElementById('cr-done-note');
+  const goEdit = document.getElementById('btn-go-edit');
+  const pill = gap.querySelector('.g-head .pill');
+  const kind = o.dataset.cr;
+  gap.classList.toggle('done', kind !== 'add');
+  draw.hidden = kind !== 'add';
+  fill.hidden = kind !== 'add';
+  goEdit.hidden = kind !== 'edit';
+  note.hidden = kind === 'add';
+  if (kind === 'add') {
+    pill.className = 'pill pill-warn'; pill.textContent = '缺 1 人';
+  } else if (kind === 'edit') {
+    pill.className = 'pill'; pill.textContent = '改段 · 本次算处理过';
+    note.textContent = '这次盘点里就算处理过了，不做记录——去改剧情 3 那一条。';
+  } else {
+    pill.className = 'pill'; pill.textContent = '已延后';
+    note.textContent = '这次盘点里就算处理过了，不做记录——你自己把这段剧情挪到哪一章，就在哪一章再遇到。';
+  }
+}));
+/* 抽卡 / 自己填 → 对应态 */
+document.getElementById('btn-draw').addEventListener('click', () => setScene('s5'));
+document.getElementById('lnk-fill-manual').addEventListener('click', () => { fillMode = true; setScene('s6'); });
+/* 三方向卡选卡 → 态⑦ */
+document.querySelectorAll('#pick-grid-5 .pick-card').forEach(cardEl => cardEl.addEventListener('click', () => {
+  document.querySelectorAll('#pick-grid-5 .pick-card').forEach(x => {
+    const on = x === cardEl;
+    x.classList.toggle('on', on);
+    x.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+  setTimeout(() => { fillMode = false; setScene('s6'); }, 350);
+}));
+</script>
+</body>
+</html>
