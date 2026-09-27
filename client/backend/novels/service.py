@@ -71,8 +71,8 @@ async def create_project(
         root_path=root_path,
         source=source,
         # 创建即进入 settings 阶段（六阶段第二阶段）：创建后可直接补设定/建卷建章。
-        # 若不设，phase 保持 init，create_volume/chapter 的 update_phase("outline")
-        # 会被 engine 拒绝（init→outline 非法）→ 500（PRD 3.4 AC-4.3「仍然继续」场景）。
+        # 存量 init 行不依赖此默认——create_volume 阶段记账已宽容化（c-create-volume-phase-robust，
+        # init 建卷直接记 outline），chapter 链路无阶段推进，「init 被拒 → 500」已不存在。
         current_phase="settings",
     )
     db.add(project)
