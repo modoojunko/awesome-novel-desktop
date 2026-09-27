@@ -11,19 +11,15 @@ from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
 from prompts import load as load_prompt
-from workflow.engine import _validate_ref, can_transition, load_chapter, update_phase
+from workflow.engine import _validate_ref, advance_phase, load_chapter
 
 
 def _advance_phase(project, target: str) -> None:
-    """宽容推进：阶段机只进不退，返工（如 write 阶段重润色→prompt）不允许回退。
-
-    此时跳过推进而非抛 ValueError→500——润色/生成结果本身已合法落库，
-    阶段标记保持现状不影响后续操作（write/archive 均为幂等入口）。
+    """宽容推进（engine.advance_phase 单源）：阶段机只进不退，返工（如 write 阶段
+    重润色→prompt）不允许回退——跳过推进而非抛 ValueError→500：润色/生成结果
+    本身已合法落库，阶段标记保持现状不影响后续操作（write/archive 均为幂等入口）。
     """
-    if project.current_phase == target or can_transition(
-        project.current_phase, target
-    ):
-        update_phase(project, target)
+    advance_phase(project, target)
 from write.auxiliary import compress_text, expand_text, polish_text, stream_continue
 from write.quality import run_quality_checks
 

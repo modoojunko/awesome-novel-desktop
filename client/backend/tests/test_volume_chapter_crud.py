@@ -461,6 +461,68 @@ def test_chapter_structured_fields_roundtrip():
     _run_async(_run())
 
 
+# ── 建卷阶段记账：只进不退（write 阶段补建卷 500 回归）────────────────────
+
+
+def test_create_volume_at_write_phase_keeps_phase():
+    """写到一半重规划第一卷：建卷不被阶段机拖成 500，阶段保持 write（只进不退）。"""
+
+    async def _run():
+        project = await _new_project("cvp-write")
+        async with async_session() as session:
+            proj = await session.get(Novel, project.id)
+            proj.current_phase = "write"
+            r = await _create_volume(session, proj, title="第一卷")
+            assert r["ref"] == "vol-1"
+            assert proj.current_phase == "write"
+
+    _run_async(_run())
+
+
+def test_create_volume_at_prompt_phase_keeps_phase():
+    """prompt 阶段补建卷同理：不回退、不抛错。"""
+
+    async def _run():
+        project = await _new_project("cvp-prompt")
+        async with async_session() as session:
+            proj = await session.get(Novel, project.id)
+            proj.current_phase = "prompt"
+            r = await _create_volume(session, proj, title="第一卷")
+            assert r["ref"] == "vol-1"
+            assert proj.current_phase == "prompt"
+
+    _run_async(_run())
+
+
+def test_create_volume_init_phase_advances_to_outline():
+    """存量 init 行捷径（新建书创建即 settings）：建卷直接记卷纲。"""
+
+    async def _run():
+        project = await _new_project("cvp-init")
+        async with async_session() as session:
+            proj = await session.get(Novel, project.id)
+            proj.current_phase = "init"
+            await _create_volume(session, proj, title="第一卷")
+            assert proj.current_phase == "outline"
+
+    _run_async(_run())
+
+
+def test_create_volume_legal_transition_still_advances():
+    """合法迁移不回归：settings→outline 推进；archive→outline 新循环合法。"""
+
+    async def _run():
+        for name, start in (("cvp-settings", "settings"), ("cvp-archive", "archive")):
+            project = await _new_project(name)
+            async with async_session() as session:
+                proj = await session.get(Novel, project.id)
+                proj.current_phase = start
+                await _create_volume(session, proj, title="第一卷")
+                assert proj.current_phase == "outline", (start, proj.current_phase)
+
+    _run_async(_run())
+
+
 async def _create_volume(session, project, *, title, summary="", vol_num=None):
     from volumes.service import create_volume
 

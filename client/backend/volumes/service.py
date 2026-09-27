@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from filesystem.storage import get_storage
 from repositories import chapter_repo, volume_repo
 from volumes.schemas import VolumeUpdate
-from workflow.engine import strip_suffix, update_phase
+from workflow.engine import advance_phase, strip_suffix
 from workflow.gates import gate_settings_complete
 from workflow.tier import tier_or_gate
 
@@ -119,7 +119,14 @@ async def create_volume(
     if result.hard_block and not result.valid:
         raise HTTPException(400, f"Settings incomplete: {result.warnings}")
 
-    update_phase(project, "outline")
+    # 阶段记账（只进不退）：建卷＝卷纲阶段；书已推进到 prompt/write 的补建卷
+    #（写到一半重规划第一卷）保持现状。严格版 update_phase 遇 write→outline 会抛
+    # ValueError→500，抽卡「确认成卷」必失败（2026-09-27 演示栈实锤）。
+    if project.current_phase == "init":
+        # 存量 init 行捷径（新建书创建即 settings）：建卷直接记卷纲
+        project.current_phase = "outline"
+    else:
+        advance_phase(project, "outline")
     vol = await volume_repo.upsert(db, project.id, vol_no, title=title, summary=summary)
     vol.core_conflict = core_conflict
     vol.ending = ending
