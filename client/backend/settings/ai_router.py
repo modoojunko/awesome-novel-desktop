@@ -1000,12 +1000,18 @@ async def _arc_context(project) -> tuple[dict, dict]:
 
 
 def _arc_rules_text() -> str:
-    """硬约束片段（单源，draft/calibrate 共用）；剥掉文件头 `## ` 版本注释行（不入提示词）。"""
+    """硬约束片段（draft/calibrate 共用）；剥掉文件头 `## ` 版本注释行（不入提示词）。
+
+    ② 里的专名口径来自全链路单源（`settings.name_registry.name_canon_text`，c-ai-name-canon）——
+    与拆卷/拆章/抽卡/章纲起草共用同一条，不再各抄一份措辞。
+    """
+    from settings.name_registry import name_canon_text
+
     lines = load_prompt(_ARC_RULES_PROMPT).splitlines()
     i = 0
     while i < len(lines) and lines[i].lstrip().startswith("##"):
         i += 1
-    return "\n".join(lines[i:]).strip()
+    return "\n".join(lines[i:]).strip().format(name_rules=name_canon_text())
 
 
 def _cast_block(items: list[dict]) -> str:
@@ -1052,6 +1058,36 @@ def _cast_block(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _arc_extra_names(value: dict, names: dict[str, set[str]], known_text: str = "") -> list[str]:
+    """产出里的"名册外专名"（对拍；空列表＝干净）。两条腿并用：
+
+    ① 申报面：产出 names 字段里申报的人物/势力名不在名册上（地点类不判——世界里的地名是
+       散文，提取面模糊，判必误报）；
+    ② 确定性扫描：产出正文里像组织/派系名、但名册与世界设定原文里都没有的词
+       （模型自报会漏报真问题——2026-09-27 真机实测，故不能只靠申报）。
+    """
+    from settings.name_registry import suspect_unregistered
+
+    out: list[str] = []
+    declared = value.get("names") if isinstance(value, dict) else None
+    if isinstance(declared, dict):
+        known = {n for group in ("characters", "factions") for n in (names.get(group) or set())}
+        for group in ("characters", "factions"):
+            for raw in declared.get(group) or []:
+                nm = str(raw).strip()
+                if nm and nm not in known and nm not in out:
+                    out.append(nm)
+    scanned = suspect_unregistered(
+        " ".join(str(value.get(k, "") or "") for k in ("fullstory", "scene", "hero", "tone", "note")),
+        names=names,
+        known_text=known_text,
+    )
+    for word in scanned:
+        if word not in out:
+            out.append(word)
+    return out
+
+
 async def _arc_material(db, project) -> dict:
     """起草/校准素材（c-arc-draft-material）：世界观全量（含铁律红线，走 world_summary_text
     同一零件）＋题材全字段＋全人物档案原文＋硬约束片段。
@@ -1060,6 +1096,7 @@ async def _arc_material(db, project) -> dict:
     """
     from genres.service import build_genre_section, resolve_genre_context
     from settings.character_service import list_characters
+    from settings.name_registry import known_names, name_canon_text, roster_text
     from settings.world_model import world_summary_text
 
     world_raw = (
@@ -1074,6 +1111,10 @@ async def _arc_material(db, project) -> dict:
         "world": world or _ARC_WORLD_EMPTY,
         "genre_section": build_genre_section(gctx),
         "cast": _cast_block(items) or _ARC_CAST_EMPTY,
+        # c-ai-name-canon：规则（片段）＋名册（清单）两条腿——只有抽象规则时模型会沿用
+        # 作者旧稿里的未登记专名（2026-09-27 真机实测），名册＋产出对拍才是可落地机制
+        "name_rules": name_canon_text(),
+        "roster": roster_text(await known_names(db, project)),
         "hard_rules": _arc_rules_text(),
     }
 
@@ -1181,6 +1222,18 @@ async def run_arc_ai(
     )
 
     value = _parse_json(text, "主线 AI")
+
+    # c-ai-name-canon：产出里的"名册外专名"对拍（申报面＋确定性扫描两条腿），
+    # 随响应带 name_warnings。**不自动纠正**——2026-09-27 真机实测：把名字点名要求
+    # 改名重写的纠正轮，产出依旧沿用旧派系词（白烧一次调用），故只走"只提醒"通道
+    # （主线体检第五条同源可查；前端如需展示，读 value.name_warnings 即可）。
+    if action in ("draft", "calibrate"):
+        from settings.name_registry import known_names
+
+        canon = await known_names(db, project)
+        extra = _arc_extra_names(value, canon, str(ctx.get("world") or ""))
+        if extra:
+            value["name_warnings"] = extra
 
     # 素材门槛只拦 draft/calibrate（见上方 400）：check/tone 在内容全空时也照常发起
     # 一次调用——降级发生在 prompt 侧（模型把各线标 miss、提示先补再查），
