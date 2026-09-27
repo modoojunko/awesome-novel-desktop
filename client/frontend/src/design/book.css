@@ -248,7 +248,8 @@
 .editor p.chapter-head { text-indent: 0; font-weight: 600; font-size: 1.15em; margin-bottom: 1.6em; }
 .editor[contenteditable="false"] { opacity: 1; }
 .editor[contenteditable="false"]::selection { background: var(--fg-soft); }
-.editor:empty::before { content: attr(data-placeholder); color: var(--muted); }
+/* TipTap 占位（c-prose-editor-tiptap）：空首段由 Placeholder 扩展挂 is-empty 类＋data-placeholder */
+.editor p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
 .editor.generating { cursor: progress; }
 .editor-status { flex: none; display: flex; align-items: center; gap: 14px; height: 32px; padding: 0 18px; border-top: 1px solid var(--border); background: var(--surface); font-size: 12px; color: var(--muted); }
 .editor-status .right { margin-left: auto; display: inline-flex; align-items: center; gap: 14px; }
