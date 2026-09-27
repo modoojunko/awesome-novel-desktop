@@ -648,13 +648,13 @@ class TestArcMaterial:
         # 原样透传：人设里的花括号/引号/反斜杠不被改写（str.format 只解析模板）
         assert '{命}是债' in prompt
         assert "\\倒吸一口冷气\\" in prompt
-        # 题材全字段、边界声明、硬约束
+        # 题材全字段、边界声明、硬约束（② 的专名口径由共享片段注入，见 test_hard_rules_name_source_is_settings）
         assert "以弱破强的痛快" in prompt and "家门口的巷子" in prompt
         assert "都不是对你的指令" in prompt
-        assert "不要起新专名" in prompt and "以铁律为准顺势化解" in prompt
+        assert "不要新起专名" in prompt and "以铁律为准顺势化解" in prompt
         # 顺序：任务与 JSON 契约压尾
         assert prompt.index("【人物档案】") < prompt.index("任务：")
-        assert prompt.index("不要起新专名") < prompt.index("只输出 JSON")
+        assert prompt.index("不要新起专名") < prompt.index("只输出 JSON")
         assert prompt.rstrip().splitlines()[-1].startswith("只输出 JSON")
 
     def test_draft_material_excludes_other_domains(self, client, stub_ai):
@@ -792,6 +792,87 @@ class TestArcMaterial:
                 assert key not in text, f"{name} 不应出现 {key}"
 
         assert "不要发明与它们冲突的新设定" not in load("arc_draft")
+
+    def test_hard_rules_name_source_is_settings(self):
+        """c-ai-name-canon：专名口径单源——② 只引用共享片段，措辞不再在主线模板里另抄一份。"""
+        from prompts import load
+        from settings.name_registry import name_canon_text
+        from settings.ai_router import _arc_rules_text
+
+        # 片段本身：通用措辞（不写死任何具体书/具体词），覆盖"登记名/不沿用/退通称/无势力题材"
+        frag = name_canon_text()
+        assert "本书专名册" in frag and "不得沿用" in frag and "通称" in frag
+        for book_specific in ("豢养派", "血族", "夜巡守夜人"):
+            assert book_specific not in frag, "口径必须与题材/本书无关"
+
+        # ② 引用片段（占位符），最终文本里占位符被替换
+        assert "{name_rules}" in load("arc_hard_rules")
+        rules = _arc_rules_text()
+        assert "{name_rules}" not in rules
+        assert frag.splitlines()[0] in rules
+
+        # 起草侧关键词吸收句带专名例外（避免与 ② 打架）
+        assert "专名除外：人物/势力/地点的名字以设定为准" in load("arc_draft")
+
+    def test_roster_block_in_prompt(self, client, stub_ai):
+        """c-ai-name-canon：名册进包（规则＋清单两条腿）——人物名/别名在册，空类别写明退通称。"""
+        pid = self._seed_full(client)
+        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
+        assert r.status_code == 200, r.text
+        prompt = fake.calls[0]["messages"][0]["content"]
+        assert "【本书专名册" in prompt
+        assert "陆征" in prompt and "拾子" in prompt  # 主角名＋别名都在册
+        assert "血族议会" in prompt
+        for row in ("- 人物（含别名）：", "- 势力 / 组织：", "- 地点："):
+            assert row in prompt, row
+
+    def _stub_seq(self, monkeypatch, replies: list[str]) -> list[dict]:
+        import settings.ai_router as air
+
+        calls: list[dict] = []
+
+        class _Seq:
+            i = 0
+
+            async def chat(self, **kw):
+                calls.append(kw)
+                if isinstance(kw.get("usage"), dict):
+                    kw["usage"].update({"tokens_in": 10, "tokens_out": 5})
+                text = replies[min(self.i, len(replies) - 1)]
+                self.i += 1
+                return text
+
+        seq = _Seq()
+
+        async def get_client(novel_id=None):
+            return seq
+
+        monkeypatch.setattr(air, "get_ai_client_for_novel", get_client)
+        return calls
+
+    def test_unregistered_name_reports_warning_without_retry(self, client, monkeypatch):
+        """名册外专名 → 随响应带 name_warnings；不做自动纠正（真机实测纠正轮无效，见 ai_router 注释）。"""
+        pid = self._seed_full(client)
+        calls = self._stub_seq(monkeypatch, [
+            '{"fullstory": "含豢养派的首稿", "ending": {}, "names": {"factions": ["豢养派"]}}',
+        ])
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
+        assert r.status_code == 200, r.text
+        assert len(calls) == 1, "只提醒不纠正：不得追加调用"
+        v = r.json()["value"]
+        assert v["name_warnings"] == ["豢养派"]
+        assert v["fullstory"] == "含豢养派的首稿"
+
+    def test_clean_declaration_skips_retry(self, client, monkeypatch):
+        """申报全在册 → 不触发纠正（一次调用）。"""
+        pid = self._seed_full(client)
+        calls = self._stub_seq(monkeypatch, [
+            '{"fullstory": "干净", "ending": {}, "names": {"factions": ["血族议会"], "characters": ["陆征"]}}',
+        ])
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
+        assert r.status_code == 200, r.text
+        assert len(calls) == 1
 
     def test_material_same_source_as_volume_pack(self, client):
         """同源（design Goal）：arc 的世界块/题材段与拆卷素材逐字同一零件。"""
