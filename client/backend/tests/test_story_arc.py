@@ -765,6 +765,18 @@ class TestArcMaterial:
         assert "（角色表：无——需要人物处用通称）" in cp
         assert cp.rstrip().splitlines()[-1].startswith("只输出 JSON")
 
+    def test_draft_notes_in_box_wording(self):
+        """散想法入口＝主线框（c-arc-notes-in-box）：块标题与吸收要求句在模板、旧标题已去。"""
+        from prompts import load
+
+        text = load("arc_draft")
+        assert "作者已写在主线框里的内容" in text
+        assert "关键词与显式要求尽量吸收" in text
+        assert "【当前主线（未填部分用（未填）标注）】" not in text
+        # 顺序：主线框块在补充说明行之前；任务与 JSON 仍压尾
+        assert text.index("作者已写在主线框里的内容") < text.index("作者这次的补充说明")
+        assert text.rstrip().splitlines()[-1].startswith("只输出 JSON")
+
     def test_templates_scope(self):
         """模板占位面：draft/calibrate/check 吃设定素材、tone 不吃；check 不给写作约束片段；旧口径句已删。"""
         from prompts import load
