@@ -41,6 +41,20 @@ def update_phase(project, new_phase: str):
     project.current_phase = new_phase
 
 
+def advance_phase(project, new_phase: str) -> bool:
+    """宽容推进（只进不退）：同阶段或合法迁移才置位，非法回退静默跳过返 False。
+
+    操作类接口（建卷、写作工序、润色）的阶段记账统一走这里——操作本身已合法落库，
+    阶段标记是「最近一次操作」的记账（novel-workspace 口径），不该被阶段机拖成 500。
+    """
+    if project.current_phase == new_phase or can_transition(
+        project.current_phase, new_phase
+    ):
+        update_phase(project, new_phase)
+        return True
+    return False
+
+
 async def load_chapter(root_path: str, chapter_ref: str) -> dict:
     """DB 心脏（chapters.store）——表⇆JSON 组装；行缺失返回 {}。"""
     from chapters.store import load_chapter as _store_load

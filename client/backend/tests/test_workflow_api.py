@@ -439,3 +439,50 @@ class TestUpdatePhaseIdempotency:
         project = types.SimpleNamespace(current_phase="outline")
         update_phase(project, "prompt")
         assert project.current_phase == "prompt"
+
+
+# ── 建卷阶段记账（write 阶段补建卷 500 回归）──────────────────────────────
+
+
+async def _set_phase(pid: str, phase: str):
+    from models import Novel
+
+    async with async_session() as session:
+        proj = await session.get(Novel, pid)
+        proj.current_phase = phase
+        await session.commit()
+
+
+class TestCreateVolumePhaseRobust:
+    def test_create_volume_at_write_phase_no_500(self, client):
+        """写到一半重规划第一卷（抽卡「确认成卷」→ 建卷落库）：不被阶段机拖成 500。"""
+        name = f"wf-volphase-{uuid.uuid4().hex[:6]}"
+        r = client.post("/api/novels", json={"name": name})
+        assert r.status_code in (200, 201), r.text
+        pid = r.json()["id"]
+        _prime_settings(client, pid)
+        _run_async(_set_phase(pid, "write"))
+
+        vol = client.post(
+            f"/api/novels/{pid}/volumes", json={"vol_num": 1, "title": "第一卷"}
+        )
+        assert vol.status_code in (200, 201), vol.text
+        assert vol.json()["ref"] == "vol-1"
+        # 阶段只进不退：保持 write（既不 500 也不回退 outline）
+        r2 = client.get(f"/api/novels/{pid}")
+        assert r2.json()["current_phase"] == "write"
+
+    def test_create_volume_at_settings_still_advances(self, client):
+        """正常链路不回归：settings 阶段建卷推进到 outline。"""
+        name = f"wf-volphase-{uuid.uuid4().hex[:6]}"
+        r = client.post("/api/novels", json={"name": name})
+        assert r.status_code in (200, 201), r.text
+        pid = r.json()["id"]
+        _prime_settings(client, pid)
+
+        vol = client.post(
+            f"/api/novels/{pid}/volumes", json={"vol_num": 1, "title": "第一卷"}
+        )
+        assert vol.status_code in (200, 201), vol.text
+        r2 = client.get(f"/api/novels/{pid}")
+        assert r2.json()["current_phase"] == "outline"
