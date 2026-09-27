@@ -19,7 +19,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
+import { TextSelection } from "@tiptap/pm/state";
+import type { Editor, JSONContent } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Placeholder } from "@tiptap/extensions";
 import ContrastPreviewModal from "@/components/novel/ContrastPreviewModal";
@@ -122,6 +124,23 @@ function textOffsetToPmPos(
   return result ?? Math.max(0, pos - 1);
 }
 
+/** 外部载入/替换整文档——SHALL NOT 入撤销史。
+ *  TipTap `setContent` 默认入史：开章后按「撤销/⌘Z」会把上一章内容（或空文档）
+ *  写回本章并触发自动保存（数据破坏路径，e2e「无步时置灰」用例抓出）。
+ *  preventUpdate=true 与 emitUpdate:false 同义（不触发 onUpdate）；光标回文首（旧契约）。 */
+function replaceDocNoHistory(editor: Editor, doc: JSONContent) {
+  const node = editor.schema.nodeFromJSON(doc);
+  const tr = editor.state.tr.replaceWith(
+    0,
+    editor.state.doc.content.size,
+    node.content ?? [],
+  );
+  tr.setSelection(TextSelection.atStart(tr.doc));
+  tr.setMeta("addToHistory", false);
+  tr.setMeta("preventUpdate", true);
+  editor.view.dispatch(tr);
+}
+
 const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress, locked, editing, onStartEdit, onEndEdit },
   ref,
@@ -187,6 +206,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         attributes: {
           class: `editor ${fs} ${lh}`,
           "data-testid": "prose-editor",
+          // 空章占位：Placeholder 扩展覆盖「一个空段落」，零段落空文档由 CSS :empty 兜底
+          "data-placeholder": "从这一章开始写……",
         },
         // 粘贴一律降级纯文本段落（spec：格式标记剥离、多段结构保留）
         handlePaste: (view, event) => {
@@ -224,6 +245,15 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     // ——重建窗口期 effect 会拿到已销毁实例（.commands 抛错 → 子树被卸载，树空白）
     [],
   );
+
+  // 撤销/重做可用态（工具箱按钮置灰；useEditorState 订阅事务）
+  const canUndoRedo = useEditorState({
+    editor,
+    selector: (snap) => ({
+      canUndo: snap.editor ? snap.editor.can().undo() : false,
+      canRedo: snap.editor ? snap.editor.can().redo() : false,
+    }),
+  });
 
   // ── 上次写作会话（行头归一「续写」）：输入/滚动节流 1s 记「本章+滚动比例」 ──
   const lastSaveTimeRef = useRef(0);
@@ -268,9 +298,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       return;
     }
     lastSyncedRef.current = prose;
-    editor.commands.setContent(proseToDoc(prose), { emitUpdate: false });
-    // 对齐旧契约：外部载入后光标回文首（本地输入走 onUpdate 回路，不经过这里，光标不动）
-    editor.commands.setTextSelection(0);
+    replaceDocNoHistory(editor, proseToDoc(prose));
   }, [editor, prose, chapterRef]);
 
   // IME 组合结束 → 补挂起的外部替换
@@ -283,8 +311,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       pendingProseRef.current = null;
       if (lastSyncedRef.current === pending) return;
       lastSyncedRef.current = pending;
-      editor.commands.setContent(proseToDoc(pending), { emitUpdate: false });
-      editor.commands.setTextSelection(0);
+      replaceDocNoHistory(editor, proseToDoc(pending));
     };
     dom.addEventListener("compositionend", onCompositionEnd);
     return () => dom.removeEventListener("compositionend", onCompositionEnd);
@@ -627,11 +654,41 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       {/* 查看态顶行（c-prose-edit-gate）：只读阅读＋「编辑正文」；
           归档/排队/旧稿锁各有横幅，锁定期不出现本行。
           条件渲染而非 hidden：.ol-top 是 display:flex，会压掉 hidden 属性（历史坑） */}
-      {/* 编辑态顶条（c-prose-edit-affordance）：编辑态要看得出来——正在编辑 + 完成 回查看态 */}
+      {/* 编辑态工具箱顶条（c-prose-edit-affordance / c-prose-edit-toolbar）：
+          编辑框上沿（与正文区连体）＝ 撤销/重做 ｜ 状态 · 写完自动保存 · 完成。
+          格式按钮（加粗/斜体…）不做——纯文本存储下无法持久化。 */}
       {!hidden && editable && (
-        <div className="ol-top" data-od-id="prose-edit-bar">
-          <span className="note">正在编辑正文 · {words.toLocaleString("zh-CN")} 字</span>
+        <div className="ol-top edit-bar" data-od-id="prose-edit-bar">
+          <span className="tool-seg">
+            <button
+              className="icon-btn"
+              title="撤销"
+              aria-label="撤销"
+              data-testid="prose-undo"
+              disabled={!canUndoRedo.canUndo}
+              onClick={() => editor?.chain().focus().undo().run()}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M9 14L4 9l5-5" />
+                <path d="M4 9h10a6 6 0 010 12h-3" />
+              </svg>
+            </button>
+            <button
+              className="icon-btn"
+              title="重做"
+              aria-label="重做"
+              data-testid="prose-redo"
+              disabled={!canUndoRedo.canRedo}
+              onClick={() => editor?.chain().focus().redo().run()}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M15 14l5-5-5-5" />
+                <path d="M20 9H10a6 6 0 000 12h3" />
+              </svg>
+            </button>
+          </span>
           <span className="push">
+            <span className="note">正在编辑正文 · {words.toLocaleString("zh-CN")} 字</span>
             <span className="note">写完自动保存</span>
             <button
               className="btn btn-secondary btn-sm"

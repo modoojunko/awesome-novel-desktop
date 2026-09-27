@@ -312,3 +312,51 @@ test("润色采纳＝范围事务替换，一次撤销还原原文", async ({ pa
     await restore();
   }
 });
+
+test("编辑工具箱：开章不入历史（⌘Z 不清空正文）＋撤销/重做按钮生效", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(120_000);
+  const { restore, token } = await setupSession(page);
+  try {
+    await ensurePromptAccess(request, token);
+    const pid = await createNovel(page, `撤销钮${Date.now() % 100000}`);
+    await setupFirstChapter(page);
+    // 铺一段既有正文（模拟已写好的章）——载入 SHALL NOT 进撤销史，
+    // 故开章后按 ⌘Z/点撤销不得改动正文（旧 setContent 入史会把内容写空并自动保存）
+    const ORIG = "原有的正文，载入不应进撤销史。";
+    const put = await request.put(`${ORIGIN}/api/novels/${pid}/chapters/vol-1-ch-1/prose`, {
+      data: { prose: ORIG },
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(put.ok()).toBeTruthy();
+    await page.reload();
+    await page.getByRole("tab", { name: /^正文/ }).click();
+    await page.getByTestId("prose-edit").click();
+    const editor = page.locator(".editor");
+    await expect(editor).toContainText("原有的正文", { timeout: 10000 });
+    // 载入后无历史步 → 撤销/重做皆置灰
+    await expect(page.getByTestId("prose-undo")).toBeDisabled();
+    await expect(page.getByTestId("prose-redo")).toBeDisabled();
+    // 快捷键 ⌘Z 也不得改动正文（同一保护）
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+z");
+    await page.waitForTimeout(600);
+    await expect(editor).toContainText("原有的正文");
+    // 输入一段 → 撤销可用；撤销 → 回退到输入前（原有正文仍在）；重做 → 恢复
+    await page.keyboard.type("工具栏撤销验证的一段话。");
+    await page.waitForTimeout(700); // 拉开历史分组窗口
+    await expect(page.getByTestId("prose-undo")).toBeEnabled();
+    await page.getByTestId("prose-undo").click();
+    await expect(editor).not.toContainText("工具栏撤销验证的一段话。", { timeout: 5000 });
+    await expect(editor).toContainText("原有的正文");
+    await expect(page.getByTestId("prose-redo")).toBeEnabled();
+    await page.getByTestId("prose-redo").click();
+    await expect(editor).toContainText("工具栏撤销验证的一段话。", { timeout: 5000 });
+  } finally {
+    await restore();
+  }
+});
+
+
