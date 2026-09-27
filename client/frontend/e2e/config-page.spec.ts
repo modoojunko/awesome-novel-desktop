@@ -10,7 +10,7 @@ import { test, expect, type Page } from "@playwright/test";
 //     + 删除 + 撤销真实恢复（后端软删 restore，同 id 复活）
 // =========================================================================
 
-const S_API = "http://127.0.0.1:19000/api/web";
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 // docker C端 后端的 config.json（bind mount .docker-data/client → /app/data）
 const CONFIG_PATH = path.join(

@@ -14,7 +14,7 @@ import { cleanupSessionNovels, stableClick } from "./helpers";
 // 注入 + ai_state 桩（D13 一次分派）；AI 端点一律 page.route 打桩（零真实调用）。
 // =========================================================================
 
-const S_API = "http://127.0.0.1:19000/api/web";
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 // docker C端 后端的 config.json（bind mount .docker-data/client → /app/data）
 const CONFIG_PATH = path.join(

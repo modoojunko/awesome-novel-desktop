@@ -9,7 +9,7 @@ import { cleanupSessionNovels, stableClick, writeConfigAtomic } from "./helpers"
 // 免费档置灰。AI 三端点全部 page.route 打桩；卷/章真落库；「不落库」后端直查。
 // =========================================================================
 
-const S_API = "http://127.0.0.1:19000/api/web";
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 const CONFIG_PATH = path.join(
   process.cwd(),

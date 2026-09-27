@@ -19,7 +19,7 @@ import { cleanupSessionNovels, pollBackend, stableClick } from "./helpers";
 // 由 GateBanner 消失改为后端状态直查）。world/hooks 走真实表单（回归 world/hooks
 // readiness checker 与前端保存结构不一致的 bug），其余 5 项 API 注入内容 + UI 点「完成设定」。
 
-const S_API = "http://127.0.0.1:19000/api/web";
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 // docker C端 后端的 config.json（bind mount .docker-data/client → /app/data）
 const CONFIG_PATH = path.join(
