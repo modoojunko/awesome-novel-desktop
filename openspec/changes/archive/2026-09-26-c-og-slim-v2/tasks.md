@@ -56,3 +56,9 @@
   - **顺手核出并修掉三处跨 capability 漂移**（本次改动导致、原不在 delta 声明范围内）：`volume-chapter-service`（排上「五段」→四段、去 `chapter_acts` 两处场景）、`volume-plan-ai`（「手写五段」→四段 两处）、`workbench-3-label`（提示词格子字段：场景卡权重/焦点退役）、`chapter-plan-ai` 自身的 Purpose 与 6 处「五段」→「四段」；
   - **连带修在途 change**：`c-plan-material-fullinfo` 的 MODIFIED「拆章素材包与输出契约」块缺本次新增的继承场景「输出不含行动字段」→ 已补（`openspec validate --all` 72 passed / 0 failed）
 - [x] 7.2 归档时核对 `docs/ux/design-language.html` 与 `scripts/design-vocab.mjs` 无需变更（本次仅删除控件，未新增词汇/档位/状态）；在归档说明中登记该判定
+
+## 归档补遗（2026-09-26 二次清账）
+
+- **`/prompt/perspective` 端点随 `perspective_guidance` 退役一并下线**（`prompt/router.py` 删 `POST /perspective` 路由，`prompts/perspective.prompt` 删除；前端无调用方已核实）。归档 delta 未显式记录此端点下线，在此补遗。
+- **e2e 弱断言收紧**：`outline-ai-draft.spec.ts`「退役格不在表单」断言循环里的 `#wf-acts`（从未存在于前端的 id）已删除，只保留真实存在过的 id（`#wf-keys`/`#wf-loc`/`#wf-time`/`#wf-pov`/`#wf-pguid`/`#wf-rstrat`/`#wf-segs`/`#wf-scenes`）。
+- **`shelf-request-budget.spec.ts` 校准**：预算 8→10（#464 后新增的 update-check 轮转请求跨界挤入 3 秒窗），依据＝全量明细实测（check-auth×5/update-check×4/verify×4/candidates×3/config×3/novels×1/legacy-db×1 = 21 次含加载期；空闲窗稳态 7～8，轮转边界偶挤入第 9 个）。风暴判别力保留（~20/3s ≫ 10）。
