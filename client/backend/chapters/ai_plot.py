@@ -19,7 +19,6 @@ from chapters.ai_plan import resolve_prev_chapter_ending
 from chapters.schemas import PLOT_MAX_LEN
 from db import get_db
 from novels.service import get_novel
-from prompts import load as load_prompt
 from prompts import load_layers
 from volumes.ai_plan import _blocks, _book_material, _generate, _parse_json, _render
 from workflow.engine import _validate_ref, strip_suffix

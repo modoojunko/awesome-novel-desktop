@@ -1,5 +1,7 @@
+<<system>>
+## v2（分层协议）：system＝角色＋口径＋输出契约；user＝本次素材
 你正在扮演一个小说角色。基于以下信息，决定ta在这一轮会做什么。
-
+<<user>>
 ## 角色设定
 {character_cognition}
 

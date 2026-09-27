@@ -11,6 +11,7 @@ from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
 from prompts import load as load_prompt
+from prompts import load_layers
 from workflow.engine import _validate_ref, advance_phase, load_chapter
 
 
@@ -205,9 +206,9 @@ async def polish_write_prompt(
         project.root_path, chapter_ref, project.name, novel_id=project.id
     )
 
-    from prompts import load
+    from prompts import load_layers
 
-    system = load("prompt_crafting")
+    system, _craft_user_t = load_layers("prompt_crafting")
     client = await get_ai_client_for_novel(project.id)
     model = "haiku"  # 符号别名，落到本书模型
     usage: dict = {}
@@ -216,7 +217,7 @@ async def polish_write_prompt(
             model=model,
             max_tokens=4000,
             system=system,
-            messages=[{"role": "user", "content": ctx.material_markdown()}],
+            messages=[{"role": "user", "content": _craft_user_t.format(material=ctx.material_markdown())}],
             usage=usage,
         )
     except AITimeoutError:
@@ -494,9 +495,10 @@ async def refine_write_prompt(
     if not current:
         raise HTTPException(409, "本章还没有可修订的提示词")
 
-    system = load_prompt("prompt_refine").format(
-        # c-ai-material-audit：旧 `[:12000]` 会把组装稿尾部（世界观/红线/角色/伏笔）静默切掉，
-        # 精修产物再回写覆盖整章提示词＝作者填的内容被吃掉。组装稿本身有上限，不在此再截。
+    _sys_t, _usr_t = load_layers("prompt_refine")
+    system = _sys_t
+    refined_user = _usr_t.format(
+        # c-ai-material-audit：旧 `[:12000]` 会把组装稿尾部静默切掉（分层协议同批取消）
         instruction=_REFINE_MODES[mode], current_prompt=current
     )
     client = await get_ai_client_for_novel(project.id)
@@ -504,7 +506,7 @@ async def refine_write_prompt(
     try:
         raw = await client.chat(
             model="haiku", system=system,
-            messages=[{"role": "user", "content": "请输出修订后的提示词全文。"}],
+            messages=[{"role": "user", "content": refined_user}],
             max_tokens=4000, usage=usage,
         )
     except AITimeoutError:

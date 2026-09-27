@@ -26,13 +26,9 @@ ASSETS: frozenset[str] = frozenset(
 MIGRATION_PENDING: frozenset[str] = frozenset(
     {
         # —— 拆书/卷/章：八个调用模板已完成分层（2026-09-27）；volume_rules/pos_* 为注入片段资产，见 ASSETS
-        # —— 写正文与辅助写作：整章组装、提示词工坊/精修、续写/润色/扩写/压缩、推演、自检
-        "prompt_crafting", "prompt_refine", "continue_writing", "polish_text", "expand_text",
-        "compress_text", "plot_sim", "ai_check", "story_stage", "story_character",
+        # —— 写正文与辅助写作＋推演 10 个已完成分层（2026-09-27）
         # —— 设定页全部 AI（题材四行/简介三/世界三/文风六/伏笔四/角色页五）已完成分层（2026-09-27）
-        # —— 归档/反推/建书：归档摘要、收尾五段（当前硬编码在代码里）、旧稿反推、建书建议
-        "archive_summary", "backfill_synopsis_world", "backfill_style", "backfill_characters",
-        "backfill_outlines", "backfill_step1_system", "backfill_step2_system", "suggest_meta",
+        # —— 归档/反推/建书 6 个已完成分层（2026-09-27）；backfill_step1/2_system 两个死模板已删除
         # —— 非模板资产：专名口径片段（供引用，本身不是一次调用的模板）
         "name_canon",
     }

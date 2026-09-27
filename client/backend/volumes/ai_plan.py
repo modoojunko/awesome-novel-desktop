@@ -32,9 +32,9 @@ from novels.router import _arc_normalize
 from novels.service import get_novel
 from prompt.context import load_active_hooks, render_hooks_block
 from prompts import load as load_prompt
+from prompts import load_layers
 from repositories import volume_repo
 from settings import character_service
-from prompts import load_layers
 from settings.world_model import render_red_lines, world_summary_text
 from volumes.render import volume_outline_text
 from volumes.service import resolve_prev_ending

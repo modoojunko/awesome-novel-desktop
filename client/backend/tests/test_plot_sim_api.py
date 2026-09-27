@@ -32,6 +32,12 @@ from models.user import User
 from models.volume import Volume
 from write.plot_sim import _parse_rounds
 
+
+def _layered_prompt(kwargs) -> str:
+    """分层协议下的全文（system＋user 合并读）。"""
+    return str(kwargs.get("system") or "") + "\n" + str(kwargs["messages"][0]["content"])
+
+
 REF = "vol-1-ch-2"
 
 # 每份种子一个唯一用户（测试库跨用例复用：users.email/id 均唯一约束），
@@ -157,7 +163,7 @@ class TestOkPath:
         assert r1["moves"][1]["tone"] == "warn"
         assert r1["moves"][0]["out"] == "顺线落地"
         # 素材注入：剧情条目 + 悬念 + 上一章正文结尾
-        system = captured[-1]["system"]
+        system = str(captured[-1].get("system") or "") + "\n" + str(captured[-1]["messages"][0]["content"])  # 分层合并读
         assert "匿名信被尾随" in system
         assert "谁在暗中跟着她" in system
         assert "解开" in system  # 上一章正文结尾摘录进素材

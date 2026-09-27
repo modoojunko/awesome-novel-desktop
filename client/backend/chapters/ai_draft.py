@@ -16,7 +16,6 @@ from auth_local.middleware import get_current_user
 from db import get_db
 from filesystem.storage import get_storage
 from novels.service import get_novel
-from prompts import load as load_prompt
 from prompts import load_layers
 from workflow.engine import _validate_ref, load_chapter
 from write.chapter_writer import (

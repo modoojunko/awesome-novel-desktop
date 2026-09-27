@@ -31,6 +31,7 @@ from models.project import Novel
 from models.user import User
 from models.volume import Volume
 
+
 def _layered_prompt(kwargs) -> str:
     """分层协议下的全文（system＋user 合并读——内容断言不关心落在哪一段）。"""
     return str(kwargs.get("system") or "") + "\n" + str(kwargs["messages"][0]["content"])

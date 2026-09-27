@@ -43,6 +43,7 @@ from models import Novel  # noqa: E402
 from models.token_log import TokenLog  # noqa: E402
 from models.user import User  # noqa: E402
 
+
 def _layered_prompt(kwargs) -> str:
     """分层协议下的全文（system＋user 合并读——内容断言不关心落在哪一段）。"""
     return str(kwargs.get("system") or "") + "\n" + str(kwargs["messages"][0]["content"])

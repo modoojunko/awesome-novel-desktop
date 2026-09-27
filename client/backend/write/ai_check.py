@@ -20,7 +20,7 @@ from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
-from prompts import load as load_prompt
+from prompts import load_layers
 from workflow.engine import _validate_ref, load_chapter
 from write.chapter_writer import build_chapter_context, strip_code_fences
 
@@ -173,16 +173,16 @@ async def run_ai_check(
         ]
         material += "\n\n【全书角色关系】\n" + ("\n".join(lines) or "（暂无关系）")
 
-    system = load_prompt("ai_check").format(
-        instruction=CHECK_KINDS[kind], material=material
-    )
+    _sys_t, _usr_t = load_layers("ai_check")
+    system = _sys_t
+    _user = _usr_t.format(instruction=CHECK_KINDS[kind], material=material)
     client = await get_ai_client_for_novel(project.id)
     usage: dict = {}
     try:
         raw = await client.chat(
             model="haiku",
             system=system,
-            messages=[{"role": "user", "content": "请开始检查。"}],
+            messages=[{"role": "user", "content": _user}],
             max_tokens=1600,
             usage=usage,
         )
