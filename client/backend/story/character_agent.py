@@ -7,7 +7,7 @@ import re
 import time
 
 from ai_client import get_ai_client_for_novel
-from prompts import load as load_prompt
+from prompts import load_layers
 from story.models import CharacterState, Decision, DecisionLog, SensoryInput, StageState
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,9 @@ def _build_decision_prompt(
     if character.urgency:
         state_lines.insert(0, f"紧急：{character.urgency}")
 
-    return load_prompt("story_character").format(
+    _sys_t, _usr_t = load_layers("story_character")
+    _DECISION_SYSTEM[0] = _sys_t or _DEFAULT_SYSTEM
+    return _usr_t.format(
         character_cognition="\n".join(cognition_lines) or "（无特殊设定）",
         character_state="\n".join(state_lines),
         see=sensory.see or "（无特殊视觉信息）",
@@ -230,7 +232,10 @@ def _parse_decision(
 
 # ── Retry: stronger prompt to force pure JSON ──────────────────────
 
-_STRICT_SYSTEM = (
+_DEFAULT_SYSTEM = "你是一位小说角色扮演者。只输出 JSON，不要任何其他文字。"
+_DECISION_SYSTEM: list[str] = [_DEFAULT_SYSTEM]
+
+_STRICT_SUFFIX = (
     "你是一位小说角色扮演者。"
     "只输出纯 JSON，不要任何其他文字。"
     "禁止markdown代码块、禁止注释、禁止中文标点。"
@@ -255,9 +260,9 @@ async def run_character_decision(
             text = await asyncio.wait_for(
                 client.chat(
                     model="haiku",
-                    system=_STRICT_SYSTEM
-                    if attempt == 1
-                    else "你是一位小说角色扮演者。只输出 JSON，不要任何其他文字。",
+                    system=_DECISION_SYSTEM[0]
+                    if attempt == 0
+                    else _DECISION_SYSTEM[0] + " " + _STRICT_SUFFIX,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=1024,
                 ),

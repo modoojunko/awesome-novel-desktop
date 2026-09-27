@@ -196,10 +196,10 @@ def test_old_package_import_ignores_retired_keys_and_reports():
         import io
 
         import yaml
+        from sqlalchemy import select
 
         from backup.export import dump_book_into
         from backup.importer import persist_package
-        from sqlalchemy import select
 
         # 1) 真导出一本书（单书包形态，prefix=""）
         proj = await _new_book("ogslim_pack_src")

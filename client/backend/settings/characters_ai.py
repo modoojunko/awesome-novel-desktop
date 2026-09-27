@@ -34,6 +34,7 @@ from db import get_db
 from filesystem.storage import get_storage
 from models.character import Character
 from models.project import Novel
+from prompts import load_layers
 from settings.character_model import (
     CHAR_CHECK_STATUS,
     COG_FILL_KEYS,
@@ -129,7 +130,6 @@ async def draft_character(
     db: AsyncSession = Depends(get_db),
 ):
     """角色补全。只返回建议不落库；采纳走单格 PATCH（act 由 target 决定）。"""
-    from prompts import load as load_prompt
 
     project = await _get_project(db, project_id, user["id"])
     target = str(body.get("target") or "")
@@ -156,7 +156,8 @@ async def draft_character(
         return "\n".join(rows) if rows else "（无）"
 
     if target == "persona":
-        prompt = load_prompt("settings_characters_persona").format(
+        _s, prompt = load_layers("settings_characters_persona")
+        prompt = prompt.format(
             title=project.name,
             theme=theme_label or "（未确认）",
             synopsis=_clamp(story.get("synopsis"), 600) or "（未填写）",
@@ -170,7 +171,8 @@ async def draft_character(
         )
         temperature = 0.6
     elif target == "dossier":
-        prompt = load_prompt("settings_characters_dossier").format(
+        _s, prompt = load_layers("settings_characters_dossier")
+        prompt = prompt.format(
             title=project.name,
             theme=theme_label or "（未确认）",
             synopsis=_clamp(story.get("synopsis"), 600) or "（未填写）",
@@ -182,7 +184,8 @@ async def draft_character(
         )
         temperature = 0.4
     else:
-        prompt = load_prompt("settings_characters_cog").format(
+        _s, prompt = load_layers("settings_characters_cog")
+        prompt = prompt.format(
             title=project.name,
             theme=theme_label or "（未确认）",
             world_power=world or "（未填写）",
@@ -200,7 +203,7 @@ async def draft_character(
     try:
         text = await client.chat(
             model="haiku",
-            system="你是小说设定专家。只输出 JSON，不要任何其他文字。",
+            system=_s or "你是小说设定专家。只输出 JSON，不要任何其他文字。",
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
             json_mode=True,
@@ -279,7 +282,6 @@ async def check_character(
     db: AsyncSession = Depends(get_db),
 ):
     """角色 × 整体设定体检。四态；服务端项名；降级不 400；无副作用。"""
-    from prompts import load as load_prompt
 
     project = await _get_project(db, project_id, user["id"])
     ch = await _load_card(db, project_id, character_id)
@@ -342,7 +344,8 @@ async def check_character(
             "verdict": "先把这张卡写几句，再体检",
         }}
 
-    prompt = load_prompt("settings_characters_check").format(
+    _s_ck, prompt = load_layers("settings_characters_check")
+    prompt = prompt.format(
         card=card_text,
         synopsis=_clamp(synopsis, 600) or "（未填写）",
         theme=theme_label or "（未确认）",
@@ -359,7 +362,7 @@ async def check_character(
     try:
         text = await client.chat(
             model="haiku",
-            system="你是小说设定一致性审校。只输出 JSON，不要任何其他文字。",
+            system=_s_ck or "你是小说设定一致性审校。只输出 JSON，不要任何其他文字。",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             json_mode=True,
@@ -466,7 +469,6 @@ async def bootstrap_protagonist(
     带 character_id（主角待立）时，名称/别名/人设/格位均以服务端此刻内容为
     唯一空值基准——已有的一律不返回、改记入 skipped；性别/年龄永不出现。
     """
-    from prompts import load as load_prompt
 
     project = await _get_project(db, project_id, user["id"])
 
@@ -516,7 +518,8 @@ async def bootstrap_protagonist(
         f"{k}（{layer_of[k][0]}·{layer_of[k][1]}）" for k in COG_FILL_KEYS
     )
 
-    prompt = load_prompt("settings_characters_bootstrap").format(
+    _s_bs, prompt = load_layers("settings_characters_bootstrap")
+    prompt = prompt.format(
         title=project.name,
         theme=theme_label or "（未确认）",
         synopsis=_clamp(synopsis, 600),
@@ -531,7 +534,7 @@ async def bootstrap_protagonist(
     try:
         text = await client.chat(
             model="haiku",
-            system="你是小说设定专家。只输出 JSON，不要任何其他文字。",
+            system=_s_bs or "你是小说设定专家。只输出 JSON，不要任何其他文字。",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
             json_mode=True,

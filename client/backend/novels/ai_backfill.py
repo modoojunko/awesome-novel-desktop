@@ -50,8 +50,9 @@ def _truncate(text: str, max_chars: int = 50000) -> tuple[str, bool]:
 
 async def _call_ai(prompt_name: str, context: str) -> str:
     """调用 AI 客户端。"""
-    system = _load_prompt(f"backfill_{prompt_name}_system")
-    user = _load_prompt(f"backfill_{prompt_name}")
+    # 分层协议（c-ai-material-audit 同期治理）：system/user 两段一起取——
+    # 旧实现找 backfill_<name>_system（不存在）→ system 恒为空串的 bug 在此修复
+    system, user = load_layers(f"backfill_{prompt_name}")
     # 拼接 context 到 user prompt
     full_prompt = f"{user}\n\n---\n{context[:30000]}"
 

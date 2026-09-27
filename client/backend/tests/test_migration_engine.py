@@ -10,7 +10,6 @@ M7 预置种子幂等（OR IGNORE，新版定义胜出）
 R1 候选/preview/start/status/dismiss 免登端点链
 """
 
-import json
 import sqlite3
 from pathlib import Path
 
@@ -18,8 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import models  # noqa: F401 —— 注册全表
-
-from migration.engine import build_plan, precheck, run_migration
+from migration.engine import precheck, run_migration
 from schema_version import db_filename_for
 
 # 被测「当前版本」库名（c-db-per-version：库名＝C端 版本派生；conftest 钉 0.25）
@@ -44,7 +42,6 @@ def _write_db(path: Path, tables: dict[str, str], rows: dict[str, list] | None =
 @pytest.fixture()
 def sandbox(tmp_path, monkeypatch):
     """独立 DATA_ROOT + 已建好的当前版本库（当前 schema 的最小集）。"""
-    import db as db_mod
     from db import Base
 
     root = tmp_path / "data"

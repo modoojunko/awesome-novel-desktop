@@ -16,7 +16,7 @@ from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
-from prompts import load as load_prompt
+from prompts import load_layers
 from workflow.engine import _validate_ref, load_chapter
 from write.chapter_writer import _prev_chapter_ref, strip_code_fences
 
@@ -254,13 +254,15 @@ async def plot_simulate(
         client = None
     if client is not None:
         material = _material(chapter, prev, entry)
-        system = load_prompt("plot_sim").format(material=material)
+        _sys_t, _usr_t = load_layers("plot_sim")
+        system = _sys_t
+        _user = _usr_t.format(material=material)
         try:
             raw = await client.chat(
                 model=model,
                 max_tokens=1600,
                 system=system,
-                messages=[{"role": "user", "content": "请把这一章按回合推演一遍。"}],
+                messages=[{"role": "user", "content": _user}],
                 usage=usage,
             )
         except AITimeoutError:

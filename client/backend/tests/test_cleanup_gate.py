@@ -6,7 +6,7 @@ SHALL NOT 出现清理入口；老格式条目（缺完整性字段）保守排�
 
 import json
 
-import migration.router as router
+from migration import router
 
 
 def _set_meta(monkeypatch, last: dict | None, history: list[dict]):

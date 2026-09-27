@@ -69,13 +69,16 @@ async def archive_chapter(
             client = None
         if client is not None:
             try:
+                from prompts import load_layers
+
+                _s_sum, _u_sum = load_layers("archive_summary")
                 summary_text = await client.chat(
                     model="haiku",
-                    system="",
+                    system=_s_sum,
                     messages=[
                         {
                             "role": "user",
-                            "content": f"用200字以内总结本章核心事件，只陈述事实不评论：\n\n{full_text}",
+                            "content": _u_sum.format(full_text=full_text),
                         }
                     ],
                     max_tokens=200,

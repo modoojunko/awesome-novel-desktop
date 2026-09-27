@@ -6,7 +6,7 @@ import uuid
 
 from ai_client import get_ai_client_for_novel
 from filesystem.storage import get_storage
-from prompts import load as load_prompt
+from prompts import load_layers
 from story.character_agent import run_all_decisions
 from story.models import (
     CharacterState,
@@ -197,7 +197,9 @@ class DeductionEngine:
             action_desc = d.log.action_description or d.log.action_type
             decisions_text.append(f"  - {d.character_id}：{action_desc}")
 
-        prompt = load_prompt("story_stage").format(
+        _sys_t, _usr_t = load_layers("story_stage")
+        system = _sys_t or "只输出 JSON 数组，不要其他文字。"
+        prompt = _usr_t.format(
             stage=f"{self.stage.terrain} · 第{self.round}回合",
             decisions="\n".join(decisions_text),
         )
@@ -206,7 +208,7 @@ class DeductionEngine:
             client = await get_ai_client_for_novel(self.project_id)
             text = await client.chat(
                 model="haiku",
-                system="只输出 JSON 数组，不要其他文字。",
+                system=system,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1024,
             )

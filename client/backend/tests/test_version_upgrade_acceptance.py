@@ -21,7 +21,6 @@ import time
 from hashlib import sha256
 from pathlib import Path
 
-import pytest
 from sqlalchemy import create_engine
 
 import models  # noqa: F401 —— 注册全表
@@ -361,7 +360,7 @@ def test_up06_two_hop_chain(tmp_path):
     assert dup == [], "链式搬运零重复行"
     for p in (a, b):
         assert _sig(p) == sig[p.name]
-    print(f"[UP-06] chain=0.23→0.25 books=5 dups=0")
+    print("[UP-06] chain=0.23→0.25 books=5 dups=0")
 
 
 def test_up06b_rerun_is_idempotent(tmp_path):
@@ -517,7 +516,11 @@ def test_up10_dev_sentinel(tmp_path, monkeypatch):
 
 def test_up12_retention_and_cleanup(tmp_path):
     """UP-12：默认保留最近 2 份；未带回的件不可删；路径穿越被拒。"""
-    from db_lifecycle import deletable_candidates, delete_candidate, validate_candidate_filename
+    from db_lifecycle import (
+        deletable_candidates,
+        delete_candidate,
+        validate_candidate_filename,
+    )
     from schema_version import candidate_stamp
 
     migrated: set[str] = set()
@@ -585,8 +588,8 @@ def test_up12b_retention_endpoints(tmp_path, monkeypatch):
     con.commit()
     con.close()
 
-    from main import app
     import migration.router as mr
+    from main import app
 
     monkeypatch.setattr(mr, "DATA_ROOT", root)
     monkeypatch.setattr(mr, "HISTORY_KEY", "migration.history")

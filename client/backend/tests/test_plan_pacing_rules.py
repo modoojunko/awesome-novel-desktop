@@ -42,6 +42,12 @@ from models.user import User  # noqa: E402
 from models.volume import Volume  # noqa: E402
 from volumes.ai_plan import _rules_sections, load_fragment  # noqa: E402
 
+
+def _layered_prompt(kwargs) -> str:
+    """分层协议下的全文（system＋user 合并读）。"""
+    return str(kwargs.get("system") or "") + "\n" + str(kwargs["messages"][0]["content"])
+
+
 _CFG_PATH = os.path.join(_tmp_data_root, "config.json")
 USER_ID = "ppr_user"
 _PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "prompts")
@@ -258,7 +264,7 @@ def test_volume_rules_eight_rules_with_rhythm_criteria():
 
 
 def _last_system(fake: _FakeAIClient) -> str:
-    return fake.calls[-1]["system"]
+    return _layered_prompt(fake.calls[-1])
 
 
 class TestDirectionsRendering:
@@ -341,8 +347,11 @@ class TestDirectionsRendering:
         fake = _setup_ai(monkeypatch, _directions_reply())
         client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
         system = _last_system(fake)
-        order = [system.index(m) for m in (
-            "【本章位置】", "【进场（本章从哪接）】", "【本卷卷纲（四问）】", "【章数配额】", "硬规则："
+        user = str(fake.calls[-1]["messages"][0]["content"])
+        # 分层后：硬规则住 system；素材顺序在 user 内保持 位置→进场→卷纲→配额
+        assert "硬规则：" in system
+        order = [user.index(m) for m in (
+            "【本章位置】", "【进场（本章从哪接）】", "【本卷卷纲（四问）】", "【章数配额】"
         )]
         assert order == sorted(order)
 
