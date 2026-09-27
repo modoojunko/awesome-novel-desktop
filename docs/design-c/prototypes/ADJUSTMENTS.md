@@ -1273,3 +1273,23 @@ cast-row，坎行复用 hurdle-row；色彩与组件零新形态。
   `E2E_S_API`（沿用 ai-assist/chapter-plan 既有约定，隔离栈端口可注入）。
 - **文案自查（design-language §13）**：新增卡描述「归档后本章写回主线、正文转只读；设定/关系/
   伏笔的写回提案在下方逐条确认。」沿用操作页签既有句式；无内部术语；按钮词不动（归档本章）。
+
+## c-rail-ai-only（右栏收敛为纯 AI 助手：本章进度卡退役并入头部徽章行）— 2026-09-27
+
+用户拍板（接 c-og-rail-declutter 同日第二轮；`book.html` 原型侧仍待下次原型同批更新）：
+
+- **右栏「本章进度」卡整体退役**：大百分数/进度条/目标字数就地编辑/进度提示语/「本章已归档 ·
+  只读查看」卡/mini 统计（本书总字数/本章草稿/目标达成）全部自右栏撤除——右栏章选中态
+  SHALL 只承载 AI 相关功能（AI 生成正文工具卡、随页签的 AiAssistPanel、PRO 锁定卡）。
+- **信息收编头部 meta 行**：与既有徽章重复的项（本章字数/计划字数）不重复展示；非重复两项
+  新增徽章——「完成度 N%」（wordCount/planWords，与正文页签右栏统计卡同口径；计划字数未定
+  时不渲染该徽章）与「本书总字数 N」（书级口径）。目标字数就地编辑退役：改值走章纲
+  「本章目标字数」格（同一 `word_target` 数据，ogFormIssues 区间校验 500-6000 照常生效）。
+- **数据通道不动**：`RailChapterData` 仍全量上抛（wordCount/targetWords/setTargetWords/bookWords/
+  unarchive 等），仅 Rail 不再渲染进度卡——后续如需在别处恢复展示无 reconnect 成本。
+- **parity 影响**：右栏与原型 `.col-ai` 的进度段不再一致，与上一条 c-og-rail-declutter 偏差
+  同批待原型更新后重录 workbench 基线；design:check 为本地门禁不受影响。
+- **e2e 适配**：`workbench-features` 「点章强制落章纲」用例的右栏进度卡断言改为头部徽章行
+  断言（本章进度 count=0＋完成度/本书总字数在场）。
+- **文案自查（design-language §13）**：新徽章「完成度 N%」「本书总字数 N」沿用既有 mono 徽章
+  词汇；无新增按钮/语气形态。

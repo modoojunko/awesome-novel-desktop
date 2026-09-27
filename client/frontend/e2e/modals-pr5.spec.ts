@@ -242,13 +242,11 @@ test("解锁链：归档章点 AI → 解除只读 → AiModal 提示词；确�
     );
     await save1;
 
-    // 归档（React 弹窗确认）→ 只读横幅 + 编辑器只读；入口在操作页签（2026-09-27 自头部移入）
+    // 归档（React 弹窗确认）→ 头部「已归档」徽章（c-rail-ai-only：右栏归档卡退役）+ 编辑器只读
     await page.getByRole("tab", { name: /^操作/ }).click();
     await page.getByRole("button", { name: "归档本章" }).click();
     await page.getByTestId("arch-confirm").click();
-    await expect(page.getByText(/本章已归档 · 只读/).first()).toBeVisible({
-      timeout: 10000,
-    });
+    await expect(page.locator(".e-meta")).toContainText("已归档", { timeout: 10000 });
     await expect(editor).toHaveAttribute("contenteditable", "false");
 
     // 归档章点右栏「生成正文」→ 解除只读确认（真 bug #1 门控；2026-09-20 AI 入口唯一化右栏）

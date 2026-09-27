@@ -267,10 +267,8 @@ test("免费归档：不 500，正文只读，树已归档即时同步", async (
     await page.getByRole("button", { name: "归档本章" }).click();
     await page.getByTestId("arch-confirm").click();
 
-    // 归档成功 → 只读横幅（免费归档不 500）+ 编辑器不可编辑
-    await expect(page.getByText(/本章已归档 · 只读/).first()).toBeVisible({
-      timeout: 10000,
-    });
+    // 归档成功 → 头部「已归档」徽章（c-rail-ai-only：右栏归档卡退役；只读横幅在正文页签）
+    await expect(page.locator(".e-meta")).toContainText("已归档", { timeout: 10000 });
     // not.toBeEditable() 对 div[contenteditable="false"] 会直接抛「无法判定」——改断言属性
     await expect(page.locator(".editor")).toHaveAttribute("contenteditable", "false");
     // 树「已归档」即时同步（useChapterData dispatch → useWorkbench 刷新）

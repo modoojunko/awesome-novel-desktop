@@ -3,7 +3,8 @@
 //   页签条紧贴头部——与卷视图同位，原型 e-head→e-toolbar 两段式；AI 入口全部在右栏）
 //   2026-09-27 用户拍板收敛：章纲统计（归档门槛/计划字数/剧情/出场角色）自右栏
 //   AI 助手上移头部 meta 行；字号/行距 seg 撤（入口在账号菜单「本书偏好」）；
-//   版本历史移页签行右端；归档移操作页签卡片。
+//   版本历史移页签行右端；归档移操作页签卡片；右栏「本章进度」卡退役，
+//   完成度/本书总字数并入头部徽章行——右栏只承载 AI 相关功能（c-rail-ai-only）。
 //   八页签（章纲/正文/提示词/设定/文风/角色关系/伏笔/操作）· 点章强制落章纲
 //   正文常驻挂载 hidden 切换（脏状态/流式现场不丢）
 //   底部状态栏（字数 + 保存四态聚合 + AI 流式指示 + 停止）
@@ -259,12 +260,16 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
   const gaps = ogGaps(ogForm);
   const confirmed = ogStatus === "confirmed";
-  // 章纲统计（头部 meta 行徽章；口径与 onRailData 上抛右栏的一致——一处算头、一处算栏）
+  // 章纲统计（头部 meta 行徽章；口径与 onRailData 上抛右栏的一致——一处算头、一处算栏）。
+  // 完成度/本书总字数自右栏「本章进度」卡收编（c-rail-ai-only），右栏现只承载 AI 功能。
   const plotCount = ogForm.plots.filter((x) => x.trim()).length;
   const castLines = ogForm.chars.split("\n").filter((x) => x.trim());
   const wtParsed = parseInt(ogForm.wt, 10);
   const planWords =
     Number.isFinite(wtParsed) && wtParsed > 0 ? wtParsed : (targetWords ?? null);
+  const progressPct = planWords
+    ? Math.min(100, Math.round((wordCount / planWords) * 100))
+    : null;
 
   /** 回改「本章结尾」不静默（c-chapter-plan-ai D14）：下一章已排上 → 一次性提示，
    *  并刷新树让下一章的「基于旧设定」标记上屏（置位在服务端章保存事务内完成）。 */
@@ -802,8 +807,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
               归档门槛 {REQ_FIELDS.length - gaps.length}/{REQ_FIELDS.length}
             </span>
             <span className="tag">计划字数 {planWords ? `${fmt(planWords)} 字` : "未定"}</span>
+            {progressPct != null && <span className="tag">完成度 {progressPct}%</span>}
             <span className="tag">剧情 {plotCount} 条</span>
             <span className="tag">出场角色 {castLines.length} 人</span>
+            <span className="tag">本书总字数 {fmt(bookWords)}</span>
           </div>
         </div>
         <span className="prose-ctrls">

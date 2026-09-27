@@ -451,10 +451,10 @@ test("免费态：正文/章纲可见，提示词子 label 隐藏", async ({
 
 // -------------------------------------------------------------------------
 // ⑥ PR3 行为：点章恒落「章纲」页签（设计稿拍板，取代 PR2 按进度/付费分流）
-//    + 右栏 Rail 本章进度卡（大百分数 / 目标字数 / mini 统计）
+//    + 进度信息收编头部徽章行（c-rail-ai-only：右栏本章进度卡退役，右栏只剩 AI）
 // -------------------------------------------------------------------------
 
-test("点章强制落章纲：确认/有正文后重挂载仍落章纲 + 右栏本章进度卡", async ({
+test("点章强制落章纲：确认/有正文后重挂载仍落章纲 + 头部徽章行收编进度信息", async ({
   page,
   request,
 }) => {
@@ -521,11 +521,11 @@ test("点章强制落章纲：确认/有正文后重挂载仍落章纲 + 右栏�
     await remount();
     await expect(ogTab).toHaveAttribute("aria-selected", "true", { timeout: 5000 });
 
-    // 右栏 Rail（PR3）：本章进度卡 + 目标字数 + mini 统计
-    await expect(page.getByText("本章进度", { exact: true })).toBeVisible();
-    await expect(page.getByText("目标字数", { exact: true })).toBeVisible();
-    await expect(page.getByText("本书总字数")).toBeVisible();
-    await expect(page.getByText("本章草稿")).toBeVisible();
+    // 右栏 Rail 收敛为纯 AI 助手（c-rail-ai-only）：进度卡退役，信息在头部徽章行
+    await expect(page.getByText("本章进度", { exact: true })).toHaveCount(0);
+    const meta = page.locator(".e-meta");
+    await expect(meta).toContainText("完成度");
+    await expect(meta).toContainText("本书总字数");
   } finally {
     await restore();
   }
