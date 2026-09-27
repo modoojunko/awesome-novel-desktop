@@ -246,10 +246,14 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     editor.setEditable(editable && !streaming);
   }, [editor, editable, streaming]);
 
-  // 版式偏好类与流式样式挂编辑器宿主（TipTap 自管 contenteditable，类由这里定）
+  // 版式偏好类与流式样式挂编辑器宿主（TipTap 自管 contenteditable，类由这里定）。
+  // 只增删自己这几个类：整体赋 className 会洗掉 ProseMirror 自身的根类/动态类。
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    editor.view.dom.className = `editor ${fs} ${lh}${streaming ? " generating" : ""}`;
+    const { classList } = editor.view.dom;
+    classList.remove("editor", "fs-s", "fs-m", "fs-l", "lh-tight", "lh-comfy", "lh-loose", "generating");
+    classList.add("editor", fs, lh);
+    if (streaming) classList.add("generating");
   }, [editor, fs, lh, streaming]);
 
   // 外部 prose 变化（加载/归档恢复/润色替换/AI 完成落盘）→ 整文档替换；
