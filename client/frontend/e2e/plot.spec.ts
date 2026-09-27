@@ -113,7 +113,9 @@ async function createNovelWithChapter(page: Page, name: string): Promise<string>
   await page.getByTestId("split-adopt").click();
   await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
   await page.getByTestId("chapter-landing-outline").click();
-  // 章纲页签就位：剧情区可见
+  // 章纲页签就位：默认查看态载入完成 → 进编辑态（剧情区表单交互面；c-ch-og-readonly）
+  await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
+  await page.getByTestId("og-edit").click();
   await expect(page.locator('[data-od-id="plot-section"]')).toBeVisible({ timeout: 10000 });
   // 等章数据真载入（概要格子出现服务端值）再动键盘——慢栈上 load 响应可能晚于
   // 首帧 2s，占位态输入会在 load 完成时被 setOgForm 整表覆盖（存量竞态），白打

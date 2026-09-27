@@ -164,9 +164,12 @@ export default function ChapterWorkspace({
    | "style">("og");
   const [showArchive, setShowArchive] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  // 章纲查看/编辑两态（对齐卷纲）：默认查看态，切章回落查看
+  const [ogEditing, setOgEditing] = useState(false);
   useEffect(() => {
     setChTab("og");
     setShowHistory(false);
+    setOgEditing(false);
   }, [chapterRef]);
 
   // 会员降级兜底：提示词页签 PRO-only，免费态强制回落章纲
@@ -334,6 +337,25 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ogKey, chapterRef, outline.saveChapter, outline.chaptersMap, ogForm]);
 
+  // ── 章纲查看/编辑两态（对齐卷纲）：进编辑＝表单可写（3s 自动保存只认快照差）；
+  //    取消＝回退到最近一次落库值（ogSnapRef 恒等于已持久化内容，含自动保存）。
+  //    编辑入口：编辑章纲按钮／查看态缺口 chip／右栏 AI 起草与缺项补全（产物要在表单里过目）。──
+  const startOgEdit = useCallback(() => setOgEditing(true), []);
+  const cancelOgEdit = useCallback(() => {
+    try {
+      setOgForm(JSON.parse(ogSnapRef.current) as OgForm);
+    } catch {
+      /* 快照损坏不回填（保守保留当前表单） */
+    }
+    setOgEditing(false);
+  }, []);
+  /** 进编辑态并滚动聚焦指定格子（查看态缺口 chip／AI 帮写剧情的「去补填」共用） */
+  const editAndFlash = useCallback((key: string) => {
+    setOgEditing(true);
+    // 切编辑态重渲后 wf-* 控件才存在（与 handleGoWrite 聚焦同款时序）
+    window.setTimeout(() => flashField(key), 80);
+  }, []);
+
   /** 确认后以服务端为准回读 status（失败则徽标停在草稿）；返回最新 status */
   const reloadStatus = useCallback(async (): Promise<string> => {
     try {
@@ -387,6 +409,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       const serverData = outline.chaptersMap.get(chapterRef);
       // 以服务端数据为底、草稿覆盖章纲格子；title 保留服务端值
       setOgForm(ogToForm({ ...(serverData ?? {}), ...draft } as never));
+      setOgEditing(true); // 草稿要在表单里过目——直接落到编辑态
       toast.success("AI 草稿已填入表单，检查修改后保存");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "AI 起草失败，请重试");
@@ -419,6 +442,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         return;
       }
       setOgForm((f) => ({ ...f, ...patch }));
+      setOgEditing(true); // 补全产物要在表单里过目——直接落到编辑态
       toast.success(`已补 ${n} 项，检查后保存`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "补全失败，请重试");
@@ -526,7 +550,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     if (missing.length > 0) {
       for (const m of missing) {
         toast.error(`AI 写剧情要有依据：「${m.label}」还没填`, {
-          action: { label: "去补填", onClick: () => flashField(m.key) },
+          action: { label: "去补填", onClick: () => editAndFlash(m.key) },
         });
       }
       return;
@@ -1029,11 +1053,16 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           form={ogForm}
           characterNames={characterNames}
           label={label}
+          editing={ogEditing}
+          loading={ogLoading}
           onPatch={(patch) => setOgForm((f) => ({ ...f, ...patch }))}
           onPlotEdit={handlePlotEdit}
           gaps={gaps}
           confirmed={confirmed}
           saving={ogLoading || ogSaving}
+          onStartEdit={startOgEdit}
+          onCancelEdit={cancelOgEdit}
+          onGapClick={editAndFlash}
           onSaveDraft={() => void handleSaveDraft()}
           onConfirm={() => void handleConfirm()}
           onGoWrite={() => void handleGoWrite()}

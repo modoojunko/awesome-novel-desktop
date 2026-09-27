@@ -176,6 +176,9 @@ test("空章纲：AI 起草回填表单 → 保存草稿 → 刷新回读", asyn
     // 刷新回读
     await page.reload();
     await page.locator(".col-tree .ch", { hasText: "第一章" }).click();
+    // 查看态回读内容后进编辑态看表单值（c-ch-og-readonly）
+    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("og-edit").click();
     await expect(page.locator("#wf-summary")).toHaveValue(DRAFT.outline.summary, {
       timeout: 10000,
     });
@@ -200,6 +203,7 @@ test("已有内容：confirm 覆盖后才发起起草", async ({ page, request }
       });
     });
 
+    await page.getByTestId("og-edit").click();
     await page.locator("#wf-summary").fill("作者手填的梗概");
     // 确认弹窗页签内全部接受
     const dialogs: string[] = [];
@@ -233,6 +237,7 @@ test("只填挑战格：同样要覆盖确认；取消保留表单（hardening�
     });
 
     // 只填「碰到的挑战」（其余格子全空；c-og-slim-v2：原口径为只填场景卡）
+    await page.getByTestId("og-edit").click();
     await page.locator("#wf-challenge").fill("渡口封江在即");
 
     // 第一次：dismiss 取消 → 不发请求、表单保留
@@ -267,6 +272,7 @@ test("失败：502 toast 提示且表单不动", async ({ page, request }) => {
       }),
     );
 
+    await page.getByTestId("og-edit").click();
     await page.locator("#wf-summary").fill("失败前就有的内容");
     page.on("dialog", (d) => void d.accept());
     await page.getByTestId("og-ai-draft").click();
