@@ -9,8 +9,8 @@ import { addFirstChapterViaTree, cleanupSessionNovels, stableClick, writeFirstCh
 //   ① 章纲：选中章 →「章纲」页签 → OgPane 平面全字段表单编辑 + 保存草稿
 //   ② 卷纲（c-volume-antagonist）：点卷节点 → 四问一页纸查看态 → 编辑态四问＋坎 → 保存卷纲
 //   ③ 专注模式：body.focus 隐藏左树右栏 + Esc 退出
-//   ④ 提示词面板：整章单卡（ai-prompt-crafting）——种子查看/编辑；无分段列表/生成按钮
-//   ⑤ 免费态提示词子 label 隐藏（PRO-only 口径，取代 #152 入口可见）
+//   ④ 提示词：页签退役（c-prompt-tab-retire）——弹窗查看/编辑/存为本章提示词
+//   ⑤ 提示词页签全档退役（含免费态）；无Key 走弹窗就地报错
 //   ⑧ 章纲提示词格子：读者获得 + 章末落点 + 目标字数（c-og-slim-v2：场景卡退役）
 //   ⑥ PR3 行为：点章恒落「章纲」页签（设计稿拍板，取代 PR2 按进度分流）+ 右栏本章进度卡
 // =========================================================================
@@ -342,10 +342,10 @@ test("专注模式：隐藏左树右栏 + Esc 退出", async ({ page }) => {
 });
 
 // -------------------------------------------------------------------------
-// ④ 提示词面板：整章单卡（ai-prompt-crafting）—— 种子查看/编辑/已修改徽标（非 AI 链路）
+// ④ 提示词（c-prompt-tab-retire）：页签退役；弹窗查看/编辑/存稿；状态行收编正文页签
 // -------------------------------------------------------------------------
 
-test("提示词面板：整章单卡 + 种子提示词查看/编辑/已修改徽标", async ({
+test("提示词：页签退役；生成正文弹窗查看/编辑/存为本章提示词", async ({
   page,
   request,
 }) => {
@@ -357,44 +357,42 @@ test("提示词面板：整章单卡 + 种子提示词查看/编辑/已修改徽
     // 提示词后端接口需过 require_ai_access 门控：先注入 active ApiConfig（不测连接）
     await ensurePromptAccess(request, token);
 
-    // API 种子整章提示词（手动保存路径，非 AI 生成）
-    const seed = await request.put(
-      `${ORIGIN}/api/novels/${pid}/chapters/vol-1-ch-1/prompts/write`,
-      {
-        data: { content: "# 整章任务\n\n描写主角收到匿名信的场景。" },
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    );
-    expect(seed.ok()).toBeTruthy();
+    // c-prompt-tab-retire：提示词页签全档退役（PRO 也没有）
+    await expect(page.getByRole("tab", { name: /^提示词/ })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: /^正文/ })).toBeVisible();
 
-    // 切到章「提示词」页签 → 当前章自动展开：整章单卡 + 已保存徽标
-    await page.getByRole("tab", { name: /^提示词/ }).click();
-    await expect(page.getByText("提示词管理")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText("整章写作提示词")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText("已保存")).toBeVisible();
-    // 分段链路退役：无分段行/段数/生成按钮
-    await expect(page.getByText("段落 1")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "生成段落提示词" })).toHaveCount(0);
+    // 正文页签右栏状态行：本章提示词 自动组装（尚未落库）
+    await page.getByRole("tab", { name: /^正文/ }).click();
+    await expect(page.locator(".ai-target")).toContainText("本章提示词", { timeout: 10000 });
+    await expect(page.locator(".ai-target")).toContainText("自动组装");
 
-    // 查看 → 内容可见
-    await page.getByTestId("pm-write-row").click();
-    await expect(page.getByText("描写主角收到匿名信的场景。")).toBeVisible({
-      timeout: 5000,
-    });
+    // 打开「生成正文」弹窗＝查看最新提示词（每开必重新组装）
+    await page.getByTestId("ai-write-btn").click();
+    const ai = page.getByRole("dialog", { name: "AI 生成正文" });
+    const ta = ai.getByTestId("ai-prompt");
+    await expect(ta).toBeEnabled({ timeout: 10000 });
 
-    // 编辑 → 修改 → 保存 → 已修改
-    await page.getByRole("button", { name: "编辑", exact: true }).click();
-    await page.locator("textarea").last().fill("# 整章任务\n\n描写主角收到匿名信后追出城门的场景。");
+    // 编辑 → 存为本章提示词 → PUT prompts/write 落库 + toast
+    await ta.fill("# 整章任务\n\n描写主角收到匿名信后追出城门的场景。");
     const save = page.waitForResponse(
       (r) => r.request().method() === "PUT" && r.url().includes("/prompts/write"),
     );
-    await page.locator("main").getByRole("button", { name: "保存", exact: true }).click();
+    await ai.getByTestId("ai-prompt-save").click();
     await save;
-    await expect(page.getByText("保存成功")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("已存为本章提示词")).toBeVisible({ timeout: 5000 });
 
-    // 返回概览 → 章节徽标「已修改」
-    await page.getByRole("button", { name: "返回" }).click();
-    await expect(page.getByText("已修改").first()).toBeVisible({ timeout: 5000 });
+    // 关闭 → 状态行转「已自定义」（promptSavedSignal 刷新）
+    await ai.getByRole("button", { name: "取消" }).click();
+    await expect(page.locator(".ai-target")).toContainText("已自定义", { timeout: 10000 });
+
+    // 重开弹窗：内容＝存下的那一版（存量稿，无「AI 润色」按钮）
+    await page.getByTestId("ai-write-btn").click();
+    const ai2 = page.getByRole("dialog", { name: "AI 生成正文" });
+    await expect(ai2.getByTestId("ai-prompt")).toHaveValue(/追出城门的场景/, {
+      timeout: 10000,
+    });
+    await expect(ai2.getByTestId("ai-polished-tag")).toBeVisible();
+    await expect(ai2.getByTestId("ai-polish")).toHaveCount(0);
   } finally {
     await restore();
   }
@@ -404,7 +402,7 @@ test("提示词面板：整章单卡 + 种子提示词查看/编辑/已修改徽
 // ④b 未配 API Key（trial 会员）：点提示词 tab 就地提示去配置，不整页跳 /config
 // -------------------------------------------------------------------------
 
-test("提示词无Key：进入提示词tab就地提示去配置，不整页跳转", async ({
+test("无Key：生成正文弹窗就地报错，不整页跳转", async ({
   page,
 }) => {
   const { restore } = await setupSession(page); // trial 会员但未注入 ApiConfig
@@ -412,19 +410,16 @@ test("提示词无Key：进入提示词tab就地提示去配置，不整页跳�
     await createNovel(page, `无Key提示词${Date.now() % 100000}`);
     await writeFirstChapter(page);
 
-    // 点「提示词」页签：prompts 端点 503 → 就地提示（而非 503 全局跳 /config）
-    await page.getByRole("tab", { name: /^提示词/ }).click();
-    await expect(page.getByText("尚未配置模型 API Key")).toBeVisible({
-      timeout: 10000,
-    });
-    await expect(page.getByRole("link", { name: "去配置" })).toBeVisible();
+    // 点正文页签 → 生成正文：write/prompt 503 → 弹窗就地显示错误（而非全局跳 /config）
+    await page.getByRole("tab", { name: /^正文/ }).click();
+    await page.getByTestId("ai-write-btn").click();
+    const ai = page.getByRole("dialog", { name: "AI 生成正文" });
+    await expect(ai.getByText(/API Key/)).toBeVisible({ timeout: 10000 });
+    // 错误态：生成按钮不可点
+    await expect(ai.getByTestId("ai-confirm")).toBeDisabled();
 
-    // 关键回归断言：仍留在章页
+    // 关键回归断言：仍留在章页（未整页跳 /config）
     await expect(page).toHaveURL(/#\/novel\//);
-
-    // 「去配置」为用户主动导航 → 可达配置页
-    await page.getByRole("link", { name: "去配置" }).click();
-    await expect(page).toHaveURL(/#\/config/);
   } finally {
     await restore();
   }
@@ -434,7 +429,7 @@ test("提示词无Key：进入提示词tab就地提示去配置，不整页跳�
 // ⑤ 免费态提示词子 label 隐藏（ai-prompt-crafting PRO-only 口径，取代 #152 入口可见）
 // -------------------------------------------------------------------------
 
-test("免费态：正文/章纲可见，提示词子 label 隐藏", async ({
+test("免费态：正文/章纲可见，提示词页签不存在", async ({
   page,
 }) => {
   const { restore } = await setupSession(page, "none");
@@ -444,7 +439,7 @@ test("免费态：正文/章纲可见，提示词子 label 隐藏", async ({
 
     await expect(page.getByRole("tab", { name: /^正文/ })).toBeVisible();
     await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible();
-    // 提示词子 label PRO-only：免费态隐藏（内容本身也由后端 member_required 拦截）
+    // c-prompt-tab-retire：提示词页签全档退役（提示词从「生成正文」弹窗查看/编辑）
     await expect(page.getByRole("tab", { name: /^提示词/ })).toHaveCount(0);
   } finally {
     await restore();
@@ -657,11 +652,8 @@ test("右栏 AI 辅助随页签切换：引导语/统计卡/动作清单（动�
     await page.getByRole("tab", { name: /^正文/ }).click();
     await expect(page.getByText("AI 助手 · 正文")).toBeVisible();
     await expect(railCard.getByRole("button", { name: /压缩啰嗦段落/ })).toBeDisabled();
-    // 提示词页签：组装来源统计（懒取 prompt-sources）
-    await page.getByRole("tab", { name: /^提示词/ }).click();
-    await expect(page.getByText("AI 助手 · 提示词")).toBeVisible();
-    await expect(page.locator(".ai-target")).toContainText("组装来源");
-    await expect(page.locator(".ai-target")).toContainText("6 处");
+    // 提示词页签退役（c-prompt-tab-retire）：组装来源统计随状态收编正文页签作用域行
+    await expect(page.getByRole("tab", { name: /^提示词/ })).toHaveCount(0);
   } finally {
     await restore();
   }

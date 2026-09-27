@@ -199,19 +199,27 @@ test("PRO：按回合推演 → 收进章纲追加一条剧情 → 刷新回读"
   }
 });
 
-test("免费态：剧情推演入口在右栏置灰（不隐藏）", async ({ page }) => {
+test("免费态：剧情推演入口在右栏可见但整卡锁定（点击走升级）", async ({ page }) => {
   const { restore } = await setupSession(page, "none");
   try {
     await setupFirstChapter(page, `e2e-sim-免费-${Date.now()}`);
-    // 2026-09-20 AI 入口收口右栏：免费态动作组 rail-locked 置灰、按钮禁点
+    // c-ai-rail-shared 统一门控：整卡 locked 置灰可点，点击被拦下走统一升级出口
     await expect(page.getByTestId("og-simulate")).toBeVisible();
-    await expect(page.getByTestId("og-simulate")).toBeDisabled();
+    await expect(page.locator(".rail-assist.locked")).toBeVisible();
+    await expect(page.getByTestId("og-simulate")).toBeEnabled();
+    await page.getByTestId("og-simulate").click();
+    // 拦下：升级弹窗出现，推演弹窗不出现
+    await expect(page.getByText(/升级|PRO/i).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.locator(".modal", { hasText: "剧情推演" })).toHaveCount(0);
   } finally {
     await restore();
   }
 });
 
-test("提示词页签：六来源 chips + 只读清单（未填标注）", async ({ page, request }) => {
+test("提示词状态：正文页签作用域行显示组装来源统计（chips 详情随页签退役）", async ({
+  page,
+  request,
+}) => {
   const { restore, token } = await setupSession(page);
   try {
     await ensurePromptAccess(request, token);
@@ -235,21 +243,12 @@ test("提示词页签：六来源 chips + 只读清单（未填标注）", async
       }),
     );
 
-    await page.getByRole("tab", { name: /^提示词/ }).click();
-    const box = page.getByTestId("prompt-sources");
-    await expect(box).toBeVisible({ timeout: 10000 });
-    await expect(box).toContainText("6 处");
-    for (const label of [
-      "全书设定",
-      "大纲 · 卷纲",
-      "本章章纲",
-      "全书文风 ＋ 本章调整",
-      "伏笔进展 · 截至上一章",
-      "本章涉及角色",
-    ]) {
-      await expect(box).toContainText(label);
-    }
-    await expect(box).toContainText("未填 · 不参与组装");
+    // c-prompt-tab-retire：提示词页签退役；组装来源统计收编正文页签作用域行
+    await expect(page.getByRole("tab", { name: /^提示词/ })).toHaveCount(0);
+    await page.getByRole("tab", { name: /^正文/ }).click();
+    const target = page.locator(".ai-target");
+    await expect(target).toContainText("组装来源 100 字", { timeout: 10000 });
+    await expect(target).toContainText("本章提示词");
   } finally {
     await restore();
   }

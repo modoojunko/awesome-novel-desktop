@@ -310,8 +310,8 @@ test("PRO：检测族六类弹窗＋章纲补缺＋提示词精修采纳", async
       .getByRole("button", { name: "关闭" })
       .click();
 
-    // ── 提示词页签：精简提示词 → 采纳并保存（走既有保存链）───────────────
-    await page.getByRole("tab", { name: /^提示词/ }).click();
+    // ── 正文页签：精简提示词 → 采纳并保存（c-prompt-tab-retire：精修随页签退役收编正文页签）
+    await page.getByRole("tab", { name: /^正文/ }).click();
     await rail.getByRole("button", { name: /精简提示词/ }).click();
     const refineModal = page.locator(".modal", { hasText: "精简提示词" });
     await expect(refineModal.getByTestId("refine-preview")).toContainText(

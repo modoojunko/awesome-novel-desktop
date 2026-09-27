@@ -24,7 +24,6 @@ import OgPane, { flashField } from "./OgPane";
 import SimModal from "./SimModal";
 import { useNavigate } from "react-router-dom";
 import { charactersApi } from "@/lib/charactersApi";
-import PromptPane from "./PromptPane";
 import { StyleShadowPane } from "./StyleShadowPane";
 import { SettingsChangelogPane } from "./SettingsChangelogPane";
 import { HooksPane } from "./HooksPane";
@@ -89,6 +88,8 @@ interface ChapterWorkspaceProps {
   onRailData: (data: RailChapterData | null) => void;
   /** 生成启动信号（计数器递增）：切正文页签 + 聚焦（真 bug #2） */
   aiWriteSignal: number;
+  /** 提示词落库信号（c-prompt-tab-retire）：弹窗润色/存稿后右栏提示词状态行刷新 */
+  promptSavedSignal?: number;
   /** 续写恢复信号（顶栏 CTA）：n 递增触发，落正文页签并滚回上次位置 */
   resumeSignal?: { ref: string; scroll: number; n: number };
   /** 写作进度上抛（顶栏 bar-here 跟随显示上次写到的章） */
@@ -115,6 +116,7 @@ export default function ChapterWorkspace({
   bookWords,
   onRailData,
   aiWriteSignal,
+  promptSavedSignal,
   resumeSignal,
   onWriteProgress,
   onRevert,
@@ -160,7 +162,7 @@ export default function ChapterWorkspace({
 
   // ── 页签：点章强制落「章纲」（设计稿行为） ───────────────────────────
   const [chTab, setChTab] = useState<
-    "og" | "prompt" | "prose" | "settings" | "relations" | "hooks" | "actions"
+    "og" | "prose" | "settings" | "relations" | "hooks" | "actions"
    | "style">("og");
   const [showArchive, setShowArchive] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -174,11 +176,6 @@ export default function ChapterWorkspace({
     setOgEditing(false);
     setProseEditing(false);
   }, [chapterRef]);
-
-  // 会员降级兜底：提示词页签 PRO-only，免费态强制回落章纲
-  useEffect(() => {
-    if (!isPro && chTab === "prompt") setChTab("og");
-  }, [isPro, chTab]);
 
   // 生成启动信号（页面解锁链/AiModal 确认后递增）：切正文页签 + 进编辑态 + 聚焦（真 bug #2）
   useEffect(() => {
@@ -430,8 +427,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   const [aiCheckKind, setAiCheckKind] = useState<AiCheckKind | null>(null);
   const [refineMode, setRefineMode] = useState<RefineMode | null>(null);
   const [gapsLoading, setGapsLoading] = useState(false);
-  // 精修采纳后提示词页签需换 key 重挂（内部状态自持，无外部刷新口）
-  const [promptReload, setPromptReload] = useState(0);
 
   /** 章纲缺项补全：缺口清单 → AI 产物回填表单；落库走 3s 自动保存/手动保存。 */
   const handleFillGaps = useCallback(async () => {
@@ -635,30 +630,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     [chapterRef, ogForm, outline.saveChapter, outline.chaptersMap],
   );
 
-  // ── 提示词能力探测（tab 徽标 + PromptPane 共用；quiet：403 不弹升级） ──
-  // 提示词子 label PRO-only（ai-prompt-crafting spec：免费隐藏 → 探测也只跑 PRO）
-  const [hasPrompts, setHasPrompts] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (!isPro) {
-      setHasPrompts(null);
-      return;
-    }
-    let cancelled = false;
-    setHasPrompts(null);
-    request(`/novels/${projectId}/chapters/${chapterRef}/prompts`, {
-      quiet: true,
-    })
-      .then((files: unknown) => {
-        if (!cancelled)
-          setHasPrompts(Array.isArray(files) && files.length > 0);
-      })
-      .catch(() => {
-        if (!cancelled) setHasPrompts(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, chapterRef, isPro]);
 
   // ── 排版偏好（per-book：pref.book.{pid}.*，全局默认兜底）。
   //    页内字号/行距切换控件已撤（2026-09-27）：只读回显供 ProsePane 排版，
@@ -783,6 +754,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         castCount: castLines.length,
         missingLabels: ogGaps(ogForm).map((g) => g.label),
       },
+      promptSavedSignal,
       canAiDraft: isPro && !archived,
       aiDrafting,
       onAiDraft: () => void handleAiDraft(),
@@ -796,7 +768,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     });
     return () => onRailDataRef.current(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, aiDrafting, gapsLoading, handleFillGaps, handlePlotDraw]);
+  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, aiDrafting, gapsLoading, promptSavedSignal, handleFillGaps, handlePlotDraw]);
 
   // ── 文风建议信号（右栏 AI 助手触发 → StyleShadowPane 内执行拉取；2026-09-20
   //    AI 入口收口右栏：页签 body 不再设 AI 按钮，建议结果仍在页签内逐项采纳） ──
@@ -809,9 +781,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       : gaps.length
         ? { cls: "cnt err", text: `缺 ${gaps.length} 项` }
         : { cls: "cnt warn", text: "草稿" };
-  const promptCnt = hasPrompts
-    ? { cls: "cnt warn", text: "已自定义" }
-    : { cls: "cnt ok", text: "自动组装" };
   const proseCnt = {
     cls: "cnt",
     text: wordCount ? `${fmt(wordCount)} 字` : "空章",
@@ -867,8 +836,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           [
             ["og", "章纲", ogCnt],
             ["prose", "正文", proseCnt],
-            // 提示词子 label PRO-only：免费态隐藏（workbench-3-label spec）
-            ...(isPro ? ([["prompt", "提示词", promptCnt]] as const) : []),
             ["settings", "设定", { text: "", cls: "" }],
             ["style", "文风", { text: "", cls: "" }],
             ["relations", "角色关系", { text: "", cls: "" }],
@@ -1101,16 +1068,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         onOpenConfig={() => navigate("/config")}
       />
 
-      {chTab === "prompt" && (
-        <PromptPane
-          key={promptReload}
-          projectId={projectId}
-          chapterRef={chapterRef}
-          title={label}
-          hasPrompts={hasPrompts}
-        />
-      )}
-
       <AiCheckModal
         open={aiCheckKind !== null}
         onClose={() => setAiCheckKind(null)}
@@ -1126,7 +1083,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         chapterRef={chapterRef}
         chapterLabel={label}
         mode={refineMode}
-        onAdopted={() => setPromptReload((n) => n + 1)}
+        onAdopted={() => {
+          /* 精修落库后的右栏状态刷新走 onOpenAiModal 链外的弹窗自身提示；
+             提示词状态行在下次切页签/打开弹窗时刷新（c-prompt-tab-retire 口径）。 */
+        }}
       />
 
       <div className="editor-status" hidden={chTab !== "prose"}>

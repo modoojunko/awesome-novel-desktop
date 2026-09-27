@@ -7,7 +7,7 @@
  *  检测动作（冲突检测/一致性/偏离/补边）走 onAiCheck，精修动作走 onPromptRefine。 */
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { api } from "@/lib/api";
+import { api, request } from "@/lib/api";
 import type { AiState } from "@/types/api-config";
 import { toast } from "@/lib/toast";
 import type { RefObject } from "react";
@@ -64,6 +64,7 @@ export function AiAssistPanel({
   onAiCheck,
   onPromptRefine,
   onStyleSuggest,
+  promptSavedSignal,
 }: {
   projectId: string;
   chapterRef: string;
@@ -105,9 +106,13 @@ export function AiAssistPanel({
   onPromptRefine?: (mode: RefineMode) => void;
   /** 文风「AI 建议本章调整」（触发 StyleShadowPane 拉取；结果在页签内逐项采纳） */
   onStyleSuggest?: () => void;
+  /** 提示词落库信号（c-prompt-tab-retire）：弹窗润色/存稿后状态行刷新 */
+  promptSavedSignal?: number;
 }) {
   // 页签内轻量数据（与中栏页签同端点；只在对应页签激活时取）
   const [promptSrc, setPromptSrc] = useState<{ total: number; cast: number } | null>(null);
+  /** 本章提示词是否已落库（c-prompt-tab-retire：正文页签状态行用） */
+  const [hasPrompts, setHasPrompts] = useState<boolean | null>(null);
   const [styleStats, setStyleStats] = useState<{ rows: number; shadow: number } | null>(null);
   const [graphStats, setGraphStats] = useState<{ nodes: number; edges: number; here: number } | null>(null);
   const [hookStats, setHookStats] = useState<{
@@ -124,7 +129,15 @@ export function AiAssistPanel({
 
   useEffect(() => {
     let cancelled = false;
-    if (tab === "prompt") {
+    if (tab === "prose") {
+      // 提示词状态（c-prompt-tab-retire：页签退役后状态收编正文页签作用域行）
+      request(`/novels/${projectId}/chapters/${chapterRef}/prompts`, { quiet: true })
+        .then((files: unknown) => {
+          if (!cancelled) setHasPrompts(Array.isArray(files) && files.length > 0);
+        })
+        .catch(() => {
+          if (!cancelled) setHasPrompts(false);
+        });
       api
         .get(`/novels/${projectId}/chapters/${chapterRef}/prompt-sources`)
         .then((d: { total_chars?: number; cast_count?: number }) => {
@@ -239,7 +252,7 @@ export function AiAssistPanel({
     return () => {
       cancelled = true;
     };
-  }, [tab, projectId, chapterRef, chapterNo]);
+  }, [tab, projectId, chapterRef, chapterNo, promptSavedSignal]);
 
   const TITLE: Record<string, string> = {
     og: "章纲", prose: "正文", prompt: "提示词", settings: "设定",
@@ -321,7 +334,13 @@ export function AiAssistPanel({
     const streaming = !!aiState?.streaming;
     const pct = planWords ? Math.min(100, Math.round((wordCount / planWords) * 100)) : null;
     targetLine = (
-      <>正文字数 {fmt(wordCount)} 字{planWords ? <> · 计划字数 {fmt(planWords)} 字 · 完成度 {pct}%</> : null}</>
+      <>
+        正文字数 {fmt(wordCount)} 字{planWords ? <> · 计划字数 {fmt(planWords)} 字 · 完成度 {pct}%</> : null}
+        {" · "}
+        本章提示词{" "}
+        {hasPrompts == null ? "…" : hasPrompts ? "已自定义" : "自动组装"}
+        {promptSrc ? <> · 组装来源 {promptSrc.total.toLocaleString("zh-CN")} 字</> : null}
+      </>
     );
     rows = [
       cap("write", "生成正文", "由设定＋章纲组装提示词，可编辑后流式写入正文末尾", {
@@ -345,15 +364,7 @@ export function AiAssistPanel({
         disabled: !aiState?.hasSelection || !!aiState?.compressLoading,
         hint: !aiState?.hasSelection ? "先在正文选中一段" : undefined,
       }),
-    ];
-    footNote = "续写/润色/扩写/压缩作用于正文编辑器；润色与扩写先出对照预览，采纳才替换。";
-  } else if (tab === "prompt") {
-    targetLine = promptSrc ? (
-      <>组装来源 6 处 · 来源字数 {fmt(promptSrc.total)} 字 · 涉及角色 {promptSrc.cast} 人</>
-    ) : (
-      <>组装来源 6 处 · 来源字数统计中…</>
-    );
-    rows = [
+      // 精修两行随提示词页签退役收编（c-prompt-tab-retire：提案制弹窗，不依赖页签）
       cap("negative", "补全负向约束", "按本章内容补「不要写什么」一类硬约束（提案制，采纳才写回）", {
         onClick: () => onPromptRefine?.("negative"),
       }),
@@ -361,7 +372,8 @@ export function AiAssistPanel({
         onClick: () => onPromptRefine?.("concise"),
       }),
     ];
-    footNote = "提示词由六处来源自动组装：全书设定、卷纲、本章章纲、全书文风（含本章调整）、截至上一章的伏笔进展、本章涉及的角色设定。";
+    footNote =
+      "续写/润色/扩写/压缩作用于正文编辑器；润色与扩写先出对照预览，采纳才替换。提示词由「生成正文」弹窗查看/编辑，弹窗内可存为本章提示词。" ;
   } else if (tab === "settings") {
     targetLine = loreStats ? (
       <>本章变化 {loreStats.here} 条 · 截至本章条目 {loreStats.until} 条</>
