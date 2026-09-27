@@ -431,7 +431,7 @@ describe("写入两出口落账（3.4）", () => {
       expect.objectContaining({ sticky: true }),
     );
     expect(mockToast.success).toHaveBeenCalledWith(
-      expect.stringContaining("本章的缺的人都处理完了"),
+      expect.stringContaining("还有 1 个缺的人"),
       expect.anything(),
     );
   });

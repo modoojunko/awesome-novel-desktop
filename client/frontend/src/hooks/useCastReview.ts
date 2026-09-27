@@ -72,7 +72,7 @@ export interface CastState {
 
 const INITIAL: CastState = {
   open: false,
-  phase: "reviewing",
+  phase: "result", // 空闲初值：挂载即「reviewing」会被 castBusy 派生成在跑（e2e 实锤：全行禁点）
   error: null,
   review: null,
   rows: [],
@@ -167,13 +167,9 @@ export function useCastReview(opts: {
           anchor,
           choice: castChoice(row.gap.suggest),
           touched: false,
-          // 预填即三选一现状（设计稿：改段/延后选中即转已处理观感）；作者可改任意格
-          status:
-            castChoice(row.gap.suggest) === "改段"
-              ? "edited"
-              : castChoice(row.gap.suggest) === "延后"
-                ? "deferred"
-                : "open",
+          // 预填只是 AI 建议（可改），未点按不算处理——「处理完的行标已处理」只认作者点按
+          // （旧实现把预填 延后/改段 直接置已处理＝AI 代点，违 R3/R5，e2e 实锤）
+          status: "open",
           batches: [],
           exclude: [],
         };
