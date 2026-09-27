@@ -84,7 +84,7 @@ class TestPromptTemplates:
         """{multi_point} 开关与「禁止另起炉灶」约束（用户 2026-09-10 参考稿）。"""
         text = load("settings_genre_core_promise")
         assert "{multi_point}" in text
-        assert "最多返回 3 个独立看点" in text or "最多返回 3" in text
+        assert "最多 3 个独立看点" in text or "最多返回 3" in text
         assert "禁止完全另起炉灶" in text
 
     def test_templates_do_not_name_models(self):

@@ -27,17 +27,7 @@ MIGRATION_PENDING: frozenset[str] = frozenset(
         # —— 写正文与辅助写作：整章组装、提示词工坊/精修、续写/润色/扩写/压缩、推演、自检
         "prompt_crafting", "prompt_refine", "continue_writing", "polish_text", "expand_text",
         "compress_text", "plot_sim", "ai_check", "story_stage", "story_character",
-        # —— 设定页其余 AI：题材四行、简介三能力、世界起草/体检/lore、文风三区与蒸馏、伏笔四能力
-        "settings_genre_core_promise", "settings_genre_forbidden_list", "settings_genre_cost_ratio",
-        "settings_genre_battlefield",
-        "settings_intro_fill", "settings_intro_introspect", "settings_intro_polish",
-        "world_draft_topic", "world_check", "world_lore_suggest",
-        "settings_style", "style_check", "style_fewshot_mine",
-        "style_distill_step1", "style_distill_step2", "style_distill_step3",
-        "hooks_draft", "hooks_payoff", "hooks_check", "hooks_audit",
-        # —— 角色页五能力
-        "settings_characters_bootstrap", "settings_characters_dossier", "settings_characters_persona",
-        "settings_characters_cog", "settings_characters_check",
+        # —— 设定页全部 AI（题材四行/简介三/世界三/文风六/伏笔四/角色页五）已完成分层（2026-09-27）
         # —— 归档/反推/建书：归档摘要、收尾五段（当前硬编码在代码里）、旧稿反推、建书建议
         "archive_summary", "backfill_synopsis_world", "backfill_style", "backfill_characters",
         "backfill_outlines", "backfill_step1_system", "backfill_step2_system", "suggest_meta",

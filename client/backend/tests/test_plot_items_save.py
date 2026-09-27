@@ -27,10 +27,10 @@ os.environ["DATA_ROOT"] = tempfile.mkdtemp(prefix="test_plot_items_")
 
 import pytest  # noqa: E402
 import yaml  # noqa: E402
+from conftest import seed_chapter_db  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
-from conftest import seed_chapter_db  # noqa: E402
 from db import Base, async_session, engine  # noqa: E402
 from models.chapter import Chapter  # noqa: E402
 from models.project import Novel  # noqa: E402

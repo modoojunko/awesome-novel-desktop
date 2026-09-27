@@ -25,7 +25,7 @@ from auth_local.middleware import get_current_user
 from db import async_session
 from filesystem.storage import get_storage
 from main import app
-from models.chapter import Chapter, ChapterMicroPayoff
+from models.chapter import Chapter
 from models.project import Novel
 from models.volume import Volume
 from settings.style_quant_model import BASELINE_KEYS

@@ -22,7 +22,6 @@ from fastapi.testclient import TestClient
 def seeded(tmp_path, monkeypatch):
     """建一个带书与配置的库环境，返回 (client, data_root, out_dir, book_id)。"""
     import os
-    import sys
 
     data_root = tmp_path / "data"
     data_root.mkdir()
