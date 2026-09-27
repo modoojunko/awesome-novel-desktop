@@ -262,7 +262,7 @@ test("卷视图：点卷节点 → 四页签 → 卷纲两态编辑保存 → �
         r.request().method() === "PUT" &&
         r.url().includes("/volumes/vol-1"),
     );
-    await page.getByRole("button", { name: "保存" }).click();
+    await page.getByRole("button", { name: "保存", exact: true }).click();
     await volSave;
     await expect(page.getByText("卷纲已保存")).toBeVisible({ timeout: 5000 });
 
@@ -296,7 +296,7 @@ test("卷视图：点卷节点 → 四页签 → 卷纲两态编辑保存 → �
     await expect(page.getByTestId("volume-rail-tab")).toHaveText("卷纲");
     await expect(page.getByTestId("volume-replan")).toBeVisible();
     await page.getByRole("tab", { name: "本卷章节" }).click();
-    await expect(page.locator(".ai-ctx")).toContainText("本卷章节");
+    await expect(page.getByTestId("volume-rail-tab")).toHaveText("本卷章节");
     await expect(page.getByTestId("volume-rail-lead")).toContainText("已写内容与卷纲的出入");
     await expect(page.getByTestId("volume-replan")).toHaveCount(0);
     // 台账行（章纲一句话列）＋点行跳章
@@ -648,20 +648,20 @@ test("右栏 AI 辅助随页签切换：引导语/统计卡/动作清单（动�
     await page.getByRole("tab", { name: /^章纲/ }).click();
     await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
     // 章纲页签：面板随页签切换；动作全部落地（占位机制已退役，不再有「规划中」）
-    await expect(page.getByText("AI 辅助 · 章纲")).toBeVisible({ timeout: 10000 });
-    const railActs = page.locator(".rail-acts");
-    await expect(railActs.getByRole("button", { name: /剧情推演/ })).toBeEnabled();
-    await expect(railActs.getByRole("button", { name: /补全缺失字段/ })).toBeEnabled();
-    await expect(railActs.getByText("规划中")).toHaveCount(0);
+    await expect(page.getByText("AI 助手 · 章纲")).toBeVisible({ timeout: 10000 });
+    const railCard = page.locator(".rail-assist");
+    await expect(railCard.getByRole("button", { name: /剧情推演/ })).toBeEnabled();
+    await expect(railCard.getByRole("button", { name: /补全缺失字段/ })).toBeEnabled();
+    await expect(railCard.getByText("规划中")).toHaveCount(0);
     // 正文页签：面板切到正文（统计正文字数）；压缩需选中才可点
     await page.getByRole("tab", { name: /^正文/ }).click();
-    await expect(page.getByText("AI 辅助 · 正文")).toBeVisible();
-    await expect(railActs.getByRole("button", { name: /压缩啰嗦段落/ })).toBeDisabled();
+    await expect(page.getByText("AI 助手 · 正文")).toBeVisible();
+    await expect(railCard.getByRole("button", { name: /压缩啰嗦段落/ })).toBeDisabled();
     // 提示词页签：组装来源统计（懒取 prompt-sources）
     await page.getByRole("tab", { name: /^提示词/ }).click();
-    await expect(page.getByText("AI 辅助 · 提示词")).toBeVisible();
-    await expect(page.locator(".rail-stats")).toContainText("组装来源");
-    await expect(page.locator(".rail-stats")).toContainText("6 处");
+    await expect(page.getByText("AI 助手 · 提示词")).toBeVisible();
+    await expect(page.locator(".ai-target")).toContainText("组装来源");
+    await expect(page.locator(".ai-target")).toContainText("6 处");
   } finally {
     await restore();
   }

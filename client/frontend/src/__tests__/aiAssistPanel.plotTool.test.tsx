@@ -1,6 +1,6 @@
 // 右栏「AI 帮写剧情」卡（c-plot-split 5.4）：三态＝可用（PRO）／归档禁用／
 // 免费态 rail-locked 置灰禁点不隐藏＋升级出口。
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/api", () => ({
@@ -45,20 +45,21 @@ describe("右栏 AI 帮写剧情卡（三态）", () => {
     expect(onPlotDraw).toHaveBeenCalledTimes(1);
   });
 
-  it("免费态：locked 置灰禁点不隐藏＋升级出口（手写全档可用）", () => {
+  it("免费态：整卡 locked；剧情行点击走统一升级出口（手写全免费写进行描述）", async () => {
     const onPlotDraw = vi.fn();
     const onUpgrade = vi.fn();
     renderPanel({ isPro: false, onPlotDraw, onUpgrade });
-    const btn = screen.getByTestId("og-plot-draw");
+    expect(document.querySelector(".rail-assist.locked")).toBeTruthy();
+    const btn = screen.getByTestId("og-plot-draw") as HTMLButtonElement;
     expect(btn).toBeVisible();
-    expect(btn).toBeDisabled();
-    fireEvent.click(btn);
+    expect(btn.disabled).toBe(false); // 模板免费态＝可见可点，点击被门控拦下
+    await act(async () => {
+      fireEvent.click(btn);
+    });
     expect(onPlotDraw).not.toHaveBeenCalled();
-    // 升级出口在锁定包裹外，可点
-    const exit = screen.getByTestId("plot-upgrade-exit");
-    expect(exit).toHaveTextContent("剧情自己写全免费");
-    fireEvent.click(screen.getByText("升级 PRO"));
     expect(onUpgrade).toHaveBeenCalledTimes(1);
+    // 「手写全免费」口径写在行描述里
+    expect(screen.getByText(/手写剧情全免费/)).toBeTruthy();
   });
 
   it("归档章禁用", () => {

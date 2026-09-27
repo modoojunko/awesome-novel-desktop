@@ -283,7 +283,7 @@ test("PRO：归档 → 后台收尾提案 → 采纳写回/驳回", async ({ pag
 
     // 右栏收尾三入口（按类触发真链路）：伏笔页签「登记新伏笔」→ run 端点 → toast
     await page.getByRole("tab", { name: /^伏笔/ }).click();
-    const runBtn = page.locator(".rail-acts").getByRole("button", { name: /登记新伏笔/ });
+    const runBtn = page.locator(".rail-assist").getByRole("button", { name: /登记新伏笔/ });
     await expect(runBtn).toBeEnabled({ timeout: 10000 });
     await runBtn.click();
     await expect(page.getByText(/已开始收尾提取|已有收尾任务在跑/)).toBeVisible({

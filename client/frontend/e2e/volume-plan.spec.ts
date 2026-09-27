@@ -192,7 +192,7 @@ test("付费抽卡链：打开即三卡→选 B→确认成卷→落点卡→卷
     await expect(page.getByText(/执法官雷/)).toBeVisible({ timeout: 5000 });
     // 确认落库后不残留「落地后清选中」信号：卷页保存后仍停在卷页（检视 P2 回归）
     await page.getByRole("button", { name: "编辑卷纲" }).click();
-    await page.getByRole("button", { name: "保存" }).click();
+    await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByText("卷纲已保存")).toBeVisible({ timeout: 8000 });
     await expect(page.getByRole("button", { name: "编辑卷纲" })).toBeVisible({ timeout: 5000 });
     // 不落库直查：伏笔建议入台账（batch 真调用）
@@ -296,7 +296,7 @@ test("免费档：规划台可进、生成置灰带 PRO 说明；体检照常可
     await expect(page.getByTestId("pick-modal")).toHaveCount(0);
     await page.getByTestId("q-what").fill("林野第一次主动出城查身世");
     await expect(page.getByTestId("desk-expand")).toBeDisabled();
-    await expect(page.locator(".pill-pro").first()).toBeVisible();
+    await expect(page.locator(".plan-badge").first()).toBeVisible();
     await expect(page.getByTestId("desk-create")).toBeEnabled();
     await page.keyboard.press("Escape");
 

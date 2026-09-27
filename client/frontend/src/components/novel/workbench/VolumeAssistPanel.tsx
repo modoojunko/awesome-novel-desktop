@@ -11,6 +11,7 @@ import { volumePlanApi, type VolumeCheckResult } from "@/lib/volumePlanApi";
 import { nextVolNo as nextVolumeNo } from "@/lib/chapterRef";
 import type { VolumeRailData } from "./VolumeWorkspace";
 import type { WorkbenchVolume } from "@/hooks/useWorkbench";
+import AiWriterAssistant from "@/components/novel/AiWriterAssistant";
 
 export type { VolumeRailData };
 
@@ -196,111 +197,106 @@ function VolumeVerifyPanel({
   }, [autoCheckSeq, volRef]);
 
   return (
-    <div>
-      <div className="ai-head">
-        <span className="ai-title">AI 助手</span>
-        <span className="pill-pro">PRO</span>
-      </div>
-      <div className="ai-ctx">
-        <em>当前页签</em>
-        <span data-testid="volume-rail-tab">{VOL_TAB_NAME[tab] ?? "卷纲"}</span>
-      </div>
-      <div className="rail-assist" data-testid="volume-verify-panel">
-        <p className="ai-lead" data-testid="volume-rail-lead">
-          {VOL_TAB_LEAD[tab] ??
-            "这一卷的验证：对不对得上全书设定、接不接得上主线、跟已经写出来的部分有没有出入。只给判断，不代笔。"}
-        </p>
-        <button
-          className="btn btn-secondary btn-sm"
-          data-testid="volume-check-btn"
-          disabled={checking}
-          onClick={() => void runCheck()}
-        >
-          {checking ? "体检中…" : "体检这一卷"}
-        </button>
-        {tab === "outline" && (
-          <button
-            className="btn btn-secondary btn-sm"
-            data-testid="volume-replan"
-            title="打开规划台，卷号＝本卷；采纳后仍逐段落进卷纲表单，保存才落库"
-            onClick={() => onPlanVolume(data.volume)}
-          >
-            重新规划这一卷（AI）
-          </button>
-        )}
-        {tab === "outline" && (
+    <AiWriterAssistant
+      title="AI 助手 · 本卷验证"
+      aiState="ready"
+      targetLine={<>当前页签 · <span data-testid="volume-rail-tab">{VOL_TAB_NAME[tab] ?? "卷纲"}</span></>}
+      rows={[
+        {
+          key: "check",
+          name: checking ? "体检中…" : "体检这一卷",
+          desc: "对照主线/节奏/设定/已写内容四组，只给判断不代笔",
+          onClick: () => void runCheck(),
+          disabled: checking,
+          testid: "volume-check-btn",
+        },
+        ...(tab === "outline"
+          ? [{
+              key: "replan",
+              name: "重新规划这一卷（AI）",
+              desc: "打开规划台，卷号＝本卷；采纳后逐段落进卷纲表单（不直接落库）",
+              onClick: () => onPlanVolume(data.volume),
+              testid: "volume-replan",
+            }]
+          : []),
+        ...(tab === "outline"
+          ? [{
+              key: "split",
+              name: "拆下一章（AI）",
+              desc: splitBlocked
+                ? `写作位在第${frontierVol}卷——这一卷还没轮到`
+                : "按卷纲拆出下一章的三方向卡（PRO）",
+              onClick: () => {
+                if (!isPro) onUpgrade();
+                else if (!splitBlocked) onSplitAi();
+              },
+              disabled: checking || splitBlocked || !isPro,
+              hint: !isPro ? "需 PRO" : splitBlocked ? `写作位在第${frontierVol}卷` : undefined,
+              testid: "volume-split-ai",
+            }]
+          : []),
+      ]}
+      footNote="免费版：体检与建议只读；生成、改写与归档需 PRO。体检随时可重复，不会改动任何内容。"
+      data-od-id="volume-verify-panel"
+      data-testid="volume-verify-panel"
+    >
+      <p className="ai-lead" data-testid="volume-rail-lead">
+        {VOL_TAB_LEAD[tab] ??
+          "这一卷的验证：对不对得上全书设定、接不接得上主线、跟已经写出来的部分有没有出入。只给判断，不代笔。"}
+      </p>
+      {tab === "outline" && !isPro && (
+        <p className="none" data-testid="volume-split-ai-locked">
+          AI 三方向需 PRO——「自己写这一章」在中栏卷纲页随时可用{" "}
           <button
             className="btn btn-primary btn-sm"
-            data-testid="volume-split-ai"
-            disabled={!isPro || splitBlocked}
-            title={
-              splitBlocked
-                ? `写作位在第${frontierVol}卷——这一卷还没轮到`
-                : undefined
-            }
-            onClick={() => (isPro && !splitBlocked ? onSplitAi() : isPro ? undefined : onUpgrade())}
+            data-testid="volume-split-ai-upgrade"
+            onClick={onUpgrade}
           >
-            拆下一章（AI）
+            升级 PRO
           </button>
-        )}
-        {tab === "outline" && !isPro && (
-          <p className="none" data-testid="volume-split-ai-locked">
-            AI 三方向需 PRO——「自己写这一章」在中栏卷纲页随时可用
-            {" "}
-            <button
-              className="btn btn-primary btn-sm"
-              data-testid="volume-split-ai-upgrade"
-              onClick={onUpgrade}
-            >
-              升级 PRO
-            </button>
+        </p>
+      )}
+      {tab === "outline" && isPro && splitBlocked && (
+        <p className="none" data-testid="volume-split-ai-blocked">
+          写作位在第{frontierVol}卷——先去那一卷拆章
+        </p>
+      )}
+      {error && (
+        <p className="pv-error" data-testid="volume-check-error">
+          {error}
+        </p>
+      )}
+      {report?.degraded && (
+        <div className="pv-degraded" data-testid="volume-check-degraded">
+          <p className="pv-degraded-t">体检输出没法结构化</p>
+          <p className="pv-degraded-x">{report.text}</p>
+          <p className="none">{report.hint || "可重试"}</p>
+        </div>
+      )}
+      {report && !report.degraded && (
+        <div data-testid="volume-check-report">
+          {groups.map((g, gi) => (
+            <div key={`${g.name}#${gi}`}>
+              <p className="rp-k">{g.name}</p>
+              <ul className="rp-list">
+                {g.items.map((it, i) => (
+                  <li key={i} className={`rp-row ${it.status}`}>
+                    <span className="rp-dot" aria-hidden="true" />
+                    <span className="rp-tx">
+                      {it.text}
+                      {it.evidence ? <em className="rp-ev">（{it.evidence}）</em> : null}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          <p className="ai-note" style={{ marginTop: 10 }}>
+            只读 · 不拦；你是最后确认的人。
           </p>
-        )}
-        {tab === "outline" && splitBlocked && (
-          <p className="none" data-testid="volume-split-ai-blocked">
-            写作位在第{frontierVol}卷——先去那一卷拆章
-          </p>
-        )}
-        {error && (
-          <p className="pv-error" data-testid="volume-check-error">
-            {error}
-          </p>
-        )}
-        {report?.degraded && (
-          <div className="pv-degraded" data-testid="volume-check-degraded">
-            <p className="pv-degraded-t">体检输出没法结构化</p>
-            <p className="pv-degraded-x">{report.text}</p>
-            <p className="none">{report.hint || "可重试"}</p>
-          </div>
-        )}
-        {report && !report.degraded && (
-          <div data-testid="volume-check-report">
-            {groups.map((g, gi) => (
-              <div key={`${g.name}#${gi}`}>
-                <p className="rp-k">{g.name}</p>
-                <ul className="rp-list">
-                  {g.items.map((it, i) => (
-                    <li key={i} className={`rp-row ${it.status}`}>
-                      <span className="rp-dot" aria-hidden="true" />
-                      <span className="rp-tx">
-                        {it.text}
-                        {it.evidence ? <em className="rp-ev">（{it.evidence}）</em> : null}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-            <p className="ai-note" style={{ marginTop: 10 }}>
-              只读 · 不拦；你是最后确认的人。
-            </p>
-          </div>
-        )}
-      </div>
-      <p className="ai-foot">
-        免费版：体检与建议只读；生成、改写与归档需 PRO。体检随时可重复，不会改动任何内容。
-      </p>
-    </div>
+        </div>
+      )}
+    </AiWriterAssistant>
   );
 }
 
@@ -351,56 +347,52 @@ export function VolumeAssistPanel({
   // 空书（0 卷）：规划第一卷入口＋分卷依据
   if (vols.length === 0) {
     return (
-      <>
-        <div className="ai-head">
-          <span className="ai-title">AI 助手</span>
-          <span className="pill-pro">PRO</span>
-        </div>
-        <div className="ai-ctx">
-          <em>当前页签</em>
-          <span>未选</span>
-        </div>
-        <div className="pv-entry plan-acts" data-testid="plan-entry-empty">
+      <AiWriterAssistant
+        title="AI 助手 · 分卷规划"
+        aiState="ready"
+        targetLine={<>还没有卷 · 全书 {idle.chapters} 章</>}
+        rows={[
+          {
+            key: "plan-first",
+            name: "规划第一卷（AI）",
+            desc: "让 AI 按你的主线拆分卷：先给第一卷定走向，再逐卷往下规划",
+            onClick: () => onPlanVolume(1),
+            testid: "plan-first-volume",
+          },
+        ]}
+        footNote="免费版：体检与建议只读；生成、改写与归档需 PRO。规划台里材料与规则随时可看，输入也能先写。"
+        data-od-id="plan-entry-empty"
+      >
+        <div data-testid="plan-entry-empty">
           <p className="ai-lead">
-            让 AI 按你的主线拆分卷：先给第一卷定走向，再逐卷往下规划。也可以自己动手——先建一卷、排上第一章。
+            也可以自己动手：先建一卷、排上第一章，就能开写。
           </p>
-          <button
-            className="btn btn-primary btn-sm"
-            data-testid="plan-first-volume"
-            onClick={() => onPlanVolume(1)}
-          >
-            规划第一卷（AI）
-          </button>
           <BasisCard projectId={projectId} active genreLabel={genreLabel} />
         </div>
-        <p className="ai-foot">
-          免费版：体检与建议只读；生成、改写与归档需 PRO。规划台里材料与规则随时可看，输入也能先写。
-        </p>
-      </>
+      </AiWriterAssistant>
     );
   }
 
   // 有卷未选中（写作默认页）：接着往下规划＋卷的验证
   const nextNo = nextVolumeNo(vols); // 最大卷号+1（与后端 MAX+1 同口径，见 chapterRef.nextVolNo）
   return (
-    <>
-      <div className="ai-head">
-        <span className="ai-title">AI 助手</span>
-        <span className="pill-pro">PRO</span>
-      </div>
-      <div className="ai-ctx">
-        <em>当前页签</em>
-        <span>未选</span>
-      </div>
-      <div className="pv-entry" data-testid="plan-entry-next">
-        <p className="ai-lead">接着往下规划，或挑一卷做验证。</p>
-        <button
-          className="btn btn-primary btn-sm"
-          data-testid="plan-next-volume"
-          onClick={() => onPlanVolume(nextNo)}
-        >
-          规划第{nextNo}卷（AI）
-        </button>
+    <AiWriterAssistant
+      title="AI 助手 · 分卷规划"
+      aiState="ready"
+      targetLine={<>共 {vols.length} 卷 · 已排 {idle.chapters} 章</>}
+      rows={[
+        {
+          key: "plan-next",
+          name: `规划第${nextNo}卷（AI）`,
+          desc: "接着往下规划，卷号自动顺延；也可先挑一卷做验证",
+          onClick: () => onPlanVolume(nextNo),
+          testid: "plan-next-volume",
+        },
+      ]}
+      footNote="免费版：体检与建议只读；生成、改写与归档需 PRO。点一卷立刻体检，只读不拦。"
+      data-od-id="plan-entry-next"
+    >
+      <div data-testid="plan-entry-next">
         <div className="cfg">
           <p className="pv-group-t">卷的验证</p>
           <div className="ledger" data-testid="volume-verify-list">
@@ -424,9 +416,6 @@ export function VolumeAssistPanel({
           </div>
         </div>
       </div>
-      <p className="ai-foot">
-        免费版：体检与建议只读；生成、改写与归档需 PRO。点一卷立刻体检，只读不拦。
-      </p>
-    </>
+    </AiWriterAssistant>
   );
 }

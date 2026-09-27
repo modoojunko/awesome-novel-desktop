@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import AiWriterAssistant from "@/components/novel/settings/AiWriterAssistant";
+import AiWriterAssistant from "@/components/novel/AiWriterAssistant";
 
 // AI 写作助手卡片（genre-signup-redesign tasks 3.2 / D4）
 const ROWS = [

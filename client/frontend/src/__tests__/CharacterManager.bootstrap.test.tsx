@@ -6,7 +6,7 @@ import { createRef } from "react";
 import CharacterManager, {
   type CharacterSaveHandle,
 } from "@/components/novel/settings/CharacterManager";
-import { CharsAiRail } from "@/components/novel/settings/AiWriterAssistant";
+import { CharsAiRail } from "@/components/novel/AiWriterAssistant";
 import type { CharAiCtx } from "@/lib/characterModel";
 
 const apiGet = vi.fn();

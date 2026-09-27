@@ -77,8 +77,8 @@ describe("AiAssistPanel 操作页签统计", () => {
       onSimulate: () => {},
     };
     const { rerender } = render(<AiAssistPanel {...base} staleDownstream={2} />);
-    expect(document.querySelector(".rail-stats")?.textContent).toContain("2 章");
+    expect(document.querySelector(".ai-target")?.textContent).toContain("下游挂着旧设定 2 章");
     rerender(<AiAssistPanel {...base} />);
-    expect(document.querySelector(".rail-stats")?.textContent).toContain("—");
+    expect(document.querySelector(".ai-target")?.textContent).toContain("—");
   });
 });
