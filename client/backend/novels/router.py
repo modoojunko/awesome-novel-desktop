@@ -25,8 +25,8 @@ from novels.service import (
     get_project_by_slug,
     list_projects,
     novel_to_dict,
-    reopen_novel,
     rename_project,
+    reopen_novel,
     slugify,
 )
 from workflow.readiness import compute_readiness
@@ -152,9 +152,10 @@ async def suggest_meta(
     _limit: bool = Depends(require_project_limit),
 ):
     """Given a story premise, suggest titles, synopsis, genre, and pen name."""
-    from prompts import load as load_prompt
+    from prompts import load_layers
 
-    prompt = load_prompt("suggest_meta").format(premise=body.premise)
+    system, prompt = load_layers("suggest_meta")
+    prompt = prompt.format(premise=body.premise)
 
     # 新版 API Key 多配置：get_ai_client() 优先从 api_configs 表读取（解密），
     # config.json 仅作迁移期兜底；未配置 Key 时 AIClient 构造抛 ValueError。
@@ -168,7 +169,7 @@ async def suggest_meta(
         try:
             text = await client.chat(
                 model="haiku",
-                system="",
+                system=system,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1200,
                 usage=usage,

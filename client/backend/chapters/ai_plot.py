@@ -19,7 +19,7 @@ from chapters.ai_plan import resolve_prev_chapter_ending
 from chapters.schemas import PLOT_MAX_LEN
 from db import get_db
 from novels.service import get_novel
-from prompts import load as load_prompt
+from prompts import load_layers
 from volumes.ai_plan import _blocks, _book_material, _generate, _parse_json, _render
 from workflow.engine import _validate_ref, strip_suffix
 
@@ -145,8 +145,10 @@ async def ai_plot_draw(
 
     mat = await _book_material(db, project, with_hooks=False)  # 不给伏笔台账（防提前揭）
     entry = await resolve_prev_chapter_ending(db, project, row.volume, row.chapter_no)
-    system = _render(load_prompt("chapter_plot_draw"), material_blocks=_plot_blocks(mat, row, entry))
-    user_msg = f"请给出第 {row.chapter_no} 章剧情清单的 3 版（只输出 JSON）。"
+    _sys_t, _usr_t = load_layers("chapter_plot_draw")
+    system = _sys_t
+    material_user = _render(_usr_t, material_blocks=_plot_blocks(mat, row, entry))
+    user_msg = material_user + f"\n\n请给出第 {row.chapter_no} 章剧情清单的 3 版（只输出 JSON）。"
 
     raw, _u = await _generate(
         project, system, user_msg,

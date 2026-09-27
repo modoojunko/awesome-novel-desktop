@@ -42,6 +42,12 @@ from models.chapter import Chapter  # noqa: E402
 from models.user import User  # noqa: E402
 from models.volume import Volume  # noqa: E402
 
+
+def _layered_prompt(kwargs) -> str:
+    """分层协议下的全文（system＋user 合并读——内容断言不关心落在哪一段）。"""
+    return str(kwargs.get("system") or "") + "\n" + str(kwargs["messages"][0]["content"])
+
+
 _CFG_PATH = os.path.join(_tmp_data_root, "config.json")
 USER_ID = "cpa3_user"
 
@@ -188,7 +194,7 @@ class TestSelfcheckDraft:
         assert d["weakest"] == "递增"
         assert not any(v in ("S", "A", "B") for v in d["critiques"].values())
         # 草稿进了提示词（系统消息逐字含本章剧情/阻力/落点）
-        system = fake.calls[-1]["system"]
+        system = _layered_prompt(fake.calls[-1])
         assert "沉舟在废弃星港捡到信标" in system
         assert "没人相信一个见习导航员" in system
         assert "舱底夹层" in system
@@ -492,7 +498,7 @@ class TestDirectionsValidation:
         d = r.json()
         assert len(d["directions"]) == 3 and len(d["grades"]) == 3
         assert d["grades"].count("S") <= 1  # 鸽笼：至多一张 S
-        system = fake.calls[-1]["system"]
+        system = _layered_prompt(fake.calls[-1])
         for block in ("【进场（本章从哪接）】", "【本卷卷纲（四问）】", "【章数配额】"):
             assert block in system, block
         # 空数据块不出现占位符（tasks 2.4 口径）：本用例的书没题材/人物
@@ -531,18 +537,18 @@ class TestDirectionsValidation:
         pid = _seed_vol(client)
         fake = _setup_ai(monkeypatch, _directions_reply())
         client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
-        assert "（目标章数未设）" in fake.calls[-1]["system"]
+        assert "（目标章数未设）" in _layered_prompt(fake.calls[-1])
         # 已排满：目标 1 章、已排 1 章（非末章）
         pid2 = _seed_vol(client, target=1)
         _seed_multi_chapters(pid2, 1)
         client.post(f"/api/novels/{pid2}/volumes/vol-1/chapters/ai-directions", json={})
-        sys2 = fake.calls[-1]["system"]
+        sys2 = _layered_prompt(fake.calls[-1])
         assert "已排满甚至超出目标章数" in sys2
         assert "未设" not in sys2
         # 末章：目标 1 章、已排 0 章
         pid3 = _seed_vol(client, target=1)
         client.post(f"/api/novels/{pid3}/volumes/vol-1/chapters/ai-directions", json={})
-        sys3 = fake.calls[-1]["system"]
+        sys3 = _layered_prompt(fake.calls[-1])
         assert "本章是本卷末章" in sys3
         assert "【结局（作者写的）】" in sys3  # 末章给结局块（硬规则 5 引用它）
 
@@ -797,7 +803,7 @@ def test_volume_named_character_spotlights_into_cast(client, monkeypatch):
     fake = _setup_ai(monkeypatch, _directions_reply())
     r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
     assert r.status_code == 200, r.text
-    system = fake.calls[-1]["system"]
+    system = _layered_prompt(fake.calls[-1])
     block = system.split("【核心人物】\n", 1)[1].split("\n\n", 1)[0]
     assert "港务局的眼线，只在雾天出现" in block  # 卷纲点名者进块（全量，无需换位）
     assert "见习导航员，不信教科书" in block  # 主角置顶不动
@@ -843,7 +849,7 @@ def test_chapter_material_world_block_and_volume_cardless(client, monkeypatch):
     fake = _setup_ai(monkeypatch, _directions_reply())
     r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
     assert r.status_code == 200, r.text
-    system = fake.calls[-1]["system"]
+    system = _layered_prompt(fake.calls[-1])
     assert "【世界观】" in system and "出售巡逻路线换取停战" in system  # ⑩ 全量世界块
     assert "【无卡出场名单（本卷已拆章出现、未建卡）】" in system
     assert "哑叔（第1章）" in system  # 本卷口径
@@ -860,7 +866,7 @@ def test_directions_exclude_drops_clashing_card(client, monkeypatch):
     assert len(d["directions"]) == 2  # 撞车卡被丢
     assert len(d["grades"]) == 2  # 名次经 keep_map 对齐保留卡
     assert any("与已出方向雷同" in w for w in d["warnings"])
-    assert "已出过的方向（作者已否决）" in fake.calls[-1]["system"]  # 禁令块进素材
+    assert "已出过的方向（作者已否决）" in _layered_prompt(fake.calls[-1])  # 禁令块进素材
 
 
 def test_directions_exclude_same_line_different_axis_kept(client, monkeypatch):
@@ -905,5 +911,5 @@ def test_world_rules_block_renders_when_defined(client, monkeypatch):
     fake = _setup_ai(monkeypatch, _directions_reply())
     r = client.post("/api/novels/%s/volumes/vol-1/chapters/ai-directions" % pid, json={})
     assert r.status_code == 200, r.text
-    system = fake.calls[-1]["system"]
+    system = _layered_prompt(fake.calls[-1])
     assert "【世界铁律】\n世界铁律·死者不可复生：任何力量都不能把人从死亡里拉回来" in system

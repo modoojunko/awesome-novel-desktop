@@ -145,7 +145,6 @@ def _session_test_db():
         # 死文态/迁移态用例用 crypto._reset_for_tests() 轮转后自行重置）。
         # 排在指纹戳之后，与生产 lifespan 同序。
         from api_configs.crypto import init_crypto
-
         from db import async_session as _session_factory
 
         async with _session_factory() as session:

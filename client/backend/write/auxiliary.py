@@ -3,7 +3,7 @@
 import json
 
 from ai_client import get_ai_client_for_novel
-from prompts import load as load_prompt
+from prompts import load_layers
 from settings.render import style_section
 from workflow.engine import load_chapter, save_chapter
 
@@ -162,8 +162,8 @@ async def stream_continue(
     ctx["anti_ai_rules"] = ctx.get("anti_ai_rules", "（无）")
 
     # Format the prompt
-    prompt_template = load_prompt("continue_writing")
-    prompt = prompt_template.format(**ctx)
+    _sys_t, _usr_t = load_layers("continue_writing")
+    prompt = _usr_t.format(**ctx)
 
     # Model and role from resolved context
     resolved_model = model or ctx.pop("_writing_model", "haiku")
@@ -179,7 +179,7 @@ async def stream_continue(
     try:
         async for event in client.chat_stream(
             model=resolved_model,
-            system=role,
+            system=((_sys_t.format(**ctx) + "；叙事角色定位：" + role) if _sys_t else role),
             messages=[{"role": "user", "content": prompt}],
             max_tokens=512,
         ):
@@ -260,8 +260,8 @@ async def polish_text(
     ctx["selected_text"] = selected_text
     ctx["surrounding_context"] = surrounding_context
 
-    prompt_template = load_prompt("polish_text")
-    prompt = prompt_template.format(**ctx)
+    _sys_t, _usr_t = load_layers("polish_text")
+    prompt = _usr_t.format(**ctx)
 
     resolved_model = model or ctx.pop("_writing_model", "haiku")
     # 计量口径：实际生效模型由端点用 effective_model(project) 记（见 D11 ⑧）
@@ -272,7 +272,7 @@ async def polish_text(
     client = await get_ai_client_for_novel(novel_id)
     return await client.chat(
         model=resolved_model,
-        system=f"你是一位文字编辑专家，请遵循以下角色定位：{role}",
+        system=((_sys_t.format(**ctx) + f"；叙事角色定位：{role}") if _sys_t else f"你是一位文字编辑专家，请遵循以下角色定位：{role}"),
         messages=[{"role": "user", "content": prompt}],
         max_tokens=2048,
         usage=usage,
@@ -296,8 +296,8 @@ async def compress_text(
     ctx["selected_text"] = selected_text
     ctx["surrounding_context"] = surrounding_context
 
-    prompt_template = load_prompt("compress_text")
-    prompt = prompt_template.format(**ctx)
+    _sys_t, _usr_t = load_layers("compress_text")
+    prompt = _usr_t.format(**ctx)
 
     resolved_model = model or ctx.pop("_writing_model", "haiku")
     role = ctx.pop("_role", "一位小说家")
@@ -307,7 +307,7 @@ async def compress_text(
     client = await get_ai_client_for_novel(novel_id)
     return await client.chat(
         model=resolved_model,
-        system=f"你是一位文字编辑专家，请遵循以下角色定位：{role}",
+        system=((_sys_t.format(**ctx) + f"；叙事角色定位：{role}") if _sys_t else f"你是一位文字编辑专家，请遵循以下角色定位：{role}"),
         messages=[{"role": "user", "content": prompt}],
         max_tokens=2048,
         usage=usage,
@@ -334,8 +334,8 @@ async def expand_text(
     ctx["selected_text"] = selected_text
     ctx["surrounding_context"] = surrounding_context
 
-    prompt_template = load_prompt("expand_text")
-    prompt = prompt_template.format(**ctx)
+    _sys_t, _usr_t = load_layers("expand_text")
+    prompt = _usr_t.format(**ctx)
 
     resolved_model = model or ctx.pop("_writing_model", "haiku")
     # 计量口径：实际生效模型由端点用 effective_model(project) 记（见 D11 ⑧）
@@ -346,7 +346,7 @@ async def expand_text(
     client = await get_ai_client_for_novel(novel_id)
     return await client.chat(
         model=resolved_model,
-        system=f"你是一位擅长细节描写的文学作家，请遵循以下角色定位：{role}",
+        system=((_sys_t.format(**ctx) + f"；叙事角色定位：{role}") if _sys_t else f"你是一位擅长细节描写的文学作家，请遵循以下角色定位：{role}"),
         messages=[{"role": "user", "content": prompt}],
         max_tokens=4096,
         usage=usage,

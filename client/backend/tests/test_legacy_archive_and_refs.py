@@ -7,7 +7,6 @@
 带回，见 tests/test_db_lifecycle.py::test_v3_shape_mismatch_bringable）。
 """
 
-import pytest
 
 from backup.format import belongs_to_ref
 

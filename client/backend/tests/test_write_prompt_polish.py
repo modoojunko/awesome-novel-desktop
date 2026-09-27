@@ -37,6 +37,12 @@ from main import app  # noqa: E402
 from models import Novel  # noqa: E402
 from models.user import User  # noqa: E402
 
+
+def _layered_prompt(kwargs) -> str:
+    """分层协议下的全文（system＋user 合并读）。"""
+    return str(kwargs.get("system") or "") + "\n" + str(kwargs["messages"][0]["content"])
+
+
 _CFG_PATH = os.path.join(_tmp_data_root, "config.json")
 
 USER_ID = "wpp_user"
@@ -250,7 +256,7 @@ class TestPolishPrompt:
         assert body["polished"] is True
         assert "任务指示" in body["prompt"]
         # system 用 prompt_crafting 模板（十段骨架清单特征）
-        assert "十段要素" in fake.last_kwargs["system"]
+        assert "十段要素" in _layered_prompt(fake.last_kwargs)
         # user 内容是素材包（带章纲概要原料 + 约束红线；场景原材料随场景卡退役）
         assert "【章纲概要】" in fake.last_kwargs["messages"][0]["content"]
         assert "【场景原材料】" not in fake.last_kwargs["messages"][0]["content"]

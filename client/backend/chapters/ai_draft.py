@@ -16,7 +16,7 @@ from auth_local.middleware import get_current_user
 from db import get_db
 from filesystem.storage import get_storage
 from novels.service import get_novel
-from prompts import load as load_prompt
+from prompts import load_layers
 from workflow.engine import _validate_ref, load_chapter
 from write.chapter_writer import (
     _CH1_PREVIOUS,
@@ -220,15 +220,15 @@ async def fill_outline_gaps(
         raise HTTPException(404, "Chapter not found")
 
     material = await _material_from_ctx(db, project, ctx, chapter)
-    system = load_prompt("outline_fill_gaps").format(
-        missing="、".join(missing), material=material
-    )
+    _sys_t, _usr_t = load_layers("outline_fill_gaps")
+    system = _sys_t
+    user_content = _usr_t.format(missing="、".join(missing), material=material)
     client = await get_ai_client_for_novel(project.id)
     usage: dict = {}
     try:
         raw = await client.chat(
             model="haiku", system=system,
-            messages=[{"role": "user", "content": "请补齐缺失字段。"}],
+            messages=[{"role": "user", "content": user_content + "\n\n请补齐缺失字段。"}],
             max_tokens=2000, usage=usage,
         )
     except AITimeoutError:
@@ -376,7 +376,9 @@ async def ai_draft_outline(
     blocks.append(f"【本章现有章纲（改写基底）】\n{_existing_outline_markdown(chapter)}")
     material = "\n\n".join(blocks)
 
-    system = load_prompt("outline_draft")
+    _sys_t, _usr_t = load_layers("outline_draft")
+    system = _sys_t
+    user_content = _usr_t.format(material=material)
     client = await get_ai_client_for_novel(project.id)
     model = "haiku"  # 符号别名，落到本书模型（D12）
     usage: dict = {}
@@ -384,8 +386,8 @@ async def ai_draft_outline(
         raw = await client.chat(
             model=model,
             max_tokens=4000,
-            system=system.format(material=material),
-            messages=[{"role": "user", "content": "请为素材包中的本章起草章纲草稿。"}],
+            system=system,
+            messages=[{"role": "user", "content": user_content + "\n\n请为素材包中的本章起草章纲草稿。"}],
             usage=usage,
         )
     except AITimeoutError:

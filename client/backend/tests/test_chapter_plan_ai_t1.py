@@ -8,11 +8,11 @@
 """
 
 import pytest
-from fastapi.testclient import TestClient
 
 
 def test_validate_stage_closed_set():
     from fastapi import HTTPException
+
     from chapters.schemas import validate_chapter_fields
 
     validate_chapter_fields({"plot_stage": "矛盾升级"})
@@ -43,10 +43,10 @@ def test_two_columns_roundtrip_via_store():
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp.name}"
     os.environ["DATA_ROOT"] = tempfile.mkdtemp(prefix="test_cpa_")
 
+    from chapters.store import _disassemble_scalars, assemble_chapter  # noqa: PLC0415
     from db import Base, async_session, engine  # noqa: PLC0415
     from models import Novel  # noqa: PLC0415
     from models.chapter import Chapter  # noqa: PLC0415
-    from chapters.store import _disassemble_scalars, assemble_chapter  # noqa: PLC0415
 
     async def _run():
         async with engine.begin() as conn:
@@ -128,11 +128,10 @@ def test_adopt_writes_four_fields_in_one_transaction():
     os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
     os.environ["DATA_ROOT"] = tempfile.mkdtemp()
 
+    from chapters.service import create_chapter  # noqa: PLC0415
     from db import Base, async_session, engine  # noqa: PLC0415
     from models import Novel  # noqa: PLC0415
     from models.volume import Volume  # noqa: PLC0415
-    from chapters.service import create_chapter  # noqa: PLC0415
-    from repositories import chapter_repo  # noqa: PLC0415
 
     async def _run():
         async with engine.begin() as c:
@@ -155,6 +154,7 @@ def test_adopt_writes_four_fields_in_one_transaction():
             assert out["ref"] == "vol-1-ch-1"
             # 直读列（同一事务已落库；assemble 需预载关系，这里不必要）
             from sqlalchemy import select as _sel  # noqa: PLC0415
+
             from models.chapter import Chapter as _C  # noqa: PLC0415
 
             row = (
@@ -190,11 +190,11 @@ def test_exit_change_marks_next_chapter_stale():
     os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
     os.environ["DATA_ROOT"] = tempfile.mkdtemp()
 
+    from chapters.store import _mark_next_stale_on_exit_change  # noqa: PLC0415
     from db import Base, async_session, engine  # noqa: PLC0415
     from models import Novel  # noqa: PLC0415
     from models.chapter import Chapter  # noqa: PLC0415
     from models.volume import Volume  # noqa: PLC0415
-    from chapters.store import _mark_next_stale_on_exit_change  # noqa: PLC0415
 
     async def _run():
         async with engine.begin() as c:

@@ -438,18 +438,16 @@ async def intro_ai(
     if not content.strip():
         raise HTTPException(400, "简介为空，先写两句再让 AI 处理")
 
-    template = load_prompt(_INTRO_PROMPTS[action])
+    # 分层协议：模板自带 system/user 两段（未分层文件返回 ("", 全文)，行为不变）
+    system_tpl, user_tpl = load_layers(_INTRO_PROMPTS[action])
+    _intro_vals = {"title": title, "content": content}
     if action == "fill":
         missing = [
             str(x).strip() for x in (body.get("missing_segments") or []) if str(x).strip()
         ]
-        formatted = template.format(
-            title=title,
-            content=content,
-            missing_segments="、".join(missing) or "（未指定，按六段自查）",
-        )
-    else:
-        formatted = template.format(title=title, content=content)
+        _intro_vals["missing_segments"] = "、".join(missing) or "（未指定，按六段自查）"
+    formatted = user_tpl.format(**_intro_vals)
+    system = system_tpl.format(**_intro_vals) or "你是小说简介编辑。只输出 JSON，不要任何其他文字。"
 
     client = await get_ai_client_for_novel(project_id)
     # 页面级参数（D12）：体检/补缺失＝JSON 判定类；润色＝长文生成类
@@ -460,7 +458,7 @@ async def intro_ai(
         text = await _judge_chat(
             client,
             model="haiku",
-            system="你是小说简介编辑。只输出 JSON，不要任何其他文字。",
+            system=system,
             messages=[{"role": "user", "content": formatted}],
             temperature=temperature,
             json_mode=True,
@@ -640,7 +638,9 @@ async def draft_world_topic(
         raise HTTPException(400, "本书开了现实向（无超自然力量），不起草力量内容；可起草「更多世界细节」")
     ctx = await _world_context(project, story)
 
-    prompt = load_prompt("world_draft_topic").format(
+    _s_wd, prompt = load_layers("world_draft_topic")
+    _sys_wd = _s_wd.format(topic=topic) if _s_wd else "你是小说设定专家。只输出 JSON，不要任何其他文字。"
+    prompt = prompt.format(
         topic=topic,
         title=ctx["title"],
         synopsis=ctx["synopsis"],
@@ -658,7 +658,7 @@ async def draft_world_topic(
         text = await _judge_chat(
             client,
             model="haiku",
-            system="你是小说设定专家。只输出 JSON，不要任何其他文字。",
+            system=_sys_wd,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             json_mode=True,
@@ -773,7 +773,8 @@ async def check_world_consistency(
         return {"items": items_out, "degraded": True,
                 "degraded_reasons": degraded_reasons, "verdict": "简介与题材都还没写，体检结果不完整"}
 
-    prompt = load_prompt("world_check").format(
+    _s_wc, prompt = load_layers("world_check")
+    prompt = prompt.format(
         synopsis=_clamp_str(synopsis, 600) or "（未填写）",
         theme=theme_label or "（未确认）",
         theme_desc=theme_desc or "（无）",
@@ -788,7 +789,7 @@ async def check_world_consistency(
         text = await _judge_chat(
             client,
             model="haiku",
-            system="你是小说设定一致性审校。只输出 JSON，不要任何其他文字。",
+            system=_s_wc or "你是小说设定一致性审校。只输出 JSON，不要任何其他文字。",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             json_mode=True,
@@ -896,7 +897,8 @@ async def lore_suggest_world(
         raise HTTPException(400, "章节正文为空，无法提取世界要素")
 
     world_raw = await get_storage().read_yaml(project.root_path, "settings/world-setting.yaml") or {}
-    prompt = load_prompt("world_lore_suggest").format(
+    _s_wl, prompt = load_layers("world_lore_suggest")
+    prompt = prompt.format(
         chapter=chapter_text,
         world=world_summary_text(world_raw, None) or "（世界设定还空着）",
     )
@@ -907,7 +909,7 @@ async def lore_suggest_world(
         text = await _judge_chat(
             client,
             model="haiku",
-            system="你是小说世界设定管理员。只输出 JSON，不要任何其他文字。",
+            system=_s_wl or "你是小说世界设定管理员。只输出 JSON，不要任何其他文字。",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             json_mode=True,
@@ -1477,7 +1479,8 @@ async def run_hooks_ai(
             raise HTTPException(400, "先写两句简介，AI 才有依据帮你埋伏笔")
         # 提示词名走字面量白名单字典取值（勿用 f-string 拼 action：见 arc 同款注释——
         # CodeQL 把 URL 参数拼进文件路径判为高危 path injection，此形态永不告警）
-        formatted = load_prompt(_HOOK_ACTIONS[action]).format(
+        _s_hk, formatted = load_layers(_HOOK_ACTIONS[action])
+        formatted = formatted.format(
             title=ctx["title"],
             synopsis=ctx["synopsis"],
             theme=ctx["theme"],
@@ -1488,7 +1491,7 @@ async def run_hooks_ai(
             type_list=" / ".join(f"{t['k']}（{t['label']}）" for t in HOOK_TYPES),
             priority_list=" / ".join(PRIORITY_LABELS[k] for k in sorted(PRIORITY_LABELS)),
         )
-        system = "你是小说伏笔编辑。只输出 JSON，不要任何其他文字。"
+        system = _s_hk or "你是小说伏笔编辑。只输出 JSON，不要任何其他文字。"
     elif action == "payoff":
         # 主线是收束方案的依据（缺主线 400，中文原因）——fullstory 空时 _hooks_draft_context
         # 填的是「（未填）」占位，据此判缺
@@ -1498,7 +1501,8 @@ async def run_hooks_ai(
         written, _pos_by_id, ref_by_id = await _load_written_outline(db, project.id)
         planned_ref = ref_by_id.get(str(body.get("planned_chapter_id") or ""), "")
         disp = _hook_display()
-        formatted = load_prompt(_HOOK_ACTIONS[action]).format(
+        _s_hk, formatted = load_layers(_HOOK_ACTIONS[action])
+        formatted = formatted.format(
             title=ctx["title"],
             code=disp["code"],
             description=description,
@@ -1511,7 +1515,7 @@ async def run_hooks_ai(
                 or "（还没有已写章纲——按主线节奏建议之后的章）"
             ),
         )
-        system = "你是小说伏笔编辑。只输出 JSON，不要任何其他文字。"
+        system = _s_hk or "你是小说伏笔编辑。只输出 JSON，不要任何其他文字。"
     elif action == "check":
         # world_check 同款三上下文（简介/题材/世界）；选中伏笔值走 body（intro 先例）
         story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
@@ -1540,7 +1544,8 @@ async def run_hooks_ai(
                 "verdict": "简介、题材、世界都还没写——先补几笔，再查才有依据",
             }
         disp = _hook_display()
-        formatted = load_prompt(_HOOK_ACTIONS[action]).format(
+        _s_hk, formatted = load_layers(_HOOK_ACTIONS[action])
+        formatted = formatted.format(
             code=disp["code"],
             description=description,
             type_label=disp["type_label"],
@@ -1550,7 +1555,7 @@ async def run_hooks_ai(
             theme_desc=theme_desc or "",
             world=world_text or "（未填写）",
         )
-        system = "你是小说设定一致性审校。只输出 JSON，不要任何其他文字。"
+        system = _s_hk or "你是小说设定一致性审校。只输出 JSON，不要任何其他文字。"
     else:
         ctx = await _hooks_draft_context(project)
         rows, outline_lines, _written_count = await _hooks_audit_scan(db, project.id)
@@ -1587,7 +1592,8 @@ async def run_hooks_ai(
             f"{no}. {r['code']}（{r['tag']}）{r['description']}"
             for no, r in enumerate(rows, start=1)
         )
-        formatted = load_prompt(_HOOK_ACTIONS[action]).format(
+        _s_hk, formatted = load_layers(_HOOK_ACTIONS[action])
+        formatted = formatted.format(
             title=ctx["title"],
             synopsis=ctx["synopsis"] or "（未填写）",
             theme=ctx["theme"],
@@ -2063,8 +2069,9 @@ async def run_style_ai(
     if not texts:
         raise HTTPException(400, "还没有已归档章节——写完一章并归档后，AI 才能替你挑例句")
     corpus = "\n\n".join(f"【{t}】\n{c}" for t, c in texts)
-    prompt = load_prompt("style_fewshot_mine").format(corpus=corpus)
-    system = "你是文风编辑。只输出 JSON，不要任何其他文字。"
+    _s_fw, prompt = load_layers("style_fewshot_mine")
+    prompt = prompt.format(corpus=corpus)
+    system = _s_fw or "你是文风编辑。只输出 JSON，不要任何其他文字。"
     data = await _distill_llm(project, user, db, system=system, prompt=prompt)
     lines = [str(x).strip()[:300] for x in (data.get("lines") or []) if str(x).strip()][:3] if isinstance(data, dict) else []
     if not lines:
@@ -2133,7 +2140,9 @@ async def generate_field(
         battlefield_candidates, battlefield_ids = _pool("battlefield")
         # ③ 多看点开关走 user 占位符（后端控制；旧调用不传＝false，完全兼容）
         multi_point = "true" if _as_bool(body.get("multi_point")) else "false"
-        formatted_prompt = load_prompt(prompt_name).format(
+        # 分层协议：模板自带 system/user 两段（未分层文件 load_layers 返回 ("", 全文)，行为不变）
+        system_tpl, user_tpl = load_layers(prompt_name)
+        _vals = dict(
             title=_clamp_str(body.get("title"), 100),
             synopsis=premise,
             current=json.dumps(context.get("current", ""), ensure_ascii=False),
@@ -2158,10 +2167,13 @@ async def generate_field(
             battlefield_ids=battlefield_ids,
             multi_point=multi_point,
         )
+        system = system_tpl.format(**_vals)
+        formatted_prompt = user_tpl.format(**_vals)
     else:
-        formatted_prompt = load_prompt(prompt_name).format(
-            premise=premise, context=json.dumps(context, ensure_ascii=False)
-        )
+        system_tpl, user_tpl = load_layers(prompt_name)
+        _vals = dict(premise=premise, context=json.dumps(context, ensure_ascii=False))
+        system = system_tpl.format(**_vals)
+        formatted_prompt = user_tpl.format(**_vals)
 
     client = await get_ai_client_for_novel(project_id)
     usage: dict = {}
@@ -2169,7 +2181,7 @@ async def generate_field(
         text = await _judge_chat(
             client,
             model="haiku",
-            system="你是小说设定专家。只输出 JSON，不要任何其他文字。",
+            system=system or "你是小说设定专家。只输出 JSON，不要任何其他文字。",
             messages=[{"role": "user", "content": formatted_prompt}],
             temperature=0.3,
             json_mode=True,

@@ -34,7 +34,6 @@ from auth_local.deps import (  # noqa: E402
 from auth_local.middleware import get_current_user  # noqa: E402
 from db import Base, async_session, engine, get_db  # noqa: E402
 from main import app  # noqa: E402
-from models import Novel  # noqa: E402
 from models.user import User  # noqa: E402
 
 _CFG_PATH = os.path.join(_tmp_data_root, "config.json")

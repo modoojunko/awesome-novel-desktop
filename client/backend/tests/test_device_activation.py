@@ -100,7 +100,7 @@ _IOREG_OUT = (
 _PS_UUID = "4C4C4544-0042-5710-8031-B2C04F443532"
 _MACHINE_GUID_OUT = (
     "\nHKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography\n"
-    f"    MachineGuid    REG_SZ    9f81c2de-guid-fallback-0001\n"
+    "    MachineGuid    REG_SZ    9f81c2de-guid-fallback-0001\n"
 )
 
 

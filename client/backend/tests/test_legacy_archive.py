@@ -5,7 +5,6 @@ status 端点（有留档、无留档、未登录 401）。
 """
 
 import sqlite3
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient

@@ -193,6 +193,7 @@ def test_volume_line_list_validation():
     """终版校验：antagonist_type 闭集 422；退役键 422；stage 六档 422。"""
     import pytest
     from pydantic import ValidationError
+
     from volumes.schemas import VolumeUpdate
 
     with pytest.raises(ValidationError):

@@ -29,6 +29,12 @@ from models.project import Novel
 from models.user import User
 from models.volume import Volume
 
+
+def _layered_prompt(kwargs) -> str:
+    """分层协议下的全文（system＋user 合并读）。"""
+    return str(kwargs.get("system") or "") + "\n" + str(kwargs["messages"][0]["content"])
+
+
 REF = "vol-1-ch-1"
 _UIDS: dict[str, str] = {}
 
@@ -164,7 +170,7 @@ class TestAiCheck:
             # 空标题条目被丢弃，其余两条保留
             assert len(body["findings"]) == 2
             assert body["findings"][0]["title"] == "第3段"
-            prompt = captured[-1]["messages"][0]["content"] + captured[-1]["system"]
+            prompt = captured[-1]["messages"][0]["content"] + captured[-1]["system"]  # 分层后指令在 system
             assert anchor in prompt, f"{kind} 素材缺失：{anchor}"
 
     def test_relations_material_from_real_tables(self, monkeypatch):
@@ -173,7 +179,7 @@ class TestAiCheck:
         _patch(monkeypatch, "write.ai_check", _FakeClient(FINDINGS_JSON, captured))
         r = _post(nid, "ai-check", {"kind": "relations_conflict"})
         assert r.status_code == 200, r.text
-        prompt = captured[-1]["system"]
+        prompt = _layered_prompt(captured[-1])
         assert "林晚 → 老聋" in prompt and "师徒" in prompt
 
     def test_unknown_kind_400(self):
@@ -233,7 +239,7 @@ class TestFillGaps:
         # 白名单＝留存可写格；退役键（key_points/location）即便返回也被丢弃
         assert fills == {"summary": "渡口夜谈", "characters": ["林晚"], "mood": "紧张"}
         # 越界键不进提示词：missing 白名单过滤
-        assert "bogus_key" not in captured[-1]["system"].split("## 素材")[0]
+        assert "bogus_key" not in _layered_prompt(captured[-1])
         # 记账：outline_fill_gaps（与 AI 起草同族留痕）
         assert "outline_fill_gaps" in _ops(nid)
 
@@ -294,7 +300,7 @@ class TestPromptRefine:
         assert body["mode"] == "negative"
         # strip_code_fences 生效：围栏被剥掉
         assert body["prompt"] == "## 任务指示\n新提示词"
-        system = captured[-1]["system"]
+        system = _layered_prompt(captured[-1])
         assert "补全「负向约束」" in system
         assert "旧提示词" in system
 
@@ -304,7 +310,7 @@ class TestPromptRefine:
         _patch(monkeypatch, "ai_client", _FakeClient("精简后的提示词", captured))
         r = _post(nid, "write/prompt/refine", {"mode": "concise"})
         assert r.status_code == 200, r.text
-        system = captured[-1]["system"]
+        system = _layered_prompt(captured[-1])
         assert "精简提示词" in system
         # 未传 current_prompt：以服务端组装稿为基底（含角色定位等分节）
         assert "## 角色定位" in system

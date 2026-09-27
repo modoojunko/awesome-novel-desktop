@@ -52,8 +52,8 @@ async def _seed_full_book(tmp_root: str) -> str:
         ChapterVersion,
     )
     from models.project import Novel
-    from models.volume import Volume
     from models.user import User
+    from models.volume import Volume
 
     uid = f"rt-{uuid.uuid4().hex[:8]}"
     slug = f"rt-{uuid.uuid4().hex[:8]}"
