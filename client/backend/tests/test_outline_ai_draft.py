@@ -411,3 +411,35 @@ class TestAiDraftGuarded:
         r = client.post(f"/api/novels/{pid}/chapters/ch-999/outline/ai-draft")
         assert r.status_code == 404
         assert calls == []
+
+    def test_draft_material_includes_settings(self, client, monkeypatch):
+        """回归（c-ai-material-audit）：章纲起草素材曾零世界/铁律/题材/人物——三块必须进包。"""
+        _set_tier("trial")
+        calls: list = []
+        fake = _setup_ai(monkeypatch, calls)
+        pid, ref = _create_project_and_chapter(client)
+
+        async def _seed():
+            from models.character import Character
+
+            session = async_session()
+            proj = await session.get(Novel, pid)
+            root = proj.root_path
+            await get_storage().write_yaml(root, "settings/world-setting.yaml", {
+                "stage": "灰港旧街区",
+                "factions": [{"name": "血族议会", "note": "把持夜巡执照"}],
+                "constraints": [{"key": "死者不可复生", "value": "任何力量都不能把人从死亡里拉回来"}],
+            })
+            session.add(Character(novel_id=pid, seq=1, name="林野", role="主角", persona="夜班巡护者"))
+            await session.commit()
+            await session.close()
+
+        _run_async(_seed())
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/outline/ai-draft")
+        assert r.status_code == 200, r.text
+        system = fake.last_kwargs["system"]
+        assert "【世界观】" in system
+        assert "世界铁律·死者不可复生：任何力量都不能把人从死亡里拉回来" in system
+        assert "血族议会" in system
+        assert "【题材与节奏】" in system
+        assert "【人物】" in system and "林野（主角）：夜班巡护者" in system

@@ -36,8 +36,10 @@ def _get(h, key):
 
 
 def filter_active_hooks(hooks, current_chapter_id: str | None = None) -> list:
-    """活跃伏笔过滤：只认 status==active、排除本章引入（章 id 相等），≤8 条上限。
+    """活跃伏笔过滤：只认 status==active、排除本章引入（章 id 相等）——**全量，不封顶**。
 
+    c-ai-material-audit：旧实现 `[:8]` 与 spec「伏笔台账 active 全量」冲突——第 9 条以后的
+    未收伏笔在写正文/拆卷展开/卷体检里全部不存在（漏还债、漏判"提前揭"）。
     引入章为空（未定期）的伏笔照常注入；当前章行解析不出（id=None）时不排除任何条。
     """
     kept = []
@@ -48,7 +50,7 @@ def filter_active_hooks(hooks, current_chapter_id: str | None = None) -> list:
         if introduced and current_chapter_id and introduced == current_chapter_id:
             continue
         kept.append(h)
-    return kept[:8]
+    return kept
 
 
 def hook_view(h, current_chapter_id: str | None = None) -> dict:

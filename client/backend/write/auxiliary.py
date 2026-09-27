@@ -3,7 +3,6 @@
 import json
 
 from ai_client import get_ai_client_for_novel
-from filesystem.storage import get_storage
 from prompts import load as load_prompt
 from settings.render import style_section
 from workflow.engine import load_chapter, save_chapter
@@ -16,16 +15,20 @@ def _format_style(style: dict) -> str:
 
 
 def _format_anti_ai(style: dict) -> str:
-    """禁用词/句式提示（banned-words-into-style：单源自文风 KV 硬约束区）。"""
+    """禁用词/句式提示（banned-words-into-style：单源自文风 KV 硬约束区）。
+
+    c-ai-material-audit：旧实现只给前 15 个禁用词/5 条句式，而作者可填 100 条
+    （`style_model._MAX_BANNED`）且写正文路径是全量注入——辅助路径同口径不截。
+    """
     parts = []
     words = [str(w) for w in (style.get("banned_words") or [])]
     if words:
-        parts.append(f"禁止词汇：{'、'.join(words[:15])}")
+        parts.append(f"禁止词汇：{'、'.join(words)}")
     tic_patterns = style.get("tic_patterns") or []
     if tic_patterns:
         patterns = [r.get("pattern", "") for r in tic_patterns if isinstance(r, dict)]
         if patterns:
-            parts.append(f"禁止句式：{'；'.join(patterns[:5])}")
+            parts.append(f"禁止句式：{'；'.join(patterns)}")
     return "\n".join(parts)
 
 
@@ -69,25 +72,40 @@ async def build_auxiliary_context(
     outline = chapter.get("outline", {})
     char_names = outline.get("characters", []) if isinstance(outline, dict) else []
     snap_lines = []
-    if isinstance(char_names, list):
-        for name in char_names[:5]:
-            if isinstance(name, str):
-                ch_data = (
-                    await get_storage().read_yaml(
-                        root_path, f"settings/character-setting/{name}.yaml"
-                    )
-                    or {}
-                )
-                state = ""
-                state_history = ch_data.get("state_history", [])
-                if isinstance(state_history, list) and state_history:
-                    last = state_history[-1]
-                    if isinstance(last, dict):
-                        state = last.get("state", "")
-                personality = ch_data.get("personality", "")
-                if not state:
-                    state = personality
-                snap_lines.append(f"- {name}：{state}")
+    if isinstance(char_names, list) and char_names:
+        # c-ai-material-audit：旧路径读已退役的 settings/character-setting/*.yaml（v2 起不再写）
+        # → 「角色状态」恒为「（暂无角色信息）」，续写在不知道人物是谁的情况下写。
+        # 改走真表，与写章同源：人设原文＋语言特征（取不名字→显式缺省，不静默）。
+        if not novel_id:
+            from write.chapter_writer import _novel_id_by_root
+
+            novel_id = await _novel_id_by_root(root_path)
+        cards: dict[str, dict] = {}
+        if novel_id:
+            from db import async_session
+            from settings.character_service import list_characters
+
+            async with async_session() as session:
+                roster = await list_characters(session, novel_id)
+            for item in roster.get("items", []):
+                key = str(item.get("name") or "")
+                if key:
+                    cards[key] = item
+                for alias in item.get("aliases") or []:
+                    cards.setdefault(str(alias), item)
+        for name in char_names:
+            if not isinstance(name, str):
+                continue
+            card = cards.get(name)
+            if card is None:
+                snap_lines.append(f"- {name}：（未建卡）")
+                continue
+            state = str(card.get("persona") or "").strip()
+            speech = str((card.get("dossier") or {}).get("speech") or "").strip()
+            seg = f"- {card.get('name') or name}：{state}"
+            if speech:
+                seg += f"（语言特征：{speech}）"
+            snap_lines.append(seg)
     ctx["character_snapshots"] = (
         "\n".join(snap_lines) if snap_lines else "（暂无角色信息）"
     )

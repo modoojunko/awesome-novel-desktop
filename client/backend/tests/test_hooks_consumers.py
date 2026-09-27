@@ -123,15 +123,16 @@ class TestActiveHookInjection:
 
         _run_async(_run())
 
-    def test_filter_caps_at_eight_and_orders_by_seq(self):
+    def test_filter_keeps_all_active_in_seq_order(self):
+        """c-ai-material-audit：≤8 上限退役——active 全量注入（第 9 条起也要看得见）。"""
         rows = [
             type("H", (), {"seq": i, "status": "active", "description": f"伏笔{i}",
                            "introduced_chapter_id": None, "priority": 2, "type": ""})()
             for i in range(1, 13)
         ]
         kept = filter_active_hooks(rows, None)
-        assert len(kept) == 8
-        assert [h.seq for h in kept] == list(range(1, 9))
+        assert len(kept) == 12
+        assert [h.seq for h in kept] == list(range(1, 13))
 
     def test_invalid_priority_dropped_not_crash(self):
         """非法 priority → 丢弃该标注而非静默吞错（spec prompt-crafting）。"""
