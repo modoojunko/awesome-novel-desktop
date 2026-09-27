@@ -56,6 +56,11 @@ from models import Novel  # noqa: E402
 from models.token_log import TokenLog  # noqa: E402
 from models.user import User  # noqa: E402
 
+def _layered_prompt(kwargs) -> str:
+    """分层协议下的全文（system＋user 合并读——内容断言不关心落在哪一段）。"""
+    return str(kwargs.get("system") or "") + "\n" + str(kwargs["messages"][0]["content"])
+
+
 _CFG_PATH = os.path.join(_tmp_data_root, "config.json")
 USER_ID = "vpa_user"
 
@@ -290,7 +295,7 @@ class TestVolumeOptions:
         assert d["similar"] is False
         assert d["warnings"] == []  # 申报实体 ⊆ 设定（本样本未申报 → 空差集）
         # 素材块顺序（spec：素材包顺序按端点写死）：主线在结局之前
-        system = fake.last_kwargs["system"]
+        system = _layered_prompt(fake.last_kwargs)
         assert "清算" in system
         assert 0 <= system.find("【全书主线】") < system.find("【结局（作者写的）】")
         # 判定类预算：显式 4096（tasks 2.4；client 默认 1024 装不下三套 JSON）
@@ -377,7 +382,7 @@ class TestVolumeExpand:
         # 计量入账
         assert _token_log_count(pid) >= 1
         # 素材包含上一卷的结尾与作者那一句；七条硬规则逐字入包（文本单源对拍）
-        system = fake.last_kwargs["system"]
+        system = _layered_prompt(fake.last_kwargs)
         assert "上一卷的结尾" in system
         assert line in system
         hard, _crit = _rules_sections()
@@ -449,7 +454,7 @@ class TestVolumeCheck:
         assert any(it.get("evidence") == "H-0001" for it in flat)
         # 体检判据逐字入包（文本单源对拍）
         _hard, crit = _rules_sections()
-        assert crit in fake.last_kwargs["system"]
+        assert crit in _layered_prompt(fake.last_kwargs)
 
 
 class TestCheckRunEvent:
@@ -948,7 +953,7 @@ class TestBossStepHint:
         fake = _setup_ai(monkeypatch, [reply])
         r = client.post(f"/api/novels/{pid}/volumes/vol-1/ai/check")
         assert r.status_code == 200, r.text
-        assert "BOSS" in str(fake.calls[0].get("system", ""))
+        assert "BOSS" in _layered_prompt(fake.calls[0])  # 分层：boss 提示随卷纲在 user 段
 
 
 class TestContractExpansion:
@@ -1002,7 +1007,7 @@ class TestContractExpansion:
             "antagonist_line": "体内饥渴", "ending": "我的卷末",
         })
         assert r.status_code == 200
-        system = fake.last_kwargs["system"]
+        system = _layered_prompt(fake.last_kwargs)
         assert "我的冲突" in system and "体内饥渴" in system and "我的卷末" in system
 
     def test_check_material_has_antagonist_pair(self, client, monkeypatch):
@@ -1019,7 +1024,7 @@ class TestContractExpansion:
         fake = _setup_ai(monkeypatch, [reply])
         r = client.post(f"/api/novels/{pid}/volumes/vol-1/ai/check")
         assert r.status_code == 200, r.text
-        system = fake.last_kwargs["system"]
+        system = _layered_prompt(fake.last_kwargs)
         assert "本卷的坎：环境·母港制度" in system
         assert "上一卷的坎：（无记录）" in system
 
@@ -1096,7 +1101,7 @@ class TestMaterialFullInfo:
         fake = _setup_ai(monkeypatch, [_plans_reply()])
         r = client.post(f"/api/novels/{pid}/volumes/ai/options", json={"line": ""})
         assert r.status_code == 200, r.text
-        system = fake.last_kwargs["system"]
+        system = _layered_prompt(fake.last_kwargs)
         assert "守夜人0的立场注记" in system and "守夜人2的立场注记" in system  # 势力全量
         assert "另有" not in system  # 全量＝无从略注
         assert "【已拆卷】" in system and "卷1·第一卷" in system
@@ -1113,7 +1118,7 @@ class TestMaterialFullInfo:
         r = client.post(f"/api/novels/{pid}/volumes/ai/expand",
                         json={"line": "追查内鬼", "vol_no": 2})
         assert r.status_code == 200, r.text
-        system = fake.last_kwargs["system"]
+        system = _layered_prompt(fake.last_kwargs)
         assert "卷1·" in system
         assert "卷2·第二卷" not in system
 
@@ -1156,7 +1161,7 @@ class TestMaterialFullInfo:
         r = client.post(f"/api/novels/{pid}/volumes/ai/options", json={"line": ""})
         assert r.status_code == 200, r.text
         assert not any("哑叔" in w for w in r.json()["warnings"])  # 已知侧含无卡名
-        system = fake.last_kwargs["system"]
+        system = _layered_prompt(fake.last_kwargs)
         assert "【无卡出场名单】" in system and "哑叔（第1章）" in system
 
     def test_check_material_has_world_block(self, client, monkeypatch):
@@ -1174,7 +1179,7 @@ class TestMaterialFullInfo:
         fake = _setup_ai(monkeypatch, [reply])
         r = client.post(f"/api/novels/{pid}/volumes/vol-1/ai/check")
         assert r.status_code == 200, r.text
-        system = fake.last_kwargs["system"]
+        system = _layered_prompt(fake.last_kwargs)
         assert "【世界观】" in system
         assert "守夜人0的立场注记" in system  # 全量进体检
 
@@ -1202,8 +1207,8 @@ class TestDrawExclude:
         d = r.json()
         assert len(d["plans"]) == 2
         assert all(p["spine"] != "护送密船出港——半路折返" for p in d["plans"])
-        assert "已出过的方向（作者已否决）" in fake.calls[0]["system"]
-        assert "已出过的方向（作者已否决）" in fake.calls[1]["system"]  # 重试同样带禁令块
+        assert "已出过的方向（作者已否决）" in _layered_prompt(fake.calls[0])
+        assert "已出过的方向（作者已否决）" in _layered_prompt(fake.calls[1])  # 重试同样带禁令块（禁令块住 user）
 
     def test_options_exclude_same_line_different_axis_kept(self, client, monkeypatch):
         """异轴同句＝不判撞车（短串 difflib 噪声守卫：须同轴且相似）。"""

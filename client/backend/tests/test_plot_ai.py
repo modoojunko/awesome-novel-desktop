@@ -31,6 +31,11 @@ from models.project import Novel
 from models.user import User
 from models.volume import Volume
 
+def _layered_prompt(kwargs) -> str:
+    """分层协议下的全文（system＋user 合并读——内容断言不关心落在哪一段）。"""
+    return str(kwargs.get("system") or "") + "\n" + str(kwargs["messages"][0]["content"])
+
+
 REF = "vol-1-ch-2"  # 目标章＝第 2 章（第 1 章给进场：正文结尾）
 PREV_PROSE_END = "船家把缆绳扔上岸，回头看了她一眼。"
 _UIDS: dict[str, str] = {}
@@ -169,7 +174,7 @@ class TestDrawShape:
         assert r.status_code == 200, r.text
         assert captured[-1]["max_tokens"] == 8192
         assert captured[-1]["temperature"] == 0.7
-        system = captured[-1]["system"]
+        system = str(captured[-1].get("system") or "") + "\n" + str(captured[-1]["messages"][0]["content"])  # 分层：system＋user 合并读
         for mark in ("【进场（本章从哪接）】", "【本章概要】", "碰到的挑战", "【本章结尾（收束到这）】"):
             assert mark in system, mark
 
@@ -285,7 +290,7 @@ class TestGateMaterialUsage:
         _patch(monkeypatch, "volumes.ai_plan", _FakeClient(_GOOD, captured))
         r = _post(nid, "plot/ai-draw")
         assert r.status_code == 200, r.text
-        system = captured[-1]["system"]
+        system = str(captured[-1].get("system") or "") + "\n" + str(captured[-1]["messages"][0]["content"])  # 分层：system＋user 合并读
         assert "【进场（本章从哪接）】" in system
         assert PREV_PROSE_END in system
         assert "取自正文结尾" in system

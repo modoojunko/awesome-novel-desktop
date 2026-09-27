@@ -43,6 +43,11 @@ from models import Novel  # noqa: E402
 from models.token_log import TokenLog  # noqa: E402
 from models.user import User  # noqa: E402
 
+def _layered_prompt(kwargs) -> str:
+    """分层协议下的全文（system＋user 合并读——内容断言不关心落在哪一段）。"""
+    return str(kwargs.get("system") or "") + "\n" + str(kwargs["messages"][0]["content"])
+
+
 _CFG_PATH = os.path.join(_tmp_data_root, "config.json")
 
 USER_ID = "oad_user"
@@ -264,8 +269,8 @@ class TestAiDraftSuccess:
         # 不落库：章数据与 status 不变
         assert _read_chapter(pid, ref) == before
         # 素材包含主线卡与改写基底提示
-        assert "林昭要查清父亲冤案" in fake.last_kwargs["system"]
-        assert "无现有章纲，从零起草" in fake.last_kwargs["system"]
+        assert "林昭要查清父亲冤案" in _layered_prompt(fake.last_kwargs)
+        assert "无现有章纲，从零起草" in _layered_prompt(fake.last_kwargs)
         # 计量入账
         assert _token_log_count(pid) >= 1
 
@@ -290,10 +295,10 @@ class TestAiDraftSuccess:
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/outline/ai-draft")
         assert r.status_code == 200
         # c-og-fields-slim：核心任务退役——重写底稿用在册字段（禁令）证明素材携带
-        assert "不得惊动管家" in fake.last_kwargs["system"]
-        assert "无现有章纲" not in fake.last_kwargs["system"]
+        assert "不得惊动管家" in _layered_prompt(fake.last_kwargs)
+        assert "无现有章纲" not in _layered_prompt(fake.last_kwargs)
         # 首章（前情=哨兵）：素材包不含前情段
-        assert "【前情" not in fake.last_kwargs["system"]
+        assert "【前情" not in _layered_prompt(fake.last_kwargs)
 
     def test_retired_field_only_does_not_count_as_rewrite_base(self, client, monkeypatch):
         """hardening：只填段落/场景卡的章不再被判「无现有章纲」（review P3）。"""
@@ -319,8 +324,8 @@ class TestAiDraftSuccess:
         _run_async(_seed())
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/outline/ai-draft")
         assert r.status_code == 200
-        assert "渡口封航" in fake.last_kwargs["system"]
-        assert "无现有章纲" not in fake.last_kwargs["system"]
+        assert "渡口封航" in _layered_prompt(fake.last_kwargs)
+        assert "无现有章纲" not in _layered_prompt(fake.last_kwargs)
 
 
 class TestAiDraftGuarded:
@@ -437,7 +442,7 @@ class TestAiDraftGuarded:
         _run_async(_seed())
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/outline/ai-draft")
         assert r.status_code == 200, r.text
-        system = fake.last_kwargs["system"]
+        system = _layered_prompt(fake.last_kwargs)
         assert "【世界观】" in system
         assert "世界铁律·死者不可复生：任何力量都不能把人从死亡里拉回来" in system
         assert "血族议会" in system

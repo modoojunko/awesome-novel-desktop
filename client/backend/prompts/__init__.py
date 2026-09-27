@@ -44,7 +44,7 @@ def _strip_comment_lines(text: str) -> str:
     """剥掉文件头的 `## ` 版本注释行（changelog 用，不入提示词）。"""
     lines = text.splitlines()
     i = 0
-    while i < len(lines) and lines[i].lstrip().startswith("##"):
+    while i < len(lines) and (not lines[i].strip() or lines[i].lstrip().startswith("##")):
         i += 1
     return "\n".join(lines[i:]).strip()
 

@@ -17,13 +17,15 @@ import os
 
 from prompts import _PROMPTS_DIR, is_layered
 
+# 片段资产：被其他模板以占位符吸纳的文本片段，不是一次独立的模型调用，SHALL NOT 分层
+ASSETS: frozenset[str] = frozenset(
+    {"name_canon", "volume_rules", "volume_pos_first", "pos_ch1", "pos_golden3", "pos_vol_start"}
+)
+
 # 待迁移名单：尚未分层的模板（按页面/功能族分组，迁一族删一族）。
 MIGRATION_PENDING: frozenset[str] = frozenset(
     {
-        # —— 拆书/卷/章（结构类 AI）：拆卷出卡/展开/卷体检、拆章出卡/位置片、章纲起草/补缺、章内剧情抽卡、章级自检
-        "volume_options", "volume_expand", "volume_check", "volume_pos_first", "volume_rules",
-        "chapter_split", "chapter_plot_draw", "pos_ch1", "pos_golden3", "pos_vol_start",
-        "outline_draft", "outline_fill_gaps", "chapter_selfcheck",
+        # —— 拆书/卷/章：八个调用模板已完成分层（2026-09-27）；volume_rules/pos_* 为注入片段资产，见 ASSETS
         # —— 写正文与辅助写作：整章组装、提示词工坊/精修、续写/润色/扩写/压缩、推演、自检
         "prompt_crafting", "prompt_refine", "continue_writing", "polish_text", "expand_text",
         "compress_text", "plot_sim", "ai_check", "story_stage", "story_character",
@@ -55,5 +57,5 @@ def test_layering_progress():
     assert not done_but_listed, f"这些模板已分层，请从 MIGRATION_PENDING 删除：{done_but_listed}"
 
     # 名单外的模板必须已分层（新加未分层的模板会在这里红）
-    not_layered = sorted(n for n in names if n not in MIGRATION_PENDING and not is_layered(n))
+    not_layered = sorted(n for n in names if n not in MIGRATION_PENDING and n not in ASSETS and not is_layered(n))
     assert not not_layered, f"以下模板未分层（须按协议拆 system/user）：{not_layered}"

@@ -21,6 +21,7 @@ from auth_local.deps import get_current_user, require_ai_access, require_novel_m
 from db import get_db
 from novels.service import get_novel
 from prompts import load as load_prompt
+from prompts import load_layers
 from volumes.ai_plan import (
     ExcludeItem,
     _book_material,
@@ -521,14 +522,17 @@ async def ai_chapter_directions(
     mat = await _chapter_material(db, project, vol, ch_no)
     # 重抽排除（D21）：已出批的轴＋一句话；中性禁令入素材，服务端同轴相似丢卡
     exclude = [(i.axis.strip(), i.line.strip()) for i in body.exclude if i.axis.strip() and i.line.strip()][:9]
+    _sys_t, _usr_t = load_layers("chapter_split")
     system = _render(
-        load_prompt("chapter_split"),
-        material_blocks=_blocks_chapter(mat) + _exclude_block(exclude),
-        position_rules="\n\n".join(load_fragment(POS_FRAGMENTS[t]) for t in mat["position_tags"]),
+        _sys_t,
         split_axes="／".join(SPLIT_AXES),
         plot_stages="／".join(STAGE_SET),
     )
-    user_msg = f"请给出第 {ch_no} 章的 3 个剧情方向（只输出 JSON）。"
+    user_msg = _render(
+        _usr_t,
+        material_blocks=_blocks_chapter(mat) + _exclude_block(exclude),
+        position_rules="\n\n".join(load_fragment(POS_FRAGMENTS[t]) for t in mat["position_tags"]),
+    ) + f"\n\n请给出第 {ch_no} 章的 3 个剧情方向（只输出 JSON）。"
     raw, _u = await _generate(project, system, user_msg, temperature=0.7, db=db, user=user, operation="chapter_directions")
     parsed = _parse_json(raw)
     cards, keep_map, warn = _sanitize_directions(parsed)
@@ -701,8 +705,10 @@ async def ai_chapter_selfcheck(
     if siblings:
         last = siblings[-1]
         prev_line = f"第{last.chapter_no}章：{(last.summary or last.title or '').strip()[:60]}"
-    system = _render(
-        load_prompt("chapter_selfcheck"),
+    _sys_t, _usr_t = load_layers("chapter_selfcheck")
+    system = _sys_t
+    user_msg = _render(
+        _usr_t,
         entry=entry["text"] + "（" + entry["source"] + "）",
         prev_line=prev_line or "（这是第一卷第一章）",
         plot=_fit(body.plot, "plot"),
@@ -717,7 +723,7 @@ async def ai_chapter_selfcheck(
     }
     try:
         raw, _u = await _generate(
-            project, system, "请按四维给这一章的短评，并点出最弱一维（只输出 JSON）。",
+            project, system, user_msg,
             temperature=0.2, db=db, user=user, operation="chapter_selfcheck",
         )
     except HTTPException:

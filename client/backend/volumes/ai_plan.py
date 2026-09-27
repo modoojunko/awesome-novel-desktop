@@ -34,6 +34,7 @@ from prompt.context import load_active_hooks, render_hooks_block
 from prompts import load as load_prompt
 from repositories import volume_repo
 from settings import character_service
+from prompts import load_layers
 from settings.world_model import render_red_lines, world_summary_text
 from volumes.render import volume_outline_text
 from volumes.service import resolve_prev_ending
@@ -580,15 +581,16 @@ async def ai_volume_options(
     exclude = [(i.axis.strip(), i.line.strip()) for i in body.exclude if i.axis.strip() and i.line.strip()][:9]
 
     prev = await resolve_prev_ending(db, project, 1)
-    system = _render(
-        load_prompt("volume_options"),
+    _sys_t, _usr_t = load_layers("volume_options")
+    system = _render(_sys_t, focus_axes="／".join(FOCUS_AXES))
+    _user = _render(
+        _usr_t,
         material_blocks=_blocks(mat, hooks=False) + _exclude_block(exclude),
         prev_ending=prev["text"] + "（" + prev["source"] + "）",
         author_line=author_line or "（作者还没写——三套都要是你按设定推出的可行走法）",
-        focus_axes="／".join(FOCUS_AXES),
     )
     raw, _u0 = await _generate(
-        project, system, "请给出 3 套可行走法（只输出 JSON）。",
+        project, system, _user,
         temperature=0.7, db=db, user=user, operation="volume_options",
     )
     result = _sanitize_plans(_parse_json(raw))
@@ -614,7 +616,7 @@ async def ai_volume_options(
         retry_raw, _u1 = await _generate(
             project,
             system + f"\n\n（上一次{reason}。）",
-            "请给出 2 到 3 套可行走法（只输出 JSON）。",
+            _user,
             temperature=retry_temp, db=db, user=user, operation="volume_options_retry",
         )
         retry_result = _sanitize_plans(_parse_json(retry_raw))
@@ -732,18 +734,22 @@ async def ai_volume_expand(
     if prev_outline:
         material_blocks += f"\n\n【上一卷卷纲】\n{prev_outline}"
 
+    _sys_t, _usr_t = load_layers("volume_expand")
     system = _render(
-        load_prompt("volume_expand"),
-        material_blocks=material_blocks,
-        prev_ending=prev["text"] + "（" + prev["source"] + "）",
-        author_line=line,
+        _sys_t,
         hard_rules=_rules_sections()[0],
         # 首卷位置片段（c-plan-pacing-rules）：只进 expand（options 保三套互斥，节奏由 expand 统一执行）；
         # 独立占位符不拼进 hard_rules——保 rules 单源＋锚点切分＋对拍测试三件套
         volume_pos_rules=load_fragment("volume_pos_first") if vol_no == 1 else "",
     )
+    _user = _render(
+        _usr_t,
+        material_blocks=material_blocks,
+        prev_ending=prev["text"] + "（" + prev["source"] + "）",
+        author_line=line,
+    )
     raw, _u0 = await _generate(
-        project, system, "请把这句话铺成这一卷的卷纲（只输出 JSON）。",
+        project, system, _user,
         temperature=0.4, db=db, user=user, operation="volume_expand",
     )
     draft = _sanitize_expand(_parse_json(raw))
@@ -861,8 +867,10 @@ async def ai_volume_check(
         if (vol.antagonist_type or vol.antagonist_line) else "（未填——判据输出 warn，不编造）"
     )
     boss_hint = _boss_step_hint(mat.get("genre_theme", ""))
-    system = _render(
-        load_prompt("volume_check"),
+    _sys_t, _usr_t = load_layers("volume_check")
+    system = _render(_sys_t, criteria=_rules_sections()[1])
+    _user = _render(
+        _usr_t,
         vol_outline=outline_text + "\n上一卷与本卷的坎：" + ant_pair
         + (("\n" + boss_hint) if boss_hint else ""),
         fullstory=mat["fullstory"],
@@ -875,10 +883,9 @@ async def ai_volume_check(
         hooks=mat["hooks_block"] or "（还没有登记伏笔）",
         written=written_brief,
         prev_ending=prev["text"] + "（" + prev["source"] + "）",
-        criteria=_rules_sections()[1],
     )
     raw, _u0 = await _generate(
-        project, system, "请按四组给出这一卷的体检结论（只输出 JSON）。",
+        project, system, _user,
         temperature=0.2, db=db, user=user, operation="volume_check",
     )
     parsed = _parse_json(raw)
