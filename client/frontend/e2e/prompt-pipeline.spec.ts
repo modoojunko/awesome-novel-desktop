@@ -219,3 +219,96 @@ test("两段式：AiModal 粗组→AI 润色→编辑→生成 + 完工检查横
     await restore();
   }
 });
+
+// ═══ 编辑器内核（c-prose-editor-tiptap）═══════════════════════════════════════
+//   spec 场景「AI 生成可整体撤销」＋「采纳替换走范围事务」的回归护栏。
+
+test("流式写入可整体撤销：一次撤销回到生成前，落库同步", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const { restore, token } = await setupSession(page);
+  try {
+    await ensurePromptAccess(request, token);
+    const pid = await createNovel(page, `撤销流式${Date.now() % 100000}`);
+    await setupFirstChapter(page);
+    const CHUNK = "雨点砸在铁皮棚上，他没有抬头。";
+    await page.route("**/api/novels/*/chapters/*/write", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body:
+          `data: ${JSON.stringify({ type: "chunk", text: CHUNK })}\n\n` +
+          `data: ${JSON.stringify({ type: "done", full_text: CHUNK })}\n\n`,
+      }),
+    );
+    await page.getByRole("tab", { name: /^正文/ }).click();
+    // 先手写一段（撤销的「生成前」基线）
+    await page.getByTestId("prose-edit").click();
+    const editor = page.locator(".editor");
+    await editor.click();
+    await page.keyboard.type("原有的一段话。");
+    await page.waitForTimeout(700); // 拉开与生成的历史分组窗口（newGroupDelay 500ms）
+    await page.getByTestId("ai-write-btn").click();
+    const ai = page.getByRole("dialog", { name: "AI 生成正文" });
+    await expect(ai.getByTestId("ai-prompt")).toBeEnabled({ timeout: 10000 });
+    await ai.getByTestId("ai-confirm").click();
+    await expect(editor).toContainText(CHUNK, { timeout: 10000 });
+    await expect(editor).toContainText("原有的一段话。");
+    // 一次撤销 → 回到生成前（CHUNK 消失、原段保留）
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(editor).not.toContainText(CHUNK, { timeout: 5000 });
+    await expect(editor).toContainText("原有的一段话。");
+    // 落库同步确认
+    const H = { Authorization: `Bearer ${token}` };
+    await expect
+      .poll(
+        async () =>
+          (await (await request.get(`${ORIGIN}/api/novels/${pid}/chapters/vol-1-ch-1`, { headers: H })).json())?.prose ?? "",
+        { timeout: 12000 },
+      )
+      .not.toContain(CHUNK);
+  } finally {
+    await restore();
+  }
+});
+
+test("润色采纳＝范围事务替换，一次撤销还原原文", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const { restore, token } = await setupSession(page);
+  try {
+    await ensurePromptAccess(request, token);
+    await createNovel(page, `撤销采纳${Date.now() % 100000}`);
+    await setupFirstChapter(page);
+    await page.route("**/api/novels/*/chapters/*/write/polish", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ polished_text: "丙段改写。" }),
+      }),
+    );
+    await page.getByRole("tab", { name: /^正文/ }).click();
+    await page.getByTestId("prose-edit").click();
+    const editor = page.locator(".editor");
+    await editor.click();
+    await page.keyboard.type("甲段。乙段。丙段。");
+    await page.waitForTimeout(700); // 拉开与采纳事务的历史分组窗口（newGroupDelay 500ms）
+    // 选中「丙段。」= 末尾 3 字
+    await page.keyboard.down("Shift");
+    for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowLeft");
+    await page.keyboard.up("Shift");
+    // 选区上抛到右栏有一帧延迟（React 状态更新），等按钮解禁
+    // 右栏「段落润色」→ 对照弹窗 → 接受
+    const rail = page.locator(".col-ai");
+    await rail.getByRole("button", { name: /段落润色/ }).click();
+    const dlg = page.getByRole("dialog");
+    await expect(dlg.getByRole("button", { name: "接受" })).toBeEnabled({ timeout: 10000 });
+    await dlg.getByRole("button", { name: "接受" }).click();
+    await expect(editor).toContainText("甲段。乙段。丙段改写。", { timeout: 5000 });
+    // 撤销 → 原文回来
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(editor).toContainText("甲段。乙段。丙段。", { timeout: 5000 });
+  } finally {
+    await restore();
+  }
+});
