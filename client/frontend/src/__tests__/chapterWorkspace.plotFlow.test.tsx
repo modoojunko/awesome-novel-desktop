@@ -108,6 +108,11 @@ function mount(opts: {
   return { outline, railData: () => rail };
 }
 
+/** 章纲查看/编辑两态（c-ch-og-readonly）：表单交互先点「编辑章纲」进编辑态 */
+async function enterOgEdit() {
+  fireEvent.click(await screen.findByTestId("og-edit"));
+}
+
 /** 服务端三要素齐备的章（门槛放行） */
 const FULL = {
   volume: 1,
@@ -169,7 +174,8 @@ describe("门槛拦截（拍板⑦三样：概要/挑战/结尾）", () => {
     mockApi.post.mockResolvedValue(THREE);
     const { railData } = mount({ server: { ...FULL, challenge: "" } });
     await waitFor(() => expect(railData()).not.toBeNull());
-    // 等表单载入（剧情行回显）再补挑战，模拟「填完立刻点」的主流程
+    // 进编辑态（默认查看态），等表单载入（剧情行回显）再补挑战，模拟「填完立刻点」的主流程
+    await enterOgEdit();
     await waitFor(() =>
       expect(screen.getByLabelText("第 1 条剧情")).toHaveValue("旧的手写剧情甲"),
     );
@@ -198,6 +204,7 @@ describe("采纳与撤销（拍板②）", () => {
     mockApi.post.mockResolvedValue(THREE);
     const { railData, outline } = mount({ server: { ...FULL } });
     await waitFor(() => expect(railData()).not.toBeNull());
+    await enterOgEdit();
     await act(async () => {
       await railData().onPlotDraw();
     });
@@ -242,6 +249,7 @@ describe("采纳与撤销（拍板②）", () => {
     mockApi.post.mockResolvedValue(THREE);
     const { railData } = mount({ server: { ...FULL } });
     await waitFor(() => expect(railData()).not.toBeNull());
+    await enterOgEdit();
     await act(async () => {
       await railData().onPlotDraw();
     });
@@ -260,6 +268,7 @@ describe("采纳与撤销（拍板②）", () => {
     mockApi.post.mockResolvedValue(THREE);
     const { railData, outline } = mount({ server: { ...FULL } });
     await waitFor(() => expect(railData()).not.toBeNull());
+    await enterOgEdit();
     await act(async () => {
       await railData().onPlotDraw();
     });
@@ -296,6 +305,7 @@ describe("已润色章改剧情软提示（拍板⑥）", () => {
     const onOpenAiModal = vi.fn();
     const { railData } = mount({ server: { ...FULL }, onOpenAiModal });
     await waitFor(() => expect(railData()).not.toBeNull());
+    await enterOgEdit();
     fireEvent.change(screen.getByLabelText("第 1 条剧情"), {
       target: { value: "新剧情" },
     });
@@ -321,6 +331,7 @@ describe("已润色章改剧情软提示（拍板⑥）", () => {
     mockReq.mockResolvedValue({ polished: false });
     const { railData } = mount({ server: { ...FULL } });
     await waitFor(() => expect(railData()).not.toBeNull());
+    await enterOgEdit();
     fireEvent.change(screen.getByLabelText("第 1 条剧情"), {
       target: { value: "新剧情" },
     });

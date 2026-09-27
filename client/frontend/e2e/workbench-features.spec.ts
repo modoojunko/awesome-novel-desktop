@@ -166,14 +166,16 @@ test("章纲：OgPane 真实表单编辑 + 保存草稿（概要/出场角色/�
     const pid = await createNovel(page, `章纲${Date.now() % 100000}`);
     await writeFirstChapter(page);
 
-    // 回「章纲」页签（writeFirstChapter 停在正文）：平面全字段表单 + 必填缺口 chip
+    // 回「章纲」页签（writeFirstChapter 停在正文）：默认查看态（一页纸只读）+ 必填缺口 chip
     await page.getByRole("tab", { name: /^章纲/ }).click();
+    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(".gap-chip").first()).toBeVisible();
+
+    // 进编辑态（c-ch-og-readonly），填 4 个代表字段（概要 / 出场角色 / 必须完成的变化 / 主情绪选择）
+    await page.getByTestId("og-edit").click();
     await expect(
       page.getByText(/章纲：明确「这一章写什么」/),
     ).toBeVisible({ timeout: 10000 });
-    await expect(page.locator(".gap-chip").first()).toBeVisible();
-
-    // 填 4 个代表字段（概要 / 出场角色 / 必须完成的变化 / 主情绪选择）
     await page.locator("#wf-summary").fill("主角在边境城邦发现妹妹失踪的线索");
     await page.locator("#wf-chars").fill("林晚");
     await page.locator("#wf-changes").fill("主角拿到入城许可");
@@ -471,7 +473,8 @@ test("点章强制落章纲：确认/有正文后重挂载仍落章纲 + 头部�
     const ogTab = page.getByRole("tab", { name: /^章纲/ });
     await expect(ogTab).toBeVisible({ timeout: 10000 });
     await expect(ogTab).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByText(/章纲：明确「这一章写什么」/)).toBeVisible();
+    // 默认查看态（c-ch-og-readonly）：「编辑章纲」在＝查看态已载入
+    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
 
     // API 备齐必填（必须完成的变化/主情绪，c-og-slim-v2 两项）→ 确认
     const auth = { Authorization: `Bearer ${token}` };
@@ -545,8 +548,9 @@ test("章纲格子：读者获得/章末落点/目标字数填值保存 + 回读
     const pid = await createNovel(page, `格子${Date.now() % 100000}`);
     await writeFirstChapter(page);
 
-    // 回「章纲」页签
+    // 回「章纲」页签，进编辑态（c-ch-og-readonly）
     await page.getByRole("tab", { name: /^章纲/ }).click();
+    await page.getByTestId("og-edit").click();
     await expect(
       page.getByText(/章纲：明确「这一章写什么」/),
     ).toBeVisible({ timeout: 10000 });
@@ -616,6 +620,7 @@ test("章纲格子：读者获得/章末落点/目标字数填值保存 + 回读
     await page.reload();
     await page.locator(".col-tree .ch", { hasText: "第一章" }).click();
     await page.getByRole("tab", { name: /^章纲/ }).click();
+    await page.getByTestId("og-edit").click();
     await page.locator("#wf-payoffs summary").click();
     await expect(page.locator(".payoff-row").first().locator('[data-payoff="k"]')).toHaveValue(
       "twist",
@@ -639,9 +644,9 @@ test("右栏 AI 辅助随页签切换：引导语/统计卡/动作清单（动�
     await ensurePromptAccess(request, token);
     await createNovel(page, `e2e-rail-${Date.now()}`);
     await writeFirstChapter(page);
-    // 显式切回章纲并等表单就绪（点章落章纲的回落竞态结算）
+    // 显式切回章纲并等查看态就绪（点章落章纲的回落竞态结算）
     await page.getByRole("tab", { name: /^章纲/ }).click();
-    await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
     // 章纲页签：面板随页签切换；动作全部落地（占位机制已退役，不再有「规划中」）
     await expect(page.getByText("AI 辅助 · 章纲")).toBeVisible({ timeout: 10000 });
     const railActs = page.locator(".rail-acts");

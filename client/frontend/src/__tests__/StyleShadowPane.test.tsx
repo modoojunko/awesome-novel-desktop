@@ -41,6 +41,8 @@ describe("StyleShadowPane 手动面（免费可用）", () => {
     // 无信号 → 无 AI 建议区、无锁定提示（门控已随入口迁去右栏）
     expect(screen.queryByText("AI 建议本章调整")).toBeNull();
     expect(screen.queryByText(/手动覆盖行不限档位/)).toBeNull();
+    // 默认查看态（c-ch-og-readonly）：先点「编辑影子」解锁输入面
+    fireEvent.click(screen.getByTestId("shadow-edit"));
     // 手工添加一行
     fireEvent.change(screen.getByDisplayValue("选择参数行"), { target: { value: "syntax" } });
     fireEvent.change(screen.getByTestId("shadow-add-value"), { target: { value: "短句为主" } });
@@ -56,7 +58,29 @@ describe("StyleShadowPane 手动面（免费可用）", () => {
     expect(await screen.findByTestId("shadow-value-syntax")).toBeTruthy();
   });
 
-  it("归档章只读呈现：行输入与添加按钮均禁用", async () => {
+  it("默认查看态：影子行以只读文本呈现，「编辑影子」解锁输入", async () => {
+    apiState.get.mockResolvedValue({
+      ...BASELINE,
+      shadow: { syntax: { value: "短句为主", reason: "打斗章节奏" } },
+    });
+    render(
+      <StyleShadowPane projectId="p1" chapterRef="vol-1-ch-1" archived={false} />,
+    );
+    // 查看态：文本行，无输入框、无添加行、无还原按钮
+    expect(await screen.findByTestId("shadow-view-syntax")).toHaveTextContent("短句为主");
+    expect(screen.queryByTestId("shadow-value-syntax")).toBeNull();
+    expect(screen.queryByTestId("shadow-add-btn")).toBeNull();
+    expect(screen.queryByTestId("shadow-reset-syntax")).toBeNull();
+    // 进编辑态：输入框出现
+    fireEvent.click(screen.getByTestId("shadow-edit"));
+    const input = await screen.findByTestId("shadow-value-syntax");
+    expect((input as HTMLInputElement).value).toBe("短句为主");
+    // 完成 → 回查看态
+    fireEvent.click(screen.getByTestId("shadow-done"));
+    expect(await screen.findByTestId("shadow-view-syntax")).toBeInTheDocument();
+  });
+
+  it("归档章不开放编辑：编辑影子禁用、行保持只读文本", async () => {
     apiState.get.mockResolvedValue({
       ...BASELINE,
       shadow: { syntax: { value: "短句为主", reason: "r" } },
@@ -64,9 +88,10 @@ describe("StyleShadowPane 手动面（免费可用）", () => {
     render(
       <StyleShadowPane projectId="p1" chapterRef="vol-1-ch-1" archived />,
     );
-    const input = await screen.findByTestId("shadow-value-syntax");
-    expect((input as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByTestId("shadow-add-btn") as HTMLButtonElement).disabled).toBe(true);
+    await screen.findByTestId("shadow-view-syntax");
+    const edit = screen.getByTestId("shadow-edit") as HTMLButtonElement;
+    expect(edit.disabled).toBe(true);
+    expect(screen.queryByTestId("shadow-value-syntax")).toBeNull();
   });
 });
 

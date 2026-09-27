@@ -1,7 +1,9 @@
 /** 「文风」页签（chapter-style-shadow，拍板③记章节档案）：
  *  全书基线（style-quant 六行，只读）＋ 本章影子行（手工增/改/还原，免费可用）
  *  ＋ AI 建议结果区（右栏 AI 助手触发拉取，建议逐条采纳写入影子；
- *  2026-09-20 AI 入口收口右栏，页签内只留结果与采纳）。 */
+ *  2026-09-20 AI 入口收口右栏，页签内只留结果与采纳）。
+ *  2026-09-27 影子行改查看/编辑两态（对齐卷纲口径）：默认只读行，「编辑影子」
+ *  解锁输入（归档章不开放）；逐行改动落库仍走输入框失焦保存。 */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
@@ -137,6 +139,8 @@ export function StyleShadowPane({
 
   const locked = archived || busy === "save";
   const remainingDims = Object.keys(DIM_LABEL).filter((d) => !(d in shadow));
+  // 影子行查看/编辑两态（2026-09-27 对齐卷纲口径）：默认只读行，「编辑影子」解锁输入
+  const [editing, setEditing] = useState(false);
 
   return (
     <div className="style-shadow" data-od-id="style-shadow">
@@ -156,55 +160,94 @@ export function StyleShadowPane({
         </ul>
       )}
 
-      <p className="ss-lead">本章影子（覆盖行 · 只影响本章）</p>
+      <div className="ol-top">
+        <span className="ss-lead" style={{ margin: 0 }}>
+          本章影子（覆盖行 · 只影响本章）
+        </span>
+        <span className="push">
+          {editing ? (
+            <button
+              className="btn btn-ghost btn-sm"
+              data-testid="shadow-done"
+              onClick={() => setEditing(false)}
+            >
+              完成
+            </button>
+          ) : (
+            <button
+              className="btn btn-secondary btn-sm"
+              data-testid="shadow-edit"
+              disabled={archived}
+              title={archived ? "本章已归档 · 只读" : undefined}
+              onClick={() => setEditing(true)}
+            >
+              编辑影子
+            </button>
+          )}
+        </span>
+      </div>
       {Object.keys(shadow).length === 0 && (
-        <p className="ss-note">本章没有覆盖行——完全沿用全书基线。</p>
+        <p className="ss-note">
+          {editing ? "本章没有覆盖行——在下方添加。" : "本章没有覆盖行——完全沿用全书基线。"}
+        </p>
       )}
       {Object.entries(shadow).map(([dim, item]) => (
         <div className="ss-row" key={dim} data-od-id={`shadow-${dim}`}>
           <span className="k">{DIM_LABEL[dim] ?? dim}</span>
-          <input
-            className="input v"
-            data-testid={`shadow-value-${dim}`}
-            placeholder="本章取值"
-            value={item.value}
-            disabled={locked}
-            onChange={(e) =>
-              setShadow((s) => ({ ...s, [dim]: { ...item, value: e.target.value } }))
-            }
-            onBlur={(e) =>
-              void saveShadow({ ...shadow, [dim]: { ...item, value: e.target.value } })
-            }
-          />
-          <input
-            className="input r"
-            data-testid={`shadow-reason-${dim}`}
-            placeholder="理由（可空）"
-            value={item.reason}
-            disabled={locked}
-            onChange={(e) =>
-              setShadow((s) => ({ ...s, [dim]: { ...item, reason: e.target.value } }))
-            }
-            onBlur={(e) =>
-              void saveShadow({ ...shadow, [dim]: { ...item, reason: e.target.value } })
-            }
-          />
-          <button
-            className="btn btn-ghost btn-sm"
-            disabled={locked}
-            data-testid={`shadow-reset-${dim}`}
-            onClick={() => {
-              const rows = { ...shadow };
-              delete rows[dim];
-              void saveShadow(rows);
-            }}
-          >
-            还原
-          </button>
+          {editing ? (
+            <>
+              <input
+                className="input v"
+                data-testid={`shadow-value-${dim}`}
+                placeholder="本章取值"
+                value={item.value}
+                disabled={locked}
+                onChange={(e) =>
+                  setShadow((s) => ({ ...s, [dim]: { ...item, value: e.target.value } }))
+                }
+                onBlur={(e) =>
+                  void saveShadow({ ...shadow, [dim]: { ...item, value: e.target.value } })
+                }
+              />
+              <input
+                className="input r"
+                data-testid={`shadow-reason-${dim}`}
+                placeholder="理由（可空）"
+                value={item.reason}
+                disabled={locked}
+                onChange={(e) =>
+                  setShadow((s) => ({ ...s, [dim]: { ...item, reason: e.target.value } }))
+                }
+                onBlur={(e) =>
+                  void saveShadow({ ...shadow, [dim]: { ...item, reason: e.target.value } })
+                }
+              />
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={locked}
+                data-testid={`shadow-reset-${dim}`}
+                onClick={() => {
+                  const rows = { ...shadow };
+                  delete rows[dim];
+                  void saveShadow(rows);
+                }}
+              >
+                还原
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="v" data-testid={`shadow-view-${dim}`}>
+                {item.value}
+              </span>
+              <span className="r">{item.reason || "—"}</span>
+              <span />
+            </>
+          )}
         </div>
       ))}
 
-      {remainingDims.length > 0 && (
+      {editing && remainingDims.length > 0 && (
         <div className="ss-add" data-testid="shadow-add">
           <select
             className="input"

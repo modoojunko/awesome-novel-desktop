@@ -16,7 +16,7 @@ import { cleanupSessionNovels, stableClick } from "./helpers";
 // 不 mock：token 由 S端 真实签发；hooks/volumes 走真实 C端 后端（docker 4 服务）。
 // =========================================================================
 
-const S_API = "http://127.0.0.1:19000/api/web";
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 // docker C端 后端的 config.json（bind mount .docker-data/client → /app/data）
 const CONFIG_PATH = path.join(

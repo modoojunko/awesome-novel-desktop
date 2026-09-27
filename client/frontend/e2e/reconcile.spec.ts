@@ -14,7 +14,7 @@ import { cleanupSessionNovels, stableClick } from "./helpers";
 //    /v1/models + /v1/chat/completions，按 prompt 关键词回预置 JSON。
 // =========================================================================
 
-const S_API = "http://127.0.0.1:19000/api/web";
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 const CONFIG_PATH = path.join(
   process.cwd(),

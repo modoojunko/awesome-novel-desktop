@@ -16,7 +16,7 @@ import { cleanupSessionNovels, stableClick } from "./helpers";
 // =========================================================================
 // 会话注入与既有 spec 同法（S端 真实签发 + docker config.json + check-auth 页面级桩）。
 
-const S_API = "http://127.0.0.1:19000/api/web";
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 const CONFIG_PATH = path.join(
   process.cwd(), "..", "..", ".docker-data", "client", "config.json",

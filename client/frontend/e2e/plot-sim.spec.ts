@@ -182,11 +182,15 @@ test("PRO：按回合推演 → 收进章纲追加一条剧情 → 刷新回读"
     await expect(page.getByText(/已按推演走法加了一条剧情/)).toBeVisible({
       timeout: 10000,
     });
+    // 查看态先看只读行，再进编辑态断言表单值（c-ch-og-readonly）
+    await expect(page.getByTestId("og-view")).toContainText(STRATEGY_WARN);
+    await page.getByTestId("og-edit").click();
     await expect(page.getByLabel("第 1 条剧情")).toHaveValue(STRATEGY_WARN);
 
     // 刷新回读
     await page.reload();
     await page.locator(".col-tree .ch", { hasText: "第一章" }).click();
+    await page.getByTestId("og-edit").click();
     await expect(page.getByLabel("第 1 条剧情")).toHaveValue(STRATEGY_WARN, {
       timeout: 10000,
     });

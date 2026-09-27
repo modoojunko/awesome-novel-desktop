@@ -280,7 +280,7 @@ test("解锁链：归档章点 AI → 解除只读 → AiModal 提示词；确�
     // 真 bug #2（c-prose-write-entry 新口径）：生成正文入口已收编正文页签 AI 辅助面板，
     // 章纲等其它页签的右栏不再有该按钮；正文页签确认生成 → 编辑器可见（自动聚焦不变）
     await page.getByRole("tab", { name: /^章纲/ }).click();
-    await expect(page.getByText(/章纲：明确「这一章写什么」/)).toBeVisible();
+    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
     await expect(page.locator(".col-ai").getByTestId("ai-write-btn")).toHaveCount(0);
     await page.getByRole("tab", { name: /^正文/ }).click();
     await page.getByTestId("ai-write-btn").click();

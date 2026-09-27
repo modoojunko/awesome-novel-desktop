@@ -137,11 +137,10 @@ export async function addFirstChapterViaTree(page: Page) {
   await expect(page.getByRole("tab", { name: /^章纲/ })).toBeVisible({
     timeout: 10000,
   });
-  // 表单就绪闸门：章纲载入期「保存草稿」禁用（saving={ogLoading || ogSaving}），
-  // 载入完成那一帧才可点——与 setOgForm 同帧，故这是**直接**信号而非猜测。
-  await expect(page.getByRole("button", { name: "保存草稿" })).toBeEnabled({
-    timeout: 10000,
-  });
+  // 表单就绪闸门（c-ch-og-readonly 查看态）：「编辑章纲」只在章纲载入完成的查看态出现
+  // （载入中＝「章纲载入中…」占位，无按钮）——与 setOgForm 同帧，直接信号而非猜测。
+  // 查看态默认只读；要动表单的用例自行点「编辑章纲」进编辑态。
+  await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
 }
 
 /** 同上 + 切「正文」→ 编辑器就绪（写正文的用例共用）。 */

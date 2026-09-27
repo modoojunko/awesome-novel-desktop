@@ -6,6 +6,9 @@
 // 必填口径 = 后端 gate_chapter_ready 两项（必须完成的变化、主情绪；c-og-slim-v2 四改二）。
 // c-og-slim-v2 退役格子：关键事件/地点/时间/叙事视角/视角指导/预期策略/预期细节/
 // 可部分推进/段落规划/本章行动/场景卡（含权重与焦点）——控件与折叠组整组摘除。
+// 2026-09-27 查看/编辑两态（对齐卷纲 c-volume-view-storyline 口径）：
+//   默认查看态＝一页纸只读（.fro 行，未填占位可见）＋「编辑章纲」进表单；
+//   缺项 chip 查看态点击＝进编辑态并滚动聚焦对应格子；取消＝回退最近一次落库值。
 import { useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
@@ -22,12 +25,20 @@ interface OgPaneProps {
   characterNames?: string[];
   /** 完整章标题（第X章 · 名称，nodeLabel 派生）——原型 panel-head 口径 */
   label: string;
+  /** 查看/编辑两态：false＝只读一页纸（默认），true＝表单可写 */
+  editing: boolean;
+  /** 章纲载入中（查看态据此显示载入中） */
+  loading?: boolean;
   onPatch: (patch: Partial<OgForm>) => void;
   /** 剧情区编辑（输入/加/删任一动作）：上层用来收掉常驻采纳回执（拍板②）＋触发润色软提示检查 */
   onPlotEdit?: () => void;
   gaps: { key: string; label: string }[];
   confirmed: boolean;
   saving: boolean;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  /** 查看态缺口 chip：进编辑态并滚动聚焦该格（上层包 flashField） */
+  onGapClick: (key: string) => void;
   onSaveDraft: () => void;
   onConfirm: () => void;
   onGoWrite: () => void;
@@ -53,15 +64,29 @@ export function flashField(key: string) {
   focusable?.focus({ preventScroll: true });
 }
 
+const payoffLabel = (k: string) =>
+  PAYOFF_KINDS.find((x) => x.value === k)?.label ?? k;
+
+/** 多行文本格的查看态文案：非空行以「；」连接；空 → 未填占位 */
+const joinLines = (s: string) => {
+  const ls = s.split("\n").map((x) => x.trim()).filter(Boolean);
+  return ls.length ? ls.join("；") : "";
+};
+
 export default function OgPane({
   form,
   characterNames,
   label,
+  editing,
+  loading,
   onPatch,
   onPlotEdit,
   gaps,
   confirmed,
   saving,
+  onStartEdit,
+  onCancelEdit,
+  onGapClick,
   onSaveDraft,
   onConfirm,
   onGoWrite,
@@ -112,34 +137,210 @@ export default function OgPane({
     onPlotEdit?.();
   };
 
+  const badge = confirmed ? (
+    <span className="badge ok">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+        <path d="M5 13l4 4L19 7" />
+      </svg>
+      章纲已确认
+    </span>
+  ) : gaps.length ? (
+    <span className="badge err">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+        <circle cx="12" cy="12" r="5" fill="currentColor" stroke="none" />
+      </svg>
+      待配章纲
+    </span>
+  ) : (
+    <span className="badge warn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+        <circle cx="12" cy="12" r="5" fill="currentColor" stroke="none" />
+      </svg>
+      草稿
+    </span>
+  );
+
+  // ── 查看态（默认）：一页纸只读，未填项占位可见；编辑章纲进表单 ──────────
+  if (!editing) {
+    if (loading) {
+      return (
+        <div className="og-pane">
+          <div className="panel">
+            <div className="panel-head">
+              <h2>章纲 · {label}</h2>
+              {badge}
+            </div>
+            <p className="desc">章纲载入中…</p>
+          </div>
+        </div>
+      );
+    }
+    const charLines = form.chars.split("\n").map((x) => x.trim()).filter(Boolean);
+    const plotItems = form.plots.map((s) => s.trim()).filter(Boolean);
+    const filledPayoffs = form.payoffs.filter((p) => p.d.trim());
+    return (
+      <div className="og-pane" data-testid="og-view">
+        <div className="panel">
+          <div className="panel-head">
+            <h2>章纲 · {label}</h2>
+            {badge}
+          </div>
+          <div className="ol-top">
+            <span className="note">章纲 · 明确「这一章写什么」</span>
+            <span className="push">
+              <button
+                className="btn btn-primary"
+                style={{ background: "var(--accent-strong)" }}
+                onClick={onGoWrite}
+                disabled={saving}
+              >
+                去写正文
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={onConfirm}
+                disabled={confirmed || gaps.length > 0 || saving}
+              >
+                确认章纲
+              </button>
+              <button
+                className="btn btn-secondary"
+                data-testid="og-edit"
+                onClick={onStartEdit}
+              >
+                编辑章纲
+              </button>
+            </span>
+          </div>
+          <div className="fro">
+            <em>章纲概要</em>
+            <p className={form.summary.trim() ? "lead" : "none"}>
+              {form.summary.trim() || "（未填）"}
+            </p>
+          </div>
+          <div className="fro">
+            <em>出场角色</em>
+            <p className={charLines.length ? undefined : "none"}>
+              {charLines.length ? charLines.join("　") : "（未填）"}
+            </p>
+          </div>
+          <div className="fro">
+            <em>碰到的挑战</em>
+            <p className={form.challenge.trim() ? undefined : "none"}>
+              {form.challenge.trim() || "（未填）"}
+            </p>
+          </div>
+          <div className="fro">
+            <em>阶段</em>
+            <p className={form.stage.trim() ? undefined : "none"}>
+              {form.stage.trim() || "（未定）"}
+            </p>
+          </div>
+          <div className="fro">
+            <em>必须在本章回收</em>
+            <p className={joinLines(form.mres) ? undefined : "none"}>
+              {joinLines(form.mres) || "（未填）"}
+            </p>
+          </div>
+          <div className="fro">
+            <em>必须维持悬念</em>
+            <p className={joinLines(form.mhold) ? undefined : "none"}>
+              {joinLines(form.mhold) || "（未填）"}
+            </p>
+          </div>
+          <div className="fro">
+            <em>必须完成的变化 <span className="req">*</span></em>
+            <p className={joinLines(form.changes) ? undefined : "none"}>
+              {joinLines(form.changes) || "（未填）"}
+            </p>
+          </div>
+          <div className="fro">
+            <em>禁止事项</em>
+            <p className={joinLines(form.ban) ? undefined : "none"}>
+              {joinLines(form.ban) || "（未填）"}
+            </p>
+          </div>
+          <div className="fro">
+            <em>主情绪 <span className="req">*</span></em>
+            <p className={form.mood.trim() ? undefined : "none"}>
+              {form.mood.trim() || "（未填）"}
+            </p>
+          </div>
+          <div className="fro">
+            <em>读者获得</em>
+            {filledPayoffs.length ? (
+              <div>
+                {filledPayoffs.map((p, i) => (
+                  <p key={i}>
+                    {payoffLabel(p.k)} · {p.d.trim()}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="none">未设置——可后补，不拦截确认</p>
+            )}
+          </div>
+          <div className="fro">
+            <em>章末落点</em>
+            <p className={form.ladder.trim() ? undefined : "none"}>
+              {form.ladder.trim() || "（未填）"}
+            </p>
+          </div>
+          <div className="fro">
+            <em>本章目标字数</em>
+            <p>{form.wt.trim() ? `${form.wt} 字` : "默认 2500"}</p>
+          </div>
+          <div className="fro">
+            <em>
+              剧情 <span className="tag">{plotItems.length} 条</span>
+            </em>
+            {plotItems.length === 0 ? (
+              <p className="none">还没有剧情条目——不填也能写</p>
+            ) : (
+              <div>
+                {plotItems.map((t, i) => (
+                  <p key={i} style={{ margin: "0 0 6px" }}>
+                    <span className="qno">{String(i + 1).padStart(2, "0")}</span> {t}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+          {gaps.length > 0 && (
+            <p className="gap-line">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 8v4M12 16h.01" />
+              </svg>
+              缺：
+              {gaps.map((g) => (
+                <span
+                  key={g.key}
+                  className="gap-chip"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onGapClick(g.key)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") onGapClick(g.key);
+                  }}
+                >
+                  {g.label}
+                </span>
+              ))}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="og-pane">
       <div className="panel">
         <div className="panel-head">
           <h2>章纲 · {label}</h2>
           {/* AI 起草/剧情推演入口收口右栏 AI 助手（2026-09-20），此处不再设按钮 */}
-          {confirmed ? (
-            <span className="badge ok">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-                <path d="M5 13l4 4L19 7" />
-              </svg>
-              章纲已确认
-            </span>
-          ) : gaps.length ? (
-            <span className="badge err">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-                <circle cx="12" cy="12" r="5" fill="currentColor" stroke="none" />
-              </svg>
-              待配章纲
-            </span>
-          ) : (
-            <span className="badge warn">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-                <circle cx="12" cy="12" r="5" fill="currentColor" stroke="none" />
-              </svg>
-              草稿
-            </span>
-          )}
+          {badge}
         </div>
         <p className="desc">章纲：明确「这一章写什么」，确认后可作为 AI 生成正文的章级上下文。</p>
 
@@ -504,6 +705,9 @@ export default function OgPane({
             </span>
           ) : null}
           <span style={{ flex: 1 }} />
+          <button className="btn btn-ghost" onClick={onCancelEdit} disabled={saving}>
+            取消
+          </button>
           <button className="btn btn-secondary" onClick={onSaveDraft} disabled={saving}>
             保存草稿
           </button>

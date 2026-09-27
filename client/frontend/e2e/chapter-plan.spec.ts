@@ -283,7 +283,7 @@ test("派生视图：排上后卷页「剧情推进（派生）」按章列出�
     await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
     // 「补这 4 项，开始写」→ 落到这一章的章纲
     await page.getByTestId("chapter-landing-outline").click();
-    await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
     // 回卷页（左树点卷行）看派生块
     await page.locator(".vol-head .vt").first().click();
     await expect(page.getByTestId("vol-plot-progress")).toContainText("开局铺垫", { timeout: 10000 });
@@ -416,7 +416,7 @@ test("重拆整卷：盘点确认 → 拟定章清空、卷纲保留、可重新
     }
     // 落点卡占着中栏（桥）——先走「补这 4 项，开始写」消解，再回卷纲
     await page.getByTestId("chapter-landing-outline").click();
-    await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
     // 回卷纲 → 重拆本卷：盘点列出将被移除的拟定章
     await page.locator(".vol-head .vt").first().click();
     await page.getByTestId("volume-resplit").click();
@@ -506,11 +506,12 @@ test("回改结尾：上一章落点改了 → 不静默（提示下一章进场
     }
     // 落点卡占着中栏：先「补这 4 项，开始写」进第二章，再从树里回第一章
     await page.getByTestId("chapter-landing-outline").click();
-    await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
 
-    // 回第 1 章改落点 → 3s 静默自动保存承接（落点组默认折叠，先展开）
+    // 回第 1 章改落点 → 3s 静默自动保存承接（查看态先进编辑；落点组默认折叠，先展开）
     await page.locator(".col-tree .ch", { hasText: "第一章" }).click();
     await page.getByRole("tab", { name: /^章纲/ }).click();
+    await page.getByTestId("og-edit").click();
     await page.locator("#wf-payoffs > summary").click();
     const savedOutline = page.waitForResponse(
       (x) => x.request().method() === "PUT" && x.url().includes("/chapters/vol-1-ch-1"),
@@ -556,7 +557,7 @@ test("回改：左树 hover「改这一章」→ 同一张卡面（预填四段�
     await page.getByTestId("split-adopt").click();
     await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("chapter-landing-outline").click();
-    await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
 
     // 左树章行 hover 动作「改这一章」→ 同一张卡面（预填）
     const chRow = page.locator(".col-tree .ch", { hasText: "第一章" });
@@ -598,7 +599,7 @@ test("回改入口三处：派生视图行也可点开同一张卡面", async ({
     await page.getByTestId("split-adopt").click();
     await expect(page.getByTestId("chapter-landing-card")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("chapter-landing-outline").click();
-    await expect(page.locator("#wf-summary")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
     await page.locator(".vol-head .vt").first().click();
     // 派生视图行 → 同一张卡面
     await page.getByTestId("vol-plot-row-1").click();

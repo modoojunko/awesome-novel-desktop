@@ -7,18 +7,34 @@ import { describe, expect, it, vi } from "vitest";
 import OgPane from "@/components/novel/workbench/OgPane";
 import { EMPTY_OG_FORM, type OgForm } from "@/components/novel/workbench/chapterForm";
 
-/** 受控表单的最小宿主：onPatch 回写本地 state */
-function Host({ initial, onPlotEdit }: { initial: OgForm; onPlotEdit?: () => void }) {
+/** 受控表单的最小宿主：onPatch 回写本地 state；editing 控制查看/编辑两态（默认编辑） */
+function Host({
+  initial,
+  onPlotEdit,
+  editing = true,
+  onStartEdit,
+  onGapClick,
+}: {
+  initial: OgForm;
+  onPlotEdit?: () => void;
+  editing?: boolean;
+  onStartEdit?: () => void;
+  onGapClick?: (key: string) => void;
+}) {
   const [form, setForm] = useState<OgForm>(initial);
   return (
     <OgPane
       form={form}
       label="第2章 · 锚点"
+      editing={editing}
       onPatch={(patch) => setForm((f) => ({ ...f, ...patch }))}
       onPlotEdit={onPlotEdit}
-      gaps={[]}
+      gaps={[{ key: "changes", label: "必须完成的变化" }]}
       confirmed={false}
       saving={false}
+      onStartEdit={onStartEdit ?? (() => {})}
+      onCancelEdit={() => {}}
+      onGapClick={onGapClick ?? (() => {})}
       onSaveDraft={() => {}}
       onConfirm={() => {}}
       onGoWrite={() => {}}
@@ -67,5 +83,39 @@ describe("章纲剧情区（列表编辑）", () => {
     expect(onPlotEdit).toHaveBeenCalledTimes(2);
     fireEvent.click(screen.getAllByLabelText("删掉这一条")[0]);
     expect(onPlotEdit).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("章纲查看/编辑两态（c-ch-og-readonly）", () => {
+  it("查看态＝只读一页纸：内容可见、无剧情输入框、缺口 chip／编辑章纲可进编辑", () => {
+    const onStartEdit = vi.fn();
+    const onGapClick = vi.fn();
+    render(
+      <Host
+        initial={{ ...EMPTY_OG_FORM, summary: "陆沉查舱段结构", plots: ["甲登场", "乙拦路"] }}
+        editing={false}
+        onStartEdit={onStartEdit}
+        onGapClick={onGapClick}
+      />,
+    );
+    // 只读一页纸渲染内容
+    expect(screen.getByTestId("og-view")).toBeInTheDocument();
+    expect(screen.getByText("陆沉查舱段结构")).toBeInTheDocument();
+    expect(screen.getByText("甲登场")).toBeInTheDocument();
+    // 没有表单输入框（剧情区是文本不是 textarea）
+    expect(screen.queryByLabelText("第 1 条剧情")).toBeNull();
+    // 缺口 chip（role=button，区别于同名的只读行标签）上抛 onGapClick
+    fireEvent.click(screen.getByRole("button", { name: "必须完成的变化" }));
+    expect(onGapClick).toHaveBeenCalledWith("changes");
+    // 编辑章纲按钮上抛 onStartEdit
+    fireEvent.click(screen.getByTestId("og-edit"));
+    expect(onStartEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it("编辑态＝表单可写：剧情输入框出现，编辑章纲按钮不在", () => {
+    render(<Host initial={{ ...EMPTY_OG_FORM, plots: ["甲登场"] }} />);
+    expect(screen.queryByTestId("og-view")).toBeNull();
+    expect(screen.getByLabelText("第 1 条剧情")).toHaveValue("甲登场");
+    expect(screen.queryByTestId("og-edit")).toBeNull();
   });
 });
