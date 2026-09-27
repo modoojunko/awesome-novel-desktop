@@ -288,10 +288,15 @@ async def _collect_cast_stats(
 
 
 def _cardless_brief(stats: _CastStats, vol_no: int) -> str:
+    """无卡出场名单（本卷出现、未建卡）——与块题一致：只列本卷访问过的名字
+    （跨卷口径＝「已经出现在 N 章」软提示，走 hints；终审 P2：别把别的卷出现的
+    名字误标成「本章」）。"""
     lines = []
     for nm, seen in sorted(stats.visits.items()):
         chs = sorted(c for v, c in seen if v == vol_no)
-        lines.append(f"- {nm}（第{'、'.join(str(c) for c in chs)}章）" if chs else f"- {nm}（本章）")
+        if not chs:
+            continue
+        lines.append(f"- {nm}（第{'、'.join(str(c) for c in chs)}章）")
     return "\n".join(lines)
 
 
@@ -337,7 +342,8 @@ async def _quota_regime(db: AsyncSession, vol) -> str:
 
 
 def _filter_who(values, known: set[str]) -> list[str]:
-    """「演这段戏的角色」逐名对已知集合过滤（角色名∪别名∪出场名单∪无卡名）。"""
+    """「演这段戏的角色」逐名对已知集合过滤——集合＝角色名∪别名∪出场名单∪无卡名
+    （known_entities 里的势力/地点不在此集合：spec R2 名字来源域；素材禁令行同词）。"""
     out: list[str] = []
     for v in values if isinstance(values, list) else []:
         nm = str(v or "").strip()[:_WHO_LEN]
@@ -620,14 +626,16 @@ async def cast_ai_review(
 
     vol = row.volume
     mat = await _book_material(db, project, with_hooks=False)  # 不给伏笔台账
-    carded = set(mat["card_names"])
-    known = set(mat["known_entities"]) | set(snapshot)
+    carded = set(mat["card_names"])  # 角色名∪别名（_book_material 收集）
+    known = set(mat["known_entities"]) | set(snapshot)  # 仅丢卡对拍口径（本端点不丢卡）
     stats = await _collect_cast_stats(
         db, project.id, carded=carded, vol_no=vol.volume_no,
         ch_no=row.chapter_no, snapshot=snapshot,
     )
     regime = await _quota_regime(db, vol)
     items_list = await _character_items(db, project.id)
+    # who 过滤域（spec R2）：角色名∪别名∪出场名单∪无卡名——不含势力/地点
+    cast_known = carded | set(snapshot) | set(stats.visits)
     material = _cast_material(
         mat, items_list, row=row, snapshot=snapshot, stats=stats,
         banned=known, regime=regime, draw=False,
@@ -666,7 +674,7 @@ async def cast_ai_review(
         operation="cast_review", max_tokens=_REVIEW_MAX_TOKENS,
     )
     parsed = _parse_json(raw)
-    rows, warn = _build_review_rows(parsed, targets, known)
+    rows, warn = _build_review_rows(parsed, targets, cast_known)
     attempts = 1
     # 整批重试只认「0 条可用行／JSON 不可解析」——判读类问题（滤空、单段出界）一律不重抽
     while not _has_judged(rows) and attempts < MAX_ATTEMPTS:

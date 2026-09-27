@@ -398,6 +398,30 @@ class TestReviewEndpoint:
         assert len(captured) == 1  # 判读类不重抽
         assert "只在快照里的人" in captured[-1]["messages"][0]["content"]
 
+    def test_who_filter_drops_faction_and_place_names(self, monkeypatch):
+        """who 过滤域＝角色名∪别名∪出场名单∪无卡名——known_entities 的势力/地点
+        不进 who（spec R2 名字来源域；终审 P3，素材禁令行同词）。"""
+        nid = asyncio.run(_seed(cards=["林拾"]))
+
+        async def fake_material(db, project, with_hooks=False):
+            return {
+                "fullstory": "主线截取素材。",
+                "card_names": {"林拾"},
+                "known_entities": {"林拾", "铁衣卫", "母港旧址"},
+            }
+
+        monkeypatch.setattr("chapters.ai_cast._book_material", fake_material)
+        reply = {"rows": [
+            {"idx": 0, "echo": "", "verdict": "老角色能演",
+             "who": ["林拾", "铁衣卫", "母港旧址"], "as": "",
+             "why": "都在已知集合里", "gap": None},
+        ]}
+        _patch(monkeypatch, _FakeClient(json.dumps(reply, ensure_ascii=False)))
+        r = _post(nid, "cast/ai-review", _body(characters=["林拾"]))
+        assert r.status_code == 200, r.text
+        rows = r.json()["rows"]
+        assert rows[0]["who"] == ["林拾"]  # 势力/地点被 who 过滤域收掉
+
     def test_idx_positional_alignment_and_echo(self, monkeypatch):
         """等长按位置对位：模型 idx/echo 都被服务端覆盖成快照原文。"""
         nid = asyncio.run(_seed())
