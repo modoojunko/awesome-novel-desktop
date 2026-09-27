@@ -249,7 +249,9 @@ test("解锁链：归档章点 AI → 解除只读 → AiModal 提示词；确�
     await expect(page.locator(".e-meta")).toContainText("已归档", { timeout: 10000 });
     await expect(editor).toHaveAttribute("contenteditable", "false");
 
-    // 归档章点右栏「生成正文」→ 解除只读确认（真 bug #1 门控；2026-09-20 AI 入口唯一化右栏）
+    // 归档章点右栏「生成正文」→ 解除只读确认（真 bug #1 门控；2026-09-20 AI 入口唯一化右栏；
+    // c-prose-write-entry：入口在正文页签 AI 辅助面板动作清单）
+    await page.getByRole("tab", { name: /^正文/ }).click();
     await page.getByTestId("ai-write-btn").click();
     // Modal 退场有 200ms 卸载窗口期，链式弹窗可能短暂并存 → 一律按 accessible name 限定
     const unlock = page.getByRole("dialog", { name: "解除只读" });
@@ -275,19 +277,18 @@ test("解锁链：归档章点 AI → 解除只读 → AiModal 提示词；确�
     });
     await expect(page.getByText(/本章已归档 · 只读/)).toHaveCount(0);
 
-    // 真 bug #2：切到章纲页签（工具栏 AI 按钮随 prose-ctrls 隐藏）→
-    // 从右栏 AI 卡触发 → AiModal 确认生成 → 自动切回正文页签并聚焦
+    // 真 bug #2（c-prose-write-entry 新口径）：生成正文入口已收编正文页签 AI 辅助面板，
+    // 章纲等其它页签的右栏不再有该按钮；正文页签确认生成 → 编辑器可见（自动聚焦不变）
     await page.getByRole("tab", { name: /^章纲/ }).click();
     await expect(page.getByText(/章纲：明确「这一章写什么」/)).toBeVisible();
-    await page
-      .locator(".col-ai")
-      .getByRole("button", { name: "生成正文", exact: true })
-      .click();
+    await expect(page.locator(".col-ai").getByTestId("ai-write-btn")).toHaveCount(0);
+    await page.getByRole("tab", { name: /^正文/ }).click();
+    await page.getByTestId("ai-write-btn").click();
     await expect(
       page.getByRole("dialog", { name: "AI 生成正文" }).getByTestId("ai-prompt"),
     ).toBeEnabled({ timeout: 10000 });
     await page.getByTestId("ai-confirm").click();
-    // 页签切回正文（编辑器重新可见；生成请求打向假端点失败属预期，不作断言）
+    // 页签在正文（编辑器可见；生成请求打向假端点失败属预期，不作断言）
     await expect(editor).toBeVisible({ timeout: 5000 });
   } finally {
     await restore();

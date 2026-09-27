@@ -549,9 +549,11 @@ describe("页签回默认主页（c-write-home-rail-anchor）", () => {
   });
 
   it("AI 流式中点「写作」先确认：取消留在原章不回主页", async () => {
-    mockOneChapterTree();
-    renderWorkspace("none");
+    mockOneChapterTreePro();
+    renderWorkspace("monthly");
     await selectFirstChapter();
+    // 生成正文入口在正文页签面板（c-prose-write-entry：右栏常驻工具卡退役）
+    fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
     // 右栏「生成正文」→ AiModal 确认 → 流式开始（@/lib/ai 的 streamChapterWrite 已桩为挂起）
     fireEvent.click(screen.getByTestId("ai-write-btn"));
     fireEvent.click(await screen.findByTestId("ai-confirm"));

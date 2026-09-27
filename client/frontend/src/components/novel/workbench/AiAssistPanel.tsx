@@ -107,6 +107,7 @@ export function AiAssistPanel({
   onAiDraft,
   onSimulate,
   onPlotDraw,
+  onAiWrite,
   onUpgrade,
   staleDownstream,
   aiState,
@@ -133,6 +134,9 @@ export function AiAssistPanel({
   onSimulate: () => void;
   /** AI 帮写剧情（三版选一弹层；生成类归 PRO，免费态 locked 置灰＋升级出口） */
   onPlotDraw?: () => void;
+  /** AI 生成正文（c-prose-write-entry：自右栏常驻工具卡收编进正文页签动作清单；
+   *  点击走页面级解锁链 → AiModal，与原 ai-write-btn 同一链路） */
+  onAiWrite?: () => void;
   /** 升级 PRO（免费态剧情卡升级出口） */
   onUpgrade?: () => void;
   /** chapter-rewrite：下游「基于旧设定」章计数（无数据时显示「—」） */
@@ -393,6 +397,13 @@ export function AiAssistPanel({
         ])}
         {raActs(
           [
+            {
+              // 生成正文（c-prose-write-entry：自右栏常驻工具卡收编；解锁链/AiModal 不变）
+              label: "生成正文",
+              testid: "ai-write-btn",
+              onClick: () => onAiWrite?.(),
+              disabled: !onAiWrite || !!aiState?.streaming,
+            },
             {
               label: aiState?.compressLoading ? "压缩中" : "压缩啰嗦段落",
               onClick: () =>
