@@ -82,15 +82,36 @@ async function unwrap<T>(p: Promise<unknown>): Promise<T> {
   return r.data;
 }
 
+/** 建卡扩参（c-character-intro）：persona 一句人设＋prefill 只收 dossier.plot/background */
+export interface CreateCharacterOpts {
+  role?: string;
+  persona?: string;
+  prefill?: { plot?: string; background?: string };
+}
+
+/** 建卡撞同名（409 {"detail":{"code":"name_taken"}}）判定 */
+export function isNameTaken(e: unknown): boolean {
+  const err = e as { status?: number; code?: string } | null;
+  return err?.status === 409 && (err?.code === "name_taken" || err?.code === undefined);
+}
+
 export const charactersApi = {
   list: (projectId: string) =>
     unwrap<CharacterListData>(
       api.get(`/novels/${projectId}/characters`),
     ),
 
-  create: (projectId: string, name: string, role = "配角") =>
+  /** 建卡（向后兼容扩参，c-character-intro 2.3）：role 缺省「配角」；
+   *  persona 一句人设（服务端 clamp 300）；prefill 只收 dossier.plot/background
+   *  （非法键服务端 400）。撞同名 409（isNameTaken）。 */
+  create: (projectId: string, name: string, opts: CreateCharacterOpts = {}) =>
     unwrap<CharacterCard>(
-      api.post(`/novels/${projectId}/characters`, { name, role }),
+      api.post(`/novels/${projectId}/characters`, {
+        name,
+        role: opts.role ?? "配角",
+        ...(opts.persona ? { persona: opts.persona } : {}),
+        ...(opts.prefill ? { prefill: opts.prefill } : {}),
+      }),
     ),
 
   get: (projectId: string, id: string) =>

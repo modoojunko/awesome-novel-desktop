@@ -45,18 +45,22 @@ describe("右栏 AI 帮写剧情卡（三态）", () => {
     expect(onPlotDraw).toHaveBeenCalledTimes(1);
   });
 
-  it("免费态：整卡 locked；剧情行点击走统一升级出口（手写全免费写进行描述）", async () => {
+  it("免费态：行级门控（c-character-intro 3.3 起 og 页签不整卡锁）——剧情行 ra-off「需 PRO」，升级走统一出口", async () => {
     const onPlotDraw = vi.fn();
     const onUpgrade = vi.fn();
     renderPanel({ isPro: false, onPlotDraw, onUpgrade });
-    expect(document.querySelector(".rail-assist.locked")).toBeTruthy();
+    // og 页签免费＝行级门控（盘点行免费连坐不到）：整卡不再 locked
+    expect(document.querySelector(".rail-assist.locked")).toBeNull();
     const btn = screen.getByTestId("og-plot-draw") as HTMLButtonElement;
     expect(btn).toBeVisible();
-    expect(btn.disabled).toBe(false); // 模板免费态＝可见可点，点击被门控拦下
+    expect(btn.disabled).toBe(true); // 生成类行置灰禁点
+    expect(btn.className).toContain("ra-off");
     await act(async () => {
       fireEvent.click(btn);
     });
     expect(onPlotDraw).not.toHaveBeenCalled();
+    // 统一升级出口（children 块）
+    fireEvent.click(screen.getByTestId("og-upgrade-btn"));
     expect(onUpgrade).toHaveBeenCalledTimes(1);
     // 「手写全免费」口径写在行描述里
     expect(screen.getByText(/手写剧情全免费/)).toBeTruthy();

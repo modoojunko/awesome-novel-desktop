@@ -631,11 +631,113 @@
   .pick-card{position:relative;overflow:hidden}
   .pick-card .pk-axis{margin-right:74px}
 
+  /* ═══ c-character-intro 0.2：壳层 e-head/e-meta＋右栏统一 ra-* 卡＋盘点弹层 cr-* ═══
+     ra-* 词汇逐字对齐 book.css（去 .settings-v 前缀后的全局形制）；cr-* 弹层内自含。 */
+  .e-head { padding: 16px 22px 13px; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: flex-start; }
+  .e-head-main { flex: 1; min-width: 0; }
+  .e-kicker { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+  .e-title { font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -.012em; margin: 0; }
+  .e-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .e-meta .tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; white-space: nowrap; background: none; }
+  .rail-assist { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
+  .rail-assist .ra-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+  .rail-assist .ra-head .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: var(--on-accent); flex: none; }
+  .rail-assist .ra-head .rh-t b { display: block; font-size: 13px; font-weight: 600; }
+  .rail-assist .ra-head .rh-t span { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .rail-assist .ai-target { font-size: 11px; color: var(--muted); line-height: 1.7; margin: 0 0 10px; padding: 0 2px; }
+  .rail-assist .ai-target b { color: var(--fg); font-weight: 500; }
+  .rail-assist .ra-step { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; margin-bottom: 6px; }
+  .rail-assist .ra-step:last-of-type { margin-bottom: 0; }
+  .rail-assist .ra-step:hover { border-color: var(--accent); }
+  .rail-assist .ra-body { min-width: 0; flex: 1; }
+  .rail-assist .ra-body b { display: block; font-size: 12.5px; font-weight: 600; }
+  .rail-assist .ra-body i { display: block; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 2px; }
+  .rail-assist .ra-arrow { color: var(--muted); flex: none; }
+  .rail-assist .ra-foot { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+  .rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
+  .rail-assist .ra-step.ra-off { opacity: 0.5; cursor: not-allowed; }
+  .rail-assist .ra-step.ra-off:hover { border-color: var(--border); }
+  .rail-assist .ra-body b .ra-hint { margin-left: 6px; font-size: 10.5px; font-weight: 400; color: var(--warn); }
+  .ra-hint { display: none; }
+  .ra-step.ra-off .ra-hint { display: inline; }
+  .only-pro { display: inline; }
+  .free-mode .only-pro { display: none; }
+  .only-free { display: none; }
+  .free-mode .only-free { display: inline; }
+  .rail-assist .ra-head .rh-t span.only-free { display: none; }
+  .free-mode .rail-assist .ra-head .rh-t span.only-pro { display: none; }
+  .free-mode .rail-assist .ra-head .rh-t span.only-free { display: block; }
+  .badge-accent { display: inline-flex; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 500; }
+  .badge-muted { display: inline-flex; padding: 2px 9px; border-radius: 999px; background: var(--fg-soft); color: var(--muted); font-size: 11px; }
+  .ch-history { margin-left: 4px; }
+  /* 盘点出场人物弹层（设计稿 v2.4 十一态；复用 pick-*/pk-*/split-row/rp-* 词汇） */
+  .kicker { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; color: var(--muted); margin: 10px 0 12px; }
+  .cr-row { display: flex; flex-direction: column; gap: 5px; padding: 12px 0; border-bottom: 1px dashed color-mix(in oklch, var(--border) 70%, transparent); }
+  .cr-row:last-of-type { border-bottom: 0; }
+  .cr-top { display: flex; align-items: baseline; gap: 10px; }
+  .cr-no { font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); flex: none; letter-spacing: 0.06em; }
+  .cr-tx { flex: 1; min-width: 0; font-size: 13px; line-height: 1.6; }
+  .cr-why { font-size: 12px; color: var(--muted); line-height: 1.6; padding-left: 44px; margin: 0; }
+  .cr-why b { font-weight: 500; color: var(--fg); }
+  .cr-who { font-size: 12px; color: var(--muted); padding-left: 44px; margin: 0; }
+  .cr-who .chip { padding: 1px 9px; font-size: 11px; }
+  .cr-gap { border: 1px solid color-mix(in oklch, var(--warn) 32%, var(--border)); background: color-mix(in oklch, var(--warn) 5%, var(--surface)); border-radius: var(--radius); padding: 13px 15px; margin: 4px 0 10px; }
+  .cr-gap.done { border-color: var(--border); background: var(--surface); }
+  .cr-gap .g-head { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+  .cr-gap .g-head b { font-size: 13.5px; }
+  .cr-gap .g-head .ai-tag { margin-left: auto; }
+  .cr-gap .g-why { margin: 4px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.65; }
+  .cr-gap .g-why b { color: var(--fg); font-weight: 500; }
+  .cr-pick { display: flex; align-items: center; gap: 7px; margin-top: 10px; flex-wrap: wrap; }
+  .cr-pick .k { font-size: 12px; color: var(--muted); margin-right: 2px; }
+  .cr-pick .k .opt { font-size: 10px; }
+  .cr-opt { border: 1px solid var(--border); border-radius: 999px; padding: 3px 13px; font-size: 12px; color: var(--muted); background: var(--surface); cursor: pointer; font-family: inherit; }
+  .cr-opt:hover { color: var(--fg); border-color: var(--muted); }
+  .cr-opt.on { background: var(--accent-soft); border-color: transparent; color: var(--accent-strong); font-weight: 500; }
+  .cr-sug { margin-left: 5px; font-size: 9.5px; color: var(--accent-strong); border: 1px dashed color-mix(in oklch, var(--accent) 45%, transparent); border-radius: 999px; padding: 0 5px; font-weight: 400; }
+  .cr-gap .g-act { display: flex; align-items: center; gap: 10px; margin-top: 11px; flex-wrap: wrap; }
+  .cr-gap .g-act .lnk { font-size: 12.5px; }
+  .cr-gap .g-done { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+  .cr-gap .g-done .rp-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+  .cr-done { font-size: 12px; color: var(--muted); }
+  .lock-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 13px 15px; margin-top: 14px; }
+  .lock-card b { font-size: 13.5px; display: block; }
+  .lock-card p { margin: 4px 0 10px; font-size: 12.5px; color: var(--muted); line-height: 1.65; }
+  .no-card { font-size: 10px; color: var(--warn); border: 1px dashed color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 999px; padding: 0 6px; }
+  .chip .no-card { margin-left: 5px; }
+  .chip .lnk { font-size: 10.5px; }
+  .og-char-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  /* 值差复用登记（ADJUSTMENTS ④）：rp-dot 7px／pick-busy flex-column＋.none／pick-foot .push */
+  .pick-busy { flex-direction: column; }
+  .pick-busy .none { font-size: 12px; color: var(--faint); }
+  .pick-foot .push { margin-left: auto; }
+  .pick-error .edit-bar { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .demo-bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 16px; background: color-mix(in oklch, var(--fg) 4%, var(--surface)); border-bottom: 1px solid var(--border); flex-wrap: wrap; position: relative; z-index: 70; }
+  .demo-bar .dl { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; color: var(--faint); margin-right: 6px; }
+  .demo-bar .chip { padding: 2px 11px; font-size: 11.5px; cursor: pointer; }
+  [data-wb="fresh-chip"] { display: none; }
+  .show-fresh [data-wb="fresh-chip"] { display: inline-flex; }
+
 </style>
 </head>
 <body>
 
 <!-- ═══ 全局更新提示条（client-update-notify）：所有屏顶端，info 语气，可关闭；工作台为全宽贴边版 ═══ -->
+<!-- 盘点出场人物 · 11 态演示导航（设计稿口径，非产品 UI；点击直达各态） -->
+<div class="demo-bar" role="tablist" aria-label="设计稿状态切换">
+  <span class="dl">盘点出场人物 · 11 态</span>
+  <button class="chip on" data-scene="s1">① 入口</button>
+  <button class="chip" data-scene="s2">② 盘点中</button>
+  <button class="chip" data-scene="s3">③ 盘点结果</button>
+  <button class="chip" data-scene="s4">④ 零新增</button>
+  <button class="chip" data-scene="s5">⑤ 抽卡（PRO）</button>
+  <button class="chip" data-scene="s5b">⑥ 缺人（免费态）</button>
+  <button class="chip" data-scene="s6">⑦ 写入前确认</button>
+  <button class="chip" data-scene="s7">⑧ 完成写入</button>
+  <button class="chip" data-scene="s9">⑨ 失败/未配模型</button>
+  <button class="chip" data-scene="s10">⑩ 抽卡中</button>
+  <button class="chip" data-scene="s11">⑪ 抽卡失败</button>
+</div>
 <div class="update-strip" data-od-id="update-notice-strip">
   <div class="notice info" data-od-id="update-notice">
     <span class="nt">
@@ -758,33 +860,44 @@
     </div>
 
     <div class="col-editor" id="chWorkspace">
-      <div class="editor-toolbar" data-od-id="editor-toolbar">
-        <span class="ch-name serif" id="chName">第一章 · 锚点</span>
-        <span class="arch-tag" id="chArchTag" hidden>已归档</span>
-        <span class="grow"></span>
+      <!-- 壳层 v2.2/v2.4（c-og-rail-declutter＋c-rail-ai-only＋c-character-intro 0.2）：
+           e-head＋e-meta 八枚徽章（统计自右栏上移；REQ_FIELDS 分母 2）；七页签（提示词退役） -->
+      <header class="e-head" data-od-id="editor-toolbar">
+        <div class="e-head-main">
+          <p class="e-kicker">第一卷《星海初航》</p>
+          <h2 class="e-title" id="chName">第一章 · 锚点</h2>
+          <div class="e-meta">
+            <span class="tag" id="chArchTag">草稿</span>
+            <span class="tag" id="statWords">793 字</span>
+            <span class="tag">归档门槛 1/2</span>
+            <span class="tag" id="statTarget">计划字数 4,000 字</span>
+            <span class="tag" id="statPct">完成度 20%</span>
+            <span class="tag">剧情 2 条</span>
+            <span class="tag" id="statCast">出场角色 3 人</span>
+            <span class="tag" id="statBook">本书总字数 1,371</span>
+          </div>
+        </div>
         <span class="prose-ctrls" id="proseCtrls">
-        <span class="seg" role="group" aria-label="字号" data-od-id="seg-fontsize">
-          <button data-v="fs-s">小</button><button class="on" data-v="fs-m">中</button><button data-v="fs-l">大</button>
+          <button class="icon-btn" id="btnFocus" title="专注模式" data-od-id="btn-focus">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>
+          </button>
         </span>
-        <span class="seg" role="group" aria-label="行距" data-od-id="seg-lineheight">
-          <button data-v="lh-tight">紧凑</button><button class="on" data-v="lh-comfy">舒适</button><button data-v="lh-loose">宽松</button>
-        </span>
-        <span class="tsep"></span>
-        <button class="icon-btn" id="btnFocus" title="专注模式" data-od-id="btn-focus">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>
-        </button>
-        <button class="btn btn-ghost btn-sm" id="btnHistory" data-od-id="btn-history">版本历史</button>
+      </header>
+      <div class="ch-tabs" role="tablist" aria-label="章节对象">
+        <button class="chtab on" data-chtab="og" role="tab" aria-selected="true">章纲 <span class="cnt" id="tabOgCnt">已确认</span></button>
+        <button class="chtab" data-chtab="prose" role="tab" aria-selected="false">正文 <span class="cnt" id="tabProseCnt">793 字</span></button>
+        <button class="chtab" role="tab" aria-selected="false">设定</button>
+        <button class="chtab" role="tab" aria-selected="false">文风</button>
+        <button class="chtab" role="tab" aria-selected="false">角色关系</button>
+        <button class="chtab" role="tab" aria-selected="false">伏笔</button>
+        <button class="chtab" role="tab" aria-selected="false">操作</button>
+        <span style="flex:1"></span>
+        <button class="btn btn-ghost btn-sm ch-history" id="btnHistory" data-od-id="btn-history">版本历史</button>
         <button class="btn btn-secondary btn-sm" id="btnArchive" data-od-id="btn-archive">归档本章</button>
         <button class="btn btn-primary btn-sm" id="btnAi" hidden data-od-id="btn-ai-generate">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z"/></svg>
           AI 生成正文
         </button>
-        </span>
-      </div>
-      <div class="ch-tabs" role="tablist" aria-label="章节对象">
-        <button class="chtab on" data-chtab="og" role="tab" aria-selected="true">章纲 <span class="cnt" id="tabOgCnt">已确认</span></button>
-        <button class="chtab" data-chtab="prompt" role="tab" aria-selected="false">提示词 <span class="cnt" id="tabPromptCnt">自动组装</span></button>
-        <button class="chtab" data-chtab="prose" role="tab" aria-selected="false">正文 <span class="cnt" id="tabProseCnt">793 字</span></button>
       </div>
       <div class="readonly-banner" id="readonlyBanner" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>
@@ -835,66 +948,44 @@
     </div>
 
     <!-- 章选中：本章 AI 辅助 + 本章进度 -->
+    <!-- 右栏统一卡片（c-ai-rail-shared 全局 ra-* 模版＋c-character-intro 0.2：
+         「盘点出场人物」能力行第 5 条，行级门控＝盘点行免费、PRO 行 ra-off＋「需 PRO」） -->
     <div id="railChapter" hidden>
-      <p class="progress-head">AI 辅助 · 本章</p>
-      <div class="ai-locked" id="aiWriteLocked">
-        <div class="lhead">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z"/></svg>
-          <b>PRO 功能</b>
+      <div class="rail-assist" data-od-id="ai-assist-og" data-testid="rail-assist">
+        <div class="ra-head">
+          <span class="plan-badge">PRO</span>
+          <div class="rh-t">
+            <b>AI 助手 · 章纲</b>
+            <span class="only-pro">你的 PRO 已包含 · 只加工你写的，不代写</span>
+            <span class="only-free">免费行可用 · 标「需 PRO」的行升级后解锁</span>
+          </div>
         </div>
-        <p>解锁后可由「设定 + 章纲」生成正文；续写、润色等能力规划中。免费版创作流程不受影响。</p>
-        <button class="btn btn-primary btn-sm" id="btnUpgrade3" data-od-id="btn-upgrade-3">升级 PRO</button>
-      </div>
-      <div id="aiWriteTools">
-        <div class="ai-tool">
-          <div class="ai-feat-head"><b>AI 生成正文</b><span class="ai-tag"><svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z"/></svg>PRO</span></div>
-          <p>提示词由设定 + 章纲组装，可编辑后流式写入正文末尾。</p>
-          <button class="btn btn-primary btn-sm" id="btnAi2" data-od-id="btn-ai-generate-2">生成正文</button>
-        </div>
-      </div>
-      <p class="ai-sec">剧情</p>
-      <div id="plotToolWrap">
-        <div class="ai-tool" data-od-id="rail-plot">
-          <div class="ai-feat-head"><b>AI 帮写剧情</b><span class="ai-tag"><svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z"/></svg>PRO</span></div>
-          <p>一次给 3 版剧情，挑一版填进去，之后随便改，填错了能撤销。这一章干什么、卡在哪、到哪收——这三样填齐了 AI 才有依据。</p>
-          <button class="btn btn-primary btn-sm" id="btnPlotDraw" data-od-id="btn-plot-draw">给我 3 版剧情</button>
-        </div>
-      </div>
-      <div id="plotUpgradeExit" hidden>
-        <p class="f-hint" style="margin-bottom:8px">AI 写剧情是 PRO 功能。剧情自己写全免费，随便加、随便改。</p>
-        <button class="btn btn-secondary btn-sm" id="btnPlotUpgrade">升级 PRO</button>
-      </div>
-      <p class="ai-sec">规划中的能力</p>
-      <div id="aiWritePlanned">
-        <div class="ai-feat">
-          <div class="ai-feat-head"><b>续写建议</b><span class="tag-plan">规划中</span></div>
-          <p>在光标处给出下句 / 下一段的续写建议。</p>
-        </div>
-        <div class="ai-feat">
-          <div class="ai-feat-head"><b>段落润色</b><span class="tag-plan">规划中</span></div>
-          <p>选中段落，提供风格一致的润色版本。</p>
-        </div>
-        <div class="ai-feat">
-          <div class="ai-feat-head"><b>场景扩写</b><span class="tag-plan">规划中</span></div>
-          <p>把一句话场景扩展为完整段落，保持设定一致。</p>
-        </div>
-      </div>
-      <p class="ai-sec">本章进度</p>
-      <div class="pct" id="pctNum">20<span class="sub">%</span></div>
-      <div class="pbar"><i id="pbarFill" style="width:20%"></i></div>
-      <div class="target-row">
-        <span>目标字数</span>
-        <span><button class="edit num" id="targetText">4,000</button><input id="targetInput" class="num" hidden /></span>
-      </div>
-      <p class="progress-note" id="progressNote">再写 <b class="num" id="remainText">3,207</b> 字，完成本章目标。</p>
-      <div class="arch-card" id="archCard" hidden>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>
-        <span>本章已归档 · 只读查看</span>
-      </div>
-      <div class="mini-stat" id="miniStat">
-        <div class="row"><span>本书总字数</span><b class="num" id="bookWords">1,371</b></div>
-        <div class="row"><span>本章草稿</span><b class="num" id="chWords">793</b></div>
-        <div class="row"><span>目标达成</span><b class="num" id="goalPct">20%</b></div>
+        <p class="ai-target" data-od-id="ai-target">必填已齐 · 归档门槛 <b>1/2</b></p>
+        <button class="ra-step" data-pro type="button">
+          <span class="ra-body"><b>剧情推演 · 按回合走一遍<span class="ra-hint">需 PRO</span></b><i>先定走法再逐步推演；走法可收进本章剧情条目</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
+        <button class="ra-step" data-pro type="button">
+          <span class="ra-body"><b>AI 起草<span class="ra-hint">需 PRO</span></b><i>按卷纲与设定出整份章纲草稿，回填表单后由你确认</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
+        <button class="ra-step" data-pro type="button">
+          <span class="ra-body"><b>补全缺失字段<span class="ra-hint">需 PRO</span></b><i>只补还缺的字段，一稿回填</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
+        <button class="ra-step" data-pro type="button" id="btnPlotDrawRow">
+          <span class="ra-body"><b>AI 帮写剧情<span class="ra-hint">需 PRO</span></b><i>一次给 3 版剧情挑一版；要求概要、挑战、章末落点已填（手写剧情全免费）</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
+        <button class="ra-step" id="btn-open-review" data-testid="og-cast-review" data-od-id="rail-cast" data-aiact="cast-review" type="button">
+          <span class="ra-body"><b>盘点出场人物</b><i>逐段盘这一章缺不缺人；缺的人给三个方向抽卡（PRO）或你自己填，确认后写进角色表、本章出场角色与本卷出场清单</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
+        <button class="ra-step" data-pro type="button">
+          <span class="ra-body"><b>与卷纲冲突检测<span class="ra-hint">需 PRO</span></b><i>拿本章章纲去对卷纲，报出冲突点</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
+        <p class="ra-foot"><span class="only-pro">章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。</span><span class="only-free">免费版：盘点只读、不代笔；标「需 PRO」的行升级后可用。盘点结果要写进章纲的，走你平时那套保存。</span></p>
       </div>
     </div>
   </aside>
@@ -1095,6 +1186,299 @@
         <button class="btn btn-ghost btn-sm" data-act="plot-manual">自己写</button>
         <button class="btn btn-primary btn-sm" id="plotAdopt" disabled>就填这版</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- 完成写入回执（态⑧；实现时用 toast sticky 回执，先例 plot 采纳回执） -->
+<div id="done-notice" aria-live="polite" hidden style="position:fixed;left:50%;transform:translateX(-50%);bottom:22px;z-index:80;width:min(680px,92vw)">
+  <div class="notice info">
+    <div class="nt"><b id="done-title">已写入。</b><span id="done-detail">角色表多一卡「魏七」 · 本章出场角色 3→4 人 · 本卷出场清单 6→7 人（自动汇总）</span></div>
+    <button class="btn btn-ghost btn-sm" onclick="setCastScene('s1')">好</button>
+  </div>
+</div>
+
+<!-- ═══ 盘点出场人物弹窗（c-character-intro；设计稿 v2.4 十一态逐字复刻） ═══ -->
+<div class="modal" id="castModal" hidden role="dialog" aria-modal="true" aria-label="盘点出场人物" data-od-id="modal-cast-review">
+  <div class="mcard draw-style">
+    <div class="mcard-head">
+      <span class="mh serif">盘点出场人物</span>
+      <button class="icon-btn x" id="btn-cast-x" aria-label="关闭">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </div>
+    <div class="mcard-body">
+      <p class="kicker">第 1 卷《星海初航》 · 第 01 章 · 只看已写好的剧情与现有角色，不替你编剧情</p>
+
+      <!-- 态②：盘点中 -->
+      <div class="scene" id="sc-s2" hidden>
+        <div class="pick-busy">
+          <span><span class="ra-spin" aria-hidden="true"></span><span aria-live="polite">正在逐段对照这一章的剧情…</span></span>
+          <span class="none">每段剧情分别看：老角色能不能演、不起名的配角行不行、哪里缺新角色</span>
+        </div>
+      </div>
+
+      <!-- 态③：盘点结果（两缺口：剧情4已延后·中性观感；剧情3待处理） -->
+      <div class="scene" id="sc-s3" hidden>
+        <p class="plans-h">逐段盘点 · 4 段剧情 · 怎么判的：老角色能演／不起名也行／缺一个新角色</p>
+        <p class="ai-note" style="margin:-6px 0 10px">剧情改过了？<button class="lnk" data-testid="cr-recheck" onclick="setCastScene('s2')">重新盘点</button>——整章重新盘；已处理的按条目对回，改过的条目重来。</p>
+        <div class="cr-row">
+          <div class="cr-top">
+            <span class="cr-no">剧情 1</span>
+            <span class="cr-tx">锚点交接夜，沉舟在旧仓库清点信标零件，听见二层有人翻动她的航海图。</span>
+            <span class="pill pill-ok">老角色能演</span>
+          </div>
+          <p class="cr-why">沉舟在场撞见，老陆事后验看——现有的「师徒夜巡」关系接得住。</p>
+          <p class="cr-who"><span class="chip">沉舟</span> <span class="chip">老陆</span></p>
+        </div>
+        <div class="cr-row">
+          <div class="cr-top">
+            <span class="cr-no">剧情 2</span>
+            <span class="cr-tx">补给站赊账：站里只剩个守夜的伙计，多找了三文钱，没抬头。</span>
+            <span class="pill pill-ok">不起名也行</span>
+          </div>
+          <p class="cr-why">一段过场戏，不用起名字：守夜伙计就够了，不算进有名有姓的角色数。</p>
+          <p class="cr-who">不起名的话，叫他：<span class="chip">守夜伙计</span></p>
+        </div>
+        <div class="cr-row">
+          <div class="cr-top">
+            <span class="cr-no">剧情 3</span>
+            <span class="cr-tx">星图上出现旧航道记号：图案不是威胁，是「邀请」——得找个认得内环航道的人问问。</span>
+            <span class="pill pill-warn">缺一个新角色</span>
+          </div>
+          <p class="cr-why">沉舟不该未卜先知，老陆的消息网到不了内环。</p>
+        </div>
+        <!-- 缺口A：待处理（三选一 AI 预填按缺口上下文给出，可改） -->
+        <div class="cr-gap" data-testid="gap-active">
+          <div class="g-head"><b>剧情 3 · 缺一个新角色</b><span class="pill pill-warn">缺 1 人</span></div>
+          <p class="g-why">这段戏缺的是：认得内环航道、肯给沉舟递话的线人。<br>老角色为什么不行：<b>老陆的消息网到不了内环；不起名的配角递不出「邀请」这种要背账的话。</b></p>
+          <div class="cr-pick" role="radiogroup" aria-label="这段戏缺的人怎么处理">
+            <span class="k">怎么处理<span class="opt" style="font-size:10px">（AI 预填可改）</span></span>
+            <button class="cr-opt on" role="radio" aria-checked="true" data-cr="add" data-testid="cr-opt-add">加人<span class="cr-sug">AI 建议</span></button>
+            <button class="cr-opt" role="radio" aria-checked="false" data-cr="edit" data-testid="cr-opt-edit">改段</button>
+            <button class="cr-opt" role="radio" aria-checked="false" data-cr="defer" data-testid="cr-opt-defer">延后</button>
+          </div>
+          <div class="g-act">
+            <button class="btn btn-primary btn-sm" id="btn-draw" data-testid="cr-draw">抽卡选人</button>
+            <span class="ai-tag">PRO</span>
+            <button class="lnk" id="lnk-fill-manual" data-testid="cr-fill-manual">不抽了，自己填一个名字</button>
+            <span class="cr-done" hidden id="cr-done-note">已记下这个处理，只影响这次盘点结果。</span>
+            <button class="btn btn-secondary btn-sm" id="btn-go-edit" data-testid="cr-go-edit" hidden onclick="setCastScene('s1')">关掉弹窗，去改剧情</button>
+          </div>
+        </div>
+
+        <!-- 写入后回程（态⑧）：剧情 3 缺口转已处理——多缺人时其余缺口继续 -->
+        <div class="cr-gap done" data-testid="gap-written" hidden>
+          <div class="g-head"><b>剧情 3 · 缺一个新角色</b><span class="pill">已写入</span></div>
+          <p class="g-why" id="gap-written-line">已写入：魏七——建卡并写入章纲。角色表、本章出场角色、本卷出场清单都加了。</p>
+          <p class="g-done"><span class="rp-dot" aria-hidden="true"></span>这个缺的人处理完了；本章的缺的人都处理完了，可以关掉弹窗。</p>
+        </div>
+        <div class="cr-row">
+          <div class="cr-top">
+            <span class="cr-no">剧情 4</span>
+            <span class="cr-tx">码头夜渡：半夜要过河，得有人肯在这个时辰开船。</span>
+            <span class="pill pill-warn">缺一个新角色</span>
+          </div>
+          <p class="cr-why">守夜人不出城，更夫不离开岗——缺一个肯半夜开船的船家。</p>
+        </div>
+        <!-- 缺口B：已延后（已处理观感：中性底＋pill 转中性＋完成行；演示其他缺口的处理不影响本缺口） -->
+        <div class="cr-gap done" data-testid="gap-deferred">
+          <div class="g-head"><b>剧情 4 · 缺一个新角色</b><span class="pill">已延后</span></div>
+          <p class="g-why">这段戏缺的是：肯半夜开船的船家。老角色为什么不行：<b>守夜人不出城，更夫不离开岗。</b></p>
+          <p class="g-done"><span class="rp-dot" aria-hidden="true"></span>这次盘点里就算处理过了，不做任何记录——你自己把这段剧情挪到哪一章，就在哪一章再遇到。</p>
+        </div>
+        <!-- 软提示：无卡名字反复出场（由盘点结果带回，前端不算） -->
+        <ul class="rp-list">
+          <li class="rp-row warn">
+            <span class="rp-dot" aria-hidden="true"></span>
+            <span>无卡名字「秦伯」已出现在 2 章的出场名单里——<button class="lnk" data-testid="claim-qinbo-hint">顺手建一张卡</button>，不建也不影响写作。</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- 态④：零新增（一行收场） -->
+      <div class="scene" id="sc-s4" hidden>
+        <p class="plans-h">逐段盘点 · 4 段剧情</p>
+        <p class="ai-note" style="margin:-6px 0 10px">剧情改过了？<button class="lnk" onclick="setCastScene('s2')">重新盘点</button>——整章重新盘；已处理的按条目对回，改过的条目重来。</p>
+        <div class="cr-row">
+          <div class="cr-top"><span class="cr-no">剧情 1</span><span class="cr-tx">锚点交接夜，沉舟在旧仓库清点信标零件，听见二层有人翻动她的航海图。</span><span class="pill pill-ok">老角色能演</span></div>
+          <p class="cr-who"><span class="chip">沉舟</span> <span class="chip">老陆</span></p>
+        </div>
+        <div class="cr-row">
+          <div class="cr-top"><span class="cr-no">剧情 2</span><span class="cr-tx">补给站赊账：站里只剩个守夜的伙计，多找了三文钱，没抬头。</span><span class="pill pill-ok">不起名也行</span></div>
+          <p class="cr-who">不起名的话，叫他：<span class="chip">守夜伙计</span></p>
+        </div>
+        <div class="cr-row">
+          <div class="cr-top"><span class="cr-no">剧情 3</span><span class="cr-tx">星图上的旧航道记号由老陆代收，转述给沉舟——站里的消息网就够用。</span><span class="pill pill-ok">老角色能演</span></div>
+          <p class="cr-who"><span class="chip">老陆</span> <span class="chip">沉舟</span></p>
+        </div>
+        <div class="cr-row">
+          <div class="cr-top"><span class="cr-no">剧情 4</span><span class="cr-tx">码头夜渡改为次日清早过渡，守灯人照常放行。</span><span class="pill pill-ok">不起名也行</span></div>
+          <p class="cr-who">不起名的话，叫他：<span class="chip">守灯人</span></p>
+        </div>
+        <ul class="rp-list">
+          <li class="rp-row ok">
+            <span class="rp-dot" aria-hidden="true"></span>
+            <span>这一章不用加人：四段剧情，老角色和不起名的配角都演得了。本卷刚开始，有名有姓的角色一般 5–8 个就够讲，现在 3 个——这只影响 AI 抽卡时的建议，你自己填名单永远不受限。</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- 态⑤：抽卡（PRO）三方向 -->
+      <div class="scene" id="sc-s5" hidden>
+        <p class="plans-h">剧情 3 缺的这个人，给 3 个互不相同的方向 · 挑一个</p>
+        <div class="pick-grid" id="pick-grid-5" role="radiogroup" aria-label="人物方向三选一">
+          <button type="button" class="pick-card top" role="radio" aria-checked="false" data-testid="cr-pick-card-1">
+            <span class="pk-corner g-S">S<i>最合适</i></span>
+            <span class="pk-axis">功能</span>
+            <p class="pk-title">魏七</p>
+            <div class="pk-row"><b>他是干什么的</b><span>内环消息贩子，什么都卖，就是不卖命</span></div>
+            <div class="pk-row"><b>一句人设</b><span>跛脚，笑面，账算得比命精</span></div>
+            <div class="pk-row"><b>怎么出场</b><span>巷口拦人，递来半张烧掉的航道图</span></div>
+            <div class="pk-row"><b>怎么退场</b><span>本卷退场 · 把命卖错了主顾</span></div>
+            <div class="pk-row"><b>老角色为什么不行</b><span>老陆的消息网到不了内环</span></div>
+            <div class="pk-read">
+              <p><b>合不合适</b>航道情报正是剧情 3 缺的口</p>
+              <p><b>差别在哪</b>与老陆一正一邪，消息来源不相压</p>
+              <p><b>好不好落地</b>进场即递话，退场有交代</p>
+            </div>
+            <span class="pk-picked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" width="10" height="10"><path d="M5 13l4 4L19 7"/></svg> 就要这个人</span>
+          </button>
+          <button type="button" class="pick-card" role="radio" aria-checked="false" data-testid="cr-pick-card-2">
+            <span class="pk-corner g-A">A<i>也行</i></span>
+            <span class="pk-axis">关系</span>
+            <p class="pk-title">灯伯</p>
+            <div class="pk-row"><b>他是干什么的</b><span>水关的老更夫，认得每一条水路，不看名头只看灯</span></div>
+            <div class="pk-row"><b>一句人设</b><span>话少，记性太好，欠沉舟家一段旧情</span></div>
+            <div class="pk-row"><b>怎么出场</b><span>替他们把关灯灭了三分钟，一句话不说</span></div>
+            <div class="pk-row"><b>怎么退场</b><span>章内退场 · 话没说完就被拖走</span></div>
+            <div class="pk-row"><b>老角色为什么不行</b><span>需要一双不问来历的眼睛</span></div>
+            <div class="pk-read">
+              <p><b>合不合适</b>能答「水路」，但情报给一半</p>
+              <p><b>差别在哪</b>旧情线与主角绑得比魏七深</p>
+              <p><b>好不好落地</b>章内退场干脆，不占后续额度</p>
+            </div>
+            <span class="pk-picked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" width="10" height="10"><path d="M5 13l4 4L19 7"/></svg> 就要这个人</span>
+          </button>
+          <button type="button" class="pick-card" role="radio" aria-checked="false" data-testid="cr-pick-card-3">
+            <span class="pk-corner g-B">B<i>备选</i></span>
+            <span class="pk-axis">身份</span>
+            <p class="pk-title">祝九娘</p>
+            <div class="pk-row"><b>他是干什么的</b><span>渡口船娘，黑白两道都给几分面子</span></div>
+            <div class="pk-row"><b>一句人设</b><span>船上不问来路，船下一概不认账</span></div>
+            <div class="pk-row"><b>怎么出场</b><span>收钱送三人夜渡，顺手捎一句内环忌讳</span></div>
+            <div class="pk-row"><b>怎么退场</b><span>申请常驻 · 河上的耳目，留作后手</span></div>
+            <div class="pk-row"><b>老角色为什么不行</b><span>过河的渠道只有她有</span></div>
+            <div class="pk-read">
+              <p><b>合不合适</b>渡口能带路，离「航道情报」隔一层</p>
+              <p><b>差别在哪</b>常驻意向强，占后续额度</p>
+              <p><b>好不好落地</b>进场偏顺拐，退场无定数</p>
+            </div>
+            <span class="pk-picked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" width="10" height="10"><path d="M5 13l4 4L19 7"/></svg> 就要这个人</span>
+          </button>
+        </div>
+        <div class="pick-foot">
+          <button class="btn btn-ghost btn-sm" data-testid="cr-back-review" onclick="setCastScene('s3')">‹ 返回盘点结果</button>
+          <button class="btn btn-secondary btn-sm" data-testid="cr-redraw" onclick="setCastScene('s10')">↻ 都不满意？换一批</button>
+          <button class="btn btn-secondary btn-sm" data-testid="cr-fresh" onclick="setCastScene('s10')">从头再来</button>
+          <button class="btn btn-ghost btn-sm" data-testid="cr-fill-manual-2" onclick="castFillMode=true;setCastScene('s6')">自己填一个</button>
+          <span class="note push">换一批避开已出的人物路数（同轴只换人设）；从头再来＝清掉记录重出，可能再遇到之前的方向。选卡后每个格子还能改。</span>
+        </div>
+      </div>
+
+      <!-- 态⑥：缺口（免费态）＝按钮级锁定，无假卡（免费态不调生成端点） -->
+      <div class="scene" id="sc-s5b" hidden>
+        <p class="plans-h">剧情 3 缺的这个人</p>
+        <div class="cr-gap">
+          <div class="g-head"><b>剧情 3 · 缺一个新角色</b><span class="pill pill-warn">缺 1 人</span></div>
+          <p class="g-why">这段戏缺的是：认得内环航道、肯给沉舟递话的线人。<br>老角色为什么不行：<b>老陆的消息网到不了内环；不起名的配角递不出「邀请」这种要背账的话。</b></p>
+          <div class="cr-pick" role="radiogroup" aria-label="这段戏缺的人怎么处理">
+            <span class="k">怎么处理<span class="opt" style="font-size:10px">（AI 预填可改）</span></span>
+            <button class="cr-opt on" role="radio" aria-checked="true">加人<span class="cr-sug">AI 建议</span></button>
+            <button class="cr-opt" role="radio" aria-checked="false">改段</button>
+            <button class="cr-opt" role="radio" aria-checked="false">延后</button>
+          </div>
+          <div class="g-act">
+            <button class="btn btn-primary btn-sm" disabled data-testid="cr-draw-locked">抽卡选人</button>
+            <span class="ai-tag">PRO</span>
+            <button class="lnk" onclick="castFillMode=true;setCastScene('s6')">不抽了，自己填一个名字</button>
+          </div>
+        </div>
+        <div class="lock-card">
+          <b>AI 抽人是 PRO 功能</b>
+          <p>AI 能按这段戏缺的人一次给 3 个互不相同的人物方向——叫什么、什么性格、怎么出场怎么退场都配好，挑一个直接用。缺的人自己填全免费：在出场名单里直接加名字、建角色卡都不要钱。</p>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm">升级 PRO</button>
+            <button class="btn btn-secondary btn-sm" onclick="castFillMode=true;setCastScene('s6')">自己填一个</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 态⑦：写入前确认（两路径通用文案；预填可改；两出口） -->
+      <div class="scene" id="sc-s6" hidden>
+        <p class="plans-h">写入前最后改一遍 · 每个格子都能改</p>
+        <div class="split-row">
+          <span class="s-no">新</span>
+          <div class="s-main">
+            <div class="s-lab"><b>称呼</b><input class="input" value="魏七" maxlength="12" aria-label="称呼" data-testid="claim-name"></div>
+            <div class="s-lab"><b>他是干什么的</b><input class="input" value="内环消息贩子，什么都卖，就是不卖命" aria-label="他是干什么的"></div>
+            <div class="s-lab"><b>一句人设</b><input class="input" value="跛脚，笑面，账算得比命精" aria-label="一句人设"></div>
+            <div class="s-lab"><b>怎么出场</b><input class="input" value="巷口拦人，递来半张烧掉的航道图" aria-label="怎么出场"></div>
+            <div class="s-lab"><b>怎么退场</b>
+              <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+                <select class="input" style="width:130px" aria-label="怎么退场">
+                  <option>章内退场</option>
+                  <option selected>本卷退场</option>
+                  <option>申请常驻</option>
+                </select>
+                <input class="input" style="flex:1;min-width:180px" value="把命卖错了主顾" aria-label="退场说明">
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="hint">建卡＝角色表多一张卡，上面几格照抄进卡面，之后在设定页随便改；<b>只加名单＝本章出场角色多一行字，暂不建卡</b>（选它的话上面几格不保存，之后建卡只带称呼）。两样都算数，AI 都不会替你点。</p>
+      </div>
+
+      <!-- 态⑩：抽卡在途 -->
+      <div class="scene" id="sc-s10" hidden>
+        <div class="pick-busy">
+          <span><span class="ra-spin" aria-hidden="true"></span><span aria-live="polite">正在想「剧情 3」的 3 个人物方向…</span></span>
+          <span class="none">按这段戏缺的人和现有角色推——只给人物方向，不编剧情</span>
+        </div>
+      </div>
+
+      <!-- 态⑪：抽卡失败（三出口） -->
+      <div class="scene" id="sc-s11" hidden>
+        <div class="pick-error" data-testid="cr-draw-error">
+          <p class="pv-error">出卡失败，可再试——这一章缺的人还列着，什么都没变。</p>
+          <div class="edit-bar">
+            <button class="btn btn-primary btn-sm" onclick="setCastScene('s10')">重试</button>
+            <button class="btn btn-secondary btn-sm" onclick="castFillMode=true;setCastScene('s6')">自己填一个</button>
+            <button class="btn btn-ghost btn-sm" onclick="setCastScene('s1')">先不抽了</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 态⑨：失败 / 未配模型 -->
+      <div class="scene" id="sc-s9" hidden>
+        <div class="pick-error" data-testid="cr-error">
+          <p class="pv-error">还没接模型——先在模型配置里接一个，再回来盘点。</p>
+          <div class="edit-bar">
+            <button class="btn btn-primary btn-sm" onclick="setCastScene('s2')">重试</button>
+            <button class="btn btn-secondary btn-sm" onclick="setCastScene('s1')">去模型配置</button>
+            <button class="btn btn-ghost btn-sm" onclick="setCastScene('s1')">先不盘点</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底条（按态切换） -->
+    <div class="mcard-foot">
+      <span class="note" id="cast-foot-note">盘点不会改动你的任何内容；要写进章纲的，都走你平时那套保存。</span>
+      <button class="btn btn-ghost btn-sm" id="btn-cast-cancel">先不调整</button>
+      <button class="btn btn-ghost btn-sm" id="btn-back-cards" data-testid="cr-back-cards" hidden onclick="setCastScene('s5')">‹ 返回换一张</button>
+      <button class="btn btn-secondary btn-sm" id="btn-list-only" data-testid="cr-list-only" hidden>只加名单，先不建卡</button>
+      <button class="btn btn-primary btn-sm" id="btn-cast-primary" data-testid="cr-write" hidden>建卡并写入章纲</button>
     </div>
   </div>
 </div>
@@ -1782,7 +2166,15 @@ function chapterFormHTML(c, P, C) {
         <summary>章纲概要 ${chev}</summary>
         <div class="inner">
           <div class="field"><label>章纲概要</label><textarea class="textarea" id="${P}summary" placeholder="这一章写什么，一两句话说清">${escapeHtml(c.summary || '')}</textarea></div>
-          <div class="field"><label>出场角色 <span class="opt">一行一个角色名</span></label><textarea class="textarea" id="${P}chars" placeholder="角色名">${escapeHtml(c.og?.chars || '')}</textarea></div>
+          <div class="field"><label>出场角色 <span class="opt">点选角色卡；也可直接输入名字</span></label>
+            <!-- 名单区没卡标记＋行级建卡入口（c-character-intro 0.2③⑥：chip＋没卡标＋建卡，只预填称呼） -->
+            <div class="og-char-picker" id="og-chips" aria-label="从角色卡选择出场角色">
+              <button class="chip on">沉舟</button>
+              <button class="chip on">老陆</button>
+              <span class="chip" style="cursor:default">秦伯<span class="no-card">没卡</span><button class="lnk" data-testid="claim-qinbo" title="用这个名字建一张角色卡（只带名字，卡面回头在设定页补）">建卡</button></span>
+              <button class="chip" data-wb="fresh-chip">魏七<span class="pill pill-accent" style="padding:0 6px;font-size:10px" title="本次写入后展示，之后按普通名字对待">新</span></button>
+            </div>
+            <textarea class="textarea" id="${P}chars" placeholder="角色名">${escapeHtml(c.og?.chars || '')}</textarea></div>
           <div class="tpl-row">
             <div class="field"><label>碰到的挑战 <span class="opt">拆章填的「这一章要撞的墙」</span></label><input class="input" id="${P}challenge" ${val(c.og?.challenge)} placeholder="如：旧档堆不对活人开放——查档本身就要违规" /></div>
             <div class="field"><label>阶段 <span class="opt">本章在卷剧情里的位置</span></label><select class="input" id="${P}stageSel">
@@ -2016,24 +2408,28 @@ function updateChTabBadges(ch) {
   else if (gaps.length) { ogCnt.textContent = `缺 ${gaps.length} 项`; ogCnt.className = 'cnt err'; }
   else { ogCnt.textContent = '草稿'; ogCnt.className = 'cnt warn'; }
   const pCnt = $('tabPromptCnt');
-  if (ch.og?.prompt) { pCnt.textContent = '已自定义'; pCnt.className = 'cnt warn'; }
-  else { pCnt.textContent = '自动组装'; pCnt.className = 'cnt ok'; }
+  if (pCnt) {
+    if (ch.og?.prompt) { pCnt.textContent = '已自定义'; pCnt.className = 'cnt warn'; }
+    else { pCnt.textContent = '自动组装'; pCnt.className = 'cnt ok'; }
+  }
 }
 function syncChTab() {
-  const t = S.chTab;
+  // 七页签壳层（c-character-intro 0.2）：提示词页签退役；设定/文风/角色关系/伏笔/操作
+  // 为壳层惯性页签（本原型不建模其内容），缺 data-chtab 的点击不动视图。
+  const t = (S.chTab === 'og' || S.chTab === 'prose') ? S.chTab : 'og';
   document.querySelectorAll('.chtab').forEach(b => {
     b.classList.toggle('on', b.dataset.chtab === t);
     b.setAttribute('aria-selected', b.dataset.chtab === t ? 'true' : 'false');
   });
   $('editorWrap').hidden = t !== 'prose';
   $('ogPane').hidden = t !== 'og';
-  $('promptPane').hidden = t !== 'prompt';
+  $('promptPane').hidden = true;
   $('readonlyBanner').hidden = t !== 'prose' || !isArchived(curCh());
-  $('proseCtrls').hidden = t !== 'prose';
   $('editorStatus').hidden = t !== 'prose';
   if (t === 'prose') { const ch = curCh(); if (ch) updateStats(ch, countWords(chContent(ch))); }
 }
 document.querySelectorAll('.chtab').forEach(b => b.addEventListener('click', () => {
+  if (!b.dataset.chtab) return; // 惯性页签（壳层七页签，本原型不建模内容）
   S.chTab = b.dataset.chtab; persist();
   if (S.chTab === 'prompt' && !curCh()?.og?.prompt) renderPromptPane(curCh()); /* 自动组装模式跟随最新章纲 */
   syncChTab();
@@ -2047,7 +2443,7 @@ function renderChapter() {
   const archived = isArchived(ch);
 
   $('chName').textContent = ch.title;
-  $('chArchTag').hidden = !archived;
+  $('chArchTag').hidden = false;
   $('readonlyBanner').hidden = !archived;
   $('btnArchive').disabled = archived || words === 0;
   $('btnArchive').title = archived ? '本章已归档' : (words === 0 ? '空章无需归档' : '');
@@ -2060,21 +2456,15 @@ function renderChapter() {
   renderChForm();
 }
 function updateStats(ch, words) {
+  // 统计上移 e-meta 八枚（c-og-rail-declutter＋c-rail-ai-only；右栏进度/统计块退役）
   const target = ch.target || 4000;
   const pct = Math.min(100, Math.round(words / target * 100));
   $('wordCount').textContent = `${fmt(words)} 字`;
-  $('pctNum').innerHTML = `${pct}<span class="sub">%</span>`;
-  $('pbarFill').style.width = pct + '%';
-  $('targetText').textContent = fmt(target);
-  $('archCard').hidden = !isArchived(ch);
-  $('chWords').textContent = `${fmt(words)} 字`;
-  $('goalPct').textContent = pct + '%';
-  $('bookWords').textContent = fmt(bookWords());
-  const note = $('progressNote');
-  if (isArchived(ch)) note.innerHTML = '本章已归档 · 正文锁定。';
-  else if (words === 0) note.innerHTML = '写下第一段，开始本章。';
-  else if (pct >= 100) note.innerHTML = '已达成目标 · 可以归档本章了。';
-  else note.innerHTML = `再写 <b class="num" id="remainText">${fmt(Math.max(0, target - words))}</b> 字，完成本章目标。`;
+  $('statWords').textContent = `${fmt(words)} 字`;
+  $('statTarget').textContent = `计划字数 ${fmt(target)} 字`;
+  $('statPct').textContent = `完成度 ${pct}%`;
+  $('statBook').textContent = `本书总字数 ${fmt(bookWords())}`;
+  $('chArchTag').textContent = isArchived(ch) ? '已归档' : (words ? '草稿' : '拟定');
 }
 function setSaveText(phase, withTick) {
   const el = $('saveState');
@@ -2183,7 +2573,7 @@ $('histList').addEventListener('click', e => {
 
 /* ═══════════ 升级 PRO ═══════════ */
 $('btnUpgrade2').addEventListener('click', () => openModal('modalUpgrade'));
-$('btnUpgrade3').addEventListener('click', () => openModal('modalUpgrade'));
+if ($('btnUpgrade3')) $('btnUpgrade3').addEventListener('click', () => openModal('modalUpgrade'));
 $('prefUpgrade').addEventListener('click', () => { closeModal('modalPrefs'); openModal('modalUpgrade'); });
 $('upgradeConfirm').addEventListener('click', () => {
   S.pro = true; persist();
@@ -2203,12 +2593,15 @@ function applyPro() {
   $('acctMenuBadge').className = proTone;
   $('aiOutlineLocked').hidden = S.pro;
   $('aiOutlinePlanned').classList.toggle('locked', !S.pro);
-  $('aiWriteLocked').hidden = S.pro;
-  $('aiWriteTools').classList.toggle('locked', !S.pro);
-  $('aiWritePlanned').classList.toggle('locked', !S.pro);
-  // c-plot-split：剧情卡免费态 rail-locked 置灰禁点不隐藏，升级出口在包裹外
-  $('plotToolWrap').classList.toggle('locked', !S.pro);
-  $('plotUpgradeExit').hidden = S.pro;
+  // 右栏统一卡（c-ai-rail-shared＋c-character-intro 0.2）：旧 rail-locked 块退役，
+  // 行级门控＝PRO 行 ra-off＋「需 PRO」（盘点行免费连坐不到）；free-mode 副行随档位。
+  syncCastTier();
+}
+/** 档位同步：free-mode＝免费（S.pro=false）或演示免费场景（s5b 起） */
+function syncCastTier() {
+  const free = !S.pro || castTierFree;
+  document.body.classList.toggle('free-mode', free);
+  document.querySelectorAll('.rail-assist .ra-step[data-pro]').forEach(r => r.classList.toggle('ra-off', free));
 }
 
 /* ═══════════ AI 生成正文（章有提示词） ═══════════ */
@@ -2224,7 +2617,7 @@ function openAiModal(ch) {
     : '本章尚未配置章纲，将仅依据设定生成。建议先去「大纲」补章纲（不强制）。';
   openModal('modalAi');
 }
-$('btnAi2').addEventListener('click', () => $('btnAi').click());
+if ($('btnAi2')) $('btnAi2').addEventListener('click', () => $('btnAi').click());
 $('btnAi').addEventListener('click', () => {
   const ch = curCh();
   if (isArchived(ch)) { openModal('modalUnlock'); return; }
@@ -2297,7 +2690,7 @@ function streamGenerate() {
 $('btnStopAi').addEventListener('click', () => { aiAbort = true; });
 
 /* 进度卡目标编辑 */
-$('targetText').addEventListener('click', () => {
+if ($('targetText')) $('targetText').addEventListener('click', () => {
   const ch = curCh();
   $('targetText').hidden = true;
   const input = $('targetInput');
@@ -2306,11 +2699,11 @@ $('targetText').addEventListener('click', () => {
   input.focus();
   input.select();
 });
-$('targetInput').addEventListener('keydown', e => {
+if ($('targetInput')) $('targetInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') commitTarget();
   else if (e.key === 'Escape') { $('targetInput').hidden = true; $('targetText').hidden = false; }
 });
-$('targetInput').addEventListener('blur', commitTarget);
+if ($('targetInput')) $('targetInput').addEventListener('blur', commitTarget);
 function commitTarget() {
   const input = $('targetInput');
   const v = parseInt(input.value, 10);
@@ -2897,11 +3290,14 @@ function drawBusyThen(next, gen) {
     updatePlotAdopt();
   }, 900);
 }
-$('btnPlotDraw').addEventListener('click', () => {
-  if (!S.pro) { openModal('modalUpgrade'); return; }
+$('btnPlotDrawRow').addEventListener('click', () => {
+  if (!S.pro) { openModal('modalUpgrade'); return; } // 统一升级出口
   openPlotDraw();
 });
-$('btnPlotUpgrade').addEventListener('click', () => openModal('modalUpgrade'));
+// 行级门控（c-character-intro 0.2）：免费态 PRO 行点击＝统一升级出口；盘点行免费可点
+document.querySelectorAll('.rail-assist .ra-step[data-pro]').forEach(r => r.addEventListener('click', () => {
+  if (r.classList.contains('ra-off')) openModal('modalUpgrade');
+}));
 $('plotAgain').addEventListener('click', () => {
   plotGen++;
   plotDrawTried++;
@@ -2968,6 +3364,154 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !acctMenu.hidden) setAcctOpen(false);
 });
 window.addEventListener('resize', () => { if (!acctMenu.hidden) positionAcctMenu(); });
+/* ═══════════ 盘点出场人物弹层（c-character-intro 0.2）：设计稿 v2.4 十一态演示 ═══════════
+   状态导航＝demo-bar（非产品 UI）；真交互链＝右栏「盘点出场人物」行→②→③→抽卡→两形态→回程。
+   档位跟用户不跟场景（s5b 起免费、s6/s7 继承）；free-mode 作用 body（only-pro/only-free＋ra-off）。 */
+let castFillMode = false;   // ⑦ 入口形态：选卡进=false（预填）/ 手填进=true（空格）
+let castTierFree = false;   // 档位跟用户不跟场景
+let castDoneMode = 'with-card';
+const castS6Defaults = [...document.querySelectorAll('#sc-s6 input.input')].map(i => i.value);
+const castS6DefaultSel = document.querySelector('#sc-s6 select.input')?.selectedIndex ?? 1;
+const CAST_SCENES = {
+  s1:  { modal: false },
+  s2:  { modal: true,  body: 'sc-s2', note: '盘点不会改动你的任何内容；要写进章纲的，都走你平时那套保存。', cancel: '先不调整' },
+  s3:  { modal: true,  body: 'sc-s3', note: '改段／延后不留记录：改段去剧情区改那一条；延后的那条，剧情挪到哪一章就在哪一章再遇到。', cancel: '先不调整' },
+  s4:  { modal: true,  body: 'sc-s4', note: '零新增是正常结果，不是出错。', cancel: '知道了' },
+  s5:  { modal: true,  body: 'sc-s5', note: '这批卡跟这一章走：误关重开还是同一批，不会重复生成花钱。', cancel: '先不抽了' },
+  s5b: { modal: true,  body: 'sc-s5b', note: '盘点免费；AI 抽人是 PRO。自己填名字、建卡，全档免费。', cancel: '先不调整' },
+  s6:  { modal: true,  body: 'sc-s6', note: '两个出口各自独立写入——AI 永远不会替你点。', cancel: '先不写入', primary: '建卡并写入章纲', secondary: '只加名单，先不建卡', back: '‹ 返回换一张' },
+  s7:  { modal: true, body: 'sc-s3', done: true, note: '写完不关弹窗：缺口行转已处理，剩下的缺的人继续；全部处理完才收场。', cancel: '完成' },
+  s9:  { modal: true,  body: 'sc-s9', note: '失败不会动你的任何内容。', cancel: '先不盘点' },
+  s10: { modal: true,  body: 'sc-s10', note: '这批卡跟这一章走：误关重开还是同一批，不会重复生成花钱。', cancel: '先不抽了' },
+  s11: { modal: true,  body: 'sc-s11', note: '失败不会动你的任何内容。', cancel: '先不抽了' }
+};
+function setCastScene(id) {
+  document.querySelectorAll('.demo-bar .chip').forEach(c => c.classList.toggle('on', c.dataset.scene === id));
+  const sc = CAST_SCENES[id];
+  const wasOpen = !$('castModal').hidden;
+  if (sc.modal && !wasOpen) openModal('castModal');
+  if (!sc.modal && wasOpen) closeModal('castModal');
+  document.querySelectorAll('#castModal .scene').forEach(el => { el.hidden = true; });
+  if (sc.body) $(sc.body).hidden = false;
+  $('cast-foot-note').textContent = sc.note;
+  $('btn-cast-cancel').textContent = sc.cancel;
+  const primary = $('btn-cast-primary');
+  const secondary = $('btn-list-only');
+  if (sc.modal) {
+    if (sc.primary) { primary.hidden = false; primary.textContent = sc.primary; } else { primary.hidden = true; }
+    if (sc.secondary) { secondary.hidden = false; secondary.textContent = sc.secondary; } else { secondary.hidden = true; }
+    const back = $('btn-back-cards');
+    if (back) back.hidden = !sc.back || castFillMode;
+  }
+  // 档位跟用户不跟场景：s5b 起免费，s6/s7 继承（手填路径全程免费视角），其余态回 PRO
+  if (id === 's5b') castTierFree = true;
+  else if (id !== 's6' && id !== 's7') castTierFree = false;
+  syncCastTier(); // 档位跟用户不跟场景：free-mode＝!S.pro || 演示免费场景
+  // ⑦ 两形态：选卡进＝预填＋返回换一张；手填进＝空格表单、无返回（不露 AI 预填）
+  if (sc.body === 'sc-s6') {
+    document.querySelectorAll('#sc-s6 input.input').forEach((inp, i) => { inp.value = castFillMode ? '' : castS6Defaults[i]; });
+    const sel = document.querySelector('#sc-s6 select.input');
+    if (sel) sel.selectedIndex = castFillMode ? -1 : castS6DefaultSel;
+    const ph = document.querySelector('#sc-s6 .plans-h');
+    if (ph) ph.textContent = castFillMode ? '自己填——每个格子都可以自己写（不用 AI）' : '写入前最后改一遍 · 每个格子都能改';
+  }
+  // 多缺人回程（态⑧）：写入后回结果页——剧情 3 缺口转「已写入」，其余缺口继续
+  const gapLive = document.querySelector('#sc-s3 [data-testid="gap-active"]');
+  const gapWritten = document.querySelector('#sc-s3 [data-testid="gap-written"]');
+  if (gapLive && gapWritten) {
+    const written = id === 's7';
+    gapLive.hidden = written;
+    gapWritten.hidden = !written;
+  }
+  // 回执（稿内横条仅为演示；实现时用 toast sticky 回执，先例 plot 采纳回执）
+  const done = $('done-notice');
+  if (sc.done) {
+    done.hidden = false;
+    document.body.classList.add('show-fresh');
+    $('statCast').textContent = '出场角色 4 人';
+    const gwl = $('gap-written-line');
+    if (gwl) gwl.textContent = castDoneMode === 'list-only'
+      ? '已写入名单：魏七（暂未建卡）。本章出场角色 3→4 人 · 本卷出场清单 6→7 人（自动汇总）。'
+      : '已写入：魏七——建卡并写入章纲。角色表、本章出场角色、本卷出场清单都加了。';
+    $('done-title').textContent = castDoneMode === 'list-only' ? '已写入名单。' : '已写入。';
+    $('done-detail').textContent = castDoneMode === 'list-only'
+      ? '本章出场角色 3→4 人 · 本卷出场清单 6→7 人（自动汇总）（「魏七」暂未建卡，名字旁随时可点「建卡」补一张，只带名字）· 本章的缺的人都处理完了。'
+      : '角色表多一卡「魏七」 · 本章出场角色 3→4 人 · 本卷出场清单 6→7 人（自动汇总）· 本章的缺的人都处理完了。';
+    const ta = document.querySelector('#ogPane textarea[id$="chars"]');
+    if (ta && !ta.value.includes('魏七')) { ta.value += '\n魏七'; ta.rows = 4; }
+    const fresh = document.querySelector('#ogPane [data-wb="fresh-chip"]');
+    if (fresh) fresh.style.display = 'inline-flex';
+  } else {
+    done.hidden = true;
+    if (id === 's1') {
+      document.body.classList.remove('show-fresh');
+      $('statCast').textContent = '出场角色 3 人';
+    }
+  }
+  // 演示节奏：busy 态自动出态（盘点中→结果、抽卡中→三方向）
+  if (id === 's2') setTimeout(() => { if (!$('sc-s2').hidden) setCastScene('s3'); }, 900);
+  if (id === 's10') setTimeout(() => { if (!$('sc-s10').hidden) setCastScene('s5'); }, 900);
+}
+document.querySelectorAll('.demo-bar .chip').forEach(c => c.addEventListener('click', () => { castFillMode = false; setCastScene(c.dataset.scene); }));
+
+/* 入口：右栏「盘点出场人物」行 → 态② → 自动进态③（演示节奏） */
+$('btn-open-review').addEventListener('click', () => {
+  setCastScene('s2');
+});
+$('btn-cast-x').addEventListener('click', () => setCastScene('s1'));
+$('btn-cast-cancel').addEventListener('click', () => setCastScene('s1'));
+
+/* 写入两出口（各自独立落账；AI 永不代点） */
+$('btn-cast-primary').addEventListener('click', () => {
+  castDoneMode = 'with-card'; setCastScene('s7');
+});
+$('btn-list-only').addEventListener('click', () => {
+  castDoneMode = 'list-only'; setCastScene('s7');
+});
+
+/* 缺口三选一（预填按缺口上下文给出，可改；「AI 建议」标随改选消失；改段/延后→已处理观感＋补救出口） */
+document.querySelectorAll('#sc-s3 .cr-opt').forEach(o => o.addEventListener('click', () => {
+  document.querySelectorAll('#sc-s3 .cr-opt').forEach(x => {
+    const on = x === o;
+    x.classList.toggle('on', on);
+    x.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+  const gap = document.querySelector('#sc-s3 [data-testid="gap-active"]');
+  gap.querySelectorAll('.cr-sug').forEach(x => x.remove()); // AI 建议标随改选消失
+  const draw = $('btn-draw');
+  const fill = $('lnk-fill-manual');
+  const note = $('cr-done-note');
+  const goEdit = $('btn-go-edit');
+  const pill = gap.querySelector('.g-head .pill');
+  const kind = o.dataset.cr;
+  gap.classList.toggle('done', kind !== 'add');
+  draw.hidden = kind !== 'add';
+  fill.hidden = kind !== 'add';
+  goEdit.hidden = kind !== 'edit';
+  note.hidden = kind === 'add';
+  if (kind === 'add') {
+    pill.className = 'pill pill-warn'; pill.textContent = '缺 1 人';
+  } else if (kind === 'edit') {
+    pill.className = 'pill'; pill.textContent = '改段 · 本次算处理过';
+    note.textContent = '这次盘点里就算处理过了，不做记录——去改剧情 3 那一条。';
+  } else {
+    pill.className = 'pill'; pill.textContent = '已延后';
+    note.textContent = '这次盘点里就算处理过了，不做记录——你自己把这段剧情挪到哪一章，就在哪一章再遇到。';
+  }
+}));
+/* 抽卡 / 自己填 → 对应态 */
+$('btn-draw').addEventListener('click', () => setCastScene('s5'));
+$('lnk-fill-manual').addEventListener('click', () => { castFillMode = true; setCastScene('s6'); });
+/* 三方向卡选卡 → 态⑦（选卡进＝预填＋返回换一张） */
+document.querySelectorAll('#pick-grid-5 .pick-card').forEach(cardEl => cardEl.addEventListener('click', () => {
+  document.querySelectorAll('#pick-grid-5 .pick-card').forEach(x => {
+    const on = x === cardEl;
+    x.classList.toggle('on', on);
+    x.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+  setTimeout(() => { castFillMode = false; setCastScene('s6'); }, 350);
+}));
+
 </script>
 
   <!-- ══════ c-chapter-plan-ai：卷下拆章（弹层＋派生视图舞台） ══════ -->

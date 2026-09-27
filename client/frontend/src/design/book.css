@@ -668,13 +668,13 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .rail-assist .ra-body i { display: block; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 2px; }
 .rail-assist .ra-arrow { color: var(--muted); flex: none; }
 .rail-assist .ra-foot { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
-.settings-v .rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
+.rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
 .rail-assist.locked { border-color: var(--border); }
 .rail-assist.locked .plan-badge { background: var(--fg-soft); color: var(--muted); }
 .rail-assist.locked .ra-step { opacity: 0.55; cursor: not-allowed; }
 .rail-assist.locked .ra-step:hover { border-color: var(--border); }
-.settings-v .rail-assist.locked .ra-body b { color: var(--muted); }
-.settings-v .rail-assist.locked .ra-arrow { opacity: 0.4; }
+.rail-assist.locked .ra-body b { color: var(--muted); }
+.rail-assist.locked .ra-arrow { opacity: 0.4; }
 
 /* ── 题材六格 .mod（genre-signup-redesign tasks 4.1 / D18）──
    每格＝编号 + 名称 + 怎么填（m-why）+ 成书去处（m-use）+ 控件。
@@ -769,9 +769,9 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .cost-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono); }
 .settings-v .soft-note { font-size: 11.5px; color: var(--warn); margin-top: 8px; }
 /* 前置未满足的能力行（D14 前置守卫：置灰 + 「先体检」） */
-.settings-v .rail-assist .ra-step.ra-off { opacity: 0.5; cursor: not-allowed; }
-.settings-v .rail-assist .ra-step.ra-off:hover { border-color: var(--border); }
-.settings-v .rail-assist .ra-body b .ra-hint { margin-left: 6px; font-size: 10.5px; font-weight: 400; color: var(--warn); }
+.rail-assist .ra-step.ra-off { opacity: 0.5; cursor: not-allowed; }
+.rail-assist .ra-step.ra-off:hover { border-color: var(--border); }
+.rail-assist .ra-body b .ra-hint { margin-left: 6px; font-size: 10.5px; font-weight: 400; color: var(--warn); }
 
 /* ── 本书模型选择：分组卡片列表 + radiogroup 行（tasks 7.1 / D12）──
    选择与生效分离：点行只标亮（.on），点「设为本书模型」才落库。 */
@@ -801,9 +801,9 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .model-group .mg-cands { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* AI 行运行中：显式「生成中…」+ 视觉强调（否则用户以为没反应会连点） */
-.settings-v .rail-assist .ra-step.ra-running { border-color: var(--accent); background: var(--accent-soft); }
-.settings-v .rail-assist .ra-step.ra-running .ra-body i { color: var(--accent); }
-.settings-v .rail-assist .ra-step.ra-running .ra-arrow { color: var(--accent); }
+.rail-assist .ra-step.ra-running { border-color: var(--accent); background: var(--accent-soft); }
+.rail-assist .ra-step.ra-running .ra-body i { color: var(--accent); }
+.rail-assist .ra-step.ra-running .ra-arrow { color: var(--accent); }
 
 /* AI 结果区历史条：最近 N 次可切换（避免无限抽卡 / 反悔） */
 .settings-v .ai-sink .aiz-hist { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -893,9 +893,9 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .char-add { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 32px; margin-bottom: 8px; border: 1px dashed color-mix(in oklch, var(--accent) 40%, var(--border)); border-radius: 8px; background: var(--surface); color: var(--accent); font-size: 12.5px; font-weight: 500; cursor: pointer; flex: none; }
 .char-add:hover { border-color: var(--accent); background: color-mix(in oklch, var(--accent) 12%, transparent); }
 .char-undo { border: none; background: none; padding: 0; color: var(--accent); font-size: inherit; cursor: pointer; text-decoration: underline; }
-.settings-v .rail-assist .ai-target { font-size: 11px; color: var(--muted); line-height: 1.7; margin: 0 0 10px; padding: 0 2px; }
-.settings-v .rail-assist .ai-target b { color: var(--fg); font-weight: 500; }
-.settings-v .rail-assist .ai-target .gap-c { color: var(--warn); }
+.rail-assist .ai-target { font-size: 11px; color: var(--muted); line-height: 1.7; margin: 0 0 10px; padding: 0 2px; }
+.rail-assist .ai-target b { color: var(--fg); font-weight: 500; }
+.rail-assist .ai-target .gap-c { color: var(--warn); }
 .char-search { width: 100%; padding: 7px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font-size: 12.5px; margin-bottom: 8px; flex: none; }
 .char-search:focus { outline: 2px solid color-mix(in oklch, var(--accent) 12%, transparent); border-color: var(--accent); }
 /* 双栏布局（原型 .sub-wrap：236px 列表 + 卡）：覆盖 sub-fill 的纵排默认 */
@@ -1724,3 +1724,50 @@ button.dep-row:hover{background:var(--hl)}
 .split-sum{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:10px 0 0;font-size:12px;color:var(--muted)}
 /* 拆章弹窗＝卷纲弹窗加宽版（宽度由 Modal 的 width 属性给，这里只补滚动体） */
 .plan-modal .mcard-body{overflow:auto;min-height:0}
+
+/* ── 盘点出场人物弹窗（c-character-intro）：cr-* 家族弹层内自含（不触共享段），
+   其余复用 pick-*／pk-*／split-row／rp-* 词汇。词表照设计稿 v2.4：
+   cr-row/cr-top/cr-no/cr-tx/cr-why/cr-who/cr-gap/cr-pick/cr-opt/cr-sug/cr-done、
+   g-head/g-why/g-act/g-done、lock-card、no-card、pick-foot .push、pick-busy .none、
+   badge-muted、cr-sug（「AI 建议」/「默认」小标）。 */
+.cast-review .cr-row { display: flex; flex-direction: column; gap: 5px; padding: 12px 0; border-bottom: 1px dashed color-mix(in oklch, var(--border) 70%, transparent); }
+.cast-review .cr-row:last-of-type { border-bottom: 0; }
+.cast-review .cr-top { display: flex; align-items: baseline; gap: 10px; }
+.cast-review .cr-no { font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); flex: none; letter-spacing: 0.06em; }
+.cast-review .cr-tx { flex: 1; min-width: 0; font-size: 13px; line-height: 1.6; }
+.cast-review .cr-why { font-size: 12px; color: var(--muted); line-height: 1.6; padding-left: 44px; margin: 0; }
+.cast-review .cr-why b { font-weight: 500; color: var(--fg); }
+.cast-review .cr-who { font-size: 12px; color: var(--muted); padding-left: 44px; margin: 0; }
+.cast-review .cr-who .chip { padding: 1px 9px; font-size: 11px; }
+.cast-review .cr-gap { border: 1px solid color-mix(in oklch, var(--warn) 32%, var(--border)); background: color-mix(in oklch, var(--warn) 5%, var(--surface)); border-radius: var(--radius); padding: 13px 15px; margin: 4px 0 10px; }
+.cast-review .cr-gap.done { border-color: var(--border); background: var(--surface); }
+.cast-review .cr-gap .g-head { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.cast-review .cr-gap .g-head b { font-size: 13.5px; }
+.cast-review .cr-gap .g-head .ai-tag { margin-left: auto; }
+.cast-review .cr-gap .g-why { margin: 4px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.65; }
+.cast-review .cr-gap .g-why b { color: var(--fg); font-weight: 500; }
+.cast-review .cr-pick { display: flex; align-items: center; gap: 7px; margin-top: 10px; flex-wrap: wrap; }
+.cast-review .cr-pick .k { font-size: 12px; color: var(--muted); margin-right: 2px; }
+.cast-review .cr-pick .k .opt { font-size: 10px; }
+.cast-review .cr-opt { border: 1px solid var(--border); border-radius: 999px; padding: 3px 13px; font-size: 12px; color: var(--muted); background: var(--surface); cursor: pointer; font-family: inherit; }
+.cast-review .cr-opt:hover { color: var(--fg); border-color: var(--muted); }
+.cast-review .cr-opt.on { background: var(--accent-soft); border-color: transparent; color: var(--accent-strong); font-weight: 500; }
+.cast-review .cr-sug { margin-left: 5px; font-size: 9.5px; color: var(--accent-strong); border: 1px dashed color-mix(in oklch, var(--accent) 45%, transparent); border-radius: 999px; padding: 0 5px; font-weight: 400; }
+.cast-review .cr-gap .g-act { display: flex; align-items: center; gap: 10px; margin-top: 11px; flex-wrap: wrap; }
+.cast-review .cr-gap .g-act .lnk { font-size: 12.5px; }
+.cast-review .cr-gap .g-act .ai-tag { flex: none; }
+.cast-review .cr-gap .g-done { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+.cast-review .cr-gap .g-done .rp-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+.cast-review .cr-done { font-size: 12px; color: var(--muted); }
+/* 免费锁定卡（按钮级：抽卡禁点＋升级出口＋自己填全免费） */
+.cast-review .lock-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 13px 15px; margin-top: 14px; }
+.cast-review .lock-card b { font-size: 13.5px; display: block; }
+.cast-review .lock-card p { margin: 4px 0 10px; font-size: 12.5px; color: var(--muted); line-height: 1.65; }
+/* 没卡标（chip 内小虚线标＋行级建卡入口） */
+.no-card { font-size: 10px; color: var(--warn); border: 1px dashed color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 999px; padding: 0 6px; }
+/* 值差复用登记：rp-dot 7px（g-done 内）／pick-busy 改 flex-column（.none 副行）／pick-foot .push 右推 */
+.cast-review .pick-busy { flex-direction: column; }
+.cast-review .pick-busy .none { font-size: 12px; color: var(--faint); }
+.cast-review .pick-foot .push { margin-left: auto; }
+.cast-review .pick-error .edit-bar { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.cast-review .badge-muted { display: inline-flex; padding: 2px 9px; border-radius: 999px; background: var(--fg-soft); color: var(--muted); font-size: 11px; }

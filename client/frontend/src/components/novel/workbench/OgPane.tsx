@@ -42,6 +42,8 @@ interface OgPaneProps {
   onSaveDraft: () => void;
   onConfirm: () => void;
   onGoWrite: () => void;
+  /** 名单区没卡标旁的行级建卡入口（c-character-intro 4.1；只预填称呼） */
+  onQuickCreateChar?: (name: string) => void;
 }
 
 const MOODS = ["紧张", "悬疑", "温暖", "悲伤", "激昂", "轻松", "压抑", "浪漫", "惊悚"];
@@ -90,6 +92,7 @@ export default function OgPane({
   onSaveDraft,
   onConfirm,
   onGoWrite,
+  onQuickCreateChar,
 }: OgPaneProps) {
   const moodVal = form.mood || "";
   const moodCustom = moodVal && !MOODS.includes(moodVal) ? moodVal : "";
@@ -176,6 +179,7 @@ export default function OgPane({
       );
     }
     const charLines = form.chars.split("\n").map((x) => x.trim()).filter(Boolean);
+    const known = new Set(characterNames ?? []);
     const plotItems = form.plots.map((s) => s.trim()).filter(Boolean);
     const filledPayoffs = form.payoffs.filter((p) => p.d.trim());
     return (
@@ -220,9 +224,29 @@ export default function OgPane({
           </div>
           <div className="fro">
             <em>出场角色</em>
-            <p className={charLines.length ? undefined : "none"}>
-              {charLines.length ? charLines.join("　") : "（未填）"}
-            </p>
+            {charLines.length ? (
+              // 查看态逐名渲染（c-character-intro 4.1）：chip＋没卡标＋建卡入口（照读者获得行多子节点先例）
+              <div className="og-char-picker" data-testid="og-cast-view">
+                {charLines.map((n) => (
+                  <span className="chip" key={n}>
+                    {n}
+                    {!known.has(n) && <span className="no-card">没卡</span>}
+                    {!known.has(n) && onQuickCreateChar && (
+                      <button
+                        className="lnk"
+                        data-testid={`claim-${n}`}
+                        title="用这个名字建一张角色卡（只带名字，卡面回头在设定页补）"
+                        onClick={() => onQuickCreateChar(n)}
+                      >
+                        建卡
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="none">（未填）</p>
+            )}
           </div>
           <div className="fro">
             <em>碰到的挑战</em>
@@ -334,6 +358,15 @@ export default function OgPane({
     );
   }
 
+  // 编辑态：表单里有、候选里没有的名字＝没卡（别名已并入候选，不会误标）
+  const knownNames = new Set(characterNames ?? []);
+  const extraCharNames = form.chars
+    .split("\n")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .filter((n) => !knownNames.has(n))
+    .filter((n, i, arr) => arr.indexOf(n) === i);
+
   return (
     <div className="og-pane">
       <div className="panel">
@@ -363,9 +396,9 @@ export default function OgPane({
               <label>
                 出场角色 <span className="opt">点选角色卡；也可直接输入名字</span>
               </label>
-              {characterNames && characterNames.length > 0 && (
+              {((characterNames && characterNames.length > 0) || extraCharNames.length > 0) && (
                 <div className="og-char-picker" role="group" aria-label="从角色卡选择出场角色">
-                  {characterNames.map((n) => {
+                  {(characterNames ?? []).map((n) => {
                     const on = form.chars.split("\n").some((line) => line.trim() === n);
                     return (
                       <button
@@ -387,6 +420,23 @@ export default function OgPane({
                       </button>
                     );
                   })}
+                  {/* 非候选名字 chip（c-character-intro 4.1）：没卡标＋建卡入口；textarea 照旧 */}
+                  {extraCharNames.map((n) => (
+                    <span className="chip" key={`extra-${n}`}>
+                      {n}
+                      <span className="no-card">没卡</span>
+                      {onQuickCreateChar && (
+                        <button
+                          className="lnk"
+                          data-testid={`claim-${n}`}
+                          title="用这个名字建一张角色卡（只带名字，卡面回头在设定页补）"
+                          onClick={() => onQuickCreateChar(n)}
+                        >
+                          建卡
+                        </button>
+                      )}
+                    </span>
+                  ))}
                 </div>
               )}
               <textarea
