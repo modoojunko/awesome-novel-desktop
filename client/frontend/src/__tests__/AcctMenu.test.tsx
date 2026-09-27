@@ -31,10 +31,14 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/support", () => ({
   supportUrl: vi.fn(() => Promise.resolve("https://www.awesomenovel.com")),
 }));
-vi.mock("@/lib/version", () => ({
-  formatVersion: (v: string | null) => v ?? "版本未知",
-  useClientVersion: () => "v0.19",
-}));
+vi.mock("@/lib/version", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/version")>();
+  return {
+    // 真文案口径（c-version-build-info：缓存已是 {current, build} 对象，hook mock 同批换形态）
+    formatVersion: actual.formatVersion,
+    useClientVersion: () => ({ current: "0.19", build: null }),
+  };
+});
 
 function tierState(over: Partial<TierState> = {}): TierState {
   return {

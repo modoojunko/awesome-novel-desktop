@@ -61,11 +61,13 @@ export async function stableClick(loc: Locator, timeout = 10000) {
  * "update" 载荷与原型 list.html / book.html 字面量一致（ADJUSTMENTS #15 parity 口径）；
  * "none" = 检测成功无更新；"fail" = 端点异常（应用侧必须静默不渲染）。
  * current 覆盖默认版本号（c-version-account-visibility：状态条/版本行断言用）。
+ * build 覆盖构建信息（c-version-build-info：dev＋build 呈 {分支}@{commit前5位}；缺省不带键）。
  */
 export function stubUpdateNotice(
   page: Page,
   mode: "update" | "none" | "fail",
   current?: string,
+  build?: { branch: string; commit: string },
 ) {
   return page.route("**/api/update-check", (r) => {
     if (mode === "fail") {
@@ -80,6 +82,7 @@ export function stubUpdateNotice(
           notes: "",
           notes_url: "",
           download_url: "",
+          ...(build ? { build } : {}),
         },
       });
     }
@@ -91,6 +94,7 @@ export function stubUpdateNotice(
         notes: "提升章纲 AI 起草的稳定性，修复若干问题",
         notes_url: "https://www.awesomenovel.com/download/v0.13/notes.html",
         download_url: "https://www.awesomenovel.com",
+        ...(build ? { build } : {}),
       },
     });
   });

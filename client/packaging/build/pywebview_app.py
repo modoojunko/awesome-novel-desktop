@@ -155,6 +155,11 @@ def start_server():
         _env_with_release("CLIENT_UPDATE_URL_FALLBACK", "client_update_url_fallback",
             os.environ.get("AI_NOVEL_CLIENT_UPDATE_URL_FALLBACK",
                 "https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download/latest.json"))
+        # c-version-build-info：构建信息（仅非 tag 构建烘入，缺省空串——空即 dev 态
+        # 由 build_info 落 git 读取或 None）。依赖 config.RELEASE_OVERRIDE_KEYS
+        # 白名单含 client_build_branch/client_build_commit，两处须同批改。
+        _env_with_release("CLIENT_BUILD_BRANCH", "client_build_branch", "")
+        _env_with_release("CLIENT_BUILD_COMMIT", "client_build_commit", "")
 
         frontend_dist = res_root / "frontend"
         if frontend_dist.exists():

@@ -26,6 +26,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from build_info import get_build_info
 from config import DATA_ROOT
 from schema_version import app_version, is_newer, is_valid_version
 
@@ -219,6 +220,9 @@ async def get_update_state() -> dict:
         "notes": cached.get("notes") or "",
         "notes_url": notes_url if has_update else "",
         "download_url": download_url if has_update else "",
+        # c-version-build-info：与 _payload 同批装配，两条返回路径 shape 一致
+        # （tag 构建 get_build_info 自回 None——dev 总闸）
+        "build": get_build_info(current),
     }
 
 
@@ -230,6 +234,7 @@ def _payload(*, current: str, latest: str | None) -> dict:
         "notes": "",
         "notes_url": "",
         "download_url": "",
+        "build": get_build_info(current),
     }
 
 

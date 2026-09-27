@@ -76,6 +76,16 @@ test.describe("底部状态条", () => {
     await expect(bar).not.toContainText("vdev");
   });
 
+  test("dev 构建＋构建信息：呈 {分支}@{commit前5位}，不出现「开发版 dev」（c-version-build-info）", async ({ page }) => {
+    await stubShell(page);
+    await stubUpdateNotice(page, "none", "dev", { branch: "main", commit: "f456e" });
+    await page.goto("/#/novels");
+    const bar = page.locator('[data-od-id="app-status-bar"]');
+    await expect(bar).toContainText("main@f456e");
+    await expect(bar).not.toContainText("开发版 dev");
+    await expect(bar).not.toContainText("vdev");
+  });
+
   test("获取失败：静默显「版本未知」，无错误 toast", async ({ page }) => {
     await stubShell(page);
     await stubUpdateNotice(page, "fail");

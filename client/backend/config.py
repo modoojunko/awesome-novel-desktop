@@ -43,6 +43,11 @@ RELEASE_OVERRIDE_KEYS = (
     "client_version",
     "client_update_url",
     "client_update_url_fallback",
+    # c-version-build-info：构建信息（分支/commit 短串，只读值，build_info 模块消费；
+    # 仅非 tag 构建烘入）。**白名单必含**——load_release_overrides 只返回本元组内的键，
+    # 漏登记则打包链静默断链（评审 P0）
+    "client_build_branch",
+    "client_build_commit",
 )
 
 

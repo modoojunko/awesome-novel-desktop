@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+import build_info as bi
 import update_check as uc
 
 MAIN_URL = "https://www.awesomenovel.com/download/latest.json"
@@ -13,11 +14,19 @@ FALLBACK_URL = "https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp
 
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch, tmp_path):
-    """每用例独立：无版本 env（默认 dev 态）+ 干净状态文件。"""
+    """每用例独立：无版本 env（默认 dev 态）+ 干净状态文件 + 构建信息隔离。
+
+    build_info 缓存复位为 None（读过且没有）：pytest 进程非 frozen 且仓库有
+    .git，不复位则先跑的用例会把真实 git 信息带进后面用例（顺序依赖假绿假红）；
+    构建信息专项用例在各自测试体内再覆盖打桩。
+    """
     monkeypatch.delenv("CLIENT_VERSION", raising=False)
     monkeypatch.delenv("CLIENT_UPDATE_URL", raising=False)
     monkeypatch.delenv("CLIENT_UPDATE_URL_FALLBACK", raising=False)
+    monkeypatch.delenv("CLIENT_BUILD_BRANCH", raising=False)
+    monkeypatch.delenv("CLIENT_BUILD_COMMIT", raising=False)
     monkeypatch.setattr(uc, "_state_path", tmp_path / "update-check.json")
+    monkeypatch.setattr(bi, "_git_build", None)
     yield
 
 
@@ -29,7 +38,7 @@ def _run(coro):
 
 
 def test_dev_env_reports_dev_and_skips(monkeypatch):
-    """无烘焙（本地开发）→ 版本 dev、不外呼。"""
+    """无烘焙（本地开发）→ 版本 dev、不外呼；构建信息缺省为 None。"""
     calls = []
 
     async def fake_fetch():
@@ -39,7 +48,7 @@ def test_dev_env_reports_dev_and_skips(monkeypatch):
     monkeypatch.setattr(uc, "_fetch_latest", fake_fetch)
     st = _run(uc.get_update_state())
     assert st == {"current": "dev", "latest": None, "has_update": False,
-                  "notes": "", "notes_url": "", "download_url": ""}
+                  "notes": "", "notes_url": "", "download_url": "", "build": None}
     assert calls == []  # dev 跳过，零外呼
 
 
@@ -281,6 +290,27 @@ def test_endpoint_get_dev():
         assert r.status_code == 200
         assert r.json()["current"] == "dev"
         assert r.json()["has_update"] is False
+        assert r.json()["build"] is None  # fixture 缓存复位为 None
+
+
+def test_endpoint_dev_with_build(monkeypatch):
+    """dev 态端点带出构建信息（_payload 路径）。"""
+    monkeypatch.setattr(bi, "_git_build", ("main", "f456e"))
+    with _client() as c:
+        r = c.get("/api/update-check")
+        assert r.json()["build"] == {"branch": "main", "commit": "f456e"}
+
+
+def test_endpoint_tag_build_with_stray_env(monkeypatch):
+    """tag 态（真实版本）即使环境残留构建信息 env，载荷 build 仍为 None（dev 总闸）。"""
+    monkeypatch.setenv("CLIENT_VERSION", "0.24")
+    monkeypatch.setenv("CLIENT_BUILD_BRANCH", "main")
+    monkeypatch.setenv("CLIENT_BUILD_COMMIT", "f456e")
+    monkeypatch.setattr(uc, "_fetch_latest", _async_returns({"latest": "0.24", "notes": ""}))
+    with _client() as c:
+        r = c.get("/api/update-check")
+        assert r.json()["current"] == "0.24"
+        assert r.json()["build"] is None
 
 
 def test_endpoint_dismiss_roundtrip():

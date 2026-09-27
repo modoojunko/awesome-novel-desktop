@@ -5,7 +5,10 @@
 判据（缺失/不一致即非零退出，流水线转红）：
 1. 既有三键（S端 地址、版本、检测地址）形态不变；
 2. **组件清单 `components` 必须存在**，且 `db_filename` 与后端单源逐字一致；
-3. `backup_format_version` 等于后端单源当前值。
+3. `backup_format_version` 等于后端单源当前值；
+4. c-version-build-info：`client_build_branch`/`client_build_commit` **可选键**
+   （tag 构建/旧产物不烘），存在则校验形态——分支安全字符集＋≤40、commit
+   `[0-9a-f]{5,40}`（`--short=5` 是「至少 5 位」语义，宽容到 40）。
 
 脚本化而非 workflow 内联：断言逻辑可被测试直接驱动（正/负例），避免「CI 里那条
 断言其实没人跑过」。
@@ -13,6 +16,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -36,6 +40,13 @@ def check_release_json(path: str | Path) -> dict:
         "components.db_filename 与后端单源不一致", comp, version)
     assert comp.get("backup_format_version") == FORMAT_VERSION, (
         "components.backup_format_version 与后端单源不一致", comp, FORMAT_VERSION)
+    branch = data.get("client_build_branch")
+    commit = data.get("client_build_commit")
+    if branch is not None or commit is not None:  # 可选键：缺省容忍，存在则成对校验
+        assert isinstance(branch, str) and branch and len(branch) <= 40 \
+            and re.fullmatch(r"[A-Za-z0-9._-]+", branch), ("client_build_branch 形态非法", branch)
+        assert isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{5,40}", commit), (
+            "client_build_commit 形态非法", commit)
     return data
 
 

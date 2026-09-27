@@ -1236,6 +1236,19 @@ cast-row，坎行复用 hurdle-row；色彩与组件零新形态。
   本次原型与实现同批收缩，不新增偏差；`design:check` 基线不受影响（无新增/改名共享类）。
 - **文案自查（design-language §13）**：无新增文案；「碰到的挑战／阶段」沿用拆章页签既有措辞。
 
+## c-version-build-info（右下角版本展示到构建粒度）— 2026-09-26
+
+原型 `list.html`/`book.html`（状态条所在两屏；preview/model-config 状态条同源，不另注）：
+
+- **版本文案口径扩展**：正式构建显示「v{X.Y.Z}」（原型既有示例形态，不动）；dev 构建显示「{分支}@{commit前5位}」
+  （如 `main@f456e`，`.sb-ver` muted 等宽小字同款槽位）；构建信息缺失时降级「开发版 dev」；获取失败「版本未知」。
+- **原型不改可见文本**：版本行示例值保持正式版形态（v0.19/v0.11），dev 形态属实现态动态文案——以 HTML 注释
+  登记在两屏状态条 footer 前，避免改可见文本引起 parity 基线漂移。
+- **无样式/类名变化**：不触碰 .statusbar/.sb-ver 定义，不新增共享类，design:check 基线不受影响。
+- **依据**：`openspec/changes/c-version-build-info/proposal.md`（报障/验证需从界面确认具体构建）
+  与 `specs/client-update` delta（dev 构建文案 scenario）。
+- **文案自查（design-language §13）**：纯状态文本无按钮无语气词；`{分支}@{commit}` 为技术标识非用户话术，与「v0.19」同性质。
+
 ## c-og-rail-declutter（章工作台收敛：章纲统计上移头部＋排版 seg/版本历史/归档迁位）— 2026-09-27
 
 用户拍板（产品口径直接落实现；`book.html` 原型侧待下次原型同批更新）：
