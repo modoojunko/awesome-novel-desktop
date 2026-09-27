@@ -712,7 +712,8 @@ class TestArcMaterial:
         assert "在 note 里点一句" in prompt
         assert "结局想更苦" in prompt
 
-    def test_check_tone_do_not_assemble_material(self, client, stub_ai, monkeypatch):
+    def test_check_assembles_material_tone_does_not(self, client, stub_ai, monkeypatch):
+        """体检＝校验型拿设定全量（c-arc-check-against-settings）；基调维持轻量。"""
         pid = _create_project(client)
         client.put(f"/api/novels/{pid}/story", json={"synopsis": "有简介"})
         client.put(f"/api/novels/{pid}/story/arc", json=ARC_FULL)
@@ -720,22 +721,65 @@ class TestArcMaterial:
 
         import settings.ai_router as air
 
-        async def _boom(db, project):
-            raise AssertionError("体检/基调不得组装设定素材")
+        calls: list[str] = []
+        orig = air._arc_material
 
-        monkeypatch.setattr(air, "_arc_material", _boom)
+        async def _spy(db, project):
+            calls.append("arc_material")
+            return await orig(db, project)
+
+        monkeypatch.setattr(air, "_arc_material", _spy)
 
         check_fake = stub_ai('{"checks": [], "summary": "ok"}')
         r = client.post(f"/api/novels/{pid}/settings/ai/arc/check", json={})
         assert r.status_code == 200, r.text
+        assert calls == ["arc_material"], "体检必须组装设定素材（裁判手里的法典必须全）"
         cp = check_fake.calls[0]["messages"][0]["content"]
-        assert "【人物档案】" not in cp and _ARC_RED_LINE not in cp
+        assert "【人物档案】" in cp and "血族议会" in cp and _ARC_RED_LINE in cp
 
         tone_fake = stub_ai('{"tone": "苦尽甘来"}')
         r2 = client.post(f"/api/novels/{pid}/settings/ai/arc/tone", json={})
         assert r2.status_code == 200, r2.text
+        assert calls == ["arc_material"], "基调不得组装设定素材"
         tp = tone_fake.calls[0]["messages"][0]["content"]
-        assert "【人物档案】" not in tp and _FACTION_NOTE not in tp
+        assert "【世界观】" not in tp and "【人物档案】" not in tp and _FACTION_NOTE not in tp
+
+    def test_check_prompt_five_lines_and_empty_fallback(self, client, stub_ai):
+        """体检五条判据 name 逐字（含第五条）＋空设定降级文案与占位。"""
+        from prompts import load
+
+        text = load("arc_check")
+        for name in ("故事连贯", "开头接结局", "三问对得上", "和简介一个方向", "和世界/人物对得上"):
+            assert f'"{name}"' in text, f"体检模板缺判据 {name}"
+        assert "先补再查更准" in text
+        assert "世界铁律·" in text  # 第五条口径引红线前缀
+
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "只有简介"})
+        client.put(f"/api/novels/{pid}/story/arc", json=ARC_FULL)
+        fake = stub_ai('{"checks": [], "summary": "ok"}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/check", json={})
+        assert r.status_code == 200, r.text
+        cp = fake.calls[0]["messages"][0]["content"]
+        assert "（世界设定：未填——不要为它补写，也不要在产出里提到它）" in cp
+        assert "（角色表：无——需要人物处用通称）" in cp
+        assert cp.rstrip().splitlines()[-1].startswith("只输出 JSON")
+
+    def test_templates_scope(self):
+        """模板占位面：draft/calibrate/check 吃设定素材、tone 不吃；check 不给写作约束片段；旧口径句已删。"""
+        from prompts import load
+
+        check = load("arc_check")
+        for key in ("{world}", "{cast}", "{genre_section}"):
+            assert key in check, f"体检模板应引用 {key}"
+        assert "{hard_rules}" not in check, "体检只判断不创作，不给写作约束片段"
+
+        for name in ("arc_tone",):
+            text = load(name)
+            for key in ("{world}", "{cast}", "{genre_section}", "{hard_rules}"):
+                assert key not in text, f"{name} 不应出现 {key}"
+
+        assert "不要发明与它们冲突的新设定" not in load("arc_draft")
 
     def test_material_same_source_as_volume_pack(self, client):
         """同源（design Goal）：arc 的世界块/题材段与拆卷素材逐字同一零件。"""
@@ -756,12 +800,3 @@ class TestArcMaterial:
         assert arc_mat["world"] == vol_mat["world_brief"]
         assert arc_mat["genre_section"] == vol_mat["genre_section"]
 
-    def test_templates_scope(self):
-        """check/tone 模板零新占位符；draft 的旧口径句已删（防两条口径并存）。"""
-        from prompts import load
-
-        for name in ("arc_check", "arc_tone"):
-            text = load(name)
-            for key in ("{world}", "{cast}", "{genre_section}", "{hard_rules}"):
-                assert key not in text, f"{name} 不应出现 {key}"
-        assert "不要发明与它们冲突的新设定" not in load("arc_draft")

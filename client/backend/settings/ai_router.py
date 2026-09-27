@@ -971,6 +971,7 @@ _ARC_ACTIONS: dict[str, str] = {
 # c-arc-draft-material：起草/校准素材口径（用户 2026-09-27 拍板「填了的都原封不动」）。
 # 素材只含简介/题材/世界/人物四件套——已拆卷/伏笔/文风/人物关系 SHALL NOT 进包。
 # 人物：档案八格＋人设原文全量；认知六层只给主角与反派（全给会让单次请求数量级膨胀）。
+# c-arc-check-against-settings：体检（校验型）同取本素材——第五条判据要拿设定当法典对照。
 _ARC_CAST_DEPTH_ROLES = ("主角", "反派")
 _ARC_RULES_PROMPT = "arc_hard_rules"
 # 空设定＝面向模型的指令式占位（名词短语会被当内容复述或诱发元评论）
@@ -1099,8 +1100,9 @@ async def run_arc_ai(
         raise HTTPException(404, "Project not found")
 
     arc, ctx = await _arc_context(project)
-    if action in ("draft", "calibrate"):
-        # 设定素材只对起草/校准组装：体检/基调维持轻量（c-arc-draft-material）
+    if action in ("draft", "calibrate", "check"):
+        # 设定素材：起草/校准（生成型）与体检（校验型＝裁判手里的法典必须全）同源；
+        # 行内基调维持轻量（单格建议不需要法典）——c-arc-check-against-settings
         ctx.update(await _arc_material(db, project))
     author_input = str(body.get("input", "") or "").strip()
     # 素材门槛按行语义（2026-09-13 实测修正：draft 的主输入是「简介」——
