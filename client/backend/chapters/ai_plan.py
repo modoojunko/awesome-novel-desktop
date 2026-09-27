@@ -175,7 +175,8 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
         key=lambda c: c.chapter_no,
     )
     done = [
-        f"第{c.chapter_no}章 {c.title or ''}｜{(c.summary or '').strip()[:40]}｜{c.plot_stage or '（未定阶段）'}"
+        # c-ai-material-audit：章纲 summary 列宽 300，旧 [:40] 把"已拆过什么"切没了
+        f"第{c.chapter_no}章 {c.title or ''}｜{(c.summary or '').strip()}｜{c.plot_stage or '（未定阶段）'}"
         for c in rows
     ]
     target = vol.chapter_target or 0
@@ -282,7 +283,8 @@ def _blocks_chapter(mat: dict) -> str:
     if mat["vol_outline"]:
         parts.append(f"【本卷卷纲（四问）】\n{mat['vol_outline']}")
     if mat["done_chapters"]:
-        parts.append("【已经拆过的章】\n" + "\n".join(mat["done_chapters"][-12:]))
+        # c-ai-material-audit：全卷给全（旧 [-12:] 让拆第 20 章时看不见前 8 章）
+        parts.append("【已经拆过的章】\n" + "\n".join(mat["done_chapters"]))
     # 配额：末章 / 已排满 / 还剩 N 章 / 未设目标——四态分明（「已排满」不得报成「未设」）
     if mat["is_final"]:
         quota = "本章是本卷末章——三个方向的结尾都必须收在卷纲第四问「预期结局」上。"

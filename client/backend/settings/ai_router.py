@@ -549,7 +549,7 @@ async def _world_context(project, story: dict) -> dict:
         "synopsis": _clamp_str(story.get("synopsis"), 600),
         "theme": theme_label,
         "theme_desc": theme_desc,
-        "world": world_summary_text(world_raw, 1200) or "（世界设定还空着）",
+        "world": world_summary_text(world_raw, None) or "（世界设定还空着）",
     }
 
 
@@ -776,7 +776,7 @@ async def check_world_consistency(
         synopsis=_clamp_str(synopsis, 600) or "（未填写）",
         theme=theme_label or "（未确认）",
         theme_desc=theme_desc or "（无）",
-        world=world_summary_text(world_raw, 1200) or "（未填写）",
+        world=world_summary_text(world_raw, None) or "（未填写）",
         items=" / ".join(item_names),
         mode_line="本书为现实向：没有超自然力量，用物理与法律规则判断" if no_power else "",
     )
@@ -897,7 +897,7 @@ async def lore_suggest_world(
     world_raw = await get_storage().read_yaml(project.root_path, "settings/world-setting.yaml") or {}
     prompt = load_prompt("world_lore_suggest").format(
         chapter=chapter_text,
-        world=world_summary_text(world_raw, 1200) or "（世界设定还空着）",
+        world=world_summary_text(world_raw, None) or "（世界设定还空着）",
     )
 
     client = await get_ai_client_for_novel(project_id)
@@ -1241,8 +1241,9 @@ async def _hooks_draft_context(project) -> dict:
         "synopsis": _clamp_str(story.get("synopsis"), 600),
         "theme": theme_label or "（未确认）",
         "theme_desc": theme_desc or "",
-        "world": world_summary_text(world_raw, 1200) or "（世界设定还空着）",
-        "fullstory": _clamp_str(arc["fullstory"], 600) or "（未填）",
+        "world": world_summary_text(world_raw, None) or "（世界设定还空着）",
+        # c-ai-material-audit：伏笔链曾把主线切到 600（写入上限 2000）——埋点/收束要按全量判
+        "fullstory": arc["fullstory"] or "（未填）",
     }
 
 
@@ -1485,7 +1486,7 @@ async def run_hooks_ai(
         world_raw = await get_storage().read_yaml(project.root_path, "settings/world-setting.yaml") or {}
         theme_label, theme_desc, _ = _world_theme(story)
         synopsis = _clamp_str(story.get("synopsis"), 600)
-        world_text = world_summary_text(world_raw, 1200)
+        world_text = world_summary_text(world_raw, None)
         synopsis_missing = not synopsis.strip()
         theme_missing = not theme_label
         world_missing = not world_text.strip()

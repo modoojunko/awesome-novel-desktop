@@ -148,8 +148,15 @@ async def _run_async(
     # ⑤ 出场角色状态变化 → kind=char_states（写出场引用行，非提案）
     outline_chars = (chapter.get("outline") or {}).get("characters") or []
     cast = [str(n) for n in outline_chars if str(n).strip()]
+    # c-ai-material-audit：世界要素/设定变化两段原先不带「现有世界设定」——模型没有"之前"
+    # 可比，必然把已有势力/规则当新要素重复提案（对比 /ai/world/lore-suggest 是带的）
+    from filesystem.storage import get_storage
+    from settings.world_model import world_summary_text
 
-    for kind, prompt in _collect_prompts(chapter_ref, chapter, full_text, cast):
+    world_raw = await get_storage().read_yaml(root_path, "settings/world-setting.yaml") or {}
+    world_now = world_summary_text(world_raw, None).strip()
+
+    for kind, prompt in _collect_prompts(chapter_ref, chapter, full_text, cast, world_now):
         if kinds is not None and kind not in kinds:
             continue
         usage: dict = {}
@@ -175,16 +182,22 @@ async def _run_async(
                 await session.commit()
 
 
-def _collect_prompts(chapter_ref: str, chapter: dict, full_text: str, cast: list[str]):
-    """五类收尾的 prompt；正文截 3000 字控制成本。"""
-    body = full_text[:3000]
+def _collect_prompts(
+    chapter_ref: str, chapter: dict, full_text: str, cast: list[str], world_now: str = ""
+):
+    """五类收尾的 prompt；正文全量给（章目标上限 6000，旧 [:3000] 会丢掉章末钩子）。
+
+    set_changes / lore 两段带「现有世界设定」：只提与外面对不上的新要素（防重复提案）。
+    """
+    body = full_text
+    world_block = f"现有世界设定（与之重复的不要提）：\n{world_now}\n\n" if world_now else ""
     cast_s = "、".join(cast) if cast else "（本章无出场角色）"
     yield "set_changes", (
         f"从第 {chapter_ref} 章正文提取新的世界观/设定事实（新增或与之前不同的设定）。"
         f"只列事实，不评论。JSON 数组输出，每条含 key/value/set，"
         f"set 取 history（大事年表）/factions（势力）/extra（更多细节），拿不准用 extra；"
         f'形如 {{"items": [{{"key": "信标", "value": "三百年前留下的导航信标", "set": "extra"}}]}}。'
-        f"\n\n正文：\n{body}"
+        f"\n\n{world_block}正文：\n{body}"
     )
     yield "relations", (
         f"从第 {chapter_ref} 章正文找出角色关系的变化或新关系（出场：{cast_s}）。"
@@ -202,7 +215,7 @@ def _collect_prompts(chapter_ref: str, chapter: dict, full_text: str, cast: list
         f"从第 {chapter_ref} 章正文识别新出现或变化的世界要素（地点/组织/历史/规则）。"
         f"JSON 数组输出，每条含 key/value/set，set 取 history/factions/extra，拿不准用 extra；"
         f'形如 {{"items": [{{"key": "静默带", "value": "一句话", "set": "extra"}}]}}。'
-        f"没有则输出空数组。\n\n正文：\n{body}"
+        f"没有则输出空数组。\n\n{world_block}正文：\n{body}"
     )
     yield "char_states", (
         f"对每个出场角色（{cast_s}），用一句话概括其在本章的状态变化。"

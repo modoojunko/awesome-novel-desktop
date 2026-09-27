@@ -881,3 +881,29 @@ def test_directions_exclude_same_line_different_axis_kept(client, monkeypatch):
     assert r.status_code == 200, r.text
     d = r.json()
     assert len(d["directions"]) == 3  # 同句异轴＝不判撞车，三卡全保留
+
+
+def test_world_rules_block_renders_when_defined(client, monkeypatch):
+    """回归（c-ai-material-audit）：`world_rules` 曾写成 `constraints if isinstance(str)`——
+    v2 契约下 constraints 是 list[dict]，取值恒空 → ⑦【世界铁律】永不渲染、卷体检恒印
+    「（世界设定未登记铁律）」假话，而旧测试因数据为空而恒真。有铁律时必须进块。"""
+    pid = _seed_vol(client, target=6)
+
+    async def _w():
+        from filesystem.storage import get_storage
+
+        session = async_session()
+        proj = await session.get(Novel, pid)
+        root = proj.root_path
+        await session.close()
+        await get_storage().write_yaml(root, "settings/world-setting.yaml", {
+            "stage": "灰港旧街区",
+            "constraints": [{"key": "死者不可复生", "value": "任何力量都不能把人从死亡里拉回来"}],
+        })
+
+    _run_async(_w())
+    fake = _setup_ai(monkeypatch, _directions_reply())
+    r = client.post("/api/novels/%s/volumes/vol-1/chapters/ai-directions" % pid, json={})
+    assert r.status_code == 200, r.text
+    system = fake.calls[-1]["system"]
+    assert "【世界铁律】\n世界铁律·死者不可复生：任何力量都不能把人从死亡里拉回来" in system

@@ -23,7 +23,7 @@ from settings.character_model import (
     WRITE_STATE_KEYS as _WRITE_STATE_KEYS,
 )
 from settings.character_model import (
-    WRITE_STATE_PER_CHAR_MAX as _WRITE_STATE_PER_CHAR_MAX,
+    WRITE_STATE_PER_CELL_MAX as _WRITE_STATE_PER_CELL_MAX,
 )
 from settings.render import (
     quant_section,
@@ -256,7 +256,7 @@ class ChapterContext:
 
         if self.characters:
             lines = []
-            for ch in self.characters[:5]:
+            for ch in self.characters:
                 seg = f"- {ch.get('name', '?')}：{ch.get('state', '')}"
                 speech = ch.get("speech", "")
                 if speech:
@@ -426,7 +426,7 @@ class ChapterContext:
         # Character snapshots
         if self.characters:
             lines.append("## 角色状态")
-            for ch in self.characters[:5]:
+            for ch in self.characters:
                 seg = f"- {ch.get('name', '?')}：{ch.get('state', '')}"
                 speech = ch.get("speech", "")
                 if speech:
@@ -680,7 +680,7 @@ async def build_chapter_context(
     char_names = ctx.chapter_outline.get("characters", [])
     if isinstance(char_names, list) and char_names:
         async with async_session() as session:
-            for name in char_names[:5]:
+            for name in char_names:
                 if not isinstance(name, str):
                     continue
                 ch_row = await _resolve_character_row(session, novel_id, name)
@@ -695,9 +695,14 @@ async def build_chapter_context(
                     continue
                 cog = json.loads(ch_row.cog or "{}")
                 dossier = json.loads(ch_row.dossier or "{}")
-                parts = [str(cog.get(k, "") or "").strip() for k in _WRITE_STATE_KEYS]
+                # c-ai-material-audit：逐格 40 字封顶（旧实现整串切 120——首格写长一点
+                # 就把后五层整段挤掉，人物行为/决策层直接消失）
+                parts = [
+                    str(cog.get(k, "") or "").strip()[:_WRITE_STATE_PER_CELL_MAX]
+                    for k in _WRITE_STATE_KEYS
+                ]
                 parts = [p for p in parts if p]
-                state = "；".join(parts)[:_WRITE_STATE_PER_CHAR_MAX] if parts else ""
+                state = "；".join(parts) if parts else ""
                 ctx.characters.append(
                     {
                         "name": ch_row.name or name,

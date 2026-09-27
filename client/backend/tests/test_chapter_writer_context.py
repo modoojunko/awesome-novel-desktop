@@ -221,11 +221,11 @@ def test_story_engine_terrain_reads_v2_stage():
     assert legacy.get("stage") == "南境修仙界"
 
 
-def test_budgets_characters():
-    """角色 ≤5（原预算测试的遗留半段，拆出防误挂）。"""
+def test_characters_full_roster_no_cap():
+    """c-ai-material-audit：在场者不再封 5 人——第 6 个起也必须在提示词里（旧实现里"根本不存在"）。"""
     prompt = _rich_context().to_prompt()
     assert "角色4" in prompt
-    assert "角色7" not in prompt
+    assert "角色7" in prompt  # 旧断言「角色7 不在」＝5 人上限，已退役
 
 
 def test_no_placeholders_in_prompt_or_material():

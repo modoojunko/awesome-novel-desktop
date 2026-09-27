@@ -34,7 +34,7 @@ from prompt.context import load_active_hooks, render_hooks_block
 from prompts import load as load_prompt
 from repositories import volume_repo
 from settings import character_service
-from settings.world_model import world_summary_text
+from settings.world_model import render_red_lines, world_summary_text
 from volumes.render import volume_outline_text
 from volumes.service import resolve_prev_ending
 
@@ -303,23 +303,24 @@ async def _book_material(
             + ("·" if v.antagonist_type and v.antagonist_line else "")
             + (v.antagonist_line or "")
         ).strip()
-        line = f"卷{v.volume_no}·{v.title}｜{(v.summary or '')[:60]}"
+        line = f"卷{v.volume_no}·{v.title}｜{v.summary or ''}"
         if ant:
-            line += f"｜坎：{ant[:60]}"
+            line += f"｜坎：{ant}"
         if v.ending:
-            line += f"｜卷末：{(v.ending or '')[:60]}"
+            line += f"｜卷末：{v.ending or ''}"
         vol_lines.append(line)
 
     cardless_rows = await _cardless_cast_rows(db, project.id, card_names)
     known |= {r["name"] for r in cardless_rows}
 
     hooks_view = await load_active_hooks(project.id)
-    constraints = world_raw.get("constraints")
     return {
         "fullstory": arc["fullstory"],
         "ending": arc["ending"],
         "world_brief": world_summary_text(world_raw, None),
-        "world_rules": constraints if isinstance(constraints, str) else "",
+        # c-ai-material-audit：v2 契约下 constraints 是 list[dict]，旧写法 isinstance(str) 恒假
+        # → 拆章 ⑦【世界铁律】永不渲染、卷体检恒印假话「未登记铁律」。走红线单源同口径。
+        "world_rules": "\n".join(render_red_lines(world_raw)),
         "cast_brief": cast_brief,
         "card_names": card_names,
         "volumes_brief": "\n".join(vol_lines),
@@ -867,6 +868,8 @@ async def ai_volume_check(
         fullstory=mat["fullstory"],
         world=mat["world_brief"] or "（世界设定还空着）",
         scene=mat["ending"].get("scene", ""),
+        hero=mat["ending"].get("hero", ""),
+        tone=mat["ending"].get("tone", ""),
         rules=mat["world_rules"] or "（世界设定未登记铁律）",
         cast=mat["cast_brief"],
         hooks=mat["hooks_block"] or "（还没有登记伏笔）",

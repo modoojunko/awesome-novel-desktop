@@ -75,7 +75,7 @@ async def archive_chapter(
                     messages=[
                         {
                             "role": "user",
-                            "content": f"用200字以内总结本章核心事件，只陈述事实不评论：\n\n{full_text[:3000]}",
+                            "content": f"用200字以内总结本章核心事件，只陈述事实不评论：\n\n{full_text}",
                         }
                     ],
                     max_tokens=200,

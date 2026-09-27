@@ -219,7 +219,7 @@ async def fill_outline_gaps(
     if not chapter:
         raise HTTPException(404, "Chapter not found")
 
-    material = _material_from_ctx(ctx, chapter)
+    material = await _material_from_ctx(db, project, ctx, chapter)
     system = load_prompt("outline_fill_gaps").format(
         missing="、".join(missing), material=material
     )
@@ -275,8 +275,33 @@ async def fill_outline_gaps(
     return {"ok": True, "fills": fills}
 
 
-def _material_from_ctx(ctx, chapter: dict) -> str:
+async def _setting_blocks(db, project, ctx) -> list[str]:
+    """设定素材块（c-ai-material-audit）：世界观全量（含铁律红线）＋题材全字段＋全人物一行卡。
+
+    口径＝《提示词素材给量》逐环节表「章纲起草：世界观全部＋全人物一行卡＋卷纲」；
+    零件与拆卷/主线同源（`world_summary_text(raw, None)`）。一行卡取人设原文全文不截断。
+    """
+    from settings.character_service import _display_name, list_characters
+    from settings.world_model import world_summary_text
+
     blocks: list[str] = []
+    world = world_summary_text(ctx.world_setting or {}, None).strip()
+    blocks.append("【世界观】\n" + (world or "（世界设定：未填）"))
+    blocks.append("【题材与节奏】\n" + (ctx.genre_section or "（题材：未填）"))
+    chars = await list_characters(db, project.id)
+    items = list(chars.get("items", []))
+    items.sort(key=lambda it: 0 if it.get("role") == "主角" else 1)
+    lines = [
+        f"- {_display_name(str(it.get('name') or ''))}（{it.get('role') or ''}）："
+        f"{str(it.get('persona') or '').strip()}"
+        for it in items
+    ]
+    blocks.append("【人物】\n" + ("\n".join(lines) if lines else "（角色表：无）"))
+    return blocks
+
+
+async def _material_from_ctx(db, project, ctx, chapter: dict) -> str:
+    blocks: list[str] = await _setting_blocks(db, project, ctx)
     if ctx.story_arc:
         blocks.append("【全书主线】\n" + ctx.story_arc)
     if ctx.volume_outline:
@@ -322,6 +347,7 @@ async def ai_draft_outline(
 
     blocks = [f"# 《{project.name}》章纲起草素材包"]
     blocks.append(f"【主线卡】\n{arc_md}")
+    blocks.extend(await _setting_blocks(db, project, ctx))
     prev = ctx.previous_context or ctx.previous_chapter_recap
     if prev and prev != _CH1_PREVIOUS:
         blocks.append(f"【前情（上一章结尾处境）】\n{prev}")
@@ -337,12 +363,12 @@ async def ai_draft_outline(
             "【角色初始状态】\n"
             + "\n".join(
                 f"- {c.get('name', '?')}：{c.get('state', '')}"
-                for c in ctx.characters[:5]
+                for c in ctx.characters
             )
         )
     if ctx.hooks:
         hook_lines = []
-        for h in ctx.hooks[:8]:
+        for h in ctx.hooks:
             code = h.get("code") or ""
             prefix = f"[{code}] " if code else ""
             hook_lines.append(f"- {prefix}{h.get('description', '?')}")

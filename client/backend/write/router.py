@@ -499,7 +499,9 @@ async def refine_write_prompt(
         raise HTTPException(409, "本章还没有可修订的提示词")
 
     system = load_prompt("prompt_refine").format(
-        instruction=_REFINE_MODES[mode], current_prompt=current[:12000]
+        # c-ai-material-audit：旧 `[:12000]` 会把组装稿尾部（世界观/红线/角色/伏笔）静默切掉，
+        # 精修产物再回写覆盖整章提示词＝作者填的内容被吃掉。组装稿本身有上限，不在此再截。
+        instruction=_REFINE_MODES[mode], current_prompt=current
     )
     client = await get_ai_client_for_novel(project.id)
     usage: dict = {}

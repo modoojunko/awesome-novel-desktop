@@ -47,9 +47,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/novels/{project_id}/settings", tags=["characters-ai"])
 
-_CARD_MAX = 2000
-_ROSTER_MAX = 12
-
+# c-ai-material-audit：卡文本曾 `json.dumps(...)[:2000]` 尾部硬切（切掉的恰是认知六层
+# 后段，而体检判据靠上下三层对照）、名册曾 12 人封顶——两处上限均已退役，改全量给。
+# 单卡上限仍受 DB 列宽约束（persona 300＋档案八格＋认知 30 格），无需拼装层再切。
 
 def _clamp(v, n: int) -> str:
     return str(v or "")[:n]
@@ -76,21 +76,22 @@ def _theme_of(story: dict) -> tuple[str, str]:
     return str(story.get("genre") or ""), str(story.get("genre_desc") or "")
 
 
-async def _world_summary(root_path: str, limit: int = 1200) -> str:
+async def _world_summary(root_path: str) -> str:
+    """世界素材（c-ai-material-audit）：与拆卷/主线同零件（world_summary_text(raw, None)）。
+
+    旧实现只读 stage/power/cost ＋ `factions[*].value`——v2 势力是 `{name, note}`，
+    `value` 恒不存在 → 势力清单恒空；且不读铁律/history/extra 并按 limit 截断。
+    """
+    from settings.world_model import world_summary_text
+
     raw = await get_storage().read_yaml(root_path, "settings/world-setting.yaml") or {}
     if not raw:
         return ""
-    lines = []
-    for key in ("stage", "power", "cost"):
-        if str(raw.get(key) or "").strip():
-            lines.append(f"{key}：{raw[key]}")
-    for entry in raw.get("factions") or []:
-        if isinstance(entry, dict) and str(entry.get("value") or "").strip():
-            lines.append(f"势力：{entry['value']}")
-    return "\n".join(lines)[:limit]
+    return world_summary_text(raw, None).strip()
 
 
-async def _story_arc_text(root_path: str, limit: int = 600) -> str:
+async def _story_arc_text(root_path: str, limit: int | None = None) -> str:
+    """主线全文（c-ai-material-audit：不再切 600——写入上限 2000，A 类全量给）。"""
     story = await get_storage().read_yaml(root_path, "story.yaml") or {}
     arc = story.get("story_arc")
     if not isinstance(arc, dict):
@@ -100,10 +101,12 @@ async def _story_arc_text(root_path: str, limit: int = 600) -> str:
         ending = arc.get("ending")
         if isinstance(ending, dict):
             parts = [str(v or "") for v in ending.values() if str(v or "").strip()]
-    return "\n".join(parts)[:limit]
+    text = "\n".join(parts)
+    return text[:limit] if limit else text
 
 
 async def _roster_text(db: AsyncSession, novel_id: str, exclude_id: str) -> str:
+    """同事名册（c-ai-material-audit：12 人封顶退役——真书几十号人只给前 12 会误报"没这个人"）。"""
     cards = (
         await db.scalars(
             select(Character).where(Character.novel_id == novel_id).order_by(Character.seq)
@@ -111,7 +114,7 @@ async def _roster_text(db: AsyncSession, novel_id: str, exclude_id: str) -> str:
     ).all()
     lines = [
         f"{c.name}（{c.role}）：{c.persona}"
-        for c in cards[:_ROSTER_MAX] if c.id != exclude_id and (c.name or c.persona)
+        for c in cards if c.id != exclude_id and (c.name or c.persona)
     ]
     return "\n".join(lines)
 
@@ -144,7 +147,7 @@ async def draft_character(
 
     story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
     theme_label, _theme_desc = _theme_of(story)
-    world = await _world_summary(project.root_path, 400 if target != "cog" else 1200)
+    world = await _world_summary(project.root_path)
     story_arc = await _story_arc_text(project.root_path) if target in ("cog", "check") else ""
     cog = cog or {}
 
@@ -289,13 +292,19 @@ async def check_character(
 
     story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
     theme_label, theme_desc = _theme_of(story)
+    world_raw = await get_storage().read_yaml(project.root_path, "settings/world-setting.yaml") or {}
     world = await _world_summary(project.root_path)
     story_arc = await _story_arc_text(project.root_path)
     roster = await _roster_text(db, project_id, ch.id)
 
     synopsis = str(story.get("synopsis") or "")
     world_raw_filled = bool(world.strip())
-    no_power = "power：" not in world  # 世界没写力量体系 → 现实向项名
+    # c-ai-material-audit：旧判据 `"power：" not in world` 依赖渲染文本里的小写键名——
+    # 世界块改中文标签（「- 力量体系：…」）后该串不存在，会误判成现实向。改读结构真值。
+    from settings.world_model import normalize_world
+
+    _w2 = normalize_world(world_raw)
+    no_power = not (str(_w2.get("power") or "").strip() and not _w2.get("no_power"))
     items_spec = check_items(has_power=not no_power and world_raw_filled)
     item_names = [name for name, _goto in items_spec]
     goto_map = dict(items_spec)
@@ -314,7 +323,7 @@ async def check_character(
     card_text = json.dumps(
         {k: card_view[k] for k in ("name", "role", "persona", "dossier", "cog")},
         ensure_ascii=False,
-    )[:_CARD_MAX]
+    )
 
     def _miss_row(name: str, note: str) -> dict:
         return {"name": name, "status": "miss", "note": note, "goto": goto_map.get(name, "")}
@@ -475,7 +484,7 @@ async def bootstrap_protagonist(
         raise HTTPException(400, "简介还没写——先去 01 简介写几句，再来立主角")
 
     theme_label, _theme_desc = _theme_of(story)
-    world = await _world_summary(project.root_path, 600)
+    world = await _world_summary(project.root_path)
 
     dossier = json.loads(ch.dossier or "{}") if ch is not None else {}
     cog_bucket = json.loads(ch.cog or "{}") if ch is not None else {}
