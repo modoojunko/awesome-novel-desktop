@@ -968,9 +968,22 @@ _ARC_ACTIONS: dict[str, str] = {
     "tone": "arc_tone",
 }
 
+# c-arc-draft-material：起草/校准素材口径（用户 2026-09-27 拍板「填了的都原封不动」）。
+# 素材只含简介/题材/世界/人物四件套——已拆卷/伏笔/文风/人物关系 SHALL NOT 进包。
+# 人物：档案八格＋人设原文全量；认知六层只给主角与反派（全给会让单次请求数量级膨胀）。
+_ARC_CAST_DEPTH_ROLES = ("主角", "反派")
+_ARC_RULES_PROMPT = "arc_hard_rules"
+# 空设定＝面向模型的指令式占位（名词短语会被当内容复述或诱发元评论）
+_ARC_WORLD_EMPTY = "（世界设定：未填——不要为它补写，也不要在产出里提到它）"
+_ARC_CAST_EMPTY = "（角色表：无——需要人物处用通称）"
+
 
 async def _arc_context(project) -> tuple[dict, dict]:
-    """主线上下文：arc 归一形状 + 轻量他项输入（题材/简介；世界/角色由 prompt 引导 AI 概括，避免超长）。"""
+    """主线轻量上下文：arc 归一形状 + 书名/简介/题材锚（题材目录解读，非本书设定）。
+
+    本书的世界/人物/题材全字段由 `_arc_material` 对起草/校准单独组装（c-arc-draft-material）——
+    体检/基调维持本函数的轻量输入，不为此多查人物表与题材解析。
+    """
     story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
     from novels.router import _arc_normalize
 
@@ -983,6 +996,85 @@ async def _arc_context(project) -> tuple[dict, dict]:
         "theme_desc": theme_desc or "",
     }
     return arc, ctx
+
+
+def _arc_rules_text() -> str:
+    """硬约束片段（单源，draft/calibrate 共用）；剥掉文件头 `## ` 版本注释行（不入提示词）。"""
+    lines = load_prompt(_ARC_RULES_PROMPT).splitlines()
+    i = 0
+    while i < len(lines) and lines[i].lstrip().startswith("##"):
+        i += 1
+    return "\n".join(lines[i:]).strip()
+
+
+def _cast_block(items: list[dict]) -> str:
+    """全人物档案原文块：名字（别名）＋类型＋人设原文＋档案八格原文（只列已填格）；
+    认知六层逐格原文只给主角与反派。空名占位卡按展示口径显示「未命名」。
+
+    不复用 volumes 的 cast_brief：那条 `persona[:80]` 截断，达不到「原封不动」。
+    """
+    from settings.character_model import COG_LAYERS, DOSSIER_FIELDS
+    from settings.character_service import _display_name
+
+    lines: list[str] = []
+    for it in items:
+        name = _display_name(str(it.get("name") or ""))
+        aliases = [str(a).strip() for a in (it.get("aliases") or []) if str(a).strip()]
+        head = f"- {name}（{it.get('role') or ''}"
+        if aliases:
+            head += "｜别名：" + "、".join(aliases)
+        lines.append(head + "）")
+        persona = str(it.get("persona") or "").strip()
+        if persona:
+            lines.append(f"  人设：{persona}")
+        dossier = it.get("dossier") if isinstance(it.get("dossier"), dict) else {}
+        cells = [
+            f"{f['label']}：{str(dossier.get(f['k']) or '').strip()}"
+            for f in DOSSIER_FIELDS
+            if str(dossier.get(f["k"]) or "").strip()
+        ]
+        if cells:
+            lines.append("  档案：" + "｜".join(cells))
+        if it.get("role") in _ARC_CAST_DEPTH_ROLES:
+            cog = it.get("cog") if isinstance(it.get("cog"), dict) else {}
+            for layer in COG_LAYERS:
+                filled = [
+                    f"{f['label']}：{str(cog.get(f['k']) or '').strip()}"
+                    for f in layer["fields"]
+                    if str(cog.get(f["k"]) or "").strip()
+                ]
+                if filled:
+                    lines.append(f"  认知·{layer['name']}：" + "｜".join(filled))
+    if not lines:
+        return ""
+    lines.append(f"（以上共 {len(items)} 人；只点名与这条主线直接相关的人）")
+    return "\n".join(lines)
+
+
+async def _arc_material(db, project) -> dict:
+    """起草/校准素材（c-arc-draft-material）：世界观全量（含铁律红线，走 world_summary_text
+    同一零件）＋题材全字段＋全人物档案原文＋硬约束片段。
+
+    角色全量、主角置顶；只对 draft/calibrate 组装（spec：体检/基调不因此多跑取数）。
+    """
+    from genres.service import build_genre_section, resolve_genre_context
+    from settings.character_service import list_characters
+    from settings.world_model import world_summary_text
+
+    world_raw = (
+        await get_storage().read_yaml(project.root_path, "settings/world-setting.yaml") or {}
+    )
+    world = world_summary_text(world_raw, None).strip()
+    gctx = await resolve_genre_context(project.root_path, project.id)
+    chars = await list_characters(db, project.id)
+    items = list(chars.get("items", []))
+    items.sort(key=lambda it: 0 if it.get("role") == "主角" else 1)
+    return {
+        "world": world or _ARC_WORLD_EMPTY,
+        "genre_section": build_genre_section(gctx),
+        "cast": _cast_block(items) or _ARC_CAST_EMPTY,
+        "hard_rules": _arc_rules_text(),
+    }
 
 
 @router.post("/ai/arc/{action}")
@@ -1007,6 +1099,9 @@ async def run_arc_ai(
         raise HTTPException(404, "Project not found")
 
     arc, ctx = await _arc_context(project)
+    if action in ("draft", "calibrate"):
+        # 设定素材只对起草/校准组装：体检/基调维持轻量（c-arc-draft-material）
+        ctx.update(await _arc_material(db, project))
     author_input = str(body.get("input", "") or "").strip()
     # 素材门槛按行语义（2026-09-13 实测修正：draft 的主输入是「简介」——
     # 行描述即「把你的简介扩写成完整故事」，此前只认 fullstory 会把有简介的书拦成 400）
