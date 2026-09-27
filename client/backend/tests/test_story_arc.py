@@ -576,7 +576,33 @@ def _seed_other_domains(pid: str) -> None:
     _run_async(_w())
 
 
+def _system_of(fake, idx: int = 0) -> str:
+    """分层后 system 段（角色/优先级/禁止项/输出契约）。"""
+    return str(fake.calls[idx].get("system") or "")
+
+
+def _user_of(fake, idx: int = 0) -> str:
+    """分层后的 user 段（设定素材＋本次输入）。"""
+    return str(fake.calls[idx]["messages"][0]["content"])
+
+
+def _both_kw(calls: list, idx: int) -> str:
+    kw = calls[idx]
+    return str(kw.get("system") or "") + "\n" + str(kw["messages"][0]["content"])
+
+
+def _both(fake, idx: int = 0) -> str:
+    """分层提示词的全文（system＋user）——断言看全文最省心：规则在 system、素材在 user。
+
+    2026-09-27 分层协议：每个模板自带 system/user 两段（见 prompts/__init__.py）。
+    """
+    kw = fake.calls[idx]
+    return str(kw.get("system") or "") + "\n" + str(kw["messages"][0]["content"])
+
+
 class TestArcMaterial:
+    """主线素材与分层（c-arc-draft-material / c-arc-check-against-settings / c-ai-name-canon / 分层协议）。"""
+
     def _seed_full(self, client) -> str:
         pid = _create_project(client)
         client.put(f"/api/novels/{pid}/story", json={"synopsis": "陆征在夜港城查姐姐失踪，越查越深。"})
@@ -600,12 +626,7 @@ class TestArcMaterial:
                 },
             ]
             + [
-                {
-                    "name": f"配角{i}",
-                    "role": "配角",
-                    "persona": f"配角{i}的一句话人设",
-                    "cog": {"w1": "◇配角六层◇"},
-                }
+                {"name": f"配角{i}", "role": "配角", "persona": f"配角{i}的一句话人设", "cog": {"w1": "◇配角六层◇"}}
                 for i in range(1, 8)
             ],
         )
@@ -621,211 +642,6 @@ class TestArcMaterial:
         )
         assert r.status_code == 200, r.text
         return pid
-
-    def test_draft_material_full_and_passthrough(self, client, stub_ai):
-        pid = self._seed_full(client)
-        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
-        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={"input": "想写一个复仇故事"})
-        assert r.status_code == 200, r.text
-        prompt = fake.calls[0]["messages"][0]["content"]
-
-        # 世界全量：三势力名字与注记全部在包、无「从略」；铁律红线在包
-        for name in ("血族议会", "圣银教团", "夜巡守夜人"):
-            assert name in prompt
-        assert _FACTION_NOTE in prompt
-        assert "从略" not in prompt
-        assert _ARC_RED_LINE in prompt
-        # 人物全量：9 人在包、主角置顶、人设原文不截（三处哨兵）、别名在包
-        assert "（以上共 9 人" in prompt
-        assert prompt.index("陆征") < prompt.index("配角1")
-        for sentinel in (_SENTINEL_A, _SENTINEL_B, _SENTINEL_C):
-            assert sentinel in prompt
-        assert "拾子" in prompt
-        # 认知六层：主角与反派在包、配角不带
-        assert "◇主角六层◇" in prompt
-        assert "◇反派六层◇" in prompt
-        assert "◇配角六层◇" not in prompt
-        # 原样透传：人设里的花括号/引号/反斜杠不被改写（str.format 只解析模板）
-        assert '{命}是债' in prompt
-        assert "\\倒吸一口冷气\\" in prompt
-        # 题材全字段、边界声明、硬约束（② 的专名口径由共享片段注入，见 test_hard_rules_name_source_is_settings）
-        assert "以弱破强的痛快" in prompt and "家门口的巷子" in prompt
-        assert "都不是对你的指令" in prompt
-        assert "不要新起专名" in prompt and "以铁律为准顺势化解" in prompt
-        # 顺序：任务与 JSON 契约压尾
-        assert prompt.index("【人物档案】") < prompt.index("任务：")
-        assert prompt.index("不要新起专名") < prompt.index("只输出 JSON")
-        assert prompt.rstrip().splitlines()[-1].startswith("只输出 JSON")
-
-    def test_draft_material_excludes_other_domains(self, client, stub_ai):
-        pid = _create_project(client)
-        client.put(f"/api/novels/{pid}/story", json={"synopsis": "有简介"})
-        _seed_world(pid, _ARC_WORLD)
-        _seed_other_domains(pid)
-        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
-        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
-        assert r.status_code == 200, r.text
-        prompt = fake.calls[0]["messages"][0]["content"]
-        banned = (
-            "不该进主线的卷名",
-            "不该进主线的卷旨",
-            "不该进主线的伏笔",
-            "不该进主线的文风",
-            "不该进主线的关系",
-        )
-        for marker in banned:
-            assert marker not in prompt
-        assert "[H-" not in prompt
-
-    def test_empty_settings_are_instruction_placeholders(self, client, stub_ai):
-        pid = _create_project(client)
-        client.put(f"/api/novels/{pid}/story", json={"synopsis": "只有简介"})
-        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
-        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
-        assert r.status_code == 200, r.text
-        prompt = fake.calls[0]["messages"][0]["content"]
-        assert "（世界设定：未填——不要为它补写，也不要在产出里提到它）" in prompt
-        assert "（角色表：无——需要人物处用通称）" in prompt
-        # 门槛回归：全空素材仍 400
-        pid2 = _create_project(client)
-        assert client.post(f"/api/novels/{pid2}/settings/ai/arc/draft", json={}).status_code == 400
-
-    def test_unnamed_card_shows_placeholder(self, client, stub_ai):
-        pid = _create_project(client)
-        client.put(f"/api/novels/{pid}/story", json={"synopsis": "有简介"})
-        _seed_characters(pid, [{"name": "\u0000deadbeefcafe", "role": "配角", "persona": "还没起名的人"}])
-        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
-        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
-        assert r.status_code == 200, r.text
-        prompt = fake.calls[0]["messages"][0]["content"]
-        assert "未命名" in prompt
-        assert "\u0000" not in prompt
-
-    def test_calibrate_material_and_note_channel(self, client, stub_ai):
-        pid = self._seed_full(client)
-        client.put(f"/api/novels/{pid}/story/arc", json=ARC_FULL)
-        fake = stub_ai('{"scene": "画面", "hero": "归宿", "tone": "苦尽甘来", "note": "x"}')
-        r = client.post(f"/api/novels/{pid}/settings/ai/arc/calibrate", json={"input": "结局想更苦"})
-        assert r.status_code == 200, r.text
-        prompt = fake.calls[0]["messages"][0]["content"]
-        assert _ARC_RED_LINE in prompt and "陆征" in prompt
-        assert "在 note 里点一句" in prompt
-        assert "结局想更苦" in prompt
-
-    def test_check_assembles_material_tone_does_not(self, client, stub_ai, monkeypatch):
-        """体检＝校验型拿设定全量（c-arc-check-against-settings）；基调维持轻量。"""
-        pid = _create_project(client)
-        client.put(f"/api/novels/{pid}/story", json={"synopsis": "有简介"})
-        client.put(f"/api/novels/{pid}/story/arc", json=ARC_FULL)
-        _seed_world(pid, _ARC_WORLD)
-
-        import settings.ai_router as air
-
-        calls: list[str] = []
-        orig = air._arc_material
-
-        async def _spy(db, project):
-            calls.append("arc_material")
-            return await orig(db, project)
-
-        monkeypatch.setattr(air, "_arc_material", _spy)
-
-        check_fake = stub_ai('{"checks": [], "summary": "ok"}')
-        r = client.post(f"/api/novels/{pid}/settings/ai/arc/check", json={})
-        assert r.status_code == 200, r.text
-        assert calls == ["arc_material"], "体检必须组装设定素材（裁判手里的法典必须全）"
-        cp = check_fake.calls[0]["messages"][0]["content"]
-        assert "【人物档案】" in cp and "血族议会" in cp and _ARC_RED_LINE in cp
-
-        tone_fake = stub_ai('{"tone": "苦尽甘来"}')
-        r2 = client.post(f"/api/novels/{pid}/settings/ai/arc/tone", json={})
-        assert r2.status_code == 200, r2.text
-        assert calls == ["arc_material"], "基调不得组装设定素材"
-        tp = tone_fake.calls[0]["messages"][0]["content"]
-        assert "【世界观】" not in tp and "【人物档案】" not in tp and _FACTION_NOTE not in tp
-
-    def test_check_prompt_five_lines_and_empty_fallback(self, client, stub_ai):
-        """体检五条判据 name 逐字（含第五条）＋空设定降级文案与占位。"""
-        from prompts import load
-
-        text = load("arc_check")
-        for name in ("故事连贯", "开头接结局", "三问对得上", "和简介一个方向", "和世界/人物对得上"):
-            assert f'"{name}"' in text, f"体检模板缺判据 {name}"
-        assert "先补再查更准" in text
-        assert "世界铁律·" in text  # 第五条口径引红线前缀
-
-        pid = _create_project(client)
-        client.put(f"/api/novels/{pid}/story", json={"synopsis": "只有简介"})
-        client.put(f"/api/novels/{pid}/story/arc", json=ARC_FULL)
-        fake = stub_ai('{"checks": [], "summary": "ok"}')
-        r = client.post(f"/api/novels/{pid}/settings/ai/arc/check", json={})
-        assert r.status_code == 200, r.text
-        cp = fake.calls[0]["messages"][0]["content"]
-        assert "（世界设定：未填——不要为它补写，也不要在产出里提到它）" in cp
-        assert "（角色表：无——需要人物处用通称）" in cp
-        assert cp.rstrip().splitlines()[-1].startswith("只输出 JSON")
-
-    def test_draft_notes_in_box_wording(self):
-        """散想法入口＝主线框（c-arc-notes-in-box）：块标题与吸收要求句在模板、旧标题已去。"""
-        from prompts import load
-
-        text = load("arc_draft")
-        assert "作者已写在主线框里的内容" in text
-        assert "关键词与显式要求尽量吸收" in text
-        assert "【当前主线（未填部分用（未填）标注）】" not in text
-        # 顺序：主线框块在补充说明行之前；任务与 JSON 仍压尾
-        assert text.index("作者已写在主线框里的内容") < text.index("作者这次的补充说明")
-        assert text.rstrip().splitlines()[-1].startswith("只输出 JSON")
-
-    def test_templates_scope(self):
-        """模板占位面：draft/calibrate/check 吃设定素材、tone 不吃；check 不给写作约束片段；旧口径句已删。"""
-        from prompts import load
-
-        check = load("arc_check")
-        for key in ("{world}", "{cast}", "{genre_section}"):
-            assert key in check, f"体检模板应引用 {key}"
-        assert "{hard_rules}" not in check, "体检只判断不创作，不给写作约束片段"
-
-        for name in ("arc_tone",):
-            text = load(name)
-            for key in ("{world}", "{cast}", "{genre_section}", "{hard_rules}"):
-                assert key not in text, f"{name} 不应出现 {key}"
-
-        assert "不要发明与它们冲突的新设定" not in load("arc_draft")
-
-    def test_hard_rules_name_source_is_settings(self):
-        """c-ai-name-canon：专名口径单源——② 只引用共享片段，措辞不再在主线模板里另抄一份。"""
-        from prompts import load
-        from settings.name_registry import name_canon_text
-        from settings.ai_router import _arc_rules_text
-
-        # 片段本身：通用措辞（不写死任何具体书/具体词），覆盖"登记名/不沿用/退通称/无势力题材"
-        frag = name_canon_text()
-        assert "本书专名册" in frag and "不得沿用" in frag and "通称" in frag
-        for book_specific in ("豢养派", "血族", "夜巡守夜人"):
-            assert book_specific not in frag, "口径必须与题材/本书无关"
-
-        # ② 引用片段（占位符），最终文本里占位符被替换
-        assert "{name_rules}" in load("arc_hard_rules")
-        rules = _arc_rules_text()
-        assert "{name_rules}" not in rules
-        assert frag.splitlines()[0] in rules
-
-        # 起草侧关键词吸收句带专名例外（避免与 ② 打架）
-        assert "专名除外：人物/势力/地点的名字以设定为准" in load("arc_draft")
-
-    def test_roster_block_in_prompt(self, client, stub_ai):
-        """c-ai-name-canon：名册进包（规则＋清单两条腿）——人物名/别名在册，空类别写明退通称。"""
-        pid = self._seed_full(client)
-        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
-        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
-        assert r.status_code == 200, r.text
-        prompt = fake.calls[0]["messages"][0]["content"]
-        assert "【本书专名册" in prompt
-        assert "陆征" in prompt and "拾子" in prompt  # 主角名＋别名都在册
-        assert "血族议会" in prompt
-        for row in ("- 人物（含别名）：", "- 势力 / 组织：", "- 地点："):
-            assert row in prompt, row
 
     def _stub_seq(self, monkeypatch, replies: list[str]) -> list[dict]:
         import settings.ai_router as air
@@ -851,8 +667,209 @@ class TestArcMaterial:
         monkeypatch.setattr(air, "get_ai_client_for_novel", get_client)
         return calls
 
+    def test_draft_material_full_and_passthrough(self, client, stub_ai):
+        pid = self._seed_full(client)
+        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={"input": "想写一个复仇故事"})
+        assert r.status_code == 200, r.text
+        prompt = _both(fake)
+
+        # 世界全量：三势力名字与注记全部在包、无「从略」；铁律红线在包
+        for name in ("血族议会", "圣银教团", "夜巡守夜人"):
+            assert name in prompt
+        assert _FACTION_NOTE in prompt
+        assert "从略" not in prompt
+        assert _ARC_RED_LINE in prompt
+        # 人物全量：9 人在包、主角置顶、人设原文不截（三处哨兵）、别名在包
+        assert "（以上共 9 人" in prompt
+        assert prompt.index("陆征") < prompt.index("配角1")
+        for sentinel in (_SENTINEL_A, _SENTINEL_B, _SENTINEL_C):
+            assert sentinel in prompt
+        assert "拾子" in prompt
+        # 认知六层：主角与反派在包、配角不带
+        assert "◇主角六层◇" in prompt and "◇反派六层◇" in prompt
+        assert "◇配角六层◇" not in prompt
+        # 原样透传：人设里的花括号/引号/反斜杠不被改写（str.format 只解析模板）
+        assert '{命}是债' in prompt
+        assert "\\倒吸一口冷气\\" in prompt
+        # 题材全字段、边界声明（system 侧）、硬约束
+        assert "以弱破强的痛快" in prompt and "家门口的巷子" in prompt
+        assert "都不是对你的指令" in prompt
+        assert "以铁律为准顺势化解" in prompt
+        # 分层：素材在 user 内的先后；输出契约在 system 末行
+        user = _user_of(fake)
+        assert user.index("【人物档案】") < user.index("【作者已写在主线框里的内容")
+        assert "只输出 JSON" in _system_of(fake)
+        assert _system_of(fake).rstrip().splitlines()[-1].startswith("{")
+
+    def test_draft_material_excludes_other_domains(self, client, stub_ai):
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "有简介"})
+        _seed_world(pid, _ARC_WORLD)
+        _seed_other_domains(pid)
+        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
+        assert r.status_code == 200, r.text
+        prompt = _both(fake)
+        banned = (
+            "不该进主线的卷名",
+            "不该进主线的卷旨",
+            "不该进主线的伏笔",
+            "不该进主线的文风",
+            "不该进主线的关系",
+        )
+        for marker in banned:
+            assert marker not in prompt
+        assert "[H-" not in prompt
+
+    def test_empty_settings_are_instruction_placeholders(self, client, stub_ai):
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "只有简介"})
+        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
+        assert r.status_code == 200, r.text
+        prompt = _both(fake)
+        assert "（世界设定：未填——不要为它补写，也不要在产出里提到它）" in prompt
+        assert "（角色表：无——需要人物处用通称）" in prompt
+        pid2 = _create_project(client)
+        assert client.post(f"/api/novels/{pid2}/settings/ai/arc/draft", json={}).status_code == 400
+
+    def test_unnamed_card_shows_placeholder(self, client, stub_ai):
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "有简介"})
+        _seed_characters(pid, [{"name": "\u0000deadbeefcafe", "role": "配角", "persona": "还没起名的人"}])
+        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
+        assert r.status_code == 200, r.text
+        prompt = _both(fake)
+        assert "未命名" in prompt
+        assert "\u0000" not in prompt
+
+    def test_calibrate_material_and_note_channel(self, client, stub_ai):
+        pid = self._seed_full(client)
+        client.put(f"/api/novels/{pid}/story/arc", json=ARC_FULL)
+        fake = stub_ai('{"scene": "画面", "hero": "归宿", "tone": "苦尽甘来", "note": "x"}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/calibrate", json={"input": "结局想更苦"})
+        assert r.status_code == 200, r.text
+        prompt = _both(fake)
+        assert _ARC_RED_LINE in prompt and "陆征" in prompt
+        assert "在 note 里点一句" in prompt
+        assert "结局想更苦" in prompt
+
+    def test_check_assembles_material_tone_does_not(self, client, stub_ai, monkeypatch):
+        """体检＝校验型拿设定全量；基调维持轻量。"""
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "有简介"})
+        client.put(f"/api/novels/{pid}/story/arc", json=ARC_FULL)
+        _seed_world(pid, _ARC_WORLD)
+
+        import settings.ai_router as air
+
+        calls: list[str] = []
+        orig = air._arc_material
+
+        async def _spy(db, project):
+            calls.append("arc_material")
+            return await orig(db, project)
+
+        monkeypatch.setattr(air, "_arc_material", _spy)
+
+        check_fake = stub_ai('{"checks": [], "summary": "ok"}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/check", json={})
+        assert r.status_code == 200, r.text
+        assert calls == ["arc_material"], "体检必须组装设定素材（裁判手里的法典必须全）"
+        cp = _both(check_fake)
+        assert "【人物档案】" in cp and "血族议会" in cp and _ARC_RED_LINE in cp
+
+        tone_fake = stub_ai('{"tone": "苦尽甘来"}')
+        r2 = client.post(f"/api/novels/{pid}/settings/ai/arc/tone", json={})
+        assert r2.status_code == 200, r2.text
+        assert calls == ["arc_material"], "基调不得组装设定素材"
+        tp = _both(tone_fake)
+        assert "【世界观】" not in tp and "【人物档案】" not in tp and _FACTION_NOTE not in tp
+
+    def test_check_prompt_five_lines_and_empty_fallback(self, client, stub_ai):
+        """体检五条判据 name 逐字＋空设定降级文案与占位。"""
+        from prompts import load_layers
+
+        system, _user = load_layers("arc_check")
+        for name in ("故事连贯", "开头接结局", "三问对得上", "和简介一个方向", "和世界/人物对得上"):
+            assert f'"{name}"' in system, f"体检 system 缺判据 {name}"
+        assert "先补再查更准" in system
+        assert "世界铁律·" in system
+
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "只有简介"})
+        client.put(f"/api/novels/{pid}/story/arc", json=ARC_FULL)
+        fake = stub_ai('{"checks": [], "summary": "ok"}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/check", json={})
+        assert r.status_code == 200, r.text
+        cp = _both(fake)
+        assert "（世界设定：未填——不要为它补写，也不要在产出里提到它）" in cp
+        assert "（角色表：无——需要人物处用通称）" in cp
+        assert "只输出 JSON" in _system_of(fake)
+        assert _system_of(fake).rstrip().splitlines()[-1].startswith("{")
+
+    def test_draft_notes_in_box_wording(self):
+        """散想法入口＝主线框：块标题与吸收要求句在（user），旧标题已去。"""
+        from prompts import load_layers
+
+        system, user = load_layers("arc_draft")
+        assert "作者已写在主线框里的内容" in user
+        assert "关键词与显式要求尽量吸收" in system
+        assert "【当前主线（未填部分用（未填）标注）】" not in user
+        assert user.index("作者已写在主线框里的内容") < user.index("作者这次的补充说明")
+        assert "只输出 JSON" in system
+        assert system.rstrip().splitlines()[-1].startswith("{")
+
+    def test_templates_scope(self):
+        """分层后各模板的占位面：draft/calibrate/check 的 user 吃设定素材、tone 不吃。"""
+        from prompts import load_layers
+
+        _s, u_check = load_layers("arc_check")
+        for key in ("{world}", "{cast}", "{genre_section}"):
+            assert key in u_check, f"体检 user 应引用 {key}"
+        _s2, u_tone = load_layers("arc_tone")
+        for key in ("{world}", "{cast}", "{genre_section}", "{roster}"):
+            assert key not in u_tone, f"tone 不应出现 {key}"
+        assert "不要发明与它们冲突的新设定" not in load_layers("arc_draft")[0]
+
+    def test_arc_templates_layered(self):
+        """分层协议：四个模板各自 system/user 两段；system＝角色＋优先级＋禁止项＋输出契约。
+
+        用户 2026-09-27 定：**逐模板独立、不做跨模板共享层**（每个页面的 AI 功能独立演进）。
+        """
+        import pytest as _pytest
+
+        from prompts import is_layered, load_layers
+
+        for name in ("arc_draft", "arc_calibrate", "arc_check", "arc_tone"):
+            assert is_layered(name), f"{name} 未分层"
+            system, user = load_layers(name)
+            assert system and user, name
+            assert "只输出 JSON" in system, name
+            assert "{world}" not in system, f"{name}: system 段不得含动态素材占位符"
+        s_draft, u_draft = load_layers("arc_draft")
+        for key in ("优先级", "禁止项", "专名以设定为准", "不得沿用", "通称"):
+            assert key in s_draft, key
+        assert "{world}" in u_draft and "{cast}" in u_draft and "{roster}" in u_draft
+        with _pytest.raises(FileNotFoundError):
+            load_layers("arc_hard_rules")  # 共享片段已退役（逐模板独立）
+
+    def test_roster_block_in_prompt(self, client, stub_ai):
+        """名册进包：人物名/别名在册；三类行齐。"""
+        pid = self._seed_full(client)
+        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
+        assert r.status_code == 200, r.text
+        user = _user_of(fake)
+        assert "【本书专名册" in user
+        assert "陆征" in user and "拾子" in user
+        for row in ("- 人物（含别名）：", "- 势力 / 组织：", "- 地点："):
+            assert row in user, row
+
     def test_unregistered_name_reports_warning_without_retry(self, client, monkeypatch):
-        """名册外专名 → 随响应带 name_warnings；不做自动纠正（真机实测纠正轮无效，见 ai_router 注释）。"""
+        """名册外专名 → 随响应带 name_warnings；不做自动纠正（真机实测纠正轮无效）。"""
         pid = self._seed_full(client)
         calls = self._stub_seq(monkeypatch, [
             '{"fullstory": "含豢养派的首稿", "ending": {}, "names": {"factions": ["豢养派"]}}',
@@ -865,7 +882,7 @@ class TestArcMaterial:
         assert v["fullstory"] == "含豢养派的首稿"
 
     def test_clean_declaration_skips_retry(self, client, monkeypatch):
-        """申报全在册 → 不触发纠正（一次调用）。"""
+        """申报全在册 → 零告警、一次调用。"""
         pid = self._seed_full(client)
         calls = self._stub_seq(monkeypatch, [
             '{"fullstory": "干净", "ending": {}, "names": {"factions": ["血族议会"], "characters": ["陆征"]}}',
@@ -873,12 +890,26 @@ class TestArcMaterial:
         r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
         assert r.status_code == 200, r.text
         assert len(calls) == 1
+        assert "name_warnings" not in r.json()["value"]
+
+    def test_suspect_scanner_precision(self):
+        """确定性扫描精度：旧派系词必抓、设定原文写过的词不误报、粘连/过泛词丢弃。"""
+        from settings.name_registry import suspect_unregistered
+
+        canon = {"characters": {"林野"}, "factions": {"血族议会", "圣银教团", "夜巡守夜人"}, "places": set()}
+        world_text = "血族议会内部分主战派与主和派……"
+
+        assert suspect_unregistered("他被迫与豢养派的旧贵族做交易", names=canon, known_text=world_text) == ["豢养派"]
+        assert suspect_unregistered("议会内部主战派分裂", names=canon, known_text=world_text) == []
+        assert suspect_unregistered("夜巡守夜人向血族议会出售路线", names=canon, known_text=world_text) == []
+        assert suspect_unregistered("改用议会名字的二稿", names=canon, known_text=world_text) == []
+        assert suspect_unregistered("血族家族", names=canon, known_text=world_text) == []
 
     def test_material_same_source_as_volume_pack(self, client):
-        """同源（design Goal）：arc 的世界块/题材段与拆卷素材逐字同一零件。"""
+        """同源：arc 的世界块/题材段与拆卷素材逐字同一零件。"""
         pid = self._seed_full(client)
 
-        async def _both():
+        async def _both_():
             import settings.ai_router as air
             from models.project import Novel
             from volumes.ai_plan import _book_material
@@ -889,7 +920,6 @@ class TestArcMaterial:
                 vol_mat = await _book_material(s, novel, with_hooks=False)
             return arc_mat, vol_mat
 
-        arc_mat, vol_mat = _run_async(_both())
+        arc_mat, vol_mat = _run_async(_both_())
         assert arc_mat["world"] == vol_mat["world_brief"]
         assert arc_mat["genre_section"] == vol_mat["genre_section"]
-
