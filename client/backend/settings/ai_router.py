@@ -27,6 +27,7 @@ from filesystem.storage import get_storage
 from genres.novel_genre_service import get_novel_genre
 from novels.service import get_novel
 from prompts import load as load_prompt
+from prompts import load_layers
 from settings.hooks_model import (
     DESCRIPTION_MAX,
     HOOK_TYPE_KEYS,
@@ -973,7 +974,6 @@ _ARC_ACTIONS: dict[str, str] = {
 # 人物：档案八格＋人设原文全量；认知六层只给主角与反派（全给会让单次请求数量级膨胀）。
 # c-arc-check-against-settings：体检（校验型）同取本素材——第五条判据要拿设定当法典对照。
 _ARC_CAST_DEPTH_ROLES = ("主角", "反派")
-_ARC_RULES_PROMPT = "arc_hard_rules"
 # 空设定＝面向模型的指令式占位（名词短语会被当内容复述或诱发元评论）
 _ARC_WORLD_EMPTY = "（世界设定：未填——不要为它补写，也不要在产出里提到它）"
 _ARC_CAST_EMPTY = "（角色表：无——需要人物处用通称）"
@@ -997,21 +997,6 @@ async def _arc_context(project) -> tuple[dict, dict]:
         "theme_desc": theme_desc or "",
     }
     return arc, ctx
-
-
-def _arc_rules_text() -> str:
-    """硬约束片段（draft/calibrate 共用）；剥掉文件头 `## ` 版本注释行（不入提示词）。
-
-    ② 里的专名口径来自全链路单源（`settings.name_registry.name_canon_text`，c-ai-name-canon）——
-    与拆卷/拆章/抽卡/章纲起草共用同一条，不再各抄一份措辞。
-    """
-    from settings.name_registry import name_canon_text
-
-    lines = load_prompt(_ARC_RULES_PROMPT).splitlines()
-    i = 0
-    while i < len(lines) and lines[i].lstrip().startswith("##"):
-        i += 1
-    return "\n".join(lines[i:]).strip().format(name_rules=name_canon_text())
 
 
 def _cast_block(items: list[dict]) -> str:
@@ -1115,7 +1100,6 @@ async def _arc_material(db, project) -> dict:
         # 作者旧稿里的未登记专名（2026-09-27 真机实测），名册＋产出对拍才是可落地机制
         "name_rules": name_canon_text(),
         "roster": roster_text(await known_names(db, project)),
-        "hard_rules": _arc_rules_text(),
     }
 
 
@@ -1157,8 +1141,10 @@ async def run_arc_ai(
 
     # 提示词名走字面量白名单字典取值（勿用 f-string 拼 action：CodeQL 会把 URL 参数
     # 直接拼进文件路径判为高危 path injection——PR #355 CI 实测，此形态永不告警）
-    template = load_prompt(_ARC_ACTIONS[action])
-    formatted = template.format(
+    # 分层协议（2026-09-27）：每个模板自带 system/user 两段——system＝角色＋优先级＋禁止项
+    # ＋输出契约（恒定，吃供应商 prompt 缓存），user＝设定素材与本次输入（每次替换）。
+    system_tpl, user_tpl = load_layers(_ARC_ACTIONS[action])
+    _vals = dict(
         input=author_input or "（无——按已填内容处理）",
         fullstory=arc["fullstory"] or "（未填）",
         scene=arc["ending"]["scene"] or "（未填）",
@@ -1166,13 +1152,8 @@ async def run_arc_ai(
         tone=arc["ending"]["tone"] or "（未填）",
         **ctx,
     )
-
-    _SYSTEMS = {
-        "draft": "你是长篇小说结构顾问。只输出 JSON，不要任何其他文字。",
-        "calibrate": "你是资深小说主编。只输出 JSON，不要任何其他文字。",
-        "check": "你是小说主线编辑。只输出 JSON，不要任何其他文字。",
-        "tone": "你是小说编辑。只输出 JSON，不要任何其他文字。",
-    }
+    system = system_tpl.format(**_vals)
+    formatted = user_tpl.format(**_vals)  # 变量名沿用：后续对拍/重试逻辑都基于 user 文本
     # model 必须用客户端别名（haiku/sonnet/review → 配置模型）；字面模型名会
     # 透传供应商被拒 → 502（2026-09-13 实测："main" 非法）。
     # 起草/校准＝生成类（temp 0.6），体检/基调＝判定类（temp 0.3）。
@@ -1182,7 +1163,7 @@ async def run_arc_ai(
         text = await _judge_chat(
             client,
             model="haiku",
-            system=_SYSTEMS[action],
+            system=system,
             messages=[{"role": "user", "content": formatted}],
             temperature=0.6 if action in ("draft", "calibrate") else 0.3,
             json_mode=True,
