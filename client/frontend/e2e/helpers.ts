@@ -149,6 +149,8 @@ export async function writeFirstChapter(page: Page) {
   await addFirstChapterViaTree(page);
   await page.getByRole("tab", { name: /^正文/ }).click();
   await page.getByTestId("prose-edit").click();
+  // 编辑态可见框（c-prose-edit-affordance）：编辑顶条在场＝已进编辑态
+  await expect(page.getByTestId("prose-done")).toBeVisible({ timeout: 10000 });
   const editor = page.locator(".editor");
   await expect(editor).toBeVisible({ timeout: 10000 });
   await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 10000 });

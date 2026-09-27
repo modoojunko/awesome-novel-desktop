@@ -94,6 +94,8 @@ interface ProsePaneProps {
   editing?: boolean;
   /** 「编辑正文」入口回调（仅查看态且非锁定时出现） */
   onStartEdit?: () => void;
+  /** 编辑态「完成」回调（回查看态；不回退内容，未保存修改照常自动保存） */
+  onEndEdit?: () => void;
 }
 
 /** 纯文本偏移（docToProse 口径，段间 \n 计 1）→ PM 文档位置。越界回落末段末尾。 */
@@ -121,7 +123,7 @@ function textOffsetToPmPos(
 }
 
 const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
-  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress, locked, editing, onStartEdit },
+  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress, locked, editing, onStartEdit, onEndEdit },
   ref,
 ) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -531,7 +533,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   useImperativeHandle(
     ref,
     () => ({
-      focus: () => editor?.commands.focus(),
+      focus: () => editor?.commands.focus("end"), // 落文末：进入写作的继续位置
       captureNow,
       startWriting: (prompt?: string) => startStream(false, prompt),
       stopWriting: () => {
@@ -625,6 +627,22 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       {/* 查看态顶行（c-prose-edit-gate）：只读阅读＋「编辑正文」；
           归档/排队/旧稿锁各有横幅，锁定期不出现本行。
           条件渲染而非 hidden：.ol-top 是 display:flex，会压掉 hidden 属性（历史坑） */}
+      {/* 编辑态顶条（c-prose-edit-affordance）：编辑态要看得出来——正在编辑 + 完成 回查看态 */}
+      {!hidden && editable && (
+        <div className="ol-top" data-od-id="prose-edit-bar">
+          <span className="note">正在编辑正文 · {words.toLocaleString("zh-CN")} 字</span>
+          <span className="push">
+            <span className="note">写完自动保存</span>
+            <button
+              className="btn btn-secondary btn-sm"
+              data-testid="prose-done"
+              onClick={onEndEdit}
+            >
+              完成
+            </button>
+          </span>
+        </div>
+      )}
       {!hidden && !editable && !notEditable && (
         <div className="ol-top" data-od-id="prose-view-bar">
           <span className="note">
@@ -641,7 +659,11 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           </span>
         </div>
       )}
-      <div className="editor-wrap" hidden={hidden} ref={wrapRef}>
+      <div
+        className={`editor-wrap${editable ? " editing" : ""}`}
+        hidden={hidden}
+        ref={wrapRef}
+      >
         {/* TipTap 渲染 contenteditable 宿主：.editor 类经 editorProps.attributes 挂载，
             只读/归档/流式态由 setEditable(false) 落成 contenteditable="false"
             （a11y + e2e 判定口保持） */}
