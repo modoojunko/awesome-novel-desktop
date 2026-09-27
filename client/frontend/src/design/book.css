@@ -383,8 +383,10 @@ details.cfg .inner { padding: 4px 14px 14px; }
 .tpl-select { flex: 1; }
 .stage-map { flex: 1; }
 .panel-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); margin-top: 6px; flex-wrap: wrap; }
-.panel-foot .gap-line { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--err); margin-right: auto; }
-.panel-foot .gap-line svg { width: 13px; height: 13px; }
+/* .gap-line 基础规则不绑 .panel-foot：章纲只读一页纸（OgPane）也用它，svg 无尺寸会撑满整栏 */
+.gap-line { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--err); margin: 14px 0 0; }
+.gap-line svg { width: 13px; height: 13px; flex: none; }
+.panel-foot .gap-line { margin: 0; margin-right: auto; }
 .gap-chip { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; background: var(--err-soft); color: var(--err); font-size: 11.5px; cursor: pointer; }
 .gap-chip:hover { text-decoration: underline; }
 .done-note { display: inline-flex; align-items: center; gap: 7px; color: var(--ok); font-size: 13px; font-weight: 500; }
