@@ -744,6 +744,25 @@ def test_split_template_ending_natural_breakpoint():
     assert "5. 素材标注「本章是本卷末章」时例外" in src  # 末章收卷不变
 
 
+def test_split_template_rule2_cast_sentence():
+    """c-character-intro 规则 2 补句（chapter-plan-ai MODIFIED delta 钉词源，逐字对拍）。
+
+    口径：无名配角可用泛称不算添人；泛称不得承担关键剧情作用；具名新人一律不添——
+    要不要加新角色由章纲页的人物盘点决定。措辞以 specs/chapter-plan-ai 的 delta 为钉词源。
+    """
+    with open(
+        os.path.join(os.path.dirname(__file__), "..", "prompts", "chapter_split.prompt"),
+        encoding="utf-8",
+    ) as f:
+        rule2 = next(line for line in f.read().splitlines() if line.startswith("2. "))
+    for phrase in (
+        "无名配角（店伙计、路人、卫兵这类只递话、只在场的过场人物）可用泛称，不算添人、不写进 cast 申报",
+        "泛称不得承担关键剧情作用——送关键消息、做关键决断、出手改局面的必须是素材里已有的具名人物",
+        "具名新人一律不添——要不要加新角色由章纲页的人物盘点决定",
+    ):
+        assert phrase in rule2, f"规则 2 钉词丢失：{phrase}"
+
+
 def test_selfcheck_template_pull_natural_breakpoint():
     """章级自检的「拉力」问句与生成模板同批：自然断点口径，钩子导向问法退役。"""
     with open(

@@ -24,6 +24,7 @@ from archive.router import router as archive_router
 # License 本地验证
 from auth_local.router import router as auth_local_router
 from backup.router import router as backup_router
+from chapters.ai_cast import router as chapter_cast_router
 from chapters.ai_draft import router as chapters_ai_draft_router
 from chapters.ai_plot import router as chapter_plot_router
 from chapters.ai_plan import router as chapter_ai_plan_router
@@ -347,6 +348,7 @@ app.include_router(chapters_ai_draft_router)
 app.include_router(volume_ai_plan_router)  # 卷域 AI：3 套方案/展开/体检（volume-plan-ai）
 app.include_router(chapter_ai_plan_router)  # 章域 AI：拆章 3 方向/自检/进场（c-chapter-plan-ai）
 app.include_router(chapter_plot_router)  # 章域 AI：剧情 3 版抽卡（c-plot-split）
+app.include_router(chapter_cast_router)  # 章域 AI：人物盘点/提案抽卡（c-character-intro）
 app.include_router(prompt_router)
 app.include_router(prompt_book_router)  # 书级批量：prompt-summary（提示词总览 N+1 收口）
 app.include_router(write_router)

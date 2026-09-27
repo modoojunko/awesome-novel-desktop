@@ -304,3 +304,40 @@ class TestNodeTitleParity:
             f"默认序号正则前后端不一致：{m.group(1)!r} != {_DEFAULT_TITLE_RE.pattern!r}"
         )
 
+
+class TestCastClosedSetsParity:
+    """c-character-intro：chapters/ai_cast.py 中文闭集 ↔ lib/castReviewApi.ts 逐字对拍。
+
+    不一致 = 界面闭集取值与服务端归一化/机判的闭集漂移（人话标签即取值、零映射层），
+    三分类/三选一/差异轴/退场档/等级/三维名任何一侧改词都会在这里红。
+    """
+
+    def _frontend_src(self) -> str:
+        return _read("castReviewApi.ts")
+
+    def test_verdicts_match(self):
+        from chapters.ai_cast import VERDICTS
+
+        src = self._frontend_src()
+        front = tuple(
+            re.search(rf'{name} = "([^"]+)"', src).group(1)
+            for name in ("VERDICT_OLD", "VERDICT_UNNAMED", "VERDICT_NEW")
+        )
+        assert front == VERDICTS, "三分类闭集前后端不一致——以 chapters/ai_cast.py 为准"
+
+    def test_choices_axes_exit_kinds_grades_rank_dims_match(self):
+        from chapters.ai_cast import AXES, CAST_DIMS, EXIT_KINDS, GRADES, SUGGESTS
+
+        src = self._frontend_src()
+
+        def arr(name: str) -> tuple:
+            m = re.search(rf"{name} = \[(.*?)\]", src)
+            assert m, f"{name} 形态变了"
+            return tuple(re.findall(r'"([^"]+)"', m.group(1)))
+
+        assert arr("CHOICES") == SUGGESTS, "三选一闭集前后端不一致"
+        assert arr("AXES") == AXES, "差异轴闭集前后端不一致"
+        assert arr("EXIT_KINDS") == EXIT_KINDS, "退场三档前后端不一致"
+        assert arr("GRADES") == GRADES, "等级表前后端不一致"
+        assert arr("RANK_DIMS") == CAST_DIMS, "三维名前后端不一致"
+

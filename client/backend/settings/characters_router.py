@@ -40,9 +40,13 @@ async def create_character(
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(get_current_user),
 ):
+    """建卡（向后兼容扩参，c-character-intro 2.3）：可选 persona（clamp 300）＋
+    prefill（只收 dossier.plot/background，非法键 400）。撞同名 409 name_taken。"""
     try:
         ch = await svc.create_character(
-            db, project_id, str(body.get("name") or ""), str(body.get("role") or "配角")
+            db, project_id, str(body.get("name") or ""), str(body.get("role") or "配角"),
+            persona=body.get("persona") or "",
+            prefill=body.get("prefill"),
         )
     except (svc.Unprocessable, svc.Conflict) as e:
         raise _svc_error(e) from e

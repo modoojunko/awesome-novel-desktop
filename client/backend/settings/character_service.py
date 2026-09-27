@@ -36,6 +36,11 @@ UNDO_TTL_SECONDS = 600
 # 允许单格写入的字段（白名单；dossier.<k>/cog.<k> 的 k 也在各自键集内）
 _PATCH_ROOTS = {"name", "aliases", "role", "persona"}
 
+# 建卡扩参（c-character-intro 决策 6）：persona 一句人设与 prefill 预填的 clamp 界
+PERSONA_MAX = 300
+# prefill 白名单：DOSSIER_FILL_KEYS 里只放「剧情定位」「背景」两格（其余格不预填）
+PREFILL_KEYS = ("plot", "background")
+
 
 class Conflict(Exception):
     """rev 冲突 / 语义冲突（409）。detail 直接给前端。"""
@@ -217,10 +222,18 @@ def _display_name(name: str) -> str:
 
 
 async def create_character(
-    session: AsyncSession, novel_id: str, name: str, role: str = "配角"
+    session: AsyncSession, novel_id: str, name: str, role: str = "配角",
+    persona: str = "", prefill: dict | None = None,
 ) -> Character:
+    """建卡（c-character-intro 决策 6 向后兼容扩参）：可选 persona（clamp 300）＋
+    prefill（白名单硬校验只收 dossier.plot/background——非法键 400，不静默丢）。
+
+    单事务落卡：校验全在写入前，失败不留半张卡、不烧 seq 号。
+    """
     if role not in ROLES:
         raise Unprocessable("invalid_role", f"角色类型只能是 {'/'.join(ROLES)}")
+    persona = str(persona or "").strip()[:PERSONA_MAX]
+    dossier = _prefill_dossier(prefill)
     name = (name or "").strip()
     if not name:
         # 空名允许（作者可以从称呼写起），但 DB 的 UNIQUE(novel_id, name) 会对空串撞车
@@ -237,7 +250,10 @@ async def create_character(
     if novel is None:
         raise Unprocessable("not_found", "书不存在")
     novel.character_seq_high += 1
-    ch = Character(novel_id=novel_id, seq=novel.character_seq_high, name=name, role=role)
+    ch = Character(
+        novel_id=novel_id, seq=novel.character_seq_high, name=name, role=role,
+        persona=persona, dossier=_json_dumps(dossier),
+    )
     session.add(ch)
     await session.flush()
     if role == "主角":
@@ -245,6 +261,34 @@ async def create_character(
     await session.commit()
     await session.refresh(ch)
     return ch
+
+
+def _prefill_dossier(prefill) -> dict:
+    """prefill 白名单（只收 DOSSIER_FILL_KEYS 的 plot/background，各 clamp 300）。
+
+    非法键/非字符串值/非对象一律 400——router 裸 dict 透传的口在这里收（决策 6）。
+    """
+    if prefill is None:
+        return {}
+    if not isinstance(prefill, dict):
+        raise Unprocessable("invalid_prefill", "预填只能是对象，且只收「剧情定位」「背景」两格")
+    bad = [k for k in prefill if k not in PREFILL_KEYS]
+    if bad:
+        raise Unprocessable(
+            "invalid_prefill",
+            f"预填不收这些格：{'、'.join(sorted(bad))}——只收「剧情定位」（plot）与「背景」（background）",
+        )
+    out: dict = {}
+    for k in PREFILL_KEYS:
+        v = prefill.get(k)
+        if v is None:
+            continue
+        if not isinstance(v, str):
+            raise Unprocessable("invalid_prefill", f"「{k}」的预填值只能是文字")
+        v = v.strip()[:PERSONA_MAX]
+        if v:
+            out[k] = v
+    return out
 
 
 async def patch_character(
