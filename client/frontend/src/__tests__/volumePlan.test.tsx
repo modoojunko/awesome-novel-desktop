@@ -364,7 +364,7 @@ describe("VolumePlanModal（四问手写页）", () => {
     const expand = screen.getByTestId("desk-expand") as HTMLButtonElement;
     expect(expand.disabled).toBe(true);
     expect(expand.title).toContain("PRO");
-    expect(document.querySelector(".pill-pro")).toBeTruthy();
+    expect(document.querySelector(".pill-pro")).toBeTruthy(); // 规划台弹窗自带 PRO 徽（非右栏 AI 卡）
     const create = screen.getByTestId("desk-create") as HTMLButtonElement;
     expect(create.disabled).toBeFalsy();
   });

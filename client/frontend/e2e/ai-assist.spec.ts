@@ -245,7 +245,8 @@ test("PRO：检测族六类弹窗＋章纲补缺＋提示词精修采纳", async
 
     // ── 章纲页签：还缺清单 → 与卷纲冲突检测（体积素材分支）─────────────
     const rail = page.locator(".rail-assist");
-    await expect(rail.getByText("还缺")).toBeVisible({ timeout: 15000 });
+    const target = rail.locator(".ai-target");
+    await expect(target).toContainText("还缺", { timeout: 15000 });
     await rail.getByRole("button", { name: /与卷纲冲突检测/ }).click();
     const modal = page.locator(".modal", { hasText: "卷纲冲突检测" });
     const list = modal.getByTestId("ai-check-list");
@@ -363,11 +364,14 @@ test("免费档：检测/精修动作整体锁定且不发 ai-check 请求", asy
     await page.locator(".mtab", { hasText: "写作" }).click();
     await page.locator(".col-tree .ch").first().click();
     await page.getByRole("tab", { name: /^文风/ }).click();
-    const acts = page.locator(".rail-acts");
-    await expect(acts).toHaveClass(/rail-locked/, { timeout: 15000 });
-    const btn = page.locator(".rail-assist").getByRole("button", { name: /文风一致性检查/ });
-    await expect(btn).toBeDisabled();
-    // 锁定＝禁点（pointer-events:none → 点击到不了处理器）；静置复核零请求
+    // c-ai-rail-shared：免费态＝整卡 locked，行可点但点击被门控拦下（统一升级出口）
+    const card = page.locator(".rail-assist");
+    await expect(card).toHaveClass(/locked/, { timeout: 15000 });
+    const btn = card.getByRole("button", { name: /文风一致性检查/ });
+    await expect(btn).toBeEnabled();
+    await btn.click();
+    // 点击走 onBlocked → 升级弹窗；静置复核 ai-check 零请求
+    await page.waitForSelector(".modal .mcard");
     await page.waitForTimeout(1000);
     expect(checkCalls).toBe(0);
   } finally {

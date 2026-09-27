@@ -1,11 +1,8 @@
-// 右栏（book.html .col-ai 复刻）：
-//   卷选中 → AI 辅助·卷语境（随卷页签切换引导语＋统计卡；VolumeAssistPanel，无占位卡）
-//   章选中 → 纯 AI 助手（随页签切换的 AiAssistPanel＋AI 工具卡）
-//   本章进度卡已退役（c-rail-ai-only 2026-09-27）：字数/完成度/本书总字数并入
-//   中栏头部 e-meta 徽章行，右栏 SHALL 只承载 AI 相关功能。
-// 免费态与原型逐像素一致；PRO 态把续写/润色/扩写升为真实工具卡
-// （应用侧已有功能，换皮不减功能；原型标「规划中」——已登记 ADJUSTMENTS）。
-// AI 写入工具全部经 onAi* 走页面级解锁链（归档章先弹「解除只读」，真 bug #1）。
+// 右栏（book.html .col-ai）：c-ai-rail-shared 起三域（设定/卷/章）同一布局——
+//   卷选中 → VolumeAssistPanel（验证报告/规划入口，内容随卷域定）
+//   章选中 → AiAssistPanel（随章页签切换的 AI 助手卡，ra-* 全局统一布局）
+// 右栏 SHALL 只承载 AI 相关功能（c-rail-ai-only）；AI 写入工具全部经 onAi* 走
+// 页面级解锁链（归档章先弹「解除只读」，真 bug #1）。
 import type { RefObject } from "react";
 import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { toast } from "@/lib/toast";
@@ -80,47 +77,6 @@ interface RailProps {
   onAiSelection: (mode: "polish" | "expand" | "compress", capture: ReturnType<ProseHandle["captureNow"]>) => void;
 }
 
-function ProStar({ size = 10 }: { size?: number }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" width={size} height={size}>
-      <path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z" />
-    </svg>
-  );
-}
-
-function LockedCard({
-  text,
-  onUpgrade,
-}: {
-  text: string;
-  onUpgrade: () => void;
-}) {
-  return (
-    <div className="ai-locked">
-      <div className="lhead">
-        <ProStar size={16} />
-        <b>PRO 功能</b>
-      </div>
-      <p>{text}</p>
-      <button className="btn btn-primary btn-sm" onClick={onUpgrade}>
-        升级 PRO
-      </button>
-    </div>
-  );
-}
-
-function PlannedFeat({ title, desc }: { title: string; desc: string }) {
-  return (
-    <div className="ai-feat">
-      <div className="ai-feat-head">
-        <b>{title}</b>
-        <span className="tag-plan">规划中</span>
-      </div>
-      <p>{desc}</p>
-    </div>
-  );
-}
-
 export default function Rail({
   mode,
   projectId,
@@ -161,99 +117,8 @@ export default function Rail({
   const d = data;
   const words = d?.wordCount ?? 0;
 
-  const TAB_NAME: Record<string, string> = {
-    og: "章纲", prompt: "提示词", prose: "正文", settings: "设定",
-    style: "文风", relations: "角色关系", hooks: "伏笔", actions: "操作",
-  };
   return (
     <div>
-      <div className="ai-head">
-        <span className="ai-title">AI 助手</span>
-        <span className="pill-pro">PRO</span>
-      </div>
-      <div className="ai-ctx">
-        <em>当前页签</em>
-        <span>{TAB_NAME[d?.tab ?? ""] ?? "—"}</span>
-      </div>
-      {!isPro && (
-        <LockedCard
-          text="解锁后可由「设定 + 章纲」生成正文；续写、润色等能力规划中。免费版创作流程不受影响。"
-          onUpgrade={onUpgrade}
-        />
-      )}
-      {/* 「AI 生成正文」常驻工具卡已退役（c-prose-write-entry 2026-09-27）：
-          入口收编 AiAssistPanel 正文页签动作清单（onAiWrite 下传，testid=ai-write-btn 沿用） */}
-
-      {isPro && d?.tab === "prose" && (
-        <>
-          <p className="ai-sec">AI 工具</p>
-          <div>
-            <div className="ai-tool">
-              <div className="ai-feat-head">
-                <b>续写建议</b>
-                <span className="ai-tag">
-                  <ProStar />
-                  PRO
-                </span>
-              </div>
-              <p>从光标处（或选区末尾）流式续写，保持风格与上下文一致。</p>
-              <button
-                className="btn btn-secondary btn-sm"
-                disabled={aiState.streaming}
-                onClick={onAiContinue}
-              >
-                续写
-              </button>
-            </div>
-            <div className="ai-tool">
-              <div className="ai-feat-head">
-                <b>段落润色</b>
-                <span className="ai-tag">
-                  <ProStar />
-                  PRO
-                </span>
-              </div>
-              <p>选中段落后给出风格一致的润色版本，对照预览后替换。</p>
-              <button
-                className="btn btn-secondary btn-sm"
-                disabled={!aiState.hasSelection || aiState.polishLoading}
-                onClick={() => onAiSelection("polish", proseRef.current?.captureNow() ?? null)}
-              >
-                {aiState.polishLoading ? "润色中…" : "润色选段"}
-              </button>
-            </div>
-            <div className="ai-tool">
-              <div className="ai-feat-head">
-                <b>场景扩写</b>
-                <span className="ai-tag">
-                  <ProStar />
-                  PRO
-                </span>
-              </div>
-              <p>把选中的一句话场景扩展为完整段落，保持设定一致。</p>
-              <button
-                className="btn btn-secondary btn-sm"
-                disabled={!aiState.hasSelection || aiState.expandLoading}
-                onClick={() => onAiSelection("expand", proseRef.current?.captureNow() ?? null)}
-              >
-                {aiState.expandLoading ? "扩写中…" : "扩写选段"}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {!isPro && d?.tab === "prose" && (
-        <>
-          <p className="ai-sec">规划中的能力</p>
-          <div className="rail-locked">
-            <PlannedFeat title="续写建议" desc="在光标处给出下句 / 下一段的续写建议。" />
-            <PlannedFeat title="段落润色" desc="选中段落，提供风格一致的润色版本。" />
-            <PlannedFeat title="场景扩写" desc="把一句话场景扩展为完整段落，保持设定一致。" />
-          </div>
-        </>
-      )}
-
       {d?.tab && d.ogStats && d.chapterRef && d.onAiDraft && d.onSimulate && (
         <AiAssistPanel
           projectId={projectId}
@@ -261,6 +126,7 @@ export default function Rail({
           tab={d.tab}
           isPro={isPro}
           onAiWrite={onAiWrite}
+          onContinue={onAiContinue}
           ogStats={d.ogStats}
           wordCount={words}
           planWords={d.ogStats.planWords ?? d.targetWords ?? null}
@@ -298,9 +164,6 @@ export default function Rail({
           }}
         />
       )}
-
-      {/* 本章进度卡已退役（c-rail-ai-only）：字数/完成度/本书总字数并入中栏头部
-          e-meta 徽章行，目标字数改值走章纲「本章目标字数」格与本书偏好。 */}
     </div>
   );
 }

@@ -1,24 +1,21 @@
-/** 右栏「AI 辅助」面板（storyline.html col-ai 复刻，workbench-storyline-ai-panel）：
- *  随中栏页签切换——每页签一条引导语＋统计卡＋动作清单。
- *  2026-09-27 用户拍板：章纲页签统计卡（归档门槛/计划字数/剧情/出场角色）上移
- *  中栏头部 meta 行（ChapterWorkspace e-meta），右栏章纲页签只剩引导语＋还缺＋动作。
- *  动作清单已全部落地（2026-09-17）：占位机制退役——onClick 改为必填，各动作按门控禁用。
- *  2026-09-20 AI 入口收口右栏（用户拍板）：章页签 body 的 AI 按钮全部退役，
- *  起草/推演/建议调整等触发动作唯一化在此；结果呈现仍在对应页签（文风建议逐项采纳、
- *  推演弹窗、章纲回填表单）。
- *  2026-09-17 撤三个重复动作（ADJUSTMENTS #27 ⑫）：「重新组装提示词」＝提示词页签内
- *  AI 润色（组装＋落库同一动作，且粗组稿本就每次重算）；「本章关系变化检测」＝操作页签
- *  reconcile 关系收尾；「建议本章回收」＝reconcile 伏笔收尾的「收束」提案。
+/** 右栏「AI 辅助」面板（c-ai-rail-shared：全局统一 ra-* 布局，与设定域 AiWriterAssistant 同构）。
+ *  每页签＝一张 AI 助手卡：ra-head 头部（plan-badge＋标题＋状态副标题）＋ ai-target 作用域行
+ *  ＋ ra-step 能力行（名称＋会读什么/落到哪＋箭头）＋ ra-foot 来源/去向声明。
+ *  各页签内容不同，造型与门控全局一致；动作全部真链路（2026-09-17 起），
+ *  AI 入口收口右栏（2026-09-20），布局统一设定模版（c-ai-rail-shared，2026-09-27）。
  *  注：建表动作（提取本章变化/识别角色与物品变化/登记新伏笔）走 onRunReconcile，
  *  检测动作（冲突检测/一致性/偏离/补边）走 onAiCheck，精修动作走 onPromptRefine。 */
 import { useEffect, useMemo, useState } from "react";
-import type { RefObject } from "react";
+import type { ReactNode } from "react";
 import { api } from "@/lib/api";
-import { Ico, P } from "@/components/icons";
+import type { AiState } from "@/types/api-config";
+import { toast } from "@/lib/toast";
+import type { RefObject } from "react";
 import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { chapterNoOf } from "@/lib/chapterRef";
 import type { AiCheckKind, RefineMode } from "@/lib/aiCheck";
 import { REQ_FIELDS } from "./chapterForm";
+import AiWriterAssistant, { type AiCapabilityRow } from "@/components/novel/AiWriterAssistant";
 
 export interface OgStats {
   /** 归档门槛已满足项（分母＝必填项数，见 REQ_FIELDS）；操作页签统计卡在用 */
@@ -38,60 +35,7 @@ interface ChapterLite {
   chapter: number;
 }
 
-interface Act {
-  label: string;
-  /** 必填：占位机制已退役（每个动作都有真实链路；不可用经 disabled 表达） */
-  onClick: () => void;
-  disabled?: boolean;
-  busy?: boolean;
-  /** e2e 稳定锚（入口收口右栏后沿用原 testid，如 og-ai-draft/og-simulate） */
-  testid?: string;
-}
-
-function raStats(pairs: Array<[string, string]>) {
-  return (
-    <ul className="rail-stats">
-      {pairs.map(([k, v]) => (
-        <li key={k}>
-          <span className="k">{k}</span>
-          <span className="v num">{v}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function raList(title: string, items: string[], tone = "") {
-  if (items.length === 0) return null;
-  return (
-    <div className={`rail-list${tone ? ` ${tone}` : ""}`}>
-      <em>{title}</em>
-      <ul>
-        {items.map((t) => (
-          <li key={t}>{t}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function raActs(acts: Act[], locked: boolean) {
-  return (
-    <div className={`rail-acts${locked ? " rail-locked" : ""}`}>
-      {acts.map((a) => (
-        <button
-          key={a.label}
-          className="btn btn-secondary btn-sm"
-          data-testid={a.testid}
-          disabled={locked || a.disabled}
-          onClick={a.onClick}
-        >
-          {a.busy ? `${a.label}…` : a.label}
-        </button>
-      ))}
-    </div>
-  );
-}
+const fmt = (n: number) => n.toLocaleString("zh-CN");
 
 export function AiAssistPanel({
   projectId,
@@ -108,6 +52,7 @@ export function AiAssistPanel({
   onSimulate,
   onPlotDraw,
   onAiWrite,
+  onContinue,
   onUpgrade,
   staleDownstream,
   aiState,
@@ -134,10 +79,11 @@ export function AiAssistPanel({
   onSimulate: () => void;
   /** AI 帮写剧情（三版选一弹层；生成类归 PRO，免费态 locked 置灰＋升级出口） */
   onPlotDraw?: () => void;
-  /** AI 生成正文（c-prose-write-entry：自右栏常驻工具卡收编进正文页签动作清单；
-   *  点击走页面级解锁链 → AiModal，与原 ai-write-btn 同一链路） */
+  /** AI 生成正文（c-prose-write-entry：正文页签动作清单首项，走页面级解锁链 → AiModal） */
   onAiWrite?: () => void;
-  /** 升级 PRO（免费态剧情卡升级出口） */
+  /** 续写建议（正文页签；从光标处或选区末尾流式续写） */
+  onContinue?: () => void;
+  /** 升级 PRO（免费态统一升级出口） */
   onUpgrade?: () => void;
   /** chapter-rewrite：下游「基于旧设定」章计数（无数据时显示「—」） */
   staleDownstream?: number;
@@ -295,299 +241,218 @@ export function AiAssistPanel({
     };
   }, [tab, projectId, chapterRef, chapterNo]);
 
-  const locked = !isPro;
+  const TITLE: Record<string, string> = {
+    og: "章纲", prose: "正文", prompt: "提示词", settings: "设定",
+    style: "文风", relations: "角色关系", hooks: "伏笔", actions: "操作",
+  };
+
+  /** 门控与设定域同源：PRO＝ready，免费＝member_required（点击走统一升级出口） */
+  const state: AiState = isPro ? "ready" : "member_required";
+  const handleBlocked = (reason: AiState) => {
+    if (reason === "member_required") {
+      onUpgrade?.();
+      return;
+    }
+    toast.info(reason === "no_key" ? "先去「模型配置」添加 API Key" : "AI 暂不可用");
+  };
+
+  const cap = (
+    key: string,
+    name: string,
+    desc: string,
+    opts: {
+      onClick?: () => void;
+      disabled?: boolean;
+      hint?: string;
+      testid?: string;
+    } = {},
+  ): AiCapabilityRow => ({
+    key,
+    name,
+    desc,
+    onClick: opts.onClick ?? (() => {}),
+    disabled: opts.disabled,
+    hint: opts.hint,
+    testid: opts.testid,
+  });
+  const sel = () => proseRef?.current?.captureNow() ?? null;
+
+  let targetLine: ReactNode;
+  let footNote: string;
+  let running: string | null = null;
+  let rows: AiCapabilityRow[] = [];
 
   if (tab === "og") {
-    return (
-      <div className="rail-assist" data-testid="rail-assist">
-        <p className="ai-sec">AI 辅助 · 章纲</p>
-        <p className="rail-lead">按本卷卷纲检查、补全第 {chapterNo} 章的章纲；必填项决定这一章能否归档。</p>
-        {/* 归档门槛/计划字数/剧情/出场角色统计卡已上移中栏头部 meta 行（2026-09-27） */}
-        {raList("还缺", ogStats.missingLabels ?? [], "warn")}
-        {raActs(
-          [
-            {
-              label: "剧情推演 · 按回合走一遍",
-              testid: "og-simulate",
-              onClick: onSimulate,
-              disabled: archived,
-            },
-            {
-              label: aiDrafting ? "AI 起草中" : "AI 起草",
-              testid: "og-ai-draft",
-              onClick: onAiDraft,
-              disabled: !canAiDraft || aiDrafting || archived,
-              busy: aiDrafting,
-            },
-            {
-              label: gapsLoading ? "补全中" : "补全缺失字段",
-              onClick: () => onFillGaps?.(),
-              disabled:
-                !onFillGaps ||
-                gapsLoading ||
-                (ogStats.missingLabels ?? []).length === 0,
-              busy: gapsLoading,
-            },
-            {
-              label: "与卷纲冲突检测",
-              onClick: () => onAiCheck?.("volume_conflict"),
-            },
-          ],
-          locked,
-        )}
-        {/* 章内剧情（c-plot-split，原型 rail-plot 逐字）：生成类归 PRO；
-            免费态 rail-locked 置灰禁点不隐藏，升级出口在包裹外（手写全档可用） */}
-        {onPlotDraw && (
-          <>
-            <p className="ai-sec">剧情</p>
-            <div className={locked ? "rail-locked" : undefined}>
-              <div className="ai-tool" data-od-id="rail-plot">
-                <div className="ai-feat-head">
-                  <b>AI 帮写剧情</b>
-                  <span className="ai-tag">
-                    <Ico d={P.star} fill size={10} />
-                    PRO
-                  </span>
-                </div>
-                <p>
-                  一次给 3
-                  版剧情，挑一版填进去，之后随便改，填错了能撤销。这一章干什么、卡在哪、到哪收——这三样填齐了
-                  AI 才有依据。
-                </p>
-                <button
-                  className="btn btn-primary btn-sm"
-                  data-od-id="btn-plot-draw"
-                  data-testid="og-plot-draw"
-                  disabled={archived || locked}
-                  onClick={onPlotDraw}
-                >
-                  给我 3 版剧情
-                </button>
-              </div>
-            </div>
-            {locked && (
-              <div data-testid="plot-upgrade-exit">
-                <p className="f-hint" style={{ marginBottom: 8 }}>
-                  AI 写剧情是 PRO 功能。剧情自己写全免费，随便加、随便改。
-                </p>
-                <button className="btn btn-secondary btn-sm" onClick={onUpgrade}>
-                  升级 PRO
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+    const missing = ogStats.missingLabels ?? [];
+    running = aiDrafting ? "draft" : gapsLoading ? "fill" : null;
+    targetLine = missing.length ? (
+      <>还缺 {missing.length} 项：<b>{missing.join("、")}</b></>
+    ) : (
+      <>必填已齐 · 归档门槛 {ogStats.reqOk}/{REQ_FIELDS.length}</>
     );
-  }
-
-  if (tab === "prose") {
-    return (
-      <div className="rail-assist" data-testid="rail-assist">
-        <p className="ai-sec">AI 辅助 · 正文</p>
-        <p className="rail-lead">贴着本章章纲与全书文风，续写、扩写或改写已有的正文。</p>
-        {raStats([
-          ["正文字数", `${wordCount.toLocaleString("zh-CN")} 字`],
-          ["计划字数", planWords ? `${planWords.toLocaleString("zh-CN")} 字` : "未定"],
-          [
-            "完成度",
-            planWords ? `${Math.min(100, Math.round((wordCount / planWords) * 100))}%` : "—",
-          ],
-          ["状态", archived ? "已归档" : wordCount > 0 ? "草稿" : "待写"],
-        ])}
-        {raActs(
-          [
-            {
-              // 生成正文（c-prose-write-entry：自右栏常驻工具卡收编；解锁链/AiModal 不变）
-              label: "生成正文",
-              testid: "ai-write-btn",
-              onClick: () => onAiWrite?.(),
-              disabled: !onAiWrite || !!aiState?.streaming,
-            },
-            {
-              label: aiState?.compressLoading ? "压缩中" : "压缩啰嗦段落",
-              onClick: () =>
-                onAiSelection?.("compress", proseRef?.current?.captureNow() ?? null),
-              disabled: !aiState?.hasSelection || !!aiState?.compressLoading,
-            },
-          ],
-          locked,
-        )}
-      </div>
+    rows = [
+      cap("simulate", "剧情推演 · 按回合走一遍", "先定走法再逐步推演；走法可收进本章剧情条目", {
+        onClick: onSimulate, disabled: archived, hint: archived ? "本章已归档" : undefined, testid: "og-simulate",
+      }),
+      cap("draft", "AI 起草", "按卷纲与设定出整份章纲草稿，回填表单后由你确认落库", {
+        onClick: onAiDraft,
+        disabled: !canAiDraft || archived,
+        hint: archived ? "本章已归档" : !canAiDraft ? "需 PRO" : undefined,
+        testid: "og-ai-draft",
+      }),
+      cap("fill", "补全缺失字段", missing.length ? `只补还缺的 ${missing.length} 项，一稿回填` : "必填已齐，暂无可补", {
+        onClick: () => onFillGaps?.(),
+        disabled: !onFillGaps || gapsLoading || missing.length === 0,
+      }),
+      cap("plot-draw", "AI 帮写剧情", "一次给 3 版剧情挑一版；要求概要、挑战、章末落点已填（手写剧情全免费）", {
+        onClick: onPlotDraw, disabled: archived, hint: archived ? "本章已归档" : undefined, testid: "og-plot-draw",
+      }),
+      cap("conflict", "与卷纲冲突检测", "拿本章章纲去对卷纲，报出冲突点", {
+        onClick: () => onAiCheck?.("volume_conflict"),
+      }),
+    ];
+    footNote = "章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。";
+  } else if (tab === "prose") {
+    running =
+      aiState?.polishLoading ? "polish"
+      : aiState?.expandLoading ? "expand"
+      : aiState?.compressLoading ? "compress"
+      : null;
+    const streaming = !!aiState?.streaming;
+    const pct = planWords ? Math.min(100, Math.round((wordCount / planWords) * 100)) : null;
+    targetLine = (
+      <>正文字数 {fmt(wordCount)} 字{planWords ? <> · 计划字数 {fmt(planWords)} 字 · 完成度 {pct}%</> : null}</>
     );
-  }
-
-  if (tab === "prompt") {
-    return (
-      <div className="rail-assist" data-testid="rail-assist">
-        <p className="ai-sec">AI 辅助 · 提示词</p>
-        <p className="rail-lead">
-          提示词由六处来源自动组装：全书设定、卷纲、本章章纲、全书文风（含本章调整）、截至上一章的伏笔进展、本章涉及的角色设定。
-        </p>
-        {raStats([
-          ["组装来源", "6 处"],
-          ["来源字数", promptSrc ? `${promptSrc.total.toLocaleString("zh-CN")} 字` : "—"],
-          ["涉及角色", promptSrc ? `${promptSrc.cast} 人` : "—"],
-        ])}
-        {raActs(
-          [
-            {
-              label: "补全负向约束",
-              onClick: () => onPromptRefine?.("negative"),
-            },
-            {
-              label: "精简提示词",
-              onClick: () => onPromptRefine?.("concise"),
-            },
-          ],
-          locked,
-        )}
-      </div>
+    rows = [
+      cap("write", "生成正文", "由设定＋章纲组装提示词，可编辑后流式写入正文末尾", {
+        onClick: onAiWrite, disabled: streaming, hint: streaming ? "生成中" : undefined, testid: "ai-write-btn",
+      }),
+      cap("continue", "续写建议", "从光标处（或选区末尾）流式续写，保持风格与上下文一致", {
+        onClick: onContinue, disabled: streaming,
+      }),
+      cap("polish", "段落润色", "选中段落出润色稿，对照预览后替换", {
+        onClick: () => onAiSelection?.("polish", sel()),
+        disabled: !aiState?.hasSelection || !!aiState?.polishLoading,
+        hint: !aiState?.hasSelection ? "先在正文选中一段" : undefined,
+      }),
+      cap("expand", "场景扩写", "把选中的一句话场景扩展为完整段落，保持设定一致", {
+        onClick: () => onAiSelection?.("expand", sel()),
+        disabled: !aiState?.hasSelection || !!aiState?.expandLoading,
+        hint: !aiState?.hasSelection ? "先在正文选中一段" : undefined,
+      }),
+      cap("compress", "压缩啰嗦段落", "压缩选中的段落，保留信息去掉重复", {
+        onClick: () => onAiSelection?.("compress", sel()),
+        disabled: !aiState?.hasSelection || !!aiState?.compressLoading,
+        hint: !aiState?.hasSelection ? "先在正文选中一段" : undefined,
+      }),
+    ];
+    footNote = "续写/润色/扩写/压缩作用于正文编辑器；润色与扩写先出对照预览，采纳才替换。";
+  } else if (tab === "prompt") {
+    targetLine = promptSrc ? (
+      <>组装来源 6 处 · 来源字数 {fmt(promptSrc.total)} 字 · 涉及角色 {promptSrc.cast} 人</>
+    ) : (
+      <>组装来源 6 处 · 来源字数统计中…</>
     );
-  }
-
-  if (tab === "settings") {
-    return (
-      <div className="rail-assist" data-testid="rail-assist">
-        <p className="ai-sec">AI 辅助 · 设定</p>
-        <p className="rail-lead">
-          从本章正文里提取本章变化，归档时并进全书那一套；回退后自动重算。
-        </p>
-        {raStats([
-          ["本章变化", loreStats ? `${loreStats.here} 条` : "—"],
-          ["截至本章条目", loreStats ? `${loreStats.until} 条` : "—"],
-          ["基于旧设定", "—"],
-        ])}
-        {raActs(
-          [
-            {
-              label: "提取本章变化",
-              onClick: () => onRunReconcile?.("set_changes"),
-              disabled: !archived,
-            },
-          ],
-          locked,
-        )}
-      </div>
+    rows = [
+      cap("negative", "补全负向约束", "按本章内容补「不要写什么」一类硬约束（提案制，采纳才写回）", {
+        onClick: () => onPromptRefine?.("negative"),
+      }),
+      cap("concise", "精简提示词", "在不丢信息的前提下收拢冗长表述（提案制，采纳才写回）", {
+        onClick: () => onPromptRefine?.("concise"),
+      }),
+    ];
+    footNote = "提示词由六处来源自动组装：全书设定、卷纲、本章章纲、全书文风（含本章调整）、截至上一章的伏笔进展、本章涉及的角色设定。";
+  } else if (tab === "settings") {
+    targetLine = loreStats ? (
+      <>本章变化 {loreStats.here} 条 · 截至本章条目 {loreStats.until} 条</>
+    ) : (
+      <>本章变化统计中…</>
     );
-  }
-
-  if (tab === "style") {
-    return (
-      <div className="rail-assist" data-testid="rail-assist">
-        <p className="ai-sec">AI 辅助 · 文风</p>
-        <p className="rail-lead">
-          全书文风基线只读；本章只改这一章的差异项，不写回全书文风。AI 建议在此生成、页签内逐项采纳。
-        </p>
-        {raStats([
-          ["全书基线", styleStats ? `${styleStats.rows} 行` : "—"],
-          ["本章调整", styleStats ? (styleStats.shadow ? `${styleStats.shadow} 项` : "未调整") : "—"],
-          ["硬约束", "见基线"],
-        ])}
-        {raActs(
-          [
-            {
-              label: "AI 建议本章调整",
-              testid: "style-suggest-btn",
-              onClick: () => onStyleSuggest?.(),
-              disabled: !onStyleSuggest || archived,
-            },
-            {
-              label: "文风一致性检查",
-              onClick: () => onAiCheck?.("style_consistency"),
-            },
-            {
-              label: "标记偏离段落",
-              onClick: () => onAiCheck?.("style_deviations"),
-            },
-          ],
-          locked,
-        )}
-      </div>
+    rows = [
+      cap("extract", "提取本章变化", "从本章正文提取设定变化，归档时并进全书那一套", {
+        onClick: () => onRunReconcile?.("set_changes"),
+        disabled: !archived, hint: archived ? undefined : "归档后可用",
+      }),
+    ];
+    footNote = "从本章正文里提取本章变化，归档时并进全书那一套；回退后自动重算。";
+  } else if (tab === "style") {
+    targetLine = styleStats ? (
+      <>全书基线 {styleStats.rows} 行 · 本章调整 {styleStats.shadow ? `${styleStats.shadow} 项` : "未调整"}</>
+    ) : (
+      <>全书基线统计中…</>
     );
-  }
-
-  if (tab === "relations") {
-    return (
-      <div className="rail-assist" data-testid="rail-assist">
-        <p className="ai-sec">AI 辅助 · 角色关系</p>
-        <p className="rail-lead">关系图是全书统一的一套；这一章可以在图上加新的关系。</p>
-        {raStats([
-          ["人物与势力", graphStats ? `${graphStats.nodes} 个` : "—"],
-          ["关系边", graphStats ? `${graphStats.edges} 条` : "—"],
-          ["本章变化的关系", graphStats ? `${graphStats.here} 条` : "—"],
-        ])}
-        {raActs(
-          [
-            {
-              label: "识别角色与物品变化",
-              onClick: () => onRunReconcile?.("relations"),
-              disabled: !archived,
-            },
-            {
-              label: "关系冲突检测",
-              onClick: () => onAiCheck?.("relations_conflict"),
-            },
-            {
-              label: "建议补边",
-              onClick: () => onAiCheck?.("relation_suggest"),
-            },
-          ],
-          locked,
-        )}
-      </div>
+    rows = [
+      cap("style-suggest", "AI 建议本章调整", "按全书文风给本章差异建议，页签内逐项采纳", {
+        onClick: () => onStyleSuggest?.(),
+        disabled: !onStyleSuggest || archived,
+        hint: archived ? "本章已归档" : undefined,
+        testid: "style-suggest-btn",
+      }),
+      cap("style-check", "文风一致性检查", "对照全书文风基线查本章偏离", {
+        onClick: () => onAiCheck?.("style_consistency"),
+      }),
+      cap("style-deviate", "标记偏离段落", "标出与基线不一致的段落", {
+        onClick: () => onAiCheck?.("style_deviations"),
+      }),
+    ];
+    footNote = "全书文风基线只读；本章只改这一章的差异项，不写回全书文风。";
+  } else if (tab === "relations") {
+    targetLine = graphStats ? (
+      <>人物与势力 {graphStats.nodes} 个 · 关系边 {graphStats.edges} 条 · 本章变化 {graphStats.here} 条</>
+    ) : (
+      <>人物与势力统计中…</>
     );
-  }
-
-  if (tab === "hooks") {
-    return (
-      <div className="rail-assist" data-testid="rail-assist">
-        <p className="ai-sec">AI 辅助 · 伏笔</p>
-        <p className="rail-lead">
-          伏笔台账展示到第 {chapterNo} 章为止：本章埋下与回收的条目会被标出，跨章悬置的继续挂着。
-        </p>
-        {raStats([
-          ["悬置", hookStats ? `${hookStats.open} 条` : "—"],
-          ["本章埋下", hookStats ? `${hookStats.plantHere} 条` : "—"],
-          ["本章回收", hookStats ? `${hookStats.resolveHere} 条` : "—"],
-          ["台账总数", hookStats ? `${hookStats.total} 条` : "—"],
-        ])}
-        {raActs(
-          [
-            {
-              label: "伏笔冲突检测",
-              onClick: () => onAiCheck?.("hooks_conflict"),
-            },
-            {
-              label: "登记新伏笔",
-              onClick: () => onRunReconcile?.("hooks"),
-              disabled: !archived,
-            },
-          ],
-          locked,
-        )}
-      </div>
+    rows = [
+      cap("rel-extract", "识别角色与物品变化", "从本章正文识别关系与物品变化（归档后可用）", {
+        onClick: () => onRunReconcile?.("relations"),
+        disabled: !archived, hint: archived ? undefined : "归档后可用",
+      }),
+      cap("rel-check", "关系冲突检测", "查本章关系与全书关系图的冲突", {
+        onClick: () => onAiCheck?.("relations_conflict"),
+      }),
+      cap("rel-suggest", "建议补边", "按本章内容建议补上缺失的关系", {
+        onClick: () => onAiCheck?.("relation_suggest"),
+      }),
+    ];
+    footNote = "关系图是全书统一的一套；这一章可以在图上加新的关系，归档时并进全书。";
+  } else if (tab === "hooks") {
+    targetLine = hookStats ? (
+      <>悬置 {hookStats.open} 条 · 本章埋下 {hookStats.plantHere} 条 · 本章回收 {hookStats.resolveHere} 条 · 台账 {hookStats.total} 条</>
+    ) : (
+      <>伏笔台账统计中…</>
     );
+    rows = [
+      cap("hooks-check", "伏笔冲突检测", "查本章伏笔与台账的冲突（重复埋、提前揭、漏收）", {
+        onClick: () => onAiCheck?.("hooks_conflict"),
+      }),
+      cap("hooks-register", "登记新伏笔", "从本章正文登记新伏笔进台账（归档后可用）", {
+        onClick: () => onRunReconcile?.("hooks"),
+        disabled: !archived, hint: archived ? undefined : "归档后可用",
+      }),
+    ];
+    footNote = `伏笔台账展示到第 ${chapterNo} 章为止：本章埋下与回收的条目会被标出，跨章悬置的继续挂着。`;
+  } else {
+    // 操作页签：只有作用域信息，无 AI 动作（重写/回退/归档是本页签的卡片按钮）
+    running = null;
+    targetLine = (
+      <>当前状态 {archived ? "已归档" : wordCount > 0 ? "草稿" : "待写"} · 下游挂着旧设定{" "}
+        {staleDownstream === undefined ? "—" : `${staleDownstream} 章`} · 正文 {fmt(wordCount)} 字</>
+    );
+    rows = [];
+    footNote =
+      "「生成本章变更摘要/下一章建议」不设入口：变更摘要＝归档摘要＋收尾提案，下一章建议＝下一章章纲的 AI 起草。";
   }
 
   return (
-    <div className="rail-assist" data-testid="rail-assist">
-      <p className="ai-sec">AI 辅助 · 操作</p>
-      <p className="rail-lead">
-        重写、回退、归档都会改动主线与全书设定；归档后的写回提案在「操作」里逐条确认。
-      </p>
-      {raStats([
-        ["归档门槛", `${ogStats.reqOk}/${REQ_FIELDS.length}`],
-        ["当前状态", archived ? "已归档" : wordCount > 0 ? "草稿" : "待写"],
-        [
-          "下游挂着旧设定",
-          staleDownstream === undefined ? "—" : `${staleDownstream} 章`,
-        ],
-        ["正文", `${wordCount.toLocaleString("zh-CN")} 字`],
-      ])}
-      {/* 「生成本章变更摘要/生成下一章建议」不设入口（2026-09-17 设计修正）：
-          面板无结果显示区，且产出与既有消费面重复——变更摘要＝归档摘要＋收尾提案
-          ＋设定页签「本章变化」；下一章建议＝下一章章纲的 AI 起草。 */}
-    </div>
+    <AiWriterAssistant
+      title={`AI 助手 · ${TITLE[tab] ?? tab}`}
+      aiState={state}
+      onBlocked={handleBlocked}
+      runningKey={running}
+      targetLine={targetLine}
+      footNote={footNote}
+      rows={rows}
+      data-od-id={`ai-assist-${tab}`}
+    />
   );
 }

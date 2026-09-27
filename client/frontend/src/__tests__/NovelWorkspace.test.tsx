@@ -233,13 +233,13 @@ describe("默认落写作视图（免费）", () => {
     expect(document.querySelectorAll(".e-empty .be-acts .btn").length).toBe(2);
     expect(document.querySelector(".col-tree.empty-book .tree-add")).toBeTruthy();
     // 右栏「未选中」态（volume-plan-ai 空书）：规划第一卷入口＋分卷依据；四格统计退役
-    expect(document.querySelector(".col-ai .ai-ctx")?.textContent).toContain("未选");
+    expect(document.querySelector(".col-ai .plan-badge")).toBeTruthy(); // AI 助手卡（全局 ra-* 布局）
     expect(screen.getByTestId("plan-first-volume")).toBeDefined();
     expect(screen.getByTestId("plan-basis")).toBeDefined();
     expect(screen.queryByTestId("idle-rail-stats")).toBeNull();
     expect(document.querySelector(".col-ai .rail-stats")).toBeNull();
-    // 常驻挂载态不占 .rail-assist（设定页右栏同名歧义坑）
-    expect(document.querySelector(".col-ai .rail-assist")).toBeNull();
+    // 常驻挂载态不占章 AI 面板（右栏只有分卷规划卡一张 AI 助手卡）
+    expect(document.querySelectorAll(".col-ai .rail-assist").length).toBe(1);
     // 应用栏（行头归一）：书名在顶栏；免费标识收敛到账户档位徽（未登录不渲染，e2e 断言）
     expect(screen.getAllByText("测试小说").length).toBeGreaterThan(0);
     expect(screen.queryByText(/免费模式 · 写作功能完整/)).toBeNull();
@@ -393,8 +393,8 @@ describe("免费态：选中章 → 章对象工作台", () => {
     await waitFor(() => expect(document.querySelector(".editor")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "AI 生成正文" })).toBeNull();
     // 右栏免费 locked 卡 + 规划中（章模式三卡）
-    expect(screen.getByText(/解锁后可由「设定 \+ 章纲」生成正文/)).toBeVisible();
-    expect(screen.getByText("续写建议")).toBeVisible();
+    expect(document.querySelector(".col-ai .rail-assist.locked")).toBeTruthy(); // 免费态整卡锁定
+    expect(screen.getByText(/未解锁 · 升级 PRO 后本书 AI 即可用/)).toBeVisible();
   });
 });
 
@@ -590,9 +590,10 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
     const rail = document.querySelector(".col-ai") as HTMLElement;
     expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
     // 顶栏 bar-here 也有「续写」CTA（行头归一），右栏工具卡断言限定右栏范围
-    expect(within(rail).getByRole("button", { name: "续写" })).toBeDefined();
-    expect(within(rail).getByRole("button", { name: "润色选段" })).toBeDefined();
-    expect(within(rail).getByRole("button", { name: "扩写选段" })).toBeDefined();
+    expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
+    expect(within(rail).getByRole("button", { name: /续写建议/ })).toBeDefined();
+    expect(within(rail).getByRole("button", { name: /段落润色/ })).toBeDefined();
+    expect(within(rail).getByRole("button", { name: /场景扩写/ })).toBeDefined();
   });
 });
 

@@ -1311,3 +1311,38 @@ cast-row，坎行复用 hurdle-row；色彩与组件零新形态。
 - **parity 影响**：右栏与原型 `.col-ai` 的 #aiWriteTools 段不再一致，与前两条偏差同批待原型
   更新后重录 workbench 基线。
 - **文案自查（design-language §13）**：动作名沿用「生成正文」；UpgradeModal/顶栏提示文案不动。
+
+## c-ai-rail-shared（右栏 AI 助手全局统一设定模版：ra-* 布局公共化）— 2026-09-27
+
+用户拍板：AI 助手做成公共的前端布局和结构——内容各页可以不一样，造型样子全局一致，以设定域
+AiWriterAssistant 为模版。涉及写作域三处右栏面板的全量换装：
+
+- **CSS 公共化**：`.rail-assist` 卡壳与 `ra-head/.plan-badge/.ra-step/.ra-body/.ra-arrow/.ra-foot/`
+  `.ra-off/.ra-running/.ra-hint/.locked` 家族从 `.settings-v` 作用域提升为全局（book.css）；
+  写作域旧基线（裸 flex 版 `.rail-assist`）退役。原型 `settings.html` 的右栏卡片即全局参照。
+- **AiWriterAssistant 公共组件化**：迁 `components/novel/AiWriterAssistant.tsx`（设定/写作共用），
+  扩展两个可选槽：行级 `testid`（迁移旧按钮 testid 不断 e2e）与 `children`（报告组/台账等内容块，
+  插在能力行与 ra-foot 之间）。
+- **AiAssistPanel 八页签全量换装**：每页签＝一张 AI 助手卡（头部 plan-badge＋「AI 助手 · X」＋
+  状态副标题；ai-target 作用域行承载原统计卡口径——组装来源/悬置台账/全书基线等；动作行带
+  「会读什么/落到哪」描述；ra-foot 承载原 rail-lead 的去向声明）。原 ai-head/pill-pro/ai-ctx/
+  rail-lead/rail-stats/rail-list/rail-acts 退役。
+- **Rail 外壳瘦身**：ai-head/ai-ctx/LockedCard/续写润色扩写三张 ai-tool 卡/免费「规划中的能力」卡
+  全部退役——续写/润色/扩写收编正文页签动作行（内容不变、造型统一）；免费态统一为整卡 locked
+  ＋点击走统一升级出口（onUpgrade→UpgradeModal），三种门控并存清零。
+- **VolumeAssistPanel 换装**：验证面板/两 idle 态改 ra-head＋动作行＋ra-foot；体检报告 rp-* 组、
+  分卷依据 dep-row、「卷的验证」ledger 作为 children 内容保留（内容不同、造型一致）；
+  拆下一章免费锁定行＋独立升级出口按既定产品口径保留。
+- **门控语义**：章面板＝isPro 映射 ready/member_required（整卡锁定、点击统一升级）；卷面板＝
+  体检免费可用（ready），仅 PRO 行单独禁用/hint——与既有产品口径一致。
+- **e2e 适配**：ai-assist（免费锁定断言改整卡 locked＋点击走升级弹窗＋零 ai-check 请求）、
+  reconcile（.rail-acts→.rail-assist）、volume-plan（.pill-pro→.plan-badge）、workbench-features
+  （面板标题 AI 辅助→AI 助手；rail-stats→ai-target）、design-parity-book（modal-upgrade 触发点
+  改锁定行点击）；chapter-plan 的锁定三件套 testid 保留原样。
+- **parity 影响**：写作域右栏与原型 .col-ai 的差异扩大（本次为口径统一的主动偏离），与
+  c-og-rail-declutter/c-rail-ai-only/c-prose-write-entry 同批待原型更新后重录基线。
+- **文案自查（design-language §13）**：面板标题「AI 助手 · 页签名」；动作行名沿用原按钮词
+  （剧情推演/AI 起草/补全缺失字段/与卷纲冲突检测/生成正文/续写建议/段落润色/场景扩写/压缩啰嗦
+  段落/补全负向约束/精简提示词/提取本章变化/AI 建议本章调整/文风一致性检查/标记偏离段落/
+  识别角色与物品变化/关系冲突检测/建议补边/伏笔冲突检测/登记新伏笔）；头部副标题与升级文案
+  沿用设定域既有措辞；无新增语气形态。

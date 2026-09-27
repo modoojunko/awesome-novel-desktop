@@ -25,6 +25,8 @@ export interface AiCapabilityRow {
   disabled?: boolean;
   /** 置灰原因（如「先体检」）。 */
   hint?: string;
+  /** e2e 稳定锚（data-testid；迁移自各域旧按钮的 testid 沿用）。 */
+  testid?: string;
 }
 
 export interface AiWriterAssistantProps {
@@ -48,7 +50,10 @@ export interface AiWriterAssistantProps {
    * 不传时组件内部自管（两者都只在 UI 层，真正的在途互斥由调用方面板保证）。
    */
   runningKey?: string | null;
+  /** 行清单之后、底部声明之前的附加内容插槽（报告组/台账等内容型区块）。 */
+  children?: ReactNode;
   "data-od-id"?: string;
+  "data-testid"?: string;
 }
 
 const BLOCK_TEXT: Record<string, string> = {
@@ -67,7 +72,9 @@ export default function AiWriterAssistant({
   aiStateMessage,
   onBlocked,
   runningKey: runningKeyProp,
+  children,
   "data-od-id": odId = "ai-assist",
+  "data-testid": testId,
 }: AiWriterAssistantProps) {
   const unlocked = useFeature("settings-ai-fields");
   // aiState 提供时以它为准（同一事实源）；未提供才退回 tier 门控
@@ -99,7 +106,7 @@ export default function AiWriterAssistant({
   };
 
   return (
-    <div className={`rail-assist${locked ? " locked" : ""}`} data-od-id={odId}>
+    <div className={`rail-assist${locked ? " locked" : ""}`} data-od-id={odId} data-testid={testId}>
       <div className="ra-head">
         <span className="plan-badge">PRO</span>
         <div className="rh-t">
@@ -128,6 +135,7 @@ export default function AiWriterAssistant({
             className={`ra-step${r.disabled ? " ra-off" : ""}${running ? " ra-running" : ""}`}
             type="button"
             data-aiact={r.key}
+            data-testid={r.testid}
             aria-busy={running || undefined}
             disabled={r.disabled || runningKey !== null}
             onClick={() => void guard(r.key, r.onClick)()}
@@ -145,6 +153,7 @@ export default function AiWriterAssistant({
           </button>
         );
       })}
+      {children}
       <p className="ra-foot">{footNote}</p>
     </div>
   );

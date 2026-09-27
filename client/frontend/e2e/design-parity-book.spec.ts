@@ -368,8 +368,8 @@ test.describe("design-parity 书工作台屏（book.html）", () => {
         await appPage.locator('[data-od-id="acct-menu-bookprefs"]').click();
         await appPage.waitForSelector(".modal .mcard");
       } else if (c.screen === "modal-upgrade") {
-        // 免费态右栏 ai-locked 卡「升级 PRO」→ 升级弹窗
-        await appPage.locator(".ai-locked .btn-primary").click();
+        // 免费态右栏锁定 AI 卡任一行点击 → 统一升级出口弹升级弹窗（c-ai-rail-shared）
+        await appPage.locator(".rail-assist.locked .ra-step").first().click();
         await appPage.waitForSelector(".modal .mcard");
       } else if (c.screen === "settings-characters") {
         await appPage.locator(".modnav button", { hasText: "设定" }).click();

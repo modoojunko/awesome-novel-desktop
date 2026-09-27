@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { AiAssistPanel } from "@/components/novel/workbench/AiAssistPanel";
 
 // ---------------------------------------------------------------------------
-// B 组（storyline col-ai）：右栏 AI 辅助随页签切换——引导语＋统计卡＋动作清单；
-// 未实现动作=「规划中」占位（禁用）；已实现动作=真按钮。
-// 2026-09-17：检测族（onAiCheck）/精修族（onPromptRefine）/缺项补全（onFillGaps）
-// 全部接线；三个重复动作（重新组装提示词/本章关系变化检测/建议本章回收）撤除。
+// B 组（storyline col-ai）：右栏 AI 助手随页签切换——c-ai-rail-shared 起全局统一
+// ra-* 布局（与设定域 AiWriterAssistant 同模板）：ra-head 头部 + ai-target 作用域行
+// + ra-step 能力行（名称＋描述）+ ra-foot 声明。检测族（onAiCheck）/精修族
+//（onPromptRefine）/缺项补全（onFillGaps）全部接线；重复动作已撤。
+// 注意：模板行点击经 busyRef 在途互斥（同 tick 连点会被吞），连续点击需 await act。
 // ---------------------------------------------------------------------------
 
 const apiState = vi.hoisted(() => ({ get: vi.fn() }));
@@ -41,35 +42,43 @@ function renderPanel(tab: string, extra: Partial<Parameters<typeof AiAssistPanel
   return cb;
 }
 
+/** 模板行点击经 busyRef 互斥：点完等一个微任务，busyRef 归零后下一点才生效 */
+async function clickRow(name: RegExp) {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name }));
+  });
+}
+
 beforeEach(() => {
   apiState.get.mockReset().mockRejectedValue(new Error("no stubs"));
 });
 
-describe("AiAssistPanel（随页签）", () => {
-  it("章纲页签：统计卡不进右栏（上移头部 meta 行）＋还缺清单＋已实现动作全真按钮", () => {
+describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
+  it("章纲页签：统计卡不进右栏（上移头部 meta 行）＋还缺进作用域行＋动作行全真", async () => {
     const onFillGaps = vi.fn();
     const onAiCheck = vi.fn();
     const cb = renderPanel("og", { onFillGaps, onAiCheck });
-    expect(screen.getByText("AI 辅助 · 章纲")).toBeTruthy();
-    // 2026-09-27：归档门槛/计划字数/剧情/出场角色改由中栏头部 e-meta 展示
+    expect(screen.getByText("AI 助手 · 章纲")).toBeTruthy();
+    // 统计卡退役；口径进 ai-target 作用域行
     expect(document.querySelector(".rail-stats")).toBeNull();
-    // 还缺清单（原型 aiList('还缺')）
-    const list = document.querySelector(".rail-list")?.textContent ?? "";
-    expect(list).toContain("还缺");
-    expect(list).toContain("主情绪");
+    const target = document.querySelector(".ai-target")?.textContent ?? "";
+    expect(target).toContain("还缺 1 项");
+    expect(target).toContain("主情绪");
+    // 「补全缺失字段」行描述带还缺数量
+    expect(screen.getByText("只补还缺的 1 项，一稿回填")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /AI 起草/ }));
+    await clickRow(/AI 起草/);
     expect(cb.onAiDraft).toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: /剧情推演/ }));
+    await clickRow(/剧情推演/);
     expect(cb.onSimulate).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: /补全缺失字段/ }));
+    await clickRow(/补全缺失字段/);
     expect(onFillGaps).toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: /与卷纲冲突检测/ }));
+    await clickRow(/与卷纲冲突检测/);
     expect(onAiCheck).toHaveBeenCalledWith("volume_conflict");
   });
 
-  it("章纲页签：无缺项/补全中时「补全缺失字段」禁用", () => {
+  it("章纲页签：无缺项/补全中时「补全缺失字段」禁用", async () => {
     renderPanel("og", {
       onFillGaps: vi.fn(),
       ogStats: { ...OG_STATS, missingLabels: [] },
@@ -77,62 +86,62 @@ describe("AiAssistPanel（随页签）", () => {
     expect(screen.getByRole("button", { name: /补全缺失字段/ })).toBeDisabled();
 
     renderPanel("og", { onFillGaps: vi.fn(), gapsLoading: true });
-    const all = screen.getAllByRole("button", { name: /补全缺失字段|补全中/ });
+    const all = screen.getAllByRole("button", { name: /补全缺失字段/ });
     const last = all[all.length - 1] as HTMLButtonElement;
     expect(last.disabled).toBe(true);
-    expect(last.textContent).toContain("补全中");
   });
 
-  it("正文页签：统计卡＋压缩动作占位；免费态已实现动作锁定", () => {
-    renderPanel("prose");
-    const stats = document.querySelector(".rail-stats")?.textContent ?? "";
-    expect(stats).toContain("500 字");
-    expect(stats).toContain("28%"); // 500/1800
-    expect(screen.getByRole("button", { name: /压缩啰嗦段落/ })).toBeDisabled();
+  it("正文页签：统计进作用域行＋五动作行；选中才可点（走 onAiSelection）", async () => {
+    const onAiSelection = vi.fn();
+    renderPanel("prose", { onAiSelection });
+    const target = document.querySelector(".ai-target")?.textContent ?? "";
+    expect(target).toContain("500 字");
+    expect(target).toContain("28%"); // 500/1800
+    expect(screen.getByText("AI 助手 · 正文")).toBeTruthy();
+    // 未选中 → 润色/扩写/压缩禁用并带 hint
+    const polish = screen.getByRole("button", { name: /段落润色/ }) as HTMLButtonElement;
+    expect(polish.disabled).toBe(true);
+    expect(screen.getAllByText(/先在正文选中一段/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("button", { name: /生成正文/ })).toBeTruthy();
+
+    // 选中 → 压缩可点，走 onAiSelection（capture 取自 proseRef）
+    const capture = { text: "选中的一段" };
+    renderPanel("prose", {
+      onAiSelection,
+      aiState: { hasSelection: true, compressLoading: false } as never,
+      proseRef: { current: { captureNow: () => capture } } as never,
+    });
+    // 第二次 render 追加进容器：取最后一份（选中态）的行
+    const btns = screen.getAllByRole("button", { name: /压缩啰嗦段落/ }) as HTMLButtonElement[];
+    const btn = btns[btns.length - 1];
+    expect(btn.disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(onAiSelection).toHaveBeenCalledWith("compress", capture);
   });
 
-  it("提示词页签：拉取组装来源统计；精修两动作接线（「重新组装」已撤）", async () => {
+  it("提示词页签：拉取组装来源统计（作用域行）；精修两动作接线（「重新组装」已撤）", async () => {
     apiState.get.mockImplementation(async (p: string) => {
       if (p.endsWith("/prompt-sources")) return { total_chars: 1234, cast_count: 3 };
       throw new Error("unexpected " + p);
     });
     const onPromptRefine = vi.fn();
     renderPanel("prompt", { onPromptRefine });
-    expect(screen.getByText("AI 辅助 · 提示词")).toBeTruthy();
-    await screen.findByText("1,234 字");
-    expect(screen.getByText("3 人")).toBeTruthy();
+    expect(screen.getByText("AI 助手 · 提示词")).toBeTruthy();
+    await screen.findByText(/1,234 字/);
+    expect(screen.getByText(/3 人/)).toBeTruthy();
     // 与提示词页签内「AI 润色」同动作 → 不设入口（ADJUSTMENTS #27 ⑫）
     expect(screen.queryByRole("button", { name: /重新组装提示词/ })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /补全负向约束/ }));
+    await clickRow(/补全负向约束/);
     expect(onPromptRefine).toHaveBeenCalledWith("negative");
-    fireEvent.click(screen.getByRole("button", { name: /精简提示词/ }));
+    await clickRow(/精简提示词/);
     expect(onPromptRefine).toHaveBeenCalledWith("concise");
     // 只请求 prompt-sources（页签感知）
     expect(apiState.get).toHaveBeenCalledTimes(1);
   });
 
-  it("正文页签：压缩啰嗦段落为真按钮（选中才可点，走 onAiSelection）", () => {
-    const onAiSelection = vi.fn();
-    renderPanel("prose", {
-      onAiSelection,
-      aiState: { hasSelection: true, compressLoading: false } as never,
-      proseRef: { current: { captureNow: () => ({ text: "选中的一段" }) } } as never,
-    });
-    const btn = screen.getByRole("button", { name: /压缩啰嗦段落/ });
-    expect((btn as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(btn);
-    expect(onAiSelection).toHaveBeenCalledWith("compress", { text: "选中的一段" });
-    // 无选中 → 禁用（不降级为占位）
-    renderPanel("prose", {
-      onAiSelection,
-      aiState: { hasSelection: false, compressLoading: false } as never,
-      proseRef: { current: { captureNow: () => null } } as never,
-    });
-    const all = screen.getAllByRole("button", { name: /压缩啰嗦段落/ });
-    expect((all[all.length - 1] as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("设定/关系/伏笔三入口按类触发收尾（未归档禁用）", () => {
+  it("设定/关系/伏笔三入口按类触发收尾（未归档禁用）", async () => {
     const onRunReconcile = vi.fn();
     const { unmount } = render(
       (() => {
@@ -155,17 +164,19 @@ describe("AiAssistPanel（随页签）", () => {
         );
       })(),
     );
-    fireEvent.click(screen.getByRole("button", { name: /提取本章变化/ }));
+    await clickRow(/提取本章变化/);
     expect(onRunReconcile).toHaveBeenCalledWith("set_changes");
     unmount();
 
     renderPanel("relations", { archived: true, onRunReconcile });
-    fireEvent.click(screen.getByRole("button", { name: /识别角色与物品变化/ }));
+    await clickRow(/识别角色与物品变化/);
     expect(onRunReconcile).toHaveBeenCalledWith("relations");
+    unmount();
 
     renderPanel("hooks", { archived: true, onRunReconcile });
-    fireEvent.click(screen.getByRole("button", { name: /登记新伏笔/ }));
+    await clickRow(/登记新伏笔/);
     expect(onRunReconcile).toHaveBeenCalledWith("hooks");
+    unmount();
 
     // 未归档：三入口禁用
     renderPanel("settings", { archived: false, onRunReconcile });
@@ -173,38 +184,44 @@ describe("AiAssistPanel（随页签）", () => {
     expect((all[all.length - 1] as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("文风/关系/伏笔页签：检测动作接线（走 onAiCheck，撤重复项）", () => {
+  it("文风/关系/伏笔页签：检测动作接线（走 onAiCheck，撤重复项）", async () => {
     const onAiCheck = vi.fn();
 
     renderPanel("style", { onAiCheck });
-    fireEvent.click(screen.getByRole("button", { name: /文风一致性检查/ }));
+    await clickRow(/文风一致性检查/);
     expect(onAiCheck).toHaveBeenCalledWith("style_consistency");
-    fireEvent.click(screen.getByRole("button", { name: /标记偏离段落/ }));
+    await clickRow(/标记偏离段落/);
     expect(onAiCheck).toHaveBeenCalledWith("style_deviations");
 
     renderPanel("relations", { onAiCheck });
     // 与 reconcile 关系收尾同产出 → 不设入口（ADJUSTMENTS #27 ⑫）
     expect(screen.queryByRole("button", { name: /本章关系变化检测/ })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /关系冲突检测/ }));
+    await clickRow(/关系冲突检测/);
     expect(onAiCheck).toHaveBeenCalledWith("relations_conflict");
-    fireEvent.click(screen.getByRole("button", { name: /建议补边/ }));
+    await clickRow(/建议补边/);
     expect(onAiCheck).toHaveBeenCalledWith("relation_suggest");
 
     renderPanel("hooks", { onAiCheck });
     // 与 reconcile 伏笔收尾的「收束」提案同产出 → 不设入口
     expect(screen.queryByRole("button", { name: /建议本章回收/ })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /伏笔冲突检测/ }));
+    await clickRow(/伏笔冲突检测/);
     expect(onAiCheck).toHaveBeenCalledWith("hooks_conflict");
   });
 
-  it("免费态：检测/精修动作整体锁定（rail-locked 禁点）", () => {
-    renderPanel("style", { isPro: false, onAiCheck: vi.fn() });
-    const acts = document.querySelector(".rail-acts");
-    expect(acts?.className).toContain("rail-locked");
-    expect(screen.getByRole("button", { name: /文风一致性检查/ })).toBeDisabled();
+  it("免费态：整卡 locked，动作行可点但被门控拦下走统一升级出口", async () => {
+    const onUpgrade = vi.fn();
+    const onAiCheck = vi.fn();
+    renderPanel("style", { isPro: false, onAiCheck, onUpgrade });
+    expect(document.querySelector(".rail-assist.locked")).toBeTruthy();
+    expect(screen.getByText(/未解锁 · 升级 PRO 后本书 AI 即可用/)).toBeTruthy();
+    const row = screen.getByRole("button", { name: /文风一致性检查/ }) as HTMLButtonElement;
+    expect(row.disabled).toBe(false); // 模板免费态＝可见可点，点击被门控拦下
+    await clickRow(/文风一致性检查/);
+    expect(onAiCheck).not.toHaveBeenCalled();
+    expect(onUpgrade).toHaveBeenCalled();
   });
 
-  it("伏笔页签：悬置/本章埋下统计与检测动作", async () => {
+  it("伏笔页签：悬置/本章埋下统计（作用域行）与检测动作", async () => {
     apiState.get.mockImplementation(async (p: string) => {
       if (p.endsWith("/hooks")) {
         return {
@@ -231,9 +248,9 @@ describe("AiAssistPanel（随页签）", () => {
     });
     const onAiCheck = vi.fn();
     renderPanel("hooks", { chapterRef: "vol-1-ch-2", onAiCheck });
-    expect(screen.getByText("AI 辅助 · 伏笔")).toBeTruthy();
-    await screen.findByText("2 条"); // 台账总数
-    fireEvent.click(screen.getByRole("button", { name: /伏笔冲突检测/ }));
+    expect(screen.getByText("AI 助手 · 伏笔")).toBeTruthy();
+    await screen.findByText(/台账 2 条/);
+    await clickRow(/伏笔冲突检测/);
     expect(onAiCheck).toHaveBeenCalledWith("hooks_conflict");
   });
 });

@@ -33,7 +33,7 @@ import type { AiState } from "@/types/api-config";
 import AiWriterAssistant, {
   CharsAiRail,
   type AiCapabilityRow,
-} from "@/components/novel/settings/AiWriterAssistant";
+} from "@/components/novel/AiWriterAssistant";
 import AiSink from "@/components/novel/settings/AiSink";
 import {
   ChangeReceiptBar,
