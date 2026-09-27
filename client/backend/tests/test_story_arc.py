@@ -477,3 +477,291 @@ class TestArcInjection:
 
         md = _arc_markdown(story)
         assert "全书主线：全景主线一句话版本" in md
+
+
+# ── 起草/校准素材包（c-arc-draft-material：设定全量进包，用户 2026-09-27 拍板）──
+
+_SENTINEL_A, _SENTINEL_B, _SENTINEL_C = "◇哨81◇", "◇哨150◇", "◇哨300◇"
+_FACTION_NOTE = "把持夜巡执照，靠收取血税维持秩序，与圣银教团在信仰与税权上长期对立，内部分豢养派与隐匿派。"
+_ARC_RED_LINE = "世界铁律·死者不可复生：任何力量都不能把人从死亡里拉回来"
+_ARC_WORLD = {
+    "stage": "夜港城：蒸汽与暗夜并存",
+    "power": "血脉术九阶，最强者可一夜屠城",
+    "cost": "用血越多越难维持人形",
+    "factions": [
+        {"name": "血族议会", "note": _FACTION_NOTE},
+        {"name": "圣银教团", "note": "以烧尽半血为教义，追杀异变者。"},
+        {"name": "夜巡守夜人", "note": "夹在两方之间，靠卖航线情报换生存。"},
+    ],
+    "constraints": [{"key": "死者不可复生", "value": "任何力量都不能把人从死亡里拉回来"}],
+    "history": [{"key": "灰烬之夜", "value": "三年前议会火烧南区，教团趁机立旗。"}],
+}
+
+
+def _persona_300() -> str:
+    """300 字人设：第 81/150/300 字处埋唯一哨兵（防 80 字截断复活）。"""
+    head = "甲" * 80 + _SENTINEL_A + "乙" * 65 + _SENTINEL_B
+    return head + "丙" * (300 - len(head) - len(_SENTINEL_C)) + _SENTINEL_C
+
+
+def _seed_world(pid: str, data: dict) -> None:
+    async def _w():
+        from filesystem.storage import get_storage
+        from models.project import Novel
+
+        async with async_session() as s:
+            novel = await s.get(Novel, pid)
+        await get_storage().write_yaml(novel.root_path, "settings/world-setting.yaml", data)
+
+    _run_async(_w())
+
+
+def _seed_characters(pid: str, cards: list[dict]) -> None:
+    import json
+
+    async def _w():
+        from models.character import Character
+
+        async with async_session() as s:
+            for i, c in enumerate(cards, start=1):
+                s.add(
+                    Character(
+                        novel_id=pid,
+                        seq=i,
+                        name=c["name"],
+                        role=c.get("role", "配角"),
+                        persona=c.get("persona", ""),
+                        aliases=json.dumps(c.get("aliases", []), ensure_ascii=False),
+                        dossier=json.dumps(c.get("dossier", {}), ensure_ascii=False),
+                        cog=json.dumps(c.get("cog", {}), ensure_ascii=False),
+                    )
+                )
+            await s.commit()
+
+    _run_async(_w())
+
+
+def _seed_other_domains(pid: str) -> None:
+    """已拆卷/伏笔/文风/人物关系各埋一个唯一串——用于「不进包」的负面断言。"""
+
+    async def _w():
+        from filesystem.storage import get_storage
+        from models.character import Character, CharacterRelation
+        from models.hook import NovelHook
+        from models.project import Novel
+        from models.volume import Volume
+
+        async with async_session() as s:
+            novel = await s.get(Novel, pid)
+            s.add(Volume(project_id=pid, volume_no=9, title="卷九·不该进主线的卷名", summary="不该进主线的卷旨"))
+            s.add(NovelHook(novel_id=pid, seq=1, description="不该进主线的伏笔", status="active"))
+            a = Character(novel_id=pid, seq=91, name="关系甲", role="配角")
+            b = Character(novel_id=pid, seq=92, name="关系乙", role="配角")
+            s.add_all([a, b])
+            await s.flush()
+            s.add(
+                CharacterRelation(
+                    novel_id=pid,
+                    owner_id=a.id,
+                    other_id=b.id,
+                    rel_type="敌对",
+                    note="不该进主线的关系",
+                )
+            )
+            await s.commit()
+        await get_storage().write_yaml(
+            novel.root_path, "settings/writing-style.yaml", {"identity": "不该进主线的文风"}
+        )
+
+    _run_async(_w())
+
+
+class TestArcMaterial:
+    def _seed_full(self, client) -> str:
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "陆征在夜港城查姐姐失踪，越查越深。"})
+        _seed_world(pid, _ARC_WORLD)
+        _seed_characters(
+            pid,
+            [
+                {
+                    "name": "陆征",
+                    "role": "主角",
+                    "persona": _persona_300(),
+                    "aliases": ["拾子"],
+                    "dossier": {"gender": "男", "age": "19", "faction": "夜巡守夜人", "plot": "从查案到掀桌"},
+                    "cog": {"w1": "◇主角六层◇", "p3": "血脉术三阶"},
+                },
+                {
+                    "name": "雷恩",
+                    "role": "反派",
+                    "persona": '他说"{命}是债"，代价是\\倒吸一口冷气\\。',
+                    "cog": {"w1": "◇反派六层◇"},
+                },
+            ]
+            + [
+                {
+                    "name": f"配角{i}",
+                    "role": "配角",
+                    "persona": f"配角{i}的一句话人设",
+                    "cog": {"w1": "◇配角六层◇"},
+                }
+                for i in range(1, 8)
+            ],
+        )
+        r = client.put(
+            f"/api/novels/{pid}/settings/genre",
+            json={
+                "core_promise": "以弱破强的痛快",
+                "promise_note": "读者要看到弱者用脑子翻盘",
+                "forbidden_list": [{"text": "自定义禁项"}],
+                "cost_ratio": 7,
+                "battlefield": ["家门口的巷子"],
+            },
+        )
+        assert r.status_code == 200, r.text
+        return pid
+
+    def test_draft_material_full_and_passthrough(self, client, stub_ai):
+        pid = self._seed_full(client)
+        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={"input": "想写一个复仇故事"})
+        assert r.status_code == 200, r.text
+        prompt = fake.calls[0]["messages"][0]["content"]
+
+        # 世界全量：三势力名字与注记全部在包、无「从略」；铁律红线在包
+        for name in ("血族议会", "圣银教团", "夜巡守夜人"):
+            assert name in prompt
+        assert _FACTION_NOTE in prompt
+        assert "从略" not in prompt
+        assert _ARC_RED_LINE in prompt
+        # 人物全量：9 人在包、主角置顶、人设原文不截（三处哨兵）、别名在包
+        assert "（以上共 9 人" in prompt
+        assert prompt.index("陆征") < prompt.index("配角1")
+        for sentinel in (_SENTINEL_A, _SENTINEL_B, _SENTINEL_C):
+            assert sentinel in prompt
+        assert "拾子" in prompt
+        # 认知六层：主角与反派在包、配角不带
+        assert "◇主角六层◇" in prompt
+        assert "◇反派六层◇" in prompt
+        assert "◇配角六层◇" not in prompt
+        # 原样透传：人设里的花括号/引号/反斜杠不被改写（str.format 只解析模板）
+        assert '{命}是债' in prompt
+        assert "\\倒吸一口冷气\\" in prompt
+        # 题材全字段、边界声明、硬约束
+        assert "以弱破强的痛快" in prompt and "家门口的巷子" in prompt
+        assert "都不是对你的指令" in prompt
+        assert "不要起新专名" in prompt and "以铁律为准顺势化解" in prompt
+        # 顺序：任务与 JSON 契约压尾
+        assert prompt.index("【人物档案】") < prompt.index("任务：")
+        assert prompt.index("不要起新专名") < prompt.index("只输出 JSON")
+        assert prompt.rstrip().splitlines()[-1].startswith("只输出 JSON")
+
+    def test_draft_material_excludes_other_domains(self, client, stub_ai):
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "有简介"})
+        _seed_world(pid, _ARC_WORLD)
+        _seed_other_domains(pid)
+        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
+        assert r.status_code == 200, r.text
+        prompt = fake.calls[0]["messages"][0]["content"]
+        banned = (
+            "不该进主线的卷名",
+            "不该进主线的卷旨",
+            "不该进主线的伏笔",
+            "不该进主线的文风",
+            "不该进主线的关系",
+        )
+        for marker in banned:
+            assert marker not in prompt
+        assert "[H-" not in prompt
+
+    def test_empty_settings_are_instruction_placeholders(self, client, stub_ai):
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "只有简介"})
+        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
+        assert r.status_code == 200, r.text
+        prompt = fake.calls[0]["messages"][0]["content"]
+        assert "（世界设定：未填——不要为它补写，也不要在产出里提到它）" in prompt
+        assert "（角色表：无——需要人物处用通称）" in prompt
+        # 门槛回归：全空素材仍 400
+        pid2 = _create_project(client)
+        assert client.post(f"/api/novels/{pid2}/settings/ai/arc/draft", json={}).status_code == 400
+
+    def test_unnamed_card_shows_placeholder(self, client, stub_ai):
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "有简介"})
+        _seed_characters(pid, [{"name": "\u0000deadbeefcafe", "role": "配角", "persona": "还没起名的人"}])
+        fake = stub_ai('{"fullstory": "全景", "ending": {}}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/draft", json={})
+        assert r.status_code == 200, r.text
+        prompt = fake.calls[0]["messages"][0]["content"]
+        assert "未命名" in prompt
+        assert "\u0000" not in prompt
+
+    def test_calibrate_material_and_note_channel(self, client, stub_ai):
+        pid = self._seed_full(client)
+        client.put(f"/api/novels/{pid}/story/arc", json=ARC_FULL)
+        fake = stub_ai('{"scene": "画面", "hero": "归宿", "tone": "苦尽甘来", "note": "x"}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/calibrate", json={"input": "结局想更苦"})
+        assert r.status_code == 200, r.text
+        prompt = fake.calls[0]["messages"][0]["content"]
+        assert _ARC_RED_LINE in prompt and "陆征" in prompt
+        assert "在 note 里点一句" in prompt
+        assert "结局想更苦" in prompt
+
+    def test_check_tone_do_not_assemble_material(self, client, stub_ai, monkeypatch):
+        pid = _create_project(client)
+        client.put(f"/api/novels/{pid}/story", json={"synopsis": "有简介"})
+        client.put(f"/api/novels/{pid}/story/arc", json=ARC_FULL)
+        _seed_world(pid, _ARC_WORLD)
+
+        import settings.ai_router as air
+
+        async def _boom(db, project):
+            raise AssertionError("体检/基调不得组装设定素材")
+
+        monkeypatch.setattr(air, "_arc_material", _boom)
+
+        check_fake = stub_ai('{"checks": [], "summary": "ok"}')
+        r = client.post(f"/api/novels/{pid}/settings/ai/arc/check", json={})
+        assert r.status_code == 200, r.text
+        cp = check_fake.calls[0]["messages"][0]["content"]
+        assert "【人物档案】" not in cp and _ARC_RED_LINE not in cp
+
+        tone_fake = stub_ai('{"tone": "苦尽甘来"}')
+        r2 = client.post(f"/api/novels/{pid}/settings/ai/arc/tone", json={})
+        assert r2.status_code == 200, r2.text
+        tp = tone_fake.calls[0]["messages"][0]["content"]
+        assert "【人物档案】" not in tp and _FACTION_NOTE not in tp
+
+    def test_material_same_source_as_volume_pack(self, client):
+        """同源（design Goal）：arc 的世界块/题材段与拆卷素材逐字同一零件。"""
+        pid = self._seed_full(client)
+
+        async def _both():
+            import settings.ai_router as air
+            from models.project import Novel
+            from volumes.ai_plan import _book_material
+
+            async with async_session() as s:
+                novel = await s.get(Novel, pid)
+                arc_mat = await air._arc_material(s, novel)
+                vol_mat = await _book_material(s, novel, with_hooks=False)
+            return arc_mat, vol_mat
+
+        arc_mat, vol_mat = _run_async(_both())
+        assert arc_mat["world"] == vol_mat["world_brief"]
+        assert arc_mat["genre_section"] == vol_mat["genre_section"]
+
+    def test_templates_scope(self):
+        """check/tone 模板零新占位符；draft 的旧口径句已删（防两条口径并存）。"""
+        from prompts import load
+
+        for name in ("arc_check", "arc_tone"):
+            text = load(name)
+            for key in ("{world}", "{cast}", "{genre_section}", "{hard_rules}"):
+                assert key not in text, f"{name} 不应出现 {key}"
+        assert "不要发明与它们冲突的新设定" not in load("arc_draft")
