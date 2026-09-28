@@ -109,6 +109,34 @@ describe("AiModal 两段式", () => {
     );
   });
 
+  it("初始组装失败 → 刷新成功：错误清除且「生成正文」恢复可点", async () => {
+    reqState.request
+      .mockRejectedValueOnce(new Error("提示词组装失败"))
+      .mockResolvedValueOnce({
+        prompt: "## 角色定位\n刷新后的组装稿",
+        has_outline: true,
+        polished: false,
+      });
+    const { onConfirm } = renderModal();
+    await screen.findByText(/提示词组装失败/);
+    expect(
+      (screen.getByTestId("ai-confirm") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByTestId("ai-prompt-refresh"));
+    await waitFor(() =>
+      expect((screen.getByTestId("ai-prompt") as HTMLTextAreaElement).value).toContain(
+        "刷新后的组装稿",
+      ),
+    );
+    // 错误段落撤下 + 「生成正文」解锁，刷新＝初始失败态的第二条恢复路径
+    expect(screen.queryByText(/提示词组装失败/)).toBeNull();
+    expect(
+      (screen.getByTestId("ai-confirm") as HTMLButtonElement).disabled,
+    ).toBe(false);
+    fireEvent.click(screen.getByTestId("ai-confirm"));
+    expect(onConfirm).toHaveBeenCalledWith("## 角色定位\n刷新后的组装稿");
+  });
+
   it("点击「AI 润色」→ 换稿 + 标记已润色 + 成功 toast", async () => {
     polishState.polishWritePrompt.mockResolvedValue("## 任务指示\n润色新稿");
     renderModal();

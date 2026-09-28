@@ -534,7 +534,8 @@ export function AiModal({
     }
   };
 
-  /** 「刷新提示词」：fresh=1 绕过存量行重新组装；失败不动当前稿 */
+  /** 「刷新提示词」：fresh=1 绕过存量行重新组装；成功清错误态（初始失败后可当
+   *  恢复路径），失败不动当前稿也不动错误标志 */
   const handleRefresh = async () => {
     if (refreshing || loading) return;
     setRefreshing(true);
@@ -546,6 +547,8 @@ export function AiModal({
       setPrompt(d?.prompt ?? "");
       setHasOutline(!!d?.has_outline);
       setPolished(false);
+      setError(null);
+      setPolishError(null);
     } catch (e) {
       toast.error((e as Error)?.message || "刷新失败，请重试");
     } finally {
