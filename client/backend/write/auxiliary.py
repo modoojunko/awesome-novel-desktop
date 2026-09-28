@@ -187,6 +187,10 @@ async def stream_continue(
                 generated_text += event.text
                 yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
             elif event.is_done:
+                # 分段归一（段间空行→单换行）：与生成正文同一口径
+                from write.chapter_writer import normalize_generated_prose
+
+                generated_text = normalize_generated_prose(generated_text)
                 # Save updated prose（统一写入口：落库 + 元数据派生 + 版本快照）
                 new_prose = existing_prose[:cursor_position] + generated_text
                 chapter["prose"] = new_prose

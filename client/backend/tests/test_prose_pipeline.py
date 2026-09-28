@@ -185,6 +185,7 @@ def test_iron_rules_cover_three_clauses():
     assert "不擅自命名" in system_tpl
     assert "Markdown" in system_tpl
     assert "视为已写情节" in system_tpl
+    assert "不留空行" in system_tpl
 
 
 # ── 契约：流式生成三工序 ─────────────────────────────────────────────────
@@ -300,6 +301,37 @@ class TestWritePipeline:
                 proj = await session.get(Novel, pid)
             loaded = await load_chapter(proj.root_path, ref)
             assert loaded["prose"] == CLEAN_PROSE
+
+        _run_async(_check())
+
+    def test_generated_prose_blank_lines_collapsed(self, client, monkeypatch):
+        """段间空行归一（web-novel 紧排）：模型发 \n\n 分段时，落库与 done 事件
+        都收敛为单换行——编辑器把每个空行渲染成空段落，源头不归一就成片空行。"""
+        _set_member()
+        pid, ref, _ = _create_project_and_chapter(client)
+        raw = "第一段开头。\n\n第二段跟上来。\n\n\n第三段收尾。\n"
+        fake = _FakeStreamClient(raw)
+
+        async def _fake(novel_id=None):
+            return fake
+
+        import ai_client as ai_client_mod
+
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
+
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
+        assert r.status_code == 200, r.text
+        expected = "第一段开头。\n第二段跟上来。\n第三段收尾。"
+        assert _done_event(r.text)["full_text"] == expected
+
+        from chapters.store import load_chapter
+        from models import Novel
+
+        async def _check():
+            async with async_session() as session:
+                proj = await session.get(Novel, pid)
+            loaded = await load_chapter(proj.root_path, ref)
+            assert loaded["prose"] == expected
 
         _run_async(_check())
 

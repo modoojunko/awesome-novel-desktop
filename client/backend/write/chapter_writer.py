@@ -79,7 +79,19 @@ _CH1_PREVIOUS = "无前置章节，开篇直接切入角色当下行动，禁止
 
 # 收尾重申行（同词不同句，防被当回声）：_stream_chapter 在 user 内容最末字节
 # 强制追加，不落库、不进弹窗预览，对存量稿路径与重组路径同样生效。
-WRITE_CLOSING_LINE = "输出：仅正文，无标题、无总结、无引导语、无 Markdown。"
+WRITE_CLOSING_LINE = (
+    "输出：仅正文，无标题、无总结、无引导语、无 Markdown；段落之间直接换行，不留空行。"
+)
+
+
+def normalize_generated_prose(text: str) -> str:
+    """AI 生成产物分段归一（c-write-prompt-layering 后续修复）：段间空行收敛为
+    单个换行，并去首尾换行。
+
+    背景：prose 契约＝单换行分段，编辑器把每个空行保留为空段落（作者手写稿契约）；
+    模型按 LLM 默认习惯发的段间空行会在正文里渲染成成片空段落。生成/续写出口在此
+    收敛——只管 AI 产物，不碰作者手写稿（save/save_prose 不归一）。"""
+    return re.sub(r"\n{2,}", "\n", text or "").strip("\n")
 
 # 旧版整包行判定标记：粗组存稿行按恒定块标题；润色稿行按 _POLISH_ANCHORS 三锚
 # 同现（凡成功落库的润色行必然满足，新 user 层不含「任务指示」「质感」两词）。

@@ -57,7 +57,7 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
     """
     from ai_client import get_ai_client_for_novel
     from chapters.service import save_chapter
-    from write.chapter_writer import WRITE_CLOSING_LINE
+    from write.chapter_writer import WRITE_CLOSING_LINE, normalize_generated_prose
 
     client = await get_ai_client_for_novel(project.id)
     # 符号别名：模型由本书绑定决定（D12，不再读 writing_model）
@@ -80,6 +80,8 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
                 full_text += event.text
                 yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
             elif event.is_done:
+                # 分段归一（段间空行→单换行）：字数校验/自查/落库/done 全用同一份
+                full_text = normalize_generated_prose(full_text)
                 try:
                     chapter = await load_chapter(root_path, chapter_ref)
                     chapter["prose"] = full_text
