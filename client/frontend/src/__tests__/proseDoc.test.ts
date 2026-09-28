@@ -2,7 +2,13 @@
 // 契约 = spec「正文编辑器核心契约」：\n 分段纯文本、空串↔空文档、NBSP 归一。
 import { describe, expect, it } from "vitest";
 
-import { docToProse, linesToParagraphs, proseToDoc } from "@/components/novel/workbench/proseDoc";
+import {
+  docToProse,
+  linesToParagraphs,
+  normalizeStreamedProse,
+  proseDelta,
+  proseToDoc,
+} from "@/components/novel/workbench/proseDoc";
 
 describe("proseDoc 序列化（纯文本 ↔ TipTap 文档）", () => {
   it("空串 = 空文档（零段落，占位可见）", () => {
@@ -50,5 +56,48 @@ describe("proseDoc 序列化（纯文本 ↔ TipTap 文档）", () => {
     expect(paras[0].content?.[0]).toMatchObject({ type: "text", text: "甲" });
     expect(paras[1].content).toBeUndefined();
     expect(paras[2].content?.[0]).toMatchObject({ type: "text", text: "乙" });
+  });
+});
+
+// ── AI 流式归一（fix/stream-mirror-normalize）：流式所见＝落库最终态 ──
+
+describe("normalizeStreamedProse（与后端生成出口同口径）", () => {
+  it("段间空行收敛为单换行", () => {
+    expect(normalizeStreamedProse("段1。\n\n段2。")).toBe("段1。\n段2。");
+    expect(normalizeStreamedProse("段1。\n\n\n\n段2。")).toBe("段1。\n段2。");
+  });
+
+  it("CRLF 归一为 LF", () => {
+    expect(normalizeStreamedProse("段1。\r\n段2。\r段3。")).toBe("段1。\n段2。\n段3。");
+  });
+
+  it("去首部换行；尾部保留（流式期后续分块可能接续）", () => {
+    expect(normalizeStreamedProse("\n\n段1。")).toBe("段1。");
+    expect(normalizeStreamedProse("段1。\n\n")).toBe("段1。\n");
+  });
+
+  it("空串安全", () => {
+    expect(normalizeStreamedProse("")).toBe("");
+  });
+});
+
+describe("proseDelta 增量（归一具前缀稳定性，取增量安全）", () => {
+  it("全量增长取增量；无增长返回空串", () => {
+    expect(proseDelta("段1。", 0)).toBe("段1。");
+    expect(proseDelta("段1。\n段2。", "段1。".length)).toBe("\n段2。");
+    expect(proseDelta("段1。", 3)).toBe("");
+  });
+
+  it("分块跨空行：前缀稳定不回改已插入内容", () => {
+    const after1 = normalizeStreamedProse("段1。\n\n");
+    const after2 = normalizeStreamedProse("段1。\n\n段2。");
+    expect(after2.startsWith(after1)).toBe(true);
+    expect(proseDelta(after2, after1.length)).toBe("段2。");
+  });
+
+  it("分块跨行中：增量从行内接续（无多余拆段）", () => {
+    const after1 = normalizeStreamedProse("他说到一半");
+    const after2 = normalizeStreamedProse("他说到一半，停了。");
+    expect(proseDelta(after2, after1.length)).toBe("，停了。");
   });
 });
