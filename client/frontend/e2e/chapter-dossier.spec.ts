@@ -228,8 +228,29 @@ test("变化分区全链：归档受理提取→设定/关系页签待确认→�
     await pane.getByTestId("changes-accept-all").click();
     await expect(pane.getByText(/全部采纳（0）/)).toBeVisible({ timeout: 10000 });
     const d = await (await fetch(`${base}/chapters/vol-1-ch-1/dossier`, { headers: auth })).json();
-    expect(d.progress.pending).toBe(0);
+    // 批量只波及设定/物品/认知三域；关系行留给「角色关系」页签确认（跨域误采纳防线）
+    expect(d.progress.pending).toBe(1);
     expect(d.progress.accepted).toBeGreaterThanOrEqual(3);
+
+    // ②′ 角色关系页签（c-chapter-relations-graph）：图为主表达——图在前、工作流在后；
+    // 待确认关系行画虚线提案边；本书无角色卡 → 占位节点也上图
+    await page.getByRole("tab", { name: /^角色关系/ }).click();
+    const rg = page.locator('[data-od-id="relations-graph"]');
+    await expect(rg).toBeVisible({ timeout: 15000 });
+    await expect(rg.locator(".rg-edge.pending .rg-line")).toHaveCount(1);
+    await expect(rg.locator(".rg-node.ghost")).toHaveCount(2); // 林晚/阿蓟 均无卡 → 占位
+    await expect(rg.locator(".rg-legend")).toContainText(/剧情演变 0 · 待确认 1/);
+    const relSection = page.getByTestId("relation-changes-section");
+    await expect(relSection).toBeVisible();
+    await expect(relSection.getByTestId("change-row").first()).toContainText("林晚 → 阿蓟：盟友");
+    const rgBox = await rg.boundingBox();
+    const relBox = await relSection.boundingBox();
+    expect(rgBox!.y).toBeLessThan(relBox!.y);
+    // 工作流采纳 → 图即时翻面（虚线→高亮实线；事件重拉沿用旧渲染不闪「加载中」）
+    await relSection.getByRole("button", { name: "采纳", exact: true }).click();
+    await expect(rg.locator(".rg-edge.hit .rg-line")).toHaveCount(1);
+    await expect(rg.locator(".rg-edge.pending .rg-line")).toHaveCount(0);
+    await expect(rg.locator(".rg-legend")).toContainText(/剧情演变 1 · 待确认 0/);
 
     // ③ 第 2 章组装来源：第七处「故事状态」含已采纳内容
     await page.locator(".col-tree .ch").nth(1).click();
@@ -257,6 +278,15 @@ test("变化分区全链：归档受理提取→设定/关系页签待确认→�
       await new Promise((r) => setTimeout(r, 200));
       if (i === 99) throw new Error("第 2 章提取未在 20s 内完成归档");
     }
+
+    // ③″ 第 2 章关系页签：往章演变边＋本章待确认虚线边同向并存（待确认优先展示）
+    await page.getByRole("tab", { name: /^角色关系/ }).click();
+    const rg2 = page.locator('[data-od-id="relations-graph"]');
+    await expect(rg2).toBeVisible({ timeout: 15000 });
+    await expect(rg2.locator(".rg-edge.pending .rg-line")).toHaveCount(1);
+    await expect(rg2.locator(".rg-legend")).toContainText(/剧情演变 1 · 待确认 1/);
+    await expect(page.getByTestId("relation-changes-section").getByTestId("change-row").first())
+      .toContainText("林晚 → 阿蓟：盟友");
 
     // ④ 重写第 1 章 → 第 2 章树角标「设定待更新」＋设定页签 stale 横幅
     const rw = await request.post(`${base}/chapters/vol-1-ch-1/rewrite`, { data: {}, headers: auth });

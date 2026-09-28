@@ -472,7 +472,7 @@ export function AiAssistPanel({
       }),
     ];
     footNote =
-      "关系图是全书统一的一套；本章关系变化随归档在本页签确认（不再单独写回全书关系）。";
+      "页签以关系图为主表达：剧情关系截至本章上图（本章边高亮、待确认虚线）；变化行在本页签确认，不写回全书设定。";
   } else if (tab === "hooks") {
     targetLine = hookStats ? (
       <>悬置 {hookStats.open} 条 · 本章埋下 {hookStats.plantHere} 条 · 本章回收 {hookStats.resolveHere} 条 · 台账 {hookStats.total} 条</>

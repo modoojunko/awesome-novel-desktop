@@ -123,11 +123,24 @@ describe("SettingChangesSection（设定页签区块）", () => {
       ),
     );
     fireEvent.click(screen.getByTestId("changes-accept-all"));
+    // 批量限定本分区三域：不传域＝后端全章批量，会把关系行一并采纳（跨域误采纳）
     await waitFor(() =>
       expect(apiState.post).toHaveBeenCalledWith(
         "/novels/p1/chapters/vol-1-ch-1/dossier/rows",
-        { action: "accept" },
+        { action: "accept", domain: "settings" },
       ),
+    );
+    expect(apiState.post).toHaveBeenCalledWith(
+      "/novels/p1/chapters/vol-1-ch-1/dossier/rows",
+      { action: "accept", domain: "items" },
+    );
+    expect(apiState.post).toHaveBeenCalledWith(
+      "/novels/p1/chapters/vol-1-ch-1/dossier/rows",
+      { action: "accept", domain: "knowledge" },
+    );
+    expect(apiState.post).not.toHaveBeenCalledWith(
+      "/novels/p1/chapters/vol-1-ch-1/dossier/rows",
+      { action: "accept" },
     );
   });
 });

@@ -188,6 +188,23 @@ class TestRelations:
         )
         assert r4.status_code == 400
 
+    def test_graph_endpoint_not_shadowed_by_card_route(self, client):
+        """GET /characters/graph 必须命中图端点而非 /{character_id}（"graph" 被当卡 id
+        吃掉曾致真机恒 400「关系图加载失败」，c-chapter-relations-graph 回归）。"""
+        c, nid = client
+        a = c.post(f"/api/novels/{nid}/characters", json={"name": "甲"}).json()["data"]
+        b = c.post(f"/api/novels/{nid}/characters", json={"name": "乙"}).json()["data"]
+        c.put(
+            f"/api/novels/{nid}/characters/{a['id']}/relations/{b['id']}",
+            json={"rel_type": "同盟", "stance": "试探"},
+        )
+        r = c.get(f"/api/novels/{nid}/characters/graph")
+        assert r.status_code == 200, r.text
+        data = r.json()["data"]
+        assert {n["name"] for n in data["nodes"]} == {"甲", "乙"}
+        assert len(data["edges"]) == 1
+        assert data["edges"][0]["rel_type"] == "同盟"
+
     def test_relation_delete_and_undo(self, client):
         c, nid = client
         a = c.post(f"/api/novels/{nid}/characters", json={"name": "甲"}).json()["data"]
