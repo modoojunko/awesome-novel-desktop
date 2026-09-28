@@ -1,5 +1,8 @@
 import { api } from "@/lib/api";
 
+/** 本章变化行被采纳/驳回/删除后广播（角色关系图据此重拉剧情边）。 */
+export const DOSSIER_CHANGED_EVENT = "dossier-relations-changed";
+
 /** 本章变化四域键（与后端 assemble dossier 四键一致）。 */
 export type DossierDomain = "settings" | "relations" | "items" | "knowledge";
 

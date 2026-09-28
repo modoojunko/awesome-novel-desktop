@@ -1195,8 +1195,9 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
       {chTab === "relations" && (
         <div className="relations-pane" data-od-id="relations-pane">
-          <RelationChangesSection projectId={projectId} chapterRef={chapterRef} />
+          {/* 关系图为主表达（09-28 用户拍板），变化行是确认工作流，置于图下 */}
           <RelationsGraphPane projectId={projectId} chapterRef={chapterRef} />
+          <RelationChangesSection projectId={projectId} chapterRef={chapterRef} />
         </div>
       )}
 

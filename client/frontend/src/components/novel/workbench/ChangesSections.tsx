@@ -4,6 +4,7 @@
  *  数据＝章作用域四域行（dossierApi）；只取已采纳进下一章提示词，未确认不进。 */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  DOSSIER_CHANGED_EVENT,
   dossierApi,
   type DossierRow,
   type DossierState,
@@ -45,8 +46,10 @@ function useDossierData(projectId: string, chapterRef: string) {
     async (fn: () => Promise<unknown>) => {
       await fn();
       await load();
+      // 广播给角色关系图：剧情边随采纳/驳回即时翻面（虚线↔实线）
+      window.dispatchEvent(new CustomEvent(DOSSIER_CHANGED_EVENT, { detail: { projectId, chapterRef } }));
     },
-    [load],
+    [load, projectId, chapterRef],
   );
 
   return { data, loadError, act };
