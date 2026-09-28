@@ -370,6 +370,9 @@ class ChapterContext:
         self.plot_stage: str = ""
         # c-plot-split：本章剧情条目（场景描述清单，非正文）——素材包【本章剧情走向（分条）】原料
         self.plot_items: list[str] = []
+        # 开篇期位置标注（首章/开篇期，其余空）——与剧情抽卡【本章位置】同词同单源，
+        # 驱动 system 恒定层「## 开篇期节奏」的分档
+        self.chapter_position: str = ""
         self.required_changes: list[str] = []
         self.payoff_plan: dict = {}
         self.prohibitions: list[str] = []
@@ -633,6 +636,9 @@ class ChapterContext:
             lines.append(f"本章要撞的墙：{self.challenge}")
         if self.plot_stage:
             lines.append(f"本章在卷剧情里的位置：{self.plot_stage}")
+        # 开篇期位置标注（首章/开篇期）：驱动 system「## 开篇期节奏」的分档
+        if self.chapter_position:
+            lines.append(f"本章位置：{self.chapter_position}")
         # c-plot-split：剧情条目块（与 material_markdown 同源同字）
         plot = _plot_block(self.plot_items)
         if plot:
@@ -888,6 +894,15 @@ async def build_chapter_context(
             ctx.volume_outline = await volume_repo.get_outline_by_root(
                 session, root_path, vol_no
             )
+            # 开篇期位置标注：与剧情抽卡同一单源（chapter_position_tags），
+            # 拿不到 project（novel_id 空）降级为无标注
+            if novel_id and isinstance(ch_num, int) and ch_num >= 1:
+                from chapters.ai_plan import global_chapter_position, position_label
+
+                global_ch, tags = await global_chapter_position(
+                    session, novel_id, vol_no, ch_num
+                )
+                ctx.chapter_position = position_label(global_ch, tags)
 
         # 前情上下文升级：上章章纲情绪设计优先，无章纲回退上章正文末段
         prev_ref = await _prev_chapter_ref(
