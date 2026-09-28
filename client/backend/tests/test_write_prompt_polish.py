@@ -234,6 +234,20 @@ class TestGetWritePrompt:
         assert body["polished"] is True
         assert body["prompt"] == "既有润色行"
 
+    def test_fresh_bypasses_stored_and_keeps_row(self, client):
+        """刷新提示词：fresh=1 绕过存量行回组装稿，且不动存量行。"""
+        _set_tier("monthly")
+        pid, ref = _create_project_and_chapter(client)
+        _seed_stored_prompt(pid, ref, "既有润色行")
+        r = client.get(f"/api/novels/{pid}/chapters/{ref}/write/prompt?fresh=true")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["polished"] is False
+        assert "## 角色定位" in body["prompt"]
+        assert body["prompt"] != "既有润色行"
+        # 刷新只换预览稿，存量行原样保留
+        assert _read_stored_prompt(pid, ref) == "既有润色行"
+
 
 class TestPolishPrompt:
     def test_member_polish_success(self, client, monkeypatch):

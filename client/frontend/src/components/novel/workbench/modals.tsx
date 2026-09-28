@@ -451,6 +451,8 @@ export function HistoryModal({
 // c-prompt-tab-retire：提示词页签退役后本弹窗兼任「查看/编辑/存稿」入口——
 // 「存为本章提示词」把编辑稿落库（PUT prompts/write），此后每次生成本弹窗
 // 打开即显示这一版；只查看不生成＝打开后取消（零副作用）。
+// 「刷新提示词」＝GET ?fresh=1 忽略存量行按当前素材重新组装（只换预览稿，
+// 不动存量行）；章纲/设定改过之后用它拿到新组装稿。
 // ---------------------------------------------------------------------------
 
 export function AiModal({
@@ -480,6 +482,7 @@ export function AiModal({
   const [polishing, setPolishing] = useState(false);
   const [polishError, setPolishError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -531,6 +534,28 @@ export function AiModal({
     }
   };
 
+  /** 「刷新提示词」：fresh=1 绕过存量行重新组装；成功清错误态（初始失败后可当
+   *  恢复路径），失败不动当前稿也不动错误标志 */
+  const handleRefresh = async () => {
+    if (refreshing || loading) return;
+    setRefreshing(true);
+    try {
+      const d = await request(
+        `/novels/${projectId}/chapters/${chapterRef}/write/prompt?fresh=1`,
+        { quiet: true },
+      );
+      setPrompt(d?.prompt ?? "");
+      setHasOutline(!!d?.has_outline);
+      setPolished(false);
+      setError(null);
+      setPolishError(null);
+    } catch (e) {
+      toast.error((e as Error)?.message || "刷新失败，请重试");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   /** 「存为本章提示词」（c-prompt-tab-retire）：编辑稿落库，此后每次生成沿用 */
   const handleSavePrompt = async () => {
     if (saving || !prompt.trim()) return;
@@ -573,7 +598,7 @@ export function AiModal({
             <button
               className="btn btn-secondary"
               data-testid="ai-polish"
-              disabled={polishing || loading}
+              disabled={polishing || loading || refreshing}
               onClick={() => void handlePolish()}
             >
               {polishing ? "润色中…" : "AI 润色"}
@@ -582,7 +607,7 @@ export function AiModal({
           <button
             className="btn btn-primary"
             data-testid="ai-confirm"
-            disabled={loading || !!error || polishing}
+            disabled={loading || !!error || polishing || refreshing}
             onClick={() => {
               onClose();
               onConfirm(prompt);
@@ -610,22 +635,40 @@ export function AiModal({
         <textarea
           className="ai-prompt"
           value={prompt}
-          disabled={loading || polishing}
+          disabled={loading || polishing || refreshing}
           placeholder={loading ? "组装中…" : ""}
           onChange={(e) => setPrompt(e.target.value)}
           data-testid="ai-prompt"
         />
-        {/* 存稿行（c-prompt-tab-retire）：编辑稿落库；不点＝仅本次生成用 */}
+        {/* 刷新＋存稿行：刷新＝fresh 组装稿仅换预览（不动存量行）；存稿＝编辑稿落库 */}
         <div className="ai-prompt-save">
-          <span>直接「生成正文」＝这一版只用于本次；存下来则本章以后每次生成都用它。</span>
-          <button
-            className="btn btn-ghost btn-sm"
-            data-testid="ai-prompt-save"
-            disabled={loading || polishing || saving || !!error || !prompt.trim()}
-            onClick={() => void handleSavePrompt()}
-          >
-            {saving ? "保存中…" : "存为本章提示词"}
-          </button>
+          <span>
+            「刷新提示词」按最新「设定＋章纲」重新组装（不动已存稿）；直接生成＝这一版只用于本次，存下来则本章以后每次生成都用它。
+          </span>
+          <div style={{ display: "flex", gap: 8, flex: "none" }}>
+            <button
+              className="btn btn-ghost btn-sm"
+              data-testid="ai-prompt-refresh"
+              title="按最新「设定＋章纲」重新组装；不改动已存稿，可再润色或编辑"
+              disabled={loading || polishing || refreshing}
+              onClick={() => void handleRefresh()}
+            >
+              {refreshing ? "刷新中…" : "刷新提示词"}
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              data-testid="ai-prompt-save"
+              disabled={loading ||
+                polishing ||
+                refreshing ||
+                saving ||
+                !!error ||
+                !prompt.trim()}
+              onClick={() => void handleSavePrompt()}
+            >
+              {saving ? "保存中…" : "存为本章提示词"}
+            </button>
+          </div>
         </div>
       </div>
       {polishError ? (

@@ -152,11 +152,16 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
 async def get_write_prompt(
     project_id: str,
     chapter_ref: str,
+    fresh: bool = False,
     user: dict = Depends(get_current_user),
     _: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
-    """AI 弹窗提示词预览：存量 write-prompt 行优先（润色/编辑结果），无则粗组兜底。"""
+    """AI 弹窗提示词预览：存量 write-prompt 行优先（润色/编辑结果），无则粗组兜底。
+
+    fresh=True（弹窗「刷新提示词」）：忽略存量行按当前素材重新组装，只回新稿
+    不动存量行——落库仍只走润色/「存为本章提示词」。
+    """
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
@@ -171,9 +176,10 @@ async def get_write_prompt(
     outline = ctx.chapter_outline or {}
     # c-og-slim-v2：关键事件/段落规划退役 → 有章纲的判定＝概要或剧情条目
     has_outline = bool(outline.get("summary") or ctx.plot_items)
-    existing = await load_prompt(project.root_path, chapter_ref, "write-prompt")
-    if existing.strip():
-        return {"prompt": existing, "has_outline": has_outline, "polished": True}
+    if not fresh:
+        existing = await load_prompt(project.root_path, chapter_ref, "write-prompt")
+        if existing.strip():
+            return {"prompt": existing, "has_outline": has_outline, "polished": True}
     return {"prompt": ctx.to_prompt(), "has_outline": has_outline, "polished": False}
 
 
