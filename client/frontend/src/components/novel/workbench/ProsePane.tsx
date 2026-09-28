@@ -275,6 +275,31 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   const saveProgressRef = useRef(saveProgress);
   saveProgressRef.current = saveProgress;
 
+  // ── 流式跟随滚动（fix/stream-autoscroll）──────────────────────────
+  // 生成到页末自动跟着滚：只在视口距底部 ≤160px（用户本就贴着正文看）时贴底；
+  // 用户上滚回看旧文时不抢滚动条，滚回底部自动恢复跟随。
+  const followStream = useCallback(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const distance = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
+    if (distance < 160) wrap.scrollTop = wrap.scrollHeight;
+  }, []);
+  /** 把流式插入点滚进视口（生成开始时一次性定位） */
+  const scrollInsertIntoView = useCallback(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || !editor || editor.isDestroyed) return;
+    try {
+      const domAt = editor.view.domAtPos(streamPosRef.current);
+      const el =
+        domAt.node.nodeType === 1
+          ? (domAt.node as HTMLElement)
+          : domAt.node.parentElement;
+      el?.scrollIntoView({ block: "center", behavior: "auto" });
+    } catch {
+      // 插入点越界（文档刚被清空等）忽略——首块到达后 followStream 自然贴底
+    }
+  }, [editor]);
+
   // 编辑态/流式 → contenteditable（e2e 与 a11y 判定口保持 contenteditable 属性）
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -407,6 +432,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       view.dispatch(tr);
       streamPosRef.current = cur;
       streamInsertedLenRef.current = full.length;
+      followStream();
     },
     [editor],
   );
@@ -483,6 +509,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         streamPosRef.current = state.doc.content.size - 1; // 末段内
       }
       streamStartRef.current = streamPosRef.current;
+      // 生成开始：先把插入点滚进视口（追加在文末＝滚到底；续写＝滚到光标处）
+      scrollInsertIntoView();
       const cbs = {
         onChunk: (t: string) => {
           streamReceivedRef.current += t;
@@ -498,7 +526,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         ? streamChapterContinue(projectId, chapterRef, pos, cbs)
         : streamChapterWrite(projectId, chapterRef, cbs, promptOverride);
     },
-    [projectId, chapterRef, archived, editor, captureNow, appendChunk, finishStream, onAIStateChange],
+    [projectId, chapterRef, archived, editor, captureNow, appendChunk, finishStream, scrollInsertIntoView, onAIStateChange],
   );
 
   // ── 续写恢复：每个信号号只恢复一次（appliedResumeRef 守卫）。
