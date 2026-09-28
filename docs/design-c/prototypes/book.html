@@ -226,7 +226,32 @@
   .chtab .cnt.warn { color: var(--warn); }
   .chtab .cnt.err { color: var(--err); }
   .prose-ctrls { display: inline-flex; align-items: center; gap: 8px; }
-  .og-pane, .prompt-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 26px clamp(20px, 4vw, 48px) 60px; background: var(--bg); }
+  .og-pane, .prompt-pane, .dossier-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 26px clamp(20px, 4vw, 48px) 60px; background: var(--bg); }
+  /* ─── 章档页签（c-chapter-dossier）─── */
+  .ds-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .ds-head h3 { margin:0; font-size:17px; }
+  .ds-state-btns { display:flex; gap:6px; margin-left:auto; }
+  .ds-state-btns .btn { font-size:12px; }
+  .ds-steps { display:flex; gap:0; align-items:center; margin:6px 0 18px; }
+  .ds-step { display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); }
+  .ds-step b { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:50%; border:1.5px solid var(--border); font-family:var(--font-mono); font-size:11px; }
+  .ds-step.done { color:var(--fg); } .ds-step.done b { background:var(--ok); border-color:var(--ok); color:#fff; }
+  .ds-step.cur { color:var(--accent); font-weight:500; } .ds-step.cur b { border-color:var(--accent); color:var(--accent); }
+  .ds-step-line { flex:1; height:1px; background:var(--border); margin:0 10px; min-width:24px; }
+  .ds-domain { border:1px solid var(--border); border-radius:10px; background:var(--surface); margin-bottom:12px; }
+  .ds-domain-head { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--border); }
+  .ds-domain-head b { font-size:13.5px; }
+  .ds-domain-head .btn { margin-left:auto; }
+  .ds-row { padding:10px 14px; border-bottom:1px solid var(--border); font-size:13px; line-height:1.65; }
+  .ds-row:last-child { border-bottom:none; }
+  .ds-row .ds-ev { display:none; margin-top:6px; padding:6px 10px; border-left:2px solid var(--border); color:var(--muted); font-size:12px; background:var(--fg-soft); border-radius:0 6px 6px 0; }
+  .ds-row.open .ds-ev { display:block; }
+  .ds-flag { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; font-size:11px; background:var(--warn-soft, #f5e9d3); color:var(--warn, #8a6116); }
+  .ds-actions { display:flex; gap:6px; margin-top:8px; }
+  .ds-note { padding:10px 14px; font-size:12.5px; color:var(--muted); border-top:1px dashed var(--border); }
+  .ds-preview { border:1px dashed var(--border); border-radius:10px; padding:12px 14px; margin-top:14px; font-size:12.5px; color:var(--muted); line-height:1.8; }
+  .ds-banner { display:flex; align-items:center; gap:8px; padding:10px 14px; border-radius:8px; margin-bottom:12px; font-size:13px; }
+  .ds-banner.warn { background:var(--fg-soft); }
 
   /* ─── 本章进度卡 ───────────────────────────────────────── */
   .progress-head { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 14px; }
@@ -899,6 +924,7 @@
         <button class="chtab" role="tab" aria-selected="false">文风</button>
         <button class="chtab" role="tab" aria-selected="false">角色关系</button>
         <button class="chtab" role="tab" aria-selected="false">伏笔</button>
+        <button class="chtab" data-chtab="dossier" role="tab" aria-selected="false" data-od-id="tab-dossier">章档 <span class="cnt" id="tabDossierCnt">3 待确认</span></button>
         <button class="chtab" role="tab" aria-selected="false">操作</button>
         <span style="flex:1"></span>
         <button class="btn btn-ghost btn-sm ch-history" id="btnHistory" data-od-id="btn-history">版本历史</button>
@@ -917,6 +943,7 @@
       </div>
       <div class="og-pane" id="ogPane" hidden></div>
       <div class="prompt-pane" id="promptPane" hidden></div>
+      <div class="dossier-pane" id="dossierPane" hidden data-od-id="dossier-pane"></div>
       <div class="editor-status" id="editorStatus">
         <span class="num" id="wordCount">0 字</span>
         <span class="right">
@@ -1063,8 +1090,9 @@
   <div class="mcard">
     <div class="mcard-head"><span class="mh serif">归档本章</span></div>
     <div class="mcard-body">
-      <p style="margin:0; font-size:13.5px; line-height:1.7;">归档后本章正文进入<b>只读</b>状态；大纲树与进度卡同步标记。</p>
-      <p style="margin:8px 0 0; font-size:12.5px; color:var(--muted);">仍可在版本历史中查看与恢复。</p>
+      <p style="margin:0; font-size:13.5px; line-height:1.7;">点归档后先 <b>AI 提取本章章档</b>（设定 / 关系 / 物品 / 认知四域，用你配置的模型），提取成功本章才正式归档；提取期间本章<b>锁定</b>。</p>
+      <p style="margin:8px 0 0; font-size:12.5px; color:var(--muted);">归档后正文只读；四域变化进「章档」页签逐条确认后，喂给下一章提示词。仍可在版本历史中恢复。</p>
+      <p id="archRewarn" style="display:none; margin:10px 0 0; padding:8px 10px; border-radius:6px; background:var(--fg-soft); font-size:12.5px;">重新归档将<b>清空并重提</b>本章章档 5 条（含已采纳 3 条）。</p>
     </div>
     <div class="mcard-foot"><button class="btn btn-secondary" data-close="modalArchive">取消</button><button class="btn btn-primary" id="archConfirm">归档本章</button></div>
   </div>
@@ -2437,10 +2465,97 @@ function updateChTabBadges(ch) {
     else { pCnt.textContent = '自动组装'; pCnt.className = 'cnt ok'; }
   }
 }
+/* ═══ 章档页签（c-chapter-dossier）：演示态机 rows/extracting/failed/not_extracted ═══ */
+const DS = { state: 'rows', step: 4, open: {} };
+const DS_ROWS = {
+  settings: [
+    { content: '守夜人接管了城门', area: '势力', evidence: '守夜人举着灯接管了城门，行人一律搜身。', status: 'pending', flags: [] },
+    { content: '渡口夜里封航', area: '地理', evidence: '「入夜之后，渡口一律封航。」', status: 'accepted', flags: [] },
+  ],
+  relations: [
+    { owner: '林晚', other: '阿蓟', rel: '盟友', note: '从互不信任到背靠背', evidence: '两人背靠背站着，谁也没先开口。', status: 'pending', flags: [] },
+  ],
+  items: [
+    { name: '旧刀', change: '易主', holder: '阿蓟', evidence: '她把旧刀塞进阿蓟手里。', status: 'pending', flags: ['evidence_unverified'] },
+  ],
+  knowledge: [
+    { character: '阿蓟', fact: '林晚的真实身份', learned: false, evidence: '阿蓟并不知道他是谁。', status: 'pending', flags: [] },
+  ],
+};
+function dsDomainLabel(k) { return { settings: '设定改动', relations: '人物关系', items: '物品变化', knowledge: '角色认知' }[k]; }
+function dsRowText(k, r) {
+  if (k === 'settings') return `<b>${r.area}</b>：${r.content}`;
+  if (k === 'relations') return `<b>${r.owner} → ${r.other}</b>：${r.rel}（${r.note}）`;
+  if (k === 'items') return `<b>${r.name}</b>：${r.change}${r.holder ? `，现在在 ${r.holder} 手中` : ''}`;
+  return `<b>${r.character}</b> ${r.learned ? '已得知' : '仍不知道'}「${r.fact}」${r.learned ? '' : `（${r.character}不知）`}`;
+}
+function renderDossierPane() {
+  const pane = $('dossierPane'); if (!pane) return;
+  const steps = ['受理', 'AI 提取', '写入章档', '置为已归档'];
+  let html = '';
+  html += `<div class="ds-head"><h3>章档 · 本章设定档案</h3>
+    <span style="font-size:12px;color:var(--muted)">确认后喂给下一章提示词；不确认不喂</span>
+    <span class="ds-state-btns">
+      ${['rows','extracting','failed','not_extracted'].map(x => `<button class="btn btn-ghost btn-sm" data-ds="${x}" style="${DS.state===x?'color:var(--accent)':''}">${({rows:'待确认',extracting:'提取中',failed:'失败',not_extracted:'未提取'})[x]}</button>`).join('')}
+    </span></div>`;
+  if (DS.state === 'extracting') {
+    html += `<div class="ds-banner warn">本章已锁定 · AI 提取中（演示：约 1-3 分钟），完成后自动归档并出四域待确认</div>
+    <div class="ds-steps">${steps.map((t, i) => `<span class="ds-step ${i+1<DS.step?'done':i+1===DS.step?'cur':''}"><b>${i+1}</b>${t}</span>${i<3?'<span class="ds-step-line"></span>':''}`).join('')}</div>`;
+  } else if (DS.state === 'failed') {
+    html += `<div class="ds-banner warn">提取失败：模型输出不可解析（可重试）。本章尚未归档，正文已解锁。</div>
+    <div style="display:flex;gap:8px;margin-bottom:14px"><button class="btn btn-primary btn-sm" data-ds-act="retry">重试提取</button>
+    <button class="btn btn-secondary btn-sm" data-ds-act="skip">跳过提取，仍要归档</button></div>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">跳过代价：本章的状态不会进入下一章前情；之后可在本页签补提取。</p>`;
+  } else if (DS.state === 'not_extracted') {
+    html += `<div class="ds-banner warn">本章已归档但<b>未提取章档</b>（归档时未配置模型 / 跳过提取）。配置模型后可补提取。</div>
+    <button class="btn btn-primary btn-sm" data-ds-act="backfill">补提取章档</button>`;
+  } else {
+    const pending = Object.values(DS_ROWS).flat().filter(r => r.status === 'pending').length;
+    html += `<div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="btn btn-primary btn-sm">全部采纳（${pending}）</button>
+      <button class="btn btn-secondary btn-sm">全部驳回</button></div>`;
+    for (const k of Object.keys(DS_ROWS)) {
+      const rows = DS_ROWS[k];
+      const p = rows.filter(r => r.status === 'pending').length;
+      html += `<div class="ds-domain"><div class="ds-domain-head"><b>${dsDomainLabel(k)}</b>
+        <span class="cnt">${p ? p + ' 待确认' : '已处理'}</span>
+        ${p ? '<button class="btn btn-ghost btn-sm">本域全采纳</button>' : ''}</div>`;
+      for (const [i, r] of rows.entries()) {
+        const open = DS.open[k + i] ? ' open' : '';
+        html += `<div class="ds-row${open}" data-ds-row="${k}${i}">
+          <div>${dsRowText(k, r)}${r.flags.includes('evidence_unverified') ? '<span class="ds-flag">证据待核</span>' : ''}
+          ${r.flags.includes('unregistered') ? '<span class="ds-flag">未登记</span>' : ''}</div>
+          <div class="ds-ev">证据：「${r.evidence}」（点击行收起）</div>
+          ${r.status === 'pending'
+            ? `<div class="ds-actions"><button class="btn btn-primary btn-sm">采纳</button><button class="btn btn-ghost btn-sm">驳回</button></div>`
+            : `<div class="ds-actions"><span class="cnt ok">已采纳</span><button class="btn btn-ghost btn-sm">删除</button></div>`}
+        </div>`;
+      }
+      html += `</div>`;
+    }
+    html += `<div class="ds-preview"><b>截至本章 · 累计状态</b>（下一章提示词实际注入的内容，服务端聚合）<br>
+      设定 2 条 · 关系 1 条 · 物品 1 条 · 认知 1 条 —— 例：阿蓟仍不知道「林晚的真实身份」（防泄底：她在对话中不得表现出知情）</div>
+      <div class="ds-note">伏笔 / 世界要素提案在「操作」页签（PRO）→；文风影子见「文风」页签 · 本章埋设伏笔 1 条 →</div>`;
+  }
+  pane.innerHTML = html;
+  pane.querySelectorAll('[data-ds]').forEach(b => b.addEventListener('click', () => {
+    DS.state = b.dataset.ds; DS.step = DS.state === 'extracting' ? 2 : 4; renderDossierPane();
+  }));
+  pane.querySelectorAll('[data-ds-row]').forEach(el => el.addEventListener('click', () => {
+    DS.open[el.dataset.dsRow] = !DS.open[el.dataset.dsRow]; renderDossierPane();
+  }));
+  pane.querySelectorAll('[data-ds-act]').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.dsAct === 'retry') { DS.state = 'extracting'; DS.step = 2; }
+    if (b.dataset.dsAct === 'skip') { DS.state = 'not_extracted'; toast('已跳过提取 · 本章归档（未提取）'); }
+    if (b.dataset.dsAct === 'backfill') { DS.state = 'extracting'; DS.step = 2; }
+    renderDossierPane();
+  }));
+}
+
 function syncChTab() {
   // 七页签壳层（c-character-intro 0.2）：提示词页签退役；设定/文风/角色关系/伏笔/操作
   // 为壳层惯性页签（本原型不建模其内容），缺 data-chtab 的点击不动视图。
-  const t = (S.chTab === 'og' || S.chTab === 'prose') ? S.chTab : 'og';
+  const t = (S.chTab === 'og' || S.chTab === 'prose' || S.chTab === 'dossier') ? S.chTab : 'og';
   document.querySelectorAll('.chtab').forEach(b => {
     b.classList.toggle('on', b.dataset.chtab === t);
     b.setAttribute('aria-selected', b.dataset.chtab === t ? 'true' : 'false');
@@ -2448,6 +2563,8 @@ function syncChTab() {
   $('editorWrap').hidden = t !== 'prose';
   $('ogPane').hidden = t !== 'og';
   $('promptPane').hidden = true;
+  $('dossierPane').hidden = t !== 'dossier';
+  if (t === 'dossier') renderDossierPane();
   $('readonlyBanner').hidden = t !== 'prose' || !isArchived(curCh());
   $('editorStatus').hidden = t !== 'prose';
   if (t === 'prose') { const ch = curCh(); if (ch) updateStats(ch, countWords(chContent(ch))); }
@@ -2562,9 +2679,11 @@ $('btnArchive').addEventListener('click', () => openModal('modalArchive'));
 $('archConfirm').addEventListener('click', () => {
   const ch = curCh(); if (!ch) return;
   closeModal('modalArchive');
-  ch.archived = true;
-  persist(); renderTreeAll(); renderMiddle(); updateModNav();
-  toast(`《${ch.title}》已归档 · 只读`);
+  if (ch.archived) { toast('已归档章重新归档将重提章档（演示：直接进入提取中）'); }
+  DS.state = 'extracting'; DS.step = 2;
+  S.chTab = 'dossier'; persist(); syncChTab();
+  toast('已受理 · AI 提取中（本章已锁定，完成后自动归档）');
+  setTimeout(() => { DS.state = 'rows'; DS.step = 4; ch.archived = true; persist(); renderTreeAll(); renderMiddle(); updateModNav(); if (!$('dossierPane').hidden) renderDossierPane(); toast('提取完成 · 本章已归档，四域待确认'); }, 2600);
 });
 
 /* 版本历史 */
