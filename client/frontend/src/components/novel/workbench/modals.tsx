@@ -227,6 +227,7 @@ export function ArchiveModal({
   onClose,
   onConfirm,
   isPro,
+  rearchiveMode,
   rearchive,
 }: {
   open: boolean;
@@ -234,6 +235,8 @@ export function ArchiveModal({
   onConfirm: () => void;
   /** 收尾计划预览：PRO 列伏笔/世界要素两件（c-chapter-dossier 三件迁本章变化） */
   isPro?: boolean;
+  /** 重归档变体（c-ops-tab-progress-only）：已归档章重提变化——收尾计划区不出现 */
+  rearchiveMode?: boolean;
   /** 重归档覆盖警示（c-chapter-dossier）：{rows, accepted} 有值则警示清空重提 */
   rearchive?: { rows: number; accepted: number } | null;
 }) {
@@ -241,7 +244,7 @@ export function ArchiveModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="归档本章"
+      title={rearchiveMode ? "重新归档" : "归档本章"}
       wbStyle
       hideClose
       footer={
@@ -257,18 +260,33 @@ export function ArchiveModal({
               onConfirm();
             }}
           >
-            归档本章
+            {rearchiveMode ? "重新归档" : "归档本章"}
           </button>
         </>
       }
     >
       <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.7 }}>
-        点归档后先 <b>AI 提取本章变化</b>（设定 / 关系 / 物品 / 角色认知，用你配置的模型），
-        提取成功本章才正式归档；提取期间本章<b>锁定</b>。
+        {rearchiveMode ? (
+          <>
+            重新归档将<b>清空并以当前正文重提</b>本章变化（设定 / 关系 / 物品 / 角色认知），
+            提取期间本章<b>锁定</b>。
+          </>
+        ) : (
+          <>
+            点归档后先 <b>AI 提取本章变化</b>（设定 / 关系 / 物品 / 角色认知，用你配置的模型），
+            提取成功本章才正式归档；提取期间本章<b>锁定</b>。
+          </>
+        )}
       </p>
-      <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
-        变化在「设定」「角色关系」页签逐条确认后，喂给下一章提示词；未配置模型则归档即刻生效（无变化记录，可后补）。仍可在版本历史中查看与恢复。
-      </p>
+      {rearchiveMode ? (
+        <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
+          重提只覆盖本章变化行；伏笔登记 / 世界要素提案不重跑（可在右栏「登记新伏笔」单独触发）。
+        </p>
+      ) : (
+        <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
+          变化在「设定」「角色关系」页签逐条确认后，喂给下一章提示词；未配置模型则归档即刻生效（无变化记录，可后补）。仍可在版本历史中查看与恢复。
+        </p>
+      )}
       {rearchive && rearchive.rows > 0 && (
         <p
           style={{
@@ -277,31 +295,34 @@ export function ArchiveModal({
           }}
           data-testid="archive-rewarn"
         >
-          重新归档将<b>清空并重提</b>本章变化 {rearchive.rows} 条（含已采纳 {rearchive.accepted} 条）。
+          将覆盖现有变化 {rearchive.rows} 条（含已采纳 {rearchive.accepted} 条）。
         </p>
       )}
-      {/* 收尾计划预览（c-chapter-dossier 后：三件迁本章变化，收尾只剩两件 PRO 提案） */}
-      <div className="arch-plan" data-od-id="archive-plan" data-testid="archive-plan">
-        <p className="ap-h">归档收尾（PRO）</p>
-        {isPro ? (
-          <>
+      {/* 收尾计划预览（c-chapter-dossier 后：三件迁本章变化，收尾只剩两件 PRO 提案）；
+          重归档不重跑收尾（c-ops-tab-progress-only），该区不出现 */}
+      {!rearchiveMode && (
+        <div className="arch-plan" data-od-id="archive-plan" data-testid="archive-plan">
+          <p className="ap-h">归档收尾（PRO）</p>
+          {isPro ? (
+            <>
+              <p className="ap-lead">
+                归档成功后 AI 在后台接着跑下面 2 件事；产出是待确认的提案，点过确认才写进全书设定。
+              </p>
+              <ul className="ap-list">
+                <li>登记伏笔（埋下 / 收束）——产出在「伏笔」页签确认</li>
+                <li>识别世界要素——产出在「设定」页签确认</li>
+              </ul>
+              <p className="ap-lead">
+                设定变化 / 角色关系 / 物品 / 角色认知随归档自动提取，全档可用。
+              </p>
+            </>
+          ) : (
             <p className="ap-lead">
-              归档成功后 AI 在后台接着跑下面 2 件事；产出是待确认的提案，点过确认才写进全书设定。
+              本章变化提取全档可用（配置了模型即可）；伏笔登记与世界要素提案为 PRO 能力。
             </p>
-            <ul className="ap-list">
-              <li>登记伏笔（埋下 / 收束）</li>
-              <li>识别世界要素</li>
-            </ul>
-            <p className="ap-lead">
-              设定变化 / 角色关系 / 物品 / 角色认知随归档自动提取，全档可用。
-            </p>
-          </>
-        ) : (
-          <p className="ap-lead">
-            本章变化提取全档可用（配置了模型即可）；伏笔登记与世界要素提案为 PRO 能力。
-          </p>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </Modal>
   );
 }

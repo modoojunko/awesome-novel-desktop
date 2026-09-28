@@ -165,9 +165,9 @@ export default function Rail({
               try {
                 const r = await runReconcile(projectId, ref, kind);
                 if (r.started) {
-                  toast.info("已开始收尾提取，产出在「操作」页签待确认");
+                  toast.info("已开始收尾提取，产出在「伏笔」页签待确认");
                 } else {
-                  toast.info("本章已有收尾任务在跑，稍后到「操作」页签看产出");
+                  toast.info("本章已有收尾任务在跑，稍后到「伏笔」页签看产出");
                 }
               } catch (e) {
                 toast.error(e instanceof Error ? e.message : "触发失败，请重试");

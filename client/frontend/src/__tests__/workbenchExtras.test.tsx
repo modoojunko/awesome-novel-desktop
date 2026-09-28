@@ -20,13 +20,39 @@ describe("ArchiveModal 收尾计划预览", () => {
     render(<ArchiveModal open onClose={() => {}} onConfirm={() => {}} isPro />);
     // c-chapter-dossier：收尾收缩为两件 PRO 提案；三件已升级章档（全档）
     expect(screen.getByText("归档收尾（PRO）")).toBeTruthy();
-    for (const t of ["登记伏笔（埋下 / 收束）", "识别世界要素"]) {
+    // c-ops-tab-progress-only：收尾两件各归各的页签（伏笔/设定）
+    for (const t of [
+      "登记伏笔（埋下 / 收束）——产出在「伏笔」页签确认",
+      "识别世界要素——产出在「设定」页签确认",
+    ]) {
       expect(screen.getByText(t)).toBeTruthy();
     }
     expect(screen.getByText(/点过确认才写进全书设定/)).toBeTruthy();
     expect(screen.getByText(/随归档自动提取，全档可用/)).toBeTruthy();
     expect(screen.getByText(/AI 提取本章变化/)).toBeTruthy();
     expect(screen.getByText(/提取成功本章才正式归档/)).toBeTruthy();
+  });
+
+  it("重归档变体：清空重提文案＋收尾计划区不出现", () => {
+    render(
+      <ArchiveModal
+        open
+        onClose={() => {}}
+        onConfirm={() => {}}
+        isPro
+        rearchiveMode
+        rearchive={{ rows: 5, accepted: 3 }}
+      />,
+    );
+    // 标题与确认按钮同为「重新归档」
+    expect(screen.getAllByText("重新归档").length).toBe(2);
+    expect(screen.getByText(/清空并以当前正文重提/)).toBeTruthy();
+    expect(screen.getByText(/提案不重跑/)).toBeTruthy();
+    expect(screen.getByText(/覆盖现有变化 5 条/)).toBeTruthy();
+    expect(screen.getByText(/含已采纳 3 条/)).toBeTruthy();
+    // 重归档不重跑收尾：计划预览区不出现
+    expect(screen.queryByText("归档收尾（PRO）")).toBeNull();
+    expect(screen.queryByText(/提取成功本章才正式归档/)).toBeNull();
   });
 
   it("免费档：章档全档说明＋重归档警示可出", () => {
@@ -44,7 +70,7 @@ describe("ArchiveModal 收尾计划预览", () => {
         rearchive={{ rows: 5, accepted: 3 }}
       />,
     );
-    expect(screen.getByText(/清空并重提/)).toBeTruthy();
+    expect(screen.getByText(/覆盖现有变化 5 条/)).toBeTruthy();
     expect(screen.getByText(/含已采纳 3 条/)).toBeTruthy();
   });
 });

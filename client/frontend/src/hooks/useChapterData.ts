@@ -51,8 +51,9 @@ export interface UseChapterDataReturn {
   archive: (options?: { aiSummary?: boolean }) => Promise<boolean>;
   /** 逃生阀：跳过提取仍归档（提取失败后出现；确认由调用方 UI 承担） */
   skipArchive: () => Promise<boolean>;
-  /** 重试/补提取（未归档章＝完整归档提取；已归档章＝只重写本章变化行） */
-  retryExtraction: () => Promise<boolean>;
+  /** 重试/补提取（未归档章＝完整归档提取；已归档章＝只重写本章变化行）。
+   *  返回 null＝已受理；返回错误文案＝调用方应就地 toast（store.error 无渲染面）。 */
+  retryExtraction: () => Promise<string | null>;
   /** 归档任务态（受理制）；null＝无任务（从未受理或已终态清除） */
   archiveJob: ArchiveJobState | null;
   /** 恢复归档章为可编辑态（撤下归档全文 + 状态回退），完成后重拉章数据 */
@@ -460,8 +461,8 @@ class ChapterStore {
     }
   };
 
-  retryExtraction = async (): Promise<boolean> => {
-    if (this.extracting()) return true;
+  retryExtraction = async (): Promise<string | null> => {
+    if (this.extracting()) return null;
     try {
       await this.flush(); // 未归档章的完整归档重试：先落盘（rows_only 补提无需，但 flush 无害）
       await api.post(`/novels/${this.projectId}/chapters/${this.ref}/dossier/extract`, {});
@@ -469,10 +470,11 @@ class ChapterStore {
         archiveJob: { state: "extracting", startedAt: Date.now() },
       });
       this.schedulePoll();
-      return true;
+      return null;
     } catch (e: any) {
-      this.update({ error: e.message || "重试提取失败" });
-      return false;
+      const msg = e.message || "重试提取失败";
+      this.update({ error: msg });
+      return msg;
     }
   };
 
