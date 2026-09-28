@@ -104,15 +104,18 @@ def resolve_persona(style_setting: dict) -> str:
 def legacy_prompt_kind(text: str) -> str:
     """持久化 write-prompt 行的旧版整包分型（c-write-prompt-layering 分级引导）。
 
-    - "raw"：命中恒定块标题（用户手存的旧粗组整包）→ 弹窗建议「刷新提示词」；
-    - "polished"：仅润色三锚同现（润色产出行，可能含作者手改）→ 只做信息性提示，
-      SHALL NOT 引导以未润色重组稿覆盖；
+    - "polished"：润色三锚同现（润色产出行，可能含作者手改）→ 只做信息性提示，
+      SHALL NOT 引导以未润色重组稿覆盖。先于 raw 判定——润色输入素材含【故事背景】
+      【文风】块，产物可能回显「## 故事背景/## 文风」节头，若节头优先会把刚润色的
+      行误判成 raw、复活「建议刷新覆盖润色稿」循环（评审 P2）；
+    - "raw"：命中恒定块标题且无三锚（旧粗组整包手存稿——旧 to_prompt 不含「任务指示」
+      锚，不会被误升为 polished）→ 弹窗建议「刷新提示词」；
     - ""：新分层口径的行或无法判定。
     """
-    if any(m in text for m in _LEGACY_HEADING_MARKERS):
-        return "raw"
     if all(a in text for a in _POLISH_ANCHORS):
         return "polished"
+    if any(m in text for m in _LEGACY_HEADING_MARKERS):
+        return "raw"
     return ""
 
 

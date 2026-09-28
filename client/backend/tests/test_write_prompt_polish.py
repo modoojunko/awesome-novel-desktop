@@ -240,6 +240,23 @@ class TestGetWritePrompt:
         assert body["legacy"] is False
         assert body["legacy_kind"] == ""
 
+    def test_stored_rows_legacy_kind_graded_over_http(self, client):
+        """评审补口：GET 把 legacy_kind 透传给前端——raw 行（恒定块标题）建议刷新、
+        润色三锚行只信息性、新口径行无标记。"""
+        _set_tier("monthly")
+        pid, ref = _create_project_and_chapter(client)
+        _seed_stored_prompt(pid, ref, "## 角色定位\n你是。\n## 故事背景\n……")
+        body = client.get(f"/api/novels/{pid}/chapters/{ref}/write/prompt").json()
+        assert body["legacy"] is True
+        assert body["legacy_kind"] == "raw"
+
+        _seed_stored_prompt(
+            pid, ref, "## 任务指示\n写巷战\n## 红线\n不可违反\n## 质感\n克制"
+        )
+        body = client.get(f"/api/novels/{pid}/chapters/{ref}/write/prompt").json()
+        assert body["legacy"] is True
+        assert body["legacy_kind"] == "polished"
+
     def test_fresh_bypasses_stored_and_keeps_row(self, client):
         """刷新提示词：fresh=1 绕过存量行回组装稿，且不动存量行。"""
         _set_tier("monthly")

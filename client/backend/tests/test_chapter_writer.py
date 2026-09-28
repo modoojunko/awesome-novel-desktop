@@ -288,6 +288,18 @@ class TestLegacyAndLint:
         assert legacy_prompt_kind(polished) == "polished"
         assert legacy_prompt_kind("既有润色行") == ""
 
+    def test_polished_row_with_heading_echo_stays_polished(self):
+        """评审 P2：润色产物回显【故事背景】【文风】节头（material_markdown 含这些块，
+        prompt_crafting 要求产物保持分节）仍判 polished——三锚优先于节头标记，
+        不把刚润色的行误判 raw 去建议刷新。"""
+        echoed = (
+            "## 任务指示\n第 2 章，写巷战。\n"
+            "## 故事背景\n本段是《暗流》的一章。\n"
+            "## 文风\n冷峻克制\n"
+            "## 红线\n不可违反\n## 质感\n细节克制"
+        )
+        assert legacy_prompt_kind(echoed) == "polished"
+
     def test_lint_required_changes_uncovered(self):
         warns = lint_assembled_prompt(
             ["林野从巡护员变成被围住的疑似半血"], ["夜禁后巷口伏击战开场"], []

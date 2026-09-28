@@ -23,10 +23,10 @@ from ai_state import effective_model
 from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
-from prompt.context import cast_profile_block  # noqa: I001 — 分层依赖顺序
 from filesystem.storage import get_storage
 from genres.novel_genre_service import get_novel_genre
 from novels.service import get_novel
+from prompt.context import cast_profile_block
 from prompts import load as load_prompt
 from prompts import load_layers
 from settings.hooks_model import (
