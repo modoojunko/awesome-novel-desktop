@@ -216,6 +216,8 @@ export default function ChapterWorkspace({
   // ── 章纲表单：加载 / 缺口 / 保存 / 3s 静默自动保存 ────────────────────
     // 本书角色名清单（character-settings-v2）：章纲出场角色多选候选
   const [characterNames, setCharacterNames] = useState<string[]>([]);
+  /** 本书角色卡名（不含别名）：盘点「选已有角色」候选清单（c-character-intro 6.x） */
+  const [cardNames, setCardNames] = useState<string[]>([]);
   /** 本书主角名（role=主角的主卡名；名单缺人探测置顶标，c-character-intro 6.x） */
   const [protagonistName, setProtagonistName] = useState("");
   /** 拉取角色名（含别名展开——别名不误标没卡，c-character-intro 4.1）；
@@ -224,13 +226,18 @@ export default function ChapterWorkspace({
     try {
       const data = await charactersApi.list(projectId);
       const names = new Set<string>();
+      const cards: string[] = [];
       for (const item of data.items) {
-        if (item.name && !item.name.startsWith("\u0000")) names.add(item.name);
+        if (item.name && !item.name.startsWith("\u0000")) {
+          names.add(item.name);
+          cards.push(item.name);
+        }
         for (const a of item.aliases ?? []) {
           if (a && !a.startsWith("\u0000")) names.add(a);
         }
       }
       setCharacterNames([...names]);
+      setCardNames(cards);
       setProtagonistName(
         data.items.find((i) => i.role === "主角")?.name ?? "",
       );
@@ -771,12 +778,15 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         consumeWarnings(res?.warnings);
         return {
           ok: true,
-          created,
+          // created＝「本次写入建了卡」（outcome 字段语义）：选已有角色零建卡，
+          // 即便本会话早前为该名建过卡（castCreatedRef），本次也 MUST NOT 报「多一卡」
+          created: req.existing === true ? false : created,
           name,
           castBefore,
           castAfter: dedup.length,
           warnings: res?.warnings ?? [],
           note,
+          existing: req.existing === true,
         };
       } catch {
         return {
@@ -1282,6 +1292,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         cast={castReview}
         chapterLabel={label}
         plotItems={castInput.body.plot_items}
+        roster={cardNames}
+        castLines={ogForm.chars.split("\n").map((x) => x.trim()).filter(Boolean)}
         isPro={isPro}
         onUpgrade={() =>
           window.dispatchEvent(

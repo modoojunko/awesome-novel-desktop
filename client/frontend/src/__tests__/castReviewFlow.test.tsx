@@ -714,3 +714,147 @@ describe("aria 三件与文案（5.4 断言集）", () => {
     expect(within(active).getByTestId("cr-opt-defer")).toHaveAttribute("aria-checked", "true");
   });
 });
+
+describe("选已有角色（缺口复用书里已有的卡；零 AI 全免费）", () => {
+  /** 角色表多一张「魏七」（不在本章名单）——候选可点；林野/陈叔/秦伯已在名单置灰 */
+  function stubCardsWithExtra() {
+    mockApi.get.mockImplementation(async (url: string) => {
+      if (url.includes("/characters")) {
+        return {
+          data: {
+            count: 4,
+            protagonist_id: null,
+            gate: { ok: true, no_protagonist: false },
+            confirmed: true,
+            items: [
+              { id: "c1", name: "林野", aliases: ["小野"], role: "主角" },
+              { id: "c2", name: "陈叔", aliases: [], role: "配角" },
+              { id: "c3", name: "秦伯", aliases: [], role: "配角" },
+              { id: "c4", name: "魏七", aliases: [], role: "配角" },
+            ],
+          },
+        };
+      }
+      return { ...FULL };
+    });
+  }
+
+  it("入口→候选 chips（只列卡名不含别名）；已在本章名单的置灰标「已在名单」", async () => {
+    stubCardsWithExtra();
+    const { railData } = mount();
+    await openReview(railData);
+    await openResult();
+    const active = screen.getByTestId("gap-active");
+    fireEvent.click(within(active).getByTestId("cr-pick-existing"));
+    const picker = within(active).getByTestId("cr-existing");
+    // 只列卡名（别名「小野」不进候选）
+    expect(within(picker).queryByTestId("cr-exist-小野")).toBeNull();
+    // 已在名单（林野/陈叔/秦伯）置灰带标；魏七可点
+    const lin = within(picker).getByTestId("cr-exist-林野");
+    expect(lin).toBeDisabled();
+    expect(lin.textContent).toContain("已在名单");
+    expect(within(picker).getByTestId("cr-exist-陈叔")).toBeDisabled();
+    expect(within(picker).getByTestId("cr-exist-魏七")).toBeEnabled();
+    // 再点入口收起
+    fireEvent.click(within(active).getByTestId("cr-pick-existing"));
+    expect(within(active).queryByTestId("cr-existing")).toBeNull();
+  });
+
+  it("点已有角色→名单写入零建卡＋「已有角色」回执三分支文案；缺口收账", async () => {
+    stubCardsWithExtra();
+    const { railData, outline } = mount();
+    await openReview(railData);
+    await openResult();
+    const active = screen.getByTestId("gap-active");
+    fireEvent.click(within(active).getByTestId("cr-pick-existing"));
+    fireEvent.click(within(active).getByTestId("cr-exist-魏七"));
+    // 走 list-only 写入链：chars 追加魏七、立即保存
+    await waitFor(() =>
+      expect(outline.saveChapter).toHaveBeenCalledWith(
+        REF,
+        expect.objectContaining({
+          outline: expect.objectContaining({ characters: ["林野", "陈叔", "秦伯", "魏七"] }),
+        }),
+      ),
+    );
+    // 零建卡
+    expect(mockApi.post.mock.calls.filter((c: string[]) => c[0].endsWith("/characters"))).toHaveLength(0);
+    // 缺口收账＋三分支文案（已有角色形）
+    await waitFor(() => expect(screen.getByTestId("gap-written")).toBeInTheDocument());
+    expect(screen.getByTestId("gap-written-line").textContent).toContain("选的已有角色卡");
+    await waitFor(() =>
+      expect(mockToast.success).toHaveBeenCalledWith(
+        expect.stringContaining("用的是书里已有的角色卡"),
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("同一本书两个缺口都缺上司：第二段选刚建的同一张卡，不重复建卡", async () => {
+    stubCardsWithExtra();
+    const { railData } = mount();
+    await openReview(railData);
+    await openResult();
+    // 第一条（剧情3）选已有角色魏七
+    const cardA = screen.getByTestId("gap-active");
+    fireEvent.click(within(cardA).getByTestId("cr-pick-existing"));
+    fireEvent.click(within(cardA).getByTestId("cr-exist-魏七"));
+    await waitFor(() => expect(screen.getByTestId("gap-written")).toBeInTheDocument());
+    // 第二条（剧情4，预填延后→改回加人）再选同一张卡
+    const cardB = screen
+      .getAllByTestId("gap-deferred")
+      .find((el) => el.textContent?.includes("剧情 4"))!;
+    fireEvent.click(within(cardB).getByTestId("cr-opt-add"));
+    fireEvent.click(within(cardB).getByTestId("cr-pick-existing"));
+    // 魏七现在已在名单 → 置灰（第二段不需要再加，但流程仍可走别的卡）
+    const picker = within(cardB).getByTestId("cr-existing");
+    expect(within(picker).getByTestId("cr-exist-魏七")).toBeDisabled();
+    expect(within(picker).getByTestId("cr-exist-魏七").textContent).toContain("已在名单");
+  });
+
+  it("写入失败：toast 报错、缺口保持待处理（不出格内错误条）", async () => {
+    stubCardsWithExtra();
+    const { railData, outline } = mount();
+    outline.saveChapter.mockRejectedValue(new Error("boom"));
+    await openReview(railData);
+    await openResult();
+    const active = screen.getByTestId("gap-active");
+    fireEvent.click(within(active).getByTestId("cr-pick-existing"));
+    fireEvent.click(within(active).getByTestId("cr-exist-魏七"));
+    await waitFor(() => expect(mockToast.error).toHaveBeenCalledWith("名单保存失败，请重试"));
+    expect(screen.getByTestId("gap-active")).toBeInTheDocument();
+    expect(screen.queryByTestId("gap-written")).toBeNull();
+  });
+
+  it("本会话先建过卡（半态）再选同一张：回执 MUST NOT 谎报「角色表多一卡」", async () => {
+    stubCardsWithExtra();
+    const { railData, outline } = mount();
+    await openReview(railData);
+    await openResult();
+    // 剧情3：建卡并写入——建卡成功、名单保存失败（半态：卡已在书里、名单没进去）
+    fireEvent.click(screen.getByTestId("cr-fill-manual"));
+    fireEvent.change(screen.getByTestId("claim-name"), { target: { value: "魏七" } });
+    outline.saveChapter.mockRejectedValueOnce(new Error("boom"));
+    fireEvent.click(screen.getByTestId("cr-write"));
+    await waitFor(() => expect(screen.getByTestId("cr-write-error")).toBeInTheDocument());
+    expect(screen.getByTestId("cr-write-error").textContent).toContain("卡已建好");
+    // 先不写入，重开（会话恢复，缺口仍待处理；名单里没有魏七）
+    fireEvent.click(screen.getByTestId("cr-cancel"));
+    await act(async () => {
+      await railData().onCastReview();
+    });
+    await openResult();
+    // 剧情3 改走「选已有角色」选同一张魏七（本次零建卡）
+    const active = screen.getByTestId("gap-active");
+    fireEvent.click(within(active).getByTestId("cr-pick-existing"));
+    fireEvent.click(within(active).getByTestId("cr-exist-魏七"));
+    await waitFor(() => expect(screen.getByTestId("gap-written")).toBeInTheDocument());
+    // 回执走「已有角色卡」形，不谎报建卡
+    const okToast = mockToast.success.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(okToast).toContain("用的是书里已有的角色卡");
+    expect(okToast).not.toContain("角色表多一卡");
+    expect(screen.getByTestId("gap-written-line").textContent).toContain("选的已有角色卡");
+    // 全程只建过一张卡（半态那次），选已有角色零建卡
+    expect(mockApi.post.mock.calls.filter((c: string[]) => c[0].endsWith("/characters"))).toHaveLength(1);
+  });
+});
