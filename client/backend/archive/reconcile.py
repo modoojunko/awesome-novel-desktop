@@ -152,7 +152,23 @@ async def _run_async(
     world_raw = await get_storage().read_yaml(root_path, "settings/world-setting.yaml") or {}
     world_now = world_summary_text(world_raw, None).strip()
 
-    for kind, prompt in _collect_prompts(chapter_ref, chapter, full_text, cast, world_now):
+    # 角色名册（真机实锤 09-28：邵青梧/阿蓟等已登记角色的背景被当「新世界要素」
+    # 提案——lore 只带世界设定排重、没带名册，模型无从知道谁是已登记角色）
+    roster = ""
+    try:
+        from db import async_session as _as
+        from models.project import Novel as _Novel
+
+        async with _as() as _db:
+            _proj = await _db.get(_Novel, novel_id)
+            if _proj is not None:
+                from settings.name_registry import known_names, roster_text
+
+                roster = roster_text(await known_names(_db, _proj))
+    except Exception:  # noqa: BLE001 — 名册取不到：lore 退回无名册（不阻塞收尾）
+        roster = ""
+
+    for kind, prompt in _collect_prompts(chapter_ref, chapter, full_text, cast, world_now, roster):
         if kinds is not None and kind not in kinds:
             continue
         usage: dict = {}
@@ -182,15 +198,28 @@ async def _run_async(
             continue
         async with async_session() as session:
             await _upsert_pending(session, chapter_id, novel_id, kind, data)
+            # 重试/重跑成功：旧失败行使命已尽（新 pending 承接），清掉防永久挂列表
+            for old in (
+                await session.scalars(
+                    select(ChapterReconcile).where(
+                        ChapterReconcile.chapter_id == chapter_id,
+                        ChapterReconcile.kind == kind,
+                        ChapterReconcile.status == "failed",
+                    )
+                )
+            ).all():
+                await session.delete(old)
             await session.commit()
 
 
 def _collect_prompts(
-    chapter_ref: str, chapter: dict, full_text: str, cast: list[str], world_now: str = ""
+    chapter_ref: str, chapter: dict, full_text: str, cast: list[str],
+    world_now: str = "", roster: str = "",
 ):
     """两类收尾的 prompt；正文全量给（章目标上限 6000，旧 [:3000] 会丢掉章末钩子）。
 
-    lore 段带「现有世界设定」：只提与外面对不上的新要素（防重复提案）。
+    lore 段带「现有世界设定＋角色名册」：只提与外面对不上的新要素（防重复提案），
+    已登记角色的背景不进世界要素（归角色卡，真机实锤防混入）。
     """
     body = full_text
     world_block = f"现有世界设定（与之重复的不要提）：\n{world_now}\n\n" if world_now else ""
@@ -200,11 +229,15 @@ def _collect_prompts(
         f'"evidence": "原文一句话"}}], "resolved": [{{"description": "镜面之谜", '
         f'"evidence": "…"}}]}}。没有则输出空数组。\n\n正文：\n{body}'
     )
+    roster_block = (
+        f"{roster}\n已登记角色（上表人物）的背景、身份、经历属于角色卡——不要作为世界要素提案。\n\n"
+        if roster else ""
+    )
     yield "lore", (
         f"从第 {chapter_ref} 章正文识别新出现或变化的世界要素（地点/组织/历史/规则）。"
         f"JSON 数组输出，每条含 key/value/set，set 取 history/factions/extra，拿不准用 extra；"
         f'形如 {{"items": [{{"key": "静默带", "value": "一句话", "set": "extra"}}]}}。'
-        f"没有则输出空数组。\n\n{world_block}正文：\n{body}"
+        f"没有则输出空数组。\n\n{world_block}{roster_block}正文：\n{body}"
     )
 
 
