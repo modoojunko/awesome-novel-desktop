@@ -505,3 +505,45 @@ async def _rows_of(ch_id: str):
         return (await s.scalars(
             select(ChapterReconcile).where(ChapterReconcile.chapter_id == ch_id)
         )).all()
+
+
+class TestLoreRosterAndFailedCleanup:
+    """① lore 注入角色名册（防已登记角色背景混进世界要素——真机实锤）；
+    ② 重跑成功清同章同类旧失败行（防永久挂列表）。"""
+
+    def test_lore_prompt_contains_roster_and_rule(self, monkeypatch):
+        from archive.reconcile import _collect_prompts
+
+        prompts = dict(
+            _collect_prompts(
+                "vol-1-ch-1", {}, "正文", ["林晚"], "世界设定现文",
+                "【本书专名册】\n- 人物：林晚、老聋\n- 势力：守夜人",
+            )
+        )
+        assert "【本书专名册】" in prompts["lore"]
+        assert "不要作为世界要素提案" in prompts["lore"]
+        assert "【本书专名册】" not in prompts["hooks"]
+
+    def test_rerun_success_clears_stale_failed_rows(self, monkeypatch):
+        _root, nid, ch_id = asyncio.run(_seed())
+        # 存量失败行（旧代码产物）
+        _add_row(nid, ch_id, "hooks", {}, status="failed")
+
+        class _Fake:
+            async def chat(self, **kwargs):
+                return '{"planted": [{"description": "渡口的雾", "evidence": "雾"}], "resolved": []}'
+
+        async def _fake_client(novel_id):
+            return _Fake()
+
+        import ai_client
+
+        monkeypatch.setattr(ai_client, "get_ai_client_for_novel", _fake_client)
+        import archive.reconcile as rc
+
+        asyncio.run(rc._run_async(nid, _root, "vol-1-ch-1", ch_id, kinds=["hooks"]))
+
+        rows = asyncio.run(_rows_of(ch_id))
+        hooks_rows = [r for r in rows if r.kind == "hooks"]
+        assert len(hooks_rows) == 1
+        assert hooks_rows[0].status == "pending"  # 旧 failed 已清、新 pending 承接
