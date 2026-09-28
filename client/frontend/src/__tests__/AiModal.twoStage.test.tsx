@@ -2,6 +2,7 @@
 // 粗组稿标「未润色」+ AI 润色按钮；润色成功换稿换标；失败可重试；
 // 存量（polished）无润色按钮；编辑后确认透传提示词。
 // c-prompt-tab-retire：新增「存为本章提示词」（PUT prompts/write）与 onPromptSaved。
+// 「刷新提示词」：fresh=1 绕过存量行重新组装（换稿＋转未润色），失败不动当前稿。
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AiModal } from "@/components/novel/workbench/modals";
@@ -60,6 +61,52 @@ describe("AiModal 两段式", () => {
     renderModal();
     await screen.findByTestId("ai-polished-tag");
     expect(screen.queryByTestId("ai-polish")).toBeNull();
+  });
+
+  it("刷新提示词：fresh=1 重新组装 + 换稿转未润色 + 润色按钮回归", async () => {
+    reqState.request
+      .mockResolvedValueOnce({
+        prompt: "## 任务指示\n润色过的存量稿",
+        has_outline: true,
+        polished: true,
+      })
+      .mockResolvedValueOnce({
+        prompt: "## 角色定位\n按新章纲重组稿",
+        has_outline: true,
+        polished: false,
+      });
+    renderModal();
+    await screen.findByTestId("ai-polished-tag");
+    fireEvent.click(screen.getByTestId("ai-prompt-refresh"));
+    await waitFor(() =>
+      expect((screen.getByTestId("ai-prompt") as HTMLTextAreaElement).value).toContain(
+        "按新章纲重组稿",
+      ),
+    );
+    // 第二次请求带 fresh=1（绕过存量行组装）
+    expect(reqState.request).toHaveBeenLastCalledWith(
+      "/novels/p1/chapters/vol-1-ch-1/write/prompt?fresh=1",
+      { quiet: true },
+    );
+    expect(screen.getByTestId("ai-raw-tag").textContent).toBe("未润色");
+    expect(screen.getByTestId("ai-polish")).toBeTruthy();
+  });
+
+  it("刷新失败：报错 toast 且既有稿不清空", async () => {
+    reqState.request
+      .mockResolvedValueOnce({
+        prompt: "## 任务指示\n存量稿",
+        has_outline: true,
+        polished: true,
+      })
+      .mockRejectedValueOnce(new Error("组装失败"));
+    renderModal();
+    await screen.findByTestId("ai-polished-tag");
+    fireEvent.click(screen.getByTestId("ai-prompt-refresh"));
+    await waitFor(() => expect(toastState.error).toHaveBeenCalledWith("组装失败"));
+    expect((screen.getByTestId("ai-prompt") as HTMLTextAreaElement).value).toContain(
+      "存量稿",
+    );
   });
 
   it("点击「AI 润色」→ 换稿 + 标记已润色 + 成功 toast", async () => {
