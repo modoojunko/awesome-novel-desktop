@@ -1444,3 +1444,9 @@ AiWriterAssistant 为模版。涉及写作域三处右栏面板的全量换装�
 - 章档页签内置演示态机（ds-state-btns 四按钮）：提取中（受理→AI 提取→写入章档→置归档四步条＋锁定横幅）/ 失败（错误摘要＋重试＋首败即现「跳过提取仍归档」含代价文案）/ 未提取（横幅＋补提取入口）/ 待确认（默认）。归档确认按钮接 2.6s 定时演示：受理→跳章档页签提取中→自动完成归档。
 - 新词：dossier-pane/ds-head/ds-steps/ds-step/ds-domain/ds-row/ds-ev/ds-flag/ds-actions/ds-note/ds-preview/ds-banner/tab-dossier；cnt/chtab/btn 家族复用现役。
 - 取舍：页签内演示态切换按钮（ds-state-btns）是原型评审脚手架，实现不带；「操作」页签旧三收尾入口（设定提取/关系识别）在实现中退役（迁章档），原型操作页签未建模该区故零改动。
+
+## c-character-intro 0.3 双端影响判定结论（2026-09-28，归档批补齐）
+
+- 判定成立：book.css 去前缀（12 条）与 AiWriterAssistant `subTitle` 插槽均属共享词汇/共享组件；三域右栏（设定 SettingsView、卷 VolumeAssistPanel、写作工作台 AiAssistPanel）均经 `AiWriterAssistant` 挂载，`subTitle` 消费方为工作台侧（AiAssistPanel），插槽属加法参数、不触 base.css 共享段；cr-* 弹层内自含不触共享段（原文任务判定维持）。
+- `node scripts/design-cross.mjs` 结论：初跑**红**——共享段第 16 行起分歧，client 端 c-chapter-plan-ai 期加入的 `--faint` 变量＋注释未同步 server 端；本次按脚本口径两端同提修复，复跑**零差异**。
+- 三域回归口径：静态共享段逐字校验（design-cross M1 即为此设）＋全量 vitest 绿（三域视图/右栏 DOM 层）；截图级对照由实现期视觉验收轮覆盖，本登记不重复。
