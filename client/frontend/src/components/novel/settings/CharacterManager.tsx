@@ -133,6 +133,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     setSink(null);
     setCheck(null);
     setCardOpen(false); // 换卡＝弹窗随结果一起清（D9 缓存面板级寿命）
+    setVersions({}); // 版数随卡复位：新卡首稿是「第 1 版」，不带上一张卡的计数
     onCtxChange?.({
       name: displayName(full.name) || "未命名",
       nameless: !displayName(full.name),
@@ -235,6 +236,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       setBootstrapSink(null);
       setCardAction(null);
       setCardOpen(false);
+      setVersions({});
     },
     runAi: async (key: string) => {
       if (aiBusyRef.current) return;
@@ -290,6 +292,9 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
           }
         }
       } catch (e) {
+        // 走到请求＝该能力无缓存：失败关门走 toast（对齐 world fail-close），
+        // 防空卡弹窗滞留（角色无 cardError 机制，弹窗内无错误体可显示）
+        setCardOpen(false);
         showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
       } finally {
         aiBusyRef.current = false;

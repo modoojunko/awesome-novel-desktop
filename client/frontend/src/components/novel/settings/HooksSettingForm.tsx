@@ -539,7 +539,12 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
             code: cur.code,
             planned_chapter_id: cur.planned_chapter_id,
           });
-          if (selectedIdRef.current !== cur.id) return; // 在途已切选中：丢弃失配响应（作用域钉生成时那条）
+          if (selectedIdRef.current !== cur.id) {
+            // 在途已切选中：丢弃失配响应（作用域钉生成时那条）；
+            // 弹窗已因占位提前打开，关门防空卡滞留（对齐 try 内二道守卫）
+            setCardOpen(false);
+            return;
+          }
           setPayoffSink({
             hookId: cur.id,
             code: cur.code,
@@ -569,7 +574,10 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
             priority: cur.priority,
             code: cur.code,
           });
-          if (selectedIdRef.current !== cur.id) return; // 在途已切选中：丢弃失配响应
+          if (selectedIdRef.current !== cur.id) {
+            setCardOpen(false); // 同上：丢弃失配响应并关门防空卡滞留
+            return;
+          }
           setCheckSink({
             hookId: cur.id,
             checks: r.checks ?? [],
