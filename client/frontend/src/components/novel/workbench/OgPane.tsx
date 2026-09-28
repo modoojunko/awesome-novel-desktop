@@ -44,6 +44,8 @@ interface OgPaneProps {
   onGoWrite: () => void;
   /** 名单区没卡标旁的行级建卡入口（c-character-intro 4.1；只预填称呼） */
   onQuickCreateChar?: (name: string) => void;
+  /** 本书主角名（role=主角的主卡名；名单缺人探测置顶标，c-character-intro 6.x） */
+  protagonistName?: string;
 }
 
 const MOODS = ["紧张", "悬疑", "温暖", "悲伤", "激昂", "轻松", "压抑", "浪漫", "惊悚"];
@@ -93,6 +95,7 @@ export default function OgPane({
   onConfirm,
   onGoWrite,
   onQuickCreateChar,
+  protagonistName,
 }: OgPaneProps) {
   const moodVal = form.mood || "";
   const moodCustom = moodVal && !MOODS.includes(moodVal) ? moodVal : "";
@@ -101,6 +104,8 @@ export default function OgPane({
   // 缺读者获得的确认提醒：一次会话提醒一次，不阻断确认（存量章不回溯）
   const [payoffReminded, setPayoffReminded] = useState(false);
   const showPayoffHint = payoffReminded && !payoffFilled;
+  // 名单缺人探测的「忽略」记录（按章；会话内——c-character-intro 6.x 通用逻辑）
+  const [missIgnored, setMissIgnored] = useState<Record<string, string[]>>({});
 
   // 剧情行稳定 key（禁 index key——删除时 React 不得错位复用 textarea）：
   // 平行 id 数组随显示行数伸缩，删除在 delPlot 里同步摘掉对应 id
@@ -163,6 +168,54 @@ export default function OgPane({
     </span>
   );
 
+  // 名单缺人探测（c-character-intro 通用逻辑，每章查看/编辑都在场）：有卡角色
+  // （含别名）被本章文字点名但不在出场名单——确定性文本匹配（零 AI）；主角置顶。
+  // 「加入」走 form.chars＋onPatch（3s 自动保存链落库）；「忽略」按章会话内记忆。
+  const chapterText = [form.summary ?? "", ...(form.plots ?? [])].join("\n");
+  const castLines = form.chars.split("\n").map((x) => x.trim()).filter(Boolean);
+  const missingNamed = (characterNames ?? [])
+    .filter((n) => n && !castLines.includes(n) && chapterText.includes(n))
+    .filter((n, i, arr) => arr.indexOf(n) === i)
+    .sort((a, b) => (a === protagonistName ? -1 : b === protagonistName ? 1 : 0))
+    .filter((n) => !(missIgnored[label] ?? []).includes(n));
+  const addToCast = (n: string) => {
+    const lines = (form.chars || "").split("\n").map((x) => x.trim()).filter(Boolean);
+    if (!lines.includes(n)) lines.push(n);
+    onPatch({ chars: lines.join("\n") });
+  };
+  const ignoreMiss = (n: string) => {
+    const key = label;
+    setMissIgnored((d) => ({ ...d, [key]: [...(d[key] ?? []), n] }));
+  };
+  const missBlock = missingNamed.length > 0 && (
+    <div className="cast-miss" data-testid="cast-missing">
+      <b>剧情点名、名单没有：</b>
+      {missingNamed.map((n) => (
+        <span className="chip" key={n} data-testid={`cast-miss-${n}`}>
+          {n}
+          {n === protagonistName && <span className="no-card">主角</span>}
+          <button
+            className="lnk"
+            data-testid={`cast-add-${n}`}
+            title="加进出场名单（走 3 秒自动保存落库）"
+            onClick={() => addToCast(n)}
+          >
+            加入
+          </button>
+          <button
+            className="lnk cast-ig"
+            data-testid={`cast-ignore-${n}`}
+            aria-label={`忽略「${n}」`}
+            title="忽略本条（会话内记忆，不落库）"
+            onClick={() => ignoreMiss(n)}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+
   // ── 查看态（默认）：一页纸只读，未填项占位可见；编辑章纲进表单 ──────────
   if (!editing) {
     if (loading) {
@@ -180,6 +233,52 @@ export default function OgPane({
     }
     const charLines = form.chars.split("\n").map((x) => x.trim()).filter(Boolean);
     const known = new Set(characterNames ?? []);
+    // 名单缺人探测（c-character-intro 通用逻辑，每章查看/编辑都在场）：有卡角色
+    // （含别名）被本章文字点名但不在出场名单——确定性文本匹配（零 AI）；主角置顶。
+    // 「加入」走 form.chars＋onPatch（3s 自动保存链落库）；「忽略」按章会话内记忆。
+    const chapterText = [form.summary ?? "", ...(form.plots ?? [])].join("\n");
+    const missingNamed = (characterNames ?? [])
+      .filter((n) => n && !charLines.includes(n) && chapterText.includes(n))
+      .filter((n, i, arr) => arr.indexOf(n) === i)
+      .sort((a, b) => (a === protagonistName ? -1 : b === protagonistName ? 1 : 0))
+      .filter((n) => !(missIgnored[label] ?? []).includes(n));
+    const addToCast = (n: string) => {
+      const lines = (form.chars || "").split("\n").map((x) => x.trim()).filter(Boolean);
+      if (!lines.includes(n)) lines.push(n);
+      onPatch({ chars: lines.join("\n") });
+    };
+    const ignoreMiss = (n: string) => {
+      const key = label;
+      setMissIgnored((d) => ({ ...d, [key]: [...(d[key] ?? []), n] }));
+    };
+    const missBlock = missingNamed.length > 0 && (
+      <div className="cast-miss" data-testid="cast-missing">
+        <b>剧情点名、名单没有：</b>
+        {missingNamed.map((n) => (
+          <span className="chip" key={n} data-testid={`cast-miss-${n}`}>
+            {n}
+            {n === protagonistName && <span className="no-card">主角</span>}
+            <button
+              className="lnk"
+              data-testid={`cast-add-${n}`}
+              title="加进出场名单（走 3 秒自动保存落库）"
+              onClick={() => addToCast(n)}
+            >
+              加入
+            </button>
+            <button
+              className="lnk cast-ig"
+              data-testid={`cast-ignore-${n}`}
+              aria-label={`忽略「${n}」`}
+              title="忽略本条（会话内记忆，不落库）"
+              onClick={() => ignoreMiss(n)}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+    );
     const plotItems = form.plots.map((s) => s.trim()).filter(Boolean);
     const filledPayoffs = form.payoffs.filter((p) => p.d.trim());
     return (
@@ -222,6 +321,7 @@ export default function OgPane({
               {form.summary.trim() || "（未填）"}
             </p>
           </div>
+          {missBlock}
           <div className="fro">
             <em>出场角色</em>
             {charLines.length ? (
@@ -396,6 +496,7 @@ export default function OgPane({
               <label>
                 出场角色 <span className="opt">点选角色卡；也可直接输入名字</span>
               </label>
+              {missBlock}
               {((characterNames && characterNames.length > 0) || extraCharNames.length > 0) && (
                 <div className="og-char-picker" role="group" aria-label="从角色卡选择出场角色">
                   {(characterNames ?? []).map((n) => {

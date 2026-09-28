@@ -1773,3 +1773,23 @@ button.dep-row:hover{background:var(--hl)}
 .cast-review .pick-foot .push { margin-left: auto; }
 .cast-review .pick-error .edit-bar { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .cast-review .badge-muted { display: inline-flex; padding: 2px 9px; border-radius: 999px; background: var(--fg-soft); color: var(--muted); font-size: 11px; }
+
+/* ── 名单缺人探测（c-character-intro 6.x）：cast-miss 家族（OgPane 出场角色区
+   就近软提示；确定性文本匹配零 AI）。词表新词：cast-miss/cast-miss-row/
+   cast-miss-tx；chip/lnk 复用现役。登记 ADJUSTMENTS（c-character-intro）。 */
+.cast-miss {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklch, var(--warn) 30%, var(--border));
+  background: color-mix(in oklch, var(--warn) 6%, var(--surface));
+  border-radius: 9px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cast-miss > b { font-weight: 500; color: var(--fg); }
+.cast-miss .chip { display: inline-flex; align-items: center; gap: 5px; }
+.cast-miss .lnk { font-size: 11px; }

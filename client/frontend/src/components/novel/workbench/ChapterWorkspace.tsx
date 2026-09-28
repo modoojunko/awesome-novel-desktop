@@ -216,6 +216,8 @@ export default function ChapterWorkspace({
   // ── 章纲表单：加载 / 缺口 / 保存 / 3s 静默自动保存 ────────────────────
     // 本书角色名清单（character-settings-v2）：章纲出场角色多选候选
   const [characterNames, setCharacterNames] = useState<string[]>([]);
+  /** 本书主角名（role=主角的主卡名；名单缺人探测置顶标，c-character-intro 6.x） */
+  const [protagonistName, setProtagonistName] = useState("");
   /** 拉取角色名（含别名展开——别名不误标没卡，c-character-intro 4.1）；
    *  建卡成功后显式刷新（3.5；原 effect deps 仅 projectId）。 */
   const refreshCharacterNames = useCallback(async () => {
@@ -229,6 +231,9 @@ export default function ChapterWorkspace({
         }
       }
       setCharacterNames([...names]);
+      setProtagonistName(
+        data.items.find((i) => i.role === "主角")?.name ?? "",
+      );
     } catch {
       /* 角色接口失败不阻塞章纲；textarea 兜底仍可用 */
     }
@@ -1232,6 +1237,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         <OgPane
           form={ogForm}
           characterNames={characterNames}
+          protagonistName={protagonistName}
           label={label}
           editing={ogEditing}
           loading={ogLoading}

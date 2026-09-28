@@ -707,6 +707,10 @@
   .chip .no-card { margin-left: 5px; }
   .chip .lnk { font-size: 10.5px; }
   .og-char-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .cast-miss { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 8px; padding: 8px 10px; border: 1px solid color-mix(in oklch, var(--warn) 30%, var(--border)); background: color-mix(in oklch, var(--warn) 6%, var(--surface)); border-radius: 9px; font-size: 12px; color: var(--muted); }
+  .cast-miss > b { font-weight: 500; color: var(--fg); }
+  .cast-miss .chip { display: inline-flex; align-items: center; gap: 5px; }
+  .cast-miss .lnk { font-size: 11px; }
   /* 值差复用登记（ADJUSTMENTS ④）：rp-dot 7px／pick-busy flex-column＋.none／pick-foot .push */
   .pick-busy { flex-direction: column; }
   .pick-busy .none { font-size: 12px; color: var(--faint); }
@@ -2167,7 +2171,12 @@ function chapterFormHTML(c, P, C) {
         <div class="inner">
           <div class="field"><label>章纲概要</label><textarea class="textarea" id="${P}summary" placeholder="这一章写什么，一两句话说清">${escapeHtml(c.summary || '')}</textarea></div>
           <div class="field"><label>出场角色 <span class="opt">点选角色卡；也可直接输入名字</span></label>
-            <!-- 名单区没卡标记＋行级建卡入口（c-character-intro 0.2③⑥：chip＋没卡标＋建卡，只预填称呼） -->
+            <!-- 名单缺人探测（c-character-intro 6.x 通用逻辑）：有卡角色被本章文字点名但不在名单——就近软提示＋一键加入 -->
+            <div class="cast-miss" data-testid="cast-missing">
+              <b>剧情点名、名单没有：</b>
+              <span class="chip">银铎<button class="lnk" title="加进出场名单（走 3 秒自动保存落库）">加入</button></span>
+              <button class="lnk none" title="忽略本条（会话内记忆）">×</button>
+            </div>
             <div class="og-char-picker" id="og-chips" aria-label="从角色卡选择出场角色">
               <button class="chip on">沉舟</button>
               <button class="chip on">老陆</button>
