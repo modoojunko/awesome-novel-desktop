@@ -89,7 +89,7 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
     setBusy(true);
     try {
       const updated = await api.finishNovel(target.id);
-      toast.success(`《${target.name}》已完结 · 归档收尾提案可在书的「操作」页逐条确认`);
+      toast.success(`《${target.name}》已完结 · 归档收尾提案可在「设定 / 伏笔」页签逐条确认`);
       onFinished(updated);
       onClose();
     } catch (e) {
@@ -248,7 +248,7 @@ export default function FinishModal({ target, onClose, onFinished, onReopened }:
             </span>
             <div className="fin-t">
               <b>归档收尾都已清</b>
-              <p>每一章归档后的写回提案都处理完了；未处理的在书的「操作」页逐条确认。</p>
+              <p>每一章归档后的写回提案都处理完了；未处理的在「设定 / 伏笔」页签逐条确认。</p>
             </div>
           </div>
         </div>

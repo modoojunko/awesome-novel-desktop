@@ -105,7 +105,7 @@ export function AiAssistPanel({
     mode: "polish" | "expand" | "compress",
     capture: ReturnType<ProseHandle["captureNow"]>,
   ) => void;
-  /** 按类触发本章收尾（设定/关系/伏笔三入口）；产出在「操作」页签待确认 */
+  /** 按类触发本章收尾（伏笔「登记新伏笔」入口）；产出在「伏笔」页签待确认 */
   onRunReconcile?: (kind: "hooks") => void;
   /** 章纲缺项补全（AI 产物 patch 到章纲表单，由既有保存链落库） */
   onFillGaps?: () => void;

@@ -664,7 +664,7 @@ describe("完本链路（works-finish-flow）", () => {
     fireEvent.click(screen.getByText("完结这本书"));
     await waitFor(() => expect(finishMock).toHaveBeenCalledWith("n1"));
     expect(toast.success).toHaveBeenCalledWith(
-      "《星海拾遗》已完结 · 归档收尾提案可在书的「操作」页逐条确认",
+      "《星海拾遗》已完结 · 归档收尾提案可在「设定 / 伏笔」页签逐条确认",
     );
     const card = await screen.findByText("《星海拾遗》").then(
       (el) => el.closest(".book-card") as HTMLElement,

@@ -1175,6 +1175,14 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       {chTab === "settings" && (
         <div className="settings-pane" data-od-id="settings-pane">
           <SettingChangesSection projectId={projectId} chapterRef={chapterRef} />
+          {/* 世界要素提案各归各的页签（c-ops-tab-progress-only）：与写回目标同位 */}
+          <ReconcilePane
+            projectId={projectId}
+            chapterRef={chapterRef}
+            archived={archived}
+            isPro={isPro}
+            kinds={["lore"]}
+          />
           <SettingsChangelogPane
             projectId={projectId}
             chapterRef={chapterRef}
@@ -1202,6 +1210,14 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
       {chTab === "hooks" && (
         <div className="hooks-wrap" data-od-id="hooks-wrap">
+          {/* 伏笔登记提案各归各的页签（c-ops-tab-progress-only）：与写回目标同位 */}
+          <ReconcilePane
+            projectId={projectId}
+            chapterRef={chapterRef}
+            archived={archived}
+            isPro={isPro}
+            kinds={["hooks"]}
+          />
           <HooksPane projectId={projectId} chapterRef={chapterRef} />
         </div>
       )}
@@ -1216,59 +1232,75 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
               <p className="rc-title">归档本章</p>
               <p className="rc-desc">
                 {archived
-                  ? "本章已归档；本章的设定/物品/认知与关系变化在对应页签确认。"
+                  ? "本章已归档 · 变化与提案在「设定 / 角色关系 / 伏笔」页签确认；需要时可重新归档重提。"
                   : "点归档后先 AI 提取本章变化（设定/关系/物品/认知，用你配置的模型），提取成功本章才正式归档；提取期间本章锁定。"}
               </p>
               {archiving ? (
                 <p className="rc-desc" data-testid="archive-extracting">
                   AI 提取中 · 本章已锁定（完成后产出落「设定 / 角色关系」页签）……
                 </p>
-              ) : archived && !dossierEmpty ? null : archived && dossierEmpty ? (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <span className="rc-desc">本章已归档但未提取变化（归档时未配置模型 / 跳过提取）。</span>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    data-testid="archive-backfill"
-                    onClick={() => void store.retryExtraction()}
-                  >
-                    补提取本章变化
-                  </button>
-                  <a href="#/config">去「模型配置」</a>
-                </div>
               ) : store.archiveJob?.state === "failed" ? (
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button
                     className="btn btn-secondary btn-sm"
                     data-testid="archive-retry"
-                    onClick={() => void store.retryExtraction()}
+                    onClick={() =>
+                      void store.retryExtraction().then((err) => err && toast.error(err))
+                    }
                   >
                     重试提取
                   </button>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    data-testid="archive-skip"
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          "跳过提取后本章直接归档，但本章状态不会进入下一章前情（之后可在归档卡补提取）。确定跳过？",
+                  {!archived && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      data-testid="archive-skip"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            "跳过提取后本章直接归档，但本章状态不会进入下一章前情（之后可在归档卡补提取）。确定跳过？",
+                          )
                         )
-                      )
-                        void store.skipArchive();
-                    }}
-                  >
-                    跳过提取，仍要归档
-                  </button>
+                          void store.skipArchive();
+                      }}
+                    >
+                      跳过提取，仍要归档
+                    </button>
+                  )}
                 </div>
+              ) : archived && dossierEmpty ? (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <span className="rc-desc">本章已归档但未提取变化（归档时未配置模型 / 跳过提取）。</span>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    data-testid="archive-backfill"
+                    onClick={() =>
+                      void store.retryExtraction().then((err) => err && toast.error(err))
+                    }
+                  >
+                    补提取本章变化
+                  </button>
+                  <a href="#/config">去「模型配置」</a>
+                </div>
+              ) : archived ? (
+                /* 多次归档（c-ops-tab-progress-only）：已归档已提取章可重提变化（rows_only） */
+                <button
+                  className="btn btn-secondary btn-sm"
+                  data-testid="archive-reextract"
+                  disabled={wordCount === 0}
+                  onClick={() => setShowArchive(true)}
+                >
+                  重新归档 · 重提本章变化
+                </button>
               ) : (
                 <button
                   className="btn btn-secondary btn-sm"
                   data-od-id="archive-btn"
                   data-testid="archive-btn"
-                  disabled={archived || wordCount === 0}
-                  title={archived ? "本章已归档" : wordCount === 0 ? "空章无需归档" : undefined}
+                  disabled={wordCount === 0}
+                  title={wordCount === 0 ? "空章无需归档" : undefined}
                   onClick={() => setShowArchive(true)}
                 >
-                  {archived ? "已归档" : "归档本章"}
+                  归档本章
                 </button>
               )}
             </div>
@@ -1314,20 +1346,23 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
               </button>
             </div>
           )}
-          <ReconcilePane
-            projectId={projectId}
-            chapterRef={chapterRef}
-            archived={archived}
-            isPro={isPro}
-          />
+          {/* 收尾提案区已各归各的页签（伏笔→伏笔页签 / 世界要素→设定页签，
+              c-ops-tab-progress-only）：操作页签只留生命周期卡与归档进度 */}
         </div>
       )}
 
       <ArchiveModal
         open={showArchive}
         onClose={() => setShowArchive(false)}
-        onConfirm={() => void handleArchive()}
+        onConfirm={() => {
+          // 已归档章＝重新归档：rows_only 重提本章变化（不重跑收尾提案）；
+          // 拒收（409 model_not_ready 等）须就地报错——store.error 无渲染面
+          if (archived)
+            void store.retryExtraction().then((err) => err && toast.error(err));
+          else void handleArchive();
+        }}
         isPro={isPro}
+        rearchiveMode={archived}
         rearchive={rearchive}
       />
       <RewriteModal

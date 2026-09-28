@@ -1210,7 +1210,12 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .rc-kind { font-size: 12px; color: var(--muted); flex: none; }
 .rc-summary { min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rc-acts { display: inline-flex; gap: 6px; flex: none; }
-.rc-error { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--err); }
+.rc-error { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--err); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-decided { margin-top: 4px; }
+.rc-decided > summary { cursor: pointer; font-size: 12px; color: var(--muted); user-select: none; list-style: none; }
+.rc-decided > summary::before { content: "▸ "; }
+.rc-decided[open] > summary::before { content: "▾ "; }
+.rc-decided > .reconcile-row { margin-top: 6px; opacity: 0.75; }
 .settings-changelog { display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; }
 .seg-title { margin: 6px 0 2px; font-family: var(--font-display); font-size: 14px; font-weight: 600; }
 .change-row { display: grid; grid-template-columns: minmax(72px, auto) minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }

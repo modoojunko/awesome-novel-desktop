@@ -192,6 +192,21 @@ describe("归档受理制（archiveJob）", () => {
     ).toHaveBeenCalledWith("/novels/p1/chapters/vol-1-ch-1/dossier/extract", {});
   });
 
+  it("retryExtraction：拒收返回错误文案供调用方 toast（不置 extracting）", async () => {
+    apiState.get.mockResolvedValue(chapterPayload());
+    apiState.post.mockRejectedValue(
+      new Error("409: model_not_ready: 本书模型未配置，无法提取"),
+    );
+    const { result } = await mountHook();
+    let msg: string | null = "";
+    await act(async () => {
+      msg = await result.current.retryExtraction();
+    });
+    expect(msg).toContain("model_not_ready");
+    expect(result.current.error).toContain("model_not_ready");
+    expect(result.current.archiveJob).toBeNull();
+  });
+
   it("切章返回恢复：载入后探测到服务端仍在提取", async () => {
     apiState.get.mockResolvedValueOnce(chapterPayload()) // 初始
       .mockResolvedValue(

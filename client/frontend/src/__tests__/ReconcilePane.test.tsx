@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ReconcilePane } from "@/components/novel/workbench/ReconcilePane";
 
 // ---------------------------------------------------------------------------
-// archive-reconcile 前端：收尾进度聚合、逐条采纳/驳回/重试、免费档占位。
+// archive-reconcile 前端：各归各的页签（kinds 过滤）、已决折叠、免费档不渲染。
 // ---------------------------------------------------------------------------
 
 const apiState = vi.hoisted(() => ({
@@ -41,10 +41,10 @@ const ROWS = {
     {
       id: "r2",
       chapter_id: "c1",
-      kind: "relations",
+      kind: "hooks",
       status: "failed",
-      payload: { items: [] },
-      error: "写回失败：boom",
+      payload: { planted: [{ description: "旧失败行" }] },
+      error: "parse: 模型输出不是可解析的 JSON（```json {\"planted\": [...]",
       created_at: "",
       decided_at: "",
     },
@@ -58,8 +58,18 @@ const ROWS = {
       created_at: "",
       decided_at: "",
     },
+    {
+      id: "r4",
+      chapter_id: "c1",
+      kind: "relations",
+      status: "pending",
+      payload: { items: [{ owner: "林晚", other: "老聋" }] },
+      error: "",
+      created_at: "",
+      decided_at: "",
+    },
   ],
-  progress: { pending: 1, failed: 1, accepted: 1, rejected: 0 },
+  progress: { pending: 2, failed: 1, accepted: 1, rejected: 0 },
 };
 
 beforeEach(() => {
@@ -76,15 +86,16 @@ function renderPane(props: Partial<Parameters<typeof ReconcilePane>[0]> = {}) {
       chapterRef="vol-1-ch-1"
       archived
       isPro
+      kinds={["lore"]}
       {...props}
     />,
   );
 }
 
-describe("ReconcilePane（归档收尾区）", () => {
-  it("免费档占位：不拉取收尾数据", () => {
-    renderPane({ isPro: false });
-    expect(screen.getByText(/PRO 可用/)).toBeTruthy();
+describe("ReconcilePane（收尾提案·各归各的页签）", () => {
+  it("免费档不渲染收尾区：无占位、不拉取", () => {
+    const { container } = renderPane({ isPro: false });
+    expect(container.textContent).toBe("");
     expect(apiState.fetchReconcile).not.toHaveBeenCalled();
   });
 
@@ -94,25 +105,39 @@ describe("ReconcilePane（归档收尾区）", () => {
     expect(apiState.fetchReconcile).not.toHaveBeenCalled();
   });
 
-  it("进度聚合＋行摘要（世界要素/伏笔埋下可读）", async () => {
-    renderPane();
+  it("kinds 过滤：设定页签只显世界要素，计数按本类聚合", async () => {
+    renderPane({ kinds: ["lore"] });
     await waitFor(() => expect(apiState.fetchReconcile).toHaveBeenCalled());
     const lead = document.querySelector(".reconcile-lead")?.textContent ?? "";
+    expect(lead).toContain("归档收尾 · 世界要素提案");
     expect(lead).toContain("待确认 1");
+    expect(lead).not.toContain("失败 1"); // hooks 的失败不计入
+    expect(screen.getByText(/静默带：无人区/)).toBeTruthy();
+    // 他类行不出现
+    expect(screen.queryByText(/旧失败行/)).toBeNull();
+    expect(screen.queryByText(/林晚↔老聋/)).toBeNull();
+  });
+
+  it("伏笔页签：待确认＋失败在列，已决默认折叠只显计数", async () => {
+    renderPane({ kinds: ["hooks"] });
+    await waitFor(() => expect(apiState.fetchReconcile).toHaveBeenCalled());
+    const lead = document.querySelector(".reconcile-lead")?.textContent ?? "";
+    expect(lead).toContain("归档收尾 · 伏笔登记提案");
     expect(lead).toContain("失败 1");
     expect(lead).toContain("已处理 1");
-    // 摘要：lore 条目 key：value；hooks planted「埋下：…」
-    expect(screen.getByText(/静默带：无人区/)).toBeTruthy();
-    expect(screen.getByText(/埋下：渡口的雾/)).toBeTruthy();
-    // 类别标签
-    expect(screen.getByText("世界要素")).toBeTruthy();
-    expect(screen.getByText("伏笔登记")).toBeTruthy();
-    // 失败行错误可见
-    expect(screen.getByText(/写回失败：boom/)).toBeTruthy();
+    // 失败行错误单行省略（title 悬停看全文）
+    const err = screen.getByText(/parse: 模型输出不是可解析的 JSON/);
+    expect(err.className).toBe("rc-error");
+    // 已决行在折叠区内
+    const details = document.querySelector("details.rc-decided") as HTMLDetailsElement;
+    expect(details).toBeTruthy();
+    expect(details.open).toBe(false);
+    expect(within(details).getByText(/埋下：渡口的雾/)).toBeTruthy();
+    expect(screen.queryByText("已处理 1 条（点开留痕）")).toBeTruthy();
   });
 
   it("采纳/驳回/重试分别走对应 API 并触发刷新", async () => {
-    renderPane();
+    renderPane({ kinds: ["hooks", "lore"] });
     await waitFor(() => expect(apiState.fetchReconcile).toHaveBeenCalledTimes(1));
 
     fireEvent.click(screen.getByRole("button", { name: "采纳" }));
@@ -130,7 +155,6 @@ describe("ReconcilePane（归档收尾区）", () => {
       expect(apiState.retryReconcile).toHaveBeenCalledWith("p1", "vol-1-ch-1", "r2"),
     );
 
-    // 每次动作后刷新（挂载 1 次 + 三个动作各 1 次）
     await waitFor(() =>
       expect(apiState.fetchReconcile.mock.calls.length).toBeGreaterThanOrEqual(4),
     );
