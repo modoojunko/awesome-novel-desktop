@@ -23,6 +23,7 @@ from ai_state import effective_model
 from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
+from prompt.context import cast_profile_block  # noqa: I001 — 分层依赖顺序
 from filesystem.storage import get_storage
 from genres.novel_genre_service import get_novel_genre
 from novels.service import get_novel
@@ -1002,47 +1003,11 @@ async def _arc_context(project) -> tuple[dict, dict]:
 
 
 def _cast_block(items: list[dict]) -> str:
-    """全人物档案原文块：名字（别名）＋类型＋人设原文＋档案八格原文（只列已填格）；
-    认知六层逐格原文只给主角与反派。空名占位卡按展示口径显示「未命名」。
-
-    不复用 volumes 的 cast_brief：那条 `persona[:80]` 截断，达不到「原封不动」。
-    """
-    from settings.character_model import COG_LAYERS, DOSSIER_FIELDS
-    from settings.character_service import _display_name
-
-    lines: list[str] = []
-    for it in items:
-        name = _display_name(str(it.get("name") or ""))
-        aliases = [str(a).strip() for a in (it.get("aliases") or []) if str(a).strip()]
-        head = f"- {name}（{it.get('role') or ''}"
-        if aliases:
-            head += "｜别名：" + "、".join(aliases)
-        lines.append(head + "）")
-        persona = str(it.get("persona") or "").strip()
-        if persona:
-            lines.append(f"  人设：{persona}")
-        dossier = it.get("dossier") if isinstance(it.get("dossier"), dict) else {}
-        cells = [
-            f"{f['label']}：{str(dossier.get(f['k']) or '').strip()}"
-            for f in DOSSIER_FIELDS
-            if str(dossier.get(f["k"]) or "").strip()
-        ]
-        if cells:
-            lines.append("  档案：" + "｜".join(cells))
-        if it.get("role") in _ARC_CAST_DEPTH_ROLES:
-            cog = it.get("cog") if isinstance(it.get("cog"), dict) else {}
-            for layer in COG_LAYERS:
-                filled = [
-                    f"{f['label']}：{str(cog.get(f['k']) or '').strip()}"
-                    for f in layer["fields"]
-                    if str(cog.get(f["k"]) or "").strip()
-                ]
-                if filled:
-                    lines.append(f"  认知·{layer['name']}：" + "｜".join(filled))
-    if not lines:
-        return ""
-    lines.append(f"（以上共 {len(items)} 人；只点名与这条主线直接相关的人）")
-    return "\n".join(lines)
+    """全人物档案原文块（主线起草口径）——实现在 prompt/context.cast_profile_block
+    （c-write-prompt-layering 抽共享：写正文 system 恒定层同源消费），此处只传尾注。"""
+    return cast_profile_block(
+        items, footer_template="（以上共 {n} 人；只点名与这条主线直接相关的人）"
+    )
 
 
 def _arc_extra_names(value: dict, names: dict[str, set[str]], known_text: str = "") -> list[str]:

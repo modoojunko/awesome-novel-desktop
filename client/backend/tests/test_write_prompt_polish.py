@@ -221,7 +221,10 @@ class TestGetWritePrompt:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["polished"] is False
-        assert "## 角色定位" in body["prompt"]
+        # c-write-prompt-layering：fresh 返回纯章级 user 层（恒定块上收 system 恒定层）
+        assert "## 当前章节" in body["prompt"]
+        assert "## 角色定位" not in body["prompt"]
+        assert body["legacy"] is False
         assert "has_outline" in body
 
     def test_stored_prompt_wins_over_draft(self, client):
@@ -233,6 +236,9 @@ class TestGetWritePrompt:
         body = r.json()
         assert body["polished"] is True
         assert body["prompt"] == "既有润色行"
+        # 旧版整包行无恒定块标记也无三锚 → 简单文本行判非 legacy
+        assert body["legacy"] is False
+        assert body["legacy_kind"] == ""
 
     def test_fresh_bypasses_stored_and_keeps_row(self, client):
         """刷新提示词：fresh=1 绕过存量行回组装稿，且不动存量行。"""
@@ -243,7 +249,8 @@ class TestGetWritePrompt:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["polished"] is False
-        assert "## 角色定位" in body["prompt"]
+        assert "## 当前章节" in body["prompt"]
+        assert "## 角色定位" not in body["prompt"]
         assert body["prompt"] != "既有润色行"
         # 刷新只换预览稿，存量行原样保留
         assert _read_stored_prompt(pid, ref) == "既有润色行"

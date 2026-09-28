@@ -33,7 +33,7 @@ from auth_local.middleware import get_current_user  # noqa: E402
 from db import Base, async_session, engine, get_db  # noqa: E402
 from main import app  # noqa: E402
 from models.user import User  # noqa: E402
-from write.chapter_writer import WRITING_IRON_RULES  # noqa: E402
+from prompts import load_layers  # noqa: E402
 from write.quality import run_narrative_self_check  # noqa: E402
 
 _CFG_PATH = os.path.join(_tmp_data_root, "config.json")
@@ -178,10 +178,13 @@ def test_self_check_ledger_structure():
 
 
 def test_iron_rules_cover_three_clauses():
-    assert "不写章节标题" in WRITING_IRON_RULES
-    assert "不自行添加" in WRITING_IRON_RULES
-    assert "不擅自命名" in WRITING_IRON_RULES
-    assert "Markdown" in WRITING_IRON_RULES
+    # c-write-prompt-layering：铁律迁入 write_chapter 模板 system 段（含仲裁句）
+    system_tpl, _ = load_layers("write_chapter")
+    assert "不写章节标题" in system_tpl
+    assert "不自行添加" in system_tpl
+    assert "不擅自命名" in system_tpl
+    assert "Markdown" in system_tpl
+    assert "视为已写情节" in system_tpl
 
 
 # ── 契约：流式生成三工序 ─────────────────────────────────────────────────

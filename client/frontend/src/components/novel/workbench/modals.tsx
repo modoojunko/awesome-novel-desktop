@@ -483,6 +483,10 @@ export function AiModal({
   const [polishError, setPolishError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // 旧版整包分型（c-write-prompt-layering）：raw=粗组存稿旧行（建议刷新）、
+  // polished=润色旧行（只信息性，不引导覆盖）；"" = 新分层口径
+  const [legacyKind, setLegacyKind] = useState("");
+  const [lintWarnings, setLintWarnings] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -498,11 +502,17 @@ export function AiModal({
           prompt?: string;
           has_outline?: boolean;
           polished?: boolean;
+          legacy_kind?: string;
+          warnings?: string[];
         }) => {
           if (cancelled) return;
           setPrompt(d?.prompt ?? "");
           setHasOutline(!!d?.has_outline);
           setPolished(!!d?.polished);
+          setLegacyKind(d?.legacy_kind ?? "");
+          setLintWarnings(
+            Array.isArray(d?.warnings) ? d.warnings.filter(Boolean) : [],
+          );
         },
       )
       .catch((e: Error) => {
@@ -547,6 +557,8 @@ export function AiModal({
       setPrompt(d?.prompt ?? "");
       setHasOutline(!!d?.has_outline);
       setPolished(false);
+      setLegacyKind("");
+      setLintWarnings(Array.isArray(d?.warnings) ? d.warnings.filter(Boolean) : []);
       setError(null);
       setPolishError(null);
     } catch (e) {
@@ -640,16 +652,41 @@ export function AiModal({
           onChange={(e) => setPrompt(e.target.value)}
           data-testid="ai-prompt"
         />
+        {legacyKind ? (
+          legacyKind === "polished" ? (
+            <p
+              style={{ margin: "8px 0 0", fontSize: 12, color: "var(--muted)" }}
+              data-testid="ai-legacy-note"
+            >
+              恒定设定（题材/文风/世界观/铁律）已由系统按本书设定注入，与本稿并存；可继续编辑或润色。
+            </p>
+          ) : (
+            <p
+              style={{ margin: "8px 0 0", fontSize: 12, color: "var(--warn)" }}
+              data-testid="ai-legacy-note"
+            >
+              旧版整包稿：恒定设定已由系统注入，点「刷新提示词」可按新分层重组为本章素材。
+            </p>
+          )
+        ) : null}
+        {lintWarnings.length > 0 ? (
+          <p
+            style={{ margin: "8px 0 0", fontSize: 12, color: "var(--warn)" }}
+            data-testid="ai-lint-warnings"
+          >
+            {lintWarnings.join("；")}
+          </p>
+        ) : null}
         {/* 刷新＋存稿行：刷新＝fresh 组装稿仅换预览（不动存量行）；存稿＝编辑稿落库 */}
         <div className="ai-prompt-save">
           <span>
-            「刷新提示词」按最新「设定＋章纲」重新组装（不动已存稿）；直接生成＝这一版只用于本次，存下来则本章以后每次生成都用它。
+            「刷新提示词」按最新章纲重新组装章级素材（恒定设定由系统按本书设定注入，不动已存稿）；直接生成＝这一版只用于本次，存下来则本章以后每次生成都用它。
           </span>
           <div style={{ display: "flex", gap: 8, flex: "none" }}>
             <button
               className="btn btn-ghost btn-sm"
               data-testid="ai-prompt-refresh"
-              title="按最新「设定＋章纲」重新组装；不改动已存稿，可再润色或编辑"
+              title="按最新章纲重新组装章级素材；不改动已存稿，可再润色或编辑"
               disabled={loading || polishing || refreshing}
               onClick={() => void handleRefresh()}
             >

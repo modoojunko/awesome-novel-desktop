@@ -109,6 +109,56 @@ describe("AiModal 两段式", () => {
     );
   });
 
+  it("旧版整包分级提示：raw 行建议刷新、polished 行只信息性", async () => {
+    // raw：粗组存稿旧行 → warn 提示含「刷新」引导
+    reqState.request
+      .mockResolvedValueOnce({
+        prompt: "## 角色定位\n你是。\n## 故事背景\n……",
+        has_outline: true,
+        polished: true,
+        legacy_kind: "raw",
+      })
+      .mockResolvedValueOnce({
+        prompt: "## 当前章节\n重组稿",
+        has_outline: true,
+        polished: false,
+        legacy_kind: "",
+      });
+    renderModal();
+    const note = await screen.findByTestId("ai-legacy-note");
+    expect(note.textContent).toContain("刷新提示词");
+    fireEvent.click(screen.getByTestId("ai-prompt-refresh"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("ai-legacy-note")).toBeNull(),
+    );
+  });
+
+  it("润色旧整包行：只显示信息性说明，不引导覆盖", async () => {
+    reqState.request.mockResolvedValue({
+      prompt: "## 任务指示\n…\n## 红线\n…\n## 质感\n…",
+      has_outline: true,
+      polished: true,
+      legacy_kind: "polished",
+    });
+    renderModal();
+    const note = await screen.findByTestId("ai-legacy-note");
+    expect(note.textContent).toContain("已由系统按本书设定注入");
+    expect(note.textContent).not.toContain("刷新");
+  });
+
+  it("lint 告警随 GET 透出显示", async () => {
+    reqState.request.mockResolvedValue({
+      prompt: "## 当前章节\n稿",
+      has_outline: true,
+      polished: false,
+      legacy_kind: "",
+      warnings: ["「本章必须完成」未获剧情条目覆盖：主角黑化"],
+    });
+    renderModal();
+    const warns = await screen.findByTestId("ai-lint-warnings");
+    expect(warns.textContent).toContain("未获剧情条目覆盖");
+  });
+
   it("初始组装失败 → 刷新成功：错误清除且「生成正文」恢复可点", async () => {
     reqState.request
       .mockRejectedValueOnce(new Error("提示词组装失败"))

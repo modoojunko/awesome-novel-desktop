@@ -234,8 +234,12 @@ class TestDirectWriteKeepsStoredPrompt:
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
         assert r.status_code == 200, r.text
         assert _done_event(r.text)["type"] == "done"
-        # 发给模型的就是存量润色版，而非粗组兜底
-        assert "已润色版本" in fake.last_kwargs["messages"][0]["content"]
+        # 发给模型的就是存量润色版＋收尾重申行（c-write-prompt-layering：两路径同样生效）
+        from write.chapter_writer import WRITE_CLOSING_LINE
+
+        content = fake.last_kwargs["messages"][0]["content"]
+        assert "已润色版本" in content
+        assert content.endswith(WRITE_CLOSING_LINE)
         # 存量行未被覆盖
         assert _read_stored_prompt(pid, ref) == "已润色版本：任务指示/红线/质感齐备"
 
@@ -253,8 +257,10 @@ class TestDirectWriteKeepsStoredPrompt:
 
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
         assert r.status_code == 200, r.text
-        # 无存量 → 粗组组装并落库（粗组草稿以角色定位开头，非润色锚词形态）
-        assert _read_stored_prompt(pid, ref).startswith("## 角色定位")
+        # 无存量 → 章级素材组装并落库（c-write-prompt-layering：恒定块在 system 层）
+        stored = _read_stored_prompt(pid, ref)
+        assert stored.startswith("## 当前章节")
+        assert "## 角色定位" not in stored
 
     def test_override_still_wins(self, client, monkeypatch):
         _set_member()
@@ -274,7 +280,12 @@ class TestDirectWriteKeepsStoredPrompt:
             json={"prompt": "作家手动编辑版"},
         )
         assert r.status_code == 200, r.text
-        assert fake.last_kwargs["messages"][0]["content"] == "作家手动编辑版"
+        # c-write-prompt-layering：收尾重申行在发送前追加，落库行不含
+        from write.chapter_writer import WRITE_CLOSING_LINE
+
+        assert fake.last_kwargs["messages"][0]["content"] == (
+            "作家手动编辑版\n\n" + WRITE_CLOSING_LINE
+        )
         assert _read_stored_prompt(pid, ref) == "作家手动编辑版"
 
 
