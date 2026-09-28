@@ -458,9 +458,11 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     setAiDrafting(true);
     try {
       const draft = await draftOutline(projectId, chapterRef);
-      const serverData = outline.chaptersMap.get(chapterRef);
-      // 以服务端数据为底、草稿覆盖章纲格子；title 保留服务端值
-      setOgForm(ogToForm({ ...(serverData ?? {}), ...draft } as never));
+      // 以服务端**全量**数据为底、草稿覆盖章纲格子；title 保留服务端值。
+      // 禁用 chaptersMap 当底座——树条目是瘦身的（缺 challenge/ladder/memo/emotional），
+      // 拿它兜底会让起草后的整表回传清掉拆章写入的值（c-og-chapter-put-patch-gates）。
+      const serverData = await outline.loadChapterData(chapterRef);
+      setOgForm(ogToForm({ ...serverData, ...draft } as never));
       setOgEditing(true); // 草稿要在表单里过目——直接落到编辑态
       toast.success("AI 草稿已填入表单，检查修改后保存");
     } catch (e) {
@@ -469,7 +471,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       setAiDrafting(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, chapterRef, ogForm, outline.chaptersMap]);
+  }, [projectId, chapterRef, ogForm, outline.loadChapterData]);
 
   // ── 右栏 AI 辅助·检测族（ai-check）与提示词精修（提案制） ─────────────
   const [aiCheckKind, setAiCheckKind] = useState<AiCheckKind | null>(null);

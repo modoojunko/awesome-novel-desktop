@@ -97,15 +97,14 @@ def test_two_columns_roundtrip_via_store():
             assert kept["challenge"] == "旧档堆不对活人开放"
             assert kept["plot_stage"] == "矛盾升级"
 
-            # 既有语义文档化：缺键即清空（全标量族同款）——故前端必须整表回传，
-            # 这条不是 bug 而是契约（chapter-data delta「表单整表回传」场景的依据）。
+            # c-og-chapter-put-patch-gates（2026-09-28 演示栈事故后换契约）：缺键＝保持现值，
+            # 部分键 PUT 不再抹掉未带字段（旧「缺键即清空、前端必须整表回传」口径已废）。
             _disassemble_scalars(row, {"summary": "只传 summary"})
             await s.flush()
-            assert "challenge" not in assemble_chapter(row)
+            assert assemble_chapter(row)["challenge"] == "旧档堆不对活人开放"
 
-            # c-plot-split 新口径：plot_items 是缺键语义的例外（presence-gate，
-            # 与 style_shadow 同款）——缺键/None 保持现值、显式 [] 清空；
-            # 标量族缺键即清空的旧口径不变（上方钉住），差异在 c-plot-split 登记。
+            # plot_items 的 presence-gate（c-plot-split）不变，现与全字段族同款：
+            # 缺键/None 保持现值、显式 [] 清空。
             _disassemble_scalars(row, {"plot_items": ["开场：荒庙接头", "结尾：她回头"]})
             await s.flush()
             _disassemble_scalars(row, {"summary": "还是只传 summary"})

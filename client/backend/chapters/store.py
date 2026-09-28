@@ -172,20 +172,31 @@ def assemble_chapter(row) -> dict:
 
 
 def _disassemble_scalars(row, data: dict) -> None:
-    # memo 的标量族（reader_expectation）已随 c-og-slim-v2 退役：memo 只剩子表族，
-    # 在 _replace_children_impl 里拆装——此处不再读取。
-    outline = data.get("outline") or {}
-    emotional = data.get("emotional_design") or {}
+    """标量族落库——缺键保持现值（patch-gates）。
 
-    for json_key, col, width in _OUTLINE_SCALARS:
-        setattr(row, col, _fit(outline.get(json_key), width))
-    for json_key, col, width in _EMOTIONAL_SCALARS:
-        setattr(row, col, _fit(emotional.get(json_key), width))
-    row.word_target = _int_or_none(data.get("word_target"))
-    row.ladder_exit = _fit(data.get("ladder_exit"), 300)
-    # 拆章五段（c-chapter-plan-ai）：challenge/plot_stage 标量；chapter_acts 清单外定制（_fit 会 str 化列表）
-    row.challenge = _fit(data.get("challenge"), 150)
-    row.plot_stage = _fit(data.get("plot_stage"), 20)
+    c-og-chapter-put-patch-gates：此前除 plot_items 外全字段族「缺键即清」，任何
+    部分键 PUT（旁路写入/瘦身底座合并）都会把未带字段抹空。统一改为按 family 键
+    presence-gate：family 键存在才写该族（族内子键缺失按空落值，显式清空走空值）；
+    顶层标量逐键 gate。plot_items/style_shadow 的形状守卫保持原样。
+    """
+    outline = data.get("outline")
+    if isinstance(outline, dict):
+        for json_key, col, width in _OUTLINE_SCALARS:
+            if outline.get(json_key) is not None:
+                setattr(row, col, _fit(outline.get(json_key), width))
+    emotional = data.get("emotional_design")
+    if isinstance(emotional, dict):
+        for json_key, col, width in _EMOTIONAL_SCALARS:
+            if emotional.get(json_key) is not None:
+                setattr(row, col, _fit(emotional.get(json_key), width))
+    if "word_target" in data:
+        row.word_target = _int_or_none(data.get("word_target"))
+    # 文本标量：None 按缺键处理（与 plot_items None 口径一致）；显式 "" 清空
+    for key, col, width in (("ladder_exit", "ladder_exit", 300),
+                            ("challenge", "challenge", 150),
+                            ("plot_stage", "plot_stage", 20)):
+        if data.get(key) is not None:
+            setattr(row, col, _fit(data.get(key), width))
     # 本章文风影子：仅收 dict 形状 {dim: {value, reason}}，越界值置空
     shadow = data.get("style_shadow")
     if isinstance(shadow, dict):
@@ -214,6 +225,24 @@ _CHILD_ATTRS = (
     "required_changes", "prohibitions",
     "micro_payoffs",
 )
+
+
+def _child_replace_plan(data: dict) -> dict[str, bool]:
+    """子表替换计划——缺键保持现值（patch-gates，与 plot_items 守卫同一合同）。
+
+    characters 键在 outline 内；payoff_items/required_changes/prohibitions 在 memo 内；
+    micro_payoffs 在顶层。键存在才整体替换（显式 [] = 清空）；键缺失＝本次不动该表。
+    导入/导出全量包各键恒在（assemble 恒出 outline/memo），行为不变。
+    """
+    outline = data.get("outline") if isinstance(data.get("outline"), dict) else None
+    memo = data.get("memo") if isinstance(data.get("memo"), dict) else None
+    return {
+        "characters": outline is not None and "characters" in outline,
+        "payoff_items": memo is not None and "payoff_plan" in memo,
+        "required_changes": memo is not None and "required_changes" in memo,
+        "prohibitions": memo is not None and "prohibitions" in memo,
+        "micro_payoffs": "micro_payoffs" in data,
+    }
 
 
 async def _resolve_names(session, project_id: str, names: list[str]) -> dict[str, str]:
@@ -247,23 +276,34 @@ async def _resolve_names(session, project_id: str, names: list[str]) -> dict[str
     return out
 
 
-async def _replace_children(session, row, data: dict, character_ids: dict[str, str] | None = None) -> list[str]:
-    """子表整体替换。返回未命中角色的 warnings（character-settings-v2）。
+async def _replace_children(
+    session, row, data: dict,
+    character_ids: dict[str, str] | None = None,
+    plan: dict[str, bool] | None = None,
+) -> list[str]:
+    """子表整体替换（按键 plan 门控——缺键保持现值）。返回未命中角色的 warnings。
 
     character_ids：导入路径直插 pending 对象时由调用方预算的 名字→id 映射；
     None = 由 session 现查（apply_chapter_data 主路径）。
     """
-    if character_ids is None:
+    if plan is None:
+        plan = _child_replace_plan(data)
+    if character_ids is None and plan["characters"]:
+        outline = data.get("outline")
+        raw_names = outline.get("characters") or [] if isinstance(outline, dict) else []
         name_map = await _resolve_names(
             session, row.project_id,
-            [str(n).strip()[:50] for n in (data.get("outline") or {}).get("characters") or [] if str(n).strip()],
+            [str(n).strip()[:50] for n in raw_names if str(n).strip()],
         )
     else:
-        name_map = character_ids
-    return await _replace_children_impl(session, row, data, name_map)
+        name_map = character_ids or {}
+    return await _replace_children_impl(session, row, data, name_map, plan=plan)
 
 
-async def _replace_children_impl(session, row, data: dict, name_map: dict[str, str]) -> list[str]:
+async def _replace_children_impl(
+    session, row, data: dict, name_map: dict[str, str],
+    plan: dict[str, bool] | None = None,
+) -> list[str]:
     from models.chapter import (
         ChapterCharacter,
         ChapterContent,
@@ -273,8 +313,10 @@ async def _replace_children_impl(session, row, data: dict, name_map: dict[str, s
         ChapterRequiredChange,
     )
 
-    outline = data.get("outline") or {}
-    memo = data.get("memo") or {}
+    if plan is None:
+        plan = _child_replace_plan(data)
+    outline = data.get("outline") if isinstance(data.get("outline"), dict) else {}
+    memo = data.get("memo") if isinstance(data.get("memo"), dict) else {}
 
     names = [str(name).strip()[:50] for name in (outline.get("characters") or []) if str(name).strip()]
     warnings = [
@@ -291,15 +333,16 @@ async def _replace_children_impl(session, row, data: dict, name_map: dict[str, s
         )
         if isinstance(item, dict)
     }
-    row.characters = [
-        ChapterCharacter(
-            sort_order=i,
-            character_name=name,
-            character_id=name_map.get(name),
-            state_change=_fit(state_by_name.get(name, ""), 200),
-        )
-        for i, name in enumerate(names)
-    ]
+    if plan["characters"]:
+        row.characters = [
+            ChapterCharacter(
+                sort_order=i,
+                character_name=name,
+                character_id=name_map.get(name),
+                state_change=_fit(state_by_name.get(name, ""), 200),
+            )
+            for i, name in enumerate(names)
+        ]
 
     payoff_rows: list[tuple[int, str, str]] = []
     payoff_order = 0
@@ -308,40 +351,44 @@ async def _replace_children_impl(session, row, data: dict, name_map: dict[str, s
             # 三类共用一个递增序号：逐类从 0 编号会撞 UNIQUE(chapter_id, sort_order)
             payoff_rows.append((payoff_order, kind, str(item)))
             payoff_order += 1
-    row.payoff_items = [
-        ChapterPayoffItem(sort_order=i, kind=kind, content=_fit(content, 300) or "")
-        for i, kind, content in payoff_rows
-    ]
-    row.required_changes = [
-        ChapterRequiredChange(
-            sort_order=i,
-            change_type=_fit(kind, 50) or "",
-            content=_fit(content, 300) or "",
-        )
-        for i, item in enumerate(memo.get("required_changes") or [])
-        for kind, content in [_split_labeled(str(item))]
-    ]
-    row.prohibitions = [
-        ChapterProhibition(sort_order=i, content=_fit(str(item), 300) or "")
-        for i, item in enumerate(memo.get("prohibitions") or [])
-    ]
+    if plan["payoff_items"]:
+        row.payoff_items = [
+            ChapterPayoffItem(sort_order=i, kind=kind, content=_fit(content, 300) or "")
+            for i, kind, content in payoff_rows
+        ]
+    if plan["required_changes"]:
+        row.required_changes = [
+            ChapterRequiredChange(
+                sort_order=i,
+                change_type=_fit(kind, 50) or "",
+                content=_fit(content, 300) or "",
+            )
+            for i, item in enumerate(memo.get("required_changes") or [])
+            for kind, content in [_split_labeled(str(item))]
+        ]
+    if plan["prohibitions"]:
+        row.prohibitions = [
+            ChapterProhibition(sort_order=i, content=_fit(str(item), 300) or "")
+            for i, item in enumerate(memo.get("prohibitions") or [])
+        ]
 
-    row.micro_payoffs = [
-        ChapterMicroPayoff(
-            sort_order=i,
-            kind=_fit(mp.get("kind", ""), 50) or "",
-            description=_fit(mp.get("description", ""), 300) or "",
-        )
-        for i, mp in enumerate(data.get("micro_payoffs") or [])
-        if isinstance(mp, dict) and str(mp.get("description") or "").strip()
-    ]
+    if plan["micro_payoffs"]:
+        row.micro_payoffs = [
+            ChapterMicroPayoff(
+                sort_order=i,
+                kind=_fit(mp.get("kind", ""), 50) or "",
+                description=_fit(mp.get("description", ""), 300) or "",
+            )
+            for i, mp in enumerate(data.get("micro_payoffs") or [])
+            if isinstance(mp, dict) and str(mp.get("description") or "").strip()
+        ]
 
-
-    prose = data.get("prose") or ""
-    if row.content is not None:
-        row.content.prose = prose
-    else:
-        row.content = ChapterContent(prose=prose)
+    if "prose" in data:
+        prose = data.get("prose") or ""
+        if row.content is not None:
+            row.content.prose = prose
+        else:
+            row.content = ChapterContent(prose=prose)
     return warnings
 
 
@@ -391,12 +438,15 @@ async def save_chapter(root_path: str, chapter_ref: str, data: dict) -> list[str
 
         if data.get("title"):
             row.title = str(data["title"])[:200]
-        prose = data.get("prose") or ""
+        # prose 缺键＝本次不动正文：派生与快照口径取存量值（patch-gates）
+        prose_in = data.get("prose")
+        prose = old_prose if prose_in is None else (prose_in or "")
         status = data.get("status") or row.status
         old_exit = (row.ladder_exit or "").strip()  # 变更前快照（stale 判定用）
         # 状态机系统维护：首次落非空正文 outline → writing（页面已无状态选择器，
-        # 覆盖正文保存/AI 写本章/续写三条路径——它们都经本统一写入口）
-        if prose.strip() and status == "outline":
+        # 覆盖正文保存/AI 写本章/续写三条路径——它们都经本统一写入口；
+        # 翻转只看本次携带的 prose，缺键＝未动正文不触发）
+        if (prose_in or "").strip() and status == "outline":
             status = "writing"
         row.status = status
         _prose, _status, warnings = await apply_chapter_data(session, row, data)
@@ -409,9 +459,11 @@ async def save_chapter(root_path: str, chapter_ref: str, data: dict) -> list[str
         await _mark_next_stale_on_exit_change(session, row, data, old_exit)
         await session.commit()
 
-    # 版本快照：prose / outline.summary 实质变化才写（正文已落库，快照失败不回滚）
-    new_summary = (data.get("outline") or {}).get("summary") or ""
-    if old_prose != prose or old_summary != new_summary:
+    # 版本快照：prose / outline.summary 实质变化才写（正文已落库，快照失败不回滚）。
+    # 缺键＝未动该族，不触发快照（patch-gates：部分键 PUT 不再误判「清空」而写快照）。
+    outline_in = data.get("outline")
+    new_summary = (outline_in or {}).get("summary") or "" if isinstance(outline_in, dict) else ""
+    if prose != old_prose or (isinstance(outline_in, dict) and new_summary != old_summary):
         with contextlib.suppress(Exception):
             await _write_version_snapshot(
                 root_path, ref, old_status, prose, data.get("outline") or {}, status
@@ -430,21 +482,28 @@ async def apply_chapter_data(session, row, data: dict) -> tuple[str, str, list[s
     """
     if data.get("title"):
         row.title = str(data["title"])[:200]
-    prose = data.get("prose") or ""
     status = data.get("status") or row.status
-    # 状态机系统维护：首次落非空正文 outline → writing
-    if prose.strip() and status == "outline":
+    # 状态机系统维护：首次落非空正文 outline → writing（只看本次携带的 prose）
+    if (data.get("prose") or "").strip() and status == "outline":
         status = "writing"
     row.status = status
     _disassemble_scalars(row, data)
+    plan = _child_replace_plan(data)
     for attr in _CHILD_ATTRS:
-        getattr(row, attr).clear()
+        if plan[attr]:
+            getattr(row, attr).clear()
     await session.flush()
-    warnings = await _replace_children(session, row, data)
+    warnings = await _replace_children(session, row, data, plan=plan)
 
-    row.word_count = count_chars(prose)
-    row.has_prose = bool(prose.strip())
-    row.outline_status = _derive_outline_status(status, prose)
+    # 派生元数据只在本次确实携带 prose 键时重算（缺键＝未动正文，保持现值——
+    # 否则部分键 PUT 会把 word_count/has_prose 清零、outline_status 降级）。
+    if "prose" in data:
+        prose = data.get("prose") or ""
+        row.word_count = count_chars(prose)
+        row.has_prose = bool(prose.strip())
+        row.outline_status = _derive_outline_status(status, prose)
+    else:
+        prose = row.content.prose if row.content is not None else ""
     return prose, status, warnings
 
 
