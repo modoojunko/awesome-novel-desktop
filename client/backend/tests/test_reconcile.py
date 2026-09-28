@@ -20,7 +20,7 @@ from auth_local.middleware import get_current_user
 from db import async_session
 from main import app
 from models.chapter import Chapter, ChapterCharacter, ChapterContent
-from models.character import Character, CharacterRelation
+from models.character import Character
 from models.hook import NovelHook
 from models.project import Novel
 from models.reconcile import ChapterReconcile
@@ -423,7 +423,10 @@ class TestLegacyMigration:
         got = asyncio.run(migrate_legacy_pending())
         assert got == {"migrated": 2, "char_states_rejected": 1}
 
-        from models.chapter import ChapterItemChange, ChapterRelationChange, ChapterSettingChange
+        from models.chapter import (
+            ChapterRelationChange,
+            ChapterSettingChange,
+        )
 
         async def _check():
             async with async_session() as s:
@@ -441,7 +444,7 @@ class TestLegacyMigration:
                 )).all()
                 return ch, settings, relations, recs
 
-        ch, settings, relations, recs = asyncio.run(_check())
+        _ch, settings, relations, recs = asyncio.run(_check())
         assert len(settings) == 1 and settings[0].status == "pending"
         assert "信标" in settings[0].content and settings[0].area == "extra"
         assert len(relations) == 1 and relations[0].owner_name == "林晚"
@@ -455,3 +458,50 @@ class TestLegacyMigration:
         assert asyncio.run(migrate_legacy_pending()) == {
             "migrated": 0, "char_states_rejected": 0,
         }
+
+
+class TestOutputBudgetAndTruncation:
+    """真机实锤（09-28）：伏笔登记输出断在半句 evidence——600 输出预算对
+    planted/resolved 各几条带证据句必截断。钉死 1600 预算＋截断诊断提示。"""
+
+    def test_hooks_lore_call_with_1600_budget_and_truncation_hint(self, monkeypatch):
+        _root, nid, ch_id = asyncio.run(_seed())
+        captured: dict = {}
+
+        class _Fake:
+            async def chat(self, **kwargs):
+                captured["max_tokens"] = kwargs.get("max_tokens")
+                captured["prompts"] = captured.get("prompts", 0) + 1
+                # 模拟被截断的 JSON：断在半句 evidence（无收尾 "}"）
+                return (
+                    '```json\n{ "planted": [ { "description": "血裔化进程", '
+                    '"evidence": "他自己知道。今天比昨天'
+                )
+
+        async def _fake_client(novel_id):
+            return _Fake()
+
+        import ai_client
+
+        monkeypatch.setattr(ai_client, "get_ai_client_for_novel", _fake_client)
+        import archive.reconcile as rc
+
+        asyncio.run(
+            rc._run_async(nid, _root, "vol-1-ch-1", ch_id, kinds=["hooks", "lore"])
+        )
+        assert captured["max_tokens"] == 1600
+        assert captured["prompts"] == 2  # hooks + lore 各一次
+
+        rows = asyncio.run(_rows_of(ch_id))
+        assert {r.kind for r in rows} == {"hooks", "lore"}
+        for r in rows:
+            assert r.status == "failed"
+            assert "疑似被输出预算截断" in r.error
+            assert "parse" in r.error
+
+
+async def _rows_of(ch_id: str):
+    async with async_session() as s:
+        return (await s.scalars(
+            select(ChapterReconcile).where(ChapterReconcile.chapter_id == ch_id)
+        )).all()

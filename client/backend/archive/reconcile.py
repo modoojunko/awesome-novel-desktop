@@ -159,16 +159,21 @@ async def _run_async(
         try:
             text = await client.chat(
                 model="haiku", system="", messages=[{"role": "user", "content": prompt}],
-                max_tokens=600, usage=usage,
+                # 1600＝四域提取同预算：600 下 planted/resolved 各几条带证据句
+                # 必截断（真机实锤：断在半句 evidence → JSON 断裂 → parse 失败）
+                max_tokens=1600, usage=usage,
             )
             await _record(novel_id, kind, usage)
             data = _parse_json_lenient(text)
             if not data:
-                # 返回了文字但不是 JSON：显式落失败行（可重试），不得静默蒸发
+                # 返回了文字但不是 JSON：显式落失败行（可重试），不得静默蒸发；
+                # 末尾无 "}" ＝大概率被输出预算截断（诊断提示直达原因）
+                truncated = bool(text) and not text.rstrip().endswith("}")
+                hint = "；输出疑似被输出预算截断" if truncated else ""
                 await _record_fail(novel_id, kind, usage)
                 await _mark_failed(
                     novel_id, chapter_id, kind,
-                    f"parse: 模型输出不是可解析的 JSON（{str(text)[:120]}）",
+                    f"parse: 模型输出不是可解析的 JSON{hint}（{str(text)[:120]}）",
                 )
                 continue
         except Exception:  # noqa: BLE001 — 单类失败不拖垮其他收尾
