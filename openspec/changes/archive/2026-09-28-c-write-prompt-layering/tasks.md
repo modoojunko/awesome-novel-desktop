@@ -28,4 +28,13 @@
 - [ ] 4.5 【pytest 1651 绿＋vitest 937 绿＋tsc 绿已验；e2e 待演示栈重建/CI 补跑（两 spec 只钉 testid，已静态核对不受影响）】全量门禁：后端 pytest 全绿＋前端 vitest/tsc 全绿；e2e prompt-pipeline/workbench-features 本地跑通
 - [ ] 4.6 【待真机人工验收】质量对比验收（价值验收，排在缓存之前）：选 3 章——首章（分档激活）、多势力章（原被裁剪）、带 style_shadow 章——旧形状 vs 新形状各生成一次，作者盲评势力名/完成项/文风量化不劣化；复用 done 事件 `word_check/self_check` 统计纯正文率与字数达标率不降
 - [ ] 4.7 【待真机人工验收】缓存核对（非流式）：用非流式 `chat()` 同 system 试发核对 `cache_read_input_tokens` 命中量级≈system token 数，按供应商分列判定（自动前缀缓存供应商核对命中；Anthropic 系 0 命中记「预期内，等 cache_control change」）；流式无缓存读数字段的局限写入归档总结
-- [ ] 4.8 【归档时登记】渲染器漂移遗留登记：语言特征分隔符等未收编项记入归档总结遗留清单（供后续提案领走）
+- [x] 4.8 渲染器漂移遗留登记：见下方遗留清单（2026-09-28 归档时登记）
+
+
+## 遗留清单（2026-09-28 归档登记，供后续提案领走）
+
+1. **节奏分档段＋user「本章位置」行**（task 1.1/1.2 局部）：母本在开篇期 WIP（chapter_position）——该会话合入 main 时随批补入 `prompts/write_chapter.prompt`（模板已留插入位注释）与 `to_user_material`（标注行）；其素材包侧【本章位置】块漏加一并补。
+2. **两套渲染器口径漂移**：`to_user_material` 与 `material_markdown` 的角色语言特征分隔符（`（语言特征：…）` vs `｜语言特征：`）、伏笔块外的节名差异——`_plot_block` 已单源，其余待一次收编提案。
+3. **e2e 补跑**（prompt-pipeline / workbench-features）：待演示栈重建或 CI 恢复；两 spec 只钉 testid/徽标，已静态核对不受影响。
+4. **真机人工验收**：同章改前改后质量对比盲评（task 4.6）＋分供应商缓存核对（task 4.7，非流式 `chat()`）。
+5. **persona 题材映射表**、**地点/场景 lore 与非卡 NPC 注入管子**、**auxiliary.py 续写/扩写/润色 system 收编**、**流式链路缓存记账字段**：见 change design Non-Goals，均需另立。
