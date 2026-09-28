@@ -1,4 +1,4 @@
-"""提示词组装来源（prompt-sources，storyline.html 四期尾）：六处来源的只读展示。
+"""提示词组装来源（prompt-sources，storyline.html 四期尾）：七处来源的只读展示（c-chapter-dossier 增第七处）。
 
 复用写作侧同一套组装链（build_chapter_context + 同款渲染函数），返回每处来源的
 字数与摘录，供「提示词」页签展示「由什么拼成的」——只读投影，不改任何设定。
@@ -35,6 +35,54 @@ def _block(key: str, label: str, text: str) -> dict:
     }
 
 
+async def _story_state_gap(
+    db: AsyncSession, novel_id: str, root_path: str, ctx
+) -> str:
+    """故事状态缺口标注：上一章未归档 / 提取中 / 缺 N 条未确认（把静默劣化变可见）。"""
+    from sqlalchemy import func, select
+
+    from models.chapter import (
+        Chapter,
+        ChapterItemChange,
+        ChapterKnowledgeChange,
+        ChapterRelationChange,
+        ChapterSettingChange,
+    )
+    from write.chapter_writer import _prev_chapter_ref
+
+    if ctx.volume_no is None or ctx.chapter_no is None:
+        return ""
+    prev_ref = await _prev_chapter_ref(root_path, ctx.volume_no, ctx.chapter_no)
+    if not prev_ref:
+        return ""
+    prev = (
+        await db.scalars(
+            select(Chapter).where(
+                Chapter.project_id == novel_id, Chapter.ref == prev_ref
+            )
+        )
+    ).first()
+    if prev is None:
+        return ""
+    if prev.status != "archived":
+        return "上一章未归档" if prev.has_prose else ""
+    pending = 0
+    for model in (
+        ChapterSettingChange, ChapterRelationChange,
+        ChapterItemChange, ChapterKnowledgeChange,
+    ):
+        pending += (
+            await db.scalar(
+                select(func.count()).select_from(model).where(
+                    model.chapter_id == prev.id, model.status == "pending"
+                )
+            )
+        ) or 0
+    if pending:
+        return f"缺 {pending} 条未确认"
+    return ""
+
+
 @router.get("")
 async def prompt_sources(
     project_id: str,
@@ -42,8 +90,8 @@ async def prompt_sources(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """六处来源（行序固定）：全书设定 / 大纲·卷纲 / 本章章纲 / 全书文风＋本章调整 /
-    伏笔进展·截至上一章 / 本章涉及角色。"""
+    """七处来源（行序固定）：全书设定 / 大纲·卷纲 / 本章章纲 / 全书文风＋本章调整 /
+    伏笔进展·截至上一章 / 本章涉及角色 / 故事状态·截至上章。"""
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
@@ -120,6 +168,14 @@ async def prompt_sources(
             seg += f"（语言特征：{speech}）"
         char_lines.append(seg)
 
+    # ⑦ 故事状态 · 截至上一章（c-chapter-dossier）：章档已采纳折叠态，与写章组装
+    # 同一单源渲染；缺口标注把「不采纳 → 下章静默缺状态」变成可见权衡。
+    from write.chapter_writer import _story_state_block
+
+    story_state_text = _story_state_block(ctx.story_state)
+    story_block = _block("story_state", "故事状态（截至上章）", story_state_text)
+    story_block["note"] = await _story_state_gap(db, project_id, project.root_path, ctx)
+
     sources = [
         _block("book", "全书设定", "\n".join(book_lines)),
         _block("volume", "大纲 · 卷纲", volume),
@@ -127,6 +183,7 @@ async def prompt_sources(
         _block("style", "全书文风 ＋ 本章调整", "\n".join(x for x in style_lines if x)),
         _block("hooks", "伏笔进展 · 截至上一章", "\n".join(hook_lines)),
         _block("cast", "本章涉及角色", "\n".join(char_lines)),
+        story_block,
     ]
     return {
         "sources": sources,

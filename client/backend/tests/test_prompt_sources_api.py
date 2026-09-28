@@ -23,6 +23,7 @@ from models.project import Novel
 from models.volume import Volume
 
 REF = "vol-1-ch-1"
+# c-chapter-dossier：第七处来源「故事状态（截至上章）」追加（章档已采纳折叠态）
 LABELS = [
     "全书设定",
     "大纲 · 卷纲",
@@ -30,6 +31,7 @@ LABELS = [
     "全书文风 ＋ 本章调整",
     "伏笔进展 · 截至上一章",
     "本章涉及角色",
+    "故事状态（截至上章）",
 ]
 
 
@@ -96,7 +98,7 @@ class TestPromptSources:
         sources = d["sources"]
         assert [s["label"] for s in sources] == LABELS
         assert [s["key"] for s in sources] == [
-            "book", "volume", "outline", "style", "hooks", "cast",
+            "book", "volume", "outline", "style", "hooks", "cast", "story_state",
         ]
         assert d["total_chars"] == sum(s["chars"] for s in sources)
 

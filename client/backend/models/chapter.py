@@ -63,6 +63,11 @@ class Chapter(Base):
     # 基于旧设定（chapter-rewrite）：上游章被重写后由重写事务置位；本章自身
     # 保存/归档成功即清除（单写入口统一处理，不做时间戳派生）
     stale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 章档过期（c-chapter-dossier）：上游章重写后由同一重写事务置位；重归档
+    # 成功即清。消费侧累计合并跳过 stale 章并在块头注记——角标不拦截写作。
+    dossier_stale: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -124,6 +129,31 @@ class Chapter(Base):
         "ChapterProhibition",
         cascade="all, delete-orphan",
         order_by="ChapterProhibition.sort_order",
+        lazy="selectin",
+    )
+    # 章档四域（c-chapter-dossier）：默认 selectin 随章组装/单章端点加载
+    dossier_settings = relationship(
+        "ChapterSettingChange",
+        cascade="all, delete-orphan",
+        order_by="ChapterSettingChange.sort_order",
+        lazy="selectin",
+    )
+    dossier_relations = relationship(
+        "ChapterRelationChange",
+        cascade="all, delete-orphan",
+        order_by="ChapterRelationChange.sort_order",
+        lazy="selectin",
+    )
+    dossier_items = relationship(
+        "ChapterItemChange",
+        cascade="all, delete-orphan",
+        order_by="ChapterItemChange.sort_order",
+        lazy="selectin",
+    )
+    dossier_knowledge = relationship(
+        "ChapterKnowledgeChange",
+        cascade="all, delete-orphan",
+        order_by="ChapterKnowledgeChange.sort_order",
         lazy="selectin",
     )
     content = relationship(
@@ -219,6 +249,129 @@ class ChapterProhibition(_ChapterChildMixin, Base):
         UniqueConstraint("chapter_id", "sort_order", name="uq_chpr_chapter_sort"),
     )
     content: Mapped[str] = mapped_column(String(300), nullable=False)
+
+
+class _DossierRowMixin(_ChapterChildMixin):
+    """章档行公共列：状态生命周期 + 证据句 + 确定性标记。
+
+    status：pending（提取产出待确认）/ accepted（采纳，进「截至本章」消费合并）/
+    rejected（驳回留痕）。flags：逗号分隔确定性标记——evidence_unverified
+    （证据句与正文宽松匹配失败，保留不丢）/ unregistered（名字不在本书名册）。
+    """
+
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    flags: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    evidence: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class ChapterSettingChange(_DossierRowMixin, Base):
+    """章档·设定改动 — 本章对书级设定面（世界规则/势力/地理等）的推进。"""
+
+    __tablename__ = "chapter_setting_changes"
+    __table_args__ = (
+        UniqueConstraint("chapter_id", "sort_order", name="uq_chsc_chapter_sort"),
+        Index("ix_chsc_chapter_status", "chapter_id", "status"),
+    )
+    # 设定面标签（自由短词：世界规则/势力/地理/力量体系…）
+    area: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    # 变化内容一句话（提取侧 clamp 60 字）
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class ChapterRelationChange(_DossierRowMixin, Base):
+    """章档·人物关系 — 本章人物间关系变化；双方照 ChapterCharacter 双列先例。"""
+
+    __tablename__ = "chapter_relation_changes"
+    __table_args__ = (
+        UniqueConstraint("chapter_id", "sort_order", name="uq_chrc_chapter_sort"),
+        Index("ix_chrc_chapter_status", "chapter_id", "status"),
+    )
+    owner_name: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    owner_character_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("characters.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    other_name: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    other_character_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("characters.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # 关系类型短词（盟友/敌对/师徒/亲属…）＋变化一句话
+    rel_type: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    change_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class ChapterItemChange(_DossierRowMixin, Base):
+    """章档·物品变化 — 关键物品出现/易手/损毁；无实体，名字承载含持有者。"""
+
+    __tablename__ = "chapter_item_changes"
+    __table_args__ = (
+        UniqueConstraint("chapter_id", "sort_order", name="uq_chic_chapter_sort"),
+        Index("ix_chic_chapter_status", "chapter_id", "status"),
+    )
+    item_name: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    # obtain / lose / transfer / modify / destroy
+    change_type: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    holder_name: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    detail: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class ChapterKnowledgeChange(_DossierRowMixin, Base):
+    """章档·角色认知 — 谁在本章得知/仍不知什么（防泄底消费的基线）。"""
+
+    __tablename__ = "chapter_knowledge_changes"
+    __table_args__ = (
+        UniqueConstraint("chapter_id", "sort_order", name="uq_chkc_chapter_sort"),
+        Index("ix_chkc_chapter_status", "chapter_id", "status"),
+    )
+    character_name: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    character_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("characters.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # 事实一句话（「甲的真实身份」）
+    fact: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # True=得知/确认知道；False=确认不知（截至本章仍未得知）
+    learned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ChapterDossierJob(Base):
+    """归档提取任务状态（c-chapter-dossier）——受理制的落库进度。
+
+    daemon 线程内存态在进程重启后蒸发，job 落库＋启动 sweep 把「提取中但
+    无线程」置 failed(interrupted)，防章永久悬在归档中。一章一行（UNIQUE FK）。
+    domains：JSON 文本 {"setting":"extracted|failed",...}（每域二值终态）。
+    """
+
+    __tablename__ = "chapter_dossier_jobs"
+    __table_args__ = (
+        UniqueConstraint("chapter_id", name="uq_chdj_chapter"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    chapter_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("chapters.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # extracting / ok / failed / skipped（skipped＝逃生阀跳过提取仍归档）
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="extracting")
+    # 每域二值终态 {"setting":"extracted","relation":...,"item":...,"knowledge":...}
+    domains: Mapped[str] = mapped_column(Text, nullable=False, default="{}", server_default="{}")
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 受理时正文 sha256（十六进制）；收口前重读比对防提取窗口漂移
+    prose_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    novel_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("novels.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
 
 
 class ChapterContent(Base):

@@ -190,10 +190,12 @@ class TestFreeArchive:
             f"/api/novels/{pid}/chapters/vol-1-ch-1/archive",
             json={"full_text": LONG_TEXT},
         )
-        assert r.status_code == 200, r.text
+        # c-chapter-dossier：归档受理以 DB 章行为准——无章行 404（旧契约 200 空归档
+        # 退役）；N9 的验收点是不 500（settings 阶段非法流转不再炸）。
+        assert r.status_code == 404, r.text
 
         r1 = client.get(f"/api/novels/{pid}")
-        assert r1.json()["current_phase"] == "archive"
+        assert r1.json()["current_phase"] == "settings"  # c-chapter-dossier：404 无归档发生，phase 不动
 
     def test_pro_archive_phase_status_no_archive_warning(self, client):
         # B4 回归：gate_archived 认 .md —— 归档后 phase-status 不再提示 "no chapters archived yet"

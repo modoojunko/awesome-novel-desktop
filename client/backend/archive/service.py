@@ -1,7 +1,11 @@
+"""归档服务残件（c-chapter-dossier 后）——摘要生成、AI 记账、threads 状态。
 
-from ai_client import get_ai_client_for_novel
+归档主流程（受理→提取→收口）已迁 archive/dossier.py；本模块保留三件被
+多方引用的零件。门禁豁免（ai_client.py grep ④）：本文件是 try/except 降级
+路径（摘要失败降级正文前 200 字），非 require_novel_model 门控对象。
+"""
+
 from filesystem.storage import get_storage
-from workflow.engine import load_chapter
 
 
 def _validate_ref(ref: str) -> str:
@@ -39,100 +43,37 @@ async def _record_ai_usage(
         pass
 
 
-async def archive_chapter(
-    novel_id: str,
-    root_path: str,
-    chapter_ref: str,
-    full_text: str,
-    ai_summary: bool = True,
-) -> dict:
-    _validate_ref(chapter_ref)
-    chapter = await load_chapter(root_path, chapter_ref)
-
-    title = chapter.get("title", "untitled")
-    # 命名单源 archive/naming.py（c-archive-filename-safety）：写接口 archive_path 与
-    # 列表 filename 自此恒等；以规范 ref 拼名（原按章数据数字内联拼，与列表公式不同源）
-    from archive.naming import archive_filename
-
-    # 与落库口径同源：归档行的 title 是 str(title)[:200]（下方写库同截断），
-    # 命名也用同截断值——否则超长标题会让写接口 archive_path 与列表 filename 分叉
-    archive_path = f"archives/{archive_filename(chapter_ref, str(title)[:200])}"
-
-    # Generate 200-char summary via AI; degrade to first 200 chars when unavailable
-    # (ai_summary 由调用方按会员权益决定；本书模型未就绪/调用失败一律降级)。
+async def make_archive_summary(novel_id: str, full_text: str, ai_summary: bool = True) -> str:
+    """归档摘要：AI 200 字；模型未就绪/调用失败/用户关摘要 → 正文前 200 字降级。"""
     summary = full_text[:200]
-    if ai_summary:
-        summary_usage: dict = {}
-        try:
-            client = await get_ai_client_for_novel(novel_id)
-        except Exception:  # noqa: BLE001 — 模型未就绪：调用未发生，不记账
-            client = None
-        if client is not None:
-            try:
-                from prompts import load_layers
+    if not ai_summary:
+        return summary
+    usage: dict = {}
+    # 函数内动态解析：本模块常在后台线程首次懒导入，模块级 import 会把当时的
+    # monkeypatch/绑定永久钉进命名空间（测试互污染实锤）；ai_client 属性随取随用
+    from ai_client import get_ai_client_for_novel
 
-                _s_sum, _u_sum = load_layers("archive_summary")
-                summary_text = await client.chat(
-                    model="haiku",
-                    system=_s_sum,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": _u_sum.format(full_text=full_text),
-                        }
-                    ],
-                    max_tokens=200,
-                    usage=summary_usage,
-                )
-                await _record_ai_usage(novel_id, "archive_summary", summary_usage)
-                if summary_text:
-                    summary = summary_text[:200]
-            except Exception:  # noqa: BLE001, S110 — AI 摘要可选，失败降级为正文前 200 字
-                await _record_ai_usage(
-                    novel_id, "archive_summary_fail", summary_usage, force=True
-                )
+    try:
+        client = await get_ai_client_for_novel(novel_id)
+    except Exception:  # noqa: BLE001 — 模型未就绪：调用未发生，不记账
+        return summary
+    try:
+        from prompts import load_layers
 
-    # archives 表（PR④）：一章一行，重归档即替换；随章行 FK CASCADE
-    from sqlalchemy import select
-
-    from chapters.store import _get_chapter_by_root
-    from db import async_session
-    from models.archive import Archive
-
-    async with async_session() as session:
-        ch_row = await _get_chapter_by_root(session, root_path, chapter_ref)
-        if ch_row is not None:
-            row = await session.scalar(
-                select(Archive).where(Archive.chapter_id == ch_row.id)
-            )
-            if row is None:
-                session.add(
-                    Archive(
-                        chapter_id=ch_row.id,
-                        title=str(title)[:200],
-                        summary=str(summary)[:300],
-                        content=full_text,
-                    )
-                )
-            else:
-                row.title = str(title)[:200]
-                row.summary = str(summary)[:300]
-                row.content = full_text
-            # 归档联动（write-archive-meta-sync）：本章引入的活跃伏笔 → 单条 UPDATE
-            # mentioned_in_chapter_id。status 枚举不被归档修改；同值重写天然幂等。
-            from settings.hooks_service import mark_hooks_mentioned
-
-            await mark_hooks_mentioned(session, novel_id, ch_row.id)
-            await session.commit()
-
-    await update_thread_state(root_path, chapter, summary)
-
-    # 世界 lore 建议不再随响应即焚：由后台收尾线程落 chapter_reconcile 待确认行
-    # （archive-reconcile；采纳经 /reconcile/{id}/accept 走 lore-apply 幂等合并）。
-    return {
-        "archive_path": archive_path,
-        "summary": summary,
-    }
+        _s_sum, _u_sum = load_layers("archive_summary")
+        summary_text = await client.chat(
+            model="haiku",
+            system=_s_sum,
+            messages=[{"role": "user", "content": _u_sum.format(full_text=full_text)}],
+            max_tokens=200,
+            usage=usage,
+        )
+        await _record_ai_usage(novel_id, "archive_summary", usage)
+        if summary_text:
+            summary = summary_text[:200]
+    except Exception:  # noqa: BLE001, S110 — AI 摘要可选，失败降级为正文前 200 字
+        await _record_ai_usage(novel_id, "archive_summary_fail", usage, force=True)
+    return summary
 
 
 async def update_thread_state(root_path: str, chapter: dict, summary: str):
@@ -148,11 +89,8 @@ async def update_thread_state(root_path: str, chapter: dict, summary: str):
     t["pov"] = chapter.get("pov_character", t.get("pov", "未知"))
     t["last_chapter"] = f"vol-{chapter.get('volume')}-ch-{chapter.get('chapter')}"
     t["current_state"] = summary
-    t["emotional_temperature"] = chapter.get("memo", {}).get("emotion_curve", "medium")
-
-    # 伏笔 mentioned 留痕已迁真表单条 UPDATE（archive_chapter → mark_hooks_mentioned，
-    # write-archive-meta-sync）；旧「整文件读改写 status:mentioned」的 KV 通道退役。
+    t["emotional_temperature"] = (chapter.get("memo") or {}).get(
+        "emotion_curve", "medium"
+    )
 
     await get_storage().write_yaml(root_path, "threads.yaml", threads)
-
-
