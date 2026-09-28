@@ -144,7 +144,7 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     expect(onAiSelection).toHaveBeenCalledWith("compress", capture);
   });
 
-  it("设定/关系/伏笔三入口按类触发收尾（未归档禁用）", async () => {
+  it("收尾入口只剩伏笔（设定/关系两入口已迁章档）；未归档禁用", async () => {
     const onRunReconcile = vi.fn();
     const { unmount } = render(
       (() => {
@@ -167,13 +167,12 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
         );
       })(),
     );
-    await clickRow(/提取本章变化/);
-    expect(onRunReconcile).toHaveBeenCalledWith("set_changes");
+    // c-chapter-dossier：设定/关系两入口退役——页签不再出现触发行
+    expect(screen.queryByText(/提取本章变化/)).toBeNull();
     unmount();
 
     renderPanel("relations", { archived: true, onRunReconcile });
-    await clickRow(/识别角色与物品变化/);
-    expect(onRunReconcile).toHaveBeenCalledWith("relations");
+    expect(screen.queryByText(/识别角色与物品变化/)).toBeNull();
     unmount();
 
     renderPanel("hooks", { archived: true, onRunReconcile });
@@ -181,9 +180,9 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     expect(onRunReconcile).toHaveBeenCalledWith("hooks");
     unmount();
 
-    // 未归档：三入口禁用
-    renderPanel("settings", { archived: false, onRunReconcile });
-    const all = screen.getAllByRole("button", { name: /提取本章变化/ });
+    // 未归档：伏笔入口禁用
+    renderPanel("hooks", { archived: false, onRunReconcile });
+    const all = screen.getAllByRole("button", { name: /登记新伏笔/ });
     expect((all[all.length - 1] as HTMLButtonElement).disabled).toBe(true);
   });
 

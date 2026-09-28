@@ -374,10 +374,11 @@ describe("免费态：选中章 → 章对象工作台", () => {
     renderWorkspace("none");
     await selectFirstChapter();
     // 页签（章纲默认选中；提示词子 label PRO-only：免费隐藏 ai-prompt-crafting）
-    // workbench-storyline-hooks：伏笔页签全档位 → 免费 7 个
-    // （章纲/正文/设定/文风/角色关系/伏笔/操作）
+    // c-chapter-dossier：章档页签全档位 → 免费 8 个
+    // （章纲/正文/设定/文风/角色关系/伏笔/章档/操作）
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.length).toBe(7);
+    expect(tabs.length).toBe(8);
+    expect(screen.getByRole("tab", { name: /^章档/ })).toBeDefined();
     const ogTab = screen.getByRole("tab", { name: /^章纲/ });
     expect(ogTab.getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByRole("tab", { name: /^提示词/ })).toBeNull();

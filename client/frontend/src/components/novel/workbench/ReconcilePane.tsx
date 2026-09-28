@@ -90,8 +90,8 @@ export function ReconcilePane({
   if (!isPro) {
     return (
       <div className="reconcile-pane" data-od-id="reconcile-pro-free">
-        <p className="reconcile-lead">归档收尾（提取设定变化 / 关系建议 / 伏笔登记）</p>
-        <p className="reconcile-note">PRO 可用 · 免费版归档即刻生效</p>
+        <p className="reconcile-lead">归档收尾（伏笔登记 / 世界要素提案）</p>
+        <p className="reconcile-note">PRO 可用 · 章档四域提取全档可用（见「章档」页签）</p>
       </div>
     );
   }
