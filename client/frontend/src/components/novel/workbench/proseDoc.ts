@@ -39,3 +39,22 @@ export function linesToParagraphs(text: string): JSONContent[] {
       : { type: "paragraph" };
   });
 }
+
+// ── AI 流式归一（fix/stream-mirror-normalize）────────────────────────────
+// 后端生成出口（normalize_generated_prose）在 done 时把段间空行收敛为单换行；
+// 流式插入侧对「已收到的全量」做同口径归一并取增量，保证流式所见＝落库最终态
+// （否则模型发的段间空行会先被渲染成空段落、done 时才收敛——所见与所得不一致）。
+
+/** 与后端 normalize_generated_prose 同口径：CRLF 归一、段间空行收敛、去首部换行。
+ *  尾部换行流式期保留（后续分块可能接续），done 时由后端已去尾部，重排零跳变。 */
+export function normalizeStreamedProse(raw: string): string {
+  return (raw || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\n{2,}/g, "\n")
+    .replace(/^\n+/, "");
+}
+
+/** 归一全量取增量：已插入前缀之外的新片段（归一具前缀稳定性，增量安全）。 */
+export function proseDelta(full: string, insertedLen: number): string {
+  return full.length > insertedLen ? full.slice(insertedLen) : "";
+}

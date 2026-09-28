@@ -41,7 +41,7 @@ import {
   type LineHeightPref,
   setLastWriteSession,
 } from "@/lib/prefs";
-import { docToProse, linesToParagraphs, proseToDoc } from "./proseDoc";
+import { docToProse, linesToParagraphs, proseToDoc, normalizeStreamedProse, proseDelta} from "./proseDoc";
 
 export interface ProseAIState {
   hasSelection: boolean;
@@ -160,6 +160,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   const abortRef = useRef<AbortController | null>(null);
   // 流式现场（插入点 / 起点 / 收尾定位用）
   const streamPosRef = useRef(0);
+  // 流式增量镜像：已插入的「归一全量」长度（appendChunk 与后端归一同口径）
+  const streamInsertedLenRef = useRef(0);
   const streamStartRef = useRef(0);
   const streamBaseRef = useRef("");
   const streamReceivedRef = useRef("");
@@ -382,8 +384,13 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       const { state, view } = editor;
       const tr = state.tr;
       tr.setMeta("addToHistory", false);
+      // 流式所见＝落库最终态：对已收全量做与后端生成出口同款归一（段间空行收敛）
+      // 后取增量插入——done 重排与流式渲染逐字一致，不再出现「先空行后收敛」的跳变
+      const full = normalizeStreamedProse(streamReceivedRef.current);
+      const delta = proseDelta(full, streamInsertedLenRef.current);
+      if (!delta) return;
       let cur = streamPosRef.current;
-      const lines = chunk.replace(/\r\n?/g, "\n").split("\n");
+      const lines = delta.split("\n");
       lines.forEach((line, i) => {
         if (line) {
           tr.insertText(line, cur, cur);
@@ -396,6 +403,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       });
       view.dispatch(tr);
       streamPosRef.current = cur;
+      streamInsertedLenRef.current = full.length;
     },
     [editor],
   );
@@ -407,7 +415,9 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       setStreaming(false);
       onAIStateChange((prev) => ({ ...prev, streaming: false }));
       const base = streamBaseRef.current;
-      const generated = fullText || streamReceivedRef.current;
+      const generated = normalizeStreamedProse(
+        fullText || streamReceivedRef.current,
+      );
       const next = [base, generated].filter((s) => s && s.trim()).join("\n");
       // 两步收尾（c-prose-editor-tiptap）：①删流式区间（不入史）②整段写回（入史）
       // ——整次生成成为可整体撤销的一个历史单元（一次撤销回到生成前起点）
@@ -450,6 +460,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       const pos = continuation ? (cap ? cap.end : base.length) : base.length;
       streamBaseRef.current = base;
       streamReceivedRef.current = "";
+      streamInsertedLenRef.current = 0;
       streamingRef.current = true;
       setStreaming(true);
       onAIStateChange((prev) => ({ ...prev, streaming: true }));
