@@ -272,7 +272,7 @@ test("流式写入可整体撤销：一次撤销回到生成前，落库同步",
   }
 });
 
-test("润色采纳＝范围事务替换，一次撤销还原原文", async ({ page, request }) => {
+test("去AI味采纳＝范围事务替换，一次撤销还原原文", async ({ page, request }) => {
   test.setTimeout(120_000);
   const { restore, token } = await setupSession(page);
   try {
@@ -297,9 +297,9 @@ test("润色采纳＝范围事务替换，一次撤销还原原文", async ({ pa
     for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowLeft");
     await page.keyboard.up("Shift");
     // 选区上抛到右栏有一帧延迟（React 状态更新），等按钮解禁
-    // 右栏「段落润色」→ 对照弹窗 → 接受
+    // 右栏「去AI味」→ 对照弹窗 → 接受
     const rail = page.locator(".col-ai");
-    await rail.getByRole("button", { name: /段落润色/ }).click();
+    await rail.getByRole("button", { name: /去AI味/ }).click();
     const dlg = page.getByRole("dialog");
     await expect(dlg.getByRole("button", { name: "接受" })).toBeEnabled({ timeout: 10000 });
     await dlg.getByRole("button", { name: "接受" }).click();

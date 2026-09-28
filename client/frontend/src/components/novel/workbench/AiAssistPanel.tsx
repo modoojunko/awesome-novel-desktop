@@ -97,7 +97,7 @@ export function AiAssistPanel({
   onUpgrade?: () => void;
   /** chapter-rewrite：下游「基于旧设定」章计数（无数据时显示「—」） */
   staleDownstream?: number;
-  /** 正文页签的选区动作通道（压缩啰嗦段落；润色/扩写沿用页内工具卡） */
+  /** 正文页签的选区动作通道（压缩啰嗦段落；去AI味/扩写沿用页内工具卡） */
   aiState?: ProseAIState;
   proseRef?: RefObject<ProseHandle | null>;
   onAiSelection?: (
@@ -388,7 +388,7 @@ export function AiAssistPanel({
       cap("continue", "续写建议", "从光标处（或选区末尾）流式续写，保持风格与上下文一致", {
         onClick: onContinue, disabled: streaming,
       }),
-      cap("polish", "段落润色", "选中段落出润色稿，对照预览后替换", {
+      cap("polish", "去AI味", "选中段落去掉机器腔，对照预览后替换", {
         onClick: () => onAiSelection?.("polish", sel()),
         disabled: !aiState?.hasSelection || !!aiState?.polishLoading,
         hint: !aiState?.hasSelection ? "先在正文选中一段" : undefined,
@@ -412,7 +412,7 @@ export function AiAssistPanel({
       }),
     ];
     footNote =
-      "续写/润色/扩写/压缩作用于正文编辑器；润色与扩写先出对照预览，采纳才替换。提示词由「生成正文」弹窗查看/编辑，弹窗内可存为本章提示词。" ;
+      "续写/去AI味/扩写/压缩作用于正文编辑器；去AI味与扩写先出对照预览，采纳才替换。提示词由「生成正文」弹窗查看/编辑，弹窗内可存为本章提示词。" ;
   } else if (tab === "settings") {
     targetLine = loreStats ? (
       <>本章变化 {loreStats.here} 条 · 截至本章条目 {loreStats.until} 条</>

@@ -595,7 +595,7 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
     // 顶栏 bar-here 也有「续写」CTA（行头归一），右栏工具卡断言限定右栏范围
     expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
     expect(within(rail).getByRole("button", { name: /续写建议/ })).toBeDefined();
-    expect(within(rail).getByRole("button", { name: /段落润色/ })).toBeDefined();
+    expect(within(rail).getByRole("button", { name: /去AI味/ })).toBeDefined();
     expect(within(rail).getByRole("button", { name: /场景扩写/ })).toBeDefined();
   });
 });

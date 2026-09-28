@@ -288,7 +288,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     if (streaming) classList.add("generating");
   }, [editor, fs, lh, streaming]);
 
-  // 外部 prose 变化（加载/归档恢复/润色替换/AI 完成落盘）→ 整文档替换；
+  // 外部 prose 变化（加载/归档恢复/去AI味替换/AI 完成落盘）→ 整文档替换；
   // 本地输入回路（指纹一致）与 IME 组合期跳过（组合结束补同步）。
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -326,7 +326,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     };
   }, [chapterRef]);
 
-  // ── 选区跟踪（AI 润色/扩写需要选中段落） ──────────────────────────────
+  // ── 选区跟踪（去AI味/扩写需要选中段落） ──────────────────────────────
   const captureNow = useCallback((): SelectionCapture | null => {
     if (!editor || editor.isDestroyed) return null;
     // 读 DOM 选区而非 editor.state.selection：PM 消化 selectionchange 有延迟，
@@ -517,7 +517,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     return () => cancelAnimationFrame(raf);
   }, [resumeScroll, chapterRef]);
 
-  // ── 润色 / 扩写（选中段落 → 对照预览 → 接受替换） ─────────────────────
+  // ── 去AI味 / 扩写（选中段落 → 对照预览 → 接受替换） ─────────────────
   const runTransform = useCallback(
     async (mode: "polish" | "expand" | "compress", capture: SelectionCapture) => {
       const ctxBefore = capture.fullText.slice(Math.max(0, capture.start - 200), capture.start);
@@ -759,7 +759,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
               setProse(next);
               toast.success(
                 preview.mode === "polish"
-                  ? "已应用润色"
+                  ? "已去AI味"
                   : preview.mode === "expand"
                     ? "已应用扩写"
                     : "已应用压缩",
