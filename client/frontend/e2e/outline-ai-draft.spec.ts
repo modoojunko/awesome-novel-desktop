@@ -169,9 +169,9 @@ test("空章纲：AI 起草回填表单 → 保存草稿 → 刷新回读", asyn
       await expect(page.locator(dead)).toHaveCount(0);
     }
 
-    // 保存草稿（回填内容过 ogFormIssues）→ toast + 落库
+    // 保存草稿（回填内容过 ogFormIssues，必填两项齐 → 自动确认）→ toast + 落库
     await page.getByRole("button", { name: "保存草稿" }).click();
-    await expect(page.getByText("草稿已保存")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("已保存并确认章纲")).toBeVisible({ timeout: 10000 });
 
     // 刷新回读
     await page.reload();

@@ -422,11 +422,12 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   const handleSaveDraft = useCallback(async () => {
     if (!(await saveOg())) return;
     // 草稿保存无缺项 → 自动确认（设计稿行为）
+    let autoConfirmed = false;
     if (ogGaps(ogForm).length === 0 && ogStatus !== "confirmed") {
       await outline.confirmChapter(chapterRef);
-      await reloadStatus();
+      autoConfirmed = (await reloadStatus()) === "confirmed";
     }
-    toast.success("草稿已保存");
+    toast.success(autoConfirmed ? "已保存并确认章纲" : "草稿已保存");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saveOg, outline.confirmChapter, chapterRef, ogForm, ogStatus, reloadStatus]);
 

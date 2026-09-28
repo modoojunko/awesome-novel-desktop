@@ -181,7 +181,7 @@ test("章纲：OgPane 真实表单编辑 + 保存草稿（概要/出场角色/�
     await page.locator("#wf-changes").fill("主角拿到入城许可");
     await page.locator("#wf-mood select").selectOption({ label: "悬疑" });
 
-    // 保存草稿 → PUT /chapters/vol-1-ch-1 落盘（仍有必填缺口 → 不自动确认）
+    // 保存草稿 → PUT /chapters/vol-1-ch-1 落盘（必填两项已齐 → 自动确认，toast 分口径）
     const save = page.waitForResponse(
       (r) =>
         r.request().method() === "PUT" &&
@@ -189,7 +189,7 @@ test("章纲：OgPane 真实表单编辑 + 保存草稿（概要/出场角色/�
     );
     await page.getByRole("button", { name: "保存草稿" }).click();
     await save;
-    await expect(page.getByText("草稿已保存")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("已保存并确认章纲")).toBeVisible({ timeout: 5000 });
 
     // 后端直查：outline / memo / emotional_design 均已落盘（退役键不在结果里）
     const ch = await apiGetJSON(request, token, `/novels/${pid}/chapters/vol-1-ch-1`);
