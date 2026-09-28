@@ -387,5 +387,7 @@ class TestNotInjected:
             )
 
         ctx = asyncio.run(_build())
-        assert marker not in ctx.to_prompt()
+        # 两层都不得泄漏未确认提案（c-write-prompt-layering：恒定层＋user 层）
+        assert marker not in ctx.to_user_material()
+        assert marker not in ctx.build_system_prompt()
         assert marker not in ctx.material_markdown()

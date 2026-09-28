@@ -171,19 +171,16 @@ def _rich_context() -> ChapterContext:
 
 
 def test_budgets_world_hooks_characters():
+    """c-write-prompt-layering：写正文恒定层世界块改全量注入——不裁剪、无「从略」；
+    伏笔 ≤8 上限留在 user 层（伏笔8 在、伏笔11 不在）。"""
     ctx = _rich_context()
-    prompt = ctx.to_prompt()
-    # v2（world-setting-v2）：世界块整条从略预算制——块整体不超 600 预算，
-    # 超预算条目整条跳过（不切半条），以显式「从略」行收尾
-    # 超预算世界数据：断言 chapter_writer 侧 prompt 出现显式「从略」行且无腰斩
-    world_block = "\n".join(
-        l for l in prompt.splitlines()
-        if l.startswith(("世界观：", "  - ", "- 世界舞台", "- 力量体系", "- 力量的代价", "- 势力", "- 历史与旧账", "- 世界细节", "（另有"))
-    )
-    assert "从略" in world_block, "超预算时必须显式声明从略条数"
-    assert "…" * 50 not in world_block  # 不再腰斩截断
-    # 伏笔 ≤8：伏笔8 在、伏笔11 不在
-    assert "伏笔7" in prompt
+    system = ctx.build_system_prompt()
+    assert "从略" not in system, "恒定层世界块全量注入，SHALL NOT 显式从略"
+    assert "…" * 50 not in system
+    assert "名目3" in system  # 4 条 extra 全量在场（旧 600 预算下必被从略）
+    user = ctx.to_user_material()
+    assert "伏笔7" in user
+    assert "伏笔11" not in user
 
 
 def test_red_lines_carry_all_constraints_verbatim():
@@ -195,19 +192,21 @@ def test_red_lines_carry_all_constraints_verbatim():
             {"key": f"铁律{i}", "value": "死者不可复生，灵根不可后天再造"} for i in range(10)
         ],
     }
-    prompt = ctx.to_prompt()
-    # 红线区：10 条全量在场且完整（任何压缩不得删改）
+    system = ctx.build_system_prompt()
+    # 世界铁律区（c-write-prompt-layering 上收恒定层）：10 条全量在场且完整
     for i in range(10):
-        assert f"世界铁律·铁律{i}：死者不可复生，灵根不可后天再造" in prompt
-    # 世界块不含铁律（走独立红线区，不占 600 预算）
+        assert f"世界铁律·铁律{i}：死者不可复生，灵根不可后天再造" in system
+    # 世界块不含铁律（铁律独立成节）
     block = next(
-        (l for l in prompt.splitlines() if l.startswith("世界观：")), ""
+        (l for l in system.splitlines() if l.startswith("世界观：")), ""
     )
     if block:
-        block_idx = prompt.index(block)
-        block_end = prompt.find("\n##", block_idx)
-        world_block = prompt[block_idx:block_end if block_end > 0 else len(prompt)]
+        block_idx = system.index(block)
+        block_end = system.find("\n##", block_idx)
+        world_block = system[block_idx:block_end if block_end > 0 else len(system)]
         assert "世界铁律" not in world_block
+    # user 层章级红线 SHALL NOT 再携带世界铁律
+    assert "世界铁律·铁律0" not in ctx.to_user_material()
 
 
 def test_story_engine_terrain_reads_v2_stage():
@@ -223,31 +222,37 @@ def test_story_engine_terrain_reads_v2_stage():
 
 def test_characters_full_roster_no_cap():
     """c-ai-material-audit：在场者不再封 5 人——第 6 个起也必须在提示词里（旧实现里"根本不存在"）。"""
-    prompt = _rich_context().to_prompt()
+    prompt = _rich_context().to_user_material()
     assert "角色4" in prompt
     assert "角色7" in prompt  # 旧断言「角色7 不在」＝5 人上限，已退役
 
 
 def test_no_placeholders_in_prompt_or_material():
-    for prompt in (_rich_context().to_prompt(), _rich_context().material_markdown()):
-        assert not _PLACEHOLDER.search(prompt)
+    for text in (
+        _rich_context().to_user_material(),
+        _rich_context().build_system_prompt(),
+        _rich_context().material_markdown(),
+    ):
+        assert not _PLACEHOLDER.search(text)
     # 空上下文也不产生占位符
     empty = ChapterContext()
-    assert not _PLACEHOLDER.search(empty.to_prompt())
+    assert not _PLACEHOLDER.search(empty.to_user_material())
+    assert not _PLACEHOLDER.search(empty.build_system_prompt())
     assert not _PLACEHOLDER.search(empty.material_markdown())
 
 
 def test_prompt_consumes_surviving_fields():
-    """c-og-slim-v2：粗组兜底消费留存格子（章纲概要/挑战/阶段/剧情条目/爽点/落点）。"""
+    """c-og-slim-v2：user 层消费留存格子（章纲概要/挑战/阶段/剧情条目/爽点/落点）。"""
     ctx = _rich_context()
-    prompt = ctx.to_prompt()
+    prompt = ctx.to_user_material()
     assert "章纲：她夜探库房调包账册" in prompt
     assert "本章要撞的墙：旧档堆不对活人开放" in prompt
     assert "本章在卷剧情里的位置：矛盾升级" in prompt
     assert "- 她翻墙进了库房" in prompt  # 剧情条目块
     assert "爽点设计（读者获得）：线索·半块玉佩" in prompt
     assert "章末落点：拿到地图，出门，更不安" in prompt
-    assert "雨点砸在铁皮棚上，他没抬头。" in prompt
+    # 文风例句随恒定层上收 system（c-write-prompt-layering 归属表）
+    assert "雨点砸在铁皮棚上，他没抬头。" in ctx.build_system_prompt()
     # 退役面：场景原材料/权重/关键情节点一律不进提示词
     assert "场景原材料" not in prompt
     assert "权重：" not in prompt
@@ -384,6 +389,6 @@ def test_build_context_word_target_from_chapter():
         )
         ctx = await build_chapter_context(project.root_path, ref1, "暗流")
         assert ctx.word_target == 1800
-        assert "约 1800 字" in ctx.to_prompt()
+        assert "约 1800 字" in ctx.to_user_material()
 
     _run_async(_run())

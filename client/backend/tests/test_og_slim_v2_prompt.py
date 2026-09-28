@@ -2,7 +2,7 @@
 
 三件事各自可单独回归：
 - 素材包（material_markdown）含【章纲概要】块（此前缺，润色产物直接用于生成正文）；
-- 粗组兜底（to_prompt）含「本章要撞的墙」与「本章在卷剧情里的位置」（此前只有素材包有）；
+- user 层素材（to_user_material）含「本章要撞的墙」与「本章在卷剧情里的位置」（此前只有素材包有）；
 - 读者获得的类型渲染中文标签、不再输出英文枚举键，位置档不再进提示词。
 """
 
@@ -30,13 +30,13 @@ class TestChapterOutlineBlockInBothPaths:
         assert "【本章在卷剧情里的位置】矛盾升级" in md
 
     def test_prompt_carries_challenge_and_stage(self):
-        prompt = _ctx().to_prompt()
+        prompt = _ctx().to_user_material()
         assert "本章要撞的墙：旧档不对活人开放" in prompt
         assert "本章在卷剧情里的位置：矛盾升级" in prompt
 
     def test_empty_fields_absent_no_placeholder(self):
         empty = ChapterContext()
-        for text in (empty.material_markdown(), empty.to_prompt()):
+        for text in (empty.material_markdown(), empty.to_user_material()):
             assert "【章纲概要】" not in text
             assert "本章要撞的墙" not in text
             assert "本章在卷剧情里的位置" not in text
@@ -47,7 +47,7 @@ class TestPayoffKindLabels:
     def _with_payoffs(self, payoffs) -> str:
         ctx = ChapterContext()
         ctx.micro_payoffs = payoffs
-        return ctx.to_prompt()
+        return ctx.to_user_material()
 
     def test_kind_rendered_as_chinese_label(self):
         prompt = self._with_payoffs([{"kind": "clue", "description": "半块玉佩"}])

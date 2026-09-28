@@ -1,6 +1,6 @@
 """章内剧情条目 → 提示词层接线测试（c-plot-split tasks 4.1/4.2）。
 
-- 4.1 两路同源：`_plot_block` 单源渲染，material_markdown 与 to_prompt 都含同一块
+- 4.1 两路同源：`_plot_block` 单源渲染，material_markdown 与 to_user_material 都含同一块
   且逐字一致；单条内换行折叠为空格；空剧情两路产物逐字不变（golden fixture 对拍，
   fixture 抓自注入前的产物）。
 - 4.2 润色条件锚：plot_items 非空时产物须含剧情走向段（缺失判不合格），
@@ -62,7 +62,7 @@ class TestPlotBlockTwoPaths:
         block = _plot_block(ctx.plot_items)
         assert block
         material = ctx.material_markdown()
-        prompt = ctx.to_prompt()
+        prompt = ctx.to_user_material()
         assert material.count(block) == 1
         assert prompt.count(block) == 1
         # 3 条各占一行；单条内换行折叠为空格（不切条）
@@ -81,7 +81,7 @@ class TestPlotBlockTwoPaths:
         assert _plot_block([]) == ""
         assert _plot_block(None) == ""
         material = ctx.material_markdown()
-        prompt = ctx.to_prompt()
+        prompt = ctx.to_user_material()
         assert material == _golden("plot_empty_material.txt")
         assert prompt == _golden("plot_empty_prompt.txt")
         assert "剧情走向" not in material

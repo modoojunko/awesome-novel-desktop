@@ -312,8 +312,8 @@ class TestPromptRefine:
         assert r.status_code == 200, r.text
         system = _layered_prompt(captured[-1])
         assert "精简提示词" in system
-        # 未传 current_prompt：以服务端组装稿为基底（含角色定位等分节）
-        assert "## 角色定位" in system
+        # 未传 current_prompt：以服务端组装稿为基底（章级动态分节，c-write-prompt-layering）
+        assert "## 当前章节" in system
 
     def test_unknown_mode_400(self):
         _root, nid = asyncio.run(_seed())

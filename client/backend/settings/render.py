@@ -161,6 +161,32 @@ def quant_section(quant, shadow: dict | None = None) -> str:
     return "\n".join(lines) if emitted else ""
 
 
+def shadow_override_lines(quant, shadow: dict | None = None) -> list[str]:
+    """章级文风影子命中行（c-write-prompt-layering）：与 quant_section 同一数据源，
+    只返回被影子覆盖的维度行「- {label}：约 {value}（本章覆盖：{reason}）」。
+
+    写正文分层后：量化基线（书级）进 system 恒定层，影子命中行进 user 层覆盖块——
+    保证有影子的章 system 仍逐章一致。"""
+    shadow = shadow if isinstance(shadow, dict) else {}
+    if not isinstance(quant, dict):
+        return []
+    baseline = quant.get("baseline") if isinstance(quant.get("baseline"), dict) else {}
+    from settings.style_quant_model import BASELINE_ROWS
+
+    out: list[str] = []
+    for key, label in BASELINE_ROWS:
+        override = shadow.get(key) if isinstance(shadow.get(key), dict) else None
+        if not (isinstance(override, dict) and str(override.get("value", "")).strip()):
+            continue
+        if not (isinstance(baseline.get(key), dict) and str(baseline[key].get("value", "")).strip()):
+            continue  # 基线没这一行，影子无从覆盖（与 quant_section 同口径只动基线已有行）
+        ov_value = str(override.get("value", "")).strip()
+        ov_reason = str(override.get("reason", "")).strip()
+        suffix = f"（本章覆盖：{ov_reason}）" if ov_reason else "（本章覆盖）"
+        out.append(f"- {label}：约 {ov_value}{suffix}")
+    return out
+
+
 def build_tone_section(style) -> str:  # noqa: ARG001 — 退役占位（style-settings-v2）
     """退役（style-settings-v2）：tone 块不再注入提示词，信息经 normalize_style
     拆并进三区/题材蓝图。函数仅留一版周期防未知导入，恒返回空串。"""

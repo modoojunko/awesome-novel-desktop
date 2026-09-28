@@ -221,7 +221,10 @@ class TestGetWritePrompt:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["polished"] is False
-        assert "## 角色定位" in body["prompt"]
+        # c-write-prompt-layering：fresh 返回纯章级 user 层（恒定块上收 system 恒定层）
+        assert "## 当前章节" in body["prompt"]
+        assert "## 角色定位" not in body["prompt"]
+        assert body["legacy"] is False
         assert "has_outline" in body
 
     def test_stored_prompt_wins_over_draft(self, client):
@@ -233,6 +236,26 @@ class TestGetWritePrompt:
         body = r.json()
         assert body["polished"] is True
         assert body["prompt"] == "既有润色行"
+        # 旧版整包行无恒定块标记也无三锚 → 简单文本行判非 legacy
+        assert body["legacy"] is False
+        assert body["legacy_kind"] == ""
+
+    def test_stored_rows_legacy_kind_graded_over_http(self, client):
+        """评审补口：GET 把 legacy_kind 透传给前端——raw 行（恒定块标题）建议刷新、
+        润色三锚行只信息性、新口径行无标记。"""
+        _set_tier("monthly")
+        pid, ref = _create_project_and_chapter(client)
+        _seed_stored_prompt(pid, ref, "## 角色定位\n你是。\n## 故事背景\n……")
+        body = client.get(f"/api/novels/{pid}/chapters/{ref}/write/prompt").json()
+        assert body["legacy"] is True
+        assert body["legacy_kind"] == "raw"
+
+        _seed_stored_prompt(
+            pid, ref, "## 任务指示\n写巷战\n## 红线\n不可违反\n## 质感\n克制"
+        )
+        body = client.get(f"/api/novels/{pid}/chapters/{ref}/write/prompt").json()
+        assert body["legacy"] is True
+        assert body["legacy_kind"] == "polished"
 
     def test_fresh_bypasses_stored_and_keeps_row(self, client):
         """刷新提示词：fresh=1 绕过存量行回组装稿，且不动存量行。"""
@@ -243,7 +266,8 @@ class TestGetWritePrompt:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["polished"] is False
-        assert "## 角色定位" in body["prompt"]
+        assert "## 当前章节" in body["prompt"]
+        assert "## 角色定位" not in body["prompt"]
         assert body["prompt"] != "既有润色行"
         # 刷新只换预览稿，存量行原样保留
         assert _read_stored_prompt(pid, ref) == "既有润色行"

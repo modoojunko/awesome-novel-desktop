@@ -57,17 +57,16 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
     """
     from ai_client import get_ai_client_for_novel
     from chapters.service import save_chapter
-    from write.chapter_writer import WRITING_IRON_RULES
+    from write.chapter_writer import WRITE_CLOSING_LINE
 
     client = await get_ai_client_for_novel(project.id)
     # 符号别名：模型由本书绑定决定（D12，不再读 writing_model）
     model = "haiku"
-    role = (
-        ctx.style_setting.get("role", "一位小说家")
-        if hasattr(ctx, "style_setting")
-        else "一位小说家"
-    )
-    system = f"{role}\n\n{WRITING_IRON_RULES}"
+    # system 恒定层（c-write-prompt-layering）：本书设定组装、逐章字节一致，
+    # 铁律与仲裁句在模板 prompts/write_chapter.prompt；身份句走 resolve_persona 单源
+    system = ctx.build_system_prompt()
+    # 收尾重申行：user 内容最末字节强制追加（同词不同句），不落库不进预览
+    prompt = f"{prompt.rstrip()}\n\n{WRITE_CLOSING_LINE}"
     full_text = ""
 
     try:
@@ -168,7 +167,7 @@ async def get_write_prompt(
     _validate_ref(chapter_ref)
 
     from prompt.store import load_prompt
-    from write.chapter_writer import build_chapter_context
+    from write.chapter_writer import build_chapter_context, legacy_prompt_kind
 
     ctx = await build_chapter_context(
         project.root_path, chapter_ref, project.name, novel_id=project.id
@@ -179,8 +178,22 @@ async def get_write_prompt(
     if not fresh:
         existing = await load_prompt(project.root_path, chapter_ref, "write-prompt")
         if existing.strip():
-            return {"prompt": existing, "has_outline": has_outline, "polished": True}
-    return {"prompt": ctx.to_prompt(), "has_outline": has_outline, "polished": False}
+            # legacy：旧版整包行（含恒定设定）→ 弹窗分级提示（润色行信息性、粗组行建议刷新）
+            return {
+                "prompt": existing,
+                "has_outline": has_outline,
+                "polished": True,
+                "legacy": bool(legacy_prompt_kind(existing)),
+                "legacy_kind": legacy_prompt_kind(existing),
+                "warnings": ctx.lint_warnings,
+            }
+    return {
+        "prompt": ctx.to_user_material(),
+        "has_outline": has_outline,
+        "polished": False,
+        "legacy": False,
+        "warnings": ctx.lint_warnings,
+    }
 
 
 @router.post("/prompt/polish")
@@ -339,7 +352,7 @@ async def write_chapter(
         from prompt.store import load_prompt
 
         stored = (await load_prompt(project.root_path, chapter_ref, "write-prompt")).strip()
-        prompt = stored or ctx.to_prompt()
+        prompt = stored or ctx.to_user_material()
 
     # Save prompt for review（chapter_prompts 表，PR④）
     from prompt.store import save_prompt
@@ -497,7 +510,7 @@ async def refine_write_prompt(
         ctx = await build_chapter_context(
             project.root_path, chapter_ref, project.name, novel_id=project.id
         )
-        current = ctx.to_prompt()
+        current = ctx.to_user_material()
     if not current:
         raise HTTPException(409, "本章还没有可修订的提示词")
 
