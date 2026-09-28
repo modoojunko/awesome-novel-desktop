@@ -222,7 +222,7 @@ const PROSE =
   "与她隔着半条跳板；她握紧船桨，决定不再等那班不存在的船。渡口的灯一盏盏亮起，" +
   "照出水面下暗藏的漩涡，也照出她对岸那棵枯树新抽的枝条。";
 
-test("PRO：检测族六类弹窗＋章纲补缺＋提示词精修采纳", async ({ page }) => {
+test("PRO：检测族六类弹窗＋章纲补缺", async ({ page }) => {
   test.setTimeout(180_000);
   const { restore, token } = await setupSession(page);
   const auth = { Authorization: `Bearer ${token}` };

@@ -152,8 +152,8 @@ export default function Rail({
           onAiSelection={onAiSelection}
           onFillGaps={d.onFillGaps}
           gapsLoading={d.gapsLoading}
-              onAiCheck={d.onAiCheck}
-              onStyleSuggest={d.onStyleSuggest}
+          onAiCheck={d.onAiCheck}
+          onStyleSuggest={d.onStyleSuggest}
           promptSavedSignal={d.promptSavedSignal}
           onRunReconcile={(kind) => {
             const ref = d.chapterRef;
