@@ -324,3 +324,5 @@ def test_closing_line_constant():
     """收尾重申行：同词不同句（与模板铁律 1 措辞异形，防被当回声）。"""
     assert "仅正文" in WRITE_CLOSING_LINE
     assert "Markdown" in WRITE_CLOSING_LINE
+    assert "章末落点" in WRITE_CLOSING_LINE
+    assert "不写一个字" in WRITE_CLOSING_LINE

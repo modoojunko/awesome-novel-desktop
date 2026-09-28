@@ -186,6 +186,9 @@ def test_iron_rules_cover_three_clauses():
     assert "Markdown" in system_tpl
     assert "视为已写情节" in system_tpl
     assert "不留空行" in system_tpl
+    # 章末切点：征兆断章，禁总结收尾
+    assert "章末落点" in system_tpl
+    assert "征兆" in system_tpl
 
 
 # ── 契约：流式生成三工序 ─────────────────────────────────────────────────
