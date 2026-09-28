@@ -146,8 +146,26 @@ TBD - created by archiving change 004-free-workspace. Update Purpose after archi
 - **WHEN** 含旧稿支线章的书导出并重新导入
 - **THEN** 旧稿章与 `ghost_of` 关系保留，主线统计不因旧稿变化
 
-### Requirement: 剧情条目列（plot_items）
+### Requirement: 章写入口缺键守卫（patch-gates）
 
+- 章 PUT／统一写入口 SHALL 按「缺键保持现值」落库（c-og-chapter-put-patch-gates；2026-09-28 演示栈事故——挑战/章末落点/必须完成的变化被部分键 PUT 抹空——后确立）：任一字段族（`outline.*` 标量、`memo.*` 子表族、`emotional_design.*`、顶层标量 `ladder_exit`/`challenge`/`plot_stage`/`word_target`、`micro_payoffs`）的键缺失、值为 `null` 或形状不符（非 dict/非 list）SHALL 保持该族现值，SHALL NOT 以空值覆盖；`plot_items` 沿用其既有 presence-gate（本要求将其推广到全部字段族）。
+- 显式清空 SHALL 走显式空值：文本标量传 `""`，列表/子表传 `[]`（`word_target` 传 `null` 表清除）。
+- `prose` 键缺失 SHALL 视为「本次不动正文」：正文与派生元数据（`word_count`/`has_prose`/`outline_status`）SHALL 保持现值；版本快照 SHALL 仅在 prose 或 `outline.summary` 实质变化时写入。
+- 前端章纲表单继续整表回传（兼容不变）；部分键写入（旁路链路/AI 起草底座等）SHALL NOT 再清空未携带字段。
+
+#### Scenario: 部分键保存不动其余字段
+- **WHEN** 对已填全章纲的章 PUT 仅携带 `{"challenge": "新墙"}`
+- **THEN** challenge 更新；summary/characters/memo 三族/emotional_design/ladder_exit/micro_payoffs/plot_items 全部保持原值
+
+#### Scenario: 显式空值仍可清空
+- **WHEN** PUT 携带 `{"ladder_exit": ""}` 或 `{"memo": {"required_changes": [], "prohibitions": [], "payoff_plan": {"must_resolve": [], "must_hold": []}}}`
+- **THEN** 对应字段被清空，其余字段保持
+
+#### Scenario: 缺 prose 键不动正文
+- **WHEN** 对有正文的章 PUT 仅携带章纲字段（无 prose 键）
+- **THEN** 正文、word_count、has_prose、outline_status 保持原值，且不因此写版本快照
+
+### Requirement: 剧情条目列（plot_items）
 - `chapters` SHALL 增加 `plot_items` 列并随版本换代自动建出（JSON 文本列，默认 `[]`、server_default `[]`；无任何显式版本常量或 DDL 步骤，照 db-generation 既有纪律）。
 - 章装配（assemble_chapter）SHALL 输出 `plot_items`（解析后的字符串数组；空串或损坏 JSON 回落 `[]` 且不阻塞读取）。
 - 章档案导出/导入 SHALL 携带 `plot_items`（加键兼容：缺失键按 `[]` 处理）。
