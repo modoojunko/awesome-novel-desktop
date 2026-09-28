@@ -57,14 +57,27 @@ export function SettingsChangelogPane({
           `/novels/${projectId}/chapters/${chapterRef}`,
         )) as {
           stale?: boolean;
-          outline?: { characters?: Array<{ name?: string; state_change?: string }> };
+          outline?: {
+            characters?: string[];
+            character_states?: Array<{ name?: string; state_change?: string }>;
+          };
         };
         if (!cancelled) setStale(!!ch.stale);
-        const rows: CastRow[] = (ch.outline?.characters ?? []).map((c) => ({
-          character_name: c?.name ?? "",
-          character_id: null,
-          state_change: c?.state_change ?? "",
-        }));
+        // 契约：characters=名字 string[]；状态变化在 character_states（仅非空条目），按名字对齐
+        const stateByName = new Map(
+          (ch.outline?.character_states ?? []).map((s) => [
+            (s?.name ?? "").trim(),
+            s?.state_change ?? "",
+          ]),
+        );
+        const rows: CastRow[] = (ch.outline?.characters ?? [])
+          .map((name) => (name ?? "").trim())
+          .filter(Boolean)
+          .map((name) => ({
+            character_name: name,
+            character_id: null,
+            state_change: stateByName.get(name) ?? "",
+          }));
         setCast(rows);
         if (!cancelled) setError(null);
       } catch {
