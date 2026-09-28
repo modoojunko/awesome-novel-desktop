@@ -6,14 +6,13 @@ import { test, expect, type Page } from "@playwright/test";
 import { cleanupSessionNovels, stableClick } from "./helpers";
 
 // =========================================================================
-// AI 辅助·检测/精修族 E2E（workbench-ai-acts 补货批次，本地桩 AI 全链）：
+// AI 辅助·检测族 E2E（workbench-ai-acts 补货批次，本地桩 AI 全链）：
 //   ① 检测族六类（就地弹窗）：章纲「与卷纲冲突检测」→ 文风「文风一致性检查」
 //      「标记偏离段落」（空态）→ 关系「关系冲突检测」「建议补边」→ 伏笔「伏笔冲突检测」
 //   ② 章纲「补全缺失字段」：还缺清单 → AI 回填表单（c-og-slim-v2：必填两项）→ 缺口清零
-//   ③ 提示词「精简提示词」：精修弹窗 → 采纳并保存 → 走既有提示词保存链
-//   ④ 免费档：检测/精修动作整体锁定，且不发 /ai-check 请求
+//   ③ 免费档：检测动作整体锁定，且不发 /ai-check 请求
 // 桩：node http（容器经 host.docker.internal 访问），OpenAI 兼容；按 system 指令
-//    关键词回预置 JSON（findings / fills / 精修稿）。
+//    关键词回预置 JSON（findings / fills）。
 // =========================================================================
 
 const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
@@ -50,9 +49,6 @@ function stubContent(prompt: string): string {
         segments: [{ summary: "上船前讨价", target_words: 900 }],
       },
     });
-  }
-  if (prompt.includes("你是小说写作提示词的编辑")) {
-    return "```\n## 任务指示\n精简后的提示词（保留全部红线）\n```";
   }
   return JSON.stringify({ findings: [], items: [] });
 }
@@ -309,30 +305,12 @@ test("PRO：检测族六类弹窗＋章纲补缺＋提示词精修采纳", async
       .locator(".mcard-foot")
       .getByRole("button", { name: "关闭" })
       .click();
-
-    // ── 正文页签：精简提示词 → 采纳并保存（c-prompt-tab-retire：精修随页签退役收编正文页签）
-    await page.getByRole("tab", { name: /^正文/ }).click();
-    await rail.getByRole("button", { name: /精简提示词/ }).click();
-    const refineModal = page.locator(".modal", { hasText: "精简提示词" });
-    await expect(refineModal.getByTestId("refine-preview")).toContainText(
-      "精简后的提示词",
-      { timeout: 20000 },
-    );
-    await refineModal.getByTestId("refine-adopt").click();
-    await expect(page.getByText("已采纳并保存为本章提示词")).toBeVisible({ timeout: 15000 });
-
-    // 落库实证：提示词链路读到采纳稿（polished=true）
-    const stored = await (
-      await fetch(`${base}/chapters/vol-1-ch-1/write/prompt`, { headers: auth })
-    ).json();
-    expect(stored.polished).toBe(true);
-    expect(String(stored.prompt)).toContain("精简后的提示词");
   } finally {
     await restore();
   }
 });
 
-test("免费档：检测/精修动作整体锁定且不发 ai-check 请求", async ({ page }) => {
+test("免费档：检测动作整体锁定且不发 ai-check 请求", async ({ page }) => {
   test.setTimeout(60_000);
   const { restore, token } = await setupSession(page, "none");
   const auth = { Authorization: `Bearer ${token}` };

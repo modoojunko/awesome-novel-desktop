@@ -5,8 +5,8 @@ import { AiAssistPanel } from "@/components/novel/workbench/AiAssistPanel";
 // ---------------------------------------------------------------------------
 // B 组（storyline col-ai）：右栏 AI 助手随页签切换——c-ai-rail-shared 起全局统一
 // ra-* 布局（与设定域 AiWriterAssistant 同模板）：ra-head 头部 + ai-target 作用域行
-// + ra-step 能力行（名称＋描述）+ ra-foot 声明。检测族（onAiCheck）/精修族
-//（onPromptRefine）/缺项补全（onFillGaps）全部接线；重复动作已撤。
+// + ra-step 能力行（名称＋描述）+ ra-foot 声明。检测族（onAiCheck）
+// /缺项补全（onFillGaps）全部接线；重复动作已撤。
 // 注意：模板行点击经 busyRef 在途互斥（同 tick 连点会被吞），连续点击需 await act。
 // ---------------------------------------------------------------------------
 
@@ -95,9 +95,8 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     expect(last.disabled).toBe(true);
   });
 
-  it("正文页签：统计＋提示词状态进作用域行；动作行含精修；选中才可点（走 onAiSelection）", async () => {
+  it("正文页签：统计＋提示词状态进作用域行；选中才可点（走 onAiSelection）", async () => {
     const onAiSelection = vi.fn();
-    const onPromptRefine = vi.fn();
     apiState.get.mockImplementation(async (p: string) => {
       if (p.endsWith("/prompt-sources")) return { total_chars: 1234, cast_count: 3 };
       throw new Error("unexpected " + p);
@@ -106,7 +105,7 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
       if (p.endsWith("/prompts")) return [];
       throw new Error("unexpected " + p);
     });
-    renderPanel("prose", { onAiSelection, onPromptRefine });
+    renderPanel("prose", { onAiSelection });
     const target = document.querySelector(".ai-target")?.textContent ?? "";
     expect(target).toContain("500 字");
     expect(target).toContain("28%"); // 500/1800
@@ -116,11 +115,6 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
       expect(document.querySelector(".ai-target")?.textContent).toContain("组装来源 1,234 字"),
     );
     expect(document.querySelector(".ai-target")?.textContent).toContain("自动组装");
-    // 精修两行随提示词页签退役收编（提案制）
-    await clickRow(/补全负向约束/);
-    expect(onPromptRefine).toHaveBeenCalledWith("negative");
-    await clickRow(/精简提示词/);
-    expect(onPromptRefine).toHaveBeenCalledWith("concise");
     // 未选中 → 去AI味/扩写/压缩禁用并带 hint
     const polish = screen.getByRole("button", { name: /去AI味/ }) as HTMLButtonElement;
     expect(polish.disabled).toBe(true);

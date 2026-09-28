@@ -56,7 +56,6 @@ import {
 } from "./chapterForm";
 import PlotDrawModal from "./PlotDrawModal";
 import AiCheckModal from "./AiCheckModal";
-import RefinePromptModal from "./RefinePromptModal";
 import CastReviewModal from "./CastReviewModal";
 import { useChapterData } from "@/hooks/useChapterData";
 import { usePlotDraw } from "@/hooks/usePlotDraw";
@@ -68,7 +67,7 @@ import {
 } from "@/lib/castReviewApi";
 import { isNameTaken } from "@/lib/charactersApi";
 import { draftOutline } from "@/lib/ai";
-import { fillOutlineGaps, type AiCheckKind, type RefineMode } from "@/lib/aiCheck";
+import { fillOutlineGaps, type AiCheckKind } from "@/lib/aiCheck";
 import type { useOutline } from "@/hooks/useOutline";
 import type { useWorkbench } from "@/hooks/useWorkbench";
 import { api, errMessage, request } from "@/lib/api";
@@ -506,9 +505,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, chapterRef, ogForm, outline.loadChapterData]);
 
-  // ── 右栏 AI 辅助·检测族（ai-check）与提示词精修（提案制） ─────────────
+  // ── 右栏 AI 辅助·检测族（ai-check） ─────────────
   const [aiCheckKind, setAiCheckKind] = useState<AiCheckKind | null>(null);
-  const [refineMode, setRefineMode] = useState<RefineMode | null>(null);
   const [gapsLoading, setGapsLoading] = useState(false);
 
   /** 章纲缺项补全：缺口清单 → AI 产物回填表单；落库走 3s 自动保存/手动保存。 */
@@ -1031,7 +1029,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       onFillGaps: () => void handleFillGaps(),
       gapsLoading,
       onAiCheck: setAiCheckKind,
-      onPromptRefine: setRefineMode,
     });
     return () => onRailDataRef.current(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1417,18 +1414,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         chapterRef={chapterRef}
         chapterLabel={label}
         kind={aiCheckKind}
-      />
-      <RefinePromptModal
-        open={refineMode !== null}
-        onClose={() => setRefineMode(null)}
-        projectId={projectId}
-        chapterRef={chapterRef}
-        chapterLabel={label}
-        mode={refineMode}
-        onAdopted={() => {
-          /* 精修落库后的右栏状态刷新走 onOpenAiModal 链外的弹窗自身提示；
-             提示词状态行在下次切页签/打开弹窗时刷新（c-prompt-tab-retire 口径）。 */
-        }}
       />
 
       <div className="editor-status" hidden={chTab !== "prose"}>

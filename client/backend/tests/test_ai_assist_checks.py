@@ -1,12 +1,10 @@
-"""AI 辅助三件套后端行为测试：ai-check（六类案头检查）／章纲缺项补全／提示词精修。
+"""AI 辅助两件套后端行为测试：ai-check（六类案头检查）／章纲缺项补全。
 
 矩阵：
 - ai-check：六类各自材料与返回解析、未知类别 400、非 JSON 回空 findings、
   关系类素材取自真表、超时 502 留败账、免费档门控 403
 - fill-gaps：白名单过滤（越界键丢弃/空值丢弃）、缺 missing 400、全不合法 400、
   返回非法 JSON 502、超时 502
-- refine：两模式提示词含各自指令与现有提示词、未传 current 时以服务端组装稿为基底、
-  未知模式 400、超时 502 留败账、产物不落库（提示词存储保持原样）
 """
 
 import asyncio
@@ -285,66 +283,3 @@ class TestFillGaps:
         r = _post(nid, "outline/fill-gaps", {"missing": ["summary"]})
         assert r.status_code == 502
         assert "outline_fill_gaps_fail" in _ops(nid)
-
-
-class TestPromptRefine:
-    def test_negative_mode_200_and_prompt(self, monkeypatch):
-        _root, nid = asyncio.run(_seed())
-        captured: list = []
-        _patch(monkeypatch, "ai_client", _FakeClient("```\n## 任务指示\n新提示词\n```", captured))
-        r = _post(nid, "write/prompt/refine", {
-            "mode": "negative", "current_prompt": "## 任务指示\n旧提示词",
-        })
-        assert r.status_code == 200, r.text
-        body = r.json()
-        assert body["mode"] == "negative"
-        # strip_code_fences 生效：围栏被剥掉
-        assert body["prompt"] == "## 任务指示\n新提示词"
-        system = _layered_prompt(captured[-1])
-        assert "补全「负向约束」" in system
-        assert "旧提示词" in system
-
-    def test_concise_mode_uses_stored_prompt_as_base(self, monkeypatch):
-        _root, nid = asyncio.run(_seed())
-        captured: list = []
-        _patch(monkeypatch, "ai_client", _FakeClient("精简后的提示词", captured))
-        r = _post(nid, "write/prompt/refine", {"mode": "concise"})
-        assert r.status_code == 200, r.text
-        system = _layered_prompt(captured[-1])
-        assert "精简提示词" in system
-        # 未传 current_prompt：以服务端组装稿为基底（章级动态分节，c-write-prompt-layering）
-        assert "## 当前章节" in system
-
-    def test_unknown_mode_400(self):
-        _root, nid = asyncio.run(_seed())
-        r = _post(nid, "write/prompt/refine", {"mode": "shout"})
-        assert r.status_code == 400
-
-    def test_timeout_502_with_fail_row(self, monkeypatch):
-        _root, nid = asyncio.run(_seed())
-        _patch(monkeypatch, "ai_client", _FakeClient("", error=AITimeoutError("timeout")))
-        r = _post(nid, "write/prompt/refine", {"mode": "concise", "current_prompt": "x"})
-        assert r.status_code == 502, r.text
-        assert "prompt_refine_concise_fail" in _ops(nid)
-
-    def test_result_not_persisted(self, monkeypatch):
-        """提案制口径：精修产物不落库，提示词存储保持原样。"""
-        _root, nid = asyncio.run(_seed())
-        _patch(monkeypatch, "ai_client", _FakeClient("AI 改过的稿"))
-        r = _post(nid, "write/prompt/refine", {"mode": "concise", "current_prompt": "原稿"})
-        assert r.status_code == 200, r.text
-
-        async def _read():
-            async with async_session() as s:
-                novel = (await s.scalars(
-                    select(Novel).where(Novel.id == nid)
-                )).one()
-                return novel.root_path
-
-        root = asyncio.run(_read())
-        import prompt.store as prompt_store
-
-        async def _stored():
-            return await prompt_store.load_prompt(root, REF, "write-prompt")
-
-        assert asyncio.run(_stored()) in (None, "")

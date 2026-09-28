@@ -12,7 +12,7 @@ import {
   type RailIdleData,
   type VolumeRailData,
 } from "./VolumeAssistPanel";
-import type { AiCheckKind, RefineMode } from "@/lib/aiCheck";
+import type { AiCheckKind } from "@/lib/aiCheck";
 import { runReconcile } from "@/lib/reconcileApi";
 
 export interface RailChapterData {
@@ -50,8 +50,6 @@ export interface RailChapterData {
   gapsLoading?: boolean;
   /** 六类案头检查（就地弹窗） */
   onAiCheck?: (kind: AiCheckKind) => void;
-  /** 提示词精修（提案制弹窗） */
-  onPromptRefine?: (mode: RefineMode) => void;
   /** 文风「AI 建议本章调整」触发（StyleShadowPane 信号拉取；2026-09-20 入口收口右栏） */
   onStyleSuggest?: () => void;
   /** 提示词落库信号（c-prompt-tab-retire）：弹窗润色/存稿后右栏提示词状态行刷新 */
@@ -154,9 +152,8 @@ export default function Rail({
           onAiSelection={onAiSelection}
           onFillGaps={d.onFillGaps}
           gapsLoading={d.gapsLoading}
-          onAiCheck={d.onAiCheck}
-          onPromptRefine={d.onPromptRefine}
-          onStyleSuggest={d.onStyleSuggest}
+              onAiCheck={d.onAiCheck}
+              onStyleSuggest={d.onStyleSuggest}
           promptSavedSignal={d.promptSavedSignal}
           onRunReconcile={(kind) => {
             const ref = d.chapterRef;
