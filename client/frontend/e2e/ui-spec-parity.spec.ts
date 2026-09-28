@@ -428,8 +428,8 @@ test("简介体检：六段在弹窗卡体网格排布（内嵌宽屏两列规�
       };
     });
     expect(grid.display).toBe("grid");
-    expect(grid.cols).toBeGreaterThanOrEqual(1);
-    expect(grid.lines).toBe(6);
+    expect(grid.cols).toBeGreaterThanOrEqual(1); // 卡体单列（520 宽）
+    expect(grid.lines).toBe(6); // 行数钉 6 防空转断言
   } finally {
     await restore();
   }

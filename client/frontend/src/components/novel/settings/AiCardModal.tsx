@@ -84,7 +84,7 @@ export default function AiCardModal({
       width={520}
       wbStyle
       afterTitle={
-        version && version > 0 ? (
+        version && version > 0 && kind !== "report" ? (
           <span className="ac-ver" data-testid="ai-card-version" data-od-id="ai-card-version">
             第 {version} 版
           </span>

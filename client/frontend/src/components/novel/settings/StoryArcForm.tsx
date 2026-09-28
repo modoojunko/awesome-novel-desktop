@@ -120,7 +120,6 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
         const v = r.value ?? {};
         let entry: AiCardState;
         if (action === "draft") {
-          const before = arcRef.current;
           entry = {
             label: "AI 填 · 起草主线",
             kind: "struct",
@@ -133,22 +132,26 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
                 <p style={{ margin: "4px 0" }}><b>读后感觉</b>：{String(v.ending?.tone ?? "")}</p>
               </div>
             ),
-            adopt: v.fullstory ? () => adoptWithReceipt(
-              "已采纳「AI 起草主线」，全景和结局都写进来了，可改",
-              () => c.patch({
-                fullstory: String(v.fullstory ?? ""),
-                ending: {
-                  scene: String(v.ending?.scene ?? ""),
-                  hero: String(v.ending?.hero ?? ""),
-                  tone: String(v.ending?.tone ?? ""),
-                },
-              }),
-              () => c.patch(before),
-            ) : undefined,
+            adopt: v.fullstory ? () => {
+              // 基准取「采纳时刻」（弹窗期间表单不可编辑，但采纳后的手改必须保得住）：
+              // revert 只回滚本采纳写过的字段（全景＋结局三问），不动作者其余手写
+              const before = arcRef.current;
+              adoptWithReceipt(
+                "已采纳「AI 起草主线」，全景和结局都写进来了，可改",
+                () => c.patch({
+                  fullstory: String(v.fullstory ?? ""),
+                  ending: {
+                    scene: String(v.ending?.scene ?? ""),
+                    hero: String(v.ending?.hero ?? ""),
+                    tone: String(v.ending?.tone ?? ""),
+                  },
+                }),
+                () => c.patch({ fullstory: before.fullstory, ending: before.ending }),
+              );
+            } : undefined,
             cached: false,
           };
         } else if (action === "calibrate") {
-          const before = arcRef.current.ending;
           entry = {
             label: "AI 填 · 结局校准",
             kind: "struct",
@@ -161,17 +164,20 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
                 {v.note ? <p style={{ margin: "4px 0", color: "var(--muted)", fontSize: 12 }}>{String(v.note)}</p> : null}
               </div>
             ),
-            adopt: (v.scene || v.hero || v.tone) ? () => adoptWithReceipt(
-              "已采纳「结局校准」，三问都答好了，可改",
-              () => c.patch({
-                ending: {
-                  scene: String(v.scene ?? ""),
-                  hero: String(v.hero ?? ""),
-                  tone: String(v.tone ?? ""),
-                },
-              }),
-              () => c.patch({ ending: before }),
-            ) : undefined,
+            adopt: (v.scene || v.hero || v.tone) ? () => {
+              const before = arcRef.current.ending; // 采纳时刻基准（字段级回滚）
+              adoptWithReceipt(
+                "已采纳「结局校准」，三问都答好了，可改",
+                () => c.patch({
+                  ending: {
+                    scene: String(v.scene ?? ""),
+                    hero: String(v.hero ?? ""),
+                    tone: String(v.tone ?? ""),
+                  },
+                }),
+                () => c.patch({ ending: before }),
+              );
+            } : undefined,
             cached: false,
           };
         } else if (action === "check") {
@@ -199,16 +205,18 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
           };
         } else {
           // tone：行内基调建议
-          const before = arcRef.current.ending.tone;
           entry = {
             label: "AI 填 · 结局基调",
             kind: "text",
             node: <p style={{ margin: "4px 0" }}>{String(v.tone ?? "")}</p>,
-            adopt: v.tone ? () => adoptWithReceipt(
-              "已采纳「AI 填 · 结局基调」，可改",
-              () => c.patch({ ending: { ...arcRef.current.ending, tone: String(v.tone) } }),
-              () => c.patch({ ending: { ...arcRef.current.ending, tone: before } }),
-            ) : undefined,
+            adopt: v.tone ? () => {
+              const beforeTone = arcRef.current.ending.tone; // 采纳时刻基准
+              adoptWithReceipt(
+                "已采纳「AI 填 · 结局基调」，可改",
+                () => c.patch({ ending: { ...arcRef.current.ending, tone: String(v.tone) } }),
+                () => c.patch({ ending: { ...arcRef.current.ending, tone: beforeTone } }),
+              );
+            } : undefined,
             cached: false,
           };
         }

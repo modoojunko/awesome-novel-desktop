@@ -305,6 +305,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
         setFewshotOut(null);
         setCardAction(null);
         setCardOpen(false);
+        setVersions({});
         publishReceipt(null);
       },
       runAi: async (key: string) => {
@@ -370,6 +371,19 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
       }
       setCardCached(false);
       setVersions((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
+    } catch (e: unknown) {
+      // regen 失败必经此路（右栏入口的 catch 不覆盖「换一个」）：有缓存留卡+错误条，
+      // 无缓存关门+分流 toast（门控类文案映射不旁路）
+      const msg = (e as Error).message || "AI 处理失败，可重试";
+      const hasCache =
+        (key === "polish" && !!polishOut) ||
+        (key === "fewshot" && !!fewshotOut) ||
+        (key === "check" && !!checkSink);
+      if (hasCache) setCardError(msg);
+      else {
+        setCardOpen(false);
+        toast.error(msg);
+      }
     } finally {
       aiBusyRef.current = false;
       setAiRunning(false);

@@ -321,6 +321,12 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
     busyRef.current = true;
     setRunningKey(key);
     setCardError("");
+    // 首跑先开弹窗给 loading 占位（生成中 SHALL 有弹窗内占位）；重生成时卡已在
+    if (key === "check") setCheckOpen(true);
+    else {
+      setCardKey(key as WorldSinkKey);
+      setCardOpen(true);
+    }
     try {
       if (key === "check") {
         const r = await worldConsistencyCheck(projectId);
@@ -367,6 +373,9 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
       const hasCache = key === "check" ? !!checkRef.current : !!cards[key as WorldSinkKey];
       if (hasCache) setCardError(msg);
       else {
+        // 无缓存首跑失败：关门走 toast（弹窗已因占位提前打开）
+        if (key === "check") setCheckOpen(false);
+        else setCardOpen(false);
         toast.info(msg);
       }
     } finally {
@@ -718,11 +727,11 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
       {/* 体检报告卡（无写回；「AI 补」→ 生成卡，采纳后自动回报告并标已处理，D6） */}
       <AiCardModal
         open={checkOpen || (runningKey === "check" && !checkOpen)}
-        card={{
+        card={check ? {
           label: "AI 体检 · 简介 × 题材 × 世界",
           kind: "report",
           cached: checkCached && runningKey !== "check",
-          node: check ? (
+          node: (
             <>
               <div data-od-id="world-check-result">
                 {check.items.map((item: WorldCheckItem) => (
@@ -781,8 +790,8 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
                 })}
               {check.verdict && <p className="opt">结论：{check.verdict}</p>}
             </>
-          ) : null,
-        }}
+          ),
+        } : null}
         running={runningKey === "check"}
         error={runningKey !== "check" ? cardError : undefined}
         version={versions["check"]}

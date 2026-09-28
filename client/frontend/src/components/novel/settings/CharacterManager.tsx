@@ -265,6 +265,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       if (!card) return;
       aiBusyRef.current = true;
       setAiBusy(true);
+      setCardAction(key as "persona" | "dossier" | "cog" | "check"); // 首跑先开弹窗给 loading 占位
+      setCardOpen(true);
       const cardId = card.id;
       try {
         if (key === "check") {
@@ -335,7 +337,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         await charactersApi.patch(projectId, card.id, cell.path, cell.value, revRef.current);
         revRef.current += 1;
       }
-      setSink(null);
+      setSink(null); // 采纳即作废旧稿（只补空格的稿采纳后无二次价值）：重开会重新出稿，D9 的缓存例外
       setCardOpen(false); // 确认写回＝弹窗自动关
       await loadCard(card.id);
       await reloadList();
@@ -401,7 +403,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
 
   /** 空态引导卡入口与右栏行共用：门控（不 ready → onBlocked）后出稿 */
   const runBootstrap = useCallback(async () => {
-    if (aiBusy) return;
+    if (aiBusyRef.current) return; // ref 同步判定（与 runAi 同锁）
     if (aiState && aiState !== "ready") {
       onBlocked?.(aiState);
       return;
@@ -1047,7 +1049,27 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
           cardAction
             ? () => {
                 if (cardAction === "bootstrap") void runBootstrap();
-                else if (cardAction !== "check") {
+                else if (cardAction === "check") {
+                  // 体检「重新检查」：报告卡在会话内可刷新（D2 报告卡骨架）
+                  if (!card) return;
+                  aiBusyRef.current = true;
+                  setAiBusy(true);
+                  void (async () => {
+                    try {
+                      const res = await charactersApi.aiCheck(projectId, card.id);
+                      if (selectedIdRef.current === card.id) {
+                        setCheck(res);
+                        setCardCached(false);
+                        setVersions((prev) => ({ ...prev, check: (prev.check ?? 0) + 1 }));
+                      }
+                    } catch (e) {
+                      showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
+                    } finally {
+                      aiBusyRef.current = false;
+                      setAiBusy(false);
+                    }
+                  })();
+                } else {
                   // 出稿重生成：清缓存标记走原请求路径（cache 判定键 sinkAction 不变即重开，
                   // 这里直接驱动句柄级重跑）
                   void (async () => {

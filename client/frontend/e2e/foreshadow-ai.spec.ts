@@ -229,9 +229,10 @@ test.describe.serial("伏笔 AI 链路（批2）", () => {
         type: "threat",
         priority: 1,
       });
-      // 采纳后引入章节选择器进入视野（弹窗焦点还原与实现内聚焦存在 200ms 竞态，
-      // 只钉「弹窗已关＋选择器可见」，不锚 toBeFocused）
+      // 采纳走 skipRestore 关卡（与报告行跳转同法）：引入章节选择器聚焦不被
+      // Modal 200ms 焦点还原抢走——锚 toBeFocused
       await expect(page.locator('[data-od-id="select-hook-in"]')).toBeVisible();
+      await expect(page.locator('[data-od-id="select-hook-in"]')).toBeFocused();
 
       // 回执精确撤销：只回滚这次采纳的 2 条
       const dels: string[] = [];

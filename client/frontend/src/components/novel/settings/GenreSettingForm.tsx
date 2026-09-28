@@ -754,7 +754,14 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             .filter(Boolean);
           node = <p style={{ margin: 0 }}>{labels.join(" · ") || "（没有建议）"}</p>;
           adopt = () => {
+            // 整表覆盖 → 记回执可一步撤销（撤销＝写回采纳时刻的该格）
+            const before = dataRef.current.forbidden_list;
             patch({ forbidden_list: list });
+            recordChange(
+              `已采纳「绝对禁止」AI 建议（${before.length} 条 → ${list.length} 条），可撤销`,
+              () => { /* 值已落地 */ },
+              () => setData((cur) => ({ ...cur, forbidden_list: before })),
+            );
             closeCard();
             toast.success("已采纳，落回对应格，随时可改");
           };
@@ -762,7 +769,13 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           const n = v as number;
           node = <p style={{ margin: 0 }}>建议 {n} 分 —— {costSentence(n).split("→ ")[1]}</p>;
           adopt = () => {
+            const before = dataRef.current.cost_ratio;
             patch({ cost_ratio: n });
+            recordChange(
+              before === null ? `已把吃苦指数从未设调到 ${n}` : `已把吃苦指数从 ${before} 调到 ${n}`,
+              () => { /* 值已落地 */ },
+              () => setData((cur) => ({ ...cur, cost_ratio: before })),
+            );
             closeCard();
             toast.success("已采纳，落回对应格，随时可改");
           };
@@ -775,7 +788,13 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             </p>
           );
           adopt = () => {
+            const before = dataRef.current.battlefield;
             patch({ battlefield: vals });
+            recordChange(
+              `已采纳「本小说斗什么」AI 建议（${before.length} 个 → ${vals.length} 个），可撤销`,
+              () => { /* 值已落地 */ },
+              () => setData((cur) => ({ ...cur, battlefield: before })),
+            );
             closeCard();
             toast.success("已采纳，落回对应格，随时可改");
           };

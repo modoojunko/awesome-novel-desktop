@@ -204,7 +204,7 @@ describe("WorldSettingPanel", () => {
     expect(toastState.success).not.toHaveBeenCalled();
   });
 
-  it("体检报告卡：缓存重开免请求（D9），「重新检查」重新发请求且 version+1", async () => {
+  it("体检报告卡：缓存重开免请求（D9），「重新检查」重新发请求（报告卡无版数徽标——版数语义属生成卡）", async () => {
     worldConsistencyCheck.mockResolvedValue({
       items: [{ name: "历史自洽", status: "warn", note: "旧账对不上" }],
       degraded: false,
@@ -215,7 +215,8 @@ describe("WorldSettingPanel", () => {
     await screen.findByText("世界舞台");
     await act(async () => { await ref.current!.runAi("check"); });
     expect(screen.getByTestId("world-check-card")).toBeTruthy();
-    expect(screen.getByText("第 1 版")).toBeTruthy();
+    // 报告卡不显示版数徽标（P2-9：版数语义属生成卡）
+    expect(screen.queryByTestId("ai-card-version")).toBeNull();
     fireEvent.click(footerClose());
     await waitFor(() => expect(screen.queryByTestId("world-check-card")).toBeNull());
 
@@ -227,10 +228,12 @@ describe("WorldSettingPanel", () => {
     expect(screen.getByText(/上次体检结果/)).toBeTruthy();
     expect(worldConsistencyCheck).toHaveBeenCalledTimes(1);
 
-    // 「重新检查」＝重新发请求，版数徽标 +1
+    // 「重新检查」＝重新发请求；缓存提示条随新结果消失
     await act(async () => { fireEvent.click(screen.getByTestId("ai-card-regen")); });
     await waitFor(() => expect(worldConsistencyCheck).toHaveBeenCalledTimes(2));
-    expect(screen.getByText("第 2 版")).toBeTruthy();
+    await waitFor(() =>
+      expect(document.querySelector('[data-od-id="ai-card-cache"]')).toBeNull(),
+    );
   });
 
   it("报告卡「AI 起草」→ 关报告卡开生成卡；采纳后自动回报告并标「（已处理）」", async () => {

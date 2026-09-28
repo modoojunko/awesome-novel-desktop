@@ -481,6 +481,7 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
   /** 采纳回执（面板内自管，8 秒自清）：精确撤销＝只回滚这次采纳 */
   const [aiReceipt, setAiReceipt] = useState<AiReceipt | null>(null);
   const aiReceiptTimerRef = useRef<number | null>(null);
+  const adoptingRef = useRef(false);
   /** 报告行跳转关卡时置 true：跳过 Modal 关闭后的焦点还原（防抢走 jumpToHook 聚焦，D6） */
   const cardSkipRestoreRef = useRef(false);
 
@@ -510,6 +511,7 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
             key === "h2" ? "先选一条伏笔——收束方案对选中条目生效" : "先选一条伏笔——查一致性对选中条目生效",
           );
           aiBusyRef.current = false;
+          setAiRunning(null); // 早退必须复位：否则面板级 running 卡死，缓存重开渲染成幻影生成态
           return;
         }
       }
@@ -524,7 +526,9 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
           // 作用域＝当前选中 hook：body 传当前编辑值（intro 先例——不读库旧文）
           const cur = itemsRef.current.find((h) => h.id === selectedIdRef.current);
           if (!cur || cur.id.startsWith("temp-")) {
+            setCardOpen(false);
             toast.info("先选一条伏笔——收束方案对选中条目生效");
+            setAiRunning(null);
             return;
           }
           const r = await hooksApi.payoffAi(projectId, {
@@ -535,6 +539,7 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
             code: cur.code,
             planned_chapter_id: cur.planned_chapter_id,
           });
+          if (selectedIdRef.current !== cur.id) return; // 在途已切选中：丢弃失配响应（作用域钉生成时那条）
           setPayoffSink({
             hookId: cur.id,
             code: cur.code,
@@ -552,7 +557,9 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
         } else {
           const cur = itemsRef.current.find((h) => h.id === selectedIdRef.current);
           if (!cur || cur.id.startsWith("temp-")) {
+            setCardOpen(false);
             toast.info("先选一条伏笔——查一致性对选中条目生效");
+            setAiRunning(null);
             return;
           }
           const r = await hooksApi.checkAi(projectId, {
@@ -562,6 +569,7 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
             priority: cur.priority,
             code: cur.code,
           });
+          if (selectedIdRef.current !== cur.id) return; // 在途已切选中：丢弃失配响应
           setCheckSink({
             hookId: cur.id,
             checks: r.checks ?? [],
@@ -574,19 +582,31 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
         setVersions((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
       } catch (e) {
         const reason = aiBlockReason(e);
-        // 403 member_required 已由 request() 广播全局升级引导，这里只兜底文案
-        if (reason === "member_required") toast.info("AI 是会员功能，升级 PRO 后解锁");
-        else if (reason === "no_key") toast.info((e as Error).message || "先去「模型配置」添加 API Key");
-        else if (reason === "missing_model" || reason === "invalid")
-          toast.info("先在本书选择模型");
-        else toast.error((e as Error).message || "生成失败，请重试");
-        setCardOpen(false);
+        const msg =
+          reason === "member_required"
+            ? "AI 是会员功能，升级 PRO 后解锁"
+            : reason === "no_key"
+              ? (e as Error).message || "先去「模型配置」添加 API Key"
+              : reason === "missing_model" || reason === "invalid"
+                ? "先在本书选择模型"
+                : (e as Error).message || "生成失败，请重试";
+        // 有缓存（regen 路径）：留卡＋错误条（对齐 Genre/World）；无缓存首跑失败：关门+toast
+        const hasCache =
+          (key === "h1" && !!draftSinks) ||
+          (key === "h2" && !!payoffSink) ||
+          (key === "h3" && !!auditSinks) ||
+          (key === "h4" && !!checkSink);
+        if (hasCache) setCardError(msg);
+        else {
+          setCardOpen(false);
+          toast.info(msg);
+        }
       } finally {
         aiBusyRef.current = false;
         setAiRunning(null);
       }
     },
-    [projectId],
+    [projectId, draftSinks, payoffSink, auditSinks, checkSink],
   );
 
   const runAi = useCallback(
@@ -614,6 +634,9 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
   /** 采纳所选候选：走批1 乐观行队列建行（保留「POST 回踩清本地输入」竞态修复语义） */
   const adoptCandidates = useCallback(
     async (entry: DraftSinkEntry) => {
+      if (adoptingRef.current) return; // 采纳在途去重：POST 期间双击不建重复行
+      adoptingRef.current = true;
+      try {
       const chosen = entry.candidates.filter((_, i) => entry.checked[i] ?? true);
       if (chosen.length === 0) {
         toast.info("先勾选至少一条候选");
@@ -642,8 +665,14 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
       });
       if (aiReceiptTimerRef.current) window.clearTimeout(aiReceiptTimerRef.current);
       aiReceiptTimerRef.current = window.setTimeout(() => setAiReceipt(null), 8000);
-      setCardOpen(false); // 确认写回＝弹窗自动关
+      // 确认写回＝弹窗自动关；采纳后聚焦引入章节选择器——走 skipRestore 防 Modal
+      // 200ms 焦点还原抢走聚焦（与报告行跳转出口同法，D6）
+      cardSkipRestoreRef.current = true;
+      setCardOpen(false);
       toast.success(`已加入 ${ids.length} 条——选一下引入章节就算埋好了`);
+      } finally {
+        adoptingRef.current = false;
+      }
     },
     [createRows],
   );
@@ -783,6 +812,7 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
       setCheckSink(null);
       setCardAction(null);
       setCardOpen(false);
+      setVersions({});
     },
     markConfirmed: () => {
       const fp = fingerprint(itemsRef.current);

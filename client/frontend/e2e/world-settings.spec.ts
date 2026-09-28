@@ -174,7 +174,6 @@ function stubWorldAi(page: Page, pid: string) {  // 同步注册路由即可；a
       },
     });
   });
-  console.log('DBG stub returning, stageGen=', stageGen);
   return { stageCalls: () => stageGen };
 }
 
