@@ -6,6 +6,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import OgPane from "@/components/novel/workbench/OgPane";
 import { EMPTY_OG_FORM, type OgForm } from "@/components/novel/workbench/chapterForm";
 
+const toastState = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
+vi.mock("@/lib/toast", () => ({ toast: toastState }));
+
 function makeForm(over: Partial<OgForm> = {}): OgForm {
   return {
     ...EMPTY_OG_FORM,
@@ -107,5 +110,26 @@ describe("名单缺人探测（每章通用）", () => {
       protagonistName: "林野",
     });
     expect(screen.queryByTestId("cast-missing")).toBeNull();
+  });
+
+  it("单字名不探测（≥2 字下限：泛称「夜」类章章命中纯噪音）", () => {
+    renderPane({
+      form: makeForm({ chars: "阿蓟" }),
+      characterNames: ["夜", "阿蓟"], // 梗概「夜禁后…」含「夜」，单字卡不提示
+      protagonistName: "夜",
+    });
+    expect(screen.queryByTestId("cast-missing")).toBeNull();
+  });
+
+  it("目标字数校验不过时点加入→仍入表单，但弹校验提示（自动保存会静默跳过）", () => {
+    renderPane({
+      form: makeForm({ chars: "阿蓟", wt: "300" }),
+      characterNames: ["林野", "阿蓟", "银铎"],
+      protagonistName: "林野",
+    });
+    fireEvent.click(screen.getByTestId("cast-add-林野"));
+    expect(toastState.error).toHaveBeenCalledWith(
+      "名单改动暂不落库：本章目标字数需在 500-6000 之间（留空默认 2500）",
+    );
   });
 });
