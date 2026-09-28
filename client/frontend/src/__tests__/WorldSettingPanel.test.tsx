@@ -9,6 +9,11 @@ const apiGet = vi.fn();
 const apiPut = vi.fn();
 const worldDraftTopic = vi.fn();
 const worldConsistencyCheck = vi.fn();
+const toastState = vi.hoisted(() => ({
+  success: vi.fn(),
+  info: vi.fn(),
+  error: vi.fn(),
+}));
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -22,6 +27,8 @@ vi.mock("@/lib/ai", () => ({
   worldConsistencyCheck: (...a: unknown[]) => worldConsistencyCheck(...a),
   aiBlockReason: () => null,
 }));
+
+vi.mock("@/lib/toast", () => ({ toast: toastState }));
 
 const EMPTY = {
   no_power: false, stage: "", power: "", cost: "",
@@ -37,6 +44,12 @@ beforeEach(() => {
   });
   apiPut.mockResolvedValue({ ok: true });
 });
+
+/** 生成弹窗 footer 的「关闭」键（头部 X 的 aria-label 同名，取 DOM 序最后一个＝footer）。 */
+function footerClose() {
+  const btns = screen.getAllByRole("button", { name: "关闭" });
+  return btns[btns.length - 1];
+}
 
 describe("WorldSettingPanel", () => {
   it("渲染五格与题材继承条", async () => {
@@ -122,7 +135,7 @@ describe("WorldSettingPanel", () => {
     expect(body.history[0]).toMatchObject({ key: "丹阁大火", origin: "vol-1-ch-3" });
   });
 
-  it("AI 生成铁律：采纳后追加进约束条目（按 key 去重）", async () => {
+  it("AI 生成铁律：出卡确认弹窗，采纳后追加进约束条目（按 key 去重）", async () => {
     const rows = [
       { key: "不可推翻的事", value: "死者不可复生" },
       { key: "世人不知道的事", value: "洞虚的存在" },
@@ -132,18 +145,27 @@ describe("WorldSettingPanel", () => {
     render(<WorldSettingPanel projectId="p1" ref={ref} />);
     await screen.findByText("世界铁律");
     await act(async () => { await ref.current!.runAi("constraints"); });
-    const sink = screen.getByText(/AI 填 · 世界铁律/).closest(".ai-sink")!;
-    await waitFor(() => expect(sink.querySelector(".ans-act button.primary")).toBeTruthy());
-    fireEvent.click(sink.querySelector(".ans-act button.primary")!);
+    // 出卡：结果进弹窗（world-ai-card），采纳 · 合并写回
+    expect(screen.getByTestId("world-ai-card")).toBeTruthy();
+    expect(screen.getByText("AI 填 · 世界铁律")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(screen.queryByTestId("world-ai-card")).toBeNull());
     expect(screen.getByDisplayValue("不可推翻的事")).toBeTruthy();
     expect(screen.getByDisplayValue("死者不可复生")).toBeTruthy();
     expect(screen.getByDisplayValue("世人不知道的事")).toBeTruthy();
 
-    // 已存在的铁律不重复追加
+    // 重开同一行＝展示缓存，不再发请求（D9）
     await act(async () => { await ref.current!.runAi("constraints"); });
-    const sink2 = screen.getByText(/AI 填 · 世界铁律/).closest(".ai-sink")!;
-    await waitFor(() => expect(sink2.querySelector(".ans-act button.primary")).toBeTruthy());
-    fireEvent.click(sink2.querySelector(".ans-act button.primary")!);
+    await waitFor(() =>
+      expect(document.querySelector('[data-od-id="ai-card-cache"]')).toBeTruthy(),
+    );
+    expect(worldDraftTopic).toHaveBeenCalledTimes(1);
+
+    // 「换一个」才重新生成；再采纳：已存在的铁律不重复追加
+    await act(async () => { fireEvent.click(screen.getByTestId("ai-card-regen")); });
+    await waitFor(() => expect(worldDraftTopic).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(screen.queryByTestId("world-ai-card")).toBeNull());
     expect(screen.getAllByDisplayValue("不可推翻的事")).toHaveLength(1);
     expect(screen.getAllByDisplayValue("死者不可复生")).toHaveLength(1);
   });
@@ -168,16 +190,92 @@ describe("WorldSettingPanel", () => {
     expect(body.constraints).toEqual([]);
   });
 
-  it("sink 生成历史只保留最近 5 次", async () => {
-    worldDraftTopic.mockResolvedValue({ value: "草稿", topic: "世界舞台" });
+  it("关闭即弃：打开→关闭，格值不变、无残留", async () => {
+    worldDraftTopic.mockResolvedValue({ value: "云梁界的候选稿", topic: "世界舞台" });
     const ref = createRef<WorldPanelHandle>();
     render(<WorldSettingPanel projectId="p1" ref={ref} />);
     await screen.findByText("世界舞台");
-    for (let i = 0; i < 7; i++) {
-      await act(async () => { await ref.current!.runAi("stage"); });
-    }
-    const sink = screen.getByText(/AI 填 · 世界舞台/).closest(".ai-sink")!;
-    expect(sink.querySelectorAll(".ah-chip")).toHaveLength(5);
-    expect(sink.textContent).toContain("只保留最近 5 次");
+    await act(async () => { await ref.current!.runAi("stage"); });
+    expect(screen.getByTestId("world-ai-card")).toBeTruthy();
+    fireEvent.click(footerClose());
+    await waitFor(() => expect(screen.queryByTestId("world-ai-card")).toBeNull());
+    expect((document.querySelector('[data-od-id="stage-input"]') as HTMLTextAreaElement).value)
+      .toBe("");
+    expect(toastState.success).not.toHaveBeenCalled();
+  });
+
+  it("体检报告卡：缓存重开免请求（D9），「重新检查」重新发请求且 version+1", async () => {
+    worldConsistencyCheck.mockResolvedValue({
+      items: [{ name: "历史自洽", status: "warn", note: "旧账对不上" }],
+      degraded: false,
+      verdict: "先补历史",
+    });
+    const ref = createRef<WorldPanelHandle>();
+    render(<WorldSettingPanel projectId="p1" ref={ref} />);
+    await screen.findByText("世界舞台");
+    await act(async () => { await ref.current!.runAi("check"); });
+    expect(screen.getByTestId("world-check-card")).toBeTruthy();
+    expect(screen.getByText("第 1 版")).toBeTruthy();
+    fireEvent.click(footerClose());
+    await waitFor(() => expect(screen.queryByTestId("world-check-card")).toBeNull());
+
+    // 重开＝缓存展示，不再发请求（D9）
+    await act(async () => { await ref.current!.runAi("check"); });
+    await waitFor(() =>
+      expect(document.querySelector('[data-od-id="ai-card-cache"]')).toBeTruthy(),
+    );
+    expect(screen.getByText(/上次体检结果/)).toBeTruthy();
+    expect(worldConsistencyCheck).toHaveBeenCalledTimes(1);
+
+    // 「重新检查」＝重新发请求，版数徽标 +1
+    await act(async () => { fireEvent.click(screen.getByTestId("ai-card-regen")); });
+    await waitFor(() => expect(worldConsistencyCheck).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("第 2 版")).toBeTruthy();
+  });
+
+  it("报告卡「AI 起草」→ 关报告卡开生成卡；采纳后自动回报告并标「（已处理）」", async () => {
+    worldConsistencyCheck.mockResolvedValue({
+      items: [{ name: "力量与上限", status: "warn", note: "还没写上限" }],
+      degraded: false,
+      verdict: "",
+    });
+    worldDraftTopic.mockResolvedValue({ value: "灵力九境，金丹可毁山", topic: "力量体系" });
+    const ref = createRef<WorldPanelHandle>();
+    render(<WorldSettingPanel projectId="p1" ref={ref} />);
+    await screen.findByText("世界舞台");
+    await act(async () => { await ref.current!.runAi("check"); });
+    expect(screen.getByTestId("world-check-card")).toBeTruthy();
+
+    // 报告行内「AI 起草」→ 关报告卡、开力量生成卡
+    fireEvent.click(screen.getByText("AI 起草"));
+    await waitFor(() => expect(screen.getByTestId("world-ai-card")).toBeTruthy());
+    await waitFor(() => expect(screen.queryByTestId("world-check-card")).toBeNull());
+
+    // 采纳 → 写回力量格＋自动回报告卡，力量与上标记「（已处理）」
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(screen.getByTestId("world-check-card")).toBeTruthy());
+    expect(screen.getByTestId("world-check-card").textContent).toContain("（已处理）");
+    expect((document.querySelector('[data-od-id="power-text"]') as HTMLTextAreaElement).value)
+      .toBe("灵力九境，金丹可毁山");
+  });
+
+  it("现实向开关与在途生成互斥：power 生成在途时点击被拒（toast）", async () => {
+    let resolveDraft: (v: { value: string }) => void = () => {};
+    worldDraftTopic.mockImplementation(
+      () =>
+        new Promise((res) => {
+          resolveDraft = res;
+        }),
+    );
+    const ref = createRef<WorldPanelHandle>();
+    render(<WorldSettingPanel projectId="p1" ref={ref} />);
+    await screen.findByText("世界舞台");
+    await act(async () => { void ref.current!.runAi("power"); }); // 在途不 resolve
+    const sw = screen.getByRole("switch");
+    fireEvent.click(sw);
+    expect(toastState.info).toHaveBeenCalledWith("力量/代价正在生成——等这轮结束再切换现实向");
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    // 收尾放行，避免悬挂 promise
+    await act(async () => { resolveDraft({ value: "灵力九境" }); });
   });
 });

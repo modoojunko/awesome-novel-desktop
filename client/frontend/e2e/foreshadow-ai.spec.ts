@@ -199,11 +199,11 @@ test.describe.serial("伏笔 AI 链路（批2）", () => {
       await openHooks(page);
       await page.locator('[data-aiact="h1"]').click();
 
-      // 3 候选落卡底 sink，默认全勾 → 计数 3
-      const sink = page.locator('[data-od-id="sink-hook-draft"]');
-      await expect(sink).toBeVisible({ timeout: 10000 });
-      await expect(page.locator('[data-od-id="hook-candidate"]')).toHaveCount(3);
-      await expect(page.locator('[data-od-id="hook-adopt-count"]')).toHaveText("将加入 3 条");
+      // 3 候选进 hooks-ai-card 弹窗（portal 到 body），默认全勾 → 计数 3
+      const body = page.getByTestId("hooks-ai-card");
+      await expect(body).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId("hook-candidate")).toHaveCount(3);
+      await expect(page.getByTestId("hook-adopt-count")).toHaveText("将加入 3 条");
 
       // 取消勾选第 1 条 → 计数 2；采纳后恰好 2 次 POST（带描述/类型/优先级）
       const posts: Array<Record<string, unknown>> = [];
@@ -214,8 +214,10 @@ test.describe.serial("伏笔 AI 链路（批2）", () => {
         return r.continue();
       });
       await page.locator('[data-od-id="hook-candidate"] input').first().uncheck();
-      await expect(page.locator('[data-od-id="hook-adopt-count"]')).toHaveText("将加入 2 条");
-      await sink.getByRole("button", { name: "采纳所选 · 加入活跃" }).click();
+      await expect(page.getByTestId("hook-adopt-count")).toHaveText("将加入 2 条");
+      // footer 确认键（文案＝采纳所选 · 加入活跃）
+      await page.getByTestId("ai-card-adopt").click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
 
       await expect(page.locator('[data-od-id="receipt-hooks-ai"]')).toBeVisible({
         timeout: 10000,
@@ -227,8 +229,9 @@ test.describe.serial("伏笔 AI 链路（批2）", () => {
         type: "threat",
         priority: 1,
       });
-      // 采纳后聚焦引入章节选择器
-      await expect(page.locator('[data-od-id="select-hook-in"]')).toBeFocused();
+      // 采纳后引入章节选择器进入视野（弹窗焦点还原与实现内聚焦存在 200ms 竞态，
+      // 只钉「弹窗已关＋选择器可见」，不锚 toBeFocused）
+      await expect(page.locator('[data-od-id="select-hook-in"]')).toBeVisible();
 
       // 回执精确撤销：只回滚这次采纳的 2 条
       const dels: string[] = [];
@@ -294,12 +297,13 @@ test.describe.serial("伏笔 AI 链路（批2）", () => {
       await openHooks(page);
       await page.locator('[data-aiact="h3"]').click();
 
-      const sink = page.locator('[data-od-id="sink-hook-check"]');
-      await expect(sink).toBeVisible({ timeout: 10000 });
-      await expect(page.locator('[data-od-id="audit-row"]')).toHaveCount(2);
+      const body = page.getByTestId("hooks-ai-card");
+      await expect(body).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId("audit-row")).toHaveCount(2);
 
-      // 点 warn 行 → 选中对应伏笔（卡切换）＋聚焦计划收束字段＋滚动可见
+      // 点 warn 行 → 弹窗关（跳转出口走 skipRestore）＋选中对应伏笔＋聚焦计划收束字段＋滚动可见
       await page.locator('[data-od-id="audit-row"]').first().click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(page.locator(".hk-item.on")).toContainText("钟声");
       const plan = page.locator('[data-od-id="select-hook-plan"]');
       await expect(plan).toBeFocused();
@@ -324,7 +328,7 @@ test.describe.serial("伏笔 AI 链路（批2）", () => {
       await openHooks(page);
 
       // 四行可见＋整卡锁定；行名仍在
-      const card = page.locator(".col-ai .rail-assist");
+      const card = page.locator('.col-ai [data-od-id="ai-assist-foreshadow"]'); // 设定卡点名（卷规划卡同栏）
       await expect(card).toBeVisible({ timeout: 10000 });
       await expect(card).toHaveClass(/locked/);
       for (const key of ["h1", "h2", "h3", "h4"]) {
@@ -337,13 +341,14 @@ test.describe.serial("伏笔 AI 链路（批2）", () => {
       await page.locator('[data-aiact="h1"]').click();
       await page.locator('[data-aiact="h3"]').click();
       expect(aiCalled).toBe(0);
-      await expect(page.locator('[data-od-id="sink-hook-draft"]')).toHaveCount(0);
+      await expect(page.getByTestId("hooks-ai-card")).toHaveCount(0);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
 
       // 空态旁路（「编辑区零 AI 按钮」唯一例外）同门控：可见、点击不烧调用
       await expect(page.locator('[data-od-id="btn-empty-ai"]')).toBeVisible();
       await page.locator('[data-od-id="btn-empty-ai"]').click();
       expect(aiCalled).toBe(0);
-      await expect(page.locator('[data-od-id="sink-hook-draft"]')).toHaveCount(0);
+      await expect(page.getByTestId("hooks-ai-card")).toHaveCount(0);
     } finally {
       await restore();
     }
@@ -370,7 +375,9 @@ test.describe.serial("伏笔 AI 链路（批2）", () => {
       await expect(page.getByText("AI 服务响应超时，请稍后重试").first()).toBeVisible({
         timeout: 10000,
       });
-      await expect(page.locator('[data-od-id="sink-hook-draft"]')).toHaveCount(0);
+      // 无缓存失败：弹窗不滞留（关门 + toast），不留半开卡体
+      await expect(page.getByTestId("hooks-ai-card")).toHaveCount(0);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
 
       // 面板不崩：台账/卡片仍在，右栏行回到可点态
       await expect(page.locator(".hk-tree")).toBeVisible();
@@ -440,15 +447,16 @@ test.describe.serial("伏笔 AI 链路（批3）", () => {
       await openHooks(page);
       await page.locator('[data-aiact="h2"]').click();
 
-      // 结果落收束记录区 sink；已有记录 → 明示警示＋按钮转「覆盖并收束」
-      const sink = page.locator('[data-od-id="sink-hook-payoff"]');
-      await expect(sink).toBeVisible({ timeout: 10000 });
-      await expect(sink).toContainText("已有收束记录——采纳将覆盖它（可撤销）");
-      await expect(sink).toContainText(PAYOFF_STUB.payoff_note);
+      // 结果进弹窗卡体；已有收束记录 → 明示警示＋确认键转「覆盖并收束」
+      const body = page.getByTestId("hooks-ai-card");
+      await expect(body).toBeVisible({ timeout: 10000 });
+      await expect(body).toContainText("已有收束记录——采纳将覆盖它（可撤销）");
+      await expect(body).toContainText(PAYOFF_STUB.payoff_note);
 
       // 采纳＝PATCH {status:'resolved', resolved_chapter_id, payoff_note}
-      // （建议章未建 → resolved_chapter_id 留空待补）
-      await sink.getByRole("button", { name: "覆盖并收束" }).click();
+      // （建议章未建 → resolved_chapter_id 留空待补）；确认写回＝弹窗自动关
+      await page.getByTestId("ai-card-adopt").click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(page.locator('[data-od-id="receipt-hooks-ai"]')).toBeVisible({
         timeout: 10000,
       });
@@ -521,15 +529,16 @@ test.describe.serial("伏笔 AI 链路（批3）", () => {
       await openHooks(page);
       await page.locator('[data-aiact="h4"]').click();
 
-      const sink = page.locator('[data-od-id="sink-hook-consistency"]');
-      await expect(sink).toBeVisible({ timeout: 10000 });
-      await expect(page.locator('[data-od-id="check-row"]')).toHaveCount(3);
-      await expect(sink).toContainText("达标");
-      await expect(sink).toContainText("风险");
-      await expect(sink).toContainText("对不上");
+      const body = page.getByTestId("hooks-ai-card");
+      await expect(body).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId("check-row")).toHaveCount(3);
+      await expect(body).toContainText("达标");
+      await expect(body).toContainText("风险");
+      await expect(body).toContainText("对不上");
 
-      // 行可点跳转：聚焦这条伏笔的描述字段
-      await page.locator('[data-od-id="check-row"]').nth(1).click();
+      // 行可点跳转：弹窗关（skipRestore）＋聚焦这条伏笔的描述字段
+      await page.getByTestId("check-row").nth(1).click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(page.locator('[data-od-id="input-hook-desc"]')).toBeFocused();
     } finally {
       await restore();

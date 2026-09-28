@@ -6,8 +6,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 // - 挂载拉卡回显（legacy premise 归一进 fullstory）；保存走 PUT
 // - 结局三问：三输入框（问题句为 label、例句进占位符）；基调自由输入
 // - 无分卷区、无基调选择题（tone-opt 退役）；textarea 无 maxLength（600 软上限）
-// - 行内「AI 帮我填」：结果落输入框下方、采纳才写回、在途互斥、免费拦截
-// - AI 四能力 runAi 句柄：draft/calibrate/check 结果区复用 AiSink（5 次历史）
+// - 行内「AI 帮我填」：结果进弹窗出卡（arc-ai-card）、确认才写回、在途互斥、免费拦截
+// - AI 四能力 runAi 句柄：draft/calibrate/check 统一进弹窗出卡（c-settings-ai-confirm-modal：
+//   关闭即弃；缓存重开免请求 D9；「换一个」version+1 且在途旧版保持可读 D3）
 // ---------------------------------------------------------------------------
 
 const apiState = vi.hoisted(() => ({
@@ -51,6 +52,12 @@ async function mount() {
 async function actasync(fn: () => Promise<void>) {
   const { act } = await import("@testing-library/react");
   await act(fn);
+}
+
+/** 弹窗 footer 的「关闭」键（头部 X 的 aria-label 同名，取 DOM 序最后一个＝footer）。 */
+function footerClose() {
+  const btns = screen.getAllByRole("button", { name: "关闭" });
+  return btns[btns.length - 1];
 }
 
 describe("主线面板（全景＋结局三问）", () => {
@@ -184,19 +191,22 @@ describe("主线面板（全景＋结局三问）", () => {
 });
 
 describe("行内「AI 帮我填」（基调第三问）", () => {
-  it("建议落输入框下方，采纳才写回", async () => {
+  it("结果进弹窗出卡，采纳才写回（确认写回＋toast）", async () => {
     apiState.runArcAi.mockResolvedValue({ value: { tone: "苦尽甘来" } });
     await mount();
     fireEvent.click(screen.getByRole("button", { name: /AI 帮我填/ }));
     await waitFor(() =>
-      expect(screen.getByText("苦尽甘来", { selector: ".ai-sink p" })).toBeTruthy(),
+      expect(screen.getByText("苦尽甘来", { selector: ".ai-card-body p" })).toBeTruthy(),
     );
+    expect(screen.getByText("AI 填 · 结局基调")).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeTruthy();
     // 未采纳前不写入
     const tone = screen.getByPlaceholderText(/先悲后喜 \/ 苦尽甘来 \/ 意难平/) as HTMLInputElement;
     expect(tone.value).toBe("");
-    fireEvent.click(screen.getByRole("button", { name: /采纳/ }));
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
     expect(tone.value).toBe("苦尽甘来");
     expect(toastState.success).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByTestId("arc-ai-card")).toBeNull()); // 确认后弹窗自动关
   });
 
   it("在途互斥：tone 在途时再次触发被忽略（仍 1 请求）", async () => {
@@ -231,7 +241,7 @@ describe("行内「AI 帮我填」（基调第三问）", () => {
     expect(tone.value).toBe("");
   });
 
-  it("在途 loading 占位与按钮禁用", async () => {
+  it("在途：弹窗 loading 占位（首次无卡），入口按钮禁用", async () => {
     let resolveAi: (v: any) => void = () => {};
     apiState.runArcAi.mockReturnValue(
       new Promise((res) => {
@@ -241,12 +251,45 @@ describe("行内「AI 帮我填」（基调第三问）", () => {
     await mount();
     const btn = screen.getByRole("button", { name: /AI 帮我填/ });
     fireEvent.click(btn);
-    await waitFor(() => expect(screen.getByText(/正在生成，请稍候/)).toBeTruthy());
+    // 首跑无卡：卡体给 loading 占位（data-od-id 而非 testid）
+    await waitFor(() => expect(document.querySelector('[data-od-id="ai-card-loading"]')).toBeTruthy());
+    expect(screen.getByText("AI 正在生成…")).toBeTruthy();
     await waitFor(() => expect((btn as HTMLButtonElement).disabled).toBe(true));
     await actasync(async () => {
       resolveAi({ value: { tone: "ok" } });
     });
-    expect(screen.queryByText(/正在生成，请稍候/)).toBeNull();
+    await waitFor(() =>
+      expect(document.querySelector('[data-od-id="ai-card-loading"]')).toBeNull(),
+    );
+    expect(screen.getByTestId("ai-card-adopt")).toBeTruthy();
+  });
+
+  it("关闭即弃：打开→关闭，表单字段不变、无残留结果", async () => {
+    apiState.runArcAi.mockResolvedValue({ value: { tone: "候选句" } });
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: /AI 帮我填/ }));
+    await waitFor(() => expect(screen.getByText("候选句")).toBeTruthy());
+    fireEvent.click(footerClose());
+    await waitFor(() => expect(screen.queryByTestId("arc-ai-card")).toBeNull());
+    const tone = screen.getByPlaceholderText(/先悲后喜 \/ 苦尽甘来 \/ 意难平/) as HTMLInputElement;
+    expect(tone.value).toBe("");
+    expect(toastState.success).not.toHaveBeenCalled();
+  });
+
+  it("缓存重开：同一能力再触发＝重开弹窗展示缓存，不再发请求（D9）", async () => {
+    apiState.runArcAi.mockResolvedValue({ value: { tone: "缓存版" } });
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: /AI 帮我填/ }));
+    await waitFor(() => expect(screen.getByText("缓存版")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(screen.queryByTestId("arc-ai-card")).toBeNull());
+    expect(apiState.runArcAi).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /AI 帮我填/ }));
+    await waitFor(() => expect(screen.getByText(/上次生成结果/)).toBeTruthy());
+    expect(document.querySelector('[data-od-id="ai-card-cache"]')).toBeTruthy();
+    expect(screen.getByText("缓存版")).toBeTruthy();
+    expect(apiState.runArcAi).toHaveBeenCalledTimes(1); // 没有再发请求
   });
 });
 
@@ -269,7 +312,7 @@ describe("AI 四能力 runAi 句柄（右栏三行分发）", () => {
     expect((screen.getByPlaceholderText(/先悲后喜 \/ 苦尽甘来 \/ 意难平/) as HTMLInputElement).value).toBe("AI 感觉");
   });
 
-  it("check：落面板级结果区，四线渲染、无采纳按钮（只提醒）", async () => {
+  it("check：落弹窗报告卡，四线渲染、无采纳键（只提醒）", async () => {
     apiState.runArcAi.mockResolvedValue({
       value: {
         checks: [
@@ -283,27 +326,43 @@ describe("AI 四能力 runAi 句柄（右栏三行分发）", () => {
     await actasync(async () => {
       await ref.current.runAi("check");
     });
+    expect(screen.getByTestId("arc-ai-card")).toBeTruthy();
     expect(screen.getByText("AI 体检 · 主线自检")).toBeTruthy();
     expect(screen.getByText("故事连贯")).toBeTruthy();
     expect(screen.getByText("开头接结局")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /采纳/ })).toBeNull();
+    expect(screen.queryByTestId("ai-card-adopt")).toBeNull(); // 报告卡无写回
   });
 
-  it("重试：同一能力再跑一次，历史 +1 且可切回", async () => {
+  it("换一个：重新发请求且版数徽标 +1；在途期间旧版保持可读、确认键可点（D3）", async () => {
+    let resolveSecond: (v: any) => void = () => {};
     apiState.runArcAi
       .mockResolvedValueOnce({ value: { tone: "第一次" } })
-      .mockResolvedValueOnce({ value: { tone: "第二次" } });
+      .mockReturnValueOnce(
+        new Promise((res) => {
+          resolveSecond = res;
+        }),
+      );
     await mount();
     fireEvent.click(screen.getByRole("button", { name: /AI 帮我填/ }));
     await waitFor(() => expect(screen.getByText("第一次")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(screen.getByText("第 1 版")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("ai-card-regen"));
+    // 在途：旧版内容仍在、确认键不锁、重生成键防抖禁用
+    expect(screen.getByText("第一次")).toBeTruthy();
+    expect(screen.getByText(/正在生成新一版/)).toBeTruthy();
+    expect((screen.getByTestId("ai-card-adopt") as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByTestId("ai-card-regen") as HTMLButtonElement).disabled).toBe(true);
+    await actasync(async () => {
+      resolveSecond({ value: { tone: "第二次" } });
+    });
     await waitFor(() => expect(screen.getByText("第二次")).toBeTruthy());
-    // 两条历史：切回第 1 次
-    fireEvent.click(screen.getByRole("button", { name: "第 1 次" }));
-    await waitFor(() => expect(screen.getByText("第一次")).toBeTruthy());
+    expect(screen.queryByText("第一次")).toBeNull();
+    expect(screen.getByText("第 2 版")).toBeTruthy();
+    expect(apiState.runArcAi).toHaveBeenCalledTimes(2);
   });
 
-  it("clearAi()：确认后清空结果区", async () => {
+  it("clearAi()：确认后清空结果（弹窗关闭且不再展示）", async () => {
     apiState.runArcAi.mockResolvedValue({ value: { tone: "x" } });
     const { ref } = await mount();
     fireEvent.click(screen.getByRole("button", { name: /AI 帮我填/ }));
@@ -311,6 +370,7 @@ describe("AI 四能力 runAi 句柄（右栏三行分发）", () => {
     await actasync(async () => {
       ref.current.clearAi();
     });
+    await waitFor(() => expect(screen.queryByTestId("arc-ai-card")).toBeNull());
     expect(screen.queryByText("AI 填 · 结局基调")).toBeNull();
   });
 });

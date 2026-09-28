@@ -185,7 +185,7 @@ describe("SettingsView · D14 交互状态机", () => {
     );
   });
 
-  it("确认成功后清空结果区（O-5）", async () => {
+  it("确认成功后清空 AI 卡（O-5）", async () => {
     aiState.introAi.mockResolvedValue({
       six_segments: [],
       taboo: { hits: [] },
@@ -205,13 +205,13 @@ describe("SettingsView · D14 交互状态机", () => {
     await waitFor(() => expect(container.querySelector('[data-aiact="check"]')).toBeTruthy());
     fireEvent.click(container.querySelector('[data-aiact="check"]')!);
     await waitFor(() =>
-      expect(container.querySelector('[data-od-id="intro-ai-sink"]')).toBeTruthy(),
+      expect(screen.getByText("AI 体检 · 六段逐项")).toBeTruthy(),
     );
+    expect(screen.getByTestId("intro-ai-card")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "确认完成" }));
-    await waitFor(() =>
-      expect(container.querySelector('[data-od-id="intro-ai-sink"]')).toBeNull(),
-    );
+    // 确认成功＝clearAi＋面板前进：弹窗随结果区一起清（无残留）
+    await waitFor(() => expect(screen.queryByTestId("intro-ai-card")).toBeNull());
   });
 });
 
@@ -348,7 +348,9 @@ describe("SettingsView · 存草稿（简介面板）", () => {
   });
 });
 
-describe("简介 AI · 最近 5 次历史 + 采纳整段替换（用户要求）", () => {
+// 「最近 5 次历史切条」已随内嵌结果区退役（c-settings-ai-confirm-modal）：
+// 结果统一进弹窗出卡——重开同一行展示缓存（D9）、「换一个」重新生成 version+1。
+describe("简介 AI · 弹窗出卡确认（c-settings-ai-confirm-modal）", () => {
   beforeEach(() => {
     apiState.get.mockReset();
     apiState.updateStory.mockReset();
@@ -358,68 +360,100 @@ describe("简介 AI · 最近 5 次历史 + 采纳整段替换（用户要求）
     apiState.fetchStory.mockResolvedValue({ synopsis: "" });
   });
 
-  const introAiReturn = (n: number) => ({
-    six_segments: [],
-    taboo: { hits: [] },
-    verdict: "ok",
-    missing: [{ name: "突发状况", candidate: `候选第${n}版` }],
-  });
-
-  it("重试 6 次只保留最近 5 次，且可切回第 1 次采纳", async () => {
-    const { container } = render(
-      <SettingsView projectId="p1" initialPanel="intro" settingsStatus={{}} confirmedStatus={{}}
-        confirmSetting={vi.fn().mockResolvedValue(true)} novelName="测试小说" />,
-    );
+  /** 先体检（解禁补缺失），再点补缺失行出卡。 */
+  async function openFillCard(container: HTMLElement, candidate: string) {
     await waitFor(() => expect(container.querySelector('[data-aiact="fill"]')).toBeTruthy());
-    // 体检有「先写两句」前置 + 补缺失有「先体检」前置
     fireEvent.change(container.querySelector("textarea")!, {
       target: { value: "我手写的开头" },
     });
     aiState.introAi.mockResolvedValueOnce({ six_segments: [], taboo: { hits: [] }, verdict: "ok" });
     fireEvent.click(container.querySelector('[data-aiact="check"]')!);
-    // 前置＝体检结果已到手（introspectedRef 在结果到达时置位）
-    await waitFor(() => expect(container.textContent).toContain("AI 体检"));
+    await waitFor(() => expect(screen.getByText("AI 体检 · 六段逐项")).toBeTruthy());
+    fireEvent.click(footerClose());
+    await waitFor(() => expect(screen.queryByTestId("intro-ai-card")).toBeNull());
 
-    for (let i = 1; i <= 6; i++) {
-      aiState.introAi.mockResolvedValueOnce(introAiReturn(i));
-      fireEvent.click(container.querySelector('[data-aiact="fill"]')!);
-      await waitFor(() =>
-        expect(container.textContent).toContain(`候选第${i}版`),
-      );
-    }
-    const chips = [...container.querySelectorAll('[data-od-id="ai-sink-history"] [data-hist]')];
-    expect(chips).toHaveLength(5); // 只保留最近 5 次
-    expect(screen.getByText(/只保留最近 5 次/)).toBeTruthy();
-    // 保留的是第 2..6 次（丢最旧）
-    fireEvent.click(chips[0]);
-    expect(container.textContent).toContain("候选第2版");
-  });
+    aiState.introAi.mockResolvedValueOnce({
+      six_segments: [],
+      taboo: { hits: [] },
+      verdict: "ok",
+      missing: [{ name: "突发状况", candidate }],
+    });
+    fireEvent.click(container.querySelector('[data-aiact="fill"]')!);
+    await waitFor(() => expect(screen.getByText(new RegExp(candidate))).toBeTruthy());
+  }
 
-  it("采纳＝清空原输入、用「原文 + 本次候选」整段替换；换一次采纳不叠加", async () => {
+  /** 弹窗 footer 的「关闭」键（头部 X 的 aria-label 同名，取 DOM 序最后一个＝footer）。 */
+  function footerClose() {
+    const btns = screen.getAllByRole("button", { name: "关闭" });
+    return btns[btns.length - 1];
+  }
+
+  it("补缺失：候选进弹窗，采纳＝清空原输入、用「原文 + 本次候选」整段替换", async () => {
     const { container } = render(
       <SettingsView projectId="p1" initialPanel="intro" settingsStatus={{}} confirmedStatus={{}}
         confirmSetting={vi.fn().mockResolvedValue(true)} novelName="测试小说" />,
     );
     const ta = (await waitFor(() => container.querySelector("textarea"))) as HTMLTextAreaElement;
-    fireEvent.change(ta, { target: { value: "我手写的开头" } });
+    await openFillCard(container, "候选第1版");
+    expect(ta.value).toBe("我手写的开头"); // 未采纳前表单不变
 
-    aiState.introAi.mockResolvedValueOnce({ six_segments: [], taboo: { hits: [] }, verdict: "ok" });
-    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="check"]')!));
-    await waitFor(() => expect(container.textContent).toContain("AI 体检"));
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(ta.value).toBe("我手写的开头。候选第1版"));
+    await waitFor(() => expect(screen.queryByTestId("intro-ai-card")).toBeNull());
+  });
 
-    aiState.introAi.mockResolvedValueOnce(introAiReturn(1));
-    fireEvent.click(container.querySelector('[data-aiact="fill"]')!);
-    await waitFor(() => expect(container.textContent).toContain("候选第1版"));
-    fireEvent.click(screen.getByRole("button", { name: /采纳 · 替换为补全后的简介/ }));
+  it("换一次再采纳不叠加：重开走缓存、「换一个」重新生成（version+1）后采纳整段替换", async () => {
+    const { container } = render(
+      <SettingsView projectId="p1" initialPanel="intro" settingsStatus={{}} confirmedStatus={{}}
+        confirmSetting={vi.fn().mockResolvedValue(true)} novelName="测试小说" />,
+    );
+    const ta = (await waitFor(() => container.querySelector("textarea"))) as HTMLTextAreaElement;
+    await openFillCard(container, "候选第1版");
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
     await waitFor(() => expect(ta.value).toBe("我手写的开头。候选第1版"));
 
-    // 再生成一版并采纳 → 整段替换（不叠加第 1 版）
-    aiState.introAi.mockResolvedValueOnce(introAiReturn(2));
+    // 再点同一行＝重开缓存（不发请求，D9）
+    const before = aiState.introAi.mock.calls.length;
     fireEvent.click(container.querySelector('[data-aiact="fill"]')!);
-    await waitFor(() => expect(container.textContent).toContain("候选第2版"));
-    fireEvent.click(screen.getByRole("button", { name: /采纳 · 替换为补全后的简介/ }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-od-id="ai-card-cache"]')).toBeTruthy(),
+    );
+    expect(screen.getByText(/候选第1版/, { selector: ".ai-card-body *" })).toBeTruthy();
+    expect(aiState.introAi.mock.calls.length).toBe(before);
+
+    // 「换一个」才重新生成，版数徽标 +1
+    aiState.introAi.mockResolvedValueOnce({
+      six_segments: [],
+      taboo: { hits: [] },
+      verdict: "ok",
+      missing: [{ name: "突发状况", candidate: "候选第2版" }],
+    });
+    fireEvent.click(screen.getByTestId("ai-card-regen"));
+    await waitFor(() => expect(screen.getByText(/候选第2版/)).toBeTruthy());
+    expect(screen.getByText("第 2 版")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
     await waitFor(() => expect(ta.value).toBe("我手写的开头。候选第2版"));
-    expect(ta.value).not.toContain("候选第1版");
+    expect(ta.value).not.toContain("候选第1版"); // 整段替换，不叠加
+  });
+
+  it("关闭即弃：打开→关闭，简介不变、面板无残留结果", async () => {
+    const { container } = render(
+      <SettingsView projectId="p1" initialPanel="intro" settingsStatus={{}} confirmedStatus={{}}
+        confirmSetting={vi.fn().mockResolvedValue(true)} novelName="测试小说" />,
+    );
+    const ta = (await waitFor(() => container.querySelector("textarea"))) as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "我的原稿" } });
+    aiState.introAi.mockResolvedValue({
+      original: "我的原稿",
+      polished: "润色后的一句",
+    });
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="polish"]')!));
+    await waitFor(() => expect(screen.getByText(/润色后的一句/)).toBeTruthy());
+    fireEvent.click(footerClose());
+    await waitFor(() => expect(screen.queryByTestId("intro-ai-card")).toBeNull());
+    expect(ta.value).toBe("我的原稿"); // 未确认＝表单不变
+    expect(screen.queryByText(/润色后的一句/)).toBeNull(); // 无残留结果
   });
 });
 
@@ -438,20 +472,28 @@ describe("简介体检 · 标题对照（D21，只提示不代改）", () => {
         confirmSetting={vi.fn().mockResolvedValue(true)} novelName="我在夜晚打吸血鬼" />,
     );
 
+  /** 点体检行并等出卡完成，返回卡体（弹窗 portal 到 body，用 testid 取）。 */
+  async function openCheckCard(container: HTMLElement) {
+    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="check"]')!));
+    await waitFor(() =>
+      expect(screen.getByText("AI 体检 · 六段逐项")).toBeTruthy(),
+    );
+    return screen.getByTestId("intro-ai-card");
+  }
+
   it("mismatch：渲染「与简介不符」+ 理由 + 候选，并明示由作者自己定", async () => {
     aiState.introAi.mockResolvedValue({
       six_segments: [], taboo: { hits: [] }, verdict: "strong",
       title_check: { fit: "mismatch", note: "书名像轻松向，简介是压抑复仇", suggestions: ["血夜翻盘", "她在夜里撕开假面"] },
     });
     const { container } = renderIntro();
-    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="check"]')!));
-    await waitFor(() => expect(container.querySelector('[data-od-id="intro-title-check"]')).toBeTruthy());
-    expect(container.textContent).toContain("与简介不符");
-    expect(container.textContent).toContain("书名像轻松向");
-    expect(container.textContent).toContain("血夜翻盘");
-    expect(container.textContent).toContain("仅供参考，改不改由你定");
+    const body = await openCheckCard(container);
+    expect(body.textContent).toContain("与简介不符");
+    expect(body.textContent).toContain("书名像轻松向");
+    expect(body.textContent).toContain("血夜翻盘");
+    expect(body.textContent).toContain("仅供参考，改不改由你定");
     // 不提供任何改书名入口
-    expect(container.querySelector('[data-od-id="intro-title-check"] button')).toBeNull();
+    expect(body.querySelector('[data-od-id="intro-title-check"] button')).toBeNull();
   });
 
   it("generic：渲染「标题无信息」+ 候选", async () => {
@@ -460,17 +502,16 @@ describe("简介体检 · 标题对照（D21，只提示不代改）", () => {
       title_check: { fit: "generic", note: "任何同类型都能用", suggestions: ["血夜执刀人"] },
     });
     const { container } = renderIntro();
-    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="check"]')!));
-    await waitFor(() => expect(container.textContent).toContain("标题无信息"));
-    expect(container.textContent).toContain("血夜执刀人");
+    const body = await openCheckCard(container);
+    expect(body.textContent).toContain("标题无信息");
+    expect(body.textContent).toContain("血夜执刀人");
   });
 
   it("字段缺失：整行不渲染（模型没给就不提示，不造假绿）", async () => {
     aiState.introAi.mockResolvedValue({ six_segments: [], taboo: { hits: [] }, verdict: "ok" });
     const { container } = renderIntro();
-    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="check"]')!));
-    await waitFor(() => expect(container.textContent).toContain("AI 体检"));
-    expect(container.querySelector('[data-od-id="intro-title-check"]')).toBeNull();
+    const body = await openCheckCard(container);
+    expect(body.querySelector('[data-od-id="intro-title-check"]')).toBeNull();
   });
 
   it("ok：只显示一致行，不列候选", async () => {
@@ -479,8 +520,8 @@ describe("简介体检 · 标题对照（D21，只提示不代改）", () => {
       title_check: { fit: "ok", note: "", suggestions: [] },
     });
     const { container } = renderIntro();
-    fireEvent.click(await waitFor(() => container.querySelector('[data-aiact="check"]')!));
-    await waitFor(() => expect(container.textContent).toContain("标题对照：一致"));
-    expect(container.textContent).not.toContain("仅供参考");
+    const body = await openCheckCard(container);
+    expect(body.textContent).toContain("标题对照：一致");
+    expect(body.textContent).not.toContain("仅供参考");
   });
 });

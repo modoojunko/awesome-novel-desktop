@@ -54,6 +54,7 @@
     挂 data-od-id（kebab-case）；零外部资源、零裸色、零 emoji。
 -->
 <style>
+/* [c-settings-ai-confirm-modal] .ai-sink 内嵌结果区退役：AI 结果改应用侧「AI 出卡确认弹窗」（沿 book.html modal-delete 先例，不进 parity 截图）；下列 hidden 演示节点已移除，对应 JS 填充加空守卫。 */
   /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致（--radius-lg 沿世界稿 = 14px） ═══ */
   :root {
     --bg:      oklch(98% 0.004 240);
@@ -436,7 +437,7 @@
                 <div class="hk-kv-row span2">
                   <span class="hk-kv-k">怎么收的</span>
                   <textarea class="textarea" rows="2" id="hkHow" data-od-id="input-hook-how" placeholder="一句留痕：读者在哪一刻对上了。例：通缉令笔迹与赵执事批过的名录对上——林拾当场没声张。"></textarea>
-                  <div class="ai-sink" id="sinkPayoff" hidden data-od-id="sink-hook-payoff"></div>
+<!-- <div class="ai-sink" id="sinkPayoff" hidden data-od-id="sink-hook-payoff"></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->
                 </div>
               </div>
               <p class="opt" id="payoffHint" hidden style="margin-top:8px;">这条已收束但没留痕——补一句「怎么收的」，埋坑体检会一直点名提醒。</p>
@@ -728,7 +729,7 @@
     syncRail();
   }
 
-  function selectHook(id) { selId = id; $('#sinkPayoff').hidden = true; renderList($('#treeSearch').value.trim()); renderForm(); }
+  function selectHook(id) { selId = id;<!-- 已退役：$('#sinkPayoff').hidden = true; --> renderList($('#treeSearch').value.trim()); renderForm(); }
 
   function patch(patchObj) {
     const h = byId(selId); if (!h) return;
@@ -877,6 +878,7 @@
   function renderPayoffSink() {
     const h = byId(selId); if (!h) return;
     const box = $('#sinkPayoff');
+    if (!box) return; // 演示节点已退役（AI 出卡确认弹窗）
     const hasExisting = !!(h.outCh || (h.how || '').trim());
     box.innerHTML = '<div class="aiz-head">AI 填 · 拟收束方案（对 ' + hkCode(h.id) + ' 生效）</div>' +
       '建议第 36–38 章收：林拾为救苏晚芜动用「听漏」，第三次使用的代价落地——丢的正是父亲失踪那晚的记忆；残卷缺页在记忆闪回里对上丹阁内殿的匾额。' +
@@ -903,6 +905,7 @@
   /* ═══ AI 行 h3/h4：体检（chk-line 可点跳转；章纲未建时降级为纯台账自检——见稿头） ═══ */
   function renderCheck(kind) {
     const box = $('#sinkCheck');
+    if (!box) return; // 演示节点已退役（AI 出卡确认弹窗）
     if (kind === 'h3') {
       box.innerHTML = '<div class="aiz-head">AI 体检 · 埋坑体检（活跃 4 × 已写章纲 1–24 章）</div>' +
         '<div class="chk-line click" data-jump="1" data-field="hkPlan"><span class="chk-name">#H-0001 残卷缺页</span><span class="chk-res warn">超期</span><span class="chk-note">已埋 24 章未收束——建议 38 章前收，与主线第三折合流</span></div>' +

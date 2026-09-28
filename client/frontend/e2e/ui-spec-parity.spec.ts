@@ -135,7 +135,7 @@ async function fontsReady(page: import("@playwright/test").Page) {
 }
 
 test.describe("界面规格 parity（尺寸/字号）", () => {
-  test("简介框 / 按钮 / 胶囊 / 徽标 / ai-sink 的规格断言（9.1.0/9.4.13）", async ({ page }) => {
+  test("简介框 / 按钮 / 胶囊 / 徽标的规格断言（9.1.0/9.4.13）", async ({ page }) => {
     const { restore } = await setupSession(page);
     try {
       const pid = await createNovel(page, `规格${Date.now() % 100000}`);
@@ -174,7 +174,7 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
     }
   });
 
-  test("题材：胶囊 999px + 模型行同行等高 + ai-sink 底色＝fg-soft≠surface（9.1.0/9.4.13）", async ({
+  test("题材：胶囊 999px + 模型行同行等高（9.1.0/9.4.13；内嵌 ai-sink 底色规格随弹窗出卡退役）", async ({
     page,
   }) => {
     const { restore } = await setupSession(page);
@@ -182,9 +182,6 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
       const pid = await createNovel(page, `规格题材${Date.now() % 100000}`);
       await stubAiState(page, pid);
       await fontsReady(page);
-      await page.route(`**/api/novels/${pid}/settings/ai/genre/cost_ratio`, (r) =>
-        r.fulfill({ json: { value: 8 } }),
-      );
 
       await page.getByRole("button", { name: /^设定/ }).click();
       await page.locator(".settings-v .col-tree .s-item", { hasText: "题材" }).click();
@@ -209,31 +206,6 @@ test.describe("界面规格 parity（尺寸/字号）", () => {
       expect(panelBox!.height).toBeLessThan(420); // 两列各自 288 上限 + 搜索框
       await page.keyboard.press("Escape");
       await expect(page.locator('[data-od-id="theme-panel"]')).toHaveCount(0);
-
-      // 五行 AI 落结果区后：底色＝--fg-soft 且 ≠ --surface
-      await page.locator('[data-aiact="m3"]').click();
-      const sink = page.locator('[data-od-id="genre-ai-sink-cost_ratio"]');
-      await expect(sink).toBeVisible({ timeout: 10000 });
-      // 变量值是 oklch 等格式 → 用探针元素转成 rgb 再比
-      const colors = await page.evaluate(() => {
-        const toRgb = (v: string) => {
-          const probe = document.createElement("div");
-          probe.style.color = v;
-          document.body.appendChild(probe);
-          const out = getComputedStyle(probe).color;
-          probe.remove();
-          return out;
-        };
-        const root = getComputedStyle(document.documentElement);
-        const sinkEl = document.querySelector('[data-od-id="genre-ai-sink-cost_ratio"]')!;
-        return {
-          sink: getComputedStyle(sinkEl).backgroundColor,
-          fgSoft: toRgb(root.getPropertyValue("--fg-soft").trim()),
-          surface: toRgb(root.getPropertyValue("--surface").trim()),
-        };
-      });
-      expect(colors.sink).toBe(colors.fgSoft);
-      expect(colors.sink).not.toBe(colors.surface);
 
       // 模型窗：分组内模型行同行等高
       await page.locator(".settings-v .col-tree .s-item", { hasText: "模型设定" }).click();
@@ -414,7 +386,7 @@ test("设定页：工具项徽标 / 辅助信息邻接 / 脚注贴底", async ({
   }
 });
 
-test("简介体检：六段在宽屏两列排布（不再单列稀疏）", async ({ page }) => {
+test("简介体检：六段在弹窗卡体网格排布（内嵌宽屏两列规格随弹窗出卡退役）", async ({ page }) => {
   const { restore } = await setupSession(page);
   try {
     const pid = await createNovel(page, `六段网格${Date.now() % 100000}`);
@@ -438,27 +410,26 @@ test("简介体检：六段在宽屏两列排布（不再单列稀疏）", async
       }),
     );
 
-    await page.setViewportSize({ width: 1660, height: 980 });
-    await page.goto(`${ORIGIN}/#/novel/${pid}`);
-    await page.locator(".mtab").first().waitFor({ state: "visible", timeout: 15000 }); // 工作台就绪（替代固定 sleep）
     await page.getByRole("button", { name: /^设定/ }).click();
     await page.getByPlaceholder(/用几句话/).fill("外门杂徒林拾，在宗门扫了十年落叶。");
     await page.locator('[data-aiact="check"]').click();
-    await expect(page.locator('[data-od-id="intro-ai-sink"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("intro-ai-card")).toBeVisible({ timeout: 15000 });
 
+    // 弹窗卡体（520 宽）内：六段渲染为 chk-grid 网格容器、六行齐（原「宽屏两列」
+    // 规格绑在内嵌 .ai-sink 上，弹窗出卡后按容器实际列数自适应，只钉网格与行数）
     const grid = await page.evaluate(() => {
-      const g = document.querySelector(".settings-v .ai-sink .chk-grid")!;
+      const g = document.querySelector('[data-od-id="ai-card-body"] .chk-grid')!;
       const tops = [...g.querySelectorAll(".chk-line")].map((e) => Math.round(e.getBoundingClientRect().top));
       return {
+        display: getComputedStyle(g).display,
         cols: getComputedStyle(g).gridTemplateColumns.split(" ").length,
         rows: new Set(tops).size,
         lines: tops.length,
       };
     });
-    // 宽屏：6 段排成 3 行 2 列（不再 6 行单列、每行右侧大片空白）
+    expect(grid.display).toBe("grid");
+    expect(grid.cols).toBeGreaterThanOrEqual(1);
     expect(grid.lines).toBe(6);
-    expect(grid.cols).toBeGreaterThan(1);
-    expect(grid.rows).toBeLessThan(6);
   } finally {
     await restore();
   }

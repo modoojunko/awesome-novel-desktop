@@ -4,6 +4,8 @@
 //    第三问旁行内「AI 帮我填」）
 // 分卷规划已移交写作阶段；AI 四能力（draft/calibrate/check/tone）经 runAi 句柄
 // 由 SettingsView 右栏分发，行内 tone 与 rail 三行共用在途互斥。
+// c-settings-ai-confirm-modal：结果统一进弹窗出卡（内嵌结果区退役）；重开同一行
+// 直接展示缓存不再发请求，「换一个」才重新生成（D9）；缓存＝面板 state 寿命。
 import {
   forwardRef,
   useCallback,
@@ -16,7 +18,7 @@ import { type SettingSaveHandle } from "@/components/novel/settings/FormField";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { aiBlockReason } from "@/lib/ai";
-import AiSink from "@/components/novel/settings/AiSink";
+import AiCardModal, { type AiCardState } from "@/components/novel/settings/AiCardModal";
 import {
   useChangeReceipt,
   type ChangeReceiptState,
@@ -28,19 +30,10 @@ export type { ArcData } from "./useStoryArc";
 export type ArcAiAction = "draft" | "calibrate" | "check" | "tone";
 
 export interface ArcFormHandle extends SettingSaveHandle {
-  /** 运行 AI 能力（右栏三行 / 行内 tone 共用）；在途互斥在本面板内。 */
+  /** 运行 AI 能力（右栏三行 / 行内 tone 共用）；有缓存时只开弹窗不再发请求。 */
   runAi: (action: ArcAiAction) => Promise<void>;
   /** 是否有 AI 结果在展示（供右栏行描述态） */
   hasAiSink: () => boolean;
-}
-
-/** 每个 AI 能力保留最近 5 次结果可切回（家族口径） */
-const SINK_MAX = 5;
-
-interface SinkEntry {
-  label: string;
-  node: ReactNode;
-  adopt?: () => void;
 }
 
 interface Props {
@@ -60,11 +53,15 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
   const { arc, saving } = c;
 
   const { record: recordChange } = useChangeReceipt(onReceiptChange);
-  // AI 结果区：按能力分 key，各留最近 5 次
-  const [sinks, setSinks] = useState<Partial<Record<ArcAiAction, { list: SinkEntry[]; idx: number }>>>({});
+  // 弹窗出卡：按能力分 key 缓存最近一版（重开免请求，D9）；同一时刻只开一张卡
+  const [cards, setCards] = useState<Partial<Record<ArcAiAction, AiCardState>>>({});
+  const [versions, setVersions] = useState<Partial<Record<ArcAiAction, number>>>({});
+  const [cardAction, setCardAction] = useState<ArcAiAction | null>(null);
+  const [cardOpen, setCardOpen] = useState(false);
+  const [cardError, setCardError] = useState("");
   const [aiRunning, setAiRunning] = useState<ArcAiAction | null>(null);
   const aiBusyRef = useRef(false);
-  /** 采纳时刻的真实改前值（sink 创建晚于 patch，闭包里的 arc 会过期） */
+  /** 采纳时刻的真实改前值（卡创建晚于 patch，闭包里的 arc 会过期） */
   const arcRef = useRef(arc);
   arcRef.current = arc;
 
@@ -73,23 +70,22 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
     () => ({
       save: () => c.save(),
       markDirty: undefined,
-      clearAi: () => setSinks({}),
+      clearAi: () => {
+        setCards({});
+        setVersions({});
+        setCardAction(null);
+        setCardOpen(false);
+        setCardError("");
+      },
       runAi: (action) => runAi(action),
-      hasAiSink: () => Object.keys(sinks).length > 0,
+      hasAiSink: () => Object.keys(cards).length > 0,
     }),
-    [c, sinks],
+    [c, cards],
   );
 
   const patch = (p: Partial<ArcData>) => c.patch(p);
 
-  const pushSink = useCallback((action: ArcAiAction, entry: SinkEntry) => {
-    setSinks((prev) => {
-      const list = [...(prev[action]?.list ?? []), entry].slice(-SINK_MAX);
-      return { ...prev, [action]: { list, idx: list.length - 1 } };
-    });
-  }, []);
-
-  /** 采纳快照 + 回执一步撤销（沿 IntroPanel 模式） */
+  /** 采纳快照 + 回执一步撤销（沿 IntroPanel 模式）；确认后关弹窗 */
   const adoptWithReceipt = useCallback(
     (text: string, apply: () => void, revert: () => void) => {
       recordChange(
@@ -98,23 +94,37 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
         revert,
       );
       apply();
+      setCardOpen(false);
       toast.success("已采纳，可继续改");
     },
     [recordChange],
   );
 
-  const runAi = useCallback(
+  /** 缓存命中：只开弹窗展示既有结果，不发请求（D9） */
+  const openCached = useCallback((action: ArcAiAction) => {
+    setCards((prev) => (prev[action] ? { ...prev, [action]: { ...prev[action]!, cached: true } } : prev));
+    setCardError("");
+    setCardAction(action);
+    setCardOpen(true);
+  }, []);
+
+  const runRequest = useCallback(
     async (action: ArcAiAction) => {
-      if (aiBusyRef.current) return; // 在途互斥：行内 tone 与 rail 三行共用
       aiBusyRef.current = true;
       setAiRunning(action);
+      setCardError("");
+      setCardAction(action);
+      setCardOpen(true);
       try {
         const r = await api.runArcAi(projectId, action, {});
         const v = r.value ?? {};
+        let entry: AiCardState;
         if (action === "draft") {
           const before = arcRef.current;
-          pushSink(action, {
+          entry = {
             label: "AI 填 · 起草主线",
+            kind: "struct",
+            adoptText: "采纳 · 覆盖全景与结局",
             node: (
               <div>
                 <p style={{ margin: "4px 0" }}><b>从头到尾说什么</b>：{String(v.fullstory ?? "")}</p>
@@ -135,11 +145,14 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
               }),
               () => c.patch(before),
             ) : undefined,
-          });
+            cached: false,
+          };
         } else if (action === "calibrate") {
           const before = arcRef.current.ending;
-          pushSink(action, {
+          entry = {
             label: "AI 填 · 结局校准",
+            kind: "struct",
+            adoptText: "采纳 · 覆盖结局三问",
             node: (
               <div>
                 <p style={{ margin: "4px 0" }}><b>最后一幕</b>：{String(v.scene ?? "")}</p>
@@ -159,11 +172,13 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
               }),
               () => c.patch({ ending: before }),
             ) : undefined,
-          });
+            cached: false,
+          };
         } else if (action === "check") {
           const checks: Array<{ name: string; status: string; note: string }> = Array.isArray(v.checks) ? v.checks : [];
-          pushSink(action, {
+          entry = {
             label: "AI 体检 · 主线自检",
+            kind: "report",
             node: (
               <div className="chk-grid" data-od-id="arc-check-lines">
                 {checks.map((ck) => (
@@ -180,37 +195,63 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
                 ) : null}
               </div>
             ),
-          });
+            cached: false,
+          };
         } else {
           // tone：行内基调建议
           const before = arcRef.current.ending.tone;
-          pushSink(action, {
+          entry = {
             label: "AI 填 · 结局基调",
+            kind: "text",
             node: <p style={{ margin: "4px 0" }}>{String(v.tone ?? "")}</p>,
             adopt: v.tone ? () => adoptWithReceipt(
               "已采纳「AI 填 · 结局基调」，可改",
               () => c.patch({ ending: { ...arcRef.current.ending, tone: String(v.tone) } }),
               () => c.patch({ ending: { ...arcRef.current.ending, tone: before } }),
             ) : undefined,
-          });
+            cached: false,
+          };
         }
+        setCards((prev) => ({ ...prev, [action]: entry }));
+        setVersions((prev) => ({ ...prev, [action]: (prev[action] ?? 0) + 1 }));
       } catch (e: unknown) {
         const reason = aiBlockReason(e);
-        if (reason === "member_required") {
-          toast.info("这是会员功能，升级 PRO 后解锁——免费版写作能力完整");
-        } else if (reason === "no_key") {
-          toast.info((e as Error).message || "先去「模型配置」添加 API Key");
-        } else if (reason === "missing_model" || reason === "invalid") {
-          toast.info("先在本书选择模型");
-        } else {
-          toast.error((e as Error).message || "暂不可用，请重试");
+        const msg =
+          reason === "member_required"
+            ? "这是会员功能，升级 PRO 后解锁——免费版写作能力完整"
+            : reason === "no_key"
+              ? (e as Error).message || "先去「模型配置」添加 API Key"
+              : reason === "missing_model" || reason === "invalid"
+                ? "先在本书选择模型"
+                : (e as Error).message || "暂不可用，请重试";
+        if (cards[action]) setCardError(msg);
+        else {
+          // 无既有结果：挡掉原因（未配模型/会员）仍走 toast 分流，生成失败进弹窗错误体
+          if (reason === "member_required" || reason === "no_key" || reason === "missing_model" || reason === "invalid") {
+            setCardOpen(false);
+            toast.info(msg);
+          } else {
+            setCardError(msg);
+          }
         }
       } finally {
         aiBusyRef.current = false;
         setAiRunning(null);
       }
     },
-    [projectId, c, pushSink, adoptWithReceipt],
+    [projectId, c, adoptWithReceipt, cards],
+  );
+
+  const runAi = useCallback(
+    async (action: ArcAiAction) => {
+      if (aiBusyRef.current) return; // 在途互斥：行内 tone 与 rail 三行共用
+      if (cards[action]) {
+        openCached(action); // 重开＝展示缓存，不重复生成（D9）
+        return;
+      }
+      await runRequest(action);
+    },
+    [cards, openCached, runRequest],
   );
 
   if (c.loading) {
@@ -230,30 +271,6 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
     );
   }
 
-  const renderSink = (action: ArcAiAction, odId: string, adoptText?: string) => {
-    const st = sinks[action];
-    if (!st) return null;
-    const entry = st.list[st.idx];
-    return (
-      <AiSink
-        label={entry.label}
-        history={{
-          total: st.list.length,
-          active: st.idx,
-          max: SINK_MAX,
-          onSelect: (i) =>
-            setSinks((prev) => (prev[action] ? { ...prev, [action]: { ...prev[action]!, idx: i } } : prev)),
-        }}
-        adoptText={adoptText}
-        onAdopt={entry.adopt}
-        onRetry={() => void runAi(action)}
-        data-od-id={odId}
-      >
-        {entry.node}
-      </AiSink>
-    );
-  };
-
   return (
     <div className="story-arc-form">
       {/* ① 这本书从头到尾说什么 */}
@@ -272,7 +289,6 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
           data-od-id="arc-fullstory"
           onChange={(e) => patch({ fullstory: e.target.value })}
         />
-        {renderSink("draft", "arc-ai-sink-draft", "采纳 · 覆盖全景与结局")}
       </div>
 
       {/* ② 结局是什么：三个问题让作家回答，答完即锚 */}
@@ -335,26 +351,9 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
               data-od-id="arc-ending-tone"
               onChange={(e) => patch({ ending: { ...arc.ending, tone: e.target.value } })}
             />
-            {aiRunning === "tone" && (
-              <div className="ai-sink" data-od-id="arc-tone-ai-running" aria-busy="true">
-                <div className="aiz-head">AI 填 · 结局基调 · 生成中…</div>
-                <span className="opt" style={{ fontSize: 12 }}>AI 正在生成，请稍候…</span>
-              </div>
-            )}
-            {renderSink("tone", "arc-ai-sink-tone")}
           </div>
         </div>
-        {renderSink("calibrate", "arc-ai-sink-ending", "采纳 · 覆盖结局三问")}
       </div>
-
-      {/* 主线体检落面板级结果区（任意块可见） */}
-      {aiRunning === "check" && (
-        <div className="ai-sink" data-od-id="arc-ai-check-running" aria-busy="true">
-          <div className="aiz-head">AI 体检 · 主线自检 · 生成中…</div>
-          <span className="opt" style={{ fontSize: 12 }}>AI 正在生成，请稍候…</span>
-        </div>
-      )}
-      {renderSink("check", "arc-ai-sink-check")}
 
       {/* 「怎么写」搭建法（guide 家族） */}
       <ArcGuide />
@@ -362,6 +361,18 @@ const StoryArcForm = forwardRef<ArcFormHandle, Props>(function StoryArcForm(
       <p className="opt" style={{ fontSize: 12, margin: "-4px 0 16px" }}>
         主线是总方向盘，不拦写作：没填也不影响直接去建卷写章。
       </p>
+
+      {/* AI 出卡确认弹窗：右栏三行＋行内 tone 共用（关闭即弃；缓存重开免请求） */}
+      <AiCardModal
+        open={cardOpen && cardAction !== null}
+        card={cardAction ? cards[cardAction] ?? null : null}
+        running={cardAction !== null && aiRunning === cardAction}
+        error={cardAction !== null && aiRunning !== cardAction ? cardError : undefined}
+        version={cardAction ? versions[cardAction] : undefined}
+        onClose={() => setCardOpen(false)}
+        onRegenerate={cardAction ? () => void runRequest(cardAction) : undefined}
+        data-testid="arc-ai-card"
+      />
     </div>
   );
 });

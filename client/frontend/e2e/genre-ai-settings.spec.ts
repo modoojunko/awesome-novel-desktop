@@ -138,7 +138,7 @@ async function openSetting(page: Page, name: string) {
 }
 
 test.describe("题材/简介 AI 链路", () => {
-  test("ready：体检结果落简介框下方（右栏无答案）→ 采纳后简介变长（9.4.5/9.4.11）", async ({
+  test("ready：体检报告进弹窗（右栏无答案）→ 关闭即弃不改简介（9.4.5/9.4.11）", async ({
     page,
   }) => {
     const { restore } = await setupSession(page);
@@ -163,17 +163,21 @@ test.describe("题材/简介 AI 链路", () => {
       await page.getByPlaceholder(/用几句话/).fill("外门杂徒林拾在宗门扫落叶。");
       await page.locator('[data-aiact="check"]').click();
 
-      // 结果落简介框下方（.ai-sink 在 textarea 之后）；右栏不出答案
-      const sink = page.locator('[data-od-id="intro-ai-sink"]');
-      await expect(sink).toBeVisible({ timeout: 10000 });
-      await expect(sink).toContainText("AI 体检 · 六段逐项");
-      await expect(sink).toContainText("主角身份");
+      // 结果进 intro-ai-card 弹窗（portal 到 body）：标题＝体检名，卡体＝六段行
+      const dialog = page.getByRole("dialog");
+      const body = page.getByTestId("intro-ai-card");
+      await expect(dialog).toBeVisible({ timeout: 10000 });
+      await expect(dialog).toContainText("AI 体检 · 六段逐项");
+      await expect(body).toContainText("主角身份");
       // 右栏只作按钮（不出答案正文——体检摘要句不得出现在右栏）
-      const rightRail = page.locator(".col-ai .rail-assist");
+      const rightRail = page.locator('.col-ai [data-od-id="ai-assist"]'); // 设定域 AI 卡（卷规划卡同栏，须点名）
       await expect(rightRail).not.toContainText("外门杂徒林拾");
       expect(aiCalled).toBe(1);
 
-      // 无采纳按钮（体检只提醒）→ 简介不被改写
+      // 无写回键（体检只提醒）→ 关闭即弃，简介不被改写
+      await expect(page.getByTestId("ai-card-adopt")).toHaveCount(0);
+      await page.locator(".mcard-foot").getByRole("button", { name: "关闭" }).click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       const before = await page.getByPlaceholder(/用几句话/).inputValue();
       expect(before).toContain("林拾");
     } finally {
@@ -181,27 +185,46 @@ test.describe("题材/简介 AI 链路", () => {
     }
   });
 
-  test("题材五行 AI：建议落对应格下方，采纳写回该控件（9.4.6）", async ({ page }) => {
+  test("题材五行 AI：弹窗出卡 → 采纳写回该控件；重开走缓存、换一个版数递增（9.4.6）", async ({
+    page,
+  }) => {
     const { restore } = await setupSession(page);
     try {
       const pid = await createNovel(page, `AI题材${Date.now() % 100000}`);
       await stubAiState(page, pid, "ready");
-      await page.route(`**/api/novels/${pid}/settings/ai/genre/cost_ratio`, (r) =>
-        r.fulfill({ json: { value: 8 } }),
-      );
+      let aiCalled = 0;
+      await page.route(`**/api/novels/${pid}/settings/ai/genre/cost_ratio`, (r) => {
+        aiCalled += 1;
+        return r.fulfill({ json: { value: 8 } });
+      });
 
       await page.getByRole("button", { name: /^设定/ }).click();
       await openSetting(page, "题材");
       await expect(page.locator(".settings-v .mod")).toHaveCount(5);
 
       await page.locator('[data-aiact="m3"]').click();
-      const sink = page.locator('[data-od-id="genre-ai-sink-cost_ratio"]');
-      await expect(sink).toBeVisible({ timeout: 10000 });
-      await expect(sink).toContainText("建议 8 分");
+      const dialog = page.getByRole("dialog");
+      await expect(dialog).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId("genre-ai-card")).toContainText("建议 8 分");
+      await expect(page.getByTestId("ai-card-version")).toHaveText("第 1 版");
 
-      await sink.getByRole("button", { name: "采纳 · 覆盖" }).click();
+      // 采纳 · 覆盖 → 弹窗关 + 写回滑杆与句子
+      await page.getByTestId("ai-card-adopt").click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(page.locator(".settings-v .cost-val")).toHaveText("8");
       await expect(page.locator('[data-od-id="cost-sentence"]')).toContainText("8 分");
+
+      // D9：同一能力行再点＝重开缓存展示（来源提示条），请求计数不变
+      await page.locator('[data-aiact="m3"]').click();
+      await expect(page.getByTestId("ai-card-cache")).toBeVisible({ timeout: 10000 });
+      expect(aiCalled).toBe(1);
+      // 换一个 → 真重发：版数徽标递增；关闭即弃，字段保持采纳值
+      await page.getByTestId("ai-card-regen").click();
+      await expect(page.getByTestId("ai-card-version")).toHaveText("第 2 版", { timeout: 10000 });
+      expect(aiCalled).toBe(2);
+      await page.locator(".mcard-foot").getByRole("button", { name: "关闭" }).click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await expect(page.locator(".settings-v .cost-val")).toHaveText("8");
     } finally {
       await restore();
     }
@@ -222,13 +245,14 @@ test.describe("题材/简介 AI 链路", () => {
 
       await page.getByRole("button", { name: /^设定/ }).click();
       // 卡片可见 + 锁定；名称/描述仍在
-      const card = page.locator(".col-ai .rail-assist");
+      const card = page.locator('.col-ai [data-od-id="ai-assist"]');
       await expect(card).toBeVisible({ timeout: 10000 });
       await expect(card).toHaveClass(/locked/);
       await expect(card).toContainText("体检");
 
       await page.locator('[data-aiact="check"]').click();
-      await expect(page.locator('[data-od-id="intro-ai-sink"]')).toHaveCount(0);
+      await expect(page.getByTestId("intro-ai-card")).toHaveCount(0);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       expect(aiCalled).toBe(0);
 
       // 模型窗（人工路径）不锁：可进、可选
@@ -251,7 +275,7 @@ test.describe("题材/简介 AI 链路", () => {
       });
 
       await page.getByRole("button", { name: /^设定/ }).click();
-      await expect(page.locator(".col-ai .rail-assist")).toContainText("先在本书选择模型", {
+      await expect(page.locator('.col-ai [data-od-id="ai-assist"]')).toContainText("先在本书选择模型", {
         timeout: 10000,
       });
       await page.locator('[data-aiact="check"]').click();
@@ -273,7 +297,7 @@ test.describe("题材/简介 AI 链路", () => {
       // 前端副标题优先后端 message——stub 须按真实契约文案，否则与本地兜底映射对不上
       await stubAiState(page, pid, "no_key", "暂无可用 API Key — 先去「模型配置」添加");
       await page.getByRole("button", { name: /^设定/ }).click();
-      const card = page.locator(".col-ai .rail-assist");
+      const card = page.locator('.col-ai [data-od-id="ai-assist"]');
       await expect(card).toContainText("先去「模型配置」添加", { timeout: 10000 });
 
       // no_key → 去模型配置（hash 跳转）
@@ -396,10 +420,10 @@ test("AI 行连点：只发 1 个请求，且有「生成中」可见反馈（9.
     await expect(row).toBeVisible({ timeout: 10000 });
 
     await row.click();
-    // 立刻可见的运行反馈：行高亮 + 「生成中…」+ 输入框下方占位
+    // 立刻可见的运行反馈：行高亮 + 「生成中」＋弹窗 loading 占位（内嵌占位退役）
     await expect(row).toHaveClass(/ra-running/, { timeout: 2000 });
     await expect(row).toBeDisabled();
-    await expect(page.locator('[data-od-id="intro-ai-running"]')).toBeVisible();
+    await expect(page.getByTestId("ai-card-loading")).toBeVisible();
 
     // 连点 5 次（含同一 tick 的同步派发）——不得再发请求
     for (let i = 0; i < 5; i++) await row.click({ force: true, timeout: 1000 }).catch(() => {});
@@ -409,25 +433,24 @@ test("AI 行连点：只发 1 个请求，且有「生成中」可见反馈（9.
     });
     expect(hits).toBe(1);
 
-    // 完成后回到常态，结果落简介框下方
-    await expect(page.locator('[data-od-id="intro-ai-sink"]')).toBeVisible({ timeout: 10000 });
+    // 完成后回到常态，报告在弹窗卡体内
+    await expect(page.getByTestId("intro-ai-card")).toBeVisible({ timeout: 10000 });
     expect(hits).toBe(1);
   } finally {
     await restore();
   }
 });
 
-// ── 生成历史（最近 5 次）+ 采纳整段替换（用户要求：避免无限抽卡/反悔）──────
-test("简介 AI：生成 6 次只留最近 5 次；切回旧版采纳＝整段替换不叠加", async ({ page }) => {
+// ── 换一个重生成（版数徽标）+ 采纳整段替换（历史切条退役：只留最新一版）──────
+test("简介 AI：换一个重生成版数递增；采纳＝整段替换 + 回执撤销", async ({ page }) => {
   const { restore } = await setupSession(page);
   try {
-    const pid = await createNovel(page, `历史${Date.now() % 100000}`);
+    const pid = await createNovel(page, `补全${Date.now() % 100000}`);
     await stubAiState(page, pid, "ready");
     let seq = 0;
-    await page.route(`**/api/novels/${pid}/settings/ai/intro/fill`, async (r) => {
+    await page.route(`**/api/novels/${pid}/settings/ai/intro/fill`, (r) => {
       seq += 1;
       const s = seq;
-      await new Promise((res) => setTimeout(res, 100));
       return r.fulfill({
         json: { missing: [{ name: "突发状况", candidate: `候选第${s}版` }], act: "insert" },
       });
@@ -439,39 +462,31 @@ test("简介 AI：生成 6 次只留最近 5 次；切回旧版采纳＝整段�
     await page.getByRole("button", { name: /^设定/ }).click();
     const ta = page.getByPlaceholder(/用几句话/);
     await ta.fill("我手写的开头");
+    // fill 依赖先体检（introspected 门控）：先出体检卡再关闭
     await page.locator('[data-aiact="check"]').click();
-    const sink = page.locator('[data-od-id="intro-ai-sink"]');
-    await expect(sink).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("intro-ai-card")).toBeVisible({ timeout: 10000 });
+    await page.locator(".mcard-foot").getByRole("button", { name: "关闭" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
 
     await page.locator('[data-aiact="fill"]').click();
-    await expect(sink).toContainText("候选第1版", { timeout: 10000 });
-    // 再点 5 次「重试」→ 共 6 次
-    for (let i = 0; i < 5; i++) {
-      await sink.getByRole("button", { name: "重试" }).click();
-      await expect(sink).toContainText(`候选第${seq}版`, { timeout: 10000 });
-    }
+    const card = page.getByTestId("intro-ai-card");
+    await expect(card).toContainText("候选第1版", { timeout: 10000 });
+    await expect(page.getByTestId("ai-card-version")).toHaveText("第 1 版");
+    // 换一个 → 真重发：卡体刷新为最新版，版数徽标递增
+    await page.getByTestId("ai-card-regen").click();
+    await expect(card).toContainText("候选第2版", { timeout: 10000 });
+    await expect(page.getByTestId("ai-card-version")).toHaveText("第 2 版");
 
-    const chips = page.locator('[data-od-id="ai-sink-history"] [data-hist]');
-    await expect(chips).toHaveCount(5); // 只保留最近 5 次
-    await expect(page.locator('[data-od-id="ai-sink-history"]')).toContainText("只保留最近 5 次");
-
-    // 切回保留的第 1 条（＝第 2 次生成）采纳 → 整段替换「原文 + 本次候选」
-    await chips.first().click();
-    await expect(sink).toContainText("候选第2版");
-    await sink.getByRole("button", { name: /采纳 · 替换为补全后的简介/ }).click();
+    // 采纳 → 以手写原文为基准整段替换（不叠加上一版候选）
+    await page.getByTestId("ai-card-adopt").click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(ta).toHaveValue("我手写的开头。候选第2版");
-
-    // 切到最新一条（第 6 次生成）再采纳 → 仍以手写原文为基准，不叠加上一版
-    await chips.last().click();
-    await expect(sink).toContainText("候选第6版");
-    await sink.getByRole("button", { name: /采纳 · 替换为补全后的简介/ }).click();
-    await expect(ta).toHaveValue("我手写的开头。候选第6版");
 
     // 改动回执（一键覆盖类动作必须可回退）：回执 + 撤销 → 简介回到采纳前
     const receipt = page.locator('[data-od-id="panel-receipt"]');
     await expect(receipt).toContainText("已采纳「补全缺失」");
     await page.locator('[data-od-id="panel-undo"]').click();
-    await expect(ta).toHaveValue("我手写的开头。候选第2版");
+    await expect(ta).toHaveValue("我手写的开头");
     await expect(receipt).toHaveCount(0);
   } finally {
     await restore();

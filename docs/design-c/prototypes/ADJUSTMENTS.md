@@ -1436,3 +1436,17 @@ AiWriterAssistant 为模版。涉及写作域三处右栏面板的全量换装�
 - 缺口卡「加人」区新增第三入口「选已有角色」（零 AI 全免费）：点开列出本书角色卡名（不含别名），已在本章出场名单的置灰标「已在名单」不可点；选中走「只加名单」同款写入链（零建卡），回执标注「用的是书里已有的角色卡（不重复建卡）」。解决同一人物被多段判缺、各段只荐建新卡无处复用的问题。
 - 新词：cr-existing/cr-exist-row（缺口卡内嵌候选 chips）；chip/no-card/cr-done/lnk 复用现役。
 - 适用场景演示：s5（缺口决策）g-act 行＋内嵌候选块。
+
+## c-settings-ai-confirm-modal 设定域 AI 出卡确认弹窗（2026-09-28）
+
+- **退役**：设定域四原型（character-settings / foreshadow-settings / genre-signup / style-settings）
+  的 `.ai-sink` 内嵌结果区演示节点（全部 `hidden`，不在任何 parity 截图态出现）——DOM 节点移除、
+  对应演示 JS 填充加空守卫；`.aiz-hist/.ah-chip`「最近 5 次」历史切条随之退役。
+- **替代**：AI 结果统一走应用侧「AI 出卡确认弹窗」（复用 book.html modal-delete/modal-prefs 的
+  应用侧模态先例）：确认才写回、关闭即弃；体检＝只读报告卡；候选勾选卡（题材多看点/伏笔起草）；
+  版数徽标「第 N 版」＋「换一个」重生成。
+- **不进 parity 截图**：弹窗态沿「应用侧扩展不进 parity 截图」先例（同 modal-delete），验收走
+  应用侧单测/e2e（DOM 断言＋隔离栈走查截图）。book.html 实测零 `.ai-sink`，不在本批清单。
+- 新词：`ai-card-body`（弹窗卡体容器，原 `.settings-v .ai-sink` 作用域词汇 `.chk-line/.chk-grid/
+  .cand/.c-tag/.aa-note/.title-check/.tc-*/.mpt-*` 原样重挂其下）；`.ac-ver/.ac-loading/.ac-busy/
+  .ac-err/.ac-cache` 五个弹窗辅助词。零新增令牌/字号档位/胶囊形态。

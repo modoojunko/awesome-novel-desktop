@@ -14,11 +14,18 @@ const apiState = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => ({ api: apiState, request: vi.fn() }));
 
 const aiState = vi.hoisted(() => ({ genreAi: vi.fn() }));
+const toastState = vi.hoisted(() => ({
+  success: vi.fn(),
+  info: vi.fn(),
+  error: vi.fn(),
+}));
 
 vi.mock("@/lib/ai", () => ({
   genreAi: aiState.genreAi,
   aiBlockReason: (e: { reason?: string }) => e?.reason ?? null,
 }));
+
+vi.mock("@/lib/toast", () => ({ toast: toastState }));
 
 function renderPanel(initial: unknown = {}) {
   apiState.get.mockImplementation((path: string) => {
@@ -331,16 +338,26 @@ describe("GenreSettingForm · 六格", () => {
   });
 });
 
-// ── 五行 AI（tasks 4.2）：反馈落各格下方，采纳才写回 ──────────────────────
+// ── 五行 AI（tasks 4.2 / c-settings-ai-confirm-modal）：结果统一进弹窗出卡，
+//    采纳才写回；关闭即弃；缓存重开免请求（D9）；「换一个」version+1 ──────────
 describe("GenreSettingForm · 五行 AI", () => {
   beforeEach(() => {
     apiState.get.mockReset();
     apiState.put.mockReset();
     apiState.put.mockResolvedValue({ ok: true });
     aiState.genreAi.mockReset();
+    toastState.success.mockClear();
+    toastState.info.mockClear();
+    toastState.error.mockClear();
   });
 
-  it("core_promise：sink 落在 02 格下方，采纳写回 value + note", async () => {
+  /** 弹窗 footer 的「关闭」键（头部 X 的 aria-label 同名，取 DOM 序最后一个＝footer）。 */
+  function footerClose() {
+    const btns = screen.getAllByRole("button", { name: "关闭" });
+    return btns[btns.length - 1];
+  }
+
+  it("core_promise：出卡确认弹窗，采纳写回 value + note（确认即关弹窗）", async () => {
     aiState.genreAi.mockResolvedValue({
       value: { value: "以弱破强的痛快", note: "读者要看到弱者翻盘" },
     });
@@ -349,22 +366,27 @@ describe("GenreSettingForm · 五行 AI", () => {
 
     await act(async () => ref.current!.runAi("core_promise"));
 
-    const sink = container.querySelector('[data-od-id="genre-ai-sink-core_promise"]');
-    expect(sink).toBeTruthy();
+    const card = screen.getByTestId("genre-ai-card");
     expect(screen.getByText("AI 填 · 主要看什么")).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeTruthy();
     expect(aiState.genreAi).toHaveBeenCalledWith(
       "core_promise",
       expect.objectContaining({ title: "" }),
       "p1",
     );
+    // 未采纳前不写回
+    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+      .toBe("");
 
-    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(screen.queryByTestId("genre-ai-card")).toBeNull());
     expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
       .toBe("读者要看到弱者翻盘");
     expect(container.textContent).toContain("标签：以弱破强的痛快");
+    expect(toastState.success).toHaveBeenCalled();
   });
 
-  it("02 多看点：勾选式采纳（单选＝标签+句子；多选＝只拼句子）", async () => {
+  it("02 多看点：卡内 PointChooser 勾选式采纳（单选＝标签+句子；footer 不出确认键）", async () => {
     aiState.genreAi.mockResolvedValue({
       value: [
         { value: "以弱破强的痛快", note: "读者要看到弱者用脑子翻盘" },
@@ -374,16 +396,20 @@ describe("GenreSettingForm · 五行 AI", () => {
     const { ref, container } = renderPanel();
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
-    // 右栏「多给几个看点」→ runAi(field, {multi:true}) → 结果区多条
+    // 右栏「多给几个看点」→ runAi(field, {multi:true}) → 卡内多条候选
     await act(async () => {
       await ref.current!.runAi("core_promise", { multi: true });
     });
-    const multi = container.querySelector('[data-od-id="multi-points"]')!;
+    const card = screen.getByTestId("genre-ai-card");
+    const multi = card.querySelector('[data-od-id="multi-points"]')!;
     expect(multi.querySelectorAll('[data-od-id^="multi-pick-"]')).toHaveLength(2);
+    // 勾选卡：footer 不出 ai-card-adopt（采纳在勾选器内置键）
+    expect(screen.queryByTestId("ai-card-adopt")).toBeNull();
 
     // 单选第二条 → 标签＝该条 value、主框＝该条 note
     fireEvent.click(multi.querySelector('[data-od-id="multi-pick-1"]')!);
     fireEvent.click(screen.getByRole("button", { name: "采纳勾选的这条" }));
+    await waitFor(() => expect(screen.queryByTestId("genre-ai-card")).toBeNull());
     expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
       .toBe("读者想看一次次死里逃生");
     expect(container.textContent).toContain("标签：绝处逢生的紧张");
@@ -402,14 +428,14 @@ describe("GenreSettingForm · 五行 AI", () => {
       await ref.current!.runAi("core_promise", { multi: true });
     });
 
-    const multi = container.querySelector('[data-od-id="multi-points"]')!;
+    const multi = screen.getByTestId("genre-ai-card").querySelector('[data-od-id="multi-points"]')!;
     fireEvent.click(multi.querySelector('[data-od-id="multi-pick-0"]')!);
     fireEvent.click(multi.querySelector('[data-od-id="multi-pick-1"]')!);
     // 按钮文案随勾选数变化 → 明确"这一次会落几条"
     fireEvent.click(screen.getByRole("button", { name: "采纳勾选的 2 条" }));
 
     const box = container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement;
-    expect(box.value).toBe("读者要看到弱者用脑子翻盘；读者想看一次次死里逃生");
+    await waitFor(() => expect(box.value).toBe("读者要看到弱者用脑子翻盘；读者想看一次次死里逃生"));
     // 单一标签表达不了多个看点 → 多选时不写标签（作者想留标签就只勾一条）
     expect(container.textContent).not.toContain("标签：以弱破强的痛快");
   });
@@ -421,8 +447,10 @@ describe("GenreSettingForm · 五行 AI", () => {
 
     await act(async () => ref.current!.runAi("cost_ratio"));
     expect(screen.getByText(/建议 9 分/)).toBeTruthy();
+    expect(screen.getByTestId("genre-ai-card")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(screen.queryByTestId("genre-ai-card")).toBeNull());
     expect(screen.getByText("9 分 → 以命作祭，才封得住那扇门")).toBeTruthy();
   });
 
@@ -442,15 +470,15 @@ describe("GenreSettingForm · 五行 AI", () => {
     await act(async () => {
       await ref.current!.runAi("forbidden_list");
     });
-    const sink = container.querySelector('[data-od-id="genre-ai-sink-forbidden_list"]')!;
-    expect(sink.textContent).toContain("禁白捡神器");
-    expect(sink.textContent).toContain("禁反派降智");
-    expect(sink.textContent).toContain("禁主角靠灵根觉醒翻盘"); // 自定义中文原样
-    expect(sink.textContent).not.toContain("forbidden:"); // 英文 slug 一个都不许露
+    const body = screen.getByTestId("genre-ai-card").textContent!;
+    expect(body).toContain("禁白捡神器");
+    expect(body).toContain("禁反派降智");
+    expect(body).toContain("禁主角靠灵根觉醒翻盘"); // 自定义中文原样
+    expect(body).not.toContain("forbidden:"); // 英文 slug 一个都不许露
 
     // 采纳仍落 tagId（存储契约不变），界面胶囊显示中文
-    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
-    expect(container.querySelector('[data-forbid="forbidden:no-free-powerup"]')).toBeTruthy();
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(container.querySelector('[data-forbid="forbidden:no-free-powerup"]')).toBeTruthy());
     expect(container.textContent).toContain("禁白捡神器");
   });
 
@@ -463,14 +491,14 @@ describe("GenreSettingForm · 五行 AI", () => {
         { tagId: "forbidden:no-villain-idiot" },
       ],
     });
-    const { ref, container } = renderPanel();
-    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+    const { ref } = renderPanel();
+    await waitFor(() => expect(screen.getByText("主要看什么")).toBeTruthy());
     await act(async () => {
       await ref.current!.runAi("forbidden_list");
     });
-    const sink = container.querySelector('[data-od-id="genre-ai-sink-forbidden_list"]')!;
-    expect(sink.textContent).toContain("禁天降外援");
-    expect(sink.textContent).not.toContain("forbidden:");
+    const body = screen.getByTestId("genre-ai-card").textContent!;
+    expect(body).toContain("禁天降外援");
+    expect(body).not.toContain("forbidden:");
   });
 
   it("battlefield：候选 tagId 采纳后落成已选胶囊", async () => {
@@ -481,50 +509,85 @@ describe("GenreSettingForm · 五行 AI", () => {
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     await act(async () => ref.current!.runAi("battlefield"));
-    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
+    await waitFor(() => expect(screen.getByTestId("genre-ai-card")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
 
     expect(container.querySelector('[data-bf="battlefield:resources"]')?.className).toContain("on");
     expect(screen.getByText("街口那条巷子 ×")).toBeTruthy();
   });
 
-
-  it("失败不落 sink（按 reason 分派提示）", async () => {
+  it("失败不落卡：无既有结果时关弹窗＋toast 分流提示", async () => {
     aiState.genreAi.mockRejectedValue({ reason: "missing_model" });
     const { ref, container } = renderPanel();
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     await act(async () => ref.current!.runAi("battlefield"));
+    expect(toastState.info).toHaveBeenCalledWith("先在本书选择模型");
+    await waitFor(() => expect(screen.queryByTestId("genre-ai-card")).toBeNull());
     expect(container.querySelector('[data-od-id="genre-ai-sink-battlefield"]')).toBeNull();
-  });
-});
-
-// 题材四行：最近 5 次历史 + 切回旧版采纳覆盖本格
-describe("GenreSettingForm · 生成历史（最近 5 次）", () => {
-  beforeEach(() => {
-    apiState.get.mockReset();
-    apiState.put.mockReset();
-    apiState.put.mockResolvedValue({ ok: true });
-    aiState.genreAi.mockReset();
+    expect(screen.queryByTestId("ai-card-adopt")).toBeNull();
   });
 
-  it("连生成 6 次只保留最近 5 次；切回旧版采纳覆盖本格", async () => {
+  it("关闭即弃：打开→关闭，格值不变、弹窗无残留", async () => {
+    aiState.genreAi.mockResolvedValue({
+      value: { value: "候选看点", note: "候选说明" },
+    });
     const { ref, container } = renderPanel();
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
-    for (let i = 1; i <= 6; i++) {
-      aiState.genreAi.mockResolvedValueOnce({ value: [{ text: `第${i}版战场` }] });
-      await act(async () => ref.current!.runAi("battlefield"));
-      await waitFor(() => expect(container.textContent).toContain(`第${i}版战场`));
-    }
-    const chips = [...container.querySelectorAll('[data-od-id="ai-sink-history"] [data-hist]')];
-    expect(chips).toHaveLength(5); // 丢最旧
-    expect(container.textContent).toContain("只保留最近 5 次");
+    await act(async () => ref.current!.runAi("core_promise"));
+    await waitFor(() => expect(screen.getByTestId("genre-ai-card")).toBeTruthy());
+    fireEvent.click(footerClose());
+    await waitFor(() => expect(screen.queryByTestId("genre-ai-card")).toBeNull());
+    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+      .toBe("");
+    expect(container.textContent).not.toContain("标签：候选看点");
+    expect(toastState.success).not.toHaveBeenCalled();
+  });
 
-    // 切回第 1 条（＝第 2 次生成）并采纳 → 覆盖 05 战场胶囊
-    fireEvent.click(chips[0]);
-    expect(container.textContent).toContain("第2版战场");
-    fireEvent.click(screen.getByRole("button", { name: "采纳 · 覆盖" }));
-    expect(container.textContent).toContain("第2版战场");
+  it("缓存重开：同一格再点＝重开弹窗展示缓存，不再发请求（D9）", async () => {
+    aiState.genreAi.mockResolvedValue({ value: 9 });
+    const { ref, container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+
+    await act(async () => ref.current!.runAi("cost_ratio"));
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    await waitFor(() => expect(screen.queryByTestId("genre-ai-card")).toBeNull());
+    expect(screen.getByText("9 分 → 以命作祭，才封得住那扇门")).toBeTruthy(); // 已写回
+    expect(aiState.genreAi).toHaveBeenCalledTimes(1);
+
+    await act(async () => ref.current!.runAi("cost_ratio")); // 再点同一行
+    await waitFor(() =>
+      expect(document.querySelector('[data-od-id="ai-card-cache"]')).toBeTruthy(),
+    );
+    expect(screen.getByText(/上次生成结果/)).toBeTruthy();
+    expect(screen.getByText(/建议 9 分/)).toBeTruthy();
+    expect(aiState.genreAi).toHaveBeenCalledTimes(1); // 缓存命中，无新请求
+  });
+
+  it("换一个：重新发请求、版数徽标 +1（第 N 版）；换成新候选采纳覆盖", async () => {
+    aiState.genreAi
+      .mockResolvedValueOnce({ value: [{ text: "第一版战场" }] })
+      .mockResolvedValueOnce({ value: [{ text: "第二版战场" }] });
+    const { ref, container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+
+    await act(async () => ref.current!.runAi("battlefield"));
+    await waitFor(() => expect(screen.getByText(/第一版战场/)).toBeTruthy());
+    expect(screen.getByText("第 1 版")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("ai-card-regen"));
+    });
+    await waitFor(() => expect(screen.getByText(/第二版战场/)).toBeTruthy());
+    expect(screen.queryByText(/第一版战场/)).toBeNull();
+    expect(screen.getByText("第 2 版")).toBeTruthy();
+    expect(aiState.genreAi).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByTestId("ai-card-adopt"));
+    // 旧候选没被写回；新候选（自定义文本）落成胶囊
+    expect(container.querySelector('[data-bf="battlefield:resources"]')?.className).not.toContain("on");
+    expect(container.textContent).toContain("第二版战场");
   });
 });
 

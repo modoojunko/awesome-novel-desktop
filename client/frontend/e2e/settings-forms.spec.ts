@@ -1097,13 +1097,14 @@ test("角色体检：身心一致三问（好矛盾判达标、真冲突判矛�
         }),
     );
 
-    // 右栏点「一致性体检」→ 卡内 sink 渲染 9 项，含大白话好矛盾/真冲突
+    // 右栏点「一致性体检」→ char-ai-card 报告卡弹窗渲染 9 项，含大白话好矛盾/真冲突
     await page.locator('[data-aiact="check"]').click();
-    const sink = page.locator(".sec .ai-sink");
-    await expect(sink).toContainText("人设与行事对得上吗", { timeout: 5000 });
-    await expect(sink).toContainText("好矛盾：安稳的人干着最玩命的活，是看点");
-    await expect(sink).toContainText("真冲突：底线与手段打架了，二选一改");
-    await expect(sink).toContainText("缺输入");
+    const card = page.getByTestId("char-ai-card");
+    await expect(card).toBeVisible({ timeout: 5000 });
+    await expect(card).toContainText("人设与行事对得上吗");
+    await expect(card).toContainText("好矛盾：安稳的人干着最玩命的活，是看点");
+    await expect(card).toContainText("真冲突：底线与手段打架了，二选一改");
+    await expect(card).toContainText("缺输入");
   } finally {
     await restore();
   }

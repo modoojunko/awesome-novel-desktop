@@ -22,6 +22,7 @@ import { toast } from "@/lib/toast";
 import { useDirtyState } from "@/hooks/useDirtyState";
 import { SettingSaveHandle } from "../FormField";
 import { useChangeReceipt, type ChangeReceiptState } from "../ChangeReceipt";
+import AiCardModal from "../AiCardModal";
 import KvListEditor, { type KvRow } from "./KvListEditor";
 
 /** 契约 v2 形状（与后端 settings/world_model.py 逐字对应）。 */
@@ -136,20 +137,37 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
   const { snapshotLoaded, markSaved, markDirty } = useDirtyState(world, onDirtyChange);
   const { record } = useChangeReceipt(onReceiptChange);
 
-  interface SinkEntry {
+  // ── AI 出卡确认弹窗（c-settings-ai-confirm-modal）：每行缓存最近一版结果，
+  //    重开同一行直接展示缓存不再发请求，「换一个」才重新生成（D9）；
+  //    体检报告卡单独开合（AI 补采纳后自动回报告，D6）。────
+  interface GenEntry {
     txt: string;
     value: string | Array<{ name: string; note: string }> | Array<{ key: string; value: string }>;
+    kind: "text" | "struct";
+    cached: boolean;
   }
-  const [sinks, setSinks] = useState<Record<string, { list: SinkEntry[]; idx: number }>>({});
+  const [cards, setCards] = useState<Partial<Record<WorldSinkKey, GenEntry>>>({});
+  const [versions, setVersions] = useState<Partial<Record<WorldSinkKey | "check", number>>>({});
+  const [cardKey, setCardKey] = useState<WorldSinkKey | null>(null);
+  const [cardOpen, setCardOpen] = useState(false);
+  const [cardError, setCardError] = useState("");
   const [check, setCheck] = useState<WorldCheckResult | null>(null);
+  const [checkOpen, setCheckOpen] = useState(false);
+  const [checkCached, setCheckCached] = useState(false);
+  /** 报告卡内已用「AI 补」处理过的检查项（点名字标注已处理） */
+  const [checkProcessed, setCheckProcessed] = useState<string[]>([]);
   const [runningKey, setRunningKey] = useState<string | null>(null);
   const busyRef = useRef(false);
   const dataRef = useRef(world);
   dataRef.current = world;
+  const checkRef = useRef(check);
+  checkRef.current = check;
 
   useEffect(() => {
-    setSinks({});
+    setCards({});
+    setVersions({});
     setCheck(null);
+    setCheckProcessed([]);
   }, [projectId]);
 
   // 现实向状态上报：右栏力量两行随之退场
@@ -219,54 +237,24 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
     stage: "世界舞台", power: "力量体系", cost: "力量的代价",
     factions: "势力", constraints: "世界铁律",
   };
-  const runAi = async (key: WorldAiField | "check"): Promise<void> => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setRunningKey(key);
-    try {
-      if (key === "check") {
-        const r = await worldConsistencyCheck(projectId);
-        setCheck({
-          items: Array.isArray(r?.items) ? r.items : [],
-          degraded: Boolean(r?.degraded),
-          verdict: String(r?.verdict ?? ""),
-        });
-      } else {
-        const shape = SINK_SHAPE[key as WorldSinkKey] ?? "text";
-        const res = await worldDraftTopic(SINK_TOPIC[key as WorldSinkKey] ?? key, projectId, shape);
-        const raw = res.value;
-        const rows = Array.isArray(raw) ? raw : null;
-        const txt = rows
-          ? rows
-              .map((r) =>
-                "name" in r
-                  ? `${r.name}${r.note ? `：${r.note}` : ""}`
-                  : `${r.key}：${r.value}`,
-              )
-              .join("\n")
-          : String(raw);
-        setSinks((prev) => {
-          const h = prev[key] ?? { list: [], idx: -1 };
-          const list = [...h.list, { txt, value: rows ?? txt }].slice(-5);
-          return { ...prev, [key]: { list, idx: list.length - 1 } };
-        });
-      }
-    } catch (e) {
-      const reason = aiBlockReason(e);
-      if (reason === "member_required") toast.info("AI 是会员功能，升级 PRO 后解锁");
-      else if (reason === "no_key") toast.info((e as Error).message || "先去「模型配置」添加 API Key");
-      else if (reason === "missing_model" || reason === "invalid") toast.info("先在本书选择模型");
-      else toast.error((e as Error).message || "暂不可用，请重试");
-    } finally {
-      busyRef.current = false;
-      setRunningKey(null);
-    }
+  /** 检查项名 ← 生成行（AI 补采纳后回报告标注「已处理」，D6） */
+  const CHECK_FIX_ITEM: Partial<Record<WorldSinkKey, string>> = {
+    power: "力量与上限",
+    cost: "代价与边界",
+    constraints: "铁律 × 简介",
+    factions: "势力立场",
   };
 
+  /** 采纳收尾：标注已处理；有体检报告在则自动回报告卡（D6 修补循环不断链） */
+  const afterAdopt = useCallback((key: WorldSinkKey) => {
+    const item = CHECK_FIX_ITEM[key];
+    if (item) setCheckProcessed((prev) => (prev.includes(item) ? prev : [...prev, item]));
+    if (checkRef.current) setCheckOpen(true);
+  }, []);
+
   const adopt = (key: "stage" | "power" | "cost" | "factions" | "constraints") => {
-    const h = sinks[key];
-    if (!h) return;
-    const entry = h.list[h.idx];
+    const entry = cards[key];
+    if (!entry) return;
     const before = dataRef.current;
     // 形状守卫：结构化格收到错配 value（AI 抖动/契约漂移）时降级，不崩渲染
     const isFactionRows = (v: unknown): v is WorldFaction[] =>
@@ -309,7 +297,92 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
         () => setWorld((w) => ({ ...w, [key]: beforeText })),
       );
     }
+    setCardOpen(false);
+    afterAdopt(key);
     toast.success("已采纳，落回对应格，可撤销或继续改");
+  };
+
+  /** 缓存命中：只开弹窗展示既有结果，不发请求（D9）。 */
+  const openCached = useCallback((key: WorldSinkKey | "check") => {
+    if (key === "check") {
+      if (!checkRef.current) return;
+      setCheckCached(true);
+      setCheckOpen(true);
+    } else {
+      setCards((prev) => (prev[key] ? { ...prev, [key]: { ...prev[key]!, cached: true } } : prev));
+      setCardError("");
+      setCardKey(key);
+      setCardOpen(true);
+    }
+  }, []);
+
+  const runRequest = async (key: WorldAiField | "check"): Promise<void> => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setRunningKey(key);
+    setCardError("");
+    try {
+      if (key === "check") {
+        const r = await worldConsistencyCheck(projectId);
+        setCheckProcessed([]);
+        setCheckCached(false);
+        setCheck({
+          items: Array.isArray(r?.items) ? r.items : [],
+          degraded: Boolean(r?.degraded),
+          verdict: String(r?.verdict ?? ""),
+        });
+        setCheckOpen(true);
+      } else {
+        const shape = SINK_SHAPE[key as WorldSinkKey] ?? "text";
+        const res = await worldDraftTopic(SINK_TOPIC[key as WorldSinkKey] ?? key, projectId, shape);
+        const raw = res.value;
+        const rows = Array.isArray(raw) ? raw : null;
+        const txt = rows
+          ? rows
+              .map((r) =>
+                "name" in r
+                  ? `${r.name}${r.note ? `：${r.note}` : ""}`
+                  : `${r.key}：${r.value}`,
+              )
+              .join("\n")
+          : String(raw);
+        setCards((prev) => ({
+          ...prev,
+          [key]: { txt, value: rows ?? txt, kind: shape === "text" ? "text" : "struct", cached: false },
+        }));
+        setCardKey(key as WorldSinkKey);
+        setCardOpen(true);
+      }
+      setVersions((prev) => ({ ...prev, [key]: (prev[key as WorldSinkKey | "check"] ?? 0) + 1 }));
+    } catch (e) {
+      const reason = aiBlockReason(e);
+      const msg =
+        reason === "member_required"
+          ? "AI 是会员功能，升级 PRO 后解锁"
+          : reason === "no_key"
+            ? (e as Error).message || "先去「模型配置」添加 API Key"
+            : reason === "missing_model" || reason === "invalid"
+              ? "先在本书选择模型"
+              : (e as Error).message || "暂不可用，请重试";
+      const hasCache = key === "check" ? !!checkRef.current : !!cards[key as WorldSinkKey];
+      if (hasCache) setCardError(msg);
+      else {
+        toast.info(msg);
+      }
+    } finally {
+      busyRef.current = false;
+      setRunningKey(null);
+    }
+  };
+
+  const runAi = async (key: WorldAiField | "check"): Promise<void> => {
+    if (busyRef.current) return;
+    const hasCache = key === "check" ? !!checkRef.current : !!cards[key as WorldSinkKey];
+    if (hasCache) {
+      openCached(key as WorldSinkKey | "check"); // 重开＝展示缓存，不重复生成（D9）
+      return;
+    }
+    await runRequest(key);
   };
 
   useImperativeHandle(
@@ -318,8 +391,13 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
       save,
       markDirty,
       clearAi: () => {
-        setSinks({});
+        setCards({});
+        setVersions({});
+        setCardKey(null);
+        setCardOpen(false);
         setCheck(null);
+        setCheckOpen(false);
+        setCheckProcessed([]);
       },
       runAi: (key) => runAi(key),
     }),
@@ -352,52 +430,34 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
     "题材 × 世界": "genre",
   };
 
-  /** 体检项 → AI 补：调用对应生成端点，结果落到对应格；账本类两项手动补 */
+  /** 体检项 → AI 补：关报告卡→开对应生成卡（结果落弹窗，采纳后自动回报告，D6）；账本类两项手动补 */
   const checkFixAi = (name: string) => {
     const map: Record<string, () => Promise<void>> = {
-      "力量与上限": () => runAi("power"),
-      "代价与边界": () => runAi("cost"),
-      "铁律 × 简介": () => runAi("constraints"),
-      "势力立场": () => runAi("factions"),
+      "力量与上限": () => runRequest("power"),
+      "代价与边界": () => runRequest("cost"),
+      "铁律 × 简介": () => runRequest("constraints"),
+      "势力立场": () => runRequest("factions"),
     };
     const fn = map[name];
-    if (fn) void fn();
-    else toast.info("该项需要你手动补充");
+    if (fn) {
+      setCheckOpen(false); // 关报告卡再开生成卡（一次生成一个格，不并发）
+      void fn();
+    } else toast.info("该项需要你手动补充");
   };
 
-  const sinkZone = (key: WorldSinkKey, label: string) => {
-    const h = sinks[key];
-    if (!h) return null;
-    const entry = h.list[h.idx];
-    return (
-      <div className="ai-sink" data-ans-zone={key} aria-busy={runningKey === key}>
-        <div className="aiz-head">AI 填 · {label}</div>
-        {h.list.length > 1 && (
-          <div className="aiz-hist" data-od-id="ai-sink-history">
-            <span className="ah-t">最近 {h.list.length} 次</span>
-            {h.list.map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                aria-pressed={i === h.idx}
-                className={`ah-chip${i === h.idx ? " on" : ""}`}
-                data-hist={i}
-                onClick={() => setSinks((prev) => prev[key] ? { ...prev, [key]: { ...prev[key], idx: i } } : prev)}
-              >
-                第 {i + 1} 次
-              </button>
-            ))}
-            {h.list.length >= 5 && <span className="ah-t">（只保留最近 5 次）</span>}
-          </div>
-        )}
-        <p style={{ margin: "4px 0" }}>{entry.txt}</p>
-        <div className="ans-act">
-          <button className="primary" type="button" onClick={() => adopt(key)}>
-            {key === "constraints" ? "采纳 · 合并" : key === "factions" ? "采纳 · 合并" : "采纳 · 覆盖"}
-          </button>
-          <button type="button" onClick={() => void runAi(key)}>重试</button>
-        </div>
-      </div>
+  /** 现实向开关与在途生成互斥：power/cost 生成在途时不切换（防「出卡、采纳写入隐藏格」） */
+  const toggleNoPower = () => {
+    if (runningKey === "power" || runningKey === "cost") {
+      toast.info("力量/代价正在生成——等这轮结束再切换现实向");
+      return;
+    }
+    const next = !noPower;
+    const apply = () => patch({ no_power: next });
+    record(
+      next ? "已切到现实向：力量两格收起" : "已恢复超自然力量两格",
+      apply,
+      // 撤销用纯回写：值回到快照后由 useDirtyState 重算脏标记（patch 会强制脏）
+      () => setWorld((w) => ({ ...w, no_power: !next })),
     );
   };
 
@@ -441,7 +501,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
             onChange={(e) => patch({ stage: e.target.value })}
           />
         </div>
-        {sinkZone("stage", "世界舞台")}
+        {/* AI 建议在弹窗出卡过目（c-settings-ai-confirm-modal） */}
       </div>
 
       {/* 02 力量体系 */}
@@ -458,16 +518,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
             role="switch"
             aria-checked={noPower}
             data-od-id="no-power-btn"
-            onClick={() => {
-              const next = !noPower;
-              const apply = () => patch({ no_power: next });
-              record(
-                next ? "已切到现实向：力量两格收起" : "已恢复超自然力量两格",
-                apply,
-                // 撤销用纯回写：值回到快照后由 useDirtyState 重算脏标记（patch 会强制脏）
-                () => setWorld((w) => ({ ...w, no_power: !next })),
-              );
-            }}
+            onClick={toggleNoPower}
           >
             <span className="sw-track"><span className="sw-knob" /></span>
             <span className="sw-label">本书没有超自然力量（现实向）</span>
@@ -494,7 +545,6 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
         {noPower && (
           <p className="opt">现实向 · 无超自然力量——物理与法律规则在「更多世界细节」里补即可。</p>
         )}
-        {!noPower && sinkZone("power", "力量体系")}
       </div>
 
       {/* 03 力量的代价 */}
@@ -520,7 +570,6 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
               onChange={(e) => patch({ cost: e.target.value })}
             />
           </div>
-          {sinkZone("cost", "力量的代价")}
         </div>
       )}
 
@@ -580,7 +629,6 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
           {world.factions.length >= 4 && (
             <p className="opt">势力越多，冲突越难聚焦，建议 2-3 个。</p>
           )}
-          {sinkZone("factions", "势力")}
         </div>
       </div>
 
@@ -600,64 +648,7 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
           addLabel="加一条铁律"
           maxItems={10}
         />
-        {sinkZone("constraints", "世界铁律")}
         <p className="lock-note">确认后，写章 prompt 会逐条带上这些锁；体检也逐条对照。</p>
-        {check && (
-          <div className="ai-sink" data-od-id="world-check-result">
-            <div className="aiz-head">AI 体检 · 简介 × 题材 × 世界</div>
-            {check.items.map((item: WorldCheckItem) => (
-              <div className="chk-line" key={item.name}>
-                <span className="chk-name">{item.name}</span>
-                <span className={`chk-res ${item.status}`}>
-                  {item.status === "ok" ? "达标" : item.status === "warn" ? "风险" : "缺失"}
-                </span>
-                <span className="chk-note">{item.note}</span>
-              </div>
-            ))}
-            {check.degraded && (
-              <p className="opt">简介或题材还没写——相关行按缺失处理，补完再体检更准。</p>
-            )}
-            {/* 非达标项：提供"去补充"定位 + 出口（跳转/AI 起草/手动） */}
-            {check.items.filter((i: any) => i.status !== "ok").map((item: any, idx: number) => {
-              const gotoPanel = checkGoto[item.name];
-              const canAi = ["力量与上限", "代价与边界", "铁律 × 简介", "势力立场"].includes(item.name);
-              return (
-                <div key={idx} className="chk-fix-row" data-od-id={`chk-fix-${idx}`}>
-                  <span className="opt">{item.name}需要补充</span>
-                  <span className="opt">→</span>
-                  <span className="opt">{checkFixTarget(item.name)}</span>
-                  {gotoPanel && (
-                    <button
-                      className="chk-fix-ai"
-                      type="button"
-                      data-od-id={`chk-goto-${gotoPanel}`}
-                      onClick={() => onGotoPanel?.(gotoPanel)}
-                      title={gotoPanel === "intro" ? "去简介面板补简介" : "去题材面板确认题材"}
-                    >
-                      {gotoPanel === "intro" ? "去补简介" : "去确认题材"}
-                    </button>
-                  )}
-                  {canAi && (
-                    <button
-                      className="chk-fix-ai"
-                      type="button"
-                      onClick={() => checkFixAi(item.name)}
-                      title={`AI 起草「${item.name}」的补充内容`}
-                    >
-                      AI 起草
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-            {check.verdict && <p className="opt">结论：{check.verdict}</p>}
-            <div className="ans-act">
-              <button className="primary" type="button" onClick={() => void runAi("check")}>
-                重跑
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* 06 更多世界细节（可后补，折叠组） */}
@@ -700,6 +691,105 @@ const WorldSettingPanel = forwardRef<WorldPanelHandle, WorldPanelProps>(function
           </div>
         </div>
       </details>
+
+      {/* 生成出卡：五行共用（关闭即弃；缓存重开免请求） */}
+      <AiCardModal
+        open={cardOpen && cardKey !== null}
+        card={
+          cardKey && cards[cardKey]
+            ? {
+                label: `AI 填 · ${SINK_TOPIC[cardKey] ?? cardKey}`,
+                kind: cards[cardKey]!.kind,
+                adoptText: cardKey === "constraints" || cardKey === "factions" ? "采纳 · 合并" : "采纳 · 覆盖",
+                cached: cards[cardKey]!.cached,
+                node: <p style={{ margin: "4px 0", whiteSpace: "pre-wrap" }}>{cards[cardKey]!.txt}</p>,
+                adopt: () => adopt(cardKey),
+              }
+            : null
+        }
+        running={cardKey !== null && runningKey === cardKey}
+        error={cardKey !== null && runningKey !== cardKey ? cardError : undefined}
+        version={cardKey ? versions[cardKey] : undefined}
+        onClose={() => setCardOpen(false)}
+        onRegenerate={cardKey ? () => void runRequest(cardKey) : undefined}
+        data-testid="world-ai-card"
+      />
+
+      {/* 体检报告卡（无写回；「AI 补」→ 生成卡，采纳后自动回报告并标已处理，D6） */}
+      <AiCardModal
+        open={checkOpen || (runningKey === "check" && !checkOpen)}
+        card={{
+          label: "AI 体检 · 简介 × 题材 × 世界",
+          kind: "report",
+          cached: checkCached && runningKey !== "check",
+          node: check ? (
+            <>
+              <div data-od-id="world-check-result">
+                {check.items.map((item: WorldCheckItem) => (
+                  <div className="chk-line" key={item.name}>
+                    <span className="chk-name">{item.name}</span>
+                    <span className={`chk-res ${item.status}`}>
+                      {item.status === "ok" ? "达标" : item.status === "warn" ? "风险" : "缺失"}
+                    </span>
+                    <span className="chk-note">
+                      {checkProcessed.includes(item.name) ? "（已处理）" : ""}
+                      {item.note}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {check.degraded && (
+                <p className="opt">简介或题材还没写——相关行按缺失处理，补完再体检更准。</p>
+              )}
+              {/* 非达标项：补充定位 + 出口（跳转/AI 起草/手动） */}
+              {check.items
+                .filter((item: WorldCheckItem) => item.status !== "ok")
+                .map((item: WorldCheckItem, idx: number) => {
+                  const gotoPanel = checkGoto[item.name];
+                  const canAi = ["力量与上限", "代价与边界", "铁律 × 简介", "势力立场"].includes(item.name);
+                  return (
+                    <div key={idx} className="chk-fix-row" data-od-id={`chk-fix-${idx}`}>
+                      <span className="opt">{item.name}需要补充</span>
+                      <span className="opt">→</span>
+                      <span className="opt">{checkFixTarget(item.name)}</span>
+                      {gotoPanel && (
+                        <button
+                          className="chk-fix-ai"
+                          type="button"
+                          data-od-id={`chk-goto-${gotoPanel}`}
+                          onClick={() => {
+                            setCheckOpen(false);
+                            onGotoPanel?.(gotoPanel);
+                          }}
+                          title={gotoPanel === "intro" ? "去简介面板补简介" : "去题材面板确认题材"}
+                        >
+                          {gotoPanel === "intro" ? "去补简介" : "去确认题材"}
+                        </button>
+                      )}
+                      {canAi && (
+                        <button
+                          className="chk-fix-ai"
+                          type="button"
+                          onClick={() => checkFixAi(item.name)}
+                          title={`AI 起草「${item.name}」的补充内容`}
+                        >
+                          AI 起草
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              {check.verdict && <p className="opt">结论：{check.verdict}</p>}
+            </>
+          ) : null,
+        }}
+        running={runningKey === "check"}
+        error={runningKey !== "check" ? cardError : undefined}
+        version={versions["check"]}
+        onClose={() => setCheckOpen(false)}
+        onRegenerate={() => void runRequest("check")}
+        data-testid="world-check-card"
+      />
     </div>
   );
 });

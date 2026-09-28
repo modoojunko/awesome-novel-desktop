@@ -52,6 +52,7 @@
     挂 data-od-id（kebab-case）；零外部资源、零裸色、零 emoji。
 -->
 <style>
+/* [c-settings-ai-confirm-modal] .ai-sink 内嵌结果区退役：AI 结果改应用侧「AI 出卡确认弹窗」（沿 book.html modal-delete 先例，不进 parity 截图）；下列 hidden 演示节点已移除，对应 JS 填充加空守卫。 */
   /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致（--radius-lg 沿世界稿 = 14px） ═══ */
   :root {
     --bg:      oklch(98% 0.004 240);
@@ -558,7 +559,7 @@
           </div><!-- /tabQuant -->
 
           <!-- AI 结果落点（编辑区无 AI 按钮） -->
-          <div class="ai-sink" id="sinkCheck" hidden data-od-id="sink-style-check"></div>
+<!-- <div class="ai-sink" id="sinkCheck" hidden data-od-id="sink-style-check"></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->
         </div><!-- /viewCard -->
 
         <!-- ═══════════ 状态 B · 蒸馏流程（A3 组装审阅形：画像确认才落卡） ═══════════ -->
@@ -644,7 +645,7 @@
        </div><!-- /panel-scroll -->
 
        <!-- AI 结果落点（锚定体检） -->
-       <div class="ai-sink" id="sinkCheckFoot" hidden data-od-id="sink-style-check-foot"></div>
+<!-- <div class="ai-sink" id="sinkCheckFoot" hidden data-od-id="sink-style-check-foot"></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->
 
        <div class="receipt-bar" id="receiptBar" hidden data-od-id="receipt-style">
          <span id="receiptText"></span>
@@ -1143,9 +1144,10 @@
   });
 
   /* ═══ 右栏 AI 行（结果落中栏 sink；采纳才写回） ═══ */
-  $('#sinkCheck').hidden = true;
+<!-- 已退役：$('#sinkCheck').hidden = true; -->
   function renderCheck() {
     const box = $('#sinkCheckFoot');
+    if (!box) return; // 演示节点已退役（AI 出卡确认弹窗）
     box.innerHTML = '<div class="aiz-head">AI 体检 · 三区锚定 × 禁用词（同源）</div>' +
       '<div class="chk-line"><span class="chk-name">身份 × 约束</span><span class="chk-res ok">达标</span><span class="chk-note">「不替角色感受」＋「不插旁白解释情感」——两条都在守同一条边界</span></div>' +
       '<div class="chk-line"><span class="chk-name">身份 × 手法</span><span class="chk-res ok">达标</span><span class="chk-note">情绪外化手法与「冷静不冷漠」的身份一致</span></div>' +

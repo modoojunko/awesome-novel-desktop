@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>评审稿 v8.5 · 创建期引导：本书模型 + 简介 + 题材</title>
 <style>
+/* [c-settings-ai-confirm-modal] .ai-sink 内嵌结果区退役：AI 结果改应用侧「AI 出卡确认弹窗」（沿 book.html modal-delete 先例，不进 parity 截图）；下列 hidden 演示节点已移除，对应 JS 填充加空守卫。 */
   /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致（--radius-lg 沿 book.html = 14px） ═══ */
   :root {
     --bg:      oklch(98% 0.004 240);
@@ -452,14 +453,14 @@
         <div class="mod">
           <div class="mod-head"><span class="m-no">02</span><span class="m-name">主要看什么</span><span class="m-why">读者翻开这本书，主要看的是什么</span><span class="m-use">填好后：<b>全书都围绕它写</b>，章节不跑题</span></div>
           <textarea class="textarea" rows="2" id="m1Input" data-od-id="m1-input" placeholder="例：主要看以弱破强的痛快——境界压着他，他专挑别人修为里的漏洞打"></textarea>
-          <div class="ai-sink" data-ans-zone="m1" hidden></div>
+<!-- <div class="ai-sink" data-ans-zone="m1" hidden></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->
         </div>
 
         <div class="mod">
           <div class="mod-head"><span class="m-no">03</span><span class="m-name">绝对禁止</span><span class="m-why">勾了就不写；取消勾选＝明知风险偏要写</span><span class="m-use">填好后：<b>这些雷全书不会出现</b>，AI 也不写</span></div>
           <div class="cap-row" id="forbidRow" style="margin-bottom:8px;"></div>
           <div class="cap-add"><input id="forbidInput" placeholder="写你自己的禁区，回车添加" data-od-id="forbid-input" /></div>
-          <div class="ai-sink" data-ans-zone="m2" hidden></div>
+<!-- <div class="ai-sink" data-ans-zone="m2" hidden></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->
         </div>
 
         <div class="mod">
@@ -470,20 +471,20 @@
           </div>
           <span class="cost-sent" id="costSent" data-od-id="cost-sentence"></span>
           <div class="cost-scale"><span>1 流汗破财</span><span>5 断骨毁名</span><span>10 命抵江山</span></div>
-          <div class="ai-sink" data-ans-zone="m3" hidden></div>
+<!-- <div class="ai-sink" data-ans-zone="m3" hidden></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->
         </div>
 
         <div class="mod">
           <div class="mod-head"><span class="m-no">05</span><span class="m-name">主线战场</span><span class="m-why">整本书主要斗什么（建议 1-2 个）</span><span class="m-use">填好后：<b>每卷冲突围绕战场</b>，不打野架</span></div>
           <div class="cap-row" id="bfRow" style="margin-bottom:6px;"></div>
           <p class="soft-note" id="bfNote">战场越多，主线越难聚焦，建议 1-2 个。</p>
-          <div class="ai-sink" data-ans-zone="m4" hidden></div>
+<!-- <div class="ai-sink" data-ans-zone="m4" hidden></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->
         </div>
 
         <div class="mod">
           <div class="mod-head"><span class="m-no">06</span><span class="m-name">剧情轨道</span><span class="m-why">整本书怎么走（可不填）</span><span class="m-use">填好后：<b>百万字沿它走</b>，写作台常驻可查</span></div>
           <textarea class="textarea" rows="2" id="trackInput" data-od-id="track-input" placeholder="凡人流——从练气一步步爬，每卷突破一个大境界、了结一桩恩怨"></textarea>
-          <div class="ai-sink" data-ans-zone="m5" hidden></div>
+<!-- <div class="ai-sink" data-ans-zone="m5" hidden></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->
         </div>
 
         <div class="panel-foot">
@@ -795,6 +796,7 @@
   document.querySelectorAll('[data-aiask]').forEach(btn => {
     const key = btn.dataset.aiask;
     const box = document.querySelector(`[data-ans-zone="${key}"]`);
+    if (!box) return; // 演示节点已退役（AI 出卡确认弹窗）
     let tried = false;
     btn.addEventListener('click', () => {
       if (lockedGuard(btn)) return;

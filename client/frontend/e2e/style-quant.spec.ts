@@ -364,8 +364,13 @@ test.describe.serial("文风量化蒸馏链路", () => {
       await page.locator(".settings-v .col-tree").getByText("文风", { exact: true }).click();
       await expect(page.locator('[data-od-id="input-style-role"]')).toHaveValue("");
 
-      // 右栏「润色文字文风」→ 采纳写回三区
+      // 右栏「润色文字文风」→ style-ai-card 弹窗出卡 → 采纳 · 覆盖三区
       await page.locator('[data-aiact="polish"]').click();
+      const card = page.getByTestId("style-ai-card");
+      await expect(card).toBeVisible({ timeout: 10000 });
+      await expect(card).toContainText("AI 起草的叙事身份");
+      await page.getByTestId("ai-card-adopt").click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(page.locator('[data-od-id="input-style-role"]')).toHaveValue("AI 起草的叙事身份");
       await expect(page.locator('[data-od-id="panel-receipt"]')).toContainText("润色文字文风");
 

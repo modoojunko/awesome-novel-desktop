@@ -8,7 +8,7 @@ import { writeConfigAtomic } from "./helpers";
 // 世界设定 v2 界面测试（world-setting-v2）：
 //   - AI 端点一律 page.route 打桩（不烧真实额度、不依赖模型）
 //   - ai_model 就绪态桩走 stubAiState（D13 一次分派，genre-ai-settings 同款）
-//   - 覆盖：五格渲染 / 现实向开关联动 / AI 采纳 · 覆盖+回执+撤销+历史切回 /
+//   - 覆盖：五格渲染 / 现实向开关联动 / AI 采纳 · 覆盖+回执+撤销+换一个版数递增 /
 //           一致性体检三态+重跑 / 免费版锁定
 // ---------------------------------------------------------------------------
 
@@ -126,9 +126,10 @@ async function apiGetJSON(request: APIRequestContext, token: string, urlPath: st
   return r.json();
 }
 
-async function stubWorldAi(page: Page, pid: string) {
+/** 桩本书 AI（stage 生成 + 一致性体检）；返回 stage 请求数读取器（D9 缓存断言用）。 */
+function stubWorldAi(page: Page, pid: string) {  // 同步注册路由即可；async 会让无 await 的调用方拿到 Promise
   let stageGen = 0;
-  // v2 通用起草端点：按请求体 topic 分流（stage 两版草稿供历史切回用；topic=中文要素名）
+  // v2 通用起草端点：按请求体 topic 分流（stage 两版草稿供「换一个」重生成用；topic=中文要素名）
   void page.route(`**/api/novels/${pid}/settings/ai/world/draft`, (route) => {
     const body = route.request().postDataJSON() as { topic?: string };
     if ((body?.topic ?? "") !== "世界舞台") {
@@ -173,6 +174,8 @@ async function stubWorldAi(page: Page, pid: string) {
       },
     });
   });
+  console.log('DBG stub returning, stageGen=', stageGen);
+  return { stageCalls: () => stageGen };
 }
 
 test.describe("世界设定 v2", () => {
@@ -210,21 +213,24 @@ test.describe("世界设定 v2", () => {
     }
   });
 
-  test("AI 采纳 · 覆盖 + 回执 + 一步撤销 + 历史切回", async ({ page }) => {
+  test("AI 采纳 · 覆盖 + 回执 + 一步撤销 + 换一个重生成：版数递增", async ({ page }) => {
     const { restore } = await setupSession(page);
     try {
       const pid = await createNovel(page, `世界AI_${Date.now() % 100000}`);
       await stubAiState(page, pid, "ready");
-      stubWorldAi(page, pid);
+      const worldAi = stubWorldAi(page, pid);
       await page.getByRole("button", { name: /^设定/ }).click();
       await openSetting(page, "世界");
 
-      // 第一次生成 → 采纳 · 覆盖 → 回执出现
+      // 第一次生成 → 弹窗出卡（portal 到 body）→ 采纳 · 覆盖 → 回执出现
       await page.locator('.rail-assist [data-aiact="stage"]').click();
-      const sink = page.locator('[data-ans-zone="stage"]');
-      await expect(sink).toBeVisible({ timeout: 10000 });
-      await sink.locator(".ans-act button", { hasText: "采纳" }).click();
+      const card = page.getByTestId("world-ai-card");
+      await expect(card).toBeVisible({ timeout: 10000 });
+      await expect(card).toContainText("云梁界，古典王朝的修仙世界");
+      await expect(page.getByTestId("ai-card-version")).toHaveText("第 1 版");
+      await page.getByTestId("ai-card-adopt").click();
       const stage = page.locator('[data-od-id="stage-input"]');
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(stage).toHaveValue(/云梁界/);
       await expect(page.locator('[data-od-id="panel-receipt"]')).toBeVisible();
       await expect(page.locator('[data-od-id="panel-receipt"]')).toContainText("世界舞台");
@@ -233,17 +239,26 @@ test.describe("世界设定 v2", () => {
       await page.locator('[data-od-id="panel-undo"]').click();
       await expect(stage).toHaveValue("");
 
-      // 再生成一次 → 历史切换条出现（2 次），切回第 1 次
+      // 同一行再点＝重开缓存（D9）：弹窗带来源提示条，不发新请求
       await page.locator('.rail-assist [data-aiact="stage"]').click();
-      await expect(sink.locator(".ah-chip")).toHaveCount(2);
-      await sink.locator(".ah-chip").first().click();
-      await expect(sink).toContainText("云梁界，古典王朝的修仙世界");
+      await expect(card).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId("ai-card-cache")).toBeVisible();
+      expect(worldAi.stageCalls()).toBe(1);
+
+      // 换一个 → 真重发：第二版草稿，版数徽标递增
+      const regenResp = page.waitForResponse((r) =>
+        r.url().includes("/settings/ai/world/draft"),
+      );
+      await page.getByTestId("ai-card-regen").click();
+      await regenResp;
+      await expect(card).toContainText("王朝治下的修仙界", { timeout: 10000 });
+      await expect(page.getByTestId("ai-card-version")).toHaveText("第 2 版");
     } finally {
       await restore();
     }
   });
 
-  test("一致性体检：三态渲染 + 重跑", async ({ page }) => {
+  test("一致性体检：报告卡弹窗三态渲染 + 重新检查", async ({ page }) => {
     const { restore } = await setupSession(page);
     try {
       const pid = await createNovel(page, `世界体检_${Date.now() % 100000}`);
@@ -252,13 +267,17 @@ test.describe("世界设定 v2", () => {
       await page.getByRole("button", { name: /^设定/ }).click();
       await openSetting(page, "世界");
       await page.locator('.rail-assist [data-aiact="check"]').click();
+      const card = page.getByTestId("world-check-card");
+      await expect(card).toBeVisible({ timeout: 10000 });
       const result = page.locator('[data-od-id="world-check-result"]');
-      await expect(result).toBeVisible({ timeout: 10000 });
+      await expect(result).toBeVisible();
       for (const state of ["ok", "warn", "miss"]) {
         await expect(result.locator(`.chk-res.${state}`).first()).toBeVisible();
       }
-      await result.locator(".ans-act button", { hasText: "重跑" }).click();
-      await expect(result.locator(".chk-res.ok")).toHaveCount(6);
+      // 报告卡无写回键；重新检查（报告卡口径的 ai-card-regen）后同卡刷新为全达标
+      await expect(page.getByTestId("ai-card-adopt")).toHaveCount(0);
+      await page.getByTestId("ai-card-regen").click();
+      await expect(result.locator(".chk-res.ok")).toHaveCount(6, { timeout: 10000 });
     } finally {
       await restore();
     }
@@ -302,7 +321,7 @@ test.describe("世界设定 v2", () => {
       await openSetting(page, "世界");
       const stage = page.locator('[data-od-id="stage-input"]');
       await expect(stage).toBeVisible({ timeout: 10000 });
-      await expect(page.locator(".rail-assist")).toHaveClass(/locked/);
+      await expect(page.locator('[data-od-id="ai-assist-world"]')).toHaveClass(/locked/); // 设定卡点名（卷规划卡同栏）
 
       // 免费版照常手填
       await stage.fill("免费版也能填的世界");
