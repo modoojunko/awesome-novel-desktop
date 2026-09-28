@@ -1,4 +1,4 @@
-// 润色/扩写对比预览（产品扩展——原型将两能力标「规划中」，无弹窗设计稿；
+// 去AI味/扩写对比预览（产品扩展——原型将两能力标「规划中」，无弹窗设计稿；
 // 按 book.html 弹窗语言轻重皮：mcard + 双栏 serif 对比 + 设计按钮）。
 import { useEffect } from "react";
 import Modal from "@/components/design/Modal";
@@ -53,7 +53,7 @@ export default function ContrastPreviewModal({
   onRetry,
 }: ContrastPreviewModalProps) {
   const actionLabel =
-    mode === "polish" ? "润色后" : mode === "expand" ? "扩写后" : "压缩后";
+    mode === "polish" ? "去AI味后" : mode === "expand" ? "扩写后" : "压缩后";
   const canAccept = !loading && !error && modifiedText !== null;
 
   // Enter 接受（Esc 由 Modal 统一处理）；焦点在按钮上时让按钮自身的 Enter 生效
@@ -73,7 +73,7 @@ export default function ContrastPreviewModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={mode === "polish" ? "段落润色" : mode === "expand" ? "场景扩写" : "压缩啰嗦段落"}
+      title={mode === "polish" ? "去AI味" : mode === "expand" ? "场景扩写" : "压缩啰嗦段落"}
       wbStyle
       width={680}
       footer={

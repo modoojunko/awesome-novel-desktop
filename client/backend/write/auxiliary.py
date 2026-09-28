@@ -263,6 +263,10 @@ async def polish_text(
     )
     ctx["selected_text"] = selected_text
     ctx["surrounding_context"] = surrounding_context
+    # 去AI味：文风禁用词/句式单源注入（沿 stream_continue「（无）」兜底口径）；
+    # 未配文风时给显式降级语，避免空节让弱模型脑补文风
+    ctx["anti_ai_rules"] = ctx.get("anti_ai_rules") or "（无）"
+    ctx["writing_style"] = ctx.get("writing_style") or "（未配置，以原文自身文风为准）"
 
     _sys_t, _usr_t = load_layers("polish_text")
     prompt = _usr_t.format(**ctx)
@@ -276,7 +280,7 @@ async def polish_text(
     client = await get_ai_client_for_novel(novel_id)
     return await client.chat(
         model=resolved_model,
-        system=((_sys_t.format(**ctx) + f"；叙事角色定位：{role}") if _sys_t else f"你是一位文字编辑专家，请遵循以下角色定位：{role}"),
+        system=((_sys_t.format(**ctx) + f"；叙事角色定位：{role}") if _sys_t else f"你是一位资深小说编辑，专治「AI 腔」，请遵循以下角色定位：{role}"),
         messages=[{"role": "user", "content": prompt}],
         max_tokens=2048,
         usage=usage,

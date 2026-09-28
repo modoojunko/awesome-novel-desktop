@@ -121,8 +121,8 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     expect(onPromptRefine).toHaveBeenCalledWith("negative");
     await clickRow(/精简提示词/);
     expect(onPromptRefine).toHaveBeenCalledWith("concise");
-    // 未选中 → 润色/扩写/压缩禁用并带 hint
-    const polish = screen.getByRole("button", { name: /段落润色/ }) as HTMLButtonElement;
+    // 未选中 → 去AI味/扩写/压缩禁用并带 hint
+    const polish = screen.getByRole("button", { name: /去AI味/ }) as HTMLButtonElement;
     expect(polish.disabled).toBe(true);
     expect(screen.getAllByText(/先在正文选中一段/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("button", { name: /生成正文/ })).toBeTruthy();
