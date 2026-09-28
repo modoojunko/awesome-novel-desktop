@@ -224,7 +224,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           let cur = from + first.length;
           for (let i = 1; i < lines.length; i++) {
             tr.split(cur);
-            cur += 1;
+            // 同 appendChunk：段落边界占 2 个位置
+            cur += 2;
             const line = lines[i];
             if (line) {
               tr.insertText(line, cur, cur);
@@ -398,7 +399,9 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         }
         if (i < lines.length - 1) {
           tr.split(cur);
-          cur += 1;
+          // 段落边界占 2 个位置（本段闭合 +1、新段开启 +1）——只 +1 会让位置账本
+          // 每拆一段滞后 1，split 切进上一段末字、碎片越积越多（实测复现）
+          cur += 2;
         }
       });
       view.dispatch(tr);
