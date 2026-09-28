@@ -398,6 +398,9 @@ class ChapterStore {
     const { prose: p } = this.state;
     if (!p.trim()) return false;
     if (this.extracting()) return true; // 受理幂等：在跑不重复受理
+    // 受理制以 DB 正文为单一事实源（提取/归档/哈希全按 DB 值）——防抖窗口内
+    // 未落盘的末段必须先 flush，否则按旧稿归档、且随后落盘必触发 prose_changed
+    await this.flush();
     this.update({ error: null });
     try {
       const resp = await api.post(`/novels/${this.projectId}/chapters/${this.ref}/archive`, {
@@ -436,6 +439,7 @@ class ChapterStore {
 
   skipArchive = async (): Promise<boolean> => {
     try {
+      await this.flush(); // skip 同样以 DB 正文收口——先落盘防抖窗口
       await api.post(`/novels/${this.projectId}/chapters/${this.ref}/dossier/skip`);
       await this.load();
       this.update({
@@ -459,6 +463,7 @@ class ChapterStore {
   retryExtraction = async (): Promise<boolean> => {
     if (this.extracting()) return true;
     try {
+      await this.flush(); // 未归档章的完整归档重试：先落盘（rows_only 补提无需，但 flush 无害）
       await api.post(`/novels/${this.projectId}/chapters/${this.ref}/dossier/extract`, {});
       this.update({
         archiveJob: { state: "extracting", startedAt: Date.now() },

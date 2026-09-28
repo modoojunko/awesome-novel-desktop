@@ -205,3 +205,34 @@ describe("归档受理制（archiveJob）", () => {
     expect(result.current.status).toBe("writing");
   });
 });
+
+describe("归档前 flush（评审 P1）", () => {
+  it("防抖窗口内的脏正文先落库再受理（PUT prose 先于 POST archive）", async () => {
+    apiState.get.mockResolvedValue(chapterPayload());
+    apiState.put.mockResolvedValue({});
+    apiState.post.mockResolvedValue({
+      accepted: true, model_ready: false, state: "archived",
+    });
+    const { result } = await mountHook();
+    act(() => {
+      result.current.setProse("末段还没落盘的新内容。".repeat(6));
+    });
+    const calls: string[] = [];
+    apiState.put.mockImplementation(async (path: string) => {
+      calls.push(`PUT ${path}`);
+      return {};
+    });
+    apiState.post.mockImplementation(async (path: string) => {
+      calls.push(`POST ${path}`);
+      return { accepted: true, model_ready: false, state: "archived" };
+    });
+    await act(async () => {
+      await result.current.archive();
+    });
+    expect(result.current.status).toBe("archived");
+    const putIdx = calls.findIndex((c) => c.startsWith("PUT ") && c.includes("/prose"));
+    const postIdx = calls.findIndex((c) => c.startsWith("POST ") && c.includes("/archive"));
+    expect(putIdx).toBeGreaterThanOrEqual(0);
+    expect(postIdx).toBeGreaterThan(putIdx);
+  });
+});

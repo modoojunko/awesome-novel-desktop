@@ -358,3 +358,26 @@ def test_rows_only_reextract_keeps_archive_state(monkeypatch):
             return n.total_archives
 
     assert not _run(_total())  # rows_only 不加归档计数
+
+
+def test_skip_triggers_legacy_reconcile(monkeypatch):
+    """评审 P2：逃生阀收口与其他两条 finalize 路径一致——触发伏笔/lore 收尾。"""
+    _run(_ensure_tables())
+    root, nid, ch_id = _seed_book()
+    started: list = []
+
+    def _fake_start(novel_id, root_path, chapter_ref, chapter_id, kinds=None):
+        started.append((chapter_ref, kinds))
+        return {"state": "running"}
+
+    monkeypatch.setattr("archive.reconcile.start_reconcile_job", _fake_start)
+    monkeypatch.setattr(
+        "auth_local.deps.ai_access_granted", lambda: True
+    )
+
+    from archive.dossier import skip_extraction_and_archive
+
+    _run(skip_extraction_and_archive(nid, root, "vol-1-ch-1", ch_id, _LONG_PROSE))
+    assert started and started[0][0] == "vol-1-ch-1"
+    row = _chapter_row(ch_id)
+    assert row["status"] == "archived"

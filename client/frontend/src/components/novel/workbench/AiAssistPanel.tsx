@@ -120,7 +120,7 @@ export function AiAssistPanel({
   promptSavedSignal?: number;
 }) {
   // 页签内轻量数据（与中栏页签同端点；只在对应页签激活时取）
-  const [promptSrc, setPromptSrc] = useState<{ total: number; cast: number } | null>(null);
+  const [promptSrc, setPromptSrc] = useState<{ total: number; cast: number; note?: string } | null>(null);
   /** 本章提示词是否已落库（c-prompt-tab-retire：正文页签状态行用） */
   const [hasPrompts, setHasPrompts] = useState<boolean | null>(null);
   const [styleStats, setStyleStats] = useState<{ rows: number; shadow: number } | null>(null);
@@ -150,9 +150,25 @@ export function AiAssistPanel({
         });
       api
         .get(`/novels/${projectId}/chapters/${chapterRef}/prompt-sources`)
-        .then((d: { total_chars?: number; cast_count?: number }) => {
-          if (!cancelled) setPromptSrc({ total: d.total_chars ?? 0, cast: d.cast_count ?? 0 });
-        })
+        .then(
+          (
+            d: {
+              total_chars?: number;
+              cast_count?: number;
+              sources?: Array<{ key?: string; note?: string }>;
+            },
+          ) => {
+            if (cancelled) return;
+            // 故事状态缺口标注（c-chapter-dossier）：把「不采纳→下章静默缺状态」
+            // 变成聚合行上的可见提示（「提示词」页签退役后的唯一 UI 承接面）
+            const ss = (d.sources ?? []).find((x) => x.key === "story_state");
+            setPromptSrc({
+              total: d.total_chars ?? 0,
+              cast: d.cast_count ?? 0,
+              note: ss?.note || "",
+            });
+          },
+        )
         .catch(() => {
           /* 统计失败静默 */
         });
@@ -380,6 +396,12 @@ export function AiAssistPanel({
         本章提示词{" "}
         {hasPrompts == null ? "…" : hasPrompts ? "已自定义" : "自动组装"}
         {promptSrc ? <> · 组装来源 {promptSrc.total.toLocaleString("zh-CN")} 字</> : null}
+        {promptSrc?.note ? (
+          <span className="ra-hint" data-testid="story-state-note">
+            {" "}
+            · 上一章章档{promptSrc.note === "上一章未归档" ? "未归档" : promptSrc.note}（见「章档」页签）
+          </span>
+        ) : null}
       </>
     );
     rows = [

@@ -455,8 +455,11 @@ async def skip_extraction_and_archive(
     chapter_id: str,
     full_text: str,
 ) -> dict:
-    """逃生阀：跳过提取仍归档——与模型未就绪同一收口路径（archived、无章档）。"""
-    return await finalize_archive(
+    """逃生阀：跳过提取仍归档——与模型未就绪同一收口路径（archived、无章档）。
+
+    归档成功同样触发旧收尾（伏笔/lore 提案，PRO）——三条收口路径行为一致
+    （design D1：收尾随归档成功触发，不挑归档方式）。"""
+    result = await finalize_archive(
         novel_id=novel_id,
         root_path=root_path,
         chapter_id=chapter_id,
@@ -467,6 +470,8 @@ async def skip_extraction_and_archive(
         dossier_payload=None,
         job_state="skipped",
     )
+    _maybe_start_reconcile(novel_id, root_path, chapter_ref, chapter_id)
+    return result
 
 
 async def _chapter_title(chapter_id: str) -> str:

@@ -18,7 +18,9 @@ os.environ["DATA_ROOT"] = tempfile.mkdtemp(prefix="test_dossier_store_")
 import pytest  # noqa: E402
 
 from conftest import seed_chapter_db  # noqa: E402
-from db import Base, engine  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+
+from db import Base, async_session, engine  # noqa: E402
 
 _SEED = {
     "volume": 1,
@@ -198,3 +200,40 @@ def test_status_whitelist_and_field_clamps():
     got = _run(_load(root))["dossier"]
     assert got["settings"][0]["status"] == "pending"
     assert len(got["settings"][0]["content"]) == 300
+
+
+def test_save_prose_keeps_dossier_row_ids_stable():
+    """评审 P2：编辑器自动保存（save_prose 高频路径）不得重建章档行——
+    否则行 uuid 每次保存都换，采纳会随机撞「已重新提取」误导性 409。"""
+    _run(_ensure_tables())
+    root = tempfile.mkdtemp(prefix="dossier_prose_")
+    _seed(root, with_dossier=True)
+
+    from chapters.service import save_prose
+    from db import async_session
+    from models.chapter import Chapter, ChapterSettingChange
+    from models.project import Novel
+
+    async def _ids():
+        async with async_session() as s:
+            ch = (await s.scalars(select(Chapter).join(
+                Novel, Novel.id == Chapter.project_id
+            ).where(Novel.root_path == root))).one()
+            return [r.id for r in (await s.scalars(
+                select(ChapterSettingChange)
+                .where(ChapterSettingChange.chapter_id == ch.id)
+                .order_by(ChapterSettingChange.sort_order)
+            )).all()]
+
+    async def _save(text: str):
+        async with async_session() as s:
+            proj = (await s.scalars(
+                select(Novel).where(Novel.root_path == root)
+            )).one()
+            await save_prose(s, proj, "vol-1-ch-1", text)
+
+    before = _run(_ids())
+    assert len(before) == 1
+    _run(_save("新增的一段正文，自动保存触发。"))
+    _run(_save("又一段正文，第二次自动保存。"))
+    assert _run(_ids()) == before

@@ -256,3 +256,54 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     expect(onAiCheck).toHaveBeenCalledWith("hooks_conflict");
   });
 });
+
+
+describe("故事状态缺口标注（c-chapter-dossier 评审 P2）", () => {
+  it("缺 N 条未确认 → 聚合行追加提示并指路章档页签", async () => {
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.endsWith("/prompt-sources"))
+        return {
+          total_chars: 1234,
+          cast_count: 3,
+          sources: [
+            { key: "book", label: "全书设定", chars: 1, preview: "", empty: false },
+            {
+              key: "story_state",
+              label: "故事状态（截至上章）",
+              chars: 80,
+              preview: "…",
+              empty: false,
+              note: "缺 1 条未确认",
+            },
+          ],
+        };
+      throw new Error("unexpected " + p);
+    });
+    apiState.request.mockImplementation(async (p: string) => {
+      if (p.endsWith("/prompts")) return [];
+      throw new Error("unexpected " + p);
+    });
+    renderPanel("prose", {});
+    const note = await screen.findByTestId("story-state-note");
+    expect(note.textContent).toContain("缺 1 条未确认");
+    expect(note.textContent).toContain("章档");
+  });
+
+  it("上一章未归档 → 聚合行标未归档", async () => {
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.endsWith("/prompt-sources"))
+        return {
+          total_chars: 100,
+          cast_count: 1,
+          sources: [
+            { key: "story_state", label: "故事状态", chars: 0, preview: "", empty: true, note: "上一章未归档" },
+          ],
+        };
+      throw new Error("unexpected " + p);
+    });
+    apiState.request.mockImplementation(async () => []);
+    renderPanel("prose", {});
+    const note = await screen.findByTestId("story-state-note");
+    expect(note.textContent).toContain("未归档");
+  });
+});
