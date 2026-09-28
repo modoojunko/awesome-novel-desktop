@@ -86,6 +86,8 @@ export interface CastGapSession {
   writtenName?: string;
   /** 落账时是否建了卡（回执文案分「建卡并写入」/「只加名单」两形） */
   writtenWithCard?: boolean;
+  /** 落账走「选已有角色」（卡已在书里；文案「不重复建卡」，与上两形互斥） */
+  writtenExisting?: boolean;
   /** 已出批卡（每批 3 张；「换一批」追加、落账/从头再来清） */
   batches: CastCard[][];
   /** 排除清单（换一批带出；≤9） */

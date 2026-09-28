@@ -190,6 +190,8 @@ export interface CastWriteRequest {
   fields: CastWriteFields;
   /** 建卡已成功后的重试：只走名单写入（不再建卡） */
   listOnlyAfterCreate?: boolean;
+  /** 选已有角色：卡已在书里，名单写入零建卡（回执文案走「已有角色」形） */
+  existing?: boolean;
 }
 
 export type CastWriteOutcome =
@@ -203,6 +205,8 @@ export type CastWriteOutcome =
       warnings: string[];
       /** 附加提示（撞名回落「已有同名卡，名单会自动挂上」等） */
       note?: string;
+      /** 选已有角色写入（缺省 false；回执与缺口行文案按此分形） */
+      existing?: boolean;
     }
   | {
       ok: false;

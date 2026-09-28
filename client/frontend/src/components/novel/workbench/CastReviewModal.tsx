@@ -41,6 +41,8 @@ export default function CastReviewModal({
   cast,
   chapterLabel,
   plotItems,
+  roster,
+  castLines,
   isPro,
   onUpgrade,
   onOpenConfig,
@@ -50,6 +52,10 @@ export default function CastReviewModal({
   chapterLabel: string;
   /** 剧情条目（表单快照，判「没判出来」缺行用） */
   plotItems: string[];
+  /** 本书角色卡名（不含别名）：缺口「选已有角色」候选（c-character-intro 6.x） */
+  roster: string[];
+  /** 本章出场名单现值（live）：已有角色候选标「已在名单」 */
+  castLines: string[];
   isPro: boolean;
   /** 升级出口（免费锁卡/抽卡 403） */
   onUpgrade: () => void;
@@ -115,7 +121,7 @@ export default function CastReviewModal({
         ? "零新增是正常结果，不是出错。"
         : isPro
           ? "改段／延后不留记录：改段去剧情区改那一条；延后的那条，剧情挪到哪一章就在哪一章再遇到。"
-          : "盘点免费；AI 抽人是 PRO。自己填名字、建卡，全档免费。";
+          : "盘点免费；AI 抽人是 PRO。自己填名字、选已有角色，全档免费。";
     cancelLabel = state.gaps.length === 0 ? "知道了" : allDone ? "完成" : "先不调整";
   } else if (state.phase === "cards" || state.phase === "drawing") {
     footNote = "这批卡跟这一章走：误关重开还是同一批，不会重复生成花钱。";
@@ -265,6 +271,8 @@ export default function CastReviewModal({
             cast={cast}
             state={state}
             plotItems={plotItems}
+            roster={roster}
+            castLines={castLines}
             isPro={isPro}
             onUpgrade={onUpgrade}
             onQuickCreateChar={onQuickCreateChar}
@@ -466,6 +474,8 @@ function ResultBody({
   cast,
   state,
   plotItems,
+  roster,
+  castLines,
   isPro,
   onUpgrade,
   onQuickCreateChar,
@@ -473,6 +483,10 @@ function ResultBody({
   cast: CastReviewController;
   state: CastReviewController["state"];
   plotItems: string[];
+  /** 本书角色卡名（不含别名）：缺口「选已有角色」候选 */
+  roster: string[];
+  /** 本章出场名单现值（live）：已有角色候选标「已在名单」 */
+  castLines: string[];
   isPro: boolean;
   onUpgrade: () => void;
   onQuickCreateChar?: (name: string) => void;
@@ -546,7 +560,15 @@ function ResultBody({
               ) : null}
             </div>
             {gap && (
-              <GapCard gap={gap} cast={cast} isPro={isPro} onUpgrade={onUpgrade} state={state} />
+              <GapCard
+                gap={gap}
+                cast={cast}
+                roster={roster}
+                castLines={castLines}
+                isPro={isPro}
+                onUpgrade={onUpgrade}
+                state={state}
+              />
             )}
           </div>
         );
@@ -627,15 +649,22 @@ function GapCard({
   gap,
   cast,
   state,
+  roster,
+  castLines,
   isPro,
   onUpgrade,
 }: {
   gap: CastGapView;
   cast: CastReviewController;
   state: CastReviewController["state"];
+  /** 本书角色卡名（不含别名）：「选已有角色」候选 */
+  roster: string[];
+  /** 本章出场名单现值（live）：候选标「已在名单」 */
+  castLines: string[];
   isPro: boolean;
   onUpgrade: () => void;
 }) {
+  const [picking, setPicking] = useState(false);
   const open = gap.status === "open";
   const pill =
     gap.status === "written"
@@ -709,7 +738,9 @@ function GapCard({
             已写入：{gap.writtenName}
             {gap.writtenWithCard
               ? "——建卡并写入章纲。角色表、本章出场角色、本卷出场清单都加了。"
-              : "——只加名单（暂未建卡）。本章出场角色多一行名字。"}
+              : gap.writtenExisting
+                ? "——选的已有角色卡，名字写进本章名单（不重复建卡）。"
+                : "——只加名单（暂未建卡）。本章出场角色多一行名字。"}
           </p>
           <p className="g-done">
             <span className="rp-dot" aria-hidden="true" />
@@ -753,6 +784,48 @@ function GapCard({
           <button className="lnk" data-testid="cr-fill-manual" onClick={() => cast.fillManual(gap.gapId)}>
             不抽了，自己填一个名字
           </button>
+          <button
+            className="lnk"
+            data-testid="cr-pick-existing"
+            onClick={() => setPicking((p) => !p)}
+          >
+            选已有角色
+          </button>
+        </div>
+      )}
+      {picking && open && gap.choice === "加人" && (
+        <div className="cr-existing" data-testid="cr-existing">
+          <span className="cr-done">
+            点谁就让谁上这段戏：名字进本章出场名单，不新建卡、不花 AI。
+          </span>
+          <div className="cr-exist-row">
+            {roster.length === 0 ? (
+              <span className="cr-done" data-testid="cr-exist-empty">
+                书里还没有角色卡——去设定页建一张，或用上面两种方式直接加人。
+              </span>
+            ) : (
+              roster.map((n) => {
+                const inCast = castLines.includes(n);
+                return (
+                  <button
+                    key={n}
+                    className="chip"
+                    disabled={inCast || state.writing}
+                    data-testid={`cr-exist-${n}`}
+                    title={
+                      inCast
+                        ? "已在本章出场名单"
+                        : "选 TA 演这段戏：名字进本章出场名单，不新建卡、不花 AI"
+                    }
+                    onClick={() => void cast.pickExisting(gap.gapId, n)}
+                  >
+                    {n}
+                    {inCast && <span className="no-card">已在名单</span>}
+                  </button>
+                );
+              })
+            )}
+          </div>
         </div>
       )}
 

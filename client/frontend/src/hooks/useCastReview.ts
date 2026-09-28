@@ -110,6 +110,8 @@ export interface CastReviewController {
   freshRedraw: (gapId: string) => void;
   pickCard: (gapId: string, index: number) => void;
   fillManual: (gapId: string) => void;
+  /** 选已有角色：卡已在书里，名字直接进本章名单（零 AI 全免费；不建卡不抽卡） */
+  pickExisting: (gapId: string, name: string) => Promise<void>;
   /** ‹ 返回盘点结果 */
   backToReview: () => void;
   /** ‹ 返回换一张（回抽卡态，同批卡保留） */
@@ -127,6 +129,7 @@ const toRecord = (g: CastGapView): CastGapSession => ({
   status: g.status,
   writtenName: g.writtenName,
   writtenWithCard: g.writtenWithCard,
+  writtenExisting: g.writtenExisting,
   batches: g.batches,
   exclude: g.exclude,
 });
@@ -522,6 +525,7 @@ export function useCastReview(opts: {
               status: "written" as const,
               writtenName: outcome.name,
               writtenWithCard: outcome.created,
+              writtenExisting: outcome.existing === true,
               batches: [],
               exclude: [],
             }
@@ -536,7 +540,9 @@ export function useCastReview(opts: {
           : "本章的缺的人都处理完了，可以关掉弹窗。";
       const writePart = outcome.created
         ? `已写入。角色表多一卡「${outcome.name}」，本章出场角色 ${outcome.castBefore}→${outcome.castAfter} 人（本卷出场清单自动汇总）`
-        : `已写入名单。「${outcome.name}」暂未建卡，名字旁随时可点「建卡」补一张，只带名字`;
+        : outcome.existing === true
+          ? `已写入名单。「${outcome.name}」用的是书里已有的角色卡，名字进本章出场角色（不重复建卡）`
+          : `已写入名单。「${outcome.name}」暂未建卡，名字旁随时可点「建卡」补一张，只带名字`;
       const notice = `${outcome.note ? `${outcome.note} ` : ""}${writePart} · ${donePart}`;
       setState((s) => ({
         ...s,
@@ -588,6 +594,21 @@ export function useCastReview(opts: {
     [onWrite],
   );
 
+  /** 选已有角色：不建卡不抽卡，名字直接进本章名单（零 AI 全免费）。
+   *  失败＝缺口保持 open，toast 报错（与自动保存失败同哲学，不弹格内错）。 */
+  const pickExisting = useCallback(
+    async (gapId: string, name: string) => {
+      const out = await submitWrite({
+        mode: "list-only",
+        existing: true,
+        fields: { name, duty: "", persona: "", entrance: "", exitKind: "", exitNote: "" },
+      });
+      if (out && out.ok) markWritten(gapId, out);
+      else if (out) toast.error(out.message);
+    },
+    [submitWrite, markWritten],
+  );
+
   // 控制器对象 memo 化：进 onRailData/弹窗 props 依赖面，避免每渲染新对象引发循环
   return useMemo(
     () => ({
@@ -601,6 +622,7 @@ export function useCastReview(opts: {
       freshRedraw,
       pickCard,
       fillManual,
+      pickExisting,
       backToReview,
       backToCards,
       submitWrite,
@@ -617,6 +639,7 @@ export function useCastReview(opts: {
       freshRedraw,
       pickCard,
       fillManual,
+      pickExisting,
       backToReview,
       backToCards,
       submitWrite,
