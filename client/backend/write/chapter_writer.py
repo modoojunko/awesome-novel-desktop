@@ -205,6 +205,97 @@ def _plot_block(items) -> str:
     return "\n".join(lines)
 
 
+# ── 故事状态块（c-chapter-dossier）──────────────────────────────────────────
+
+_STORY_STATE_TITLE = "【故事状态（截至上章）】"
+_STORY_STATE_ANCHOR = (
+    "定位：以下是截至上一章结束时的既成事实，用于保持连续性，不是本章任务；"
+    "与本章剧情安排冲突时以本章为准，需要打破某条状态时必须显式写出转变契机。"
+)
+_STORY_STATE_RULE = (
+    "规则：标「（不知）」的信息，该角色在对话与行动中不得表现出知情，"
+    "不得提前摊牌或泄底。"
+)
+_STORY_STATE_PER_DOMAIN = 6  # 每域条数配额（章近优先＝折叠序取尾）
+_STORY_STATE_ITEM_MAX = 40  # 单条渲染截断
+_STORY_STATE_BLOCK_MAX = 1500  # 整块硬闸（超限从头丢最旧条并 warning，不静默）
+
+
+def _clip_item(text: str, n: int = _STORY_STATE_ITEM_MAX) -> str:
+    s = " ".join(str(text or "").split())
+    return s[:n]
+
+
+def _story_state_lines(state: dict) -> dict[str, list[str]]:
+    """折叠态四域 → 行字典（每域尾部取 _STORY_STATE_PER_DOMAIN 条，章近优先）。"""
+
+    def _tail(rows):
+        return list(rows or [])[-_STORY_STATE_PER_DOMAIN:]
+
+    settings = [
+        f"- {_clip_item(s.get('area')) or '设定'}：{_clip_item(s.get('content'))}"
+        for s in _tail(state.get("settings"))
+    ]
+    relations = []
+    for r in _tail(state.get("relations")):
+        note = f"（{_clip_item(r.get('change_note'))}）" if r.get("change_note") else ""
+        relations.append(
+            f"- {r.get('owner', '?')}→{r.get('other', '?')}：{_clip_item(r.get('rel_type'))}{note}"
+        )
+    items = []
+    for it in _tail(state.get("items")):
+        if it.get("holder"):
+            seg = f"- {it.get('name', '?')}：在{_clip_item(it.get('holder'), 20)}手中"
+        else:
+            seg = f"- {it.get('name', '?')}：{_clip_item(it.get('detail') or it.get('change_type'))}"
+        items.append(seg)
+    knowledge = []
+    for k in _tail(state.get("knowledge")):
+        fact = _clip_item(k.get("fact"))
+        if k.get("learned"):
+            knowledge.append(f"- {k.get('character', '?')}已得知「{fact}」")
+        else:
+            knowledge.append(f"- {k.get('character', '?')}仍不知道「{fact}」（{k.get('character', '?')}不知）")
+    return {"设定": settings, "关系": relations, "物品": items, "角色认知": knowledge}
+
+
+def _story_state_block(state: dict) -> str:
+    """故事状态块单源渲染（c-chapter-dossier D5）：素材包与组装提示词两路唯一入口。
+
+    - 输入＝story_state_upto 折叠态（只含已采纳∧已归档∧非 stale 章）；
+    - 四域全空 → 空串（两路产物逐字不变）；stale 章跳过时块头注记；
+    - 证据句不进消费段；每域 ≤6 条、单条 ≤40 字、整块 ≤1500 字硬闸。
+    """
+    groups = _story_state_lines(state or {})
+    if not any(groups.values()):
+        return ""
+    # 整块硬闸：从最长域的头部丢最旧条直到达标（不静默）
+    import logging as _logging
+
+    def _total() -> int:
+        return sum(len(x) for g in groups.values() for x in g)
+
+    while _total() > _STORY_STATE_BLOCK_MAX:
+        longest = max((k for k in groups if groups[k]), key=lambda k: len("".join(groups[k])), default=None)
+        if longest is None or len(groups[longest]) <= 1:
+            break
+        groups[longest].pop(0)
+        _logging.getLogger("uvicorn.error").warning(
+            "story_state_block 超 %d 字硬闸，已丢弃最旧条目", _STORY_STATE_BLOCK_MAX
+        )
+
+    lines = [_STORY_STATE_TITLE, _STORY_STATE_ANCHOR]
+    stale_refs = (state or {}).get("skipped_stale_refs") or []
+    if stale_refs:
+        lines.append(f"注：第 {'、'.join(str(r) for r in stale_refs[:5])} 章的章档基于旧设定，仅供参考。")
+    for label, rows in groups.items():
+        if rows:
+            lines.append(f"◆ {label}：")
+            lines.extend(rows)
+    lines.append(_STORY_STATE_RULE)
+    return "\n".join(lines)
+
+
 def strip_code_fences(text: str) -> str:
     """剥掉模型偶尔包裹的 ```markdown 围栏（保留内部文本）。"""
     s = str(text).strip()
@@ -230,6 +321,9 @@ def validate_polished_prompt(text: str, ctx: "ChapterContext") -> list[str]:
         missing.append("爽点设计")
     if ctx.plot_items and "剧情走向" not in text:
         missing.append("剧情走向")
+    # c-chapter-dossier：有故事状态时润色产物须保留段标题（与「前情」锚同手法）
+    if _story_state_block(ctx.story_state) and "故事状态" not in text:
+        missing.append("故事状态")
     if _PLACEHOLDER_RE.search(text):
         missing.append("占位符残留")
     return missing
@@ -282,6 +376,9 @@ class ChapterContext:
         # c-og-slim-v2：mood_progression / emotional_hook 退役（页面无控件、语义并入
         # 主情绪与章末落点）——不再取数、不再注入。
         self.primary_mood: str = ""
+        # c-chapter-dossier：故事状态（截至上章）——章档已采纳行的折叠态
+        # （story_state_upto 产出）；空 dict 时素材包/提示词两路均不出块。
+        self.story_state: dict = {}
 
     # ── 素材包（润色原料）───────────────────────────────────────────
 
@@ -343,6 +440,11 @@ class ChapterContext:
         plot = _plot_block(self.plot_items)
         if plot:
             blocks.append(plot)
+
+        # c-chapter-dossier：故事状态块（单源渲染；剧情块后、角色块前）
+        story = _story_state_block(self.story_state)
+        if story:
+            blocks.append(story)
 
         if self.characters:
             lines = []
@@ -550,6 +652,12 @@ class ChapterContext:
         if prev:
             lines.append("## 前文回顾")
             lines.append(prev)
+            lines.append("")
+
+        # c-chapter-dossier：故事状态块（与素材包同源同字；角色状态前）
+        story = _story_state_block(self.story_state)
+        if story:
+            lines.append(story)
             lines.append("")
 
         # Character snapshots
@@ -804,6 +912,17 @@ async def build_chapter_context(
     # 状态 = 认知层主格摘要 + 语言特征——旧 state_history 链路已随台账移除退役）
     if not novel_id:
         novel_id = await _novel_id_by_root(root_path)
+
+    # 故事状态（c-chapter-dossier）：截至本章（不含）的章档已采纳折叠态——
+    # 只取 主线∧archived∧非 stale 章；四域全空时 ctx.story_state 留空不出块。
+    try:
+        from write.story_state import story_state_upto
+
+        ctx.story_state = await story_state_upto(novel_id, chapter_ref, exclusive=True)
+    except Exception as e:  # noqa: BLE001 — 状态块缺席不阻塞写章主流程
+        logger.warning("story_state_upto failed: novel=%s ref=%s err=%s", novel_id, chapter_ref, e)
+        ctx.story_state = {}
+
     char_names = ctx.chapter_outline.get("characters", [])
     if isinstance(char_names, list) and char_names:
         async with async_session() as session:

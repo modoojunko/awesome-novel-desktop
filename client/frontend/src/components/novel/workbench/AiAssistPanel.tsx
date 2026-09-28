@@ -3,7 +3,8 @@
  *  ＋ ra-step 能力行（名称＋会读什么/落到哪＋箭头）＋ ra-foot 来源/去向声明。
  *  各页签内容不同，造型与门控全局一致；动作全部真链路（2026-09-17 起），
  *  AI 入口收口右栏（2026-09-20），布局统一设定模版（c-ai-rail-shared，2026-09-27）。
- *  注：建表动作（提取本章变化/识别角色与物品变化/登记新伏笔）走 onRunReconcile，
+ *  注：收尾触发只剩「登记新伏笔」走 onRunReconcile（c-chapter-dossier：设定/关系
+ *  两入口退役——四域随归档提取进「章档」页签），
  *  检测动作（冲突检测/一致性/偏离/补边）走 onAiCheck，精修动作走 onPromptRefine。 */
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -105,7 +106,7 @@ export function AiAssistPanel({
     capture: ReturnType<ProseHandle["captureNow"]>,
   ) => void;
   /** 按类触发本章收尾（设定/关系/伏笔三入口）；产出在「操作」页签待确认 */
-  onRunReconcile?: (kind: "set_changes" | "relations" | "hooks") => void;
+  onRunReconcile?: (kind: "hooks") => void;
   /** 章纲缺项补全（AI 产物 patch 到章纲表单，由既有保存链落库） */
   onFillGaps?: () => void;
   gapsLoading?: boolean;
@@ -119,7 +120,7 @@ export function AiAssistPanel({
   promptSavedSignal?: number;
 }) {
   // 页签内轻量数据（与中栏页签同端点；只在对应页签激活时取）
-  const [promptSrc, setPromptSrc] = useState<{ total: number; cast: number } | null>(null);
+  const [promptSrc, setPromptSrc] = useState<{ total: number; cast: number; note?: string } | null>(null);
   /** 本章提示词是否已落库（c-prompt-tab-retire：正文页签状态行用） */
   const [hasPrompts, setHasPrompts] = useState<boolean | null>(null);
   const [styleStats, setStyleStats] = useState<{ rows: number; shadow: number } | null>(null);
@@ -149,9 +150,25 @@ export function AiAssistPanel({
         });
       api
         .get(`/novels/${projectId}/chapters/${chapterRef}/prompt-sources`)
-        .then((d: { total_chars?: number; cast_count?: number }) => {
-          if (!cancelled) setPromptSrc({ total: d.total_chars ?? 0, cast: d.cast_count ?? 0 });
-        })
+        .then(
+          (
+            d: {
+              total_chars?: number;
+              cast_count?: number;
+              sources?: Array<{ key?: string; note?: string }>;
+            },
+          ) => {
+            if (cancelled) return;
+            // 故事状态缺口标注（c-chapter-dossier）：把「不采纳→下章静默缺状态」
+            // 变成聚合行上的可见提示（「提示词」页签退役后的唯一 UI 承接面）
+            const ss = (d.sources ?? []).find((x) => x.key === "story_state");
+            setPromptSrc({
+              total: d.total_chars ?? 0,
+              cast: d.cast_count ?? 0,
+              note: ss?.note || "",
+            });
+          },
+        )
         .catch(() => {
           /* 统计失败静默 */
         });
@@ -379,6 +396,12 @@ export function AiAssistPanel({
         本章提示词{" "}
         {hasPrompts == null ? "…" : hasPrompts ? "已自定义" : "自动组装"}
         {promptSrc ? <> · 组装来源 {promptSrc.total.toLocaleString("zh-CN")} 字</> : null}
+        {promptSrc?.note ? (
+          <span className="ra-hint" data-testid="story-state-note">
+            {" "}
+            · 上一章章档{promptSrc.note === "上一章未归档" ? "未归档" : promptSrc.note}（见「章档」页签）
+          </span>
+        ) : null}
       </>
     );
     rows = [
@@ -419,13 +442,9 @@ export function AiAssistPanel({
     ) : (
       <>本章变化统计中…</>
     );
-    rows = [
-      cap("extract", "提取本章变化", "从本章正文提取设定变化，归档时并进全书那一套", {
-        onClick: () => onRunReconcile?.("set_changes"),
-        disabled: !archived, hint: archived ? undefined : "归档后可用",
-      }),
-    ];
-    footNote = "从本章正文里提取本章变化，归档时并进全书那一套；回退后自动重算。";
+    rows = [];
+    footNote =
+      "设定/关系/物品/认知四域已升级为「章档」——随归档自动提取（全档可用），在「章档」页签逐条确认。";
   } else if (tab === "style") {
     targetLine = styleStats ? (
       <>全书基线 {styleStats.rows} 行 · 本章调整 {styleStats.shadow ? `${styleStats.shadow} 项` : "未调整"}</>
@@ -454,10 +473,6 @@ export function AiAssistPanel({
       <>人物与势力统计中…</>
     );
     rows = [
-      cap("rel-extract", "识别角色与物品变化", "从本章正文识别关系与物品变化（归档后可用）", {
-        onClick: () => onRunReconcile?.("relations"),
-        disabled: !archived, hint: archived ? undefined : "归档后可用",
-      }),
       cap("rel-check", "关系冲突检测", "查本章关系与全书关系图的冲突", {
         onClick: () => onAiCheck?.("relations_conflict"),
       }),
@@ -465,7 +480,8 @@ export function AiAssistPanel({
         onClick: () => onAiCheck?.("relation_suggest"),
       }),
     ];
-    footNote = "关系图是全书统一的一套；这一章可以在图上加新的关系，归档时并进全书。";
+    footNote =
+      "关系图是全书统一的一套；本章关系变化随归档进「章档」页签确认（不再单独写回全书关系）。";
   } else if (tab === "hooks") {
     targetLine = hookStats ? (
       <>悬置 {hookStats.open} 条 · 本章埋下 {hookStats.plantHere} 条 · 本章回收 {hookStats.resolveHere} 条 · 台账 {hookStats.total} 条</>

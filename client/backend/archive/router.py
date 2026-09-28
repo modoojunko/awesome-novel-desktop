@@ -1,10 +1,8 @@
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from archive.service import archive_chapter
 from auth_local.middleware import get_current_user
 from db import get_db
 from models.archive import Archive
@@ -12,7 +10,6 @@ from models.chapter import Chapter
 from models.project import Novel
 from novels.service import get_novel
 from workflow.engine import _validate_ref
-from workflow.tier import tier_phase_transition
 
 router = APIRouter(
     prefix="/api/novels/{project_id}/chapters/{chapter_ref}/archive",
@@ -40,56 +37,91 @@ async def archive(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """归档受理（c-chapter-dossier D1）：提取成功才归档。
+
+    - 本书模型未就绪 → 同步收口（archived、无章档、摘要降级），受理即生效；
+    - 模型就绪 → 受理返回 extracting，后台提取四域，成功原子收口置 archived；
+      失败章不归档可重试（逃生阀「跳过提取仍归档」走同一收口函数）。
+    - 提取不挂会员门（全档可用）；旧伏笔/lore 收尾仍 PRO，归档成功后由收口方触发。
+    - 正文以 DB 现值为准（受理时记哈希，提取窗口内被改 → 本次失败提示重试）。
+    """
     project = await get_novel(db, project_id, user["id"])
     if not project:
         raise HTTPException(404, "Project not found")
     _validate_ref(chapter_ref)
 
-    full_text = body.get("full_text", "")
-    if len(full_text) < 100:
-        raise HTTPException(400, "Text too short to archive")
-    # ai_summary=False：用户在设置中关闭归档 AI 摘要（正文降级摘要，不烧 AI 额度）；
-    # 会员判定走门控层非抛出版本（业务层不得自判会员，D11 禁令③）。
-    from auth_local.deps import ai_access_granted
-
-    ai_summary = body.get("ai_summary", True) and ai_access_granted()
-    # 收尾提案制与摘要解耦（D11）：只看会员门控，不看 ai_summary 偏好
-    reconcile_allowed = ai_access_granted()
-
-    result = await archive_chapter(
-        project.id, project.root_path, chapter_ref, full_text, ai_summary
-    )
-    # force：归档是内容驱动操作（≥100 字已校验），phase 仅记账，不再要求 write→archive
-    # 严格流转——直接写第一章的手工路径 phase 停在 outline，严格校验会 500。
-    tier_phase_transition(project, "archive", force=True)
-
-    # DB 章行 archived 态（status + archived_at）
     from repositories import chapter_repo
 
     row = await chapter_repo.get_by_ref(db, project.id, chapter_ref)
-    # total_archives 语义＝**已归档章节数**（供书架卡片阶段判据）→ 必须幂等：
-    # 重复归档同一章不再累加，取消归档要回减（见 chapters/router.py unarchive）。
-    was_archived = row is not None and getattr(row, "status", "") == "archived"
-    chapter_row_id = row.id if row is not None else None
-    if row is not None:
-        row.status = "archived"
-        row.archived_at = datetime.now(UTC).replace(tzinfo=None)
-    if not was_archived:
-        project.total_archives = (project.total_archives or 0) + 1
-    await db.commit()
+    if row is None:
+        raise HTTPException(404, "Chapter not found")
+    if row.ghost_of:
+        raise HTTPException(409, "旧稿支线章只读，不能归档")
 
-    # archive-reconcile：AI 收尾放后台单飞线程（PRO 且模型就绪才产生提案）；
-    # 归档即刻生效，收尾失败/未跑不影响本次归档结果。
-    reconcile_started = None
-    if chapter_row_id and reconcile_allowed:
-        from archive.reconcile import start_reconcile_job
+    full_text = row.content.prose if row.content is not None else ""
+    body_text = str(body.get("full_text") or "")
+    if len(full_text) < 100 and len(body_text) >= 100:
+        # 旧契约兼容：旁路调用只带 body 正文时以请求体为准先落库（编辑器常态
+        # 已自动保存，此路径只是兜底），归档与提取仍以 DB 现值为单一事实源。
+        from chapters.store import save_chapter
 
-        job = start_reconcile_job(
-            project.id, project.root_path, chapter_ref, chapter_row_id
+        await save_chapter(project.root_path, chapter_ref, {"prose": body_text})
+        await db.refresh(row)
+        full_text = row.content.prose if row.content is not None else ""
+    if len(full_text) < 100:
+        raise HTTPException(400, "Text too short to archive")
+
+    from archive.dossier import accept_extraction, get_job_state, prose_sha256
+
+    # 受理幂等：同章提取在跑 → 返回当前状态（不报错不排队）
+    job_state = await get_job_state(row.id)
+    if job_state is not None and job_state["state"] == "extracting":
+        return {
+            "accepted": True, "model_ready": True, "state": "extracting",
+            "dedup": "in_flight", "archive_path": None, "summary": None,
+        }
+
+    # 模型就绪探测（非抛出版本）：未就绪 → 放行归档（无章档、可后补提取）
+    model_ready = False
+    try:
+        from ai_client import get_ai_client_for_novel
+
+        await get_ai_client_for_novel(project.id)
+        model_ready = True
+    except Exception:  # noqa: BLE001 — 未配置/无 Key：归档即刻生效，不烧调用
+        model_ready = False
+
+    ai_summary = body.get("ai_summary", True)
+
+    if not model_ready:
+        from archive.dossier import finalize_archive
+
+        result = await finalize_archive(
+            novel_id=project.id,
+            root_path=project.root_path,
+            chapter_id=row.id,
+            chapter_ref=chapter_ref,
+            title=row.title,
+            full_text=full_text,
+            summary=None,
+            dossier_payload=None,
+            job_state=None,
         )
-        reconcile_started = bool(job)
+        # 旧收尾（伏笔/lore 提案，PRO）随归档成功触发（模型未就绪时收尾内部自退）
+        from archive.dossier import _maybe_start_reconcile
 
-    return {**result, "reconcile_started": reconcile_started}
+        _maybe_start_reconcile(project.id, project.root_path, chapter_ref, row.id)
+        return {**result, "accepted": True, "model_ready": False, "state": "archived"}
+
+    job = await accept_extraction(
+        project.id, project.root_path, chapter_ref, row.id,
+        prose_sha256(full_text), ai_summary=bool(ai_summary),
+    )
+    return {
+        "accepted": True, "model_ready": True, "state": "extracting",
+        "job_id": job.get("job_id"), "archive_path": None, "summary": None,
+    }
+
 
 
 @archives_router.get("")

@@ -1,0 +1,15 @@
+# 会话隔离栈（c-chapter-dossier，per-session 规则）：独立容器名/端口/数据目录
+# （数据目录走 compose 相对路径——从本 worktree 起栈自动落在 worktree 的 .docker-data）
+# 端口避开 wt21（19600/8600/5674）与 novel-demo（5174）：用 19610/8610/5684。
+services:
+  server-backend:
+    container_name: wtds-server-backend
+    ports: !override ["19610:19000"]
+  client-backend:
+    container_name: wtds-client-backend
+    ports: !override ["8610:8000"]
+    environment:
+      SERVER_API_BASE: "http://host.docker.internal:19610/api"
+  client-frontend:
+    container_name: wtds-client-frontend
+    ports: !override ["5684:80"]

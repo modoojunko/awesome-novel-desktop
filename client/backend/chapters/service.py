@@ -149,6 +149,10 @@ async def save_prose(db, project, ref: str, prose: str) -> None:
     if not data:
         raise HTTPException(404, "Chapter not found")
     data["prose"] = prose
+    # c-chapter-dossier：编辑器高频自动保存只动正文——dossier 键剔除走
+    # presence-gate 保持现值。否则 load 全量回传恒带 dossier，每次保存都
+    # clear+rebuild 四子表（行 uuid churn：采纳会随机撞「已重新提取」409）
+    data.pop("dossier", None)
     await store_save(project.root_path, ref, data)
 
 

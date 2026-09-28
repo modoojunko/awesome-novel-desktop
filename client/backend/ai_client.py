@@ -504,8 +504,9 @@ async def get_ai_client_for_novel(novel_id: str) -> AIClient:
     门禁（grep ④，key-crypto-selfcontained）：本函数每个调用文件，其所在路由
     模块（或上游路由模块）须出现 `require_novel_model` 或 `ensure_novel_model_ready`
     （路径无 project_id 的场景如 story/，用后者从会话引擎取值）。豁免：`tests/`、
-    `ai_prefill.py`、`novels/router.py` suggest-meta、`archive/service.py` 与
-    `archive/reconcile.py`（try/except 降级路径，非门控对象）。
+    `ai_prefill.py`、`novels/router.py` suggest-meta、`archive/service.py`、
+    `archive/reconcile.py` 与 `archive/dossier.py`（try/except 降级路径，非门控对象
+    ——章档提取按「模型就绪即跑、未就绪放行归档」语义，c-chapter-dossier D8）。
     """
     async with async_session() as session:
         novel = await session.get(Novel, novel_id)

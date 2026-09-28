@@ -18,17 +18,33 @@ beforeEach(() => {
 describe("ArchiveModal 收尾计划预览", () => {
   it("PRO：列出台后五件事与「未确认不参与提示词」说明", () => {
     render(<ArchiveModal open onClose={() => {}} onConfirm={() => {}} isPro />);
-    expect(screen.getByText("归档收尾")).toBeTruthy();
-    for (const t of ["提取本章设定变化", "更新角色关系", "登记伏笔", "识别世界要素", "概括角色状态变化"]) {
+    // c-chapter-dossier：收尾收缩为两件 PRO 提案；三件已升级章档（全档）
+    expect(screen.getByText("归档收尾（PRO）")).toBeTruthy();
+    for (const t of ["登记伏笔（埋下 / 收束）", "识别世界要素"]) {
       expect(screen.getByText(t)).toBeTruthy();
     }
-    expect(screen.getByText(/不参与后面章节的提示词/)).toBeTruthy();
+    expect(screen.getByText(/点过确认才写进全书设定/)).toBeTruthy();
+    expect(screen.getByText(/已升级为「章档」/)).toBeTruthy();
+    expect(screen.getByText(/提取成功本章才正式归档/)).toBeTruthy();
   });
 
-  it("免费档：说明无收尾提案", () => {
-    render(<ArchiveModal open onClose={() => {}} onConfirm={() => {}} isPro={false} />);
-    expect(screen.getByText(/免费版归档即刻生效，不产生收尾提案/)).toBeTruthy();
-    expect(screen.queryByText("提取本章设定变化")).toBeNull();
+  it("免费档：章档全档说明＋重归档警示可出", () => {
+    const { rerender } = render(
+      <ArchiveModal open onClose={() => {}} onConfirm={() => {}} isPro={false} />,
+    );
+    expect(screen.getByText(/章档提取全档可用/)).toBeTruthy();
+    expect(screen.getByText(/伏笔登记与世界要素提案为 PRO 能力/)).toBeTruthy();
+    rerender(
+      <ArchiveModal
+        open
+        onClose={() => {}}
+        onConfirm={() => {}}
+        isPro={false}
+        rearchive={{ rows: 5, accepted: 3 }}
+      />,
+    );
+    expect(screen.getByText(/清空并重提/)).toBeTruthy();
+    expect(screen.getByText(/含已采纳 3 条/)).toBeTruthy();
   });
 });
 

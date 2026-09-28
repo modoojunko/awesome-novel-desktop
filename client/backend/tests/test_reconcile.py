@@ -1,8 +1,10 @@
 """归档收尾提案（archive-reconcile）后端行为测试。
 
-覆盖：模型级联与枚举／未决覆盖与已决留痕／五类采纳写回（世界观/关系/伏笔）
-＋lore 分支／失败保留 payload／端点语义（进度聚合、409 族、重试）／
-未确认提案不进写章提示词。
+c-chapter-dossier 后收尾通道收缩为两类（伏笔登记/世界要素）——
+set_changes/relations/char_states 已迁章档（archive/dossier.py）。
+覆盖：模型级联与枚举／未决覆盖与已决留痕／两类采纳写回＋退役 kind 拒收／
+失败保留 payload／端点语义（进度聚合、409 族、重试、退役 kind 400）／
+存量 pending 迁移／未确认提案不进写章提示词。
 """
 
 import asyncio
@@ -123,7 +125,7 @@ def _get(nid: str, path: str = ""):
 class TestModelAndUpsert:
     def test_cascade_delete_removes_rows(self):
         _root, nid, ch_id = asyncio.run(_seed())
-        row_id = _add_row(nid, ch_id, "set_changes", {"items": []})
+        row_id = _add_row(nid, ch_id, "lore", {"items": []})
 
         async def _delete_chapter():
             async with async_session() as s:
@@ -139,11 +141,11 @@ class TestModelAndUpsert:
         from archive.reconcile import _upsert_pending
 
         _root, nid, ch_id = asyncio.run(_seed())
-        first = _add_row(nid, ch_id, "set_changes", {"items": [{"key": "旧", "value": "1"}]})
+        first = _add_row(nid, ch_id, "lore", {"items": [{"key": "旧", "value": "1"}]})
 
         async def _upsert(payload):
             async with async_session() as s:
-                rid = await _upsert_pending(s, ch_id, nid, "set_changes", payload)
+                rid = await _upsert_pending(s, ch_id, nid, "lore", payload)
                 await s.commit()
                 return rid
 
@@ -181,45 +183,38 @@ class TestAcceptWriteBack:
 
         asyncio.run(_run())
 
-    def test_set_changes_and_lore_write_world_with_origin(self):
+    def test_lore_write_world_with_origin(self):
         from filesystem.storage import get_storage
 
         root, nid, ch_id = asyncio.run(_seed())
-        for kind in ("set_changes", "lore"):
-            rid = _add_row(nid, ch_id, kind, {"items": [{"key": f"{kind}条目", "value": "值"}]})
-            self._accept(nid, rid)
-            assert _get_row(rid).status == "accepted"
+        rid = _add_row(nid, ch_id, "lore", {"items": [{"key": "lore条目", "value": "值"}]})
+        self._accept(nid, rid)
+        assert _get_row(rid).status == "accepted"
 
         world = asyncio.run(
             get_storage().read_yaml(root, "settings/world-setting.yaml")
         ) or {}
         entries = {e.get("key"): e for e in (world.get("history") or []) + (world.get("extra") or [])}
-        assert entries["set_changes条目"]["origin"] == "vol-1-ch-1"
         assert entries["lore条目"]["origin"] == "vol-1-ch-1"
 
-    def test_relations_upsert_with_origin_chapter(self):
+    def test_retired_kinds_rejected_by_accept(self):
+        """退役 kind（已迁章档）到达采纳 → ValueError（上游白名单已拦，双保险）。"""
+        from archive.reconcile import apply_accept
+
         _root, nid, ch_id = asyncio.run(_seed())
-        rid = _add_row(nid, ch_id, "relations", {"items": [{
-            "owner": "林晚", "other": "老聋", "rel_type": "同盟",
-            "stance": "信任加深", "note": "共渡难关",
-        }]})
-        self._accept(nid, rid)
+        for kind in ("set_changes", "relations", "char_states"):
+            rid = _add_row(nid, ch_id, kind, {"items": []})
 
-        async def _check():
-            async with async_session() as s:
-                rows = (
-                    await s.scalars(
-                        select(CharacterRelation).where(
-                            CharacterRelation.novel_id == nid
-                        )
-                    )
-                ).all()
-                return rows
+            async def _run(row_id=rid):
+                async with async_session() as s:
+                    row = await s.get(ChapterReconcile, row_id)
+                    await apply_accept(s, row)
 
-        rows = asyncio.run(_check())
-        assert len(rows) == 1
-        assert rows[0].origin_chapter_id == ch_id
-        assert _get_row(rid).status == "accepted"
+            try:
+                asyncio.run(_run())
+                raise AssertionError(f"{kind} 应被拒收")
+            except ValueError as e:
+                assert kind in str(e)
 
     def test_hooks_planted_and_resolved(self):
         _root, nid, ch_id = asyncio.run(_seed())
@@ -257,8 +252,8 @@ class TestAcceptWriteBack:
 class TestEndpoints:
     def test_list_progress_and_status_transitions(self):
         _root, nid, ch_id = asyncio.run(_seed())
-        r1 = _add_row(nid, ch_id, "set_changes", {"items": []})
-        r2 = _add_row(nid, ch_id, "relations", {"items": []}, status="failed")
+        r1 = _add_row(nid, ch_id, "lore", {"items": []})
+        r2 = _add_row(nid, ch_id, "hooks", {"items": []}, status="failed")
         r3 = _add_row(nid, ch_id, "hooks", {}, status="rejected")
 
         got = _get(nid).json()
@@ -283,7 +278,7 @@ class TestEndpoints:
 
     def test_retry_failed_starts_job(self, monkeypatch):
         _root, nid, ch_id = asyncio.run(_seed())
-        rid = _add_row(nid, ch_id, "set_changes", {"items": []}, status="failed")
+        rid = _add_row(nid, ch_id, "lore", {"items": []}, status="failed")
         started: list = []
 
         def _fake_start(novel_id, root_path, chapter_ref, chapter_id):
@@ -298,7 +293,7 @@ class TestEndpoints:
 
     def test_reject_marks_rejected(self):
         _root, nid, ch_id = asyncio.run(_seed())
-        rid = _add_row(nid, ch_id, "set_changes", {"items": []})
+        rid = _add_row(nid, ch_id, "hooks", {"items": []})
         assert _post(nid, f"/{rid}/reject").status_code == 200
         assert _get_row(rid).status == "rejected"
 
@@ -317,13 +312,27 @@ class TestRunNow:
         try:
             resp = c.post(
                 f"/api/novels/{nid}/chapters/vol-1-ch-1/reconcile/run",
-                json={"kind": "set_changes"},
+                json={"kind": "hooks"},
             )
         finally:
             app.dependency_overrides.clear()
         assert resp.status_code == 200, resp.text
-        assert resp.json() == {"ok": True, "started": True, "kind": "set_changes"}
-        assert captured == [["set_changes"]]
+        assert resp.json() == {"ok": True, "started": True, "kind": "hooks"}
+        assert captured == [["hooks"]]
+
+    def test_run_retired_kind_400(self):
+        """退役 kind（已迁章档）按非法 kind 拒收。"""
+        _root, nid, _ch = asyncio.run(_seed())
+        c = _client(nid, ai=True)
+        try:
+            for kind in ("set_changes", "relations", "char_states"):
+                resp = c.post(
+                    f"/api/novels/{nid}/chapters/vol-1-ch-1/reconcile/run",
+                    json={"kind": kind},
+                )
+                assert resp.status_code == 400, kind
+        finally:
+            app.dependency_overrides.clear()
 
     def test_run_all_when_kind_absent(self, monkeypatch):
         _root, nid, _ch = asyncio.run(_seed())
@@ -379,7 +388,7 @@ class TestNotInjected:
 
         root, nid, ch_id = asyncio.run(_seed())
         marker = "幽灵提案记号XYZ"
-        _add_row(nid, ch_id, "set_changes", {"items": [{"key": marker, "value": marker}]})
+        _add_row(nid, ch_id, "hooks", {"planted": [{"description": marker}]})
 
         async def _build():
             return await build_chapter_context(
@@ -391,3 +400,58 @@ class TestNotInjected:
         assert marker not in ctx.to_user_material()
         assert marker not in ctx.build_system_prompt()
         assert marker not in ctx.material_markdown()
+
+
+class TestLegacyMigration:
+    def test_pending_migrated_and_char_states_rejected(self):
+        """存量迁移：set_changes/relations pending → 章档行；char_states → rejected。"""
+        from archive.reconcile import migrate_legacy_pending
+
+        _root, nid, ch_id = asyncio.run(_seed())
+        _add_row(nid, ch_id, "set_changes", {"items": [
+            {"key": "信标", "value": "三百年前留下", "set": "extra"},
+        ]})
+        _add_row(nid, ch_id, "relations", {"items": [
+            {"owner": "林晚", "other": "老聋", "rel_type": "同盟",
+             "stance": "信任加深", "note": "共渡难关"},
+        ]})
+        _add_row(nid, ch_id, "char_states", {"items": [
+            {"name": "林晚", "state_change": "从犹豫到决意"},
+        ]})
+        _add_row(nid, ch_id, "hooks", {"planted": [{"description": "保留在旧通道"}]})
+
+        got = asyncio.run(migrate_legacy_pending())
+        assert got == {"migrated": 2, "char_states_rejected": 1}
+
+        from models.chapter import ChapterItemChange, ChapterRelationChange, ChapterSettingChange
+
+        async def _check():
+            async with async_session() as s:
+                ch = await s.get(Chapter, ch_id)
+                settings = (await s.scalars(
+                    select(ChapterSettingChange)
+                    .where(ChapterSettingChange.chapter_id == ch_id)
+                )).all()
+                relations = (await s.scalars(
+                    select(ChapterRelationChange)
+                    .where(ChapterRelationChange.chapter_id == ch_id)
+                )).all()
+                recs = (await s.scalars(
+                    select(ChapterReconcile).where(ChapterReconcile.chapter_id == ch_id)
+                )).all()
+                return ch, settings, relations, recs
+
+        ch, settings, relations, recs = asyncio.run(_check())
+        assert len(settings) == 1 and settings[0].status == "pending"
+        assert "信标" in settings[0].content and settings[0].area == "extra"
+        assert len(relations) == 1 and relations[0].owner_name == "林晚"
+        assert relations[0].change_note == "信任加深"
+        # 旧通道只剩 hooks pending（未迁移）＋ char_states rejected 留痕
+        by_kind = {r.kind: r for r in recs}
+        assert set(by_kind) == {"hooks", "char_states"}
+        assert by_kind["hooks"].status == "pending"
+        assert by_kind["char_states"].status == "rejected"
+        # 幂等：再跑一次无迁移量
+        assert asyncio.run(migrate_legacy_pending()) == {
+            "migrated": 0, "char_states_rejected": 0,
+        }
