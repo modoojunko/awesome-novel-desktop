@@ -41,3 +41,9 @@
 - [x] 5.2 后端全量 pytest（**含 test_prompt_layering 闸门：新模板单文件标记式天然过**）＋**「存量模板渲染零变化」断言**（分层红线：_generate/ai_client 不得动到存量提示词面）＋前端 vitest；`grep -rn "具名新人一律不添" client/backend/prompts/` 确认规则 2 补句就位（以 delta 钉词源为准）；钉词测试同步后绿
 - [x] 5.3 门禁实跑并记录结论：`client/frontend npm run design:lint`／`npm run design:check`（像素差 <0.2%）／`tsc --noEmit`（C端）；**book.css 共享词汇改动另跑 `node scripts/design-cross.mjs`＋三域右栏截图对照**；无裸 hex/emoji/未登记字号
 - [x] 5.4 走查脚本入库核对：`openspec/changes/c-character-intro/evidence/cast-review-walkthrough.cjs`（v2.5 断言集；稿面/脚本版本字样统一）跑绿；「还有 N 个」回执分支与 created 重试/409 由 e2e 5.1 承接（稿面边界注记已录文案）；todo.md「卷域章层四项」之①标记完成并注链接（②③④不动）
+
+## 6. 名单缺人探测（每章通用，确定性——2026-09-28 用户拍板：每章都要能识别到主角）
+
+- [x] 6.1 OgPane 名单缺人探测器（查看态＋编辑态）：有卡角色（含别名）被本章梗概/剧情条目点名但不在出场名单→就近软提示（点名者＋一键「加入名单」；主角置顶带「主角」标）；「忽略」按章会话内记忆；「加入」走 form.chars＋onPatch（3s 自动保存链）。验证：vitest（点名命中/在名单不提示/忽略不跨章/主角置顶/加入载荷）
+- [x] 6.2 原型 book.html＋ADJUSTMENTS 登记（cast-miss 家族：软提示块＋chip＋忽略）。验证：原型在位、登记齐
+- [x] 6.3 数据修复：真书第 1 章名单恢复 [林野, 阿蓟, 银铎]（API PUT 已执行，2026-09-28）。验证：GET outline.characters
