@@ -150,7 +150,10 @@ class TestCompress:
 
 
 class TestPolish:
-    """c-prose-deai：段落润色改「去AI味」——提示词锚定新口径＋禁用词句单源注入。"""
+    """c-prose-deai：段落润色改「去AI味」——提示词锚定新口径＋禁用词句单源注入。
+
+    v3.1（提示词工程评审修复）：检查清单进 system、素材加边界标记、篇幅单向上限。
+    """
 
     def test_polish_200_prompt_and_usage(self, monkeypatch):
         _root, nid = asyncio.run(_seed())
@@ -167,12 +170,13 @@ class TestPolish:
         assert r.status_code == 200, r.text
         assert r.json()["polished_text"] == "她握桨听风。"
         prompt = captured[-1]["messages"][0]["content"]
-        # 新口径锚：要求段标题＋选区原文＋禁止规则单源（未配置文风 → 「（无）」兜底）
-        assert "去AI味要求" in prompt
+        # 新口径锚：检查清单指针＋边界标记＋选区原文＋禁止规则单源（未配置文风 → 「（无）」兜底）
+        assert "检查清单" in prompt
+        assert "［待处理文本开始］" in prompt and "［待处理文本结束］" in prompt
         assert "她握紧船桨" in prompt
         assert "禁止规则" in prompt and "（无）" in prompt
         system = captured[-1]["system"]
-        assert "AI 腔" in system
+        assert "AI 腔" in system and "检查清单" in system
 
         # 记账：operation=polish（口径不变）
         from models.token_log import TokenLog

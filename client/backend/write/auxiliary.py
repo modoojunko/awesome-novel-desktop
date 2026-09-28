@@ -259,8 +259,10 @@ async def polish_text(
     )
     ctx["selected_text"] = selected_text
     ctx["surrounding_context"] = surrounding_context
-    # 去AI味：文风禁用词/句式单源注入（沿 stream_continue「（无）」兜底口径）
+    # 去AI味：文风禁用词/句式单源注入（沿 stream_continue「（无）」兜底口径）；
+    # 未配文风时给显式降级语，避免空节让弱模型脑补文风
     ctx["anti_ai_rules"] = ctx.get("anti_ai_rules") or "（无）"
+    ctx["writing_style"] = ctx.get("writing_style") or "（未配置，以原文自身文风为准）"
 
     _sys_t, _usr_t = load_layers("polish_text")
     prompt = _usr_t.format(**ctx)
