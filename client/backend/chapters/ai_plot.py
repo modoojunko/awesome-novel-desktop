@@ -15,7 +15,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.deps import get_current_user, require_ai_access, require_novel_model
-from chapters.ai_plan import resolve_prev_chapter_ending
+from chapters.ai_plan import (
+    _global_chapter_no,
+    chapter_position_tags,
+    position_label,
+    resolve_prev_chapter_ending,
+)
 from chapters.schemas import PLOT_MAX_LEN
 from db import get_db
 from novels.service import get_novel
@@ -97,15 +102,22 @@ def _grades(parsed: dict | None, n: int) -> list[str]:
     return [_GRADE_BY_RANK[r] if r is not None and ranks.count(r) == 1 else "" for r in ranks]
 
 
-def _plot_blocks(mat: dict, row, entry: dict) -> str:
-    """素材块：⓪进场（单源取数）→ ①本章三要素 → ②主线与设定口径（不带伏笔台账，防提前揭）。"""
+def _plot_blocks(mat: dict, row, entry: dict, position: str = "") -> str:
+    """素材块：⓪进场（单源取数）→ ⓪'本章位置（首章/开篇期才带，驱动 system 开篇期规则）
+    → ①本章三要素 → ②主线与设定口径（不带伏笔台账，防提前揭）。"""
     parts = [
         f"【进场（本章从哪接）】\n{entry['text']}（{entry['source']}）",
-        f"【本章概要】\n{(row.summary or '').strip()}",
-        f"【碰到的挑战】\n{(row.challenge or '').strip()}",
-        f"【本章结尾（收束到这）】\n{(row.ladder_exit or '').strip()}",
-        _blocks(mat, hooks=False),
     ]
+    if position:
+        parts.append(f"【本章位置】\n{position}")
+    parts.extend(
+        [
+            f"【本章概要】\n{(row.summary or '').strip()}",
+            f"【碰到的挑战】\n{(row.challenge or '').strip()}",
+            f"【本章结尾（收束到这）】\n{(row.ladder_exit or '').strip()}",
+            _blocks(mat, hooks=False),
+        ]
+    )
     if mat.get("world_rules"):
         parts.append(f"【世界铁律】\n{mat['world_rules']}")
     return "\n\n".join(p for p in parts if p)
@@ -145,9 +157,11 @@ async def ai_plot_draw(
 
     mat = await _book_material(db, project, with_hooks=False)  # 不给伏笔台账（防提前揭）
     entry = await resolve_prev_chapter_ending(db, project, row.volume, row.chapter_no)
+    global_ch = await _global_chapter_no(db, project.id, row.volume, row.chapter_no)
+    position = position_label(global_ch, chapter_position_tags(global_ch, row.chapter_no))
     _sys_t, _usr_t = load_layers("chapter_plot_draw")
     system = _sys_t
-    material_user = _render(_usr_t, material_blocks=_plot_blocks(mat, row, entry))
+    material_user = _render(_usr_t, material_blocks=_plot_blocks(mat, row, entry, position))
     user_msg = material_user + f"\n\n请给出第 {row.chapter_no} 章剧情清单的 3 版（只输出 JSON）。"
 
     raw, _u = await _generate(

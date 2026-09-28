@@ -115,7 +115,7 @@ def chapter_position_tags(global_ch: int, ch_no: int) -> list[str]:
     return tags
 
 
-async def _global_chapter_no(db, project, vol, ch_no: int) -> int:
+async def _global_chapter_no(db, project_id, vol, ch_no: int) -> int:
     """全书全局章号＝前面各卷已拆章数（滤 ghost）＋本章卷内序号（插卷/回改后随当前状态重算）。"""
     if vol.volume_no <= 1:
         return ch_no
@@ -123,13 +123,36 @@ async def _global_chapter_no(db, project, vol, ch_no: int) -> int:
 
     early = {
         v.id
-        for v in await volume_repo.list_by_project(db, project.id)
+        for v in await volume_repo.list_by_project(db, project_id)
         if v.volume_no < vol.volume_no
     }
     if not early:
         return ch_no
-    rows = [c for c in await chapter_repo.list_by_project(db, project.id) if not c.ghost_of]
+    rows = [c for c in await chapter_repo.list_by_project(db, project_id) if not c.ghost_of]
     return sum(1 for c in rows if c.volume_id in early) + ch_no
+
+
+async def global_chapter_position(db, project_id: str, vol_no: int, ch_no: int) -> tuple[int, list[str]]:
+    """按卷号＋卷内章号算全局章号与位置标签（剧情抽卡／正文组装两路共用单源）。
+
+    卷行查不到（数据未建卷）→ (0, [])，调用方按「无位置标注」降级。
+    """
+    from repositories import volume_repo
+
+    vol = await volume_repo.get_by_volume_no(db, project_id, vol_no)
+    if vol is None:
+        return 0, []
+    global_ch = await _global_chapter_no(db, project_id, vol, ch_no)
+    return global_ch, chapter_position_tags(global_ch, ch_no)
+
+
+def position_label(global_ch: int, tags: list[str]) -> str:
+    """位置标注文案（素材【本章位置】／正文「本章位置：」两路同词）：首章／开篇期，其余空。"""
+    if "ch1" in tags:
+        return "全书第 1 章（首章）"
+    if "golden3" in tags:
+        return f"全书第 {global_ch} 章（开篇期）"
+    return ""
 
 
 def cadence_reminder(rows, *, is_final: bool, target: int) -> str:
@@ -188,7 +211,7 @@ async def _chapter_material(db, project, vol, ch_no: int) -> dict:
     if rows:
         last = rows[-1]
         prev_line = f"第{last.chapter_no}章：{(last.summary or last.title or '').strip()[:60]}"
-    global_ch = await _global_chapter_no(db, project, vol, ch_no)
+    global_ch = await _global_chapter_no(db, project.id, vol, ch_no)
     mat.update(
         {
             "entry": entry,
