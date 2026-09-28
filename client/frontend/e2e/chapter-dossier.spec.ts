@@ -1,5 +1,5 @@
-// 章档（c-chapter-dossier）E2E 全链：归档受理→后台提取→章档待确认→采纳→
-// 下一章组装来源第七处（缺口标注→采纳后可见）→重写级联（下游「章档待更新」）。
+// 本章变化（c-chapter-dossier）E2E 全链：归档受理→后台提取→设定/关系页签待确认→采纳→
+// 下一章组装来源第七处（缺口标注→采纳后可见）→重写级联（下游「设定待更新」）。
 // 本地桩 AI 秒回四域 JSON（提取提速桩）。
 import http from "node:http";
 import fs from "node:fs";
@@ -187,7 +187,7 @@ async function waitArchived(base: string, auth: Record<string, string>) {
   }
 }
 
-test("章档全链：归档受理提取→待确认→采纳→下章来源第七处→重写级联", async ({ page, request }) => {
+test("变化分区全链：归档受理提取→设定/关系页签待确认→采纳→下章来源第七处→重写级联", async ({ page, request }) => {
   test.setTimeout(150_000);
   const { restore, token } = await setupSession(page);
   const auth = { Authorization: `Bearer ${token}` };
@@ -205,19 +205,18 @@ test("章档全链：归档受理提取→待确认→采纳→下章来源第�
     await waitArchived(base, auth);
     await addChapter2(request, token, pid);
 
-    // ② 章档页签：四域行＋证据句＋一键采纳
+    // ② 设定页签：设定/物品/认知变化（按子领域分组）＋证据展开＋一键采纳
     await page.reload();
     await page.locator(".mtab", { hasText: "写作" }).click();
     await page.locator(".col-tree .ch").first().click();
-    await page.getByRole("tab", { name: /^章档/ }).click();
-    const pane = page.getByTestId("dossier-pane");
+    await page.getByRole("tab", { name: /^设定/ }).click();
+    const pane = page.getByTestId("setting-changes-section");
     await expect(pane).toBeVisible({ timeout: 15000 });
-    await expect(pane.getByTestId("dossier-domain-settings")).toBeVisible({ timeout: 15000 });
-    await expect(pane.getByText("临江渡口夜里封航")).toBeVisible();
+    await expect(pane.getByTestId("changes-area").first()).toBeVisible({ timeout: 15000 });
+    await expect(pane.getByText(/临江渡口夜里封航/)).toBeVisible();
     await expect(pane.getByText(/仍不知道「残页的来历」/)).toBeVisible();
-    // 证据句展开（点行；个别环境点击双触发开→关——点到开为止）
-    const row = pane.getByTestId("dossier-row").first();
-    // 行中心落在 .ds-actions（stopPropagation）——点内容首行才触发整行 toggle
+    // 证据句展开（点内容首行——行中心落在 .ds-actions stopPropagation 区）
+    const row = pane.getByTestId("change-row").first();
     const rowHead = row.locator("div").first();
     for (let i = 0; i < 3 && !(await row.getAttribute("class"))!.includes("open"); i++) {
       await rowHead.click();
@@ -225,9 +224,9 @@ test("章档全链：归档受理提取→待确认→采纳→下章来源第�
     }
     await expect(row).toHaveClass(/open/);
     await expect(pane.getByText(/证据：「临江渡口的风裹着湿气」/)).toBeVisible();
-    // 一键采纳全部
-    await pane.getByTestId("dossier-accept-all").click();
-    await expect(pane.getByText(/全部采纳（0）|已处理/).first()).toBeVisible({ timeout: 10000 });
+    // 一键采纳全部（设定区块不含关系行）
+    await pane.getByTestId("changes-accept-all").click();
+    await expect(pane.getByText(/全部采纳（0）/)).toBeVisible({ timeout: 10000 });
     const d = await (await fetch(`${base}/chapters/vol-1-ch-1/dossier`, { headers: auth })).json();
     expect(d.progress.pending).toBe(0);
     expect(d.progress.accepted).toBeGreaterThanOrEqual(3);
@@ -246,7 +245,7 @@ test("章档全链：归档受理提取→待确认→采纳→下章来源第�
     expect(pv.counts.knowledge).toBeGreaterThanOrEqual(1);
     expect(pv.domains.knowledge[0].learned).toBe(false); // 防泄底基线：阿蓟仍不知
 
-    // ③′ 第 2 章也归档（出章档）——级联只标「有章档行」的下游章
+    // ③′ 第 2 章也归档（出变化行）——级联只标「有变化行」的下游章
     const ra2 = await request.post(`${base}/chapters/vol-1-ch-2/archive`, {
       data: { full_text: PROSE, ai_summary: false },
       headers: auth,
@@ -259,7 +258,7 @@ test("章档全链：归档受理提取→待确认→采纳→下章来源第�
       if (i === 99) throw new Error("第 2 章提取未在 20s 内完成归档");
     }
 
-    // ④ 重写第 1 章 → 第 2 章树角标「章档待更新」＋章档页签 stale 横幅
+    // ④ 重写第 1 章 → 第 2 章树角标「设定待更新」＋设定页签 stale 横幅
     const rw = await request.post(`${base}/chapters/vol-1-ch-1/rewrite`, { data: {}, headers: auth });
     expect(rw.ok()).toBeTruthy();
     expect((await rw.json()).dossier_stale_marked).toBe(1);
@@ -267,10 +266,10 @@ test("章档全链：归档受理提取→待确认→采纳→下章来源第�
     await page.locator(".mtab", { hasText: "写作" }).click();
     await expect(page.getByTestId("ch-dossier-stale")).toBeVisible({ timeout: 15000 });
     await page.locator(".col-tree .ch").nth(1).click();
-    await page.getByRole("tab", { name: /^章档/ }).click();
-    await expect(pane.getByTestId("dossier-stale-banner")).toBeVisible({ timeout: 15000 });
+    await page.getByRole("tab", { name: /^设定/ }).click();
+    await expect(page.getByTestId("changes-stale-banner").first()).toBeVisible({ timeout: 15000 });
 
-    // ⑤ 消费侧跳过 stale 章（重写后第 1 章章档已清空，第 2 章 stale → 状态块无内容）
+    // ⑤ 消费侧跳过 stale 章（重写后第 1 章变化已清空，第 2 章 stale → 状态块无内容）
     const ps2 = await (
       await fetch(`${base}/chapters/vol-1-ch-2/prompt-sources`, { headers: auth })
     ).json();
@@ -333,14 +332,14 @@ test("逃生阀：提取失败→跳过仍归档（未提取态＋补提取）",
     }
     expect(failed).toBeTruthy();
 
-    // UI：章档页签失败态 → 跳过提取仍归档
+    // UI：操作页签归档卡失败态 → 跳过提取仍归档
     await page.reload();
     await page.locator(".mtab", { hasText: "写作" }).click();
     await page.locator(".col-tree .ch").first().click();
-    await page.getByRole("tab", { name: /^章档/ }).click();
-    await expect(page.getByTestId("dossier-failed")).toBeVisible({ timeout: 15000 });
+    await page.getByRole("tab", { name: /^操作/ }).click();
+    await expect(page.getByTestId("archive-skip")).toBeVisible({ timeout: 15000 });
     page.once("dialog", (dlg) => dlg.accept());
-    await page.getByTestId("dossier-skip").click();
+    await page.getByTestId("archive-skip").click();
     // 归档落地＋未提取态
     let archived = false;
     for (let i = 0; i < 50; i++) {
@@ -349,7 +348,8 @@ test("逃生阀：提取失败→跳过仍归档（未提取态＋补提取）",
       await new Promise((r) => setTimeout(r, 200));
     }
     expect(archived).toBeTruthy();
-    await expect(page.getByTestId("dossier-not-extracted")).toBeVisible({ timeout: 15000 });
+    // 未提取态：归档卡出现补提取入口
+    await expect(page.getByTestId("archive-backfill")).toBeVisible({ timeout: 15000 });
   } finally {
     await restore();
     await new Promise<void>((r) => bad.close(() => r()));

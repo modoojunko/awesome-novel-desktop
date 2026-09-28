@@ -320,7 +320,7 @@ export default function OutlineTree({
                       )}
                       {c.dossier_stale && (
                         <span className="tag-stale" data-testid="ch-dossier-stale">
-                          章档待更新
+                          设定待更新
                         </span>
                       )}
                       <span className="acts">

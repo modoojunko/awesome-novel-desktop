@@ -4,7 +4,7 @@
  *  各页签内容不同，造型与门控全局一致；动作全部真链路（2026-09-17 起），
  *  AI 入口收口右栏（2026-09-20），布局统一设定模版（c-ai-rail-shared，2026-09-27）。
  *  注：收尾触发只剩「登记新伏笔」走 onRunReconcile（c-chapter-dossier：设定/关系
- *  两入口退役——四域随归档提取进「章档」页签），
+ *  两入口退役——四域随归档提取进设定/角色关系页签），
  *  检测动作（冲突检测/一致性/偏离/补边）走 onAiCheck，精修动作走 onPromptRefine。 */
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -400,7 +400,7 @@ export function AiAssistPanel({
         {promptSrc?.note ? (
           <span className="ra-hint" data-testid="story-state-note">
             {" "}
-            · 上一章章档{promptSrc.note === "上一章未归档" ? "未归档" : promptSrc.note}（见「章档」页签）
+            · 上一章变化{promptSrc.note === "上一章未归档" ? "未归档" : promptSrc.note}（见「设定」页签）
           </span>
         ) : null}
       </>
@@ -445,7 +445,7 @@ export function AiAssistPanel({
     );
     rows = [];
     footNote =
-      "设定/关系/物品/认知四域已升级为「章档」——随归档自动提取（全档可用），在「章档」页签逐条确认。";
+      "设定/关系/物品/认知变化随归档自动提取（全档可用），在「设定」「角色关系」页签逐条确认。";
   } else if (tab === "style") {
     targetLine = styleStats ? (
       <>全书基线 {styleStats.rows} 行 · 本章调整 {styleStats.shadow ? `${styleStats.shadow} 项` : "未调整"}</>
@@ -482,7 +482,7 @@ export function AiAssistPanel({
       }),
     ];
     footNote =
-      "关系图是全书统一的一套；本章关系变化随归档进「章档」页签确认（不再单独写回全书关系）。";
+      "关系图是全书统一的一套；本章关系变化随归档在本页签确认（不再单独写回全书关系）。";
   } else if (tab === "hooks") {
     targetLine = hookStats ? (
       <>悬置 {hookStats.open} 条 · 本章埋下 {hookStats.plantHere} 条 · 本章回收 {hookStats.resolveHere} 条 · 台账 {hookStats.total} 条</>

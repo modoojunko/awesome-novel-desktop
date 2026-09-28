@@ -232,7 +232,7 @@ export function ArchiveModal({
   open: boolean;
   onClose: () => void;
   onConfirm: () => void;
-  /** 收尾计划预览：PRO 列伏笔/世界要素两件（c-chapter-dossier 三件已迁章档） */
+  /** 收尾计划预览：PRO 列伏笔/世界要素两件（c-chapter-dossier 三件迁本章变化） */
   isPro?: boolean;
   /** 重归档覆盖警示（c-chapter-dossier）：{rows, accepted} 有值则警示清空重提 */
   rearchive?: { rows: number; accepted: number } | null;
@@ -263,11 +263,11 @@ export function ArchiveModal({
       }
     >
       <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.7 }}>
-        点归档后先 <b>AI 提取本章章档</b>（设定 / 关系 / 物品 / 角色认知四域，用你配置的模型），
+        点归档后先 <b>AI 提取本章变化</b>（设定 / 关系 / 物品 / 角色认知，用你配置的模型），
         提取成功本章才正式归档；提取期间本章<b>锁定</b>。
       </p>
       <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
-        四域变化进「章档」页签逐条确认后，喂给下一章提示词；未配置模型则归档即刻生效（无章档，可后补）。仍可在版本历史中查看与恢复。
+        变化在「设定」「角色关系」页签逐条确认后，喂给下一章提示词；未配置模型则归档即刻生效（无变化记录，可后补）。仍可在版本历史中查看与恢复。
       </p>
       {rearchive && rearchive.rows > 0 && (
         <p
@@ -277,10 +277,10 @@ export function ArchiveModal({
           }}
           data-testid="archive-rewarn"
         >
-          重新归档将<b>清空并重提</b>本章章档 {rearchive.rows} 条（含已采纳 {rearchive.accepted} 条）。
+          重新归档将<b>清空并重提</b>本章变化 {rearchive.rows} 条（含已采纳 {rearchive.accepted} 条）。
         </p>
       )}
-      {/* 收尾计划预览（c-chapter-dossier 后：三件迁章档，收尾只剩两件 PRO 提案） */}
+      {/* 收尾计划预览（c-chapter-dossier 后：三件迁本章变化，收尾只剩两件 PRO 提案） */}
       <div className="arch-plan" data-od-id="archive-plan" data-testid="archive-plan">
         <p className="ap-h">归档收尾（PRO）</p>
         {isPro ? (
@@ -293,12 +293,12 @@ export function ArchiveModal({
               <li>识别世界要素</li>
             </ul>
             <p className="ap-lead">
-              设定变化 / 角色关系 / 物品 / 角色认知已升级为「章档」——全档可用，随归档提取。
+              设定变化 / 角色关系 / 物品 / 角色认知随归档自动提取，全档可用。
             </p>
           </>
         ) : (
           <p className="ap-lead">
-            章档提取全档可用（配置了模型即可）；伏笔登记与世界要素提案为 PRO 能力。
+            本章变化提取全档可用（配置了模型即可）；伏笔登记与世界要素提案为 PRO 能力。
           </p>
         )}
       </div>

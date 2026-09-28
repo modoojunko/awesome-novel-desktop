@@ -29,7 +29,7 @@ const STUB_PORT = 45871;
 const STUB_BASE = `http://host.docker.internal:${STUB_PORT}/v1`;
 
 // ── 桩 AI：按 prompt 关键词回各收尾类别的预置 JSON ─────────────────────────
-// c-chapter-dossier：章档提取（一次调用四域）——本地桩秒回，即提取提速桩
+// c-chapter-dossier：本章变化提取（一次调用四域）——本地桩秒回，即提取提速桩
 function stubContent(prompt: string): string {
   if (prompt.includes("只输出一个 JSON 对象，四键齐全")) {
     return JSON.stringify({
@@ -277,7 +277,7 @@ test("PRO：归档 → 后台收尾提案 → 采纳写回/驳回", async ({ pag
     await page.getByRole("tab", { name: /^操作/ }).click();
     const pane = page.locator('[data-od-id="reconcile-pane"]');
     await expect(pane).toBeVisible({ timeout: 15000 });
-    // c-chapter-dossier：收尾收缩为两件（设定变化/关系/角色状态迁「章档」页签）
+    // c-chapter-dossier：收尾收缩为两件（设定变化/关系/角色状态迁设定/角色关系页签）
     await expect(pane.getByText("世界要素")).toBeVisible({ timeout: 25000 });
     await expect(pane.getByText("伏笔登记")).toBeVisible();
     await expect(pane.getByText("设定变化")).toHaveCount(0);
@@ -358,7 +358,7 @@ test("免费档：归档后收尾区为 PRO 占位（不发收尾请求）", asy
     await expect(page.locator('[data-od-id="reconcile-pro-free"]')).toBeVisible({
       timeout: 15000,
     });
-    await expect(page.getByText("PRO 可用 · 章档四域提取全档可用（见「章档」页签）")).toBeVisible();
+    await expect(page.getByText("PRO 可用 · 本章变化提取全档可用（见「设定」页签）")).toBeVisible();
     expect(reconcileCalls).toBe(0);
   } finally {
     await restore();

@@ -24,7 +24,8 @@ describe("ArchiveModal 收尾计划预览", () => {
       expect(screen.getByText(t)).toBeTruthy();
     }
     expect(screen.getByText(/点过确认才写进全书设定/)).toBeTruthy();
-    expect(screen.getByText(/已升级为「章档」/)).toBeTruthy();
+    expect(screen.getByText(/随归档自动提取，全档可用/)).toBeTruthy();
+    expect(screen.getByText(/AI 提取本章变化/)).toBeTruthy();
     expect(screen.getByText(/提取成功本章才正式归档/)).toBeTruthy();
   });
 
@@ -32,7 +33,7 @@ describe("ArchiveModal 收尾计划预览", () => {
     const { rerender } = render(
       <ArchiveModal open onClose={() => {}} onConfirm={() => {}} isPro={false} />,
     );
-    expect(screen.getByText(/章档提取全档可用/)).toBeTruthy();
+    expect(screen.getByText(/本章变化提取全档可用/)).toBeTruthy();
     expect(screen.getByText(/伏笔登记与世界要素提案为 PRO 能力/)).toBeTruthy();
     rerender(
       <ArchiveModal
