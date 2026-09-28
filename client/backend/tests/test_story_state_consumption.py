@@ -206,7 +206,7 @@ def test_block_render_two_paths_identical_and_empty_absent():
     ctx = ChapterContext()
     assert _story_state_block(ctx.story_state) == ""
     ctx.material_markdown()
-    assert "故事状态" not in ctx.material_markdown() and "故事状态" not in ctx.to_prompt()
+    assert "故事状态" not in ctx.material_markdown() and "故事状态" not in ctx.to_user_material()
 
     ctx.story_state = {
         "settings": [{"area": "势力", "content": "守夜人接管城门", "ref": "vol-1-ch-1"}],
@@ -227,7 +227,7 @@ def test_block_render_two_paths_identical_and_empty_absent():
     assert "不得表现出知情" in block
     # 两路同源同字
     assert block in ctx.material_markdown()
-    assert block in ctx.to_prompt()
+    assert block in ctx.to_user_material()
     # 证据句不进消费段（本例无 evidence——形状断言：块内不出现 ref）
     assert "vol-1-ch-1" not in block
 
