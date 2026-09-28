@@ -66,6 +66,9 @@
 - [x] 9.1 提取提速桩（env 缩短轮询/注入瞬时完成）进 e2e 基建
 - [x] 9.2 四条主链改写：reconcile.spec（两类+时序）、modals-pr5（两段式断言）、free-writing-flow（同步置位路径=无模型放行）、chapter-rewrite（级联角标）
 - [x] 9.3 新 e2e：章档页签全流程（归档→进度→软锁→采纳→下章消费来源行→重写级联→重归档覆盖警示）
-- [ ] 9.4 全量门禁：pytest/vitest/e2e＋design:lint+design:check（原型先行已做）＋tsc
-- [ ] 9.5 docker 镜像重建（前端 dist bake）＋产物特征串核对；隔离栈验证（独立 project 名/端口/数据目录）
+- [x] 9.4 全量门禁：pytest/vitest/e2e＋design:lint+design:check（原型先行已做）＋tsc
+  - 证据（09-28 隔离栈 wtds：19610/8610/5684，worktree 自建镜像特征串自证——前端 bundle「章档」×29/dossier-pane×7、后端容器含 chapter_dossier_jobs 表）：pytest 1667 绿；vitest 947 绿（93 文件）；tsc 0 错；design:lint 0 违规；design:check（list/preview）8/8 绿；全量 e2e 197 过/19 档位跳过/7 挂＝存量（同 7 例在主栈 main 代码复现同挂：foreshadow-ai ③、genre-ai-settings ×4、plot-sim 免费态、world-settings 免费版）；design-parity-book 存量红（free 11.161% 主栈 vs 11.170% 本栈——逐位同值，本次增量≈0.01%，备忘录既有「parity 字体光栅漂移」记录）
+- [x] 9.5 docker 镜像重建（前端 dist bake）＋产物特征串核对；隔离栈验证（独立 project 名/端口/数据目录）
+  - 配方入库：docker-compose.e2e-dossier.yml（wtds 项目名；数据目录走 compose 相对路径自动落 worktree .docker-data；须预置空 config.json）
 - [ ] 9.6 真机验证：组装 token 复测（2943→预期 ≤4200）、提取成功率抽检、openapi 契约
+  - 【待用户环境】需真模型＋样章（与 1.1 baseline 评测同批做：同一样章集既标基线采纳率又测 token）
