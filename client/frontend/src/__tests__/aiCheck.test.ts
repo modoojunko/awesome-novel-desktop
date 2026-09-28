@@ -1,7 +1,7 @@
-// AI 辅助·检测族（ai-check / fill-gaps / refine）前端契约测试：
+// AI 辅助·检测族（ai-check / fill-gaps）前端契约测试：
 // - ogPatchFromFills：后端 fills → OgForm 补丁（白名单外/已退役键丢弃、行列表拼接）
 // - GAP_TO_FILL_KEY：缺口标签键与后端白名单键的映射全覆盖（c-og-slim-v2 两项必填）
-// - lib 包装：端点路径与出入参（runAiCheck / fillOutlineGaps / refinePrompt / 采纳保存）
+// - lib 包装：端点路径与出入参（runAiCheck / fillOutlineGaps）
 import { describe, expect, it, vi } from "vitest";
 import {
   EMPTY_OG_FORM,
@@ -13,7 +13,6 @@ import {
 
 const apiState = vi.hoisted(() => ({
   post: vi.fn(),
-  put: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({ api: apiState }));
 
@@ -85,13 +84,8 @@ describe("GAP_TO_FILL_KEY（缺口 → 后端白名单键）", () => {
 });
 
 describe("lib 包装端点契约", () => {
-  it("runAiCheck/fillOutlineGaps/refinePrompt/保存 走各自端点", async () => {
-    const {
-      runAiCheck,
-      fillOutlineGaps,
-      refinePrompt,
-      saveWritePrompt,
-    } = await import("@/lib/aiCheck");
+  it("runAiCheck/fillOutlineGaps 走各自端点", async () => {
+    const { runAiCheck, fillOutlineGaps } = await import("@/lib/aiCheck");
 
     apiState.post.mockResolvedValueOnce({
       findings: [{ title: "第3段", detail: "人称漂移" }],
@@ -110,21 +104,6 @@ describe("lib 包装端点契约", () => {
       { missing: ["mood"] },
     );
     expect(fills).toEqual({ mood: "紧张" });
-
-    apiState.post.mockResolvedValueOnce({ prompt: "修订后的提示词" });
-    const prompt = await refinePrompt("p1", "vol-1-ch-2", "negative", "原稿");
-    expect(apiState.post).toHaveBeenLastCalledWith(
-      "/novels/p1/chapters/vol-1-ch-2/write/prompt/refine",
-      { mode: "negative", current_prompt: "原稿" },
-    );
-    expect(prompt).toBe("修订后的提示词");
-
-    apiState.put.mockResolvedValueOnce({});
-    await saveWritePrompt("p1", "vol-1-ch-2", "采纳稿");
-    expect(apiState.put).toHaveBeenLastCalledWith(
-      "/novels/p1/chapters/vol-1-ch-2/prompts/write",
-      { content: "采纳稿" },
-    );
   });
 
   it("runAiCheck 后端空数组 → 空 findings（不抛）", async () => {

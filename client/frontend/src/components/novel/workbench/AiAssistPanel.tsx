@@ -5,7 +5,7 @@
  *  AI 入口收口右栏（2026-09-20），布局统一设定模版（c-ai-rail-shared，2026-09-27）。
  *  注：收尾触发只剩「登记新伏笔」走 onRunReconcile（c-chapter-dossier：设定/关系
  *  两入口退役——四域随归档提取进设定/角色关系页签），
- *  检测动作（冲突检测/一致性/偏离/补边）走 onAiCheck，精修动作走 onPromptRefine。 */
+ *  检测动作（冲突检测/一致性/偏离/补边）走 onAiCheck。 */
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { api, request } from "@/lib/api";
@@ -14,7 +14,7 @@ import { toast } from "@/lib/toast";
 import type { RefObject } from "react";
 import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { chapterNoOf } from "@/lib/chapterRef";
-import type { AiCheckKind, RefineMode } from "@/lib/aiCheck";
+import type { AiCheckKind } from "@/lib/aiCheck";
 import { REQ_FIELDS } from "./chapterForm";
 import AiWriterAssistant, { type AiCapabilityRow } from "@/components/novel/AiWriterAssistant";
 
@@ -66,7 +66,6 @@ export function AiAssistPanel({
   onFillGaps,
   gapsLoading,
   onAiCheck,
-  onPromptRefine,
   onStyleSuggest,
   promptSavedSignal,
 }: {
@@ -112,8 +111,6 @@ export function AiAssistPanel({
   gapsLoading?: boolean;
   /** 六类案头检查（就地弹窗；不落库） */
   onAiCheck?: (kind: AiCheckKind) => void;
-  /** 提示词精修（提案制弹窗；采纳后走提示词保存链） */
-  onPromptRefine?: (mode: RefineMode) => void;
   /** 文风「AI 建议本章调整」（触发 StyleShadowPane 拉取；结果在页签内逐项采纳） */
   onStyleSuggest?: () => void;
   /** 提示词落库信号（c-prompt-tab-retire）：弹窗润色/存稿后状态行刷新 */
@@ -426,13 +423,6 @@ export function AiAssistPanel({
         onClick: () => onAiSelection?.("compress", sel()),
         disabled: !aiState?.hasSelection || !!aiState?.compressLoading,
         hint: !aiState?.hasSelection ? "先在正文选中一段" : undefined,
-      }),
-      // 精修两行随提示词页签退役收编（c-prompt-tab-retire：提案制弹窗，不依赖页签）
-      cap("negative", "补全负向约束", "按本章内容补「不要写什么」一类硬约束（提案制，采纳才写回）", {
-        onClick: () => onPromptRefine?.("negative"),
-      }),
-      cap("concise", "精简提示词", "在不丢信息的前提下收拢冗长表述（提案制，采纳才写回）", {
-        onClick: () => onPromptRefine?.("concise"),
       }),
     ];
     footNote =
