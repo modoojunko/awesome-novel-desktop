@@ -28,7 +28,7 @@
 
 - 文风段 SHALL 重排为单一来源结构：身份（叙事身份一句）→红线（硬约束逐条）→手法（描写手法逐行）→例句（few_shot 逐条）；`possible_mistakes` 行与「叙事基调」块（`build_tone_section`）SHALL 退役——通用反模式由文风硬约束子区（禁用词/句式规则）承接，基调信息经归一并入身份/手法。
 - 「原则与禁忌」段 SHALL 单源化：「禁止使用以下词汇」SHALL 只取文风 KV 的 `banned_words`，「禁止以下句式」SHALL 只取文风 KV 的 `tic_patterns` 前 5 条（现行为钉住，机器体检仍全量）；对 style 卡 fatigue_words 与题材行疲劳词的合并读取 SHALL 删除。
-- 续写/润色/扩写辅助链的风格格式（`_format_style`）与禁用词注入 SHALL 同步为文风 KV 单源。
+- 续写/去AI味/扩写辅助链的风格格式（`_format_style`）与禁用词注入 SHALL 同步为文风 KV 单源。
 - 新增量化基线段：style-quant `confidence > 0` 时 SHALL 注入六行基线（约 X（±容差）、可按本章剧情在容差内自行调节）；`confidence = 0`/缺失 SHALL NOT 注入。
 - 活跃伏笔块 SHALL 为 `planned_chapter_id == 当前章 id` 的条目追加「建议本章收束」标记。
 - **章纲块（c-og-slim-v2）**：素材包 SHALL 注入【章纲概要】块——章纲概要原文＋（非空时）【本章要撞的墙】（挑战）与【本章在卷剧情里的位置】（阶段）；此前的素材包缺该块，导致润色产物（直接用于生成正文）不含章纲主干。粗组兜底提示词（`to_prompt`）SHALL 同批补齐挑战与阶段两块。
