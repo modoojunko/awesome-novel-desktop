@@ -15,6 +15,7 @@ import {
   PAYOFF_KINDS,
   PLOT_MAX_ITEMS,
   PLOT_MAX_LEN,
+  ogFormIssues,
   type OgForm,
   type OgPayoff,
 } from "./chapterForm";
@@ -170,11 +171,14 @@ export default function OgPane({
 
   // 名单缺人探测（c-character-intro 通用逻辑，每章查看/编辑都在场）：有卡角色
   // （含别名）被本章文字点名但不在出场名单——确定性文本匹配（零 AI）；主角置顶。
-  // 「加入」走 form.chars＋onPatch（3s 自动保存链落库）；「忽略」按章会话内记忆。
+  // 单字名不探测：泛称「夜」「上司」类章章命中纯噪音（≥2 字下限）。
+  // 查看态与编辑态共用这一份定义——勿在 !editing 分支里再抄局部版，两份会静默分叉。
+  // 「加入」走 form.chars＋onPatch（3s 自动保存链落库）；校验不过时自动保存会静默
+  // 跳过，就地弹提示别让「已加入」假象刷新即丢。「忽略」按章会话内记忆。
   const chapterText = [form.summary ?? "", ...(form.plots ?? [])].join("\n");
   const castLines = form.chars.split("\n").map((x) => x.trim()).filter(Boolean);
   const missingNamed = (characterNames ?? [])
-    .filter((n) => n && !castLines.includes(n) && chapterText.includes(n))
+    .filter((n) => n.length >= 2 && !castLines.includes(n) && chapterText.includes(n))
     .filter((n, i, arr) => arr.indexOf(n) === i)
     .sort((a, b) => (a === protagonistName ? -1 : b === protagonistName ? 1 : 0))
     .filter((n) => !(missIgnored[label] ?? []).includes(n));
@@ -182,6 +186,8 @@ export default function OgPane({
     const lines = (form.chars || "").split("\n").map((x) => x.trim()).filter(Boolean);
     if (!lines.includes(n)) lines.push(n);
     onPatch({ chars: lines.join("\n") });
+    const issues = ogFormIssues(form);
+    if (issues.length > 0) toast.error(`名单改动暂不落库：${issues[0]}`);
   };
   const ignoreMiss = (n: string) => {
     const key = label;
@@ -233,52 +239,6 @@ export default function OgPane({
     }
     const charLines = form.chars.split("\n").map((x) => x.trim()).filter(Boolean);
     const known = new Set(characterNames ?? []);
-    // 名单缺人探测（c-character-intro 通用逻辑，每章查看/编辑都在场）：有卡角色
-    // （含别名）被本章文字点名但不在出场名单——确定性文本匹配（零 AI）；主角置顶。
-    // 「加入」走 form.chars＋onPatch（3s 自动保存链落库）；「忽略」按章会话内记忆。
-    const chapterText = [form.summary ?? "", ...(form.plots ?? [])].join("\n");
-    const missingNamed = (characterNames ?? [])
-      .filter((n) => n && !charLines.includes(n) && chapterText.includes(n))
-      .filter((n, i, arr) => arr.indexOf(n) === i)
-      .sort((a, b) => (a === protagonistName ? -1 : b === protagonistName ? 1 : 0))
-      .filter((n) => !(missIgnored[label] ?? []).includes(n));
-    const addToCast = (n: string) => {
-      const lines = (form.chars || "").split("\n").map((x) => x.trim()).filter(Boolean);
-      if (!lines.includes(n)) lines.push(n);
-      onPatch({ chars: lines.join("\n") });
-    };
-    const ignoreMiss = (n: string) => {
-      const key = label;
-      setMissIgnored((d) => ({ ...d, [key]: [...(d[key] ?? []), n] }));
-    };
-    const missBlock = missingNamed.length > 0 && (
-      <div className="cast-miss" data-testid="cast-missing">
-        <b>剧情点名、名单没有：</b>
-        {missingNamed.map((n) => (
-          <span className="chip" key={n} data-testid={`cast-miss-${n}`}>
-            {n}
-            {n === protagonistName && <span className="no-card">主角</span>}
-            <button
-              className="lnk"
-              data-testid={`cast-add-${n}`}
-              title="加进出场名单（走 3 秒自动保存落库）"
-              onClick={() => addToCast(n)}
-            >
-              加入
-            </button>
-            <button
-              className="lnk cast-ig"
-              data-testid={`cast-ignore-${n}`}
-              aria-label={`忽略「${n}」`}
-              title="忽略本条（会话内记忆，不落库）"
-              onClick={() => ignoreMiss(n)}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
-    );
     const plotItems = form.plots.map((s) => s.trim()).filter(Boolean);
     const filledPayoffs = form.payoffs.filter((p) => p.d.trim());
     return (
