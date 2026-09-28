@@ -95,7 +95,12 @@ describe("SettingsChangelogPane 截至本章投影", () => {
   it("书级设定条目按 origin 章序过滤（未来章条目排除、开书条目保留）", async () => {
     apiState.get.mockImplementation(async (p: string) => {
       if (p.includes("/chapters/vol-1-ch-1")) {
-        return { outline: { characters: [{ name: "林晚", state_change: "决定不再等船" }] } };
+        return {
+          outline: {
+            characters: ["林晚"],
+            character_states: [{ name: "林晚", state_change: "决定不再等船" }],
+          },
+        };
       }
       if (p.endsWith("/characters")) return [{ id: "ch1", name: "林晚" }];
       if (p.endsWith("/characters/relations")) return [];
@@ -115,6 +120,8 @@ describe("SettingsChangelogPane 截至本章投影", () => {
     });
     render(<SettingsChangelogPane projectId="p1" chapterRef="vol-1-ch-1" />);
     expect(await screen.findByText("决定不再等船")).toBeTruthy();
+    // 出场角色名字上屏（characters=string[] 契约）
+    expect(screen.getByText("林晚")).toBeTruthy();
     // 设定条目组：开书 + 第 1 章条目显示，第 3 章条目排除
     expect(screen.getByText("旧案")).toBeTruthy();
     expect(screen.getByText("渡口")).toBeTruthy();

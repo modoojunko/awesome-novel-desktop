@@ -257,8 +257,9 @@ export function AiAssistPanel({
         api.get(`/novels/${projectId}/settings/world`),
       ])
         .then(([ch, world]) => {
-          const cast = (ch?.outline?.characters ?? []) as Array<{ state_change?: string }>;
-          const here = cast.filter((c) => (c.state_change ?? "").trim()).length;
+          // 契约：状态变化在 outline.character_states（仅非空条目），不在 characters（string[]）
+          const states = (ch?.outline?.character_states ?? []) as Array<{ state_change?: string }>;
+          const here = states.filter((c) => (c.state_change ?? "").trim()).length;
           const entries = [
             ...((world?.factions ?? []) as Array<{ origin?: string }>),
             ...((world?.history ?? []) as Array<{ origin?: string }>),
