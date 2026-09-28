@@ -1,6 +1,6 @@
 import { api } from "@/lib/api";
 
-/** 章档四域键（与后端 assemble dossier 四键一致）。 */
+/** 本章变化四域键（与后端 assemble dossier 四键一致）。 */
 export type DossierDomain = "settings" | "relations" | "items" | "knowledge";
 
 export const DOSSIER_DOMAINS: { key: DossierDomain; label: string }[] = [
@@ -96,7 +96,7 @@ export const dossierApi = {
     })) as { updated: number };
     return d.updated ?? 0;
   },
-  /** 重试/补提取（未归档章＝完整归档提取；已归档章＝只重写章档行）。 */
+  /** 重试/补提取（未归档章＝完整归档提取；已归档章＝只重写本章变化行）。 */
   async extract(projectId: string, chapterRef: string): Promise<void> {
     await api.post(`/novels/${projectId}/chapters/${chapterRef}/dossier/extract`, {});
   },

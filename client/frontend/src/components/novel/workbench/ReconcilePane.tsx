@@ -91,7 +91,7 @@ export function ReconcilePane({
     return (
       <div className="reconcile-pane" data-od-id="reconcile-pro-free">
         <p className="reconcile-lead">归档收尾（伏笔登记 / 世界要素提案）</p>
-        <p className="reconcile-note">PRO 可用 · 章档四域提取全档可用（见「章档」页签）</p>
+        <p className="reconcile-note">PRO 可用 · 本章变化提取全档可用（见「设定」页签）</p>
       </div>
     );
   }

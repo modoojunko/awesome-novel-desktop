@@ -51,7 +51,7 @@ export interface UseChapterDataReturn {
   archive: (options?: { aiSummary?: boolean }) => Promise<boolean>;
   /** 逃生阀：跳过提取仍归档（提取失败后出现；确认由调用方 UI 承担） */
   skipArchive: () => Promise<boolean>;
-  /** 重试/补提取（未归档章＝完整归档提取；已归档章＝只重写章档行） */
+  /** 重试/补提取（未归档章＝完整归档提取；已归档章＝只重写本章变化行） */
   retryExtraction: () => Promise<boolean>;
   /** 归档任务态（受理制）；null＝无任务（从未受理或已终态清除） */
   archiveJob: ArchiveJobState | null;
@@ -273,7 +273,7 @@ class ChapterStore {
         await this.onArchiveSettled();
       }
     } catch {
-      /* 章档端点不可用（旧后端）→ 忽略，保持无任务态 */
+      /* 变化端点不可用（旧后端）→ 忽略，保持无任务态 */
     }
   };
 
@@ -417,7 +417,7 @@ class ChapterStore {
         this.schedulePoll();
         return true;
       }
-      // 模型未就绪：服务端同步归档（无章档）——保持旧行为
+      // 模型未就绪：服务端同步归档（无变化记录）——保持旧行为
       this.update({
         status: "archived",
         initial: { prose: p, status: "archived" },
