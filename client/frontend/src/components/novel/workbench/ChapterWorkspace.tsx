@@ -778,7 +778,9 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         consumeWarnings(res?.warnings);
         return {
           ok: true,
-          created,
+          // created＝「本次写入建了卡」（outcome 字段语义）：选已有角色零建卡，
+          // 即便本会话早前为该名建过卡（castCreatedRef），本次也 MUST NOT 报「多一卡」
+          created: req.existing === true ? false : created,
           name,
           castBefore,
           castAfter: dedup.length,
