@@ -253,14 +253,28 @@ export function SettingChangesSection({
             className="btn btn-primary btn-sm"
             data-testid="changes-accept-all"
             disabled={busy || pending === 0}
-            onClick={() => void run(() => dossierApi.batch(projectId, chapterRef, "accept"))}
+            onClick={() =>
+              void run(async () => {
+                // 只批量本分区呈现的三个域；后端缺省域＝全章，不传会把用户在这里
+                // 看不到的关系行一并采纳（关系域在「角色关系」页签确认）
+                for (const domain of ["settings", "items", "knowledge"] as const) {
+                  await dossierApi.batch(projectId, chapterRef, "accept", domain);
+                }
+              })
+            }
           >
             全部采纳（{pending}）
           </button>
           <button
             className="btn btn-secondary btn-sm"
             disabled={busy || pending === 0}
-            onClick={() => void run(() => dossierApi.batch(projectId, chapterRef, "reject"))}
+            onClick={() =>
+              void run(async () => {
+                for (const domain of ["settings", "items", "knowledge"] as const) {
+                  await dossierApi.batch(projectId, chapterRef, "reject", domain);
+                }
+              })
+            }
           >
             全部驳回
           </button>

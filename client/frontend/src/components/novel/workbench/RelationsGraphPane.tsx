@@ -172,7 +172,9 @@ export function RelationsGraphPane({
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [chapters, setChapters] = useState<ChapterMeta>([]);
   const [dossier, setDossier] = useState<Array<EvoRelation & { kind: EdgeKind }>>([]);
-  const [dossierSettled, setDossierSettled] = useState(!chapterRef);
+  /** 剧情边数据已就位的章 ref（null＝章态首次加载中；""＝卷态/无章）。
+   *  行动作触发的重拉不改它 → 沿用旧渲染，不闪「加载中」。 */
+  const [loadedForRef, setLoadedForRef] = useState<string | null>(chapterRef ? null : "");
   const [dossierTick, setDossierTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -232,11 +234,10 @@ export function RelationsGraphPane({
   useEffect(() => {
     if (!chapterRef) {
       setDossier([]);
-      setDossierSettled(true);
+      setLoadedForRef("");
       return;
     }
     let alive = true;
-    setDossierSettled(false);
     (async () => {
       try {
         const [pv, cur] = await Promise.all([
@@ -268,7 +269,7 @@ export function RelationsGraphPane({
       } catch {
         /* 静默：图退回开书设定边，不阻断 */
       } finally {
-        if (alive) setDossierSettled(true);
+        if (alive) setLoadedForRef(chapterRef);
       }
     })();
     return () => {
@@ -310,7 +311,8 @@ export function RelationsGraphPane({
   const pendingCnt = visibleEdges.filter((e) => e.kind === "pending").length;
 
   if (error) return <p className="vempty">{error}</p>;
-  if (!graph || (chapterRef && !dossierSettled)) return <p className="vempty">加载中……</p>;
+  if (!graph || (chapterRef && loadedForRef !== chapterRef))
+    return <p className="vempty">加载中……</p>;
   if (merged.nodes.length === 0)
     return <p className="vempty">还没有角色卡。到「设定 · 角色」里建卡后，这里会画出关系图。</p>;
 
@@ -402,6 +404,8 @@ export function RelationsGraphPane({
       {listEdges.length > 0 && (
         <ul className="rg-list">
           {listEdges.map((e) => {
+            // 收尾提案物化进设定的本章新边：清单里沿 #405 口径高亮＋「· 本章」标注
+            const hitBase = e.kind === "base" && !!chapterRef && e.origin === chapterRef;
             const note =
               e.note && (
                 <em className="rg-note">
@@ -409,11 +413,14 @@ export function RelationsGraphPane({
                 </em>
               );
             return (
-              <li key={e.key} data-testid="rg-row">
+              <li key={e.key} className={hitBase ? "hit" : undefined} data-testid="rg-row">
                 {e.aName} → {e.bName}：{e.relType}
                 {e.stance ? ` · ${e.stance}` : ""}
                 {note}
-                <em className="rg-origin">{originLabel(e, chapters)}</em>
+                <em className="rg-origin">
+                  {originLabel(e, chapters)}
+                  {hitBase ? " · 本章" : ""}
+                </em>
                 <span className="rg-state">{stateLabel(e, chapters)}</span>
               </li>
             );

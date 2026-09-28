@@ -138,6 +138,9 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
     expect(rows[1].textContent).toContain("林晚 → 老聋：同盟 · 互信");
     expect(rows[1].textContent).toContain("第 2 章 · 雾中城");
     expect(rows[1].textContent).toContain("随剧情演变");
+    // 来源=本章的开书边在清单里也高亮＋「· 本章」标注（#405 口径，评审 P2 修复）
+    expect(rows[1].className).toContain("hit");
+    expect(rows[1].textContent).toContain("· 本章");
     // 被覆盖的开书边不上图：老聋→林晚（师徒）与 林晚→船帮（敌对）消失
     expect(screen.queryByText(/师徒/)).toBeNull();
     // SVG：本章高亮 2 条（剧情采纳边＋来源=本章的开书边）；待确认虚线恰 1 条
