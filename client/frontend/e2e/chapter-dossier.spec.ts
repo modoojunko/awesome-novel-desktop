@@ -1,0 +1,357 @@
+// 章档（c-chapter-dossier）E2E 全链：归档受理→后台提取→章档待确认→采纳→
+// 下一章组装来源第七处（缺口标注→采纳后可见）→重写级联（下游「章档待更新」）。
+// 本地桩 AI 秒回四域 JSON（提取提速桩）。
+import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { cleanupSessionNovels, stableClick } from "./helpers";
+
+const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5684";
+
+const CONFIG_PATH = path.join(
+  process.cwd(),
+  "..",
+  "..",
+  ".docker-data",
+  "client",
+  "config.json",
+);
+const TEST_PASSWORD = ["TestPass", "789!"].join("");
+const STUB_PORT = 45873;
+const STUB_BASE = `http://host.docker.internal:${STUB_PORT}/v1`;
+
+const EXTRACT_JSON = JSON.stringify({
+  settings: [{ area: "地理", content: "临江渡口夜里封航", evidence: "临江渡口的风裹着湿气" }],
+  relations: [{ owner: "林晚", other: "阿蓟", rel_type: "盟友", change_note: "同舟共济", evidence: "雾里传来第二个呼吸声" }],
+  items: [{ name: "残页", change_type: "obtain", holder: "林晚", detail: "残页与火痕吻合", evidence: "残页按在胸口" }],
+  knowledge: [{ character: "阿蓟", fact: "残页的来历", learned: false, evidence: "她并不知道" }],
+});
+
+let server: http.Server | null = null;
+test.beforeAll(async () => {
+  server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      res.setHeader("Content-Type", "application/json");
+      if (req.url?.includes("/models")) {
+        res.end(JSON.stringify({ object: "list", data: [{ id: "stub-model", object: "model" }] }));
+        return;
+      }
+      if (req.url?.includes("/chat/completions")) {
+        res.end(JSON.stringify({
+          id: "chatcmpl-stub", object: "chat.completion", created: 0, model: "stub-model",
+          choices: [{ index: 0, message: { role: "assistant", content: EXTRACT_JSON }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 30, completion_tokens: 12, total_tokens: 42 },
+        }));
+        return;
+      }
+      res.statusCode = 404;
+      res.end("{}");
+    });
+  });
+  await new Promise<void>((r) => server!.listen(STUB_PORT, () => r()));
+});
+test.afterAll(async () => {
+  await new Promise<void>((r) => server ? server.close(() => r()) : r());
+});
+
+const S_API = process.env.E2E_S_API || "http://127.0.0.1:19610/api/web";
+
+async function sRegisterAndLogin() {
+  const name = `e2e_ds_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const reg = await fetch(`${S_API}/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: name,
+      password: TEST_PASSWORD,
+      security_question: "最喜欢的颜色",
+      security_answer: "蓝色",
+    }),
+  });
+  const regBody = await reg.json();
+  if (regBody.code !== 0) throw new Error(`S端 register 失败: ${JSON.stringify(regBody)}`);
+  const login = await fetch(`${S_API}/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: name, password: TEST_PASSWORD }),
+  });
+  const loginBody = await login.json();
+  if (loginBody.code !== 0) throw new Error(`S端 login 失败: ${JSON.stringify(loginBody)}`);
+  return { token: loginBody.data.token as string, username: name };
+}
+
+async function setupSession(page: Page, tier = "trial") {
+  const { token, username } = await sRegisterAndLogin();
+  // 会话文件形状与 reconcile.spec 同源：token（非 access_token）＋随机 pc_hash
+  // （设备指纹），expires_at 清空；last_login_at 刷新。
+  const original = fs.readFileSync(CONFIG_PATH, "utf-8");
+  const cfg = JSON.parse(original);
+  cfg.token = token;
+  cfg.username = username;
+  cfg.tier = tier;
+  delete cfg.expires_at;
+  cfg.last_login_at = new Date().toISOString();
+  cfg.pc_hash = randomUUID().replace(/-/g, "");
+  const mine = JSON.stringify(cfg, null, 2);
+  const writeMine = () => fs.writeFileSync(CONFIG_PATH, mine);
+  writeMine();
+  for (let stable = 0, tries = 0; stable < 2 && tries < 10; tries++) {
+    await new Promise((r) => setTimeout(r, 300));
+    if (fs.readFileSync(CONFIG_PATH, "utf-8") === mine) stable += 1;
+    else { writeMine(); stable = 0; }
+  }
+  await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
+  await page.route("**/api/auth/check-auth", (r) => r.fulfill({ json: { code: 0, data: {} } }));
+  return {
+    token,
+    restore: async () => {
+      await cleanupSessionNovels(ORIGIN, token);
+      fs.writeFileSync(CONFIG_PATH, original);
+    },
+  };
+}
+
+async function bindStubModel(request: APIRequestContext, token: string, pid: string) {
+  const rc = await request.post(`${ORIGIN}/api/v1/api-configs`, {
+    data: { name: `e2e-ds-${Date.now()}`, vendor_id: "openai-compat", base_url: STUB_BASE, api_key: "sk-e2e-stub" },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(rc.ok()).toBeTruthy();
+  const cfg = await rc.json();
+  const configId = cfg.id ?? cfg.data?.id;
+  await request.post(`${ORIGIN}/api/v1/api-configs/${configId}/test`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const rb = await request.put(`${ORIGIN}/api/v1/novels/${pid}/ai-model`, {
+    data: { api_config_id: configId, model: "stub-model" },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(rb.ok(), `绑定模型失败: ${await rb.text()}`).toBeTruthy();
+}
+
+const PROSE =
+  "临江渡口的风裹着湿气，吹得船篷哗哗作响。林晚把残页按在胸口，火痕与纸上的纹路" +
+  "恰好吻合，像是有人隔着许多年对她递了个眼色。雾里传来第二个呼吸声，不紧不慢，" +
+  "与她隔着半条跳板；她握紧船桨，决定不再等那班不存在的船。渡口的灯一盏盏亮起，" +
+  "照出水面下暗藏的漩涡，也照出她对岸那棵枯树新抽的枝条。";
+
+/** 建书＋一卷一章（写正文）＋绑桩模型；返回 pid。
+ *  排队门禁（workbench-frontier）：ch-2 须等 ch-1 归档后才可建写——由调用方在
+ *  归档后按需 addChapter2。 */
+async function seed(page: Page, request: APIRequestContext, token: string, name: string) {
+  await page.goto(`${ORIGIN}/#/novels`);
+  await stableClick(page.getByRole("button", { name: "新建作品" }).first());
+  await page.locator("input#bkTitle").fill(name);
+  await page.getByRole("button", { name: "创建，去写简介" }).click();
+  await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
+  const pid = page.url().match(/#\/novel\/([0-9a-fA-F-]+)/)![1];
+  const base = `${ORIGIN}/api/novels/${pid}`;
+  const auth = { Authorization: `Bearer ${token}` };
+  await request.post(`${base}/volumes`, { data: { title: "第一卷" }, headers: auth });
+  const rc = await request.post(`${base}/volumes/vol-1/chapters`, {
+    data: { title: "第1章" }, headers: auth,
+  });
+  expect(rc.ok()).toBeTruthy();
+  const rp = await request.put(`${base}/chapters/vol-1-ch-1/prose`, {
+    data: { prose: PROSE }, headers: auth,
+  });
+  expect(rp.ok(), `prose ch1: ${await rp.text()}`).toBeTruthy();
+  await bindStubModel(request, token, pid);
+  return pid;
+}
+
+/** 第 1 章归档后补建第 2 章＋正文（frontier 已前移）。 */
+async function addChapter2(request: APIRequestContext, token: string, pid: string) {
+  const base = `${ORIGIN}/api/novels/${pid}`;
+  const auth = { Authorization: `Bearer ${token}` };
+  const rc = await request.post(`${base}/volumes/vol-1/chapters`, {
+    data: { title: "第2章" }, headers: auth,
+  });
+  expect(rc.ok()).toBeTruthy();
+  const rp = await request.put(`${base}/chapters/vol-1-ch-2/prose`, {
+    data: { prose: PROSE }, headers: auth,
+  });
+  expect(rp.ok(), `prose ch2: ${await rp.text()}`).toBeTruthy();
+}
+
+async function waitArchived(base: string, auth: Record<string, string>) {
+  for (let i = 0; i < 100; i++) {
+    const ch = await (await fetch(`${base}/chapters/vol-1-ch-1`, { headers: auth })).json();
+    if (ch.status === "archived") return;
+    await new Promise((r) => setTimeout(r, 200));
+    if (i === 99) throw new Error("提取未在 20s 内完成归档");
+  }
+}
+
+test("章档全链：归档受理提取→待确认→采纳→下章来源第七处→重写级联", async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const { restore, token } = await setupSession(page);
+  const auth = { Authorization: `Bearer ${token}` };
+  try {
+    const pid = await seed(page, request, token, `e2e-dossier-${Date.now()}`);
+    const base = `${ORIGIN}/api/novels/${pid}`;
+
+    // ① 归档第 1 章：受理 → 桩秒回 → 归档落地＋四域 pending
+    const ra = await request.post(`${base}/chapters/vol-1-ch-1/archive`, {
+      data: { full_text: PROSE, ai_summary: false },
+      headers: auth,
+    });
+    expect(ra.ok()).toBeTruthy();
+    expect((await ra.json()).state).toBe("extracting");
+    await waitArchived(base, auth);
+    await addChapter2(request, token, pid);
+
+    // ② 章档页签：四域行＋证据句＋一键采纳
+    await page.reload();
+    await page.locator(".mtab", { hasText: "写作" }).click();
+    await page.locator(".col-tree .ch").first().click();
+    await page.getByRole("tab", { name: /^章档/ }).click();
+    const pane = page.getByTestId("dossier-pane");
+    await expect(pane).toBeVisible({ timeout: 15000 });
+    await expect(pane.getByTestId("dossier-domain-settings")).toBeVisible({ timeout: 15000 });
+    await expect(pane.getByText("临江渡口夜里封航")).toBeVisible();
+    await expect(pane.getByText(/仍不知道「残页的来历」/)).toBeVisible();
+    // 证据句展开（点行；个别环境点击双触发开→关——点到开为止）
+    const row = pane.getByTestId("dossier-row").first();
+    // 行中心落在 .ds-actions（stopPropagation）——点内容首行才触发整行 toggle
+    const rowHead = row.locator("div").first();
+    for (let i = 0; i < 3 && !(await row.getAttribute("class"))!.includes("open"); i++) {
+      await rowHead.click();
+      await page.waitForTimeout(250);
+    }
+    await expect(row).toHaveClass(/open/);
+    await expect(pane.getByText(/证据：「临江渡口的风裹着湿气」/)).toBeVisible();
+    // 一键采纳全部
+    await pane.getByTestId("dossier-accept-all").click();
+    await expect(pane.getByText(/全部采纳（0）|已处理/).first()).toBeVisible({ timeout: 10000 });
+    const d = await (await fetch(`${base}/chapters/vol-1-ch-1/dossier`, { headers: auth })).json();
+    expect(d.progress.pending).toBe(0);
+    expect(d.progress.accepted).toBeGreaterThanOrEqual(3);
+
+    // ③ 第 2 章组装来源：第七处「故事状态」含已采纳内容
+    await page.locator(".col-tree .ch").nth(1).click();
+    await page.getByRole("tab", { name: /^章纲/ }).click();
+    const ps = await (
+      await fetch(`${base}/chapters/vol-1-ch-2/prompt-sources`, { headers: auth })
+    ).json();
+    const ss = ps.sources.find((x: { key: string }) => x.key === "story_state");
+    expect(ss).toBeTruthy();
+    expect(ss.empty).toBe(false);
+    expect(ss.preview).toContain("临江渡口夜里封航"); // preview 截 120 字，认知段走 preview 端点断言
+    const pv = await (await fetch(`${base}/dossier/preview?up_to_ref=vol-1-ch-1`, { headers: auth })).json();
+    expect(pv.counts.knowledge).toBeGreaterThanOrEqual(1);
+    expect(pv.domains.knowledge[0].learned).toBe(false); // 防泄底基线：阿蓟仍不知
+
+    // ③′ 第 2 章也归档（出章档）——级联只标「有章档行」的下游章
+    const ra2 = await request.post(`${base}/chapters/vol-1-ch-2/archive`, {
+      data: { full_text: PROSE, ai_summary: false },
+      headers: auth,
+    });
+    expect((await ra2.json()).state).toBe("extracting");
+    for (let i = 0; i < 100; i++) {
+      const ch = await (await fetch(`${base}/chapters/vol-1-ch-2`, { headers: auth })).json();
+      if (ch.status === "archived") break;
+      await new Promise((r) => setTimeout(r, 200));
+      if (i === 99) throw new Error("第 2 章提取未在 20s 内完成归档");
+    }
+
+    // ④ 重写第 1 章 → 第 2 章树角标「章档待更新」＋章档页签 stale 横幅
+    const rw = await request.post(`${base}/chapters/vol-1-ch-1/rewrite`, { data: {}, headers: auth });
+    expect(rw.ok()).toBeTruthy();
+    expect((await rw.json()).dossier_stale_marked).toBe(1);
+    await page.reload();
+    await page.locator(".mtab", { hasText: "写作" }).click();
+    await expect(page.getByTestId("ch-dossier-stale")).toBeVisible({ timeout: 15000 });
+    await page.locator(".col-tree .ch").nth(1).click();
+    await page.getByRole("tab", { name: /^章档/ }).click();
+    await expect(pane.getByTestId("dossier-stale-banner")).toBeVisible({ timeout: 15000 });
+
+    // ⑤ 消费侧跳过 stale 章（重写后第 1 章章档已清空，第 2 章 stale → 状态块无内容）
+    const ps2 = await (
+      await fetch(`${base}/chapters/vol-1-ch-2/prompt-sources`, { headers: auth })
+    ).json();
+    const ss2 = ps2.sources.find((x: { key: string }) => x.key === "story_state");
+    expect(ss2.empty).toBe(true);
+  } finally {
+    await restore();
+  }
+});
+
+test("逃生阀：提取失败→跳过仍归档（未提取态＋补提取）", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  // 桩只对提取调用返回烂输出：用独立桩端口 45874 在本用例内起
+  const badPort = 45874;
+  const bad = http.createServer((req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    if (req.url?.includes("/models")) {
+      res.end(JSON.stringify({ object: "list", data: [{ id: "stub-model", object: "model" }] }));
+      return;
+    }
+    res.end(JSON.stringify({
+      id: "x", object: "chat.completion", created: 0, model: "stub-model",
+      choices: [{ index: 0, message: { role: "assistant", content: "这不是 JSON" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }));
+  });
+  await new Promise<void>((r) => bad.listen(badPort, () => r()));
+  const { restore, token } = await setupSession(page);
+  const auth = { Authorization: `Bearer ${token}` };
+  try {
+    const pid = await seed(page, request, token, `e2e-ds-skip-${Date.now()}`)
+      .then(async (p) => {
+        // 重绑到坏桩（seed 已绑 45873 好桩——本用例重绑坏桩验证失败路径）
+        const rc = await request.post(`${ORIGIN}/api/v1/api-configs`, {
+          data: { name: `e2e-bad-${Date.now()}`, vendor_id: "openai-compat", base_url: `http://host.docker.internal:${badPort}/v1`, api_key: "sk-e2e-stub" },
+          headers: auth,
+        });
+        const cfg = await rc.json();
+        await request.post(`${ORIGIN}/api/v1/api-configs/${cfg.id ?? cfg.data?.id}/test`, { headers: auth });
+        const rb = await request.put(`${ORIGIN}/api/v1/novels/${p}/ai-model`, {
+          data: { api_config_id: cfg.id ?? cfg.data?.id, model: "stub-model" },
+          headers: auth,
+        });
+        expect(rb.ok()).toBeTruthy();
+        return p;
+      });
+    const base = `${ORIGIN}/api/novels/${pid}`;
+
+    const ra = await request.post(`${base}/chapters/vol-1-ch-1/archive`, {
+      data: { full_text: PROSE, ai_summary: false },
+      headers: auth,
+    });
+    expect((await ra.json()).state).toBe("extracting");
+    // 等提取失败（章不归档）
+    let failed = false;
+    for (let i = 0; i < 100; i++) {
+      const d = await (await fetch(`${base}/chapters/vol-1-ch-1/dossier`, { headers: auth })).json();
+      if (d.extraction?.state === "failed") { failed = true; break; }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(failed).toBeTruthy();
+
+    // UI：章档页签失败态 → 跳过提取仍归档
+    await page.reload();
+    await page.locator(".mtab", { hasText: "写作" }).click();
+    await page.locator(".col-tree .ch").first().click();
+    await page.getByRole("tab", { name: /^章档/ }).click();
+    await expect(page.getByTestId("dossier-failed")).toBeVisible({ timeout: 15000 });
+    page.once("dialog", (dlg) => dlg.accept());
+    await page.getByTestId("dossier-skip").click();
+    // 归档落地＋未提取态
+    let archived = false;
+    for (let i = 0; i < 50; i++) {
+      const ch = await (await fetch(`${base}/chapters/vol-1-ch-1`, { headers: auth })).json();
+      if (ch.status === "archived") { archived = true; break; }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(archived).toBeTruthy();
+    await expect(page.getByTestId("dossier-not-extracted")).toBeVisible({ timeout: 15000 });
+  } finally {
+    await restore();
+    await new Promise<void>((r) => bad.close(() => r()));
+  }
+});

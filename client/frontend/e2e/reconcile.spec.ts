@@ -29,7 +29,16 @@ const STUB_PORT = 45871;
 const STUB_BASE = `http://host.docker.internal:${STUB_PORT}/v1`;
 
 // ── 桩 AI：按 prompt 关键词回各收尾类别的预置 JSON ─────────────────────────
+// c-chapter-dossier：章档提取（一次调用四域）——本地桩秒回，即提取提速桩
 function stubContent(prompt: string): string {
+  if (prompt.includes("只输出一个 JSON 对象，四键齐全")) {
+    return JSON.stringify({
+      settings: [{ area: "地理", content: "临江渡口夜里封航", evidence: "临江渡口的风裹着湿气" }],
+      relations: [{ owner: "林晚", other: "老聋", rel_type: "盟友", change_note: "同舟共济", evidence: "雾里传来第二个呼吸声" }],
+      items: [{ name: "残页", change_type: "obtain", holder: "林晚", detail: "残页与火痕吻合", evidence: "残页按在胸口" }],
+      knowledge: [{ character: "林晚", fact: "残页的来历", learned: true, evidence: "火痕与纸上的纹路" }],
+    });
+  }
   if (prompt.includes("世界观/设定事实")) {
     return JSON.stringify({
       items: [{ key: "静默带", value: "无信号的深空航段", set: "extra" }],
@@ -252,7 +261,14 @@ test("PRO：归档 → 后台收尾提案 → 采纳写回/驳回", async ({ pag
       body: JSON.stringify({ full_text: PROSE, ai_summary: false }),
     });
     expect(ra.ok).toBeTruthy();
-    expect((await ra.json()).reconcile_started).toBe(true);
+    // c-chapter-dossier：受理制——提取成功才归档（本地桩秒回）
+    expect((await ra.json()).state).toBe("extracting");
+    for (let i = 0; i < 100; i++) {
+      const ch = await (await fetch(`${base}/chapters/vol-1-ch-1`, { headers: auth })).json();
+      if (ch.status === "archived") break;
+      await new Promise((r) => setTimeout(r, 200));
+      if (i === 99) throw new Error("提取未在 20s 内完成归档");
+    }
 
     // 打开书 → 该章 → 操作页签：收尾提案出现（后台线程 + 前端 5s 轮询）
     await page.reload();
@@ -261,9 +277,10 @@ test("PRO：归档 → 后台收尾提案 → 采纳写回/驳回", async ({ pag
     await page.getByRole("tab", { name: /^操作/ }).click();
     const pane = page.locator('[data-od-id="reconcile-pane"]');
     await expect(pane).toBeVisible({ timeout: 15000 });
+    // c-chapter-dossier：收尾收缩为两件（设定变化/关系/角色状态迁「章档」页签）
     await expect(pane.getByText("世界要素")).toBeVisible({ timeout: 25000 });
-    await expect(pane.getByText("设定变化")).toBeVisible();
     await expect(pane.getByText("伏笔登记")).toBeVisible();
+    await expect(pane.getByText("设定变化")).toHaveCount(0);
 
     // 采纳「世界要素」→ 真写回世界设定（入口带章节来源）
     const loreRow = pane.locator(".reconcile-row", { hasText: "世界要素" });
@@ -341,7 +358,7 @@ test("免费档：归档后收尾区为 PRO 占位（不发收尾请求）", asy
     await expect(page.locator('[data-od-id="reconcile-pro-free"]')).toBeVisible({
       timeout: 15000,
     });
-    await expect(page.getByText("PRO 可用 · 免费版归档即刻生效")).toBeVisible();
+    await expect(page.getByText("PRO 可用 · 章档四域提取全档可用（见「章档」页签）")).toBeVisible();
     expect(reconcileCalls).toBe(0);
   } finally {
     await restore();

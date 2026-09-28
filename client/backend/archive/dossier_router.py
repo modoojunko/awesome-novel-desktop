@@ -110,9 +110,10 @@ async def get_dossier(
         "rows": rows,
         "progress": progress,
         "extraction": extraction,
-        # 未提取态：已归档但无 job 行且无章档行（模型未就绪放行/逃生阀跳过后的补提取入口）
+        # 未提取态：已归档但（无 job 行 或 逃生阀跳过）且无章档行——补提取入口
         "not_extracted": ch.status == "archived"
-        and extraction is None and not rows,
+        and (extraction is None or extraction.get("state") == "skipped")
+        and not rows,
         "stale": ch.dossier_stale,
         "archived": ch.status == "archived",
         # 重归档覆盖警示素材：已采纳条数

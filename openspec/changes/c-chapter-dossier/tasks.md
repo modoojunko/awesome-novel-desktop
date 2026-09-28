@@ -3,7 +3,7 @@
 ## 1. 立项期前置（开发前完成）
 
 - [ ] 1.1 提取质量 baseline 评测：3-5 本样章跑四域提取（临时脚本挂真模板），人工标采纳率/驳回原因，形成上线对比基线
-- [ ] 1.2 原型先行：docs/design-c/prototypes 工作台稿加「章档」页签（四域行/待确认/进度/失败/逃生阀/未提取态），ADJUSTMENTS.md 登记偏差
+- [x] 1.2 原型先行：docs/design-c/prototypes 工作台稿加「章档」页签（四域行/待确认/进度/失败/逃生阀/未提取态），ADJUSTMENTS.md 登记偏差
 
 ## 2. 数据层
 
@@ -52,20 +52,20 @@
 
 ## 8. 前端
 
-- [ ] 8.1 useChapterData：archiveJob 受理态＋事件真置位派发＋锁定信号＋服务端恢复
-- [ ] 8.2 ChapterWorkspace：章档页签接入（数组+徽标+条件挂载）；归档进度分步 UI（操作页签归档卡原位+页签顶部）；软锁（编辑器/归档/取消归档禁用）
-- [ ] 8.3 失败/逃生阀/模型未配置三分文案：重试、跳过提取（confirm+代价）、model_ready 提示+配置入口
-- [ ] 8.4 DossierPane：ProposalRow 共用行组件、证据展开、批量采纳（按域+全章）、已采纳删除、未提取/未归档横幅、双向指路
-- [ ] 8.5 dossierApi.ts＋preview 累计预览（服务端聚合直读）
-- [ ] 8.6 stale 呈现：树 tag-stale 角标（useWorkbench 字段）＋页签横幅重提动作
-- [ ] 8.7 Rail.tsx 三入口收敛＋操作页签 lead 改向；ArchiveModal 覆盖警示；免费档配 key 引导（设定页入口可达）＋文案统一「生成是 PRO、整理全档」
-- [ ] 8.8 vitest：useChapterData 受理态/事件、DossierPane 行为、软锁、进度恢复
+- [x] 8.1 useChapterData：archiveJob 受理态＋事件真置位派发＋锁定信号＋服务端恢复
+- [x] 8.2 ChapterWorkspace：章档页签接入（数组+徽标+条件挂载）；归档进度分步 UI（操作页签归档卡原位+页签顶部）；软锁（编辑器/归档/取消归档禁用）
+- [x] 8.3 失败/逃生阀/模型未配置三分文案：重试、跳过提取（confirm+代价）、model_ready 提示+配置入口
+- [x] 8.4 DossierPane：ProposalRow 共用行组件、证据展开、批量采纳（按域+全章）、已采纳删除、未提取/未归档横幅、双向指路
+- [x] 8.5 dossierApi.ts＋preview 累计预览（服务端聚合直读）
+- [x] 8.6 stale 呈现：树 tag-stale 角标（useWorkbench 字段）＋页签横幅重提动作
+- [x] 8.7 Rail.tsx 三入口收敛＋操作页签 lead 改向；ArchiveModal 覆盖警示；免费档配 key 引导（设定页入口可达）＋文案统一「生成是 PRO、整理全档」
+- [x] 8.8 vitest：useChapterData 受理态/事件、DossierPane 行为、软锁、进度恢复
 
 ## 9. e2e 与收尾
 
-- [ ] 9.1 提取提速桩（env 缩短轮询/注入瞬时完成）进 e2e 基建
-- [ ] 9.2 四条主链改写：reconcile.spec（两类+时序）、modals-pr5（两段式断言）、free-writing-flow（同步置位路径=无模型放行）、chapter-rewrite（级联角标）
-- [ ] 9.3 新 e2e：章档页签全流程（归档→进度→软锁→采纳→下章消费来源行→重写级联→重归档覆盖警示）
+- [x] 9.1 提取提速桩（env 缩短轮询/注入瞬时完成）进 e2e 基建
+- [x] 9.2 四条主链改写：reconcile.spec（两类+时序）、modals-pr5（两段式断言）、free-writing-flow（同步置位路径=无模型放行）、chapter-rewrite（级联角标）
+- [x] 9.3 新 e2e：章档页签全流程（归档→进度→软锁→采纳→下章消费来源行→重写级联→重归档覆盖警示）
 - [ ] 9.4 全量门禁：pytest/vitest/e2e＋design:lint+design:check（原型先行已做）＋tsc
 - [ ] 9.5 docker 镜像重建（前端 dist bake）＋产物特征串核对；隔离栈验证（独立 project 名/端口/数据目录）
 - [ ] 9.6 真机验证：组装 token 复测（2943→预期 ≤4200）、提取成功率抽检、openapi 契约
