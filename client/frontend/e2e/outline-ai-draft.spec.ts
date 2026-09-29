@@ -324,6 +324,11 @@ test("台账投影：空回收/悬念格显台账投影，编辑态勾选落格�
       expect(r.ok()).toBeTruthy();
     }
 
+    // 台账取数在章工作台挂载时发生：种完 reload 重建挂载，投影才吃得到新条目
+    await page.reload();
+    await page.locator(".col-tree .ch", { hasText: "第一章" }).click();
+    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
+
     // 查看态：回收格投影该收了条目；维持格投影开书悬置条目；两格不显（未填）
     await expect(page.getByTestId("og-mres-proj")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("og-mres-proj")).toContainText(
@@ -337,7 +342,9 @@ test("台账投影：空回收/悬念格显台账投影，编辑态勾选落格�
     await expect(page.getByTestId("og-hooks-mres")).toBeVisible();
     await page.getByTestId("og-hook-mres-H-0001").click();
     await expect(page.locator("#wf-mres")).toHaveValue("[H-0001] 猎血短刃的异常威力");
-    await expect(page.getByTestId("og-hooks-mres")).toHaveCount(0);
+    // 被勾的 chip 从候选消失（未勾的 H-0002 仍在列）
+    await expect(page.getByTestId("og-hook-mres-H-0001")).toHaveCount(0);
+    await expect(page.getByTestId("og-hook-mres-H-0002")).toBeVisible();
 
     // 保存草稿（必填两项未齐 → 草稿 toast）→ 刷新回读：格内条目替代投影
     await page.getByRole("button", { name: "保存草稿" }).click();
