@@ -248,6 +248,70 @@ class TestAcceptWriteBack:
         assert old.status == "resolved"
         assert _get_row(rid).status == "accepted"
 
+    def test_hooks_accept_dedupes_normalized_duplicates(self):
+        """采纳幂等（真机实锤 09-29）：描述归一化后与既有钩相同（含标点/空白变体
+        与同 payload 内互重）→ 跳过建条，不堆积重复伏笔。"""
+        _root, nid, ch_id = asyncio.run(_seed())
+
+        async def _seed_hook():
+            from settings.hooks_service import create_hook
+
+            async with async_session() as s:
+                await create_hook(s, nid, {
+                    "description": "猎血短刃来历不明、威力异常，被教团记档待验",
+                    "type": "mystery", "priority": 2, "status": "active",
+                })
+
+        asyncio.run(_seed_hook())
+        rid = _add_row(nid, ch_id, "hooks", {
+            "planted": [
+                # 与既有钩仅差标点（归一化全等）→ 跳过；语义变体由台账注入在源头防
+                {"description": "猎血短刃来历不明、威力异常——被教团记档待验！"},
+                {"description": "渡口的雾，久聚不散"},
+                {"description": "渡口的雾、久聚不散"},  # 同 payload 内标点变体
+            ],
+            "resolved": [],
+        })
+        self._accept(nid, rid)
+
+        async def _hooks():
+            async with async_session() as s:
+                return (await s.scalars(
+                    select(NovelHook).where(NovelHook.novel_id == nid)
+                )).all()
+
+        hooks = asyncio.run(_hooks())
+        assert _get_row(rid).status == "accepted"
+        # 短刃变体被跳过；雾的两条变体只建一条
+        assert sum(1 for h in hooks if "短刃" in h.description) == 1
+        assert sum(1 for h in hooks if "雾" in h.description) == 1
+
+
+class TestHooksPrompt:
+    def test_prompt_carries_ledger_and_caps(self):
+        """hooks 提示词带真伏笔判据＋条数上限＋现有台账排重（lore 同构防重）。"""
+        from archive.reconcile import _collect_prompts
+
+        prompts = dict(
+            _collect_prompts(
+                "vol-1-ch-1", {}, "正文", [],
+                world_now="", roster="",
+                hooks_now="本书已有伏笔台账（相同或高度相似的不要重复登记）：\n- 旧钩",
+            )
+        )
+        p = prompts["hooks"]
+        assert "埋下或收束了哪些伏笔" in p  # e2e 桩依赖此短语（勿改名）
+        assert "planted 最多 3 条" in p and "resolved 最多 3 条" in p
+        assert "氛围描写、场景细节" in p
+        assert "旧钩" in p
+
+    def test_prompt_without_ledger_has_no_block(self):
+        from archive.reconcile import _collect_prompts
+
+        p = dict(_collect_prompts("vol-1-ch-1", {}, "正文", []))["hooks"]
+        assert "已有伏笔台账" not in p
+        assert "planted 最多 3 条" in p
+
 
 class TestEndpoints:
     def test_list_progress_and_status_transitions(self):

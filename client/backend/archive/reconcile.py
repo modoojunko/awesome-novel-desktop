@@ -168,7 +168,32 @@ async def _run_async(
     except Exception:  # noqa: BLE001 — 名册取不到：lore 退回无名册（不阻塞收尾）
         roster = ""
 
-    for kind, prompt in _collect_prompts(chapter_ref, chapter, full_text, cast, world_now, roster):
+    # 伏笔台账排重（真机实锤 09-29：重复归档把同一批伏笔三四个变体反复入账——
+    # hooks 与 lore 同构：带「已有条目不要重复登记」，从源头防重）
+    hooks_now = ""
+    try:
+        from db import async_session as _as
+
+        async with _as() as _db:
+            _hooks = (
+                await _db.scalars(
+                    select(NovelHook).where(
+                        NovelHook.novel_id == novel_id,
+                        NovelHook.status == "active",
+                    )
+                )
+            ).all()
+            descs = [h.description.strip() for h in _hooks if (h.description or "").strip()]
+            if descs:
+                hooks_now = "本书已有伏笔台账（相同或高度相似的不要重复登记）：\n" + "\n".join(
+                    f"- {d}" for d in descs[:40]
+                )
+    except Exception:  # noqa: BLE001 — 台账取不到：hooks 退回无排重（不阻塞收尾）
+        hooks_now = ""
+
+    for kind, prompt in _collect_prompts(
+        chapter_ref, chapter, full_text, cast, world_now, roster, hooks_now
+    ):
         if kinds is not None and kind not in kinds:
             continue
         usage: dict = {}
@@ -214,20 +239,27 @@ async def _run_async(
 
 def _collect_prompts(
     chapter_ref: str, chapter: dict, full_text: str, cast: list[str],
-    world_now: str = "", roster: str = "",
+    world_now: str = "", roster: str = "", hooks_now: str = "",
 ):
     """两类收尾的 prompt；正文全量给（章目标上限 6000，旧 [:3000] 会丢掉章末钩子）。
 
     lore 段带「现有世界设定＋角色名册」：只提与外面对不上的新要素（防重复提案），
     已登记角色的背景不进世界要素（归角色卡，真机实锤防混入）。
+    hooks 段带「真伏笔判据＋条数上限＋现有台账」：氛围/场景/角色状态不登记
+    （角色状态归章档认知域），每章 planted/resolved 各最多 3 条（真机实锤：
+    无判据无上限时第 1 章提了 11 条），已有台账防重复归档反复入账。
     """
     body = full_text
     world_block = f"现有世界设定（与之重复的不要提）：\n{world_now}\n\n" if world_now else ""
+    hooks_block = f"{hooks_now}\n\n" if hooks_now else ""
     yield "hooks", (
-        f"判断第 {chapter_ref} 章埋下或收束了哪些伏笔，每条给出证据句。"
+        f"判断第 {chapter_ref} 章埋下或收束了哪些伏笔。只登记作者有意埋下、后文需要回收的真伏笔"
+        f"（明确的悬念，指向后文揭示）；氛围描写、场景细节、角色的身体或状态变化不要登记"
+        f"（角色状态另有人物状态域负责）。planted 最多 3 条、resolved 最多 3 条，"
+        f"超出只留证据最强、最像长线悬念的。"
         f'JSON 数组输出，形如 {{"planted": [{{"description": "信标坐标漂移", '
         f'"evidence": "原文一句话"}}], "resolved": [{{"description": "镜面之谜", '
-        f'"evidence": "…"}}]}}。没有则输出空数组。\n\n正文：\n{body}'
+        f'"evidence": "…"}}]}}。没有则输出空数组。\n\n{hooks_block}正文：\n{body}'
     )
     roster_block = (
         f"{roster}\n已登记角色（上表人物）的背景、身份、经历属于角色卡——不要作为世界要素提案。\n\n"
@@ -334,11 +366,31 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
     elif row.kind == "hooks":
         # 伏笔登记：埋下 → create_hook(active, introduced=本章)；
         # 收束 → 描述匹配既有 active 钩（命中改 resolved＋收束章；未命中建已收束条目）
+        # 幂等（spec 承诺「再次采纳同键提案 SHALL NOT 重复建条」，真机实锤 09-29：
+        # 重复归档的措辞变体把同一伏笔建成三四条）——建条前按描述归一化查重：
+        # 去空白/标点/大小写后与本书既有任何钩相同即跳过（含同 payload 内互重）。
         from settings.hooks_service import create_hook, patch_hook
 
+        def _norm(s: str) -> str:
+            return "".join(
+                ch for ch in s.lower() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff"
+            )
+
+        existing = {
+            _norm(h.description or "")
+            for h in (
+                await db.scalars(select(NovelHook).where(NovelHook.novel_id == row.novel_id))
+            ).all()
+        }
+
         for item in payload.get("planted") or []:
+            desc = str(item.get("description", "")).strip()[:300]
+            key = _norm(desc)
+            if not desc or not key or key in existing:
+                continue
+            existing.add(key)
             await create_hook(db, row.novel_id, {
-                "description": str(item.get("description", ""))[:300],
+                "description": desc,
                 "type": "mystery",
                 "priority": 2,
                 "status": "active",
@@ -346,7 +398,10 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
                 "introduced_chapter_id": row.chapter_id,
             })
         for item in payload.get("resolved") or []:
-            desc = str(item.get("description", ""))[:300]
+            desc = str(item.get("description", "")).strip()[:300]
+            key = _norm(desc)
+            if not desc:
+                continue
             hooks = (
                 await db.scalars(
                     select(NovelHook).where(
@@ -363,7 +418,8 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
                     "status": "resolved",
                     "resolved_chapter_id": row.chapter_id,
                 })
-            else:
+            elif key not in existing:
+                existing.add(key)
                 await create_hook(db, row.novel_id, {
                     "description": desc,
                     "type": "mystery",
