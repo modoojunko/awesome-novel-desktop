@@ -21,6 +21,7 @@ import {
   type RefObject,
 } from "react";
 import OgPane, { flashField } from "./OgPane";
+import ArchiveStages, { useElapsedSec } from "./ArchiveStages";
 import SimModal from "./SimModal";
 import { useNavigate } from "react-router-dom";
 import { charactersApi } from "@/lib/charactersApi";
@@ -186,6 +187,8 @@ export default function ChapterWorkspace({
   }, [ledgerError, ledgerHooks, ledgerChapters, chapterRef]);
   // c-chapter-dossier：归档提取中——本章全程软锁（编辑/归档/取消归档/重写/回退禁用）
   const archiving = store.archiveJob?.state === "extracting";
+  // 三段进度条的提取已运行秒数（c-ops-archive-stages；顶层调 hook，禁进 JSX）
+  const extractElapsed = useElapsedSec(store.archiveJob?.startedAt, archiving);
 
   // 「信息差对齐」块随卷纲换代退役（c-volume-view-storyline：info_gap/chapter_plans
   // 为旧代字段，ADJUSTMENTS ⑤ 登记）。
@@ -196,8 +199,12 @@ export default function ChapterWorkspace({
    | "style">("og");
   const [showArchive, setShowArchive] = useState(false);
   // 章级变化轻量元数据（c-chapter-dossier）：归档态常驻一次＋弹窗打开时刷新——
-  // 供重归档覆盖警示与归档卡「未提取」态（not_extracted）
-  const [rearchive, setRearchive] = useState<{ rows: number; accepted: number } | null>(null);
+  // 供重归档覆盖警示、归档卡「未提取」态（not_extracted）与三段进度条的待确认计数
+  const [rearchive, setRearchive] = useState<{
+    rows: number;
+    accepted: number;
+    pending: number;
+  } | null>(null);
   const [dossierEmpty, setDossierEmpty] = useState(false);
   useEffect(() => {
     if (!showArchive && !archived) return;
@@ -207,7 +214,15 @@ export default function ChapterWorkspace({
         const d = await dossierApi.get(projectId, chapterRef);
         if (cancelled) return;
         const n = d.progress.pending + d.progress.accepted + d.progress.rejected;
-        setRearchive(n > 0 ? { rows: n, accepted: d.progress.accepted } : null);
+        setRearchive(
+          n > 0
+            ? {
+                rows: n,
+                accepted: d.progress.accepted,
+                pending: d.progress.pending,
+              }
+            : null,
+        );
         setDossierEmpty(d.not_extracted);
       } catch {
         if (!cancelled) {
@@ -1249,9 +1264,32 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
                   ? "本章已归档 · 变化与提案在「设定 / 角色关系 / 伏笔」页签确认；需要时可重新归档重提。"
                   : "点归档后先 AI 提取本章变化（设定/关系/物品/认知，用你配置的模型），提取成功本章才正式归档；提取期间本章锁定。"}
               </p>
+              {(archiving || archived || store.archiveJob?.state === "failed") && (
+                <ArchiveStages
+                  extract={
+                    archiving
+                      ? "active"
+                      : store.archiveJob?.state === "failed"
+                        ? "fail"
+                        : dossierEmpty
+                          ? "skip"
+                          : "done"
+                  }
+                  elapsedSec={extractElapsed}
+                  confirmLabel={
+                    archived
+                      ? rearchive?.pending
+                        ? `待确认 ${rearchive.pending} 条`
+                        : "提案已处理"
+                      : null
+                  }
+                  confirmActive={!!rearchive?.pending}
+                  done={archived}
+                />
+              )}
               {archiving ? (
                 <p className="rc-desc" data-testid="archive-extracting">
-                  AI 提取中 · 本章已锁定（完成后产出落「设定 / 角色关系」页签）……
+                  本章已锁定 · 完成后产出落「设定 / 角色关系」页签，逐条确认后才写进全书设定
                 </p>
               ) : store.archiveJob?.state === "failed" ? (
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
