@@ -1229,6 +1229,20 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .revert-card { padding: 12px 14px; border: 1px solid color-mix(in oklch, var(--warn) 35%, var(--border)); border-radius: 8px; background: color-mix(in oklch, var(--warn) 6%, var(--surface)); }
 .revert-card .rc-title { margin: 0 0 4px; font-family: var(--font-display); font-size: 14px; font-weight: 600; }
 .revert-card .rc-desc { margin: 0 0 10px; font-size: 12.5px; line-height: 1.7; color: var(--muted); }
+/* 归档卡三段进度（c-ops-archive-stages）：提取 → 确认 → 完成 */
+.arch-stages { display: flex; align-items: center; gap: 6px; margin: 2px 0 10px; }
+.arch-stages .as-node { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.arch-stages .as-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--border); }
+.arch-stages .as-label { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.arch-stages .as-detail { font-style: normal; color: var(--muted); }
+.arch-stages .as-line { flex: 1; height: 1px; background: var(--border); min-width: 10px; }
+.arch-stages .is-active .as-dot { background: var(--accent, var(--fg)); }
+.arch-stages .is-active .as-label, .arch-stages .is-active .as-detail { color: var(--fg); }
+.arch-stages .is-done .as-dot { background: var(--ok, #3a9b5c); }
+.arch-stages .is-done .as-label, .arch-stages .is-done .as-detail { color: var(--fg); }
+.arch-stages .is-fail .as-dot { background: var(--warn); }
+.arch-stages .is-fail .as-label, .arch-stages .is-fail .as-detail { color: var(--warn); }
+.arch-stages .is-skip .as-dot { background: var(--muted); }
 .ghost-group { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .ghost-group .gg-head { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; color: var(--muted); padding: 4px 8px; }
 .ghost-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border: 0; background: none; text-align: left; font: inherit; color: var(--muted); cursor: pointer; border-radius: 6px; }

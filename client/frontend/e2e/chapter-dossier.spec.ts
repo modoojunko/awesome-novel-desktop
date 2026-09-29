@@ -205,10 +205,17 @@ test("变化分区全链：归档受理提取→设定/关系页签待确认→�
     await waitArchived(base, auth);
     await addChapter2(request, token, pid);
 
-    // ② 设定页签：设定/物品/认知变化（按子领域分组）＋证据展开＋一键采纳
+    // ②′ 操作页签：三段进度条（c-ops-archive-stages）＝提取✓＋待确认计数＋完成✓
     await page.reload();
     await page.locator(".mtab", { hasText: "写作" }).click();
     await page.locator(".col-tree .ch").first().click();
+    await page.getByRole("tab", { name: /^操作/ }).click();
+    const stages = page.getByTestId("archive-stages");
+    await expect(stages).toBeVisible();
+    await expect(stages).toContainText("待确认");
+    await expect(stages).toContainText("完成");
+
+    // ② 设定页签：设定/物品/认知变化（按子领域分组）＋证据展开＋一键采纳
     await page.getByRole("tab", { name: /^设定/ }).click();
     const pane = page.getByTestId("setting-changes-section");
     await expect(pane).toBeVisible({ timeout: 15000 });
@@ -369,6 +376,8 @@ test("逃生阀：提取失败→跳过仍归档（未提取态＋补提取）",
     await page.locator(".col-tree .ch").first().click();
     await page.getByRole("tab", { name: /^操作/ }).click();
     await expect(page.getByTestId("archive-skip")).toBeVisible({ timeout: 15000 });
+    // 三段进度条（c-ops-archive-stages）：提取段标失败
+    await expect(page.getByTestId("archive-stages")).toContainText("失败");
     page.once("dialog", (dlg) => dlg.accept());
     await page.getByTestId("archive-skip").click();
     // 归档落地＋未提取态
