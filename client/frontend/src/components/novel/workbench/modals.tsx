@@ -268,8 +268,8 @@ export function ArchiveModal({
       <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.7 }}>
         {rearchiveMode ? (
           <>
-            重新归档将<b>清空并以当前正文重提</b>本章变化（设定 / 关系 / 物品 / 角色认知），
-            提取期间本章<b>锁定</b>。
+            重新归档将以当前正文重提本章变化（设定 / 关系 / 物品 / 角色认知）；
+            <b>你已确认的条目保留不动</b>，新结果以待确认提案出现。提取期间本章<b>锁定</b>。
           </>
         ) : (
           <>
@@ -280,7 +280,7 @@ export function ArchiveModal({
       </p>
       {rearchiveMode ? (
         <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
-          重提只覆盖本章变化行；伏笔登记 / 世界要素提案不重跑（可在右栏「登记新伏笔」单独触发）。
+          重提只替换本章未确认的变化行；伏笔登记 / 世界要素提案不重跑（可在右栏「登记新伏笔」单独触发）。
         </p>
       ) : (
         <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
@@ -295,7 +295,7 @@ export function ArchiveModal({
           }}
           data-testid="archive-rewarn"
         >
-          将覆盖现有变化 {rearchive.rows} 条（含已采纳 {rearchive.accepted} 条）。
+          已确认 {rearchive.accepted} 条将保留；其余 {rearchive.rows - rearchive.accepted} 条由重提替换。
         </p>
       )}
       {/* 收尾计划预览（c-chapter-dossier 后：三件迁本章变化，收尾只剩两件 PRO 提案）；

@@ -382,10 +382,45 @@ async def finalize_archive(
                 if str(item.get(key, "")).strip()
             ]
             name_map = await _resolve_names(session, novel_id, names)
+            # 决策留给作家（c-rearchive-keep-adopted）：重提保留已采纳行——作者确认
+            # 过的事实不因重提蒸发（图实线/故事状态消费不归零）。_apply_dossier 是
+            # relationship 全量替换，故清前按列快照、替换后原样重建（排新行之后）；
+            # 新结果以待确认行并存，由作者裁决（消费端 per-domain 去重「章近优先」兜底）。
+            keep_snapshots: list[tuple[type, dict]] = []
+            if rows_only:
+                from sqlalchemy import inspect as _sa_inspect
+
+                for attr in ("dossier_settings", "dossier_relations", "dossier_items", "dossier_knowledge"):
+                    for r in getattr(chapter, attr):
+                        if r.status == "accepted":
+                            snap = {
+                                c.key: getattr(r, c.key)
+                                for c in _sa_inspect(r).mapper.column_attrs
+                            }
+                            snap.pop("created_at", None)  # id 保留：原样重建，审计/前端引用不断
+                            keep_snapshots.append((type(r), snap))
             for attr in ("dossier_settings", "dossier_relations", "dossier_items", "dossier_knowledge"):
                 getattr(chapter, attr).clear()
             await session.flush()
             _apply_dossier(chapter, dossier_payload, name_map)
+            if keep_snapshots:
+                from models.chapter import (
+                    ChapterItemChange as _CI,
+                    ChapterKnowledgeChange as _CK,
+                    ChapterRelationChange as _CR,
+                    ChapterSettingChange as _CS,
+                )
+
+                _CLS_ATTR = {
+                    _CS: "dossier_settings",
+                    _CR: "dossier_relations",
+                    _CI: "dossier_items",
+                    _CK: "dossier_knowledge",
+                }
+                for i, (cls, snap) in enumerate(keep_snapshots):
+                    snap = dict(snap)
+                    snap["sort_order"] = 1000 + i  # 排在新提取行之后，稳定不混序
+                    getattr(chapter, _CLS_ATTR[cls]).append(cls(**snap))
             chapter.dossier_stale = False
 
         if not rows_only:

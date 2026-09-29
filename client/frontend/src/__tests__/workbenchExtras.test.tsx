@@ -55,10 +55,10 @@ describe("ArchiveModal 收尾计划预览", () => {
     );
     // 标题与确认按钮同为「重新归档」
     expect(screen.getAllByText("重新归档").length).toBe(2);
-    expect(screen.getByText(/清空并以当前正文重提/)).toBeTruthy();
+    expect(screen.getByText(/已确认的条目保留不动/)).toBeTruthy();
     expect(screen.getByText(/提案不重跑/)).toBeTruthy();
-    expect(screen.getByText(/覆盖现有变化 5 条/)).toBeTruthy();
-    expect(screen.getByText(/含已采纳 3 条/)).toBeTruthy();
+    expect(screen.getByText(/已确认 3 条将保留/)).toBeTruthy();
+    expect(screen.getByText(/其余 2 条由重提替换/)).toBeTruthy();
     // 重归档不重跑收尾：计划预览区不出现
     expect(screen.queryByText("归档收尾（PRO）")).toBeNull();
     expect(screen.queryByText(/提取成功本章才正式归档/)).toBeNull();
@@ -79,8 +79,8 @@ describe("ArchiveModal 收尾计划预览", () => {
         rearchive={{ rows: 5, accepted: 3 }}
       />,
     );
-    expect(screen.getByText(/覆盖现有变化 5 条/)).toBeTruthy();
-    expect(screen.getByText(/含已采纳 3 条/)).toBeTruthy();
+    expect(screen.getByText(/已确认 3 条将保留/)).toBeTruthy();
+    expect(screen.getByText(/其余 2 条由重提替换/)).toBeTruthy();
   });
 });
 
