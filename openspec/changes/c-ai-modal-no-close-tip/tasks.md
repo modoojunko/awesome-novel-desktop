@@ -24,7 +24,7 @@
 - [x] 5.1 `npx tsc --noEmit` 干净＋相关 vitest 全绿（chapterPlan/plotDrawModal/castReviewFlow/StoryArcForm/aiAssistModals/volumePlan/plotSimAndPromptSources）；验证：命令输出零红
 - [x] 5.2 `npm run design:check` 零新红（parity 基线不受瞬态 busy 影响）；验证：命令退出码 0
 - [x] 5.3 e2e 存量不红：`split-busy`/`ai-card-loading` 可见性断言不变（chapter-plan.spec、genre-ai-settings.spec）；真栈验证需隔离栈，留合流前按需
-- [ ] 5.4 提交时只纳入本 change 文件（9 组件＋book.css＋2 测试＋specs delta＋工件），并行会话改动（CharacterManager、archive-reconcile 等）不混入；验证：`git status` 逐项核对
+- [x] 5.4 提交时只纳入本 change 文件（9 组件＋book.css＋2 测试＋specs delta＋工件），并行会话改动（CharacterManager、archive-reconcile 等）不混入；验证：`git status` 逐项核对
 
 > **完成证据（2026-09-30 apply 会话）**
 > - 1.1：book.css:1748-1750 三行词汇就位；design:lint 通过（存量冻结观察项不变）。
@@ -32,4 +32,4 @@
 > - 4.1：book.html 三处 busy 态（plot busy／sc-s2 盘点中／sc-s10 抽卡在途）补 `.no-close` 行＋原型 CSS；ADJUSTMENTS.md 追加「AI 弹窗生成中『请勿关闭』提示行」整节（含无活原型弹窗的登记与 VolumePlanModal 例外）。
 > - 5.2：design:check 7 过 1 红——红为「书架屏（list.html v2）empty」像素差 0.2917%（阈值 0.2%），本 change 零触书架屏，判定为在案存量字体光栅漂移（主检出本机已知），非新回归。
 > - 5.3：e2e 全量 grep 仅 chapter-plan.spec:185（split-busy 可见）与 genre-ai-settings.spec:426（ai-card-loading 可见）两处断言，均可见性断言且 testid 未动；对照截图按 guidance 需真栈，busy 态瞬态、与 5.3 同留合流前。
-> - 5.4：分支提交逐文件核对（见 PR 文件清单），并行会话改动（CharacterManager、archive-reconcile、c-lore-reconcile-guardrails 等）未混入。
+> - 5.4：分支提交逐文件核对（见 PR #612 文件清单：19 文件 251+/5-），并行会话改动（CharacterManager、archive-reconcile、c-lore-reconcile-guardrails 等）未混入。
