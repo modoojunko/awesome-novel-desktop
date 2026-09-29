@@ -226,11 +226,12 @@ async def _run_async(
                 max_tokens=1600, usage=usage,
             )
             await _record(novel_id, kind, usage)
-            data = _parse_json_lenient(text)
+            data = _parse_json_lenient(text, allow_bare_array=(kind == "lore"))
             if not data:
                 # 返回了文字但不是 JSON：显式落失败行（可重试），不得静默蒸发；
-                # 末尾无 "}" ＝大概率被输出预算截断（诊断提示直达原因）
-                truncated = bool(text) and not text.rstrip().endswith("}")
+                # 末尾无 "}"/"]" ＝大概率被输出预算截断（诊断提示直达原因；
+                # 结尾带括号的完整短输出如 `[]` 不算截断——真机 09-29 误诊实锤）
+                truncated = bool(text) and not text.rstrip().endswith(("}", "]"))
                 hint = "；输出疑似被输出预算截断" if truncated else ""
                 await _record_fail(novel_id, kind, usage)
                 await _mark_failed(
@@ -280,7 +281,7 @@ def _collect_prompts(
         f"埋下、后文需要回收的真伏笔（明确的悬念，指向后文揭示），氛围描写、场景细节、"
         f"角色的身体或状态变化不要登记（角色状态另有人物状态域负责）。"
         f"resolved、advanced、planted 各最多 3 条；本章没有新悬念时 planted 输出空数组，宁缺勿滥。"
-        f'JSON 数组输出，形如 {{"resolved": [{{"ref": "#H-0003", "note": "怎么收的一句话", '
+        f'JSON 对象输出，形如 {{"resolved": [{{"ref": "#H-0003", "note": "怎么收的一句话", '
         f'"evidence": "原文一句话"}}], "advanced": [{{"ref": "#H-0001", "note": "推进说明", '
         f'"evidence": "…"}}], "planted": [{{"description": "信标坐标漂移", '
         f'"evidence": "…"}}]}}。\n\n{hooks_block}正文：\n{body}'
@@ -291,26 +292,43 @@ def _collect_prompts(
     )
     yield "lore", (
         f"从第 {chapter_ref} 章正文识别新出现或变化的世界要素（地点/组织/历史/规则）。"
-        f"JSON 数组输出，每条含 key/value/set，set 取 history/factions/extra，拿不准用 extra；"
-        f'形如 {{"items": [{{"key": "静默带", "value": "一句话", "set": "extra"}}]}}。'
-        f"没有则输出空数组。\n\n{world_block}{roster_block}正文：\n{body}"
+        f"JSON 对象输出，每条含 key/value/set，set 取 history/factions/extra，拿不准用 extra；"
+        f'形如 {{"items": [{{"key": "静默带", "value": "一句话", "set": "extra"}}]}}，'
+        f'没有新世界要素则输出 {{"items": []}}。\n\n{world_block}{roster_block}正文：\n{body}'
     )
 
 
-def _parse_json_lenient(text: str) -> dict | None:
-    """模型输出宽松 JSON 解析：截取首个 { 到末个 }；失败返回 None。"""
+def _parse_json_lenient(text: str, allow_bare_array: bool = False) -> dict | None:
+    """模型输出宽松 JSON 解析：截取首个 { 到末个 }；失败返回 None。
+
+    形状按首个 JSON 结构判定，且数组段**确能解析为 list** 才定形：
+    lore 兜底包装 {"items": list}（旧提示词教过「没有则输出空数组」，真机
+    09-29 实锤模型照字面回 `[]` 被误判失败）；hooks 合法裸数组＝契约违例
+    维持解析失败（SHALL NOT 把数组首元素的内层 { 误当顶层对象）；数组段
+    解析失败（前导杂文带 [、截断数组）→ 回退对象路径——对账输出常带
+    [#H-xxxx] 前导台账引用（评审 #607：此处不得倒退成失败行）。
+    """
     import json as _json
 
     if not text:
         return None
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        return None
-    try:
-        data = _json.loads(text[start : end + 1])
-        return data if isinstance(data, dict) else None
-    except Exception:  # noqa: BLE001
-        return None
+    o_start, o_end = text.find("{"), text.rfind("}")
+    a_start, a_end = text.find("["), text.rfind("]")
+    if a_start >= 0 and (o_start < 0 or a_start < o_start) and a_end > a_start:
+        try:
+            items = _json.loads(text[a_start : a_end + 1])
+        except Exception:  # noqa: BLE001 — 杂文/截断非合法数组 → 对象回退
+            items = None
+        if isinstance(items, list):
+            return {"items": items} if allow_bare_array else None
+    if o_start >= 0 and o_end > o_start:
+        try:
+            data = _json.loads(text[o_start : o_end + 1])
+            if isinstance(data, dict):
+                return data
+        except Exception:  # noqa: BLE001
+            return None
+    return None
 
 
 async def _record(novel_id: str, kind: str, usage: dict) -> None:
