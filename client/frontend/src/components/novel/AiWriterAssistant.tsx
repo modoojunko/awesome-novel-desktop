@@ -183,10 +183,10 @@ export function CharsAiRail(props: {
     <>
       当前角色：<b>{ctx.name}</b> <span className="num">#{ctx.code}</span>
       {ctx.role === "路人" ? (
-        <> · 路人卡只填基础档案 · 档案{part(ctx.dossierGap, 6)}（性别、年龄不代填）</>
+        <> · 路人卡只填基础档案 · 档案{part(ctx.dossierGap, 8)}</>
       ) : (
         <>
-          {" "}· 人设{part(ctx.personaGap, 1)} · 档案{part(ctx.dossierGap, 6)} · 认知
+          {" "}· 人设{part(ctx.personaGap, 1)} · 档案{part(ctx.dossierGap, 8)} · 认知
           {part(ctx.cogGap, 10)}
         </>
       )}
@@ -199,7 +199,7 @@ export function CharsAiRail(props: {
           {
             key: "bootstrap",
             name: "从简介立主角",
-            desc: "读简介，把主角的名字、人设和空格先拟一稿 · 采纳才写入（性别、年龄不代填）",
+            desc: "读简介，把主角的名字、人设和空格先拟一稿 · 采纳才写入",
             onClick: () => props.onRun("bootstrap"),
           },
         ]
@@ -215,7 +215,7 @@ export function CharsAiRail(props: {
     {
       key: "dossier",
       name: "基础信息补充",
-      desc: ctx ? `补「${ctx.name}」的档案空格（性别、年龄不代填）· 会读：这张卡、简介、题材、世界` : "补档案空格；性别、年龄不代填",
+      desc: ctx ? `补「${ctx.name}」的档案空格（含性别、年龄、种族）· 会读：这张卡、简介、题材、世界` : "补档案空格，含性别、年龄、种族",
       onClick: () => props.onRun("dossier"),
     },
     {
@@ -234,7 +234,7 @@ export function CharsAiRail(props: {
   return (
     <AiWriterAssistant
       rows={rows}
-      footNote="这些行都只对当前选中的角色生效（「从简介立主角」只认主角待立那一张）：先在弹窗里给你一稿，点「采纳 · 写入」才落到卡上，写错了能一步撤销。只补空格——你写过的字一个不动；性别、年龄不代填，留给你自己定。重开同一行先看上次结果，重新生成才再跑一次。卡片上不放 AI 按钮：免费用户照样可以手填所有字段，这一栏看得见、点不动。"
+      footNote="这些行都只对当前选中的角色生效（「从简介立主角」只认主角待立那一张）：先在弹窗里给你一稿，点「采纳 · 写入」才落到卡上，写错了能一步撤销。只补空格——你写过的字一个不动。重开同一行先看上次结果，重新生成才再跑一次。卡片上不放 AI 按钮：免费用户照样可以手填所有字段，这一栏看得见、点不动。"
       targetLine={targetLine}
       aiState={props.aiState}
       onBlocked={props.onBlocked}

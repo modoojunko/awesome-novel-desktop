@@ -13,19 +13,20 @@ import hashlib
 import json
 
 # ── 基础档案（8 键；UI 呈 6 行——性别·年龄·种族合一行）───────────────────
-# author_only=True 的键永不进 AI 候选（gender/age 永不代填）
+# 八格全进 AI 候选（c-character-dossier-full-fill：author_only 机制退役，
+# 性别/年龄/种族与其他格同口径——只补空格、采纳才写入）
 DOSSIER_FIELDS: list[dict] = [
-    {"k": "gender", "label": "性别", "author_only": True},
-    {"k": "age", "label": "年龄", "author_only": True},
-    {"k": "race", "label": "种族", "author_only": False},
-    {"k": "faction", "label": "势力 · 身份", "author_only": False},
-    {"k": "look", "label": "外貌标签", "author_only": False},
-    {"k": "speech", "label": "语言特征", "author_only": False},
-    {"k": "background", "label": "背景", "author_only": False},
-    {"k": "plot", "label": "剧情定位", "author_only": False},
+    {"k": "gender", "label": "性别"},
+    {"k": "age", "label": "年龄"},
+    {"k": "race", "label": "种族"},
+    {"k": "faction", "label": "势力 · 身份"},
+    {"k": "look", "label": "外貌标签"},
+    {"k": "speech", "label": "语言特征"},
+    {"k": "background", "label": "背景"},
+    {"k": "plot", "label": "剧情定位"},
 ]
 DOSSIER_KEYS = tuple(f["k"] for f in DOSSIER_FIELDS)
-DOSSIER_FILL_KEYS = tuple(f["k"] for f in DOSSIER_FIELDS if not f["author_only"])
+DOSSIER_FILL_KEYS = DOSSIER_KEYS
 
 # ── 认知六层（30 格；层主格 primary 供写章状态块与层头预览）────────────────
 COG_LAYERS: list[dict] = [
@@ -308,7 +309,7 @@ def gate_fingerprint(cards: list[dict]) -> str:
 
 
 def compute_targets(dossier: dict, cog: dict, persona: str, target: str) -> list[str]:
-    """空格清单（服务端此刻的空值是唯一基准；gender/age 永不进候选）。"""
+    """空格清单（服务端此刻的空值是唯一基准）。"""
     if target == "persona":
         return [] if _filled(persona) else [PERSONA_FILL_KEY]
     if target == "dossier":
@@ -323,8 +324,8 @@ def compute_targets(dossier: dict, cog: dict, persona: str, target: str) -> list
 def apply_character_fills(card: dict, target: str, fills: dict) -> tuple[dict, list[dict], list[dict]]:
     """把模型稿写进卡（域层纯函数）：逐格 best-effort，非空拒写。
 
-    返回 (新卡, applied[], skipped[])；skipped.reason ∈ already_filled / out_of_scope /
-    unknown_key / author_only。人设（persona）由调用方走覆盖路径，不经本函数。
+    返回 (新卡, applied[], skipped[])；skipped.reason ∈ already_filled /
+    out_of_scope / unknown_key。人设（persona）由调用方走覆盖路径，不经本函数。
     """
     card = json.loads(json.dumps(card, ensure_ascii=False))  # 深拷贝
     applied: list[dict] = []
@@ -332,9 +333,6 @@ def apply_character_fills(card: dict, target: str, fills: dict) -> tuple[dict, l
     allowed = set(DOSSIER_FILL_KEYS if target == "dossier" else COG_FILL_KEYS)
     bucket = card.setdefault(target, {})
     for key, value in (fills or {}).items():
-        if target == "dossier" and key in ("gender", "age"):
-            skipped.append({"key": key, "reason": "author_only"})
-            continue
         if key not in allowed:
             skipped.append({"key": key, "reason": "unknown_key"})
             continue

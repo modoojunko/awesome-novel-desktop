@@ -10,26 +10,26 @@
  */
 
 // ── 基础档案（8 键；UI 呈 6 行——性别·年龄·种族合一行）──────────────────
+// 八格全进 AI 候选（c-character-dossier-full-fill：author_only 退役）
 export interface CharacterField {
   k: string;
   label: string;
-  author_only?: boolean;
   req?: boolean;
 }
 
 export const DOSSIER_FIELDS: CharacterField[] = [
-  { k: "gender", label: "性别", author_only: true },
-  { k: "age", label: "年龄", author_only: true },
-  { k: "race", label: "种族", author_only: false },
-  { k: "faction", label: "势力 · 身份", author_only: false },
-  { k: "look", label: "外貌标签", author_only: false },
-  { k: "speech", label: "语言特征", author_only: false },
-  { k: "background", label: "背景", author_only: false },
-  { k: "plot", label: "剧情定位", author_only: false },
+  { k: "gender", label: "性别" },
+  { k: "age", label: "年龄" },
+  { k: "race", label: "种族" },
+  { k: "faction", label: "势力 · 身份" },
+  { k: "look", label: "外貌标签" },
+  { k: "speech", label: "语言特征" },
+  { k: "background", label: "背景" },
+  { k: "plot", label: "剧情定位" },
 ];
 
 export const DOSSIER_KEYS = DOSSIER_FIELDS.map((f) => f.k);
-export const DOSSIER_FILL_KEYS = DOSSIER_FIELDS.filter((f) => !f.author_only).map((f) => f.k);
+export const DOSSIER_FILL_KEYS = DOSSIER_KEYS;
 
 // ── 认知六层（30 格）─────────────────────────────────────────────────────
 export interface CogLayer {

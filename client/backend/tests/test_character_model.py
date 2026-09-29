@@ -30,17 +30,13 @@ def _full_card(role: str = "主角", name: str = "林拾") -> dict:
 class TestConstants:
     def test_shape_counts(self):
         assert len(DOSSIER_FIELDS) == 8
-        assert len(DOSSIER_FILL_KEYS) == 6  # gender/age 不进 AI 候选
+        assert len(DOSSIER_FILL_KEYS) == 8  # c-character-dossier-full-fill：八格全进 AI 候选
         assert len(COG_KEYS) == 30
         assert set(COG_REQUIRED) == {"w5", "p3", "p4"}
         assert len(COG_FILL_KEYS) == 11  # 6 主格 + w5/p3/p4 + p6 + s5（精神层落点）
         assert set(COG_FILL_KEYS) == {"w1", "s1", "v1", "p2", "b1", "e3", "w5", "p3", "p4", "p6", "s5"}
         assert WRITE_STATE_KEYS == ("w1", "s1", "v1", "p2", "b1", "e3")
         assert CHAR_CHECK_STATUS == ("ok", "warn", "conflict", "miss")
-
-    def test_author_only_fields(self):
-        author_only = {f["k"] for f in DOSSIER_FIELDS if f["author_only"]}
-        assert author_only == {"gender", "age"}
 
     def test_check_items_variant(self):
         power_names = [name for name, _ in check_items(True)]
@@ -137,12 +133,11 @@ class TestTargetsAndApply:
         )
         assert new_card["dossier"]["race"] == "人族"  # 非空拒写
         assert new_card["dossier"]["look"] == "瘦高"
-        assert applied == [{"key": "look", "value": "瘦高"}]
+        assert new_card["dossier"]["gender"] == "男"  # c-character-dossier-full-fill：性别照补
+        assert applied == [{"key": "look", "value": "瘦高"}, {"key": "gender", "value": "男"}]
         reasons = {s["key"]: s["reason"] for s in skipped}
         assert reasons["race"] == "already_filled"
-        assert reasons["gender"] == "author_only"
         assert reasons["nope"] == "unknown_key"
-        assert "gender" not in new_card["dossier"]  # 永不写入
 
     def test_apply_blank_value_discarded(self):
         card = {"cog": {}}
