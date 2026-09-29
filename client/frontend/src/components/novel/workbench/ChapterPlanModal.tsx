@@ -37,10 +37,11 @@ export function ChapterPlanModal({
 
         {/* ① 正在想 */}
         {isAi && state.phase === "busy" && (
-          <div className="pick-busy" data-testid="split-busy">
+          <div className="pick-busy col" data-testid="split-busy">
             <span className="ra-spin" aria-hidden="true" />
             <span aria-live="polite">正在想第{chCn}章的 3 个方向…</span>
             <span className="none">都按你的卷纲和上一章结尾推——3 个方向接的是同一句进场</span>
+            <span className="no-close">AI 创作中，请勿关闭弹窗</span>
           </div>
         )}
 

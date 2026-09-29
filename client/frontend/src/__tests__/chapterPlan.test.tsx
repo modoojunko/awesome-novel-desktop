@@ -249,6 +249,7 @@ describe("拆章界面 · AI 三方向（右栏入口，PRO）", () => {
     fireEvent.click(screen.getByTestId("open-ai"));
     await waitFor(() => expect(screen.getByTestId("split-busy")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByTestId("split-busy")).toHaveTextContent("正在想第三章的 3 个方向"));
+    expect(screen.getByTestId("split-busy")).toHaveTextContent("AI 创作中，请勿关闭弹窗");
     release(DIRS);
     await waitFor(() => expect(screen.queryByTestId("split-busy")).not.toBeInTheDocument());
   });

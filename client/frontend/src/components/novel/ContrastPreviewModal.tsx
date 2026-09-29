@@ -111,6 +111,7 @@ export default function ContrastPreviewModal({
                 style={{
                   display: "flex",
                   alignItems: "center",
+                  flexWrap: "wrap",
                   gap: 8,
                   color: "var(--muted)",
                 }}
@@ -126,6 +127,9 @@ export default function ContrastPreviewModal({
                   }}
                 />
                 生成中…
+                <span style={{ flexBasis: "100%", fontSize: 11.5, color: "var(--faint)" }}>
+                  AI 创作中，请勿关闭弹窗
+                </span>
               </div>
             ) : error ? (
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

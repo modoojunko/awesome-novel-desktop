@@ -130,6 +130,7 @@ export default function AiCardModal({
           <div className="ac-loading" aria-busy="true" data-testid="ai-card-loading" data-od-id="ai-card-loading">
             <Ico d={P.spinner} className="spin" size={26} style={{ color: "var(--accent)" }} />
             <span>AI 正在生成…</span>
+            <span className="no-close">AI 创作中，请勿关闭弹窗</span>
           </div>
         ) : (
           <>
@@ -137,6 +138,7 @@ export default function AiCardModal({
               <p className="ac-busy" aria-busy="true">
                 <Ico d={P.spinner} className="spin" size={13} />
                 正在生成新一版…
+                <span className="no-close">AI 创作中，请勿关闭弹窗</span>
               </p>
             )}
             {error && !running && (

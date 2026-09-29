@@ -57,9 +57,10 @@ export default function PlotDrawModal({
         </p>
 
         {state.phase === "busy" && (
-          <div className="pick-busy" data-testid="plot-busy">
+          <div className="pick-busy col" data-testid="plot-busy">
             <span className="ra-spin" aria-hidden="true" />
             <span aria-live="polite">正在写{chapterLabel}的 3 版剧情…</span>
+            <span className="no-close">AI 创作中，请勿关闭弹窗</span>
           </div>
         )}
 
