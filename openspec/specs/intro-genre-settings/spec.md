@@ -20,7 +20,6 @@
 - Given 简介已确认、题材未填
 - When 用户点回简介 tab
 - Then 简介内容保留、可继续编辑，且不锁住题材
-
 ### Requirement: 设定左栏菜单的顺序与命名（用户 2026-09-10 拍板）
 
 - 左栏设定菜单 SHALL 按此序（`SETTINGS_ITEMS` 数组即单一事实源）：**00 模型设定（工具项，恒在最前、不参与进度）→ 01 简介 → 02 题材 → 03 世界 → 04 角色 → 05 主线 → 06 文风 → 07 伏笔**。
@@ -38,7 +37,6 @@
 - Given 当前选中文风面板
 - When 作者确认文风
 - Then 自动切到伏笔面板（不再经过禁用词句）
-
 ### Requirement: 简介面板（编辑框 + 六段模板 + AI 写作助手）
 - 简介输入框 SHALL 接受 ≤500 字，实时显示 `x/500` 计数与状态徽标。
 - 状态徽标 SHALL 走状态语言：未填＝ghost（中性）、已填＝**进行中/草稿**（warn 软底，不能说成已确认）、已确认才用 ok 绿。
@@ -54,7 +52,6 @@
 - Given 简介输入框有文字但未点确认
 - When 查看状态徽标
 - Then 显示进行中（warn）语义，而非已确认（ok）
-
 ### Requirement: 简介「AI 写作助手」（三能力，Pro）
 - 简介右栏 SHALL 为一个「AI 写作助手」卡片：PRO 徽标并入头部（「AI 写作助手」+ 已解锁/套餐归属/只加工不代写）＋三个**并列**能力行（体检 / 补缺失 / 润色，非先后流程）＋底部来源/去向声明。
 - 每行 SHALL 为：能力名称（上）+ 描述（下，从属）+ 右侧箭头，整行可点。
@@ -62,17 +59,17 @@
 - 体检接口 SHALL 返回结构化 JSON：`{"six_segments":[{name,status(ok|missing),excerpt,note?}], "taboo":{"hits":[{rule,excerpts}]}, "title_check":{"fit":"ok|mismatch|generic","note":"…","suggestions":["…"]}, "verdict":"strong|ok|weak"}`，其中 `name` 须为六段名之一、`status` 限 `ok|missing`、`fit` 限三值。
 - **标题对照语义**（`title_check`）：`ok`＝标题暗示的类型/看点与简介一致；`mismatch`＝不符（如标题像甜宠、简介是压抑复仇）；`generic`＝标题无信息（任何同类型小说都能用，如《第一章》）。`mismatch`/`generic` 时 SHALL 给 `note` 说明理由 + **≤3 条候选标题**（每条 ≤16 字，贴题材、留钩子、不剧透结局）。候选标题 SHALL 仅作参考提示，**SHALL NOT 提供「一键设为书名」入口**——书名改不改、怎么改由作家自己决定（用户拍板 2026-09-10）。**兜底**：模型未返回该字段或 `fit` 非法 → 该字段**不下发**，前端不渲染该行（**不得硬判 `ok`**，避免假绿）。
 - **结构化输出策略**（跨供应商/弱模型）：体检/题材的 JSON 输出除 endpoint 后置归一化兜底外，prompt 侧 SHALL 给 **schema + 枚举 + 一个 few-shot 示例**；能用的 provider 追加 `response_format={"type":"json_object"}`（需同步扩 `AIClient.chat` 的 OpenAI 分支）。
-- 补缺失 SHALL 只针对缺失段给候选；请求体 SHALL 带 `missing_segments`（前端把 introspect 的 missing 段传来），返回 `{"missing":[{name,candidate}], "act":"insert"}`；**只补缺失段、不重写作者已写段**。采纳才插入简介，可逐条采纳。**前置**：未先体检时「补缺失」行 SHALL 提示「先体检，才知道缺哪段」（或禁用），不得空跑（O-3）；六段全 ok 时 SHALL 提示「六段都齐了，无需补」（O-16）。
-- 润色 SHALL 前后对照（入参 `{title, content}`，返回 `{"original","polished","act":"replace"}`），采纳才替换；保原意、只加工不代写。**对照展示形态**＝原句/润后**上下两行**（O-17）。
-- **AI 助手交互状态机**（设计见 D14）：四个能力（体检/补缺失/润色/题材五行）SHALL 共用同一状态机 `idle → running → result → adopted`（异常走 `error(reason)`）；`.ai-sink` 为其唯一渲染面。**前置守卫**：补缺失未先体检时该行置灰 + 「先体检」，不空跑（O-3）；**空结果**（六段全 ok 时补缺失）显示「无需补」而非空白（O-16）；**生命周期**＝采纳后保留、切面板清空、重新请求覆盖、确认后清空（O-5）；**save 成功但 confirm 400** → 「内容未通过校验」+ 保留 dirty（O-4）。
+- 补缺失 SHALL 只针对缺失段给候选；请求体 SHALL 带 `missing_segments`（前端把 introspect 的 missing 段传来），返回 `{"missing":[{name,candidate}], "act":"insert"}`；**只补缺失段、不重写作者已写段**。候选在弹窗文本卡内逐条呈现，确认才写入简介。**前置**：未先体检时「补缺失」行 SHALL 提示「先体检，才知道缺哪段」（或禁用），不得空跑（O-3）；六段全 ok 时 SHALL 提示「六段都齐了，无需补」（O-16）。
+- 润色 SHALL 前后对照（入参 `{title, content}`，返回 `{"original","polished","act":"replace"}`），确认才替换；保原意、只加工不代写。**对照展示形态**＝弹窗文本卡内原句/润后**上下两行**（O-17）。
+- **AI 助手交互状态机**：三个能力（体检/补缺失/润色）SHALL 共用同一状态机 `idle → running → result → adopted`（异常走 `error(reason)`）；**「AI 出卡确认弹窗」为其唯一渲染面**。**前置守卫**：补缺失未先体检时该行置灰 + 「先体检」，不空跑（O-3）；**空结果**（六段全 ok 时补缺失）弹窗内显示「无需补」而非空白（O-16）；**生命周期**＝结果只在弹窗内呈现，确认写回后弹窗关闭、直接关闭即弃（不写回、不留面板残留）；「换一个」＝弹窗内重新生成，**生成历史切换退役**（O-5 生命周期随之改口径）；**save 成功但 confirm 400** → 「内容未通过校验」+ 保留 dirty（O-4）。
 - **失败文案矩阵**（O-13）：400 →「请求有误，请检查输入」；403 `member_required` → 升级；403 `no_key` → 去模型配置；503 `missing_model` → 去选模型；502/非法 JSON →「暂不可用，请重试」且**不拦确认**；网络异常/超时 →「网络异常，请重试」。**重试不重复计 usage**。
-- 点任一能力，反馈 SHALL 落到**简介框下方**的结果区（.ai-sink，fg-soft），带操作名标签 + 采纳/重试；右栏只作按钮、不内嵌答案。AI 请求以**当前输入框的 synopsis 为源**（`content`），不读存储旧文；入参含 `title`（书名）。
+- 点任一能力，生成/体检结果 SHALL 在**弹窗出卡**中呈现（生成类＝文本卡带确认；体检＝只读报告卡，无采纳）；右栏只作按钮、不内嵌答案、面板内不再渲染格下结果区。AI 请求以**当前输入框的 synopsis 为源**（`content`），不读存储旧文；入参含 `title`（书名）。
 
 #### Scenario: 标题与简介不符时给出提示与候选
 - Given 书名为《我在夜晚打吸血鬼》（暗示都市奇幻），简介写成压抑宫斗
 - When 执行体检
 - Then 返回 `title_check.fit="mismatch"` + `note` 说明不符之处 + ≤3 条候选标题
-- And 简介面板在六段行下方显示「标题对照：与简介不符」+ 理由 + 候选标题
+- And 体检报告卡在六段行下方显示「标题对照：与简介不符」+ 理由 + 候选标题
 
 #### Scenario: 标题无信息也提示（不得判为一致）
 - Given 书名为《第一章》或《测试》，任何同类型作品都能用
@@ -82,17 +79,21 @@
 #### Scenario: 弱模型未返回标题对照时不造假绿
 - Given 模型输出缺少 `title_check` 或 `fit` 取值非法
 - When 归一化体检响应
-- Then 该字段不下发、前端不渲染标题对照行（**不得**补一个 `ok`）
+- Then 该字段不下发、报告卡不渲染标题对照行（**不得**补一个 `ok`）
 
 #### Scenario: 体检六行与模板一致
 - Given 简介已输入
 - When 作家点「体检」
-- Then 结果区列出六段逐项 达标/缺失，行名与六段模板一致，且给出禁忌扫描结论
+- Then 弹窗报告卡列出六段逐项 达标/缺失，行名与六段模板一致，且给出禁忌扫描结论
 
 #### Scenario: 反馈落输入框下方而非右栏
 - Given 点任一能力
-- Then 结果出现在简介框下方结果区，右栏不堆长答案
+- Then 结果出现在弹窗出卡内，右栏不堆长答案；简介框下方不再出现内嵌结果区（原「落输入框下方」形态随 .ai-sink 退役，确认语义不变——确认才写回）
 
+#### Scenario: 关闭即弃
+- Given 补缺失候选已在弹窗内呈现
+- When 作者未点确认直接关闭弹窗
+- Then 简介原文一个字不动，面板无残留结果
 ### Requirement: 02「主要看什么」＝作家写一句完整的话（用户 2026-09-10 改版）
 
 - 02 的主输入 SHALL 是**一句完整的话**（`promise_note`，≤200，可编辑、带计数），**SHALL NOT** 只让作者填几个字的标签——旧版把完整句（AI 的 `promise_note`）渲染成只读的「AI 补充读者预期：…」，作者改不了，而自己能填的只有几个词的 `core_promise`，正好反过来。
@@ -129,7 +130,6 @@
 - Given 作者只在 02 写了一句「读者要看到弱者用脑子翻盘」，其余各格空着
 - When 点确认完成
 - Then 后端判定为已填（`promise_note` 计入核心键），不报「还未填写内容」
-
 ### Requirement: 题材面板（五格 + 四行 AI）
 
 - 题材面板 SHALL 为五格：**① 题材目录（第一问「什么题材？」：大类必选 + 子类可选，见下条）** ② 主要看什么 ③ 绝对禁止（库标签预勾 + 取消＝放行 + 回车自定义）④ 吃苦指数滑块（1-10，浮例句）⑤ **本小说斗什么**（原名「主线战场」；预选 2，第 3 个出软提示不禁止）。
@@ -141,9 +141,10 @@
 - **口味胶囊 SHALL 移到 02 格**作「常见口味」快捷填充（原名「题材口味胶囊」名不符实：它填的是 02-05，不是题材）：一次预填 02/03/04/05，各格可改；**SHALL NOT** 覆盖 01 已选的题材。
 - 每格 SHALL 有编号 + 名称 + 「怎么填」提示 + 成书视角去处说明（m-use）。
 - 题材右栏 SHALL 为同款「AI 写作助手」卡片：**四行**字段（对应 02-05；01 题材目录为直接选择、不走 AI、**计入**确认判据），各行名称上/描述下（含本格问题 + 输入来源）/右箭头，各答各题。**路由 field→契约字段映射**：02 主要看什么↔**promise_note（≤200，主输入＝作家写的那句话）**+core_promise（≤60，短标签：起点胶囊/AI 写入，不单独设输入框）；03 绝对禁止↔forbidden_list；04 吃苦指数↔cost_ratio；05 本小说斗什么↔battlefield。**已退役的 track SHALL 被 AI 端点拒绝（400）**。
-- 点某行，反馈 SHALL 落到**左侧对应字段输入框正下方**的结果区（.ai-sink），采纳才写回对应控件；AI 建议按字段返回**强类型出参**（cost_ratio 为 1-10 数值、forbidden_list 为 `[{tagId|text}]`、battlefield 为数组、core_promise 为 `{value:enum|custom, note:读者预期句}`、主要看什么为文本）。
-- 题材的枚举/标签类字段（core_promise、forbidden_list、battlefield）SHALL 有**候选来源**：由 9. 共享候选源给出候选清单（core_promise 枚举值、forbidden_list tagId 目录、battlefield 候选），模型从中选或走 custom，前端「采纳才写回并映射 tagId」。
-- **写回语义**（设计见 D16）：单值文本/数值**覆盖**（按钮「采纳 · 覆盖」）；列表（forbidden_list/battlefield）**覆盖整个列表**（不追加——O-6）；AI 返回无法映射 tagId 的文本落为 `custom`（不丢弃）；**01 取消选择不回滚**已填各格（O-15）。
+- 点某行，建议 SHALL 在**弹窗出卡**中呈现，确认才写回对应控件（面板内不再渲染格下结果区）；AI 建议按字段返回**强类型出参**（cost_ratio 为 1-10 数值、forbidden_list 为 `[{tagId|text}]`、battlefield 为数组、core_promise 为 `{value:enum|custom, note:读者预期句}`、主要看什么为文本）。
+- 题材的枚举/标签类字段（core_promise、forbidden_list、battlefield）SHALL 有**候选来源**：由 9. 共享候选源给出候选清单（core_promise 枚举值、forbidden_list tagId 目录、battlefield 候选），模型从中选或走 custom，前端「确认才写回并映射 tagId」。
+- **写回语义**（设计见 D16）：单值文本/数值**覆盖**（确认键「采纳 · 覆盖」）；列表（forbidden_list/battlefield）**覆盖整个列表**（不追加——O-6）；AI 返回无法映射 tagId 的文本落为 `custom`（不丢弃）；**01 取消选择不回滚**已填各格（O-15）。
+- **主要看什么的多看点候选 SHALL 走弹窗候选勾选卡**（可多选/单选/全不选——全不选＝自己写）：勾选态在卡内自持，「采纳」把勾选项写回；单选＝标签+那句话，多选＝只拼那句话。
 - 题材定义 SHALL 收口为：题材 = 读者预期 + 作者轨道 + 核心冲突的类型锁（提示帮助中的措辞）。
 - **纯新契约连带**（写作引擎配置去留）：推翻 genre_id 后，老 GenreSettingForm 落盘的 `genre_id + config_overrides(fulfillment_types/chapter_types/pacing_rules/fatigue_words) + selected_arc_id + prompt_injection_enabled + taboos` 这批写作引擎题材配置必须有明确去留——语义相近的迁移为新契约字段（fulfillment_types→core_promise、taboos→forbidden_list、typicalArc/storyArcTemplates→track），纯写作引擎/随 GenrePicker 退役的显式移除并评估，**不得静默丢弃**影响写作引擎 AI 口味/节奏/注入的配置。
 
@@ -186,8 +187,7 @@
 #### Scenario: 题材 AI 反馈落对应字段下方
 - Given 题材面板
 - When 点「主要看什么」的 AI 行
-- Then 建议出现在左侧「主要看什么」输入框正下方结果区，采纳写回该文本框
-
+- Then 多看点候选出现在弹窗候选勾选卡内（可勾选、可全不选），点「采纳」写回该格；关闭弹窗则该格不动（原「落字段正下方」形态随 .ai-sink 退役，写回目标格不变）
 ### Requirement: 免费版（无套餐）AI 可见 + 锁定
 - 无套餐用户 SHALL 仍可看到「AI 写作助手」卡片，但其为**可见 + 锁定**：整体降透明、PRO 徽标转灰、各能力行降透明且不可点（cursor:not-allowed），每行名称/描述仍可见。
 - 点击锁定行 SHALL 给统一升级提示（「这是会员功能，升级 PRO 后解锁——免费版写作能力完整」），SHALL NOT 各自弹窗。
@@ -197,7 +197,6 @@
 - Given 无套餐用户进入简介/题材设定
 - When 查看 AI 写作助手卡片
 - Then 三个/五行能力可见但整体降透明、点击给升级提示、不生成结果
-
 ### Requirement: 本书模型设定（AI 前置）
 - **模型配置＝人工路径能力，不锁会员**：免费版 SHALL 也能看到「本书模型」步、也能配置（选 API 配置 + 模型）——免费版与 PRO/MAX 的差别**只在右侧 AI 助手**（免费版全灰、升级引导）。
 - 用该书的任何 AI 能力（简介/题材助手、章写作等）前，SHALL 先在本书选定 API 配置 + 模型（复用 `ModelSettingForm`/`useModelStatus`，落 `project.ai_config_id` + `project.ai_model`）；**就绪判据见「AI 就绪状态的单一事实源」（四条件）**。配好的模型在升级 PRO 后 SHALL 直接可用（不必重配）。
@@ -236,7 +235,6 @@
 - Given 会员但未配任何 API Key
 - When 作者点简介「AI 体检」
 - Then 提示「先去「模型配置」添加 API Key」（reason=no_key），而非「先在本书选择模型」
-
 ### Requirement: AI 就绪状态的单一事实源
 
 - 「本书 AI 是否就绪」SHALL 由**后端一次判定、前端只消费**，SHALL NOT 由前端用本地配置列表自行推导（消除前后端判据漂移）。
@@ -277,7 +275,6 @@
 - Given 用户存在任一 `api_key` 字段非空的配置，但全部密文无法解密
 - When 未绑定配置的书查询 AI 就绪状态
 - Then 判定 SHALL 为 `no_key`（「用户有任一可用 Key」按可解密口径），SHALL NOT 因字段非空而误判可回退
-
 ### Requirement: 后端模型调用分层
 
 - C端后端模型调用 SHALL 分层且边界可验证：**配置层**（`api_configs/`，存配置/测连接/记用量）→ **解析层**（`effective_model`，`project.ai_model` 唯一权威）→ **判定层**（`compute_ai_state`，单一事实源）→ **客户端层**（`ai_client.py`，构造连接、调用、按 `api_format` 落地 `json_mode`）→ **门控层**（`require_ai_access` + `require_novel_model`，判据复用判定层）→ **业务层**（`write/`/`settings/`/`chapters/`/`prompt/`/`archive/`/`story/`/`novels/`）→ **prompt 层**（模型无关模板）→ **计量层**（记实际模型 id）。
@@ -327,7 +324,6 @@
 
 - **存储（D19 关系化，取代 D17 的 KV 方案）**：题材 SHALL 落 `novel_genre` + 关联表（4 张表，见下「题材 SHALL 存关系表」条）；`project_settings('genre')` 行 SHALL 废弃（不再读写）；**无迁移**（无 C 端用户，存量库指纹不匹配→留档重建）。**写作注入 SHALL 同批重写**：`resolve_genre_context` 须改读五字段，否则 `build_genre_section` 恒空且**无报错**（静默降级，正文质量悄悄变差）；**且 SHALL 带上 01 题材目录**（`题材：大题（子类）` 一行，同读 `story.yaml`）——01 是「定了就不跑偏」的类型锁，只注入 02-06 会让模型不知道书是什么题材。**`genres` 表 SHALL NOT 被本 change 修改**（仅停用 `genre_id` 引用）。候选源 SHALL 由 `GET /api/genres/candidates` 下发（前后端镜像需 parity）。**`settings/ai-model.yaml` 为确认标记行，SHALL NOT 写入 `ai_state`**。**R9**：`writing-style.yaml` 的 `genre_profile` SHALL 停用或明确仅作展示名，不得与五字段并存为两个题材源。**禁止新增未路由的 storage 路径**（会静默落盘、破坏「数据全在 DB」）。
 - **R8 删除残留**：删 ApiConfig 后 `ai_config_id` 被置空而 `ai_model` 保留 → `ai_state` SHALL 判 `invalid`（非 `missing_model`/ready）。
-
 ### Requirement: 简介/题材字段数据契约
 - 简介 SHALL 存储 `{ synopsis: string, ≤500 }`（`PUT /settings/story`）。
 - **题材目录（01 格）SHALL 落 `story.yaml`**（用户 2026-09-10 拍板）：大类名存**既有 `genre` 键**（书卡胶囊/书内标签的展示链一直读它）、子类名存新键 `sub_genre`；`GET/PUT /novels/{id}/settings/genre` 的对外契约 SHALL 含 `theme`/`sub_genre` 两字段，**存储位置对前端透明**（面板一次取全、一次保存）。**理由**：题材目录是与简介同族的单值书级元数据（同文件、已有 `genre` 键），不是多值关系；**另立关系表意味着改 schema → 触发 C端 启动期指纹留档（用户库被改名重建，实打实的数据丢失）**，而简介真源本来就在 `story.yaml`。**键存在才写**：PUT 未带 `theme`/`sub_genre` 键时 SHALL NOT 改动既有值（老调用方只 PUT 五字段不得清空题材）。
@@ -349,7 +345,6 @@
 - Given 题材已填 core_promise（未填 genre_id）
 - When 查看设定状态
 - Then 题材判定为已确认（判据为已选题材目录或新契约核心键非空，而非 genre_id）
-
 ### Requirement: 题材的对外展示（书卡胶囊与书内标签）
 
 - 书本上的题材展示位（书架卡片胶囊、书内标签）**SHALL 取值来自题材**（用户 2026-09-10 拍板「书的类型胶囊，取值从题材获取」），**SHALL NOT** 依赖已废弃的历史来源：建书弹窗的「类型」下拉与题材面板的 `genre_id` 都已不再写入，旧展示链（`story.yaml.genre` 的旧语义 / `project_settings('genre')` KV）对本 change 之后的书恒为空。
@@ -378,7 +373,6 @@
 - Given 一本建书时写入过旧 `story.yaml.genre`（如「科幻」）的老书，且题材目录与关系表均无数据
 - When 查看书架卡片或打开这本书
 - Then 题材展示位仍显示「科幻」
-
 ### Requirement: 改动回执 + 单步撤销（模型/简介/题材三面板，用户 2026-09-10 拍板）
 
 设定是 AI 写作的输入，改错了不会当场报错，只让后面每一章越写越差；要治的是「改了不知道 + 改错退不回」，不是「控件能不能改」。三面板 SHALL 按**改动来源**分级，SHALL NOT 引入查看/编辑模式（面板永远只有一个主按钮 + 最多一条回执）：
