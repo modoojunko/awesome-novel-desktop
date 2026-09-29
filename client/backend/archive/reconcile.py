@@ -301,10 +301,12 @@ def _collect_prompts(
 def _parse_json_lenient(text: str, allow_bare_array: bool = False) -> dict | None:
     """模型输出宽松 JSON 解析：截取首个 { 到末个 }；失败返回 None。
 
-    首个 JSON 结构是数组（[ 先于 {，含字面 `[]`）时：lore 兜底接受并包装为
-    {"items": list}——旧提示词教过模型「没有则输出空数组」，真机 09-29 实锤
-    模型照字面回 `[]` 被误判失败；hooks 裸数组无对账语义 → 维持解析失败
-    （SHALL NOT 把数组首元素的内层 { 误当顶层对象）。
+    形状按首个 JSON 结构判定，且数组段**确能解析为 list** 才定形：
+    lore 兜底包装 {"items": list}（旧提示词教过「没有则输出空数组」，真机
+    09-29 实锤模型照字面回 `[]` 被误判失败）；hooks 合法裸数组＝契约违例
+    维持解析失败（SHALL NOT 把数组首元素的内层 { 误当顶层对象）；数组段
+    解析失败（前导杂文带 [、截断数组）→ 回退对象路径——对账输出常带
+    [#H-xxxx] 前导台账引用（评审 #607：此处不得倒退成失败行）。
     """
     import json as _json
 
@@ -312,15 +314,13 @@ def _parse_json_lenient(text: str, allow_bare_array: bool = False) -> dict | Non
         return None
     o_start, o_end = text.find("{"), text.rfind("}")
     a_start, a_end = text.find("["), text.rfind("]")
-    if a_start >= 0 and (o_start < 0 or a_start < o_start):
-        if allow_bare_array and a_end > a_start:
-            try:
-                items = _json.loads(text[a_start : a_end + 1])
-                if isinstance(items, list):
-                    return {"items": items}
-            except Exception:  # noqa: BLE001
-                return None
-        return None
+    if a_start >= 0 and (o_start < 0 or a_start < o_start) and a_end > a_start:
+        try:
+            items = _json.loads(text[a_start : a_end + 1])
+        except Exception:  # noqa: BLE001 — 杂文/截断非合法数组 → 对象回退
+            items = None
+        if isinstance(items, list):
+            return {"items": items} if allow_bare_array else None
     if o_start >= 0 and o_end > o_start:
         try:
             data = _json.loads(text[o_start : o_end + 1])

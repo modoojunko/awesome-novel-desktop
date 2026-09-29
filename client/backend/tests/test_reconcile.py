@@ -734,6 +734,17 @@ class TestLoreBareArrayAndTruncationHint:
         # 对象优先语义不变；不开兜底时裸数组仍失败（hooks 语义）
         assert _parse_json_lenient('{"items": []}', allow_bare_array=True) == {"items": []}
         assert _parse_json_lenient("[]") is None
+        # 前导文字含 [ 的对象输出走对象路径（评审 #607 P2：对账常带 [#H-xxxx]
+        # 前导引用、lore 可能带 [第N段] 式引注——不得因数组优先短路误判失败）
+        assert _parse_json_lenient(
+            '比对台账[#H-0001]后判断：{"resolved": [], "advanced": [{"ref": "#H-0001"}]}'
+        ) == {"resolved": [], "advanced": [{"ref": "#H-0001"}]}
+        assert _parse_json_lenient(
+            '根据正文[第3段]识别：{"items": [{"key": "临江渡口"}]}', allow_bare_array=True
+        ) == {"items": [{"key": "临江渡口"}]}
+        # 数组段残缺（截断）→ 对象回退也不得把首元素当顶层对象（对象段亦不合法则 None）
+        assert _parse_json_lenient('[{"key": "a"}, {"key": "b', allow_bare_array=True) \
+            == {"key": "a"}  # 与旧实现同口径：截取首 { 到末 }
 
     def test_lore_bare_empty_array_succeeds_and_clears_stale_failed(self, monkeypatch):
         _root, nid, ch_id = asyncio.run(_seed())
@@ -803,3 +814,32 @@ class TestLoreBareArrayAndTruncationHint:
         assert hooks_rows[0].status == "failed"
         assert "parse" in hooks_rows[0].error
         assert "疑似被输出预算截断" not in hooks_rows[0].error
+
+    def test_hooks_preamble_with_ledger_ref_parses(self, monkeypatch):
+        """评审 #607 P2：前导句引用台账编号（[#H-0001]）的对象输出不得误判失败。"""
+        _root, nid, ch_id = asyncio.run(_seed())
+
+        class _Fake:
+            async def chat(self, **kwargs):
+                return (
+                    '比对台账[#H-0001]后判断：'
+                    '{"resolved": [], '
+                    '"advanced": [{"ref": "#H-0001", "note": "雾中人数被清点", '
+                    '"evidence": "雾里传来第二个呼吸声"}], "planted": []}'
+                )
+
+        async def _fake_client(novel_id):
+            return _Fake()
+
+        import ai_client
+
+        monkeypatch.setattr(ai_client, "get_ai_client_for_novel", _fake_client)
+        import archive.reconcile as rc
+
+        asyncio.run(rc._run_async(nid, _root, "vol-1-ch-1", ch_id, kinds=["hooks"]))
+
+        hooks_rows = [r for r in asyncio.run(_rows_of(ch_id)) if r.kind == "hooks"]
+        assert len(hooks_rows) == 1
+        assert hooks_rows[0].status == "pending"  # 不落失败行
+        payload = json.loads(hooks_rows[0].payload)
+        assert payload["advanced"][0]["ref"] == "#H-0001"
