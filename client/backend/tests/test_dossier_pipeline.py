@@ -360,6 +360,72 @@ def test_rows_only_reextract_keeps_archive_state(monkeypatch):
     assert not _run(_total())  # rows_only 不加归档计数
 
 
+def test_rows_only_reextract_keeps_adopted_rows(monkeypatch):
+    """决策留给作家（c-rearchive-keep-adopted）：重提保留已采纳行——只替换未决/
+    驳回行，新结果以待确认并存；首次归档（非 rows_only）全清不回归。"""
+    _run(_ensure_tables())
+    root, nid, ch_id = _seed_book(status="archived", archived=True)
+    _mock_ai(monkeypatch, [_EXTRACT_JSON, _EXTRACT_JSON])
+
+    from archive.dossier import accept_extraction, prose_sha256
+
+    _run(accept_extraction(nid, root, "vol-1-ch-1", ch_id,
+                           prose_sha256(_LONG_PROSE), rows_only=True))
+    _wait_job(ch_id, "ok")
+
+    # 作者确认一条关系行＋一条设定行；驳回一条
+    async def _decide():
+        from datetime import UTC, datetime
+
+        from models.chapter import Chapter
+
+        async with async_session() as s:
+            ch = await s.get(Chapter, ch_id)
+            rel = ch.dossier_relations[0]
+            rel.status = "accepted"
+            rel.decided_at = datetime.now(UTC).replace(tzinfo=None)
+            rel.change_note = "作家拍板的关系"
+            st = ch.dossier_settings[0]
+            st.status = "accepted"
+            ch.dossier_items[0].status = "rejected"
+            await s.commit()
+            return rel.id, st.id
+
+    kept_rel_id, kept_st_id = _run(_decide())
+
+    _run(accept_extraction(nid, root, "vol-1-ch-1", ch_id,
+                           prose_sha256(_LONG_PROSE), rows_only=True))
+    _wait_job(ch_id, "ok")
+
+    async def _rows():
+        from models.chapter import Chapter
+
+        async with async_session() as s:
+            ch = await s.get(Chapter, ch_id)
+            rels = [(r.id, r.status) for r in ch.dossier_relations]
+            sts = [(r.id, r.status) for r in ch.dossier_settings]
+            items = [(r.id, r.status) for r in ch.dossier_items]
+            return rels, sts, items
+
+    rels, sts, items = _run(_rows())
+    # 已采纳的关系/设定行原样保留（同 id 同状态）
+    assert (kept_rel_id, "accepted") in rels and (kept_st_id, "accepted") in sts
+    # 新提取以待确认并存（关系 2 行＝保留 1＋新 1；设定同）
+    assert len(rels) == 2 and len(sts) == 2
+    assert any(st == "pending" for _, st in rels)
+    # 被驳回的行被重提替换（不在残留为新 pending 之外的第三行）
+    assert len(items) == 1
+
+    # 首次归档（非 rows_only）全清语义不回归：用未归档章再提一次，旧行（含保留行）全清
+    _root2, nid2, ch2 = _seed_book(status="archived", archived=False)
+    _mock_ai(monkeypatch, [_EXTRACT_JSON])
+    _run(accept_extraction(nid2, _root2, "vol-1-ch-1", ch2,
+                           prose_sha256(_LONG_PROSE)))
+    _wait_job(ch2, "ok")
+    row = _chapter_row(ch2)
+    assert row["counts"] == (1, 1, 1, 1)
+
+
 def test_skip_triggers_legacy_reconcile(monkeypatch):
     """评审 P2：逃生阀收口与其他两条 finalize 路径一致——触发伏笔/lore 收尾。"""
     _run(_ensure_tables())
