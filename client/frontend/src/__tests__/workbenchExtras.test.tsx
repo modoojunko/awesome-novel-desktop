@@ -226,6 +226,36 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
     expect(svg.getAttribute("viewBox")).toBe("0 0 560 380");
   });
 
+  it("缩放按钮不被拖拽捕获吞掉点击（真机实锤：pointer capture 重定向 pointerup）", async () => {
+    mockBookApi();
+    dossierState.preview.mockResolvedValue({
+      up_to_ref: "vol-1-ch-1",
+      domains: { relations: [] },
+      counts: { relations: 0 },
+      skipped_stale_refs: [],
+    });
+    dossierState.get.mockResolvedValue({
+      rows: [],
+      progress: { pending: 0, accepted: 0, rejected: 0 },
+      extraction: null,
+      not_extracted: false,
+      stale: false,
+      archived: false,
+      accepted_count: 0,
+    });
+    const { container } = render(<RelationsGraphPane projectId="p1" volumeScope={1} />);
+    const svg = await screen.findByRole("img", { name: "角色关系图（截至第 1 卷末剧情投影）" });
+    expect(svg.getAttribute("viewBox")).toBe("0 0 560 380");
+    const vp = container.querySelector(".rg-viewport")!;
+    const btn = screen.getByTestId("rg-zoom-in");
+    // 真实浏览器序列：pointerdown 落在按钮上（冒泡进容器）→ 不得开启拖拽态
+    fireEvent.pointerDown(btn, { button: 0 });
+    expect(vp.className).not.toContain("dragging");
+    // click 后 viewBox 变化
+    fireEvent.click(btn);
+    expect(svg.getAttribute("viewBox")).not.toBe("0 0 560 380");
+  });
+
   it("未归档章的已采纳行也上图；preview 的本章行不重复", async () => {
     mockBookApi();
     // 本章未归档：preview 理应不含本章行；即便含（曾归档后回草稿）也按 ref 过滤防重复

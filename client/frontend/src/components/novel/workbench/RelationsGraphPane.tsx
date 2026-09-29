@@ -481,6 +481,10 @@ export function RelationsGraphPane({
   }, [zoomAt]);
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    // 缩放按钮必须能点：pointerdown 一旦被容器 setPointerCapture，pointerup 会重定向
+    // 到容器，click 目标变成公共祖先（容器），按钮 onClick 永远不触发（真机实锤）。
+    // 交互控件上不开启拖拽。
+    if ((e.target as HTMLElement).closest(".rg-zoombar")) return;
     dragRef.current = { px: e.clientX, py: e.clientY };
     try {
       e.currentTarget.setPointerCapture(e.pointerId);

@@ -260,6 +260,13 @@ test("变化分区全链：归档受理提取→设定/关系页签待确认→�
     await expect(rg.locator(".rg-legend")).toContainText(/剧情演变 1 · 待确认 0/);
     // 箭头＋极性：盟友＝友好绿，箭头 marker 同色挂在路径末端
     await expect(rg.locator(".rg-edge.hit.p-friendly .rg-line").first()).toHaveAttribute("marker-end", /friendly/);
+    // 缩放按钮可点（真实点击序列；曾因容器 pointer capture 吞掉按钮 click 恒失效）
+    const svgEl = rg.locator("svg");
+    await expect(svgEl).toHaveAttribute("viewBox", "0 0 560 380");
+    await rg.locator('[data-testid="rg-zoom-in"]').click();
+    await expect(svgEl).not.toHaveAttribute("viewBox", "0 0 560 380");
+    await rg.locator('[data-testid="rg-zoom-reset"]').click();
+    await expect(svgEl).toHaveAttribute("viewBox", "0 0 560 380");
     // ③ 第 2 章组装来源：第七处「故事状态」含已采纳内容
     await page.locator(".col-tree .ch").nth(1).click();
     await page.getByRole("tab", { name: /^章纲/ }).click();
