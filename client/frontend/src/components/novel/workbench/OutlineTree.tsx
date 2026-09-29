@@ -27,7 +27,7 @@ interface OutlineTreeProps {
   onAddVolume: () => void;
   /** 空书态「＋ 新增一章」：先垫第一卷再排第一章（壳层实现） */
   onAddChapter: () => void;
-  /** 回改这一章（c-chapter-plan-ai 5.6）：hover 动作开同一张本章卡（五段可改） */
+  /** 回改这一章（c-chapter-plan-ai 5.6）：hover 动作开同一张本章卡（四段可改） */
   onEditChapter: (ref: string) => void;
 }
 
@@ -326,7 +326,7 @@ export default function OutlineTree({
                       <span className="acts">
                         <button
                           className="icon-btn"
-                          title="改这一章（关键剧情五段）"
+                          title="改这一章（关键剧情四段）"
                           data-testid="ch-edit"
                           onClick={(e) => {
                             e.stopPropagation();

@@ -381,6 +381,8 @@ const IDLE_ONE_VOL: RailIdleData = {
 function renderPanel(props: Partial<Parameters<typeof VolumeAssistPanel>[0]> = {}) {
   const onPlanVolume = vi.fn();
   const onSelectVolume = vi.fn();
+  const onGoOutline = vi.fn();
+  const onSplitAi = vi.fn();
   render(
     <VolumeAssistPanel
       projectId="p1"
@@ -388,7 +390,8 @@ function renderPanel(props: Partial<Parameters<typeof VolumeAssistPanel>[0]> = {
       idle={IDLE_EMPTY}
       genreLabel="悬疑"
       onPlanVolume={onPlanVolume}
-      onSplitAi={vi.fn()}
+      onSplitAi={onSplitAi}
+      onGoOutline={onGoOutline}
       isPro
       onUpgrade={vi.fn()}
       onSelectVolume={onSelectVolume}
@@ -396,7 +399,7 @@ function renderPanel(props: Partial<Parameters<typeof VolumeAssistPanel>[0]> = {
       {...props}
     />,
   );
-  return { onPlanVolume, onSelectVolume };
+  return { onPlanVolume, onSelectVolume, onGoOutline, onSplitAi };
 }
 
 describe("VolumeAssistPanel 三态", () => {
@@ -521,8 +524,8 @@ describe("卷页签右栏（c-write-home-rail-anchor）", () => {
     });
   });
 
-  const railData = (tab: string) =>
-    ({ volume: 2, title: "借命", tab, detail: { chapters: [] } }) as unknown as Parameters<
+  const railData = (tab: string, detailExtra: Record<string, unknown> = {}) =>
+    ({ volume: 2, title: "借命", tab, detail: { chapters: [], ...detailExtra } }) as unknown as Parameters<
       typeof VolumeAssistPanel
     >[0]["data"];
 
@@ -543,12 +546,57 @@ describe("卷页签右栏（c-write-home-rail-anchor）", () => {
       ).map((el) => el.textContent);
       expect(groups).toEqual(order);
       expect(screen.queryByTestId("volume-replan") !== null).toBe(tab === "outline");
+      expect(screen.queryByTestId("volume-split-ai") !== null).toBe(tab === "chapters");
       if (tab === "outline") {
         fireEvent.click(screen.getByTestId("volume-replan"));
         expect(onPlanVolume).toHaveBeenCalledWith(2);
       }
     });
   }
+
+  it("本卷章节页签：卷纲齐时 AI 行可点（onSplitAi），无拦截段", async () => {
+    const { onSplitAi } = renderPanel({
+      data: railData("chapters", { summary: "主旨", core_conflict: "冲突", ending: "卷末" }),
+      autoCheckSeq: 1,
+    });
+    await waitFor(() => expect(screen.getByTestId("volume-check-report")).toBeDefined());
+    const split = screen.getByTestId("volume-split-ai") as HTMLButtonElement;
+    expect(split.disabled).toBe(false);
+    fireEvent.click(split);
+    expect(onSplitAi).toHaveBeenCalled();
+    expect(screen.queryByTestId("volume-split-ai-outline-gate")).toBeNull();
+  });
+
+  it("本卷章节页签：卷纲空门槛前置拦截段＋「去补卷纲」出口，AI 行禁用", async () => {
+    const { onGoOutline } = renderPanel({ data: railData("chapters"), autoCheckSeq: 1 });
+    await waitFor(() => expect(screen.getByTestId("volume-check-report")).toBeDefined());
+    expect(screen.getByTestId("volume-split-ai-outline-gate").textContent).toContain("先补卷纲");
+    expect((screen.getByTestId("volume-split-ai") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("volume-split-ai-go-outline"));
+    expect(onGoOutline).toHaveBeenCalled();
+  });
+
+  it("免费档在本卷章节页签：AI 行锁定＋升级出口，文案指向中栏「拆下一章」", async () => {
+    renderPanel({ isPro: false, data: railData("chapters"), autoCheckSeq: 1 });
+    await waitFor(() => expect(screen.getByTestId("volume-check-report")).toBeDefined());
+    expect(screen.getByTestId("volume-split-ai-locked").textContent).toContain(
+      "手写拆章免费：用中栏「拆下一章」",
+    );
+    expect((screen.getByTestId("volume-split-ai") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("volume-split-ai-upgrade")).toBeDefined();
+  });
+
+  it("卷纲页签：无拆章 AI 行与锁定/拦截段，仅体检＋重新规划", async () => {
+    renderPanel({
+      data: railData("outline", { summary: "主旨", core_conflict: "冲突", ending: "卷末" }),
+      autoCheckSeq: 1,
+    });
+    await waitFor(() => expect(screen.getByTestId("volume-check-report")).toBeDefined());
+    expect(screen.queryByTestId("volume-split-ai")).toBeNull();
+    expect(screen.queryByTestId("volume-split-ai-locked")).toBeNull();
+    expect(screen.queryByTestId("volume-split-ai-outline-gate")).toBeNull();
+    expect(screen.getByTestId("volume-replan")).toBeDefined();
+  });
 
   it("组名变体按前缀归一仍重排；重名组一组都不吞（逐实例消费）", async () => {
     apiState.post.mockResolvedValue({

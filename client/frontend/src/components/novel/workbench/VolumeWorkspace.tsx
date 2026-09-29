@@ -1,5 +1,5 @@
 /** 卷视图（storyline 卷视图整页，c-volume-view-storyline）：头部＋四页签。
- *  卷纲＝查看/编辑两态（六分组＋本卷进度线）；本卷章节＝主线台账（ghost 只汇总）；
+ *  卷纲＝查看/编辑两态（六分组＋本卷进度线）；本卷章节＝主线台账＋拆章入口（ghost 只汇总）；
  *  角色关系/伏笔＝卷域投影（截至本卷末，只读）。右栏卷语境经 onRailData 上抛
  *  （与章模式 onRailData 同构；卸载即清空防残留）。 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -48,8 +48,10 @@ interface VolumeWorkspaceProps {
   } | null;
   /** 保存成功后回调（采纳路径：落写作默认页） */
   onSaved?: () => void;
-  /** 「拆下一章」手写五段（c-chapter-plan-ai；全档） */
+  /** 「拆下一章」手写四段（c-chapter-plan-ai；全档；入口在本卷章节页签） */
   onSplitManual: () => void;
+  /** 右栏「去补卷纲」出口信号（seq 递增＝切回卷纲页签；autoCheckSeq 同款信号模式） */
+  outlineSeq?: number;
   /** 回改这一章（5.6）：派生视图行／左树共用同一张本章卡 */
   onEditChapter: (ref: string) => void;
 }
@@ -73,6 +75,7 @@ export default function VolumeWorkspace({
   backfill,
   onSaved,
   onSplitManual,
+  outlineSeq,
 }: VolumeWorkspaceProps) {
   const [detail, setDetail] = useState<VolumeDetail | null>(null);
   const [form, setForm] = useState<VolumeFormData | null>(null);
@@ -118,6 +121,11 @@ export default function VolumeWorkspace({
     setTab("outline");
     void load();
   }, [load]);
+
+  // 右栏「去补卷纲」出口：seq 递增即切回卷纲页签（c-split-to-chapters-tab）
+  useEffect(() => {
+    if (outlineSeq && outlineSeq > 0) setTab("outline");
+  }, [outlineSeq]);
 
   // 主线写作位（详情变化后随刷：建章/归档会改变 frontier）
   useEffect(() => {
@@ -327,7 +335,7 @@ export default function VolumeWorkspace({
                 onEdit={startEdit}
                 onCancel={cancelEdit}
                 onSave={() => void save()}
-                onSplitManual={onSplitManual}
+                onGoChapters={() => setTab("chapters")}
                 onResplit={() => setResplitOpen(true)}
                 onEditChapter={onEditChapter}
               />
@@ -340,6 +348,7 @@ export default function VolumeWorkspace({
                 frontier={frontier}
                 wb={wb}
                 onGoChapter={onGoChapter}
+                onSplitManual={onSplitManual}
                 onMutated={() => void load()}
               />
             )}
@@ -377,7 +386,7 @@ function VolumeOutlinePane({
   onEdit,
   onCancel,
   onSave,
-  onSplitManual,
+  onGoChapters,
   onResplit,
   onEditChapter,
 }: {
@@ -391,8 +400,8 @@ function VolumeOutlinePane({
   onEdit: () => void;
   onCancel: () => void;
   onSave: () => void;
-  /** 「拆下一章」手写五段（c-chapter-plan-ai；全档） */
-  onSplitManual: () => void;
+  /** 零章空态「本卷章节」出口（c-split-to-chapters-tab；纯视图切换） */
+  onGoChapters: () => void;
   /** 「重拆本卷」盘点确认（c-chapter-plan-ai D14）：清掉拟定章重排 */
   onResplit: () => void;
   /** 回改这一章（5.6）：派生视图行可点开同一张本章卡 */
@@ -402,10 +411,6 @@ function VolumeOutlinePane({
     frontier && frontier.vol === detail.volume
       ? `第 ${frontier.ch} 章`
       : "不在本卷";
-  // 主线末端门禁（c-chapter-plan-ai）：只挡「写作位之前的卷」（那才会插进主线中段）；
-  // 写作位所在卷及其之后的卷都可拆——上一卷写完后开新卷第一拆时，frontier 的全归档
-  // 待写占位仍落在旧卷，严格等值会把它堵死。
-  const splitBlocked = frontier != null && detail.volume < frontier.vol;
   const archived = detail.chapters.filter((c) => c.archived).length;
   const draft = detail.chapters.filter((c) => c.has_prose && !c.archived).length;
   const planned = detail.chapters.filter((c) => !c.has_prose && !c.archived).length;
@@ -568,19 +573,6 @@ function VolumeOutlinePane({
       <div className="ol-top">
         <span className="note">卷纲 · 规划本卷剧情</span>
         <span className="push">
-          <button
-            className="btn btn-secondary btn-sm"
-            data-testid="volume-split-manual"
-            disabled={splitBlocked}
-            title={
-              splitBlocked
-                ? `写作位在第${frontier!.vol}卷——这一卷还没轮到`
-                : "手写这一章的关键剧情（五段），排上后再补章纲"
-            }
-            onClick={onSplitManual}
-          >
-            拆下一章
-          </button>
           {planned > 0 && (
             <button
               className="btn btn-ghost btn-sm"
@@ -638,11 +630,6 @@ function VolumeOutlinePane({
         <em>这一卷的伏笔</em>
         <p className="none">住在台账里——切「伏笔」页签看与办；登记与收束都在台账。</p>
       </div>
-      {splitBlocked && (
-        <p className="hint" data-testid="volume-split-blocked">
-          写作位在第{frontier!.vol}卷——这一卷还没轮到，先去第{frontier!.vol}卷拆章。
-        </p>
-      )}
       {/* 剧情推进（派生）——c-chapter-plan-ai：从已排章派生，只读；替代已退役的关键剧情节点段 */}
       <details className="cfg" open data-testid="vol-plot-progress">
         <summary>
@@ -652,7 +639,17 @@ function VolumeOutlinePane({
         </summary>
         <div className="inner">
           {detail.chapters.length === 0 ? (
-            <p className="sub-empty">还没有排章——拆下一章后这里会按章列出推进。</p>
+            <p className="sub-empty">
+              还没有排章——去{" "}
+              <button
+                className="btn btn-ghost btn-sm"
+                data-testid="vol-empty-go-chapters"
+                onClick={onGoChapters}
+              >
+                本卷章节
+              </button>{" "}
+              拆下一章，这里会按章列出推进。
+            </p>
           ) : (
             <div className="sub-list">
               {detail.chapters.map((c, i) => (
@@ -718,6 +715,7 @@ function ChapterLedgerPane({
   frontier,
   wb,
   onGoChapter,
+  onSplitManual,
   onMutated,
 }: {
   projectId: string;
@@ -726,6 +724,8 @@ function ChapterLedgerPane({
   frontier: { vol: number; ch: number } | null;
   wb: UseWorkbenchReturn;
   onGoChapter: (ref: string) => void;
+  /** 「拆下一章」手写四段（c-chapter-plan-ai；全档；入口自卷纲页签迁入） */
+  onSplitManual: () => void;
   onMutated: () => void;
 }) {
   const [adding, setAdding] = useState(false);
@@ -756,12 +756,36 @@ function ChapterLedgerPane({
   };
 
   const canAdd = frontier != null && frontier.vol === detail.volume;
+  // 主线末端门禁（c-chapter-plan-ai）：只挡「写作位之前的卷」（那才会插进主线中段）；
+  // 写作位所在卷及其之后的卷都可拆——上一卷写完后开新卷第一拆时，frontier 的全归档
+  // 待写占位仍落在旧卷，严格等值会把它堵死。（与右栏「拆下一章（AI）」同判据）
+  const splitBlocked = frontier != null && detail.volume < frontier.vol;
 
   return (
     <>
-      <p className="seg-h">
+      <p className="seg-h push-row">
         本卷章节 <span className="note">主线章按章序排列 · 点行进入该章</span>
+        <span className="push">
+          <button
+            className="btn btn-secondary btn-sm"
+            data-testid="volume-split-manual"
+            disabled={splitBlocked}
+            title={
+              splitBlocked
+                ? `写作位在第${frontier!.vol}卷——这一卷还没轮到`
+                : "手写这一章的关键剧情（四段），排上后再补章纲"
+            }
+            onClick={onSplitManual}
+          >
+            拆下一章
+          </button>
+        </span>
       </p>
+      {splitBlocked && (
+        <p className="hint" data-testid="volume-split-blocked">
+          写作位在第{frontier!.vol}卷——这一卷还没轮到，先去第{frontier!.vol}卷拆章。
+        </p>
+      )}
       {detail.chapters.length === 0 ? (
         <p className="vempty">这一卷还没有章节。</p>
       ) : (
@@ -829,6 +853,9 @@ function ChapterLedgerPane({
             <button className="btn btn-secondary btn-sm" onClick={() => setAdding(true)}>
               <PlusIcon /> 在本卷新增一章
             </button>
+            <span className="note">
+              只起标题，剧情后补——按四段关键剧情拆章用上方「拆下一章」
+            </span>
           </div>
         )
       ) : (

@@ -133,6 +133,9 @@ export default function NovelWorkspace() {
     if (!volumeSelId) setVolumeRailData(null);
   }, [volumeSelId]);
 
+  // 右栏「去补卷纲」→ 中栏切回卷纲页签（c-split-to-chapters-tab；autoCheckSeq 同款信号）
+  const [goOutlineSeq, setGoOutlineSeq] = useState(0);
+
   // ── novelbar：书名双击改名（#164 口径：名称即标题且必填） ─────────────
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const commitRename = useCallback(async () => {
@@ -1053,6 +1056,7 @@ export default function NovelWorkspace() {
               onRailData={handleVolumeRail}
               onSplitManual={() => openChapterPlan("manual")}
               onEditChapter={openChapterEdit}
+              outlineSeq={goOutlineSeq}
               backfill={backfill}
               onSaved={handleVolumeSaved}
             />
@@ -1194,6 +1198,7 @@ export default function NovelWorkspace() {
             genreLabel={genreLabel}
             onPlanVolume={openPlanVolume}
             onSplitAi={() => openChapterPlan("ai")}
+            onGoOutline={() => setGoOutlineSeq((n) => n + 1)}
             onSelectVolume={handleSelectVolume}
             autoCheckSeq={autoCheck.seq}
             onAiWrite={() => requestAi({ kind: "write" })}
