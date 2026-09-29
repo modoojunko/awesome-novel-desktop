@@ -294,3 +294,69 @@ test("免费态：AI 起草入口在右栏置灰（不隐藏）", async ({ page 
     await restore();
   }
 });
+
+test("台账投影：空回收/悬念格显台账投影，编辑态勾选落格（c-og-hooks-projection）", async ({
+  page,
+  request,
+}) => {
+  const { restore, token } = await setupSession(page);
+  const auth = { headers: { Authorization: `Bearer ${token}` } };
+  try {
+    await setupFirstChapter(page, `e2e-oad-投影-${Date.now()}`);
+    const pid = page.url().match(/#\/novel\/([0-9a-fA-F-]+)/)?.[1] ?? "";
+    expect(pid).toBeTruthy();
+
+    // 种台账：一条计划收=本章（该收了）＋一条未设计划收（两条均开书埋点）
+    const treeR = await request.get(`${ORIGIN}/api/novels/${pid}/volumes`, auth);
+    expect(treeR.ok()).toBeTruthy();
+    const treeJson = await treeR.json();
+    const vols: Array<{ chapters?: Array<{ id?: string }> }> = treeJson.data ?? treeJson;
+    const chId = vols[0]?.chapters?.[0]?.id ?? "";
+    expect(chId).toBeTruthy();
+    for (const payload of [
+      { description: "猎血短刃的异常威力", status: "active", planned_chapter_id: chId },
+      { description: "屋顶黑影在清点哨站人数", status: "active" },
+    ]) {
+      const r = await request.post(`${ORIGIN}/api/novels/${pid}/hooks`, {
+        data: payload,
+        ...auth,
+      });
+      expect(r.ok()).toBeTruthy();
+    }
+
+    // 台账取数在章工作台挂载时发生：种完 reload 重建挂载，投影才吃得到新条目
+    await page.reload();
+    await page.locator(".col-tree .ch", { hasText: "第一章" }).click();
+    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
+
+    // 查看态：回收格投影该收了条目；维持格投影开书悬置条目；两格不显（未填）
+    await expect(page.getByTestId("og-mres-proj")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("og-mres-proj")).toContainText(
+      "[H-0001] 猎血短刃的异常威力",
+    );
+    await expect(page.getByTestId("og-mres-proj")).toContainText("该收了");
+    await expect(page.getByTestId("og-mhold-proj")).toContainText("屋顶黑影在清点哨站人数");
+
+    // 编辑态：候选勾选落格，勾后候选消失
+    await page.getByTestId("og-edit").click();
+    await expect(page.getByTestId("og-hooks-mres")).toBeVisible();
+    await page.getByTestId("og-hook-mres-H-0001").click();
+    await expect(page.locator("#wf-mres")).toHaveValue("[H-0001] 猎血短刃的异常威力");
+    // 被勾的 chip 从候选消失（未勾的 H-0002 仍在列）
+    await expect(page.getByTestId("og-hook-mres-H-0001")).toHaveCount(0);
+    await expect(page.getByTestId("og-hook-mres-H-0002")).toBeVisible();
+
+    // 保存草稿（必填两项未齐 → 草稿 toast）→ 刷新回读：格内条目替代投影
+    await page.getByRole("button", { name: "保存草稿" }).click();
+    await expect(page.getByText("草稿已保存")).toBeVisible({ timeout: 10000 });
+    await page.reload();
+    await page.locator(".col-tree .ch", { hasText: "第一章" }).click();
+    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("og-mres-proj")).toHaveCount(0);
+    await expect(page.getByTestId("og-view")).toContainText(
+      "[H-0001] 猎血短刃的异常威力",
+    );
+  } finally {
+    await restore();
+  }
+});

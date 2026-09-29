@@ -58,6 +58,8 @@ import PlotDrawModal from "./PlotDrawModal";
 import AiCheckModal from "./AiCheckModal";
 import CastReviewModal from "./CastReviewModal";
 import { useChapterData } from "@/hooks/useChapterData";
+import { useHooksLedger } from "@/hooks/useHooksLedger";
+import { ogHookHints } from "@/lib/hookHints";
 import { usePlotDraw } from "@/hooks/usePlotDraw";
 import { useCastReview } from "@/hooks/useCastReview";
 import {
@@ -168,6 +170,20 @@ export default function ChapterWorkspace({
   const vol = wb.volumes.find((v) => v.name === `vol-${volNoOf(chapterRef)}`);
   const volLabel = vol ? nodeLabel("卷", volNoOf(chapterRef), vol.title) : `第${volNoOf(chapterRef)}卷`;
   const archived = !!chMeta?.archived;
+
+  // 伏笔台账投影（c-og-hooks-projection）：章纲回收/悬念两格空时的投影与勾选候选。
+  // 加载失败时 hints 为 undefined，OgPane 回落「（未填）」占位。
+  const { hooks: ledgerHooks, chapters: ledgerChapters, error: ledgerError } =
+    useHooksLedger(projectId);
+  const hookHints = useMemo(() => {
+    if (ledgerError) return undefined;
+    const chNo = chapterNoOf(chapterRef);
+    const currentId =
+      ledgerChapters.find((c) => c.chapter === chNo && c.ref === chapterRef)?.id ??
+      ledgerChapters.find((c) => c.chapter === chNo)?.id ??
+      null;
+    return ogHookHints(ledgerHooks, ledgerChapters, currentId, chNo);
+  }, [ledgerError, ledgerHooks, ledgerChapters, chapterRef]);
   // c-chapter-dossier：归档提取中——本章全程软锁（编辑/归档/取消归档/重写/回退禁用）
   const archiving = store.archiveJob?.state === "extracting";
 
@@ -1390,6 +1406,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           label={label}
           editing={ogEditing}
           loading={ogLoading}
+          hookHints={hookHints}
           onPatch={(patch) => setOgForm((f) => ({ ...f, ...patch }))}
           onPlotEdit={handlePlotEdit}
           gaps={gaps}

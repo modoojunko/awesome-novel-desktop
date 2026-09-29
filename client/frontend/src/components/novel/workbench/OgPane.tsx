@@ -11,6 +11,8 @@
 //   缺项 chip 查看态点击＝进编辑态并滚动聚焦对应格子；取消＝回退最近一次落库值。
 import { useRef, useState } from "react";
 import { toast } from "@/lib/toast";
+import type { OgHookHints, HookHint } from "@/lib/hookHints";
+import { hookChipCandidates } from "@/lib/hookHints";
 import {
   PAYOFF_KINDS,
   PLOT_MAX_ITEMS,
@@ -30,6 +32,9 @@ interface OgPaneProps {
   editing: boolean;
   /** 章纲载入中（查看态据此显示载入中） */
   loading?: boolean;
+  /** 伏笔台账投影（c-og-hooks-projection）：两格空时的投影与编辑候选；
+   *  undefined＝台账不可用（加载失败/未接线）——回落「（未填）」占位 */
+  hookHints?: OgHookHints;
   onPatch: (patch: Partial<OgForm>) => void;
   /** 剧情区编辑（输入/加/删任一动作）：上层用来收掉常驻采纳回执（拍板②）＋触发润色软提示检查 */
   onPlotEdit?: () => void;
@@ -78,12 +83,16 @@ const joinLines = (s: string) => {
   return ls.length ? ls.join("；") : "";
 };
 
+/** 候选 chip 上的描述截断（全量进格子，chip 只求可辨） */
+const clipDesc = (s: string) => (s.length > 14 ? `${s.slice(0, 14)}…` : s);
+
 export default function OgPane({
   form,
   characterNames,
   label,
   editing,
   loading,
+  hookHints,
   onPatch,
   onPlotEdit,
   gaps,
@@ -144,6 +153,51 @@ export default function OgPane({
     plotIds.current.splice(i, 1);
     onPatch({ plots });
     onPlotEdit?.();
+  };
+
+  // ── 回收/悬念两格接台账（c-og-hooks-projection）────────────────────────
+  // 勾选候选：回收格＝全部悬置（该收了优先，可提前收）；维持格＝本章之前埋下的。
+  // 点选追加「[编号] 描述」一行走 onPatch（3s 自动保存承接）；本格已有的不再列。
+  const hintField = (field: "mres" | "mhold"): HookHint[] => {
+    if (!hookHints) return [];
+    return field === "mres" ? hookHints.active : hookHints.mhold;
+  };
+  const appendHook = (field: "mres" | "mhold", h: HookHint) => {
+    const cur = form[field];
+    const line = `[${h.code}] ${h.description}`;
+    const next = cur.trim() ? `${cur.replace(/\s+$/, "")}\n${line}` : line;
+    onPatch({ [field]: next } as Partial<OgForm>);
+  };
+  /** 查看态两格：格内内容 → 台账投影 → 理由句；台账不可用回落（未填） */
+  const hookViewCell = (field: "mres" | "mhold") => {
+    const value = joinLines(field === "mres" ? form.mres : form.mhold);
+    if (value) return <p>{value}</p>;
+    if (!hookHints) return <p className="none">（未填）</p>;
+    const hints = field === "mres" ? hookHints.mres : hookHints.mhold;
+    if (hints.length) {
+      return (
+        <div data-testid={`og-${field}-proj`}>
+          {hints.map((h) => (
+            <p key={h.id}>
+              {`[${h.code}] ${h.description}`}
+              {field === "mres"
+                ? `（${h.plannedLabel ?? "未设计划收"}${h.due ? " · 该收了" : ""}）`
+                : `（${h.originLabel}）`}
+            </p>
+          ))}
+          <p style={{ fontSize: "12.5px", color: "var(--muted)", margin: "6px 0 0" }}>
+            来自伏笔台账 · 在编辑章纲里可勾选为正式条目
+          </p>
+        </div>
+      );
+    }
+    const reason =
+      hookHints.activeCount === 0
+        ? "无——台账暂无悬置伏笔"
+        : field === "mres"
+          ? `无——${hookHints.activeCount} 条悬置伏笔的计划收都不在本章（可在设定 · 伏笔里设计划收）`
+          : "无——悬置伏笔均由本章埋设，维持约束自下一章起在此列出";
+    return <p className="none">{reason}</p>;
   };
 
   const badge = confirmed ? (
@@ -322,15 +376,11 @@ export default function OgPane({
           </div>
           <div className="fro">
             <em>必须在本章回收</em>
-            <p className={joinLines(form.mres) ? undefined : "none"}>
-              {joinLines(form.mres) || "（未填）"}
-            </p>
+            {hookViewCell("mres")}
           </div>
           <div className="fro">
             <em>必须维持悬念</em>
-            <p className={joinLines(form.mhold) ? undefined : "none"}>
-              {joinLines(form.mhold) || "（未填）"}
-            </p>
+            {hookViewCell("mhold")}
           </div>
           <div className="fro">
             <em>必须完成的变化 <span className="req">*</span></em>
@@ -426,6 +476,9 @@ export default function OgPane({
     .filter(Boolean)
     .filter((n) => !knownNames.has(n))
     .filter((n, i, arr) => arr.indexOf(n) === i);
+  // 回收/悬念候选 chips（c-og-hooks-projection）：本格已有的编号不再列
+  const mresChips = hookChipCandidates(hintField("mres"), form.mres);
+  const mholdChips = hookChipCandidates(hintField("mhold"), form.mhold);
 
   return (
     <div className="og-pane">
@@ -547,8 +600,29 @@ export default function OgPane({
           <div className="inner">
             <div className="field">
               <label>
-                必须在本章回收 <span className="opt">一行一个</span>
+                必须在本章回收 <span className="opt">一行一个 · 可从台账勾选</span>
               </label>
+              {mresChips.length > 0 && (
+                <div className="og-char-picker" data-testid="og-hooks-mres">
+                  {mresChips.map((h) => (
+                    <button
+                      key={h.id}
+                      type="button"
+                      className="chip"
+                      data-testid={`og-hook-mres-${h.code}`}
+                      title={
+                        h.plannedLabel
+                          ? `${h.plannedLabel}${h.due ? " · 该收了" : ""}`
+                          : "未设计划收章"
+                      }
+                      onClick={() => appendHook("mres", h)}
+                    >
+                      [{h.code}] {clipDesc(h.description)}
+                      {h.due && <span className="no-card">该收了</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
               <textarea
                 className="textarea"
                 id="wf-mres"
@@ -559,8 +633,25 @@ export default function OgPane({
             </div>
             <div className="field">
               <label>
-                必须维持悬念 <span className="opt">一行一个</span>
+                必须维持悬念 <span className="opt">一行一个 · 可从台账勾选</span>
               </label>
+              {mholdChips.length > 0 && (
+                <div className="og-char-picker" data-testid="og-hooks-mhold">
+                  {mholdChips.map((h) => (
+                    <button
+                      key={h.id}
+                      type="button"
+                      className="chip"
+                      data-testid={`og-hook-mhold-${h.code}`}
+                      title={h.originLabel}
+                      onClick={() => appendHook("mhold", h)}
+                    >
+                      [{h.code}] {clipDesc(h.description)}
+                      {h.due && <span className="no-card">该收了</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
               <textarea
                 className="textarea"
                 id="wf-mhold"

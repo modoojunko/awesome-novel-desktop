@@ -367,11 +367,22 @@ async def ai_draft_outline(
             )
         )
     if ctx.hooks:
+        # 与写作素材包 render_hooks_block 同口径（c-og-hooks-projection）：
+        # 编号＋优先级/类型＋建议本章收束——不给计划收信号，AI 判断不了
+        # 哪些该本章收，must_resolve/must_hold 产物常年空转
         hook_lines = []
         for h in ctx.hooks:
             code = h.get("code") or ""
             prefix = f"[{code}] " if code else ""
-            hook_lines.append(f"- {prefix}{h.get('description', '?')}")
+            meta = []
+            if h.get("priority_label"):
+                meta.append(f"优先级：{h['priority_label']}")
+            if h.get("type_label"):
+                meta.append(f"类型：{h['type_label']}")
+            if h.get("due_now"):
+                meta.append("建议本章收束")
+            suffix = f"（{'，'.join(meta)}）" if meta else ""
+            hook_lines.append(f"- {prefix}{h.get('description', '?')}{suffix}")
         blocks.append("【活跃伏笔】\n" + "\n".join(hook_lines))
     blocks.append(f"【本章现有章纲（改写基底）】\n{_existing_outline_markdown(chapter)}")
     material = "\n\n".join(blocks)
