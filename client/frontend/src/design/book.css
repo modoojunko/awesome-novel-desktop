@@ -628,31 +628,40 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .g-formula b { color: var(--accent); }
 .settings-v .g-dont { margin-top: 10px; font-size: 11.5px; color: var(--warn); line-height: 1.8; }
 
-/* ── AI 结果区 .ai-sink（genre-signup-redesign tasks 3.3 / D3）──
-   TintPanel 只读说明（fg-soft），落左侧对应输入框正下方；禁 --surface（撞输入框底色）。
-   样式对齐原型 prototypes/genre-signup.html */
-.settings-v .ai-sink { margin: 10px 0 0; background: var(--fg-soft); border-radius: 10px; padding: 12px 16px; font-size: 12.5px; line-height: 1.8; color: var(--fg); }
-.settings-v .ai-sink .aiz-head { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: var(--accent); margin-bottom: 6px; }
-.settings-v .ai-sink .ans-act { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
-.settings-v .ai-sink .ans-act button { height: 26px; padding: 0 12px; font-size: 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
-.settings-v .ai-sink .ans-act button.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
-.settings-v .ai-sink .chk-line { display: flex; gap: 8px; align-items: baseline; }
-.settings-v .ai-sink .chk-line .chk-name { flex: none; width: 108px; font-size: 12px; }
-.settings-v .ai-sink .chk-line .chk-res { font-size: 12px; font-weight: 500; flex: none; }
-.settings-v .ai-sink .chk-line .chk-res.ok { color: var(--ok); }
-.settings-v .ai-sink .chk-line .chk-res.warn { color: var(--warn); }
-.settings-v .ai-sink .chk-line .chk-res.miss { color: var(--err); }
-.settings-v .ai-sink .chk-line .chk-note { font-size: 11.5px; color: var(--muted); min-width: 0; }
+/* ── AI 出卡确认弹窗卡体 .ai-card-body（c-settings-ai-confirm-modal）──
+   .ai-sink 内嵌结果区退役：词汇原样重挂到弹窗卡体容器（Modal portal 到 body，
+   .settings-v 前缀不再命中；词汇定义不变、只换挂载作用域）。按钮走 mcard-foot 的
+   btn 家族，不再自带 .ans-act。 */
+.ai-card-body { font-size: 12.5px; line-height: 1.8; color: var(--fg); }
+.ai-card-body .ac-loading { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 28px 0; font-size: 12.5px; color: var(--muted); }
+.ai-card-body .ac-busy { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; font-size: 11.5px; color: var(--accent); }
+.ai-card-body .ac-err { margin: 0 0 8px; font-size: 12.5px; color: var(--err); }
+.ai-card-body .ac-cache { margin: 0 0 8px; font-size: 11px; color: var(--muted); }
+.ai-card-body .chk-line { display: flex; gap: 8px; align-items: baseline; }
+.ai-card-body .chk-line .chk-name { flex: none; width: 108px; font-size: 12px; }
+.ai-card-body .chk-line .chk-res { font-size: 12px; font-weight: 500; flex: none; }
+.ai-card-body .chk-line .chk-res.ok { color: var(--ok); }
+.ai-card-body .chk-line .chk-res.warn { color: var(--warn); }
+.ai-card-body .chk-line .chk-res.miss { color: var(--err); }
+.ai-card-body .chk-line .chk-note { font-size: 11.5px; color: var(--muted); min-width: 0; }
+
 /* 体检可点行（foreshadow-settings-v2 批2：跳转对应伏笔字段）——button 复位 + hover */
-.settings-v .ai-sink .chk-line.click { width: 100%; border: none; background: transparent; text-align: left; font: inherit; padding: 3px 5px; border-radius: 6px; cursor: pointer; }
-.settings-v .ai-sink .chk-line.click:hover { background: color-mix(in oklch, var(--accent) 6%, transparent); }
-.settings-v .ai-sink .chk-line.click:hover .chk-name { color: var(--accent); }
+.ai-card-body .chk-line.click { width: 100%; border: none; background: transparent; text-align: left; font: inherit; padding: 3px 5px; border-radius: 6px; cursor: pointer; }
+.ai-card-body .chk-line.click:hover { background: color-mix(in oklch, var(--accent) 6%, transparent); }
+.ai-card-body .chk-line.click:hover .chk-name { color: var(--accent); }
 /* 起草候选行（勾选采纳）＋将加入计数（foreshadow-settings-v2 批2） */
-.settings-v .ai-sink .cand { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; border-bottom: 1px dashed var(--border); cursor: pointer; }
-.settings-v .ai-sink .cand:last-of-type { border-bottom: none; }
-.settings-v .ai-sink .cand input[type="checkbox"] { margin-top: 4px; flex: none; accent-color: var(--accent); }
-.settings-v .ai-sink .cand .c-tag { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent); margin-right: 6px; white-space: nowrap; }
-.settings-v .ai-sink .aa-note { display: block; margin-top: 8px; font-size: 11px; color: var(--warn); }
+.ai-card-body .cand { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; border-bottom: 1px dashed var(--border); cursor: pointer; }
+.ai-card-body .cand:last-of-type { border-bottom: none; }
+.ai-card-body .cand input[type="checkbox"] { margin-top: 4px; flex: none; accent-color: var(--accent); }
+.ai-card-body .cand .c-tag { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent); margin-right: 6px; white-space: nowrap; }
+.ai-card-body .aa-note { display: block; margin-top: 8px; font-size: 11px; color: var(--warn); }
+/* 版数徽标（第 N 版）与多看点勾选器（重挂：原 .settings-v 前缀 portal 后不命中） */
+.ac-ver { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.ai-card-body .mpt-row { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; }
+.ai-card-body .mpt-row input { margin-top: 3px; flex: none; }
+.ai-card-body .mpt-note { color: var(--muted); }
+.ai-card-body .mpt-act { margin: 10px 0 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ai-card-body .mpt-act .mpt-hint { color: var(--muted); font-size: 11.5px; }
 
 /* ── AI 写作助手卡片 .rail-assist（genre-signup-redesign tasks 3.2 / D4）──
    PRO 徽标并头部 + 并列能力行；免费版 .locked＝可见+降透明（§11 门控）。
@@ -755,12 +764,7 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .settings-v .sel-item.only { border-bottom: 1px dashed var(--border); border-radius: 7px 7px 0 0; margin-bottom: 4px; }
 .settings-v .sel-empty { padding: 10px 12px; font-size: 12.5px; color: var(--muted); }
 
-/* 02 多看点勾选器（AI 直接给多个看点，作家勾选采纳） */
-.settings-v .mpt-row { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; }
-.settings-v .mpt-row input { margin-top: 3px; flex: none; }
-.settings-v .mpt-note { color: var(--muted); }
-.settings-v .mpt-act { margin: 10px 0 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.settings-v .mpt-act .mpt-hint { color: var(--muted); font-size: 11.5px; }
+/* 02 多看点勾选器（AI 直接给多个看点，作家勾选采纳）——已重挂 .ai-card-body（弹窗卡体） */
 .settings-v .cap-add input { width: 100%; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 9px; background: var(--surface); font-size: 13px; color: var(--fg); margin-top: 8px; font-family: inherit; }
 .settings-v .cap-add input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); border-style: solid; }
 
@@ -808,19 +812,17 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .rail-assist .ra-step.ra-running .ra-arrow { color: var(--accent); }
 
 /* AI 结果区历史条：最近 N 次可切换（避免无限抽卡 / 反悔） */
-.settings-v .ai-sink .aiz-hist { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-.settings-v .ai-sink .aiz-hist .ah-t { font-size: 11px; color: var(--muted); }
-.settings-v .ai-sink .aiz-hist .ah-chip { height: 22px; padding: 0 9px; font-size: 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); cursor: pointer; }
-.settings-v .ai-sink .aiz-hist .ah-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+/* 「最近 5 次」生成历史切换条（.aiz-hist/.ah-chip）随 .ai-sink 退役——
+   弹窗内「换一个」就地重生成＋版数徽标承担（c-settings-ai-confirm-modal D3） */
 
 /* 标题对照行（D21）：只提示、不提供改书名入口 */
-.settings-v .ai-sink .title-check { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 11.5px; }
-.settings-v .ai-sink .title-check .tc-res { font-weight: 500; flex: none; }
-.settings-v .ai-sink .title-check .tc-res.ok { color: var(--ok); }
-.settings-v .ai-sink .title-check .tc-res.warn { color: var(--warn); }
-.settings-v .ai-sink .title-check .tc-note { color: var(--muted); }
-.settings-v .ai-sink .title-check .tc-chip { display: inline-block; margin-left: 5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); }
-.settings-v .ai-sink .title-check .tc-tip { margin-left: 6px; color: var(--muted); }
+.ai-card-body .title-check { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 11.5px; }
+.ai-card-body .title-check .tc-res { font-weight: 500; flex: none; }
+.ai-card-body .title-check .tc-res.ok { color: var(--ok); }
+.ai-card-body .title-check .tc-res.warn { color: var(--warn); }
+.ai-card-body .title-check .tc-note { color: var(--muted); }
+.ai-card-body .title-check .tc-chip { display: inline-block; margin-left: 5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); }
+.ai-card-body .title-check .tc-tip { margin-left: 6px; color: var(--muted); }
 
 /* ── 设定面板的「辅助信息邻接」与「贴底脚注」（PM 评审 2026-09-10 修）──
    面板变宽（1fr 填满中栏）后，靠 margin-left:auto 右推的次级元素会被甩到最右，
@@ -832,7 +834,7 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 /* 体检六段：宽了自动并两列（auto-fit），窄屏单列——避免每行右侧大片空白 */
 /* 最小列宽 340px：保证「名称 108 + 结果 + 说明」三段的说明列有 ~180px 可承载 note
    （260px 会在宽屏挤出 3 列，说明列只剩 ~170px，长 note 折多行反而更乱）*/
-.settings-v .ai-sink .chk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); column-gap: 24px; }
+.ai-card-body .chk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); column-gap: 24px; }
 
 /* 面板脚注贴底：面板撑满中栏高度，foot 压在底部（短内容面板不再"脚下空一片"） */
 .settings-v .panel { display: flex; flex-direction: column; min-height: 100%; }
@@ -1018,7 +1020,6 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .char-empty-guide { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 460px; margin: 24px auto 0; padding: 16px; border: 1px dashed color-mix(in oklch, var(--accent) 35%, var(--border)); border-radius: 12px; background: var(--surface); }
 .char-empty-guide .guide-t { font-size: 14px; font-weight: 600; color: var(--fg); }
 .char-empty-guide .guide-act { display: flex; gap: 8px; margin-top: 4px; }
-.char-empty-guide .ai-sink { align-self: stretch; margin: 0; }
 
 /* 章纲出场角色多选（character-settings-v2）：chips 行 + 保留 textarea 兜底 */
 .og-char-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -1026,7 +1027,7 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 /* ═══ 伏笔面板（foreshadow-settings-v2）：hk-* 家族，settings-v 局部新增 ═══
    类名映射表随 ADJUSTMENTS.md「伏笔设定改版」登记：原型 .kv 家族作用域化改名 .hk-kv
    （避让世界面板现役 .kv-row/book.css「名目+内容 条目」段）；台账两行条目/分组头为
-   hk-* 新词；其余（.cap/.badge/.btn/.ai-sink/.rail-assist 等）现役复用。
+   hk-* 新词；其余（.cap/.badge/.btn/.rail-assist 等）现役复用（.ai-sink 已退役→.ai-card-body）。
    状态语言全链同源：活跃=实心 warn／已收束=实心 ok／废弃=muted 描边——
    台账点、分组头点、卡面状态徽标（.hk-sl-tag）共用同一套语义色。 */
 

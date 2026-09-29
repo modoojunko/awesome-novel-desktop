@@ -1,6 +1,6 @@
 // 角色面板（character-settings-v2）：真表 API + 分组列表 + 卷宗人物卡 + 单向关系
 // + 删除/合并（L3 名称输入确认）+ 单格自动保存（防抖 + 串行队列 + rev 冲突 409 处理）
-// + 右栏 AI 经 SettingsView 分发（本组件暴露 runAi/clearAi 句柄）
+// + 右栏 AI 经 SettingsView 分发（本组件暴露 runAi/clearAi 句柄）；出稿/体检统一进 AiCardModal 弹窗（c-settings-ai-confirm-modal）。
 // + 首次进入引导与「从简介立主角」（character-bootstrap-from-intro：出稿采纳走既有单格写入）。
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { charactersApi, BootstrapDraft, CharacterCard } from "@/lib/charactersApi";
@@ -16,6 +16,7 @@ import {
   type CharAiCtx,
 } from "@/lib/characterModel";
 import { Ico } from "@/components/icons";
+import AiCardModal from "./AiCardModal";
 import type { AiState } from "@/types/api-config";
 
 interface Props {
@@ -40,7 +41,7 @@ export interface CharacterSaveHandle {
 
 type SaveState = "saved" | "saving" | "dirty" | "failed";
 
-interface AiSink {
+interface AiDraft {
   target?: string;
   cells: { path: string; value: string }[];
   skipped?: { key: string; why: string }[];
@@ -84,10 +85,18 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   const [cogOpen, setCogOpen] = useState<Record<string, boolean>>({});
   const [relForm, setRelForm] = useState(false);
   const [relDraft, setRelDraft] = useState({ other: "", rel_type: "\u540c\u76df", stance: "", note: "" });
-  const [sink, setSink] = useState<AiSink | null>(null);
+  const [sink, setSink] = useState<AiDraft | null>(null);
+  /** 最近一次出稿的能力（缓存命中判定：重开同一行展示缓存不再发请求，D9） */
+  const [sinkAction, setSinkAction] = useState<"persona" | "dossier" | "cog" | null>(null);
   /** 「从简介立主角」出稿（character-bootstrap-from-intro）：出稿过目，采纳才写入 */
   const [bootstrapSink, setBootstrapSink] = useState<BootstrapDraft | null>(null);
   const [check, setCheck] = useState<CheckResult | null>(null);
+  // AI 出卡确认弹窗（c-settings-ai-confirm-modal）：出稿/体检统一进弹窗，内嵌预览块退役
+  const [cardAction, setCardAction] = useState<"persona" | "dossier" | "cog" | "bootstrap" | "check" | null>(null);
+  const aiBusyRef = useRef(false); // ref 同步判定：同一 tick 连点不穿透
+  const [versions, setVersions] = useState<Partial<Record<"persona" | "dossier" | "cog" | "bootstrap" | "check", number>>>({});
+  const [cardOpen, setCardOpen] = useState(false);
+  const [cardCached, setCardCached] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [toast, setToast] = useState("");
   /** 删除/合并后的撤销句柄（后端 ops token），随下一次操作或刷新消失 */
@@ -123,6 +132,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     onDirtyChange?.(false);
     setSink(null);
     setCheck(null);
+    setCardOpen(false); // 换卡＝弹窗随结果一起清（D9 缓存面板级寿命）
+    setVersions({}); // 版数随卡复位：新卡首稿是「第 1 版」，不带上一张卡的计数
     onCtxChange?.({
       name: displayName(full.name) || "未命名",
       nameless: !displayName(full.name),
@@ -223,28 +234,70 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       setSink(null);
       setCheck(null);
       setBootstrapSink(null);
+      setCardAction(null);
+      setCardOpen(false);
+      setVersions({});
     },
     runAi: async (key: string) => {
-      if (aiBusy) return;
+      if (aiBusyRef.current) return;
       if (key === "bootstrap") {
         // 从简介立主角：允许无卡（空态）触发；主角待立时带当前卡 id（出稿只补空格）
+        if (bootstrapSink) {
+          setCardCached(true); // 重开＝展示缓存，不重复生成（D9）
+          setCardAction("bootstrap");
+          setCardOpen(true);
+          return;
+        }
         await runBootstrap();
         return;
       }
+      if (key !== "persona" && key !== "dossier" && key !== "cog" && key !== "check") return;
+      if (key === "check" && check) {
+        setCardCached(true);
+        setCardAction("check");
+        setCardOpen(true);
+        return;
+      }
+      if (key !== "check" && sink && sinkAction === key) {
+        setCardCached(true);
+        setCardAction(key);
+        setCardOpen(true);
+        return;
+      }
       if (!card) return;
+      aiBusyRef.current = true;
       setAiBusy(true);
+      setCardAction(key as "persona" | "dossier" | "cog" | "check"); // 首跑先开弹窗给 loading 占位
+      setCardOpen(true);
       const cardId = card.id;
       try {
         if (key === "check") {
           const res = await charactersApi.aiCheck(projectId, cardId);
-          if (selectedIdRef.current === cardId) setCheck(res);
+          if (selectedIdRef.current === cardId) {
+            setCheck(res);
+            setCardCached(false);
+            setCardAction("check");
+            setCardOpen(true);
+            setVersions((prev) => ({ ...prev, check: (prev.check ?? 0) + 1 }));
+          }
         } else {
           const res = await charactersApi.aiDraft(projectId, cardId, key as "persona" | "dossier" | "cog");
-          if (selectedIdRef.current === cardId) setSink(res);
+          if (selectedIdRef.current === cardId) {
+            setSink(res);
+            setSinkAction(key);
+            setCardCached(false);
+            setCardAction(key);
+            setCardOpen(true);
+            setVersions((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
+          }
         }
       } catch (e) {
+        // 走到请求＝该能力无缓存：失败关门走 toast（对齐 world fail-close），
+        // 防空卡弹窗滞留（角色无 cardError 机制，弹窗内无错误体可显示）
+        setCardOpen(false);
         showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
       } finally {
+        aiBusyRef.current = false;
         setAiBusy(false);
       }
     },
@@ -306,7 +359,8 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
           throw e;
         }
       }
-      setSink(null);
+      setSink(null); // 采纳即作废旧稿（只补空格的稿采纳后无二次价值）：重开会重新出稿，D9 的缓存例外
+      setCardOpen(false); // 确认写回＝弹窗自动关
       await loadCard(card.id);
       await reloadList();
       showToast(
@@ -338,6 +392,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
           revRef.current += 1;
         }
         setBootstrapSink(null);
+        setCardOpen(false);
         await loadCard(card.id);
         await reloadList();
       } else {
@@ -356,6 +411,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
           revRef.current += 1;
         }
         setBootstrapSink(null);
+        setCardOpen(false);
         await loadCard(created.id);
         await reloadList();
       }
@@ -373,20 +429,26 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
 
   /** 空态引导卡入口与右栏行共用：门控（不 ready → onBlocked）后出稿 */
   const runBootstrap = useCallback(async () => {
-    if (aiBusy) return;
+    if (aiBusyRef.current) return; // ref 同步判定（与 runAi 同锁）
     if (aiState && aiState !== "ready") {
       onBlocked?.(aiState);
       return;
     }
+    aiBusyRef.current = true;
     setAiBusy(true);
     try {
       const res = await charactersApi.bootstrapDraft(projectId, card?.id || undefined);
       setSink(null);
       setCheck(null);
       setBootstrapSink(res);
+      setCardCached(false);
+      setCardAction("bootstrap");
+      setCardOpen(true);
+      setVersions((prev) => ({ ...prev, bootstrap: (prev.bootstrap ?? 0) + 1 }));
     } catch (e) {
       showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
     } finally {
+      aiBusyRef.current = false;
       setAiBusy(false);
     }
   }, [aiBusy, aiState, onBlocked, card, projectId, showToast]);
@@ -460,43 +522,20 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   }));
   const sealChar = displayName(card?.name)?.trim()?.[0] ?? "\uff1f";
 
-  /** 「从简介立主角」出稿预览（空态引导卡内与选中卡顶部共用；采纳走 adoptBootstrap） */
-  const bootstrapPreview = bootstrapSink ? (
-    <div className="ai-sink" role="status" data-testid="char-bootstrap-preview">
-      <div className="aiz-head">AI 拟稿 · 采纳才写入</div>
-      {bootstrapSink.name && (
-        <div className="aiz-line">
-          <span className="aiz-k">名称</span>
-          <span className="aiz-v">{bootstrapSink.name}</span>
-        </div>
-      )}
-      {bootstrapSink.aliases.length > 0 && (
-        <div className="aiz-line">
-          <span className="aiz-k">别名</span>
-          <span className="aiz-v">{bootstrapSink.aliases.join(" · ")}</span>
-        </div>
-      )}
-      {bootstrapSink.persona && (
-        <div className="aiz-line">
-          <span className="aiz-k">一句话人设</span>
-          <span className="aiz-v">{bootstrapSink.persona}</span>
-        </div>
-      )}
-      {bootstrapSink.cells.map((cell) => (
-        <div key={cell.path} className="aiz-line">
-          <span className="aiz-k">{cell.path}</span>
-          <span className="aiz-v">{cell.value}</span>
+  /** 出稿逐格行（弹窗卡体内渲染；内嵌预览块词汇已退役） */
+  const draftRows = (data: { cells: { path: string; value: string }[]; skipped?: { key: string; why: string }[] }) => (
+    <>
+      {data.cells.map((cell) => (
+        <div key={cell.path} style={{ display: "flex", gap: 8, margin: "5px 0", alignItems: "baseline" }}>
+          <span style={{ flex: "none", width: 108, fontSize: 12, color: "var(--muted)" }}>{cell.path}</span>
+          <span style={{ minWidth: 0, fontSize: 12.5 }}>{cell.value}</span>
         </div>
       ))}
-      {bootstrapSink.skipped?.map((s, i) => (
+      {data.skipped?.map((s, i) => (
         <div key={`${s.key}-${i}`} className="opt">跳过 {s.key}：{s.why}</div>
       ))}
-      <div className="ans-act">
-        <button type="button" className="btn btn-primary" onClick={() => void adoptBootstrap()}>采纳 · 写入</button>
-        <button type="button" className="btn btn-secondary" onClick={() => setBootstrapSink(null)}>放弃</button>
-      </div>
-    </div>
-  ) : null;
+    </>
+  );
 
   return (
     <div className="sub-wrap char-sub">
@@ -564,34 +603,30 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
         {!card ? (
           list.length === 0 ? (
             <div className="char-empty-guide" data-testid="char-empty-guide">
-              {bootstrapPreview ?? (
-                <>
-                  <p className="guide-t">
-                    {introReady
-                      ? "简介里已经有主角的线索了"
-                      : "先去 01 简介写几句，主角就有了眉目"}
-                  </p>
-                  <p className="opt">
-                    「从简介立主角」会读你的简介，把名字、人设和各空格先拟一稿——看过再采纳；也可以直接手动建一张主角卡。
-                  </p>
-                  <div className="guide-act">
-                    {introReady && (
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        data-testid="char-bootstrap"
-                        disabled={aiBusy}
-                        onClick={() => void runBootstrap()}
-                      >
-                        {aiBusy ? "AI 正在拟…" : "从简介立主角"}
-                      </button>
-                    )}
-                    <button type="button" className="btn btn-secondary" onClick={() => void addCharacter()}>
-                      手动建主角
-                    </button>
-                  </div>
-                </>
-              )}
+              <p className="guide-t">
+                {introReady
+                  ? "简介里已经有主角的线索了"
+                  : "先去 01 简介写几句，主角就有了眉目"}
+              </p>
+              <p className="opt">
+                「从简介立主角」会读你的简介，把名字、人设和各空格先拟一稿——在弹窗里看过再采纳；也可以直接手动建一张主角卡。
+              </p>
+              <div className="guide-act">
+                {introReady && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    data-testid="char-bootstrap"
+                    disabled={aiBusy}
+                    onClick={() => void runBootstrap()}
+                  >
+                    {aiBusy ? "AI 正在拟…" : "从简介立主角"}
+                  </button>
+                )}
+                <button type="button" className="btn btn-secondary" onClick={() => void addCharacter()}>
+                  手动建主角
+                </button>
+              </div>
             </div>
           ) : (
             <p className="opt">左侧添加或选择一个角色。</p>
@@ -606,8 +641,6 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                 {saveState === "failed" && "保存失败 · 请重试"}
               </span>
             </div>
-
-            {bootstrapPreview}
 
             <header className="char-head">
               <span className="char-seal">{sealChar}</span>
@@ -726,24 +759,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
               />
             </div>
 
-            {sink && (
-              <div className="ai-sink" role="status">
-                <div className="aiz-head">AI 生成 · 采纳才写入</div>
-                {sink.cells.map((cell) => (
-                  <div key={cell.path} className="aiz-line">
-                    <span className="aiz-k">{cell.path}</span>
-                    <span className="aiz-v">{cell.value}</span>
-                  </div>
-                ))}
-                {sink.skipped?.map((s) => (
-                  <div key={s.key} className="opt">跳过 {s.key}：{s.why}</div>
-                ))}
-                <div className="ans-act">
-                  <button type="button" className="btn btn-primary" onClick={() => void adoptSink()}>采纳 · 写入</button>
-                  <button type="button" className="btn btn-secondary" onClick={() => setSink(null)}>放弃</button>
-                </div>
-              </div>
-            )}
+            {/* AI 出稿预览改走弹窗出卡（c-settings-ai-confirm-modal） */}
 
             <section className="sec">
               <header className="sec-h">
@@ -797,29 +813,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                 <h3>认知内核</h3>
                 <span className="sec-sub">六层是一条链：世界观 → 自我观 → 价值观 → 能力 → 行为 → 环境。</span>
               </header>
-              {check && (
-                <div className="ai-sink" role="status">
-                  <div className="aiz-head">AI 体检 · {check.verdict || "逐项结论"}</div>
-                  {check.items.map((item) => (
-                    <div key={item.name} className="chk-row">
-                      <span className="chk-name">{item.name}</span>
-                      <span className={`chk-res ${item.status}`}>
-                        {item.status === "ok" ? "达标" : item.status === "warn" ? "风险" : item.status === "conflict" ? "矛盾" : "缺输入"}
-                      </span>
-                      <span className="chk-note">{item.note}</span>
-                      {item.goto?.startsWith("layer:") && (
-                        <button
-                          type="button"
-                          className="chk-go"
-                          onClick={() => setCogOpen((m) => ({ ...m, [item.goto!.split(":")[1]]: true }))}
-                        >
-                          去改
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+              {/* 体检报告改走弹窗报告卡（c-settings-ai-confirm-modal） */}
               <div className="char-cog">
                 {COG_LAYERS.map((layer) => {
                   const open = !!cogOpen[layer.id];
@@ -995,6 +989,138 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
           </p>
         )}
       </div>
+
+      {/* AI 出卡确认弹窗：出稿（bootstrap/persona/dossier/cog）＋体检统一进卡，
+          关闭即弃；缓存重开免请求（D9）；「去改」＝关卡＋展开对应认知层 */}
+      <AiCardModal
+        open={cardOpen && cardAction !== null}
+        card={
+          cardAction === "bootstrap" && bootstrapSink
+            ? {
+                label: "AI 拟稿 · 从简介立主角（采纳才写入）",
+                kind: "struct",
+                adoptText: "采纳 · 写入",
+                cached: cardCached,
+                node: (
+                  <>
+                    {bootstrapSink.name && (
+                      <p style={{ margin: "5px 0" }}><b>名称</b>：{bootstrapSink.name}</p>
+                    )}
+                    {bootstrapSink.aliases.length > 0 && (
+                      <p style={{ margin: "5px 0" }}><b>别名</b>：{bootstrapSink.aliases.join(" · ")}</p>
+                    )}
+                    {bootstrapSink.persona && (
+                      <p style={{ margin: "5px 0" }}><b>一句话人设</b>：{bootstrapSink.persona}</p>
+                    )}
+                    {draftRows(bootstrapSink)}
+                    <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
+                      只补空格——你写过的字一个不动；性别、年龄不代填。
+                    </p>
+                  </>
+                ),
+                adopt: () => void adoptBootstrap(),
+              }
+            : cardAction && cardAction !== "bootstrap" && cardAction !== "check" && sink
+              ? {
+                  label: "AI 生成 · 采纳才写入（只补空格）",
+                  kind: "struct",
+                  adoptText: "采纳 · 写入",
+                  cached: cardCached,
+                  node: (
+                    <>
+                      {draftRows(sink)}
+                      <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
+                        这一格你写过就不动；采纳走既有单格写入。
+                      </p>
+                    </>
+                  ),
+                  adopt: () => void adoptSink(),
+                }
+              : cardAction === "check" && check
+                ? {
+                    label: `AI 体检 · ${check.verdict || "角色 × 整体设定"}`,
+                    kind: "report",
+                    cached: cardCached,
+                    node: (
+                      <>
+                        {check.items.map((item) => (
+                          <div key={item.name} className="chk-row">
+                            <span className="chk-name">{item.name}</span>
+                            <span className={`chk-res ${item.status}`}>
+                              {item.status === "ok" ? "达标" : item.status === "warn" ? "风险" : item.status === "conflict" ? "矛盾" : "缺输入"}
+                            </span>
+                            <span className="chk-note">{item.note}</span>
+                            {item.goto?.startsWith("layer:") && (
+                              <button
+                                type="button"
+                                className="chk-go"
+                                onClick={() => {
+                                  setCardOpen(false); // 关卡再展开对应层（跳转优先于报告常驻）
+                                  setCogOpen((m) => ({ ...m, [item.goto!.split(":")[1]]: true }));
+                                }}
+                              >
+                                去改
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </>
+                    ),
+                  }
+                : null
+        }
+        running={aiBusy}
+        version={cardAction ? versions[cardAction] : undefined}
+        onRegenerate={
+          cardAction
+            ? () => {
+                if (cardAction === "bootstrap") void runBootstrap();
+                else if (cardAction === "check") {
+                  // 体检「重新检查」：报告卡在会话内可刷新（D2 报告卡骨架）
+                  if (!card) return;
+                  aiBusyRef.current = true;
+                  setAiBusy(true);
+                  void (async () => {
+                    try {
+                      const res = await charactersApi.aiCheck(projectId, card.id);
+                      if (selectedIdRef.current === card.id) {
+                        setCheck(res);
+                        setCardCached(false);
+                        setVersions((prev) => ({ ...prev, check: (prev.check ?? 0) + 1 }));
+                      }
+                    } catch (e) {
+                      showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
+                    } finally {
+                      aiBusyRef.current = false;
+                      setAiBusy(false);
+                    }
+                  })();
+                } else {
+                  // 出稿重生成：清缓存标记走原请求路径（cache 判定键 sinkAction 不变即重开，
+                  // 这里直接驱动句柄级重跑）
+                  void (async () => {
+                    aiBusyRef.current = true;
+                    setAiBusy(true);
+                    try {
+                      const res = await charactersApi.aiDraft(projectId, card!.id, cardAction as "persona" | "dossier" | "cog");
+                      setSink(res);
+                      setSinkAction(cardAction);
+                      setCardCached(false);
+                      setVersions((prev) => ({ ...prev, [cardAction]: (prev[cardAction] ?? 0) + 1 }));
+                    } catch (e) {
+                      showToast((e as Error).message || "AI \u751f\u6210\u5931\u8d25\uff0c\u53ef\u91cd\u8bd5");
+                    } finally {
+                      aiBusyRef.current = false;
+                      setAiBusy(false);
+                    }
+                  })();
+                }
+              }
+            : undefined
+        }
+        onClose={() => setCardOpen(false)}
+        data-testid="char-ai-card"
+      />
     </div>
   );
 });

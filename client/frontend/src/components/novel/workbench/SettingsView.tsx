@@ -34,7 +34,7 @@ import AiWriterAssistant, {
   CharsAiRail,
   type AiCapabilityRow,
 } from "@/components/novel/AiWriterAssistant";
-import AiSink from "@/components/novel/settings/AiSink";
+import AiCardModal, { type AiCardState } from "@/components/novel/settings/AiCardModal";
 import {
   ChangeReceiptBar,
   RestoreHint,
@@ -901,7 +901,7 @@ export default function SettingsView({
         {panel === "intro" ? (
           <AiWriterAssistant
             rows={introAiRows}
-            footNote="输入：书名 + 简介本文（题材可后补）。结果统一落在简介框下方结果区，采纳才写回。"
+            footNote="输入：书名 + 简介本文（题材可后补）。结果在弹窗里过目，确认才写回；重开同一行先看上次结果，「换一个」才重新生成。"
             aiState={aiState}
             aiStateMessage={aiMessage}
             onBlocked={handleAiBlocked}
@@ -910,7 +910,7 @@ export default function SettingsView({
         ) : panel === "genre" ? (
           <AiWriterAssistant
             rows={genreAiRows}
-            footNote="点某行，AI 建议落到左侧对应格下方；采纳才写回，随时可改可重试。"
+            footNote="点某行，AI 建议在弹窗里过目，确认才写回对应格；关闭即弃，可换一个重生成。"
             aiState={aiState}
             aiStateMessage={aiMessage}
             onBlocked={handleAiBlocked}
@@ -920,7 +920,7 @@ export default function SettingsView({
         ) : panel === "arc" ? (
           <AiWriterAssistant
             rows={arcAiRows}
-            footNote="建议落在对应问题的下方，点「采纳 · 覆盖」才会写入，面板底部可一步撤销；每个功能保留最近 5 次结果，随时切回。"
+            footNote="建议在弹窗里过目，点「采纳 · 覆盖」才写入，面板底部可一步撤销；重开同一行先看上次结果，「换一个」才重新生成。"
             aiState={aiState}
             aiStateMessage={aiMessage}
             onBlocked={handleAiBlocked}
@@ -933,7 +933,7 @@ export default function SettingsView({
             footNote={
               worldNoPower
                 ? "本书开了现实向：力量两行已退场，物理与法律规则在「更多世界细节」里补。"
-                : "答案落对应格下方，采纳 · 覆盖才写回，脚部有回执可一步撤销；每行保留最近 5 次结果可切回。体检缺输入走降级，不拦确认。"
+                : "答案在弹窗里过目，采纳 · 覆盖才写回，脚部有回执可一步撤销；体检报告可点「AI 补」逐项补，补完自动回报告。体检缺输入走降级，不拦确认。"
             }
             aiState={aiState}
             aiStateMessage={aiMessage}
@@ -952,7 +952,7 @@ export default function SettingsView({
         ) : panel === "foreshadow" ? (
           <AiWriterAssistant
             rows={foreshadowAiRows}
-            footNote="答案落对应字段或卡底，采纳 · 覆盖才写回（覆盖已有收束记录时按钮明示「覆盖并收束」，采纳仍可一步撤销）；回执只留最近一条、8 秒内可点撤销；起草伏笔保留最近 5 次结果可切回。所有 AI 辅助功能都在本栏，伏笔卡编辑区不放 AI 按钮；免费版四行可见＋锁定，点击走统一升级提示。"
+            footNote="答案在弹窗里过目，采纳 · 覆盖才写回（覆盖已有收束记录时按钮明示「覆盖并收束」，采纳仍可一步撤销）；回执只留最近一条、8 秒内可点撤销；埋坑体检报告行可点跳转对应伏笔。所有 AI 辅助功能都在本栏，伏笔卡编辑区不放 AI 按钮；免费版四行可见＋锁定，点击走统一升级提示。"
             aiState={aiState}
             aiStateMessage={aiMessage}
             onBlocked={handleAiBlocked}
@@ -986,7 +986,7 @@ export default function SettingsView({
 export interface IntroHandle extends SettingSaveHandle {
   isEmpty: () => boolean;
   focus: () => void;
-  /** 运行 AI 能力（体检/补缺失/润色）——结果落简介框下方 .ai-sink（tasks 3.4）。 */
+  /** 运行 AI 能力（体检/补缺失/润色）——结果进弹窗出卡（c-settings-ai-confirm-modal）。 */
   runAi: (action: IntroAiAction) => Promise<void>;
   /** 是否已体检（补缺失的前置守卫，D14/O-3）。 */
   hasIntrospected: () => boolean;
@@ -997,13 +997,6 @@ const TITLE_FIT_LABEL: Record<"ok" | "mismatch" | "generic", string> = {
   ok: "标题对照：一致",
   mismatch: "标题对照：与简介不符",
   generic: "标题对照：标题无信息",
-};
-
-/** 运行中各能力的操作名（与结果区标题同口径）。 */
-const AI_RUNNING_LABEL: Record<IntroAiAction, string> = {
-  introspect: "AI 体检 · 生成中…",
-  fill: "补全缺失 · 生成中…",
-  polish: "润色 · 生成中…",
 };
 
 const IntroPanel = forwardRef<
@@ -1075,64 +1068,51 @@ const IntroPanel = forwardRef<
 
 
     const [guideOpen, setGuideOpen] = useState(false);
-    // AI 结果区（tasks 3.3/3.4 + 生成历史）：每个能力保留**最近 5 次**结果，
-    // 可切回任意一次再采纳（避免无限抽卡 / 反悔）；采纳＝用选中那次整段替换输入框。
-    const [sinks, setSinks] = useState<
-      Partial<
-        Record<
-          IntroAiAction,
-          { list: Array<{ label: string; node: React.ReactNode; adopt?: () => void }>; idx: number }
-        >
-      >
-    >({});
-    /** 手写内容＝合成基准：手动编辑时更新；采纳结果不回写基准（防多次采纳叠加）。 */
-    const baseRef = useRef("");
-    /** 最近一次触发的能力（结果区展示对象）。 */
-    const lastActionRef = useRef<IntroAiAction>("introspect");
-    /** 运行态（D14）：点完立刻在输入框下方给「生成中」占位，避免用户以为没反应。 */
+    // AI 出卡确认弹窗（c-settings-ai-confirm-modal）：每个能力缓存最近一版结果，
+    // 重开同一行直接展示缓存不再发请求，「换一个」才重新生成（D9）；采纳＝确认后整段替换输入框。
+    const [cards, setCards] = useState<Partial<Record<IntroAiAction, AiCardState>>>({});
+    const [versions, setVersions] = useState<Partial<Record<IntroAiAction, number>>>({});
+    const [cardAction, setCardAction] = useState<IntroAiAction | null>(null);
+    const [cardOpen, setCardOpen] = useState(false);
+    const [cardError, setCardError] = useState("");
+    /** 运行态：点完立刻开弹窗给「生成中」占位，避免用户以为没反应（D14）。 */
     const [aiRunning, setAiRunning] = useState<IntroAiAction | null>(null);
     /** 面板级在途锁（ref 同步判定）：无论调用方点几次，同时在飞的只有一个请求。 */
     const aiBusyRef = useRef(false);
 
-    /** 生成历史上限：只保留最近 5 次（避免无限抽卡；要更早的版本就从这 5 条里选）。 */
-    const SINK_MAX = 5;
+    /** 手写内容＝合成基准：手动编辑时更新；采纳结果不回写基准（防多次采纳叠加）。 */
+    const baseRef = useRef("");
 
-    /** 追加一条生成结果并切到最新（超出上限丢最旧）。 */
-    const pushSink = useCallback(
-      (entry: { action: IntroAiAction; label: string; node: React.ReactNode; adopt?: () => void }) => {
-        const { action, ...rest } = entry;
-        setSinks((prev) => {
-          const list = [...(prev[action]?.list ?? []), rest].slice(-SINK_MAX);
-          return { ...prev, [action]: { list, idx: list.length - 1 } };
-        });
-      },
-      [],
-    );
+    /** 采纳成功后收尾：关弹窗（确认写回＝弹窗自动关）。 */
+    const closeCard = useCallback(() => setCardOpen(false), []);
 
-    const runAi = useCallback(
-      async (action: IntroAiAction) => {
-        if (aiBusyRef.current) return; // 已有在途请求：忽略重复触发
-        const content = synopsis;
-        if (action === "introspect" && !content.trim()) {
-          toast.info("先写两句简介，体检才有东西可查");
-          return;
-        }
-        if (action === "fill" && !introspectedRef.current) {
-          toast.info("先点「体检」，AI 才知道缺哪段");
-          return;
-        }
+    /** 缓存命中：只开弹窗展示既有结果，不发请求（D9）。 */
+    const openCached = useCallback((action: IntroAiAction) => {
+      setCards((prev) => (prev[action] ? { ...prev, [action]: { ...prev[action]!, cached: true } } : prev));
+      setCardError("");
+      setCardAction(action);
+      setCardOpen(true);
+    }, []);
+
+    const runRequest = useCallback(
+      async (action: IntroAiAction, content: string) => {
         aiBusyRef.current = true;
-        lastActionRef.current = action;
         setAiRunning(action);
-        await introAi(action, { title: novelName ?? "", content }, projectId)
-          .then((r) => {
-            if (action === "introspect") {
-              introspectedRef.current = true;
-              const segs = r.six_segments ?? [];
-              const hits = r.taboo?.hits ?? [];
-              pushSink({
-                action,
+        setCardError("");
+        setCardAction(action);
+        setCardOpen(true);
+        try {
+          const r = await introAi(action, { title: novelName ?? "", content }, projectId);
+          if (action === "introspect") {
+            introspectedRef.current = true;
+            const segs = r.six_segments ?? [];
+            const hits = r.taboo?.hits ?? [];
+            setCards((prev) => ({
+              ...prev,
+              [action]: {
                 label: "AI 体检 · 六段逐项",
+                kind: "report",
+                cached: false,
                 node: (
                   <>
                     {/* 行名按模板单源顺序渲染（后端只提供 status/note），保证与六段模板逐字一致 */}
@@ -1179,12 +1159,17 @@ const IntroPanel = forwardRef<
                     )}
                   </>
                 ),
-              });
-            } else if (action === "fill") {
-              const miss = r.missing ?? [];
-              pushSink({
-                action,
+              },
+            }));
+          } else if (action === "fill") {
+            const miss = r.missing ?? [];
+            setCards((prev) => ({
+              ...prev,
+              [action]: {
                 label: "补全缺失 · 候选如下，采纳才插入",
+                kind: "text",
+                adoptText: "采纳 · 替换为补全后的简介",
+                cached: false,
                 node: (
                   <div>
                     {miss.length ? (
@@ -1223,6 +1208,7 @@ const IntroPanel = forwardRef<
                         },
                       );
                       setSynopsis(next);
+                      closeCard();
                       toast.success(
                         next.length >= INTRO_MAX_LEN
                           ? "已采纳（到 500 字上限，尾部截断）"
@@ -1230,12 +1216,17 @@ const IntroPanel = forwardRef<
                       );
                     }
                   : undefined,
-              });
-            } else {
-              const polished = r.polished ?? "";
-              pushSink({
-                action,
+              },
+            }));
+          } else {
+            const polished = r.polished ?? "";
+            setCards((prev) => ({
+              ...prev,
+              [action]: {
                 label: "润色 · 前后对照，采纳才替换",
+                kind: "text",
+                adoptText: "采纳 · 替换简介",
+                cached: false,
                 node: (
                   <div>
                     <p style={{ margin: "4px 0", color: "var(--muted)" }}>原句：{r.original ?? ""}</p>
@@ -1262,30 +1253,59 @@ const IntroPanel = forwardRef<
                         },
                       );
                       setSynopsis(next);
+                      closeCard();
                       toast.success("已替换，原句可随时改回");
                     }
                   : undefined,
-              });
-            }
-          })
-          .catch((e: unknown) => {
-            const reason = aiBlockReason(e);
-            if (reason === "member_required") {
-              toast.info("AI 是会员功能，升级 PRO 后解锁");
-            } else if (reason === "no_key") {
-              toast.info((e as Error).message || "先去「模型配置」添加 API Key");
-            } else if (reason === "missing_model" || reason === "invalid") {
-              toast.info("先在本书选择模型");
-            } else {
-              toast.error((e as Error).message || "暂不可用，请重试");
-            }
-          })
-          .finally(() => {
-            aiBusyRef.current = false;
-            setAiRunning(null);
-          });
+              },
+            }));
+          }
+          setVersions((prev) => ({ ...prev, [action]: (prev[action] ?? 0) + 1 }));
+        } catch (e: unknown) {
+          const reason = aiBlockReason(e);
+          const msg =
+            reason === "member_required"
+              ? "AI 是会员功能，升级 PRO 后解锁"
+              : reason === "no_key"
+                ? (e as Error).message || "先去「模型配置」添加 API Key"
+                : reason === "missing_model" || reason === "invalid"
+                  ? "先在本书选择模型"
+                  : (e as Error).message || "暂不可用，请重试";
+          if (cards[action]) {
+            setCardError(msg); // 有缓存：错误体进弹窗，旧版仍在
+          } else if (reason === "member_required" || reason === "no_key" || reason === "missing_model" || reason === "invalid") {
+            setCardOpen(false); // 无缓存＋门控类：关弹窗走 toast 分流
+            toast.info(msg);
+          } else {
+            setCardError(msg); // 其余失败：弹窗滞留展示错误体（可换一个重试）
+          }
+        } finally {
+          aiBusyRef.current = false;
+          setAiRunning(null);
+        }
       },
-      [synopsis, novelName, projectId],
+      [novelName, projectId, recordChange, closeCard, cards],
+    );
+
+    const runAi = useCallback(
+      async (action: IntroAiAction) => {
+        if (aiBusyRef.current) return; // 已有在途请求：忽略重复触发
+        const content = synopsis;
+        if (action === "introspect" && !content.trim()) {
+          toast.info("先写两句简介，体检才有东西可查");
+          return;
+        }
+        if (action === "fill" && !introspectedRef.current) {
+          toast.info("先点「体检」，AI 才知道缺哪段");
+          return;
+        }
+        if (cards[action]) {
+          openCached(action); // 重开＝展示缓存，不重复生成（D9）
+          return;
+        }
+        await runRequest(action, content);
+      },
+      [synopsis, cards, openCached, runRequest],
     );
 
     useImperativeHandle(
@@ -1296,17 +1316,17 @@ const IntroPanel = forwardRef<
         focus: () => taRef.current?.focus(),
         runAi,
         markDirty,
-        clearAi: () => setSinks({}),
+        clearAi: () => {
+          setCards({});
+          setVersions({});
+          setCardAction(null);
+          setCardOpen(false);
+          setCardError("");
+        },
         hasIntrospected: () => introspectedRef.current,
       }),
       [save, synopsis, runAi, markDirty],
     );
-
-    // 结果区展示哪个能力的历史：取最近一次生成过的（点过体检就显示体检的那条）
-    const viewAction: IntroAiAction =
-      (["introspect", "fill", "polish"] as IntroAiAction[])
-        .filter((a) => (sinks[a]?.list.length ?? 0) > 0)
-        .slice(-1)[0] ?? lastActionRef.current;
 
     return (
       <>
@@ -1378,50 +1398,28 @@ const IntroPanel = forwardRef<
           )}
         </div>
 
-        {/* 运行态占位：点完立刻可见（否则用户不知道后台在跑，会连点） */}
-        {aiRunning && (
-          <div className="ai-sink" data-od-id="intro-ai-running" aria-busy="true">
-            <div className="aiz-head">{AI_RUNNING_LABEL[aiRunning]}</div>
-            <span className="opt" style={{ fontSize: 12 }}>
-              AI 正在生成，请稍候…（完成后结果会出现在这里）
-            </span>
-          </div>
-        )}
-
-        {/* AI 结果区：落编辑框下方（tasks 3.3/3.4，采纳后保留、重新请求覆盖） */}
-        {(() => {
-          const st = sinks[viewAction];
-          const entry = st?.list[st.idx];
-          if (!entry || !st) return null;
-          const { list, idx: active } = st;
-          return (
-            <AiSink
-              label={entry.label}
-              history={{
-                total: list.length,
-                active,
-                max: SINK_MAX,
-                onSelect: (i) =>
-                  setSinks((prev) => {
-                    const cur = prev[viewAction];
-                    return cur ? { ...prev, [viewAction]: { ...cur, idx: i } } : prev;
-                  }),
-              }}
-              adoptText={
-                viewAction === "fill"
-                  ? "采纳 · 替换为补全后的简介"
-                  : viewAction === "polish"
-                    ? "采纳 · 替换简介"
-                    : undefined
-              }
-              onAdopt={entry.adopt}
-              onRetry={() => void runAi(viewAction)}
-              data-od-id="intro-ai-sink"
-            >
-              {entry.node}
-            </AiSink>
-          );
-        })()}
+        {/* AI 出卡确认弹窗：三能力共用（关闭即弃；缓存重开免请求） */}
+        <AiCardModal
+          open={cardOpen && cardAction !== null}
+          card={cardAction ? cards[cardAction] ?? null : null}
+          running={cardAction !== null && aiRunning === cardAction}
+          error={cardAction !== null && aiRunning !== cardAction ? cardError : undefined}
+          version={cardAction ? versions[cardAction] : undefined}
+          onClose={() => setCardOpen(false)}
+          onRegenerate={
+            cardAction
+              ? () => {
+                  const content = synopsis;
+                  if (cardAction === "introspect" && !content.trim()) {
+                    toast.info("先写两句简介，体检才有东西可查");
+                    return;
+                  }
+                  void runRequest(cardAction, content);
+                }
+              : undefined
+          }
+          data-testid="intro-ai-card"
+        />
 
         <p className="opt" style={{ fontSize: 12, margin: "-6px 0 16px" }}>
           简介会作为后续设定和写作的依据。

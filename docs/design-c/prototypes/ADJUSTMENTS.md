@@ -1450,3 +1450,17 @@ AiWriterAssistant 为模版。涉及写作域三处右栏面板的全量换装�
 - 判定成立：book.css 去前缀（12 条）与 AiWriterAssistant `subTitle` 插槽均属共享词汇/共享组件；三域右栏（设定 SettingsView、卷 VolumeAssistPanel、写作工作台 AiAssistPanel）均经 `AiWriterAssistant` 挂载，`subTitle` 消费方为工作台侧（AiAssistPanel），插槽属加法参数、不触 base.css 共享段；cr-* 弹层内自含不触共享段（原文任务判定维持）。
 - `node scripts/design-cross.mjs` 结论：初跑**红**——共享段第 16 行起分歧，client 端 c-chapter-plan-ai 期加入的 `--faint` 变量＋注释未同步 server 端；本次按脚本口径两端同提修复，复跑**零差异**。
 - 三域回归口径：静态共享段逐字校验（design-cross M1 即为此设）＋全量 vitest 绿（三域视图/右栏 DOM 层）；截图级对照由实现期视觉验收轮覆盖，本登记不重复。
+
+## c-settings-ai-confirm-modal 设定域 AI 出卡确认弹窗（2026-09-28）
+
+- **退役**：设定域四原型（character-settings / foreshadow-settings / genre-signup / style-settings）
+  的 `.ai-sink` 内嵌结果区演示节点（全部 `hidden`，不在任何 parity 截图态出现）——DOM 节点移除、
+  对应演示 JS 填充加空守卫；`.aiz-hist/.ah-chip`「最近 5 次」历史切条随之退役。
+- **替代**：AI 结果统一走应用侧「AI 出卡确认弹窗」（复用 book.html modal-delete/modal-prefs 的
+  应用侧模态先例）：确认才写回、关闭即弃；体检＝只读报告卡；候选勾选卡（题材多看点/伏笔起草）；
+  版数徽标「第 N 版」＋「换一个」重生成。
+- **不进 parity 截图**：弹窗态沿「应用侧扩展不进 parity 截图」先例（同 modal-delete），验收走
+  应用侧单测/e2e（DOM 断言＋隔离栈走查截图）。book.html 实测零 `.ai-sink`，不在本批清单。
+- 新词：`ai-card-body`（弹窗卡体容器，原 `.settings-v .ai-sink` 作用域词汇 `.chk-line/.chk-grid/
+  .cand/.c-tag/.aa-note/.title-check/.tc-*/.mpt-*` 原样重挂其下）；`.ac-ver/.ac-loading/.ac-busy/
+  .ac-err/.ac-cache` 五个弹窗辅助词。零新增令牌/字号档位/胶囊形态。

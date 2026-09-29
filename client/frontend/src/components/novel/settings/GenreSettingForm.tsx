@@ -12,7 +12,7 @@
 //   03 → forbidden_list[{tagId|text}]   04 → cost_ratio(1-10)
 //   05 → battlefield[]（tagId 或自定义文本）
 // 空值统一："" / 空白 / [] / null 等价未填（后端 Pydantic + CHECK 同口径）。
-// AI 反馈落各格下方 .ai-sink（tasks 4.2），采纳才写回控件。
+// AI 建议进弹窗出卡确认（c-settings-ai-confirm-modal），确认才写回控件。
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -20,7 +20,7 @@ import { toast } from "@/lib/toast";
 import { Ico, P } from "@/components/icons";
 import { useDirtyState } from "@/hooks/useDirtyState";
 import { genreAi, aiBlockReason, type GenreAiField } from "@/lib/ai";
-import AiSink from "./AiSink";
+import AiCardModal, { type AiCardState } from "./AiCardModal";
 import { RestoreHint, useChangeReceipt } from "./ChangeReceipt";
 import { type SettingSaveHandle } from "./FormField";
 import {
@@ -47,7 +47,7 @@ interface GenreSettingFormProps {
 
 /** 题材面板句柄：save 落库；runAi 由右栏 AI 卡片调用（tasks 4.2）。 */
 export type GenreHandle = SettingSaveHandle & {
-  /** 运行某格 AI，结果落该格下方 .ai-sink。
+  /** 运行某格 AI，结果进弹窗出卡（缓存重开免请求，D9）。
    *  opts.multi：02 专用「多给几个看点」（后端 multi_point=true，返回 1-3 条数组）。 */
   runAi: (field: GenreAiField, opts?: { multi?: boolean }) => Promise<void>;
 };
@@ -629,37 +629,37 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     [data.battlefield, recordChange],
   );
 
-  // ── AI 结果区（tasks 4.2 / D14 + 生成历史）：每格保留**最近 5 次**结果，
-  //    可切回任意一次再采纳（避免无限抽卡 / 反悔）；采纳＝覆盖该格控件。────
-  const SINK_MAX = 5;
-  const [sinks, setSinks] = useState<
-    Partial<
-      Record<
-        GenreAiField,
-        {
-          list: Array<{
-            label: string;
-            node: React.ReactNode;
-            adopt: () => void;
-            /** 多看点结果：采纳由结果区的勾选器负责，AiSink 不再出「采纳」按钮。 */
-            multi?: boolean;
-            /** 采纳后会写回的值（回执要报「多少字 → 多少字」）。 */
-            values?: { core_promise: string; promise_note: string };
-          }>;
-          idx: number;
-        }
-      >
-    >
-  >({});
+  // ── AI 出卡确认弹窗（c-settings-ai-confirm-modal）：每格缓存最近一版结果，
+  //    重开同一行直接展示缓存不再发请求，「换一个」才重新生成（D9）；采纳＝确认后覆盖该格。────
+  const [cards, setCards] = useState<Partial<Record<GenreAiField, AiCardState>>>({});
+  const [versions, setVersions] = useState<Partial<Record<GenreAiField, number>>>({});
+  const [cardField, setCardField] = useState<GenreAiField | null>(null);
+  const [cardOpen, setCardOpen] = useState(false);
+  const [cardError, setCardError] = useState("");
+  /** 在途能力（弹窗 loading/换一个在途的判定源）。 */
   const [running, setRunning] = useState<GenreAiField | null>(null);
+  /** 各格最近一次请求的 opts（「换一个」须按原模式重生成，multi 不丢）。 */
+  const [lastOpts, setLastOpts] = useState<Partial<Record<GenreAiField, { multi?: boolean }>>>({});
   /** 面板级在途锁（ref 同步判定）：同时在飞的只有一个题材 AI 请求。 */
   const aiBusyRef = useRef(false);
+  const closeCard = useCallback(() => setCardOpen(false), []);
 
-  const runAi = useCallback(
+  /** 缓存命中：只开弹窗展示既有结果，不发请求（D9）。 */
+  const openCached = useCallback((field: GenreAiField) => {
+    setCards((prev) => (prev[field] ? { ...prev, [field]: { ...prev[field]!, cached: true } } : prev));
+    setCardError("");
+    setCardField(field);
+    setCardOpen(true);
+  }, []);
+
+  const runRequest = useCallback(
     async (field: GenreAiField, opts?: { multi?: boolean }) => {
-      if (aiBusyRef.current) return; // 已有在途请求：忽略重复触发
       aiBusyRef.current = true;
       setRunning(field);
+      setCardError("");
+      setCardField(field);
+      setCardOpen(true);
+      if (opts?.multi) setLastOpts((prev) => ({ ...prev, [field]: opts }));
       const context: Record<string, unknown> = {
         current:
           field === "core_promise"
@@ -674,118 +674,176 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
         cost_ratio: data.cost_ratio,
         battlefield: data.battlefield,
       };
-      await genreAi(field, { title: novelName ?? "", context, multiPoint: opts?.multi }, projectId)
-        .then((r) => {
-          const v = r.value;
-          let node: React.ReactNode;
-          let adopt: () => void;
-          /** 本次结果是否多看点数组（决定采纳由勾选器负责、AiSink 不出采纳键）。 */
-          let isMulti = false;
-          /** 02 采纳后会写回的值（回执报字数用）。 */
-          let adoptValues: { core_promise: string; promise_note: string } | undefined;
-          if (field === "core_promise") {
-            // 多看点（「多给几个看点」）：后端返回 1-3 条，每条独立采纳（用户手选）
-            isMulti = Array.isArray(v);
-            const points = isMulti
-              ? (v as Array<{ value: string; note: string }>)
-              : [v as { value: string; note: string }];
-            if (isMulti && points.length > 0) {
-              // 「直接给多个看点」→ 作家勾选采纳（可多选/单选；不勾就自己写）。
-              // 勾选态由 PointChooser 自己持有：结果节点缓存在 sinks state 里，
-              // 把勾选态放在外面会渲染成「点了没反应」。
-              node = (
-                <PointChooser
-                  points={points}
-                  onAdopt={(p) => {
-                    // 勾选器：单选＝标签+那句话；多选＝只拼那句话（单一标签表达不了多个看点）
-                    // 基准取采纳瞬间：这个节点缓存在 sinks state 里，闭包里的 data 会过期
-                    const before = {
-                      core_promise: dataRef.current.core_promise,
-                      promise_note: dataRef.current.promise_note,
-                    };
-                    patch(p);
-                    setNoteHint(false);
-                    recordChange(
-                      `已采纳 ${p.core_promise ? "1 条看点" : "勾选的看点"}，覆盖「主要看什么」（${
-                        before.promise_note.length
-                      } 字 → ${p.promise_note.length} 字）`,
-                      () => {
-                        /* 值已落地 */
-                      },
-                      () => setData((cur) => ({ ...cur, ...before })),
-                    );
-                    toast.success("已采纳，可继续改或再勾几条");
-                  }}
-                />
-              );
-              adopt = () =>
-                patch({ core_promise: "", promise_note: points.map((x) => x.note).join("；") });
-            } else {
-              const { value, note } = points[0];
-              node = (
-                <>
-                  <p style={{ margin: "4px 0" }}>
-                    <b>{value}</b>
-                  </p>
-                  {note && <p style={{ margin: "4px 0", color: "var(--muted)" }}>{note}</p>}
-                </>
-              );
-              adopt = () => patch({ core_promise: value, promise_note: note });
-              adoptValues = { core_promise: value, promise_note: note };
-            }
-          } else if (field === "forbidden_list") {
-            const list = (v as Array<{ tagId?: string; text?: string }>) ?? [];
-            const labels = list
-              .map((x) => (x.tagId ? labelFor(x.tagId, cand.forbidden) : (x.text ?? "")))
-              .filter(Boolean);
-            node = <p style={{ margin: 0 }}>{labels.join(" · ") || "（没有建议）"}</p>;
-            adopt = () => patch({ forbidden_list: list });
-          } else if (field === "cost_ratio") {
-            const n = v as number;
-            node = <p style={{ margin: 0 }}>建议 {n} 分 —— {costSentence(n).split("→ ")[1]}</p>;
-            adopt = () => patch({ cost_ratio: n });
-          } else if (field === "battlefield") {
-            const list = (v as Array<{ tagId?: string; text?: string }>) ?? [];
-            const vals = list.map((x) => x.tagId ?? x.text ?? "").filter(Boolean);
+      try {
+        const r = await genreAi(field, { title: novelName ?? "", context, multiPoint: opts?.multi }, projectId);
+        const v = r.value;
+        let node: React.ReactNode;
+        /** 确认键回调；多看点走勾选器内置采纳（footer 不出确认键）。 */
+        let adopt: (() => void) | undefined;
+        let kind: AiCardState["kind"] = "struct";
+        if (field === "core_promise") {
+          // 多看点（「多给几个看点」）：后端返回 1-3 条，作家勾选采纳（可多选/单选；不勾就自己写）。
+          const isMulti = Array.isArray(v);
+          const points = isMulti
+            ? (v as Array<{ value: string; note: string }>)
+            : [v as { value: string; note: string }];
+          if (isMulti && points.length > 0) {
+            // 勾选态由 PointChooser 自己持有（放外面会渲染成「点了没反应」）；
+            // 采纳走勾选器内置键——基准取采纳瞬间（dataRef，闭包 data 会过期）。
+            kind = "pick";
             node = (
-              <p style={{ margin: 0 }}>
-                {vals.map((x) => labelFor(x, cand.battlefield)).join(" · ") || "（没有建议）"}
-              </p>
+              <PointChooser
+                points={points}
+                onAdopt={(p) => {
+                  const before = {
+                    core_promise: dataRef.current.core_promise,
+                    promise_note: dataRef.current.promise_note,
+                  };
+                  patch(p);
+                  setNoteHint(false);
+                  recordChange(
+                    `已采纳 ${p.core_promise ? "1 条看点" : "勾选的看点"}，覆盖「主要看什么」（${
+                      before.promise_note.length
+                    } 字 → ${p.promise_note.length} 字）`,
+                    () => {
+                      /* 值已落地 */
+                    },
+                    () => setData((cur) => ({ ...cur, ...before })),
+                  );
+                  closeCard();
+                  toast.success("已采纳，可继续改或再勾几条");
+                }}
+              />
             );
-            adopt = () => patch({ battlefield: vals });
-          }
-          setSinks((prev) => {
-            const list = [
-              ...(prev[field]?.list ?? []),
-              {
-                label: AI_LABEL[field],
-                node,
-                adopt,
-                multi: field === "core_promise" && isMulti,
-                values: field === "core_promise" ? adoptValues : undefined,
-              },
-            ].slice(-SINK_MAX);
-            return { ...prev, [field]: { list, idx: list.length - 1 } };
-          });
-        })
-        .catch((e: unknown) => {
-          const reason = aiBlockReason(e);
-          if (reason === "member_required") {
-            toast.info("AI 是会员功能，升级 PRO 后解锁");
-          } else if (reason === "no_key") {
-            toast.info((e as Error).message || "先去「模型配置」添加 API Key");
-          } else if (reason === "missing_model" || reason === "invalid") {
-            toast.info("先在本书选择模型");
           } else {
-            toast.error((e as Error).message || "AI 暂不可用，请重试");
+            const { value, note } = points[0];
+            kind = "text";
+            node = (
+              <>
+                <p style={{ margin: "4px 0" }}>
+                  <b>{value}</b>
+                </p>
+                {note && <p style={{ margin: "4px 0", color: "var(--muted)" }}>{note}</p>}
+              </>
+            );
+            adopt = () => {
+              // 一键覆盖这段文本 → 回执 + 一步撤销（撤销＝写回采纳前的两个字）
+              const before = {
+                core_promise: dataRef.current.core_promise,
+                promise_note: dataRef.current.promise_note,
+              };
+              patch({ core_promise: value, promise_note: note });
+              recordChange(
+                `已采纳 AI 建议，覆盖「主要看什么」（${before.promise_note.length} 字 → ${note.length} 字）`,
+                () => {
+                  /* 值由上面 patch 落地 */
+                },
+                () => {
+                  setData((cur) => ({ ...cur, ...before }));
+                  setNoteHint(false);
+                },
+              );
+              closeCard();
+              toast.success("已采纳，落回对应格，随时可改");
+            };
           }
-        })
-        .finally(() => {
-          aiBusyRef.current = false;
-          setRunning(null);
-        });
+        } else if (field === "forbidden_list") {
+          const list = (v as Array<{ tagId?: string; text?: string }>) ?? [];
+          const labels = list
+            .map((x) => (x.tagId ? labelFor(x.tagId, cand.forbidden) : (x.text ?? "")))
+            .filter(Boolean);
+          node = <p style={{ margin: 0 }}>{labels.join(" · ") || "（没有建议）"}</p>;
+          adopt = () => {
+            // 整表覆盖 → 记回执可一步撤销（撤销＝写回采纳时刻的该格）
+            const before = dataRef.current.forbidden_list;
+            patch({ forbidden_list: list });
+            recordChange(
+              `已采纳「绝对禁止」AI 建议（${before.length} 条 → ${list.length} 条），可撤销`,
+              () => { /* 值已落地 */ },
+              () => setData((cur) => ({ ...cur, forbidden_list: before })),
+            );
+            closeCard();
+            toast.success("已采纳，落回对应格，随时可改");
+          };
+        } else if (field === "cost_ratio") {
+          const n = v as number;
+          node = <p style={{ margin: 0 }}>建议 {n} 分 —— {costSentence(n).split("→ ")[1]}</p>;
+          adopt = () => {
+            const before = dataRef.current.cost_ratio;
+            patch({ cost_ratio: n });
+            recordChange(
+              before === null ? `已把吃苦指数从未设调到 ${n}` : `已把吃苦指数从 ${before} 调到 ${n}`,
+              () => { /* 值已落地 */ },
+              () => setData((cur) => ({ ...cur, cost_ratio: before })),
+            );
+            closeCard();
+            toast.success("已采纳，落回对应格，随时可改");
+          };
+        } else if (field === "battlefield") {
+          const list = (v as Array<{ tagId?: string; text?: string }>) ?? [];
+          const vals = list.map((x) => x.tagId ?? x.text ?? "").filter(Boolean);
+          node = (
+            <p style={{ margin: 0 }}>
+              {vals.map((x) => labelFor(x, cand.battlefield)).join(" · ") || "（没有建议）"}
+            </p>
+          );
+          adopt = () => {
+            const before = dataRef.current.battlefield;
+            patch({ battlefield: vals });
+            recordChange(
+              `已采纳「本小说斗什么」AI 建议（${before.length} 个 → ${vals.length} 个），可撤销`,
+              () => { /* 值已落地 */ },
+              () => setData((cur) => ({ ...cur, battlefield: before })),
+            );
+            closeCard();
+            toast.success("已采纳，落回对应格，随时可改");
+          };
+        }
+        setCards((prev) => ({
+          ...prev,
+          [field]: {
+            label: AI_LABEL[field],
+            kind,
+            node,
+            adopt,
+            adoptText: "采纳 · 覆盖",
+            cached: false,
+          },
+        }));
+        setVersions((prev) => ({ ...prev, [field]: (prev[field] ?? 0) + 1 }));
+      } catch (e: unknown) {
+        const reason = aiBlockReason(e);
+        const msg =
+          reason === "member_required"
+            ? "AI 是会员功能，升级 PRO 后解锁"
+            : reason === "no_key"
+              ? (e as Error).message || "先去「模型配置」添加 API Key"
+              : reason === "missing_model" || reason === "invalid"
+                ? "先在本书选择模型"
+                : (e as Error).message || "AI 暂不可用，请重试";
+        if (cards[field]) setCardError(msg);
+        else {
+          setCardOpen(false);
+          toast.info(msg);
+        }
+      } finally {
+        aiBusyRef.current = false;
+        setRunning(null);
+      }
     },
-    [data, novelName, projectId, patch],
+    [data, novelName, projectId, patch, recordChange, closeCard, cards, cand.forbidden, cand.battlefield],
+  );
+
+  const runAi = useCallback(
+    async (field: GenreAiField, opts?: { multi?: boolean }) => {
+      if (aiBusyRef.current) return; // 已有在途请求：忽略重复触发
+      if (cards[field]) {
+        openCached(field); // 重开＝展示缓存，不重复生成（D9）
+        return;
+      }
+      await runRequest(field, opts);
+    },
+    [cards, openCached, runRequest],
   );
 
   // ── 保存 ──────────────────────────────────────────────────────────
@@ -811,7 +869,18 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
 
   useImperativeHandle(
     ref,
-    () => ({ save, runAi, markDirty, clearAi: () => setSinks({}) }),
+    () => ({
+      save,
+      runAi,
+      markDirty,
+      clearAi: () => {
+        setCards({});
+        setVersions({});
+        setCardField(null);
+        setCardOpen(false);
+        setCardError("");
+      },
+    }),
     [save, runAi, markDirty],
   );
 
@@ -1072,61 +1141,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           {data.promise_note.length}/{GENRE_LIMITS.promiseNote}
           {data.core_promise ? ` · 标签：${data.core_promise}` : " · 也可以先点上面的起点，再改成你自己的说法"}
         </p>
-        {running === "core_promise" && (
-          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
-        )}
-{(() => {
-          const st = sinks.core_promise;
-          if (!st) return null;
-          const { list, idx: active } = st;
-          const entry = list[active];
-          if (!entry) return null;
-          return (
-            <AiSink
-              label={entry.label}
-              history={{
-                total: list.length,
-                active,
-                max: SINK_MAX,
-                onSelect: (i) =>
-                  setSinks((prev) => {
-                    const cur = prev.core_promise;
-                    return cur ? { ...prev, core_promise: { ...cur, idx: i } } : prev;
-                  }),
-              }}
-              adoptText={entry.multi ? undefined : "采纳 · 覆盖"}
-              onAdopt={
-                entry.multi
-                  ? undefined
-                  : () => {
-                      // 一键覆盖这段文本 → 回执 + 一步撤销（撤销＝写回采纳前的两个字）
-                      const before = {
-                        core_promise: data.core_promise,
-                        promise_note: data.promise_note,
-                      };
-                      const afterLen =
-                        entry.values?.promise_note.length ?? before.promise_note.length;
-                      entry.adopt();
-                      recordChange(
-                        `已采纳 AI 建议，覆盖「主要看什么」（${before.promise_note.length} 字 → ${afterLen} 字）`,
-                        () => {
-                          /* 值由 entry.adopt() 落地 */
-                        },
-                        () => {
-                          setData((cur) => ({ ...cur, ...before }));
-                          setNoteHint(false);
-                        },
-                      );
-                      toast.success("已采纳，落回对应格，随时可改");
-                    }
-              }
-              onRetry={() => runAi("core_promise")}
-              data-od-id={`genre-ai-sink-core_promise`}
-            >
-              {entry.node}
-            </AiSink>
-          );
-        })()}
+        {/* AI 建议在弹窗出卡过目（c-settings-ai-confirm-modal） */}
       </Mod>
 
       {/* 03 绝对禁止 → forbidden_list */}
@@ -1186,40 +1201,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             }}
           />
         </div>
-        {running === "forbidden_list" && (
-          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
-        )}
-{(() => {
-          const st = sinks.forbidden_list;
-          if (!st) return null;
-          const { list, idx: active } = st;
-          const entry = list[active];
-          if (!entry) return null;
-          return (
-            <AiSink
-              label={entry.label}
-              history={{
-                total: list.length,
-                active,
-                max: SINK_MAX,
-                onSelect: (i) =>
-                  setSinks((prev) => {
-                    const cur = prev.forbidden_list;
-                    return cur ? { ...prev, forbidden_list: { ...cur, idx: i } } : prev;
-                  }),
-              }}
-              adoptText="采纳 · 覆盖"
-              onAdopt={() => {
-                entry.adopt();
-                toast.success("已采纳，落回对应格，随时可改");
-              }}
-              onRetry={() => runAi("forbidden_list")}
-              data-od-id={`genre-ai-sink-forbidden_list`}
-            >
-              {entry.node}
-            </AiSink>
-          );
-        })()}
+        {/* AI 建议在弹窗出卡过目（c-settings-ai-confirm-modal） */}
       </Mod>
 
       {/* 04 吃苦指数 → cost_ratio */}
@@ -1261,40 +1243,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           <span>5 断骨毁名</span>
           <span>10 命抵江山</span>
         </div>
-        {running === "cost_ratio" && (
-          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
-        )}
-{(() => {
-          const st = sinks.cost_ratio;
-          if (!st) return null;
-          const { list, idx: active } = st;
-          const entry = list[active];
-          if (!entry) return null;
-          return (
-            <AiSink
-              label={entry.label}
-              history={{
-                total: list.length,
-                active,
-                max: SINK_MAX,
-                onSelect: (i) =>
-                  setSinks((prev) => {
-                    const cur = prev.cost_ratio;
-                    return cur ? { ...prev, cost_ratio: { ...cur, idx: i } } : prev;
-                  }),
-              }}
-              adoptText="采纳 · 覆盖"
-              onAdopt={() => {
-                entry.adopt();
-                toast.success("已采纳，落回对应格，随时可改");
-              }}
-              onRetry={() => runAi("cost_ratio")}
-              data-od-id={`genre-ai-sink-cost_ratio`}
-            >
-              {entry.node}
-            </AiSink>
-          );
-        })()}
+        {/* AI 建议在弹窗出卡过目（c-settings-ai-confirm-modal） */}
       </Mod>
 
       {/* 05 本小说斗什么 → battlefield */}
@@ -1339,40 +1288,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
             战场越多，主线越难聚焦，建议 1-2 个。
           </p>
         )}
-        {running === "battlefield" && (
-          <p className="opt" style={{ margin: "8px 0 0", fontSize: 11.5 }}>AI 生成中…</p>
-        )}
-{(() => {
-          const st = sinks.battlefield;
-          if (!st) return null;
-          const { list, idx: active } = st;
-          const entry = list[active];
-          if (!entry) return null;
-          return (
-            <AiSink
-              label={entry.label}
-              history={{
-                total: list.length,
-                active,
-                max: SINK_MAX,
-                onSelect: (i) =>
-                  setSinks((prev) => {
-                    const cur = prev.battlefield;
-                    return cur ? { ...prev, battlefield: { ...cur, idx: i } } : prev;
-                  }),
-              }}
-              adoptText="采纳 · 覆盖"
-              onAdopt={() => {
-                entry.adopt();
-                toast.success("已采纳，落回对应格，随时可改");
-              }}
-              onRetry={() => runAi("battlefield")}
-              data-od-id={`genre-ai-sink-battlefield`}
-            >
-              {entry.node}
-            </AiSink>
-          );
-        })()}
+        {/* AI 建议在弹窗出卡过目（c-settings-ai-confirm-modal） */}
       </Mod>
 
 
@@ -1381,6 +1297,18 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           {error}
         </p>
       )}
+
+      {/* AI 出卡确认弹窗：四行共用（关闭即弃；缓存重开免请求；多看点的采纳在勾选器内） */}
+      <AiCardModal
+        open={cardOpen && cardField !== null}
+        card={cardField ? cards[cardField] ?? null : null}
+        running={cardField !== null && running === cardField}
+        error={cardField !== null && running !== cardField ? cardError : undefined}
+        version={cardField ? versions[cardField] : undefined}
+        onClose={() => setCardOpen(false)}
+        onRegenerate={cardField ? () => void runRequest(cardField, lastOpts[cardField]) : undefined}
+        data-testid="genre-ai-card"
+      />
     </div>
   );
 });

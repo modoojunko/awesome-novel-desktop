@@ -20,6 +20,8 @@ interface ModalProps {
   wbStyle?: boolean;
   /** 隐去头部 X 关闭钮（原型确认族口径：删除确认/解除只读/归档本章无 X，仅取消/确认/Esc/遮罩） */
   hideClose?: boolean;
+  /** 关闭后是否还原焦点（默认还原；关闭后将跳转到别处聚焦时传 false，防 200ms 还原抢走焦点） */
+  restoreFocus?: boolean;
   children: ReactNode;
   /** 头部标题与关闭钮之间的扩展区（原型 mcard-head 的 text-btn 等） */
   headExtra?: ReactNode;
@@ -28,10 +30,12 @@ interface ModalProps {
   footer?: ReactNode;
 }
 
-export default function Modal({ open, onClose, title, locked, width = 420, wbStyle, hideClose, children, headExtra, afterTitle, footer }: ModalProps) {
+export default function Modal({ open, onClose, title, locked, width = 420, wbStyle, hideClose, restoreFocus, children, headExtra, afterTitle, footer }: ModalProps) {
   const [shown, setShown] = useState(false); // 控制 .show 进出场
   const [render, setRender] = useState(false); // 200ms 退场后再卸载
   const lastFocus = useRef<Element | null>(null);
+  const restoreRef = useRef(true);
+  restoreRef.current = restoreFocus !== false;
   const rootRef = useRef<HTMLDivElement>(null);
   const labelId = useId();
 
@@ -46,7 +50,7 @@ export default function Modal({ open, onClose, title, locked, width = 420, wbSty
     const t = setTimeout(() => {
       setRender(false);
       const el = lastFocus.current as HTMLElement | null;
-      if (el && el.focus) el.focus();
+      if (restoreRef.current && el && el.focus) el.focus();
     }, 200);
     return () => clearTimeout(t);
   }, [open]);

@@ -13,7 +13,8 @@
 //     禁用词（≤100）与句式规则（≤20）两个折叠组，提示词/体检单源取本卡
 //   · 章节量化变化不做场景卡——写章 AI 按剧情在容差内自行调节（提示词已带指令）
 //
-// AI 四行在右栏（SettingsView 接 AiWriterAssistant），编辑区零 AI 按钮（伏笔纪律）。
+// AI 四行在右栏（SettingsView 接 AiWriterAssistant），编辑区零 AI 按钮（伏笔纪律）；
+// 润色/例句提炼经弹窗过目确认才写回（c-settings-ai-confirm-modal，原直写路径退役），蒸馏流不动。
 
 import {
   forwardRef,
@@ -31,6 +32,7 @@ import type { ChangeReceiptState } from "./ChangeReceipt";
 import { styleAiApi, styleQuantApi, BASELINE_ROWS, countSampleChars } from "@/lib/styleApi";
 import type { StyleQuant } from "@/lib/styleApi";
 import StylePasteModal from "./StylePasteModal";
+import AiCardModal from "./AiCardModal";
 import { toast } from "@/lib/toast";
 
 interface Props {
@@ -195,6 +197,17 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
     checks: Array<{ name: string; res: string; note: string }>;
     verdict: string;
   } | null>(null);
+  // AI 出卡确认弹窗（c-settings-ai-confirm-modal）：润色/例句从无预览直写改为
+  // 弹窗过目、确认才写回；每行缓存最近一版，重开免请求，「换一个」才重生成（D9）。
+  const [polishOut, setPolishOut] = useState<{ role: string; rules: string[]; craft: string[] } | null>(null);
+  const [fewshotOut, setFewshotOut] = useState<string[] | null>(null);
+  const [cardAction, setCardAction] = useState<"polish" | "check" | "fewshot" | null>(null);
+  const [cardOpen, setCardOpen] = useState(false);
+  const [cardCached, setCardCached] = useState(false);
+  const [cardError, setCardError] = useState("");
+  const [versions, setVersions] = useState<Partial<Record<"polish" | "check" | "fewshot", number>>>({});
+  const [aiRunning, setAiRunning] = useState(false);
+  const aiBusyRef = useRef(false);
 
   const shape = useMemo(
     () => ({ role, rules, craft, fewShots, banned, tics }),
@@ -288,67 +301,127 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
       markDirty: () => onDirtyChange?.(true),
       clearAi: () => {
         setCheckSink(null);
+        setPolishOut(null);
+        setFewshotOut(null);
+        setCardAction(null);
+        setCardOpen(false);
+        setVersions({});
         publishReceipt(null);
       },
       runAi: async (key: string) => {
+        if (key === "distill") {
+          setTab("quant");
+          await openDistill();
+          return;
+        }
         try {
-          await runAiByKey(key);
+          await runAiCard(key as "polish" | "check" | "fewshot");
         } catch (e: unknown) {
           // 运行时失败（后端 400 前置缺失 / 502 超时解析）必须可见——沿 hooks runAi 兜底口径
+          setCardOpen(false);
           toast.error((e as Error).message || "AI 处理失败，可重试");
         }
       },
     }),
   );
 
-  async function runAiByKey(key: string) {
-    if (key === "distill") {
-      setTab("quant");
-      await openDistill();
+  /** 三行（polish/check/fewshot）的缓存命中与出卡调度；distill 不进弹窗体系。 */
+  async function runAiCard(key: "polish" | "check" | "fewshot") {
+    if (aiBusyRef.current) return; // 在途互斥
+    const hasCache =
+      (key === "polish" && !!polishOut) ||
+      (key === "fewshot" && !!fewshotOut) ||
+      (key === "check" && !!checkSink);
+    if (hasCache) {
+      setCardCached(true); // 重开＝展示缓存，不重复生成（D9）
+      setCardError("");
+      setCardAction(key);
+      setCardOpen(true);
       return;
     }
-    if (key === "polish") {
-      const out = await styleAiApi.polish(projectId, {
-        role: role.trim(),
-        rules: rules.map((r) => r.trim()).filter(Boolean),
-        craft: craft.map((c) => c.trim()).filter(Boolean),
-      });
-      const prev = { role, rules: [...rules], craft: [...craft] };
-      record(
-        "已采纳「润色文字文风」：三区按题材＋简介重写（覆盖原内容，可撤销）",
-        () => {
-          setRole(out.role);
-          setRules(out.rules.length ? out.rules : [""]);
-          setCraft(out.craft.length ? out.craft : [""]);
-        },
-        () => {
-          setRole(prev.role);
-          setRules(prev.rules);
-          setCraft(prev.craft);
-        },
-      );
-      toast.success("已起草文字文风三区——每条都能改，锚定体检建议跑一遍");
-      return;
-    }
-    if (key === "check") {
-      setCheckSink(
-        await styleAiApi.check(projectId, {
+    await runCardRequest(key);
+  }
+
+  async function runCardRequest(key: "polish" | "check" | "fewshot") {
+    if (aiBusyRef.current) return;
+    aiBusyRef.current = true;
+    setAiRunning(true);
+    setCardError("");
+    setCardAction(key);
+    setCardOpen(true);
+    try {
+      if (key === "polish") {
+        const out = await styleAiApi.polish(projectId, {
           role: role.trim(),
           rules: rules.map((r) => r.trim()).filter(Boolean),
           craft: craft.map((c) => c.trim()).filter(Boolean),
-        }),
-      );
-      return;
+        });
+        setPolishOut(out);
+      } else if (key === "check") {
+        setCheckSink(
+          await styleAiApi.check(projectId, {
+            role: role.trim(),
+            rules: rules.map((r) => r.trim()).filter(Boolean),
+            craft: craft.map((c) => c.trim()).filter(Boolean),
+          }),
+        );
+      } else {
+        const out = await styleAiApi.fewshotMine(projectId);
+        setFewshotOut(out.lines.length ? out.lines : [""]);
+      }
+      setCardCached(false);
+      setVersions((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
+    } catch (e: unknown) {
+      // regen 失败必经此路（右栏入口的 catch 不覆盖「换一个」）：有缓存留卡+错误条，
+      // 无缓存关门+分流 toast（门控类文案映射不旁路）
+      const msg = (e as Error).message || "AI 处理失败，可重试";
+      const hasCache =
+        (key === "polish" && !!polishOut) ||
+        (key === "fewshot" && !!fewshotOut) ||
+        (key === "check" && !!checkSink);
+      if (hasCache) setCardError(msg);
+      else {
+        setCardOpen(false);
+        toast.error(msg);
+      }
+    } finally {
+      aiBusyRef.current = false;
+      setAiRunning(false);
     }
-    if (key === "fewshot") {
-      const out = await styleAiApi.fewshotMine(projectId);
-      const prev = [...fewShots];
-      record(
-        `已提炼 ${out.lines.length} 条例句（来自已归档正文）`,
-        () => setFewShots(out.lines.length ? out.lines : [""]),
-        () => setFewShots(prev),
-      );
-    }
+  }
+
+  /** 润色确认：三区写回＋回执撤销（原无预览直写路径退役，D7） */
+  function adoptPolish() {
+    if (!polishOut) return;
+    const prev = { role, rules: [...rules], craft: [...craft] };
+    record(
+      "已采纳「润色文字文风」：三区按题材＋简介重写（覆盖原内容，可撤销）",
+      () => {
+        setRole(polishOut.role);
+        setRules(polishOut.rules.length ? polishOut.rules : [""]);
+        setCraft(polishOut.craft.length ? polishOut.craft : [""]);
+      },
+      () => {
+        setRole(prev.role);
+        setRules(prev.rules);
+        setCraft(prev.craft);
+      },
+    );
+    setCardOpen(false);
+    toast.success("已起草文字文风三区——每条都能改，锚定体检建议跑一遍");
+  }
+
+  /** 例句提炼确认：写回例句区＋回执撤销 */
+  function adoptFewshot() {
+    if (!fewshotOut) return;
+    const prev = [...fewShots];
+    record(
+      `已提炼 ${fewshotOut.length} 条例句（来自已归档正文）`,
+      () => setFewShots(fewshotOut),
+      () => setFewShots(prev),
+    );
+    setCardOpen(false);
+    toast.success("已写入例句区，可删改");
   }
 
   // ── 量化页签 ──────────────────────────────────────────────────────
@@ -697,28 +770,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
             </p>
           </Cfg>
 
-          {checkSink && (
-            <div className="ai-sink" data-od-id="sink-style-check">
-              <div className="aiz-head">AI 体检 · 文字文风三区锚定 × 禁用词（同源）</div>
-              {checkSink.checks.map((c, i) => (
-                <div className="chk-line" key={i}>
-                  <span className="chk-name">{c.name}</span>
-                  <span className={`chk-res ${checkResClass(c.res)}`}>{c.res}</span>
-                  <span className="chk-note">{c.note}</span>
-                </div>
-              ))}
-              {checkSink.verdict && (
-                <p className="opt" style={{ marginTop: 6 }}>
-                  {checkSink.verdict}
-                </p>
-              )}
-              <div className="ans-act">
-                <button className="primary" type="button" onClick={() => setCheckSink(null)}>
-                  收起
-                </button>
-              </div>
-            </div>
-          )}
+          {/* 锚定体检改走弹窗报告卡（c-settings-ai-confirm-modal） */}
         </div>
       ) : (
         <div data-od-id="style-quant-tab">
@@ -1015,6 +1067,98 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
         open={pasteOpen}
         onClose={() => setPasteOpen(false)}
         onSubmit={(t) => void startPasteDistill(t)}
+      />
+
+      {/* AI 出卡确认弹窗：润色（三区对照）/ 锚定体检（报告）/ 例句提炼（列表）共用。
+          与粘贴蒸馏弹窗互斥（一时刻一弹窗；蒸馏流打开粘贴时禁开本卡）。 */}
+      <AiCardModal
+        open={cardOpen && !pasteOpen}
+        card={
+          cardAction === "polish" && polishOut
+            ? {
+                label: "AI 起草 · 文字文风三区（前后对照）",
+                kind: "struct",
+                adoptText: "采纳 · 覆盖三区",
+                cached: cardCached,
+                node: (
+                  <div>
+                    <p style={{ margin: "4px 0" }}>
+                      <b>叙事身份</b>
+                      <span style={{ color: "var(--muted)" }}>（原 {role.trim().length || "0"} 字）</span>
+                      ：{polishOut.role}
+                    </p>
+                    <p style={{ margin: "4px 0" }}>
+                      <b>硬约束</b>
+                      <span style={{ color: "var(--muted)" }}>
+                        （原 {rules.map((r) => r.trim()).filter(Boolean).length} 条）
+                      </span>
+                      ：{polishOut.rules.filter(Boolean).join("；")}
+                    </p>
+                    <p style={{ margin: "4px 0" }}>
+                      <b>描写手法</b>
+                      <span style={{ color: "var(--muted)" }}>
+                        （原 {craft.map((c) => c.trim()).filter(Boolean).length} 条）
+                      </span>
+                      ：{polishOut.craft.filter(Boolean).join("；")}
+                    </p>
+                    <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
+                      确认后三区整体覆盖（可一步撤销）；只改想改的，取消后手改即可。
+                    </p>
+                  </div>
+                ),
+                adopt: adoptPolish,
+              }
+            : cardAction === "check" && checkSink
+              ? {
+                  label: "AI 体检 · 文字文风三区锚定 × 禁用词（同源）",
+                  kind: "report",
+                  cached: cardCached,
+                  node: (
+                    <>
+                      {checkSink.checks.map((c, i) => (
+                        <div className="chk-line" key={i}>
+                          <span className="chk-name">{c.name}</span>
+                          <span className={`chk-res ${checkResClass(c.res)}`}>{c.res}</span>
+                          <span className="chk-note">{c.note}</span>
+                        </div>
+                      ))}
+                      {checkSink.verdict && (
+                        <p className="opt" style={{ marginTop: 6 }}>
+                          {checkSink.verdict}
+                        </p>
+                      )}
+                    </>
+                  ),
+                }
+              : cardAction === "fewshot" && fewshotOut
+                ? {
+                    label: "AI 提炼 · 例句（来自已归档正文）",
+                    kind: "struct",
+                    adoptText: "采纳 · 写入例句区",
+                    cached: cardCached,
+                    node: (
+                      <div>
+                        {fewshotOut.map((line, i) => (
+                          <p key={i} style={{ margin: "6px 0" }}>
+                            <span className="c-tag">例 {i + 1}</span>
+                            {line}
+                          </p>
+                        ))}
+                        <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
+                          确认后替换例句区现有内容（可一步撤销）。
+                        </p>
+                      </div>
+                    ),
+                    adopt: adoptFewshot,
+                  }
+                : null
+        }
+        running={aiRunning}
+        error={aiRunning ? undefined : cardError}
+        version={cardAction ? versions[cardAction] : undefined}
+        onClose={() => setCardOpen(false)}
+        onRegenerate={cardAction ? () => void runCardRequest(cardAction) : undefined}
+        data-testid="style-ai-card"
       />
     </div>
   );

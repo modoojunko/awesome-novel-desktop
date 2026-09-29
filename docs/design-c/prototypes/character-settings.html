@@ -62,6 +62,7 @@
   零外部资源、零裸色、零 emoji、零 scrollIntoView。
 -->
 <style>
+/* [c-settings-ai-confirm-modal] .ai-sink 内嵌结果区退役：AI 结果改应用侧「AI 出卡确认弹窗」（沿 book.html modal-delete 先例，不进 parity 截图）；下列 hidden 演示节点已移除，对应 JS 填充加空守卫。 */
   /* ═══ Token：与 prototypes/CLAUDE.md §2 逐字一致（--radius-lg 沿世界稿 = 14px） ═══ */
   :root {
     --bg:      oklch(98% 0.004 240);
@@ -856,7 +857,7 @@
           '<button type="button" class="danger" data-act="ops-del" data-od-id="btn-char-del">删除</button>' +
         '</div>' +
       '</div>' +
-    '</header>' + opsPanelHtml(d) + '<div class="ai-sink" id="sinkCheck" hidden data-od-id="sink-check"></div>';
+    '</header>' + opsPanelHtml(d) + '<!-- <div class="ai-sink" id="sinkCheck" hidden data-od-id="sink-check"></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->';
   }
 
   /* 删除 / 合并：都是先出说明、再动手；动手走同一份回执，可一步撤销 */
@@ -891,7 +892,7 @@
     return '<div class="persona" data-od-id="persona-block">' +
       '<span class="pl-label">一句话人设 · 每章都会带上这张卡的这句</span>' +
       '<textarea rows="2" data-path="persona" placeholder="此人是谁、凭什么是他——例：青梧宗杂役弟子，资质平平却记性过人。">' + esc(d.persona || '') + '</textarea>' +
-      '<div class="ai-sink" id="sinkPersona" hidden></div>' +
+      '<!-- <div class="ai-sink" id="sinkPersona" hidden></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->' +
     '</div>';
   }
 
@@ -909,7 +910,7 @@
         row('背景', '<textarea rows="1" data-path="dossier.background" placeholder="出身与来路——写到他为什么要这么做时用。" aria-label="背景">' + esc(dd.background || '') + '</textarea>') +
         row('剧情定位', inp('plot', '在故事里干什么、和谁冲突——主角必填，AI 挑谁上场时看这格'), 1) +
       '</div>' +
-      '<div class="ai-sink" id="sinkDossier" hidden></div>' +
+      '<!-- <div class="ai-sink" id="sinkDossier" hidden></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->' +
     '</section>';
   }
 
@@ -960,7 +961,7 @@
         '<span class="sec-sub">六层是一条链：世界观 → 自我观 → 价值观 → 能力 → 行为 → 环境。AI 写他做什么时顺着这条链找依据，不容易写崩人设。</span>' +
         '<span class="sec-tools"><button type="button" class="text-btn" data-act="cog-all" data-od-id="btn-cog-all">展开全部</button></span>' +
       '</header>' +
-      '<div class="ai-sink" id="sinkCog" hidden></div>' +
+      '<!-- <div class="ai-sink" id="sinkCog" hidden></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->' +
       '<div class="cog">' + parts.join('') + '</div>' +
     '</section>';
   }
@@ -1638,7 +1639,7 @@
   function renderPersonaSink(idx) {
     const d = DATA[UI.sel];
     const box = document.getElementById('sinkPersona');
-    if (!box) return;
+    if (!box) return; // 演示节点已退役（AI 出卡确认弹窗）
     const h = HIST.persona;
     const o = h.list[idx];
     const hist = h.list.length > 1
@@ -1678,7 +1679,7 @@
     const list = zone === 'dossier' ? draftDossier(d, i) : draftCog(d, i);
     if (!list.length) { toast(zone === 'dossier' ? '基础档案已经写齐了——性别、年龄留给你自己定' : '认知六层要补的都齐了'); return; }
     const box = document.getElementById(zone === 'dossier' ? 'sinkDossier' : 'sinkCog');
-    if (!box) return;
+    if (!box) return; // 演示节点已退役（AI 出卡确认弹窗）
     const missGA = zone === 'dossier' && (!String((d.dossier || {}).gender || '').trim() || !String((d.dossier || {}).age || '').trim());
     box.innerHTML = '<div class="aiz-head">AI 生成 · ' + (zone === 'dossier' ? '基础信息补充' : '认知补充') + ' · ' + esc(d.name || '未命名') + ' · ' + list.length + ' 格' + (i ? ' · 第 ' + (i + 1) + ' 次生成' : '') + '</div>' +
       (missGA ? '<div class="aiz-note">性别、年龄不代填——留给你写。</div>' : '') +
@@ -1751,7 +1752,7 @@
   function renderCheck() {
     const d = DATA[UI.sel];
     const box = document.getElementById('sinkCheck');
-    if (!box) return;
+    if (!box) return; // 演示节点已退役（AI 出卡确认弹窗）
     const nm = esc(d.name || '未命名');
     const rerun = '<div class="ans-act"><button type="button" class="primary" data-act="check-rerun" data-od-id="btn-recheck">再体检一次</button></div>';
     if (d.simple) {

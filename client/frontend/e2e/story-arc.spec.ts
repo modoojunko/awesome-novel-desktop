@@ -9,9 +9,9 @@ import { cleanupSessionNovels, stableClick } from "./helpers";
 // 1. 空内容确认 → 后端 400「还未填写」提示，进度不动
 // 2. 手填全流程（全景 + 三问）→ 确认完成 → 5/8 + 徽标已确认 + 前进文风
 // 3. 三问脏态切换 → window.confirm 拦截
-// 4. AI 三行 + 行内 tone（浏览器侧打桩）：落格 / 采纳写回 / 撤销 / 5 次历史 / 重试 / 500 重试
+// 4. AI 三行 + 行内 tone（浏览器侧打桩）：弹窗出卡 / 采纳写回 / 撤销 / 换一个版数递增 / 500 弹窗错误体重试
 // 5. 免费版：AI 点击 0 请求 + 统一升级 toast；手填全流程不受影响
-// 6. 主线体检：面板级 sink + 确认按钮仍可点
+// 6. 主线体检：报告卡弹窗（无写回键）+ 确认按钮仍可点 + 重新检查
 // 7. 存量旧书（legacy premise + volumes）→ 打开不炸 / 归一显示 / 保存镜像 / volumes 保留
 // =========================================================================
 // 会话注入与既有 spec 同法（S端 真实签发 + docker config.json + check-auth 页面级桩）。
@@ -211,7 +211,7 @@ test.describe("主线面板（v2：全景 + 结局三问）", () => {
 });
 
 test.describe("主线 AI（会员，浏览器侧打桩）", () => {
-  test("起草主线：落全景下方 → 采纳写回 → 回执一步撤销", async ({ page }) => {
+  test("起草主线：弹窗出卡 → 采纳写回 → 回执一步撤销", async ({ page }) => {
     const { restore } = await setupSession(page, "trial");
     try {
       await createNovel(page, `主线起草${Date.now() % 100000}`);
@@ -224,9 +224,14 @@ test.describe("主线 AI（会员，浏览器侧打桩）", () => {
       }));
       await openArcPanel(page);
       await page.locator('.col-ai [data-aiact="draft"]').click();
-      await expect(page.locator('[data-od-id="arc-ai-sink-draft"]')).toBeVisible({ timeout: 5000 });
-      // 采纳 → 写回全景与三问
-      await page.locator('[data-od-id="arc-ai-sink-draft"]').getByRole("button", { name: /采纳/ }).click();
+      // 结果进 arc-ai-card 弹窗（portal 到 body），卡体带草稿内容与版数徽标
+      const card = page.getByTestId("arc-ai-card");
+      await expect(card).toBeVisible({ timeout: 5000 });
+      await expect(card).toContainText("AI 全景：陆征追查失踪案触及保护伞");
+      await expect(page.getByTestId("ai-card-version")).toHaveText("第 1 版");
+      // 采纳 → 弹窗关 + 写回全景与三问
+      await page.getByTestId("ai-card-adopt").click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(page.locator('[data-od-id="arc-fullstory"]')).toHaveValue(/AI 全景/, { timeout: 8000 });
       await expect(page.locator('[data-od-id="arc-ending-tone"]')).toHaveValue("苦尽甘来");
       // 回执一步撤销 → 还原
@@ -238,7 +243,7 @@ test.describe("主线 AI（会员，浏览器侧打桩）", () => {
     }
   });
 
-  test("行内基调 AI：建议落输入框下方 → 采纳写回；500 → 错误提示 → 重试成功", async ({ page }) => {
+  test("行内基调 AI：500 → 弹窗错误体 → 换一个重试成功 → 采纳写回", async ({ page }) => {
     const { restore } = await setupSession(page, "trial");
     try {
       await createNovel(page, `主线行内${Date.now() % 100000}`);
@@ -254,18 +259,24 @@ test.describe("主线 AI（会员，浏览器侧打桩）", () => {
       const firstCall = page.waitForResponse((r) => r.url().includes("/ai/arc/tone"));
       await page.locator('[data-od-id="arc-tone-ai-fill"]').click();
       await firstCall; // 500 往返真落地（条件等待替代固定 sleep）
-      // 失败后按钮仍可点（未卡在途态）→ 第二次点击成功
-      await page.locator('[data-od-id="arc-tone-ai-fill"]').click();
-      await expect(page.locator('[data-od-id="arc-ai-sink-tone"]')).toBeVisible({ timeout: 5000 });
-      await expect(page.getByText("苦尽甘来", { exact: true })).toBeVisible({ timeout: 5000 });
-      await page.locator('[data-od-id="arc-ai-sink-tone"]').getByRole("button", { name: /采纳/ }).click();
+      // 无缓存失败：弹窗开着展示错误体，换一个（重试）可用
+      const card = page.getByTestId("arc-ai-card");
+      await expect(card).toBeVisible({ timeout: 5000 });
+      await expect(page.getByTestId("ai-card-error")).toBeVisible();
+      // 换一个 → 第二次请求成功，卡体出建议（失败不计版数，成功后＝第 1 版）
+      await page.getByTestId("ai-card-regen").click();
+      await expect(card).toContainText("苦尽甘来", { timeout: 5000 });
+      await expect(page.getByTestId("ai-card-version")).toHaveText("第 1 版");
+      // 采纳 → 弹窗关 + 写回基调
+      await page.getByTestId("ai-card-adopt").click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(page.locator('[data-od-id="arc-ending-tone"]')).toHaveValue("苦尽甘来");
     } finally {
       await restore();
     }
   });
 
-  test("主线体检：面板级 sink 四线 + 确认按钮仍可点 + 重跑", async ({ page }) => {
+  test("主线体检：报告卡弹窗（无写回键）+ 确认按钮仍可点 + 重新检查", async ({ page }) => {
     const { restore } = await setupSession(page, "trial");
     try {
       await createNovel(page, `主线体检${Date.now() % 100000}`);
@@ -283,48 +294,62 @@ test.describe("主线 AI（会员，浏览器侧打桩）", () => {
       }));
       await openArcPanel(page);
       await page.locator('.col-ai [data-aiact="check"]').click();
-      await expect(page.locator('[data-od-id="arc-ai-sink-check"]')).toBeVisible({ timeout: 5000 });
-      await expect(page.locator('[data-od-id="arc-ai-sink-check"]').getByText("三问对得上")).toBeVisible();
+      const card = page.getByTestId("arc-ai-card");
+      await expect(card).toBeVisible({ timeout: 5000 });
+      await expect(card).toContainText("三问对得上");
+      // 报告卡只提醒：无写回键（footer 只有 关闭 + 重新检查）
+      await expect(page.getByTestId("ai-card-adopt")).toHaveCount(0);
       // 只提醒不拦确认
       await expect(
         page.locator(".panel-foot").getByRole("button", { name: "确认完成" }),
       ).toBeEnabled();
-      // 重跑可用
-      await page.locator('[data-od-id="arc-ai-sink-check"]').getByRole("button", { name: "重试" }).click();
-      await expect(page.locator('[data-od-id="arc-ai-sink-check"]')).toBeVisible({ timeout: 5000 });
+      // 重新检查可用：报告卡保持在弹窗内刷新
+      await page.getByTestId("ai-card-regen").click();
+      await expect(card).toContainText("三问对得上", { timeout: 5000 });
     } finally {
       await restore();
     }
   });
 
-  test("5 次历史：第 6 次丢弃最旧 + 切回旧次采纳", async ({ page }) => {
+  test("换一个重生成：版数递增；重开展示缓存不发新请求（D9）", async ({ page }) => {
     const { restore } = await setupSession(page, "trial");
     try {
       await createNovel(page, `主线历史${Date.now() % 100000}`);
       let calls = 0;
-      await stubArcAi(page, () => {
+      await stubArcAi(page, () => ({ status: 200, body: {} })); // ai-model 就绪桩（tone 路由下面单独接管）
+      await page.route(/\/api\/novels\/[^/]+\/settings\/ai\/arc\/tone/, async (route) => {
         calls += 1;
-        return { status: 200, body: { value: { tone: `第${calls}版` } } };
+        if (calls === 2) await new Promise((r) => setTimeout(r, 400)); // 第二版放慢：钉 D3 在途态
+        return route.fulfill({
+          status: 200,
+          body: JSON.stringify({ value: { tone: `第${calls}版` } }),
+          contentType: "application/json",
+        });
       });
       await openArcPanel(page);
       const btn = page.locator('[data-od-id="arc-tone-ai-fill"]');
-      for (let i = 0; i < 5; i++) {
-        const resp = page.waitForResponse((r) => r.url().includes("/ai/arc/tone"));
-        await btn.click();
-        await resp; // 每次建议往返真落地（条件等待替代固定 sleep）
-        if (i >= 1) {
-          // 第 1 次建议不渲染历史条（AiSink 历史条 total>1 才显示）；从第 2 次起逐枚等
-          await expect(page.locator('[data-od-id="arc-ai-sink-tone"] .ah-chip')).toHaveCount(i + 1);
-        }
-      }
-      // 第 6 次触发重试：仍 5 枚 chip（上限提示）
-      await page.locator('[data-od-id="arc-ai-sink-tone"]').getByRole("button", { name: "重试" }).click();
-      await expect(page.getByText(/只保留最近 5 次/)).toBeVisible({ timeout: 5000 });
-      await expect(page.locator('[data-od-id="arc-ai-sink-tone"] .ah-chip')).toHaveCount(5);
-      // 切回最旧一枚 chip（显示序「第 1 次」＝原始第 2 版——第 6 次已 shift 掉最旧）并采纳
-      await page.locator('[data-od-id="arc-ai-sink-tone"] .ah-chip').first().click();
-      await page.locator('[data-od-id="arc-ai-sink-tone"]').getByRole("button", { name: /采纳/ }).click();
+      const card = page.getByTestId("arc-ai-card");
+      await btn.click();
+      await expect(card).toContainText("第1版", { timeout: 5000 });
+      await expect(page.getByTestId("ai-card-version")).toHaveText("第 1 版");
+      // 换一个在途（D3）：旧版保持可见、采纳键仍 enabled（禁用的只是「换一个」）
+      const regenResp = page.waitForResponse((r) => r.url().includes("/ai/arc/tone"));
+      await page.getByTestId("ai-card-regen").click();
+      await expect(page.getByTestId("ai-card-adopt")).toBeEnabled();
+      await expect(card).toContainText("第1版");
+      await regenResp;
+      // 第二版落地：卡体刷新 + 版数徽标递增（历史切条退役，只留最新一版）
+      await expect(card).toContainText("第2版", { timeout: 5000 });
+      await expect(page.getByTestId("ai-card-version")).toHaveText("第 2 版");
+      // 采纳 → 写回的是当前版
+      await page.getByTestId("ai-card-adopt").click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(page.locator('[data-od-id="arc-ending-tone"]')).toHaveValue("第2版");
+      // 同一能力行再点＝重开缓存（D9）：弹窗带来源提示条，请求计数不变
+      await btn.click();
+      await expect(card).toBeVisible({ timeout: 5000 });
+      await expect(page.getByTestId("ai-card-cache")).toBeVisible();
+      expect(calls).toBe(2);
     } finally {
       await restore();
     }
@@ -337,7 +362,8 @@ test.describe("主线 AI（会员，浏览器侧打桩）", () => {
       await stubArcAi(page, () => ({ status: 200, body: { value: { tone: "苦尽甘来" } } }));
       await openArcPanel(page);
       await page.locator('[data-od-id="arc-tone-ai-fill"]').click();
-      await page.locator('[data-od-id="arc-ai-sink-tone"]').getByRole("button", { name: /采纳/ }).click();
+      await expect(page.getByTestId("arc-ai-card")).toBeVisible({ timeout: 5000 });
+      await page.getByTestId("ai-card-adopt").click();
       await expect(page.locator(".panel-foot").getByRole("button", { name: "撤销" })).toBeVisible();
       // 确认完成（save 成功 → 回执清空）
       await page.locator(".panel-foot").getByRole("button", { name: "确认完成" }).click();

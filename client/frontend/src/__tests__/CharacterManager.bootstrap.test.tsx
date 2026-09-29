@@ -126,7 +126,13 @@ describe("CharacterManager 从简介立主角", () => {
     skipped: [{ key: "age", why: "作者自己定" }],
   };
 
-  it("空态出稿→采纳＝建主角卡＋逐格补写", async () => {
+  /** 弹窗 footer 的「关闭」键（头部 X 的 aria-label 同名，取 DOM 序最后一个＝footer）。 */
+  function footerClose() {
+    const btns = screen.getAllByRole("button", { name: "关闭" });
+    return btns[btns.length - 1];
+  }
+
+  it("空态出稿→采纳＝建主角卡＋逐格补写（统一进 char-ai-card 弹窗）", async () => {
     apiPost.mockImplementation((url: string, body?: unknown) => {
       if (String(url) === "/novels/p1/settings/ai/characters/bootstrap") {
         return Promise.resolve({ data: DRAFT });
@@ -142,14 +148,17 @@ describe("CharacterManager 从简介立主角", () => {
     const onCtx = vi.fn();
     render(<CharacterManager projectId="p1" introReady onCtxChange={onCtx} />);
     fireEvent.click(await screen.findByRole("button", { name: "从简介立主角" }));
-    // 出稿预览：名称/别名/人设都先过目
-    expect(await screen.findByText("AI 拟稿 · 采纳才写入")).toBeTruthy();
-    expect(screen.getByText("林拾")).toBeTruthy();
-    expect(screen.getByText("拾哥")).toBeTruthy();
-    expect(screen.getByText(/扫了十年落叶/)).toBeTruthy();
+    // 出稿进弹窗（内嵌预览块退役）：名称/别名/人设都先过目
+    expect(await screen.findByTestId("char-ai-card")).toBeTruthy();
+    expect(screen.getByText("AI 拟稿 · 从简介立主角（采纳才写入）")).toBeTruthy();
+    const body = screen.getByTestId("char-ai-card").textContent!;
+    expect(body).toContain("林拾");
+    expect(body).toContain("拾哥");
+    expect(body).toMatch(/扫了十年落叶/);
     // 采纳：create(主角) → aliases/persona/cells 逐格 PATCH（走既有单格写入）
     fireEvent.click(screen.getByRole("button", { name: "采纳 · 写入" }));
     await waitFor(() => expect(apiPatch).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByTestId("char-ai-card")).toBeNull()); // 确认写回＝弹窗自动关
     const createCall = apiPost.mock.calls.find((c) => c[0] === "/novels/p1/characters");
     expect(createCall?.[1]).toEqual({ name: "林拾", role: "主角" });
     const patched = apiPatch.mock.calls.map((c) => (c[1] as { path: string }).path);
@@ -179,7 +188,7 @@ describe("CharacterManager 从简介立主角", () => {
     await act(async () => {
       await ref.current?.runAi?.("bootstrap");
     });
-    await screen.findByText("AI 拟稿 · 采纳才写入");
+    await screen.findByTestId("char-ai-card");
     fireEvent.click(screen.getByRole("button", { name: "采纳 · 写入" }));
     await waitFor(() => expect(apiPatch).toHaveBeenCalled());
     const createCalls = apiPost.mock.calls.filter((c) => c[0] === "/novels/p1/characters");
@@ -217,8 +226,8 @@ describe("CharacterManager 从简介立主角", () => {
     await act(async () => {
       await ref.current?.runAi?.("bootstrap");
     });
-    await screen.findByText("AI 拟稿 · 采纳才写入");
-    // 作者在出稿与采纳之间手写了「外貌标签」
+    await screen.findByTestId("char-ai-card");
+    // 作者在出稿与采纳之间手写了「外貌标签」（弹窗开着，底层表单仍可编辑）
     fireEvent.change(screen.getByRole("textbox", { name: "外貌标签" }), {
       target: { value: "作者写的外貌" },
     });
@@ -230,6 +239,95 @@ describe("CharacterManager 从简介立主角", () => {
     );
     expect(lookPatches).toHaveLength(1);
     expect((lookPatches[0][1] as { value: string }).value).toBe("作者写的外貌");
+  });
+
+  it("关闭即弃：出稿弹窗关闭后字段不变、无残留", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (String(url) === "/novels/p1/characters") {
+        return Promise.resolve({ data: listWith([cardData()]) });
+      }
+      return Promise.resolve({ data: cardData() });
+    });
+    apiPost.mockImplementation((url: string) => {
+      if (String(url).includes("/bootstrap")) {
+        return Promise.resolve({ data: DRAFT });
+      }
+      return Promise.resolve({ data: cardData() });
+    });
+    const ref = createRef<CharacterSaveHandle>();
+    render(<CharacterManager ref={ref} projectId="p1" introReady />);
+    await screen.findByText(/一句话人设/);
+    await act(async () => {
+      await ref.current?.runAi?.("bootstrap");
+    });
+    await screen.findByTestId("char-ai-card");
+    fireEvent.click(footerClose());
+    await waitFor(() => expect(screen.queryByTestId("char-ai-card")).toBeNull());
+    // 关闭即弃：名字/人设没被写、无 PATCH
+    expect((screen.getByRole("textbox", { name: "角色名称" }) as HTMLInputElement).value).toBe("");
+    expect((screen.getByRole("textbox", { name: "一句话人设" }) as HTMLTextAreaElement).value).toBe("");
+    expect(apiPatch).not.toHaveBeenCalled();
+  });
+
+  it("缓存重开：同一行再点＝重开弹窗展示缓存，不再发请求（D9）", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (String(url) === "/novels/p1/characters") {
+        return Promise.resolve({ data: listWith([cardData()]) });
+      }
+      return Promise.resolve({ data: cardData() });
+    });
+    apiPost.mockImplementation((url: string) => {
+      if (String(url).includes("/bootstrap")) {
+        return Promise.resolve({ data: DRAFT });
+      }
+      return Promise.resolve({ data: cardData() });
+    });
+    const ref = createRef<CharacterSaveHandle>();
+    render(<CharacterManager ref={ref} projectId="p1" introReady />);
+    await screen.findByText(/一句话人设/);
+    await act(async () => {
+      await ref.current?.runAi?.("bootstrap");
+    });
+    await screen.findByTestId("char-ai-card");
+    fireEvent.click(footerClose());
+    await waitFor(() => expect(screen.queryByTestId("char-ai-card")).toBeNull());
+    expect(apiPost).toHaveBeenCalledTimes(1); // 只出过一次稿
+
+    await act(async () => {
+      await ref.current?.runAi?.("bootstrap");
+    });
+    await screen.findByTestId("char-ai-card");
+    expect(document.querySelector('[data-od-id="ai-card-cache"]')).toBeTruthy();
+    expect(screen.getByText(/上次生成结果/)).toBeTruthy();
+    expect(apiPost).toHaveBeenCalledTimes(1); // 缓存命中，无新请求
+  });
+
+  it("选中卡切换时弹窗关闭（缓存面板级寿命）", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (String(url) === "/novels/p1/characters") {
+        return Promise.resolve({
+          data: listWith([cardData({ id: "c1", name: "张三" }), cardData({ id: "c2", name: "李四" })]),
+        });
+      }
+      if (String(url).endsWith("/c1")) return Promise.resolve({ data: cardData({ id: "c1", name: "张三" }) });
+      return Promise.resolve({ data: cardData({ id: "c2", name: "李四" }) });
+    });
+    apiPost.mockImplementation((url: string) => {
+      if (String(url).includes("/bootstrap")) {
+        return Promise.resolve({ data: DRAFT });
+      }
+      return Promise.resolve({ data: cardData() });
+    });
+    const ref = createRef<CharacterSaveHandle>();
+    render(<CharacterManager ref={ref} projectId="p1" introReady />);
+    await screen.findByText("张三");
+    await act(async () => {
+      await ref.current?.runAi?.("bootstrap");
+    });
+    await screen.findByTestId("char-ai-card");
+    fireEvent.click(screen.getByText("李四"));
+    await waitFor(() => expect(screen.queryByTestId("char-ai-card")).toBeNull());
+    expect(apiPost).toHaveBeenCalledTimes(1); // 切卡不出稿
   });
 
   it("AI 门控未就绪：空态按钮点击走 onBlocked、不发请求", async () => {
