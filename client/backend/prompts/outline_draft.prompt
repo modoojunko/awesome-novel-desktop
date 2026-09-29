@@ -10,7 +10,8 @@
 字段口径：
 - kind 只能是 clue/reveal/twist/emotion/power/relation/relief；
 - plot_stage 只能是 开局铺垫/冲突初现/矛盾升级/重要转折/高潮爆发/卷末收束 之一；
-- word_target 为 500-6000 的整数，拿不准给 2500。
+- word_target 为 500-6000 的整数，拿不准给 2500；
+- 活跃伏笔里标「建议本章收束」的条目写入 must_resolve；需要继续按住不揭的活跃伏笔写入 must_hold；台账为空时两列表可为空。
 
 只输出 JSON，不要其他文字：
 {{

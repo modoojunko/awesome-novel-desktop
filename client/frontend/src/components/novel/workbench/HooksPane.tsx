@@ -2,30 +2,11 @@
  *  章内只读台账投影——全书统一维护的伏笔按埋点章展示，本章埋下/回收的条目高亮。
  *  volumeScope（卷选中态）：截至该卷末的台账投影，逐条标注本卷埋下/本卷回收/
  *  跨卷悬置（c-volume-view-storyline）。
- *  数据源：真表 novel_hooks（status active/resolved）＋卷章树（id→章号解析）。 */
-import { useEffect, useMemo, useState } from "react";
-import { api } from "@/lib/api";
+ *  数据源：useHooksLedger（真表 novel_hooks 投影＋卷章树 id→章号解析；
+ *  c-og-hooks-projection 抽出共享，章纲页两格投影同源）。 */
+import { useMemo } from "react";
 import { chapterNoOf, parseChapterRef } from "@/lib/chapterRef";
-
-interface HookRow {
-  id: string;
-  code: string;
-  description: string;
-  type: string;
-  priority: number;
-  status: string;
-  introduced_chapter_id: string | null;
-  planned_chapter_id: string | null;
-  mentioned_chapter_id: string | null;
-  resolved_chapter_id: string | null;
-}
-
-interface ChapterLite {
-  id: string;
-  ref: string;
-  chapter: number;
-  title: string;
-}
+import { useHooksLedger, type HookRow } from "@/hooks/useHooksLedger";
 
 export function HooksPane({
   projectId,
@@ -37,52 +18,7 @@ export function HooksPane({
   /** 卷选中态：截至该卷末的台账投影（埋点卷号 > 该卷的条目不显示） */
   volumeScope?: number;
 }) {
-  const [hooks, setHooks] = useState<HookRow[]>([]);
-  const [chapters, setChapters] = useState<ChapterLite[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const d = (await api.get(`/novels/${projectId}/hooks`)) as {
-          data?: { items?: HookRow[] };
-          items?: HookRow[];
-          count?: number;
-        };
-        // 端点外层 {ok, data:{count, items}}；容错 items 直挂在顶层
-        const items = d.data?.items ?? d.items ?? [];
-        if (!cancelled) setHooks(items);
-      } catch {
-        if (!cancelled) setError("伏笔台账加载失败");
-      }
-      try {
-        const tree = (await api.get(`/novels/${projectId}/volumes`)) as Array<{
-          name?: string;
-          ref?: string;
-          chapters?: Array<{ id?: string; chapter: number; ref?: string; title?: string }>;
-        }>;
-        const flat: ChapterLite[] = [];
-        for (const v of tree) {
-          for (const c of v.chapters ?? []) {
-            const ref = c.ref ?? `${v.name ?? v.ref}-ch-${c.chapter}`;
-            flat.push({
-              id: c.id ?? ref,
-              ref,
-              chapter: c.chapter,
-              title: c.title ?? "",
-            });
-          }
-        }
-        if (!cancelled) setChapters(flat);
-      } catch {
-        /* 树加载失败只影响章号解析，不阻断台账 */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
+  const { hooks, chapters, error } = useHooksLedger(projectId);
 
   const chapterNo = useMemo(() => {
     return chapterRef ? chapterNoOf(chapterRef) : undefined;

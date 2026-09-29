@@ -449,3 +449,66 @@ class TestAiDraftGuarded:
         assert "血族议会" in system
         assert "【题材与节奏】" in system
         assert "【人物】" in system and "林野（主角）：夜班巡护者" in system
+
+    def test_draft_material_hooks_carry_due_signal(self, client, monkeypatch):
+        """c-og-hooks-projection：活跃伏笔块与写作素材包同口径——
+        编号＋优先级/类型＋「建议本章收束」；不给计划收信号则 must_resolve 判断无从谈起。"""
+        _set_tier("trial")
+        calls: list = []
+        fake = _setup_ai(monkeypatch, calls)
+        pid, ref = _create_project_and_chapter(client)
+
+        async def _seed():
+            from models.hook import NovelHook
+
+            session = async_session()
+            proj = await session.get(Novel, pid)
+            root = proj.root_path
+            ch_row = await chapters_store._get_chapter_by_root(session, root, ref)
+            ch_id = ch_row.id
+            await session.close()
+            session.add_all(
+                [
+                    # 开书埋点＋计划收=本章 → due：素材应带「建议本章收束」
+                    NovelHook(
+                        novel_id=pid, seq=1, description="猎血短刃的异常威力",
+                        type="mystery", priority=1, status="active",
+                        planned_chapter_id=ch_id,
+                    ),
+                    # 未设计划收 → 只带编号/标注，不带收束信号
+                    NovelHook(
+                        novel_id=pid, seq=2, description="屋顶黑影的身份",
+                        type="mystery", priority=2, status="active",
+                    ),
+                ]
+            )
+            await session.commit()
+            await session.close()
+            return ch_id
+
+        ch_id = _run_async(_seed())
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/outline/ai-draft")
+        assert r.status_code == 200, r.text
+        system = _layered_prompt(fake.last_kwargs)
+        assert "【活跃伏笔】" in system
+        assert "[H-0001] 猎血短刃的异常威力（优先级：高，类型：悬念，建议本章收束）" in system, system
+        assert "[H-0002] 屋顶黑影的身份（优先级：中，类型：悬念）" in system
+        # 本章引入的伏笔不进素材（与写作注入「排除本章引入」同口径）
+        async def _seed2():
+            from models.hook import NovelHook
+
+            session = async_session()
+            session.add(
+                NovelHook(
+                    novel_id=pid, seq=3, description="本章才埋的钩子",
+                    type="clue", priority=2, status="active",
+                    introduced_chapter_id=ch_id,
+                )
+            )
+            await session.commit()
+            await session.close()
+
+        _run_async(_seed2())
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/outline/ai-draft")
+        assert r.status_code == 200
+        assert "本章才埋的钩子" not in _layered_prompt(fake.last_kwargs)
