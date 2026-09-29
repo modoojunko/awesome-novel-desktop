@@ -28,7 +28,6 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - Given both frontends render without a `data-theme` attribute
 - When accent color is computed
 - Then it resolves to oklch(48% 0.11 170), identical to the pre-theme-system baseline
-
 ### Requirement: Shared status language and tone words
 - Progress-bearing objects SHALL express state through the three-state dot classes (`dot-empty`, `dot-warn`, `dot-ok`) plus a title attribute wherever progress semantics exist.
 - Evidence-bearing chapter rows in the reading preview (目录行) SHALL NOT use the three-state dot; they SHALL express 成稿状态 through the `.pill` status family with the labels 拟定 / 草稿 / 已归档, plus a word-count number in the mono/tabular style. 章纲 gap detail stays in the writing view.
@@ -45,7 +44,6 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - Given any S端 console, auth or landing screen needs a badge or a callout bar
 - When the page renders
 - Then badges use `.pill` role × tone classes and callout bars use `.notice` with an explicit tone, and no `.b` or `.strip` class remains in S端 source or rendered DOM
-
 ### Requirement: Prototype-first flow with per-end gates
 - Any user-visible C-end change SHALL update `docs/design-c/prototypes/<screen>.html` and record deviations in `docs/design-c/prototypes/ADJUSTMENTS.md` before implementation, and SHALL pass `npm run design:check` under 0.2% pixel difference per baseline scenario.
 - S-end changes have no prototype baseline; they SHALL provide before/after screenshot pairs inside the change folder as consistency evidence.
@@ -55,7 +53,6 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - Given an implementation keeps a denser rhythm than the default spacing scale
 - When reviewed
 - Then ADJUSTMENTS.md documents the deviation and its reason, or the change is rejected
-
 ### Requirement: Component vocabulary reuse before invention
 - Buttons SHALL map to the existing `.btn` size/variant ladder; C-end wrappers around it MUST NOT be introduced, and S-end shell components SHALL compile down to those same classes.
 - Static capsules belong to pill roles (tag/status/count); clickable capsule-like controls belong to the chip family.
@@ -73,7 +70,6 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - Given 下载成稿弹层渲染三种格式
 - When 用户点选其中一行
 - Then 该行呈现选中态（token 派生配色）且可键盘操作，另两行保持未选态
-
 ### Requirement: Cross-end shared-class synchronization
 - Classes that must render identically — tokens block (including `--on-accent`), `.btn` ladder, modal family, form base and error states, toast (including the `warn` tone), notices (`.notice` with explicit `info/ok/warn/err` tones), pills (`.pill` role × tone family), skeleton atoms (`.sk` + `sk-pulse`), panel cards (`.panel` + `hoverable/hl/compact`), empty-state slots — SHALL exist under the same name with the same declarations in both ends' `src/design/base.css`, inside a `@cross-begin/@cross-end` marked segment.
 - The `@cross-begin/@cross-end` markers and the validation script `scripts/design-cross.mjs` (repo root) SHALL exist; both ends' `package.json` SHALL expose it as `design:cross`.
@@ -94,7 +90,6 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - Given the change that establishes the markers has landed
 - When `design:cross` runs on both ends
 - Then the marked segments are byte-identical after whitespace normalization
-
 ### Requirement: Free vs PRO gating stays visible
 - PRO-only capabilities SHALL keep their entry points visible to free users in locked form with one sentence describing what unlocking provides; hiding entries is the documented exception requiring compensating notice.
 - Gating vocabulary in UI text SHALL avoid internal terms (gate/readiness/license errors); it describes what is missing and how to proceed.
@@ -103,23 +98,50 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - Given a free account already has the maximum number of projects
 - When they view the shelf
 - Then create/import appear locked with an upgrade path rather than being hidden
-
 ### Requirement: AI 写作助手卡片与结果区组件词汇
-- 新增「AI 写作助手」卡片组件（C端设定视图右栏）：PRO 徽标并入卡片头部＋标题＋一行套餐归属/只加工不代写；内部为**并列能力行**（每行＝名称上＋描述下从属＋右侧箭头，整行可点）；底部一条来源/去向声明。命名 `.rail-assist` + `.ra-*`。
-- 新增「AI 结果区」组件 `.ai-sink`：`TintPanel`（fg-soft 平底）只读说明，置于左侧对应输入框/字段**正下方**；顶部操作名标签（`.aiz-head`）＋候选文本＋采纳/重试按钮。必须用 fg-soft，不得用 `--surface`（surface 是可编辑/可操作容器底色，与输入框撞色会误判结果区可编辑）。
-- 这些是 **C端局部组件类**（不在两端共享 `base.css` 共享段），归 C端工作台设定视图作用域（`book.css` 或设定视图局部样式）；只复用共享令牌（`--fg-soft`/`--surface`/`--border`），不新增全局 token。
+- 「AI 写作助手」卡片组件（C端设定视图右栏）保持不变：PRO 徽标并入卡片头部＋标题＋一行套餐归属/只加工不代写；内部为**并列能力行**（每行＝名称上＋描述下从属＋右侧箭头，整行可点）；底部一条来源/去向声明。命名 `.rail-assist` + `.ra-*`。
+- AI 结果呈现 SHALL 统一为**「AI 出卡确认弹窗」**：复用全局弹窗壳（`design/Modal`）与写作域既有弹窗词汇，右栏能力行点击后结果进弹窗、弹窗内确认才写回、关闭即弃。**`.ai-sink` / `.aiz-*` 内嵌结果区词汇自本 change 起退役**，SHALL NOT 再作为设定域 AI 结果的渲染面；体检检查行沿各域既有 `chk-*`（角色页 `chk-row`）词汇**重挂**到弹窗卡体容器（Modal portal 到 body，`.settings-v .ai-sink` 前缀不再命中，词汇定义本身不变、只换挂载作用域）。
+- 弹窗四种卡形（不新增视觉词汇定义，逐一对齐写作域既有实现）：**文本卡**（内容＋「换一个」＋按域确认键）／**体检报告卡**（检查行列表＋「关闭」「重新检查」，无采纳键）／**候选勾选卡**（候选行可勾选＋「采纳」）／**结构化卡**（kv 行/势力行/逐格 diff 沿各域既有行词汇）。四卡形 footer 骨架统一＝次级「关闭」＋主行动键（按域文案）＋可选「换一个」；生成中 footer 隐藏主行动、占位常显。
+- **生成中关闭的保护口径**：生成中（running 态）允许关闭弹窗，最近一次生成结果 SHALL 缓存在面板 state；重开同一能力行 SHALL 直接展示缓存结果、不再发请求、不重复计 usage；「换一个」才重新生成。生成尚未返回即关闭＝放弃该次结果（请求在途自然丢弃），不弹挽留。
+- **版数计数**：文本卡 SHALL 显示已生成版数（「第 N 版」，从 1 起、每次「换一个」递增）；「换一个」在途期间旧版 SHALL 保持可读可采纳，新版到达后替换。
+- 生成中弹窗 SHALL 有进行中占位（prog 语气、aria-busy）；失败 SHALL 给可读提示＋可点击出口，动词单源：生成类失败＝「重试」、体检类＝「重新检查」；确认写回后 SHALL 沿既有回执一步撤销（ChangeReceipt）词汇。
+- 这些是 **C端局部组件**（不在两端共享 `base.css` 共享段），归 C端工作台设定视图作用域（`book.css` 或设定视图局部样式）；只复用共享令牌，不新增全局 token、不新增状态档位/胶囊形态/字号档位。
 - 能力行在无套餐时 SHALL 复用既有「可见 + 锁定」门控（见 Requirement: Free vs PRO gating stays visible）：整卡降透明、徽标转灰、行降透明 + cursor:not-allowed，点击给统一升级提示，不各自弹窗；锁定态卡片名 `.rail-assist.locked`。门控 key 用已登记的 `settings-ai-fields`（memberOnly），而非未登记的新 key。
 
 #### Scenario: 结果区不用可编辑底色
-- Given 简介/题材 AI 反馈已产出
-- When 查看结果区样式
-- Then 结果为 fg-soft 只读底（TintPanel），与输入框（surface）可区分，误判不可编辑
+- Given 简介/题材 AI 反馈已产出（弹窗卡内呈现）
+- When 查看弹窗卡内容区样式
+- Then 内容为 fg-soft 只读底、无输入控件（不误判可编辑）；写回只经弹窗确认键，与可编辑表单区（surface）可区分
+
+#### Scenario: 结果在弹窗确认后才写回
+- Given 简介 AI 补缺失已出候选
+- When 弹窗内点确认
+- Then 建议写回对应控件；未点确认直接关闭弹窗则不写回任何内容
+
+#### Scenario: 体检报告卡无采纳
+- Given 任一设定域体检已出报告
+- When 查看体检报告卡
+- Then 卡内为只读检查行列表＋「关闭」「重新检查」，无写回控件
+
+#### Scenario: 弹窗内换一个重新生成
+- Given 文本卡已出一版结果（显示「第 1 版」）
+- When 点「换一个」
+- Then 弹窗内就地重新生成并替换当前内容（版数递增为「第 2 版」），无历史条切换 UI；「换一个」在途期间旧版保持可读、可采纳
+
+#### Scenario: 生成中关闭后重开不重复计费
+- Given 主线起草这类长文生成进行中（30 秒级）
+- When 作者误按 Esc 关闭弹窗，随后再点同一能力行
+- Then 弹窗直接展示已缓存的那次结果（不再发请求、不重复计 usage）；点「换一个」才重新生成
+
+#### Scenario: 生成未返回即关闭＝放弃
+- Given 生成请求在途且尚未返回
+- When 作者关闭弹窗
+- Then 不弹挽留；该次结果放弃（在途响应被丢弃），面板与表单无残留
 
 #### Scenario: 能力行锁定态可见且不可点
 - Given 无套餐用户
 - When 查看 AI 写作助手卡片
 - Then 能力行名称/描述可见、整体降透明、点击给升级提示且不产出结果
-
 ### Requirement: 角色页的状态与体检行词汇
 
 角色设定页 SHALL 只使用既有状态语言与组件词汇，新增的状态与行型 SHALL 按下述口径登记：
@@ -128,10 +150,14 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - 人物关系的类型标签 SHALL 复用既有状态胶囊（`.pill` + 既有语气档），SHALL NOT 另造胶囊类名。
 - 徽标 SHALL 只用既有档位 `ok / warn / prog / empty`；「已确认」SHALL 用 `ok`（绿）且其文案 SHALL NOT 与其他状态混用。
 - 保存态 SHALL 复用既有四态（saving / saved / dirty / failed），失败态 SHALL 给可点击的重试出口。
-- 体检（一致性检查）逐项行在角色页 SHALL 使用独立类名（`.chk-row`：名称与结论一行、依据一行），SHALL NOT 覆盖既有 `.chk-line` 的样式作用域；结果区 SHALL 落在 `.ai-sink` 内。
+- 体检（一致性检查）逐项行在角色页 SHALL 使用独立类名（`.chk-row`：名称与结论一行、依据一行），SHALL NOT 覆盖既有 `.chk-line` 的样式作用域；体检结果 SHALL 落在「AI 出卡确认弹窗」的体检报告卡内（`.ai-sink` 已退役）。
 - 体检结论的第四个取值 SHALL 命名为 `conflict`（矛盾），渲染走 err 色；该取值 SHALL NOT 加入既有世界页的结论白名单（避免把「矛盾」在世界页显示成「缺失」）。
 - 「内容有变 · 待重新确认」这一状态的文案 SHALL NOT 含「已确认」字样（依据 §5 状态语言 S-R2 与「已确认 → ok 软底徽标」条目；状态措辞以标准正文为准，不在 spec 里另行转述）。
 - 「草稿」这类**常态化**状态 SHALL NOT 用 warn 徽标（依据 §5 的 S-R3：警示性徽标不得常态化）；未确认只是常态属性，SHALL 用中性档位表达。
+
+#### Scenario: 角色体检落弹窗报告卡
+- **WHEN** 作者对当前角色跑一致性体检
+- **THEN** 结果呈现在 AI 出卡弹窗的体检报告卡内（逐项 `.chk-row` 行、四态结论＋依据），弹窗关闭后不残留面板内结果区
 
 #### Scenario: 只复用既有胶囊与徽标
 - **WHEN** 查看角色页的类型胶囊、关系标签与徽标
@@ -148,7 +174,6 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 #### Scenario: 第三态文案合规
 - **WHEN** 角色项因内容变动退回未完成
 - **THEN** 徽标文案为「内容有变 · 待重新确认」，不含「已确认」字样
-
 ### Requirement: 认知六层的理解层次标记
 
 角色认知六层区块 SHALL 在层头补一句大白话 hint（给作家看的，不出现「理解层次/NLP/上三层下三层/精神层」等术语）：
@@ -167,7 +192,6 @@ s5 的展示口径 SHALL 为「宿命认知观」＋hint「他和这个世界到
 #### Scenario: 词表双源一致
 - **WHEN** 后端 character_model 与前端 characterModel 的 label/口径变更
 - **THEN** 两端同批修改且 parity 测试通过（镜像个数为零）
-
 ### Requirement: 伏笔面板的词表与状态词汇
 
 - 伏笔台账与伏笔卡 SHALL 使用 settings-v 作用域的 hk-* 词表（台账两行条目、分组头、伏笔卡档案表）， SHALL NOT 复用世界面板现役 `.kv-row` 等同名异义类——落地时以 ADJUSTMENTS 登记的类名映射表为准（`.kv` 家族作用域化或改名 `.hk-kv`）。
@@ -185,7 +209,6 @@ s5 的展示口径 SHALL 为「宿命认知观」＋hint「他和这个世界到
 
 - **WHEN** 伏笔面板与世界面板同处于设定视图
 - **THEN** 伏笔卡的档案表样式不改变世界面板 `.kv-row` 的布局（类名经映射表隔离）
-
 ### Requirement: 设定页内页签与文风量化词表
 
 - 设定面板内层级 SHALL 允许页签（`.settings-v .ptabs/.ptab`），并在 ADJUSTMENTS 登记页签回归例外（仅面板内层级，面板间导航仍走左树）；页签激活态沿 modnav 口径（accent 下划线）。
@@ -204,7 +227,6 @@ s5 的展示口径 SHALL 为「宿命认知观」＋hint「他和这个世界到
 
 - **WHEN** 基线行「篇幅配比」处于锁定态
 - **THEN** 锁定按钮带 aria-pressed=true，五层条 aria-hidden=true
-
 ### Requirement: C端 书架阶段徽标四态档位
 
 - C端 书架卡片的阶段徽标（`.b` 家族，C端 业务层专属，与 S端「`.b` 退役」口径无关）SHALL 呈现四态档位，档位-语气映射固定：
@@ -219,7 +241,6 @@ s5 的展示口径 SHALL 为「宿命认知观」＋hint「他和这个世界到
 
 - **WHEN** 书架上同时存在设定中/写作中/待完本/已完结四本书
 - **THEN** 四张卡片的徽标分别命中 setting（中性）/writing（warn）/ready（accent）/done（ok）四档，无其它形态
-
 ### Requirement: 中栏空态卡的四档词汇（`.e-empty` 家族）
 
 中栏默认页的空态卡 SHALL 用四档版式层级表达「这一屏在问你什么」，档位与命名固定为：

@@ -22,7 +22,6 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 - Given the create modal is open
 - When the name input is empty
 - Then the create button is disabled
-
 ### Requirement: Rename (display name only)
 - The backend PATCH /api/novels/{id} endpoint SHALL rename the display name only.
 - slug and root_path SHALL remain unchanged.
@@ -41,7 +40,6 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 - Given a novel on the list page
 - When the author uses the card dropdown "重命名" or the title inline edit
 - Then the rename modal/input appears and saving updates the name in place
-
 ### Requirement: Settings backfill (manual synopsis)
 - GET /api/novels/{id}/story SHALL read story.yaml.synopsis.
 - PUT /api/novels/{id}/story SHALL write story.yaml.synopsis and SHALL NOT trigger AI prefill.
@@ -57,10 +55,9 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 - Given a free-tier user without AI access
 - When they create a novel or rename one
 - Then the request succeeds (no 403 from require_ai_access)
-
 ### Requirement: 设定视图三段式布局
 
-设定视图 SHALL 与写作视图采用一致的三段式布局：左侧设定项导航、中间当前设定项表单、右侧 AI 栏。AI 相关功能在右侧 AI 栏呈现，而非嵌入表单内部。「文风」面板 SHALL 为面板内两页签（文字文风/量化参数），页签为面板内层级（ADJUSTMENTS 登记例外），页签切换不触发面板间脏守卫。
+设定视图 SHALL 与写作视图采用一致的三段式布局：左侧设定项导航、中间当前设定项表单、右侧 AI 栏。AI 相关功能在右侧 AI 栏呈现，而非嵌入表单内部。「文风」面板 SHALL 为面板内两页签（文字文风/量化参数），页签为面板内层级（ADJUSTMENTS 登记例外），页签切换不触发面板间脏守卫。各面板右栏 AI 能力行的结果 SHALL 统一经「AI 出卡确认弹窗」呈现：确认才写回、关闭即弃；体检类＝只读报告卡（无采纳）；面板与卡片内不再渲染格下/卡底内嵌结果区（`.ai-sink` 退役，见 design-system）。
 
 #### Scenario: 三栏呈现
 
@@ -71,14 +68,16 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 #### Scenario: 主线面板的 AI 栏
 
 - **WHEN** 用户选中「主线」设定项
-- **THEN** 右侧 AI 栏显示「AI 写作助手」三行能力卡（起草主线 / 结局校准 / 主线体检），答案落对应格下方、采纳才写回
+- **THEN** 右侧 AI 栏显示「AI 写作助手」三行能力卡（起草主线 / 结局校准 / 主线体检），答案经弹窗出卡确认才写回
 - **AND** 主线表单内不再渲染四步向导入口（结局基调第三问的行内「AI 帮我填」属字段级入口，不受此限）
 
 #### Scenario: 其他面板的 AI 栏
 
-- **WHEN** 用户选中「世界 / AI痕迹控制」
-- **THEN** AI 栏显示该设定项的 AI 能力说明与入口提示（字段内「AI 帮我填」按钮保持原位）
-- **WHEN** 用户选中无 AI 能力的设定项（题材/简介/AI 模型）
+- **WHEN** 用户选中「世界」
+- **THEN** AI 栏显示该设定项的能力行卡（字段级快捷钮结果与右栏同走弹窗出卡；「AI痕迹控制」面板已退役并入文风，本场景枚举随之改准）
+- **WHEN** 用户选中「简介 / 题材」
+- **THEN** AI 栏分别显示简介三行 / 题材四行能力卡（见 intro-genre-settings capability；原「无 AI 能力」清单为存量过期口径）
+- **WHEN** 用户选中「AI 模型」
 - **THEN** AI 栏显示「当前设定项暂无 AI 功能」占位说明
 - **AND** 「伏笔」自本 change 起具备右栏 AI 四行（见 foreshadow-settings capability），不再属于无 AI 能力清单
 
@@ -86,13 +85,13 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 
 - **WHEN** 用户选中「文风」设定项
 - **THEN** 中间栏呈两页签：文字文风（默认签，三区＋例句折叠）/ 量化参数（未蒸馏空态或蒸馏视图或基线六行），页签徽标「题材默认/已自定义」与「未蒸馏/置信度 N」
-- **AND** 右侧 AI 栏显示「AI 写作助手」四行能力（蒸馏我的文风 / 润色文字文风 / 锚定体检 / 例句提炼），答案落卡底结果区或对应字段，采纳·覆盖才写回
+- **AND** 右侧 AI 栏显示「AI 写作助手」四行能力（蒸馏我的文风 / 润色文字文风 / 锚定体检 / 例句提炼）；润色与例句提炼的结果 SHALL 经弹窗出卡过目、确认才写回（原无预览直写路径就此废止）；锚定体检＝只读报告卡；蒸馏保持面板内画像确认卡不变
 - **AND** 免费态四行可见＋锁定，点击走统一升级出口；蒸馏完成落卡后自动停在量化页签
 
 #### Scenario: 伏笔面板的 AI 栏
 
 - **WHEN** 用户选中「伏笔」设定项
-- **THEN** 右侧 AI 栏显示「AI 写作助手」四行能力（起草伏笔 / 拟收束方案 / 埋坑体检 / 查一致性），答案落卡底结果区或对应字段，采纳·覆盖才写回
+- **THEN** 右侧 AI 栏显示「AI 写作助手」四行能力（起草伏笔 / 拟收束方案 / 埋坑体检 / 查一致性），答案经弹窗出卡确认才写回
 - **AND** 免费态四行可见＋锁定，点击走统一升级出口
 
 #### Scenario: 角色面板的 AI 栏
@@ -100,7 +99,7 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 - **WHEN** 用户选中「角色」设定项
 - **THEN** 右侧 AI 栏显示「AI 写作助手」四行能力（人设补充 / 基础信息补充 / 认知补充 / 一致性体检），四行只对当前选中的角色生效
 - **AND** 每行结构沿用既有能力行（名称 + 描述，描述内含「会读什么」）
-- **AND** 补全类能力的答案落卡片内对应字段区的结果区（`.ai-sink`），体检结论落卡片内结果区，右栏只作按钮、不内嵌答案
+- **AND** 全部结果经弹窗出卡呈现（补全类＝结构化卡逐格 diff，体检＝只读报告卡），右栏只作按钮、不内嵌答案
 
 #### Scenario: 多对象设定的内嵌子双栏
 
@@ -132,7 +131,6 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 
 - **WHEN** 存量书 style KV 带 possible_mistakes/tone 旧数据，用户在新 UI 修改硬约束并保存
 - **THEN** PUT 后 style KV 的 possible_mistakes/tone 键值保持原样（零写回）
-
 ### Requirement: 多对象设定的内嵌子双栏
 
 「角色」「伏笔」设定项的中间栏 SHALL 呈内嵌子双栏，且占满中间栏内容区。
@@ -164,7 +162,6 @@ TBD - created by archiving change creation-simplify. Update Purpose after archiv
 
 - **WHEN** 用户打开「角色」面板或在其内切换选中对象
 - **THEN** 列表内容由一次请求返回（含类型、别名、首次出场与缺口提示），切换选中不逐角色再取
-
 ### Requirement: 设定完成入口（去写作）
 
 设定 8 项全部确认（done === total）且存在「去写作」出口时，设定页左栏进度行 SHALL 升级为完成卡：行头对勾图标＋「设定完成 8/8」＋「全部就绪」徽标，整块 ok-soft 底＋ok 描边，进度条满格转绿，块内展开主 CTA「去写作」；CTA 下方 SHALL 保留一行小字「写作时也能回来改设定，不冲突」。未完成（done < total）时进度行 SHALL 保持现状样式，SHALL NOT 出现完成卡。点击「去写作」SHALL 切换到写作视图（onGoWrite 契约不变）。改版前的全宽普通主按钮「设定完成 · 去写作」SHALL 从左栏移除。
