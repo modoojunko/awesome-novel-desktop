@@ -11,10 +11,10 @@
 ## 3. 测试
 
 - [x] 3.1 `workbenchExtras.test.tsx` 卷态用例重写＋新增：①卷态并入剧情边（preview 以本卷末章 ref 调用、evo 边上图同向覆盖开书边、图例文案）；②跨卷边不显示（vol-2 来源被投影过滤）；③未归档章已采纳行并入（get 按未归档 ref 调用、pending 不上图）；④投影失败静默退回开书边＋加载门控；⑤章态/缩放存量用例适配（aria-label 变更、TREE 补 archived）。完成证据＝vitest 全绿。
-- [ ] 3.2 e2e `chapter-dossier.spec.ts` ③″ 后插卷态投影断言：切卷视图「角色关系」页签，断言已采纳剧情边上图、待确认不上图、图例含「截至第 1 卷末」。完成证据＝隔离栈 e2e 该文件全绿。
+- [x] 3.2 e2e `chapter-dossier.spec.ts` ③″ 后插卷态投影断言：切卷视图「角色关系」页签，断言已采纳剧情边上图、待确认不上图、图例含「截至第 1 卷末」。完成证据＝隔离栈 e2e 该文件全绿。
 
 ## 4. 门禁与交付
 
 - [x] 4.1 门禁：`npm run design:lint`（零 CSS 变更，design-cross 不适用）＋ `tsc --noEmit` ＋全量 vitest。完成证据＝各命令实际输出结论。
-- [ ] 4.2 隔离栈 e2e 重跑 `chapter-dossier.spec.ts`（per-session 隔离环境配方）。完成证据＝全绿输出。
-- [ ] 4.3 `openspec validate --strict` 全绿；PR（标题不带硬编码 PR 号）；合并后按归档流程 sync specs（workbench MODIFIED）。
+- [x] 4.2 隔离栈 e2e 重跑 `chapter-dossier.spec.ts`（per-session 隔离环境配方）。完成证据＝全绿输出。
+- [x] 4.3 `openspec validate --strict` 全绿；PR（标题不带硬编码 PR 号）；合并后按归档流程 sync specs（workbench MODIFIED）。
