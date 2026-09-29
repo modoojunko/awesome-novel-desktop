@@ -1421,12 +1421,15 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .wb .view.on.three-col .vol-shell .panel { max-width: none; }
 .wb .view.on.three-col:not(.settings-v) .panel { max-width: 660px; }
 
-/* 内容型面板衬垫：单源继承（替代各面板自补/漏补） */
+/* 内容型面板衬垫＋列内滚动：单源继承（替代各面板自补/漏补）。
+   滚动契约同 .og-pane（flex:1/min-height:0/overflow-y:auto）：.wb 封顶视口
+   且 overflow:hidden，页签内容超高只会被裁掉——缺这三条长伏笔台账不可达
+   （09-29 伏笔页签实锤），五个内容页签一并遵守。 */
 .wb .view.on.three-col .settings-pane,
 .wb .view.on.three-col .style-pane,
 .wb .view.on.three-col .relations-pane,
 .wb .view.on.three-col .actions-pane,
-.wb .view.on.three-col .hooks-wrap { padding: var(--col-pad-t) var(--col-pad-x) var(--col-pad-b); }
+.wb .view.on.three-col .hooks-wrap { flex: 1; min-height: 0; overflow-y: auto; padding: var(--col-pad-t) var(--col-pad-x) var(--col-pad-b); }
 
 /* 行级版心：文风表单行/操作卡等内容行不超过 --col-measure（修复 838px 铺满） */
 .wb .view.on.three-col .style-pane > *,
