@@ -168,8 +168,8 @@ async def _run_async(
     except Exception:  # noqa: BLE001 — 名册取不到：lore 退回无名册（不阻塞收尾）
         roster = ""
 
-    # 伏笔台账排重（真机实锤 09-29：重复归档把同一批伏笔三四个变体反复入账——
-    # hooks 与 lore 同构：带「已有条目不要重复登记」，从源头防重）
+    # 伏笔对账块（c-hooks-advance-ledger）：带编号＋计划收束章注入——模型先对账
+    # （兑现/推进既有条目，按编号引用）再判新埋；#589 的纯排重升级为对账制
     hooks_now = ""
     try:
         from db import async_session as _as
@@ -183,12 +183,33 @@ async def _run_async(
                     )
                 )
             ).all()
-            descs = [h.description.strip() for h in _hooks if (h.description or "").strip()]
-            if descs:
-                hooks_now = "本书已有伏笔台账（相同或高度相似的不要重复登记）：\n" + "\n".join(
-                    f"- {d}" for d in descs[:40]
+            # 计划收束章号一次取回（章已删 SET NULL → 该行不带计划标注）
+            _ch_ids = {h.planned_chapter_id for h in _hooks if h.planned_chapter_id}
+            _planned: dict[str, int] = {}
+            if _ch_ids:
+                from models.chapter import Chapter as _Chapter
+
+                _ch_rows = (
+                    await _db.scalars(select(_Chapter).where(_Chapter.id.in_(_ch_ids)))
+                ).all()
+                _planned = {c.id: c.chapter for c in _ch_rows}
+            lines = []
+            for h in _hooks[:40]:
+                desc = (h.description or "").strip()
+                if not desc:
+                    continue
+                plan = _planned.get(h.planned_chapter_id or "")
+                lines.append(
+                    f"- #H-{h.seq:04d} {desc}"
+                    + (f"（计划收束：第 {plan} 章）" if plan else "")
                 )
-    except Exception:  # noqa: BLE001 — 台账取不到：hooks 退回无排重（不阻塞收尾）
+            if lines:
+                hooks_now = (
+                    "本书已有伏笔台账（先对账：判断本章是否兑现或推进了其中条目，"
+                    "resolved/advanced 按编号引用；相同或高度相似的不要重复登记为新埋）：\n"
+                    + "\n".join(lines)
+                )
+    except Exception:  # noqa: BLE001 — 台账取不到：hooks 退回无对账块（不阻塞收尾）
         hooks_now = ""
 
     for kind, prompt in _collect_prompts(
@@ -253,13 +274,16 @@ def _collect_prompts(
     world_block = f"现有世界设定（与之重复的不要提）：\n{world_now}\n\n" if world_now else ""
     hooks_block = f"{hooks_now}\n\n" if hooks_now else ""
     yield "hooks", (
-        f"判断第 {chapter_ref} 章埋下或收束了哪些伏笔。只登记作者有意埋下、后文需要回收的真伏笔"
-        f"（明确的悬念，指向后文揭示）；氛围描写、场景细节、角色的身体或状态变化不要登记"
-        f"（角色状态另有人物状态域负责）。planted 最多 3 条、resolved 最多 3 条，"
-        f"超出只留证据最强、最像长线悬念的。"
-        f'JSON 数组输出，形如 {{"planted": [{{"description": "信标坐标漂移", '
-        f'"evidence": "原文一句话"}}], "resolved": [{{"description": "镜面之谜", '
-        f'"evidence": "…"}}]}}。没有则输出空数组。\n\n{hooks_block}正文：\n{body}'
+        f"判断第 {chapter_ref} 章对既有伏笔的兑现与推进，以及新埋了哪些伏笔。"
+        f"先对账（台账见下）：resolved＝本章兑现收束的条目、advanced＝本章有实质揭示或"
+        f"强化的条目（纯提及不算），都按编号 ref 引用并给证据；再判新埋：只登记作者有意"
+        f"埋下、后文需要回收的真伏笔（明确的悬念，指向后文揭示），氛围描写、场景细节、"
+        f"角色的身体或状态变化不要登记（角色状态另有人物状态域负责）。"
+        f"resolved、advanced、planted 各最多 3 条；本章没有新悬念时 planted 输出空数组，宁缺勿滥。"
+        f'JSON 数组输出，形如 {{"resolved": [{{"ref": "#H-0003", "note": "怎么收的一句话", '
+        f'"evidence": "原文一句话"}}], "advanced": [{{"ref": "#H-0001", "note": "推进说明", '
+        f'"evidence": "…"}}], "planted": [{{"description": "信标坐标漂移", '
+        f'"evidence": "…"}}]}}。\n\n{hooks_block}正文：\n{body}'
     )
     roster_block = (
         f"{roster}\n已登记角色（上表人物）的背景、身份、经历属于角色卡——不要作为世界要素提案。\n\n"
@@ -364,11 +388,13 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
         await get_storage().write_yaml(novel.root_path, _K2P["world"], merged)
 
     elif row.kind == "hooks":
-        # 伏笔登记：埋下 → create_hook(active, introduced=本章)；
-        # 收束 → 描述匹配既有 active 钩（命中改 resolved＋收束章；未命中建已收束条目）
-        # 幂等（spec 承诺「再次采纳同键提案 SHALL NOT 重复建条」，真机实锤 09-29：
-        # 重复归档的措辞变体把同一伏笔建成三四条）——建条前按描述归一化查重：
-        # 去空白/标点/大小写后与本书既有任何钩相同即跳过（含同 payload 内互重）。
+        # 伏笔登记（c-hooks-advance-ledger 对账制）：
+        #   resolved → 按编号 ref 精确命中台账行 → patch resolved＋收束章＋payoff_note
+        #   advanced → 按编号 ref 命中 → mentioned_chapter_id 回填本章（最近推进留痕，
+        #              状态不动——models/hook.py 注释预留的「归档 UI 归写作期」口子）
+        #   planted  → 建新条（归一化查重，#589）
+        # ref 解析失败/行不存在 → 跳过该条目（模型幻觉编号不毁整批）；
+        # 旧格式（resolved 无 ref 有 description，存量 pending 行）→ 兼容按描述包含匹配。
         from settings.hooks_service import create_hook, patch_hook
 
         def _norm(s: str) -> str:
@@ -376,12 +402,65 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
                 ch for ch in s.lower() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff"
             )
 
+        def _seq_of(ref: str) -> int | None:
+            import re as _re
+
+            m = _re.fullmatch(r"#?H-?0*(\d{1,6})", str(ref or "").strip())
+            return int(m.group(1)) if m else None
+
         existing = {
             _norm(h.description or "")
             for h in (
                 await db.scalars(select(NovelHook).where(NovelHook.novel_id == row.novel_id))
             ).all()
         }
+
+        for item in payload.get("resolved") or []:
+            if not isinstance(item, dict):
+                continue
+            seq = _seq_of(item.get("ref"))
+            note = str(item.get("note", "")).strip()[:300]
+            target = None
+            if seq is not None:
+                target = await db.scalar(
+                    select(NovelHook).where(
+                        NovelHook.novel_id == row.novel_id, NovelHook.seq == seq
+                    )
+                )
+            elif item.get("description"):
+                desc = str(item["description"]).strip()[:300]
+                hooks = (
+                    await db.scalars(
+                        select(NovelHook).where(
+                            NovelHook.novel_id == row.novel_id,
+                            NovelHook.status == "active",
+                        )
+                    )
+                ).all()
+                target = next(
+                    (h for h in hooks if desc and desc in (h.description or "")), None
+                )
+            if target is None:
+                continue  # 幻觉编号/行不存在：跳过，不中断整批
+            fields: dict = {"status": "resolved", "resolved_chapter_id": row.chapter_id}
+            if note:
+                fields["payoff_note"] = note
+            await patch_hook(db, row.novel_id, target.id, fields)
+
+        for item in payload.get("advanced") or []:
+            if not isinstance(item, dict):
+                continue
+            seq = _seq_of(item.get("ref"))
+            if seq is None:
+                continue
+            target = await db.scalar(
+                select(NovelHook).where(
+                    NovelHook.novel_id == row.novel_id, NovelHook.seq == seq
+                )
+            )
+            if target is None or target.status != "active":
+                continue
+            target.mentioned_chapter_id = row.chapter_id
 
         for item in payload.get("planted") or []:
             desc = str(item.get("description", "")).strip()[:300]
@@ -397,37 +476,6 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
                 # 服务契约：章引用列只认章 id（ref 字符串会被白名单拒绝）
                 "introduced_chapter_id": row.chapter_id,
             })
-        for item in payload.get("resolved") or []:
-            desc = str(item.get("description", "")).strip()[:300]
-            key = _norm(desc)
-            if not desc:
-                continue
-            hooks = (
-                await db.scalars(
-                    select(NovelHook).where(
-                        NovelHook.novel_id == row.novel_id,
-                        NovelHook.status == "active",
-                    )
-                )
-            ).all()
-            target = next(
-                (h for h in hooks if desc and desc in (h.description or "")), None
-            )
-            if target is not None:
-                await patch_hook(db, row.novel_id, target.id, {
-                    "status": "resolved",
-                    "resolved_chapter_id": row.chapter_id,
-                })
-            elif key not in existing:
-                existing.add(key)
-                await create_hook(db, row.novel_id, {
-                    "description": desc,
-                    "type": "mystery",
-                    "priority": 2,
-                    "status": "resolved",
-                    "introduced_chapter_id": row.chapter_id,
-                    "resolved_chapter_id": row.chapter_id,
-                })
 
     else:
         raise ValueError(f"未知的收尾类别：{row.kind}")

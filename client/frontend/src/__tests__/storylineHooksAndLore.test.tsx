@@ -124,6 +124,38 @@ describe("HooksPane（章内伏笔台账投影）", () => {
     expect(screen.queryByText("已弃")).toBeNull();
     expect(screen.queryByText("已废弃的重复变体")).toBeNull();
   });
+
+  it("投影行推进与该收了（c-hooks-advance-ledger）：mentioned 晚于埋点显示、planned ≤ 当前章标注", async () => {
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.endsWith("/hooks"))
+        return {
+          data: {
+            count: 1,
+            items: [
+              {
+                id: "h5",
+                code: "#H-0005",
+                description: "西仓巷的新委托",
+                type: "clue",
+                priority: 2,
+                status: "active",
+                introduced_chapter_id: "c1",
+                mentioned_chapter_id: "c2", // 推进于第 2 章（≠埋点 → 显示）
+                planned_chapter_id: "c1", // 计划收第 1 章 ≤ 当前章 2 → 该收了
+                resolved_chapter_id: null,
+              },
+            ],
+          },
+        };
+      if (p.endsWith("/volumes")) return TREE;
+      throw new Error("unexpected " + p);
+    });
+    render(<HooksPane projectId="p1" chapterRef="vol-1-ch-2" />);
+    const origin = await screen.findByText(/埋于 第 1 章 · 第一章/);
+    expect(origin.textContent).toContain("最近推进 第 2 章");
+    expect(origin.textContent).toContain("计划收 第 1 章");
+    expect(document.querySelector(".hp-due")?.textContent).toBe("该收了");
+  });
 });
 
 describe("HooksSettingForm 废弃组默认隐藏（c-hooks-abandoned-hidden）", () => {

@@ -1319,6 +1319,10 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .hp-origin { font-style: normal; font-size: 11.5px; color: var(--muted); width: 100%; }
 .hp-state { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .hp-state.open { color: var(--warn); }
+/* 该收了（c-hooks-advance-ledger）：计划收束章已到仍悬置的行级小标 */
+.hp-due, .hk-due { font-style: normal; font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid color-mix(in oklch, var(--err) 38%, transparent); color: var(--err); white-space: nowrap; }
+.hp-due { margin-left: 6px; }
+.hk-due { margin-left: 2px; flex: none; }
 
 /* ─── rail-assist：右栏 AI 助手卡（c-ai-rail-shared：全局统一 ra-* 布局，
        写作/设定/卷三域同构；原 storyline 裸 flex 基线退役） ──── */
