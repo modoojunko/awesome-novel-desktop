@@ -122,7 +122,7 @@ function mockBookApi() {
 }
 
 describe("RelationsGraphPane 章态并入剧情关系", () => {
-  it("截至本章剧情边上图：本章高亮、待确认虚线、同向覆盖开书边；清单只列往章与开书", async () => {
+  it("双源上图：往章演变走 preview、本章采纳/待确认走章档端点；同向覆盖开书边", async () => {
     mockBookApi();
     dossierState.preview.mockResolvedValue({
       up_to_ref: "vol-1-ch-2",
@@ -130,25 +130,26 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
         relations: [
           // 往章演变：覆盖开书设定「林晚 → 船帮：敌对」
           { owner: "林晚", other: "船帮", rel_type: "同盟", change_note: "入伙同船", ref: "vol-1-ch-1" },
-          // 本章采纳：高亮边，覆盖开书设定「老聋 → 林晚：师徒」
-          { owner: "老聋", other: "林晚", rel_type: "决裂", change_note: "翻脸", ref: "vol-1-ch-2" },
         ],
       },
-      counts: { relations: 2 },
+      counts: { relations: 1 },
       skipped_stale_refs: [],
     });
     dossierState.get.mockResolvedValue({
       rows: [
+        // 本章已采纳：高亮边，覆盖开书设定「老聋 → 林晚：师徒」（与工作流区同源）
+        { id: "r2", domain: "relations", status: "accepted", owner: "老聋", other: "林晚",
+          rel_type: "决裂", change_note: "翻脸", flags: "", evidence: "", decided_at: "" },
         // 本章待确认：虚线提案边（无角色卡也能上图为占位节点的场景另测）
         { id: "r1", domain: "relations", status: "pending", owner: "船帮", other: "林晚",
           rel_type: "追缉", change_note: "悬赏缉拿", flags: "", evidence: "", decided_at: "" },
       ],
-      progress: { pending: 1, accepted: 0, rejected: 0 },
+      progress: { pending: 1, accepted: 1, rejected: 0 },
       extraction: null,
       not_extracted: false,
       stale: false,
       archived: true,
-      accepted_count: 2,
+      accepted_count: 1,
     });
     render(<RelationsGraphPane projectId="p1" chapterRef="vol-1-ch-2" />);
 
@@ -176,6 +177,40 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
     // 图例：3 卡＋0 占位 · 4 条边（剧情演变 2 · 待确认 1）
     expect(screen.getByText(/3 个角色 · 4 条关系（剧情演变 2 · 待确认 1）/)).toBeTruthy();
     expect(screen.queryByText(/还没连线/)).toBeNull();
+  });
+
+  it("未归档章的已采纳行也上图；preview 的本章行不重复", async () => {
+    mockBookApi();
+    // 本章未归档：preview 理应不含本章行；即便含（曾归档后回草稿）也按 ref 过滤防重复
+    dossierState.preview.mockResolvedValue({
+      up_to_ref: "vol-1-ch-1",
+      domains: {
+        relations: [
+          { owner: "老聋", other: "林晚", rel_type: "敌对", change_note: "举枪相向", ref: "vol-1-ch-1" },
+        ],
+      },
+      counts: { relations: 1 },
+      skipped_stale_refs: [],
+    });
+    dossierState.get.mockResolvedValue({
+      rows: [
+        { id: "d1", domain: "relations", status: "accepted", owner: "老聋", other: "林晚",
+          rel_type: "决裂", change_note: "举枪相向", flags: "", evidence: "", decided_at: "" },
+      ],
+      progress: { pending: 0, accepted: 1, rejected: 0 },
+      extraction: null,
+      not_extracted: false,
+      stale: false,
+      archived: false,
+      accepted_count: 1,
+    });
+    render(<RelationsGraphPane projectId="p1" chapterRef="vol-1-ch-1" />);
+    // 恰 1 条本章高亮边（章档端点承载，preview 同向行被 ref 过滤不重复）
+    await screen.findByText(/3 个角色 · 3 条关系（剧情演变 1 · 待确认 0）/);
+    expect(document.querySelectorAll(".rg-edge.hit .rg-line")).toHaveLength(1);
+    expect(document.querySelectorAll(".rg-edge.pending")).toHaveLength(0);
+    // 本章采纳边覆盖开书设定「老聋 → 林晚：师徒」
+    expect(screen.queryByText(/师徒/)).toBeNull();
   });
 
   it("未登记名给虚线占位节点，关系照常上图", async () => {

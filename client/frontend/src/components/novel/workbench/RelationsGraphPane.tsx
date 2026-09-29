@@ -1,9 +1,10 @@
 /** 「角色关系」页签（workbench-relations-graph）：关系图为主表达，行清单兜底。
  *  节点=角色卡（本章变化里未登记的名字给虚线占位节点），边=单向视角关系。
- *  章打开态（chapterRef）：并入「截至本章」剧情关系（dossier/preview 单源＝写章
- *  消费同源：已采纳∧已归档∧非 stale，按 (owner,other) 后章覆盖）——本章采纳边
- *  高亮、待确认边虚线；同向剧情边覆盖开书设定边。行清单只列开书设定与往章演变
- *  边，本章边由「本章关系变化」工作流区呈现（证据＋采纳/驳回）。
+ *  章打开态（chapterRef）双源：往章演变边＝dossier/preview（写章消费同源：已采纳
+ *  ∧已归档∧非 stale，按 (owner,other) 后章覆盖）；本章边＝章档端点（已采纳高亮、
+ *  待确认虚线，与「本章关系变化」工作流区同源同态，不要求本章已归档）。
+ *  同向剧情边覆盖开书设定边。行清单只列开书设定与往章演变边，本章边由工作流区
+ *  呈现（证据＋采纳/驳回）。
  *  卷选中态（volumeScope）：截至该卷末的关系投影，只读无章高亮、不并入剧情边
  *  （c-volume-view-storyline）。 */
 import { useEffect, useMemo, useState } from "react";
@@ -230,7 +231,9 @@ export function RelationsGraphPane({
     };
   }, [projectId]);
 
-  // 章打开态：截至本章剧情关系（preview 单源）＋本章待确认行；行动作后事件重拉
+  // 章打开态：往章演变边走 preview（写章消费单源：已归档口径）＋本章边走章档端点
+  // （已采纳＝hit、待确认＝虚线提案，与下方工作流区同源同态，不要求本章已归档）；
+  // 行动作后事件重拉
   useEffect(() => {
     if (!chapterRef) {
       setDossier([]);
@@ -245,27 +248,29 @@ export function RelationsGraphPane({
           dossierApi.get(projectId, chapterRef),
         ]);
         if (!alive) return;
-        const accepted = ((pv.domains?.relations ?? []) as Array<Record<string, string>>).map(
-          (r) => ({
+        // 往章已采纳（preview 已按 (owner,other) 后章覆盖；本章行由章档端点承载，跳过防重）
+        const evolved = ((pv.domains?.relations ?? []) as Array<Record<string, string>>)
+          .filter((r) => r.ref !== chapterRef)
+          .map((r) => ({
             owner: r.owner ?? "",
             other: r.other ?? "",
             rel_type: r.rel_type ?? "",
             change_note: r.change_note ?? "",
             ref: r.ref ?? "",
-            kind: (r.ref === chapterRef ? "hit" : "evo") as EdgeKind,
-          }),
-        );
-        const pending = (cur.rows ?? [])
-          .filter((r) => r.domain === "relations" && r.status === "pending")
+            kind: "evo" as const,
+          }));
+        // 本章边：已采纳（高亮实线）＋待确认（虚线提案），章级口径与工作流区一致
+        const mine = (cur.rows ?? [])
+          .filter((r) => r.domain === "relations" && r.status !== "rejected")
           .map((r) => ({
             owner: r.owner ?? "",
             other: r.other ?? "",
             rel_type: r.rel_type ?? "",
             change_note: r.change_note ?? "",
             ref: chapterRef,
-            kind: "pending" as const,
+            kind: (r.status === "accepted" ? "hit" : "pending") as EdgeKind,
           }));
-        setDossier([...accepted, ...pending]);
+        setDossier([...evolved, ...mine]);
       } catch {
         /* 静默：图退回开书设定边，不阻断 */
       } finally {
