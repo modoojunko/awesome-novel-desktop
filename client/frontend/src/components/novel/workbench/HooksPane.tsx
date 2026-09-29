@@ -113,10 +113,16 @@ export function HooksPane({
     return chapters.find((c) => c.id === id)?.title ?? "";
   };
 
+  // 废弃条目不进投影（用户拍板 09-29）：汇总/计数/台账行同口径；恢复入口在设定页
+  const visible = useMemo(
+    () => hooks.filter((h) => h.status !== "abandoned"),
+    [hooks],
+  );
+
   // 卷域口径：可见性（埋点卷 ≤ 该卷）＋ 归类标注（本卷埋下/本卷回收/跨卷悬置）
   const scoped = useMemo(() => {
     if (volumeScope == null) return null;
-    const visible = hooks.filter((h) => {
+    const visibleScoped = visible.filter((h) => {
       const pv = h.introduced_chapter_id
         ? (volOfChapter.get(h.introduced_chapter_id) ?? 0)
         : 0;
@@ -134,12 +140,12 @@ export function HooksPane({
       if (h.status === "active") return "跨卷悬置";
       return "跨卷已收";
     };
-    return visible.map((h) => ({ h, tag: tagOf(h) }));
-  }, [hooks, volOfChapter, volumeScope]);
+    return visibleScoped.map((h) => ({ h, tag: tagOf(h) }));
+  }, [visible, volOfChapter, volumeScope]);
 
-  const openCount = hooks.filter((h) => h.status === "active").length;
-  const plantHere = hooks.filter((h) => h.introduced_chapter_id === currentId).length;
-  const resolveHere = hooks.filter((h) => h.resolved_chapter_id === currentId).length;
+  const openCount = visible.filter((h) => h.status === "active").length;
+  const plantHere = visible.filter((h) => h.introduced_chapter_id === currentId).length;
+  const resolveHere = visible.filter((h) => h.resolved_chapter_id === currentId).length;
 
   if (error) return <p className="vempty">{error}</p>;
 
@@ -161,7 +167,7 @@ export function HooksPane({
         </p>
       ) : (
         <p className="hp-sum">
-          <b>{hooks.length}</b> 条 · <b>{openCount}</b> 条悬置
+          <b>{visible.length}</b> 条 · <b>{openCount}</b> 条悬置
           {plantHere > 0 && (
             <>
               {" "}
@@ -179,14 +185,14 @@ export function HooksPane({
       {volumeScope != null && scoped && scoped.length === 0 && (
         <p className="vempty">截至这一卷末，还没有关联的伏笔。</p>
       )}
-      {volumeScope == null && hooks.length === 0 && (
+      {volumeScope == null && visible.length === 0 && (
         <p className="vempty">还没有伏笔条目。到「设定 · 伏笔」里登记第一条。</p>
       )}
       {(volumeScope != null && scoped && scoped.length > 0
         ? true
-        : volumeScope == null && hooks.length > 0) && (
+        : volumeScope == null && visible.length > 0) && (
         <div className="hp-ledger">
-          {(scoped ?? hooks.map((h) => ({ h, tag: null as string | null }))).map(
+          {(scoped ?? visible.map((h) => ({ h, tag: null as string | null }))).map(
             ({ h, tag }) => {
               const hit =
                 (currentId && h.introduced_chapter_id === currentId) ||
@@ -194,9 +200,7 @@ export function HooksPane({
               const state =
                 h.status === "resolved"
                   ? `已收 · ${labelOf(h.resolved_chapter_id) ?? "—"}`
-                  : h.status === "abandoned"
-                    ? "已弃"
-                    : "悬置";
+                  : "悬置";
               return (
                 <div className={`hp-row${hit ? " hit" : ""}`} key={h.id}>
                   <span className="hp-name">
@@ -217,9 +221,9 @@ export function HooksPane({
           )}
         </div>
       )}
-      {hooks.length > 0 && (
+      {visible.length > 0 && (
         <p className="foot-note">
-          台账在「设定 · 伏笔」维护；归档时 AI 的伏笔登记提案在「操作」页签逐条确认。
+          台账在「设定 · 伏笔」维护；归档时 AI 的伏笔登记提案在「伏笔」页签逐条确认。
         </p>
       )}
     </div>

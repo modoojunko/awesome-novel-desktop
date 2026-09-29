@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { HooksPane } from "@/components/novel/workbench/HooksPane";
 import { SettingsChangelogPane } from "@/components/novel/workbench/SettingsChangelogPane";
+import HooksSettingForm from "@/components/novel/settings/HooksSettingForm";
 
 // ---------------------------------------------------------------------------
 // A 组（storyline 补齐）：章内伏笔台账投影（本章高亮）＋设定页「截至本章」
@@ -88,6 +89,105 @@ describe("HooksPane（章内伏笔台账投影）", () => {
     expect(screen.getByText("已收 · 第 2 章")).toBeTruthy();
     // 埋点章展示（第 1 章 · 第一章；h2/h3 两条都埋在第 1 章）
     expect(screen.getAllByText(/埋于 第 1 章 · 第一章/).length).toBe(2);
+  });
+
+  it("废弃条目不进投影：汇总计数与台账行都不含已弃（c-hooks-abandoned-hidden）", async () => {
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.endsWith("/hooks"))
+        return {
+          data: {
+            count: 3,
+            items: [
+              ...HOOKS.data.items,
+              {
+                id: "h9",
+                code: "#H-0009",
+                description: "已废弃的重复变体",
+                type: "mystery",
+                priority: 2,
+                status: "abandoned",
+                introduced_chapter_id: "c2",
+                planned_chapter_id: null,
+                resolved_chapter_id: null,
+              },
+            ],
+          },
+        };
+      if (p.endsWith("/volumes")) return TREE;
+      throw new Error("unexpected " + p);
+    });
+    render(<HooksPane projectId="p1" chapterRef="vol-1-ch-2" />);
+    (await screen.findAllByText("谁在暗中跟着她"))[0];
+    // 汇总仍是 3 条（非 4）；无「已弃」行、无废弃描述
+    const sum = document.querySelector(".hp-sum")?.textContent ?? "";
+    expect(sum).toContain("3");
+    expect(screen.queryByText("已弃")).toBeNull();
+    expect(screen.queryByText("已废弃的重复变体")).toBeNull();
+  });
+});
+
+describe("HooksSettingForm 废弃组默认隐藏（c-hooks-abandoned-hidden）", () => {
+  const PROPS = {
+    projectId: "p1",
+    onPanelState: () => {},
+    onSaveStateChange: () => {},
+  } as any;
+
+  function mockFormApi() {
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.endsWith("/hooks"))
+        return {
+          data: {
+            count: 3,
+            items: [
+              ...HOOKS.data.items,
+              {
+                id: "h9",
+                code: "#H-0009",
+                description: "已废弃的重复变体",
+                type: "mystery",
+                priority: 2,
+                status: "abandoned",
+                introduced_chapter_id: "c1",
+                planned_chapter_id: null,
+                resolved_chapter_id: null,
+              },
+            ],
+          },
+        };
+      if (p.endsWith("/volumes")) return TREE;
+      throw new Error("unexpected " + p);
+    });
+  }
+
+  it("默认不渲染废弃组与废弃条目；点「显示已废弃」后出现", async () => {
+    mockFormApi();
+    render(<HooksSettingForm {...PROPS} />);
+    (await screen.findAllByText("谁在暗中跟着她"))[0];
+    // 默认：活跃组在、废弃描述不在、开关文案带计数
+    expect(screen.queryByText("已废弃的重复变体")).toBeNull();
+    // 组头无「废弃」分组（卡上三态切换器仍含废弃选项，属卡片功能不在此断言）
+    expect(document.querySelector(".hk-group")?.textContent ?? "").not.toContain("废弃");
+    const toggle = screen.getByTestId("toggle-abandoned");
+    expect(toggle.textContent).toContain("显示已废弃（1）");
+    // 点开：废弃组＋条目出现
+    fireEvent.click(toggle);
+    expect(await screen.findByText("已废弃的重复变体")).toBeTruthy();
+    expect(
+      [...document.querySelectorAll(".hk-group")].some((g) => g.textContent?.includes("废弃")),
+    ).toBe(true);
+    expect(screen.getByTestId("toggle-abandoned").textContent).toContain("隐藏已废弃");
+  });
+
+  it("无废弃条目时不出开关", async () => {
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.endsWith("/hooks")) return HOOKS;
+      if (p.endsWith("/volumes")) return TREE;
+      throw new Error("unexpected " + p);
+    });
+    render(<HooksSettingForm {...PROPS} />);
+    (await screen.findAllByText("谁在暗中跟着她"))[0];
+    expect(screen.queryByTestId("toggle-abandoned")).toBeNull();
   });
 });
 
