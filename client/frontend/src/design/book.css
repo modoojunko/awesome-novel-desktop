@@ -1245,7 +1245,15 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .rg-list { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
 /* 边态：色＝关系极性（敌红/友绿/中性灰），线宽/虚实/深浅＝状态
    （开书设定淡、往章演变中、本章采纳加重、待确认虚线）；箭头同极性色 */
+/* 节点色＝角色类型：主角实心品牌色、反派红软底、配角默认白底、路人虚线圈；
+   幽灵节点（未登记名）独立虚线圈。边色＝关系极性，线型＝状态，互不混用。 */
 .rg-node circle { fill: var(--surface); stroke: var(--border); stroke-width: 1.5; }
+.rg-node.role-protagonist circle { fill: var(--accent); stroke: var(--accent-strong); }
+.rg-node.role-protagonist text { fill: var(--on-accent); }
+.rg-node.role-villain circle { fill: var(--err-soft); stroke: var(--err); }
+.rg-node.role-villain text { fill: var(--err); }
+.rg-node.role-extra circle { fill: none; stroke: var(--muted); stroke-dasharray: 2 3; }
+.rg-node.role-extra text { fill: var(--muted); }
 .rg-node.ghost circle { stroke-dasharray: 4 3; }
 .rg-node.ghost text { fill: var(--muted); }
 .rg-line { stroke: var(--muted); stroke-width: 1.5; opacity: 0.55; }
@@ -1261,6 +1269,11 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .rg-arrow.hostile { fill: var(--err); }
 .rg-swatch { display: inline-block; width: 14px; border-top: 2.5px solid var(--muted); vertical-align: middle; margin: 0 4px 0 0; }
 .rg-key { white-space: nowrap; }
+.rg-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; margin: 0 4px 0 0; }
+.rg-dot.protagonist { background: var(--accent); border: 1.5px solid var(--accent-strong); }
+.rg-dot.villain { background: var(--err-soft); border: 1.5px solid var(--err); }
+.rg-dot.support { background: var(--surface); border: 1.5px solid var(--border); }
+.rg-dot.extra { border: 1.5px dashed var(--muted); }
 .rg-swatch.friendly { border-top-color: var(--ok); }
 .rg-swatch.hostile { border-top-color: var(--err); }
 .rg-note { font-style: normal; color: color-mix(in oklch, var(--muted) 80%, var(--fg)); }

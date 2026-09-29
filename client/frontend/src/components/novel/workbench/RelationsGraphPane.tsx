@@ -86,6 +86,14 @@ function relPolarity(relType: string): Polarity {
   return "neutral";
 }
 
+/** 节点按角色类型着色（词表 ROLES=主角/配角/反派/路人，白名单校验；未知值回落配角）。 */
+function roleKey(role: string | undefined): "protagonist" | "villain" | "extra" | "support" {
+  if (role === "主角") return "protagonist";
+  if (role === "反派") return "villain";
+  if (role === "路人") return "extra";
+  return "support";
+}
+
 /** 箭头落在节点圆周外缘：路径端点（B）沿来向回缩 r+gap，避免箭头藏进节点圆下。 */
 function trimEnd(
   bx: number, by: number, refx: number, refy: number, r = 26, gap = 3,
@@ -529,7 +537,7 @@ export function RelationsGraphPane({
             <g
               key={nd.id}
               transform={`translate(${p.x}, ${p.y})`}
-              className={nd.ghost ? "rg-node ghost" : "rg-node"}
+              className={nd.ghost ? "rg-node ghost" : `rg-node role-${roleKey(nd.role)}`}
             >
               <circle r={26} />
               <text textAnchor="middle" dy="4" className="rg-name">
@@ -555,6 +563,10 @@ export function RelationsGraphPane({
         <span className="rg-key"><i className="rg-swatch friendly" />友好</span>
         <span className="rg-key"><i className="rg-swatch hostile" />敌对</span>
         <span className="rg-key"><i className="rg-swatch neutral" />中性</span>
+        <span className="rg-key"><i className="rg-dot protagonist" />主角</span>
+        <span className="rg-key"><i className="rg-dot villain" />反派</span>
+        <span className="rg-key"><i className="rg-dot support" />配角</span>
+        <span className="rg-key"><i className="rg-dot extra" />路人</span>
       </p>
       {listEdges.length > 0 && (
         <ul className="rg-list">
