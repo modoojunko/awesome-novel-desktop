@@ -5,8 +5,9 @@
  *  待确认虚线，与「本章关系变化」工作流区同源同态，不要求本章已归档）。
  *  同向剧情边覆盖开书设定边。行清单只列开书设定与往章演变边，本章边由工作流区
  *  呈现（证据＋采纳/驳回）。
- *  卷选中态（volumeScope）：截至该卷末的关系投影，只读无章高亮、不并入剧情边
- *  （c-volume-view-storyline）。 */
+ *  卷选中态（volumeScope）：截至该卷末的剧情投影，只读无章高亮——剧情边＝preview
+ *  截至本卷末章（已归档折叠单源）＋范围内未归档章的已采纳行并入，随时对齐本卷剧情
+ *  最新的已确认关系；待确认提案不上图（c-volume-rels-live）。 */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { chapterNoOf, parseChapterRef } from "@/lib/chapterRef";
@@ -182,7 +183,13 @@ function mergeGraph(
   return { nodes, edges: [...edges.values()] };
 }
 
-type ChapterMeta = Array<{ ref: string; chapter: number; title: string; stale?: boolean }>;
+type ChapterMeta = Array<{
+  ref: string;
+  chapter: number;
+  title: string;
+  stale?: boolean;
+  archived?: boolean;
+}>;
 
 function originLabel(e: MergedEdge, chapters: ChapterMeta): string {
   if (e.kind === "pending") return "本章";
@@ -212,12 +219,18 @@ export function RelationsGraphPane({
 }) {
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [chapters, setChapters] = useState<ChapterMeta>([]);
+  /** 卷树是否已就位（卷态投影要等它圈定本卷末章与未归档章清单） */
+  const [chaptersReady, setChaptersReady] = useState(false);
   const [dossier, setDossier] = useState<Array<EvoRelation & { kind: EdgeKind }>>([]);
-  /** 剧情边数据已就位的章 ref（null＝章态首次加载中；""＝卷态/无章）。
+  /** 剧情边数据已就位的域键（章 ref / `vol:{N}`；null＝首次加载中；""＝无域）。
    *  行动作触发的重拉不改它 → 沿用旧渲染，不闪「加载中」。 */
-  const [loadedForRef, setLoadedForRef] = useState<string | null>(chapterRef ? null : "");
+  const [loadedForRef, setLoadedForRef] = useState<string | null>(
+    chapterRef || volumeScope != null ? null : "",
+  );
   const [dossierTick, setDossierTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  /** 当前投影域键：章态＝章 ref，卷态＝`vol:{N}`，书态＝""（实际不出现） */
+  const scopeKey = chapterRef ?? (volumeScope != null ? `vol:${volumeScope}` : "");
 
   useEffect(() => {
     let alive = true;
@@ -240,7 +253,7 @@ export function RelationsGraphPane({
     };
   }, [projectId]);
 
-  // 来源章题名与「基于旧设定」角标（投影用；失败静默，不阻断图）
+  // 来源章题名、「基于旧设定」角标与卷态投影材料（未归档章清单；失败静默，不阻断图）
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -248,7 +261,13 @@ export function RelationsGraphPane({
         const tree = (await api.get(`/novels/${projectId}/volumes`)) as Array<{
           name?: string;
           ref?: string;
-          chapters?: Array<{ ref?: string; chapter: number; title?: string; stale?: boolean }>;
+          chapters?: Array<{
+            ref?: string;
+            chapter: number;
+            title?: string;
+            stale?: boolean;
+            archived?: boolean;
+          }>;
         }>;
         const flat: ChapterMeta = [];
         for (const v of tree ?? []) {
@@ -258,12 +277,15 @@ export function RelationsGraphPane({
               chapter: c.chapter,
               title: c.title ?? "",
               stale: c.stale,
+              archived: c.archived,
             });
           }
         }
         if (alive) setChapters(flat);
       } catch {
         /* 题名失败不阻断 */
+      } finally {
+        if (alive) setChaptersReady(true);
       }
     })();
     return () => {
@@ -273,54 +295,113 @@ export function RelationsGraphPane({
 
   // 章打开态：往章演变边走 preview（写章消费单源：已归档口径）＋本章边走章档端点
   // （已采纳＝hit、待确认＝虚线提案，与下方工作流区同源同态，不要求本章已归档）；
-  // 行动作后事件重拉
+  // 行动作后事件重拉。
+  // 卷选中态（c-volume-rels-live）：截至本卷末章的 preview 折叠行＋范围内未归档章的
+  // 已采纳行并入（归档后回草稿窗口不丢已确认关系，随时对齐本卷最新）；preview 行在
+  // 前＝回草稿旧章的重写窗口里，后归档章的更晚剧情事实胜出（mergeGraph 同向先到先得）。
   useEffect(() => {
-    if (!chapterRef) {
+    if (!chapterRef && volumeScope == null) {
       setDossier([]);
       setLoadedForRef("");
       return;
     }
+    // 卷态等卷树就绪（本卷末章 ref 与未归档章清单取自它）
+    if (!chapterRef && !chaptersReady) return;
     let alive = true;
     (async () => {
       try {
-        const [pv, cur] = await Promise.all([
-          dossierApi.preview(projectId, chapterRef),
-          dossierApi.get(projectId, chapterRef),
-        ]);
-        if (!alive) return;
-        // 往章已采纳（preview 已按 (owner,other) 后章覆盖；本章行由章档端点承载，跳过防重）
-        const evolved = ((pv.domains?.relations ?? []) as Array<Record<string, string>>)
-          .filter((r) => r.ref !== chapterRef)
-          .map((r) => ({
-            owner: r.owner ?? "",
-            other: r.other ?? "",
-            rel_type: r.rel_type ?? "",
-            change_note: r.change_note ?? "",
-            ref: r.ref ?? "",
-            kind: "evo" as const,
-          }));
-        // 本章边：已采纳（高亮实线）＋待确认（虚线提案），章级口径与工作流区一致
-        const mine = (cur.rows ?? [])
-          .filter((r) => r.domain === "relations" && r.status !== "rejected")
-          .map((r) => ({
-            owner: r.owner ?? "",
-            other: r.other ?? "",
-            rel_type: r.rel_type ?? "",
-            change_note: r.change_note ?? "",
-            ref: chapterRef,
-            kind: (r.status === "accepted" ? "hit" : "pending") as EdgeKind,
-          }));
-        setDossier([...evolved, ...mine]);
+        if (chapterRef) {
+          const [pv, cur] = await Promise.all([
+            dossierApi.preview(projectId, chapterRef),
+            dossierApi.get(projectId, chapterRef),
+          ]);
+          if (!alive) return;
+          // 往章已采纳（preview 已按 (owner,other) 后章覆盖；本章行由章档端点承载，跳过防重）
+          const evolved = ((pv.domains?.relations ?? []) as Array<Record<string, string>>)
+            .filter((r) => r.ref !== chapterRef)
+            .map((r) => ({
+              owner: r.owner ?? "",
+              other: r.other ?? "",
+              rel_type: r.rel_type ?? "",
+              change_note: r.change_note ?? "",
+              ref: r.ref ?? "",
+              kind: "evo" as const,
+            }));
+          // 本章边：已采纳（高亮实线）＋待确认（虚线提案），章级口径与工作流区一致
+          const mine = (cur.rows ?? [])
+            .filter((r) => r.domain === "relations" && r.status !== "rejected")
+            .map((r) => ({
+              owner: r.owner ?? "",
+              other: r.other ?? "",
+              rel_type: r.rel_type ?? "",
+              change_note: r.change_note ?? "",
+              ref: chapterRef,
+              kind: (r.status === "accepted" ? "hit" : "pending") as EdgeKind,
+            }));
+          setDossier([...evolved, ...mine]);
+        } else {
+          const scope = volumeScope as number;
+          const inScope = chapters.filter((c) => {
+            const p = parseChapterRef(c.ref);
+            return p != null && p.vol <= scope;
+          });
+          const parts: Array<EvoRelation & { kind: EdgeKind }> = [];
+          // 已归档部分：截至本卷末章的折叠单源（本卷零章则跳过）
+          const volLast = inScope
+            .filter((c) => parseChapterRef(c.ref)?.vol === scope)
+            .pop();
+          if (volLast) {
+            const pv = await dossierApi.preview(projectId, volLast.ref);
+            if (!alive) return;
+            for (const r of (pv.domains?.relations ?? []) as Array<Record<string, string>>) {
+              parts.push({
+                owner: r.owner ?? "",
+                other: r.other ?? "",
+                rel_type: r.rel_type ?? "",
+                change_note: r.change_note ?? "",
+                ref: r.ref ?? "",
+                kind: "evo",
+              });
+            }
+          }
+          // 未归档章（归档后回草稿窗口）：已采纳行并入；待确认提案不上图
+          const openRefs = inScope.filter((c) => !c.archived).map((c) => c.ref);
+          const opens = await Promise.all(
+            openRefs.map(async (ref) => {
+              try {
+                return { ref, st: await dossierApi.get(projectId, ref) };
+              } catch {
+                return null; // 单章失败跳过，不阻断投影
+              }
+            }),
+          );
+          if (!alive) return;
+          for (const o of opens) {
+            if (!o) continue;
+            for (const r of o.st.rows ?? []) {
+              if (r.domain !== "relations" || r.status !== "accepted") continue;
+              parts.push({
+                owner: r.owner ?? "",
+                other: r.other ?? "",
+                rel_type: r.rel_type ?? "",
+                change_note: r.change_note ?? "",
+                ref: o.ref,
+                kind: "evo",
+              });
+            }
+          }
+          setDossier(parts);
+        }
       } catch {
         /* 静默：图退回开书设定边，不阻断 */
       } finally {
-        if (alive) setLoadedForRef(chapterRef);
+        if (alive) setLoadedForRef(scopeKey);
       }
     })();
     return () => {
       alive = false;
     };
-  }, [projectId, chapterRef, dossierTick]);
+  }, [projectId, chapterRef, volumeScope, chapters, chaptersReady, dossierTick, scopeKey]);
 
   // 本章变化行被采纳/驳回/删除后刷新图上的剧情边
   useEffect(() => {
@@ -354,6 +435,7 @@ export function RelationsGraphPane({
     (nd) => !visibleEdges.some((e) => e.aId === nd.id || e.bId === nd.id),
   );
   const pendingCnt = visibleEdges.filter((e) => e.kind === "pending").length;
+  const evoCnt = visibleEdges.filter((e) => e.kind === "evo" || e.kind === "hit").length;
 
   // 画布缩放/平移（viewBox 视窗法）：默认全图适配＝刚好区域内看完；滚轮以光标为锚
   // 缩放、拖拽平移、右下角按钮；放大上限 4×（w≥W/4），缩到全图即自动复位对齐
@@ -433,7 +515,7 @@ export function RelationsGraphPane({
   };
 
   if (error) return <p className="vempty">{error}</p>;
-  if (!graph || (chapterRef && loadedForRef !== chapterRef))
+  if (!graph || (scopeKey && loadedForRef !== scopeKey))
     return <p className="vempty">加载中……</p>;
   if (merged.nodes.length === 0)
     return <p className="vempty">还没有角色卡。到「设定 · 角色」里建卡后，这里会画出关系图。</p>;
@@ -453,7 +535,13 @@ export function RelationsGraphPane({
       <svg
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         role="img"
-        aria-label={chapterRef ? "角色关系图（含截至本章剧情演变）" : "全书角色关系图"}
+        aria-label={
+          chapterRef
+            ? "角色关系图（含截至本章剧情演变）"
+            : volumeScope != null
+              ? `角色关系图（截至第 ${volumeScope} 卷末剧情投影）`
+              : "全书角色关系图"
+        }
         preserveAspectRatio="xMidYMid meet"
       >
         <defs>
@@ -557,6 +645,7 @@ export function RelationsGraphPane({
         {merged.nodes.length} 个角色 · {visibleEdges.length} 条关系
         {chapterRef && dossier.length > 0 &&
           `（剧情演变 ${dossier.length - pendingCnt} · 待确认 ${pendingCnt}）`}
+        {volumeScope != null && evoCnt > 0 && `（含剧情演变 ${evoCnt} 条）`}
         {volumeScope != null && ` · 截至第 ${volumeScope} 卷末（只读投影）`}
         {chapterRef && " · 本章采纳边高亮，虚线为待确认提案"}
         {" · 滚轮缩放，拖拽平移"}
