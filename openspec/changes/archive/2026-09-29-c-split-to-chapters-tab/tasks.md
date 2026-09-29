@@ -19,4 +19,4 @@
 - [x] 4.1 e2e 适配（`chapter-plan.spec.ts` 22 处、`plot.spec.ts` L107、`cast-review.spec.ts` L103）：**每处** `volume-split-*` testid 的点击**与断言**前机械插入 `getByRole("tab", { name: "本卷章节" })`（断言型前提同切——免费档锁定段 L306-315、末端拦截段 L463-470；重拆用例同例内两处点击 L409/L432 都要切）；免费锁定句全文断言随 3.1 新文案同批更新，其余断言文本与 testid 零改动。完成证据＝三文件适配 diff（覆盖处数清单）。
 - [x] 4.2 门禁：C端 `npm run design:lint`（不触共享段，design-cross 不适用，判定依据＝proposal Design Impact；book.css 不在 vocab 扫描范围）＋ `tsc --noEmit`＋全量 vitest（存量红除外）。完成证据＝各命令实际输出结论。
 - [x] 4.3 隔离栈 e2e 重跑 chapter-plan／plot／cast-review 三文件（per-session 隔离环境配方，E2E_BASE_URL 指向本会话栈）。完成证据＝三文件全绿输出。
-- [ ] 4.4 `openspec validate --strict` 全绿；PR（标题不带硬编码 PR 号）＋合并后按归档流程 sync specs。
+- [x] 4.4 `openspec validate --strict` 全绿；PR（标题不带硬编码 PR 号）＋合并后按归档流程 sync specs。
