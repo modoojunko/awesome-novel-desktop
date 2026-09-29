@@ -20,5 +20,5 @@
 ## 回归
 
 - [x] 7. `cd client/backend && python -m pytest tests/test_reconcile.py -q` 全绿（含既有截断/名册/对账用例）。
-- [ ] 8. 前端零改动 → `design:lint`/`design:check`/`tsc` 免跑（Design Impact：无界面结构改动、不触共享段）；`e2e/reconcile.spec.ts` 存量跑绿（桩返回值未变，仅确认提示词措辞改动未破坏桩匹配）。
+- [x] 8. 前端零改动 → `design:lint`/`design:check`/`tsc` 免跑（Design Impact：无界面结构改动、不触共享段）；`e2e/reconcile.spec.ts` 存量跑绿（桩返回值未变，仅确认提示词措辞改动未破坏桩匹配）。
 - [ ] 9. 真机收尾：用户机上该章 lore 失败行点一次「重试」→ 转「待确认」或直接清，不再复现「失败 1」。
