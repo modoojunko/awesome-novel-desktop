@@ -251,7 +251,8 @@ test("变化分区全链：归档受理提取→设定/关系页签待确认→�
     await expect(rg.locator(".rg-edge.hit .rg-line")).toHaveCount(1);
     await expect(rg.locator(".rg-edge.pending .rg-line")).toHaveCount(0);
     await expect(rg.locator(".rg-legend")).toContainText(/剧情演变 1 · 待确认 0/);
-
+    // 箭头＋极性：盟友＝友好绿，箭头 marker 同色挂在路径末端
+    await expect(rg.locator(".rg-edge.hit.p-friendly .rg-line").first()).toHaveAttribute("marker-end", /friendly/);
     // ③ 第 2 章组装来源：第七处「故事状态」含已采纳内容
     await page.locator(".col-tree .ch").nth(1).click();
     await page.getByRole("tab", { name: /^章纲/ }).click();

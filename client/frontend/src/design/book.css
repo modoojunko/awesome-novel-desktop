@@ -1243,16 +1243,26 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .relations-graph .rg-name { font-weight: 600; }
 .rg-legend { margin: 8px 0 4px; font-size: 12px; color: var(--muted); }
 .rg-list { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
-/* 边态（章打开态）：开书设定灰、往章演变中间色、本章采纳加重、待确认虚线 */
+/* 边态：色＝关系极性（敌红/友绿/中性灰），线宽/虚实/深浅＝状态
+   （开书设定淡、往章演变中、本章采纳加重、待确认虚线）；箭头同极性色 */
 .rg-node circle { fill: var(--surface); stroke: var(--border); stroke-width: 1.5; }
 .rg-node.ghost circle { stroke-dasharray: 4 3; }
 .rg-node.ghost text { fill: var(--muted); }
-.rg-line { stroke: var(--border); stroke-width: 1.5; }
-.rg-edge.evo .rg-line { stroke: color-mix(in oklch, var(--accent) 45%, var(--border)); }
-.rg-edge.hit .rg-line { stroke: var(--accent); stroke-width: 2.5; }
-.rg-edge.hit .rg-edge-label { fill: var(--accent); font-weight: 600; }
-.rg-edge.pending .rg-line { stroke: var(--accent); stroke-dasharray: 5 4; }
-.rg-edge.pending .rg-edge-label { fill: var(--accent); }
+.rg-line { stroke: var(--muted); stroke-width: 1.5; opacity: 0.55; }
+.rg-edge.p-friendly .rg-line { stroke: var(--ok); }
+.rg-edge.p-hostile .rg-line { stroke: var(--err); }
+.rg-edge.evo .rg-line { opacity: 0.85; }
+.rg-edge.hit .rg-line { stroke-width: 2.5; opacity: 1; }
+.rg-edge.hit .rg-edge-label { fill: var(--fg); font-weight: 600; }
+.rg-edge.pending .rg-line { stroke-width: 2; stroke-dasharray: 5 4; opacity: 0.95; }
+.rg-edge.pending .rg-edge-label { fill: var(--fg); font-weight: 600; }
+.rg-arrow.neutral { fill: var(--muted); }
+.rg-arrow.friendly { fill: var(--ok); }
+.rg-arrow.hostile { fill: var(--err); }
+.rg-swatch { display: inline-block; width: 14px; border-top: 2.5px solid var(--muted); vertical-align: middle; margin: 0 4px 0 0; }
+.rg-key { white-space: nowrap; }
+.rg-swatch.friendly { border-top-color: var(--ok); }
+.rg-swatch.hostile { border-top-color: var(--err); }
 .rg-note { font-style: normal; color: color-mix(in oklch, var(--muted) 80%, var(--fg)); }
 /* 画布缩放/平移：锁纵横比默认整图适配（viewBox 全见）；滚轮缩放＋拖拽平移＋右下角按钮 */
 .rg-viewport { position: relative; width: 100%; aspect-ratio: 560 / 380; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; touch-action: none; cursor: grab; }

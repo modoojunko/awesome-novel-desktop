@@ -151,12 +151,13 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
       archived: true,
       accepted_count: 1,
     });
-    render(<RelationsGraphPane projectId="p1" chapterRef="vol-1-ch-2" />);
+    const { container } = render(<RelationsGraphPane projectId="p1" chapterRef="vol-1-ch-2" />);
 
     // 图：4 条边 = 2 开书（林晚→老聋 保留）＋1 往章＋1 本章＋1 待确认（待确认不在清单）
     const rows = await screen.findAllByTestId("rg-row");
     expect(rows).toHaveLength(2);
-    // 清单行 1：往章演变（覆盖开书敌对），带变更注记与来源章
+    // 清单行 1：往章演变（覆盖开书敌对），带极性色签与变更注记、来源章
+    expect(rows[0].querySelector(".rg-swatch.friendly")).toBeTruthy();
     expect(rows[0].textContent).toContain("林晚 → 船帮：同盟");
     expect(rows[0].textContent).toContain("（入伙同船）");
     expect(rows[0].textContent).toContain("第 1 章 · 渡口");
@@ -174,6 +175,12 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
     expect(document.querySelectorAll('[data-hit="1"]')).toHaveLength(2);
     expect(document.querySelectorAll(".rg-edge.pending .rg-line")).toHaveLength(1);
     expect(document.querySelector(".rg-edge.pending text")?.textContent).toContain("追缉 · 待确认");
+    // 极性着色：同盟/友绿、决裂/追缉红；箭头 marker 同极性且真实挂到路径上
+    expect(document.querySelectorAll(".rg-edge.p-friendly .rg-line")).toHaveLength(2);
+    expect(document.querySelectorAll(".rg-edge.p-hostile .rg-line")).toHaveLength(2);
+    const hostileLine = document.querySelector(".rg-edge.p-hostile .rg-line");
+    expect(hostileLine?.getAttribute("marker-end")).toContain("hostile");
+    expect(container.querySelectorAll(".rg-arrow.friendly, .rg-arrow.hostile, .rg-arrow.neutral")).toHaveLength(3);
     // 图例：3 卡＋0 占位 · 4 条边（剧情演变 2 · 待确认 1）
     expect(screen.getByText(/3 个角色 · 4 条关系（剧情演变 2 · 待确认 1）/)).toBeTruthy();
     expect(screen.queryByText(/还没连线/)).toBeNull();
@@ -239,9 +246,11 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
       accepted_count: 1,
     });
     render(<RelationsGraphPane projectId="p1" chapterRef="vol-1-ch-1" />);
-    // 恰 1 条本章高亮边（章档端点承载，preview 同向行被 ref 过滤不重复）
+    // 恰 1 条本章高亮边（章档端点承载，preview 同向行被 ref 过滤不重复），决裂＝红
     await screen.findByText(/3 个角色 · 3 条关系（剧情演变 1 · 待确认 0）/);
     expect(document.querySelectorAll(".rg-edge.hit .rg-line")).toHaveLength(1);
+    // 本章 hit 边（决裂）为敌对红；开书边 林晚→船帮 敌对 也计入极性红，故 hit∧hostile 恰 1
+    expect(document.querySelectorAll(".rg-edge.hit.p-hostile .rg-line")).toHaveLength(1);
     expect(document.querySelectorAll(".rg-edge.pending")).toHaveLength(0);
     // 本章采纳边覆盖开书设定「老聋 → 林晚：师徒」
     expect(screen.queryByText(/师徒/)).toBeNull();
