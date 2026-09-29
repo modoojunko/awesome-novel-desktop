@@ -187,6 +187,8 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
   const [vols, setVols] = useState<VolumeTreeEntry[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [query, setQuery] = useState("");
+  /** 废弃组默认不渲染（用户拍板 09-29）：列表尾开关控制，点开后可选中废弃条目改回活跃 */
+  const [showAbandoned, setShowAbandoned] = useState(false);
   const [saveState, setSaveState] = useState<HookSaveState>("saved");
   /** 删除回执（面板内自管）：最近一条 + 撤销凭证；8 秒自清窗口 */
   const [receipt, setReceipt] = useState<{ text: string; undo: HookUndo } | null>(null);
@@ -895,9 +897,12 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
     onSaveStateChange?.(saveStateRef.current);
   }, [onSaveStateChange]);
 
-  // ── 台账渲染数据：三分组＋搜索过滤（空组不渲染） ───────────────────────
+  // ── 台账渲染数据：三分组＋搜索过滤（空组不渲染；废弃组默认隐藏，开关后可见） ──
   const q = query.trim();
-  const groups = HOOK_STATUSES.map((status) => ({
+  const abandonedCount = items.filter((h) => h.status === "abandoned").length;
+  const groups = HOOK_STATUSES.filter(
+    (status) => status !== "abandoned" || showAbandoned,
+  ).map((status) => ({
     status: status as HookStatusValue,
     label: GROUP_LABEL[status as HookStatusValue],
     rows: items.filter(
@@ -999,6 +1004,20 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
               <p className="opt" style={{ padding: "4px 8px" }}>
                 没有找到——换个词试试。
               </p>
+            )}
+            {abandonedCount > 0 && (
+              <div style={{ padding: "4px 8px" }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  data-testid="toggle-abandoned"
+                  onClick={() => setShowAbandoned((v) => !v)}
+                >
+                  {showAbandoned
+                    ? "隐藏已废弃"
+                    : `显示已废弃（${abandonedCount}）`}
+                </button>
+              </div>
             )}
           </div>
         </nav>
