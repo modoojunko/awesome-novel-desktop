@@ -296,6 +296,17 @@ test("变化分区全链：归档受理提取→设定/关系页签待确认→�
     await expect(page.getByTestId("relation-changes-section").getByTestId("change-row").first())
       .toContainText("林晚 → 阿蓟：盟友");
 
+    // ③‴ 卷态投影（c-volume-rels-live）：卷页角色关系随时对齐本卷最新已确认关系——
+    // 已采纳剧情边（第 1 章 盟友）上图，第 2 章待确认提案不上图
+    await page.locator(".col-tree .vol-head", { hasText: "第一卷" }).click();
+    await page.getByRole("tab", { name: /^角色关系/ }).click();
+    const rgv = page.locator('[data-od-id="relations-graph"]');
+    await expect(rgv).toBeVisible({ timeout: 15000 });
+    await expect(rgv.locator(".rg-edge.evo .rg-line")).toHaveCount(1);
+    await expect(rgv.locator(".rg-edge.pending .rg-line")).toHaveCount(0);
+    await expect(rgv.locator(".rg-legend")).toContainText(/含剧情演变 1 条/);
+    await expect(rgv.locator(".rg-legend")).toContainText(/截至第 1 卷末（只读投影）/);
+
     // ④ 重写第 1 章 → 第 2 章树角标「设定待更新」＋设定页签 stale 横幅
     const rw = await request.post(`${base}/chapters/vol-1-ch-1/rewrite`, { data: {}, headers: auth });
     expect(rw.ok()).toBeTruthy();

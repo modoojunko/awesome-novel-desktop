@@ -6,7 +6,8 @@ import { RelationsGraphPane } from "@/components/novel/workbench/RelationsGraphP
 // ---------------------------------------------------------------------------
 // 原型审计收尾两项：①归档弹窗收尾计划预览（PRO 五件事 / 免费说明）；
 // ②角色关系页签按章投影（本章高亮、来源章与状态列、孤立点）。
-// 09-28 起章打开态并入「截至本章」剧情关系边（图为主表达，行清单兜底）。
+// 09-28 起章打开态并入「截至本章」剧情关系边（图为主表达，行清单兜底）；
+// 09-29 起卷选中态并入截至本卷末剧情边（c-volume-rels-live，随时对齐本卷最新）。
 // ---------------------------------------------------------------------------
 
 const apiState = vi.hoisted(() => ({ get: vi.fn() }));
@@ -107,8 +108,8 @@ const TREE = [
   {
     name: "vol-1",
     chapters: [
-      { chapter: 1, ref: "vol-1-ch-1", title: "渡口", stale: true },
-      { chapter: 2, ref: "vol-1-ch-2", title: "雾中城", stale: false },
+      { chapter: 1, ref: "vol-1-ch-1", title: "渡口", stale: true, archived: true },
+      { chapter: 2, ref: "vol-1-ch-2", title: "雾中城", stale: false, archived: true },
     ],
   },
 ];
@@ -209,7 +210,7 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
       accepted_count: 0,
     });
     render(<RelationsGraphPane projectId="p1" volumeScope={1} />);
-    const svg = await screen.findByRole("img", { name: "全书角色关系图" });
+    const svg = await screen.findByRole("img", { name: "角色关系图（截至第 1 卷末剧情投影）" });
     // 默认＝整图适配（viewBox 全见）
     expect(svg.getAttribute("viewBox")).toBe("0 0 560 380");
     fireEvent.click(screen.getByTestId("rg-zoom-in"));
@@ -320,13 +321,128 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
     expect(document.querySelectorAll(".rg-node.role-extra")).toHaveLength(1);
   });
 
-  it("卷选中态不拉剧情边，投影口径不变", async () => {
+  it("卷选中态并入剧情边：preview 截至本卷末章，同向覆盖开书边，跨卷来源剔除", async () => {
     mockBookApi();
+    dossierState.preview.mockImplementation(async (_p: string, upTo: string) => {
+      // 折叠截至本卷末章（写章消费单源口径）
+      expect(upTo).toBe("vol-1-ch-2");
+      return {
+        up_to_ref: upTo,
+        domains: {
+          relations: [
+            { owner: "林晚", other: "船帮", rel_type: "同盟", change_note: "入伙同船", ref: "vol-1-ch-1" },
+            // 跨卷来源（第 2 卷）→ 卷投影过滤剔除
+            { owner: "老聋", other: "船帮", rel_type: "交易", change_note: "", ref: "vol-2-ch-1" },
+          ],
+        },
+        counts: { relations: 2 },
+        skipped_stale_refs: [],
+      };
+    });
+    dossierState.get.mockResolvedValue({
+      rows: [],
+      progress: { pending: 0, accepted: 0, rejected: 0 },
+      extraction: null,
+      not_extracted: false,
+      stale: false,
+      archived: true,
+      accepted_count: 0,
+    });
+    render(<RelationsGraphPane projectId="p1" volumeScope={1} />);
+    const rows = await screen.findAllByTestId("rg-row");
+    // 3 条清单＝剧情边 1（覆盖开书「林晚→船帮：敌对」）＋未覆盖开书边 2；跨卷剧情边不进投影
+    expect(rows).toHaveLength(3);
+    expect(rows[0].textContent).toContain("林晚 → 船帮：同盟");
+    expect(rows[0].textContent).toContain("第 1 章 · 渡口");
+    expect(screen.queryByText(/交易/)).toBeNull();
+    // 图例：截至本卷末投影＋剧情演变条数；无待确认（卷态不显示提案）
+    expect(screen.getByText(/3 个角色 · 3 条关系（含剧情演变 1 条）/)).toBeTruthy();
+    expect(screen.getByText(/截至第 1 卷末（只读投影）/)).toBeTruthy();
+    expect(document.querySelectorAll(".rg-edge.pending")).toHaveLength(0);
+  });
+
+  it("卷态未归档章的已采纳行并入投影（随时对齐最新），待确认不上图", async () => {
+    // 第 2 章归档后回草稿（未归档）：其已采纳关系行仍属已确认剧情事实
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.endsWith("/characters/graph")) return GRAPH;
+      if (p.endsWith("/volumes")) {
+        return [
+          {
+            name: "vol-1",
+            chapters: [
+              { chapter: 1, ref: "vol-1-ch-1", title: "渡口", stale: false, archived: true },
+              { chapter: 2, ref: "vol-1-ch-2", title: "雾中城", stale: false, archived: false },
+            ],
+          },
+        ];
+      }
+      throw new Error("unexpected " + p);
+    });
+    dossierState.preview.mockResolvedValue({
+      up_to_ref: "vol-1-ch-2",
+      domains: { relations: [] },
+      counts: { relations: 0 },
+      skipped_stale_refs: [],
+    });
+    dossierState.get.mockImplementation(async (_p: string, ref: string) => {
+      // 只逐章拉未归档章
+      expect(ref).toBe("vol-1-ch-2");
+      return {
+        rows: [
+          { id: "d1", domain: "relations", status: "accepted", owner: "老聋", other: "林晚",
+            rel_type: "决裂", change_note: "翻脸", flags: "", evidence: "", decided_at: "" },
+          { id: "d2", domain: "relations", status: "pending", owner: "船帮", other: "林晚",
+            rel_type: "追缉", change_note: "悬赏缉拿", flags: "", evidence: "", decided_at: "" },
+        ],
+        progress: { pending: 1, accepted: 1, rejected: 0 },
+        extraction: null,
+        not_extracted: false,
+        stale: false,
+        archived: false,
+        accepted_count: 1,
+      };
+    });
+    render(<RelationsGraphPane projectId="p1" volumeScope={1} />);
+    const rows = await screen.findAllByTestId("rg-row");
+    // 剧情边 1（决裂，覆盖开书「老聋→林晚：师徒」）＋未覆盖开书边 2；待确认提案不进投影
+    expect(rows).toHaveLength(3);
+    expect(rows[0].textContent).toContain("老聋 → 林晚：决裂");
+    expect(rows[0].textContent).toContain("第 2 章 · 雾中城");
+    expect(screen.queryByText(/追缉/)).toBeNull();
+    expect(document.querySelectorAll(".rg-edge.pending")).toHaveLength(0);
+    expect(screen.getByText(/含剧情演变 1 条/)).toBeTruthy();
+  });
+
+  it("卷态加载门控：剧情边就位前呈加载态，投影失败静默退回开书设定边", async () => {
+    mockBookApi();
+    let resolvePreview: (v: unknown) => void = () => {};
+    dossierState.preview.mockReturnValue(
+      new Promise((res) => {
+        resolvePreview = res;
+      }),
+    );
+    const view = render(<RelationsGraphPane projectId="p1" volumeScope={1} />);
+    // 卷树/剧情边未就位 → 加载态（不闪开书设定半成品图）
+    expect(screen.getByText("加载中……")).toBeTruthy();
+    resolvePreview({
+      up_to_ref: "vol-1-ch-2",
+      domains: { relations: [] },
+      counts: { relations: 0 },
+      skipped_stale_refs: [],
+    });
+    await screen.findByRole("img", { name: "角色关系图（截至第 1 卷末剧情投影）" });
+    expect(screen.getAllByTestId("rg-row")).toHaveLength(3);
+    view.unmount();
+    // 再挂载投影挂掉：静默退回开书设定边，图例无剧情演变计数
+    dossierState.preview.mockRejectedValue(new Error("preview down"));
     render(<RelationsGraphPane projectId="p1" volumeScope={1} />);
     const rows = await screen.findAllByTestId("rg-row");
     expect(rows).toHaveLength(3);
-    expect(screen.getByText(/截至第 1 卷末（只读投影）/)).toBeTruthy();
-    expect(dossierState.preview).not.toHaveBeenCalled();
-    expect(dossierState.get).not.toHaveBeenCalled();
+    expect(
+      rows.every((r) =>
+        ["开书设定", "随剧情演变", "基于旧设定"].some((s) => r.textContent!.includes(s)),
+      ),
+    ).toBe(true);
+    expect(screen.queryByText(/含剧情演变/)).toBeNull();
   });
 });
