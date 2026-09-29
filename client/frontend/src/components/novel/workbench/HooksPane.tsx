@@ -16,6 +16,7 @@ interface HookRow {
   status: string;
   introduced_chapter_id: string | null;
   planned_chapter_id: string | null;
+  mentioned_chapter_id: string | null;
   resolved_chapter_id: string | null;
 }
 
@@ -147,6 +148,24 @@ export function HooksPane({
   const plantHere = visible.filter((h) => h.introduced_chapter_id === currentId).length;
   const resolveHere = visible.filter((h) => h.resolved_chapter_id === currentId).length;
 
+  // 该收了基准章号（c-hooks-advance-ledger）：章态＝当前章；卷域＝该卷末章
+  const dueBaseChNo = useMemo(() => {
+    if (volumeScope != null) {
+      let m: number | null = null;
+      for (const c of chapters) {
+        const p = parseChapterRef(c.ref);
+        if (p?.vol === volumeScope && (m == null || c.chapter > m)) m = c.chapter;
+      }
+      return m;
+    }
+    return chapterNo ?? null;
+  }, [chapters, volumeScope, chapterNo]);
+  const chNoOfId = (id: string | null): number | null => {
+    if (!id) return null;
+    const hit = chapters.find((c) => c.id === id);
+    return hit?.chapter ?? null;
+  };
+
   if (error) return <p className="vempty">{error}</p>;
 
   return (
@@ -201,6 +220,17 @@ export function HooksPane({
                 h.status === "resolved"
                   ? `已收 · ${labelOf(h.resolved_chapter_id) ?? "—"}`
                   : "悬置";
+              // 推进与该收了（c-hooks-advance-ledger）：mentioned 晚于埋点才显；
+              // planned ≤ 基准章号（章态=当前章/卷域=卷末章）标「该收了」
+              const advancedNo =
+                h.status === "active" &&
+                h.mentioned_chapter_id &&
+                h.mentioned_chapter_id !== h.introduced_chapter_id
+                  ? chNoOfId(h.mentioned_chapter_id)
+                  : null;
+              const plannedNo =
+                h.status === "active" ? chNoOfId(h.planned_chapter_id) : null;
+              const due = plannedNo != null && dueBaseChNo != null && plannedNo <= dueBaseChNo;
               return (
                 <div className={`hp-row${hit ? " hit" : ""}`} key={h.id}>
                   <span className="hp-name">
@@ -209,11 +239,14 @@ export function HooksPane({
                     <em className="hp-origin">
                       埋于 {labelOf(h.introduced_chapter_id) ?? "开书"}
                       {titleOf(h.introduced_chapter_id) ? ` · ${titleOf(h.introduced_chapter_id)}` : ""}
+                      {advancedNo != null ? ` · 最近推进 第 ${advancedNo} 章` : ""}
+                      {plannedNo != null ? ` · 计划收 第 ${plannedNo} 章` : ""}
                     </em>
                   </span>
                   <span className={`hp-state${h.status === "active" ? " open" : ""}`}>
                     {volumeScope != null && tag ? `${tag} · ` : ""}
                     {state}
+                    {due && <em className="hp-due">该收了</em>}
                   </span>
                 </div>
               );

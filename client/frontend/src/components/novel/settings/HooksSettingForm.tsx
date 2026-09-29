@@ -852,6 +852,27 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
     [vols],
   );
 
+  /** 章 id → 章号（该收了判定用；已删章 → null） */
+  const plannedChNo = useCallback(
+    (id: string | null): number | null => {
+      if (!id) return null;
+      for (const v of vols) {
+        const ch = v.chapters.find((c) => c.id === id);
+        if (ch) return ch.chapter;
+      }
+      return null;
+    },
+    [vols],
+  );
+
+  /** 主线最新章号（该收了分母；空树 null → 不标） */
+  const latestChNo = useMemo(() => {
+    let m: number | null = null;
+    for (const v of vols)
+      for (const c of v.chapters) if (m == null || c.chapter > m) m = c.chapter;
+    return m;
+  }, [vols]);
+
   const selected = items.find((h) => h.id === selectedId) ?? null;
 
   // ── 上报：面板徽标五态＋空表预检；选中条目 ctx ────────────────────────
@@ -993,6 +1014,30 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
                               ? `收于 ${chLabel(h.resolved_chapter_id) || "未记"}`
                               : chLabel(h.introduced_chapter_id) || "未记章"}
                           </span>
+                          {/* 推进与兑现可见（c-hooks-advance-ledger）：
+                              最近推进（mentioned，晚于埋点才有意义）、计划收、该收了 */}
+                          {h.status === "active" &&
+                            h.mentioned_chapter_id &&
+                            h.mentioned_chapter_id !== h.introduced_chapter_id && (
+                              <span className="hk-ch">
+                                最近推进 ·{" "}
+                                {(chLabel(h.mentioned_chapter_id) || "").split(" · ")[0] || "—"}
+                              </span>
+                            )}
+                          {h.status === "active" && h.planned_chapter_id && (
+                            <span className="hk-ch">
+                              计划收 · {(chLabel(h.planned_chapter_id) || "").split(" · ")[0]}
+                            </span>
+                          )}
+                          {h.status === "active" &&
+                            h.planned_chapter_id &&
+                            plannedChNo(h.planned_chapter_id) != null &&
+                            latestChNo != null &&
+                            plannedChNo(h.planned_chapter_id)! <= latestChNo && (
+                              <span className="hk-due" data-testid="hook-due">
+                                该收了
+                              </span>
+                            )}
                         </span>
                       </span>
                     </button>
@@ -1060,6 +1105,14 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
                     {chapterOptions(selected.introduced_chapter_id)}
                   </select>
                 </div>
+                {/* 最近推进（c-hooks-advance-ledger）：收尾 AI 对账留痕，只读展示 */}
+                {selected.mentioned_chapter_id &&
+                  selected.mentioned_chapter_id !== selected.introduced_chapter_id && (
+                    <div className="hk-kv-row">
+                      <span className="hk-kv-k">最近推进</span>
+                      <span className="hk-kv-v">{chLabel(selected.mentioned_chapter_id) || "—"}</span>
+                    </div>
+                  )}
                 {selected.status !== "resolved" && (
                   <div className="hk-kv-row">
                     <span className="hk-kv-k">

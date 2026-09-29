@@ -55,10 +55,12 @@ function stubContent(prompt: string): string {
         : [],
     });
   }
-  if (prompt.includes("埋下或收束了哪些伏笔")) {
+  if (prompt.includes("对既有伏笔的兑现与推进")) {
+    // c-hooks-advance-ledger 对账制：台账为空 → ref 未命中跳过，planted 照常入提案
     return JSON.stringify({
       planted: [{ description: "渡口的雾中有第二个人", evidence: "雾里传来第二个呼吸声" }],
-      resolved: [{ description: "残页火痕", evidence: "火痕与残页吻合" }],
+      advanced: [{ ref: "#H-0001", note: "雾中人数被清点", evidence: "雾里传来第二个呼吸声" }],
+      resolved: [],
     });
   }
   if (prompt.includes("识别新出现或变化的世界要素")) {

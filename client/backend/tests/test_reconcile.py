@@ -286,31 +286,118 @@ class TestAcceptWriteBack:
         assert sum(1 for h in hooks if "短刃" in h.description) == 1
         assert sum(1 for h in hooks if "雾" in h.description) == 1
 
+    def test_hooks_advance_resolves_and_advances_by_ref(self):
+        """对账制采纳（c-hooks-advance-ledger）：resolved/advanced 按编号精确命中——
+        兑现转已收束（payoff_note 落库）、推进回填 mentioned（状态不动）；不建新行；
+        幻觉编号跳过不断批。"""
+        _root, nid, ch_id = asyncio.run(_seed())
+
+        async def _seed_hooks():
+            from settings.hooks_service import create_hook
+
+            async with async_session() as s:
+                await create_hook(s, nid, {
+                    "description": "猎血短刃来历不明", "type": "mystery",
+                    "priority": 2, "status": "active",
+                })
+                await create_hook(s, nid, {
+                    "description": "旧咬痕身世之谜", "type": "mystery",
+                    "priority": 2, "status": "active",
+                })
+
+        asyncio.run(_seed_hooks())
+        rid = _add_row(nid, ch_id, "hooks", {
+            "resolved": [{"ref": "#H-0001", "note": "短刃出自教团圣物库", "evidence": "他认出了纹章"}],
+            "advanced": [{"ref": "#H-0002", "note": "咬痕在月光下发亮", "evidence": "灰白泛起微光"},
+                         {"ref": "#H-9999", "note": "幻觉编号", "evidence": "…"}],
+            "planted": [{"description": "西仓巷的新委托"}],
+        })
+        self._accept(nid, rid)
+
+        async def _hooks():
+            async with async_session() as s:
+                return {
+                    h.seq: h
+                    for h in (
+                        await s.scalars(
+                            select(NovelHook).where(NovelHook.novel_id == nid)
+                        )
+                    ).all()
+                }
+
+        hooks = asyncio.run(_hooks())
+        assert _get_row(rid).status == "accepted"  # 幻觉编号不中断整批
+        assert hooks[1].status == "resolved"
+        assert hooks[1].payoff_note == "短刃出自教团圣物库"
+        assert hooks[2].status == "active"
+        assert hooks[2].mentioned_chapter_id == ch_id  # 最近推进回填
+        # 只新建 planted 一条；resolved/advanced 未建任何重复行
+        assert sum(1 for h in hooks.values() if "西仓巷" in h.description) == 1
+        assert len(hooks) == 3
+
+    def test_hooks_legacy_resolved_still_matches_by_description(self):
+        """存量 pending 行兼容：resolved 无 ref 有 description → 旧描述包含匹配仍生效。"""
+        _root, nid, ch_id = asyncio.run(_seed())
+
+        async def _seed_hook():
+            from settings.hooks_service import create_hook
+
+            async with async_session() as s:
+                await create_hook(s, nid, {
+                    "description": "码头上的陌生船家", "type": "mystery",
+                    "priority": 2, "status": "active",
+                })
+
+        asyncio.run(_seed_hook())
+        rid = _add_row(nid, ch_id, "hooks", {
+            "planted": [],
+            "resolved": [{"description": "陌生船家", "evidence": "船家解开缆绳"}],
+        })
+        self._accept(nid, rid)
+
+        async def _hooks():
+            async with async_session() as s:
+                return (await s.scalars(
+                    select(NovelHook).where(NovelHook.novel_id == nid)
+                )).all()
+
+        hooks = asyncio.run(_hooks())
+        assert _get_row(rid).status == "accepted"
+        assert next(h for h in hooks if "船家" in h.description).status == "resolved"
+        assert len(hooks) == 1  # 未命中不再建已收束新条
+
 
 class TestHooksPrompt:
-    def test_prompt_carries_ledger_and_caps(self):
-        """hooks 提示词带真伏笔判据＋条数上限＋现有台账排重（lore 同构防重）。"""
+    def test_prompt_carries_reconcile_ledger_and_caps(self):
+        """hooks 提示词对账制（c-hooks-advance-ledger）：编号台账注入＋三类产出
+        ＋条数上限＋真伏笔判据；e2e 桩依赖短语保留。"""
         from archive.reconcile import _collect_prompts
 
         prompts = dict(
             _collect_prompts(
                 "vol-1-ch-1", {}, "正文", [],
                 world_now="", roster="",
-                hooks_now="本书已有伏笔台账（相同或高度相似的不要重复登记）：\n- 旧钩",
+                hooks_now=(
+                    "本书已有伏笔台账（先对账：判断本章是否兑现或推进了其中条目，"
+                    "resolved/advanced 按编号引用；相同或高度相似的不要重复登记为新埋）：\n"
+                    "- #H-0001 旧钩（计划收束：第 4 章）"
+                ),
             )
         )
         p = prompts["hooks"]
-        assert "埋下或收束了哪些伏笔" in p  # e2e 桩依赖此短语（勿改名）
-        assert "planted 最多 3 条" in p and "resolved 最多 3 条" in p
+        assert "对既有伏笔的兑现与推进" in p
+        assert "埋下或收束了哪些伏笔" in p or "新埋" in p  # 桩匹配短语演化留证
+        assert "#H-0001 旧钩" in p and "计划收束：第 4 章" in p
+        assert "resolved、advanced、planted 各最多 3 条" in p
+        assert "planted 输出空数组" in p  # 宁缺勿滥
         assert "氛围描写、场景细节" in p
-        assert "旧钩" in p
 
     def test_prompt_without_ledger_has_no_block(self):
         from archive.reconcile import _collect_prompts
 
         p = dict(_collect_prompts("vol-1-ch-1", {}, "正文", []))["hooks"]
         assert "已有伏笔台账" not in p
-        assert "planted 最多 3 条" in p
+        assert "resolved、advanced、planted 各最多 3 条" in p
 
 
 class TestEndpoints:
