@@ -1014,7 +1014,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                     )}
                     {draftRows(bootstrapSink)}
                     <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--muted)" }}>
-                      只补空格——你写过的字一个不动；性别、年龄不代填。
+                      只补空格——你写过的字一个不动。
                     </p>
                   </>
                 ),

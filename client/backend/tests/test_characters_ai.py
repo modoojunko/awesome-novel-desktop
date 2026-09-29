@@ -109,12 +109,12 @@ def _install_fake(monkeypatch, payload, captured):
 
 class TestDraft:
     def test_targets_only_empty_cells_and_prompt_hygiene(self, client, monkeypatch):
-        """targets 只含空格；gender/age 与 personality 不出现在提示词。"""
+        """targets 只含空格；gender/age 照进候选（c-character-dossier-full-fill）；personality 不出现在提示词。"""
         c, nid, captured = client
         card = asyncio.run(_add_card(nid, dossier={"race": "人族"}, cog={}))
 
         payloads = {
-            "dossier": {"fills": {"race": "妖族改写", "look": "瘦高", "gender": "男"}},
+            "dossier": {"fills": {"race": "妖族改写", "look": "瘦高", "gender": "男", "age": "十六", "nope": "越界"}},
             "cog": {"fills": {"w5": "盲区", "b1": "憨直", "personality": "多余键"}},
         }
 
@@ -128,14 +128,15 @@ class TestDraft:
                    json={"target": "dossier"})
         assert r.status_code == 200, r.text
         data = r.json()["data"]
-        assert "race" not in [cell["path"].split(".")[1] for cell in data["cells"]]  # 已填格拒绝
-        assert any(cell["path"] == "dossier.look" for cell in data["cells"])
-        assert all(cell["path"] != "dossier.gender" for cell in data["cells"])
-        import re as _re
+        keys = [cell["path"].split(".")[1] for cell in data["cells"]]
+        assert "race" not in keys  # 已填格拒绝
+        assert "look" in keys
+        assert "gender" in keys and "age" in keys  # 性别/年龄照补（author_only 已退役）
+        assert "nope" not in keys  # 越界键静默丢
         prompt = captured[-1]["messages"][0]["content"]
-        # 整词匹配（"stage" 里的 age 不算）；gender/age/personality 字样不得出现
-        assert not _re.search(r"\bgender\b", prompt)
-        assert not _re.search(r"\bage\b", prompt)
+        # targets 行点名了空格（gender/age 在内）；personality 字样不得出现
+        assert "gender" in prompt and "age" in prompt
+        import re as _re
         assert not _re.search(r"\bpersonality\b", prompt)
 
     def test_s5_hint_phrase_matches_word_list(self, client, monkeypatch):
@@ -333,7 +334,7 @@ def require_ai_access_dep():
 
 
 class TestBootstrap:
-    """从简介立主角（character-bootstrap-from-intro）：只出稿不建卡、只补空格、性别年龄永不出现。"""
+    """从简介立主角（character-bootstrap-from-intro）：只出稿不建卡、只补空格。"""
 
     def test_returns_draft_without_creating_card(self, client, monkeypatch):
         c, nid, captured = client
@@ -342,7 +343,7 @@ class TestBootstrap:
             "persona": "扫了十年落叶的杂役弟子，一双能看见修为漏洞的眼。",
             "fills": {"race": "人族", "faction": "青梧宗", "plot": "背残页翻盘",
                       "w1": "修行如登山", "w5": "不知眼眸来历", "p3": "化神即顶"},
-            "skipped": [{"key": "age", "why": "作者自己定"}],
+            "skipped": [{"key": "e5", "why": "简介里没有"}],
         }, captured)
         r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={})
         assert r.status_code == 200
@@ -360,7 +361,8 @@ class TestBootstrap:
         prompt = captured[0]["messages"][0]["content"]
         assert "背残页翻盘" in prompt and "仙侠" in prompt
 
-    def test_gender_age_never_enter_cells(self, client, monkeypatch):
+    def test_gender_age_enter_cells(self, client, monkeypatch):
+        """c-character-dossier-full-fill：性别/年龄照进 cells（与其他格同口径，只补空格）。"""
         c, nid, _captured = client
         _install_fake(monkeypatch, {
             "name": "林拾", "aliases": [], "persona": "人设",
@@ -369,7 +371,7 @@ class TestBootstrap:
         r = c.post(f"/api/novels/{nid}/settings/ai/characters/bootstrap", json={})
         assert r.status_code == 200
         paths = [cell["path"] for cell in r.json()["data"]["cells"]]
-        assert "dossier.gender" not in paths and "dossier.age" not in paths
+        assert "dossier.gender" in paths and "dossier.age" in paths
         assert "dossier.race" in paths and "cog.w5" in paths
 
     def test_400_when_synopsis_missing(self, client, monkeypatch):

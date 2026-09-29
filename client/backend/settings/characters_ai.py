@@ -10,7 +10,7 @@
 - POST /ai/characters/bootstrap
   从简介立主角：只出稿不建卡（采纳=前端 create 主角卡＋既有单格 PATCH）；
   带 character_id（主角待立）时同样以服务端空值为基准只补空格；
-  简介未填 400；性别/年龄不在 allowed 键集合，模型吐了也不进 cells。
+  简介未填 400。
 
 路径 /ai/characters/… 为三段（首段字面量），不会被 /ai/{stype}/{field} 两段兜底吃掉。
 温度分档（spec 冻结）：人设 0.6 / 档案与认知 0.4 / 体检 0.3 / 立主角 0.5。
@@ -446,7 +446,7 @@ async def check_character(
     }}
 
 
-# 立主角允许的格位键＝档案空格 ∪ 认知补全键；性别/年龄是 author_only，天然不在集合里
+# 立主角允许的格位键＝档案空格 ∪ 认知补全键（author_only 已退役，八格全候选）
 _BOOTSTRAP_FILL_KEYS = frozenset(DOSSIER_FILL_KEYS) | frozenset(COG_FILL_KEYS)
 
 
@@ -467,7 +467,7 @@ async def bootstrap_protagonist(
     """从简介立主角：只出稿不建卡，采纳由前端走 create 主角卡＋既有单格 PATCH。
 
     带 character_id（主角待立）时，名称/别名/人设/格位均以服务端此刻内容为
-    唯一空值基准——已有的一律不返回、改记入 skipped；性别/年龄永不出现。
+    唯一空值基准——已有的一律不返回、改记入 skipped。
     """
 
     project = await _get_project(db, project_id, user["id"])
@@ -595,7 +595,7 @@ async def bootstrap_protagonist(
     cells: list[dict] = []
     for key, value in fills.items():
         if key not in _BOOTSTRAP_FILL_KEYS:
-            continue  # 未知键 / 越界键（含性别、年龄）静默丢
+            continue  # 未知键 / 越界键静默丢
         bucket = dossier if key in DOSSIER_FILL_KEYS else cog_bucket
         if _filled(bucket, key):
             continue  # 只补空格：服务端此刻空值为唯一基准

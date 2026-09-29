@@ -346,7 +346,7 @@ describe("CharsAiRail 从简介立主角行", () => {
     code: "01",
     role: "主角",
     personaGap: 1,
-    dossierGap: 6,
+    dossierGap: 8,
     cogGap: 10,
   };
   const onRun = vi.fn();
