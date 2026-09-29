@@ -58,6 +58,8 @@ async def list_volumes(db, project) -> list[dict]:
                         "archived": c.status == "archived",
                         # chapter-rewrite：基于旧设定角标（主线章自身状态列）
                         "stale": bool(c.stale),
+                        # c-chapter-dossier：章档过期角标（上游重写置位、重归档清除）
+                        "dossier_stale": bool(c.dossier_stale),
                     }
                     for c in sorted(chs, key=lambda x: x.chapter_no)
                 ],

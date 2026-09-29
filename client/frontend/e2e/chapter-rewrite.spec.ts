@@ -176,11 +176,12 @@ test("重写已归档章：旧稿入支线＋下游角标＋改写后角标消�
     // 归档入口在操作页签（2026-09-27 自头部移入）
     await page.getByRole("tab", { name: /^操作/ }).click();
     await page.getByRole("button", { name: "归档本章" }).click();
-    // 归档弹窗：收尾计划预览（PRO 五件事）
+    // 归档弹窗：受理制预告＋收尾计划（c-chapter-dossier：两件 PRO 提案＋变化全档说明）
     const plan = page.getByTestId("archive-plan");
     await expect(plan).toBeVisible();
-    await expect(plan).toContainText("提取本章设定变化");
+    await expect(plan.getByText(/随归档自动提取，全档可用/)).toBeVisible();
     await expect(plan).toContainText("登记伏笔");
+    await expect(plan).toContainText("随归档自动提取");
     await page.getByTestId("arch-confirm").click();
     try {
       await expect(page.getByText(/下游章节标记「基于旧设定」/)).toBeVisible({

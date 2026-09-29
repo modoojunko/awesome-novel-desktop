@@ -33,6 +33,20 @@ async def list_characters(
     return {"ok": True, "data": data}
 
 
+# 注意：静态段路由必须声明在 /{character_id} 之前，否则 "graph" 被当成卡 id 吃掉
+# （真机实锤：/characters/graph 恒 400「关系图加载失败」，c-chapter-relations-graph 修复）。
+@router.get("/graph")
+async def relations_graph(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """全书关系图：节点=角色，边=单向视角关系（带来源章）。"""
+    from settings.character_service import relations_graph as relations_graph_svc
+
+    return {"ok": True, "data": await relations_graph_svc(db, project_id)}
+
+
 @router.post("")
 async def create_character(
     project_id: str,
@@ -129,18 +143,6 @@ async def undo_op(
     except (svc.Unprocessable, svc.Conflict) as e:
         raise _svc_error(e) from e
     return {"ok": True, "data": result}
-
-
-@router.get("/graph")
-async def relations_graph(
-    project_id: str,
-    db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
-):
-    """全书关系图：节点=角色，边=单向视角关系（带来源章）。"""
-    from settings.character_service import relations_graph as relations_graph_svc
-
-    return {"ok": True, "data": await relations_graph_svc(db, project_id)}
 
 
 @router.get("/{character_id}/relations")

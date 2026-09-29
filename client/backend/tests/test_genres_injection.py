@@ -171,13 +171,15 @@ class TestChapterWriterInjection:
         assert "核心承诺：以弱破强的痛快" in ctx.genre_section
         assert ctx.style_setting.get("banned_words") == ["默认疲劳词"]
 
-        prompt = ctx.to_prompt()
-        assert "## 题材设定" in prompt
-        assert "禁止使用以下词汇：默认疲劳词" in prompt
+        # c-write-prompt-layering：题材块与禁用词上收 system 恒定层
+        system = ctx.build_system_prompt()
+        assert "## 题材设定" in system
+        assert "核心承诺：以弱破强的痛快" in system
+        assert "禁止使用以下词汇：默认疲劳词" in system
         # style-settings-v2：chapter_types/tone 块退役，章节类型不再注入；
         # pacing_rules 经归一并入硬约束（拍板），以红线列表形态注入
-        assert "章节类型：日常" not in prompt
-        assert "- 规则" in prompt
+        assert "章节类型：日常" not in system
+        assert "- 规则" in system
 
     def test_degrades_gracefully_when_genre_empty(self):
         root = _tmp_root()
@@ -186,7 +188,8 @@ class TestChapterWriterInjection:
         ctx = _run_async(build_chapter_context(root, "vol-1-ch-1", "测试小说", nid))
         assert ctx.genre_section == ""
         assert ctx.style_setting.get("banned_words") == []
-        assert "## 题材设定" not in ctx.to_prompt()
+        assert "## 题材设定" not in ctx.build_system_prompt()
+        assert "禁止使用以下词汇" not in ctx.build_system_prompt()
 
 
 async def _put(novel_id: str) -> None:

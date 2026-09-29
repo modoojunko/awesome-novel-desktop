@@ -239,6 +239,7 @@ def test_fragment_verbatim_pins():
         g3 = f.read()
     assert "至少破一次预期" in g3 and "合格例" in g3 and "不合格例" in g3
     assert "困难比上一章更狠" in g3 and "三个方向兑现的手段互不相同" in g3
+    assert "冲突叠加着走" in g3 and "旧的未解、新的又起" in g3  # v2 开篇期拍板：旧的未解、新的又起
     with open(os.path.join(_PROMPTS_DIR, "pos_vol_start.prompt"), encoding="utf-8") as f:
         vs = f.read()
     assert "本章就让本卷核心冲突露头" in vs  # 禁「最迟第 3 章」类拖延措辞
@@ -285,6 +286,7 @@ class TestDirectionsRendering:
         system = _last_system(fake)
         assert "【本章位置】全书第 2 章｜本卷第 2 章" in system
         assert "【本章是全书第 2–3 章】" in system and "至少破一次预期" in system
+        assert "冲突叠加着走" in system  # v2：开篇期冲突叠加随片段注入
         assert "【本章是全书第 1 章】" not in system
 
     def test_vol2_ch1_vol_start_global_count(self, client, monkeypatch):

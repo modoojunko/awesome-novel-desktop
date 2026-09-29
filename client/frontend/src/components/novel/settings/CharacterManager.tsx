@@ -337,18 +337,39 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
 
   const adoptSink = useCallback(async () => {
     if (!sink || !card) return;
+    // 逐格采纳：以服务端返回的 rev 为准（本地 +1 会与真实版本脱钩）；
+    // 单格 409 不整批中止——重同步 rev 后跳过该格继续，结果逐格汇报
+    let applied = 0;
+    const skipped: string[] = [];
     try {
       for (const cell of sink.cells) {
-        await charactersApi.patch(projectId, card.id, cell.path, cell.value, revRef.current);
-        revRef.current += 1;
+        try {
+          const { rev } = await charactersApi.patch(
+            projectId, card.id, cell.path, cell.value, revRef.current,
+          );
+          revRef.current = rev;
+          applied += 1;
+        } catch (e) {
+          const err = e as Error & { status?: number; rev?: number };
+          if (err.status === 409 && err.rev !== undefined) {
+            revRef.current = err.rev;
+            skipped.push(cell.path);
+            continue;
+          }
+          throw e;
+        }
       }
       setSink(null); // 采纳即作废旧稿（只补空格的稿采纳后无二次价值）：重开会重新出稿，D9 的缓存例外
       setCardOpen(false); // 确认写回＝弹窗自动关
       await loadCard(card.id);
       await reloadList();
-      showToast("\u5df2\u91c7\u7eb3\uff0c\u53ef\u7ee7\u7eed\u6539");
+      showToast(
+        skipped.length
+          ? `\u5df2\u91c7\u7eb3 ${applied} \u683c\uff1b${skipped.length} \u683c\u51b2\u7a81\u8df3\u8fc7\uff08\u8bf7\u624b\u52a8\u6838\u5bf9\uff09`
+          : "\u5df2\u91c7\u7eb3\uff0c\u53ef\u7ee7\u7eed\u6539",
+      );
     } catch (e) {
-      showToast((e as Error).message || "\u91c7\u7eb3\u5931\u8d25");
+      showToast((e as Error).message || "\u91c7\u7eb3\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5");
     }
   }, [sink, card, projectId, loadCard, reloadList, showToast]);
 

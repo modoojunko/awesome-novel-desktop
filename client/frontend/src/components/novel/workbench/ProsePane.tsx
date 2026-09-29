@@ -41,7 +41,7 @@ import {
   type LineHeightPref,
   setLastWriteSession,
 } from "@/lib/prefs";
-import { docToProse, linesToParagraphs, proseToDoc } from "./proseDoc";
+import { docToProse, linesToParagraphs, proseToDoc, normalizeStreamedProse, proseDelta} from "./proseDoc";
 
 export interface ProseAIState {
   hasSelection: boolean;
@@ -160,6 +160,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   const abortRef = useRef<AbortController | null>(null);
   // 流式现场（插入点 / 起点 / 收尾定位用）
   const streamPosRef = useRef(0);
+  // 流式增量镜像：已插入的「归一全量」长度（appendChunk 与后端归一同口径）
+  const streamInsertedLenRef = useRef(0);
   const streamStartRef = useRef(0);
   const streamBaseRef = useRef("");
   const streamReceivedRef = useRef("");
@@ -222,7 +224,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           let cur = from + first.length;
           for (let i = 1; i < lines.length; i++) {
             tr.split(cur);
-            cur += 1;
+            // 同 appendChunk：段落边界占 2 个位置
+            cur += 2;
             const line = lines[i];
             if (line) {
               tr.insertText(line, cur, cur);
@@ -272,6 +275,31 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   const saveProgressRef = useRef(saveProgress);
   saveProgressRef.current = saveProgress;
 
+  // ── 流式跟随滚动（fix/stream-autoscroll）──────────────────────────
+  // 生成到页末自动跟着滚：只在视口距底部 ≤160px（用户本就贴着正文看）时贴底；
+  // 用户上滚回看旧文时不抢滚动条，滚回底部自动恢复跟随。
+  const followStream = useCallback(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const distance = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
+    if (distance < 160) wrap.scrollTop = wrap.scrollHeight;
+  }, []);
+  /** 把流式插入点滚进视口（生成开始时一次性定位） */
+  const scrollInsertIntoView = useCallback(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || !editor || editor.isDestroyed) return;
+    try {
+      const domAt = editor.view.domAtPos(streamPosRef.current);
+      const el =
+        domAt.node.nodeType === 1
+          ? (domAt.node as HTMLElement)
+          : domAt.node.parentElement;
+      el?.scrollIntoView({ block: "center", behavior: "auto" });
+    } catch {
+      // 插入点越界（文档刚被清空等）忽略——首块到达后 followStream 自然贴底
+    }
+  }, [editor]);
+
   // 编辑态/流式 → contenteditable（e2e 与 a11y 判定口保持 contenteditable 属性）
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -288,7 +316,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     if (streaming) classList.add("generating");
   }, [editor, fs, lh, streaming]);
 
-  // 外部 prose 变化（加载/归档恢复/润色替换/AI 完成落盘）→ 整文档替换；
+  // 外部 prose 变化（加载/归档恢复/去AI味替换/AI 完成落盘）→ 整文档替换；
   // 本地输入回路（指纹一致）与 IME 组合期跳过（组合结束补同步）。
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -326,7 +354,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     };
   }, [chapterRef]);
 
-  // ── 选区跟踪（AI 润色/扩写需要选中段落） ──────────────────────────────
+  // ── 选区跟踪（去AI味/扩写需要选中段落） ──────────────────────────────
   const captureNow = useCallback((): SelectionCapture | null => {
     if (!editor || editor.isDestroyed) return null;
     // 读 DOM 选区而非 editor.state.selection：PM 消化 selectionchange 有延迟，
@@ -382,8 +410,13 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       const { state, view } = editor;
       const tr = state.tr;
       tr.setMeta("addToHistory", false);
+      // 流式所见＝落库最终态：对已收全量做与后端生成出口同款归一（段间空行收敛）
+      // 后取增量插入——done 重排与流式渲染逐字一致，不再出现「先空行后收敛」的跳变
+      const full = normalizeStreamedProse(streamReceivedRef.current);
+      const delta = proseDelta(full, streamInsertedLenRef.current);
+      if (!delta) return;
       let cur = streamPosRef.current;
-      const lines = chunk.replace(/\r\n?/g, "\n").split("\n");
+      const lines = delta.split("\n");
       lines.forEach((line, i) => {
         if (line) {
           tr.insertText(line, cur, cur);
@@ -391,11 +424,15 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         }
         if (i < lines.length - 1) {
           tr.split(cur);
-          cur += 1;
+          // 段落边界占 2 个位置（本段闭合 +1、新段开启 +1）——只 +1 会让位置账本
+          // 每拆一段滞后 1，split 切进上一段末字、碎片越积越多（实测复现）
+          cur += 2;
         }
       });
       view.dispatch(tr);
       streamPosRef.current = cur;
+      streamInsertedLenRef.current = full.length;
+      followStream();
     },
     [editor],
   );
@@ -407,7 +444,9 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       setStreaming(false);
       onAIStateChange((prev) => ({ ...prev, streaming: false }));
       const base = streamBaseRef.current;
-      const generated = fullText || streamReceivedRef.current;
+      const generated = normalizeStreamedProse(
+        fullText || streamReceivedRef.current,
+      );
       const next = [base, generated].filter((s) => s && s.trim()).join("\n");
       // 两步收尾（c-prose-editor-tiptap）：①删流式区间（不入史）②整段写回（入史）
       // ——整次生成成为可整体撤销的一个历史单元（一次撤销回到生成前起点）
@@ -450,6 +489,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       const pos = continuation ? (cap ? cap.end : base.length) : base.length;
       streamBaseRef.current = base;
       streamReceivedRef.current = "";
+      streamInsertedLenRef.current = 0;
       streamingRef.current = true;
       setStreaming(true);
       onAIStateChange((prev) => ({ ...prev, streaming: true }));
@@ -469,6 +509,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         streamPosRef.current = state.doc.content.size - 1; // 末段内
       }
       streamStartRef.current = streamPosRef.current;
+      // 生成开始：先把插入点滚进视口（追加在文末＝滚到底；续写＝滚到光标处）
+      scrollInsertIntoView();
       const cbs = {
         onChunk: (t: string) => {
           streamReceivedRef.current += t;
@@ -484,7 +526,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         ? streamChapterContinue(projectId, chapterRef, pos, cbs)
         : streamChapterWrite(projectId, chapterRef, cbs, promptOverride);
     },
-    [projectId, chapterRef, archived, editor, captureNow, appendChunk, finishStream, onAIStateChange],
+    [projectId, chapterRef, archived, editor, captureNow, appendChunk, finishStream, scrollInsertIntoView, onAIStateChange],
   );
 
   // ── 续写恢复：每个信号号只恢复一次（appliedResumeRef 守卫）。
@@ -517,7 +559,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     return () => cancelAnimationFrame(raf);
   }, [resumeScroll, chapterRef]);
 
-  // ── 润色 / 扩写（选中段落 → 对照预览 → 接受替换） ─────────────────────
+  // ── 去AI味 / 扩写（选中段落 → 对照预览 → 接受替换） ─────────────────
   const runTransform = useCallback(
     async (mode: "polish" | "expand" | "compress", capture: SelectionCapture) => {
       const ctxBefore = capture.fullText.slice(Math.max(0, capture.start - 200), capture.start);
@@ -759,7 +801,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
               setProse(next);
               toast.success(
                 preview.mode === "polish"
-                  ? "已应用润色"
+                  ? "已去AI味"
                   : preview.mode === "expand"
                     ? "已应用扩写"
                     : "已应用压缩",

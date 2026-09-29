@@ -17,6 +17,8 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 import brand
 import models  # noqa: F401
 from api_configs.router import router as api_configs_router
+from archive.dossier_router import book_router as dossier_book_router
+from archive.dossier_router import router as dossier_router
 from archive.reconcile_router import router as reconcile_router
 from archive.router import archives_router
 from archive.router import router as archive_router
@@ -26,8 +28,8 @@ from auth_local.router import router as auth_local_router
 from backup.router import router as backup_router
 from chapters.ai_cast import router as chapter_cast_router
 from chapters.ai_draft import router as chapters_ai_draft_router
-from chapters.ai_plot import router as chapter_plot_router
 from chapters.ai_plan import router as chapter_ai_plan_router
+from chapters.ai_plot import router as chapter_plot_router
 from chapters.router import router as chapters_router
 from chapters.versions import router as chapters_versions_router
 from db import Base, async_session, engine
@@ -129,6 +131,24 @@ async def lifespan(app: FastAPI):
         import logging
 
         logging.getLogger("uvicorn.error").warning("Failed to create tables: %s", e)
+
+    # ── 章档（c-chapter-dossier）：启动 sweep 悬空提取 job ＋ 存量收尾 pending 迁移 ──
+    try:
+        from archive.dossier import sweep_stuck_jobs
+
+        _swept = await sweep_stuck_jobs()
+        if _swept:
+            _log.info("dossier: swept %d interrupted extraction job(s)", _swept)
+    except Exception as _e:  # noqa: BLE001 — sweep 失败不挡启动
+        _log.warning("dossier sweep failed: %s", _e)
+    try:
+        from archive.reconcile import migrate_legacy_pending
+
+        _mig = await migrate_legacy_pending()
+        if _mig.get("migrated") or _mig.get("char_states_rejected"):
+            _log.info("dossier: legacy reconcile migrated=%(migrated)s rejected=%(char_states_rejected)s", _mig)
+    except Exception as _e:  # noqa: BLE001 — 迁移失败不挡启动（下次启动重试）
+        _log.warning("dossier legacy migration failed: %s", _e)
 
     # ── 预置题材播种（#453 重写 lifespan 时被误删，2026-09-21 补回）──────────
     # 两个都是幂等（只插缺失、不覆盖用户改动）；缺了它们**新建库的题材目录是空的**：
@@ -359,6 +379,8 @@ app.include_router(style_shadow_router)
 app.include_router(plot_sim_router)
 app.include_router(prompt_sources_router)
 app.include_router(reconcile_router)
+app.include_router(dossier_router)
+app.include_router(dossier_book_router)
 app.include_router(chapters_versions_router)
 app.include_router(story_router)
 app.include_router(workflow_router)

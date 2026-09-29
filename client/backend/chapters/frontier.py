@@ -230,9 +230,27 @@ async def revert_to_chapter(db: AsyncSession, novel_id: str, ref: str) -> dict:
         ):
             await db.delete(arc)
 
+    # 章档四域（c-chapter-dossier）：支线章的行一并删除——章行只转 ghost 不删，
+    # FK CASCADE 不兜底；残留会让「截至本章」累计态折进支线信息
+    dossier_rows_removed = 0
+    from models.chapter import (
+        ChapterItemChange,
+        ChapterKnowledgeChange,
+        ChapterRelationChange,
+        ChapterSettingChange,
+    )
+
+    for model in (ChapterSettingChange, ChapterRelationChange, ChapterItemChange, ChapterKnowledgeChange):
+        for row in await db.scalars(
+            select(model).where(model.chapter_id.in_(ghosts_set))
+        ):
+            await db.delete(row)
+            dossier_rows_removed += 1
+
     await db.commit()
     return {
         "ghosted": len(ghost_rows),
         "hooks_removed": hooks_removed,
         "relations_removed": rels_removed,
+        "dossier_rows_removed": dossier_rows_removed,
     }

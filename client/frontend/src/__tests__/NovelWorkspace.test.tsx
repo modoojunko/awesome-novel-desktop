@@ -374,10 +374,11 @@ describe("免费态：选中章 → 章对象工作台", () => {
     renderWorkspace("none");
     await selectFirstChapter();
     // 页签（章纲默认选中；提示词子 label PRO-only：免费隐藏 ai-prompt-crafting）
-    // workbench-storyline-hooks：伏笔页签全档位 → 免费 7 个
+    // c-chapter-dossier IA 对齐（09-28）：无独立变化页签 → 免费 7 个
     // （章纲/正文/设定/文风/角色关系/伏笔/操作）
     const tabs = screen.getAllByRole("tab");
     expect(tabs.length).toBe(7);
+    expect(screen.queryByRole("tab", { name: /^章档/ })).toBeNull();
     const ogTab = screen.getByRole("tab", { name: /^章纲/ });
     expect(ogTab.getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByRole("tab", { name: /^提示词/ })).toBeNull();
@@ -595,7 +596,7 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
     // 顶栏 bar-here 也有「续写」CTA（行头归一），右栏工具卡断言限定右栏范围
     expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
     expect(within(rail).getByRole("button", { name: /续写建议/ })).toBeDefined();
-    expect(within(rail).getByRole("button", { name: /段落润色/ })).toBeDefined();
+    expect(within(rail).getByRole("button", { name: /去AI味/ })).toBeDefined();
     expect(within(rail).getByRole("button", { name: /场景扩写/ })).toBeDefined();
   });
 });

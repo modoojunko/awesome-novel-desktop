@@ -27,16 +27,15 @@ from models.project import Novel
 from models.reconcile import ChapterReconcile
 
 # 收尾类别 → 展示名（工作台「操作」页签用）
+# c-chapter-dossier：set_changes/relations/char_states 三类迁章档页签，收尾通道
+# 只剩伏笔登记与世界要素两类（采纳写回书级）；四域提取见 archive/dossier.py。
 KINDS: dict[str, str] = {
-    "set_changes": "设定变化",
-    "relations": "角色关系",
     "hooks": "伏笔登记",
     "lore": "世界要素",
-    "char_states": "角色状态变化",
 }
 
 _job_lock = threading.Lock()
-_job: dict | None = None  # 单飞：{chapter_key: {state, ...}}——同一时刻只跑一章收尾
+_job: dict | None = None  # 全局单飞：同一时刻只跑一章收尾（与提取的每章键控单飞不同）
 
 
 def _now_iso() -> str:
@@ -141,33 +140,57 @@ async def _run_async(
     if not full_text.strip():
         return
 
-    # ① 设定变化提取 → kind=set_changes
-    # ② 角色关系建议 → kind=relations
-    # ③ 伏笔登记（埋下/收束＋证据句）→ kind=hooks
-    # ④ 世界要素建议 → kind=lore
-    # ⑤ 出场角色状态变化 → kind=char_states（写出场引用行，非提案）
+    # ① 伏笔登记（埋下/收束＋证据句）→ kind=hooks
+    # ② 世界要素建议 → kind=lore
+    # （set_changes/relations/char_states 三类已迁章档，c-chapter-dossier）
     outline_chars = (chapter.get("outline") or {}).get("characters") or []
     cast = [str(n) for n in outline_chars if str(n).strip()]
-    # c-ai-material-audit：世界要素/设定变化两段原先不带「现有世界设定」——模型没有"之前"
-    # 可比，必然把已有势力/规则当新要素重复提案（对比 /ai/world/lore-suggest 是带的）
+    # lore 段带「现有世界设定」：只提与外面对不上的新要素（防重复提案）
     from filesystem.storage import get_storage
     from settings.world_model import world_summary_text
 
     world_raw = await get_storage().read_yaml(root_path, "settings/world-setting.yaml") or {}
     world_now = world_summary_text(world_raw, None).strip()
 
-    for kind, prompt in _collect_prompts(chapter_ref, chapter, full_text, cast, world_now):
+    # 角色名册（真机实锤 09-28：邵青梧/阿蓟等已登记角色的背景被当「新世界要素」
+    # 提案——lore 只带世界设定排重、没带名册，模型无从知道谁是已登记角色）
+    roster = ""
+    try:
+        from db import async_session as _as
+        from models.project import Novel as _Novel
+
+        async with _as() as _db:
+            _proj = await _db.get(_Novel, novel_id)
+            if _proj is not None:
+                from settings.name_registry import known_names, roster_text
+
+                roster = roster_text(await known_names(_db, _proj))
+    except Exception:  # noqa: BLE001 — 名册取不到：lore 退回无名册（不阻塞收尾）
+        roster = ""
+
+    for kind, prompt in _collect_prompts(chapter_ref, chapter, full_text, cast, world_now, roster):
         if kinds is not None and kind not in kinds:
             continue
         usage: dict = {}
         try:
             text = await client.chat(
                 model="haiku", system="", messages=[{"role": "user", "content": prompt}],
-                max_tokens=600, usage=usage,
+                # 1600＝四域提取同预算：600 下 planted/resolved 各几条带证据句
+                # 必截断（真机实锤：断在半句 evidence → JSON 断裂 → parse 失败）
+                max_tokens=1600, usage=usage,
             )
             await _record(novel_id, kind, usage)
             data = _parse_json_lenient(text)
             if not data:
+                # 返回了文字但不是 JSON：显式落失败行（可重试），不得静默蒸发；
+                # 末尾无 "}" ＝大概率被输出预算截断（诊断提示直达原因）
+                truncated = bool(text) and not text.rstrip().endswith("}")
+                hint = "；输出疑似被输出预算截断" if truncated else ""
+                await _record_fail(novel_id, kind, usage)
+                await _mark_failed(
+                    novel_id, chapter_id, kind,
+                    f"parse: 模型输出不是可解析的 JSON{hint}（{str(text)[:120]}）",
+                )
                 continue
         except Exception:  # noqa: BLE001 — 单类失败不拖垮其他收尾
             await _record_fail(novel_id, kind, usage)
@@ -175,52 +198,46 @@ async def _run_async(
             continue
         async with async_session() as session:
             await _upsert_pending(session, chapter_id, novel_id, kind, data)
+            # 重试/重跑成功：旧失败行使命已尽（新 pending 承接），清掉防永久挂列表
+            for old in (
+                await session.scalars(
+                    select(ChapterReconcile).where(
+                        ChapterReconcile.chapter_id == chapter_id,
+                        ChapterReconcile.kind == kind,
+                        ChapterReconcile.status == "failed",
+                    )
+                )
+            ).all():
+                await session.delete(old)
             await session.commit()
-            if kind == "char_states":
-                # 角色状态变化直接落出场引用行（重归档/重试覆盖），不走提案确认
-                await _apply_char_states(session, chapter_id, data)
-                await session.commit()
 
 
 def _collect_prompts(
-    chapter_ref: str, chapter: dict, full_text: str, cast: list[str], world_now: str = ""
+    chapter_ref: str, chapter: dict, full_text: str, cast: list[str],
+    world_now: str = "", roster: str = "",
 ):
-    """五类收尾的 prompt；正文全量给（章目标上限 6000，旧 [:3000] 会丢掉章末钩子）。
+    """两类收尾的 prompt；正文全量给（章目标上限 6000，旧 [:3000] 会丢掉章末钩子）。
 
-    set_changes / lore 两段带「现有世界设定」：只提与外面对不上的新要素（防重复提案）。
+    lore 段带「现有世界设定＋角色名册」：只提与外面对不上的新要素（防重复提案），
+    已登记角色的背景不进世界要素（归角色卡，真机实锤防混入）。
     """
     body = full_text
     world_block = f"现有世界设定（与之重复的不要提）：\n{world_now}\n\n" if world_now else ""
-    cast_s = "、".join(cast) if cast else "（本章无出场角色）"
-    yield "set_changes", (
-        f"从第 {chapter_ref} 章正文提取新的世界观/设定事实（新增或与之前不同的设定）。"
-        f"只列事实，不评论。JSON 数组输出，每条含 key/value/set，"
-        f"set 取 history（大事年表）/factions（势力）/extra（更多细节），拿不准用 extra；"
-        f'形如 {{"items": [{{"key": "信标", "value": "三百年前留下的导航信标", "set": "extra"}}]}}。'
-        f"\n\n{world_block}正文：\n{body}"
-    )
-    yield "relations", (
-        f"从第 {chapter_ref} 章正文找出角色关系的变化或新关系（出场：{cast_s}）。"
-        f'JSON 数组输出，形如 {{"items": [{{"owner": "甲", "other": "乙", '
-        f'"rel_type": "盟友", "stance": "信任加深", "note": "原因一句话"}}]}}。'
-        f"没有变化输出空数组。\n\n正文：\n{body}"
-    )
     yield "hooks", (
         f"判断第 {chapter_ref} 章埋下或收束了哪些伏笔，每条给出证据句。"
         f'JSON 数组输出，形如 {{"planted": [{{"description": "信标坐标漂移", '
         f'"evidence": "原文一句话"}}], "resolved": [{{"description": "镜面之谜", '
         f'"evidence": "…"}}]}}。没有则输出空数组。\n\n正文：\n{body}'
     )
+    roster_block = (
+        f"{roster}\n已登记角色（上表人物）的背景、身份、经历属于角色卡——不要作为世界要素提案。\n\n"
+        if roster else ""
+    )
     yield "lore", (
         f"从第 {chapter_ref} 章正文识别新出现或变化的世界要素（地点/组织/历史/规则）。"
         f"JSON 数组输出，每条含 key/value/set，set 取 history/factions/extra，拿不准用 extra；"
         f'形如 {{"items": [{{"key": "静默带", "value": "一句话", "set": "extra"}}]}}。'
-        f"没有则输出空数组。\n\n{world_block}正文：\n{body}"
-    )
-    yield "char_states", (
-        f"对每个出场角色（{cast_s}），用一句话概括其在本章的状态变化。"
-        f'JSON 数组输出，形如 {{"items": [{{"name": "沉舟", "state_change": "从犹豫到决意"}}]}}。'
-        f"\n\n正文：\n{body}"
+        f"没有则输出空数组。\n\n{world_block}{roster_block}正文：\n{body}"
     )
 
 
@@ -266,37 +283,19 @@ async def _mark_failed(novel_id: str, chapter_id: str, kind: str, message: str) 
         await session.commit()
 
 
-async def _apply_char_states(session, chapter_id: str, data: dict) -> None:
-    """角色状态变化 → 出场引用行 state_change（按名匹配；重跑覆盖）。"""
-    from models.chapter import ChapterCharacter
-
-    items = data.get("items") if isinstance(data, dict) else None
-    if not isinstance(items, list):
-        return
-    rows = (
-        session.scalars(
-            select(ChapterCharacter).where(ChapterCharacter.chapter_id == chapter_id)
-        )
-    ).all()
-    by_name = {r.character_name: r for r in rows}
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        row = by_name.get(str(item.get("name", "")).strip())
-        if row is not None:
-            row.state_change = str(item.get("state_change", ""))[:200]
-            session.add(row)
-
-
 async def apply_accept(db, row: ChapterReconcile) -> None:
-    """采纳：经目标对象自身服务写回。任一步失败抛异常（行置 failed 保留 payload）。"""
+    """采纳：经目标对象自身服务写回。任一步失败抛异常（行置 failed 保留 payload）。
+
+    c-chapter-dossier 后只剩两类：lore → lore-apply 幂等合并；hooks → 伏笔服务。
+    退役 kind（set_changes/relations/char_states）到达此处 → ValueError（上游
+    run/retry 白名单已拦，历史已决行不会再被采纳）。
+    """
     import json as _json
 
     payload = _json.loads(row.payload or "{}")
 
-    if row.kind in ("set_changes", "lore"):
-        # 世界/故事事实与世界要素建议 → 同一写回通道：lore-apply 幂等合并
-        # （origin=本章 ref）；两类 payload 形状一致（{items:[{key,value}]}）
+    if row.kind == "lore":
+        # 世界要素建议 → lore-apply 幂等合并（origin=本章 ref）
         from filesystem.storage import get_storage
         from settings.world_model import (
             lore_apply_entries,
@@ -332,62 +331,10 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
         merged = put_world_merged(raw, v2)
         await get_storage().write_yaml(novel.root_path, _K2P["world"], merged)
 
-    elif row.kind == "relations":
-        # 关系建议 → 角色名/别名解析 id → upsert_relation（单向视角＋对端去重语义）
-        # （勿在此函数内 import select：函数局部名会让 hooks 分支的模块级 select
-        #   变 UnboundLocalError——本测试撕出）
-        from models.character import Character, CharacterRelation
-        from settings.character_service import upsert_relation
-
-        novel = await db.get(Novel, row.novel_id)
-        ch = await db.get(Chapter, row.chapter_id)
-        ch_ref = ch.ref if ch else ""
-
-        cards = (
-            await db.scalars(select(Character).where(Character.novel_id == row.novel_id))
-        ).all()
-        by_name: dict[str, str] = {}
-        for c in cards:
-            by_name.setdefault(c.name, c.id)
-            try:
-                for alias in __import__("json").loads(c.aliases or "[]"):
-                    by_name.setdefault(alias, c.id)
-            except (TypeError, ValueError):
-                continue
-
-        for item in payload.get("items") or []:
-            owner = by_name.get(str(item.get("owner", "")).strip())
-            other = by_name.get(str(item.get("other", "")).strip())
-            if not owner or not other or owner == other:
-                continue  # 解析不到/自指：静默跳过该条（payload 留痕即可）
-            await upsert_relation(
-                db, row.novel_id, owner, other,
-                rel_type=str(item.get("rel_type", ""))[:20],
-                stance=str(item.get("stance", ""))[:150],
-                note=str(item.get("note", ""))[:300],
-                ch_ref=ch_ref,
-            )
-            # 来源章（upsert_relation 不含该列；提交后补写一次 UPDATE）
-            rel = (
-                await db.scalars(
-                    select(CharacterRelation).where(
-                        CharacterRelation.owner_id == owner,
-                        CharacterRelation.other_id == other,
-                    )
-                )
-            ).first()
-            if rel is not None:
-                rel.origin_chapter_id = row.chapter_id
-                db.add(rel)
-        await db.commit()
-
     elif row.kind == "hooks":
         # 伏笔登记：埋下 → create_hook(active, introduced=本章)；
         # 收束 → 描述匹配既有 active 钩（命中改 resolved＋收束章；未命中建已收束条目）
         from settings.hooks_service import create_hook, patch_hook
-
-        ch = await db.get(Chapter, row.chapter_id)
-        ch_ref = ch.ref if ch else ""
 
         for item in payload.get("planted") or []:
             await create_hook(db, row.novel_id, {
@@ -432,3 +379,97 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
     row.status = "accepted"
     row.decided_at = datetime.now(UTC).replace(tzinfo=None)
     db.add(row)
+
+
+async def migrate_legacy_pending() -> dict:
+    """存量退役 kind 的 pending 行一次性迁移（c-chapter-dossier，启动幂等）。
+
+    - set_changes/relations pending → 物化成对应章档子表 pending 行
+      （与既有章档行合并后整批重建；无证据句置空）；
+    - char_states pending → 置 rejected（数据生成时已直写 state_change，非提案语义）；
+    - 已迁移的 pending 行删除（chapter_reconcile 是运行态待办、不进备份，
+      历史已决行原地留痕不搬）。
+    """
+    import json as _json
+
+    from chapters.store import _apply_dossier
+    from models.chapter import Chapter
+
+    migrated = 0
+    rejected = 0
+    async with async_session() as session:
+        rows = (
+            await session.scalars(
+                select(ChapterReconcile).where(
+                    ChapterReconcile.status == "pending",
+                    ChapterReconcile.kind.in_(("set_changes", "relations", "char_states")),
+                )
+            )
+        ).all()
+        by_chapter: dict[str, list[ChapterReconcile]] = {}
+        for r in rows:
+            by_chapter.setdefault(r.chapter_id, []).append(r)
+        for chapter_id, group in by_chapter.items():
+            chapter = await session.get(Chapter, chapter_id)
+            if chapter is None:
+                continue
+            # 现有章档行并入 payload（_apply_dossier 是整批替换语义）
+            payload = {
+                "settings": [
+                    {"area": s.area, "content": s.content, "evidence": s.evidence,
+                     "status": s.status, "flags": s.flags}
+                    for s in chapter.dossier_settings
+                ],
+                "relations": [
+                    {"owner": r_.owner_name, "other": r_.other_name,
+                     "rel_type": r_.rel_type, "change_note": r_.change_note,
+                     "evidence": r_.evidence, "status": r_.status, "flags": r_.flags}
+                    for r_ in chapter.dossier_relations
+                ],
+                "items": [], "knowledge": [],
+            }
+            touched = False
+            for rec in group:
+                if rec.kind == "char_states":
+                    rec.status = "rejected"
+                    rec.decided_at = datetime.now(UTC).replace(tzinfo=None)
+                    rejected += 1
+                    continue
+                try:
+                    data = _json.loads(rec.payload or "{}")
+                except ValueError:
+                    data = {}
+                items = data.get("items") if isinstance(data, dict) else None
+                if rec.kind == "set_changes":
+                    for i in items or []:
+                        if isinstance(i, dict) and str(i.get("value", "")).strip():
+                            payload["settings"].append({
+                                "area": str(i.get("set", "extra"))[:50],
+                                "content": str(i.get("key", "") + "：" + i.get("value", ""))[:300],
+                                "evidence": "", "status": "pending", "flags": "",
+                            })
+                            migrated += 1
+                            touched = True
+                elif rec.kind == "relations":
+                    for i in items or []:
+                        if isinstance(i, dict) and str(i.get("owner", "")).strip() \
+                                and str(i.get("other", "")).strip():
+                            payload["relations"].append({
+                                "owner": str(i.get("owner", ""))[:50],
+                                "other": str(i.get("other", ""))[:50],
+                                "rel_type": str(i.get("rel_type", ""))[:50],
+                                "change_note": str(i.get("stance", "") or i.get("note", ""))[:300],
+                                "evidence": "", "status": "pending", "flags": "",
+                            })
+                            migrated += 1
+                            touched = True
+                # 已物化/已驳回的原 pending 行删除（char_states 除外——置 rejected 留痕）
+                await session.delete(rec)
+            if touched:
+                for attr in ("dossier_settings", "dossier_relations",
+                             "dossier_items", "dossier_knowledge"):
+                    getattr(chapter, attr).clear()
+                await session.flush()
+                _apply_dossier(chapter, payload, {})
+        await session.commit()
+    return {"migrated": migrated, "char_states_rejected": rejected}

@@ -24,6 +24,8 @@
   --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
   --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
   --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+  /* 浅一档的灰：弹窗 portal 在 .wb 外，必须全局定义（c-chapter-plan-ai） */
+  --faint: color-mix(in oklch, var(--muted) 68%, transparent);
   --on-accent: oklch(100% 0 0);
   --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
                  0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);

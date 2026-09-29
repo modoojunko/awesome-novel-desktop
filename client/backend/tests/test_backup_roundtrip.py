@@ -102,6 +102,36 @@ async def _seed_full_book(tmp_root: str) -> str:
                 chapter_id=ch.id, kind="info", description="残页暗纹",
             ),
         ])
+        # 章档四域（c-chapter-dossier）：四域各一行、三种状态混合＋flags
+        from models.chapter import (
+            ChapterItemChange,
+            ChapterKnowledgeChange,
+            ChapterRelationChange,
+            ChapterSettingChange,
+        )
+
+        session.add_all([
+            ChapterSettingChange(
+                chapter_id=ch.id, sort_order=0, area="势力",
+                content="守夜人接管城门", evidence="守夜人接管了城门",
+                status="accepted", flags="",
+            ),
+            ChapterRelationChange(
+                chapter_id=ch.id, sort_order=0, owner_name="林野",
+                other_name="阿蓟", rel_type="盟友", change_note="从戒备转为并肩",
+                evidence="两人背靠背站着", status="pending",
+            ),
+            ChapterItemChange(
+                chapter_id=ch.id, sort_order=0, item_name="旧刀",
+                change_type="obtain", holder_name="林野", detail="旧刀认主",
+                evidence="他攥紧了旧刀", status="pending",
+            ),
+            ChapterKnowledgeChange(
+                chapter_id=ch.id, sort_order=0, character_name="阿蓟",
+                fact="林野的真实身份", learned=False, evidence="她并不知道他是谁",
+                status="rejected", flags="evidence_unverified",
+            ),
+        ])
         # 层 5：快照（字节级稳定项）
         snap = '{"note": "往返快照原文", "prose": "第一段正文。"}'
         session.add(ChapterVersion(
@@ -293,6 +323,52 @@ class TestLayer3Volume:
 
 
 class TestLayer4Chapter:
+    def test_dossier_rows_survive_roundtrip(self, roundtrip):
+        """章档四域（c-chapter-dossier）：行内容/状态/flags/learned 全量还原。"""
+        from models.chapter import (
+            Chapter,
+            ChapterItemChange,
+            ChapterKnowledgeChange,
+            ChapterRelationChange,
+            ChapterSettingChange,
+        )
+        from models.project import Novel
+
+        _src_id, dst_id, _blob, _slug, _root_path = roundtrip
+
+        async def run():
+            async with async_session() as db:
+                dst_novel = await db.get(Novel, dst_id)
+                ch = (await db.scalars(
+                    select(Chapter).where(
+                        Chapter.project_id == dst_novel.id, Chapter.ref == "vol-1-ch-1"
+                    )
+                )).one()
+                s = (await db.scalars(
+                    select(ChapterSettingChange)
+                    .where(ChapterSettingChange.chapter_id == ch.id)
+                )).one()
+                r = (await db.scalars(
+                    select(ChapterRelationChange)
+                    .where(ChapterRelationChange.chapter_id == ch.id)
+                )).one()
+                i = (await db.scalars(
+                    select(ChapterItemChange)
+                    .where(ChapterItemChange.chapter_id == ch.id)
+                )).one()
+                k = (await db.scalars(
+                    select(ChapterKnowledgeChange)
+                    .where(ChapterKnowledgeChange.chapter_id == ch.id)
+                )).one()
+                return s, r, i, k
+
+        s, r, i, k = _run(run())
+        assert (s.area, s.content, s.status) == ("势力", "守夜人接管城门", "accepted")
+        assert (r.owner_name, r.other_name, r.rel_type, r.status) == ("林野", "阿蓟", "盟友", "pending")
+        assert (i.item_name, i.change_type, i.holder_name) == ("旧刀", "obtain", "林野")
+        assert (k.character_name, k.fact, k.learned, k.status) == ("阿蓟", "林野的真实身份", False, "rejected")
+        assert k.flags == "evidence_unverified"
+
     def test_chapter_full_fields_and_subtables(self, roundtrip):
         from models.chapter import (
             Chapter,

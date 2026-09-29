@@ -5,8 +5,8 @@ import { AiAssistPanel } from "@/components/novel/workbench/AiAssistPanel";
 // ---------------------------------------------------------------------------
 // B 组（storyline col-ai）：右栏 AI 助手随页签切换——c-ai-rail-shared 起全局统一
 // ra-* 布局（与设定域 AiWriterAssistant 同模板）：ra-head 头部 + ai-target 作用域行
-// + ra-step 能力行（名称＋描述）+ ra-foot 声明。检测族（onAiCheck）/精修族
-//（onPromptRefine）/缺项补全（onFillGaps）全部接线；重复动作已撤。
+// + ra-step 能力行（名称＋描述）+ ra-foot 声明。检测族（onAiCheck）
+// /缺项补全（onFillGaps）全部接线；重复动作已撤。
 // 注意：模板行点击经 busyRef 在途互斥（同 tick 连点会被吞），连续点击需 await act。
 // ---------------------------------------------------------------------------
 
@@ -95,9 +95,8 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     expect(last.disabled).toBe(true);
   });
 
-  it("正文页签：统计＋提示词状态进作用域行；动作行含精修；选中才可点（走 onAiSelection）", async () => {
+  it("正文页签：统计＋提示词状态进作用域行；选中才可点（走 onAiSelection）", async () => {
     const onAiSelection = vi.fn();
-    const onPromptRefine = vi.fn();
     apiState.get.mockImplementation(async (p: string) => {
       if (p.endsWith("/prompt-sources")) return { total_chars: 1234, cast_count: 3 };
       throw new Error("unexpected " + p);
@@ -106,7 +105,7 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
       if (p.endsWith("/prompts")) return [];
       throw new Error("unexpected " + p);
     });
-    renderPanel("prose", { onAiSelection, onPromptRefine });
+    renderPanel("prose", { onAiSelection });
     const target = document.querySelector(".ai-target")?.textContent ?? "";
     expect(target).toContain("500 字");
     expect(target).toContain("28%"); // 500/1800
@@ -116,13 +115,8 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
       expect(document.querySelector(".ai-target")?.textContent).toContain("组装来源 1,234 字"),
     );
     expect(document.querySelector(".ai-target")?.textContent).toContain("自动组装");
-    // 精修两行随提示词页签退役收编（提案制）
-    await clickRow(/补全负向约束/);
-    expect(onPromptRefine).toHaveBeenCalledWith("negative");
-    await clickRow(/精简提示词/);
-    expect(onPromptRefine).toHaveBeenCalledWith("concise");
-    // 未选中 → 润色/扩写/压缩禁用并带 hint
-    const polish = screen.getByRole("button", { name: /段落润色/ }) as HTMLButtonElement;
+    // 未选中 → 去AI味/扩写/压缩禁用并带 hint
+    const polish = screen.getByRole("button", { name: /去AI味/ }) as HTMLButtonElement;
     expect(polish.disabled).toBe(true);
     expect(screen.getAllByText(/先在正文选中一段/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("button", { name: /生成正文/ })).toBeTruthy();
@@ -144,7 +138,7 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     expect(onAiSelection).toHaveBeenCalledWith("compress", capture);
   });
 
-  it("设定/关系/伏笔三入口按类触发收尾（未归档禁用）", async () => {
+  it("收尾入口只剩伏笔（设定/关系两入口已迁章档）；未归档禁用", async () => {
     const onRunReconcile = vi.fn();
     const { unmount } = render(
       (() => {
@@ -167,13 +161,12 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
         );
       })(),
     );
-    await clickRow(/提取本章变化/);
-    expect(onRunReconcile).toHaveBeenCalledWith("set_changes");
+    // c-chapter-dossier：设定/关系两入口退役——页签不再出现触发行
+    expect(screen.queryByText(/提取本章变化/)).toBeNull();
     unmount();
 
     renderPanel("relations", { archived: true, onRunReconcile });
-    await clickRow(/识别角色与物品变化/);
-    expect(onRunReconcile).toHaveBeenCalledWith("relations");
+    expect(screen.queryByText(/识别角色与物品变化/)).toBeNull();
     unmount();
 
     renderPanel("hooks", { archived: true, onRunReconcile });
@@ -181,9 +174,9 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     expect(onRunReconcile).toHaveBeenCalledWith("hooks");
     unmount();
 
-    // 未归档：三入口禁用
-    renderPanel("settings", { archived: false, onRunReconcile });
-    const all = screen.getAllByRole("button", { name: /提取本章变化/ });
+    // 未归档：伏笔入口禁用
+    renderPanel("hooks", { archived: false, onRunReconcile });
+    const all = screen.getAllByRole("button", { name: /登记新伏笔/ });
     expect((all[all.length - 1] as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -255,5 +248,56 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     await screen.findByText(/台账 2 条/);
     await clickRow(/伏笔冲突检测/);
     expect(onAiCheck).toHaveBeenCalledWith("hooks_conflict");
+  });
+});
+
+
+describe("故事状态缺口标注（c-chapter-dossier 评审 P2）", () => {
+  it("缺 N 条未确认 → 聚合行追加提示并指路设定页签", async () => {
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.endsWith("/prompt-sources"))
+        return {
+          total_chars: 1234,
+          cast_count: 3,
+          sources: [
+            { key: "book", label: "全书设定", chars: 1, preview: "", empty: false },
+            {
+              key: "story_state",
+              label: "故事状态（截至上章）",
+              chars: 80,
+              preview: "…",
+              empty: false,
+              note: "缺 1 条未确认",
+            },
+          ],
+        };
+      throw new Error("unexpected " + p);
+    });
+    apiState.request.mockImplementation(async (p: string) => {
+      if (p.endsWith("/prompts")) return [];
+      throw new Error("unexpected " + p);
+    });
+    renderPanel("prose", {});
+    const note = await screen.findByTestId("story-state-note");
+    expect(note.textContent).toContain("缺 1 条未确认");
+    expect(note.textContent).toContain("设定");
+  });
+
+  it("上一章未归档 → 聚合行标未归档", async () => {
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.endsWith("/prompt-sources"))
+        return {
+          total_chars: 100,
+          cast_count: 1,
+          sources: [
+            { key: "story_state", label: "故事状态", chars: 0, preview: "", empty: true, note: "上一章未归档" },
+          ],
+        };
+      throw new Error("unexpected " + p);
+    });
+    apiState.request.mockImplementation(async () => []);
+    renderPanel("prose", {});
+    const note = await screen.findByTestId("story-state-note");
+    expect(note.textContent).toContain("未归档");
   });
 });

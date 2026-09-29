@@ -80,18 +80,47 @@ async def rewrite_chapter(db: AsyncSession, project, ref: str) -> dict:
         unarchived = True
 
     # ③ 下游主线章（有正文者）置「基于旧设定」
+    # ④ 章档级联（c-chapter-dossier）：同事务——源章四域行清空（重归档整体重提、
+    # 源章 dossier_stale 复位）；下游**已有章档行**的章置 dossier_stale（无行不标，
+    # 防「章档待更新」角标出现在从未提取过的章上）
     src_key = (_vol_no(src.ref), src.chapter_no)
     stale_marked = 0
+    dossier_stale_marked = 0
     for c in rows:
         if c.id == src.id:
             continue
-        if (
-            (_vol_no(c.ref), c.chapter_no) > src_key
-            and c.has_prose
-            and not c.stale
+        if (_vol_no(c.ref), c.chapter_no) > src_key and c.has_prose:
+            if not c.stale:
+                c.stale = True
+                stale_marked += 1
+            has_dossier = bool(
+                c.dossier_settings or c.dossier_relations
+                or c.dossier_items or c.dossier_knowledge
+            )
+            if has_dossier and not c.dossier_stale:
+                c.dossier_stale = True
+                dossier_stale_marked += 1
+
+    from sqlalchemy import select
+
+    from models.chapter import (
+        ChapterItemChange,
+        ChapterKnowledgeChange,
+        ChapterRelationChange,
+        ChapterSettingChange,
+    )
+
+    dossier_rows_cleared = 0
+    for model in (
+        ChapterSettingChange, ChapterRelationChange,
+        ChapterItemChange, ChapterKnowledgeChange,
+    ):
+        for row in await db.scalars(
+            select(model).where(model.chapter_id == src.id)
         ):
-            c.stale = True
-            stale_marked += 1
+            await db.delete(row)
+            dossier_rows_cleared += 1
+    src.dossier_stale = False
 
     await db.commit()
     return {
@@ -101,4 +130,6 @@ async def rewrite_chapter(db: AsyncSession, project, ref: str) -> dict:
         "ghost_created": created,
         "unarchived": unarchived,
         "stale_marked": stale_marked,
+        "dossier_rows_cleared": dossier_rows_cleared,
+        "dossier_stale_marked": dossier_stale_marked,
     }

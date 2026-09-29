@@ -6,7 +6,7 @@
 
 - [x] 0.1 **实现基线对齐（1.x/3.x/4.x 的前置）**：worktree 先合 origin/main（#513/#515/#516/#518 均在 main）再开工——tasks 形制（cap() 行式、.fro 只读行、e-meta）都按 main 写。验证：`git merge-base --is-ancestor origin/main HEAD` 成立＋抽查 cap() 行式/.fro/e-meta 形制与 main 同源
 - [x] 0.2 改 `docs/design-c/prototypes/book.html`（写作工作台原型，照设计稿 v2.4；注：仓内无 write.html）：右栏统一卡片新增能力行「盘点出场人物」（行级门控：盘点行免费，PRO 行 ra-off＋「需 PRO」）；弹层十一态（含确认页两形态：选卡进=预填+返回换一张／手填进=空格无返回；档位跟用户不跟场景；写入后回结果页多缺人回程）；壳层＝七页签＋e-meta 八枚（REQ_FIELDS 分母 2）。ADJUSTMENTS.md 待登记（逐类对照表）：①入口 ra-step 行②**ra-* 作用域 12 条去 .settings-v 前缀**（ra-off/ra-off:hover/ra-hint/ai-target/ai-target b/ra-foot b/locked .ra-body b/locked .ra-arrow/ra-running×3/gap-c）③新词全清单（cr-* 十一个、g-head/g-why/g-act/g-done、lock-card、no-card、pick-foot .push、pick-busy .none、badge-muted、cr-sug）④值差复用登记（rp-dot 7px、pick-error .edit-bar、kicker、pick-busy flex-column）⑤A/B 角标小字⑥文案对照表（v2.1/v2.3/v2.4 注释）。验证：原型可点通十一态含两形态、登记齐
-- [ ] 0.3 双端影响判定：book.css 去前缀（12 条）＋AiWriterAssistant 加 subTitle 插槽均属共享词汇/共享组件 → 三域（设定/卷/写作）右栏截图对照回归＋`node scripts/design-cross.mjs` 结论入 ADJUSTMENTS；cr-* 弹层内自含不触共享段
+- [x] 0.3 双端影响判定：book.css 去前缀（12 条）＋AiWriterAssistant 加 subTitle 插槽均属共享词汇/共享组件 → 三域（设定/卷/写作）右栏截图对照回归＋`node scripts/design-cross.mjs` 结论入 ADJUSTMENTS；cr-* 弹层内自含不触共享段（补齐 2026-09-28 归档批：design-cross 初跑红＝c-chapter-plan-ai 期 `--faint`＋注释未同步 server 端，两端同提修复后零差异；三域挂载实勘 SettingsView/VolumeAssistPanel/AiAssistPanel；全量 vitest 968/968 绿；结论已入 ADJUSTMENTS）
 
 ## 1. 后端：盘点端点＋提示词
 

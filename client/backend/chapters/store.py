@@ -116,6 +116,9 @@ def assemble_chapter(row) -> dict:
         data["plot_items"] = [str(x) for x in _items] if isinstance(_items, list) else []
     except Exception:  # noqa: BLE001 — 剧情条目损坏按空处理，不阻塞章读取
         data["plot_items"] = []
+    # 章档过期角标（c-chapter-dossier）：上游重写置位、重归档成功清除
+    if row.dossier_stale:
+        data["dossier_stale"] = True
 
     outline: dict = {
         "characters": [c.character_name for c in row.characters],
@@ -164,6 +167,61 @@ def assemble_chapter(row) -> dict:
             }
             for m in row.micro_payoffs
         ]
+
+    # 章档四域（c-chapter-dossier）：恒出四键（roundtrip 替换依赖 presence-gate——
+    # 键缺失＝不动现值，全量包恒携带）。行内只出领域字段＋生命周期，id/角色 id
+    # 不进 JSON（导入按名重绑，行 id 由库新生）。
+    data["dossier"] = {
+        "settings": [
+            {
+                "area": s.area,
+                "content": s.content,
+                "evidence": s.evidence,
+                "status": s.status,
+                "flags": s.flags,
+                "decided_at": s.decided_at.isoformat() if s.decided_at else None,
+            }
+            for s in row.dossier_settings
+        ],
+        "relations": [
+            {
+                "owner": r.owner_name,
+                "other": r.other_name,
+                "rel_type": r.rel_type,
+                "change_note": r.change_note,
+                "evidence": r.evidence,
+                "status": r.status,
+                "flags": r.flags,
+                "decided_at": r.decided_at.isoformat() if r.decided_at else None,
+            }
+            for r in row.dossier_relations
+        ],
+        "items": [
+            {
+                "name": it.item_name,
+                "change_type": it.change_type,
+                "holder": it.holder_name,
+                "detail": it.detail,
+                "evidence": it.evidence,
+                "status": it.status,
+                "flags": it.flags,
+                "decided_at": it.decided_at.isoformat() if it.decided_at else None,
+            }
+            for it in row.dossier_items
+        ],
+        "knowledge": [
+            {
+                "character": k.character_name,
+                "fact": k.fact,
+                "learned": k.learned,
+                "evidence": k.evidence,
+                "status": k.status,
+                "flags": k.flags,
+                "decided_at": k.decided_at.isoformat() if k.decided_at else None,
+            }
+            for k in row.dossier_knowledge
+        ],
+    }
 
     return data
 
@@ -224,6 +282,7 @@ _CHILD_ATTRS = (
     "characters", "payoff_items",
     "required_changes", "prohibitions",
     "micro_payoffs",
+    "dossier_settings", "dossier_relations", "dossier_items", "dossier_knowledge",
 )
 
 
@@ -231,17 +290,22 @@ def _child_replace_plan(data: dict) -> dict[str, bool]:
     """子表替换计划——缺键保持现值（patch-gates，与 plot_items 守卫同一合同）。
 
     characters 键在 outline 内；payoff_items/required_changes/prohibitions 在 memo 内；
-    micro_payoffs 在顶层。键存在才整体替换（显式 [] = 清空）；键缺失＝本次不动该表。
-    导入/导出全量包各键恒在（assemble 恒出 outline/memo），行为不变。
+    micro_payoffs/dossier 在顶层。键存在才整体替换（显式 [] = 清空）；键缺失＝本次
+    不动该表。导入/导出全量包各键恒在（assemble 恒出 outline/memo/dossier），行为不变。
     """
     outline = data.get("outline") if isinstance(data.get("outline"), dict) else None
     memo = data.get("memo") if isinstance(data.get("memo"), dict) else None
+    dossier_on = isinstance(data.get("dossier"), dict)
     return {
         "characters": outline is not None and "characters" in outline,
         "payoff_items": memo is not None and "payoff_plan" in memo,
         "required_changes": memo is not None and "required_changes" in memo,
         "prohibitions": memo is not None and "prohibitions" in memo,
         "micro_payoffs": "micro_payoffs" in data,
+        "dossier_settings": dossier_on,
+        "dossier_relations": dossier_on,
+        "dossier_items": dossier_on,
+        "dossier_knowledge": dossier_on,
     }
 
 
@@ -288,13 +352,25 @@ async def _replace_children(
     """
     if plan is None:
         plan = _child_replace_plan(data)
-    if character_ids is None and plan["characters"]:
-        outline = data.get("outline")
-        raw_names = outline.get("characters") or [] if isinstance(outline, dict) else []
-        name_map = await _resolve_names(
-            session, row.project_id,
-            [str(n).strip()[:50] for n in raw_names if str(n).strip()],
+    dossier = data.get("dossier") if isinstance(data.get("dossier"), dict) else {}
+    dossier_names = [
+        str(item.get(key, "")).strip()[:50]
+        for item in (
+            list(dossier.get("relations") or []) + list(dossier.get("knowledge") or [])
         )
+        if isinstance(item, dict)
+        for key in (("owner", "other") if "owner" in item else ("character",))
+        if str(item.get(key, "")).strip()
+    ]
+    if character_ids is None:
+        need: list[str] = []
+        if plan["characters"]:
+            outline = data.get("outline")
+            raw_names = outline.get("characters") or [] if isinstance(outline, dict) else []
+            need += [str(n).strip()[:50] for n in raw_names if str(n).strip()]
+        if plan["dossier_relations"] or plan["dossier_knowledge"]:
+            need += dossier_names
+        name_map = await _resolve_names(session, row.project_id, need) if need else {}
     else:
         name_map = character_ids or {}
     return await _replace_children_impl(session, row, data, name_map, plan=plan)
@@ -389,7 +465,107 @@ async def _replace_children_impl(
             row.content.prose = prose
         else:
             row.content = ChapterContent(prose=prose)
+
+    # 章档四域（c-chapter-dossier）：dossier 键存在才整体替换（plan 四键同门）。
+    # 行内字段截断到列宽；status 白名单；decided_at 容错解析；关系/认知按名重绑
+    # character_id（未命中落空快照——与出场角色同口径，不建卡不告警）。
+    if isinstance(data.get("dossier"), dict):
+        _apply_dossier(row, data["dossier"], name_map)
     return warnings
+
+
+_DOSSIER_STATUSES = {"pending", "accepted", "rejected"}
+
+
+def _dossier_status(value) -> str:
+    s = str(value or "").strip()
+    return s if s in _DOSSIER_STATUSES else "pending"
+
+
+def _parse_decided_at(value):
+    from datetime import datetime
+
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _apply_dossier(row, dossier: dict, name_map: dict[str, str]) -> None:
+    """章 JSON dossier 四域 → 子表行整批重建（调用前旧行已 clear+flush）。"""
+    from models.chapter import (
+        ChapterItemChange,
+        ChapterKnowledgeChange,
+        ChapterRelationChange,
+        ChapterSettingChange,
+    )
+
+    def _rows(items, build):
+        out = []
+        for i, item in enumerate(items if isinstance(items, list) else []):
+            if not isinstance(item, dict):
+                continue
+            out.append(build(i, item))
+        return out
+
+    row.dossier_settings = _rows(
+        dossier.get("settings"),
+        lambda i, s: ChapterSettingChange(
+            sort_order=i,
+            area=_fit(s.get("area"), 50) or "",
+            content=_fit(s.get("content"), 300) or "",
+            evidence=_fit(s.get("evidence"), 300) or "",
+            status=_dossier_status(s.get("status")),
+            flags=_fit(s.get("flags"), 100) or "",
+            decided_at=_parse_decided_at(s.get("decided_at")),
+        ),
+    )
+    row.dossier_relations = _rows(
+        dossier.get("relations"),
+        lambda i, r: ChapterRelationChange(
+            sort_order=i,
+            owner_name=_fit(r.get("owner"), 50) or "",
+            owner_character_id=name_map.get(str(r.get("owner") or "").strip()),
+            other_name=_fit(r.get("other"), 50) or "",
+            other_character_id=name_map.get(str(r.get("other") or "").strip()),
+            rel_type=_fit(r.get("rel_type"), 50) or "",
+            change_note=_fit(r.get("change_note"), 300) or "",
+            evidence=_fit(r.get("evidence"), 300) or "",
+            status=_dossier_status(r.get("status")),
+            flags=_fit(r.get("flags"), 100) or "",
+            decided_at=_parse_decided_at(r.get("decided_at")),
+        ),
+    )
+    row.dossier_items = _rows(
+        dossier.get("items"),
+        lambda i, it: ChapterItemChange(
+            sort_order=i,
+            item_name=_fit(it.get("name"), 100) or "",
+            change_type=_fit(it.get("change_type"), 50) or "",
+            holder_name=_fit(it.get("holder"), 50) or "",
+            detail=_fit(it.get("detail"), 300) or "",
+            evidence=_fit(it.get("evidence"), 300) or "",
+            status=_dossier_status(it.get("status")),
+            flags=_fit(it.get("flags"), 100) or "",
+            decided_at=_parse_decided_at(it.get("decided_at")),
+        ),
+    )
+    row.dossier_knowledge = _rows(
+        dossier.get("knowledge"),
+        lambda i, k: ChapterKnowledgeChange(
+            sort_order=i,
+            character_name=_fit(k.get("character"), 50) or "",
+            character_id=name_map.get(str(k.get("character") or "").strip()),
+            fact=_fit(k.get("fact"), 300) or "",
+            learned=bool(k.get("learned", True)),
+            evidence=_fit(k.get("evidence"), 300) or "",
+            status=_dossier_status(k.get("status")),
+            flags=_fit(k.get("flags"), 100) or "",
+            decided_at=_parse_decided_at(k.get("decided_at")),
+        ),
+    )
 
 
 # ── 对外入口（签名与 YAML 时代的 engine.load/save 一致）────────────────────

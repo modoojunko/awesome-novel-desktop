@@ -1,5 +1,7 @@
-/** 「操作」页签 · 归档收尾区（archive-reconcile）：
- *  收尾进度（行聚合轮询）＋逐条采纳/驳回/重试。免费档无提案——占位提示。 */
+/** 归档收尾提案区（archive-reconcile）：按写回目标各归各的页签——
+ *  伏笔登记提案在「伏笔」页签、世界要素提案在「设定」页签（kinds 过滤）。
+ *  「操作」页签只留生命周期卡与归档进度（c-ops-tab-progress-only）；
+ *  免费档不渲染收尾区（PRO 信号由归档弹窗收尾计划承载）。 */
 import { useCallback, useEffect, useState } from "react";
 import {
   acceptReconcile,
@@ -7,7 +9,7 @@ import {
   KIND_LABEL,
   rejectReconcile,
   retryReconcile,
-  type ReconcileProgress,
+  type ReconcileKind,
   type ReconcileRow,
 } from "@/lib/reconcileApi";
 
@@ -32,37 +34,110 @@ function rowSummary(row: ReconcileRow): string {
   return parts.join("；") || "（无明细）";
 }
 
+function ReconcileRowView({
+  row,
+  projectId,
+  chapterRef,
+  busy,
+  act,
+}: {
+  row: ReconcileRow;
+  projectId: string;
+  chapterRef: string;
+  busy: string | null;
+  act: (fn: () => Promise<void>, key: string) => void;
+}) {
+  return (
+    <div className={`reconcile-row rc-${row.status}`} data-od-id={`reconcile-${row.id}`}>
+      <span className={`rc-status rc-${row.status}`}>
+        {STATUS_TEXT[row.status] ?? row.status}
+      </span>
+      <span className="rc-kind">{KIND_LABEL[row.kind] ?? row.kind}</span>
+      <span className="rc-summary" title={rowSummary(row)}>
+        {rowSummary(row)}
+      </span>
+      <span className="rc-acts">
+        {row.status === "pending" && (
+          <>
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={busy === row.id}
+              onClick={() =>
+                void act(
+                  () => acceptReconcile(projectId, chapterRef, row.id),
+                  row.id,
+                )
+              }
+            >
+              采纳
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={busy === row.id}
+              onClick={() =>
+                void act(
+                  () => rejectReconcile(projectId, chapterRef, row.id),
+                  row.id,
+                )
+              }
+            >
+              驳回
+            </button>
+          </>
+        )}
+        {row.status === "failed" && (
+          <button
+            className="btn btn-secondary btn-sm"
+            disabled={busy === row.id}
+            onClick={() =>
+              void act(
+                () => retryReconcile(projectId, chapterRef, row.id),
+                row.id,
+              )
+            }
+          >
+            重试
+          </button>
+        )}
+      </span>
+      {row.error && (
+        <p className="rc-error" title={row.error}>
+          {row.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function ReconcilePane({
   projectId,
   chapterRef,
   archived,
   isPro,
-  onRowsChanged,
+  kinds,
 }: {
   projectId: string;
   chapterRef: string;
   archived: boolean;
   isPro: boolean;
-  onRowsChanged?: (rows: ReconcileRow[]) => void;
+  /** 本页签承载的收尾类别（各归各的页签）：伏笔页签传 ["hooks"]、设定页签传 ["lore"] */
+  kinds: ReconcileKind[];
 }) {
   const [rows, setRows] = useState<ReconcileRow[]>([]);
-  const [progress, setProgress] = useState<ReconcileProgress | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    // 免费档不产生收尾行（占位态）：不发请求、不轮询
+    // 免费档不产生收尾行：不渲染、不发请求、不轮询
     if (!archived || !isPro) return;
     try {
       const data = await fetchReconcile(projectId, chapterRef);
       setRows(data.rows);
-      setProgress(data.progress);
-      onRowsChanged?.(data.rows);
       setError(null);
     } catch {
       setError("收尾进度获取失败，稍后自动重试");
     }
-  }, [archived, isPro, chapterRef, projectId, onRowsChanged]);
+  }, [archived, isPro, chapterRef, projectId]);
 
   // 归档章：挂载即拉一次，之后 5s 轮询（后台产出推进可见）
   useEffect(() => {
@@ -85,105 +160,68 @@ export function ReconcilePane({
     [refresh],
   );
 
-  if (!archived) return null;
+  if (!archived || !isPro) return null;
 
-  if (!isPro) {
-    return (
-      <div className="reconcile-pane" data-od-id="reconcile-pro-free">
-        <p className="reconcile-lead">归档收尾（提取设定变化 / 关系建议 / 伏笔登记）</p>
-        <p className="reconcile-note">PRO 可用 · 免费版归档即刻生效</p>
-      </div>
-    );
-  }
+  const title = `归档收尾 · ${kinds.map((k) => KIND_LABEL[k] ?? k).join("／")}提案`;
 
   if (error) {
     return (
       <div className="reconcile-pane">
+        <p className="reconcile-lead">{title}</p>
         <p className="reconcile-note">{error}</p>
       </div>
     );
   }
 
-  const pending = rows.filter((r) => r.status === "pending");
-  const failed = rows.filter((r) => r.status === "failed");
-  const decided = rows.filter((r) => r.status === "accepted" || r.status === "rejected");
+  const mine = rows.filter((r) => kinds.includes(r.kind));
+  const pending = mine.filter((r) => r.status === "pending");
+  const failed = mine.filter((r) => r.status === "failed");
+  const decided = mine.filter(
+    (r) => r.status === "accepted" || r.status === "rejected",
+  );
+  const counts = [
+    pending.length > 0 ? `待确认 ${pending.length}` : "",
+    failed.length > 0 ? `失败 ${failed.length}` : "",
+    decided.length > 0 ? `已处理 ${decided.length}` : "",
+  ].filter(Boolean).join(" · ");
 
   return (
     <div className="reconcile-pane" data-od-id="reconcile-pane">
       <p className="reconcile-lead">
-        归档收尾
-        {progress && (
-          <span className="reconcile-count">
-            待确认 {progress.pending} · 失败 {progress.failed} · 已处理{" "}
-            {progress.accepted + progress.rejected}
-          </span>
-        )}
+        {title}
+        {counts && <span className="reconcile-count">{counts}</span>}
       </p>
 
-      {[...pending, ...failed, ...decided].length === 0 && (
+      {[...pending, ...failed].length === 0 && decided.length === 0 && (
         <p className="reconcile-note">收尾进行中，产出的建议会出现在这里……</p>
       )}
 
-      {[...pending, ...failed, ...decided].map((row) => (
-        <div
+      {[...pending, ...failed].map((row) => (
+        <ReconcileRowView
           key={row.id}
-          className={`reconcile-row rc-${row.status}`}
-          data-od-id={`reconcile-${row.id}`}
-        >
-          <span className={`rc-status rc-${row.status}`}>
-            {STATUS_TEXT[row.status] ?? row.status}
-          </span>
-          <span className="rc-kind">{KIND_LABEL[row.kind] ?? row.kind}</span>
-          <span className="rc-summary" title={rowSummary(row)}>
-            {rowSummary(row)}
-          </span>
-          <span className="rc-acts">
-            {row.status === "pending" && (
-              <>
-                <button
-                  className="btn btn-primary btn-sm"
-                  disabled={busy === row.id}
-                  onClick={() =>
-                    void act(
-                      () => acceptReconcile(projectId, chapterRef, row.id),
-                      row.id,
-                    )
-                  }
-                >
-                  采纳
-                </button>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  disabled={busy === row.id}
-                  onClick={() =>
-                    void act(
-                      () => rejectReconcile(projectId, chapterRef, row.id),
-                      row.id,
-                    )
-                  }
-                >
-                  驳回
-                </button>
-              </>
-            )}
-            {row.status === "failed" && (
-              <button
-                className="btn btn-secondary btn-sm"
-                disabled={busy === row.id}
-                onClick={() =>
-                  void act(
-                    () => retryReconcile(projectId, chapterRef, row.id),
-                    row.id,
-                  )
-                }
-              >
-                重试
-              </button>
-            )}
-          </span>
-          {row.error && <p className="rc-error">{row.error}</p>}
-        </div>
+          row={row}
+          projectId={projectId}
+          chapterRef={chapterRef}
+          busy={busy}
+          act={act}
+        />
       ))}
+
+      {decided.length > 0 && (
+        <details className="rc-decided">
+          <summary>已处理 {decided.length} 条（点开留痕）</summary>
+          {decided.map((row) => (
+            <ReconcileRowView
+              key={row.id}
+              row={row}
+              projectId={projectId}
+              chapterRef={chapterRef}
+              busy={busy}
+              act={act}
+            />
+          ))}
+        </details>
+      )}
 
       {[...pending, ...failed].length > 0 && (
         <p className="reconcile-note">

@@ -8,6 +8,16 @@ import { api } from "@/lib/api";
 /** 保存四态：自动保存中 / 已保存 / 未保存 / 失败（含重试） */
 export type SaveState = "autosaving" | "saved" | "unsaved" | "failed";
 
+/**
+ * 归档任务态（c-chapter-dossier 受理制）：点归档 → 后台 AI 提取四域 →
+ * 成功才置 archived。extracting 期间本章锁定（编辑/归档/取消归档禁用）。
+ */
+export interface ArchiveJobState {
+  state: "extracting" | "failed" | "done";
+  error?: string | null;
+  startedAt: number;
+}
+
 export interface ChapterPayload {
   volume: number;
   chapter: number;
@@ -36,8 +46,16 @@ export interface UseChapterDataReturn {
   /** 落盘并等待完成（重写快照前置） */
   flush: () => Promise<void>;
   retry: () => void;
-  /** 归档（aiSummary=归档 AI 摘要开关）；返回是否成功 */
+  /** 归档受理（aiSummary=归档 AI 摘要开关）：模型就绪→后台提取（archiveJob 跟踪，
+   *  提取成功才置 archived）；模型未就绪→服务端同步归档。返回是否受理成功 */
   archive: (options?: { aiSummary?: boolean }) => Promise<boolean>;
+  /** 逃生阀：跳过提取仍归档（提取失败后出现；确认由调用方 UI 承担） */
+  skipArchive: () => Promise<boolean>;
+  /** 重试/补提取（未归档章＝完整归档提取；已归档章＝只重写本章变化行）。
+   *  返回 null＝已受理；返回错误文案＝调用方应就地 toast（store.error 无渲染面）。 */
+  retryExtraction: () => Promise<string | null>;
+  /** 归档任务态（受理制）；null＝无任务（从未受理或已终态清除） */
+  archiveJob: ArchiveJobState | null;
   /** 恢复归档章为可编辑态（撤下归档全文 + 状态回退），完成后重拉章数据 */
   unarchive: () => Promise<void>;
   reload: () => Promise<void>;
@@ -84,6 +102,7 @@ interface ChapterStoreState {
   initial: { prose: string; status: string };
   saveState: SaveState;
   targetWords: number;
+  archiveJob: ArchiveJobState | null;
 }
 
 type Listener = () => void;
@@ -114,6 +133,7 @@ class ChapterStore {
       initial: { prose: "", status: "outline" },
       saveState: "saved",
       targetWords: Number.isFinite(n) && n > 0 ? n : DEFAULT_TARGET,
+      archiveJob: null,
     };
   }
 
@@ -139,6 +159,7 @@ class ChapterStore {
     this.disposed = true;
     stores.delete(storeKey(this.projectId, this.ref));
     this.clearTimer();
+    this.clearPollTimer();
     if (this.isDirty() && !this.saving) void this.doSave();
   };
 
@@ -153,15 +174,19 @@ class ChapterStore {
 
   setProse = (p: string) => {
     if (p === this.state.prose) return;
+    if (this.extracting()) return; // 归档提取中本章锁定（受理制全程软锁）
     this.update({ prose: p });
     this.afterChange();
   };
 
   setStatus = (st: string) => {
     if (st === this.state.status) return;
+    if (this.extracting()) return;
     this.update({ status: st });
     this.afterChange();
   };
+
+  extracting = (): boolean => this.state.archiveJob?.state === "extracting";
 
   setError = (msg: string) => this.update({ error: msg });
 
@@ -203,10 +228,106 @@ class ChapterStore {
         loading: false,
         error: null,
       });
+      // 受理制恢复：服务端仍在提取（作者切章返回）→ 恢复任务态＋续轮询
+      if (st !== "archived") void this.checkArchiveJob();
     } catch (e: any) {
       if (this.disposed) return;
       this.update({ loading: false, error: e.message || "加载章节失败" });
     }
+  };
+
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private clearPollTimer() {
+    if (this.pollTimer !== null) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
+  /** 查一次服务端提取任务态：在跑→恢复 extracting＋轮询；已终态且章归档→对齐。 */
+  private checkArchiveJob = async (): Promise<void> => {
+    if (this.disposed) return;
+    try {
+      const d = await api.get(
+        `/novels/${this.projectId}/chapters/${this.ref}/dossier`,
+      );
+      if (this.disposed) return;
+      const st = d?.extraction?.state;
+      if (st === "extracting") {
+        if (!this.extracting()) {
+          this.update({
+            archiveJob: { state: "extracting", startedAt: Date.now() },
+          });
+          this.schedulePoll();
+        }
+      } else if (st === "failed") {
+        this.update({
+          archiveJob: {
+            state: "failed",
+            error: d?.extraction?.error || "提取失败",
+            startedAt: Date.now(),
+          },
+        });
+      } else if (this.state.archiveJob?.state === "extracting") {
+        // 终态但本地还以为在提取（如切走期间完成）→ 对齐
+        await this.onArchiveSettled();
+      }
+    } catch {
+      /* 变化端点不可用（旧后端）→ 忽略，保持无任务态 */
+    }
+  };
+
+  private schedulePoll() {
+    this.clearPollTimer();
+    this.pollTimer = setTimeout(() => {
+      void this.pollArchive();
+    }, 3000);
+  }
+
+  private pollArchive = async (): Promise<void> => {
+    if (this.disposed || !this.extracting()) return;
+    try {
+      const d = await api.get(
+        `/novels/${this.projectId}/chapters/${this.ref}/dossier`,
+      );
+      if (this.disposed) return;
+      const st = d?.extraction?.state;
+      if (st === "failed") {
+        this.update({
+          archiveJob: {
+            state: "failed",
+            error: d?.extraction?.error || "提取失败",
+            startedAt: Date.now(),
+          },
+        });
+        return; // 终态停轮询；重试/逃生阀由用户驱动
+      }
+      if (st === "extracting" && !d?.archived) {
+        this.schedulePoll();
+        return;
+      }
+      await this.onArchiveSettled();
+    } catch {
+      this.schedulePoll(); // 网络抖动继续轮询
+    }
+  };
+
+  /** 提取终态且服务端已归档：重拉章数据＋派发事件＋任务置 done。 */
+  private onArchiveSettled = async (): Promise<void> => {
+    this.clearPollTimer();
+    await this.load();
+    this.update({
+      status: "archived",
+      initial: { prose: this.state.prose, status: "archived" },
+      saveState: "saved",
+      archiveJob: { state: "done", startedAt: Date.now() },
+    });
+    window.dispatchEvent(
+      new CustomEvent("chapter:archived", {
+        detail: { projectId: this.projectId, ref: this.ref },
+      }),
+    );
   };
 
   doSave = async (): Promise<void> => {
@@ -277,6 +398,10 @@ class ChapterStore {
   archive = async (options?: { aiSummary?: boolean }): Promise<boolean> => {
     const { prose: p } = this.state;
     if (!p.trim()) return false;
+    if (this.extracting()) return true; // 受理幂等：在跑不重复受理
+    // 受理制以 DB 正文为单一事实源（提取/归档/哈希全按 DB 值）——防抖窗口内
+    // 未落盘的末段必须先 flush，否则按旧稿归档、且随后落盘必触发 prose_changed
+    await this.flush();
     this.update({ error: null });
     try {
       const resp = await api.post(`/novels/${this.projectId}/chapters/${this.ref}/archive`, {
@@ -284,10 +409,21 @@ class ChapterStore {
         // ai_summary=false：设置里关掉归档 AI 摘要（后端降级为正文摘要）
         ai_summary: options?.aiSummary ?? true,
       });
+      if (resp?.state === "extracting") {
+        // 受理制（c-chapter-dossier）：后台提取中——status 不动，任务态跟踪＋轮询；
+        // 服务端真置 archived 后才派发事件（不乐观置位）
+        this.update({
+          archiveJob: { state: "extracting", startedAt: Date.now() },
+        });
+        this.schedulePoll();
+        return true;
+      }
+      // 模型未就绪：服务端同步归档（无变化记录）——保持旧行为
       this.update({
         status: "archived",
         initial: { prose: p, status: "archived" },
         saveState: "saved",
+        archiveJob: { state: "done", startedAt: Date.now() },
       });
       // 通知工作台树刷新 → 卷章列表 status 已置 archived → 📦 即时同步
       window.dispatchEvent(
@@ -299,6 +435,46 @@ class ChapterStore {
     } catch (e: any) {
       this.update({ error: e.message || "归档失败", saveState: "failed" });
       return false;
+    }
+  };
+
+  skipArchive = async (): Promise<boolean> => {
+    try {
+      await this.flush(); // skip 同样以 DB 正文收口——先落盘防抖窗口
+      await api.post(`/novels/${this.projectId}/chapters/${this.ref}/dossier/skip`);
+      await this.load();
+      this.update({
+        status: "archived",
+        initial: { prose: this.state.prose, status: "archived" },
+        saveState: "saved",
+        archiveJob: { state: "done", startedAt: Date.now() },
+      });
+      window.dispatchEvent(
+        new CustomEvent("chapter:archived", {
+          detail: { projectId: this.projectId, ref: this.ref },
+        }),
+      );
+      return true;
+    } catch (e: any) {
+      this.update({ error: e.message || "跳过提取失败" });
+      return false;
+    }
+  };
+
+  retryExtraction = async (): Promise<string | null> => {
+    if (this.extracting()) return null;
+    try {
+      await this.flush(); // 未归档章的完整归档重试：先落盘（rows_only 补提无需，但 flush 无害）
+      await api.post(`/novels/${this.projectId}/chapters/${this.ref}/dossier/extract`, {});
+      this.update({
+        archiveJob: { state: "extracting", startedAt: Date.now() },
+      });
+      this.schedulePoll();
+      return null;
+    } catch (e: any) {
+      const msg = e.message || "重试提取失败";
+      this.update({ error: msg });
+      return msg;
     }
   };
 
@@ -378,6 +554,9 @@ export function useChapterData(
     flush: store.flush,
     retry: store.retry,
     archive: store.archive,
+    skipArchive: store.skipArchive,
+    retryExtraction: store.retryExtraction,
+    archiveJob: state.archiveJob,
     unarchive: store.unarchive,
     reload: store.load,
     loading: state.loading,

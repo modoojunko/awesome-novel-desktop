@@ -384,7 +384,8 @@ class TestInjection:
         root = _run_async(_root_of(pid))
         ctx = _run_async(build_chapter_context(root, "vol-1-ch-1", "题材注入", novel_id))
         assert "核心承诺：以弱破强的痛快" in ctx.genre_section
-        assert "核心承诺" in ctx.to_prompt()
+        # c-write-prompt-layering：题材块上收 system 恒定层
+        assert "核心承诺" in ctx.build_system_prompt()
 
 
 async def _root_of(novel_id: str) -> str:

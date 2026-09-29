@@ -28,6 +28,11 @@ import { StyleShadowPane } from "./StyleShadowPane";
 import { SettingsChangelogPane } from "./SettingsChangelogPane";
 import { HooksPane } from "./HooksPane";
 import { RelationsGraphPane } from "./RelationsGraphPane";
+import { dossierApi } from "@/lib/dossierApi";
+import {
+  RelationChangesSection,
+  SettingChangesSection,
+} from "./ChangesSections";
 import { ReconcilePane } from "./ReconcilePane";
 import ProsePane, {
   INITIAL_PROSE_AI_STATE,
@@ -51,7 +56,6 @@ import {
 } from "./chapterForm";
 import PlotDrawModal from "./PlotDrawModal";
 import AiCheckModal from "./AiCheckModal";
-import RefinePromptModal from "./RefinePromptModal";
 import CastReviewModal from "./CastReviewModal";
 import { useChapterData } from "@/hooks/useChapterData";
 import { usePlotDraw } from "@/hooks/usePlotDraw";
@@ -63,7 +67,7 @@ import {
 } from "@/lib/castReviewApi";
 import { isNameTaken } from "@/lib/charactersApi";
 import { draftOutline } from "@/lib/ai";
-import { fillOutlineGaps, type AiCheckKind, type RefineMode } from "@/lib/aiCheck";
+import { fillOutlineGaps, type AiCheckKind } from "@/lib/aiCheck";
 import type { useOutline } from "@/hooks/useOutline";
 import type { useWorkbench } from "@/hooks/useWorkbench";
 import { api, errMessage, request } from "@/lib/api";
@@ -164,6 +168,8 @@ export default function ChapterWorkspace({
   const vol = wb.volumes.find((v) => v.name === `vol-${volNoOf(chapterRef)}`);
   const volLabel = vol ? nodeLabel("卷", volNoOf(chapterRef), vol.title) : `第${volNoOf(chapterRef)}卷`;
   const archived = !!chMeta?.archived;
+  // c-chapter-dossier：归档提取中——本章全程软锁（编辑/归档/取消归档/重写/回退禁用）
+  const archiving = store.archiveJob?.state === "extracting";
 
   // 「信息差对齐」块随卷纲换代退役（c-volume-view-storyline：info_gap/chapter_plans
   // 为旧代字段，ADJUSTMENTS ⑤ 登记）。
@@ -173,6 +179,31 @@ export default function ChapterWorkspace({
     "og" | "prose" | "settings" | "relations" | "hooks" | "actions"
    | "style">("og");
   const [showArchive, setShowArchive] = useState(false);
+  // 章级变化轻量元数据（c-chapter-dossier）：归档态常驻一次＋弹窗打开时刷新——
+  // 供重归档覆盖警示与归档卡「未提取」态（not_extracted）
+  const [rearchive, setRearchive] = useState<{ rows: number; accepted: number } | null>(null);
+  const [dossierEmpty, setDossierEmpty] = useState(false);
+  useEffect(() => {
+    if (!showArchive && !archived) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const d = await dossierApi.get(projectId, chapterRef);
+        if (cancelled) return;
+        const n = d.progress.pending + d.progress.accepted + d.progress.rejected;
+        setRearchive(n > 0 ? { rows: n, accepted: d.progress.accepted } : null);
+        setDossierEmpty(d.not_extracted);
+      } catch {
+        if (!cancelled) {
+          setRearchive(null);
+          setDossierEmpty(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showArchive, archived, store.archiveJob?.state, projectId, chapterRef]);
   const [showHistory, setShowHistory] = useState(false);
   // 章纲查看/编辑两态（对齐卷纲）：默认查看态，切章回落查看
   const [ogEditing, setOgEditing] = useState(false);
@@ -474,9 +505,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, chapterRef, ogForm, outline.loadChapterData]);
 
-  // ── 右栏 AI 辅助·检测族（ai-check）与提示词精修（提案制） ─────────────
+  // ── 右栏 AI 辅助·检测族（ai-check） ─────────────
   const [aiCheckKind, setAiCheckKind] = useState<AiCheckKind | null>(null);
-  const [refineMode, setRefineMode] = useState<RefineMode | null>(null);
   const [gapsLoading, setGapsLoading] = useState(false);
 
   /** 章纲缺项补全：缺口清单 → AI 产物回填表单；落库走 3s 自动保存/手动保存。 */
@@ -865,22 +895,41 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   }, [focusMode]);
   useEffect(() => () => document.body.classList.remove("focus"), []);
 
-  // ── 归档（弹窗确认，#modalArchive 口径；摘要开关 per-book） ───────────
+  // ── 归档受理（c-chapter-dossier）：模型就绪→后台提取（archiveJob 跟踪）；
+  //    模型未就绪→服务端同步归档（store 内直接落 archived，沿用旧 toast） ──
   const handleArchive = useCallback(async () => {
     if (archived || wordCount === 0) return;
     const ok = await store.archive({ aiSummary: getBookArchiveAiSummary(projectId) });
-    if (ok) {
-      // chapter-rewrite：存在下游「基于旧设定」章时在归档提示里点名（原型口径）
-      const hasStaleDownstream = outline.volumes.some((v) =>
-        v.chapters.some((c) => c.stale),
-      );
-      toast.success(
-        hasStaleDownstream
-          ? `《${label}》已归档 · 只读（下游章节标记「基于旧设定」）`
-          : `《${label}》已归档 · 只读`,
-      );
+    if (!ok) return;
+    if (store.archiveJob?.state === "extracting") {
+      toast.info("已受理 · AI 提取中（本章已锁定；产出在设定/角色关系页签，进度见归档卡）");
+      return;
     }
+    // chapter-rewrite：存在下游「基于旧设定」章时在归档提示里点名（原型口径）
+    const hasStaleDownstream = outline.volumes.some((v) =>
+      v.chapters.some((c) => c.stale),
+    );
+    toast.success(
+      hasStaleDownstream
+        ? `《${label}》已归档 · 只读（下游章节标记「基于旧设定」）`
+        : `《${label}》已归档 · 只读`,
+    );
   }, [archived, wordCount, projectId, label, store]);
+
+  // 归档任务终态提示（后台提取完成/失败；切页签也不丢）
+  const prevJobRef = useRef(store.archiveJob?.state ?? null);
+  useEffect(() => {
+    const st = store.archiveJob?.state ?? null;
+    const was = prevJobRef.current;
+    prevJobRef.current = st;
+    if (was === "extracting" && st === "done") {
+      toast.success(`《${label}》提取完成 · 已归档，变化待确认（设定/角色关系页签）`);
+      void onTreeRefresh();
+    } else if (was === "extracting" && st === "failed") {
+      toast.error(`《${label}》提取失败——章未归档，可重试或跳过（归档卡）`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.archiveJob?.state]);
 
   // ── chapter-rewrite：本章保存成功且仍带「基于旧设定」→ 刷新树让角标消失
   //    （后端在单写入口已清 stale；树只在归档/增删事件刷新，这里补一次）
@@ -980,7 +1029,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       onFillGaps: () => void handleFillGaps(),
       gapsLoading,
       onAiCheck: setAiCheckKind,
-      onPromptRefine: setRefineMode,
     });
     return () => onRailDataRef.current(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1113,14 +1161,25 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         locked={
           ghostOf
             ? { reason: "旧稿支线 · 只读" }
-            : frontierLocked && chTab === "prose"
-              ? { reason: "还不能写这一章——先完成前面的章节" }
-              : undefined
+            : archiving
+              ? { reason: "归档提取中 · 本章已锁定" }
+              : frontierLocked && chTab === "prose"
+                ? { reason: "还不能写这一章——先完成前面的章节" }
+                : undefined
         }
       />
 
       {chTab === "settings" && (
         <div className="settings-pane" data-od-id="settings-pane">
+          <SettingChangesSection projectId={projectId} chapterRef={chapterRef} />
+          {/* 世界要素提案各归各的页签（c-ops-tab-progress-only）：与写回目标同位 */}
+          <ReconcilePane
+            projectId={projectId}
+            chapterRef={chapterRef}
+            archived={archived}
+            isPro={isPro}
+            kinds={["lore"]}
+          />
           <SettingsChangelogPane
             projectId={projectId}
             chapterRef={chapterRef}
@@ -1141,15 +1200,27 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
       {chTab === "relations" && (
         <div className="relations-pane" data-od-id="relations-pane">
+          {/* 关系图为主表达（09-28 用户拍板），变化行是确认工作流，置于图下 */}
           <RelationsGraphPane projectId={projectId} chapterRef={chapterRef} />
+          <RelationChangesSection projectId={projectId} chapterRef={chapterRef} />
         </div>
       )}
 
       {chTab === "hooks" && (
         <div className="hooks-wrap" data-od-id="hooks-wrap">
+          {/* 伏笔登记提案各归各的页签（c-ops-tab-progress-only）：与写回目标同位 */}
+          <ReconcilePane
+            projectId={projectId}
+            chapterRef={chapterRef}
+            archived={archived}
+            isPro={isPro}
+            kinds={["hooks"]}
+          />
           <HooksPane projectId={projectId} chapterRef={chapterRef} />
         </div>
       )}
+
+
 
       {chTab === "actions" && (
         <div className="actions-pane" data-od-id="actions-pane">
@@ -1158,18 +1229,78 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             <div className="revert-card" data-od-id="archive-card">
               <p className="rc-title">归档本章</p>
               <p className="rc-desc">
-                归档后本章写回主线、正文转只读；设定/关系/伏笔的写回提案在下方逐条确认。
+                {archived
+                  ? "本章已归档 · 变化与提案在「设定 / 角色关系 / 伏笔」页签确认；需要时可重新归档重提。"
+                  : "点归档后先 AI 提取本章变化（设定/关系/物品/认知，用你配置的模型），提取成功本章才正式归档；提取期间本章锁定。"}
               </p>
-              <button
-                className="btn btn-secondary btn-sm"
-                data-od-id="archive-btn"
-                data-testid="archive-btn"
-                disabled={archived || wordCount === 0}
-                title={archived ? "本章已归档" : wordCount === 0 ? "空章无需归档" : undefined}
-                onClick={() => setShowArchive(true)}
-              >
-                归档本章
-              </button>
+              {archiving ? (
+                <p className="rc-desc" data-testid="archive-extracting">
+                  AI 提取中 · 本章已锁定（完成后产出落「设定 / 角色关系」页签）……
+                </p>
+              ) : store.archiveJob?.state === "failed" ? (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    data-testid="archive-retry"
+                    onClick={() =>
+                      void store.retryExtraction().then((err) => err && toast.error(err))
+                    }
+                  >
+                    重试提取
+                  </button>
+                  {!archived && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      data-testid="archive-skip"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            "跳过提取后本章直接归档，但本章状态不会进入下一章前情（之后可在归档卡补提取）。确定跳过？",
+                          )
+                        )
+                          void store.skipArchive();
+                      }}
+                    >
+                      跳过提取，仍要归档
+                    </button>
+                  )}
+                </div>
+              ) : archived && dossierEmpty ? (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <span className="rc-desc">本章已归档但未提取变化（归档时未配置模型 / 跳过提取）。</span>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    data-testid="archive-backfill"
+                    onClick={() =>
+                      void store.retryExtraction().then((err) => err && toast.error(err))
+                    }
+                  >
+                    补提取本章变化
+                  </button>
+                  <a href="#/config">去「模型配置」</a>
+                </div>
+              ) : archived ? (
+                /* 多次归档（c-ops-tab-progress-only）：已归档已提取章可重提变化（rows_only） */
+                <button
+                  className="btn btn-secondary btn-sm"
+                  data-testid="archive-reextract"
+                  disabled={wordCount === 0}
+                  onClick={() => setShowArchive(true)}
+                >
+                  重新归档 · 重提本章变化
+                </button>
+              ) : (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  data-od-id="archive-btn"
+                  data-testid="archive-btn"
+                  disabled={wordCount === 0}
+                  title={wordCount === 0 ? "空章无需归档" : undefined}
+                  onClick={() => setShowArchive(true)}
+                >
+                  归档本章
+                </button>
+              )}
             </div>
           )}
           {!ghostOf && (store.chapter?.prose ?? "").trim().length > 0 && (
@@ -1182,7 +1313,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
                 className="btn btn-secondary btn-sm"
                 data-od-id="rewrite-btn"
                 data-testid="rewrite-btn"
-                disabled={rewriting}
+                disabled={rewriting || archiving}
+                title={archiving ? "归档提取中" : undefined}
                 onClick={() => setShowRewrite(true)}
               >
                 重写这一章
@@ -1212,20 +1344,24 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
               </button>
             </div>
           )}
-          <ReconcilePane
-            projectId={projectId}
-            chapterRef={chapterRef}
-            archived={archived}
-            isPro={isPro}
-          />
+          {/* 收尾提案区已各归各的页签（伏笔→伏笔页签 / 世界要素→设定页签，
+              c-ops-tab-progress-only）：操作页签只留生命周期卡与归档进度 */}
         </div>
       )}
 
       <ArchiveModal
         open={showArchive}
         onClose={() => setShowArchive(false)}
-        onConfirm={() => void handleArchive()}
+        onConfirm={() => {
+          // 已归档章＝重新归档：rows_only 重提本章变化（不重跑收尾提案）；
+          // 拒收（409 model_not_ready 等）须就地报错——store.error 无渲染面
+          if (archived)
+            void store.retryExtraction().then((err) => err && toast.error(err));
+          else void handleArchive();
+        }}
         isPro={isPro}
+        rearchiveMode={archived}
+        rearchive={rearchive}
       />
       <RewriteModal
         open={showRewrite}
@@ -1314,18 +1450,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         chapterRef={chapterRef}
         chapterLabel={label}
         kind={aiCheckKind}
-      />
-      <RefinePromptModal
-        open={refineMode !== null}
-        onClose={() => setRefineMode(null)}
-        projectId={projectId}
-        chapterRef={chapterRef}
-        chapterLabel={label}
-        mode={refineMode}
-        onAdopted={() => {
-          /* 精修落库后的右栏状态刷新走 onOpenAiModal 链外的弹窗自身提示；
-             提示词状态行在下次切页签/打开弹窗时刷新（c-prompt-tab-retire 口径）。 */
-        }}
       />
 
       <div className="editor-status" hidden={chTab !== "prose"}>

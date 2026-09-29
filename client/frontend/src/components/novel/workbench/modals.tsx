@@ -227,18 +227,24 @@ export function ArchiveModal({
   onClose,
   onConfirm,
   isPro,
+  rearchiveMode,
+  rearchive,
 }: {
   open: boolean;
   onClose: () => void;
   onConfirm: () => void;
-  /** 收尾计划预览：PRO 列出后台五件事；免费档说明无提案 */
+  /** 收尾计划预览：PRO 列伏笔/世界要素两件（c-chapter-dossier 三件迁本章变化） */
   isPro?: boolean;
+  /** 重归档变体（c-ops-tab-progress-only）：已归档章重提变化——收尾计划区不出现 */
+  rearchiveMode?: boolean;
+  /** 重归档覆盖警示（c-chapter-dossier）：{rows, accepted} 有值则警示清空重提 */
+  rearchive?: { rows: number; accepted: number } | null;
 }) {
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="归档本章"
+      title={rearchiveMode ? "重新归档" : "归档本章"}
       wbStyle
       hideClose
       footer={
@@ -254,38 +260,69 @@ export function ArchiveModal({
               onConfirm();
             }}
           >
-            归档本章
+            {rearchiveMode ? "重新归档" : "归档本章"}
           </button>
         </>
       }
     >
       <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.7 }}>
-        归档后本章正文进入<b>只读</b>状态；大纲树与进度卡同步标记。
-      </p>
-      <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
-        仍可在版本历史中查看与恢复。
-      </p>
-      {/* 收尾计划预览（storyline.html archivePlanHTML 口径） */}
-      <div className="arch-plan" data-od-id="archive-plan" data-testid="archive-plan">
-        <p className="ap-h">归档收尾</p>
-        {isPro ? (
+        {rearchiveMode ? (
           <>
-            <p className="ap-lead">
-              归档本身即刻生效，主线立刻推进。归档后 AI 在后台接着跑下面 5
-              件事；有写回内容的都会变成待确认的提案，你点过确认才进全书那一套。没确认之前，这些提案不参与后面章节的提示词。
-            </p>
-            <ul className="ap-list">
-              <li>提取本章设定变化</li>
-              <li>更新角色关系</li>
-              <li>登记伏笔</li>
-              <li>识别世界要素</li>
-              <li>概括角色状态变化</li>
-            </ul>
+            重新归档将<b>清空并以当前正文重提</b>本章变化（设定 / 关系 / 物品 / 角色认知），
+            提取期间本章<b>锁定</b>。
           </>
         ) : (
-          <p className="ap-lead">免费版归档即刻生效，不产生收尾提案；升级后由 AI 在后台产出待确认的建议。</p>
+          <>
+            点归档后先 <b>AI 提取本章变化</b>（设定 / 关系 / 物品 / 角色认知，用你配置的模型），
+            提取成功本章才正式归档；提取期间本章<b>锁定</b>。
+          </>
         )}
-      </div>
+      </p>
+      {rearchiveMode ? (
+        <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
+          重提只覆盖本章变化行；伏笔登记 / 世界要素提案不重跑（可在右栏「登记新伏笔」单独触发）。
+        </p>
+      ) : (
+        <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
+          变化在「设定」「角色关系」页签逐条确认后，喂给下一章提示词；未配置模型则归档即刻生效（无变化记录，可后补）。仍可在版本历史中查看与恢复。
+        </p>
+      )}
+      {rearchive && rearchive.rows > 0 && (
+        <p
+          style={{
+            margin: "10px 0 0", padding: "8px 10px", borderRadius: 6,
+            background: "color-mix(in oklch, var(--fg) 4%, transparent)", fontSize: 12.5,
+          }}
+          data-testid="archive-rewarn"
+        >
+          将覆盖现有变化 {rearchive.rows} 条（含已采纳 {rearchive.accepted} 条）。
+        </p>
+      )}
+      {/* 收尾计划预览（c-chapter-dossier 后：三件迁本章变化，收尾只剩两件 PRO 提案）；
+          重归档不重跑收尾（c-ops-tab-progress-only），该区不出现 */}
+      {!rearchiveMode && (
+        <div className="arch-plan" data-od-id="archive-plan" data-testid="archive-plan">
+          <p className="ap-h">归档收尾（PRO）</p>
+          {isPro ? (
+            <>
+              <p className="ap-lead">
+                归档成功后 AI 在后台接着跑下面 2 件事；产出是待确认的提案，点过确认才写进全书设定。
+              </p>
+              <ul className="ap-list">
+                <li>登记伏笔（埋下 / 收束）——产出在「伏笔」页签确认</li>
+                <li>识别世界要素——产出在「设定」页签确认</li>
+              </ul>
+              <p className="ap-lead">
+                设定变化 / 角色关系 / 物品 / 角色认知随归档自动提取，全档可用。
+              </p>
+            </>
+          ) : (
+            <p className="ap-lead">
+              本章变化提取全档可用（配置了模型即可）；伏笔登记与世界要素提案为 PRO 能力。
+            </p>
+          )}
+        </div>
+      )}
     </Modal>
   );
 }
@@ -483,6 +520,10 @@ export function AiModal({
   const [polishError, setPolishError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // 旧版整包分型（c-write-prompt-layering）：raw=粗组存稿旧行（建议刷新）、
+  // polished=润色旧行（只信息性，不引导覆盖）；"" = 新分层口径
+  const [legacyKind, setLegacyKind] = useState("");
+  const [lintWarnings, setLintWarnings] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -498,11 +539,17 @@ export function AiModal({
           prompt?: string;
           has_outline?: boolean;
           polished?: boolean;
+          legacy_kind?: string;
+          warnings?: string[];
         }) => {
           if (cancelled) return;
           setPrompt(d?.prompt ?? "");
           setHasOutline(!!d?.has_outline);
           setPolished(!!d?.polished);
+          setLegacyKind(d?.legacy_kind ?? "");
+          setLintWarnings(
+            Array.isArray(d?.warnings) ? d.warnings.filter(Boolean) : [],
+          );
         },
       )
       .catch((e: Error) => {
@@ -547,6 +594,8 @@ export function AiModal({
       setPrompt(d?.prompt ?? "");
       setHasOutline(!!d?.has_outline);
       setPolished(false);
+      setLegacyKind("");
+      setLintWarnings(Array.isArray(d?.warnings) ? d.warnings.filter(Boolean) : []);
       setError(null);
       setPolishError(null);
     } catch (e) {
@@ -640,16 +689,41 @@ export function AiModal({
           onChange={(e) => setPrompt(e.target.value)}
           data-testid="ai-prompt"
         />
+        {legacyKind ? (
+          legacyKind === "polished" ? (
+            <p
+              style={{ margin: "8px 0 0", fontSize: 12, color: "var(--muted)" }}
+              data-testid="ai-legacy-note"
+            >
+              恒定设定（题材/文风/世界观/铁律）已由系统按本书设定注入，与本稿并存；可继续编辑或润色。
+            </p>
+          ) : (
+            <p
+              style={{ margin: "8px 0 0", fontSize: 12, color: "var(--warn)" }}
+              data-testid="ai-legacy-note"
+            >
+              旧版整包稿：恒定设定已由系统注入，点「刷新提示词」可按新分层重组为本章素材。
+            </p>
+          )
+        ) : null}
+        {lintWarnings.length > 0 ? (
+          <p
+            style={{ margin: "8px 0 0", fontSize: 12, color: "var(--warn)" }}
+            data-testid="ai-lint-warnings"
+          >
+            {lintWarnings.join("；")}
+          </p>
+        ) : null}
         {/* 刷新＋存稿行：刷新＝fresh 组装稿仅换预览（不动存量行）；存稿＝编辑稿落库 */}
         <div className="ai-prompt-save">
           <span>
-            「刷新提示词」按最新「设定＋章纲」重新组装（不动已存稿）；直接生成＝这一版只用于本次，存下来则本章以后每次生成都用它。
+            「刷新提示词」按最新章纲重新组装章级素材（恒定设定由系统按本书设定注入，不动已存稿）；直接生成＝这一版只用于本次，存下来则本章以后每次生成都用它。
           </span>
           <div style={{ display: "flex", gap: 8, flex: "none" }}>
             <button
               className="btn btn-ghost btn-sm"
               data-testid="ai-prompt-refresh"
-              title="按最新「设定＋章纲」重新组装；不改动已存稿，可再润色或编辑"
+              title="按最新章纲重新组装章级素材；不改动已存稿，可再润色或编辑"
               disabled={loading || polishing || refreshing}
               onClick={() => void handleRefresh()}
             >

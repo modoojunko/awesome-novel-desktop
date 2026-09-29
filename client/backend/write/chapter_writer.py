@@ -3,7 +3,9 @@
 两段式提示词生产的第一段：从 DB 确定性组装素材包。
 - ``build_chapter_context``：读全量数据源（设定/章纲全字段含提示词格子/前情）。
 - ``ChapterContext.material_markdown()``：结构化素材包（发给大模型润色的原料）。
-- ``ChapterContext.to_prompt()``：粗组兜底提示词（未润色/润色失败时直接可用）。
+- ``ChapterContext.build_system_prompt()``：system 恒定层（本书设定，逐章一致）。
+- ``ChapterContext.to_user_material()``：章级动态素材（c-write-prompt-layering 拆层，
+  原 to_prompt 整包退役——恒定块上收 system 恒定层）。
 
 裁剪预算（awesome-novel 量化口径）：世界观 ≤600 字、活跃伏笔 ≤8 条、角色 ≤5 人；
 未填字段跳过，不产生 ``{...}`` 占位符。
@@ -27,6 +29,7 @@ from settings.character_model import (
 )
 from settings.render import (
     quant_section,
+    shadow_override_lines,
     style_section,
 )
 from settings.world_model import render_red_lines
@@ -70,14 +73,96 @@ MICRO_PAYOFF_LABELS = {
 
 _CH1_PREVIOUS = "无前置章节，开篇直接切入角色当下行动，禁止大段世界观背景介绍。"
 
-# 写作铁律（每次正文生成注入，awesome-novel writer 三工序之二）
-WRITING_IRON_RULES = (
-    "写作铁律（最高优先执行）：\n"
-    "1. 只输出正文本身——不写章节标题、不写解释说明、不写引导语"
-    "（如「以下是本章正文」）、不使用任何 Markdown 标记。\n"
-    "2. 提示词未写的情节、对话、角色行为不自行添加，不引入提示词未安排的新冲突事件。\n"
-    "3. 未命名的次要角色用泛指（「那几个人」「另一个人」），不擅自命名。"
+# 写作铁律（c-write-prompt-layering）：文本迁入 prompts/write_chapter.prompt 的
+# system 恒定层（「## 输出契约」段，含「本章必须完成视为已写情节」仲裁句），
+# WRITING_IRON_RULES 常量随之退役——改铁律改模板，不再动代码。
+
+# 收尾重申行（同词不同句，防被当回声）：_stream_chapter 在 user 内容最末字节
+# 强制追加，不落库、不进弹窗预览，对存量稿路径与重组路径同样生效。
+WRITE_CLOSING_LINE = (
+    "输出：仅正文，无标题、无总结、无引导语、无 Markdown；段落之间直接换行，不留空行；"
+    "结尾停在素材「章末落点」的画面/瞬间上，落点之后不写一个字。"
 )
+
+
+def normalize_generated_prose(text: str) -> str:
+    """AI 生成产物分段归一（c-write-prompt-layering 后续修复）：段间空行收敛为
+    单个换行，并去首尾换行。
+
+    背景：prose 契约＝单换行分段，编辑器把每个空行保留为空段落（作者手写稿契约）；
+    模型按 LLM 默认习惯发的段间空行会在正文里渲染成成片空段落。生成/续写出口在此
+    收敛——只管 AI 产物，不碰作者手写稿（save/save_prose 不归一）。"""
+    return re.sub(r"\n{2,}", "\n", text or "").strip("\n")
+
+# 旧版整包行判定标记：粗组存稿行按恒定块标题；润色稿行按 _POLISH_ANCHORS 三锚
+# 同现（凡成功落库的润色行必然满足，新 user 层不含「任务指示」「质感」两词）。
+_LEGACY_HEADING_MARKERS = (
+    "## 角色定位",
+    "## 故事背景",
+    "## 题材设定",
+    "## 文风",
+    "## 原则与禁忌",
+)
+
+
+def resolve_persona(style_setting: dict) -> str:
+    """身份句单源（c-write-prompt-layering）：手填优先，空串/缺失兜底。
+
+    get(key, default) 对「键存在但值为空串」不生效——历史「你是。」缺陷根因。
+    system 恒定层与素材包（【叙事身份】）同源消费，SHALL NOT 出现两个身份表述。
+    """
+    return str((style_setting or {}).get("role") or "").strip() or "一位小说家"
+
+
+def legacy_prompt_kind(text: str) -> str:
+    """持久化 write-prompt 行的旧版整包分型（c-write-prompt-layering 分级引导）。
+
+    - "polished"：润色三锚同现（润色产出行，可能含作者手改）→ 只做信息性提示，
+      SHALL NOT 引导以未润色重组稿覆盖。先于 raw 判定——润色输入素材含【故事背景】
+      【文风】块，产物可能回显「## 故事背景/## 文风」节头，若节头优先会把刚润色的
+      行误判成 raw、复活「建议刷新覆盖润色稿」循环（评审 P2）；
+    - "raw"：命中恒定块标题且无三锚（旧粗组整包手存稿——旧 to_prompt 不含「任务指示」
+      锚，不会被误升为 polished）→ 弹窗建议「刷新提示词」；
+    - ""：新分层口径的行或无法判定。
+    """
+    if all(a in text for a in _POLISH_ANCHORS):
+        return "polished"
+    if any(m in text for m in _LEGACY_HEADING_MARKERS):
+        return "raw"
+    return ""
+
+
+def is_legacy_write_prompt(text: str) -> bool:
+    """是否旧版整包行（含恒定设定内容）——legacy_prompt_kind 的布尔便捷面。"""
+    return legacy_prompt_kind(text) != ""
+
+
+def lint_assembled_prompt(
+    required_changes: list[str], plot_items: list[str], hooks: list[dict]
+) -> list[str]:
+    """组装期素材病告警（c-write-prompt-layering）：不阻断生成，显式返回问题清单。
+
+    两件：「本章必须完成」未被剧情条目覆盖（bigram 覆盖代理）、活跃伏笔混入
+    已兑现（揭）记录。「爱用词∩世界观词表」无数据源，不在内（见 change Non-Goals）。
+    """
+    warns: list[str] = []
+    if required_changes and not plot_items:
+        warns.append(
+            f"「本章必须完成」有 {len(required_changes)} 条但剧情条目为空，完成项缺拍点支撑"
+        )
+    elif required_changes and plot_items:
+        plot_text = "\n".join(plot_items)
+        for change in required_changes:
+            grams = {
+                change[i : i + 2] for i in range(len(change) - 1) if len(change) > 1
+            }
+            if grams and not any(g in plot_text for g in grams):
+                warns.append(f"「本章必须完成」未获剧情条目覆盖：{change[:40]}")
+    for h in hooks:
+        desc = str(h.get("description", ""))
+        if desc.startswith(("揭：", "揭:")):
+            warns.append(f"活跃伏笔混入已兑现记录：{desc[:40]}")
+    return warns
 
 
 def clamp_word_target(value) -> int:
@@ -120,6 +205,97 @@ def _plot_block(items) -> str:
     return "\n".join(lines)
 
 
+# ── 故事状态块（c-chapter-dossier）──────────────────────────────────────────
+
+_STORY_STATE_TITLE = "【故事状态（截至上章）】"
+_STORY_STATE_ANCHOR = (
+    "定位：以下是截至上一章结束时的既成事实，用于保持连续性，不是本章任务；"
+    "与本章剧情安排冲突时以本章为准，需要打破某条状态时必须显式写出转变契机。"
+)
+_STORY_STATE_RULE = (
+    "规则：标「（不知）」的信息，该角色在对话与行动中不得表现出知情，"
+    "不得提前摊牌或泄底。"
+)
+_STORY_STATE_PER_DOMAIN = 6  # 每域条数配额（章近优先＝折叠序取尾）
+_STORY_STATE_ITEM_MAX = 40  # 单条渲染截断
+_STORY_STATE_BLOCK_MAX = 1500  # 整块硬闸（超限从头丢最旧条并 warning，不静默）
+
+
+def _clip_item(text: str, n: int = _STORY_STATE_ITEM_MAX) -> str:
+    s = " ".join(str(text or "").split())
+    return s[:n]
+
+
+def _story_state_lines(state: dict) -> dict[str, list[str]]:
+    """折叠态四域 → 行字典（每域尾部取 _STORY_STATE_PER_DOMAIN 条，章近优先）。"""
+
+    def _tail(rows):
+        return list(rows or [])[-_STORY_STATE_PER_DOMAIN:]
+
+    settings = [
+        f"- {_clip_item(s.get('area')) or '设定'}：{_clip_item(s.get('content'))}"
+        for s in _tail(state.get("settings"))
+    ]
+    relations = []
+    for r in _tail(state.get("relations")):
+        note = f"（{_clip_item(r.get('change_note'))}）" if r.get("change_note") else ""
+        relations.append(
+            f"- {r.get('owner', '?')}→{r.get('other', '?')}：{_clip_item(r.get('rel_type'))}{note}"
+        )
+    items = []
+    for it in _tail(state.get("items")):
+        if it.get("holder"):
+            seg = f"- {it.get('name', '?')}：在{_clip_item(it.get('holder'), 20)}手中"
+        else:
+            seg = f"- {it.get('name', '?')}：{_clip_item(it.get('detail') or it.get('change_type'))}"
+        items.append(seg)
+    knowledge = []
+    for k in _tail(state.get("knowledge")):
+        fact = _clip_item(k.get("fact"))
+        if k.get("learned"):
+            knowledge.append(f"- {k.get('character', '?')}已得知「{fact}」")
+        else:
+            knowledge.append(f"- {k.get('character', '?')}仍不知道「{fact}」（{k.get('character', '?')}不知）")
+    return {"设定": settings, "关系": relations, "物品": items, "角色认知": knowledge}
+
+
+def _story_state_block(state: dict) -> str:
+    """故事状态块单源渲染（c-chapter-dossier D5）：素材包与组装提示词两路唯一入口。
+
+    - 输入＝story_state_upto 折叠态（只含已采纳∧已归档∧非 stale 章）；
+    - 四域全空 → 空串（两路产物逐字不变）；stale 章跳过时块头注记；
+    - 证据句不进消费段；每域 ≤6 条、单条 ≤40 字、整块 ≤1500 字硬闸。
+    """
+    groups = _story_state_lines(state or {})
+    if not any(groups.values()):
+        return ""
+    # 整块硬闸：从最长域的头部丢最旧条直到达标（不静默）
+    import logging as _logging
+
+    def _total() -> int:
+        return sum(len(x) for g in groups.values() for x in g)
+
+    while _total() > _STORY_STATE_BLOCK_MAX:
+        longest = max((k for k in groups if groups[k]), key=lambda k: len("".join(groups[k])), default=None)
+        if longest is None or len(groups[longest]) <= 1:
+            break
+        groups[longest].pop(0)
+        _logging.getLogger("uvicorn.error").warning(
+            "story_state_block 超 %d 字硬闸，已丢弃最旧条目", _STORY_STATE_BLOCK_MAX
+        )
+
+    lines = [_STORY_STATE_TITLE, _STORY_STATE_ANCHOR]
+    stale_refs = (state or {}).get("skipped_stale_refs") or []
+    if stale_refs:
+        lines.append(f"注：第 {'、'.join(str(r) for r in stale_refs[:5])} 章的章档基于旧设定，仅供参考。")
+    for label, rows in groups.items():
+        if rows:
+            lines.append(f"◆ {label}：")
+            lines.extend(rows)
+    lines.append(_STORY_STATE_RULE)
+    return "\n".join(lines)
+
+
 def strip_code_fences(text: str) -> str:
     """剥掉模型偶尔包裹的 ```markdown 围栏（保留内部文本）。"""
     s = str(text).strip()
@@ -145,6 +321,9 @@ def validate_polished_prompt(text: str, ctx: "ChapterContext") -> list[str]:
         missing.append("爽点设计")
     if ctx.plot_items and "剧情走向" not in text:
         missing.append("剧情走向")
+    # c-chapter-dossier：有故事状态时润色产物须保留段标题（与「前情」锚同手法）
+    if _story_state_block(ctx.story_state) and "故事状态" not in text:
+        missing.append("故事状态")
     if _PLACEHOLDER_RE.search(text):
         missing.append("占位符残留")
     return missing
@@ -165,6 +344,11 @@ class ChapterContext:
         # 本章文风影子（chapter-style-shadow）：命中行覆盖基线渲染；直建 ctx 默认空
         self.style_shadow: dict = {}
         self.hooks = []
+        # 全书角色静态档案锚（c-write-prompt-layering）：system 恒定层用，
+        # 不按单章出场名单过滤——出场与否由 user 层角色状态行表达
+        self.cast_items: list[dict] = []
+        # 组装期素材病告警（lint_assembled_prompt）：显式透出，不阻断
+        self.lint_warnings: list[str] = []
         self.volume_outline = ""
         self.chapter_outline = {}
         self.characters = []
@@ -186,12 +370,18 @@ class ChapterContext:
         self.plot_stage: str = ""
         # c-plot-split：本章剧情条目（场景描述清单，非正文）——素材包【本章剧情走向（分条）】原料
         self.plot_items: list[str] = []
+        # 开篇期位置标注（首章/开篇期，其余空）——与剧情抽卡【本章位置】同词同单源，
+        # 驱动 system 恒定层「## 开篇期节奏」的分档
+        self.chapter_position: str = ""
         self.required_changes: list[str] = []
         self.payoff_plan: dict = {}
         self.prohibitions: list[str] = []
         # c-og-slim-v2：mood_progression / emotional_hook 退役（页面无控件、语义并入
         # 主情绪与章末落点）——不再取数、不再注入。
         self.primary_mood: str = ""
+        # c-chapter-dossier：故事状态（截至上章）——章档已采纳行的折叠态
+        # （story_state_upto 产出）；空 dict 时素材包/提示词两路均不出块。
+        self.story_state: dict = {}
 
     # ── 素材包（润色原料）───────────────────────────────────────────
 
@@ -206,8 +396,8 @@ class ChapterContext:
         )
         blocks.append(f"# {title}" + (f"（{vol_ch}）" if vol_ch else ""))
 
-        role = self.style_setting.get("role", "")
-        blocks.append(f"【叙事身份】{role or '一位小说家'}")
+        role = resolve_persona(self.style_setting)
+        blocks.append(f"【叙事身份】{role}")
         if self.genre_section:
             blocks.append(f"【题材】\n{self.genre_section}")
         style_sec = style_section(self.style_setting)
@@ -253,6 +443,11 @@ class ChapterContext:
         plot = _plot_block(self.plot_items)
         if plot:
             blocks.append(plot)
+
+        # c-chapter-dossier：故事状态块（单源渲染；剧情块后、角色块前）
+        story = _story_state_block(self.story_state)
+        if story:
+            blocks.append(story)
 
         if self.characters:
             lines = []
@@ -323,7 +518,10 @@ class ChapterContext:
                 goals.append("爽点设计（读者获得）：" + "；".join(parts))
         return goals
 
-    def _red_lines(self) -> list[str]:
+    def _red_lines(self, include_world: bool = True) -> list[str]:
+        """章级红线＋（可选）世界铁律。c-write-prompt-layering：世界铁律上收
+        system 恒定层后，to_user_material 传 include_world=False 只取章级；
+        material_markdown（润色素材包）维持原全量口径不变。"""
         reds: list[str] = []
         if self.required_changes:
             reds.extend(f"本章必须完成：{c}" for c in self.required_changes)
@@ -334,68 +532,102 @@ class ChapterContext:
             items = self.payoff_plan.get(kind) or []
             reds.extend(f"{label}：{h}" for h in items)
         reds.extend(f"禁止：{p}" for p in self.prohibitions)
-        # 世界铁律（world-setting-v2）：逐条完整进红线区，任何压缩不得删改
-        reds.extend(render_red_lines(self.world_setting))
+        if include_world:
+            # 世界铁律（world-setting-v2）：逐条完整进红线区，任何压缩不得删改
+            reds.extend(render_red_lines(self.world_setting))
         return reds
 
-    # ── 粗组兜底提示词 ─────────────────────────────────────────────
+    # ── 分层组装（c-write-prompt-layering）────────────────────────
 
-    def to_prompt(self) -> str:
-        """Assemble full writing prompt from all context data."""
-        lines = []
+    def build_system_prompt(self) -> str:
+        """写正文 system 恒定层：由本书设定组装，逐章字节一致（缓存生命线）。
 
-        # Role
-        role = self.style_setting.get("role", "一位小说家")
-        lines.append("## 角色定位")
-        lines.append(f"你是{role}。")
-        lines.append("")
+        恒定承诺的失效源只有设定变更/换卷/新增角色；章级差异（出场状态、文风影子、
+        前情）一律经 to_user_material 传递。空段整节跳过——恒定层不出空节；
+        世界观走全量通道（势力/历史/细节不裁剪、无「另有 N 条从略」）；
+        文风影子 SHALL NOT 进本层（user 层覆盖块承接）。
+        """
+        from prompt.context import cast_profile_block, render_template
+        from prompts import load_layers
+        from settings.world_model import render_world_block
 
-        # Genre section (题材定义注入，紧跟角色定位，先于正文指引生效)
-        if self.genre_section:
-            lines.append(self.genre_section)
-            lines.append("")
+        system_tpl, _ = load_layers("write_chapter")
 
-        # Style section（style-settings-v2：三区单一来源；tone/mistakes 块退役）
+        style_rows: list[str] = []
         style_sec = style_section(self.style_setting)
-        quant = quant_section(self.style_quant, self.style_shadow)
-        if style_sec or quant:
-            lines.append("## 文风")
-            if style_sec:
-                lines.append(style_sec)
-            if quant:
-                lines.append(quant)
-            lines.append("")
-
-        # Rules（banned-words-into-style：禁用词/句式单源自文风 KV；统一迁移感知读
-        # 路径保证存量书取用时已迁移。句式注入维持取前 5 条现行为，机器体检仍全量）
+        if style_sec:
+            style_rows.append(style_sec)
+        # 量化基线不带影子（影子命中行走 user 层覆盖块，见 to_user_material）
+        quant = quant_section(self.style_quant)
+        if quant:
+            style_rows.append(quant)
+        few_shot = self._few_shot_examples()
+        if few_shot:
+            style_rows.append(
+                "文风例句（参考语感）：\n" + "\n".join(f"- {s}" for s in few_shot)
+            )
         banned = [str(w) for w in (self.style_setting.get("banned_words") or [])]
         tic_patterns = [
             r.get("pattern", "")
             for r in (self.style_setting.get("tic_patterns") or [])
             if isinstance(r, dict)
         ]
-        lines.append("## 原则与禁忌")
         if banned:
-            lines.append(f"禁止使用以下词汇：{', '.join(banned)}")
+            style_rows.append(f"禁止使用以下词汇：{', '.join(banned)}")
         if tic_patterns:
-            lines.append(f"禁止以下句式：{', '.join(tic_patterns[:5])}")
-        lines.append("")
+            style_rows.append(f"禁止以下句式：{', '.join(tic_patterns[:5])}")
 
-        # Background
-        lines.append("## 故事背景")
-        lines.append(f"本段是《{self.novel_title}》的一章。")
+        premise_rows = [f"本段是《{self.novel_title}》的一章。"]
         if self.premise:
-            lines.append(f"故事前提：{self.premise}")
+            premise_rows.append(f"故事前提：{self.premise}")
         if self.story_arc:
-            lines.append(f"全书主线：{self.story_arc}")
-        world_block = self._world_block()
-        if world_block:
-            lines.append(world_block)
-        if self.volume_outline:
-            lines.append("本卷卷纲：\n" + self.volume_outline)
-        lines.append("")
+            premise_rows.append(f"全书主线：{self.story_arc}")
 
-        # Chapter outline
+        iron_rules = "\n".join(f"- {r}" for r in render_red_lines(self.world_setting))
+
+        values = {
+            "persona": resolve_persona(self.style_setting),
+            "craft_rules": (
+                "质感要求：留 1-2 个不服务主线的细碎生活细节；对话允许半截话、"
+                "语气词、停顿；按场景权重分配笔墨（高权重细化、低权重简笔转场）。"
+            ),
+            "premise_story": "\n".join(premise_rows),
+            "genre_section": self.genre_section,
+            "style_block": "\n".join(style_rows),
+            "world_block": render_world_block(self.world_setting, None),
+            "iron_rules": iron_rules,
+            "volume_outline": self.volume_outline,
+            "cast_anchors": (
+                cast_profile_block(self.cast_items) if self.cast_items else ""
+            ),
+        }
+
+        # 逐节渲染：节体为空 → 连节头整节跳过（恒定层不出空节）；
+        # 占位符填充用顺序 replace（render_template），SHALL NOT str.format——
+        # 素材/设定文本含 `{}` 时 format 会崩。
+        # 首块无 ## 节头（身份句先行——load_layers 会把开头连续 ## 行当注释剥掉），
+        # 整块渲染保留。
+        out: list[str] = []
+        for chunk in re.split(r"(?m)^(?=## )", system_tpl):
+            if not chunk.strip():
+                continue
+            if not chunk.startswith("## "):
+                rendered = render_template(chunk, **values).strip("\n")
+                if rendered.strip():
+                    out.append(rendered.rstrip())
+                continue
+            header, _, body = chunk.partition("\n")
+            body = render_template(body, **values).strip("\n")
+            if body.strip():
+                out.append(f"{header}\n{body}".rstrip())
+        return "\n\n".join(out)
+
+    def to_user_material(self) -> str:
+        """章级动态素材（c-write-prompt-layering）：恒定内容已上 system 恒定层，
+        这里只组装随章变化的部分。节标题维持 ## 风格（润色锚词与 legacy 判定
+        吃文本形状）。顺序按「稳定在前、易变在后」。"""
+        lines: list[str] = []
+
         outline = self.chapter_outline
         lines.append("## 当前章节")
         lines.append(f"章纲：{outline.get('summary', '')}")
@@ -404,11 +636,16 @@ class ChapterContext:
             lines.append(f"本章要撞的墙：{self.challenge}")
         if self.plot_stage:
             lines.append(f"本章在卷剧情里的位置：{self.plot_stage}")
+        # 开篇期位置标注（首章/开篇期）：驱动 system「## 开篇期节奏」的分档
+        if self.chapter_position:
+            lines.append(f"本章位置：{self.chapter_position}")
         # c-plot-split：剧情条目块（与 material_markdown 同源同字）
         plot = _plot_block(self.plot_items)
         if plot:
             lines.append("")
             lines.append(plot)
+        if self.ladder_exit:
+            lines.append(f"章末落点：{self.ladder_exit}")
         goals = self._narrative_goals_lines()
         if goals:
             lines.append("")
@@ -423,6 +660,12 @@ class ChapterContext:
             lines.append(prev)
             lines.append("")
 
+        # c-chapter-dossier：故事状态块（与素材包同源同字；角色状态前）
+        story = _story_state_block(self.story_state)
+        if story:
+            lines.append(story)
+            lines.append("")
+
         # Character snapshots
         if self.characters:
             lines.append("## 角色状态")
@@ -434,36 +677,34 @@ class ChapterContext:
                 lines.append(seg)
             lines.append("")
 
-        # Active hooks
+        # 章级文风影子覆盖块（chapter-style-shadow）：基线恒定层不动，命中行在此
+        # 覆盖并声明优先级；无影子章整块缺省，system 逐章一致不受影响。
+        shadow_hits = shadow_override_lines(self.style_quant, self.style_shadow)
+        if shadow_hits:
+            lines.append("## 本章文风覆盖")
+            lines.append("以下维度以本章值为准，覆盖指令恒定层中的文风基线：")
+            lines.extend(shadow_hits)
+            lines.append("")
+
+        # Active hooks（[编号]＋优先级前缀，与素材包渲染器同口径）
         if self.hooks:
             lines.append("## 活跃伏笔")
             for h in self.hooks[:8]:
-                lines.append(f"- {h.get('description', '?')}")
+                code = h.get("code") or ""
+                prefix = f"[{code}] " if code else ""
+                label = h.get("priority_label") or ""
+                lines.append(
+                    f"- {prefix}{h.get('description', '?')}"
+                    + (f"（优先级：{label}）" if label else "")
+                )
             lines.append("")
 
-        # 不可违反规则（红线 > 字数 > 疲劳词句式 > 文风规范）
-        red_lines = self._red_lines()
-        lines.append("## 不可违反规则（优先级降序）")
+        # 章级红线（世界铁律已上收 system 恒定层；本段只留随章变化的承诺）
+        lines.append("## 章级红线（优先于字数与写法；世界铁律见指令恒定层）")
+        red_lines = self._red_lines(include_world=False)
         if red_lines:
-            lines.append("1. 约束红线（任何压缩不得删改）：")
-            lines.extend(f"   - {r}" for r in red_lines)
-        lines.append(f"2. 字数：约 {self.word_target} 字（±10%），超限先压缩低权重场景。")
-        lines.append("3. 疲劳词与句式：见上方「原则与禁忌」。")
-        lines.append("4. 文风规范：原则与描写要求为最低层，与上层冲突时让步。")
-        if self.ladder_exit:
-            lines.append(f"章末落点：{self.ladder_exit}")
-        lines.append("")
-
-        # Writing requirements
-        lines.append("## 写作要求")
-        few_shot = self._few_shot_examples()
-        if few_shot:
-            lines.append("文风例句（参考语感）：")
-            lines.extend(f"- {s}" for s in few_shot)
-        lines.append("质感要求：留 1-2 个不服务主线的细碎生活细节；对话允许半截话、语气词、停顿；按场景权重分配笔墨（高权重细化、低权重简笔转场）。")
-        lines.append(f"输出长度：约 {self.word_target} 字（±10% 可接受，叙事完整性优先）。")
-        lines.append("语言：中文。")
-        lines.append("写正文，不写章节标题，不写总结，不使用 Markdown 标记，不输出引导语。")
+            lines.extend(f"- {r}" for r in red_lines)
+        lines.append(f"字数：约 {self.word_target} 字（±10%），超限先压缩低权重场景。")
 
         return "\n".join(lines)
 
@@ -653,6 +894,15 @@ async def build_chapter_context(
             ctx.volume_outline = await volume_repo.get_outline_by_root(
                 session, root_path, vol_no
             )
+            # 开篇期位置标注：与剧情抽卡同一单源（chapter_position_tags），
+            # 拿不到 project（novel_id 空）降级为无标注
+            if novel_id and isinstance(ch_num, int) and ch_num >= 1:
+                from chapters.ai_plan import global_chapter_position, position_label
+
+                global_ch, tags = await global_chapter_position(
+                    session, novel_id, vol_no, ch_num
+                )
+                ctx.chapter_position = position_label(global_ch, tags)
 
         # 前情上下文升级：上章章纲情绪设计优先，无章纲回退上章正文末段
         prev_ref = await _prev_chapter_ref(
@@ -677,6 +927,17 @@ async def build_chapter_context(
     # 状态 = 认知层主格摘要 + 语言特征——旧 state_history 链路已随台账移除退役）
     if not novel_id:
         novel_id = await _novel_id_by_root(root_path)
+
+    # 故事状态（c-chapter-dossier）：截至本章（不含）的章档已采纳折叠态——
+    # 只取 主线∧archived∧非 stale 章；四域全空时 ctx.story_state 留空不出块。
+    try:
+        from write.story_state import story_state_upto
+
+        ctx.story_state = await story_state_upto(novel_id, chapter_ref, exclusive=True)
+    except Exception as e:  # noqa: BLE001 — 状态块缺席不阻塞写章主流程
+        logger.warning("story_state_upto failed: novel=%s ref=%s err=%s", novel_id, chapter_ref, e)
+        ctx.story_state = {}
+
     char_names = ctx.chapter_outline.get("characters", [])
     if isinstance(char_names, list) and char_names:
         async with async_session() as session:
@@ -711,5 +972,29 @@ async def build_chapter_context(
                         "missing": False,
                     }
                 )
+
+    # 全书角色静态档案锚（c-write-prompt-layering）：system 恒定层用，全书角色集，
+    # 不按本章出场名单过滤——第 2 章新增角色只让 system 变化一次，此后恒定。
+    if novel_id:
+        try:
+            from settings.character_service import list_characters
+
+            async with async_session() as session:
+                roster = await list_characters(session, novel_id)
+            items = list(roster.get("items", []))
+            items.sort(key=lambda it: 0 if it.get("role") == "主角" else 1)
+            ctx.cast_items = items
+        except Exception:  # noqa: BLE001 — 档案锚缺取不阻塞正文组装
+            logger.warning(
+                "cast anchor fetch failed: novel=%s", novel_id, exc_info=True
+            )
+            ctx.cast_items = []
+
+    # 组装期素材病告警（c-write-prompt-layering）：显式透出不阻断
+    ctx.lint_warnings = lint_assembled_prompt(
+        ctx.required_changes, ctx.plot_items, ctx.hooks
+    )
+    for warn in ctx.lint_warnings:
+        logger.warning("assembled prompt lint: %s", warn)
 
     return ctx

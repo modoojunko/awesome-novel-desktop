@@ -59,7 +59,7 @@ export interface ChapterSelfcheckResult {
   hint?: string;
 }
 
-/** 排上请求体（四段；与章档案键路径一致：plot→outline.summary，其余顶层）
+/** 排上请求体（四段；与章级数据键路径一致：plot→outline.summary，其余顶层）
  *  c-og-slim-v2：「本章行动」退役（键被服务端忽略，载荷不再携带） */
 export interface ChapterAdoptBody {
   title: string;

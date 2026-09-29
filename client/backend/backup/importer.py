@@ -695,8 +695,20 @@ async def _import_single_book(
             for n in (ch_data.get("outline") or {}).get("characters") or []
             if str(n).strip()
         ]
+        # 章档四域（c-chapter-dossier）：关系双方/认知角色同样按名重绑（包里不携 id）
+        _dos = ch_data.get("dossier") if isinstance(ch_data.get("dossier"), dict) else {}
+        dossier_names = [
+            str(item.get(key, "")).strip()[:50]
+            for item in (
+                list(_dos.get("relations") or []) + list(_dos.get("knowledge") or [])
+            )
+            if isinstance(item, dict)
+            for key in (("owner", "other") if "owner" in item else ("character",))
+            if str(item.get(key, "")).strip()
+        ]
+        _bind_names = list(dict.fromkeys(outline_names + dossier_names))
         await _replace_children(db, ch, ch_data, character_ids={
-            n: name_map.get(n) for n in outline_names
+            n: name_map.get(n) for n in _bind_names
         })
 
         db.add(ch)

@@ -33,6 +33,8 @@ export interface WorkbenchChapter {
   archived?: boolean;
   /** chapter-rewrite：基于旧设定角标 */
   stale?: boolean;
+  /** c-chapter-dossier：本章变化过期角标（上游重写置位、重归档清除） */
+  dossier_stale?: boolean;
 
 }
 
@@ -159,6 +161,7 @@ export function useWorkbench(): UseWorkbenchReturn {
           has_prose?: boolean;
           archived?: boolean;
           stale?: boolean;
+          dossier_stale?: boolean;
         }>;
       }> = await api.get(`/novels/${projectId}/volumes`);
       // 旧稿支线（revert-ghost）：与主线卷章分流的只读章
@@ -200,6 +203,8 @@ export function useWorkbench(): UseWorkbenchReturn {
             archived: c.archived ?? c.status === "archived",
             // chapter-rewrite：基于旧设定角标（后端 /volumes 直出）
             stale: c.stale ?? false,
+            // c-chapter-dossier：本章变化过期角标（后端 /volumes 直出）
+            dossier_stale: c.dossier_stale ?? false,
           };
         }),
       }));

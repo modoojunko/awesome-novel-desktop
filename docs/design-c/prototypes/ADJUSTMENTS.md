@@ -1437,6 +1437,20 @@ AiWriterAssistant 为模版。涉及写作域三处右栏面板的全量换装�
 - 新词：cr-existing/cr-exist-row（缺口卡内嵌候选 chips）；chip/no-card/cr-done/lnk 复用现役。
 - 适用场景演示：s5（缺口决策）g-act 行＋内嵌候选块。
 
+## c-chapter-dossier 章档页签（2026-09-28，实现先行于本登记补齐）
+
+- book.html 章页签行新增「章档」页签（伏笔后、操作前，data-chtab=dossier，徽标＝待确认 N）：四域待确认行（点行展开证据句；「证据待核/未登记」黄标 chip）、按域「本域全采纳」＋顶部「全部采纳/全部驳回」、已采纳行带「删除」、底部「截至本章累计状态」预览（服务端聚合口径注记）＋双向指路（伏笔/世界要素提案在「操作」页签）。
+- 归档确认弹窗改受理制文案：先 AI 提取四域（用你配置的模型）、提取成功才正式归档、提取期间本章锁定；重归档时追加「清空并重提 N 条（含已采纳 M 条）」警示行（archRewarn）。
+- 章档页签内置演示态机（ds-state-btns 四按钮）：提取中（受理→AI 提取→写入章档→置归档四步条＋锁定横幅）/ 失败（错误摘要＋重试＋首败即现「跳过提取仍归档」含代价文案）/ 未提取（横幅＋补提取入口）/ 待确认（默认）。归档确认按钮接 2.6s 定时演示：受理→跳章档页签提取中→自动完成归档。
+- 新词：dossier-pane/ds-head/ds-steps/ds-step/ds-domain/ds-row/ds-ev/ds-flag/ds-actions/ds-note/ds-preview/ds-banner/tab-dossier；cnt/chtab/btn 家族复用现役。
+- 取舍：页签内演示态切换按钮（ds-state-btns）是原型评审脚手架，实现不带；「操作」页签旧三收尾入口（设定提取/关系识别）在实现中退役（迁章档），原型操作页签未建模该区故零改动。
+
+## c-character-intro 0.3 双端影响判定结论（2026-09-28，归档批补齐）
+
+- 判定成立：book.css 去前缀（12 条）与 AiWriterAssistant `subTitle` 插槽均属共享词汇/共享组件；三域右栏（设定 SettingsView、卷 VolumeAssistPanel、写作工作台 AiAssistPanel）均经 `AiWriterAssistant` 挂载，`subTitle` 消费方为工作台侧（AiAssistPanel），插槽属加法参数、不触 base.css 共享段；cr-* 弹层内自含不触共享段（原文任务判定维持）。
+- `node scripts/design-cross.mjs` 结论：初跑**红**——共享段第 16 行起分歧，client 端 c-chapter-plan-ai 期加入的 `--faint` 变量＋注释未同步 server 端；本次按脚本口径两端同提修复，复跑**零差异**。
+- 三域回归口径：静态共享段逐字校验（design-cross M1 即为此设）＋全量 vitest 绿（三域视图/右栏 DOM 层）；截图级对照由实现期视觉验收轮覆盖，本登记不重复。
+
 ## c-settings-ai-confirm-modal 设定域 AI 出卡确认弹窗（2026-09-28）
 
 - **退役**：设定域四原型（character-settings / foreshadow-settings / genre-signup / style-settings）

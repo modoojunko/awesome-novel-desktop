@@ -7,9 +7,11 @@ import { cleanupSessionNovels, stableClick } from "./helpers";
 
 // =========================================================================
 // 归档收尾提案 E2E（archive-reconcile，本地桩 AI 全链）：
-//   ① PRO：绑定桩模型 → 归档 → 后台收尾产出提案（世界要素/设定变化/伏笔登记）
-//      → 操作页签逐条采纳（真写回世界设定）与驳回
-//   ② 免费档：归档后收尾区为 PRO 占位，且不发 /reconcile 请求
+//   ① PRO：绑定桩模型 → 归档 → 后台收尾产出提案（世界要素/伏笔登记）
+//      → 各归各的页签（c-ops-tab-progress-only）：世界要素在「设定」页签采纳
+//      （真写回世界设定）、伏笔登记在「伏笔」页签驳回；已决行折叠只显计数；
+//      「操作」页签无任何提案行且归档卡提供「重新归档」入口
+//   ② 免费档：归档后任何页签不渲染收尾区，且不发 /reconcile 请求
 // 桩：node http 服务（容器经 host.docker.internal 访问），OpenAI 兼容
 //    /v1/models + /v1/chat/completions，按 prompt 关键词回预置 JSON。
 // =========================================================================
@@ -29,7 +31,16 @@ const STUB_PORT = 45871;
 const STUB_BASE = `http://host.docker.internal:${STUB_PORT}/v1`;
 
 // ── 桩 AI：按 prompt 关键词回各收尾类别的预置 JSON ─────────────────────────
+// c-chapter-dossier：本章变化提取（一次调用四域）——本地桩秒回，即提取提速桩
 function stubContent(prompt: string): string {
+  if (prompt.includes("只输出一个 JSON 对象，四键齐全")) {
+    return JSON.stringify({
+      settings: [{ area: "地理", content: "临江渡口夜里封航", evidence: "临江渡口的风裹着湿气" }],
+      relations: [{ owner: "林晚", other: "老聋", rel_type: "盟友", change_note: "同舟共济", evidence: "雾里传来第二个呼吸声" }],
+      items: [{ name: "残页", change_type: "obtain", holder: "林晚", detail: "残页与火痕吻合", evidence: "残页按在胸口" }],
+      knowledge: [{ character: "林晚", fact: "残页的来历", learned: true, evidence: "火痕与纸上的纹路" }],
+    });
+  }
   if (prompt.includes("世界观/设定事实")) {
     return JSON.stringify({
       items: [{ key: "静默带", value: "无信号的深空航段", set: "extra" }],
@@ -252,23 +263,31 @@ test("PRO：归档 → 后台收尾提案 → 采纳写回/驳回", async ({ pag
       body: JSON.stringify({ full_text: PROSE, ai_summary: false }),
     });
     expect(ra.ok).toBeTruthy();
-    expect((await ra.json()).reconcile_started).toBe(true);
+    // c-chapter-dossier：受理制——提取成功才归档（本地桩秒回）
+    expect((await ra.json()).state).toBe("extracting");
+    for (let i = 0; i < 100; i++) {
+      const ch = await (await fetch(`${base}/chapters/vol-1-ch-1`, { headers: auth })).json();
+      if (ch.status === "archived") break;
+      await new Promise((r) => setTimeout(r, 200));
+      if (i === 99) throw new Error("提取未在 20s 内完成归档");
+    }
 
-    // 打开书 → 该章 → 操作页签：收尾提案出现（后台线程 + 前端 5s 轮询）
+    // 打开书 → 该章 → 设定页签：世界要素提案出现（后台线程 + 前端 5s 轮询）
     await page.reload();
     await page.locator(".mtab", { hasText: "写作" }).click();
     await page.locator(".col-tree .ch").first().click();
-    await page.getByRole("tab", { name: /^操作/ }).click();
+    await page.getByRole("tab", { name: /^设定/ }).click();
     const pane = page.locator('[data-od-id="reconcile-pane"]');
     await expect(pane).toBeVisible({ timeout: 15000 });
+    await expect(pane.getByText("归档收尾 · 世界要素提案")).toBeVisible();
     await expect(pane.getByText("世界要素")).toBeVisible({ timeout: 25000 });
-    await expect(pane.getByText("设定变化")).toBeVisible();
-    await expect(pane.getByText("伏笔登记")).toBeVisible();
 
-    // 采纳「世界要素」→ 真写回世界设定（入口带章节来源）
+    // 采纳「世界要素」→ 真写回世界设定（入口带章节来源）；已决行折叠只显计数
     const loreRow = pane.locator(".reconcile-row", { hasText: "世界要素" });
     await loreRow.getByRole("button", { name: "采纳" }).click();
-    await expect(loreRow.getByText("已采纳")).toBeVisible({ timeout: 10000 });
+    await expect(
+      pane.locator("details.rc-decided summary", { hasText: "已处理 1" }),
+    ).toBeVisible({ timeout: 10000 });
     const world = await (
       await fetch(`${base}/settings/world`, { headers: auth })
     ).json();
@@ -276,25 +295,33 @@ test("PRO：归档 → 后台收尾提案 → 采纳写回/驳回", async ({ pag
     const hit = flat.find((e: { key?: string }) => e.key === "临江渡口");
     expect(hit?.origin).toBe("vol-1-ch-1");
 
-    // 驳回「伏笔登记」
-    const hookRow = pane.locator(".reconcile-row", { hasText: "伏笔登记" });
-    await hookRow.getByRole("button", { name: "驳回" }).click();
-    await expect(hookRow.getByText("已驳回")).toBeVisible({ timeout: 10000 });
-
-    // 右栏收尾三入口（按类触发真链路）：伏笔页签「登记新伏笔」→ run 端点 → toast
+    // 伏笔页签：驳回「伏笔登记」；右栏「登记新伏笔」→ run 端点 → toast
     await page.getByRole("tab", { name: /^伏笔/ }).click();
+    await expect(pane.getByText("归档收尾 · 伏笔登记提案")).toBeVisible();
+    const hookRow = pane.locator(".reconcile-row", { hasText: "伏笔登记" });
+    await expect(hookRow).toBeVisible({ timeout: 25000 });
+    await hookRow.getByRole("button", { name: "驳回" }).click();
+    await expect(
+      pane.locator("details.rc-decided summary", { hasText: "已处理 1" }),
+    ).toBeVisible({ timeout: 10000 });
     const runBtn = page.locator(".rail-assist").getByRole("button", { name: /登记新伏笔/ });
     await expect(runBtn).toBeEnabled({ timeout: 10000 });
     await runBtn.click();
     await expect(page.getByText(/已开始收尾提取|已有收尾任务在跑/)).toBeVisible({
       timeout: 10000,
     });
+
+    // 操作页签只留生命周期卡：无任何提案行；已归档章归档卡提供「重新归档」
+    await page.getByRole("tab", { name: /^操作/ }).click();
+    await expect(page.locator('[data-od-id="reconcile-pane"]')).toHaveCount(0);
+    await expect(page.locator(".reconcile-row")).toHaveCount(0);
+    await expect(page.getByTestId("archive-reextract")).toBeVisible();
   } finally {
     await restore();
   }
 });
 
-test("免费档：归档后收尾区为 PRO 占位（不发收尾请求）", async ({ page }) => {
+test("免费档：归档后任何页签不渲染收尾区（不发收尾请求）", async ({ page }) => {
   test.setTimeout(60_000);
   const { restore, token } = await setupSession(page, "none");
   const auth = { Authorization: `Bearer ${token}` };
@@ -337,11 +364,12 @@ test("免费档：归档后收尾区为 PRO 占位（不发收尾请求）", asy
     await page.reload();
     await page.locator(".mtab", { hasText: "写作" }).click();
     await page.locator(".col-tree .ch").first().click();
-    await page.getByRole("tab", { name: /^操作/ }).click();
-    await expect(page.locator('[data-od-id="reconcile-pro-free"]')).toBeVisible({
-      timeout: 15000,
-    });
-    await expect(page.getByText("PRO 可用 · 免费版归档即刻生效")).toBeVisible();
+    // 免费档：三个相关页签都不渲染收尾区（c-ops-tab-progress-only：免费档占位退役）
+    for (const tab of [/^设定/, /^伏笔/, /^操作/]) {
+      await page.getByRole("tab", { name: tab }).click();
+      await expect(page.locator('[data-od-id="reconcile-pane"]')).toHaveCount(0);
+      await expect(page.locator('[data-od-id="reconcile-pro-free"]')).toHaveCount(0);
+    }
     expect(reconcileCalls).toBe(0);
   } finally {
     await restore();

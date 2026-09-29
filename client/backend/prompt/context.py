@@ -135,3 +135,64 @@ async def active_hooks_for_chapter(
     async with async_session() as session:
         ch_row = await _get_chapter_by_root(session, root_path, chapter_ref)
     return await load_active_hooks(novel_id, ch_row.id if ch_row else None)
+
+
+# ── 模板安全渲染＋人物档案锚（c-write-prompt-layering）──────────────────
+
+
+def render_template(text: str, **kwargs: str) -> str:
+    """占位符安全渲染：逐个顺序 replace，SHALL NOT 用 str.format——
+    素材/设定文本含 `{`/`}`（JSON、花括号修辞）时 format 会 KeyError。"""
+    for key, value in kwargs.items():
+        text = text.replace("{" + key + "}", value)
+    return text
+
+
+def cast_profile_block(items: list[dict], footer_template: str = "") -> str:
+    """全人物档案原文块：名字（别名）＋类型＋人设原文＋档案八格原文（只列已填格）；
+    认知六层逐格原文只给主角与反派。空名占位卡按展示口径显示「未命名」。
+
+    不复用 volumes 的 cast_brief：那条 `persona[:80]` 截断，达不到「原封不动」。
+    footer_template 可含 {n}（人数），主线起草传 arc 口径尾注，写正文不传。
+    """
+    from settings.character_model import COG_LAYERS, DOSSIER_FIELDS
+    from settings.character_service import _display_name
+
+    lines: list[str] = []
+    for it in items:
+        name = _display_name(str(it.get("name") or ""))
+        aliases = [str(a).strip() for a in (it.get("aliases") or []) if str(a).strip()]
+        head = f"- {name}（{it.get('role') or ''}"
+        if aliases:
+            head += "｜别名：" + "、".join(aliases)
+        lines.append(head + "）")
+        persona = str(it.get("persona") or "").strip()
+        if persona:
+            lines.append(f"  人设：{persona}")
+        dossier = it.get("dossier") if isinstance(it.get("dossier"), dict) else {}
+        cells = [
+            f"{f['label']}：{str(dossier.get(f['k']) or '').strip()}"
+            for f in DOSSIER_FIELDS
+            if str(dossier.get(f["k"]) or "").strip()
+        ]
+        if cells:
+            lines.append("  档案：" + "｜".join(cells))
+        if it.get("role") in _CAST_DEPTH_ROLES:
+            cog = it.get("cog") if isinstance(it.get("cog"), dict) else {}
+            for layer in COG_LAYERS:
+                filled = [
+                    f"{f['label']}：{str(cog.get(f['k']) or '').strip()}"
+                    for f in layer["fields"]
+                    if str(cog.get(f["k"]) or "").strip()
+                ]
+                if filled:
+                    lines.append(f"  认知·{layer['name']}：" + "｜".join(filled))
+    if not lines:
+        return ""
+    if footer_template:
+        lines.append(footer_template.replace("{n}", str(len(items))))
+    return "\n".join(lines)
+
+
+# 主角/反派给认知六层全量（与 ai_router 主线起草同口径）
+_CAST_DEPTH_ROLES = ("主角", "反派")

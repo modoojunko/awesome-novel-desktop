@@ -3,8 +3,9 @@
  *  ＋ ra-step 能力行（名称＋会读什么/落到哪＋箭头）＋ ra-foot 来源/去向声明。
  *  各页签内容不同，造型与门控全局一致；动作全部真链路（2026-09-17 起），
  *  AI 入口收口右栏（2026-09-20），布局统一设定模版（c-ai-rail-shared，2026-09-27）。
- *  注：建表动作（提取本章变化/识别角色与物品变化/登记新伏笔）走 onRunReconcile，
- *  检测动作（冲突检测/一致性/偏离/补边）走 onAiCheck，精修动作走 onPromptRefine。 */
+ *  注：收尾触发只剩「登记新伏笔」走 onRunReconcile（c-chapter-dossier：设定/关系
+ *  两入口退役——四域随归档提取进设定/角色关系页签），
+ *  检测动作（冲突检测/一致性/偏离/补边）走 onAiCheck。 */
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { api, request } from "@/lib/api";
@@ -13,7 +14,7 @@ import { toast } from "@/lib/toast";
 import type { RefObject } from "react";
 import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { chapterNoOf } from "@/lib/chapterRef";
-import type { AiCheckKind, RefineMode } from "@/lib/aiCheck";
+import type { AiCheckKind } from "@/lib/aiCheck";
 import { REQ_FIELDS } from "./chapterForm";
 import AiWriterAssistant, { type AiCapabilityRow } from "@/components/novel/AiWriterAssistant";
 
@@ -65,7 +66,6 @@ export function AiAssistPanel({
   onFillGaps,
   gapsLoading,
   onAiCheck,
-  onPromptRefine,
   onStyleSuggest,
   promptSavedSignal,
 }: {
@@ -97,29 +97,27 @@ export function AiAssistPanel({
   onUpgrade?: () => void;
   /** chapter-rewrite：下游「基于旧设定」章计数（无数据时显示「—」） */
   staleDownstream?: number;
-  /** 正文页签的选区动作通道（压缩啰嗦段落；润色/扩写沿用页内工具卡） */
+  /** 正文页签的选区动作通道（压缩啰嗦段落；去AI味/扩写沿用页内工具卡） */
   aiState?: ProseAIState;
   proseRef?: RefObject<ProseHandle | null>;
   onAiSelection?: (
     mode: "polish" | "expand" | "compress",
     capture: ReturnType<ProseHandle["captureNow"]>,
   ) => void;
-  /** 按类触发本章收尾（设定/关系/伏笔三入口）；产出在「操作」页签待确认 */
-  onRunReconcile?: (kind: "set_changes" | "relations" | "hooks") => void;
+  /** 按类触发本章收尾（伏笔「登记新伏笔」入口）；产出在「伏笔」页签待确认 */
+  onRunReconcile?: (kind: "hooks") => void;
   /** 章纲缺项补全（AI 产物 patch 到章纲表单，由既有保存链落库） */
   onFillGaps?: () => void;
   gapsLoading?: boolean;
   /** 六类案头检查（就地弹窗；不落库） */
   onAiCheck?: (kind: AiCheckKind) => void;
-  /** 提示词精修（提案制弹窗；采纳后走提示词保存链） */
-  onPromptRefine?: (mode: RefineMode) => void;
   /** 文风「AI 建议本章调整」（触发 StyleShadowPane 拉取；结果在页签内逐项采纳） */
   onStyleSuggest?: () => void;
   /** 提示词落库信号（c-prompt-tab-retire）：弹窗润色/存稿后状态行刷新 */
   promptSavedSignal?: number;
 }) {
   // 页签内轻量数据（与中栏页签同端点；只在对应页签激活时取）
-  const [promptSrc, setPromptSrc] = useState<{ total: number; cast: number } | null>(null);
+  const [promptSrc, setPromptSrc] = useState<{ total: number; cast: number; note?: string } | null>(null);
   /** 本章提示词是否已落库（c-prompt-tab-retire：正文页签状态行用） */
   const [hasPrompts, setHasPrompts] = useState<boolean | null>(null);
   const [styleStats, setStyleStats] = useState<{ rows: number; shadow: number } | null>(null);
@@ -149,9 +147,25 @@ export function AiAssistPanel({
         });
       api
         .get(`/novels/${projectId}/chapters/${chapterRef}/prompt-sources`)
-        .then((d: { total_chars?: number; cast_count?: number }) => {
-          if (!cancelled) setPromptSrc({ total: d.total_chars ?? 0, cast: d.cast_count ?? 0 });
-        })
+        .then(
+          (
+            d: {
+              total_chars?: number;
+              cast_count?: number;
+              sources?: Array<{ key?: string; note?: string }>;
+            },
+          ) => {
+            if (cancelled) return;
+            // 故事状态缺口标注（c-chapter-dossier）：把「不采纳→下章静默缺状态」
+            // 变成聚合行上的可见提示（「提示词」页签退役后的唯一 UI 承接面）
+            const ss = (d.sources ?? []).find((x) => x.key === "story_state");
+            setPromptSrc({
+              total: d.total_chars ?? 0,
+              cast: d.cast_count ?? 0,
+              note: ss?.note || "",
+            });
+          },
+        )
         .catch(() => {
           /* 统计失败静默 */
         });
@@ -240,8 +254,9 @@ export function AiAssistPanel({
         api.get(`/novels/${projectId}/settings/world`),
       ])
         .then(([ch, world]) => {
-          const cast = (ch?.outline?.characters ?? []) as Array<{ state_change?: string }>;
-          const here = cast.filter((c) => (c.state_change ?? "").trim()).length;
+          // 契约：状态变化在 outline.character_states（仅非空条目），不在 characters（string[]）
+          const states = (ch?.outline?.character_states ?? []) as Array<{ state_change?: string }>;
+          const here = states.filter((c) => (c.state_change ?? "").trim()).length;
           const entries = [
             ...((world?.factions ?? []) as Array<{ origin?: string }>),
             ...((world?.history ?? []) as Array<{ origin?: string }>),
@@ -379,6 +394,12 @@ export function AiAssistPanel({
         本章提示词{" "}
         {hasPrompts == null ? "…" : hasPrompts ? "已自定义" : "自动组装"}
         {promptSrc ? <> · 组装来源 {promptSrc.total.toLocaleString("zh-CN")} 字</> : null}
+        {promptSrc?.note ? (
+          <span className="ra-hint" data-testid="story-state-note">
+            {" "}
+            · 上一章变化{promptSrc.note === "上一章未归档" ? "未归档" : promptSrc.note}（见「设定」页签）
+          </span>
+        ) : null}
       </>
     );
     rows = [
@@ -388,7 +409,7 @@ export function AiAssistPanel({
       cap("continue", "续写建议", "从光标处（或选区末尾）流式续写，保持风格与上下文一致", {
         onClick: onContinue, disabled: streaming,
       }),
-      cap("polish", "段落润色", "选中段落出润色稿，对照预览后替换", {
+      cap("polish", "去AI味", "选中段落去掉机器腔，对照预览后替换", {
         onClick: () => onAiSelection?.("polish", sel()),
         disabled: !aiState?.hasSelection || !!aiState?.polishLoading,
         hint: !aiState?.hasSelection ? "先在正文选中一段" : undefined,
@@ -403,29 +424,18 @@ export function AiAssistPanel({
         disabled: !aiState?.hasSelection || !!aiState?.compressLoading,
         hint: !aiState?.hasSelection ? "先在正文选中一段" : undefined,
       }),
-      // 精修两行随提示词页签退役收编（c-prompt-tab-retire：提案制弹窗，不依赖页签）
-      cap("negative", "补全负向约束", "按本章内容补「不要写什么」一类硬约束（提案制，采纳才写回）", {
-        onClick: () => onPromptRefine?.("negative"),
-      }),
-      cap("concise", "精简提示词", "在不丢信息的前提下收拢冗长表述（提案制，采纳才写回）", {
-        onClick: () => onPromptRefine?.("concise"),
-      }),
     ];
     footNote =
-      "续写/润色/扩写/压缩作用于正文编辑器；润色与扩写先出对照预览，采纳才替换。提示词由「生成正文」弹窗查看/编辑，弹窗内可存为本章提示词。" ;
+      "续写/去AI味/扩写/压缩作用于正文编辑器；去AI味与扩写先出对照预览，采纳才替换。提示词由「生成正文」弹窗查看/编辑，弹窗内可存为本章提示词。" ;
   } else if (tab === "settings") {
     targetLine = loreStats ? (
       <>本章变化 {loreStats.here} 条 · 截至本章条目 {loreStats.until} 条</>
     ) : (
       <>本章变化统计中…</>
     );
-    rows = [
-      cap("extract", "提取本章变化", "从本章正文提取设定变化，归档时并进全书那一套", {
-        onClick: () => onRunReconcile?.("set_changes"),
-        disabled: !archived, hint: archived ? undefined : "归档后可用",
-      }),
-    ];
-    footNote = "从本章正文里提取本章变化，归档时并进全书那一套；回退后自动重算。";
+    rows = [];
+    footNote =
+      "设定/关系/物品/认知变化随归档自动提取（全档可用），在「设定」「角色关系」页签逐条确认。";
   } else if (tab === "style") {
     targetLine = styleStats ? (
       <>全书基线 {styleStats.rows} 行 · 本章调整 {styleStats.shadow ? `${styleStats.shadow} 项` : "未调整"}</>
@@ -454,10 +464,6 @@ export function AiAssistPanel({
       <>人物与势力统计中…</>
     );
     rows = [
-      cap("rel-extract", "识别角色与物品变化", "从本章正文识别关系与物品变化（归档后可用）", {
-        onClick: () => onRunReconcile?.("relations"),
-        disabled: !archived, hint: archived ? undefined : "归档后可用",
-      }),
       cap("rel-check", "关系冲突检测", "查本章关系与全书关系图的冲突", {
         onClick: () => onAiCheck?.("relations_conflict"),
       }),
@@ -465,7 +471,8 @@ export function AiAssistPanel({
         onClick: () => onAiCheck?.("relation_suggest"),
       }),
     ];
-    footNote = "关系图是全书统一的一套；这一章可以在图上加新的关系，归档时并进全书。";
+    footNote =
+      "页签以关系图为主表达：剧情关系截至本章上图（本章边高亮、待确认虚线）；变化行在本页签确认，不写回全书设定。";
   } else if (tab === "hooks") {
     targetLine = hookStats ? (
       <>悬置 {hookStats.open} 条 · 本章埋下 {hookStats.plantHere} 条 · 本章回收 {hookStats.resolveHere} 条 · 台账 {hookStats.total} 条</>

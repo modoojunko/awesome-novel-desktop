@@ -318,6 +318,11 @@ export default function OutlineTree({
                           基于旧设定
                         </span>
                       )}
+                      {c.dossier_stale && (
+                        <span className="tag-stale" data-testid="ch-dossier-stale">
+                          设定待更新
+                        </span>
+                      )}
                       <span className="acts">
                         <button
                           className="icon-btn"

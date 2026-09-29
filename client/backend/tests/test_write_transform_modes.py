@@ -1,8 +1,8 @@
-"""选区变换端点（transform 族）行为测试：/write/compress（本轮新增）。
+"""选区变换端点（transform 族）行为测试：/write/compress、/write/polish。
 
-覆盖：200 路径（提示词含压缩要求、返回 compressed_text、记账 operation=compress）、
+覆盖：200 路径（提示词含对应要求段、返回产物字段、记账 operation）、
 缺 selected_text 400、超时 502 留败账。
-（/polish、/expand 为同族存量端点，本轮补 compress 时一并锚定其行为基线。）
+（/expand 为同族存量端点；c-prose-deai 起 /polish 口径＝去AI味。）
 """
 
 import asyncio
@@ -147,6 +147,53 @@ class TestCompress:
                 return [x.operation for x in rows]
 
         assert "compress_fail" in asyncio.run(_ops())
+
+
+class TestPolish:
+    """c-prose-deai：段落润色改「去AI味」——提示词锚定新口径＋禁用词句单源注入。
+
+    v3.1（提示词工程评审修复）：检查清单进 system、素材加边界标记、篇幅单向上限。
+    """
+
+    def test_polish_200_prompt_and_usage(self, monkeypatch):
+        _root, nid = asyncio.run(_seed())
+        captured: list = []
+        monkeypatch.setattr(
+            "write.auxiliary.get_ai_client_for_novel",
+            lambda *a, **k: _async_return(_FakeClient(captured)),
+        )
+        r = _post(nid, "/polish", {
+            "selected_text": "她握紧船桨，风声很大，衣裳被吹得猎猎作响，头发也乱了。",
+            "context_before": "临江渡口。",
+            "context_after": "船家解缆。",
+        })
+        assert r.status_code == 200, r.text
+        assert r.json()["polished_text"] == "她握桨听风。"
+        prompt = captured[-1]["messages"][0]["content"]
+        # 新口径锚：检查清单指针＋边界标记＋选区原文＋禁止规则单源（未配置文风 → 「（无）」兜底）
+        assert "检查清单" in prompt
+        assert "［待处理文本开始］" in prompt and "［待处理文本结束］" in prompt
+        assert "她握紧船桨" in prompt
+        assert "禁止规则" in prompt and "（无）" in prompt
+        system = captured[-1]["system"]
+        assert "AI 腔" in system and "检查清单" in system
+
+        # 记账：operation=polish（口径不变）
+        from models.token_log import TokenLog
+
+        async def _ops():
+            async with async_session() as s:
+                rows = (await s.scalars(
+                    select(TokenLog).where(TokenLog.project_id == nid)
+                )).all()
+                return [x.operation for x in rows]
+
+        assert "polish" in asyncio.run(_ops())
+
+    def test_polish_missing_selection_400(self):
+        _root, nid = asyncio.run(_seed())
+        r = _post(nid, "/polish", {"selected_text": ""})
+        assert r.status_code == 400
 
 
 async def _async_return(v):
