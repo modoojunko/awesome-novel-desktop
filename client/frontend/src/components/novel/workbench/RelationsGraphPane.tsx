@@ -7,7 +7,7 @@
  *  呈现（证据＋采纳/驳回）。
  *  卷选中态（volumeScope）：截至该卷末的关系投影，只读无章高亮、不并入剧情边
  *  （c-volume-view-storyline）。 */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { chapterNoOf, parseChapterRef } from "@/lib/chapterRef";
 import { DOSSIER_CHANGED_EVENT, dossierApi } from "@/lib/dossierApi";
@@ -315,6 +315,82 @@ export function RelationsGraphPane({
   );
   const pendingCnt = visibleEdges.filter((e) => e.kind === "pending").length;
 
+  // 画布缩放/平移（viewBox 视窗法）：默认全图适配＝刚好区域内看完；滚轮以光标为锚
+  // 缩放、拖拽平移、右下角按钮；放大上限 4×（w≥W/4），缩到全图即自动复位对齐
+  const vpRef = useRef<HTMLDivElement | null>(null);
+  const [view, setView] = useState({ x: 0, y: 0, w: W, h: H });
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{ px: number; py: number } | null>(null);
+  const clampView = useCallback((v: { x: number; y: number; w: number; h: number }) => {
+    const w = Math.min(W, Math.max(W / 4, v.w));
+    const h = (w * H) / W;
+    if (w >= W - 0.5) return { x: 0, y: 0, w: W, h: H };
+    const cx = Math.min(1.2 * W, Math.max(-0.2 * W, v.x + w / 2)) - w / 2;
+    const cy = Math.min(1.2 * H, Math.max(-0.2 * H, v.y + h / 2)) - h / 2;
+    return { x: cx, y: cy, w, h };
+  }, []);
+  const zoomAt = useCallback(
+    (factor: number, clientX?: number, clientY?: number) => {
+      setView((v) => {
+        const rect = vpRef.current?.getBoundingClientRect();
+        const anchored = rect != null && rect.width > 0 && rect.height > 0 && clientX != null && clientY != null;
+        const ax = anchored ? Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) : 0.5;
+        const ay = anchored ? Math.min(1, Math.max(0, (clientY - rect.top) / rect.height)) : 0.5;
+        const w = Math.min(W, Math.max(W / 4, v.w * factor));
+        const k = w / v.w;
+        const nh = v.h * k;
+        const px = v.x + ax * v.w;
+        const py = v.y + ay * v.h;
+        return clampView({ x: px - ax * w, y: py - ay * nh, w, h: nh });
+      });
+    },
+    [clampView],
+  );
+  useEffect(() => {
+    const el = vpRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      zoomAt(e.deltaY > 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [zoomAt]);
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    dragRef.current = { px: e.clientX, py: e.clientY };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* jsdom 无 pointer capture */
+    }
+    setDragging(true);
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    const rect = vpRef.current?.getBoundingClientRect();
+    if (!d || !rect || rect.width <= 0) return;
+    setView((v) =>
+      clampView({
+        x: v.x - ((e.clientX - d.px) * v.w) / rect.width,
+        y: v.y - ((e.clientY - d.py) * v.h) / rect.height,
+        w: v.w,
+        h: v.h,
+      }),
+    );
+    dragRef.current = { px: e.clientX, py: e.clientY };
+  };
+  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    setDragging(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* jsdom */
+    }
+  };
+
   if (error) return <p className="vempty">{error}</p>;
   if (!graph || (chapterRef && loadedForRef !== chapterRef))
     return <p className="vempty">加载中……</p>;
@@ -323,11 +399,21 @@ export function RelationsGraphPane({
 
   return (
     <div className="relations-graph" data-od-id="relations-graph">
+      <div
+        ref={vpRef}
+        className={`rg-viewport${dragging ? " dragging" : ""}`}
+        role="group"
+        aria-label="关系图画布（滚轮缩放，拖拽平移）"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      >
       <svg
-        viewBox={`0 0 ${W} ${H}`}
+        viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         role="img"
         aria-label={chapterRef ? "角色关系图（含截至本章剧情演变）" : "全书角色关系图"}
-        style={{ width: "100%", height: "auto" }}
+        preserveAspectRatio="xMidYMid meet"
       >
         {/* 边：视角单向；本章采纳实线加重、待确认虚线、往章演变中间色；悬浮看全句。
             同一对节点的双向边各画一侧弓形（确定性：a.id<b.id 偏左侧），避免直线重叠 */}
@@ -399,12 +485,19 @@ export function RelationsGraphPane({
           );
         })}
       </svg>
+        <div className="rg-zoombar">
+          <button type="button" className="rg-zbtn" data-testid="rg-zoom-in" title="放大" aria-label="放大" onClick={() => zoomAt(1 / 1.25)}>＋</button>
+          <button type="button" className="rg-zbtn" data-testid="rg-zoom-out" title="缩小" aria-label="缩小" onClick={() => zoomAt(1.25)}>−</button>
+          <button type="button" className="rg-zbtn" data-testid="rg-zoom-reset" title="复位为整图" aria-label="复位为整图" onClick={() => setView({ x: 0, y: 0, w: W, h: H })}>复位</button>
+        </div>
+      </div>
       <p className="rg-legend">
         {merged.nodes.length} 个角色 · {visibleEdges.length} 条关系
         {chapterRef && dossier.length > 0 &&
           `（剧情演变 ${dossier.length - pendingCnt} · 待确认 ${pendingCnt}）`}
         {volumeScope != null && ` · 截至第 ${volumeScope} 卷末（只读投影）`}
         {chapterRef && " · 本章采纳边高亮，虚线为待确认提案"}
+        {" · 滚轮缩放，拖拽平移"}
       </p>
       {listEdges.length > 0 && (
         <ul className="rg-list">

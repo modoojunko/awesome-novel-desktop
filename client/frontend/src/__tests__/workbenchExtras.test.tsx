@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ArchiveModal } from "@/components/novel/workbench/modals";
 import { RelationsGraphPane } from "@/components/novel/workbench/RelationsGraphPane";
 
@@ -177,6 +177,40 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
     // 图例：3 卡＋0 占位 · 4 条边（剧情演变 2 · 待确认 1）
     expect(screen.getByText(/3 个角色 · 4 条关系（剧情演变 2 · 待确认 1）/)).toBeTruthy();
     expect(screen.queryByText(/还没连线/)).toBeNull();
+  });
+
+  it("画布缩放：默认整图适配，按钮缩放/复位改变 viewBox", async () => {
+    mockBookApi();
+    dossierState.preview.mockResolvedValue({
+      up_to_ref: "vol-1-ch-1",
+      domains: { relations: [] },
+      counts: { relations: 0 },
+      skipped_stale_refs: [],
+    });
+    dossierState.get.mockResolvedValue({
+      rows: [],
+      progress: { pending: 0, accepted: 0, rejected: 0 },
+      extraction: null,
+      not_extracted: false,
+      stale: false,
+      archived: false,
+      accepted_count: 0,
+    });
+    render(<RelationsGraphPane projectId="p1" volumeScope={1} />);
+    const svg = await screen.findByRole("img", { name: "全书角色关系图" });
+    // 默认＝整图适配（viewBox 全见）
+    expect(svg.getAttribute("viewBox")).toBe("0 0 560 380");
+    fireEvent.click(screen.getByTestId("rg-zoom-in"));
+    const vb = (svg.getAttribute("viewBox") ?? "").split(" ").map(Number);
+    expect(vb[2]).toBeLessThan(560);
+    expect(vb[3]).toBeCloseTo(vb[2] * (380 / 560), 5);
+    // 缩放下限＝整图适配：一路缩小自动对齐回全图
+    fireEvent.click(screen.getByTestId("rg-zoom-out"));
+    expect(svg.getAttribute("viewBox")).toBe("0 0 560 380");
+    // 复位按钮
+    fireEvent.click(screen.getByTestId("rg-zoom-in"));
+    fireEvent.click(screen.getByTestId("rg-zoom-reset"));
+    expect(svg.getAttribute("viewBox")).toBe("0 0 560 380");
   });
 
   it("未归档章的已采纳行也上图；preview 的本章行不重复", async () => {

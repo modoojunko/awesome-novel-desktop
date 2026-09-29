@@ -1254,6 +1254,13 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .rg-edge.pending .rg-line { stroke: var(--accent); stroke-dasharray: 5 4; }
 .rg-edge.pending .rg-edge-label { fill: var(--accent); }
 .rg-note { font-style: normal; color: color-mix(in oklch, var(--muted) 80%, var(--fg)); }
+/* 画布缩放/平移：锁纵横比默认整图适配（viewBox 全见）；滚轮缩放＋拖拽平移＋右下角按钮 */
+.rg-viewport { position: relative; width: 100%; aspect-ratio: 560 / 380; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; touch-action: none; cursor: grab; }
+.rg-viewport.dragging { cursor: grabbing; }
+.rg-viewport > svg { display: block; width: 100%; height: 100%; }
+.rg-zoombar { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px; }
+.rg-zbtn { padding: 2px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--fg); font: inherit; font-size: 12px; line-height: 1.6; cursor: pointer; }
+.rg-zbtn:hover { background: var(--fg-soft); }
 
 /* ─── chapter-style-shadow：文风页签（基线只读＋本章影子） ─────────── */
 .style-shadow { padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
