@@ -194,13 +194,16 @@ export function AiAssistPanel({
         .get(`/novels/${projectId}/characters/graph`)
         .then(
           (d: {
-            nodes?: Array<{ id?: string }>;
-            edges?: Array<{ origin_chapter?: string | null }>;
+            data?: {
+              nodes?: Array<{ id?: string }>;
+              edges?: Array<{ origin_chapter?: string | null }>;
+            };
           }) => {
-            const edges = d.edges ?? [];
+            // 端点返回 {ok, data} 信封（与中栏关系图同源）；此前直读顶层恒 0
+            const edges = d.data?.edges ?? [];
             if (!cancelled)
               setGraphStats({
-                nodes: (d.nodes ?? []).length,
+                nodes: (d.data?.nodes ?? []).length,
                 edges: edges.length,
                 here: edges.filter((e) => e.origin_chapter === chapterRef).length,
               });

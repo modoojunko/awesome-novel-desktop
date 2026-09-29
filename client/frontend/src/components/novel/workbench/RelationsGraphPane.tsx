@@ -7,7 +7,7 @@
  *  呈现（证据＋采纳/驳回）。
  *  卷选中态（volumeScope）：截至该卷末的关系投影，只读无章高亮、不并入剧情边
  *  （c-volume-view-storyline）。 */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { chapterNoOf, parseChapterRef } from "@/lib/chapterRef";
 import { DOSSIER_CHANGED_EVENT, dossierApi } from "@/lib/dossierApi";
@@ -40,6 +40,7 @@ interface EvoRelation {
   ref: string;
 }
 type EdgeKind = "base" | "evo" | "hit" | "pending";
+type Polarity = "friendly" | "hostile" | "neutral";
 interface MergedEdge {
   key: string;
   aId: string;
@@ -51,6 +52,7 @@ interface MergedEdge {
   note: string;
   origin: string;
   kind: EdgeKind;
+  polarity: Polarity;
 }
 interface PaneNode extends GraphNode {
   /** 无角色卡的未登记名（虚线占位） */
@@ -66,6 +68,34 @@ const norm = (s: string | undefined) => (s ?? "").trim();
 
 /** 边优先级：本章采纳 > 本章待确认 > 往章演变 > 开书设定（同向高优先者胜）。 */
 const KIND_PRIO: Record<EdgeKind, number> = { hit: 0, pending: 1, evo: 2, base: 3 };
+
+/** 关系极性（敌红/友绿/中性灰）：AI 提取的 rel_type 是自由词（师徒/同僚、敌对/审查），
+ *  闭合词表盖不住，按字面关键词归类；敌对优先（亦敌亦友从红）。 */
+const HOSTILE_WORDS = [
+  "敌", "仇", "恨", "猎杀", "追杀", "追缉", "通缉", "决裂", "背叛", "戒备", "警惕",
+  "提防", "防范", "对立", "对抗", "竞争", "冲突", "审查", "审讯", "清剿", "囚", "奴", "威胁",
+];
+const FRIENDLY_WORDS = [
+  "盟", "友", "同伴", "伙伴", "同僚", "同事", "师", "徒", "弟子", "亲", "恋", "爱", "挚",
+  "知己", "至交", "结拜", "信任", "忠诚", "恩", "救", "护", "合作", "青梅", "夫妻", "兄妹", "姐弟",
+];
+function relPolarity(relType: string): Polarity {
+  const t = relType ?? "";
+  if (HOSTILE_WORDS.some((w) => t.includes(w))) return "hostile";
+  if (FRIENDLY_WORDS.some((w) => t.includes(w))) return "friendly";
+  return "neutral";
+}
+
+/** 箭头落在节点圆周外缘：路径端点（B）沿来向回缩 r+gap，避免箭头藏进节点圆下。 */
+function trimEnd(
+  bx: number, by: number, refx: number, refy: number, r = 26, gap = 3,
+): { x: number; y: number } {
+  const dx = bx - refx;
+  const dy = by - refy;
+  const len = Math.hypot(dx, dy) || 1;
+  const t = (r + gap) / len;
+  return { x: bx - dx * t, y: by - dy * t };
+}
 
 /** 确定性环形布局：节点沿圆周均布（顺序=id 排序，稳定可复现）。 */
 function layout(nodes: PaneNode[]): Map<string, { x: number; y: number }> {
@@ -121,6 +151,7 @@ function mergeGraph(
       note: r.change_note || "",
       origin: r.ref,
       kind: r.kind,
+      polarity: relPolarity(r.rel_type || ""),
     });
   }
   for (const e of graph.edges) {
@@ -137,6 +168,7 @@ function mergeGraph(
       note: "",
       origin: e.origin_chapter,
       kind: "base",
+      polarity: relPolarity(e.rel_type || ""),
     });
   }
   return { nodes, edges: [...edges.values()] };
@@ -320,6 +352,7 @@ export function RelationsGraphPane({
   const vpRef = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState({ x: 0, y: 0, w: W, h: H });
   const [dragging, setDragging] = useState(false);
+  const uid = useId();
   const dragRef = useRef<{ px: number; py: number } | null>(null);
   const clampView = useCallback((v: { x: number; y: number; w: number; h: number }) => {
     const w = Math.min(W, Math.max(W / 4, v.w));
@@ -415,8 +448,26 @@ export function RelationsGraphPane({
         aria-label={chapterRef ? "角色关系图（含截至本章剧情演变）" : "全书角色关系图"}
         preserveAspectRatio="xMidYMid meet"
       >
-        {/* 边：视角单向；本章采纳实线加重、待确认虚线、往章演变中间色；悬浮看全句。
-            同一对节点的双向边各画一侧弓形（确定性：a.id<b.id 偏左侧），避免直线重叠 */}
+        <defs>
+          {(["neutral", "friendly", "hostile"] as const).map((po) => (
+            <marker
+              key={po}
+              id={`rgar-${uid}-${po}`}
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="5.5"
+              markerHeight="5.5"
+              orient="auto-start-reverse"
+              markerUnits="strokeWidth"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" className={`rg-arrow ${po}`} />
+            </marker>
+          ))}
+        </defs>
+        {/* 边：视角单向，箭头指向被视角方；色＝关系极性（敌红/友绿/中性灰），
+            线宽/虚实/透明度＝状态（开书设定淡、往章演变中、本章加重、待确认虚线）。
+            同一对节点的双向边各画一侧弓形（左法线），避免直线重叠 */}
         {visibleEdges.map((e) => {
           const a = pos.get(e.aId);
           const b = pos.get(e.bId);
@@ -435,11 +486,13 @@ export function RelationsGraphPane({
             const dy = b.y - a.y;
             const cx = mx - dy * 0.14;
             const cy = my + dx * 0.14;
-            d = `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`;
+            const end = trimEnd(b.x, b.y, cx, cy);
+            d = `M ${a.x} ${a.y} Q ${cx} ${cy} ${end.x} ${end.y}`;
             lx = 0.25 * a.x + 0.5 * cx + 0.25 * b.x;
             ly = 0.25 * a.y + 0.5 * cy + 0.25 * b.y;
           } else {
-            d = `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
+            const end = trimEnd(b.x, b.y, a.x, a.y);
+            d = `M ${a.x} ${a.y} L ${end.x} ${end.y}`;
           }
           const tip =
             e.kind === "pending"
@@ -451,12 +504,13 @@ export function RelationsGraphPane({
           const hit =
             e.kind === "hit" || (e.kind === "base" && !!chapterRef && e.origin === chapterRef);
           return (
-            <g key={e.key} className={`rg-edge ${e.kind}${hit ? " hit" : ""}`}>
+            <g key={e.key} className={`rg-edge ${e.kind} p-${e.polarity}${hit ? " hit" : ""}`}>
               <title>{tip}</title>
               <path
                 d={d}
                 fill="none"
                 className="rg-line"
+                markerEnd={`url(#rgar-${uid}-${e.polarity})`}
                 data-hit={hit ? "1" : undefined}
               />
               <text x={lx} y={ly} textAnchor="middle" className="rg-edge-label">
@@ -498,6 +552,9 @@ export function RelationsGraphPane({
         {volumeScope != null && ` · 截至第 ${volumeScope} 卷末（只读投影）`}
         {chapterRef && " · 本章采纳边高亮，虚线为待确认提案"}
         {" · 滚轮缩放，拖拽平移"}
+        <span className="rg-key"><i className="rg-swatch friendly" />友好</span>
+        <span className="rg-key"><i className="rg-swatch hostile" />敌对</span>
+        <span className="rg-key"><i className="rg-swatch neutral" />中性</span>
       </p>
       {listEdges.length > 0 && (
         <ul className="rg-list">
@@ -512,6 +569,7 @@ export function RelationsGraphPane({
               );
             return (
               <li key={e.key} className={hitBase ? "hit" : undefined} data-testid="rg-row">
+                <i className={`rg-swatch ${e.polarity}`} />
                 {e.aName} → {e.bName}：{e.relType}
                 {e.stance ? ` · ${e.stance}` : ""}
                 {note}
