@@ -698,3 +698,108 @@ class TestLoreRosterAndFailedCleanup:
         hooks_rows = [r for r in rows if r.kind == "hooks"]
         assert len(hooks_rows) == 1
         assert hooks_rows[0].status == "pending"  # 旧 failed 已清、新 pending 承接
+
+
+class TestLoreBareArrayAndTruncationHint:
+    """c-reconcile-empty-array-fix：lore 提示词形状唯一＋裸数组兜底＋截断判据不误报。
+
+    真机实锤 09-29：旧提示词「JSON 数组输出/没有则输出空数组」教模型回了字面
+    `[]`，解析器只认对象落失败行，截断判据（结尾非 "}"）又误诊「被预算截断」。
+    """
+
+    def test_lore_prompt_single_object_shape(self):
+        from archive.reconcile import _collect_prompts
+
+        prompts = dict(_collect_prompts("vol-1-ch-1", {}, "正文", []))
+        # 唯一形状：对象；无新要素 → {"items": []}
+        assert '{"items": []}' in prompts["lore"]
+        assert "JSON 对象输出" in prompts["lore"]
+        assert "JSON 数组输出" not in prompts["lore"]
+        assert "没有则输出空数组" not in prompts["lore"]
+        assert "识别新出现或变化的世界要素" in prompts["lore"]  # e2e 桩锚点短语
+        # hooks 同口径理顺（对象三键）；桩锚点与既有断言短语不动
+        assert "JSON 对象输出" in prompts["hooks"]
+        assert "JSON 数组输出" not in prompts["hooks"]
+        assert "对既有伏笔的兑现与推进" in prompts["hooks"]
+        assert "planted 输出空数组" in prompts["hooks"]
+
+    def test_parse_lenient_bare_array_wrap_lore_only(self):
+        from archive.reconcile import _parse_json_lenient
+
+        assert _parse_json_lenient("[]", allow_bare_array=True) == {"items": []}
+        assert _parse_json_lenient(
+            '[{"key": "临江渡口", "value": "北境最大渡口", "set": "extra"}]',
+            allow_bare_array=True,
+        ) == {"items": [{"key": "临江渡口", "value": "北境最大渡口", "set": "extra"}]}
+        # 对象优先语义不变；不开兜底时裸数组仍失败（hooks 语义）
+        assert _parse_json_lenient('{"items": []}', allow_bare_array=True) == {"items": []}
+        assert _parse_json_lenient("[]") is None
+
+    def test_lore_bare_empty_array_succeeds_and_clears_stale_failed(self, monkeypatch):
+        _root, nid, ch_id = asyncio.run(_seed())
+        _add_row(nid, ch_id, "lore", {}, status="failed")  # 真机存量失败行
+
+        class _Fake:
+            async def chat(self, **kwargs):
+                return "[]"  # 旧措辞教出来的字面空数组
+
+        async def _fake_client(novel_id):
+            return _Fake()
+
+        import ai_client
+
+        monkeypatch.setattr(ai_client, "get_ai_client_for_novel", _fake_client)
+        import archive.reconcile as rc
+
+        asyncio.run(rc._run_async(nid, _root, "vol-1-ch-1", ch_id, kinds=["lore"]))
+
+        lore_rows = [r for r in asyncio.run(_rows_of(ch_id)) if r.kind == "lore"]
+        assert len(lore_rows) == 1
+        assert lore_rows[0].status == "pending"  # 不落失败行；旧 failed 清、空提案承接
+        assert json.loads(lore_rows[0].payload) == {"items": []}
+
+    def test_lore_bare_array_with_items_becomes_pending(self, monkeypatch):
+        _root, nid, ch_id = asyncio.run(_seed())
+
+        class _Fake:
+            async def chat(self, **kwargs):
+                return '[{"key": "临江渡口", "value": "北境最大的渡口", "set": "extra"}]'
+
+        async def _fake_client(novel_id):
+            return _Fake()
+
+        import ai_client
+
+        monkeypatch.setattr(ai_client, "get_ai_client_for_novel", _fake_client)
+        import archive.reconcile as rc
+
+        asyncio.run(rc._run_async(nid, _root, "vol-1-ch-1", ch_id, kinds=["lore"]))
+
+        lore_rows = [r for r in asyncio.run(_rows_of(ch_id)) if r.kind == "lore"]
+        assert len(lore_rows) == 1 and lore_rows[0].status == "pending"
+        items = json.loads(lore_rows[0].payload)["items"]
+        assert items == [{"key": "临江渡口", "value": "北境最大的渡口", "set": "extra"}]
+
+    def test_hooks_bare_array_fails_without_truncation_hint(self, monkeypatch):
+        """hooks 裸数组维持失败（无对账语义）；`[]` 是完整短输出，不得误报截断。"""
+        _root, nid, ch_id = asyncio.run(_seed())
+
+        class _Fake:
+            async def chat(self, **kwargs):
+                return "[]"
+
+        async def _fake_client(novel_id):
+            return _Fake()
+
+        import ai_client
+
+        monkeypatch.setattr(ai_client, "get_ai_client_for_novel", _fake_client)
+        import archive.reconcile as rc
+
+        asyncio.run(rc._run_async(nid, _root, "vol-1-ch-1", ch_id, kinds=["hooks"]))
+
+        hooks_rows = [r for r in asyncio.run(_rows_of(ch_id)) if r.kind == "hooks"]
+        assert len(hooks_rows) == 1
+        assert hooks_rows[0].status == "failed"
+        assert "parse" in hooks_rows[0].error
+        assert "疑似被输出预算截断" not in hooks_rows[0].error
