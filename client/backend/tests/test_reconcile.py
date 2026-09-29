@@ -768,10 +768,11 @@ class TestLoreBareArrayAndTruncationHint:
 
         asyncio.run(rc._run_async(nid, _root, "vol-1-ch-1", ch_id, kinds=["lore"]))
 
+        # c-lore-reconcile-guardrails：空批（模型真空或护栏滤空）不落行、不覆盖
+        # 既有未决行（空行＝「待确认 1（无明细）」假信号）；本轮已成功 → 旧失败行
+        # 照清，列表不残留（#607 关心的「失败行永久挂列表」仍成立）
         lore_rows = [r for r in asyncio.run(_rows_of(ch_id)) if r.kind == "lore"]
-        assert len(lore_rows) == 1
-        assert lore_rows[0].status == "pending"  # 不落失败行；旧 failed 清、空提案承接
-        assert json.loads(lore_rows[0].payload) == {"items": []}
+        assert lore_rows == []
 
     def test_lore_bare_array_with_items_becomes_pending(self, monkeypatch):
         _root, nid, ch_id = asyncio.run(_seed())
@@ -847,3 +848,318 @@ class TestLoreBareArrayAndTruncationHint:
         assert hooks_rows[0].status == "pending"  # 不落失败行
         payload = json.loads(hooks_rows[0].payload)
         assert payload["advanced"][0]["ref"] == "#H-0001"
+
+
+class TestLoreGuardrails:
+    """c-lore-reconcile-guardrails：lore 提案侧护栏＋prompt 注入＋采纳侧归并/复检。
+
+    真机事故对照（演示栈《我在夜晚打吸血鬼》两章灌 13 条）：人物进势力格（银铎）、
+    跨格双落（停战条款第三条 history+factions）、单批 8 条无上限、势力 6/6 满。
+    """
+
+    def _accept(self, nid: str, row_id: str):
+        from archive.reconcile import apply_accept
+
+        async def _run():
+            async with async_session() as s:
+                row = await s.get(ChapterReconcile, row_id)
+                await apply_accept(s, row)
+                await s.commit()
+
+        asyncio.run(_run())
+
+    # ── 提案侧过滤 ──
+
+    def test_filter_truncates_to_batch_max(self):
+        from archive.reconcile import _filter_lore_items
+
+        items = [{"key": f"要素{i}", "value": "v", "set": "extra"} for i in range(6)]
+        kept, trace = _filter_lore_items(items, set(), [])
+        assert [k["key"] for k in kept] == [f"要素{i}" for i in range(4)]
+        assert trace["truncated"] == ["要素4", "要素5"]
+
+    def test_filter_drops_cast_name_silver_case(self):
+        """银铎案形状：cast 有名、名册无卡——名目命中出场名单即丢（无论 set）。"""
+        from archive.reconcile import _filter_lore_items, _norm
+
+        items = [
+            {"key": "银铎", "value": "圣银教团猎魔人", "set": "factions"},
+            {"key": "静默带", "value": "无信号航段", "set": "extra"},
+        ]
+        kept, trace = _filter_lore_items(items, {_norm("银铎")}, [])
+        assert [k["key"] for k in kept] == ["静默带"]
+        assert trace["dropped"] == [{"key": "银铎", "reason": "cast"}]
+
+    def test_filter_faction_cap_keeps_existing(self):
+        """势力 ≥3：新名目丢弃、命中既有势力放行；extra 类不受势力上限影响。"""
+        from archive.reconcile import _filter_lore_items, _norm
+
+        facs = [_norm(n) for n in ("夜巡", "血族议会", "圣银教团")]
+        items = [
+            {"key": "猎魔人公会", "value": "新组织", "set": "factions"},
+            {"key": "圣银教团", "value": "更新既有势力", "set": "factions"},
+            {"key": "哨站", "value": "地点", "set": "extra"},
+        ]
+        kept, trace = _filter_lore_items(items, set(), facs)
+        assert [k["key"] for k in kept] == ["圣银教团", "哨站"]
+        assert trace["dropped"] == [{"key": "猎魔人公会", "reason": "faction_cap"}]
+
+    def test_filter_skips_non_dict_and_keyless(self):
+        from archive.reconcile import _filter_lore_items
+
+        kept, trace = _filter_lore_items(["junk", None, {"key": ""}], set(), [])
+        assert kept == []
+        assert trace["dropped"] == []
+
+    # ── prompt 注入 ──
+
+    def test_lore_prompt_injects_faction_and_pending_blocks(self):
+        from archive.reconcile import _collect_prompts
+
+        prompts = dict(_collect_prompts(
+            "vol-1-ch-3", {}, "正文", ["林晚"], "现有世界设定文",
+            faction_line="现有势力（2 个）：夜巡、血族议会",
+            pending_line="以下名目已有提案待作者确认，不要重复提：屠宰巷",
+        ))
+        lore = prompts["lore"]
+        assert "现有势力（2 个）：夜巡、血族议会" in lore
+        assert "以下名目已有提案待作者确认，不要重复提：屠宰巷" in lore
+        # 护栏口径逐项在 prompt 中
+        assert "势力先立两三个" in lore
+        assert "变相提交" in lore
+        assert "名目（key）不得是人名" in lore
+        assert "constraints" in lore
+        assert "识别新出现或变化的世界要素" in lore  # e2e 桩锚点短语，逐字保留
+
+    def test_lore_prompt_blocks_absent_without_material(self):
+        from archive.reconcile import _collect_prompts
+
+        prompts = dict(_collect_prompts("vol-1-ch-1", {}, "正文", []))
+        assert "现有势力（" not in prompts["lore"]
+        assert "待作者确认" not in prompts["lore"]
+
+    def test_run_async_pending_injection_excludes_current_chapter(self, monkeypatch):
+        """他章 pending 名目注入、本章排除（防自吞：旧名目被「不要重复提」压掉
+        → 新批省略 → 整行覆盖 → 未拍板提案静默蒸发）。"""
+        _root, nid, ch_id = asyncio.run(_seed())
+
+        async def _seed_second():
+            async with async_session() as s:
+                ch = (await s.scalars(select(Chapter).where(Chapter.id == ch_id))).one()
+                ch2 = Chapter(
+                    project_id=ch.project_id, volume_id=ch.volume_id, chapter_no=2,
+                    ref="vol-1-ch-2", title="第2章", status="archived",
+                    word_count=20, has_prose=True,
+                )
+                s.add(ch2)
+                await s.flush()
+                s.add(ChapterContent(chapter_id=ch2.id, prose="第2章正文：风更大。"))
+                await s.commit()
+                return ch2.id
+
+        ch2_id = asyncio.run(_seed_second())
+        _add_row(nid, ch2_id, "lore", {"items": [{"key": "屠宰巷", "value": "v", "set": "extra"}]})
+        _add_row(nid, ch_id, "lore", {"items": [{"key": "本章专属名目", "value": "v", "set": "extra"}]})
+
+        captured: dict = {}
+
+        class _Fake:
+            async def chat(self, **kwargs):
+                captured["prompt"] = kwargs["messages"][0]["content"]
+                return '{"items": [{"key": "临江渡口", "value": "北境最大的渡口", "set": "extra"}]}'
+
+        async def _fake_client(novel_id):
+            return _Fake()
+
+        import ai_client
+
+        monkeypatch.setattr(ai_client, "get_ai_client_for_novel", _fake_client)
+        import archive.reconcile as rc
+
+        asyncio.run(rc._run_async(nid, _root, "vol-1-ch-1", ch_id, kinds=["lore"]))
+
+        assert "屠宰巷" in captured["prompt"]           # 他章 pending 名目注入
+        assert "本章专属名目" not in captured["prompt"]  # 本章排除
+        lore_rows = [
+            r for r in asyncio.run(_rows_of(ch_id))
+            if r.kind == "lore" and r.status == "pending"
+        ]
+        assert len(lore_rows) == 1
+        assert json.loads(lore_rows[0].payload)["items"][0]["key"] == "临江渡口"
+
+    def test_run_async_empty_after_filter_no_row_no_overwrite(self, monkeypatch):
+        """整批过滤为空：不落行、不覆盖既有未决行（空行＝「待确认 1」假信号）。"""
+        _root, nid, ch_id = asyncio.run(_seed())
+        _add_row(nid, ch_id, "lore", {"items": [{"key": "既有提案", "value": "v", "set": "extra"}]})
+
+        class _Fake:
+            async def chat(self, **kwargs):
+                # 唯一候选为出场人物名目（_seed 出场＝林晚）→ 过滤后为空
+                return '{"items": [{"key": "林晚", "value": "主角", "set": "extra"}]}'
+
+        async def _fake_client(novel_id):
+            return _Fake()
+
+        import ai_client
+
+        monkeypatch.setattr(ai_client, "get_ai_client_for_novel", _fake_client)
+        import archive.reconcile as rc
+
+        asyncio.run(rc._run_async(nid, _root, "vol-1-ch-1", ch_id, kinds=["lore"]))
+
+        lore_rows = [
+            r for r in asyncio.run(_rows_of(ch_id))
+            if r.kind == "lore" and r.status == "pending"
+        ]
+        assert len(lore_rows) == 1
+        assert json.loads(lore_rows[0].payload)["items"][0]["key"] == "既有提案"
+
+    # ── 采纳侧归并＋复检 ──
+
+    def test_accept_merges_cross_set_same_name_no_dual_land(self):
+        """停战条款案：history 已有（origin=旧章），提案 set=factions 归一化同名
+        → 更新既有条目（字面 key/origin/set），factions 不出现该名目。"""
+        from filesystem.storage import get_storage
+
+        root, nid, ch_id = asyncio.run(_seed())
+
+        async def _seed_world():
+            await get_storage().write_yaml(root, "settings/world-setting.yaml", {
+                "history": [{"key": "停战条款第三条", "value": "旧文", "origin": "vol-1-ch-0"}],
+                "factions": [], "constraints": [], "extra": [],
+            })
+
+        asyncio.run(_seed_world())
+        rid = _add_row(nid, ch_id, "lore", {"items": [
+            {"key": "停战条款第三条", "value": "新文", "set": "factions"},
+        ]})
+        self._accept(nid, rid)
+        assert _get_row(rid).status == "accepted"
+
+        world = asyncio.run(
+            get_storage().read_yaml(root, "settings/world-setting.yaml")
+        ) or {}
+        assert len(world.get("history") or []) == 1
+        assert world["history"][0]["value"] == "新文"
+        assert world["history"][0]["origin"] == "vol-1-ch-0"
+        assert not (world.get("factions") or [])
+
+    def test_accept_rewrites_with_literal_key(self):
+        """既有 key 系作者手书异形（内部空格）→ 字面改写仍命中，不新增第二条。"""
+        from filesystem.storage import get_storage
+
+        root, nid, ch_id = asyncio.run(_seed())
+
+        async def _seed_world():
+            await get_storage().write_yaml(root, "settings/world-setting.yaml", {
+                "history": [{"key": "停战条款 第三条", "value": "旧文", "origin": "vol-1-ch-0"}],
+                "factions": [], "constraints": [], "extra": [],
+            })
+
+        asyncio.run(_seed_world())
+        rid = _add_row(nid, ch_id, "lore", {"items": [
+            {"key": "停战条款第三条", "value": "新文", "set": "history"},
+        ]})
+        self._accept(nid, rid)
+
+        world = asyncio.run(
+            get_storage().read_yaml(root, "settings/world-setting.yaml")
+        ) or {}
+        assert len(world.get("history") or []) == 1
+        assert world["history"][0]["key"] == "停战条款 第三条"
+        assert world["history"][0]["value"] == "新文"
+
+    def test_accept_dedupes_in_batch_same_name(self):
+        """批内同名目 set 各异 → 仅首条入账（停战条款案批内变体）。"""
+        from filesystem.storage import get_storage
+
+        root, nid, ch_id = asyncio.run(_seed())
+        rid = _add_row(nid, ch_id, "lore", {"items": [
+            {"key": "停战条款", "value": "第一条", "set": "history"},
+            {"key": "停战条款", "value": "第二条", "set": "factions"},
+        ]})
+        self._accept(nid, rid)
+
+        world = asyncio.run(
+            get_storage().read_yaml(root, "settings/world-setting.yaml")
+        ) or {}
+        hist = [e for e in (world.get("history") or []) if e.get("key") == "停战条款"]
+        assert len(hist) == 1 and hist[0]["value"] == "第一条"
+        assert not (world.get("factions") or [])
+
+    def test_accept_drops_cast_names_and_annotates(self):
+        """采纳侧人物复检：人物名目丢弃不入账，其余照常，payload 留痕。"""
+        from filesystem.storage import get_storage
+
+        root, nid, ch_id = asyncio.run(_seed())  # 出场＝林晚（ChapterCharacter）
+        rid = _add_row(nid, ch_id, "lore", {"items": [
+            {"key": "林晚", "value": "主角档案", "set": "factions"},
+            {"key": "静默带", "value": "航段", "set": "extra"},
+        ]})
+        self._accept(nid, rid)
+        row = _get_row(rid)
+        assert row.status == "accepted"
+        guard = json.loads(row.payload).get("guard") or {}
+        assert guard.get("dropped_cast") == ["林晚"]
+
+        world = asyncio.run(
+            get_storage().read_yaml(root, "settings/world-setting.yaml")
+        ) or {}
+        assert not (world.get("factions") or [])
+        assert any(e.get("key") == "静默带" for e in world.get("extra") or [])
+
+    def test_accept_does_not_merge_into_constraints(self):
+        """constraints 不进归并目标：同归一化名目提案（set=extra）落 extra 新条，
+        铁律原文不被覆盖（作者手写硬边界）。"""
+        from filesystem.storage import get_storage
+
+        root, nid, ch_id = asyncio.run(_seed())
+
+        async def _seed_world():
+            await get_storage().write_yaml(root, "settings/world-setting.yaml", {
+                "history": [], "factions": [],
+                "constraints": [{"key": "银器定伤", "value": "作者手写铁律原文"}],
+                "extra": [],
+            })
+
+        asyncio.run(_seed_world())
+        rid = _add_row(nid, ch_id, "lore", {"items": [
+            {"key": "银器定伤", "value": "AI 改写版", "set": "extra"},
+        ]})
+        self._accept(nid, rid)
+
+        world = asyncio.run(
+            get_storage().read_yaml(root, "settings/world-setting.yaml")
+        ) or {}
+        assert world["constraints"][0]["value"] == "作者手写铁律原文"
+        assert any(
+            e.get("key") == "银器定伤" and e.get("value") == "AI 改写版"
+            for e in world.get("extra") or []
+        )
+
+    def test_accept_updates_existing_faction_when_full(self):
+        """势力 6/6 满状态下采纳既有势力更新：归并命中 → 更新 note，
+        不整批 ValueError（真机紧迫项）。"""
+        from filesystem.storage import get_storage
+
+        root, nid, ch_id = asyncio.run(_seed())
+
+        async def _seed_world():
+            await get_storage().write_yaml(root, "settings/world-setting.yaml", {
+                "history": [], "constraints": [], "extra": [],
+                "factions": [{"name": f"势力{i}", "note": f"旧{i}"} for i in range(6)],
+            })
+
+        asyncio.run(_seed_world())
+        rid = _add_row(nid, ch_id, "lore", {"items": [
+            {"key": "势力3", "value": "新注", "set": "factions"},
+        ]})
+        self._accept(nid, rid)
+        assert _get_row(rid).status == "accepted"
+
+        world = asyncio.run(
+            get_storage().read_yaml(root, "settings/world-setting.yaml")
+        ) or {}
+        target = next(f for f in world["factions"] if f["name"] == "势力3")
+        assert target["note"] == "新注"
+        assert len(world["factions"]) == 6

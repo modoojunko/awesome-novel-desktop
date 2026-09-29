@@ -34,6 +34,27 @@ KINDS: dict[str, str] = {
     "lore": "世界要素",
 }
 
+# c-lore-reconcile-guardrails：lore 势力聚焦软上限——提案层「先立两三个」口径
+# （与势力格引导语同源）；不复用 FACTIONS_MAX=6（存储满员语义，用 6 做阈值
+# 挡不住「3 真＋3 假占满」）
+LORE_FACTION_SOFT_CAP = 3
+
+# 单批候选上限：lore 一批覆盖四格取 4（hooks 每类 ≤3）；超限按模型给出顺序截断
+LORE_BATCH_MAX = 4
+
+# pending 提案名目注入上限（跨章排重源只列名目，防 prompt 膨胀）
+PENDING_NAMES_MAX = 20
+
+
+def _norm(s: str) -> str:
+    """归一化名目（伏笔 planted 查重同口径 #589，c-lore-reconcile-guardrails 共用）：
+
+    小写化＋仅保留字母数字与汉字；不做全角折叠（isalnum 对全角为真，原样保留）。
+    """
+    return "".join(
+        ch for ch in s.lower() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff"
+    )
+
 _job_lock = threading.Lock()
 _job: dict | None = None  # 全局单飞：同一时刻只跑一章收尾（与提取的每章键控单飞不同）
 
@@ -212,8 +233,65 @@ async def _run_async(
     except Exception:  # noqa: BLE001 — 台账取不到：hooks 退回无对账块（不阻塞收尾）
         hooks_now = ""
 
+    # ── c-lore-reconcile-guardrails：护栏注入与过滤素材 ──────────────────────
+    # ① 现有势力名单（势力聚焦）：软上限计数只认有名目条目（v1 迁移可产无名行，
+    #    无名行不计入也不放行）
+    faction_names: list[str] = []
+    faction_names_norm: list[str] = []
+    faction_line = ""
+    try:
+        from settings.world_model import normalize_world as _nw
+
+        for _f in (_nw(world_raw) or {}).get("factions") or []:
+            if isinstance(_f, dict) and str(_f.get("name", "")).strip():
+                _name = str(_f["name"]).strip()
+                faction_names.append(_name)
+                faction_names_norm.append(_norm(_name))
+        if faction_names:
+            faction_line = f"现有势力（{len(faction_names)} 个）：{'、'.join(faction_names)}"
+    except Exception:  # noqa: BLE001 — 名单取不到：lore 退回无势力块（不阻塞收尾）
+        faction_names = []
+        faction_names_norm = []
+        faction_line = ""
+
+    # ② 本书其他章 pending lore 提案名目（跨章排重源）。排除本章：同章重复由
+    #    _upsert_pending 覆盖语义兜住，注入含本章会自吞未决提案（旧名目被
+    #    「不要重复提」压掉 → 新批省略 → 整行覆盖 → 未拍板提案静默蒸发）
+    pending_line = ""
+    try:
+        async with async_session() as _db:
+            _pend = (
+                await _db.scalars(
+                    select(ChapterReconcile).where(
+                        ChapterReconcile.novel_id == novel_id,
+                        ChapterReconcile.kind == "lore",
+                        ChapterReconcile.status == "pending",
+                        ChapterReconcile.chapter_id != chapter_id,
+                    )
+                )
+            ).all()
+            _names: list[str] = []
+            for _r in _pend:
+                try:
+                    _data = json.loads(_r.payload or "{}")
+                except ValueError:
+                    continue
+                _items = _data.get("items") if isinstance(_data, dict) else None
+                for _it in _items or []:
+                    if isinstance(_it, dict) and str(_it.get("key", "")).strip():
+                        _names.append(str(_it["key"]).strip())
+            _names = list(dict.fromkeys(_names))[:PENDING_NAMES_MAX]
+            if _names:
+                pending_line = "以下名目已有提案待作者确认，不要重复提：" + "、".join(_names)
+    except Exception:  # noqa: BLE001 — pending 名目取不到：lore 退回无排重块（不阻塞收尾）
+        pending_line = ""
+
+    # ③ 出场人物归一化集合（提案侧人物过滤，两侧同口径）
+    cast_norm = {_norm(n) for n in cast}
+
     for kind, prompt in _collect_prompts(
-        chapter_ref, chapter, full_text, cast, world_now, roster, hooks_now
+        chapter_ref, chapter, full_text, cast, world_now, roster, hooks_now,
+        faction_line=faction_line, pending_line=pending_line,
     ):
         if kinds is not None and kind not in kinds:
             continue
@@ -243,6 +321,34 @@ async def _run_async(
             await _record_fail(novel_id, kind, usage)
             await _mark_failed(novel_id, chapter_id, kind, str(usage))
             continue
+        if kind == "lore":
+            # c-lore-reconcile-guardrails：提案侧护栏（截断/人物/势力聚焦），确定性执行
+            _raw_items = data.get("items") if isinstance(data, dict) else None
+            kept, trace = _filter_lore_items(
+                _raw_items if isinstance(_raw_items, list) else [],
+                cast_norm, faction_names_norm,
+            )
+            if trace["dropped"] or trace["truncated"]:
+                print(f"[reconcile] chapter {chapter_ref} lore 护栏丢弃："
+                      f"{json.dumps(trace, ensure_ascii=False)}")
+            if not kept:
+                # 整批过滤为空：不落行、不覆盖既有未决行（空行＝「待确认 1（无明细）」
+                # 假信号）；本轮 AI 已成功（可解析），旧失败行照清防永久挂列表
+                print(f"[reconcile] chapter {chapter_ref} lore 过滤后无候选，不落提案行")
+                async with async_session() as session:
+                    for old in (
+                        await session.scalars(
+                            select(ChapterReconcile).where(
+                                ChapterReconcile.chapter_id == chapter_id,
+                                ChapterReconcile.kind == kind,
+                                ChapterReconcile.status == "failed",
+                            )
+                        )
+                    ).all():
+                        await session.delete(old)
+                    await session.commit()
+                continue
+            data = {"items": kept, "guard": trace}
         async with async_session() as session:
             await _upsert_pending(session, chapter_id, novel_id, kind, data)
             # 重试/重跑成功：旧失败行使命已尽（新 pending 承接），清掉防永久挂列表
@@ -262,11 +368,18 @@ async def _run_async(
 def _collect_prompts(
     chapter_ref: str, chapter: dict, full_text: str, cast: list[str],
     world_now: str = "", roster: str = "", hooks_now: str = "",
+    faction_line: str = "", pending_line: str = "",
 ):
     """两类收尾的 prompt；正文全量给（章目标上限 6000，旧 [:3000] 会丢掉章末钩子）。
 
-    lore 段带「现有世界设定＋角色名册」：只提与外面对不上的新要素（防重复提案），
-    已登记角色的背景不进世界要素（归角色卡，真机实锤防混入）。
+    lore 段（c-lore-reconcile-guardrails 护栏版）：恒定世界事实判据（正反成对＋
+    可操作测试句）、势力聚焦（faction_line 名单＋「先立两三个」，已有 3 个及以上
+    不再提新势力、禁改放 extra/history 变相提交）、名目不得是人名（value 可提及）、
+    set 四格含 constraints（规则戒律类——三选项口径是「同一教规两格双落」成因）、
+    排重源＝现有世界设定＋其他章待确认提案（pending_line 独立成块）、≤4 条宁缺勿滥、
+    key/value 长度口径、evidence 接地、尾提醒防无 JSON 文字。
+    锚点纪律：首句「识别新出现或变化的世界要素」＝e2e 桩路由子串＋pytest 断言
+    双重依赖，逐字保留；禁复用 dossier 桩分支子串「只输出一个 JSON 对象，四键齐全」。
     hooks 段带「真伏笔判据＋条数上限＋现有台账」：剧情走向（进行中的冲突/行动/
     因果紧接的下一步）、章末悬念断点、氛围/场景/角色状态不登记（角色状态归章档
     认知域），每章 planted/resolved 各最多 3 条（真机实锤：
@@ -296,11 +409,29 @@ def _collect_prompts(
         f"{roster}\n已登记角色（上表人物）的背景、身份、经历属于角色卡——不要作为世界要素提案。\n\n"
         if roster else ""
     )
+    faction_block = f"{faction_line}。势力先立两三个即可；超过此数后不再提新势力。\n\n" if faction_line else ""
+    pending_block = f"{pending_line}\n\n" if pending_line else ""
     yield "lore", (
         f"从第 {chapter_ref} 章正文识别新出现或变化的世界要素（地点/组织/历史/规则）。"
-        f"JSON 对象输出，每条含 key/value/set，set 取 history/factions/extra，拿不准用 extra；"
-        f'形如 {{"items": [{{"key": "静默带", "value": "一句话", "set": "extra"}}]}}，'
-        f'没有新世界要素则输出 {{"items": []}}。\n\n{world_block}{roster_block}正文：\n{body}'
+        f"只提「后续章节还会当既定设定引用的恒定世界事实」，用这条测试判断：把一条拿掉，"
+        f"后文是否还会把它当既定设定引用。应提：长期有效的规则/条约/戒律（哪怕本章才立下）、"
+        f"首次登场且后文还会用到的地点/组织/物种/制度、世界层面的恒定改变（势力兴亡、禁令生效）。"
+        f"不应提：本章情节经过与拍点（谁做了什么、某场考验/冲突/仪式的经过）、人物状态与外貌、"
+        f"一次性场景细节。「变化」只指世界层面恒定状态从此改变，不是主角推动的剧情转折。"
+        f"名目（key）不得是人名（含未登记人物）；value 陈述事实时可以提及人物。"
+        f"势力聚焦：势力先立两三个即可（现有势力名单见下）。已有 3 个及以上时不再提新势力，"
+        f"本章势力相关的变化并进既有势力条目（key 直接用既有势力名）；除非新势力取代或吞并了"
+        f"既有势力，否则整条不提，也不要把新势力改放 extra/history 变相提交。"
+        f"排重：与现有世界设定或待确认提案重复的名目不要提；同一要素已存在于现有设定或提案时，"
+        f"沿用其既有归属，不要改换 set。"
+        f"只挑对后续最重要的，最多 4 条，宁缺勿滥；本章没有新世界要素则输出 {{\"items\": []}}，不要硬凑。"
+        f"key ≤10 字，value 一句话 ≤60 字。"
+        f"set 取 history（大事与旧账）/factions（势力）/constraints（世界铁律与戒律）/"
+        f"extra（其余世界细节），规则戒律类用 constraints，拿不准用 extra。"
+        f'JSON 对象输出，形如 {{"items": [{{"key": "静默带", "value": "无信号的深空航段", '
+        f'"set": "extra", "evidence": "正文原句不超过 40 字"}}]}}。'
+        f"\n\n{world_block}{faction_block}{pending_block}{roster_block}正文：\n{body}"
+        f"\n（只输出上面的 JSON 对象，不要输出任何其他文字。）"
     )
 
 
@@ -335,6 +466,47 @@ def _parse_json_lenient(text: str, allow_bare_array: bool = False) -> dict | Non
         except Exception:  # noqa: BLE001
             return None
     return None
+
+
+def _filter_lore_items(
+    items: list, cast_norm: set[str], faction_names_norm: list[str],
+) -> tuple[list[dict], dict]:
+    """c-lore-reconcile-guardrails 提案侧护栏（确定性，不依赖模型自觉）。
+
+    顺序＝先按模型给出顺序截前 LORE_BATCH_MAX 条，再逐条过滤：
+    - 名目归一化命中出场角色名单 → 丢弃（人物归角色域；两侧同口径归一化，
+      银铎案形状：cast 有名、名册无卡）
+    - 势力计数 ≥ LORE_FACTION_SOFT_CAP 时 set=factions 的新名目 → 丢弃
+      （命中既有势力放行；计数只认有名目条目，v1 迁移无名行不计入）
+    返回 (kept, trace)：trace 记录丢弃名目与原因、截断名目（payload/日志留痕，
+    不静默蒸发）。非法条目（非 dict/缺 key）直接丢，不进 trace——形状错误非内容问题。
+    """
+    kept: list[dict] = []
+    dropped: list[dict] = []
+    head, overflow = items[:LORE_BATCH_MAX], items[LORE_BATCH_MAX:]
+    for it in head:
+        if not isinstance(it, dict) or not str(it.get("key", "")).strip():
+            continue
+        key = str(it["key"]).strip()
+        nm = _norm(key)
+        if nm and nm in cast_norm:
+            dropped.append({"key": key, "reason": "cast"})
+            continue
+        if (
+            str(it.get("set", "")).strip() == "factions"
+            and len(faction_names_norm) >= LORE_FACTION_SOFT_CAP
+            and nm not in faction_names_norm
+        ):
+            dropped.append({"key": key, "reason": "faction_cap"})
+            continue
+        kept.append(it)
+    trace: dict = {
+        "dropped": dropped,
+        "truncated": [
+            str(x.get("key", "")) if isinstance(x, dict) else "" for x in overflow
+        ],
+    }
+    return kept, trace
 
 
 async def _record(novel_id: str, kind: str, usage: dict) -> None:
@@ -376,6 +548,7 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
 
     if row.kind == "lore":
         # 世界要素建议 → lore-apply 幂等合并（origin=本章 ref）
+        # c-lore-reconcile-guardrails：采纳侧复检＋归并（与提案侧护栏同构）
         from filesystem.storage import get_storage
         from settings.world_model import (
             lore_apply_entries,
@@ -388,28 +561,102 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
         items = payload.get("items") or []
         from settings.world_model import SET_NAMES as _WORLD_SETS
 
-        entries = []
+        raw_entries = []
         for i in items:
             if not isinstance(i, dict) or not str(i.get("key", "")).strip():
                 continue
             set_name = str(i.get("set", "")).strip()
             if set_name not in _WORLD_SETS:
                 set_name = "extra"  # 归属缺失/非法 → 「更多世界细节」（可后补名目）
-            entries.append({
+            raw_entries.append({
                 "key": str(i.get("key", "")).strip(),
                 "value": str(i.get("value", "")).strip(),
                 "origin": ch.ref if ch else "",
                 "set": set_name,
             })
-        # 路径唯一来源（filesystem.paths.KEY_TO_PATH）：硬编码 settings/world.yaml
-        # 会写进一个全仓没人读的野文件（本测试撕出）
-        from filesystem.paths import KEY_TO_PATH as _K2P
 
-        raw = await get_storage().read_yaml(novel.root_path, _K2P["world"]) or {}
-        v2 = normalize_world(raw)
-        v2 = lore_apply_entries(v2, entries)
-        merged = put_world_merged(raw, v2)
-        await get_storage().write_yaml(novel.root_path, _K2P["world"], merged)
+        # ① 采纳侧人物复检（兜存量未决行与章纲漏填章的提案）：出场名单同款归一化
+        cast_norm: set[str] = set()
+        if ch is not None:
+            cast_norm = {
+                _norm(cc.character_name) for cc in ch.characters if cc.character_name
+            }
+        guard: dict = {"dropped_cast": []}
+        checked = []
+        for e in raw_entries:
+            if cast_norm and _norm(e["key"]) in cast_norm:
+                guard["dropped_cast"].append(e["key"])
+                continue
+            checked.append(e)
+
+        # ② 批内同名目去重（保留首条）：归并匹配采纳时刻既有集，批内同名目 set 各异
+        #    会双双无既有命中、双双落新格（停战条款案批内变体）
+        deduped = []
+        seen: set[str] = set()
+        for e in checked:
+            nm = _norm(e["key"])
+            if nm and nm in seen:
+                continue
+            if nm:
+                seen.add(nm)
+            deduped.append(e)
+
+        # ③ 归一化归并：命中 history/extra/factions 既有条目 → 用既有条目**字面**
+        #    key/origin/set 改写为更新（幂等命中靠字面精确相等，用提案 key 重写会
+        #    dup 查不中复活双落）；constraints 不进归并目标（作者手写铁律不被 AI
+        #    value 覆盖；其新提案由 lore_apply_entries 按 key 幂等原地更新，不冲突）
+        if deduped:
+            from filesystem.paths import KEY_TO_PATH as _K2P
+
+            # 路径唯一来源（filesystem.paths.KEY_TO_PATH）：硬编码 settings/world.yaml
+            # 会写进一个全仓没人读的野文件（本测试撕出）
+            raw = await get_storage().read_yaml(novel.root_path, _K2P["world"]) or {}
+            v2 = normalize_world(raw)
+            merge_index: dict[str, tuple[str, dict]] = {}
+            for set_name in ("history", "extra", "factions"):
+                for ent in v2.get(set_name) or []:
+                    if not isinstance(ent, dict):
+                        continue
+                    _name = ent.get("name", "") if set_name == "factions" else ent.get("key", "")
+                    _nm = _norm(str(_name))
+                    if _nm and _nm not in merge_index:
+                        merge_index[_nm] = (set_name, ent)
+            entries = []
+            guard["merged_into"] = []
+            for e in deduped:
+                nm = _norm(e["key"])
+                hit = merge_index.get(nm) if nm else None
+                if hit is None:
+                    entries.append(e)
+                    continue
+                set_name, ent = hit
+                if set_name == "factions":
+                    entries.append({
+                        "key": str(ent.get("name", "")),
+                        "value": e["value"],
+                        "origin": e["origin"],
+                        "set": "factions",
+                    })
+                else:
+                    entries.append({
+                        "key": str(ent.get("key", "")),
+                        "value": e["value"],
+                        "origin": str(ent.get("origin") or ""),
+                        "set": set_name,
+                    })
+                guard["merged_into"].append({
+                    "key": e["key"],
+                    "into": str(ent.get("name") or ent.get("key", "")),
+                    "set": set_name,
+                })
+            v2 = lore_apply_entries(v2, entries)
+            merged = put_world_merged(raw, v2)
+            await get_storage().write_yaml(novel.root_path, _K2P["world"], merged)
+
+        # 护栏留痕进 payload（审计可测、前端零改动——对账区只读 items 渲染）
+        if guard.get("dropped_cast") or guard.get("merged_into"):
+            payload["guard"] = guard
+            row.payload = json.dumps(payload, ensure_ascii=False)
 
     elif row.kind == "hooks":
         # 伏笔登记（c-hooks-advance-ledger 对账制）：
@@ -421,10 +668,7 @@ async def apply_accept(db, row: ChapterReconcile) -> None:
         # 旧格式（resolved 无 ref 有 description，存量 pending 行）→ 兼容按描述包含匹配。
         from settings.hooks_service import create_hook, patch_hook
 
-        def _norm(s: str) -> str:
-            return "".join(
-                ch for ch in s.lower() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff"
-            )
+        # _norm 已提为模块级（c-lore-reconcile-guardrails 与 lore 归并共用，行为不变）
 
         def _seq_of(ref: str) -> int | None:
             import re as _re
