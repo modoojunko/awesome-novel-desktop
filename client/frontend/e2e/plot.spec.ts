@@ -104,6 +104,8 @@ async function createNovelWithChapter(page: Page, name: string): Promise<string>
   await expect(page.getByTestId("landing-card")).toBeVisible({ timeout: 10000 });
   await page.getByTestId("landing-open-outline").click();
   // 手写拆下一章：四段落库（outline.summary/challenge/ladder_exit——AI 写剧情的门槛三样；c-og-slim-v2 去「本章行动」）
+  // 拆章入口已迁本卷章节页签（c-split-to-chapters-tab）
+  await page.getByRole("tab", { name: "本卷章节" }).click();
   await page.getByTestId("volume-split-manual").click();
   await expect(page.getByTestId("chapter-plan-modal")).toBeVisible({ timeout: 5000 });
   await page.getByTestId("d-title").fill("信标进舱");

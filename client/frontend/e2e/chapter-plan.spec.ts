@@ -107,6 +107,11 @@ async function createNovelWithVolume(page: Page, name: string): Promise<string> 
   return m[1];
 }
 
+/** 卷纲页签 → 本卷章节页签（c-split-to-chapters-tab 起拆章入口住本页签） */
+async function goChaptersTab(page: Page) {
+  await page.getByRole("tab", { name: "本卷章节" }).click();
+}
+
 const DIRECTIONS = {
   ok: true,
   entry: { text: "她把信标藏进舱底夹层，签了那张登记单", source: "拟定，取自章纲落点" },
@@ -130,7 +135,8 @@ test("手写路径全链：中栏拆下一章 → 四段 → 排上 → 落点�
     const pid = await createNovelWithVolume(page, `拆章手写${Date.now() % 100000}`);
     await page.route("**/next-chapter-anchor", (r) =>
       r.fulfill({ json: { ok: true, text: "（第一卷第一章）", source: "本章是这一卷的第一章" } }));
-    // 中栏入口（全档）
+    // 中栏入口（全档；c-split-to-chapters-tab 起在本卷章节页签）
+    await goChaptersTab(page);
     await page.getByTestId("volume-split-manual").click();
     await expect(page.getByTestId("chapter-plan-modal")).toBeVisible({ timeout: 5000 });
     // kicker 点名卷号与章号（照原型：卷＝汉字、章＝数字，X＝锚的 next_no）
@@ -173,7 +179,8 @@ test("AI 四态：正在想 → 三卡（角标＋剧情吸引力）→ 选卡 �
     let release!: (v?: unknown) => void;
     const gate = new Promise<void>((r) => { release = r; });
     await page.route("**/ai-directions", async (r) => { await gate; await r.fulfill({ json: DIRECTIONS }); });
-    // 右栏入口（PRO）
+    // 右栏入口（PRO；随本卷章节页签出现）
+    await goChaptersTab(page);
     await page.getByTestId("volume-split-ai").click();
     await expect(page.getByTestId("split-busy")).toBeVisible({ timeout: 5000 });
     release();
@@ -207,6 +214,7 @@ test("AI 失败三出口：重试／自己写这一章／先不拆", async ({ pa
   try {
     await createNovelWithVolume(page, `拆章失败${Date.now() % 100000}`);
     await page.route("**/ai-directions", (r) => r.fulfill({ status: 500, json: { detail: "boom" } }));
+    await goChaptersTab(page);
     await page.getByTestId("volume-split-ai").click();
     await expect(page.getByTestId("split-error")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("split-retry")).toBeVisible();
@@ -226,6 +234,7 @@ test("只出两套：降级说明＋两张卡", async ({ page }) => {
     await createNovelWithVolume(page, `拆章两套${Date.now() % 100000}`);
     await page.route("**/ai-directions", (r) =>
       r.fulfill({ json: { ...DIRECTIONS, directions: DIRECTIONS.directions.slice(0, 2), grades: ["A", "B"], note: "另两个走向太接近" } }));
+    await goChaptersTab(page);
     await page.getByTestId("volume-split-ai").click();
     await expect(page.getByTestId("split-note")).toContainText("只想出两套", { timeout: 10000 });
     await expect(page.locator(".pick-card")).toHaveCount(2);
@@ -249,6 +258,7 @@ test("自检：手写卡底条「AI 看一眼这一章」→ 三组（衔接/配
           weakest: "递增",
         },
       }));
+    await goChaptersTab(page);
     await page.getByTestId("volume-split-manual").click();
     await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("d-plot").fill("捡到信标");
@@ -275,6 +285,7 @@ test("派生视图：排上后卷页「剧情推进（派生）」按章列出�
   try {
     await createNovelWithVolume(page, `拆章派生${Date.now() % 100000}`);
     await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
+    await goChaptersTab(page);
     await page.getByTestId("volume-split-manual").click();
     await page.getByTestId("d-title").fill("信标进舱");
     await page.getByTestId("d-plot").fill("捡到信标");
@@ -305,7 +316,8 @@ test("免费档：右栏 AI 入口锁定（PRO 说明），中栏手写照常可
     await page.getByRole("button", { name: /^写作/ }).click();
     // reload 后无选中节点 → 点左树卷行回卷纲视图（右栏才是卷语境）
     await page.locator(".vol-head .vt").first().click();
-    // 锁定态
+    // 锁定态（拆章 AI 行已迁本卷章节页签）
+    await goChaptersTab(page);
     await expect(page.getByTestId("volume-split-ai")).toBeDisabled();
     await expect(page.getByTestId("volume-split-ai-locked")).toBeVisible();
     // 锁定态要有**可点的**升级出口（原实现把 onUpgrade 放在 disabled 按钮里＝死代码）
@@ -325,7 +337,8 @@ test("删章守卫：非尾章 409（先删其后或重拆）", async ({ page, r
   try {
     const pid = await createNovelWithVolume(page, `拆章守卫${Date.now() % 100000}`);
     await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
-    // 排两章：首轮走中栏入口；次轮由落点卡「继续拆下一章」打开手写卡（弹窗已开，别再点入口）
+    // 排两章：首轮走中栏入口（本卷章节页签）；次轮由落点卡「继续拆下一章」打开手写卡（弹窗已开，别再点入口）
+    await goChaptersTab(page);
     for (const [i, t] of ["第一章", "第二章"].entries()) {
       if (i === 0) await page.getByTestId("volume-split-manual").click();
       await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
@@ -359,6 +372,7 @@ test("换方向：点「换 3 个方向」重新出卡（第二次响应覆盖�
       };
       return r.fulfill({ json: n === 1 ? DIRECTIONS : alt });
     });
+    await goChaptersTab(page);
     await page.getByTestId("volume-split-ai").click();
     await expect(page.getByTestId("pick-card-1")).toContainText("同名档案", { timeout: 10000 });
     await page.getByTestId("split-redraw").click();
@@ -375,6 +389,7 @@ test("双击幂等：提交中锁定＋同 client_token 重放返回同一章", 
   try {
     const pid = await createNovelWithVolume(page, `拆章幂等${Date.now() % 100000}`);
     await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
+    await goChaptersTab(page);
     await page.getByTestId("volume-split-manual").click();
     await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("d-title").fill("信标进舱");
@@ -405,6 +420,7 @@ test("重拆整卷：盘点确认 → 拟定章清空、卷纲保留、可重新
   try {
     await createNovelWithVolume(page, `拆章重拆${Date.now() % 100000}`);
     await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
+    await goChaptersTab(page);
     for (const [i, t] of ["第一章", "第二章"].entries()) {
       if (i === 0) await page.getByTestId("volume-split-manual").click();
       await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
@@ -428,7 +444,8 @@ test("重拆整卷：盘点确认 → 拟定章清空、卷纲保留、可重新
     await expect(page.getByTestId("vol-plot-progress")).toContainText("0 章");
     await expect(page.getByText("沉舟捡到一枚不属于人类纪元的导航信标")).toBeVisible();
     await expect(page.getByTestId("volume-resplit")).toHaveCount(0);
-    // 可重新拆：章号从 1 复用（不留空洞）
+    // 可重新拆：章号从 1 复用（不留空洞）；入口在本卷章节页签
+    await goChaptersTab(page);
     await page.getByTestId("volume-split-manual").click();
     await page.getByTestId("d-title").fill("重拆后第一章");
     await page.getByTestId("split-adopt").click();
@@ -464,6 +481,7 @@ test("非末端卷：拆章两入口置灰并指向写作位所在卷", async ({
     await page.reload();
     await page.getByRole("button", { name: /^写作/ }).click();
     await page.locator(".vol-head .vt").first().click();
+    await goChaptersTab(page);
     await expect(page.getByTestId("volume-split-manual")).toBeDisabled();
     await expect(page.getByTestId("volume-split-blocked")).toContainText("写作位在第2卷");
     await expect(page.getByTestId("volume-split-ai")).toBeDisabled();
@@ -478,6 +496,7 @@ test("未配模型：出卡失败给「去接一个模型」的就地引导（�
   try {
     await createNovelWithVolume(page, `拆章缺模${Date.now() % 100000}`);
     // 本栈未配模型：真打端点 → 503 前置 → 卡片给可操作引导（不是通用「出卡失败」）
+    await goChaptersTab(page);
     await page.getByTestId("volume-split-ai").click();
     await expect(page.getByTestId("split-error")).toContainText("还没接模型", { timeout: 10000 });
     await expect(page.getByTestId("split-retry")).toBeVisible();
@@ -494,6 +513,7 @@ test("回改结尾：上一章落点改了 → 不静默（提示下一章进场
     const pid = await createNovelWithVolume(page, `拆章回改${Date.now() % 100000}`);
     await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
     // 排两章（第 1 章落点＝旧落点）
+    await goChaptersTab(page);
     for (const [i, t] of ["第一章", "第二章"].entries()) {
       if (i === 0) await page.getByTestId("volume-split-manual").click();
       await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
@@ -547,6 +567,7 @@ test("回改：左树 hover「改这一章」→ 同一张卡面（预填四段�
     const pid = await createNovelWithVolume(page, `拆章回改面${Date.now() % 100000}`);
     await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
     // 先排一章（四段齐）
+    await goChaptersTab(page);
     await page.getByTestId("volume-split-manual").click();
     await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("d-title").fill("信标进舱");
@@ -592,6 +613,7 @@ test("回改入口三处：派生视图行也可点开同一张卡面", async ({
   try {
     await createNovelWithVolume(page, `拆章回改派生${Date.now() % 100000}`);
     await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
+    await goChaptersTab(page);
     await page.getByTestId("volume-split-manual").click();
     await expect(page.getByTestId("d-title")).toBeVisible({ timeout: 10000 });
     await page.getByTestId("d-title").fill("信标进舱");

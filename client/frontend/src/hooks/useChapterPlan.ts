@@ -1,5 +1,5 @@
 // useChapterPlan — 拆章状态机（c-chapter-plan-ai；与 useVolumePlan 同构，不新造第二套模式）
-// 双路：手写五段（中栏入口，全档）／AI 三方向（右栏入口，PRO）。
+// 双路：手写四段（中栏入口，全档）／AI 三方向（右栏入口，PRO）。
 // AI 四态：idle｜busy｜error（三出口）；degraded 由出参 degraded 表达（只出两套）。
 // token 守卫：busy 中关窗＝弃；submitting 中锁定（写请求在途，UI 锁＋服务端幂等双保险）。
 import { useCallback, useRef, useState } from "react";

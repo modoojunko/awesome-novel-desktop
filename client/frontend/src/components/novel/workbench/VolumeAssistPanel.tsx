@@ -1,7 +1,8 @@
 /** 右栏「AI 辅助 · 卷」语境面板（volume-plan-ai 三态）：
  *  1) 选中卷＝验证面板（引导语＋「体检这一卷」＋三组报告；免费、只读、可重复；
  *     c-write-home-rail-anchor 起随卷页签重排：当前页签＝真实页签名、引导语换焦、
- *     组序按页签前置，卷纲页签另有「重新规划这一卷（AI）」）；
+ *     组序按页签前置，卷纲页签另有「重新规划这一卷（AI）」、本卷章节页签另有
+ *     「拆下一章（AI）」（c-split-to-chapters-tab 自卷纲页签迁入））；
  *  2) 未选中 · 零卷（空书）＝「规划第一卷（AI）」入口＋「分卷依据 · 来自你的设定」；
  *  3) 未选中 · 有卷（写作默认页）＝「接着往下规划」（规划第N卷）＋「卷的验证」（各卷一行，
  *     卷号 · 名字 · 章数目标；点一行＝选中该卷并立刻体检）。
@@ -136,6 +137,7 @@ function VolumeVerifyPanel({
   autoCheckSeq,
   onPlanVolume,
   onSplitAi,
+  onGoOutline,
   isPro,
   onUpgrade,
 }: {
@@ -144,8 +146,10 @@ function VolumeVerifyPanel({
   autoCheckSeq: number;
   /** 卷纲页签的「重新规划这一卷（AI）」：打开规划台，卷号＝本卷 */
   onPlanVolume: (volNo: number) => void;
-  /** 卷纲页签的「拆下一章（AI）」（c-chapter-plan-ai） */
+  /** 本卷章节页签的「拆下一章（AI）」（c-chapter-plan-ai；c-split-to-chapters-tab 迁入） */
   onSplitAi: () => void;
+  /** 「去补卷纲」出口：中栏切回卷纲页签（信号经壳层 seq 递增） */
+  onGoOutline: () => void;
   isPro: boolean;
   onUpgrade: () => void;
 }) {
@@ -158,6 +162,12 @@ function VolumeVerifyPanel({
   const frontierVol = data.frontierVol;
   // 只挡「写作位之前的卷」（与中栏同判据；见 VolumeWorkspace 注释）
   const splitBlocked = frontierVol != null && data.volume < frontierVol;
+  // 卷纲空门槛（c-chapter-plan-ai）：主旨/冲突/卷末任一为空——与后端 422 同键；
+  // 入口已迁本卷章节页签，拦截前置呈现在右栏（「去补卷纲」出口），后端 422 兜底。
+  const outlineIncomplete =
+    !(data.detail.summary ?? "").trim() ||
+    !(data.detail.core_conflict ?? "").trim() ||
+    !(data.detail.ending ?? "").trim();
   /** 组序按页签重排（不重跑、不改写结论）。逐实例消费（splice）：模型输出重名组时
    *  一组都不吞；顺序表之外/认不出的组名按模型原序追加在尾。 */
   const groups = useMemo(() => {
@@ -219,19 +229,27 @@ function VolumeVerifyPanel({
               testid: "volume-replan",
             }]
           : []),
-        ...(tab === "outline"
+        ...(tab === "chapters"
           ? [{
               key: "split",
               name: "拆下一章（AI）",
               desc: splitBlocked
                 ? `写作位在第${frontierVol}卷——这一卷还没轮到`
-                : "按卷纲拆出下一章的三方向卡（PRO）",
+                : outlineIncomplete
+                  ? "卷纲关键项还没填——先补卷纲"
+                  : "按卷纲拆出下一章的三方向卡（PRO）",
               onClick: () => {
                 if (!isPro) onUpgrade();
-                else if (!splitBlocked) onSplitAi();
+                else if (!splitBlocked && !outlineIncomplete) onSplitAi();
               },
-              disabled: checking || splitBlocked || !isPro,
-              hint: !isPro ? "需 PRO" : splitBlocked ? `写作位在第${frontierVol}卷` : undefined,
+              disabled: checking || splitBlocked || !isPro || outlineIncomplete,
+              hint: !isPro
+                ? "需 PRO"
+                : splitBlocked
+                  ? `写作位在第${frontierVol}卷`
+                  : outlineIncomplete
+                    ? "先补卷纲"
+                    : undefined,
               testid: "volume-split-ai",
             }]
           : []),
@@ -244,9 +262,9 @@ function VolumeVerifyPanel({
         {VOL_TAB_LEAD[tab] ??
           "这一卷的验证：对不对得上全书设定、接不接得上主线、跟已经写出来的部分有没有出入。只给判断，不代笔。"}
       </p>
-      {tab === "outline" && !isPro && (
+      {tab === "chapters" && !isPro && (
         <p className="none" data-testid="volume-split-ai-locked">
-          AI 三方向需 PRO——「自己写这一章」在中栏卷纲页随时可用{" "}
+          AI 三方向需 PRO——手写拆章免费：用中栏「拆下一章」{" "}
           <button
             className="btn btn-primary btn-sm"
             data-testid="volume-split-ai-upgrade"
@@ -256,9 +274,21 @@ function VolumeVerifyPanel({
           </button>
         </p>
       )}
-      {tab === "outline" && isPro && splitBlocked && (
+      {tab === "chapters" && isPro && splitBlocked && (
         <p className="none" data-testid="volume-split-ai-blocked">
           写作位在第{frontierVol}卷——先去那一卷拆章
+        </p>
+      )}
+      {tab === "chapters" && isPro && outlineIncomplete && (
+        <p className="none" data-testid="volume-split-ai-outline-gate">
+          卷纲关键项还没填——先补卷纲{" "}
+          <button
+            className="btn btn-secondary btn-sm"
+            data-testid="volume-split-ai-go-outline"
+            onClick={onGoOutline}
+          >
+            去补卷纲
+          </button>
         </p>
       )}
       {error && (
@@ -309,6 +339,7 @@ export function VolumeAssistPanel({
   onSelectVolume,
   autoCheckSeq,
   onSplitAi,
+  onGoOutline,
   isPro,
   onUpgrade,
 }: {
@@ -316,8 +347,10 @@ export function VolumeAssistPanel({
   data: VolumeRailData | null;
   idle: RailIdleData;
   genreLabel: string;
-  /** 「拆下一章（AI）」——逐章拆分的 PRO 入口（c-chapter-plan-ai） */
+  /** 「拆下一章（AI）」——逐章拆分的 PRO 入口（c-chapter-plan-ai；本卷章节页签） */
   onSplitAi: () => void;
+  /** 「去补卷纲」出口：中栏切回卷纲页签（c-split-to-chapters-tab） */
+  onGoOutline: () => void;
   isPro: boolean;
   onUpgrade: () => void;
   /** 打开规划台（空书＝1；写作默认页＝最大卷号+1） */
@@ -337,6 +370,7 @@ export function VolumeAssistPanel({
         autoCheckSeq={autoCheckSeq}
         onPlanVolume={onPlanVolume}
         onSplitAi={onSplitAi}
+        onGoOutline={onGoOutline}
         isPro={isPro}
         onUpgrade={onUpgrade}
       />

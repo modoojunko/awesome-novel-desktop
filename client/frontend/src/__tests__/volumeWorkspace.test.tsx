@@ -214,3 +214,60 @@ describe("VolumeWorkspace 卷视图", () => {
     expect(onRail.mock.calls.at(-1)?.[0]).toBeNull();
   });
 });
+
+describe("拆章入口迁本卷章节页签（c-split-to-chapters-tab）", () => {
+  it("卷纲页签动作区收窄：无拆章按钮与提示段，仅「重拆本卷」「编辑卷纲」", async () => {
+    renderVol();
+    await screen.findByText("卷 · 分卷计划");
+    expect(screen.queryByTestId("volume-split-manual")).toBeNull();
+    expect(screen.queryByTestId("volume-split-blocked")).toBeNull();
+    expect(screen.getByRole("button", { name: "编辑卷纲" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重拆本卷" })).toBeInTheDocument();
+  });
+
+  it("本卷章节页签：「拆下一章」可点并走 onSplitManual（手写弹窗链）", async () => {
+    const onSplitManual = vi.fn();
+    render(
+      <VolumeWorkspace
+        projectId="p1"
+        volumeRef="vol-1"
+        wb={wb}
+        onGoChapter={vi.fn()}
+        onVolumeMutated={vi.fn()}
+        onDirtyChange={vi.fn()}
+        onRailData={vi.fn()}
+        onSplitManual={onSplitManual}
+        onEditChapter={() => {}}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("tab", { name: "本卷章节" }));
+    const split = await screen.findByTestId("volume-split-manual");
+    expect(split).toBeEnabled();
+    fireEvent.click(split);
+    expect(onSplitManual).toHaveBeenCalled();
+    expect(screen.queryByTestId("volume-split-blocked")).toBeNull();
+  });
+
+  it("末端门禁：写作位在后面的卷 → 拆章置灰＋提示段随迁", async () => {
+    mockApi({ frontierVol: 2 });
+    renderVol();
+    fireEvent.click(await screen.findByRole("tab", { name: "本卷章节" }));
+    const split = (await screen.findByTestId("volume-split-manual")) as HTMLButtonElement;
+    expect(split.disabled).toBe(true);
+    expect(split.title).toContain("还没轮到");
+    expect(screen.getByTestId("volume-split-blocked")).toHaveTextContent("先去第2卷拆章");
+  });
+
+  it("卷纲零章空态：新文案带「本卷章节」出口，点击切页签", async () => {
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/novels/p1/volumes/vol-1") return Promise.resolve({ ...DETAIL, chapters: [] });
+      if (path === "/novels/p1/frontier") return Promise.resolve({ frontier: null });
+      return Promise.resolve({});
+    });
+    renderVol();
+    await screen.findByText("卷 · 分卷计划");
+    expect(screen.getByText(/还没有排章——去/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("vol-empty-go-chapters"));
+    expect(await screen.findByText("这一卷还没有章节。")).toBeInTheDocument();
+  });
+});

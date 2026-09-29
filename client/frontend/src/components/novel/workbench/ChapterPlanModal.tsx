@@ -1,5 +1,5 @@
 // ChapterPlanModal — 卷下拆章弹窗（c-chapter-plan-ai）
-// 手写五段（全档）与 AI 三方向（PRO）共用同一张卡面；AI 四态；角标与「剧情吸引力/差在哪」；
+// 手写四段（全档）与 AI 三方向（PRO）共用同一张卡面；AI 四态；角标与「剧情吸引力/差在哪」；
 // 手写卡底条「AI 看一眼这一章」（免费只读例外）。落点卡由外层渲染（关窗后回中栏）。
 import Modal from "@/components/design/Modal";
 import { cnNum } from "@/lib/nodeTitle";
