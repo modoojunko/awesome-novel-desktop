@@ -89,8 +89,8 @@ const GRAPH = {
   data: {
     nodes: [
       { id: "c1", name: "林晚", role: "主角" },
-      { id: "c2", name: "老聋", role: "配角" },
-      { id: "c3", name: "船帮", role: "势力" },
+      { id: "c2", name: "老聋", role: "反派" },
+      { id: "c3", name: "船帮", role: "势力" }, // 词表外（历史数据）→ 按配角默认
     ],
     edges: [
       { owner_id: "c1", other_id: "c2", owner_name: "林晚", other_name: "老聋",
@@ -181,6 +181,11 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
     const hostileLine = document.querySelector(".rg-edge.p-hostile .rg-line");
     expect(hostileLine?.getAttribute("marker-end")).toContain("hostile");
     expect(container.querySelectorAll(".rg-arrow.friendly, .rg-arrow.hostile, .rg-arrow.neutral")).toHaveLength(3);
+    // 节点按角色类型着色：主角实心品牌色、反派红软底、词表外回落配角、图例四色键
+    expect(container.querySelectorAll(".rg-node.role-protagonist")).toHaveLength(1);
+    expect(container.querySelectorAll(".rg-node.role-villain")).toHaveLength(1);
+    expect(container.querySelectorAll(".rg-node.role-support")).toHaveLength(1);
+    expect(container.querySelectorAll(".rg-dot.protagonist, .rg-dot.villain, .rg-dot.support, .rg-dot.extra")).toHaveLength(4);
     // 图例：3 卡＋0 占位 · 4 条边（剧情演变 2 · 待确认 1）
     expect(screen.getByText(/3 个角色 · 4 条关系（剧情演变 2 · 待确认 1）/)).toBeTruthy();
     expect(screen.queryByText(/还没连线/)).toBeNull();
@@ -296,7 +301,7 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
       if (p.endsWith("/characters/graph"))
         return {
           ok: true,
-          data: { nodes: [...GRAPH.data.nodes, { id: "c9", name: "独行客", role: "龙套" }], edges: GRAPH.data.edges },
+          data: { nodes: [...GRAPH.data.nodes, { id: "c9", name: "独行客", role: "路人" }], edges: GRAPH.data.edges },
         };
       if (p.endsWith("/volumes")) return TREE;
       throw new Error("unexpected " + p);
@@ -311,6 +316,8 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
     expect(document.querySelectorAll('[data-hit="1"]')).toHaveLength(1);
     expect(document.querySelectorAll(".rg-edge.pending")).toHaveLength(0);
     expect(screen.getByText(/还没连线：独行客/)).toBeTruthy();
+    // 路人＝虚线圈
+    expect(document.querySelectorAll(".rg-node.role-extra")).toHaveLength(1);
   });
 
   it("卷选中态不拉剧情边，投影口径不变", async () => {
