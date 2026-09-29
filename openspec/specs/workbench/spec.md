@@ -748,7 +748,13 @@
 - 设定视图（settings-v）各面板 SHALL 具备列级内容衬垫；行级内容（文风表单行/操作卡等）SHALL 不超过 `--col-measure`；（写作空态由并行 change `c-0vol0ch-empty-state` 按新原型处理，不在本条范围）
 - **通栏构件**（e-head／页签条／设定页 panel-head 与 panel-foot）SHALL 保持左右出血（不因内容衬垫而缩进），文字与内容对齐；
 - **版心**：面板默认版心 660px（book.html `.panel`）；豁免清单 SHALL 显式声明且仅此三处——设定页 1180 上限（贴 AI 栏的既有决策）、`sub-fill` 双栏（角色/伏笔满栏）、卷壳面板（其字段自带 76ch 约束）。
+- **列内滚动**：五个内容页签容器（`.settings-pane`/`.style-pane`/`.relations-pane`/`.actions-pane`/`.hooks-wrap`）SHALL 自带列内滚动契约（`flex:1; min-height:0; overflow-y:auto`，同 `.og-pane` 口径）——`.wb` 封顶视口且 `overflow:hidden`，页签内容超过视口高 MUST 在本页签内滚动可达，页面整体 MUST NOT 出现滚动（#586 实锤：长伏笔台账被裁不可达）。
 - 实现 SHALL NOT 再以「先整列归零 `.col-panel`/`.panel`、再逐面板补衬垫」的模式维护节奏；新增面板 SHALL 自动继承单源。
+
+#### Scenario: 超高页签内容可滚动到达
+
+- **WHEN** 任一内容页签（设定/文风/角色关系/伏笔/操作）的内容超过视口高（如伏笔台账数十条、归档提案多行）
+- **THEN** 超出部分在该页签容器内滚动可达（`overflow-y:auto`），页面整体不出现滚动条；章纲/正文仍由各自滚动容器（`.og-pane`/`.editor-wrap`）承载，通栏头部与页签条保持常驻
 
 #### Scenario: 设定页不再贴边
 
