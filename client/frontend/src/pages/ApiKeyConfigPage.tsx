@@ -15,11 +15,16 @@ import { isLoggedIn } from "../lib/auth";
 import { request } from "../lib/api";
 import { relTime } from "../lib/reltime";
 import { toast } from "../lib/toast";
+import ZhuquePanel from "../components/api-config/ZhuquePanel";
 
 /** 模型配置屏（model-config.html parity：notice + 用量面板 + cfg-cards + 弹窗群） */
 export default function ApiKeyConfigPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  // c-zhuque-ai-detect：双页签；?tab=zhuque 深链；?add 组合强制大模型页签（添加弹窗只属于大模型域）
+  const [cfgTab, setCfgTab] = useState<"llm" | "zhuque">(() =>
+    searchParams.get("tab") === "zhuque" && !searchParams.has("add") ? "zhuque" : "llm",
+  );
 
   useEffect(() => {
     if (!isLoggedIn()) {
@@ -38,6 +43,7 @@ export default function ApiKeyConfigPage() {
   // Check #add anchor
   useEffect(() => {
     if (searchParams.get("add") === "" || window.location.hash === "#add") {
+      setCfgTab("llm");
       setShowForm(true);
     }
   }, [searchParams]);
@@ -127,15 +133,40 @@ export default function ApiKeyConfigPage() {
           <h1>模型配置</h1>
           <p className="sub">管理你的 AI 服务 API Key，为不同小说选择不同模型</p>
         </div>
+        {cfgTab === "llm" && (
+          <button
+            className="btn btn-primary"
+            onClick={() => { setShowForm(true); setEditConfig(null); }}
+          >
+            <Ico d={P.plus} />
+            添加 API Key
+          </button>
+        )}
+      </div>
+
+      {/* c-zhuque-ai-detect：配置分类页签（写作大模型 / 朱雀 AI 检测） */}
+      <div className="cfg-tabs" role="tablist" aria-label="配置分类" data-od-id="cfg-tabs">
         <button
-          className="btn btn-primary"
-          onClick={() => { setShowForm(true); setEditConfig(null); }}
+          className={`cfg-tab${cfgTab === "llm" ? " on" : ""}`}
+          role="tab"
+          aria-selected={cfgTab === "llm"}
+          data-od-id="cfg-tab-llm"
+          onClick={() => setCfgTab("llm")}
         >
-          <Ico d={P.plus} />
-          添加 API Key
+          写作大模型
+        </button>
+        <button
+          className={`cfg-tab${cfgTab === "zhuque" ? " on" : ""}`}
+          role="tab"
+          aria-selected={cfgTab === "zhuque"}
+          data-od-id="cfg-tab-zhuque"
+          onClick={() => setCfgTab("zhuque")}
+        >
+          朱雀 AI 检测
         </button>
       </div>
 
+      <div hidden={cfgTab !== "llm"}>
       {/* 新手提示：不配置也能先开始手工创作 */}
       <div className="notice">
         <Ico d={P.info} sw={1.8} />
@@ -232,6 +263,12 @@ export default function ApiKeyConfigPage() {
           deleting={deleting}
         />
       )}
+
+      </div>{/* /pane-llm */}
+
+      <div hidden={cfgTab !== "zhuque"}>
+        <ZhuquePanel />
+      </div>{/* /pane-zhuque */}
 
       {/* 撤销 toast（8 秒窗口） */}
       {undoToast && (

@@ -13,9 +13,9 @@
 
 ## 3. 前端：配置页双页签与开关
 
-- [ ] 3.1 `lib/prefs.ts` 扩展 `zhuqueShow`（默认 true）；`lib/features.ts` 登记 `"ai-detect": { memberOnly: true }`（注释：MAX 专属、试用不含，快照单源，快照缺失一律未授权）
-- [ ] 3.2 `ApiKeyConfigPage.tsx` 双页签改造：`?tab=zhuque` 深链（`?add` 组合强制大模型页签）、添加按钮随页签隐藏；朱雀面板独立组件（不串 useApiConfigs）：介绍条、Key 配置卡（保存并测试/掩码/更换/删除/开关）、横向三步卡、隐私警示条；CSS 词入 model-config.css（.cfg-tabs/.zg-flow/.zq-toggle-row，开关用现役 .switch-btn）；前端回归大模型页签列表无朱雀卡（配合 2.1 后端过滤）
-- [ ] 3.3 vitest：页签切换与添加按钮显隐、add 组合优先级、开关写 prefs、保存并测试的成功/401 两态、429 中性文案、非会员保存配置不被拦；`npm run design:lint` 绿
+- [x] 3.1 `lib/prefs.ts` 扩展 `zhuqueShow`（默认 true）；`lib/features.ts` 登记 `"ai-detect": { memberOnly: true }`（注释：MAX 专属、试用不含，快照单源，快照缺失一律未授权）
+- [x] 3.2 `ApiKeyConfigPage.tsx` 双页签改造：`?tab=zhuque` 深链（`?add` 组合强制大模型页签）、添加按钮随页签隐藏；朱雀面板独立组件（不串 useApiConfigs）：介绍条、Key 配置卡（保存并测试/掩码/更换/删除/开关）、横向三步卡、隐私警示条；CSS 词入 model-config.css（.cfg-tabs/.zg-flow/.zq-toggle-row，开关用现役 .switch-btn）；前端回归大模型页签列表无朱雀卡（配合 2.1 后端过滤）
+- [x] 3.3 vitest：页签切换与添加按钮显隐、add 组合优先级、开关写 prefs、保存并测试的成功/401 两态、429 中性文案、非会员保存配置不被拦；`npm run design:lint` 绿
 
 ## 4. 前端：检测编排 hook
 
