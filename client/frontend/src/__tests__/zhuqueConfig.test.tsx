@@ -119,9 +119,10 @@ describe("模型配置页双页签（c-zhuque-ai-detect）", () => {
     expect(screen.getByDisplayValue("eo-****st")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("连接正常"));
-    // 删除走 confirm
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    // 删除走确认弹窗（DeleteConfirmDialog）：打开→确认→DELETE
     fireEvent.click(screen.getByRole("button", { name: "删除 Key" }));
+    await waitFor(() => expect(screen.getByText("确认删除")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("确认删除"));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("已删除朱雀 Key"));
   });
 

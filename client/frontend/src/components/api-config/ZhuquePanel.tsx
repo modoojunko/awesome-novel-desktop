@@ -9,6 +9,8 @@ import { useCallback, useEffect, useState } from "react";
 import { request } from "@/lib/api";
 import { getZhuqueShow, setZhuqueShow } from "@/lib/prefs";
 import { toast } from "@/lib/toast";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
+import type { ApiConfig } from "../../types/api-config";
 
 interface ZqStatus {
   configured: boolean;
@@ -30,6 +32,8 @@ export default function ZhuquePanel() {
   const [replacing, setReplacing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [show, setShow] = useState(getZhuqueShow);
 
   const refresh = useCallback(async () => {
@@ -89,13 +93,16 @@ export default function ZhuquePanel() {
   }, [testing, refresh]);
 
   const removeKey = useCallback(async () => {
-    if (!window.confirm("删除后工作台将不可用朱雀检测（可重新粘贴恢复），确定删除？")) return;
+    setDeleting(true);
     try {
       await request("/v1/zhuque/config", { method: "DELETE" });
+      setConfirmDelete(false);
       await refresh();
       toast.success("已删除朱雀 Key");
     } catch (e) {
       toast.error((e as Error).message || "删除失败，请重试");
+    } finally {
+      setDeleting(false);
     }
   }, [refresh]);
 
@@ -204,7 +211,12 @@ export default function ZhuquePanel() {
               <button className="btn btn-secondary btn-sm" disabled={testing} onClick={() => void runTest()}>
                 {testing ? "测试中…" : "测试连接"}
               </button>
-              <button className="btn btn-ghost btn-sm" style={{ color: "var(--err)" }} onClick={() => void removeKey()}>
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ color: "var(--err)" }}
+                data-od-id="zhuque-key-delete"
+                onClick={() => setConfirmDelete(true)}
+              >
                 删除 Key
               </button>
             </div>
@@ -218,6 +230,22 @@ export default function ZhuquePanel() {
           </>
         )}
       </div>
+
+      {confirmDelete && (
+        <DeleteConfirmDialog
+          config={
+            // 弹窗只读 name/models；朱雀行非完整 ApiConfig 形状，最小面构造
+            {
+              id: "zhuque",
+              name: "朱雀 AI 检测",
+              models: [],
+            } as unknown as ApiConfig
+          }
+          onConfirm={removeKey}
+          onCancel={() => setConfirmDelete(false)}
+          deleting={deleting}
+        />
+      )}
 
       <div className="panel" data-od-id="zhuque-howto">
         <div className="panel-h">
