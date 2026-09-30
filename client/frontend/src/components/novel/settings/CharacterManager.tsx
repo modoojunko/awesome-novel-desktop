@@ -177,6 +177,13 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       setSaveState("saved");
       clearDirty();
       onDirtyChange?.(false);
+      // 落库后同步左侧分组列表：身份/名字/别名只写在卡上不刷列表的话，
+      // 归组与行名要作家整页刷新才变（配角改反派滞留旧组的老毛病）
+      try {
+        await reloadList();
+      } catch {
+        // 列表同步失败不翻保存态：格已落库，下次保存或重进角色页会再刷
+      }
     } catch (e) {
       const err = e as Error & { status?: number; field?: string; rev?: number };
       if (err.status === 409 && err.rev !== undefined) {
@@ -191,7 +198,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
       runningRef.current = false;
       if (queueRef.current.length > 0) void flushQueue();
     }
-  }, [card, projectId, clearDirty, onDirtyChange, showToast]);
+  }, [card, projectId, clearDirty, onDirtyChange, showToast, reloadList]);
 
   const enqueue = useCallback(
     (path: string, value: unknown) => {
