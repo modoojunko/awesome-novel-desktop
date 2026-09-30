@@ -5,7 +5,7 @@
  *  独立取数（/api/v1/zhuque/*），不串 useApiConfigs（那是大模型多配置体系）。
  *  文案口径：MAX 会员权益（试用不含）＋活动额度引用式表述（以腾讯云为准）。
  *  词汇：panel/panel-h/pill/notice（.pg-config 域）＋新增 zg 系与 zq-toggle-row。 */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { request } from "@/lib/api";
 import { getZhuqueShow, setZhuqueShow } from "@/lib/prefs";
 import { toast } from "@/lib/toast";
@@ -69,14 +69,18 @@ export default function ZhuquePanel() {
       if (t.ok) toast.success("已保存 · 连接正常");
       else toast.error(`已保存 · ${t.error || "连接失败，请检查 Key"}`);
     } catch (e) {
-      toast.error((e as Error).message || "保存失败，请重试");
+      toast.error((e as Error).message); // request 契约：message 恒非空
     } finally {
       setSaving(false);
     }
   }, [keyDraft, saving, refresh]);
 
+  // 在途守卫用 ref（同步判定）：state 要等重渲染才生效，同 tick 连点会全部穿过
+  // ——AiWriterAssistant busyRef 同款教训
+  const testingRef = useRef(false);
   const runTest = useCallback(async () => {
-    if (testing) return;
+    if (testingRef.current) return;
+    testingRef.current = true;
     setTesting(true);
     try {
       const t = await request<{ ok: boolean; error: string | null }>("/v1/zhuque/test", {
@@ -86,11 +90,12 @@ export default function ZhuquePanel() {
       if (t.ok) toast.success("连接正常");
       else toast.error(t.error || "连接失败，请重试");
     } catch (e) {
-      toast.error((e as Error).message || "测试失败，请重试");
+      toast.error((e as Error).message); // request 契约：message 恒非空
     } finally {
+      testingRef.current = false;
       setTesting(false);
     }
-  }, [testing, refresh]);
+  }, [refresh]);
 
   const removeKey = useCallback(async () => {
     setDeleting(true);
@@ -100,7 +105,7 @@ export default function ZhuquePanel() {
       await refresh();
       toast.success("已删除朱雀 Key");
     } catch (e) {
-      toast.error((e as Error).message || "删除失败，请重试");
+      toast.error((e as Error).message); // request 契约：message 恒非空
     } finally {
       setDeleting(false);
     }
@@ -164,7 +169,33 @@ export default function ZhuquePanel() {
                 </button>
               )}
             </div>
-            {replacing && keyRow("zhuque-key-replace")}
+            {replacing && (
+              <div className="zg-keyrow" data-od-id="zhuque-key-replace-row">
+                <input
+                  id="zhuque-key-replace"
+                  className="input"
+                  type="password"
+                  placeholder="粘贴新的 EdgeOne Makers API Key"
+                  value={keyDraft}
+                  onChange={(e) => setKeyDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void saveAndTest();
+                  }}
+                />
+                <button className="btn btn-primary" disabled={!keyDraft.trim() || saving} onClick={() => void saveAndTest()}>
+                  {saving ? "保存中…" : "保存并测试"}
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    setReplacing(false);
+                    setKeyDraft("");
+                  }}
+                >
+                  取消
+                </button>
+              </div>
+            )}
             <div className="zg-stats">
               <div className="st">
                 <b>
