@@ -19,6 +19,7 @@ import {
   useRef,
   useState,
   type RefObject,
+  useSyncExternalStore,
 } from "react";
 import OgPane, { flashField } from "./OgPane";
 import ArchiveStages, { useElapsedSec } from "./ArchiveStages";
@@ -64,7 +65,7 @@ import {
   useZhuqueCheck,
 } from "@/hooks/useZhuqueCheck";
 import ZhuqueHeadStrip from "./zhuqueHeadStrip";
-import { getZhuqueShow } from "@/lib/prefs";
+import { getZhuqueShow, subscribeZhuqueShow } from "@/lib/prefs";
 import { useHooksLedger } from "@/hooks/useHooksLedger";
 import { ogHookHints } from "@/lib/hookHints";
 import { usePlotDraw } from "@/hooks/usePlotDraw";
@@ -149,6 +150,8 @@ export default function ChapterWorkspace({
   // c-zhuque-ai-detect：检测编排单源（状态仓在模块层；flush 由本章 store 提供——
   // 送检前落盘由前端保证，后端只读盘上文本）
   const zq = useZhuqueCheck(projectId, chapterRef);
+  // 显示开关响应式（配置页拨动经 prefs 订阅到达；否则结果条残留到下次无关重渲）
+  const zqShow = useSyncExternalStore(subscribeZhuqueShow, getZhuqueShow, getZhuqueShow);
   useEffect(() => {
     registerZhuqueFlush(() => store.flush());
     return () => registerZhuqueFlush(null);
@@ -1129,7 +1132,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             <span className="tag">本书总字数 {fmt(bookWords)}</span>
           </div>
         </div>
-        {getZhuqueShow() && chTab === "prose" && (
+        {zqShow && chTab === "prose" && (
           <ZhuqueHeadStrip
             state={zq.state}
             onRerun={() => void zq.run({ flush: () => store.flush() })}

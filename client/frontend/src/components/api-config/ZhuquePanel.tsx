@@ -34,7 +34,7 @@ export default function ZhuquePanel() {
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await request<ZqStatus>("/api/v1/zhuque/config", { quiet: true }));
+      setStatus(await request<ZqStatus>("/v1/zhuque/config", { quiet: true }));
     } catch {
       setStatus({ configured: false });
     } finally {
@@ -51,14 +51,14 @@ export default function ZhuquePanel() {
     if (!key || saving) return;
     setSaving(true);
     try {
-      const st = await request<ZqStatus>("/api/v1/zhuque/config", {
+      const st = await request<ZqStatus>("/v1/zhuque/config", {
         method: "PUT",
         body: JSON.stringify({ api_key: key }),
       });
       setStatus(st);
       setKeyDraft("");
       setReplacing(false);
-      const t = await request<{ ok: boolean; error: string | null }>("/api/v1/zhuque/test", {
+      const t = await request<{ ok: boolean; error: string | null }>("/v1/zhuque/test", {
         method: "POST",
       });
       await refresh();
@@ -75,7 +75,7 @@ export default function ZhuquePanel() {
     if (testing) return;
     setTesting(true);
     try {
-      const t = await request<{ ok: boolean; error: string | null }>("/api/v1/zhuque/test", {
+      const t = await request<{ ok: boolean; error: string | null }>("/v1/zhuque/test", {
         method: "POST",
       });
       await refresh();
@@ -91,7 +91,7 @@ export default function ZhuquePanel() {
   const removeKey = useCallback(async () => {
     if (!window.confirm("删除后工作台将不可用朱雀检测（可重新粘贴恢复），确定删除？")) return;
     try {
-      await request("/api/v1/zhuque/config", { method: "DELETE" });
+      await request("/v1/zhuque/config", { method: "DELETE" });
       await refresh();
       toast.success("已删除朱雀 Key");
     } catch (e) {

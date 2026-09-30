@@ -146,7 +146,7 @@ export function AiAssistPanel({
     let cancelled = false;
     if (tab === "prose") {
       // c-zhuque-ai-detect：朱雀 Key 配置状态（就绪/引导分流的事实源）
-      request("/api/v1/zhuque/config", { quiet: true, apiBase: "" })
+      request("/v1/zhuque/config", { quiet: true })
         .then((d: { configured?: boolean }) => setZqConfigured(!!d?.configured))
         .catch(() => setZqConfigured(false));
       // 提示词状态（c-prompt-tab-retire：页签退役后状态收编正文页签作用域行）
@@ -488,7 +488,6 @@ export function AiAssistPanel({
           }
           void runZhuqueCheck(projectId, chapterRef);
         },
-        hint: guide ? undefined : undefined,
         testid: "rail-zhuque-check",
         odId: "rail-zhuque-check",
         runningHint: "检测中…",

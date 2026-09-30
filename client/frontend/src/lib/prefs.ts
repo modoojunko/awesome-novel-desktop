@@ -69,6 +69,17 @@ export function setZhuqueShow(enabled: boolean) {
   }
 }
 
+/** 订阅显示开关变化（跨组件单源；配置页 setZhuqueShow 与跨页签 storage 事件都到达）。 */
+export function subscribeZhuqueShow(cb: () => void): () => void {
+  const on = () => cb();
+  window.addEventListener("zhuque-show-changed", on);
+  window.addEventListener("storage", on);
+  return () => {
+    window.removeEventListener("zhuque-show-changed", on);
+    window.removeEventListener("storage", on);
+  };
+}
+
 export function getArchiveAiSummaryEnabled(): boolean {
   try {
     return localStorage.getItem(KEY_AI_SUMMARY) !== "off";
