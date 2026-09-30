@@ -453,8 +453,8 @@ export function AiAssistPanel({
       }),
     ];
     // c-zhuque-ai-detect：朱雀检测行（四态）
-    // 非 MAX（快照无 ai-detect）→ maxlk 锁定（免费档整卡锁定承载；PRO 行级锁定），点击统一升级出口
-    // MAX 未配 Key → guide 虚线引导跳「模型配置 → 朱雀」；MAX 已配 → 就绪/运行
+    // 无 ai-detect 权益（免费/试用，快照无该 key）→ maxlk 锁定（免费档整卡锁定承载；会员行级锁定），点击统一升级出口
+    // 有权益未配 Key → guide 虚线引导跳「模型配置 → 朱雀」；已配 → 就绪/运行
     if (zqShow) {
       const configured = zqConfigured === true;
       const running = zq.state.status === "running";
@@ -465,16 +465,16 @@ export function AiAssistPanel({
         key: "zhuque",
         name: "朱雀 AI 检测 · 查AI味",
         desc: maxlk
-          ? "MAX 会员权益 · 升级后整章送腾讯朱雀检测（需自备腾讯云 Key）"
+          ? "PRO 会员权益 · 升级后整章送腾讯朱雀检测（需自备腾讯云 Key）"
           : guide
             ? wordCountEmpty
               ? "先写正文，再整章送腾讯朱雀测 AI 味；Key 在「模型配置 → 朱雀」配置"
               : "未配置 Key · 点击去「模型配置 → 朱雀」粘贴腾讯云 EdgeOne Key"
             : "整章送腾讯朱雀测 AI 味，结果与段落标注就地显示",
         badge: maxlk ? (
-          <span className="pill pill-warn">MAX 专属</span>
+          <span className="pill pill-warn">PRO 专属</span>
         ) : (
-          <span className="pill pill-accent">MAX 权益</span>
+          <span className="pill pill-accent">PRO 权益</span>
         ),
         variant: maxlk ? "maxlk" : guide ? "guide" : undefined,
         onClick: () => {
@@ -498,7 +498,7 @@ export function AiAssistPanel({
       });
     }
     footNote =
-      "续写/去AI味/扩写/压缩作用于正文编辑器；朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上。检测需在「模型配置 → 朱雀」配好 Key（MAX 会员权益）。";
+      "续写/去AI味/扩写/压缩作用于正文编辑器；朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上。检测需在「模型配置 → 朱雀」配好 Key（PRO 会员权益）。";
   } else if (tab === "settings") {
     targetLine = loreStats ? (
       <>本章变化 {loreStats.here} 条 · 截至本章条目 {loreStats.until} 条</>

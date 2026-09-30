@@ -29,7 +29,7 @@ export interface AiCapabilityRow {
   testid?: string;
   /** 设计走查锚（data-od-id 透传口，c-character-intro 4.2）。 */
   odId?: string;
-  /** 名称旁徽章插槽（c-zhuque-ai-detect：MAX 专属 warn 章/新增标）。 */
+  /** 名称旁徽章插槽（c-zhuque-ai-detect：PRO 专属 warn 章/新增标）。 */
   badge?: ReactNode;
   /** 行变体（c-zhuque-ai-detect）：guide=虚线引导行（仍可点）；maxlk=锁定视觉但保持可点（走升级出口）。
    *  两变体 SHALL NOT 置 disabled——disabled 会吞 onClick，与「点击有出口」冲突。 */

@@ -240,10 +240,12 @@ class Settings:
                                "ai-generate", "prompt-panel", "ai-model"],
                   "limits": {"max_projects": None}},
         "pro":   {"features": ["settings-ai-fields", "outline-advanced-fields",
-                               "ai-generate", "prompt-panel", "ai-model"],
+                               "ai-generate", "prompt-panel", "ai-model",
+                               "ai-detect"],
                   "limits": {"max_projects": None}},
         "max":   {"features": ["settings-ai-fields", "outline-advanced-fields",
-                               "ai-generate", "prompt-panel", "ai-model"],
+                               "ai-generate", "prompt-panel", "ai-model",
+                               "ai-detect"],
                   "limits": {"max_projects": None}},   # planned：先给 pro 同款，上线改配置即可
     }
 

@@ -42,9 +42,9 @@ export const FEATURES: Record<FeatureKey, { memberOnly: boolean }> = {
   "outline-advanced-fields": { memberOnly: true },
   "ai-generate": { memberOnly: true },
   "prompt-panel": { memberOnly: true },
-  // 朱雀 AI 检测：MAX 会员专属、试用不含（c-zhuque-ai-detect，定价终拍
-  // pricing-tiers-launch-promo.md §6.2/6.4）；快照单源——S端 entitlement 只对
-  // MAX 发放本 key；快照缺失按兜底口径一律未授权（锁定）。
+  // 朱雀 AI 检测：PRO 起发放、试用不含（c-ai-detect-pro-tier；2026-09-30 自 MAX
+  // 专属下放——MAX 档未上线前朱雀无人可用，先挂 PRO 验证全链）；快照单源——
+  // S端 entitlement 对 pro/max 发放本 key；快照缺失按兜底口径一律未授权（锁定）。
   "ai-detect": { memberOnly: true },
 };
 

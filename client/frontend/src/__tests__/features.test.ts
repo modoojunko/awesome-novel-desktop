@@ -18,7 +18,7 @@ const MEMBER_FEATURES: FeatureKey[] = [
   "outline-advanced-fields",
   "ai-generate",
   "prompt-panel",
-  // 朱雀 AI 检测：MAX 专属、试用不含（c-zhuque-ai-detect；精确发放靠快照，
+  // 朱雀 AI 检测：PRO 起发放、试用不含（c-ai-detect-pro-tier；精确发放靠快照，
   // 注册表 memberOnly 仅作快照缺失兜底——兜底即未授权，锁定）
   "ai-detect",
 ];

@@ -30,7 +30,8 @@
         "outline-advanced-fields",
         "ai-generate",
         "prompt-panel",
-        "ai-model"
+        "ai-model",
+        "ai-detect"
       ],
       "limits": { "max_projects": null }
     },
@@ -40,7 +41,8 @@
         "outline-advanced-fields",
         "ai-generate",
         "prompt-panel",
-        "ai-model"
+        "ai-model",
+        "ai-detect"
       ],
       "limits": { "max_projects": null }
     }
