@@ -146,6 +146,23 @@ VALID_POLISHED = (
 )
 
 
+def test_craft_template_word_policy_synced_with_material():
+    """复发闸：润色模板十段描述须与素材包字数口径同族（只设下限＋扩写策略）。
+
+    素材包任务指示改下限口径（c-write-word-floor）时模板没跟上，润色产物会按
+    模板旧描述把「约X字±10%＋压缩策略」拼回成品提示词——润色链是有章纲章节的
+    默认路径，恰好复活本改要删的逃生门。素材侧断言在 test_chapter_writer_context
+    的 material_markdown 骨架测试，这里钉模板侧。
+    """
+    from prompts import load_layers
+
+    system, user_t = load_layers("prompt_crafting")
+    whole = system + "\n" + user_t
+    assert "扩写策略" in whole
+    assert "压缩策略" not in whole
+    assert "±10%" not in whole
+
+
 class _FakeAIClient:
     def __init__(self, calls: list, reply=VALID_POLISHED, error: Exception | None = None):
         self._calls = calls
