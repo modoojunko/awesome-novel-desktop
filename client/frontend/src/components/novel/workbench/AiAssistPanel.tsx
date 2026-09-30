@@ -491,8 +491,10 @@ export function AiAssistPanel({
         testid: "rail-zhuque-check",
         odId: "rail-zhuque-check",
         runningHint: "检测中…",
+        // AI 流式写入期间禁用：送检快照会立刻过期（白耗额度）；hint 随禁用臂出现
+        hint: streaming ? "生成中" : undefined,
         // 空正文：可点但后端 400「先写正文」——行内即给出预判提示
-        disabled: !maxlk && !guide && wordCountEmpty,
+        disabled: (!maxlk && !guide && wordCountEmpty) || !!streaming,
       });
     }
     footNote =

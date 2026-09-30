@@ -49,7 +49,8 @@ export interface ZhuqueState {
 const IDLE: ZhuqueState = { status: "idle", stale: false };
 
 const stateByRef = new Map<string, ZhuqueState>();
-const inflight = new Map<string, AbortController>();
+/** inflight 记录带 prev（重检前的上一份 ok 结果）：abort（切章/卸载）时不丢会话内缓存 */
+const inflight = new Map<string, { ac: AbortController; prev: ZhuqueState | undefined }>();
 const listeners = new Set<() => void>();
 
 /** 落盘 provider：ChapterWorkspace 注册本章 store.flush（落盘由前端保证），
@@ -74,10 +75,15 @@ function setState(ref: string, patch: Partial<ZhuqueState> | null) {
 }
 
 export function abortZhuque(ref: string) {
-  inflight.get(ref)?.abort();
+  const entry = inflight.get(ref);
+  if (!entry) return;
+  entry.ac.abort();
   inflight.delete(ref);
   const st = stateByRef.get(ref);
-  if (st?.status === "running") setState(ref, { status: "idle" });
+  if (st?.status !== "running") return;
+  // 重检被中断：恢复重检前的上一份 ok 结果（会话内缓存保留）；无旧结果才落 idle
+  if (entry.prev && entry.prev.status === "ok") setState(ref, entry.prev);
+  else setState(ref, { status: "idle", stale: false });
 }
 
 /** 测试/调试：直读仓状态（绕过渲染订阅）。 */
@@ -87,7 +93,7 @@ export function zhuqueStoreGetState(ref: string): ZhuqueState {
 
 /** 测试复位（清全部会话内状态）。 */
 export function zhuqueStoreReset() {
-  inflight.forEach((ac) => ac.abort());
+  inflight.forEach((e) => e.ac.abort());
   inflight.clear();
   stateByRef.clear();
   notify();
@@ -97,7 +103,8 @@ export function zhuqueStoreReset() {
 export async function runZhuqueCheck(projectId: string, chapterRef: string) {
   if (inflight.has(chapterRef)) return; // 在途防抖
   const ac = new AbortController();
-  inflight.set(chapterRef, ac);
+  const prev = stateByRef.get(chapterRef);
+  inflight.set(chapterRef, { ac, prev });
   setState(chapterRef, { status: "running", stale: false });
   try {
     try {
@@ -123,7 +130,12 @@ export async function runZhuqueCheck(projectId: string, chapterRef: string) {
   } catch (e) {
     const err = e as Error & { status?: number; reason?: string };
     if (err.name === "AbortError") {
-      setState(chapterRef, { status: "idle" });
+      // 中断（切章/卸载）：恢复重检前的上一份结果，无则 idle（与 abortZhuque 同语义）
+      const p = stateByRef.get(chapterRef);
+      if (p?.status === "running") {
+        if (prev && prev.status === "ok") setState(chapterRef, prev);
+        else setState(chapterRef, { status: "idle", stale: false });
+      }
       return;
     }
     setState(chapterRef, {

@@ -275,6 +275,7 @@ export default function ZhuquePanel() {
           onConfirm={removeKey}
           onCancel={() => setConfirmDelete(false)}
           deleting={deleting}
+          note="删除后写作台将不可用朱雀检测（可重新粘贴恢复），此操作可撤销。"
         />
       )}
 

@@ -502,13 +502,14 @@ describe("ZhuquePanel 分支补齐第二轮（catch 臂/替换行/掩码兜底�
     );
     render(<ZhuquePanel />);
     const btn = await screen.findByRole("button", { name: "测试连接" });
-    const first = btn.onClick ? null : null;
-    fireEvent.click(btn);
-    fireEvent.click(btn); // testing 置位：第二发早退
+    // 同 act 批内双击：ref 守卫同步置位，第二发早退（同 tick 连点防抖）
+    act(() => {
+      fireEvent.click(btn);
+      fireEvent.click(btn);
+    });
     await waitFor(() => expect(testCalls).toBe(1));
     release();
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("连接正常"));
-    void first;
   });
 
   it("掩码为空：占位 •••• 兜底臂", async () => {
