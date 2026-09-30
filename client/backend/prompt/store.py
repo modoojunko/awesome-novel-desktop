@@ -44,7 +44,7 @@ async def save_prompt(root_path: str, chapter_ref: str, name: str, content: str)
 
 
 async def load_prompt(root_path: str, chapter_ref: str, name: str) -> str:
-    """读单条提示词；缺失返回空串（对齐 read_md 缺文件返 ""）。"""
+    """读单条提示词；缺失返回空串（提示词行 content 即正文，无文件语义）。"""
     from workflow.engine import strip_suffix
 
     ref = strip_suffix(chapter_ref)

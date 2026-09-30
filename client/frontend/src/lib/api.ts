@@ -254,10 +254,10 @@ export const api = {
   /** 撤完本：清完结时间戳，书回到待完本/写作中；未完结时后端 409。 */
   reopenNovel: (novelId: string): Promise<{ id: string; name: string; finished_at: string | null; updated_at: string }> =>
     request(`/novels/${novelId}/reopen`, { method: 'POST', body: JSON.stringify({}) }),
-  /** Read story.yaml synopsis. */
+  /** Read story KV synopsis. */
   fetchStory: (novelId: string): Promise<{ synopsis: string }> =>
     request(`/novels/${novelId}/story`),
-  /** Write story.yaml synopsis (manual backfill). */
+  /** Write story KV synopsis (manual backfill). */
   updateStory: (novelId: string, synopsis: string): Promise<{ ok: boolean; synopsis: string }> =>
     request(`/novels/${novelId}/story`, { method: 'PUT', body: JSON.stringify({ synopsis }) }),
   /** Read the story-arc card (fullstory / ending / volumes + has_content). */

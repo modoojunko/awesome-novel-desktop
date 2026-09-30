@@ -850,7 +850,7 @@ class TestThemeCatalog:
         """写正文注入必须带题材（「定了就不跑偏」的类型锁）。"""
         import asyncio
 
-        from config import DATA_ROOT
+        from config import book_root
         from genres.service import build_genre_section, resolve_genre_context
 
         pid = _new_novel(client)
@@ -859,7 +859,7 @@ class TestThemeCatalog:
             json={"theme": "无限流", "sub_genre": "副本闯关"},
         )
         detail = client.get(f"/api/novels/{pid}").json()
-        root_path = f"{DATA_ROOT}/{detail['slug']}"
+        root_path = book_root(detail['slug'])
         ctx = asyncio.run(resolve_genre_context(root_path, pid))
         assert ctx is not None
         assert ctx["theme"] == "无限流" and ctx["sub_genre"] == "副本闯关"

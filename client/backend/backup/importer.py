@@ -15,6 +15,7 @@ import yaml
 from sqlalchemy import select, update
 
 from backup.format import FORMAT_VERSION, belongs_to_ref
+from config import book_root
 
 
 def detect_kind(zf: zipfile.ZipFile) -> str:
@@ -583,7 +584,7 @@ async def _import_single_book(
     while await _slug_taken(db, user_id, slug):
         n += 1
         slug = f"{slug}-backup{n}"
-    root_path = f"./data/{slug}"
+    root_path = book_root(slug)
 
     novel = Novel(
         user_id=user_id, name=name,

@@ -243,13 +243,22 @@ class TestKvChannelRetired:
         """update_thread_state 只写 threads.yaml；hooks KV 读改写路径已退役。"""
         async def _run():
             root = tempfile.mkdtemp(prefix="test_hooks_consumers_thread_")
-            await get_storage().write_yaml(
-                root, "settings/hooks.yaml",
-                {"active": [{"description": "x", "introduced_in": "1-1", "status": "pending"}]},
-            )
+            # hooks 无 KV 路由（已退役），直插一行 KV 证明 update_thread_state 不碰它
+            # （盘上机器已退役，非路由路径写 storage 是 no-op，c-retire-local-file-storage）
+            from models.project_setting import ProjectSetting
+
+            async with async_session() as session:
+                session.add(ProjectSetting(
+                    root_path=root, key="hooks",
+                    content='{"active": [{"description": "x", "introduced_in": "1-1", "status": "pending"}]}',
+                ))
+                await session.commit()
             await update_thread_state(root, {"volume": 1, "chapter": 1, "thread": "主线"}, "摘要")
             data = await get_storage().read_yaml(root, "settings/hooks.yaml")
-            assert data["active"][0]["status"] == "pending"  # 未被归档改写
+            assert data == {}  # 非路由路径读 {}（hooks 行不以路由键存在）
+            async with async_session() as session:
+                row = await session.get(ProjectSetting, (root, "hooks"))
+                assert row is not None and "pending" in row.content  # 未被归档改写
             threads = await get_storage().read_yaml(root, "threads.yaml")
             assert threads["threads"]["主线"]["last_chapter"] == "vol-1-ch-1"
 

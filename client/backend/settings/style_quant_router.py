@@ -84,7 +84,9 @@ async def list_style_samples(
         raise HTTPException(404, "Project not found")
 
     files: list[dict] = []
-    samples_dir = os.path.join(project.root_path, "novel-samples")
+    from config import book_disk_dir
+
+    samples_dir = os.path.join(book_disk_dir(project.root_path), "novel-samples")
     if os.path.isdir(samples_dir):
         for name in sorted(os.listdir(samples_dir)):
             if not name.lower().endswith((".md", ".txt")):

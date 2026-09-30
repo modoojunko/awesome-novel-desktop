@@ -29,7 +29,7 @@ os.environ["DATA_ROOT"] = _tmp_data_root
 from auth_local.deps import require_project_limit
 from auth_local.middleware import get_current_user
 from db import Base, async_session, engine, get_db
-from filesystem.storage import LocalFileBackend
+from filesystem.storage import get_storage
 from main import app
 from models import Novel
 from models.user import User
@@ -37,7 +37,7 @@ from novels.service import count_chars
 from repositories import chapter_repo, volume_repo
 
 USER_ID = "dw_user"
-storage = LocalFileBackend()
+storage = get_storage()
 
 import auth_local.service as _auth_service
 

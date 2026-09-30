@@ -1,21 +1,23 @@
-"""DatabaseFileBackend / CompositeStorageBackend 契约测试（ADR-001/002/003）。
+"""DatabaseFileBackend 存储契约测试（ADR-001/002/003）。
 
 依赖 conftest 会话级临时库基座（建表完成，含 project_settings）。
 用独立临时 root_path 隔离，不落真实磁盘项目目录。
+「LocalFileBackend / CompositeStorageBackend 盘上机器」已退役
+（c-retire-local-file-storage）：settings KV 进 DB，非路由路径读 `{}` 写 no-op。
 """
 
 import asyncio
 import os
 import tempfile
 
-from filesystem.composite_storage import CompositeStorageBackend
-from filesystem.db_storage import DatabaseFileBackend
+from filesystem.db_storage import DatabaseFileBackend, seed_settings_to_db
 from filesystem.paths import (
     CHARACTER_DIR,
     KEY_TO_PATH,
     PATH_TO_KEY,
     route_relative_path,
 )
+from filesystem.storage import get_storage
 
 
 def _run_async(coro):
@@ -40,7 +42,7 @@ def test_paths_routing():
     assert route_relative_path("settings/ai-model.yaml") == "ai-model"
     assert route_relative_path("story.yaml") == "story"
     assert route_relative_path("settings/character-setting/张三.yaml") == "character:张三.yaml"
-    # 非 settings 路径 → None（走 LocalFileBackend）
+    # 非 settings 路径 → None（storage 读 {} 写 no-op，盘上机器已退役）
     assert route_relative_path("volumes/vol-1.yaml") is None
     assert route_relative_path("chapters/vol-1-ch-1.yaml") is None
     assert route_relative_path("prompts/p.md") is None
@@ -188,63 +190,64 @@ def test_yaml_rescue_self_heals_on_next_save():
     assert _run_async(_content()) == '{"stage": "灰港"}'
 
 
-# ── Composite 路由分派 ─────────────────────────────────────────────────────
+# ── storage 终态契约（c-retire-local-file-storage） ────────────────────────
 
 
-def test_composite_routes_settings_to_db_rest_to_local():
-    comp = CompositeStorageBackend()
+def test_storage_is_db_backend_unrouted_paths_noop():
+    """get_storage() 即 DatabaseFileBackend（composite/盘上后端已退役）。
+
+    settings 路由路径走 KV；非路由路径读 `{}` 写 no-op，盘上零足迹（D2）。
+    """
+    storage = get_storage()
+    assert isinstance(storage, DatabaseFileBackend)
     root = _tmp_root()
-    _run_async(comp.write_yaml(root, "settings/writing-style.yaml", {"core": "x"}))
-    _run_async(comp.write_yaml(root, "volumes/vol-1.yaml", {"volume": 1}))
-    assert _run_async(comp.read_yaml(root, "settings/writing-style.yaml")) == {"core": "x"}
-    assert _run_async(comp.read_yaml(root, "volumes/vol-1.yaml")) == {"volume": 1}
-    # settings 只进 DB：磁盘无该 yaml；卷进磁盘
-    assert not os.path.exists(os.path.join(root, "settings", "writing-style.yaml"))
-    assert os.path.exists(os.path.join(root, "volumes", "vol-1.yaml"))
-    # md 显式走文件（坑3）
-    _run_async(comp.write_md(root, "prompts/p.md", "hello"))
-    assert _run_async(comp.read_md(root, "prompts/p.md")) == "hello"
+    _run_async(storage.write_yaml(root, "settings/writing-style.yaml", {"core": "x"}))
+    assert _run_async(storage.read_yaml(root, "settings/writing-style.yaml")) == {
+        "core": "x"
+    }
+    # 非 settings 路由：读 {} 写 no-op
+    _run_async(storage.write_yaml(root, "volumes/vol-1.yaml", {"volume": 1}))
+    assert _run_async(storage.read_yaml(root, "volumes/vol-1.yaml")) == {}
+    # 盘上零足迹；md 读写接口已随盘上后端退役
+    assert not os.path.exists(os.path.join(root, "settings"))
+    assert not os.path.exists(os.path.join(root, "volumes"))
+    assert not hasattr(storage, "read_md")
+    assert not hasattr(storage, "init_skeleton")
+    assert not hasattr(storage, "delete_root")
 
 
 def test_list_dir_characters_returns_yaml_names():
-    comp = CompositeStorageBackend()
+    storage = get_storage()
     root = _tmp_root()
-    _run_async(comp.write_yaml(root, f"{CHARACTER_DIR}/a.yaml", {"name": "A"}))
-    _run_async(comp.write_yaml(root, f"{CHARACTER_DIR}/b.yaml", {"name": "B"}))
-    _run_async(comp.write_yaml(root, "volumes/vol-1.yaml", {"volume": 1}))
-    names = _run_async(comp.list_dir(root, CHARACTER_DIR))
+    _run_async(storage.write_yaml(root, f"{CHARACTER_DIR}/a.yaml", {"name": "A"}))
+    _run_async(storage.write_yaml(root, f"{CHARACTER_DIR}/b.yaml", {"name": "B"}))
+    names = _run_async(storage.list_dir(root, CHARACTER_DIR))
     assert sorted(names) == ["a.yaml", "b.yaml"]  # 坑2：带 .yaml 后缀
 
 
-def test_delete_root_clears_rows_and_dir():
-    comp = CompositeStorageBackend()
-    root = _tmp_root()
-    _run_async(comp.write_yaml(root, "settings/writing-style.yaml", {"core": "x"}))
-    _run_async(comp.write_yaml(root, f"{CHARACTER_DIR}/a.yaml", {"name": "A"}))
-    _run_async(comp.write_yaml(root, "threads.yaml", {"threads": {}}))
-    assert _run_async(comp.read_yaml(root, "settings/writing-style.yaml")) == {"core": "x"}
-    _run_async(comp.delete_root(root))
-    # 坑4：清行再 rmtree
-    assert _run_async(comp.read_yaml(root, "settings/writing-style.yaml")) == {}
-    assert _run_async(comp.list_dir(root, CHARACTER_DIR)) == []
-    assert not os.path.exists(root)
+def test_seed_settings_seeds_db_not_disk():
+    """新项目种子：settings 模板只进 DB 不进盘（ADR-003）。
 
-
-def test_init_skeleton_seeds_db_not_disk():
-    comp = CompositeStorageBackend()
+    种子连目录也不建——根目录 mkdir 是建书调用点的 novel-samples 锚点职责
+    （c-retire-local-file-storage D3）。
+    """
     root = _tmp_root(prefix="test_skeleton_")
-    _run_async(comp.init_skeleton(root))
-    # DB 有模板种子行（ADR-003）；hooks 已真表化不再种子（foreshadow-settings-v2 2.5）；
-    # anti-ai 不再种子（banned-words-into-style：禁用词并入文风模板，空行会误触迁移）
-    db = DatabaseFileBackend()
+    _run_async(seed_settings_to_db(root))
+
+    from db import async_session
+    from models.project_setting import ProjectSetting
+
+    async def _has(key: str) -> bool:
+        async with async_session() as session:
+            return await session.get(ProjectSetting, (root, key)) is not None
+
+    # DB 有模板种子行；hooks 已真表化不再种子（foreshadow-settings-v2 2.5）；
+    # anti-ai 不再种子（banned-words-into-style）
     for key in ["story", "world", "style"]:
-        assert _run_async(db.has_key(root, key)) is True
-    assert _run_async(db.has_key(root, "hooks")) is False
-    assert _run_async(db.has_key(root, "anti-ai")) is False
-    # 磁盘无 settings yaml（ADR-003：只进 DB 不进盘）
-    assert not os.path.exists(os.path.join(root, "settings", "writing-style.yaml"))
-    # PR⑤ 大扫除后盘上只剩项目根目录：无骨架文件/子目录
+        assert _run_async(_has(key)) is True
+    assert _run_async(_has("hooks")) is False
+    assert _run_async(_has("anti-ai")) is False
+    assert _run_async(_has("threads")) is False  # 首次归档时才建行
+    # 盘上零足迹：种子不落任何文件/子目录（root 本身是 mkdtemp 建的测试容器）
     assert os.path.isdir(root)
     assert os.listdir(root) == []
-    assert not os.path.exists(os.path.join(root, "threads.yaml"))
-    assert _run_async(db.has_key(root, "threads")) is False  # 首次归档时才建行

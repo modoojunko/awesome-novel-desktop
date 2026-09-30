@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 from config import REFERENCE_DIR
@@ -18,10 +17,3 @@ SETTINGS_TEMPLATES = {
     "world-setting.yaml.template": ("settings/world-setting.yaml", "world"),
     "writing-style.yaml.template": ("settings/writing-style.yaml", "style"),
 }
-
-
-def _init_project_skeleton_local(root_path: str):
-    """创建项目根目录（业务数据全量入库后，盘上不再铺任何骨架文件/子目录）。"""
-    # Normalise path to prevent traversal outside the intended directory
-    root_path = os.path.normpath(os.path.abspath(root_path))
-    os.makedirs(root_path, exist_ok=True)

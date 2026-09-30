@@ -7,7 +7,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_client import AITimeoutError, get_ai_client
@@ -849,7 +849,7 @@ async def import_persist(
     _: bool = Depends(require_project_limit),
 ):
     """Persist parsed volumes/chapters as a new novel project."""
-    from config import DATA_ROOT
+    from config import book_root
     from models.project import Novel
 
     # ── Generate unique slug & root_path ──────────────────────────────
@@ -860,13 +860,11 @@ async def import_persist(
     if existing.scalar_one_or_none():
         slug = f"{slug}-{uuid.uuid4().hex[:6]}"
 
-    root_path = os.path.join(DATA_ROOT, slug)
+    root_path = book_root(slug)
+    project: Novel | None = None
 
     try:
-        # ── 1. Create project root only（数据全量入库，盘上无骨架）────
-        os.makedirs(root_path, exist_ok=True)
-
-        # ── 2. Create DB project row first（章族入库：卷/章直写 DB）────
+        # ── 1. Create DB project row first（数据全量入库，盘上无目录）──
         project = Novel(
             user_id=user["id"],
             name=body.name,
@@ -881,6 +879,7 @@ async def import_persist(
         db.add(project)
         await db.commit()
         await db.refresh(project)
+        project_id = str(project.id)  # 失败清理用：rollback 后 ORM 实例属性不可靠
 
         # ── 3. Write volumes & chapters to DB ────────────────────────
         from chapters import store as chapter_store
@@ -910,7 +909,7 @@ async def import_persist(
 
         # ── 4. Genre detection & synopsis extraction (free-tier) ─────
         try:
-            # 从第一章正文匹配类型（story.yaml 属 settings 族，仍走文件）
+            # 从第一章正文匹配类型（story 走 settings KV，内容入库）
             first_ch = body.volumes[0].chapters[0] if body.volumes else None
             if first_ch and first_ch.content:
                 from novels.genre_matcher import extract_synopsis, match_genre
@@ -935,11 +934,19 @@ async def import_persist(
         return {"id": str(project.id), "name": body.name}
 
     except Exception as e:
-        # Clean up on failure
-        import shutil
-
-        if os.path.exists(root_path):
-            shutil.rmtree(root_path)
+        # 失败清理：项目行已提交时软删，防孤儿书；盘上无目录可清
+        # （数据全量入库，c-retire-local-file-storage 删 mkdir/rmtree）。
+        # 逐章 commit 失败会让会话处于失败态——必须先 rollback 再用裸
+        # update 按已捕获的 id 软删；清理自身失败不得掩盖原始错误。
+        try:
+            await db.rollback()
+            if project_id:
+                await db.execute(
+                    update(Novel).where(Novel.id == project_id).values(status="deleted")
+                )
+                await db.commit()
+        except Exception:  # noqa: BLE001
+            pass
         raise HTTPException(500, f"导入持久化失败: {e!s}")
 
 

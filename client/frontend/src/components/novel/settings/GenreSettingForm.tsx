@@ -1,11 +1,11 @@
 // ── GenreSettingForm ──────────────────────────────────────────────────────
 // 题材设定面板（genre-signup-redesign tasks 4.1 / D18·D19 新契约）：
-//   六格 = 01 题材目录（大类必选 + 子类可选，落 story.yaml）+ 02 主要看什么
+//   六格 = 01 题材目录（大类必选 + 子类可选，落 story KV）+ 02 主要看什么
 //   + 03 绝对禁止 + 04 吃苦指数 + 05 本小说斗什么（2026-09-10 起五格：06 剧情轨道
 //     已退役——它与「主线规划」是同一个概念，一处两存违反本体纪律，主线归 story-arc）。
 //   每格 = 编号 + 怎么填（m-why）+ 成书视角去处（m-use）。
 //
-// 存储契约（对外七字段 JSON；01 落 story.yaml，其余关系化落 4 张表）：
+// 存储契约（对外七字段 JSON；01 落 story KV，其余关系化落 4 张表）：
 //   01 → theme + sub_genre（题材目录，见 lib/themeCatalog.ts；后端按目录校验，未知 400）
 //   02 → promise_note(≤200，**主输入＝一句话**，AI 给完整草稿、作家可改)
 //        + core_promise(≤60，短标签：起点胶囊/AI 写入，不单独设输入框)
@@ -91,7 +91,7 @@ type ThemeRow =
   | { kind: "sub"; theme: string; sub: SubTheme };
 
 interface GenrePayload {
-  /** 01 题材目录（大类/子类）——落 story.yaml，与简介同族。 */
+  /** 01 题材目录（大类/子类）——落 story KV，与简介同族。 */
   theme: string;
   sub_genre: string;
   core_promise: string;

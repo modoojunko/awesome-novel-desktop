@@ -161,7 +161,7 @@ async def seed_chapter_db(root: str, chapter: dict, *, summary: str = "") -> Non
     """种 Novel/Volume/Chapter 行并经统一写入口落章数据。
 
     slug 取 root 目录名保证跨测试唯一（UNIQUE(user_id, slug)）；
-    供 AI 链路测试以 root_path 关联。story/世界观/角色/伏笔仍走文件种子。
+    供 AI 链路测试以 root_path 关联。story/世界观等设定走 KV 种子（seed_settings_to_db）。
     """
     import os
 

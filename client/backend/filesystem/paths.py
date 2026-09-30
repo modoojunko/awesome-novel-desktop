@@ -1,6 +1,6 @@
 """settings 相对路径 ↔ project_settings 表 key 的路由映射（纯函数零 IO）。
 
-组合后端（ADR-001）按此映射把 settings 9 类路由到 DB，其余路径路由 LocalFileBackend。
+这些 `.yaml` 字符串是文件时代的键名，仅作 KV 路由键、永不落盘（c-retire-local-file-storage）：命中映射的路径进 project_settings KV，其余路径不经本映射——storage 读 `{}` 写 no-op。
 key 用语义短名；字符目录按前缀 `character:`。
 """
 
@@ -40,7 +40,7 @@ KEY_TO_PATH = {v: k for k, v in PATH_TO_KEY.items()}
 
 
 def route_relative_path(relative_path: str) -> str | None:
-    """settings/threads 相对路径 → DB key；其余路径返回 None（路由到 LocalFileBackend）。"""
+    """settings/threads 相对路径 → DB key；其余路径返回 None（storage 读 `{}` 写 no-op）。"""
     if relative_path in PATH_TO_KEY:
         return PATH_TO_KEY[relative_path]
     if relative_path == THREADS_PATH:

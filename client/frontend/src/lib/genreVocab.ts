@@ -207,6 +207,6 @@ export const GENRE_DEFINITION =
  * 题材未设定时的占位文案（用户 2026-09-10 拍板）。
  *
  * 展示位恒在：书架卡片胶囊与书内标签都读后端下发的题材展示名（新契约核心承诺 →
- * 老书 story.yaml.genre / KV 题材名），空值即「题材还没定」——用本占位而非空缺。
+ * 老书 story KV 题材名），空值即「题材还没定」——用本占位而非空缺。
  */
 export const GENRE_PENDING_LABEL = "待定题材";
