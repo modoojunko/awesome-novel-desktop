@@ -168,6 +168,7 @@ async def user_has_ai_key(db: AsyncSession, user_id: str) -> bool:
                 ApiConfig.user_id == user_id,
                 ApiConfig.status == "active",
                 ApiConfig.api_key != "",
+                ApiConfig.vendor != "zhuque",  # c-zhuque-ai-detect：朱雀 Key 不算「已配置 AI Key」
             )
         )
         for cfg in result.scalars().all():

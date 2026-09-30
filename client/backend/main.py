@@ -17,6 +17,8 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 import brand
 import models  # noqa: F401
 from api_configs.router import router as api_configs_router
+from zhuque.router import check_router as zhuque_check_router
+from zhuque.router import config_router as zhuque_config_router
 from archive.dossier_router import book_router as dossier_book_router
 from archive.dossier_router import router as dossier_router
 from archive.reconcile_router import router as reconcile_router
@@ -388,6 +390,8 @@ app.include_router(workflow_backfill_router)
 
 # API Key Config management (v1)
 app.include_router(api_configs_router)
+app.include_router(zhuque_config_router)
+app.include_router(zhuque_check_router)
 
 # 全局题材库
 app.include_router(genres_router)

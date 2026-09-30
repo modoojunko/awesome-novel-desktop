@@ -78,7 +78,12 @@ async def get_user_api_configs(db: AsyncSession, user_id: str) -> list[dict[str,
     """List all configs for a user（软删 status=deleted 的行不返回）。"""
     result = await db.execute(
         select(ApiConfig)
-        .where(ApiConfig.user_id == user_id, ApiConfig.status != "deleted")
+        .where(
+            ApiConfig.user_id == user_id,
+            ApiConfig.status != "deleted",
+            # c-zhuque-ai-detect：朱雀检测配置由专用端点管理，不进大模型页签列表
+            ApiConfig.vendor != "zhuque",
+        )
         .order_by(ApiConfig.created_at.desc())
     )
     return [_config_to_dict(c) for c in result.scalars().all()]
@@ -280,7 +285,9 @@ async def get_batch_status(db: AsyncSession, user_id: str) -> list[dict[str, Any
     """Return current status for all user's configs（软删行不返回）。"""
     result = await db.execute(
         select(ApiConfig).where(
-            ApiConfig.user_id == user_id, ApiConfig.status != "deleted"
+            ApiConfig.user_id == user_id,
+            ApiConfig.status != "deleted",
+            ApiConfig.vendor != "zhuque",  # c-zhuque-ai-detect：批量状态同列表口径
         )
     )
     statuses = []
@@ -437,10 +444,12 @@ async def apply_model_to_all_projects(
     db: AsyncSession, user_id: str, api_config_id: str, model: str
 ) -> dict[str, Any]:
     """Apply a model to all non-deleted projects for a user."""
-    # Verify config exists
+    # Verify config exists（c-zhuque-ai-detect：朱雀检测配置 SHALL NOT 可绑为写作模型）
     cfg_result = await db.execute(
         select(ApiConfig).where(
-            ApiConfig.id == api_config_id, ApiConfig.user_id == user_id
+            ApiConfig.id == api_config_id,
+            ApiConfig.user_id == user_id,
+            ApiConfig.vendor != "zhuque",
         )
     )
     if not cfg_result.scalar_one_or_none():
@@ -612,7 +621,10 @@ async def get_usage_summary(db: AsyncSession, user_id: str) -> dict[str, Any]:
     result = await db.execute(
         select(
             sa_func.coalesce(sa_func.sum(TokenLog.tokens_in + TokenLog.tokens_out), 0)
-        ).where(TokenLog.user_id == user_id)
+        ).where(
+            TokenLog.user_id == user_id,
+            TokenLog.operation != "zhuque-check",  # c-zhuque-ai-detect：朱雀消耗不混写作模型用量
+        )
     )
     total_all = result.scalar()
 
@@ -624,6 +636,7 @@ async def get_usage_summary(db: AsyncSession, user_id: str) -> dict[str, Any]:
         ).where(
             TokenLog.user_id == user_id,
             TokenLog.created_at >= first_of_month,
+            TokenLog.operation != "zhuque-check",  # c-zhuque-ai-detect：同上
         )
     )
     total_month = result.scalar()
@@ -636,6 +649,7 @@ async def get_usage_summary(db: AsyncSession, user_id: str) -> dict[str, Any]:
         ).where(
             TokenLog.user_id == user_id,
             sa_func.date(TokenLog.created_at) == today,
+            TokenLog.operation != "zhuque-check",  # c-zhuque-ai-detect：同上
         )
     )
     total_today = result.scalar()
@@ -663,6 +677,7 @@ async def get_config_usage(
         .where(
             TokenLog.user_id == user_id,
             TokenLog.api_config_id == config_id,
+            TokenLog.operation != "zhuque-check",  # c-zhuque-ai-detect：同上
         )
         .group_by(TokenLog.model)
     )
@@ -689,6 +704,7 @@ async def get_project_usage(
         .where(
             TokenLog.user_id == user_id,
             TokenLog.project_id == project_id,
+            TokenLog.operation != "zhuque-check",  # c-zhuque-ai-detect：同上
         )
         .group_by(TokenLog.model)
     )
