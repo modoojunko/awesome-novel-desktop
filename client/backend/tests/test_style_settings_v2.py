@@ -333,7 +333,9 @@ def _project_root(pid: str) -> str:
 
 class TestDistillEndpoints:
     def _seed_samples(self, pid):
-        root = _project_root(pid)
+        from config import book_disk_dir
+
+        root = book_disk_dir(_project_root(pid))
         os.makedirs(os.path.join(root, "novel-samples"), exist_ok=True)
         body = "雨点砸在铁皮棚上。他没有抬头。" * 400  # 去空白后 3200 字
         with open(os.path.join(root, "novel-samples", "a.md"), "w", encoding="utf-8") as f:
@@ -372,7 +374,9 @@ class TestDistillEndpoints:
         assert "突然" in (style_doc.get("banned_words") or [])
 
     def test_sample_under_range_400(self, client, pid, monkeypatch):
-        root = _project_root(pid)
+        from config import book_disk_dir
+
+        root = book_disk_dir(_project_root(pid))
         os.makedirs(os.path.join(root, "novel-samples"), exist_ok=True)
         with open(os.path.join(root, "novel-samples", "short.md"), "w", encoding="utf-8") as f:
             f.write("太短。")

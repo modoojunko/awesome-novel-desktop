@@ -18,6 +18,19 @@ def book_root(slug: str) -> str:
     """
     return f"./data/{slug}"
 
+
+def book_disk_dir(root_path: str) -> str:
+    """KV 键 root_path → 盘上书目录（novel-samples 锚点等唯一天然盘面用）。
+
+    book_root 方案的相对键按 DATA_ROOT 锚定——打包桌面端 DATA_ROOT 是
+    安装目录下绝对路径且不 chdir（pywebview_app），CWD 相对解析会落在
+    错误位置甚至无权限处；存量绝对键原样（各自与其写入年代的
+    DATA_ROOT 语义一致）。凡是把 root_path 当盘面路径用的代码必须走这里。
+    """
+    if os.path.isabs(root_path):
+        return root_path
+    return os.path.join(DATA_ROOT, root_path.removeprefix("./data/"))
+
 # 数据库路径
 # c-db-per-version：库文件名＝C端 版本（novel-v{版本}.db；dev/PR 构建＝固定哨兵名）
 # —— 命名与版本比较单源在 schema_version.py；显式 DATABASE_URL 仍优先

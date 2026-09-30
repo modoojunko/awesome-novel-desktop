@@ -7,7 +7,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_client import AITimeoutError, get_ai_client
@@ -879,6 +879,7 @@ async def import_persist(
         db.add(project)
         await db.commit()
         await db.refresh(project)
+        project_id = str(project.id)  # 失败清理用：rollback 后 ORM 实例属性不可靠
 
         # ── 3. Write volumes & chapters to DB ────────────────────────
         from chapters import store as chapter_store
@@ -934,10 +935,18 @@ async def import_persist(
 
     except Exception as e:
         # 失败清理：项目行已提交时软删，防孤儿书；盘上无目录可清
-        # （数据全量入库，c-retire-local-file-storage 删 mkdir/rmtree）
-        if project is not None and project.id:
-            project.status = "deleted"
-            await db.commit()
+        # （数据全量入库，c-retire-local-file-storage 删 mkdir/rmtree）。
+        # 逐章 commit 失败会让会话处于失败态——必须先 rollback 再用裸
+        # update 按已捕获的 id 软删；清理自身失败不得掩盖原始错误。
+        try:
+            await db.rollback()
+            if project_id:
+                await db.execute(
+                    update(Novel).where(Novel.id == project_id).values(status="deleted")
+                )
+                await db.commit()
+        except Exception:  # noqa: BLE001
+            pass
         raise HTTPException(500, f"导入持久化失败: {e!s}")
 
 

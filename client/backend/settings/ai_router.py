@@ -1744,7 +1744,9 @@ async def _assemble_distill_samples(project, body: dict, db) -> tuple[str, int, 
 
     files = [str(x) for x in (body.get("files") or []) if str(x).strip()]
     chapter_ids = [str(x) for x in (body.get("chapter_ids") or []) if str(x).strip()]
-    samples_dir = os.path.join(project.root_path, "novel-samples")
+    from config import book_disk_dir
+
+    samples_dir = os.path.join(book_disk_dir(project.root_path), "novel-samples")
     texts: list[str] = []
     used: list[str] = []
     matched_chapters = 0

@@ -1,0 +1,18 @@
+# e2e 隔离栈 override（c-retire-local-file-storage 会话专用）：
+# container_name 全量覆盖（compose -p 救不了同名劫持）+ 端口错开共享栈
+# （5174/8000/19000 → 5175/8001/19001）；数据目录走 CLIENT/SERVER_DATA_DIR env
+# 指向 worktree 内 docker-data-e2e/，与 demo 栈零共享。
+services:
+  server-backend:
+    container_name: e2e-iso-server-backend
+    image: novel-demo-server-backend  # S端 未被本改触碰，复用现成镜像免构建
+    ports: !override
+      - "19001:19000"
+  client-backend:
+    container_name: e2e-iso-client-backend
+    ports: !override
+      - "8001:8000"
+  client-frontend:
+    container_name: e2e-iso-client-frontend
+    ports: !override
+      - "5175:80"
