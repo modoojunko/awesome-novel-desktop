@@ -680,6 +680,39 @@
   .rail-assist .ra-arrow { color: var(--muted); flex: none; }
   .rail-assist .ra-foot { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
   .rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
+
+  /* ═══ c-zhuque-ai-detect：朱雀检测词（.zq-hd 结果条／.zq-mark 标注／行变体 zq-guide・zq-maxlk） ═══ */
+  .zq-hd { flex: none; align-self: center; width: 330px; min-width: 0; }
+  .zq-hd .hd-bar { display: flex; height: 7px; border-radius: 999px; overflow: hidden; background: var(--fg-soft); }
+  .zq-hd .hd-bar i { display: block; height: 100%; }
+  .zq-hd .hd-ratio { display: flex; gap: 12px; margin-top: 7px; font-size: 12px; color: var(--muted); flex-wrap: wrap; align-items: center; }
+  .zq-hd .hd-ratio .lg { display: inline-flex; align-items: center; gap: 4px; }
+  .zq-hd .hd-ratio .lg i { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+  .zq-hd .hd-ratio .lg b { color: var(--fg); font-weight: 500; font-family: var(--font-mono); }
+  .zq-hd .hd-act { margin-left: auto; display: inline-flex; gap: 2px; }
+  .zq-hd .hd-act .btn { font-size: 11px; height: 22px; padding: 0 7px; }
+  .zq-hd.run, .zq-hd.err { width: auto; }
+  .zq-hd.run .hd-run { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+  .zq-hd.err .hd-errline { font-size: 12.5px; line-height: 1.7; margin: 0; color: color-mix(in oklch, var(--err) 85%, var(--fg)); }
+  .zq-hd.err .hd-errline b { font-weight: 600; }
+  .zq-hd.err .hd-act .btn { flex: none; height: 26px; font-size: 12px; padding: 0 10px; }
+  .ra-spin { display: inline-block; width: 11px; height: 11px; margin-right: 5px; vertical-align: -1px; border: 1.6px solid color-mix(in oklch, var(--accent) 28%, transparent); border-top-color: var(--accent); border-radius: 50%; animation: zqspin .8s linear infinite; }
+  @keyframes zqspin { to { transform: rotate(360deg); } }
+  .rail-assist .ra-step.zq-guide { border-style: dashed; }
+  .rail-assist .ra-step.zq-maxlk { opacity: 0.55; cursor: not-allowed; }
+  .rail-assist .ra-step.zq-maxlk:hover { border-color: var(--border); }
+  .pill-warn { background: var(--warn-soft); border-color: transparent; color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
+  .pill-new { background: var(--accent); border-color: transparent; color: var(--on-accent); letter-spacing: 0.06em; }
+  .rail-assist .ra-body b .pill { margin-left: 6px; }
+  .editor p { position: relative; }
+  .editor p.zq-warn { background: linear-gradient(transparent 62%, var(--warn-soft) 62%); border-radius: 4px; }
+  .editor p.zq-err { background: linear-gradient(transparent 62%, var(--err-soft) 62%); border-radius: 4px; }
+  .zq-mark { position: absolute; right: -6px; top: -4px; font-family: var(--font-mono); font-size: 10.5px; line-height: 1; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+  .zq-mark.m-ok { background: var(--fg-soft); color: var(--faint, var(--muted)); }
+  .zq-mark.m-warn { background: var(--warn-soft); color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
+  .zq-mark.m-err { background: var(--err-soft); color: color-mix(in oklch, var(--err) 90%, var(--fg)); font-weight: 600; }
+  .zq-mark.stale, .editor p.zq-stale .zq-mark { background: var(--fg-soft); color: var(--muted); }
+  .editor p.zq-stale.zq-warn, .editor p.zq-stale.zq-err { background: var(--fg-soft); }
   .rail-assist .ra-step.ra-off { opacity: 0.5; cursor: not-allowed; }
   .rail-assist .ra-step.ra-off:hover { border-color: var(--border); }
   .rail-assist .ra-body b .ra-hint { margin-left: 6px; font-size: 10.5px; font-weight: 400; color: var(--warn); }
@@ -911,6 +944,26 @@
             <span class="tag" id="statBook">本书总字数 1,371</span>
           </div>
         </div>
+        <!-- c-zhuque-ai-detect：检测结果条（标题行右侧空白；结果/检测中/失败三态，演示默认结果态） -->
+        <div class="zq-hd" id="zqHd" data-od-id="zhuque-head-strip">
+          <div id="hdResult">
+            <div class="hd-bar">
+              <i style="width:71%; background:color-mix(in oklch, var(--ok) 72%, transparent);"></i>
+              <i style="width:24%; background:color-mix(in oklch, var(--warn) 72%, transparent);"></i>
+              <i style="width:5%; background:color-mix(in oklch, var(--err) 72%, transparent);"></i>
+            </div>
+            <div class="hd-ratio">
+              <span class="lg"><i style="background:color-mix(in oklch, var(--ok) 72%, transparent)"></i>人工 <b>71%</b></span>
+              <span class="lg"><i style="background:color-mix(in oklch, var(--warn) 72%, transparent)"></i>疑似 AI <b>24%</b></span>
+              <span class="lg"><i style="background:color-mix(in oklch, var(--err) 72%, transparent)"></i>AI <b>5%</b></span>
+              <span style="font-size:10.5px; color:var(--muted);">概率参考 · 非平台判定</span>
+              <span class="hd-act">
+                <button class="btn btn-ghost" data-od-id="zq-clear" title="退出标注态">清除标注</button>
+                <button class="btn btn-ghost" data-od-id="zq-rerun" title="整章重测">重检</button>
+              </span>
+            </div>
+          </div>
+        </div>
         <span class="prose-ctrls" id="proseCtrls">
           <button class="icon-btn" id="btnFocus" title="专注模式" data-od-id="btn-focus">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>
@@ -1022,6 +1075,38 @@
           <span class="ra-arrow" aria-hidden="true">›</span>
         </button>
         <p class="ra-foot"><span class="only-pro">章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。</span><span class="only-free">免费版：盘点只读、不代笔；标「需 PRO」的行升级后可用。盘点结果要写进章纲的，走你平时那套保存。</span></p>
+      </div>
+
+      <!-- c-zhuque-ai-detect：正文页签 AI 助手卡（原型此前未建模正文右栏卡，本 change 连同朱雀行一并补齐）。
+           朱雀行四态演示切换（右上角演示 chips）：zq-ready 就绪 / zq-guide 未配引导 / zq-maxlk 非MAX锁定 / zq-off 开关关不渲染 -->
+      <div class="rail-assist" id="railProse" hidden data-od-id="ai-assist-prose" data-testid="rail-assist-prose">
+        <div class="ra-head">
+          <span class="plan-badge">PRO</span>
+          <div class="rh-t">
+            <b>AI 助手 · 正文</b>
+            <span id="railProseSub">生成 · 续写 · 检测就绪</span>
+          </div>
+          <span style="margin-left:auto; display:inline-flex; gap:4px;" data-od-id="zhuque-demo-chips">
+            <button class="tag" data-zqdemo="ready" title="演示：就绪态">就绪</button>
+            <button class="tag" data-zqdemo="guide" title="演示：未配 Key 引导态">未配</button>
+            <button class="tag" data-zqdemo="maxlk" title="演示：非 MAX 锁定态">非MAX</button>
+            <button class="tag" data-zqdemo="off" title="演示：开关关">关</button>
+          </span>
+        </div>
+        <p class="ai-target">正文字数 <b>793 字</b> · 计划字数 4,000 字 · 完成度 20% · 本章提示词 自动组装</p>
+        <button class="ra-step" type="button"><span class="ra-body"><b>生成正文</b><i>由设定＋章纲组装提示词，可编辑后流式写入正文末尾</i></span><span class="ra-arrow">›</span></button>
+        <button class="ra-step" type="button"><span class="ra-body"><b>续写建议</b><i>从光标处（或选区末尾）流式续写，保持风格与上下文一致</i></span><span class="ra-arrow">›</span></button>
+        <button class="ra-step" type="button"><span class="ra-body"><b>去AI味</b><i>选中段落去掉机器腔，对照预览后替换</i></span><span class="ra-arrow">›</span></button>
+        <button class="ra-step" type="button"><span class="ra-body"><b>场景扩写</b><i>把选中的一句话场景扩展为完整段落，保持设定一致</i></span><span class="ra-arrow">›</span></button>
+        <button class="ra-step" type="button"><span class="ra-body"><b>压缩啰嗦段落</b><i>压缩选中的段落，保留信息去掉重复</i></span><span class="ra-arrow">›</span></button>
+        <button class="ra-step zq-new" id="railZq" data-od-id="rail-zhuque-check" type="button">
+          <span class="ra-body">
+            <b>朱雀 AI 检测 · 查AI味<span class="pill pill-new">新增</span><span class="pill pill-warn" id="zqMaxPill" hidden>MAX 专属</span></b>
+            <i id="railZqDesc">整章送腾讯朱雀测 AI 味，结果与段落标注就地显示</i>
+          </span>
+          <span class="ra-arrow" id="railZqArrow">›</span>
+        </button>
+        <p class="ra-foot">续写/去AI味/扩写/压缩作用于正文编辑器；<b>朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上</b>。检测需在「模型配置 → 朱雀」配好 Key（MAX 会员权益）。</p>
       </div>
     </div>
   </aside>
@@ -2567,8 +2652,53 @@ function syncChTab() {
   if (t === 'dossier') renderDossierPane();
   $('readonlyBanner').hidden = t !== 'prose' || !isArchived(curCh());
   $('editorStatus').hidden = t !== 'prose';
+  const railProse = document.getElementById('railProse');
+  if (railProse) railProse.hidden = t !== 'prose'; /* c-zhuque-ai-detect：正文页签切右栏卡 */
   if (t === 'prose') { const ch = curCh(); if (ch) updateStats(ch, countWords(chContent(ch))); }
 }
+
+/* ═══ c-zhuque-ai-detect 演示：朱雀行四态＋正文段标注（仅原型演示；实现为 Decorations 覆盖层，不动正文） ═══ */
+let zqDemoState = 'ready';
+function setZqDemo(state) {
+  zqDemoState = state;
+  const row = document.getElementById('railZq');
+  const desc = document.getElementById('railZqDesc');
+  const maxPill = document.getElementById('zqMaxPill');
+  const sub = document.getElementById('railProseSub');
+  const hd = document.getElementById('zqHd');
+  if (!row) return;
+  row.hidden = state === 'off';
+  row.classList.toggle('zq-maxlk', state === 'maxlk');
+  row.classList.toggle('zq-guide', state === 'guide');
+  maxPill.hidden = state !== 'maxlk';
+  if (state === 'maxlk') { desc.textContent = 'MAX 会员权益 · 升级后整章送腾讯朱雀检测（需自备腾讯云 Key）'; sub.textContent = '朱雀检测需 MAX · 其余可用'; }
+  else if (state === 'guide') { desc.textContent = '未配置 Key · 点击去「模型配置 → 朱雀」粘贴腾讯云 EdgeOne Key'; sub.textContent = '检测未配置 · 其余可用'; }
+  else { desc.textContent = '整章送腾讯朱雀测 AI 味，结果与段落标注就地显示'; sub.textContent = '生成 · 续写 · 检测就绪'; }
+  hd.hidden = state !== 'ready';
+  applyZqMarks(state === 'ready');
+}
+function applyZqMarks(on) {
+  const ed = document.getElementById('editor');
+  if (!ed) return;
+  ed.querySelectorAll('.zq-mark').forEach(m => m.remove());
+  ed.querySelectorAll('p').forEach(p => p.classList.remove('zq-warn', 'zq-err', 'zq-stale'));
+  if (!on) return;
+  const demo = [[1, 'ok', 4], [2, 'warn', 62], [4, 'err', 86]];
+  const paras = ed.querySelectorAll('p');
+  demo.forEach(([idx, label, conf]) => {
+    const p = paras[idx];
+    if (!p) return;
+    p.classList.add('zq-' + label);
+    const m = document.createElement('span');
+    m.className = 'zq-mark m-' + label;
+    m.contentEditable = 'false';
+    m.textContent = (label === 'ok' ? '人写 ' : label === 'warn' ? '疑似 ' : 'AI ') + conf + '%';
+    p.appendChild(m);
+  });
+}
+document.querySelectorAll('[data-zqdemo]').forEach(b => b.addEventListener('click', () => setZqDemo(b.dataset.zqdemo)));
+const zqClearBtn = document.querySelector('[data-od-id="zq-clear"]');
+if (zqClearBtn) zqClearBtn.addEventListener('click', () => applyZqMarks(false));
 document.querySelectorAll('.chtab').forEach(b => b.addEventListener('click', () => {
   if (!b.dataset.chtab) return; // 惯性页签（壳层七页签，本原型不建模内容）
   S.chTab = b.dataset.chtab; persist();

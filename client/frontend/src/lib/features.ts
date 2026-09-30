@@ -23,7 +23,8 @@ export type FeatureKey =
   | "outline-advanced-fields"
   | "ai-generate"
   | "prompt-panel"
-  | "ai-model";
+  | "ai-model"
+  | "ai-detect";
 
 export const FEATURES: Record<FeatureKey, { memberOnly: boolean }> = {
   // 免费：完整人工写作能力
@@ -41,6 +42,10 @@ export const FEATURES: Record<FeatureKey, { memberOnly: boolean }> = {
   "outline-advanced-fields": { memberOnly: true },
   "ai-generate": { memberOnly: true },
   "prompt-panel": { memberOnly: true },
+  // 朱雀 AI 检测：MAX 会员专属、试用不含（c-zhuque-ai-detect，定价终拍
+  // pricing-tiers-launch-promo.md §6.2/6.4）；快照单源——S端 entitlement 只对
+  // MAX 发放本 key；快照缺失按兜底口径一律未授权（锁定）。
+  "ai-detect": { memberOnly: true },
 };
 
 /** 是否会员功能（AI 能力）——用于 PRO 标识/升级引导文案，不控制显隐。 */

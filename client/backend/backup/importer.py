@@ -902,7 +902,11 @@ async def _reattach_configs(db, user_id: str, novel_ids: list[str]) -> dict:
             return []
 
     actives = (await db.scalars(
-        select(ApiConfig).where(ApiConfig.user_id == user_id, ApiConfig.status == "active")
+        select(ApiConfig).where(
+            ApiConfig.user_id == user_id,
+            ApiConfig.status == "active",
+            ApiConfig.vendor != "zhuque",  # c-zhuque-ai-detect：朱雀配置不自动挂接为本书模型
+        )
     )).all()
     attached = 0
 

@@ -1901,3 +1901,30 @@ button.dep-row:hover{background:var(--hl)}
 .ds-preview { border: 1px dashed var(--border); border-radius: 10px; padding: 12px 14px; margin-top: 14px; font-size: 12.5px; color: var(--muted); line-height: 1.8; }
 .ds-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; background: color-mix(in oklch, var(--fg) 4%, transparent); flex-wrap: wrap; }
 .ds-fail-actions { display: flex; gap: 8px; margin-bottom: 14px; }
+
+/* ═══ 朱雀 AI 检测（c-zhuque-ai-detect）：标题区结果条＋正文段标注（C端 business 层） ═══ */
+.zq-hd { flex: none; align-self: center; width: 330px; min-width: 0; }
+.zq-hd .hd-bar { display: flex; height: 7px; border-radius: 999px; overflow: hidden; background: var(--fg-soft); }
+.zq-hd .hd-bar i { display: block; height: 100%; }
+.zq-hd .hd-ratio { display: flex; gap: 12px; margin-top: 7px; font-size: 12px; color: var(--muted); flex-wrap: wrap; align-items: center; }
+.zq-hd .hd-ratio .lg { display: inline-flex; align-items: center; gap: 4px; }
+.zq-hd .hd-ratio .lg i { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+.zq-hd .hd-ratio .lg b { color: var(--fg); font-weight: 500; font-family: var(--font-mono); }
+.zq-hd .hd-act { margin-left: auto; display: inline-flex; gap: 2px; }
+.zq-hd .hd-act .btn { font-size: 11px; height: 22px; padding: 0 7px; }
+.zq-hd.run, .zq-hd.err { width: auto; }
+.zq-hd.run .hd-run { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.zq-hd.err .hd-errline { font-size: 12.5px; line-height: 1.7; margin: 0; color: color-mix(in oklch, var(--err) 85%, var(--fg)); }
+.zq-hd.err .hd-errline b { font-weight: 600; }
+.zq-hd.err .hd-act .btn { flex: none; height: 26px; font-size: 12px; padding: 0 10px; }
+.zq-hd.stale .hd-bar { opacity: 0.35; }
+.zq-hd.stale .hd-ratio { opacity: 0.55; }
+.editor p { position: relative; }
+.editor p.zq-warn { background: linear-gradient(transparent 62%, var(--warn-soft) 62%); border-radius: 4px; }
+.editor p.zq-err { background: linear-gradient(transparent 62%, var(--err-soft) 62%); border-radius: 4px; }
+.editor p.zq-stale.zq-warn, .editor p.zq-stale.zq-err { background: var(--fg-soft); }
+.zq-mark { position: absolute; right: -6px; top: -4px; font-family: var(--font-mono); font-size: 10.5px; line-height: 1; padding: 3px 8px; border-radius: 999px; white-space: nowrap; pointer-events: none; }
+.zq-mark.m-ok { background: var(--fg-soft); color: var(--muted); }
+.zq-mark.m-warn { background: var(--warn-soft); color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
+.zq-mark.m-err { background: var(--err-soft); color: color-mix(in oklch, var(--err) 90%, var(--fg)); font-weight: 600; }
+.zq-mark.stale { background: var(--fg-soft); color: var(--muted); }

@@ -404,6 +404,8 @@ async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:
                         ApiConfig.user_id == user_id,
                         ApiConfig.status == "active",
                         ApiConfig.api_key != "",
+                        # c-zhuque-ai-detect：朱雀检测配置不是写作大模型，兜底选取 SHALL NOT 命中
+                        ApiConfig.vendor != "zhuque",
                     )
                     .order_by(ApiConfig.created_at.desc())
                 )
@@ -441,7 +443,11 @@ async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:
                 # No user_id: find any user with a config（同上：逐个可解密判定）
                 result = await session.execute(
                     select(ApiConfig)
-                    .where(ApiConfig.status == "active", ApiConfig.api_key != "")
+                    .where(
+                        ApiConfig.status == "active",
+                        ApiConfig.api_key != "",
+                        ApiConfig.vendor != "zhuque",  # c-zhuque-ai-detect：同上，朱雀行不进兜底
+                    )
                     .order_by(ApiConfig.created_at.desc())
                 )
                 for cfg in result.scalars().all():
@@ -516,6 +522,8 @@ async def get_ai_client_for_novel(novel_id: str) -> AIClient:
             raise ValueError("本书尚未选择模型")
         cfg = await session.get(ApiConfig, novel.ai_config_id)
         if cfg is None:
+            raise ValueError("本书绑定的 API 配置已删除，请重新选择模型")
+        if getattr(cfg, "vendor", None) == "zhuque":  # c-zhuque-ai-detect：绑定侧防注入兜底
             raise ValueError("本书绑定的 API 配置已删除，请重新选择模型")
         plain_key = decrypt_api_key(cfg.api_key)
         if not plain_key:

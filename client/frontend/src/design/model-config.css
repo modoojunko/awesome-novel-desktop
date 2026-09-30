@@ -96,3 +96,26 @@
   .vgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pg-config .page-head { gap: 14px; margin-bottom: 24px; }
 }
+
+/* ─── 朱雀 AI 检测页签（c-zhuque-ai-detect：.cfg-tabs 新词入册；开关复用 book.css .switch-btn） ─── */
+.cfg-tabs { display: inline-flex; gap: 2px; padding: 3px; background: var(--fg-soft); border-radius: 11px; margin-bottom: 22px; }
+.cfg-tab { display: inline-flex; align-items: center; height: 30px; padding: 0 16px; border: 0; background: none; border-radius: 8px; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; }
+.cfg-tab:hover { color: var(--fg); }
+.cfg-tab.on { background: var(--surface); color: var(--fg); font-weight: 500; box-shadow: 0 1px 2px color-mix(in oklch, var(--fg) 8%, transparent); }
+.zg-keyrow { display: flex; gap: 8px; margin-top: 4px; max-width: 620px; }
+.zg-keyrow .input { flex: 1; font-family: var(--font-mono); font-size: 13px; }
+.zg-stats { display: flex; margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.zg-stats .st { flex: 1; }
+.zg-stats .st b { display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; }
+.zg-stats .st span { font-size: 11px; color: var(--muted); }
+.zg-flow { counter-reset: st; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 12px 0 0; padding: 0; list-style: none; }
+.zg-flow li { counter-increment: st; display: flex; gap: 9px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+.zg-flow li::before { content: counter(st); flex: none; width: 20px; height: 20px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); font-size: 11px; font-weight: 600; display: grid; place-items: center; margin-top: 2px; }
+.zg-flow li b { color: var(--fg); font-weight: 500; }
+.zq-toggle-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.zq-toggle-row .tt { min-width: 0; flex: 1; }
+.zq-toggle-row .tt b { display: block; font-size: 13.5px; font-weight: 600; }
+.zq-toggle-row .tt span { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.6; }
+.pg-config .notice.warn { background: var(--warn-soft); border-color: color-mix(in oklch, var(--warn) 28%, var(--border)); }
+.pg-config .notice.warn svg { color: color-mix(in oklch, var(--warn) 80%, var(--fg)); }
+@media (max-width: 900px) { .zg-flow { grid-template-columns: minmax(0, 1fr); } }

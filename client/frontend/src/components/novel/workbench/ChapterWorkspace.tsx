@@ -19,6 +19,7 @@ import {
   useRef,
   useState,
   type RefObject,
+  useSyncExternalStore,
 } from "react";
 import OgPane, { flashField } from "./OgPane";
 import ArchiveStages, { useElapsedSec } from "./ArchiveStages";
@@ -59,6 +60,12 @@ import PlotDrawModal from "./PlotDrawModal";
 import AiCheckModal from "./AiCheckModal";
 import CastReviewModal from "./CastReviewModal";
 import { useChapterData } from "@/hooks/useChapterData";
+import {
+  registerZhuqueFlush,
+  useZhuqueCheck,
+} from "@/hooks/useZhuqueCheck";
+import ZhuqueHeadStrip from "./zhuqueHeadStrip";
+import { getZhuqueShow, subscribeZhuqueShow } from "@/lib/prefs";
 import { useHooksLedger } from "@/hooks/useHooksLedger";
 import { ogHookHints } from "@/lib/hookHints";
 import { usePlotDraw } from "@/hooks/usePlotDraw";
@@ -140,6 +147,15 @@ export default function ChapterWorkspace({
 }: ChapterWorkspaceProps) {
   const store = useChapterData(projectId, chapterRef);
   const { wordCount, saveState, targetWords, setTargetWords } = store;
+  // c-zhuque-ai-detect：检测编排单源（状态仓在模块层；flush 由本章 store 提供——
+  // 送检前落盘由前端保证，后端只读盘上文本）
+  const zq = useZhuqueCheck(projectId, chapterRef);
+  // 显示开关响应式（配置页拨动经 prefs 订阅到达；否则结果条残留到下次无关重渲）
+  const zqShow = useSyncExternalStore(subscribeZhuqueShow, getZhuqueShow, getZhuqueShow);
+  useEffect(() => {
+    registerZhuqueFlush(() => store.flush());
+    return () => registerZhuqueFlush(null);
+  }, [store]);
   // 旧稿支线（revert-ghost）：本章脱离主线，只读保留
   const ghostOf = store.chapter?.ghost_of ?? null;
 
@@ -1116,6 +1132,13 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             <span className="tag">本书总字数 {fmt(bookWords)}</span>
           </div>
         </div>
+        {zqShow && chTab === "prose" && (
+          <ZhuqueHeadStrip
+            state={zq.state}
+            onRerun={() => void zq.run({ flush: () => store.flush() })}
+            onClear={zq.clear}
+          />
+        )}
         <span className="prose-ctrls">
           <button
             className="icon-btn"

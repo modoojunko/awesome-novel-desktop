@@ -29,6 +29,13 @@ export interface AiCapabilityRow {
   testid?: string;
   /** 设计走查锚（data-od-id 透传口，c-character-intro 4.2）。 */
   odId?: string;
+  /** 名称旁徽章插槽（c-zhuque-ai-detect：MAX 专属 warn 章/新增标）。 */
+  badge?: ReactNode;
+  /** 行变体（c-zhuque-ai-detect）：guide=虚线引导行（仍可点）；maxlk=锁定视觉但保持可点（走升级出口）。
+   *  两变体 SHALL NOT 置 disabled——disabled 会吞 onClick，与「点击有出口」冲突。 */
+  variant?: "guide" | "maxlk";
+  /** 运行中描述覆盖（缺省「生成中…」；检测行为「检测中…」）。 */
+  runningHint?: string;
 }
 
 export interface AiWriterAssistantProps {
@@ -138,24 +145,30 @@ export default function AiWriterAssistant({
       )}
       {rows.map((r) => {
         const running = runningKey === r.key;
+        const variantCls =
+          r.variant === "guide" ? " zq-guide" : r.variant === "maxlk" ? " zq-maxlk" : "";
+        // guide/maxlk 行保持可点（出口语义），SHALL NOT 因运行期整卡禁用而失能；
+        // 普通行维持既有口径（含运行行自身 disabled＋aria-busy）
+        const interactive = r.variant !== undefined;
         return (
           <button
             key={r.key}
-            className={`ra-step${r.disabled ? " ra-off" : ""}${running ? " ra-running" : ""}`}
+            className={`ra-step${r.disabled ? " ra-off" : ""}${running ? " ra-running" : ""}${variantCls}`}
             type="button"
             data-aiact={r.key}
             data-od-id={r.odId}
             data-testid={r.testid}
             aria-busy={running || undefined}
-            disabled={r.disabled || runningKey !== null}
+            disabled={interactive ? r.disabled || runningKey === r.key : r.disabled || runningKey !== null}
             onClick={() => void guard(r.key, r.onClick)()}
           >
             <span className="ra-body">
               <b>
                 {r.name}
+                {r.badge}
                 {r.disabled && r.hint && <span className="ra-hint">{r.hint}</span>}
               </b>
-              <i>{running ? "生成中…" : r.desc}</i>
+              <i>{running ? r.runningHint || "生成中…" : r.desc}</i>
             </span>
             <span className="ra-arrow" aria-hidden="true">
               {running ? "" : "›"}

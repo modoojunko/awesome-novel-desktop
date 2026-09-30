@@ -11,6 +11,7 @@ const KEY_AI_SUMMARY = "pref.archive_ai_summary";
 const KEY_NOTICE_SHOWN = "pref.archive_notice_shown";
 const KEY_FONT_SIZE = "pref.default_font_size";
 const KEY_LINE_HEIGHT = "pref.default_line_height";
+const KEY_ZHUQUE_SHOW = "pref.zhuque_show";
 
 export type FontSizePref = "fs-s" | "fs-m" | "fs-l";
 export type LineHeightPref = "lh-tight" | "lh-comfy" | "lh-loose";
@@ -47,6 +48,36 @@ export function setDefaultLineHeight(v: LineHeightPref) {
   } catch {
     // 忽略
   }
+}
+
+/** 「在写作台显示朱雀检测」（c-zhuque-ai-detect）：应用级开关，默认开。
+ *  关＝右栏检测行/标题区结果条/正文标注三处不出现，已配置 Key 不受影响。 */
+export function getZhuqueShow(): boolean {
+  try {
+    return localStorage.getItem(KEY_ZHUQUE_SHOW) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function setZhuqueShow(enabled: boolean) {
+  try {
+    localStorage.setItem(KEY_ZHUQUE_SHOW, enabled ? "on" : "off");
+    window.dispatchEvent(new CustomEvent("zhuque-show-changed", { detail: enabled }));
+  } catch {
+    // localStorage 不可用：保持默认开
+  }
+}
+
+/** 订阅显示开关变化（跨组件单源；配置页 setZhuqueShow 与跨页签 storage 事件都到达）。 */
+export function subscribeZhuqueShow(cb: () => void): () => void {
+  const on = () => cb();
+  window.addEventListener("zhuque-show-changed", on);
+  window.addEventListener("storage", on);
+  return () => {
+    window.removeEventListener("zhuque-show-changed", on);
+    window.removeEventListener("storage", on);
+  };
 }
 
 export function getArchiveAiSummaryEnabled(): boolean {

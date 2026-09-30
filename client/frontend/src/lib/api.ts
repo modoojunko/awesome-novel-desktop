@@ -42,6 +42,8 @@ export interface RequestOptions {
   soft503?: boolean;
   /** 路径前缀覆盖（c-fetch-unify）：默认 /api；/api/v1 手写族迁回中心栈时传 "/api/v1" */
   apiBase?: string;
+  /** 中断信号（c-zhuque-ai-detect：切章/重复点击取消在途检测） */
+  signal?: AbortSignal;
 }
 
 /** 带 HTTP 状态的错误（request() 抛出形状；调用方断言用同一类型，勿再就地重复声明）。 */
@@ -110,13 +112,35 @@ export async function request<T = any>(
       method,
       headers,
       body: options?.body,
+      ...(options?.signal ? { signal: options.signal } : {}),
     });
-  } catch {
+  } catch (e) {
+    // 用户/调用方主动中断（AbortController）：原样上抛，让调用方按取消处理
+    // （c-zhuque-ai-detect：切章取消在途检测不落错误态）
+    if (e instanceof DOMException && e.name === "AbortError") throw e;
+    if (e instanceof Error && e.name === "AbortError") throw e;
     // 网络层失败统一中文化（无 status ⇒ errMessage 回落调用方兜底）
     throw new Error("网络连接失败，请重试") as ApiError;
   }
 
   if (res.status === 401) {
+    // c-zhuque-ai-detect：上游朱雀 Key 无效映射为本端 401 + reason=zhuque_auth——
+    // 这是「作者配错 Key」的可操作引导，不是会话失效，不踢登录、不改写文案。
+    try {
+      const probe = await res.clone().json().catch(() => null);
+      if (probe?.detail?.reason === "zhuque_auth") {
+        const e = new Error(probe.detail.message || "API Key 无效或已失效") as Error & {
+          status?: number;
+          reason?: string;
+        };
+        e.status = 401;
+        e.reason = "zhuque_auth";
+        throw e;
+      }
+    } catch (e) {
+      if (e instanceof Error && (e as Error & { reason?: string }).reason === "zhuque_auth") throw e;
+      /* 非 JSON 体：按普通 401 走既有口径 */
+    }
     // 踢出口径（c-session-flip-stability）：仅用户动作请求的 401 清凭据+回登录页。
     // 探测类（quiet：启动探测/后台刷新/静默预取）401 零全局副作用——瞬时拒绝
     // 不再把用户正在编辑的页面踢飞；显式失效信号（useAuthHeal code 1 +
@@ -148,7 +172,10 @@ export async function request<T = any>(
     // AI 前置的 no_key / missing_model 是可操作引导，不是服务不可用——不进 infra 全局提示；
     // storage_busy 是本地库瞬时 I/O 错误，由面板就地重试，也不弹「云端唤醒中」
     const isAiPrecondition =
-      reason === "no_key" || reason === "missing_model" || reason === "storage_busy";
+      reason === "no_key" ||
+      reason === "missing_model" ||
+      reason === "storage_busy" ||
+      reason === "zhuque_not_configured"; // c-zhuque-ai-detect：可操作引导，不进 infra 全局提示
     if (!isAiPrecondition && !options?.quiet && !options?.soft503) {
       notify503(detail.includes("未配置") ? "app" : "infra");
     }

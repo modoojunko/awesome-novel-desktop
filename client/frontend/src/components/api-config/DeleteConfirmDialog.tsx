@@ -6,10 +6,12 @@ interface DeleteConfirmDialogProps {
   onConfirm: () => Promise<void>;
   onCancel: () => void;
   deleting?: boolean;
+  /** 定制尾注（缺省＝通用「引用它的书将回退」口径；朱雀等无引用配置传专属说明） */
+  note?: string;
 }
 
 /** 删除确认（model-config.html modalDelete 原样：影响盘点红 chips + 可撤销提示） */
-export function DeleteConfirmDialog({ config, onConfirm, onCancel, deleting }: DeleteConfirmDialogProps) {
+export function DeleteConfirmDialog({ config, onConfirm, onCancel, deleting, note }: DeleteConfirmDialogProps) {
   const models = config.models || [];
   const inventory: string[] = [];
   if (models.length) inventory.push(`模型 ${models.length} 个`);
@@ -46,7 +48,7 @@ export function DeleteConfirmDialog({ config, onConfirm, onCancel, deleting }: D
         </div>
       )}
       <p style={{ margin: "8px 0 0", fontSize: "12.5px", color: "var(--muted)" }}>
-        删除后引用它的书将回退到「未配置」状态，此操作可撤销。
+        {note ?? "删除后引用它的书将回退到「未配置」状态，此操作可撤销。"}
       </p>
     </Modal>
   );
