@@ -81,7 +81,7 @@ TBD - created by archiving change 003-two-tier-foundation. Update Purpose after 
 - Free-enabled keys SHALL be exactly: `tree-crud`, `prose-edit`, `version-history`, `archive`, `volume-chapter-config`, `advanced-config-entry`, `settings-7-items`, **`ai-model`**。
   - `ai-model`（本书模型配置）SHALL 为**免费可用**——模型配置是人工路径能力，免费版也能配置本书模型（配好升级 PRO 后直接可用）；免费版与会员的差别**只在右侧 AI 助手**（免费版整卡可见 + 锁定 + 升级引导）。
 - Free-locked keys SHALL be exactly: `settings-ai-fields`, `outline-advanced-fields`, `ai-generate`, `prompt-panel`, **`ai-detect`**（原列表中的 `ai-model` 已移除）。
-  - `ai-detect`（朱雀 AI 检测）SHALL 为 **MAX 会员专属、试用不含**（定价终拍见 docs/prd/pricing-tiers-launch-promo.md §6.2/§6.4）：静态注册表 memberOnly=true 仅表达「会员功能、入口可见」，MAX 精确发放由 S端 entitlement 快照控制（快照 features 只对 MAX 含 `ai-detect`）；快照缺失时按 useFeature 兜底口径一律视为未授权（锁定）。配置页签的可见与可配置不受此 key 门禁（门禁落使用口，见 zhuque-config）。
+  - `ai-detect`（朱雀 AI 检测）SHALL 为 **PRO 会员起发放、试用不含**（c-ai-detect-pro-tier：MAX 档未上线前朱雀零人可用、无法验证，2026-09-30 自 MAX 专属下放；原定价终拍见 docs/prd/pricing-tiers-launch-promo.md §6.2/§6.4，MAX 上线后是否收回另立 change）：静态注册表 memberOnly=true 仅表达「会员功能、入口可见」，精确发放由 S端 entitlement 快照控制（快照 features 对 pro/max 含 `ai-detect`）；快照缺失时按 useFeature 兜底口径一律视为未授权（锁定）。配置页签的可见与可配置不受此 key 门禁（门禁落使用口，见 zhuque-config）。
 - The module SHALL have no DOM dependency (pure TS).
 
 #### Scenario: Free disabled AI features
@@ -96,7 +96,7 @@ TBD - created by archiving change 003-two-tier-foundation. Update Purpose after 
 
 #### Scenario: ai-detect 对非 MAX 锁定
 
-- Given 快照存在且 features 不含 "ai-detect"（免费/PRO/试用用户）
+- Given 快照存在且 features 不含 "ai-detect"（免费/试用用户；PRO/MAX 已发放）
 - When useFeature("ai-detect") 被调用
 - Then 返回 false（工作台检测行呈锁定态，入口可见、点击走升级出口）
 
