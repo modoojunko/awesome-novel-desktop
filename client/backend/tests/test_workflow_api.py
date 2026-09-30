@@ -238,6 +238,42 @@ class TestChapterConfirm:
             app.dependency_overrides[get_current_user] = _override_current_user
 
 
+# ── Chapter unconfirm（c-og-draft-no-autconfirm）─────────────────────────
+
+
+class TestChapterUnconfirm:
+    def test_unconfirm_after_confirm_returns_to_draft(self, client):
+        pid, chapter_ref = _create_project_and_chapter(client)
+        assert client.post(f"/api/novels/{pid}/chapters/{chapter_ref}/confirm").status_code == 200
+        r = client.post(f"/api/novels/{pid}/chapters/{chapter_ref}/unconfirm")
+        assert r.status_code == 200, f"Unconfirm failed: {r.text}"
+        assert r.json()["status"] == "draft"
+        # 撤回后重新确认仍可用（gate 不受撤回影响）
+        r2 = client.post(f"/api/novels/{pid}/chapters/{chapter_ref}/confirm")
+        assert r2.status_code == 200
+        assert r2.json()["status"] == "confirmed"
+
+    def test_unconfirm_non_confirmed_is_idempotent(self, client):
+        pid, chapter_ref = _create_project_and_chapter(client)
+        r = client.post(f"/api/novels/{pid}/chapters/{chapter_ref}/unconfirm")
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+
+    def test_unconfirm_archived_returns_409(self, client):
+        pid, chapter_ref = _create_project_and_chapter(client)
+        assert client.post(
+            f"/api/novels/{pid}/chapters/{chapter_ref}/confirm"
+        ).status_code == 200
+        text = "第一章正文。" + "内容。" * 60
+        ra = client.post(
+            f"/api/novels/{pid}/chapters/{chapter_ref}/archive",
+            json={"full_text": text, "ai_summary": False},
+        )
+        assert ra.status_code == 200, f"Archive failed: {ra.text}"
+        r = client.post(f"/api/novels/{pid}/chapters/{chapter_ref}/unconfirm")
+        assert r.status_code == 409
+
+
 # ── Workflow transition ──────────────────────────────────────────────────
 
 

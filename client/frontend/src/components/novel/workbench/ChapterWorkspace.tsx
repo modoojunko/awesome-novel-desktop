@@ -483,15 +483,22 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
   const handleSaveDraft = useCallback(async () => {
     if (!(await saveOg())) return;
-    // 草稿保存无缺项 → 自动确认（设计稿行为）
-    let autoConfirmed = false;
-    if (ogGaps(ogForm).length === 0 && ogStatus !== "confirmed") {
-      await outline.confirmChapter(chapterRef);
-      autoConfirmed = (await reloadStatus()) === "confirmed";
-    }
-    toast.success(autoConfirmed ? "已保存并确认章纲" : "草稿已保存");
+    // 只保存不改确认状态（c-og-draft-no-autconfirm）：确认只走「确认章纲」显式触发，
+    // 旧「无缺项自动确认」退役——必填砍到两项后它让保存草稿几乎恒确认，按钮语义打架。
+    toast.success("草稿已保存");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saveOg, outline.confirmChapter, chapterRef, ogForm, ogStatus, reloadStatus]);
+  }, [saveOg]);
+
+  /** 撤回确认（c-og-draft-no-autconfirm）：确认态退回草稿，树上计数随批回落 */
+  const handleUnconfirm = useCallback(async () => {
+    await outline.unconfirmChapter(chapterRef);
+    const st = await reloadStatus();
+    if (st !== "confirmed") {
+      await outline.refetchTree();
+      toast.success("已撤回确认，章纲回到草稿态");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outline.unconfirmChapter, outline.refetchTree, chapterRef, reloadStatus]);
 
   const handleConfirm = useCallback(async () => {
     if (confirmed || gaps.length > 0) return;
@@ -1455,6 +1462,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           onGapClick={editAndFlash}
           onSaveDraft={() => void handleSaveDraft()}
           onConfirm={() => void handleConfirm()}
+          onUnconfirm={() => void handleUnconfirm()}
           onGoWrite={() => void handleGoWrite()}
           onQuickCreateChar={(name) => void handleQuickCreateChar(name)}
         />

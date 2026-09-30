@@ -64,6 +64,7 @@ function makeOutline(server: Record<string, unknown>) {
       return {};
     }),
     confirmChapter: vi.fn(async () => {}),
+    unconfirmChapter: vi.fn(async () => {}),
     refetchTree: vi.fn(async () => {}),
   };
 }
@@ -367,5 +368,39 @@ describe("头部 meta 行（2026-09-27 章纲统计自右栏 AI 助手上移）"
     expect(document.querySelector(".ch-tabs .ch-history")?.textContent).toContain("版本历史");
     // 归档入口移操作页签：默认章纲页签下头部无归档按钮
     expect(screen.queryByRole("button", { name: "归档本章" })).toBeNull();
+  });
+});
+
+describe("保存草稿不确认＋撤回确认（c-og-draft-no-autconfirm）", () => {
+  it("保存草稿只落库：confirmChapter 零调用，toast 恒「草稿已保存」", async () => {
+    const { outline } = mount({ server: { ...FULL } });
+    await enterOgEdit();
+    fireEvent.click(await screen.findByRole("button", { name: "保存草稿" }));
+    await waitFor(() =>
+      expect(mockToast.success).toHaveBeenCalledWith("草稿已保存"),
+    );
+    expect(outline.saveChapter).toHaveBeenCalled();
+    // 旧「无缺项自动确认」退役：保存草稿不得触发确认端点
+    expect(outline.confirmChapter).not.toHaveBeenCalled();
+  });
+
+  it("已确认章查看态「撤回确认」→ 弹窗确认 → unconfirmChapter＋refetchTree＋toast", async () => {
+    const server = { ...FULL, status: "confirmed" };
+    const { outline } = mount({ server });
+    // 已确认徽标在场（无缺口），撤回入口仅确认态出现
+    const btn = await screen.findByTestId("og-unconfirm");
+    fireEvent.click(btn);
+    // 弹窗双出口：先「保留确认」不触发
+    fireEvent.click(await screen.findByText("保留确认"));
+    expect(outline.unconfirmChapter).not.toHaveBeenCalled();
+    // 再开 →「撤回」触发全链；撤回后 reloadStatus 读同一对象（现回 draft）决定 toast
+    server.status = "draft";
+    fireEvent.click(await screen.findByTestId("og-unconfirm"));
+    fireEvent.click(await screen.findByTestId("og-unconfirm-go"));
+    await waitFor(() =>
+      expect(mockToast.success).toHaveBeenCalledWith("已撤回确认，章纲回到草稿态"),
+    );
+    expect(outline.unconfirmChapter).toHaveBeenCalledWith(REF);
+    expect(outline.refetchTree).toHaveBeenCalled();
   });
 });

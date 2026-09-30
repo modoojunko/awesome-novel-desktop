@@ -81,6 +81,33 @@ describe("confirmChapter", () => {
   });
 });
 
+describe("unconfirmChapter（c-og-draft-no-autconfirm）", () => {
+  it("撤回失败 → toast.error 透传，吞错不 rethrow", async () => {
+    apiState.post.mockRejectedValue(new Error("本章已归档，请先恢复编辑"));
+    const { result } = await mountHook();
+
+    let resolved = false;
+    await act(async () => {
+      await result.current.unconfirmChapter("vol-1-ch-1");
+      resolved = true;
+    });
+    expect(resolved).toBe(true);
+    expect(apiState.post).toHaveBeenCalledWith("/novels/p1/chapters/vol-1-ch-1/unconfirm");
+    expect(toastState.error).toHaveBeenCalledWith("本章已归档，请先恢复编辑");
+  });
+
+  it("撤回成功 → 不弹错，状态置 in_progress（确认过的章必填已齐）", async () => {
+    apiState.post.mockResolvedValue({});
+    const { result } = await mountHook();
+
+    await act(async () => {
+      await result.current.unconfirmChapter("vol-1-ch-1");
+    });
+    expect(toastState.error).not.toHaveBeenCalled();
+    expect(result.current.chapterStatuses.get("vol-1-ch-1")).toBe("in_progress");
+  });
+});
+
 describe("transitionToPrompt", () => {
   it("流转失败 → toast.error，吞错不 rethrow", async () => {
     apiState.post.mockRejectedValue(new Error("还有未完成章节"));
