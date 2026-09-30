@@ -344,6 +344,40 @@ async def confirm_chapter(
     return {"ok": True, "status": "confirmed", "warnings": warnings}
 
 
+@router.post("/chapters/{chapter_ref}/unconfirm")
+async def unconfirm_chapter(
+    project_id: str,
+    chapter_ref: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """撤回章纲确认（c-og-draft-no-autconfirm）：确认态退回草稿，确认按钮恢复可点。
+    归档章拒撤（归档走 unarchive 路径）；已草稿章幂等返回。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    _validate_ref(chapter_ref)
+    from repositories import chapter_repo
+
+    row = await chapter_repo.get_by_ref(db, project.id, chapter_ref)
+    if row is not None and row.status == "archived":
+        raise HTTPException(409, "本章已归档，请先恢复编辑")
+    if row is not None and row.status != "confirmed":
+        return {"ok": True, "status": row.status}
+    chapter = await load_chapter(project.root_path, chapter_ref)
+    if not chapter:
+        raise HTTPException(404, "Chapter not found")
+    chapter["status"] = "draft"
+    # 统一写入口：DB 落库 + 元数据派生（outline_status 随状态机回落 unfilled/in_progress）
+    warnings = await save_chapter(db, project, chapter_ref, chapter)
+    row = await chapter_repo.get_by_ref(db, project.id, chapter_ref)
+    if row is not None:
+        row.status = "draft"
+        row.confirmed_at = None
+        await db.commit()
+    return {"ok": True, "status": "draft", "warnings": warnings}
+
+
 @router.post("/chapters/{chapter_ref}/unarchive")
 async def unarchive_chapter(
     project_id: str,

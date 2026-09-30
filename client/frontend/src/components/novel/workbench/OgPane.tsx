@@ -11,6 +11,7 @@
 //   缺项 chip 查看态点击＝进编辑态并滚动聚焦对应格子；取消＝回退最近一次落库值。
 import { useRef, useState } from "react";
 import { toast } from "@/lib/toast";
+import Modal from "@/components/design/Modal";
 import type { OgHookHints, HookHint } from "@/lib/hookHints";
 import { hookChipCandidates } from "@/lib/hookHints";
 import {
@@ -47,6 +48,8 @@ interface OgPaneProps {
   onGapClick: (key: string) => void;
   onSaveDraft: () => void;
   onConfirm: () => void;
+  /** 撤回确认（c-og-draft-no-autconfirm）：已确认态查看区出现；缺省＝不提供撤回 */
+  onUnconfirm?: () => void;
   onGoWrite: () => void;
   /** 名单区没卡标旁的行级建卡入口（c-character-intro 4.1；只预填称呼） */
   onQuickCreateChar?: (name: string) => void;
@@ -103,6 +106,7 @@ export default function OgPane({
   onGapClick,
   onSaveDraft,
   onConfirm,
+  onUnconfirm,
   onGoWrite,
   onQuickCreateChar,
   protagonistName,
@@ -116,6 +120,8 @@ export default function OgPane({
   const showPayoffHint = payoffReminded && !payoffFilled;
   // 名单缺人探测的「忽略」记录（按章；会话内——c-character-intro 6.x 通用逻辑）
   const [missIgnored, setMissIgnored] = useState<Record<string, string[]>>({});
+  // 撤回确认弹窗（c-og-draft-no-autconfirm）：确认态查看区的后悔药
+  const [unconfirmOpen, setUnconfirmOpen] = useState(false);
 
   // 剧情行稳定 key（禁 index key——删除时 React 不得错位复用 textarea）：
   // 平行 id 数组随显示行数伸缩，删除在 delPlot 里同步摘掉对应 id
@@ -305,6 +311,16 @@ export default function OgPane({
           <div className="ol-top">
             <span className="note">章纲 · 明确「这一章写什么」</span>
             <span className="push">
+              {confirmed && onUnconfirm && (
+                <button
+                  className="btn btn-ghost"
+                  data-testid="og-unconfirm"
+                  onClick={() => setUnconfirmOpen(true)}
+                  disabled={saving}
+                >
+                  撤回确认
+                </button>
+              )}
               <button
                 className="btn btn-primary"
                 style={{ background: "var(--accent-strong)" }}
@@ -464,6 +480,39 @@ export default function OgPane({
             </p>
           )}
         </div>
+        {onUnconfirm && (
+          <Modal
+            open={unconfirmOpen}
+            onClose={() => setUnconfirmOpen(false)}
+            title="撤回确认"
+            wbStyle
+            hideClose
+            footer={
+              <>
+                <button className="btn btn-secondary" onClick={() => setUnconfirmOpen(false)}>
+                  保留确认
+                </button>
+                <button
+                  className="btn btn-primary"
+                  data-testid="og-unconfirm-go"
+                  onClick={() => {
+                    setUnconfirmOpen(false);
+                    onUnconfirm();
+                  }}
+                >
+                  撤回
+                </button>
+              </>
+            }
+          >
+            <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.7 }}>
+              撤回后《{label}》的章纲回到草稿态，可随时重新确认。
+            </p>
+            <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
+              正文与归档状态不受影响。
+            </p>
+          </Modal>
+        )}
       </div>
     );
   }

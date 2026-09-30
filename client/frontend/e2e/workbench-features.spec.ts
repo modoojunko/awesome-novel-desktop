@@ -181,7 +181,7 @@ test("章纲：OgPane 真实表单编辑 + 保存草稿（概要/出场角色/�
     await page.locator("#wf-changes").fill("主角拿到入城许可");
     await page.locator("#wf-mood select").selectOption({ label: "悬疑" });
 
-    // 保存草稿 → PUT /chapters/vol-1-ch-1 落盘（必填两项已齐 → 自动确认，toast 分口径）
+    // 保存草稿 → PUT /chapters/vol-1-ch-1 落盘（c-og-draft-no-autconfirm：只保存不确认）
     const save = page.waitForResponse(
       (r) =>
         r.request().method() === "PUT" &&
@@ -189,7 +189,7 @@ test("章纲：OgPane 真实表单编辑 + 保存草稿（概要/出场角色/�
     );
     await page.getByRole("button", { name: "保存草稿" }).click();
     await save;
-    await expect(page.getByText("已保存并确认章纲")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("草稿已保存")).toBeVisible({ timeout: 5000 });
 
     // 后端直查：outline / memo / emotional_design 均已落盘（退役键不在结果里）
     const ch = await apiGetJSON(request, token, `/novels/${pid}/chapters/vol-1-ch-1`);
@@ -201,6 +201,32 @@ test("章纲：OgPane 真实表单编辑 + 保存草稿（概要/出场角色/�
       expect(ch.outline[dead]).toBeUndefined();
     }
     expect(ch.memo.reader_expectation).toBeUndefined();
+
+    // ── 确认 → 撤回确认（c-og-draft-no-autconfirm）：确认只走显式按钮，撤回是后悔药 ──
+    await page.getByRole("button", { name: "确认章纲" }).click();
+    await expect(page.getByText("《第一章》章纲已确认")).toBeVisible({ timeout: 5000 });
+    // 后端直查：确认态落库
+    const ch2 = await apiGetJSON(request, token, `/novels/${pid}/chapters/vol-1-ch-1`);
+    expect(ch2.status).toBe("confirmed");
+    // 退出编辑态回查看态：撤回入口仅已确认态出现
+    await page.getByRole("button", { name: "取消" }).click();
+    const unconfirm = page.getByTestId("og-unconfirm");
+    await expect(unconfirm).toBeVisible({ timeout: 5000 });
+    // 弹窗先「保留确认」不触发
+    await unconfirm.click();
+    await page.getByRole("button", { name: "保留确认" }).click();
+    await expect(unconfirm).toBeVisible();
+    // 「撤回」→ 徽标消失、确认按钮恢复可点
+    await unconfirm.click();
+    await page.getByTestId("og-unconfirm-go").click();
+    await expect(page.getByText("已撤回确认，章纲回到草稿态")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("og-unconfirm")).toHaveCount(0);
+    const viewConfirm = page.getByRole("button", { name: "确认章纲" });
+    await expect(viewConfirm).toBeVisible();
+    await expect(viewConfirm).toBeEnabled();
+    // 后端直查：撤回落库为草稿
+    const ch3 = await apiGetJSON(request, token, `/novels/${pid}/chapters/vol-1-ch-1`);
+    expect(ch3.status).toBe("draft");
   } finally {
     await restore();
   }

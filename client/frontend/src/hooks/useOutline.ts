@@ -111,6 +111,7 @@ export interface UseOutlineReturn {
   loadChapterData(ref: string): Promise<ChapterData>;
   saveChapter(ref: string, data: Partial<ChapterData>): Promise<{ warnings?: string[] }>;
   confirmChapter(ref: string): Promise<void>;
+  unconfirmChapter(ref: string): Promise<void>;
   transitionToPrompt(): Promise<void>;
   refetchTree(): Promise<void>;
 }
@@ -303,6 +304,38 @@ export function useOutline(projectId: string): UseOutlineReturn {
   );
 
   // -----------------------------------------------------------------------
+  // Unconfirm a single chapter（c-og-draft-no-autconfirm）：确认态退回草稿
+  // -----------------------------------------------------------------------
+
+  const unconfirmChapter = useCallback(
+    async (ref: string) => {
+      try {
+        await api.post(`/novels/${projectId}/chapters/${ref}/unconfirm`);
+      } catch (e: any) {
+        toast.error(e?.message || "撤回确认失败，请重试");
+        return;
+      }
+
+      // Optimistically update local state（与 confirmChapter 对称）
+      const updatedVolumes = volumes.map((v) => ({
+        ...v,
+        chapters: v.chapters.map((c) =>
+          c.ref === ref ? { ...c, status: "draft" as const } : c,
+        ),
+      }));
+      setVolumes(updatedVolumes);
+
+      setChapterStatuses((prev) => {
+        const next = new Map(prev);
+        // 确认过的章必填已齐（gate）→ 撤回后派生态＝已填未确认
+        next.set(ref, "in_progress");
+        return next;
+      });
+    },
+    [projectId, volumes],
+  );
+
+  // -----------------------------------------------------------------------
   // Transition workflow to prompt phase
   // -----------------------------------------------------------------------
 
@@ -354,6 +387,7 @@ export function useOutline(projectId: string): UseOutlineReturn {
     loadChapterData,
     saveChapter,
     confirmChapter,
+    unconfirmChapter,
     transitionToPrompt,
     refetchTree,
   };
