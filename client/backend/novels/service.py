@@ -1,3 +1,4 @@
+import os
 import re
 import uuid
 from datetime import UTC, datetime
@@ -5,7 +6,8 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import DATA_ROOT
+from config import book_root
+from filesystem.db_storage import seed_settings_to_db
 from filesystem.storage import get_storage
 from models.project import Novel
 
@@ -41,12 +43,14 @@ async def create_project(
     if existing.scalar_one_or_none():
         slug = f"{slug}-{uuid.uuid4().hex[:6]}"
 
-    root_path = f"{DATA_ROOT}/{slug}"
+    root_path = book_root(slug)
 
-    # "import" 来源：只创建数据库记录，不初始化文件系统骨架
-    # 导入后文件系统会由 /import/persist 写入完整内容
+    # "import" 来源：只创建数据库记录，不做设定种子（备份导入侧自带种子/搬运）
     if source != "import":
-        await get_storage().init_skeleton(root_path)
+        await seed_settings_to_db(root_path)
+        # 根目录仅作 novel-samples（文风蒸馏样例）的用户投样锚点——
+        # 业务数据全量入库，盘上无任何骨架文件（c-retire-local-file-storage）
+        os.makedirs(root_path, exist_ok=True)
 
         # Write AI-suggested metadata into project files
         # genre 为展示名（书架卡片类型胶囊；与 AI 流程的 genre_profile slug 无关）

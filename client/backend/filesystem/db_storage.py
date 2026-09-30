@@ -1,15 +1,16 @@
 """DatabaseFileBackend — project_settings 表 KV 后端（ADR-001/002）。
 
 只做 8 类单文件设定 + 字符目录的 project_settings 表 upsert/get/list/delete，
-不直接处理业务。init_skeleton 的 DB 种子由 seed_settings_to_db() 承担；
-本地骨架委托 LocalFileBackend（见 composite_storage）。
+不直接处理业务。新项目种子由 seed_settings_to_db() 承担（建书调用点直呼）。
+「LocalFileBackend 盘上文件存储」已退役（c-retire-local-file-storage）——
+content 列唯一正规形状是 JSON dict，非 settings 路由的路径读 `{}`、写 no-op。
 """
 
 import json
 import logging
 
 import yaml
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from db import async_session
 from filesystem.paths import CHARACTER_DIR, CHARACTER_PREFIX, route_relative_path
@@ -112,18 +113,6 @@ class DatabaseFileBackend:
             )
             keys = result.scalars().all()
         return [k[len(CHARACTER_PREFIX) :] for k in keys]
-
-    async def delete_root(self, root_path: str) -> None:
-        """清 root_path 全部行（防孤儿行，ADR-002）。"""
-        async with async_session() as session:
-            await session.execute(
-                delete(ProjectSetting).where(ProjectSetting.root_path == root_path)
-            )
-            await session.commit()
-
-    async def has_key(self, root_path: str, key: str) -> bool:
-        async with async_session() as session:
-            return await session.get(ProjectSetting, (root_path, key)) is not None
 
 
 async def seed_settings_to_db(root_path: str) -> None:

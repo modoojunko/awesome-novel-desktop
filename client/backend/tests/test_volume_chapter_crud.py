@@ -27,12 +27,12 @@ os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
 os.environ["DATA_ROOT"] = _tmp_data_root
 
 from db import Base, async_session, engine
-from filesystem.storage import LocalFileBackend
+from filesystem.storage import get_storage
 from models import Novel
 from repositories import chapter_repo, volume_repo
 
 USER_ID = "vcc_user"
-storage = LocalFileBackend()
+storage = get_storage()
 
 
 def _run_async(coro):

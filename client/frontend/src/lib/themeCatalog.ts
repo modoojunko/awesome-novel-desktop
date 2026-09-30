@@ -13,7 +13,7 @@
  */
 
 export interface SubTheme {
-  /** 子类名（存 story.yaml.sub_genre）。 */
+  /** 子类名（存 story KV 的 sub_genre）。 */
   name: string;
   /** 解读：这一项写的是什么。 */
   desc: string;
@@ -22,7 +22,7 @@ export interface SubTheme {
 }
 
 export interface ThemeEntry {
-  /** 大类名（存 story.yaml.genre，是书本题材展示名的主来源）。 */
+  /** 大类名（存 story KV 的 genre，是书本题材展示名的主来源）。 */
   name: string;
   /** 解读：这一大类写的是什么。 */
   desc: string;
