@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>朱雀 AI 检测 · 爱小说 C端 · 设计稿</title>
+<!-- ═════════════════════════════════════════════════════════════
+  爱小说 C端 · 「朱雀 AI 检测」· 高保真设计稿 · 2026-09-30（v12）
+  ── v12 拍板（用户 09-30，四路评审后收口）────────────────
+  · 门禁：朱雀检测为 MAX 会员权益（试用不含）；非 MAX 右栏行
+    锁定态（zq-maxlk＋「MAX 专属」章，点击走升级出口）；MAX 未配
+    Key＝虚线引导跳「模型配置 → 朱雀」页签（旧「全档免费」口径废）。
+    配置页签全档可见可配置（Key 是作家自己的腾讯资产，门禁落使用口）。
+  · Key 存储：复用大模型配置表 api_configs，vendor 字段区分
+    （vendor="zhuque"，加密/掩码/软删恢复白得；后端通用选取路径须
+    加 vendor 过滤防兜底吞用——四路评审后端 P0）。
+  · 结果时效：正文编辑后旧标注变灰＋提示重检（不自动消失）；
+    检测结果绑定送检时内容指纹（hash），不跨会话保留（重启即弃）。
+  · 结果位置：标题行右侧（维持本稿画法；实装窄屏自适应压缩）。
+  · 文案修正：「升级企业版」改中性口径；结果区补「概率参考 ·
+    非平台判定」；送检范围剔除作话/作者注（实装口径）。
+  · CSS 清理：.zrc-*（v2 右栏结果卡遗骸）全撤；实装 switch 对齐
+    现役 .switch-btn 词汇；标注选择器挂 .editor 不挂 .prose p。
+  ── v2 拍板（用户 2026-09-30，评审 v1 后）────────────────
+  · 检测结果不进弹窗：AI 占比 / 人工占比等数据直接放右栏功能框
+    （检测结果块，挂在动作行之下）；v1 的结果弹窗整个退役。
+  · 段落级标注直接标在正文行：疑似/AI 段底色＋行尾置信度章，
+    人写段只挂灰章不着色；标注是覆盖层，不动正文内容。
+  ── 已定口径（本轮对话拍板）──────────────────────────────
+  · BYOK：作家自带腾讯云 EdgeOne Makers API Key，存 C端 本地；S端 不参与。
+  · 资质：腾讯云个人实名认证即可；每月免费 50 万 token（活动口径，
+    产品不承诺永久免费）。
+  · 全档免费可用（自备 Key 工具），不设 PRO 门禁。
+  · 检测端点：POST /v1/providers/zhuque-text/classify（Bearer Key），
+    返回 softmax_confidence / labels_ratio(0人写,1AI,2疑似) /
+    segment_labels[]（段落级置信度）。
+  ── 设计决策（待评审）──────────────────────────────────
+  · 模型配置页加页签「写作大模型 / 朱雀 AI 检测」：朱雀不是对话
+    模型，单开一页签放「单 Key 槽位」面板。
+  · 右栏入口放「正文」页签动作清单末行；检测中＝行内 ra-running
+    态（沿用既有词汇）；失败＝右栏错误块（可重试/去检查）。
+  · 行态四分（v12 定案）：非 MAX＝锁定（zq-maxlk＋MAX 专属章，
+    点击走升级出口）；MAX 未配 Key＝虚线引导跳「模型配置 → 朱雀」；
+    MAX 已配＝可用；开关关＝整行不渲染。
+  · 结果块带「清除标注」＝退出标注态；「重新检测」就地重跑。
+  ── 文件性质 ─────────────────────────────────────────────
+  drafts/ 设计稿：全静态、零后端、vanilla JS 演示；token 与组件
+  词汇逐字取自 book.css / pages/（base.css 注入口径）。
+  右上角 10 态切换：
+  ① 配置·大模型页签 ② 配置·朱雀·未配 ③ 配置·朱雀·已配
+  ④ 工作台·非MAX锁定 ⑤ 工作台·未配Key ⑥ 工作台·开关开（就绪）
+  ⑦ 工作台·检测中 ⑧ 工作台·结果 ⑨ 工作台·失败 ⑩ 工作台·开关关
+═══════════════════════════════════════════════════════════ -->
+<style>
+/* ═══ tokens（与全站一致，取自 pages/works.html 注入口径）═══ */
+:root {
+  --bg:      oklch(98% 0.004 240);
+  --surface: oklch(100% 0 0);
+  --fg:      oklch(20% 0.02 240);
+  --muted:   oklch(50% 0.018 240);
+  --border:  oklch(90% 0.006 240);
+  --accent: oklch(48% 0.11 170);
+  --accent-strong: oklch(41% 0.10 170);
+  --accent-soft:   color-mix(in oklch, var(--accent) 12%, transparent);
+  --ok:    oklch(52% 0.11 155);  --ok-soft:   color-mix(in oklch, var(--ok) 14%, transparent);
+  --warn:  oklch(50% 0.13 75);   --warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+  --err:   oklch(50% 0.17 25);   --err-soft:  color-mix(in oklch, var(--err) 12%, transparent);
+  --fg-soft:   color-mix(in oklch, var(--fg) 5%, transparent);
+  --faint: color-mix(in oklch, var(--muted) 68%, transparent);
+  --on-accent: oklch(100% 0 0);
+  --shadow-card: 0 1px 2px color-mix(in oklch, var(--fg) 5%, transparent),
+                 0 12px 32px -12px color-mix(in oklch, var(--fg) 14%, transparent);
+  --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+  --radius: 10px; --radius-lg: 16px;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 14px; line-height: 1.55;
+  text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
+  min-height: 100vh; display: flex; flex-direction: column;
+}
+img, svg { display: block; }
+a { color: inherit; text-decoration: none; }
+button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; padding: 0; }
+input, textarea, select { font: inherit; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.serif { font-family: var(--font-display); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+
+/* ─── 按钮 / 徽标 / 表单 / 提示（pages/ 逐字口径）─── */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 15px; border-radius: var(--radius); border: 1px solid transparent; font-size: 13.5px; font-weight: 500; letter-spacing: 0.01em; line-height: inherit; transition: background 0.15s ease, border-color 0.15s ease; }
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-primary:hover { background: var(--accent-strong); }
+.btn-secondary { background: var(--surface); color: var(--fg); border-color: var(--border); }
+.btn-secondary:hover { border-color: var(--fg); }
+.btn-ghost { background: transparent; color: var(--muted); padding: 0 8px; }
+.btn-ghost:hover { color: var(--fg); background: var(--fg-soft); }
+.btn-sm { height: 28px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; gap: 5px; }
+.btn svg { width: 15px; height: 15px; }
+.btn-sm svg { width: 13px; height: 13px; }
+.icon-btn { width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: 8px; color: var(--muted); }
+.icon-btn:hover { color: var(--fg); background: var(--fg-soft); }
+.icon-btn svg { width: 15px; height: 15px; }
+.pill { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 1.6; font-weight: 500; background: var(--surface); color: var(--muted); white-space: nowrap; }
+.pill-ok { background: var(--ok-soft); border-color: transparent; color: color-mix(in oklch, var(--ok) 88%, var(--fg)); }
+.pill-warn { background: var(--warn-soft); border-color: transparent; color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
+.pill-err { background: var(--err-soft); border-color: transparent; color: color-mix(in oklch, var(--err) 90%, var(--fg)); }
+.pill-new { background: var(--accent); border-color: transparent; color: var(--on-accent); letter-spacing: 0.06em; }
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.field label { font-size: 12.5px; color: var(--muted); }
+.input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 14px; }
+.input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.hint { font-size: 12.5px; color: var(--muted); line-height: 1.7; padding: 10px 12px; background: var(--fg-soft); border-radius: 9px; margin: 1em 0; }
+.hint b { color: var(--fg); font-weight: 500; }
+.lnk { color: var(--accent); cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
+.lnk:hover { color: var(--accent-strong); text-decoration: underline; }
+.notice { display: flex; align-items: center; gap: 12px; border: 1px solid color-mix(in oklch, var(--warn) 28%, var(--border)); background: var(--warn-soft); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; font-size: 13px; }
+.notice.info { border-color: color-mix(in oklch, var(--accent) 30%, var(--border)); background: var(--accent-soft); }
+.notice .nt { flex: 1; }
+.notice .nt b { font-weight: 500; }
+.notice .nt span { color: var(--muted); font-size: 12.5px; margin-left: 8px; }
+.notice svg { width: 16px; height: 16px; flex: none; }
+.badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 500; }
+.badge svg { width: 10px; height: 10px; }
+.badge.ok { background: var(--ok-soft); color: color-mix(in oklch, var(--ok) 88%, var(--fg)); }
+.badge.warn { background: var(--warn-soft); color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
+.badge.empty { background: var(--fg-soft); color: var(--muted); }
+
+/* ─── appbar / 页头 ─── */
+.appbar { height: 48px; flex-shrink: 0; display: flex; align-items: center; padding: 0 20px; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--border); position: relative; z-index: 20; }
+.logo { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: 0.08em; }
+.logo-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-family: var(--font-display); font-size: 14px; }
+.appbar .nav { display: inline-flex; align-items: center; gap: 4px; margin-left: 14px; }
+.appbar .nav a { font-size: 13.5px; color: var(--muted); padding: 5px 10px; border-radius: 8px; display: inline-flex; align-items: center; gap: 4px; }
+.appbar .nav a:hover { color: var(--fg); }
+.appbar .nav a.on { color: var(--fg); background: var(--fg-soft); font-weight: 500; }
+.appbar .spacer { flex: 1; }
+.avatar { width: 26px; height: 26px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); display: grid; place-items: center; font-size: 12px; font-weight: 600; }
+
+.main { flex: 1; width: min(100%, 1080px); margin-inline: auto; padding: 48px 32px 80px; }
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+.page-head h1 { font-family: var(--font-display); font-size: 30px; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
+.page-head .sub { font-size: 13px; color: var(--muted); margin-top: 6px; margin-bottom: 1em; }
+
+/* ─── 模型配置页：两页签（大模型/朱雀）─── */
+.cfg-tabs { display: inline-flex; gap: 2px; padding: 3px; background: var(--fg-soft); border-radius: 11px; margin-bottom: 22px; }
+.cfg-tab { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 16px; border-radius: 8px; font-size: 13px; color: var(--muted); }
+.cfg-tab:hover { color: var(--fg); }
+.cfg-tab.on { background: var(--surface); color: var(--fg); font-weight: 500; box-shadow: 0 1px 2px color-mix(in oklch, var(--fg) 8%, transparent); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.card-s { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); padding: 18px 20px; }
+.card-s .cs-head { display: flex; align-items: center; gap: 9px; }
+.card-s .cs-name { font-family: var(--font-display); font-size: 15.5px; font-weight: 600; }
+.card-s .cs-vendor { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 1px 7px; }
+.card-s .cs-meta { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.7; }
+.card-s .cs-foot { display: flex; gap: 8px; margin-top: 14px; }
+
+/* ─── 朱雀面板（与大模型页签同布局节奏：notice 全宽＋card-s 全宽＋cards 双卡网格）─── */
+.zg-keyrow { display: flex; gap: 8px; margin-top: 14px; }
+.zg-keyrow .input { flex: 1; font-family: var(--font-mono); font-size: 13px; }
+.zg-stats { display: flex; gap: 0; margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.zg-stats .st { flex: 1; }
+.zg-stats .st b { display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; }
+.zg-stats .st span { font-size: 11px; color: var(--muted); }
+/* 获取 Key：全宽卡内横向三步（1→2→3 并排，链接行整行不折行） */
+.zg-flow { counter-reset: st; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 12px 0 0; padding: 0; list-style: none; }
+.zg-flow li { counter-increment: st; display: flex; gap: 9px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+.zg-flow li::before { content: counter(st); flex: none; width: 20px; height: 20px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); font-size: 11px; font-weight: 600; display: grid; place-items: center; margin-top: 2px; }
+.zg-flow li b { color: var(--fg); font-weight: 500; }
+
+/* v11：显示开关（滑动开关，控制工作台是否出现朱雀检测入口与标题区结果） */
+.zq-toggle-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.zq-toggle-row .tt { min-width: 0; flex: 1; }
+.zq-toggle-row .tt b { display: block; font-size: 13.5px; font-weight: 600; }
+.zq-toggle-row .tt span { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.6; }
+.switch { position: relative; width: 38px; height: 22px; flex: none; cursor: pointer; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.switch i { position: absolute; inset: 0; border-radius: 999px; background: var(--fg-soft); transition: background 0.15s ease; pointer-events: none; }
+.switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 999px; background: var(--surface); box-shadow: 0 1px 2px color-mix(in oklch, var(--fg) 18%, transparent); transition: transform 0.15s ease; }
+.switch input:checked + i { background: var(--accent); }
+.switch input:checked + i::after { transform: translateX(16px); }
+
+/* ═══ 工作台（三栏壳）═══ */
+.wb { flex: 1; min-height: 0; display: grid; grid-template-columns: 230px minmax(0, 1fr) 312px; }
+.col-tree { border-right: 1px solid var(--border); background: var(--surface); overflow-y: auto; display: flex; flex-direction: column; }
+.tree-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 14px 8px 18px; }
+.tree-head .t { font-size: 12px; letter-spacing: 0.08em; color: var(--muted); font-family: var(--font-mono); }
+.tree-head .t b { color: var(--fg); font-weight: 500; }
+.tree { padding: 0 8px; }
+.t-vol { font-size: 12px; color: var(--muted); padding: 9px 10px 4px; display: flex; align-items: center; gap: 6px; }
+.t-ch { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 7px 10px; border-radius: 8px; font-size: 13px; color: var(--fg); }
+.t-ch:hover { background: var(--fg-soft); }
+.t-ch.on { background: var(--accent-soft); color: var(--accent-strong); font-weight: 500; }
+.t-ch .no { font-family: var(--font-mono); font-size: 11px; color: var(--muted); flex: none; }
+.t-ch .st { margin-left: auto; width: 6px; height: 6px; border-radius: 999px; background: var(--ok); flex: none; }
+.col-mid { min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+.ch-tabs { flex: none; display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.chtab { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 8px; font-size: 13px; color: var(--muted); }
+.chtab:hover { color: var(--fg); background: var(--fg-soft); }
+.chtab.on { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+.e-head { padding: 16px 22px 13px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.e-head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.e-title { font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -.012em; margin: 0; }
+.e-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.e-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.prose { max-width: 760px; margin: 0 auto; padding: 26px 40px 80px; }
+.prose p { font-size: 15.5px; line-height: 1.95; margin: 0 0 1.35em; text-indent: 2em; position: relative; }
+
+/* ─── v2：正文行内标注（覆盖层语义，实现按段落索引渲染，不动正文）─── */
+.prose p.zq-warn { background: linear-gradient(transparent 62%, var(--warn-soft) 62%); border-radius: 4px; }
+.prose p.zq-err  { background: linear-gradient(transparent 62%, var(--err-soft) 62%); border-radius: 4px; }
+.zq-mark { position: absolute; right: -6px; top: -4px; font-family: var(--font-mono); font-size: 10.5px; line-height: 1; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+.zq-mark.m-ok { background: var(--fg-soft); color: var(--faint); }
+.zq-mark.m-warn { background: var(--warn-soft); color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
+.zq-mark.m-err { background: var(--err-soft); color: color-mix(in oklch, var(--err) 90%, var(--fg)); font-weight: 600; }
+.prose .zq-note { text-indent: 0; font-size: 11.5px; color: var(--muted); text-align: right; }
+
+/* ─── 右栏 AI 助手卡（rail-assist 逐字口径）─── */
+.col-ai { border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; padding: 14px 12px; }
+.rail-assist { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
+.rail-assist .ra-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+.rail-assist .ra-head .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: var(--on-accent); flex: none; }
+.rail-assist .ra-head .rh-t b { display: block; font-size: 13px; font-weight: 600; }
+.rail-assist .ra-head .rh-t span { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+.rail-assist .ai-target { font-size: 11px; color: var(--muted); line-height: 1.7; margin: 0 0 10px; padding: 0 2px; }
+.rail-assist .ai-target b { color: var(--fg); font-weight: 500; }
+.rail-assist .ra-step { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); cursor: pointer; font: inherit; margin-bottom: 6px; }
+.rail-assist .ra-step:last-of-type { margin-bottom: 0; }
+.rail-assist .ra-step:hover { border-color: var(--accent); }
+.rail-assist .ra-body { min-width: 0; flex: 1; }
+.rail-assist .ra-body b { display: block; font-size: 12.5px; font-weight: 600; }
+.rail-assist .ra-body i { display: block; font-style: normal; font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 2px; }
+.rail-assist .ra-arrow { color: var(--muted); flex: none; }
+.rail-assist .ra-foot { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+.rail-assist .ra-foot b { color: var(--fg); font-weight: 500; }
+.rail-assist .ra-step.ra-off { opacity: 0.5; cursor: not-allowed; }
+.rail-assist .ra-step.ra-off:hover { border-color: var(--border); }
+.rail-assist .ra-body b .ra-hint { margin-left: 6px; font-size: 10.5px; font-weight: 400; color: var(--warn); }
+.rail-assist .ra-step.ra-running { border-color: var(--accent); background: var(--accent-soft); }
+.rail-assist .ra-step.ra-running .ra-body i { color: var(--accent); }
+.rail-assist .ra-step.ra-running .ra-arrow { color: var(--accent); }
+.ra-spin { display: inline-block; width: 11px; height: 11px; margin-right: 5px; vertical-align: -1px; border: 1.6px solid color-mix(in oklch, var(--accent) 28%, transparent); border-top-color: var(--accent); border-radius: 50%; animation: zqspin .8s linear infinite; }
+@keyframes zqspin { to { transform: rotate(360deg); } }
+/* 设计稿标注：新增行的高亮框＋「新增」标（实现不带） */
+.ra-step.zq-new { border-color: color-mix(in oklch, var(--accent) 45%, var(--border)); }
+.ra-step.zq-new .ra-body b .pill-new { margin-left: 6px; }
+.ra-step.zq-guide { border-style: dashed; }
+
+/* ═══ v6：结果裸排在标题右侧空白——无卡片壳，只放关键的人工/疑似/AI 占比
+      （用户 09-30 拍板：不要卡片，关键信息＝三占比）═══ */
+.zq-hd { flex: none; align-self: center; width: 330px; }
+.zq-hd .hd-bar { display: flex; height: 7px; border-radius: 999px; overflow: hidden; background: var(--fg-soft); }
+.zq-hd .hd-bar i { display: block; height: 100%; }
+.zq-hd .hd-ratio { display: flex; gap: 12px; margin-top: 7px; font-size: 12px; color: var(--muted); flex-wrap: wrap; align-items: center; }
+.zq-hd .hd-ratio .lg { display: inline-flex; align-items: center; gap: 4px; }
+.zq-hd .hd-ratio .lg i { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+.zq-hd .hd-ratio .lg b { color: var(--fg); font-weight: 500; font-family: var(--font-mono); }
+.zq-hd .hd-act { margin-left: auto; display: inline-flex; gap: 2px; }
+.zq-hd .hd-act .btn { font-size: 11px; height: 22px; padding: 0 7px; }
+.zq-hd.run, .zq-hd.err { width: auto; }
+.zq-hd.run .hd-run { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.zq-hd.err .hd-errline { font-size: 12.5px; line-height: 1.7; margin: 0; color: color-mix(in oklch, var(--err) 85%, var(--fg)); }
+.zq-hd.err .hd-errline b { font-weight: 600; }
+.zq-hd.err .hd-act .btn { flex: none; height: 26px; font-size: 12px; padding: 0 10px; }
+
+/* ─── 右栏多卡堆叠 ─── */
+.col-ai .rail-assist + .rail-assist { margin-top: 10px; }
+/* v12：MAX 锁定行（非 MAX 会员：整行降透明＋MAX 专属章，点击走升级出口） */
+.ra-step.zq-maxlk { opacity: 0.55; cursor: not-allowed; }
+.ra-step.zq-maxlk:hover { border-color: var(--border); }</style>
+</head>
+<body>
+
+<!-- 状态切换器（设计稿专用） -->
+<nav id="sw" style="position: fixed; top: 10px; right: 12px; z-index: 90; display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; max-width: 46vw;"></nav>
+
+<header class="appbar">
+  <span class="logo"><span class="logo-mark">爱</span>爱小说</span>
+  <nav class="nav">
+    <a href="#">书架</a>
+    <a href="#" class="on">写作</a>
+    <a href="#">设定</a>
+  </nav>
+  <span class="spacer"></span>
+  <span class="avatar">屿</span>
+</header>
+
+<!-- ══════════ 视图 A：模型配置页（/config，两页签）══════════ -->
+<main class="main" id="view-config">
+  <div class="page-head">
+    <div>
+      <h1>模型配置</h1>
+      <p class="sub">管理你的 AI 服务 API Key，为不同小说选择不同模型</p>
+    </div>
+    <!-- 页面级动作随页签切换：大模型＝添加 API Key；朱雀＝无（主操作在面板内） -->
+    <button class="btn btn-primary" id="addKeyBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      添加 API Key
+    </button>
+  </div>
+
+  <div class="cfg-tabs" role="tablist" aria-label="配置分类">
+    <button class="cfg-tab on" role="tab" data-cfgtab="llm" data-od-id="cfg-tab-llm">写作大模型</button>
+    <button class="cfg-tab" role="tab" data-cfgtab="zq" data-od-id="cfg-tab-zhuque">朱雀 AI 检测</button>
+  </div>
+
+  <!-- ── 页签：写作大模型（现状原样，仅示意） ── -->
+  <div id="pane-llm">
+    <div class="notice info">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+      <span class="nt">不配置也能先开始<b>手动创作</b>，随时可以回来添加。本地模型（如 Ollama）<b>不需要</b> API Key；云端模型请选择对应供应商并填入 Base URL 与 Key。</span>
+    </div>
+    <div class="card-s" style="margin-bottom: 14px;">
+      <div class="cs-head"><span class="cs-name">用量统计</span><span class="badge ok" style="margin-left:auto">本月</span></div>
+      <div class="cs-meta">输入 182,340 token · 输出 96,205 token · 请求 214 次<span style="margin-left:8px">· 更新于 5 分钟前</span></div>
+    </div>
+    <div class="cards">
+      <div class="card-s">
+        <div class="cs-head"><span class="cs-name">DeepSeek 主力</span><span class="cs-vendor">deepseek</span><span class="badge ok" style="margin-left:auto">✓ 连接正常</span></div>
+        <div class="cs-meta">模型：deepseek-chat<br>Base URL：https://api.deepseek.com/v1</div>
+        <div class="cs-foot">
+          <button class="btn btn-secondary btn-sm">测试</button>
+          <button class="btn btn-secondary btn-sm">编辑</button>
+          <button class="btn btn-ghost btn-sm" style="margin-left:auto; color: var(--err);">删除</button>
+        </div>
+      </div>
+      <div class="card-s">
+        <div class="cs-head"><span class="cs-name">Qwen 备用</span><span class="cs-vendor">qwen</span><span class="badge empty" style="margin-left:auto">未测试</span></div>
+        <div class="cs-meta">模型：qwen-max<br>Base URL：https://dashscope.aliyuncs.com/compatible-mode/v1</div>
+        <div class="cs-foot">
+          <button class="btn btn-secondary btn-sm">测试</button>
+          <button class="btn btn-secondary btn-sm">编辑</button>
+          <button class="btn btn-ghost btn-sm" style="margin-left:auto; color: var(--err);">删除</button>
+        </div>
+      </div>
+    </div>
+    <p class="hint">这一页签管<b>写作大模型</b>（对话/生成用）；「朱雀 AI 检测」在旁边页签，两套 Key 相互独立。</p>
+  </div>
+
+  <!-- ── 页签：朱雀 AI 检测 · 未配置态（与大模型页签同布局节奏：notice＋全宽卡＋双卡网格） ── -->
+  <div id="pane-zq-empty" hidden data-od-id="zhuque-config-empty">
+    <div class="notice info">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+      <span class="nt">朱雀是<b>腾讯的 AI 生成内容检测</b>：把整章正文送去测一测「像不像 AI 写的」，按段落给出置信度。<b>MAX 会员权益</b>（试用不含）；需自备腾讯云 Key，<b>每月 50 万 token 免费额度</b>（活动口径，以腾讯云为准）。</span>
+    </div>
+    <div class="card-s" style="margin-bottom: 14px;">
+      <div class="cs-head">
+        <span class="cs-name">朱雀 AI 检测</span>
+        <span class="cs-vendor">zhuque-text · 文本检测</span>
+        <span class="badge empty" style="margin-left:auto">未配置</span>
+      </div>
+      <div class="cs-meta">腾讯 AIGC 文本检测：整章正文送检，按段落给出 AI 置信度与人工/疑似/AI 三占比。</div>
+      <div class="field" style="margin: 14px 0 0; max-width: 620px;">
+        <label>API Key</label>
+        <div class="zg-keyrow">
+          <input class="input" type="password" placeholder="粘贴 EdgeOne Makers API Key" data-od-id="zhuque-key-input">
+          <button class="btn btn-primary" data-od-id="zhuque-key-save">保存并测试</button>
+        </div>
+        <span style="font-size:12px; color: var(--muted);">Key 只存在本机，检测时随请求发送给腾讯；泄露可在控制台重建网关作废。</span>
+      </div>
+    </div>
+    <!-- 获取 Key：全宽卡内横向三步；隐私与额度：notice 条（v10：弃双卡并排） -->
+    <div class="card-s" style="margin-bottom: 14px;">
+      <div class="cs-head">
+        <span class="cs-name" style="font-size:14px">如何获取 Key</span>
+        <span class="badge empty" style="margin-left:auto">个人身份即可 · 不需企业资质</span>
+      </div>
+      <ol class="zg-flow">
+        <li><span><b>注册腾讯云</b>并完成个人实名认证（身份证，几分钟，一次性）</span></li>
+        <li><span>打开 <b>EdgeOne 控制台 → Makers → Models → API Key</b>，点「创建 API Key」并复制</span></li>
+        <li><span>回到这里粘贴保存，保存后会自动测一次连接</span></li>
+      </ol>
+      <div style="display:flex; gap:16px; margin-top:12px;">
+        <a class="lnk" href="#">打开 EdgeOne 控制台 ↗</a>
+        <a class="lnk" href="#">先去朱雀网页版免费试用 ↗</a>
+      </div>
+    </div>
+    <div class="notice">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <span class="nt"><b>隐私提示</b>：检测会把<b>整章正文发送到腾讯朱雀服务</b>做判定，本机不参与打分。介意送稿的章节请不要使用。<span>每月 50 万 token 免费额度按你的腾讯云账号计；额度耗尽或服务不可用时，检测入口明确报错，不影响写作其他功能。</span></span>
+    </div>
+  </div>
+
+  <!-- ── 页签：朱雀 AI 检测 · 已配置态 ── -->
+  <div id="pane-zq-ok" hidden data-od-id="zhuque-config-ok">
+    <div class="card-s" style="margin-bottom: 14px;">
+      <div class="cs-head">
+        <span class="cs-name">朱雀 AI 检测</span>
+        <span class="cs-vendor">zhuque-text · 文本检测</span>
+        <span class="badge ok" style="margin-left:auto">✓ 连接正常</span>
+      </div>
+      <div class="zg-keyrow" style="max-width: 620px;">
+        <input class="input" type="password" value="eo-mk-9f2e7c1a4b8d6035" disabled data-od-id="zhuque-key-masked">
+        <button class="btn btn-secondary">更换 Key</button>
+      </div>
+      <div class="zg-stats">
+        <div class="st"><b>2 分钟前</b><span>上次连接测试</span></div>
+        <div class="st"><b>50 万 token / 月</b><span>免费额度（以腾讯云控制台为准）</span></div>
+        <div class="st"><b><a class="lnk" href="#">查看用量 ↗</a></b><span>Makers 概览 · 模型用量总览</span></div>
+      </div>
+      <div class="zq-toggle-row" data-od-id="zhuque-show-toggle">
+        <div class="tt">
+          <b>在写作台显示朱雀检测</b>
+          <span>开＝右栏出现「朱雀 AI 检测」入口，检测后章标题区显示占比结果、正文行带标注；关＝两处都不出现，不影响已配好的 Key。</span>
+        </div>
+        <label class="switch"><input type="checkbox" id="zqShowToggle" checked><i></i></label>
+      </div>
+      <div style="display:flex; gap:8px; margin-top: 14px;">
+        <button class="btn btn-secondary btn-sm">测试连接</button>
+        <button class="btn btn-ghost btn-sm" style="color: var(--err);">删除 Key</button>
+      </div>
+    </div>
+    <div class="notice">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <span class="nt"><b>隐私提示</b>：检测会把整章正文发送到腾讯朱雀服务做判定。<span>免费额度按你的腾讯云账号计，耗尽需等下月或按腾讯云控制台指引购买；额度与活动口径以腾讯云为准。</span></span>
+    </div>
+    <p class="hint">MAX 会员权益：配置后（写作台<b>右栏 → 正文页签 → 「朱雀 AI 检测」</b>）整章送检；结果（三占比＋段落标注）直接显示在标题区与正文里。检测结果为概率参考，非任何平台的判定标准。</p>
+  </div>
+</main>
+
+<!-- ══════════ 视图 B：写作台（三栏壳）══════════ -->
+<div class="wb" id="view-wb" hidden>
+  <aside class="col-tree">
+    <div class="tree-head"><span class="t">卷章 <b>2 卷 · 12 章</b></span></div>
+    <div class="tree">
+      <div class="t-vol">▾ 卷一 · 星港来客</div>
+      <button class="t-ch"><span class="no">01</span>雨夜来客<span class="st"></span></button>
+      <button class="t-ch"><span class="no">02</span>断链的信号<span class="st"></span></button>
+      <button class="t-ch on"><span class="no">03</span>断链<span class="st"></span></button>
+      <button class="t-ch"><span class="no">04</span>舱底的影子</button>
+      <button class="t-ch"><span class="no">05</span>第一次点名</button>
+      <div class="t-vol">▾ 卷二 · 深水之下</div>
+      <button class="t-ch"><span class="no">06</span>无声航迹</button>
+    </div>
+  </aside>
+
+  <div class="col-mid">
+    <div class="ch-tabs" role="tablist" aria-label="章节对象">
+      <button class="chtab">章纲</button>
+      <button class="chtab on">正文</button>
+      <button class="chtab">设定</button>
+      <button class="chtab">文风</button>
+      <button class="chtab">角色关系</button>
+      <button class="chtab">伏笔</button>
+      <button class="chtab">操作</button>
+    </div>
+    <div class="e-scroll">
+      <header class="e-head e-head-row">
+        <div>
+          <h2 class="e-title">第三章 · 断链</h2>
+          <div class="e-meta">
+            <span class="m num">2,847 字</span>
+            <span class="m">计划 3,000 字</span>
+            <span class="m">草稿 · 未归档</span>
+          </div>
+        </div>
+
+        <!-- v6：结果裸排（无卡片壳）——人工/疑似/AI 占比＋清除/重检 -->
+        <div class="zq-hd" id="zqHd" hidden data-od-id="zhuque-head-strip">
+          <div id="hdResult">
+            <div class="hd-bar">
+              <i style="width:71%; background:color-mix(in oklch, var(--ok) 72%, transparent);"></i>
+              <i style="width:24%; background:color-mix(in oklch, var(--warn) 72%, transparent);"></i>
+              <i style="width:5%; background:color-mix(in oklch, var(--err) 72%, transparent);"></i>
+            </div>
+            <div class="hd-ratio">
+              <span class="lg"><i style="background:color-mix(in oklch, var(--ok) 72%, transparent)"></i>人工 <b>71%</b></span>
+              <span class="lg"><i style="background:color-mix(in oklch, var(--warn) 72%, transparent)"></i>疑似 AI <b>24%</b></span>
+              <span class="lg"><i style="background:color-mix(in oklch, var(--err) 72%, transparent)"></i>AI <b>5%</b></span>
+              <span style="font-size:10.5px; color:var(--faint);">概率参考 · 非平台判定</span>
+              <span class="hd-act">
+                <button class="btn btn-ghost" data-od-id="zq-clear" title="退出标注态">清除标注</button>
+                <button class="btn btn-ghost" data-od-id="zq-rerun" title="整章重测">重检</button>
+              </span>
+            </div>
+          </div>
+          <div id="hdRun" class="hd-run" hidden>
+            <span class="ra-spin"></span>检测中，约 5–15 秒……
+          </div>
+          <div id="hdError" hidden>
+            <div class="hd-top" style="display:flex; align-items:center; gap:10px;">
+              <p class="hd-errline"><b>朱雀检测失败：401 · API Key 无效或已失效</b>——正文未受影响。</p>
+              <span class="hd-act">
+                <button class="btn btn-secondary">去检查</button>
+                <button class="btn btn-secondary">重试</button>
+              </span>
+            </div>
+          </div>
+        </div>
+      </header>
+      <div class="prose" id="proseBody">
+        <p data-zq="ok:4">雨停的时候，陈屿把那半张电路图折好，塞回风衣内袋。码头灯还亮着一半，剩下的光被水汽泡开，糊在栈桥尽头。</p>
+        <p data-zq="ok:11">他数到第七声汽笛，对面的仓库终于亮灯。老周推门出来，手里拎着那盏掉漆的马灯，走三步停一步，像在等谁先开口。</p>
+        <p data-zq="warn:62">在与仓储终端建立连接的过程中，系统需要对多链路信号进行完整性校验，并且在此过程中，任何异常的电平波动都有可能导致校验流程被重新初始化，从而使得整个连接建立的时序被打乱。</p>
+        <p data-zq="ok:8">「图是真的？」老周把马灯举高。陈屿点头，没提昨夜那通断掉的电话——断得太巧了，巧得像是有人替他按的。</p>
+        <p data-zq="err:86">与此同时，对于后续可能出现的各种突发状况，他们也已经做好了充分的准备和相应的预案，无论是天气的变化，还是其他不可预见的因素，都不会对他们的计划造成太大的影响。</p>
+        <p data-zq="ok:15">远处的塔吊亮起了红色警示灯，一明一灭。陈屿把烟掐了：今晚这单，怕是要黄。</p>
+        <p class="zq-note" id="proseNote" hidden>↑ 标注为检测结果覆盖层（疑似/AI 段着色＋行尾置信度章），不动正文内容；右栏可清除</p>
+      </div>
+    </div>
+  </div>
+
+  <aside class="col-ai">
+    <div class="rail-assist" data-od-id="ai-assist-prose">
+      <div class="ra-head">
+        <span class="plan-badge" style="background: var(--fg-soft); color: var(--muted);">FREE</span>
+        <span class="rh-t"><b>AI 助手 · 正文</b><span id="railSub">生成 · 续写 · 检测</span></span>
+      </div>
+      <p class="ai-target">正文字数 <b>2,847 字</b> · 计划字数 3,000 字 · 完成度 94% · 本章提示词 自动组装</p>
+      <button class="ra-step"><span class="ra-body"><b>生成正文</b><i>由设定＋章纲组装提示词，可编辑后流式写入正文末尾</i></span><span class="ra-arrow">→</span></button>
+      <button class="ra-step"><span class="ra-body"><b>续写建议</b><i>从光标处（或选区末尾）流式续写，保持风格与上下文一致</i></span><span class="ra-arrow">→</span></button>
+      <button class="ra-step"><span class="ra-body"><b>去AI味</b><i>选中段落去掉机器腔，对照预览后替换</i></span><span class="ra-arrow">→</span></button>
+      <button class="ra-step"><span class="ra-body"><b>场景扩写</b><i>把选中的一句话场景扩展为完整段落，保持设定一致</i></span><span class="ra-arrow">→</span></button>
+      <button class="ra-step"><span class="ra-body"><b>压缩啰嗦段落</b><i>压缩选中的段落，保留信息去掉重复</i></span><span class="ra-arrow">→</span></button>
+      <button class="ra-step zq-new" id="railZq" data-od-id="rail-zhuque-check">
+        <span class="ra-body">
+          <b>朱雀 AI 检测 · 查AI味<span class="pill pill-new">新增</span><span class="pill pill-warn" id="zqMaxPill" hidden>MAX 专属</span></b>
+          <i id="railZqDesc">整章送腾讯朱雀测 AI 味，结果与段落标注就地显示</i>
+        </span>
+        <span class="ra-arrow" id="railZqArrow">→</span>
+      </button>
+
+      <p class="ra-foot">续写/去AI味/扩写/压缩作用于正文编辑器；<b>朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上</b>。检测需在「模型配置」配好朱雀 Key。</p>
+    </div>
+  </aside>
+</div>
+
+<script>
+/* ── 设计稿状态机（仅演示用） ──
+   0 配置·大模型  1 配置·朱雀·未配  2 配置·朱雀·已配
+   3 工作台·非MAX锁定  4 工作台·未配Key  5 工作台·开关开（就绪·未检测）
+   6 工作台·检测中  7 工作台·结果  8 工作台·失败  9 工作台·开关关 */
+const SW = [
+  "配置·大模型", "配置·朱雀·未配", "配置·朱雀·已配",
+  "工作台·非MAX锁", "工作台·未配Key", "工作台·开关开", "工作台·检测中",
+  "工作台·结果", "工作台·失败", "工作台·开关关",
+];
+const swNav = document.getElementById("sw");
+SW.forEach((label, i) => {
+  const b = document.createElement("button");
+  b.className = "chip";
+  b.textContent = label;
+  b.style.cssText = "border:1px solid var(--border);border-radius:999px;padding:3px 10px;font-size:11px;color:var(--muted);background:color-mix(in oklch, var(--surface) 88%, transparent);backdrop-filter:blur(4px);";
+  b.onclick = () => go(i);
+  swNav.appendChild(b);
+});
+
+const viewConfig = document.getElementById("view-config");
+const viewWb = document.getElementById("view-wb");
+const tabs = document.querySelectorAll(".cfg-tab");
+const addKeyBtn = document.getElementById("addKeyBtn");
+const railZq = document.getElementById("railZq");
+const railZqDesc = document.getElementById("railZqDesc");
+const railZqArrow = document.getElementById("railZqArrow");
+const railSub = document.getElementById("railSub");
+const zqHd = document.getElementById("zqHd");
+const hdResult = document.getElementById("hdResult");
+const hdRun = document.getElementById("hdRun");
+const hdError = document.getElementById("hdError");
+const proseBody = document.getElementById("proseBody");
+const proseNote = document.getElementById("proseNote");
+
+/* 模型配置页两页签：页签管到页面级动作（头部按钮随页签切换） */
+function setCfgTab(which) {
+  tabs.forEach((t) => t.classList.toggle("on", t.dataset.cfgtab === which));
+  document.getElementById("pane-llm").hidden = which !== "llm";
+  document.getElementById("pane-zq-empty").hidden = which !== "zq-empty";
+  document.getElementById("pane-zq-ok").hidden = which !== "zq-ok";
+  addKeyBtn.hidden = which !== "llm"; /* 「添加 API Key」＝大模型页签专属 */
+}
+/* 正文行内标注：按 data-zq="label:conf" 渲染覆盖层（设计稿直接预置 DOM） */
+function setMarks(on) {
+  proseBody.querySelectorAll("p[data-zq]").forEach((p) => {
+    const [label, conf] = p.dataset.zq.split(":");
+    p.classList.toggle("zq-warn", on && label === "warn");
+    p.classList.toggle("zq-err", on && label === "err");
+    let mark = p.querySelector(".zq-mark");
+    if (on) {
+      if (!mark) {
+        mark = document.createElement("span");
+        mark.className = "zq-mark";
+        p.appendChild(mark);
+      }
+      mark.className = "zq-mark m-" + label;
+      mark.textContent = (label === "ok" ? "人写 " : label === "warn" ? "疑似 " : "AI ") + conf + "%";
+    } else if (mark) mark.remove();
+  });
+  proseNote.hidden = !on;
+}
+function go(i) {
+  [...swNav.children].forEach((b, j) => {
+    b.style.background = j === i ? "var(--accent)" : "color-mix(in oklch, var(--surface) 88%, transparent)";
+    b.style.color = j === i ? "var(--on-accent)" : "var(--muted)";
+  });
+  if (i <= 2) {
+    viewWb.hidden = true; viewConfig.hidden = false;
+    setCfgTab(i === 0 ? "llm" : i === 1 ? "zq-empty" : "zq-ok");
+    return;
+  }
+  viewConfig.hidden = true; viewWb.hidden = false;
+  /* 结果条：检测中(6)/结果(7)/失败(8)；其余工作台态＝不出现 */
+  zqHd.hidden = !(i === 6 || i === 7 || i === 8);
+  zqHd.classList.toggle("run", i === 6);
+  zqHd.classList.toggle("err", i === 8);
+  hdResult.hidden = i !== 7;
+  hdRun.hidden = i !== 6;
+  hdError.hidden = i !== 8;
+  setMarks(i === 7);
+  /* 朱雀行：非MAX锁定(3) / 引导(4) / 就绪(5) / 运行中(6) / 结果·失败(7,8) / 开关关(9)＝不渲染 */
+  const maxPill = document.getElementById("zqMaxPill");
+  railZq.hidden = i === 9;
+  maxPill.hidden = i !== 3;
+  railZq.classList.toggle("zq-maxlk", i === 3);
+  railZq.classList.toggle("zq-guide", i === 4);
+  railZq.classList.toggle("ra-running", i === 6);
+  if (i === 3) {
+    railZqDesc.textContent = "MAX 会员权益 · 升级后整章送腾讯朱雀检测";
+    railSub.textContent = "朱雀检测需 MAX · 其余可用";
+  } else if (i === 4) {
+    railZqDesc.textContent = "未配置 Key · 点击去「模型配置 → 朱雀」粘贴腾讯云 EdgeOne Key";
+    railSub.textContent = "检测未配置 · 其余可用";
+  } else if (i === 6) {
+    railZqDesc.textContent = "检测中，约 5–15 秒；生成/编辑动作请稍候";
+    railZqArrow.innerHTML = '<span class="ra-spin"></span>';
+    railSub.textContent = "朱雀检测中……";
+  } else if (i === 9) {
+    railSub.textContent = "朱雀检测已关闭 · 其余可用";
+  } else {
+    railZqDesc.textContent = "整章送腾讯朱雀测 AI 味，结果与段落标注就地显示";
+    railZqArrow.textContent = "→";
+    railSub.textContent = i === 8 ? "检测失败 · 其余可用" : "生成 · 续写 · 检测就绪";
+  }
+}
+
+/* 演示交互：清除标注＝退出标注态；重检＝跑检测中；行点击按态分发 */
+document.querySelector("[data-od-id='zq-clear']").onclick = () => { zqHd.hidden = true; setMarks(false); };
+document.querySelector("[data-od-id='zq-rerun']").onclick = () => go(4);
+railZq.onclick = () => {
+  const idx = [...swNav.children].findIndex((b) => b.style.background.includes("accent"));
+  if (idx === 3) return;      /* 非 MAX：锁定，演示里不走（实装走统一升级出口） */
+  if (idx === 4) go(1);       /* MAX 未配 Key → 模型配置·朱雀页签 */
+  else go(6);                 /* 就绪/已有结果 → 重新检测 */
+};
+/* 配置页页签可独立切换（演示内） */
+tabs.forEach((t) => t.addEventListener("click", () => {
+  setCfgTab(t.dataset.cfgtab === "llm" ? "llm" : (document.getElementById("pane-zq-ok").hidden ? "zq-empty" : "zq-ok"));
+}));
+/* 显示开关：关＝跳「工作台·开关关」态看效果；开＝回朱雀已配页签 */
+document.getElementById("zqShowToggle").onchange = (e) => go(e.target.checked ? 2 : 9);
+document.getElementById("addKeyBtn").onclick = () => {};
+go(7);
+</script>
+</body>
+</html>

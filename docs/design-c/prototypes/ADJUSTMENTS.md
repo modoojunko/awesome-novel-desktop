@@ -1517,3 +1517,44 @@ AiWriterAssistant 为模版。涉及写作域三处右栏面板的全量换装�
    「保留确认/撤回」）→ 章退回草稿态、「确认章纲」恢复可点、树上确认计数回落；
    正文与归档态不受影响。
 3. 3s 静默自动保存口径不变（本就不改确认状态）。
+
+---
+
+## c-zhuque-ai-detect（2026-09-30，朱雀 AI 检测）
+
+设计事实源：`docs/design-c/drafts/ai-novel-c端-朱雀检测.html`（v12，10 态，含 v1→v12 决策日志）。
+model-config.html 与 book.html 均不在像素 parity 基线内（design-parity 仅覆盖 list/preview），
+本批原型改动为设计事实源落地，无基线重录。
+
+### model-config.html（配置屏）
+
+只动 `model-config.html`：
+
+1. **page-head 下新增页签行「写作大模型 / 朱雀 AI 检测」（`.cfg-tabs/.cfg-tab`，新词入册）**
+   激活态沿 seg 口径（surface 提亮＋fg）。页签管到页面级动作：头部「添加 API Key」
+   按钮随页签切换（朱雀页签时 hidden，其主操作在面板内）。
+2. **新增朱雀页签两态面板**（默认演示已配置态，未配置态 markup 同文件 #pane-zq-empty）：
+   介绍 notice（MAX 会员权益·试用不含·活动额度引用式表述）→ 配置卡（Key 掩码/更换/删除/
+   「在写作台显示朱雀检测」开关/测试连接）→「如何获取 Key」横向三步卡（`.zg-flow`）→
+   隐私警示 notice（warn 语气）。新词：`.zg-keyrow/.zg-stats/.zg-flow/.zq-toggle-row`；
+   开关复用 `.switch-btn/.sw-track/.sw-knob` 家族口径（禁自造 .switch）；补 `.pill`（base.css
+   同名同义）。
+3. **JS**：页签切换＋面板显隐＋开关演示拨动；无 parity 影响（本屏不进像素比对）。
+
+### book.html（工作台屏）
+
+只动 `book.html`：
+
+1. **e-head 右侧新增检测结果条**（`.zq-hd` 及 `.hd-*`，裸排无卡片壳）：三色占比条＋
+   人工/疑似/AI 三数字＋「概率参考 · 非平台判定」小字＋清除标注/重检；检测中/失败态在
+   drafts 设计稿交互稿中（本原型演示结果态）。
+2. **右栏补正文页签 AI 助手卡**（原型此前未建模正文右栏卡，实装 AiAssistPanel prose 页签
+   早已存在——本批连模型一并补齐）：五行既有动作（生成正文/续写建议/去AI味/场景扩写/
+   压缩啰嗦段落）＋末行「朱雀 AI 检测 · 查AI味」；朱雀行四态演示 chips（就绪/未配引导
+   zq-guide 虚线/非MAX锁定 zq-maxlk＋MAX 专属 warn 徽章/开关关不渲染）；降级文案变体
+   「权益状态确认中」入 specs（zhuque-workbench）。
+3. **正文行标注示意**：`.zq-warn/.zq-err` 段底色＋`.zq-mark`（m-ok/m-warn/m-err）行尾
+   置信度章，挂 `.editor` 作用域（实现为 TipTap Decorations 覆盖层，不动正文文档）；
+   `.zq-mark.stale` 过期置灰档（对应「正文已修改，结果可能过期」态）。
+4. **JS**：正文页签切右栏卡；朱雀行四态演示；标注演示（editor.innerHTML 快照恢复，
+   仅演示用）。

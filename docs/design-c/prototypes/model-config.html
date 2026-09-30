@@ -162,6 +162,41 @@
   .seg button:hover { color: var(--fg); }
   .seg button.on { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px color-mix(in oklch, var(--fg) 8%, transparent); font-weight: 500; }
   .seg.lock { opacity: 0.45; pointer-events: none; }
+
+  /* ─── 配置域页签（c-zhuque-ai-detect 登记：.cfg-tabs/.cfg-tab，激活态沿 seg 口径）─── */
+  .cfg-tabs { display: inline-flex; gap: 2px; padding: 3px; background: var(--fg-soft); border-radius: 11px; margin-bottom: 22px; }
+  .cfg-tab { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 16px; border-radius: 8px; font-size: 13px; color: var(--muted); }
+  .cfg-tab:hover { color: var(--fg); }
+  .cfg-tab.on { background: var(--surface); color: var(--fg); font-weight: 500; box-shadow: 0 1px 2px color-mix(in oklch, var(--fg) 8%, transparent); }
+
+  /* ─── 朱雀页签（c-zhuque-ai-detect 登记：.zg-keyrow/.zg-stats/.zg-flow/.zq-toggle-row；开关复用 .switch-btn 家族口径）─── */
+  .zg-keyrow { display: flex; gap: 8px; margin-top: 14px; max-width: 620px; }
+  .zg-keyrow .input { flex: 1; font-family: var(--font-mono, ui-monospace, 'SF Mono', Menlo, monospace); font-size: 13px; }
+  .zg-stats { display: flex; margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+  .zg-stats .st { flex: 1; }
+  .zg-stats .st b { display: block; font-family: var(--font-mono, ui-monospace, 'SF Mono', Menlo, monospace); font-size: 13px; font-weight: 500; }
+  .zg-stats .st span { font-size: 11px; color: var(--muted); }
+  .zg-flow { counter-reset: st; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 12px 0 0; padding: 0; list-style: none; }
+  .zg-flow li { counter-increment: st; display: flex; gap: 9px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+  .zg-flow li::before { content: counter(st); flex: none; width: 20px; height: 20px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); font-size: 11px; font-weight: 600; display: grid; place-items: center; margin-top: 2px; }
+  .zg-flow li b { color: var(--fg); font-weight: 500; }
+  .zq-toggle-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .zq-toggle-row .tt { min-width: 0; flex: 1; }
+  .zq-toggle-row .tt b { display: block; font-size: 13.5px; font-weight: 600; }
+  .zq-toggle-row .tt span { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.6; }
+  .switch-btn { position: relative; width: 38px; height: 22px; flex: none; cursor: pointer; border: 0; background: none; padding: 0; }
+  .switch-btn .sw-track { position: absolute; inset: 0; border-radius: 999px; background: var(--fg-soft); transition: background 0.15s ease; }
+  .switch-btn .sw-knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 999px; background: var(--surface); box-shadow: 0 1px 2px color-mix(in oklch, var(--fg) 18%, transparent); transition: transform 0.15s ease; }
+  .switch-btn.on .sw-track { background: var(--accent); }
+  .switch-btn.on .sw-knob { transform: translateX(16px); }
+  .lnk { color: var(--accent); cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
+  .lnk:hover { color: var(--accent-strong); text-decoration: underline; }
+  .notice.warn { background: var(--warn-soft); border-color: color-mix(in oklch, var(--warn) 28%, var(--border)); }
+  .notice.warn svg { color: color-mix(in oklch, var(--warn) 80%, var(--fg)); }
+  .badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 500; }
+  .badge.ok { background: var(--ok-soft); color: color-mix(in oklch, var(--ok) 88%, var(--fg)); }
+  .badge.empty { background: var(--fg-soft); color: var(--muted); }
+  .pill { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 1.6; font-weight: 500; background: var(--surface); color: var(--muted); white-space: nowrap; vertical-align: 2px; }
   .vgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
   .vbtn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 62px; padding: 8px 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--muted); transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease; }
   .vbtn svg { width: 22px; height: 22px; flex: none; }
@@ -273,6 +308,12 @@
     </button>
   </div>
 
+  <div class="cfg-tabs" role="tablist" aria-label="配置分类" data-od-id="cfg-tabs">
+    <button class="cfg-tab on" role="tab" data-tab="llm" data-od-id="cfg-tab-llm">写作大模型</button>
+    <button class="cfg-tab" role="tab" data-tab="zhuque" data-od-id="cfg-tab-zhuque">朱雀 AI 检测</button>
+  </div>
+
+  <div id="pane-llm">
   <div class="notice" data-od-id="notice">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
     <span>不配置也能先开始<b>手动创作</b>，随时可以回来添加。本地模型（如 Ollama）<b>不需要</b> API Key；云端模型请选择对应供应商并填入 Base URL 与 Key。</span>
@@ -292,6 +333,101 @@
   </div>
 
   <div class="cards" id="cards"></div>
+  </div><!-- /pane-llm -->
+
+  <!-- ═══ 朱雀 AI 检测页签（c-zhuque-ai-detect）：已配置态（演示默认）；未配置态见 #pane-zq-empty ═══ -->
+  <div id="pane-zhuque" hidden data-od-id="pane-zhuque">
+    <div class="notice" data-od-id="zhuque-notice">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+      <span>朱雀是<b>腾讯的 AI 生成内容检测</b>：把整章正文送去测一测「像不像 AI 写的」，按段落给出置信度。<b>MAX 会员权益</b>（试用不含）；需自备腾讯云 Key，<b>每月 50 万 token 免费额度</b>（活动口径，以腾讯云为准）。</span>
+    </div>
+
+    <div class="panel" data-od-id="zhuque-card">
+      <div class="panel-h">
+        <h2>朱雀 AI 检测 <span class="pill">zhuque-text · 文本检测</span></h2>
+        <span class="badge ok" id="zqBadge">✓ 连接正常</span>
+      </div>
+      <div class="zg-keyrow">
+        <input class="input" type="password" value="eo-mk-9f2e7c1a4b8d6035" disabled data-od-id="zhuque-key-masked">
+        <button class="btn btn-secondary">更换 Key</button>
+      </div>
+      <div class="zg-stats">
+        <div class="st"><b>2 分钟前</b><span>上次连接测试</span></div>
+        <div class="st"><b>50 万 token / 月</b><span>免费额度（以腾讯云控制台为准）</span></div>
+        <div class="st"><b><a class="lnk" href="#">查看用量 ↗</a></b><span>Makers 概览 · 模型用量总览</span></div>
+      </div>
+      <div class="zq-toggle-row" data-od-id="zhuque-show-toggle">
+        <div class="tt">
+          <b>在写作台显示朱雀检测</b>
+          <span>开＝右栏出现「朱雀 AI 检测」入口，检测后章标题区显示占比结果、正文行带标注；关＝两处都不出现，不影响已配好的 Key。对所有书生效。</span>
+        </div>
+        <button class="switch-btn on" id="zqToggle" role="switch" aria-checked="true" aria-label="在写作台显示朱雀检测"><span class="sw-track"></span><span class="sw-knob"></span></button>
+      </div>
+      <div class="cfg-foot" style="margin-top:14px">
+        <button class="btn btn-secondary btn-sm">测试连接</button>
+        <button class="btn btn-ghost btn-sm" style="color:var(--err)">删除 Key</button>
+      </div>
+    </div>
+
+    <div class="panel" data-od-id="zhuque-howto" style="margin-bottom:14px">
+      <div class="panel-h">
+        <h2 style="font-size:14px">如何获取 Key</h2>
+        <span class="badge empty">个人身份即可 · 不需企业资质</span>
+      </div>
+      <ol class="zg-flow">
+        <li><span><b>注册腾讯云</b>并完成个人实名认证（身份证，几分钟，一次性）</span></li>
+        <li><span>打开 <b>EdgeOne 控制台 → Makers → Models → API Key</b>，点「创建 API Key」并复制</span></li>
+        <li><span>回到这里粘贴保存，保存后会自动测一次连接（消耗极少额度）</span></li>
+      </ol>
+      <div style="display:flex; gap:16px; margin-top:12px;">
+        <a class="lnk" href="#">打开 EdgeOne 控制台 ↗</a>
+        <a class="lnk" href="#">先去朱雀网页版免费试用 ↗</a>
+      </div>
+    </div>
+
+    <div class="notice warn" data-od-id="zhuque-privacy">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <span><b>隐私提示</b>：检测会把<b>整章正文发送到腾讯朱雀服务</b>做判定，本机不参与打分。介意送稿的章节请不要使用。检测结果为概率参考，非任何平台的判定标准。</span>
+    </div>
+  </div><!-- /pane-zhuque -->
+
+  <!-- 朱雀未配置态（演示切换：#pane-zhuque.hidden ↔ 本块） -->
+  <div id="pane-zq-empty" hidden data-od-id="pane-zhuque-empty">
+    <div class="notice" data-od-id="zhuque-notice-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+      <span>朱雀是<b>腾讯的 AI 生成内容检测</b>：把整章正文送去测一测「像不像 AI 写的」，按段落给出置信度。<b>MAX 会员权益</b>（试用不含）；需自备腾讯云 Key，<b>每月 50 万 token 免费额度</b>（活动口径，以腾讯云为准）。</span>
+    </div>
+    <div class="panel" style="margin-bottom:14px" data-od-id="zhuque-card-empty">
+      <div class="panel-h">
+        <h2>朱雀 AI 检测 <span class="pill">zhuque-text · 文本检测</span></h2>
+        <span class="badge empty">未配置</span>
+      </div>
+      <div class="zg-keyrow">
+        <input class="input" type="password" placeholder="粘贴 EdgeOne Makers API Key" data-od-id="zhuque-key-input">
+        <button class="btn btn-primary" data-od-id="zhuque-key-save">保存并测试</button>
+      </div>
+      <div style="font-size:12px; color:var(--muted); margin-top:8px;">Key 只存在本机，检测时随请求发送给腾讯；泄露可在控制台重建网关作废。</div>
+    </div>
+    <div class="panel" data-od-id="zhuque-howto-empty" style="margin-bottom:14px">
+      <div class="panel-h">
+        <h2 style="font-size:14px">如何获取 Key</h2>
+        <span class="badge empty">个人身份即可 · 不需企业资质</span>
+      </div>
+      <ol class="zg-flow">
+        <li><span><b>注册腾讯云</b>并完成个人实名认证（身份证，几分钟，一次性）</span></li>
+        <li><span>打开 <b>EdgeOne 控制台 → Makers → Models → API Key</b>，点「创建 API Key」并复制</span></li>
+        <li><span>回到这里粘贴保存，保存后会自动测一次连接（消耗极少额度）</span></li>
+      </ol>
+      <div style="display:flex; gap:16px; margin-top:12px;">
+        <a class="lnk" href="#">打开 EdgeOne 控制台 ↗</a>
+        <a class="lnk" href="#">先去朱雀网页版免费试用 ↗</a>
+      </div>
+    </div>
+    <div class="notice warn" data-od-id="zhuque-privacy-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <span><b>隐私提示</b>：检测会把<b>整章正文发送到腾讯朱雀服务</b>做判定，本机不参与打分。介意送稿的章节请不要使用。检测结果为概率参考，非任何平台的判定标准。</span>
+    </div>
+  </div>
 </main>
 
 <!-- ═══ 添加 / 编辑配置 ═══ -->
@@ -358,6 +494,28 @@
 <footer class="statusbar" data-od-id="app-status-bar"><span data-od-id="app-credits">© 2026 星纬（海口）投资有限公司 · 爱小说</span><span class="sb-ver" data-od-id="status-version">v0.13</span></footer>
 
 <script>
+/* ═══════════ 配置域页签（c-zhuque-ai-detect）：添加按钮随页签切换 ═══════════ */
+const paneLlm = document.getElementById('pane-llm');
+const paneZq = document.getElementById('pane-zhuque');
+const paneZqEmpty = document.getElementById('pane-zq-empty');
+const btnAdd = document.getElementById('btnAdd');
+let zqConfigured = true; /* 演示切换：true=已配置态 / false=未配置态 */
+
+function setCfgTab(which) {
+  document.querySelectorAll('.cfg-tab').forEach(t => t.classList.toggle('on', t.dataset.tab === which));
+  const zq = which === 'zhuque';
+  paneLlm.hidden = zq;
+  paneZq.hidden = !zq || !zqConfigured;
+  paneZqEmpty.hidden = !zq || zqConfigured;
+  /* 页面级动作随页签切换：「添加 API Key」只属于大模型域 */
+  btnAdd.hidden = zq;
+}
+document.querySelectorAll('.cfg-tab').forEach(t => t.addEventListener('click', () => setCfgTab(t.dataset.tab)));
+document.getElementById('zqToggle').addEventListener('click', function () {
+  this.classList.toggle('on');
+  this.setAttribute('aria-checked', this.classList.contains('on') ? 'true' : 'false');
+});
+
 /* ═══════════ 常量 ═══════════ */
 const VENDORS = [
   { id: 'openai', label: 'OpenAI', icon: 'M12 4.5l2.1 5.4 5.4 2.1-5.4 2.1-2.1 5.4-2.1-5.4-5.4-2.1 5.4-2.1z' },
