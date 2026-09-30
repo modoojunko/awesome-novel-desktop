@@ -34,21 +34,24 @@ check_router = APIRouter(
 )
 
 _UPSTREAM_MAP = {
-    401: (401, "API Key 无效或已失效——去「模型配置 → 朱雀」检查或更换"),
-    403: (401, "API Key 无效或已失效——去「模型配置 → 朱雀」检查或更换"),
-    429: (429, "触发限流或本月免费额度已用完，以腾讯云控制台为准"),
-    0: (504, "无法连接朱雀服务或响应超时，请稍后重试"),
+    # 上游 401/403（朱雀 Key 无效）映射为本端 401，但 reason="zhuque_auth"：
+    # C端 request() 对 401 的默认语义是「会话失效→踢登录」，须豁免该 reason
+    # （改抛原 message、不清凭据），否则作家配错 Key 会被踢出登录。
+    401: (401, "zhuque_auth", "API Key 无效或已失效——去「模型配置 → 朱雀」检查或更换"),
+    403: (401, "zhuque_auth", "API Key 无效或已失效——去「模型配置 → 朱雀」检查或更换"),
+    429: (429, "zhuque_quota", "触发限流或本月免费额度已用完，以腾讯云控制台为准"),
+    0: (504, "zhuque_network", "无法连接朱雀服务或响应超时，请稍后重试"),
 }
 
 
 def _map_upstream(e: ZhuqueUpstreamError) -> HTTPException:
     if e.status in _UPSTREAM_MAP:
-        code, message = _UPSTREAM_MAP[e.status]
+        code, reason, message = _UPSTREAM_MAP[e.status]
     elif e.status >= 500:
-        code, message = 502, "朱雀服务暂时不可用，请稍后重试"
+        code, reason, message = 502, "zhuque_upstream", "朱雀服务暂时不可用，请稍后重试"
     else:
-        code, message = 502, e.message
-    return HTTPException(code, detail={"reason": code, "message": message})
+        code, reason, message = 502, "zhuque_upstream", e.message
+    return HTTPException(code, detail={"reason": reason, "message": message})
 
 
 _SERVICE_ERRORS = {

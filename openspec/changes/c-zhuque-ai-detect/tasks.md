@@ -19,8 +19,8 @@
 
 ## 4. 前端：检测编排 hook
 
-- [ ] 4.1 `useZhuqueCheck(projectId, chapterRef)`：**挂路由边界之上（App 级 context 或模块级单例，跨 /config 路由存活）**；status/result/proseHash/stale；AbortController 挂切章与重复点击；(chapterRef, proseHash) 内存缓存；发起检测前 await 本章 store.flush()（chapter-rewrite 先例，flush 失败报错不送检）；重启不恢复（不进 localStorage/DB）
-- [ ] 4.2 vitest：在途取消、缓存命中不重发、指纹不符转 stale
+- [x] 4.1 `useZhuqueCheck(projectId, chapterRef)`：**挂路由边界之上（App 级 context 或模块级单例，跨 /config 路由存活）**；status/result/proseHash/stale；AbortController 挂切章与重复点击；(chapterRef, proseHash) 内存缓存；发起检测前 await 本章 store.flush()（chapter-rewrite 先例，flush 失败报错不送检）；重启不恢复（不进 localStorage/DB）
+- [x] 4.2 vitest：在途取消、缓存命中不重发、指纹不符转 stale
 
 ## 5. 前端：右栏检测行
 
