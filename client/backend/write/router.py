@@ -57,7 +57,11 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
     """
     from ai_client import get_ai_client_for_novel
     from chapters.service import save_chapter
-    from write.chapter_writer import WRITE_CLOSING_LINE, normalize_generated_prose
+    from write.chapter_writer import (
+        WRITE_CLOSING_LINE,
+        normalize_generated_prose,
+        word_target_floor,
+    )
 
     client = await get_ai_client_for_novel(project.id)
     # 符号别名：模型由本书绑定决定（D12，不再读 writing_model）
@@ -103,13 +107,13 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
                     tokens_in=event.tokens_in,
                 )
                 done: dict = {"type": "done", "full_text": full_text, "tokens": event.tokens}
-                # 工序②：写完字数校验（<90% 显式提示，不拦落库）
+                # 工序②：写完字数校验（低于下限＝目标-10%，与提示词同口径；提示不拦落库）
                 target = getattr(ctx, "word_target", 2500) or 2500
                 actual = len(full_text)
                 word_check = {
                     "target": target,
                     "actual": actual,
-                    "below_limit": actual < int(target * 0.9),
+                    "below_limit": actual < word_target_floor(target),
                 }
                 if word_check["below_limit"]:
                     word_check["message"] = f"字数不足：目标 {target}，实写 {actual}"

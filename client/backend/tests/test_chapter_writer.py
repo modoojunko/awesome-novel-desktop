@@ -64,12 +64,14 @@ class TestUserMaterial:
         prompt = ctx.to_user_material()
         assert "上一章结尾" in prompt
 
-    def test_word_target_with_tolerance_and_strategy(self):
+    def test_word_target_floor_and_expansion(self):
+        """字数要求＝只设下限（目标-10%），可多不可少；不足走扩写既有场景。"""
         ctx = ChapterContext()
         ctx.word_target = 4000
         prompt = ctx.to_user_material()
-        assert "约 4000 字（±10%）" in prompt
-        assert "压缩低权重场景" in prompt
+        assert "写故事至少 4000 字，可以多，不可以少" in prompt
+        assert "低于 3600 字不合格" in prompt
+        assert "扩写既有场景" in prompt
 
     def test_chapter_red_lines_exclude_world_iron_rules(self):
         """世界铁律上收 system 恒定层；user 章级红线只留随章变化的承诺。"""

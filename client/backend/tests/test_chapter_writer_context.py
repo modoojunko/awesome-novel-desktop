@@ -258,8 +258,8 @@ def test_prompt_consumes_surviving_fields():
     assert "权重：" not in prompt
     assert "关键情节点" not in prompt
     # 字数动态化：1800 而非硬编码 2500
-    assert "约 1800 字" in prompt
-    assert "约 2500 字" not in prompt
+    assert "写故事至少 1800 字" in prompt
+    assert "写故事至少 2500 字" not in prompt
 
 
 def test_material_markdown_skeleton():
@@ -281,8 +281,11 @@ def test_material_markdown_skeleton():
         assert label in md
     # 场景原材料块随场景卡退役（c-og-slim-v2）
     assert "【场景原材料】" not in md
-    assert "目标字数：约 1800 字" in md
-    assert "压缩策略" in md
+    assert "字数要求：写故事至少 1800 字" in md
+    assert "扩写策略" in md
+    # 「叙事完整性优先」逃生门与超限压缩策略退役（字数只设下限，可多不可少）
+    assert "叙事完整性优先" not in md
+    assert "压缩策略" not in md
 
 
 # ── 前情三分支（build_chapter_context 集成）──────────────────────────────
@@ -389,6 +392,6 @@ def test_build_context_word_target_from_chapter():
         )
         ctx = await build_chapter_context(project.root_path, ref1, "暗流")
         assert ctx.word_target == 1800
-        assert "约 1800 字" in ctx.to_user_material()
+        assert "写故事至少 1800 字" in ctx.to_user_material()
 
     _run_async(_run())
