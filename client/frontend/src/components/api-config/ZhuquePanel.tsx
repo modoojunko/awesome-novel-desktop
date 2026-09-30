@@ -3,7 +3,7 @@
  *  单 Key 槽位（后端 vendor="zhuque" 专用端点，作者只粘贴 Key）；两态：
  *  未配置（Key 输入＋三步引导）／已配置（掩码/更换/删除/测试连接/显示开关）。
  *  独立取数（/api/v1/zhuque/*），不串 useApiConfigs（那是大模型多配置体系）。
- *  文案口径：MAX 会员权益（试用不含）＋活动额度引用式表述（以腾讯云为准）。
+ *  文案口径：PRO 会员权益（试用不含）＋活动额度引用式表述（以腾讯云为准）。
  *  词汇：panel/panel-h/pill/notice（.pg-config 域）＋新增 zg 系与 zq-toggle-row。 */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { request } from "@/lib/api";
@@ -144,7 +144,7 @@ export default function ZhuquePanel() {
       <div className="notice" data-od-id="zhuque-notice">
         <span>
           朱雀是<b>腾讯的 AI 生成内容检测</b>：把整章正文送去测一测「像不像 AI 写的」，按段落给出
-          置信度。<b>MAX 会员权益</b>（试用不含）；需自备腾讯云 Key，<b>每月 50 万 token 免费额度</b>
+          置信度。<b>PRO 会员权益</b>（试用不含）；需自备腾讯云 Key，<b>每月 50 万 token 免费额度</b>
           （活动口径，以腾讯云为准）。
         </span>
       </div>
