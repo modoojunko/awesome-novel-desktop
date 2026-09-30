@@ -117,11 +117,11 @@ export function useZhuqueCheck(projectId: string, chapterRef: string) {
           });
           return;
         }
-        const result = await api.post<ZhuqueResult>(
+        const result = (await api.post(
           `/api/novels/${projectId}/chapters/${chapterRef}/zhuque-check`,
           undefined,
           { signal: ac.signal, quiet: true },
-        );
+        )) as ZhuqueResult;
         setState(chapterRef, {
           status: "ok",
           result,

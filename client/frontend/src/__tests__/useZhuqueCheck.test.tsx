@@ -30,7 +30,7 @@ function okResult(hash: string, segs = 3): ZhuqueResult {
 
 type Call = { url: string; signal?: AbortSignal };
 let calls: Call[] = [];
-let responder: (url: string) => { status: number; body: unknown } | undefined;
+let responder: ((url: string) => { status: number; body: unknown } | undefined) | undefined;
 
 beforeEach(() => {
   calls = [];
@@ -90,7 +90,7 @@ describe("useZhuqueCheck 状态仓", () => {
       return undefined;
     };
     // 用未 resolve 的 fetch 挂起第一发
-    let gate: Promise<void>;
+    let gate: Promise<void> | undefined;
     const pending = new Promise<void>((r) => (release = r));
     vi.stubGlobal(
       "fetch",

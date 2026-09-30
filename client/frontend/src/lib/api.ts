@@ -138,7 +138,7 @@ export async function request<T = any>(
         throw e;
       }
     } catch (e) {
-      if (e instanceof Error && e.reason === "zhuque_auth") throw e;
+      if (e instanceof Error && (e as Error & { reason?: string }).reason === "zhuque_auth") throw e;
       /* 非 JSON 体：按普通 401 走既有口径 */
     }
     // 踢出口径（c-session-flip-stability）：仅用户动作请求的 401 清凭据+回登录页。
