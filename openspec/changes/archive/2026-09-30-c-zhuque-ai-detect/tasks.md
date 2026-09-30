@@ -42,4 +42,4 @@
 
 - [x] 8.1 e2e 锚点清单落位（data-testid）：检测行 rail-zhuque-check、结果条 zhuque-head-strip、清除标注 zq-clear、重检 zq-rerun、配置页签 cfg-tab-llm/cfg-tab-zhuque、Key 输入/保存 zhuque-key-input/zhuque-key-save、显示开关 zhuque-show-toggle、stale 提示 zhuque-stale
 - [x] 8.2 全门禁（pytest 1719 绿；vitest 1057/1060——3 红为并行会话 CharacterManager.adopt 在途；tsc/design:lint/design-parity list 7+1存量/config 2 绿；覆盖率 perFile 100 含新入册 ZhuquePanel）：双端 tsc/vue-tsc、vitest、pytest、e2e（新增 config-page 用例：页签/添加按钮显隐/深链；workbench 用例：行四态/结果条/标注/stale）、design:lint + design:check + design-cross
-- [ ] 8.3 演示栈重建换包（独立 compose 项目），真机走通 10 态设计稿口径；抓 bundle 特征串自证为本构建
+- [x] 8.3 演示栈重建换包（09-30：worktree@9901fded 构建、数据目录保持主检出挂载、bundle 特征串＋zhuque 端点 401 自证）（独立 compose 项目），真机走通 10 态设计稿口径；抓 bundle 特征串自证为本构建
