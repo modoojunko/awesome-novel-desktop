@@ -391,6 +391,10 @@ class TestHooksPrompt:
         assert "resolved、advanced、planted 各最多 3 条" in p
         assert "planted 输出空数组" in p  # 宁缺勿滥
         assert "氛围描写、场景细节" in p
+        # 剧情走向排除（09-29 真机反馈：什么都识别成伏笔，用户手删多条）
+        assert "剧情走向不是伏笔" in p
+        assert "未解承诺" in p and "读者会觉得被辜负" in p
+        assert "章末悬念断点" in p and "问完即答≠伏笔" in p
 
     def test_prompt_without_ledger_has_no_block(self):
         from archive.reconcile import _collect_prompts
