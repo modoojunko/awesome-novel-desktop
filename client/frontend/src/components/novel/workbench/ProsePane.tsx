@@ -42,6 +42,9 @@ import {
   setLastWriteSession,
 } from "@/lib/prefs";
 import { docToProse, linesToParagraphs, proseToDoc, normalizeStreamedProse, proseDelta} from "./proseDoc";
+import { ZhuqueMarks, applyZhuqueSegments } from "./zhuqueMarks";
+import { fingerprint } from "@/lib/zhuqueFingerprint";
+import { useZhuqueCheck } from "@/hooks/useZhuqueCheck";
 
 export interface ProseAIState {
   hasSelection: boolean;
@@ -202,6 +205,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           underline: false,
         }),
         Placeholder.configure({ placeholder: "从这一章开始写……" }),
+        // c-zhuque-ai-detect：朱雀段落标注（Decorations 覆盖层，不动文档）
+        ZhuqueMarks,
       ],
       editable: false, // 由 editable effect 统一接管（两态＋锁定＋流式）
       editorProps: {
@@ -248,6 +253,34 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     // ——重建窗口期 effect 会拿到已销毁实例（.commands 抛错 → 子树被卸载，树空白）
     [],
   );
+
+  // c-zhuque-ai-detect：标注注入＋失效链。
+  // - 结果到达（ok）→ segments 注入 Decorations；idle/clear → 清除
+  // - stale（hook 侧判定）→ 装饰置换灰变体
+  // - 文档事务（tr.docChanged，含流式/整档替换/撤销——preventUpdate 不拦 transaction）
+  //   → 按管道重算 live 指纹 → evaluateStale（live ≠ 送检 → 变灰＋结果条提示重检）
+  const zq = useZhuqueCheck(projectId, chapterRef);
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const st = zq.state;
+    if (st.status === "ok" && st.result) {
+      applyZhuqueSegments(editor, st.result.segments, st.stale);
+    } else if (st.status === "idle") {
+      applyZhuqueSegments(editor, null);
+    }
+  }, [editor, zq.state]);
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const onTransaction = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+      if (!transaction.docChanged) return;
+      const live = docToProse(editor.getJSON());
+      void fingerprint(live).then((h) => zq.evaluateStale(h));
+    };
+    editor.on("transaction", onTransaction);
+    return () => {
+      editor.off("transaction", onTransaction);
+    };
+  }, [editor, zq]);
 
   // 撤销/重做可用态（工具箱按钮置灰；useEditorState 订阅事务）
   const canUndoRedo = useEditorState({

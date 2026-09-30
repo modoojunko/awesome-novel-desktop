@@ -9,6 +9,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { api, request } from "@/lib/api";
+import { useNavigate } from "react-router-dom";
+import { useFeature } from "@/hooks/useTier";
+import { getZhuqueShow } from "@/lib/prefs";
+import { runZhuqueCheck, useZhuqueCheck } from "@/hooks/useZhuqueCheck";
 import type { AiState } from "@/types/api-config";
 import { toast } from "@/lib/toast";
 import type { RefObject } from "react";
@@ -129,6 +133,12 @@ export function AiAssistPanel({
     resolveHere: number;
   } | null>(null);
   const [loreStats, setLoreStats] = useState<{ here: number; until: number } | null>(null);
+  // c-zhuque-ai-detect：检测行三事实（权益/Key 配置/显示开关）＋编排状态
+  const aiDetect = useFeature("ai-detect");
+  const [zqConfigured, setZqConfigured] = useState<boolean | null>(null);
+  const [zqShow, setZqShowState] = useState(() => getZhuqueShow());
+  const zq = useZhuqueCheck(projectId, chapterRef);
+  const navigate = useNavigate();
 
   const chapterNo = useMemo(() => {
     return chapterNoOf(chapterRef);
@@ -137,6 +147,10 @@ export function AiAssistPanel({
   useEffect(() => {
     let cancelled = false;
     if (tab === "prose") {
+      // c-zhuque-ai-detect：朱雀 Key 配置状态（就绪/引导分流的事实源）
+      request("/api/v1/zhuque/config", { quiet: true, apiBase: "" })
+        .then((d: { configured?: boolean }) => setZqConfigured(!!d?.configured))
+        .catch(() => setZqConfigured(false));
       // 提示词状态（c-prompt-tab-retire：页签退役后状态收编正文页签作用域行）
       request(`/novels/${projectId}/chapters/${chapterRef}/prompts`, { quiet: true })
         .then((files: unknown) => {
@@ -281,6 +295,17 @@ export function AiAssistPanel({
     };
   }, [tab, projectId, chapterRef, chapterNo, promptSavedSignal]);
 
+  // c-zhuque-ai-detect：显示开关（prefs 单源）跨组件同步——配置页拨动经 CustomEvent 到达
+  useEffect(() => {
+    const onZqShow = () => setZqShowState(getZhuqueShow());
+    window.addEventListener("zhuque-show-changed", onZqShow);
+    window.addEventListener("storage", onZqShow);
+    return () => {
+      window.removeEventListener("zhuque-show-changed", onZqShow);
+      window.removeEventListener("storage", onZqShow);
+    };
+  }, []);
+
   const TITLE: Record<string, string> = {
     og: "章纲", prose: "正文", prompt: "提示词", settings: "设定",
     style: "文风", relations: "角色关系", hooks: "伏笔", actions: "操作",
@@ -387,6 +412,7 @@ export function AiAssistPanel({
       aiState?.polishLoading ? "polish"
       : aiState?.expandLoading ? "expand"
       : aiState?.compressLoading ? "compress"
+      : zq.state.status === "running" ? "zhuque"
       : null;
     const streaming = !!aiState?.streaming;
     const pct = planWords ? Math.min(100, Math.round((wordCount / planWords) * 100)) : null;
@@ -428,8 +454,52 @@ export function AiAssistPanel({
         hint: !aiState?.hasSelection ? "先在正文选中一段" : undefined,
       }),
     ];
+    // c-zhuque-ai-detect：朱雀检测行（四态）
+    // 非 MAX（快照无 ai-detect）→ maxlk 锁定（免费档整卡锁定承载；PRO 行级锁定），点击统一升级出口
+    // MAX 未配 Key → guide 虚线引导跳「模型配置 → 朱雀」；MAX 已配 → 就绪/运行
+    if (zqShow) {
+      const configured = zqConfigured === true;
+      const running = zq.state.status === "running";
+      const maxlk = !aiDetect;
+      const guide = aiDetect && !configured;
+      const wordCountEmpty = wordCount === 0;
+      rows.push({
+        key: "zhuque",
+        name: "朱雀 AI 检测 · 查AI味",
+        desc: maxlk
+          ? "MAX 会员权益 · 升级后整章送腾讯朱雀检测（需自备腾讯云 Key）"
+          : guide
+            ? wordCountEmpty
+              ? "先写正文，再整章送腾讯朱雀测 AI 味；Key 在「模型配置 → 朱雀」配置"
+              : "未配置 Key · 点击去「模型配置 → 朱雀」粘贴腾讯云 EdgeOne Key"
+            : "整章送腾讯朱雀测 AI 味，结果与段落标注就地显示",
+        badge: maxlk ? (
+          <span className="pill pill-warn">MAX 专属</span>
+        ) : (
+          <span className="pill pill-accent">MAX 权益</span>
+        ),
+        variant: maxlk ? "maxlk" : guide ? "guide" : undefined,
+        onClick: () => {
+          if (maxlk) {
+            onUpgrade?.();
+            return;
+          }
+          if (guide) {
+            navigate("/config?tab=zhuque");
+            return;
+          }
+          void runZhuqueCheck(projectId, chapterRef);
+        },
+        hint: guide ? undefined : undefined,
+        testid: "rail-zhuque-check",
+        odId: "rail-zhuque-check",
+        runningHint: "检测中…",
+        // 空正文：可点但后端 400「先写正文」——行内即给出预判提示
+        disabled: !maxlk && !guide && wordCountEmpty,
+      });
+    }
     footNote =
-      "续写/去AI味/扩写/压缩作用于正文编辑器；去AI味与扩写先出对照预览，采纳才替换。提示词由「生成正文」弹窗查看/编辑，弹窗内可存为本章提示词。" ;
+      "续写/去AI味/扩写/压缩作用于正文编辑器；朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上。检测需在「模型配置 → 朱雀」配好 Key（MAX 会员权益）。";
   } else if (tab === "settings") {
     targetLine = loreStats ? (
       <>本章变化 {loreStats.here} 条 · 截至本章条目 {loreStats.until} 条</>

@@ -52,6 +52,13 @@ const stateByRef = new Map<string, ZhuqueState>();
 const inflight = new Map<string, AbortController>();
 const listeners = new Set<() => void>();
 
+/** 落盘 provider：ChapterWorkspace 注册本章 store.flush（落盘由前端保证），
+ *  检测行（NovelWorkspace 层 Rail）跨层调用——不走 props/railData（渲染死循环纪律）。 */
+let flushProvider: (() => Promise<void>) | null = null;
+export function registerZhuqueFlush(fn: (() => Promise<void>) | null) {
+  flushProvider = fn;
+}
+
 function notify() {
   listeners.forEach((l) => l());
 }
@@ -86,6 +93,48 @@ export function zhuqueStoreReset() {
   notify();
 }
 
+/** 模块级 run：检测行（右栏）直接调用；hook 消费点经订阅取状态。 */
+export async function runZhuqueCheck(projectId: string, chapterRef: string) {
+  if (inflight.has(chapterRef)) return; // 在途防抖
+  const ac = new AbortController();
+  inflight.set(chapterRef, ac);
+  setState(chapterRef, { status: "running", stale: false });
+  try {
+    try {
+      await flushProvider?.(); // 落盘由前端保证（后端只读盘上文本）
+    } catch {
+      setState(chapterRef, {
+        status: "error",
+        error: { message: "正文保存未完成，请重试" },
+      });
+      return;
+    }
+    const result = (await api.post(
+      `/api/novels/${projectId}/chapters/${chapterRef}/zhuque-check`,
+      undefined,
+      { signal: ac.signal, quiet: true },
+    )) as ZhuqueResult;
+    setState(chapterRef, {
+      status: "ok",
+      result,
+      proseHash: result.prose_hash,
+      stale: false,
+    });
+  } catch (e) {
+    const err = e as Error & { status?: number; reason?: string };
+    if (err.name === "AbortError") {
+      setState(chapterRef, { status: "idle" });
+      return;
+    }
+    setState(chapterRef, {
+      status: "error",
+      error: { status: err.status, reason: err.reason, message: err.message || "检测失败，请重试" },
+    });
+  } finally {
+    inflight.delete(chapterRef);
+  }
+}
+
 export function useZhuqueCheck(projectId: string, chapterRef: string) {
   const state = useSyncExternalStore(
     (cb) => {
@@ -103,44 +152,8 @@ export function useZhuqueCheck(projectId: string, chapterRef: string) {
 
   const run = useCallback(
     async (opts?: { flush?: () => Promise<void> }) => {
-      if (inflight.has(chapterRef)) return; // 在途防抖
-      const ac = new AbortController();
-      inflight.set(chapterRef, ac);
-      setState(chapterRef, { status: "running", stale: false });
-      try {
-        try {
-          await opts?.flush?.(); // 落盘由前端保证（后端只读盘上文本）
-        } catch {
-          setState(chapterRef, {
-            status: "error",
-            error: { message: "正文保存未完成，请重试" },
-          });
-          return;
-        }
-        const result = (await api.post(
-          `/api/novels/${projectId}/chapters/${chapterRef}/zhuque-check`,
-          undefined,
-          { signal: ac.signal, quiet: true },
-        )) as ZhuqueResult;
-        setState(chapterRef, {
-          status: "ok",
-          result,
-          proseHash: result.prose_hash,
-          stale: false,
-        });
-      } catch (e) {
-        const err = e as Error & { status?: number; reason?: string };
-        if (err.name === "AbortError") {
-          setState(chapterRef, { status: "idle" });
-          return;
-        }
-        setState(chapterRef, {
-          status: "error",
-          error: { status: err.status, reason: err.reason, message: err.message || "检测失败，请重试" },
-        });
-      } finally {
-        inflight.delete(chapterRef);
-      }
+      if (opts?.flush) registerZhuqueFlush(opts.flush);
+      await runZhuqueCheck(projectId, chapterRef);
     },
     [projectId, chapterRef],
   );

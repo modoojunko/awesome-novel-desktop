@@ -24,19 +24,19 @@
 
 ## 5. 前端：右栏检测行
 
-- [ ] 5.1 `AiWriterAssistant.tsx` 扩展：AiCapabilityRow 支持 guide 变体（虚线）、maxlk 锁定变体（保持可点走升级出口，不用 disabled）＋行内徽章插槽（MAX 专属 .pill-warn）、runningHint 自定义文案；`AiAssistPanel.tsx` prose 页签末行按四态分发（useFeature("ai-detect") 锁定＋MAX 专属章→统一升级出口；未配 Key→navigate /config?tab=zhuque（就绪/引导分流读 GET /api/v1/zhuque/config 的 configured）；运行中（running 态并入 runningKey 使整卡其余行禁用）；就绪；开关关=不渲染＋副行「朱雀检测已关闭」；entitlementDegraded 降级文案变体「权益状态确认中」）；免费档整卡锁定调和（行级变体仅卡 ready 时生效）；检测运行期整卡其余行禁用为既有行为
-- [ ] 5.2 vitest＋e2e：四态渲染与点击路由（锁定不给请求、引导跳页签、快照降级一律锁定）；共享组件回归 ai-assist 相关既有用例全绿
+- [x] 5.1 `AiWriterAssistant.tsx` 扩展：AiCapabilityRow 支持 guide 变体（虚线）、maxlk 锁定变体（保持可点走升级出口，不用 disabled）＋行内徽章插槽（MAX 专属 .pill-warn）、runningHint 自定义文案；`AiAssistPanel.tsx` prose 页签末行按四态分发（useFeature("ai-detect") 锁定＋MAX 专属章→统一升级出口；未配 Key→navigate /config?tab=zhuque（就绪/引导分流读 GET /api/v1/zhuque/config 的 configured）；运行中（running 态并入 runningKey 使整卡其余行禁用）；就绪；开关关=不渲染＋副行「朱雀检测已关闭」；entitlementDegraded 降级文案变体「权益状态确认中」）；免费档整卡锁定调和（行级变体仅卡 ready 时生效）；检测运行期整卡其余行禁用为既有行为
+- [x] 5.2 vitest＋e2e：四态渲染与点击路由（锁定不给请求、引导跳页签、快照降级一律锁定）；共享组件回归 ai-assist 相关既有用例全绿
 
 ## 6. 前端：标题区结果条
 
-- [ ] 6.1 `ChapterWorkspace.tsx` e-head 挂结果条（裸排 .zq-hd：占比条＋三数字＋概率参考小字＋清除标注/重检；检测中转圈；失败红字＋按错误族出口（去配置/重试/关闭））；与既有控件冲突时结果条优先、其余换行；窄屏堆叠
-- [ ] 6.2 vitest：三态渲染、清除标注=结果与标注一并退场、stale 灰化＋「正文已修改，结果可能过期」＋重检可点、开关关隐藏/拨回开恢复（会话内缓存）、空正文「先写正文」不可用引导、已归档章保持可发起
+- [x] 6.1 `ChapterWorkspace.tsx` e-head 挂结果条（裸排 .zq-hd：占比条＋三数字＋概率参考小字＋清除标注/重检；检测中转圈；失败红字＋按错误族出口（去配置/重试/关闭））；与既有控件冲突时结果条优先、其余换行；窄屏堆叠
+- [x] 6.2 vitest：三态渲染、清除标注=结果与标注一并退场、stale 灰化＋「正文已修改，结果可能过期」＋重检可点、开关关隐藏/拨回开恢复（会话内缓存）、空正文「先写正文」不可用引导、已归档章保持可发起
 
 ## 7. 前端：正文标注 Decorations
 
-- [ ] 7.1 TipTap 扩展 `zhuque-marks`：node decoration（zq-warn/zq-err 段底色）＋widget decoration（行尾 .zq-mark 置信度章，contenteditable=false）；paragraph_index→PM 节点映射（doc.content.forEach 同口径）
-- [ ] 7.2 失效链：tr.docChanged→重算指纹≠proseHash→装饰转置灰＋结果条 stale；重检后恢复；标注不进撤销历史/自动保存文本
-- [ ] 7.3 vitest＋e2e：标注着色与章渲染、编辑后变灰、下载/预览导出与未检测逐字节一致
+- [x] 7.1 TipTap 扩展 `zhuque-marks`：node decoration（zq-warn/zq-err 段底色）＋widget decoration（行尾 .zq-mark 置信度章，contenteditable=false）；paragraph_index→PM 节点映射（doc.content.forEach 同口径）
+- [x] 7.2 失效链：tr.docChanged→重算指纹≠proseHash→装饰转置灰＋结果条 stale；重检后恢复；标注不进撤销历史/自动保存文本
+- [x] 7.3 vitest＋e2e：标注着色与章渲染、编辑后变灰、下载/预览导出与未检测逐字节一致
 
 ## 8. 收尾门禁与换包
 
