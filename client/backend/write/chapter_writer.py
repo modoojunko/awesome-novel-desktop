@@ -45,6 +45,11 @@ WORD_TARGET_DEFAULT = 2500
 STORY_ARC_INJECT_MAX = 600
 
 
+def word_target_floor(target: int) -> int:
+    """字数下限（目标 -10%）：提示词文案与完成时校验（write/router）共用的同一口径。"""
+    return int(target * 0.9)
+
+
 def clip_story_arc(text: str, limit: int = STORY_ARC_INJECT_MAX) -> str:
     """主线全文注入裁剪：超预算截断到句读处，避免提示词超载。"""
     t = (text or "").strip()
@@ -411,8 +416,14 @@ class ChapterContext:
             blocks.append("【文风例句（案例段原料）】\n" + "\n".join(f"- {s}" for s in few_shot))
 
         task_lines = [
-            f"目标字数：约 {self.word_target} 字（±10% 可接受，叙事完整性优先）",
-            "压缩策略：超字数时优先压缩低权重场景（≤100 字转场），不得删改红线内容",
+            (
+                f"字数要求：写故事至少 {self.word_target} 字，可以多，不可以少——"
+                f"低于 {word_target_floor(self.word_target)} 字即为不合格"
+            ),
+            (
+                "扩写策略：情节拍点写完仍不足下限时，用对话交锋、感官细节、心理活动"
+                "扩写既有场景补足，不得新增冲突事件，不得删改红线内容"
+            ),
         ]
         goals = self._narrative_goals_lines()
         if goals:
@@ -704,7 +715,11 @@ class ChapterContext:
         red_lines = self._red_lines(include_world=False)
         if red_lines:
             lines.extend(f"- {r}" for r in red_lines)
-        lines.append(f"字数：约 {self.word_target} 字（±10%），超限先压缩低权重场景。")
+        lines.append(
+            f"字数：写故事至少 {self.word_target} 字，可以多，不可以少；"
+            f"低于 {word_target_floor(self.word_target)} 字不合格——不足就用对话、"
+            "感官细节、心理活动扩写既有场景补足，不得新增冲突事件。"
+        )
 
         return "\n".join(lines)
 
