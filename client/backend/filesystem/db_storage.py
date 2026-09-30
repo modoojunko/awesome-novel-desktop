@@ -15,6 +15,21 @@ from filesystem.paths import CHARACTER_DIR, CHARACTER_PREFIX, route_relative_pat
 from models.project_setting import ProjectSetting
 
 
+def _parse_content(content: str) -> dict:
+    """content 解析容错：JSON 是唯一正规形状（write_yaml 只产 JSON）；
+    非 JSON（外部手修残留裸 YAML 等）按 YAML 抢救，仍不成才给空——
+    坏一行不得炸整本书（readiness/拆章/世界页全走这里，2026-09-30 实锤）。"""
+    try:
+        return json.loads(content)
+    except (ValueError, TypeError):
+        pass
+    try:
+        data = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 class DatabaseFileBackend:
     async def read_yaml(self, root_path: str, relative_path: str) -> dict:
         key = route_relative_path(relative_path)
@@ -24,7 +39,7 @@ class DatabaseFileBackend:
             row = await session.get(ProjectSetting, (root_path, key))
             if row is None:
                 return {}
-            return json.loads(row.content)
+            return _parse_content(row.content)
 
     async def write_yaml(self, root_path: str, relative_path: str, data: dict) -> None:
         key = route_relative_path(relative_path)

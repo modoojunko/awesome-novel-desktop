@@ -109,6 +109,41 @@ def test_db_roundtrip_and_delete():
     assert _run_async(db.read_yaml(root, "settings/world-setting.yaml")) == {}
 
 
+def test_read_yaml_tolerates_non_json_content():
+    """坏行不炸整本书（2026-09-30 实锤：外部手修把裸 YAML 写进 world 行，
+    readiness/拆章 AI 全 500）。JSON 照旧；非 JSON 按 YAML 抢救；垃圾给空。"""
+    from db import async_session
+    from models.project_setting import ProjectSetting
+
+    db = DatabaseFileBackend()
+    root = _tmp_root(prefix="test_bad_content_")
+
+    async def _seed(key: str, content: str):
+        async with async_session() as session:
+            session.add(ProjectSetting(root_path=root, key=key, content=content))
+            await session.commit()
+
+    # 裸 YAML（事故形状）→ 解析回 dict，数据不丢
+    _run_async(_seed("world", "no_power: false\nstage: 灰港\n"))
+    assert _run_async(db.read_yaml(root, "settings/world-setting.yaml")) == {
+        "no_power": False,
+        "stage": "灰港",
+    }
+    # 两种语法都救不回（空串 / 坏 YAML）→ 空字典，不抛
+    _run_async(_seed("style", ""))
+    assert _run_async(db.read_yaml(root, "settings/writing-style.yaml")) == {}
+    _run_async(_seed("anti-ai", "!!!bad: [unclosed"))
+    assert _run_async(db.read_yaml(root, "settings/anti-ai.yaml")) == {}
+    # YAML 解析成标量也不冒充 dict
+    _run_async(_seed("genre", "just-a-word"))
+    assert _run_async(db.read_yaml(root, "settings/genre.yaml")) == {}
+    # JSON 语义不变：字符串/null 原样返回（调用方 `or {}` 兜底）
+    _run_async(_seed("story", '"just-a-string"'))
+    assert _run_async(db.read_yaml(root, "story.yaml")) == "just-a-string"
+    _run_async(_seed("threads", "null"))
+    assert _run_async(db.read_yaml(root, "threads.yaml")) is None
+
+
 # ── Composite 路由分派 ─────────────────────────────────────────────────────
 
 
