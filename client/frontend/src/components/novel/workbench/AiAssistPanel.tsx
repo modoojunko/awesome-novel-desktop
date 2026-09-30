@@ -9,7 +9,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { api, request } from "@/lib/api";
-import { useNavigate } from "react-router-dom";
 import { useFeature } from "@/hooks/useTier";
 import { getZhuqueShow } from "@/lib/prefs";
 import { runZhuqueCheck, useZhuqueCheck } from "@/hooks/useZhuqueCheck";
@@ -138,7 +137,6 @@ export function AiAssistPanel({
   const [zqConfigured, setZqConfigured] = useState<boolean | null>(null);
   const [zqShow, setZqShowState] = useState(() => getZhuqueShow());
   const zq = useZhuqueCheck(projectId, chapterRef);
-  const navigate = useNavigate();
 
   const chapterNo = useMemo(() => {
     return chapterNoOf(chapterRef);
@@ -485,7 +483,7 @@ export function AiAssistPanel({
             return;
           }
           if (guide) {
-            navigate("/config?tab=zhuque");
+            window.location.hash = "#/config?tab=zhuque";
             return;
           }
           void runZhuqueCheck(projectId, chapterRef);

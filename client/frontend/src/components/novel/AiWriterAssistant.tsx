@@ -147,8 +147,9 @@ export default function AiWriterAssistant({
         const running = runningKey === r.key;
         const variantCls =
           r.variant === "guide" ? " zq-guide" : r.variant === "maxlk" ? " zq-maxlk" : "";
-        // guide/maxlk 行保持可点（出口语义），SHALL NOT 因运行期整卡禁用而失能
-        const locked = r.variant === undefined;
+        // guide/maxlk 行保持可点（出口语义），SHALL NOT 因运行期整卡禁用而失能；
+        // 普通行维持既有口径（含运行行自身 disabled＋aria-busy）
+        const interactive = r.variant !== undefined;
         return (
           <button
             key={r.key}
@@ -158,7 +159,7 @@ export default function AiWriterAssistant({
             data-od-id={r.odId}
             data-testid={r.testid}
             aria-busy={running || undefined}
-            disabled={(r.disabled || (locked && runningKey !== null)) && !running}
+            disabled={interactive ? r.disabled || runningKey === r.key : r.disabled || runningKey !== null}
             onClick={() => void guard(r.key, r.onClick)()}
           >
             <span className="ra-body">
