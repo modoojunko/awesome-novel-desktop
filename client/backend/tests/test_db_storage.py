@@ -109,6 +109,85 @@ def test_db_roundtrip_and_delete():
     assert _run_async(db.read_yaml(root, "settings/world-setting.yaml")) == {}
 
 
+def test_read_yaml_tolerates_non_json_content():
+    """坏行不炸整本书（2026-09-30 实锤：外部手修把裸 YAML 写进 world 行，
+    readiness/拆章 AI 全 500）。非 dict 一律置空：裸 YAML 按 YAML 抢救；
+    合法 JSON 但非 dict（null/标量/数组）也置空——or {} 只接得住 falsy，
+    truthy 标量照样炸消费者（archive/service.py update_thread_state 无守卫）。"""
+    from db import async_session
+    from models.project_setting import ProjectSetting
+
+    db = DatabaseFileBackend()
+    root = _tmp_root(prefix="test_bad_content_")
+
+    async def _seed(key: str, content: str):
+        async with async_session() as session:
+            session.add(ProjectSetting(root_path=root, key=key, content=content))
+            await session.commit()
+
+    # 裸 YAML（事故形状）→ 解析回 dict，数据不丢
+    _run_async(_seed("world", "no_power: false\nstage: 灰港\n"))
+    assert _run_async(db.read_yaml(root, "settings/world-setting.yaml")) == {
+        "no_power": False,
+        "stage": "灰港",
+    }
+    # 两种语法都救不回（空串 / 坏 YAML / 多文档）→ 空字典，不抛
+    _run_async(_seed("style", ""))
+    assert _run_async(db.read_yaml(root, "settings/writing-style.yaml")) == {}
+    _run_async(_seed("anti-ai", "!!!bad: [unclosed"))
+    assert _run_async(db.read_yaml(root, "settings/anti-ai.yaml")) == {}
+    _run_async(_seed("ai-model", "a: 1\n---\nb: 2"))
+    assert _run_async(db.read_yaml(root, "settings/ai-model.yaml")) == {}
+    # YAML 解析成标量也不冒充 dict
+    _run_async(_seed("genre", "just-a-word"))
+    assert _run_async(db.read_yaml(root, "settings/genre.yaml")) == {}
+    # 合法 JSON 但非 dict（null / 标量 / 数组）→ 同样置空，不透传
+    _run_async(_seed("story", "null"))
+    assert _run_async(db.read_yaml(root, "story.yaml")) == {}
+    _run_async(_seed("status", '"just-a-string"'))
+    assert _run_async(db.read_yaml(root, "settings/settings-status.yaml")) == {}
+    _run_async(_seed("threads", "[1, 2]"))
+    assert _run_async(db.read_yaml(root, "threads.yaml")) == {}
+
+
+def test_parse_content_rejects_non_str():
+    """DDL 是 NOT NULL，但手写 SQL 仍可能塞 NULL/异形——边界绝不容抛。"""
+    from filesystem.db_storage import _parse_content
+
+    assert _parse_content("./data/x", "world", None) == {}
+    assert _parse_content("./data/x", "world", 123) == {}
+
+
+def test_yaml_rescue_self_heals_on_next_save():
+    """抢救只兜一程：读（YAML 转正为 dict）→ 正常保存 → 库里已是 JSON。"""
+    from db import async_session
+    from models.project_setting import ProjectSetting
+
+    db = DatabaseFileBackend()
+    root = _tmp_root(prefix="test_rescue_heal_")
+
+    async def _seed(key: str, content: str):
+        async with async_session() as session:
+            session.add(ProjectSetting(root_path=root, key=key, content=content))
+            await session.commit()
+
+    _run_async(_seed("world", "stage: 灰港\n"))
+    rescued = _run_async(db.read_yaml(root, "settings/world-setting.yaml"))
+    assert rescued == {"stage": "灰港"}
+    _run_async(db.write_yaml(root, "settings/world-setting.yaml", rescued))
+    assert _run_async(db.read_yaml(root, "settings/world-setting.yaml")) == {
+        "stage": "灰港"
+    }
+
+    # 库内 content 已是 JSON（抢救不再每次读都触发）
+    async def _content() -> str:
+        async with async_session() as session:
+            row = await session.get(ProjectSetting, (root, "world"))
+            return row.content
+
+    assert _run_async(_content()) == '{"stage": "灰港"}'
+
+
 # ── Composite 路由分派 ─────────────────────────────────────────────────────
 
 
