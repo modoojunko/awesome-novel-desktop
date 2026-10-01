@@ -8,6 +8,7 @@
   「tag 构建构建信息为空」从烘焙层就不给。分支映射：`pull_request` 事件的
   `GITHUB_REF_NAME` 形如 `123/merge` → `pr-123`；两键缺一不烘（运行时成对消费）。
 - 环境变量：RELEASE_SERVER_API_BASE / RELEASE_SERVER_API_FALLBACK /
+  RELEASE_PUBLIC_SERVER_API / RELEASE_PORTAL_URL /
   RELEASE_DOWNLOAD_BASE / RELEASE_DOWNLOAD_FALLBACK_BASE（与 workflow step env 同名）。
 - 本地 dry-run：`GITHUB_REF_NAME=main GITHUB_SHA=<sha> python scripts/release_json_generate.py dev -o /tmp/release.json`
   （不设 GITHUB_* 即模拟「无构建信息」形态）。
@@ -60,13 +61,20 @@ def generate(version: str) -> dict:
     cfg = {
         "server_api_base": os.environ["RELEASE_SERVER_API_BASE"],
         "server_api_fallback": os.environ["RELEASE_SERVER_API_FALLBACK"],
+        # S端 公开地址族（c-package-public-endpoints）：public_server_api＝宿主浏览器
+        # 可访问地址（授权页 URL 取值源，MUST 指向承载 S端 web /auth 的源）；
+        # portal_url＝会员/客服页门户源。缺烘 public_server_api 曾致打包端授权页
+        # 落到云托管直连源 404（v0.23–v0.25 实锤）
+        "public_server_api": os.environ["RELEASE_PUBLIC_SERVER_API"],
+        "portal_url": os.environ["RELEASE_PORTAL_URL"],
         "client_version": version,
         "client_update_url": os.environ["RELEASE_DOWNLOAD_BASE"].rstrip("/") + "/latest.json",
         "client_update_url_fallback": os.environ["RELEASE_DOWNLOAD_FALLBACK_BASE"].rstrip("/") + "/latest.json",
         "components": comp,
         **bake_build_info(version),
     }
-    for k in ("server_api_base", "client_update_url", "client_update_url_fallback"):
+    for k in ("server_api_base", "public_server_api", "portal_url",
+              "client_update_url", "client_update_url_fallback"):
         assert str(cfg[k]).startswith("https://"), (k, cfg[k])
     assert comp.get("db_filename") == (f"novel-v{version}.db" if version != _DEV else "novel-dev.db"), comp
     assert isinstance(comp.get("backup_format_version"), int), comp

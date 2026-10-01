@@ -107,6 +107,11 @@ jobs:
         env:
           RELEASE_SERVER_API_BASE: ${{ vars.CLIENT_SERVER_API_BASE || 'https://novel-s-server-297265-7-1468883265.sh.run.tcloudbase.com/api' }}
           RELEASE_SERVER_API_FALLBACK: ${{ vars.CLIENT_SERVER_API_FALLBACK || 'https://novel-s-server-297265-7-1468883265.sh.run.tcloudbase.com/api' }}
+          # S端 公开地址族（c-package-public-endpoints）：public_server_api 必须指向承载
+          # S端 web /auth 的源（授权页 URL 由它剥 /api 构造）——缺烘曾致打包端授权页
+          # 落到云托管直连源 404（v0.23–v0.25 实锤）
+          RELEASE_PUBLIC_SERVER_API: ${{ vars.CLIENT_PUBLIC_SERVER_API || 'https://www.awesomenovel.com/api' }}
+          RELEASE_PORTAL_URL: ${{ vars.CLIENT_PORTAL_URL || 'https://www.awesomenovel.com' }}
           RELEASE_DOWNLOAD_BASE: ${{ vars.CLIENT_DOWNLOAD_BASE || 'https://www.awesomenovel.com/download' }}
           RELEASE_DOWNLOAD_FALLBACK_BASE: ${{ vars.CLIENT_DOWNLOAD_BASE_FALLBACK || 'https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download' }}
         run: |

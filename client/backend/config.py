@@ -63,6 +63,8 @@ RELEASE_OVERRIDE_KEYS = (
     "server_api_base",
     "server_api_fallback",
     "public_server_api",
+    # c-package-public-endpoints：会员/客服页门户源（只读值，auth_local 经 env PORTAL_URL 消费）
+    "portal_url",
     # client-update-notify：版本自报与更新检测地址（只读值，update_check 模块消费）
     "client_version",
     "client_update_url",

@@ -258,6 +258,12 @@ def load_or_create_config() -> dict:
     if env_base and cfg.get("server_api") != env_base:
         cfg["server_api"] = env_base
         changed = True
+    # portal_url 同款对齐（c-package-public-endpoints）：打包端从 release.json 烘入门户源，
+    # 治旧包（v0.23–v0.25）写入 config 的 test 环境残值；缺省空串＝本地开发无烘焙不动
+    env_portal = os.environ.get("PORTAL_URL")
+    if env_portal and cfg.get("portal_url") != env_portal:
+        cfg["portal_url"] = env_portal
+        changed = True
     if changed:
         save_local_config(cfg)
     return cfg

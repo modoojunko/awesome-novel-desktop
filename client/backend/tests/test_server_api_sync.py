@@ -81,3 +81,43 @@ def test_fresh_file_seeded_from_env(isolated_config, monkeypatch):
     monkeypatch.setenv("SERVER_API_BASE", PROD)
     cfg = load_or_create_config()
     assert cfg["server_api"] == PROD
+
+
+PORTAL_PROD = "https://www.awesomenovel.com"
+PORTAL_STALE = "https://novel-s-web-ai-novel-test-d1ghsr86ra814c12c.webapps.tcloudbase.com"
+
+
+def test_portal_env_realigns_stale_config(isolated_config, monkeypatch):
+    """portal_url 同款对齐（c-package-public-endpoints）：老包写入的 test 环境
+    残值被打包端 env 真值改写并落盘。"""
+    monkeypatch.setenv("SERVER_API_BASE", PROD)
+    monkeypatch.delenv("PORTAL_URL", raising=False)
+    isolated_config.write_text(json.dumps({"portal_url": PORTAL_STALE}))
+    service._reset_config_cache()
+
+    monkeypatch.setenv("PORTAL_URL", PORTAL_PROD)
+    cfg = load_or_create_config()
+    assert cfg["portal_url"] == PORTAL_PROD
+    assert PORTAL_PROD in isolated_config.read_text()  # 已落盘
+
+
+def test_portal_env_unset_preserves_manual_config(isolated_config, monkeypatch):
+    """PORTAL_URL 未设置（本地开发无烘焙）→ 默认值与手工值均不被触碰。"""
+    monkeypatch.delenv("PORTAL_URL", raising=False)
+    cfg = load_or_create_config()
+    assert cfg["portal_url"] == service.DEFAULT_PORTAL_URL  # 全新文件 → 既有默认
+
+    isolated_config.write_text(json.dumps({"portal_url": PORTAL_STALE}))
+    service._reset_config_cache()
+    cfg = load_or_create_config()
+    assert cfg["portal_url"] == PORTAL_STALE  # 手工/存量值保留，不被改写
+
+
+def test_portal_env_stable_is_idempotent(isolated_config, monkeypatch):
+    """PORTAL_URL 稳定 → 幂等：重复加载不重写盘（mtime 不变）。"""
+    monkeypatch.setenv("SERVER_API_BASE", PROD)
+    monkeypatch.setenv("PORTAL_URL", PORTAL_PROD)
+    load_or_create_config()
+    sig1 = service._config_signature()
+    load_or_create_config()
+    assert service._config_signature() == sig1
