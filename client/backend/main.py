@@ -18,6 +18,7 @@ import brand
 import models  # noqa: F401
 from api_configs.router import router as api_configs_router
 from zhuque.router import check_router as zhuque_check_router
+from zhuque.router import result_router as zhuque_result_router
 from zhuque.router import config_router as zhuque_config_router
 from archive.dossier_router import book_router as dossier_book_router
 from archive.dossier_router import router as dossier_router
@@ -392,6 +393,7 @@ app.include_router(workflow_backfill_router)
 app.include_router(api_configs_router)
 app.include_router(zhuque_config_router)
 app.include_router(zhuque_check_router)
+app.include_router(zhuque_result_router)
 
 # 全局题材库
 app.include_router(genres_router)

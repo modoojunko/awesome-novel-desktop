@@ -22,6 +22,7 @@ export interface ZhuqueSegment {
 export interface ZhuqueResult {
   ok: true;
   prose_hash: string;
+  checked_at?: string;
   summary: {
     human_ratio: number;
     suspect_ratio: number;
@@ -44,6 +45,8 @@ export interface ZhuqueState {
   proseHash?: string;
   stale: boolean;
   error?: ZhuqueError;
+  /** 服务端落库时间（ISO，c-zhuque-persist）：结果条「MM-DD 检测」事实源 */
+  checkedAt?: string;
 }
 
 const IDLE: ZhuqueState = { status: "idle", stale: false };
@@ -96,6 +99,8 @@ export function zhuqueStoreReset() {
   inflight.forEach((e) => e.ac.abort());
   inflight.clear();
   stateByRef.clear();
+  hydrated.clear(); // 水位同清（c-zhuque-persist）：复位后同章可重新水合
+  hydrating.clear();
   notify();
 }
 
@@ -126,6 +131,7 @@ export async function runZhuqueCheck(projectId: string, chapterRef: string) {
       result,
       proseHash: result.prose_hash,
       stale: false,
+      checkedAt: result.checked_at,
     });
   } catch (e) {
     const err = e as Error & { status?: number; reason?: string };
@@ -147,6 +153,43 @@ export async function runZhuqueCheck(projectId: string, chapterRef: string) {
   }
 }
 
+/** 存档水合单飞（c-zhuque-persist）：仓内无该章状态时读库回填一次；跨消费点/重挂载防抖。 */
+const hydrated = new Set<string>();
+const hydrating = new Set<string>();
+
+function hydrateFromStore(projectId: string, chapterRef: string) {
+  if (hydrated.has(chapterRef) || hydrating.has(chapterRef)) return;
+  if ((stateByRef.get(chapterRef) ?? IDLE).status !== "idle") return; // 仓已有状态（running/ok/error）不覆盖
+  hydrating.add(chapterRef);
+  // Promise 链包住：api 桩同步抛错/返回非 Promise 时静默降级，不炸挂载
+  void Promise.resolve()
+    .then(() => api.get(`/novels/${projectId}/chapters/${chapterRef}/zhuque-result`, { quiet: true }))
+    .then((d) => {
+      hydrated.add(chapterRef);
+      const r = d as {
+        stored: boolean;
+        prose_hash?: string;
+        result?: ZhuqueResult;
+        checked_at?: string;
+      };
+      if (!r?.stored || !r.result) return;
+      // 水合只填空：在途/已有会话状态时丢弃（保持单源不被旧档顶掉）
+      const cur = stateByRef.get(chapterRef) ?? IDLE;
+      if (cur.status !== "idle" || inflight.has(chapterRef)) return;
+      setState(chapterRef, {
+        status: "ok",
+        result: r.result,
+        proseHash: r.prose_hash,
+        stale: false, // 陈旧判定交载入方按实时指纹评估（ProsePane 载入评估）
+        checkedAt: r.checked_at,
+      });
+    })
+    .catch(() => {
+      hydrated.add(chapterRef); // 失败静默降级为无存档，不反复打
+    })
+    .finally(() => hydrating.delete(chapterRef));
+}
+
 export function useZhuqueCheck(projectId: string, chapterRef: string) {
   const state = useSyncExternalStore(
     (cb) => {
@@ -156,6 +199,11 @@ export function useZhuqueCheck(projectId: string, chapterRef: string) {
     () => stateByRef.get(chapterRef) ?? IDLE,
     () => IDLE,
   );
+
+  // 水合（c-zhuque-persist）：进章时仓内无状态则读库存档恢复
+  useEffect(() => {
+    hydrateFromStore(projectId, chapterRef);
+  }, [projectId, chapterRef]);
 
   // 切章：中断旧章在途请求（spec：切章挂 abort）
   useEffect(() => {

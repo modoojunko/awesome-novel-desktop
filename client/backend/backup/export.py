@@ -153,6 +153,22 @@ async def dump_book_into(zf, db, project, prefix: str = "") -> None:
             ).all():
                 put(f"prompts/{ch.ref}-{prompt.name}.md", prompt.content)
 
+            # 朱雀检测存档（c-zhuque-persist：备份＝完整资料迁移）；无档不写
+            from models.zhuque import ZhuqueResultArchive
+
+            zq = await db.get(ZhuqueResultArchive, ch.id)
+            if zq is not None:
+                import json as _json
+
+                put(
+                    f"zhuque/{ch.ref}.json",
+                    _json.dumps({
+                        "prose_hash": zq.prose_hash,
+                        "result": _json.loads(zq.result),
+                        "checked_at": zq.checked_at,
+                    }, ensure_ascii=False),
+                )
+
     # 归档（原文 + manifest 旁路元数据）——书级块，与卷遍历解耦（c-backup-archive-dedup：
     # 误置卷循环内会致 N 卷书每条归档写 N 遍 + manifest N 倍追加 + 全文字段 SELECT 放大）。
     # 排序键须全序（c-backup-archive-dedup PR 评审 P1）：ghost 支线章与主章同卷同章号，

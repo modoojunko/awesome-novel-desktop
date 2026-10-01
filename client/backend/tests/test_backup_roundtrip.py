@@ -45,6 +45,7 @@ async def _seed_full_book(tmp_root: str) -> str:
     """建书 + 设定树 + 卷纲（含四族子表）+ 章（全子表）+ 快照 + 提示词 + 归档。"""
     from filesystem.storage import get_storage
     from models.archive import Archive, ChapterPrompt
+    from models.zhuque import ZhuqueResultArchive
     from models.chapter import (
         Chapter,
         ChapterMicroPayoff,
@@ -147,6 +148,20 @@ async def _seed_full_book(tmp_root: str) -> str:
         session.add(Archive(
             chapter_id=ch.id, title="第一章", summary="开端归档",
             content="第一章正文全文。",
+        ))
+        # 层 11：朱雀检测存档（c-zhuque-persist：备份完整迁移）
+        import json as _json
+
+        session.add(ZhuqueResultArchive(
+            chapter_id=ch.id, prose_hash="a" * 64,
+            result=_json.dumps({
+                "ok": True, "prose_hash": "a" * 64,
+                "summary": {"human_ratio": 0.64, "suspect_ratio": 0.36,
+                            "ai_ratio": 0.0, "softmax_confidence": 0.49},
+                "segments": [{"paragraph_index": 0, "label": 2, "confidence": 0.75}],
+                "usage_tokens": 2520,
+            }, ensure_ascii=False),
+            checked_at="2026-09-30T12:00:00+00:00",
         ))
         # 层 10：伏笔（foreshadow-settings-v2）——三状态＋四列章引用＋mentioned 留痕
         from models.hook import NovelHook
@@ -673,3 +688,71 @@ class TestBadPackages:
         path.write_bytes(buf.getvalue())
         info = parse_package([str(path)])
         assert info["books"] == []
+
+
+# ── 层 11：朱雀检测存档（c-zhuque-persist：备份＝完整资料迁移） ──────────────
+
+
+class TestLayer11ZhuqueArchive:
+    def test_export_writes_archive_and_import_restores(self, roundtrip):
+        """导出写 zhuque/{ref}.json（无档不写）→ 导入按新章 id 完整恢复。"""
+        src_id, dst_id, blob, _slug, _root = roundtrip
+        names = zipfile.ZipFile(io.BytesIO(blob)).namelist()
+        assert names.count("zhuque/vol-1-ch-1.json") == 1
+
+        async def check():
+            from models.chapter import Chapter
+            from models.zhuque import ZhuqueResultArchive
+
+            async with async_session() as db:
+                ch = (
+                    await db.scalars(select(Chapter).where(Chapter.project_id == dst_id))
+                ).first()
+                row = await db.get(ZhuqueResultArchive, ch.id)
+                assert row is not None
+                assert row.prose_hash == "a" * 64
+                assert row.checked_at == "2026-09-30T12:00:00+00:00"
+                import json as _json
+
+                r = _json.loads(row.result)
+                assert r["usage_tokens"] == 2520
+                assert r["segments"][0]["label"] == 2
+
+        _run(check())
+
+    def test_broken_archive_skips_with_warning(self, roundtrip, tmp_path):
+        """坏 JSON 存档：warning 跳过、导入不中断、其余章数据照常恢复。"""
+        src_id, _dst, blob, _slug, _root = roundtrip
+        src = zipfile.ZipFile(io.BytesIO(blob))
+        bad = tmp_path / "bad.zip"
+        with zipfile.ZipFile(bad, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name in src.namelist():
+                if name == "zhuque/vol-1-ch-1.json":
+                    zf.writestr(name, "{not-json")
+                else:
+                    zf.writestr(name, src.read(name))
+
+        async def run():
+            import warnings as _w
+
+            from models.chapter import Chapter
+            from models.zhuque import ZhuqueResultArchive
+
+            async with async_session() as db:
+                warns: list[str] = []
+                nid = await _import_single_book(
+                    db, zipfile.ZipFile(str(bad)), "", "rt-user", warnings=warns
+                )
+                await db.commit()
+                assert any("朱雀检测存档跳过" in w for w in warns)
+                chs = (
+                    await db.scalars(select(Chapter).where(Chapter.project_id == nid))
+                ).all()
+                assert len(chs) == 1  # 章照常恢复
+                rows = (await db.scalars(select(ZhuqueResultArchive))).all()
+                # 本章无存档；其他用例的行不在此新章 id 下——按 project 过滤为 0
+                assert all(
+                    row.chapter_id not in {c.id for c in chs} for row in rows
+                )
+
+        _run(run())

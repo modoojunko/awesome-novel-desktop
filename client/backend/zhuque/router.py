@@ -32,6 +32,11 @@ check_router = APIRouter(
     prefix="/api/novels/{project_id}/chapters/{chapter_ref}/zhuque-check",
     tags=["zhuque"],
 )
+# 存档读取与执行分路由：GET 挂章前缀（/zhuque-result），不嵌在 /zhuque-check 下
+result_router = APIRouter(
+    prefix="/api/novels/{project_id}/chapters/{chapter_ref}",
+    tags=["zhuque"],
+)
 
 _UPSTREAM_MAP = {
     # 上游 401/403（朱雀 Key 无效）映射为本端 401，但 reason="zhuque_auth"：
@@ -144,3 +149,21 @@ async def check_chapter(
         raise _map_service_error(e) from e
     except ZhuqueUpstreamError as e:
         raise _map_upstream(e) from e
+
+
+@result_router.get("/zhuque-result")
+async def get_stored_zhuque_result(
+    project_id: str,
+    chapter_ref: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """按章读检测结果存档（c-zhuque-persist）：只读零额度；无档 {stored:false}。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    _validate_ref(chapter_ref)
+    try:
+        return await service.get_stored_result(db, project_id=project_id, chapter_ref=chapter_ref)
+    except KeyError:
+        raise HTTPException(404, "Chapter not found") from None

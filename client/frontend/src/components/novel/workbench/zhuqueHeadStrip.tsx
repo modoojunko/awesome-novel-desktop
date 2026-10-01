@@ -64,6 +64,14 @@ export default function ZhuqueHeadStrip({
   // 结果态（stale：置灰＋提示重检）
   const pct = (v: number) => `${Math.round(v * 100)}%`;
   const r = state.result!;
+  // 检测时间（c-zhuque-persist）：MM-DD（本地时区）；解析失败不显示
+  let checkedLabel = "";
+  if (state.checkedAt) {
+    const d = new Date(state.checkedAt);
+    if (!Number.isNaN(d.getTime())) {
+      checkedLabel = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} 检测`;
+    }
+  }
   return (
     <div
       className={`zq-hd${state.stale ? " stale" : ""}`}
@@ -90,6 +98,7 @@ export default function ZhuqueHeadStrip({
         </span>
         <span style={{ fontSize: 10.5, color: "var(--muted)" }}>
           {state.stale ? "正文已修改，结果可能过期" : "概率参考 · 非平台判定"}
+          {!state.stale && checkedLabel && ` · ${checkedLabel}`}
         </span>
         <span className="hd-act">
           {state.stale ? (

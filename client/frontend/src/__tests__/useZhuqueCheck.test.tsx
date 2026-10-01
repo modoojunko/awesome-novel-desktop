@@ -210,3 +210,75 @@ describe("useZhuqueCheck 状态仓", () => {
     expect(result.current.state.status).toBe("idle");
   });
 });
+
+// ── 水合（c-zhuque-persist）：仓空读库存档恢复；仓有状态不覆盖 ──
+
+
+function storedBody(hash: string) {
+  return {
+    stored: true,
+    prose_hash: hash,
+    result: okResult(hash),
+    checked_at: "2026-09-30T12:00:00+00:00",
+  };
+}
+
+describe("useZhuqueCheck 水合（c-zhuque-persist）", () => {
+  it("仓空且存档在：读库回填 ok＋checkedAt（单飞，不重复 GET）", async () => {
+    responder = (u) =>
+      u.includes("/zhuque-result") ? { status: 200, body: storedBody("hash-stored") } : undefined;
+    const { result } = renderHook(() => useZhuqueCheck("p1", "vol-1-ch-1"));
+    await waitFor(() => expect(result.current.state.status).toBe("ok"));
+    expect(result.current.state.proseHash).toBe("hash-stored");
+    expect(result.current.state.checkedAt).toBe("2026-09-30T12:00:00+00:00");
+    const hydrateCalls = calls.filter((c) => c.url.includes("/zhuque-result")).length;
+    // 重挂载（同 ref）不再 GET（单飞水位）
+    const second = renderHook(() => useZhuqueCheck("p1", "vol-1-ch-1"));
+    await act(async () => {});
+    expect(calls.filter((c) => c.url.includes("/zhuque-result")).length).toBe(hydrateCalls);
+    second.unmount();
+  });
+
+  it("仓已有状态（ok）：水合不覆盖会话单源", async () => {
+    responder = (u) =>
+      u.includes("/zhuque-result") ? { status: 200, body: storedBody("hash-old") } : undefined;
+    const { result } = renderHook(() => useZhuqueCheck("p2", "vol-1-ch-2"));
+    // 抢先注 ok 会话状态（模拟刚检测完）
+    await act(async () => {
+      const { runZhuqueCheck } = await import("@/hooks/useZhuqueCheck");
+      responder = (u) => (u.includes("/zhuque-check") ? { status: 200, body: okResult("hash-fresh") } : undefined);
+      await runZhuqueCheck("p2", "vol-1-ch-2");
+    });
+    const freshHash = result.current.state.proseHash;
+    // 水合已在此前 idle 时单飞发起；此处强制再触发一次挂载，档不应顶掉会话结果
+    const second = renderHook(() => useZhuqueCheck("p2", "vol-1-ch-2"));
+    await act(async () => {});
+    expect(result.current.state.proseHash).toBe(freshHash);
+    second.unmount();
+  });
+
+  it("stored:false：维持 idle", async () => {
+    responder = (u) => (u.includes("/zhuque-result") ? { status: 200, body: { stored: false } } : undefined);
+    const { result } = renderHook(() => useZhuqueCheck("p3", "vol-1-ch-3"));
+    await act(async () => {});
+    expect(result.current.state.status).toBe("idle");
+  });
+
+  it("水合请求失败：静默降级 idle，不反复打", async () => {
+    let n = 0;
+    responder = (u) => {
+      if (u.includes("/zhuque-result")) {
+        n += 1;
+        return { status: 500, body: { message: "boom" } };
+      }
+      return undefined;
+    };
+    const { result } = renderHook(() => useZhuqueCheck("p4", "vol-1-ch-4"));
+    await act(async () => {});
+    expect(result.current.state.status).toBe("idle");
+    const second = renderHook(() => useZhuqueCheck("p4", "vol-1-ch-4"));
+    await act(async () => {});
+    expect(n).toBe(1); // 失败同样记水位，不反复打
+    second.unmount();
+  });
+});

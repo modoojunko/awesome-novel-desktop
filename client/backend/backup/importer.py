@@ -736,6 +736,25 @@ async def _import_single_book(
             pname = Path(pn2).stem.replace(f"{ref}-", "")
             db.add(ChapterPrompt(chapter_id=ch_id, name=pname, content=zf.read(pn2).decode("utf-8")))
 
+        # 朱雀检测存档（c-zhuque-persist：完整资料迁移）；坏 JSON/缺段 → warning 跳过不中断
+        _zq_name = f"{book_dir}zhuque/{ref}.json"
+        if _zq_name in names:
+            try:
+                import json as _json
+
+                from models.zhuque import ZhuqueResultArchive
+
+                _zq = _json.loads(zf.read(_zq_name))
+                if not isinstance(_zq, dict) or not _zq.get("prose_hash") or not isinstance(_zq.get("result"), dict):
+                    raise ValueError("zhuque archive shape")
+                db.add(ZhuqueResultArchive(
+                    chapter_id=ch_id,
+                    prose_hash=str(_zq["prose_hash"]),
+                    result=_json.dumps(_zq["result"], ensure_ascii=False),
+                    checked_at=str(_zq.get("checked_at") or ""),
+                ))
+            except (ValueError, KeyError) as _e:
+                warnings.append(f"朱雀检测存档跳过（{ref}）：{_e}")
         # 归档（同边界规则）
         _arch_prefix = f"{book_dir}archives/"
         for an in sorted(
