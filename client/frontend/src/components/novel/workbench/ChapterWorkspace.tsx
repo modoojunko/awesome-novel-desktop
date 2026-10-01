@@ -476,7 +476,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     }
     setOgEditing(false);
   }, []);
-  /** 进编辑态并滚动聚焦指定格子（查看态缺口 chip／AI 帮写剧情的「去补填」共用） */
+  /** 进编辑态并滚动聚焦指定格子（查看态缺口 chip／剧情抽卡的「去补填」共用） */
   const editAndFlash = useCallback((key: string) => {
     setOgEditing(true);
     // 切编辑态重渲后 wf-* 控件才存在（与 handleGoWrite 聚焦同款时序）
@@ -639,7 +639,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     maybeHintPolish();
   }, [killPlotReceipt, maybeHintPolish]);
 
-  /** 「AI 帮写剧情」（右栏动作）：先 flush 表单，门槛读服务端值（拍板⑦三样） */
+  /** 「剧情抽卡」（右栏动作）：先 flush 表单，门槛读服务端值（拍板⑦三样） */
   const handlePlotDraw = useCallback(async () => {
     // saveOg/outline 走 ref 读最新值——其身份随渲染变（wb 每渲染新建），进依赖会经
     // onRailData effect → setRailData → 父重渲 → wb 又新 → 无限循环（e2e 不炸但空转

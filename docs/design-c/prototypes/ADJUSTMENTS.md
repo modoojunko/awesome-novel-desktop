@@ -1605,3 +1605,9 @@ design:check 基线不受影响）；拆章三方向／三选一成卷的事实�
    （清理性质，无视觉变化）。
 5. 底色荧光笔式（`zq-warn/zq-err` 线性渐变）零改动；design:check parity 页集不含
    workbench 屏，本变更无自动门禁，以 ADJUSTMENTS 登记＋真机验收背书。
+
+---
+
+## 章纲右栏「AI 帮写剧情」改名「剧情抽卡」＋行重排（c-plot-draw-rename-lead，2026-10-01）
+
+`book.html` 右栏章选卡（`railChapter`）：「AI 帮写剧情」行改名「剧情抽卡」（行描述不变）；行序调整为 剧情抽卡①／盘点出场人物②／剧情推演③／补全缺失字段④／与卷纲冲突检测⑤（2026-10-01 用户拍板：进页签最高频是给剧情出候选与盘人）。实现 `AiAssistPanel` rows 数组同批改名重排；零新视觉词汇（纯文案与排序），不触共享段。testid `og-plot-draw`／`og-cast-review` 等内部锚点不变。

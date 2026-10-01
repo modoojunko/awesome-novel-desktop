@@ -78,7 +78,7 @@ export function AiAssistPanel({
   planWords: number | null;
   archived: boolean;
   onSimulate: () => void;
-  /** AI 帮写剧情（三版选一弹层；生成类归 PRO，免费态 locked 置灰＋升级出口） */
+  /** 剧情抽卡（三版选一弹层；生成类归 PRO，免费态 locked 置灰＋升级出口） */
   onPlotDraw?: () => void;
   /** 盘点出场人物（c-character-intro：免费只读盘点＋PRO 抽卡；行级门控只作用章纲页签） */
   onCastReview?: () => void;
@@ -360,15 +360,7 @@ export function AiAssistPanel({
       hint: !isPro ? "需 PRO" : hintExtra,
     });
     rows = [
-      cap("simulate", "剧情推演 · 按回合走一遍", "先定走法再逐步推演；走法可收进本章剧情条目", {
-        onClick: onSimulate, disabled: archived || !isPro, hint: archived ? "本章已归档" : !isPro ? "需 PRO" : undefined, testid: "og-simulate",
-      }),
-      cap("fill", "补全缺失字段", missing.length ? `只补还缺的 ${missing.length} 项，一稿回填` : "必填已齐，暂无可补", {
-        onClick: () => onFillGaps?.(),
-        disabled: !onFillGaps || gapsLoading || missing.length === 0 || !isPro,
-        hint: !isPro ? "需 PRO" : undefined,
-      }),
-      cap("plot-draw", "AI 帮写剧情", "一次给 3 版剧情挑一版；要求概要、挑战、章末落点已填（手写剧情全免费）", {
+      cap("plot-draw", "剧情抽卡", "一次给 3 版剧情挑一版；要求概要、挑战、章末落点已填（手写剧情全免费）", {
         onClick: onPlotDraw,
         disabled: archived || !isPro,
         hint: archived ? "本章已归档" : !isPro ? "需 PRO" : undefined,
@@ -386,6 +378,14 @@ export function AiAssistPanel({
           odId: "rail-cast",
         },
       ),
+      cap("simulate", "剧情推演 · 按回合走一遍", "先定走法再逐步推演；走法可收进本章剧情条目", {
+        onClick: onSimulate, disabled: archived || !isPro, hint: archived ? "本章已归档" : !isPro ? "需 PRO" : undefined, testid: "og-simulate",
+      }),
+      cap("fill", "补全缺失字段", missing.length ? `只补还缺的 ${missing.length} 项，一稿回填` : "必填已齐，暂无可补", {
+        onClick: () => onFillGaps?.(),
+        disabled: !onFillGaps || gapsLoading || missing.length === 0 || !isPro,
+        hint: !isPro ? "需 PRO" : undefined,
+      }),
       cap("conflict", "与卷纲冲突检测", "拿本章章纲去对卷纲，报出冲突点", {
         onClick: () => onAiCheck?.("volume_conflict"),
         ...proRow(false),

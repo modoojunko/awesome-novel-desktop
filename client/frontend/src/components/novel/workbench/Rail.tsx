@@ -29,7 +29,7 @@ export interface RailChapterData {
   ogStats?: OgStats;
   /** 剧情推演（章纲页签动作） */
   onSimulate?: () => void;
-  /** AI 帮写剧情（章纲页签动作；三版选一弹层，生成类归 PRO） */
+  /** 剧情抽卡（章纲页签动作；三版选一弹层，生成类归 PRO） */
   onPlotDraw?: () => void;
   /** 盘点出场人物（章纲页签动作；免费只读盘点＋PRO 抽卡，c-character-intro） */
   onCastReview?: () => void;

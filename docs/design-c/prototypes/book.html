@@ -1050,20 +1050,20 @@
           </div>
         </div>
         <p class="ai-target" data-od-id="ai-target">必填已齐 · 归档门槛 <b>1/2</b></p>
+        <button class="ra-step" data-pro type="button" id="btnPlotDrawRow">
+          <span class="ra-body"><b>剧情抽卡<span class="ra-hint">需 PRO</span></b><i>一次给 3 版剧情挑一版；要求概要、挑战、章末落点已填（手写剧情全免费）</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
+        <button class="ra-step" id="btn-open-review" data-testid="og-cast-review" data-od-id="rail-cast" data-aiact="cast-review" type="button">
+          <span class="ra-body"><b>盘点出场人物</b><i>逐段盘这一章缺不缺人；缺的人给三个方向抽卡（PRO）或你自己填，确认后写进角色表、本章出场角色与本卷出场清单</i></span>
+          <span class="ra-arrow" aria-hidden="true">›</span>
+        </button>
         <button class="ra-step" data-pro type="button">
           <span class="ra-body"><b>剧情推演 · 按回合走一遍<span class="ra-hint">需 PRO</span></b><i>先定走法再逐步推演；走法可收进本章剧情条目</i></span>
           <span class="ra-arrow" aria-hidden="true">›</span>
         </button>
         <button class="ra-step" data-pro type="button">
           <span class="ra-body"><b>补全缺失字段<span class="ra-hint">需 PRO</span></b><i>只补还缺的字段，一稿回填</i></span>
-          <span class="ra-arrow" aria-hidden="true">›</span>
-        </button>
-        <button class="ra-step" data-pro type="button" id="btnPlotDrawRow">
-          <span class="ra-body"><b>AI 帮写剧情<span class="ra-hint">需 PRO</span></b><i>一次给 3 版剧情挑一版；要求概要、挑战、章末落点已填（手写剧情全免费）</i></span>
-          <span class="ra-arrow" aria-hidden="true">›</span>
-        </button>
-        <button class="ra-step" id="btn-open-review" data-testid="og-cast-review" data-od-id="rail-cast" data-aiact="cast-review" type="button">
-          <span class="ra-body"><b>盘点出场人物</b><i>逐段盘这一章缺不缺人；缺的人给三个方向抽卡（PRO）或你自己填，确认后写进角色表、本章出场角色与本卷出场清单</i></span>
           <span class="ra-arrow" aria-hidden="true">›</span>
         </button>
         <button class="ra-step" data-pro type="button">
@@ -1264,9 +1264,9 @@
   </div>
 </div>
 
-<!-- ═══ c-plot-split：三版选一弹窗（PRO「AI 帮写剧情」） ═══ -->
+<!-- ═══ c-plot-split：三版选一弹窗（PRO「剧情抽卡」） ═══ -->
 <div class="modal" id="modalPlotDraw" hidden data-od-id="modal-plot-draw">
-  <div class="mcard draw-style" role="dialog" aria-modal="true" aria-label="AI 帮写剧情 · 三版选一">
+  <div class="mcard draw-style" role="dialog" aria-modal="true" aria-label="剧情抽卡 · 三版选一">
     <div class="mcard-head">
       <span class="mh" id="plotDrawTitle">挑一版剧情</span>
       <button class="x icon-btn" data-close="modalPlotDraw" aria-label="关掉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>

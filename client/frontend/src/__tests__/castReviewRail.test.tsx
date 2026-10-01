@@ -57,7 +57,7 @@ describe("章纲页签行级门控（只作用 og 页签）", () => {
     expect(cast.getAttribute("data-aiact")).toBe("cast-review");
     expect(cast.getAttribute("data-od-id")).toBe("rail-cast");
     // 行级 PRO 映射：其余四行置灰＋「需 PRO」（「AI 起草」行已随 c-og-ai-draft-retire 退役）
-    for (const name of [/剧情推演/, /补全缺失字段/, /AI 帮写剧情/, /与卷纲冲突检测/]) {
+    for (const name of [/剧情推演/, /补全缺失字段/, /剧情抽卡/, /与卷纲冲突检测/]) {
       const row = screen.getByRole("button", { name }) as HTMLButtonElement;
       expect(row.disabled).toBe(true);
       expect(row.className).toContain("ra-off");
@@ -79,7 +79,7 @@ describe("章纲页签行级门控（只作用 og 页签）", () => {
 
   it("PRO：四行可点，盘点行照常；点击生成类行走各自回调", async () => {
     const cb = renderPanel("og");
-    const plot = screen.getByRole("button", { name: /AI 帮写剧情/ }) as HTMLButtonElement;
+    const plot = screen.getByRole("button", { name: /剧情抽卡/ }) as HTMLButtonElement;
     expect(plot.disabled).toBe(false);
     await act(async () => {
       fireEvent.click(plot);
