@@ -234,7 +234,7 @@
   只挂 `require_novel_model`**（实现先例 `volumes/ai_plan.py` 体检分支）；
   章级**生成类**动作（3 个剧情方向）SHALL 仍归 PRO；**workbench 的六类案头检查既有 PRO 口径 SHALL NOT 被本 change 改动**。
 - 免费档未配置模型时，体检 SHALL 给出「先在模型配置里接一个」的引导，SHALL NOT 报 500。
-- 主线全景为空时 SHALL NOT 生成（动作变为「先补主线」并指向主线设定），与章纲 AI 起草的主线空门同口径。
+- 主线全景为空时 SHALL NOT 生成（动作变为「先补主线」并指向主线设定），（原「与章纲 AI 起草主线空门同口径」的对照项已随 c-og-ai-draft-retire 退役，主线空门口径不变）。
 
 #### Scenario: 免费档
 
