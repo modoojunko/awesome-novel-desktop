@@ -137,3 +137,86 @@ describe("transitionToPrompt", () => {
     expect(toastState.error).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// deriveOutlineStatus 归档投影（c-og-badge-archived-confirm）：归档章计入确认
+// 计数——后端 status 单列生命周期，归档收口覆写 confirmed，展示层由归档态蕴含。
+// ---------------------------------------------------------------------------
+
+// over 放宽为 Record：负钉需要塞 outline_status（树契约有吐、前端故意不读）
+const chMeta = (over: Record<string, unknown> = {}) => ({
+  ref: "vol-1-ch-1",
+  volume: 1,
+  chapter: 1,
+  title: "第一章",
+  word_count: 0,
+  ...over,
+});
+const treeWith = (...chapters: Record<string, unknown>[]) => ({
+  volumes: [
+    { ref: "vol-1", title: "卷一", summary: "", chapter_count: chapters.length, chapters },
+  ],
+});
+
+describe("deriveOutlineStatus 归档投影（c-og-badge-archived-confirm）", () => {
+  it("树含归档章 → chapterStatuses=confirmed，confirmedCount 计入；全归档时 allConfirmed", async () => {
+    apiState.get.mockResolvedValue(
+      treeWith(chMeta({ status: "archived", archived: true }), chMeta({ ref: "vol-1-ch-2", status: "outline" })),
+    );
+    const { result } = await mountHook();
+    expect(result.current.chapterStatuses.get("vol-1-ch-1")).toBe("confirmed");
+    expect(result.current.confirmedCount).toBe(1);
+    expect(result.current.totalChapters).toBe(2);
+    expect(result.current.allConfirmed).toBe(false);
+
+    apiState.get.mockResolvedValue(treeWith(chMeta({ status: "archived", archived: true })));
+    const full = await mountHook();
+    expect(full.result.current.confirmedCount).toBe(1);
+    expect(full.result.current.allConfirmed).toBe(true);
+  });
+
+  it("分支顺序钉：loadChapterData 后（chapterData 带 summary）归档章仍 confirmed", async () => {
+    apiState.get.mockImplementation((url: string) => {
+      if (String(url).endsWith("/chapters/vol-1-ch-1")) {
+        return Promise.resolve({
+          outline: { summary: "归档前的章纲概要" },
+        });
+      }
+      return Promise.resolve(treeWith(chMeta({ status: "archived", archived: true })));
+    });
+    const { result } = await mountHook();
+    expect(result.current.chapterStatuses.get("vol-1-ch-1")).toBe("confirmed");
+    await act(async () => {
+      await result.current.loadChapterData("vol-1-ch-1");
+    });
+    // 判据在 chapterData 判定之前：真归档章 chapterData 带 summary，放后面会回落 in_progress
+    expect(result.current.chapterStatuses.get("vol-1-ch-1")).toBe("confirmed");
+  });
+
+  it("unarchive 回落钉：树回 draft＋chaptersMap 仍持概要 → in_progress（徽标回落）", async () => {
+    apiState.get.mockResolvedValue(treeWith(chMeta({ status: "archived", archived: true })));
+    const { result } = await mountHook();
+    expect(result.current.confirmedCount).toBe(1);
+
+    apiState.get.mockImplementation((url: string) => {
+      if (String(url).endsWith("/chapters/vol-1-ch-1")) {
+        return Promise.resolve({ outline: { summary: "归档前的章纲概要" } });
+      }
+      return Promise.resolve(treeWith(chMeta({ status: "draft" })));
+    });
+    await act(async () => {
+      await result.current.loadChapterData("vol-1-ch-1");
+      await result.current.refetchTree();
+    });
+    expect(result.current.chapterStatuses.get("vol-1-ch-1")).toBe("in_progress");
+    expect(result.current.confirmedCount).toBe(0);
+  });
+
+  it("负钉：不看 outline_status——draft 章（桩带 outline_status:confirmed）仍 in_progress", async () => {
+    apiState.get.mockResolvedValue(
+      treeWith({ ...chMeta({ status: "draft" }), outline_status: "confirmed" }),
+    );
+    const { result } = await mountHook();
+    expect(result.current.chapterStatuses.get("vol-1-ch-1")).toBe("in_progress");
+  });
+});

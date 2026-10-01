@@ -650,3 +650,67 @@ describe("重写入口门槛（chapter-rewrite）", () => {
     expect(screen.getByTestId("rewrite-confirm")).toBeTruthy();
   });
 });
+
+describe("写作徽标归档投影（c-og-badge-archived-confirm）", () => {
+  it("全归档树 → modnav 徽标 1/1 章纲（归档章计入确认计数）", async () => {
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/novels/p1/volumes") {
+        return Promise.resolve([
+          {
+            ref: "vol-1",
+            title: "第一卷",
+            summary: "",
+            chapter_count: 1,
+            chapters: [
+              {
+                ref: "vol-1-ch-1",
+                volume: 1,
+                chapter: 1,
+                title: "第一章",
+                status: "archived",
+                word_count: 1200,
+                has_prose: true,
+                outline_status: "in_progress",
+                archived: true,
+              },
+            ],
+          },
+        ]);
+      }
+      if (path === "/novels/p1/tree") {
+        return Promise.resolve({
+          volumes: [
+            {
+              ref: "vol-1",
+              title: "第一卷",
+              summary: "",
+              chapter_count: 1,
+              chapters: [
+                {
+                  ref: "vol-1-ch-1",
+                  volume: 1,
+                  chapter: 1,
+                  title: "第一章",
+                  status: "archived",
+                  word_count: 1200,
+                  has_prose: true,
+                  archived: true,
+                },
+              ],
+            },
+          ],
+        });
+      }
+      if (path === "/novels/p1/readiness")
+        return Promise.resolve({ complete: false, missing: [], warning: "" });
+      return Promise.resolve({});
+    });
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+    renderWorkspace("none");
+    await waitFor(() => {
+      const cnts = Array.from(document.querySelectorAll(".modnav .cnt"));
+      const outlineCnt = cnts.find((el) => el.textContent?.includes("章纲"));
+      expect(outlineCnt?.textContent).toBe("1/1 章纲");
+    });
+  });
+});

@@ -292,3 +292,109 @@ class TestWriteArchiveMetaSync:
         assert r.status_code == 200, "KV 损坏不应 500"
         assert r.json().get("genre") is None
         assert r.json().get("genre_name") is None
+
+
+# ── c-og-badge-archived-confirm：归档×确认状态机守卫 ─────────────────────────
+
+
+def _future_iso(days: int = 30) -> str:
+    from datetime import UTC, datetime, timedelta
+
+    return (datetime.now(UTC) + timedelta(days=days)).date().isoformat()
+
+
+def _set_tier_pro():
+    """真 PRO 档（未来到期 → tier_bypass=False，gate 真跑）。本文件 `_set_tier`
+    恒写空 expires_at（旁路），PRO 排序钉须自设。"""
+    _service.CONFIG_FILE = _CFG_PATH
+    _service.save_local_config(
+        {"tier": "monthly", "expires_at": _future_iso(), "api_key": "k_test"}
+    )
+
+
+async def _chapter_snapshot(pid: str, ref: str):
+    async with async_session() as session:
+        row = await chapter_repo.get_by_ref(session, pid, ref)
+        proj = await session.get(Novel, pid)
+        return row.status, row.archived_at, proj.total_archives
+
+
+class TestConfirmArchivedGuard:
+    def test_confirm_on_archived_returns_409(self, client):
+        """归档章拒确认：confirm 不得把 archived 翻回 confirmed（ OgPane 按钮
+        对归档章可点，误点曾致 archived 标志翻转＋total_archives 永久虚高）。"""
+        _set_tier("none")
+        pid = _create_sparse_project(client)
+        ref = _create_volume_and_chapter(client, pid)
+        r = client.post(
+            f"/api/novels/{pid}/chapters/{ref}/archive", json={"full_text": LONG_TEXT}
+        )
+        assert r.status_code == 200, r.text
+        status0, archived_at0, ta0 = _run_async(_chapter_snapshot(pid, ref))
+        assert status0 == "archived" and archived_at0 is not None and ta0 == 1
+
+        rc = client.post(f"/api/novels/{pid}/chapters/{ref}/confirm")
+        assert rc.status_code == 409, rc.text
+        assert "本章已归档" in rc.text
+
+        # 状态不变式：409 后一切原样
+        status1, archived_at1, ta1 = _run_async(_chapter_snapshot(pid, ref))
+        assert status1 == "archived"
+        assert archived_at1 == archived_at0
+        assert ta1 == ta0 == 1
+        rows = _run_async(_archive_rows(pid))
+        assert len(rows) == 1, "归档行不得被 confirm 触碰"
+
+    def test_confirm_on_archived_pro_409_not_400(self, client):
+        """排序钉：守卫先于 tier/gate——PRO 档归档章 confirm 拿 409，
+        不得先吃 gate_chapter_ready 的 400「章纲确认失败」（免费档旁路
+        tier_bypass 证明不了这个顺序，守卫挪到 tier 之后本例必红）。"""
+        _set_tier("none")
+        pid = _create_sparse_project(client)
+        ref = _create_volume_and_chapter(client, pid)
+        r = client.post(
+            f"/api/novels/{pid}/chapters/{ref}/archive", json={"full_text": LONG_TEXT}
+        )
+        assert r.status_code == 200, r.text
+        _set_tier_pro()
+        rc = client.post(f"/api/novels/{pid}/chapters/{ref}/confirm")
+        assert rc.status_code == 409, rc.text
+        assert "章纲确认失败" not in rc.text
+
+    def test_rearchive_cycle_keeps_total_archives(self, client):
+        """归档→恢复编辑→确认→重归档全环：total_archives 恒 1、Archive 行 1、
+        终态 archived（树 archived=True）。"""
+        _set_tier("none")
+        pid = _create_sparse_project(client)
+        ref = _create_volume_and_chapter(client, pid)
+        assert client.post(
+            f"/api/novels/{pid}/chapters/{ref}/archive", json={"full_text": LONG_TEXT}
+        ).status_code == 200
+        assert client.post(f"/api/novels/{pid}/chapters/{ref}/unarchive").status_code == 200
+        assert client.post(f"/api/novels/{pid}/chapters/{ref}/confirm").status_code == 200
+        assert client.post(
+            f"/api/novels/{pid}/chapters/{ref}/archive", json={"full_text": LONG_TEXT}
+        ).status_code == 200
+
+        rows = _run_async(_archive_rows(pid))
+        assert len(rows) == 1
+        status, _, ta = _run_async(_chapter_snapshot(pid, ref))
+        assert status == "archived"
+        assert ta == 1
+        tree = client.get(f"/api/novels/{pid}/volumes").json()
+        assert _chapter_in_tree(tree, ref)["archived"] is True
+
+    def test_tree_archived_contract_survives_409(self, client):
+        """树契约钉：409 后 GET /volumes 的 archived 仍 True——徽标投影、
+        frontier、unarchive 记账全压在 `status=="archived"` 派生上。"""
+        _set_tier("none")
+        pid = _create_sparse_project(client)
+        ref = _create_volume_and_chapter(client, pid)
+        assert client.post(
+            f"/api/novels/{pid}/chapters/{ref}/archive", json={"full_text": LONG_TEXT}
+        ).status_code == 200
+        assert client.post(f"/api/novels/{pid}/chapters/{ref}/confirm").status_code == 409
+        tree = client.get(f"/api/novels/{pid}/volumes").json()
+        ch = _chapter_in_tree(tree, ref)
+        assert ch["archived"] is True
+        assert ch["status"] == "archived"

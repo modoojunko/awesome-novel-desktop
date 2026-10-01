@@ -320,6 +320,13 @@ async def confirm_chapter(
     if not project:
         raise HTTPException(404, "Project not found")
     _validate_ref(chapter_ref)
+    # 状态机守卫（c-og-confirm-gates）：归档章拒确认——否则 status 会被翻成
+    # confirmed（archived_at 残留），章静默掉出归档态。
+    from repositories import chapter_repo
+
+    archived_row = await chapter_repo.get_by_ref(db, project.id, chapter_ref)
+    if archived_row is not None and archived_row.status == "archived":
+        raise HTTPException(409, "本章已归档，恢复编辑后再确认章纲")
     chapter = await load_chapter(project.root_path, chapter_ref)
     if not chapter:
         raise HTTPException(404, "Chapter not found")
@@ -332,8 +339,6 @@ async def confirm_chapter(
     # 统一写入口：DB 落库 + 元数据派生（status/outline_status）
     warnings = await save_chapter(db, project, chapter_ref, chapter)
     from datetime import UTC, datetime
-
-    from repositories import chapter_repo
 
     row = await chapter_repo.get_by_ref(db, project.id, chapter_ref)
     if row is not None:

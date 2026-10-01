@@ -51,8 +51,8 @@ function stubBookApi(
           ref: "vol-1",
           title: "星海初航",
           chapters: [
-            { chapter: 1, title: "锚点", word_count: 70, status: "confirmed", has_prose: true, archived: true },
-            { chapter: 2, title: "跃迁", word_count: 54, status: "confirmed", has_prose: true, archived: true },
+            { chapter: 1, title: "锚点", word_count: 70, status: "archived", has_prose: true, archived: true },
+            { chapter: 2, title: "跃迁", word_count: 54, status: "archived", has_prose: true, archived: true },
           ],
         },
       ],
