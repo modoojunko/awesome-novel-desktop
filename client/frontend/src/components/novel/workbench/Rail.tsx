@@ -27,13 +27,9 @@ export interface RailChapterData {
   tab?: string;
   /** 章纲页签统计（归档门槛/计划字数/关键事件/出场角色） */
   ogStats?: OgStats;
-  /** AI 起草（章纲页签动作；缺省=不可用） */
-  canAiDraft?: boolean;
-  aiDrafting?: boolean;
-  onAiDraft?: () => void;
   /** 剧情推演（章纲页签动作） */
   onSimulate?: () => void;
-  /** AI 帮写剧情（章纲页签动作；三版选一弹层，生成类归 PRO） */
+  /** 剧情抽卡（章纲页签动作；三版选一弹层，生成类归 PRO） */
   onPlotDraw?: () => void;
   /** 盘点出场人物（章纲页签动作；免费只读盘点＋PRO 抽卡，c-character-intro） */
   onCastReview?: () => void;
@@ -129,7 +125,7 @@ export default function Rail({
 
   return (
     <div>
-      {d?.tab && d.ogStats && d.chapterRef && d.onAiDraft && d.onSimulate && (
+      {d?.tab && d.ogStats && d.chapterRef && d.onSimulate && (
         <AiAssistPanel
           projectId={projectId}
           chapterRef={d.chapterRef}
@@ -141,9 +137,6 @@ export default function Rail({
           wordCount={words}
           planWords={d.ogStats.planWords ?? d.targetWords ?? null}
           archived={!!d.archived}
-          canAiDraft={!!d.canAiDraft}
-          aiDrafting={!!d.aiDrafting}
-          onAiDraft={d.onAiDraft}
           onSimulate={d.onSimulate}
           onPlotDraw={d.onPlotDraw}
           onCastReview={d.onCastReview}

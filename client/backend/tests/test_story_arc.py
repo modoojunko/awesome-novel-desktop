@@ -463,21 +463,6 @@ class TestArcInjection:
         arc_legacy = _arc_normalize({"premise": "旧一句话主线"})
         assert clip_story_arc(arc_legacy["fullstory"]) == "旧一句话主线"
 
-    def test_outline_ai_material_uses_mirror(self, client):
-        """章纲 AI 素材回归：仅填 fullstory 保存后 _arc_markdown 仍取得到主线（premise 镜像兜底）。"""
-        pid = _create_project(client)
-        client.put(
-            f"/api/novels/{pid}/story/arc",
-            json={"fullstory": "全景主线一句话版本", "ending": {}},
-        )
-        # GET 即 KV 读（同一读路径）；premise 镜像 = _arc_markdown 的 legacy 依赖面
-        data = client.get(f"/api/novels/{pid}/story/arc").json()
-        story = {"story_arc": {"premise": data["premise"], "ending": data["ending"]}}
-        from chapters.ai_draft import _arc_markdown
-
-        md = _arc_markdown(story)
-        assert "全书主线：全景主线一句话版本" in md
-
 
 # ── 起草/校准素材包（c-arc-draft-material：设定全量进包，用户 2026-09-27 拍板）──
 

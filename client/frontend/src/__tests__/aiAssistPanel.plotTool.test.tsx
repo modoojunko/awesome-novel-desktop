@@ -1,4 +1,4 @@
-// 右栏「AI 帮写剧情」卡（c-plot-split 5.4）：三态＝可用（PRO）／归档禁用／
+// 右栏「剧情抽卡」卡（c-plot-split 5.4）：三态＝可用（PRO）／归档禁用／
 // 免费态 rail-locked 置灰禁点不隐藏＋升级出口。
 import { act, render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -25,9 +25,6 @@ function renderPanel(opts: {
       wordCount={10}
       planWords={2500}
       archived={!!opts.archived}
-      canAiDraft={opts.isPro && !opts.archived}
-      aiDrafting={false}
-      onAiDraft={() => {}}
       onSimulate={() => {}}
       onPlotDraw={opts.onPlotDraw ?? (() => {})}
       onUpgrade={opts.onUpgrade ?? (() => {})}
@@ -35,7 +32,7 @@ function renderPanel(opts: {
   );
 }
 
-describe("右栏 AI 帮写剧情卡（三态）", () => {
+describe("右栏「剧情抽卡」（三态）", () => {
   it("PRO 可用：按钮可点，点击开三版弹层", () => {
     const onPlotDraw = vi.fn();
     renderPanel({ isPro: true, onPlotDraw });

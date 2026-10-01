@@ -1,5 +1,5 @@
 // 右栏接入（c-character-intro 3.3/4.2）：og 页签「盘点出场人物」能力行（免费可点）＋
-// 行级 PRO 映射只作用章纲页签（其余五行 ra-off＋「需 PRO」）＋其余页签维持整卡锁＋
+// 行级 PRO 映射只作用章纲页签（其余四行 ra-off＋「需 PRO」）＋其余页签维持整卡锁＋
 // 空章/归档禁用 hint＋data-aiact/data-od-id 锚＋subTitle 插槽＋busy 走 railData。
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
@@ -21,7 +21,6 @@ const OG_STATS = {
 
 function renderPanel(tab: string, extra: Partial<Parameters<typeof AiAssistPanel>[0]> = {}) {
   const cb = {
-    onAiDraft: vi.fn(),
     onSimulate: vi.fn(),
     onPlotDraw: vi.fn(),
     onCastReview: vi.fn(),
@@ -38,8 +37,6 @@ function renderPanel(tab: string, extra: Partial<Parameters<typeof AiAssistPanel
       wordCount={500}
       planWords={1800}
       archived={false}
-      canAiDraft
-      aiDrafting={false}
       {...cb}
       {...extra}
     />,
@@ -53,19 +50,19 @@ beforeEach(() => {
 });
 
 describe("章纲页签行级门控（只作用 og 页签）", () => {
-  it("免费：盘点行可点（data-aiact/od-id 锚齐）＋其余五行 ra-off「需 PRO」＋副行插槽＋升级出口", async () => {
+  it("免费：盘点行可点（data-aiact/od-id 锚齐）＋其余四行 ra-off「需 PRO」＋副行插槽＋升级出口", async () => {
     const cb = renderPanel("og", { isPro: false });
     const cast = screen.getByTestId("og-cast-review") as HTMLButtonElement;
     expect(cast.disabled).toBe(false); // 盘点行全档免费
     expect(cast.getAttribute("data-aiact")).toBe("cast-review");
     expect(cast.getAttribute("data-od-id")).toBe("rail-cast");
-    // 行级 PRO 映射：其余五行置灰＋「需 PRO」
-    for (const name of [/剧情推演/, /AI 起草/, /补全缺失字段/, /AI 帮写剧情/, /与卷纲冲突检测/]) {
+    // 行级 PRO 映射：其余四行置灰＋「需 PRO」（「AI 起草」行已随 c-og-ai-draft-retire 退役）
+    for (const name of [/剧情推演/, /补全缺失字段/, /剧情抽卡/, /与卷纲冲突检测/]) {
       const row = screen.getByRole("button", { name }) as HTMLButtonElement;
       expect(row.disabled).toBe(true);
       expect(row.className).toContain("ra-off");
     }
-    expect(screen.getAllByText("需 PRO").length).toBeGreaterThanOrEqual(5);
+    expect(screen.getAllByText("需 PRO").length).toBeGreaterThanOrEqual(4);
     // 免费态无整卡锁（盘点不能被连坐）
     expect(document.querySelector(".rail-assist.locked")).toBeNull();
     // 免费副行插槽（subTitle）
@@ -80,9 +77,9 @@ describe("章纲页签行级门控（只作用 og 页签）", () => {
     expect(cb.onCastReview).toHaveBeenCalled();
   });
 
-  it("PRO：五行可点，盘点行照常；点击生成类行走各自回调", async () => {
+  it("PRO：四行可点，盘点行照常；点击生成类行走各自回调", async () => {
     const cb = renderPanel("og");
-    const plot = screen.getByRole("button", { name: /AI 帮写剧情/ }) as HTMLButtonElement;
+    const plot = screen.getByRole("button", { name: /剧情抽卡/ }) as HTMLButtonElement;
     expect(plot.disabled).toBe(false);
     await act(async () => {
       fireEvent.click(plot);

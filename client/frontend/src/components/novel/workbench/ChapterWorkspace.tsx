@@ -50,7 +50,6 @@ import {
   REQ_FIELDS,
   ogFormIssues,
   ogGaps,
-  ogHasDraftContent,
   ogPatchFromFills,
   ogToForm,
   ogToPartial,
@@ -76,7 +75,6 @@ import {
   type CastWriteRequest,
 } from "@/lib/castReviewApi";
 import { isNameTaken } from "@/lib/charactersApi";
-import { draftOutline } from "@/lib/ai";
 import { fillOutlineGaps, type AiCheckKind } from "@/lib/aiCheck";
 import type { useOutline } from "@/hooks/useOutline";
 import type { useWorkbench } from "@/hooks/useWorkbench";
@@ -468,7 +466,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
   // ── 章纲查看/编辑两态（对齐卷纲）：进编辑＝表单可写（3s 自动保存只认快照差）；
   //    取消＝回退到最近一次落库值（ogSnapRef 恒等于已持久化内容，含自动保存）。
-  //    编辑入口：编辑章纲按钮／查看态缺口 chip／右栏 AI 起草与缺项补全（产物要在表单里过目）。──
+  //    编辑入口：编辑章纲按钮／查看态缺口 chip／右栏缺项补全（产物要在表单里过目）。──
   const startOgEdit = useCallback(() => setOgEditing(true), []);
   const cancelOgEdit = useCallback(() => {
     try {
@@ -478,7 +476,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     }
     setOgEditing(false);
   }, []);
-  /** 进编辑态并滚动聚焦指定格子（查看态缺口 chip／AI 帮写剧情的「去补填」共用） */
+  /** 进编辑态并滚动聚焦指定格子（查看态缺口 chip／剧情抽卡的「去补填」共用） */
   const editAndFlash = useCallback((key: string) => {
     setOgEditing(true);
     // 切编辑态重渲后 wf-* 控件才存在（与 handleGoWrite 聚焦同款时序）
@@ -532,32 +530,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // 切页签重渲后才可聚焦
     setTimeout(() => proseRef.current?.focus(), 60);
   }, [saveOg, proseRef]);
-
-  // ── AI 起草章纲（outline-ai-draft）：草稿回填表单不落库，3s 自动保存/手动保存承接 ──
-  const [aiDrafting, setAiDrafting] = useState(false);
-  const handleAiDraft = useCallback(async () => {
-    // 覆盖确认判定覆盖全部章纲格子（含 ai-prompt-crafting 新格子；剧情列表不参与）
-    const hasContent = ogHasDraftContent(ogForm);
-    if (hasContent && !window.confirm("AI 起草将覆盖当前表单内容（未保存的修改会丢失），继续？")) {
-      return;
-    }
-    setAiDrafting(true);
-    try {
-      const draft = await draftOutline(projectId, chapterRef);
-      // 以服务端**全量**数据为底、草稿覆盖章纲格子；title 保留服务端值。
-      // 禁用 chaptersMap 当底座——树条目是瘦身的（缺 challenge/ladder/memo/emotional），
-      // 拿它兜底会让起草后的整表回传清掉拆章写入的值（c-og-chapter-put-patch-gates）。
-      const serverData = await outline.loadChapterData(chapterRef);
-      setOgForm(ogToForm({ ...serverData, ...draft } as never));
-      setOgEditing(true); // 草稿要在表单里过目——直接落到编辑态
-      toast.success("AI 草稿已填入表单，检查修改后保存");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "AI 起草失败，请重试");
-    } finally {
-      setAiDrafting(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, chapterRef, ogForm, outline.loadChapterData]);
 
   // ── 右栏 AI 辅助·检测族（ai-check） ─────────────
   const [aiCheckKind, setAiCheckKind] = useState<AiCheckKind | null>(null);
@@ -667,7 +639,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     maybeHintPolish();
   }, [killPlotReceipt, maybeHintPolish]);
 
-  /** 「AI 帮写剧情」（右栏动作）：先 flush 表单，门槛读服务端值（拍板⑦三样） */
+  /** 「剧情抽卡」（右栏动作）：先 flush 表单，门槛读服务端值（拍板⑦三样） */
   const handlePlotDraw = useCallback(async () => {
     // saveOg/outline 走 ref 读最新值——其身份随渲染变（wb 每渲染新建），进依赖会经
     // onRailData effect → setRailData → 父重渲 → wb 又新 → 无限循环（e2e 不炸但空转
@@ -1068,9 +1040,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         missingLabels: ogGaps(ogForm).map((g) => g.label),
       },
       promptSavedSignal,
-      canAiDraft: isPro && !archived,
-      aiDrafting,
-      onAiDraft: () => void handleAiDraft(),
       onSimulate: () => setShowSim(true),
       onPlotDraw: () => void handlePlotDraw(),
       onCastReview: () => openCastReview(),
@@ -1086,7 +1055,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     });
     return () => onRailDataRef.current(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, aiDrafting, gapsLoading, promptSavedSignal, handleFillGaps, handlePlotDraw, openCastReview, castEmpty, castReview.state.phase, castReview.state.writing]);
+  }, [wordCount, targetWords, setTargetWords, archived, bookWords, chTab, ogForm, chapterRef, gapsLoading, promptSavedSignal, handleFillGaps, handlePlotDraw, openCastReview, castEmpty, castReview.state.phase, castReview.state.writing]);
 
   // ── 文风建议信号（右栏 AI 助手触发 → StyleShadowPane 内执行拉取；2026-09-20
   //    AI 入口收口右栏：页签 body 不再设 AI 按钮，建议结果仍在页签内逐项采纳） ──

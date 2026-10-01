@@ -1584,6 +1584,11 @@ design:check 基线不受影响）；拆章三方向／三选一成卷的事实�
 5. **词汇**：`book.css` 新增 `.no-close`（11.5px faint）与 `.pick-busy.col` 纵排变体（含
    `.col .none` 12px faint 层级）；C端局部、不触共享段；零新增令牌/字号档位/胶囊形态。
 
+---
+
+## 章纲右栏撤「AI 起草」行（c-og-ai-draft-retire，2026-10-01）
+
+`book.html` 右栏章选卡（`railChapter`）撤「AI 起草」能力行（原剧情推演与补全缺失字段之间的那枚 `ra-step`）：功能与「拆章」（卷纲产出章纲四段排上）＋「补全缺失字段」（按缺口补齐其余格子）重复，2026-10-01 用户拍板退役。实现（`AiAssistPanel` og 页签）同批撤行，章纲页签动作区六行变五行；零新视觉词汇（纯撤行，`ra-step` 既有档位不变），不触共享段。`railChapter` 在 parity 页集内，原型与实现同批撤行，基线自然对齐。原型中更新通知 changelog 的历史句「提升章纲 AI 起草的稳定性」为过往版本记录，不随功能退役改写。
 ## c-zhuque-mark-band：朱雀正文标注带化（2026-10-01）
 
 改 `book.html` 朱雀标注演示＋CSS 同批；实现 `zhuqueMarks.ts`/`book.css` 对齐，偏差逐项登记：
@@ -1600,3 +1605,9 @@ design:check 基线不受影响）；拆章三方向／三选一成卷的事实�
    （清理性质，无视觉变化）。
 5. 底色荧光笔式（`zq-warn/zq-err` 线性渐变）零改动；design:check parity 页集不含
    workbench 屏，本变更无自动门禁，以 ADJUSTMENTS 登记＋真机验收背书。
+
+---
+
+## 章纲右栏「AI 帮写剧情」改名「剧情抽卡」＋行重排（c-plot-draw-rename-lead，2026-10-01）
+
+`book.html` 右栏章选卡（`railChapter`）：「AI 帮写剧情」行改名「剧情抽卡」（行描述不变）；行序调整为 剧情抽卡①／盘点出场人物②／剧情推演③／补全缺失字段④／与卷纲冲突检测⑤（2026-10-01 用户拍板：进页签最高频是给剧情出候选与盘人）。实现 `AiAssistPanel` rows 数组同批改名重排；零新视觉词汇（纯文案与排序），不触共享段。testid `og-plot-draw`／`og-cast-review` 等内部锚点不变。

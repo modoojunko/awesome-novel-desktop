@@ -25,7 +25,7 @@ const OG_STATS = {
 };
 
 function renderPanel(tab: string, extra: Partial<Parameters<typeof AiAssistPanel>[0]> = {}) {
-  const cb = { onAiDraft: vi.fn(), onSimulate: vi.fn() };
+  const cb = { onSimulate: vi.fn() };
   render(
     <AiAssistPanel
       projectId="p1"
@@ -36,8 +36,6 @@ function renderPanel(tab: string, extra: Partial<Parameters<typeof AiAssistPanel
       wordCount={500}
       planWords={1800}
       archived={false}
-      canAiDraft
-      aiDrafting={false}
       {...cb}
       {...extra}
     />,
@@ -71,8 +69,6 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     // 「补全缺失字段」行描述带还缺数量
     expect(screen.getByText("只补还缺的 1 项，一稿回填")).toBeTruthy();
 
-    await clickRow(/AI 起草/);
-    expect(cb.onAiDraft).toHaveBeenCalled();
     await clickRow(/剧情推演/);
     expect(cb.onSimulate).toHaveBeenCalled();
 
@@ -142,7 +138,7 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     const onRunReconcile = vi.fn();
     const { unmount } = render(
       (() => {
-        const cb = { onAiDraft: vi.fn(), onSimulate: vi.fn() };
+        const cb = { onSimulate: vi.fn() };
         return (
           <AiAssistPanel
             projectId="p1"
@@ -153,8 +149,6 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
             wordCount={0}
             planWords={null}
             archived
-            canAiDraft={false}
-            aiDrafting={false}
             onRunReconcile={onRunReconcile}
             {...cb}
           />

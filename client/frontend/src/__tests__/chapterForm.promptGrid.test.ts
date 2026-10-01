@@ -1,5 +1,5 @@
 // c-og-slim-v2 — 章纲留存格子的纯映射测试：填值保存回读 round-trip、退役键一律不读不发、
-// 存量空值不进必填缺口、字数解析与拦截、AI 起草回填语义。
+// 存量空值不进必填缺口、字数解析与拦截、ogToForm 合并语义。
 import { describe, expect, it } from "vitest";
 import {
   EMPTY_OG_FORM,
@@ -203,14 +203,14 @@ describe("ogFormIssues（保存前拦截校验）", () => {
   });
 });
 
-describe("AI 起草回填映射（outline-ai-draft）", () => {
-  it("草稿覆盖留存格子，服务端非章纲字段保留、title 不被草稿改写", () => {
+describe("ogToForm 合并语义（服务端数据为底、后到键覆盖）", () => {
+  it("覆盖留存格子，服务端非章纲字段保留、title 不被覆盖键改写", () => {
     const server = {
       ...FILLED,
       title: "第三章（作者定名）",
       word_target: 3000,
     } as ChapterData;
-    const draft = {
+    const patch = {
       outline: { summary: "夜探账房", characters: ["林昭"] },
       memo: { required_changes: ["拿到账册"] },
       emotional_design: { primary_mood: "紧绷" },
@@ -219,15 +219,15 @@ describe("AI 起草回填映射（outline-ai-draft）", () => {
       plot_stage: "重要转折",
       word_target: 4000,
     };
-    const form = ogToForm({ ...server, ...draft } as ChapterData);
+    const form = ogToForm({ ...server, ...patch } as ChapterData);
     expect(form.title).toBe("第三章（作者定名）"); // title 保留服务端值
     expect(form.summary).toBe("夜探账房");
     expect(form.changes).toBe("拿到账册");
     expect(form.mood).toBe("紧绷");
     expect(form.payoffs).toEqual([{ k: "reveal", d: "账册是假的" }]);
     expect(form.wt).toBe("4000");
-    // 展开语义：草稿缺的键保留服务端值；真实后端草稿恒为全字段形状（sanitize 兜底）
+    // 展开语义：覆盖键缺的格子保留服务端值（AI 产物回填的既有口径，fill-gaps 同族）
     expect(form.ladder).toBe("他收起通缉令，转身入夜色。");
-    expect(form.plots).toEqual(["城门被盘查", "茶棚问路"]); // 起草不动剧情
+    expect(form.plots).toEqual(["城门被盘查", "茶棚问路"]); // AI 产物不动剧情
   });
 });

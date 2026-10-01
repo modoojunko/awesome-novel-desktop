@@ -153,23 +153,6 @@ export function ogFormIssues(form: OgForm): string[] {
   return issues;
 }
 
-/** AI 起草覆盖确认判定：留存章纲格子有内容即需二次确认。
- *  **不含剧情 plots**——AI 起草只覆盖章纲格子，剧情列表不参与也不被动。 */
-export function ogHasDraftContent(form: OgForm): boolean {
-  return (
-    [
-      form.summary,
-      form.mood,
-      form.changes,
-      form.ban,
-      form.ladder,
-      form.wt,
-      form.challenge,
-      form.stage,
-    ].some((v) => String(v ?? "").trim() !== "") || form.payoffs.some((p) => p.d.trim() !== "")
-  );
-}
-
 /** 保留 existing 中未知扩展键（后端 forward-compat），只覆写表单覆盖的字段 */
 export function ogToPartial(
   form: OgForm,
