@@ -90,10 +90,11 @@ def seed_code():
     """直灌一枚激活码（s-code-issue 起 S端 无发码端点，测试种子走 ORM）。"""
 
     def _seed(code_id: str, tier: str = "monthly", count: int = 1) -> list[str]:
-        from app.models.base import SessionLocal
-        from app.models.code import ActivationCodeORM
         import secrets
         import string
+
+        from app.models.base import SessionLocal
+        from app.models.code import ActivationCodeORM
 
         chars = string.ascii_uppercase + string.digits
         ids = [code_id] + [
