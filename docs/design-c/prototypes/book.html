@@ -2684,7 +2684,7 @@ function applyZqMarks(on) {
   const ed = document.getElementById('editor');
   if (!ed) return;
   ed.querySelectorAll('.zq-mark').forEach(m => m.remove());
-  ed.querySelectorAll('p').forEach(p => p.classList.remove('zq-warn', 'zq-err', 'zq-stale'));
+  ed.querySelectorAll('p').forEach(p => { p.classList.remove('zq-warn', 'zq-err', 'zq-stale'); p.removeAttribute('title'); }); /* title 一并清（c-zhuque-mark-band：置信度悬停随标注退场） */
   if (!on) return;
   const demo = [[2, 'warn', 62], [3, 'warn', 62], [4, 'err', 86]];
   const tails = new Set([3, 4]); /* 带尾段（c-zhuque-mark-band）：连续同判定聚合成带，只在带尾挂章 */
