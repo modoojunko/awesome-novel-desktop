@@ -52,10 +52,16 @@ def upgrade() -> None:
         op.create_index('ix_codes_batch_id', 'codes', [_COL])
 
 
+def _has_index(insp) -> bool:
+    return any(ix["name"] == "ix_codes_batch_id" for ix in insp.get_indexes('codes'))
+
+
 def downgrade() -> None:
     insp = sa.inspect(op.get_bind())
     if _has_column(insp):
-        op.drop_index('ix_codes_batch_id', table_name='codes')
+        # 判重兜底：带外 DDL 人工偏差（只加列漏建索引）时跳过，不炸回滚
+        if _has_index(insp):
+            op.drop_index('ix_codes_batch_id', table_name='codes')
         op.drop_column('codes', _COL)
     if _has_table(insp):
         op.drop_table(_TABLE)
