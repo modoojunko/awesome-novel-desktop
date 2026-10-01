@@ -37,7 +37,14 @@ REQUIRED: dict[str, tuple[tuple[str, str], ...]] = {
         ("order_id", "typed"), ("grant_start", "typed"), ("status_detail", "text"),
         ("activated_at", "typed"), ("expires_at", "typed"),
         ("created_at", "typed"), ("created_by", "text"), ("refund_requested_at", "typed"),
-        ("source", "text"),
+        ("source", "text"), ("batch_id", "text"),
+    ),
+    # 发码批次单（s-code-issue）：运营脚本经 pg_http 写，S端 无端点
+    "code_batches": (
+        ("id", "typed"), ("batch_id", "text"), ("tier", "text"),
+        ("duration_days", "typed"), ("count", "typed"), ("channel", "text"),
+        ("note", "text"), ("created_by", "text"), ("budget_consumed", "typed"),
+        ("created_at", "typed"),
     ),
     "device_registry": (
         ("id", "text"), ("user_id", "text"), ("fingerprint", "text"),
@@ -114,6 +121,7 @@ EXPECTED_DEFAULTS: dict[str, dict[str, str]] = {
         "status": "unused", "source": "admin",
         "status_detail": "unused", "created_by": "",
     },
+    "code_batches": {"channel": "", "note": "", "created_by": "", "budget_consumed": "0"},
     "device_registry": {
         "fingerprint": "", "hostname": "", "os": "", "os_arch": "",
     },

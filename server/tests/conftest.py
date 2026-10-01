@@ -86,18 +86,31 @@ def admin_token() -> str:
 
 
 @pytest.fixture
-def gen_code(client, admin_token):
-    """生成激活码：默认 1 个 monthly。"""
+def seed_code():
+    """直灌一枚激活码（s-code-issue 起 S端 无发码端点，测试种子走 ORM）。"""
 
-    def _gen(tier: str = "monthly", count: int = 1) -> list[str]:
-        r = client.post(
-            "/api/generate_code",
-            json={"admin_token": admin_token, "tier": tier, "count": count},
-        )
-        assert r.json()["code"] == 0, r.text
-        return r.json()["data"]["codes"]
+    def _seed(code_id: str, tier: str = "monthly", count: int = 1) -> list[str]:
+        from app.models.base import SessionLocal
+        from app.models.code import ActivationCodeORM
+        import secrets
+        import string
 
-    return _gen
+        chars = string.ascii_uppercase + string.digits
+        ids = [code_id] + [
+            f"AC-{'-'.join(''.join(secrets.choice(chars) for _ in range(4)) for _ in range(4))}"
+            for _ in range(count - 1)
+        ]
+        s = SessionLocal()
+        try:
+            for cid in ids:
+                s.add(ActivationCodeORM(code_id=cid, tier=tier, duration_days=30,
+                                        status="unused", created_by="admin"))
+            s.commit()
+        finally:
+            s.close()
+        return ids
+
+    return _seed
 
 
 @pytest.fixture

@@ -83,6 +83,12 @@ class CodeRepo(Protocol):
         False=状态已被并发方改走（重复激活/已退）。"""
         ...
 
+    def redeem_unused(self, code_id: str, user_id: int, grant_start, expires_at, activated_at) -> bool:
+        """CAS unused→active（s-code-redeem：管理端手工码兑换）。绑定 user_id，
+        写入 activated_at/grant_start/expires_at。False=状态已被并发方改走
+        （重复兑换/他人已兑），归属与到期不被改写。"""
+        ...
+
     def find_order_codes_page(self, user_id: int, statuses: list[str] | None = None,
                                limit: int = 20, offset: int = 0) -> tuple[list[ActivationCode], int]:
         """订单来源套餐明细分页（license-grants-pagination）：(当前页行, total)。

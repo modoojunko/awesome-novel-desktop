@@ -262,6 +262,12 @@ export async function apiPayActivate(orderNo: string): Promise<ActivateResult> {
   return r.data.data!
 }
 
+/** 激活码兑换（s-code-redeem）：管理端发放的手工码凭码开通，响应与激活同形 */
+export async function apiPayRedeemCode(code: string): Promise<ActivateResult> {
+  const r = await request.post<ApiResponse<ActivateResult>>('/pay/codes/redeem', { code })
+  return r.data.data!
+}
+
 // ── 工具函数 ──
 
 export function fenToYuan(fen: number): string {

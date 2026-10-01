@@ -63,6 +63,8 @@ export class MockApi {
   private refundCooldown = 300
   /** 激活失败模式（测不可激活错误出路；触发一次后自动复位 none） */
   private activateFailMode: 'none' | 'not_fulfilled' | 'not_activatable' = 'none'
+  /** 兑换失败模式（s-code-redeem：测无效码/已被使用出路；触发一次后自动复位 none） */
+  private redeemFailMode: 'none' | 'invalid' | 'used' = 'none'
   /** 下单连续失败次数（failCreate 态测试） */
   private createOrderFailCount = 0
   /** 查单 hint（SUCCESS 转成功态；NOTPAY/PAYERROR/CLOSED） */
@@ -252,6 +254,11 @@ export class MockApi {
   /** 设置下一次激活失败（not_fulfilled=订单非到货态 / not_activatable=已激活或已收回） */
   failActivate(mode: 'not_fulfilled' | 'not_activatable'): void {
     this.activateFailMode = mode
+  }
+
+  /** 设置下一次兑换失败（s-code-redeem：invalid=无效的激活码 / used=激活码已被使用） */
+  failRedeem(mode: 'invalid' | 'used'): void {
+    this.redeemFailMode = mode
   }
 
   /** 由 orders 的 fulfillment 快照同步 license 摘要与明细分页数据源（激活流转后保持一致） */
@@ -599,6 +606,34 @@ export class MockApi {
         grant_start: new Date().toISOString().slice(0, 19),
         expires_at: expires,
         tier: (o.snapshot?.tier_key as string) ?? 'pro',
+      }))
+    }
+
+    // ── 兑换激活码（s-code-redeem：手工码凭码开通）──
+    if (path === '/api/pay/codes/redeem' && method === 'POST') {
+      const body = route.request().postDataJSON()
+      if (this.redeemFailMode !== 'none') {
+        const m = this.redeemFailMode
+        this.redeemFailMode = 'none'
+        const msg = m === 'invalid' ? '无效的激活码' : '激活码已被使用'
+        return route.fulfill(json(4004, null, { msg }))
+      }
+      const now = new Date()
+      const days = 30
+      const expires = new Date(now.getTime() + days * 86400000).toISOString().slice(0, 19)
+      const activated = now.toISOString().slice(0, 19)
+      // 手工码兑换 → 只刷档位头汇总（真实后端口径：手工码不入明细列表，仅计入汇总）
+      if (!this.license) this.license = { tier: 'pro', remaining_sec: 0, remaining_desc: '0 天', max_expires_at: null, pending_count: 0 }
+      this.license.tier = 'pro'
+      const addSec = Math.round((Date.parse(expires + 'Z') - now.getTime()) / 1000)
+      this.license.remaining_sec = Math.max(this.license.remaining_sec, this.license.remaining_sec + addSec)
+      this.license.remaining_desc = `${Math.max(1, Math.round(this.license.remaining_sec / 86400))} 天`
+      this.license.max_expires_at = expires
+      return route.fulfill(json(0, {
+        code_id: String(body?.code ?? 'AC-REDEEMED-CODE').trim().toUpperCase(),
+        grant_start: activated,
+        expires_at: expires,
+        tier: 'pro',
       }))
     }
 

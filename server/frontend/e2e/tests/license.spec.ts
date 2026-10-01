@@ -124,7 +124,7 @@ test.describe('我的套餐明细 tab 分版与激活（license-grants-paginatio
     await expect(page.getByText('退款处理中', { exact: true })).toBeVisible({ timeout: 10000 })
     await expect(page.getByText('退款处理中·已暂停使用；取消退款自动恢复')).toBeVisible()
     // 冻结行不提供激活入口；「全部」版同样可见
-    await expect(page.getByRole('button', { name: '激活' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '激活', exact: true })).toHaveCount(0)
     await page.getByRole('tab', { name: '全部' }).click()
     await expect(page.getByText('退款处理中', { exact: true })).toBeVisible()
   })
@@ -155,7 +155,7 @@ test.describe('我的套餐明细 tab 分版与激活（license-grants-paginatio
     await expect(page.getByText('没有生效中的套餐')).toBeVisible({ timeout: 10000 })
     await page.getByRole('tab', { name: '已收回' }).click()
     await expect(page.getByText('已随退款收回')).toBeVisible({ timeout: 10000 })
-    await expect(page.getByRole('button', { name: '激活' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '激活', exact: true })).toHaveCount(0)
     // 专属版内不置灰（无 revoked 置灰类）
     await expect(page.locator('.code-row.revoked')).toHaveCount(0)
     // 切回「全部」→ 置灰
@@ -204,5 +204,52 @@ test.describe('我的套餐明细 tab 分版与激活（license-grants-paginatio
     await page.waitForTimeout(800)
     await expect(page.getByText('PRO · 30 天')).toBeVisible()
     await expect(page.getByText(/没有.*的套餐/)).toHaveCount(0)
+  })
+})
+
+test.describe('兑换激活码（s-code-redeem）', () => {
+  test.beforeEach(async ({ mockApi }) => {
+    mockApi.registerUser()
+  })
+
+  test('页头入口 → 确认弹层转译 → 兑换成功刷档位头（手工码不入明细）', async ({ page, mockApi }) => {
+    await gotoLicense(page)
+    await expect(page.getByText('还没有生效中的套餐')).toBeVisible({ timeout: 10000 })
+    await page.getByRole('button', { name: '兑换激活码' }).click()
+    // 确认弹层开：输入框就位，且如实转译两条后果（顺延起算 + 不可退款）
+    await expect(page.locator('.redeem-input')).toBeVisible({ timeout: 10000 })
+    await expect(page.getByText(/接续排在其后/)).toBeVisible()
+    await expect(page.getByText(/不可退款/)).toBeVisible()
+    await page.locator('.redeem-input').fill('AC-TEST-0000-0001-AAAA')
+    await page.getByRole('button', { name: '确认兑换' }).click()
+    // 成功：提示可见、档位头刷新（PRO·生效中·剩余 30 天）；明细不出行（手工码口径：
+    // code_count=0 但 remaining>0 → 整页空态消失、tab 条不渲染，仅档位头）
+    await expect(page.getByText('兑换成功，套餐已开始计时')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.tier-name')).toHaveText('PRO')
+    await expect(page.locator('.sum')).toContainText('30 天')
+    await expect(page.getByText('还没有生效中的套餐')).toHaveCount(0)
+    await expect(page.getByRole('tablist')).toHaveCount(0)
+  })
+
+  test('无效码：原因提示＋联系客服出路＋输入保留可改', async ({ page, mockApi }) => {
+    await gotoLicense(page)
+    await page.getByRole('button', { name: '兑换激活码' }).click()
+    await page.locator('.redeem-input').fill('AC-BAD0-0000-0009-BBBB')
+    mockApi.failRedeem('invalid')
+    await page.getByRole('button', { name: '确认兑换' }).click()
+    await expect(page.getByText('无效的激活码')).toBeVisible({ timeout: 10000 })
+    await expect(page.getByText('联系客服')).toBeVisible()
+    // 输入框保留原值供修改重试
+    await expect(page.locator('.redeem-input')).toHaveValue('AC-BAD0-0000-0009-BBBB')
+  })
+
+  test('已被使用：提示已被使用', async ({ page, mockApi }) => {
+    await gotoLicense(page)
+    await page.getByRole('button', { name: '兑换激活码' }).click()
+    await page.locator('.redeem-input').fill('AC-USED-0000-0002-CCCC')
+    mockApi.failRedeem('used')
+    await page.getByRole('button', { name: '确认兑换' }).click()
+    await expect(page.getByText('激活码已被使用')).toBeVisible({ timeout: 10000 })
+    await expect(page.getByText('联系客服')).toBeVisible()
   })
 })

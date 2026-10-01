@@ -258,6 +258,22 @@ class PgHttpCodeRepo:
         )
         return rows > 0
 
+    def redeem_unused(self, code_id: str, user_id: int, grant_start, expires_at, activated_at) -> bool:
+        """CAS unused→active（s-code-redeem：手工码兑换）；False=已被并发方改走。"""
+        rows = self.client.update_cas(
+            _TABLE,
+            {"code_id": code_id, "status": "unused"},
+            {
+                "status": "active",
+                "status_detail": "active",
+                "user_id": user_id,
+                "grant_start": grant_start.isoformat() if grant_start else None,
+                "expires_at": expires_at.isoformat() if expires_at else None,
+                "activated_at": activated_at.isoformat() if activated_at else None,
+            },
+        )
+        return rows > 0
+
     def find_order_codes_page(self, user_id: int, statuses: list[str] | None = None,
                                limit: int = 20, offset: int = 0) -> tuple[list[ActivationCode], int]:
         """订单来源明细分页单往返（count 与取行合并，同 OrderRepo.find_by_user_page；
