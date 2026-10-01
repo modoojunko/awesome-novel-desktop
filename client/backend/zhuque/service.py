@@ -242,9 +242,10 @@ async def _archive_result(
     """检测结果 upsert 存档（chapter_id 主键一行；落库失败不挡响应）。"""
     import json as _json
 
+    from sqlalchemy import select
+
     from models.chapter import Chapter
     from models.zhuque import ZhuqueResultArchive
-    from sqlalchemy import select
 
     ch = (
         await db.scalars(
@@ -280,9 +281,10 @@ async def get_stored_result(
     """按章读存档（只读零额度）：无档 {stored: false}；有档完整回放。"""
     import json as _json
 
+    from sqlalchemy import select
+
     from models.chapter import Chapter
     from models.zhuque import ZhuqueResultArchive
-    from sqlalchemy import select
 
     ch = (
         await db.scalars(
