@@ -74,6 +74,12 @@ def generate(version: str) -> dict:
 
 
 def main(argv: list[str]) -> int:
+    try:
+        # Windows runner stdout 默认 cp1252，print 含非 ASCII 时即 UnicodeEncodeError
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     version: str | None = None
     out_path = "release.json"
     rest = argv[1:]

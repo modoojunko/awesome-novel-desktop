@@ -51,6 +51,12 @@ def check_release_json(path: str | Path) -> dict:
 
 
 def main(argv: list[str]) -> int:
+    try:
+        # Windows runner stdout 默认 cp1252，失败信息含中文时 print 即 UnicodeEncodeError
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     if len(argv) != 2:
         print("usage: release_json_assert.py <release.json>", file=sys.stderr)
         return 2

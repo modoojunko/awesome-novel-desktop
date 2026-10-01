@@ -54,8 +54,14 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
-          import json, re
+          import json, re, sys
           from pathlib import Path
+          try:
+              # Windows runner stdout 默认 cp1252，print 中文公司名即 UnicodeEncodeError（2026-10-01 彩排实锤）
+              sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+              sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+          except Exception:
+              pass
           company = json.loads(Path("brand/brand.json").read_text(encoding="utf-8"))["company"].strip()
           iss = Path("client/packaging/build/installer.iss").read_text(encoding="utf-8")
           m = re.search(r'#define MyAppPublisher "(.+)"', iss)
@@ -280,8 +286,9 @@ jobs:
           STAGE=.dmg_stage
           rm -rf "$STAGE"; mkdir -p "$STAGE"
           cp -R "dist/AI Novel.app" "$STAGE/"
-          # EULA 与第三方声明随包：DMG 根与 .app 内 _internal/ 双份（relicense-proprietary）
-          cp "LICENSE" "THIRD-PARTY-NOTICES.txt" "$STAGE/"
+          # EULA 与第三方声明随包：DMG 根与 .app 内 _internal/ 双份（relicense-proprietary）。
+          # 源在仓库根——相对本目录 ../../.. 与 installer.iss 的 ..\..\..\ 同款（CWD 无此二文件，2026-10-01 彩排实锤）
+          cp ../../../LICENSE ../../../THIRD-PARTY-NOTICES.txt "$STAGE/"
           ln -s /Applications "$STAGE/Applications"
           # 输出名带 v 前缀，与 exe（installer.iss 模板内置 v）统一——
           # 落地页版本化直链按此文件名拼接（src/constants/client-release.ts）
