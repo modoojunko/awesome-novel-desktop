@@ -32,7 +32,7 @@ function renderPanel(opts: {
   );
 }
 
-describe("右栏 剧情抽卡卡（三态）", () => {
+describe("右栏「剧情抽卡」（三态）", () => {
   it("PRO 可用：按钮可点，点击开三版弹层", () => {
     const onPlotDraw = vi.fn();
     renderPanel({ isPro: true, onPlotDraw });
