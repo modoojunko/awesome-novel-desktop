@@ -62,7 +62,7 @@ class FakeStore:
             for k, v in params.items():
                 if k in control:
                     continue
-                want = v[3:] if v.startswith("eq.") else v
+                want = v.removeprefix("eq.")
                 rows = [r for r in rows if str(r.get(k)) == want]
             return _ok(rows)
         if method == "POST":

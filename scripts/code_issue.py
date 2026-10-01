@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server"))
 
-from app.infrastructure.repositories.pg_http.client import PgRestClient  # noqa: E402
+from app.infrastructure.repositories.pg_http.client import PgRestClient
 
 BUDGET_KEY = "codes.issue.budget"
 BATCH_PREFIX = "CB-"
@@ -172,7 +172,7 @@ class CodeIssueTool:
             self.c.update("codes", {"batch_id": batch_id}, {
                 "status": "revoked", "status_detail": "revoked"})
             self.c.delete("code_batches", {"batch_id": batch_id})
-        except Exception:
+        except Exception:  # noqa: BLE001 — 尽力回收：不遮蔽原始错误，残留由对账告警暴露
             print(f"{_ERR} 回收批次 {batch_id} 失败——残留行可用 revoke 清理，"
                   f"show 会以对账告警暴露", file=sys.stderr)
 
