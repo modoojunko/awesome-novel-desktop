@@ -25,26 +25,68 @@ const SEGS: ZhuqueSeg[] = [
   { paragraph_index: 2, label: 1, confidence: 0.86 },
 ];
 
-describe("zhuqueMarks（Decorations 覆盖层）", () => {
-  it("按非空段序着色＋行尾章（空段不计数）", () => {
+describe("zhuqueMarks（Decorations 覆盖层·带化 c-zhuque-mark-band）", () => {
+  it("按非空段序着色＋带尾章：人写段静默，疑似/AI 单段各自成带", () => {
     const ed = mkEditor("<p>人工段一。</p><p></p><p>疑似段二。</p><p>AI 段三。</p>");
     applyZhuqueSegments(ed, SEGS);
     const paras = ed.view.dom.querySelectorAll("p");
-    expect(paras[0].classList.contains("zq-warn")).toBe(false); // 人写：只灰章
+    expect(paras[0].classList.contains("zq-warn")).toBe(false); // 人写：静默（无底色无章）
+    expect(paras[0].querySelector(".zq-mark")).toBeNull();
     expect(paras[1].classList.contains("zq-warn")).toBe(false); // 空段：跳过
     expect(paras[2].classList.contains("zq-warn")).toBe(true);
     expect(paras[3].classList.contains("zq-err")).toBe(true);
     const marks = ed.view.dom.querySelectorAll(".zq-mark");
-    expect(marks.length).toBe(3);
-    expect(marks[2].textContent).toBe("AI 86%");
+    expect(marks.length).toBe(2); // 单段带＝带尾章；人写带零渲染
+    expect(marks[0].textContent).toBe("疑似");
+    expect(marks[1].textContent).toBe("AI");
+    // 悬停：title 挂在着色段（判定词＋置信度），章本体不带百分数
+    expect(paras[2].getAttribute("title")).toBe("疑似 62%");
+    expect(paras[3].getAttribute("title")).toBe("AI 86%");
+    expect(paras[0].getAttribute("title")).toBeNull();
     ed.destroy();
   });
 
-  it("stale：全部置换灰变体，无 warn/err 底色", () => {
+  it("连续同判定聚合带尾单章：空段不打断聚合", () => {
+    const ed = mkEditor(
+      "<p>疑一。</p><p>疑二。</p><p></p><p>疑三。</p><p>疑四。</p><p>人工收尾。</p>",
+    );
+    applyZhuqueSegments(ed, [
+      { paragraph_index: 0, label: 2, confidence: 0.6 },
+      { paragraph_index: 1, label: 2, confidence: 0.6 },
+      { paragraph_index: 2, label: 2, confidence: 0.6 },
+      { paragraph_index: 3, label: 2, confidence: 0.6 },
+      { paragraph_index: 4, label: 0, confidence: 0.1 },
+    ]);
+    const paras = ed.view.dom.querySelectorAll("p");
+    // DOM 位与非空段序错位：paras[2] 是空段（跳过），非空段 #0-#3＝DOM 0/1/3/4（#3 是带尾）
+    const nonTail = [paras[0], paras[1], paras[3]];
+    for (const p of nonTail) {
+      expect(p.classList.contains("zq-warn")).toBe(true);
+      expect(p.querySelector(".zq-mark")).toBeNull(); // 带内非尾段无章
+    }
+    expect(paras[2].classList.contains("zq-warn")).toBe(false); // 空段不着色
+    expect(paras[4].classList.contains("zq-warn")).toBe(true); // 带尾段有着色
+    const marks = ed.view.dom.querySelectorAll(".zq-mark");
+    expect(marks.length).toBe(1); // 带尾唯一章
+    expect(marks[0].textContent).toBe("疑似");
+    expect(paras[4].contains(marks[0])).toBe(true);
+    expect(paras[5].classList.contains("zq-warn")).toBe(false); // 人写静默
+    ed.destroy();
+  });
+
+  it("stale：段落无底色、带尾章灰变体、人写带零渲染", () => {
     const ed = mkEditor("<p>一。</p><p>二。</p><p>三。</p>");
     applyZhuqueSegments(ed, SEGS, true);
     expect(ed.view.dom.querySelectorAll("p.zq-warn, p.zq-err").length).toBe(0);
-    expect(ed.view.dom.querySelectorAll(".zq-mark.stale").length).toBe(3);
+    const marks = ed.view.dom.querySelectorAll(".zq-mark.stale");
+    expect(marks.length).toBe(2); // 疑似/AI 两带各一章（人写带静默）
+    ed.destroy();
+  });
+
+  it("段数多于 segments：越界守卫不炸", () => {
+    const ed = mkEditor("<p>一。</p><p>二。</p><p>三。</p><p>四。</p>");
+    applyZhuqueSegments(ed, SEGS.slice(0, 1)); // 只有 1 条
+    expect(ed.view.dom.querySelectorAll(".zq-mark").length).toBe(0); // 人写段静默
     ed.destroy();
   });
 
@@ -54,7 +96,7 @@ describe("zhuqueMarks（Decorations 覆盖层）", () => {
     applyZhuqueSegments(ed, SEGS);
     const after = ed.getJSON();
     expect(JSON.stringify(after)).toBe(JSON.stringify(before));
-    expect(ed.getText()).not.toContain("人写");
+    expect(ed.getText()).not.toContain("疑似");
     ed.destroy();
   });
 

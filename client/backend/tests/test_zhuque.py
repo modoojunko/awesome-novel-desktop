@@ -250,6 +250,11 @@ def test_align_segments_merge_and_mismatch():
     assert [(s["label"], s["confidence"]) for s in out] == [
         (0, 0.3), (0, 0.3), (1, 0.9), (1, 0.9),
     ]
+    # 前端标注带分组依赖 paragraph_index 连续 0..N-1（c-zhuque-mark-band 前提钉）
+    assert [s["paragraph_index"] for s in out] == [0, 1, 2, 3]
+    # 空 seg_labels（上游无段）→ segment_mismatch（不做空映射）
+    with pytest.raises(ValueError, match="segment_mismatch"):
+        align_segments(paras, [])
     # 截断/改写（拼接≠请求文本）→ segment_mismatch
     with pytest.raises(ValueError, match="segment_mismatch"):
         align_segments(paras, [{"text": "第一段。\n第二段。", "label": 0, "conf": 0.3}])

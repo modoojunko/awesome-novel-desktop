@@ -1583,3 +1583,20 @@ design:check 基线不受影响）；拆章三方向／三选一成卷的事实�
    跑，关掉它也不影响」，同屏再加「请勿关闭」会自相矛盾。
 5. **词汇**：`book.css` 新增 `.no-close`（11.5px faint）与 `.pick-busy.col` 纵排变体（含
    `.col .none` 12px faint 层级）；C端局部、不触共享段；零新增令牌/字号档位/胶囊形态。
+
+## c-zhuque-mark-band：朱雀正文标注带化（2026-10-01）
+
+改 `book.html` 朱雀标注演示＋CSS 同批；实现 `zhuqueMarks.ts`/`book.css` 对齐，偏差逐项登记：
+
+1. **带尾单章**：连续同判定的非空段聚合为标注带，只在带尾段挂一个章（演示＝2、3 段
+   连续疑似成带、章挂第 3 段）；原「每段一（含常驻百分数）」退役。原型 `applyZqMarks`
+   demo 数据改 `[2,3,4]`＋`tails` 集合，实现侧为 `bandTails()` 数组相邻分组。
+2. **人写段静默**：人写段无章无底色（人工占比由标题区结果条承载）；原型删除 `[1,'ok']`
+   演示项与 `.zq-mark.m-ok` CSS，实现侧删人写章分支＋`m-ok` 孤儿类。
+3. **置信度收悬停**：章文本只写判定词（「疑似」「AI」），百分数经段落 `title` 属性悬停
+   可查（原型/实现同款：着色段逐段挂 title）。
+4. **stale 维持现状语义**：段落无底色（只挂 `.zq-stale` 单类）、章灰变体；`book.css`/
+   原型删除永不命中的死选择器 `.editor p.zq-stale.zq-warn, .editor p.zq-stale.zq-err`
+   （清理性质，无视觉变化）。
+5. 底色荧光笔式（`zq-warn/zq-err` 线性渐变）零改动；design:check parity 页集不含
+   workbench 屏，本变更无自动门禁，以 ADJUSTMENTS 登记＋真机验收背书。

@@ -1926,9 +1926,7 @@ button.dep-row:hover{background:var(--hl)}
 .editor p { position: relative; }
 .editor p.zq-warn { background: linear-gradient(transparent 62%, var(--warn-soft) 62%); border-radius: 4px; }
 .editor p.zq-err { background: linear-gradient(transparent 62%, var(--err-soft) 62%); border-radius: 4px; }
-.editor p.zq-stale.zq-warn, .editor p.zq-stale.zq-err { background: var(--fg-soft); }
 .zq-mark { position: absolute; right: -6px; top: -4px; font-family: var(--font-mono); font-size: 10.5px; line-height: 1; padding: 3px 8px; border-radius: 999px; white-space: nowrap; pointer-events: none; }
-.zq-mark.m-ok { background: var(--fg-soft); color: var(--muted); }
 .zq-mark.m-warn { background: var(--warn-soft); color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
 .zq-mark.m-err { background: var(--err-soft); color: color-mix(in oklch, var(--err) 90%, var(--fg)); font-weight: 600; }
 .zq-mark.stale { background: var(--fg-soft); color: var(--muted); }
