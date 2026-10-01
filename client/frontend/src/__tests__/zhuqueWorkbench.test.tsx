@@ -131,8 +131,48 @@ describe("zhuqueHeadStrip（错误族出口）", () => {
     expect(strip.textContent).toContain("人工 71%");
     expect(strip.textContent).toContain("疑似 AI 24%");
     expect(strip.textContent).toContain("概率参考 · 非平台判定");
+    expect(strip.textContent).not.toContain("检测"); // 无 checkedAt 不显示时间
     fireEvent.click(screen.getByTestId("zq-clear"));
     expect(clear).toHaveBeenCalledOnce();
+  });
+
+  it("结果态显示检测时间（MM-DD，本地时区）", () => {
+    const st = {
+      status: "ok" as const,
+      stale: false,
+      proseHash: "h",
+      checkedAt: "2026-09-30T12:00:00+00:00",
+      result: {
+        ok: true as const,
+        prose_hash: "h",
+        summary: { human_ratio: 0.5, suspect_ratio: 0.3, ai_ratio: 0.2, softmax_confidence: 0.2 },
+        segments: [],
+        usage_tokens: 1,
+      },
+    };
+    render(<ZhuqueHeadStrip state={st} onRerun={rerun} onClear={clear} />);
+    const strip = document.querySelector('[data-od-id="zhuque-head-strip"]')!;
+    expect(strip.textContent).toMatch(/\d{2}-\d{2} 检测/);
+  });
+
+  it("stale 态不显示检测时间（置灰语义优先）", () => {
+    const st = {
+      status: "ok" as const,
+      stale: true,
+      proseHash: "h",
+      checkedAt: "2026-09-30T12:00:00+00:00",
+      result: {
+        ok: true as const,
+        prose_hash: "h",
+        summary: { human_ratio: 0.5, suspect_ratio: 0.3, ai_ratio: 0.2, softmax_confidence: 0.2 },
+        segments: [],
+        usage_tokens: 1,
+      },
+    };
+    render(<ZhuqueHeadStrip state={st} onRerun={rerun} onClear={clear} />);
+    const strip = document.querySelector('[data-od-id="zhuque-head-strip"]')!;
+    expect(strip.textContent).toContain("正文已修改，结果可能过期");
+    expect(strip.textContent).not.toContain("检测");
   });
 
   it("401/503→去配置；429/502→重试；422/404→关闭（不给必败重试）", () => {

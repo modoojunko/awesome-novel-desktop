@@ -169,7 +169,7 @@ async def check_chapter(
     chapter_ref: str,
     prose: str,
 ) -> dict[str, Any]:
-    """整章检测：规范化 → classify → 段落对齐。结果不落库，响应即弃。"""
+    """整章检测：规范化 → classify → 段落对齐。成功即落库存档（重检覆盖），响应含 checked_at。"""
     cfg = await get_zhuque_config(db, user_id)
     if cfg is None or cfg.status == "deleted":
         raise ValueError("zhuque_not_configured")
@@ -217,7 +217,8 @@ async def check_chapter(
             tokens_out=usage_tokens,
         )
     ratios = data.get("labels_ratio") or {}
-    return {
+    checked_at = datetime.now(UTC)
+    out = {
         "ok": True,
         "prose_hash": fingerprint(prose),
         "summary": {
@@ -228,4 +229,82 @@ async def check_chapter(
         },
         "segments": segments,
         "usage_tokens": usage_tokens,
+        "checked_at": checked_at.isoformat(),
+    }
+    # 落库存档（c-zhuque-persist）：同章一行 upsert（重检覆盖）；失败路径不落库
+    await _archive_result(db, project_id=project_id, chapter_ref=chapter_ref, out=out)
+    return out
+
+
+async def _archive_result(
+    db: AsyncSession, *, project_id: str, chapter_ref: str, out: dict[str, Any]
+) -> None:
+    """检测结果 upsert 存档（chapter_id 主键一行；落库失败不挡响应）。"""
+    import json as _json
+
+    from sqlalchemy import select
+
+    from models.chapter import Chapter
+    from models.zhuque import ZhuqueResultArchive
+
+    ch = (
+        await db.scalars(
+            select(Chapter).where(
+                Chapter.project_id == project_id, Chapter.ref == chapter_ref
+            )
+        )
+    ).first()
+    if ch is None:  # 防御：检测端点已做章校验，理论不可达
+        return
+    row = await db.get(ZhuqueResultArchive, ch.id)
+    payload = _json.dumps(out, ensure_ascii=False)
+    checked_at = out["checked_at"]
+    if row is None:
+        row = ZhuqueResultArchive(
+            chapter_id=ch.id, prose_hash=out["prose_hash"], result=payload,
+            checked_at=checked_at,
+        )
+        db.add(row)
+    else:
+        row.prose_hash = out["prose_hash"]
+        row.result = payload
+        row.checked_at = checked_at
+    try:
+        await db.commit()
+    except Exception:  # noqa: BLE001 — 存档失败不挡响应，前端仍可会话内展示
+        await db.rollback()
+
+
+async def get_stored_result(
+    db: AsyncSession, *, project_id: str, chapter_ref: str
+) -> dict[str, Any]:
+    """按章读存档（只读零额度）：无档 {stored: false}；有档完整回放。"""
+    import json as _json
+
+    from sqlalchemy import select
+
+    from models.chapter import Chapter
+    from models.zhuque import ZhuqueResultArchive
+
+    ch = (
+        await db.scalars(
+            select(Chapter).where(
+                Chapter.project_id == project_id, Chapter.ref == chapter_ref
+            )
+        )
+    ).first()
+    if ch is None:
+        raise KeyError("chapter_not_found")
+    row = await db.get(ZhuqueResultArchive, ch.id)
+    if row is None:
+        return {"stored": False}
+    try:
+        result = _json.loads(row.result)
+    except ValueError:
+        return {"stored": False}
+    return {
+        "stored": True,
+        "prose_hash": row.prose_hash,
+        "result": result,
+        "checked_at": row.checked_at,
     }

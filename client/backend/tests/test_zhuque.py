@@ -485,3 +485,123 @@ def test_config_endpoints_lifecycle(monkeypatch):
         c.__exit__(None, None, None)
         app.dependency_overrides.clear()
     _UIDS.pop(uid, None)
+
+
+# ─── 落库存档（c-zhuque-persist） ───
+
+
+def test_zhuque_persist_roundtrip(monkeypatch):
+    """检测成功落库→读回一致→重检覆盖一行；未检章 stored:false。"""
+    import asyncio
+
+    async def scene(monkeypatch):
+        uid, pid = await _seed_project("persist")
+        await _save_zhuque(uid)
+        _stub_classify(monkeypatch)
+        c = _client(uid)
+        try:
+            # 未检：stored:false
+            g0 = c.get(f"/api/novels/{pid}/chapters/{REF}/zhuque-result")
+            assert g0.status_code == 200 and g0.json() == {"stored": False}
+
+            r = c.post(f"/api/novels/{pid}/chapters/{REF}/zhuque-check", json={})
+            assert r.status_code == 200
+            body = r.json()
+            assert body["ok"] is True and body["checked_at"]
+
+            g = c.get(f"/api/novels/{pid}/chapters/{REF}/zhuque-result")
+            assert g.status_code == 200
+            d = g.json()
+            assert d["stored"] is True
+            assert d["prose_hash"] == body["prose_hash"]
+            assert d["checked_at"] == body["checked_at"]
+            assert d["result"]["summary"]["human_ratio"] == 0.71
+            assert len(d["result"]["segments"]) == 3
+
+            # 重检覆盖：仍一行、checked_at 更新、结果为最新
+            r2 = c.post(f"/api/novels/{pid}/chapters/{REF}/zhuque-check", json={})
+            assert r2.status_code == 200
+            g2 = c.get(f"/api/novels/{pid}/chapters/{REF}/zhuque-result").json()
+            assert g2["checked_at"] >= d["checked_at"]
+            async with async_session() as session:
+                from models.chapter import Chapter as _Ch
+                from models.zhuque import ZhuqueResultArchive
+                _ch = (
+                    await session.scalars(
+                        select(_Ch).where(_Ch.project_id == pid, _Ch.ref == REF)
+                    )
+                ).first()
+                rows = (
+                    await session.scalars(
+                        select(ZhuqueResultArchive).where(
+                            ZhuqueResultArchive.chapter_id == _ch.id
+                        )
+                    )
+                ).all()
+                assert len(rows) == 1
+                _ch_id = _ch.id
+            return uid, pid, _ch_id
+        finally:
+            c.__exit__(None, None, None)
+            app.dependency_overrides.clear()
+
+    loop = _mkloop()
+    try:
+        uid, pid, ch_id = loop.run_until_complete(scene(monkeypatch))
+    finally:
+        loop.close()
+
+    # 删章级联（独立 loop：复用播种库；其余用例的档行不作数，按本章 id 过滤）
+    async def cascade():
+        from models.chapter import Chapter
+        from models.zhuque import ZhuqueResultArchive
+        async with async_session() as session:
+            rows = (
+                await session.scalars(
+                    select(ZhuqueResultArchive).where(
+                        ZhuqueResultArchive.chapter_id == ch_id
+                    )
+                )
+            ).all()
+            assert len(rows) == 1
+            ch = await session.get(Chapter, ch_id)
+            await session.delete(ch)
+            await session.commit()
+            rows = (
+                await session.scalars(
+                    select(ZhuqueResultArchive).where(
+                        ZhuqueResultArchive.chapter_id == ch_id
+                    )
+                )
+            ).all()
+            assert rows == []
+
+    loop = _mkloop()
+    try:
+        loop.run_until_complete(cascade())
+    finally:
+        loop.close()
+    _UIDS.pop(uid, None)
+
+
+def test_zhuque_persist_not_configured_keeps_get_working(monkeypatch):
+    """无 Key 时 GET 存档不受影响（读取零额度、不触检测）。"""
+    import asyncio
+
+    async def scene():
+        uid, pid = await _seed_project("persistread")
+        return uid, pid
+
+    loop = _mkloop()
+    try:
+        uid, pid = loop.run_until_complete(scene())
+    finally:
+        loop.close()
+    c = _client(uid)
+    try:
+        g = c.get(f"/api/novels/{pid}/chapters/{REF}/zhuque-result")
+        assert g.status_code == 200 and g.json() == {"stored": False}
+    finally:
+        c.__exit__(None, None, None)
+        app.dependency_overrides.clear()
+    _UIDS.pop(uid, None)

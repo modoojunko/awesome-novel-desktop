@@ -278,6 +278,15 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
       applyZhuqueSegments(editor, null);
     }
   }, [editor, zqShow, zqState]);
+  // 载入一次性失效评估（c-zhuque-persist）：存档水合/重检完成后立刻按当前正文
+  // 比对一次——实时编辑失效链只挂 docChanged 事务，进章恢复的存档无事务可蹭
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const st = zqState;
+    if (st.status !== "ok" || !st.result || !st.checkedAt || st.stale) return;
+    const live = docToProse(editor.getJSON());
+    void fingerprint(live).then((h) => zqEvaluateStale(h));
+  }, [editor, zqState, zqEvaluateStale]);
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const onTransaction = ({ transaction }: { transaction: { docChanged: boolean } }) => {
