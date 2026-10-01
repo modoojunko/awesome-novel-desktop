@@ -25,6 +25,7 @@ from models.api_config import ApiConfig
 from zhuque import client as zhuque_client
 from zhuque.segmentation import (
     MAX_PROSE_CHARS,
+    align_segments,
     canonical_text,
     fingerprint,
     split_paragraphs,
@@ -195,8 +196,10 @@ async def check_chapter(
 
     seg_labels = data.get("segment_labels") or []
     paragraphs = split_paragraphs(prose)
-    if len(seg_labels) != len(paragraphs):
-        raise ValueError("segment_mismatch")
+    # 对齐制（c-zhuque-seg-align）：上游按自身规则合并/切分，段数与本地非空段无恒等
+    # 关系——对齐物是各段 text 拼接（恰等于请求规范化文本），段落归起点所在上游段；
+    # 拼接不等抛 segment_mismatch → 502（防御兜底）
+    segments = align_segments(paragraphs, seg_labels)
 
     usage = data.get("makers_models_usage") or data.get("usage") or {}
     usage_tokens = int(usage.get("total_tokens") or 0)
@@ -223,13 +226,6 @@ async def check_chapter(
             "ai_ratio": float(ratios.get("1", 0) or 0),
             "softmax_confidence": float(data.get("softmax_confidence") or 0),
         },
-        "segments": [
-            {
-                "paragraph_index": i,
-                "label": int(seg.get("label", 0)),
-                "confidence": float(seg.get("conf", 0) or 0),
-            }
-            for i, seg in enumerate(seg_labels)
-        ],
+        "segments": segments,
         "usage_tokens": usage_tokens,
     }

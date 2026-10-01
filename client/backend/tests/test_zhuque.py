@@ -31,7 +31,7 @@ from models.user import User
 from models.volume import Volume
 from models.chapter import Chapter, ChapterContent
 from zhuque import service as zq_service
-from zhuque.segmentation import canonical_text, fingerprint, split_paragraphs
+from zhuque.segmentation import align_segments, canonical_text, fingerprint, split_paragraphs
 
 REF = "vol-1-ch-1"
 _UIDS: dict[str, str] = {}
@@ -75,21 +75,33 @@ async def _save_zhuque(uid: str, key: str = "eo-mk-test") -> None:
         await zq_service.save_config(session, uid, key)
 
 
-def _stub_classify(monkeypatch, *, segments: int = 3, status: str = "success",
+def _stub_classify(monkeypatch, *, merge_every: int = 2, status: str = "success",
                    ratios: dict | None = None, error: Exception | None = None,
-                   usage: int = 3210):
+                   usage: int = 3210, raw_labels: list | None = None):
+    """桩按请求文本构造**合并分段**（c-zhuque-seg-align：模拟真实上游行为——
+
+    EdgeOne 朱雀网关按自身规则并段，segment 数≠本地非空段数；对齐靠 text 拼接）。
+    merge_every=N＝每 N 段并一个上游段；raw_labels 直接给段表（构造截断/改写样本）。
+    """
+
     async def _fake(text: str, api_key: str):
         if error is not None:
             raise error
+        labels = raw_labels
+        if labels is None:
+            paras = [s.strip() for s in text.split("\n") if s.strip()]
+            labels = []
+            for i in range(0, len(paras), merge_every):
+                labels.append({
+                    "text": "\n".join(paras[i:i + merge_every]),
+                    "label": 0 if i == 0 else 2, "conf": 0.1 * (len(labels) + 1),
+                    "order": len(labels) + 1, "position": [0, 1],
+                })
         return {
             "status": status,
             "softmax_confidence": 0.18,
             "labels_ratio": ratios or {"0": 0.71, "2": 0.24, "1": 0.05},
-            "segment_labels": [
-                {"text": f"seg{i}", "label": 0 if i == 0 else 2, "conf": 0.1 * (i + 1),
-                 "order": i + 1, "position": [0, 1]}
-                for i in range(segments)
-            ],
+            "segment_labels": labels,
             "usage": {"total_tokens": usage},
             "makers_models_usage": {"total_tokens": usage},
         }
@@ -215,6 +227,36 @@ def test_segmentation_golden():
     assert canonical_text("A\n\nB") == "A\nB"
 
 
+def test_align_segments_merge_and_mismatch():
+    # 上游把 4 段并为 2 个分段：响应仍逐段 4 条，合并段共享 label/conf
+    paras = ["第一段。", "第二段。", "第三段。", "第四段。"]
+    labels = [
+        {"text": "第一段。\n第二段。", "label": 0, "conf": 0.3},
+        {"text": "第三段。\n第四段。", "label": 1, "conf": 0.9},
+    ]
+    out = align_segments(paras, labels)
+    assert [s["paragraph_index"] for s in out] == [0, 1, 2, 3]
+    assert [(s["label"], s["confidence"]) for s in out] == [
+        (0, 0.3), (0, 0.3), (1, 0.9), (1, 0.9),
+    ]
+    # 整章并 1 段（实测短文行为）：全段落共享
+    out = align_segments(paras, [{"text": "\n".join(paras), "label": 2, "conf": 0.5}])
+    assert all(s["label"] == 2 and s["confidence"] == 0.5 for s in out)
+    # 容错层：上游吞掉段边界换行（精确拼接不等、去空白相等）仍逐段映射
+    out = align_segments(paras, [
+        {"text": "第一段。第二段。", "label": 0, "conf": 0.3},
+        {"text": "第三段。第四段。", "label": 1, "conf": 0.9},
+    ])
+    assert [(s["label"], s["confidence"]) for s in out] == [
+        (0, 0.3), (0, 0.3), (1, 0.9), (1, 0.9),
+    ]
+    # 截断/改写（拼接≠请求文本）→ segment_mismatch
+    with pytest.raises(ValueError, match="segment_mismatch"):
+        align_segments(paras, [{"text": "第一段。\n第二段。", "label": 0, "conf": 0.3}])
+    with pytest.raises(ValueError, match="segment_mismatch"):
+        align_segments(paras, [{"text": "第一段。 第二段。", "label": 0, "conf": 0.3}])
+
+
 # ─── check_chapter（service 层） ───
 
 def _mkloop():
@@ -227,14 +269,17 @@ def test_check_chapter_success_and_mapping(monkeypatch):
     async def scene(monkeypatch):
         uid, pid = await _seed_project("ok")
         await _save_zhuque(uid)
-        _stub_classify(monkeypatch, segments=3)
+        _stub_classify(monkeypatch)
         async with async_session() as session:
             out = await zq_service.check_chapter(
                 session, user_id=uid, project_id=pid, chapter_ref=REF,
                 prose="她握紧船桨。\n\n船家说明早封江。\n雨点砸在篷布上。",
             )
         assert out["ok"] is True
+        # 桩默认两段并一组（3 段→上游 2 分段），响应仍逐段 3 条；段 1/2 同属合并段 0
         assert [s["paragraph_index"] for s in out["segments"]] == [0, 1, 2]
+        assert [s["label"] for s in out["segments"]] == [0, 0, 2]
+        assert [s["confidence"] for s in out["segments"]] == [0.1, 0.1, 0.2]
         assert out["summary"]["human_ratio"] == 0.71
         assert out["prose_hash"] == fingerprint("她握紧船桨。\n船家说明早封江。\n雨点砸在篷布上。")
         return uid
@@ -278,8 +323,10 @@ def test_check_chapter_error_branches(monkeypatch):
                 await zq_service.check_chapter(
                     session, user_id=uid, project_id=pid, chapter_ref=REF, prose="有正文"
                 )
-        # 分段错配
-        _stub_classify(monkeypatch, segments=5)
+        # 上游截断（text 拼接≠请求文本）
+        _stub_classify(monkeypatch, raw_labels=[
+            {"text": "一。\n二。", "label": 0, "conf": 0.1, "order": 1, "position": [0, 5]},
+        ])
         with pytest.raises(ValueError, match="segment_mismatch"):
             async with async_session() as session:
                 await zq_service.check_chapter(
@@ -290,7 +337,7 @@ def test_check_chapter_error_branches(monkeypatch):
         key = (uid, pid, REF)
         zq_service._inflight.add(key)
         try:
-            _stub_classify(monkeypatch, segments=3)
+            _stub_classify(monkeypatch)
             with pytest.raises(ValueError, match="zhuque_check_in_progress"):
                 async with async_session() as session:
                     await zq_service.check_chapter(
@@ -316,7 +363,7 @@ def test_check_endpoint_mapping_and_usage(monkeypatch):
         uid, pid = await _seed_project("ep")
         await _save_zhuque(uid)
         # 记账需要 User 行存在（FK）——seed 已建
-        _stub_classify(monkeypatch, segments=3, usage=777)
+        _stub_classify(monkeypatch, usage=777)
         c = _client(uid)
         try:
             r = c.post(f"/api/novels/{pid}/chapters/{REF}/zhuque-check", json={})
@@ -413,7 +460,7 @@ def test_config_endpoints_lifecycle(monkeypatch):
         uid, _ = await _seed_project("cfg")
         return uid
 
-    _stub_classify(monkeypatch, segments=1, usage=5)
+    _stub_classify(monkeypatch, usage=5)
 
     uid = asyncio.new_event_loop().run_until_complete(scene())
     c = _client(uid)
