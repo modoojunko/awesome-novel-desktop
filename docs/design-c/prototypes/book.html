@@ -708,11 +708,9 @@
   .editor p.zq-warn { background: linear-gradient(transparent 62%, var(--warn-soft) 62%); border-radius: 4px; }
   .editor p.zq-err { background: linear-gradient(transparent 62%, var(--err-soft) 62%); border-radius: 4px; }
   .zq-mark { position: absolute; right: -6px; top: -4px; font-family: var(--font-mono); font-size: 10.5px; line-height: 1; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
-  .zq-mark.m-ok { background: var(--fg-soft); color: var(--faint, var(--muted)); }
   .zq-mark.m-warn { background: var(--warn-soft); color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
   .zq-mark.m-err { background: var(--err-soft); color: color-mix(in oklch, var(--err) 90%, var(--fg)); font-weight: 600; }
   .zq-mark.stale, .editor p.zq-stale .zq-mark { background: var(--fg-soft); color: var(--muted); }
-  .editor p.zq-stale.zq-warn, .editor p.zq-stale.zq-err { background: var(--fg-soft); }
   .rail-assist .ra-step.ra-off { opacity: 0.5; cursor: not-allowed; }
   .rail-assist .ra-step.ra-off:hover { border-color: var(--border); }
   .rail-assist .ra-body b .ra-hint { margin-left: 6px; font-size: 10.5px; font-weight: 400; color: var(--warn); }
@@ -2682,18 +2680,21 @@ function applyZqMarks(on) {
   const ed = document.getElementById('editor');
   if (!ed) return;
   ed.querySelectorAll('.zq-mark').forEach(m => m.remove());
-  ed.querySelectorAll('p').forEach(p => p.classList.remove('zq-warn', 'zq-err', 'zq-stale'));
+  ed.querySelectorAll('p').forEach(p => { p.classList.remove('zq-warn', 'zq-err', 'zq-stale'); p.removeAttribute('title'); }); /* title 一并清（c-zhuque-mark-band：置信度悬停随标注退场） */
   if (!on) return;
-  const demo = [[1, 'ok', 4], [2, 'warn', 62], [4, 'err', 86]];
+  const demo = [[2, 'warn', 62], [3, 'warn', 62], [4, 'err', 86]];
+  const tails = new Set([3, 4]); /* 带尾段（c-zhuque-mark-band）：连续同判定聚合成带，只在带尾挂章 */
   const paras = ed.querySelectorAll('p');
   demo.forEach(([idx, label, conf]) => {
     const p = paras[idx];
     if (!p) return;
     p.classList.add('zq-' + label);
+    p.title = (label === 'warn' ? '疑似 ' : 'AI ') + conf + '%'; /* 置信度收悬停，不常驻 */
+    if (!tails.has(idx)) return;
     const m = document.createElement('span');
     m.className = 'zq-mark m-' + label;
     m.contentEditable = 'false';
-    m.textContent = (label === 'ok' ? '人写 ' : label === 'warn' ? '疑似 ' : 'AI ') + conf + '%';
+    m.textContent = label === 'warn' ? '疑似' : 'AI';
     p.appendChild(m);
   });
 }

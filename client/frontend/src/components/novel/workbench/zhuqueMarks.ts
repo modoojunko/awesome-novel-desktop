@@ -1,10 +1,17 @@
-/** 朱雀段落标注 TipTap 扩展（c-zhuque-ai-detect）。
+/** 朱雀段落标注 TipTap 扩展（c-zhuque-ai-detect；带化 c-zhuque-mark-band）。
  *
  *  Decorations 方案（spec zhuque-workbench「正文段落标注覆盖层」）：
- *  - node decoration 给非空段落挂 `.zq-warn/.zq-err` 底色（label 2=疑似/warn、1=AI/err）；
- *  - widget decoration 在段尾挂 `.zq-mark` 置信度章（contenteditable=false，不进文档）；
- *  - stale（送检指纹 ≠ 当前文档）＝全部装饰置换灰变体（`.zq-stale`/`.zq-mark.stale`）；
+ *  - 连续同判定的非空段聚合为**标注带**：node decoration 给带内每段挂
+ *    `.zq-warn/.zq-err` 荧光笔式底色（label 2=疑似/warn、1=AI/err）＋`title`
+ *    悬停提示（判定词＋置信度，不常驻）；
+ *  - widget decoration 只在**带尾段**挂一个 `.zq-mark` 判定词章（人写段零渲染）；
+ *  - stale（送检指纹 ≠ 当前文档）＝现状语义：段落只挂 `.zq-stale`（无底色）、
+ *    带尾章置换灰变体（`.zq-mark.stale`）；
  *  - 装饰是视图层覆盖，SHALL NOT 进入文档 JSON、撤销历史、自动保存文本或导出。
+ *
+ *  带分组＝数组相邻同 label（与 doc 遍历位置消费同轨）；连续性由后端契约保证
+ *  （align_segments 逐段输出 paragraph_index 连续 0..N-1，zhuque-detection 条款
+ *  ＋test_zhuque.py 双钉）。空段天然不在 segments，不打断带的聚合。
  *
  *  注入入口 `applyZhuqueSegments(editor, segments, stale)`：写 storage 后派发一个
  *  meta 事务触发 decorations 重算（ProseMirror 插件状态变更的标准动作）。
@@ -30,6 +37,17 @@ const REFRESH_META = "zhuqueMarksRefresh";
 
 export const zhuqueMarksPluginKey = new PluginKey<DecorationSet>("zhuqueMarks");
 
+/** 带分组：数组相邻同 label 聚合，返回各带末位的 paragraph_index 集合。 */
+export function bandTails(segs: ZhuqueSeg[]): Set<number> {
+  const tails = new Set<number>();
+  for (let i = 0; i < segs.length; i += 1) {
+    if (i + 1 === segs.length || segs[i + 1].label !== segs[i].label) {
+      tails.add(segs[i].paragraph_index);
+    }
+  }
+  return tails;
+}
+
 export const ZhuqueMarks = Extension.create<ZhuqueStorage>({
   name: "zhuqueMarks",
 
@@ -50,6 +68,7 @@ export const ZhuqueMarks = Extension.create<ZhuqueStorage>({
             const storage = ext.storage as ZhuqueStorage;
             const segs = storage.segments;
             if (!segs || segs.length === 0) return DecorationSet.empty;
+            const tails = bandTails(segs);
             const decos: Decoration[] = [];
             let k = 0;
             state.doc.forEach((node, offset) => {
@@ -58,23 +77,23 @@ export const ZhuqueMarks = Extension.create<ZhuqueStorage>({
               const seg = segs[k];
               k += 1;
               if (!seg) return;
-              const tone = seg.label === 1 ? "err" : seg.label === 2 ? "warn" : "ok";
-              const stale = storage.stale;
-              if (stale) {
+              if (seg.label !== 1 && seg.label !== 2) return; // 人写段：静默（无底色无章）
+              if (storage.stale) {
                 decos.push(
                   Decoration.node(offset, offset + node.nodeSize, { class: "zq-stale" }),
                 );
-                decos.push(markWidget(node, offset, tone, seg.confidence, true));
-              } else if (seg.label === 1 || seg.label === 2) {
+              } else {
+                const cls = seg.label === 1 ? "zq-err" : "zq-warn";
+                const word = seg.label === 1 ? "AI" : "疑似";
                 decos.push(
                   Decoration.node(offset, offset + node.nodeSize, {
-                    class: seg.label === 1 ? "zq-err" : "zq-warn",
+                    class: cls,
+                    title: `${word} ${Math.round(seg.confidence * 100)}%`,
                   }),
                 );
-                decos.push(markWidget(node, offset, tone, seg.confidence, false));
-              } else {
-                // 人写段：只挂灰章，不着色
-                decos.push(markWidget(node, offset, tone, seg.confidence, false));
+              }
+              if (tails.has(seg.paragraph_index)) {
+                decos.push(markWidget(node, offset, seg.label, storage.stale));
               }
             });
             return DecorationSet.create(state.doc, decos);
@@ -88,15 +107,13 @@ export const ZhuqueMarks = Extension.create<ZhuqueStorage>({
 function markWidget(
   node: { nodeSize: number },
   offset: number,
-  tone: "ok" | "warn" | "err",
-  confidence: number,
+  label: 1 | 2,
   stale: boolean,
 ) {
   const el = document.createElement("span");
-  el.className = `zq-mark m-${tone}${stale ? " stale" : ""}`;
+  el.className = `zq-mark m-${label === 1 ? "err" : "warn"}${stale ? " stale" : ""}`;
   el.setAttribute("contenteditable", "false");
-  const label = tone === "ok" ? "人写 " : tone === "warn" ? "疑似 " : "AI ";
-  el.textContent = `${label}${Math.round(confidence * 100)}%`;
+  el.textContent = label === 1 ? "AI" : "疑似";
   // 段内末位（nodeSize 含开闭各 1）——side:1 使章落在文本之后
   return Decoration.widget(offset + node.nodeSize - 1, el, {
     side: 1,
