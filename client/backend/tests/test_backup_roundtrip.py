@@ -406,7 +406,7 @@ class TestLayer4Chapter:
                 ks = []
                 return ch, payoff, micros, ks
 
-        ch, payoff, micros, ks = _run(run())
+        ch, payoff, micros, _ks = _run(run())
         assert ch.title == "第一章 试手"
         assert ch.summary == "开端"
         assert ch.primary_mood == "紧"
@@ -696,7 +696,7 @@ class TestBadPackages:
 class TestLayer11ZhuqueArchive:
     def test_export_writes_archive_and_import_restores(self, roundtrip):
         """导出写 zhuque/{ref}.json（无档不写）→ 导入按新章 id 完整恢复。"""
-        src_id, dst_id, blob, _slug, _root = roundtrip
+        _src_id, dst_id, blob, _slug, _root = roundtrip
         names = zipfile.ZipFile(io.BytesIO(blob)).namelist()
         assert names.count("zhuque/vol-1-ch-1.json") == 1
 
@@ -722,7 +722,7 @@ class TestLayer11ZhuqueArchive:
 
     def test_broken_archive_without_warnings_list_does_not_crash(self, roundtrip, tmp_path):
         """坏 JSON + 不传 warnings（默认 None 契约）：不炸整书导入。"""
-        src_id, _dst, blob, _slug, _root = roundtrip
+        _src_id, _dst, blob, _slug, _root = roundtrip
         src = zipfile.ZipFile(io.BytesIO(blob))
         bad = tmp_path / "bad-nowarn.zip"
         with zipfile.ZipFile(bad, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -747,7 +747,7 @@ class TestLayer11ZhuqueArchive:
 
     def test_export_skips_corrupt_archive(self, roundtrip, tmp_path):
         """存档 JSON 损坏：导出跳过该章（无 zhuque 条目），其余文件照常。"""
-        src_id, _dst, _blob, _slug, _root = roundtrip
+        _src_id, _dst, _blob, _slug, _root = roundtrip
 
         async def corrupt_and_export():
             from models.chapter import Chapter
@@ -755,12 +755,12 @@ class TestLayer11ZhuqueArchive:
 
             async with async_session() as db:
                 ch = (
-                    await db.scalars(select(Chapter).where(Chapter.project_id == src_id))
+                    await db.scalars(select(Chapter).where(Chapter.project_id == _src_id))
                 ).first()
                 row = await db.get(ZhuqueResultArchive, ch.id)
                 row.result = "{corrupt"
                 await db.commit()
-            return await _export_book_zip_bytes(src_id, str(tmp_path / "src-root"))
+            return await _export_book_zip_bytes(_src_id, str(tmp_path / "src-root"))
 
         blob = _run(corrupt_and_export())
         names = zipfile.ZipFile(io.BytesIO(blob)).namelist()
@@ -769,7 +769,7 @@ class TestLayer11ZhuqueArchive:
 
     def test_broken_archive_skips_with_warning(self, roundtrip, tmp_path):
         """坏 JSON 存档：warning 跳过、导入不中断、其余章数据照常恢复。"""
-        src_id, _dst, blob, _slug, _root = roundtrip
+        _src_id, _dst, blob, _slug, _root = roundtrip
         src = zipfile.ZipFile(io.BytesIO(blob))
         bad = tmp_path / "bad.zip"
         with zipfile.ZipFile(bad, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -780,8 +780,6 @@ class TestLayer11ZhuqueArchive:
                     zf.writestr(name, src.read(name))
 
         async def run():
-            import warnings as _w
-
             from models.chapter import Chapter
             from models.zhuque import ZhuqueResultArchive
 
