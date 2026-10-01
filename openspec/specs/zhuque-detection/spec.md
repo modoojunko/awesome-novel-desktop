@@ -2,7 +2,7 @@
 
 ## Purpose
 
-朱雀 AI 检测的执行域：C端本地后端唯一执行端点（前端零直连）、写作模型选取路径的 vendor 隔离、段落切分后端收口与响应契约、错误映射、内容指纹、不落库边界、负载护栏与测试桩策略。检测是只读测量——结果不落库、不进归档与备份。
+朱雀 AI 检测的执行域：C端本地后端唯一执行端点（前端零直连）、写作模型选取路径的 vendor 隔离、段落切分后端收口与响应契约、错误映射、内容指纹、落库存档边界、负载护栏与测试桩策略。检测结论随章落库存档（prose_hash 指纹绑定，重检覆盖）并进备份完整迁移；执行仍受会员门禁、上限与并发护栏约束。
 
 ## Requirements
 
@@ -11,14 +11,14 @@
 - 朱雀检测 SHALL 只由 C端本地后端执行：`POST /api/novels/{project_id}/chapters/{chapter_ref}/zhuque-check`；前端 SHALL NOT 直连腾讯 EdgeOne 网关、SHALL NOT 持有 Key 明文。将来若迁移 S端统一代理，只替换该端点实现，前端契约不变。
 - 落盘责任在**前端调用方**：前端 SHALL 在发起检测前触发并等待本章自动保存链 flush 完成（含防抖窗口内未落盘改动；沿用既有 flush 先例），落盘失败 SHALL 明确报错且不发起检测（SHALL NOT 按盘上旧文送检白耗额度）；后端端点只读落盘正文原样送检，SHALL NOT 触发任何章写入。
 - 端点读取落盘正文后调用 EdgeOne 网关文本检测（`POST {base}/v1/providers/zhuque-text/classify`，Bearer Key），base_url 走环境变量可覆写（默认真实网关）供测试桩替换。请求体 `text` SHALL 为**规范化管道输出**（换行归一 → 非空段切分 → 各段 trim → `\n` join，含 NBSP 归一）；`prose_hash` SHALL 即对该文本的 sha256（哈希对象=请求体文本，可对请求体复算）；422 上限对同一文本计量。
-- 响应 SHALL 为：`{ok, prose_hash, summary: {human_ratio, suspect_ratio, ai_ratio, softmax_confidence}, segments: [{paragraph_index, label, confidence}], usage_tokens}`；`label` 取值 0=人工、1=AI、2=疑似；`paragraph_index` 为非空段序（见切分条款）。
-- 端点对章数据 SHALL 只读（仅读正文），SHALL NOT 调用任何章写接口；检测行为 SHALL NOT 触发章内容变更。
+- 响应 SHALL 为：`{ok, prose_hash, summary: {human_ratio, suspect_ratio, ai_ratio, softmax_confidence}, segments: [{paragraph_index, label, confidence}], usage_tokens, checked_at}`；`label` 取值 0=人工、1=AI、2=疑似；`paragraph_index` 为非空段序（见切分条款）；`checked_at` 为服务端落库时间（ISO 8601）。
+- 端点对章数据 SHALL 只读（仅读正文，落库写 `zhuque_results` 旁表除外），SHALL NOT 调用任何章写接口；检测行为 SHALL NOT 触发章内容变更。
 
 #### Scenario: 检测成功返回结构化结果
 
 - Given 本章有 6 个非空段落、Key 有效、编辑器改动已 flush
 - When 前端发起检测
-- Then 返回 ok=true、prose_hash 等于请求体文本的 sha256、segments 含 6 条段落级 label+confidence、summary 三占比合计约 1（浮点容差断言）
+- Then 返回 ok=true、prose_hash 等于请求体文本的 sha256、segments 含 6 条段落级 label+confidence、summary 三占比合计约 1（浮点容差断言）、checked_at 非空
 
 #### Scenario: 空正文拒绝检测
 
@@ -30,7 +30,8 @@
 
 - 正文段落切分 SHALL 由 C端本地后端统一定义并执行；「段落」谓词 SHALL 为**去除首尾空白后非空**的行（换行归一 `\r\n|\r` → `\n`，NBSP `\u00A0` → 空格）；`paragraph_index` SHALL 按非空段顺序 0 起编号。前端 SHALL 只按索引渲染，映射规则为「文档中第 k 个**非空**段落节点」（跳过空白节点），SHALL NOT 自行实现第二套切分逻辑。
 - `prose_hash` SHALL 为规范化文本的 sha256，规范化管道钉死为：换行归一 → NBSP 归一（`\u00A0` → 空格）→ 按非空段切分 → 各段 trim → 以 `\n` join；NBSP 归一必须进管道本体——粘贴（Word/网页）会把真实 NBSP 插进编辑器文档，若前端重算不含此步，含 NBSP 的章会在结果返回瞬间整体误判「已过期」。前端 stale 判定 SHALL 用同一管道重算（前端输入取编辑器文档按保存链同款文本提取后的内容）。
-- 上游返回的分段 SHALL 按其 `order` 序与本地非空段一一对应；上游分段数与本地非空段数不一致时 SHALL 返回 502（「检测结果与段落不一致，请重试」），SHALL NOT 静默截断或 best-effort 对齐。
+- 上游分段对齐 SHALL 以各段的 `text` 字段为对齐物，两层校验：各段 `text` 按**响应序**拼接恰等于请求规范化文本（精确层，实测上游保留段间换行）；精确不等时，去全部空白后逐字相等 SHALL 仍接受（容错层，防上游吞段边界换行误杀）。段落归属 SHALL 为「该段落首字符在拼接流中的位置所在的上游段」（被上游合并的段落共享该段的 label 与置信度），SHALL NOT 依赖 `position` 区间终点或「段数＝本地非空段数」假设（实测上游按自身规则合并/切分，段数与本地非空段数无恒等关系）。
+- 段落无法在拼接流上命中（截断/改写/去空白后仍不等）时 SHALL 返回 502（「检测结果与段落不一致，请重试」），SHALL NOT 静默截断或 best-effort 对齐。
 - 端点 SHALL 在响应携带 `prose_hash`，作为前端标注失效判定的唯一依据。
 
 #### Scenario: 前后端段落序一致（含空行与空白行）
@@ -39,9 +40,15 @@
 - When 检测返回 segments
 - Then segment 的 paragraph_index 按非空段 0 起编号，前端取文档中第 k 个非空段落节点着色，含全空白行样本不错位
 
+#### Scenario: 上游合并分段仍逐段标注
+
+- Given 正文 6 个非空段、上游按自身规则把 6 段合并为 3 个分段返回（各段 text 按序拼接恰等于请求文本）
+- When 发起检测
+- Then 返回 200，segments 仍为 6 条段落级 label+confidence（被合并的段落共享所属分段 label）
+
 #### Scenario: 上游分段数不符明确报错
 
-- When 上游返回分段数与本地非空段数不一致
+- When 上游返回各段 text 去空白后仍无法与请求规范化文本对齐（如尾部截断、段内改写）
 - Then 端点返回 502 与「检测结果与段落不一致，请重试」，前端失败条给「重试」出口，不产生任何标注
 
 ### Requirement: 写作模型选取路径的朱雀隔离
@@ -94,20 +101,46 @@
 - When 第二发请求到达
 - Then 返回 409（zhuque_check_in_progress），前端映射为「检测中」既有态
 
-### Requirement: 不落库与负载护栏
+### Requirement: 结果落库与负载护栏
 
-- 检测结果 SHALL NOT 写入数据库：仅前端内存存续（跨页签/视图切换存活、应用重启即弃）；归档、备份包 SHALL NOT 包含任何检测数据。
-- 单次送检正文 SHALL 设字符上限（默认 30000 字），超限返回 422 与可读提示（明确报错，SHALL NOT 静默截断）。
-- 同一作者同一章节的检测请求 SHALL 支持取消（前端切章/重复点击时中断在途请求）；服务端对并发的最小防护为拒绝同章在途重复执行。
+- 检测成功 SHALL 将结果落库：新表 `zhuque_results` 以 chapter_id 为主键（FK CASCADE，删章级联删），字段含 `prose_hash`（送检指纹）、`result`（完整响应 JSON）、`checked_at`（服务端落库时间）；同章重检 SHALL 覆盖旧档（upsert，不累积历史）。
+- 端点 SHALL 提供按章读取存档：无存档返回「未存储」语义（200 `{stored: false}`），有存档返回 `{stored: true, prose_hash, result, checked_at}`；读取 SHALL NOT 触发任何检测或额度消耗。
+- 检测执行护栏不变：单次送检正文字符上限（默认 30000）超限返回 422 与可读提示（SHALL NOT 静默截断）；同一作者同一章节在途请求拒绝（409）；前端切章/重复点击可取消。
+- 备份与导入 SHALL 完整迁移检测数据：书级/整库备份按章写入检测结果（每章一文件，无存档不写）；导入按章 ref 重映射落库，坏 JSON SHALL 跳过并记 warning，SHALL NOT 因检测数据失败中断整包导入。
 
-#### Scenario: 重启后无残留
+#### Scenario: 检测结果落库并可读回
 
-- Given 作者检测过第 3 章并看到结果
-- When 重启应用
-- Then 标题区结果条与正文标注均不出现；再次查看需重新检测（不自动重发请求）
+- Given 作者对第 3 章检测成功
+- When 读取该章存档
+- Then 返回 stored=true、prose_hash 等于检测响应指纹、result 与响应一致、checked_at 非空
+
+#### Scenario: 重检覆盖旧档
+
+- Given 第 3 章已有存档
+- When 作者修改正文后重检成功
+- Then 存档被新结果与新旧指纹覆盖（仍一行，checked_at 更新）
+
+#### Scenario: 重启后恢复展示
+
+- Given 作者检测过第 3 章并重启应用
+- When 重新打开第 3 章且正文指纹与存档一致
+- Then 结果条与正文标注按存档恢复（含检测时间）；指纹不一致则整体置灰＋「重检」出口，不按旧指纹着色
+
+#### Scenario: 删章级联清理
+
+- Given 第 3 章已有存档
+- When 该章被删除
+- Then 存档行随之删除，无悬空引用
+
+#### Scenario: 备份导出导入完整迁移
+
+- Given 书内两章有存档、一章无存档
+- When 导出书级备份再导入
+- Then 两章存档按新章 id 完整恢复（含 checked_at），无存档章不受影响；损坏的存档文件跳过并记 warning，导入不中断
 
 #### Scenario: 超长章明确拒绝
 
 - Given 正文超过 30000 字
 - When 发起检测
 - Then 返回 422 与「正文超出单次检测上限」提示，未调用上游、未消耗额度
+
