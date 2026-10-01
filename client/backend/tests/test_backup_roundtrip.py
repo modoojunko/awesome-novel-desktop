@@ -720,6 +720,53 @@ class TestLayer11ZhuqueArchive:
 
         _run(check())
 
+    def test_broken_archive_without_warnings_list_does_not_crash(self, roundtrip, tmp_path):
+        """坏 JSON + 不传 warnings（默认 None 契约）：不炸整书导入。"""
+        src_id, _dst, blob, _slug, _root = roundtrip
+        src = zipfile.ZipFile(io.BytesIO(blob))
+        bad = tmp_path / "bad-nowarn.zip"
+        with zipfile.ZipFile(bad, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name in src.namelist():
+                if name == "zhuque/vol-1-ch-1.json":
+                    zf.writestr(name, "{not-json")
+                else:
+                    zf.writestr(name, src.read(name))
+
+        async def run():
+            from models.chapter import Chapter
+
+            async with async_session() as db:
+                nid = await _import_single_book(db, zipfile.ZipFile(str(bad)), "", "rt-user")
+                await db.commit()
+                chs = (
+                    await db.scalars(select(Chapter).where(Chapter.project_id == nid))
+                ).all()
+                assert len(chs) == 1  # 导入照常完成
+
+        _run(run())
+
+    def test_export_skips_corrupt_archive(self, roundtrip, tmp_path):
+        """存档 JSON 损坏：导出跳过该章（无 zhuque 条目），其余文件照常。"""
+        src_id, _dst, _blob, _slug, _root = roundtrip
+
+        async def corrupt_and_export():
+            from models.chapter import Chapter
+            from models.zhuque import ZhuqueResultArchive
+
+            async with async_session() as db:
+                ch = (
+                    await db.scalars(select(Chapter).where(Chapter.project_id == src_id))
+                ).first()
+                row = await db.get(ZhuqueResultArchive, ch.id)
+                row.result = "{corrupt"
+                await db.commit()
+            return await _export_book_zip_bytes(src_id, str(tmp_path / "src-root"))
+
+        blob = _run(corrupt_and_export())
+        names = zipfile.ZipFile(io.BytesIO(blob)).namelist()
+        assert not [n for n in names if n.startswith("zhuque/")]
+        assert "chapters/vol-1-ch-1.yaml" in names  # 其余照常
+
     def test_broken_archive_skips_with_warning(self, roundtrip, tmp_path):
         """坏 JSON 存档：warning 跳过、导入不中断、其余章数据照常恢复。"""
         src_id, _dst, blob, _slug, _root = roundtrip

@@ -754,7 +754,8 @@ async def _import_single_book(
                     checked_at=str(_zq.get("checked_at") or ""),
                 ))
             except (ValueError, KeyError) as _e:
-                warnings.append(f"朱雀检测存档跳过（{ref}）：{_e}")
+                if warnings is not None:  # 默认 None 契约：守卫与 772 行退役字段提示同款
+                    warnings.append(f"朱雀检测存档跳过（{ref}）：{_e}")
         # 归档（同边界规则）
         _arch_prefix = f"{book_dir}archives/"
         for an in sorted(
