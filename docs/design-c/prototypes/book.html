@@ -1833,7 +1833,7 @@ function updateModNav() {
   const done = Object.values(ITEMS).filter(i => i.status === 'done').length;
   $('modSettingsCnt').textContent = `${done}/7`;
   let okCh = 0, chN = 0;
-  BOOK.volumes.forEach(v => { chN += v.chapters.length; okCh += v.chapters.filter(c => c.og?.status === 'confirmed').length; });
+  BOOK.volumes.forEach(v => { chN += v.chapters.length; okCh += v.chapters.filter(c => c.og?.status === 'confirmed' || c.archived).length; });
   $('modOutlineCnt').textContent = `${okCh}/${chN} 章纲`;
 }
 
@@ -1896,7 +1896,7 @@ function renderTree(el) {
       const row = document.createElement('div');
       row.className = 'ch' + (sel.kind === 'chapter' && sel.id === c.id ? ' sel' : '');
       row.dataset.ch = c.id;
-      const dot = c.og?.status === 'confirmed'
+      const dot = (c.og?.status === 'confirmed' || c.archived)
         ? '<span class="dot-ok"></span>'
         : (chGaps(c).length ? '<span class="dot-warn"></span>' : '<span class="dot-empty"></span>');
       row.innerHTML = `
@@ -2022,7 +2022,7 @@ function askDelete(kind, node) {
   if (kind === 'chapter') {
     const inv = [];
     const w = countWords(chContent(node));
-    if (node.og?.status === 'confirmed') inv.push('章纲已确认');
+    if (node.og?.status === 'confirmed' || node.archived) inv.push('章纲已确认');
     else if (node.og && (node.og.task || node.og.keys || node.og.mood || (node.og.segs || []).length)) inv.push('章纲草稿');
     if (node.og?.prompt) inv.push('自定义提示词');
     if (w > 0) inv.push(`正文 ${fmt(w)} 字`);
@@ -2263,7 +2263,7 @@ function renderOutlinePanel() {
       </div>`;
     $('btnSaveVol').addEventListener('click', () => saveVolume(v));
     $('btnNextCh').addEventListener('click', () => {
-      const firstPending = v.chapters.find(c => c.og?.status !== 'confirmed') || v.chapters[0];
+      const firstPending = v.chapters.find(c => !(c.og?.status === 'confirmed' || c.archived)) || v.chapters[0];
       if (!firstPending) { toast('本卷还没有章节，点卷行右侧「＋」添加'); return; }
       sel = { kind: 'chapter', id: firstPending.id };
       S.selVol = v.id; S.selCh = firstPending.id;

@@ -61,7 +61,8 @@ const SEED = (() => {
       chapter: no,
       title,
       word_count: has ? words(prose[id]) : 0,
-      status: id === "c16" ? "in_progress" : "confirmed",
+      // 真实后端口径：归档章 status="archived"（前端 deriveOutlineStatus 把归档投影为已确认）
+      status: id === "c16" ? "in_progress" : archived ? "archived" : "confirmed",
       has_prose: has,
       archived,
     };
@@ -79,7 +80,7 @@ const SEED = (() => {
     genre_label: "科幻",
     source: "manual",
   };
-  // GET /tree（modnav「写作 16/17 章纲」与原型计数一致：c16 in_progress，其余 confirmed）
+  // GET /tree（modnav「写作 16/17 章纲」与原型计数一致：c16 in_progress，c1-c15 归档投影为已确认，c17 已确认未归档）
   const tree = {
     volumes: volumes.map((v) => ({
       ref: v.ref,
@@ -107,7 +108,7 @@ const SEED = (() => {
     volume: 1,
     chapter: 1,
     title: "锚点",
-    status: "confirmed",
+    status: "archived",
     prose: first,
     word_count: words(first),
     archived: true,

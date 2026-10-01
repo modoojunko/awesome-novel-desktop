@@ -124,7 +124,15 @@ function deriveOutlineStatus(
   meta: ChapterMetaEntry,
   chapterData?: ChapterData,
 ): OutlineStatus {
-  if (meta.status === "confirmed") return "confirmed";
+  // 归档章视为已确认（c-og-badge-archived-confirm）：后端 status 单列生命周期
+  // outline→draft→confirmed→archived，归档收口覆写 confirmed（archive/dossier.py），
+  // 确认事实由归档态蕴含——c-og-confirm-gates 落地「归档双硬门」后字面为真。
+  // 展示层投影的共同上游：写作徽标 / 树 dot / 删除盘点 chips 三面共用本函数。
+  // 判据须在 chapterData 判定之前（真归档章 chapterData 带 outline.summary、
+  // chapterDetail 甚至无 outline 字段——放后面会回落 in_progress/unfilled）；
+  // 只认 meta.status 单一事实源，不读 outline_status（同源派生列、口径不同源）。
+  if (meta.status === "confirmed" || meta.status === "archived")
+    return "confirmed";
   if (chapterData) {
     const hasContent = !!chapterData.outline?.summary;
     return hasContent ? "in_progress" : "unfilled";

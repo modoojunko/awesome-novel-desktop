@@ -82,7 +82,7 @@ const SEED = (() => {
       title: "星海初航",
       chapters: [
         { chapter: 1, title: "锚点", word_count: w1, status: "confirmed", has_prose: true, archived: false },
-        { chapter: 2, title: "跃迁", word_count: w2, status: "confirmed", has_prose: true, archived: true },
+        { chapter: 2, title: "跃迁", word_count: w2, status: "archived", has_prose: true, archived: true },
         { chapter: 3, title: "回声", word_count: 0, status: "in_progress", has_prose: false, archived: false },
       ],
     },
