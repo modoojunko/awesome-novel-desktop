@@ -22,4 +22,8 @@ ignore = ["B008", "ASYNC230", "RUF100", "DTZ"]
 "workflow/*.py" = ["BLE001", "S110"]
 # genres/*：story.yaml 缺失/损坏不阻断题材读取（注入要与简介同族读文件）
 "genres/*.py" = ["BLE001", "S110"]
+# scripts/release_json_*：stdout reconfigure 的兜底——pytest 捕获器/非标准 stdout
+# 上没有 reconfigure 就静默跳过（CI Windows runner cp1252 防炸，见 #627）
+"scripts/release_json_generate.py" = ["BLE001", "S110"]
+"scripts/release_json_assert.py" = ["BLE001", "S110"]
 "tests/*.py" = ["BLE001", "S112"]
