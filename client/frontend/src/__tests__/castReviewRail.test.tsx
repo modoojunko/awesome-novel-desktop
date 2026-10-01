@@ -1,5 +1,5 @@
 // 右栏接入（c-character-intro 3.3/4.2）：og 页签「盘点出场人物」能力行（免费可点）＋
-// 行级 PRO 映射只作用章纲页签（其余五行 ra-off＋「需 PRO」）＋其余页签维持整卡锁＋
+// 行级 PRO 映射只作用章纲页签（其余四行 ra-off＋「需 PRO」）＋其余页签维持整卡锁＋
 // 空章/归档禁用 hint＋data-aiact/data-od-id 锚＋subTitle 插槽＋busy 走 railData。
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
