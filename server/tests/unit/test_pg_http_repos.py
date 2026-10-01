@@ -269,6 +269,35 @@ class TestPgHttpCodeRepo:
             created_at=None, created_by="admin",
         ))
 
+    def test_redeem_unused_patches_binding_and_expiry(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.method == "PATCH"
+            assert request.url.params["code_id"] == "eq.AC-9"
+            assert request.url.params["status"] == "eq.unused"
+            body = request.read().decode()
+            assert '"status":"active"' in body
+            assert '"user_id":7' in body
+            assert '"grant_start":"2026-10-05T00:00:00"' in body
+            assert '"expires_at":"2026-11-04T00:00:00"' in body
+            assert '"activated_at":"' in body
+            return _ok([{"code_id": "AC-9"}])  # return=representation：1 行=True
+
+        repo = PgHttpCodeRepo(make_client(handler))
+        assert repo.redeem_unused(
+            "AC-9", 7,
+            datetime(2026, 10, 5, 0, 0, 0), datetime(2026, 11, 4, 0, 0, 0),
+            datetime(2026, 10, 1, 12, 0, 0),
+        ) is True
+
+    def test_redeem_unused_zero_rows_is_false(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _ok([])  # 条件不命中（已被兑/状态已变）→ 0 行
+
+        repo = PgHttpCodeRepo(make_client(handler))
+        assert repo.redeem_unused(
+            "AC-9", 7, datetime(2026, 10, 5), datetime(2026, 11, 4), datetime(2026, 10, 1),
+        ) is False
+
 
 # ══════════════════════════════════════════════════════════════════
 # PgHttpDeviceRepo / PgHttpGrantRepo / PgHttpConfigRepo

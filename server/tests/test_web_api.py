@@ -105,52 +105,28 @@ class TestUserMe:
 
 
 class TestLicenseActivate:
-    def test_endpoint_retired(self, client, web_user, gen_code):
-        """激活码 web 端点已下线（s-pay-foundation 8.3）：路由 404，激活码通道仅存
-        管理端出码（/api/generate_code）+ 支付激活（application.payments.activate_code）。"""
-        code = gen_code("yearly")[0]
-        r = client.post("/api/license/activate", json={"code": code}, headers=_bearer(web_user["token"]))
+    def test_endpoint_retired(self, client, web_user):
+        """旧激活码 web 端点已下线（s-pay-foundation 8.3）：路由 404；兑换走
+        /api/pay/codes/redeem（s-code-redeem），支付激活走 application.payments。"""
+        r = client.post("/api/license/activate", json={"code": "AC-TEST-0000-0000-AA00"},
+                        headers=_bearer(web_user["token"]))
         assert r.status_code == 404
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 4. 管理端发码 / 查码
-# ═══════════════════════════════════════════════════════════════════
+# 4. 管理端发码 / 查码【已撤——s-code-issue：发码唯一路径=本地脚本直连库，
+#    S端 公网面零发码入口；兑换走 /api/pay/codes/redeem】
+# ══════════════════════════════════════════════════════════════════
 
 
-class TestAdminCodes:
-    def test_generate_code(self, client, admin_token):
-        r = client.post("/api/generate_code", json={"admin_token": admin_token, "tier": "monthly", "count": 3})
-        d = r.json()
-        assert d["code"] == 0, d
-        assert len(d["data"]["codes"]) == 3
-        for c in d["data"]["codes"]:
-            assert c.startswith("AC-")
+class TestAdminCodesRetired:
+    def test_generate_code_retired(self, client, admin_token):
+        r = client.post("/api/generate_code", json={"admin_token": admin_token, "tier": "monthly", "count": 1})
+        assert r.status_code == 404
 
-    def test_generate_bad_token(self, client):
-        r = client.post("/api/generate_code", json={"admin_token": "wrong-admin-token", "tier": "yearly", "count": 1})
-        assert r.json()["code"] == 3
-
-    def test_generate_bad_tier(self, client, admin_token):
-        r = client.post("/api/generate_code", json={"admin_token": admin_token, "tier": "diamond", "count": 1})
-        assert r.json()["code"] == 1
-
-    def test_generate_bad_count(self, client, admin_token):
-        r = client.post("/api/generate_code", json={"admin_token": admin_token, "tier": "yearly", "count": 999})
-        assert r.json()["code"] == 1
-
-    def test_query_codes_by_user(self, client, admin_token, web_user, gen_code):
-        """管理端按用户查码（出码通道保留；激活改走支付流程，未激活码不归属用户）。"""
-        code = gen_code("monthly")[0]
-        r = client.post("/api/query_codes", json={"admin_token": admin_token, "username": web_user["username"]})
-        d = r.json()
-        assert d["code"] == 0, d
-        rows = {c["code_id"]: c for c in d["data"]["codes"]}
-        assert code not in rows  # 未激活（无支付激活），码不归属用户
-
-    def test_query_bad_token(self, client):
-        r = client.post("/api/query_codes", json={"admin_token": "wrong-admin-token"})
-        assert r.json()["code"] == 3
+    def test_query_codes_retired(self, client, admin_token):
+        r = client.post("/api/query_codes", json={"admin_token": admin_token})
+        assert r.status_code == 404
 
 
 # ═══════════════════════════════════════════════════════════════════

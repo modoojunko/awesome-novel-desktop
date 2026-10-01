@@ -85,6 +85,7 @@ _CREDENTIAL_POST_ROUTES = (
     "/api/user/password",
     "/api/user/deletion",
     "/api/user/deletion/revoke",
+    "/api/pay/codes/redeem",
 )
 
 

@@ -276,6 +276,22 @@ class SqlCodeRepo:
         self.db.commit()
         return result > 0
 
+    def redeem_unused(self, code_id: str, user_id: int, grant_start, expires_at, activated_at) -> bool:
+        """CAS unused→active（s-code-redeem：手工码兑换）；False=已被并发方改走。"""
+        result = self.db.query(ActivationCodeORM).filter(
+            ActivationCodeORM.code_id == code_id,
+            ActivationCodeORM.status == "unused",
+        ).update({
+            "status": "active",
+            "status_detail": "active",
+            "user_id": user_id,
+            "grant_start": grant_start,
+            "expires_at": expires_at,
+            "activated_at": activated_at,
+        }, synchronize_session=False)
+        self.db.commit()
+        return result > 0
+
     def find_order_codes_page(self, user_id: int, statuses: list[str] | None = None,
                                limit: int = 20, offset: int = 0) -> tuple[list[ActivationCode], int]:
         """订单来源明细分页：filtered 全量装载后 len()+切片（个人量级，同 OrderRepo 假设）。"""

@@ -9,8 +9,6 @@
 import json
 from pathlib import Path
 
-import pytest
-
 _FIXTURE = json.loads(
     (Path(__file__).parents[3] / "docs" / "contracts" / "check-auth.example.json").read_text()
 )

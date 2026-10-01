@@ -50,18 +50,6 @@ class SecurityRequest(BaseModel):
 class PreferencesRequest(BaseModel):
     theme: str
 
-class ActivateLicenseRequest(BaseModel):
-    code: str
-
-class GenerateCodeRequest(BaseModel):
-    admin_token: str
-    tier: str = "monthly"
-    count: int = 1
-
-class QueryCodesRequest(BaseModel):
-    admin_token: str
-    username: str = ""
-
 class DeviceRemoveRequest(BaseModel):
     id: str = ""
     pc_hash: str = ""

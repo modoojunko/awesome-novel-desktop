@@ -11,7 +11,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AppModal from '@/components/ui/AppModal.vue'
 import { tierName } from '@/constants/tiers'
 import {
-  apiPayActivate, apiPayLicense, apiPayLicenseCodes, fmtBj,
+  apiPayActivate, apiPayLicense, apiPayLicenseCodes, apiPayRedeemCode, fmtBj,
   DEFAULT_LICENSE_TAB, LICENSE_TABS, licenseTabFromQuery,
   type LicenseCode, type LicenseTabKey, type LicenseView,
 } from '@/api/pay'
@@ -187,6 +187,42 @@ async function doActivate() {
   }
 }
 
+// ── 兑换激活码（s-code-redeem：管理端发放的手工码凭码开通）──
+const redeemOpen = ref(false)
+const redeemCode = ref('')
+const redeemErr = ref('')
+const redeeming = ref(false)
+
+function askRedeem() {
+  redeemErr.value = ''
+  redeemOpen.value = true
+}
+
+async function doRedeem() {
+  const code = redeemCode.value.trim()
+  if (!code || redeeming.value) return
+  redeeming.value = true
+  try {
+    await apiPayRedeemCode(code)
+    redeemOpen.value = false
+    redeemCode.value = ''
+    flash('兑换成功，套餐已开始计时')
+    await postActivateRefresh()
+  } catch (e) {
+    const err = e as Error & { code?: number }
+    if (err.code === 4001) {
+      // 会话失效按站内口径引导重新登录（与 HTTP 401 同去向）
+      redeemOpen.value = false
+      router.push('/login')
+      return
+    }
+    // 后端 msg 已是用户口径（无效的激活码/激活码已被使用）；输入框保留原值供修改重试
+    redeemErr.value = err.message || '兑换失败，请稍后重试'
+  } finally {
+    redeeming.value = false
+  }
+}
+
 onMounted(() => {
   reload()
   fetchPage(true)
@@ -200,7 +236,10 @@ onMounted(() => {
         <h1>我的套餐</h1>
         <div class="sub">套餐按状态分版：全部、生效中、待激活、已收回；待激活不计时，点「激活」立即开始使用。</div>
       </div>
-      <button class="btn btn-primary" @click="router.push('/pay')">续费或购买时长</button>
+      <div class="page-head-actions">
+        <button class="btn btn-secondary" @click="askRedeem">兑换激活码</button>
+        <button class="btn btn-primary" @click="router.push('/pay')">续费或购买时长</button>
+      </div>
     </div>
 
     <div v-if="loading" class="loading">加载中…</div>
@@ -286,6 +325,32 @@ onMounted(() => {
       </template>
     </AppModal>
 
+    <!-- 兑换激活码：与激活同走 AppModal 两段式体系 -->
+    <AppModal v-model:open="redeemOpen" title="兑换激活码">
+      <input
+        v-model="redeemCode"
+        class="input redeem-input"
+        placeholder="输入激活码，形如 AC-XXXX-XXXX-XXXX-XXXX"
+        maxlength="32"
+        :disabled="redeeming"
+        @keyup.enter="doRedeem"
+      />
+      <ul class="activate-terms">
+        <li>兑换后本套餐<b>立即开始计时</b>；已有生效套餐时自动接续排在其后</li>
+        <li>激活码<b>不属订单</b>，兑换后不可退款</li>
+      </ul>
+      <div v-if="redeemErr" class="activate-err">
+        {{ redeemErr }}
+        <a class="lnk" href="/support" @click.prevent="router.push('/support')">联系客服</a>
+      </div>
+      <template #footer>
+        <button class="btn btn-secondary" @click="redeemOpen = false">再想想</button>
+        <button class="btn btn-primary" :disabled="redeeming || !redeemCode.trim()" @click="doRedeem">
+          {{ redeeming ? '兑换中…' : '确认兑换' }}
+        </button>
+      </template>
+    </AppModal>
+
     <div v-if="toast" class="toast" role="status">{{ toast }}</div>
   </div>
 </template>
@@ -293,6 +358,7 @@ onMounted(() => {
 <style scoped>
 .license-page { max-width: 720px; margin: 0 auto; position: relative; }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+.page-head-actions { display: flex; gap: 10px; flex-shrink: 0; }
 .page-head h1 { font-family: var(--font-display); font-size: 26px; font-weight: 600; margin: 0; }
 .page-head .sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
 .loading { padding: 60px; text-align: center; color: var(--muted); }
@@ -317,6 +383,7 @@ onMounted(() => {
 .list-tail { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 14px; }
 .list-tail .cnt { font-size: 12.5px; color: var(--muted); }
 .activate-terms { margin: 0 0 10px; padding-left: 18px; font-size: 13.5px; line-height: 1.9; }
+.redeem-input { margin-bottom: 12px; font-family: var(--font-mono); text-transform: uppercase; }
 .activate-err { border-radius: var(--radius-lg); background: color-mix(in oklch, red 10%, var(--surface)); padding: 10px 14px; font-size: 13px; }
 .activate-err .lnk { color: var(--accent, var(--fg)); cursor: pointer; }
 .empty { border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 64px 32px; text-align: center; color: var(--muted); margin-top: 14px; }

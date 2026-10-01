@@ -110,7 +110,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """基于来源键的速率限制（凭据校验类端点）。"""
 
     # 清单覆盖全部凭据校验入口（s-security-hardening）：登录/注册/设备授权/密保找回/
-    # 改密/注销受理与撤销/配对交换。路径按**归一化后**形态书写——前缀归一化中间件在
+    # 改密/注销受理与撤销/配对交换/激活码兑换（s-code-redeem：凭码开通权益，
+    # 同属可爆破凭据入口）。路径按**归一化后**形态书写——前缀归一化中间件在
     # 本中间件外层执行（见 register_middleware），剥 /api 前缀的形态与带前缀形态同桶。
     # 新增凭据校验端点必须同步加入清单（tests/test_rate_limit_bypass.py 有对拍测试防漏）。
     SENSITIVE_PATHS = {
@@ -122,6 +123,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         "/api/user/deletion",
         "/api/user/deletion/revoke",
         "/api/pair/exchange",
+        "/api/pay/codes/redeem",
     }
     # 30：吸收 E2E 套件的登录突发（/api/web/login）；C端 轮询走 GET
     # /api/check-auth 不受限，30/min/IP 仍可防爆破，避免误伤多管理员同网段

@@ -70,6 +70,10 @@ class ActivateRequest(BaseModel):
     order_no: str
 
 
+class RedeemCodeRequest(BaseModel):
+    code: str
+
+
 # ── 端点 ──
 
 @r.get("/skus")
@@ -548,6 +552,26 @@ async def activate(req: ActivateRequest, request: Request, db: Db = Depends(get_
         return {"code": 0, "data": result}
     except DomainError as e:
         return {"code": 4012, "msg": str(e)}
+
+
+@r.post("/codes/redeem", dependencies=[guard_identifiers(body=("code",))])
+async def redeem(req: RedeemCodeRequest, request: Request, db: Db = Depends(get_db)):
+    """激活码兑换（s-code-redeem）：管理端发放的手工码凭码开通，与订单激活互不替代。"""
+    identity = _current_identity(request)
+    if not identity:
+        return {"code": 4001, "msg": "未登录"}
+    _username, user_id = identity
+
+    from app.application.payments.redeem_code import redeem_code
+    from app.infrastructure.repositories.factory import code_repo as _code_repo_factory
+    from app.infrastructure.repositories.payments_repo import TradeEventRepo
+
+    result = redeem_code(_code_repo_factory(db), TradeEventRepo(db), req.code, user_id)
+    if "error" in result:
+        msg = {"invalid_code": "无效的激活码", "already_used": "激活码已被使用"}.get(
+            result["error"], "兑换失败，请稍后重试")
+        return {"code": 4004, "msg": msg}
+    return {"code": 0, "data": result}
 
 
 # ── 辅助 ──
