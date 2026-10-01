@@ -31,6 +31,9 @@ def _write_release_json(tmp_path: Path, version: str = "0.25", **overrides) -> P
     cfg = {
         "server_api_base": "https://novel-s-server.example/api",
         "server_api_fallback": "https://novel-s-server.example/api",
+        # S端 公开地址族（c-package-public-endpoints）：与 CI 生成步骤同构
+        "public_server_api": "https://www.awesomenovel.com/api",
+        "portal_url": "https://www.awesomenovel.com",
         "client_version": version,
         "client_update_url": "https://www.awesomenovel.com/download/latest.json",
         "client_update_url_fallback": (
@@ -45,7 +48,7 @@ def _write_release_json(tmp_path: Path, version: str = "0.25", **overrides) -> P
 
 def _run(path: Path) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, str(SCRIPT), str(path)],
-                          capture_output=True, text=True, cwd=BACKEND)
+                          capture_output=True, text=True, cwd=BACKEND, check=False)
 
 
 def test_up14_positive_baked_artifact(tmp_path):
@@ -93,6 +96,79 @@ def test_up14_components_not_runtime_override():
 
     assert "components" not in RELEASE_OVERRIDE_KEYS
     assert "db_filename" not in RELEASE_OVERRIDE_KEYS
+
+
+@pytest.mark.parametrize("missing", ["public_server_api", "portal_url"])
+def test_public_endpoint_family_missing_rejected(tmp_path, missing):
+    """负例（c-package-public-endpoints）：地址族缺键 → 断言必须转红——
+    public_server_api 缺烘曾致打包端授权页 404（v0.23–v0.25 实锤），冒烟必拦。"""
+    path = _write_release_json(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data[missing]
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    proc = _run(path)
+    assert proc.returncode != 0, f"缺 {missing} 必须失败（否则授权页 404 复发）"
+    assert missing in proc.stderr
+
+
+@pytest.mark.parametrize("bad", [
+    {"public_server_api": "http://www.awesomenovel.com/api"},   # 非 https
+    {"portal_url": "novel-s-web-test.webapps.tcloudbase.com"},  # 裸域名无 scheme
+])
+def test_public_endpoint_family_non_https_rejected(tmp_path, bad):
+    """负例：地址族非 https 形态 → 转红。"""
+    path = _write_release_json(tmp_path, **bad)
+    proc = _run(path)
+    assert proc.returncode != 0, f"非 https 必须失败：{bad}"
+
+
+def _run_generate(version: str, tmp_path: Path) -> subprocess.CompletedProcess:
+    """子进程驱动生成脚本（与 CI Generate 步骤同形；直 import 会缺脚本目录 sys.path）。"""
+    out = tmp_path / "release.json"
+    return subprocess.run(
+        [sys.executable, str(BACKEND / "scripts" / "release_json_generate.py"), version, "-o", str(out)],
+        capture_output=True, text=True, cwd=BACKEND, check=False,
+    )
+
+
+def test_generate_bakes_public_endpoint_family(tmp_path, monkeypatch):
+    """正例（c-package-public-endpoints）：generate() 烘入地址族两新键且值来自 env。"""
+    monkeypatch.setenv("RELEASE_SERVER_API_BASE", "https://novel-s-server.example/api")
+    monkeypatch.setenv("RELEASE_SERVER_API_FALLBACK", "https://novel-s-server.example/api")
+    monkeypatch.setenv("RELEASE_PUBLIC_SERVER_API", "https://www.awesomenovel.com/api")
+    monkeypatch.setenv("RELEASE_PORTAL_URL", "https://www.awesomenovel.com")
+    monkeypatch.setenv("RELEASE_DOWNLOAD_BASE", "https://www.awesomenovel.com/download")
+    monkeypatch.setenv("RELEASE_DOWNLOAD_FALLBACK_BASE", "https://fallback.example/download")
+    proc = _run_generate("0.25.1", tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    cfg = json.loads((tmp_path / "release.json").read_text(encoding="utf-8"))
+    assert cfg["public_server_api"] == "https://www.awesomenovel.com/api"
+    assert cfg["portal_url"] == "https://www.awesomenovel.com"
+    assert cfg["components"]["db_filename"] == "novel-v0.25.1.db"
+
+
+def test_generate_missing_public_env_rejected(tmp_path, monkeypatch):
+    """负例：地址族 env 缺失 → 生成即红，不得产出缺键产物。"""
+    monkeypatch.setenv("RELEASE_SERVER_API_BASE", "https://novel-s-server.example/api")
+    monkeypatch.setenv("RELEASE_SERVER_API_FALLBACK", "https://novel-s-server.example/api")
+    monkeypatch.delenv("RELEASE_PUBLIC_SERVER_API", raising=False)
+    monkeypatch.setenv("RELEASE_PORTAL_URL", "https://www.awesomenovel.com")
+    monkeypatch.setenv("RELEASE_DOWNLOAD_BASE", "https://www.awesomenovel.com/download")
+    monkeypatch.setenv("RELEASE_DOWNLOAD_FALLBACK_BASE", "https://fallback.example/download")
+    proc = _run_generate("0.25.1", tmp_path)
+    assert proc.returncode != 0, "缺 RELEASE_PUBLIC_SERVER_API 必须失败"
+    assert "RELEASE_PUBLIC_SERVER_API" in proc.stderr
+
+
+def test_ci_generate_step_sets_public_endpoint_env():
+    """静态守卫（c-package-public-endpoints）：workflow 生成步骤必须注入地址族 env——
+    防「白名单有键、烘焙缺行」的静默断链形态复发（v0.23–v0.25 实锤）。"""
+    wf = (BACKEND.parent.parent / ".github" / "workflows" / "client-package.yml").read_text(
+        encoding="utf-8")
+    step_start = wf.index("- name: Generate release.json")
+    step = wf[step_start: wf.index("\n      - name:", step_start)]
+    assert "RELEASE_PUBLIC_SERVER_API:" in step, "生成步骤缺 RELEASE_PUBLIC_SERVER_API 注入"
+    assert "RELEASE_PORTAL_URL:" in step, "生成步骤缺 RELEASE_PORTAL_URL 注入"
 
 
 def test_ci_components_step_cwd_resolves():

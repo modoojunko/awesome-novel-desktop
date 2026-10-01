@@ -144,6 +144,10 @@ def start_server():
             os.environ.get("AI_NOVEL_SERVER_API_FALLBACK", ""))
         _env_with_release("PUBLIC_SERVER_API", "public_server_api",
             os.environ.get("AI_NOVEL_PUBLIC_SERVER_API", ""))
+        # 会员/客服页门户源（c-package-public-endpoints）：auth_local 对齐消费；
+        # 缺省空串＝本地开发无烘焙 → config 默认值不变
+        _env_with_release("PORTAL_URL", "portal_url",
+            os.environ.get("AI_NOVEL_PORTAL_URL", ""))
         # client-update-notify：版本自报 + 更新检测地址（主/兜底）。
         # 版本默认 dev（本地开发无烘焙 → update_check 跳过检测，行为同历史）；
         # 检测地址默认值与 CI Generate release.json 同源，仅烘焙缺键时兜底。

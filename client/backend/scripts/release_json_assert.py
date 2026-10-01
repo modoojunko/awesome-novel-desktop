@@ -29,7 +29,10 @@ from schema_version import db_filename_for  # noqa: E402
 def check_release_json(path: str | Path) -> dict:
     """校验并返回 release.json 内容；任一断言失败抛 AssertionError。"""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    assert str(data.get("server_api_base", "")).startswith("https://"), data
+    # S端 地址族四键（c-package-public-endpoints）：存在且 https 形态——
+    # public_server_api 缺烘曾致打包端授权页 404（v0.23–v0.25 实锤），冒烟必拦
+    for key in ("server_api_base", "server_api_fallback", "public_server_api", "portal_url"):
+        assert str(data.get(key, "")).startswith("https://"), (f"release.json 键 {key} 缺失或非 https", data)
     version = str(data.get("client_version", "")).strip()
     assert version, data
     assert str(data.get("client_update_url", "")).startswith("https://"), data
