@@ -72,7 +72,12 @@ export default function AiCheckModal({
       <p className="ck-lead">
         《{chapterLabel}》· 依据本章章纲、正文与相应全书设定逐条核对，只报能指出依据的问题。
       </p>
-      {findings === null && !error && <p className="ck-note">检查中……</p>}
+      {findings === null && !error && (
+        <>
+          <p className="ck-note">检查中……</p>
+          <p className="ck-note no-close">AI 检查中，请勿关闭弹窗</p>
+        </>
+      )}
       {error && <p className="ck-note err">{error}</p>}
       {findings !== null && findings.length === 0 && (
         <p className="ck-note ok" data-testid="ai-check-empty">

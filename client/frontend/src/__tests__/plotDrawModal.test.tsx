@@ -120,6 +120,7 @@ describe("三版抽卡弹窗（c-plot-split）", () => {
     render(<Host />);
     fireEvent.click(screen.getByTestId("open"));
     expect(screen.getByTestId("phase")).toHaveTextContent("busy");
+    expect(screen.getByTestId("plot-busy")).toHaveTextContent("AI 创作中，请勿关闭弹窗");
     fireEvent.click(screen.getByTestId("close")); // 关窗＝换代
     await act(async () => {
       release(THREE); // 晚到才返回

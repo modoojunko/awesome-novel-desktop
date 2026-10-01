@@ -73,9 +73,10 @@ export function PickCardsModal({
         </p>
 
         {state.pickPhase === "busy" && (
-          <div className="pick-busy" data-testid="pick-busy">
+          <div className="pick-busy col" data-testid="pick-busy">
             <span className="ra-spin" aria-hidden="true" />
             <span aria-live="polite">正在想三套思路…</span>
+            <span className="no-close">AI 创作中，请勿关闭弹窗</span>
           </div>
         )}
 

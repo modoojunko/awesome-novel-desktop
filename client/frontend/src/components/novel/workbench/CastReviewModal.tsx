@@ -198,6 +198,7 @@ export default function CastReviewModal({
             <span className="none">
               每段剧情分别看：老角色能不能演、不起名的配角行不行、哪里缺新角色
             </span>
+            <span className="no-close">AI 盘点中，请勿关闭弹窗</span>
           </div>
         )}
 
@@ -262,6 +263,7 @@ export default function CastReviewModal({
               </span>
             </span>
             <span className="none">按这段戏缺的人和现有角色推——只给人物方向，不编剧情</span>
+            <span className="no-close">AI 创作中，请勿关闭弹窗</span>
           </div>
         )}
 

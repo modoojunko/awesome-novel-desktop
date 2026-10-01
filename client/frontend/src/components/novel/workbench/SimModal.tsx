@@ -145,7 +145,12 @@ export default function SimModal({
           以上一章的结尾为起点，用本章章纲的关键事件与出场角色，一回合一步往下推：每一回合先替角色做一次选择，再推到本章结尾。
         </p>
 
-        {loading && <p className="sim-note">正在推演……</p>}
+        {loading && (
+          <>
+            <p className="sim-note">正在推演……</p>
+            <p className="sim-note no-close">AI 推演中，请勿关闭弹窗</p>
+          </>
+        )}
         {error && (
           <p className="sim-note">
             {error}

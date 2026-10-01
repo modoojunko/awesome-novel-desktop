@@ -777,6 +777,8 @@
   /* 值差复用登记（ADJUSTMENTS ④）：rp-dot 7px／pick-busy flex-column＋.none／pick-foot .push */
   .pick-busy { flex-direction: column; }
   .pick-busy .none { font-size: 12px; color: var(--faint); }
+  /* AI 弹窗生成中「请勿关闭」提示行（c-ai-modal-no-close-tip） */
+  .pick-busy .no-close { font-size: 11.5px; color: var(--faint); }
   .pick-foot .push { margin-left: auto; }
   .pick-error .edit-bar { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
   .demo-bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 16px; background: color-mix(in oklch, var(--fg) 4%, var(--surface)); border-bottom: 1px solid var(--border); flex-wrap: wrap; position: relative; z-index: 70; }
@@ -1283,6 +1285,7 @@
       <div class="pick-busy" data-pane="busy">
         <span class="ra-spin" aria-hidden="true"></span>
         <span aria-live="polite" id="plotBusyText">正在写这一章的 3 版剧情…</span>
+        <span class="no-close">AI 创作中，请勿关闭弹窗</span>
       </div>
 
       <!-- 3 版剧情 -->
@@ -1337,6 +1340,7 @@
         <div class="pick-busy">
           <span><span class="ra-spin" aria-hidden="true"></span><span aria-live="polite">正在逐段对照这一章的剧情…</span></span>
           <span class="none">每段剧情分别看：老角色能不能演、不起名的配角行不行、哪里缺新角色</span>
+          <span class="no-close">AI 盘点中，请勿关闭弹窗</span>
         </div>
       </div>
 
@@ -1576,6 +1580,7 @@
         <div class="pick-busy">
           <span><span class="ra-spin" aria-hidden="true"></span><span aria-live="polite">正在想「剧情 3」的 3 个人物方向…</span></span>
           <span class="none">按这段戏缺的人和现有角色推——只给人物方向，不编剧情</span>
+          <span class="no-close">AI 创作中，请勿关闭弹窗</span>
         </div>
       </div>
 

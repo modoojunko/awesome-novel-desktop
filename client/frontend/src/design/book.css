@@ -1744,6 +1744,10 @@ button.dep-row:hover{background:var(--hl)}
 .pick-foot .btn{margin-left:auto;flex:none}
 .pick-foot .link{background:none;border:0;padding:0;font:inherit;font-size:11.5px;color:var(--accent-strong);border-bottom:1px solid transparent;cursor:pointer}
 .pick-busy{display:flex;align-items:center;gap:8px;padding:40px 0;color:var(--muted);font-size:13px;justify-content:center}
+/* AI 弹窗生成中的「请勿关闭」提示行（09-29 拍板：AI 弹窗生成/抽卡 busy 态统一提示作家别关窗） */
+.no-close{font-size:11.5px;color:var(--faint)}
+.pick-busy.col{flex-direction:column;gap:6px}
+.pick-busy.col .none{font-size:12px;color:var(--faint)}
 .pick-error{padding:24px 0;text-align:center}
 .pick-error .pv-error{color:var(--warn);font-size:13px;margin:0 0 10px}
 .pick-error-acts{display:flex;gap:10px;justify-content:center}
