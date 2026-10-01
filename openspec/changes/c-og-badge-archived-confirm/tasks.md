@@ -25,4 +25,4 @@
 - [x] 5.1 后端：`ruff check app tests scripts`（client/backend ruff.toml 口径）＋`pytest` 全量绿。验证：两命令零红（存量红逐条对照 main 基线）。
 - [x] 5.2 前端：`npx tsc --noEmit`＋`npx vitest run` 全量绿。验证：零新增红。
 - [x] 5.3 `openspec validate c-og-badge-archived-confirm` 通过。验证：CLI 零 error。
-- [ ] 5.4 提交（ Proposal 与实现分开或同批均可）＋推送＋PR：标题带 change 名；描述注明①与 c-og-confirm-gates 的 router.py hunk 逐字同形（先合方为准，后合方 rebase 即 no-op）、②409 的 spec delta 归 c-og-confirm-gates、③parity 不作为本修验证手段（不进 CI）。验证：PR 创建成功且描述含去重说明。
+- [x] 5.4 提交（ Proposal 与实现分开或同批均可）＋推送＋PR：标题带 change 名；描述注明①与 c-og-confirm-gates 的 router.py hunk 逐字同形（先合方为准，后合方 rebase 即 no-op）、②409 的 spec delta 归 c-og-confirm-gates、③parity 不作为本修验证手段（不进 CI）。验证：PR 创建成功且描述含去重说明。
