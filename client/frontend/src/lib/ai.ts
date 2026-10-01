@@ -285,21 +285,6 @@ export async function genreAi(
 }
 
 // ---------------------------------------------------------------------------
-// Outline AI draft (outline-ai-draft)
-// ---------------------------------------------------------------------------
-
-/** AI 起草章纲：主线卡+设定+前情 → 结构化草稿（不落库，表单承接；失败 502 可重试） */
-export async function draftOutline(
-  projectId: string,
-  chapterRef: string,
-): Promise<Record<string, unknown>> {
-  return doJsonPost(
-    `${API_BASE}/novels/${projectId}/chapters/${chapterRef}/outline/ai-draft`,
-    {},
-  );
-}
-
-// ---------------------------------------------------------------------------
 // 简介 AI 三能力（genre-signup-redesign tasks 3.5 / D7）
 // ---------------------------------------------------------------------------
 

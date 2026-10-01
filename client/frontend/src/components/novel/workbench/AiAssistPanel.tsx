@@ -50,9 +50,6 @@ export function AiAssistPanel({
   wordCount,
   planWords,
   archived,
-  canAiDraft,
-  aiDrafting,
-  onAiDraft,
   onSimulate,
   onPlotDraw,
   onCastReview,
@@ -80,9 +77,6 @@ export function AiAssistPanel({
   wordCount: number;
   planWords: number | null;
   archived: boolean;
-  canAiDraft: boolean;
-  aiDrafting: boolean;
-  onAiDraft: () => void;
   onSimulate: () => void;
   /** AI 帮写剧情（三版选一弹层；生成类归 PRO，免费态 locked 置灰＋升级出口） */
   onPlotDraw?: () => void;
@@ -351,15 +345,16 @@ export function AiAssistPanel({
 
   if (tab === "og") {
     const missing = ogStats.missingLabels ?? [];
-    running = aiDrafting ? "draft" : gapsLoading ? "fill" : castBusy ? "cast-review" : null;
+    running = gapsLoading ? "fill" : castBusy ? "cast-review" : null;
     targetLine = missing.length ? (
       <>还缺 {missing.length} 项：<b>{missing.join("、")}</b></>
     ) : (
       <>必填已齐 · 归档门槛 {ogStats.reqOk}/{REQ_FIELDS.length}</>
     );
     // 行级 PRO 映射（c-character-intro 3.3）：只作用章纲页签——盘点行全档免费可点，
-    // 其余五行免费态 ra-off＋「需 PRO」（照 VolumeAssistPanel 先例）；
+    // 其余四行免费态 ra-off＋「需 PRO」（照 VolumeAssistPanel 先例）；
     // 其余页签维持 member_required 整卡锁定，不因本 change 放行。
+    // （「AI 起草」行已随 c-og-ai-draft-retire 退役：与拆章/补全缺失字段重复。）
     const proRow = (disabledExtra: boolean, hintExtra?: string) => ({
       disabled: !isPro || disabledExtra,
       hint: !isPro ? "需 PRO" : hintExtra,
@@ -367,12 +362,6 @@ export function AiAssistPanel({
     rows = [
       cap("simulate", "剧情推演 · 按回合走一遍", "先定走法再逐步推演；走法可收进本章剧情条目", {
         onClick: onSimulate, disabled: archived || !isPro, hint: archived ? "本章已归档" : !isPro ? "需 PRO" : undefined, testid: "og-simulate",
-      }),
-      cap("draft", "AI 起草", "按卷纲与设定出整份章纲草稿，回填表单后由你确认落库", {
-        onClick: onAiDraft,
-        disabled: !canAiDraft || archived || !isPro,
-        hint: archived ? "本章已归档" : !isPro ? "需 PRO" : undefined,
-        testid: "og-ai-draft",
       }),
       cap("fill", "补全缺失字段", missing.length ? `只补还缺的 ${missing.length} 项，一稿回填` : "必填已齐，暂无可补", {
         onClick: () => onFillGaps?.(),
@@ -570,7 +559,7 @@ export function AiAssistPanel({
     );
     rows = [];
     footNote =
-      "「生成本章变更摘要/下一章建议」不设入口：变更摘要＝归档摘要＋收尾提案，下一章建议＝下一章章纲的 AI 起草。";
+      "「生成本章变更摘要/下一章建议」不设入口：变更摘要＝归档摘要＋收尾提案，下一章章纲走拆章排上＋补全缺失字段。";
   }
 
   return (

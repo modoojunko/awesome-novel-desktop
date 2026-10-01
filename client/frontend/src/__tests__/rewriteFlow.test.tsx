@@ -71,9 +71,6 @@ describe("AiAssistPanel 操作页签统计", () => {
       wordCount: 500,
       planWords: 1800,
       archived: false,
-      canAiDraft: false,
-      aiDrafting: false,
-      onAiDraft: () => {},
       onSimulate: () => {},
     };
     const { rerender } = render(<AiAssistPanel {...base} staleDownstream={2} />);

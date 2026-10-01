@@ -25,9 +25,6 @@ function renderPanel(opts: {
       wordCount={10}
       planWords={2500}
       archived={!!opts.archived}
-      canAiDraft={opts.isPro && !opts.archived}
-      aiDrafting={false}
-      onAiDraft={() => {}}
       onSimulate={() => {}}
       onPlotDraw={opts.onPlotDraw ?? (() => {})}
       onUpgrade={opts.onUpgrade ?? (() => {})}

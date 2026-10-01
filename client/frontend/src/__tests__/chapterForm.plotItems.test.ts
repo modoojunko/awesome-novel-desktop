@@ -1,14 +1,12 @@
 // c-plot-split 5.1 — plots ↔ plot_items 契约：
 // 恒带键（presence-gate：显式 [] 是清空意图，缺键=误清数据）＋含换行单条完整保留
 // （禁 \n 拼串切条）＋超长/超条数保存链硬夹＋空白条目不算一条。
-// 另钉 ogHasDraftContent 不含剧情（AI 起草不惊动剧情列表）与 ogPatchFromFills 丢
-// plot_items（fill-gaps 产物不带剧情，白名单外的键不落表单）。
+// 另钉 ogPatchFromFills 丢 plot_items（fill-gaps 产物不带剧情，白名单外的键不落表单）。
 import { describe, expect, it } from "vitest";
 import {
   EMPTY_OG_FORM,
   PLOT_MAX_ITEMS,
   PLOT_MAX_LEN,
-  ogHasDraftContent,
   ogPatchFromFills,
   ogToForm,
   ogToPartial,
@@ -72,13 +70,6 @@ describe("保存链硬夹（输入侧 maxLength 之外的兜底）", () => {
 });
 
 describe("剧情与相邻通道的隔离", () => {
-  it("ogHasDraftContent 不含剧情：plots 内容不改变判定", () => {
-    // 判定基准（segs 占位行等既有口径）保持不动——剧情是唯一不参与的格子
-    const base = ogHasDraftContent(EMPTY_OG_FORM);
-    expect(ogHasDraftContent({ ...EMPTY_OG_FORM, plots: ["甲登场", "乙拦路"] })).toBe(base);
-    expect(ogHasDraftContent({ ...EMPTY_OG_FORM, summary: "一句话" })).toBe(true);
-  });
-
   it("ogPatchFromFills 丢 plot_items（fill-gaps 产物不碰剧情）", () => {
     const patch = ogPatchFromFills({
       plot_items: ["不该进来的"],
