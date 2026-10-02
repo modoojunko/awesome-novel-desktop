@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.devices import DeviceRegistry
@@ -62,36 +63,53 @@ class SqlDeviceRepo:
         )
         return [self._to_domain(r) for r in rows]
 
+    def _find_row(self, uid: int, fingerprint: str) -> DeviceRegistryORM | None:
+        return self.db.query(DeviceRegistryORM).filter(
+            DeviceRegistryORM.user_id == uid,
+            DeviceRegistryORM.fingerprint == fingerprint,
+        ).first()
+
     def upsert(self, device: DeviceRegistry) -> DeviceRegistry:
         uid = self._resolve_user_id(device.user_id)
         if uid is None:
             return device  # 用户不存在，跳过
-        existing = self.db.query(DeviceRegistryORM).filter(
-            DeviceRegistryORM.user_id == uid,
-            DeviceRegistryORM.fingerprint == device.fingerprint,
-        ).first()
+        existing = self._find_row(uid, device.fingerprint)
         now = datetime.now(UTC).replace(tzinfo=None)
         if existing:
-            existing.hostname = device.hostname
-            existing.os = device.os
-            existing.os_arch = device.os_arch
-            existing.last_active_at = now
-            existing.updated_at = now
-            return self._to_domain(existing)
-        else:
-            row = DeviceRegistryORM(
-                id=uuid.uuid4().hex,
-                user_id=uid,
-                fingerprint=device.fingerprint,
-                hostname=device.hostname,
-                os=device.os,
-                os_arch=device.os_arch,
-                last_active_at=now,
-                bound_at=now,
-                updated_at=now,
-            )
-            self.db.add(row)
-            return self._to_domain(row)
+            return self._apply_update(existing, device, now)
+        row = DeviceRegistryORM(
+            id=uuid.uuid4().hex,
+            user_id=uid,
+            fingerprint=device.fingerprint,
+            hostname=device.hostname,
+            os=device.os,
+            os_arch=device.os_arch,
+            last_active_at=now,
+            bound_at=now,
+            updated_at=now,
+        )
+        self.db.add(row)
+        try:
+            self.db.flush()
+        except IntegrityError:
+            # find→flush 间隙被并发请求抢先插入同 (user_id, fingerprint)，唯一约束
+            # uq_user_fingerprint 拦下本条——回滚后回落为更新，不 500。回滚会连带丢弃
+            # 本请求先前的未提交变更（authorize 里的惰性密码升级属可重试优化，无数据损失）。
+            self.db.rollback()
+            existing = self._find_row(uid, device.fingerprint)
+            if existing is None:
+                raise
+            return self._apply_update(existing, device, now)
+        return self._to_domain(row)
+
+    def _apply_update(self, row: DeviceRegistryORM, device: DeviceRegistry,
+                      now: datetime) -> DeviceRegistry:
+        row.hostname = device.hostname
+        row.os = device.os
+        row.os_arch = device.os_arch
+        row.last_active_at = now
+        row.updated_at = now
+        return self._to_domain(row)
 
     def delete_by_id(self, device_id: str, username: str) -> bool:
         uid = self._resolve_user_id(username)
