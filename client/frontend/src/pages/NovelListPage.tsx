@@ -118,9 +118,14 @@ function NovelList() {
   });
   const novels = novelsData ?? [];
   const loadError = queryError != null;
-  const setNovels = (
-    updater: (prev: Novel[]) => Novel[],
-  ) => queryClient.setQueryData<Novel[]>(queryKeys.novels, (prev) => updater(prev ?? []));
+  const setNovels = (updater: (prev: Novel[]) => Novel[]) =>
+    queryClient.setQueryData<Novel[]>(
+      queryKeys.novels,
+      /* v8 ignore start -- 防御分支：setNovels 只被卡片/弹窗处理器触达，
+         而它们都要求书架数据已加载（查询缓存条目必在），prev 不会为 undefined */
+      (prev) => updater(prev ?? []),
+      /* v8 ignore stop */
+    );
   const [portalUrl, setPortalUrl] = useState<string>('');
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -377,7 +382,13 @@ function NovelList() {
             </>
           ) : stage === "done" ? (
             <>
-              <span className="updated">完结于{relTime(p.finished_at || p.updated_at)}</span>
+              <span className="updated">
+                完结于
+                {/* v8 ignore start -- 已完结态由 finished_at 非空派生（stageFromChapters），
+                    走到这里的卡片恒有非空 finished_at，`|| updated_at` 右臂不可达 */}
+                {relTime(p.finished_at || p.updated_at)}
+                {/* v8 ignore stop */}
+              </span>
               <span className="foot-acts">
                 <button className="btn btn-secondary btn-sm" onClick={(e) => openPreview(e, p.id)}>
                   回看

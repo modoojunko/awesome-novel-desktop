@@ -4,10 +4,11 @@
 //   满额时的升级引导与锁定瓦片 · AuthGuard 门禁。
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { fireEvent } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import NovelListPage from "@/pages/NovelListPage";
+import { SHELF_PAGE_SIZE } from "@/lib/shelfSort";
 import { toast } from "@/lib/toast";
 
 const getMock = vi.fn();
@@ -720,5 +721,191 @@ describe("完本链路（works-finish-flow）", () => {
     expect(
       within(screen.getByRole("group", { name: "按状态筛选" })).getByText("全部").getAttribute("aria-pressed"),
     ).toBe("true");
+  });
+});
+
+describe("覆盖补齐（分页与排序）", () => {
+  /** 造 n 本互不重名的书（写作中态，rank 相同进入排序比较）。 */
+  const manyBooks = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      novel({ id: `b${i}`, name: `书${i}`, total_chapters: 1, total_archives: 0 }),
+    );
+
+  it("分页点击：初始显示 12 本，「显示更多」一次加载至全部并收起按钮", async () => {
+    getMock.mockResolvedValue(manyBooks(14));
+    renderPage();
+    await waitFor(() => expect(document.querySelectorAll(".book-card").length).toBe(SHELF_PAGE_SIZE));
+    const moreBtn = () => screen.getByText(/显示更多/).closest("button") as HTMLButtonElement;
+    expect(moreBtn().textContent).toBe(`显示更多 · ${SHELF_PAGE_SIZE} / 14`);
+    fireEvent.click(moreBtn());
+    await waitFor(() => expect(document.querySelectorAll(".book-card").length).toBe(14));
+    expect(screen.queryByText("显示更多")).toBeNull(); // 全部显示后按钮收起
+  });
+
+  it("滚动进视口自动加载（IntersectionObserver）：不相交不动、相交加载、断开旧观察器、收齐后不再扩张", async () => {
+    class FakeIO {
+      static instances: FakeIO[] = [];
+      cb: IntersectionObserverCallback;
+      disconnectSpy = vi.fn();
+      constructor(cb: IntersectionObserverCallback) {
+        this.cb = cb;
+        FakeIO.instances.push(this);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {
+        this.disconnectSpy();
+      }
+    }
+    vi.stubGlobal("IntersectionObserver", FakeIO);
+    getMock.mockResolvedValue(manyBooks(14));
+    renderPage();
+    await waitFor(() => expect(document.querySelectorAll(".book-card").length).toBe(SHELF_PAGE_SIZE));
+    const fire = async (isIntersecting: boolean) => {
+      const io = FakeIO.instances.at(-1)!;
+      await act(async () => {
+        io.cb([{ isIntersecting } as IntersectionObserverEntry], io as unknown as IntersectionObserver);
+      });
+    };
+    await fire(false); // 未进视口：不加载
+    expect(document.querySelectorAll(".book-card").length).toBe(SHELF_PAGE_SIZE);
+    await fire(true); // 进视口：自动补齐剩余页
+    await waitFor(() => expect(document.querySelectorAll(".book-card").length).toBe(14));
+    expect(screen.queryByText("显示更多")).toBeNull();
+    expect(FakeIO.instances.at(-1)!.disconnectSpy).toHaveBeenCalled(); // 重挂时断开旧观察器
+    await fire(true); // 收齐后残留观察器事件：数量不再扩张
+    expect(document.querySelectorAll(".book-card").length).toBe(14);
+  });
+
+  it("排序切换：默认最近更新在前，切「书名」后按书名升序重排", async () => {
+    getMock.mockResolvedValue([
+      novel({ id: "y", name: "乙", updated_at: new Date().toISOString() }),
+      novel({ id: "j", name: "甲", updated_at: new Date(Date.now() - 86400_000).toISOString() }),
+    ]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("《乙》")).toBeTruthy());
+    const firstCardName = () => document.querySelector(".book-card h3")!.textContent;
+    expect(firstCardName()).toBe("《乙》"); // 最近更新：乙在前
+    fireEvent.change(screen.getByLabelText("排序方式"), { target: { value: "title" } });
+    await waitFor(() => expect(firstCardName()).toBe("《甲》")); // 书名升序：甲在前
+    expect(screen.getByText("《乙》")).toBeTruthy(); // 两本都在
+  });
+
+  it("状态分组：写作中分组头只给计数，不出「主线已收齐/去完本」", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+    fireEvent.click(within(screen.getByRole("group", { name: "按状态筛选" })).getByText("写作中"));
+    expect(screen.getByText("1 本")).toBeTruthy();
+    expect(screen.queryByText("主线已收齐")).toBeNull();
+    expect(screen.queryByText("去完本")).toBeNull();
+    expect(document.querySelector('[data-od-id="group-writing"]')).toBeTruthy();
+  });
+});
+
+describe("覆盖补齐（回看与多书局部更新）", () => {
+  /** 工作台探针：显示路由 state 里的落点视图。 */
+  const LandingProbe = () => {
+    const { state } = useLocation();
+    return <div data-testid="workspace">{`landing:${(state as { landingView?: string } | null)?.landingView ?? "none"}`}</div>;
+  };
+  const renderWithProbe = () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/novels"]}>
+          <Routes>
+            <Route path="/novels" element={<NovelListPage />} />
+            <Route path="/login" element={<div data-testid="login-slot" />} />
+            <Route path="/novel/:id" element={<LandingProbe />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  };
+
+  it("待完本卡「回看」：带归档落点进工作台（stopPropagation 不触发卡片跳转）", async () => {
+    getMock.mockResolvedValue([novel({ id: "r1", total_chapters: 3, total_archives: 3 })]);
+    renderWithProbe();
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+    fireEvent.click(within(document.querySelector(".book-card") as HTMLElement).getByText("回看"));
+    await waitFor(() => expect(screen.getByTestId("workspace").textContent).toBe("landing:archives"));
+  });
+
+  it("已完结卡「回看」：同样落归档视图", async () => {
+    getMock.mockResolvedValue([
+      novel({ id: "d1", total_chapters: 3, total_archives: 3, finished_at: new Date().toISOString() }),
+    ]);
+    renderWithProbe();
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+    fireEvent.click(within(document.querySelector(".book-card") as HTMLElement).getByText("回看"));
+    await waitFor(() => expect(screen.getByTestId("workspace").textContent).toBe("landing:archives"));
+  });
+
+  it("两本书时完本：只有目标卡转已完结，另一本不受牵连", async () => {
+    getMock.mockImplementation(async (path: string) => {
+      if (path === "/novels")
+        return [
+          novel({ id: "n1", total_chapters: 3, total_archives: 3 }),
+          novel({ id: "n2", name: "另一本", total_chapters: 1, total_archives: 0 }),
+        ];
+      if (path === "/novels/n1/hooks") return { data: { count: 0, items: [] } };
+      if (path === "/novels/n1/volumes") return [];
+      return {};
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+    fireEvent.click(screen.getByText("完本")); // 只有待完本卡有「完本」钮
+    await waitFor(() => expect(screen.getByText("完结《星海拾遗》？")).toBeTruthy());
+    fireEvent.click(screen.getByText("完结这本书"));
+    await waitFor(() => expect(finishMock).toHaveBeenCalledWith("n1"));
+    const card1 = await screen.findByText("《星海拾遗》").then((el) => el.closest(".book-card") as HTMLElement);
+    await waitFor(() => expect(within(card1).getByText("已完结")).toBeTruthy());
+    const card2 = screen.getByText("《另一本》").closest(".book-card") as HTMLElement;
+    expect(within(card2).getByText("写作中")).toBeTruthy(); // map 未命中分支：另一本原样
+  });
+
+  it("两本书时撤完本：只有目标卡回待完本，另一本不受牵连", async () => {
+    getMock.mockResolvedValue([
+      novel({ id: "n1", total_chapters: 3, total_archives: 3, finished_at: new Date().toISOString() }),
+      novel({ id: "n2", name: "另一本", total_chapters: 1, total_archives: 0 }),
+    ]);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+    fireEvent.click(
+      within(screen.getByText("《星海拾遗》").closest(".book-card") as HTMLElement).getByLabelText("更多操作"),
+    );
+    fireEvent.click(screen.getByText("完本信息 · 撤完本"));
+    await waitFor(() => expect(screen.getByText("撤完本 · 继续写")).toBeTruthy());
+    fireEvent.click(screen.getByText("撤完本 · 继续写"));
+    await waitFor(() => expect(reopenMock).toHaveBeenCalledWith("n1"));
+    const card1 = await screen.findByText("《星海拾遗》").then((el) => el.closest(".book-card") as HTMLElement);
+    await waitFor(() => expect(within(card1).getByText("待完本")).toBeTruthy());
+    const card2 = screen.getByText("《另一本》").closest(".book-card") as HTMLElement;
+    expect(within(card2).getByText("写作中")).toBeTruthy();
+  });
+
+  it("旧库候选缺书数（null）：合计按 0 计入且不炸", async () => {
+    legacyStatusMock.value = {
+      current_version: "0.25",
+      quarantined: [],
+      candidates: [
+        {
+          filename: "novel-v0.24.db", version: "0.24", kind: "semver",
+          legacy_generation: null, size_bytes: 10, mtime: 1, book_count: 3,
+          unreadable: false, recommended: true, stamp: "s", suppressed: false,
+        },
+        {
+          filename: "novel-v0.23.db", version: "0.23", kind: "semver",
+          legacy_generation: null, size_bytes: 10, mtime: 1, book_count: null,
+          unreadable: false, recommended: false, stamp: "s2", suppressed: false,
+        },
+      ],
+    };
+    getMock.mockResolvedValue([]); // 空书架（首启态才渲染出口行）
+    renderPage();
+    await screen.findByText("开始你的第一本书");
+    const note = screen.getByText("把上一版的作品带过来").closest(".fr-note") as HTMLElement;
+    expect(note.textContent).toContain("3"); // 只计有书数的候选
+    legacyStatusMock.value = null;
   });
 });

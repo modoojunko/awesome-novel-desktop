@@ -8,6 +8,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import LoginPage from "@/pages/LoginPage";
 import { toast } from "@/lib/toast";
+import { api } from "@/lib/api";
 
 const requestMock = vi.fn();
 vi.mock("@/lib/api", () => ({
@@ -346,6 +347,49 @@ describe("覆盖补齐（边界臂）", () => {
     });
     const after = requestMock.mock.calls.filter(([p]) => p === "/auth/check-auth").length;
     expect(after).toBe(before); // 取消守卫若被删，这里会继续涨
+  });
+
+  it("旧库计数行：本地旧库有书时升级卡展示书数（present+book_count 分支）", async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      code: 0,
+      data: { present: true, all: [{ book_count: 5 }] }, // latest = all[0]
+    });
+    // 刻意不给 latest_version / download_url：覆盖 `|| undefined` 的兜底右臂
+    requestMock.mockResolvedValue({ code: 3, data: { client_outdated: true } });
+    renderPage();
+    expect(await screen.findByTestId("upgrade-gate")).toBeTruthy();
+    expect(screen.getByText(/5 本书/)).toBeTruthy(); // libraryCount 传进升级卡
+    expect(screen.getByText(/0 字/)).toBeTruthy(); // words 恒 0（轻量计数口径）
+  });
+
+  it("轮询中 S端 判定客户端过期：就地升级卡并停轮询（不再发 check-auth）", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("open", vi.fn());
+    let checkCalls = 0;
+    requestMock.mockImplementation(async (path: string) => {
+      if (path === "/auth/browser-auth") return { code: 0, data: { auth_url: "https://portal.example.com/oauth" } };
+      checkCalls += 1;
+      // 第 1 次是挂载静默检测（失败）；轮询里的第 2 次起返回「客户端需更新」
+      return checkCalls <= 1 ? noAuth : { code: 3, data: { client_outdated: true, latest_version: "0.30" } };
+    });
+    renderPage();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(screen.getByText("打开浏览器登录"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0); // browser-auth 返回，进入轮询
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2100); // 第一轮轮询 → outdated → 停轮询就地升级卡
+    });
+    expect(screen.getByTestId("upgrade-gate")).toBeTruthy();
+    expect(screen.getByText("需要更新")).toBeTruthy();
+    const after = checkCalls;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000 * 5); // 再推 5 轮的时间
+    });
+    expect(checkCalls).toBe(after); // 「checked === 'outdated' 即 return」若失效会继续涨
   });
 
 });

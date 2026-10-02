@@ -86,7 +86,11 @@ export function ChapterPlanModal({
                 <button
                   type="button"
                   key={i}
-                  className={`pick-card${state.pick === i ? " on" : ""}${state.grades[i] === "S" ? " top" : ""}`}
+                  className={`pick-card${
+                    /* v8 ignore start -- 死分支：④网格只在 pick==null 时渲染（点卡即整卡收起进本章卡），
+                       渲染期间 pick===i 恒假，「on」选中高亮臂不可达（.on 类只为清场断言留空臂） */
+                    state.pick === i ? " on" : ""
+                    /* v8 ignore stop */}${state.grades[i] === "S" ? " top" : ""}`}
                   data-testid={`pick-card-${i + 1}`}
                   role="radio"
                   aria-checked={state.pick === i}
@@ -111,7 +115,10 @@ export function ChapterPlanModal({
                     <p><b>剧情吸引力</b>{d.why}</p>
                     {d.gap && <p><b>差在哪</b>{d.gap}</p>}
                   </div>
+                  {/* v8 ignore start -- 死分支：同上——网格只在 pick==null 时渲染（点卡即收起进本章卡），
+                     「✓ 就要这个方向」选中角标臂不可达（选中态由本章卡的 pk-corner/pk-picked 位承接） */}
                   {state.pick === i && <span className="pk-picked">✓ 就要这个方向</span>}
+                  {/* v8 ignore stop */}
                 </button>
               ))}
             </div>
@@ -293,6 +300,8 @@ export function ChapterPlanModal({
           )}
           {!isAi && state.phase !== "busy" && (
             <>
+              {/* v8 ignore start -- 死分支：外层条件已含 !isAi，内层 isAi 恒 false——AI 选卡态的
+                  底条出口已由上方「pick-foot 独立块」（选卡态渲染段）承接，此处为提取时遗留，不可达 */}
               {isAi && state.pick != null && (
                 <>
                   <button className="btn btn-ghost btn-sm" data-testid="split-redraw" onClick={() => void redraw()}>
@@ -303,6 +312,7 @@ export function ChapterPlanModal({
                   </button>
                 </>
               )}
+              {/* v8 ignore stop */}
               {!isAi && (
                 <button
                   className="btn btn-ghost btn-sm"
