@@ -598,10 +598,8 @@ class ChapterContext:
 
         values = {
             "persona": resolve_persona(self.style_setting),
-            "craft_rules": (
-                "质感要求：留 1-2 个不服务主线的细碎生活细节；对话允许半截话、"
-                "语气词、停顿；按场景权重分配笔墨（高权重细化、低权重简笔转场）。"
-            ),
+            # c-write-prompt-anti-ai：craft_rules 占位注入退役——反AI结构红线清单
+            # 上收为 write_chapter.prompt「## 写法要求」模板静态文本（书章无关，恒定层）。
             "premise_story": "\n".join(premise_rows),
             "genre_section": self.genre_section,
             "style_block": "\n".join(style_rows),
