@@ -4,6 +4,8 @@
  *  未配置（Key 输入＋三步引导）／已配置（掩码/更换/删除/测试连接/显示开关）。
  *  独立取数（/api/v1/zhuque/*），不串 useApiConfigs（那是大模型多配置体系）。
  *  文案口径：PRO 会员权益（试用不含）＋活动额度引用式表述（以腾讯云为准）。
+ *  台账卡（c-zhuque-quota-ledger）：zg-stats 中间卡显本月已用/免费额度（本地估算），
+ *  响应缺 usage 回退静态额度卡。
  *  词汇：panel/panel-h/pill/notice（.pg-config 域）＋新增 zg 系与 zq-toggle-row。 */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { request } from "@/lib/api";
@@ -12,18 +14,40 @@ import { toast } from "@/lib/toast";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import type { ApiConfig } from "../../types/api-config";
 
+interface ZqUsage {
+  month_used_tokens: number;
+  month_free_quota: number;
+  month_remaining_tokens: number;
+}
+
 interface ZqStatus {
   configured: boolean;
   api_key_masked?: string;
   last_test_status?: string | null;
   last_test_error?: string | null;
   last_tested_at?: string | null;
+  usage?: ZqUsage;
 }
 
 const CONSOLE_KEY_URL =
   "https://console.cloud.tencent.com/edgeone/makers?tab=models&subTab=apikey";
 const CONSOLE_USAGE_URL =
   "https://console.cloud.tencent.com/edgeone/makers?tab=models&subTab=overview";
+
+// 整万显「N 万」，非整万（env 覆写额度）退千分位
+const wan = (n: number) => (n % 10000 === 0 ? `${n / 10000} 万` : n.toLocaleString("zh-CN"));
+
+// 台账卡（c-zhuque-quota-ledger）：响应缺 usage（版本偏差/防御臂）回退原静态额度口径——
+// 不引「—」占位（zhuqueConfig.test「—」单节点锚与卡片无「—」断言）、不误显已用 0
+function usageCard(usage?: ZqUsage) {
+  if (!usage) {
+    return { b: "50 万 token / 月", span: "免费额度（以腾讯云控制台为准）" };
+  }
+  return {
+    b: `${usage.month_used_tokens.toLocaleString("zh-CN")} / ${wan(usage.month_free_quota)} token`,
+    span: "本月已用 · 本地估算，以腾讯云控制台为准",
+  };
+}
 
 export default function ZhuquePanel() {
   const [status, setStatus] = useState<ZqStatus | null>(null);
@@ -206,8 +230,8 @@ export default function ZhuquePanel() {
                 <span>上次连接测试</span>
               </div>
               <div className="st">
-                <b>50 万 token / 月</b>
-                <span>免费额度（以腾讯云控制台为准）</span>
+                <b>{usageCard(status!.usage).b}</b>
+                <span>{usageCard(status!.usage).span}</span>
               </div>
               <div className="st">
                 <b>
