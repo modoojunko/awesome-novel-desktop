@@ -396,3 +396,38 @@ class TestDevicePortalAPI:
         )
         assert r.json()["code"] == 0
         assert get_grant("hash-201").enrolled == 0
+
+
+class TestSqlDeviceRepoUpsertRace:
+    def test_conflict_falls_back_to_update(self, monkeypatch):
+        """find→flush 间隙被并发抢先插入：唯一约束 uq_user_fingerprint 拦下 insert，
+        回落为更新而非 500，设备表不留重复行。"""
+        from app.infrastructure.repositories.sql.device_repo import SqlDeviceRepo
+
+        seed_raw_user("race-user")
+        # 「并发方」已落库的行（预置在库里，repo 首查被模拟为扑空 → 走 insert → 撞约束）
+        seed_device_row("race-user", "FP-RACE", days_ago=0.01, hostname="旧主机名")
+
+        s = SessionLocal()
+        try:
+            repo = SqlDeviceRepo(s)
+            real_find = repo._find_row
+            calls = {"n": 0}
+
+            def find_with_race_window(uid, fp):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return None  # 模拟竞态：本请求首查时那行「还没出现」
+                return real_find(uid, fp)
+
+            monkeypatch.setattr(repo, "_find_row", find_with_race_window)
+            device = repo.upsert(DeviceRegistry(
+                id="", user_id="race-user", fingerprint="FP-RACE",
+                hostname="新主机名", os="macOS", os_arch="arm64"))
+            assert device.hostname == "新主机名"
+            assert device.id  # 回读真实行 id
+            s.commit()
+        finally:
+            s.close()
+
+        assert count_devices("race-user") == 1

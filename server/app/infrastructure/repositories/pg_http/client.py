@@ -50,6 +50,20 @@ def parse_dt(value: Any) -> datetime | None:
     return datetime.fromisoformat(str(value))
 
 
+def is_unique_violation(exc: httpx.HTTPStatusError) -> bool:
+    """判断网关错误是否为 PG 唯一约束冲突（23505）。
+
+    网关把 PG 错误码包成 DATABASE_<pgcode>（2026-08-31 复盘）；唯一冲突即
+    DATABASE_23505。供「先查后插」仓储在竞态输掉插入时识别回落更新——约束
+    存在与否都不比现状更差：约束缺失时插入照常成功（维持旧行为），存在时
+    由 500 变为正确更新。
+    """
+    code = PgRestClient._error_code(exc.response)
+    if code.endswith("23505"):
+        return True
+    return "duplicate key" in str(exc)
+
+
 class PgRestClient:
     def __init__(
         self,

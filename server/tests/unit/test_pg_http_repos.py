@@ -347,6 +347,56 @@ class TestPgHttpDeviceRepo:
         repo = PgHttpDeviceRepo(make_client(handler))
         assert repo.delete_by_id("d9", "alice") is True
 
+    def test_upsert_conflict_falls_back_to_update(self):
+        """find→insert 间隙并发抢先插入：唯一约束 23505 → 回落更新，不 500 不留重复行。"""
+        state = {"gets": 0, "patched": False}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "GET":
+                state["gets"] += 1
+                if state["gets"] == 1:
+                    return _ok([])  # 首查扑空（竞态窗口）
+                return _ok([{"id": "d-race", "user_id": "alice", "fingerprint": "fp",
+                             "hostname": "旧", "os": "", "os_arch": "",
+                             "bound_at": "2026-09-01T00:00:00",
+                             "created_at": "2026-09-01T00:00:00"}])
+            if request.method == "POST":
+                return httpx.Response(409, json={
+                    "code": "DATABASE_23505",
+                    "message": "duplicate key value violates unique constraint "
+                               "uq_user_fingerprint",
+                })
+            assert request.method == "PATCH"
+            state["patched"] = True
+            body = request.read().decode()
+            assert '"hostname":"新"' in body
+            return httpx.Response(204)
+
+        repo = PgHttpDeviceRepo(make_client(handler))
+        device = repo.upsert(DeviceRegistry(
+            id="", user_id="alice", fingerprint="fp", hostname="新",
+            os="macOS", os_arch="arm64"))
+        assert state["patched"] is True
+        assert device.id == "d-race"  # 读回真实行 id，而不是新造的
+        assert device.hostname == "新"
+        assert device.bound_at == datetime(2026, 9, 1)
+
+    def test_upsert_non_conflict_error_still_raises(self):
+        """非唯一约束错误（如类型漂移 22P02）不吞，原样上抛。"""
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "GET":
+                return _ok([])
+            return httpx.Response(400, json={
+                "code": "DATABASE_22P02",
+                "message": "invalid input syntax for type bigint",
+            })
+
+        repo = PgHttpDeviceRepo(make_client(handler))
+        with pytest.raises(httpx.HTTPStatusError):
+            repo.upsert(DeviceRegistry(
+                id="", user_id="alice", fingerprint="fp", hostname="PC",
+                os="", os_arch=""))
+
 
 class TestPgHttpGrantRepo:
     def test_get_maps_enrolled_bool(self):

@@ -92,6 +92,13 @@ services:
       - "${CLIENT_HOST_PORT:-8000}:8000"
     volumes:
       - ${CLIENT_DATA_DIR:-./.docker-data/client}:/app/data
+      # 设备身份稳定化（device-registry-dup）：容器内 /etc/machine-id 缺失时
+      # C端 身份回落容器 hostname，每次重建容器＝新指纹＝S端 多注册一台设备。
+      # 挂宿主垫片文件钉死指纹（内容=宿主机身份，macOS 写 IOPlatformUUID /
+      # Linux 可设 CLIENT_MACHINE_ID=/etc/machine-id；垫片配方见
+      # docs/ops/device-registry-dedupe.md）。文件不存在时 Docker 会造出同名
+      # 目录，采集器按 OSError 静默降级回旧行为，不阻断启动。
+      - ${CLIENT_MACHINE_ID:-./.docker-data/client/machine-id}:/etc/machine-id:ro
     restart: unless-stopped
 
   client-frontend:
