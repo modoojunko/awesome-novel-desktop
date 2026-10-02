@@ -377,3 +377,43 @@ describe("RestoreModal 分支补齐（分支覆盖率专项）", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// 覆盖补齐（覆盖率专项）：浏览器模式手动输入路径（无原生文件弹窗的 B/S 兜底）
+// —— 键盘 Enter 与「填入作品包」按钮两条路，含各自「空值不生效」的假臂
+// ---------------------------------------------------------------------------
+
+describe("RestoreModal 手动路径输入（浏览器模式兜底）", () => {
+  const nextBtn = () => screen.getByText("下一步") as HTMLButtonElement;
+  const manualInput = () =>
+    screen.getByPlaceholderText("或输入文件完整路径（浏览器模式）") as HTMLInputElement;
+
+  it("输入框 Enter 填入路径；非 Enter 键与纯空白输入不生效", async () => {
+    mount();
+    // 非 Enter 键：不填入（if e.key === "Enter" 的假臂）
+    fireEvent.change(manualInput(), { target: { value: "/tmp/kb.zip" } });
+    fireEvent.keyDown(manualInput(), { key: "a" });
+    expect(nextBtn().disabled).toBe(true);
+    // 纯空白 + Enter：裁剪后为空，不填入（if v 的假臂）
+    fireEvent.change(manualInput(), { target: { value: "   " } });
+    fireEvent.keyDown(manualInput(), { key: "Enter" });
+    expect(nextBtn().disabled).toBe(true);
+    // 有效路径 + Enter：填入作品包，主按钮解除禁用
+    fireEvent.change(manualInput(), { target: { value: "/tmp/kb.zip" } });
+    fireEvent.keyDown(manualInput(), { key: "Enter" });
+    await waitFor(() => expect(nextBtn().disabled).toBe(false));
+  });
+
+  it("「填入作品包」按钮：填入裁剪后的路径；空白输入点击不生效", async () => {
+    mount();
+    // 空白输入点击：不填入（if v 的假臂）
+    fireEvent.change(manualInput(), { target: { value: "   " } });
+    fireEvent.click(screen.getByText("填入作品包"));
+    expect(nextBtn().disabled).toBe(true);
+    // 有效路径点击：填入并裁剪首尾空白（Slot 里展示裁剪结果）
+    fireEvent.change(manualInput(), { target: { value: "  /tmp/manual.zip  " } });
+    fireEvent.click(screen.getByText("填入作品包"));
+    await waitFor(() => expect(nextBtn().disabled).toBe(false));
+    expect(screen.getByText("/tmp/manual.zip")).toBeTruthy();
+  });
+});

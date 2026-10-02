@@ -85,7 +85,7 @@ async function openCogSink(ref: React.RefObject<CharacterSaveHandle | null>) {
   await act(async () => {
     await ref.current?.runAi?.("cog");
   });
-  await screen.findByText("AI 生成 · 采纳才写入");
+  await screen.findByText("AI 生成 · 采纳才写入（只补空格）");
 }
 
 describe("角色卡 AI 采纳 rev 记账", () => {
@@ -119,7 +119,7 @@ describe("角色卡 AI 采纳 rev 记账", () => {
     const paths = apiPatch.mock.calls.map((c) => (c[1] as { path: string }).path);
     expect(paths).toEqual(["cog.w5", "cog.p3", "cog.p4"]);
     // 采纳完成后 sink 收起
-    expect(screen.queryByText("AI 生成 · 采纳才写入")).toBeNull();
+    expect(screen.queryByText("AI 生成 · 采纳才写入（只补空格）")).toBeNull();
   });
 
   it("非 409 错误仍整批抛出并提示重试", async () => {
@@ -131,6 +131,6 @@ describe("角色卡 AI 采纳 rev 记账", () => {
     await waitFor(() => expect(apiPatch).toHaveBeenCalledTimes(1));
     // 只尝试了第一格（错误抛出中止），sink 未收起可重试
     expect(apiPatch).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("AI 生成 · 采纳才写入")).toBeTruthy();
+    expect(screen.getByText("AI 生成 · 采纳才写入（只补空格）")).toBeTruthy();
   });
 });

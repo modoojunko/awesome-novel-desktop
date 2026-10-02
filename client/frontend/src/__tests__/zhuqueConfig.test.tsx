@@ -651,6 +651,26 @@ describe("朱雀额度台账（c-zhuque-quota-ledger）", () => {
     expect(screen.queryByText(/本月已用/)).toBeNull();
   });
 
+  it("额度非整万（env 覆写）：千分位兜底而非「N 万」", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("/v1/zhuque/config"))
+          return {
+            ok: true,
+            json: async () => ({
+              configured: true,
+              api_key_masked: "eo-****st",
+              usage: { month_used_tokens: 12340, month_free_quota: 525000, month_remaining_tokens: 512660 },
+            }),
+          };
+        return { ok: true, json: async () => ({}) };
+      }),
+    );
+    render(<ZhuquePanel />);
+    await waitFor(() => expect(screen.getByText("12,340 / 525,000 token")).toBeInTheDocument());
+  });
+
   it("测试连接后 refresh 重取 config（台账随测试消耗更新）", async () => {
     zqConfigured = true;
     render(<ZhuquePanel />);

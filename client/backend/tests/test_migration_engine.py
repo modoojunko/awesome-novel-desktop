@@ -175,7 +175,7 @@ class TestRouter:
 
     def test_r1_candidates_loginless_chain(self, client, sandbox):
         """R1：candidates/preview/start/status/dismiss 免登全链。"""
-        root, active = sandbox
+        root, _active = sandbox
         _old_gen0(root, books=2)
         # candidates（无 Authorization）
         c1 = client.get("/api/backup/db-migration/candidates").json()
@@ -212,7 +212,7 @@ class TestRouter:
 
     def test_m5_preview_channel_message(self, client, sandbox):
         """M5 路由面：世代门禁在 preview 返回资产包引导（422 之外的人话通道）。"""
-        root, active = sandbox
+        root, _active = sandbox
         _old_gen0(root, books=1)
         (root / "old-0" / "settings").mkdir(parents=True)
         (root / "old-0" / "settings" / "genre.yaml").write_text("x")

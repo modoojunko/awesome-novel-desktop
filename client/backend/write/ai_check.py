@@ -86,7 +86,6 @@ def _parse_findings(text: str) -> list[dict]:
 
 def _material(kind: str, chapter: dict, ctx) -> str:
     outline = chapter.get("outline") or {}
-    memo = chapter.get("memo") or {}
     prose = str(chapter.get("prose") or "")
     blocks: list[str] = []
     ol_lines = [f"概要：{outline.get('summary', '') or '（未填）'}"]

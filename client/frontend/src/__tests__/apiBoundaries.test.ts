@@ -30,6 +30,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs(); // 个别用例 stub 了 import.meta.env.DEV，不能漏到别的用例
   localStorage.removeItem("auth_token");
 });
 
@@ -251,5 +252,95 @@ describe("导入端点", () => {
 
     fetchMock.mockResolvedValue({ ok: false, status: 404, text: async () => "" });
     await expect(mod.downloadTemplate()).rejects.toThrow("模板下载失败");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 覆盖补齐（覆盖率专项）：生产构建不打时间线 / 网络中断原样上抛 /
+// 401 探测体读取失败按普通 401 / zhuque_auth 无 message 回落文案 /
+// detail.code 语义码透传 / 完本与撤完本包装器
+// ---------------------------------------------------------------------------
+
+describe("request() 时间线日志开关", () => {
+  it("DEV=true 打 [req-timeline] 诊断日志；DEV=false（生产构建）一条不打", async () => {
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    fetchMock.mockResolvedValue(jsonRes(200, { ok: true }));
+
+    await mod.request("/novels");
+    expect(debugSpy).toHaveBeenCalledTimes(1);
+    expect(String(debugSpy.mock.calls[0][0])).toContain("[req-timeline]");
+
+    vi.stubEnv("DEV", false); // 模拟生产构建（import.meta.env.DEV 置 falsy）
+    debugSpy.mockClear();
+    await mod.request("/novels");
+    expect(debugSpy).not.toHaveBeenCalled();
+    debugSpy.mockRestore();
+  });
+});
+
+describe("request() 网络中断：非 DOMException 的 AbortError 原样上抛", () => {
+  it("fetch 拒绝为普通 Error 且 name=AbortError：不中文化包装、原样抛给调用方按取消处理", async () => {
+    const abortErr = Object.assign(new Error("The user aborted a request."), { name: "AbortError" });
+    fetchMock.mockRejectedValue(abortErr);
+    await expect(mod.request("/novels", { signal: new AbortController().signal })).rejects.toBe(abortErr);
+  });
+});
+
+describe("request() 401 探测体的两个兜底臂", () => {
+  it("响应体读取失败（clone().json() 拒绝）：probe=null，按普通 401 走既有口径", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 401,
+      clone: () => ({ json: () => Promise.reject(new Error("body unreadable")) }),
+      json: async () => ({}),
+    });
+    const err = (await mod.request("/novels", { quiet: true }).catch((e) => e)) as Error & { status?: number };
+    expect(err.status).toBe(401);
+    expect(err.message).toBe("登录状态已失效，请重新登录");
+    expect(localStorage.getItem("auth_token")).toBe("tok-edge"); // quiet：不清凭据、不导航
+  });
+
+  it("reason=zhuque_auth 但 detail 无 message：回落「API Key 无效或已失效」（不显示 undefined）", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 401,
+      clone: () => ({ json: async () => ({ detail: { reason: "zhuque_auth" } }) }),
+    });
+    const err = (await mod.request("/novels", { quiet: true }).catch((e) => e)) as Error & {
+      status?: number;
+      reason?: string;
+    };
+    expect(err.status).toBe(401);
+    expect(err.reason).toBe("zhuque_auth");
+    expect(err.message).toBe("API Key 无效或已失效");
+    expect(localStorage.getItem("auth_token")).toBe("tok-edge"); // 作者配错 Key 不是会话失效，不踢人
+  });
+});
+
+describe("request() detail.code 语义码透传", () => {
+  it("detail.code（建卡撞名 409 的 name_taken）挂到 Error 上供调用方分流", async () => {
+    fetchMock.mockResolvedValue(jsonRes(409, { detail: { code: "name_taken", message: "卡片名已存在" } }));
+    const err = (await mod.request("/novels/1/cards", { method: "POST" }).catch((e) => e)) as Error & {
+      code?: string;
+      status?: number;
+    };
+    expect(err.status).toBe(409);
+    expect(err.code).toBe("name_taken");
+    expect(err.message).toBe("卡片名已存在");
+  });
+});
+
+describe("api 完本家族包装器", () => {
+  it("finishNovel / reopenNovel：POST 到 finish / reopen，body 为空对象", async () => {
+    fetchMock.mockResolvedValue(jsonRes(200, { id: "n1", name: "书", finished_at: null, updated_at: "t" }));
+    await mod.api.finishNovel("n1");
+    await mod.api.reopenNovel("n1");
+    const calls = fetchMock.mock.calls as Array<[string, RequestInit]>;
+    expect(calls.map(([u, i]) => `${i.method} ${String(u).replace(/^.*\/api/, "")}`)).toEqual([
+      "POST /novels/n1/finish",
+      "POST /novels/n1/reopen",
+    ]);
+    expect(JSON.parse(String(calls[0][1].body))).toEqual({});
+    expect(JSON.parse(String(calls[1][1].body))).toEqual({});
   });
 });

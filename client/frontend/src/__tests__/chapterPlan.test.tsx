@@ -1026,3 +1026,305 @@ describe("拆章界面 · 重抽排除与会话恢复（c-plan-draw-exclude）",
     expect(localStorage.getItem("cp-draw:p1:vol-1")).toBeNull();
   });
 });
+
+// ── localStorage 刷新兜底路（c-plan-draw-exclude：恢复③支）──────────────────
+// 内存批恢复（误关重开）之外的第二条恢复路：页面刷新后内存清零，仅存 localStorage
+// 载荷——命中同目标章→整批恢复（不重抽、不重复计量）；目标章已推进→排除清零后重抽。
+
+describe("拆章界面 · 会话恢复与目标章迁移（localStorage 刷新兜底）", () => {
+  /** 恢复批：与出卡 mock（DIRS）逐字段可区分，「恢复」与「重抽」的断言互不误伤 */
+  const RESTORED_DIRS = [
+    { axis: "备份甲", title: "恢复批·甲", plot: "恢复的剧情甲", obstacle: "恢复的挑战甲",
+      ending: "恢复的结尾甲", stage: "冲突初现", cast: [], factions: [], places: [],
+      why: "恢复的理由甲", gap: "恢复的差距甲" },
+    { axis: "备份乙", title: "恢复批·乙", plot: "恢复的剧情乙", obstacle: "恢复的挑战乙",
+      ending: "恢复的结尾乙", stage: "矛盾升级", cast: [], factions: [], places: [],
+      why: "恢复的理由乙", gap: "" },
+    { axis: "备份丙", title: "恢复批·丙", plot: "恢复的剧情丙", obstacle: "恢复的挑战丙",
+      ending: "恢复的结尾丙", stage: "重要转折", cast: [], factions: [], places: [],
+      why: "恢复的理由丙", gap: "" },
+  ];
+
+  /** 直接把会话写进 localStorage（模拟刷新前的上一轮抽卡落账） */
+  const seedSession = (payload: unknown) =>
+    localStorage.setItem("cp-draw:p1:vol-1", JSON.stringify(payload));
+
+  it("刷新兜底：localStorage 命中同目标章 → 整批恢复（卡/角标/自检/排除齐），零模型请求", async () => {
+    seedSession({
+      v: 1, nextNo: 3, directions: RESTORED_DIRS, grades: ["S", "A", "B"],
+      oneLiners: ["恢复一句甲", "恢复一句乙", "恢复一句丙"],
+      checks: ["恢复的自检项"], note: "恢复的备注",
+      exclude: [{ axis: "旧轴", line: "旧一句" }],
+    });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    // 恢复批上屏（不是 mock DIRS 的「同名档案」批——证明是恢复、不是重抽）
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toHaveTextContent("恢复批·甲"));
+    expect(screen.getByTestId("pick-card-2")).toHaveTextContent("恢复批·乙");
+    expect(screen.getByTestId("pick-corner-1")).toHaveTextContent("S");      // 等级随批恢复
+    expect(screen.getByTestId("pick-corner-1")).toHaveTextContent("最吸引");
+    expect(screen.getByTestId("split-checks")).toHaveTextContent("恢复的自检项");
+    // 排除清单随会话恢复：未做任何重抽，「从头再来」已出现（exclude.length>0 的 UI 信号）
+    expect(screen.getByTestId("split-fresh")).toBeInTheDocument();
+    // 不重抽：模型请求零次（恢复≠重新计量）
+    expect(mockApi.post).not.toHaveBeenCalled();
+  });
+
+  it("刷新兜底·稀疏载荷：只带 nextNo+directions 也恢复，缺省字段按空补（排除/自检/备注为空）", async () => {
+    seedSession({ v: 1, nextNo: 3, directions: RESTORED_DIRS.slice(0, 1) });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toHaveTextContent("恢复批·甲"));
+    expect(screen.queryByTestId("split-fresh")).not.toBeInTheDocument();     // exclude 缺省 → 空
+    expect(screen.queryByTestId("split-checks")).not.toBeInTheDocument();    // checks 缺省 → 空
+    expect(screen.queryByTestId("split-note")).not.toBeInTheDocument();      // note 缺省 → 空串
+    expect(mockApi.post).not.toHaveBeenCalled();
+  });
+
+  it("陈旧会话：载荷 nextNo 与目标章不符 → 不恢复、旧排除不带入，直接重抽并覆写会话", async () => {
+    seedSession({
+      v: 1, nextNo: 99, directions: RESTORED_DIRS, grades: ["S", "A", "B"],
+      oneLiners: [], checks: [], note: "", exclude: [{ axis: "旧轴", line: "旧一句" }],
+    });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toHaveTextContent("同名档案"));
+    // 新一批是真的抽出来的
+    expect(mockApi.post).toHaveBeenCalledTimes(1);
+    const [url, body] = mockApi.post.mock.calls[0] as [string, Record<string, unknown>];
+    expect(url).toBe("/novels/p1/volumes/vol-1/chapters/ai-directions");
+    expect(body).toEqual({});   // 陈旧会话里的排除清单不得泄进新抽卡
+    // 会话被当前批覆写（nextNo 对齐目标章）
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem("cp-draw:p1:vol-1") || "{}").nextNo).toBe(3),
+    );
+  });
+
+  it("空批次会话：directions 为空 → 不可恢复，直接重抽", async () => {
+    seedSession({ v: 1, nextNo: 3, directions: [] });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toHaveTextContent("同名档案"));
+    expect(mockApi.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("目标章变化：重开时排除清单清零后重抽（既不恢复旧批，也不带旧排除）", async () => {
+    let anchorNextNo = 3;
+    mockApi.get.mockImplementation((url: string) =>
+      url.includes("next-chapter-anchor")
+        ? Promise.resolve({ ok: true, ...ENTRY, next_no: anchorNextNo })
+        : Promise.resolve({ ok: true, ...ENTRY }),
+    );
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("split-redraw"));   // 先攒一条排除
+    await waitFor(() => expect(mockApi.post.mock.calls.length).toBe(2));
+    expect(screen.getByTestId("split-fresh")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("do-close"));
+    anchorNextNo = 4;                                      // 目标章推进（如已排上下一章）
+    fireEvent.click(screen.getByTestId("open-ai"));
+    // 走「目标章变化」支：清零排除后重抽——有新请求，且旧排除不入请求体
+    await waitFor(() => expect(mockApi.post.mock.calls.length).toBe(3));
+    const [, body] = mockApi.post.mock.calls[2] as [string, Record<string, unknown>];
+    expect(body).toEqual({});
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    expect(screen.queryByTestId("split-fresh")).not.toBeInTheDocument();   // 排除已清零
+  });
+
+  it("排上后重开：内存批残留但 drawnNo 已清 → 不复活旧批，重开即全新一轮重抽", async () => {
+    const onAdopt = vi.fn();
+    mockApi.post.mockImplementation((url: string, body?: Record<string, unknown>) =>
+      String(url).endsWith("/chapters") && body?.title != null
+        ? Promise.resolve({ ok: true, ref: "vol-1-ch-3" })
+        : Promise.resolve(DIRS),
+    );
+    render(<Host onAdopt={onAdopt} />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("pick-card-1"));
+    await waitFor(() => expect(screen.getByTestId("chapter-card")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("split-adopt"));
+    await waitFor(() => expect(onAdopt).toHaveBeenCalled());
+    // 排上即清（storage 清零是前提；内存 directions 残留但 drawnNo 已置空）
+    expect(localStorage.getItem("cp-draw:p1:vol-1")).toBeNull();
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(mockApi.post).toHaveBeenCalledTimes(2));    // 真的重抽了
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+  });
+
+  it("空批在内存（drawnNo 与目标章对齐但无卡）：不作为可恢复会话，重开直接重抽", async () => {
+    mockApi.post.mockResolvedValue({ ok: true, entry: ENTRY, directions: [], grades: [], diff: { one_liner: [] } });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(mockApi.post).toHaveBeenCalledTimes(1));    // 空批落地
+    fireEvent.click(screen.getByTestId("do-close"));
+    fireEvent.click(screen.getByTestId("open-ai"));   // 空批不算「未消费批」：不恢复、直落重抽
+    await waitFor(() => expect(mockApi.post).toHaveBeenCalledTimes(2));
+  });
+});
+
+// ── 守卫与回退链的收尾分支（补齐 perFile 100%）────────────────────────────────
+
+describe("拆章界面 · 落地提示回退链与竞态守卫收口", () => {
+  const deferred = () => {
+    let resolve!: (v: unknown) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  };
+
+  it("落地提示回退链：结尾空 → 接剧情；结尾剧情皆空 → 接「本章结尾」占位", async () => {
+    mockApi.post.mockImplementation((url: string) =>
+      url.includes("ai-directions")
+        ? Promise.resolve({
+            ...DIRS,
+            directions: [
+              { ...DIRS.directions[0], title: "无结尾卡", ending: "", plot: "剧情还在" },
+              { ...DIRS.directions[1], title: "全空卡", ending: "", plot: "" },
+            ],
+          })
+        : Promise.resolve({ ok: true, ref: "vol-1-ch-3" }),
+    );
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("pick-card-1"));
+    await waitFor(() => expect(screen.getByTestId("chapter-card")).toBeInTheDocument());
+    // 结尾没写 → 回退接「本章剧情」
+    expect(document.querySelector(".chapter-plan .hint"))
+      .toHaveTextContent("下一章的进场会自动接「剧情还在」");
+    fireEvent.click(screen.getByTestId("split-redraw"));   // 换一批（mock 同一份）→ 回选卡态
+    await waitFor(() => expect(screen.getByTestId("pick-card-2")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("pick-card-2"));
+    await waitFor(() =>
+      expect(document.querySelector(".chapter-plan .hint"))
+        .toHaveTextContent("下一章的进场会自动接「本章结尾」"),
+    );
+  });
+
+  it("回改竞态（失败路）：先发的读卡迟到失败 → 被 catch 代际守卫丢弃（不污卡面）", async () => {
+    const first = deferred();
+    let cardCalls = 0;
+    mockApi.get.mockImplementation((url: string) => {
+      if (url.includes("/plan-card")) {
+        cardCalls += 1;
+        return cardCalls === 1 ? first.promise : Promise.resolve({ ok: true, title: "第二版卡" });
+      }
+      return Promise.resolve({ ok: true, ...ENTRY });
+    });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-edit"));
+    fireEvent.click(screen.getByTestId("open-edit"));    // 第二次先落地（守卫推进）
+    await waitFor(() => expect(screen.getByTestId("d-title")).toHaveValue("第二版卡"));
+    first.reject(new Error("迟到的失败"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId("d-title")).toHaveValue("第二版卡");
+    expect(screen.queryByTestId("chapter-card-error")).not.toBeInTheDocument();
+  });
+
+  it("AI 打开代际守卫：旧打开链的锚迟到落地 → 整链被掐断（不发重复出卡请求）", async () => {
+    const lateAnchor = deferred();
+    let anchorCalls = 0;
+    mockApi.get.mockImplementation((url: string) => {
+      if (url.includes("next-chapter-anchor")) {
+        anchorCalls += 1;
+        return anchorCalls === 1 ? lateAnchor.promise : Promise.resolve({ ok: true, ...ENTRY });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));      // 第一次打开：锚悬着
+    await act(async () => {});                            // 冲刷：让第一次链走到 await 锚
+    fireEvent.click(screen.getByTestId("open-ai"));      // 第二次打开（换代）：正常出卡
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    expect(mockApi.post).toHaveBeenCalledTimes(1);        // 只有新链出卡
+    lateAnchor.resolve({ ok: true, ...ENTRY });           // 旧链的锚迟到 → 应整链丢弃
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockApi.post).toHaveBeenCalledTimes(1);        // 旧链没有再发第二次出卡
+    expect(screen.getByTestId("pick-card-1")).toBeInTheDocument();
+  });
+
+  it("AI 打开时锚读不到：章号回退本地值，出卡照走（批进场照常上屏）", async () => {
+    mockApi.get.mockRejectedValue(new Error("anchor down"));
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    expect(mockApi.post).toHaveBeenCalledTimes(1);        // 锚失败不挡出卡
+    expect(screen.getByTestId("split-entry-line")).toHaveTextContent(ENTRY.text);
+  });
+
+  it("出卡响应缺 entry.next_no：会话目标章回退本地章号（载荷仍写确定的 nextNo，不写坏值）", async () => {
+    // 锚与出卡都不给章号 → drawnNo 回退本地 nextNo（初始 1），记账确定
+    mockApi.get.mockResolvedValue({ ok: true, text: ENTRY.text, source: ENTRY.source });
+    mockApi.post.mockResolvedValue({
+      ok: true, entry: { text: ENTRY.text, source: ENTRY.source },
+      directions: DIRS.directions, grades: DIRS.grades, diff: DIRS.diff,
+    });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    expect(JSON.parse(localStorage.getItem("cp-draw:p1:vol-1") || "{}").nextNo).toBe(1);
+    expect(document.querySelector(".chapter-plan .kicker")).toHaveTextContent("第1章");
+  });
+
+  it("换方向时当前批缺一句话（one_liner 缺失）：整批不进排除清单，请求体不带 exclude", async () => {
+    mockApi.post.mockResolvedValue({
+      ok: true, entry: ENTRY, directions: DIRS.directions, grades: DIRS.grades,
+      checks: [], warnings: [], note: "",    // 无 diff → oneLiners 全空
+    });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-ai"));
+    await waitFor(() => expect(screen.getByTestId("pick-card-1")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("split-redraw"));
+    await waitFor(() => expect(mockApi.post).toHaveBeenCalledTimes(2));
+    const [, body] = mockApi.post.mock.calls[1] as [string, Record<string, unknown>];
+    expect(body).toEqual({});   // 缺一句话的卡凑不成排除项 → 空清单不携带
+  });
+
+  it("自检补锚竞态：先发的补锚迟到 → 被自检代际守卫丢弃（不覆盖进场）", async () => {
+    const lateAnchor = deferred();
+    let anchorCalls = 0;
+    mockApi.get.mockImplementation((url: string) => {
+      if (url.includes("next-chapter-anchor")) {
+        anchorCalls += 1;
+        if (anchorCalls === 1) return Promise.resolve({ ok: true, text: "", source: "" }); // 打开时进场为空
+        if (anchorCalls === 2) return lateAnchor.promise;                                  // 第一次自检的补锚（迟到）
+        return Promise.resolve({ ok: true, text: "新锚进场", source: "新" });               // 第二次自检的补锚
+      }
+      return Promise.resolve({ ok: true, ...ENTRY });
+    });
+    mockApi.post.mockImplementation((url: string) =>
+      url.includes("ai-selfcheck")
+        ? Promise.resolve({ ok: true, link: { ok: true, text: "衔接 ok" }, quota: { ok: true, text: "第 1 章" }, critiques: {} })
+        : Promise.resolve(DIRS),
+    );
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-manual"));
+    await waitFor(() => expect(screen.getByTestId("d-plot")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("selfcheck-race"));   // 并发两次自检（都拿空进场 → 都补锚）
+    await waitFor(() => expect(screen.getByTestId("selfcheck")).toHaveTextContent("衔接 ok"));
+    await waitFor(() => expect(screen.getByTestId("entry-text")).toHaveTextContent("新锚进场"));
+    lateAnchor.resolve({ ok: true, text: "旧锚进场", source: "旧" });   // 迟到的补锚
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId("entry-text")).toHaveTextContent("新锚进场"); // 未被旧锚覆盖
+  });
+
+  it("自检失败竞态：先发的自检迟到失败 → 被代际守卫丢弃（不留失败态）", async () => {
+    const first = deferred();
+    let calls = 0;
+    mockApi.post.mockImplementation(() => {
+      calls += 1;
+      return calls === 1 ? first.promise : Promise.resolve({ ok: true, weakest: "新的" });
+    });
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-manual"));
+    await waitFor(() => expect(screen.getByTestId("selfcheck-run")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("selfcheck-race"));
+    await waitFor(() => expect(screen.getByTestId("selfcheck")).toHaveTextContent("新的"));
+    first.reject(new Error("迟到的失败"));                  // 旧自检失败落地
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId("selfcheck")).toHaveTextContent("新的");   // 未被失败覆盖
+    expect(screen.getByTestId("selfcheck")).not.toHaveTextContent("AI 这一眼没看成");
+  });
+});

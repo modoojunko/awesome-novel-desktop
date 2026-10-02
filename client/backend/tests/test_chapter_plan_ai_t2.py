@@ -106,7 +106,7 @@ def test_endpoints_contract_and_gates():
     import os
     import tempfile
 
-    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + tempfile.NamedTemporaryFile(suffix=".db", delete=False).name  # noqa: SIM115 — 只要路径，句柄即弃（delete=False 留盘给引擎接管）
     os.environ["DATA_ROOT"] = tempfile.mkdtemp()
 
     import main as m  # noqa: PLC0415

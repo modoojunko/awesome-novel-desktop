@@ -45,7 +45,6 @@ async def _seed_full_book(tmp_root: str) -> str:
     """建书 + 设定树 + 卷纲（含四族子表）+ 章（全子表）+ 快照 + 提示词 + 归档。"""
     from filesystem.storage import get_storage
     from models.archive import Archive, ChapterPrompt
-    from models.zhuque import ZhuqueResultArchive
     from models.chapter import (
         Chapter,
         ChapterMicroPayoff,
@@ -55,6 +54,7 @@ async def _seed_full_book(tmp_root: str) -> str:
     from models.project import Novel
     from models.user import User
     from models.volume import Volume
+    from models.zhuque import ZhuqueResultArchive
 
     uid = f"rt-{uuid.uuid4().hex[:8]}"
     slug = f"rt-{uuid.uuid4().hex[:8]}"

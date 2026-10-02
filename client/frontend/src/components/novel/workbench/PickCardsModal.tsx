@@ -177,7 +177,10 @@ export function PickCardsModal({
                   disabled={state.pickPick == null}
                   onClick={() => {
                     const card = state.plans.find((p) => p.no === state.pickPick);
+                    /* v8 ignore start -- 防御分支：确认钮在 pickPick==null 时禁用（disabled 吞 click），
+                       pickPick 非空时选中的卡必在 plans 里（抽卡/恢复各路径都重置选中）→ card 恒真 */
                     if (card) onConfirm(card);
+                    /* v8 ignore stop */
                   }}
                 >
                   确认这一套，成卷 →

@@ -13,8 +13,6 @@ import tempfile
 import threading
 import time
 
-import pytest
-
 _tmp_db = tempfile.NamedTemporaryFile(suffix="_dossier_pipe.db", delete=False)  # noqa: SIM115
 _tmp_db.close()
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
@@ -22,8 +20,11 @@ os.environ["DATA_ROOT"] = tempfile.mkdtemp(prefix="test_dossier_pipe_")
 
 from sqlalchemy import select  # noqa: E402
 
-from db import async_session, engine  # noqa: E402
-from db import Base  # noqa: E402
+from db import (  # noqa: E402
+    Base,  # noqa: E402
+    async_session,
+    engine,
+)
 
 _LONG_PROSE = ("林晚在渡口点起灯。守夜人接管了城门。" * 6) + "她攥紧了旧刀，背靠背站着。阿蓟并不知道他是谁。"
 
@@ -250,7 +251,11 @@ def test_skip_escape_hatch_archives_without_dossier(monkeypatch):
     root, nid, ch_id = _seed_book()
     _mock_ai(monkeypatch, [RuntimeError("boom")])
 
-    from archive.dossier import accept_extraction, prose_sha256, skip_extraction_and_archive
+    from archive.dossier import (
+        accept_extraction,
+        prose_sha256,
+        skip_extraction_and_archive,
+    )
 
     _run(accept_extraction(nid, root, "vol-1-ch-1", ch_id, prose_sha256(_LONG_PROSE)))
     _wait_job(ch_id, "failed")
