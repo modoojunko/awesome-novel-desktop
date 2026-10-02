@@ -1,5 +1,19 @@
 # Ops：device_registry 同机重复行清理＋唯一约束核查
 
+> **执行记录（2026-10-02，经网关 REST 完成免控制台）**：生产全表 8 行 → 2 行。
+> 删 6 行＝`modoojunko` 名下 demo 栈 C端 容器的历史行（hostname 为容器 ID，
+> 09-19～09-24 每次容器重建注册一台），保留当前在跑容器（`e7ec6af7d987`，
+> 与 `docker ps` 容器 ID 对拍一致）＋`demo_mercenary` 唯一行。
+> 唯一约束**已实锤存在**：同 `(user_id, fingerprint)` 重复插入被拒
+> HTTP 409 `DATABASE_23505`，约束名 `uq_device_registry_ufp`（与 ORM 声明的
+> `uq_user_fingerprint` 不同名，同列，行为等价）→ 无需补 DDL、无需杀连接。
+
+> **复发源提示**：本地 demo/隔离栈 C端 跑在容器里时，`/etc/machine-id` 与
+> `/var/lib/dbus/machine-id` 均缺失 → 身份回落容器 hostname（容器 ID），每次
+> 重建容器＝新指纹＝新设备行（还须浏览器重新授权一次）。真机桌面版身份是
+> 硬件 UUID，不受影响。若嫌 demo 重建反复注册，可考虑给容器挂载宿主机
+> `/etc/machine-id` 或为容器场景引入可持久化身份——属设计拍板，未实施。
+
 > 背景：设备列表出现「同一台设备注册了多次」。根因是 #430（2026-09-19）之前的
 > 指纹算法退化为 `sha256(主机名)`（macOS 无 wmic、异常静默吞掉），主机名随网络
 > 环境漂移 → 每次漂移都注册出一台「新设备」。#430 修的是**算法**（改硬件 UUID
