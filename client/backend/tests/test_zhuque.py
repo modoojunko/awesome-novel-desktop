@@ -629,6 +629,7 @@ def test_usage_status_clamps_negative(monkeypatch):
 
 def test_config_status_usage_block_and_month_aggregation(monkeypatch):
     """usage 块契约：未配置同返；月聚合含 zhuque-check＋zhuque-test、跨月切零、非朱雀 op 不计。"""
+    monkeypatch.delenv("ZHUQUE_MONTHLY_FREE_TOKENS", raising=False)  # 断言按默认额度，不受外部覆写影响
     from datetime import UTC, datetime, timedelta
 
     async def scene():
