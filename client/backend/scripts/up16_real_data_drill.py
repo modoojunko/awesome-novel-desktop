@@ -77,12 +77,13 @@ def main(argv: list[str]) -> int:
     lines: list[str] = []
     rows: list[dict] = []
 
+    from sqlalchemy import create_engine
+
     import models  # noqa: F401 —— 注册全表
     from db import Base
-    from db_lifecycle import compute_schema_fingerprint, scan_migration_candidates
+    from db_lifecycle import scan_migration_candidates
     from migration.engine import precheck, run_migration
     from schema_version import db_filename_for
-    from sqlalchemy import create_engine
 
     # ── 拷贝真库（源零接触）＋快照 ─────────────────────────────────────────
     copied: list[Path] = []
@@ -146,10 +147,10 @@ def main(argv: list[str]) -> int:
     lines.append("目标库最终计数：" + json.dumps(final, ensure_ascii=False))
 
     os.environ["DATA_ROOT"] = str(data_root)
-    from db import engine as _engine
     import asyncio
 
     from backup.export import job_status, start_backup_job
+    from db import engine as _engine
     from models.user import User
 
     # 属主分布：本机真库由数百次 e2e 跑出来，每跑一个 user_id——逐用户导出只覆盖其中
@@ -161,8 +162,9 @@ def main(argv: list[str]) -> int:
     owner = "up16"
 
     async def _seed_user():
-        from db import async_session
         from sqlalchemy import text as _sql
+
+        from db import async_session
 
         async with async_session() as s:
             # 真库里 users 表会随带回归来（38 表之一）——已存在则不重复插

@@ -407,7 +407,7 @@ class TestStaleSecondTrigger:
                 ).all()
 
         rows = _run_async(_q())
-        assert dict((r[0], r[1]) for r in rows)["vol-1-ch-2"] == 1, rows
+        assert {r[0]: r[1] for r in rows}["vol-1-ch-2"] == 1, rows
 
     def test_wording_tweak_does_not_mark(self, client):
         """措辞微调（trim 后相同）不触发。"""
@@ -429,7 +429,7 @@ class TestStaleSecondTrigger:
                 ).all()
 
         rows = _run_async(_q())
-        assert dict((r[0], r[1]) for r in rows)["vol-1-ch-2"] == 0, rows
+        assert {r[0]: r[1] for r in rows}["vol-1-ch-2"] == 0, rows
 
 
 # ── 出卡校验阶梯（tasks 3.2/3.3/3.5 的缺失验证面）────────────────────────
@@ -909,7 +909,7 @@ def test_world_rules_block_renders_when_defined(client, monkeypatch):
 
     _run_async(_w())
     fake = _setup_ai(monkeypatch, _directions_reply())
-    r = client.post("/api/novels/%s/volumes/vol-1/chapters/ai-directions" % pid, json={})
+    r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
     assert r.status_code == 200, r.text
     system = _layered_prompt(fake.calls[-1])
     assert "【世界铁律】\n世界铁律·死者不可复生：任何力量都不能把人从死亡里拉回来" in system

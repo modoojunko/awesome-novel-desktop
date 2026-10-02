@@ -395,9 +395,7 @@ def test_check_endpoint_mapping_and_usage(monkeypatch):
             )).all()
             assert any(l.model == "zhuque" and l.tokens_out == 777 for l in logs)
             summary = await get_usage_summary(session, uid)
-            total_with = sum(
-                (x.get("tokens") or 0) for x in summary.get("by_config", [])
-            ) if isinstance(summary.get("by_config"), list) else 0
+            assert summary["total_this_month"] == 0  # 朱雀检测不混写作用量
         return uid
 
     loop = _mkloop()
@@ -554,7 +552,7 @@ def test_zhuque_persist_roundtrip(monkeypatch):
 
     loop = _mkloop()
     try:
-        uid, pid, ch_id = loop.run_until_complete(scene(monkeypatch))
+        uid, _pid, ch_id = loop.run_until_complete(scene(monkeypatch))
     finally:
         loop.close()
 

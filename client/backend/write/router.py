@@ -10,7 +10,6 @@ from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
-from prompts import load as load_prompt
 from prompts import load_layers
 from workflow.engine import _validate_ref, advance_phase, load_chapter
 
@@ -231,7 +230,6 @@ async def polish_write_prompt(
         project.root_path, chapter_ref, project.name, novel_id=project.id
     )
 
-    from prompts import load_layers
 
     system, _craft_user_t = load_layers("prompt_crafting")
     client = await get_ai_client_for_novel(project.id)

@@ -36,7 +36,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend 根入 path
 
-from schema_version import active_db_filename, db_filename_for, parse_db_filename
+from schema_version import db_filename_for, parse_db_filename
 
 UID = "drill-user"
 SLUG = "drill-book"
@@ -711,11 +711,12 @@ def _file_sig(db_path: Path) -> dict:
 def phase_version_chain_boot(root: Path, work: Path) -> None:
     """核心断言：源三件套不变 + 自己版本新库空启动 + 候选检出（含推荐位）
     + 链式搬运（N-2 → N 两跳）计数对拍 + 搬后 roundtrip 可导出。"""
+    from sqlalchemy import create_engine as _ce
+
     import models  # noqa: F401 —— 注册全表
     from db import Base
     from db_lifecycle import scan_migration_candidates
     from migration.engine import precheck, run_migration
-    from sqlalchemy import create_engine as _ce
 
     data_dir = root  # 演练约定：--root 即 DATA_ROOT
     state = _load_state(work)

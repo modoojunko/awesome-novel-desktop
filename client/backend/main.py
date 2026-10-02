@@ -17,9 +17,6 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 import brand
 import models  # noqa: F401
 from api_configs.router import router as api_configs_router
-from zhuque.router import check_router as zhuque_check_router
-from zhuque.router import result_router as zhuque_result_router
-from zhuque.router import config_router as zhuque_config_router
 from archive.dossier_router import book_router as dossier_book_router
 from archive.dossier_router import router as dossier_router
 from archive.reconcile_router import router as reconcile_router
@@ -61,6 +58,9 @@ from write.plot_sim import router as plot_sim_router
 from write.prompt_sources import router as prompt_sources_router
 from write.router import router as write_router
 from write.style_shadow import router as style_shadow_router
+from zhuque.router import check_router as zhuque_check_router
+from zhuque.router import config_router as zhuque_config_router
+from zhuque.router import result_router as zhuque_result_router
 
 
 async def stamp_current_library(schema_fp: str) -> None:

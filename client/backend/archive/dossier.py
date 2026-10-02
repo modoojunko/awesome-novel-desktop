@@ -406,8 +406,14 @@ async def finalize_archive(
             if keep_snapshots:
                 from models.chapter import (
                     ChapterItemChange as _CI,
+                )
+                from models.chapter import (
                     ChapterKnowledgeChange as _CK,
+                )
+                from models.chapter import (
                     ChapterRelationChange as _CR,
+                )
+                from models.chapter import (
                     ChapterSettingChange as _CS,
                 )
 

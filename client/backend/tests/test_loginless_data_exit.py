@@ -51,7 +51,7 @@ def seeded(tmp_path, monkeypatch):
 
     import asyncio
 
-    uid, nid = asyncio.run(seed())
+    _uid, nid = asyncio.run(seed())
     import config as config_mod
 
     monkeypatch.setattr(config_mod, "DATA_ROOT", Path(data_root), raising=False)
@@ -62,7 +62,7 @@ def seeded(tmp_path, monkeypatch):
 
 def test_l1_loginless_export_whole_library(seeded):
     """L1：无 Authorization 头调用 export/start → 全部书籍导出、无配置段。"""
-    client, data_root, out_dir, nid = seeded
+    client, _data_root, out_dir, _nid = seeded
     r = client.post("/api/backup/export/start", json={
         "kind": "backup", "target_dir": str(out_dir), "include_config": False})
     assert r.status_code == 200, r.text
@@ -87,7 +87,7 @@ def test_l1_loginless_export_whole_library(seeded):
 
 def test_l2_loginless_include_config_forced_false(seeded):
     """L2：免登请求 include_config=true → 服务端强制 false，仍无配置包。"""
-    client, data_root, out_dir, nid = seeded
+    client, _data_root, out_dir, _nid = seeded
     r = client.post("/api/backup/export/start", json={
         "kind": "backup", "target_dir": str(out_dir), "include_config": True})
     assert r.status_code == 200, r.text
@@ -112,7 +112,7 @@ def test_l3_import_never_loginless(seeded):
 
 def test_l5_target_path_guard(seeded):
     """L5：target_dir/target_file 落 DATA_ROOT 内 → 422 拒。"""
-    client, data_root, out_dir, nid = seeded
+    client, data_root, _out_dir, nid = seeded
     r1 = client.post("/api/backup/export/start", json={
         "kind": "backup", "target_dir": str(data_root), "include_config": False})
     assert r1.status_code == 422
@@ -132,7 +132,7 @@ def test_l6_legacy_status_loginless(seeded):
 
 def test_l4_loopback_guard_rejects_non_localhost(seeded, monkeypatch):
     """L4：非回环来源访问免登端点 → 403（中间件层，先于业务）。"""
-    client, *_ = seeded
+    _client, *_ = seeded  # 值未用：断言走中间件函数直调
     # TestClient 的 client.host 默认 "testclient"——放行清单里；模拟外部来源
     from main import _loginless_loopback_guard
 

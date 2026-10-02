@@ -1877,7 +1877,7 @@ async def style_distill_ai(
         elif draft.get("step1"):
             return {"ok": True, "resumed": True, "step": draft.get("step", 0)}
         if paste:
-            text, chars, used, matched_chapters = paste, chars, ["粘贴文本"], 0
+            text, used, matched_chapters = paste, ["粘贴文本"], 0
         else:
             text, chars, used, matched_chapters = await _assemble_distill_samples(project, body, db)
         prompt = load_prompt("style_distill_step1").format(sample=text)
@@ -2109,36 +2109,36 @@ async def generate_field(
         multi_point = "true" if _as_bool(body.get("multi_point")) else "false"
         # 分层协议：模板自带 system/user 两段（未分层文件 load_layers 返回 ("", 全文)，行为不变）
         system_tpl, user_tpl = load_layers(prompt_name)
-        _vals = dict(
-            title=_clamp_str(body.get("title"), 100),
-            synopsis=premise,
-            current=json.dumps(context.get("current", ""), ensure_ascii=False),
+        _vals = {
+            "title": _clamp_str(body.get("title"), 100),
+            "synopsis": premise,
+            "current": json.dumps(context.get("current", ""), ensure_ascii=False),
             # 02：作者刚写的那句话优先（promise_note），短标签另给（current_value）
-            current_note=_clamp_str(
+            "current_note": _clamp_str(
                 g["promise_note"] or context.get("promise_note"), 200
             ),
-            current_value=_clamp_str(
+            "current_value": _clamp_str(
                 g["core_promise"] or context.get("current"), 60
             ),
-            core_promise=g["core_promise"] or context.get("core_promise", ""),
-            forbidden_list=json.dumps(forbidden_labels, ensure_ascii=False),
-            cost_ratio=g["cost_ratio"] if g["cost_ratio"] is not None else "",
-            battlefield=json.dumps(g["battlefield"], ensure_ascii=False),
-            theme=theme_label,
-            theme_desc=theme_desc,
-            theme_example=theme_example,
-            candidate_list=candidate_list,
-            forbidden_candidates=forbidden_candidates,
-            forbidden_ids=forbidden_ids,
-            battlefield_candidates=battlefield_candidates,
-            battlefield_ids=battlefield_ids,
-            multi_point=multi_point,
-        )
+            "core_promise": g["core_promise"] or context.get("core_promise", ""),
+            "forbidden_list": json.dumps(forbidden_labels, ensure_ascii=False),
+            "cost_ratio": g["cost_ratio"] if g["cost_ratio"] is not None else "",
+            "battlefield": json.dumps(g["battlefield"], ensure_ascii=False),
+            "theme": theme_label,
+            "theme_desc": theme_desc,
+            "theme_example": theme_example,
+            "candidate_list": candidate_list,
+            "forbidden_candidates": forbidden_candidates,
+            "forbidden_ids": forbidden_ids,
+            "battlefield_candidates": battlefield_candidates,
+            "battlefield_ids": battlefield_ids,
+            "multi_point": multi_point,
+        }
         system = system_tpl.format(**_vals)
         formatted_prompt = user_tpl.format(**_vals)
     else:
         system_tpl, user_tpl = load_layers(prompt_name)
-        _vals = dict(premise=premise, context=json.dumps(context, ensure_ascii=False))
+        _vals = {"premise": premise, "context": json.dumps(context, ensure_ascii=False)}
         system = system_tpl.format(**_vals)
         formatted_prompt = user_tpl.format(**_vals)
 

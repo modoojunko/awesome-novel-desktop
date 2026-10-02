@@ -24,8 +24,8 @@ os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
 os.environ["DATA_ROOT"] = tempfile.mkdtemp(prefix="test_patch_gates_")
 
 import pytest  # noqa: E402
-
 from conftest import seed_chapter_db  # noqa: E402
+
 from db import Base, engine  # noqa: E402
 
 _FULL = {

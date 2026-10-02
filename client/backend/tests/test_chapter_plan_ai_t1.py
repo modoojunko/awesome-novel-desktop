@@ -124,7 +124,7 @@ def test_adopt_writes_four_fields_in_one_transaction():
     import os
     import tempfile
 
-    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + tempfile.NamedTemporaryFile(suffix=".db", delete=False).name  # noqa: SIM115 — 只要路径，句柄即弃（delete=False 留盘给引擎接管）
     os.environ["DATA_ROOT"] = tempfile.mkdtemp()
 
     from chapters.service import create_chapter  # noqa: PLC0415
@@ -186,7 +186,7 @@ def test_exit_change_marks_next_chapter_stale():
     import os
     import tempfile
 
-    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + tempfile.NamedTemporaryFile(suffix=".db", delete=False).name
+    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///" + tempfile.NamedTemporaryFile(suffix=".db", delete=False).name  # noqa: SIM115 — 只要路径，句柄即弃（delete=False 留盘给引擎接管）
     os.environ["DATA_ROOT"] = tempfile.mkdtemp()
 
     from chapters.store import _mark_next_stale_on_exit_change  # noqa: PLC0415
