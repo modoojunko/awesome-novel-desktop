@@ -2,12 +2,12 @@
 import Ico from '@/components/ui/Ico.vue'
 import { P } from '@/components/ui/icons'
 
-// PM 规划中的能力（docs/superpowers/specs/2026-08-13-paid-ai-capabilities-design.md）
+// 真实在途的规划项（2026-09-30 对齐）：朱雀检测＝MAX 档支柱权益（openspec c-zhuque-ai-detect 在途），
+// 拆书＝设计稿定稿待立项（docs/design-c/drafts/ai-novel-c端-拆书.html）。
+// 旧四条（AI 写章纲/长文记忆/伏笔台账/动笔前聊）均已上线，已挪入上方功能宣传，不再挂「规划中」。
 const roadmap = [
-  { icon: P.doc, title: 'AI 写章纲', desc: '下一章写什么，AI 先给你一份草稿，你确认后再动笔' },
-  { icon: P.brain, title: '记性更好的 AI', desc: '写到几十万字，前情照样记得清，前后不打架' },
-  { icon: P.link, title: '伏笔不丢，人设不崩', desc: '每章写完自动帮你记下角色状态和埋下的坑' },
-  { icon: P.messages, title: '动笔前先聊聊', desc: '开写前和 AI 把设定聊透，把「想写」变成「在写」' },
+  { icon: P.eye, title: '朱雀 AI 味检测', desc: '写完一键送检腾讯朱雀，段落级标出 AI 痕迹，发布前心里有底' },
+  { icon: P.book, title: '拆书成设定', desc: '把喜欢的完本小说拆成世界观、人物与大纲，变成你自己开书的起点' },
 ]
 </script>
 

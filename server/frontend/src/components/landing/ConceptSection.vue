@@ -10,7 +10,7 @@
         小说创作 = <span style="color: var(--accent)">人的构想</span> + <span style="color: var(--accent)">AI 的笔力</span>
       </h2>
       <p class="mkt-lead max-w-2xl mx-auto">
-        构想归你：世界观、角色、大纲。笔力归 AI：行文、节奏、去 AI 味。成稿由你拍板。
+        构想归你：世界观、角色、大纲。笔力归 AI：行文、节奏、去 AI 味。记忆归它：前情、伏笔、人物状态，写再长都不乱。成稿由你拍板。
       </p>
       <div class="flex justify-center items-center gap-2 lg:gap-3 flex-wrap mt-8">
         <span class="chip">构想由你铸就</span>

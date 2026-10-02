@@ -3,13 +3,15 @@ import Ico from '@/components/ui/Ico.vue'
 import { P } from '@/components/ui/icons'
 
 // 三大痛点支柱：怕烂尾 / 不像你 / 有 AI 味（文案以用户语言呈现，不用内部术语）
+// 对齐 C 端实况：AI 分卷规划/章纲起草（抽卡三选一）、伏笔台账对账、文风蒸馏、剧情推演均已上线
 const pillars = [
   {
     num: '01',
     title: '怕烂尾？',
     promise: '开写前有蓝图，过程中有人盯',
     points: [
-      { title: '一步一步来，不给你跳步的机会', desc: '设定、大纲、章纲、正文、归档，每一步都有检查，缺了什么会提醒你补上' },
+      { title: 'AI 先帮你把蓝图搭好', desc: '分卷规划、每章写什么，AI 出草稿你拍板；每一步都有检查，缺了什么会提醒你补上' },
+      { title: '埋了的坑，它替你记着', desc: '每个伏笔自动记账，该回收的时候提醒你，前后呼应不写丢' },
       { title: '卡住了？让角色先演一遍', desc: '剧情推演：把角色放进场景里走一回合，合情合理的走向自然浮现' },
       { title: '写一页是一页，随时回到之前任何一稿', desc: '自动保存每一版，写坏了也不怕，一键找回' },
     ],
@@ -19,7 +21,7 @@ const pillars = [
     title: '不像你？',
     promise: '越写越像你',
     points: [
-      { title: '你的文风，AI 一学就会', desc: '设定一次叙事方式与描写习惯，全书 AI 都按你的风格写' },
+      { title: '你的文风，AI 一学就会', desc: '贴一段你写过的旧稿，AI 蒸馏出你的叙事习惯；设定一次，全书都按你的风格写' },
       { title: '去 AI 味', desc: '避开一眼假的机器腔：疲劳词、固定句式、套路描写，帮你拦下来' },
       { title: '10 秒建书，旧稿也能接着写', desc: '填个书名就能开写；已有稿子导入后无缝续写' },
     ],
@@ -30,25 +32,30 @@ const pillars = [
     promise: '机器腔与逻辑漏洞，定稿前拦下',
     points: [
       { title: '每段写完，自动质检', desc: '逻辑硬伤、风格跑偏、人物走形、节奏失衡，生成完当场揪出来' },
-      { title: '记得前文的 AI', desc: '它清楚前情、记得角色、守你的文风，接得上你写的内容' },
+      { title: '记得前文的 AI', desc: '它清楚前情、记得角色状态、守你的文风，接得上你写的内容' },
       { title: '从生成到定稿，全程防 AI 味', desc: 'AI 写作时就带着你的风格，成稿前再整体查一遍' },
     ],
   },
 ]
 
 // 六阶段工作流的用户语言呈现（提示词为内部环节，不向用户展示——对齐 PM 评审）
+// 步骤名被 e2e 钉住（建书/设定/大纲/章纲/写作/归档），只改描述
 const workflowSteps = [
   { icon: P.book, title: '建书', desc: '填个书名，10 秒开写' },
   { icon: P.tune, title: '设定', desc: '世界观与角色，可深可浅' },
-  { icon: P.list, title: '大纲', desc: '分卷规划，剧情不跑偏' },
-  { icon: P.doc, title: '章纲', desc: '每章动笔前，先想好写什么' },
+  { icon: P.list, title: '大纲', desc: 'AI 分卷规划，卷卷有目标' },
+  { icon: P.doc, title: '章纲', desc: 'AI 起草三选一，拍板再动笔' },
   { icon: P.pencil, title: '写作', desc: '手写或 AI 协作，一章一章推' },
-  { icon: P.archive, title: '归档', desc: '定稿收藏，随时回来改' },
+  { icon: P.archive, title: '归档', desc: '前情伏笔自动入册，一键导出成书' },
 ]
 
+// 关键能力九条 = C 端已上线能力（AI 蓝图/伏笔台账/关系图谱为 2026-09 新补宣传）
 const keyFeatures = [
   { icon: P.spark, title: 'AI 写本章', desc: '一口气写完整章，也能续写、润色、扩写，随时喊停' },
+  { icon: P.list, title: 'AI 搭蓝图', desc: '分卷规划、章纲起草，AI 先出草稿，你拍板才动笔' },
   { icon: P.bot, title: '剧情推演', desc: '卡文时让角色先演一遍，看走向合不合理' },
+  { icon: P.doc, title: '伏笔台账', desc: '埋下的坑自动记账，该回收时提醒你，不写丢不烂尾' },
+  { icon: P.link, title: '角色关系图谱', desc: '角色关系一图看清，AI 动笔前对齐本卷最新关系' },
   { icon: P.wand, title: '去 AI 味', desc: '避开机器腔，越写越像你' },
   { icon: P.cpu, title: '模型随你选', desc: '接你自己的 AI 服务，DeepSeek、Kimi、通义等主流模型都支持' },
   { icon: P.lock, title: '数据不出电脑', desc: '稿子存在本地，关网也能写' },

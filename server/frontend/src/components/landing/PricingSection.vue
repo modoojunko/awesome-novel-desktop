@@ -19,7 +19,7 @@ const PERIOD_ORDER: SkuItem['period'][] = ['monthly', 'quarterly', 'yearly']
 // 卖点兜底（目录 tiers.selling_points 空数组时的保底，与收银台 CashierPage 同文案）
 const FALLBACK_FEATS: Record<string, string[]> = {
   free: ['全部基础写作工具', '不含 AI 能力', '本地作品永久保留'],
-  pro: ['含免费全部功能', 'AI 生成正文（流式）', '设定与章纲融入 AI', '卷/章高级字段（冲突阶梯·情绪设计）'],
+  pro: ['含免费全部功能', 'AI 生成正文（流式）', 'AI 分卷规划与章纲起草', '设定与章纲融入 AI'],
   max: ['含 PRO 全部功能', '更强模型 · 更大用量', '多章连写与批量生成', '优先体验新能力', '最多 10 台设备'],
 }
 
