@@ -8,11 +8,22 @@
 > HTTP 409 `DATABASE_23505`，约束名 `uq_device_registry_ufp`（与 ORM 声明的
 > `uq_user_fingerprint` 不同名，同列，行为等价）→ 无需补 DDL、无需杀连接。
 
-> **复发源提示**：本地 demo/隔离栈 C端 跑在容器里时，`/etc/machine-id` 与
-> `/var/lib/dbus/machine-id` 均缺失 → 身份回落容器 hostname（容器 ID），每次
-> 重建容器＝新指纹＝新设备行（还须浏览器重新授权一次）。真机桌面版身份是
-> 硬件 UUID，不受影响。若嫌 demo 重建反复注册，可考虑给容器挂载宿主机
-> `/etc/machine-id` 或为容器场景引入可持久化身份——属设计拍板，未实施。
+> **复发源与已实施方案**：本地 demo/隔离栈 C端 跑在容器里时，`/etc/machine-id`
+> 与 `/var/lib/dbus/machine-id` 均缺失 → 身份回落容器 hostname（容器 ID），每次
+> 重建容器＝新指纹＝新设备行（还须浏览器重新授权一次）。已按拍板实施**宿主身份
+> 挂载**：base `docker-compose.yml` 的 client-backend 增加
+> `${CLIENT_MACHINE_ID:-./.docker-data/client/machine-id}:/etc/machine-id:ro`。
+> 宿主垫片配方（一次性）：
+> ```sh
+> # macOS（写入 IOPlatformUUID → 容器与原生 C端 同指纹、同设备）：
+> ioreg -rd1 -c IOPlatformExpertDevice \
+>   | sed -nE 's/.*"IOPlatformUUID" = "([^"]+)".*/\1/p' \
+>   > .docker-data/client/machine-id
+> # Linux 宿主机更直接：CLIENT_MACHINE_ID=/etc/machine-id
+> ```
+> 垫片文件缺失时 Docker 造出同名目录，采集器按 OSError 静默降级回旧行为，
+> 不阻断启动。注意切换身份后**首次浏览器重新授权**会注册出新的稳定行，届时
+> 按 §2 清掉旧的 hostname 身份行即可。真机桌面版身份是硬件 UUID，不受影响。
 
 > 背景：设备列表出现「同一台设备注册了多次」。根因是 #430（2026-09-19）之前的
 > 指纹算法退化为 `sha256(主机名)`（macOS 无 wmic、异常静默吞掉），主机名随网络
