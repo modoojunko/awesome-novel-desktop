@@ -623,7 +623,7 @@ async def get_usage_summary(db: AsyncSession, user_id: str) -> dict[str, Any]:
             sa_func.coalesce(sa_func.sum(TokenLog.tokens_in + TokenLog.tokens_out), 0)
         ).where(
             TokenLog.user_id == user_id,
-            TokenLog.operation != "zhuque-check",  # c-zhuque-ai-detect：朱雀消耗不混写作模型用量
+            ~TokenLog.operation.like("zhuque-%"),  # c-zhuque-quota-ledger：朱雀消耗（检测/测试）不混写作模型用量
         )
     )
     total_all = result.scalar()
@@ -636,7 +636,7 @@ async def get_usage_summary(db: AsyncSession, user_id: str) -> dict[str, Any]:
         ).where(
             TokenLog.user_id == user_id,
             TokenLog.created_at >= first_of_month,
-            TokenLog.operation != "zhuque-check",  # c-zhuque-ai-detect：同上
+            ~TokenLog.operation.like("zhuque-%"),  # c-zhuque-quota-ledger：朱雀消耗（检测/测试）不混写作模型用量
         )
     )
     total_month = result.scalar()
@@ -649,7 +649,7 @@ async def get_usage_summary(db: AsyncSession, user_id: str) -> dict[str, Any]:
         ).where(
             TokenLog.user_id == user_id,
             sa_func.date(TokenLog.created_at) == today,
-            TokenLog.operation != "zhuque-check",  # c-zhuque-ai-detect：同上
+            ~TokenLog.operation.like("zhuque-%"),  # c-zhuque-quota-ledger：朱雀消耗（检测/测试）不混写作模型用量
         )
     )
     total_today = result.scalar()
@@ -677,7 +677,7 @@ async def get_config_usage(
         .where(
             TokenLog.user_id == user_id,
             TokenLog.api_config_id == config_id,
-            TokenLog.operation != "zhuque-check",  # c-zhuque-ai-detect：同上
+            ~TokenLog.operation.like("zhuque-%"),  # c-zhuque-quota-ledger：朱雀消耗（检测/测试）不混写作模型用量
         )
         .group_by(TokenLog.model)
     )
@@ -704,7 +704,7 @@ async def get_project_usage(
         .where(
             TokenLog.user_id == user_id,
             TokenLog.project_id == project_id,
-            TokenLog.operation != "zhuque-check",  # c-zhuque-ai-detect：同上
+            ~TokenLog.operation.like("zhuque-%"),  # c-zhuque-quota-ledger：朱雀消耗（检测/测试）不混写作模型用量
         )
         .group_by(TokenLog.model)
     )

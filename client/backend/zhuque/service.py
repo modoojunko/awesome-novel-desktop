@@ -5,6 +5,9 @@
   与表唯一约束一致，软删行复活；作者大模型配置撞固定名——active/deleted 一律 409）。
 - ``check_chapter``：读落盘正文（由前端调用方保证 flush）→ 规范化 → classify →
   上游 order 对齐本地非空段；分段数不符 502；结果不落库（响应即弃，前端内存消费）。
+- 额度台账（c-zhuque-quota-ledger）：配置状态响应携 ``usage`` 块——本月已用/免费额度
+  /剩余估算，token_log 按 ``zhuque-%`` 前缀自然月聚合（检测 zhuque-check＋测试
+  zhuque-test）；口径为本地估算，权威以腾讯云控制台。
 - 同章在途拒绝：进程内 registry（键 user_id+chapter_ref），409
   ``zhuque_check_in_progress``；请求结束/异常时释放。
 """
@@ -12,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -35,6 +39,19 @@ ZHUQUE_NAME = "朱雀 AI 检测"
 ZHUQUE_VENDOR = "zhuque"
 ZHUQUE_BASE_URL = zhuque_client.DEFAULT_BASE_URL
 
+# 免费额度口径（EdgeOne Makers 活动额度，以腾讯云为准）；env 同名可覆写（活动口径可能变）
+ZHUQUE_MONTHLY_FREE_TOKENS = 500_000
+
+
+def monthly_free_tokens() -> int:
+    raw = os.environ.get("ZHUQUE_MONTHLY_FREE_TOKENS")
+    if not raw:
+        return ZHUQUE_MONTHLY_FREE_TOKENS
+    try:
+        return int(raw)
+    except ValueError:
+        return ZHUQUE_MONTHLY_FREE_TOKENS
+
 # 同章在途 registry：(user_id, project_id, chapter_ref) -> True
 _inflight: set[tuple[str, str, str]] = set()
 _inflight_lock = asyncio.Lock()
@@ -57,11 +74,44 @@ async def get_zhuque_config(
     return result.scalars().first()
 
 
+async def get_month_usage(db: AsyncSession, user_id: str) -> int:
+    """本月（自然月，UTC，与 get_usage_summary 同惯例）zhuque-* 台账求和。
+
+    台账按作者维度（token_log 行不随 Key 软删消失），operation 前缀制——
+    zhuque-check（整章检测）与 zhuque-test（连接测试）都算免费额度消耗。
+    """
+    from sqlalchemy import func as sa_func
+
+    from models.token_log import TokenLog
+
+    first_of_month = datetime.now(UTC).date().replace(day=1)
+    result = await db.execute(
+        select(
+            sa_func.coalesce(sa_func.sum(TokenLog.tokens_in + TokenLog.tokens_out), 0)
+        ).where(
+            TokenLog.user_id == user_id,
+            TokenLog.created_at >= first_of_month,
+            TokenLog.operation.like("zhuque-%"),
+        )
+    )
+    return int(result.scalar() or 0)
+
+
+def _usage_status(used: int) -> dict[str, int]:
+    quota = monthly_free_tokens()
+    return {
+        "month_used_tokens": used,
+        "month_free_quota": quota,
+        "month_remaining_tokens": max(quota - used, 0),
+    }
+
+
 async def get_config_status(db: AsyncSession, user_id: str) -> dict[str, Any]:
-    """配置卡状态：configured/掩码/上次测试（前端就绪・引导分流的事实源）。"""
+    """配置卡状态：configured/掩码/上次测试（前端就绪・引导分流的事实源）＋额度台账。"""
     cfg = await get_zhuque_config(db, user_id)
+    usage = _usage_status(await get_month_usage(db, user_id))
     if cfg is None or cfg.status == "deleted":
-        return {"configured": False, "show": None}
+        return {"configured": False, "show": None, "usage": usage}
     plain = decrypt_api_key(cfg.api_key)
     return {
         "configured": bool(plain),
@@ -69,6 +119,7 @@ async def get_config_status(db: AsyncSession, user_id: str) -> dict[str, Any]:
         "last_test_status": cfg.last_test_status,
         "last_test_error": cfg.last_test_error,
         "last_tested_at": cfg.last_tested_at.isoformat() if cfg.last_tested_at else None,
+        "usage": usage,
     }
 
 
@@ -138,13 +189,18 @@ async def delete_config(db: AsyncSession, user_id: str) -> bool:
 
 
 async def test_config(db: AsyncSession, user_id: str) -> dict[str, Any]:
-    """最小 classify 连通性测试（消耗极少额度）；持久化 last_test_*。"""
+    """最小 classify 连通性测试（消耗极少额度）；持久化 last_test_*。
+
+    c-zhuque-quota-ledger：测试的真实消耗与整章检测同口径入账（zhuque-test），
+    失败路径（401/429/网络）无用量响应体，不记账。
+    """
     cfg = await get_zhuque_config(db, user_id)
     if cfg is None or cfg.status == "deleted":
         return {"ok": False, "status": "not_configured", "error": "尚未配置朱雀 Key"}
     plain = decrypt_api_key(cfg.api_key)
+    data: dict[str, Any] | None = None
     try:
-        await zhuque_client.classify("ping", plain)
+        data = await zhuque_client.classify("ping", plain)
         cfg.last_test_status = "ok"
         cfg.last_test_error = None
     except zhuque_client.ZhuqueUpstreamError as e:
@@ -154,6 +210,20 @@ async def test_config(db: AsyncSession, user_id: str) -> dict[str, Any]:
         cfg.last_test_error = e.message
     cfg.last_tested_at = datetime.now(UTC)
     await db.commit()
+    if data is not None:
+        usage = data.get("makers_models_usage") or data.get("usage") or {}
+        usage_tokens = int(usage.get("total_tokens") or 0)
+        if usage_tokens:
+            from api_configs.usage import record_usage
+
+            await record_usage(
+                db,
+                user_id=user_id,
+                api_config_id=cfg.id,
+                operation="zhuque-test",
+                model="zhuque",
+                tokens_out=usage_tokens,
+            )
     return {
         "ok": cfg.last_test_status == "ok",
         "status": cfg.last_test_status,

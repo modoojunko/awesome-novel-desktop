@@ -620,3 +620,43 @@ describe("ZhuquePanel 测试连接守卫与兜底臂", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("连接失败，请重试"));
   });
 });
+
+describe("朱雀额度台账（c-zhuque-quota-ledger）", () => {
+  it("已配置态带 usage：台账卡显本月已用/免费额度（千分位＋整万人话）", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("/v1/zhuque/config"))
+          return {
+            ok: true,
+            json: async () => ({
+              configured: true,
+              api_key_masked: "eo-****st",
+              usage: { month_used_tokens: 12340, month_free_quota: 500000, month_remaining_tokens: 487660 },
+            }),
+          };
+        return { ok: true, json: async () => ({}) };
+      }),
+    );
+    render(<ZhuquePanel />);
+    await waitFor(() => expect(screen.getByText("12,340 / 50 万 token")).toBeInTheDocument());
+    expect(screen.getByText("本月已用 · 本地估算，以腾讯云控制台为准")).toBeInTheDocument();
+  });
+
+  it("已配置态缺 usage：回退静态额度卡（不显已用 0、不引空值占位）", async () => {
+    zqConfigured = true;
+    render(<ZhuquePanel />);
+    await waitFor(() => expect(screen.getByText("50 万 token / 月")).toBeInTheDocument());
+    expect(screen.getByText("免费额度（以腾讯云控制台为准）")).toBeInTheDocument();
+    expect(screen.queryByText(/本月已用/)).toBeNull();
+  });
+
+  it("测试连接后 refresh 重取 config（台账随测试消耗更新）", async () => {
+    zqConfigured = true;
+    render(<ZhuquePanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "测试连接" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("连接正常"));
+    const gets = calls.filter((c) => c.method === "GET" && c.url.includes("/api/v1/zhuque/config"));
+    expect(gets.length).toBeGreaterThanOrEqual(2); // 挂载取数 + 测试后 refresh
+  });
+});

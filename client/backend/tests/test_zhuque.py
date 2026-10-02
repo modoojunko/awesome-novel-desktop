@@ -7,6 +7,9 @@
 - 切分 golden：NBSP/CRLF 归一、空白行剔除、指纹稳定（前后端同管道）
 - check_chapter：成功映射、分段错配 502、空正文/超上限/未配置/在途 409
 - 端点：200 形状、401/429 映射、免费档 403、记账（model=zhuque、汇总排除）
+- 额度台账（c-zhuque-quota-ledger）：config status usage 块（未配置同返）、月聚合
+  （zhuque-check＋zhuque-test、跨月切零、非朱雀 op 不计）、env 额度覆写与剩余截 0、
+  连接测试入账 zhuque-test（主库断言先例）、失败路径不记账
 """
 
 import asyncio
@@ -18,20 +21,29 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from ai_client import get_ai_client_for_user
 from ai_state import user_has_ai_key
-from api_configs.service import get_batch_status, get_usage_summary, get_user_api_configs
+from api_configs.service import (
+    get_batch_status,
+    get_usage_summary,
+    get_user_api_configs,
+)
 from auth_local.deps import require_ai_access as _raa
 from auth_local.middleware import get_current_user
 from db import async_session
 from main import app
 from models.api_config import ApiConfig
+from models.chapter import Chapter, ChapterContent
 from models.project import Novel
+from models.token_log import TokenLog
 from models.user import User
 from models.volume import Volume
-from models.chapter import Chapter, ChapterContent
 from zhuque import service as zq_service
-from zhuque.segmentation import align_segments, canonical_text, fingerprint, split_paragraphs
+from zhuque.segmentation import (
+    align_segments,
+    canonical_text,
+    fingerprint,
+    split_paragraphs,
+)
 
 REF = "vol-1-ch-1"
 _UIDS: dict[str, str] = {}
@@ -269,7 +281,6 @@ def _mkloop():
 
 
 def test_check_chapter_success_and_mapping(monkeypatch):
-    import asyncio
 
     async def scene(monkeypatch):
         uid, pid = await _seed_project("ok")
@@ -289,7 +300,6 @@ def test_check_chapter_success_and_mapping(monkeypatch):
         assert out["prose_hash"] == fingerprint("她握紧船桨。\n船家说明早封江。\n雨点砸在篷布上。")
         return uid
 
-    import unittest
     loop = _mkloop()
     try:
         loop.run_until_complete(scene(monkeypatch))
@@ -362,7 +372,6 @@ def test_check_chapter_error_branches(monkeypatch):
 # ─── 端点 ───
 
 def test_check_endpoint_mapping_and_usage(monkeypatch):
-    import asyncio
 
     async def scene(monkeypatch):
         uid, pid = await _seed_project("ep")
@@ -399,7 +408,6 @@ def test_check_endpoint_mapping_and_usage(monkeypatch):
 
 
 def test_check_endpoint_free_tier_403(monkeypatch):
-    import asyncio
 
     async def scene(monkeypatch):
         uid, pid = await _seed_project("free")
@@ -492,7 +500,6 @@ def test_config_endpoints_lifecycle(monkeypatch):
 
 def test_zhuque_persist_roundtrip(monkeypatch):
     """检测成功落库→读回一致→重检覆盖一行；未检章 stored:false。"""
-    import asyncio
 
     async def scene(monkeypatch):
         uid, pid = await _seed_project("persist")
@@ -586,7 +593,6 @@ def test_zhuque_persist_roundtrip(monkeypatch):
 
 def test_zhuque_persist_not_configured_keeps_get_working(monkeypatch):
     """无 Key 时 GET 存档不受影响（读取零额度、不触检测）。"""
-    import asyncio
 
     async def scene():
         uid, pid = await _seed_project("persistread")
@@ -604,4 +610,107 @@ def test_zhuque_persist_not_configured_keeps_get_working(monkeypatch):
     finally:
         c.__exit__(None, None, None)
         app.dependency_overrides.clear()
+# ─── 额度台账（c-zhuque-quota-ledger） ───
+
+def test_monthly_free_tokens_env_override(monkeypatch):
+    monkeypatch.setenv("ZHUQUE_MONTHLY_FREE_TOKENS", "100")
+    assert zq_service.monthly_free_tokens() == 100
+    monkeypatch.setenv("ZHUQUE_MONTHLY_FREE_TOKENS", "abc")  # 解析失败回默认
+    assert zq_service.monthly_free_tokens() == zq_service.ZHUQUE_MONTHLY_FREE_TOKENS
+    monkeypatch.delenv("ZHUQUE_MONTHLY_FREE_TOKENS")
+    assert zq_service.monthly_free_tokens() == zq_service.ZHUQUE_MONTHLY_FREE_TOKENS
+
+
+def test_usage_status_clamps_negative(monkeypatch):
+    monkeypatch.setenv("ZHUQUE_MONTHLY_FREE_TOKENS", "100")
+    assert zq_service._usage_status(150)["month_remaining_tokens"] == 0
+    assert zq_service._usage_status(40)["month_remaining_tokens"] == 60
+
+
+def test_config_status_usage_block_and_month_aggregation(monkeypatch):
+    """usage 块契约：未配置同返；月聚合含 zhuque-check＋zhuque-test、跨月切零、非朱雀 op 不计。"""
+    monkeypatch.delenv("ZHUQUE_MONTHLY_FREE_TOKENS", raising=False)  # 断言按默认额度，不受外部覆写影响
+    from datetime import UTC, datetime, timedelta
+
+    async def scene():
+        uid, pid = await _seed_project("led")
+        # 未配置：usage 块照返（零消耗）
+        async with async_session() as session:
+            st = await zq_service.get_config_status(session, uid)
+        assert st["configured"] is False
+        assert st["usage"]["month_used_tokens"] == 0
+        assert st["usage"]["month_free_quota"] == 500_000
+        assert st["usage"]["month_remaining_tokens"] == 500_000
+
+        await _save_zhuque(uid)
+        async with async_session() as session:
+            cfg = await zq_service.get_zhuque_config(session, uid)
+            now = datetime.now(UTC).replace(tzinfo=None)
+            last_month_day = now.replace(day=1) - timedelta(days=1)  # 上月任意一天
+            session.add_all([
+                TokenLog(user_id=uid, project_id=pid, api_config_id=cfg.id,
+                         operation="zhuque-check", model="zhuque", tokens_out=1000),
+                TokenLog(user_id=uid, api_config_id=cfg.id,
+                         operation="zhuque-test", model="zhuque", tokens_out=20),
+                TokenLog(user_id=uid, operation="zhuque-check", model="zhuque",
+                         tokens_out=999, created_at=last_month_day),  # 上月：不计
+                TokenLog(user_id=uid, operation="chapter-outline", model="m",
+                         tokens_out=500),  # 非朱雀：不计
+            ])
+            await session.commit()
+        async with async_session() as session:
+            st = await zq_service.get_config_status(session, uid)
+        assert st["configured"] is True
+        assert st["usage"]["month_used_tokens"] == 1020
+        assert st["usage"]["month_remaining_tokens"] == 500_000 - 1020
+        return uid
+
+    uid = _mkloop().run_until_complete(scene())
+    _UIDS.pop(uid, None)
+
+
+def test_test_endpoint_records_usage(monkeypatch):
+    """连接测试真实消耗入账 zhuque-test（主库断言先例）；失败路径不记账、汇总排除。"""
+    from zhuque.client import ZhuqueUpstreamError
+
+    async def scene(monkeypatch):
+        uid, _ = await _seed_project("acct")
+        await _save_zhuque(uid)
+        # 成功：usage=55 → zhuque-test 行
+        _stub_classify(monkeypatch, usage=55)
+        c = _client(uid)
+        try:
+            r = c.post("/api/v1/zhuque/test")
+            assert r.json()["ok"] is True
+        finally:
+            c.__exit__(None, None, None)
+            app.dependency_overrides.clear()
+        async with async_session() as session:
+            rows = (await session.scalars(
+                select(TokenLog).where(
+                    TokenLog.user_id == uid, TokenLog.operation == "zhuque-test")
+            )).all()
+            assert len(rows) == 1
+            assert rows[0].tokens_out == 55 and rows[0].model == "zhuque"
+            # 写作用量汇总排除 zhuque-test（本用户无任何写作模型消耗）
+            summary = await get_usage_summary(session, uid)
+            assert summary["total_this_month"] == 0
+        # 失败（429）：无用量响应体，不记账
+        _stub_classify(monkeypatch, error=ZhuqueUpstreamError(429, "quota"))
+        c = _client(uid)
+        try:
+            r = c.post("/api/v1/zhuque/test")
+            assert r.json()["ok"] is False and r.json()["status"] == "rate_limited"
+        finally:
+            c.__exit__(None, None, None)
+            app.dependency_overrides.clear()
+        async with async_session() as session:
+            rows = (await session.scalars(
+                select(TokenLog).where(
+                    TokenLog.user_id == uid, TokenLog.operation == "zhuque-test")
+            )).all()
+            assert len(rows) == 1  # 仍只有成功那一行
+        return uid
+
+    uid = _mkloop().run_until_complete(scene(monkeypatch))
     _UIDS.pop(uid, None)
