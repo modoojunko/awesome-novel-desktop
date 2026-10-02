@@ -1,7 +1,9 @@
 name: C端 打包 (exe + dmg)
 
 on:
-  # 每个 PR 做打包验证：改动到 C端/工作流时出双平台安装包（artifact 可下载实测）
+  # PR 打包验证：改动到 C端/工作流时出 Windows 安装包（artifact 可下载实测）。
+  # macOS runner 计费 ×10，已撤出 PR 验证（2026-10-02 省额度拍板）——mac 包只在
+  # tag 发版 / 手动 dispatch 时出，release job 仍要求双包齐全，发版链路不变。
   pull_request:
     branches:
       - main
@@ -34,6 +36,8 @@ jobs:
           - os: windows-latest
             artifact: AI-Novel-Setup-win
     runs-on: ${{ matrix.os }}
+    # mac 腿跳过 PR 验证只发版跑；skip 腿不算失败，不挡 release job
+    if: matrix.os != 'macos-latest' || github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
