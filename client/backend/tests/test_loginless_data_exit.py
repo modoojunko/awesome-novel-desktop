@@ -69,7 +69,7 @@ def test_l1_loginless_export_whole_library(seeded):
     # 轮询到完成
     import time
 
-    for _ in range(60):
+    for _ in range(300):  # CI 慢机上全库备份可超 12s，放宽到 60s 上限
         st = client.get("/api/backup/export/status").json()["data"]
         if st.get("state") == "done":
             break
@@ -93,7 +93,7 @@ def test_l2_loginless_include_config_forced_false(seeded):
     assert r.status_code == 200, r.text
     import time
 
-    for _ in range(60):
+    for _ in range(300):  # CI 慢机上全库备份可超 12s，放宽到 60s 上限
         st = client.get("/api/backup/export/status").json()["data"]
         if st.get("state") in ("done", "error"):
             break
