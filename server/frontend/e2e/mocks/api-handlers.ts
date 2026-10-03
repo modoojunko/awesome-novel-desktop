@@ -1,10 +1,12 @@
 import type { Page, Route } from '@playwright/test'
 import { createTestUser, createTestDevice, type TestUser, type TestDevice } from './test-data'
 
-/** /api/pay/license/codes 明细行（订单来源台账行；手工码不进明细） */
+/** /api/pay/license/codes 明细行（名下台账行：订单来源＋激活码兑换，source 区分类型） */
 export interface TestLicenseCode {
   code_id: string
   order_no: string
+  /** 行来源：order=支付订单；admin=激活码兑换/系统赠送 */
+  source: string
   tier: string
   duration_days: number
   status: string
@@ -268,6 +270,7 @@ export class MockApi {
       .map((o) => ({
         code_id: `O-${o.order_no}`,
         order_no: o.order_no,
+        source: 'order',
         tier: (o.snapshot?.tier_key as string) ?? 'pro',
         duration_days: (o.snapshot?.period_days as number) ?? 30,
         status: o.fulfillment!.status,
@@ -622,15 +625,22 @@ export class MockApi {
       const days = 30
       const expires = new Date(now.getTime() + days * 86400000).toISOString().slice(0, 19)
       const activated = now.toISOString().slice(0, 19)
-      // 手工码兑换 → 只刷档位头汇总（真实后端口径：手工码不入明细列表，仅计入汇总）
+      const codeId = String(body?.code ?? 'AC-REDEEMED-CODE').trim().toUpperCase()
+      // 兑换 → 刷档位头汇总＋明细新增「激活码」行（2026-10-03 拍板：兑换行入明细）
       if (!this.license) this.license = { tier: 'pro', remaining_sec: 0, remaining_desc: '0 天', max_expires_at: null, pending_count: 0 }
       this.license.tier = 'pro'
       const addSec = Math.round((Date.parse(expires + 'Z') - now.getTime()) / 1000)
       this.license.remaining_sec = Math.max(this.license.remaining_sec, this.license.remaining_sec + addSec)
       this.license.remaining_desc = `${Math.max(1, Math.round(this.license.remaining_sec / 86400))} 天`
       this.license.max_expires_at = expires
+      this.licenseCodes = [...this.licenseCodes, {
+        code_id: codeId, order_no: '', source: 'admin', tier: 'pro',
+        duration_days: days, status: 'active', activated_at: activated,
+        expires_at: expires, grant_start: activated,
+      }]
+      this.license.code_count = this.licenseCodes.length
       return route.fulfill(json(0, {
-        code_id: String(body?.code ?? 'AC-REDEEMED-CODE').trim().toUpperCase(),
+        code_id: codeId,
         grant_start: activated,
         expires_at: expires,
         tier: 'pro',

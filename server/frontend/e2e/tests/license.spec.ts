@@ -20,6 +20,7 @@ function code(overrides: Partial<TestLicenseCode> = {}): TestLicenseCode {
   return {
     code_id: 'O-S20260902TEST0001',
     order_no: 'S20260902TEST0001',
+    source: 'order',
     tier: 'pro',
     duration_days: 30,
     status: 'active',
@@ -212,7 +213,7 @@ test.describe('兑换激活码（s-code-redeem）', () => {
     mockApi.registerUser()
   })
 
-  test('页头入口 → 确认弹层转译 → 兑换成功刷档位头（手工码不入明细）', async ({ page, mockApi }) => {
+  test('页头入口 → 确认弹层转译 → 兑换成功刷档位头＋明细新增激活码行', async ({ page, mockApi }) => {
     await gotoLicense(page)
     await expect(page.getByText('还没有生效中的套餐')).toBeVisible({ timeout: 10000 })
     await page.getByRole('button', { name: '兑换激活码' }).click()
@@ -222,13 +223,16 @@ test.describe('兑换激活码（s-code-redeem）', () => {
     await expect(page.getByText(/不可退款/)).toBeVisible()
     await page.locator('.redeem-input').fill('AC-TEST-0000-0001-AAAA')
     await page.getByRole('button', { name: '确认兑换' }).click()
-    // 成功：提示可见、档位头刷新（PRO·生效中·剩余 30 天）；明细不出行（手工码口径：
-    // code_count=0 但 remaining>0 → 整页空态消失、tab 条不渲染，仅档位头）
+    // 成功：提示可见、档位头刷新（PRO·生效中·剩余 30 天）；明细入列「激活码」行
+    // （2026-10-03 拍板：兑换行入明细，行带来源类型标）
     await expect(page.getByText('兑换成功，套餐已开始计时')).toBeVisible({ timeout: 10000 })
     await expect(page.locator('.tier-name')).toHaveText('PRO')
     await expect(page.locator('.sum')).toContainText('30 天')
-    await expect(page.getByText('还没有生效中的套餐')).toHaveCount(0)
-    await expect(page.getByRole('tablist')).toHaveCount(0)
+    await expect(page.getByRole('tablist')).toBeVisible()
+    const row = page.locator('.code-row')
+    await expect(row).toHaveCount(1)
+    await expect(row.locator('.src-tag')).toHaveText('激活码')
+    await expect(row.locator('.pill-ok')).toHaveText('生效中')
   })
 
   test('无效码：原因提示＋联系客服出路＋输入保留可改', async ({ page, mockApi }) => {

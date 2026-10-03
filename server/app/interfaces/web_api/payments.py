@@ -439,7 +439,7 @@ async def cancel_order(order_no: str, request: Request, db: Db = Depends(get_db)
 
 @r.get("/license")
 async def get_license(request: Request, db: Db = Depends(get_db)):
-    """Z.6 我的套餐总览：档位头汇总（含手工码）+ 订单来源套餐行计数。
+    """Z.6 我的套餐总览：档位头汇总 + 名下套餐行计数（订单来源＋激活码兑换，2026-10-03 拍板同列）。
     明细列表走 GET /license/codes 分页（license-grants-pagination：响应体不再内嵌全量）。"""
     identity = _current_identity(request)
     if not identity:
@@ -455,10 +455,6 @@ async def get_license(request: Request, db: Db = Depends(get_db)):
     # 不参与档位归属（merge 跳过清单不含 unused，直接喂会抬高档位头）
     lic = License(username="").merge([c for c in all_codes if c.status != "unused"])  # username 仅标识标签，merge/响应不用
 
-    # code_count 与明细接口「全部」total 同过滤器（source='order'）——口径单源
-    def _is_order_row(c):
-        return getattr(c, "source", "admin") == "order"
-
     from datetime import UTC, datetime
     now = datetime.now(UTC).replace(tzinfo=None)  # naive UTC（表列口径，不依赖容器 TZ）
     remaining = 0
@@ -470,8 +466,10 @@ async def get_license(request: Request, db: Db = Depends(get_db)):
         "remaining_sec": remaining,
         "remaining_desc": f"{remaining // 86400} 天",
         "max_expires_at": lic.max_expires_at.isoformat() if lic.max_expires_at else None,
-        "pending_count": sum(1 for c in all_codes if _is_order_row(c) and c.status == "pending_activation"),
-        "code_count": sum(1 for c in all_codes if _is_order_row(c)),
+        # 手工码激活即 active（无 pending 段），pending 实际只可能来自订单行
+        "pending_count": sum(1 for c in all_codes if c.status == "pending_activation"),
+        # 与明细接口「全部」total 同口径（名下非 unused 台账行）——口径单源
+        "code_count": sum(1 for c in all_codes if c.status != "unused"),
     }}
 
 
@@ -484,9 +482,9 @@ async def list_license_codes(
     request: Request, db: Db = Depends(get_db),
     page: int = 1, page_size: int = 20, status: str = "",
 ):
-    """我的套餐明细分页（仅订单来源台账行；created_at 倒序——裁定不做状态分组，
-    已收回行的视觉区分由前端置灰承载）。status=逗号分隔状态白名单筛选，
-    total=筛选全量计数——tab 分版 + 加载更多契约（与订单列表同构）。"""
+    """我的套餐明细分页（名下全部台账行：订单来源＋激活码兑换，行 source 供前端
+    区分类型；created_at 倒序——裁定不做状态分组，已收回行的视觉区分由前端置灰承载）。
+    status=逗号分隔状态白名单筛选，total=筛选全量计数——tab 分版 + 加载更多契约（与订单列表同构）。"""
     identity = _current_identity(request)
     if not identity:
         return {"code": 4001, "msg": "未登录"}
@@ -506,10 +504,10 @@ async def list_license_codes(
     from app.infrastructure.repositories.factory import code_repo
     from app.infrastructure.repositories.payments_repo import OrderRepo
 
-    rows, total = code_repo(db).find_order_codes_page(
+    rows, total = code_repo(db).find_codes_page(
         user_id, statuses=statuses, limit=page_size, offset=(page - 1) * page_size)
 
-    # order_no 供激活接口定位（页内行批量映射，与原 license 明细组装同款）
+    # order_no 供激活接口定位（页内行批量映射，与原 license 明细组装同款）；兑换行无订单=空串
     orders_by_id = {}
     if rows:
         order_ids = {c.order_id for c in rows if c.order_id}
@@ -519,6 +517,7 @@ async def list_license_codes(
     items = [{
         "code_id": c.code_id,
         "order_no": orders_by_id.get(c.order_id, ""),
+        "source": getattr(c, "source", "admin"),
         "tier": c.tier,
         "duration_days": c.duration_days,
         "status": c.status,
