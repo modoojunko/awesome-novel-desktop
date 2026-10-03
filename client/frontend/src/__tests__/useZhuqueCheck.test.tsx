@@ -314,10 +314,7 @@ describe("复合键与清除连档删（c-zhuque-clear-keyscope）", () => {
 
   it("清除＝连存档删：DELETE 成功后 idle；DELETE 失败保态", async () => {
     // 成功路径
-    responder = (u) =>
-      u.includes("/zhuque-result")
-        ? { status: 200, body: u.includes("DELETE") || true ? { ok: true } : {} }
-        : undefined;
+    responder = (u) => (u.includes("/zhuque-result") ? { status: 200, body: { ok: true } } : undefined);
     const h = renderHook(() => useZhuqueCheck("pC", "chC"));
     await act(async () => {
       const { runZhuqueCheck } = await import("@/hooks/useZhuqueCheck");

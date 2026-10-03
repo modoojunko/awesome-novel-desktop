@@ -180,9 +180,10 @@ function hydrateFromStore(projectId: string, chapterRef: string) {
         checked_at?: string;
       };
       if (!r?.stored || !r.result) return;
-      // 水合只填空：在途/已有会话状态时丢弃（保持单源不被旧档顶掉）
-      const cur = stateByRef.get(chapterRef) ?? IDLE;
-      if (cur.status !== "idle" || inflight.has(chapterRef)) return;
+      // 水合只填空：在途/已有会话状态时丢弃（保持单源不被旧档顶掉）——必须查复合键，
+      // 裸键在复合键世界恒空查，守卫失效会让在途检测被旧档顶掉
+      const cur = stateByRef.get(key) ?? IDLE;
+      if (cur.status !== "idle" || inflight.has(key)) return;
       setState(key, {
         status: "ok",
         result: r.result,
@@ -246,7 +247,7 @@ export function useZhuqueCheck(projectId: string, chapterRef: string) {
         setState(keyOf(projectId, chapterRef), { stale: true });
       }
     },
-    [chapterRef],
+    [projectId, chapterRef],
   );
 
   return { state, run, clear, evaluateStale };
