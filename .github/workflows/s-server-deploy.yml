@@ -215,9 +215,16 @@ jobs:
           npm run build && npm run probe:beian
 
       - name: 部署前端（novel-s-web）
-        # 在根目录执行（与 login 同目录）；--cwd 指定项目目录
-        # --ignore 排除 node_modules 等大目录（否则上传数百 MB 卡死）
-        run: tcb app deploy novel-s-web --env-id ${{ vars.TCB_ENV_ID }} --cwd server/frontend --install-command "" --build-command "" --output-dir dist --deploy-path / --force --ignore "**/node_modules/**,**/e2e/**,**/playwright-report/**"
+        # 在根目录执行（与 login 同目录）。云端构建的包只含 --cwd 目录：仓库根依赖
+        # （brand/brand.json←brand.ts TS2307、LICENSE←copy-eula exit 1）不凑进 staging
+        # 相对布局就必炸（2026-10-03 v0.26 发布实录，两雷均为 #498/#v0.23 后引入、
+        # workflow 禁用期无人踩到）。staging 布局=repo 根：server/frontend + brand/ + LICENSE。
+        run: |
+          rm -rf .s-web-stage && mkdir -p .s-web-stage/brand .s-web-stage/server
+          cp brand/brand.json .s-web-stage/brand/brand.json
+          cp LICENSE .s-web-stage/LICENSE
+          rsync -a --exclude node_modules --exclude e2e --exclude playwright-report server/frontend/ .s-web-stage/server/frontend/
+          tcb app deploy novel-s-web --env-id ${{ vars.TCB_ENV_ID }} --cwd .s-web-stage/server/frontend --install-command "" --build-command "" --output-dir dist --deploy-path / --force --ignore "**/node_modules/**,**/e2e/**,**/playwright-report/**"
 
       - name: 部署结果
         run: |
