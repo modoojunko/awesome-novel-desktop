@@ -44,3 +44,22 @@ def test_v4_checklist_and_iron_rules_calibrated():
     assert "70% 左右属正常" not in system
     # 优先级栈：结构红线压过降AI策略
     assert "禁止规则（书级词表命中必改）＞结构红线＞降AI策略优先级＞本检查清单" in system
+
+
+def test_v4_templates_format_safe():
+    """polish 的 system/user 两段在服务层都要过 .format(**ctx)（auxiliary.polish_text）——
+    模板不得含裸花括号（评审补的冒烟断言，防未来示例引入花括号炸端点）。"""
+    system, user_t = load_layers("polish_text")
+    ctx = {
+        "writing_style": "风格",
+        "anti_ai_rules": "（无）",
+        "selected_text": "选段测试文本",
+        "surrounding_context": "上下文",
+        "recent_context": "r",
+        "character_snapshots": "c",
+        "active_hooks": "h",
+        "_role": "一位小说家",
+        "_writing_model": "haiku",
+    }
+    assert "选段测试文本" in user_t.format(**ctx)
+    assert system.format(**ctx)
