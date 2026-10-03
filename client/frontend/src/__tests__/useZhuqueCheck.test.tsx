@@ -156,6 +156,20 @@ describe("useZhuqueCheck 状态仓", () => {
     expect(calls.filter((c) => c.url.includes("/zhuque-check")).length).toBe(1);
   });
 
+  it("stale 双向：live 回到送检指纹 → 自动解除过期态（c-zhuque-stale-symmetric）", async () => {
+    const { result } = renderHook(() => useZhuqueCheck("p9", "ch9"));
+    await act(async () => {
+      await result.current.run();
+    });
+    expect(result.current.state.stale).toBe(false);
+    act(() => result.current.evaluateStale("hash-other")); // 改动 → 置灰
+    expect(result.current.state.stale).toBe(true);
+    act(() => result.current.evaluateStale("hash-1")); // 撤销/恢复窗口收敛 → 回到送检态
+    expect(result.current.state.stale).toBe(false); // 自动解除，无需重检
+    act(() => result.current.evaluateStale("hash-other")); // 再改动 → 再置灰
+    expect(result.current.state.stale).toBe(true);
+  });
+
   it("stale 链：live 指纹变化 → 变灰；重检恢复", async () => {
     const { result } = renderHook(() => useZhuqueCheck("p1", "ch1"));
     await act(async () => {
