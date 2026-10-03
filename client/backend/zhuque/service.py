@@ -378,3 +378,29 @@ async def get_stored_result(
         "result": result,
         "checked_at": row.checked_at,
     }
+
+
+async def delete_stored_result(
+    db: AsyncSession, *, project_id: str, chapter_ref: str
+) -> bool:
+    """按章删存档（c-zhuque-clear-keyscope：清除标注连档删）；幂等，返回是否实删。"""
+    from sqlalchemy import select
+
+    from models.chapter import Chapter
+    from models.zhuque import ZhuqueResultArchive
+
+    ch = (
+        await db.scalars(
+            select(Chapter).where(
+                Chapter.project_id == project_id, Chapter.ref == chapter_ref
+            )
+        )
+    ).first()
+    if ch is None:
+        raise KeyError("chapter_not_found")
+    row = await db.get(ZhuqueResultArchive, ch.id)
+    if row is None:
+        return False
+    await db.delete(row)
+    await db.commit()
+    return True

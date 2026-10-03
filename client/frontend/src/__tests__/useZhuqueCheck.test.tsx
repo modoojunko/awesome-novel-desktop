@@ -138,7 +138,7 @@ describe("useZhuqueCheck 状态仓", () => {
     unmount(); // 切章/离开 → cleanup abort
     await waitFor(() => expect(aborted).toBe(true));
     // 卸载后快照冻结：直读仓状态断言（store 已转 idle）
-    await waitFor(() => expect(zhuqueStoreGetState("ch1").status).toBe("idle"));
+    await waitFor(() => expect(zhuqueStoreGetState("p1", "ch1").status).toBe("idle"));
     await act(async () => {
       await runP; // 排空中断后的 rejection
     });
@@ -204,8 +204,8 @@ describe("useZhuqueCheck 状态仓", () => {
     await act(async () => {
       await result.current.run();
     });
-    act(() => {
-      result.current.clear();
+    await act(async () => {
+      await result.current.clear();
     });
     expect(result.current.state.status).toBe("idle");
   });
@@ -280,5 +280,72 @@ describe("useZhuqueCheck 水合（c-zhuque-persist）", () => {
     await act(async () => {});
     expect(n).toBe(1); // 失败同样记水位，不反复打
     second.unmount();
+  });
+});
+
+
+describe("复合键与清除连档删（c-zhuque-clear-keyscope）", () => {
+  it("跨书同 ref 隔离：A 书 ok 态不顶 B 书水合（B 读到 B 的档）", async () => {
+    responder = (u) => {
+      if (u.includes("/novels/pB/chapters/vol-1-ch-1/zhuque-result"))
+        return { status: 200, body: storedBody("hash-bookB") };
+      return undefined;
+    };
+    // A 书：直接注 ok 会话状态
+    const a = renderHook(() => useZhuqueCheck("pA", "vol-1-ch-1"));
+    await act(async () => {
+      const { runZhuqueCheck } = await import("@/hooks/useZhuqueCheck");
+      responder = (u) => (u.includes("/zhuque-check") ? { status: 200, body: okResult("hash-bookA") } : undefined);
+      await runZhuqueCheck("pA", "vol-1-ch-1");
+    });
+    expect(a.result.current.state.proseHash).toBe("hash-bookA");
+    a.unmount();
+    // 恢复 pB 档分支（上面为跑 A 书 check 覆盖过 responder）
+    responder = (u) =>
+      u.includes("/novels/pB/chapters/vol-1-ch-1/zhuque-result")
+        ? { status: 200, body: storedBody("hash-bookB") }
+        : undefined;
+    // B 书同 ref：水合应读 B 的档（裸键下会被 A 的水位挡住）
+    const b = renderHook(() => useZhuqueCheck("pB", "vol-1-ch-1"));
+    await waitFor(() => expect(b.result.current.state.status).toBe("ok"));
+    expect(b.result.current.state.proseHash).toBe("hash-bookB");
+    b.unmount();
+  });
+
+  it("清除＝连存档删：DELETE 成功后 idle；DELETE 失败保态", async () => {
+    // 成功路径
+    responder = (u) => (u.includes("/zhuque-result") ? { status: 200, body: { ok: true } } : undefined);
+    const h = renderHook(() => useZhuqueCheck("pC", "chC"));
+    await act(async () => {
+      const { runZhuqueCheck } = await import("@/hooks/useZhuqueCheck");
+      responder = (u) => (u.includes("/zhuque-check") ? { status: 200, body: okResult("hash-c") } : undefined);
+      await runZhuqueCheck("pC", "chC");
+    });
+    expect(h.result.current.state.status).toBe("ok");
+    await act(async () => {
+      await h.result.current.clear();
+    });
+    expect(h.result.current.state.status).toBe("idle");
+    const delCalls = calls.filter((c) => c.url.includes("zhuque-result")).length;
+    expect(delCalls).toBeGreaterThan(0);
+    h.unmount();
+
+    // 失败路径：DELETE 500 → 保持 ok（不清态）
+    const h2 = renderHook(() => useZhuqueCheck("pD", "chD"));
+    await act(async () => {
+      const { runZhuqueCheck } = await import("@/hooks/useZhuqueCheck");
+      responder = (u) => {
+        if (u.includes("/zhuque-result")) return { status: 500, body: { message: "boom" } };
+        if (u.includes("/zhuque-check")) return { status: 200, body: okResult("hash-d") };
+        return undefined;
+      };
+      await runZhuqueCheck("pD", "chD");
+    });
+    expect(h2.result.current.state.status).toBe("ok");
+    await act(async () => {
+      await h2.result.current.clear();
+    });
+    expect(h2.result.current.state.status).toBe("ok"); // 删除失败保态
+    h2.unmount();
   });
 });
