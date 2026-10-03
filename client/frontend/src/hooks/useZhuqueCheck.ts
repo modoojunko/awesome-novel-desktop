@@ -239,13 +239,16 @@ export function useZhuqueCheck(projectId: string, chapterRef: string) {
     setState(keyOf(projectId, chapterRef), null);
   }, [projectId, chapterRef]);
 
-  /** 正文编辑后由 ProsePane 调用：live 指纹 ≠ 送检指纹 → 标注/结果条转「可能过期」。 */
+  /** 失效判定（c-zhuque-stale-symmetric 双向）：stale ≡ 当前正文指纹 ≠ 送检指纹。
+   *  不一致 → 标注/结果条转「可能过期」；一致（撤销回到送检态/切页往返两段式
+   *  选章恢复收敛）→ 自动解除过期态恢复彩色。只在状态翻转时写，避免无谓 notify。 */
   const evaluateStale = useCallback(
     (liveHash: string) => {
-      const st = stateByRef.get(keyOf(projectId, chapterRef));
-      if (st?.status === "ok" && st.proseHash && !st.stale && st.proseHash !== liveHash) {
-        setState(keyOf(projectId, chapterRef), { stale: true });
-      }
+      const key = keyOf(projectId, chapterRef);
+      const st = stateByRef.get(key);
+      if (st?.status !== "ok" || !st.proseHash) return;
+      const mismatch = st.proseHash !== liveHash;
+      if (mismatch !== st.stale) setState(key, { stale: mismatch });
     },
     [projectId, chapterRef],
   );
