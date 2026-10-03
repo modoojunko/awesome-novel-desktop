@@ -712,3 +712,38 @@ def test_test_endpoint_records_usage(monkeypatch):
 
     uid = _mkloop().run_until_complete(scene(monkeypatch))
     _UIDS.pop(uid, None)
+
+
+def test_zhuque_delete_stored_result(monkeypatch):
+    """清除连档删（c-zhuque-clear-keyscope）：删行→读回未存档→幂等→他书 404。"""
+    import asyncio
+
+    async def scene(monkeypatch):
+        uid, pid = await _seed_project("delarc")
+        await _save_zhuque(uid)
+        _stub_classify(monkeypatch)
+        c = _client(uid)
+        try:
+            assert c.post(f"/api/novels/{pid}/chapters/{REF}/zhuque-check", json={}).status_code == 200
+            # 删
+            d = c.delete(f"/api/novels/{pid}/chapters/{REF}/zhuque-result")
+            assert d.status_code == 200 and d.json() == {"ok": True, "deleted": True}
+            # 读回：未存档
+            assert c.get(f"/api/novels/{pid}/chapters/{REF}/zhuque-result").json() == {"stored": False}
+            # 幂等：再删 deleted=False 仍 200
+            d2 = c.delete(f"/api/novels/{pid}/chapters/{REF}/zhuque-result")
+            assert d2.status_code == 200 and d2.json() == {"ok": True, "deleted": False}
+            # 他书 404（不存在 project）
+            d3 = c.delete(f"/api/novels/none-nope/chapters/{REF}/zhuque-result")
+            assert d3.status_code == 404
+            return uid
+        finally:
+            c.__exit__(None, None, None)
+            app.dependency_overrides.clear()
+
+    loop = _mkloop()
+    try:
+        uid = loop.run_until_complete(scene(monkeypatch))
+    finally:
+        loop.close()
+    _UIDS.pop(uid, None)
