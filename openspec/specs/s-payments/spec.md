@@ -160,7 +160,7 @@ API 端点/DTO/错误码 SHALL 以 backend-detail-design.md 附录 Z 为唯一�
 
 ### Requirement: License 总览接口命名对齐域对象
 
-用户权益聚合总览接口的 URI 与代码符号 SHALL 取自实存域对象名（`license`），MUST NOT 引入域外词（如 membership）。接口返回内容为当前登录用户的 License 聚合视图（有效档位、最远到期、剩余时长、待激活数、订单来源套餐行计数）；明细列表由独立分页端点承载（见「License 明细与快照字段层对齐域对象 code」）。
+用户权益聚合总览接口的 URI 与代码符号 SHALL 取自实存域对象名（`license`），MUST NOT 引入域外词（如 membership）。接口返回内容为当前登录用户的 License 聚合视图（有效档位、最远到期、剩余时长、待激活数、名下非 unused 套餐行计数——订单来源与激活码兑换同计）；明细列表由独立分页端点承载（见「License 明细与快照字段层对齐域对象 code」）。
 
 #### Scenario: 我的套餐总览走 license 路径
 
@@ -212,7 +212,7 @@ API 端点/DTO/错误码 SHALL 以 backend-detail-design.md 附录 Z 为唯一�
 #### Scenario: 明细分页走 codes 路径
 
 - **WHEN** 已登录用户请求 `GET /api/pay/license/codes?page=1&status=pending_activation`
-- **THEN** 行为与原 license/grants 完全一致：items 行含 code_id/order_no/tier/duration_days/status/activated_at/expires_at/grant_start，total 为筛选全量计数，未知 status 白名单外值忽略
+- **THEN** 行为与原 license/grants 完全一致：items 行含 code_id/order_no/source/tier/duration_days/status/activated_at/expires_at/grant_start（source=行来源，order=支付订单／admin=激活码兑换·系统赠送），total 为筛选全量计数（名下非 unused 台账行，激活码兑换行与订单行同列——2026-10-03 拍板），未知 status 白名单外值忽略
 - **AND** 未登录请求返回 `code=4001`
 
 #### Scenario: 总览计数与订单快照双发过渡
@@ -230,7 +230,7 @@ API 端点/DTO/错误码 SHALL 以 backend-detail-design.md 附录 Z 为唯一�
 #### Scenario: 字段层符号单一命名
 
 - **WHEN** 检查前后端源码
-- **THEN** 明细行类型/仓储方法/分页函数一律命名 code 语义（LicenseCode / LicenseCodePage / apiPayLicenseCodes / find_order_codes_page / list_license_codes），grant 借词仅剩 grant_start 既成字段与过渡别名/双发字段
+- **THEN** 明细行类型/仓储方法/分页函数一律命名 code 语义（LicenseCode / LicenseCodePage / apiPayLicenseCodes / find_codes_page / list_license_codes），grant 借词仅剩 grant_start 既成字段与过渡别名/双发字段
 
 ### Requirement: 商品目录数据驱动三档矩阵
 

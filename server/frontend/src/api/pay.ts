@@ -97,10 +97,12 @@ export interface Fulfillment {
   grant_start?: string
 }
 
-/** 我的套餐明细行（订单来源码行；手工码不进明细） */
+/** 我的套餐明细行（名下全部台账行：订单来源＋激活码兑换，2026-10-03 拍板同列） */
 export interface LicenseCode {
   code_id: string
   order_no: string
+  /** 行来源：order=支付订单；admin=激活码兑换/系统赠送（前端据此打类型标） */
+  source: string
   tier: string
   duration_days: number
   status: string // pending_activation | active | frozen | revoked
@@ -115,7 +117,7 @@ export interface LicenseView {
   remaining_desc: string
   max_expires_at: string | null
   pending_count: number
-  /** 订单来源码行总数（与明细接口「全部」total 同过滤器 source='order'） */
+  /** 名下非 unused 台账行总数（与明细接口「全部」total 同口径） */
   code_count: number
 }
 

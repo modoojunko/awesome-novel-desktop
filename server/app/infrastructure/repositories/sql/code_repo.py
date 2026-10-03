@@ -292,12 +292,13 @@ class SqlCodeRepo:
         self.db.commit()
         return result > 0
 
-    def find_order_codes_page(self, user_id: int, statuses: list[str] | None = None,
-                               limit: int = 20, offset: int = 0) -> tuple[list[ActivationCode], int]:
-        """订单来源明细分页：filtered 全量装载后 len()+切片（个人量级，同 OrderRepo 假设）。"""
+    def find_codes_page(self, user_id: int, statuses: list[str] | None = None,
+                        limit: int = 20, offset: int = 0) -> tuple[list[ActivationCode], int]:
+        """我的套餐明细分页：filtered 全量装载后 len()+切片（个人量级，同 OrderRepo 假设）。
+        名下全部台账行（激活码兑换行与订单行同列，口径见 pg_http 同名方法）；unused 恒排除。"""
         q = self.db.query(ActivationCodeORM).filter(
             ActivationCodeORM.user_id == user_id,
-            ActivationCodeORM.source == "order",
+            ActivationCodeORM.status != "unused",
         )
         if statuses:
             q = q.filter(ActivationCodeORM.status.in_(statuses))

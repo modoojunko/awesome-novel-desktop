@@ -104,6 +104,10 @@ watch(activeTab, () => fetchPage(true))
 function durationLabel(g: LicenseCode): string {
   return g.duration_days >= 36500 ? '永久' : `${g.duration_days} 天`
 }
+/** 行来源类型标：订单=支付购买；激活码=兑换/系统赠送（source 缺省按订单——旧后端明细行全为订单来源） */
+function srcLabel(g: LicenseCode): string {
+  return g.source === 'admin' ? '激活码' : '订单'
+}
 function statusText(status: string): string {
   return status === 'active' ? '生效中'
     : status === 'frozen' ? '退款处理中'
@@ -292,6 +296,7 @@ onMounted(() => {
           <div class="panel list" :class="{ refreshing }">
             <div v-for="g in items" :key="g.code_id" class="code-row" :class="{ revoked: g.status === 'revoked' && activeTab === 'all' }">
               <div class="g-main">
+                <span class="pill pill-tag src-tag">{{ srcLabel(g) }}</span>
                 <span class="g-tier">{{ tierName(g.tier) }} · {{ durationLabel(g) }}</span>
                 <span :class="statusPill(g.status)">{{ statusText(g.status) }}</span>
               </div>
@@ -374,6 +379,7 @@ onMounted(() => {
 .code-row:first-child { border-top: none; }
 .code-row.revoked { opacity: 0.55; }
 .g-main { display: flex; align-items: center; gap: 10px; }
+.src-tag { font-size: 11px; padding: 2px 8px; flex-shrink: 0; }
 .g-tier { font-family: var(--font-display); font-weight: 600; font-size: 14px; }
 .g-sub { grid-column: 1; font-size: 12.5px; color: var(--muted); }
 .code-row .btn { grid-row: 1 / 3; grid-column: 2; align-self: center; }

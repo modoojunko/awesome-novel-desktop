@@ -97,4 +97,5 @@ class TestRegisteredTokenCarriesUid:
         r = client.get("/api/pay/license", headers=_auth(token))
         assert r.status_code == 200
         assert r.json()["code"] == 0
-        assert r.json()["data"]["code_count"] == 0
+        # 2026-10-03 起行计数含激活码兑换来源：注册即送 trial（已激活非 unused）计入 → 1
+        assert r.json()["data"]["code_count"] == 1

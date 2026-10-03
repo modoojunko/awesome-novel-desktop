@@ -274,12 +274,15 @@ class PgHttpCodeRepo:
         )
         return rows > 0
 
-    def find_order_codes_page(self, user_id: int, statuses: list[str] | None = None,
-                               limit: int = 20, offset: int = 0) -> tuple[list[ActivationCode], int]:
-        """订单来源明细分页单往返（count 与取行合并，同 OrderRepo.find_by_user_page；
-        网关不回 Content-Range 时降级单独计数）。source=eq.order 天然排除 NULL 来源行。"""
-        filt: dict = {"user_id": user_id, "source": "order"}
+    def find_codes_page(self, user_id: int, statuses: list[str] | None = None,
+                        limit: int = 20, offset: int = 0) -> tuple[list[ActivationCode], int]:
+        """我的套餐明细分页单往返（count 与取行合并，同 OrderRepo.find_by_user_page；
+        网关不回 Content-Range 时降级单独计数）。名下全部台账行（2026-10-03 拍板：
+        激活码兑换行与订单行同列入明细，行 source 字段供前端区分类型）；unused 未兑换行
+        不是套餐，恒排除（手工直发绑定码未激活前不出现）。"""
+        filt: dict = {"user_id": user_id, "status": RawFilter("neq.unused")}
         if statuses:
+            # 覆盖而非叠加是安全的：statuses 来自端点白名单（不含 unused），in. 天然排除
             filt["status"] = RawFilter(f"in.({','.join(statuses)})")
         docs, total = self.client.find(
             _TABLE,

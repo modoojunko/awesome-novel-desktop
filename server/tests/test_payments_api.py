@@ -340,7 +340,8 @@ class TestFulfillActivateFlow:
 
 class TestLicenseGrants:
     """套餐明细分页接口（license-grants-pagination）+ license 聚合视图瘦身口径：
-    手工码排除 + order_no 映射 + status 白名单 + created_at 同口径。"""
+    名下全部台账行入明细（2026-10-03 拍板：激活码兑换行与订单行同列，unused 恒排除）
+    + order_no 映射 + status 白名单 + created_at 同口径。"""
 
     def _switch_on(self, db_session):
         from app.models.config import GlobalConfigORM
@@ -363,28 +364,32 @@ class TestLicenseGrants:
         auth = _auth(web_user)
         order_no = self._buy_and_fulfill(client, web_user, db_session, admin_token)
 
-        # license 瘦身：聚合视图无 grants 内嵌，只有行计数（与「全部」total 同口径）
+        # license 瘦身：聚合视图无 grants 内嵌，只有行计数（与「全部」total 同口径；
+        # 注册即送的 trial 已激活=active，计入行数——2026-10-03 起手工来源行同列入明细）
         d = client.get("/api/pay/license", headers=auth).json()["data"]
         assert "grants" not in d
-        assert d["code_count"] == 1
+        assert d["code_count"] == 2  # trial + 订单行
         assert d["pending_count"] == 1
 
-        # 明细端点：注册即送的 trial 属手工来源（source=admin）不进明细，只有订单台账行
+        # 明细端点：trial（source=admin）与订单行同列，created_at 倒序=最新订单在前
         r = client.get("/api/pay/license/codes", headers=auth)
         assert r.json()["code"] == 0
         body = r.json()["data"]
-        assert body["total"] == 1
+        assert body["total"] == 2
         g = body["items"][0]
         assert g["order_no"] == order_no
+        assert g["source"] == "order"
         assert g["status"] == "pending_activation"
-        assert set(g) == {"code_id", "order_no", "tier", "duration_days", "status",
+        trial = body["items"][1]
+        assert trial["tier"] == "trial" and trial["source"] == "admin" and trial["order_no"] == ""
+        assert set(g) == {"code_id", "order_no", "source", "tier", "duration_days", "status",
                           "activated_at", "expires_at", "grant_start"}
 
         # 状态筛选
         assert client.get("/api/pay/license/codes?status=pending_activation",
                           headers=auth).json()["data"]["total"] == 1
         assert client.get("/api/pay/license/codes?status=active",
-                          headers=auth).json()["data"]["total"] == 0
+                          headers=auth).json()["data"]["total"] == 1  # trial
 
         # 未知值不致命：全未知=空列表+0；混合=未知忽略
         r = client.get("/api/pay/license/codes?status=bogus", headers=auth)
@@ -403,18 +408,18 @@ class TestLicenseGrants:
 
         r = client.get("/api/pay/license/codes?page=1&page_size=2", headers=auth)
         body = r.json()["data"]
-        assert body["total"] == 3
+        assert body["total"] == 4  # 3 订单行 + 注册 trial（已激活非 unused）
         assert len(body["items"]) == 2
         assert body["items"][0]["order_no"] == nos[-1]  # 最新单在前
 
         r = client.get("/api/pay/license/codes?page=2&page_size=2", headers=auth)
         body = r.json()["data"]
-        assert body["total"] == 3
-        assert [i["order_no"] for i in body["items"]] == [nos[0]]  # 剩最旧一行
+        assert body["total"] == 4
+        assert [i["order_no"] for i in body["items"]] == [nos[0], ""]  # 剩最旧一行 + trial
 
         # 分页钳制：page_size 上限 100、page 下限 1
         r = client.get("/api/pay/license/codes?page=-1&page_size=9999", headers=auth)
-        assert r.json()["code"] == 0 and r.json()["data"]["total"] == 3
+        assert r.json()["code"] == 0 and r.json()["data"]["total"] == 4
 
     def test_grants_listing_and_manual_code_excluded(self, client, web_user, _catalog, db_session, admin_token):
         self._switch_on(db_session)
@@ -429,13 +434,13 @@ class TestLicenseGrants:
         s.commit()
 
         d = client.get("/api/pay/license", headers=auth).json()["data"]
-        assert d["code_count"] == 1 and d["pending_count"] == 0
+        assert d["code_count"] == 2 and d["pending_count"] == 0  # trial + 已收回订单行
         body = client.get("/api/pay/license/codes?status=revoked", headers=auth).json()["data"]
         assert body["total"] == 1 and body["items"][0]["status"] == "revoked"
 
     def test_unused_manual_code_does_not_inflate_tier(self, client, web_user, _catalog, db_session, admin_token):
-        """unused 手工码不参与档位归属（merge 输入保持原 active 口径）：
-        active pro + 未激活手工 max 码 → 档位头仍为 pro，max 码只不进明细。"""
+        """unused 手工码不参与档位归属也不进明细（非 unused 才是套餐）：
+        active pro + 未激活手工 max 码 → 档位头仍为 pro，max 码明细与计数双排除。"""
         self._switch_on(db_session)
         auth = _auth(web_user)
         order_no = self._buy_and_fulfill(client, web_user, db_session, admin_token)
@@ -456,8 +461,8 @@ class TestLicenseGrants:
         d = client.get("/api/pay/license", headers=auth).json()["data"]
         assert d["tier"] == "pro"  # 未激活的 max 码不抬档
         body = client.get("/api/pay/license/codes", headers=auth).json()["data"]
-        assert all(g["code_id"] != "AC-MANUAL-MAX-TEST" for g in body["items"])  # 手工码不进明细
-        assert d["code_count"] == 1  # 计数同口径：手工码不计入
+        assert all(g["code_id"] != "AC-MANUAL-MAX-TEST" for g in body["items"])  # unused 不进明细
+        assert d["code_count"] == 2  # 计数同口径：unused 不计入（trial + 订单行）
 
     def test_grant_created_at_matches_paid_at(self, client, web_user, _catalog, db_session, admin_token):
         """台账行 created_at 显式 UTC 口径：与订单 paid_at 秒级同（回归：列默认快 8h）。"""
