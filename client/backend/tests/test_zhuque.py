@@ -716,8 +716,6 @@ def test_test_endpoint_records_usage(monkeypatch):
 
 def test_zhuque_delete_stored_result(monkeypatch):
     """清除连档删（c-zhuque-clear-keyscope）：删行→读回未存档→幂等→他书 404。"""
-    import asyncio
-
     async def scene(monkeypatch):
         uid, pid = await _seed_project("delarc")
         await _save_zhuque(uid)
