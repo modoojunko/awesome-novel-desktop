@@ -278,11 +278,14 @@ async def polish_text(
         usage.pop("model", None)  # 实际模型由端点记（effective_model）
 
     client = await get_ai_client_for_novel(novel_id)
+    # c-polish-prompt-anti-ai 评审 P2：v4 信息轮次化放宽至 160% 且选区无长度上限，
+    # 固定 2048 会在大选区上截断产物——预算随选区伸缩（产物 ≤1.6×选区，中文按约 1.5 token/字留余量），封顶 4096。
+    max_tokens = min(4096, 1024 + 2 * len(selected_text))
     return await client.chat(
         model=resolved_model,
         system=((_sys_t.format(**ctx) + f"；叙事角色定位：{role}") if _sys_t else f"你是一位资深小说编辑，专治「AI 腔」，请遵循以下角色定位：{role}"),
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=2048,
+        max_tokens=max_tokens,
         usage=usage,
     )
 
