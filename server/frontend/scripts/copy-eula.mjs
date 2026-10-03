@@ -4,7 +4,7 @@
  * relicense-proprietary：改 LICENSE 后重新构建即同步——严禁手工编辑 public/legal/eula.html
  * （防双源漂移；文件内含版本号 v2026.09 可探测漂移）。
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -14,7 +14,14 @@ let src;
 try {
   src = readFileSync(join(repoRoot, 'LICENSE'), 'utf-8').replace(/^\uFEFF/, '');
 } catch (e) {
-  console.error(`copy-eula: LICENSE 不存在（repoRoot=${repoRoot}）——` +
+  // 上传包只含 server/frontend 的构建环境（tcb 云构建、未 COPY LICENSE 的 docker）：
+  // 根 LICENSE 天然缺席，此时保留已入库的 public/legal/eula.html 继续构建——
+  // 硬炸会把整条 S端 web 发布链卡死（2026-10-03 v0.26 云构建实录）。
+  if (existsSync(join(here, '..', 'public', 'legal', 'eula.html'))) {
+    console.warn(`copy-eula: 根 LICENSE 不可读（repoRoot=${repoRoot}），保留已入库 public/legal/eula.html`);
+    process.exit(0);
+  }
+  console.error(`copy-eula: LICENSE 不存在（repoRoot=${repoRoot}）且无 public/legal/eula.html 可回落——` +
     `compose 须注入 repo=. 命名上下文并 COPY --from=repo LICENSE /LICENSE`);
   process.exit(1);
 }
