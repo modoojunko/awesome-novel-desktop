@@ -2,7 +2,8 @@
 //   卷选中 → VolumeAssistPanel（验证报告/规划入口，内容随卷域定）
 //   章选中 → AiAssistPanel（随章页签切换的 AI 助手卡，ra-* 全局统一布局）
 // 右栏 SHALL 只承载 AI 相关功能（c-rail-ai-only）；AI 写入工具全部经 onAi* 走
-// 页面级解锁链（归档章先弹「解除只读」，真 bug #1）。
+// 页面级写入链（归档章动作置灰＋hint 指路「重写本章」，c-archived-readonly：
+// 原「解除只读」解锁链已退役）。
 import type { RefObject } from "react";
 import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { toast } from "@/lib/toast";
@@ -21,8 +22,6 @@ export interface RailChapterData {
   setTargetWords: (n: number) => void;
   archived: boolean;
   bookWords: number;
-  /** 退出归档只读（解锁链确认后由页面调用） */
-  unarchive: () => Promise<void>;
   /** 中栏当前页签（storyline col-ai 口径：右栏 AI 辅助随页签切换） */
   tab?: string;
   /** 章纲页签统计（归档门槛/计划字数/关键事件/出场角色） */

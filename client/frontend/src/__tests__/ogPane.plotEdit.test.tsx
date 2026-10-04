@@ -12,12 +12,19 @@ function Host({
   initial,
   onPlotEdit,
   editing = true,
+  archived = false,
+  confirmed = false,
+  onUnconfirm,
   onStartEdit,
   onGapClick,
 }: {
   initial: OgForm;
   onPlotEdit?: () => void;
   editing?: boolean;
+  /** 归档章（c-archived-readonly）：恒查看态＋动作区不提供 */
+  archived?: boolean;
+  confirmed?: boolean;
+  onUnconfirm?: () => void;
   onStartEdit?: () => void;
   onGapClick?: (key: string) => void;
 }) {
@@ -27,10 +34,12 @@ function Host({
       form={form}
       label="第2章 · 锚点"
       editing={editing}
+      archived={archived}
       onPatch={(patch) => setForm((f) => ({ ...f, ...patch }))}
       onPlotEdit={onPlotEdit}
       gaps={[{ key: "changes", label: "必须完成的变化" }]}
-      confirmed={false}
+      confirmed={confirmed}
+      onUnconfirm={onUnconfirm}
       saving={false}
       onStartEdit={onStartEdit ?? (() => {})}
       onCancelEdit={() => {}}
@@ -116,6 +125,33 @@ describe("章纲查看/编辑两态（c-ch-og-readonly）", () => {
     render(<Host initial={{ ...EMPTY_OG_FORM, plots: ["甲登场"] }} />);
     expect(screen.queryByTestId("og-view")).toBeNull();
     expect(screen.getByLabelText("第 1 条剧情")).toHaveValue("甲登场");
+    expect(screen.queryByTestId("og-edit")).toBeNull();
+  });
+});
+
+describe("归档章章纲只读（c-archived-readonly）", () => {
+  it("查看态不提供动作区：撤回确认/去写正文/确认章纲/编辑章纲全不在场，一页纸本体保留", () => {
+    render(
+      <Host
+        initial={{ ...EMPTY_OG_FORM, summary: "陆沉查舱段结构" }}
+        editing={false}
+        archived
+        confirmed
+        onUnconfirm={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("og-view")).toBeInTheDocument();
+    expect(screen.getByText("陆沉查舱段结构")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "确认章纲" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "去写正文" })).toBeNull();
+    expect(screen.queryByTestId("og-edit")).toBeNull();
+    expect(screen.queryByTestId("og-unconfirm")).toBeNull();
+  });
+
+  it("编辑态残留（归档前进过表单）也强制回查看态：不渲染表单控件", () => {
+    render(<Host initial={{ ...EMPTY_OG_FORM, plots: ["甲登场"] }} editing archived />);
+    expect(screen.getByTestId("og-view")).toBeInTheDocument();
+    expect(screen.queryByLabelText("第 1 条剧情")).toBeNull();
     expect(screen.queryByTestId("og-edit")).toBeNull();
   });
 });

@@ -1,15 +1,15 @@
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { cleanupSessionNovels, stableClick, writeFirstChapter } from "./helpers";
 
 // =========================================================================
-// PR 5 弹窗群 E2E（book.html 3/3：删除分级 / 只读章 AI 解锁链 / 版本历史 / 本书偏好）
+// PR 5 弹窗群 E2E（book.html 3/3：删除分级 / 归档章写入锁死 / 版本历史 / 本书偏好）
 //   ① 删除分级确认：有正文章盘点 chips（正文 N 字）、删卷带章数字数文案、
 //      取消保持 / 确认删除（spec-report §6-1）
-//   ② 只读章 AI 解锁链：归档 → 工具栏 AI 生成正文 → 解除只读确认 → AiModal
-//      提示词预览 → 取消不生成但已解锁（真 bug #1）+ AI 确认后自动切正文页签（真 bug #2）
+//   ② 归档章写入锁死（c-archived-readonly）：归档 → 右栏 AI 动作禁用＋hint 指路
+//      「重写本章」；只读横幅指路重写、无恢复编辑旁路；「解除只读」解锁链退役
 //   ③ 版本历史弹窗：两轮自动保存产生快照 → ver-row 列表 + 当前版本 → 恢复回退正文
 //   ④ 本书偏好弹窗：面板「本书偏好」→ per-book 字号保存持久 + 免费态升级 PRO 链升级弹窗
 // =========================================================================
@@ -23,8 +23,6 @@ const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
 // E2E 临时账号口令（本地 docker S端 专用，非真实凭据）
 const E2E_PASSWORD = ["Test", "Pass", "789", "!"].join("");
-// 假 ApiConfig 的 key（base_url 指向不可达端口，仅过 require_ai_access 门控）
-const E2E_FAKE_KEY = ["sk-e2e", "not-real"].join("-");
 // 会话隔离（per-session 规则）：独立栈的数据目录用 E2E_CLIENT_CONFIG_PATH 指路；
 // 缺省维持共享栈口径（repo 根 .docker-data/client/config.json）
 const CONFIG_PATH = process.env.E2E_CLIENT_CONFIG_PATH
@@ -111,20 +109,6 @@ async function setupSession(page: Page, tier = "trial") {
     await restore();
   };
   return { restore: restoreAndCleanup, token };
-}
-
-/** 注入一条 active ApiConfig，使 require_ai_access 门控放行（不测真实连接）。 */
-async function ensurePromptAccess(request: APIRequestContext, token: string) {
-  const r = await request.post(`${ORIGIN}/api/v1/api-configs`, {
-    data: {
-      name: `e2e-modal-${Date.now()}`,
-      vendor_id: "openai-compat",
-      base_url: "http://127.0.0.1:1",
-      api_key: E2E_FAKE_KEY,
-    },
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  expect(r.ok()).toBeTruthy();
 }
 
 /** 通过真实 UI 创建小说，返回 project id。 */
@@ -215,17 +199,16 @@ test("删除分级：章盘点 chips / 删卷带章数字数 / 取消与确认",
 });
 
 // -------------------------------------------------------------------------
-// ② 只读章 AI 解锁链 + AI 确认自动切正文页签（真 bug #1/#2，trial = PRO）
+// ② 归档章写入锁死：右栏 AI 动作禁用指路重写，无「解除只读」解锁链
+//    （c-archived-readonly：唯一修改路径＝「重写本章」，操作页签；trial = PRO）
 // -------------------------------------------------------------------------
 
-test("解锁链：归档章点 AI → 解除只读 → AiModal 提示词；确认生成自动切正文页签", async ({
+test("归档章写入锁死：右栏 AI 动作禁用指路重写，无「解除只读」弹窗", async ({
   page,
-  request,
 }) => {
-  const { restore, token } = await setupSession(page);
+  const { restore } = await setupSession(page);
   try {
-    await ensurePromptAccess(request, token);
-    const pid = await createNovel(page, `解锁${Date.now() % 100000}`);
+    const pid = await createNovel(page, `锁死${Date.now() % 100000}`);
     const editor = await writeFirstChapter(page);
 
     // 本书偏好归档 AI 摘要关（per-book pref 影响 archive 行为，兼降低外部依赖）
@@ -235,7 +218,7 @@ test("解锁链：归档章点 AI → 解除只读 → AiModal 提示词；确�
 
     const save1 = waitForProseSave(page);
     await editor.fill(
-      "解锁链验证正文。归档接口要求正文至少一百个字符，" +
+      "锁死验证正文。归档接口要求正文至少一百个字符，" +
         "所以这段内容需要足够长以满足归档校验要求，避免归档请求因太短被拒绝。" +
         "再补充两句叙述：第一句让字数继续增长一些，" +
         "第二句确保总量稳稳超过一百个字符的门槛线。故事在这里继续向前推进。",
@@ -249,48 +232,26 @@ test("解锁链：归档章点 AI → 解除只读 → AiModal 提示词；确�
     await expect(page.locator(".e-meta")).toContainText("已归档", { timeout: 10000 });
     await expect(editor).toHaveAttribute("contenteditable", "false");
 
-    // 归档章点右栏「生成正文」→ 解除只读确认（真 bug #1 门控；2026-09-20 AI 入口唯一化右栏；
-    // c-prose-write-entry：入口在正文页签 AI 辅助面板动作清单）
+    // 正文页签：只读横幅指路「重写本章」，无「恢复编辑」旁路按钮
     await page.getByRole("tab", { name: /^正文/ }).click();
-    await page.getByTestId("ai-write-btn").click();
-    // Modal 退场有 200ms 卸载窗口期，链式弹窗可能短暂并存 → 一律按 accessible name 限定
-    const unlock = page.getByRole("dialog", { name: "解除只读" });
-    await expect(unlock.getByText(/AI 生成将解除只读并继续/)).toBeVisible();
+    const banner = page.locator(".readonly-banner");
+    await expect(banner).toContainText("本章已归档");
+    await expect(banner).toContainText("重写本章");
+    await expect(banner.getByRole("button", { name: "恢复编辑" })).toHaveCount(0);
 
-    // 确认解锁 → unarchive 落地后链式打开 AiModal（提示词预览）
-    await page.getByTestId("unlock-confirm").click();
-    const ai = page.getByRole("dialog", { name: "AI 生成正文" });
-    await expect(ai.getByRole("heading", { name: "AI 生成正文" })).toBeVisible({
-      timeout: 10000,
-    });
-    // 提示词加载完成（textarea 解禁 + 两段式说明；本章未配章纲 → 对应提示）
-    await expect(ai.getByTestId("ai-prompt")).toBeEnabled({ timeout: 10000 });
+    // 右栏写入动作禁用＋hint 指路重写；「解除只读」解锁链退役（c-archived-readonly）
+    await expect(page.getByTestId("ai-write-btn")).toBeDisabled();
     await expect(
-      ai.getByText(/两段式：先「AI 润色」|本章尚未配置章纲/),
+      page.getByText("已归档 · 重写走「操作」页签").first(),
     ).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "解除只读" })).toHaveCount(0);
 
-    // 弹窗取消 → 不生成，但解锁已生效（编辑器翻回可编辑、只读横幅撤下；
-    // c-prose-edit-gate：本用例经 helper 已在编辑态且未切章，解锁后编辑态保持）
-    await ai.getByRole("button", { name: "取消" }).click();
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(editor).toHaveAttribute("contenteditable", "true", {
-      timeout: 10000,
-    });
-    await expect(page.getByText(/本章已归档 · 只读/)).toHaveCount(0);
-
-    // 真 bug #2（c-prose-write-entry 新口径）：生成正文入口已收编正文页签 AI 辅助面板，
-    // 章纲等其它页签的右栏不再有该按钮；正文页签确认生成 → 编辑器可见（自动聚焦不变）
+    // 章纲页签同锁（c-archived-readonly 章纲只读）：动作区不提供；右栏「生成正文」
+    // 仍只在正文页签（c-prose-write-entry 口径保持）
     await page.getByRole("tab", { name: /^章纲/ }).click();
-    await expect(page.getByTestId("og-edit")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("og-view")).toBeVisible();
+    await expect(page.getByTestId("og-edit")).toHaveCount(0);
     await expect(page.locator(".col-ai").getByTestId("ai-write-btn")).toHaveCount(0);
-    await page.getByRole("tab", { name: /^正文/ }).click();
-    await page.getByTestId("ai-write-btn").click();
-    await expect(
-      page.getByRole("dialog", { name: "AI 生成正文" }).getByTestId("ai-prompt"),
-    ).toBeEnabled({ timeout: 10000 });
-    await page.getByTestId("ai-confirm").click();
-    // 页签在正文（编辑器可见；生成请求打向假端点失败属预期，不作断言）
-    await expect(editor).toBeVisible({ timeout: 5000 });
   } finally {
     await restore();
   }

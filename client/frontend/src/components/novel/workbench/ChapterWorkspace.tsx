@@ -466,7 +466,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   // ── 章纲查看/编辑两态（对齐卷纲）：进编辑＝表单可写（3s 自动保存只认快照差）；
   //    取消＝回退到最近一次落库值（ogSnapRef 恒等于已持久化内容，含自动保存）。
   //    编辑入口：编辑章纲按钮／查看态缺口 chip／右栏缺项补全（产物要在表单里过目）。──
-  const startOgEdit = useCallback(() => setOgEditing(true), []);
+  // 归档章一律哑火（c-archived-readonly）：OgPane 恒查看态，编辑态不得经 chip 溜进。
+  const startOgEdit = useCallback(() => {
+    if (!archived) setOgEditing(true);
+  }, [archived]);
   const cancelOgEdit = useCallback(() => {
     try {
       setOgForm(JSON.parse(ogSnapRef.current) as OgForm);
@@ -476,11 +479,15 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     setOgEditing(false);
   }, []);
   /** 进编辑态并滚动聚焦指定格子（查看态缺口 chip／剧情抽卡的「去补填」共用） */
-  const editAndFlash = useCallback((key: string) => {
-    setOgEditing(true);
-    // 切编辑态重渲后 wf-* 控件才存在（与 handleGoWrite 聚焦同款时序）
-    window.setTimeout(() => flashField(key), 80);
-  }, []);
+  const editAndFlash = useCallback(
+    (key: string) => {
+      if (archived) return;
+      setOgEditing(true);
+      // 切编辑态重渲后 wf-* 控件才存在（与 handleGoWrite 聚焦同款时序）
+      window.setTimeout(() => flashField(key), 80);
+    },
+    [archived],
+  );
 
   /** 确认后以服务端为准回读 status（失败则徽标停在草稿）；返回最新 status */
   const reloadStatus = useCallback(async (): Promise<string> => {
@@ -997,22 +1004,25 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, chapterRef, store, onTreeRefresh, outline.refetchTree]);
 
-  // ── 恢复编辑（退出归档只读；换皮不减功能——banner 内入口） ────────────
-  const handleUnarchive = useCallback(async () => {
-    if (!window.confirm(`确定恢复《${label}》的编辑吗？恢复后本章退出归档只读状态。`))
-      return;
-    await store.unarchive();
-  }, [label, store]);
+  // 归档只读横幅（c-archived-readonly）：正文/章纲两页签共用同一块。
+  // 唯一修改路径＝「重写本章」（操作页签）——恢复编辑/解除只读等旁路入口已退役。
+  const archivedBanner = archived ? (
+    <div className="readonly-banner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <rect x="4" y="10" width="16" height="10" rx="2" />
+        <path d="M8 10V7a4 4 0 018 0v3" />
+      </svg>
+      <span>
+        本章已归档 · <b>只读</b>。如需修改，请在「操作」页签使用「重写本章」（旧稿自动转存支线）。
+      </span>
+    </div>
+  ) : null;
 
   // ── 右栏进度数据上抛（ref 防 effect 依赖抖动；切章/卸载置空） ──────────
   const onRailDataRef = useRef(onRailData);
   useEffect(() => {
     onRailDataRef.current = onRailData;
   }, [onRailData]);
-  // useChapterData 每渲染返回新对象：unarchive 走 ref，依赖保持原基元集
-  // （否则 effect 每渲染必跑 → onRailData setState → 无限循环）
-  const unarchiveRef = useRef(store.unarchive);
-  unarchiveRef.current = store.unarchive;
   useEffect(() => {
     // 章纲统计（右栏 AI 辅助·章纲页签）：归档门槛/计划字数/关键事件/出场角色
     // 章纲统计（右栏 AI 辅助·章纲页签）：归档门槛/计划字数/剧情/出场角色
@@ -1027,7 +1037,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       setTargetWords,
       archived,
       bookWords,
-      unarchive: unarchiveRef.current,
       // storyline col-ai：右栏 AI 辅助随页签切换
       tab: chTab,
       chapterRef,
@@ -1168,23 +1177,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         </button>
       </div>
 
-      {chTab === "prose" && archived && (
-        <div className="readonly-banner">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <rect x="4" y="10" width="16" height="10" rx="2" />
-            <path d="M8 10V7a4 4 0 018 0v3" />
-          </svg>
-          <span>
-            本章已归档 · <b>只读</b>。如需修改，可在版本历史中恢复后重新归档。
-          </span>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => void handleUnarchive()}
-          >
-            恢复编辑
-          </button>
-        </div>
-      )}
+      {chTab === "prose" && archivedBanner}
 
       <ProsePane
         ref={proseRef}
@@ -1450,6 +1443,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         }}
       />
 
+      {chTab === "og" && archivedBanner}
       {chTab === "og" && (
         <OgPane
           form={ogForm}
@@ -1463,6 +1457,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           onPlotEdit={handlePlotEdit}
           gaps={gaps}
           confirmed={confirmed}
+          archived={archived}
           saving={ogLoading || ogSaving}
           onStartEdit={startOgEdit}
           onCancelEdit={cancelOgEdit}

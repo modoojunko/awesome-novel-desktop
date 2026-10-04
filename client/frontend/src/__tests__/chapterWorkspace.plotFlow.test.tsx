@@ -81,8 +81,20 @@ function mount(opts: {
   server: Record<string, unknown>;
   isPro?: boolean;
   onOpenAiModal?: () => void;
+  /** 树行归档态（c-archived-readonly）：true＝本章已归档 */
+  archived?: boolean;
 }) {
   const outline = makeOutline(opts.server);
+  // 每次挂载新建 wb 桩：归档态按用例覆写，不污染模块级 wb
+  const wbStub = {
+    ...wb,
+    volumes: [
+      {
+        name: "vol-1",
+        chapters: [{ chapter: 2, title: "锚点", archived: opts.archived ?? false }],
+      },
+    ],
+  };
   let rail: any = null;
   render(
     <MemoryRouter>
@@ -90,7 +102,7 @@ function mount(opts: {
         projectId="p1"
         chapterRef={REF}
         outline={outline as never}
-        wb={wb as never}
+        wb={wbStub as never}
         isPro={opts.isPro ?? true}
         proseRef={createRef()}
         aiState={INITIAL_PROSE_AI_STATE}
@@ -406,5 +418,32 @@ describe("保存草稿不确认＋撤回确认（c-og-draft-no-autconfirm）", (
     );
     expect(outline.unconfirmChapter).toHaveBeenCalledWith(REF);
     expect(outline.refetchTree).toHaveBeenCalled();
+  });
+});
+
+describe("归档章章纲只读（c-archived-readonly）", () => {
+  it("归档章停在章纲页签：归档横幅指路重写在场，动作区四入口不在场，一页纸本体保留", async () => {
+    mount({ server: { ...FULL, status: "confirmed" }, archived: true });
+    expect(await screen.findByTestId("og-view")).toBeInTheDocument();
+    // 横幅（正文/章纲两页签同款）：指路「重写本章」，无恢复编辑等旁路按钮
+    expect(screen.getByText(/本章已归档/)).toBeInTheDocument();
+    expect(screen.getByText(/重写本章/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "恢复编辑" })).toBeNull();
+    // 动作区整排不提供（确认/撤回对归档章后端本就 409）
+    expect(screen.queryByRole("button", { name: "确认章纲" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "去写正文" })).toBeNull();
+    expect(screen.queryByTestId("og-edit")).toBeNull();
+    expect(screen.queryByTestId("og-unconfirm")).toBeNull();
+    // 一页纸本体仍在（只读呈现，不白屏）
+    expect(screen.getByTestId("og-view")).toBeInTheDocument();
+  });
+
+  it("归档章点缺口 chip 不进编辑态（编辑入口哑火，无保存草稿表单）", async () => {
+    mount({ server: { ...FULL }, archived: true });
+    expect(await screen.findByTestId("og-view")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "必须完成的变化" }));
+    // 仍在查看态：编辑态的保存草稿按钮不在场
+    expect(screen.queryByRole("button", { name: "保存草稿" })).toBeNull();
+    expect(screen.getByTestId("og-view")).toBeInTheDocument();
   });
 });

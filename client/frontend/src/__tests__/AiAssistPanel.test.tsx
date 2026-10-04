@@ -296,3 +296,18 @@ describe("故事状态缺口标注（c-chapter-dossier 评审 P2）", () => {
     expect(note.textContent).toContain("未归档");
   });
 });
+
+describe("归档章写入锁死（c-archived-readonly）", () => {
+  it("正文页签：生成正文禁用＋hint 指路重写，点击不上抛", async () => {
+    const onAiWrite = vi.fn();
+    renderPanel("prose", { onAiWrite, archived: true });
+    const write = screen.getByTestId("ai-write-btn") as HTMLButtonElement;
+    expect(write.disabled).toBe(true);
+    // hint 指路重写（唯一修改路径）
+    expect(screen.getByText("已归档 · 重写走「操作」页签")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(write);
+    });
+    expect(onAiWrite).not.toHaveBeenCalled();
+  });
+});

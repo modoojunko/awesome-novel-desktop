@@ -989,7 +989,7 @@
       </div>
       <div class="readonly-banner" id="readonlyBanner" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>
-        <span>本章已归档 · <b>只读</b>。如需修改，可在版本历史中恢复后重新归档。</span>
+        <span>本章已归档 · <b>只读</b>。如需修改，请在「操作」页签使用「重写本章」（旧稿自动转存支线）。</span>
       </div>
       <div class="editor-wrap" id="editorWrap">
         <div class="editor fs-m lh-comfy" id="editor" contenteditable="true" data-placeholder="从这一章开始写……"></div>
@@ -1153,17 +1153,7 @@
   </div>
 </div>
 
-<!-- 解除只读（归档章 · AI 继续编辑） -->
-<div class="modal" id="modalUnlock" hidden data-od-id="modal-unlock">
-  <div class="mcard">
-    <div class="mcard-head"><span class="mh serif">解除只读</span></div>
-    <div class="mcard-body">
-      <p style="margin:0; font-size:13.5px; line-height:1.7;">本章已<b>归档</b>，正文处于<b>只读</b>状态。</p>
-      <p style="margin:8px 0 0; font-size:12.5px; color:var(--muted);">AI 生成将解除只读并继续编辑，请确认是否继续。</p>
-    </div>
-    <div class="mcard-foot"><button class="btn btn-secondary" data-close="modalUnlock">取消</button><button class="btn btn-primary" id="unlockConfirm">解除只读并继续</button></div>
-  </div>
-</div>
+<!-- 解除只读弹窗已随 c-archived-readonly 退役（归档章写入锁死，唯一修改路径＝「重写本章」） -->
 
 <!-- 归档本章 -->
 <div class="modal" id="modalArchive" hidden data-od-id="modal-archive">
@@ -2720,6 +2710,9 @@ function renderChapter() {
   $('btnArchive').disabled = archived || words === 0;
   $('btnArchive').title = archived ? '本章已归档' : (words === 0 ? '空章无需归档' : '');
   $('editor').contentEditable = archived ? 'false' : 'true';
+  /* c-archived-readonly：归档章写入锁死——AI 生成入口禁用＋指路（唯一修改路径＝「重写本章」） */
+  $('btnAi').disabled = archived;
+  $('btnAi').title = archived ? '本章已归档 · 重写走「操作」页签' : '';
   $('editor').innerHTML = ch.content.map(p => `<p>${escapeHtml(p)}</p>`).join('');
   $('editor').dataset.placeholder = words ? '' : '从这一章开始写……';
   updateStats(ch, words);
@@ -2894,14 +2887,7 @@ function openAiModal(ch) {
 if ($('btnAi2')) $('btnAi2').addEventListener('click', () => $('btnAi').click());
 $('btnAi').addEventListener('click', () => {
   const ch = curCh();
-  if (isArchived(ch)) { openModal('modalUnlock'); return; }
-  openAiModal(ch);
-});
-$('unlockConfirm').addEventListener('click', () => {
-  const ch = curCh();
-  if (ch) ch.archived = false;
-  closeModal('modalUnlock');
-  persist(); renderTreeAll(); renderMiddle(); updateModNav();
+  if (isArchived(ch)) return; /* c-archived-readonly：解除只读退役，归档章不可写 */
   openAiModal(ch);
 });
 $('aiConfirm').addEventListener('click', () => {

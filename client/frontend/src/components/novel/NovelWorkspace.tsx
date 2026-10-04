@@ -17,7 +17,7 @@ import { ChapterPlanModal } from "@/components/novel/workbench/ChapterPlanModal"
 import { useChapterPlan } from "@/hooks/useChapterPlan";
 import { useVolumePlan } from "@/hooks/useVolumePlan";
 import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
-import { AiModal, UnlockModal } from "@/components/novel/workbench/modals";
+import { AiModal } from "@/components/novel/workbench/modals";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import AcctMenu from "@/components/AcctMenu";
 import BookPrefsModal from "@/components/novel/BookPrefsModal";
@@ -256,21 +256,18 @@ export default function NovelWorkspace() {
   const [showDownload, setShowDownload] = useState(false);
   const onUpgrade = useCallback(() => setShowUpgrade(true), []);
 
-  // ── 只读章 AI 解锁链（真 bug #1/#2 修复，book.html openAiModal 链） ────
-  // 归档章点任意 AI 写入工具 → 先弹「解除只读」→ 确认后 unarchive 并续跑原动作；
-  // 生成正文经 AiModal（提示词预览/编辑），其余工具直接执行。
+  // ── 右栏 AI 写入工具链（真 bug #2 修复；生成正文经 AiModal 提示词预览） ────
+  // 归档章全面只读（c-archived-readonly）：写入动作在 AiAssistPanel 置灰＋hint 指路
+  // 「重写本章」（操作页签）；requestAi 兜底 toast，原「解除只读」解锁链退役。
   type AiAction =
     | { kind: "write" }
     | { kind: "selection"; mode: "polish" | "expand" | "compress"; capture: SelectionCapture | null };
 
-  const [showUnlock, setShowUnlock] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
   // 生成已启动的信号（计数器）：ChapterWorkspace 收到即切正文页签 + 聚焦（真 bug #2）
   const [aiWriteSignal, setAiWriteSignal] = useState(0);
   // 提示词落库信号（c-prompt-tab-retire）：弹窗润色/存稿后右栏提示词状态行刷新
   const [promptSavedSignal, setPromptSavedSignal] = useState(0);
-  // 弹窗确认回调读取最新待续跑动作（闭包防串态）
-  const pendingAiRef = useRef<AiAction | null>(null);
 
   const runAiAction = useCallback((action: AiAction) => {
     if (action.kind === "write") {
@@ -289,21 +286,13 @@ export default function NovelWorkspace() {
   const requestAi = useCallback(
     (action: AiAction) => {
       if (railData?.archived) {
-        pendingAiRef.current = action;
-        setShowUnlock(true);
+        toast.info("本章已归档 · 修改请用「操作」页签的「重写本章」");
         return;
       }
       runAiAction(action);
     },
     [railData?.archived, runAiAction],
   );
-
-  const handleUnlockConfirm = useCallback(async () => {
-    const action = pendingAiRef.current;
-    pendingAiRef.current = null;
-    if (railData?.archived) await railData.unarchive();
-    if (action) runAiAction(action);
-  }, [railData, runAiAction]);
 
   const handleAiConfirm = useCallback((prompt: string) => {
     setAiWriteSignal((n) => n + 1);
@@ -1320,15 +1309,10 @@ export default function NovelWorkspace() {
       )}
 
 
-      {/* PR 5 弹窗群：升级 PRO / 只读章 AI 解锁链 / AI 生成（提示词预览） */}
+      {/* PR 5 弹窗群：升级 PRO / AI 生成（提示词预览） */}
       <UpgradeModal open={showUpgrade} onClose={() => setShowUpgrade(false)} />
       {chapterRef && (
         <>
-          <UnlockModal
-            open={showUnlock}
-            onClose={() => setShowUnlock(false)}
-            onConfirm={() => void handleUnlockConfirm()}
-          />
           <AiModal
             open={showAiModal}
             onClose={() => setShowAiModal(false)}
