@@ -21,3 +21,4 @@
 - [x] 4.1 `useChapterData.unarchive` 恢复（横幅出口专用，docstring 注 c-archived-readonly 小改路径）；`ChapterWorkspace` `handleUnarchive` 回归（confirm 弹窗保留）＋横幅按钮恢复＋文案两路径（「小改可恢复编辑；整体重写走…重写本章」）；`AiAssistPanel` hint／`requestAi` toast 改「已归档 · 恢复编辑后可用」；Rail/NovelWorkspace 注释同步。验证：grep 零「唯一路径」残留＋tsc 零错
 - [x] 4.2 测试对齐：plotFlow 横幅断言（恢复编辑在场）；AiAssistPanel 单测 hint 文案；modals-pr5 ② 补解锁全链（confirm accept → unarchive → 横幅撤下＋编辑器可写＋ai-write-btn 解禁）；free-writing-flow ⑥ 断言翻转
 - [x] 4.3 spec delta 三处措辞（横幅＝两路径出口；正文两态两路径条款；「恢复编辑后落查看态」回归本义）＋189 行续写建议残留清零；原型 book.html 横幅补「恢复编辑」按钮＋unarchiveBtn handler、ADJUSTMENTS.md 登记改为两路径口径。验证：`openspec validate c-archived-readonly --strict` 过
+- [x] 4.4 章纲状态徽＝状态机终态（用户反馈「归档了章纲状态还是草稿」）：`ogCnt` 页签 chip 与 OgPane panel-head 徽归档分支呈「已归档」（新增 `.wb .badge.muted` 中性档，同 appbar badge-muted 令牌）；非归档三态不变。验证：单测「终态徽在场、阶段态零命中」＋集成「页签 chip 文本＝已归档」＋`npm run design:lint` 过

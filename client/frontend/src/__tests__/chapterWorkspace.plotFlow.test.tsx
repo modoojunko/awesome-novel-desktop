@@ -2,7 +2,7 @@
 // 常驻回执／撤销只回滚 plots／编辑收掉回执／已润色章改剧情软提示／免费态锁定卡。
 // 打桩层＝`@/lib/api`＋`@/lib/toast`（toast 断言回执与撤销语义）。
 import { createRef } from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
@@ -425,6 +425,10 @@ describe("归档章章纲只读（c-archived-readonly）", () => {
   it("归档章停在章纲页签：横幅（小改「恢复编辑」＋重写指路）在场，动作区四入口不在场，一页纸本体保留", async () => {
     mount({ server: { ...FULL, status: "confirmed" }, archived: true });
     expect(await screen.findByTestId("og-view")).toBeInTheDocument();
+    // 状态机终态徽：页签条章纲 chip＝「已归档」（不报草稿/缺项/已确认）
+    expect(document.querySelector(".ch-tabs .cnt")?.textContent).toBe("已归档");
+    // 面板头徽同口径（og-view 内唯一「已归档」）
+    expect(within(screen.getByTestId("og-view")).getByText("已归档")).toBeInTheDocument();
     // 横幅（正文/章纲两页签同款）：小改路径＝「恢复编辑」出口，整体重写指路「重写本章」
     expect(screen.getByText(/本章已归档/)).toBeInTheDocument();
     expect(screen.getByText(/重写本章/)).toBeInTheDocument();

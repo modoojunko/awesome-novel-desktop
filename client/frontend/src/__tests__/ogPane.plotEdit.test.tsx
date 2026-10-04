@@ -142,6 +142,11 @@ describe("归档章章纲只读（c-archived-readonly）", () => {
     );
     expect(screen.getByTestId("og-view")).toBeInTheDocument();
     expect(screen.getByText("陆沉查舱段结构")).toBeInTheDocument();
+    // 状态机终态徽：已归档（不报已确认/待配章纲/草稿）
+    expect(screen.getByText("已归档")).toBeInTheDocument();
+    expect(screen.queryByText("章纲已确认")).toBeNull();
+    expect(screen.queryByText("待配章纲")).toBeNull();
+    expect(screen.queryByText("草稿")).toBeNull();
     expect(screen.queryByRole("button", { name: "确认章纲" })).toBeNull();
     expect(screen.queryByRole("button", { name: "去写正文" })).toBeNull();
     expect(screen.queryByTestId("og-edit")).toBeNull();

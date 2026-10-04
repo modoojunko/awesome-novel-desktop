@@ -1083,9 +1083,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   //    AI 入口收口右栏：页签 body 不再设 AI 按钮，建议结果仍在页签内逐项采纳） ──
   const [styleSuggestSignal, setStyleSuggestSignal] = useState(0);
 
-  // ── 页签徽标 ──────────────────────────────────────────────────────────
-  const ogCnt =
-    confirmed
+  // ── 页签徽标（状态机：起草→确认→正文→归档；归档＝终态，章纲徽不再报阶段态） ──
+  const ogCnt = archived
+    ? { cls: "cnt", text: "已归档" }
+    : confirmed
       ? { cls: "cnt ok", text: "已确认" }
       : gaps.length
         ? { cls: "cnt err", text: `缺 ${gaps.length} 项` }

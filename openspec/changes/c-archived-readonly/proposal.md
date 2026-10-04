@@ -12,7 +12,7 @@
 
 ## What Changes
 
-- `OgPane.tsx`：新增 `archived` prop——归档章恒走查看态（归档前残留的编辑态也不渲染表单），查看态动作区整排不提供；一页纸本体与章纲状态徽照旧如实呈现。
+- `OgPane.tsx`：新增 `archived` prop——归档章恒走查看态（归档前残留的编辑态也不渲染表单），查看态动作区整排不提供；一页纸本体照旧只读呈现，章纲状态徽呈状态机终态「已归档」（不报草稿/缺项/已确认）。
 - `ChapterWorkspace.tsx`：归档只读横幅（`.readonly-banner`）提取为正文/章纲两页签共用，承载两条修改路径——**「恢复编辑」按钮（小改：confirm 确认 → `store.unarchive()`，直改不转存旧稿）**＋整体重写指路「请在『操作』页签使用『重写本章』」；`startOgEdit`／`editAndFlash` 对归档章短路（缺口 chip／剧情抽卡「去补填」等编辑入口不得把归档章带进编辑态）；railData 的 `unarchive` 上抛随 AI 旁路退役删除（横幅直接用 `store.unarchive()`）。
 - **「解除只读」解锁链退役**：`NovelWorkspace` 的 `requestAi` 归档分支从「弹 UnlockModal → unarchive → 续跑」改为兜底 toast「已归档 · 恢复编辑后可用」；`UnlockModal` 组件删除；`AiAssistPanel` 正文页签「生成正文」行归档章 `disabled`＋hint「已归档 · 恢复编辑后可用」（续写建议行已随 #669 退役，不在本 change 范围）。
 - 测试：vitest 单测（OgPane 归档两态、AiAssistPanel 归档禁用行）＋集成（ChapterWorkspace 归档横幅两路径、动作区不在场、chip 哑火）＋e2e（free-writing-flow ⑥ 归档流搭车断言；modals-pr5 ② 由「解锁链」改写为「写入锁死＋恢复编辑解锁全链」）。

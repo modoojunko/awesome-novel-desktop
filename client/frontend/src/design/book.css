@@ -215,6 +215,7 @@
 .wb .badge.ok { background: var(--ok-soft); color: var(--ok); }
 .wb .badge.warn { background: var(--warn-soft); color: var(--warn); }
 .wb .badge.err { background: var(--err-soft); color: var(--err); }
+.wb .badge.muted { background: color-mix(in oklch, var(--fg) 6%, transparent); color: var(--muted); } /* 归档终态徽（c-archived-readonly） */
 .wb .badge.empty { background: var(--fg-soft); color: var(--muted); }
 .wb .badge.prog { background: var(--warn-soft); color: var(--warn); }
 .wb .badge svg { width: 10px; height: 10px; }

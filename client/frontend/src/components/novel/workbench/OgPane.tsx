@@ -210,7 +210,11 @@ export default function OgPane({
     return <p className="none">{reason}</p>;
   };
 
-  const badge = confirmed ? (
+  // 章纲状态徽（状态机：起草→确认→正文→归档）：归档＝终态，呈「已归档」，
+  // SHALL NOT 再报草稿/缺项/已确认（c-archived-readonly）
+  const badge = archived ? (
+    <span className="badge muted">已归档</span>
+  ) : confirmed ? (
     <span className="badge ok">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
         <path d="M5 13l4 4L19 7" />
