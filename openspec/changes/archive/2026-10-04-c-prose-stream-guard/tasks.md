@@ -21,4 +21,4 @@
 ## 5. 回归门禁（实际输出结论回填）
 
 - [x] 5.1 门禁实跑结论：`design:lint` exit 0；`design:check` 7/8 场景绿，唯一红＝书架屏 empty 像素差 0.291%（阈值 0.2%）——与 2026-10-01 记录的存量光栅漂移同签名（本 change 零触书架屏代码，非本改引入）；`tsc --noEmit` 0 错；`npx vitest run` 1160/1160 绿（101 文件）；受影响 e2e 4 文件（prompt-pipeline / ai-write-route / modals-pr5 / workbench-features）在隔离栈（worktree c-prose-stream-guard-e2e + compose.e2e-iso，bundle 特征串 `ai-streaming-badge` 自证）23/23 绿，跑后栈已销毁。不触共享段无需 design-cross（判定依据见 proposal Design Impact）
-- [ ] 5.2 真机走查四场景：①正文页签生成中呼吸灯＋徽章；②切章纲页签徽章仍在、生成继续；③流式中左栏点章被挡；④回主页确认中断后重开该章半截内容在、无残留锁定——待用户在配好模型的真书环境验收（隔离栈无模型 Key，无法真流式）
+- [x] 5.2 真机走查据实收官：①呼吸灯＋②跨页签徽章＝特效演示页应用内浏览器实机播放、用户目检拍板「就这个」（2026-10-04，截图三张留档）；③树锁定拦截＋④中断落库复位＝隔离栈 vitest 现场保护组四用例（点章被拦不加载/停止后恢复/PUT 半截落旧章/流式态复位）＋密度 change 验收时 5174 真机在场复核；合入 #663（2b9e5976）
