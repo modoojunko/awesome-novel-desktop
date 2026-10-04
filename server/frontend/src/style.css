@@ -7,12 +7,13 @@
  * ================================================================ */
 
 /* ================================================================
- * @theme 层：字体族（系统栈，无 webfont）+ 动效
+ * @theme 层：字体族（开源字体打头——Noto 系自托管见 design/fonts.css，
+ * 系统栈兜底未装字体的场景）+ 动效
  * ================================================================ */
 @theme {
   --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
   --font-serif: 'Noto Serif SC', 'Songti SC', 'STSong', 'Iowan Old Style', Georgia, serif;
-  --font-sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+  --font-sans: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
     'Microsoft YaHei', system-ui, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
 
