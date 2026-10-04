@@ -154,6 +154,17 @@ def test_clip_tail_to_sentence_boundary():
     # 全篇无句边界的病态文本：宁残不空
     assert clip_tail_to_sentence_boundary("啊" * 300, 50) == "啊" * 50
     assert clip_tail_to_sentence_boundary("", 50) == ""
+    # 弯引号台词收尾：边界后紧跟的闭合引号一并吞掉，不返回孤立右引号开头
+    quoted = "前情提要。" + "垫" * 100 + "他喊道：“哪里走！”她追了上去。"
+    out2 = clip_tail_to_sentence_boundary(quoted, 40)
+    assert not out2.startswith("”")
+    assert out2.startswith("她")
+    # 扩窗分支：起头完整优先于预算，上限 2×max_chars
+    huge = "开头一句。" + "垫" * 190 + "中段句。到此为止。"
+    out3 = clip_tail_to_sentence_boundary(huge, 60)
+    assert out3.endswith("到此为止。")
+    assert not out3.startswith("垫")
+    assert len(out3) <= 120
 
 
 def test_clip_tail_paragraphs():
@@ -218,6 +229,27 @@ def test_validate_polished_prompt_tail_anchor():
     ctx_fb.previous_tail = "枪口对着他。"
     no_prev = "## 任务指示\n字数不少。\n红线：无。\n质感：细节。"
     assert validate_polished_prompt(no_prev, ctx_fb) == ["上章结尾"]
+
+
+def test_should_refresh_stored_prompt():
+    """c-chapter-seam-hardcut：存量粗组稿代际守卫四态。"""
+    from write.chapter_writer import should_refresh_stored_prompt
+
+    ctx = ChapterContext()
+    ctx.previous_tail = "枪口对着他。"
+    # 粗组稿缺块 + 素材含尾块 → 回落重组
+    assert should_refresh_stored_prompt("## 当前章节\n章纲：旧稿", ctx) is True
+    # 存量空 → False（无存量走粗组兜底，无需守卫）
+    assert should_refresh_stored_prompt("", ctx) is False
+    # 素材无尾块（首章/上章无正文）→ False
+    assert should_refresh_stored_prompt("## 当前章节\n章纲：旧稿", ChapterContext()) is False
+    # 存量稿已含块（新代际）→ False
+    assert (
+        should_refresh_stored_prompt("## 上章结尾（原文）\n枪口。", ctx) is False
+    )
+    # 润色稿（三锚）缺块 → False（作者资产不覆盖）
+    polished = "## 任务指示\n旧润色。\n## 红线\n无。\n## 质感\n细节。"
+    assert should_refresh_stored_prompt(polished, ctx) is False
 
 
 # ── 预算与占位符守卫（纯 ChapterContext）─────────────────────────────────

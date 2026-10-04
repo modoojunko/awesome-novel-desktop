@@ -206,6 +206,44 @@ def _seed_stored_prompt(pid: str, ref: str, content: str):
     _run_async(_seed())
 
 
+def _create_two_chapters(client) -> tuple[str, str]:
+    """建书＋卷＋两章，返回 (pid, ch2_ref)——ch-2 有上一章可落正文。"""
+    name = f"wr2-{uuid.uuid4().hex[:6]}"
+    r = client.post("/api/novels", json={"name": name})
+    assert r.status_code in (200, 201), r.text
+    pid = r.json()["id"]
+    r = client.post(f"/api/novels/{pid}/volumes", json={"vol_num": 1, "title": "第一卷"})
+    assert r.status_code in (200, 201)
+    r1 = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters", json={"title": "第1章"})
+    assert r1.status_code in (200, 201), r1.text
+    r2 = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters", json={"title": "第2章"})
+    assert r2.status_code in (200, 201), r2.text
+    return pid, r2.json()["chapter_ref"]
+
+
+def _seed_prev_prose(pid: str):
+    """给 vol-1-ch-1 落正文并置 archived（ch-2 素材含尾块且过主线门禁）。"""
+    from sqlalchemy import update
+
+    from chapters.store import save_chapter
+    from models.chapter import Chapter
+
+    async def _seed():
+        root = await _get_root(pid)
+        await save_chapter(
+            root, "vol-1-ch-1", {"prose": "上一章的正文。\n雨衣人回过头，便签烫起来。"}
+        )
+        async with async_session() as session:
+            await session.execute(
+                update(Chapter)
+                .where(Chapter.project_id == pid, Chapter.ref == "vol-1-ch-1")
+                .values(status="archived", has_prose=True)
+            )
+            await session.commit()
+
+    _run_async(_seed())
+
+
 def _done_event(resp_text: str) -> dict:
     for line in resp_text.splitlines():
         if line.startswith("data: "):
@@ -261,6 +299,86 @@ class TestDirectWriteKeepsStoredPrompt:
         stored = _read_stored_prompt(pid, ref)
         assert stored.startswith("## 当前章节")
         assert "## 角色定位" not in stored
+
+    def test_stale_draft_without_tail_block_refreshes(self, client, monkeypatch):
+        """c-chapter-seam-hardcut：存量粗组稿缺「上章结尾」块且本轮素材含该块
+        → 生成回落重组（升级后的重生成吃到新素材），落库行被回落稿更新。"""
+        _set_member()
+        pid, ref = _create_two_chapters(client)
+        _seed_prev_prose(pid)
+        _seed_stored_prompt(pid, ref, "## 当前章节\n章纲：旧版组装的粗组稿")
+        fake = _FakeStreamClient()
+
+        async def _fake(novel_id=None):
+            return fake
+
+        import ai_client as ai_client_mod
+
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
+
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
+        assert r.status_code == 200, r.text
+        assert _done_event(r.text)["type"] == "done"
+        content = fake.last_kwargs["messages"][0]["content"]
+        assert "上章结尾（原文）" in content
+        # 落库行被回落稿更新（旧粗组稿无作者内容，覆盖无损失）
+        assert "上章结尾（原文）" in _read_stored_prompt(pid, ref)
+
+    def test_polished_without_tail_block_stays(self, client, monkeypatch):
+        """c-chapter-seam-hardcut：润色稿（三锚）缺「上章结尾」段也不回落——
+        作者资产 SHALL NOT 被重组稿覆盖。"""
+        _set_member()
+        pid, ref = _create_two_chapters(client)
+        polished = "## 任务指示\n旧素材下润色的稿。\n## 红线\n无。\n## 质感\n细节。"
+        _seed_stored_prompt(pid, ref, polished)
+        _seed_prev_prose(pid)
+        fake = _FakeStreamClient()
+
+        async def _fake(novel_id=None):
+            return fake
+
+        import ai_client as ai_client_mod
+
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
+
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
+        assert r.status_code == 200, r.text
+        assert _done_event(r.text)["type"] == "done"
+        content = fake.last_kwargs["messages"][0]["content"]
+        assert "旧素材下润色的稿" in content
+        assert "上章结尾（原文）" not in content
+        assert _read_stored_prompt(pid, ref) == polished
+
+    def test_no_tail_block_keeps_stored(self, client, monkeypatch):
+        """c-chapter-seam-hardcut：素材无尾块（首章/上章无正文）时守卫不触发，
+        存量稿照旧复用。"""
+        _set_member()
+        pid, ref = _create_project_and_chapter(client)
+        _seed_stored_prompt(pid, ref, "## 当前章节\n章纲：首章旧稿")
+        fake = _FakeStreamClient()
+
+        async def _fake(novel_id=None):
+            return fake
+
+        import ai_client as ai_client_mod
+
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
+
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
+        assert r.status_code == 200, r.text
+        content = fake.last_kwargs["messages"][0]["content"]
+        assert "首章旧稿" in content
+        assert "上章结尾（原文）" not in content
+
+        import ai_client as ai_client_mod
+
+        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
+
+        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
+        assert r.status_code == 200, r.text
+        content = fake.last_kwargs["messages"][0]["content"]
+        assert "首章旧稿" in content
+        assert "上章结尾（原文）" not in content
 
     def test_override_still_wins(self, client, monkeypatch):
         _set_member()

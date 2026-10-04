@@ -67,7 +67,8 @@ def clip_story_arc(text: str, limit: int = STORY_ARC_INJECT_MAX) -> str:
 # 拆章进场取文（chapters/ai_plan.resolve_prev_chapter_ending）共用句边界回退。
 PREV_TAIL_MAX_CHARS = 800
 # 句边界闭合字符：回退起头落在这类字符之后，保证不以残句开头
-_SENTENCE_BOUNDARY_CHARS = "。！？…」』"
+# （含弯引号 ”——台词以「……！”」收尾时闭合符也是边界，防尾块以孤立右引号开头）
+_SENTENCE_BOUNDARY_CHARS = "。！？…」』”"
 
 
 def clip_tail_to_sentence_boundary(text: str, max_chars: int) -> str:
@@ -80,14 +81,19 @@ def clip_tail_to_sentence_boundary(text: str, max_chars: int) -> str:
         return t
     start = len(t) - max_chars
     cut = t[start:]
+
+    def _clean_tail(raw: str) -> str:
+        # 边界后若紧跟闭合引号（台词以「……！”」收尾），一并吃掉，防孤立右引号开头
+        return raw.lstrip().lstrip("」』”").lstrip()
+
     for i, ch in enumerate(cut):
         if ch in _SENTENCE_BOUNDARY_CHARS and i < len(cut) - 1:
-            tail = cut[i + 1 :].lstrip()
+            tail = _clean_tail(cut[i + 1 :])
             if tail:
                 return tail
     for j in range(start - 1, max(start - max_chars, -1), -1):
         if t[j] in _SENTENCE_BOUNDARY_CHARS:
-            return t[j + 1 :].lstrip()
+            return _clean_tail(t[j + 1 :])
     return cut
 
 
@@ -218,6 +224,23 @@ def legacy_prompt_kind(text: str) -> str:
 def is_legacy_write_prompt(text: str) -> bool:
     """是否旧版整包行（含恒定设定内容）——legacy_prompt_kind 的布尔便捷面。"""
     return legacy_prompt_kind(text) != ""
+
+
+def should_refresh_stored_prompt(stored: str, ctx: "ChapterContext") -> bool:
+    """存量 write-prompt 是否应被本轮重组稿取代（c-chapter-seam-hardcut）。
+
+    仅当三者同时成立：存量稿缺「上章结尾」块（旧版组装的行）、本轮素材
+    含该块（previous_tail 非空）、且存量稿非润色产物——润色稿是作者资产
+    （三锚判定同 legacy_prompt_kind），缺锚是旧素材下润色的历史产物，
+    回落重组会覆盖作者内容，SHALL NOT 触发。GET 预览与生成端点共用
+    本判定，保证弹窗展示与实际生成的来源一致。"""
+    if not stored:
+        return False
+    if not ctx.previous_tail:
+        return False
+    if "上章结尾" in stored:
+        return False
+    return legacy_prompt_kind(stored) != "polished"
 
 
 def lint_assembled_prompt(

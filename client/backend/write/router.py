@@ -172,7 +172,11 @@ async def get_write_prompt(
     _validate_ref(chapter_ref)
 
     from prompt.store import load_prompt
-    from write.chapter_writer import build_chapter_context, legacy_prompt_kind
+    from write.chapter_writer import (
+        build_chapter_context,
+        legacy_prompt_kind,
+        should_refresh_stored_prompt,
+    )
 
     ctx = await build_chapter_context(
         project.root_path, chapter_ref, project.name, novel_id=project.id
@@ -182,7 +186,7 @@ async def get_write_prompt(
     has_outline = bool(outline.get("summary") or ctx.plot_items)
     if not fresh:
         existing = await load_prompt(project.root_path, chapter_ref, "write-prompt")
-        if existing.strip():
+        if existing.strip() and not should_refresh_stored_prompt(existing, ctx):
             # legacy：旧版整包行（含恒定设定）→ 弹窗分级提示（润色行信息性、粗组行建议刷新）
             return {
                 "prompt": existing,
@@ -353,10 +357,16 @@ async def write_chapter(
     else:
         # 无覆盖直写：优先复用存量 write-prompt（通常是已润色版），与 GET 端点同优先级；
         # 避免粗组兜底静默覆盖已润色内容。无存量才落粗组。
+        # c-chapter-seam-hardcut：存量粗组稿缺「上章结尾」块（旧版组装的行）时回落
+        # 重组，让升级后的重生成吃到新素材；润色稿不受影响（守卫内三锚保护）。
         from prompt.store import load_prompt
+        from write.chapter_writer import should_refresh_stored_prompt
 
         stored = (await load_prompt(project.root_path, chapter_ref, "write-prompt")).strip()
-        prompt = stored or ctx.to_user_material()
+        if should_refresh_stored_prompt(stored, ctx):
+            prompt = ctx.to_user_material()
+        else:
+            prompt = stored or ctx.to_user_material()
 
     # Save prompt for review（chapter_prompts 表，PR④）
     from prompt.store import save_prompt
