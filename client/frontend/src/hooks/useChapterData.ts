@@ -56,6 +56,9 @@ export interface UseChapterDataReturn {
   retryExtraction: () => Promise<string | null>;
   /** 归档任务态（受理制）；null＝无任务（从未受理或已终态清除） */
   archiveJob: ArchiveJobState | null;
+  /** 恢复归档章为可编辑态（撤下归档全文 + 状态回退），完成后重拉章数据。
+   *  c-archived-readonly 小改路径：横幅「恢复编辑」出口（整体重写走 /rewrite）。 */
+  unarchive: () => Promise<void>;
   reload: () => Promise<void>;
   loading: boolean;
   error: string | null;
@@ -475,6 +478,23 @@ class ChapterStore {
       return msg;
     }
   };
+
+  unarchive = async (): Promise<void> => {
+    this.update({ error: null });
+    try {
+      await api.post(`/novels/${this.projectId}/chapters/${this.ref}/unarchive`);
+      // 服务端状态已回退（draft）→ 重拉章数据，store 与 initial 一并对齐
+      await this.load();
+      // 复用归档事件通道 → 工作台树 📦 同步撤下
+      window.dispatchEvent(
+        new CustomEvent("chapter:archived", {
+          detail: { projectId: this.projectId, ref: this.ref },
+        }),
+      );
+    } catch (e: any) {
+      this.update({ error: e.message || "恢复失败" });
+    }
+  };
 }
 
 const stores = new Map<string, ChapterStore>();
@@ -538,6 +558,7 @@ export function useChapterData(
     skipArchive: store.skipArchive,
     retryExtraction: store.retryExtraction,
     archiveJob: state.archiveJob,
+    unarchive: store.unarchive,
     reload: store.load,
     loading: state.loading,
     error: state.error,

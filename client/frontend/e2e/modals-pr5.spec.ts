@@ -199,8 +199,8 @@ test("删除分级：章盘点 chips / 删卷带章数字数 / 取消与确认",
 });
 
 // -------------------------------------------------------------------------
-// ② 归档章写入锁死：右栏 AI 动作禁用指路重写，无「解除只读」解锁链
-//    （c-archived-readonly：唯一修改路径＝「重写本章」，操作页签；trial = PRO）
+// ② 归档章写入锁死＋小改解锁：右栏 AI 动作禁用（恢复编辑后可用），无「解除只读」
+//    弹窗；横幅「恢复编辑」解锁全链（c-archived-readonly 两路径；trial = PRO）
 // -------------------------------------------------------------------------
 
 test("归档章写入锁死：右栏 AI 动作禁用指路重写，无「解除只读」弹窗", async ({
@@ -232,17 +232,17 @@ test("归档章写入锁死：右栏 AI 动作禁用指路重写，无「解除�
     await expect(page.locator(".e-meta")).toContainText("已归档", { timeout: 10000 });
     await expect(editor).toHaveAttribute("contenteditable", "false");
 
-    // 正文页签：只读横幅指路「重写本章」，无「恢复编辑」旁路按钮
+    // 正文页签：只读横幅＝小改「恢复编辑」出口＋整体重写指路
     await page.getByRole("tab", { name: /^正文/ }).click();
     const banner = page.locator(".readonly-banner");
     await expect(banner).toContainText("本章已归档");
     await expect(banner).toContainText("重写本章");
-    await expect(banner.getByRole("button", { name: "恢复编辑" })).toHaveCount(0);
+    await expect(banner.getByRole("button", { name: "恢复编辑" })).toBeVisible();
 
-    // 右栏写入动作禁用＋hint 指路重写；「解除只读」解锁链退役（c-archived-readonly）
+    // 右栏写入动作禁用＋hint 指路恢复编辑；「解除只读」弹窗保持退役（c-archived-readonly）
     await expect(page.getByTestId("ai-write-btn")).toBeDisabled();
     await expect(
-      page.getByText("已归档 · 重写走「操作」页签").first(),
+      page.getByText("已归档 · 恢复编辑后可用").first(),
     ).toBeVisible();
     await expect(page.getByRole("dialog", { name: "解除只读" })).toHaveCount(0);
 
@@ -252,6 +252,18 @@ test("归档章写入锁死：右栏 AI 动作禁用指路重写，无「解除�
     await expect(page.getByTestId("og-view")).toBeVisible();
     await expect(page.getByTestId("og-edit")).toHaveCount(0);
     await expect(page.locator(".col-ai").getByTestId("ai-write-btn")).toHaveCount(0);
+
+    // 小改路径：横幅「恢复编辑」（confirm 弹窗确认）→ unarchive，正文/章纲编辑恢复，
+    // 右栏写入动作解禁——与「重写本章」（旧稿转支线）并行的两条修改路径
+    const onDlg = (d: import("@playwright/test").Dialog) => d.accept();
+    page.on("dialog", onDlg);
+    await page.getByRole("tab", { name: /^正文/ }).click();
+    await banner.getByRole("button", { name: "恢复编辑" }).click();
+    await expect(page.locator(".readonly-banner")).toHaveCount(0, { timeout: 10000 });
+    await expect(editor).toHaveAttribute("contenteditable", "true", {
+      timeout: 10000,
+    });
+    await expect(page.getByTestId("ai-write-btn")).toBeEnabled();
   } finally {
     await restore();
   }

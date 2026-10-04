@@ -417,10 +417,10 @@ export function AiAssistPanel({
     );
     rows = [
       cap("write", "生成正文", "由设定＋章纲组装提示词，可编辑后流式写入正文末尾", {
-        // 归档章禁用指路重写（c-archived-readonly：「解除只读」解锁链退役）
+        // 归档章禁用（c-archived-readonly）：恢复编辑/重写后可用，「解除只读」解锁链保持退役
         onClick: onAiWrite,
         disabled: streaming || archived,
-        hint: archived ? "已归档 · 重写走「操作」页签" : streaming ? "生成中" : undefined,
+        hint: archived ? "已归档 · 恢复编辑后可用" : streaming ? "生成中" : undefined,
         testid: "ai-write-btn",
       }),
       // 密度重排（c-workbench-density）：未选中段落时三张段落级置灰卡收成一行

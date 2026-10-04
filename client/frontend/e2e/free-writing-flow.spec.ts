@@ -283,14 +283,14 @@ test("免费归档：不 500，正文只读，树已归档即时同步", async (
     await expect(barHere.locator(".bh-tag")).toHaveText("待写");
     await expect(barHere.locator(".bh-t")).toContainText("第 2 章");
 
-    // 章纲页签同口径只读（c-archived-readonly）：归档横幅指路「重写本章」，
+    // 章纲页签同口径只读（c-archived-readonly）：归档横幅＝小改「恢复编辑」＋重写指路，
     // 动作区（确认章纲/编辑章纲等）不提供——后端对归档章 confirm/unconfirm 恒 409
     await page.getByRole("tab", { name: /^章纲/ }).click();
     const ogBanner = page.locator(".readonly-banner");
     await expect(ogBanner).toContainText("本章已归档");
     await expect(ogBanner).toContainText("重写本章");
-    // 无恢复编辑等旁路解锁入口；写入唯一路径＝重写本章
-    await expect(ogBanner.getByRole("button", { name: "恢复编辑" })).toHaveCount(0);
+    // 小改路径出口在场（解锁后动作区才恢复）；整体重写走「操作」页签
+    await expect(ogBanner.getByRole("button", { name: "恢复编辑" })).toBeVisible();
     await expect(page.getByTestId("og-view")).toBeVisible();
     await expect(page.getByRole("button", { name: "确认章纲" })).toHaveCount(0);
     await expect(page.getByTestId("og-edit")).toHaveCount(0);

@@ -15,3 +15,9 @@
 
 - [x] 3.1 delta：workbench 三处 MODIFIED（整段自主 spec 机械提取后改）——「章纲页签查看/编辑两态」（归档恒只读条款＋场景）、「右栏『AI 辅助』面板」（动作清单解锁链表述→归档禁用＋hint；生成正文入口场景同步）、「正文页签查看/编辑两态」（恢复编辑语义退役→唯一路径重写本章；场景「恢复编辑后落查看态」→「归档章写入锁死」）。验证：`openspec validate c-archived-readonly --strict` 过
 - [ ] 3.2 归档批 sync 回主 spec（随归档 PR，本仓惯例实现/归档分批）
+
+## 4. 小改路径：「恢复编辑」回归（2026-10-04 三轮拍板）
+
+- [x] 4.1 `useChapterData.unarchive` 恢复（横幅出口专用，docstring 注 c-archived-readonly 小改路径）；`ChapterWorkspace` `handleUnarchive` 回归（confirm 弹窗保留）＋横幅按钮恢复＋文案两路径（「小改可恢复编辑；整体重写走…重写本章」）；`AiAssistPanel` hint／`requestAi` toast 改「已归档 · 恢复编辑后可用」；Rail/NovelWorkspace 注释同步。验证：grep 零「唯一路径」残留＋tsc 零错
+- [x] 4.2 测试对齐：plotFlow 横幅断言（恢复编辑在场）；AiAssistPanel 单测 hint 文案；modals-pr5 ② 补解锁全链（confirm accept → unarchive → 横幅撤下＋编辑器可写＋ai-write-btn 解禁）；free-writing-flow ⑥ 断言翻转
+- [x] 4.3 spec delta 三处措辞（横幅＝两路径出口；正文两态两路径条款；「恢复编辑后落查看态」回归本义）＋189 行续写建议残留清零；原型 book.html 横幅补「恢复编辑」按钮＋unarchiveBtn handler、ADJUSTMENTS.md 登记改为两路径口径。验证：`openspec validate c-archived-readonly --strict` 过
