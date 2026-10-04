@@ -183,7 +183,6 @@ export default function ChapterWorkspace({
   }, [wb.volumes, chapterRef]);
   const label = nodeLabel("章", chMeta?.chapter ?? 0, chMeta?.title);
   const vol = wb.volumes.find((v) => v.name === `vol-${volNoOf(chapterRef)}`);
-  const volLabel = vol ? nodeLabel("卷", volNoOf(chapterRef), vol.title) : `第${volNoOf(chapterRef)}卷`;
   const archived = !!chMeta?.archived;
 
   // 伏笔台账投影（c-og-hooks-projection）：章纲回收/悬念两格空时的投影与勾选候选。
@@ -1086,7 +1085,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     <div className="col-editor">
       <header className="e-head e-head-row">
         <div className="e-head-main">
-          <p className="e-kicker">{volLabel}</p>
+          {/* 密度重排（c-workbench-density）：卷名 kicker 退役（左树承载卷归属）；
+              计划字数/完成度/本书总字数三枚重复徽章退役（唯一承载位＝页签行右端 ch-progress） */}
           <h2 className="e-title">{label}</h2>
           <div className="e-meta">
             <span className="tag">{archived ? "已归档" : wordCount ? "草稿" : "拟定"}</span>
@@ -1094,11 +1094,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             <span className="tag">
               归档门槛 {REQ_FIELDS.length - gaps.length}/{REQ_FIELDS.length}
             </span>
-            <span className="tag">计划字数 {planWords ? `${fmt(planWords)} 字` : "未定"}</span>
-            {progressPct != null && <span className="tag">完成度 {progressPct}%</span>}
             <span className="tag">剧情 {plotCount} 条</span>
             <span className="tag">出场角色 {castLines.length} 人</span>
-            <span className="tag">本书总字数 {fmt(bookWords)}</span>
           </div>
         </div>
         {zqShow && chTab === "prose" && (
@@ -1161,6 +1158,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             </button>
           </span>
         )}
+        {/* 密度重排（c-workbench-density）：完成度/总字数的唯一承载位（自头部徽章行迁入） */}
+        <span className="ch-progress" data-testid="ch-progress">
+          {progressPct != null && <>完成度 {progressPct}% · </>}总字数 {fmt(bookWords)}
+        </span>
         {/* 版本历史（2026-09-27 自头部右侧移入页签行右端；弹窗不变） */}
         <button className="btn btn-ghost btn-sm ch-history" onClick={() => setShowHistory(true)}>
           版本历史
@@ -1196,6 +1197,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         resumeScroll={resumeScrollMemo}
         onWriteProgress={onWriteProgress}
         editing={proseEditing}
+        planWords={planWords}
         onStartEdit={() => {
           setProseEditing(true);
           // 进编辑态聚焦、光标落文末（c-prose-edit-affordance）：切态重渲后编辑器才就绪

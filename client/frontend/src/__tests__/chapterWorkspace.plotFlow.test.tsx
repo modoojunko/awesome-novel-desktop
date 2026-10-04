@@ -346,7 +346,7 @@ describe("已润色章改剧情软提示（拍板⑥）", () => {
 });
 
 describe("头部 meta 行（2026-09-27 章纲统计自右栏 AI 助手上移）", () => {
-  it("e-meta 展示归档门槛/计划字数/剧情/出场角色；seg 退役、版本历史在页签行、归档在操作页签", async () => {
+  it("e-meta 展示归档门槛/剧情/出场角色（计划字数/完成度/总字数迁页签行，c-workbench-density）；seg 退役、版本历史在页签行、归档在操作页签", async () => {
     mount({
       server: {
         ...FULL,
@@ -360,7 +360,11 @@ describe("头部 meta 行（2026-09-27 章纲统计自右栏 AI 助手上移）"
     const meta = document.querySelector(".e-meta")?.textContent ?? "";
     expect(meta).toContain("剧情 2 条");
     expect(meta).toContain("出场角色 0 人");
-    expect(meta).toContain("计划字数");
+    // 三枚重复徽章退役：完成度/总字数唯一承载位＝页签行 ch-progress
+    expect(meta).not.toContain("计划字数");
+    expect(meta).not.toContain("完成度");
+    expect(meta).not.toContain("本书总字数");
+    expect(document.querySelector(".ch-tabs .ch-progress")?.textContent).toContain("完成度");
     // 字号/行距 seg 退役（改值入口在账号菜单「本书偏好」）
     expect(document.querySelector(".e-head .seg")).toBeNull();
     // 版本历史入口移页签行右端（不在头部右侧）

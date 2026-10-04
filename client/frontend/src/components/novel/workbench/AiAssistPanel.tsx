@@ -425,21 +425,34 @@ export function AiAssistPanel({
       cap("continue", "续写建议", "从光标处（或选区末尾）流式续写，保持风格与上下文一致", {
         onClick: onContinue, disabled: streaming,
       }),
-      cap("polish", "去AI味", "选中段落去掉机器腔，对照预览后替换", {
-        onClick: () => onAiSelection?.("polish", sel()),
-        disabled: !aiState?.hasSelection || !!aiState?.polishLoading,
-        hint: !aiState?.hasSelection ? "先在正文选中一段" : undefined,
-      }),
-      cap("expand", "场景扩写", "把选中的一句话场景扩展为完整段落，保持设定一致", {
-        onClick: () => onAiSelection?.("expand", sel()),
-        disabled: !aiState?.hasSelection || !!aiState?.expandLoading,
-        hint: !aiState?.hasSelection ? "先在正文选中一段" : undefined,
-      }),
-      cap("compress", "压缩啰嗦段落", "压缩选中的段落，保留信息去掉重复", {
-        onClick: () => onAiSelection?.("compress", sel()),
-        disabled: !aiState?.hasSelection || !!aiState?.compressLoading,
-        hint: !aiState?.hasSelection ? "先在正文选中一段" : undefined,
-      }),
+      // 密度重排（c-workbench-density）：未选中段落时三张段落级置灰卡收成一行
+      // 「段落加工」说明行（SHALL NOT 三卡常驻占位）；选中后展开原三卡（testid 不变）
+      ...(aiState?.hasSelection
+        ? [
+            cap("polish", "去AI味", "选中段落去掉机器腔，对照预览后替换", {
+              onClick: () => onAiSelection?.("polish", sel()),
+              disabled: !!aiState?.polishLoading,
+            }),
+            cap("expand", "场景扩写", "把选中的一句话场景扩展为完整段落，保持设定一致", {
+              onClick: () => onAiSelection?.("expand", sel()),
+              disabled: !!aiState?.expandLoading,
+            }),
+            cap("compress", "压缩啰嗦段落", "压缩选中的段落，保留信息去掉重复", {
+              onClick: () => onAiSelection?.("compress", sel()),
+              disabled: !!aiState?.compressLoading,
+            }),
+          ]
+        : [
+            {
+              key: "para-group",
+              name: "段落加工 · 去 AI 味 / 场景扩写 / 压缩",
+              desc: "在正文选中一段后，这里展开三个加工动作",
+              onClick: () => {},
+              disabled: true,
+              hint: "先在正文选中一段",
+              testid: "ai-para-group",
+            } as AiCapabilityRow,
+          ]),
     ];
     // c-zhuque-ai-detect：朱雀检测行（四态）
     // 无 ai-detect 权益（免费/试用，快照无该 key）→ maxlk 锁定（免费档整卡锁定承载；会员行级锁定），点击统一升级出口
