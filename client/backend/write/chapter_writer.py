@@ -62,6 +62,82 @@ def clip_story_arc(text: str, limit: int = STORY_ARC_INJECT_MAX) -> str:
             return cut[: i + 1]
     return cut
 
+
+# 上章结尾原文注入（c-chapter-seam-hardcut）：写作端尾段取文单源。
+# 拆章进场取文（chapters/ai_plan.resolve_prev_chapter_ending）共用句边界回退。
+PREV_TAIL_MAX_CHARS = 800
+# 句边界闭合字符：回退起头落在这类字符之后，保证不以残句开头
+_SENTENCE_BOUNDARY_CHARS = "。！？…」』"
+
+
+def clip_tail_to_sentence_boundary(text: str, max_chars: int) -> str:
+    """取 text 末尾 ≤max_chars 字，起头回退到句边界之后（不以残句开头）。
+
+    窗口内无可用边界（唯一句边界紧贴末尾等）时向更早处扩窗找边界——
+    起头完整优先于预算；仍找不到（极端病态无标点文本）原样返回尾部。"""
+    t = (text or "").strip()
+    if not t or len(t) <= max_chars:
+        return t
+    start = len(t) - max_chars
+    cut = t[start:]
+    for i, ch in enumerate(cut):
+        if ch in _SENTENCE_BOUNDARY_CHARS and i < len(cut) - 1:
+            tail = cut[i + 1 :].lstrip()
+            if tail:
+                return tail
+    for j in range(start - 1, max(start - max_chars, -1), -1):
+        if t[j] in _SENTENCE_BOUNDARY_CHARS:
+            return t[j + 1 :].lstrip()
+    return cut
+
+
+def clip_tail_paragraphs(text: str, max_chars: int = PREV_TAIL_MAX_CHARS) -> str:
+    """按段落边界从末向前累加至 ≤max_chars 字；单独一段超限时段内回退句边界。"""
+    paras = [p.strip() for p in (text or "").split("\n") if p.strip()]
+    if not paras:
+        return ""
+    kept: list[str] = []
+    total = 0
+    for para in reversed(paras):
+        if total + len(para) > max_chars:
+            if not kept:
+                kept.append(clip_tail_to_sentence_boundary(para, max_chars))
+            break
+        kept.append(para)
+        total += len(para)
+    return "\n".join(reversed(kept))
+
+
+# 上章结尾块标题（c-chapter-seam-hardcut）：素材包与组装提示词两路同款定位句、
+# 各自标题风格（【】标签 vs ## 节）。
+_PREV_TAIL_TITLE_MD = "【上章结尾（原文）】"
+_PREV_TAIL_TITLE_USER = "## 上章结尾（原文）"
+
+
+def render_previous_tail(
+    tail: str,
+    has_semantic_prev: bool = True,
+    title: str = _PREV_TAIL_TITLE_MD,
+) -> str:
+    """上章结尾（原文）块：material_markdown 与 to_user_material 两路同源注入。
+
+    定位句三合一——直接接下去写＋原文已有画面信息不重述＋（有语义前情时）
+    衔接画面与「章末落点」摘要出入以原文为准（仲裁句仅在语义前情在场时携带）。
+    """
+    tail = (tail or "").strip()
+    if not tail:
+        return ""
+    arbitration = (
+        "；衔接画面与「章末落点」摘要有出入时，以这段原文为准"
+        if has_semantic_prev
+        else ""
+    )
+    head = (
+        "定位：以下是上一章正文的结尾原文，本章第一段从这里直接接下去写；"
+        "原文里已有的画面与信息不重述" + arbitration + "。"
+    )
+    return f"{title}\n{head}\n{tail}"
+
 # 读者获得类型（micro_payoffs.kind）中文标签单源（c-og-slim-v2）。
 # 进提示词一律用中文标签，禁英文枚举键（`clue`/`reveal`…）——中文提示词里夹 slug
 # 会让模型把它当英文关键词复读。前端镜像见 chapterForm.ts 的 PAYOFF_KINDS
@@ -86,7 +162,9 @@ _CH1_PREVIOUS = "无前置章节，开篇直接切入角色当下行动，禁止
 # 强制追加，不落库、不进弹窗预览，对存量稿路径与重组路径同样生效。
 WRITE_CLOSING_LINE = (
     "输出：仅正文，无标题、无总结、无引导语、无 Markdown；段落之间直接换行，不留空行；"
-    "结尾停在素材「章末落点」的画面/瞬间上，落点之后不写一个字。"
+    "结尾停在素材「章末落点」的画面/瞬间上，末句落在动作、台词或声响上，"
+    "落点是局面陈述或未给动向时以一句未展开的新动向（已登场势力的新压力）硬切，"
+    "收束章停在落点本身；落点之后不写一个字。"
 )
 
 
@@ -320,6 +398,10 @@ def validate_polished_prompt(text: str, ctx: "ChapterContext") -> list[str]:
     missing = [a for a in _POLISH_ANCHORS if a not in text]
     if (ctx.previous_context or ctx.previous_chapter_recap) and "前情" not in text:
         missing.append("前情")
+    # c-chapter-seam-hardcut：上章结尾原文块在场时产物须保留段标题（与「前情」
+    # 条件锚同手法）；回退态（语义前情缺席）只触发本锚，不触发「前情」锚
+    if ctx.previous_tail and "上章结尾" not in text:
+        missing.append("上章结尾")
     if (ctx.chapter_outline or {}).get("summary") and "章纲概要" not in text:
         missing.append("章纲概要")
     if ctx.micro_payoffs and "爽点" not in text:
@@ -367,6 +449,9 @@ class ChapterContext:
         # 前情上下文（语义化文本，build 时生成）；空则回退 previous_chapter_recap
         self.previous_context: str = ""
         self.previous_context_semantic: bool = False
+        # 上章结尾原文（c-chapter-seam-hardcut）：≤800 字段边界＋句边界裁剪；
+        # 回退块化——章纲全空时语义前情缺席，由本块承载正文尾段
+        self.previous_tail: str = ""
         self.micro_payoffs: list[dict] = []
         self.ladder_exit: str = ""
         # c-chapter-plan-ai：拆章两格（挑战/阶段）——写正文素材消费
@@ -433,6 +518,15 @@ class ChapterContext:
         prev = self.previous_context or self.previous_chapter_recap
         if prev:
             blocks.append(f"【前情上下文】\n{prev}")
+
+        # c-chapter-seam-hardcut：上章结尾原文块（前情上下文之后；回退态时
+        # 语义前情缺席，本块单独承载正文尾段）
+        prev_tail = render_previous_tail(
+            self.previous_tail,
+            has_semantic_prev=bool(self.previous_context),
+        )
+        if prev_tail:
+            blocks.append(prev_tail)
 
         if self.premise or self.world_setting or self.volume_outline:
             bg = ["故事前提：" + self.premise] if self.premise else []
@@ -667,6 +761,17 @@ class ChapterContext:
         if prev:
             lines.append("## 前文回顾")
             lines.append(prev)
+            lines.append("")
+
+        # c-chapter-seam-hardcut：上章结尾原文块（前文回顾之后、故事状态块前；
+        # 回退态时语义前情缺席，本块单独承载正文尾段）
+        prev_tail = render_previous_tail(
+            self.previous_tail,
+            has_semantic_prev=bool(self.previous_context),
+            title=_PREV_TAIL_TITLE_USER,
+        )
+        if prev_tail:
+            lines.append(prev_tail)
             lines.append("")
 
         # c-chapter-dossier：故事状态块（与素材包同源同字；角色状态前）
@@ -917,20 +1022,23 @@ async def build_chapter_context(
                 )
                 ctx.chapter_position = position_label(global_ch, tags)
 
-        # 前情上下文升级：上章章纲情绪设计优先，无章纲回退上章正文末段
+        # 前情上下文升级：上章章纲留存字段优先（语义化前情，管事实连续）；
+        # 上章结尾原文另路注入（previous_tail，管文本级衔接，见下方素材组装）。
         prev_ref = await _prev_chapter_ref(
             root_path, vol_no, ch_num if isinstance(ch_num, int) else 1
         )
         if prev_ref:
             prev = await load_chapter(root_path, prev_ref) or {}
+            prev_prose = str(prev.get("prose") or "").strip()
             semantic_text, is_semantic = build_previous_context(prev)
             if is_semantic:
                 ctx.previous_context = semantic_text
                 ctx.previous_context_semantic = True
-            else:
-                prev_prose = prev.get("prose", "")
-                if prev_prose:
-                    ctx.previous_chapter_recap = prev_prose[-500:]
+            # else: 章纲全空——回退块化：不再落 prose[-500:] 硬截摘要进
+            # previous_chapter_recap，正文尾段由 previous_tail 承载（含句边界
+            # 裁剪），语义化前情段缺席，旧书同样吃到「章首接点」铁律。
+            if prev_prose:
+                ctx.previous_tail = clip_tail_paragraphs(prev_prose)
         else:
             # 无上一章（开篇）：固定句，禁大段背景介绍
             ctx.previous_context = _CH1_PREVIOUS
