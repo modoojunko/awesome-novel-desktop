@@ -23,22 +23,16 @@ const downloadOpen = ref(false)
   <section class="mkt-in grid lg:grid-cols-2 gap-12 items-center py-16 lg:py-24">
     <!-- 左侧文字 -->
     <div class="space-y-6">
-      <!-- 品牌 5.0 主锁定位（口径见 docs/marketing/brand-copy-update-review.md；代际不进 brand.json） -->
-      <div class="brand-lockup">
-        <span class="mark serif">{{ brand.mark }}</span>
-        <span class="cn serif">{{ brand.name }}</span>
-        <span class="en">{{ brand.nameEn }}</span>
-        <span class="gen num">5.0<em>全新一代</em></span>
-      </div>
+      <span class="mkt-pill">
+        <Ico :d="P.spark" />
+        awesome-novel 5.0 全新一代 · AI 辅助长篇小说写作平台
+      </span>
       <h1 class="text-4xl lg:text-[44px] font-semibold serif leading-tight m-0">
         人铸灵魂，<br />
         <span class="mkt-grad-text">AI 行笔墨</span>
       </h1>
       <p class="mkt-lead max-w-md">
         AI 是笔，你才是作家。构想由你铸就，文字交给 AI，成稿由你拍板。
-      </p>
-      <p class="lineage">
-        源自开源写作工具 <span class="lnk">awesome-novel-agent</span> 的第 5 代——理念与六阶段工作流，一脉相承。
       </p>
       <div class="flex flex-wrap gap-2">
         <span class="chip">装在自己电脑上</span>
@@ -62,7 +56,7 @@ const downloadOpen = ref(false)
           @click="downloadOpen = true"
         >
           <Ico :d="P.download" />
-          免费下载 Awesome Novel 5.0
+          免费下载
         </AppButton>
         <AppButton href="#pricing" variant="secondary" size="lg">查看套餐</AppButton>
       </div>
@@ -80,8 +74,8 @@ const downloadOpen = ref(false)
     <div class="hero-mock">
       <div class="hm-bar">
         <span class="hm-logo">{{ brand.mark }}</span>
-        <span class="hm-title">{{ brand.nameEn }} 5.0 · 书架</span>
-        <span class="gen-badge num hm-gen">5.0</span>
+        <span class="hm-title">{{ brand.name }} · 书架</span>
+        <span class="hm-seg"><i class="on"></i><i></i><i></i></span>
       </div>
       <div class="hm-body">
         <div v-for="bk in books" :key="bk.title" class="hm-book" :class="{ on: bk.on }">

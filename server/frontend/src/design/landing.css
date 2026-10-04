@@ -123,14 +123,5 @@
   .mkt-section { padding: 56px 0; }
 }
 
-/* ═══ 品牌 5.0 层（awesome-novel 代际，2026-10）：主锁位/血统行/代际徽标 ═══ */
-.brand-lockup { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.brand-lockup .mark { width: 44px; height: 44px; border-radius: 12px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-size: 24px; box-shadow: var(--shadow-card); }
-.brand-lockup .cn { font-size: 30px; font-weight: 600; letter-spacing: 0.02em; }
-.brand-lockup .en { font-size: 15px; font-weight: 600; letter-spacing: 0.12em; color: var(--accent-strong); text-transform: uppercase; }
-.brand-lockup .gen { display: inline-flex; align-items: baseline; gap: 6px; font-size: 30px; font-weight: 700; color: var(--accent); line-height: 1; }
-.brand-lockup .gen em { font-style: normal; font-family: var(--font-body); font-size: 11.5px; font-weight: 600; letter-spacing: 0.18em; color: var(--accent-strong); background: var(--accent-soft); border: 1px solid color-mix(in oklch, var(--accent) 25%, transparent); border-radius: 999px; padding: 3px 10px; }
-.lineage { font-size: 12.5px; color: var(--faint); margin: 0; }
-.lineage .lnk { color: var(--muted); text-decoration: underline; text-decoration-color: color-mix(in oklch, var(--muted) 35%, transparent); text-underline-offset: 3px; }
+/* ═══ 品牌 5.0 层（awesome-novel 代际，2026-10）：仅代际徽标（轻量体现） ═══ */
 .gen-badge { display: inline-flex; align-items: center; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; color: var(--accent-strong); background: var(--accent-soft); border: 1px solid color-mix(in oklch, var(--accent) 25%, transparent); padding: 1px 7px; border-radius: 999px; letter-spacing: 0.02em; }
-.hm-gen { margin-left: auto; }

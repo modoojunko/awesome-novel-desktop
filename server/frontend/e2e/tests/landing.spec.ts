@@ -10,11 +10,9 @@ test.describe('Landing Page', () => {
     await expect(page.getByText('AI 是笔，你才是作家')).toBeVisible()
   })
 
-  test('品牌 5.0 层：主锁位＋血统行＋五代一脉＋FAQ 血统条目', async ({ page }) => {
-    await expect(page.locator('.brand-lockup')).toContainText('Awesome Novel')
-    await expect(page.locator('.brand-lockup')).toContainText('5.0')
-    await expect(page.getByText(/awesome-novel-agent 的第 5 代/).first()).toBeVisible()
-    await expect(page.getByText('五代一脉')).toBeVisible()
+  test('品牌 5.0 轻量体现：pill 带代际＋导航徽标＋FAQ 血统条目', async ({ page }) => {
+    await expect(page.locator('.mkt-pill').first()).toContainText('awesome-novel 5.0 全新一代')
+    await expect(page.locator('.mkt-logo .gen-badge')).toHaveText('5.0')
     await page.locator('#faq').scrollIntoViewIfNeeded()
     await expect(page.getByText(/爱小说和 awesome-novel 是什么关系/)).toBeVisible()
   })

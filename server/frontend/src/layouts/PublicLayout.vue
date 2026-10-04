@@ -28,7 +28,6 @@ onMounted(() => {
         <router-link to="/" class="mkt-logo">
           <span class="logo-mark">爱</span>
           爱<span>小说</span>
-          <span class="logo-en">Awesome Novel</span>
           <span class="gen-badge num">5.0</span>
         </router-link>
         <nav class="mkt-navlinks">
@@ -64,15 +63,7 @@ onMounted(() => {
   color: var(--accent);
   font-weight: inherit;
 }
-/* 品牌 5.0 层：英文副名＋代际徽标（覆盖上面 :not 规则的 accent 着色，同特异性靠后赢） */
-.mkt-logo span.logo-en {
-  color: var(--muted);
-  font-family: var(--font-body);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
+/* 品牌 5.0 层：代际徽标（覆盖上面 :not 规则的 accent 着色，同特异性靠后赢） */
 .mkt-logo span.gen-badge {
   color: var(--accent-strong);
   background: var(--accent-soft);
