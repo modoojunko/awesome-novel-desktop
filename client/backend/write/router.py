@@ -20,7 +20,7 @@ def _advance_phase(project, target: str) -> None:
     本身已合法落库，阶段标记保持现状不影响后续操作（write/archive 均为幂等入口）。
     """
     advance_phase(project, target)
-from write.auxiliary import compress_text, expand_text, polish_text, stream_continue
+from write.auxiliary import compress_text, expand_text, polish_text
 from write.quality import run_quality_checks
 
 router = APIRouter(
@@ -389,40 +389,6 @@ async def write_chapter(
     )
 
 
-@router.post("/continue")
-async def continue_writing(
-    project_id: str,
-    chapter_ref: str,
-    body: dict,
-    user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
-    __: bool = Depends(require_novel_model),
-    db: AsyncSession = Depends(get_db),
-):
-    """Stream continuation text from a cursor position."""
-    project = await get_novel(db, project_id, user["id"])
-    if not project:
-        raise HTTPException(404, "Project not found")
-    _validate_ref(chapter_ref)
-    # 排队门禁（workbench-frontier）：拟态章按主线顺序开写
-    from chapters.frontier import is_writable
-
-    writable, reason = await is_writable(db, project.id, chapter_ref)
-    if not writable:
-        raise HTTPException(409, reason)
-
-    cursor_position = body.get("cursor_position", -1)
-    if cursor_position < 0:
-        raise HTTPException(400, "cursor_position is required and must be >= 0")
-
-    return StreamingResponse(
-        stream_continue(db, project, project.root_path, chapter_ref, cursor_position),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
 
 
 @router.post("/polish")

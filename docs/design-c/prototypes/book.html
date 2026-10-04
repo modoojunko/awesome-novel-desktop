@@ -1080,7 +1080,7 @@
           <span class="plan-badge">PRO</span>
           <div class="rh-t">
             <b>AI 助手 · 正文</b>
-            <span id="railProseSub">生成 · 续写 · 检测就绪</span>
+            <span id="railProseSub">生成 · 检测就绪</span>
           </div>
           <span style="margin-left:auto; display:inline-flex; gap:4px;" data-od-id="zhuque-demo-chips">
             <button class="tag" data-zqdemo="ready" title="演示：就绪态">就绪</button>
@@ -1091,7 +1091,6 @@
         </div>
         <p class="ai-target">正文字数 <b>793 字</b> · 计划字数 4,000 字 · 完成度 20% · 本章提示词 自动组装</p>
         <button class="ra-step" type="button"><span class="ra-body"><b>生成正文</b><i>由设定＋章纲组装提示词，可编辑后流式写入正文末尾</i></span><span class="ra-arrow">›</span></button>
-        <button class="ra-step" type="button"><span class="ra-body"><b>续写建议</b><i>从光标处（或选区末尾）流式续写，保持风格与上下文一致</i></span><span class="ra-arrow">›</span></button>
         <button class="ra-step" type="button"><span class="ra-body"><b>去AI味</b><i>选中段落去掉机器腔，对照预览后替换</i></span><span class="ra-arrow">›</span></button>
         <button class="ra-step" type="button"><span class="ra-body"><b>场景扩写</b><i>把选中的一句话场景扩展为完整段落，保持设定一致</i></span><span class="ra-arrow">›</span></button>
         <button class="ra-step" type="button"><span class="ra-body"><b>压缩啰嗦段落</b><i>压缩选中的段落，保留信息去掉重复</i></span><span class="ra-arrow">›</span></button>
@@ -1102,7 +1101,7 @@
           </span>
           <span class="ra-arrow" id="railZqArrow">›</span>
         </button>
-        <p class="ra-foot">续写/去AI味/扩写/压缩作用于正文编辑器；<b>朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上</b>。检测需在「模型配置 → 朱雀」配好 Key（MAX 会员权益）。</p>
+        <p class="ra-foot">去AI味/扩写/压缩作用于正文编辑器；<b>朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上</b>。检测需在「模型配置 → 朱雀」配好 Key（MAX 会员权益）。</p>
       </div>
     </div>
   </aside>
@@ -2672,7 +2671,7 @@ function setZqDemo(state) {
   maxPill.hidden = state !== 'maxlk';
   if (state === 'maxlk') { desc.textContent = 'MAX 会员权益 · 升级后整章送腾讯朱雀检测（需自备腾讯云 Key）'; sub.textContent = '朱雀检测需 MAX · 其余可用'; }
   else if (state === 'guide') { desc.textContent = '未配置 Key · 点击去「模型配置 → 朱雀」粘贴腾讯云 EdgeOne Key'; sub.textContent = '检测未配置 · 其余可用'; }
-  else { desc.textContent = '整章送腾讯朱雀测 AI 味，结果与段落标注就地显示'; sub.textContent = '生成 · 续写 · 检测就绪'; }
+  else { desc.textContent = '整章送腾讯朱雀测 AI 味，结果与段落标注就地显示'; sub.textContent = '生成 · 检测就绪'; }
   hd.hidden = state !== 'ready';
   applyZqMarks(state === 'ready');
 }

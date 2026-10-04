@@ -1,11 +1,10 @@
-"""Auxiliary writing service — continue, polish, and expand text via AI."""
+"""Auxiliary writing service — polish, expand, and compress text via AI."""
 
-import json
 
 from ai_client import get_ai_client_for_novel
 from prompts import load_layers
 from settings.render import style_section
-from workflow.engine import load_chapter, save_chapter
+from workflow.engine import load_chapter
 
 
 def _format_style(style: dict) -> str:
@@ -41,7 +40,7 @@ async def build_auxiliary_context(
     """Build context dictionary for auxiliary writing from chapter data and settings.
 
     Returns a dict with pre-formatted string values suitable for prompt templates:
-        writing_style, anti_ai_rules, recent_context,
+        writing_style, anti_ai_rules,
         character_snapshots, active_hooks, _role, _writing_model
     """
     ctx: dict[str, str] = {}
@@ -63,10 +62,8 @@ async def build_auxiliary_context(
     # Anti-ai rules（＝文风 KV 禁用词/句式，单源）
     ctx["anti_ai_rules"] = _format_anti_ai(style)
 
-    # Chapter — recent context from end of existing prose
+    # Chapter — 角色快照取章纲出场名单
     chapter = await load_chapter(root_path, chapter_ref)
-    prose = chapter.get("prose", "")
-    ctx["recent_context"] = prose[-1500:] if len(prose) > 1500 else prose
 
     # Character snapshots from chapter outline
     outline = chapter.get("outline", {})
@@ -132,118 +129,6 @@ async def build_auxiliary_context(
     return ctx
 
 
-async def stream_continue(
-    db,
-    project,
-    root_path: str,
-    chapter_ref: str,
-    cursor_position: int,
-    style_settings: dict | None = None,
-    model: str | None = None,
-):
-    """SSE-stream continuation text from a cursor position.
-
-    Builds context, formats the continue_writing prompt, and streams
-    AI-generated prose. On completion, saves the updated prose into
-    the chapter and creates a version snapshot (BE-02: 续写后刷新 DB 元数据).
-
-    Yields JSON-encoded SSE events: chunk, done, error.
-    """
-    # Load chapter and extract pre-cursor text as recent context
-    chapter = await load_chapter(root_path, chapter_ref)
-    existing_prose = chapter.get("prose", "")
-
-    # Get context (will overwrite recent_context with cursor-specific text)
-    ctx = await build_auxiliary_context(
-        root_path, chapter_ref, style_settings, novel_id=project.id
-    )
-    cursor_start = max(0, cursor_position - 1500)
-    ctx["recent_context"] = existing_prose[cursor_start:cursor_position]
-    ctx["anti_ai_rules"] = ctx.get("anti_ai_rules", "（无）")
-
-    # Format the prompt
-    _sys_t, _usr_t = load_layers("continue_writing")
-    prompt = _usr_t.format(**ctx)
-
-    # Model and role from resolved context
-    resolved_model = model or ctx.pop("_writing_model", "haiku")
-    # 计量口径：实际生效模型由端点用 effective_model(project) 记（见 D11 ⑧）
-    role = ctx.pop("_role", "一位小说家")
-
-    # Stream
-    client = await get_ai_client_for_novel(project.id)
-    generated_text = ""
-
-    from ai_client import AITimeoutError
-
-    try:
-        async for event in client.chat_stream(
-            model=resolved_model,
-            system=((_sys_t.format(**ctx) + "；叙事角色定位：" + role) if _sys_t else role),
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=512,
-        ):
-            if event.text:
-                generated_text += event.text
-                yield f"data: {json.dumps({'type': 'chunk', 'text': event.text}, ensure_ascii=False)}\n\n"
-            elif event.is_done:
-                # 分段归一（段间空行→单换行）：与生成正文同一口径
-                from write.chapter_writer import normalize_generated_prose
-
-                generated_text = normalize_generated_prose(generated_text)
-                # Save updated prose（统一写入口：落库 + 元数据派生 + 版本快照）
-                new_prose = existing_prose[:cursor_position] + generated_text
-                chapter["prose"] = new_prose
-                try:
-                    await save_chapter(root_path, chapter_ref, chapter)
-                except Exception as e:  # noqa: BLE001 — AI 已成功，落库失败不记 _fail
-                    yield f"data: {json.dumps({'type': 'error', 'error': f'内容已生成，但保存失败：{e!s}'}, ensure_ascii=False)}\n\n"
-                    return
-
-                from api_configs.usage import record_usage
-
-                await record_usage(
-                    db,
-                    user_id=project.user_id,
-                    project_id=project.id,
-                    chapter_id=chapter_ref,
-                    operation="continue",
-                    model=resolved_model,
-                    tokens_out=event.tokens,
-                    tokens_in=event.tokens_in,
-                )
-
-                yield f"data: {json.dumps({'type': 'done', 'full_text': generated_text, 'tokens': event.tokens}, ensure_ascii=False)}\n\n"
-            elif event.error:
-                yield f"data: {json.dumps({'type': 'error', 'error': event.error}, ensure_ascii=False)}\n\n"
-    except AITimeoutError:
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db,
-            user_id=project.user_id,
-            project_id=project.id,
-            chapter_id=chapter_ref,
-            operation="continue_fail",
-            model=resolved_model,
-            force=True,
-        )
-        yield f"data: {json.dumps({'type': 'error', 'error': 'AI 服务响应超时，请稍后重试'}, ensure_ascii=False)}\n\n"
-    except Exception as e:  # noqa: BLE001 — 流中断也留痕（调用已发生）
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db,
-            user_id=project.user_id,
-            project_id=project.id,
-            chapter_id=chapter_ref,
-            operation="continue_fail",
-            model=resolved_model,
-            force=True,
-        )
-        yield f"data: {json.dumps({'type': 'error', 'error': f'AI 生成失败，可重试：{e!s}'}, ensure_ascii=False)}\n\n"
-
-
 async def polish_text(
     novel_id: str,
     root_path: str,
@@ -263,7 +148,7 @@ async def polish_text(
     )
     ctx["selected_text"] = selected_text
     ctx["surrounding_context"] = surrounding_context
-    # 去AI味：文风禁用词/句式单源注入（沿 stream_continue「（无）」兜底口径）；
+    # 去AI味：文风禁用词/句式单源注入（「（无）」兜底口径）；
     # 未配文风时给显式降级语，避免空节让弱模型脑补文风
     ctx["anti_ai_rules"] = ctx.get("anti_ai_rules") or "（无）"
     ctx["writing_style"] = ctx.get("writing_style") or "（未配置，以原文自身文风为准）"

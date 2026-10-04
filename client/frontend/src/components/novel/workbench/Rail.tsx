@@ -77,7 +77,6 @@ interface RailProps {
   autoCheckSeq: number;
   /** AI 写入工具链入口（归档章先解锁；生成正文再经 AiModal 提示词预览） */
   onAiWrite: () => void;
-  onAiContinue: () => void;
   onAiSelection: (mode: "polish" | "expand" | "compress", capture: ReturnType<ProseHandle["captureNow"]>) => void;
 }
 
@@ -98,7 +97,6 @@ export default function Rail({
   onSelectVolume,
   autoCheckSeq,
   onAiWrite,
-  onAiContinue,
   onAiSelection,
 }: RailProps) {
   if (mode === "volume") {
@@ -132,7 +130,6 @@ export default function Rail({
           tab={d.tab}
           isPro={isPro}
           onAiWrite={onAiWrite}
-          onContinue={onAiContinue}
           ogStats={d.ogStats}
           wordCount={words}
           planWords={d.ogStats.planWords ?? d.targetWords ?? null}

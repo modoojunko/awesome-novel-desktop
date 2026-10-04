@@ -32,7 +32,6 @@ import {
   compressText,
   expandText,
   polishText,
-  streamChapterContinue,
   streamChapterWrite,
   type StreamDoneMeta,
 } from "@/lib/ai";
@@ -75,7 +74,6 @@ export interface ProseHandle {
   startWriting(prompt?: string): void;
   stopWriting(): void;
   /** capture：解锁链等场景预先捕获的选区/光标（弹窗焦点会丢现场选区） */
-  continueWriting(capture?: SelectionCapture): void;
   polish(capture: SelectionCapture): void;
   expand(capture: SelectionCapture): void;
   compress(capture: SelectionCapture): void;
@@ -105,7 +103,6 @@ interface ProsePaneProps {
   onEndEdit?: () => void;
   /** 本章目标字数（章纲 wt→store.targetWords 兜底，ChapterWorkspace 传入）：
    *  文末续写块的达标判定（实写 < 90% 出块）；缺省＝无块（c-workbench-density） */
-  planWords?: number | null;
 }
 
 /** 纯文本偏移（docToProse 口径，段间 \n 计 1）→ PM 文档位置。越界回落末段末尾。 */
@@ -150,7 +147,7 @@ function replaceDocNoHistory(editor: Editor, doc: JSONContent) {
 }
 
 const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
-  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress, locked, editing, onStartEdit, onEndEdit, planWords },
+  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress, locked, editing, onStartEdit, onEndEdit },
   ref,
 ) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -545,22 +542,20 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   );
 
   const startStream = useCallback(
-    (continuation: boolean, promptOverride?: string, preCapture?: SelectionCapture) => {
+    (promptOverride?: string) => {
       if (!editor || editor.isDestroyed || streamingRef.current) return;
       if (archived) {
         toast.error("已归档章节不可生成");
         return;
       }
       const base = docToProse(editor.getJSON());
-      const cap = preCapture ?? captureNow();
-      const pos = continuation ? (cap ? cap.end : base.length) : base.length;
       streamBaseRef.current = base;
       streamReceivedRef.current = "";
       streamInsertedLenRef.current = 0;
       streamingRef.current = true;
       setStreaming(true);
       onAIStateChange((prev) => ({ ...prev, streaming: true }));
-      // 插入点归一：空文档先垫一个空段落（不入史）；否则落末段末尾/续写偏移
+      // 插入点归一：空文档先垫一个空段落（不入史）；否则落末段末尾
       const { state, view } = editor;
       if (state.doc.content.size === 0) {
         const para = state.schema.nodes.paragraph?.create();
@@ -570,13 +565,11 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           view.dispatch(tr);
         }
         streamPosRef.current = 1; // 首段内
-      } else if (continuation && cap) {
-        streamPosRef.current = textOffsetToPmPos(state.doc, cap.end);
       } else {
         streamPosRef.current = state.doc.content.size - 1; // 末段内
       }
       streamStartRef.current = streamPosRef.current;
-      // 生成开始：先把插入点滚进视口（追加在文末＝滚到底；续写＝滚到光标处）
+      // 生成开始：先把插入点滚进视口（追加在文末＝滚到底）
       scrollInsertIntoView();
       const cbs = {
         onChunk: (t: string) => {
@@ -589,11 +582,9 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           finishStream(streamReceivedRef.current, false);
         },
       };
-      abortRef.current = continuation
-        ? streamChapterContinue(projectId, chapterRef, pos, cbs)
-        : streamChapterWrite(projectId, chapterRef, cbs, promptOverride);
+      abortRef.current = streamChapterWrite(projectId, chapterRef, cbs, promptOverride);
     },
-    [projectId, chapterRef, archived, editor, captureNow, appendChunk, finishStream, scrollInsertIntoView, onAIStateChange],
+    [projectId, chapterRef, archived, editor, appendChunk, finishStream, scrollInsertIntoView, onAIStateChange],
   );
 
   // ── 续写恢复：每个信号号只恢复一次（appliedResumeRef 守卫）。
@@ -671,13 +662,12 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     () => ({
       focus: () => editor?.commands.focus("end"), // 落文末：进入写作的继续位置
       captureNow,
-      startWriting: (prompt?: string) => startStream(false, prompt),
+      startWriting: (prompt?: string) => startStream(prompt),
       stopWriting: () => {
         // 中断 + 立即收尾（fetch abort 不回调 onDone/onError）
         abortRef.current?.abort();
         finishStream(streamReceivedRef.current, false);
       },
-      continueWriting: (capture?: SelectionCapture) => startStream(true, undefined, capture),
       polish: (capture: SelectionCapture) => void runTransform("polish", capture),
       expand: (capture: SelectionCapture) => void runTransform("expand", capture),
       compress: (capture: SelectionCapture) => void runTransform("compress", capture),
@@ -723,7 +713,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
               {qcReport.word_check?.below_limit ? (
                 <>
                   ⚠ 字数未达标 · {qcReport.word_check.actual}/{qcReport.word_check.target} ·{" "}
-                  <b>续写补足</b>
+                  <b>差 {Math.max(0, qcReport.word_check.target - qcReport.word_check.actual)} 字</b>
                 </>
               ) : (
                 <>✓ 字数达标{qcReport.word_check && <> · {qcReport.word_check.actual}/{qcReport.word_check.target}</>}</>
@@ -782,7 +772,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
               {qcReport.word_check.below_limit ? (
                 <>
                   <b>字数未达标</b>：目标约 {qcReport.word_check.target} 字 · 实写{" "}
-                  {qcReport.word_check.actual} 字（低于目标 90%），可用「续写」补足。
+                  {qcReport.word_check.actual} 字（低于目标 90%），可在章纲调低目标字数或手动补写。
                 </>
               ) : (
                 <>
@@ -841,22 +831,6 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
             只读/归档/流式态由 setEditable(false) 落成 contenteditable="false"
             （a11y + e2e 判定口保持） */}
         <EditorContent editor={editor} />
-        {/* 文末续写块（c-workbench-density）：实写 < 目标 90% 且非流式中才出；
-            就地续写＝视线终点，免跳右栏。达标/无目标/流式中 SHALL NOT 出现 */}
-        {editable && !streaming && planWords != null && planWords > 0 && words < planWords * 0.9 && (
-          <div className="tail-cw" data-testid="tail-continue">
-            <span className="t">
-              <b>从这里续写</b>
-              还差约 {Math.ceil(planWords * 0.9 - words).toLocaleString("zh-CN")} 字到本章目标（{words.toLocaleString("zh-CN")} / {planWords.toLocaleString("zh-CN")}）· AI 从文末接着写，写完自动并入
-            </span>
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={() => startStream(true)}
-            >
-              续写
-            </button>
-          </div>
-        )}
       </div>
 
       {preview && (

@@ -1197,7 +1197,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         resumeScroll={resumeScrollMemo}
         onWriteProgress={onWriteProgress}
         editing={proseEditing}
-        planWords={planWords}
         onStartEdit={() => {
           setProseEditing(true);
           // 进编辑态聚焦、光标落文末（c-prose-edit-affordance）：切态重渲后编辑器才就绪

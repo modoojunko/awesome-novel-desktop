@@ -242,7 +242,7 @@ const SEED = (() => {
   return { project, volumes, tree, chapter, readiness, volumeDetail, genreSetting, genreDef };
 })();
 
-// parity 只取免费态：PRO 态右栏续写/润色/扩写为产品真实工具行（换皮不减功能），
+// parity 只取免费态：PRO 态右栏润色/扩写为产品真实工具行（续写已退役，c-retire-continue-writing），
 // 原型标「规划中」——已登记 ADJUSTMENTS.md（PR 3「未动原型」清单，parity 态取免费版）。
 // screen：workbench=默认章工作台 / volume=卷纲面板 / settings=设定视图 / preview=预览视图。
 // PR 5 追加弹窗三态（免费态）：modal-delete=树删章分级确认 / modal-prefs=本书偏好 /

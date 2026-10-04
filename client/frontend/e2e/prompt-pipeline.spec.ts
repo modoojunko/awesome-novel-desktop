@@ -153,7 +153,7 @@ test("两段式：AiModal 粗组→AI 润色→编辑→生成 + 完工检查横
         body: JSON.stringify({ prompt: POLISHED_PROMPT, polished: true }),
       }),
     );
-    // /write SSE（glob 以 /write 结尾：不会误吞 /write/continue 等子路径）
+    // /write SSE（glob 以 /write 结尾：不会误吞 /write/prompt 等子路径；续写端点已随 c-retire-continue-writing 退役）
     const CHUNK = "雨点砸在铁皮棚上，他没有抬头。守卫把通缉令举到火把下比对了很久。";
     const DONE_WORD_CHECK = {
       target: 2500,
