@@ -7,7 +7,7 @@
 ## 2. 前端退役
 
 - [x] 2.1 撤「续写建议」卡全链：AiAssistPanel `cap("continue", ...)` 行＋`onContinue` prop＋说明行去「续写/」；Rail.tsx `onContinue` 透传；NovelWorkspace `onAiContinue`/`AiAction` continue 分支/`runAiAction` continue 分支。验证：grep `cap\("continue"|onContinue|onAiContinue` src 零残留
-- [x] 2.2 ProsePane 撤 `continueWriting`（ProseHandle 声明＋实现）与 `startStream` 续写分支（`cap.end` 偏移插入点）＋随其退役的 `textOffsetToPmPos` 死函数；**空文档垫段保留**（整章生成共享路径，proseStream.test 钉的就是它）；**「续写恢复」信号消费保留**（顶栏导航链）。验证：vitest 绿；grep `continueWriting|textOffsetToPmPos` src 零残留
+- [x] 2.2 ProsePane 撤 `continueWriting`（ProseHandle 声明＋实现）与 `startStream` 续写分支（`cap.end` 偏移插入点）（`textOffsetToPmPos` 因选区变换链仍在使用而保留，仅删续写分支使用点）；**空文档垫段保留**（整章生成共享路径，proseStream.test 钉的就是它）；**「续写恢复」信号消费保留**（顶栏导航链）。验证：vitest 绿；grep `continueWriting|textOffsetToPmPos` src 零残留
 - [x] 2.3 `lib/ai.ts` 删 `streamChapterContinue`（/write/continue 调用）。验证：grep `/write/continue|streamChapterContinue` src 零残留
 - [x] 2.4 文末续写块拆除（c-workbench-density 已合 main，评审 P0）：ProsePane `tail-continue` 块＋`planWords` prop＋ChapterWorkspace:1200 传参＋book.css `.tail-cw` 样式组；AiAssistPanel/SimModal 的 planWords 完成度用法保留。验证：grep `tail-continue|tail-cw` src/css 零残留；tsc＋vitest 绿
 - [x] 2.5 单测断言与文案：`__tests__/NovelWorkspace.test.tsx:602`「续写建议」按钮断言删除（:605-606 折叠断言保留）；ProsePane 完工检查胶囊「续写补足」与明细「可用『续写』补足」改写为无续写指引（调低章纲目标/手动补写）。验证：vitest 全量绿

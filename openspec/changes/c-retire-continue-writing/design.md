@@ -20,7 +20,7 @@ AI 续写（从光标处流式续写正文）与整章生成职责重叠，且�
 
 ### D2. 前端撤卡不撤骨架；删除范围精确到分支
 
-AiAssistPanel 能力卡骨架（cap 行、streaming 门控）保留，只删 continue 一行＋`onContinue` prop 链（经 Rail.tsx 透传至 NovelWorkspace——评审勘误：初版清单漏了 Rail 与 NovelWorkspace 两个必改文件，`AiAction` union 的 continue 分支唯一生产者就是续写卡，随链删除）。ProsePane `startStream` 保留整章生成分支：**空文档垫段是共享逻辑**（整章生成对空章同样依赖，proseStream.test 复刻的就是该路径），删除范围精确到 continuation 分支（`cap.end` 偏移）与随其退役的 `textOffsetToPmPos` 死函数；「续写恢复」信号消费属导航链保留。
+AiAssistPanel 能力卡骨架（cap 行、streaming 门控）保留，只删 continue 一行＋`onContinue` prop 链（经 Rail.tsx 透传至 NovelWorkspace——评审勘误：初版清单漏了 Rail 与 NovelWorkspace 两个必改文件，`AiAction` union 的 continue 分支唯一生产者就是续写卡，随链删除）。ProsePane `startStream` 保留整章生成分支：**空文档垫段是共享逻辑**（整章生成对空章同样依赖，proseStream.test 复刻的就是该路径），删除范围精确到 continuation 分支（`cap.end` 偏移）；`textOffsetToPmPos` 因选区变换链（polish/expand/compress 的选区→PM 位置转换）仍在使用而保留，仅删续写分支的使用点；「续写恢复」信号消费属导航链保留。
 
 ### D3. 文末续写块由本 change 自己拆（评审勘误）
 
