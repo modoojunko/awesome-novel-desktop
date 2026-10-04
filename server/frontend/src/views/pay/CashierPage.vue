@@ -61,9 +61,10 @@ async function doActivate() {
 // ── 卖点兜底文案（selling_points 空数组时的保底，不空白）──
 // 免费/PRO=UpgradeModal 真实功能事实（client/…/UpgradeModal.tsx）；MAX=占位稿待运营定稿
 const FALLBACK_FEATS: Record<string, string[]> = {
-  free: ['全部基础写作工具', '不含 AI 能力', '本地作品永久保留'],
-  pro: ['含免费全部功能', 'AI 生成正文（流式）', 'AI 分卷规划与章纲起草', '设定与章纲融入 AI'],
-  max: ['含 PRO 全部功能', '更强模型 · 更大用量', '多章连写与批量生成', '优先体验新能力', '最多 10 台设备'],
+  free: ['写作全流程免费（人工）', '归档记账 AI（唯一 AI，自配 Key）', '本地作品永久保留'],
+  standard: ['AI 分卷规划＋拆章三方向', '章纲 AI 起草三选一', '卷体检＋单章评估＋文风建议', '正文自己写'],
+  pro: ['含标准全部功能', '设定域 AI 全家＋人物盘点', 'AI 生成正文（流式）', '朱雀 AI 味检测'],
+  max: ['含 PRO 全部功能', 'AI 去AI味＋文风蒸馏', '拆书成设定（即将上线）', '人工客服＋新版内测'],
 }
 // 目录不可达时的降级骨架：时长/设备数是产品结构事实，价格一律留白
 const FALLBACK_PAID = [

@@ -65,11 +65,14 @@ test.describe('Landing Page', () => {
 
   test('套餐区=收银台同 IA：时长 tab×三档对比列（s-pay-landing-plans）', async ({ page }) => {
     await page.locator('#pricing').scrollIntoViewIfNeeded()
-    // 时长 tab 默认包月（与收银台同默认）；列序=免费 + PRO + MAX
+    // 时长 tab 默认包月（与收银台同默认）；四档列序=免费 + 标准 + PRO + MAX
     await expect(page.locator('.plans-tabs button.on')).toHaveText(/包月/)
-    await expect(page.locator('#pricing .mkt-plan h3')).toHaveText(['免费', 'PRO', 'MAX'])
-    // MAX planned → 预告卡（即将推出，不可购）
-    await expect(page.locator('#pricing .plans-soon')).toContainText('MAX')
+    await expect(page.locator('#pricing .mkt-plan h3')).toHaveText(['免费', '标准', 'PRO', 'MAX'])
+    // 标准（目录未上，前端合成预告卡）与 MAX（planned）→ 两张预告卡，不可购
+    await expect(page.locator('#pricing .plans-soon')).toHaveCount(2)
+    await expect(page.locator('#pricing .plans-soon').first()).toContainText('标准')
+    // 各档定位语（四档口径）
+    await expect(page.locator('#pricing .mkt-plan', { hasText: 'PRO' }).locator('.pos')).toContainText('AI 当枪手')
     // 淘宝死链全站清零保持（含页脚/激活指南）
     await expect(page.locator('a[href*="taobao"]')).toHaveCount(0)
     await expect(page.getByText(/淘宝/)).toHaveCount(0)
@@ -96,7 +99,7 @@ test.describe('Landing Page', () => {
     await page.locator('#pricing').scrollIntoViewIfNeeded()
     const freeCol = page.locator('#pricing .mkt-plan.free').filter({ hasText: '免费' })
     await expect(freeCol).toContainText('¥0')
-    await expect(freeCol).toContainText('不含 AI 能力')
+    await expect(freeCol).toContainText('归档记账 AI')
     await expect(freeCol.getByRole('link', { name: '注册领取 7 天试用' }).first()).toBeVisible()
     // 「当前方案」是收银台登录态语义，落地页不得出现
     await expect(page.locator('#pricing').getByText('当前方案')).toHaveCount(0)
@@ -132,7 +135,7 @@ test.describe('Landing Page', () => {
     await expect(page.getByText('价格见收银台')).toHaveCount(1)
     await expect(page.locator('#pricing').getByText('¥30')).toHaveCount(0)
     await expect(page.locator('#pricing .mkt-pro-pill')).toHaveCount(0)
-    await expect(page.getByText('即将推出')).toBeVisible()
+    await expect(page.getByText('即将推出')).toHaveCount(2)
     await expect(page.locator('#pricing a[href^="/pay"]').first()).toBeVisible()
   })
 

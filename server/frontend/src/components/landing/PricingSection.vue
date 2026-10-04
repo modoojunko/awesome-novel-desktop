@@ -17,10 +17,26 @@ import {
 const PERIOD_ORDER: SkuItem['period'][] = ['monthly', 'quarterly', 'yearly']
 
 // 卖点兜底（目录 tiers.selling_points 空数组时的保底，与收银台 CashierPage 同文案）
+// 四档口径（2026-10 拍板）：免费=全流程人工+归档 AI；标准=AI 管流程；PRO=设定 AI+正文+朱雀；MAX=精修+服务
 const FALLBACK_FEATS: Record<string, string[]> = {
-  free: ['全部基础写作工具', '不含 AI 能力', '本地作品永久保留'],
-  pro: ['含免费全部功能', 'AI 生成正文（流式）', 'AI 分卷规划与章纲起草', '设定与章纲融入 AI'],
-  max: ['含 PRO 全部功能', '更强模型 · 更大用量', '多章连写与批量生成', '优先体验新能力', '最多 10 台设备'],
+  free: ['写作全流程免费（人工）', '归档记账 AI（唯一 AI，自配 Key）', '本地作品永久保留'],
+  standard: ['AI 分卷规划＋拆章三方向', '章纲 AI 起草三选一', '卷体检＋单章评估＋文风建议', '正文自己写'],
+  pro: ['含标准全部功能', '设定域 AI 全家＋人物盘点', 'AI 生成正文（流式）', '朱雀 AI 味检测'],
+  max: ['含 PRO 全部功能', 'AI 去AI味＋文风蒸馏', '拆书成设定（即将上线）', '人工客服＋新版内测'],
+}
+
+// 各档定位语（明细页同口径）
+const TIER_POS: Record<string, string> = {
+  free: '全流程亲手写，AI 替你记账',
+  standard: 'AI 当军师，正文自己写',
+  pro: 'AI 当枪手，写完即查',
+  max: 'AI 替你打磨，人工兜底',
+}
+
+// 预告卡按档位写实质内容（不写空话）
+const SOON_NOTES: Record<string, string> = {
+  standard: 'AI 分卷规划 · 章纲起草三选一 · 卷体检与文风建议。上线后此处即可选购。',
+  max: 'AI 去AI味 · 文风蒸馏 · 拆书成设定 · 人工客服与新版内测。上线后此处即可选购。',
 }
 
 // 目录不可达时的降级骨架：时长/设备数是产品结构事实（与收银台 FALLBACK_PAID 对齐），价格一律留白
@@ -63,7 +79,11 @@ const freeFeats = computed(() => {
 /** 三档对比列（免费列在模板固定；planned/无可购 SKU 渲染预告卡） */
 const paidColumns = computed(() => {
   const tiers = skusData.value?.tiers.filter(t => t.key !== 'free') ?? []
-  return tiers.map((t) => {
+  // 四档展示：目录还没有 standard 档时，合成一张预告卡补位（目录上了即走真实数据）
+  const cols = tiers.some(t => t.key === 'standard')
+    ? tiers
+    : [{ key: 'standard', label: '标准', is_planned: true, selling_points: FALLBACK_FEATS.standard }, ...tiers]
+  return cols.map((t: any) => {
     const sku = skusData.value?.skus.find(s => s.tier_key === t.key && s.period === period.value) ?? null
     const off = storeOpen.value && !!sku && !!sku.discount_display && sku.price_fen < sku.base_price_fen
     return {
@@ -111,10 +131,11 @@ const skeletonCards = FALLBACK_PAID.map(fb => ({
         </button>
       </div>
 
-      <div class="plans-grid">
+      <div class="plans-grid" :class="{ 'has-skeleton': !hasCatalog }">
         <!-- 免费列：匿名语境=注册导流，不标「当前方案」（那是收银台登录态语义） -->
         <div class="mkt-plan free">
           <h3>免费</h3>
+          <div class="pos">{{ TIER_POS.free }}</div>
           <div class="sub">1 台设备</div>
           <div class="price num">¥0</div>
           <div class="feats">
@@ -131,12 +152,14 @@ const skeletonCards = FALLBACK_PAID.map(fb => ({
           <template v-for="col in paidColumns" :key="col.key">
             <div v-if="col.soon" class="mkt-plan free plans-soon">
               <h3>{{ col.label }}</h3>
+              <div class="pos">{{ TIER_POS[col.key] }}</div>
               <div class="sub">即将推出</div>
-              <p class="soon-note">更高设备上限 · 更强 AI 能力。上线后此处即可选购。</p>
+              <p class="soon-note">{{ SOON_NOTES[col.key] ?? '上线后此处即可选购。' }}</p>
             </div>
             <div v-else class="mkt-plan" :class="{ pro: col.popular }">
               <span v-if="col.popular" class="mkt-pro-pill">最受欢迎</span>
               <h3>{{ col.label }}</h3>
+              <div class="pos">{{ TIER_POS[col.key] }}</div>
               <div class="sub">{{ col.days }} 天 · 最多 {{ col.devices }} 台设备</div>
               <div class="price num">
                 <template v-if="col.price">
