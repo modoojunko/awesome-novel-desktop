@@ -43,7 +43,11 @@ class TestWriteRouteContract:
 
     def test_sibling_routes_unchanged(self, openapi_paths):
         """同族端点不受本修复影响（原本就因前缀拼接恰好正确）。"""
-        for sub in ("/continue", "/prompt", "/prompt/polish", "/quality-check", "/polish"):
+        for sub in ("/prompt", "/prompt/polish", "/quality-check", "/polish"):
             assert "post" in openapi_paths.get(WRITE + sub, {}) or "get" in openapi_paths.get(
                 WRITE + sub, {}
             ), f"{WRITE + sub} 缺失"
+
+    def test_continue_route_retired(self, openapi_paths):
+        """c-retire-continue-writing：AI 续写端点已退役，防回潮。"""
+        assert WRITE + "/continue" not in openapi_paths

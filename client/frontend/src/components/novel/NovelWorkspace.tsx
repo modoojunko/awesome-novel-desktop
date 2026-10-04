@@ -261,7 +261,6 @@ export default function NovelWorkspace() {
   // 生成正文经 AiModal（提示词预览/编辑），其余工具直接执行。
   type AiAction =
     | { kind: "write" }
-    | { kind: "continue"; capture?: SelectionCapture | null }
     | { kind: "selection"; mode: "polish" | "expand" | "compress"; capture: SelectionCapture | null };
 
   const [showUnlock, setShowUnlock] = useState(false);
@@ -276,10 +275,6 @@ export default function NovelWorkspace() {
   const runAiAction = useCallback((action: AiAction) => {
     if (action.kind === "write") {
       setShowAiModal(true);
-      return;
-    }
-    if (action.kind === "continue") {
-      proseRef.current?.continueWriting(action.capture ?? undefined);
       return;
     }
     if (action.capture) {
@@ -1215,9 +1210,6 @@ export default function NovelWorkspace() {
             onSelectVolume={handleSelectVolume}
             autoCheckSeq={autoCheck.seq}
             onAiWrite={() => requestAi({ kind: "write" })}
-            onAiContinue={() =>
-              requestAi({ kind: "continue", capture: proseRef.current?.captureNow() ?? null })
-            }
             onAiSelection={(mode, capture) => requestAi({ kind: "selection", mode, capture })}
           />
         </aside>

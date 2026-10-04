@@ -58,19 +58,6 @@ export function streamChapterWrite(
   );
 }
 
-export function streamChapterContinue(
-  projectId: string,
-  chapterRef: string,
-  cursorPosition: number,
-  callbacks: StreamCallbacks,
-): AbortController {
-  return doStreamFetch(
-    `${API_BASE}/novels/${projectId}/chapters/${chapterRef}/write/continue`,
-    { cursor_position: cursorPosition },
-    callbacks,
-  );
-}
-
 function doStreamFetch(
   url: string,
   body: Record<string, unknown> | undefined,

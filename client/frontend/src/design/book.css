@@ -306,9 +306,6 @@
 .qc-detail { flex: none; padding: 7px 20px 9px; background: var(--fg-soft); color: var(--muted); font-size: 12px; line-height: 1.8; border-bottom: 1px solid var(--border); }
 .qc-detail b { color: var(--fg); font-weight: 500; }
 /* 文末续写块（实写 < 目标 90% 且非流式中；就地续写＝视线终点） */
-.tail-cw { max-width: 680px; margin: 6px auto 0; border: 1.5px dashed color-mix(in oklch, var(--accent) 45%, transparent); background: color-mix(in oklch, var(--accent) 4%, transparent); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; gap: 12px; }
-.tail-cw .t { flex: 1; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
-.tail-cw .t b { display: block; color: var(--accent); font-weight: 600; margin-bottom: 2px; font-size: 13.5px; }
 
 /* ─── 章对象三件套：正文 / 章纲 / 提示词 ─────────────────── */
 .ch-tabs { flex: none; display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }

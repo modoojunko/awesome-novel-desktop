@@ -56,7 +56,6 @@ export function AiAssistPanel({
   castEmpty,
   castBusy,
   onAiWrite,
-  onContinue,
   onUpgrade,
   staleDownstream,
   aiState,
@@ -88,8 +87,6 @@ export function AiAssistPanel({
   castBusy?: boolean;
   /** AI 生成正文（c-prose-write-entry：正文页签动作清单首项，走页面级解锁链 → AiModal） */
   onAiWrite?: () => void;
-  /** 续写建议（正文页签；从光标处或选区末尾流式续写） */
-  onContinue?: () => void;
   /** 升级 PRO（免费态统一升级出口） */
   onUpgrade?: () => void;
   /** chapter-rewrite：下游「基于旧设定」章计数（无数据时显示「—」） */
@@ -422,9 +419,6 @@ export function AiAssistPanel({
       cap("write", "生成正文", "由设定＋章纲组装提示词，可编辑后流式写入正文末尾", {
         onClick: onAiWrite, disabled: streaming, hint: streaming ? "生成中" : undefined, testid: "ai-write-btn",
       }),
-      cap("continue", "续写建议", "从光标处（或选区末尾）流式续写，保持风格与上下文一致", {
-        onClick: onContinue, disabled: streaming,
-      }),
       // 密度重排（c-workbench-density）：未选中段落时三张段落级置灰卡收成一行
       // 「段落加工」说明行（SHALL NOT 三卡常驻占位）；选中后展开原三卡（testid 不变）
       ...(aiState?.hasSelection
@@ -500,7 +494,7 @@ export function AiAssistPanel({
       });
     }
     footNote =
-      "续写/去AI味/扩写/压缩作用于正文编辑器；朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上。检测需在「模型配置 → 朱雀」配好 Key（PRO 会员权益）。";
+      "去AI味/扩写/压缩作用于正文编辑器；朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上。检测需在「模型配置 → 朱雀」配好 Key（PRO 会员权益）。";
   } else if (tab === "settings") {
     targetLine = loreStats ? (
       <>本章变化 {loreStats.here} 条 · 截至本章条目 {loreStats.until} 条</>

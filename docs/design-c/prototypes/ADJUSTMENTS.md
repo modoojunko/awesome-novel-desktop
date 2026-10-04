@@ -1636,3 +1636,7 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
    命中 design-lint emojiRegex（\u2600-\u27BF），自本原型入库起 design:lint/design:check
    即存量红（HEAD 实证 exit 1）。状态语气由 `.badge.ok` 底色表达，字符冗余；实现侧
    ZhuquePanel 的「✓ 已配置」在 src 冻结观察范围，不在本次扩围。
+
+## c-retire-continue-writing（2026-10-04）
+
+- AI 续写（右栏「续写建议」卡与文末续写块）全链退役：原型 :1094 续写建议卡删除、railProseSub 副标题与右栏脚注去「续写」。条目 88/138 为退役前的历史登记，保留存档。顶栏「续写」（条目 638）为导航功能，不在退役范围。
