@@ -9,6 +9,7 @@ import ZhuqueHeadStrip from "@/components/novel/workbench/zhuqueHeadStrip";
 import {
   ZhuqueMarks,
   applyZhuqueSegments,
+  zhuqueMarksPluginKey,
   type ZhuqueSeg,
 } from "@/components/novel/workbench/zhuqueMarks";
 
@@ -105,6 +106,28 @@ describe("zhuqueMarks（Decorations 覆盖层·带化 c-zhuque-mark-band）", ()
     applyZhuqueSegments(ed, SEGS);
     applyZhuqueSegments(ed, null);
     expect(ed.view.dom.querySelectorAll(".zq-mark, p.zq-warn, p.zq-err").length).toBe(0);
+    ed.destroy();
+  });
+
+  it("装饰集住 plugin state：无关事务身份稳定（防 selectionToDOM 吞选区），文档变化才重建", () => {
+    const ed = mkEditor("<p>疑似段。</p><p>AI 段。</p>");
+    applyZhuqueSegments(ed, [
+      { paragraph_index: 0, label: 2, confidence: 0.62 },
+      { paragraph_index: 1, label: 1, confidence: 0.86 },
+    ]);
+    // 装饰必须由 plugin state 提供——若回退到 decorations prop 每次现算新集合，
+    // TipTap 任一无关重渲（setProps→updateState）都会让 PM 误判文档变了，
+    // selectionToDOM 把浏览器刚做的选区/光标折叠掉（真机实测 #617 起的缺陷）
+    const before = zhuqueMarksPluginKey.getState(ed.state);
+    expect(before).toBeTruthy();
+    ed.view.dispatch(ed.state.tr.setMeta("unrelated", 1));
+    expect(zhuqueMarksPluginKey.getState(ed.state)).toBe(before);
+    // 文档变化：位置重排须重建（新实例），标注语义保持
+    ed.view.dispatch(ed.state.tr.insertText("改", 1));
+    const after = zhuqueMarksPluginKey.getState(ed.state);
+    expect(after).toBeTruthy();
+    expect(after).not.toBe(before);
+    expect(ed.view.dom.querySelectorAll("p.zq-warn, p.zq-err").length).toBe(2);
     ed.destroy();
   });
 });

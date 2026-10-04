@@ -21,7 +21,8 @@
  *  其余事务原样返回同一实例）：decorations prop 若每次求值都现算新集合，TipTap
  *  React 层任一无关重渲（setOptions→view.setProps→updateState）都会让 PM 误判
  *  文档变了，走 selectionToDOM 把浏览器刚做的选区/光标折叠掉——实测症状＝
- *  标注在场时首次双击选词、点选定位、拖拽全部被吞（c-zhuque-mark-band 回归）。
+ *  标注在场时首次双击选词、点选定位、拖拽全部被吞（缺陷自 #617 初版即存在，
+ *  非 c-zhuque-mark-band 引入；回归钉子见 zhuqueWorkbench.test.tsx 身份稳定例）。
  */
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
