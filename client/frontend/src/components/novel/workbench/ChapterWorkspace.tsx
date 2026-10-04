@@ -1004,14 +1004,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, chapterRef, store, onTreeRefresh, outline.refetchTree]);
 
-  // ── 恢复编辑（退出归档只读；换皮不减功能——banner 内入口） ────────────
-  const handleUnarchive = useCallback(async () => {
-    if (!window.confirm(`确定恢复《${label}》的编辑吗？恢复后本章退出归档只读状态。`))
-      return;
-    await store.unarchive();
-  }, [label, store]);
-
-  // 归档只读横幅（c-og-archived-readonly）：正文/章纲两页签共用同一块（prose 原款）
+  // 归档只读横幅（c-archived-readonly）：正文/章纲两页签共用同一块。
+  // 唯一修改路径＝「重写本章」（操作页签）——恢复编辑/解除只读等旁路入口已退役。
   const archivedBanner = archived ? (
     <div className="readonly-banner">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -1019,14 +1013,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         <path d="M8 10V7a4 4 0 018 0v3" />
       </svg>
       <span>
-        本章已归档 · <b>只读</b>。如需修改，可在版本历史中恢复后重新归档。
+        本章已归档 · <b>只读</b>。如需修改，请在「操作」页签使用「重写本章」（旧稿自动转存支线）。
       </span>
-      <button
-        className="btn btn-ghost btn-sm"
-        onClick={() => void handleUnarchive()}
-      >
-        恢复编辑
-      </button>
     </div>
   ) : null;
 
@@ -1035,10 +1023,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   useEffect(() => {
     onRailDataRef.current = onRailData;
   }, [onRailData]);
-  // useChapterData 每渲染返回新对象：unarchive 走 ref，依赖保持原基元集
-  // （否则 effect 每渲染必跑 → onRailData setState → 无限循环）
-  const unarchiveRef = useRef(store.unarchive);
-  unarchiveRef.current = store.unarchive;
   useEffect(() => {
     // 章纲统计（右栏 AI 辅助·章纲页签）：归档门槛/计划字数/关键事件/出场角色
     // 章纲统计（右栏 AI 辅助·章纲页签）：归档门槛/计划字数/剧情/出场角色
@@ -1053,7 +1037,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       setTargetWords,
       archived,
       bookWords,
-      unarchive: unarchiveRef.current,
       // storyline col-ai：右栏 AI 辅助随页签切换
       tab: chTab,
       chapterRef,

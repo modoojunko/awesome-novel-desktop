@@ -417,7 +417,11 @@ export function AiAssistPanel({
     );
     rows = [
       cap("write", "生成正文", "由设定＋章纲组装提示词，可编辑后流式写入正文末尾", {
-        onClick: onAiWrite, disabled: streaming, hint: streaming ? "生成中" : undefined, testid: "ai-write-btn",
+        // 归档章禁用指路重写（c-archived-readonly：「解除只读」解锁链退役）
+        onClick: onAiWrite,
+        disabled: streaming || archived,
+        hint: archived ? "已归档 · 重写走「操作」页签" : streaming ? "生成中" : undefined,
+        testid: "ai-write-btn",
       }),
       // 密度重排（c-workbench-density）：未选中段落时三张段落级置灰卡收成一行
       // 「段落加工」说明行（SHALL NOT 三卡常驻占位）；选中后展开原三卡（testid 不变）

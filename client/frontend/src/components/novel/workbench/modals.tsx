@@ -1,10 +1,10 @@
 // 书工作台弹窗群（book.html 遮罩弹窗的 React 化，PR 5）：
 //   DeleteConfirmModal  删除确认（章=内容盘点 chips / 卷=带章数字数文案）
-//   UnlockModal         解除只读（归档章 AI 链的前置确认）
 //   ArchiveModal        归档本章
 //   HistoryModal        版本历史（wide · ver-rows + 恢复；产品扩展=行内对比）
 //   AiModal             AI 生成正文（tall · 提示词预览可编辑 + 追加语义提示）
-// 文案与结构与原型 modalDelete/modalUnlock/modalArchive/modalHistory/modalAi 逐字对齐；
+// 文案与结构与原型 modalDelete/modalArchive/modalHistory/modalAi 逐字对齐
+// （modalUnlock 随「解除只读」解锁链退役，c-archived-readonly）；
 // 产品化差异（升级跳 S端 等）见 docs/design-c/prototypes/ADJUSTMENTS.md。
 import { useEffect, useState } from "react";
 import Modal from "@/components/design/Modal";
@@ -165,54 +165,6 @@ export function ResplitConfirmModal({
       )}
       <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
         此操作不可恢复。
-      </p>
-    </Modal>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 解除只读（归档章点 AI → 确认解锁并继续）
-// ---------------------------------------------------------------------------
-
-export function UnlockModal({
-  open,
-  onClose,
-  onConfirm,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="解除只读"
-      wbStyle
-      hideClose
-      footer={
-        <>
-          <button className="btn btn-secondary" onClick={onClose}>
-            取消
-          </button>
-          <button
-            className="btn btn-primary"
-            data-testid="unlock-confirm"
-            onClick={() => {
-              onClose();
-              onConfirm();
-            }}
-          >
-            解除只读并继续
-          </button>
-        </>
-      }
-    >
-      <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.7 }}>
-        本章已<b>归档</b>，正文处于<b>只读</b>状态。
-      </p>
-      <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--muted)" }}>
-        AI 生成将解除只读并继续编辑，请确认是否继续。
       </p>
     </Modal>
   );

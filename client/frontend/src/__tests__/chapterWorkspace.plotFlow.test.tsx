@@ -421,13 +421,14 @@ describe("保存草稿不确认＋撤回确认（c-og-draft-no-autconfirm）", (
   });
 });
 
-describe("归档章章纲只读（c-og-archived-readonly）", () => {
-  it("归档章停在章纲页签：归档横幅＋恢复编辑在场，动作区四入口不在场，一页纸本体保留", async () => {
+describe("归档章章纲只读（c-archived-readonly）", () => {
+  it("归档章停在章纲页签：归档横幅指路重写在场，动作区四入口不在场，一页纸本体保留", async () => {
     mount({ server: { ...FULL, status: "confirmed" }, archived: true });
     expect(await screen.findByTestId("og-view")).toBeInTheDocument();
-    // 横幅（prose 同款，含恢复编辑出口）
+    // 横幅（正文/章纲两页签同款）：指路「重写本章」，无恢复编辑等旁路按钮
     expect(screen.getByText(/本章已归档/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "恢复编辑" })).toBeInTheDocument();
+    expect(screen.getByText(/重写本章/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "恢复编辑" })).toBeNull();
     // 动作区整排不提供（确认/撤回对归档章后端本就 409）
     expect(screen.queryByRole("button", { name: "确认章纲" })).toBeNull();
     expect(screen.queryByRole("button", { name: "去写正文" })).toBeNull();
