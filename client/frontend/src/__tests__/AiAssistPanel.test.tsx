@@ -111,10 +111,11 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
       expect(document.querySelector(".ai-target")?.textContent).toContain("组装来源 1,234 字"),
     );
     expect(document.querySelector(".ai-target")?.textContent).toContain("自动组装");
-    // 未选中 → 去AI味/扩写/压缩禁用并带 hint
-    const polish = screen.getByRole("button", { name: /去AI味/ }) as HTMLButtonElement;
-    expect(polish.disabled).toBe(true);
-    expect(screen.getAllByText(/先在正文选中一段/).length).toBeGreaterThanOrEqual(1);
+    // 未选中 → 三张段落卡收成一行「段落加工」说明行（c-workbench-density 折叠制）
+    expect(screen.queryByRole("button", { name: /去AI味/ })).toBeNull();
+    const group = screen.getByTestId("ai-para-group") as HTMLButtonElement;
+    expect(group.disabled).toBe(true);
+    expect(group.textContent).toContain("先在正文选中一段");
     expect(screen.getByRole("button", { name: /生成正文/ })).toBeTruthy();
 
     // 选中 → 压缩可点，走 onAiSelection（capture 取自 proseRef）

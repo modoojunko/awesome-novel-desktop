@@ -103,6 +103,9 @@ interface ProsePaneProps {
   onStartEdit?: () => void;
   /** 编辑态「完成」回调（回查看态；不回退内容，未保存修改照常自动保存） */
   onEndEdit?: () => void;
+  /** 本章目标字数（章纲 wt→store.targetWords 兜底，ChapterWorkspace 传入）：
+   *  文末续写块的达标判定（实写 < 90% 出块）；缺省＝无块（c-workbench-density） */
+  planWords?: number | null;
 }
 
 /** 纯文本偏移（docToProse 口径，段间 \n 计 1）→ PM 文档位置。越界回落末段末尾。 */
@@ -147,7 +150,7 @@ function replaceDocNoHistory(editor: Editor, doc: JSONContent) {
 }
 
 const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
-  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress, locked, editing, onStartEdit, onEndEdit },
+  { projectId, chapterRef, fs, lh, hidden, onAIStateChange, resumeScroll, onWriteProgress, locked, editing, onStartEdit, onEndEdit, planWords },
   ref,
 ) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -172,6 +175,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   const streamReceivedRef = useRef("");
   // 生成完工检查（三工序③：字数 + 叙事自查；提示性质，可关闭）
   const [qcReport, setQcReport] = useState<StreamDoneMeta | null>(null);
+  // 完工检查并入工具行（c-workbench-density）：胶囊点击展开叙事自查明细
+  const [qcOpen, setQcOpen] = useState(false);
   const [preview, setPreview] = useState<{
     mode: "polish" | "expand" | "compress";
     capture: SelectionCapture;
@@ -684,66 +689,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
 
   return (
     <>
-      {/* 生成完工检查（三工序③：字数 ±10% + 叙事自查；提示性质，可关闭） */}
-      {qcReport && (qcReport.word_check || qcReport.self_check) && (
-        <div
-          className="readonly-banner"
-          data-testid="qc-banner"
-          hidden={hidden}
-          style={{ alignItems: "flex-start" }}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M9 11l3 3 8-8" />
-            <path d="M20 12v6a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h9" />
-          </svg>
-          <span style={{ flex: 1, minWidth: 0 }}>
-            {qcReport.word_check && (
-              <span data-testid="qc-word" style={{ display: "block" }}>
-                {qcReport.word_check.below_limit ? (
-                  <>
-                    <b>字数未达标</b>：目标约 {qcReport.word_check.target} 字 · 实写{" "}
-                    {qcReport.word_check.actual} 字（低于目标 90%），可用「续写」补足。
-                  </>
-                ) : (
-                  <>
-                    <b>字数达标</b>：实写 {qcReport.word_check.actual} / 目标约{" "}
-                    {qcReport.word_check.target} 字。
-                  </>
-                )}
-              </span>
-            )}
-            {qcReport.self_check && qcReport.self_check.length > 0 && (
-              <span data-testid="qc-self" style={{ display: "block" }}>
-                <b>叙事自查提示</b>（非阻断）：
-                {qcReport.self_check.map((issue) => (
-                  <span key={issue.rule} style={{ display: "block" }}>
-                    · {issue.rule}（{issue.excerpts.length} 处）
-                    {issue.excerpts[0] && (
-                      <i style={{ color: "var(--muted)" }}>
-                        {" "}
-                        如「{issue.excerpts[0].slice(0, 30)}
-                        {issue.excerpts[0].length > 30 ? "…" : ""}」
-                      </i>
-                    )}
-                  </span>
-                ))}
-              </span>
-            )}
-            {qcReport.self_check && qcReport.self_check.length === 0 && (
-              <span data-testid="qc-self" style={{ display: "block" }}>
-                <b>叙事自查</b>：七条规则均未命中。
-              </span>
-            )}
-          </span>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => setQcReport(null)}
-            data-testid="qc-close"
-          >
-            知道了
-          </button>
-        </div>
-      )}
+      {/* 密度重排（c-workbench-density）：完工检查自整条横幅收缩为编辑态工具行警示胶囊
+          （点开展开叙事自查明细条）——qc 数据服务写作中的人，查看态不再渲染。
+          testid qc-word/qc-self 迁入展开明细条保留（e2e 定位口径不变）；
+          条件渲染而非 hidden：.ol-top 是 display:flex，会压掉 hidden 属性（历史坑） */}
       {locked && !hidden && (
         <div className="readonly-banner" data-od-id="frontier-lock-banner">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -763,6 +712,27 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           格式按钮（加粗/斜体…）不做——纯文本存储下无法持久化。 */}
       {!hidden && editable && (
         <div className="ol-top edit-bar" data-od-id="prose-edit-bar">
+          {/* 完工检查胶囊（c-workbench-density）：有 qc 结果才出现；点开叙事自查明细 */}
+          {qcReport && (qcReport.word_check || qcReport.self_check) && (
+            <button
+              className="qc-pill"
+              data-testid="qc-banner"
+              onClick={() => setQcOpen((v) => !v)}
+              title="完工检查 · 点击展开明细"
+            >
+              {qcReport.word_check?.below_limit ? (
+                <>
+                  ⚠ 字数未达标 · {qcReport.word_check.actual}/{qcReport.word_check.target} ·{" "}
+                  <b>续写补足</b>
+                </>
+              ) : (
+                <>✓ 字数达标{qcReport.word_check && <> · {qcReport.word_check.actual}/{qcReport.word_check.target}</>}</>
+              )}
+              {qcReport.self_check && (
+                <> · 叙事自查 {qcReport.self_check.length > 0 ? `${qcReport.self_check.length} 处` : "0/7"}</>
+              )}
+            </button>
+          )}
           <span className="tool-seg">
             <button
               className="icon-btn"
@@ -804,6 +774,48 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           </span>
         </div>
       )}
+      {/* 完工检查明细条（c-workbench-density）：胶囊展开时渲染在工具行下方 */}
+      {!hidden && editable && qcOpen && qcReport && (qcReport.word_check || qcReport.self_check) && (
+        <div className="qc-detail" data-testid="qc-detail">
+          {qcReport.word_check && (
+            <span data-testid="qc-word">
+              {qcReport.word_check.below_limit ? (
+                <>
+                  <b>字数未达标</b>：目标约 {qcReport.word_check.target} 字 · 实写{" "}
+                  {qcReport.word_check.actual} 字（低于目标 90%），可用「续写」补足。
+                </>
+              ) : (
+                <>
+                  <b>字数达标</b>：实写 {qcReport.word_check.actual} / 目标约{" "}
+                  {qcReport.word_check.target} 字。
+                </>
+              )}
+            </span>
+          )}
+          {qcReport.self_check && qcReport.self_check.length > 0 && (
+            <span data-testid="qc-self">
+              <b>叙事自查提示</b>（非阻断）：
+              {qcReport.self_check.map((issue) => (
+                <span key={issue.rule} style={{ display: "block" }}>
+                  · {issue.rule}（{issue.excerpts.length} 处）
+                  {issue.excerpts[0] && (
+                    <i style={{ color: "var(--muted)" }}>
+                      {" "}
+                      如「{issue.excerpts[0].slice(0, 30)}
+                      {issue.excerpts[0].length > 30 ? "…" : ""}」
+                    </i>
+                  )}
+                </span>
+              ))}
+            </span>
+          )}
+          {qcReport.self_check && qcReport.self_check.length === 0 && (
+            <span data-testid="qc-self">
+              <b>叙事自查</b>：七条规则均未命中。
+            </span>
+          )}
+        </div>
+      )}
       {!hidden && !editable && !notEditable && (
         <div className="ol-top" data-od-id="prose-view-bar">
           <span className="note">
@@ -829,6 +841,22 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
             只读/归档/流式态由 setEditable(false) 落成 contenteditable="false"
             （a11y + e2e 判定口保持） */}
         <EditorContent editor={editor} />
+        {/* 文末续写块（c-workbench-density）：实写 < 目标 90% 且非流式中才出；
+            就地续写＝视线终点，免跳右栏。达标/无目标/流式中 SHALL NOT 出现 */}
+        {editable && !streaming && planWords != null && planWords > 0 && words < planWords * 0.9 && (
+          <div className="tail-cw" data-testid="tail-continue">
+            <span className="t">
+              <b>从这里续写</b>
+              还差约 {Math.ceil(planWords * 0.9 - words).toLocaleString("zh-CN")} 字到本章目标（{words.toLocaleString("zh-CN")} / {planWords.toLocaleString("zh-CN")}）· AI 从文末接着写，写完自动并入
+            </span>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => startStream(true)}
+            >
+              续写
+            </button>
+          </div>
+        )}
       </div>
 
       {preview && (

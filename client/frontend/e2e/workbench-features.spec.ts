@@ -545,11 +545,13 @@ test("点章强制落章纲：确认/有正文后重挂载仍落章纲 + 头部�
     await remount();
     await expect(ogTab).toHaveAttribute("aria-selected", "true", { timeout: 5000 });
 
-    // 右栏 Rail 收敛为纯 AI 助手（c-rail-ai-only）：进度卡退役，信息在头部徽章行
+    // 右栏 Rail 收敛为纯 AI 助手（c-rail-ai-only）：进度卡退役；c-workbench-density 起
+    // 完成度/总字数唯一承载位＝页签行 ch-progress（头部徽章行只留状态/字数/门槛/剧情/角色）
     await expect(page.getByText("本章进度", { exact: true })).toHaveCount(0);
     const meta = page.locator(".e-meta");
-    await expect(meta).toContainText("完成度");
-    await expect(meta).toContainText("本书总字数");
+    await expect(meta).toContainText("归档门槛");
+    await expect(page.locator(".ch-progress")).toContainText("完成度");
+    await expect(page.locator(".ch-progress")).toContainText("总字数");
   } finally {
     await restore();
   }
@@ -674,10 +676,12 @@ test("右栏 AI 辅助随页签切换：引导语/统计卡/动作清单（动�
     await expect(railCard.getByRole("button", { name: /剧情推演/ })).toBeEnabled();
     await expect(railCard.getByRole("button", { name: /补全缺失字段/ })).toBeEnabled();
     await expect(railCard.getByText("规划中")).toHaveCount(0);
-    // 正文页签：面板切到正文（统计正文字数）；压缩需选中才可点
+    // 正文页签：面板切到正文（统计正文字数）；c-workbench-density：未选段时三张
+    // 段落卡折叠为一行「段落加工」分组行（不可点）
     await page.getByRole("tab", { name: /^正文/ }).click();
     await expect(page.getByText("AI 助手 · 正文")).toBeVisible();
-    await expect(railCard.getByRole("button", { name: /压缩啰嗦段落/ })).toBeDisabled();
+    await expect(railCard.getByTestId("ai-para-group")).toBeDisabled();
+    await expect(railCard.getByTestId("ai-polish")).toHaveCount(0);
     // 提示词页签退役（c-prompt-tab-retire）：组装来源统计随状态收编正文页签作用域行
     await expect(page.getByRole("tab", { name: /^提示词/ })).toHaveCount(0);
   } finally {
