@@ -989,7 +989,8 @@
       </div>
       <div class="readonly-banner" id="readonlyBanner" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>
-        <span>本章已归档 · <b>只读</b>。如需修改，请在「操作」页签使用「重写本章」（旧稿自动转存支线）。</span>
+        <span>本章已归档 · <b>只读</b>。小改可恢复编辑；整体重写走「操作」页签「重写本章」（旧稿自动转存支线）。</span>
+        <button class="btn btn-ghost btn-sm" id="unarchiveBtn">恢复编辑</button>
       </div>
       <div class="editor-wrap" id="editorWrap">
         <div class="editor fs-m lh-comfy" id="editor" contenteditable="true" data-placeholder="从这一章开始写……"></div>
@@ -1153,7 +1154,7 @@
   </div>
 </div>
 
-<!-- 解除只读弹窗已随 c-archived-readonly 退役（归档章写入锁死，唯一修改路径＝「重写本章」） -->
+<!-- 解除只读弹窗已随 c-archived-readonly 退役：归档章修改＝小改「恢复编辑」（横幅出口）／整体重写「重写本章」两路径 -->
 
 <!-- 归档本章 -->
 <div class="modal" id="modalArchive" hidden data-od-id="modal-archive">
@@ -2885,6 +2886,12 @@ function openAiModal(ch) {
   openModal('modalAi');
 }
 if ($('btnAi2')) $('btnAi2').addEventListener('click', () => $('btnAi').click());
+/* c-archived-readonly 小改路径：横幅「恢复编辑」＝unarchive 直改（不转存旧稿；重写走操作页签） */
+$('unarchiveBtn').addEventListener('click', () => {
+  const ch = curCh(); if (!ch) return;
+  ch.archived = false;
+  persist(); renderTreeAll(); renderMiddle(); updateModNav();
+});
 $('btnAi').addEventListener('click', () => {
   const ch = curCh();
   if (isArchived(ch)) return; /* c-archived-readonly：解除只读退役，归档章不可写 */

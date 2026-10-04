@@ -1004,8 +1004,16 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, chapterRef, store, onTreeRefresh, outline.refetchTree]);
 
+  // ── 恢复编辑（c-archived-readonly 小改路径：横幅出口，unarchive 直改不转存旧稿；
+  //    整体重写走「操作」页签「重写本章」——旧稿转支线＋下游角标） ────────────
+  const handleUnarchive = useCallback(async () => {
+    if (!window.confirm(`确定恢复《${label}》的编辑吗？恢复后本章退出归档只读状态。`))
+      return;
+    await store.unarchive();
+  }, [label, store]);
+
   // 归档只读横幅（c-archived-readonly）：正文/章纲两页签共用同一块。
-  // 唯一修改路径＝「重写本章」（操作页签）——恢复编辑/解除只读等旁路入口已退役。
+  // 两条修改路径＝小改「恢复编辑」（本横幅出口）／整体重写「重写本章」（操作页签）。
   const archivedBanner = archived ? (
     <div className="readonly-banner">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -1013,8 +1021,14 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         <path d="M8 10V7a4 4 0 018 0v3" />
       </svg>
       <span>
-        本章已归档 · <b>只读</b>。如需修改，请在「操作」页签使用「重写本章」（旧稿自动转存支线）。
+        本章已归档 · <b>只读</b>。小改可恢复编辑；整体重写走「操作」页签「重写本章」（旧稿自动转存支线）。
       </span>
+      <button
+        className="btn btn-ghost btn-sm"
+        onClick={() => void handleUnarchive()}
+      >
+        恢复编辑
+      </button>
     </div>
   ) : null;
 

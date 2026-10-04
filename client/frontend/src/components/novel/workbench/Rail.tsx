@@ -2,8 +2,8 @@
 //   卷选中 → VolumeAssistPanel（验证报告/规划入口，内容随卷域定）
 //   章选中 → AiAssistPanel（随章页签切换的 AI 助手卡，ra-* 全局统一布局）
 // 右栏 SHALL 只承载 AI 相关功能（c-rail-ai-only）；AI 写入工具全部经 onAi* 走
-// 页面级写入链（归档章动作置灰＋hint 指路「重写本章」，c-archived-readonly：
-// 原「解除只读」解锁链已退役）。
+// 页面级写入链（归档章动作置灰＋hint「恢复编辑后可用」，c-archived-readonly：
+// 原「解除只读」解锁链已退役，小改走横幅「恢复编辑」、整体重写走「重写本章」）。
 import type { RefObject } from "react";
 import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { toast } from "@/lib/toast";

@@ -256,9 +256,9 @@ export default function NovelWorkspace() {
   const [showDownload, setShowDownload] = useState(false);
   const onUpgrade = useCallback(() => setShowUpgrade(true), []);
 
-  // ── 右栏 AI 写入工具链（真 bug #2 修复；生成正文经 AiModal 提示词预览） ────
-  // 归档章全面只读（c-archived-readonly）：写入动作在 AiAssistPanel 置灰＋hint 指路
-  // 「重写本章」（操作页签）；requestAi 兜底 toast，原「解除只读」解锁链退役。
+  // ── 右栏 AI 写入工具链（生成正文经 AiModal 提示词预览） ────
+  // 归档章全面只读（c-archived-readonly）：写入动作在 AiAssistPanel 置灰＋hint
+  // （恢复编辑后可用）；requestAi 兜底 toast，原「解除只读」解锁链保持退役。
   type AiAction =
     | { kind: "write" }
     | { kind: "selection"; mode: "polish" | "expand" | "compress"; capture: SelectionCapture | null };
@@ -286,7 +286,7 @@ export default function NovelWorkspace() {
   const requestAi = useCallback(
     (action: AiAction) => {
       if (railData?.archived) {
-        toast.info("本章已归档 · 修改请用「操作」页签的「重写本章」");
+        toast.info("本章已归档 · 恢复编辑后可用");
         return;
       }
       runAiAction(action);

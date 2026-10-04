@@ -1641,7 +1641,7 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
 
 - AI 续写（右栏「续写建议」卡与文末续写块）全链退役：原型 :1094 续写建议卡删除、railProseSub 副标题与右栏脚注去「续写」。条目 88/138 为退役前的历史登记，保留存档。顶栏「续写」（条目 638）为导航功能，不在退役范围。
 
-## c-archived-readonly（2026-10-04）
+## c-archived-readonly（2026-10-04；同日三轮拍板修订为两路径）
 
-- 归档章全面只读（唯一修改路径＝「重写本章」；重写卡属操作页签域，未入本原型）：原型「解除只读」弹窗（modalUnlock）整块删除，btnAi 点击的归档分支与 unlockConfirm 监听随删；renderChapter 对 btnAi 补归档禁用＋title 指路「重写本章」。
-- readonlyBanner 文案对齐应用侧：「可在版本历史中恢复后重新归档」→「请在『操作』页签使用『重写本章』（旧稿自动转存支线）」；原型横幅本无按钮，应用侧撤「恢复编辑」按钮无原型对应面，不涉 parity 基线屏（workbench 屏用非归档章）。
+- 归档章只读＋两条修改路径：**小改＝横幅「恢复编辑」**（unarchive 直改，不转存旧稿）、**整体重写＝「重写本章」**（操作页签，重写卡属操作页签域未入本原型）。「解除只读」弹窗（modalUnlock）整块删除（AI 写入工具确认即解锁的旁路不复保留），btnAi 点击的归档分支与 unlockConfirm 监听随删；renderChapter 对 btnAi 补归档禁用＋title。
+- readonlyBanner 文案对齐应用侧两路径口径（原「可在版本历史中恢复后重新归档」），并补「恢复编辑」按钮（id=unarchiveBtn，点击 ch.archived=false 走 persist/renderTreeAll/renderMiddle）。不涉 parity 基线屏（workbench 屏用非归档章）。

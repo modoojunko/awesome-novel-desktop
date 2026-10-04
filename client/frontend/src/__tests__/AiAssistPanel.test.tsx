@@ -298,13 +298,13 @@ describe("故事状态缺口标注（c-chapter-dossier 评审 P2）", () => {
 });
 
 describe("归档章写入锁死（c-archived-readonly）", () => {
-  it("正文页签：生成正文禁用＋hint 指路重写，点击不上抛", async () => {
+  it("正文页签：生成正文禁用＋hint 指路恢复编辑，点击不上抛", async () => {
     const onAiWrite = vi.fn();
     renderPanel("prose", { onAiWrite, archived: true });
     const write = screen.getByTestId("ai-write-btn") as HTMLButtonElement;
     expect(write.disabled).toBe(true);
-    // hint 指路重写（唯一修改路径）
-    expect(screen.getByText("已归档 · 重写走「操作」页签")).toBeInTheDocument();
+    // hint 指路恢复编辑（小改路径；重写走操作页签）
+    expect(screen.getByText("已归档 · 恢复编辑后可用")).toBeInTheDocument();
     await act(async () => {
       fireEvent.click(write);
     });
