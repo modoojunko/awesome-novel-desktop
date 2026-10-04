@@ -111,28 +111,29 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
       expect(document.querySelector(".ai-target")?.textContent).toContain("组装来源 1,234 字"),
     );
     expect(document.querySelector(".ai-target")?.textContent).toContain("自动组装");
-    // 未选中 → 三张段落卡收成一行「段落加工」说明行（c-workbench-density 折叠制）
-    expect(screen.queryByRole("button", { name: /去AI味/ })).toBeNull();
-    const group = screen.getByTestId("ai-para-group") as HTMLButtonElement;
-    expect(group.disabled).toBe(true);
-    expect(group.textContent).toContain("先在正文选中一段");
+    // 未选中 → 去AI味单卡置灰（c-retire-selection-transforms：扩写/压缩已退役）
+    const polishBtn = screen.getByTestId("ai-polish") as HTMLButtonElement;
+    expect(polishBtn.disabled).toBe(true);
+    expect(polishBtn.textContent).toContain("先在正文选中一段");
+    expect(screen.queryByText(/场景扩写/)).toBeNull();
+    expect(screen.queryByText(/压缩啰嗦段落/)).toBeNull();
     expect(screen.getByRole("button", { name: /生成正文/ })).toBeTruthy();
 
-    // 选中 → 压缩可点，走 onAiSelection（capture 取自 proseRef）
+    // 选中 → 去AI味可点，走 onAiSelection（capture 取自 proseRef）
     const capture = { text: "选中的一段" };
     renderPanel("prose", {
       onAiSelection,
-      aiState: { hasSelection: true, compressLoading: false } as never,
+      aiState: { hasSelection: true, polishLoading: false } as never,
       proseRef: { current: { captureNow: () => capture } } as never,
     });
-    // 第二次 render 追加进容器：取最后一份（选中态）的行
-    const btns = screen.getAllByRole("button", { name: /压缩啰嗦段落/ }) as HTMLButtonElement[];
+    // 第二次 render 追加进容器：取最后一份（选中态）的卡
+    const btns = screen.getAllByTestId("ai-polish") as HTMLButtonElement[];
     const btn = btns[btns.length - 1];
     expect(btn.disabled).toBe(false);
     await act(async () => {
       fireEvent.click(btn);
     });
-    expect(onAiSelection).toHaveBeenCalledWith("compress", capture);
+    expect(onAiSelection).toHaveBeenCalledWith("polish", capture);
   });
 
   it("收尾入口只剩伏笔（设定/关系两入口已迁章档）；未归档禁用", async () => {

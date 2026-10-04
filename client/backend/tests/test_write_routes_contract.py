@@ -51,3 +51,8 @@ class TestWriteRouteContract:
     def test_continue_route_retired(self, openapi_paths):
         """c-retire-continue-writing：AI 续写端点已退役，防回潮。"""
         assert WRITE + "/continue" not in openapi_paths
+
+    def test_selection_transform_routes_retired(self, openapi_paths):
+        """c-retire-selection-transforms：场景扩写/压缩端点已退役，防回潮。"""
+        assert WRITE + "/expand" not in openapi_paths
+        assert WRITE + "/compress" not in openapi_paths

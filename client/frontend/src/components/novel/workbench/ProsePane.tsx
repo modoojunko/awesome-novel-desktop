@@ -29,8 +29,6 @@ import ContrastPreviewModal from "@/components/novel/ContrastPreviewModal";
 import { useChapterData } from "@/hooks/useChapterData";
 import { toast } from "@/lib/toast";
 import {
-  compressText,
-  expandText,
   polishText,
   streamChapterWrite,
   type StreamDoneMeta,
@@ -52,8 +50,6 @@ export interface ProseAIState {
   selectedText: string;
   continueLoading: boolean;
   polishLoading: boolean;
-  expandLoading: boolean;
-  compressLoading: boolean;
   streaming: boolean;
 }
 
@@ -62,8 +58,6 @@ export const INITIAL_PROSE_AI_STATE: ProseAIState = {
   selectedText: "",
   continueLoading: false,
   polishLoading: false,
-  expandLoading: false,
-  compressLoading: false,
   streaming: false,
 };
 
@@ -75,8 +69,6 @@ export interface ProseHandle {
   stopWriting(): void;
   /** capture：解锁链等场景预先捕获的选区/光标（弹窗焦点会丢现场选区） */
   polish(capture: SelectionCapture): void;
-  expand(capture: SelectionCapture): void;
-  compress(capture: SelectionCapture): void;
 }
 
 interface ProsePaneProps {
@@ -175,7 +167,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   // 完工检查并入工具行（c-workbench-density）：胶囊点击展开叙事自查明细
   const [qcOpen, setQcOpen] = useState(false);
   const [preview, setPreview] = useState<{
-    mode: "polish" | "expand" | "compress";
+    mode: "polish";
     capture: SelectionCapture;
     text: string | null;
     loading: boolean;
@@ -418,7 +410,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapterRef]);
 
-  // ── 选区跟踪（去AI味/扩写需要选中段落） ──────────────────────────────
+  // ── 选区跟踪（去AI味需要选中段落） ─────────────────────────────────
   const captureNow = useCallback((): SelectionCapture | null => {
     if (!editor || editor.isDestroyed) return null;
     // 读 DOM 选区而非 editor.state.selection：PM 消化 selectionchange 有延迟，
@@ -617,25 +609,18 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     return () => cancelAnimationFrame(raf);
   }, [resumeScroll, chapterRef]);
 
-  // ── 去AI味 / 扩写（选中段落 → 对照预览 → 接受替换） ─────────────────
+  // ── 去AI味（选中段落 → 对照预览 → 接受替换） ─────────────────────
   const runTransform = useCallback(
-    async (mode: "polish" | "expand" | "compress", capture: SelectionCapture) => {
+    async (mode: "polish", capture: SelectionCapture) => {
       const ctxBefore = capture.fullText.slice(Math.max(0, capture.start - 200), capture.start);
       const ctxAfter = capture.fullText.slice(capture.end, capture.end + 200);
       setPreview({ mode, capture, text: null, loading: true, error: null });
       onAIStateChange((prev) => ({
         ...prev,
         polishLoading: mode === "polish",
-        expandLoading: mode === "expand",
-        compressLoading: mode === "compress",
       }));
       try {
-        const text =
-          mode === "polish"
-            ? await polishText(projectId, chapterRef, capture.text, ctxBefore, ctxAfter)
-            : mode === "expand"
-              ? await expandText(projectId, chapterRef, capture.text, ctxBefore, ctxAfter)
-              : await compressText(projectId, chapterRef, capture.text, ctxBefore, ctxAfter);
+        const text = await polishText(projectId, chapterRef, capture.text, ctxBefore, ctxAfter);
         setPreview({ mode, capture, text, loading: false, error: null });
       } catch (e) {
         setPreview({
@@ -649,9 +634,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         onAIStateChange((prev) => ({
           ...prev,
           polishLoading: false,
-          expandLoading: false,
-          compressLoading: false,
-        }));
+                        }));
       }
     },
     [projectId, chapterRef, onAIStateChange],
@@ -669,8 +652,6 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         finishStream(streamReceivedRef.current, false);
       },
       polish: (capture: SelectionCapture) => void runTransform("polish", capture),
-      expand: (capture: SelectionCapture) => void runTransform("expand", capture),
-      compress: (capture: SelectionCapture) => void runTransform("compress", capture),
     }),
     [editor, captureNow, startStream, finishStream, runTransform],
   );
@@ -863,13 +844,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
               }
               lastSyncedRef.current = next;
               setProse(next);
-              toast.success(
-                preview.mode === "polish"
-                  ? "已去AI味"
-                  : preview.mode === "expand"
-                    ? "已应用扩写"
-                    : "已应用压缩",
-              );
+              toast.success("已去AI味");
             }
             setPreview(null);
           }}

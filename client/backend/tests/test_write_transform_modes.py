@@ -1,8 +1,8 @@
-"""选区变换端点（transform 族）行为测试：/write/compress、/write/polish。
+"""选区变换端点行为测试：/write/polish（去AI味）。
 
 覆盖：200 路径（提示词含对应要求段、返回产物字段、记账 operation）、
 缺 selected_text 400、超时 502 留败账。
-（/expand 为同族存量端点；c-prose-deai 起 /polish 口径＝去AI味。）
+（/write/expand、/write/compress 已随 c-retire-selection-transforms 退役。）
 """
 
 import asyncio
@@ -12,7 +12,6 @@ import tempfile
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from ai_client import AITimeoutError
 from auth_local.deps import require_ai_access as _raa
 from auth_local.deps import require_novel_model as _rnm
 from auth_local.middleware import get_current_user
@@ -85,68 +84,6 @@ def _post(nid: str, path: str, body: dict):
         return c.post(f"/api/novels/{nid}/chapters/{REF}/write{path}", json=body)
     finally:
         app.dependency_overrides.clear()
-
-
-class TestCompress:
-    def test_compress_200_prompt_and_usage(self, monkeypatch):
-        _root, nid = asyncio.run(_seed())
-        captured: list = []
-        monkeypatch.setattr(
-            "write.auxiliary.get_ai_client_for_novel",
-            lambda *a, **k: _async_return(_FakeClient(captured)),
-        )
-        r = _post(nid, "/compress", {
-            "selected_text": "她握紧船桨，风声很大，衣裳被吹得猎猎作响，头发也乱了。",
-            "context_before": "临江渡口。",
-            "context_after": "船家解缆。",
-        })
-        assert r.status_code == 200, r.text
-        assert r.json()["compressed_text"] == "她握桨听风。"
-        prompt = captured[-1]["messages"][0]["content"]
-        assert "压缩要求" in prompt
-        assert "她握紧船桨" in prompt
-
-        # 记账：operation=compress
-        from models.token_log import TokenLog
-
-        async def _ops():
-            async with async_session() as s:
-                rows = (await s.scalars(
-                    select(TokenLog).where(TokenLog.project_id == nid)
-                )).all()
-                return [x.operation for x in rows]
-
-        assert "compress" in asyncio.run(_ops())
-
-    def test_compress_missing_selection_400(self):
-        _root, nid = asyncio.run(_seed())
-        r = _post(nid, "/compress", {"selected_text": ""})
-        assert r.status_code == 400
-
-    def test_compress_timeout_502_with_fail_row(self, monkeypatch):
-        _root, nid = asyncio.run(_seed())
-
-        class _Timeout:
-            async def chat(self, **kwargs):
-                raise AITimeoutError("timeout")
-
-        async def _fake(novel_id):
-            return _Timeout()
-
-        monkeypatch.setattr("write.auxiliary.get_ai_client_for_novel", _fake)
-        r = _post(nid, "/compress", {"selected_text": "一段啰嗦的话。"})
-        assert r.status_code == 502, r.text
-
-        from models.token_log import TokenLog
-
-        async def _ops():
-            async with async_session() as s:
-                rows = (await s.scalars(
-                    select(TokenLog).where(TokenLog.project_id == nid)
-                )).all()
-                return [x.operation for x in rows]
-
-        assert "compress_fail" in asyncio.run(_ops())
 
 
 class TestPolish:

@@ -1645,3 +1645,7 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
 
 - 归档章只读＋两条修改路径：**小改＝横幅「恢复编辑」**（unarchive 直改，不转存旧稿）、**整体重写＝「重写本章」**（操作页签，重写卡属操作页签域未入本原型）。「解除只读」弹窗（modalUnlock）整块删除（AI 写入工具确认即解锁的旁路不复保留），btnAi 点击的归档分支与 unlockConfirm 监听随删；renderChapter 对 btnAi 补归档禁用＋title。
 - readonlyBanner 文案对齐应用侧两路径口径（原「可在版本历史中恢复后重新归档」），并补「恢复编辑」按钮（id=unarchiveBtn，点击 ch.archived=false 走 persist/renderTreeAll/renderMiddle）。不涉 parity 基线屏（workbench 屏用非归档章）。
+
+## c-retire-selection-transforms（2026-10-04）
+
+- 选区加工的「场景扩写」「压缩啰嗦段落」两卡退役：原型两卡行删除、右栏脚注去「扩写/压缩」。去AI味单卡保留（反AI红线家族落点）。顶栏「续写」（条目 638）为导航功能不受影响。
