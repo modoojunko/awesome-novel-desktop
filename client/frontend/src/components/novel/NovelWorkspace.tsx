@@ -953,7 +953,20 @@ export default function NovelWorkspace() {
 
       {/* 写作：three-col 常驻挂载（.view.on 切换，正文脏状态/流式现场不丢） */}
       <div className={`view three-col${view === "workbench" ? " on" : ""}`}>
-        <aside className={`col-tree${volumes.length === 0 ? " empty-book" : ""}`}>
+        {/* 生成中树锁定（c-prose-stream-guard）：捕获层拦一切树内点击（切章/切卷/
+            行内新建改名删除都会摧毁流式现场），置灰＋title 指路「停止」；出口＝页签行徽章上的「停止」 */}
+        <aside
+          className={`col-tree${volumes.length === 0 ? " empty-book" : ""}${aiState.streaming ? " ai-lock" : ""}`}
+          title={aiState.streaming ? "生成中 · 点「停止」后再切换" : undefined}
+          onClickCapture={(e) => {
+            if (!aiState.streaming) return;
+            const t = e.target as HTMLElement;
+            if (!t.closest("button, .vol-head, .ch")) return;
+            e.preventDefault();
+            e.stopPropagation();
+            toast.info("生成中 · 点「停止」后再切换");
+          }}
+        >
           <OutlineTree
             wb={wb}
             outline={outline}

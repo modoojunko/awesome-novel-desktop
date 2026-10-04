@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import NovelWorkspace from "@/components/novel/NovelWorkspace";
+import { streamChapterWrite } from "@/lib/ai";
 import {
   ProjectContext,
   type ProjectState,
@@ -35,14 +36,17 @@ const apiState = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({ api: apiState, request: apiState.request }));
 
+const writeMock = vi.mocked(streamChapterWrite);
+
 // 流式写入挂起不结束：让 aiState.streaming 稳定为 true（回主页守卫的测试前提）。
 // 返回真 AbortController（ProsePane 卸载时会调 .abort()），但永不回调 → 流式不结束。
 // 其余 AI 函数保持真实现（本文件其它用例不触流式）。
+// vi.fn 包装（c-prose-stream-guard）：现场保护用例可按需改写回调注入，其余用例行为不变。
 vi.mock("@/lib/ai", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ai")>();
   return {
     ...actual,
-    streamChapterWrite: () => new AbortController(),
+    streamChapterWrite: vi.fn(() => new AbortController()),
   };
 });
 
@@ -712,5 +716,157 @@ describe("写作徽标归档投影（c-og-badge-archived-confirm）", () => {
       const outlineCnt = cnts.find((el) => el.textContent?.includes("章纲"));
       expect(outlineCnt?.textContent).toBe("1/1 章纲");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 正文生成中的现场保护（c-prose-stream-guard）：
+//   徽章提升页签行（非正文页签可见）、生成中左栏树锁定（点「停止」恢复）、
+//   切章/回主页收尾保留半截落库、流式态复位（不残留确认/锁定）。
+// ---------------------------------------------------------------------------
+describe("正文生成中的现场保护（c-prose-stream-guard）", () => {
+  const TWO_CHAPTER_DATA_CH2 = {
+    volume: 1,
+    chapter: 2,
+    title: "第二章",
+    status: "outline",
+    outline: { summary: "" },
+    prose: "",
+  };
+
+  function mockTwoChapterTreePro() {
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/novels/p1/volumes")
+        return Promise.resolve([
+          {
+            ...ONE_VOL_ONE_CHAPTER[0],
+            chapter_count: 2,
+            chapters: [
+              ...ONE_VOL_ONE_CHAPTER[0].chapters,
+              {
+                ref: "vol-1-ch-2",
+                volume: 1,
+                chapter: 2,
+                title: "第二章",
+                status: "outline",
+                word_count: 0,
+                has_prose: false,
+                outline_status: "unfilled",
+                archived: false,
+              },
+            ],
+          },
+        ]);
+      if (path === "/novels/p1/chapters/vol-1-ch-1")
+        return Promise.resolve(ONE_CHAPTER_DATA);
+      if (path === "/novels/p1/chapters/vol-1-ch-2")
+        return Promise.resolve(TWO_CHAPTER_DATA_CH2);
+      if (path === "/novels/p1/workflow/phase-status")
+        return Promise.resolve({
+          phases: {
+            settings: "done",
+            outline: "pending",
+            prompt: "pending",
+            write: "pending",
+            archive: "pending",
+          },
+          warnings: [],
+        });
+      return Promise.resolve({});
+    });
+    apiState.request.mockResolvedValue([]);
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+    apiState.put.mockResolvedValue({});
+    apiState.post.mockResolvedValue({});
+  }
+
+  /** 选第一章 → 正文页签 → 右栏「生成正文」→ AiModal 确认 → 流式启动（writeMock 挂起） */
+  async function startStreaming() {
+    mockTwoChapterTreePro();
+    renderWorkspace("monthly");
+    await selectFirstChapter();
+    fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
+    fireEvent.click(screen.getByTestId("ai-write-btn"));
+    fireEvent.click(await screen.findByTestId("ai-confirm"));
+    await waitFor(() => expect(writeMock).toHaveBeenCalled());
+  }
+
+  beforeEach(() => {
+    writeMock.mockImplementation(() => new AbortController());
+  });
+  afterEach(() => {
+    writeMock.mockImplementation(() => new AbortController());
+  });
+
+  it("生成中徽章挂在页签行：章纲页签下仍可见，且全文档仅一处", async () => {
+    await startStreaming();
+    expect(screen.getByTestId("ai-streaming-badge")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: /^章纲/ }));
+    expect(screen.getByTestId("ai-streaming-badge")).toBeTruthy();
+    expect(document.querySelectorAll(".ai-streaming").length).toBe(1);
+  });
+
+  it("生成中左栏树锁定：点另一章被拦（不加载该章＋置灰指路），点「停止」后恢复可切", async () => {
+    await startStreaming();
+    const rows = () => document.querySelectorAll(".tree .ch");
+    const aside = () => document.querySelector(".col-tree");
+    expect(rows().length).toBe(2);
+    // 锁定态：ai-lock 类＋title 指路（jsdom 无 Toaster 挂载，toast 文案归 e2e 断言）
+    expect(aside()?.classList.contains("ai-lock")).toBe(true);
+    expect(aside()?.getAttribute("title") ?? "").toContain("生成中");
+    fireEvent.click(rows()[1]);
+    expect(apiState.get).not.toHaveBeenCalledWith("/novels/p1/chapters/vol-1-ch-2");
+    expect(screen.getByTestId("ai-streaming-badge")).toBeTruthy();
+
+    // 「停止」→ 收尾复位：徽章消失、树解锁恢复可切
+    fireEvent.click(
+      within(screen.getByTestId("ai-streaming-badge")).getByRole("button", { name: "停止" }),
+    );
+    await waitFor(() => expect(screen.queryByTestId("ai-streaming-badge")).toBeNull());
+    await waitFor(() => expect(aside()?.classList.contains("ai-lock")).toBe(false));
+    fireEvent.click(rows()[1]);
+    await waitFor(() =>
+      expect(apiState.get).toHaveBeenCalledWith("/novels/p1/chapters/vol-1-ch-2"),
+    );
+  });
+
+  it("流式中断保留半截：回主页确认中断 → 半截内容照「停止」语义落旧章", async () => {
+    mockTwoChapterTreePro();
+    renderWorkspace("monthly");
+    await selectFirstChapter();
+    fireEvent.click(screen.getByRole("tab", { name: /^正文/ }));
+    let captured: { onChunk: (t: string) => void } | null = null;
+    writeMock.mockImplementation(((_pid: string, _ref: string, cbs: { onChunk: (t: string) => void }) => {
+      captured = cbs;
+      return new AbortController();
+    }) as unknown as typeof streamChapterWrite);
+    fireEvent.click(screen.getByTestId("ai-write-btn"));
+    fireEvent.click(await screen.findByTestId("ai-confirm"));
+    await waitFor(() => expect(captured).toBeTruthy());
+    captured!.onChunk("雨落在铁皮屋顶上，像一场迟到的道歉。");
+
+    // 回主页确认中断 → ChapterWorkspace 卸载 → cleanup 照「停止」收尾
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
+    await waitFor(() =>
+      expect(apiState.put).toHaveBeenCalledWith("/novels/p1/chapters/vol-1-ch-1/prose", {
+        prose: expect.stringContaining("雨落在铁皮屋顶上"),
+      }),
+    );
+    confirmSpy.mockRestore();
+  });
+
+  it("切章收尾复位流式态：中断回主页后重进本章，再点「写作」不再弹确认", async () => {
+    await startStreaming();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
+    await waitFor(() => expect(screen.queryByRole("tab", { name: /^章纲/ })).toBeNull());
+    // 重进第一章
+    fireEvent.click(document.querySelectorAll(".tree .ch")[0]);
+    await screen.findByRole("tab", { name: /^章纲/ });
+    // 流式态已复位：再次回主页不走流式确认
+    fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    confirmSpy.mockRestore();
   });
 });

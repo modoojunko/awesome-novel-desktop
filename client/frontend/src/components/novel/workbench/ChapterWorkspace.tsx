@@ -1147,6 +1147,20 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             {text} <span className={cnt.cls}>{cnt.text}</span>
           </button>
         ))}
+        {/* 生成中徽章（c-prose-stream-guard）：提升到页签行——离开正文页签
+            （editor-status 隐藏在 chTab 作用域内）仍可见可停；正文页签下状态条不再重复 */}
+        {aiState.streaming && (
+          <span className="ai-streaming" data-testid="ai-streaming-badge">
+            <span className="pulse" />
+            AI 正在生成…
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => proseRef.current?.stopWriting()}
+            >
+              停止
+            </button>
+          </span>
+        )}
         {/* 版本历史（2026-09-27 自头部右侧移入页签行右端；弹窗不变） */}
         <button className="btn btn-ghost btn-sm ch-history" onClick={() => setShowHistory(true)}>
           版本历史
@@ -1522,18 +1536,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           ) : (
             <span className={saveView.cls}>
               <span className="num">{saveView.text}</span>
-            </span>
-          )}
-          {aiState.streaming && (
-            <span className="ai-streaming">
-              <span className="pulse" />
-              AI 正在生成…
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => proseRef.current?.stopWriting()}
-              >
-                停止
-              </button>
             </span>
           )}
         </span>

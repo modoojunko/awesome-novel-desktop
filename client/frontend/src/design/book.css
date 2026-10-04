@@ -270,7 +270,18 @@
 .editor p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
 /* 零段落空文档（完全没有 <p>）时 Placeholder 类挂不上，用 :empty 兜底 */
 .editor:empty::before { content: attr(data-placeholder); color: var(--muted); }
-.editor.generating { cursor: progress; }
+/* 生成中呼吸灯（c-prose-stream-guard，参数＝用户拍板演示页）：accent 光环绕
+   680 版心 2s 起伏，流式开始即起、收尾即止；纯 box-shadow 不位移布局 */
+.editor.generating { cursor: progress; animation: stream-breath 2s ease-in-out infinite; }
+@keyframes stream-breath {
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 18%, transparent), 0 0 14px color-mix(in oklch, var(--accent) 6%, transparent); }
+  50% { box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 55%, transparent), 0 0 28px color-mix(in oklch, var(--accent) 20%, transparent); }
+}
+/* 流式期间左栏树锁定（c-prose-stream-guard）：整树置灰＋禁用手感，
+   点击拦截在 NovelWorkspace 壳层捕获（onClickCapture），出口＝页签行「停止」 */
+.col-tree.ai-lock .tree, .col-tree.ai-lock .tree-head, .col-tree.ai-lock .tree-foot, .col-tree.ai-lock .tree-add { opacity: 0.55; }
+.col-tree.ai-lock .vol-head, .col-tree.ai-lock .ch { cursor: not-allowed; }
+.col-tree.ai-lock .vol-head:hover, .col-tree.ai-lock .ch:hover { background: transparent; }
 .editor-status { flex: none; display: flex; align-items: center; gap: 14px; height: 32px; padding: 0 18px; border-top: 1px solid var(--border); background: var(--surface); font-size: 12px; color: var(--muted); }
 .editor-status .right { margin-left: auto; display: inline-flex; align-items: center; gap: 14px; }
 .save-state { display: inline-flex; align-items: center; gap: 6px; }
