@@ -10,6 +10,15 @@ test.describe('Landing Page', () => {
     await expect(page.getByText('AI 是笔，你才是作家')).toBeVisible()
   })
 
+  test('品牌 5.0 层：主锁位＋血统行＋五代一脉＋FAQ 血统条目', async ({ page }) => {
+    await expect(page.locator('.brand-lockup')).toContainText('Awesome Novel')
+    await expect(page.locator('.brand-lockup')).toContainText('5.0')
+    await expect(page.getByText(/awesome-novel-agent 的第 5 代/).first()).toBeVisible()
+    await expect(page.getByText('五代一脉')).toBeVisible()
+    await page.locator('#faq').scrollIntoViewIfNeeded()
+    await expect(page.getByText(/爱小说和 awesome-novel 是什么关系/)).toBeVisible()
+  })
+
   test('显示下载按钮和查看套餐按钮', async ({ page }) => {
     await expect(page.getByRole('button', { name: '免费下载' })).toBeVisible()
     await expect(page.getByRole('link', { name: '查看套餐' })).toBeVisible()
@@ -150,7 +159,7 @@ test.describe('Landing Page', () => {
     const footer = page.locator('footer')
     // 版权行 = ©年 + 主体 + 组合名：主体名与品牌名是字面量＝故意钉住
     // （主体与 brand/brand.json 的 company 同值，改名须同批改本断言）
-    await expect(footer.getByText(/© \d{4} 星纬（海口）投资有限公司 · 爱小说 · AI Novel/)).toBeVisible()
+    await expect(footer.getByText(/© \d{4} 星纬（海口）投资有限公司 · 爱小说 · Awesome Novel/)).toBeVisible()
     await expect(footer.getByText('你的小说永远属于你')).toBeVisible()
   })
 

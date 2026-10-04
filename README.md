@@ -1,4 +1,6 @@
-# AI Novel · 爱小说
+# 爱小说 · Awesome Novel
+
+> awesome-novel-agent 第 5 代 —— 源自开源项目 <https://github.com/modoojunko/awesome-novel-agent>；开源版仍按 AGPL 独立维护。
 
 AI 辅助长篇小说创作平台 —— 单用户桌面应用，数据跟着你走。
 

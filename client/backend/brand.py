@@ -16,7 +16,7 @@ from pathlib import Path
 # 与 brand/brand.json 逐键同值；改名只改 json，本表仅作文件缺失时的兜底
 _DEFAULTS = {
     "name": "爱小说",
-    "nameEn": "AI Novel",
+    "nameEn": "Awesome Novel",
     "mark": "爱",
     "tagline": "AI 辅助长篇小说写作",
 }

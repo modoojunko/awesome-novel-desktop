@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import HeroSection from '@/components/landing/HeroSection.vue'
 import ConceptSection from '@/components/landing/ConceptSection.vue'
+import LineageSection from '@/components/landing/LineageSection.vue'
 import FeaturesSection from '@/components/landing/FeaturesSection.vue'
 import RoadmapSection from '@/components/landing/RoadmapSection.vue'
 import PricingSection from '@/components/landing/PricingSection.vue'
@@ -13,6 +14,7 @@ import FooterSection from '@/components/landing/FooterSection.vue'
   <div>
     <HeroSection />
     <ConceptSection />
+    <LineageSection />
     <FeaturesSection />
     <RoadmapSection />
     <PricingSection />
