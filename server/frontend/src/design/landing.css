@@ -57,6 +57,7 @@
 /* ─── 套餐卡 ────────────────────────────────────────────── */
 .mkt-plan { border-radius: 16px; padding: 30px; display: flex; flex-direction: column; }
 .mkt-plan.free { background: var(--surface); border: 1px solid var(--border); }
+.mkt-plan.paid { background: var(--surface); border: 1px solid var(--border); }
 .mkt-plan.pro { background: color-mix(in oklch, var(--accent) 4%, var(--surface)); border: 1px solid color-mix(in oklch, var(--accent) 30%, transparent); box-shadow: var(--shadow-card); position: relative; }
 .mkt-plan h3 { font-family: var(--font-display); font-size: 18px; font-weight: 600; margin: 0; }
 .mkt-plan .sub { font-size: 13px; color: var(--muted); margin: 4px 0 0; }

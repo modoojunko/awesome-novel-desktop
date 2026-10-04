@@ -156,7 +156,7 @@ const skeletonCards = FALLBACK_PAID.map(fb => ({
               <div class="sub">即将推出</div>
               <p class="soon-note">{{ SOON_NOTES[col.key] ?? '上线后此处即可选购。' }}</p>
             </div>
-            <div v-else class="mkt-plan" :class="{ pro: col.popular }">
+            <div v-else class="mkt-plan paid" :class="{ pro: col.popular }">
               <span v-if="col.popular" class="mkt-pro-pill">最受欢迎</span>
               <h3>{{ col.label }}</h3>
               <div class="pos">{{ TIER_POS[col.key] }}</div>
