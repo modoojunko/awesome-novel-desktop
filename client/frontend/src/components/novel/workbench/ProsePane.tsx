@@ -396,13 +396,24 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     return () => dom.removeEventListener("compositionend", onCompositionEnd);
   }, [editor]);
 
-  // 卸载/切章：中断流式 + 清完工检查
+  // 卸载/切章：照「停止」收尾（c-prose-stream-guard）——先断流，再把半截内容
+  // 经 finishStream 并入正文并**立即落盘**（flush 自带 isDirty 门：无流时零开销），
+  // SHALL NOT 静默丢弃。为何不等自动保存防抖：useChapterData 的 release 兜底
+  // flush 按声明序先于本 cleanup 执行（那时还没脏），防抖定时器在 release 后
+  // 成孤儿，1.5s 内关窗即丢——必须此处显式 flush。依赖仅 chapterRef：缓冲经
+  // refs 取数，finishStream 捕获旧章 store——半截内容恰落旧章；编辑器 DOM
+  // 同步有 isDestroyed 守卫，不依赖卸载顺序。finishStream 幂等，正常收尾的
+  // 切章到此处 streamingRef 已 false，整段跳过。
   useEffect(() => {
     setQcReport(null);
     return () => {
       abortRef.current?.abort();
-      streamingRef.current = false;
+      if (streamingRef.current) {
+        finishStream(streamReceivedRef.current, false);
+        void store.flush();
+      }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapterRef]);
 
   // ── 选区跟踪（去AI味/扩写需要选中段落） ──────────────────────────────
