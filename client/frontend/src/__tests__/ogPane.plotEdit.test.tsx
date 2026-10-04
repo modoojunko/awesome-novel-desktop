@@ -21,7 +21,7 @@ function Host({
   initial: OgForm;
   onPlotEdit?: () => void;
   editing?: boolean;
-  /** 归档章（c-og-archived-readonly）：恒查看态＋动作区不提供 */
+  /** 归档章（c-archived-readonly）：恒查看态＋动作区不提供 */
   archived?: boolean;
   confirmed?: boolean;
   onUnconfirm?: () => void;
@@ -129,7 +129,7 @@ describe("章纲查看/编辑两态（c-ch-og-readonly）", () => {
   });
 });
 
-describe("归档章章纲只读（c-og-archived-readonly）", () => {
+describe("归档章章纲只读（c-archived-readonly）", () => {
   it("查看态不提供动作区：撤回确认/去写正文/确认章纲/编辑章纲全不在场，一页纸本体保留", () => {
     render(
       <Host

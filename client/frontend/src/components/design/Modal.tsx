@@ -18,7 +18,7 @@ interface ModalProps {
   /** 书工作台弹窗版式（book.html：440 宽 + 纵向 flex 滚动体）。
    *  弹窗统一 portal 到 body（脱离 .wb 作用域）→ 工作台内弹窗需显式开启 */
   wbStyle?: boolean;
-  /** 隐去头部 X 关闭钮（原型确认族口径：删除确认/解除只读/归档本章无 X，仅取消/确认/Esc/遮罩） */
+  /** 隐去头部 X 关闭钮（原型确认族口径：删除确认/归档本章无 X，仅取消/确认/Esc/遮罩） */
   hideClose?: boolean;
   /** 关闭后是否还原焦点（默认还原；关闭后将跳转到别处聚焦时传 false，防 200ms 还原抢走焦点） */
   restoreFocus?: boolean;

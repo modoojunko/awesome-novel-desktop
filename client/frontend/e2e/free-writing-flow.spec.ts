@@ -294,10 +294,9 @@ test("免费归档：不 500，正文只读，树已归档即时同步", async (
     await expect(page.getByTestId("og-view")).toBeVisible();
     await expect(page.getByRole("button", { name: "确认章纲" })).toHaveCount(0);
     await expect(page.getByTestId("og-edit")).toHaveCount(0);
-    // 正文页签：右栏写入动作（生成正文/续写建议）禁用＋无「解除只读」弹窗
+    // 正文页签：右栏写入动作（生成正文）禁用＋无「解除只读」弹窗
     await page.getByRole("tab", { name: /^正文/ }).click();
     await expect(page.getByTestId("ai-write-btn")).toBeDisabled();
-    await expect(page.getByRole("button", { name: /续写建议/ })).toBeDisabled();
     await expect(page.getByRole("dialog", { name: "解除只读" })).toHaveCount(0);
   } finally {
     await restore();

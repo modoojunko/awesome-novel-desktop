@@ -466,7 +466,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   // ── 章纲查看/编辑两态（对齐卷纲）：进编辑＝表单可写（3s 自动保存只认快照差）；
   //    取消＝回退到最近一次落库值（ogSnapRef 恒等于已持久化内容，含自动保存）。
   //    编辑入口：编辑章纲按钮／查看态缺口 chip／右栏缺项补全（产物要在表单里过目）。──
-  // 归档章一律哑火（c-og-archived-readonly）：OgPane 恒查看态，编辑态不得经 chip 溜进。
+  // 归档章一律哑火（c-archived-readonly）：OgPane 恒查看态，编辑态不得经 chip 溜进。
   const startOgEdit = useCallback(() => {
     if (!archived) setOgEditing(true);
   }, [archived]);

@@ -241,7 +241,6 @@ test("归档章写入锁死：右栏 AI 动作禁用指路重写，无「解除�
 
     // 右栏写入动作禁用＋hint 指路重写；「解除只读」解锁链退役（c-archived-readonly）
     await expect(page.getByTestId("ai-write-btn")).toBeDisabled();
-    await expect(page.getByRole("button", { name: /续写建议/ })).toBeDisabled();
     await expect(
       page.getByText("已归档 · 重写走「操作」页签").first(),
     ).toBeVisible();

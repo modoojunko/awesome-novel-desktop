@@ -81,7 +81,7 @@ function mount(opts: {
   server: Record<string, unknown>;
   isPro?: boolean;
   onOpenAiModal?: () => void;
-  /** 树行归档态（c-og-archived-readonly）：true＝本章已归档 */
+  /** 树行归档态（c-archived-readonly）：true＝本章已归档 */
   archived?: boolean;
 }) {
   const outline = makeOutline(opts.server);

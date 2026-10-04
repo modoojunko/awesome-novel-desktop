@@ -41,7 +41,7 @@ interface OgPaneProps {
   onPlotEdit?: () => void;
   gaps: { key: string; label: string }[];
   confirmed: boolean;
-  /** 归档章（c-og-archived-readonly）：恒查看态且动作区不提供——后端 confirm/unconfirm
+  /** 归档章（c-archived-readonly）：恒查看态且动作区不提供——后端 confirm/unconfirm
    *  对归档章 409，按钮留着只会招 409；恢复编辑入口由工作台层归档横幅承载 */
   archived?: boolean;
   saving: boolean;
@@ -287,7 +287,7 @@ export default function OgPane({
   );
 
   // ── 查看态（默认）：一页纸只读，未填项占位可见；编辑章纲进表单 ──────────
-  // 归档章（c-og-archived-readonly）恒走查看态：编辑态即使残留（归档前正在编辑）
+  // 归档章（c-archived-readonly）恒走查看态：编辑态即使残留（归档前正在编辑）
   // 也不渲染表单，动作区整排不提供。
   if (!editing || archived) {
     if (loading) {
