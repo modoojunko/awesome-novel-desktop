@@ -10,7 +10,11 @@
 
 - Git、Node.js 20+、Python 3.12+（pip 在 PATH）
 - Inno Setup 6+：装完确认 `iscc` 在 PATH，或在默认路径 `C:\Program Files (x86)\Inno Setup 6\`（没有就 `choco install innosetup -y`）
-- 仓库检出并切到目标 tag：`git clone … && git checkout v0.26`（或已有检出 `git fetch && git checkout v0.26`）
+- 仓库检出 **main 最新**（`git clone … ` 后不动，或已有检出 `git pull`）。
+  ⚠️ 别 checkout `v*` tag——打包脚本 `build_release.ps1` 合入在 v0.26 tag **之后**，
+  tag 检出里没有它，回落老 `build.bat` 会打出缺 release.json 的错包（打的是老配方）。
+  版本号不用担心：脚本从检出的最新 `v*` tag 自动取（main 在 v0.26 后未发新 tag → 自动 0.26；
+  发版内容以客户端代码为准，打包脚本本身不进产物）。
 
 ## 打包（一条命令）
 
