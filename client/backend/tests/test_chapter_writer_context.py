@@ -131,10 +131,125 @@ def test_previous_context_semantic_from_outline():
 
 
 def test_previous_context_fallback_when_outline_empty():
-    # 上章章纲情绪字段全空 → 语义模式不可用，调用方回退正文末段
+    # 上章章纲情绪字段全空 → 语义模式不可用，正文尾段由 previous_tail 承载
     text, semantic = build_previous_context({"prose": "正文。", "outline": {}})
     assert semantic is False
     assert text == ""
+
+
+# ── 上章结尾原文（c-chapter-seam-hardcut）────────────────────────────────
+
+
+def test_clip_tail_to_sentence_boundary():
+    from write.chapter_writer import clip_tail_to_sentence_boundary
+
+    # 未超限原样返回
+    assert clip_tail_to_sentence_boundary("短句。", 100) == "短句。"
+    # 超限回退句边界起头，不以残句开头
+    long_text = "短。" * 40  # 120 字，窗口内必有边界
+    out = clip_tail_to_sentence_boundary(long_text, 60)
+    assert len(out) <= 60
+    assert out.startswith("短。")
+    assert not out.startswith(("，", "很", "得"))
+    # 全篇无句边界的病态文本：宁残不空
+    assert clip_tail_to_sentence_boundary("啊" * 300, 50) == "啊" * 50
+    assert clip_tail_to_sentence_boundary("", 50) == ""
+    # 弯引号台词收尾：边界后紧跟的闭合引号一并吞掉，不返回孤立右引号开头
+    quoted = "前情提要。" + "垫" * 100 + "他喊道：“哪里走！”她追了上去。"
+    out2 = clip_tail_to_sentence_boundary(quoted, 40)
+    assert not out2.startswith("”")
+    assert out2.startswith("她")
+    # 扩窗分支：起头完整优先于预算，上限 2×max_chars
+    huge = "开头一句。" + "垫" * 190 + "中段句。到此为止。"
+    out3 = clip_tail_to_sentence_boundary(huge, 60)
+    assert out3.endswith("到此为止。")
+    assert not out3.startswith("垫")
+    assert len(out3) <= 120
+
+
+def test_clip_tail_paragraphs():
+    from write.chapter_writer import clip_tail_paragraphs
+
+    # 多段从末向前累加（10 字放不下三段 → 丢第一段）
+    text = "第一段。\n第二段。\n第三段。"
+    assert clip_tail_paragraphs(text, 10) == "第二段。\n第三段。"
+    # 超长单段：段内回退句边界（扩窗保起头完整，上限 2×预算）
+    huge = "开头一句。" + "长" * 120 + "结束。"
+    out = clip_tail_paragraphs(huge, 60)
+    assert out.endswith("结束。")
+    assert out.startswith("长")
+    assert len(out) <= 120
+    assert clip_tail_paragraphs("", 100) == ""
+    assert clip_tail_paragraphs(None, 100) == ""
+
+
+def test_previous_tail_block_both_paths_and_absent():
+    """两路同源：直写与素材包同款定位句；无尾块时两路与现状逐字一致。"""
+
+    ctx = _rich_context()
+    ctx.previous_tail = "枪口对着他，众人在等他放下刀。"
+    material = ctx.material_markdown()
+    user = ctx.to_user_material()
+    assert "【上章结尾（原文）】" in material
+    assert "## 上章结尾（原文）" in user
+    # 两路定位句同款、尾文同字
+    assert "本章第一段从这里直接接下去写" in material
+    assert "本章第一段从这里直接接下去写" in user
+    assert "枪口对着他，众人在等他放下刀。" in material
+    assert "枪口对着他，众人在等他放下刀。" in user
+    # 仲裁句只在语义前情在场时携带（_rich_context 有 previous_context）
+    assert "以这段原文为准" in material and "以这段原文为准" in user
+    # 无尾块：整块缺席
+    ctx2 = _rich_context()
+    assert "上章结尾（原文）" not in ctx2.material_markdown()
+    assert "上章结尾（原文）" not in ctx2.to_user_material()
+    # 恒定层不受素材影响：含/不含尾块两章的 system 段逐字节一致
+    assert ctx.build_system_prompt() == ctx2.build_system_prompt()
+
+
+def test_validate_polished_prompt_tail_anchor():
+    from write.chapter_writer import validate_polished_prompt
+
+    base = (
+        "## 任务指示\n字数不少。\n## 前情上下文\n前情要点。\n"
+        "## 章纲概要\n概要。\n红线：无。\n质感：细节。爽点设计：线索·玉佩。\n"
+    )
+    ctx = ChapterContext()
+    ctx.chapter_outline = {"summary": "概要"}
+    ctx.micro_payoffs = [{"kind": "clue", "description": "玉佩"}]
+    # 无尾块：不要求上章结尾锚
+    assert validate_polished_prompt(base, ctx) == []
+    # 有尾块：缺锚判不合格，补齐后合格
+    ctx.previous_tail = "枪口对着他。"
+    assert "上章结尾" in validate_polished_prompt(base, ctx)
+    with_tail = base + "## 上章结尾（原文）\n枪口对着他。"
+    assert validate_polished_prompt(with_tail, ctx) == []
+    # 回退态：语义前情缺席 → 前情锚不触发、上章结尾锚照常触发
+    ctx_fb = ChapterContext()
+    ctx_fb.previous_tail = "枪口对着他。"
+    no_prev = "## 任务指示\n字数不少。\n红线：无。\n质感：细节。"
+    assert validate_polished_prompt(no_prev, ctx_fb) == ["上章结尾"]
+
+
+def test_should_refresh_stored_prompt():
+    """c-chapter-seam-hardcut：存量粗组稿代际守卫四态。"""
+    from write.chapter_writer import should_refresh_stored_prompt
+
+    ctx = ChapterContext()
+    ctx.previous_tail = "枪口对着他。"
+    # 粗组稿缺块 + 素材含尾块 → 回落重组
+    assert should_refresh_stored_prompt("## 当前章节\n章纲：旧稿", ctx) is True
+    # 存量空 → False（无存量走粗组兜底，无需守卫）
+    assert should_refresh_stored_prompt("", ctx) is False
+    # 素材无尾块（首章/上章无正文）→ False
+    assert should_refresh_stored_prompt("## 当前章节\n章纲：旧稿", ChapterContext()) is False
+    # 存量稿已含块（新代际）→ False
+    assert (
+        should_refresh_stored_prompt("## 上章结尾（原文）\n枪口。", ctx) is False
+    )
+    # 润色稿（三锚）缺块 → False（作者资产不覆盖）
+    polished = "## 任务指示\n旧润色。\n## 红线\n无。\n## 质感\n细节。"
+    assert should_refresh_stored_prompt(polished, ctx) is False
 
 
 # ── 预算与占位符守卫（纯 ChapterContext）─────────────────────────────────
@@ -292,7 +407,7 @@ def test_material_markdown_skeleton():
 
 
 def test_build_context_semantic_previous():
-    """ch-2 且上章章纲有留存字段 → 语义前情，不读上章正文。"""
+    """ch-2 且上章章纲有留存字段 → 语义前情＋上章结尾原文尾块两路并存。"""
 
     async def _run():
         project = await _new_project("cwc_sem")
@@ -301,7 +416,7 @@ def test_build_context_semantic_previous():
             1,
             {
                 "title": "第一章",
-                "prose": "第一章的正文内容。",
+                "prose": "第一章的正文内容。\n结尾停在枪口对着他。",
                 "outline": {"summary": "她在码头截住船家"},
                 "ladder_exit": "主角决定查到底，焦虑升级",
             },
@@ -312,19 +427,27 @@ def test_build_context_semantic_previous():
         assert "上章写的是：她在码头截住船家" in ctx.previous_context
         assert "上章章末落点" in ctx.previous_context
         assert "主角决定查到底" in ctx.previous_context
-        # 语义模式不注入上章正文
+        # 语义模式不把上章正文混进前情段（原文由尾块另路承载）
         assert "第一章的正文内容" not in ctx.previous_context
         assert ctx.previous_chapter_recap == ""
+        # c-chapter-seam-hardcut：尾块承载上章正文结尾（文本级衔接）
+        assert ctx.previous_tail != ""
+        assert "结尾停在枪口对着他。" in ctx.previous_tail
+        material = ctx.material_markdown()
+        user = ctx.to_user_material()
+        assert "【上章结尾（原文）】" in material
+        assert "## 上章结尾（原文）" in user
+        assert "以这段原文为准" in material and "以这段原文为准" in user
 
     _run_async(_run())
 
 
 def test_build_context_fallback_to_prev_prose_tail():
-    """上章章纲情绪字段全空但正文存在 → 回退上章正文末 500 字。"""
+    """上章章纲全空但正文存在 → 回退块化：无语义前情段，尾块承载正文末段。"""
 
     async def _run():
         project = await _new_project("cwc_fb")
-        tail = "结尾处的最后一句。" * 60  # >500 字，验证截尾
+        tail = "结尾处的最后一句。" * 60  # >800 字，验证裁剪
         await _make_chapter(
             project,
             1,
@@ -335,11 +458,19 @@ def test_build_context_fallback_to_prev_prose_tail():
         )
         ref2 = await _make_chapter(project, 1, {"title": "第二章"})
         ctx = await build_chapter_context(project.root_path, ref2, "暗流")
+        # 回退块化：硬截摘要退役，正文尾段由 previous_tail 承载
         assert ctx.previous_context == ""
         assert ctx.previous_context_semantic is False
-        assert len(ctx.previous_chapter_recap) == 500
-        assert ctx.previous_chapter_recap.endswith("结尾处的最后一句。")
-        assert "开头。主角推门" not in ctx.previous_chapter_recap
+        assert ctx.previous_chapter_recap == ""
+        assert len(ctx.previous_tail) <= 800
+        assert ctx.previous_tail.endswith("结尾处的最后一句。")
+        assert "开头。主角推门" not in ctx.previous_tail
+        # 尾块在场，且回退态定位句不带仲裁句（无章末落点摘要可仲裁）
+        user = ctx.to_user_material()
+        assert "## 上章结尾（原文）" in user
+        assert "以这段原文为准" not in user
+        material = ctx.material_markdown()
+        assert "【上章结尾（原文）】" in material
 
     _run_async(_run())
 
@@ -353,6 +484,9 @@ def test_build_context_first_chapter_fixed_sentence():
         ctx = await build_chapter_context(project.root_path, ref1, "暗流")
         assert ctx.previous_context == "无前置章节，开篇直接切入角色当下行动，禁止大段世界观背景介绍。"
         assert ctx.previous_context_semantic is True
+        # c-chapter-seam-hardcut：首章无尾块，章首接点铁律自然不触发
+        assert ctx.previous_tail == ""
+        assert "上章结尾（原文）" not in ctx.to_user_material()
 
     _run_async(_run())
 

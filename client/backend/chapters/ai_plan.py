@@ -84,12 +84,15 @@ async def resolve_prev_chapter_ending(db, project, vol, ch_no: int) -> dict:
     prev = max(rows, key=lambda c: c.chapter_no)
     if prev.has_prose:
         from chapters.store import assemble_chapter
+        from write.chapter_writer import clip_tail_to_sentence_boundary
 
         prose = str(assemble_chapter(prev).get("prose") or "").strip()
         paras = [p.strip() for p in prose.split("\n") if p.strip()]
         if paras:
+            # c-chapter-seam-hardcut：句边界回退单源（与写作端上章结尾同口径），
+            # 超长末段不再 [:200] 硬切成残句开头
             return {
-                "text": paras[-1][:200],
+                "text": clip_tail_to_sentence_boundary(paras[-1], 200),
                 "source": f"第{prev.chapter_no}章 · 取自正文结尾（写到那里之后，这里以实际为准）",
             }
     exit_text = (prev.ladder_exit or "").strip()
