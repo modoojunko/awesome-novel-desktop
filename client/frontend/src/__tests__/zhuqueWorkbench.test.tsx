@@ -130,6 +130,29 @@ describe("zhuqueMarks（Decorations 覆盖层·带化 c-zhuque-mark-band）", ()
     expect(ed.view.dom.querySelectorAll("p.zq-warn, p.zq-err").length).toBe(2);
     ed.destroy();
   });
+
+  it("幂等注入跳过冗余重建；widget 章跨 docChanged 重建复用同一 DOM（key 稳定）", () => {
+    const ed = mkEditor("<p>疑似段。</p><p>AI 段。</p>");
+    const segs: ZhuqueSeg[] = [
+      { paragraph_index: 0, label: 2, confidence: 0.62 },
+      { paragraph_index: 1, label: 1, confidence: 0.86 },
+    ];
+    applyZhuqueSegments(ed, segs);
+    const set1 = zhuqueMarksPluginKey.getState(ed.state);
+    const span1 = ed.view.dom.querySelector(".zq-mark");
+    // 冗余注入（同 segments 同 stale；真实场景：重检返回同结果/zqState 身份变化）
+    // ——无守卫时会整颗重造 widget DOM 并使装饰集值不等，白吃一次吞选区窗口
+    applyZhuqueSegments(ed, segs);
+    expect(zhuqueMarksPluginKey.getState(ed.state)).toBe(set1);
+    expect(ed.view.dom.querySelector(".zq-mark")).toBe(span1);
+    // 文档变化：集合重建（新实例），但章凭稳定 key 复用同一 DOM——
+    // 无 key 时元素 widget 按元素身份比较恒假，每次重建都换新 span
+    ed.view.dispatch(ed.state.tr.insertText("改", 1));
+    const set2 = zhuqueMarksPluginKey.getState(ed.state);
+    expect(set2).not.toBe(set1);
+    expect(ed.view.dom.querySelector(".zq-mark")).toBe(span1);
+    ed.destroy();
+  });
 });
 
 describe("zhuqueHeadStrip（错误族出口）", () => {

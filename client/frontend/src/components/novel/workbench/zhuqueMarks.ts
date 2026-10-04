@@ -96,7 +96,7 @@ export const ZhuqueMarks = Extension.create<ZhuqueStorage>({
           );
         }
         if (tails.has(seg.paragraph_index)) {
-          decos.push(markWidget(node, offset, seg.label, stale));
+          decos.push(markWidget(node, offset, seg.paragraph_index, seg.label, stale));
         }
       });
       return DecorationSet.create(state.doc, decos);
@@ -128,21 +128,35 @@ export const ZhuqueMarks = Extension.create<ZhuqueStorage>({
 function markWidget(
   node: { nodeSize: number },
   offset: number,
+  paragraphIndex: number,
   label: 1 | 2,
   stale: boolean,
 ) {
-  const el = document.createElement("span");
-  el.className = `zq-mark m-${label === 1 ? "err" : "warn"}${stale ? " stale" : ""}`;
-  el.setAttribute("contenteditable", "false");
-  el.textContent = label === 1 ? "AI" : "疑似";
-  // 段内末位（nodeSize 含开闭各 1）——side:1 使章落在文本之后
-  return Decoration.widget(offset + node.nodeSize - 1, el, {
-    side: 1,
-    ignoreSelection: true,
-  });
+  // 段内末位（nodeSize 含开闭各 1）——side:1 使章落在文本之后。
+  // toDOM 必须是**函数**＋key 须稳定：元素形态 widget 的 `!toDOM.parentNode`
+  // 恒假（元素总挂着父节点），placeWidget 永不复用——每次重建（按键/重检）
+  // 都整颗重造 DOM 且装饰集值不等，matchesNode 失配 → selectionToDOM 折叠
+  // 用户选区（与头注同一症状族）。函数形态＋key 命中 WidgetType.eq 后跨重建复用。
+  return Decoration.widget(
+    offset + node.nodeSize - 1,
+    () => {
+      const el = document.createElement("span");
+      el.className = `zq-mark m-${label === 1 ? "err" : "warn"}${stale ? " stale" : ""}`;
+      el.setAttribute("contenteditable", "false");
+      el.textContent = label === 1 ? "AI" : "疑似";
+      return el;
+    },
+    {
+      side: 1,
+      ignoreSelection: true,
+      key: `zq-${paragraphIndex}-${label}${stale ? "-stale" : ""}`,
+    },
+  );
 }
 
-/** 注入/清除标注（写 storage＋meta 事务触发重算）。stale=true 时全部置换灰变体。 */
+/** 注入/清除标注（写 storage＋meta 事务触发重算）。stale=true 时全部置换灰变体。
+ *  幂等守卫：segments/stale 未变化时不派发——冗余 meta 事务会让装饰集与视图
+ *  值不等（见 markWidget key 注释），白吃一次 selectionToDOM 窗口。 */
 export function applyZhuqueSegments(
   editor: Editor,
   segments: ZhuqueSeg[] | null,
@@ -152,8 +166,10 @@ export function applyZhuqueSegments(
   const storage = editor.storage as {
     zhuqueMarks?: ZhuqueStorage;
   };
-  if (!storage.zhuqueMarks) return;
-  storage.zhuqueMarks.segments = segments;
-  storage.zhuqueMarks.stale = stale;
+  const st = storage.zhuqueMarks;
+  if (!st) return;
+  if (st.segments === segments && st.stale === stale) return;
+  st.segments = segments;
+  st.stale = stale;
   editor.view.dispatch(editor.state.tr.setMeta(REFRESH_META, 1));
 }
