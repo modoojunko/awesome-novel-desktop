@@ -144,6 +144,13 @@ async def lifespan(app: FastAPI):
             _log.info("dossier: swept %d interrupted extraction job(s)", _swept)
     except Exception as _e:  # noqa: BLE001 — sweep 失败不挡启动
         _log.warning("dossier sweep failed: %s", _e)
+    # ── 写作能力包（c-prompt-pack-client）：启动补偿同步（未装/档位不符才动） ──
+    try:
+        from prompt_pack.sync import maybe_after_auth
+
+        maybe_after_auth()
+    except Exception as _pe:  # noqa: BLE001 — 包同步失败不挡启动
+        _log.warning("prompt-pack sync failed: %s", _pe)
     try:
         from archive.reconcile import migrate_legacy_pending
 
@@ -354,6 +361,8 @@ app.include_router(manuscript_router)
 
 # 版本自报与更新检测（client-update-notify）
 app.include_router(update_check_router)
+from prompt_pack.router import router as prompt_pack_router  # c-prompt-pack-client
+app.include_router(prompt_pack_router)
 
 # 业务路由
 app.include_router(ai_router)

@@ -531,6 +531,13 @@ async def browser_auth(silent: bool = False) -> dict:
             cfg["deletion_pending"] = False  # 重新登录/撤销恢复：清除暂停标记
             save_local_config(cfg)
             await _ensure_local_user(cfg["username"])
+            # 写作能力包：登录成功后静默同步（c-prompt-pack-client）
+            try:
+                from prompt_pack.sync import maybe_after_auth
+
+                maybe_after_auth()
+            except Exception:
+                pass
             return {
                 "code": 0,
                 "data": {
@@ -650,6 +657,13 @@ async def verify_session() -> dict:
     if perm.get("entitlement_degraded"):
         # 降级详情三要素之一（tier-gating spec）：提示条可复制详情要带抓取时间
         resp["entitlement_fetched_at"] = cfg.get("entitlement_fetched_at", "")
+    # 写作能力包状态（c-prompt-pack-client 3.4）：前端四态卡数据面
+    try:
+        from prompt_pack.sync import get_status
+
+        resp["prompt_pack"] = get_status()
+    except Exception:
+        pass
     return resp
 
 

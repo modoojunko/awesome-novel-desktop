@@ -5,27 +5,27 @@
 
 ## 1. 原型先行
 
-- [ ] 1.1 design-language §5 加「写作能力」状态行＋§13 词汇；prototypes/book.html 右栏
+- [x] 1.1 design-language §5 加「写作能力」状态行＋§13 词汇；prototypes/book.html 右栏（book.html 右栏 rail-pack 四态＋demo-bar 5 态切换＋§5 状态行＋§13 词汇「写作能力」＋ADJUSTMENTS 登记；design:lint 31 文件零违规）
   锁定卡四态变体＋ADJUSTMENTS.md 登记；design-vocab.mjs 新词两端同批。
 
 ## 2. loader 与本地布局
 
-- [ ] 2.1 `prompts/__init__.py` 解析序改造：receipt 版本目录（min_client_version 拒载
+- [x] 2.1 `prompts/__init__.py` 解析序改造：receipt 版本目录（min_client_version 拒载（三跳解析序＋PromptPackMissing 继承 FileNotFoundError＋PROMPT_PACK_MODE=force；test_prompt_pack 11 绿）
   回落）→dev 目录→PromptPackMissing；读时 `(mtime_ns,size)` 签名＋sha256 兜底；版本比
   较复用 schema_version。
-- [ ] 2.2 `prompt_pack/` 模块：receipt/highwatermark 原子读写＋v{N}/v{N-1}/staging 布局
+- [x] 2.2 `prompt_pack/` 模块：receipt/highwatermark 原子读写＋v{N}/v{N-1}/staging 布局（prompt_pack/__init__.py：receipt/highwatermark 原子读写＋版本目录解析过闸回落＋(mtime_ns,size)签名＋sha256 读时校验）
   ＋清理 defer＋自愈链（回滚→清 receipt 重拉）。
 
 ## 3. 同步器
 
-- [ ] 3.1 四钩子接入＋latest.json v1 解析（parse-and-ignore）＋三闸门（min_client/
+- [x] 3.1 四钩子接入＋latest.json v1 解析（parse-and-ignore）＋三闸门（min_client/（四钩子：登录后 browser_auth＋启动补偿 lifespan＋档位变化 maybe_after_auth 比对＋手动 /api/prompt-pack/check；latest v1 解析＋min_client/已最新/高水位/min_pack 召回四闸）
   已最新/高水位）＋min_pack_version 召回闸。
-- [ ] 3.2 下载与七道校验（信任钥集合验签按 signer_key_id 选钥／自洽／sha256／key_id/
+- [x] 3.2 下载与七道校验（信任钥集合验签按 signer_key_id 选钥／自洽／sha256／key_id/（七道校验＋原子安装 staging→rename→receipt→清理 defer；10 条同步测试含篡改/重放/召回/降档）
   AEAD/模板级＋白名单＋分层标记/单调）＋原子安装。
-- [ ] 3.3 S端 换钥（call_server_api）＋403 降档重试＋404 重取 latest＋全失败静默旧包；
+- [x] 3.3 S端 换钥（call_server_api）＋403 降档重试＋404 重取 latest＋全失败静默旧包；（换钥走 call_server_api＋403 降档序列＋404 key_retired 状态＋全失败静默旧包；SSRF 照抄 update_check 且 manifest 内 URL 不采信——路径全从已验 base 派生）
   SSRF 防线照抄 update_check（含 manifest 内 URL 不采信）。
-- [ ] 3.4 `/auth/verify` 挂包状态字段；「在装」短轮询（90s 上限）。
-- [ ] 3.5 requirements.txt 显式 cryptography>=42。
+- [x] 3.4 `/auth/verify` 挂包状态字段；「在装」短轮询（90s 上限）。（/auth/verify 挂 prompt_pack 字段＋GET /api/prompt-pack/status＋「在装」状态经 syncing phase 供前端短轮询）
+- [x] 3.5 requirements.txt 显式 cryptography>=42。（requirements.txt 显式 cryptography>=42——jose 传递依赖不再隐式）
 
 ## 4. 枚举与 UI
 
