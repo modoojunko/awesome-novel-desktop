@@ -3,6 +3,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 import { addFirstChapterViaTree, cleanupSessionNovels, stableClick, writeFirstChapter } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // 工作台非 AI 功能 E2E（PR3 book.html 复刻后适配：章对象三页签 / 卷纲面板 / 专注 / 提示词）
@@ -71,6 +72,7 @@ async function writeOAuthSession(t: string, u: string, tier = "trial") {
   cfg.token = t;
   cfg.username = u;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   // docker config.json 可能残留已过去的会员到期日（auth middleware 见 expires_at
   // 过期即 401「登录已过期」），注入会话必须清掉，否则全部用例秒挂
   delete cfg.expires_at;
@@ -673,7 +675,9 @@ test("右栏 AI 辅助随页签切换：引导语/统计卡/动作清单（动�
     // 章纲页签：面板随页签切换；动作全部落地（占位机制已退役，不再有「规划中」）
     await expect(page.getByText("AI 助手 · 章纲")).toBeVisible({ timeout: 10000 });
     const railCard = page.locator(".rail-assist");
-    await expect(railCard.getByRole("button", { name: /剧情推演/ })).toBeEnabled();
+    // 推演归 MAX（2026-10-05）：trial 会话下行级锁「需 MAX」；补全缺失=ai-plan 可用
+    await expect(railCard.getByRole("button", { name: /剧情推演/ })).toBeDisabled();
+    await expect(railCard.getByRole("button", { name: /剧情推演/ })).toContainText("需 MAX");
     await expect(railCard.getByRole("button", { name: /补全缺失字段/ })).toBeEnabled();
     await expect(railCard.getByText("规划中")).toHaveCount(0);
     // 正文页签：面板切到正文（统计正文字数）；c-retire-selection-transforms：

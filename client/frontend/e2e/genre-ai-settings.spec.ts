@@ -3,6 +3,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
 import { cleanupSessionNovels, stableClick } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 // ---------------------------------------------------------------------------
 // 题材/简介 AI 链路 e2e（genre-signup-redesign tasks 9.4.5–9.4.11）
@@ -57,6 +58,7 @@ async function setupSession(page: Page, tier = "trial") {
   cfg.token = token;
   cfg.username = username;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");

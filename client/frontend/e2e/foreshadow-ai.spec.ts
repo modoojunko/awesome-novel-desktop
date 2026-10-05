@@ -3,6 +3,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 import { cleanupSessionNovels, stableClick } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // 伏笔 AI 链路 E2E（foreshadow-settings-v2 批2 tasks 6.3，打桩 AI）：
@@ -63,6 +64,7 @@ async function writeOAuthSession(t: string, u: string, tier = "trial") {
   cfg.token = t;
   cfg.username = u;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");

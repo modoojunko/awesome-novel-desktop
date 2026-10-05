@@ -3,6 +3,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 import { cleanupSessionNovels, pollBackend, stableClick } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // 核心创作流程 E2E — 创建小说（书名即创建）→ 设定完成判定（PRD 3.4）→ 大纲 → CRUD
@@ -76,6 +77,7 @@ async function writeOAuthSession(t: string, u: string, tier = "trial") {
   cfg.token = t;
   cfg.username = u;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   // docker config.json 可能残留已过去的会员到期日（auth middleware 见 expires_at
   // 过期即 401「登录已过期」），注入会话必须清掉，否则全部用例秒挂
   delete cfg.expires_at;

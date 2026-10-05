@@ -3,6 +3,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 import { cleanupSessionNovels, stableClick } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // 重写这一章 E2E（chapter-rewrite，全链真后端）：
@@ -55,6 +56,7 @@ async function writeOAuthSession(t: string, u: string, tier = "trial") {
   cfg.token = t;
   cfg.username = u;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");
@@ -179,7 +181,7 @@ test("重写已归档章：旧稿入支线＋下游角标＋改写后角标消�
     // 归档弹窗：受理制预告＋收尾计划（c-chapter-dossier：两件 PRO 提案＋变化全档说明）
     const plan = page.getByTestId("archive-plan");
     await expect(plan).toBeVisible();
-    await expect(plan.getByText(/随归档自动提取，全档可用/)).toBeVisible();
+    await expect(plan.getByText(/随归档自动提取/)).toBeVisible();
     await expect(plan).toContainText("登记伏笔");
     await expect(plan).toContainText("随归档自动提取");
     await page.getByTestId("arch-confirm").click();

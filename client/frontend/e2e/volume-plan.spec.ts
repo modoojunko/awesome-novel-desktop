@@ -2,6 +2,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
 import { cleanupSessionNovels, stableClick, writeConfigAtomic } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // volume-plan-ai 六态 e2e：空书起手 → 规划台（两条入口）→ 3 套 → 展开 →
@@ -59,6 +60,7 @@ async function writeOAuthSession(t: string, u: string, tier = "trial") {
   cfg.token = t;
   cfg.username = u;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   cfg.expires_at = tier === "none" ? "" : "2099-12-31";
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");

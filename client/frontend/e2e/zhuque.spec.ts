@@ -31,6 +31,7 @@ const ENTITLEMENT = {
 };
 
 let token = "";
+let E2E_USERNAME = "";
 let restoreCfg: (() => void) | null = null;
 
 async function sRegisterAndLogin(): Promise<string> {
@@ -47,6 +48,7 @@ async function sRegisterAndLogin(): Promise<string> {
     body: JSON.stringify({ username: name, password: PASSWORD }),
   }).then((r) => r.json());
   expect(login.code, `S端 login: ${JSON.stringify(login)}`).toBe(0);
+  E2E_USERNAME = name;
   return login.data.token as string;
 }
 
@@ -58,9 +60,14 @@ function writeSessionConfig(cfgBase: Record<string, unknown>) {
       ...cfgBase,
       token,
       tier: "max",
+      username: E2E_USERNAME,
       expires_at: "",
       entitlement: ENTITLEMENT,
       last_login_at: new Date().toISOString(),
+      // 破缓存 nonce：Docker bind mount 的 mtime 粒度粗，若两次写入字节数相同
+      // （token/用户名定长时常见），后端 (mtime,size) 缓存签名不变→读到旧 token→401。
+      // 随机长度填充保证签名必变。
+      _e2e_nonce: "x".repeat(1 + Math.floor(Math.random() * 40)),
     };
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
   };
@@ -97,6 +104,19 @@ test.describe("朱雀 AI 检测（工作台三处消费点）", () => {
     const cfgBase = original ? (JSON.parse(original) as Record<string, unknown>) : {};
     const stable = await writeSessionConfig(cfgBase);
     expect(stable, "config.json 注入 token 被异步回写反复冲掉（check-auth 竞态）").toBe(true);
+    // 后端视角就绪探测：bind mount 传播延迟＋(mtime,size) 缓存签名双重竞态下，
+    // host 侧落盘≠容器已见。带鉴权轮询 GET /api/novels（每次重写一次破签名），
+    // ~10s 仍 401 则明确失败——不再让 seedJson 吞模糊 401。
+    let backendReady = false;
+    for (let attempt = 0; attempt < 8 && !backendReady; attempt++) {
+      const probe = await fetch(`${ORIGIN}api/novels`, { headers: { Authorization: `Bearer ${token}` } });
+      backendReady = probe.ok;
+      if (!backendReady) {
+        await writeSessionConfig(cfgBase);
+        await new Promise((r) => setTimeout(r, 1100));
+      }
+    }
+    expect(backendReady, "后端 ~10s 未认注入 token（bind mount 传播/缓存签名竞态）").toBe(true);
     restoreCfg = () => {
       try {
         if (original === null) fs.unlinkSync(CONFIG_PATH);
@@ -125,6 +145,12 @@ test.describe("朱雀 AI 检测（工作台三处消费点）", () => {
     expect(cref, `建章: ${JSON.stringify(ch)}`).toBeTruthy();
     await seedJson("PUT", `api/novels/${pid}/chapters/${cref}/prose`, {
       prose: "她握紧船桨，江风把斗笠掀得直响。\n\n船家压低嗓子说，渡口明早封江，过路人一律拦下。\n\n雨点砸在篷布上，像是谁在头顶擂鼓。",
+    });
+    // 写作模型 Key 先行（B3.2 起朱雀 config 增删测挂 require_ai_access——
+    // 无写作 Key 时 503「AI 服务未配置」，须先有一条模型配置）
+    await seedJson("POST", "api/v1/api-configs", {
+      name: "e2e-zq-model", vendor_id: "openai-compat",
+      base_url: "http://host.docker.internal:45871/v1", api_key: "sk-e2e-zq",
     });
     // 朱雀 Key（就绪态行与台账卡的前提；ZHUQUE_API_BASE 指向 classify 桩，测试连接不真烧额度）
     await seedJson("PUT", "api/v1/zhuque/config", { api_key: "eo-mk-e2e-stub" });

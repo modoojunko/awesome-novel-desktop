@@ -3,6 +3,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 import { addFirstChapterViaTree, cleanupSessionNovels, stableClick } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // 两段式提示词 → 正文生成 全链路 E2E（ai-prompt-crafting，打桩 AI）：
@@ -61,6 +62,7 @@ async function writeOAuthSession(t: string, u: string, tier = "trial") {
   cfg.token = t;
   cfg.username = u;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");
@@ -78,9 +80,9 @@ async function writeOAuthSession(t: string, u: string, tier = "trial") {
   return () => fs.writeFileSync(CONFIG_PATH, original);
 }
 
-async function setupSession(page: Page): Promise<{ restore: () => void; token: string }> {
+async function setupSession(page: Page, tier = "trial"): Promise<{ restore: () => void; token: string }> {
   const { token, username } = await sRegisterAndLogin();
-  const restore = await writeOAuthSession(token, username);
+  const restore = await writeOAuthSession(token, username, tier);
   await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
   // 页面级桩 check-auth：e2e 注入的 pc_hash 在 S端 无设备授权（code 1），后端会
   // 据此清空 config.json 的注入 token → 业务请求 401（已知环境阻塞）。桩掉这次
@@ -275,7 +277,8 @@ test("流式写入可整体撤销：一次撤销回到生成前，落库同步",
 
 test("去AI味采纳＝范围事务替换，一次撤销还原原文", async ({ page, request }) => {
   test.setTimeout(120_000);
-  const { restore, token } = await setupSession(page);
+  // 去AI味=ai-polish（MAX，2026-10-05 拍板）——会话种 max
+  const { restore, token } = await setupSession(page, "max");
   try {
     await ensurePromptAccess(request, token);
     await createNovel(page, `撤销采纳${Date.now() % 100000}`);

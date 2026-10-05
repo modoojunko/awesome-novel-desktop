@@ -3,6 +3,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 import { cleanupSessionNovels, stableClick } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // 主线设定 E2E（storyline-settings-v2：全景 fullstory + 结局三问）
@@ -52,6 +53,7 @@ function writeOAuthSession(t: string, u: string, tier = "trial") {
   cfg.token = t;
   cfg.username = u;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");
