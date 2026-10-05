@@ -39,7 +39,11 @@ jobs:
 
   e2e:
     needs: changes
-    if: needs.changes.outputs.changed == 'true'
+    # 拆仓守卫（2026-10-05 拍板不配 S_SERVER_TOKEN）：nightly e2e 需跨仓检出
+    # awesome-novel-server 构建四服务栈（真后端不打桩）；未配令牌时整轮跳过
+    # 而非红。本地全量 e2e（sibling 布局，见 CLAUDE.md）不受影响；后续在 secrets
+    # 配置 S_SERVER_TOKEN（PAT 读私有仓）即自动恢复。
+    if: ${{ needs.changes.outputs.changed == 'true' && secrets.S_SERVER_TOKEN != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
