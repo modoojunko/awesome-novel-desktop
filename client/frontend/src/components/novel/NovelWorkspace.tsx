@@ -33,7 +33,7 @@ import { useProject } from "@/hooks/useProject";
 import { useNovelState } from "@/hooks/useNovelState";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { GENRE_PENDING_LABEL } from "@/lib/genreVocab";
-import { useTier } from "@/hooks/useTier";
+import { useTier, useFeature } from "@/hooks/useTier";
 import { toast } from "@/lib/toast";
 import { BRAND } from "@/lib/brand";
 import { isLoggedIn } from "@/lib/auth";
@@ -72,6 +72,8 @@ export default function NovelWorkspace() {
   } = wb;
   const { updateProject } = useProject();
   const { isPro } = useTier();
+  // 卷规划抽卡判据＝ai-plan（标准起，tasks 5.3）——trial/pro/max 均含，与档位序解耦
+  const hasAiPlan = useFeature("ai-plan");
   const projectId = project?.id ?? "";
 
   const outline = useOutline(projectId);
@@ -530,9 +532,9 @@ export default function NovelWorkspace() {
     (volNo: number) => {
       backfillFiredRef.current = false;
       track("plan_entry_open", { tier: isPro ? "pro" : "free" });
-      plan.open(volNo, isPro);
+      plan.open(volNo, hasAiPlan);
     },
-    [plan, isPro],
+    [plan, isPro, hasAiPlan],
   );
   /** 手动建卷入口：加号一律进四问手写页（作家填空），AI 抽卡只在右栏 */
   const openPlanVolumeManual = useCallback(

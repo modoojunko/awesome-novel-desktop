@@ -13,6 +13,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
 import { cleanupSessionNovels, stableClick } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 const S_API = process.env.E2E_S_API || "http://127.0.0.1:19000/api/web";
 const ORIGIN = process.env.E2E_BASE_URL || "http://localhost:5174";
@@ -57,6 +58,7 @@ async function writeOAuthSession(t: string, u: string, tier = "trial") {
   cfg.token = t;
   cfg.username = u;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");
@@ -332,7 +334,7 @@ test.describe.serial("文风量化蒸馏链路", () => {
       await page.locator(".settings-v .col-tree").getByText("文风", { exact: true }).click();
       const rail = page.locator('[data-od-id="ai-assist-style"]');
       await expect(rail).toHaveClass(/locked/);
-      await expect(rail).toContainText("未解锁 · 升级 PRO 后本书 AI 即可用");
+      await expect(rail).toContainText("未解锁 · 开通后本书 AI 即可用（标准档起）");
       // 量化空态照常可见（免费也能看，只是不能蒸馏）
       await page.locator('[data-od-id="ptab-quant"]').click();
       await expect(page.locator('[data-od-id="quant-empty"]')).toBeVisible();

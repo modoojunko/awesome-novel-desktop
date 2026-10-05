@@ -3,6 +3,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
 import { cleanupSessionNovels, stableClick, writeFirstChapter } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // PR 5 弹窗群 E2E（book.html 3/3：删除分级 / 归档章写入锁死 / 版本历史 / 本书偏好）
@@ -75,6 +76,7 @@ async function writeOAuthSession(t: string, u: string, tier = "trial") {
   cfg.token = t;
   cfg.username = u;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   // 过期的 expires_at 会让 auth middleware 401（runbook 坑 1），注入会话必须清掉
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();

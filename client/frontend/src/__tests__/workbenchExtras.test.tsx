@@ -69,8 +69,9 @@ describe("ArchiveModal 收尾计划预览", () => {
     const { rerender } = render(
       <ArchiveModal open onClose={() => {}} onConfirm={() => {}} isPro={false} />,
     );
-    expect(screen.getByText(/本章变化提取全档可用/)).toBeTruthy();
-    expect(screen.getByText(/伏笔登记与世界要素提案为 PRO 能力/)).toBeTruthy();
+    // 撤 isPro（tier-plan-four-tiers 5.6）：收尾预览全档同一套（归档 AI 免费）
+    expect(screen.getByText(/随归档自动提取，全档可用/)).toBeTruthy();
+    expect(screen.getByText("登记伏笔（埋下 / 收束）——产出在「伏笔」页签确认")).toBeTruthy();
     rerender(
       <ArchiveModal
         open

@@ -2,6 +2,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
 import { cleanupSessionNovels, stableClick, writeConfigAtomic } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // c-character-intro 盘点出场人物 e2e：免费盘点零新增／多缺人写入回程（含回执
@@ -44,6 +45,7 @@ async function writeOAuthSession(t: string, u: string, tier = "trial") {
   cfg.token = t;
   cfg.username = u;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   cfg.expires_at = tier === "none" ? "" : "2099-12-31";
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");
@@ -146,8 +148,8 @@ const CARDS = {
 
 test.describe.configure({ timeout: 90000 }); // 建书链路慢栈预算（默认 30s 不够六步断言）
 
-test("免费盘点零新增一行收场（手填/盘点全免费）", async ({ page }) => {
-  const { restore } = await setupSession(page, "none");
+test("盘点零新增一行收场（盘点收标准档，种 standard）", async ({ page }) => {
+  const { restore } = await setupSession(page, "standard");
   try {
     await createNovelWithChapter(page, `e2e 零新增 ${Date.now()}`);
     await page.route("**/cast/ai-review", (r) => r.fulfill({ json: REVIEW_ZERO }));
@@ -203,8 +205,8 @@ test("抽卡→建卡并写入全链：PUT 名单＋建卡扩参载荷＋三处�
   }
 });
 
-test("手填空格形态：免费不露 AI 预填、无「返回换一张」", async ({ page }) => {
-  const { restore } = await setupSession(page, "none");
+test("手填空格形态：不露 AI 预填、无「返回换一张」（种 standard，盘点可开）", async ({ page }) => {
+  const { restore } = await setupSession(page, "standard");
   try {
     await createNovelWithChapter(page, `e2e 手填形态 ${Date.now()}`);
     await page.route("**/cast/ai-review", (r) => r.fulfill({ json: REVIEW_TWO_GAPS }));

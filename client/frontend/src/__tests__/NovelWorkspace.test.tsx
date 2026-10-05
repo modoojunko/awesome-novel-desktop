@@ -60,7 +60,15 @@ function TierProvider({ tier, children }: { tier: string; children: ReactNode })
     expiresAt: "",
     isPro: isMember,
     trialRemainingDays: 0,
-    entitlement: null,
+    // 档位种子（tier-plan-four-tiers 6.2）：PRO/MAX 会话须带 features，plan.open
+    // 的抽卡判据已改 hasAiPlan（useFeature 快照单源）——entitlement null 会让
+    // 兜底落静态注册表，PRO 用例的抽卡弹层不再出现。
+    entitlement: isMember
+      ? { v: 2, features: ["ai-plan", "chapter-review", "settings-ai-fields",
+          "style-suggest", "outline-advanced-fields", "ai-model",
+          "ai-generate", "prompt-panel", "ai-detect"],
+          limits: { max_projects: null } }
+      : null,
     entitlementDegraded: false,
   syncFailed: false,
     loading: false,

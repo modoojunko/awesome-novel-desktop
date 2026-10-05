@@ -255,24 +255,16 @@ export function ArchiveModal({
       {!rearchiveMode && (
         <div className="arch-plan" data-od-id="archive-plan" data-testid="archive-plan">
           <p className="ap-h">归档收尾提案</p>
-          {isPro ? (
-            <>
-              <p className="ap-lead">
-                归档成功后 AI 在后台接着跑下面 2 件事；产出是待确认的提案，点过确认才写进全书设定。
-              </p>
-              <ul className="ap-list">
-                <li>登记伏笔（埋下 / 收束）——产出在「伏笔」页签确认</li>
-                <li>识别世界要素——产出在「设定」页签确认</li>
-              </ul>
-              <p className="ap-lead">
-                设定变化 / 角色关系 / 物品 / 角色认知随归档自动提取，全档可用。
-              </p>
-            </>
-          ) : (
-            <p className="ap-lead">
-              本章变化提取全档可用（配置了模型即可）；伏笔登记与世界要素提案为 PRO 能力。
-            </p>
-          )}
+          <p className="ap-lead">
+            归档成功后 AI 在后台接着跑下面 2 件事；产出是待确认的提案，点过确认才写进全书设定。
+          </p>
+          <ul className="ap-list">
+            <li>登记伏笔（埋下 / 收束）——产出在「伏笔」页签确认</li>
+            <li>识别世界要素——产出在「设定」页签确认</li>
+          </ul>
+          <p className="ap-lead">
+            设定变化 / 角色关系 / 物品 / 角色认知随归档自动提取，全档可用。
+          </p>
         </div>
       )}
     </Modal>

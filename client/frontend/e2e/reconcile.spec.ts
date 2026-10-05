@@ -4,6 +4,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
 import { cleanupSessionNovels, stableClick } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // 归档收尾提案 E2E（archive-reconcile，本地桩 AI 全链）：
@@ -155,6 +156,7 @@ async function writeOAuthSession(t: string, u: string, tier = "trial") {
   cfg.token = t;
   cfg.username = u;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");
@@ -323,7 +325,7 @@ test("PRO：归档 → 后台收尾提案 → 采纳写回/驳回", async ({ pag
   }
 });
 
-test("免费档：归档后任何页签不渲染收尾区（不发收尾请求）", async ({ page }) => {
+test("免费档：归档后收尾区渲染（归档 AI 全家免费——tier-plan-four-tiers 3.3 撤门）", async ({ page }) => {
   test.setTimeout(60_000);
   const { restore, token } = await setupSession(page, "none");
   const auth = { Authorization: `Bearer ${token}` };
@@ -366,13 +368,11 @@ test("免费档：归档后任何页签不渲染收尾区（不发收尾请求�
     await page.reload();
     await page.locator(".mtab", { hasText: "写作" }).click();
     await page.locator(".col-tree .ch").first().click();
-    // 免费档：三个相关页签都不渲染收尾区（c-ops-tab-progress-only：免费档占位退役）
-    for (const tab of [/^设定/, /^伏笔/, /^操作/]) {
+    // 撤门后：收尾区在设定/伏笔页签渲染（操作页签无提案行口径不变）
+    for (const tab of [/^设定/, /^伏笔/]) {
       await page.getByRole("tab", { name: tab }).click();
-      await expect(page.locator('[data-od-id="reconcile-pane"]')).toHaveCount(0);
-      await expect(page.locator('[data-od-id="reconcile-pro-free"]')).toHaveCount(0);
+      await expect(page.locator('[data-od-id="reconcile-pane"]')).toBeVisible({ timeout: 8000 });
     }
-    expect(reconcileCalls).toBe(0);
   } finally {
     await restore();
   }

@@ -2,6 +2,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page } from "@playwright/test";
 import { cleanupSessionNovels, stableClick, writeConfigAtomic } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // c-plot-split 章内剧情 e2e：剧情区手写编辑（加/写/删＋自动保存落库）／
@@ -45,6 +46,7 @@ async function writeOAuthSession(t: string, u: string, tier = "trial") {
   cfg.token = t;
   cfg.username = u;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   cfg.expires_at = tier === "none" ? "" : "2099-12-31";
   // 会话三件套（既有 spec 同款）：fresh last_login_at＋随机 pc_hash——真设备哈希会 401
   cfg.last_login_at = new Date().toISOString();

@@ -3,6 +3,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
 import { addFirstChapterViaTree, cleanupSessionNovels, stableClick } from "./helpers";
+import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // 剧情推演 + 提示词六来源 E2E（storyline.html 四期尾，打桩 AI）：
@@ -53,6 +54,7 @@ async function writeOAuthSession(t: string, u: string, tier = "trial") {
   cfg.token = t;
   cfg.username = u;
   cfg.tier = tier;
+  cfg.entitlement = entitlementFor(tier); // 快照单源（tier-features 6.2）
   delete cfg.expires_at;
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");
@@ -154,8 +156,8 @@ const SIM = {
 
 const STRATEGY_WARN = "推演走法 · 中途先接一次意外，再拉回主线";
 
-test("PRO：按回合推演 → 收进章纲追加一条剧情 → 刷新回读", async ({ page, request }) => {
-  const { restore, token } = await setupSession(page);
+test("MAX：按回合推演 → 收进章纲追加一条剧情 → 刷新回读（推演归 MAX，2026-10-05 拍板）", async ({ page, request }) => {
+  const { restore, token } = await setupSession(page, "max");
   try {
     await ensurePromptAccess(request, token);
     await setupFirstChapter(page, `e2e-sim-推演-${Date.now()}`);
@@ -199,17 +201,17 @@ test("PRO：按回合推演 → 收进章纲追加一条剧情 → 刷新回读"
   }
 });
 
-test("免费态：剧情推演入口在右栏可见但整卡锁定（点击走升级）", async ({ page }) => {
+test("免费态：剧情推演行可见但行级锁定「需 MAX」（og 页签不整卡锁）", async ({ page }) => {
   const { restore } = await setupSession(page, "none");
   try {
     await setupFirstChapter(page, `e2e-sim-免费-${Date.now()}`);
-    // c-ai-rail-shared 统一门控：整卡 locked 置灰可点，点击被拦下走统一升级出口
-    await expect(page.getByTestId("og-simulate")).toBeVisible();
-    await expect(page.locator(".rail-assist.locked")).toBeVisible();
-    await expect(page.getByTestId("og-simulate")).toBeEnabled();
-    await page.getByTestId("og-simulate").click();
-    // 拦下：升级弹窗出现，推演弹窗不出现
-    await expect(page.getByText(/升级|PRO/i).first()).toBeVisible({ timeout: 5000 });
+    // tier-plan-four-tiers：og 页签恒 ready，门在行级——推演行 ra-off＋「需 MAX」
+    const row = page.getByTestId("og-simulate");
+    await expect(row).toBeVisible();
+    await expect(row).toBeDisabled();
+    await expect(row).toContainText("需 MAX");
+    await expect(page.locator(".rail-assist.locked")).toHaveCount(0);
+    // 推演弹窗不出现（disabled 吞点击）
     await expect(page.locator(".modal", { hasText: "剧情推演" })).toHaveCount(0);
   } finally {
     await restore();
