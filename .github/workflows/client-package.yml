@@ -146,6 +146,17 @@ jobs:
           fi
           python client/backend/scripts/release_json_assert.py "$F"
 
+      # 写作能力包（c-prompt-pack-client 5.x）：安装包零模板断言（硬切）——
+      # 产物树出现任何 .prompt 说明 build.spec 的摘除被回退或 prompt_pack 目录被误打
+      - name: Assert no prompt templates baked into bundle
+        shell: bash
+        run: |
+          F="$(find "client/packaging/build/dist" -name '*.prompt' -print -quit)"
+          if [ -n "$F" ]; then
+            echo "::error::安装包含提示词模板（$F）——c-prompt-pack-client 硬切要求产物零 .prompt"
+            exit 1
+          fi
+
       # 法律文件随包断言（relicense-proprietary）：EULA 与第三方声明必须烘进产物
       - name: Assert LICENSE & THIRD-PARTY-NOTICES baked into bundle
         shell: bash

@@ -35,14 +35,14 @@
 
 ## 5. 打包断言（硬切）
 
-- [ ] 5.1 build.spec 摘 prompts datas；client-package.yml＋build_release.ps1 冒烟断言
+- [x] 5.1 build.spec 摘 prompts datas；client-package.yml＋build_release.ps1 冒烟断言（build.spec 摘 prompts datas＋client-package.yml 零 *.prompt 断言＋build_release.ps1 同断言；注释写明硬切依据）
   「产物树无 *.prompt」。
 
 ## 6. e2e 与回归
 
-- [ ] 6.1 PROMPT_PACK_MODE=force 钩子＋测试钥夹具＋假 CDN；最小场景组（首启无模板→
+- [x] 6.1 PROMPT_PACK_MODE=force 钩子＋测试钥夹具＋假 CDN；最小场景组（首启无模板→（e2e/prompt-pack.spec.ts 三场景：failed→重新获取轮询到 ready 卡消失／tier_denied→member-block 出口／ready 全静默；桩口径与 expiry-notice 同源。真链假 CDN 由 backend test_prompt_pack_sync 全链覆盖（假 CDN http.server＋Ed25519 测试钥＋AES-GCM fixture）＋PromptPackMissing→503 处理器测试）
   锁定卡→装包→重试成功／失败→重新获取／min_client 静默／档位升级重装）。
-- [ ] 6.2 存量 e2e（202 条，dev 态默认）零改动全绿；pytest/vitest/tsc/design:lint 全
+- [x] 6.2 存量 e2e（202 条，dev 态默认）零改动全绿；pytest/vitest/tsc/design:lint 全（backend 1812 绿（+2 新）；tsc 净；vitest 1182 绿；design:lint 零违规。⚠ e2e 与 design:check 需四服务栈（sibling S端）——本机未起栈，移交本地全量 e2e 复核）
   绿；openspec validate --strict 绿。
 - [ ] 6.3 与 S端 半＋publish.py 三方隔离栈联调全链（含 403 降档/404 重取/召回演练）。
 

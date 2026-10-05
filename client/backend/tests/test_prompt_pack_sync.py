@@ -269,3 +269,40 @@ def test_sync_no_keys_skips(env, cdn, monkeypatch):
     monkeypatch.delenv("CLIENT_PACK_PUBKEYS", raising=False)
     st = sync_mod.sync_once(local_tier="free")
     assert st["phase"] in ("missing", "failed")  # 不假装成功
+
+
+# ── 6.x：PromptPackMissing → 503 {reason: prompts_missing}（唯一收敛点）────────
+
+def test_prompts_missing_handler_returns_503_envelope(env):
+    """storage_busy 同款处理器形态：503＋reason＋引导文案；无包时 loader 真抛。"""
+    import asyncio
+    import json as _json
+
+    from main import _prompts_missing_handler
+    from prompts import PromptPackMissing
+
+    _, _, sync_mod, prompts = env
+    import os as _os
+
+    _os.environ["PROMPT_PACK_MODE"] = "force"  # 禁包内目录跳 → 真抛
+    try:
+        try:
+            prompts.load("write_chapter")
+            raise AssertionError("force 模式无包应抛 PromptPackMissing")
+        except PromptPackMissing as exc:
+            resp = asyncio.run(_prompts_missing_handler(None, exc))  # type: ignore[arg-type]
+        body = _json.loads(resp.body)
+        assert resp.status_code == 503
+        assert body["detail"]["reason"] == "prompts_missing"
+        assert "写作能力" in body["detail"]["message"]
+    finally:
+        import os as _os2
+
+        _os2.environ.pop("PROMPT_PACK_MODE", None)
+
+
+def test_ai_states_contains_prompts_missing():
+    """双端枚举同批（D13）：后端 AI_STATES 必须含新 reason。"""
+    from ai_state import AI_STATES
+
+    assert "prompts_missing" in AI_STATES

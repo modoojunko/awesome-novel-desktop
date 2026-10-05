@@ -284,9 +284,8 @@ async def _prompts_missing_handler(request, exc):
     此处统一转 503 detail={reason: prompts_missing}；前端据此出四态卡（未登录→
     去登录／失败→重新获取／档位不够→升级卡），手写正文等非模板功能不受影响。
     """
-    logging.getLogger("uvicorn.error").info(
-        "event=prompts_missing path=%s", request.url.path
-    )
+    _path = getattr(getattr(request, "url", None), "path", "-")
+    logging.getLogger("uvicorn.error").info("event=prompts_missing path=%s", _path)
     return JSONResponse(
         status_code=503,
         content={

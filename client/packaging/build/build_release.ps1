@@ -88,6 +88,10 @@ Step '5/7 产物断言' {
     $rel = Get-ChildItem -Path (Join-Path $BuildDir 'dist') -Recurse -Filter 'release.json' | Select-Object -First 1
     python (Join-Path $RepoRoot 'client\backend\scripts\release_json_assert.py') $rel.FullName
     if ($LASTEXITCODE -ne 0) { throw 'release_json_assert 失败' }
+    # 写作能力包（c-prompt-pack-client 5.x）：安装包零模板断言（硬切）
+    $tpl = Get-ChildItem -Path (Join-Path $BuildDir 'dist') -Recurse -Filter '*.prompt' | Select-Object -First 1
+    if ($tpl) { throw "安装包含提示词模板（$($tpl.FullName)）——硬切要求产物零 .prompt" }
+    Write-Host ' 断言通过: 产物零 *.prompt'
 }
 
 # ── 6. 冒烟（--smoke 无头，轮询 health + SPA；不跑这步坏包照样绿）──

@@ -129,9 +129,10 @@ a = Analysis(
         # （只收 index.html + assets 会漏 env.js，index.html 用 <script src="./env.js"> 引用 → 冻结包 404）
         (str(frontend_dist), "frontend"),
         (str(backend_dir / "reference"), "reference"),
-        # AI 提示词模板：prompts/*.prompt 是运行时数据（prompts/__init__.py 靠 __file__ 定位），
-        # 不打包进 datas 则冻结包内 load_prompt() 抛 FileNotFoundError → 所有 AI 功能崩
-        (str(backend_dir / "prompts"), "prompts"),
+        # AI 提示词模板**不再随包**（c-prompt-pack-client 硬切，2026-10-05 拍板）：
+        # 装完登录后按权益从 CDN 拉加密包装本地（prompt_pack/sync.py），loader 缺包时
+        # 抛 PromptPackMissing → 503 {reason: prompts_missing} → 四态卡引导。
+        # 回归由 client-package.yml / build_release.ps1 的「产物零 *.prompt」断言钉住。
         # 发布期注入的 S端 地址（CI 构建时生成在 spec 同目录；本地开发无此文件则不打）。
         # 注意 datas 的目标段是「目录」语义——写成文件名会造出同名目录套娃，须落资源根 "."。
         *([(str(spec_dir / "release.json"), ".")] if (spec_dir / "release.json").exists() else []),
