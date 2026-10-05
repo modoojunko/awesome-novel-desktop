@@ -51,9 +51,9 @@ const workflowSteps = [
 
 // 关键能力九条 = C 端已上线能力（AI 蓝图/伏笔台账/关系图谱为 2026-09 新补宣传）
 const keyFeatures = [
-  { icon: P.spark, title: 'AI 写本章', desc: '一口气写完整章，也能续写、润色、扩写，随时喊停' },
-  { icon: P.list, title: 'AI 搭蓝图', desc: '分卷规划、章纲起草，AI 先出草稿，你拍板才动笔' },
-  { icon: P.bot, title: '剧情推演', desc: '卡文时让角色先演一遍，看走向合不合理' },
+  { icon: P.spark, title: 'AI 写本章', desc: '一口气写完整章，随时喊停；AI 稿采纳才落进正文，写错一键撤回' },
+  { icon: P.list, title: 'AI 搭蓝图', desc: '分卷规划、章纲起草：AI 出的每一步都是提案，采纳才生效' },
+  { icon: P.bot, title: '抽卡与推演', desc: '章纲、剧情 AI 一次出三版任你挑；卡文时让角色先演一遍，看走向合不合理' },
   { icon: P.doc, title: '伏笔台账', desc: '埋下的坑自动记账，该回收时提醒你，不写丢不烂尾' },
   { icon: P.link, title: '角色关系图谱', desc: '角色关系一图看清，AI 动笔前对齐本卷最新关系' },
   { icon: P.wand, title: '去 AI 味', desc: '避开机器腔，越写越像你' },
