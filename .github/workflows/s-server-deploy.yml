@@ -219,17 +219,18 @@ jobs:
         # （brand/brand.json←brand.ts TS2307、LICENSE←copy-eula exit 1）不凑进 staging
         # 相对布局就必炸（2026-10-03 v0.26 发布实录，两雷均为 #498/#v0.23 后引入、
         # workflow 禁用期无人踩到）。staging 布局=repo 根：server/frontend + brand/ + LICENSE。
-        # ⚠️ 不传 --install-command/--build-command 空串：tcb 3.8.5 下空 --install-command
-        #    是真「跳过安装」（help 原文 leave empty to skip），空 --build-command 却被
-        #    Vite 框架检测覆盖成 npm run build——无 node_modules 云构建 23s 秒挂
-        #    （2026-10-05 v0.26 首跑实录 novel-s-web-123）。留空＝检测接管 install+build，
-        #    上一「构建前端」步骤写出的 .env.production.local（备案号）随包上云、云端重建照常烘焙。
+        # ⚠️ install/build 必须「显式非空」：tcb 3.8.5 下空 --install-command 是真
+        #    「跳过安装」（help 原文 leave empty to skip），空 --build-command 却被 Vite
+        #    框架检测覆盖成 npm run build——无 node_modules 云构建 23s 秒挂（novel-s-web-123，
+        #    2026-10-05）；撤成不传则交互式追问 Install command，CI 无 TTY exit 130
+        #    （run 37249887222 实录）。显式命令＝无提示、云端 install+build，
+        #    上一「构建前端」步骤写出的 .env.production.local（备案号）随包上云照常烘焙。
         run: |
           rm -rf .s-web-stage && mkdir -p .s-web-stage/brand .s-web-stage/server
           cp brand/brand.json .s-web-stage/brand/brand.json
           cp LICENSE .s-web-stage/LICENSE
           rsync -a --exclude node_modules --exclude e2e --exclude playwright-report server/frontend/ .s-web-stage/server/frontend/
-          tcb app deploy novel-s-web --env-id ${{ vars.TCB_ENV_ID }} --cwd .s-web-stage/server/frontend --output-dir dist --deploy-path / --force --ignore "**/node_modules/**,**/e2e/**,**/playwright-report/**"
+          tcb app deploy novel-s-web --env-id ${{ vars.TCB_ENV_ID }} --cwd .s-web-stage/server/frontend --install-command "npm install" --build-command "npm run build" --output-dir dist --deploy-path / --force --ignore "**/node_modules/**,**/e2e/**,**/playwright-report/**"
 
       - name: 部署结果
         run: |
