@@ -38,6 +38,7 @@ export function useApiConfigs() {
     base_url: string;
     api_key: string;
     api_format: "openai" | "anthropic";
+    models?: string[];
   }): Promise<ApiConfig> => {
     let config: ApiConfig;
     try {
@@ -150,6 +151,7 @@ export function useApiConfigs() {
     base_url: string;
     api_key: string;
     api_format: "openai" | "anthropic";
+    model?: string | null;
   }): Promise<{ ok: boolean; status: string; models?: string[]; error?: string }> => {
     return request(`/api-configs/test-connection`, {
       apiBase: V1,

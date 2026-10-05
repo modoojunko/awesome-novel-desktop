@@ -28,6 +28,8 @@ _ANTHROPIC_PROBE_MODEL = "claude-sonnet-4-20250514"
 # 只放**实测可用**的 id（deepseek 2026-09-09 实测：anthropic 兼容端点 404、
 # openai 端点 200 返回这三个）；没有把握的 vendor 留空 → 前端只给手动输入。
 # 候选**不自动写库**（用户点选才落 models），避免把猜测值塞进配置。
+# 与前端 vendorDefaults.ts 的 VENDOR_DEFAULTS 登记表同族（那边是创建预填值）：
+# 登记值/候选变更两处对齐。
 VENDOR_MODEL_CANDIDATES: dict[str, list[str]] = {
     "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-vision-exp"],
 }
@@ -50,6 +52,7 @@ async def test_connection(
     base_url: str,
     api_format: str = "openai",
     timeout: int = CONNECTION_TEST_TIMEOUT,
+    preferred_model: str | None = None,
 ) -> dict[str, Any]:
     """Test connectivity to a vendor's API.
 
@@ -178,7 +181,7 @@ async def test_connection(
     # openai 格式：追加对话探针（与生成同址同头）。旧实现只探 /models，而生成走
     # {base}/chat/completions——「测试通了、一用就 405/404」的错位根源（内测 405 案）。
     if api_format == "openai" and vendor_id != "ollama":
-        probe_model = _probe_model(models, vendor_id)
+        probe_model = _probe_model(models, vendor_id, preferred_model)
         if probe_model:
             ping = await _probe_chat_path(client, base_url, headers, probe_model)
             if ping is not None:
@@ -263,8 +266,12 @@ def _non_api_response(resp: httpx.Response) -> str:
     return ""
 
 
-def _probe_model(models: list[str], vendor_id: str) -> str:
-    """对话探针的模型 id：模型列表首个 → vendor 候选首个 → 空串（跳过探针）。"""
+def _probe_model(
+    models: list[str], vendor_id: str, preferred_model: str | None = None
+) -> str:
+    """对话探针的模型 id：配置已选模型（preferred）→ 模型列表首个 → vendor 候选首个 → 空串（跳过探针）。"""
+    if preferred_model and preferred_model.strip():
+        return preferred_model.strip()
     if models:
         return models[0]
     candidates = model_candidates_for(vendor_id)

@@ -460,6 +460,10 @@
         <input class="input mono" id="cfBase" placeholder="https://api.openai.com" />
       </div>
       <div class="field">
+        <label for="cfModel">模型名称</label>
+        <input class="input mono" id="cfModel" placeholder="模型 id，如 deepseek-v4-pro" />
+      </div>
+      <div class="field">
         <label for="cfKey">API Key</label>
         <input class="input mono" id="cfKey" type="password" placeholder="sk-..." autocomplete="off" />
         <span class="alt" id="cfKeyAlt" hidden></span>
@@ -639,8 +643,42 @@ function renderCards() {
 let editTarget = null;
 let selVendor = '';
 let selFormat = 'openai';
-// 接口格式锁定矩阵（拍板）：单格式厂商锁定，双格式可切换；URL 一律不预填
+// 接口格式锁定矩阵（拍板）：单格式厂商锁定，双格式可切换
 const FORMAT_LOCK = { openai: 'openai', anthropic: 'anthropic', ollama: 'openai' };
+// 供应商默认值登记表（2026-10-05 拍板：选已知供应商预填 Base URL＋模型名称，只填 Key；
+// 取代 2026-09-06「URL 不预填」）。有据才登记、无据留空；openai-compat 无登记值不预填。
+const VENDOR_DEFAULTS = {
+  openai:      { openai: { base_url: 'https://api.openai.com', model: '' } },
+  anthropic:   { anthropic: { base_url: 'https://api.anthropic.com', model: '' } },
+  deepseek:    { openai: { base_url: 'https://api.deepseek.com', model: 'deepseek-v4-pro' } },
+  glm:         { openai: { base_url: 'https://open.bigmodel.cn/api/paas/v4', model: '' },
+                 anthropic: { base_url: 'https://open.bigmodel.cn/api/anthropic', model: '' } },
+  kimi:        { openai: { base_url: 'https://api.moonshot.cn/v1', model: '' } },
+  qwen:        { openai: { base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: '' } },
+  ollama:      { openai: { base_url: 'http://localhost:11434', model: '' } },
+};
+let lastPreset = null; // 当前已应用的预填值（手改判定基准）
+function defaultsFor(vendor, fmt) {
+  const d = (VENDOR_DEFAULTS[vendor] || {})[fmt];
+  return d ? { base_url: d.base_url, model: d.model } : { base_url: '', model: '' };
+}
+// 覆盖规则：空或仍为预填值才随选择更新；用户手改过的字段不覆盖
+function applyPreset(cur, prev, next) {
+  const out = {};
+  for (const k of ['base_url', 'model']) {
+    out[k] = (cur[k] === '' || (prev && cur[k] === prev[k])) ? next[k] : cur[k];
+  }
+  return out;
+}
+function prefillTo(vendor, fmt) {
+  const next = defaultsFor(vendor, fmt);
+  const out = applyPreset(
+    { base_url: $('cfBase').value.trim(), model: $('cfModel').value.trim() },
+    lastPreset, next);
+  $('cfBase').value = out.base_url;
+  $('cfModel').value = out.model;
+  lastPreset = next;
+}
 
 function renderVendors() {
   const wrap = $('cfVendors');
@@ -687,6 +725,10 @@ function openForm(edit) {
   $('cfName').value = edit ? edit.name : '';
   $('cfBase').value = edit ? edit.base_url : '';
   $('cfKey').value = '';
+  lastPreset = null;
+  $('cfModel').value = '';
+  // 模型名称＝创建表单一级字段；编辑态沿用已存值，不施加预填
+  $('cfModel').closest('.field').hidden = !!edit;
   $('cfgError').hidden = true;
   $('cfTest').hidden = true;
   $('cfSave').textContent = edit ? '保存' : '保存并测试连接';
@@ -711,22 +753,24 @@ document.querySelector('#cfVendors').addEventListener('click', e => {
   if (!b) return;
   if (editTarget) return;
   selVendor = b.dataset.v;
-  // 拍板（2026-09-06）：URL 不预填——只切格式锁定与清测试结果
+  // 2026-10-05 拍板：选已知供应商预填 Base URL＋模型名称（手改不覆盖）；切格式锁定并清测试结果
   const lock = FORMAT_LOCK[selVendor];
   if (lock) selFormat = lock;
   document.querySelectorAll('#cfVendors .vbtn').forEach(x => x.classList.toggle('on', x.dataset.v === selVendor));
   $('cfTest').hidden = true;
   syncVendorUI();
+  prefillTo(selVendor, selFormat);
 });
 
 document.querySelector('#fmtSeg').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b || b.disabled) return;
   if (b.dataset.fmt === selFormat) return;
-  // 拍板：切格式不改动 URL，仅清测试结果
+  // 切格式：按「供应商×格式」登记值更新预填（手改不覆盖），清测试结果
   selFormat = b.dataset.fmt;
   $('cfTest').hidden = true;
   syncFormatUI();
+  prefillTo(selVendor, selFormat);
 });
 
 function readForm() {
@@ -734,6 +778,7 @@ function readForm() {
     name: $('cfName').value.trim(),
     vendor: selVendor,
     base_url: $('cfBase').value.trim(),
+    model: $('cfModel').value.trim(),
     api_key: $('cfKey').value,
     api_format: selFormat,
   };
@@ -794,7 +839,7 @@ $('cfSave').addEventListener('click', () => {
       base_url: f.base_url,
       api_key_masked: maskKey(f.api_key),
       status: 'untested',
-      models: [],
+      models: f.model ? [f.model] : [],
       affected: 0,
       tested: null,
     };

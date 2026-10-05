@@ -334,6 +334,94 @@ class TestApiKeyCRUD:
                 _test_api_key("test-12345")
             )
 
+    def test_create_config_with_models_stores_prefilled_model(self, client):
+        """预填的模型名称落 models 首项（归一化去空白/去重保序）——c-api-config-vendor-defaults。"""
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "预填 DeepSeek",
+                "vendor_id": "deepseek",
+                "base_url": "https://api.deepseek.com",
+                "api_key": _test_api_key("ds-prefill"),
+                "models": ["deepseek-v4-pro", " deepseek-v4-pro ", "deepseek-v4-flash"],
+            },
+        )
+        assert resp.status_code == 201, f"Create failed: {resp.text}"
+        assert resp.json()["models"] == ["deepseek-v4-pro", "deepseek-v4-flash"]
+
+    def test_create_config_without_models_defaults_empty(self, client):
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "无模型 OpenAI",
+                "vendor_id": "openai",
+                "base_url": "https://api.openai.com",
+                "api_key": _test_api_key("no-models"),
+            },
+        )
+        assert resp.status_code == 201
+        assert resp.json()["models"] == []
+
+    def test_create_config_models_over_limit_returns_422(self, client):
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "超限模型",
+                "vendor_id": "openai",
+                "base_url": "https://api.openai.com",
+                "api_key": _test_api_key("over"),
+                "models": [f"m-{i}" for i in range(101)],
+            },
+        )
+        assert resp.status_code == 422
+        assert "上限" in str(resp.json())
+
+    def test_test_config_probe_prefers_stored_model(self, client, monkeypatch):
+        """配置测试的探针优先用已存模型（models 首项）——预填模型直通探针。"""
+        captured: dict = {}
+
+        async def fake_test(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True, "status": "ok", "models": [], "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "探针模型",
+                "vendor_id": "deepseek",
+                "base_url": "https://api.deepseek.com",
+                "api_key": _test_api_key("probe"),
+                "models": ["deepseek-v4-pro"],
+            },
+        )
+        cid = resp.json()["id"]
+        resp2 = client.post(f"/api/v1/api-configs/{cid}/test")
+        assert resp2.status_code == 200
+        assert captured["preferred_model"] == "deepseek-v4-pro"
+
+    def test_raw_test_passes_model_through(self, client, monkeypatch):
+        """裸测试端点把表单模型名透传为探针优先模型。"""
+        captured: dict = {}
+
+        async def fake_test(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True, "status": "ok", "models": [], "error": None}
+
+        monkeypatch.setattr("api_configs.router._test_raw_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs/test-connection",
+            json={
+                "vendor_id": "deepseek",
+                "base_url": "https://api.deepseek.com",
+                "api_key": "sk-x",
+                "api_format": "openai",
+                "model": "deepseek-v4-pro",
+            },
+        )
+        assert resp.status_code == 200
+        assert captured["preferred_model"] == "deepseek-v4-pro"
+
     def test_create_config_with_vendor_detection(self, client):
         """Create config, verify vendor auto-detection."""
         resp = client.post(
@@ -1951,3 +2039,19 @@ class TestRealJwtAuth:
             headers={"Authorization": "Bearer invalid-token"},
         )
         assert resp.status_code == 401
+
+
+class TestFirstModelHelper:
+    """_first_model：models JSON 列首项解析（探针优先模型取值，c-api-config-vendor-defaults）。"""
+
+    def test_all_shapes(self):
+        from api_configs.service import _first_model
+
+        assert _first_model(None) is None
+        assert _first_model("") is None
+        assert _first_model('["deepseek-v4-pro", "b"]') == "deepseek-v4-pro"
+        assert _first_model("[]") is None
+        assert _first_model("not-json") is None
+        assert _first_model('{"a": 1}') is None
+        assert _first_model("[1, 2]") is None
+        assert _first_model('[null]') is None

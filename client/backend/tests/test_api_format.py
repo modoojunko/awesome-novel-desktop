@@ -468,6 +468,41 @@ class TestConnectionFlow:
         assert out["ok"] is True
         assert fake_http.calls[1][3]["model"] == "deepseek-v4-flash"
 
+    def test_probe_uses_preferred_model_first(self, fake_http):
+        """探针模型 id：配置已选模型（preferred）压过列表首个——预填模型名直通探针。"""
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "m-list"}]}),
+            ("POST", 200, {"choices": []}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "deepseek",
+                "sk",
+                "https://api.deepseek.com",
+                "openai",
+                preferred_model="deepseek-v4-pro",
+            )
+        )
+        assert out["ok"] is True
+        assert fake_http.calls[1][3]["model"] == "deepseek-v4-pro"
+
+    def test_probe_preferred_model_blank_falls_back(self, fake_http):
+        """preferred 空白 → 回落列表首个。"""
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "m-list"}]}),
+            ("POST", 200, {"choices": []}),
+        ]
+        _run_async(
+            do_test_connection(
+                "deepseek",
+                "sk",
+                "https://api.deepseek.com",
+                "openai",
+                preferred_model="   ",
+            )
+        )
+        assert fake_http.calls[1][3]["model"] == "m-list"
+
     def test_anthropic_fallback_405_fails(self, fake_http):
         """anthropic 降级探针 404/405 = 对话接口不可达 → 判败（旧实现误报「连接正常」）。"""
         fake_http.script = [("GET", 404), ("POST", 405, {"detail": "Method Not Allowed"})]

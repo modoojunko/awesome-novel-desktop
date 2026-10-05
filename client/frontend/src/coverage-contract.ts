@@ -34,6 +34,7 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/components/api-config/UndoToast.tsx",
   "src/components/api-config/UsagePieChart.tsx",
   "src/components/api-config/UsageStatsCard.tsx",
+  "src/components/api-config/vendorDefaults.ts",
   "src/components/api-config/ZhuquePanel.tsx",
   "src/hooks/useDeviceActivation.ts",
   // 批 1 第二波（页面面：模型配置页收口 + 到期提示条 + 落地页 + 工作台布局）

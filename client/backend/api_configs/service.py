@@ -23,6 +23,33 @@ from .vendor import detect_vendor, resolve_vendor
 # ── ApiConfig CRUD ─────────────────────────────────────────────────────────
 
 
+def _first_model(models_json: str | None) -> str | None:
+    """models JSON 列首项（探针优先模型）；坏文/非列表/空 → None。"""
+    if not models_json:
+        return None
+    try:
+        parsed = json.loads(models_json)
+    except (ValueError, TypeError):
+        return None
+    if isinstance(parsed, list) and parsed and isinstance(parsed[0], str):
+        return parsed[0]
+    return None
+
+
+def _normalize_models(raw: list[str]) -> list[str]:
+    """models 写入归一化：去空白/去重保序/上限 100。"""
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for m in raw:
+        name = m.strip() if isinstance(m, str) else ""
+        if name and name not in seen:
+            seen.add(name)
+            cleaned.append(name)
+    if len(cleaned) > 100:
+        raise ValueError("模型数量过多（上限 100）")
+    return cleaned
+
+
 async def create_api_config(
     db: AsyncSession,
     user_id: str,
@@ -32,6 +59,7 @@ async def create_api_config(
     api_key: str = "",
     vendor_override: str | None = None,
     api_format: str | None = None,
+    models: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a new ApiConfig. Returns the created config as a dict."""
     # Check name uniqueness
@@ -68,6 +96,10 @@ async def create_api_config(
         base_url=base_url,
         status="active",
     )
+    # 预填的模型名称（models 首项）随创建落库（c-api-config-vendor-defaults）
+    if models:
+        config.models = json.dumps(_normalize_models(models), ensure_ascii=False)
+        config.models_updated_at = datetime.now(UTC)
     db.add(config)
     await db.commit()
     await db.refresh(config)
@@ -117,11 +149,13 @@ async def test_api_config(
         }
 
     plain_key = decrypt_api_key(config.api_key)
+    # 探针优先用配置已选模型（models 首项；c-api-config-vendor-defaults 预填即它）
     outcome = await _test_connection(
         vendor_id=config.vendor,
         api_key=plain_key,
         base_url=config.base_url,
         api_format=getattr(config, "api_format", None) or "openai",
+        preferred_model=_first_model(config.models),
     )
 
     # Persist results
@@ -165,17 +199,7 @@ async def update_api_config(
 
     # models 是 JSON 文本列：手动写入须归一化（去空白/去重保序/上限）后序列化
     if updates.get("models") is not None:
-        raw = updates["models"]
-        seen: set[str] = set()
-        cleaned: list[str] = []
-        for m in raw:
-            name = m.strip() if isinstance(m, str) else ""
-            if name and name not in seen:
-                seen.add(name)
-                cleaned.append(name)
-        if len(cleaned) > 100:
-            raise ValueError("模型数量过多（上限 100）")
-        updates["models"] = json.dumps(cleaned, ensure_ascii=False)
+        updates["models"] = json.dumps(_normalize_models(updates["models"]), ensure_ascii=False)
         updates["models_updated_at"] = datetime.now(UTC)
 
     # Apply updates
