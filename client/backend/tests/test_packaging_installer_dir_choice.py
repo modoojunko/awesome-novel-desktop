@@ -145,3 +145,24 @@ def test_release_pipeline_ships_legacy_named_copies():
     assert 'check "https://www.awesomenovel.com/download/v$VER/$LEGACY_EXE"' in wf, (
         "旧名副本必须进发布校验（否则线上 404 无人发现）"
     )
+
+
+def test_dir_page_tells_user_where_books_live():
+    """位置页须对用户讲明「安装目录＝书稿数据落点」（2026-10-06 评审整改）。
+
+    位置页恒显示后，升级用户手改目录会把 data\\ 留在旧处而页面零提示——观感即
+    「书没了」。两条不变量：标准句原样保留（别把 Next/Browse 指引吞掉）＋点名 data。"""
+    text = INSTALLER_ISS.read_text(encoding="utf-8")
+    originals = {
+        "chinesesimplified": "安装程序将安装 [name] 到下面的文件夹中。",
+        "english": "Setup will install [name] into the following folder.",
+    }
+    for lang, original in originals.items():
+        line = next(
+            (ln for ln in text.splitlines() if ln.startswith(f"{lang}.SelectDirLabel3=")),
+            None,
+        )
+        assert line, f"缺 {lang}.SelectDirLabel3 覆盖——位置页少了数据目录提示"
+        message = line.split("=", 1)[1]
+        assert message.startswith(original), f"{lang} 标准句被改动（须原样保留再追加提示）"
+        assert "data" in message, f"{lang} 提示必须点名 data 子目录"

@@ -80,6 +80,13 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Name: "chinesesimplified"; MessagesFile: "languages\ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[Messages]
+; 安装位置页提示（评审整改 2026-10-06）：位置页现恒显示（含升级），而安装目录就是
+; 书稿数据落点（data\ 在安装目录下）——改目录＝看不到旧作品，必须在这一页讲明。
+; 标准句原文保留（中文取自 vendored ChineseSimplified.isl，英文取自 Inno Default.isl）。
+chinesesimplified.SelectDirLabel3=安装程序将安装 [name] 到下面的文件夹中。%n%n注意：你的书稿保存在这个目录下的 data 文件夹里。升级请沿用原目录；换了目录会看不到已有的书（需要把旧 data 文件夹拷过来）。
+english.SelectDirLabel3=Setup will install [name] into the following folder.%n%nNote: your books are stored in the "data" subfolder of this location. When upgrading, keep the existing location — choosing a different one hides your existing books.
+
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式："; Flags: checkedonce
 

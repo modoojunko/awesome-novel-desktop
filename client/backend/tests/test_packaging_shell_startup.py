@@ -252,6 +252,7 @@ def _seed_legacy_appdata(base: Path) -> Path:
     return legacy
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="符号链接需开发者模式；仓库 pytest 只在非 Windows 跑")
 def test_migrate_appdata_renames_and_leaves_symlink(shell, tmp_path):
     """迁移＝同卷原子换名＋旧路径留软链：旧版本装回来照样看得到书。"""
     old = _seed_legacy_appdata(tmp_path)

@@ -1,8 +1,8 @@
 @echo off
 REM client/packaging/install_portable.bat
 REM Awesome Novel — 便携安装脚本（免 Inno Setup）
-REM 用法: 以管理员身份运行，自动安装到用户可写目录 + 创建快捷方式
-REM 或者: 直接解压到任意目录运行
+REM 用法: 双击即可——默认装到当前用户目录 %LOCALAPPDATA%\Programs\AwesomeNovel，无需管理员
+REM 也可以直接解压到任意目录，双击 AwesomeNovel.exe 运行
 
 setlocal enabledelayedexpansion
 
@@ -34,7 +34,7 @@ echo [1/2] 复制文件到 %INSTALL_DIR%...
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 xcopy /E /I /Y /Q "%SOURCE_DIR%\*" "%INSTALL_DIR%" >nul
 if %errorlevel% neq 0 (
-    echo [错误] 复制失败，请尝试以管理员身份运行
+    echo [错误] 复制失败——目标目录不可写或被占用，换个目录、或关掉占用它的程序再试
     pause
     exit /b 1
 )
