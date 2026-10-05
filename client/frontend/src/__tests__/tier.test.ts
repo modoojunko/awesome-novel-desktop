@@ -46,3 +46,27 @@ describe("tierLabel（面板头完整档）", () => {
     expect(tierLabel({ tier: "none", is_member: false, expired: false })).toBe("免费版 · 单机使用");
   });
 });
+
+describe("display_name 单源（tier-catalog）", () => {
+  it("standard 显示「标准会员」（修复错标 PRO 会员）", () => {
+    expect(tierLabel({ tier: "standard", is_member: true, expired: false })).toBe("标准会员");
+    expect(tierShort({ tier: "standard", is_member: true })).toEqual({
+      text: "标准会员",
+      tone: "accent",
+    });
+  });
+
+  it("max 显示「MAX 会员」", () => {
+    expect(tierLabel({ tier: "max", is_member: true, expired: false })).toBe("MAX 会员");
+  });
+
+  it("display_name 下发时优先（S端 display_name 单源）", () => {
+    expect(
+      tierLabel({ tier: "pro", is_member: true, expired: false, display_name: "专业版" }),
+    ).toBe("专业版会员");
+  });
+
+  it("兜底映射未知名退「PRO 会员」", () => {
+    expect(tierLabel({ tier: "mystery", is_member: true, expired: false })).toBe("PRO 会员");
+  });
+});

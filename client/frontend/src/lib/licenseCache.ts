@@ -10,6 +10,17 @@ export interface EntitlementSnapshot {
   limits: { max_projects: number | null };
 }
 
+/** 档位目录投影（tier-catalog）：{v:1, tiers:[{key,rank,display_name,features}]} */
+export interface TierCatalog {
+  v: number;
+  tiers: Array<{
+    key: string;
+    rank: number;
+    display_name: string;
+    features: string[];
+  }>;
+}
+
 export interface LicenseVerify {
   tier?: string;
   is_member?: boolean;
@@ -18,6 +29,8 @@ export interface LicenseVerify {
   trial_remaining_days?: number;
   entitlement?: EntitlementSnapshot;
   entitlement_degraded?: boolean;
+  /** 档位目录投影（tier-catalog）：快照缺失时按目录行兜底判定（新 S端 才下发） */
+  tier_catalog?: TierCatalog;
 }
 
 let cachedVerify: LicenseVerify | null = null;

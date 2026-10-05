@@ -204,6 +204,33 @@ export async function request<T = any>(
       e.status = res.status;
       throw e;
     }
+    // 档位不够（tier-plan-four-tiers）：会员但当前档不含该能力 → 同一升级引导
+    // 通道广播，detail 带 feature/tier_required 供分档文案（MemberBlockPrompt 消费）
+    if (res.status === 403 && err?.detail?.reason === "feature_required") {
+      const message = err.detail.message || "当前套餐不含该能力";
+      if (!options?.quiet) {
+        window.dispatchEvent(
+          new CustomEvent("member-block", {
+            detail: {
+              message,
+              feature: err.detail.feature,
+              tierRequired: err.detail.tier_required,
+            },
+          }),
+        );
+      }
+      const e = new Error(message) as Error & {
+        reason?: string;
+        feature?: string;
+        tierRequired?: string;
+        status?: number;
+      };
+      e.reason = "feature_required";
+      e.feature = err.detail.feature;
+      e.tierRequired = err.detail.tier_required;
+      e.status = res.status;
+      throw e;
+    }
     // detail 可能是对象（如删除题材 409 的 { message, projects }），透传 projects 供 UI 提示引用项目
     // 不变量：4xx 的 message 恒非空——detail 可能是空串 / 对象无 message / 响应体为 null，
     // 一律回落通用文案（调用方 `err.message || 兜底` 的右臂因此真的不可达，见各处 v8 ignore 注释）

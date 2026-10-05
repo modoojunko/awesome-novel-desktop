@@ -33,7 +33,7 @@ async function mountUseTier() {
 describe("LicenseProvider", () => {
   it("挂载时 /auth/verify 仅调一次并下发套餐状态", async () => {
     apiPostMock.mockResolvedValue({
-      tier: "monthly",
+      tier: "pro",
       is_member: true,
       expired: false,
       expires_at: "2027-01-01",
@@ -45,7 +45,7 @@ describe("LicenseProvider", () => {
 
     expect(apiPostMock).toHaveBeenCalledTimes(1);
     expect(apiPostMock).toHaveBeenCalledWith("/auth/verify");
-    expect(result.current.tier).toBe("monthly");
+    expect(result.current.tier).toBe("pro");
     expect(result.current.isMember).toBe(true);
     expect(result.current.isFree).toBe(false);
     expect(result.current.isPro).toBe(true);
