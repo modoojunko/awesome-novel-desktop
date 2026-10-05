@@ -76,22 +76,28 @@ async def require_ai_access(
     await ensure_entitlement_snapshot()
 
     # 1) 会员校验：免费/过期用户即使配置了 Key 也拦截（AI 是会员权益）
+    feature = _route_feature(request)  # 提前读：member_required 文案按 key 分档
     perm = check_permission()
     if not perm.get("is_member", False):
-        message = (
-            "AI 是会员功能 — 套餐已过期，续费后继续使用"
-            if perm.get("expired")
-            else "AI 是会员功能 — 开通套餐或 7 天免费试用后即可使用"
-        )
+        if feature:
+            # 分档文案（tier-plan-four-tiers 5.5）：按 key 最低档出提示
+            t = _tier_required_for(feature) or "standard"
+            display = {"standard": "标准", "pro": "PRO", "max": "MAX"}.get(t, t)
+            message = f"{display} 功能 — 开通后即可使用；免费版写作能力完整"
+        else:
+            message = (
+                "AI 是会员功能 — 套餐已过期，续费后继续使用"
+                if perm.get("expired")
+                else "AI 是会员功能 — 开通套餐或 7 天免费试用后即可使用"
+            )
         raise HTTPException(
             status_code=403,
-            detail={"reason": "member_required", "message": message},
+            detail={"reason": "member_required", "message": message, "feature": feature},
         )
 
     # 1.5) 档位校验：端点标注 key → feature_required（快照单源）
     # 完整快照在场（branch 3 才透传 entitlement）→ 按 features 判（快照可能比
     # tier 标签新/旧，以快照为准）；快照缺失/降级 → 退档位序比较。
-    feature = _route_feature(request)
     if feature:
         ent = perm.get("entitlement")
         if isinstance(ent, dict):

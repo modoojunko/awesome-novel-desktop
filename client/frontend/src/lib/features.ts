@@ -78,6 +78,15 @@ export function minTierOf(key: FeatureKey): TierKey {
   return FEATURES[key].minTier;
 }
 
+/** 升级引导短文案（按 key 最低档单源）：锁定行/-toast 统一出口用，
+ *  替代散落的「升级 PRO」硬编码（tier-plan-four-tiers 5.5）。 */
+export function upgradeHintOf(key: FeatureKey): string {
+  const t = FEATURES[key].minTier;
+  if (t === "standard") return "需开通（标准档起）";
+  if (t === "pro") return "PRO 专属";
+  return "MAX 专属";
+}
+
 /**
  * 是否会员功能（AI 能力）——兼容派生（生产零调用点、仅测试保留）：
  * minTier 高于 free 即会员功能。用于 PRO 标识/升级引导文案，不控制显隐。
