@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import ensure_novel_model_ready, require_ai_access
+from auth_local.deps import ai_feature, ensure_novel_model_ready, require_ai_access
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
@@ -23,6 +23,7 @@ def _get_engine(deduction_id: str) -> DeductionEngine:
 
 
 @router.post("/init")
+@ai_feature("ai-plot")
 async def init_deduction(
     body: dict,
     user: dict = Depends(get_current_user),
@@ -68,6 +69,7 @@ async def init_deduction(
 
 
 @router.post("/{deduction_id}/seed")
+@ai_feature("ai-plot")
 async def set_seed(
     deduction_id: str,
     body: dict,
@@ -84,6 +86,7 @@ async def set_seed(
 
 
 @router.post("/{deduction_id}/round")
+@ai_feature("ai-plot")
 async def run_round(
     deduction_id: str,
     user: dict = Depends(get_current_user),
@@ -100,6 +103,7 @@ async def run_round(
 
 
 @router.post("/{deduction_id}/rewind/{round_num}")
+@ai_feature("ai-plot")
 async def rewind(
     deduction_id: str,
     round_num: int,
@@ -116,6 +120,7 @@ async def rewind(
 
 
 @router.post("/{deduction_id}/adjust")
+@ai_feature("ai-plot")
 async def adjust(
     deduction_id: str,
     body: dict,
@@ -135,6 +140,7 @@ async def adjust(
 
 
 @router.post("/{deduction_id}/stop")
+@ai_feature("ai-plot")
 async def stop_deduction(
     deduction_id: str,
     user: dict = Depends(get_current_user),
@@ -155,6 +161,7 @@ async def stop_deduction(
 
 
 @router.get("/{deduction_id}")
+@ai_feature("ai-plot")
 async def get_deduction(
     deduction_id: str,
     user: dict = Depends(get_current_user),

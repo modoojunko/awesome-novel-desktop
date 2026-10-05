@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_client import AITimeoutError, get_ai_client_for_novel
 from ai_state import effective_model
-from auth_local.deps import require_ai_access, require_novel_model
+from auth_local.deps import ai_feature, require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
@@ -59,6 +59,7 @@ def _sanitize_fills(d: dict) -> dict:
 
 
 @router.post("/fill-gaps")
+@ai_feature("ai-plan")
 async def fill_outline_gaps(
     project_id: str,
     chapter_ref: str,

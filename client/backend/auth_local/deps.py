@@ -222,6 +222,14 @@ async def require_novel_model(
     return True
 
 
+def _book_limit_message(tier: str, limit: int) -> str:
+    """建书满额 403 文案按档双口径（3.4）：有档显档名，免费走免费口径。"""
+    display = {"standard": "标准", "pro": "PRO", "max": "MAX"}.get(tier)
+    if display:
+        return f"当前套餐最多创建 {limit} 个项目 — 升级套餐后可创建更多"
+    return f"免费用户最多创建 {limit} 个项目 — 开通套餐后可创建更多"
+
+
 async def require_project_limit(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -232,6 +240,7 @@ async def require_project_limit(
 
     perm = check_permission()
     limit = perm.get("project_limit")
+    tier = perm.get("tier", "none")
     if limit is None:  # 会员无上限（免费/过期分支已带 project_limit=1）
         return True
 
@@ -247,7 +256,7 @@ async def require_project_limit(
                 403, "套餐已过期，已降为免费待遇（最多 1 个项目）— 续费后可创建更多"
             )
         raise HTTPException(
-            403, f"免费用户最多创建 {limit} 个项目 — 购买套餐后可创建更多"
+            403, _book_limit_message(tier, limit)
         )
 
     return True

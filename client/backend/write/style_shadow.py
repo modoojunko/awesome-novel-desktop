@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api_configs.usage import record_usage
-from auth_local.deps import get_current_user, require_ai_access, require_novel_model
+from auth_local.deps import ai_feature, get_current_user, require_ai_access, require_novel_model
 from db import get_db
 from filesystem.paths import STYLE_QUANT_PATH
 from filesystem.storage import get_storage
@@ -114,6 +114,7 @@ async def put_style_shadow(
 
 
 @router.post("/suggest")
+@ai_feature("style-suggest")
 async def suggest_style_shadow(
     project_id: str,
     chapter_ref: str,

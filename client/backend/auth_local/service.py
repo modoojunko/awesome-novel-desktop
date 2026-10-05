@@ -167,6 +167,27 @@ STANDARD_FALLBACK = {
 }
 
 
+def _catalog_row_for(tier: str) -> dict | None:
+    """档位目录缓存行（check-auth 下发的 tier_catalog.tiers）→ {features, max_projects}。
+
+    行缺/缓存无 → None（调用方走后续兜底）。features 恒 list、max_projects 可 None。
+    """
+    catalog = get_local_config().get("tier_catalog") or {}
+    rows = catalog.get("tiers") if isinstance(catalog, dict) else None
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        if not isinstance(row, dict) or row.get("key") != tier:
+            continue
+        features = row.get("features")
+        limits = row.get("limits") or {}
+        return {
+            "features": features if isinstance(features, list) else [],
+            "max_projects": limits.get("max_projects") if isinstance(limits, dict) else 1,
+        }
+    return None
+
+
 def standard_fallback_for(tier: str) -> dict:
     return STANDARD_FALLBACK.get(_TIER_ALIAS.get(tier, tier), STANDARD_FALLBACK["none"])
 
@@ -504,6 +525,7 @@ async def browser_auth(silent: bool = False) -> dict:
             cfg["tier"] = data.get("tier", "none")
             cfg["expires_at"] = data.get("expires_at", "")
             cfg["entitlement"] = data.get("entitlement")   # 权益快照（entitlement-sync）
+            cfg["tier_catalog"] = data.get("tier_catalog")  # 档位目录投影（tier-catalog）
             cfg["entitlement_fetched_at"] = datetime.now(UTC).isoformat()
             cfg["last_login_at"] = datetime.now(UTC).isoformat()
             cfg["deletion_pending"] = False  # 重新登录/撤销恢复：清除暂停标记
@@ -562,6 +584,7 @@ async def browser_auth(silent: bool = False) -> dict:
                     cfg[k] = ""
                 cfg["tier"] = "none"
                 cfg["entitlement"] = None
+                cfg["tier_catalog"] = None
                 cfg["deletion_pending"] = False
                 save_local_config(cfg)
                 logger.info("event=session.invalidated user=%s deleted=%s", stale_user, deleted)
@@ -620,6 +643,7 @@ async def verify_session() -> dict:
         "project_limit": perm.get("project_limit"),
         "trial_remaining_days": perm.get("trial_remaining_days", 0),
         "entitlement_degraded": perm.get("entitlement_degraded", False),
+        "tier_catalog": cfg.get("tier_catalog"),
     }
     if perm.get("entitlement") is not None:
         resp["entitlement"] = perm["entitlement"]  # 快照原文（无快照省略）
@@ -688,8 +712,11 @@ def check_permission(now: date | None = None) -> dict:
                      msg="账号注销申请处理中，付费与套餐功能已暂停；可到网页控制台撤销。本地作品不受影响。",
                      trial_remaining_days=_remaining_days())
 
-    # 1) 免费档位 / trial 无到期收紧
-    if tier not in FALLBACK_MEMBER_TIERS:
+    # 1) 免费基线档 / trial 无到期收紧
+    # 准入闸（tier-plan-four-tiers 3.1，design §3-A）：none/free → 免费基线；
+    # **其余任何档名一律进快照/目录判定**（评审 §2-A：档位名单 SHALL NOT 出现在
+    # 快照存在的主判定路径）。FALLBACK_MEMBER_TIERS 退役为分支 4 的已知档兜底。
+    if tier in ("none", "free"):
         return _perm(tier, trial_remaining_days=_remaining_days())
     if (tier == "trial" and not expires_at
             and not os.environ.get("ENTITLEMENT_LEGACY_TRIAL")):
@@ -724,9 +751,21 @@ def check_permission(now: date | None = None) -> dict:
                      project_limit=fb["limits"]["max_projects"],
                      trial_remaining_days=_remaining_days(), degraded=True)
 
-    # 4) 无快照兜底（老 S端 / 未刷新）：档位名单判定
-    return _perm(tier, is_member=True, project_limit=None,
-                 trial_remaining_days=_remaining_days())
+    # 4) 无快照：档位目录缓存（tier-catalog 新 S端 下发）优先——按目录行合成
+    # features/limits；目录皆无（老 S端）退 FALLBACK_MEMBER_TIERS 已知档兜底。
+    catalog_row = _catalog_row_for(tier)
+    if catalog_row is not None:
+        features = catalog_row["features"]
+        max_projects = catalog_row["max_projects"]
+        is_member = bool(features) or max_projects is None
+        ent_synth = {"features": features, "limits": {"max_projects": max_projects}}
+        return _perm(tier, is_member=is_member, project_limit=max_projects,
+                     trial_remaining_days=_remaining_days(),
+                     entitlement=ent_synth, tier_catalog_used=True)
+    if tier in FALLBACK_MEMBER_TIERS:
+        return _perm(tier, is_member=True, project_limit=None,
+                     trial_remaining_days=_remaining_days())
+    return _perm(tier, trial_remaining_days=_remaining_days())
 
 
 async def ensure_entitlement_snapshot() -> None:

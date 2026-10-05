@@ -23,6 +23,7 @@ from models.chapter import Chapter, ChapterCharacter, ChapterContent
 from models.character import Character
 from models.hook import NovelHook
 from models.project import Novel
+from models.api_config import ApiConfig
 from models.reconcile import ChapterReconcile
 from models.user import User
 from models.volume import Volume
@@ -34,13 +35,26 @@ async def _seed() -> tuple[str, str, str]:
     slug = f"rc-{os.path.basename(root)}"
     uid = f"rc-{os.path.basename(root)[-12:]}"
     async with async_session() as session:
+        # 可解密 Key（user_has_ai_key 按 decrypt_api_key 判定——明文会被视为无效）；
+        # 并建 active ApiConfig 供本书绑定（compute_ai_state R8：未绑配置且有
+        # ai_model → invalid）
+        from api_configs.crypto import encrypt_api_key as _enc
         session.add(User(
             id=uid, email=f"{slug}@test.local", password_hash="x",
-            display_name="收尾测试", api_key="", api_base_url="", api_model="",
+            display_name="收尾测试", api_key=_enc("seed-key"), api_base_url="", api_model="",
         ))
+        session.flush()
+        cfg_row = ApiConfig(
+            user_id=uid, name="收尾测试配置", vendor="deepseek",
+            api_key=_enc("seed-key"), base_url="", status="active",
+            models='["deepseek-chat"]',
+        )
+        session.add(cfg_row)
+        await session.flush()
         session.add(Novel(
             user_id=uid, name="收尾书", slug=slug, root_path=root,
-            source="manual", current_phase="write",
+            source="manual", current_phase="write", ai_model="deepseek-chat",
+            ai_config_id=cfg_row.id,
         ))
         await session.flush()
         proj = (await session.scalars(select(Novel).where(Novel.root_path == root))).one()
@@ -518,22 +532,14 @@ class TestRunNow:
             app.dependency_overrides.clear()
         assert resp.status_code == 400
 
-    def test_run_free_tier_403(self):
+    def test_run_free_tier_allowed(self):
+        """归档收尾撤门（tier-plan-four-tiers 3.3）：免费档 run 可用（归档 AI 全家免费）。"""
         _root, nid, _ch = asyncio.run(_seed())
-        from auth_local.deps import require_ai_access
-
-        def _forbidden():
-            raise HTTPException(403, detail={"reason": "member_required"})
-
         c = _client(nid)
-        app.dependency_overrides[require_ai_access] = _forbidden
-        try:
-            resp = c.post(
-                f"/api/novels/{nid}/chapters/vol-1-ch-1/reconcile/run", json={}
-            )
-        finally:
-            app.dependency_overrides.clear()
-        assert resp.status_code == 403
+        resp = c.post(
+            f"/api/novels/{nid}/chapters/vol-1-ch-1/reconcile/run", json={}
+        )
+        assert resp.status_code in (200, 202), resp.json()  # 受理即成功（收尾为后台任务）
 
 
 class TestNotInjected:

@@ -14,7 +14,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import get_current_user, require_ai_access, require_novel_model
+from auth_local.deps import ai_feature, get_current_user, require_ai_access, require_novel_model
 from chapters.ai_plan import (
     _global_chapter_no,
     chapter_position_tags,
@@ -124,6 +124,7 @@ def _plot_blocks(mat: dict, row, entry: dict, position: str = "") -> str:
 
 
 @router.post("/ai-draw")
+@ai_feature("ai-plan")
 async def ai_plot_draw(
     project_id: str,
     chapter_ref: str,

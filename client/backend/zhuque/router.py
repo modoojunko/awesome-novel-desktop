@@ -18,7 +18,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import require_ai_access
+from auth_local.deps import ai_feature, require_ai_access
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
@@ -85,9 +85,11 @@ async def get_config(
 
 
 @config_router.put("/config")
+@ai_feature("ai-detect")
 async def put_config(
     body: dict,
     user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     api_key = str((body or {}).get("api_key", "") or "")
@@ -103,8 +105,10 @@ async def put_config(
 
 
 @config_router.delete("/config")
+@ai_feature("ai-detect")
 async def delete_config(
     user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     ok = await service.delete_config(db, user["id"])
@@ -112,8 +116,10 @@ async def delete_config(
 
 
 @config_router.post("/test")
+@ai_feature("ai-detect")
 async def test_config(
     user: dict = Depends(get_current_user),
+    _: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     try:
@@ -126,6 +132,7 @@ async def test_config(
 
 
 @check_router.post("")
+@ai_feature("ai-detect")
 async def check_chapter(
     project_id: str,
     chapter_ref: str,

@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_client import AITimeoutError, get_ai_client_for_novel
 from ai_state import effective_model
-from auth_local.deps import require_ai_access, require_novel_model
+from auth_local.deps import ai_feature, require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from filesystem.storage import get_storage
@@ -552,6 +552,7 @@ def _drop_excluded_plans(plans: list[dict], exclude: list[tuple[str, str]]) -> l
 
 
 @router.post("/ai/options")
+@ai_feature("ai-plan")
 async def ai_volume_options(
     project_id: str,
     body: PlanLineBody,
@@ -696,6 +697,7 @@ async def _next_volume_no(db, project) -> int:
 
 
 @router.post("/ai/expand")
+@ai_feature("ai-plan")
 async def ai_volume_expand(
     project_id: str,
     body: ExpandBody,

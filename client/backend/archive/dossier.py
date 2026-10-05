@@ -320,10 +320,8 @@ def _maybe_start_reconcile(
     """旧收尾提案（伏笔登记/世界 lore，PRO 门控）随归档成功触发——后台线程，
     失败/免费档不影响归档结果（archive-reconcile 既有语义）。"""
     try:
-        from auth_local.deps import ai_access_granted
-
-        if not ai_access_granted():
-            return
+        # 收尾提案撤门（tier-plan-four-tiers 3.3）：归档 AI 全家免费——模型就绪由
+        # 归档主流程保证（require_novel_model 同源判定），此处不再挂会员门。
         from archive.reconcile import start_reconcile_job
 
         start_reconcile_job(novel_id, root_path, chapter_ref, chapter_id)

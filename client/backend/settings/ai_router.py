@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_client import AITimeoutError, get_ai_client_for_novel
 from ai_state import effective_model
-from auth_local.deps import require_ai_access, require_novel_model
+from auth_local.deps import ai_feature, require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from filesystem.storage import get_storage
@@ -414,6 +414,7 @@ def _normalize_introspect(data) -> dict:
 
 
 @router.post("/ai/intro/{action}")
+@ai_feature("settings-ai-fields")
 async def intro_ai(
     project_id: str,
     action: str,
@@ -606,6 +607,7 @@ def _normalize_draft_value(shape: str, raw) -> object:
 
 
 @router.post("/ai/world/draft")
+@ai_feature("settings-ai-fields")
 async def draft_world_topic(
     project_id: str,
     body: dict,
@@ -709,6 +711,7 @@ async def draft_world_topic(
 
 
 @router.post("/ai/world/check")
+@ai_feature("settings-ai-fields")
 async def check_world_consistency(
     project_id: str,
     body: dict,
@@ -869,6 +872,7 @@ async def check_world_consistency(
 
 
 @router.post("/ai/world/lore-suggest")
+@ai_feature("settings-ai-fields")
 async def lore_suggest_world(
     project_id: str,
     body: dict,
@@ -1071,6 +1075,7 @@ async def _arc_material(db, project) -> dict:
 
 
 @router.post("/ai/arc/{action}")
+@ai_feature("settings-ai-fields")
 async def run_arc_ai(
     project_id: str,
     action: str,
@@ -1382,6 +1387,7 @@ async def _hooks_audit_scan(db: AsyncSession, novel_id: str) -> tuple[list[dict]
 
 
 @router.post("/ai/hooks/{action}")
+@ai_feature("settings-ai-fields")
 async def run_hooks_ai(
     project_id: str,
     action: str,
@@ -1824,6 +1830,7 @@ async def _distill_llm(project, user, db, *, system: str, prompt: str):
 
 
 @router.post("/ai/style-distill/{action}")
+@ai_feature("settings-ai-fields")
 async def style_distill_ai(
     project_id: str,
     action: str,
@@ -1950,6 +1957,7 @@ async def style_distill_ai(
 
 
 @router.post("/ai/style/{action}")
+@ai_feature("settings-ai-fields")
 async def run_style_ai(
     project_id: str,
     action: str,
@@ -2047,6 +2055,7 @@ async def run_style_ai(
 
 
 @router.post("/ai/{stype}/{field}")
+@ai_feature("settings-ai-fields")
 async def generate_field(
     project_id: str,
     stype: str,

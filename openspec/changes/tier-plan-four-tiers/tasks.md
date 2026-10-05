@@ -23,7 +23,7 @@
 ## 3. B3 C端 守门 key 化（真拦截）
 
 - [ ] 3.1 判定链：service.py 准入闸分支重构（none/free→免费基线，其余任何档名进快照/目录判定）；**STANDARD_FALLBACK 五行全量重写**对齐 v2 默认表（standard 新增；pro=standard＋ai-generate/prompt-panel/ai-detect；max=pro＋ai-plot/ai-polish/style-quant；trial=pro 同权；与 entitlement-defaults.json 对拍）；**FALLBACK_MEMBER_TIERS 补 standard**（退役为目录皆无时的兜底）；无快照分支按目录缓存合成 features；**tier_catalog 通道**：service.py:462-470 落盘＋:513-526 code-1 清除＋verify_session（:574-589）与 /auth/check-auth（:472-482）响应透出目录
-- [ ] 3.2 44 声明点逐点挂 key（归类表见评审报告 §1）：ai-generate×6、prompt-panel×5、ai-plan×10、chapter-review×1、settings-ai-fields×10、style-suggest×2＋style-quant×1（文风建议/蒸馏拆 key）、ai-plot×4（剧情推演——卷纲冲突检测留 ai-check 族挂 ai-generate 门）、ai-polish×1（去AI味）、ai-detect×4（zhuque 执行端点换真门）；**zhuque config 增删/test 3 处为新增门**（现状只挂登录，拦截范围=免费/标准），403 契约按新行为
+- [ ] 3.2 声明点 41 处逐点挂 key（合并 main 后按退役后代码重盘点：续写/扩写/压缩退役出局）：ai-generate×6、prompt-panel×5、ai-plan×8（卷规划×2/拆章/章纲起草/剧情抽卡/建书建议/盘点抽卡/补缺）、chapter-review×1、settings-ai-fields×12（设定域 9＋角色档案 3）、style-suggest×2＋style-quant×1（文风建议/蒸馏拆 key）、ai-plot×8（story 推演七端点＋plot_sim）、ai-polish×1（去AI味 /polish）、卷纲冲突检测挂 ai-generate（ai-check 族）、ai-detect×4（zhuque 执行端点换真门）；**zhuque config 增删/test 3 处为新增门**（现状只挂登录，拦截范围=免费/标准），403 契约按新行为
 - [ ] 3.3 撤门×3：reconcile/run（:154）、dossier 收尾闸（archive/dossier.py:325，ai_access_granted 删）、quality-check（write/router.py:33，纯本地规则）；**accept/reject 现状无门勿动**
 - [ ] 3.4 `ai_access_granted(feature=None)` 扩参；ai_state 透传 features；建书满额文案按 tier 双口径（deps.py:168）
 - [ ] 3.5 pytest：存量语义翻转 8–12 文件（reconcile 免费放行、zhuque PRO→403 feature_required＋config/test 新增门、卷体检/盘点/自检免费→403 等）＋新增矩阵用例；client pytest 全量绿
