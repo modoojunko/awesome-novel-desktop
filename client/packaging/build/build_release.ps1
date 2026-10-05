@@ -1,5 +1,5 @@
 # client/packaging/build/build_release.ps1
-# AI Novel - Windows 发版打包一键脚本（离线复刻 client-package.yml 的 Windows 链）
+# Awesome Novel - Windows 发版打包一键脚本（离线复刻 client-package.yml 的 Windows 链）
 #
 # 用途：GitHub Actions 不可用时的发版打包（2026-10-04 配方，与 CI 步骤逐条对齐）。
 # 前置：Git、Node.js 20+、Python 3.12+（pip 在 PATH）、Inno Setup 6+（iscc 在 PATH
@@ -7,7 +7,7 @@
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File build_release.ps1            # 版本取自最新 v* tag
 #   powershell -ExecutionPolicy Bypass -File build_release.ps1 0.26       # 显式指定版本
-# 产物：client/packaging/dist/AI_Novel_Setup_<version>.exe
+# 产物：client/packaging/dist/AwesomeNovel_Setup_<version>.exe
 # 注意：须在仓库根的检出内运行（脚本向上定位仓库根）；Windows 安装包 CI 同样不签名，
 #       本地包与 CI 包效力等同（SmartScreen 首次提示属预期，用户点「仍要运行」）。
 
@@ -26,7 +26,7 @@ if ($args.Count -ge 1 -and $args[0] -ne '') {
     if (-not $Version) { Write-Error 'git 仓库无 v* tag 且未显式给版本号'; exit 1 }
 }
 $Version = $Version.TrimStart('v') -replace '[^A-Za-z0-9._-]', '-'
-Write-Host "==== AI Novel Windows 发版打包 v$Version ===="
+Write-Host "==== Awesome Novel Windows 发版打包 v$Version ===="
 
 function Step([string]$Name, [scriptblock]$Body) {
     Write-Host "[$Name] ..." -NoNewline
@@ -92,9 +92,9 @@ Step '5/7 产物断言' {
 
 # ── 6. 冒烟（--smoke 无头，轮询 health + SPA；不跑这步坏包照样绿）──
 Step '6/7 冒烟测试' {
-    $exe = Join-Path $BuildDir 'dist\AI Novel\AI Novel.exe'
+    $exe = Join-Path $BuildDir 'dist\AwesomeNovel\AwesomeNovel.exe'
     if (-not (Test-Path $exe)) { throw "找不到产物 $exe" }
-    $portJson = Join-Path $env:APPDATA 'AI Novel\port.json'
+    $portJson = Join-Path $env:APPDATA 'AwesomeNovel\port.json'
     $proc = Start-Process -FilePath $exe -ArgumentList '--smoke' -PassThru -RedirectStandardOutput "$env:TEMP\ainovel-smoke.log" -RedirectStandardError "$env:TEMP\ainovel-smoke.err.log"
     try {
         $port = ''
@@ -132,6 +132,6 @@ Step '7/7 Inno Setup 安装包' {
     } finally { Pop-Location }
 }
 
-$out = Get-ChildItem -Path (Join-Path $RepoRoot 'client\packaging\dist') -Filter 'AI_Novel_Setup_*.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $out) { Write-Error '未找到 AI_Novel_Setup_*.exe 产物'; exit 1 }
+$out = Get-ChildItem -Path (Join-Path $RepoRoot 'client\packaging\dist') -Filter 'AwesomeNovel_Setup_*.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if (-not $out) { Write-Error '未找到 AwesomeNovel_Setup_*.exe 产物'; exit 1 }
 Write-Host "==== 完成：$($out.FullName)（$([math]::Round($out.Length/1MB,1)) MB）===="

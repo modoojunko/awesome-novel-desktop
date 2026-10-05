@@ -90,7 +90,7 @@ cd client/packaging/build
 pyinstaller build.spec
 ```
 
-打包后，数据目录就在 `AI Novel.exe` 同级的 `data/` 下，整个文件夹可随意移动。
+打包后，数据目录就在 `AwesomeNovel.exe` 同级的 `data/` 下，整个文件夹可随意移动。
 
 ## 项目结构
 

@@ -11,7 +11,7 @@
 
 #### Scenario: 推送 v0.1 触发首个公开版
 - **WHEN** 向仓库推送标签 `v0.1`
-- **THEN** 构建完成后出现同名 GitHub Release，其资产同时包含带版本号的 `AI_Novel_Setup_v0.1.exe` 与 `AI_Novel_mac_0.1.dmg`
+- **THEN** 构建完成后出现同名 GitHub Release，其资产同时包含带版本号的 `AwesomeNovel_Setup_v0.1.exe` 与 `AwesomeNovel_mac_v0.1.dmg`
 
 #### Scenario: PR 构建不对外发布
 - **WHEN** 打包流水线由 PR 或手动 dispatch 触发
@@ -19,15 +19,15 @@
 
 ### Requirement: 落地页下载入口
 
-S端 落地页 SHALL 提供可达的客户端下载入口：未登录态 Hero 区 MUST 呈现单枚主按钮「免费下载」，点击后打开**下载弹窗**（复用既有浮层组件）。弹窗打开时 SHALL 立即同源获取 `download/latest.json` 解析最新版本，并渲染：版本 pill、两枚平台下载按钮（`下载 Windows 版` primary / `下载 macOS 版` secondary，均动词起句，href 分别指向静态托管的 `download/v<VER>/AI_Novel_Setup_v<VER>.exe` 与 `download/v<VER>/AI_Novel_mac_v<VER>.dmg`，双平台文件名统一带小写 `v` 前缀）、macOS 首开提示、「查看更新说明 →」次级链接（指向本次展示版本的 `download/v<VER>/notes.html`，同源静态托管，随发版流水线必产）与一行许可同意微文案「下载即表示同意《最终用户许可协议》」（链接指向官网 EULA 公示页）。弹窗 MUST 具备三态：加载中（骨架占位）、成功（info 语气版本 pill）、降级（fetch 失败时代码兜底版本照常可下，warn 语气 pill 明示）；**降级态 MUST NOT 渲染「查看更新说明」等版本相关次级链接**（兜底版本不保证仍在托管保留集内，warn pill 已明示非最新），双平台下载按钮保留。弹窗内用户所见版本 MUST 与点击所下文件名的版本一致。页面其余区域 MUST NOT 承诺具体版本号（版本展示收敛到弹窗）。`download/latest.json` 的版本号 MUST 为唯一线上事实源；前端代码内的版本常量 SHALL 仅为请求失败时的兜底。已登录态 SHALL 保持「进入控制台」主操作不变，不渲染下载入口。激活指引第 1 步 MUST 同时写明双平台获取方式。全站 MUST NOT 出现指向已私有仓库的外链或引导用户前往 GitHub Releases 获取安装包的文案（下载获取口径一律为官网静态托管）。
+S端 落地页 SHALL 提供可达的客户端下载入口：未登录态 Hero 区 MUST 呈现单枚主按钮「免费下载」，点击后打开**下载弹窗**（复用既有浮层组件）。弹窗打开时 SHALL 立即同源获取 `download/latest.json` 解析最新版本，并渲染：版本 pill、两枚平台下载按钮（`下载 Windows 版` primary / `下载 macOS 版` secondary，均动词起句，href 分别指向静态托管的 `download/v<VER>/AwesomeNovel_Setup_v<VER>.exe` 与 `download/v<VER>/AwesomeNovel_mac_v<VER>.dmg`，双平台文件名统一带小写 `v` 前缀）、macOS 首开提示、「查看更新说明 →」次级链接（指向本次展示版本的 `download/v<VER>/notes.html`，同源静态托管，随发版流水线必产）与一行许可同意微文案「下载即表示同意《最终用户许可协议》」（链接指向官网 EULA 公示页）。弹窗 MUST 具备三态：加载中（骨架占位）、成功（info 语气版本 pill）、降级（fetch 失败时代码兜底版本照常可下，warn 语气 pill 明示）；**降级态 MUST NOT 渲染「查看更新说明」等版本相关次级链接**（兜底版本不保证仍在托管保留集内，warn pill 已明示非最新），双平台下载按钮保留。弹窗内用户所见版本 MUST 与点击所下文件名的版本一致。页面其余区域 MUST NOT 承诺具体版本号（版本展示收敛到弹窗）。`download/latest.json` 的版本号 MUST 为唯一线上事实源；前端代码内的版本常量 SHALL 仅为请求失败时的兜底。已登录态 SHALL 保持「进入控制台」主操作不变，不渲染下载入口。激活指引第 1 步 MUST 同时写明双平台获取方式。全站 MUST NOT 出现指向已私有仓库的外链或引导用户前往 GitHub Releases 获取安装包的文案（下载获取口径一律为官网静态托管）。
 
 #### Scenario: 未登录访客点击 Windows 下载按钮
 - **WHEN** 未登录访客打开下载弹窗并点击「下载 Windows 版」
-- **THEN** 浏览器开始下载 `www.awesomenovel.com/download/v<N>/AI_Novel_Setup_v<N>.exe`，其中 `<N>` 与弹窗内展示的版本 pill 一致
+- **THEN** 浏览器开始下载 `www.awesomenovel.com/download/v<N>/AwesomeNovel_Setup_v<N>.exe`，其中 `<N>` 与弹窗内展示的版本 pill 一致
 
 #### Scenario: 未登录访客点击 macOS 下载按钮
 - **WHEN** 未登录访客打开下载弹窗并点击「下载 macOS 版」
-- **THEN** 浏览器开始下载 `www.awesomenovel.com/download/v<N>/AI_Novel_mac_v<N>.dmg`，版本同弹窗所见
+- **THEN** 浏览器开始下载 `www.awesomenovel.com/download/v<N>/AwesomeNovel_mac_v<N>.dmg`，版本同弹窗所见
 
 #### Scenario: 弹窗打开即取最新版
 - **WHEN** 访客在落地页停留期间线上发布了新版本，其后才点击「免费下载」
@@ -63,11 +63,11 @@ S端 落地页 SHALL 提供可达的客户端下载入口：未登录态 Hero �
 
 ### Requirement: 安装包国内分发
 
-系统 SHALL 在 `v*` 标签发版时把双平台安装包转存到静态托管（CloudBase Hosting）的 `/download/v<VER>/` 目录，文件名与 GitHub Release 资产 1:1（`AI_Novel_Setup_v<VER>.exe` / `AI_Novel_mac_v<VER>.dmg`）。转存完成后系统 SHALL 更新 `download/latest.json`，该文件 MUST 是落地页下载弹窗与 C端 更新检测共同的唯一线上事实源；更新它 MUST NOT 依赖任何前端重新发版。latest.json 载荷契约：`version` MUST 必写；`notes`（一句话更新摘要，取 tag 附注首行自动写入，无附注时可省略）与 `min_version`（强更门槛，本期仅预留字段、客户端不实现强更逻辑）为可选键，缺省 MUST 可省略。所有 latest.json 消费方（落地页下载弹窗、C端 更新检测）MUST 同时兼容"仅 version"的最小载荷与含可选键的完整载荷。转存或 latest.json 更新失败 MUST 使发版流水线失败，不得静默。已发布的版本目录 MUST 只增不改（版本化路径永不覆盖，使长缓存安全）。
+系统 SHALL 在 `v*` 标签发版时把双平台安装包转存到静态托管（CloudBase Hosting）的 `/download/v<VER>/` 目录，文件名与 GitHub Release 资产 1:1（`AwesomeNovel_Setup_v<VER>.exe` / `AwesomeNovel_mac_v<VER>.dmg`；品牌更名 2026-10-05：安装包文件名由 `AI_Novel_*` 切换为 `AwesomeNovel_*`）。**更名过渡期** SHALL 在同一版本目录同时提供旧名副本（`AI_Novel_Setup_v<VER>.exe` / `AI_Novel_mac_v<VER>.dmg`，内容逐字节一致，Release 资产同挂），旧名直链 MUST NOT 404；S端 落地页切到新名后的下个版本方可移除副本。转存完成后系统 SHALL 更新 `download/latest.json`，该文件 MUST 是落地页下载弹窗与 C端 更新检测共同的唯一线上事实源；更新它 MUST NOT 依赖任何前端重新发版。latest.json 载荷契约：`version` MUST 必写；`notes`（一句话更新摘要，取 tag 附注首行自动写入，无附注时可省略）与 `min_version`（强更门槛，本期仅预留字段、客户端不实现强更逻辑）为可选键，缺省 MUST 可省略。所有 latest.json 消费方（落地页下载弹窗、C端 更新检测）MUST 同时兼容"仅 version"的最小载荷与含可选键的完整载荷。转存或 latest.json 更新失败 MUST 使发版流水线失败，不得静默。已发布的版本目录 MUST 只增不改（版本化路径永不覆盖，使长缓存安全）。
 
 #### Scenario: 发版后国内直链可下载
 - **WHEN** 任意 `v*` 标签发版流水线成功结束
-- **THEN** `https://www.awesomenovel.com/download/v<VER>/AI_Novel_Setup_v<VER>.exe` 返回 200，且字节数与 GitHub Release 同名资产一致（dmg 同理）
+- **THEN** `https://www.awesomenovel.com/download/v<VER>/AwesomeNovel_Setup_v<VER>.exe` 返回 200，且字节数与 GitHub Release 同名资产一致（dmg 同理）
 
 #### Scenario: latest.json 即时生效
 - **WHEN** `download/latest.json` 的版本号被更新（CI 自动或人工）

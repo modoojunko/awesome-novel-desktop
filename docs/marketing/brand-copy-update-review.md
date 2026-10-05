@@ -45,7 +45,7 @@
 | 6 | README 两份头部 | **改** | 「# 爱小说 · Awesome Novel」＋徽章行「awesome-novel-agent 第 5 代 · 源自开源项目（链旧仓库）」 | **P0** | 血统链接指 `awesome-novel-agent`，**勿指 clone 地址的 awesome-novel-desktop** |
 | 7 | `site-config.json` brandName | **不改** | 保持空串（空＝单源纪律） | 不动 | 填值会制造第二事实源 |
 | 8 | 安装包名 AI_Novel_Setup_* | **缓改** | 随下一个正式大版本切 `Awesome_Novel_*`，旧链接保留一个版本周期 | **P2** | 外发链接/渠道换发成本高，现在不动 |
-| 9 | 数据目录 `%APPDATA%\AI Novel` 等 | **不改** | 用户资产路径，工程代号 ≠ 品牌文案 | 不动 | — |
+| 9 | 数据目录 `%APPDATA%\AI Novel` 等 | **已改（2026-10-05 用户拍板「都换掉」，覆盖本行原裁定）** | → `AwesomeNovel`；macOS 上该目录即书稿数据目录：首启 `os.rename` 换名＋旧路径留软链（装回旧版仍能找到书），改名失败退回旧目录绝不丢数据；Windows 侧只是日志目录，不搬迁、卸载器两名都清 | 已落 | 门禁 `test_packaging_shell_startup.py` 迁移四例 |
 | 10 | C 端 AWESOME-NOVEL | **不改** | 与新口径天然一致，是 #1 的佐证 | 不动 | 已被测试钉死 |
 | 11 | EULA/关于页产品名 | **待核对** | 若写「AI Novel」随 #1 批次统一为「爱小说 Awesome Novel」 | **P1** | 法务确认是否触发 EULA 重新同意；评审时未实勘 EULA 文本 |
 | 12 | `docs/marketing/c-sellpoints.md` | **微调** | 文首增补代际口径一行：「对外统一称第 5 代/5.0 代际；桌面 semver（v0.25.x）只出现在下载与更新场景」 | **P1** | 内部文档，零风险 |

@@ -7,7 +7,7 @@ TBD - created by archiving change brand-name-single-source.
 
 ### Requirement: 品牌单一事实源
 
-仓库根 `brand/brand.json` SHALL 为两端品牌名与经营主体的唯一声明处，字段契约固定为五个原子字段：`name`（中文主名，现值「爱小说」）、`nameEn`（英文名，现值「AI Novel」）、`mark`（印标单字，现值「爱」）、`tagline`（一句话描述）、`company`（经营主体/版权人/发布者的法定名称，现值「星纬（海口）投资有限公司」）。派生组合 SHALL 在消费端代码拼装、MUST NOT 存入 json：组合名 = `{name} · {nameEn}`；C端版权行 = `© {当前年份} {company} · {name}`；S端页脚版权行 = `© {当前年份} {company} · {组合名}`。`company` 是法定主体名，SHALL 与法务文件的经营者署名同口径，MUST NOT 参与 S端 运行时 `brandName` 覆盖（覆盖仅作用于 `name` 及其派生组合）。json MUST NOT 声明构建/安装层产品名（exe/bundle/DMG 名）——未接线的事实不进契约。除 brand.json 与各端唯一桥接文件外，两端源码 MUST NOT 存在硬编码品牌名或主体名展示串（豁免：构建/安装层命名、`installer.iss` 的 `AppPublisher` 字面量——安装器读不了 JSON，它是主体名的唯一手写同步点，必须与 json 同批修改、引用 Finder 文件名的 FAQ 文案、docs 与原型层）。
+仓库根 `brand/brand.json` SHALL 为两端品牌名与经营主体的唯一声明处，字段契约固定为五个原子字段：`name`（中文主名，现值「爱小说」）、`nameEn`（英文名，现值「Awesome Novel」）、`mark`（印标单字，现值「爱」）、`tagline`（一句话描述）、`company`（经营主体/版权人/发布者的法定名称，现值「星纬（海口）投资有限公司」）。派生组合 SHALL 在消费端代码拼装、MUST NOT 存入 json：组合名 = `{name} · {nameEn}`；C端版权行 = `© {当前年份} {company} · {name}`；S端页脚版权行 = `© {当前年份} {company} · {组合名}`。`company` 是法定主体名，SHALL 与法务文件的经营者署名同口径，MUST NOT 参与 S端 运行时 `brandName` 覆盖（覆盖仅作用于 `name` 及其派生组合）。json MUST NOT 声明构建/安装层产品名（exe/bundle/DMG 名）——未接线的事实不进契约。除 brand.json 与各端唯一桥接文件外，两端源码 MUST NOT 存在硬编码品牌名或主体名展示串（豁免：构建/安装层命名、`installer.iss` 的 `AppPublisher` 字面量——安装器读不了 JSON，它是主体名的唯一手写同步点，必须与 json 同批修改、引用 Finder 文件名的 FAQ 文案、docs 与原型层）。
 
 #### Scenario: 改名单点生效
 
@@ -31,7 +31,7 @@ TBD - created by archiving change brand-name-single-source.
 
 ### Requirement: C端品牌消费与启动兜底
 
-C端 SHALL 在以下位置消费品牌源：系统窗口标题（= `name`，替代现值「AI Novel」）；启动 splash 品牌名；`index.html` title（构建期注入，组合式钉死为 `{nameEn} — {name}，{tagline}`，展示值与现状逐字节一致）；顶栏/登录页/落地页字标（`mark` + `name`）；书架状态条版权行（`© {当前年份} {company} · {name}`，年份取当前年份）；备份与配置包产物文件名前缀（`{name}-备份-`、`{name}-备份-配置-`，展示值与 backup-restore 既有契约一致）。python 侧读取品牌源 MUST 带内置默认值兜底：brand.json 缺失或不可读时 SHALL 使用与声明值一致的内置默认继续启动，MUST NOT 因品牌文件问题崩溃、报错弹窗或阻塞启动（`company` 不参与 python 侧运行时消费，新增键不得影响既有白名单键位）。brand.json SHALL 随打包进入安装包（PyInstaller datas 机制，release.json 同路径）。
+C端 SHALL 在以下位置消费品牌源：系统窗口标题（= `name`，替代历史值「AI Novel」）；启动 splash 品牌名；`index.html` title（构建期注入，组合式钉死为 `{nameEn} — {name}，{tagline}`，展示值与现状逐字节一致）；顶栏/登录页/落地页字标（`mark` + `name`）；书架状态条版权行（`© {当前年份} {company} · {name}`，年份取当前年份）；备份与配置包产物文件名前缀（`{name}-备份-`、`{name}-备份-配置-`，展示值与 backup-restore 既有契约一致）。python 侧读取品牌源 MUST 带内置默认值兜底：brand.json 缺失或不可读时 SHALL 使用与声明值一致的内置默认继续启动，MUST NOT 因品牌文件问题崩溃、报错弹窗或阻塞启动（`company` 不参与 python 侧运行时消费，新增键不得影响既有白名单键位）。brand.json SHALL 随打包进入安装包（PyInstaller datas 机制，release.json 同路径）。
 
 #### Scenario: 窗口标题与产品名一致
 
@@ -60,7 +60,7 @@ S端 SHALL 在 9 处品牌位消费品牌源：页面 title（index.html 静态�
 #### Scenario: 页脚组合名
 
 - **WHEN** 访客打开落地页查看页脚
-- **THEN** 版权行显示「© {当前年份} 星纬（海口）投资有限公司 · 爱小说 · AI Novel」（主体 + 构建期 `name · nameEn` 组合；2026 年内展示值即为此形态）
+- **THEN** 版权行显示「© {当前年份} 星纬（海口）投资有限公司 · 爱小说 · Awesome Novel」（主体 + 构建期 `name · nameEn` 组合；2026 年内展示值即为此形态）
 
 #### Scenario: 运行时改名免重建
 
