@@ -56,7 +56,8 @@ export interface UseChapterDataReturn {
   retryExtraction: () => Promise<string | null>;
   /** 归档任务态（受理制）；null＝无任务（从未受理或已终态清除） */
   archiveJob: ArchiveJobState | null;
-  /** 恢复归档章为可编辑态（撤下归档全文 + 状态回退），完成后重拉章数据 */
+  /** 恢复归档章为可编辑态（撤下归档全文 + 状态回退），完成后重拉章数据。
+   *  c-archived-readonly 小改路径：横幅「恢复编辑」出口（整体重写走 /rewrite）。 */
   unarchive: () => Promise<void>;
   reload: () => Promise<void>;
   loading: boolean;

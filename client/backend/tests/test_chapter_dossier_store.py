@@ -15,7 +15,6 @@ _tmp_db.close()
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
 os.environ["DATA_ROOT"] = tempfile.mkdtemp(prefix="test_dossier_store_")
 
-import pytest  # noqa: E402
 
 from conftest import seed_chapter_db  # noqa: E402
 from sqlalchemy import select  # noqa: E402
@@ -138,9 +137,8 @@ def test_relation_and_knowledge_bind_character_ids_by_name():
 
     from sqlalchemy import select
 
-    from db import async_session
-    from models.character import Character
     from models.chapter import Chapter, ChapterRelationChange
+    from models.character import Character
     from models.project import Novel
 
     async def _check():
@@ -210,7 +208,6 @@ def test_save_prose_keeps_dossier_row_ids_stable():
     _seed(root, with_dossier=True)
 
     from chapters.service import save_prose
-    from db import async_session
     from models.chapter import Chapter, ChapterSettingChange
     from models.project import Novel
 

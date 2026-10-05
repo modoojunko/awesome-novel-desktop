@@ -15,7 +15,7 @@ import zipfile
 
 import pytest
 
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///" + tempfile.NamedTemporaryFile(suffix=".db", delete=False).name)
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///" + tempfile.NamedTemporaryFile(suffix=".db", delete=False).name)  # noqa: SIM115 — 只要路径，句柄即弃（delete=False 留盘给引擎接管）
 os.environ.setdefault("DATA_ROOT", tempfile.mkdtemp(prefix="test_og_slim_"))
 
 from backup.format import FORMAT_VERSION  # noqa: E402
@@ -240,13 +240,14 @@ def test_old_package_import_ignores_retired_keys_and_reports():
                     data = yaml.safe_dump(payload, allow_unicode=True).encode("utf-8")
                 zout.writestr(info, data)
 
-        path = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-        path.write(patched.getvalue())
-        path.close()
+        fd, zip_path = tempfile.mkstemp(suffix=".zip")
+        os.close(fd)
+        with open(zip_path, "wb") as fh:
+            fh.write(patched.getvalue())
 
         # 3) 导入：忽略 + 计数告警
         async with async_session() as db:
-            info = await persist_package(db, "ogslim_importer", [path.name], include_config=False)
+            info = await persist_package(db, "ogslim_importer", [zip_path], include_config=False)
         warnings = info.get("warnings", [])
         assert any("已退役" in w for w in warnings), (warnings, info)
 
@@ -280,9 +281,10 @@ def test_migration_plan_skips_retired_columns():
 
     from migration.engine import build_plan
 
-    db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    db.close()
-    conn = sqlite3.connect(db.name)
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    db = db_path
+    conn = sqlite3.connect(db)
     # 最小旧库形状：chapters 带退役列（location/narrative_pov/chapter_acts/segments 等）
     conn.execute(
         """
@@ -307,7 +309,7 @@ def test_migration_plan_skips_retired_columns():
     conn.commit()
     conn.close()
 
-    plan = build_plan(db.name)
+    plan = build_plan(db)
     entry = next(e for e in plan["tables"] if e["table"] == "chapters")
     retired = {
         "location", "story_time", "narrative_pov", "perspective_guidance",

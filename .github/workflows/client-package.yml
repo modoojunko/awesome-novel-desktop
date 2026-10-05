@@ -1,13 +1,9 @@
 name: C端 打包 (exe + dmg)
 
 on:
-  # 每个 PR 做打包验证：改动到 C端/工作流时出双平台安装包（artifact 可下载实测）
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "client/**"
-      - ".github/workflows/client-package.yml"
+  # 打包只在发版时跑：推 v* tag 出双平台安装包并发布；workflow_dispatch 供手动验证。
+  # PR 阶段不再打包（2026-10-02 省额度拍板）——日常 PR 只跑四个 Linux CI 检测，
+  # 打包（macOS ×10 / Windows ×2 计费）由发版流水线统一承接。
   # release：打 v* tag 即出包并发布。
   # 注意不设 paths 过滤——tag 推送的 paths 判定不可靠，可能静默跳过，保证每个 tag 都跑。
   push:
@@ -15,7 +11,7 @@ on:
       - 'v*'
   workflow_dispatch:
 
-# PR 推送新 commit 时取消旧构建，省 CI 分钟
+# 同 ref 重复触发时取消旧构建，省 CI 分钟
 concurrency:
   group: package-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

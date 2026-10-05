@@ -2,7 +2,7 @@
 // 常驻回执／撤销只回滚 plots／编辑收掉回执／已润色章改剧情软提示／免费态锁定卡。
 // 打桩层＝`@/lib/api`＋`@/lib/toast`（toast 断言回执与撤销语义）。
 import { createRef } from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
@@ -81,8 +81,20 @@ function mount(opts: {
   server: Record<string, unknown>;
   isPro?: boolean;
   onOpenAiModal?: () => void;
+  /** 树行归档态（c-archived-readonly）：true＝本章已归档 */
+  archived?: boolean;
 }) {
   const outline = makeOutline(opts.server);
+  // 每次挂载新建 wb 桩：归档态按用例覆写，不污染模块级 wb
+  const wbStub = {
+    ...wb,
+    volumes: [
+      {
+        name: "vol-1",
+        chapters: [{ chapter: 2, title: "锚点", archived: opts.archived ?? false }],
+      },
+    ],
+  };
   let rail: any = null;
   render(
     <MemoryRouter>
@@ -90,7 +102,7 @@ function mount(opts: {
         projectId="p1"
         chapterRef={REF}
         outline={outline as never}
-        wb={wb as never}
+        wb={wbStub as never}
         isPro={opts.isPro ?? true}
         proseRef={createRef()}
         aiState={INITIAL_PROSE_AI_STATE}
@@ -346,7 +358,7 @@ describe("已润色章改剧情软提示（拍板⑥）", () => {
 });
 
 describe("头部 meta 行（2026-09-27 章纲统计自右栏 AI 助手上移）", () => {
-  it("e-meta 展示归档门槛/计划字数/剧情/出场角色；seg 退役、版本历史在页签行、归档在操作页签", async () => {
+  it("e-meta 展示归档门槛/剧情/出场角色（计划字数/完成度/总字数迁页签行，c-workbench-density）；seg 退役、版本历史在页签行、归档在操作页签", async () => {
     mount({
       server: {
         ...FULL,
@@ -360,7 +372,11 @@ describe("头部 meta 行（2026-09-27 章纲统计自右栏 AI 助手上移）"
     const meta = document.querySelector(".e-meta")?.textContent ?? "";
     expect(meta).toContain("剧情 2 条");
     expect(meta).toContain("出场角色 0 人");
-    expect(meta).toContain("计划字数");
+    // 三枚重复徽章退役：完成度/总字数唯一承载位＝页签行 ch-progress
+    expect(meta).not.toContain("计划字数");
+    expect(meta).not.toContain("完成度");
+    expect(meta).not.toContain("本书总字数");
+    expect(document.querySelector(".ch-tabs .ch-progress")?.textContent).toContain("完成度");
     // 字号/行距 seg 退役（改值入口在账号菜单「本书偏好」）
     expect(document.querySelector(".e-head .seg")).toBeNull();
     // 版本历史入口移页签行右端（不在头部右侧）
@@ -402,5 +418,36 @@ describe("保存草稿不确认＋撤回确认（c-og-draft-no-autconfirm）", (
     );
     expect(outline.unconfirmChapter).toHaveBeenCalledWith(REF);
     expect(outline.refetchTree).toHaveBeenCalled();
+  });
+});
+
+describe("归档章章纲只读（c-archived-readonly）", () => {
+  it("归档章停在章纲页签：横幅（小改「恢复编辑」＋重写指路）在场，动作区四入口不在场，一页纸本体保留", async () => {
+    mount({ server: { ...FULL, status: "confirmed" }, archived: true });
+    expect(await screen.findByTestId("og-view")).toBeInTheDocument();
+    // 状态机终态徽：页签条章纲 chip＝「已归档」（不报草稿/缺项/已确认）
+    expect(document.querySelector(".ch-tabs .cnt")?.textContent).toBe("已归档");
+    // 面板头徽同口径（og-view 内唯一「已归档」）
+    expect(within(screen.getByTestId("og-view")).getByText("已归档")).toBeInTheDocument();
+    // 横幅（正文/章纲两页签同款）：小改路径＝「恢复编辑」出口，整体重写指路「重写本章」
+    expect(screen.getByText(/本章已归档/)).toBeInTheDocument();
+    expect(screen.getByText(/重写本章/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "恢复编辑" })).toBeInTheDocument();
+    // 动作区整排不提供（确认/撤回对归档章后端本就 409），解锁后才恢复
+    expect(screen.queryByRole("button", { name: "确认章纲" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "去写正文" })).toBeNull();
+    expect(screen.queryByTestId("og-edit")).toBeNull();
+    expect(screen.queryByTestId("og-unconfirm")).toBeNull();
+    // 一页纸本体仍在（只读呈现，不白屏）
+    expect(screen.getByTestId("og-view")).toBeInTheDocument();
+  });
+
+  it("归档章点缺口 chip 不进编辑态（编辑入口哑火，无保存草稿表单）", async () => {
+    mount({ server: { ...FULL }, archived: true });
+    expect(await screen.findByTestId("og-view")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "必须完成的变化" }));
+    // 仍在查看态：编辑态的保存草稿按钮不在场
+    expect(screen.queryByRole("button", { name: "保存草稿" })).toBeNull();
+    expect(screen.getByTestId("og-view")).toBeInTheDocument();
   });
 });

@@ -153,7 +153,7 @@ test("两段式：AiModal 粗组→AI 润色→编辑→生成 + 完工检查横
         body: JSON.stringify({ prompt: POLISHED_PROMPT, polished: true }),
       }),
     );
-    // /write SSE（glob 以 /write 结尾：不会误吞 /write/continue 等子路径）
+    // /write SSE（glob 以 /write 结尾：不会误吞 /write/prompt 等子路径；续写端点已随 c-retire-continue-writing 退役）
     const CHUNK = "雨点砸在铁皮棚上，他没有抬头。守卫把通缉令举到火把下比对了很久。";
     const DONE_WORD_CHECK = {
       target: 2500,
@@ -197,24 +197,25 @@ test("两段式：AiModal 粗组→AI 润色→编辑→生成 + 完工检查横
     // 作家过目补一句（编辑不丢润色稿）
     await ai.getByTestId("ai-prompt").fill(`${POLISHED_PROMPT}\n补充：风声里夹着马蹄。`);
 
-    // ── 阶段三：生成正文 → SSE 落 editor + 完工检查横幅 ─────────────────
+    // ── 阶段三：生成正文 → SSE 落 editor + 完工检查（c-workbench-density：
+    // 横幅收缩为编辑态工具行警示胶囊，点开展开明细条）─────────────────────
     await ai.getByTestId("ai-confirm").click();
     const editor = page.locator(".editor");
     await expect(editor).toBeVisible({ timeout: 5000 });
     await expect(editor).toContainText("雨点砸在铁皮棚上", { timeout: 10000 });
 
-    const banner = page.getByTestId("qc-banner");
-    await expect(banner).toBeVisible({ timeout: 10000 });
-    // 字数不足提示（word_check：below_limit）
+    const pill = page.getByTestId("qc-banner");
+    await expect(pill).toBeVisible({ timeout: 10000 });
+    await expect(pill).toContainText("字数未达标");
+    // 明细条：点胶囊展开（qc-word/qc-self 迁入明细条，定位口径不变）
+    await pill.click();
     await expect(page.getByTestId("qc-word")).toContainText("字数未达标");
     await expect(page.getByTestId("qc-word")).toContainText("2500");
-    // 叙事自查清单（self_check：规则 + 命中数）
     await expect(page.getByTestId("qc-self")).toContainText("因果自然呈现");
     await expect(page.getByTestId("qc-self")).toContainText("1 处");
-
-    // 提示性质：可关闭
-    await page.getByTestId("qc-close").click();
-    await expect(banner).toHaveCount(0);
+    // 再点收起明细（胶囊常驻至下次生成，无「知道了」关闭语义）
+    await pill.click();
+    await expect(page.getByTestId("qc-word")).toHaveCount(0);
   } finally {
     await restore();
   }

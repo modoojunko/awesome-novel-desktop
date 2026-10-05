@@ -239,8 +239,11 @@ function VolumeVerifyPanel({
                   ? "卷纲关键项还没填——先补卷纲"
                   : "按卷纲拆出下一章的三方向卡（PRO）",
               onClick: () => {
+                /* v8 ignore start -- 防御分支：!isPro／splitBlocked／outlineIncomplete 任一为真时
+                   该行同一渲染里必被 disabled（按钮吞 click），真实 UI 只能走三关全过→onSplitAi 一条路 */
                 if (!isPro) onUpgrade();
                 else if (!splitBlocked && !outlineIncomplete) onSplitAi();
+                /* v8 ignore stop */
               },
               disabled: checking || splitBlocked || !isPro || outlineIncomplete,
               hint: !isPro

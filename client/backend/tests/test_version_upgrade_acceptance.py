@@ -242,7 +242,7 @@ os._exit(0)
 def _write_uncheckpointed(path: Path) -> None:
     """在子进程里以 WAL 模式写一行并硬退出（保留未落主文件的提交）。"""
     proc = subprocess.run([sys.executable, "-c", _WAL_WRITER, str(path)],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, check=False)
     assert proc.returncode == 0, proc.stderr
 
 
@@ -413,7 +413,7 @@ def test_up07_hard_kill_then_rerun(tmp_path):
                DATABASE_URL=f"sqlite+aiosqlite:///{target}")
     proc = subprocess.run([sys.executable, "-c", _KILL_CHILD, str(tmp_path), src.name, str(target)],
                           cwd=Path(__file__).resolve().parent.parent, env=env,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, check=False)
     assert proc.returncode == 9, (proc.returncode, proc.stdout, proc.stderr)
     assert proc.stdout.strip() == "", "必须在 transfer 阶段前被硬杀"
     staging = tmp_path / "migration-staging"
@@ -719,7 +719,7 @@ def test_up_review_books_skipped_reports_zero_migrated(tmp_path, monkeypatch):
     """
     import migration.engine as eng
 
-    src = _make_lib(tmp_path / "novel-v0.24.db", books=2)
+    _make_lib(tmp_path / "novel-v0.24.db", books=2)  # 造盘即目的，返回值不用
     target = tmp_path / db_filename_for(CUR)
     _make_target(tmp_path)
     # 造一个「目标已有书」的现场

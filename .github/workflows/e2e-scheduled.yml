@@ -45,6 +45,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 拆仓（s-server-repo-split）：S端 源码在私有仓 awesome-novel-server，
+      # compose 以 S_SERVER_DIR 取服务端构建上下文——双 checkout 到 s-server/。
+      # ⚠ 需在仓库 secrets 配 S_SERVER_TOKEN（PAT，对 awesome-novel-server 有读权限）。
+      - uses: actions/checkout@v4
+        with:
+          repository: modoojunko/awesome-novel-server
+          token: ${{ secrets.S_SERVER_TOKEN }}
+          path: s-server
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -58,6 +67,8 @@ jobs:
 
       - name: 起四服务 docker 栈
         run: docker compose up -d --build
+        env:
+          S_SERVER_DIR: ${{ github.workspace }}/s-server/server
 
       - name: 等待服务就绪（C 前端 5174 / C 后端 health / S 后端 19000 TCP）
         run: |
@@ -97,15 +108,9 @@ jobs:
           python -m pip install --quiet -r requirements.txt
           python scripts/upgrade_drill.py --all --work /tmp/drill-work
 
-      # s-contract-live-check：S web ↔ S 后端 契约活体冒烟（不打桩）。compose 的
-      # server-backend 在宿主 19000，vite dev（5175）proxy 指向它；S_LIVE_BASE_URL
-      # 不设则该组自动 skip，故放 nightly 显式设置真跑。
-      - name: S web 契约活体冒烟
-        run: |
-          cd server/frontend
-          npm ci --no-audit --no-fund
-          npx playwright install --with-deps chromium
-          S_LIVE_BASE_URL=http://localhost:19000 npx playwright test e2e/tests/live/
+      # s-contract-live-check 的 S web 契约活体冒烟已随拆仓迁至 awesome-novel-server
+      # 仓自有 workflow（s-contract-live.yml）——那是 S端 自己的测试套件，不再挂
+      # C端 nightly 跑别的仓的代码。本 workflow 的 S端 源码检出仅用于构建四服务栈。
 
       - name: 上传失败报告
         if: failure()

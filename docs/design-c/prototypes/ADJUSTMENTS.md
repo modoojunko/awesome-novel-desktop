@@ -1620,3 +1620,32 @@ confirmed 被归档覆写，展示层投影）：①`updateModNav` 徽标计数�
 ④卷卡「去配章纲」firstPending 定位跳过归档章。种子数据（c2＝已归档＋已确认）下新旧规则
 像素零差，design:check 基线不受影响；零新视觉词汇（复用 dot-ok／「章纲已确认」既有档位），
 不触共享段。
+## 朱雀额度本地台账（c-zhuque-quota-ledger，2026-10-01）
+
+model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记），本批为内容位替换，
+零新样式。只动 `model-config.html`：
+
+1. **已配置态 `zg-stats` 中间统计卡**：静态「50 万 token / 月 · 免费额度（以腾讯云控制台为准）」
+   →「12,340 / 50 万 token · 本月已用 · 本地估算，以腾讯云控制台为准」（本地台账月度聚合，
+   含整章检测与连接测试消耗；`.st` 结构、mono 数字档、11px 说明档不变，卡数三不变）。
+2. **口径**：「本地估算」为必须词——同 Key 在他处消耗、朱雀网页版试用不计入本地台账，
+   腾讯侧按月重置时点未知；「查看用量 ↗」外链保留为权威口径。
+3. **响应缺 usage 块的防御臂**（版本偏差）：实现回退渲染原静态额度卡内容，不引入「—」
+   占位（`zhuqueConfig.test.tsx` 既有「—」单节点锚与卡片无「—」断言不可撞）。
+4. **存量 lint 修复（门禁解锁）**：`#zqBadge` 文案「✓ 连接正常」→「连接正常」——✓（U+2713）
+   命中 design-lint emojiRegex（\u2600-\u27BF），自本原型入库起 design:lint/design:check
+   即存量红（HEAD 实证 exit 1）。状态语气由 `.badge.ok` 底色表达，字符冗余；实现侧
+   ZhuquePanel 的「✓ 已配置」在 src 冻结观察范围，不在本次扩围。
+
+## c-retire-continue-writing（2026-10-04）
+
+- AI 续写（右栏「续写建议」卡与文末续写块）全链退役：原型 :1094 续写建议卡删除、railProseSub 副标题与右栏脚注去「续写」。条目 88/138 为退役前的历史登记，保留存档。顶栏「续写」（条目 638）为导航功能，不在退役范围。
+
+## c-archived-readonly（2026-10-04；同日三轮拍板修订为两路径）
+
+- 归档章只读＋两条修改路径：**小改＝横幅「恢复编辑」**（unarchive 直改，不转存旧稿）、**整体重写＝「重写本章」**（操作页签，重写卡属操作页签域未入本原型）。「解除只读」弹窗（modalUnlock）整块删除（AI 写入工具确认即解锁的旁路不复保留），btnAi 点击的归档分支与 unlockConfirm 监听随删；renderChapter 对 btnAi 补归档禁用＋title。
+- readonlyBanner 文案对齐应用侧两路径口径（原「可在版本历史中恢复后重新归档」），并补「恢复编辑」按钮（id=unarchiveBtn，点击 ch.archived=false 走 persist/renderTreeAll/renderMiddle）。不涉 parity 基线屏（workbench 屏用非归档章）。
+
+## c-retire-selection-transforms（2026-10-04）
+
+- 选区加工的「场景扩写」「压缩啰嗦段落」两卡退役：原型两卡行删除、右栏脚注去「扩写/压缩」。去AI味单卡保留（反AI红线家族落点）。顶栏「续写」（条目 638）为导航功能不受影响。

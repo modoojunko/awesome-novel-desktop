@@ -123,6 +123,18 @@ class TestSystemPrompt:
         assert "视为已写情节" in system
         assert "未命名的次要角色用泛指" in system
 
+    def test_anti_ai_red_lines_in_system(self):
+        """c-write-prompt-anti-ai：反AI结构红线清单进恒定层（模板静态文本）。"""
+        ctx = ChapterContext()
+        system = ctx.build_system_prompt()
+        assert "## 写法要求（反AI结构红线）" in system
+        assert "结构强禁令" in system
+        assert "尾随标签" in system and "引语三明治" in system
+        assert "叙述句意思说完才打句号" in system
+        assert "与素材的约束红线、剧情条目、章末落点冲突时，素材优先" in system
+        # craft_rules 占位注入退役：旧一句话口径不得再出现在渲染产物中
+        assert "按场景权重分配笔墨" not in system
+
     def test_persona_default_on_empty_string(self):
         """历史「你是。」缺陷：role 键存在但为空串 → 兜底默认身份。"""
         assert resolve_persona({"role": ""}) == "一位小说家"

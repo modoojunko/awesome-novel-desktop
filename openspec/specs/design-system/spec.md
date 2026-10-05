@@ -104,7 +104,7 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - 弹窗四种卡形（不新增视觉词汇定义，逐一对齐写作域既有实现）：**文本卡**（内容＋「换一个」＋按域确认键）／**体检报告卡**（检查行列表＋「关闭」「重新检查」，无采纳键）／**候选勾选卡**（候选行可勾选＋「采纳」）／**结构化卡**（kv 行/势力行/逐格 diff 沿各域既有行词汇）。四卡形 footer 骨架统一＝次级「关闭」＋主行动键（按域文案）＋可选「换一个」；生成中 footer 隐藏主行动、占位常显。
 - **生成中关闭的保护口径**：生成中（running 态）允许关闭弹窗，最近一次生成结果 SHALL 缓存在面板 state；重开同一能力行 SHALL 直接展示缓存结果、不再发请求、不重复计 usage；「换一个」才重新生成。生成尚未返回即关闭＝放弃该次结果（请求在途自然丢弃），不弹挽留。
 - **版数计数**：文本卡 SHALL 显示已生成版数（「第 N 版」，从 1 起、每次「换一个」递增）；「换一个」在途期间旧版 SHALL 保持可读可采纳，新版到达后替换。
-- 生成中弹窗 SHALL 有进行中占位（prog 语气、aria-busy）；失败 SHALL 给可读提示＋可点击出口，动词单源：生成类失败＝「重试」、体检类＝「重新检查」；确认写回后 SHALL 沿既有回执一步撤销（ChangeReceipt）词汇。
+- 生成中弹窗 SHALL 有进行中占位（prog 语气、aria-busy），占位 SHALL 附「AI 创作中，请勿关闭弹窗」提示行（c-ai-modal-no-close-tip：全 AI 弹窗统一、创作类用「AI 创作中」，盘点/检查/推演等非创作类按实义动词；只作文案提醒，不改变上方可关闭口径）；失败 SHALL 给可读提示＋可点击出口，动词单源：生成类失败＝「重试」、体检类＝「重新检查」；确认写回后 SHALL 沿既有回执一步撤销（ChangeReceipt）词汇。
 - 这些是 **C端局部组件**（不在两端共享 `base.css` 共享段），归 C端工作台设定视图作用域（`book.css` 或设定视图局部样式）；只复用共享令牌，不新增全局 token、不新增状态档位/胶囊形态/字号档位。
 - 能力行在无套餐时 SHALL 复用既有「可见 + 锁定」门控（见 Requirement: Free vs PRO gating stays visible）：整卡降透明、徽标转灰、行降透明 + cursor:not-allowed，点击给统一升级提示，不各自弹窗；锁定态卡片名 `.rail-assist.locked`。门控 key 用已登记的 `settings-ai-fields`（memberOnly），而非未登记的新 key。
 
@@ -142,6 +142,7 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - Given 无套餐用户
 - When 查看 AI 写作助手卡片
 - Then 能力行名称/描述可见、整体降透明、点击给升级提示且不产出结果
+
 ### Requirement: 角色页的状态与体检行词汇
 
 角色设定页 SHALL 只使用既有状态语言与组件词汇，新增的状态与行型 SHALL 按下述口径登记：

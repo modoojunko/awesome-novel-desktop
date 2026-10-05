@@ -286,12 +286,23 @@ def test_collect_device_profile_fingerprint_derives_from_identity():
         patch("platform.node", return_value="test-pc"),
         patch("platform.platform", return_value="Linux"),
         patch("platform.machine", return_value="x86_64"),
+        # 平台收集器一并短路：linux 走 /etc/machine-id 文件读、不经过上面的
+        # subprocess patch，CI（Ubuntu）会拿到真 machine-id 而非 test-pc
+        patch("auth_local.service._identity_darwin", return_value=""),
+        patch("auth_local.service._identity_windows", return_value=""),
+        patch("auth_local.service._identity_linux", return_value=""),
     ):
-        profile = collect_device_profile()
-        assert len(profile["fingerprint"]) == 64
-        # 验证是 hex
-        int(profile["fingerprint"], 16)
-        assert profile["fingerprint"] == hashlib.sha256(b"test-pc").hexdigest()
+        from auth_local import service as _svc
+
+        _svc._reset_identity_memo()  # 进程级 memo 可能持有前序用例的真机身份
+        try:
+            profile = collect_device_profile()
+            assert len(profile["fingerprint"]) == 64
+            # 验证是 hex
+            int(profile["fingerprint"], 16)
+            assert profile["fingerprint"] == hashlib.sha256(b"test-pc").hexdigest()
+        finally:
+            _svc._reset_identity_memo()
 
 
 def test_collect_device_profile_wmic_retired():

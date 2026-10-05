@@ -1,7 +1,7 @@
 // brand/scripts/icon-master.mjs
 // 把 brand/mark-seal-1024.svg 渲染为 1024 母版 PNG（安装包图标源）。
 // 用 S端 的 playwright 依赖；字体走产品同款栈（Noto Serif SC → Songti SC），栅格化后字形固化。
-import { chromium } from '../../server/frontend/node_modules/playwright/index.mjs';
+import { chromium } from '../../client/frontend/node_modules/playwright/index.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 

@@ -167,3 +167,22 @@ async def get_stored_zhuque_result(
         return await service.get_stored_result(db, project_id=project_id, chapter_ref=chapter_ref)
     except KeyError:
         raise HTTPException(404, "Chapter not found") from None
+
+
+@result_router.delete("/zhuque-result")
+async def delete_stored_zhuque_result(
+    project_id: str,
+    chapter_ref: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """删该章检测存档（c-zhuque-clear-keyscope：清除标注连档删）；幂等。"""
+    project = await get_novel(db, project_id, user["id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+    _validate_ref(chapter_ref)
+    try:
+        deleted = await service.delete_stored_result(db, project_id=project_id, chapter_ref=chapter_ref)
+    except KeyError:
+        raise HTTPException(404, "Chapter not found") from None
+    return {"ok": True, "deleted": deleted}

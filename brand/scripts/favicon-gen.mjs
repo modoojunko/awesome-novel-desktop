@@ -1,7 +1,7 @@
 // brand/scripts/favicon-gen.mjs
 // mark-seal.svg（96 viewBox 满幅构图）渲染 256px PNG → server/frontend/public/favicon.png
 // 再由 python+Pillow 合成多尺寸 favicon.ico（见同目录说明/调用处）。
-import { chromium } from '../../server/frontend/node_modules/playwright/index.mjs'
+import { chromium } from '../../client/frontend/node_modules/playwright/index.mjs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 

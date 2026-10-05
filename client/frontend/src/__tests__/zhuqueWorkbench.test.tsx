@@ -9,6 +9,7 @@ import ZhuqueHeadStrip from "@/components/novel/workbench/zhuqueHeadStrip";
 import {
   ZhuqueMarks,
   applyZhuqueSegments,
+  zhuqueMarksPluginKey,
   type ZhuqueSeg,
 } from "@/components/novel/workbench/zhuqueMarks";
 
@@ -105,6 +106,51 @@ describe("zhuqueMarks（Decorations 覆盖层·带化 c-zhuque-mark-band）", ()
     applyZhuqueSegments(ed, SEGS);
     applyZhuqueSegments(ed, null);
     expect(ed.view.dom.querySelectorAll(".zq-mark, p.zq-warn, p.zq-err").length).toBe(0);
+    ed.destroy();
+  });
+
+  it("装饰集住 plugin state：无关事务身份稳定（防 selectionToDOM 吞选区），文档变化才重建", () => {
+    const ed = mkEditor("<p>疑似段。</p><p>AI 段。</p>");
+    applyZhuqueSegments(ed, [
+      { paragraph_index: 0, label: 2, confidence: 0.62 },
+      { paragraph_index: 1, label: 1, confidence: 0.86 },
+    ]);
+    // 装饰必须由 plugin state 提供——若回退到 decorations prop 每次现算新集合，
+    // TipTap 任一无关重渲（setProps→updateState）都会让 PM 误判文档变了，
+    // selectionToDOM 把浏览器刚做的选区/光标折叠掉（真机实测 #617 起的缺陷）
+    const before = zhuqueMarksPluginKey.getState(ed.state);
+    expect(before).toBeTruthy();
+    ed.view.dispatch(ed.state.tr.setMeta("unrelated", 1));
+    expect(zhuqueMarksPluginKey.getState(ed.state)).toBe(before);
+    // 文档变化：位置重排须重建（新实例），标注语义保持
+    ed.view.dispatch(ed.state.tr.insertText("改", 1));
+    const after = zhuqueMarksPluginKey.getState(ed.state);
+    expect(after).toBeTruthy();
+    expect(after).not.toBe(before);
+    expect(ed.view.dom.querySelectorAll("p.zq-warn, p.zq-err").length).toBe(2);
+    ed.destroy();
+  });
+
+  it("幂等注入跳过冗余重建；widget 章跨 docChanged 重建复用同一 DOM（key 稳定）", () => {
+    const ed = mkEditor("<p>疑似段。</p><p>AI 段。</p>");
+    const segs: ZhuqueSeg[] = [
+      { paragraph_index: 0, label: 2, confidence: 0.62 },
+      { paragraph_index: 1, label: 1, confidence: 0.86 },
+    ];
+    applyZhuqueSegments(ed, segs);
+    const set1 = zhuqueMarksPluginKey.getState(ed.state);
+    const span1 = ed.view.dom.querySelector(".zq-mark");
+    // 冗余注入（同 segments 同 stale；真实场景：重检返回同结果/zqState 身份变化）
+    // ——无守卫时会整颗重造 widget DOM 并使装饰集值不等，白吃一次吞选区窗口
+    applyZhuqueSegments(ed, segs);
+    expect(zhuqueMarksPluginKey.getState(ed.state)).toBe(set1);
+    expect(ed.view.dom.querySelector(".zq-mark")).toBe(span1);
+    // 文档变化：集合重建（新实例），但章凭稳定 key 复用同一 DOM——
+    // 无 key 时元素 widget 按元素身份比较恒假，每次重建都换新 span
+    ed.view.dispatch(ed.state.tr.insertText("改", 1));
+    const set2 = zhuqueMarksPluginKey.getState(ed.state);
+    expect(set2).not.toBe(set1);
+    expect(ed.view.dom.querySelector(".zq-mark")).toBe(span1);
     ed.destroy();
   });
 });

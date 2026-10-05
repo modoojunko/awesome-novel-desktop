@@ -10,8 +10,6 @@ import asyncio
 import os
 import tempfile
 
-import pytest
-
 _tmp_db = tempfile.NamedTemporaryFile(suffix="_story_state.db", delete=False)  # noqa: SIM115
 _tmp_db.close()
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
@@ -400,7 +398,6 @@ def test_reextract_clears_dossier_stale(monkeypatch):
             )
 
     _run(_go())
-    from archive.dossier import get_job_state
     from tests.test_dossier_pipeline import _wait_job
 
     async def _cid():

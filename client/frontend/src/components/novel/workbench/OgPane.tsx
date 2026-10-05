@@ -41,6 +41,9 @@ interface OgPaneProps {
   onPlotEdit?: () => void;
   gaps: { key: string; label: string }[];
   confirmed: boolean;
+  /** 归档章（c-archived-readonly）：恒查看态且动作区不提供——后端 confirm/unconfirm
+   *  对归档章 409，按钮留着只会招 409；恢复编辑入口由工作台层归档横幅承载 */
+  archived?: boolean;
   saving: boolean;
   onStartEdit: () => void;
   onCancelEdit: () => void;
@@ -100,6 +103,7 @@ export default function OgPane({
   onPlotEdit,
   gaps,
   confirmed,
+  archived,
   saving,
   onStartEdit,
   onCancelEdit,
@@ -206,7 +210,11 @@ export default function OgPane({
     return <p className="none">{reason}</p>;
   };
 
-  const badge = confirmed ? (
+  // 章纲状态徽（状态机：起草→确认→正文→归档）：归档＝终态，呈「已归档」，
+  // SHALL NOT 再报草稿/缺项/已确认（c-archived-readonly）
+  const badge = archived ? (
+    <span className="badge muted">已归档</span>
+  ) : confirmed ? (
     <span className="badge ok">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
         <path d="M5 13l4 4L19 7" />
@@ -283,7 +291,9 @@ export default function OgPane({
   );
 
   // ── 查看态（默认）：一页纸只读，未填项占位可见；编辑章纲进表单 ──────────
-  if (!editing) {
+  // 归档章（c-archived-readonly）恒走查看态：编辑态即使残留（归档前正在编辑）
+  // 也不渲染表单，动作区整排不提供。
+  if (!editing || archived) {
     if (loading) {
       return (
         <div className="og-pane">
@@ -310,40 +320,42 @@ export default function OgPane({
           </div>
           <div className="ol-top">
             <span className="note">章纲 · 明确「这一章写什么」</span>
-            <span className="push">
-              {confirmed && onUnconfirm && (
+            {!archived && (
+              <span className="push">
+                {confirmed && onUnconfirm && (
+                  <button
+                    className="btn btn-ghost"
+                    data-testid="og-unconfirm"
+                    onClick={() => setUnconfirmOpen(true)}
+                    disabled={saving}
+                  >
+                    撤回确认
+                  </button>
+                )}
                 <button
-                  className="btn btn-ghost"
-                  data-testid="og-unconfirm"
-                  onClick={() => setUnconfirmOpen(true)}
+                  className="btn btn-primary"
+                  style={{ background: "var(--accent-strong)" }}
+                  onClick={onGoWrite}
                   disabled={saving}
                 >
-                  撤回确认
+                  去写正文
                 </button>
-              )}
-              <button
-                className="btn btn-primary"
-                style={{ background: "var(--accent-strong)" }}
-                onClick={onGoWrite}
-                disabled={saving}
-              >
-                去写正文
-              </button>
-              <button
-                className="btn btn-secondary"
-                onClick={onConfirm}
-                disabled={confirmed || gaps.length > 0 || saving}
-              >
-                确认章纲
-              </button>
-              <button
-                className="btn btn-secondary"
-                data-testid="og-edit"
-                onClick={onStartEdit}
-              >
-                编辑章纲
-              </button>
-            </span>
+                <button
+                  className="btn btn-secondary"
+                  onClick={onConfirm}
+                  disabled={confirmed || gaps.length > 0 || saving}
+                >
+                  确认章纲
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  data-testid="og-edit"
+                  onClick={onStartEdit}
+                >
+                  编辑章纲
+                </button>
+              </span>
+            )}
           </div>
           <div className="fro">
             <em>章纲概要</em>

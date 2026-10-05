@@ -2,7 +2,8 @@
 //   卷选中 → VolumeAssistPanel（验证报告/规划入口，内容随卷域定）
 //   章选中 → AiAssistPanel（随章页签切换的 AI 助手卡，ra-* 全局统一布局）
 // 右栏 SHALL 只承载 AI 相关功能（c-rail-ai-only）；AI 写入工具全部经 onAi* 走
-// 页面级解锁链（归档章先弹「解除只读」，真 bug #1）。
+// 页面级写入链（归档章动作置灰＋hint「恢复编辑后可用」，c-archived-readonly：
+// 原「解除只读」解锁链已退役，小改走横幅「恢复编辑」、整体重写走「重写本章」）。
 import type { RefObject } from "react";
 import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { toast } from "@/lib/toast";
@@ -21,8 +22,6 @@ export interface RailChapterData {
   setTargetWords: (n: number) => void;
   archived: boolean;
   bookWords: number;
-  /** 退出归档只读（解锁链确认后由页面调用） */
-  unarchive: () => Promise<void>;
   /** 中栏当前页签（storyline col-ai 口径：右栏 AI 辅助随页签切换） */
   tab?: string;
   /** 章纲页签统计（归档门槛/计划字数/关键事件/出场角色） */
@@ -77,8 +76,7 @@ interface RailProps {
   autoCheckSeq: number;
   /** AI 写入工具链入口（归档章先解锁；生成正文再经 AiModal 提示词预览） */
   onAiWrite: () => void;
-  onAiContinue: () => void;
-  onAiSelection: (mode: "polish" | "expand" | "compress", capture: ReturnType<ProseHandle["captureNow"]>) => void;
+  onAiSelection: (mode: "polish", capture: ReturnType<ProseHandle["captureNow"]>) => void;
 }
 
 export default function Rail({
@@ -98,7 +96,6 @@ export default function Rail({
   onSelectVolume,
   autoCheckSeq,
   onAiWrite,
-  onAiContinue,
   onAiSelection,
 }: RailProps) {
   if (mode === "volume") {
@@ -132,7 +129,6 @@ export default function Rail({
           tab={d.tab}
           isPro={isPro}
           onAiWrite={onAiWrite}
-          onContinue={onAiContinue}
           ogStats={d.ogStats}
           wordCount={words}
           planWords={d.ogStats.planWords ?? d.targetWords ?? null}

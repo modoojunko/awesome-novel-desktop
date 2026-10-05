@@ -18,7 +18,6 @@ os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp_db.name}"
 os.environ["DATA_ROOT"] = tempfile.mkdtemp(prefix="test_dossier_api_")
 
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import select  # noqa: E402
 
 from auth_local.middleware import get_current_user  # noqa: E402
 from db import Base, async_session, engine  # noqa: E402

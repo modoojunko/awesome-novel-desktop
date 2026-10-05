@@ -10,7 +10,6 @@ from auth_local.deps import require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
-from prompts import load as load_prompt
 from prompts import load_layers
 from workflow.engine import _validate_ref, advance_phase, load_chapter
 
@@ -21,7 +20,7 @@ def _advance_phase(project, target: str) -> None:
     本身已合法落库，阶段标记保持现状不影响后续操作（write/archive 均为幂等入口）。
     """
     advance_phase(project, target)
-from write.auxiliary import compress_text, expand_text, polish_text, stream_continue
+from write.auxiliary import polish_text
 from write.quality import run_quality_checks
 
 router = APIRouter(
@@ -173,7 +172,11 @@ async def get_write_prompt(
     _validate_ref(chapter_ref)
 
     from prompt.store import load_prompt
-    from write.chapter_writer import build_chapter_context, legacy_prompt_kind
+    from write.chapter_writer import (
+        build_chapter_context,
+        legacy_prompt_kind,
+        should_refresh_stored_prompt,
+    )
 
     ctx = await build_chapter_context(
         project.root_path, chapter_ref, project.name, novel_id=project.id
@@ -183,7 +186,7 @@ async def get_write_prompt(
     has_outline = bool(outline.get("summary") or ctx.plot_items)
     if not fresh:
         existing = await load_prompt(project.root_path, chapter_ref, "write-prompt")
-        if existing.strip():
+        if existing.strip() and not should_refresh_stored_prompt(existing, ctx):
             # legacy：旧版整包行（含恒定设定）→ 弹窗分级提示（润色行信息性、粗组行建议刷新）
             return {
                 "prompt": existing,
@@ -231,7 +234,6 @@ async def polish_write_prompt(
         project.root_path, chapter_ref, project.name, novel_id=project.id
     )
 
-    from prompts import load_layers
 
     system, _craft_user_t = load_layers("prompt_crafting")
     client = await get_ai_client_for_novel(project.id)
@@ -355,10 +357,16 @@ async def write_chapter(
     else:
         # 无覆盖直写：优先复用存量 write-prompt（通常是已润色版），与 GET 端点同优先级；
         # 避免粗组兜底静默覆盖已润色内容。无存量才落粗组。
+        # c-chapter-seam-hardcut：存量粗组稿缺「上章结尾」块（旧版组装的行）时回落
+        # 重组，让升级后的重生成吃到新素材；润色稿不受影响（守卫内三锚保护）。
         from prompt.store import load_prompt
+        from write.chapter_writer import should_refresh_stored_prompt
 
         stored = (await load_prompt(project.root_path, chapter_ref, "write-prompt")).strip()
-        prompt = stored or ctx.to_user_material()
+        if should_refresh_stored_prompt(stored, ctx):
+            prompt = ctx.to_user_material()
+        else:
+            prompt = stored or ctx.to_user_material()
 
     # Save prompt for review（chapter_prompts 表，PR④）
     from prompt.store import save_prompt
@@ -381,40 +389,6 @@ async def write_chapter(
     )
 
 
-@router.post("/continue")
-async def continue_writing(
-    project_id: str,
-    chapter_ref: str,
-    body: dict,
-    user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
-    __: bool = Depends(require_novel_model),
-    db: AsyncSession = Depends(get_db),
-):
-    """Stream continuation text from a cursor position."""
-    project = await get_novel(db, project_id, user["id"])
-    if not project:
-        raise HTTPException(404, "Project not found")
-    _validate_ref(chapter_ref)
-    # 排队门禁（workbench-frontier）：拟态章按主线顺序开写
-    from chapters.frontier import is_writable
-
-    writable, reason = await is_writable(db, project.id, chapter_ref)
-    if not writable:
-        raise HTTPException(409, reason)
-
-    cursor_position = body.get("cursor_position", -1)
-    if cursor_position < 0:
-        raise HTTPException(400, "cursor_position is required and must be >= 0")
-
-    return StreamingResponse(
-        stream_continue(db, project, project.root_path, chapter_ref, cursor_position),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
 
 
 @router.post("/polish")
@@ -480,127 +454,7 @@ async def polish_writing(
     return {"polished_text": text}
 
 
-@router.post("/compress")
-async def compress_writing(
-    project_id: str,
-    chapter_ref: str,
-    body: dict,
-    user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
-    __: bool = Depends(require_novel_model),
-    db: AsyncSession = Depends(get_db),
-):
-    """Compress selected text (non-streaming)."""
-    project = await get_novel(db, project_id, user["id"])
-    if not project:
-        raise HTTPException(404, "Project not found")
-    _validate_ref(chapter_ref)
-
-    selected_text = body.get("selected_text", "")
-    if not selected_text:
-        raise HTTPException(400, "selected_text is required")
-    context_before = body.get("context_before", "")
-    context_after = body.get("context_after", "")
-    surrounding_context = (context_before + "\n" + context_after).strip()
-
-    usage: dict = {}
-    try:
-        text = await compress_text(
-            project.id, project.root_path, chapter_ref, selected_text, surrounding_context, usage=usage
-        )
-    except AITimeoutError:
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db, user_id=project.user_id, project_id=project.id,
-            chapter_id=chapter_ref, operation="compress_fail",
-            model=effective_model(project), force=True,
-        )
-        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
-    except Exception as e:  # noqa: BLE001 — 失败也留痕（调用已发生）
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db, user_id=project.user_id, project_id=project.id,
-            chapter_id=chapter_ref, operation="compress_fail",
-            model=effective_model(project),
-            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
-            force=True,
-        )
-        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
-    from api_configs.usage import record_usage
-
-    await record_usage(
-        db,
-        user_id=project.user_id,
-        project_id=project.id,
-        chapter_id=chapter_ref,
-        operation="compress",
-        model=effective_model(project),
-        tokens_in=usage.get("tokens_in", 0),
-        tokens_out=usage.get("tokens_out", 0),
-    )
     return {"compressed_text": text}
 
 
-@router.post("/expand")
-async def expand_writing(
-    project_id: str,
-    chapter_ref: str,
-    body: dict,
-    user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
-    __: bool = Depends(require_novel_model),
-    db: AsyncSession = Depends(get_db),
-):
-    """Expand selected text (non-streaming)."""
-    project = await get_novel(db, project_id, user["id"])
-    if not project:
-        raise HTTPException(404, "Project not found")
-    _validate_ref(chapter_ref)
-
-    selected_text = body.get("selected_text", "")
-    if not selected_text:
-        raise HTTPException(400, "selected_text is required")
-    context_before = body.get("context_before", "")
-    context_after = body.get("context_after", "")
-    surrounding_context = (context_before + "\n" + context_after).strip()
-
-    usage: dict = {}
-    try:
-        text = await expand_text(
-            project.id, project.root_path, chapter_ref, selected_text, surrounding_context, usage=usage
-        )
-    except AITimeoutError:
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db, user_id=project.user_id, project_id=project.id,
-            chapter_id=chapter_ref, operation="expand_fail",
-            model=effective_model(project), force=True,
-        )
-        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
-    except Exception as e:  # noqa: BLE001 — 失败也留痕（调用已发生）
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db, user_id=project.user_id, project_id=project.id,
-            chapter_id=chapter_ref, operation="expand_fail",
-            model=effective_model(project),
-            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
-            force=True,
-        )
-        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
-    from api_configs.usage import record_usage
-
-    await record_usage(
-        db,
-        user_id=project.user_id,
-        project_id=project.id,
-        chapter_id=chapter_ref,
-        operation="expand",
-        model=effective_model(project),
-        tokens_in=usage.get("tokens_in", 0),
-        tokens_out=usage.get("tokens_out", 0),
-    )
     return {"expanded_text": text}

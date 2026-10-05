@@ -17,7 +17,7 @@ import { ChapterPlanModal } from "@/components/novel/workbench/ChapterPlanModal"
 import { useChapterPlan } from "@/hooks/useChapterPlan";
 import { useVolumePlan } from "@/hooks/useVolumePlan";
 import type { VolumeExpandDraft } from "@/lib/volumePlanApi";
-import { AiModal, UnlockModal } from "@/components/novel/workbench/modals";
+import { AiModal } from "@/components/novel/workbench/modals";
 import UpgradeModal from "@/components/novel/UpgradeModal";
 import AcctMenu from "@/components/AcctMenu";
 import BookPrefsModal from "@/components/novel/BookPrefsModal";
@@ -256,36 +256,26 @@ export default function NovelWorkspace() {
   const [showDownload, setShowDownload] = useState(false);
   const onUpgrade = useCallback(() => setShowUpgrade(true), []);
 
-  // ── 只读章 AI 解锁链（真 bug #1/#2 修复，book.html openAiModal 链） ────
-  // 归档章点任意 AI 写入工具 → 先弹「解除只读」→ 确认后 unarchive 并续跑原动作；
-  // 生成正文经 AiModal（提示词预览/编辑），其余工具直接执行。
+  // ── 右栏 AI 写入工具链（生成正文经 AiModal 提示词预览） ────
+  // 归档章全面只读（c-archived-readonly）：写入动作在 AiAssistPanel 置灰＋hint
+  // （恢复编辑后可用）；requestAi 兜底 toast，原「解除只读」解锁链保持退役。
   type AiAction =
     | { kind: "write" }
-    | { kind: "continue"; capture?: SelectionCapture | null }
-    | { kind: "selection"; mode: "polish" | "expand" | "compress"; capture: SelectionCapture | null };
+    | { kind: "selection"; mode: "polish"; capture: SelectionCapture | null };
 
-  const [showUnlock, setShowUnlock] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
   // 生成已启动的信号（计数器）：ChapterWorkspace 收到即切正文页签 + 聚焦（真 bug #2）
   const [aiWriteSignal, setAiWriteSignal] = useState(0);
   // 提示词落库信号（c-prompt-tab-retire）：弹窗润色/存稿后右栏提示词状态行刷新
   const [promptSavedSignal, setPromptSavedSignal] = useState(0);
-  // 弹窗确认回调读取最新待续跑动作（闭包防串态）
-  const pendingAiRef = useRef<AiAction | null>(null);
 
   const runAiAction = useCallback((action: AiAction) => {
     if (action.kind === "write") {
       setShowAiModal(true);
       return;
     }
-    if (action.kind === "continue") {
-      proseRef.current?.continueWriting(action.capture ?? undefined);
-      return;
-    }
     if (action.capture) {
-      if (action.mode === "polish") proseRef.current?.polish(action.capture);
-      else if (action.mode === "expand") proseRef.current?.expand(action.capture);
-      else proseRef.current?.compress(action.capture);
+      proseRef.current?.polish(action.capture);
     } else {
       toast.info("请先在正文中选中一段文字");
     }
@@ -294,21 +284,13 @@ export default function NovelWorkspace() {
   const requestAi = useCallback(
     (action: AiAction) => {
       if (railData?.archived) {
-        pendingAiRef.current = action;
-        setShowUnlock(true);
+        toast.info("本章已归档 · 恢复编辑后可用");
         return;
       }
       runAiAction(action);
     },
     [railData?.archived, runAiAction],
   );
-
-  const handleUnlockConfirm = useCallback(async () => {
-    const action = pendingAiRef.current;
-    pendingAiRef.current = null;
-    if (railData?.archived) await railData.unarchive();
-    if (action) runAiAction(action);
-  }, [railData, runAiAction]);
 
   const handleAiConfirm = useCallback((prompt: string) => {
     setAiWriteSignal((n) => n + 1);
@@ -953,7 +935,20 @@ export default function NovelWorkspace() {
 
       {/* 写作：three-col 常驻挂载（.view.on 切换，正文脏状态/流式现场不丢） */}
       <div className={`view three-col${view === "workbench" ? " on" : ""}`}>
-        <aside className={`col-tree${volumes.length === 0 ? " empty-book" : ""}`}>
+        {/* 生成中树锁定（c-prose-stream-guard）：捕获层拦一切树内点击（切章/切卷/
+            行内新建改名删除都会摧毁流式现场），置灰＋title 指路「停止」；出口＝页签行徽章上的「停止」 */}
+        <aside
+          className={`col-tree${volumes.length === 0 ? " empty-book" : ""}${aiState.streaming ? " ai-lock" : ""}`}
+          title={aiState.streaming ? "生成中 · 点「停止」后再切换" : undefined}
+          onClickCapture={(e) => {
+            if (!aiState.streaming) return;
+            const t = e.target as HTMLElement;
+            if (!t.closest("button, .vol-head, .ch")) return;
+            e.preventDefault();
+            e.stopPropagation();
+            toast.info("生成中 · 点「停止」后再切换");
+          }}
+        >
           <OutlineTree
             wb={wb}
             outline={outline}
@@ -1202,9 +1197,6 @@ export default function NovelWorkspace() {
             onSelectVolume={handleSelectVolume}
             autoCheckSeq={autoCheck.seq}
             onAiWrite={() => requestAi({ kind: "write" })}
-            onAiContinue={() =>
-              requestAi({ kind: "continue", capture: proseRef.current?.captureNow() ?? null })
-            }
             onAiSelection={(mode, capture) => requestAi({ kind: "selection", mode, capture })}
           />
         </aside>
@@ -1315,15 +1307,10 @@ export default function NovelWorkspace() {
       )}
 
 
-      {/* PR 5 弹窗群：升级 PRO / 只读章 AI 解锁链 / AI 生成（提示词预览） */}
+      {/* PR 5 弹窗群：升级 PRO / AI 生成（提示词预览） */}
       <UpgradeModal open={showUpgrade} onClose={() => setShowUpgrade(false)} />
       {chapterRef && (
         <>
-          <UnlockModal
-            open={showUnlock}
-            onClose={() => setShowUnlock(false)}
-            onConfirm={() => void handleUnlockConfirm()}
-          />
           <AiModal
             open={showAiModal}
             onClose={() => setShowAiModal(false)}

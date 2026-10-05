@@ -29,10 +29,7 @@ import ContrastPreviewModal from "@/components/novel/ContrastPreviewModal";
 import { useChapterData } from "@/hooks/useChapterData";
 import { toast } from "@/lib/toast";
 import {
-  compressText,
-  expandText,
   polishText,
-  streamChapterContinue,
   streamChapterWrite,
   type StreamDoneMeta,
 } from "@/lib/ai";
@@ -53,8 +50,6 @@ export interface ProseAIState {
   selectedText: string;
   continueLoading: boolean;
   polishLoading: boolean;
-  expandLoading: boolean;
-  compressLoading: boolean;
   streaming: boolean;
 }
 
@@ -63,8 +58,6 @@ export const INITIAL_PROSE_AI_STATE: ProseAIState = {
   selectedText: "",
   continueLoading: false,
   polishLoading: false,
-  expandLoading: false,
-  compressLoading: false,
   streaming: false,
 };
 
@@ -75,10 +68,7 @@ export interface ProseHandle {
   startWriting(prompt?: string): void;
   stopWriting(): void;
   /** capture：解锁链等场景预先捕获的选区/光标（弹窗焦点会丢现场选区） */
-  continueWriting(capture?: SelectionCapture): void;
   polish(capture: SelectionCapture): void;
-  expand(capture: SelectionCapture): void;
-  compress(capture: SelectionCapture): void;
 }
 
 interface ProsePaneProps {
@@ -103,6 +93,8 @@ interface ProsePaneProps {
   onStartEdit?: () => void;
   /** 编辑态「完成」回调（回查看态；不回退内容，未保存修改照常自动保存） */
   onEndEdit?: () => void;
+  /** 本章目标字数（章纲 wt→store.targetWords 兜底，ChapterWorkspace 传入）：
+   *  文末续写块的达标判定（实写 < 90% 出块）；缺省＝无块（c-workbench-density） */
 }
 
 /** 纯文本偏移（docToProse 口径，段间 \n 计 1）→ PM 文档位置。越界回落末段末尾。 */
@@ -172,8 +164,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   const streamReceivedRef = useRef("");
   // 生成完工检查（三工序③：字数 + 叙事自查；提示性质，可关闭）
   const [qcReport, setQcReport] = useState<StreamDoneMeta | null>(null);
+  // 完工检查并入工具行（c-workbench-density）：胶囊点击展开叙事自查明细
+  const [qcOpen, setQcOpen] = useState(false);
   const [preview, setPreview] = useState<{
-    mode: "polish" | "expand" | "compress";
+    mode: "polish";
     capture: SelectionCapture;
     text: string | null;
     loading: boolean;
@@ -396,16 +390,27 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     return () => dom.removeEventListener("compositionend", onCompositionEnd);
   }, [editor]);
 
-  // 卸载/切章：中断流式 + 清完工检查
+  // 卸载/切章：照「停止」收尾（c-prose-stream-guard）——先断流，再把半截内容
+  // 经 finishStream 并入正文并**立即落盘**（flush 自带 isDirty 门：无流时零开销），
+  // SHALL NOT 静默丢弃。为何不等自动保存防抖：useChapterData 的 release 兜底
+  // flush 按声明序先于本 cleanup 执行（那时还没脏），防抖定时器在 release 后
+  // 成孤儿，1.5s 内关窗即丢——必须此处显式 flush。依赖仅 chapterRef：缓冲经
+  // refs 取数，finishStream 捕获旧章 store——半截内容恰落旧章；编辑器 DOM
+  // 同步有 isDestroyed 守卫，不依赖卸载顺序。finishStream 幂等，正常收尾的
+  // 切章到此处 streamingRef 已 false，整段跳过。
   useEffect(() => {
     setQcReport(null);
     return () => {
       abortRef.current?.abort();
-      streamingRef.current = false;
+      if (streamingRef.current) {
+        finishStream(streamReceivedRef.current, false);
+        void store.flush();
+      }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapterRef]);
 
-  // ── 选区跟踪（去AI味/扩写需要选中段落） ──────────────────────────────
+  // ── 选区跟踪（去AI味需要选中段落） ─────────────────────────────────
   const captureNow = useCallback((): SelectionCapture | null => {
     if (!editor || editor.isDestroyed) return null;
     // 读 DOM 选区而非 editor.state.selection：PM 消化 selectionchange 有延迟，
@@ -529,22 +534,20 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   );
 
   const startStream = useCallback(
-    (continuation: boolean, promptOverride?: string, preCapture?: SelectionCapture) => {
+    (promptOverride?: string) => {
       if (!editor || editor.isDestroyed || streamingRef.current) return;
       if (archived) {
         toast.error("已归档章节不可生成");
         return;
       }
       const base = docToProse(editor.getJSON());
-      const cap = preCapture ?? captureNow();
-      const pos = continuation ? (cap ? cap.end : base.length) : base.length;
       streamBaseRef.current = base;
       streamReceivedRef.current = "";
       streamInsertedLenRef.current = 0;
       streamingRef.current = true;
       setStreaming(true);
       onAIStateChange((prev) => ({ ...prev, streaming: true }));
-      // 插入点归一：空文档先垫一个空段落（不入史）；否则落末段末尾/续写偏移
+      // 插入点归一：空文档先垫一个空段落（不入史）；否则落末段末尾
       const { state, view } = editor;
       if (state.doc.content.size === 0) {
         const para = state.schema.nodes.paragraph?.create();
@@ -554,13 +557,11 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           view.dispatch(tr);
         }
         streamPosRef.current = 1; // 首段内
-      } else if (continuation && cap) {
-        streamPosRef.current = textOffsetToPmPos(state.doc, cap.end);
       } else {
         streamPosRef.current = state.doc.content.size - 1; // 末段内
       }
       streamStartRef.current = streamPosRef.current;
-      // 生成开始：先把插入点滚进视口（追加在文末＝滚到底；续写＝滚到光标处）
+      // 生成开始：先把插入点滚进视口（追加在文末＝滚到底）
       scrollInsertIntoView();
       const cbs = {
         onChunk: (t: string) => {
@@ -573,11 +574,9 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           finishStream(streamReceivedRef.current, false);
         },
       };
-      abortRef.current = continuation
-        ? streamChapterContinue(projectId, chapterRef, pos, cbs)
-        : streamChapterWrite(projectId, chapterRef, cbs, promptOverride);
+      abortRef.current = streamChapterWrite(projectId, chapterRef, cbs, promptOverride);
     },
-    [projectId, chapterRef, archived, editor, captureNow, appendChunk, finishStream, scrollInsertIntoView, onAIStateChange],
+    [projectId, chapterRef, archived, editor, appendChunk, finishStream, scrollInsertIntoView, onAIStateChange],
   );
 
   // ── 续写恢复：每个信号号只恢复一次（appliedResumeRef 守卫）。
@@ -610,25 +609,18 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     return () => cancelAnimationFrame(raf);
   }, [resumeScroll, chapterRef]);
 
-  // ── 去AI味 / 扩写（选中段落 → 对照预览 → 接受替换） ─────────────────
+  // ── 去AI味（选中段落 → 对照预览 → 接受替换） ─────────────────────
   const runTransform = useCallback(
-    async (mode: "polish" | "expand" | "compress", capture: SelectionCapture) => {
+    async (mode: "polish", capture: SelectionCapture) => {
       const ctxBefore = capture.fullText.slice(Math.max(0, capture.start - 200), capture.start);
       const ctxAfter = capture.fullText.slice(capture.end, capture.end + 200);
       setPreview({ mode, capture, text: null, loading: true, error: null });
       onAIStateChange((prev) => ({
         ...prev,
         polishLoading: mode === "polish",
-        expandLoading: mode === "expand",
-        compressLoading: mode === "compress",
       }));
       try {
-        const text =
-          mode === "polish"
-            ? await polishText(projectId, chapterRef, capture.text, ctxBefore, ctxAfter)
-            : mode === "expand"
-              ? await expandText(projectId, chapterRef, capture.text, ctxBefore, ctxAfter)
-              : await compressText(projectId, chapterRef, capture.text, ctxBefore, ctxAfter);
+        const text = await polishText(projectId, chapterRef, capture.text, ctxBefore, ctxAfter);
         setPreview({ mode, capture, text, loading: false, error: null });
       } catch (e) {
         setPreview({
@@ -642,9 +634,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
         onAIStateChange((prev) => ({
           ...prev,
           polishLoading: false,
-          expandLoading: false,
-          compressLoading: false,
-        }));
+                        }));
       }
     },
     [projectId, chapterRef, onAIStateChange],
@@ -655,16 +645,13 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     () => ({
       focus: () => editor?.commands.focus("end"), // 落文末：进入写作的继续位置
       captureNow,
-      startWriting: (prompt?: string) => startStream(false, prompt),
+      startWriting: (prompt?: string) => startStream(prompt),
       stopWriting: () => {
         // 中断 + 立即收尾（fetch abort 不回调 onDone/onError）
         abortRef.current?.abort();
         finishStream(streamReceivedRef.current, false);
       },
-      continueWriting: (capture?: SelectionCapture) => startStream(true, undefined, capture),
       polish: (capture: SelectionCapture) => void runTransform("polish", capture),
-      expand: (capture: SelectionCapture) => void runTransform("expand", capture),
-      compress: (capture: SelectionCapture) => void runTransform("compress", capture),
     }),
     [editor, captureNow, startStream, finishStream, runTransform],
   );
@@ -673,66 +660,10 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
 
   return (
     <>
-      {/* 生成完工检查（三工序③：字数 ±10% + 叙事自查；提示性质，可关闭） */}
-      {qcReport && (qcReport.word_check || qcReport.self_check) && (
-        <div
-          className="readonly-banner"
-          data-testid="qc-banner"
-          hidden={hidden}
-          style={{ alignItems: "flex-start" }}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M9 11l3 3 8-8" />
-            <path d="M20 12v6a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h9" />
-          </svg>
-          <span style={{ flex: 1, minWidth: 0 }}>
-            {qcReport.word_check && (
-              <span data-testid="qc-word" style={{ display: "block" }}>
-                {qcReport.word_check.below_limit ? (
-                  <>
-                    <b>字数未达标</b>：目标约 {qcReport.word_check.target} 字 · 实写{" "}
-                    {qcReport.word_check.actual} 字（低于目标 90%），可用「续写」补足。
-                  </>
-                ) : (
-                  <>
-                    <b>字数达标</b>：实写 {qcReport.word_check.actual} / 目标约{" "}
-                    {qcReport.word_check.target} 字。
-                  </>
-                )}
-              </span>
-            )}
-            {qcReport.self_check && qcReport.self_check.length > 0 && (
-              <span data-testid="qc-self" style={{ display: "block" }}>
-                <b>叙事自查提示</b>（非阻断）：
-                {qcReport.self_check.map((issue) => (
-                  <span key={issue.rule} style={{ display: "block" }}>
-                    · {issue.rule}（{issue.excerpts.length} 处）
-                    {issue.excerpts[0] && (
-                      <i style={{ color: "var(--muted)" }}>
-                        {" "}
-                        如「{issue.excerpts[0].slice(0, 30)}
-                        {issue.excerpts[0].length > 30 ? "…" : ""}」
-                      </i>
-                    )}
-                  </span>
-                ))}
-              </span>
-            )}
-            {qcReport.self_check && qcReport.self_check.length === 0 && (
-              <span data-testid="qc-self" style={{ display: "block" }}>
-                <b>叙事自查</b>：七条规则均未命中。
-              </span>
-            )}
-          </span>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => setQcReport(null)}
-            data-testid="qc-close"
-          >
-            知道了
-          </button>
-        </div>
-      )}
+      {/* 密度重排（c-workbench-density）：完工检查自整条横幅收缩为编辑态工具行警示胶囊
+          （点开展开叙事自查明细条）——qc 数据服务写作中的人，查看态不再渲染。
+          testid qc-word/qc-self 迁入展开明细条保留（e2e 定位口径不变）；
+          条件渲染而非 hidden：.ol-top 是 display:flex，会压掉 hidden 属性（历史坑） */}
       {locked && !hidden && (
         <div className="readonly-banner" data-od-id="frontier-lock-banner">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -752,6 +683,27 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           格式按钮（加粗/斜体…）不做——纯文本存储下无法持久化。 */}
       {!hidden && editable && (
         <div className="ol-top edit-bar" data-od-id="prose-edit-bar">
+          {/* 完工检查胶囊（c-workbench-density）：有 qc 结果才出现；点开叙事自查明细 */}
+          {qcReport && (qcReport.word_check || qcReport.self_check) && (
+            <button
+              className="qc-pill"
+              data-testid="qc-banner"
+              onClick={() => setQcOpen((v) => !v)}
+              title="完工检查 · 点击展开明细"
+            >
+              {qcReport.word_check?.below_limit ? (
+                <>
+                  ⚠ 字数未达标 · {qcReport.word_check.actual}/{qcReport.word_check.target} ·{" "}
+                  <b>差 {Math.max(0, qcReport.word_check.target - qcReport.word_check.actual)} 字</b>
+                </>
+              ) : (
+                <>✓ 字数达标{qcReport.word_check && <> · {qcReport.word_check.actual}/{qcReport.word_check.target}</>}</>
+              )}
+              {qcReport.self_check && (
+                <> · 叙事自查 {qcReport.self_check.length > 0 ? `${qcReport.self_check.length} 处` : "0/7"}</>
+              )}
+            </button>
+          )}
           <span className="tool-seg">
             <button
               className="icon-btn"
@@ -791,6 +743,48 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
               完成
             </button>
           </span>
+        </div>
+      )}
+      {/* 完工检查明细条（c-workbench-density）：胶囊展开时渲染在工具行下方 */}
+      {!hidden && editable && qcOpen && qcReport && (qcReport.word_check || qcReport.self_check) && (
+        <div className="qc-detail" data-testid="qc-detail">
+          {qcReport.word_check && (
+            <span data-testid="qc-word">
+              {qcReport.word_check.below_limit ? (
+                <>
+                  <b>字数未达标</b>：目标约 {qcReport.word_check.target} 字 · 实写{" "}
+                  {qcReport.word_check.actual} 字（低于目标 90%），可在章纲调低目标字数或手动补写。
+                </>
+              ) : (
+                <>
+                  <b>字数达标</b>：实写 {qcReport.word_check.actual} / 目标约{" "}
+                  {qcReport.word_check.target} 字。
+                </>
+              )}
+            </span>
+          )}
+          {qcReport.self_check && qcReport.self_check.length > 0 && (
+            <span data-testid="qc-self">
+              <b>叙事自查提示</b>（非阻断）：
+              {qcReport.self_check.map((issue) => (
+                <span key={issue.rule} style={{ display: "block" }}>
+                  · {issue.rule}（{issue.excerpts.length} 处）
+                  {issue.excerpts[0] && (
+                    <i style={{ color: "var(--muted)" }}>
+                      {" "}
+                      如「{issue.excerpts[0].slice(0, 30)}
+                      {issue.excerpts[0].length > 30 ? "…" : ""}」
+                    </i>
+                  )}
+                </span>
+              ))}
+            </span>
+          )}
+          {qcReport.self_check && qcReport.self_check.length === 0 && (
+            <span data-testid="qc-self">
+              <b>叙事自查</b>：七条规则均未命中。
+            </span>
+          )}
         </div>
       )}
       {!hidden && !editable && !notEditable && (
@@ -850,13 +844,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
               }
               lastSyncedRef.current = next;
               setProse(next);
-              toast.success(
-                preview.mode === "polish"
-                  ? "已去AI味"
-                  : preview.mode === "expand"
-                    ? "已应用扩写"
-                    : "已应用压缩",
-              );
+              toast.success("已去AI味");
             }
             setPreview(null);
           }}

@@ -3,20 +3,62 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { ReactNode } from "react";
 import type { TierState } from "@/components/novel/license/LicenseProvider";
+import { queryClient } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
 
 const logoutMock = vi.fn((..._a: unknown[]) => {
   /* 原实现写 hash 回落地页；此处只断言调用 */
 });
 
+// useLegacyDb 可配置桩：默认无候选（既有用例口径），带回专项用例按需写入 status
+const legacyState = vi.hoisted(() => ({
+  status: null as null | {
+    candidates: Array<{
+      filename: string;
+      book_count: number;
+      mtime: number;
+      recommended?: boolean;
+      suppressed?: boolean;
+    }>;
+    quarantined: Array<unknown>;
+  },
+  refresh: vi.fn(async () => {}),
+  dismiss: vi.fn(async () => {}),
+}));
+
 vi.mock("@/hooks/useLegacyDb", () => ({
-  useLegacyDb: () => ({
-    status: null,
-    refresh: vi.fn(async () => {}),
-    dismiss: vi.fn(async () => {}),
-  }),
+  useLegacyDb: () => legacyState,
   // c-db-per-version：出口行的两个纯函数（mock 模块必须齐导出，否则组件取值即抛）
   migratableCandidates: () => [],
   recommendedCandidate: () => null,
+}));
+
+// toast 换探针：带回守望的「完成/停止/超时」三分支靠文案断言（真 toast 是 DOM 副作用）
+const toastState = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  dismiss: vi.fn(),
+}));
+vi.mock("@/lib/toast", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/toast")>();
+  return { ...actual, toast: toastState };
+});
+
+// 带回向导本体有自己的用例文件；这里桩出 onClose/onDone 两个出口，
+// 只钉 AcctMenu 侧的接线（onClose 探测→守望、onDone→跳书架+刷缓存），不重复驱动向导流程
+vi.mock("@/components/LegacyMigrateModal", () => ({
+  default: (props: { open: boolean; onClose: () => void; onDone: () => void }) =>
+    props.open ? (
+      <div data-od-id="test-migrate-modal">
+        <button data-od-id="test-migrate-close" onClick={props.onClose}>
+          迁移弹窗桩·关闭
+        </button>
+        <button data-od-id="test-migrate-done" onClick={props.onDone}>
+          迁移弹窗桩·完成
+        </button>
+      </div>
+    ) : null,
 }));
 
 vi.mock("@/hooks/useTier");
@@ -59,13 +101,13 @@ function tierState(over: Partial<TierState> = {}): TierState {
   };
 }
 
-function mount(ui: ReactNode) {
+function mount(ui: ReactNode, entry: string = "/novels") {
   return render(
-    <MemoryRouter initialEntries={["/novels"]}>
+    <MemoryRouter initialEntries={[entry]}>
       {ui}
       {/* 导航探针：MemoryRouter 不反映到 window.location，靠路由表断言落点 */}
       <Routes>
-        <Route path="/novels" element={null} />
+        <Route path="/novels" element={<div data-od-id="probe-novels">novels-page</div>} />
         <Route path="/config" element={<div data-od-id="probe-config">config-page</div>} />
       </Routes>
     </MemoryRouter>,
@@ -483,5 +525,273 @@ describe("AcctMenu 交互分支补齐", () => {
     const second = await openMenu({ tier: undefined as unknown as TierState["tier"] });
     expect(document.querySelector('[data-od-id="acct-badge"]')).toBeNull();
     second.unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 带回旧版作品（db-generation 覆盖补齐）：条件菜单项 / 双事件出口 / onClose 探测
+// → 后台守望（完成·失败·停止·超时·重开清旧轮·卸载清理）/ onDone 跳书架。
+// 向导本体已桩化（见文件头 mock），这里只钉 AcctMenu 侧接线。
+// ---------------------------------------------------------------------------
+
+describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
+  const item = (id: string) => document.querySelector(`[data-od-id="${id}"]`) as HTMLElement | null;
+
+  /** status 探测/轮询共用的可变载荷：各用例（或用例内各阶段）按需改写 */
+  let statusPayload: Record<string, unknown>;
+
+  /** /backup/db-migration/status 按 statusPayload 应答，其余路径回空 data */
+  function statusFetch() {
+    return vi.fn(async (url: unknown) => {
+      if (String(url).includes("/backup/db-migration/status")) {
+        return { ok: true, status: 200, json: async () => ({ code: 0, data: { ...statusPayload } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ code: 0, data: {} }) };
+    });
+  }
+
+  function withCandidates(suppressed = false) {
+    legacyState.status = {
+      candidates: [
+        { filename: "novels-20260901.novel", book_count: 3, mtime: 1_700_000_000, recommended: true, suppressed },
+      ],
+      quarantined: [],
+    };
+  }
+
+  async function openMenu(over: Partial<TierState> = {}, entry: string = "/novels") {
+    const { default: AcctMenu } = await import("@/components/AcctMenu");
+    const { useTier } = await import("@/hooks/useTier");
+    vi.mocked(useTier).mockReturnValue(tierState(over));
+    const utils = mount(<AcctMenu />, entry);
+    fireEvent.click(document.querySelector('[data-od-id="acct-trigger"]') as HTMLElement);
+    // 冲刷挂载期异步（supportUrl 等），避免 act 外更新
+    await act(async () => {});
+    return utils;
+  }
+
+  /** 菜单项出口：面板点「带回旧版作品」→ 弹窗开、面板收起 */
+  async function openMigrateViaMenu() {
+    withCandidates();
+    await openMenu();
+    const menuItem = item("acct-menu-migrate") as HTMLElement;
+    expect(menuItem.textContent).toContain("带回旧版作品");
+    fireEvent.click(menuItem);
+    await act(async () => {});
+    expect(item("test-migrate-modal")).toBeTruthy();
+    expect(item("acct-menu-logout")).toBeNull(); // 面板已随菜单项收起
+  }
+
+  /** 弹窗出口（onClose）：关弹窗 + 刷候选 + 探测任务状态 */
+  async function closeMigrateModal() {
+    fireEvent.click(item("test-migrate-close") as HTMLElement);
+    await act(async () => {}); // 冲刷 onClose 的 refresh + status 探测 promise 链
+    expect(item("test-migrate-modal")).toBeNull();
+  }
+
+  /** 重开弹窗走空态事件出口（与菜单项同一单点实例） */
+  async function reopenMigrateModal() {
+    await act(async () => {
+      window.dispatchEvent(new Event("legacy-migrate:open"));
+    });
+    expect(item("test-migrate-modal")).toBeTruthy();
+  }
+
+  /** 等待一拍守望轮询（1s interval + 微任务冲刷） */
+  async function tickWatch(ms = 1100) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  beforeEach(() => {
+    statusPayload = { state: "idle" };
+    legacyState.status = null;
+    legacyState.refresh.mockClear();
+    legacyState.dismiss.mockClear();
+    toastState.success.mockClear();
+    toastState.error.mockClear();
+    toastState.info.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("条件菜单项：有未抑制候选才显示；点击开弹窗并收起面板", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", statusFetch());
+    await openMigrateViaMenu();
+    // 候选全部被抑制 → 过滤后为空 → 菜单项不渲染（另一 render 实例）
+    withCandidates(true);
+    await openMenu();
+    expect(item("acct-menu-migrate")).toBeNull();
+  });
+
+  it("空态事件双出口：legacy-migrate:open 开带回弹窗；restore:open 开恢复弹窗", async () => {
+    await openMenu();
+    await act(async () => {
+      window.dispatchEvent(new Event("legacy-migrate:open"));
+    });
+    expect(item("test-migrate-modal")).toBeTruthy();
+    expect(item("acct-menu-logout")).toBeTruthy(); // 事件出口只开弹窗，不翻转面板开合
+    await act(async () => {
+      window.dispatchEvent(new Event("restore:open"));
+    });
+    expect(document.querySelector(".mcard")).toBeTruthy(); // RestoreModal（真件）
+  });
+
+  it("onDone（去书架看看）：跳 /novels + 失效书架缓存", async () => {
+    await openMenu({}, "/config"); // 从别处出发才能断言「跳书架」
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    try {
+      await act(async () => {
+        window.dispatchEvent(new Event("legacy-migrate:open"));
+      });
+      fireEvent.click(item("test-migrate-done") as HTMLElement);
+      await act(async () => {});
+      expect(document.querySelector('[data-od-id="probe-novels"]')).toBeTruthy();
+      expect(document.querySelector('[data-od-id="probe-config"]')).toBeNull();
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.novels });
+    } finally {
+      invalidate.mockRestore();
+    }
+  });
+
+  it("onClose 探测：任务仍在迁移 → 启动守望；重开再关先清旧轮；done+ok → 成功 toast+刷书架+停轮询", async () => {
+    vi.useFakeTimers();
+    const fetchMock = statusFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    statusPayload = { state: "running", kind: "migration" };
+    await openMigrateViaMenu();
+
+    await closeMigrateModal(); // 探测 running+migration → 守望 #1
+    expect(legacyState.refresh).toHaveBeenCalledTimes(1); // onClose 刷候选
+    await reopenMigrateModal();
+    await closeMigrateModal(); // 守望已在跑 → startBgWatch 先清旧轮（真臂）
+    await tickWatch();
+    expect(toastState.success).not.toHaveBeenCalled(); // running 拍：不 toast，继续守
+
+    statusPayload = { state: "done", kind: "migration", report: { status: "ok", book_count_migrated: 3 } };
+    await tickWatch();
+    expect(toastState.success).toHaveBeenCalledWith("已带回 3 本书");
+    expect(legacyState.refresh).toHaveBeenCalledTimes(3); // close×2 刷候选 + 完成拍再刷
+    const after = fetchMock.mock.calls.length;
+    await tickWatch(3000);
+    expect(fetchMock.mock.calls.length).toBe(after); // 完成即停轮询
+  });
+
+  it("守望·done 但 report 未成功 → 失败 toast；成功但本书数缺失 → 「?」兜底", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", statusFetch());
+    statusPayload = { state: "running", kind: "migration" };
+    await openMigrateViaMenu();
+    await closeMigrateModal();
+
+    statusPayload = { state: "done", report: { status: "error", reason: "disk full" } };
+    await tickWatch();
+    expect(toastState.error).toHaveBeenCalledWith("带回没有完成，可从菜单重新打开向导重试");
+
+    // 二轮：探测必须仍在 running 才会重启守望；完成 payload 只给轮询拍
+    statusPayload = { state: "running", kind: "migration" };
+    await reopenMigrateModal();
+    await closeMigrateModal();
+    statusPayload = { state: "done", report: { status: "ok", book_count_migrated: null } };
+    await tickWatch();
+    expect(toastState.success).toHaveBeenCalledWith("已带回 ? 本书");
+  });
+
+  it("守望·任务被停（error / idle）→ info toast + 停止轮询", async () => {
+    vi.useFakeTimers();
+    const fetchMock = statusFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    statusPayload = { state: "running", kind: "migration" };
+    await openMigrateViaMenu();
+    await closeMigrateModal();
+
+    statusPayload = { state: "error", error: { message: "boom" } };
+    await tickWatch();
+    expect(toastState.info).toHaveBeenCalledTimes(1);
+    expect(toastState.info).toHaveBeenCalledWith("带回已停止，可从菜单重新打开向导");
+    const after = fetchMock.mock.calls.length;
+    await tickWatch(3000);
+    expect(fetchMock.mock.calls.length).toBe(after); // error 即停
+
+    // 二轮 idle：应用曾重启的「已停止」同义分支（`||` 右臂）
+    statusPayload = { state: "running", kind: "migration" };
+    await reopenMigrateModal();
+    await closeMigrateModal();
+    statusPayload = { state: "idle" };
+    await tickWatch();
+    expect(toastState.info).toHaveBeenCalledTimes(2);
+    expect(toastState.info).toHaveBeenLastCalledWith("带回已停止，可从菜单重新打开向导");
+  });
+
+  it("守望·轮询超 120s → 提示可从菜单查看进度（不误报完成/停止）", async () => {
+    vi.useFakeTimers();
+    const fetchMock = statusFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    statusPayload = { state: "running", kind: "migration" };
+    await openMigrateViaMenu();
+    await closeMigrateModal();
+
+    await tickWatch(121_000); // 前 120 拍都还是 running，第 121 拍越限
+    expect(toastState.success).not.toHaveBeenCalled();
+    expect(toastState.error).not.toHaveBeenCalled();
+    expect(toastState.info).toHaveBeenCalledWith("带回耗时较长，可从菜单「带回旧版作品」查看进度");
+    const after = fetchMock.mock.calls.length;
+    await tickWatch(3000);
+    expect(fetchMock.mock.calls.length).toBe(after); // 超时也停
+  });
+
+  it("守望随卸载清理：卸载前在轮询，卸载后不再发探测", async () => {
+    vi.useFakeTimers();
+    const fetchMock = statusFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    statusPayload = { state: "running", kind: "migration" };
+    withCandidates();
+    const utils = await openMenu();
+    fireEvent.click(item("acct-menu-migrate") as HTMLElement);
+    await act(async () => {});
+    await closeMigrateModal();
+
+    await tickWatch();
+    const during = fetchMock.mock.calls.length;
+    expect(during).toBeGreaterThan(1); // 卸载前守望确实在轮询
+    utils.unmount();
+    await tickWatch(3000);
+    expect(fetchMock.mock.calls.length).toBe(during); // 卸载后 interval 已清
+  });
+
+  it("onClose 探测非迁移态：kind 不符 / 已完成 / 探测失败 → 都不启动守望", async () => {
+    vi.useFakeTimers();
+    const fetchMock = statusFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    withCandidates();
+    statusPayload = { state: "running", kind: "backup" }; // 别的任务占着：不是迁移
+    await openMenu();
+    fireEvent.click(item("acct-menu-migrate") as HTMLElement);
+    await act(async () => {});
+    await closeMigrateModal();
+    let after = fetchMock.mock.calls.length;
+    await tickWatch(2500);
+    expect(fetchMock.mock.calls.length).toBe(after); // 未启动守望
+
+    await reopenMigrateModal();
+    statusPayload = { state: "done" };
+    await closeMigrateModal();
+    after = fetchMock.mock.calls.length;
+    await tickWatch(2500);
+    expect(fetchMock.mock.calls.length).toBe(after);
+
+    await reopenMigrateModal();
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); })); // 探测网络失败 → 静默
+    await closeMigrateModal();
+    await tickWatch(2500);
+    expect(toastState.info).not.toHaveBeenCalled();
+    expect(toastState.success).not.toHaveBeenCalled();
+    expect(item("test-migrate-modal")).toBeNull(); // 组件没有因探测失败抛错
   });
 });

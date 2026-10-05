@@ -58,19 +58,6 @@ export function streamChapterWrite(
   );
 }
 
-export function streamChapterContinue(
-  projectId: string,
-  chapterRef: string,
-  cursorPosition: number,
-  callbacks: StreamCallbacks,
-): AbortController {
-  return doStreamFetch(
-    `${API_BASE}/novels/${projectId}/chapters/${chapterRef}/write/continue`,
-    { cursor_position: cursorPosition },
-    callbacks,
-  );
-}
-
 function doStreamFetch(
   url: string,
   body: Record<string, unknown> | undefined,
@@ -194,34 +181,6 @@ export async function polishText(
     { selected_text: selectedText, context_before: contextBefore, context_after: contextAfter },
   );
   return data.polished_text;
-}
-
-export async function compressText(
-  projectId: string,
-  chapterRef: string,
-  selectedText: string,
-  contextBefore: string,
-  contextAfter: string,
-): Promise<string> {
-  const data = await doJsonPost(
-    `${API_BASE}/novels/${projectId}/chapters/${chapterRef}/write/compress`,
-    { selected_text: selectedText, context_before: contextBefore, context_after: contextAfter },
-  );
-  return data.compressed_text;
-}
-
-export async function expandText(
-  projectId: string,
-  chapterRef: string,
-  selectedText: string,
-  contextBefore: string,
-  contextAfter: string,
-): Promise<string> {
-  const data = await doJsonPost(
-    `${API_BASE}/novels/${projectId}/chapters/${chapterRef}/write/expand`,
-    { selected_text: selectedText, context_before: contextBefore, context_after: contextAfter },
-  );
-  return data.expanded_text;
 }
 
 // ---------------------------------------------------------------------------

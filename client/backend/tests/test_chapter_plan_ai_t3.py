@@ -264,6 +264,49 @@ class TestSelfcheckDraft:
 
 
 
+# ── 进场取文句边界（c-chapter-seam-hardcut）──────────────────────────────
+class TestEntrySentenceBoundary:
+    def test_entry_clip_sentence_boundary(self, client):
+        """上一章超长末段：进场取文句边界回退，不再 [:200] 硬切成残句开头。"""
+        from sqlalchemy import select
+
+        from chapters.ai_plan import resolve_prev_chapter_ending
+        from chapters.store import save_chapter
+
+        pid = _seed_multi(client, [(1, [{"no": 1, "prose": "有"}])])
+        # 223 字单段：窗口（末 200 字）起点落在垫子中部，窗口内最近的可用
+        # 句边界是「中段句。」的句号 → 取文回退为「到此为止。」
+        long_para = "开头句。" + "垫" * 210 + "中段句。到此为止。"
+
+        async def _s():
+            async with async_session() as session:
+                proj = await session.get(Novel, pid)
+                vol = (
+                    await session.scalars(
+                        select(Volume).where(Volume.project_id == pid)
+                    )
+                ).first()
+                await save_chapter(
+                    proj.root_path,
+                    "vol-1-ch-1",
+                    {"prose": "第一段。\n" + long_para},
+                )
+                ch = (
+                    await session.scalars(
+                        select(Chapter).where(Chapter.project_id == pid)
+                    )
+                ).first()
+                ch.has_prose = True
+                await session.commit()
+                return await resolve_prev_chapter_ending(session, proj, vol, 2)
+
+        entry = _run_async(_s())
+        assert entry["source"].startswith("第1章")
+        assert "取自正文结尾" in entry["source"]
+        # 旧实现 paras[-1][:200] 会以「句。垫垫…」残段开头；新实现回退到句边界
+        assert entry["text"] == "到此为止。"
+
+
 # ── 卷级守卫（D12 末端门禁 / D14 重拆整卷）───────────────────────────────
 def _seed_multi(client, vols: list[tuple[int, list[dict]]]) -> str:
     """建书＋按 (卷号, [章规格]) 落库。章规格：{"no": 1, "status": "outline", "prose": ""}。"""
@@ -407,7 +450,7 @@ class TestStaleSecondTrigger:
                 ).all()
 
         rows = _run_async(_q())
-        assert dict((r[0], r[1]) for r in rows)["vol-1-ch-2"] == 1, rows
+        assert {r[0]: r[1] for r in rows}["vol-1-ch-2"] == 1, rows
 
     def test_wording_tweak_does_not_mark(self, client):
         """措辞微调（trim 后相同）不触发。"""
@@ -429,7 +472,7 @@ class TestStaleSecondTrigger:
                 ).all()
 
         rows = _run_async(_q())
-        assert dict((r[0], r[1]) for r in rows)["vol-1-ch-2"] == 0, rows
+        assert {r[0]: r[1] for r in rows}["vol-1-ch-2"] == 0, rows
 
 
 # ── 出卡校验阶梯（tasks 3.2/3.3/3.5 的缺失验证面）────────────────────────
@@ -730,7 +773,8 @@ def test_split_template_scene_state_rules():
 
 
 def test_split_template_ending_natural_breakpoint():
-    """章尾钉住「自然断点」：规则 4 教局面不教钩子，ending 定义呼应；末章例外（规则 5）保留。"""
+    """章尾钉住「下一拍硬切」（c-chapter-seam-hardcut 翻转旧「自然断点」口径）：
+    规则 4 教动向不教局面，ending 定义呼应；悬念道具禁令收窄保留；末章例外（规则 5）保留。"""
     with open(
         os.path.join(os.path.dirname(__file__), "..", "prompts", "chapter_split.prompt"),
         encoding="utf-8",
@@ -738,20 +782,20 @@ def test_split_template_ending_natural_breakpoint():
         rule4 = next(
             line for line in f.read().splitlines() if line.startswith("4. ")
         )
-    assert "自然断点" in rule4
-    assert "悬念道具" in rule4
-    assert "还没完" not in rule4
+    assert "下一拍要砸下来" in rule4
+    assert "悬念道具" in rule4  # 禁令收窄保留（凭空新谜团仍禁）
+    assert "局面陈述" in rule4  # 禁局面总结收尾
     with open(
         os.path.join(os.path.dirname(__file__), "..", "prompts", "chapter_split.prompt"),
         encoding="utf-8",
     ) as f:
         src = f.read()
-    assert "停在场面状态（剧情自然断点）" in src  # ending 字段定义呼应
-    assert "5. 素材标注「本章是本卷末章」时例外" in src  # 末章收卷不变
+    assert "停在下一拍要砸下来的动作或台词瞬间" in src  # ending 字段定义呼应
+    assert "5. 素材标注「本章是本卷末章」时例外" in src  # 末章收卷不变（收束口径）
 
 
 def test_selfcheck_template_pull_natural_breakpoint():
-    """章级自检的「拉力」问句与生成模板同批：自然断点口径，钩子导向问法退役。"""
+    """章级自检的「拉力」问句与生成模板同批：下一拍硬切口径，钩子导向问法退役。"""
     with open(
         os.path.join(os.path.dirname(__file__), "..", "prompts", "chapter_selfcheck.prompt"),
         encoding="utf-8",
@@ -761,8 +805,9 @@ def test_selfcheck_template_pull_natural_breakpoint():
             for line in f.read().splitlines()
             if line.startswith("- 拉力（只看本章结尾）")
         )
-    assert "自然断点" in pull
-    assert "还没完" not in pull
+    assert "下一拍要爆发" in pull
+    assert "自然断点" not in pull
+    assert "悬念钩" in pull  # 硬造悬念禁令口径保留
 
 
 def test_position_fragment_ch1_ending_aligned():
@@ -909,7 +954,7 @@ def test_world_rules_block_renders_when_defined(client, monkeypatch):
 
     _run_async(_w())
     fake = _setup_ai(monkeypatch, _directions_reply())
-    r = client.post("/api/novels/%s/volumes/vol-1/chapters/ai-directions" % pid, json={})
+    r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
     assert r.status_code == 200, r.text
     system = _layered_prompt(fake.calls[-1])
     assert "【世界铁律】\n世界铁律·死者不可复生：任何力量都不能把人从死亡里拉回来" in system
