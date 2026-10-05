@@ -177,7 +177,7 @@ def _setup_overrides():
 
 @pytest.fixture
 def client():
-    _set_tier("pro")  # 会员：require_ai_access 放行，专测模型链路门控
+    _set_tier("max")  # 会员（MAX：放行 ai-plot 等全部 key）：require_ai_access 放行，专测模型链路门控
     with TestClient(app) as c:
         yield c
 

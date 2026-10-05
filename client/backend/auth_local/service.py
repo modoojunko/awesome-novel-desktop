@@ -761,7 +761,7 @@ def check_permission(now: date | None = None) -> dict:
         ent_synth = {"features": features, "limits": {"max_projects": max_projects}}
         return _perm(tier, is_member=is_member, project_limit=max_projects,
                      trial_remaining_days=_remaining_days(),
-                     entitlement=ent_synth, tier_catalog_used=True)
+                     entitlement=ent_synth)
     if tier in FALLBACK_MEMBER_TIERS:
         return _perm(tier, is_member=True, project_limit=None,
                      trial_remaining_days=_remaining_days())

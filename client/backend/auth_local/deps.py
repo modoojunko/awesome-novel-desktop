@@ -8,7 +8,7 @@ ai_feature(key): 路由装饰器——setattr 标注端点所需 key（不做 wr
 require_project_limit(): 按快照 limits.max_projects 拦截；会员不限。
 """
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,13 +57,16 @@ def _tier_required_for(feature: str) -> str | None:
     return None
 
 
-_TIER_RANK = {"none": 0, "free": 1, "standard": 2, "pro": 3, "trial": 3, "max": 4}  # trial=pro 同权（含朱雀）
+# 档位序：含 legacy 别名（monthly/quarterly/yearly→pro、lifetime→max），与
+# service._TIER_ALIAS 同口径——legacy 码用户在无快照分支走 rank 比较时不得落 0。
+_TIER_RANK = {"none": 0, "free": 1, "standard": 2, "pro": 3, "trial": 3, "max": 4,
+              "monthly": 3, "quarterly": 3, "yearly": 3, "lifetime": 4}  # trial=pro 同权（含朱雀）
 
 
 async def require_ai_access(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    request=None,
+    request: Request = None,
 ):
     """AI 功能门控：非会员 403 member_required → 档位不够 403 feature_required
     → 未配 Key 503。
@@ -79,17 +82,16 @@ async def require_ai_access(
     feature = _route_feature(request)  # 提前读：member_required 文案按 key 分档
     perm = check_permission()
     if not perm.get("is_member", False):
-        if feature:
+        if perm.get("expired"):
+            # 过期语义优先于分档提示（到期用户无论打哪个 key 都看到续费引导）
+            message = "AI 是会员功能 — 套餐已过期，续费后继续使用"
+        elif feature:
             # 分档文案（tier-plan-four-tiers 5.5）：按 key 最低档出提示
             t = _tier_required_for(feature) or "standard"
             display = {"standard": "标准", "pro": "PRO", "max": "MAX"}.get(t, t)
-            message = f"{display} 功能 — 开通后即可使用；免费版写作能力完整"
+            message = f"{display} 功能 — 开通套餐或试用后即可使用；免费版写作能力完整"
         else:
-            message = (
-                "AI 是会员功能 — 套餐已过期，续费后继续使用"
-                if perm.get("expired")
-                else "AI 是会员功能 — 开通套餐或 7 天免费试用后即可使用"
-            )
+            message = "AI 是会员功能 — 开通套餐或 7 天免费试用后即可使用"
         raise HTTPException(
             status_code=403,
             detail={"reason": "member_required", "message": message, "feature": feature},
