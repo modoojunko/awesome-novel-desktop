@@ -50,6 +50,7 @@
 - [x] 6.1 S端 门户：CashierPage/PricingSection 四列断点（repeat(3,1fr)→4＋中断点防挤压）；FALLBACK_FEATS 四档重写（max 旧卖点「更强模型·多章连写」与真实权益不符一并修）；「当前方案」按登录态 license.tier 标注；试用口径五处统一（HeroSection/FaqSection/ActivationGuideSection/RegisterPage/CashierPage）
 - [x] 6.2 e2e 基建：按档会话种子 helper（落 e2e/helpers.ts），收敛 **19 个 spec** 各自复制的 writeOAuthSession（config-page 无 tier 参）；统一 atomic 写＋稳定复写、expires_at 按 tier 参数化、返回统一 `{restore}`；注入机制＝浏览器侧桩 `/auth/verify` 返回带 entitlement 的响应（design-parity-book.spec.ts:815 先例）
 - [x] 6.3 **e2e 桩承重短语 grep 归位**（先例：c-hooks-plot-exclusion）——已实勘承重桩：plot.spec:239「需 PRO」、statusbar.spec:119「PRO 会员」、modals-pr5.spec:386「升级 PRO · 解锁 AI 能力」、foreshadow-ai.spec:321/genre-ai-settings.spec:239 桩「AI 是会员功能」、free-writing-flow.spec:134「免费版」徽章；逐个改断言或保留短语；再补 reconcile 行为反转、plot-sim/story-arc 换 max 会话（zhuque 种子改 pro——ai-detect 留 PRO）、story-arc 双 reason 断言、style-quant/world-settings/modals 分档断言、standard/max 视角新 spec 2–3 个
-- [ ] 6.4 design-parity：原型 book.html 免费锁卡**行集＋文案**同步（book.html:1043-1079 五行「需 PRO」＋盘点行免费变 ai-plan 锁＋footNote）＋基线重录；design-vocab.mjs 若涉档位词两端同批
+- [x] 6.4 design-parity：原型 book.html 免费锁卡**行集＋文案**同步（抽卡/补缺/盘点→需开通·ai-plan；推演→需 MAX；冲突留需 PRO；副行与 footNote 新口径）＋基线重录（baselines 21 张刷新）；design-vocab.mjs 无档位词登记需求（hint 词非 lint 词表域）
+  - 登记：book parity 余红 4 例＝存量漂移（modal-delete/prefs/upgrade 三 modal 屏不含 og 右栏与档位文案零交集；free·workbench 11.7% 大头为 #666-672 密度/归档只读/退役链时代原型未同步的树/菜单区），原型全量重同步另立
 - [ ] 6.5 法律换版：付费须知/退款政策（agreement_version 升版）；存量文案 grep 清零（「试用可用全部 AI」「PRO 会员权益」含 ZhuquePanel、readiness:136「蒸馏是 PRO 功能」、world-settings:133、character-settings:256、outline-ai-draft「PRO 作者」、frontend-auth-heal:88 等陈旧档位词逐个归位或登记豁免）
-- [ ] 6.6 全量门禁：pytest（两端）＋vitest＋e2e 全绿；openspec validate
+- [x] 6.6 全量门禁（10-05 收口）：C端 pytest 1789＋S端 pytest 480＋vitest 1177＋C端 e2e 202/202 全绿；design:lint 绿＋parity 基线重录（余红登记存量）；openspec validate ✓（余 INFO＝拆仓后 S端 五 spec 归属，归档时跨仓同步——server 仓 openspec 同批）
