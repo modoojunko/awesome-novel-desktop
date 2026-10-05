@@ -117,3 +117,44 @@ def test_plot_sim_max_member_model_gate_next():
     _set_session("max")
     r = _post("/simulate")
     assert r.status_code in (503, 422, 400)  # 模型未配置链路；绝非 403 feature_required
+
+
+# ── 正文生成 /write ↔ 去AI味 /write/polish 的 key 归属双向钉 ─────────────────
+# 回归（2026-10-05 修复）：#679 四档接入时两端点的 ai_feature key 互换——
+# /write 挂 ai-polish(MAX)、/write/polish 挂 ai-generate(PRO)。后果：PRO/trial
+# 用户 AI 生成正文被 403（自己买的能力不可用），去AI味反被 PRO 白拿。
+# 口径单源：entitlement-defaults.json（ai-generate=PRO；ai-polish=MAX）。
+
+
+def test_write_chapter_gate_ai_generate_standard_403_pro():
+    """正文生成 = ai-generate（PRO 起）：standard → 403 feature_required(pro)。"""
+    _set_session("standard")
+    r = _post("/write")
+    assert r.status_code == 403
+    detail = r.json()["detail"]
+    assert detail["reason"] == "feature_required"
+    assert detail["tier_required"] == "pro"
+
+
+def test_write_chapter_gate_trial_passes_feature_gate():
+    """trial（=pro 同权）打 /write 须过档位门（非 403）——正文不再误锁 MAX。"""
+    _set_session("trial")
+    r = _post("/write")
+    assert r.status_code != 403
+
+
+def test_polish_gate_ai_polish_pro_403_max():
+    """去AI味 = ai-polish（MAX 专属）：pro → 403 feature_required(max)。"""
+    _set_session("pro")
+    r = _post("/write/polish")
+    assert r.status_code == 403
+    detail = r.json()["detail"]
+    assert detail["reason"] == "feature_required"
+    assert detail["tier_required"] == "max"
+
+
+def test_polish_gate_max_passes_feature_gate():
+    """max 打 /write/polish 须过档位门（非 403）。"""
+    _set_session("max")
+    r = _post("/write/polish")
+    assert r.status_code != 403
