@@ -1272,7 +1272,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             projectId={projectId}
             chapterRef={chapterRef}
             archived={archived}
-            isPro={isPro}
             kinds={["hooks"]}
           />
           <HooksPane projectId={projectId} chapterRef={chapterRef} />

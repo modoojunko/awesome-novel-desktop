@@ -27,6 +27,8 @@ export interface LicenseVerify {
   expired?: boolean;
   expires_at?: string;
   trial_remaining_days?: number;
+  /** 建书上限（null=不限；免费=1、标准=3）——verify_session 透传后端口径 */
+  project_limit?: number | null;
   entitlement?: EntitlementSnapshot;
   entitlement_degraded?: boolean;
   /** 档位目录投影（tier-catalog）：快照缺失时按目录行兜底判定（新 S端 才下发） */
