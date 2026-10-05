@@ -1649,3 +1649,18 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
 ## c-retire-selection-transforms（2026-10-04）
 
 - 选区加工的「场景扩写」「压缩啰嗦段落」两卡退役：原型两卡行删除、右栏脚注去「扩写/压缩」。去AI味单卡保留（反AI红线家族落点）。顶栏「续写」（条目 638）为导航功能不受影响。
+
+
+---
+
+## 追加（c-prompt-pack-client，2026-10-05）
+
+**book.html 右栏新增「写作能力」四态卡（rail-pack）**——提示词包分发链的 UI 面：
+
+- 已就绪＝整卡隐藏（全静默，右栏与现状逐字节一致，parity 不受影响）；
+- 四态经底部新增 demo-bar「写作能力 · 5 态」切换演示：未登录（去登录）／获取中（accent
+  呼吸点行内忙点，不弹 toast）／失败（重新获取＋复制诊断信息）／档位不够（该能力随 MAX
+  提供→去升级）；
+- 全部复用既有 token（--border/--surface/--muted/--accent）与 .ai-locked 卡几何，
+  无新组件形态、无新语气档；pk-breath 呼吸点同「流式生成中」语义家族；
+- 用户可见名词统一「写作能力」（§13 已登记），「提示词包/manifest/验签」不进 UI。

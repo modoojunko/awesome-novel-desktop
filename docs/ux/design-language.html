@@ -195,6 +195,7 @@ B. 接受系统宋体为最终观感，把栈改为 Songti SC 打头并在本文
 <tr><td><strong>阻断缺项</strong></td><td>—（不用点表达阻断）</td><td>err 软底徽标 + 就地缺口 chips</td><td>点名缺什么：「缺：核心任务、段落规划」，chip 点击滚动定位并闪烁</td></tr>
 <tr><td><strong>已归档 / 只读</strong></td><td>muted 描边实心点 + 树上文本 tag</td><td>muted 描边胶囊「已归档」，编辑区上沿横幅 readonly-banner</td><td>动词指向出路：「可在版本历史中恢复后重新归档」</td></tr>
 <tr><td><strong>锁定（会员/能力）</strong></td><td>锁形图标 + 整体降透明（.rail-locked）</td><td>accent 锁徽 / PRO 星徽</td><td>说清解锁能得到什么，不说「无权限」</td></tr>
+<tr><td><strong>写作能力未就绪（未登录/获取中/失败/档位不够）</strong></td><td>右栏 AI 卡顶部 rail-pack 卡：获取中＝accent 呼吸点行内忙点；其余＝锁形卡＋动词出口</td><td>已就绪/换版/min_client 跳过＝全静默，不占任何版面</td><td>统一称「写作能力」；出口＝去登录/重新获取/去升级；绝不说「提示词包/验签/manifest」</td></tr>
 <tr><td><strong>自动 vs 自定义</strong></td><td>—</td><td>「自动组装」ok 徽标 ↔ 「已自定义/已润色/已修改」warn 徽标</td><td>强调用户改过的东西是被记住的</td></tr>
 </table>
 
@@ -374,6 +375,7 @@ two-col:   [nav 280] [panel 1fr]
 <tr><td>gate / 门控 / readiness</td><td>「还差什么」「下一步」</td><td>不出现「门控」「就绪度」这类词</td></tr>
 <tr><td>SSE / 流式</td><td>「正在生成」（流式细节不提）</td><td>—</td></tr>
 <tr><td>member_required / license</td><td>「AI 是会员功能」/ 升级 PRO</td><td>不说「鉴权失败」之类机器腔</td></tr>
+<tr><td>提示词包 / prompt pack / manifest / 验签 / 同步</td><td>「写作能力」：获取 / 更新 / 就绪 / 没有就绪</td><td>内部术语一律不进 UI（c-prompt-pack-client 拍板）；动作词全动词：去登录 / 重新获取 / 检查写作能力 / 去升级</td></tr>
 <tr><td>归档 archive</td><td>「归档」+ 结果说明「正文只读，可在版本历史恢复」</td><td>—</td></tr>
 <tr><td>tier / 套餐</td><td>完整档：PRO 会员 / 试用中 · 剩 N 天 / 免费版 · 单机使用 / 套餐已过期 · 免费待遇；触发钮短档：PRO 会员 / 试用 · 剩 N 天 / 免费版（含过期，合并单档）</td><td>控制中心面板（c-account-control-center）：账号区头用完整档、触发钮用短档，单源 lib/tier.ts</td></tr>
 </table>

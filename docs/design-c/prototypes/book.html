@@ -260,6 +260,17 @@
   .ai-locked .lhead svg { width: 15px; height: 15px; color: var(--accent); flex: none; }
   .ai-locked .lhead b { font-size: 13.5px; }
   .ai-locked p { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+
+  /* 写作能力（提示词包）rail 卡四态（c-prompt-pack-client）：默认隐藏＝已就绪全静默；
+     未登录→去登录 / 获取中→行内忙点 / 失败→重新获取 / 档位不够→升级卡。 */
+  .rail-pack { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin-bottom: 14px; }
+  .rail-pack .lhead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .rail-pack .lhead svg { width: 15px; height: 15px; color: var(--accent); flex: none; }
+  .rail-pack .lhead b { font-size: 13.5px; }
+  .rail-pack p { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+  .rail-pack .pk-line { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
+  .rail-pack .pk-line .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--accent); flex: none; animation: pk-breath 1.6s ease-in-out infinite; }
+  @keyframes pk-breath { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
   .ai-sec { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; color: var(--muted); margin: 18px 0 10px; }
   .ai-feat, .ai-tool { padding: 11px 0; border-bottom: 1px solid var(--border); }
   .ai-feat:last-child, .ai-tool:last-child { border-bottom: 0; }
@@ -791,7 +802,15 @@
 
 <!-- ═══ 全局更新提示条（client-update-notify）：所有屏顶端，info 语气，可关闭；工作台为全宽贴边版 ═══ -->
 <!-- 盘点出场人物 · 11 态演示导航（设计稿口径，非产品 UI；点击直达各态） -->
-<div class="demo-bar" role="tablist" aria-label="设计稿状态切换">
+<div class="demo-bar" role="tablist" aria-label="写作能力状态切换">
+    <span class="dl">写作能力 · 5 态</span>
+    <button class="chip on" data-pack="ready">就绪（静默）</button>
+    <button class="chip" data-pack="login">未登录</button>
+    <button class="chip" data-pack="busy">获取中</button>
+    <button class="chip" data-pack="fail">失败</button>
+    <button class="chip" data-pack="tier">档位不够</button>
+  </div>
+  <div class="demo-bar" role="tablist" aria-label="设计稿状态切换">
   <span class="dl">盘点出场人物 · 11 态</span>
   <button class="chip on" data-scene="s1">① 入口</button>
   <button class="chip" data-scene="s2">② 盘点中</button>
@@ -1009,6 +1028,30 @@
   </main>
 
   <aside class="col-ai" data-od-id="outline-ai">
+    <!-- 写作能力（提示词包）四态：已就绪＝整卡隐藏（全静默）；演示经 demo-bar 切换 -->
+    <div class="rail-pack" id="packCard" data-pack-scene="login" hidden data-od-id="pack-card">
+      <div data-pack-panel="login">
+        <div class="lhead"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 10V8a6 6 0 1 1 12 0v2h1a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h1zm2 0h8V8a4 4 0 1 0-8 0v2z"/></svg><b>登录后获取写作能力</b></div>
+        <p>登录一次，自动下载写作所需的全部能力；之后离线也能照常写。</p>
+        <button class="btn btn-primary btn-sm" data-od-id="pack-go-login">去登录</button>
+      </div>
+      <div data-pack-panel="busy" hidden>
+        <div class="lhead"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 10V8a6 6 0 1 1 12 0v2h1a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h1zm2 0h8V8a4 4 0 1 0-8 0v2z"/></svg><b>正在准备写作能力</b></div>
+        <div class="pk-line"><span class="dot"></span>首次获取需要一点时间，不用重开页面</div>
+        <p>完成后这里会自动就绪，你的稿子一直在本机。</p>
+      </div>
+      <div data-pack-panel="fail" hidden>
+        <div class="lhead"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z"/></svg><b>写作能力没有就绪</b></div>
+        <p>上次获取没完成（网络或服务暂时不可用）。手写不受影响，随时重试。</p>
+        <button class="btn btn-primary btn-sm" data-od-id="pack-retry">重新获取</button>
+        <button class="btn btn-ghost btn-sm" data-od-id="pack-diag">复制诊断信息</button>
+      </div>
+      <div data-pack-panel="tier" hidden>
+        <div class="lhead"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 6.2L21 9l-5 4.4 1.6 6.6L12 16.6 6.4 20 8 13.4 3 9l6.6-.8z"/></svg><b>该能力随 MAX 提供</b></div>
+        <p>升级 MAX 解锁剧情推演、去 AI 味与文风蒸馏；你的书与稿子不受影响。</p>
+        <button class="btn btn-primary btn-sm" data-od-id="pack-upgrade">去升级</button>
+      </div>
+    </div>
     <!-- 卷选中：大纲 AI 辅助 -->
     <div id="railVolume">
       <p class="progress-head">AI 辅助 · 大纲</p>
@@ -3718,6 +3761,14 @@ function setCastScene(id) {
   if (id === 's10') setTimeout(() => { if (!$('sc-s10').hidden) setCastScene('s5'); }, 900);
 }
 document.querySelectorAll('.demo-bar .chip').forEach(c => c.addEventListener('click', () => { castFillMode = false; setCastScene(c.dataset.scene); }));
+// 写作能力四态演示切换（c-prompt-pack-client；非产品 UI）
+document.querySelectorAll('.demo-bar [data-pack]').forEach(c => c.addEventListener('click', () => {
+  document.querySelectorAll('.demo-bar [data-pack]').forEach(x => x.classList.toggle('on', x === c));
+  const scene = c.dataset.pack;
+  const card = document.getElementById('packCard');
+  card.hidden = scene === 'ready';
+  card.querySelectorAll('[data-pack-panel]').forEach(p => { p.hidden = p.dataset.packPanel !== scene; });
+}));
 
 /* 入口：右栏「盘点出场人物」行 → 态② → 自动进态③（演示节奏） */
 $('btn-open-review').addEventListener('click', () => {
