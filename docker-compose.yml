@@ -16,7 +16,9 @@
 # 是服务间与 nginx 代理的内部契约，不可配；仅宿主端口映射可变。
 services:
   server-backend:
-    build: ./server
+    # 拆仓（s-server-repo-split）：S端 源码已迁 awesome-novel-server 私有仓；
+    # sibling checkout 约定——两仓同级放置，S_SERVER_DIR 可覆盖（CI 传检出路径）。
+    build: ${S_SERVER_DIR:-../awesome-novel-server/server}
     container_name: ai-novel-server-backend
     environment:
       DB_DIR: /app/data
@@ -50,13 +52,15 @@ services:
 
   server-frontend:
     build:
-      context: ./server/frontend
+      # S端 源码在 sibling 仓（s-server-repo-split）；brand/LICENSE 用本仓副本
+      # （双仓各持一份、改动两端同批，见 brand/README 注记与两仓 CLAUDE.md）
+      context: ${S_SERVER_DIR:-../awesome-novel-server/server}/frontend
       additional_contexts:
-        # 品牌单源 brand.json 在仓库根（brand-name-single-source）：
+        # 品牌单源 brand.json（brand-name-single-source）：
         # Dockerfile 内 COPY --from=brand 注入，vite 构建期读取
         - brand=./brand
-        # 仓库根 LICENSE（relicense-proprietary）：copy-eula.mjs 构建期生成
-        # /legal/eula.html 的唯一来源——构建上下文只有 ./server/frontend，
+        # LICENSE（relicense-proprietary）：copy-eula.mjs 构建期生成
+        # /legal/eula.html 的唯一来源——构建上下文只有 server/frontend，
         # 脚本反推仓库根落在 / 读不到，必须经命名上下文注入
         - repo=.
     container_name: ai-novel-server-frontend

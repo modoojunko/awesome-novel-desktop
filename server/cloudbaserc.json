@@ -1,6 +1,0 @@
-{
-  "envId": "ai-novel-test-d1ghsr86ra814c12c",
-  "cloudrun": {
-    "name": "novel-s-server"
-  }
-}
