@@ -18,7 +18,9 @@ import pytest
 @pytest.fixture()
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_ROOT", str(tmp_path))
-    monkeypatch.delenv("PROMPT_PACK_MODE", raising=False)
+    # force 模式：模拟 frozen 发布包（无包内目录）——get_status 暴露原始状态机，
+    # dev 兜底可用性由专项测试（delenv）单独验证
+    monkeypatch.setenv("PROMPT_PACK_MODE", "force")
     import prompt_pack
     import prompt_pack.sync as sync_mod
     import prompts
@@ -360,3 +362,67 @@ def test_sync_same_version_tier_upgrade(env, cdn, monkeypatch):
 
     _il.reload(prompts)
     assert "B" in prompts.load("b")
+
+
+def test_sync_tampered_latest_rejected_not_consumed(env, cdn, monkeypatch):
+    """评审 P1：latest 未验签不得消费控制字段——篡改 min_pack_version 不触发清回执、
+    篡改 min_client_version 不静默冻结。"""
+    base, cdn_root = cdn
+    sk, pub = _keypair()
+    cek = os.urandom(32)
+    _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
+    pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: ({"cek": base64.b64encode(cek).decode(), "key_id": kid, "tier": "free", "version": ver}, 0))
+    assert sync_mod.sync_once(local_tier="free")["phase"] == "ready"
+    # 篡改 latest：巨大 min_pack_version（意图清回执）＋巨大 min_client_version（意图冻结）——不重签
+    latest_p = cdn_root / "prompts" / "latest.json"
+    doc = json.loads(latest_p.read_text())
+    doc["min_pack_version"] = "99"
+    doc["min_client_version"] = "99"
+    latest_p.write_text(json.dumps(doc))
+    st = sync_mod.sync_once(local_tier="free")
+    assert st["reason"] == "latest_signature"  # 验签不过＝该源不可信
+    assert pp.read_receipt()["version"] == "5"  # 回执未被清除
+
+
+def test_sync_404_refetches_latest_and_retries_once(env, cdn, monkeypatch):
+    """评审 P3：404（密钥退役）→ 重取 latest（cache-bust）→ 版本变化则重试一次装新版。"""
+    base, cdn_root = cdn
+    sk, pub = _keypair()
+    cek = os.urandom(32)
+    _publish(cdn_root, "6", {"free": ("k-free-6", cek)}, TPL, sk, "test-kid")
+    stale_latest = json.loads((cdn_root / "prompts" / "latest.json").read_text())  # v6 指针快照
+    _publish(cdn_root, "7", {"free": ("k-free-7", cek)}, TPL, sk, "test-kid")  # 磁盘上已是 v7
+
+    _, _, sync_mod, _ = env
+    monkeypatch.setattr(sync_mod, "_validate_outbound", lambda url: True)
+    monkeypatch.setenv("CLIENT_PACK_PUBKEYS", json.dumps({"test-kid": pub}))
+
+    def exchange(kid, ver):
+        if kid == "k-free-6":
+            return None, 404  # v6 密钥已退役
+        return {"cek": base64.b64encode(cek).decode(), "key_id": kid, "tier": "free", "version": ver}, 0
+
+    monkeypatch.setattr(sync_mod, "_exchange_cek", exchange)
+    orig_fetch = sync_mod._fetch_json
+
+    def fetch(client, url):
+        if "?cb=" in url or not url.endswith("latest.json"):
+            return orig_fetch(client, url)  # cb 请求与其余资源（manifest/bin）走磁盘
+        return stale_latest  # 仅 latest 指针返回陈旧 v6（模拟 CDN 缓存）
+
+    monkeypatch.setattr(sync_mod, "_fetch_json", fetch)
+    st = sync_mod.sync_once(local_tier="free")
+    assert st["phase"] == "ready" and str(st.get("version")) == "7"
+    import prompt_pack as pp2
+
+    assert pp2.read_receipt()["version"] == "7"
+
+
+def test_status_ready_with_dev_fallback(env, monkeypatch):
+    """评审 P1：dev/测试态（非 force 且包内目录存在）＝写作能力可用 → ready 全静默。"""
+    _, _, sync_mod, _ = env
+    monkeypatch.delenv("PROMPT_PACK_MODE", raising=False)  # 模拟 dev 会话
+    st = sync_mod.get_status()
+    assert st["phase"] == "ready"
+    monkeypatch.setenv("PROMPT_PACK_MODE", "force")  # 模拟 frozen：无包则如实报未就绪
+    assert sync_mod.get_status()["phase"] != "ready"

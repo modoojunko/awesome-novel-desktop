@@ -53,6 +53,17 @@
 - [ ] 7.3 归档（spec delta 同步：prompt-pack-delivery＋entitlement-sync/tier-gating
   MODIFIED）。
 
+## 评审修复（review-agent，2026-10-05）
+
+- [x] R1（P1）latest.json 控制字段未验签：`sync_once` 消费 min_client/min_pack/tiers 前
+  先以信任钥集合验 latest 签名，不过＝源不可信（reason=latest_signature）——防 CDN 侧
+  篡改造成更新冻结／伪造召回。测试：篡改 min_pack/min_client 不重签 → 拒消费＋回执不清。
+- [x] R2（P1）dev/e2e 误报未就绪：`get_status` 增「包内开发目录可用（非 force）」视同
+  ready——dev 会话与真后端 e2e 不再渲染错误四态卡；frozen 发布包无该目录，生产不受影响。
+  测试：delenv→ready；force→如实未就绪。
+- [x] R3（P3）404 自愈：重取 latest（cache-bust）且**把新指针带入重试**（修掉递归重拉
+  陈旧指针的实现缺陷）→ 版本变化重试恰好一次。测试：陈旧 v6 指针→404→cb 取 v7→装成。
+
 ## 回归
 
 - 门禁结论（实现后回填）：pytest＿＿、vitest＿＿、tsc＿＿、e2e 新场景组＿＿、存量

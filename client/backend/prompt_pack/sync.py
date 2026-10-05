@@ -73,16 +73,32 @@ _syncing = False
 def get_status() -> dict:
     """包状态快照：phase ∈ syncing/ready/missing/failed/tier_denied。
 
-    口径（失败矩阵）：**有可用包即 ready（全静默）**——更新失败但旧包能写时不给
-    用户任何打扰；reason 保留为诊断字段（AcctMenu 诊断串）。无包时按最近一次
-    尝试结果落 missing/syncing/failed/tier_denied（前端四态卡据此分派：未登录→
-    去登录；syncing→行内忙点；failed→重新获取；tier_denied→升级卡）。
+    口径（失败矩阵＋dev 兜底，2026-10-05 评审修正）：**有可用模板来源即 ready
+    （全静默）**——①已装包（resolve_dir）②开发/测试态的包内目录（frozen 发布包
+    无此目录，故生产不受影响）。更新失败但旧包能写、或 dev 直读仓库单源时，都给
+    用户零打扰；reason 保留为诊断字段（AcctMenu 诊断串）。两来源皆无时按最近一次
+    尝试结果落 missing/syncing/failed/tier_denied（前端四态卡据此分派）。
     """
     with _lock:
         st = dict(_state)
-    if resolve_dir():
+    if resolve_dir() or _dev_fallback_available():
         st["phase"] = "ready"
     return st
+
+
+def _dev_fallback_available() -> bool:
+    """包内开发目录是否可用（dev/测试态直读仓库单源）。
+
+    PROMPT_PACK_MODE=force 时禁用（e2e 强制包模式）；frozen 发布包内无该目录
+    （build.spec 已摘）→ 恒 False，生产永远走已装包判定。
+    """
+    if os.environ.get("PROMPT_PACK_MODE") == "force":
+        return False
+    bundled = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "prompts")
+    try:
+        return any(n.endswith(".prompt") for n in os.listdir(bundled))
+    except OSError:
+        return False
 
 
 def _set_state(phase: str, reason: str = "", tier: str = "", version: str = "") -> None:
@@ -367,8 +383,17 @@ def _cleanup_old(root: str, keep: set[str]) -> None:
 # ── 主流程 ───────────────────────────────────────────────────────────────────
 
 
-def sync_once(local_tier: str | None = None) -> dict:
-    """执行一次同步（幂等、可重入保护在 trigger 侧）。返回最终状态快照。"""
+def sync_once(
+    local_tier: str | None = None,
+    _retry: bool = False,
+    _latest: tuple[dict, str] | None = None,
+) -> dict:
+    """执行一次同步（幂等、可重入保护在 trigger 侧）。返回最终状态快照。
+
+    `_retry`/`_latest`：404（密钥退役）自愈路径内部使用——重取 latest 后重试
+    **恰好一次**；`_latest` 直接携带 cache-bust 取回的新指针，避免重试时又被
+    CDN 缓存的陈旧指针挡回。
+    """
     if local_tier is None:
         try:
             from auth_local.service import get_local_config
@@ -388,15 +413,26 @@ def sync_once(local_tier: str | None = None) -> dict:
     receipt = read_receipt()
 
     with httpx.Client(timeout=_FETCH_TIMEOUT, follow_redirects=False) as client:
-        latest = None
-        latest_url = ""
-        for url in _candidate_urls():
-            latest = _fetch_json(client, url)
-            if latest:
-                latest_url = url
-                break
+        if _latest is not None:
+            latest, latest_url = _latest
+        else:
+            latest = None
+            latest_url = ""
+            for url in _candidate_urls():
+                latest = _fetch_json(client, url)
+                if latest:
+                    latest_url = url
+                    break
         if not latest:
             _set_state("failed", reason="cdn_unreachable")
+            return get_status()
+
+        # 信任链前置（2026-10-05 评审 P1）：latest 的控制字段（min_client_version/
+        # min_pack_version/tiers 摘要）驱动「跳过更新/清回执/下载校验」——必须先验签
+        # 再消费，否则 CDN 侧篡改可冻结全量更新或伪造召回。验签不过＝该源不可信。
+        if not _verify_manifest_signature(latest, keys):
+            logger.warning("event=pack_sync_fail reason=latest_signature")
+            _set_state("failed", reason="latest_signature")
             return get_status()
 
         # 闸门：min_client_version（新包+旧客户端）／高水位（旧版重放）／min_pack_version（召回）
@@ -457,6 +493,12 @@ def sync_once(local_tier: str | None = None) -> dict:
                 last_reason = "tier"
                 continue
             if code == 404:
+                # 设计口径（D1）：404=密钥退役信号——重取 latest（绕 CDN 缓存）
+                # 后重试恰好一次；版本没变则落 failed 由下次触发/手动重试兜底。
+                if not _retry:
+                    fresh = _fetch_json(client, f"{latest_url}?cb={int(time.time())}")
+                    if fresh and str(fresh.get("version") or "") not in ("", version):
+                        return sync_once(local_tier, _retry=True, _latest=(fresh, latest_url))
                 _set_state("failed", reason="key_retired")
                 return get_status()
             if code != 0 or not value:
