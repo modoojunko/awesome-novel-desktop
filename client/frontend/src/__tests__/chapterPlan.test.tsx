@@ -254,6 +254,38 @@ describe("拆章界面 · AI 三方向（右栏入口，PRO）", () => {
     await waitFor(() => expect(screen.queryByTestId("split-busy")).not.toBeInTheDocument());
   });
 
+  it("busy 阶段列表随计时推进；阶段全完成也等响应回来才出卡（c-chapter-draw-retry-material）", async () => {
+    vi.useFakeTimers();
+    try {
+      let release!: (v: unknown) => void;
+      mockApi.post.mockReturnValue(new Promise((r) => { release = r; }));
+      render(<Host />);
+      fireEvent.click(screen.getByTestId("open-ai"));
+      await act(async () => { await Promise.resolve(); });
+      const steps = screen.getByTestId("split-steps");
+      expect(steps).toHaveTextContent("读卷纲与设定");
+      expect(steps).toHaveTextContent("推演 3 个方向");
+      expect(steps).toHaveTextContent("自查与评分");
+      expect(steps.querySelectorAll("em.ok")).toHaveLength(0);
+      expect(steps).toHaveTextContent("进行中");
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(screen.getByTestId("split-steps").querySelectorAll("em.ok")).toHaveLength(1);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+      const done = screen.getByTestId("split-steps");
+      expect(done.querySelectorAll("em.ok")).toHaveLength(3);
+      // 阶段全完成：busy 仍不退出——出卡以响应回来为准（感知层不承诺真实进度）
+      expect(screen.getByTestId("split-busy")).toBeInTheDocument();
+
+      release(DIRS);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+      expect(screen.queryByTestId("split-busy")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("换方向：清掉上一批的选中与草稿（新批不再带旧 pick）", async () => {
     render(<Host />);
     fireEvent.click(screen.getByTestId("open-ai"));
