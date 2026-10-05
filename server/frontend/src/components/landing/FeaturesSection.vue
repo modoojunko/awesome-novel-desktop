@@ -50,13 +50,14 @@ const workflowSteps = [
 ]
 
 // 关键能力九条 = C 端已上线能力（AI 蓝图/伏笔台账/关系图谱为 2026-09 新补宣传）
+// tier 标注（评审 P0-1）：宣传能力与套餐档位对齐，防越档预期；undefined=全档（含免费）
 const keyFeatures = [
-  { icon: P.spark, title: 'AI 写本章', desc: '一口气写完整章，随时喊停；AI 稿采纳才落进正文，写错一键撤回' },
-  { icon: P.list, title: 'AI 搭蓝图', desc: '分卷规划、章纲起草：AI 出的每一步都是提案，采纳才生效' },
-  { icon: P.bot, title: '抽卡与推演', desc: '章纲、剧情 AI 一次出三版任你挑；卡文时让角色先演一遍，看走向合不合理' },
+  { icon: P.spark, title: 'AI 写本章', tier: 'PRO', desc: '一口气写完整章，随时喊停；AI 稿逐行采纳才落进正文，整章重写也保留旧版，写错一键回到任何一稿' },
+  { icon: P.list, title: 'AI 搭蓝图', tier: '标准', desc: '分卷规划、章纲起草：AI 出的每一步都是提案，采纳才生效' },
+  { icon: P.bot, title: '抽卡与推演', tier: 'MAX', desc: '章纲、剧情 AI 一次出三版任你挑；卡文时让角色先演一遍，看走向合不合理' },
   { icon: P.doc, title: '伏笔台账', desc: '埋下的坑自动记账，该回收时提醒你，不写丢不烂尾' },
   { icon: P.link, title: '角色关系图谱', desc: '角色关系一图看清，AI 动笔前对齐本卷最新关系' },
-  { icon: P.wand, title: '去 AI 味', desc: '避开机器腔，越写越像你' },
+  { icon: P.wand, title: '去 AI 味', tier: 'MAX', desc: '一键重写机器腔段落，疲劳词套路句拦在定稿前' },
   { icon: P.cpu, title: '模型随你选', desc: '接你自己的 AI 服务，DeepSeek、Kimi、通义等主流模型都支持' },
   { icon: P.lock, title: '数据不出电脑', desc: '稿子存在本地，关网也能写' },
   { icon: P.chart, title: '花费心中有数', desc: 'AI 按用量计费，写之前先告诉你大概花多少' },
@@ -116,7 +117,7 @@ const keyFeatures = [
       <!-- 关键功能条 -->
       <div class="mt-16 mb-4 text-center">
         <span class="mkt-eyebrow">关键能力</span>
-        <h3 class="sub-h">为长篇而生的 AI 能力</h3>
+        <h3 class="sub-h">为长篇而生的 AI 能力——按套餐逐档解锁</h3>
       </div>
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
         <div
@@ -127,7 +128,7 @@ const keyFeatures = [
         >
           <div class="ico"><Ico :d="feature.icon" /></div>
           <div class="min-w-0">
-            <h3>{{ feature.title }}</h3>
+            <h3>{{ feature.title }}<span v-if="feature.tier" class="tier-tag">{{ feature.tier }}</span></h3>
             <p>{{ feature.desc }}</p>
           </div>
         </div>
@@ -150,4 +151,5 @@ const keyFeatures = [
 .kf { display: flex; gap: 16px; align-items: flex-start; padding: 22px; }
 .kf .ico { margin-bottom: 0; flex: none; }
 .kf h3 { margin-top: 1px; }
+.tier-tag { display: inline-block; vertical-align: 2px; margin-left: 7px; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; color: var(--accent-strong); background: var(--accent-soft); border: 1px solid color-mix(in oklch, var(--accent) 25%, transparent); border-radius: 999px; padding: 1px 8px; }
 </style>

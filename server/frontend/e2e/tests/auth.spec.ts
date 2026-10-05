@@ -5,7 +5,7 @@ test.describe('认证流程', () => {
     test('页面标题和试用徽章', async ({ page }) => {
       await page.goto('/register')
       await expect(page.getByRole('heading', { name: '注册' })).toBeVisible()
-      await expect(page.getByText('注册即送 7 天全功能试用')).toBeVisible()
+      await expect(page.getByText('注册另送 7 天 PRO 级试用')).toBeVisible()
     })
 
     test('成功注册', async ({ page, mockApi }) => {

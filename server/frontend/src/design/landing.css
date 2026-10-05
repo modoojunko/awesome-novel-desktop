@@ -132,3 +132,9 @@
 
 /* ═══ 品牌 5.0 层（awesome-novel 代际，2026-10）：仅代际徽标（轻量体现） ═══ */
 .gen-badge { display: inline-flex; align-items: center; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; color: var(--accent-strong); background: var(--accent-soft); border: 1px solid color-mix(in oklch, var(--accent) 25%, transparent); padding: 1px 7px; border-radius: 999px; letter-spacing: 0.02em; }
+
+/* 免费列 CTA 微文案与权益明细入口（评审 P0-2/P1-6） */
+.plans-grid .cta-note { font-size: 11.5px; color: var(--faint); text-align: center; margin: 8px 0 0; }
+.plans-detail-link { text-align: center; margin: 22px 0 0; font-size: 13.5px; }
+.plans-detail-link a { color: var(--accent-strong); }
+.plans-detail-link a:hover { text-decoration: underline; text-underline-offset: 3px; }

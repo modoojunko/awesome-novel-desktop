@@ -63,7 +63,7 @@ test.describe('Landing Page', () => {
     }
   })
 
-  test('套餐区=收银台同 IA：时长 tab×三档对比列（s-pay-landing-plans）', async ({ page }) => {
+  test('套餐区=收银台同 IA：时长 tab×四档对比列（s-pay-landing-plans）', async ({ page }) => {
     await page.locator('#pricing').scrollIntoViewIfNeeded()
     // 时长 tab 默认包月（与收银台同默认）；四档列序=免费 + 标准 + PRO + MAX
     await expect(page.locator('.plans-tabs button.on')).toHaveText(/包月/)
@@ -100,7 +100,8 @@ test.describe('Landing Page', () => {
     const freeCol = page.locator('#pricing .mkt-plan.free').filter({ hasText: '免费' })
     await expect(freeCol).toContainText('¥0')
     await expect(freeCol).toContainText('归档记账 AI')
-    await expect(freeCol.getByRole('link', { name: '注册领取 7 天试用' }).first()).toBeVisible()
+    await expect(freeCol.getByRole('link', { name: '免费开始写' }).first()).toBeVisible()
+    await expect(freeCol).toContainText('注册另送 7 天 PRO 级试用')
     // 「当前方案」是收银台登录态语义，落地页不得出现
     await expect(page.locator('#pricing').getByText('当前方案')).toHaveCount(0)
   })

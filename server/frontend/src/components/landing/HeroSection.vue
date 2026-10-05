@@ -66,7 +66,7 @@ const downloadOpen = ref(false)
         <router-link to="/login" class="lnk">去控制台激活 →</router-link>
       </p>
       <p class="text-sm" style="color: color-mix(in oklch, var(--muted) 65%, transparent)">
-        支持 Windows 与 macOS · 注册即送 7 天试用
+        支持 Windows 与 macOS · 注册另送 7 天 PRO 级试用
       </p>
     </div>
 

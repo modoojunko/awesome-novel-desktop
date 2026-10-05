@@ -46,7 +46,7 @@ watch(() => props.open, (open) => {
       <span class="dl-pill" :class="latest.degraded ? 'warn' : 'info'">
         {{ latest.degraded ? `未能获取最新版，当前 v${latest.version}` : `最新版 v${latest.version}` }}
       </span>
-      <p class="dl-sub">选择你的系统，安装后注册即送 7 天全功能试用</p>
+      <p class="dl-sub">选择你的系统，安装后注册另送 7 天 PRO 级试用</p>
       <div class="mt-4 flex flex-col gap-2">
         <AppButton
           :href="windowsInstallerUrl(latest.version)"

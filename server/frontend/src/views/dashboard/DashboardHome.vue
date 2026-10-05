@@ -165,7 +165,7 @@ const todayText = computed(() => {
             <AppButton variant="secondary" size="sm" @click="showDownloadModal = true">macOS 版</AppButton>
           </div>
           <div class="meta">在客户端里使用全部写作功能；套餐时长与设备额度与网页端同步。</div>
-          <div class="ops"><span class="mini">免费下载 · 含 7 天试用</span></div>
+          <div class="ops"><span class="mini">免费下载 · 注册另送 7 天 PRO 级试用</span></div>
         </AppCard>
 
         <!-- 我的账户 -->

@@ -78,7 +78,7 @@ async function handleRegister() {
   <div class="auth-card wide">
     <div class="head-row">
       <h1>注册</h1>
-      <span class="pill pill-tag pill-accent">注册即送 7 天全功能试用</span>
+      <span class="pill pill-tag pill-accent">注册另送 7 天 PRO 级试用</span>
     </div>
     <p class="sub">几分钟完成，马上开始写作</p>
 

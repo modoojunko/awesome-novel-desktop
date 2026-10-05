@@ -7,6 +7,7 @@
  */
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { TIER_FALLBACK_FEATS } from '@/constants/tierCopy'
 import {
   apiPaySkus, apiPayCreateOrder, apiPayQueryOrder, apiPayCancelOrder, apiPayActivate, apiPayLicense,
   fmtPrice, fmtBj, periodLabel,
@@ -58,14 +59,8 @@ async function doActivate() {
   }
 }
 
-// ── 卖点兜底文案（selling_points 空数组时的保底，不空白）──
-// 免费/PRO=UpgradeModal 真实功能事实（client/…/UpgradeModal.tsx）；MAX=占位稿待运营定稿
-const FALLBACK_FEATS: Record<string, string[]> = {
-  free: ['写作全流程免费（人工）', '归档记账 AI（唯一 AI，自配 Key）', '本地作品永久保留'],
-  standard: ['AI 分卷规划＋拆章三方向', '章纲 AI 起草三选一', '设定域 AI 全家＋人物盘点', '卷体检＋单章评估＋文风建议', '正文自己写'],
-  pro: ['含标准全部功能', 'AI 生成正文（流式）', '朱雀 AI 味检测'],
-  max: ['含 PRO 全部功能', '剧情推演', 'AI 去AI味', '文风蒸馏', '拆书成设定（即将上线）', '人工客服＋新版内测'],
-}
+// ── 卖点兜底文案：tierCopy.ts 单源（与 landing PricingSection 同引，评审 P2 防漂移）──
+const FALLBACK_FEATS = TIER_FALLBACK_FEATS
 // 目录不可达时的降级骨架：时长/设备数是产品结构事实，价格一律留白
 const FALLBACK_PAID = [
   { period: 'monthly', days: 30, devices: 3 },
@@ -346,7 +341,7 @@ onUnmounted(() => { stopPolling(); stopCountdown() })
             去登录
           </button>
           <p class="pay-hint">
-            还没有账号？<router-link to="/register" class="lnk">注册即送 7 天全功能试用</router-link>
+            还没有账号？<router-link to="/register" class="lnk">注册另送 7 天 PRO 级试用</router-link>
           </p>
         </div>
       </div>
