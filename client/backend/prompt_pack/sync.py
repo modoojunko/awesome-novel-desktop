@@ -289,11 +289,35 @@ def _install(version: str, tier: str, key_id: str, min_client_version: str | Non
             hashes[name] = hashlib.sha256(text.encode("utf-8")).hexdigest()
         with open(os.path.join(staging, "manifest.json"), "w", encoding="utf-8") as f:
             json.dump(manifest, f, ensure_ascii=False)
+        if os.path.exists(target) and resolve_dir() == target:
+            # 同版本换档（tier 升级）：目录在用不可换——只补写新增/变更模板（逐个原子写），
+            # 复用已装且校验过的文件；receipt 换档并合并哈希表。
+            shutil.rmtree(staging)
+            existing = read_receipt() or {}
+            hashes2 = dict(existing.get("templates") or {})
+            for name, text in templates.items():
+                fp = os.path.join(target, f"{name}.prompt")
+                h = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                if os.path.exists(fp) and hashes2.get(name) == h:
+                    continue
+                tmp = fp + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    f.write(text)
+                os.replace(tmp, fp)
+                hashes2[name] = h
+            with open(os.path.join(target, "manifest.json"), "w", encoding="utf-8") as f:
+                json.dump(manifest, f, ensure_ascii=False)
+            receipt2 = dict(existing)
+            receipt2.update(
+                version=version, tier=tier, key_id=key_id,
+                installed_at=time.time(), templates=hashes2,
+            )
+            if min_client_version:
+                receipt2["min_client_version"] = min_client_version
+            write_receipt(receipt2)
+            _set_state("ready", tier=tier, version=version)
+            return True
         if os.path.exists(target):
-            # 重试同版本：目标不是当前解析目录才允许清（保护在读版本）
-            if resolve_dir() == target:
-                shutil.rmtree(staging)
-                return True
             shutil.rmtree(target)
         os.rename(staging, target)
         receipt = {
@@ -389,10 +413,16 @@ def sync_once(local_tier: str | None = None) -> dict:
         if min_pack and current and is_newer(min_pack, current):
             # 已装版低于召回底线：停用已装版（resolve_dir 会回落或 none），继续装新的
             clear_receipt()
-        if current and version == current:
+        # 同版本换档（升级套餐后 receipt 仍是旧档）：不短路，走补写路径
+        same_version_new_tier = bool(
+            current
+            and version == current
+            and _normalize_tier(str(receipt.get("tier") or "")) != tier
+        )
+        if current and version == current and not same_version_new_tier:
             _set_state("ready", tier=tier, version=current)
             return get_status()
-        if hw and not is_newer(version, hw):
+        if hw and not is_newer(version, hw) and not (version == hw and same_version_new_tier):
             logger.info("event=pack_sync_skip reason=highwatermark cur=%s hw=%s", version, hw)
             _set_state("ready", tier=tier, version=current)
             return get_status()

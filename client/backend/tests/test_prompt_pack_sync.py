@@ -306,3 +306,57 @@ def test_ai_states_contains_prompts_missing():
     from ai_state import AI_STATES
 
     assert "prompts_missing" in AI_STATES
+
+
+def test_sync_same_version_tier_upgrade(env, cdn, monkeypatch):
+    """同版本换档（免费→PRO）：不短路、补写新增模板、receipt 换档（实测抓到的回归）。"""
+    base, cdn_root = cdn
+    sk, pub = _keypair()
+    cek = os.urandom(32)
+    tpls = {"a": "<<system>>\nA\n<<user>>\nx", "b": "<<system>>\nB\n<<user>>\ny"}
+    # free 档只含 a；pro 档含 a+b（bundle 内容不同但 version 相同）
+    import hashlib as _h
+    import pathlib
+
+    v = "5"
+    vdir = pathlib.Path(cdn_root) / "prompts" / f"v{v}"
+    vdir.mkdir(parents=True)
+    tiers = {}
+    for tier, keys in (("free", ["a"]), ("pro", ["a", "b"])):
+        sub = {k: tpls[k] for k in keys}
+        blob = _bundle(sub, v, tier, cek)
+        (vdir / f"{tier}.bin").write_bytes(blob)
+        tiers[tier] = {
+            "key_id": f"k-{tier}-{v}",
+            "sha256": _h.sha256(blob).hexdigest(),
+            "size": len(blob),
+            "template_count": len(sub),
+        }
+    man = {"schema_version": 1, "version": v, "signer_key_id": "test-kid", "tiers": tiers,
+           "templates": {k: _h.sha256(t.encode()).hexdigest() for k, t in tpls.items()}}
+    man["signature"] = _sign(man, sk)
+    (vdir / "manifest.json").write_text(json.dumps(man))
+    latest = {"schema_version": 1, "version": v, "min_client_version": "", "min_pack_version": "",
+              "tiers": tiers, "signer_key_id": "test-kid"}
+    latest["signature"] = _sign(latest, sk)
+    (pathlib.Path(cdn_root) / "prompts" / "latest.json").write_text(json.dumps(latest))
+
+    def exchange(kid, ver):
+        for t, e in tiers.items():
+            if e["key_id"] == kid:
+                return {"cek": base64.b64encode(cek).decode(), "key_id": kid, "tier": t, "version": ver}, 0
+        return None, 404
+
+    pp, sync_mod = _wire(env, monkeypatch, sk, pub, exchange)
+    assert sync_mod.sync_once(local_tier="free")["phase"] == "ready"
+    assert len(pp.read_receipt()["templates"]) == 1
+    # 升级 PRO（同版本）：应补写 b 并换档
+    st = sync_mod.sync_once(local_tier="pro")
+    rec = pp.read_receipt()
+    assert st["phase"] == "ready" and st["tier"] == "pro"
+    assert rec["tier"] == "pro" and len(rec["templates"]) == 2
+    _, _, _, prompts = env
+    import importlib as _il
+
+    _il.reload(prompts)
+    assert "B" in prompts.load("b")
