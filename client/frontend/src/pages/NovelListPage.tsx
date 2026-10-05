@@ -552,7 +552,7 @@ function NovelList() {
         <div className="notice info">
           <span className="nt">
             <b>
-              书架已满（<span className="num">{novels.length}/{bookLimit ?? 1}</span>）
+              书架已满（<span className="num">{novels.length}/{bookLimit}</span>）
             </b>
             <span>升级后不限作品数，现有作品不受影响</span>
           </span>

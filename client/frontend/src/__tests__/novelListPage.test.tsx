@@ -437,6 +437,40 @@ describe("Banner 与门禁", () => {
     expect(screen.getByRole("link", { name: "升级" }).getAttribute("href")).toBe("https://portal.me");
   });
 
+
+  it("projectLimit 未透传（undefined）＋会员：回落不限（旧口径兼容臂，249 行分支）", async () => {
+    Object.assign(tierState, { tier: "pro", isMember: true, expired: false });
+    delete (tierState as { projectLimit?: number | null }).projectLimit; // 旧 S端 快照形态：键缺失
+    getMock.mockImplementation(async (path: string) => {
+      if (path === "/novels") return [novel()];
+      if (path === "/auth/config") return { has_api_key: true };
+      return {};
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+    // 不满额：无锁定瓦片
+    expect(document.querySelector('[data-od-id="lock-tile"]')).toBeNull();
+    // 新建可点（无升级拦截——createAction 不走 guideUpgrade）
+    fireEvent.click(
+      within(document.querySelector(".page-head") as HTMLElement).getByText("新建作品"),
+    );
+    expect(screen.getByTestId("create-modal")).toBeTruthy();
+  });
+
+
+  it("projectLimit 未透传＋免费：回落 1 本（249 行另一臂）", async () => {
+    Object.assign(tierState, { tier: "none", isMember: false, expired: false });
+    delete (tierState as { projectLimit?: number | null }).projectLimit;
+    getMock.mockImplementation(async (path: string) => {
+      if (path === "/novels") return [novel()];
+      if (path === "/auth/config") return { has_api_key: true };
+      return {};
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getAllByText(/书架已满/).length).toBeGreaterThan(0));
+    expect(document.querySelector('[data-od-id="lock-tile"]')).toBeTruthy();
+  });
+
   it("无 portal_url 时升级按钮回落常量门户", async () => {
     Object.assign(tierState, { tier: "none", isMember: false, expired: false, trialRemainingDays: 0, projectLimit: 1 });
     getMock.mockImplementation(async (path: string) => {
