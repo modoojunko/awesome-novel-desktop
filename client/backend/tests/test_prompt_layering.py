@@ -18,6 +18,7 @@ import os
 from prompts import _PROMPTS_DIR, is_layered
 
 # 片段资产：被其他模板以占位符吸纳的文本片段，不是一次独立的模型调用，SHALL NOT 分层
+# （name_canon 现为文档副本——c-prompt-dead-refs-cleanup 后无模板吸纳它，仍 SHALL NOT 分层）
 ASSETS: frozenset[str] = frozenset(
     {"name_canon", "volume_rules", "volume_pos_first", "pos_ch1", "pos_golden3", "pos_vol_start"}
 )
@@ -29,8 +30,6 @@ MIGRATION_PENDING: frozenset[str] = frozenset(
         # —— 写正文与辅助写作＋推演 10 个已完成分层（2026-09-27）
         # —— 设定页全部 AI（题材四行/简介三/世界三/文风六/伏笔四/角色页五）已完成分层（2026-09-27）
         # —— 归档/反推/建书 6 个已完成分层（2026-09-27）；backfill_step1/2_system 两个死模板已删除
-        # —— 非模板资产：专名口径片段（供引用，本身不是一次调用的模板）
-        "name_canon",
     }
 )
 
