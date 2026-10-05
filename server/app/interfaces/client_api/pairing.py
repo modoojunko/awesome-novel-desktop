@@ -64,7 +64,7 @@ def build_license_snapshot(db, username: str) -> dict:
     data = {
         "tier": license_.effective_tier,
         "expires_at": license_.max_expires_at.isoformat() if license_.max_expires_at else "",
-        "tier_catalog": tier_catalog,
+        "tier_catalog": {"v": 1, "tiers": tier_catalog},
     }
     ent = tier_cfg or _settings.ENTITLEMENT_DEFAULTS.get(
         license_.effective_tier, _settings.ENTITLEMENT_DEFAULTS["none"])

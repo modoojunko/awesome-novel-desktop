@@ -86,7 +86,10 @@ def _device_limit(db, tier: str) -> int:
             from app.infrastructure.repositories.payments_repo import TierRepo
             for row in TierRepo(db).find_all_cached():
                 if row.get("key") == tier:
-                    return int(row.get("device_limit") or 1)
+                    raw = row.get("device_limit")
+                    if raw is None:
+                        break
+                    return int(raw)
         except Exception:  # noqa: BLE001 —— 兜底路径
-            pass
+            logging.getLogger(__name__).warning("event=tier_limit_fallback tier=%s", tier)
     return tier_policy.get_device_limit(tier)

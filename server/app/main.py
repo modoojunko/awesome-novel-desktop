@@ -117,7 +117,7 @@ def on_startup():
     logger = logging.getLogger("app")
     logger.info("event=app.start db_backend=%s db_path=%s", settings.DB_BACKEND, settings.DB_PATH)
 
-    # tier-catalog：rank 单源注入 tiers.rank 列（TierRepo 类级 60s TTL 缓存）；
+    # tier-catalog：rank 单源注入 tiers.rank 列（TierRepo.rank_map_cached，60s TTL）；
     # 读库失败/不可用 → pricing 退 _TIER_RANK 常量并告警（tier_policy 兜底口径）。
     from app.domain.payments import pricing as _tier_pricing
 
@@ -129,8 +129,7 @@ def on_startup():
             from app.models.base import SessionLocal
             db = SessionLocal()
         try:
-            rows = TierRepo(db).find_all_cached()
-            return {r["key"]: int(r["rank"]) for r in rows if r.get("key")}
+            return TierRepo.rank_map_cached(db)
         finally:
             close = getattr(db, "close", None)
             if callable(close):
@@ -143,6 +142,13 @@ def on_startup():
     config_errors = settings.startup_config_errors()
     if config_errors:
         raise RuntimeError("生产配置门禁未通过，拒绝启动（修复后重启）：" + "；".join(config_errors))
+
+    # rank lookup 启动预热（缺行/坏数据当场告警，不等首个请求）——置于生产门禁之后
+    # ＋异常自兜（评审：预热抢抛会改写启动失败原因）。
+    try:
+        _tier_rank_lookup()
+    except Exception as exc:  # noqa: BLE001 —— lookup 失败退常量，不阻断启动
+        logger.warning("event=tier_rank_warmup_failed err=%s", exc)
 
     # env 指纹探针（key 轮换/传输排查用）：只记哈希与长度，绝不落 key 本体。
     # 与 GitHub secret 指纹、生成配置指纹、CloudBase 存储指纹四点对拍，

@@ -223,7 +223,8 @@ class Settings:
         "none":     {"device_limit": 0,  "duration_days": 0,    "display": "无套餐"},
         "trial":    {"device_limit": 1,  "duration_days": 7,    "display": "试用"},
         "free":     {"device_limit": 1,  "duration_days": 0,    "display": "免费"},
-        "pro":      {"device_limit": 5,  "duration_days": 0,    "display": "PRO"},   # 归一化档（monthly/quarterly/yearly → pro；取最高设备数 5）
+        "standard": {"device_limit": 1,  "duration_days": 0,    "display": "标准"},
+        "pro":      {"device_limit": 3,  "duration_days": 0,    "display": "PRO"},   # 归一化档（monthly/quarterly/yearly → pro）；按档固定 3（评审 P1-1：与 tiers 列收敛）
         "max":      {"device_limit": 10, "duration_days": 0,    "display": "MAX"},   # 规划中
         "monthly":  {"device_limit": 3,  "duration_days": 30,   "display": "月付"},
         "quarterly":{"device_limit": 3,  "duration_days": 90,   "display": "季付"},

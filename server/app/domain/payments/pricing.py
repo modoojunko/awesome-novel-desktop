@@ -59,6 +59,7 @@ _TIER_ALIASES: dict[str, str] = {
 _TIER_RANK: dict[str, int] = {
     "none": 0,
     "free": 5,
+    "standard": 15,
     "trial": 10,
     "pro": 20,
     "max": 30,
@@ -87,7 +88,7 @@ def _lookup_ranks() -> dict[str, int] | None:
         m = _rank_lookup()
         return m if isinstance(m, dict) and m else None
     except Exception:  # noqa: BLE001 —— DB 不可用兜底，不向上抛
-        _logger.warning(event="tier_rank_db_unavailable", msg="rank 读库失败，退代码常量")
+        _logger.warning("event=tier_rank_db_unavailable msg=rank 读库失败，退代码常量")
         return None
 
 
@@ -102,8 +103,7 @@ def tier_rank(tier: str) -> int:
     m = _lookup_ranks()
     if m is not None:
         if t not in m:
-            _logger.warning(event="tier_rank_missing", tier=t,
-                            msg="tiers 表缺该档 rank 行——按 0 处理（保守，不静默升档）")
+            _logger.warning("event=tier_rank_missing tier=%s msg=tiers 表缺该档 rank 行——按 0 处理（保守）", t)
             return 0
         return int(m[t])
     return _TIER_RANK.get(t, 0)
@@ -115,23 +115,13 @@ def resolve_effective_tier(active_codes: list) -> str:
     Args:
         active_codes: 已激活/排队中的 codes 行（有 tier 属性）
     """
-    m = _lookup_ranks()
     best_tier = "none"
     best_rank = 0
     for code in active_codes:
-        t = normalize_tier(getattr(code, "tier", "none"))
-        if m is not None:
-            if t not in m:
-                _logger.warning(event="tier_rank_missing", tier=t,
-                                msg="tiers 表缺该档 rank 行——该码不计入归属（保守）")
-                r = 0
-            else:
-                r = int(m[t])
-        else:
-            r = _TIER_RANK.get(t, 0)
+        r = tier_rank(normalize_tier(getattr(code, "tier", "none")))
         if r > best_rank:
             best_rank = r
-            best_tier = t
+            best_tier = normalize_tier(getattr(code, "tier", "none"))
     return best_tier
 
 

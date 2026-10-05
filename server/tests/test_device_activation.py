@@ -325,7 +325,7 @@ class TestDevicesCurrentAPI:
         data = self._get(client, "hash-102", web_user["token"])
         assert data["activated"] is False
         assert data["reason"]["code"] == "limit_exceeded"
-        assert data["active_limit"] == 5
+        assert data["active_limit"] == 3  # 按档固定（tier-plan-four-tiers）：pro 5→3
 
     def test_account_inactive(self, client, uid):
         """无套餐用户（无任何激活码）→ account_inactive。"""

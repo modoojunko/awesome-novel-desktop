@@ -475,24 +475,61 @@ class TierRepo:
     _ENTITLEMENT_CACHE: dict = {}
     _ENTITLEMENT_TTL = 60.0
 
-    # 全行缓存（tier-catalog）：rank 读库/设备限额/目录投影三处共用，60s TTL——
-    # 销售侧改库生效延迟上限 60s（评审已接受）。
+    # 全行缓存（tier-catalog）：rank 读库/设备限额/目录投影/权益解析四处共用同一
+    # 代际（评审 P1-4：避免同响应内 entitlement 与 tier_catalog 各持一份答案）。
+    # 键含 backend 标记（评审 P2-1：sqlite 测试与 pg 运维脚本混跑同进程不串数据）；
+    # 单键元组一次赋值（评审 P2-2：换代原子）。60s TTL——销售侧改库生效延迟上限 60s。
     _FIND_ALL_CACHE: dict = {}
     _FIND_ALL_TTL = 60.0
 
     def __init__(self, db):
         self._db = db
 
+    def _cache_key(self) -> str:
+        from sqlalchemy.orm import Session
+        return "sql" if isinstance(self._db, Session) else "pg"
+
     def find_all_cached(self) -> list[dict]:
-        """全行（类级 TTL 缓存）：rank 查询/设备限额/目录投影共用入口。"""
+        """全行（类级 TTL 缓存）：rank 查询/设备限额/目录投影/权益解析共用入口。
+
+        返回共享 list——消费方 MUST NOT 原地修改（评审 P2-3）。
+        """
+        import logging
+
         import time as _time
+        key = self._cache_key()
         now = _time.monotonic()
-        cached = TierRepo._FIND_ALL_CACHE.get("rows")
-        if cached is not None and now - TierRepo._FIND_ALL_CACHE["at"] < TierRepo._FIND_ALL_TTL:
-            return cached
-        rows = self.find_all()
-        TierRepo._FIND_ALL_CACHE.update({"rows": rows, "at": now})
+        entry = TierRepo._FIND_ALL_CACHE.get(key)
+        if entry is not None and now - entry[0] < TierRepo._FIND_ALL_TTL:
+            return entry[1]
+        try:
+            rows = self.find_all()
+        except Exception as exc:  # noqa: BLE001
+            # 「库无 tiers 表/未迁移」是合法部署态（旧库、sqlite 测试库）——按
+            # DB 不可用兜底口径返回空行，消费方各走 tier_policy/DEFAULTS 兜底。
+            logging.getLogger(__name__).warning(
+                "event=tier_rows_unavailable err=%s msg=tiers 读库失败，消费方走兜底", exc)
+            rows = []
+            return rows  # 异常态不缓存——恢复后立即重查
+        if rows:  # 空行（无表/未种子）不缓存——跨库污染源；B4 插行即时生效
+            TierRepo._FIND_ALL_CACHE[key] = (now, rows)
         return rows
+
+    @classmethod
+    def rank_map_cached(cls, db) -> dict[str, int]:
+        """tiers.rank 列 → {key: rank}（类级缓存命中不触 DB；pricing.lookup 用）。"""
+        import time as _time
+        key = cls(db)._cache_key()
+        now = _time.monotonic()
+        entry = cls._RANKS_CACHE.get(key)
+        if entry is not None and now - entry[0] < cls._FIND_ALL_TTL:
+            return entry[1]
+        rows = cls(db).find_all_cached()
+        m = {r["key"]: int(r["rank"]) for r in rows if r.get("key")}
+        cls._RANKS_CACHE[key] = (now, m)
+        return m
+
+    _RANKS_CACHE: dict = {}
 
     def find_all(self) -> list[dict]:
         if isinstance(self._db, Session):
@@ -503,21 +540,14 @@ class TierRepo:
             return self._db.find("tiers", sort=[("rank", "asc")])
 
     def find_entitlement_by_key(self, tier_key: str) -> dict | None:
-        """档位权益配置（TTL 缓存）。
+        """档位权益配置（派生自 find_all_cached——与目录/.rank 同代际，评审 P1-4）。
 
         返回解析后的 dict（{"features":[...], "limits":{...}}）；
         档位行不存在/未配置/坏 JSON 返回 None（调用方走 ENTITLEMENT_DEFAULTS 兜底）。
         """
         import json
-        import time as _time
 
-        now = _time.monotonic()
-        cached = TierRepo._ENTITLEMENT_CACHE.get(tier_key)
-        if cached is not None and now - cached[0] < TierRepo._ENTITLEMENT_TTL:
-            return cached[1]
-
-        parsed = None
-        for row in self.find_all():
+        for row in self.find_all_cached():
             if row.get("key") != tier_key:
                 continue
             raw = row.get("entitlement")
@@ -525,13 +555,11 @@ class TierRepo:
                 try:
                     doc = json.loads(raw)
                     if isinstance(doc, dict):
-                        parsed = doc
+                        return doc
                 except ValueError:
-                    parsed = None
+                    return None
             break
-
-        TierRepo._ENTITLEMENT_CACHE[tier_key] = (now, parsed)
-        return parsed
+        return None
 
 
 class ReconciliationReportRepo:

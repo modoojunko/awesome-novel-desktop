@@ -145,3 +145,26 @@ def db_session():
         yield s
     finally:
         s.close()
+
+# ── tier-catalog（B2）：TierRepo 类级缓存跨测试隔离 ──
+# find_all_cached/rank_map_cached/entitlement 派生共用 60s 类级缓存，键只到 backend
+# 不含库身份——测试换库后 60s 内会命中他库行。每个用例前清一次（生产不受影响：
+# 60s TTL 语义只在单进程单库的真实部署里成立）。
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _clear_tierrepo_cache():
+    from app.domain.payments import pricing as _tier_pricing
+    from app.infrastructure.repositories.payments_repo import TierRepo
+    # lookup 注入也重置：startup（TestClient 触发）注入的真 lookup 绑定其 env 的
+    # DB，残留会让纯域测试吃到他库 rank map（缺 trial 行即塌 none）。
+    _tier_pricing.configure_rank_lookup(lambda: None)
+    TierRepo._FIND_ALL_CACHE.clear()
+    TierRepo._RANKS_CACHE.clear()
+    TierRepo._ENTITLEMENT_CACHE.clear()
+    yield
+    _tier_pricing.configure_rank_lookup(lambda: None)
+    TierRepo._FIND_ALL_CACHE.clear()
+    TierRepo._RANKS_CACHE.clear()
+    TierRepo._ENTITLEMENT_CACHE.clear()

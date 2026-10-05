@@ -31,7 +31,37 @@ ON CONFLICT (key) DO UPDATE SET
   selling_points = EXCLUDED.selling_points,
   device_limit = EXCLUDED.device_limit;
 
--- ── tiers：按档固定设备数（free/standard/trial=1，pro=3，max=10）；trial 时长 7 ──
+-- ── tiers：基线行存在性保证（缺行=免费/试用塌 none，评审 P0）——INSERT ON CONFLICT ──
+INSERT INTO tiers (key, display_name, rank, status, device_limit, duration_days)
+VALUES ('free', '免费', 5, 'live', 1, 0)
+ON CONFLICT (key) DO UPDATE SET rank = EXCLUDED.rank, device_limit = EXCLUDED.device_limit;
+
+INSERT INTO tiers (key, display_name, rank, entitlement, status, device_limit, duration_days)
+VALUES (
+  'trial', '试用', 10,
+  '{"features":["ai-plan","chapter-review","settings-ai-fields","style-suggest","outline-advanced-fields","ai-model","ai-generate","prompt-panel","ai-detect"],"limits":{"max_projects":null}}',
+  'live', 1, 7
+)
+ON CONFLICT (key) DO UPDATE SET
+  rank = EXCLUDED.rank,
+  entitlement = EXCLUDED.entitlement,
+  device_limit = EXCLUDED.device_limit,
+  duration_days = EXCLUDED.duration_days;
+
+INSERT INTO tiers (key, display_name, rank, selling_points, entitlement, status, device_limit, duration_days)
+VALUES (
+  'pro', 'PRO', 20,
+  '["含标准全部功能","正文 AI 全家：整章生成，逐行采纳","卷纲冲突检测：偏离卷目标当场报","朱雀 AI 味检测（自配腾讯 Key）","提示词页签：写作提示词自己调"]',
+  '{"features":["ai-plan","chapter-review","settings-ai-fields","style-suggest","outline-advanced-fields","ai-model","ai-generate","prompt-panel","ai-detect"],"limits":{"max_projects":null}}',
+  'live', 3, 0
+)
+ON CONFLICT (key) DO UPDATE SET
+  rank = EXCLUDED.rank,
+  selling_points = EXCLUDED.selling_points,
+  entitlement = EXCLUDED.entitlement,
+  device_limit = EXCLUDED.device_limit;
+
+-- ── tiers：按档固定设备数核对（free/standard/trial=1，pro=3，max=10）；trial 时长 7 ──
 UPDATE tiers SET device_limit = 1 WHERE key IN ('free', 'standard', 'trial');
 UPDATE tiers SET device_limit = 3 WHERE key = 'pro';
 UPDATE tiers SET duration_days = 7 WHERE key = 'trial';
@@ -55,6 +85,14 @@ ON CONFLICT (sku_key) DO UPDATE SET base_price_fen = 8990, device_limit = 10, so
 
 -- ── skus：PRO 现存行按档固定（年卡 device_limit 5→3）──
 UPDATE skus SET device_limit = 3 WHERE sku_key IN ('pro_yearly', 'pro_quarterly', 'pro_monthly');
+
+-- ── 运维注记 ──
+-- ① pro 设备限额 5→3 在本脚本应用后即时生效于存量 pro 付费用户（60s TTL 内），
+--    非 B4 开卖日才生效；超限设备在下一轮校验时失活。回滚须回写 device_limit=5。
+-- ② 本迁移对应的 alembic revision=c9d0e1f2a3b4：MCP 带外应用 DDL 后 MUST
+--    alembic stamp c9d0e1f2a3b4，否则再跑 upgrade 会 duplicate column。
+-- ③ 应用前必核：SELECT key, rank, status FROM tiers ORDER BY rank;（基线行存在性
+--    已由本脚本 INSERT ON CONFLICT 保证，但仍须目检 rank 无冲突）。
 
 -- ── 目检 ──
 -- SELECT key, rank, status, device_limit, duration_days FROM tiers ORDER BY rank;

@@ -61,7 +61,9 @@ def register_user(
         from app.infrastructure.repositories.payments_repo import TierRepo
         for row in TierRepo(db).find_all_cached():
             if row.get("key") == "trial":
-                trial_days = int(row.get("duration_days") or 7)
+                raw = row.get("duration_days")
+                if raw is not None:  # 0 天是合法配置（禁试用），缺失才落兜底 7
+                    trial_days = int(raw)
                 break
     except Exception:  # noqa: BLE001 —— 兜底路径
         pass

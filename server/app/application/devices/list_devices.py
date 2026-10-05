@@ -1,6 +1,8 @@
 """列出用户所有设备（含激活状态）。"""
 from __future__ import annotations
 
+import logging
+
 from app.domain.devices import ActivationPolicy
 from app.domain.licensing import License, tier_policy
 from app.infrastructure.repositories.base import CodeRepo, DeviceRepo
@@ -34,7 +36,10 @@ def _device_limit(db, tier: str) -> int:
         try:
             for row in TierRepo(db).find_all_cached():
                 if row.get("key") == tier:
-                    return int(row.get("device_limit") or 1)
+                    raw = row.get("device_limit")
+                    if raw is None:  # 列缺失（DDL 带外失序）→ 落兜底而非钳 1
+                        break
+                    return int(raw)  # 0 是合法值（档位禁设备）
         except Exception:  # noqa: BLE001 —— 兜底路径
-            pass
+            logging.getLogger(__name__).warning("event=tier_limit_fallback tier=%s", tier)
     return tier_policy.get_device_limit(tier)
