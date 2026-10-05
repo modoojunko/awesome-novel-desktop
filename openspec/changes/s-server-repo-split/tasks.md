@@ -22,7 +22,7 @@
 - [x] 3.1 删 `server/` 全目录＋根级随迁资产（code_issue.py、4+1 个 workflows）。（git rm server/ 全目录＋code_issue.py＋4 workflow；20 个 S端 spec 同批删除）
 - [x] 3.2 compose 全家桶改造：server 构建上下文 `${S_SERVER_DIR:-../awesome-novel-server/server}`；本地栈配方与 CLAUDE.md 更新；openspec/config.yaml context 去 S端 表述。（compose server 两服务改 ${S_SERVER_DIR:-../awesome-novel-server/server}，frontend 命名上下文 brand=./brand repo=. 用本仓副本；CLAUDE.md 常用命令/架构图/目录树改 sibling 指引；openspec/config.yaml context 加拆仓注记）
 - [x] 3.3 e2e-scheduled.yml 改 CI 双 checkout（secrets token 引用）；design-cross.mjs 去向落定（S端 仓 CI 或本地双 checkout），ai-novel 门禁条目改写。（e2e-scheduled 双 checkout（S_SERVER_TOKEN secret 待配）＋S_SERVER_DIR 注入＋活体冒烟路径改 s-server/；docker-build-ci 重写 C端 半只构建 client 两镜像；design-cross.mjs 改 S_SERVER_DIR/sibling 约定——对拍实测零差异；brand/scripts playwright import 改 client/frontend（S端 仓副本路径本就对））
-- [x] 3.4 `s-prompt-pack-delivery` 留守半重写为 C端 change（拉包安装），标注「S端 半在 awesome-novel-server#<change>」。（s-prompt-pack-delivery 重写为 C端 半：proposal/design/tasks/specs 全新四件套，架构=四方评审收口版，5 项拍板列为 design freeze 门槛；S端 半在 awesome-novel-server 同名 change）
+- [x] 3.4 `s-prompt-pack-delivery` 留守半重写为 C端 change（拉包安装），标注「S端 半在 awesome-novel-server#<change>」。（用户 2026-10-05 拍板取消该 change：三处工件全清——S端 仓移除（4547b22，底本留 git 历史）、主检出未跟踪草稿删除、本分支不携带；后续按 5 项产品决策另立新 change）
 
 ## 4. 验证（双向）
 
