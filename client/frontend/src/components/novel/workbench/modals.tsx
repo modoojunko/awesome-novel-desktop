@@ -254,7 +254,7 @@ export function ArchiveModal({
           重归档不重跑收尾（c-ops-tab-progress-only），该区不出现 */}
       {!rearchiveMode && (
         <div className="arch-plan" data-od-id="archive-plan" data-testid="archive-plan">
-          <p className="ap-h">归档收尾（PRO）</p>
+          <p className="ap-h">归档收尾提案</p>
           {isPro ? (
             <>
               <p className="ap-lead">

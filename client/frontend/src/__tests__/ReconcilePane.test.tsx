@@ -85,7 +85,6 @@ function renderPane(props: Partial<Parameters<typeof ReconcilePane>[0]> = {}) {
       projectId="p1"
       chapterRef="vol-1-ch-1"
       archived
-      isPro
       kinds={["lore"]}
       {...props}
     />,
@@ -93,8 +92,8 @@ function renderPane(props: Partial<Parameters<typeof ReconcilePane>[0]> = {}) {
 }
 
 describe("ReconcilePane（收尾提案·各归各的页签）", () => {
-  it("免费档不渲染收尾区：无占位、不拉取", () => {
-    const { container } = renderPane({ isPro: false });
+  it("未归档不渲染收尾区：无占位、不拉取（归档 AI 全家免费后档位不再拦截）", () => {
+    const { container } = renderPane({ archived: false });
     expect(container.textContent).toBe("");
     expect(apiState.fetchReconcile).not.toHaveBeenCalled();
   });
