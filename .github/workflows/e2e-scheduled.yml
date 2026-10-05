@@ -45,6 +45,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 拆仓（s-server-repo-split）：S端 源码在私有仓 awesome-novel-server，
+      # compose 以 S_SERVER_DIR 取服务端构建上下文——双 checkout 到 s-server/。
+      # ⚠ 需在仓库 secrets 配 S_SERVER_TOKEN（PAT，对 awesome-novel-server 有读权限）。
+      - uses: actions/checkout@v4
+        with:
+          repository: modoojunko/awesome-novel-server
+          token: ${{ secrets.S_SERVER_TOKEN }}
+          path: s-server
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -58,6 +67,8 @@ jobs:
 
       - name: 起四服务 docker 栈
         run: docker compose up -d --build
+        env:
+          S_SERVER_DIR: ${{ github.workspace }}/s-server/server
 
       - name: 等待服务就绪（C 前端 5174 / C 后端 health / S 后端 19000 TCP）
         run: |
@@ -102,7 +113,7 @@ jobs:
       # 不设则该组自动 skip，故放 nightly 显式设置真跑。
       - name: S web 契约活体冒烟
         run: |
-          cd server/frontend
+          cd s-server/server/frontend
           npm ci --no-audit --no-fund
           npx playwright install --with-deps chromium
           S_LIVE_BASE_URL=http://localhost:19000 npx playwright test e2e/tests/live/

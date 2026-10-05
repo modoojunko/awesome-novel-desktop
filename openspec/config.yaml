@@ -2,15 +2,17 @@ schema: spec-driven
 
 # 项目上下文：任何 explore/propose/apply/archive 的 AI 都会先读到这一段。
 context: |
-  单用户桌面 AI 长篇小说应用「爱小说」，双前端：
-    - C端 client/frontend = React 19 + Vite + TS（HashRouter），屏为书架/工作台/设定/AI 四域。
-    - S端 server/frontend = Vue 3 + Pinia + Tailwind 4（仅布局工具类），屏为落地页/认证/控制台。
-  两端共用同一套视觉基因：oklch 令牌与语义组件类定义在各自 src/design/base.css，基础段系逐字移植；
+  单用户桌面 AI 长篇小说应用「爱小说」（C端，本仓）：
+    - client/frontend = React 19 + Vite + TS（HashRouter），屏为书架/工作台/设定/AI 四域。
+  视觉基因：oklch 令牌与语义组件类定义在 src/design/base.css。
+  ⚠ 拆仓注记（s-server-repo-split，2026-10）：S端（Vue 3 控制台/落地页）已迁私有仓
+  awesome-novel-server；两端共用同一套视觉基因，基础段系逐字移植；
   Tailwind 不做视觉决策；图标唯一来源是各端注册表（client src/components/icons.tsx ·
   server src/components/ui/icons.ts），公共键 path 必须一致。
 
   设计事实源（改任何界面都要经过；标准唯一住在 docs/ux，design-c 只是运行资产）：
     - 标准正文 docs/ux/design-language.html —— §5 状态语言总表 / §6 组件词汇 /
+      （S端 对应词汇表在 awesome-novel-server 仓，跨端对拍脚本 design-cross.mjs 需双 checkout，在本地跑）
       §11 门控 / §12 删除分级 / §13 文案术语；docs/ux/uikit/ 可搬运候选组件
     - 全端裁决 docs/ux/cross-end.html —— 三层契约（L1 令牌与基础类逐字同 /
       L2 语义类同名同义 / L3 业务层白名单）、8 处漂移裁决、迁移映射表、仲裁规则
