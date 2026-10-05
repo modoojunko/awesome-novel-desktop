@@ -100,8 +100,10 @@ POLL_TIMEOUT = 120
 # 档位兜底名单（仅"无快照"分支使用，见 check_permission 分支 4）：
 # 含归一化档位 pro/max 与历史档位名——兜老 S端 与首次升级未刷新的窗口
 # （c-s-entitlement-sync：主判定路径不存在档位白名单，快照优先）。
-FALLBACK_MEMBER_TIERS = ("trial", "pro", "max",
+FALLBACK_MEMBER_TIERS = ("trial", "standard", "pro", "max",
                          "monthly", "quarterly", "yearly", "lifetime")
+# standard 入名单（tier-plan-four-tiers B1）：标准档不可购前无用户暴露；
+# B3 3.1 准入闸分支重构后本名单退役为「目录皆无时的已知档兜底」。
 
 # 快照完整性：features 是 list 且 limits.max_projects 键存在（Q3 三段式的判定前提）
 def _snapshot_complete(ent) -> bool:
@@ -116,20 +118,52 @@ def _snapshot_complete(ent) -> bool:
 # 档位标准配置镜像（与 docs/contracts/entitlement-defaults.json 同源，tests 对拍；
 # 只用于"快照存在但不完整且重同步不可得"的极端分支——按档位标准给权限，不是瞎放开）
 _TIER_ALIAS = {"monthly": "pro", "quarterly": "pro", "yearly": "pro", "lifetime": "pro"}
+# v2（tier-plan-four-tiers，2026-10-05 拍板）——与 docs/contracts/entitlement-defaults.json
+# 逐键对拍（tests/test_entitlement_sync.py 3.6）。trial=pro 同权含朱雀（ai-detect 留 PRO）；
+# style-suggest（文风建议，标准）/style-quant（文风蒸馏，MAX）已拆 key。
 STANDARD_FALLBACK = {
-    "none":  {"features": [], "limits": {"max_projects": 1}},
-    "free":  {"features": [], "limits": {"max_projects": 1}},
-    "trial": {"features": ["settings-ai-fields", "outline-advanced-fields",
-                           "ai-generate", "prompt-panel", "ai-model"],
-              "limits": {"max_projects": None}},
-    "pro":   {"features": ["settings-ai-fields", "outline-advanced-fields",
-                           "ai-generate", "prompt-panel", "ai-model",
-                           "ai-detect"],
-              "limits": {"max_projects": None}},
-    "max":   {"features": ["settings-ai-fields", "outline-advanced-fields",
-                           "ai-generate", "prompt-panel", "ai-model",
-                           "ai-detect"],
-              "limits": {"max_projects": None}},
+    "none":     {"features": [], "limits": {"max_projects": 1}},
+    "free":     {"features": [], "limits": {"max_projects": 1}},
+    "standard": {"features": ["ai-plan",
+                            "chapter-review",
+                            "settings-ai-fields",
+                            "style-suggest",
+                            "outline-advanced-fields",
+                            "ai-model"],
+                 "limits": {"max_projects": 3}},
+    "pro":      {"features": ["ai-plan",
+                            "chapter-review",
+                            "settings-ai-fields",
+                            "style-suggest",
+                            "outline-advanced-fields",
+                            "ai-model",
+                            "ai-generate",
+                            "prompt-panel",
+                            "ai-detect"],
+                 "limits": {"max_projects": None}},
+    "max":      {"features": ["ai-plan",
+                            "chapter-review",
+                            "settings-ai-fields",
+                            "style-suggest",
+                            "outline-advanced-fields",
+                            "ai-model",
+                            "ai-generate",
+                            "prompt-panel",
+                            "ai-detect",
+                            "ai-plot",
+                            "ai-polish",
+                            "style-quant"],
+                 "limits": {"max_projects": None}},
+    "trial":    {"features": ["ai-plan",
+                            "chapter-review",
+                            "settings-ai-fields",
+                            "style-suggest",
+                            "outline-advanced-fields",
+                            "ai-model",
+                            "ai-generate",
+                            "prompt-panel",
+                            "ai-detect"],
+                 "limits": {"max_projects": None}},
 }
 
 

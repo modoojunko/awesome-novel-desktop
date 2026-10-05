@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { FEATURES, isMemberFeature, type FeatureKey } from "@/lib/features";
+import { FEATURES, isMemberFeature, minTierOf, tierRank, type FeatureKey, type TierKey } from "@/lib/features";
 
 const FREE_FEATURES: FeatureKey[] = [
   "tree-crud",
@@ -13,37 +13,68 @@ const FREE_FEATURES: FeatureKey[] = [
   "ai-model",
 ];
 
-const MEMBER_FEATURES: FeatureKey[] = [
+// 四档 AI 矩阵（2026-10-05 拍板）：标准=管流程；PRO=正文＋朱雀；MAX=推演/去AI味/蒸馏
+const STANDARD_FEATURES: FeatureKey[] = [
   "settings-ai-fields",
   "outline-advanced-fields",
-  "ai-generate",
-  "prompt-panel",
-  // 朱雀 AI 检测：PRO 起发放、试用不含（c-ai-detect-pro-tier；精确发放靠快照，
-  // 注册表 memberOnly 仅作快照缺失兜底——兜底即未授权，锁定）
-  "ai-detect",
+  "ai-plan",
+  "chapter-review",
+  "style-suggest",
 ];
 
-describe("isMemberFeature — 会员功能矩阵（2026-08-18 口径）", () => {
-  it("人工写作能力非会员功能（免费完整可用）", () => {
+const PRO_FEATURES: FeatureKey[] = ["ai-generate", "prompt-panel", "ai-detect"];
+
+const MAX_FEATURES: FeatureKey[] = ["ai-plot", "ai-polish", "style-quant"];
+
+describe("minTierOf — 四档功能矩阵（2026-10-05 拍板）", () => {
+  it("人工写作能力免费完整可用", () => {
     for (const key of FREE_FEATURES) {
-      expect(isMemberFeature(key), key).toBe(false);
+      expect(minTierOf(key), key).toBe("free");
     }
   });
 
-  it("AI 能力是会员功能（入口可见、使用由后端拦截）", () => {
-    for (const key of MEMBER_FEATURES) {
-      expect(isMemberFeature(key), key).toBe(true);
+  it("标准档=AI 管流程＋设定域 AI＋文风建议（正文自己写）", () => {
+    for (const key of STANDARD_FEATURES) {
+      expect(minTierOf(key), key).toBe("standard");
     }
   });
 
-  it("清单键与两态分组完全覆盖（无遗漏无多键）", () => {
+  it("PRO=正文 AI＋提示词＋朱雀（留 PRO，trial 同权）", () => {
+    for (const key of PRO_FEATURES) {
+      expect(minTierOf(key), key).toBe("pro");
+    }
+  });
+
+  it("MAX=剧情推演＋去AI味＋文风蒸馏（style-quant 与 style-suggest 拆 key）", () => {
+    for (const key of MAX_FEATURES) {
+      expect(minTierOf(key), key).toBe("max");
+    }
+  });
+
+  it("清单键与四档分组完全覆盖（无遗漏无多键）", () => {
     const keys = Object.keys(FEATURES) as FeatureKey[];
-    expect(keys.length).toBe(FREE_FEATURES.length + MEMBER_FEATURES.length);
+    expect(keys.length).toBe(
+      FREE_FEATURES.length + STANDARD_FEATURES.length + PRO_FEATURES.length + MAX_FEATURES.length,
+    );
     for (const key of keys) {
-      const inFree = FREE_FEATURES.includes(key);
-      const inMember = MEMBER_FEATURES.includes(key);
-      expect(inFree || inMember, key).toBe(true);
-      expect(FEATURES[key].memberOnly).toBe(inMember);
+      const group = [FREE_FEATURES, STANDARD_FEATURES, PRO_FEATURES, MAX_FEATURES].find((g) =>
+        g.includes(key),
+      );
+      expect(group, key).toBeDefined();
+    }
+  });
+
+  it("tierRank 序：free < standard < pro < max；未知档回落 free", () => {
+    expect(tierRank("free")).toBeLessThan(tierRank("standard"));
+    expect(tierRank("standard")).toBeLessThan(tierRank("pro"));
+    expect(tierRank("pro")).toBeLessThan(tierRank("max"));
+    expect(tierRank("unknown" as TierKey)).toBe(0);
+  });
+
+  it("isMemberFeature 兼容派生：minTier>free 即会员功能", () => {
+    for (const key of FREE_FEATURES) expect(isMemberFeature(key), key).toBe(false);
+    for (const key of [...STANDARD_FEATURES, ...PRO_FEATURES, ...MAX_FEATURES]) {
+      expect(isMemberFeature(key), key).toBe(true);
     }
   });
 });

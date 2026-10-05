@@ -233,20 +233,52 @@ class Settings:
     # 与 docs/contracts/entitlement-defaults.json 同源（两端各有对拍测试）；档位行
     # 缺 entitlement 配置/坏 JSON 时 check-auth 用此兜底。feature key 词汇表 =
     # client/frontend/src/lib/features.ts，加 key 先登记 specs。
+    # v2（tier-plan-four-tiers，2026-10-05 拍板）——与 docs/contracts/entitlement-defaults.json
+    # 逐键对拍（tests/test_check_auth_extension.py）。注意 standard 行 MUST NOT 缺：
+    # tiers 行 JSON 坏/缺时快照兜底落到 defaults["none"]，标准用户权益会清零。
     ENTITLEMENT_DEFAULTS: dict = {
-        "none":  {"features": [], "limits": {"max_projects": 1}},
-        "free":  {"features": [], "limits": {"max_projects": 1}},
-        "trial": {"features": ["settings-ai-fields", "outline-advanced-fields",
-                               "ai-generate", "prompt-panel", "ai-model"],
-                  "limits": {"max_projects": None}},
-        "pro":   {"features": ["settings-ai-fields", "outline-advanced-fields",
-                               "ai-generate", "prompt-panel", "ai-model",
+        "none":     {"features": [], "limits": {"max_projects": 1}},
+        "free":     {"features": [], "limits": {"max_projects": 1}},
+        "standard": {"features": ["ai-plan",
+                               "chapter-review",
+                               "settings-ai-fields",
+                               "style-suggest",
+                               "outline-advanced-fields",
+                               "ai-model"],
+                    "limits": {"max_projects": 3}},
+        "pro":      {"features": ["ai-plan",
+                               "chapter-review",
+                               "settings-ai-fields",
+                               "style-suggest",
+                               "outline-advanced-fields",
+                               "ai-model",
+                               "ai-generate",
+                               "prompt-panel",
                                "ai-detect"],
-                  "limits": {"max_projects": None}},
-        "max":   {"features": ["settings-ai-fields", "outline-advanced-fields",
-                               "ai-generate", "prompt-panel", "ai-model",
+                    "limits": {"max_projects": None}},
+        "max":      {"features": ["ai-plan",
+                               "chapter-review",
+                               "settings-ai-fields",
+                               "style-suggest",
+                               "outline-advanced-fields",
+                               "ai-model",
+                               "ai-generate",
+                               "prompt-panel",
+                               "ai-detect",
+                               "ai-plot",
+                               "ai-polish",
+                               "style-quant"],
+                    "limits": {"max_projects": None}},
+        "trial":    {"features": ["ai-plan",
+                               "chapter-review",
+                               "settings-ai-fields",
+                               "style-suggest",
+                               "outline-advanced-fields",
+                               "ai-model",
+                               "ai-generate",
+                               "prompt-panel",
                                "ai-detect"],
-                  "limits": {"max_projects": None}},   # planned：先给 pro 同款，上线改配置即可
+                    "limits": {"max_projects": None}},   # trial=pro 同权含朱雀（ai-detect 留 PRO）
     }
 
 

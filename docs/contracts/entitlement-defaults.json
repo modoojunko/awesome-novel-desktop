@@ -1,6 +1,6 @@
 {
-  "_comment": "套餐权益标准配置·双端单一对拍基准。S端 ENTITLEMENT_DEFAULTS 与 C端 STANDARD_FALLBACK 均须与本文件一致（两端各有对拍测试）。变更流程：先登记 specs 词汇表 → 改本文件 → 两端实现同批改。feature key 事实源 = client/frontend/src/lib/features.ts。",
-  "version": 1,
+  "_comment": "套餐权益标准配置·双端单一对拍基准（v2，tier-plan-four-tiers）。S端 ENTITLEMENT_DEFAULTS 与 C端 STANDARD_FALLBACK 均须与本文件一致（两端各有对拍测试）。加新 key 六步 SOP：① specs 词汇表登记（tier-gating Feature capability registry）② 本文件与两端镜像同批改 ③ S端 tiers 行 entitlement JSON（生产库）按档发 key ④ C端 44 声明点挂 ai_feature(key) ⑤ 两端对拍测试同批绿 ⑥ e2e 锁点复查。feature key 事实源 = client/frontend/src/lib/features.ts。口径（2026-10-05 拍板）：trial=pro 同权含朱雀；style-suggest（文风建议）归标准 / style-quant（文风蒸馏）归 MAX——两 key 已拆。",
+  "version": 2,
   "free_baseline": {
     "features": [],
     "limits": { "max_projects": 1 }
@@ -14,34 +14,58 @@
       "features": [],
       "limits": { "max_projects": 1 }
     },
-    "trial": {
+    "standard": {
       "features": [
+        "ai-plan",
+        "chapter-review",
         "settings-ai-fields",
+        "style-suggest",
         "outline-advanced-fields",
-        "ai-generate",
-        "prompt-panel",
         "ai-model"
       ],
-      "limits": { "max_projects": null }
+      "limits": { "max_projects": 3 }
     },
     "pro": {
       "features": [
+        "ai-plan",
+        "chapter-review",
         "settings-ai-fields",
+        "style-suggest",
         "outline-advanced-fields",
+        "ai-model",
         "ai-generate",
         "prompt-panel",
-        "ai-model",
         "ai-detect"
       ],
       "limits": { "max_projects": null }
     },
     "max": {
       "features": [
+        "ai-plan",
+        "chapter-review",
         "settings-ai-fields",
+        "style-suggest",
         "outline-advanced-fields",
+        "ai-model",
         "ai-generate",
         "prompt-panel",
+        "ai-detect",
+        "ai-plot",
+        "ai-polish",
+        "style-quant"
+      ],
+      "limits": { "max_projects": null }
+    },
+    "trial": {
+      "features": [
+        "ai-plan",
+        "chapter-review",
+        "settings-ai-fields",
+        "style-suggest",
+        "outline-advanced-fields",
         "ai-model",
+        "ai-generate",
+        "prompt-panel",
         "ai-detect"
       ],
       "limits": { "max_projects": null }
