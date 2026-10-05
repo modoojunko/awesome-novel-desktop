@@ -1,12 +1,17 @@
-"""专名口径单源 + 本书专名册（c-ai-name-canon）。
+"""本书专名名册 + 专名口径规则（c-ai-name-canon）。
 
-两条腿缺一不可（2026-09-27 真机实测结论）：
-- **规则**（`name_canon_text`，`prompts/name_canon.prompt`）：与题材/作者无关的通用措辞；
-- **名册**（`known_names`）：把"本书已登记的专名"列成清单给模型——只有抽象规则时，模型
-  面对作者旧稿原文（"关键词尽量吸收"）会继续沿用未登记专名（实测：豢养派照旧出现）。
-  名册＋产出申报对拍＋一次纠正重试，才是能落地的机制。
+**现状（c-prompt-dead-refs-cleanup，2026-10-05）**：
+- **名册**（`known_names`/`roster_text`）：唯一活注入腿——填 arc_draft/arc_calibrate/
+  arc_check、chapter_archive_extract、settings_characters_check 等模板的 {roster}；
+- **规则片段**（`name_canon_text`，`prompts/name_canon.prompt`）：**参考存档，无运行时
+  注入点**——prompts/ 已无 {name_rules} 占位符，现行规则是 arc_* 三模板 system 段的
+  语境化变体（三处互不逐字一致）；改专名口径去三处内联地改，改本片段不生效。
+  恢复单源注入须给 arc_* 加回占位符并重新接线对拍（详见片段头注释）。
 
-题材中立：现实题材无势力/无力量体系时相应集合为空，规则里"没有的类别就退通称"兜底；
+历史结论仍成立（2026-09-27 真机实测）：只有抽象规则不给名册时，模型面对作者旧稿
+原文会继续沿用未登记专名——名册＋产出申报对拍才是能落地的机制。
+
+题材中立：现实题材无势力/无力量体系时相应集合为空，「没有的类别就退通称」兜底；
 不假设任何具体题材、不写死任何具体词。
 """
 
@@ -14,7 +19,11 @@ _CANON_PROMPT = "name_canon"
 
 
 def name_canon_text() -> str:
-    """专名口径片段（单源）；剥掉文件头 `## ` 版本注释行（不入提示词）。"""
+    """专名口径片段加载器——**参考存档**（当前零调用方；无 {name_rules} 注入点）。
+
+    剥掉文件头 `## ` 版本注释行（不入提示词）。保留本函数：未来恢复动态注入时，
+    先给 arc_* 三模板加回占位符并重接线对拍（见模块 docstring 与片段头注释）。
+    """
     from prompts import load
 
     lines = load(_CANON_PROMPT).splitlines()
