@@ -12,10 +12,12 @@ from typing import Any
 
 import httpx
 from anthropic import APIConnectionError as AnthropicConnectionError
+from anthropic import APIStatusError as AnthropicStatusError
 from anthropic import APITimeoutError as AnthropicTimeoutError
 from anthropic import AsyncAnthropic
 from anthropic import Timeout as AnthropicTimeout
 from openai import APIConnectionError as OpenAIConnectionError
+from openai import APIStatusError as OpenAIStatusError
 from openai import APITimeoutError as OpenAITimeoutError
 from openai import AsyncOpenAI
 from openai import Timeout as OpenAITimeout
@@ -52,6 +54,31 @@ _NETWORK_ERRORS: tuple[type[Exception], ...] = (
 
 class AITimeoutError(Exception):
     """AI 调用网络层失败（超时/连接不通）——区别于供应商拒绝业务参数。"""
+
+
+class AIRequestError(Exception):
+    """上游 HTTP 层拒绝且可归因（404/405＝地址/接口格式不对）——区别于网络层 AITimeoutError。"""
+
+
+# 上游 HTTP 拒绝（非网络层）：仅 404/405 归一化文案（内测 405 案），其余状态保持
+# SDK 原始报错透传——避免把供应商的业务 4xx（限流/参数/鉴权细节）改写成二手信息。
+_UPSTREAM_STATUS_ERRORS: tuple[type[Exception], ...] = (
+    OpenAIStatusError,
+    AnthropicStatusError,
+)
+
+
+def _upstream_route_message(exc: Exception, provider: str, base_url: str) -> str:
+    """404/405 对外文案：点名实际请求地址与去处，替掉无信息量的裸 `Error code: 405 - {...}`。"""
+    status = getattr(exc, "status_code", "?")
+    base = (base_url or "").rstrip("/") or "（未填）"
+    path = "/chat/completions" if provider == "openai" else "/v1/messages"
+    fmt = "OpenAI" if provider == "openai" else "Anthropic"
+    return (
+        f"模型服务拒绝了请求（HTTP {status}）：当前配置（{fmt} 格式）下实际请求 "
+        f"{base}{path}。请到「模型配置」核对 Base URL 与接口格式是否和厂商文档一致"
+        "——常见原因是 Base URL 填成了网站地址，或该地址不提供对话接口。"
+    )
 
 
 def _stream_timeout() -> httpx.Timeout:
@@ -151,12 +178,28 @@ class AIClient:
                 kwargs["base_url"] = base_url
             self._client = AsyncOpenAI(**kwargs)
 
+    def _raise_normalized(self, e: Exception) -> None:
+        """异常归一：网络层 → AITimeoutError；上游 404/405 → AIRequestError；其余原样上抛。
+
+        属性只在 404/405 分支读取——业务异常（含裸实例测试路径）不触碰 provider/base_url。
+        """
+        if isinstance(e, _NETWORK_ERRORS):
+            raise AITimeoutError(f"AI 服务连接超时或失败：{e}") from e
+        if isinstance(e, _UPSTREAM_STATUS_ERRORS) and getattr(e, "status_code", None) in (
+            404,
+            405,
+        ):
+            raise AIRequestError(
+                _upstream_route_message(e, self._provider, self._base_url)
+            ) from e
+        raise e
+
     async def _guarded(self, coro):
-        """网络层异常归一为 AITimeoutError（超时/连接失败统一对外语义）。"""
+        """网络层失败归一为 AITimeoutError；上游 404/405 归一为 AIRequestError（可诊断）。"""
         try:
             return await coro
-        except _NETWORK_ERRORS as e:
-            raise AITimeoutError(f"AI 服务连接超时或失败：{e}") from e
+        except Exception as e:  # noqa: BLE001 — 归一目标外的异常原样重抛（_raise_normalized 尾行 raise）
+            self._raise_normalized(e)
 
     def _supports_temperature(self) -> bool:
         """Anthropic 1.x SDK 的 messages.create 不再接受 temperature（须走 extra_body）。"""
@@ -351,8 +394,8 @@ class AIClient:
                     if delta and delta.content:
                         yield StreamEvent(text=delta.content)
                 yield StreamEvent(is_done=True, tokens=done_out, tokens_in=done_in)
-            except _NETWORK_ERRORS as e:
-                raise AITimeoutError(f"AI 服务连接超时或失败：{e}") from e
+            except Exception as e:  # noqa: BLE001 — 归一目标外的异常原样重抛（_raise_normalized 尾行 raise）
+                self._raise_normalized(e)
         else:
             kwargs = self._anthropic_kwargs(kwargs)
             kwargs = self._with_thinking_disabled(kwargs)
@@ -379,8 +422,8 @@ class AIClient:
                             if hasattr(event, "usage") and event.usage:
                                 tokens = event.usage.output_tokens
                             yield StreamEvent(is_done=True, tokens=tokens, tokens_in=tokens_in)
-            except _NETWORK_ERRORS as e:
-                raise AITimeoutError(f"AI 服务连接超时或失败：{e}") from e
+            except Exception as e:  # noqa: BLE001 — 归一目标外的异常原样重抛（_raise_normalized 尾行 raise）
+                self._raise_normalized(e)
 
 
 async def get_ai_client_for_user(user_id: str | None = None) -> AIClient:

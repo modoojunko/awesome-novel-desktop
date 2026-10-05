@@ -721,6 +721,8 @@ class TestModelCandidates:
                 self.status_code = code
                 self._payload = payload or {}
                 self.text = ""
+                # 真 httpx.Response 恒有 headers（连接判据「200 必须是 API JSON」读它）
+                self.headers = {"content-type": "application/json"}
 
             def json(self):
                 return self._payload

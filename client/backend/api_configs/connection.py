@@ -4,6 +4,11 @@
 vendor 只保留 ollama 特例（本地服务、免 Key、自有 tags 端点）。
 models 端点缺失（部分 Anthropic 兼容端点不提供列表）时降级为一条
 max_tokens=1 的最小请求验证鉴权。
+
+「通」的判据（内测 405 案收紧）：200 必须是 API JSON——网站首页/SPA 对任意路径
+回 200 HTML 不算通；anthropic 降级探针 404/405 判败（对话接口不可达）；
+openai 格式在拿到探针模型 id 后追加一条对话探针：用与生成完全相同的地址与鉴权头
+（{base}/chat/completions，SDK 同源拼法）发 max_tokens=1 最小请求，探不进不算通。
 """
 
 from __future__ import annotations
@@ -73,7 +78,9 @@ async def test_connection(
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
             if resp.status_code == 404 and fallback is not None:
-                # models 端点不存在 → 降级最小请求验证鉴权；仅 401/403 判鉴权失败
+                # models 端点不存在 → 降级最小请求验证鉴权与对话路径。401/403 判鉴权
+                # 失败；404/405 = 对话接口本身不可达（地址/格式错）——旧实现对一切
+                # 非 401/403 都报「连接正常」，坏配置一路走到生成期才炸（内测 405 案）
                 f_url, f_headers, f_payload = fallback
                 resp = await client.post(f_url, headers=f_headers, json=f_payload)
                 if resp.status_code in (401, 403):
@@ -83,6 +90,24 @@ async def test_connection(
                         "status": "auth_error",
                         "models": None,
                         "error": f"认证失败 (HTTP {resp.status_code}){detail}",
+                    }
+                if resp.status_code in (404, 405):
+                    return {
+                        "ok": False,
+                        "status": "endpoint_mismatch",
+                        "models": None,
+                        "error": (
+                            f"对话接口不可达（HTTP {resp.status_code} @ {f_url}）——"
+                            "请核对 Base URL 与接口格式是否和厂商文档一致"
+                        ),
+                    }
+                not_api = _non_api_response(resp) if resp.status_code < 400 else ""
+                if not_api:
+                    return {
+                        "ok": False,
+                        "status": "endpoint_mismatch",
+                        "models": None,
+                        "error": not_api,
                     }
                 return {
                     "ok": True,
@@ -141,7 +166,23 @@ async def test_connection(
             "error": f"异常响应 (HTTP {resp.status_code}){detail}",
         }
 
+    not_api = _non_api_response(resp)
+    if not_api:
+        return {
+            "ok": False,
+            "status": "endpoint_mismatch",
+            "models": None,
+            "error": not_api,
+        }
     models = extract_fn(resp)
+    # openai 格式：追加对话探针（与生成同址同头）。旧实现只探 /models，而生成走
+    # {base}/chat/completions——「测试通了、一用就 405/404」的错位根源（内测 405 案）。
+    if api_format == "openai" and vendor_id != "ollama":
+        probe_model = _probe_model(models, vendor_id)
+        if probe_model:
+            ping = await _probe_chat_path(client, base_url, headers, probe_model)
+            if ping is not None:
+                return ping
     return {"ok": True, "status": "ok", "models": models, "error": None}
 
 
@@ -194,6 +235,111 @@ def _build_probe(
         _extract_openai_models,
         None,
     )
+
+
+# ── 「通」的判据组件：非 API 响应识别 / 对话路径探针 ──────────────────────────
+
+
+def _non_api_response(resp: httpx.Response) -> str:
+    """200 响应但体不是 API JSON → 返回给用户的说明；是 JSON 则返回空串。
+
+    典型：Base URL 填成网站首页，SPA 对任意路径回 200 HTML——旧实现按 200 判
+    「连接正常」，坏配置到生成期才炸（内测 405 案）。
+    """
+    ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+    try:
+        body = resp.json()
+    except (ValueError, TypeError):
+        return (
+            "该地址返回的不是 API 数据"
+            + (f"（Content-Type: {ctype}）" if ctype else "")
+            + "——看起来像网页。请检查 Base URL 是否填成了网站地址"
+        )
+    if isinstance(body, dict) and body.get("error"):
+        msg = body["error"]
+        if isinstance(msg, dict):
+            msg = msg.get("message") or msg.get("msg") or str(msg)
+        return f"服务返回了错误（{str(msg)[:120]}）——请检查 Base URL 与 API Key"
+    return ""
+
+
+def _probe_model(models: list[str], vendor_id: str) -> str:
+    """对话探针的模型 id：模型列表首个 → vendor 候选首个 → 空串（跳过探针）。"""
+    if models:
+        return models[0]
+    candidates = model_candidates_for(vendor_id)
+    return candidates[0] if candidates else ""
+
+
+async def _probe_chat_path(
+    client: httpx.AsyncClient, base_url: str, headers: dict[str, str], model: str
+) -> dict[str, Any] | None:
+    """openai 格式对话探针：POST {base}/chat/completions（SDK 同源拼法），max_tokens=1。
+
+    返回 None = 通过（含 400/422 级业务性拒绝——探针模型 id 是猜的，不把
+    「id 不被接受」误报成连接问题）；失败形态 dict = 直接作为连接测试结果返回。
+    """
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    try:
+        resp = await client.post(
+            url,
+            headers=headers,
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+            },
+        )
+    except httpx.TimeoutException:
+        return {
+            "ok": False,
+            "status": "timeout",
+            "models": None,
+            "error": "对话探针超时（连接超时）",
+        }
+    except httpx.RequestError as exc:
+        return {
+            "ok": False,
+            "status": "network_error",
+            "models": None,
+            "error": f"网络错误: {exc}",
+        }
+    if resp.status_code in (401, 403):
+        detail = _extract_error_detail(resp)
+        return {
+            "ok": False,
+            "status": "auth_error",
+            "models": None,
+            "error": f"认证失败 (HTTP {resp.status_code}){detail}",
+        }
+    if resp.status_code in (404, 405):
+        return {
+            "ok": False,
+            "status": "endpoint_mismatch",
+            "models": None,
+            "error": (
+                f"对话接口不可用（HTTP {resp.status_code} @ {url}）——请核对 Base URL "
+                "与接口格式是否和厂商文档一致（常见：地址少了 /v1，或填成了网站地址）"
+            ),
+        }
+    if resp.status_code >= 500:
+        detail = _extract_error_detail(resp)
+        return {
+            "ok": False,
+            "status": "network_error",
+            "models": None,
+            "error": f"服务端错误 (HTTP {resp.status_code}){detail}",
+        }
+    if resp.status_code == 200:
+        not_api = _non_api_response(resp)
+        if not_api:
+            return {
+                "ok": False,
+                "status": "endpoint_mismatch",
+                "models": None,
+                "error": not_api,
+            }
+    return None
 
 
 # ── Response extractors ────────────────────────────────────────────────────
