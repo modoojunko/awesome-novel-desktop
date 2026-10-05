@@ -25,11 +25,11 @@
 
 ## 5. close-out（两个仓库，时序敏感）
 
-- [ ] 5.1 本仓提 PR → CI 绿 → **squash 合入 main**（sync 的版本锚必须指向合并后的 main 提交，5.2 之前必须完成本步）。
-- [ ] 5.2 awesome-novel-prompts：`sync.py` CURATED 更新（`backfill_outlines` 删两条 ph 登记＋layer 改「无占位符——素材经 --- 拼接」＋删 ⚠ 备注；`name_canon` trigger/layer/note 改「参考存档，三处语境化变体非逐字副本」）。
-- [ ] 5.3 awesome-novel-prompts：重新 clone（/tmp 旧检出为临时目录，不假设存活）或复用现存 main 检出，核对 `git -C <ai-novel 检出> log -1 -- client/backend/prompts` 显示的正是 5.1 合并提交 → `python3 sync.py <该检出>` → 占位符对拍闸门通过 → commit＋push。
-- [ ] 5.4 本仓 openspec 归档走常规 archive 流程（`/openspec-archive-change`，基于合并后 main 重读 specs sync）。
+- [x] 5.1 本仓提 PR → CI 绿 → **squash 合入 main**（sync 的版本锚必须指向合并后的 main 提交，5.2 之前必须完成本步）。（#677＝595b25bc，admin squash）
+- [x] 5.2 awesome-novel-prompts：`sync.py` CURATED 更新（`backfill_outlines` 删两条 ph 登记＋layer 改「无占位符——素材经 --- 拼接」＋删 ⚠ 备注；`name_canon` trigger/layer/note 改「参考存档，三处语境化变体非逐字副本」）。（CURATED 两处改毕＋删 #669 三死条目→58）
+- [x] 5.3 awesome-novel-prompts：重新 clone（/tmp 旧检出为临时目录，不假设存活）或复用现存 main 检出，核对 `git -C <ai-novel 检出> log -1 -- client/backend/prompts` 显示的正是 5.1 合并提交 → `python3 sync.py <该检出>` → 占位符对拍闸门通过 → commit＋push。（sync 自 origin/main worktree，锚＝595b25bc，对拍闸门过；顺带修 sync.py strip 语义对齐 C端 loader；prompts 仓 1c32264）
+- [x] 5.4 本仓 openspec 归档走常规 archive 流程（`/openspec-archive-change`，基于合并后 main 重读 specs sync）。（本次归档：spec ② 括注同步进主 spec＋change 移 archive）
 
 ## 回归
 
-- 三闸门＋story_arc 53 绿；全量 backend pytest 1765 绿（+2 新闸门）；ruff 0.16.3 零告警；grep -rw 残留符合预期（仅文档提及）；4.5 可选冒烟未跑（模板纯文本删节、解析锚不变，风险自限）；prompts 仓对拍见 5.x。
+- 三闸门＋story_arc 53 绿；全量 backend pytest 1765 绿（+2 新闸门）；ruff 0.16.3 零告警；grep -rw 残留符合预期（仅文档提及）；4.5 可选冒烟未跑（模板纯文本删节、解析锚不变，风险自限）；prompts 仓对拍✓（1c32264）。
