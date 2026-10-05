@@ -7,6 +7,7 @@
  *  3) 未选中 · 有卷（写作默认页）＝「接着往下规划」（规划第N卷）＋「卷的验证」（各卷一行，
  *     卷号 · 名字 · 章数目标；点一行＝选中该卷并立刻体检）。
  *  原「卷选中态四页签统计卡」与「未选中态四格全书统计」由本 change 退役（workbench delta）。 */
+import { useFeature } from "@/hooks/useTier";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { volumePlanApi, type VolumeCheckResult } from "@/lib/volumePlanApi";
 import { nextVolNo as nextVolumeNo } from "@/lib/chapterRef";
@@ -182,6 +183,9 @@ function VolumeVerifyPanel({
     return [...out, ...rest];
   }, [report, tab]);
 
+  // tier-plan-four-tiers 5.3：卷体检/拆章归 ai-plan（标准起）——免费行锁「需开通」
+  const aiPlan = useFeature("ai-plan");
+
   const runCheck = useCallback(async () => {
     setChecking(true);
     setError("");
@@ -217,7 +221,7 @@ function VolumeVerifyPanel({
           name: checking ? "体检中…" : "体检这一卷",
           desc: "对照主线/节奏/设定/已写内容四组，只给判断不代笔",
           onClick: () => void runCheck(),
-          disabled: checking,
+          disabled: checking || !aiPlan,
           testid: "volume-check-btn",
         },
         ...(tab === "outline"
@@ -237,16 +241,16 @@ function VolumeVerifyPanel({
                 ? `写作位在第${frontierVol}卷——这一卷还没轮到`
                 : outlineIncomplete
                   ? "卷纲关键项还没填——先补卷纲"
-                  : "按卷纲拆出下一章的三方向卡（PRO）",
+                  : "按卷纲拆出下一章的三方向卡（标准起）",
               onClick: () => {
                 /* v8 ignore start -- 防御分支：!isPro／splitBlocked／outlineIncomplete 任一为真时
                    该行同一渲染里必被 disabled（按钮吞 click），真实 UI 只能走三关全过→onSplitAi 一条路 */
-                if (!isPro) onUpgrade();
+                if (!aiPlan) onUpgrade();
                 else if (!splitBlocked && !outlineIncomplete) onSplitAi();
                 /* v8 ignore stop */
               },
-              disabled: checking || splitBlocked || !isPro || outlineIncomplete,
-              hint: !isPro
+              disabled: checking || splitBlocked || !aiPlan || outlineIncomplete,
+              hint: !aiPlan
                 ? "需 PRO"
                 : splitBlocked
                   ? `写作位在第${frontierVol}卷`
@@ -265,7 +269,7 @@ function VolumeVerifyPanel({
         {VOL_TAB_LEAD[tab] ??
           "这一卷的验证：对不对得上全书设定、接不接得上主线、跟已经写出来的部分有没有出入。只给判断，不代笔。"}
       </p>
-      {tab === "chapters" && !isPro && (
+      {tab === "chapters" && !aiPlan && (
         <p className="none" data-testid="volume-split-ai-locked">
           AI 三方向需 PRO——手写拆章免费：用中栏「拆下一章」{" "}
           <button
@@ -277,12 +281,12 @@ function VolumeVerifyPanel({
           </button>
         </p>
       )}
-      {tab === "chapters" && isPro && splitBlocked && (
+      {tab === "chapters" && aiPlan && splitBlocked && (
         <p className="none" data-testid="volume-split-ai-blocked">
           写作位在第{frontierVol}卷——先去那一卷拆章
         </p>
       )}
-      {tab === "chapters" && isPro && outlineIncomplete && (
+      {tab === "chapters" && aiPlan && outlineIncomplete && (
         <p className="none" data-testid="volume-split-ai-outline-gate">
           卷纲关键项还没填——先补卷纲{" "}
           <button

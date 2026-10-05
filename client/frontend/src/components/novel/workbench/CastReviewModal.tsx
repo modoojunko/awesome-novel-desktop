@@ -43,7 +43,7 @@ export default function CastReviewModal({
   plotItems,
   roster,
   castLines,
-  isPro,
+  hasAiPlan,
   onUpgrade,
   onOpenConfig,
   onQuickCreateChar,
@@ -56,7 +56,7 @@ export default function CastReviewModal({
   roster: string[];
   /** 本章出场名单现值（live）：已有角色候选标「已在名单」 */
   castLines: string[];
-  isPro: boolean;
+  hasAiPlan: boolean;
   /** 升级出口（免费锁卡/抽卡 403） */
   onUpgrade: () => void;
   /** 去模型配置（失败态出口） */
@@ -119,7 +119,7 @@ export default function CastReviewModal({
     footNote =
       state.gaps.length === 0
         ? "零新增是正常结果，不是出错。"
-        : isPro
+        : hasAiPlan
           ? "改段／延后不留记录：改段去剧情区改那一条；延后的那条，剧情挪到哪一章就在哪一章再遇到。"
           : "盘点免费；AI 抽人是 PRO。自己填名字、选已有角色，全档免费。";
     cancelLabel = state.gaps.length === 0 ? "知道了" : allDone ? "完成" : "先不调整";
@@ -275,7 +275,7 @@ export default function CastReviewModal({
             plotItems={plotItems}
             roster={roster}
             castLines={castLines}
-            isPro={isPro}
+            hasAiPlan={hasAiPlan}
             onUpgrade={onUpgrade}
             onQuickCreateChar={onQuickCreateChar}
           />
@@ -478,7 +478,7 @@ function ResultBody({
   plotItems,
   roster,
   castLines,
-  isPro,
+  hasAiPlan,
   onUpgrade,
   onQuickCreateChar,
 }: {
@@ -489,7 +489,7 @@ function ResultBody({
   roster: string[];
   /** 本章出场名单现值（live）：已有角色候选标「已在名单」 */
   castLines: string[];
-  isPro: boolean;
+  hasAiPlan: boolean;
   onUpgrade: () => void;
   onQuickCreateChar?: (name: string) => void;
 }) {
@@ -567,7 +567,7 @@ function ResultBody({
                 cast={cast}
                 roster={roster}
                 castLines={castLines}
-                isPro={isPro}
+                hasAiPlan={hasAiPlan}
                 onUpgrade={onUpgrade}
                 state={state}
               />
@@ -653,7 +653,7 @@ function GapCard({
   state,
   roster,
   castLines,
-  isPro,
+  hasAiPlan,
   onUpgrade,
 }: {
   gap: CastGapView;
@@ -663,7 +663,7 @@ function GapCard({
   roster: string[];
   /** 本章出场名单现值（live）：候选标「已在名单」 */
   castLines: string[];
-  isPro: boolean;
+  hasAiPlan: boolean;
   onUpgrade: () => void;
 }) {
   const [picking, setPicking] = useState(false);
@@ -769,7 +769,7 @@ function GapCard({
         </div>
       ) : (
         <div className="g-act">
-          {isPro ? (
+          {hasAiPlan ? (
             <button
               className="btn btn-primary btn-sm"
               data-testid="cr-draw"
@@ -832,7 +832,7 @@ function GapCard({
       )}
 
       {/* 免费锁（按钮级，无假卡面）：升级出口＋自己填全免费 */}
-      {!isPro && open && gap.choice === "加人" && (
+      {!hasAiPlan && open && gap.choice === "加人" && (
         <div className="lock-card" data-testid="cr-lock">
           <b>AI 抽人是 PRO 功能</b>
           <p>

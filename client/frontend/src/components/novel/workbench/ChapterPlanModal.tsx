@@ -4,6 +4,7 @@
 import Modal from "@/components/design/Modal";
 import { cnNum } from "@/lib/nodeTitle";
 import { STAGES, type ChapterPlanController } from "@/hooks/useChapterPlan";
+import { useFeature } from "@/hooks/useTier";
 
 export function ChapterPlanModal({
   plan,
@@ -15,6 +16,8 @@ export function ChapterPlanModal({
   onClose: () => void;
 }) {
   const { state, pickCard, patchDraft, toManual, draw, redraw, freshRedraw, runSelfcheck, openEdit } = plan;
+  // 自检收 chapter-review（标准起，tier-plan-four-tiers 3.2——原「免费只读例外」收门）
+  const chapterReview = useFeature("chapter-review");
   const cn = cnNum(state.volNo);
   // 章号单源＝服务端 anchor 的 next_no（原实现是常量占位，每章都写「拆第一章」）
   const chCn = cnNum(state.nextNo);
@@ -207,10 +210,13 @@ export function ChapterPlanModal({
           </div>
         )}
 
-        {/* ⑥ 自检（手写卡；免费）——三组：衔接/配额（本地）＋剧情吸引力（AI 四维短评） */}
+        {/* ⑥ 自检（手写卡；chapter-review 标准起——3.2 收门）——三组：衔接/配额（本地）＋剧情吸引力（AI 四维短评） */}
         {!isAi && (
           <details className="cfgset" open data-testid="selfcheck">
-            <summary>AI 看一眼这一章</summary>
+            <summary>
+              AI 看一眼这一章
+              {!chapterReview && <span className="pill pill-warn" data-testid="selfcheck-locked">需开通</span>}
+            </summary>
             <div className="inner">
               <ul className="rp-list">
                 {state.selfcheck?.link ? (
