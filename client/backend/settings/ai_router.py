@@ -1048,7 +1048,7 @@ async def _arc_material(db, project) -> dict:
     """
     from genres.service import build_genre_section, resolve_genre_context
     from settings.character_service import list_characters
-    from settings.name_registry import known_names, name_canon_text, roster_text
+    from settings.name_registry import known_names, roster_text
     from settings.world_model import world_summary_text
 
     world_raw = (
@@ -1063,9 +1063,9 @@ async def _arc_material(db, project) -> dict:
         "world": world or _ARC_WORLD_EMPTY,
         "genre_section": build_genre_section(gctx),
         "cast": _cast_block(items) or _ARC_CAST_EMPTY,
-        # c-ai-name-canon：规则（片段）＋名册（清单）两条腿——只有抽象规则时模型会沿用
-        # 作者旧稿里的未登记专名（2026-09-27 真机实测），名册＋产出对拍才是可落地机制
-        "name_rules": name_canon_text(),
+        # c-ai-name-canon（c-prompt-dead-refs-cleanup 后现状）：名册（roster）是唯一活注入腿；
+        # 专名口径规则无 {name_rules} 占位符——2026-09-27 分层重构起以语境化变体内联于
+        # arc_draft/arc_calibrate/arc_check 的 system 段（三处不逐字一致），改规则去内联地改。
         "roster": roster_text(await known_names(db, project)),
     }
 
