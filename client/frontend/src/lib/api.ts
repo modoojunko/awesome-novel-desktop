@@ -175,6 +175,7 @@ export async function request<T = any>(
       reason === "no_key" ||
       reason === "missing_model" ||
       reason === "storage_busy" ||
+      reason === "prompts_missing" || // c-prompt-pack-client：写作能力未就绪，四态卡就地引导
       reason === "zhuque_not_configured"; // c-zhuque-ai-detect：可操作引导，不进 infra 全局提示
     if (!isAiPrecondition && !options?.quiet && !options?.soft503) {
       notify503(detail.includes("未配置") ? "app" : "infra");

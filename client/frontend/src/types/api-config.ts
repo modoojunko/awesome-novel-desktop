@@ -4,7 +4,14 @@ export type ConnectionStatus = 'ok' | 'auth_error' | 'timeout' | 'network_error'
 export type ModelStatus = 'no_key' | 'no_model' | 'configured' | 'invalid';
 
 /** 后端判定层下发的 AI 就绪态（与 detail.reason 同枚举，D13）。 */
-export type AiState = 'ready' | 'member_required' | 'no_key' | 'missing_model' | 'invalid';
+// prompts_missing（c-prompt-pack-client 4.1）：写作能力包未就绪——与后端 AI_STATES 同批（D13）
+export type AiState =
+  | 'ready'
+  | 'member_required'
+  | 'no_key'
+  | 'missing_model'
+  | 'invalid'
+  | 'prompts_missing';
 export type ChangeType = 'initial' | 'switch' | 'clear' | 'restore';
 
 export interface ApiConfig {

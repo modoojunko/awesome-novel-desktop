@@ -57,6 +57,9 @@ export function useModelStatus(projectId: string | undefined) {
     no_key: "no_key",
     missing_model: "no_model",
     invalid: "invalid",
+    // 写作能力包未就绪（c-prompt-pack-client）：模型配置本身可能完好——按 configured
+    // 投影，缺件引导由 PromptPackCard 承担，不在此误报「没配 Key」
+    prompts_missing: "configured",
   };
   const status: ModelStatus = statusMap[aiState] ?? "no_key";
 

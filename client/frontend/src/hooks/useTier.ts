@@ -16,6 +16,7 @@ const SAFE_FREE: TierState = {
   entitlement: null,
   entitlementDegraded: false,
   syncFailed: false,
+  pack: null,
   loading: false,
   error: null,
   refetch: () => {},

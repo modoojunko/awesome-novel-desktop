@@ -16,6 +16,7 @@ import { Ico, P } from "@/components/icons";
 import { useLegacyDb } from "@/hooks/useLegacyDb";
 import { useTier } from "@/hooks/useTier";
 import { api, errMessage, type ApiError } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { getUsername, logout } from "@/lib/auth";
 import { supportUrl } from "@/lib/support";
 import { formatVersion, useClientVersion } from "@/lib/version";
@@ -419,6 +420,25 @@ export default function AcctMenu({
             <span className="am-version" data-od-id="acct-menu-version">
               {formatVersion(version)}
             </span>
+            {/* 写作能力包版本行（c-prompt-pack-client：客服三句话中间一问的数据面） */}
+            {tier.pack ? (
+              <span className="am-pack" data-od-id="acct-menu-pack" data-testid="acct-menu-pack">
+                {tier.pack.phase === "ready"
+                  ? `写作能力 v${tier.pack.version ?? "-"}`
+                  : "写作能力未就绪"}
+                <button
+                  className="am-pack-check"
+                  type="button"
+                  data-od-id="acct-menu-pack-check"
+                  onClick={() => {
+                    void api.post("/prompt-pack/check", undefined, { quiet: true });
+                    toast.info("正在检查写作能力…");
+                  }}
+                >
+                  检查
+                </button>
+              </span>
+            ) : null}
           </div>
         </div>,
         document.body,

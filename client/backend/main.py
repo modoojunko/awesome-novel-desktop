@@ -17,6 +17,7 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 import brand
 import models  # noqa: F401
 from api_configs.router import router as api_configs_router
+from prompts import PromptPackMissing  # c-prompt-pack-client
 from archive.dossier_router import book_router as dossier_book_router
 from archive.dossier_router import router as dossier_router
 from archive.reconcile_router import router as reconcile_router
@@ -273,6 +274,28 @@ async def lifespan(app: FastAPI):
 # 承接，不再存在任何对既有库执行 DDL 的路径（ADDITIVE_COLUMNS 一并删除）。
 
 app = FastAPI(title=f"{brand.BRAND_NAME} (Local)", version="0.2.0", lifespan=lifespan)
+
+
+@app.exception_handler(PromptPackMissing)
+async def _prompts_missing_handler(request, exc):
+    """写作能力（提示词包）未就绪 → 503＋专用 reason（c-prompt-pack-client 4.1）。
+
+    唯一收敛点：API 模板消费遍历到未装包/包损坏时由 loader 抛 PromptPackMissing，
+    此处统一转 503 detail={reason: prompts_missing}；前端据此出四态卡（未登录→
+    去登录／失败→重新获取／档位不够→升级卡），手写正文等非模板功能不受影响。
+    """
+    logging.getLogger("uvicorn.error").info(
+        "event=prompts_missing path=%s", request.url.path
+    )
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": {
+                "reason": "prompts_missing",
+                "message": "写作能力还没就绪 — 登录后会自动获取；也可点「重新获取」重试",
+            }
+        },
+    )
 
 
 @app.exception_handler(OperationalError)

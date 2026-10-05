@@ -29,8 +29,8 @@
 
 ## 4. 枚举与 UI
 
-- [ ] 4.1 AI_STATES/AiState/BLOCK_TEXT 同批扩＋api.ts 503 白名单收录（vitest 同批）。
-- [ ] 4.2 锁定卡四态＋出口分流（去登录/重新获取/升级卡）＋AcctMenu 包版本行＋复制诊断
+- [x] 4.1 AI_STATES/AiState/BLOCK_TEXT 同批扩＋api.ts 503 白名单收录（vitest 同批）。（后端 AI_STATES＋PromptPackMissing 全局异常处理器→503{reason:prompts_missing}＋前端 AiState 联合/BLOCK_TEXT/api.ts 白名单/useModelStatus 投影五处同批）
+- [x] 4.2 锁定卡四态＋出口分流（去登录/重新获取/升级卡）＋AcctMenu 包版本行＋复制诊断（PromptPackCard 四态组件（就绪/syncing 静默；failed→重新获取+复制诊断；tier_denied→去升级走 member-block 出口；missing→登录/重试）＋挂 AiWriterAssistant 顶部＋AcctMenu 包版本行+「检查」＋book.css/index.css 样式；tsc 净＋vitest 1177+5 绿＋design:lint 零违规。设置页入口落在 AcctMenu（控制中心诊断面），未另开设置弹窗——偏差登记）
   ＋设置页「检查写作能力」入口；tsc＋vitest 绿。
 
 ## 5. 打包断言（硬切）

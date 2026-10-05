@@ -29,7 +29,10 @@ from models.project import Novel
 from models.user import User
 
 # 与前端 `detail.reason` 共用同一枚举（D13）
-AI_STATES = ("ready", "member_required", "no_key", "missing_model", "invalid")
+# prompts_missing（c-prompt-pack-client 4.1）：写作能力包未就绪——与前端 AiState/
+# BLOCK_TEXT 同批扩展（D13）；由 PromptPackMissing 异常处理器产出，不参与 compute_ai_state
+# 判定优先级（它是运行时缺件，不是配置态）。
+AI_STATES = ("ready", "member_required", "no_key", "missing_model", "invalid", "prompts_missing")
 
 
 def parse_models(models_field: Any) -> list[str]:

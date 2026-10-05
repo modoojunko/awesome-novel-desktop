@@ -691,6 +691,13 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 /* ── AI 写作助手卡片 .rail-assist（genre-signup-redesign tasks 3.2 / D4）──
    PRO 徽标并头部 + 并列能力行；免费版 .locked＝可见+降透明（§11 门控）。
    样式对齐原型 prototypes/genre-signup.html */
+/* ── 写作能力（提示词包）rail 卡四态（c-prompt-pack-client 4.2）── */
+.rail-pack { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin-bottom: 14px; }
+.rail-pack .lhead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.rail-pack .lhead b { font-size: 13.5px; }
+.rail-pack p { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+.rail-pack .btn + .btn { margin-left: 8px; }
+
 .rail-assist { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px; }
 .rail-assist .ra-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
 .rail-assist .ra-head .plan-badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: var(--on-accent); flex: none; }

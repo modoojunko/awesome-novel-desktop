@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
+import PromptPackCard from "@/components/novel/license/PromptPackCard";
 import { useFeature } from "@/hooks/useTier";
 import type { CharAiCtx } from "@/lib/characterModel";
 import { toast } from "@/lib/toast";
@@ -76,6 +77,8 @@ const BLOCK_TEXT: Record<string, string> = {
   no_key: "先去「模型配置」添加 API Key",
   missing_model: "先在本书选择模型",
   invalid: "本书绑定的模型已失效，重新选择模型",
+  // c-prompt-pack-client：四态卡（PromptPackCard）承担引导与出口，此处为兜底文案
+  prompts_missing: "写作能力还没就绪——登录后会自动获取",
 };
 
 export default function AiWriterAssistant({
@@ -122,7 +125,10 @@ export default function AiWriterAssistant({
   };
 
   return (
-    <div className={`rail-assist${locked ? " locked" : ""}`} data-od-id={odId} data-testid={testId}>
+    <>
+      {/* 写作能力包四态卡：已就绪/获取中不渲染（全静默）；c-prompt-pack-client 4.2 */}
+      <PromptPackCard />
+      <div className={`rail-assist${locked ? " locked" : ""}`} data-od-id={odId} data-testid={testId}>
       <div className="ra-head">
         <span className="plan-badge">PRO</span>
         <div className="rh-t">
@@ -179,9 +185,10 @@ export default function AiWriterAssistant({
           </button>
         );
       })}
-      {children}
-      <p className="ra-foot">{footNote}</p>
-    </div>
+        {children}
+        <p className="ra-foot">{footNote}</p>
+      </div>
+    </>
   );
 }
 
