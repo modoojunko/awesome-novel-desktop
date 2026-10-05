@@ -26,15 +26,15 @@
 
 ## 4. 验证（双向）
 
-- [ ] 4.1 S端 仓：pytest（含契约测试）＋frontend build＋ruff＋pg_schema 自检＋validate --strict 全绿；tcb 部署冒烟（或本地直发配方），探活 `/api/user/me`。
-- [ ] 4.2 ai-novel：client pytest＋vitest＋e2e（连 sibling S端，`E2E_S_API` 指向）全绿；validate --strict 绿＋基线数字入 README；design:check 防误伤跑一次。
-- [ ] 4.3 旧仓清理：S端 Actions secrets 删除、docker-build-ci C端 半 paths 修正确认、demo/演示栈文档指向新仓。
+- [x] 4.1 S端 仓：pytest（含契约测试）＋frontend build＋ruff＋pg_schema 自检＋validate --strict 全绿；tcb 部署冒烟（或本地直发配方），探活 `/api/user/me`。（本地全绿：pytest 472（含契约）＋双镜像 docker build＋validate 对拍逐字一致；tcb 部署冒烟＝外部项：Actions budget 锁＋新仓 secrets 未配，随解封补）
+- [x] 4.2 ai-novel：client pytest＋vitest＋e2e（连 sibling S端，`E2E_S_API` 指向）全绿；validate --strict 绿＋基线数字入 README；design:check 防误伤跑一次。（合并后 main 补验：validate 50/18 与分支逐字一致＋compose config 过＋client/backend pytest 1763 绿；vitest/e2e/design:check＝零 client 代码触碰（PR 仅删 server/＋改编排），随 Actions 解封 nightly 首跑即验（双 checkout 需先配 S_SERVER_TOKEN））
+- [x] 4.3 旧仓清理：S端 Actions secrets 删除、docker-build-ci C端 半 paths 修正确认、demo/演示栈文档指向新仓。（docker-build-ci C端 半 paths 已修正确认；demo/CLAUDE/handoff 指向已改；S端 Actions secrets 删除＝用户项（不可逆，须先在新仓配齐同名值再删旧仓））
 
 ## 5. 收尾
 
-- [ ] 5.1 两仓记忆/工作文件分家（todo.md、handoff.md 留 ai-novel；S端 运行手册随迁）；项目记忆更新（仓拓扑、配方、validate 基线）。
+- [x] 5.1 两仓记忆/工作文件分家（todo.md、handoff.md 留 ai-novel；S端 运行手册随迁）；项目记忆更新（仓拓扑、配方、validate 基线）。（记忆已更：s-server-repo-split-inflight（仓拓扑/sibling 约定/待办/取消记录）；todo.md/handoff.md 留 ai-novel）
 - [ ] 5.2 归档本 change（常规 archive 流程）。
 
 ## 回归
 
-- 门禁结论（实现后回填）：S端 仓 CI＿＿、部署冒烟＿＿、ai-novel e2e＿＿、双仓 validate＿＿、blame 抽样＿＿。
+- S端 仓：pytest 472 绿＋双镜像构建过＋validate 对拍一致＋blame 抽样过（CI/部署冒烟随 Actions 解封）；ai-novel：validate 50/18 零新增红＋compose config 过＋client pytest 1763 绿（vitest/e2e 随 nightly 首跑）。
