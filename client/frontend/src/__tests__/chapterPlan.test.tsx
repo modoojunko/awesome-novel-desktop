@@ -281,6 +281,18 @@ describe("拆章界面 · AI 三方向（右栏入口，PRO）", () => {
       release(DIRS);
       await act(async () => { await vi.advanceTimersByTimeAsync(10); });
       expect(screen.queryByTestId("split-busy")).not.toBeInTheDocument();
+
+      // 重进 busy：stepsDone 必须已归零（复位在「离开 busy」侧做掉，首帧不带旧值闪「全完成」）
+      let release2!: (v: unknown) => void;
+      mockApi.post.mockReturnValue(new Promise((r) => { release2 = r; }));
+      fireEvent.click(screen.getByTestId("split-redraw"));
+      await act(async () => { await Promise.resolve(); });
+      const reentered = screen.getByTestId("split-steps");
+      expect(reentered).toBeInTheDocument();
+      expect(reentered.querySelectorAll("em.ok")).toHaveLength(0);
+      expect(reentered).toHaveTextContent("进行中");
+      release2(DIRS);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
     } finally {
       vi.useRealTimers();
     }

@@ -30,11 +30,15 @@ export function ChapterPlanModal({
   const no2 = String(state.nextNo).padStart(2, "0");
   const isAi = state.entrySource === "ai";
 
-  // 阶段计时：进 busy 归零、按 STEP_DONE_MS 逐段标完成；出卡（离开 busy）即停表
+  // 阶段计时：按 STEP_DONE_MS 逐段标完成；出卡（离开 busy）停表。
+  // 归零放「离开 busy」侧（effect 重进 busy 的复位晚于首帧绘制，会闪一次「全完成」）——
+  // 非 busy 态先把值清掉，重进 busy 的首帧必为 0；挂载初值本身是 0。
   const [stepsDone, setStepsDone] = useState(0);
   useEffect(() => {
-    if (!(isAi && state.phase === "busy")) return;
-    setStepsDone(0);
+    if (!(isAi && state.phase === "busy")) {
+      setStepsDone(0);
+      return;
+    }
     const t0 = Date.now();
     const id = window.setInterval(() => {
       const el = Date.now() - t0;
