@@ -27,6 +27,7 @@ def register_user(
     password: str,
     security_question: str = "",
     security_answer: str = "",
+    db=None,
 ) -> dict:
     """注册用户 + 送 7 天 trial 码。返回 {token, tier, expires_at}。"""
     if not _USERNAME_RE.fullmatch(username or ""):
@@ -53,11 +54,22 @@ def register_user(
     # 送 7 天试用 —— 与创建用户在同一事务中
     trial_code_id = f"TRIAL-{uuid.uuid4().hex[:8].upper()}"
     today = datetime.now(UTC).date()  # UTC 日期（存储 naive UTC 口径，不依赖容器 TZ）
-    expires = today + timedelta(days=7)
+    # 试用时长：trial 行 duration_days 单源（tier-catalog 改库即生效）；行缺/DB
+    # 不可用退 7（历史口径）。
+    trial_days = 7
+    try:
+        from app.infrastructure.repositories.payments_repo import TierRepo
+        for row in TierRepo(db).find_all_cached():
+            if row.get("key") == "trial":
+                trial_days = int(row.get("duration_days") or 7)
+                break
+    except Exception:  # noqa: BLE001 —— 兜底路径
+        pass
+    expires = today + timedelta(days=trial_days)
     trial = ActivationCode(
         code_id=trial_code_id,
         tier="trial",
-        duration_days=7,
+        duration_days=trial_days,
         status="unused",
         user_id=user_id,  # 代理键 int
         expires_at=None,

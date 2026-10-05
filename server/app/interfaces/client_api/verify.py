@@ -33,6 +33,7 @@ async def api_verify(
         username=req.username,
         pc_hash=req.pc_hash,
         token=req.token,
+        db=db,
     )
     logger.info("event=verify.result user=%s code=%d", req.username, result["code"])
     return result

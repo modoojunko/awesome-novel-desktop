@@ -64,6 +64,32 @@ _TIER_RANK: dict[str, int] = {
     "max": 30,
 }
 
+# rank 单源 = tiers.rank 列（tier-catalog）：应用层启动时注入 lookup（读 DB，带
+# 类级 TTL 缓存）；本模块保持领域纯函数——SHALL NOT 直连 infrastructure。
+# lookup 返回 None/抛异常 → 退 _TIER_RANK 常量并告警（DB 不可用兜底，spec 允许）。
+import logging as _logging
+
+_logger = _logging.getLogger(__name__)
+
+_rank_lookup = None
+
+
+def configure_rank_lookup(fn) -> None:
+    """注入 rank 读取器：fn() -> dict[tier_key, rank] | None。应用启动时调用一次。"""
+    global _rank_lookup
+    _rank_lookup = fn
+
+
+def _lookup_ranks() -> dict[str, int] | None:
+    if _rank_lookup is None:
+        return None
+    try:
+        m = _rank_lookup()
+        return m if isinstance(m, dict) and m else None
+    except Exception:  # noqa: BLE001 —— DB 不可用兜底，不向上抛
+        _logger.warning(event="tier_rank_db_unavailable", msg="rank 读库失败，退代码常量")
+        return None
+
 
 def normalize_tier(tier: str) -> str:
     """legacy tier → 标准档位 key。"""
@@ -71,8 +97,16 @@ def normalize_tier(tier: str) -> str:
 
 
 def tier_rank(tier: str) -> int:
-    """档位等级序（归属计算用）。"""
-    return _TIER_RANK.get(normalize_tier(tier), 0)
+    """档位等级序（归属计算用）：DB rank 列单源，缺行/读库失败退常量。"""
+    t = normalize_tier(tier)
+    m = _lookup_ranks()
+    if m is not None:
+        if t not in m:
+            _logger.warning(event="tier_rank_missing", tier=t,
+                            msg="tiers 表缺该档 rank 行——按 0 处理（保守，不静默升档）")
+            return 0
+        return int(m[t])
+    return _TIER_RANK.get(t, 0)
 
 
 def resolve_effective_tier(active_codes: list) -> str:
@@ -81,11 +115,20 @@ def resolve_effective_tier(active_codes: list) -> str:
     Args:
         active_codes: 已激活/排队中的 codes 行（有 tier 属性）
     """
+    m = _lookup_ranks()
     best_tier = "none"
     best_rank = 0
     for code in active_codes:
         t = normalize_tier(getattr(code, "tier", "none"))
-        r = _TIER_RANK.get(t, 0)
+        if m is not None:
+            if t not in m:
+                _logger.warning(event="tier_rank_missing", tier=t,
+                                msg="tiers 表缺该档 rank 行——该码不计入归属（保守）")
+                r = 0
+            else:
+                r = int(m[t])
+        else:
+            r = _TIER_RANK.get(t, 0)
         if r > best_rank:
             best_rank = r
             best_tier = t

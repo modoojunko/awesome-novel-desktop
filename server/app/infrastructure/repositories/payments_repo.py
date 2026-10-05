@@ -475,8 +475,24 @@ class TierRepo:
     _ENTITLEMENT_CACHE: dict = {}
     _ENTITLEMENT_TTL = 60.0
 
+    # 全行缓存（tier-catalog）：rank 读库/设备限额/目录投影三处共用，60s TTL——
+    # 销售侧改库生效延迟上限 60s（评审已接受）。
+    _FIND_ALL_CACHE: dict = {}
+    _FIND_ALL_TTL = 60.0
+
     def __init__(self, db):
         self._db = db
+
+    def find_all_cached(self) -> list[dict]:
+        """全行（类级 TTL 缓存）：rank 查询/设备限额/目录投影共用入口。"""
+        import time as _time
+        now = _time.monotonic()
+        cached = TierRepo._FIND_ALL_CACHE.get("rows")
+        if cached is not None and now - TierRepo._FIND_ALL_CACHE["at"] < TierRepo._FIND_ALL_TTL:
+            return cached
+        rows = self.find_all()
+        TierRepo._FIND_ALL_CACHE.update({"rows": rows, "at": now})
+        return rows
 
     def find_all(self) -> list[dict]:
         if isinstance(self._db, Session):

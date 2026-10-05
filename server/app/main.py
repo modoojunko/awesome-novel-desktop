@@ -16,6 +16,7 @@ from app.infrastructure.logging import setup_logging
 from app.interfaces.errors import register_handlers
 from app.interfaces.middleware import register_middleware
 from app.models.base import Base, engine
+from app.infrastructure.repositories.payments_repo import TierRepo
 
 
 def _collect_api_paths(routes) -> frozenset[str]:
@@ -115,6 +116,27 @@ def on_startup():
     import logging
     logger = logging.getLogger("app")
     logger.info("event=app.start db_backend=%s db_path=%s", settings.DB_BACKEND, settings.DB_PATH)
+
+    # tier-catalog：rank 单源注入 tiers.rank 列（TierRepo 类级 60s TTL 缓存）；
+    # 读库失败/不可用 → pricing 退 _TIER_RANK 常量并告警（tier_policy 兜底口径）。
+    from app.domain.payments import pricing as _tier_pricing
+
+    def _tier_rank_lookup():
+        if settings.DB_BACKEND == "pg_http":
+            from app.infrastructure.repositories.pg_http import get_pg_client
+            db = get_pg_client()
+        else:
+            from app.models.base import SessionLocal
+            db = SessionLocal()
+        try:
+            rows = TierRepo(db).find_all_cached()
+            return {r["key"]: int(r["rank"]) for r in rows if r.get("key")}
+        finally:
+            close = getattr(db, "close", None)
+            if callable(close):
+                close()
+
+    _tier_pricing.configure_rank_lookup(_tier_rank_lookup)
 
     # 生产启动门禁（s-security-baseline R1-R2）：密钥/网关不合格即拒绝启动（fail-closed），
     # 列明不合格项但绝不回显密钥本体；本地 sqlite 形态零强制（仅弱默认告警）。

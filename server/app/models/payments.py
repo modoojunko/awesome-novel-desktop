@@ -35,6 +35,10 @@ class TierORM(Base):
     # ENTITLEMENT_DEFAULTS 兜底（check-auth 组装处）。
     entitlement = Column(Text, nullable=False, default="{}", server_default="{}")
     status = Column(String(16), nullable=False, default="live", server_default="live")
+    # tier-catalog（四档）：设备限额与（试用类）时长升为 tiers 表列——销售侧改库即生效，
+    # TIER_POLICY 代码表退役为 DB 不可用兜底（消费方已迁移，见 domain/licensing/tier_policy.py）。
+    device_limit = Column(Integer, nullable=False, default=1, server_default="1")
+    duration_days = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime, server_default=__import__("sqlalchemy").func.now())
     updated_at = Column(DateTime, server_default=__import__("sqlalchemy").func.now())
 

@@ -17,7 +17,7 @@ r = APIRouter(tags=["web"])
 async def api_devices_my(db: Db = Depends(get_db), username: str = Depends(get_current_user_or_none)):
     if not username:
         return fail(code=1, msg="未登录")
-    return list_devices(device_repo(db), code_repo(db), username)
+    return list_devices(device_repo(db), code_repo(db), username, db=db)
 
 
 @r.post("/api/devices/remove")

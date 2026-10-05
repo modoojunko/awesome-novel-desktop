@@ -22,6 +22,7 @@ def verify_license(
     username: str,
     pc_hash: str,
     token: str,
+    db=None,
 ) -> dict:
     """验证 License + 设备绑定状态（C端 心跳用）。"""
     from app.infrastructure.security.jwt import verify_jwt
@@ -72,6 +73,20 @@ def verify_license(
             "expires_at": license_.max_expires_at.isoformat() if license_.max_expires_at else "",
             "tier": license_.effective_tier,
             "devices_count": len(devices),
-            "max_devices": tier_policy.get_device_limit(license_.effective_tier),
+            "max_devices": _device_limit(db, license_.effective_tier),
         },
     }
+
+
+def _device_limit(db, tier: str) -> int:
+    """设备限额：tiers.device_limit 列单源（60s TTL 缓存）；行缺/DB 不可用退
+    tier_policy 兜底。db=None 时直接走兜底（调用方未迁移完的兼容路径）。"""
+    if db is not None:
+        try:
+            from app.infrastructure.repositories.payments_repo import TierRepo
+            for row in TierRepo(db).find_all_cached():
+                if row.get("key") == tier:
+                    return int(row.get("device_limit") or 1)
+        except Exception:  # noqa: BLE001 —— 兜底路径
+            pass
+    return tier_policy.get_device_limit(tier)

@@ -31,7 +31,7 @@ async def api_devices_current(
     logger.info("event=devices_current.start user=%s pc_hash=%s", user_id, pc_hash)
     result = get_device_status(
         grant_repo(db), device_repo(db), code_repo(db),
-        username=user_id, pc_hash=pc_hash,
+        username=user_id, pc_hash=pc_hash, db=db,
     )
     return result
 

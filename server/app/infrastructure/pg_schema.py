@@ -67,6 +67,7 @@ REQUIRED: dict[str, tuple[tuple[str, str], ...]] = {
         ("id", "typed"), ("key", "text"), ("display_name", "text"),
         ("rank", "typed"), ("selling_points", "text"), ("entitlement", "text"),
         ("status", "text"),
+        ("device_limit", "typed"), ("duration_days", "typed"),
         ("created_at", "typed"), ("updated_at", "typed"),
     ),
     "skus": (
@@ -126,7 +127,8 @@ EXPECTED_DEFAULTS: dict[str, dict[str, str]] = {
         "fingerprint": "", "hostname": "", "os": "", "os_arch": "",
     },
     "device_grants": {"enrolled": "0", "fingerprint": ""},
-    "tiers": {"selling_points": "[]", "entitlement": "{}", "status": "live"},
+    "tiers": {"selling_points": "[]", "entitlement": "{}", "status": "live",
+              "device_limit": "1", "duration_days": "0"},
     "skus": {
         "discount_permille": "1000", "device_limit": "1",
         "on_sale": "true", "sort": "0",

@@ -69,6 +69,7 @@ async def api_web_register(req: WebRegisterRequest, db: Db = Depends(get_db)):
         user_repo(db), code_repo(db),
         req.username.strip(), req.password,
         req.security_question, req.security_answer,
+        db=db,
     )
     if result["code"] == 0:
         db.commit()

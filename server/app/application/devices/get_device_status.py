@@ -12,6 +12,7 @@ def get_device_status(
     code_repo: CodeRepo,
     username: str,
     pc_hash: str,
+    db=None,
 ) -> dict:
     """返回设备状态（裸字段格式）。"""
     grant = grant_repo.get(pc_hash)
@@ -21,7 +22,7 @@ def get_device_status(
     codes = code_repo.find_active_by_username(username)
     license_ = License(username=username).merge(codes)
     tier = license_.effective_tier
-    active_limit = tier_policy.get_device_limit(tier)
+    active_limit = _device_limit(db, tier)
 
     devices = device_repo.list_by_user(username)
     target_fp = fp or (devices[0].fingerprint if devices else "")
@@ -42,3 +43,17 @@ def get_device_status(
         "device_count": activation["total_count"],
         "active_limit": activation["active_limit"],
     }
+
+
+def _device_limit(db, tier: str) -> int:
+    """设备限额：tiers.device_limit 列单源（60s TTL 缓存）；行缺/DB 不可用退
+    tier_policy 兜底。db=None 时直接走兜底（调用方未迁移完的兼容路径）。"""
+    if db is not None:
+        try:
+            from app.infrastructure.repositories.payments_repo import TierRepo
+            for row in TierRepo(db).find_all_cached():
+                if row.get("key") == tier:
+                    return int(row.get("device_limit") or 1)
+        except Exception:  # noqa: BLE001 —— 兜底路径
+            pass
+    return tier_policy.get_device_limit(tier)

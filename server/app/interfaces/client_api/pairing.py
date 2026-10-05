@@ -33,16 +33,39 @@ def build_license_snapshot(db, username: str) -> dict:
     codes = code_repo(db).find_active_by_username(username)
     license_ = License(username=username).merge(codes)
 
-    data = {
-        "tier": license_.effective_tier,
-        "expires_at": license_.max_expires_at.isoformat() if license_.max_expires_at else "",
-    }
-
     # 权益快照（c-s-entitlement-sync 契约 v1）：档位目录配置 → ENTITLEMENT_DEFAULTS 兜底
     from app.config import settings as _settings
     from app.infrastructure.repositories.payments_repo import TierRepo
 
     tier_cfg = TierRepo(db).find_entitlement_by_key(license_.effective_tier)
+
+    # 档位目录投影（tier-catalog）：live/planned 档的精简投影供 C端 兜底判定与
+    # 档位名渲染；不含 retired 与售卖字段。60s TTL 缓存（find_all_cached）。
+    import json as _json
+
+    tier_catalog = []
+    for row in TierRepo(db).find_all_cached():
+        if row.get("status") not in ("live", "planned"):
+            continue
+        features = []
+        try:
+            doc = _json.loads(row.get("entitlement") or "{}")
+            if isinstance(doc, dict):
+                features = doc.get("features", [])
+        except ValueError:
+            pass
+        tier_catalog.append({
+            "key": row.get("key"),
+            "rank": row.get("rank"),
+            "display_name": row.get("display_name"),
+            "features": features,
+        })
+
+    data = {
+        "tier": license_.effective_tier,
+        "expires_at": license_.max_expires_at.isoformat() if license_.max_expires_at else "",
+        "tier_catalog": tier_catalog,
+    }
     ent = tier_cfg or _settings.ENTITLEMENT_DEFAULTS.get(
         license_.effective_tier, _settings.ENTITLEMENT_DEFAULTS["none"])
     data["entitlement"] = {"v": 1, **ent}

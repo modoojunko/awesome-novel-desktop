@@ -216,6 +216,9 @@ class Settings:
     LOG_BACKUP_COUNT: int = 5
 
     # ── 套餐配置（硬编码，将来可迁到 DB）──
+    # tier-catalog（2026-10-05）：设备限额/试用时长已升 tiers 表列（device_limit/
+    # duration_days），本表退役为「DB 不可用/缺行」兜底；新增档位 MUST 在 tiers 建行，
+    # 这里不再扩档。
     TIER_POLICY: dict = {
         "none":     {"device_limit": 0,  "duration_days": 0,    "display": "无套餐"},
         "trial":    {"device_limit": 1,  "duration_days": 7,    "display": "试用"},

@@ -13,12 +13,12 @@
 
 ## 2. B2 S端 配置与数据（standard/max 保持 planned；SKU 不上架）
 
-- [ ] 2.1 DDL 四步：① TierORM 加 device_limit/duration_days 列（server_default 回填）② alembic 新 revision 线性挂尾 ③ **`pg_schema.REQUIRED["tiers"]`/COLUMN_DEFAULTS 同批**（漏列即红对拍）④ gen_missing_ddl.py 产出→MCP 带外应用→启动探针 run_schema_check 目检
-- [ ] 2.2 **TIER_POLICY 退役的消费方全量迁移**（改读 tiers 行，先 `_TIER_ALIASES` 归一再查）：`domain/licensing/tier_policy.py`、设备限额三处（application/devices/verify_license.py:75、list_devices.py:14、get_device_status.py:24）、legacy 码激活 `application/licensing/activate_code.py:25`（改 codes.duration_days，防 monthly 码激活即过期）、admin 发码校验 `admin_api/codes.py`、注册试用时长 `identity/register_user.py:60`（改读 trial 行 duration_days）；TIER_POLICY 降为 DB 不可用兜底（注意 lifetime 在 config.py:230 被加载期改写为 99，勿照抄注释值）
-- [ ] 2.3 **rank 读 DB**：rank map 走 TierRepo 类级 60s TTL 缓存（payments_repo.py:472 先例）、由调用方注入 merge/tier_rank（pricing.py 保持领域纯函数不直连 infrastructure）；`resolve_effective_tier` 与 `tier_rank()` 两份逻辑收敛单源；缺行 `logger.warning(event=tier_rank_missing)`＋启动告警
-- [ ] 2.4 tiers 数据：插 standard 行（rank=15、**status=planned**、entitlement JSON=ai-plan/chapter-review/settings-ai-fields/style-suggest/outline-advanced-fields/ai-model＋max_projects=3）；max 行 entitlement=pro+ai-plot+ai-polish+style-quant（仍 planned）；**pro 行不动**（ai-detect 留 PRO，2026-10-05 拍板）；display_name 全行核对；**插行前 SELECT 生产 tiers 核对 rank/sort 现值**（架构评估未核实项）
-- [ ] 2.5 skus 数据：首发只插月付 3 行（standard_monthly=2990 分/pro_monthly 维持 5990/max_monthly=8990，on_sale=false）；**sort 排 pro 现有行之后（建议 4-6，禁用默认 0）**——popular_sku 机制取第一个年付 SKU，sort 撞序会静默换档（架构评估 §四-3）；季/年卡未拍不插；PRO 年卡 device_limit 5→3（按档固定，仅展示列——实际限额走 TIER_POLICY 迁移 2.2）
-- [ ] 2.6 tier_catalog 下发：build_license_snapshot 共用装配点加投影（活跃档 key/rank/display_name/features）；**投影加类级 TTL 缓存**（现 find_all 无缓存）；`GET /api/pay/skus` 目检四档出列（standard/max呈预告卡态）；server pytest 全量＋对拍绿
+- [x] 2.1 DDL 四步：① TierORM 加 device_limit/duration_days 列（server_default 回填）② alembic 新 revision 线性挂尾 ③ **`pg_schema.REQUIRED["tiers"]`/COLUMN_DEFAULTS 同批**（漏列即红对拍）④ gen_missing_ddl.py 产出→MCP 带外应用→启动探针 run_schema_check 目检
+- [x] 2.2 **TIER_POLICY 退役的消费方全量迁移**（改读 tiers 行，先 `_TIER_ALIASES` 归一再查）：`domain/licensing/tier_policy.py`、设备限额三处（application/devices/verify_license.py:75、list_devices.py:14、get_device_status.py:24）、legacy 码激活 `application/licensing/activate_code.py:25`（改 codes.duration_days，防 monthly 码激活即过期；redeem 行内 ✓ 无需动）、~~admin 发码校验 `admin_api/codes.py`~~（实勘不存在，跳过）、注册试用时长 `identity/register_user.py:56`（改读 trial 行 duration_days ✓，含 trial code duration_days 同步）；TIER_POLICY 降为 DB 不可用兜底（注意 lifetime 在 config.py:230 被加载期改写为 99，勿照抄注释值）
+- [x] 2.3 **rank 读 DB**：rank map 走 TierRepo 类级 60s TTL 缓存（payments_repo.py:472 先例）、由调用方注入 merge/tier_rank（pricing.py 保持领域纯函数不直连 infrastructure）；`resolve_effective_tier` 与 `tier_rank()` 两份逻辑收敛单源；缺行 `logger.warning(event=tier_rank_missing)`＋启动告警
+- [x] 2.4 tiers 数据：插 standard 行（rank=15、**status=planned**、entitlement JSON=ai-plan/chapter-review/settings-ai-fields/style-suggest/outline-advanced-fields/ai-model＋max_projects=3）；max 行 entitlement=pro+ai-plot+ai-polish+style-quant（仍 planned）；**pro 行不动**（ai-detect 留 PRO，2026-10-05 拍板）；display_name 全行核对；**插行前 SELECT 生产 tiers 核对 rank/sort 现值**（架构评估未核实项）
+- [x] 2.5 skus 数据：首发只插月付 3 行（standard_monthly=2990 分/pro_monthly 维持 5990/max_monthly=8990，on_sale=false）；**sort 排 pro 现有行之后（建议 4-6，禁用默认 0）**——popular_sku 机制取第一个年付 SKU，sort 撞序会静默换档（架构评估 §四-3）；季/年卡未拍不插；PRO 年卡 device_limit 5→3（按档固定，仅展示列——实际限额走 TIER_POLICY 迁移 2.2）
+- [x] 2.6 tier_catalog 下发：build_license_snapshot 共用装配点加投影（活跃档 key/rank/display_name/features）；**投影加类级 TTL 缓存**（现 find_all 无缓存）；`GET /api/pay/skus` 目检四档出列（standard/max呈预告卡态）；server pytest 全量＋对拍绿
 
 ## 3. B3 C端 守门 key 化（真拦截）
 
