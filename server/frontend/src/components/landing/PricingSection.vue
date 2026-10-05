@@ -114,8 +114,8 @@ const skeletonCards = FALLBACK_PAID.map(fb => ({
     <div class="mkt-in">
       <div class="mb-12 text-center">
         <span class="mkt-eyebrow">套餐</span>
-        <h2 class="mkt-h2">选择适合你的套餐</h2>
-        <p class="mkt-lead max-w-lg mx-auto">微信扫码支付，支付成功套餐立即到账</p>
+        <h2 class="mkt-h2">写到哪一程，就选哪一档</h2>
+        <p class="mkt-lead max-w-xl mx-auto">人工笔耕永远免费；想让 AI 多搭把手时再升级——从想大纲、写正文到打磨成书，每档都替你多担一件事。</p>
       </div>
 
       <!-- 时长 tab 主轴（包月默认；折扣徽标读 discount_display 单源） -->
