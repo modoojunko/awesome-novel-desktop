@@ -4,7 +4,7 @@
 
 - check-auth 成功（code 0）响应 SHALL 包含可选字段 `entitlement: {v, features, limits}`；`v` 恒为 1。
 - `features` SHALL 为该用户当前档位在档位目录中配置的功能 key 数组；档位行无配置、列缺失或 JSON 损坏时，SHALL 回退到服务端内置默认表（按档位键），两者皆无时 SHALL 下发免费基线（空 features + `limits.max_projects=1`）。
-- **默认表与 DB 行 SHALL 覆盖四档**：free（空）、standard（流程/评估/设定/文风 key ＋ max_projects=3）、pro（＋正文/提示词 key ＋不限）、max（pro 全量＋ai-plot＋ai-detect）；**trial 行=pro 行减 ai-plot/ai-detect**（试用同 PRO 不含 MAX 件——原 trial 行含 ai-detect 的配置移除）。
+- **默认表与 DB 行 SHALL 覆盖四档**（2026-10-05 拍板口径）：free（空）、standard（ai-plan/chapter-review/settings-ai-fields/style-suggest/outline-advanced-fields/ai-model ＋ max_projects=3）、pro（standard 全量＋ai-generate/prompt-panel/ai-detect＋不限）、max（pro 全量＋ai-plot/ai-polish/style-quant）；**trial 行=pro 行（trial 同权含朱雀）**。
 - `limits.max_projects` SHALL 为数字或 null（null=不限）。
 - 快照计算 SHALL 继承现有权益合并语义（跳过已收回/冻结的权益记录；排队中记录按现有合并行为参与）。
 - 响应 SHALL 附带档位目录投影（见 billing/tier-catalog）。

@@ -2,8 +2,8 @@
 
 ### Requirement: 朱雀页签文案口径
 
-- 朱雀页签 SHALL 全档可见、可进入；Key 保存与连接测试端点 SHALL 挂 feature key `ai-detect` 门（仅 MAX 发放）——无该权益的档位页签呈锁定引导态（「MAX 专属」档位感知文案＋升级出口），拦截 SHALL NOT 误报 401/500；有权益时配置动作 SHALL NOT 被额外交互拦截。
-- 介绍与引导文案 SHALL 表述：朱雀是腾讯的 AIGC 检测；本功能为 MAX 会员权益（试用不含）；需自备腾讯云 Key；每月 50 万 token 免费额度为活动口径、以腾讯云为准。SHALL NOT 出现「永久免费」「企业资质必需」等表述；额度耗尽口径 SHALL 为中性指引（等下月或按腾讯云控制台指引购买）。
+- 朱雀页签 SHALL 全档可见、可进入；Key 保存与连接测试端点 SHALL 挂 feature key `ai-detect` 门（PRO 起发放、trial 同权）——无该权益的档位页签呈锁定引导态（「PRO 专属」档位感知文案＋升级出口），拦截 SHALL NOT 误报 401/500；有权益时配置动作 SHALL NOT 被额外交互拦截。
+- 介绍与引导文案 SHALL 表述：朱雀是腾讯的 AIGC 检测；本功能为 PRO 会员权益（试用同权，2026-10-05 拍板朱雀留 PRO）；需自备腾讯云 Key；每月 50 万 token 免费额度为活动口径、以腾讯云为准。SHALL NOT 出现「永久免费」「企业资质必需」等表述；额度耗尽口径 SHALL 为中性指引（等下月或按腾讯云控制台指引购买）。
 - 获取 Key 引导 SHALL 为横向三步（注册腾讯云并个人实名 → EdgeOne 控制台 Makers 创建 API Key → 回填保存），附控制台与朱雀网页版试用两个外链；个人实名口径 SHALL 明示「不需企业资质」。
 - 隐私警示条 SHALL 表述：检测会把整章正文发送到腾讯朱雀服务做判定、本机不参与打分、介意送稿的章节请不要使用。
 
@@ -11,4 +11,4 @@
 
 - **GIVEN** 无 ai-detect 权益的作者（免费/试用/标准/PRO）进入模型配置页朱雀页签
 - **WHEN** 作者粘贴 Key 并保存
-- **THEN** 返回 403 feature_required（tier_required=max），页签内呈升级出口而非报错弹窗，SHALL NOT 误报 401/500（原「页签无会员拦截」口径随 ai-detect 上收 MAX 退役）；MAX 作者保存照常完成
+- **THEN** 返回 403 feature_required（tier_required=pro），页签内呈升级出口而非报错弹窗，SHALL NOT 误报 401/500；PRO 及以上作者保存照常完成

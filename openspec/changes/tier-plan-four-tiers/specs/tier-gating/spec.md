@@ -74,7 +74,11 @@
   - `ai-generate`（PRO 起）：正文 AI 全家（生成/续写/润色/压缩/扩写/提示词润色）；
   - `prompt-panel`（PRO 起）：提示词页签；
   - `ai-plot`（**新**，MAX）：剧情推演＋六类冲突检测＋story 推演会话；
-  - `ai-detect`（**自 PRO 上收 MAX**）：朱雀 AI 检测，仅 MAX 发放、trial 不含（原「下放 PRO 验证全链」过渡态退役）。
+  - `ai-detect`（**留 PRO**，2026-10-05 拍板撤销「上收 MAX」草案）：朱雀 AI 检测，PRO 起发放、trial 同权。
+  - `style-suggest`（新增）：文风建议（自己写正文时的 AI 修改建议），标准起发放——与 style-quant 拆 key。
+  - `style-quant`（新增）：文风蒸馏（贴旧稿蒸馏文风基线），仅 MAX 发放。
+  - `ai-plot`（新增）：剧情推演，仅 MAX 发放（卷纲冲突检测不在其内——留 ai-check 族挂 ai-generate 门）。
+  - `ai-polish`（新增）：去AI味加工（热片驱动＋选区兜底的重写），仅 MAX 发放（生成时内嵌的反AI基线不设 key，全档质量底线）。
 - The module SHALL have no DOM dependency (pure TS).
 
 #### Scenario: Free disabled AI features
@@ -91,7 +95,7 @@
 
 #### Scenario: ai-detect 对非 MAX 锁定
 
-- Given 快照存在且 features 不含 "ai-detect"（免费/试用/标准/PRO 用户——仅 MAX 发放）
+- Given 快照存在且 features 不含 "ai-detect"（免费/标准用户——PRO 起发放、trial 同权）
 - When useFeature("ai-detect") 被调用
 - Then 返回 false（工作台检测行呈锁定态，入口可见、点击走 MAX 升级出口）
 

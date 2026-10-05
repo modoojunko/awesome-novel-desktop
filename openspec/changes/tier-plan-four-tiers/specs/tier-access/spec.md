@@ -144,17 +144,17 @@
 - When POST /volumes/ai/options（ai-plan 门）被调用
 - Then 放行（标准档即享流程 AI）
 
-#### Scenario: 剧情规划仅 MAX
+#### Scenario: 剧情推演仅 MAX
 
 - Given a pro-tier user（features 不含 ai-plot）
-- When POST /chapters/{ref}/simulate 或 POST /chapters/{ref}/ai-check 被调用
+- When POST /chapters/{ref}/simulate 被调用
 - Then 403 reason=feature_required、tier_required=max
 
-#### Scenario: 朱雀后端真门
+#### Scenario: 朱雀后端真门（留 PRO，2026-10-05 拍板）
 
-- Given a pro-tier user（features 不含 ai-detect）
+- Given a standard-tier user（features 不含 ai-detect）
 - When POST /zhuque-check 或 zhuque config/test 端点被调用
-- Then 403 feature_required（tier_required=max）——「MAX 判定仅在前端」的过渡态退役
+- Then 403 feature_required（tier_required=pro）；pro 及以上与 trial 放行
 
 #### Scenario: 现状免费只读收进标准
 
