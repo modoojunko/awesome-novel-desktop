@@ -27,7 +27,7 @@
 - [x] 3.3 撤门×3：reconcile/run（:154）、dossier 收尾闸（archive/dossier.py:325，ai_access_granted 删）、quality-check（write/router.py:33，纯本地规则）；**accept/reject 现状无门勿动**
 - [x] 3.4 `ai_access_granted(feature=None)` 扩参；ai_state 透传 features；建书满额文案按 tier 双口径（deps.py:168）
 - [x] 3.5 pytest：存量语义翻转 8–12 文件（reconcile 免费放行、zhuque PRO→403 feature_required＋config/test 新增门、卷体检/盘点/自检免费→403 等）＋新增矩阵用例；client pytest 全量绿
-- [ ] 3.6 e2e 现有 spec 零红（等价性门禁：trial/pro 会话经 3.1 重写后的兜底行拿到正确 features；19 个 trial 会话 spec 的锁点按新矩阵走——流程 AI 对 trial 仍全开、推演/朱雀转锁）
+- [x] 3.6 e2e 现有 spec 零红（等价性门禁：trial/pro 会话经 3.1 重写后的兜底行拿到正确 features；19 个 trial 会话 spec 的锁点按新矩阵走——流程 AI 对 trial 仍全开、推演/朱雀转锁）
 
 ## 4. B4 翻转（业务动作，前置：新版 C端 全量发布）
 
@@ -48,7 +48,7 @@
 ## 6. B6 收银台/落地页/法律/e2e 基线
 
 - [x] 6.1 S端 门户：CashierPage/PricingSection 四列断点（repeat(3,1fr)→4＋中断点防挤压）；FALLBACK_FEATS 四档重写（max 旧卖点「更强模型·多章连写」与真实权益不符一并修）；「当前方案」按登录态 license.tier 标注；试用口径五处统一（HeroSection/FaqSection/ActivationGuideSection/RegisterPage/CashierPage）
-- [ ] 6.2 e2e 基建：按档会话种子 helper（落 e2e/helpers.ts），收敛 **19 个 spec** 各自复制的 writeOAuthSession（config-page 无 tier 参）；统一 atomic 写＋稳定复写、expires_at 按 tier 参数化、返回统一 `{restore}`；注入机制＝浏览器侧桩 `/auth/verify` 返回带 entitlement 的响应（design-parity-book.spec.ts:815 先例）
+- [x] 6.2 e2e 基建：按档会话种子 helper（落 e2e/helpers.ts），收敛 **19 个 spec** 各自复制的 writeOAuthSession（config-page 无 tier 参）；统一 atomic 写＋稳定复写、expires_at 按 tier 参数化、返回统一 `{restore}`；注入机制＝浏览器侧桩 `/auth/verify` 返回带 entitlement 的响应（design-parity-book.spec.ts:815 先例）
 - [x] 6.3 **e2e 桩承重短语 grep 归位**（先例：c-hooks-plot-exclusion）——已实勘承重桩：plot.spec:239「需 PRO」、statusbar.spec:119「PRO 会员」、modals-pr5.spec:386「升级 PRO · 解锁 AI 能力」、foreshadow-ai.spec:321/genre-ai-settings.spec:239 桩「AI 是会员功能」、free-writing-flow.spec:134「免费版」徽章；逐个改断言或保留短语；再补 reconcile 行为反转、plot-sim/story-arc 换 max 会话（zhuque 种子改 pro——ai-detect 留 PRO）、story-arc 双 reason 断言、style-quant/world-settings/modals 分档断言、standard/max 视角新 spec 2–3 个
 - [ ] 6.4 design-parity：原型 book.html 免费锁卡**行集＋文案**同步（book.html:1043-1079 五行「需 PRO」＋盘点行免费变 ai-plan 锁＋footNote）＋基线重录；design-vocab.mjs 若涉档位词两端同批
 - [ ] 6.5 法律换版：付费须知/退款政策（agreement_version 升版）；存量文案 grep 清零（「试用可用全部 AI」「PRO 会员权益」含 ZhuquePanel、readiness:136「蒸馏是 PRO 功能」、world-settings:133、character-settings:256、outline-ai-draft「PRO 作者」、frontend-auth-heal:88 等陈旧档位词逐个归位或登记豁免）
