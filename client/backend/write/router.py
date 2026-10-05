@@ -20,7 +20,7 @@ def _advance_phase(project, target: str) -> None:
     本身已合法落库，阶段标记保持现状不影响后续操作（write/archive 均为幂等入口）。
     """
     advance_phase(project, target)
-from write.auxiliary import compress_text, expand_text, polish_text
+from write.auxiliary import polish_text
 from write.quality import run_quality_checks
 
 router = APIRouter(
@@ -454,127 +454,7 @@ async def polish_writing(
     return {"polished_text": text}
 
 
-@router.post("/compress")
-async def compress_writing(
-    project_id: str,
-    chapter_ref: str,
-    body: dict,
-    user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
-    __: bool = Depends(require_novel_model),
-    db: AsyncSession = Depends(get_db),
-):
-    """Compress selected text (non-streaming)."""
-    project = await get_novel(db, project_id, user["id"])
-    if not project:
-        raise HTTPException(404, "Project not found")
-    _validate_ref(chapter_ref)
-
-    selected_text = body.get("selected_text", "")
-    if not selected_text:
-        raise HTTPException(400, "selected_text is required")
-    context_before = body.get("context_before", "")
-    context_after = body.get("context_after", "")
-    surrounding_context = (context_before + "\n" + context_after).strip()
-
-    usage: dict = {}
-    try:
-        text = await compress_text(
-            project.id, project.root_path, chapter_ref, selected_text, surrounding_context, usage=usage
-        )
-    except AITimeoutError:
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db, user_id=project.user_id, project_id=project.id,
-            chapter_id=chapter_ref, operation="compress_fail",
-            model=effective_model(project), force=True,
-        )
-        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
-    except Exception as e:  # noqa: BLE001 — 失败也留痕（调用已发生）
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db, user_id=project.user_id, project_id=project.id,
-            chapter_id=chapter_ref, operation="compress_fail",
-            model=effective_model(project),
-            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
-            force=True,
-        )
-        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
-    from api_configs.usage import record_usage
-
-    await record_usage(
-        db,
-        user_id=project.user_id,
-        project_id=project.id,
-        chapter_id=chapter_ref,
-        operation="compress",
-        model=effective_model(project),
-        tokens_in=usage.get("tokens_in", 0),
-        tokens_out=usage.get("tokens_out", 0),
-    )
     return {"compressed_text": text}
 
 
-@router.post("/expand")
-async def expand_writing(
-    project_id: str,
-    chapter_ref: str,
-    body: dict,
-    user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
-    __: bool = Depends(require_novel_model),
-    db: AsyncSession = Depends(get_db),
-):
-    """Expand selected text (non-streaming)."""
-    project = await get_novel(db, project_id, user["id"])
-    if not project:
-        raise HTTPException(404, "Project not found")
-    _validate_ref(chapter_ref)
-
-    selected_text = body.get("selected_text", "")
-    if not selected_text:
-        raise HTTPException(400, "selected_text is required")
-    context_before = body.get("context_before", "")
-    context_after = body.get("context_after", "")
-    surrounding_context = (context_before + "\n" + context_after).strip()
-
-    usage: dict = {}
-    try:
-        text = await expand_text(
-            project.id, project.root_path, chapter_ref, selected_text, surrounding_context, usage=usage
-        )
-    except AITimeoutError:
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db, user_id=project.user_id, project_id=project.id,
-            chapter_id=chapter_ref, operation="expand_fail",
-            model=effective_model(project), force=True,
-        )
-        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
-    except Exception as e:  # noqa: BLE001 — 失败也留痕（调用已发生）
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db, user_id=project.user_id, project_id=project.id,
-            chapter_id=chapter_ref, operation="expand_fail",
-            model=effective_model(project),
-            tokens_in=usage.get("tokens_in", 0), tokens_out=usage.get("tokens_out", 0),
-            force=True,
-        )
-        raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
-    from api_configs.usage import record_usage
-
-    await record_usage(
-        db,
-        user_id=project.user_id,
-        project_id=project.id,
-        chapter_id=chapter_ref,
-        operation="expand",
-        model=effective_model(project),
-        tokens_in=usage.get("tokens_in", 0),
-        tokens_out=usage.get("tokens_out", 0),
-    )
     return {"expanded_text": text}

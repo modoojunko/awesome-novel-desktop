@@ -599,9 +599,10 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
     expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
     // 顶栏 bar-here 也有「续写」CTA（行头归一），右栏工具卡断言限定右栏范围
     expect(within(rail).getByTestId("ai-write-btn")).toBeDefined();
-    // c-workbench-density：未选段时三张段落卡折叠为一行「段落加工」
-    expect(within(rail).getByTestId("ai-para-group")).toBeDefined();
-    expect(within(rail).queryByTestId("ai-polish")).toBeNull();
+    // c-retire-selection-transforms：去AI味单卡（扩写/压缩退役缺席钉）
+    // c-retire-selection-transforms：去AI味单卡（未选中置灰），扩写/压缩退役
+    const polishCard = within(rail).getByTestId("ai-polish") as HTMLButtonElement;
+    expect(polishCard).toBeDefined();
     expect(within(rail).queryByText(/^场景扩写$/)).toBeNull();
   });
 });

@@ -91,11 +91,11 @@ export function AiAssistPanel({
   onUpgrade?: () => void;
   /** chapter-rewrite：下游「基于旧设定」章计数（无数据时显示「—」） */
   staleDownstream?: number;
-  /** 正文页签的选区动作通道（压缩啰嗦段落；去AI味/扩写沿用页内工具卡） */
+  /** 正文页签的选区动作通道（去AI味） */
   aiState?: ProseAIState;
   proseRef?: RefObject<ProseHandle | null>;
   onAiSelection?: (
-    mode: "polish" | "expand" | "compress",
+    mode: "polish",
     capture: ReturnType<ProseHandle["captureNow"]>,
   ) => void;
   /** 按类触发本章收尾（伏笔「登记新伏笔」入口）；产出在「伏笔」页签待确认 */
@@ -392,12 +392,7 @@ export function AiAssistPanel({
       ? "章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。"
       : "免费版：盘点只读、不代笔；标「需 PRO」的行升级后可用。盘点结果要写进章纲的，走你平时那套保存。";
   } else if (tab === "prose") {
-    running =
-      aiState?.polishLoading ? "polish"
-      : aiState?.expandLoading ? "expand"
-      : aiState?.compressLoading ? "compress"
-      : zq.state.status === "running" ? "zhuque"
-      : null;
+    running = aiState?.polishLoading ? "polish" : zq.state.status === "running" ? "zhuque" : null;
     const streaming = !!aiState?.streaming;
     const pct = planWords ? Math.min(100, Math.round((wordCount / planWords) * 100)) : null;
     targetLine = (
@@ -423,34 +418,13 @@ export function AiAssistPanel({
         hint: archived ? "已归档 · 恢复编辑后可用" : streaming ? "生成中" : undefined,
         testid: "ai-write-btn",
       }),
-      // 密度重排（c-workbench-density）：未选中段落时三张段落级置灰卡收成一行
-      // 「段落加工」说明行（SHALL NOT 三卡常驻占位）；选中后展开原三卡（testid 不变）
-      ...(aiState?.hasSelection
-        ? [
-            cap("polish", "去AI味", "选中段落去掉机器腔，对照预览后替换", {
-              onClick: () => onAiSelection?.("polish", sel()),
-              disabled: !!aiState?.polishLoading,
-            }),
-            cap("expand", "场景扩写", "把选中的一句话场景扩展为完整段落，保持设定一致", {
-              onClick: () => onAiSelection?.("expand", sel()),
-              disabled: !!aiState?.expandLoading,
-            }),
-            cap("compress", "压缩啰嗦段落", "压缩选中的段落，保留信息去掉重复", {
-              onClick: () => onAiSelection?.("compress", sel()),
-              disabled: !!aiState?.compressLoading,
-            }),
-          ]
-        : [
-            {
-              key: "para-group",
-              name: "段落加工 · 去 AI 味 / 场景扩写 / 压缩",
-              desc: "在正文选中一段后，这里展开三个加工动作",
-              onClick: () => {},
-              disabled: true,
-              hint: "先在正文选中一段",
-              testid: "ai-para-group",
-            } as AiCapabilityRow,
-          ]),
+      // c-retire-selection-transforms：去AI味单卡（扩写/压缩两动作已退役），未选中置灰
+      cap("polish", "去AI味", "选中段落去掉机器腔，对照预览后替换", {
+        onClick: () => onAiSelection?.("polish", sel()),
+        disabled: streaming || !aiState?.hasSelection || !!aiState?.polishLoading,
+        hint: !aiState?.hasSelection ? "先在正文选中一段" : aiState?.polishLoading ? "生成中" : undefined,
+        testid: "ai-polish",
+      }),
     ];
     // c-zhuque-ai-detect：朱雀检测行（四态）
     // 无 ai-detect 权益（免费/试用，快照无该 key）→ maxlk 锁定（免费档整卡锁定承载；会员行级锁定），点击统一升级出口
@@ -498,7 +472,7 @@ export function AiAssistPanel({
       });
     }
     footNote =
-      "去AI味/扩写/压缩作用于正文编辑器；朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上。检测需在「模型配置 → 朱雀」配好 Key（PRO 会员权益）。";
+      "去AI味作用于正文编辑器；朱雀检测整章送检，结果在标题右侧的结果条里，段落标注打在正文行上。检测需在「模型配置 → 朱雀」配好 Key（PRO 会员权益）。";
   } else if (tab === "settings") {
     targetLine = loreStats ? (
       <>本章变化 {loreStats.here} 条 · 截至本章条目 {loreStats.until} 条</>

@@ -676,12 +676,12 @@ test("右栏 AI 辅助随页签切换：引导语/统计卡/动作清单（动�
     await expect(railCard.getByRole("button", { name: /剧情推演/ })).toBeEnabled();
     await expect(railCard.getByRole("button", { name: /补全缺失字段/ })).toBeEnabled();
     await expect(railCard.getByText("规划中")).toHaveCount(0);
-    // 正文页签：面板切到正文（统计正文字数）；c-workbench-density：未选段时三张
-    // 段落卡折叠为一行「段落加工」分组行（不可点）
+    // 正文页签：面板切到正文（统计正文字数）；c-retire-selection-transforms：
+    // 去AI味单卡（扩写/压缩已退役），未选段时置灰不可点
     await page.getByRole("tab", { name: /^正文/ }).click();
     await expect(page.getByText("AI 助手 · 正文")).toBeVisible();
-    await expect(railCard.getByTestId("ai-para-group")).toBeDisabled();
-    await expect(railCard.getByTestId("ai-polish")).toHaveCount(0);
+    await expect(railCard.getByTestId("ai-polish")).toBeDisabled();
+    await expect(railCard.getByTestId("ai-para-group")).toHaveCount(0);
     // 提示词页签退役（c-prompt-tab-retire）：组装来源统计随状态收编正文页签作用域行
     await expect(page.getByRole("tab", { name: /^提示词/ })).toHaveCount(0);
   } finally {

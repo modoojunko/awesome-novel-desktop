@@ -261,7 +261,7 @@ export default function NovelWorkspace() {
   // （恢复编辑后可用）；requestAi 兜底 toast，原「解除只读」解锁链保持退役。
   type AiAction =
     | { kind: "write" }
-    | { kind: "selection"; mode: "polish" | "expand" | "compress"; capture: SelectionCapture | null };
+    | { kind: "selection"; mode: "polish"; capture: SelectionCapture | null };
 
   const [showAiModal, setShowAiModal] = useState(false);
   // 生成已启动的信号（计数器）：ChapterWorkspace 收到即切正文页签 + 聚焦（真 bug #2）
@@ -275,9 +275,7 @@ export default function NovelWorkspace() {
       return;
     }
     if (action.capture) {
-      if (action.mode === "polish") proseRef.current?.polish(action.capture);
-      else if (action.mode === "expand") proseRef.current?.expand(action.capture);
-      else proseRef.current?.compress(action.capture);
+      proseRef.current?.polish(action.capture);
     } else {
       toast.info("请先在正文中选中一段文字");
     }

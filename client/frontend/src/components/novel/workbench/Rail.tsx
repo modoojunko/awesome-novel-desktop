@@ -76,7 +76,7 @@ interface RailProps {
   autoCheckSeq: number;
   /** AI 写入工具链入口（归档章先解锁；生成正文再经 AiModal 提示词预览） */
   onAiWrite: () => void;
-  onAiSelection: (mode: "polish" | "expand" | "compress", capture: ReturnType<ProseHandle["captureNow"]>) => void;
+  onAiSelection: (mode: "polish", capture: ReturnType<ProseHandle["captureNow"]>) => void;
 }
 
 export default function Rail({
