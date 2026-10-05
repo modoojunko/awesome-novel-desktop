@@ -44,7 +44,7 @@
 | 5 | 官网 title | **改** | 「爱小说 Awesome Novel — AI 辅助长篇小说写作平台」（品类词降级为 SEO 位） | **P1** | 无钉死测试 |
 | 6 | README 两份头部 | **改** | 「# 爱小说 · Awesome Novel」＋徽章行「awesome-novel-agent 第 5 代 · 源自开源项目（链旧仓库）」 | **P0** | 血统链接指 `awesome-novel-agent`，**勿指 clone 地址的 awesome-novel-desktop** |
 | 7 | `site-config.json` brandName | **不改** | 保持空串（空＝单源纪律） | 不动 | 填值会制造第二事实源 |
-| 8 | 安装包名 AI_Novel_Setup_* | **缓改** | 随下一个正式大版本切 `Awesome_Novel_*`，旧链接保留一个版本周期 | **P2** | 外发链接/渠道换发成本高，现在不动 |
+| 8 | 安装包名 AI_Novel_Setup_* | **已改（2026-10-05 用户拍板「都换掉」，覆盖本行原裁定）** | 已切 `AwesomeNovel_Setup_*` / `AwesomeNovel_mac_*`；**过渡期流水线同发旧名副本并进发布校验**（旧链接一个版本周期内不 404） | 已落 | S端 落地页切新名后的下个版本删除副本段（门禁 `test_release_pipeline_ships_legacy_named_copies`） |
 | 9 | 数据目录 `%APPDATA%\AI Novel` 等 | **已改（2026-10-05 用户拍板「都换掉」，覆盖本行原裁定）** | → `AwesomeNovel`；macOS 上该目录即书稿数据目录：首启 `os.rename` 换名＋旧路径留软链（装回旧版仍能找到书），改名失败退回旧目录绝不丢数据；Windows 侧只是日志目录，不搬迁、卸载器两名都清 | 已落 | 门禁 `test_packaging_shell_startup.py` 迁移四例 |
 | 10 | C 端 AWESOME-NOVEL | **不改** | 与新口径天然一致，是 #1 的佐证 | 不动 | 已被测试钉死 |
 | 11 | EULA/关于页产品名 | **待核对** | 若写「AI Novel」随 #1 批次统一为「爱小说 Awesome Novel」 | **P1** | 法务确认是否触发 EULA 重新同意；评审时未实勘 EULA 文本 |
