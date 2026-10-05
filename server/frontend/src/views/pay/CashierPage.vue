@@ -442,6 +442,11 @@ onUnmounted(() => { stopPolling(); stopCountdown() })
         </template>
       </div>
 
+      <!-- 权益明细入口（评审 P0-2：购买决策现场答「建书数/设备数/双 Key」） -->
+      <p class="plans-detail-link">
+        <router-link to="/plans">拿不准选哪档？查看完整权益对比 →</router-link>
+      </p>
+
       <!-- 协议 + 购买条 -->
       <div v-if="selectedSku" class="pay-purchase">
         <div class="pay-purchase-info">

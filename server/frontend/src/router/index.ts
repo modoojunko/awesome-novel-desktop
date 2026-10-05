@@ -29,6 +29,12 @@ const routes = [
         // 客服页对未登录访客开放（要退款的用户可能已退出登录），不设 guestOnly
         component: () => import('@/views/SupportPage.vue'),
       },
+      {
+        path: 'plans',
+        name: 'plans',
+        // 套餐权益明细页：未登录访客开放（购买决策现场，评审 P0-2 漏斗断点）
+        component: () => import('@/views/PlansPage.vue'),
+      },
     ],
   },
   {
