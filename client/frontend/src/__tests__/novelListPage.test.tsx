@@ -50,7 +50,7 @@ vi.mock("@/lib/portal", () => ({
 }));
 vi.mock("@/lib/support", () => ({ supportUrl: vi.fn(async () => "https://support.example.com") }));
 
-const tierState = { tier: "pro", isMember: true, expired: false, trialRemainingDays: 0 };
+const tierState = { tier: "pro", isMember: true, expired: false, trialRemainingDays: 0, projectLimit: null };
 vi.mock("@/hooks/useTier", () => ({ useTier: () => tierState }));
 
 vi.mock("@/components/novel/CreateProjectModal", () => ({
@@ -381,14 +381,14 @@ describe("Banner 与门禁", () => {
     expect(screen.queryByText(/套餐已过期|开通 7 天免费试用/)).toBeNull();
     trialOn.unmount();
 
-    Object.assign(tierState, { tier: "none", isMember: false, expired: false, trialRemainingDays: 0 });
+    Object.assign(tierState, { tier: "none", isMember: false, expired: false, trialRemainingDays: 0, projectLimit: 1 });
     renderPage();
     await waitFor(() => expect(screen.getByText(/开通 7 天免费试用/)).toBeTruthy());
     expect(screen.queryByText(/套餐已过期|试用还剩|试用期进行中/)).toBeNull();
   });
 
   it("tier=none 但 expired 标记为真（不一致态）：只出免费层条，不出过期条", async () => {
-    Object.assign(tierState, { tier: "none", isMember: false, expired: true, trialRemainingDays: 0 });
+    Object.assign(tierState, { tier: "none", isMember: false, expired: true, trialRemainingDays: 0, projectLimit: 1 });
     renderPage();
     await waitFor(() => expect(screen.getByText(/开通 7 天免费试用/)).toBeTruthy());
     expect(screen.queryByText(/套餐已过期/)).toBeNull(); // tier==='none' 时过期条必须让位
@@ -417,7 +417,7 @@ describe("Banner 与门禁", () => {
   });
 
   it("免费满额：一对一说明 + 主按钮带锁 + 锁定瓦片 + 点按钮走升级引导", async () => {
-    Object.assign(tierState, { tier: "none", isMember: false, expired: false, trialRemainingDays: 0 });
+    Object.assign(tierState, { tier: "none", isMember: false, expired: false, trialRemainingDays: 0, projectLimit: 1 });
     const openSpy = vi.fn();
     vi.stubGlobal("open", openSpy);
     getMock.mockImplementation(async (path: string) => {
@@ -426,7 +426,7 @@ describe("Banner 与门禁", () => {
       return {};
     });
     renderPage();
-    await waitFor(() => expect(screen.getByText(/免费版书架已满/)).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText(/书架已满/).length).toBeGreaterThan(0));
     expect(document.querySelector('[data-od-id="lock-tile"]')).toBeTruthy();
     fireEvent.click(screen.getByText("新建作品"));
     expect(openSpy).toHaveBeenCalledWith("https://portal.me", "_blank", "noopener,noreferrer");
@@ -437,8 +437,42 @@ describe("Banner 与门禁", () => {
     expect(screen.getByRole("link", { name: "升级" }).getAttribute("href")).toBe("https://portal.me");
   });
 
+
+  it("projectLimit 未透传（undefined）＋会员：回落不限（旧口径兼容臂，249 行分支）", async () => {
+    Object.assign(tierState, { tier: "pro", isMember: true, expired: false });
+    delete (tierState as { projectLimit?: number | null }).projectLimit; // 旧 S端 快照形态：键缺失
+    getMock.mockImplementation(async (path: string) => {
+      if (path === "/novels") return [novel()];
+      if (path === "/auth/config") return { has_api_key: true };
+      return {};
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
+    // 不满额：无锁定瓦片
+    expect(document.querySelector('[data-od-id="lock-tile"]')).toBeNull();
+    // 新建可点（无升级拦截——createAction 不走 guideUpgrade）
+    fireEvent.click(
+      within(document.querySelector(".page-head") as HTMLElement).getByText("新建作品"),
+    );
+    expect(screen.getByTestId("create-modal")).toBeTruthy();
+  });
+
+
+  it("projectLimit 未透传＋免费：回落 1 本（249 行另一臂）", async () => {
+    Object.assign(tierState, { tier: "none", isMember: false, expired: false });
+    delete (tierState as { projectLimit?: number | null }).projectLimit;
+    getMock.mockImplementation(async (path: string) => {
+      if (path === "/novels") return [novel()];
+      if (path === "/auth/config") return { has_api_key: true };
+      return {};
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getAllByText(/书架已满/).length).toBeGreaterThan(0));
+    expect(document.querySelector('[data-od-id="lock-tile"]')).toBeTruthy();
+  });
+
   it("无 portal_url 时升级按钮回落常量门户", async () => {
-    Object.assign(tierState, { tier: "none", isMember: false, expired: false, trialRemainingDays: 0 });
+    Object.assign(tierState, { tier: "none", isMember: false, expired: false, trialRemainingDays: 0, projectLimit: 1 });
     getMock.mockImplementation(async (path: string) => {
       if (path === "/novels") return [novel()];
       if (path === "/auth/config") return { has_api_key: true };
@@ -479,7 +513,7 @@ describe("覆盖补齐（边界臂）", () => {
   });
 
   it("卡片回车以外的按键不跳转；锁定瓦片同理", async () => {
-    Object.assign(tierState, { tier: "none", isMember: false, expired: false, trialRemainingDays: 0 });
+    Object.assign(tierState, { tier: "none", isMember: false, expired: false, trialRemainingDays: 0, projectLimit: 1 });
     vi.stubGlobal("open", vi.fn());
     renderPage();
     await waitFor(() => expect(screen.getByText("《星海拾遗》")).toBeTruthy());
@@ -522,6 +556,8 @@ describe("覆盖补齐（边界臂）", () => {
   });
 
   it("导入按钮（未满额）打开导入弹窗并可关闭", async () => {
+    // 显式重置：前序用例可能改过模块级 tierState（projectLimit 残留会让导入钮隐藏）
+    Object.assign(tierState, { tier: "pro", isMember: true, expired: false, projectLimit: null });
     renderPage();
     await waitFor(() => expect(screen.getByText("新建作品")).toBeTruthy());
     fireEvent.click(within(document.querySelector(".page-head") as HTMLElement).getByText("导入"));
@@ -531,7 +567,7 @@ describe("覆盖补齐（边界臂）", () => {
   });
 
   it("满额且无 portal_url：升级引导仍走常量门户", async () => {
-    Object.assign(tierState, { tier: "none", isMember: false, expired: false, trialRemainingDays: 0 });
+    Object.assign(tierState, { tier: "none", isMember: false, expired: false, trialRemainingDays: 0, projectLimit: 1 });
     const openSpy = vi.fn();
     vi.stubGlobal("open", openSpy);
     getMock.mockImplementation(async (path: string) => {
@@ -540,7 +576,7 @@ describe("覆盖补齐（边界臂）", () => {
       return {};
     });
     renderPage();
-    await waitFor(() => expect(screen.getByText(/免费版书架已满/)).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText(/书架已满/)[0]).toBeTruthy());
     fireEvent.click(screen.getByText("新建作品"));
     expect(openSpy).toHaveBeenCalledWith("https://portal.default", "_blank", "noopener,noreferrer");
     fireEvent.click(within(document.querySelector(".page-head") as HTMLElement).getByText("导入"));

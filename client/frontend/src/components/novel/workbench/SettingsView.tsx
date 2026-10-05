@@ -239,7 +239,7 @@ export default function SettingsView({
       setPanel("aiModel");
       return;
     }
-    toast.info("这是会员功能，升级 PRO 后解锁——免费版写作能力完整");
+    toast.info("这是会员功能——开通后可用；免费版写作能力完整");
   }, []);
   // 简介右栏 AI 三能力（并列，非先后流程）——onClick 经 introRef 调面板内 runAi
   // 前置守卫（D14/O-3）：补缺失未体检 → 置灰 + 「先体检」

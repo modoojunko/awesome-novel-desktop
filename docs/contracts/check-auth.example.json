@@ -15,7 +15,11 @@
       "meaning": "已授权；data 携带套餐快照（build_license_snapshot）＋ username",
       "data_required": [
         "username"
-      ]
+      ],
+      "data_optional": [
+        "tier_catalog"
+      ],
+      "data_optional_note": "tier_catalog（tier-catalog）：{v:1, tiers:[{key,rank,display_name,features}]} 活跃档（live/planned）精简投影——加键兼容不升版；B3 起 C端 消费作快照缺失兜底"
     },
     "1": {
       "meaning": "未授权/未登录/已注销（msg 必带）；data 可选携带 deleted=true（注销兜底分支）"

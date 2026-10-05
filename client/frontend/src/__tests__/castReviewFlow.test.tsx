@@ -143,6 +143,7 @@ function mount(opts: { server?: Record<string, unknown>; isPro?: boolean } = {})
         outline={outline as never}
         wb={wb as never}
         isPro={opts.isPro ?? true}
+        hasAiPlan={opts.isPro ?? true}
         proseRef={createRef()}
         aiState={INITIAL_PROSE_AI_STATE}
         onAIStateChange={() => {}}

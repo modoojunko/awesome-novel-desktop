@@ -49,7 +49,7 @@ def _set_member():
     _service.CONFIG_FILE = _CFG_PATH
     _service.save_local_config(
         {
-            "tier": "monthly",
+            "tier": "max",
             "expires_at": (datetime.now(UTC) + timedelta(days=30)).date().isoformat(),
             "api_key": "sk-test",
         }

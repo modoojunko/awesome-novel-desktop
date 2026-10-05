@@ -1,3 +1,4 @@
+import { setVerifyCache } from "@/lib/licenseCache";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
@@ -12,6 +13,26 @@ import { PickCardsModal } from "@/components/novel/workbench/PickCardsModal";
 import { VolumePlanModal } from "@/components/novel/workbench/VolumePlanModal";
 import { useVolumePlan } from "@/hooks/useVolumePlan";
 import { EMPTY_ANSWERS, type PlanAnswers } from "@/lib/volumePlanApi";
+
+// 档位种子（tier-plan-four-tiers 5.3）：满档=行为测试（ai-plan 在内）
+function seedTierFree() {
+  setVerifyCache({ tier: "free", is_member: false,
+    entitlement: { v: 2, features: [], limits: { max_projects: 1 } } });
+}
+function seedTierPlan() {
+  setVerifyCache({
+    tier: "max",
+    is_member: true,
+    entitlement: {
+      v: 2,
+      features: ["ai-plan", "chapter-review", "settings-ai-fields", "style-suggest",
+                 "outline-advanced-fields", "ai-model", "ai-generate", "prompt-panel",
+                 "ai-detect", "ai-plot", "ai-polish", "style-quant"],
+      limits: { max_projects: null },
+    },
+  });
+}
+
 
 // ---------------------------------------------------------------------------
 // c-volume-antagonist 组件契约：
@@ -112,7 +133,8 @@ describe("PickCardsModal", () => {
   it("付费打开即出卡（busy→三卡）；三卡互异；选中→确认链带卡面四问", async () => {
     const onConfirm = vi.fn();
     apiState.post.mockResolvedValue(THREE_PLANS);
-    render(<PickHarness onConfirm={onConfirm} onToDesk={noop} />);
+    seedTierPlan();
+render(<PickHarness onConfirm={onConfirm} onToDesk={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     // busy
     await waitFor(() => expect(screen.getByTestId("pick-busy")).toBeDefined());
@@ -139,7 +161,8 @@ describe("PickCardsModal", () => {
 
   it("options 失败（重试后）→ error 态带「重试／转手写」出口", async () => {
     apiState.post.mockRejectedValue(new Error("模型未配"));
-    render(<PickHarness onConfirm={noop} onToDesk={noop} />);
+    seedTierPlan();
+render(<PickHarness onConfirm={noop} onToDesk={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     await waitFor(() => expect(screen.getByTestId("pick-error")).toBeDefined());
     expect(screen.getByTestId("pick-error").textContent).toContain("模型");
@@ -156,14 +179,16 @@ describe("PickCardsModal", () => {
 
   it("degraded → error 态（AI 输出没法结构化）", async () => {
     apiState.post.mockResolvedValue({ ok: true, degraded: true, text: "散文", hint: "可重试" });
-    render(<PickHarness onConfirm={noop} onToDesk={noop} />);
+    seedTierPlan();
+render(<PickHarness onConfirm={noop} onToDesk={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     await waitFor(() => expect(screen.getByTestId("pick-error")).toBeDefined());
   });
 
   it("换 3 套重调；转手写出口", async () => {
     apiState.post.mockResolvedValue(THREE_PLANS);
-    render(<PickHarness onConfirm={noop} onToDesk={noop} />);
+    seedTierPlan();
+render(<PickHarness onConfirm={noop} onToDesk={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     await waitFor(() => expect(screen.getByTestId("pick-grid")).toBeDefined());
     fireEvent.click(screen.getByTestId("pick-redraw"));
@@ -187,7 +212,8 @@ describe("PickCardsModal", () => {
         { no: 1, spine: "只给走向", conflict: "", ending: "收" },
       ],
     });
-    render(<PickHarness onConfirm={noop} onToDesk={noop} />);
+    seedTierPlan();
+render(<PickHarness onConfirm={noop} onToDesk={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     await waitFor(() => expect(screen.getByTestId("pick-grid")).toBeDefined());
     const card = screen.getByTestId("pick-card-1");
@@ -205,7 +231,8 @@ describe("PickCardsModal", () => {
         : Promise.resolve({}),
     );
     apiState.post.mockResolvedValue(THREE_PLANS);
-    render(<PickHarness onConfirm={noop} onToDesk={noop} />);
+    seedTierPlan();
+render(<PickHarness onConfirm={noop} onToDesk={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     await waitFor(() => expect(screen.getByTestId("pick-grid")).toBeDefined());
     for (const no of [1, 2, 3]) {
@@ -219,7 +246,8 @@ describe("PickCardsModal", () => {
 
   it("套数=2 时 note 呈现卡区顶部", async () => {
     apiState.post.mockResolvedValue({ ...THREE_PLANS, plans: THREE_PLANS.plans.slice(0, 2), note: "主线太薄" });
-    render(<PickHarness onConfirm={noop} onToDesk={noop} />);
+    seedTierPlan();
+render(<PickHarness onConfirm={noop} onToDesk={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     await waitFor(() => expect(screen.getByTestId("pick-note")).toBeDefined());
     expect(screen.getByTestId("pick-note").textContent).toContain("主线太薄");
@@ -234,7 +262,8 @@ describe("VolumePlanModal（四问手写页）", () => {
   });
 
   it("手动入口（加号）：手写页不出现 AI 动作，只留「直接创建这一卷」＋指向右栏的说明", async () => {
-    render(<DeskHarness onDirectCreate={noop} onBackfill={noop} manual />);
+    seedTierPlan();
+render(<DeskHarness onDirectCreate={noop} onBackfill={noop} manual />);
     fireEvent.click(screen.getByTestId("open"));
     await waitFor(() => expect(screen.getByTestId("volume-plan-modal")).toBeDefined());
     expect(screen.queryByTestId("desk-expand")).toBeNull();
@@ -248,7 +277,8 @@ describe("VolumePlanModal（四问手写页）", () => {
 
   it("四问输入＋免费直建出口＋PRO 铺空缺；免费档 PRO 说明", async () => {
     const onDirect = vi.fn();
-    render(<DeskHarness onDirectCreate={onDirect} onBackfill={noop} />);
+    seedTierPlan();
+render(<DeskHarness onDirectCreate={onDirect} onBackfill={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     for (const tid of ["q-what", "q-conflict", "q-ant-line", "q-ending"]) {
       expect(screen.getByTestId(tid)).toBeDefined();
@@ -284,7 +314,8 @@ describe("VolumePlanModal（四问手写页）", () => {
         </>
       );
     }
-    render(<Harness />);
+    seedTierPlan();
+render(<Harness />);
     fireEvent.click(screen.getByTestId("open"));
     // 互切到四问页（手写路径）
     act(() => planRef!.toDesk());
@@ -312,7 +343,8 @@ describe("VolumePlanModal（四问手写页）", () => {
         </>
       );
     }
-    render(<Harness />);
+    seedTierPlan();
+render(<Harness />);
     fireEvent.click(screen.getByTestId("open"));
     // 第 2 卷：占位文案换成「接着上一卷的结尾…」
     expect(
@@ -359,7 +391,8 @@ describe("VolumePlanModal（四问手写页）", () => {
         </>
       );
     }
-    render(<FreeHarness />);
+    seedTierPlan();
+render(<FreeHarness />);
     fireEvent.click(screen.getByTestId("open"));
     const expand = screen.getByTestId("desk-expand") as HTMLButtonElement;
     expect(expand.disabled).toBe(true);
@@ -378,11 +411,16 @@ const IDLE_ONE_VOL: RailIdleData = {
   chapters: 0,
 };
 
-function renderPanel(props: Partial<Parameters<typeof VolumeAssistPanel>[0]> = {}) {
+function renderPanel(
+  props: Partial<Parameters<typeof VolumeAssistPanel>[0]> = {},
+  opts: { free?: boolean } = {},
+) {
   const onPlanVolume = vi.fn();
   const onSelectVolume = vi.fn();
   const onGoOutline = vi.fn();
   const onSplitAi = vi.fn();
+  if (opts.free) seedTierFree();
+  else seedTierPlan();
   render(
     <VolumeAssistPanel
       projectId="p1"
@@ -577,7 +615,7 @@ describe("卷页签右栏（c-write-home-rail-anchor）", () => {
   });
 
   it("免费档在本卷章节页签：AI 行锁定＋升级出口，文案指向中栏「拆下一章」", async () => {
-    renderPanel({ isPro: false, data: railData("chapters"), autoCheckSeq: 1 });
+    renderPanel({ isPro: false, data: railData("chapters"), autoCheckSeq: 1 }, { free: true });
     await waitFor(() => expect(screen.getByTestId("volume-check-report")).toBeDefined());
     expect(screen.getByTestId("volume-split-ai-locked").textContent).toContain(
       "手写拆章免费：用中栏「拆下一章」",
@@ -1144,6 +1182,7 @@ describe("VolumeWorkspace 回填", () => {
   it("逐段落下：主旨/矛盾/坎/卷末/章数落表单；进场只读行", async () => {
     vi.useFakeTimers();
     try {
+      seedTierPlan();
       render(
         <VolumeWorkspace
           projectId="p1"
@@ -1212,7 +1251,8 @@ describe("度量事件（PRD §7 / tasks 5.3）", () => {
   it("抽卡链：drawn → select → confirm_ok；重抽记 redraw", async () => {
     apiState.post.mockResolvedValue(THREE_PLANS);
     const onConfirm = vi.fn();
-    render(<PickHarness onConfirm={onConfirm} onToDesk={noop} />);
+    seedTierPlan();
+render(<PickHarness onConfirm={onConfirm} onToDesk={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     await waitFor(() => expect(screen.getByTestId("pick-grid")).toBeDefined());
     fireEvent.click(screen.getByTestId("pick-redraw"));
@@ -1230,7 +1270,8 @@ describe("度量事件（PRD §7 / tasks 5.3）", () => {
 
   it("铺空缺记 desk_expand（带卷号）", async () => {
     apiState.post.mockResolvedValue(EXPAND);
-    render(<DeskHarness onDirectCreate={noop} onBackfill={noop} />);
+    seedTierPlan();
+render(<DeskHarness onDirectCreate={noop} onBackfill={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     fireEvent.click(screen.getByTestId("desk-expand"));
     await waitFor(() => expect(screen.getByTestId("desk-done")).toBeDefined());
@@ -1263,7 +1304,8 @@ describe("度量事件（PRD §7 / tasks 5.3）", () => {
         </>
       );
     }
-    render(<ChainHarness />);
+    seedTierPlan();
+render(<ChainHarness />);
     fireEvent.click(screen.getByTestId("open"));
     await waitFor(() => expect(screen.getByTestId("pick-grid")).toBeDefined());
     fireEvent.click(screen.getByTestId("pick-card-1"));

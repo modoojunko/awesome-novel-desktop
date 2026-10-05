@@ -26,7 +26,15 @@ export interface TierState {
   /** 套餐已过期（降为免费待遇，前端显示已过期徽标 + 续费引导） */
   expired: boolean;
   expiresAt: string;
+  /** 建书上限（null=不限；undefined=快照缺失走旧口径 1） */
+  projectLimit?: number | null;
+  /** tier === standard（功能门控一律走 useFeature——isStandard 不用于放行）。
+   * 可选：Provider 恒派生，测试构造 TierState 可省略。 */
+  isStandard?: boolean;
+  /** tier ∈ {pro, max}（评审最大语义坑：isPro≠isMember，standard 不得白嫖 PRO 标识） */
   isPro: boolean;
+  /** tier === max（可选：同 isStandard） */
+  isMax?: boolean;
   trialRemainingDays: number;
   /** 权益快照原文（无快照=老 S端/未刷新，null） */
   entitlement: EntitlementSnapshot | null;
@@ -60,6 +68,9 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
   const [isMember, setIsMember] = useState(cachedVerify?.is_member ?? false);
   const [expired, setExpired] = useState(cachedVerify?.expired ?? false);
   const [expiresAt, setExpiresAt] = useState(cachedVerify?.expires_at ?? "");
+  const [projectLimit, setProjectLimit] = useState<number | null | undefined>(
+    cachedVerify?.project_limit ?? undefined,
+  );
   const [trialRemainingDays, setTrialRemainingDays] = useState(
     cachedVerify?.trial_remaining_days ?? 0,
   );
@@ -84,6 +95,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
       setIsMember(false);
       setExpired(false);
       setExpiresAt("");
+      setProjectLimit(null);
       setTrialRemainingDays(0);
       setEntitlement(null);
       setEntitlementDegraded(false);
@@ -99,6 +111,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
       setIsMember(cache.is_member ?? false);
       setExpired(cache.expired ?? false);
       setExpiresAt(cache.expires_at ?? "");
+      setProjectLimit(cache.project_limit ?? null);
       setTrialRemainingDays(cache.trial_remaining_days ?? 0);
       setEntitlement(cache.entitlement ?? null);
       setEntitlementDegraded(cache.entitlement_degraded ?? false);
@@ -113,6 +126,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
       setIsMember(r.is_member ?? false);
       setExpired(r.expired ?? false);
       setExpiresAt(r.expires_at ?? "");
+      setProjectLimit(r.project_limit ?? null);
       setTrialRemainingDays(r.trial_remaining_days ?? 0);
       setEntitlement(r.entitlement ?? null);
       setEntitlementDegraded(r.entitlement_degraded ?? false);
@@ -181,14 +195,18 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("focus", onFocus);
   }, [refetch, loggedIn]);
 
-  // 免费待遇 = 非有效会员（免费层或过期降级）；isPro 同步为有效会员语义
+  // 免费待遇 = 非有效会员；isStandard/isPro/isMax 按真实档位拆分
+  // （isPro = tier∈{pro,max}——standard 会员 isPro 必须 false，防 UI 白嫖 PRO 标识）
   const value: TierState = {
     tier,
     isFree: !isMember,
     isMember,
     expired,
     expiresAt,
-    isPro: isMember,
+    projectLimit,
+    isStandard: tier === "standard",
+    isPro: tier === "pro" || tier === "max",
+    isMax: tier === "max",
     trialRemainingDays,
     entitlement,
     entitlementDegraded,

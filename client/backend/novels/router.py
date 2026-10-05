@@ -11,7 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_client import AITimeoutError, get_ai_client
-from auth_local.deps import require_ai_access, require_project_limit
+from auth_local.deps import ai_feature, require_ai_access, require_project_limit
 from auth_local.middleware import get_current_user
 from db import get_db
 from filesystem.storage import get_storage
@@ -125,6 +125,7 @@ GENRE_CORPUS_NAMES = {
 
 
 @router.post("", status_code=201)
+@ai_feature("ai-plan")
 async def create(
     body: CreateProjectBody,
     user: dict = Depends(get_current_user),
@@ -144,6 +145,7 @@ async def create(
 
 
 @ai_router.post("/suggest-meta")
+@ai_feature("ai-plan")
 async def suggest_meta(
     body: SuggestMetaBody,
     user: dict = Depends(get_current_user),

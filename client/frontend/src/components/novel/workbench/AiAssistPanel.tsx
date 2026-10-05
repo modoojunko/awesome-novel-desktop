@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { api, request } from "@/lib/api";
-import { useFeature } from "@/hooks/useTier";
+import { useFeature, useTier } from "@/hooks/useTier";
 import { getZhuqueShow } from "@/lib/prefs";
 import { runZhuqueCheck, useZhuqueCheck } from "@/hooks/useZhuqueCheck";
 import type { AiState } from "@/types/api-config";
@@ -125,6 +125,13 @@ export function AiAssistPanel({
   const [loreStats, setLoreStats] = useState<{ here: number; until: number } | null>(null);
   // c-zhuque-ai-detect：检测行三事实（权益/Key 配置/显示开关）＋编排状态
   const aiDetect = useFeature("ai-detect");
+  // 行级 key（tier-plan-four-tiers 5.2）：每行按其能力域挂 feature，行锁自带档位提示
+  const aiPlan = useFeature("ai-plan");
+  const aiGenerate = useFeature("ai-generate");
+  const aiPlot = useFeature("ai-plot");
+  const aiPolish = useFeature("ai-polish");
+  const styleSuggest = useFeature("style-suggest");
+  const { isMember } = useTier();
   const [zqConfigured, setZqConfigured] = useState<boolean | null>(null);
   const [zqShow, setZqShowState] = useState(() => getZhuqueShow());
   const zq = useZhuqueCheck(projectId, chapterRef);
@@ -303,7 +310,19 @@ export function AiAssistPanel({
   /** 门控与设定域同源：PRO＝ready，免费＝member_required（点击走统一升级出口）。
    *  c-character-intro 3.3：行级 PRO 映射只作用章纲页签——og 页签恒 ready（盘点行
    *  免费可点，其余行 ra-off＋「需 PRO」）；其余页签维持 member_required 整卡锁定。 */
-  const state: AiState = isPro || tab === "og" ? "ready" : "member_required";
+  // 整卡门禁按页签拆 key：og 恒 ready（行级锁承载）；其余页签=该页签主 key——
+  // 免费整卡 member_required（统一升级出口不变）；会员但档位不够→ready＋行级锁
+  const tabReady: Record<string, boolean> = {
+    og: true,
+    prose: aiGenerate,
+    style: styleSuggest || aiGenerate,
+    relations: aiGenerate,
+    hooks: aiGenerate,
+    prompt: aiGenerate,
+    settings: aiGenerate,
+    actions: true,
+  };
+  const state: AiState = tabReady[tab] || isMember ? "ready" : "member_required";
   const handleBlocked = (reason: AiState) => {
     if (reason === "member_required") {
       onUpgrade?.();
@@ -352,45 +371,45 @@ export function AiAssistPanel({
     // 其余四行免费态 ra-off＋「需 PRO」（照 VolumeAssistPanel 先例）；
     // 其余页签维持 member_required 整卡锁定，不因本 change 放行。
     // （「AI 起草」行已随 c-og-ai-draft-retire 退役：与拆章/补全缺失字段重复。）
+    // 行级 key（5.2）：抽卡/补缺/盘点→ai-plan（标准）、推演→ai-plot（MAX）、
+    // 冲突检测→ai-generate（PRO，ai-check 族）；hint 按档位出「需开通/需 PRO/需 MAX」
     const proRow = (disabledExtra: boolean, hintExtra?: string) => ({
-      disabled: !isPro || disabledExtra,
-      hint: !isPro ? "需 PRO" : hintExtra,
+      disabled: !aiGenerate || disabledExtra,
+      hint: !aiGenerate ? "需 PRO" : hintExtra,
     });
     rows = [
       cap("plot-draw", "剧情抽卡", "一次给 3 版剧情挑一版；要求概要、挑战、章末落点已填（手写剧情全免费）", {
         onClick: onPlotDraw,
-        disabled: archived || !isPro,
-        hint: archived ? "本章已归档" : !isPro ? "需 PRO" : undefined,
+        disabled: archived || !aiPlan,
+        hint: archived ? "本章已归档" : !aiPlan ? "需开通" : undefined,
         testid: "og-plot-draw",
       }),
       cap(
         "cast-review",
         "盘点出场人物",
-        "逐段盘这一章缺不缺人；缺的人给三个方向抽卡（PRO）或你自己填，确认后写进角色表、本章出场角色与本卷出场清单",
+        "逐段盘这一章缺不缺人；缺的人给三个方向抽卡或你自己填，确认后写进角色表、本章出场角色与本卷出场清单",
         {
           onClick: () => onCastReview?.(),
-          disabled: archived || castEmpty || !onCastReview,
-          hint: archived ? "本章已归档" : castEmpty ? "先写剧情再盘点" : undefined,
+          disabled: archived || castEmpty || !onCastReview || !aiPlan,
+          hint: archived ? "本章已归档" : castEmpty ? "先写剧情再盘点" : !aiPlan ? "需开通" : undefined,
           testid: "og-cast-review",
           odId: "rail-cast",
         },
       ),
       cap("simulate", "剧情推演 · 按回合走一遍", "先定走法再逐步推演；走法可收进本章剧情条目", {
-        onClick: onSimulate, disabled: archived || !isPro, hint: archived ? "本章已归档" : !isPro ? "需 PRO" : undefined, testid: "og-simulate",
+        onClick: onSimulate, disabled: archived || !aiPlot, hint: archived ? "本章已归档" : !aiPlot ? "需 MAX" : undefined, testid: "og-simulate",
       }),
       cap("fill", "补全缺失字段", missing.length ? `只补还缺的 ${missing.length} 项，一稿回填` : "必填已齐，暂无可补", {
         onClick: () => onFillGaps?.(),
-        disabled: !onFillGaps || gapsLoading || missing.length === 0 || !isPro,
-        hint: !isPro ? "需 PRO" : undefined,
+        disabled: !onFillGaps || gapsLoading || missing.length === 0 || !aiPlan,
+        hint: !aiPlan ? "需开通" : undefined,
       }),
       cap("conflict", "与卷纲冲突检测", "拿本章章纲去对卷纲，报出冲突点", {
         onClick: () => onAiCheck?.("volume_conflict"),
         ...proRow(false),
       }),
     ];
-    footNote = isPro
-      ? "章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。"
-      : "免费版：盘点只读、不代笔；标「需 PRO」的行升级后可用。盘点结果要写进章纲的，走你平时那套保存。";
+    footNote = "章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。标「需开通／需 PRO／需 MAX」的行按套餐逐档解锁。";
   } else if (tab === "prose") {
     running = aiState?.polishLoading ? "polish" : zq.state.status === "running" ? "zhuque" : null;
     const streaming = !!aiState?.streaming;
@@ -421,8 +440,8 @@ export function AiAssistPanel({
       // c-retire-selection-transforms：去AI味单卡（扩写/压缩两动作已退役），未选中置灰
       cap("polish", "去AI味", "选中段落去掉机器腔，对照预览后替换", {
         onClick: () => onAiSelection?.("polish", sel()),
-        disabled: streaming || !aiState?.hasSelection || !!aiState?.polishLoading,
-        hint: !aiState?.hasSelection ? "先在正文选中一段" : aiState?.polishLoading ? "生成中" : undefined,
+        disabled: streaming || !aiPolish || !aiState?.hasSelection || !!aiState?.polishLoading,
+        hint: !aiPolish ? "MAX 专属" : !aiState?.hasSelection ? "先在正文选中一段" : aiState?.polishLoading ? "生成中" : undefined,
         testid: "ai-polish",
       }),
     ];
@@ -559,14 +578,16 @@ export function AiAssistPanel({
       data-od-id={`ai-assist-${tab}`}
       // 免费态章纲页签：副行插槽＋统一升级出口（行级门控的升级口）
       subTitle={
-        tab === "og" && !isPro ? "免费行可用 · 标「需 PRO」的行升级后解锁" : undefined
+        tab === "og" && (!aiPlan || !aiPlot || !aiGenerate)
+          ? "标「需开通／需 PRO／需 MAX」的行按套餐逐档解锁"
+          : undefined
       }
     >
-      {tab === "og" && !isPro && (
+      {tab === "og" && (!aiPlan || !aiPlot || !aiGenerate) && (
         <p className="none" data-testid="og-upgrade-exit">
-          标「需 PRO」的行升级后可用{" "}
+          标「需开通／需 PRO／需 MAX」的行按套餐逐档解锁{" "}
           <button className="btn btn-primary btn-sm" data-testid="og-upgrade-btn" onClick={onUpgrade}>
-            升级 PRO
+            升级套餐
           </button>
         </p>
       )}

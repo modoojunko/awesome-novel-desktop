@@ -23,7 +23,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import get_current_user, require_ai_access, require_novel_model
+from auth_local.deps import (
+    ai_feature,
+    get_current_user,
+    require_ai_access,
+    require_novel_model,
+)
 from db import get_db
 from novels.service import get_novel
 from prompts import load_layers
@@ -713,6 +718,7 @@ async def _character_items(db: AsyncSession, project_id: str) -> list[dict]:
 
 
 @router.post("/ai-draw")
+@ai_feature("ai-plan")
 async def cast_ai_draw(
     project_id: str,
     chapter_ref: str,

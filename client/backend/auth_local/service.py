@@ -100,8 +100,10 @@ POLL_TIMEOUT = 120
 # 档位兜底名单（仅"无快照"分支使用，见 check_permission 分支 4）：
 # 含归一化档位 pro/max 与历史档位名——兜老 S端 与首次升级未刷新的窗口
 # （c-s-entitlement-sync：主判定路径不存在档位白名单，快照优先）。
-FALLBACK_MEMBER_TIERS = ("trial", "pro", "max",
+FALLBACK_MEMBER_TIERS = ("trial", "standard", "pro", "max",
                          "monthly", "quarterly", "yearly", "lifetime")
+# standard 入名单（tier-plan-four-tiers B1）：标准档不可购前无用户暴露；
+# B3 3.1 准入闸分支重构后本名单退役为「目录皆无时的已知档兜底」。
 
 # 快照完整性：features 是 list 且 limits.max_projects 键存在（Q3 三段式的判定前提）
 def _snapshot_complete(ent) -> bool:
@@ -116,21 +118,74 @@ def _snapshot_complete(ent) -> bool:
 # 档位标准配置镜像（与 docs/contracts/entitlement-defaults.json 同源，tests 对拍；
 # 只用于"快照存在但不完整且重同步不可得"的极端分支——按档位标准给权限，不是瞎放开）
 _TIER_ALIAS = {"monthly": "pro", "quarterly": "pro", "yearly": "pro", "lifetime": "pro"}
+# v2（tier-plan-four-tiers，2026-10-05 拍板）——与 docs/contracts/entitlement-defaults.json
+# 逐键对拍（tests/test_entitlement_sync.py 3.6）。trial=pro 同权含朱雀（ai-detect 留 PRO）；
+# style-suggest（文风建议，标准）/style-quant（文风蒸馏，MAX）已拆 key。
 STANDARD_FALLBACK = {
-    "none":  {"features": [], "limits": {"max_projects": 1}},
-    "free":  {"features": [], "limits": {"max_projects": 1}},
-    "trial": {"features": ["settings-ai-fields", "outline-advanced-fields",
-                           "ai-generate", "prompt-panel", "ai-model"],
-              "limits": {"max_projects": None}},
-    "pro":   {"features": ["settings-ai-fields", "outline-advanced-fields",
-                           "ai-generate", "prompt-panel", "ai-model",
-                           "ai-detect"],
-              "limits": {"max_projects": None}},
-    "max":   {"features": ["settings-ai-fields", "outline-advanced-fields",
-                           "ai-generate", "prompt-panel", "ai-model",
-                           "ai-detect"],
-              "limits": {"max_projects": None}},
+    "none":     {"features": [], "limits": {"max_projects": 1}},
+    "free":     {"features": [], "limits": {"max_projects": 1}},
+    "standard": {"features": ["ai-plan",
+                            "chapter-review",
+                            "settings-ai-fields",
+                            "style-suggest",
+                            "outline-advanced-fields",
+                            "ai-model"],
+                 "limits": {"max_projects": 3}},
+    "pro":      {"features": ["ai-plan",
+                            "chapter-review",
+                            "settings-ai-fields",
+                            "style-suggest",
+                            "outline-advanced-fields",
+                            "ai-model",
+                            "ai-generate",
+                            "prompt-panel",
+                            "ai-detect"],
+                 "limits": {"max_projects": None}},
+    "max":      {"features": ["ai-plan",
+                            "chapter-review",
+                            "settings-ai-fields",
+                            "style-suggest",
+                            "outline-advanced-fields",
+                            "ai-model",
+                            "ai-generate",
+                            "prompt-panel",
+                            "ai-detect",
+                            "ai-plot",
+                            "ai-polish",
+                            "style-quant"],
+                 "limits": {"max_projects": None}},
+    "trial":    {"features": ["ai-plan",
+                            "chapter-review",
+                            "settings-ai-fields",
+                            "style-suggest",
+                            "outline-advanced-fields",
+                            "ai-model",
+                            "ai-generate",
+                            "prompt-panel",
+                            "ai-detect"],
+                 "limits": {"max_projects": None}},
 }
+
+
+def _catalog_row_for(tier: str) -> dict | None:
+    """档位目录缓存行（check-auth 下发的 tier_catalog.tiers）→ {features, max_projects}。
+
+    行缺/缓存无 → None（调用方走后续兜底）。features 恒 list、max_projects 可 None。
+    """
+    catalog = get_local_config().get("tier_catalog") or {}
+    rows = catalog.get("tiers") if isinstance(catalog, dict) else None
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        if not isinstance(row, dict) or row.get("key") != tier:
+            continue
+        features = row.get("features")
+        limits = row.get("limits") or {}
+        return {
+            "features": features if isinstance(features, list) else [],
+            "max_projects": limits.get("max_projects") if isinstance(limits, dict) else 1,
+        }
+    return None
 
 
 def standard_fallback_for(tier: str) -> dict:
@@ -470,6 +525,7 @@ async def browser_auth(silent: bool = False) -> dict:
             cfg["tier"] = data.get("tier", "none")
             cfg["expires_at"] = data.get("expires_at", "")
             cfg["entitlement"] = data.get("entitlement")   # 权益快照（entitlement-sync）
+            cfg["tier_catalog"] = data.get("tier_catalog")  # 档位目录投影（tier-catalog）
             cfg["entitlement_fetched_at"] = datetime.now(UTC).isoformat()
             cfg["last_login_at"] = datetime.now(UTC).isoformat()
             cfg["deletion_pending"] = False  # 重新登录/撤销恢复：清除暂停标记
@@ -528,6 +584,7 @@ async def browser_auth(silent: bool = False) -> dict:
                     cfg[k] = ""
                 cfg["tier"] = "none"
                 cfg["entitlement"] = None
+                cfg["tier_catalog"] = None
                 cfg["deletion_pending"] = False
                 save_local_config(cfg)
                 logger.info("event=session.invalidated user=%s deleted=%s", stale_user, deleted)
@@ -586,6 +643,7 @@ async def verify_session() -> dict:
         "project_limit": perm.get("project_limit"),
         "trial_remaining_days": perm.get("trial_remaining_days", 0),
         "entitlement_degraded": perm.get("entitlement_degraded", False),
+        "tier_catalog": cfg.get("tier_catalog"),
     }
     if perm.get("entitlement") is not None:
         resp["entitlement"] = perm["entitlement"]  # 快照原文（无快照省略）
@@ -654,8 +712,11 @@ def check_permission(now: date | None = None) -> dict:
                      msg="账号注销申请处理中，付费与套餐功能已暂停；可到网页控制台撤销。本地作品不受影响。",
                      trial_remaining_days=_remaining_days())
 
-    # 1) 免费档位 / trial 无到期收紧
-    if tier not in FALLBACK_MEMBER_TIERS:
+    # 1) 免费基线档 / trial 无到期收紧
+    # 准入闸（tier-plan-four-tiers 3.1，design §3-A）：none/free → 免费基线；
+    # **其余任何档名一律进快照/目录判定**（评审 §2-A：档位名单 SHALL NOT 出现在
+    # 快照存在的主判定路径）。FALLBACK_MEMBER_TIERS 退役为分支 4 的已知档兜底。
+    if tier in ("none", "free"):
         return _perm(tier, trial_remaining_days=_remaining_days())
     if (tier == "trial" and not expires_at
             and not os.environ.get("ENTITLEMENT_LEGACY_TRIAL")):
@@ -690,9 +751,21 @@ def check_permission(now: date | None = None) -> dict:
                      project_limit=fb["limits"]["max_projects"],
                      trial_remaining_days=_remaining_days(), degraded=True)
 
-    # 4) 无快照兜底（老 S端 / 未刷新）：档位名单判定
-    return _perm(tier, is_member=True, project_limit=None,
-                 trial_remaining_days=_remaining_days())
+    # 4) 无快照：档位目录缓存（tier-catalog 新 S端 下发）优先——按目录行合成
+    # features/limits；目录皆无（老 S端）退 FALLBACK_MEMBER_TIERS 已知档兜底。
+    catalog_row = _catalog_row_for(tier)
+    if catalog_row is not None:
+        features = catalog_row["features"]
+        max_projects = catalog_row["max_projects"]
+        is_member = bool(features) or max_projects is None
+        ent_synth = {"features": features, "limits": {"max_projects": max_projects}}
+        return _perm(tier, is_member=is_member, project_limit=max_projects,
+                     trial_remaining_days=_remaining_days(),
+                     entitlement=ent_synth)
+    if tier in FALLBACK_MEMBER_TIERS:
+        return _perm(tier, is_member=True, project_limit=None,
+                     trial_remaining_days=_remaining_days())
+    return _perm(tier, trial_remaining_days=_remaining_days())
 
 
 async def ensure_entitlement_snapshot() -> None:

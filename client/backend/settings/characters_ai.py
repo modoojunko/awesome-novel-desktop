@@ -29,7 +29,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_client import AITimeoutError, get_ai_client_for_novel
 from ai_state import effective_model
 from api_configs.usage import record_usage
-from auth_local.deps import get_current_user, require_ai_access, require_novel_model
+from auth_local.deps import (
+    ai_feature,
+    get_current_user,
+    require_ai_access,
+    require_novel_model,
+)
 from db import get_db
 from filesystem.storage import get_storage
 from models.character import Character
@@ -120,6 +125,7 @@ async def _roster_text(db: AsyncSession, novel_id: str, exclude_id: str) -> str:
     return "\n".join(lines)
 
 @router.post("/ai/characters/{character_id}/draft")
+@ai_feature("settings-ai-fields")
 async def draft_character(
     project_id: str,
     character_id: str,
@@ -272,6 +278,7 @@ async def draft_character(
 
 
 @router.post("/ai/characters/{character_id}/check")
+@ai_feature("settings-ai-fields")
 async def check_character(
     project_id: str,
     character_id: str,
@@ -456,6 +463,7 @@ def _card_unnamed(ch: Character) -> bool:
 
 
 @router.post("/ai/characters/bootstrap")
+@ai_feature("settings-ai-fields")
 async def bootstrap_protagonist(
     project_id: str,
     body: dict,

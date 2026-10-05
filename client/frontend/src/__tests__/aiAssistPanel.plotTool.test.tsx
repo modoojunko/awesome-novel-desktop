@@ -1,5 +1,6 @@
 // 右栏「剧情抽卡」卡（c-plot-split 5.4）：三态＝可用（PRO）／归档禁用／
 // 免费态 rail-locked 置灰禁点不隐藏＋升级出口。
+import { setVerifyCache } from "@/lib/licenseCache";
 import { act, render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -9,12 +10,25 @@ vi.mock("@/lib/api", () => ({
 
 import { AiAssistPanel } from "@/components/novel/workbench/AiAssistPanel";
 
+// 档位种子（3.5 夹具翻 v2）：满档=组件行为测试；门控场景显式传档
+function seedTier(features: string[]) {
+  setVerifyCache({
+    tier: features.length ? "max" : "free",
+    is_member: features.length > 0,
+    entitlement: { v: 2, features, limits: { max_projects: null } },
+  });
+}
+const V2_MAX = ["ai-plan", "chapter-review", "settings-ai-fields", "style-suggest",
+  "outline-advanced-fields", "ai-model", "ai-generate", "prompt-panel", "ai-detect",
+  "ai-plot", "ai-polish", "style-quant"];
+
 function renderPanel(opts: {
   isPro: boolean;
   archived?: boolean;
   onPlotDraw?: () => void;
   onUpgrade?: () => void;
 }) {
+  seedTier(opts.isPro ? V2_MAX : []);
   return render(
     <AiAssistPanel
       projectId="p1"

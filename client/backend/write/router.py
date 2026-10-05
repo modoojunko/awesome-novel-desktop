@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_client import AITimeoutError
 from ai_state import effective_model
-from auth_local.deps import require_ai_access, require_novel_model
+from auth_local.deps import ai_feature, require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
@@ -35,7 +35,6 @@ async def quality_check(
     chapter_ref: str,
     body: dict,
     user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_novel(db, project_id, user["id"])
@@ -153,6 +152,7 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
 
 
 @router.get("/prompt")
+@ai_feature("prompt-panel")
 async def get_write_prompt(
     project_id: str,
     chapter_ref: str,
@@ -206,6 +206,7 @@ async def get_write_prompt(
 
 
 @router.post("/prompt/polish")
+@ai_feature("ai-generate")
 async def polish_write_prompt(
     project_id: str,
     chapter_ref: str,
@@ -314,6 +315,7 @@ async def polish_write_prompt(
 # 路径为空串：本 router 的 prefix 已以 /write 结尾，再写 "/write" 会注册成
 # /write/write（qa-night 2026-09-19 P1：前端调 /write 恒 404、AI 生成正文不可用）
 @router.post("")
+@ai_feature("ai-polish")
 async def write_chapter(
     project_id: str,
     chapter_ref: str,
@@ -392,6 +394,7 @@ async def write_chapter(
 
 
 @router.post("/polish")
+@ai_feature("ai-generate")
 async def polish_writing(
     project_id: str,
     chapter_ref: str,

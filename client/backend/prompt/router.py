@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import require_ai_access
+from auth_local.deps import ai_feature, require_ai_access
 from auth_local.middleware import get_current_user
 from db import get_db
 from models.archive import ChapterPrompt
@@ -29,6 +29,7 @@ book_router = APIRouter(prefix="/api/novels/{project_id}", tags=["prompts"])
 
 
 @book_router.get("/prompt-summary")
+@ai_feature("prompt-panel")
 async def prompt_summary(
     project_id: str,
     user: dict = Depends(get_current_user),
@@ -56,6 +57,7 @@ async def prompt_summary(
 
 
 @router.get("/prompts")
+@ai_feature("prompt-panel")
 async def list_prompts(
     project_id: str,
     chapter_ref: str,
@@ -84,6 +86,7 @@ async def list_prompts(
 
 
 @router.get("/prompts/{seg}")
+@ai_feature("prompt-panel")
 async def get_prompt_content(
     project_id: str,
     chapter_ref: str,
@@ -115,6 +118,7 @@ async def get_prompt_content(
 
 
 @router.put("/prompts/{seg}")
+@ai_feature("prompt-panel")
 async def update_prompt_content(
     project_id: str,
     chapter_ref: str,

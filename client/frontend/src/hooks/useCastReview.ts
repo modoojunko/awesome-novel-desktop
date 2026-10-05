@@ -137,14 +137,15 @@ const toRecord = (g: CastGapView): CastGapSession => ({
 export function useCastReview(opts: {
   projectId: string;
   chapterRef: string;
-  isPro: boolean;
+  /** 拥有 ai-plan（标准起）——抽卡/恢复判据（tier-plan-four-tiers 5.4） */
+  hasAiPlan: boolean;
   /** 盘点输入（表单快照；引用稳定即可，调用时读最新） */
   input: CastReviewInput;
   onWrite: (req: CastWriteRequest) => Promise<CastWriteOutcome>;
   onUpgrade: () => void;
   onOpenConfig: () => void;
 }): CastReviewController {
-  const { projectId, chapterRef, isPro, onWrite, onUpgrade } = opts;
+  const { projectId, chapterRef, hasAiPlan, onWrite, onUpgrade } = opts;
   const [state, setState] = useState<CastState>(INITIAL);
   // 在途互斥（ref 同步判定）＋代际守卫（关窗/重跑换代，晚到响应丢弃）
   const busyRef = useRef(false);
@@ -291,7 +292,7 @@ export function useCastReview(opts: {
     const s = loadCastSession(sessionKey);
     if (s && s.fp === fp) {
       // 会话恢复按档位裁剪（免费档丢 cards 载荷——不展示任何 AI 生成卡面）；只在内存裁剪
-      const trimmed = trimCastSessionForTier(s, isPro);
+      const trimmed = trimCastSessionForTier(s, hasAiPlan);
       setState((prev) => ({
         ...prev,
         open: true,
@@ -315,7 +316,7 @@ export function useCastReview(opts: {
       toast.info("剧情改过了，重新盘点");
     }
     runReview(false);
-  }, [sessionKey, isPro, buildGaps, runReview]);
+  }, [sessionKey, hasAiPlan, buildGaps, runReview]);
 
   const close = useCallback(() => {
     genRef.current++; // 晚到响应不再落表
@@ -430,7 +431,7 @@ export function useCastReview(opts: {
   const startDraw = useCallback(
     (gapId: string) => {
       if (busyRef.current) return;
-      if (!isPro) {
+      if (!hasAiPlan) {
         onUpgrade();
         return;
       }
@@ -452,7 +453,7 @@ export function useCastReview(opts: {
       }
       drawBatch(gapId, gap.exclude);
     },
-    [isPro, onUpgrade, drawBatch],
+    [hasAiPlan, onUpgrade, drawBatch],
   );
 
   const redraw = useCallback(

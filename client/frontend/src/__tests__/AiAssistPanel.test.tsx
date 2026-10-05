@@ -1,3 +1,4 @@
+import { setVerifyCache } from "@/lib/licenseCache";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AiAssistPanel } from "@/components/novel/workbench/AiAssistPanel";
@@ -24,7 +25,27 @@ const OG_STATS = {
   missingLabels: ["主情绪"],
 };
 
-function renderPanel(tab: string, extra: Partial<Parameters<typeof AiAssistPanel>[0]> = {}) {
+// 档位种子（3.5 夹具翻 v2）：features 走 v2 默认表口径
+const V2 = {
+  standard: ["ai-plan", "chapter-review", "settings-ai-fields", "style-suggest",
+             "outline-advanced-fields", "ai-model"],
+  pro: null as string[] | null,
+  max: null as string[] | null,
+  free: [] as string[],
+};
+V2.pro = [...V2.standard, "ai-generate", "prompt-panel", "ai-detect"];
+V2.max = [...V2.pro, "ai-plot", "ai-polish", "style-quant"];
+
+function seedTier(features: string[]) {
+  setVerifyCache({
+    tier: features.length ? "max" : "free",
+    is_member: features.length > 0,
+    entitlement: { v: 2, features, limits: { max_projects: null } },
+  });
+}
+
+function renderPanel(tab: string, extra: Partial<Parameters<typeof AiAssistPanel>[0]> = {}, feats?: string[]) {
+  seedTier(feats ?? V2.max!); // 默认满档（组件行为测试；门控场景显式传档）
   const cb = { onSimulate: vi.fn() };
   render(
     <AiAssistPanel
@@ -200,14 +221,13 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     expect(onAiCheck).toHaveBeenCalledWith("hooks_conflict");
   });
 
-  it("免费态：整卡 locked，动作行可点但被门控拦下走统一升级出口", async () => {
+  it("免费态文风页签：整卡 member_required（统一升级出口），检测动作被拦", async () => {
     const onUpgrade = vi.fn();
     const onAiCheck = vi.fn();
-    renderPanel("style", { isPro: false, onAiCheck, onUpgrade });
+    renderPanel("style", { isPro: false, onAiCheck, onUpgrade }, V2.free);
+    // 免费档文风页签主 key=style-suggest（标准）→ 整卡 member_required 锁
     expect(document.querySelector(".rail-assist.locked")).toBeTruthy();
-    expect(screen.getByText(/未解锁 · 升级 PRO 后本书 AI 即可用/)).toBeTruthy();
-    const row = screen.getByRole("button", { name: /文风一致性检查/ }) as HTMLButtonElement;
-    expect(row.disabled).toBe(false); // 模板免费态＝可见可点，点击被门控拦下
+    expect(screen.getByText(/开通.*AI 即可用|未解锁/)).toBeTruthy();
     await clickRow(/文风一致性检查/);
     expect(onAiCheck).not.toHaveBeenCalled();
     expect(onUpgrade).toHaveBeenCalled();

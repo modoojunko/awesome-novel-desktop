@@ -20,6 +20,8 @@ interface CreateProjectModalProps {
   onCreated: (novelId: string) => void;
   /** 是否有效会员（免费层或套餐过期均为 false，与后端 require_project_limit 口径一致） */
   isMember?: boolean;
+  /** 建书上限（null=不限）——父层从快照 limits.max_projects 透传 */
+  projectLimit?: number | null;
   /** Current novel count, for free-limit check */
   novelCount?: number;
 }
@@ -54,6 +56,7 @@ export default function CreateProjectModal({
   onClose,
   onCreated,
   isMember,
+  projectLimit,
   novelCount,
 }: CreateProjectModalProps) {
   const [state, dispatch] = useReducer(reducer, INITIAL);
@@ -90,9 +93,12 @@ export default function CreateProjectModal({
     }
   }
 
-  // 口径=页面级 !isMember（过期会员也拦，与后端 require_project_limit 一致）
+  // 建书上限单源（tier-plan-four-tiers 5.7）：快照 limits.max_projects；
+  // projectLimit 未透传时回落旧口径（!isMember → 1）
+  const bookLimit =
+    projectLimit !== undefined ? projectLimit : isMember === false ? 1 : null;
   const freeLimitReached =
-    isMember === false && novelCount !== undefined && novelCount >= 1;
+    bookLimit !== null && novelCount !== undefined && novelCount >= bookLimit;
   const canCreate = state.name.trim().length > 0 && !freeLimitReached && !submitting;
 
   return (
@@ -132,7 +138,7 @@ export default function CreateProjectModal({
       </p>
       {freeLimitReached && (
         <p className="hint" style={{ marginTop: 10, background: "var(--warn-soft)" }}>
-          免费用户限 1 本。升级套餐可创建更多小说。
+          当前套餐限 {bookLimit ?? 1} 本。升级套餐可创建更多小说。
         </p>
       )}
     </Modal>

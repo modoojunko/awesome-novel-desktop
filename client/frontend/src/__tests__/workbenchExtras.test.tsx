@@ -26,10 +26,10 @@ beforeEach(() => {
 });
 
 describe("ArchiveModal 收尾计划预览", () => {
-  it("PRO：列出台后五件事与「未确认不参与提示词」说明", () => {
+  it("归档收尾全档免费：列出台后两件事与「未确认不参与提示词」说明", () => {
     render(<ArchiveModal open onClose={() => {}} onConfirm={() => {}} isPro />);
-    // c-chapter-dossier：收尾收缩为两件 PRO 提案；三件已升级章档（全档）
-    expect(screen.getByText("归档收尾（PRO）")).toBeTruthy();
+    // c-chapter-dossier：收尾收缩为两件提案（tier-plan-four-tiers：全档免费）
+    expect(screen.getByText("归档收尾提案")).toBeTruthy();
     // c-ops-tab-progress-only：收尾两件各归各的页签（伏笔/设定）
     for (const t of [
       "登记伏笔（埋下 / 收束）——产出在「伏笔」页签确认",

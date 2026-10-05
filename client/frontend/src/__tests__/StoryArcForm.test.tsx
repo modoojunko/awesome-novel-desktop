@@ -228,13 +228,15 @@ describe("行内「AI 帮我填」（基调第三问）", () => {
 
   it("免费拦截：member_required 给统一升级提示，不写回", async () => {
     apiState.runArcAi.mockRejectedValue(
-      Object.assign(new Error("403"), { reason: "member_required" }),
+      Object.assign(new Error("标准 功能 — 开通后即可使用；免费版写作能力完整"), {
+        reason: "member_required",
+      }),
     );
     await mount();
     fireEvent.click(screen.getByRole("button", { name: /AI 帮我填/ }));
     await waitFor(() =>
       expect(toastState.info).toHaveBeenCalledWith(
-        "这是会员功能，升级 PRO 后解锁——免费版写作能力完整",
+        "标准 功能 — 开通后即可使用；免费版写作能力完整",
       ),
     );
     const tone = screen.getByPlaceholderText(/先悲后喜 \/ 苦尽甘来 \/ 意难平/) as HTMLInputElement;

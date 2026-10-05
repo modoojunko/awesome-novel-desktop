@@ -12,6 +12,7 @@
 // PR 5：归档/版本历史改弹窗（原型口径）；AI 按钮走页面级解锁链；
 //   生成启动信号（aiWriteSignal）自动切正文页签（真 bug #2）；
 //   排版偏好 per-book（pref.book.{pid}.*，全局兜底）。
+import { useFeature } from "@/hooks/useTier";
 import {
   useCallback,
   useEffect,
@@ -98,6 +99,9 @@ interface ChapterWorkspaceProps {
   wb: WorkbenchApi;
   /** PRO 档位（提示词页签 PRO-only；AI 入口已全部收口右栏 AI 助手） */
   isPro: boolean;
+  /** 拥有 ai-plan（标准起）——盘点/抽卡/补缺判据；缺省回落 useFeature("ai-plan")
+   *  （测试夹具显式传档用，tier-plan-four-tiers 5.4） */
+  hasAiPlan?: boolean;
   /** ProPane ref 由页面持有（右栏 AI 工具共用同一实例） */
   proseRef: RefObject<ProseHandle | null>;
   aiState: ProseAIState;
@@ -129,6 +133,7 @@ export default function ChapterWorkspace({
   chapterRef,
   outline,
   wb,
+  hasAiPlan,
   isPro,
   proseRef,
   aiState,
@@ -866,10 +871,12 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     [projectId, chapterRef, consumeWarnings, clearOgAutoSave, refreshCharacterNames],
   );
 
+  const featureAiPlan = useFeature("ai-plan");
+  const aiPlan = hasAiPlan ?? featureAiPlan;
   const castReview = useCastReview({
     projectId,
     chapterRef,
-    isPro,
+    hasAiPlan: aiPlan,
     input: castInput,
     onWrite: handleCastWrite,
     // 统一升级出口（member-block 全局升级引导；NovelWorkspace 零改动）
@@ -1230,7 +1237,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             projectId={projectId}
             chapterRef={chapterRef}
             archived={archived}
-            isPro={isPro}
             kinds={["lore"]}
           />
           <SettingsChangelogPane
@@ -1266,7 +1272,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             projectId={projectId}
             chapterRef={chapterRef}
             archived={archived}
-            isPro={isPro}
             kinds={["hooks"]}
           />
           <HooksPane projectId={projectId} chapterRef={chapterRef} />
@@ -1513,7 +1518,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         plotItems={castInput.body.plot_items}
         roster={cardNames}
         castLines={ogForm.chars.split("\n").map((x) => x.trim()).filter(Boolean)}
-        isPro={isPro}
+        hasAiPlan={aiPlan}
         onUpgrade={() =>
           window.dispatchEvent(
             new CustomEvent("member-block", { detail: { message: "AI 抽人是 PRO 功能——升级后一次给 3 个方向" } }),

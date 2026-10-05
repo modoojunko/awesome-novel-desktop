@@ -14,7 +14,7 @@ export const BRAND = {
   tagline: brandJson.tagline,
 } as const;
 
-/** 组合名：「爱小说 · AI Novel」 */
+/** 组合名：「爱小说 · Awesome Novel」 */
 export const brandFull = `${BRAND.name} · ${BRAND.nameEn}`;
 
 /** 经营主体（版权人/发布者）：「星纬（海口）投资有限公司」 */

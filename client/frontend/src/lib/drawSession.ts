@@ -129,8 +129,8 @@ export function clearCastSession(key: string): void {
 }
 
 /** 恢复按档位裁剪：免费档丢 cards 载荷（批次＋排除清单），只留盘点结果与三选一 */
-export function trimCastSessionForTier(s: CastSession, isPro: boolean): CastSession {
-  if (isPro) return s;
+export function trimCastSessionForTier(s: CastSession, hasAiPlan: boolean): CastSession {
+  if (hasAiPlan) return s;
   const gaps: Record<string, CastGapSession> = {};
   for (const [id, g] of Object.entries(s.gaps)) {
     gaps[id] = { ...g, batches: [], exclude: [] };

@@ -1,3 +1,4 @@
+import { setVerifyCache } from "@/lib/licenseCache";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import {
@@ -8,6 +9,22 @@ import type { VolumeRailData } from "@/components/novel/workbench/VolumeWorkspac
 import { PickCardsModal } from "@/components/novel/workbench/PickCardsModal";
 import { VolumePlanModal } from "@/components/novel/workbench/VolumePlanModal";
 import { useVolumePlan } from "@/hooks/useVolumePlan";
+
+// 档位种子（tier-plan-four-tiers 5.3）：满档=行为测试（ai-plan 在内）
+function seedTierPlan() {
+  setVerifyCache({
+    tier: "max",
+    is_member: true,
+    entitlement: {
+      v: 2,
+      features: ["ai-plan", "chapter-review", "settings-ai-fields", "style-suggest",
+                 "outline-advanced-fields", "ai-model", "ai-generate", "prompt-panel",
+                 "ai-detect", "ai-plot", "ai-polish", "style-quant"],
+      limits: { max_projects: null },
+    },
+  });
+}
+
 
 // ---------------------------------------------------------------------------
 // 「卷纲规划」族覆盖率补齐（VolumePlanModal / VolumeAssistPanel / useVolumePlan /
@@ -79,7 +96,8 @@ describe("VolumePlanModal 建卷在途", () => {
         </>
       );
     }
-    render(<Harness />);
+    seedTierPlan();
+render(<Harness />);
     fireEvent.click(screen.getByTestId("open"));
     const create = screen.getByTestId("desk-create") as HTMLButtonElement;
     expect(create.textContent).toBe("创建中…");
@@ -116,7 +134,8 @@ describe("PickCardsModal 进场与重抽", () => {
         ? Promise.reject(new Error("404"))
         : Promise.resolve({}),
     );
-    render(<PickHarness volNo={2} onConfirm={noop} onToDesk={noop} />);
+    seedTierPlan();
+render(<PickHarness volNo={2} onConfirm={noop} onToDesk={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     await waitFor(() => expect(screen.getByTestId("pick-grid")).toBeDefined());
     expect(screen.getByTestId("pick-enter-1").textContent).toContain("（取不到上一卷的记录）");
@@ -127,7 +146,8 @@ describe("PickCardsModal 进场与重抽", () => {
     apiState.get.mockImplementation((path: string) =>
       String(path).includes("/plan-anchor") ? anchorGate.promise : Promise.resolve({}),
     );
-    render(<PickHarness volNo={1} onConfirm={noop} onToDesk={noop} />);
+    seedTierPlan();
+render(<PickHarness volNo={1} onConfirm={noop} onToDesk={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     await waitFor(() => expect(screen.getByTestId("pick-grid")).toBeDefined());
     // anchor 还在路上：卡面进场用「…」占位，title 为空串
@@ -175,7 +195,8 @@ describe("PickCardsModal 进场与重抽", () => {
         ? Promise.resolve({ prev_ending: { text: "上一卷他签了字", source: "" } })
         : Promise.resolve({}),
     );
-    render(<PickHarness volNo={2} onConfirm={noop} onToDesk={noop} />);
+    seedTierPlan();
+render(<PickHarness volNo={2} onConfirm={noop} onToDesk={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     await waitFor(() => expect(screen.getByTestId("pick-grid")).toBeDefined());
     const enter = screen.getByTestId("pick-enter-1");
@@ -184,7 +205,8 @@ describe("PickCardsModal 进场与重抽", () => {
   });
 
   it("换一批后「从头再来」出现：点击清空排除清单重抽，按钮随之消失", async () => {
-    render(<PickHarness volNo={1} onConfirm={noop} onToDesk={noop} />);
+    seedTierPlan();
+render(<PickHarness volNo={1} onConfirm={noop} onToDesk={noop} />);
     fireEvent.click(screen.getByTestId("open"));
     await waitFor(() => expect(screen.getByTestId("pick-grid")).toBeDefined());
     expect(screen.queryByTestId("pick-fresh")).toBeNull(); // 还没排除任何批

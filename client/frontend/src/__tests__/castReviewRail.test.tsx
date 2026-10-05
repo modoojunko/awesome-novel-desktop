@@ -1,6 +1,7 @@
 // 右栏接入（c-character-intro 3.3/4.2）：og 页签「盘点出场人物」能力行（免费可点）＋
 // 行级 PRO 映射只作用章纲页签（其余四行 ra-off＋「需 PRO」）＋其余页签维持整卡锁＋
 // 空章/归档禁用 hint＋data-aiact/data-od-id 锚＋subTitle 插槽＋busy 走 railData。
+import { setVerifyCache } from "@/lib/licenseCache";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { AiAssistPanel } from "@/components/novel/workbench/AiAssistPanel";
@@ -19,7 +20,20 @@ const OG_STATS = {
   missingLabels: [],
 };
 
-function renderPanel(tab: string, extra: Partial<Parameters<typeof AiAssistPanel>[0]> = {}) {
+// 档位种子（3.5 夹具翻 v2）
+const V2_MAX = ["ai-plan", "chapter-review", "settings-ai-fields", "style-suggest",
+  "outline-advanced-fields", "ai-model", "ai-generate", "prompt-panel", "ai-detect",
+  "ai-plot", "ai-polish", "style-quant"];
+function seedTier(features: string[]) {
+  setVerifyCache({
+    tier: features.length ? "max" : "free",
+    is_member: features.length > 0,
+    entitlement: { v: 2, features, limits: { max_projects: null } },
+  });
+}
+
+function renderPanel(tab: string, extra: Partial<Parameters<typeof AiAssistPanel>[0]> = {}, feats: string[] = V2_MAX) {
+  seedTier(feats);
   const cb = {
     onSimulate: vi.fn(),
     onPlotDraw: vi.fn(),
@@ -50,31 +64,27 @@ beforeEach(() => {
 });
 
 describe("章纲页签行级门控（只作用 og 页签）", () => {
-  it("免费：盘点行可点（data-aiact/od-id 锚齐）＋其余四行 ra-off「需 PRO」＋副行插槽＋升级出口", async () => {
-    const cb = renderPanel("og", { isPro: false });
+  it("免费：四行全锁——盘点收标准（需开通）、推演需 MAX、冲突需 PRO（10-05 拍板）＋副行＋升级出口", async () => {
+    const cb = renderPanel("og", { isPro: false }, []);
     const cast = screen.getByTestId("og-cast-review") as HTMLButtonElement;
-    expect(cast.disabled).toBe(false); // 盘点行全档免费
+    expect(cast.disabled).toBe(true); // 盘点/抽卡归 ai-plan（标准起）
     expect(cast.getAttribute("data-aiact")).toBe("cast-review");
     expect(cast.getAttribute("data-od-id")).toBe("rail-cast");
-    // 行级 PRO 映射：其余四行置灰＋「需 PRO」（「AI 起草」行已随 c-og-ai-draft-retire 退役）
-    for (const name of [/剧情推演/, /补全缺失字段/, /剧情抽卡/, /与卷纲冲突检测/]) {
+    for (const name of [/剧情推演/, /补全缺失字段/, /剧情抽卡/]) {
       const row = screen.getByRole("button", { name }) as HTMLButtonElement;
       expect(row.disabled).toBe(true);
       expect(row.className).toContain("ra-off");
     }
-    expect(screen.getAllByText("需 PRO").length).toBeGreaterThanOrEqual(4);
-    // 免费态无整卡锁（盘点不能被连坐）
+    expect(screen.getAllByText("需开通").length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText("需 MAX").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("需 PRO").length).toBeGreaterThanOrEqual(1);
     expect(document.querySelector(".rail-assist.locked")).toBeNull();
-    // 免费副行插槽（subTitle）
-    expect(screen.getByText("免费行可用 · 标「需 PRO」的行升级后解锁")).toBeTruthy();
-    // 统一升级出口
+    expect(screen.getAllByText("标「需开通／需 PRO／需 MAX」的行按套餐逐档解锁").length).toBeGreaterThanOrEqual(1);
     fireEvent.click(screen.getByTestId("og-upgrade-btn"));
     expect(cb.onUpgrade).toHaveBeenCalled();
-    // 盘点行点击走 onCastReview（免费不拦）
-    await act(async () => {
-      fireEvent.click(cast);
-    });
-    expect(cb.onCastReview).toHaveBeenCalled();
+    // 盘点行免费不触发回调
+    fireEvent.click(cast);
+    expect(cb.onCastReview).not.toHaveBeenCalled();
   });
 
   it("PRO：四行可点，盘点行照常；点击生成类行走各自回调", async () => {
@@ -107,9 +117,9 @@ describe("章纲页签行级门控（只作用 og 页签）", () => {
   });
 
   it("其余页签维持 member_required 整卡锁定（免费不因本 change 放行）", () => {
-    renderPanel("prose", { isPro: false });
+    renderPanel("prose", { isPro: false }, []);
     expect(document.querySelector(".rail-assist.locked")).toBeTruthy();
-    renderPanel("hooks", { isPro: false });
+    renderPanel("hooks", { isPro: false }, []);
     expect(document.querySelectorAll(".rail-assist.locked").length).toBeGreaterThanOrEqual(2);
     // og 页签同渲染里不锁（对照）
     renderPanel("og", { isPro: false });

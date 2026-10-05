@@ -17,7 +17,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import get_current_user, require_ai_access, require_novel_model
+from auth_local.deps import (
+    get_current_user,
+    require_novel_model,
+)
 from db import get_db
 from models.project import Novel
 from models.reconcile import ChapterReconcile
@@ -151,7 +154,6 @@ async def run_now(
     project_id: str,
     body: dict | None = None,
     user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
     __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):

@@ -153,7 +153,7 @@ function NovelList() {
   const menuRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   // 套餐状态走 LicenseProvider 上下文（Provider 挂在认证路由根壳，两跳刷新后自动更新）
-  const { tier, isMember, expired, trialRemainingDays: trialDays } = useTier();
+  const { tier, isMember, expired, trialRemainingDays: trialDays, projectLimit } = useTier();
 
   async function handleDelete() {
     /* v8 ignore start -- 防御分支：删除确认弹窗只在 deleteTarget 非空时渲染 */
@@ -244,8 +244,10 @@ function NovelList() {
     [],
   );
 
-  // 免费待遇 = 非有效会员（免费层或套餐过期），与后端 require_project_limit 口径一致
-  const freeLimitReached = !isMember && novels.length >= 1;
+  // 建书上限单源（tier-plan-four-tiers 5.7）：快照 limits.max_projects（null=不限）；
+  // 快照缺失回落旧口径 1（免费）。standard=3、PRO/MAX 不限。
+  const bookLimit = projectLimit !== undefined ? projectLimit : isMember ? null : 1;
+  const freeLimitReached = bookLimit !== null && novels.length >= bookLimit;
 
   // 检索与组织：过滤（状态+书名）→ 状态 rank 恒优先排序 → 分页切片（纯函数单源 lib/shelfSort）
   const visible = useMemo(() => visibleBooks(novels, filters), [novels, filters]);
@@ -550,7 +552,7 @@ function NovelList() {
         <div className="notice info">
           <span className="nt">
             <b>
-              免费版书架已满（<span className="num">{novels.length}/1</span>）
+              书架已满（<span className="num">{novels.length}/{bookLimit}</span>）
             </b>
             <span>升级后不限作品数，现有作品不受影响</span>
           </span>
@@ -792,6 +794,7 @@ function NovelList() {
         onCreated={handleCreated}
         isMember={isMember}
         novelCount={novels.length}
+        projectLimit={projectLimit}
       />
 
       {/* Import Novel Modal */}
