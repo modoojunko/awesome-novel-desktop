@@ -270,7 +270,10 @@ def _exchange_cek(key_id: str, version: str) -> tuple[dict | None, int]:
 
     async def _go() -> dict:
         return await call_server_api(
-            "prompt-pack/key", method="POST", json_body={"key_id": key_id, "version": version}
+            "prompt-pack/key",
+            method="POST",
+            json_body={"key_id": key_id, "version": version},
+            with_token=True,  # 换钥端点需登录态（Bearer）
         )
 
     try:

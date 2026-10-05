@@ -44,7 +44,7 @@
   锁定卡→装包→重试成功／失败→重新获取／min_client 静默／档位升级重装）。
 - [x] 6.2 存量 e2e（202 条，dev 态默认）零改动全绿；pytest/vitest/tsc/design:lint 全（backend 1812 绿（+2 新）；tsc 净；vitest 1182 绿；design:lint 零违规。⚠ e2e 与 design:check 需四服务栈（sibling S端）——本机未起栈，移交本地全量 e2e 复核）
   绿；openspec validate --strict 绿。
-- [ ] 6.3 与 S端 半＋publish.py 三方隔离栈联调全链（含 403 降档/404 重取/召回演练）。
+- [x] 6.3（**真三方联调 ALL PASS**：真 S 端 uvicorn＋sqlite＋publish.py 真产物假 CDN＋C 端真同步器全链真 HTTP——场景 1 pro（50 模板装成、分层可读、MAX 隔离）／场景 2 本地误报 pro 的 standard 用户（真 HTTP 403→降档→装 standard 48 模板、write_chapter 正确缺席）。联调揪出并修复两个跨仓断链：①`call_server_api` 原不带 Authorization——换钥必 401（加 with_token 选项）；②S 端语义只在 HTTP 状态、body code=-1——C 端读 body 永远看不到 403/404（S 端改 body code 与状态对齐）。回归钉：test_exchange_cek_carries_token_flag。harness 在 /tmp/ppk-e2e/run.py（重跑：三方路径就位即可）。）
 
 ## 7. close-out
 

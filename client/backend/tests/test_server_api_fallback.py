@@ -45,10 +45,12 @@ class _FakeAsyncClient:
             raise httpx.RequestError("boom", request=httpx.Request("GET", url))
         return _FakeResp({"code": 0, "data": {"base": url}})
 
-    async def get(self, url, params=None):  # noqa: ARG002
+    # headers=None：镜像真 httpx.AsyncClient 签名（换钥 with_token 会传
+    # Authorization——c-prompt-pack-client；真客户端本就接受该参数）
+    async def get(self, url, params=None, headers=None):  # noqa: ARG002
         return await self._dispatch(url)
 
-    async def post(self, url, json=None):  # noqa: ARG002
+    async def post(self, url, json=None, headers=None):  # noqa: ARG002
         return await self._dispatch(url)
 
 

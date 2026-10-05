@@ -426,3 +426,23 @@ def test_status_ready_with_dev_fallback(env, monkeypatch):
     assert st["phase"] == "ready"
     monkeypatch.setenv("PROMPT_PACK_MODE", "force")  # 模拟 frozen：无包则如实报未就绪
     assert sync_mod.get_status()["phase"] != "ready"
+
+
+def test_exchange_cek_carries_token_flag(env, monkeypatch):
+    """换钥必须带登录态（with_token=True）——联调实测缺口回归钉：
+    call_server_api 默认不附 Authorization，换钥端点必 401。"""
+    import asyncio
+
+    import auth_local.service as svc
+
+    captured = {}
+
+    async def fake_call(endpoint, method="GET", params=None, json_body=None, with_token=False):
+        captured.update(endpoint=endpoint, with_token=with_token)
+        return {"code": 0, "data": {"cek": "x", "key_id": "k", "tier": "free", "version": "v"}}
+
+    monkeypatch.setattr(svc, "call_server_api", fake_call)
+    _, _, sync_mod, _ = env
+    value, code = sync_mod._exchange_cek("k-1", "v-1")
+    assert code == 0 and value["key_id"] == "k"
+    assert captured == {"endpoint": "prompt-pack/key", "with_token": True}
