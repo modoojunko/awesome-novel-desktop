@@ -320,18 +320,6 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      # 品牌更名过渡期（2026-10-05「AI Novel 都换掉」）：Release 同时挂旧名副本，
-      # 存量文档/外部引用按 AI_Novel_* 下载仍可达；S端 落地页切新名后的下个版本移除。
-      - name: Add legacy-named asset copies (brand rename transition)
-        run: |
-          VER="${GITHUB_REF_NAME#v}"
-          EXE="$(find artifacts -name 'AwesomeNovel_Setup_*.exe' -print -quit)"
-          DMG="$(find artifacts -name 'AwesomeNovel_mac_*.dmg' -print -quit)"
-          [ -n "$EXE" ] && [ -n "$DMG" ] || { echo "::error::artifacts 缺少安装包"; exit 1; }
-          mkdir -p artifacts/legacy
-          cp "$EXE" "artifacts/legacy/AI_Novel_Setup_v$VER.exe"
-          cp "$DMG" "artifacts/legacy/AI_Novel_mac_v$VER.dmg"
-
       - name: Release (exe + dmg)
         uses: softprops/action-gh-release@v2
         with:
@@ -359,15 +347,6 @@ jobs:
           tcb login --cloudbase-api-key "$TCB_API_KEY" -e "$TCB_ENV_ID"
           tcb hosting deploy "$EXE" "download/v$VER/$(basename "$EXE")" -e "$TCB_ENV_ID"
           tcb hosting deploy "$DMG" "download/v$VER/$(basename "$DMG")" -e "$TCB_ENV_ID"
-          # ── 旧名兼容副本（品牌更名过渡期）──
-          # 线上落地页与存量 latest.json 消费方仍按 download/v<VER>/AI_Novel_* 拼直链；
-          # 同版本目录下按旧名各传一份（内容逐字节相同），下载不断。
-          # S端 落地页切到 AwesomeNovel_* 之后的下个版本删除本段。
-          LEGACY_EXE="AI_Novel_Setup_v$VER.exe"
-          LEGACY_DMG="AI_Novel_mac_v$VER.dmg"
-          cp "$EXE" "/tmp/$LEGACY_EXE"; cp "$DMG" "/tmp/$LEGACY_DMG"
-          tcb hosting deploy "/tmp/$LEGACY_EXE" "download/v$VER/$LEGACY_EXE" -e "$TCB_ENV_ID"
-          tcb hosting deploy "/tmp/$LEGACY_DMG" "download/v$VER/$LEGACY_DMG" -e "$TCB_ENV_ID"
           # ── 更新说明内容三级回退：tag 附注 → 上一版以来提交摘要 → 通用兜底 ──
           NOTES_FROM_TAG=0
           NOTES_FULL="$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME" 2>/dev/null || true)"
@@ -455,9 +434,6 @@ jobs:
           }
           check "https://www.awesomenovel.com/download/v$VER/$(basename "$EXE")" "$(stat -c%s "$EXE")" || exit 1
           check "https://www.awesomenovel.com/download/v$VER/$(basename "$DMG")" "$(stat -c%s "$DMG")" || exit 1
-          # 旧名兼容副本同样校验（过渡期线上落地页仍按 AI_Novel_* 拼直链）
-          check "https://www.awesomenovel.com/download/v$VER/$LEGACY_EXE" "$(stat -c%s "$EXE")" || exit 1
-          check "https://www.awesomenovel.com/download/v$VER/$LEGACY_DMG" "$(stat -c%s "$DMG")" || exit 1
           check "https://www.awesomenovel.com/download/v$VER/notes.html" "$(stat -c%s notes.html)" || exit 1
           EXPECTED="$(python -c "import json;print(json.dumps(json.load(open('latest.json',encoding='utf-8')),ensure_ascii=False,separators=(',',':')))")"
           for i in 1 2 3 4 5 6; do

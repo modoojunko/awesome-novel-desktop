@@ -51,8 +51,7 @@ DisableDirPage=no
 UsePreviousAppDir=yes
 ; 输出
 OutputDir=..\dist
-; 安装包文件名（品牌更名 2026-10-05）：AwesomeNovel_*；旧名 AI_Novel_* 由流水线
-; 以兼容副本同时发布（评审「旧链接保留一个版本周期」），S端 落地页切新名后下版移除。
+; 安装包文件名（品牌更名 2026-10-05 用户拍板：直接改名，不留旧名过渡产物）。
 OutputBaseFilename=AwesomeNovel_Setup_v{#MyAppVersion}
 ; 图标
 SetupIconFile=icon.ico

@@ -129,21 +129,20 @@ def test_artifact_names_use_new_brand():
     assert "AwesomeNovel_Setup_*.exe" in ps1 and "AI_Novel_Setup_" not in ps1
 
 
-def test_release_pipeline_ships_legacy_named_copies():
-    """过渡期不变量：流水线必须同发旧名副本＋校验其可达。
+def test_release_pipeline_ships_only_new_artifact_names():
+    """产物命名唯一口径：流水线只发布 AwesomeNovel_*，不留旧名过渡副本。
 
-    线上落地页/存量消费方仍按 download/v<VER>/AI_Novel_* 拼直链，改名那一刻
-    若不发副本＝用户下载 404。S端 切新名后的下个版本可移除，届时本测试同批更新。"""
+    2026-10-06 用户拍板「没有过渡期的产物直接改名」——旧名 AI_Novel_* 不得再出现在
+    Release 资产 / 静态托管上传 / 发布校验里（.iss 里对旧程序名 `AI Novel.exe` 与旧
+    运行目录的清理引用是历史残留处理，不在此列）。"""
     repo_root = INSTALLER_ISS.parents[3]  # client/packaging/build/installer.iss → 仓库根
     wf_path = repo_root / ".github" / "workflows" / "client-package.yml"
     wf = wf_path.read_text(encoding="utf-8")
     assert "AwesomeNovel_Setup_*.exe" in wf, "主产物 glob 必须是新名"
     assert "AwesomeNovel_Setup_v{ver}.exe" in wf, "notes.html 直链必须是新名"
-    assert "artifacts/legacy/AI_Novel_Setup_v$VER.exe" in wf, "过渡期必须同发旧名副本（Release 资产）"
-    assert "artifacts/legacy/AI_Novel_mac_v$VER.dmg" in wf, "过渡期必须同发旧名副本（macOS）"
-    assert "download/v$VER/$LEGACY_EXE" in wf, "旧名副本必须上传静态托管"
-    assert 'check "https://www.awesomenovel.com/download/v$VER/$LEGACY_EXE"' in wf, (
-        "旧名副本必须进发布校验（否则线上 404 无人发现）"
+    assert "AI_Novel_Setup_" not in wf and "AI_Novel_mac_" not in wf, (
+        "流水线不得再产出/校验旧名副本（用户拍板直接改名）；"
+        "S端 落地页等线上消费方须同批切到 AwesomeNovel_*"
     )
 
 

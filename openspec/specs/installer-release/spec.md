@@ -63,7 +63,7 @@ S端 落地页 SHALL 提供可达的客户端下载入口：未登录态 Hero �
 
 ### Requirement: 安装包国内分发
 
-系统 SHALL 在 `v*` 标签发版时把双平台安装包转存到静态托管（CloudBase Hosting）的 `/download/v<VER>/` 目录，文件名与 GitHub Release 资产 1:1（`AwesomeNovel_Setup_v<VER>.exe` / `AwesomeNovel_mac_v<VER>.dmg`；品牌更名 2026-10-05：安装包文件名由 `AI_Novel_*` 切换为 `AwesomeNovel_*`）。**更名过渡期** SHALL 在同一版本目录同时提供旧名副本（`AI_Novel_Setup_v<VER>.exe` / `AI_Novel_mac_v<VER>.dmg`，内容逐字节一致，Release 资产同挂），旧名直链 MUST NOT 404；S端 落地页切到新名后的下个版本方可移除副本。转存完成后系统 SHALL 更新 `download/latest.json`，该文件 MUST 是落地页下载弹窗与 C端 更新检测共同的唯一线上事实源；更新它 MUST NOT 依赖任何前端重新发版。latest.json 载荷契约：`version` MUST 必写；`notes`（一句话更新摘要，取 tag 附注首行自动写入，无附注时可省略）与 `min_version`（强更门槛，本期仅预留字段、客户端不实现强更逻辑）为可选键，缺省 MUST 可省略。所有 latest.json 消费方（落地页下载弹窗、C端 更新检测）MUST 同时兼容"仅 version"的最小载荷与含可选键的完整载荷。转存或 latest.json 更新失败 MUST 使发版流水线失败，不得静默。已发布的版本目录 MUST 只增不改（版本化路径永不覆盖，使长缓存安全）。
+系统 SHALL 在 `v*` 标签发版时把双平台安装包转存到静态托管（CloudBase Hosting）的 `/download/v<VER>/` 目录，文件名与 GitHub Release 资产 1:1（`AwesomeNovel_Setup_v<VER>.exe` / `AwesomeNovel_mac_v<VER>.dmg`；品牌更名 2026-10-05 用户拍板直接改名，不留旧名过渡产物——线上消费方须同步切到新名）。转存完成后系统 SHALL 更新 `download/latest.json`，该文件 MUST 是落地页下载弹窗与 C端 更新检测共同的唯一线上事实源；更新它 MUST NOT 依赖任何前端重新发版。latest.json 载荷契约：`version` MUST 必写；`notes`（一句话更新摘要，取 tag 附注首行自动写入，无附注时可省略）与 `min_version`（强更门槛，本期仅预留字段、客户端不实现强更逻辑）为可选键，缺省 MUST 可省略。所有 latest.json 消费方（落地页下载弹窗、C端 更新检测）MUST 同时兼容"仅 version"的最小载荷与含可选键的完整载荷。转存或 latest.json 更新失败 MUST 使发版流水线失败，不得静默。已发布的版本目录 MUST 只增不改（版本化路径永不覆盖，使长缓存安全）。
 
 #### Scenario: 发版后国内直链可下载
 - **WHEN** 任意 `v*` 标签发版流水线成功结束
