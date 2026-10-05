@@ -121,7 +121,7 @@ export default function CastReviewModal({
         ? "零新增是正常结果，不是出错。"
         : hasAiPlan
           ? "改段／延后不留记录：改段去剧情区改那一条；延后的那条，剧情挪到哪一章就在哪一章再遇到。"
-          : "盘点免费；AI 抽人是 PRO。自己填名字、选已有角色，全档免费。";
+          : "盘点按标准档起计；AI 抽人需开通。自己填名字、选已有角色，全档免费。";
     cancelLabel = state.gaps.length === 0 ? "知道了" : allDone ? "完成" : "先不调整";
   } else if (state.phase === "cards" || state.phase === "drawing") {
     footNote = "这批卡跟这一章走：误关重开还是同一批，不会重复生成花钱。";
