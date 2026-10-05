@@ -8,7 +8,7 @@ ai_feature(key): 路由装饰器——setattr 标注端点所需 key（不做 wr
 require_project_limit(): 按快照 limits.max_projects 拦截；会员不限。
 """
 
-from fastapi import Depends, HTTPException, Request, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +29,7 @@ def ai_feature(key: str):
     加在 `@router.post` 之下（先路由注册后标注，route.endpoint 即它）。
     """
     def _decorate(fn):
-        setattr(fn, "__ai_feature__", key)
+        fn.__ai_feature__ = key
         return fn
     return _decorate
 

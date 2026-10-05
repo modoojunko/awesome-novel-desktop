@@ -387,6 +387,7 @@ def test_check_endpoint_mapping_and_usage(monkeypatch):
             assert body["usage_tokens"] == 777
         finally:
             c.__exit__(None, None, None)
+            app.dependency_overrides.clear()
         # 记账：model=zhuque，且用量汇总排除
         async with async_session() as session:
             logs = (await session.scalars(
@@ -548,6 +549,7 @@ def test_zhuque_persist_roundtrip(monkeypatch):
             return uid, pid, _ch_id
         finally:
             c.__exit__(None, None, None)
+            app.dependency_overrides.clear()
             app.dependency_overrides.clear()
 
     loop = _mkloop()

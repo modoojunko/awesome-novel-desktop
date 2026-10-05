@@ -17,7 +17,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import ai_feature, get_current_user, require_ai_access, require_novel_model
+from auth_local.deps import (
+    get_current_user,
+    require_novel_model,
+)
 from db import get_db
 from models.project import Novel
 from models.reconcile import ChapterReconcile

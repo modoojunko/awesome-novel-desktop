@@ -17,7 +17,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth_local.deps import ai_feature, get_current_user, require_ai_access, require_novel_model
+from auth_local.deps import (
+    ai_feature,
+    get_current_user,
+    require_ai_access,
+    require_novel_model,
+)
 from db import get_db
 from novels.service import get_novel
 from prompts import load_layers

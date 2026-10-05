@@ -8,8 +8,8 @@ standard/pro/max features 并集）。把「端点→key」这处无保护漂移
 用法：cd client/backend && python -m pytest tests/test_ai_feature_registry.py -v
 """
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from fastapi.routing import APIRoute
 

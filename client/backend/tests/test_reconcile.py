@@ -12,18 +12,17 @@ import json
 import os
 import tempfile
 
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from auth_local.middleware import get_current_user
 from db import async_session
 from main import app
+from models.api_config import ApiConfig
 from models.chapter import Chapter, ChapterCharacter, ChapterContent
 from models.character import Character
 from models.hook import NovelHook
 from models.project import Novel
-from models.api_config import ApiConfig
 from models.reconcile import ChapterReconcile
 from models.user import User
 from models.volume import Volume

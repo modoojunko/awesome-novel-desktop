@@ -14,7 +14,7 @@ MAX 件 403(max)；max=全放。未配 Key 一律 503（过档位门后判）。
 import asyncio
 import os
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -30,7 +30,7 @@ import auth_local.service as _service  # noqa: E402
 
 _CFG_PATH = os.path.join(_tmp_data_root, "config.json")
 _FAKE_KEY = "".join(("sk-", "test-placeholder"))  # noqa: FLY002
-_FUTURE = (datetime.now(timezone.utc) + timedelta(days=30)).date().isoformat()
+_FUTURE = (datetime.now(UTC) + timedelta(days=30)).date().isoformat()
 
 from auth_local.deps import ai_feature, require_ai_access  # noqa: E402
 from db import Base, async_session, engine  # noqa: E402
