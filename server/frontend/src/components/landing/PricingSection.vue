@@ -175,11 +175,8 @@ const skeletonCards = FALLBACK_PAID.map(fb => ({
                   {{ f }}
                 </div>
               </div>
-              <AppButton
-                :variant="col.popular ? 'primary' : 'outline'"
-                block
-                :to="col.href"
-              >立即购买</AppButton>
+              <!-- 四档统一实心 CTA：档位强调由卡片高亮＋最受欢迎徽标承担 -->
+              <AppButton variant="primary" block :to="col.href">立即购买</AppButton>
             </div>
           </template>
         </template>
