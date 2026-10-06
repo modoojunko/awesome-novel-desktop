@@ -44,6 +44,25 @@ jobs:
           pip install ruff
           ruff check --select F821 client/packaging/build/pywebview_app.py
 
+      # 门禁：打包用 PowerShell 脚本必须能被解析。2026-10-06 实锤——sign_win.ps1 里
+      # 命令参数位的多行 `+` 拼接被判成语法错误，脚本一被调用就炸（签名步骤整个挂掉）。
+      # 解析器是唯一能在非 Windows 上跑起来的校验，故在此钉死（与 F821 同批同节奏）。
+      - name: Parse packaging PowerShell scripts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($f in @('client/packaging/build/sign_win.ps1', 'client/packaging/build/build_release.ps1')) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f).Path, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors.Count) {
+              $failed = $true
+              $errors | Select-Object -First 5 | ForEach-Object { Write-Host "::error file=$f::$($_.Message)" }
+            }
+          }
+          if ($failed) { throw 'PowerShell 脚本解析失败（见上方 error 注解）' }
+          Write-Host 'PowerShell 脚本解析 OK：sign_win.ps1 / build_release.ps1'
+
       # 主体名防漂移：installer.iss 的 MyAppPublisher 是 brand.json company 的唯一
       # 手写字面量副本（Inno 读不了 JSON），两侧漂移没有任何运行时测试能红——在此钉死
       - name: Assert installer publisher matches brand.json
@@ -136,6 +155,30 @@ jobs:
         shell: bash
         run: python client/packaging/build/compile_native.py
 
+      # ── Windows 代码签名：正式证书可选（默认走仓库自签，用户 2026-10-06 拍板「自签即可」）──
+      # 用户装包时的「Windows 已保护你的电脑 / 发布者: 未知」＝SmartScreen 对未签名（或签名
+      # 不受信任）产物的提示。没配正式证书时出的是**自签包**：导入过我们根证书的机器（内测
+      # 同学先跑 client\packaging\cert\install_cert.bat）能看到发布者名「Awesome Novel (Dev)」，
+      # **对外部用户仍显示「未知发布者」，SmartScreen 也仍会拦**。真要对外消除提示，买证书
+      # （云签名 / USB token）后配这里的 secret 即自动切换——见 docs/ops/client-code-signing.md。
+      - name: Configure Windows code signing (optional, defaults to repo self-signed)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          SIGN_PFX_B64: ${{ secrets.WINDOWS_SIGN_PFX }}
+          SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PFX_PASSWORD }}
+        run: |
+          if (-not $env:SIGN_PFX_B64) {
+            Write-Host "::warning title=未配置正式签名证书::本次出的是「仓库自签」包（内测可用：导入过根证书的机器显示发布者「Awesome Novel (Dev)」，内测同学先跑 client\packaging\cert\install_cert.bat）；对外部用户仍显示「发布者: 未知」且 SmartScreen 仍会拦。买到证书后配 WINDOWS_SIGN_PFX secret 即自动切换——见 docs/ops/client-code-signing.md"
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP 'ainovel-sign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX_B64))
+          "AINOVEL_SIGN_PFX=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "AINOVEL_SIGN_PFX_PASSWORD=$env:SIGN_PFX_PASSWORD" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host '签名证书已就绪（PFX 落 runner 临时目录，不进产物、不进缓存）'
+
+
       - name: Build app (PyInstaller)
         shell: bash
         env:
@@ -221,6 +264,14 @@ jobs:
           }
           echo "SMOKE OK — health + SPA on port $PORT"
 
+      # 程序本体签名：必须在 Inno 打包**之前**——安装包里的 exe 是打包时的快照，
+      # 打完包再签外面这份等于没签（用户装出来的仍是「未知发布者」）。
+      # 默认用仓库自签证书（未配正式证书时），见 docs/ops/client-code-signing.md。
+      - name: Sign app exe (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./client/packaging/build/sign_win.ps1 -Action Sign -Path client/packaging/build/dist/AwesomeNovel/AwesomeNovel.exe
+
       # ── Windows 专属：Inno Setup 安装包 ──
       - name: Install Inno Setup
         if: runner.os == 'Windows'
@@ -229,18 +280,34 @@ jobs:
 
       - name: Build Windows installer
         if: runner.os == 'Windows'
-        shell: bash
-        env:
-          # Git Bash(MSYS2) 会把 /DMyAppVersion=... 转换成 Windows 路径，
-          # iscc 于是看到两个脚本文件而报错 → 关闭参数路径转换
-          MSYS2_ARG_CONV_EXCL: "*"
+        # pwsh 而非 bash：不再需要 MSYS2_ARG_CONV_EXCL 绕路径转换（旧坑见历史），
+        # 且签名参数（含空格路径）在 PowerShell 里按单参数传递最稳
+        shell: pwsh
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
           # 手动 dispatch 到 feature 分支时 ref_name 可能含 / 等文件名非法字符，
           # 清洗进版本号（tag v1.2.3 → 1.2.3 不受影响）
-          VERSION="$(printf '%s' "$VERSION" | tr -c 'A-Za-z0-9._-' '-')"
-          cd client/packaging/build
-          iscc /DMyAppVersion=$VERSION installer.iss
+          $VERSION = "$env:GITHUB_REF_NAME".TrimStart('v') -replace '[^A-Za-z0-9._-]', '-'
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' }
+          if (-not (Test-Path $iscc)) { throw "找不到 iscc：$iscc" }
+          Push-Location client/packaging/build
+          try {
+            # 安装器不在 Inno 里签（SignTool 值必须是已定义的工具名，判例见 installer.iss 头注）
+            & $iscc "/DMyAppVersion=$VERSION" installer.iss
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 构建失败' }
+          } finally { Pop-Location }
+
+      # 安装器签名（iscc 之后直接签，避开 Inno SignTool 的工具名定义要求）＋签名校验闸门：
+      # 没签上（证书过期/时间戳服务不通/signtool 缺失或静默失败）必须在这里红，
+      # 而不是让用户从 SmartScreen 提示里发现
+      - name: Sign & verify installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = (Get-ChildItem 'client/packaging/dist/AwesomeNovel_Setup_*.exe' |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+          ./client/packaging/build/sign_win.ps1 -Action Sign -Path $installer
+          ./client/packaging/build/sign_win.ps1 -Action Verify -Path $installer
 
       - name: Upload Windows installer
         if: runner.os == 'Windows'
@@ -357,7 +424,7 @@ jobs:
           body: |
             双平台桌面客户端安装包：Windows（exe）与 macOS（DMG）。
             macOS 首次打开若提示"无法验证开发者"：先点"完成"关掉提示（勿点"移到废纸篓"），再到 系统设置 → 隐私与安全性 点"仍要打开"。
-            Windows 若出现 SmartScreen 提示：点「更多信息」→「仍要运行」。
+            Windows 若出现 SmartScreen 提示（自签构建会有；正式证书签名后一般不再出现）：点「更多信息」→「仍要运行」。
             首次登录后会自动获取「写作能力」（提示词包）；换电脑或重装系统后需联网重新获取一次（本地钥匙与机器绑定，属预期）。
       # ── 国内分发：转存安装包到静态托管 + 更新 latest.json + 生成版本更新说明页 ──
       # www 根路径路由指向静态托管（/api 才是云托管），上传后 www/download/… 即可直接下载。

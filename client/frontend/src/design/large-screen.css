@@ -1,0 +1,73 @@
+/* ── 大屏自适应（large-screen-scale）────────────────────────────────────────
+   桌面壳窗口 = 屏幕宽-80 / 高-60，大屏下 CSS 视口可到 2500~3800px；而全站是
+   1440 基准的 px 设计（几百处 font-size:Npx，无 rem/clamp 字号体系）——不缩放时
+   14px 正文在 4K 上只有 1440 屏约 1/2.6 的角高，视觉上就是「界面很小、内容只在
+   中间一小条」。
+
+   这里按视口宽度对整页等比放大（CSS zoom 是布局层缩放：字号重新排版不发虚，
+   命中/滚动/选区都按缩放后坐标走，弹窗与状态条等 fixed 元素仍精确贴合视口）。
+   阈值取 2000px：≤1920 的既有设计宽度与全部像素基线（design-parity 1440×900、
+   ui-spec-parity 1440/1920、settings-forms 尺寸断言）保持零差异；上限 1.75，
+   防 5K/8K 上无限放大。
+
+   zoom 会把 vh/vw 一起放大（实测 1.25 倍下 100vh 渲染成视口高的 1.25 倍），
+   所以下面把「必须正好等于视口高度」的规则按 /--ui-zoom 补偿回来；fixed 定位的
+   .statusbar / .scrim / .modal 不受影响，无需补偿。vw 类规则不用动：它们的
+   px 上限在宽视口恒胜（92vw 只在 <660px 的窄屏生效，而那时 zoom 恒为 1）。
+
+   ⚠️ 本文件必须在 main.tsx 里**最后**引入：下面全是同选择器的覆盖，靠级联顺序
+   压过 index.css / base.css / book.css / landing.css 的原规则。
+   @supports 兜底：不支持 zoom 的旧浏览器 --ui-zoom 保持 1，等于本文件不存在。 */
+
+:root {
+  --ui-zoom: 1;
+}
+
+@supports (zoom: 1) {
+  @media (min-width: 2000px) {
+    /* 2000px 起随宽度线性放大：2560→1.28、3440→1.72、3840→1.75(封顶) */
+    :root {
+      --ui-zoom: clamp(1, calc(100vw / 2000px), 1.75);
+    }
+  }
+
+  html {
+    zoom: var(--ui-zoom);
+  }
+}
+
+/* ── 视口高度补偿（zoom 放大后 100vh 会渲染成 zoom×视口高）── */
+body,
+#root,
+.app-shell {
+  min-height: calc(100vh / var(--ui-zoom));
+}
+
+/* 工作台三栏壳：内容高 + 状态条 26px 恰好铺满视口 */
+.wb {
+  height: calc(100vh / var(--ui-zoom) - 26px);
+}
+
+/* 落地页竖排居中容器（减去状态条高度） */
+.auth-wrap {
+  min-height: calc(100vh / var(--ui-zoom) - 26px);
+}
+
+/* 账号菜单：fixed 面板自身高度上限，超了内部滚动（不顶部溢出视口） */
+.acct-menu {
+  max-height: calc(100vh / var(--ui-zoom) - 24px);
+}
+
+/* 弹窗：整卡高度上限（base.css 共享段原值 100vh-48px / 86vh） */
+.modal .mcard {
+  max-height: calc(100vh / var(--ui-zoom) - 48px);
+}
+.mcard.wb-style {
+  max-height: calc(100vh / var(--ui-zoom) * 0.86);
+}
+
+/* 设定域两个 sticky 侧栏（角色列表 / 伏笔树）的滚动高度上限 */
+.settings-v .sub-wrap.char-sub .char-list,
+.settings-v .hk-tree {
+  max-height: calc(100vh / var(--ui-zoom) - 56px);
+}

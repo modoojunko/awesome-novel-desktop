@@ -56,6 +56,15 @@ OutputBaseFilename=AwesomeNovel_Setup_v{#MyAppVersion}
 ; 图标
 SetupIconFile=icon.ico
 
+; ── 代码签名（可选）：安装器由构建脚本在 iscc **之后**用 signtool 直接签 ────────
+; 判例（2026-10-06 CI 演练实锤）：[Setup] SignTool 的值必须是「**已定义过的工具名**」
+; （要用 iscc 的 -s/--signtool 先定义该工具），直接写内联命令会被判
+; 「Value of [Setup] section directive "SignTool" is invalid」。
+; 故本文件不再声明 SignTool；安装器签名走构建脚本（build_release.ps1 / client-package.yml
+; 的「iscc → sign → verify」三步，见 docs/ops/client-code-signing.md）。
+; 已知缺口：Inno 的 SignedUninstaller 只能靠 SignTool 机制，本路径下**卸载器不含签名**
+; （卸装时 UAC 显示未知发布者）；将来若需要，改回「命令行定义工具名」形态即可。
+
 ; 压缩
 Compression=lzma2/ultra
 SolidCompression=yes

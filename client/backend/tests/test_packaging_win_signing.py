@@ -1,0 +1,220 @@
+"""Windows 代码签名门禁：签名链路（证书解析 → 签 exe → iscc → 校验）必须保持完整。
+
+背景（2026-10-06）：用户双击安装包看到「Windows 已保护你的电脑 / 发布者: 未知」——
+SmartScreen 对**未签名**安装包的判定，唯一解法是 Authenticode 代码签名（证书从公共
+CA 买 / Azure Trusted Signing）。签名链路已落地，但打包流水线只在推 tag 时跑
+（PR 不编译 .iss，2026-10-02 省额度拍板），链路被改丢不会有任何运行时测试变红，
+故在此钉死四条不变量：
+
+1. `installer.iss` 的 SignTool 指令必须包在 `#ifdef SignToolScript` 里——不传 define
+   （没证书的构建）时编译结果必须与历史逐字一致，签名不能变成出包的前置条件；
+2. `sign_win.ps1` 必须是唯一签名入口，且支持文档里承诺的四类调用与环境变量；
+3. 程序本体必须在 **Inno 打包前**签名（打完包再签外面那份＝用户装出来的仍是未签名件）；
+4. 配了证书却没签上（证书过期/时间戳不通）必须硬失败——校验闸门不许被摘掉。
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+
+CERT_DIR = Path(__file__).resolve().parents[2] / "packaging" / "cert"
+BUILD_DIR = Path(__file__).resolve().parents[2] / "packaging" / "build"
+REPO_ROOT = BUILD_DIR.parents[2]
+INSTALLER_ISS = BUILD_DIR / "installer.iss"
+SIGN_SCRIPT = BUILD_DIR / "sign_win.ps1"
+BUILD_RELEASE = BUILD_DIR / "build_release.ps1"
+WORKFLOW = REPO_ROOT / ".github" / "workflows" / "client-package.yml"
+
+
+def _active_lines(text: str) -> list[tuple[int, str]]:
+    """去掉 Inno 注释行（`;` 起头）与空行，返回 (行号, 内容) 的活跃指令行。"""
+    lines = []
+    for no, raw in enumerate(text.splitlines(), start=1):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith(";"):
+            continue
+        lines.append((no, stripped))
+    return lines
+
+
+def test_installer_iss_declares_no_signtool():
+    """installer.iss 不得声明 [Setup] SignTool：其值必须是「已定义过的工具名」（要先用 iscc
+    的 -s/--signtool 定义），直接写内联命令会被判 invalid（2026-10-06 CI 演练实锤）。
+    安装器签名改由构建脚本在 iscc 之后直接签 —— 本测试同时钉住 `.iss 不回头用 SignTool`
+    与 `CI/本地脚本确实在出包后签` 两侧，避免任一侧被单独改回。"""
+    text = INSTALLER_ISS.read_text(encoding="utf-8")
+    offenders = [
+        (no, line)
+        for no, line in _active_lines(text)
+        if line.startswith(("SignTool=", "SignedUninstaller="))
+    ]
+    assert not offenders, (
+        "installer.iss 又出现了 SignTool/SignedUninstaller 指令——该机制要求先用命令行定义工具名，"
+        "在 CI 上会被判 invalid（判例见 .iss 头注）：\n"
+        + "\n".join(f"  L{no}: {line}" for no, line in offenders)
+    )
+    assert "SignTool" in text, "判例注释被删了——后人会再踩一次同一坑"
+
+    ci = WORKFLOW.read_text(encoding="utf-8")
+    assert "Sign & verify installer (Windows)" in ci, "CI 缺「出包后签名＋校验」步骤"
+    assert ci.index("Build Windows installer") < ci.index("Sign & verify installer (Windows)"), (
+        "签名必须在 iscc 出包之后（安装包是 iscc 生成的）"
+    )
+    ps1 = BUILD_RELEASE.read_text(encoding="utf-8")
+    assert "'sign_win.ps1') -Action Sign -Path $signed.FullName" in ps1, (
+        "本地打包脚本没在 iscc 之后签安装器"
+    )
+
+
+def test_sign_script_is_the_single_entry():
+    """签名入口唯一：四类动作 + 文档承诺的环境变量名都在，后续才能「加证书＝配两个变量」。"""
+    text = SIGN_SCRIPT.read_text(encoding="utf-8")
+    for action in ("Sign", "Verify", "Resolve"):
+        assert f"'{action}'" in text, f"sign_win.ps1 缺动作 {action}"
+    for env in (
+        "AINOVEL_SIGN_PFX",
+        "AINOVEL_SIGN_PFX_PASSWORD",
+        "AINOVEL_SIGN_THUMBPRINT",
+        "AINOVEL_SIGN_DEV_CERT",
+        "AINOVEL_SIGN_TIMESTAMP_URL",
+        # 2023-06 起公共 CA 只发「硬件保护、不可导出」的证书 → 云签名走 /dlib 是主线形态，
+        # 这两个环境变量是「买到证书就能接上」的关键，不能少
+        "AINOVEL_SIGN_DLIB",
+        "AINOVEL_SIGN_DMDF",
+    ):
+        assert env in text, f"sign_win.ps1 不认环境变量 {env}（文档里承诺过）"
+    assert "/dlib" in text and "/dmdf" in text, "缺云签名（HSM / Trusted Signing）的 signtool 参数"
+    assert "signtool" in text.lower(), "缺 signtool 调用"
+    assert "/tr" in text or "-tr" in text, "缺 RFC3161 时间戳参数——证书过期后旧安装包会失去签名效力"
+    assert "Get-AuthenticodeSignature" in text, "缺签名校验（Verify 动作）"
+
+
+def test_app_exe_is_signed_before_packaging():
+    """程序本体必须在 Inno 打包**前**签：打包后再签外面那份，安装出来的仍是未签名件。"""
+    text = BUILD_RELEASE.read_text(encoding="utf-8")
+    sign_pos = text.find("程序本体签名")
+    iscc_pos = text.find("Inno Setup 安装包")
+    assert sign_pos != -1, "build_release.ps1 缺程序本体签名步骤"
+    assert iscc_pos != -1, "build_release.ps1 缺 Inno 打包步骤"
+    assert sign_pos < iscc_pos, "签名步骤须排在 Inno 打包之前"
+    assert "dist\\AwesomeNovel\\AwesomeNovel.exe" in text, "签名目标不是程序本体 exe"
+    assert "-Action Sign -Path $signed.FullName" in text and "-Action Verify" in text, (
+        "build_release.ps1 缺「iscc 出包后签安装器」或校验"
+    )
+    # 内测一键自签（-DevSign）：让导入过根证书的机器看到发布者名而不是「发布者未知」，别被改丢
+    assert "[switch]$DevSign" in text, "build_release.ps1 缺 -DevSign 开关"
+    assert "AINOVEL_SIGN_DEV_CERT" in text, "-DevSign 没接到自签证书环境变量上"
+
+
+def test_ci_pipeline_order_and_verification_gate():
+    """CI：证书准备 → 签 exe → iscc（带签名参数）→ 校验闸门，顺序与闸门缺一不可。"""
+    wf = WORKFLOW.read_text(encoding="utf-8")
+    order = [
+        "Configure Windows code signing",
+        "Sign app exe (Windows)",
+        "Build Windows installer",
+        "Sign & verify installer (Windows)",
+    ]
+    positions = []
+    for name in order:
+        pos = wf.find(name)
+        assert pos != -1, f"client-package.yml 缺步骤：{name}"
+        positions.append(pos)
+    assert positions == sorted(positions), (
+        "签名步骤顺序错了（证书准备 → 签 exe → 打包 → 校验）：" + str(positions)
+    )
+    assert "WINDOWS_SIGN_PFX" in wf, "CI 缺证书 secret 入口"
+    assert "Sign & verify installer" in wf, "CI 没在 iscc 之后签安装器"
+    assert "AwesomeNovel.exe" in wf, "CI 没签程序本体"
+    assert "::warning" in wf and "未配置正式签名证书" in wf, (
+        "没配正式证书时必须打 warning（说明本次出的是仓库自签包）——"
+        "否则「以为签了正式证书」只有用户能从 SmartScreen 提示里发现"
+    )
+    assert "自签" in wf, "CI 注释/提示必须点明未配正式证书时走的是自签（内测可见发布者、对外仍显示未知）"
+
+
+def test_self_signed_is_the_default_source():
+    """用户 2026-10-06 拍板「自签即可」：无正式证书时**默认**自签，正式证书恒优先，=0 可关。
+
+    这条是行为契约（不是实现细节）——它决定了「内测同学能不能看到发布者名」，
+    以及「将来买到证书是不是只要配一下就自动切换」。"""
+    text = SIGN_SCRIPT.read_text(encoding="utf-8")
+    # 默认自签：没有正式证书时用仓库自签证书（正斜杠路径，Windows 与 pwsh 容器都能解析）
+    assert "cert/cert.pfx" in text, "自签证书路径不存在或写成了仅 Windows 可解析的形态"
+    assert "useDevCert" in text and "hasRealCert" in text, "缺自签默认/正式证书优先的判定"
+    # 关闭开关：=0 出未签名包
+    assert "AINOVEL_SIGN_DEV_CERT" in text and "'0'" in text, "缺 AINOVEL_SIGN_DEV_CERT=0 的关闭开关"
+    # 自签的边界必须在脚本里讲明（对外仍显示未知、不解除 SmartScreen）
+    assert "SmartScreen" in text and "未知" in text, "自签边界（对外仍显示未知/不解除 SmartScreen）没写在脚本里"
+
+
+def test_dev_cert_matches_documented_password_and_brand():
+    """内测自签证书可加载、密码与安装脚本/签名脚本同值、CN 是新品牌名。
+
+    （改名后旧证书 CN=AI Novel，签出来的「签署者」还是旧名——此断言防它重演。）"""
+    from cryptography.hazmat.primitives.serialization import pkcs12
+
+    pfx = CERT_DIR / "cert.pfx"
+    assert pfx.is_file(), f"缺内测自签证书：{pfx}"
+    key, cert, _extra = pkcs12.load_key_and_certificates(pfx.read_bytes(), b"ainovel123")
+    assert key is not None and cert is not None, "cert.pfx 无法用文档密码解出私钥/证书"
+    assert "Awesome Novel" in cert.subject.rfc4514_string(), (
+        f"自签证书 CN 不是新品牌名：{cert.subject.rfc4514_string()}（改名前的旧名会签出旧签署者）"
+    )
+    for path in (CERT_DIR / "install_cert.bat", CERT_DIR / "install_cert.ps1", SIGN_SCRIPT):
+        assert "ainovel123" in path.read_text(encoding="utf-8"), (
+            f"{path.name} 里的证书密码与 cert.pfx 不一致"
+        )
+
+
+def test_signing_doc_reachable_from_offline_packaging_doc():
+    """离线打包文档必须指到签名文档：内测同学从那条入口进来，不能只看到「属预期」。"""
+    offline = (REPO_ROOT / "docs" / "ops" / "client-package-offline-windows.md").read_text(
+        encoding="utf-8"
+    )
+    assert "client-code-signing.md" in offline, "离线打包文档缺签名文档链接"
+    signing = REPO_ROOT / "docs" / "ops" / "client-code-signing.md"
+    assert signing.is_file(), f"缺签名文档：{signing}"
+    doc = signing.read_text(encoding="utf-8")
+    for token in ("SmartScreen", "WINDOWS_SIGN_PFX", "Unblock-File", "自签"):
+        assert token in doc, f"签名文档缺关键内容：{token}"
+
+
+def test_no_stale_unsigned_claims():
+    """不得再出现「CI 本来就不签名」这类过期口径（它会让内测以为提示无解）。"""
+    for path in (BUILD_RELEASE, WORKFLOW):
+        text = path.read_text(encoding="utf-8")
+        assert not re.search(r"CI\s*同样不签名", text), f"{path.name} 残留「CI 同样不签名」口径"
+
+
+def test_powershell_scripts_parse():
+    """打包 PowerShell 脚本必须能被解析（本机无 pwsh 则跳过；CI 的 ubuntu runner 自带）。
+
+    2026-10-06 实锤：sign_win.ps1 在**命令参数位**用多行 `+` 拼接被判成语法错误——脚本一
+    被调用就整段挂掉（本地与 CI 的签名步骤全废），而这种错误只有解析器能抓，且只能靠
+    pwsh 跑。上面那些静态门禁全是字符串匹配，抓不到语法。"""
+    import shutil
+    import subprocess
+
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        pytest.skip("pwsh 不可用——本机未装 PowerShell（CI 上会执行）")
+    parse = (
+        "$e=$null;"
+        "[System.Management.Automation.Language.Parser]::ParseFile("
+        "'{path}',[ref]$null,[ref]$e)|Out-Null;"
+        "if ($e.Count) {{ $e | ForEach-Object {{ $_.Message }}; exit 1 }}"
+    )
+    for script in (SIGN_SCRIPT, BUILD_RELEASE):
+        result = subprocess.run(
+            [pwsh, "-NoProfile", "-Command", parse.format(path=script)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, (
+            f"{script.name} 解析失败：{result.stdout.strip()} {result.stderr.strip()}"
+        )
