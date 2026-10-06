@@ -235,10 +235,12 @@ describe("MigrationBanner", () => {
 });
 
 describe("ApiConfigCard", () => {
-  it("七态徽标与边框：逐态映射（含未知态回落未测试）", () => {
+  it("徽标与边框：逐态映射（含未知态回落未测试）", () => {
     const cases: Array<[ApiConfig["last_test_status"], string, string, string]> = [
       ["ok", "连接正常", "", "ok"],
       ["auth_error", "认证失败", "b-err", "err"],
+      // 「通」判据收紧新增态（地址不提供对话接口/非 API 响应）——曾漏登记致失败显示成「未测试」
+      ["endpoint_mismatch", "接口不匹配", "b-err", "err"],
       ["timeout", "连接超时", "b-warn", "warn"],
       ["network_error", "网络错误", "b-warn", "warn"],
       ["rate_limited", "频率限制", "b-muted", "muted"],

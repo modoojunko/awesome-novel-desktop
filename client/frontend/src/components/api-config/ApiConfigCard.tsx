@@ -15,10 +15,11 @@ interface ApiConfigCardProps {
   }>;
 }
 
-/** 七态徽标（model-config.html STATUS 原样） */
+/** 状态徽标（model-config.html STATUS 原样；endpoint_mismatch 为「通」判据收紧新增：地址不提供对话接口/非 API 响应） */
 const STATUS: Record<string, { label: string; cls: string }> = {
   ok: { label: "连接正常", cls: "ok" },
   auth_error: { label: "认证失败", cls: "err" },
+  endpoint_mismatch: { label: "接口不匹配", cls: "err" },
   timeout: { label: "连接超时", cls: "warn" },
   network_error: { label: "网络错误", cls: "warn" },
   rate_limited: { label: "频率限制", cls: "muted" },
@@ -27,6 +28,7 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 };
 const CARD_BORDER: Record<string, string> = {
   auth_error: "b-err",
+  endpoint_mismatch: "b-err",
   timeout: "b-warn",
   network_error: "b-warn",
   rate_limited: "b-muted",
