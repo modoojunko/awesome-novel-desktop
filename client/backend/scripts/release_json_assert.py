@@ -9,12 +9,17 @@
 4. c-version-build-info：`client_build_branch`/`client_build_commit` **可选键**
    （tag 构建/旧产物不烘），存在则校验形态——分支安全字符集＋≤40、commit
    `[0-9a-f]{5,40}`（`--short=5` 是「至少 5 位」语义，宽容到 40）。
+5. c-prompt-pack-delivery：`pack_pubkeys` **必选键**——提示词包验签公钥
+   `{"<kid>": "<base64(32B Ed25519)>"}` 的 JSON 串。缺烘＝打包端无钥可验
+   （AI 永久「未就绪」），与地址族缺烘同类，冒烟必拦。形态校验单源
+   `validate_pack_pubkeys`，生成侧（release_json_generate）同批复用。
 
 脚本化而非 workflow 内联：断言逻辑可被测试直接驱动（正/负例），避免「CI 里那条
 断言其实没人跑过」。
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
 import sys
@@ -26,6 +31,33 @@ from backup.format import FORMAT_VERSION  # noqa: E402
 from schema_version import db_filename_for  # noqa: E402
 
 
+def validate_pack_pubkeys(raw: object) -> str:
+    """c-prompt-pack-delivery：pack_pubkeys 形态校验（生成侧/产物侧共用单源）。
+
+    契约：`{"<kid>": "<base64(32 字节 Ed25519 公钥)>"}` 的 JSON **字符串**
+    （存串而非嵌套对象——release.json 各键统一为字符串值，config 白名单亦只放行字符串）。
+    空值/非法 JSON/非 dict/空 dict/坏 base64/非 32 字节均判红：**缺烘公钥＝打包端
+    永远验不了提示词包**，必须在构建期拦截而不是上线后表现为「AI 恒未就绪」。
+
+    校验通过返回去首尾空白后的原串（生成侧直接写入 release.json）。
+    """
+    txt = str(raw or "").strip()
+    assert txt, "pack_pubkeys 为空（验签公钥未烘入——打包端将无法校验任何提示词包）"
+    try:
+        keys = json.loads(txt)
+    except ValueError:
+        raise AssertionError(f"pack_pubkeys 非合法 JSON：{txt[:120]!r}") from None
+    assert isinstance(keys, dict) and keys, ("pack_pubkeys 应为非空 {kid: base64} 映射", txt[:120])
+    for kid, val in keys.items():
+        try:
+            key_bytes = base64.b64decode(str(val), validate=True)
+        except Exception:
+            raise AssertionError(f"pack_pubkeys[{kid}] 非法 base64：{val!r}") from None
+        assert len(key_bytes) == 32, (
+            f"pack_pubkeys[{kid}] 应为 32 字节 Ed25519 公钥（实得 {len(key_bytes)} 字节）")
+    return txt
+
+
 def check_release_json(path: str | Path) -> dict:
     """校验并返回 release.json 内容；任一断言失败抛 AssertionError。"""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -33,6 +65,8 @@ def check_release_json(path: str | Path) -> dict:
     # public_server_api 缺烘曾致打包端授权页 404（v0.23–v0.25 实锤），冒烟必拦
     for key in ("server_api_base", "server_api_fallback", "public_server_api", "portal_url"):
         assert str(data.get(key, "")).startswith("https://"), (f"release.json 键 {key} 缺失或非 https", data)
+    # c-prompt-pack-delivery：提示词包公钥必选——缺烘＝打包端无钥可验，AI 永久未就绪
+    validate_pack_pubkeys(data.get("pack_pubkeys", ""))
     version = str(data.get("client_version", "")).strip()
     assert version, data
     assert str(data.get("client_update_url", "")).startswith("https://"), data

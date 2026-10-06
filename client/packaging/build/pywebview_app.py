@@ -26,6 +26,12 @@ def get_base_dir() -> Path:
 APP_DIR_NAME = "AwesomeNovel"
 LEGACY_APP_DIR_NAME = "AI Novel"
 
+# 提示词包验签公钥的生产默认（c-prompt-pack-delivery）：这是**公钥**，就该随包分发——
+# 发布构建经 release.json 的 pack_pubkeys（vars.CLIENT_PACK_PUBKEYS 可覆盖，用于轮换）
+# 注入 CLIENT_PACK_PUBKEYS env；本地直接打包（无 release.json 烘焙）也据此有钥可验。
+# 签名私钥只在发布方离线保管，永不入仓/入产物。
+PROD_PACK_PUBKEYS = '{"pack-k1":"UaJFasM5PBIB3Tg1o03cjG6Opeq5CaKtPv2ooLyNPPM="}'
+
 # 运行时可调参数与「装载挂死自愈」（shell-render-resilience）
 SHELL_CONFIG_NAME = "shell.json"          # <appdata>/shell.json，可选的人工调参文件
 RENDER_HANG_MARKER = "render-hang.flag"   # 存在＝上次装载挂死过 → 从此固定走安全模式
@@ -488,6 +494,8 @@ def start_server():
         # 白名单含 client_build_branch/client_build_commit，两处须同批改。
         _env_with_release("CLIENT_BUILD_BRANCH", "client_build_branch", "")
         _env_with_release("CLIENT_BUILD_COMMIT", "client_build_commit", "")
+        # c-prompt-pack-delivery：提示词包验签公钥（常量定义见文件头；白名单须含 pack_pubkeys）
+        _env_with_release("CLIENT_PACK_PUBKEYS", "pack_pubkeys", os.environ.get("AI_NOVEL_CLIENT_PACK_PUBKEYS", PROD_PACK_PUBKEYS))
 
         frontend_dist = res_root / "frontend"
         if frontend_dist.exists():

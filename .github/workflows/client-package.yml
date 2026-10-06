@@ -110,6 +110,10 @@ jobs:
           RELEASE_PORTAL_URL: ${{ vars.CLIENT_PORTAL_URL || 'https://www.awesomenovel.com' }}
           RELEASE_DOWNLOAD_BASE: ${{ vars.CLIENT_DOWNLOAD_BASE || 'https://www.awesomenovel.com/download' }}
           RELEASE_DOWNLOAD_FALLBACK_BASE: ${{ vars.CLIENT_DOWNLOAD_BASE_FALLBACK || 'https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download' }}
+          # c-prompt-pack-delivery：提示词包验签公钥（{kid: base64(32B Ed25519)} JSON 串）。
+          # 缺烘＝打包端无钥可验（AI 永久「未就绪」）——冒烟 release_json_assert 必选键会拦；
+          # 轮换钥匙：改 vars.CLIENT_PACK_PUBKEYS（同时换发布私钥签发侧）。
+          RELEASE_PACK_PUBKEYS: ${{ vars.CLIENT_PACK_PUBKEYS || '{"pack-k1":"UaJFasM5PBIB3Tg1o03cjG6Opeq5CaKtPv2ooLyNPPM="}' }}
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             CLIENT_VERSION="$(printf '%s' "${GITHUB_REF_NAME#v}" | tr -c 'A-Za-z0-9._-' '-')"

@@ -1,4 +1,6 @@
 """release.json 发布期注入的读取逻辑（config.load_release_overrides）。"""
+import json
+
 from config import load_release_overrides
 
 
@@ -48,6 +50,47 @@ def test_build_info_keys_roundtrip(tmp_path):
         "client_build_branch": "pr-123",
         "client_build_commit": "f456e",
     }
+
+
+def test_pack_pubkeys_roundtrip(tmp_path):
+    """c-prompt-pack-delivery：验签公钥必须过白名单——漏登记=pywebview 注入静默断链
+    → 打包端恒无钥可验（AI 永久未就绪）。值形态=JSON 串（各键统一字符串值）。"""
+    raw = '{"pack-k1":"UaJFasM5PBIB3Tg1o03cjG6Opeq5CaKtPv2ooLyNPPM="}'
+    d = _write(tmp_path, json.dumps({"pack_pubkeys": raw, "components": {}}))
+    assert load_release_overrides(d) == {"pack_pubkeys": raw}
+
+
+def test_pywebview_injects_pack_pubkeys_env(tmp_path, monkeypatch):
+    """注入段实跑（同构建信息键判例）：假 release.json → pywebview_app 注入段的
+    **真源码行**把 CLIENT_PACK_PUBKEYS 写进 env；release.json 缺烘焙时回落生产常量。"""
+    import ast
+    import os
+    import re as _re
+    import textwrap
+    from pathlib import Path
+
+    baked = '{"pack-k1":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="}'
+    src = (Path(__file__).resolve().parent.parent.parent
+           / "packaging" / "build" / "pywebview_app.py").read_text(encoding="utf-8")
+    m = _re.search(r"( *def _env_with_release\(.*?\n)(?=        _env_with_release\()", src, _re.DOTALL)
+    line = _re.search(r'_env_with_release\("CLIENT_PACK_PUBKEYS".*', src)
+    const = _re.search(r"^PROD_PACK_PUBKEYS = (.+)$", src, _re.MULTILINE)
+    assert m and line, "pywebview_app.py 缺 CLIENT_PACK_PUBKEYS 注入行——打包链断链"
+    assert const, "pywebview_app.py 缺 PROD_PACK_PUBKEYS 常量"
+
+    def _run_with(release_json: str) -> str:
+        d = _write(tmp_path, release_json)
+        globs = {"os": os, "release": load_release_overrides(d),
+                 "PROD_PACK_PUBKEYS": ast.literal_eval(const.group(1))}
+        monkeypatch.delenv("CLIENT_PACK_PUBKEYS", raising=False)
+        # 注入段实跑＝对 pywebview_app.py 真·源码行执行（S102 有意为之）
+        exec(compile(textwrap.dedent(m.group(1)), "<injection-smoke>", "exec"), globs)  # noqa: S102
+        exec(compile(line.group(0).strip(), "<injection-smoke>", "exec"), globs)  # noqa: S102
+        return os.environ.get("CLIENT_PACK_PUBKEYS", "")
+
+    assert _run_with(json.dumps({"pack_pubkeys": baked})) == baked
+    default = _run_with("{}")
+    assert '"pack-k1"' in default, "无烘焙时必须回落生产发布钥（否则本地直打无钥可验）"
 
 
 def test_pywebview_injects_build_info_env(tmp_path, monkeypatch):

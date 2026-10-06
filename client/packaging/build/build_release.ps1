@@ -51,6 +51,9 @@ Step '2/7 release.json 生成' {
     if (-not $env:RELEASE_PORTAL_URL)           { $env:RELEASE_PORTAL_URL = 'https://www.awesomenovel.com' }
     if (-not $env:RELEASE_DOWNLOAD_BASE)        { $env:RELEASE_DOWNLOAD_BASE = 'https://www.awesomenovel.com/download' }
     if (-not $env:RELEASE_DOWNLOAD_FALLBACK_BASE) { $env:RELEASE_DOWNLOAD_FALLBACK_BASE = 'https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download' }
+    # c-prompt-pack-delivery：提示词包验签公钥（公钥常量——与 pywebview_app.PROD_PACK_PUBKEYS /
+    # workflow 内联默认逐字一致；漂移＝某条打包路径烘了个验不了包的钥，AI 恒未就绪）
+    if (-not $env:RELEASE_PACK_PUBKEYS)         { $env:RELEASE_PACK_PUBKEYS = '{"pack-k1":"UaJFasM5PBIB3Tg1o03cjG6Opeq5CaKtPv2ooLyNPPM="}' }
     Push-Location $BuildDir
     try {
         python ..\..\backend\scripts\release_json_generate.py $Version -o release.json
