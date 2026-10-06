@@ -9,7 +9,10 @@ import os
 import platform
 import re
 import subprocess
+import threading
+import time
 import urllib.parse
+import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -258,17 +261,53 @@ def get_local_config() -> dict:
     return dict(data)
 
 
+# 写入串行锁（同进程并发调用时避免 tmp/replace 互踩；跨进程靠唯一 tmp 名＋重试）
+_config_write_lock = threading.Lock()
+
+# Windows 上 os.replace 撞共享冲突（WinError 32）的重试节奏：杀软扫描/他进程短暂持句柄
+_CONFIG_REPLACE_ATTEMPTS = 6
+_CONFIG_REPLACE_BACKOFF = 0.05  # 秒；第 n 次退避 n*50ms，总预算约 0.75s
+
+
 def save_local_config(config: dict):
-    """**原子写**（temp + `os.replace`，读方永不看到半截）+ 直更内存缓存。"""
+    """**原子写**（temp + `os.replace`，读方永不看到半截）+ 直更内存缓存。
+
+    Windows 现场（2026-10-06，用户机 uvicorn.log）：`os.replace` 偶发
+    `PermissionError: [WinError 32] 另一个程序正在使用此文件` —— 杀软实时扫描或他进程
+    短暂持有 config.json 句柄，check-auth 因此 500 一次（前端能自愈重试，但用户可见）。
+    对策：tmp 名带 pid＋随机串（并发写不互踩）＋短退避重试；仍失败才抛，且清掉自己的 tmp。"""
     global _config_cache, _config_cache_sig
     Path(CONFIG_DIR).mkdir(parents=True, exist_ok=True)
-    tmp = f"{CONFIG_FILE}.tmp"
-    Path(tmp).write_text(
-        json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    os.replace(tmp, CONFIG_FILE)
-    _config_cache = dict(config)
-    _config_cache_sig = _config_signature()
+    tmp = f"{CONFIG_FILE}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    with _config_write_lock:
+        Path(tmp).write_text(
+            json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        try:
+            for attempt in range(_CONFIG_REPLACE_ATTEMPTS):
+                try:
+                    os.replace(tmp, CONFIG_FILE)
+                    break
+                except PermissionError as e:
+                    if attempt == _CONFIG_REPLACE_ATTEMPTS - 1:
+                        raise
+                    # 每次重试都留痕：现场据此区分"杀软瞬态扫描"与"他进程长期持锁"
+                    logger.warning(
+                        "config.json 被占用，重试 %d/%d：%s（tmp=%s）",
+                        attempt + 1,
+                        _CONFIG_REPLACE_ATTEMPTS,
+                        e,
+                        tmp,
+                    )
+                    time.sleep(_CONFIG_REPLACE_BACKOFF * (attempt + 1))
+        finally:
+            if os.path.exists(tmp):  # 成功时 replace 已搬走；失败路径不留半截 tmp
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+        _config_cache = dict(config)
+        _config_cache_sig = _config_signature()
 
 
 def load_or_create_config() -> dict:

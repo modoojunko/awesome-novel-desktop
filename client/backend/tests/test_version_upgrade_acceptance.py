@@ -521,16 +521,22 @@ def test_up12_retention_and_cleanup(tmp_path):
         delete_candidate,
         validate_candidate_filename,
     )
-    from schema_version import candidate_stamp
+    from schema_version import candidate_stamp, sidecar_paths
 
     migrated: set[str] = set()
     libs = []
-    for ver in ("0.21", "0.22", "0.23", "0.24"):
+    # 显式造**秒级**递增 mtime：三件套 mtime 取 int(max(主, -wal, -shm))（整秒，见
+    # schema_version.three_file_mtime）。原版用 time.sleep(0.01)+os.utime 造序，间隔 <1s
+    # 常落在同一秒、并列后挑选变任意序——存量 flaky（main 全量跑批约 1/4 概率红）。
+    base = int(time.time()) - 3600
+    for i, ver in enumerate(("0.21", "0.22", "0.23", "0.24")):
         p = _make_lib(tmp_path / db_filename_for(ver), books=1)
         libs.append(p)
+        stamp = base + i * 10
+        for f in [p, *sidecar_paths(p)]:
+            if f.exists():
+                os.utime(f, (stamp, stamp))
         migrated.add(candidate_stamp(p.name, p))
-        time.sleep(0.01)
-        os.utime(p, None)
     never_migrated = _make_lib(tmp_path / "novel-v0.20.db", books=1)
 
     items = deletable_candidates(tmp_path, migrated, keep=2)

@@ -125,19 +125,29 @@ Step '5/8 产物断言' {
 Step '6/8 冒烟测试' {
     $exe = Join-Path $BuildDir 'dist\AwesomeNovel\AwesomeNovel.exe'
     if (-not (Test-Path $exe)) { throw "找不到产物 $exe" }
-    $portJson = Join-Path $env:APPDATA 'AwesomeNovel\port.json'
+    # 运行目录两候选（shell-runtime-dir）：安装目录可写→安装目录；否则 %APPDATA%\AwesomeNovel
+    $runtimeDirs = @((Split-Path $exe -Parent), (Join-Path $env:APPDATA 'AwesomeNovel'))
     $proc = Start-Process -FilePath $exe -ArgumentList '--smoke' -PassThru -RedirectStandardOutput "$env:TEMP\ainovel-smoke.log" -RedirectStandardError "$env:TEMP\ainovel-smoke.err.log"
     try {
         $port = ''
         foreach ($i in 1..60) {
-            if (Test-Path $portJson) {
-                $m = Select-String -Path $portJson -Pattern '"port"\s*:\s*(\d+)' | Select-Object -First 1
-                if ($m) { $port = $m.Matches[0].Groups[1].Value }
+            foreach ($d in $runtimeDirs) {
+                $portJson = Join-Path $d 'port.json'
+                if (Test-Path $portJson) {
+                    $m = Select-String -Path $portJson -Pattern '"port"\s*:\s*(\d+)' | Select-Object -First 1
+                    if ($m) { $port = $m.Matches[0].Groups[1].Value }
+                }
             }
             if ($port -and (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/api/health" -TimeoutSec 2 -ErrorAction SilentlyContinue)) { break }
             Start-Sleep -Seconds 1
         }
         if (-not $port -or -not (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/api/health" -TimeoutSec 3 -ErrorAction SilentlyContinue)) {
+            foreach ($d in $runtimeDirs) {
+                foreach ($name in @('startup.log', 'uvicorn.log')) {
+                    $f = Join-Path $d $name
+                    if (Test-Path $f) { Write-Host "--- $f ---"; Get-Content $f -Tail 40 }
+                }
+            }
             throw "SMOKE FAILED - backend not ready（日志：$env:TEMP\ainovel-smoke.log）"
         }
         $idx = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/" -TimeoutSec 3).Content

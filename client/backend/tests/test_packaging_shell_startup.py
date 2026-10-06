@@ -33,6 +33,7 @@ import importlib.util
 import json
 import os
 import sys
+import threading
 import time
 import types
 from pathlib import Path
@@ -240,7 +241,17 @@ def test_main_clears_stale_port_json_and_logs(shell, tmp_path, monkeypatch):
     monkeypatch.setattr(shell, "get_install_dir", lambda: tmp_path / "install")
     monkeypatch.setattr(shell, "ensure_loading_page", lambda ad: (ad / "loading.html").as_uri())
     monkeypatch.setattr(shell, "start_server", lambda: served.append(True))
-    monkeypatch.setattr(shell, "check_backend_and_navigate", lambda window, ad: None)
+    monkeypatch.setattr(shell, "check_backend_and_navigate", lambda window, ad, cfg=None: None)
+    armed: list = []
+    monkeypatch.setattr(shell, "arm_hang_dump", lambda ad, period=60.0: armed.append(ad))
+    contained: list = []
+    monkeypatch.setattr(
+        shell, "contain_webview_children", lambda ad, note="": contained.append(note) or 0
+    )
+    # main() 末尾会强制下线（os._exit）——必须替换，否则把 pytest 一起带走
+    exited: list = []
+    monkeypatch.setattr(shell, "_force_exit", lambda code=0: exited.append(code))
+    monkeypatch.setattr(shell, "stop_server_gracefully", lambda timeout=3.0: True)
 
     shell.main()
 
@@ -248,9 +259,15 @@ def test_main_clears_stale_port_json_and_logs(shell, tmp_path, monkeypatch):
     assert started == [True]
     assert created and created[0]["js_api"] is shell.bridge
     assert len(windows[0].events.shown.handlers) == 1, "shown 事件必须挂日志钩子"
+    assert armed == [appdata], "C 层 hang dump 必须在上窗口前架上"
+    assert contained == ["（建窗后）"], "建窗后必须把 WebView2 子树收进 job（第一拍）"
+    assert exited == [0], "窗口关闭后必须强制下线（不留残留进程）"
     text = _log_text(appdata)
     assert "shell main() entered" in text
     assert "server thread started" in text
+    # 顺序：先 GUI 退出 → 再有界收尾 → 再强退
+    assert text.index("GUI loop exited") < text.index("backend shutdown")
+    assert "backend shutdown: graceful=True" in text
 
 
 # ── 7. 运行目录换名（AI Novel → AwesomeNovel）＋无痛迁移 ───────────────────
@@ -400,7 +417,7 @@ def test_shell_config_logs_rejected_and_clamped_values(shell, tmp_path):
     cfg = shell.load_shell_config(tmp_path)
     text = _log_text(tmp_path)
 
-    assert cfg["backend_timeout"] == 60 and cfg["app_load_timeout"] == 600
+    assert cfg["backend_timeout"] == shell.DEFAULT_BACKEND_TIMEOUT and cfg["app_load_timeout"] == 600
     for key in ("backend_timeout", "app_load_timeout", "webview_args", "safe_mode"):
         assert key in text, f"{key} 回落必须留日志"
     assert "99999" in text, "越界原值要原样可见，便于现场对照自己写了什么"
@@ -602,3 +619,286 @@ def test_watchdog_hang_falls_back_when_relaunch_disallowed(shell, tmp_path, monk
     assert (tmp_path / shell.RENDER_HANG_MARKER).exists()
     assert opened == ["http://127.0.0.1:18125"]
     assert window.urls[-1].endswith("error.html")
+
+
+# ── 11. 运行目录选择（shell-runtime-dir）：安装目录可写优先，appdata 兜底 ────────
+
+
+def test_install_dir_writable_probe(shell, tmp_path):
+    ok = tmp_path / "install"
+    assert shell._install_dir_writable(ok) is True
+    assert not (ok / shell.RUNTIME_PROBE_NAME).exists(), "探针文件必须写完即删"
+
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")  # 当目录用必然建不出来
+    assert shell._install_dir_writable(blocker / "sub") is False
+
+
+def test_runtime_dir_prefers_writable_install_dir_when_frozen(shell, tmp_path, monkeypatch):
+    install, appdata = tmp_path / "install", tmp_path / "appdata"
+    install.mkdir()
+    monkeypatch.setattr(shell, "sys", types.SimpleNamespace(platform="win32", frozen=True))
+    monkeypatch.setattr(shell, "get_install_dir", lambda: install)
+    monkeypatch.setattr(shell, "get_appdata", lambda: appdata)
+
+    assert shell.get_runtime_dir() == install, "安装目录可写＝运行目录（日志/调参跟 data 在一起）"
+
+
+def test_runtime_dir_falls_back_when_install_dir_unwritable(shell, tmp_path, monkeypatch):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("i am a file", encoding="utf-8")
+    appdata = tmp_path / "appdata"
+    monkeypatch.setattr(shell, "sys", types.SimpleNamespace(platform="win32", frozen=True))
+    monkeypatch.setattr(shell, "get_install_dir", lambda: blocker / "AwesomeNovel")
+    monkeypatch.setattr(shell, "get_appdata", lambda: appdata)
+
+    assert shell.get_runtime_dir() == appdata, "装到不可写位置（Program Files）必须回落 appdata"
+
+
+def test_runtime_dir_dev_and_macos_use_appdata(shell, tmp_path, monkeypatch):
+    appdata = tmp_path / "appdata"
+    monkeypatch.setattr(shell, "get_install_dir", lambda: tmp_path / "install")
+    monkeypatch.setattr(shell, "get_appdata", lambda: appdata)
+
+    monkeypatch.setattr(shell, "sys", types.SimpleNamespace(platform="win32", frozen=False))
+    assert shell.get_runtime_dir() == appdata, "dev（非冻结）不往项目目录写"
+
+    monkeypatch.setattr(shell, "sys", types.SimpleNamespace(platform="darwin", frozen=True))
+    assert shell.get_runtime_dir() == appdata, "macOS 上 appdata 目录同时是书稿数据目录"
+
+
+def test_legacy_runtime_dir_only_when_different(shell, tmp_path, monkeypatch):
+    appdata = tmp_path / "appdata"
+    monkeypatch.setattr(shell, "get_appdata", lambda: appdata)
+
+    assert shell._legacy_runtime_dir(appdata) is None, "同一目录＝无兼容读取源"
+    assert shell._legacy_runtime_dir(tmp_path / "install") == appdata
+
+
+def test_shell_config_reads_legacy_appdata_location(shell, tmp_path):
+    """v0.28.1 的指引把 shell.json 指向 %APPDATA%：升到本版后不许静默忽略。"""
+    runtime, legacy = tmp_path / "install", tmp_path / "appdata"
+    runtime.mkdir()
+    legacy.mkdir()
+    (legacy / shell.SHELL_CONFIG_NAME).write_text(
+        json.dumps({"backend_timeout": 180}), encoding="utf-8"
+    )
+
+    cfg = shell.load_shell_config(runtime, legacy_dir=legacy)
+
+    assert cfg["backend_timeout"] == 180
+    assert "旧位置" in _log_text(runtime), "取旧位置调参必须留痕（提示挪到运行目录）"
+
+
+def test_shell_config_runtime_dir_wins_over_legacy(shell, tmp_path):
+    runtime, legacy = tmp_path / "install", tmp_path / "appdata"
+    runtime.mkdir()
+    legacy.mkdir()
+    (runtime / shell.SHELL_CONFIG_NAME).write_text(json.dumps({"backend_timeout": 90}), encoding="utf-8")
+    (legacy / shell.SHELL_CONFIG_NAME).write_text(json.dumps({"backend_timeout": 180}), encoding="utf-8")
+
+    assert shell.load_shell_config(runtime, legacy_dir=legacy)["backend_timeout"] == 90
+
+
+# ── 12. 后端就绪等待：心跳与判负文案（2026-10-06 现场两处误读的修复钉子）─────
+
+
+def test_wait_for_server_logs_heartbeat_with_probe_class(shell, tmp_path, monkeypatch):
+    """慢机器定位：等待期心跳必须带「探测分类」——下次现场能分清"慢"与"死"。"""
+    (tmp_path / "port.json").write_text(json.dumps({"port": 18123}), encoding="utf-8")
+    clock = {"t": 0.0}
+    monkeypatch.setattr(shell.time, "time", lambda: clock["t"])
+    monkeypatch.setattr(shell.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + 5.0))
+    monkeypatch.setattr(shell, "_probe_backend", lambda port: (False, "连接被拒（uvicorn 尚未开始监听，多半还在导入 app）"))
+
+    assert shell.wait_for_server(tmp_path, timeout=40) is None
+
+    text = _log_text(tmp_path)
+    assert "backend still starting" in text, "等待期必须有心跳行"
+    assert "连接被拒" in text, "心跳必须带探测分类（判慢/判死就靠它）"
+
+
+def test_probe_backend_classifies_refused_vs_unresponsive(shell, monkeypatch):
+    import urllib.error
+
+    def _refused(*_a, **_k):
+        raise urllib.error.URLError(ConnectionRefusedError(10061, "refused"))
+
+    monkeypatch.setattr("urllib.request.urlopen", _refused)
+    ok, note = shell._probe_backend(18123)
+    assert ok is False and "连接被拒" in note, "连接被拒＝uvicorn 还没监听（导入阶段）"
+
+    def _timeout(*_a, **_k):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr("urllib.request.urlopen", _timeout)
+    ok, note = shell._probe_backend(18123)
+    assert ok is False and "已监听" in note, "连上但没响应＝lifespan/app 启动进行中"
+
+    def _wrapped_timeout(*_a, **_k):
+        # urllib 真实形态：socket 超时被包成 URLError(reason=TimeoutError)
+        raise urllib.error.URLError(TimeoutError("timed out"))
+
+    monkeypatch.setattr("urllib.request.urlopen", _wrapped_timeout)
+    ok, note = shell._probe_backend(18123)
+    assert ok is False and "已监听" in note, "被包成 URLError 的超时同样要认出来"
+
+    class _Resp:
+        status = 200
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Resp())
+    assert shell._probe_backend(18123) == (True, "")
+
+
+def test_backend_timeout_message_states_actual_cause(shell, tmp_path, monkeypatch):
+    """线程活着时不许说它退了：旧文案被两次误读成"后端崩了"。"""
+    monkeypatch.setattr(shell, "wait_for_server", lambda appdata, timeout=60: None)
+    monkeypatch.setattr(shell, "_show_error", lambda *a, **k: None)
+
+    shell.check_backend_and_navigate(_FakeWindow(), tmp_path)
+    text = _log_text(tmp_path)
+    assert "backend NOT ready" in text
+    assert "时间不够" not in text
+    assert "server thread exited" not in text, "线程未退就不许写它退了"
+    assert "仍在活着" in text or "仍活着" in text
+
+
+def test_backend_timeout_message_names_thread_exit(shell, tmp_path, monkeypatch):
+    monkeypatch.setattr(shell, "wait_for_server", lambda appdata, timeout=60: None)
+    monkeypatch.setattr(shell, "_show_error", lambda *a, **k: None)
+    shell._server_exited.set()
+
+    shell.check_backend_and_navigate(_FakeWindow(), tmp_path)
+
+    assert "server thread exited" in _log_text(tmp_path)
+    shell._server_exited.clear()
+
+
+# ── 13. js_api 暴露面 / 退出硬化 / hang dump（c-shell-hang-hardening）─────────
+
+
+def test_bridge_public_surface_is_methods_only(shell):
+    """pywebview 注入时**递归遍历** js_api 的公开非方法属性（util.py get_functions 只跳 `_` 前缀）：
+    桥上挂公开对象＝把原生窗口整棵树拖进遍历 → 跨线程 COM 报错、甚至装载停摆（2026-10-06 白屏根因）。
+    本守卫与打包 CI 的 check_bridge_surface.py（AST）双钉。"""
+    public = [n for n in dir(shell.bridge) if not n.startswith("_")]
+    assert public, "桥至少要有可暴露的方法"
+    for name in public:
+        assert callable(getattr(shell.bridge, name)), (
+            f"js_api 公开成员 {name!r} 不是可调用——pywebview 会递归进它（必须改下划线前缀）"
+        )
+
+
+def test_bridge_surface_ast_gate_flags_public_attr_and_passes_real_file():
+    import importlib.util
+
+    gate_path = Path(__file__).resolve().parents[2] / "packaging" / "build" / "check_bridge_surface.py"
+    spec = importlib.util.spec_from_file_location("check_bridge_surface_under_test", gate_path)
+    gate = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(gate)
+
+    assert gate.find_violations("class NativeBridge:\n    window_ref = None\n"), "公开类属性必须被抓出"
+    assert gate.find_violations("bridge = NativeBridge()\nbridge.window = None\n"), "桥实例公开属性必须被抓出"
+    real = Path(__file__).resolve().parents[2] / "packaging" / "build" / "pywebview_app.py"
+    assert gate.find_violations(real.read_text(encoding="utf-8")) == [], "真实文件必须放行"
+
+
+def test_watchdog_logs_heartbeat_while_waiting(shell, tmp_path, monkeypatch):
+    """装载等待不许死等：每 10 秒落一行心跳（也是"进程还活着"的证据）。"""
+    monkeypatch.setattr(shell, "wait_for_server", lambda appdata, timeout=60: 18140)
+    monkeypatch.setattr(shell, "should_auto_relaunch", lambda *a, **k: False)
+    monkeypatch.setattr("webbrowser.open", lambda url: True)
+
+    shell.check_backend_and_navigate(_FakeWindow(loaded=False), tmp_path)
+
+    text = _log_text(tmp_path)
+    assert "app page still loading… 10s/60s" in text
+    assert "app page still loading… 60s/60s" in text
+
+
+def test_hang_dump_armed_and_cancelled(shell, tmp_path):
+    shell.arm_hang_dump(tmp_path, period=600)
+    try:
+        assert (tmp_path / "hang-dump.txt").exists()
+        assert shell._HANG_DUMP_FILE is not None
+    finally:
+        shell.cancel_hang_dump()
+    assert shell._HANG_DUMP_FILE is None, "取消后必须关掉文件句柄（flush）"
+
+
+def test_stop_server_gracefully_signals_then_reports_timeout(shell, monkeypatch):
+    class _Srv:
+        def __init__(self):
+            self.should_exit = False
+
+    srv = _Srv()
+    monkeypatch.setattr(shell, "_server_handle", srv)
+    monkeypatch.setattr(shell, "_server_exited", threading.Event())
+    clock = {"t": 0.0}
+    monkeypatch.setattr(shell.time, "time", lambda: clock["t"])
+    monkeypatch.setattr(shell.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + 1.0))
+
+    assert shell.stop_server_gracefully(timeout=3.0) is False, "未回收必须如实返回 False（调用方仍强退）"
+    assert srv.should_exit is True, "必须先发退出信号"
+
+
+# ── 14. WebView2 子树收口（Windows Job Object）＋兜底页文案 ─────────────────
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows 上该调用会真实建 job；仓库 pytest 只在非 Windows 跑")
+def test_contain_webview_children_noop_off_windows(shell, tmp_path):
+    """非 Windows 必须静默 no-op（dev/macOS 不产生任何副作用与日志）。"""
+    assert shell.contain_webview_children(tmp_path, "（测试）") == 0
+    assert shell._WEBVIEW_JOB is None
+    assert not (tmp_path / "startup.log").exists() or "containment" not in _log_text(tmp_path)
+
+
+def test_contain_webview_children_degrades_on_failure(shell, tmp_path, monkeypatch):
+    """任一 API 失败只留日志、照常继续。注入失败而非依赖平台差异——否则本用例在真 Windows 上必红。"""
+    monkeypatch.setattr(shell, "sys", types.SimpleNamespace(platform="win32"))
+
+    def _boom():
+        raise OSError("模拟装 job 失败")
+
+    monkeypatch.setattr(shell, "_create_kill_on_close_job", _boom)
+
+    assert shell.contain_webview_children(tmp_path, "（降级测试）") == 0
+    text = _log_text(tmp_path)
+    assert "webview containment" in text and "降级继续" in text
+
+
+def test_containment_logs_are_segmented(shell, tmp_path, monkeypatch):
+    """真机验收判据：分段留痕（job 已建／枚举 N／打开 M／纳入 K）——否则"枚举不到"与"纳入失败"
+    在日志里长得一模一样，机制静默失效也看不出来（评审整改）。"""
+    monkeypatch.setattr(shell, "sys", types.SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(shell, "_create_kill_on_close_job", lambda: 12345)
+    monkeypatch.setattr(shell, "_win_child_pids", lambda pid, exe: [])
+
+    assert shell.contain_webview_children(tmp_path, "（分段）") == 0
+
+    text = _log_text(tmp_path)
+    assert "job 已建（KILL_ON_JOB_CLOSE）" in text
+    assert "子进程 0 个，打开 0 个，纳入 0 个" in text
+
+
+def test_containment_runs_again_after_app_page_loaded(shell, tmp_path, monkeypatch):
+    """装载成功后要补扫一次（WebView2 浏览器进程异步起，建窗时那拍可能扫不到）。"""
+    monkeypatch.setattr(shell, "wait_for_server", lambda appdata, timeout=60: 18150)
+    contained: list = []
+    monkeypatch.setattr(
+        shell, "contain_webview_children", lambda ad, note="": contained.append(note) or 0
+    )
+
+    shell.check_backend_and_navigate(_FakeWindow(loaded=True), tmp_path)
+
+    assert contained == ["（装载后）"]
+
+
+def test_error_page_states_browser_fallback_dependency(shell, tmp_path):
+    (tmp_path / "startup.log").write_text("[t] x", encoding="utf-8")
+    (tmp_path / "uvicorn.log").write_text("[t] y", encoding="utf-8")
+
+    html = shell.write_error_page(tmp_path, "后端启动超时").read_text(encoding="utf-8")
+
+    assert "浏览器兜底说明" in html, "错误页必须写明兜底页随本程序失效（用户理解一致）"

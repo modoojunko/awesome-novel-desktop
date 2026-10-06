@@ -33,12 +33,14 @@ LEGACY_APP_DIR_NAME = "AI Novel"
 PROD_PACK_PUBKEYS = '{"pack-k1":"UaJFasM5PBIB3Tg1o03cjG6Opeq5CaKtPv2ooLyNPPM="}'
 
 # 运行时可调参数与「装载挂死自愈」（shell-render-resilience）
-SHELL_CONFIG_NAME = "shell.json"          # <appdata>/shell.json，可选的人工调参文件
+SHELL_CONFIG_NAME = "shell.json"          # <运行目录>/shell.json，可选的人工调参文件（见 get_runtime_dir）
 RENDER_HANG_MARKER = "render-hang.flag"   # 存在＝上次装载挂死过 → 从此固定走安全模式
 RELAUNCH_ENV_KEY = "AI_NOVEL_SHELL_RELAUNCHED"  # 父进程注入给孩子：本进程＝重启代（最多重启一轮）
 SAFE_MODE_ARGS = "--disable-gpu"          # 安全模式追加的 WebView2 参数（VM/无 GPU 渲染挂死常见解）
-DEFAULT_BACKEND_TIMEOUT = 60              # 后端就绪等待（秒）
+DEFAULT_BACKEND_TIMEOUT = 180             # 后端就绪等待（秒）。2026-10-06 现场：首次冷启动
+                                          # 被杀软首扫 + 慢盘拖到 >60s 被判死（第二次才进来）
 DEFAULT_APP_LOAD_TIMEOUT = 60             # 应用页装载看门狗（秒）
+RUNTIME_PROBE_NAME = ".awesome-novel-write-probe"  # 安装目录可写性探针（写完即删）
 
 
 def _appdata_base() -> Path:
@@ -70,10 +72,13 @@ def _migrate_legacy_appdata(base: Path) -> Path:
 
 
 def get_appdata() -> Path:
-    r"""运行时数据目录（日志/端口文件）— 跨平台；macOS 上它同时是书稿数据目录。
+    r"""用户级目录 — 跨平台；macOS 上它同时是书稿数据目录。
     Windows: %APPDATA%\AwesomeNovel；macOS: ~/Library/Application Support/AwesomeNovel。
     旧名 AI Novel 目录（≤v0.27 品牌）在 macOS 首启自动换名并在旧路径留软链；
-    Windows 侧旧目录只剩历史日志，不迁移（卸载器两个都清）。"""
+    Windows 侧旧目录只剩历史日志，不迁移（卸载器两个都清）。
+
+    Windows 安装版上它自 shell-runtime-dir 起只是**运行时文件的兜底**：
+    安装目录可写时运行目录＝安装目录（与 data\ 在一起），写不了才落这里。"""
     base = _appdata_base()
     if sys.platform == "darwin":
         return _migrate_legacy_appdata(base)
@@ -89,6 +94,48 @@ def get_install_dir() -> Path:
         return Path(sys.executable).parent
     # Dev 模式: 项目根目录
     return Path(__file__).parent.parent.parent
+
+
+def _install_dir_writable(install_dir: Path) -> bool:
+    """安装目录可写探测：写一个探针文件再删（判据＝真的写得进去，不是权限位猜的）。"""
+    try:
+        install_dir.mkdir(parents=True, exist_ok=True)
+        probe = install_dir / RUNTIME_PROBE_NAME
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except Exception:
+        return False
+
+
+def get_runtime_dir() -> Path:
+    r"""壳层运行时文件（日志/端口/错误页/挂死标记/调参）的落点（shell-runtime-dir）。
+
+    Windows 安装版：安装目录写得进去就用安装目录——用户找得到（和 data\ 在一起），
+    也从「翻 %APPDATA%」这件事里解放出来；写不进去（典型：装到 C:\Program Files
+    且标准用户运行）回落 %APPDATA%\AwesomeNovel——诊断文件必须永远写得出来，
+    这是壳层启动链的底线（写不出日志＝下次排查从零开始）。
+
+    macOS / dev：等同 get_appdata()（macOS 上该目录同时是数据目录；dev 不往仓库里写）。"""
+    appdata = get_appdata()
+    if sys.platform == "darwin" or not getattr(sys, "frozen", False):
+        return appdata
+    install_dir = get_install_dir()
+    if _install_dir_writable(install_dir):
+        return install_dir
+    return appdata
+
+
+def _legacy_runtime_dir(runtime_dir: Path) -> Path | None:
+    """运行目录落在安装目录时，返回 %APPDATA% 旧位置作兼容读取源；同目录/异常＝None。
+
+    v0.28.1 的 shell.json 指引写的是 %APPDATA%（当时运行目录只在那儿）；升到本版后
+    用户按旧指引放的文件不该被静默忽略——只读兼容，不写回。"""
+    try:
+        appdata = get_appdata()
+    except Exception:
+        return None
+    return None if appdata == runtime_dir else appdata
 
 
 def get_resource_root() -> Path:
@@ -143,9 +190,9 @@ def window_title() -> str:
 
 
 def log_line(appdata: Path, message: str) -> None:
-    """把一行带时间戳的启动日志追加到 <appdata>/startup.log。
+    """把一行带时间戳的启动日志追加到 <运行目录>/startup.log（运行目录见 get_runtime_dir）。
 
-    appdata 不可写时退到系统临时目录（如装进 Program Files 且无写权限），
+    运行目录不可写时退到系统临时目录（极端：安装目录与 %APPDATA% 都写不进去），
     再失败则静默——日志本身绝不能把启动打崩。"""
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
     for target in (appdata, Path(tempfile.gettempdir()) / APP_DIR_NAME):
@@ -174,8 +221,11 @@ def _clamp_timeout(value, default: int) -> int:
         return default
 
 
-def load_shell_config(appdata: Path) -> dict:
-    r"""读 <appdata>/shell.json（可选；不存在＝全默认）。
+def load_shell_config(runtime_dir: Path, legacy_dir: Path | None = None) -> dict:
+    r"""读 <运行目录>/shell.json（可选；不存在＝全默认）。
+
+    legacy_dir：安装目录当运行目录时，顺带认一眼 %APPDATA%\AwesomeNovel\shell.json
+    （v0.28.1 时代的位置）——升级到新版后调参不因位置变化被静默忽略；命中即留日志。
 
     支持键（都可缺省，非法值回落默认并留日志）：
       webview_args      str   追加给 WebView2 的浏览器参数
@@ -184,21 +234,28 @@ def load_shell_config(appdata: Path) -> dict:
       safe_mode         bool  强制开/关安全模式（缺省＝按 render-hang.flag 自动判定）
     """
     cfg: dict = {}
+    path = runtime_dir / SHELL_CONFIG_NAME
+    source = ""
+    if not path.exists() and legacy_dir is not None and (legacy_dir / SHELL_CONFIG_NAME).exists():
+        path = legacy_dir / SHELL_CONFIG_NAME
+        source = "（旧位置 %APPDATA%）"
     try:
-        raw = json.loads((appdata / SHELL_CONFIG_NAME).read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return cfg
     except Exception:
-        log_line(appdata, "shell.json 读取失败，按默认参数继续：\n" + traceback.format_exc())
+        log_line(runtime_dir, f"shell.json 读取失败{source}，按默认参数继续：\n" + traceback.format_exc())
         return cfg
+    if source:
+        log_line(runtime_dir, f"shell.json 取自 {path}{source}——建议挪到运行目录")
     if not isinstance(raw, dict):
-        log_line(appdata, f"shell.json 不是对象（{type(raw).__name__}），忽略")
+        log_line(runtime_dir, f"shell.json 不是对象（{type(raw).__name__}），忽略")
         return cfg
     if "webview_args" in raw:
         if isinstance(raw["webview_args"], str) and raw["webview_args"].strip():
             cfg["webview_args"] = raw["webview_args"].strip()
         else:
-            log_line(appdata,
+            log_line(runtime_dir,
                      f"shell.json: webview_args={raw['webview_args']!r} 非法（需非空字符串），忽略")
     for key, default in (
         ("backend_timeout", DEFAULT_BACKEND_TIMEOUT),
@@ -208,13 +265,13 @@ def load_shell_config(appdata: Path) -> dict:
             cfg[key] = _clamp_timeout(raw[key], default)
             if cfg[key] != raw[key]:
                 # 非数值回落默认 / 越界夹取都必须留痕：现场调参最怕"写了却没生效"
-                log_line(appdata,
+                log_line(runtime_dir,
                          f"shell.json: {key}={raw[key]!r} 不可用或越界（5..600），按 {cfg[key]} 秒生效")
     if "safe_mode" in raw:
         if isinstance(raw["safe_mode"], bool):
             cfg["safe_mode"] = raw["safe_mode"]
         else:
-            log_line(appdata,
+            log_line(runtime_dir,
                      f"shell.json: safe_mode={raw['safe_mode']!r} 非布尔，忽略（按标记自动判定）")
     return cfg
 
@@ -305,7 +362,7 @@ def webview2_version():
 
 
 def attach_pywebview_log(appdata: Path) -> None:
-    """把 pywebview 自己的调试日志旁路到 <appdata>/pywebview.log。
+    """把 pywebview 自己的调试日志旁路到 <运行目录>/pywebview.log。
 
     GUI 模式下 stderr 是 devnull——缺这一步，pywebview 的 Loading URL /
     loaded event fired 这些关键判据就是黑洞。"""
@@ -386,6 +443,12 @@ def _exit_soon(delay: float = 1.5) -> None:
 # 健康轮询据此提前判负，不再干等满 60 秒。
 _server_exited = threading.Event()
 
+# 后端 Server 句柄（shell-hang-hardening 2.1）：关窗后据此有界请它退出
+_server_handle = None
+
+# hang dump 的文件句柄（faulthandler 写入目标；装配后由 cancel 关闭）
+_HANG_DUMP_FILE = None
+
 
 def _app_load_timeout() -> int:
     """应用页装载看门狗时长（秒），env 可调；非法值回落 60。
@@ -405,9 +468,253 @@ def _backend_timeout() -> int:
         return DEFAULT_BACKEND_TIMEOUT
 
 
+def stop_server_gracefully(timeout: float = 3.0) -> bool:
+    """窗口关闭后的**有界**后端收尾：请 uvicorn 退出并等线程回收（shell-hang-hardening 2.1）。
+
+    返回是否在超时内回收。False 时调用方仍应强制退出——用户关窗的意图优先于在途请求
+    （SQLite 是 WAL、日志逐行 flush，硬退不会坏库，代价面只有在途请求）。"""
+    server = _server_handle
+    if server is None:
+        return True
+    try:
+        server.should_exit = True
+    except Exception:
+        pass
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _server_exited.is_set():
+            return True
+        time.sleep(0.05)
+    return _server_exited.is_set()
+
+
+def _force_exit(code: int = 0) -> None:
+    """进程强制下线。抽成函数是为了可测（单测替换它，避免把 pytest 一起带走）。"""
+    os._exit(code)
+
+
+def arm_hang_dump(appdata: Path, period: float = 60.0) -> None:
+    """C 层看门狗（shell-hang-hardening 3.3）：周期把**全部线程栈**dump 到 hang-dump.txt。
+
+    2026-10-06 现场：run 2 在装载注入段整体停摆——之后的 60 秒看门狗行与关窗行全都没写出来，
+    即 Python 层已经跑不动了。GIL 被原生调用占死时，普通心跳/看门狗一起失效，只有
+    faulthandler 的 C 层定时器还能落盘。装载成功后由 cancel_hang_dump 撤销，避免长会话
+    无谓写盘（正常启动几秒内就会取消，实际几乎不产生 dump）。"""
+    global _HANG_DUMP_FILE
+    try:
+        import faulthandler
+
+        f = open(appdata / "hang-dump.txt", "w", encoding="utf-8")
+        _HANG_DUMP_FILE = f
+        faulthandler.enable(file=f, all_threads=True)
+        faulthandler.dump_traceback_later(period, repeat=True, file=f, exit=False)
+    except Exception:
+        log_line(appdata, "faulthandler 装配失败：\n" + traceback.format_exc())
+
+
+def cancel_hang_dump() -> None:
+    """撤销 hang dump（装载成功/进程下线前）：先停 C 层定时器再关文件（flush）。"""
+    global _HANG_DUMP_FILE
+    try:
+        import faulthandler
+
+        faulthandler.cancel_dump_traceback_later()
+        faulthandler.disable()  # 关文件后别让 handler 指向已关闭的 fd（否则 fatal 时 dump 会抛错丢失）
+    except Exception:
+        pass
+    if _HANG_DUMP_FILE is not None:
+        try:
+            _HANG_DUMP_FILE.close()
+        except Exception:
+            pass
+        _HANG_DUMP_FILE = None
+
+
+# ── WebView2 子树随应用退出（Windows Job Object，shell-hang-hardening 2.4）─────
+# 用户口径：关闭应用＝任务管理器里不再有 AwesomeNovel.exe，也不再有**由它拉起的**
+# msedgewebview2.exe。软清理（pywebview 关窗时 dispose＋等 3s）覆盖不了"卡死/强杀"：
+# 那些场景下没有任何 Python 代码会跑。Job Object 的 KILL_ON_JOB_CLOSE 是 OS 级语义——
+# 句柄一关（＝我们进程以任何方式消失）job 内剩余进程全部被杀。
+# 刻意只装 WebView2 子树、**不装我们自己**：① 自愈重启的孩子是普通子进程，不能被误杀；
+# ② 不需要 CREATE_BREAKAWAY_FROM_JOB（嵌套 job 环境里 breakaway 是否成功不可控）。
+_WEBVIEW_JOB = None
+_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+
+
+def _win_child_pids(parent_pid: int, exe_name: str) -> list[int]:
+    """枚举 parent_pid 的直接子进程里 exe 名匹配者（Toolhelp32；仅 Windows 调用）。
+
+    句柄 API 必须显式声明 restype/argtypes：CreateToolhelp32Snapshot 返回的是 HANDLE
+    （指针宽度），ctypes 默认按 c_int 取返回值——截断后 ① 失败时的 -1 与
+    `c_void_p(-1).value` 恒不相等（失败判据变死代码，实测）② 句柄回传给
+    Process32FirstW/CloseHandle 时也可能出错。"""
+    import ctypes
+    from ctypes import wintypes
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", wintypes.WCHAR * 260),
+        ]
+
+    TH32CS_SNAPPROCESS = 0x00000002
+    k32 = ctypes.windll.kernel32
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    k32.Process32FirstW.restype = wintypes.BOOL
+    k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.Process32NextW.restype = wintypes.BOOL
+    k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.CloseHandle.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+    snap = k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if not snap or snap == ctypes.c_void_p(-1).value:  # 0＝NULL，-1＝INVALID_HANDLE_VALUE
+        raise OSError("CreateToolhelp32Snapshot 失败")
+    pids: list[int] = []
+    try:
+        entry = PROCESSENTRY32W()
+        entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+        ok = k32.Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            if entry.th32ParentProcessID == parent_pid and entry.szExeFile.lower() == exe_name:
+                pids.append(int(entry.th32ProcessID))
+            ok = k32.Process32NextW(snap, ctypes.byref(entry))
+    finally:
+        k32.CloseHandle(snap)
+    return pids
+
+
+def _create_kill_on_close_job():
+    """建 KILL_ON_JOB_CLOSE 的 job（仅 Windows 调用）；失败抛异常由调用方降级。"""
+    import ctypes
+    from ctypes import wintypes
+
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", wintypes.LARGE_INTEGER),
+            ("PerJobUserTimeLimit", wintypes.LARGE_INTEGER),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.POINTER(ctypes.c_ulong)),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    k32 = ctypes.windll.kernel32
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    k32.SetInformationJobObject.restype = wintypes.BOOL
+    k32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
+    k32.CloseHandle.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+    job = k32.CreateJobObjectW(None, None)
+    if not job:
+        raise OSError("CreateJobObjectW 失败")
+    info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if not k32.SetInformationJobObject(
+        job, 9, ctypes.byref(info), ctypes.sizeof(info)  # 9 = JobObjectExtendedLimitInformation
+    ):
+        k32.CloseHandle(job)
+        raise OSError("SetInformationJobObject 失败")
+    return job
+
+
+def contain_webview_children(appdata: Path, note: str = "") -> int:
+    """把本进程拉起的 msedgewebview2.exe 纳入 KILL_ON_JOB_CLOSE 的 job（仅 Windows 生效）。
+
+    返回本次新纳入的进程数。非 Windows 静默返回 0；枚举为空/任一 API 失败 → 留一行日志
+    后照常继续（正常关窗仍有 pywebview 的 dispose 软清理兜底，本机制是"任何死法都干净"的
+    硬保证，不是唯一防线）。调用点两拍：建窗后、应用页装载后各扫一次（WebView2 浏览器进程
+    是异步起的，一次可能扫不到）。"""
+    global _WEBVIEW_JOB
+    if sys.platform != "win32":
+        return 0
+    try:
+        import ctypes
+
+        if _WEBVIEW_JOB is None:
+            _WEBVIEW_JOB = _create_kill_on_close_job()
+            log_line(appdata, f"webview containment{note}: job 已建（KILL_ON_JOB_CLOSE）")
+        pids = _win_child_pids(os.getpid(), "msedgewebview2.exe")
+        opened = 0
+        added = 0
+        if pids:  # 没有子进程就不去碰 windll（也让本函数在非 Windows 上可被桩测试覆盖）
+            from ctypes import wintypes
+
+            PROCESS_SET_QUOTA = 0x0100
+            PROCESS_TERMINATE = 0x0001
+            k32 = ctypes.windll.kernel32
+            k32.OpenProcess.restype = wintypes.HANDLE
+            k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            k32.AssignProcessToJobObject.restype = wintypes.BOOL
+            k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+            k32.CloseHandle.restype = wintypes.BOOL
+            k32.CloseHandle.argtypes = [wintypes.HANDLE]
+            for pid in pids:
+                handle = k32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, pid)
+                if not handle:
+                    continue
+                opened += 1
+                try:
+                    if k32.AssignProcessToJobObject(_WEBVIEW_JOB, handle):
+                        added += 1
+                finally:
+                    k32.CloseHandle(handle)
+        # 分段留痕（评审整改）：真机验收要能分清"枚举不到"与"纳入失败"——否则机制静默失效
+        # 与"这台机器没有 WebView2 子进程"在日志里长得一模一样。
+        log_line(appdata,
+                 f"webview containment{note}: 子进程 {len(pids)} 个，打开 {opened} 个，纳入 {added} 个")
+        if pids and added == 0:
+            log_line(appdata,
+                     f"webview containment{note}: 枚举到 {len(pids)} 个却一个都没纳入"
+                     "（句柄权限不足 / 已在他 job 且不允许嵌套？）——机制未生效，请连同上一行上报")
+        return added
+    except Exception:
+        log_line(appdata, f"webview containment{note} 失败（降级继续）：\n" + traceback.format_exc())
+        return 0
+
+
 def start_server():
     """启动 FastAPI 后端（GUI 模式下跑在后台线程；退出即置 _server_exited）。"""
-    appdata = get_appdata()
+    appdata = get_runtime_dir()
     try:
         base_dir = get_base_dir()
         backend_dir = base_dir / "backend"
@@ -417,7 +724,7 @@ def start_server():
         # 安装目录: 数据就跟着 exe 走
         install_dir = get_install_dir()
         install_dir.mkdir(parents=True, exist_ok=True)
-        # 运行时目录（日志等临时文件）— 跨平台取 appdata
+        # 运行时目录（日志/端口等）— 安装目录可写即安装目录，否则 appdata（get_runtime_dir）
         appdata.mkdir(parents=True, exist_ok=True)
         # 数据目录（DATA_ROOT）— 全新机器上 data/ 不存在，不建的话 sqlite 打不开 DB
         data_root = install_dir / "data"
@@ -525,7 +832,9 @@ def start_server():
             "formatters": {
                 "default": {
                     "()": "uvicorn.logging.DefaultFormatter",
-                    "fmt": "%(levelprefix)s %(message)s",
+                    # 时间戳必须有（2026-10-06 现场）：白屏期间"后端还在不在服务"是核心判据，
+                    # 没有时间戳就只能靠猜请求发生在哪一段。
+                    "fmt": "%(asctime)s %(levelprefix)s %(message)s",
                     "use_colors": False,
                 },
             },
@@ -546,12 +855,14 @@ def start_server():
                 "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
             },
         }
-        uvicorn.run(
-            "main:app",
-            host="127.0.0.1",
-            port=port,
-            log_config=log_config,
+        # 留句柄（shell-hang-hardening 2.1）：`uvicorn.run()` 一走到底、没有停止入口，关窗后
+        # 就只能硬退。换成 Config+Server 后可在窗口关闭时先请它退出再收尾。
+        # Server.run() 在非主线程同样跳过信号处理，行为与 run() 一致。
+        global _server_handle
+        _server_handle = uvicorn.Server(
+            uvicorn.Config("main:app", host="127.0.0.1", port=port, log_config=log_config)
         )
+        _server_handle.run()
     except Exception as e:
         # 启动期异常（uvicorn 绑定失败 / 导入炸 / lifespan 抛错）必须留全文
         log_line(appdata, f"server thread FATAL: {e!r}\n" + traceback.format_exc())
@@ -561,24 +872,63 @@ def start_server():
         log_line(appdata, "server thread exited")
 
 
-def wait_for_server(appdata: Path, timeout: int = 15) -> int:
-    """等待后端启动，返回端口号。超时返回 None；后端线程已退出则立即判负。"""
+def _probe_backend(port: int) -> tuple[bool, str]:
+    """打一次 /api/health，返回 (是否就绪, 失败分类)。
+
+    分类是给「慢 vs 死」用的（2026-10-06 现场教训：uvicorn.log 空＋只写一句 timeout，
+    没人分得清是导入慢还是死透了）：连接被拒＝uvicorn 还没开始监听（仍在导入 app）；
+    已连接但无响应＝已监听、事件循环或 lifespan 还没吐出响应。"""
+    import urllib.error
     import urllib.request
 
+    try:
+        resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2)
+        if resp.status == 200:
+            return True, ""
+        return False, f"HTTP {resp.status}"
+    except urllib.error.HTTPError as e:
+        return False, f"HTTP {e.code}（服务在、健康检查未过）"
+    except urllib.error.URLError as e:
+        # 注意：urllib 会把 socket 超时包成 URLError(reason=TimeoutError)——两条都要认
+        reason = getattr(e, "reason", e)
+        text = str(reason).lower()
+        if isinstance(reason, TimeoutError) or "timed out" in text or "timeout" in text:
+            return False, "已监听但暂无响应（lifespan/app 启动进行中）"
+        if isinstance(reason, ConnectionRefusedError) or "refused" in text:
+            return False, "连接被拒（uvicorn 尚未开始监听，多半还在导入 app）"
+        return False, f"不可达（{reason}）"
+    except TimeoutError:
+        return False, "已监听但暂无响应（lifespan/app 启动进行中）"
+    except Exception as e:  # noqa: BLE001 —— 探测只为分类，绝不外抛
+        return False, f"无响应（{type(e).__name__}）"
+
+
+def wait_for_server(appdata: Path, timeout: int = 15) -> int:
+    """等待后端启动，返回端口号。超时返回 None；后端线程已退出则立即判负。
+
+    等待期每 ~15 秒往 startup.log 打一行心跳（已等多久＋本次探测分类）——下次
+    「后端就绪超时」现场据此一眼分清"慢"（仍在导入/启动）与"死"（端口不通且线程已退）。"""
     port_file = appdata / "port.json"
     start = time.time()
+    last_beat = start
+    last_note = "等待 port.json（后端尚未走到监听前）"
 
     while time.time() - start < timeout:
-        if port_file.exists():
-            try:
-                with open(port_file) as f:
-                    port = json.load(f)["port"]
-                # 尝试连接 health 端点
-                resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2)
-                if resp.status == 200:
-                    return port
-            except Exception:
-                pass
+        port = None
+        try:
+            with open(port_file) as f:
+                port = json.load(f)["port"]
+        except Exception:
+            port = None
+        if port:
+            ok, note = _probe_backend(port)
+            if ok:
+                return port
+            last_note = note
+        now = time.time()
+        if now - last_beat >= 15:
+            log_line(appdata, f"backend still starting… {int(now - start)}s（{last_note}）")
+            last_beat = now
         # 后端线程已退出且健康检查未过 → 永不会就绪，立即失败（不然干等满超时）
         if _server_exited.is_set():
             return None
@@ -654,6 +1004,8 @@ def write_error_page(appdata: Path, reason: str) -> Path:
         "background:#1a1a2e;color:#e0e0e0'><h2>" + html.escape(window_title())
         + " 启动失败</h2><p>" + html.escape(reason) + "</p>"
         "<p style='color:#9bb'>日志目录：" + html.escape(str(appdata)) + "</p>"
+        "<p style='color:#9bb'>浏览器兜底说明：用浏览器打开的应用依赖本程序运行（后端在本进程内）；"
+        "关闭本程序后，那个页面会失去后端而不可用。</p>"
         "<p style='color:#9bb'>可调参数：" + html.escape(str(appdata / SHELL_CONFIG_NAME))
         + "（webview_args / backend_timeout / app_load_timeout）；"
         "装载挂死后下次启动自动进安全模式（删掉 "
@@ -686,19 +1038,28 @@ def _open_in_browser_fallback(appdata: Path, port: int) -> None:
         log_line(appdata, "browser fallback failed:\n" + traceback.format_exc())
 
 
-def check_backend_and_navigate(window, appdata):
+def check_backend_and_navigate(window, appdata, cfg: dict | None = None):
     """后台轮询，等后端就绪后跳转到应用页面。
 
     全函数受保护：旧版一旦这里抛异常（如窗口未 shown 时 load_url 抛
     WebViewException），线程静默死亡＝永久停在启动页且零日志——现场报告
-    「长期卡在启动页」的最可疑形态。"""
+    「长期卡在启动页」的最可疑形态。
+
+    cfg：会话配置（main() 读好传入，避免二次读取出现两套口径）；缺省自读运行目录。"""
     try:
-        cfg = load_shell_config(appdata)
+        cfg = load_shell_config(appdata) if cfg is None else cfg
         safe_mode = safe_mode_enabled(appdata, cfg)
         backend_timeout = cfg.get("backend_timeout") or _backend_timeout()
         port = wait_for_server(appdata, timeout=backend_timeout)
         if not port:
-            log_line(appdata, f"backend NOT ready (timeout {backend_timeout}s / server thread exited)")
+            # 两种判负要分开写：旧文案「timeout / server thread exited」被读成"线程退了"，
+            # 把"还在导入"误诊成"启动崩了"（2026-10-06 现场两次误读）。
+            if _server_exited.is_set():
+                log_line(appdata, "backend NOT ready (server thread exited)")
+            else:
+                log_line(appdata,
+                         f"backend NOT ready (timeout {backend_timeout}s；后端线程仍活着，"
+                         "多半还在导入/启动中——明细见同目录 uvicorn.log 与上方心跳行)")
             _show_error(window, appdata, "后端启动超时或启动失败，请检查下面的日志：")
             return
 
@@ -710,8 +1071,22 @@ def check_backend_and_navigate(window, appdata):
         # 消息循环被卡）＝「长期停在启动页」的另一种形态。此时 UI 线程大概率
         # 已不响应、错误页也装不进去——所以先落日志、先打标记再谈兜底。
         load_timeout = cfg.get("app_load_timeout") or _app_load_timeout()
-        if window.events.loaded.wait(load_timeout):
+        # 切片等待（shell-hang-hardening 3.2）：死等 60 秒一声不吭的现场没法判读进度，
+        # 每 10 秒落一行心跳——它同时也是"进程还活着"的证据（对比 hang-dump.txt 定冻结）。
+        loaded = False
+        waited = 0
+        while waited < load_timeout:
+            slice_s = min(10, load_timeout - waited)
+            if window.events.loaded.wait(slice_s):
+                loaded = True
+                break
+            waited += slice_s
+            log_line(appdata,
+                     f"app page still loading… {waited}s/{load_timeout}s（注入链未完成）")
+        if loaded:
             log_line(appdata, "app page loaded")
+            cancel_hang_dump()  # 装载成功即撤销 C 层 dump，长会话不再写盘
+            contain_webview_children(appdata, "（装载后）")  # 第二拍：补上异步起的浏览器进程
             if safe_mode:
                 log_line(appdata, "safe mode 生效（保留 render-hang.flag，后续启动仍走安全模式）")
             return
@@ -735,7 +1110,9 @@ def check_backend_and_navigate(window, appdata):
                      "auto relaunch 跳过：本进程已是重启代，或用户显式关闭了安全模式（最多一轮）")
         _open_in_browser_fallback(appdata, port)
         _show_error(window, appdata,
-                    "界面加载超时（桌面窗口可能未响应），已尝试用浏览器打开。请把日志发给开发者：")
+                    "界面加载超时（桌面窗口可能未响应），已尝试用浏览器打开。"
+                    "注意：浏览器里打开的是本程序提供的本地页面，关闭本程序后该页面将不可用。"
+                    "请把日志发给开发者：")
     except Exception:
         log_line(appdata, "check_backend_and_navigate FAILED:\n" + traceback.format_exc())
         try:
@@ -754,16 +1131,22 @@ def ensure_loading_page(appdata: Path) -> str:
 class NativeBridge:
     """原生对话框桥（c-novel-export-roundtrip）——只暴露文件/目录选择，
     零数据面；前端经 window.pywebview.api 调用，探测不到即回退 HTTP。
-    window_ref 由 main() 在 create_window 之后注入。"""
+    _window_ref 由 main() 在 create_window 之后注入。
 
-    window_ref = None
+    ⚠️ 窗口引用**必须**带下划线前缀：pywebview 枚举 js_api 的公开属性时会**递归**遍历
+    非方法属性来收集可调用对象，而原生窗口对象整棵树（WinForms 控件 → WebView2 COM）
+    走不通、还只能 UI 线程访问——现场（2026-10-06 用户机 pywebview.log）因此每次装载
+    刷出成百上千条 `maximum recursion depth exceeded` / `E_NOINTERFACE` 错误。
+    pywebview 的 `get_functions` 只跳过 `_` 前缀名，所以这个下划线不是风格问题。"""
+
+    _window_ref = None
 
     def pick_folder(self):
-        result = self.window_ref.create_file_dialog(webview.FOLDER_DIALOG)
+        result = self._window_ref.create_file_dialog(webview.FOLDER_DIALOG)
         return result[0] if result else None
 
     def pick_save_file(self, default_name: str = "", file_types=None):
-        result = self.window_ref.create_file_dialog(
+        result = self._window_ref.create_file_dialog(
             webview.SAVE_DIALOG,
             save_filename=default_name or "",
             file_types=file_types or ("zip 文件 (*.zip)", "All files (*)"),
@@ -771,7 +1154,7 @@ class NativeBridge:
         return result if isinstance(result, str) else (result[0] if result else None)
 
     def pick_open_file(self, file_types=None):
-        result = self.window_ref.create_file_dialog(
+        result = self._window_ref.create_file_dialog(
             webview.OPEN_DIALOG,
             file_types=file_types or ("zip 文件 (*.zip)", "All files (*)"),
             allow_multiple=True,
@@ -817,16 +1200,16 @@ class NativeBridge:
         return out
 
 
-# 模块级单例：main() 在 create_window 后注入 window_ref（v0.15 曾漏掉本行，
+# 模块级单例：main() 在 create_window 后注入 _window_ref（v0.15 曾漏掉本行，
 # js_api=bridge 直接触发 NameError——GUI 启动即炸且 --smoke 测不到）
 bridge = NativeBridge()
 
 
 def main():
     """主入口"""
-    appdata = get_appdata()
+    runtime_dir = get_runtime_dir()
     try:
-        appdata.mkdir(parents=True, exist_ok=True)
+        runtime_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass  # log_line 自带临时目录兜底
 
@@ -836,33 +1219,36 @@ def main():
         start_server()
         return
 
-    log_line(appdata, "shell main() entered: exe=%s frozen=%s data_dir=%s"
-             % (sys.executable, getattr(sys, "frozen", False), get_install_dir()))
+    log_line(runtime_dir, "shell main() entered: exe=%s frozen=%s data_dir=%s runtime_dir=%s"
+             % (sys.executable, getattr(sys, "frozen", False), get_install_dir(), runtime_dir))
 
     # 调参文件与安全模式（shell-render-resilience）：必须在 create_window 之前——
     # WebView2 环境每次进程只建一次，事后再设参数无效。
-    cfg = load_shell_config(appdata)
-    safe_mode = safe_mode_enabled(appdata, cfg)
+    cfg = load_shell_config(runtime_dir, legacy_dir=_legacy_runtime_dir(runtime_dir))
+    safe_mode = safe_mode_enabled(runtime_dir, cfg)
     args = webview_browser_args(cfg, safe_mode)
     apply_webview_args(args)
-    attach_pywebview_log(appdata)
-    if (appdata / SHELL_CONFIG_NAME).exists():
-        log_line(appdata, f"shell.json 生效：{cfg}")
-    log_line(appdata, "webview: safe_mode=%s args=%r webview2=%s"
+    attach_pywebview_log(runtime_dir)
+    # C 层看门狗先架上：GUI 初始化/注入都是可能停摆的段（2026-10-06 现场就停在注入段），
+    # 装载成功后 cancel_hang_dump 撤销
+    arm_hang_dump(runtime_dir)
+    if (runtime_dir / SHELL_CONFIG_NAME).exists():
+        log_line(runtime_dir, f"shell.json 生效：{cfg}")
+    log_line(runtime_dir, "webview: safe_mode=%s args=%r webview2=%s"
              % (safe_mode, args, webview2_version() or "unknown"))
     if safe_mode:
-        log_line(appdata,
-                 f"safe mode 说明：删除 {appdata / RENDER_HANG_MARKER} 可回到默认渲染模式")
+        log_line(runtime_dir,
+                 f"safe mode 说明：删除 {runtime_dir / RENDER_HANG_MARKER} 可回到默认渲染模式")
 
     # 清陈旧端口文件：port.json 只应来自本次运行。旧值残留时（上一实例未退干净/
     # 上次启动崩在半途）健康轮询会连上前一个进程并据此跳转，多开场景直接卡启动页。
     try:
-        (appdata / "port.json").unlink(missing_ok=True)
+        (runtime_dir / "port.json").unlink(missing_ok=True)
     except Exception:
-        log_line(appdata, "stale port.json cleanup failed:\n" + traceback.format_exc())
+        log_line(runtime_dir, "stale port.json cleanup failed:\n" + traceback.format_exc())
 
-    # 把加载页写入临时文件
-    loading_url = ensure_loading_page(appdata)
+    # 把加载页写入本地文件
+    loading_url = ensure_loading_page(runtime_dir)
 
     # 先弹出 pywebview 窗口显示加载动画
     # 自适应屏幕分辨率（跨平台：webview.screens 而非 ctypes.windll.user32）
@@ -890,38 +1276,51 @@ def main():
         )
     except Exception:
         # WebView2 运行时缺失等 GUI 初始化炸点：没有窗口可显示，日志是唯一留痕
-        log_line(appdata, "create_window FAILED:\n" + traceback.format_exc())
+        log_line(runtime_dir, "create_window FAILED:\n" + traceback.format_exc())
         return
-    bridge.window_ref = window
+    bridge._window_ref = window
+    # WebView2 子树收口（第一拍）：浏览器进程异步起，这里先扫一次，装载成功后再补一次
+    contain_webview_children(runtime_dir, "（建窗后）")
 
     # 「窗口真的显示了」——UI 挂死类报告的第一分界（有这行＝窗口活了，
     # 之后卡住都发生在导航/装载段；没这行＝GUI 初始化段就没起来）
     def _on_window_shown(*_args, **_kwargs):
-        log_line(appdata, "window shown")
+        log_line(runtime_dir, "window shown")
 
     try:
         window.events.shown += _on_window_shown
     except Exception:
-        log_line(appdata, "register shown handler failed:\n" + traceback.format_exc())
+        log_line(runtime_dir, "register shown handler failed:\n" + traceback.format_exc())
 
     # 后台启动后端
     server_thread = threading.Thread(target=start_server, daemon=True)
     server_thread.start()
-    log_line(appdata, "server thread started")
+    log_line(runtime_dir, "server thread started")
 
-    # 后台轮询，等后端就绪后跳转
+    # 后台轮询，等后端就绪后跳转（cfg 由本次读取传入，避免两处读到不同结果）
     threading.Thread(
         target=check_backend_and_navigate,
-        args=(window, appdata),
+        args=(window, runtime_dir, cfg),
         daemon=True,
     ).start()
 
     try:
         webview.start(debug=False)
     except Exception:
-        log_line(appdata, "webview.start FAILED:\n" + traceback.format_exc())
-        return
-    log_line(appdata, "GUI loop exited (window closed)")
+        log_line(runtime_dir, "webview.start FAILED:\n" + traceback.format_exc())
+    else:
+        log_line(runtime_dir, "GUI loop exited (window closed)")
+
+    # 退出硬化（shell-hang-hardening 2.2）：pywebview 的注入/DOM 回调/bridge 调用三处线程
+    # 都是**非 daemon**（webview/util.py:243/303/335）——一旦卡住，解释器退出时的
+    # `threading._shutdown()` 会 join 它们 → 进程残留在任务管理器、并长期占着数据目录句柄
+    # （2026-10-06 现场"僵尸实例"即此形态）。所以：先给后端一个有界收尾，再无条件下线。
+    # 边界：只覆盖"GUI 循环已退出/启动失败"这两支；GIL 被原生调用占死的冻结形态连
+    # threading.Timer 都跑不到，不在本兜底担保范围内（靠 3.3 的 hang dump 取证）。
+    cancel_hang_dump()
+    graceful = stop_server_gracefully()
+    log_line(runtime_dir, f"backend shutdown: graceful={graceful}；强制退出收尾（不留残留进程）")
+    _force_exit(0)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,9 @@
 # client/packaging/build/requirements.txt
 # 打包工具依赖 — 构建 .exe / .dmg 时用
-pywebview>=5.4.1
+# ── 钉死到已验证版本（shell-hang-hardening 1.4）：js_api 暴露面契约依赖"注入时只跳过
+# `_` 前缀属性"这一**未文档化**的实现细节（webview/util.py get_functions）——浮动版本
+# 会让该契约在升级后静默失效（2026-10-06 白屏根因即此机制）。抬升版本必须重跑守卫测试。
+pywebview==6.2.1
 pyinstaller>=6.11.1
 # c-prompt-pack-hardening 阶段二：把 prompt_pack 的钥匙/解密/同步器编译成原生扩展
 # （compile_native.py；需 C 工具链——macOS 走 clang、Windows 走 VS 生成工具，CI 两者自带）
