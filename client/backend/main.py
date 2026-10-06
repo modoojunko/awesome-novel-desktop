@@ -17,7 +17,6 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 import brand
 import models  # noqa: F401
 from api_configs.router import router as api_configs_router
-from prompts import PromptPackMissing  # c-prompt-pack-client
 from archive.dossier_router import book_router as dossier_book_router
 from archive.dossier_router import router as dossier_router
 from archive.reconcile_router import router as reconcile_router
@@ -42,6 +41,8 @@ from novels.router import ai_router
 from novels.router import router as novels_router
 from prompt.router import book_router as prompt_book_router
 from prompt.router import router as prompt_router
+from prompt_pack.router import router as prompt_pack_router  # c-prompt-pack-client
+from prompts import PromptPackMissing  # c-prompt-pack-client
 from settings.ai_router import router as settings_ai_router
 from settings.characters_ai import router as characters_ai_router
 from settings.characters_router import router as characters_router
@@ -383,7 +384,6 @@ app.include_router(manuscript_router)
 
 # 版本自报与更新检测（client-update-notify）
 app.include_router(update_check_router)
-from prompt_pack.router import router as prompt_pack_router  # c-prompt-pack-client
 app.include_router(prompt_pack_router)
 
 # 业务路由
