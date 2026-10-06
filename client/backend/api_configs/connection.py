@@ -2,8 +2,7 @@
 
 探测按接口格式（api_format：openai | anthropic）构造，不再按 vendor 一一分支；
 vendor 只保留 ollama 特例（本地服务、免 Key、自有 tags 端点）。
-models 端点缺失（部分 Anthropic 兼容端点不提供列表）时降级为一条
-max_tokens=1 的最小请求验证鉴权。
+models 端点缺失（部分 Anthropic 兼容端点不提供列表）时降级为同款最小生成探针。
 
 「通」的判据（2026-10-05 拍板）：200 必须是 API JSON——网站首页/SPA 对任意路径
 回 200 HTML 不算通；可达且鉴权通过后向对话接口发**真实最小生成探针**——消息「你好」、
@@ -89,75 +88,13 @@ async def test_connection(
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
             if resp.status_code == 404 and fallback is not None:
-                # models 端点不存在 → 降级为「你好」最小生成探针（2026-10-05 拍板）：
-                # 收到格式正确且含可见回复文本的回复才算通；401/403 判鉴权失败；
-                # 404/405 = 对话接口本身不可达（地址/格式错）
+                # models 端点不存在 → 降级为「你好」最小生成探针（2026-10-05 拍板）
                 f_url, f_headers, f_payload = fallback
-                resp = await _post_with_thinking_retry(
-                    client, f_url, f_headers, f_payload
+                probe = await _probe_generation(
+                    client, f_url, f_headers, f_payload, _anthropic_reply_text
                 )
-                if resp.status_code in (401, 403):
-                    detail = _extract_error_detail(resp)
-                    return {
-                        "ok": False,
-                        "status": "auth_error",
-                        "models": None,
-                        "error": f"认证失败 (HTTP {resp.status_code}){detail}",
-                    }
-                if resp.status_code in (404, 405):
-                    return {
-                        "ok": False,
-                        "status": "endpoint_mismatch",
-                        "models": None,
-                        "error": (
-                            f"对话接口不可达（HTTP {resp.status_code} @ {f_url}）——"
-                            "请核对 Base URL 与接口格式是否和厂商文档一致"
-                        ),
-                    }
-                if resp.status_code == 429:
-                    return {
-                        "ok": False,
-                        "status": "rate_limited",
-                        "models": None,
-                        "error": "请求频率限制 (HTTP 429)",
-                    }
-                if resp.status_code >= 500:
-                    detail = _extract_error_detail(resp)
-                    return {
-                        "ok": False,
-                        "status": "network_error",
-                        "models": None,
-                        "error": f"服务端错误 (HTTP {resp.status_code}){detail}",
-                    }
-                if resp.status_code != 200:
-                    detail = _extract_error_detail(resp)
-                    return {
-                        "ok": False,
-                        "status": "unknown",
-                        "models": None,
-                        "error": (
-                            f"最小生成探针被拒（HTTP {resp.status_code} @ {f_url}）"
-                            f"{detail}——请核对模型 id 与接口格式"
-                        ),
-                    }
-                not_api = _non_api_response(resp)
-                if not_api:
-                    return {
-                        "ok": False,
-                        "status": "endpoint_mismatch",
-                        "models": None,
-                        "error": not_api,
-                    }
-                if not _anthropic_reply_text(resp):
-                    return {
-                        "ok": False,
-                        "status": "unknown",
-                        "models": None,
-                        "error": (
-                            f"模型回复格式不正确或回复为空（@ {f_url}）——请核对接口格式"
-                            "（anthropic 契约应返回 content 文本块）"
-                        ),
-                    }
+                if probe is not None:
+                    return probe
                 return {
                     "ok": True,
                     "status": "ok",
@@ -166,6 +103,83 @@ async def test_connection(
                     "candidates": model_candidates_for(vendor_id),
                     "note": NO_MODEL_LIST_NOTE,
                 }
+
+            # 判定与探针必须全部在 client 存活期内执行——async with 退出即关，出块后
+            # 再发请求会抛 RuntimeError（P0 回归钉：真 httpx 生命周期用例）
+            if resp.status_code in (401, 403):
+                detail = _extract_error_detail(resp)
+                return {
+                    "ok": False,
+                    "status": "auth_error",
+                    "models": None,
+                    "error": f"认证失败 (HTTP {resp.status_code}){detail}",
+                }
+            if resp.status_code == 429:
+                return {
+                    "ok": False,
+                    "status": "rate_limited",
+                    "models": None,
+                    "error": "请求频率限制 (HTTP 429)",
+                }
+            if resp.status_code >= 500:
+                detail = _extract_error_detail(resp)
+                return {
+                    "ok": False,
+                    "status": "network_error",
+                    "models": None,
+                    "error": f"服务端错误 (HTTP {resp.status_code}){detail}",
+                }
+            if resp.status_code != 200:
+                detail = _extract_error_detail(resp)
+                return {
+                    "ok": False,
+                    "status": "unknown",
+                    "models": None,
+                    "error": f"异常响应 (HTTP {resp.status_code}){detail}",
+                }
+
+            not_api = _non_api_response(resp)
+            if not_api:
+                return {
+                    "ok": False,
+                    "status": "endpoint_mismatch",
+                    "models": None,
+                    "error": not_api,
+                }
+            models = extract_fn(resp)
+            # 「你好」最小生成探针（2026-10-05 拍板，双格式统一判据）：与生成同址同头
+            # ——openai {base}/chat/completions／anthropic {base}/v1/messages
+            probe_model = _probe_model(models, vendor_id, preferred_model)
+            if api_format == "openai" and vendor_id != "ollama":
+                if not probe_model:
+                    # 无任何可用模型 id：仅凭可达性/鉴权不算通（2026-10-05 拍板）
+                    return {
+                        "ok": False,
+                        "status": "unknown",
+                        "models": None,
+                        "error": "模型列表为空且无候选模型 id——请填写模型名称后重新测试",
+                    }
+                ping = await _probe_generation(
+                    client,
+                    f"{base_url.rstrip('/')}/chat/completions",
+                    headers,
+                    _generation_payload(probe_model),
+                    _openai_reply_text,
+                )
+                if ping is not None:
+                    return ping
+            elif api_format == "anthropic" and fallback is not None:
+                f_url, f_headers, _f_payload = fallback
+                ping = await _probe_generation(
+                    client,
+                    f_url,
+                    f_headers,
+                    _generation_payload(probe_model or _ANTHROPIC_PROBE_MODEL),
+                    _anthropic_reply_text,
+                )
+                if ping is not None:
+                    return ping
+            return {"ok": True, "status": "ok", "models": models, "error": None}
     except httpx.TimeoutException:
         return {"ok": False, "status": "timeout", "models": None, "error": "连接超时"}
     except httpx.ConnectError:
@@ -182,64 +196,6 @@ async def test_connection(
             "models": None,
             "error": f"网络错误: {exc}",
         }
-
-    if resp.status_code == 401 or resp.status_code == 403:
-        detail = _extract_error_detail(resp)
-        return {
-            "ok": False,
-            "status": "auth_error",
-            "models": None,
-            "error": f"认证失败 (HTTP {resp.status_code}){detail}",
-        }
-    if resp.status_code == 429:
-        return {
-            "ok": False,
-            "status": "rate_limited",
-            "models": None,
-            "error": "请求频率限制 (HTTP 429)",
-        }
-    if resp.status_code >= 500:
-        detail = _extract_error_detail(resp)
-        return {
-            "ok": False,
-            "status": "network_error",
-            "models": None,
-            "error": f"服务端错误 (HTTP {resp.status_code}){detail}",
-        }
-    if resp.status_code != 200:
-        detail = _extract_error_detail(resp)
-        return {
-            "ok": False,
-            "status": "unknown",
-            "models": None,
-            "error": f"异常响应 (HTTP {resp.status_code}){detail}",
-        }
-
-    not_api = _non_api_response(resp)
-    if not_api:
-        return {
-            "ok": False,
-            "status": "endpoint_mismatch",
-            "models": None,
-            "error": not_api,
-        }
-    models = extract_fn(resp)
-    # openai 格式：追加「你好」最小生成探针（与生成同址同头）。旧实现只探 /models，
-    # 而生成走 {base}/chat/completions——「测试通了、一用就 405/404」的错位根源（内测 405 案）。
-    if api_format == "openai" and vendor_id != "ollama":
-        probe_model = _probe_model(models, vendor_id, preferred_model)
-        if not probe_model:
-            # 无任何可用模型 id：仅凭可达性/鉴权不算通（2026-10-05 拍板）
-            return {
-                "ok": False,
-                "status": "unknown",
-                "models": None,
-                "error": "模型列表为空且无候选模型 id——请填写模型名称后重新测试",
-            }
-        ping = await _probe_chat_path(client, base_url, headers, probe_model)
-        if ping is not None:
-            return ping
-    return {"ok": True, "status": "ok", "models": models, "error": None}
 
 
 # ── Protocol-based probe builder ────────────────────────────────────────────
@@ -276,12 +232,7 @@ def _build_probe(
         fallback = (
             f"{base}/v1/messages",
             dict(headers),
-            {
-                "model": _ANTHROPIC_PROBE_MODEL,
-                "max_tokens": _PROBE_MAX_TOKENS,
-                "messages": [{"role": "user", "content": _PROBE_PROMPT}],
-                "thinking": dict(_THINKING_DISABLED),
-            },
+            _generation_payload(_ANTHROPIC_PROBE_MODEL),
         )
         return f"{base}/v1/models", headers, _extract_openai_models, fallback
 
@@ -332,22 +283,30 @@ def _probe_model(
     return candidates[0] if candidates else ""
 
 
-async def _probe_chat_path(
-    client: httpx.AsyncClient, base_url: str, headers: dict[str, str], model: str
-) -> dict[str, Any] | None:
-    """openai 格式最小生成探针（2026-10-05 拍板）：POST {base}/chat/completions，
-    消息「你好」＋禁思考＋短输出预算——收到格式正确且含可见回复文本的回复才算通。
-
-    返回 None = 通过；非 2xx、体不符格式、空回复一律判失败（400/422 类业务性拒绝
-    不再放行——点名所试模型 id），失败形态 dict = 直接作为连接测试结果返回。
-    """
-    url = f"{base_url.rstrip('/')}/chat/completions"
-    payload = {
+def _generation_payload(model: str) -> dict[str, Any]:
+    """「你好」最小生成探针请求体（双格式同形）：禁思考＋短输出预算。"""
+    return {
         "model": model,
         "messages": [{"role": "user", "content": _PROBE_PROMPT}],
         "max_tokens": _PROBE_MAX_TOKENS,
         "thinking": dict(_THINKING_DISABLED),
     }
+
+
+async def _probe_generation(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    reply_fn: Any,
+) -> dict[str, Any] | None:
+    """最小生成探针（2026-10-05 拍板）：发一条「你好」，收到格式正确且含可见回复文本
+    的回复才算通（reply_fn 按对应契约提取回复文本）。
+
+    返回 None = 通过；非 2xx、体不符格式、空回复一律判失败（400/422 类业务性拒绝
+    不再放行——点名所试模型 id），失败形态 dict = 直接作为连接测试结果返回。
+    """
+    model = payload.get("model", "")
     try:
         resp = await _post_with_thinking_retry(client, url, headers, payload)
     except httpx.TimeoutException:
@@ -378,7 +337,7 @@ async def _probe_chat_path(
             "status": "endpoint_mismatch",
             "models": None,
             "error": (
-                f"对话接口不可用（HTTP {resp.status_code} @ {url}）——请核对 Base URL "
+                f"对话接口不可达（HTTP {resp.status_code} @ {url}）——请核对 Base URL "
                 "与接口格式是否和厂商文档一致（常见：地址少了 /v1，或填成了网站地址）"
             ),
         }
@@ -416,14 +375,14 @@ async def _probe_chat_path(
             "models": None,
             "error": not_api,
         }
-    if not _openai_reply_text(resp):
+    if not reply_fn(resp):
         return {
             "ok": False,
             "status": "unknown",
             "models": None,
             "error": (
                 f"模型回复格式不正确或回复为空（@ {url}）——所试模型 {model}，"
-                "请核对模型 id 与接口格式（openai 契约应返回 choices[0].message）"
+                "请核对模型 id 与接口格式"
             ),
         }
     return None

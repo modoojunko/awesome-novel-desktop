@@ -360,14 +360,21 @@ def fake_http(monkeypatch):
 
 class TestConnectionFlow:
     def test_models_200_no_fallback(self, fake_http):
-        fake_http.script = [("GET", 200)]
+        """anthropic 列表可用：不走降级（无 note/candidates），但仍发「你好」探针（判据双格式统一）。"""
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "claude-x"}]}),
+            ("POST", 200, {"content": [{"type": "text", "text": "你好！"}]}),
+        ]
         out = _run_async(
             do_test_connection(
                 "glm", "sk", "https://open.bigmodel.cn/api/anthropic", "anthropic"
             )
         )
-        assert out["ok"] is True and out["models"] == []
-        assert [c[0] for c in fake_http.calls] == ["GET"]
+        assert out["ok"] is True and out["models"] == ["claude-x"]
+        assert "note" not in out and "candidates" not in out
+        assert [c[0] for c in fake_http.calls] == ["GET", "POST"]
+        assert fake_http.calls[1][1].endswith("/v1/messages")
+        assert fake_http.calls[1][3]["model"] == "claude-x"  # 列表首个作探针 id
 
     def test_models_404_falls_back_to_messages(self, fake_http):
         fake_http.script = [
@@ -599,6 +606,36 @@ class TestConnectionFlow:
             do_test_connection("openai-compat", "sk", "https://api.example.com", "openai")
         )
         assert out["ok"] is False and out["status"] == "rate_limited"
+
+    def test_probe_within_real_client_lifecycle(self, monkeypatch):
+        """P0 回归钉：探针必须在 client 关闭前发出——真 httpx 生命周期（fake 不模拟关闭语义）。
+
+        修前：探针在 async with 之外调用，已关闭的 client 抛 RuntimeError 炸掉
+        openai 成功路径；fake client 无关闭语义，测不出也拦不住。
+        """
+        import httpx as _httpx
+
+        real_client = _httpx.AsyncClient
+        seen: list[str] = []
+
+        def handler(request: _httpx.Request) -> _httpx.Response:
+            seen.append(str(request.url))
+            if request.url.path.endswith("/models"):
+                return _httpx.Response(200, json={"data": [{"id": "m-1"}]})
+            return _httpx.Response(
+                200, json={"choices": [{"message": {"content": "你好！"}}]}
+            )
+
+        monkeypatch.setattr(
+            conn_mod.httpx,
+            "AsyncClient",
+            lambda **kw: real_client(transport=_httpx.MockTransport(handler), **kw),
+        )
+        out = _run_async(
+            do_test_connection("deepseek", "sk", "https://api.deepseek.com", "openai")
+        )
+        assert out["ok"] is True and out["models"] == ["m-1"]
+        assert any(u.endswith("/chat/completions") for u in seen)
 
     def test_anthropic_fallback_405_fails(self, fake_http):
         """anthropic 降级探针 404/405 = 对话接口不可达 → 判败（旧实现误报「连接正常」）。"""

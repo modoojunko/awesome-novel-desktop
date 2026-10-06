@@ -31,3 +31,10 @@
   - 证据：全量 **1819 passed / 0 failed**
 - [x] 5.4 无可用模型 id 分支（评审揪出）：openai 格式模型列表为空且无候选时由「跳过对话探针报通」改为判失败并提示填写模型名＋用例
   - 证据：`test_no_model_id_fails_with_prompt` 绿（断言错误含「模型名称」且无 POST 发出）
+
+## 6. 评审整改（PR #689 review-agent 三发现）
+
+- [x] 6.1 **P0**：探针在 `async with` 之外发起（client 已关闭→RuntimeError 炸掉 openai 成功路径）——判定与探针整体收进 client 存活期；补真 httpx 生命周期回归钉（`test_probe_within_real_client_lifecycle`，MockTransport 无 fake 关闭盲区）
+- [x] 6.2 **P3**：anthropic 列表可用时零探针与判据文本不一致——实现补齐 `POST {base}/v1/messages`「你好」探针（`_probe_generation` 双格式共用），spec 补「anthropic 格式对话探针」场景
+- [x] 6.3 **P3**：文件头「max_tokens=1 最小请求验证鉴权」过时段落更正
+  - 证据：探针组 47/47 绿；全量 pytest 复跑见 PR
