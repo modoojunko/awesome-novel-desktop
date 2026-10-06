@@ -13,6 +13,17 @@
 7. 运行目录换名 AI Novel → AwesomeNovel：macOS 上该目录即书稿数据目录，迁移必须
    原子换名＋旧路径留软链（装回旧版仍能找到书），失败退回旧目录绝不丢数据。
 
+第二轮现场（2026-10-06 测试机 startup.log：后端就绪、导航已发出，60 秒内
+WebView2 连 NavigationCompleted 都没发生）补的契约（shell-render-resilience）：
+
+8. 调参文件 <appdata>/shell.json（webview_args / backend_timeout / app_load_timeout /
+   safe_mode）：缺省＝行为不变；非法值回落默认且永不把启动打崩；
+9. 装载挂死 → 落 render-hang.flag → 下次启动固定走安全模式（--disable-gpu，
+   经 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 追加注入）＋Windows 安装版自愈重启
+   （仅非安全模式一轮，防死循环）；
+10. 判据落盘：WebView2 版本、生效参数、pywebview 调试日志旁路、后端 access 日志
+    （用来分辨「渲染进程的请求到没到后端」）。
+
 pywebview_app.py 带模块级 `import webview`（GUI 框架在 Linux CI 上不可导入），
 故经 stub 加载源码模块，只测启动链的纯逻辑分支。
 """
@@ -20,6 +31,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import time
 import types
@@ -310,3 +322,211 @@ def test_get_appdata_windows_uses_new_name_without_migration(shell, tmp_path, mo
     assert shell.get_appdata() == tmp_path / shell.APP_DIR_NAME
     assert not (tmp_path / shell.APP_DIR_NAME).exists()
     assert (legacy / "data" / "novel.db").exists()
+
+
+# ── 8. 调参文件 shell.json ────────────────────────────────────────────────
+
+
+def test_shell_config_missing_means_defaults(shell, tmp_path):
+    assert shell.load_shell_config(tmp_path) == {}
+
+
+def test_shell_config_reads_valid_values(shell, tmp_path):
+    (tmp_path / shell.SHELL_CONFIG_NAME).write_text(
+        json.dumps({
+            "webview_args": "--disable-gpu",
+            "backend_timeout": 120,
+            "app_load_timeout": 90,
+            "safe_mode": True,
+        }),
+        encoding="utf-8",
+    )
+
+    cfg = shell.load_shell_config(tmp_path)
+
+    assert cfg == {
+        "webview_args": "--disable-gpu",
+        "backend_timeout": 120,
+        "app_load_timeout": 90,
+        "safe_mode": True,
+    }
+
+
+def test_shell_config_bad_json_never_crashes(shell, tmp_path):
+    (tmp_path / shell.SHELL_CONFIG_NAME).write_text("{not json", encoding="utf-8")
+
+    assert shell.load_shell_config(tmp_path) == {}
+    assert "shell.json 读取失败" in _log_text(tmp_path)
+
+
+def test_shell_config_non_object_ignored(shell, tmp_path):
+    (tmp_path / shell.SHELL_CONFIG_NAME).write_text("[1, 2]", encoding="utf-8")
+
+    assert shell.load_shell_config(tmp_path) == {}
+    assert "shell.json 不是对象" in _log_text(tmp_path)
+
+
+def test_shell_config_clamps_and_rejects_bad_types(shell, tmp_path):
+    (tmp_path / shell.SHELL_CONFIG_NAME).write_text(
+        json.dumps({
+            "backend_timeout": 99999,
+            "app_load_timeout": 1,
+            "webview_args": "  --disable-gpu --use-angle=swiftshader  ",
+            "safe_mode": "yes",
+        }),
+        encoding="utf-8",
+    )
+
+    cfg = shell.load_shell_config(tmp_path)
+
+    assert cfg["backend_timeout"] == 600, "超时上限 600 秒"
+    assert cfg["app_load_timeout"] == 5, "超时下限 5 秒"
+    assert cfg["webview_args"] == "--disable-gpu --use-angle=swiftshader"
+    assert "safe_mode" not in cfg, "非布尔 safe_mode 必须忽略（回落标记自动判定）"
+
+
+def test_config_timeouts_flow_into_wait_and_watchdog(shell, tmp_path, monkeypatch):
+    (tmp_path / shell.SHELL_CONFIG_NAME).write_text(
+        json.dumps({"backend_timeout": 120, "app_load_timeout": 7}), encoding="utf-8"
+    )
+    seen: dict = {}
+
+    def _wait(appdata, timeout=60):
+        seen["backend"] = timeout
+        return 18127
+
+    monkeypatch.setattr(shell, "wait_for_server", _wait)
+    monkeypatch.setattr(shell, "should_auto_relaunch", lambda *a, **k: False)
+    monkeypatch.setattr("webbrowser.open", lambda url: True)
+
+    shell.check_backend_and_navigate(_FakeWindow(loaded=False), tmp_path)
+
+    assert seen["backend"] == 120, "后端超时必须吃 shell.json"
+    assert "app page NOT loaded in 7s" in _log_text(tmp_path), "装载看门狗必须吃 shell.json"
+
+
+# ── 9. 安全模式：标记、判定、参数注入 ─────────────────────────────────────
+
+
+def test_webview_args_combine_config_and_safe_mode(shell):
+    assert shell.webview_browser_args({}, False) == ""
+    assert shell.webview_browser_args({"webview_args": "--foo"}, True) == "--foo --disable-gpu"
+    assert shell.webview_browser_args({"webview_args": "--foo"}, False) == "--foo"
+    assert shell.webview_browser_args({}, True) == "--disable-gpu"
+
+
+def test_apply_webview_args_appends_never_clobbers(shell, monkeypatch):
+    monkeypatch.setenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--disable-features=ElasticOverscroll")
+
+    shell.apply_webview_args("--disable-gpu")
+
+    assert (
+        os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"]
+        == "--disable-features=ElasticOverscroll --disable-gpu"
+    ), "WebView2 该环境变量是追加语义——绝不许覆盖用户/框架已设的值"
+
+    shell.apply_webview_args("")
+    assert os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"].endswith("--disable-gpu")
+
+
+def test_safe_mode_follows_flag_and_config(shell, tmp_path):
+    assert shell.safe_mode_enabled(tmp_path, {}) is False, "无标记无配置＝默认渲染模式"
+
+    shell.flag_render_hang(tmp_path, "app page NOT loaded")
+    assert shell.render_hang_flagged(tmp_path) is True
+    assert shell.safe_mode_enabled(tmp_path, {}) is True, "挂死标记＝安全模式"
+
+    assert shell.safe_mode_enabled(tmp_path, {"safe_mode": False}) is False, "shell.json 可强制退出安全模式"
+    assert shell.safe_mode_enabled(tmp_path, {"safe_mode": True}) is True
+
+
+def test_should_auto_relaunch_guards(shell):
+    assert shell.should_auto_relaunch(False, True, "win32") is True
+    assert shell.should_auto_relaunch(True, True, "win32") is False, "已在安全模式＝防死循环不重启"
+    assert shell.should_auto_relaunch(False, False, "win32") is False, "dev（非冻结）不重启"
+    assert shell.should_auto_relaunch(False, True, "darwin") is False
+
+
+def test_webview2_version_never_raises(shell, monkeypatch):
+    monkeypatch.setattr(shell.sys, "platform", "darwin")
+    assert shell.webview2_version() is None
+
+    monkeypatch.setattr(shell.sys, "platform", "win32")
+    # 非 Windows 环境没有 winreg：必须静默回落 None，绝不把启动打崩
+    assert shell.webview2_version() is None
+
+
+def test_watchdog_success_keeps_safe_mode_until_manual_exit(shell, tmp_path, monkeypatch):
+    """安全模式一旦生效就保持（同机同运行时默认渲染路径已被证明会挂）。"""
+    shell.flag_render_hang(tmp_path, "previous run hung")
+    monkeypatch.setattr(shell, "wait_for_server", lambda appdata, timeout=60: 18128)
+
+    shell.check_backend_and_navigate(_FakeWindow(loaded=True), tmp_path)
+
+    text = _log_text(tmp_path)
+    assert "app page loaded" in text
+    assert "safe mode 生效" in text
+    assert (tmp_path / shell.RENDER_HANG_MARKER).exists(), "成功一次不代表默认模式已修好——标记保留"
+
+
+# ── 10. 装载挂死：落标记 → 自愈重启（Windows 安装版）／浏览器兜底 ────────────
+
+
+def test_watchdog_hang_flags_marker_and_relaunches_when_allowed(shell, tmp_path, monkeypatch):
+    monkeypatch.setattr(shell, "wait_for_server", lambda appdata, timeout=60: 18126)
+    monkeypatch.setattr(shell, "_app_load_timeout", lambda: 1)
+    monkeypatch.setattr(shell, "should_auto_relaunch", lambda *a, **k: True)
+    relaunched: list = []
+    exited: list = []
+    opened: list = []
+    monkeypatch.setattr(shell, "relaunch_in_safe_mode", lambda ad: relaunched.append(ad) or True)
+    monkeypatch.setattr(shell, "_exit_soon", lambda delay=1.5: exited.append(delay))
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+    window = _FakeWindow(loaded=False)
+
+    shell.check_backend_and_navigate(window, tmp_path)
+
+    text = _log_text(tmp_path)
+    assert "app page NOT loaded" in text
+    assert (tmp_path / shell.RENDER_HANG_MARKER).exists(), "挂死必须落标记（新实例据此进安全模式）"
+    assert relaunched == [tmp_path]
+    assert exited, "窗口已挂死，必须走强制退出（正常退出路径走不了）"
+    assert opened == [], "自愈重启路径不再叠开浏览器"
+    assert all(not u.endswith("error.html") for u in window.urls)
+
+
+def test_relaunch_child_gets_preexisting_env_only(shell, tmp_path, monkeypatch):
+    """孩子进程不许继承父进程叠加后的参数（否则二次叠加，还会盖掉用户原值）。"""
+    monkeypatch.setenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--user-flag")
+    shell.apply_webview_args("--disable-gpu")
+    assert os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] == "--user-flag --disable-gpu"
+    captured: dict = {}
+
+    class _Popen:
+        def __init__(self, argv, **kwargs):
+            captured["argv"] = argv
+            captured.update(kwargs)
+
+    monkeypatch.setattr("subprocess.Popen", _Popen)
+
+    assert shell.relaunch_in_safe_mode(tmp_path) is True
+    assert captured["argv"] == [sys.executable]
+    assert captured["env"]["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] == "--user-flag"
+
+
+def test_watchdog_hang_falls_back_when_relaunch_disallowed(shell, tmp_path, monkeypatch):
+    """已在安全模式/非 Windows/非冻结：不重启，落标记＋浏览器兜底＋错误页。"""
+    monkeypatch.setattr(shell, "wait_for_server", lambda appdata, timeout=60: 18125)
+    monkeypatch.setattr(shell, "_app_load_timeout", lambda: 1)
+    monkeypatch.setattr(shell, "should_auto_relaunch", lambda *a, **k: False)
+    opened: list = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+    window = _FakeWindow(loaded=False)
+
+    shell.check_backend_and_navigate(window, tmp_path)
+
+    text = _log_text(tmp_path)
+    assert "app page NOT loaded" in text
+    assert (tmp_path / shell.RENDER_HANG_MARKER).exists()
+    assert opened == ["http://127.0.0.1:18125"]
+    assert window.urls[-1].endswith("error.html")

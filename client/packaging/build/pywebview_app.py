@@ -26,6 +26,13 @@ def get_base_dir() -> Path:
 APP_DIR_NAME = "AwesomeNovel"
 LEGACY_APP_DIR_NAME = "AI Novel"
 
+# 运行时可调参数与「装载挂死自愈」（shell-render-resilience）
+SHELL_CONFIG_NAME = "shell.json"          # <appdata>/shell.json，可选的人工调参文件
+RENDER_HANG_MARKER = "render-hang.flag"   # 存在＝上次装载挂死过 → 从此固定走安全模式
+SAFE_MODE_ARGS = "--disable-gpu"          # 安全模式追加的 WebView2 参数（VM/无 GPU 渲染挂死常见解）
+DEFAULT_BACKEND_TIMEOUT = 60              # 后端就绪等待（秒）
+DEFAULT_APP_LOAD_TIMEOUT = 60             # 应用页装载看门狗（秒）
+
 
 def _appdata_base() -> Path:
     if sys.platform == "darwin":
@@ -144,17 +151,216 @@ def log_line(appdata: Path, message: str) -> None:
             continue
 
 
+# ── 可调参数（shell.json）与「装载挂死自愈」（shell-render-resilience）──────
+# 现场（2026-10-06 测试机 startup.log）：窗口活着、后端就绪、导航已发出，但 60 秒内
+# WebView2 连 NavigationCompleted 都没发生（pywebview 的 loaded 事件不判导航成败——
+# 连接被拒也会置位；超时＝整条 WebView2 链没走完）。根因待现场确认，本段给三条腿：
+# ①参数可调（不改包就能试 flag／放宽超时）②挂死后自动进安全模式并自愈重启
+# ③判据写进日志（WebView2 版本、pywebview 调试链、后端访问日志）。
+
+
+def _clamp_timeout(value, default: int) -> int:
+    """超时参数收敛到 5..600 秒；非法值回落默认——配置文件永远不能把启动打崩。"""
+    try:
+        return min(600, max(5, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def load_shell_config(appdata: Path) -> dict:
+    r"""读 <appdata>/shell.json（可选；不存在＝全默认）。
+
+    支持键（都可缺省，非法值回落默认并留日志）：
+      webview_args      str   追加给 WebView2 的浏览器参数
+      backend_timeout   int   后端就绪等待秒数（5..600，默认 60）
+      app_load_timeout  int   应用页装载看门狗秒数（5..600，默认 60）
+      safe_mode         bool  强制开/关安全模式（缺省＝按 render-hang.flag 自动判定）
+    """
+    cfg: dict = {}
+    try:
+        raw = json.loads((appdata / SHELL_CONFIG_NAME).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return cfg
+    except Exception:
+        log_line(appdata, "shell.json 读取失败，按默认参数继续：\n" + traceback.format_exc())
+        return cfg
+    if not isinstance(raw, dict):
+        log_line(appdata, f"shell.json 不是对象（{type(raw).__name__}），忽略")
+        return cfg
+    if isinstance(raw.get("webview_args"), str) and raw["webview_args"].strip():
+        cfg["webview_args"] = raw["webview_args"].strip()
+    if "backend_timeout" in raw:
+        cfg["backend_timeout"] = _clamp_timeout(raw["backend_timeout"], DEFAULT_BACKEND_TIMEOUT)
+    if "app_load_timeout" in raw:
+        cfg["app_load_timeout"] = _clamp_timeout(raw["app_load_timeout"], DEFAULT_APP_LOAD_TIMEOUT)
+    if isinstance(raw.get("safe_mode"), bool):
+        cfg["safe_mode"] = raw["safe_mode"]
+    return cfg
+
+
+def render_hang_flagged(appdata: Path) -> bool:
+    """上次运行把「应用页装载挂死」写进了 render-hang.flag。
+
+    一旦置位就固定走安全模式（同一台机器/同一个 WebView2 运行时上，默认渲染路径
+    已被证明会挂）——比每天赌一次强。回正常模式的出口：删掉该文件，或 shell.json
+    写 "safe_mode": false。"""
+    try:
+        return (appdata / RENDER_HANG_MARKER).exists()
+    except Exception:
+        return False
+
+
+def flag_render_hang(appdata: Path, note: str) -> None:
+    """落「装载挂死」标记（写失败只留日志——兜底路径本身不能成为新炸点）。"""
+    try:
+        (appdata / RENDER_HANG_MARKER).write_text(
+            f"{time.strftime('%Y-%m-%d %H:%M:%S')} {note}\n", encoding="utf-8"
+        )
+    except Exception:
+        log_line(appdata, "写 render-hang.flag 失败：\n" + traceback.format_exc())
+
+
+def safe_mode_enabled(appdata: Path, cfg: dict) -> bool:
+    """安全模式判定：shell.json 显式值 > render-hang.flag 标记。"""
+    if "safe_mode" in cfg:
+        return bool(cfg["safe_mode"])
+    return render_hang_flagged(appdata)
+
+
+def webview_browser_args(cfg: dict, safe_mode: bool) -> str:
+    """拼 WebView2 浏览器参数：配置里的 webview_args ＋（安全模式）--disable-gpu。"""
+    parts = []
+    if cfg.get("webview_args"):
+        parts.append(cfg["webview_args"])
+    if safe_mode:
+        parts.append(SAFE_MODE_ARGS)
+    return " ".join(parts)
+
+
+# 叠加前的 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 原值（首次 apply_webview_args 时记下；
+# 自愈重启据此把孩子进程的环境还原成"用户原始态"）
+_webview_args_original = None
+
+
+def apply_webview_args(args: str) -> None:
+    """把参数并进 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS（必须在 create_window 之前调）。
+
+    WebView2 对该环境变量是**追加**语义（官方文档：环境变量值 append 到
+    CreateCoreWebView2EnvironmentWithOptions 的参数上），所以既不覆盖用户已有值，
+    也不与 pywebview 自塞的 --disable-features=ElasticOverscroll 冲突。"""
+    global _webview_args_original
+    if _webview_args_original is None:
+        # 记下叠加前的原值：自愈重启要把它原样交给孩子进程，否则孩子会二次叠加
+        _webview_args_original = os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "")
+    if not args:
+        return
+    existing = os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "").strip()
+    os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = f"{existing} {args}".strip()
+
+
+def webview2_version():
+    """WebView2 Runtime 版本（读注册表；非 Windows/读不到返回 None，永不抛）。"""
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg
+    except Exception:
+        return None
+    for hive, sub in (
+        (winreg.HKEY_LOCAL_MACHINE,
+         r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients"
+         r"\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"),
+        (winreg.HKEY_LOCAL_MACHINE,
+         r"SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"),
+        (winreg.HKEY_CURRENT_USER,
+         r"SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"),
+    ):
+        try:
+            with winreg.OpenKey(hive, sub) as key:
+                return winreg.QueryValueEx(key, "pv")[0]
+        except Exception:
+            continue
+    return None
+
+
+def attach_pywebview_log(appdata: Path) -> None:
+    """把 pywebview 自己的调试日志旁路到 <appdata>/pywebview.log。
+
+    GUI 模式下 stderr 是 devnull——缺这一步，pywebview 的 Loading URL /
+    loaded event fired 这些关键判据就是黑洞。"""
+    try:
+        import logging
+        from logging.handlers import RotatingFileHandler
+
+        logger = logging.getLogger("pywebview")
+        if any(getattr(h, "_ai_novel_file", False) for h in logger.handlers):
+            return
+        handler = RotatingFileHandler(
+            appdata / "pywebview.log", maxBytes=2_000_000, backupCount=2, encoding="utf-8"
+        )
+        handler._ai_novel_file = True
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
+    except Exception:
+        log_line(appdata, "挂 pywebview 文件日志失败：\n" + traceback.format_exc())
+
+
+def should_auto_relaunch(safe_mode: bool, frozen: bool, platform: str) -> bool:
+    """装载挂死后的自愈重启：仅 Windows 安装版、且本次不是安全模式（防无限重启）。
+
+    重启后新实例读 render-hang.flag 进安全模式；安全模式若再挂就只剩错误页——
+    这链条最多转一轮。"""
+    return platform == "win32" and frozen and not safe_mode
+
+
+def relaunch_in_safe_mode(appdata: Path) -> bool:
+    """拉起新实例（下一轮启动即安全模式）；失败返回 False 走常规兜底。"""
+    try:
+        import subprocess
+
+        # 孩子进程拿**叠加前**的环境：新实例自己会按 shell.json＋标记重算参数，
+        # 直接继承父进程的叠加值会重复（也避免把用户原值盖成父进程的合成值）。
+        env = dict(os.environ)
+        if _webview_args_original is None:
+            env.pop("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", None)
+        else:
+            env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = _webview_args_original
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) if sys.platform == "win32" else 0
+        subprocess.Popen([sys.executable], close_fds=True, creationflags=flags, env=env)
+        log_line(appdata, f"auto relaunch: 已拉起新实例（{sys.executable}），本轮让位进安全模式")
+        return True
+    except Exception:
+        log_line(appdata, "auto relaunch 失败：\n" + traceback.format_exc())
+        return False
+
+
+def _exit_soon(delay: float = 1.5) -> None:
+    """窗口已挂死，走不了正常退出路径——延时强制退出（log_line 逐行落盘，已 flush）。"""
+    threading.Timer(delay, lambda: os._exit(0)).start()
+
+
 # 后端线程存活信号：start_server 一退出（含启动期异常）即置位——
 # 健康轮询据此提前判负，不再干等满 60 秒。
 _server_exited = threading.Event()
 
 
 def _app_load_timeout() -> int:
-    """应用页装载看门狗时长（秒），env 可调；非法值回落 60。"""
+    """应用页装载看门狗时长（秒），env 可调；非法值回落 60。
+
+    优先级：shell.json（见 load_shell_config）> 本 env > 默认。"""
     try:
-        return max(5, int(os.environ.get("AI_NOVEL_APP_LOAD_TIMEOUT", "60")))
+        return max(5, int(os.environ.get("AI_NOVEL_APP_LOAD_TIMEOUT", str(DEFAULT_APP_LOAD_TIMEOUT))))
     except Exception:
-        return 60
+        return DEFAULT_APP_LOAD_TIMEOUT
+
+
+def _backend_timeout() -> int:
+    """后端就绪等待时长（秒），env 可调；非法值回落 60。优先级同 _app_load_timeout。"""
+    try:
+        return max(5, int(os.environ.get("AI_NOVEL_BACKEND_TIMEOUT", str(DEFAULT_BACKEND_TIMEOUT))))
+    except Exception:
+        return DEFAULT_BACKEND_TIMEOUT
 
 
 def start_server():
@@ -265,6 +471,10 @@ def start_server():
         log_line(appdata, f"starting uvicorn on port {port}")
         # GUI 模式下 sys.stdout 为 None，uvicorn 的日志格式化会崩溃
         # 方案: 将日志输出重定向到文件
+        # 级别 INFO（shell-render-resilience 起）：WARNING 会把 lifespan 进度
+        # （db_lifecycle / seeding / Application startup complete）全吞掉——
+        # 「后端就绪超时」类现场就只剩一个空文件。access 日志是判据：渲染进程
+        # 的请求到底有没有走到后端（没走到＝卡在 WebView2/网络栈侧）。
         log_config = {
             "version": 1,
             "disable_existing_loggers": False,
@@ -278,14 +488,18 @@ def start_server():
             "handlers": {
                 "default": {
                     "formatter": "default",
-                    "class": "logging.FileHandler",
+                    "class": "logging.handlers.RotatingFileHandler",
                     "filename": str(appdata / "uvicorn.log"),
                     "mode": "a",
+                    "maxBytes": 2_000_000,
+                    "backupCount": 2,
+                    "encoding": "utf-8",
                 },
             },
             "loggers": {
-                "uvicorn": {"handlers": ["default"], "level": "WARNING", "propagate": False},
-                "uvicorn.error": {"handlers": ["default"], "level": "WARNING", "propagate": False},
+                "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+                "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+                "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
             },
         }
         uvicorn.run(
@@ -396,6 +610,10 @@ def write_error_page(appdata: Path, reason: str) -> Path:
         "background:#1a1a2e;color:#e0e0e0'><h2>" + html.escape(window_title())
         + " 启动失败</h2><p>" + html.escape(reason) + "</p>"
         "<p style='color:#9bb'>日志目录：" + html.escape(str(appdata)) + "</p>"
+        "<p style='color:#9bb'>可调参数：" + html.escape(str(appdata / SHELL_CONFIG_NAME))
+        + "（webview_args / backend_timeout / app_load_timeout）；"
+        "装载挂死后下次启动自动进安全模式（删掉 "
+        + html.escape(RENDER_HANG_MARKER) + " 可回默认渲染模式）。</p>"
         + "".join(blocks) + "</body></html>",
         encoding="utf-8",
     )
@@ -431,9 +649,12 @@ def check_backend_and_navigate(window, appdata):
     WebViewException），线程静默死亡＝永久停在启动页且零日志——现场报告
     「长期卡在启动页」的最可疑形态。"""
     try:
-        port = wait_for_server(appdata, timeout=60)
+        cfg = load_shell_config(appdata)
+        safe_mode = safe_mode_enabled(appdata, cfg)
+        backend_timeout = cfg.get("backend_timeout") or _backend_timeout()
+        port = wait_for_server(appdata, timeout=backend_timeout)
         if not port:
-            log_line(appdata, "backend NOT ready (timeout / server thread exited)")
+            log_line(appdata, f"backend NOT ready (timeout {backend_timeout}s / server thread exited)")
             _show_error(window, appdata, "后端启动超时或启动失败，请检查下面的日志：")
             return
 
@@ -443,12 +664,21 @@ def check_backend_and_navigate(window, appdata):
 
         # 装载看门狗：跳转已发出但应用页始终不装载（WebView 渲染进程挂死/窗口
         # 消息循环被卡）＝「长期停在启动页」的另一种形态。此时 UI 线程大概率
-        # 已不响应、错误页也装不进去——所以先落日志、先开浏览器兜底。
-        timeout = _app_load_timeout()
-        if window.events.loaded.wait(timeout):
+        # 已不响应、错误页也装不进去——所以先落日志、先打标记再谈兜底。
+        load_timeout = cfg.get("app_load_timeout") or _app_load_timeout()
+        if window.events.loaded.wait(load_timeout):
             log_line(appdata, "app page loaded")
+            if safe_mode:
+                log_line(appdata, "safe mode 生效（保留 render-hang.flag，后续启动仍走安全模式）")
             return
-        log_line(appdata, f"app page NOT loaded in {timeout}s — UI/renderer hang suspected")
+        log_line(appdata, f"app page NOT loaded in {load_timeout}s — UI/renderer hang suspected")
+        flag_render_hang(appdata, f"app page NOT loaded in {load_timeout}s")
+        # 自愈重启：本次不是安全模式才重启（新实例读标记进安全模式），避免死循环
+        if should_auto_relaunch(
+            safe_mode, bool(getattr(sys, "frozen", False)), sys.platform
+        ) and relaunch_in_safe_mode(appdata):
+            _exit_soon()
+            return
         _open_in_browser_fallback(appdata, port)
         _show_error(window, appdata,
                     "界面加载超时（桌面窗口可能未响应），已尝试用浏览器打开。请把日志发给开发者：")
@@ -554,6 +784,21 @@ def main():
 
     log_line(appdata, "shell main() entered: exe=%s frozen=%s data_dir=%s"
              % (sys.executable, getattr(sys, "frozen", False), get_install_dir()))
+
+    # 调参文件与安全模式（shell-render-resilience）：必须在 create_window 之前——
+    # WebView2 环境每次进程只建一次，事后再设参数无效。
+    cfg = load_shell_config(appdata)
+    safe_mode = safe_mode_enabled(appdata, cfg)
+    args = webview_browser_args(cfg, safe_mode)
+    apply_webview_args(args)
+    attach_pywebview_log(appdata)
+    if (appdata / SHELL_CONFIG_NAME).exists():
+        log_line(appdata, f"shell.json 生效：{cfg}")
+    log_line(appdata, "webview: safe_mode=%s args=%r webview2=%s"
+             % (safe_mode, args, webview2_version() or "unknown"))
+    if safe_mode:
+        log_line(appdata,
+                 f"safe mode 说明：删除 {appdata / RENDER_HANG_MARKER} 可回到默认渲染模式")
 
     # 清陈旧端口文件：port.json 只应来自本次运行。旧值残留时（上一实例未退干净/
     # 上次启动崩在半途）健康轮询会连上前一个进程并据此跳转，多开场景直接卡启动页。
