@@ -27,9 +27,9 @@
 
 ## 5. 删模板与工具收尾（D5）
 
-- [ ] 5.1 `git rm` 58 个 `.prompt`；门禁允许清单清零；清扫残留引用——范围＝源码/脚本/文档（tests、docs、README/CLAUDE）；历史 change 文档（`openspec/changes/**` 与 archive）不改，仅当活动 change 的指引面向未来操作时才更新。验证＝4.4 门禁绿＋主库 pytest 全绿＋`git grep` 无生产代码引用模板文件
-- [ ] 5.2 sync.py 保留 renderer 角色：去「上游锚／`--check`／拉主库」方向；注释头由 CURATED 幂等重渲染（正文不动，避免元数据与注释双份漂移）；对拍并入 lint；manifest/README 继续生成（`source` 段改记本仓 commit）。验证＝连跑两次生成零 diff（幂等）；改 CURATED 可刷新注释头；lint 跑通
-- [ ] 5.3 提示词仓 README/手册更新（唯一编辑源、发布流程、闸门、sibling 约定）。验证＝README 与实操一致（人工走查结论）
+- [x] 5.1 `git rm` 58 个 `.prompt`；门禁允许清单清零；清扫残留引用——范围＝源码/脚本/文档（tests、docs、README/CLAUDE）；历史 change 文档（`openspec/changes/**` 与 archive）不改，仅当活动 change 的指引面向未来操作时才更新。验证＝4.4 门禁绿＋主库 pytest 全绿＋`git grep` 无生产代码引用模板文件
+- [x] 5.2 sync.py 保留 renderer 角色：去「上游锚／`--check`／拉主库」方向；注释头由 CURATED 幂等重渲染（正文不动，避免元数据与注释双份漂移）；对拍并入 lint；manifest/README 继续生成（`source` 段改记本仓 commit）。验证＝连跑两次生成零 diff（幂等）；改 CURATED 可刷新注释头；lint 跑通
+- [x] 5.3 提示词仓 README/手册更新（唯一编辑源、发布流程、闸门、sibling 约定）。验证＝README 与实操一致（人工走查结论）
 
 ## 6. 回归与门禁
 
