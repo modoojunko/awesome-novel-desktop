@@ -47,13 +47,19 @@ def _backend_dir() -> str:
 
 
 def _sources() -> list[tuple[str, str]]:
+    """(模块名, **相对 backend 的**源路径)。
+
+    为什么必须相对：Windows 上若把绝对源路径交给 cythonize，生成物路径会在
+    `build_dir` 下按绝对路径镜像（`a\awesome-novel-desktop\...`），盘符一被剥掉
+    `/Fo` 就指向不存在的目录，cl 直接 C1083（2026-10-06 CI 实锤）。
+    """
     backend = _backend_dir()
     out = []
     for mod in NATIVE_MODULES:
-        src = os.path.join(backend, *mod.split(".")) + ".py"
-        if not os.path.isfile(src):
-            raise SystemExit(f"找不到待编译模块：{src}")
-        out.append((mod, src))
+        rel = os.path.join(*mod.split(".")) + ".py"
+        if not os.path.isfile(os.path.join(backend, rel)):
+            raise SystemExit(f"找不到待编译模块：{os.path.join(backend, rel)}")
+        out.append((mod, rel))
     return out
 
 
@@ -67,25 +73,24 @@ def compile_inplace() -> list[str]:
     from setuptools.dist import Distribution
 
     backend = _backend_dir()
-    build_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_native")
-    os.makedirs(build_dir, exist_ok=True)
-    exts = cythonize(
-        [Extension(name, [src]) for name, src in _sources()],
-        language_level=3,
-        build_dir=build_dir,
-        quiet=True,
-    )
-    dist = Distribution({"ext_modules": exts})
-    cmd = dist.get_command_obj("build_ext")
-    cmd.inplace = True  # 产出与 .py 并存（导入时扩展优先，dev 无扩展则退回 .py）
-    cmd.build_lib = backend
-    cmd.build_temp = build_dir
-    cmd.ensure_finalized()
-    # build_ext 的 inplace 目标路径是相对当前工作目录解析的——必须切到 backend 目录再跑，
-    # 否则会往仓库根写 prompt_pack/xxx.so（路径不存在 → DistutilsFileError）
+    build_temp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_native")
+    os.makedirs(build_temp, exist_ok=True)
+    # 全程在 backend 目录里、用相对源路径：生成的 .c 落源旁（标准做法，Windows/macOS 都稳），
+    # .obj/.pyd 落 build_temp；导入时扩展优先于同名 .py
     cwd = os.getcwd()
     os.chdir(backend)
     try:
+        exts = cythonize(
+            [Extension(name, [src]) for name, src in _sources()],
+            language_level=3,
+            quiet=True,
+        )
+        dist = Distribution({"ext_modules": exts})
+        cmd = dist.get_command_obj("build_ext")
+        cmd.inplace = True
+        cmd.build_lib = backend
+        cmd.build_temp = build_temp
+        cmd.ensure_finalized()
         cmd.run()
     finally:
         os.chdir(cwd)
