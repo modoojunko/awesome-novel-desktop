@@ -63,7 +63,9 @@ SetupIconFile=icon.ico
 ; 解析，没配证书就打印警告跳过（发版不因缺证书挂），配了就签安装器 + 卸载器本体。
 ; 不传 define 时本块不参与编译——「暂不签名也要出包」的发版路径与历史逐字一致。
 #ifdef SignToolScript
-SignTool=powershell -NoProfile -ExecutionPolicy Bypass -File "{#SignToolScript}" -Action Sign -Path $f
+; ⚠️ 路径引号必须用 Inno 自己的 $q 转义——写肉眼引号会让 Inno 判
+;   「Value of [Setup] section directive "SignTool" is invalid」（2026-10-06 CI 演练实锤）
+SignTool=powershell -NoProfile -ExecutionPolicy Bypass -File $q{#SignToolScript}$q -Action Sign -Path $f
 SignedUninstaller=yes
 #endif
 
