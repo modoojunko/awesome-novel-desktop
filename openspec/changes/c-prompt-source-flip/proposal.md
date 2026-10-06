@@ -7,7 +7,8 @@
 ## What Changes
 
 - **BREAKING（开发工作流）**：移除主库 `client/backend/prompts/` 的 58 个 `.prompt` 模板——提示词编辑唯一入口改为 awesome-novel-prompts 仓（`prompts/` 即源，带纳管注释）。`prompts/__init__.py`（loader）与 `prompt_pack/*`（同步器）保留；生产解析序（已装包→ 503）不变。
-- **loader 解析序第②跳改「开发态模板目录」**：新增 env `PROMPT_PACK_DEV_DIR` 显式指定（本地＝sibling 提示词检出）；未设时回退包内目录（兼容历史测试夹具）。带纳管注释的源文件可直接作开发源——`load_layers`/`load_fragment` 本就剥 `## ` 注释行，且已核实生产代码无裸 `load()` 调用点。
+- **loader 解析序第②跳改「开发态模板目录」**：新增 env `PROMPT_PACK_DEV_DIR` 显式指定（本地＝sibling 提示词检出）；未设时回退包内目录（兼容历史测试夹具）；目录解析抽共享 helper，包状态判定（`_dev_fallback_available`）与 loader 同源；**frozen 发布态 SHALL 不启用本跳**（维持「已装包＝发布态唯一来源」不变量）。
+- **剥注释收口到 `load()` 单一咽喉点**：现存裸 `load()` 调用不经 `load_layers`（`settings/ai_router.py` style 五处 `.format()` → user 消息；`volumes/ai_plan.py::_rules_sections` → expand/check 的 system），不收口会把纳管注释块喂进模型——一切读取路径 SHALL 在 `load()` 处剥除文件头注释行。
 - **开发态接入 sibling 检出**：本地与 docker 开发栈按既有 sibling 约定挂提示词检出（`${PROMPTS_DIR:-../awesome-novel-prompts/prompts}`，compose 只读挂载＋env 注入），本地 e2e 同批；缺检出时 AI 功能维持既有 `PromptPackMissing` 503 语义（行为不劣化）。
 - **模板内容闸门迁移**：分层协议闸门（test_prompt_layering）、占位符对拍（原 sync.py CURATED 校验）、正文断言类（去AI味 v4.4 断言/节奏规则/死引用/边界注入等约 6 个测试文件）迁入提示词仓 CI；client 侧保留 loader 与同步器的桩测试。
 - **sync.py 退役「拉主库」方向**：`--check` 与上游锚概念取消，降级为提示词仓自身的 lint（注释↔占位符对拍）；publish.py 发布链不变（继续吃本仓 `prompts/`）。

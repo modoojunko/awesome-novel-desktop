@@ -7,8 +7,12 @@
 - 开发/测试态模板目录 SHALL 由环境变量 `PROMPT_PACK_DEV_DIR` 显式指定（本地＝sibling
   提示词仓检出，见「提示词模板源与内容闸门归属」）；未设该变量时回退「包内目录」
   （`prompts/__init__.py` 同目录，兼容历史测试夹具；发布包内恒无该目录）。开发态模板源
-  SHALL 允许携带纳管注释块（`## ` 行），loader 在分层/片段加载时 SHALL 剥除，SHALL NOT
-  把注释行喂给模型。
+  SHALL 允许携带纳管注释块（`## ` 行），**loader SHALL 在一切读取路径（含不经
+  `load_layers` 的直读调用）上剥除文件头注释块**，SHALL NOT 把注释行喂给模型。
+- 模块状态判定 SHALL 与模板目录解析同源：开发/测试态来源可用时包状态 SHALL 判 ready，
+  SHALL NOT 出现「四态卡未就绪而 AI 能力可用」的不一致。
+- **发布态（frozen 打包应用）SHALL NOT 启用开发态模板目录跳**：用户自设
+  `PROMPT_PACK_DEV_DIR` 亦不生效；发布态唯一来源仍为已装包，未装按既有 503 语义。
 - loader SHALL 拒载不满足 `receipt.min_client_version` 的已装版本并回落上一版（防「旧
   App＋新包」占位符契约断裂）；无兼容版本按未装处理并引导升级客户端。
 - `PromptPackMissing` SHALL 由消费模板的 AI 端点统一转为 503＋专用 reason（前端锁定卡
@@ -30,7 +34,7 @@
 
 #### Scenario: 存量 e2e 零改动
 - **WHEN** 开发/测试态（未开强制包模式）运行既有测试与 e2e
-- **THEN** loader 经 `PROMPT_PACK_DEV_DIR`（或回退包内目录）直读模板源，行为与拆包前逐字节一致（纳管注释行被剥除，不进提示词）
+- **THEN** loader 经 `PROMPT_PACK_DEV_DIR`（或回退包内目录）直读模板源，行为与拆包前逐字节一致（纳管注释行在一切读取路径上被剥除，不进提示词）
 
 #### Scenario: 读模板不落明文
 - **WHEN** 任一 AI 功能读取已装包模板并组装提示词
@@ -38,7 +42,11 @@
 
 #### Scenario: 开发态经提示词检出加载
 - **WHEN** 本地开发或容器栈以 `PROMPT_PACK_DEV_DIR` 指向 sibling 提示词仓检出（文件带纳管注释）
-- **THEN** AI 功能正常取到模板且注释行不进入提示词；未指认且包内目录为空时按未装包 503 语义呈现
+- **THEN** AI 功能正常取到模板且注释行不进入提示词，包状态判 ready（不呈现未就绪卡）；未指认且包内目录为空时按未装包 503 语义呈现
+
+#### Scenario: 发布态不启开发跳
+- **WHEN** 打包应用（frozen）运行且环境被设置 `PROMPT_PACK_DEV_DIR` 指向含模板的目录
+- **THEN** 该跳不生效：未装包按既有 503 语义呈现；已装包按已装版本加载，不读明文目录
 
 ## ADDED Requirements
 
@@ -52,6 +60,8 @@
 - 模板内容闸门（分层协议、注释↔占位符对拍、正文断言）SHALL 住提示词仓 CI；主库 CI
   SHALL NOT 依赖提示词仓内容（不引入跨仓 token），`client/backend/prompts/` 相关回归以
   桩夹具覆盖 loader 行为。
+- 提示词仓 SHALL 以「元数据单源渲染注释头＋正文可直改」维护模板：注释头由生成器幂等
+  重渲染、对拍校验元数据↔正文，SHALL NOT 让注释与元数据形成两份可各自漂移的文本。
 - 发布链 SHALL 保持既有契约不变（安装包零 `.prompt` 断言、CDN 包格式、验签与换钥、
   `prompt_pack` 同步器七道校验）；提示词仓 `publish.py` 以其本仓 `prompts/` 为输入。
 
