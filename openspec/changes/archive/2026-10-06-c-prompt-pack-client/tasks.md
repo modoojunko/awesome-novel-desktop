@@ -49,7 +49,7 @@
 ## 7. close-out
 
 - [x] 7.1（47abf59：publish.py build/verify/cek 三子命令；实测 4/48/50/58 模板四档；v{N} 防重写；CEK 交付物 gitignore。**双仓契约实测**：publish 真实产物→C端 同步器全链——四档顺序升级 ALL PASS（含同版本换档回归）；实测修出两个真 bug：publish_clean 误剥分层标记（system 段全空）＋同版本换档被「已最新」短路。tcb hosting 上传与登记脚本对接＝发布窗口人工步骤（操作单已写在 publish.py docstring））
-- [ ] 7.2 发布演练（design D4 四步顺序＋半完成态回退）＋真机首启冒烟。
+- [ ] 7.2 发布演练（design D4 四步顺序＋半完成态回退）＋真机首启冒烟。（**发版窗口运营项**——四档包上 CDN＋生产 CEK 登记需 prompts 仓发布窗口；真链路已由三联调 harness 覆盖 ALL PASS。）
 - [ ] 7.3 归档（spec delta 同步：prompt-pack-delivery＋entitlement-sync/tier-gating
   MODIFIED）。
 
