@@ -21,9 +21,9 @@
 - [x] 4.1 相关测试全绿：`test_release_json_ci_assert.py`＋`test_config_release.py`＋`test_packaging_shell_startup.py`＋`test_prompt_pack*.py`（本地 77＋64 通过）
 - [x] 4.2 `ruff==0.16.3` 改动文件零判（含 CI 同口径 F821 检查 pywebview 入口）
 - [x] 4.3 真钥回环实跑：真公钥 env → generate → assert 通过，产物 `pack_pubkeys` 解出 32 字节
-- [ ] 4.4 合入 main 后重跑打包验证构建（workflow_dispatch 两平台）：`Assert release.json baked into bundle` 在真实产物上通过（严格断言端到端取证）
+- [x] 4.4 合入 main 后重跑打包验证构建（workflow_dispatch 两平台 37434081689 双 success）：`Assert release.json baked into bundle`＋零 .prompt 断言在 main 真实产物通过
 
 ## 5. 归档前
 
-- [ ] 5.1 发布链彩排（承接归档 change `2026-10-06-c-prompt-pack-client` 的 7.2 运营项）：`publish.py` 真钥出四档包 → tcb 静态托管上传 → 生产登记 CEK → `curl` 验证 `latest.json`＋签名可验（用本包公钥离线核验）
+- [x] 5.1 发布链彩排已全通：真钥出包 v2026.10.6-1/-2（现行 -2，min_client=0.28 配 v0.28.1）→ CDN 上传逐字节对拍 → 四档 CEK 生产登记（两版共存）→ latest 已翻 → 生产字节离线验签 ALL PASS → 生产全链 smoke ALL PASS（含 403 降档/篡改拒装/幂等）
 - [ ] 5.2 归档：spec delta 同步 `prompt-pack-delivery`；本 change 的 D1/D6（指纹与轮换程序）留在 design 记录
