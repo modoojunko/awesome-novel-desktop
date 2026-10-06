@@ -42,4 +42,4 @@
 
 - [x] 7.1 门禁实跑结论：`client/backend` 全量 pytest（数字）＋`client/frontend` `tsc --noEmit`／`vitest run`／`design:lint`／`design:check`（结论与存量红区分）＋受影响 e2e 隔离栈实跑（34/34），全部回填本行——**C端 pytest 1956 passed/1 skipped/0 failed**（收尾复跑两次同数）；**tsc --noEmit 零错**；**vitest 1207/1207 绿**；**design:lint exit 0**；**design:check 7/8**（唯一红＝书架屏 empty 存量光栅漂移，记忆在案与本改零交集）
 - [x] 7.2 守卫有效性自证：在实现回退的临时工作区跑新守卫与 HTTP 钉子（应红），复原后绿——已留档：六文件 git checkout 回基线后跑新守卫＋HTTP 钉＝**恰红 6 条**（test_decorated_endpoint_must_have_gate 抓 POST /api/novels 死标注；test_required_keys_have_consumers 抓 chapter-review/style-quant 零消费点；4 条 HTTP 钉抓三未收门端点＋蒸馏 key 挂错），恢复实现后全绿——守卫对本 change 修复的每一类漂移都有抓捕力。另有 staged 红绿：旧扫描器＋新「枚举非空」断言先红（0 枚举＝空转实锤）
-- [ ] 7.3 提交＋PR（标题不带硬编码 PR 号）；随下个版本窗口发布（无需 S端/DDL 联动）
+- [x] 7.3 提交＋PR（标题不带硬编码 PR 号）；随下个版本窗口发布（无需 S端/DDL 联动）——两笔提交（工件 52e588b9＋实现 fee76257）已推远端并验 head，PR 已开
