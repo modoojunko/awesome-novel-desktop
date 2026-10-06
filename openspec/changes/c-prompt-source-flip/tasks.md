@@ -1,7 +1,7 @@
 ## 1. 影响判定与前置
 
-- [ ] 1.1 双端影响判定：本变更无用户可见界面改动（`PromptPackMissing`→503→四态卡语义/文案不变）、不触两端共享段、无原型需求——以此判定替代「原型先行」任务。验证＝proposal 的 Design Impact 段与本节一致；实施期 `git diff --stat` 无 `client/frontend/src` 变更
-- [ ] 1.2 环境前置：确认 sibling 提示词检出在位且与主库零漂移。验证＝`ls ../awesome-novel-prompts/prompts/*.prompt | wc -l`＝58，且（可选）`python3 ../awesome-novel-prompts/publish.py verify` 之外的对拍命令无差异报告
+- [x] 1.1 双端影响判定：本变更无用户可见界面改动（`PromptPackMissing`→503→四态卡语义/文案不变）、不触两端共享段、无原型需求——以此判定替代「原型先行」任务。验证＝proposal 的 Design Impact 段与本节一致；实施期 `git diff --stat` 无 `client/frontend/src` 变更
+- [x] 1.2 环境前置：确认 sibling 提示词检出在位且与主库零漂移。验证＝`ls ../awesome-novel-prompts/prompts/*.prompt | wc -l`＝58，且（可选）`python3 ../awesome-novel-prompts/publish.py verify` 之外的对拍命令无差异报告
 
 ## 2. loader：目录解析＋剥注释收口（D1/D3）
 
