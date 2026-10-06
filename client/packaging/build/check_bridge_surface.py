@@ -55,13 +55,17 @@ def find_violations(source: str) -> list[str]:
 
 
 def main() -> int:
+    # Windows 控制台默认 cp1252：非 ASCII 输出会 UnicodeEncodeError 把门禁自己打挂
+    # （2026-10-06 v0.28.2 首发实锤）。输出一律 ASCII，并给 stdout 上 UTF-8 兜底。
+    if hasattr(sys.stdout, "reconfigure"):  # 无 tty / 被重定向时没有该方法，直接跳过
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     violations = find_violations(TARGET.read_text(encoding="utf-8"))
     if violations:
-        print("::error::js_api 桥出现公开属性——pywebview 会递归遍历它（见本脚本头注）：")
+        print("::error::js_api bridge exposes public attributes (pywebview recurses into them):")
         for v in violations:
             print("  - " + v)
         return 1
-    print(f"OK: {BRIDGE_CLASS} 公开面只含方法")
+    print(f"OK: {BRIDGE_CLASS} public surface is methods only")
     return 0
 
 
