@@ -56,7 +56,7 @@ def _make_pack(root, version, templates: dict[str, str], min_client_version=None
 def test_receipt_roundtrip_and_clear(pack_env):
     root, pp, _ = pack_env
     assert pp.read_receipt() is None
-    vdir, receipt = _make_pack(root, "3", {"a": "hello"})
+    _vdir, receipt = _make_pack(root, "3", {"a": "hello"})
     pp.write_receipt(receipt)
     assert pp.read_receipt()["version"] == "3"
     pp.clear_receipt()
@@ -73,8 +73,8 @@ def test_resolve_dir_prefers_receipt_version(pack_env):
 
 def test_resolve_dir_gate_falls_back_to_previous(pack_env):
     root, pp, _ = pack_env
-    v2dir, receipt2 = _make_pack(root, "2", {"a": "ok"})
-    v3dir, receipt3 = _make_pack(root, "3", {"a": "future"}, min_client_version="99.0.0")
+    v2dir, _receipt2 = _make_pack(root, "2", {"a": "ok"})
+    _v3dir, receipt3 = _make_pack(root, "3", {"a": "future"}, min_client_version="99.0.0")
     pp.write_receipt(receipt3)
     # 3 要求客户端 99.0.0（本机 dev/低版本）→ 拒载，回落 v2
     assert pp.resolve_dir() == v2dir
@@ -94,7 +94,7 @@ def test_highwatermark_roundtrip(pack_env):
 
 def test_loader_reads_installed_pack(pack_env):
     root, pp, prompts = pack_env
-    vdir, receipt = _make_pack(root, "5", {"write_chapter": "<<system>>\npack 版正文"})
+    _vdir, receipt = _make_pack(root, "5", {"write_chapter": "<<system>>\npack 版正文"})
     pp.write_receipt(receipt)
     assert "pack 版正文" in prompts.load("write_chapter")
 
@@ -111,7 +111,7 @@ def test_loader_tampered_pack_falls_back_to_bundled(pack_env):
 
 
 def test_loader_force_mode_pack_missing(pack_env, monkeypatch):
-    _, pp, prompts = pack_env
+    _, _pp, prompts = pack_env
     monkeypatch.setenv("PROMPT_PACK_MODE", "force")
     # 强制包模式 + 无已装包 → 禁用包内目录跳 → PromptPackMissing
     with pytest.raises(prompts.PromptPackMissing):
@@ -122,7 +122,7 @@ def test_loader_force_mode_pack_missing(pack_env, monkeypatch):
 def test_loader_force_mode_reads_pack(pack_env, monkeypatch):
     root, pp, prompts = pack_env
     monkeypatch.setenv("PROMPT_PACK_MODE", "force")
-    vdir, receipt = _make_pack(root, "5", {"write_chapter": "<<system>>\n包内版"})
+    _vdir, receipt = _make_pack(root, "5", {"write_chapter": "<<system>>\n包内版"})
     pp.write_receipt(receipt)
     assert "包内版" in prompts.load("write_chapter")
 
@@ -130,7 +130,7 @@ def test_loader_force_mode_reads_pack(pack_env, monkeypatch):
 def test_load_layers_still_works_from_pack(pack_env):
     root, pp, prompts = pack_env
     body = "<<system>>\n## 头注释\n你是助手。\n<<user>>\n素材：{x}"
-    vdir, receipt = _make_pack(root, "5", {"write_chapter": body})
+    _vdir, receipt = _make_pack(root, "5", {"write_chapter": body})
     pp.write_receipt(receipt)
     sys_seg, user_seg = prompts.load_layers("write_chapter")
     assert "你是助手。" in sys_seg and "头注释" not in sys_seg

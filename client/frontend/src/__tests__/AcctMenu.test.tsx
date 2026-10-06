@@ -795,3 +795,52 @@ describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
     expect(item("test-migrate-modal")).toBeNull(); // 组件没有因探测失败抛错
   });
 });
+
+
+describe("AcctMenu 写作能力包行（c-prompt-pack-client）", () => {
+  // 覆盖率契约：434-435（「检查」按钮 onClick 体）必须有用例走通——main CI 曾因这两行
+  // 全局线 99.87%<100% 恒红（c-prompt-pack-client 合入后）。
+  const fetchMock = vi.fn();
+  beforeEach(() => {
+    fetchMock.mockClear();
+    toastState.info.mockClear();
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ started: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  async function openWithPack(pack: TierState["pack"]) {
+    const { default: AcctMenu } = await import("@/components/AcctMenu");
+    const { useTier } = await import("@/hooks/useTier");
+    vi.mocked(useTier).mockReturnValue(tierState({ pack }));
+    const utils = mount(<AcctMenu />);
+    fireEvent.click(document.querySelector('[data-od-id="acct-trigger"]') as HTMLElement);
+    await act(async () => {});
+    return utils;
+  }
+
+  it("就绪态显示版本；点「检查」POST /prompt-pack/check 并 toast", async () => {
+    await openWithPack({ phase: "ready", version: "7" });
+    const row = document.querySelector('[data-od-id="acct-menu-pack"]');
+    expect(row?.textContent).toContain("写作能力 v7");
+
+    fireEvent.click(document.querySelector('[data-od-id="acct-menu-pack-check"]') as HTMLElement);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(String(url)).toContain("/api/prompt-pack/check");
+    expect(init.method).toBe("POST");
+    expect(toastState.info).toHaveBeenCalledWith("正在检查写作能力…");
+  });
+
+  it("就绪但缺版本号：显示 v-（?? 兜底分支，AcctMenu.tsx:427）", async () => {
+    await openWithPack({ phase: "ready" });
+    const row = document.querySelector('[data-od-id="acct-menu-pack"]');
+    expect(row?.textContent).toContain("写作能力 v-");
+  });
+
+  it("未就绪态文案：不显示版本，显示「写作能力未就绪」", async () => {
+    await openWithPack({ phase: "failed", reason: "cdn_unreachable" });
+    const row = document.querySelector('[data-od-id="acct-menu-pack"]');
+    expect(row?.textContent).toContain("写作能力未就绪");
+    expect(row?.textContent).not.toContain("写作能力 v");
+  });
+});

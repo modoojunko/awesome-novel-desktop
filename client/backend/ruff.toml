@@ -11,6 +11,10 @@ ignore = ["B008", "ASYNC230", "RUF100", "DTZ"]
 
 # Per-file: broad exception catches are intentional
 [lint.per-file-ignores]
+# prompts/ 与 prompt_pack/：读路径与同步器的「绝不打断调用方」语义——
+# loader 读包失败降级、同步器后台线程兜底均需宽捕获（c-prompt-pack-client 判例）
+"prompts/*.py" = ["BLE001", "S110"]
+"prompt_pack/*.py" = ["BLE001", "S110"]
 "main.py" = ["BLE001", "S110"]
 "auth_local/*.py" = ["BLE001"]
 "backup/*.py" = ["BLE001"]

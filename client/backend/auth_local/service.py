@@ -547,7 +547,7 @@ async def browser_auth(silent: bool = False) -> dict:
                 from prompt_pack.sync import maybe_after_auth
 
                 maybe_after_auth()
-            except Exception:
+            except Exception:  # noqa: S110 —— 写作能力包同步绝不阻塞登录
                 pass
             return {
                 "code": 0,
@@ -673,7 +673,7 @@ async def verify_session() -> dict:
         from prompt_pack.sync import get_status
 
         resp["prompt_pack"] = get_status()
-    except Exception:
+    except Exception:  # noqa: S110 —— 包状态是诊断增益，读取失败不拦 verify
         pass
     return resp
 
