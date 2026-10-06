@@ -45,6 +45,20 @@ browserExecutableFolder / userDataFolder）——所以壳层可以注入浏览�
 - **不做**：不改错误页/浏览器兜底语义；不加单实例互斥（多开行为待现场证据）；不做按显卡
   型号自动关 GPU 之类的启发式。
 
+### 第二轮现场追加（2026-10-06 夜，用户机 Windows 11）
+
+- **运行目录改到安装目录优先**（用户拍板"文件都在安装目录"）：运行时文件（startup.log／
+  uvicorn.log／pywebview.log／port.json／error.html／loading.html／render-hang.flag／
+  shell.json）从固定 `%APPDATA%\AwesomeNovel` 改为「安装目录**实测可写**就用安装目录，
+  否则回落 %APPDATA%」——便携安装下与 `data\` 同根，用户一眼找得到；装到 Program Files 的
+  机器保持原兜底（诊断文件必须永远写得出来）。`shell.json` 额外认 `%APPDATA%` 旧位置（v0.28.1
+  指引的落点），命中留日志提示搬迁。卸载器补 `[UninstallDelete]` 清安装目录里的运行时产物。
+- **后端就绪等待：默认 60→180 秒＋等待期心跳＋判负文案分因**：用户机首次冷启动被杀软首扫＋
+  慢盘拖到 >60 秒被判死（第二次才进得来）。现默认 180 秒；等待期每 ~15 秒落一行心跳
+  （已等秒数＋探测分类：连接被拒＝仍在导入 app／已监听无响应＝lifespan 进行中）；
+  判负文案区分「线程已退出」与「超时但线程仍在导入/启动」——旧文案
+  `timeout / server thread exited` 被现场两次误读成"后端崩了"。
+
 **`--disable-gpu` 的性质（重要）**：它是**候选修法**（WebView2/GPU 渲染层假设），不是已证实
 的根因。判定实验列入 tasks（用当前 v0.28 包＋环境变量 A/B，**无需新包**）——实验结论决定
 安全模式参数是否要调整（如换 `--disable-gpu-compositing`／`--use-angle=swiftshader`，
@@ -65,7 +79,8 @@ browserExecutableFolder / userDataFolder）——所以壳层可以注入浏览�
 
 - `client/packaging/build/pywebview_app.py`：新增 shell.json 读取、安全模式与自愈重启、
   WebView2 版本读取、pywebview 日志旁路、uvicorn 日志级别与轮转；`check_backend_and_navigate`
-  改吃会话配置。
-- `client/backend/tests/test_packaging_shell_startup.py`：13 例 → 31 例（可调参数 7、安全模式与
-  自愈 9、重启守卫与环断 3、杂项 2）。
-- 无前端改动、无接口契约改动、打包流水线（client-package.yml）不变。
+  改吃会话配置；运行目录选择（安装目录优先/appdata 兜底）；就绪等待心跳与判负分因。
+- 打包链路随行：`client-package.yml`（Windows smoke 两候选目录定位 port.json/日志）、
+  `build_release.ps1`（同）、`installer.iss`（`[UninstallDelete]` 清安装目录里的运行时产物）、
+  `install_portable.bat`（完成提示改口径）。
+- `client/backend/tests/test_packaging_shell_startup.py`：13 例 → 42 例。

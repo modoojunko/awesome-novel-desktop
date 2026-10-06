@@ -53,5 +53,6 @@ echo.
 echo ===== 安装完成 =====
 echo 启动: 双击桌面 "AwesomeNovel" 快捷方式
 echo 卸载: 删除 %INSTALL_DIR% 目录 + 桌面快捷方式
-echo 用户数据: %%APPDATA%%\AwesomeNovel\
+echo 书稿数据: %INSTALL_DIR%\data\
+echo 日志与调参: %INSTALL_DIR%\（startup.log / uvicorn.log / shell.json 等）
 pause

@@ -116,6 +116,22 @@ Type: files; Name: "{app}\uninstall.exe"
 Type: files; Name: "{app}\AI Novel.exe"
 Type: files; Name: "{app}\uninstall.dat"
 
+[UninstallDelete]
+; 运行目录（shell-runtime-dir，2026-10-06 起）：安装目录写得进去时，壳层把 startup.log /
+; uvicorn.log / pywebview.log / port.json / error.html / loading.html / render-hang.flag /
+; shell.json 直接写在 {app} 根——卸载时一并清掉，别给用户留一个装着日志的空目录
+; （装到 Program Files 等不可写位置时这些文件回落 {userappdata}\AwesomeNovel，由
+; 下方 [UninstallRun] 清）。uvicorn/pywebview 带轮转备份文件，按通配清。
+Type: files; Name: "{app}\startup.log"
+Type: files; Name: "{app}\uvicorn.log*"
+Type: files; Name: "{app}\pywebview.log*"
+Type: files; Name: "{app}\port.json"
+Type: files; Name: "{app}\error.html"
+Type: files; Name: "{app}\loading.html"
+Type: files; Name: "{app}\render-hang.flag"
+Type: files; Name: "{app}\shell.json"
+Type: files; Name: "{app}\.awesome-novel-write-probe"
+
 [Dirs]
 ; 数据目录（便携式：库/备份都在 {app}\data）必须对标准用户可写——应用是普通
 ; 身份启动的，写不进去就是「后端静默死、只剩正在启动页」。默认位置已可写，

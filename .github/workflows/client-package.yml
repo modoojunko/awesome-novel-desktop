@@ -239,13 +239,18 @@ jobs:
         shell: bash
         run: |
           EXE="client/packaging/build/dist/AwesomeNovel/AwesomeNovel.exe"
-          PORT_JSON="$APPDATA/AwesomeNovel/port.json"
+          # 运行目录两候选（shell-runtime-dir）：安装目录可写→安装目录，否则 %APPDATA%\AwesomeNovel。
+          # CI 里 exe 在可写的 workspace 下＝安装目录分支；两处都探，判决不押在猜位置。
+          RT_DIRS=("$(dirname "$EXE")" "$APPDATA/AwesomeNovel")
           "$EXE" --smoke >/tmp/ainovel-smoke.log 2>&1 &
           APP_PID=$!
           trap 'kill $APP_PID 2>/dev/null || true' EXIT
           PORT=""
           for i in $(seq 1 60); do
-            PORT="$(grep -oE '"port"[[:space:]]*:[[:space:]]*[0-9]+' "$PORT_JSON" 2>/dev/null | grep -oE '[0-9]+' || true)"
+            for d in "${RT_DIRS[@]}"; do
+              PORT="$(grep -oE '"port"[[:space:]]*:[[:space:]]*[0-9]+' "$d/port.json" 2>/dev/null | grep -oE '[0-9]+' || true)"
+              [ -n "$PORT" ] && break
+            done
             if [ -n "$PORT" ] && curl -sf "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
               break
             fi
@@ -254,8 +259,10 @@ jobs:
           if [ -z "$PORT" ] || ! curl -sf "http://127.0.0.1:$PORT/api/health" >/dev/null; then
             echo "::error::SMOKE FAILED — backend not ready"
             echo "--- app log ---"; cat /tmp/ainovel-smoke.log || true
-            echo "--- startup.log ---"; cat "$APPDATA/AwesomeNovel/startup.log" 2>/dev/null || true
-            echo "--- uvicorn.log ---"; cat "$APPDATA/AwesomeNovel/uvicorn.log" 2>/dev/null || true
+            for d in "${RT_DIRS[@]}"; do
+              echo "--- $d/startup.log ---"; cat "$d/startup.log" 2>/dev/null || true
+              echo "--- $d/uvicorn.log ---"; cat "$d/uvicorn.log" 2>/dev/null || true
+            done
             exit 1
           fi
           curl -sf "http://127.0.0.1:$PORT/" | grep -q 'id="root"' || {
