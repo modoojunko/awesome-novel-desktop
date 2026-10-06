@@ -19,7 +19,8 @@
 
 - [x] 4.1 `client/backend` 全量 pytest：1807 passed / 0 failed（改动前存量 2 红已随判据更新归零：`test_ai_layers` 假体补 headers、`test_ai_timeout_accounting` 语义随新归一更新为 400 透传钉）
 - [x] 4.2 `openspec validate c-ai-availability-fixes --specs` 通过
-- [ ] 4.3 提交＋PR（标题不带硬编码 PR 号）；打包随下一版本窗口（内测同学需要修好的包才能复验 3.3）
+- [x] 4.3 提交＋PR（标题不带硬编码 PR 号）；打包随下一版本窗口（内测同学需要修好的包才能复验 3.3）
+  - 证据：PR #689 已合入 main（squash 504d0f18）
 
 ## 5. 探针升级为「你好」真实生成（2026-10-05 用户拍板；取代 3.1/3.2 的探针语义）
 
