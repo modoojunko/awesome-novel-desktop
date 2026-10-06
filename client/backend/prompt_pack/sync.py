@@ -76,9 +76,10 @@ _syncing = False
 def get_status() -> dict:
     """包状态快照：phase ∈ syncing/ready/missing/failed/tier_denied。
 
-    口径（失败矩阵＋dev 兜底，2026-10-05 评审修正）：**有可用模板来源即 ready
-    （全静默）**——①已装包（resolve_dir）②开发/测试态的包内目录（frozen 发布包
-    无此目录，故生产不受影响）。更新失败但旧包能写、或 dev 直读仓库单源时，都给
+    口径（失败矩阵＋dev 兜底，2026-10-05 评审修正；c-prompt-source-flip 同源化）：
+    **有可用模板来源即 ready（全静默）**——①已装包（resolve_dir）②开发/测试态模板
+    目录（prompts.dev_template_dir()：PROMPT_PACK_DEV_DIR → 包内目录；frozen/force
+    禁用，故生产不受影响）。更新失败但旧包能写、或 dev 直读模板目录时，都给
     用户零打扰；reason 保留为诊断字段（AcctMenu 诊断串）。两来源皆无时按最近一次
     尝试结果落 missing/syncing/failed/tier_denied（前端四态卡据此分派）。
     """
@@ -90,16 +91,19 @@ def get_status() -> dict:
 
 
 def _dev_fallback_available() -> bool:
-    """包内开发目录是否可用（dev/测试态直读仓库单源）。
+    """开发/测试态模板目录是否可用（c-prompt-source-flip：与 loader 同源）。
 
-    PROMPT_PACK_MODE=force 时禁用（e2e 强制包模式）；frozen 发布包内无该目录
-    （build.spec 已摘）→ 恒 False，生产永远走已装包判定。
+    经 prompts.dev_template_dir() 解析（PROMPT_PACK_DEV_DIR 指定的 sibling 检出
+    → 回退包内目录）；force 禁用与 frozen 禁用都在 helper 内。目录存在但无模板
+    时按不可用（半空目录不算可用来源）。
     """
-    if os.environ.get("PROMPT_PACK_MODE") == "force":
+    from prompts import dev_template_dir
+
+    dev_dir = dev_template_dir()
+    if not dev_dir:
         return False
-    bundled = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "prompts")
     try:
-        return any(n.endswith(".prompt") for n in os.listdir(bundled))
+        return any(n.endswith(".prompt") for n in os.listdir(dev_dir))
     except OSError:
         return False
 

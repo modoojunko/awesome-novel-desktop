@@ -5,10 +5,10 @@
 
 ## 2. loader：目录解析＋剥注释收口（D1/D3）
 
-- [ ] 2.1 目录解析：`client/backend/prompts/__init__.py` 第②跳支持 `PROMPT_PACK_DEV_DIR`（优先）、未设回退包内目录；路径安全校验（白名单＋realpath）沿用；`PROMPT_PACK_MODE=force` 仍优先禁；**frozen 态禁用第②跳**；解析逻辑抽共享 helper。验证＝单测：env 指向临时目录可加载、未设回退、force 双禁、frozen 禁用、非法名仍拒绝
-- [ ] 2.2 剥注释收口到 `load()`：文件头连续 `## `/空行在 `load()` 返回前剥除；全覆盖现存裸调用点——`settings/ai_router.py` style 五处 `.format()`、`volumes/ai_plan.py::_rules_sections()`（volume_rules→expand/check system）、`settings/name_registry.py`（先审用途）。验证＝逐调用点钉子测试：产物不含注释行与 `## ★★` 哨兵（dev 带注释源与包源两态）
-- [ ] 2.3 包状态同源：`prompt_pack/sync.py::_dev_fallback_available()` 改用共享 helper（dev-dir 可用⇒`get_status().phase=="ready"`）。验证＝新增单测：dev-dir 态与无来源态各断言 phase
-- [ ] 2.4 既有 loader/pack 测试回归（`test_prompts_loader`/`test_prompt_pack*`）。验证＝全绿且未放宽既有断言
+- [x] 2.1 目录解析：`client/backend/prompts/__init__.py` 第②跳支持 `PROMPT_PACK_DEV_DIR`（优先）、未设回退包内目录；路径安全校验（白名单＋realpath）沿用；`PROMPT_PACK_MODE=force` 仍优先禁；**frozen 态禁用第②跳**；解析逻辑抽共享 helper。验证＝单测：env 指向临时目录可加载、未设回退、force 双禁、frozen 禁用、非法名仍拒绝
+- [x] 2.2 剥注释收口到 `load()`：文件头连续 `## `/空行在 `load()` 返回前剥除；全覆盖现存裸调用点——`settings/ai_router.py` style 五处 `.format()`、`volumes/ai_plan.py::_rules_sections()`（volume_rules→expand/check system）、`settings/name_registry.py`（先审用途）。验证＝逐调用点钉子测试：产物不含注释行与 `## ★★` 哨兵（dev 带注释源与包源两态）
+- [x] 2.3 包状态同源：`prompt_pack/sync.py::_dev_fallback_available()` 改用共享 helper（dev-dir 可用⇒`get_status().phase=="ready"`）。验证＝新增单测：dev-dir 态与无来源态各断言 phase
+- [x] 2.4 既有 loader/pack 测试回归（`test_prompts_loader`/`test_prompt_pack*`）。验证＝全绿且未放宽既有断言
 
 ## 3. 开发栈与 e2e 接入（D2）＋文档
 
