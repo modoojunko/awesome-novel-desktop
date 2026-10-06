@@ -33,6 +33,7 @@ import importlib.util
 import json
 import os
 import sys
+import threading
 import time
 import types
 from pathlib import Path
@@ -241,6 +242,12 @@ def test_main_clears_stale_port_json_and_logs(shell, tmp_path, monkeypatch):
     monkeypatch.setattr(shell, "ensure_loading_page", lambda ad: (ad / "loading.html").as_uri())
     monkeypatch.setattr(shell, "start_server", lambda: served.append(True))
     monkeypatch.setattr(shell, "check_backend_and_navigate", lambda window, ad, cfg=None: None)
+    armed: list = []
+    monkeypatch.setattr(shell, "arm_hang_dump", lambda ad, period=60.0: armed.append(ad))
+    # main() 末尾会强制下线（os._exit）——必须替换，否则把 pytest 一起带走
+    exited: list = []
+    monkeypatch.setattr(shell, "_force_exit", lambda code=0: exited.append(code))
+    monkeypatch.setattr(shell, "stop_server_gracefully", lambda timeout=3.0: True)
 
     shell.main()
 
@@ -248,9 +255,14 @@ def test_main_clears_stale_port_json_and_logs(shell, tmp_path, monkeypatch):
     assert started == [True]
     assert created and created[0]["js_api"] is shell.bridge
     assert len(windows[0].events.shown.handlers) == 1, "shown 事件必须挂日志钩子"
+    assert armed == [appdata], "C 层 hang dump 必须在上窗口前架上"
+    assert exited == [0], "窗口关闭后必须强制下线（不留残留进程）"
     text = _log_text(appdata)
     assert "shell main() entered" in text
     assert "server thread started" in text
+    # 顺序：先 GUI 退出 → 再有界收尾 → 再强退
+    assert text.index("GUI loop exited") < text.index("backend shutdown")
+    assert "backend shutdown: graceful=True" in text
 
 
 # ── 7. 运行目录换名（AI Novel → AwesomeNovel）＋无痛迁移 ───────────────────
@@ -755,3 +767,72 @@ def test_backend_timeout_message_names_thread_exit(shell, tmp_path, monkeypatch)
 
     assert "server thread exited" in _log_text(tmp_path)
     shell._server_exited.clear()
+
+
+# ── 13. js_api 暴露面 / 退出硬化 / hang dump（c-shell-hang-hardening）─────────
+
+
+def test_bridge_public_surface_is_methods_only(shell):
+    """pywebview 注入时**递归遍历** js_api 的公开非方法属性（util.py get_functions 只跳 `_` 前缀）：
+    桥上挂公开对象＝把原生窗口整棵树拖进遍历 → 跨线程 COM 报错、甚至装载停摆（2026-10-06 白屏根因）。
+    本守卫与打包 CI 的 check_bridge_surface.py（AST）双钉。"""
+    public = [n for n in dir(shell.bridge) if not n.startswith("_")]
+    assert public, "桥至少要有可暴露的方法"
+    for name in public:
+        assert callable(getattr(shell.bridge, name)), (
+            f"js_api 公开成员 {name!r} 不是可调用——pywebview 会递归进它（必须改下划线前缀）"
+        )
+
+
+def test_bridge_surface_ast_gate_flags_public_attr_and_passes_real_file():
+    import importlib.util
+
+    gate_path = Path(__file__).resolve().parents[2] / "packaging" / "build" / "check_bridge_surface.py"
+    spec = importlib.util.spec_from_file_location("check_bridge_surface_under_test", gate_path)
+    gate = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(gate)
+
+    assert gate.find_violations("class NativeBridge:\n    window_ref = None\n"), "公开类属性必须被抓出"
+    assert gate.find_violations("bridge = NativeBridge()\nbridge.window = None\n"), "桥实例公开属性必须被抓出"
+    real = Path(__file__).resolve().parents[2] / "packaging" / "build" / "pywebview_app.py"
+    assert gate.find_violations(real.read_text(encoding="utf-8")) == [], "真实文件必须放行"
+
+
+def test_watchdog_logs_heartbeat_while_waiting(shell, tmp_path, monkeypatch):
+    """装载等待不许死等：每 10 秒落一行心跳（也是"进程还活着"的证据）。"""
+    monkeypatch.setattr(shell, "wait_for_server", lambda appdata, timeout=60: 18140)
+    monkeypatch.setattr(shell, "should_auto_relaunch", lambda *a, **k: False)
+    monkeypatch.setattr("webbrowser.open", lambda url: True)
+
+    shell.check_backend_and_navigate(_FakeWindow(loaded=False), tmp_path)
+
+    text = _log_text(tmp_path)
+    assert "app page still loading… 10s/60s" in text
+    assert "app page still loading… 60s/60s" in text
+
+
+def test_hang_dump_armed_and_cancelled(shell, tmp_path):
+    shell.arm_hang_dump(tmp_path, period=600)
+    try:
+        assert (tmp_path / "hang-dump.txt").exists()
+        assert shell._HANG_DUMP_FILE is not None
+    finally:
+        shell.cancel_hang_dump()
+    assert shell._HANG_DUMP_FILE is None, "取消后必须关掉文件句柄（flush）"
+
+
+def test_stop_server_gracefully_signals_then_reports_timeout(shell, monkeypatch):
+    class _Srv:
+        def __init__(self):
+            self.should_exit = False
+
+    srv = _Srv()
+    monkeypatch.setattr(shell, "_server_handle", srv)
+    monkeypatch.setattr(shell, "_server_exited", threading.Event())
+    clock = {"t": 0.0}
+    monkeypatch.setattr(shell.time, "time", lambda: clock["t"])
+    monkeypatch.setattr(shell.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + 1.0))
+
+    assert shell.stop_server_gracefully(timeout=3.0) is False, "未回收必须如实返回 False（调用方仍强退）"
+    assert srv.should_exit is True, "必须先发退出信号"

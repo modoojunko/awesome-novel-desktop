@@ -443,6 +443,12 @@ def _exit_soon(delay: float = 1.5) -> None:
 # 健康轮询据此提前判负，不再干等满 60 秒。
 _server_exited = threading.Event()
 
+# 后端 Server 句柄（shell-hang-hardening 2.1）：关窗后据此有界请它退出
+_server_handle = None
+
+# hang dump 的文件句柄（faulthandler 写入目标；装配后由 cancel 关闭）
+_HANG_DUMP_FILE = None
+
 
 def _app_load_timeout() -> int:
     """应用页装载看门狗时长（秒），env 可调；非法值回落 60。
@@ -460,6 +466,67 @@ def _backend_timeout() -> int:
         return max(5, int(os.environ.get("AI_NOVEL_BACKEND_TIMEOUT", str(DEFAULT_BACKEND_TIMEOUT))))
     except Exception:
         return DEFAULT_BACKEND_TIMEOUT
+
+
+def stop_server_gracefully(timeout: float = 3.0) -> bool:
+    """窗口关闭后的**有界**后端收尾：请 uvicorn 退出并等线程回收（shell-hang-hardening 2.1）。
+
+    返回是否在超时内回收。False 时调用方仍应强制退出——用户关窗的意图优先于在途请求
+    （SQLite 是 WAL、日志逐行 flush，硬退不会坏库，代价面只有在途请求）。"""
+    server = _server_handle
+    if server is None:
+        return True
+    try:
+        server.should_exit = True
+    except Exception:
+        pass
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _server_exited.is_set():
+            return True
+        time.sleep(0.05)
+    return _server_exited.is_set()
+
+
+def _force_exit(code: int = 0) -> None:
+    """进程强制下线。抽成函数是为了可测（单测替换它，避免把 pytest 一起带走）。"""
+    os._exit(code)
+
+
+def arm_hang_dump(appdata: Path, period: float = 60.0) -> None:
+    """C 层看门狗（shell-hang-hardening 3.3）：周期把**全部线程栈**dump 到 hang-dump.txt。
+
+    2026-10-06 现场：run 2 在装载注入段整体停摆——之后的 60 秒看门狗行与关窗行全都没写出来，
+    即 Python 层已经跑不动了。GIL 被原生调用占死时，普通心跳/看门狗一起失效，只有
+    faulthandler 的 C 层定时器还能落盘。装载成功后由 cancel_hang_dump 撤销，避免长会话
+    无谓写盘（正常启动几秒内就会取消，实际几乎不产生 dump）。"""
+    global _HANG_DUMP_FILE
+    try:
+        import faulthandler
+
+        f = open(appdata / "hang-dump.txt", "w", encoding="utf-8")
+        _HANG_DUMP_FILE = f
+        faulthandler.enable(file=f, all_threads=True)
+        faulthandler.dump_traceback_later(period, repeat=True, file=f, exit=False)
+    except Exception:
+        log_line(appdata, "faulthandler 装配失败：\n" + traceback.format_exc())
+
+
+def cancel_hang_dump() -> None:
+    """撤销 hang dump（装载成功/进程下线前）：先停 C 层定时器再关文件（flush）。"""
+    global _HANG_DUMP_FILE
+    try:
+        import faulthandler
+
+        faulthandler.cancel_dump_traceback_later()
+    except Exception:
+        pass
+    if _HANG_DUMP_FILE is not None:
+        try:
+            _HANG_DUMP_FILE.close()
+        except Exception:
+            pass
+        _HANG_DUMP_FILE = None
 
 
 def start_server():
@@ -582,7 +649,9 @@ def start_server():
             "formatters": {
                 "default": {
                     "()": "uvicorn.logging.DefaultFormatter",
-                    "fmt": "%(levelprefix)s %(message)s",
+                    # 时间戳必须有（2026-10-06 现场）：白屏期间"后端还在不在服务"是核心判据，
+                    # 没有时间戳就只能靠猜请求发生在哪一段。
+                    "fmt": "%(asctime)s %(levelprefix)s %(message)s",
                     "use_colors": False,
                 },
             },
@@ -603,12 +672,14 @@ def start_server():
                 "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
             },
         }
-        uvicorn.run(
-            "main:app",
-            host="127.0.0.1",
-            port=port,
-            log_config=log_config,
+        # 留句柄（shell-hang-hardening 2.1）：`uvicorn.run()` 一走到底、没有停止入口，关窗后
+        # 就只能硬退。换成 Config+Server 后可在窗口关闭时先请它退出再收尾。
+        # Server.run() 在非主线程同样跳过信号处理，行为与 run() 一致。
+        global _server_handle
+        _server_handle = uvicorn.Server(
+            uvicorn.Config("main:app", host="127.0.0.1", port=port, log_config=log_config)
         )
+        _server_handle.run()
     except Exception as e:
         # 启动期异常（uvicorn 绑定失败 / 导入炸 / lifespan 抛错）必须留全文
         log_line(appdata, f"server thread FATAL: {e!r}\n" + traceback.format_exc())
@@ -815,8 +886,21 @@ def check_backend_and_navigate(window, appdata, cfg: dict | None = None):
         # 消息循环被卡）＝「长期停在启动页」的另一种形态。此时 UI 线程大概率
         # 已不响应、错误页也装不进去——所以先落日志、先打标记再谈兜底。
         load_timeout = cfg.get("app_load_timeout") or _app_load_timeout()
-        if window.events.loaded.wait(load_timeout):
+        # 切片等待（shell-hang-hardening 3.2）：死等 60 秒一声不吭的现场没法判读进度，
+        # 每 10 秒落一行心跳——它同时也是"进程还活着"的证据（对比 hang-dump.txt 定冻结）。
+        loaded = False
+        waited = 0
+        while waited < load_timeout:
+            slice_s = min(10, load_timeout - waited)
+            if window.events.loaded.wait(slice_s):
+                loaded = True
+                break
+            waited += slice_s
+            log_line(appdata,
+                     f"app page still loading… {waited}s/{load_timeout}s（注入链未完成）")
+        if loaded:
             log_line(appdata, "app page loaded")
+            cancel_hang_dump()  # 装载成功即撤销 C 层 dump，长会话不再写盘
             if safe_mode:
                 log_line(appdata, "safe mode 生效（保留 render-hang.flag，后续启动仍走安全模式）")
             return
@@ -859,16 +943,22 @@ def ensure_loading_page(appdata: Path) -> str:
 class NativeBridge:
     """原生对话框桥（c-novel-export-roundtrip）——只暴露文件/目录选择，
     零数据面；前端经 window.pywebview.api 调用，探测不到即回退 HTTP。
-    window_ref 由 main() 在 create_window 之后注入。"""
+    _window_ref 由 main() 在 create_window 之后注入。
 
-    window_ref = None
+    ⚠️ 窗口引用**必须**带下划线前缀：pywebview 枚举 js_api 的公开属性时会**递归**遍历
+    非方法属性来收集可调用对象，而原生窗口对象整棵树（WinForms 控件 → WebView2 COM）
+    走不通、还只能 UI 线程访问——现场（2026-10-06 用户机 pywebview.log）因此每次装载
+    刷出成百上千条 `maximum recursion depth exceeded` / `E_NOINTERFACE` 错误。
+    pywebview 的 `get_functions` 只跳过 `_` 前缀名，所以这个下划线不是风格问题。"""
+
+    _window_ref = None
 
     def pick_folder(self):
-        result = self.window_ref.create_file_dialog(webview.FOLDER_DIALOG)
+        result = self._window_ref.create_file_dialog(webview.FOLDER_DIALOG)
         return result[0] if result else None
 
     def pick_save_file(self, default_name: str = "", file_types=None):
-        result = self.window_ref.create_file_dialog(
+        result = self._window_ref.create_file_dialog(
             webview.SAVE_DIALOG,
             save_filename=default_name or "",
             file_types=file_types or ("zip 文件 (*.zip)", "All files (*)"),
@@ -876,7 +966,7 @@ class NativeBridge:
         return result if isinstance(result, str) else (result[0] if result else None)
 
     def pick_open_file(self, file_types=None):
-        result = self.window_ref.create_file_dialog(
+        result = self._window_ref.create_file_dialog(
             webview.OPEN_DIALOG,
             file_types=file_types or ("zip 文件 (*.zip)", "All files (*)"),
             allow_multiple=True,
@@ -922,7 +1012,7 @@ class NativeBridge:
         return out
 
 
-# 模块级单例：main() 在 create_window 后注入 window_ref（v0.15 曾漏掉本行，
+# 模块级单例：main() 在 create_window 后注入 _window_ref（v0.15 曾漏掉本行，
 # js_api=bridge 直接触发 NameError——GUI 启动即炸且 --smoke 测不到）
 bridge = NativeBridge()
 
@@ -951,6 +1041,9 @@ def main():
     args = webview_browser_args(cfg, safe_mode)
     apply_webview_args(args)
     attach_pywebview_log(runtime_dir)
+    # C 层看门狗先架上：GUI 初始化/注入都是可能停摆的段（2026-10-06 现场就停在注入段），
+    # 装载成功后 cancel_hang_dump 撤销
+    arm_hang_dump(runtime_dir)
     if (runtime_dir / SHELL_CONFIG_NAME).exists():
         log_line(runtime_dir, f"shell.json 生效：{cfg}")
     log_line(runtime_dir, "webview: safe_mode=%s args=%r webview2=%s"
@@ -997,7 +1090,7 @@ def main():
         # WebView2 运行时缺失等 GUI 初始化炸点：没有窗口可显示，日志是唯一留痕
         log_line(runtime_dir, "create_window FAILED:\n" + traceback.format_exc())
         return
-    bridge.window_ref = window
+    bridge._window_ref = window
 
     # 「窗口真的显示了」——UI 挂死类报告的第一分界（有这行＝窗口活了，
     # 之后卡住都发生在导航/装载段；没这行＝GUI 初始化段就没起来）
@@ -1025,8 +1118,19 @@ def main():
         webview.start(debug=False)
     except Exception:
         log_line(runtime_dir, "webview.start FAILED:\n" + traceback.format_exc())
-        return
-    log_line(runtime_dir, "GUI loop exited (window closed)")
+    else:
+        log_line(runtime_dir, "GUI loop exited (window closed)")
+
+    # 退出硬化（shell-hang-hardening 2.2）：pywebview 的注入/DOM 回调/bridge 调用三处线程
+    # 都是**非 daemon**（webview/util.py:243/303/335）——一旦卡住，解释器退出时的
+    # `threading._shutdown()` 会 join 它们 → 进程残留在任务管理器、并长期占着数据目录句柄
+    # （2026-10-06 现场"僵尸实例"即此形态）。所以：先给后端一个有界收尾，再无条件下线。
+    # 边界：只覆盖"GUI 循环已退出/启动失败"这两支；GIL 被原生调用占死的冻结形态连
+    # threading.Timer 都跑不到，不在本兜底担保范围内（靠 3.3 的 hang dump 取证）。
+    cancel_hang_dump()
+    graceful = stop_server_gracefully()
+    log_line(runtime_dir, f"backend shutdown: graceful={graceful}；强制退出收尾（不留残留进程）")
+    _force_exit(0)
 
 
 if __name__ == "__main__":

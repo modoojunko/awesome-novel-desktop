@@ -44,6 +44,14 @@ jobs:
           pip install ruff
           ruff check --select F821 client/packaging/build/pywebview_app.py
 
+      # 门禁：js_api 桥的公开面只许方法（c-shell-hang-hardening 1.3）。2026-10-06 事故：
+      # NativeBridge.window_ref 是公开属性，pywebview 注入时会递归遍历公开非方法属性 →
+      # 钻进 WinForms/WebView2 树（跨线程 COM 报错 + 无限递归），装载注入段停摆、白屏。
+      # 运行期同款契约在 backend pytest 的守卫测试里；这里给打包链一道「不 import 也能红」的闸。
+      - name: Lint bridge surface (public attrs must be methods)
+        shell: bash
+        run: python client/packaging/build/check_bridge_surface.py
+
       # 门禁：打包用 PowerShell 脚本必须能被解析。2026-10-06 实锤——sign_win.ps1 里
       # 命令参数位的多行 `+` 拼接被判成语法错误，脚本一被调用就炸（签名步骤整个挂掉）。
       # 解析器是唯一能在非 Windows 上跑起来的校验，故在此钉死（与 F821 同批同节奏）。
