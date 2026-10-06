@@ -9,27 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# 组5（git rm）完成后应清空此清单；存在即说明翻转未完成。
+# 组5 已 git rm：清单为空集＝终态（全禁）。
 ALLOWED: frozenset[str] = frozenset(
-    f"prompts/{name}.prompt"
-    for name in (
-        # —— 组4 过渡期允许清单：现有 58 个模板（组5 收紧时整段删除）——
-        "ai_check", "arc_calibrate", "arc_check", "arc_draft", "arc_tone", "archive_summary",
-        "backfill_characters", "backfill_outlines", "backfill_style", "backfill_synopsis_world",
-        "cast_draw", "cast_review", "chapter_archive_extract", "chapter_plot_draw",
-        "chapter_selfcheck", "chapter_split", "hooks_audit", "hooks_check", "hooks_draft",
-        "hooks_payoff", "name_canon", "outline_fill_gaps", "plot_sim", "polish_text",
-        "pos_ch1", "pos_golden3", "pos_vol_start", "prompt_crafting",
-        "settings_characters_bootstrap", "settings_characters_check", "settings_characters_cog",
-        "settings_characters_dossier", "settings_characters_persona",
-        "settings_genre_battlefield", "settings_genre_core_promise", "settings_genre_cost_ratio",
-        "settings_genre_forbidden_list", "settings_intro_fill", "settings_intro_introspect",
-        "settings_intro_polish", "settings_style", "story_character", "story_stage",
-        "style_check", "style_distill_step1", "style_distill_step2", "style_distill_step3",
-        "style_fewshot_mine", "suggest_meta", "volume_check", "volume_expand",
-        "volume_options", "volume_pos_first", "volume_rules", "world_check",
-        "world_draft_topic", "world_lore_suggest", "write_chapter",
-    )
 )
 
 _BACKEND = Path(__file__).resolve().parents[1]

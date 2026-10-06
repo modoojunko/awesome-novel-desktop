@@ -156,15 +156,18 @@ class TestCommentStripping:
         assert out == "你是文风分析师。\n样本：正文样本"
 
     def test_sibling_source_matches_bundled(self, monkeypatch):
-        """两源对拍：sibling（带注释）剥注释后与包内目录逐字一致（抽样）。"""
+        """两源对拍：sibling（带注释）剥注释后与包内目录逐字一致（抽样）。
+
+        组5 翻转后包内目录已零模板——对拍基线改为「sibling 源可加载且剥注释」；
+        与提示词仓发布包的字节级对拍由该仓 CI 冒烟（publish verify）承担。
+        """
         if not SIBLING_PROMPTS.is_dir():
             pytest.skip("sibling 提示词仓不在位（非 sibling 布局）")
+        monkeypatch.setenv(prompts.DEV_DIR_ENV, str(SIBLING_PROMPTS))
         for name in ("polish_text", "volume_rules", "write_chapter"):
-            monkeypatch.setenv(prompts.DEV_DIR_ENV, str(SIBLING_PROMPTS))
-            from_sib = load(name)
-            monkeypatch.delenv(prompts.DEV_DIR_ENV)
-            from_bundled = load(name)
-            assert from_sib == from_bundled, name
+            text = load(name)
+            assert text.strip(), name
+            assert "★★" not in text and not text.lstrip().startswith("##"), name
 
 
 # ── 包状态同源 ────────────────────────────────────────────────────────────────
