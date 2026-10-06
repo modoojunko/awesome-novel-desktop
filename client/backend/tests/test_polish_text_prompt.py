@@ -67,17 +67,37 @@ def test_v4_templates_format_safe():
 
 def test_v44_tier4_and_near_copy_verdict():
     """v4.4（design D8）：策略栈补第 4 档兜底＋完成判定近拷贝判负——
-    真机复判「产物≈原文」的两件套。锁特征串，防未来改提示词时静默回退。"""
+    真机复判「产物≈原文」的两件套。锁特征串，防未来改提示词时静默回退。
+    含提示词工程师评审整改：清单第 0 条关逃逸、逐句可查判据、档位可叠加、
+    首尾即正文不变量、user 末行回指。"""
     system = _system()
     # 第 4 档：前三档不适用时的兜底杠杆（案例包终局方法论「整段重写换句式骨架」）
+    # ＋评审 P1-3：也是判负后的补刀（档位可叠加非互斥）
     assert "整段重写换句式骨架" in system
     assert "第 4 档" in system
+    assert "也是施完前档后仍被判近拷贝时的补刀" in system
+    assert "档位可叠加不是互斥" in system
     # 策略 1 兜底指向含第 4 档（旧「第 2/3 档或原样保留」退役）
     assert "改用第 2/3/4 档" in system
     assert "改用第 2/3 档或原样保留" not in system
-    # 近拷贝判负（第二条完成判定）＋收尾句三要件
-    assert "逐句近同" in system and "句子骨架没有换" in system
+    # 近拷贝判负：评审 P1-2 逐句可查口径（引号外叙述句×句长结构/主谓关系＋半数阈值）
+    assert "逐句检查引号外的叙述句" in system
+    assert "句长结构与主谓关系照搬" in system
+    assert "半数以上引号外句子照搬原句" in system
+    assert "引号内字句原样不动优先于本判定" in system
+    assert "对话轮次不豁免本判定" in system
     assert "只调整词句、不转换载体、不换骨架的改写，不是本任务的合格产出" in system
+    # 评审 P1-1：清单第 0 条不再签发原样交回（旧「原样保留，不为改而改」退役）
+    assert "原样交回只有「选区全部为既有对话」一种情形合法" in system
+    assert "不为改而改 ≠ 原样交回" in system
+    assert "没有命中以下任何问题的句子，原样保留" not in system
+    # 评审 P2-4：调语序合法边界（伴随句长重排/主谓修饰实质变化）
+    assert "调语序必须伴随句长重排或主谓/修饰关系的实质变化" in system
     # 死路出口收窄：纯既有对话选区是唯一合法回显场景
     assert "选区全部为既有对话原文、引号内字句不可动时，原样保留" in system
     assert "没有策略可施的句子，原样保留" not in system
+    # 评审 P2-7①：末位结构不变量（首尾即正文，旁白必然违反）
+    assert "产物的第一个字必须是正文的第一个字" in system
+    # 评审 P2-7② user 层回指（近因位延伸）——在 user 模板上
+    _, user_t = load_layers("polish_text")
+    assert "完成判定」自检" in user_t
