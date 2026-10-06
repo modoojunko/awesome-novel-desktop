@@ -4,7 +4,7 @@
 > 重算窗口过了仍不解封＝计费侧 enforcement，只有账号主人能处理）。PyInstaller 不能交叉
 > 编译——exe 必须在真 Windows（x64）上构建；Apple Silicon 虚拟机的 Windows ARM64 打出的
 > ARM 包 x64 用户装不了，此路不通。本单＝在任意一台 x64 Windows 机器上复刻 CI 的
-> Windows 链，产物与 CI 同等效力（含代码签名：配了证书两边都签、都没配两边都不签）。
+> Windows 链，产物与 CI 同等效力（含代码签名：两边默认都用仓库自签证书签，配了正式证书两边都自动改用正式证书）。
 
 ## 前置（一次性）
 
@@ -28,14 +28,15 @@ powershell -ExecutionPolicy Bypass -File build_release.ps1          # 版本取�
 预置 `RELEASE_*` env 可覆盖）→ 依赖安装 → PyInstaller（APP_VERSION 注入 exe 版本资源）
 → 三件断言（release.json/LICENSE/THIRD-PARTY-NOTICES 必须真实烘进产物＋release_json_assert）
 → 冒烟（`--smoke` 无头，轮询 `%APPDATA%\AwesomeNovel\port.json` 探 health＋断言 SPA 在服务）
-→ 程序本体签名（未配证书＝警告跳过）→ Inno Setup 出包（有证书时连卸载器一起签，并校验）。
+→ 程序本体签名（默认自签）→ Inno Setup 出包（连卸载器一起签，并校验）。
 
 **产物**：`client\packaging\dist\AwesomeNovel_Setup_<version>.exe`。
 
-**代码签名（决定用户装包时是否看到 SmartScreen「发布者: 未知」）**：配了证书就签，
-没配就只是一条警告——两种都出包。取证书与配置步骤见
-[`client-code-signing.md`](./client-code-signing.md)；内测机不买证书也能用
-`$env:AINOVEL_SIGN_DEV_CERT='1'` 把签名链路走通（自签证书不解除 SmartScreen）。
+**代码签名**：**默认用仓库自签证书**出包（用户 2026-10-06 拍板「自签即可」）——导入过我们根
+证书的机器（测试同学先跑 `client\packaging\cert\install_cert.bat`）会显示发布者
+「Awesome Novel (Dev)」；对外部用户仍显示「发布者: 未知」，SmartScreen 也仍会拦。
+配了正式证书（云签名 / USB token）自动改用它；`$env:AINOVEL_SIGN_DEV_CERT='0'` 可出未签名包。
+细节与采购选项见 [`client-code-signing.md`](./client-code-signing.md)。
 
 ## 出包后的发布末公里（在 Mac 上做即可，不需要 Windows）
 

@@ -127,9 +127,26 @@ def test_ci_pipeline_order_and_verification_gate():
     assert "WINDOWS_SIGN_PFX" in wf, "CI 缺证书 secret 入口"
     assert "IsccArgs" in wf, "iscc 没带签名参数——安装器与卸载器不会签名"
     assert "AwesomeNovel.exe" in wf, "CI 没签程序本体"
-    assert "::warning" in wf and "未签名构建" in wf, (
-        "没配证书时必须打 warning——否则「以为签了其实没签」只有用户能发现"
+    assert "::warning" in wf and "未配置正式签名证书" in wf, (
+        "没配正式证书时必须打 warning（说明本次出的是仓库自签包）——"
+        "否则「以为签了正式证书」只有用户能从 SmartScreen 提示里发现"
     )
+    assert "自签" in wf, "CI 注释/提示必须点明未配正式证书时走的是自签（内测可见发布者、对外仍显示未知）"
+
+
+def test_self_signed_is_the_default_source():
+    """用户 2026-10-06 拍板「自签即可」：无正式证书时**默认**自签，正式证书恒优先，=0 可关。
+
+    这条是行为契约（不是实现细节）——它决定了「内测同学能不能看到发布者名」，
+    以及「将来买到证书是不是只要配一下就自动切换」。"""
+    text = SIGN_SCRIPT.read_text(encoding="utf-8")
+    # 默认自签：没有正式证书时用仓库自签证书（正斜杠路径，Windows 与 pwsh 容器都能解析）
+    assert "cert/cert.pfx" in text, "自签证书路径不存在或写成了仅 Windows 可解析的形态"
+    assert "useDevCert" in text and "hasRealCert" in text, "缺自签默认/正式证书优先的判定"
+    # 关闭开关：=0 出未签名包
+    assert "AINOVEL_SIGN_DEV_CERT" in text and "'0'" in text, "缺 AINOVEL_SIGN_DEV_CERT=0 的关闭开关"
+    # 自签的边界必须在脚本里讲明（对外仍显示未知、不解除 SmartScreen）
+    assert "SmartScreen" in text and "未知" in text, "自签边界（对外仍显示未知/不解除 SmartScreen）没写在脚本里"
 
 
 def test_dev_cert_matches_documented_password_and_brand():

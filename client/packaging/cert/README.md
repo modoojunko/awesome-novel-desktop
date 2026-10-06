@@ -1,7 +1,9 @@
 # 内测自签证书（`cert.pfx`）——给测试同学的说明
 
-这个目录是**内测用**的自签代码签名证书。它的作用只有一个：让**导入过我们根证书的机器**
-在安装/查看安装包时，把「发布者」显示成名字（`Awesome Novel (Dev)`），而不是「发布者未知」。
+这个目录是**内测用**的自签代码签名证书——**2026-10-06 用户拍板「自签即可」，仓库打包默认就用它**
+（本地 `build_release.ps1` 与 CI 出包都会签：程序本体 / 安装器 / 卸载器）。它的作用只有一个：
+让**导入过我们根证书的机器**在安装/查看安装包时，把「发布者」显示成名字（`Awesome Novel (Dev)`），
+而不是「发布者未知」。
 
 > 对外发布仍然必须用买来的公共 CA 证书——自签证书**不解除** SmartScreen「Windows 已保护
 > 你的电脑」，对没导入根证书的机器（也就是所有外部用户）也**仍然显示「发布者未知」**。
@@ -20,15 +22,21 @@
 **SmartScreen 仍然会拦**（这是预期的，别当成失败）：右键安装包 → 属性 → 底部勾「解除锁定」→ 确定，
 再双击安装就不会拦了（去掉「来自互联网」标记）。
 
-## 发布同学：怎么打出这个签名的包
+## 发布同学：怎么发
 
 ```powershell
 cd client\packaging\build
-powershell -ExecutionPolicy Bypass -File build_release.ps1 0.27 -DevSign
+powershell -ExecutionPolicy Bypass -File build_release.ps1 0.27     # 默认就走自签，无需额外开关
 ```
 
-`-DevSign` ＝ 用本目录的 `cert.pfx` 签名（等价于设 `$env:AINOVEL_SIGN_DEV_CERT='1'`）：
-程序本体、安装器、卸载器一起签，出包后脚本会校验签名。**别忘了这一步只对导入过根证书的机器有效**。
+**发给测试同学的东西**（三件一起给，缺一件都看不到发布者名）：
+
+1. 安装包 `client\packaging\dist\AwesomeNovel_Setup_0.27.exe`；
+2. 本目录的 `install_cert.bat` 与 `cert.pfx`（两个文件放同一层目录，测试同学双击 bat 即可）。
+
+开关语义：默认自签；`AINOVEL_SIGN_DEV_CERT=0` → 出未签名包；`-DevSign`（或 `=1`）→ 强制自签
+（即使配了正式证书，用于验内测链路）；配了正式证书（`AINOVEL_SIGN_DLIB` / `_PFX` / `_THUMBPRINT`）
+时正式证书恒优先。
 
 ## 证书本身
 

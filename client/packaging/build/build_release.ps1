@@ -12,12 +12,12 @@
 # 注意：须在仓库根的检出内运行（脚本向上定位仓库根）。
 #
 # 代码签名（2026-10-06 落地，见 docs/ops/client-code-signing.md）：
-#   配了证书环境变量（AINOVEL_SIGN_DLIB / _PFX / _THUMBPRINT）→ 程序本体 + 安装器 + 卸载器
-#   全签名，出包后校验；没配 → 步骤 7 打印警告跳过（包照出）。
-#   -DevSign 开关＝用仓库自签证书签（等价于 $env:AINOVEL_SIGN_DEV_CERT='1'），
-#   **只对「导入过我们根证书的机器」显示发布者**（内测机先跑 client\packaging\cert\install_cert.bat），
-#   对外部用户仍显示「发布者: 未知」且不解除 SmartScreen——原因见
-#   docs/ops/client-code-signing.md 第二节。
+#   **默认＝仓库自签证书**（用户拍板「自签即可」）：程序本体 + 安装器 + 卸载器全签，
+#   出包后校验。效果：**导入过我们根证书的机器**（测试同学先跑
+#   client\packaging\cert\install_cert.bat）会显示发布者「Awesome Novel (Dev)」；
+#   对外部用户仍显示「发布者: 未知」，SmartScreen 也仍会拦（自签不解除提示）。
+#   配了正式证书（AINOVEL_SIGN_DLIB / _PFX / _THUMBPRINT）→ 自动优先用正式证书，零改动；
+#   AINOVEL_SIGN_DEV_CERT=0 → 出未签名包；-DevSign → 强制自签（验内测链路用）。
 
 [CmdletBinding()]
 param(
@@ -138,7 +138,7 @@ Step '6/8 冒烟测试' {
     }
 }
 
-# ── 7. 程序本体签名（未配证书＝警告跳过；必须在 Inno 打包前，否打进安装包的还是未签名件）──
+# ── 7. 程序本体签名（默认自签；必须在 Inno 打包前，否打进安装包的还是未签名件）──
 Step '7/8 程序本体签名' {
     $exe = Join-Path $BuildDir 'dist\AwesomeNovel\AwesomeNovel.exe'
     & (Join-Path $BuildDir 'sign_win.ps1') -Action Sign -Path $exe
@@ -158,7 +158,7 @@ Step '8/8 Inno Setup 安装包' {
         $signArgs = @(& (Join-Path $BuildDir 'sign_win.ps1') -Action IsccArgs)
         & $iscc "/DMyAppVersion=$Version" @signArgs installer.iss
         if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 构建失败' }
-        # 配了证书却没签上＝链路坏了，此处直接失败（未配证书时本步只警告）
+        # 没签上＝链路坏了，此处直接失败（显式关闭签名时本步只警告）
         $signed = Get-ChildItem -Path (Join-Path $RepoRoot 'client\packaging\dist') -Filter 'AwesomeNovel_Setup_*.exe' |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
         & (Join-Path $BuildDir 'sign_win.ps1') -Action Verify -Path $signed.FullName

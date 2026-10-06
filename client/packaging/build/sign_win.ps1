@@ -8,22 +8,27 @@
 # 见 docs/ops/client-code-signing.md。
 #
 # 证书来源（按优先级）：
-#   1) AINOVEL_SIGN_DLIB            云签名/天价 HSM 的标准接口：signtool /dlib <厂商 dll>
+#   1) AINOVEL_SIGN_DLIB            云签名/HSM 的标准接口：signtool /dlib <厂商 dll>
 #                                    （+ AINOVEL_SIGN_DMDF 指向元数据 json）——Azure Trusted
-#                                    Signing、各家云签名服务都走这条；**当前公共 CA 的主流形态**
+#                                    Signing、各家云签名服务都走这条
 #   2) AINOVEL_SIGN_PFX             PFX 文件路径（+ AINOVEL_SIGN_PFX_PASSWORD）
-#                                    —— 内部 PKI / 自签 / 2023-06 前签发的旧证书
+#                                    —— 内部 PKI / 2023-06 前签发的旧证书
 #   3) AINOVEL_SIGN_THUMBPRINT      证书指纹（装在当前用户/机器证书存储里）
 #                                    —— USB 硬件 token 形态（私钥在 token 里，signtool 会弹 PIN）
-#   4) AINOVEL_SIGN_DEV_CERT=1      仓库自签证书 client/packaging/cert/cert.pfx
-#                                    —— 仅供内测/自验签名链路，**不解除 SmartScreen**
-# 都没有 → 不签名：Sign/Verify 只打印警告（发版不因缺证书挂掉），
+#   4) 仓库自签证书（**默认**）      client/packaging/cert/cert.pfx
+#                                    —— 2026-10-06 用户拍板「自签即可」：没有正式证书时默认走它，
+#                                    让导入过根证书的机器（内测同学）看到发布者名；
+#                                    **不解除 SmartScreen，对外部用户仍显示「发布者: 未知」**。
+#                                    AINOVEL_SIGN_DEV_CERT=0 关掉（出未签名包）；
+#                                    =1 强制自签（即使配了正式证书，用于验内测链路）。
+# 都没有（即显式关闭） → 不签名：Sign/Verify 只打印警告（发版不因缺证书挂掉），
 #          IsccArgs 不输出任何参数（Inno 侧 SignTool 指令不启用，编译结果与历史一致）。
 #
 # ⚠️ 2023-06-01 起 CA/B 规则要求代码签名私钥必须由硬件保护（FIPS 140-2 L2 / CC EAL4+）
-#    且不可导出——**公共 CA 已不再签发可导出 PFX 的代码签名证书**。所以正经采购拿到的是
-#    云签名服务或 USB token，前者进 CI（本脚本 /dlib 分支），后者只能在插着 token 的
-#    Windows 上本地发版（/sha1 分支）。详见 docs/ops/client-code-signing.md。
+#    且不可导出——**公共 CA 已不再签发可导出 PFX 的代码签名证书**。将来真要买，拿到的是
+#    云签名服务（进 CI，本脚本 /dlib 分支）或 USB token（插着 token 的 Windows 本地发版，
+#    /sha1 分支）——两者都已支持，买到即接上，正式证书自动优先于自签。
+#    详见 docs/ops/client-code-signing.md。
 #
 # 其他可调项：AINOVEL_SIGN_TIMESTAMP_URL（默认 DigiCert RFC3161）、AINOVEL_SIGN_DESCRIPTION。
 #
@@ -71,9 +76,18 @@ function Get-SignConfig {
     $dlib = $env:AINOVEL_SIGN_DLIB
     $dmdf = $env:AINOVEL_SIGN_DMDF
 
-    if ($env:AINOVEL_SIGN_DEV_CERT -eq '1') {
+    # 自签（默认）：2026-10-06 用户拍板「自签即可」——没有正式证书时默认用仓库自签证书，
+    # 让导入过根证书的机器（内测同学）看到发布者名。正式证书恒优先；=0 关掉；=1 强制自签。
+    $hasRealCert = [bool]($pfx -or $thumbprint -or $dlib)
+    $useDevCert = ($env:AINOVEL_SIGN_DEV_CERT -eq '1') -or
+        (-not $hasRealCert -and $env:AINOVEL_SIGN_DEV_CERT -ne '0')
+    if ($useDevCert) {
         # 自签证书：密码写在证书目录的安装脚本里（本就不是秘密），这里同步一份默认值
-        $pfx = Join-Path $PSScriptRoot '..\cert\cert.pfx'
+        # 正斜杠：Windows 与 POSIX 都能解析（本脚本要在 pwsh 容器里做解析/逻辑验证）
+        $pfx = Join-Path $PSScriptRoot '../cert/cert.pfx'
+        $thumbprint = $null
+        $dlib = $null
+        $dmdf = $null
         if (-not $password) { $password = 'ainovel123' }
     }
 
@@ -111,15 +125,15 @@ function Get-SignConfig {
         Timestamp   = $ts
         Description = $desc
         Kind        = $kind
+        IsDevCert   = $useDevCert
     }
 }
 
 function Write-NotConfiguredWarning {
     # 拼接一律把 + 放在行尾：命令参数位（Write-Warning (...)）里的换行会让解析器
     # 在行末就收束语句，行首的 + 变成语法错误（2026-10-06 被 pwsh 解析门禁抓到过）
-    $message = '未配置 Windows 代码签名证书（AINOVEL_SIGN_PFX / AINOVEL_SIGN_THUMBPRINT）' +
-        '——产物不签名，用户安装时会看到 SmartScreen「已保护你的电脑 / 发布者: 未知」。' +
-        '取证书与配置步骤见 docs/ops/client-code-signing.md'
+    $message = '签名已显式关闭（AINOVEL_SIGN_DEV_CERT=0）——产物不签名：安装包既没有发布者名，' +
+        '也会被 SmartScreen 拦（对外与内测都一样）。去掉该变量即恢复默认的自签证书。'
     Write-Warning $message
 }
 
@@ -141,7 +155,7 @@ function Invoke-SignFile {
     if ($Config.Description) { $arguments += @('/d', $Config.Description) }
     $arguments += $FilePath
 
-    Write-Host "签名（$($Config.Kind)）：$FilePath"
+    Write-Host "签名（$($Config.Kind)$(if ($Config.IsDevCert) { '，仓库自签' })）：$FilePath"
     & $Config.SignTool @arguments
     if ($LASTEXITCODE -ne 0) { throw "signtool 退出码 $LASTEXITCODE：$FilePath" }
     Write-Host "  OK -> $FilePath"
@@ -169,10 +183,16 @@ $config = Get-SignConfig
 switch ($Action) {
     'Resolve' {
         if (-not $config) {
-            Write-Host '签名：未配置（产物不会签名，SmartScreen 会提示发布者未知）'
+            Write-Host '签名：未配置（签名已显式关闭，产物不带发布者名、也不解除 SmartScreen）'
             break
         }
         Write-Host "签名：已配置 kind=$($config.Kind) signtool=$($config.SignTool) timestamp=$($config.Timestamp)"
+        if ($config.IsDevCert) {
+            Write-Warning ('用的是仓库自签证书（内测默认）：只有「导入过我们根证书的机器」' +
+                '（内测同学先跑 client\packaging\cert\install_cert.bat）会显示发布者名；' +
+                '对外部用户仍显示「发布者: 未知」，SmartScreen 也仍会拦。' +
+                '买到正式证书（云签名 / USB token）后配好即自动改用它。')
+        }
     }
     'Sign' {
         if (-not $config) { Write-NotConfiguredWarning; break }
