@@ -402,9 +402,9 @@ export default function SettingsView({
   );
 
   // 文风右栏四行（style-settings-v2；data-aiact s1-s4）：蒸馏跳量化页签并打开样本面板。
-  // 蒸馏＝style-quant（MAX 专属，四档拆 key）——maxlk 锁视觉但保持可点：点击过 guard
-  // （标准档 state=ready）→ 后端 403 feature_required → api.ts 广播 member-block 升级出口
-  // （AiWriterAssistant 行契约：锁定行 SHALL NOT disabled——吞 click 即无出口）
+  // 蒸馏＝style-quant（MAX 专属，四档拆 key）——maxlk 锁视觉但保持可点，非 MAX 点击
+  // 端内直出升级口（member-block），不发请求；前端快照误放行时后端 style-quant 门
+  // 403 兜底。（AiWriterAssistant 行契约：锁定行 SHALL NOT disabled——吞 click 即无出口）
   const styleQuant = useFeature("style-quant");
   const styleAiRows = useMemo<AiCapabilityRow[]>(
     () => [
