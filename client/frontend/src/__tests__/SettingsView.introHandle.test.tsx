@@ -24,8 +24,11 @@ vi.mock("@/lib/ai", () => ({
   aiBlockReason: () => null,
 }));
 
+// key 感知 mock：默认全放行（既有用例口径）；style-quant 可被用例翻假（蒸馏行 MAX 锁）
+const tierState = vi.hoisted(() => ({ styleQuant: true }));
+
 vi.mock("@/hooks/useTier", () => ({
-  useFeature: () => true,
+  useFeature: (key: string) => (key === "style-quant" ? tierState.styleQuant : true),
   useTier: () => ({ isPro: true, isFree: false, tier: "pro" }),
 }));
 
@@ -523,5 +526,45 @@ describe("简介体检 · 标题对照（D21，只提示不代改）", () => {
     const body = await openCheckCard(container);
     expect(body.textContent).toContain("标题对照：一致");
     expect(body.textContent).not.toContain("仅供参考");
+  });
+});
+
+describe("SettingsView · 文风右栏蒸馏行（style-quant＝MAX，c-tier-gating-completion）", () => {
+  const renderStyle = () =>
+    render(
+      <SettingsView
+        projectId="p1"
+        initialPanel="style"
+        settingsStatus={{}}
+        confirmedStatus={{}}
+        confirmSetting={vi.fn().mockResolvedValue(true)}
+        novelName="测试小说"
+      />,
+    );
+  const distillRow = (container: HTMLElement) =>
+    container.querySelector('[data-aiact="distill"]') as HTMLButtonElement;
+
+  beforeEach(() => {
+    apiState.get.mockReset();
+    apiState.get.mockResolvedValue({});
+    tierState.styleQuant = true;
+  });
+
+  it("MAX 档：蒸馏行无锁可点", () => {
+    const { container } = renderStyle();
+    const row = distillRow(container);
+    expect(row).not.toBeNull();
+    expect(row.className).not.toContain("zq-maxlk");
+    expect(row).not.toBeDisabled();
+    expect(row.textContent).not.toContain("MAX 专属");
+  });
+
+  it("非 MAX 档：maxlk 锁视觉＋hint，但保持可点（锁定行 SHALL NOT disabled——吞 click 即无出口）", () => {
+    tierState.styleQuant = false;
+    const { container } = renderStyle();
+    const row = distillRow(container);
+    expect(row.className).toContain("zq-maxlk");
+    expect(row.textContent).toContain("MAX 专属");
+    expect(row).not.toBeDisabled();
   });
 });

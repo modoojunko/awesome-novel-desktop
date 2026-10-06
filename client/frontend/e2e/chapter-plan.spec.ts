@@ -336,6 +336,31 @@ test("免费档：右栏 AI 入口锁定（PRO 说明），中栏手写照常可
   }
 });
 
+test("免费档自检拦截：点「AI 看一眼」走升级出口，selfcheck 零请求（c-tier-gating-completion）", async ({ page }) => {
+  const { restore } = await setupSession(page, "none");
+  try {
+    await createNovelWithVolume(page, `自检拦截${Date.now() % 100000}`);
+    await page.getByRole("button", { name: /^写作/ }).click();
+    await page.locator(".vol-head .vt").first().click();
+    await goChaptersTab(page);
+    let selfcheckCalls = 0;
+    await page.route("**/ai-selfcheck", (r) => {
+      selfcheckCalls += 1;
+      r.fulfill({ json: { ok: true } });
+    });
+    await page.route("**/next-chapter-anchor", (r) => r.fulfill({ json: { ok: true, text: "起点", source: "首卷" } }));
+    await page.getByTestId("volume-split-manual").click();
+    await expect(page.getByTestId("d-plot")).toBeVisible({ timeout: 5000 });
+    // 免费档：胶囊在、点击不发请求、走全局升级引导（规格 SHALL NOT 发起调用）
+    await expect(page.getByTestId("selfcheck-locked")).toBeVisible();
+    await page.getByTestId("selfcheck-run").click();
+    await expect(page.getByTestId("member-block-prompt")).toBeVisible();
+    expect(selfcheckCalls).toBe(0);
+  } finally {
+    await restore();
+  }
+});
+
 test("删章守卫：非尾章 409（先删其后或重拆）", async ({ page, request }) => {
   test.setTimeout(60000); // 两轮拆章＋两发直查，30s 不够
   const { restore, token } = await setupSession(page);

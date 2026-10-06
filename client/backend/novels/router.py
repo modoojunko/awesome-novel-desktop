@@ -125,7 +125,6 @@ GENRE_CORPUS_NAMES = {
 
 
 @router.post("", status_code=201)
-@ai_feature("ai-plan")
 async def create(
     body: CreateProjectBody,
     user: dict = Depends(get_current_user),

@@ -57,7 +57,7 @@ export interface ChapterPlanState {
   degradedText: string;
   pick: number | null;
   draft: ChapterDraft;
-  /** 自检（手写卡底条触发；免费）——三组：衔接/配额（本地）＋剧情吸引力（AI 四维短评） */
+  /** 自检（手写卡底条触发；chapter-review 标准档起）——三组：衔接/配额（本地）＋剧情吸引力（AI 四维短评） */
   /** 下一章章号（服务端 anchor 单源；打开即取，标题/行号用） */
   nextNo: number;
   /** 回改目标（非空＝在改已有拟定章；排上按钮变「保存这一章」，不新建） */
@@ -92,8 +92,24 @@ const INITIAL = (): ChapterPlanState => ({
   exclude: [], oneLiners: [], drawnNo: null,
 });
 
-export function useChapterPlan(projectId: string, volNo: number, volRef: string) {
+/** 档位门接线（c-tier-gating-completion）：自检归 chapter-review（标准档起）。
+ *  hasChapterReview 缺省（未接线调用方/既有测试）放行——拦截语义由接线方显式下发。 */
+export interface ChapterPlanGateOpts {
+  hasChapterReview?: boolean;
+  /** 统一升级出口（member-block 全局引导；与 CastReviewModal 先例同口径） */
+  onUpgrade?: () => void;
+}
+
+export function useChapterPlan(
+  projectId: string,
+  volNo: number,
+  volRef: string,
+  opts?: ChapterPlanGateOpts,
+) {
   const [state, setState] = useState<ChapterPlanState>(() => INITIAL());
+  // 门参数走 ref：回调身份稳定，不必把 opts 铺进各 useCallback 依赖
+  const gateRef = useRef(opts);
+  gateRef.current = opts;
   const tokenRef = useRef(0);
   const nextToken = () => ++tokenRef.current;
   // 进场锚独立 token：它是「当前上下文」的读，不该被同一开的 draw/adopt 作废
@@ -300,8 +316,13 @@ export function useChapterPlan(projectId: string, volNo: number, volRef: string)
     setState((s) => ({ ...s, entrySource: "manual", phase: "idle", error: "" }));
   }, []);
 
-  /** 自检（手写卡底条；免费）——卡面草稿随请求携带（排上之前章未落库） */
+  /** 自检（手写卡底条；chapter-review 标准档起）——卡面草稿随请求携带（排上之前章未落库）。
+   *  无 key 拦截置首行：任何请求不发（含 anchor 补取），直接走统一升级出口。 */
   const runSelfcheck = useCallback(async () => {
+    if (gateRef.current?.hasChapterReview === false) {
+      gateRef.current?.onUpgrade?.();
+      return;
+    }
     const token = ++selfcheckTokenRef.current;
     const d = state.draft;
     setState((s) => ({ ...s, selfchecked: true, selfchecking: true, selfcheck: null }));

@@ -29,6 +29,7 @@ import GenreSettingForm, {
 import { INTRO_SEGMENTS, INTRO_FORMULA, DONT_DO, INTRO_MAX_LEN, TABOO_RULES } from "@/lib/introTemplate";
 import { GENRE_DEFINITION } from "@/lib/genreVocab";
 import { useModelStatus } from "@/hooks/useModelStatus";
+import { useFeature } from "@/hooks/useTier";
 import type { AiState } from "@/types/api-config";
 import AiWriterAssistant, {
   CharsAiRail,
@@ -400,14 +401,29 @@ export default function SettingsView({
     [hookCtx, runHooksAi],
   );
 
-  // 文风右栏四行（style-settings-v2；data-aiact s1-s4）：蒸馏跳量化页签并打开样本面板
+  // 文风右栏四行（style-settings-v2；data-aiact s1-s4）：蒸馏跳量化页签并打开样本面板。
+  // 蒸馏＝style-quant（MAX 专属，四档拆 key）——maxlk 锁视觉但保持可点：点击过 guard
+  // （标准档 state=ready）→ 后端 403 feature_required → api.ts 广播 member-block 升级出口
+  // （AiWriterAssistant 行契约：锁定行 SHALL NOT disabled——吞 click 即无出口）
+  const styleQuant = useFeature("style-quant");
   const styleAiRows = useMemo<AiCapabilityRow[]>(
     () => [
       {
         key: "distill",
         name: "蒸馏我的文风",
         desc: "交 3,000–10,000 字你认可的案例 → 出「作者画像」给你确认 → 六行基线落卡 · 输入：粘贴文本、novel-samples 或已归档章节",
-        onClick: () => runStyleAi("distill"),
+        badge: styleQuant ? undefined : <span className="pill pill-warn">MAX 专属</span>,
+        variant: styleQuant ? undefined : "maxlk",
+        onClick: () => {
+          if (!styleQuant) {
+            // 端内直出升级口（zhuque 行先例）；后端 style-quant 门仍是权威兜底
+            window.dispatchEvent(
+              new CustomEvent("member-block", { detail: { message: "文风蒸馏为 MAX 专属——升级后解锁" } }),
+            );
+            return;
+          }
+          runStyleAi("distill");
+        },
       },
       {
         key: "polish",
@@ -428,7 +444,7 @@ export default function SettingsView({
         onClick: () => runStyleAi("fewshot"),
       },
     ],
-    [runStyleAi],
+    [runStyleAi, styleQuant],
   );
 
   useEffect(() => {

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth_local.deps import ai_feature, require_ai_access
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.ai_backfill import step1_backfill, step2_backfill
@@ -151,9 +152,11 @@ async def ai_backfill_status(
 
 
 @backfill_router.post("/ai-backfill/step1")
+@ai_feature("ai-plan")  # 确定性 AI 提取＝建书辅助 AI（与 /ai/suggest-meta 同档；评审 #12 收口）
 async def ai_backfill_step1(
     project_id: str,
     user: dict = Depends(get_current_user),
+    _gate: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_novel(db, project_id, user["id"])
@@ -182,10 +185,12 @@ async def ai_backfill_step1(
 
 
 @backfill_router.post("/ai-backfill/step2")
+@ai_feature("ai-plan")
 async def ai_backfill_step2(
     project_id: str,
     body: dict,
     user: dict = Depends(get_current_user),
+    _gate: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     project = await get_novel(db, project_id, user["id"])

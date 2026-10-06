@@ -299,13 +299,22 @@ class TestNormalizeClosed:
 
 
 class TestReviewEndpoint:
-    def test_free_review_ok_without_card_fields(self, monkeypatch):
-        """负向锚：免费作家盘点可用（不挂 require_ai_access），响应无提案卡字段。"""
+    def test_free_direct_review_is_403(self, monkeypatch):
+        """负向锚：免费直调 ai-review→403 member_required（只读盘点归 ai-plan 标准档，
+        c-tier-gating-completion 收门——原「免费只读例外」退役）。"""
         nid = asyncio.run(_seed())
         _free_tier(monkeypatch)
         _patch(monkeypatch, _FakeClient(json.dumps(GOOD_ROWS, ensure_ascii=False)))
-        # access=False＝不覆盖真实 require_ai_access（免费档真跑也不会拦盘点）
         r = _post(nid, "cast/ai-review", _body(), access=False)
+        assert r.status_code == 403, r.text
+        assert r.json()["detail"]["reason"] == "member_required"
+
+    def test_review_ok_without_card_fields(self, monkeypatch):
+        """负向锚：盘点响应无提案卡字段（rows/quota/hints/warnings 四键）。"""
+        nid = asyncio.run(_seed())
+        _patch(monkeypatch, _FakeClient(json.dumps(GOOD_ROWS, ensure_ascii=False)))
+        # access=True 覆盖门依赖——本钉只管响应形状，档位语义由上一钉与 HTTP 钉管
+        r = _post(nid, "cast/ai-review", _body(), access=True)
         assert r.status_code == 200, r.text
         body = r.json()
         assert set(body.keys()) == {"rows", "quota", "hints", "warnings"}
