@@ -31,7 +31,7 @@
 - [x] 5.1 后端受影响的存量测试逐个实跑并修种子/断言（不得放宽门禁）：`test_volume_plan_ai.py`（体检族 :413-484 两条「免费档能 200 即证明不挂门禁」断言＝语义翻转点，改判 403＋补标准档过门钉）；`test_chapter_plan_ai_t3.py`（:177 自检用例 docstring「免费档不被门禁拒」翻转——种子 bump trial 保住提示词内容断言＋另补免费 403 钉）；`test_cast_review_ai.py`（全文件无档位种子＝默认免费档，收门后预计整文件红，模块级补 trial 种子）；`test_style_settings_v2.py`（蒸馏族 seed trial→max）；`test_plan_pacing_rules.py`。verification：`cd client/backend && .venv/bin/python -m pytest` 全量绿——**1956 passed / 1 skipped / 0 failed**。实况批注：`test_style_settings_v2.py` 无需动种子（该文件模块级 override require_ai_access，门语义由 HTTP 钉子文件管）；`test_volume_plan_ai.py` 体检族与 `test_chapter_plan_ai_t3.py` 自检族按翻转改判据（trial 过门保内容断言），`test_cast_review_ai.py` 新增免费直调 403 钉＋形状钉改走门 override
 - [x] 5.2 `client/frontend` vitest：新增/更新 useChapterPlan、ChapterPlanModal、SettingsView 用例——优先扩进既有测试文件；若新增文件，同批登记 `coverage-contract.ts`（仓规：新前端测试文件不入表 CI 红）。verification：`npx vitest run` 全量绿（记录数字）
 - [x] 5.3 e2e：`style-quant.spec.ts` 逐用例过——凡触蒸馏链的换 max 种子（若存在「trial 可蒸馏」断言＝语义翻转点改判据）；`chapter-plan.spec.ts` 补免费档自检拦截断言（点击弹升级、selfcheck 与 anchor 零请求；现有免费段 :310-330 无自检断言、现有自检用例 trial 种子收门后仍绿，已实勘）；`cast-review/volume-plan` 复核锁态断言。verification：受影响 spec 在隔离栈实跑全绿——**34/34**（chapter-plan 12＋cast-review ＋style-quant 6＋volume-plan 5；隔离栈 -p an-tg，端口 5175/8010/19010/5176，容器/数据目录全独立；前后端容器特征串自证＝「文风蒸馏为 MAX 专属」「章纲自检需开通」「只读评估归标准档」；跑完 down -v 销毁）。插曲：老 spec（style-quant/volume-plan）不认 E2E_CLIENT_DATA、硬编码仓库根 .docker-data/client——worktree 软链到隔离数据目录解决，零代码改动
-- [ ] 5.4 `test_dossier_pipeline.py` 等使用 `ai_access_granted` 桩的存量测试复核（归档撤门语义不受本改影响）。verification：相关文件实跑绿
+- [x] 5.4 `test_dossier_pipeline.py` 等使用 `ai_access_granted` 桩的存量测试复核（归档撤门语义不受本改影响）。verification：相关文件实跑绿——全量 pytest 1956 passed/0 failed 覆盖（含 test_dossier_pipeline/test_archive_free 族，两次复跑同数）
 
 ## 6. 归档前对齐（tier-plan-four-tiers 文档）
 
