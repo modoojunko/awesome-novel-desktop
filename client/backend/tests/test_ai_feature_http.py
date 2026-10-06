@@ -102,6 +102,12 @@ def _post(path: str):
                        headers={"Authorization": "Bearer tok-feathttp"})
 
 
+def _post_ch(path: str):
+    """章级路由（/chapters 前缀直挂、无 chapter_ref 段——ai-selfcheck 同形）。"""
+    return client.post(f"/api/novels/{PROJ}/chapters{path}", json={},
+                       headers={"Authorization": "Bearer tok-feathttp"})
+
+
 def test_plot_sim_trial_403_feature_required():
     """trial（=pro 同权）打 ai-plot 端点 → 403 feature_required（tier_required=max）。"""
     _set_session("trial")
@@ -157,4 +163,78 @@ def test_polish_gate_max_passes_feature_gate():
     """max 打 /write/polish 须过档位门（非 403）。"""
     _set_session("max")
     r = _post("/write/polish")
+    assert r.status_code != 403
+
+
+# ── 原免费只读三端点收标准档（c-tier-gating-completion）────────────────────────
+# 回归（2026-10-06）：ai-selfcheck / volumes ai-check / cast ai-review 原挂「免费只读
+# 例外」未收门，规格（tier-plan-four-tiers）明文上移标准档——免费配了 Key 即可白嫖
+# AI 评估。口径：chapter-review/ai-plan 标准起，免费 member_required、标准过门。
+
+def _hdr():
+    return {"Authorization": "Bearer tok-feathttp"}
+
+
+def test_selfcheck_free_member_required():
+    _set_session("free")
+    r = _post_ch("/ai-selfcheck")
+    assert r.status_code == 403
+    assert r.json()["detail"]["reason"] == "member_required"
+
+
+def test_selfcheck_standard_passes_feature_gate():
+    _set_session("standard")
+    assert _post_ch("/ai-selfcheck").status_code != 403
+
+
+def test_volume_check_free_member_required():
+    _set_session("free")
+    r = client.post(f"/api/novels/{PROJ}/volumes/vol-1/ai/check", headers=_hdr())
+    assert r.status_code == 403
+    assert r.json()["detail"]["reason"] == "member_required"
+
+
+def test_volume_check_standard_passes_feature_gate():
+    _set_session("standard")
+    r = client.post(f"/api/novels/{PROJ}/volumes/vol-1/ai/check", headers=_hdr())
+    assert r.status_code != 403
+
+
+def test_cast_review_free_member_required():
+    _set_session("free")
+    r = _post("/cast/ai-review")
+    assert r.status_code == 403
+    assert r.json()["detail"]["reason"] == "member_required"
+
+
+def test_cast_review_standard_passes_feature_gate():
+    _set_session("standard")
+    assert _post("/cast/ai-review").status_code != 403
+
+
+# ── 文风蒸馏 ↔ 三区 AI 的 key 归位钉（style-quant=MAX / style-suggest=标准）──
+
+def test_style_distill_standard_403_max():
+    """文风蒸馏 = style-quant（MAX 专属）：standard → 403 feature_required(max)。"""
+    _set_session("standard")
+    r = client.post(f"/api/novels/{PROJ}/settings/ai/style-distill/step1",
+                    json={}, headers=_hdr())
+    assert r.status_code == 403
+    detail = r.json()["detail"]
+    assert detail["reason"] == "feature_required"
+    assert detail["tier_required"] == "max"
+
+
+def test_style_distill_max_passes_feature_gate():
+    _set_session("max")
+    r = client.post(f"/api/novels/{PROJ}/settings/ai/style-distill/step1",
+                    json={}, headers=_hdr())
+    assert r.status_code != 403
+
+
+def test_style_ai_standard_passes_feature_gate():
+    """三区 AI = style-suggest（标准起）：standard 过门（非 403）——与蒸馏拆 key 不误伤。"""
+    _set_session("standard")
+    r = client.post(f"/api/novels/{PROJ}/settings/ai/style/check",
+                    json={}, headers=_hdr())
     assert r.status_code != 403

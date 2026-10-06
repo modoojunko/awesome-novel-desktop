@@ -499,10 +499,20 @@ export default function NovelWorkspace() {
     "vol-1";
   const [planVolRef, setPlanVolRef] = useState<string | null>(null);
   const planTargetVolRef = planVolRef ?? activeVolRef;
+  // 自检归 chapter-review（标准档起，c-tier-gating-completion）：免费点「AI 看一眼」
+  // 不发请求，走全局升级引导（member-block → UpgradeModal）
+  const hasChapterReview = useFeature("chapter-review");
   const chapterPlan = useChapterPlan(
     projectId,
     Number(planTargetVolRef.replace("vol-", "")) || 1,
     planTargetVolRef,
+    {
+      hasChapterReview,
+      onUpgrade: () =>
+        window.dispatchEvent(
+          new CustomEvent("member-block", { detail: { message: "章纲自检需开通（标准档起）——开通后 AI 帮你看这一章" } }),
+        ),
+    },
   );
   /** 拆章入口统一走这里：先把目标卷钉住，再开对应卡面 */
   const openChapterPlan = useCallback(

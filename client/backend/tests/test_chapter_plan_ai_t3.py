@@ -177,9 +177,14 @@ DRAFT = {
 
 class TestSelfcheckDraft:
     def test_pre_adopt_draft_three_groups(self, client, monkeypatch):
-        """排上前（本卷 0 章）自检：三组齐；草稿五段真进了提示词；免费档不被门禁拒。"""
+        """排上前（本卷 0 章）自检：三组齐；草稿五段真进了提示词。
+
+        自检归 chapter-review（标准档起，c-tier-gating-completion 收门）——原「免费档
+        不被门禁拒」前提随四档翻转，此处 trial 过门保住提示词内容断言；免费 403 由
+        tests/test_ai_feature_http.py::test_selfcheck_free_member_required 钉。
+        """
         pid = _seed(client)
-        _service.save_local_config({"tier": "none", "expires_at": "", "api_key": "sk-test"})
+        _service.save_local_config({"tier": "trial", "expires_at": "2099-12-31", "api_key": "sk-test"})
         fake = _setup_ai(monkeypatch, VALID_SELFCHECK)
 
         r = client.post(f"/api/novels/{pid}/chapters/ai-selfcheck", json=DRAFT)

@@ -410,18 +410,18 @@ class TestVolumeExpand:
         assert _token_log_count(pid) >= 2  # 两次尝试都留痕
 
 
-# ═══════════════ 卷纲体检（免费）═══════════════
+# ═══════════════ 卷纲体检（标准档起，c-tier-gating-completion 收门）═══════════════
 
 
 class TestVolumeCheck:
-    def test_free_tier_three_groups_and_none_placeholder(self, client, monkeypatch):
-        # 免费档全库限建 1 本书（同模块 DB 共享，前面用例已占额），先 trial 建书建卷，
-        # 再翻回免费档打体检——能 200 即证明体检不挂 PRO 门禁。
+    def test_three_groups_and_none_placeholder(self, client, monkeypatch):
+        # 报告形状钉：三组齐、零章节 none 占位、证据独立字段、判据逐字入包。
+        # 卷体检归 ai-plan（标准档起）——原「免费档能 200 即证明不挂门禁」断言随四档
+        # 收门翻转；免费 403 由 tests/test_ai_feature_http.py 钉。
         _set_tier("trial")
         pid = _mk_project(client)
         r = client.post(f"/api/novels/{pid}/volumes", json={"title": "第一卷"})
         assert r.status_code in (200, 201), r.text
-        _set_tier("none")  # 免费档
 
         reply = json.dumps(
             {
@@ -441,7 +441,7 @@ class TestVolumeCheck:
             ensure_ascii=False,
         )
         fake = _setup_ai(monkeypatch, [reply])
-        # 免费档可直接体检（不挂 require_ai_access；require_novel_model 已在模块级覆盖为可用）
+        # trial 含 ai-plan 过档位门（体检随时可重复、只读不拦语义不变）
         r = client.post(f"/api/novels/{pid}/volumes/vol-1/ai/check")
         assert r.status_code == 200, r.text
         d = r.json()["report"]

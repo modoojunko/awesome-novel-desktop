@@ -1,7 +1,7 @@
 """章纲人物精盘 · AI 链路（c-character-intro）。
 
-- 盘点：POST /api/novels/{id}/chapters/{ref}/cast/ai-review（免费只读——`require_novel_model`
-  例外，照 ai-selfcheck 先例；输入＝请求体表单快照，不读库回退）
+- 盘点：POST /api/novels/{id}/chapters/{ref}/cast/ai-review（ai-plan 标准档起——原免费只读
+  例外随四档退役；输入＝请求体表单快照，不读库回退）
 - 抽卡：POST /api/novels/{id}/chapters/{ref}/cast/ai-draw（PRO 生成类——`require_ai_access`）
 
 复用纪律：生成/解析/计量走 volumes.ai_plan 既有链路（_generate/_parse_json/_render），
@@ -600,12 +600,14 @@ async def _load_chapter(db, project, chapter_ref: str):
 
 
 @router.post("/ai-review")
+@ai_feature("ai-plan")
 async def cast_ai_review(
     project_id: str,
     chapter_ref: str,
     body: CastReviewBody,
     user: dict = Depends(get_current_user),
-    __: bool = Depends(require_novel_model),  # 只读例外：免费可用（不挂 require_ai_access）
+    _: bool = Depends(require_ai_access),  # 只读盘点归标准档（原免费例外随四档退役）
+    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     """逐段人物盘点（只读、不落库；零新增是常态输出）。输入＝请求体表单快照。"""

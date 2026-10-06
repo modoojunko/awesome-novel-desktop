@@ -184,7 +184,7 @@ test.describe.serial("文风量化蒸馏链路", () => {
   test("① 蒸馏全链：样本→三步→画像确认落卡→基线渲染→锁定切换", async ({
     page,
   }) => {
-    const { restore } = await setupSession(page);
+    const { restore } = await setupSession(page, "max"); // 蒸馏＝style-quant（MAX 专属，c-tier-gating-completion）
     try {
       const pid = await createNovel(page, `蒸馏${Date.now() % 100000}`);
       await stubAiState(page, pid, "ready");
@@ -286,7 +286,7 @@ test.describe.serial("文风量化蒸馏链路", () => {
   });
 
   test("② 区间不足：合计 <3,000 → 开始蒸馏禁用＋补样本提示", async ({ page }) => {
-    const { restore } = await setupSession(page);
+    const { restore } = await setupSession(page, "max"); // 蒸馏样本面板同归 MAX
     try {
       const pid = await createNovel(page, `区间${Date.now() % 100000}`);
       await stubAiState(page, pid, "ready");
@@ -399,7 +399,7 @@ test.describe.serial("文风量化蒸馏链路", () => {
   test("⑤ 粘贴全链：弹窗字数门→三步（桩校验 text）→确认卡基线预览→落卡", async ({
     page,
   }) => {
-    const { restore } = await setupSession(page);
+    const { restore } = await setupSession(page, "max"); // 粘贴蒸馏同归 MAX
     try {
       const pid = await createNovel(page, `粘贴${Date.now() % 100000}`);
       await stubAiState(page, pid, "ready");
@@ -518,7 +518,7 @@ test.describe.serial("文风量化蒸馏链路", () => {
   test("⑥ 粘贴重启＋重试携 text：旧 draft 作废→step1 首试 502 重试仍带 text→「稍后再说」可恢复", async ({
     page,
   }) => {
-    const { restore } = await setupSession(page);
+    const { restore } = await setupSession(page, "max"); // 粘贴重启同归 MAX
     try {
       const pid = await createNovel(page, `重启${Date.now() % 100000}`);
       await stubAiState(page, pid, "ready");

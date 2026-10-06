@@ -1676,3 +1676,8 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
   无新组件形态、无新语气档；pk-breath 呼吸点同「流式生成中」语义家族；
 - 用户可见名词统一「写作能力」（§13 已登记），「提示词包/manifest/验签」不进 UI。
 
+
+## c-tier-gating-completion（2026-10-06）
+
+- **文风右栏「蒸馏我的文风」行归 MAX**（四档终拍 10-05/10-06，原型 :33「蒸馏＝会员功能」旧口径退役）：标准档及以下呈 maxlk 锁视觉（`AiWriterAssistant` 行契约——保持可点，点击经后端 403 走统一升级出口，不置 disabled）；MAX 无锁。原型「量化参数（会员）」措辞随拍板读作「MAX 专属」，原型文件不改。
+- **拆章手写卡「AI 看一眼这一章」免费档点击拦截**（chapter-review 标准起，tier-plan-four-tiers 3.2 收门的落地半边）：免费档点击不发起请求，走全局升级引导（member-block → UpgradeModal）；卡面摘要行「需开通」胶囊保留。原型 book.html 本无此按钮（实现侧能力，ADJUSTMENTS :1180 在途置忙条目同族），无需改原型。

@@ -820,14 +820,16 @@ def _count_warn(report: list[dict]) -> int:
 
 
 @router.post("/{ref}/ai/check")
+@ai_feature("ai-plan")
 async def ai_volume_check(
     project_id: str,
     ref: str,
     user: dict = Depends(get_current_user),
-    __: bool = Depends(require_novel_model),  # 只读例外：免费可用（不挂 require_ai_access）
+    _: bool = Depends(require_ai_access),  # 只读体检归标准档（原免费例外随四档退役）
+    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
-    """卷级验证：对主线／对设定／对节奏／对已写内容（只读、不拦、不代笔；免费可重复）。"""
+    """卷级验证：对主线／对设定／对节奏／对已写内容（只读、不拦、不代笔；过档位门后可重复）。"""
     from volumes.service import get_volume
 
     project = await get_novel(db, project_id, user["id"])

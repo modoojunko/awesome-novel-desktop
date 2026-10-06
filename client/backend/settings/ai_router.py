@@ -1830,7 +1830,7 @@ async def _distill_llm(project, user, db, *, system: str, prompt: str):
 
 
 @router.post("/ai/style-distill/{action}")
-@ai_feature("settings-ai-fields")
+@ai_feature("style-quant")  # 文风蒸馏＝MAX 件（style-suggest/style-quant 拆 key，10-05 拍板）
 async def style_distill_ai(
     project_id: str,
     action: str,
@@ -1957,7 +1957,7 @@ async def style_distill_ai(
 
 
 @router.post("/ai/style/{action}")
-@ai_feature("settings-ai-fields")
+@ai_feature("style-suggest")  # 文风三区 AI（自己写正文时的建议）＝标准档起，与蒸馏拆 key
 async def run_style_ai(
     project_id: str,
     action: str,

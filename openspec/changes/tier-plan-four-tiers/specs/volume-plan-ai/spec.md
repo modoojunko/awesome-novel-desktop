@@ -50,7 +50,7 @@
 
 - **WHEN** 在卷页签「卷纲」点「重新规划这一卷（AI）」（归 `ai-plan`，标准档起）
 - **THEN** 打开规划流且卷号为本卷（进场＝本卷的进场）；确认后更新这一卷的卷纲，不新建卷
-- **workbench 的六类案头检查（原 PRO 口径）随本 change 归 `ai-plot`（仅 MAX 发放），SHALL NOT 与卷级/章级 key 混用**（原免费例外随四档改造退役）。
+- **workbench 的六类案头检查随本 change 归 `ai-generate`（PRO 起；2026-10-05 终拍——早先「归 ai-plot/MAX」草案作废），SHALL NOT 与卷级/章级 key 混用**（原免费例外随四档改造退役）。
 
 #### Scenario: 拆下一章 AI 入口随本卷章节页签
 
@@ -63,7 +63,7 @@
   本卷章节页只保留「在本卷新增一章」「拆下一章」等手动动作——「拆下一章」为手写四段表单，见 chapter-plan-ai）。
 - 生成类动作（3 套方案／展开／**拆章 3 个剧情方向**）SHALL 归 feature key `ai-plan`（标准档起发放，key 门禁契约见 tier-access）。
 - 手写 SHALL 免费可用；卷纲体检 SHALL 归 feature key `ai-plan`（标准档起；原免费只读例外通道退役）。
-- 章级只读自检 SHALL 归 `chapter-review`、章级生成类（3 个剧情方向）SHALL 归 `ai-plan`（均标准档起）；workbench 六类案头检查归 `ai-plot`（仅 MAX），SHALL NOT 混用 key。
+- 章级只读自检 SHALL 归 `chapter-review`、章级生成类（3 个剧情方向）SHALL 归 `ai-plan`（均标准档起）；workbench 六类案头检查归 `ai-generate`（PRO 起），SHALL NOT 混用 key。
 - 免费档未配置模型时，体检 SHALL 给出「先在模型配置里接一个」的引导，SHALL NOT 报 500。
 - 主线全景为空时 SHALL NOT 生成（动作变为「先补主线」并指向主线设定），与章纲 AI 起草的主线空门同口径。
 

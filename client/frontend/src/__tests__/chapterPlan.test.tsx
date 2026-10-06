@@ -1,5 +1,5 @@
 // 拆章界面测试（c-chapter-plan-ai；c-og-slim-v2 收窄为四段）：覆盖原型各态——手写四段／AI 四态／角标与剧情吸引力／
-// 落点卡三出口／自检（免费）／回改（同一张卡面）。
+// 落点卡三出口／自检（chapter-review 标准起；免费拦截走升级出口）／回改（同一张卡面）。
 //
 // **打桩层＝`@/lib/api`**（不是 chapterPlanApi 本身）：契约模块的 URL/请求体/兜底逻辑
 // 因此真的执行（曾整体 mock 掉 → 该文件 20% 覆盖且「路径写错也测不出」）。
@@ -46,8 +46,14 @@ const DIRS = {
 };
 
 /** 渲染宿主：hook ＋ 弹窗（与 NovelWorkspace 同构的接线） */
-function Host({ onAdopt = vi.fn() }: { onAdopt?: (r: { ok: boolean; mode?: string }) => void }) {
-  const plan = useChapterPlan("p1", 1, "vol-1");
+function Host({
+  onAdopt = vi.fn(),
+  gate,
+}: {
+  onAdopt?: (r: { ok: boolean; mode?: string }) => void;
+  gate?: { hasChapterReview?: boolean; onUpgrade?: () => void };
+}) {
+  const plan = useChapterPlan("p1", 1, "vol-1", gate);
   return (
     <>
       <button data-testid="open-manual" onClick={plan.openManual}>拆下一章</button>
@@ -154,6 +160,22 @@ describe("拆章界面 · 手写四段（中栏入口，全档）", () => {
     fireEvent.click(screen.getByTestId("open-manual"));
     fireEvent.click(screen.getByTestId("selfcheck-run"));
     expect(await screen.findByTestId("selfcheck")).toHaveTextContent("AI 这一眼没看成，可再试");
+  });
+
+  it("自检门禁（c-tier-gating-completion）：免费档点击走升级出口，selfcheck 与 anchor 补取零请求", async () => {
+    const onUpgrade = vi.fn();
+    render(<Host gate={{ hasChapterReview: false, onUpgrade }} />);
+    fireEvent.click(screen.getByTestId("open-manual"));
+    // 清掉开卡期间的 anchor 取数，隔离出「点自检」这一步的请求面
+    mockApi.get.mockClear();
+    mockApi.post.mockClear();
+    fireEvent.click(screen.getByTestId("selfcheck-run"));
+    await waitFor(() => expect(onUpgrade).toHaveBeenCalledTimes(1));
+    // 规格 SHALL NOT 发起调用：selfcheck 不发，缺进场时的 anchor 补取也不发
+    expect(mockApi.post).not.toHaveBeenCalled();
+    expect(mockApi.get).not.toHaveBeenCalled();
+    // 卡面常驻自检块仍在，免费档以「需开通」胶囊沟通（点击出口已验证）
+    expect(screen.getByTestId("selfcheck-locked")).toBeInTheDocument();
   });
 
   it("最小可排：只写一句剧情也能排上，默认标题＝第N章（N 由进场锚给出）", async () => {

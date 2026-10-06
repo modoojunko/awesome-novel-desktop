@@ -1,7 +1,7 @@
 """卷下拆章 · AI 链路（c-chapter-plan-ai）
 
 - 出卡：POST /api/novels/{id}/volumes/{ref}/chapters/ai-directions（PRO；生成类）
-- 自检：POST /api/novels/{id}/chapters/ai-selfcheck（免费；只读例外——不挂 require_ai_access；卡面草稿随请求携带）
+- 自检：POST /api/novels/{id}/chapters/ai-selfcheck（chapter-review，标准档起——原免费例外随四档退役；卡面草稿随请求携带）
 - 进场：GET  /api/novels/{id}/volumes/{ref}/next-chapter-anchor（全档；手写路径也要进场）
 
 复用纪律（D19）：生成/解析/降级/越纲对拍一律复用 volumes.ai_plan 的既有实现，
@@ -705,11 +705,13 @@ class SelfcheckBody(BaseModel):
 
 
 @router.post("/chapters/ai-selfcheck")
+@ai_feature("chapter-review")
 async def ai_chapter_selfcheck(
     project_id: str,
     body: SelfcheckBody,
     user: dict = Depends(get_current_user),
-    __: bool = Depends(require_novel_model),  # 只读例外：不挂 require_ai_access（免费可用）
+    _: bool = Depends(require_ai_access),  # 只读评估归标准档（原免费例外随四档退役）
+    __: bool = Depends(require_novel_model),
     db: AsyncSession = Depends(get_db),
 ):
     """章级自检三组：衔接（本地）＋配额（本地）＋剧情吸引力（AI 只读四维短评）。

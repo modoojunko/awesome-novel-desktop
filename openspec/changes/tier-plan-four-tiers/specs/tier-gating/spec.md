@@ -69,11 +69,10 @@
   - `ai-plan`（**新**，标准起）：流程 AI 全家——卷规划三套走法/铺空缺、拆章三方向、帮写剧情三选一、章纲起草/补缺、人物盘点（含抽卡）、卷体检、建书元信息建议；
   - `chapter-review`（**新**，标准起）：章自检 AI 短评；
   - `settings-ai-fields`（标准起）：设定域右栏 AI 全家；
-  - `style-quant`（**新**，标准起）：文风量化蒸馏＋文风建议；
   - `outline-advanced-fields`（标准起）：章纲高级字段；
-  - `ai-generate`（PRO 起）：正文 AI 全家（生成/续写/润色/压缩/扩写/提示词润色）；
+  - `ai-generate`（PRO 起）：正文 AI 全家（生成/润色/提示词润色）＋workbench 六类案头检查（ai-check 族，2026-10-05 终拍）；
   - `prompt-panel`（PRO 起）：提示词页签；
-  - `ai-plot`（**新**，MAX）：剧情推演＋六类冲突检测＋story 推演会话；
+  - `ai-plot`（**新**，MAX）：剧情推演＋story 推演会话（六类冲突检测不在其内）；
   - `ai-detect`（**留 PRO**，2026-10-05 拍板撤销「上收 MAX」草案）：朱雀 AI 检测，PRO 起发放、trial 同权。
   - `style-suggest`（新增）：文风建议（自己写正文时的 AI 修改建议），标准起发放——与 style-quant 拆 key。
   - `style-quant`（新增）：文风蒸馏（贴旧稿蒸馏文风基线），仅 MAX 发放。
