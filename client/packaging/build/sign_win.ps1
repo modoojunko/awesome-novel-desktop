@@ -8,12 +8,22 @@
 # 见 docs/ops/client-code-signing.md。
 #
 # 证书来源（按优先级）：
-#   1) AINOVEL_SIGN_PFX             PFX 文件路径（+ AINOVEL_SIGN_PFX_PASSWORD）
-#   2) AINOVEL_SIGN_THUMBPRINT      证书指纹（已装在当前用户/机器证书存储里，免密码）
-#   3) AINOVEL_SIGN_DEV_CERT=1      仓库自签证书 client/packaging/cert/cert.pfx
-#                                   —— 仅供内测/自验签名链路，**不解除 SmartScreen**
+#   1) AINOVEL_SIGN_DLIB            云签名/天价 HSM 的标准接口：signtool /dlib <厂商 dll>
+#                                    （+ AINOVEL_SIGN_DMDF 指向元数据 json）——Azure Trusted
+#                                    Signing、各家云签名服务都走这条；**当前公共 CA 的主流形态**
+#   2) AINOVEL_SIGN_PFX             PFX 文件路径（+ AINOVEL_SIGN_PFX_PASSWORD）
+#                                    —— 内部 PKI / 自签 / 2023-06 前签发的旧证书
+#   3) AINOVEL_SIGN_THUMBPRINT      证书指纹（装在当前用户/机器证书存储里）
+#                                    —— USB 硬件 token 形态（私钥在 token 里，signtool 会弹 PIN）
+#   4) AINOVEL_SIGN_DEV_CERT=1      仓库自签证书 client/packaging/cert/cert.pfx
+#                                    —— 仅供内测/自验签名链路，**不解除 SmartScreen**
 # 都没有 → 不签名：Sign/Verify 只打印警告（发版不因缺证书挂掉），
 #          IsccArgs 不输出任何参数（Inno 侧 SignTool 指令不启用，编译结果与历史一致）。
+#
+# ⚠️ 2023-06-01 起 CA/B 规则要求代码签名私钥必须由硬件保护（FIPS 140-2 L2 / CC EAL4+）
+#    且不可导出——**公共 CA 已不再签发可导出 PFX 的代码签名证书**。所以正经采购拿到的是
+#    云签名服务或 USB token，前者进 CI（本脚本 /dlib 分支），后者只能在插着 token 的
+#    Windows 上本地发版（/sha1 分支）。详见 docs/ops/client-code-signing.md。
 #
 # 其他可调项：AINOVEL_SIGN_TIMESTAMP_URL（默认 DigiCert RFC3161）、AINOVEL_SIGN_DESCRIPTION。
 #
@@ -58,6 +68,8 @@ function Get-SignConfig {
     $pfx = $env:AINOVEL_SIGN_PFX
     $password = $env:AINOVEL_SIGN_PFX_PASSWORD
     $thumbprint = $env:AINOVEL_SIGN_THUMBPRINT
+    $dlib = $env:AINOVEL_SIGN_DLIB
+    $dmdf = $env:AINOVEL_SIGN_DMDF
 
     if ($env:AINOVEL_SIGN_DEV_CERT -eq '1') {
         # 自签证书：密码写在证书目录的安装脚本里（本就不是秘密），这里同步一份默认值
@@ -65,7 +77,7 @@ function Get-SignConfig {
         if (-not $password) { $password = 'ainovel123' }
     }
 
-    if (-not $pfx -and -not $thumbprint) { return $null }
+    if (-not $pfx -and -not $thumbprint -and -not $dlib) { return $null }
 
     $signtool = Get-SignToolPath
     if (-not $signtool) {
@@ -74,20 +86,31 @@ function Get-SignConfig {
     if ($pfx -and -not (Test-Path $pfx)) {
         throw "AINOVEL_SIGN_PFX 指向的文件不存在：$pfx"
     }
+    if ($dlib -and -not (Test-Path $dlib)) {
+        throw "AINOVEL_SIGN_DLIB 指向的签名 dll 不存在：$dlib（云签名服务的客户端工具要装好）"
+    }
+    if ($dmdf -and -not (Test-Path $dmdf)) {
+        throw "AINOVEL_SIGN_DMDF 指向的元数据文件不存在：$dmdf"
+    }
 
     $ts = $env:AINOVEL_SIGN_TIMESTAMP_URL
     if (-not $ts) { $ts = 'http://timestamp.digicert.com' }
     $desc = $env:AINOVEL_SIGN_DESCRIPTION
     if (-not $desc) { $desc = 'Awesome Novel' }
 
+    $kind = 'store'
+    if ($dlib) { $kind = 'dlib' } elseif ($pfx) { $kind = 'pfx' }
+
     return [pscustomobject]@{
         SignTool    = $signtool
         Pfx         = $pfx
         Password    = $password
         Thumbprint  = $thumbprint
+        Dlib        = $dlib
+        Dmdf        = $dmdf
         Timestamp   = $ts
         Description = $desc
-        Kind        = if ($pfx) { 'pfx' } else { 'store' }
+        Kind        = $kind
     }
 }
 
@@ -105,7 +128,11 @@ function Invoke-SignFile {
 
     if (-not (Test-Path $FilePath)) { throw "待签名文件不存在：$FilePath" }
     $arguments = @('sign', '/fd', 'sha256', '/td', 'sha256', '/tr', $Config.Timestamp)
-    if ($Config.Pfx) {
+    if ($Config.Dlib) {
+        # 云签名/HSM：私钥在厂商侧，signtool 只负责调 dlib（+ 元数据），不需要 /f /p /sha1
+        $arguments += @('/dlib', $Config.Dlib)
+        if ($Config.Dmdf) { $arguments += @('/dmdf', $Config.Dmdf) }
+    } elseif ($Config.Pfx) {
         $arguments += @('/f', $Config.Pfx)
         if ($Config.Password) { $arguments += @('/p', $Config.Password) }
     } else {

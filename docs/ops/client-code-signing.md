@@ -14,16 +14,31 @@ SmartScreen 对**从网上下载的文件**（带 Mark-of-the-Web 标记）做�
 唯一的解法是买证书、把安装包签上——签完 Windows 才会显示发行者名称，并逐步放行。
 2026-10-06 起签名链路已在仓库落地（本地脚本 + CI + 校验闸门），**加证书＝配两个 secret，零代码改动**。
 
-## 二、证书怎么选（这是采购决策，代码侧都支持）
+## 二、证书怎么选（采购决策；代码侧三种形态都已支持）
 
-| 路线 | 效果 | 备注 |
+**先讲一条 2023 年后的硬规则**：行业规则（CA/B Forum Code Signing BR）自 **2023-06-01** 起要求
+代码签名证书的**私钥由硬件保护且不可导出**（FIPS 140-2 Level 2 / Common Criteria EAL4+）。
+所以今天从公共 CA 买到的代码签名证书**没有「导出 PFX 丢进 CI」这种形态**了，只有：
+
+| 交付形态 | 能否进 CI | 我们这边怎么接 |
 | --- | --- | --- |
-| **EV 代码签名证书** | 立即建立信誉，SmartScreen 提示一般直接消失 | 最贵；多数以**硬件 token/HSM** 形式交付，插不进 CI 的构建机，通常要配云签名服务 |
-| **OV 代码签名证书** | 签名有效、UAC 与文件属性显示公司名；SmartScreen 信誉**按证书累积**（随下载量增长逐步放行，新证书初期仍可能提示） | 性价比路线；PFX 可直接进 CI（就是本仓库现在支持的形态） |
-| **Azure Trusted Signing**（微软自家云签名） | 云 HSM，无需保管 PFX；签名者身份经微软验证 | 订阅制，量级远低于证书年费；**signtool 参数不同**（`/dlib` + `/dmdf`），选它时需给 `sign_win.ps1` 加一个分支（改动很小） |
+| **云签名服务**（Azure Trusted Signing / DigiCert KeyLocker / SSL.com eSigner / Sectigo 等） | ✅ 能 | signtool 的 `/dlib` 接口：配 `AINOVEL_SIGN_DLIB`(+`AINOVEL_SIGN_DMDF`) 即可（已实现）；只给厂商自家 CLI 的，把 CLI 包进签名命令 |
+| **USB 硬件 token**（CA 寄一个 U 盘/令牌过来） | ❌ 不能（私钥在 token 里，必须插在签名的那台机器上） | 在插着 token 的 Windows 上本地发版：`AINOVEL_SIGN_THUMBPRINT=<证书指纹>`（signtool 会弹 PIN） |
+| **自家 HSM / 企业内网 PKI / 自签** | 视形态 | 能出 PFX 就用 `AINOVEL_SIGN_PFX`（开发期就是这样）；HSM 走 `/dlib` |
 
-价格只给量级参考（以官方报价为准）：OV 数百元～千余元/年，EV 数千元/年，Trusted Signing
-约每月十美元级。**买之前先确认交付形态**：只有能导出 PFX（或能用云签名服务）的才进得了 CI。
+按**验证强度**分两档（决定提示多久消失）：
+
+| 档位 | SmartScreen 效果 | 备注 |
+| --- | --- | --- |
+| **OV**（组织验证） | 签名有效、UAC 与文件属性显示公司名；**信誉按证书累积**——下载量上来才逐步放行，新证书头几天仍可能提示 | 千元级/年；需营业执照等材料 |
+| **EV**（扩展验证） | **立即**建立信誉，提示一般直接消失 | 数千元/年；验证更严（常含电话回访） |
+| **Azure Trusted Signing**（微软自家云签名） | 云 HSM、订阅制（每月十美元级）；签名者身份由微软验证；signtool `/dlib` 直接可用 | **最省事、最便宜的 CI 方案**；需 Azure 订阅 + 主体资质审核；支持地区/主体类型以微软当前政策为准（中国大陆主体能否通过要先确认） |
+
+主体信息建议直接用经营主体（**星纬（海口）投资有限公司**）——UAC 与 SmartScreen 显示的就是证书
+里的主体名，与 `brand/brand.json` 的 `company` 同源。别忘了时间成本：**审核几天到几周**（EV 更久）。
+
+> 暂时不买证书时的唯一做法：下载页/安装说明里写清「点『更多信息 → 仍要运行』」，内测同学自己
+> 「解除锁定」（见第五节）。这不是产品级解法——对普通用户，第一次装就被安全软件拦下＝流失。
 
 ## 三、配好之后长什么样（仓库已支持）
 
@@ -31,15 +46,22 @@ SmartScreen 对**从网上下载的文件**（带 Mark-of-the-Web 标记）做�
 
 ```powershell
 # 本地打包（build_release.ps1 会自动用它签程序本体 + 安装器 + 卸载器，并校验）
+#
+# ① 云签名服务（推荐给 CI；dll 与元数据由厂商客户端工具装好）
+$env:AINOVEL_SIGN_DLIB = 'C:\Program Files\Azure Trusted Signing\...\Azure.CodeSigning.Dlib.dll'
+$env:AINOVEL_SIGN_DMDF = 'D:\certs\metadata.json'
+#
+# ② USB token（插着 token 的机器上本地发版；signtool 会弹 PIN）
+$env:AINOVEL_SIGN_THUMBPRINT = '<证书指纹>'
+#
+# ③ 能导出的证书（企业内网 PKI / 开发期自签）
 $env:AINOVEL_SIGN_PFX = 'D:\certs\awesomenovel.pfx'
 $env:AINOVEL_SIGN_PFX_PASSWORD = '<pfx 密码>'
-powershell -ExecutionPolicy Bypass -File client\packaging\build\build_release.ps1
-
-# 证书在本机证书存储里（免密码）
-$env:AINOVEL_SIGN_THUMBPRINT = '<证书指纹>'
-
+#
 # 可选：时间戳服务（默认 DigiCert RFC3161）与签名描述
 $env:AINOVEL_SIGN_TIMESTAMP_URL = 'http://timestamp.digicert.com'
+
+powershell -ExecutionPolicy Bypass -File client\packaging\build\build_release.ps1
 ```
 
 CI（`client-package.yml`）：仓库 Settings → Secrets and variables → Actions 加两条

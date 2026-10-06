@@ -78,8 +78,13 @@ def test_sign_script_is_the_single_entry():
         "AINOVEL_SIGN_THUMBPRINT",
         "AINOVEL_SIGN_DEV_CERT",
         "AINOVEL_SIGN_TIMESTAMP_URL",
+        # 2023-06 起公共 CA 只发「硬件保护、不可导出」的证书 → 云签名走 /dlib 是主线形态，
+        # 这两个环境变量是「买到证书就能接上」的关键，不能少
+        "AINOVEL_SIGN_DLIB",
+        "AINOVEL_SIGN_DMDF",
     ):
         assert env in text, f"sign_win.ps1 不认环境变量 {env}（文档里承诺过）"
+    assert "/dlib" in text and "/dmdf" in text, "缺云签名（HSM / Trusted Signing）的 signtool 参数"
     assert "signtool" in text.lower(), "缺 signtool 调用"
     assert "/tr" in text or "-tr" in text, "缺 RFC3161 时间戳参数——证书过期后旧安装包会失去签名效力"
     assert "Get-AuthenticodeSignature" in text, "缺签名校验（Verify 动作）"
