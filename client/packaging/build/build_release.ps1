@@ -68,6 +68,9 @@ Step '2/8 release.json 生成' {
     if (-not $env:RELEASE_PORTAL_URL)           { $env:RELEASE_PORTAL_URL = 'https://www.awesomenovel.com' }
     if (-not $env:RELEASE_DOWNLOAD_BASE)        { $env:RELEASE_DOWNLOAD_BASE = 'https://www.awesomenovel.com/download' }
     if (-not $env:RELEASE_DOWNLOAD_FALLBACK_BASE) { $env:RELEASE_DOWNLOAD_FALLBACK_BASE = 'https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download' }
+    # c-prompt-pack-delivery：提示词包验签公钥（公钥常量——与 pywebview_app.PROD_PACK_PUBKEYS /
+    # workflow 内联默认逐字一致；漂移＝某条打包路径烘了个验不了包的钥，AI 恒未就绪）
+    if (-not $env:RELEASE_PACK_PUBKEYS)         { $env:RELEASE_PACK_PUBKEYS = '{"pack-k1":"UaJFasM5PBIB3Tg1o03cjG6Opeq5CaKtPv2ooLyNPPM="}' }
     Push-Location $BuildDir
     try {
         python ..\..\backend\scripts\release_json_generate.py $Version -o release.json
@@ -90,6 +93,9 @@ Step '4/8 PyInstaller 打包' {
     try {
         if (Test-Path dist) { Remove-Item -Recurse -Force dist }
         if (Test-Path build_py) { Remove-Item -Recurse -Force build_py }
+        # 阶段二：先编原生扩展（钥匙/解密/同步器），再打 PyInstaller——扩展在产物里优先于字节码
+        python compile_native.py
+        if ($LASTEXITCODE -ne 0) { throw '原生扩展编译失败（阶段二不允许回落字节码版）' }
         python -m PyInstaller build.spec --clean --noconfirm --workpath build_py
         if ($LASTEXITCODE -ne 0) { throw 'PyInstaller 失败' }
     } finally { Pop-Location }
@@ -109,6 +115,10 @@ Step '5/8 产物断言' {
     $tpl = Get-ChildItem -Path (Join-Path $BuildDir 'dist') -Recurse -Filter '*.prompt' | Select-Object -First 1
     if ($tpl) { throw "安装包含提示词模板（$($tpl.FullName)）——硬切要求产物零 .prompt" }
     Write-Host ' 断言通过: 产物零 *.prompt'
+    # 阶段二产物闸门：敏感模块必须已编译成原生扩展、且不得以 .py/.pyc 形态进包
+    python compile_native.py --scan (Join-Path $BuildDir 'dist')
+    if ($LASTEXITCODE -ne 0) { throw '原生扩展未进产物（阶段二被摘掉）' }
+    Write-Host ' 断言通过: prompt_pack 原生扩展在位'
 }
 
 # ── 6. 冒烟（--smoke 无头，轮询 health + SPA；不跑这步坏包照样绿）──

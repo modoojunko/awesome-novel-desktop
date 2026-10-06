@@ -147,3 +147,9 @@ server/secrets/*.pem
 # 会话私有隔离栈残留防护（#485 误提交修复）：
 docker-compose.override.yml
 .env.chb
+
+# c-prompt-pack-hardening 阶段二的编译产物（就地编译，不入库；由打包链生成）
+client/backend/prompt_pack/*.c
+client/backend/prompt_pack/*.so
+client/backend/prompt_pack/*.pyd
+client/packaging/build/build_native/

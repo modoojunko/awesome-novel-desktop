@@ -41,11 +41,13 @@ import httpx
 from prompt_pack import (
     STAGING_PREFIX,
     clear_receipt,
+    container,
+    migrate_plaintext,
     pack_root,
     read_highwatermark,
     read_receipt,
     resolve_dir,
-    verify_file,
+    verify_text,
     write_highwatermark,
     write_receipt,
 )
@@ -100,6 +102,19 @@ def _dev_fallback_available() -> bool:
         return any(n.endswith(".prompt") for n in os.listdir(bundled))
     except OSError:
         return False
+
+
+def reset_state() -> None:
+    """把模块级状态复位（**测试夹具用**）。
+
+    为什么需要显式复位：发布态本模块是编译扩展，`importlib.reload()` 对扩展模块
+    不会重跑初始化，模块级状态（`_state`/`_syncing`）因此会跨用例残留——夹具靠
+    reload 复位的老写法在编译形态下失效。显式复位两态通吃（.py 与 .so 同一套测试）。
+    """
+    global _syncing  # noqa: PLW0603 — 模块级单例状态，复位即其用途
+    with _lock:
+        _state.update(phase="missing", reason="", tier="", version="", updated_at=0.0)
+        _syncing = False
 
 
 def _set_state(phase: str, reason: str = "", tier: str = "", version: str = "") -> None:
@@ -302,31 +317,29 @@ def _install(version: str, tier: str, key_id: str, min_client_version: str | Non
         if os.path.exists(staging):
             shutil.rmtree(staging)
         os.makedirs(staging)
-        hashes = {}
-        for name, text in templates.items():
-            with open(os.path.join(staging, f"{name}.prompt"), "w", encoding="utf-8") as f:
-                f.write(text)
-            hashes[name] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        # c-prompt-pack-hardening：模板**只以容器形态落盘**（明文仅在内存，D1/D3）
+        hashes = {name: hashlib.sha256(text.encode("utf-8")).hexdigest() for name, text in templates.items()}
+        with open(os.path.join(staging, container.CONTAINER_NAME), "wb") as f:
+            f.write(container.seal(templates, version))
         with open(os.path.join(staging, "manifest.json"), "w", encoding="utf-8") as f:
             json.dump(manifest, f, ensure_ascii=False)
         if os.path.exists(target) and resolve_dir() == target:
-            # 同版本换档（tier 升级）：目录在用不可换——只补写新增/变更模板（逐个原子写），
-            # 复用已装且校验过的文件；receipt 换档并合并哈希表。
+            # 同版本换档（tier 升级）：容器在用不可整删——合并「旧容器表 ∪ 新包表」后
+            # 整体重封再原子替换（旧容器解不开时以新包为准：换机/被改场景整体重写）。
             shutil.rmtree(staging)
             existing = read_receipt() or {}
-            hashes2 = dict(existing.get("templates") or {})
-            for name, text in templates.items():
-                fp = os.path.join(target, f"{name}.prompt")
-                h = hashlib.sha256(text.encode("utf-8")).hexdigest()
-                # 现有文件哈希对得上且**实际内容完好**才跳过（评审 P1：被篡改文件
-                # 必须重写，否则同版本修复无从生效）
-                if os.path.exists(fp) and hashes2.get(name) == h and verify_file(fp, h):
-                    continue
-                tmp = fp + ".tmp"
-                with open(tmp, "w", encoding="utf-8") as f:
-                    f.write(text)
-                os.replace(tmp, fp)
-                hashes2[name] = h
+            merged: dict[str, str] = {}
+            try:
+                with open(os.path.join(target, container.CONTAINER_NAME), "rb") as f:
+                    merged = container.open_container(f.read(), version)
+            except (OSError, container.ContainerInvalid):
+                merged = {}
+            merged.update(templates)
+            tmp = os.path.join(target, container.CONTAINER_NAME + ".tmp")
+            with open(tmp, "wb") as f:
+                f.write(container.seal(merged, version))
+            os.replace(tmp, os.path.join(target, container.CONTAINER_NAME))
+            hashes2 = {name: hashlib.sha256(text.encode("utf-8")).hexdigest() for name, text in merged.items()}
             with open(os.path.join(target, "manifest.json"), "w", encoding="utf-8") as f:
                 json.dump(manifest, f, ensure_ascii=False)
             receipt2 = dict(existing)
@@ -356,7 +369,9 @@ def _install(version: str, tier: str, key_id: str, min_client_version: str | Non
         _set_state("ready", tier=tier, version=version)
         _cleanup_old(root, keep={"v" + version})
         return True
-    except OSError as e:
+    except (OSError, container.ContainerInvalid) as e:
+        # 含「本地包密钥不可用」（container 侧统一转 ContainerInvalid）：安装失败即沿用现态，
+        # 不得把异常抛到调用栈外（后台同步线程/启动钩子都必须静默降级）
         logger.warning("event=pack_install_error err=%s", e)
         shutil.rmtree(staging, ignore_errors=True)
         return False
@@ -399,10 +414,18 @@ def _installed_pack_intact(receipt: dict | None) -> bool:
     templates = receipt.get("templates")
     if not isinstance(templates, dict) or not templates:
         return False
+    # 旧版明文包先就地迁移（幂等）：迁移成功即按新形态继续复核，用户无需重下（保离线）
+    migrate_plaintext(vdir)
+    try:
+        with open(os.path.join(vdir, container.CONTAINER_NAME), "rb") as f:
+            actual = container.open_container(f.read(), str(receipt.get("version")))
+    except (OSError, container.ContainerInvalid):
+        return False
     for name, expect in templates.items():
         if not isinstance(expect, str) or not expect:
             return False
-        if not verify_file(os.path.join(vdir, f"{name}.prompt"), expect):
+        text = actual.get(name)
+        if not isinstance(text, str) or not verify_text(text, expect):
             return False
     return True
 

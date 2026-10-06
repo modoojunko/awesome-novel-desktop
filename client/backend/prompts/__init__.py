@@ -18,8 +18,10 @@
     ③ 都没有 → `PromptPackMissing`（AI 端点统一转 503＋专用 reason 引导获取；
        手写正文等非模板功能不受影响）
 
-读已装包时按 receipt 的模板 sha256 做轻量校验（(mtime_ns,size) 签名失效才重算）；
-校验不过视为该文件缺失 → 走同一缺包路径（回滚自愈在同步器侧）。
+读已装包时：容器（`v{N}/pack.bin`）在**内存中**解密（钥匙绑机器+用户，见
+prompt_pack/localkey.py），再按 receipt 的模板 sha256 校验文本；校验不过视为缺失 →
+走同一缺包路径（回滚自愈在同步器侧）。**读路径不落任何中间明文文件**，模板文本
+只存在于内存（c-prompt-pack-hardening D3）。
 """
 
 import os
@@ -45,24 +47,16 @@ class PromptPackMissing(FileNotFoundError):
     """
 
 
-def _candidates(name: str) -> list[tuple[str, str | None]]:
-    """解析序候选 → [(绝对路径, 期望 sha256|None)]，按优先级排列。"""
-    out: list[tuple[str, str | None]] = []
+def _from_pack(name: str) -> str | None:
+    """解析序①：已装包（内存解密＋读时校验）。不可用/缺失一律 None（走回落）。"""
     try:
-        from prompt_pack import read_receipt, resolve_dir
-
-        version_dir = resolve_dir()
-        if version_dir:
-            receipt = read_receipt() or {}
-            templates = receipt.get("templates")
-            expect = templates.get(name) if isinstance(templates, dict) else None
-            out.append((os.path.join(version_dir, f"{name}.prompt"), expect))
-    except Exception:
-        # 包元数据读取失败不阻断开发态回落（自愈在同步器侧；读路径只做降级）
-        pass
-    if os.environ.get(FORCE_PACK_ENV) != "force":
-        out.append((os.path.join(_PROMPTS_DIR, f"{name}.prompt"), None))
-    return out
+        from prompt_pack import read_template
+    except Exception:  # noqa: BLE001 — 包模块导入失败不阻断开发态回落
+        return None
+    try:
+        return read_template(name)
+    except Exception:  # noqa: BLE001 — 读路径只做降级，自愈在同步器侧
+        return None
 
 
 def _read_verified(path: str, expect: str | None) -> str | None:
@@ -87,15 +81,19 @@ def load(name: str) -> str:
     """
     if not _SAFE_NAME_RE.match(name):
         raise ValueError(f"Invalid prompt name: {name!r}")
-    # 纵深防御：候选路径的文件名必须恰为 {name}.prompt（realpath 归位；
-    # 白名单已保证 name 不含 / 与 ..，此处对静态分析亦可证安全）
-    for path, expect in _candidates(name):
+    # ① 已装包（发布态唯一来源；内存解密、零中间文件）
+    text = _from_pack(name)
+    if text is not None:
+        return text
+    # ② 包内目录（开发/测试态直读仓库单源；force 模式禁用本跳）
+    if os.environ.get(FORCE_PACK_ENV) != "force":
+        path = os.path.join(_PROMPTS_DIR, f"{name}.prompt")
         real = os.path.realpath(path)
-        if os.path.basename(real) != f"{name}.prompt":
-            continue
-        text = _read_verified(path, expect)
-        if text is not None:
-            return text
+        # 纵深防御：文件名必须恰为 {name}.prompt（白名单已保证 name 不含 / 与 ..）
+        if os.path.basename(real) == f"{name}.prompt":
+            text = _read_verified(path, None)
+            if text is not None:
+                return text
     raise PromptPackMissing(f"Prompt pack missing template: {name}")
 
 

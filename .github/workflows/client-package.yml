@@ -129,6 +129,10 @@ jobs:
           RELEASE_PORTAL_URL: ${{ vars.CLIENT_PORTAL_URL || 'https://www.awesomenovel.com' }}
           RELEASE_DOWNLOAD_BASE: ${{ vars.CLIENT_DOWNLOAD_BASE || 'https://www.awesomenovel.com/download' }}
           RELEASE_DOWNLOAD_FALLBACK_BASE: ${{ vars.CLIENT_DOWNLOAD_BASE_FALLBACK || 'https://ai-novel-test-d1ghsr86ra814c12c-1468883265.tcloudbaseapp.com/download' }}
+          # c-prompt-pack-delivery：提示词包验签公钥（{kid: base64(32B Ed25519)} JSON 串）。
+          # 缺烘＝打包端无钥可验（AI 永久「未就绪」）——冒烟 release_json_assert 必选键会拦；
+          # 轮换钥匙：改 vars.CLIENT_PACK_PUBKEYS（同时换发布私钥签发侧）。
+          RELEASE_PACK_PUBKEYS: ${{ vars.CLIENT_PACK_PUBKEYS || '{"pack-k1":"UaJFasM5PBIB3Tg1o03cjG6Opeq5CaKtPv2ooLyNPPM="}' }}
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             CLIENT_VERSION="$(printf '%s' "${GITHUB_REF_NAME#v}" | tr -c 'A-Za-z0-9._-' '-')"
@@ -142,6 +146,14 @@ jobs:
         run: |
           pip install -r client/backend/requirements.txt
           pip install -r client/packaging/build/requirements.txt
+
+      # ── 提示词包关键模块原生化（c-prompt-pack-hardening 阶段二）──
+      # 把钥匙解封(DPAPI/Keychain)/容器解密(AES-GCM)/同步器编译成原生扩展：反编译者读不到
+      # 这三块逻辑，密钥材料也不落在字节码里。编译失败即红——不允许静默回落字节码版。
+      # 工具链：macOS runner 走 clang、Windows runner 走 VS 生成工具（两者镜像自带）。
+      - name: Compile prompt-pack native modules (Cython)
+        shell: bash
+        run: python client/packaging/build/compile_native.py
 
       # ── Windows 代码签名：正式证书可选（默认走仓库自签，用户 2026-10-06 拍板「自签即可」）──
       # 用户装包时的「Windows 已保护你的电脑 / 发布者: 未知」＝SmartScreen 对未签名（或签名
@@ -165,6 +177,7 @@ jobs:
           "AINOVEL_SIGN_PFX=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "AINOVEL_SIGN_PFX_PASSWORD=$env:SIGN_PFX_PASSWORD" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host '签名证书已就绪（PFX 落 runner 临时目录，不进产物、不进缓存）'
+
 
       - name: Build app (PyInstaller)
         shell: bash
@@ -198,6 +211,13 @@ jobs:
             echo "::error::安装包含提示词模板（$F）——c-prompt-pack-client 硬切要求产物零 .prompt"
             exit 1
           fi
+
+      # 阶段二产物闸门：敏感模块必须以原生扩展存在、且不得以 .py/.pyc 形态进包
+      # （编译步骤被摘掉、或 PyInstaller 漏收扩展 → 这里红；探针用例见
+      #  client/backend/tests/test_prompt_pack_native_packaging.py）
+      - name: Assert prompt-pack native modules baked in bundle
+        shell: bash
+        run: python client/packaging/build/compile_native.py --scan client/packaging/build/dist
 
       # 法律文件随包断言（relicense-proprietary）：EULA 与第三方声明必须烘进产物
       - name: Assert LICENSE & THIRD-PARTY-NOTICES baked into bundle
@@ -405,6 +425,7 @@ jobs:
             双平台桌面客户端安装包：Windows（exe）与 macOS（DMG）。
             macOS 首次打开若提示"无法验证开发者"：先点"完成"关掉提示（勿点"移到废纸篓"），再到 系统设置 → 隐私与安全性 点"仍要打开"。
             Windows 若出现 SmartScreen 提示（自签构建会有；正式证书签名后一般不再出现）：点「更多信息」→「仍要运行」。
+            首次登录后会自动获取「写作能力」（提示词包）；换电脑或重装系统后需联网重新获取一次（本地钥匙与机器绑定，属预期）。
       # ── 国内分发：转存安装包到静态托管 + 更新 latest.json + 生成版本更新说明页 ──
       # www 根路径路由指向静态托管（/api 才是云托管），上传后 www/download/… 即可直接下载。
       # 版本化路径只增不改，CDN 长缓存安全；latest.json 是落地页下载弹窗与 C端 更新检测

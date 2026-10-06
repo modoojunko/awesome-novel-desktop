@@ -74,6 +74,10 @@ RELEASE_OVERRIDE_KEYS = (
     # 漏登记则打包链静默断链（评审 P0）
     "client_build_branch",
     "client_build_commit",
+    # c-prompt-pack-delivery：提示词包验签公钥（{kid: base64(32B Ed25519)} 的 **JSON 串**，
+    # 与 S端 签发侧 kid 一一对应）。漏登记＝pywebview 注入 CLIENT_PACK_PUBKEYS 静默失效
+    # → 打包端恒无钥可验（AI 永久「未就绪」）。只装公钥；签名私钥永不入仓/入产物。
+    "pack_pubkeys",
 )
 
 

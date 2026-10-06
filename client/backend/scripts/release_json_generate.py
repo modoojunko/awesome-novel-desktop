@@ -9,7 +9,8 @@
   `GITHUB_REF_NAME` 形如 `123/merge` → `pr-123`；两键缺一不烘（运行时成对消费）。
 - 环境变量：RELEASE_SERVER_API_BASE / RELEASE_SERVER_API_FALLBACK /
   RELEASE_PUBLIC_SERVER_API / RELEASE_PORTAL_URL /
-  RELEASE_DOWNLOAD_BASE / RELEASE_DOWNLOAD_FALLBACK_BASE（与 workflow step env 同名）。
+  RELEASE_DOWNLOAD_BASE / RELEASE_DOWNLOAD_FALLBACK_BASE / RELEASE_PACK_PUBKEYS
+  （与 workflow step env 同名）。
 - 本地 dry-run：`GITHUB_REF_NAME=main GITHUB_SHA=<sha> python scripts/release_json_generate.py dev -o /tmp/release.json`
   （不设 GITHUB_* 即模拟「无构建信息」形态）。
 """
@@ -24,6 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from release_components import build_components  # noqa: E402
+from release_json_assert import validate_pack_pubkeys  # noqa: E402
 
 _DEV = "dev"
 _VERSION_SHAPE_RE = re.compile(r"[0-9]+(\.[0-9]+)+([-._][A-Za-z0-9._-]+)?")
@@ -70,6 +72,10 @@ def generate(version: str) -> dict:
         "client_version": version,
         "client_update_url": os.environ["RELEASE_DOWNLOAD_BASE"].rstrip("/") + "/latest.json",
         "client_update_url_fallback": os.environ["RELEASE_DOWNLOAD_FALLBACK_BASE"].rstrip("/") + "/latest.json",
+        # c-prompt-pack-delivery：提示词包验签公钥（{kid: base64(32B)} JSON 串）。
+        # 缺 env 即 KeyError 转红（与地址族同口径）；形态校验与冒烟断言共用单源，
+        # 防「白名单有键、烘焙缺行」静默断链。私钥只在发布方，绝不入仓/入产物。
+        "pack_pubkeys": validate_pack_pubkeys(os.environ["RELEASE_PACK_PUBKEYS"]),
         "components": comp,
         **bake_build_info(version),
     }
