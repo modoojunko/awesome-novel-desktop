@@ -32,4 +32,4 @@
 - [x] 4.5 design.md 加 D8 节（症状/判别/根因/修法/不做/风险）
 - [x] 4.6 真机 A/B 验证（隔离 worktree＋数据拷贝 DATA_ROOT=/tmp/an-polish-data＋真模型，不动共享栈）：三轮——截图选区 sim 0.905→0.764/0.801/0.792、单人纯场景逐字回显 sim 1.000→0.424/0.769/0.704、AI 腔对照组保持改写（0.17–0.21）；首跑暴露两处次生缺陷已补护栏（输出契约禁自我纠错旁白「等等/改回」、第 4 档明令只重新装瓶不新增），护栏后两轮零泄漏零编造、对照组不回归
 - [x] 4.7 测试特征串断言（test_v44_tier4_and_near_copy_verdict：第 4 档/近拷贝判负/死路新出口/旧出口退役）＋pytest 子集 20 passed（polish/transform/layering/prompt-polish 四文件）＋`openspec validate --strict`：spec/prose-writing ✓，失败集与主检出基线逐字一致（39 passed/16 failed 全存量）
-- [ ] 4.8 提交＋PR 到 main，CI 判读
+- [x] 4.8 提交＋PR 到 main（#696），CI 判读
