@@ -21,6 +21,15 @@ export interface TierCatalog {
   }>;
 }
 
+/** 写作能力包状态（c-prompt-pack-client：/auth/verify 挂载，本地 prompt_pack 快照） */
+export interface PackStatus {
+  phase: 'syncing' | 'ready' | 'missing' | 'failed' | 'tier_denied';
+  reason?: string;
+  tier?: string;
+  version?: string;
+  updated_at?: number;
+}
+
 export interface LicenseVerify {
   tier?: string;
   is_member?: boolean;
@@ -33,6 +42,8 @@ export interface LicenseVerify {
   entitlement_degraded?: boolean;
   /** 档位目录投影（tier-catalog）：快照缺失时按目录行兜底判定（新 S端 才下发） */
   tier_catalog?: TierCatalog;
+  /** 写作能力包状态（c-prompt-pack-client） */
+  prompt_pack?: PackStatus;
 }
 
 let cachedVerify: LicenseVerify | null = null;

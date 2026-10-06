@@ -17,6 +17,7 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 import brand
 import models  # noqa: F401
 from api_configs.router import router as api_configs_router
+from prompts import PromptPackMissing  # c-prompt-pack-client
 from archive.dossier_router import book_router as dossier_book_router
 from archive.dossier_router import router as dossier_router
 from archive.reconcile_router import router as reconcile_router
@@ -144,6 +145,13 @@ async def lifespan(app: FastAPI):
             _log.info("dossier: swept %d interrupted extraction job(s)", _swept)
     except Exception as _e:  # noqa: BLE001 — sweep 失败不挡启动
         _log.warning("dossier sweep failed: %s", _e)
+    # ── 写作能力包（c-prompt-pack-client）：启动补偿同步（未装/档位不符才动） ──
+    try:
+        from prompt_pack.sync import maybe_after_auth
+
+        maybe_after_auth()
+    except Exception as _pe:  # noqa: BLE001 — 包同步失败不挡启动
+        _log.warning("prompt-pack sync failed: %s", _pe)
     try:
         from archive.reconcile import migrate_legacy_pending
 
@@ -268,6 +276,27 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title=f"{brand.BRAND_NAME} (Local)", version="0.2.0", lifespan=lifespan)
 
 
+@app.exception_handler(PromptPackMissing)
+async def _prompts_missing_handler(request, exc):
+    """写作能力（提示词包）未就绪 → 503＋专用 reason（c-prompt-pack-client 4.1）。
+
+    唯一收敛点：API 模板消费遍历到未装包/包损坏时由 loader 抛 PromptPackMissing，
+    此处统一转 503 detail={reason: prompts_missing}；前端据此出四态卡（未登录→
+    去登录／失败→重新获取／档位不够→升级卡），手写正文等非模板功能不受影响。
+    """
+    _path = getattr(getattr(request, "url", None), "path", "-")
+    logging.getLogger("uvicorn.error").info("event=prompts_missing path=%s", _path)
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": {
+                "reason": "prompts_missing",
+                "message": "写作能力还没就绪 — 登录后会自动获取；也可点「重新获取」重试",
+            }
+        },
+    )
+
+
 @app.exception_handler(OperationalError)
 async def _storage_busy_handler(request, exc):
     """本地库瞬时 I/O 错误 → 503 可重试（不裸 500）。
@@ -354,6 +383,8 @@ app.include_router(manuscript_router)
 
 # 版本自报与更新检测（client-update-notify）
 app.include_router(update_check_router)
+from prompt_pack.router import router as prompt_pack_router  # c-prompt-pack-client
+app.include_router(prompt_pack_router)
 
 # 业务路由
 app.include_router(ai_router)

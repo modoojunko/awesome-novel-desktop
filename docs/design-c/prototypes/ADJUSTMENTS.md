@@ -1650,6 +1650,7 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
 
 - 选区加工的「场景扩写」「压缩啰嗦段落」两卡退役：原型两卡行删除、右栏脚注去「扩写/压缩」。去AI味单卡保留（反AI红线家族落点）。顶栏「续写」（条目 638）为导航功能不受影响。
 
+
 ## c-chapter-draw-retry-material（2026-10-05）
 
 - **拆章抽卡 busy 态增阶段进度列表——产品超出原型项，不进 `book.html`**：照 c-chapter-plan-ai 收编实况更正（`book.html` 拆章弹窗只收样式＋空壳 `#split-body`，design:check 无拆章屏用例）与 c-chapter-plan-guards 先例（原型未覆盖在途态 → 登记偏差），本批只登记不补 DOM（2026-10-05 用户拍板「照先例登记偏差」）。
@@ -1659,3 +1660,19 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
 ## c-api-config-vendor-defaults（2026-10-05）
 
 - 供应商默认值预填（2026-10-05 拍板，**反转** 2026-09-06「URL 不预填」）：新增「模型名称」一级字段（`cfModel`，Base URL 与 API Key 之间；创建态显示、编辑态隐藏——模型名称属创建表单，编辑沿用已存值不施加预填）。选已知供应商或切换接口格式按 `VENDOR_DEFAULTS` 登记表预填 Base URL＋模型名称（DeepSeek 全量＝`https://api.deepseek.com`＋`deepseek-v4-pro`；其余供应商按官方文档核对登记 URL、无据模型 id 留空；openai-compat 无登记值整体不预填）。覆盖规则＝字段为空或仍为预填值才随选择更新、用户手改不覆盖（`applyPreset`）。旧「URL 一律不预填」注释三处（FORMAT_LOCK 处、vgrid 点击、fmtSeg 点击）随拍板更新。不涉 parity 基线屏默认态（弹层为交互形态，口径以本条为准）。
+
+
+---
+
+## 追加（c-prompt-pack-client，2026-10-05）
+
+**book.html 右栏新增「写作能力」四态卡（rail-pack）**——提示词包分发链的 UI 面：
+
+- 已就绪＝整卡隐藏（全静默，右栏与现状逐字节一致，parity 不受影响）；
+- 四态经底部新增 demo-bar「写作能力 · 5 态」切换演示：未登录（去登录）／获取中（accent
+  呼吸点行内忙点，不弹 toast）／失败（重新获取＋复制诊断信息）／档位不够（该能力随 MAX
+  提供→去升级）；
+- 全部复用既有 token（--border/--surface/--muted/--accent）与 .ai-locked 卡几何，
+  无新组件形态、无新语气档；pk-breath 呼吸点同「流式生成中」语义家族；
+- 用户可见名词统一「写作能力」（§13 已登记），「提示词包/manifest/验签」不进 UI。
+

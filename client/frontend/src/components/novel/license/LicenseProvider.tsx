@@ -12,6 +12,7 @@ import {
   setVerifyCache,
   type EntitlementSnapshot,
   type LicenseVerify,
+  type PackStatus,
 } from "@/lib/licenseCache";
 
 /** 权益快照（entitlement 契约 v1，S端 check-auth 下发 / C端 verify 透传） */
@@ -42,6 +43,9 @@ export interface TierState {
   entitlementDegraded: boolean;
   /** S端失联（权益同步刷新失败）：徽章文案保持既有档位仅转 warn，恢复后自动回常规色 */
   syncFailed: boolean;
+  /** 写作能力包状态（c-prompt-pack-client）：/auth/verify 挂载；null=未知（老后端/未取回）。
+   * 可选：测试构造 TierState 可省略（同 isStandard/isMax 先例）。 */
+  pack?: PackStatus | null;
   loading: boolean;
   error: string | null;
   refetch: () => void;
@@ -81,6 +85,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
     cachedVerify?.entitlement_degraded ?? false,
   );
   const [syncFailed, setSyncFailed] = useState(false);
+  const [pack, setPack] = useState<PackStatus | null>(cachedVerify?.prompt_pack ?? null);
   const [loading, setLoading] = useState(!cachedVerify);
   const [error, setError] = useState<string | null>(null);
   // 登录态上升沿探测：false→true（登出后再登录／换账号）时清残留判定
@@ -100,6 +105,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
       setEntitlement(null);
       setEntitlementDegraded(false);
       setSyncFailed(false);
+      setPack(null);
     }
     prevLoggedInRef.current = loggedIn;
   }, [loggedIn]);
@@ -115,6 +121,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
       setTrialRemainingDays(cache.trial_remaining_days ?? 0);
       setEntitlement(cache.entitlement ?? null);
       setEntitlementDegraded(cache.entitlement_degraded ?? false);
+      setPack(cache.prompt_pack ?? null);
       setLoading(false);
       return;
     }
@@ -130,6 +137,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
       setTrialRemainingDays(r.trial_remaining_days ?? 0);
       setEntitlement(r.entitlement ?? null);
       setEntitlementDegraded(r.entitlement_degraded ?? false);
+      setPack(r.prompt_pack ?? null);
       setError(null);
     } catch {
       // 失联口径（c-account-control-center）：保留上次快照判定，文案不变不清缓存不降级；
@@ -211,6 +219,7 @@ export function LicenseProvider({ children }: { children: React.ReactNode }) {
     entitlement,
     entitlementDegraded,
     syncFailed,
+    pack,
     loading,
     error,
     refetch,

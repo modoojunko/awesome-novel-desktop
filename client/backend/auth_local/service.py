@@ -453,7 +453,14 @@ async def call_server_api(
     method: str = "GET",
     params: dict | None = None,
     json_body: dict | None = None,
+    with_token: bool = False,
 ) -> dict:
+    """S端 调用（主/兜底基址自动切换）。
+
+    `with_token=True`：附本地会话令牌（Authorization: Bearer）——供需登录的 S端
+    端点（prompt-pack/key 换钥）使用；免鉴权端点（check-auth/pair-exchange）维持
+    False（c-prompt-pack-client 联调实勘：本函数原本不带头，换钥端点必 401）。
+    """
     # 主基址失败（自定义域名解析抖动/超时）自动切兜底基址，终端用户零感知
     bases = list(
         dict.fromkeys(
@@ -465,11 +472,15 @@ async def call_server_api(
         url = f"{base}/{endpoint}"
         try:
             # 60s：云托管 MinNum=0 缩容后首次请求需冷启动（30-60s），10s 会误报超时
+            headers = None
+            if with_token:
+                tok = load_or_create_config().get("token", "")
+                headers = {"Authorization": f"Bearer {tok}"} if tok else None
             async with httpx.AsyncClient(timeout=60) as client:
                 if method == "GET":
-                    resp = await client.get(url, params=params)
+                    resp = await client.get(url, params=params, headers=headers)
                 else:
-                    resp = await client.post(url, json=json_body)
+                    resp = await client.post(url, json=json_body, headers=headers)
                 try:
                     return resp.json()
                 except ValueError:
@@ -531,6 +542,13 @@ async def browser_auth(silent: bool = False) -> dict:
             cfg["deletion_pending"] = False  # 重新登录/撤销恢复：清除暂停标记
             save_local_config(cfg)
             await _ensure_local_user(cfg["username"])
+            # 写作能力包：登录成功后静默同步（c-prompt-pack-client）
+            try:
+                from prompt_pack.sync import maybe_after_auth
+
+                maybe_after_auth()
+            except Exception:
+                pass
             return {
                 "code": 0,
                 "data": {
@@ -650,6 +668,13 @@ async def verify_session() -> dict:
     if perm.get("entitlement_degraded"):
         # 降级详情三要素之一（tier-gating spec）：提示条可复制详情要带抓取时间
         resp["entitlement_fetched_at"] = cfg.get("entitlement_fetched_at", "")
+    # 写作能力包状态（c-prompt-pack-client 3.4）：前端四态卡数据面
+    try:
+        from prompt_pack.sync import get_status
+
+        resp["prompt_pack"] = get_status()
+    except Exception:
+        pass
     return resp
 
 
