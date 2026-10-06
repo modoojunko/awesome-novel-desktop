@@ -38,7 +38,7 @@
 
 ## 6. 验收与发布
 
-- [ ] 6.1 手工验收脚本（Windows 真机）：装包 → 检查包目录无明文（含 grep）→ 断网用 AI → 拷整个 `prompt-pack` 目录到另一台机器/另一用户 → 显示「写作能力未就绪」且不回落明文。
+- [ ] 6.1 真机验收（Windows）：**脚本已交付** `client/packaging/build/verify_pack_hardening.ps1`（自动判：容器在位／零 .prompt／全文件搜不到 `<<system>>` 标记／key.bin 为 DPAPI 封装体；并打印三步人工手测）——本机 pwsh 解析通过，**待 Windows 真机执行**。
 - [x] 6.2 性能基准：容器单次解密耗时记录在案（实测 341KB 包 open 中位 **15.3ms**、p95 16.2ms；AI 调用时延以秒计，故不引入缓存——D3 的「默认关」成立）。
-- [ ] 6.3 macOS 真机验证 Keychain 行为（首启授权形态、会话保持），结论回填 design 的 Open Questions。
-- [ ] 6.4 release notes 补一句「换机/重装后首次使用 AI 需联网重下写作能力包」，避免用户误判缺陷。
+- [x] 6.3 macOS Keychain 行为已在本机实测：保护档=keychain；钥匙以 64 hex 存进登录钥匙串、**磁盘无 key.bin**；删掉钥匙串项（模拟换机/钥匙丢失）后 `read_all_templates()=None`、发布态 `prompts.load` 抛 PromptPackMissing（不回落明文），且下次取钥匙会**重新生成**（后续重下可用）。首启授权提示形态仍待真机首装观察（已记入 design Open Questions）。
+- [x] 6.4 release notes 已补（client-package.yml 的 Release 正文模板：「换电脑或重装系统后需联网重新获取一次（本地钥匙与机器绑定，属预期）」）。
