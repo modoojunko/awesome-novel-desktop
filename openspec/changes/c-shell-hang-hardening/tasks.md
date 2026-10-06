@@ -61,6 +61,21 @@
       `msedgewebview2.exe`**；③ 从任务管理器强杀后再看一遍同样无残留（Job Object 的判据场景）；
       ④ `startup.log` 出现 `webview containment…纳入 N 个`；⑤ `hang-dump.txt` 仅异常时有内容
 
+## 5b. 评审整改（review-agent，2026-10-06 第三轮）
+
+- [x] **P2｜ctypes 句柄管线**：为 `CreateToolhelp32Snapshot` / `CreateJobObjectW` / `OpenProcess`
+      显式声明 `restype = wintypes.HANDLE`（及入参 `argtypes`，含 `Process32FirstW/NextW` /
+      `SetInformationJobObject` / `AssignProcessToJobObject` / `CloseHandle`）。实测过的两个后果：
+      ① 默认 `c_int` 让失败返回的 `-1` 与 `c_void_p(-1).value`（2^64-1）**恒不相等** ⇒ 567 行那条
+      失败判据是死代码（枚举失败被当成"0 个子进程"的正常路径）；② 截断句柄回传 CloseHandle 等。
+      同步把判据改成 `if not snap or snap == c_void_p(-1).value`（0＝NULL、-1＝INVALID_HANDLE_VALUE）。
+- [x] **P2 附带｜日志分段**：`job 已建` / `子进程 N 个，打开 M 个，纳入 K 个` / "枚举到却 0 纳入"
+      三条分开写——否则真机验收里"这台机器没有 WebView2 子进程"与"机制静默失效"长得一模一样
+      （并把 `k32` 取用挪到确有子进程时，空枚举不再碰 windll）。
+- [x] **P3｜用例可移植**：`noop_off_windows` 加 `skipif(win32)`（真 Windows 上该调用会真实建 job，
+      断言前提不成立）；`degrades_on_failure` 改为 monkeypatch 注入失败，不再依赖"非 Windows 没有
+      `ctypes.windll`"这一平台差异（原写法在真 Windows 上必红）。新增 `logs_are_segmented` 用例。
+
 ## 6. 记录在案、不在本批（另轮评估）
 
 - [ ] 6.1 单实例互斥（**数据安全项**：`PUT /chapters/{ref}/prose` 无 If-Match＝last-write-wins，

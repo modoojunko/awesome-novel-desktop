@@ -542,7 +542,12 @@ _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
 
 
 def _win_child_pids(parent_pid: int, exe_name: str) -> list[int]:
-    """枚举 parent_pid 的直接子进程里 exe 名匹配者（Toolhelp32；仅 Windows 调用）。"""
+    """枚举 parent_pid 的直接子进程里 exe 名匹配者（Toolhelp32；仅 Windows 调用）。
+
+    句柄 API 必须显式声明 restype/argtypes：CreateToolhelp32Snapshot 返回的是 HANDLE
+    （指针宽度），ctypes 默认按 c_int 取返回值——截断后 ① 失败时的 -1 与
+    `c_void_p(-1).value` 恒不相等（失败判据变死代码，实测）② 句柄回传给
+    Process32FirstW/CloseHandle 时也可能出错。"""
     import ctypes
     from ctypes import wintypes
 
@@ -561,10 +566,18 @@ def _win_child_pids(parent_pid: int, exe_name: str) -> list[int]:
         ]
 
     TH32CS_SNAPPROCESS = 0x00000002
-    invalid = ctypes.c_void_p(-1).value
     k32 = ctypes.windll.kernel32
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    k32.Process32FirstW.restype = wintypes.BOOL
+    k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.Process32NextW.restype = wintypes.BOOL
+    k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.CloseHandle.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+
     snap = k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-    if snap == invalid:
+    if not snap or snap == ctypes.c_void_p(-1).value:  # 0＝NULL，-1＝INVALID_HANDLE_VALUE
         raise OSError("CreateToolhelp32Snapshot 失败")
     pids: list[int] = []
     try:
@@ -619,6 +632,18 @@ def _create_kill_on_close_job():
         ]
 
     k32 = ctypes.windll.kernel32
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    k32.SetInformationJobObject.restype = wintypes.BOOL
+    k32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
+    k32.CloseHandle.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+
     job = k32.CreateJobObjectW(None, None)
     if not job:
         raise OSError("CreateJobObjectW 失败")
@@ -647,21 +672,40 @@ def contain_webview_children(appdata: Path, note: str = "") -> int:
 
         if _WEBVIEW_JOB is None:
             _WEBVIEW_JOB = _create_kill_on_close_job()
-        PROCESS_SET_QUOTA = 0x0100
-        PROCESS_TERMINATE = 0x0001
-        k32 = ctypes.windll.kernel32
+            log_line(appdata, f"webview containment{note}: job 已建（KILL_ON_JOB_CLOSE）")
         pids = _win_child_pids(os.getpid(), "msedgewebview2.exe")
+        opened = 0
         added = 0
-        for pid in pids:
-            handle = k32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, pid)
-            if not handle:
-                continue
-            try:
-                if k32.AssignProcessToJobObject(_WEBVIEW_JOB, handle):
-                    added += 1
-            finally:
-                k32.CloseHandle(handle)
-        log_line(appdata, f"webview containment{note}: 子进程 {len(pids)} 个，纳入 {added} 个")
+        if pids:  # 没有子进程就不去碰 windll（也让本函数在非 Windows 上可被桩测试覆盖）
+            from ctypes import wintypes
+
+            PROCESS_SET_QUOTA = 0x0100
+            PROCESS_TERMINATE = 0x0001
+            k32 = ctypes.windll.kernel32
+            k32.OpenProcess.restype = wintypes.HANDLE
+            k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            k32.AssignProcessToJobObject.restype = wintypes.BOOL
+            k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+            k32.CloseHandle.restype = wintypes.BOOL
+            k32.CloseHandle.argtypes = [wintypes.HANDLE]
+            for pid in pids:
+                handle = k32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, pid)
+                if not handle:
+                    continue
+                opened += 1
+                try:
+                    if k32.AssignProcessToJobObject(_WEBVIEW_JOB, handle):
+                        added += 1
+                finally:
+                    k32.CloseHandle(handle)
+        # 分段留痕（评审整改）：真机验收要能分清"枚举不到"与"纳入失败"——否则机制静默失效
+        # 与"这台机器没有 WebView2 子进程"在日志里长得一模一样。
+        log_line(appdata,
+                 f"webview containment{note}: 子进程 {len(pids)} 个，打开 {opened} 个，纳入 {added} 个")
+        if pids and added == 0:
+            log_line(appdata,
+                     f"webview containment{note}: 枚举到 {len(pids)} 个却一个都没纳入"
+                     "（句柄权限不足 / 已在他 job 且不允许嵌套？）——机制未生效，请连同上一行上报")
         return added
     except Exception:
         log_line(appdata, f"webview containment{note} 失败（降级继续）：\n" + traceback.format_exc())

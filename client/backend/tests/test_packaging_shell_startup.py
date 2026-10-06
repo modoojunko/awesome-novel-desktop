@@ -846,6 +846,7 @@ def test_stop_server_gracefully_signals_then_reports_timeout(shell, monkeypatch)
 # ── 14. WebView2 子树收口（Windows Job Object）＋兜底页文案 ─────────────────
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows 上该调用会真实建 job；仓库 pytest 只在非 Windows 跑")
 def test_contain_webview_children_noop_off_windows(shell, tmp_path):
     """非 Windows 必须静默 no-op（dev/macOS 不产生任何副作用与日志）。"""
     assert shell.contain_webview_children(tmp_path, "（测试）") == 0
@@ -854,12 +855,31 @@ def test_contain_webview_children_noop_off_windows(shell, tmp_path):
 
 
 def test_contain_webview_children_degrades_on_failure(shell, tmp_path, monkeypatch):
-    """Windows 分支里任一 API 失败（此处模拟：非 Windows 上 ctypes.windll 不存在）只留日志、照常继续。"""
+    """任一 API 失败只留日志、照常继续。注入失败而非依赖平台差异——否则本用例在真 Windows 上必红。"""
     monkeypatch.setattr(shell, "sys", types.SimpleNamespace(platform="win32"))
+
+    def _boom():
+        raise OSError("模拟装 job 失败")
+
+    monkeypatch.setattr(shell, "_create_kill_on_close_job", _boom)
 
     assert shell.contain_webview_children(tmp_path, "（降级测试）") == 0
     text = _log_text(tmp_path)
     assert "webview containment" in text and "降级继续" in text
+
+
+def test_containment_logs_are_segmented(shell, tmp_path, monkeypatch):
+    """真机验收判据：分段留痕（job 已建／枚举 N／打开 M／纳入 K）——否则"枚举不到"与"纳入失败"
+    在日志里长得一模一样，机制静默失效也看不出来（评审整改）。"""
+    monkeypatch.setattr(shell, "sys", types.SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(shell, "_create_kill_on_close_job", lambda: 12345)
+    monkeypatch.setattr(shell, "_win_child_pids", lambda pid, exe: [])
+
+    assert shell.contain_webview_children(tmp_path, "（分段）") == 0
+
+    text = _log_text(tmp_path)
+    assert "job 已建（KILL_ON_JOB_CLOSE）" in text
+    assert "子进程 0 个，打开 0 个，纳入 0 个" in text
 
 
 def test_containment_runs_again_after_app_page_loaded(shell, tmp_path, monkeypatch):
