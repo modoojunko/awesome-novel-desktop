@@ -54,6 +54,8 @@ window_ref → Window.native(WinForms Form) → browser/webview(WebView2) → �
 |---|---|---|
 | 1.x `_window_ref` + 守卫测试 + AST 门禁 + 锁版本 | 根因 | 一行消除遍历入口；两道门禁防回归（运行期 + 打包 CI）；契约依赖未文档化行为故钉死 6.2.1 |
 | 2.x 有界优雅收尾 + `os._exit` | 关窗后残留（用户实见） | 非 daemon 注入线程卡住时解释器会 join 它；不硬退就留进程。SQLite 是 WAL、日志逐行 flush ⇒ 硬退不坏库 |
+| 2.4 Job Object 收 WebView2 子树 | "关闭＝我们拉起的进程全没" | 软清理（pywebview dispose）覆盖不了强杀/冻结；OS 级 KILL_ON_JOB_CLOSE 覆盖**任何死法**。不装自身＝不误伤自愈重启孩子、不赌 breakaway |
+| 2.5 兜底页文案明示 | 第 3 层语义（用户理解一致） | 兜底页是用户自己的浏览器：不该关、也活不过 App（后端在进程内）——把它讲清楚，而不是假装它会跟着关 |
 | 3.x 时间戳 / 看门狗心跳 / faulthandler thread-dump | 判据缺口 | 本轮只能判定到"注入段停摆"，因为**没有任何带时间的中间证据**；三件补齐后下一次现场 5 分钟定案 |
 | 4.x config.json 唯一 tmp + 重试（仍抛出） | WinError 32 的 500 | 瞬态句柄冲突不该放大成 500；但**不许吞**——吞＝文件与缓存都不更新却报成功，状态丢失更难查 |
 | 6.x（不做，另轮） | 单实例互斥 / bridge 源校验 / 前端自检卡 / middleware 读口径 / threadpool 化 | 单实例是**数据安全项**（无 If-Match 的自动保存双写会丢稿），需带"唤醒已有窗口"完整设计；其余收益小于本批风险 |

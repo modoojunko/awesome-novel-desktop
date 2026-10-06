@@ -38,6 +38,29 @@ Python 层任何定时器都跑不到，不在本要求担保范围内。
 - **WHEN** 后端线程在 3 秒内没有回收
 - **THEN** 壳仍强制退出（收尾行 graceful=false），MUST NOT 无限等待
 
+### Requirement: 退出不留我们拉起的进程（含 WebView2 子树）
+
+用户口径（关闭即全关）：应用窗口关闭后，系统里 MUST NOT 残留 `AwesomeNovel.exe`，也 MUST NOT
+残留**由它拉起**的 WebView2 进程（`msedgewebview2.exe`）。实现 SHALL 以操作系统级机制兜住
+"任何死法"（正常退出、强制下线、被任务管理器强杀、崩溃）：Windows 上 SHALL 建
+`KILL_ON_JOB_CLOSE` 的 Job Object 并把 WebView2 子树纳入（可覆盖异步启动，须多拍枚举）；
+MUST NOT 把壳进程自身放入该 job（会误伤自愈重启拉起的子进程，且嵌套 job 下 breakaway 不可控）。
+非 Windows SHALL 静默 no-op；枚举为空或任一 API 失败 SHALL 记一行日志后降级继续（正常关窗仍有
+pywebview 的 dispose 软清理兜底）。用户自己的浏览器进程 MUST NOT 被本机制结束；浏览器兜底页
+SHALL 以文案明示"其依赖本程序、关闭后不可用"。
+
+#### Scenario: 强杀之后也不留 WebView2 进程
+- **WHEN** 用户在任务管理器里强制结束 `AwesomeNovel.exe`（窗口线程已卡死、没有代码能跑）
+- **THEN** 由它拉起的 `msedgewebview2.exe` 随 job 句柄关闭被系统一并结束
+
+#### Scenario: 正常关窗的两道保险
+- **WHEN** 用户正常关闭窗口
+- **THEN** 依次发生：pywebview dispose＋等浏览器进程退出（≤3s，软清理）→ 壳的有界后端收尾（≤3s）→ `os._exit`；job 兜住任何漏网子进程
+
+#### Scenario: 非 Windows/无 WebView2 环境下零副作用
+- **WHEN** 在 macOS/dev 或枚举不到 WebView2 子进程的环境运行
+- **THEN** 该机制静默 no-op／只记一行日志，不影响启动与退出
+
 ### Requirement: 卡死判据（时间戳／看门狗心跳／C 层线程栈）
 
 壳层与后端 SHALL 提供三件判据，使"进程在启动期停摆"这类现场可判读：

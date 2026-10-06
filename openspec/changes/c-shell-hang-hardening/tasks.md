@@ -26,6 +26,12 @@
       `should_exit`＋等 `_server_exited`）
 - [x] 2.2 `main()` 末尾：`GUI loop exited` → 有界收尾 → 收尾日志（graceful=…）→ `os._exit(0)`
 - [x] 2.3 边界写进注释：只覆盖"GUI 循环已退出"；GIL 冻结形态（Timer 也跑不到）不在担保内
+- [x] 2.4 **WebView2 子树收口（Job Object）**：建 `KILL_ON_JOB_CLOSE` job 并把本进程拉起的
+      `msedgewebview2.exe` 纳入（Toolhelp32 枚举，两拍：建窗后＋装载后）；**刻意不入 job 自身**
+      （不误伤自愈重启的孩子、不依赖 breakaway 在嵌套 job 下的不确定性）；非 Windows 静默 no-op、
+      任一 API 失败留日志降级——"关闭＝我们拉起的进程全没"从"正常路径尽力"升级为 OS 级保证
+- [x] 2.5 兜底页文案：错误页＋超时提示明示"浏览器里打开的页面依赖本程序，关闭后不可用"
+      （用户口径：兜底页不是我们的进程、不关它，但要讲清它随应用失效）
 
 ## 3. 卡死判据三件
 
@@ -45,9 +51,15 @@
 - [x] 5.1 shell 测试：公开面守卫、看门狗心跳、退出收尾顺序（graceful＋强退）、faulthandler 装卸
 - [x] 5.2 新测试文件 `tests/test_auth_local_config_write.py`：瞬态重试成功、持续占用报错＋无 tmp 残件、唯一 tmp 名
 - [x] 5.3 `ruff`（含打包 CI 同款 F821）改动文件零新增；`openspec validate --strict` 通过
-- [x] 5.4 全量 `client/backend` pytest：**1963 passed / 1 skipped / 0 failed**（68s；与 main 基线零新增红）
-- [ ] 5.5 提交＋PR；Windows 侧真机复验（用户）：第二次启动不白屏、关窗无残留进程、
-      `hang-dump.txt` 仅异常时有内容
+- [x] 5.4 全量 `client/backend` pytest：**1967 passed / 1 skipped / 0 failed**，**连跑 4 次全绿**。
+      途中揪出并修掉**存量 flaky**：`test_up12_retention_and_cleanup` 原用 `time.sleep(0.01)` 造序，
+      而三件套 mtime 取 `int(max(主,-wal,-shm))`（**整秒**，schema_version.py:172）——全量跑批下
+      同秒并列 ⇒ "保留最近 2 份"变任意序（判据：pristine main 全量 4 连跑红 1 次、本分支红 2/2）；
+      改用例显式造秒级递增 mtime（主＋sidecar 一起 utime，再取 stamp）
+- [ ] 5.5 提交＋PR；Windows 侧真机复验（用户）：
+      ① 第二次启动不白屏；② 关窗后任务管理器无 `AwesomeNovel.exe` 且**无我们拉起的
+      `msedgewebview2.exe`**；③ 从任务管理器强杀后再看一遍同样无残留（Job Object 的判据场景）；
+      ④ `startup.log` 出现 `webview containment…纳入 N 个`；⑤ `hang-dump.txt` 仅异常时有内容
 
 ## 6. 记录在案、不在本批（另轮评估）
 

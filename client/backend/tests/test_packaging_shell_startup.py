@@ -244,6 +244,10 @@ def test_main_clears_stale_port_json_and_logs(shell, tmp_path, monkeypatch):
     monkeypatch.setattr(shell, "check_backend_and_navigate", lambda window, ad, cfg=None: None)
     armed: list = []
     monkeypatch.setattr(shell, "arm_hang_dump", lambda ad, period=60.0: armed.append(ad))
+    contained: list = []
+    monkeypatch.setattr(
+        shell, "contain_webview_children", lambda ad, note="": contained.append(note) or 0
+    )
     # main() 末尾会强制下线（os._exit）——必须替换，否则把 pytest 一起带走
     exited: list = []
     monkeypatch.setattr(shell, "_force_exit", lambda code=0: exited.append(code))
@@ -256,6 +260,7 @@ def test_main_clears_stale_port_json_and_logs(shell, tmp_path, monkeypatch):
     assert created and created[0]["js_api"] is shell.bridge
     assert len(windows[0].events.shown.handlers) == 1, "shown 事件必须挂日志钩子"
     assert armed == [appdata], "C 层 hang dump 必须在上窗口前架上"
+    assert contained == ["（建窗后）"], "建窗后必须把 WebView2 子树收进 job（第一拍）"
     assert exited == [0], "窗口关闭后必须强制下线（不留残留进程）"
     text = _log_text(appdata)
     assert "shell main() entered" in text
@@ -836,3 +841,44 @@ def test_stop_server_gracefully_signals_then_reports_timeout(shell, monkeypatch)
 
     assert shell.stop_server_gracefully(timeout=3.0) is False, "未回收必须如实返回 False（调用方仍强退）"
     assert srv.should_exit is True, "必须先发退出信号"
+
+
+# ── 14. WebView2 子树收口（Windows Job Object）＋兜底页文案 ─────────────────
+
+
+def test_contain_webview_children_noop_off_windows(shell, tmp_path):
+    """非 Windows 必须静默 no-op（dev/macOS 不产生任何副作用与日志）。"""
+    assert shell.contain_webview_children(tmp_path, "（测试）") == 0
+    assert shell._WEBVIEW_JOB is None
+    assert not (tmp_path / "startup.log").exists() or "containment" not in _log_text(tmp_path)
+
+
+def test_contain_webview_children_degrades_on_failure(shell, tmp_path, monkeypatch):
+    """Windows 分支里任一 API 失败（此处模拟：非 Windows 上 ctypes.windll 不存在）只留日志、照常继续。"""
+    monkeypatch.setattr(shell, "sys", types.SimpleNamespace(platform="win32"))
+
+    assert shell.contain_webview_children(tmp_path, "（降级测试）") == 0
+    text = _log_text(tmp_path)
+    assert "webview containment" in text and "降级继续" in text
+
+
+def test_containment_runs_again_after_app_page_loaded(shell, tmp_path, monkeypatch):
+    """装载成功后要补扫一次（WebView2 浏览器进程异步起，建窗时那拍可能扫不到）。"""
+    monkeypatch.setattr(shell, "wait_for_server", lambda appdata, timeout=60: 18150)
+    contained: list = []
+    monkeypatch.setattr(
+        shell, "contain_webview_children", lambda ad, note="": contained.append(note) or 0
+    )
+
+    shell.check_backend_and_navigate(_FakeWindow(loaded=True), tmp_path)
+
+    assert contained == ["（装载后）"]
+
+
+def test_error_page_states_browser_fallback_dependency(shell, tmp_path):
+    (tmp_path / "startup.log").write_text("[t] x", encoding="utf-8")
+    (tmp_path / "uvicorn.log").write_text("[t] y", encoding="utf-8")
+
+    html = shell.write_error_page(tmp_path, "后端启动超时").read_text(encoding="utf-8")
+
+    assert "浏览器兜底说明" in html, "错误页必须写明兜底页随本程序失效（用户理解一致）"

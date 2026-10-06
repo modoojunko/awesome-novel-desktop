@@ -519,6 +519,7 @@ def cancel_hang_dump() -> None:
         import faulthandler
 
         faulthandler.cancel_dump_traceback_later()
+        faulthandler.disable()  # 关文件后别让 handler 指向已关闭的 fd（否则 fatal 时 dump 会抛错丢失）
     except Exception:
         pass
     if _HANG_DUMP_FILE is not None:
@@ -527,6 +528,144 @@ def cancel_hang_dump() -> None:
         except Exception:
             pass
         _HANG_DUMP_FILE = None
+
+
+# ── WebView2 子树随应用退出（Windows Job Object，shell-hang-hardening 2.4）─────
+# 用户口径：关闭应用＝任务管理器里不再有 AwesomeNovel.exe，也不再有**由它拉起的**
+# msedgewebview2.exe。软清理（pywebview 关窗时 dispose＋等 3s）覆盖不了"卡死/强杀"：
+# 那些场景下没有任何 Python 代码会跑。Job Object 的 KILL_ON_JOB_CLOSE 是 OS 级语义——
+# 句柄一关（＝我们进程以任何方式消失）job 内剩余进程全部被杀。
+# 刻意只装 WebView2 子树、**不装我们自己**：① 自愈重启的孩子是普通子进程，不能被误杀；
+# ② 不需要 CREATE_BREAKAWAY_FROM_JOB（嵌套 job 环境里 breakaway 是否成功不可控）。
+_WEBVIEW_JOB = None
+_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+
+
+def _win_child_pids(parent_pid: int, exe_name: str) -> list[int]:
+    """枚举 parent_pid 的直接子进程里 exe 名匹配者（Toolhelp32；仅 Windows 调用）。"""
+    import ctypes
+    from ctypes import wintypes
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", wintypes.WCHAR * 260),
+        ]
+
+    TH32CS_SNAPPROCESS = 0x00000002
+    invalid = ctypes.c_void_p(-1).value
+    k32 = ctypes.windll.kernel32
+    snap = k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if snap == invalid:
+        raise OSError("CreateToolhelp32Snapshot 失败")
+    pids: list[int] = []
+    try:
+        entry = PROCESSENTRY32W()
+        entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+        ok = k32.Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            if entry.th32ParentProcessID == parent_pid and entry.szExeFile.lower() == exe_name:
+                pids.append(int(entry.th32ProcessID))
+            ok = k32.Process32NextW(snap, ctypes.byref(entry))
+    finally:
+        k32.CloseHandle(snap)
+    return pids
+
+
+def _create_kill_on_close_job():
+    """建 KILL_ON_JOB_CLOSE 的 job（仅 Windows 调用）；失败抛异常由调用方降级。"""
+    import ctypes
+    from ctypes import wintypes
+
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", wintypes.LARGE_INTEGER),
+            ("PerJobUserTimeLimit", wintypes.LARGE_INTEGER),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.POINTER(ctypes.c_ulong)),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    k32 = ctypes.windll.kernel32
+    job = k32.CreateJobObjectW(None, None)
+    if not job:
+        raise OSError("CreateJobObjectW 失败")
+    info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if not k32.SetInformationJobObject(
+        job, 9, ctypes.byref(info), ctypes.sizeof(info)  # 9 = JobObjectExtendedLimitInformation
+    ):
+        k32.CloseHandle(job)
+        raise OSError("SetInformationJobObject 失败")
+    return job
+
+
+def contain_webview_children(appdata: Path, note: str = "") -> int:
+    """把本进程拉起的 msedgewebview2.exe 纳入 KILL_ON_JOB_CLOSE 的 job（仅 Windows 生效）。
+
+    返回本次新纳入的进程数。非 Windows 静默返回 0；枚举为空/任一 API 失败 → 留一行日志
+    后照常继续（正常关窗仍有 pywebview 的 dispose 软清理兜底，本机制是"任何死法都干净"的
+    硬保证，不是唯一防线）。调用点两拍：建窗后、应用页装载后各扫一次（WebView2 浏览器进程
+    是异步起的，一次可能扫不到）。"""
+    global _WEBVIEW_JOB
+    if sys.platform != "win32":
+        return 0
+    try:
+        import ctypes
+
+        if _WEBVIEW_JOB is None:
+            _WEBVIEW_JOB = _create_kill_on_close_job()
+        PROCESS_SET_QUOTA = 0x0100
+        PROCESS_TERMINATE = 0x0001
+        k32 = ctypes.windll.kernel32
+        pids = _win_child_pids(os.getpid(), "msedgewebview2.exe")
+        added = 0
+        for pid in pids:
+            handle = k32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, pid)
+            if not handle:
+                continue
+            try:
+                if k32.AssignProcessToJobObject(_WEBVIEW_JOB, handle):
+                    added += 1
+            finally:
+                k32.CloseHandle(handle)
+        log_line(appdata, f"webview containment{note}: 子进程 {len(pids)} 个，纳入 {added} 个")
+        return added
+    except Exception:
+        log_line(appdata, f"webview containment{note} 失败（降级继续）：\n" + traceback.format_exc())
+        return 0
 
 
 def start_server():
@@ -821,6 +960,8 @@ def write_error_page(appdata: Path, reason: str) -> Path:
         "background:#1a1a2e;color:#e0e0e0'><h2>" + html.escape(window_title())
         + " 启动失败</h2><p>" + html.escape(reason) + "</p>"
         "<p style='color:#9bb'>日志目录：" + html.escape(str(appdata)) + "</p>"
+        "<p style='color:#9bb'>浏览器兜底说明：用浏览器打开的应用依赖本程序运行（后端在本进程内）；"
+        "关闭本程序后，那个页面会失去后端而不可用。</p>"
         "<p style='color:#9bb'>可调参数：" + html.escape(str(appdata / SHELL_CONFIG_NAME))
         + "（webview_args / backend_timeout / app_load_timeout）；"
         "装载挂死后下次启动自动进安全模式（删掉 "
@@ -901,6 +1042,7 @@ def check_backend_and_navigate(window, appdata, cfg: dict | None = None):
         if loaded:
             log_line(appdata, "app page loaded")
             cancel_hang_dump()  # 装载成功即撤销 C 层 dump，长会话不再写盘
+            contain_webview_children(appdata, "（装载后）")  # 第二拍：补上异步起的浏览器进程
             if safe_mode:
                 log_line(appdata, "safe mode 生效（保留 render-hang.flag，后续启动仍走安全模式）")
             return
@@ -924,7 +1066,9 @@ def check_backend_and_navigate(window, appdata, cfg: dict | None = None):
                      "auto relaunch 跳过：本进程已是重启代，或用户显式关闭了安全模式（最多一轮）")
         _open_in_browser_fallback(appdata, port)
         _show_error(window, appdata,
-                    "界面加载超时（桌面窗口可能未响应），已尝试用浏览器打开。请把日志发给开发者：")
+                    "界面加载超时（桌面窗口可能未响应），已尝试用浏览器打开。"
+                    "注意：浏览器里打开的是本程序提供的本地页面，关闭本程序后该页面将不可用。"
+                    "请把日志发给开发者：")
     except Exception:
         log_line(appdata, "check_backend_and_navigate FAILED:\n" + traceback.format_exc())
         try:
@@ -1091,6 +1235,8 @@ def main():
         log_line(runtime_dir, "create_window FAILED:\n" + traceback.format_exc())
         return
     bridge._window_ref = window
+    # WebView2 子树收口（第一拍）：浏览器进程异步起，这里先扫一次，装载成功后再补一次
+    contain_webview_children(runtime_dir, "（建窗后）")
 
     # 「窗口真的显示了」——UI 挂死类报告的第一分界（有这行＝窗口活了，
     # 之后卡住都发生在导航/装载段；没这行＝GUI 初始化段就没起来）
