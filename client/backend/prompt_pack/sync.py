@@ -104,6 +104,19 @@ def _dev_fallback_available() -> bool:
         return False
 
 
+def reset_state() -> None:
+    """把模块级状态复位（**测试夹具用**）。
+
+    为什么需要显式复位：发布态本模块是编译扩展，`importlib.reload()` 对扩展模块
+    不会重跑初始化，模块级状态（`_state`/`_syncing`）因此会跨用例残留——夹具靠
+    reload 复位的老写法在编译形态下失效。显式复位两态通吃（.py 与 .so 同一套测试）。
+    """
+    global _syncing  # noqa: PLW0603 — 模块级单例状态，复位即其用途
+    with _lock:
+        _state.update(phase="missing", reason="", tier="", version="", updated_at=0.0)
+        _syncing = False
+
+
 def _set_state(phase: str, reason: str = "", tier: str = "", version: str = "") -> None:
     with _lock:
         _state.update(phase=phase, reason=reason, updated_at=time.time())

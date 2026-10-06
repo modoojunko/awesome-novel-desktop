@@ -28,6 +28,9 @@ def env(tmp_path, monkeypatch):
     importlib.reload(prompt_pack)
     importlib.reload(sync_mod)
     importlib.reload(prompts)
+    # 编译形态（发布态）下 reload 不会重跑扩展模块的初始化 → 显式复位模块状态，
+    # 保证「同一套测试在 .py 与 .so 两态都跑」（c-prompt-pack-hardening 阶段二）
+    sync_mod.reset_state()
     yield tmp_path, prompt_pack, sync_mod, prompts
     importlib.reload(sync_mod)
     importlib.reload(prompt_pack)

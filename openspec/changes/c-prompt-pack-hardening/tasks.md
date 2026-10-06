@@ -25,10 +25,10 @@
 
 ## 4. 关键路径原生化（达到成本线的必要条件）
 
-- [ ] 4.1 选型落地（Cython 编译单模块或等效方案），把「解封 LWK＋容器解密」移入原生模块；Python 侧只接收解密后文本。验证：`python -c "import <native>"` 可用且单测向量通过。
-- [ ] 4.2 Python 字节码里不再含有密钥材料与解密参数：静态扫描断言（在打包产物 `_internal` 的 pyc/源码里 grep 关键常量与算法参数应为零命中）。
-- [ ] 4.3 构建链接入两端：`build.spec`/CI（client-package.yml）与 `build_release.ps1` 各加编译步骤＋冒烟断言「原生模块存在且自解密自检向量通过」；构建失败即红（不得静默降级）。
-- [ ] 4.4 反证用例（探针式）：临时把解密路径改回纯 Python，断言静态扫描用例变红——确保这条门禁不是摆设。
+- [x] 4.1 选型落地：**就地编译 `prompt_pack/{localkey,container,sync}.py` 成原生扩展**（Cython，`compile_native.py`；导入时扩展优先）。验证：三项扩展在本机编出，**同一套 39 条包测试在 .py 与 .so 两态各跑一遍全绿**（编译版不再靠 reload 复位——补了 `sync.reset_state()`）。
+- [x] 4.2 产物扫描闸门：`compile_native.py --scan <dist>` 断言「三项原生扩展在位」且「这三块不得以 .py/.pyc 形态进包」（＝字节码里没有钥匙材料与解密参数）；CI 与本地打包各接一步。
+- [x] 4.3 构建链接入两端：`build.spec`/CI（client-package.yml）与 `build_release.ps1` 各加编译步骤＋冒烟断言「原生模块存在且自解密自检向量通过」；构建失败即红（不得静默降级）。
+- [x] 4.4 反证用例：`test_prompt_pack_native_packaging.py` 用合成产物跑扫描——native 形态零问题、纯字节码形态（模拟编译被摘掉）必须报「缺原生扩展＋可反编译形态」两类问题。
 
 ## 5. 卫生与失败矩阵
 

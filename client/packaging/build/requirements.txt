@@ -2,3 +2,6 @@
 # 打包工具依赖 — 构建 .exe / .dmg 时用
 pywebview>=5.4.1
 pyinstaller>=6.11.1
+# c-prompt-pack-hardening 阶段二：把 prompt_pack 的钥匙/解密/同步器编译成原生扩展
+# （compile_native.py；需 C 工具链——macOS 走 clang、Windows 走 VS 生成工具，CI 两者自带）
+cython>=3.0
