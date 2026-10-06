@@ -56,6 +56,17 @@ OutputBaseFilename=AwesomeNovel_Setup_v{#MyAppVersion}
 ; 图标
 SetupIconFile=icon.ico
 
+; ── 代码签名（可选，构建脚本传 /DSignToolScript=<绝对路径> 才启用）────────────
+; 用户双击安装包看到的「Windows 已保护你的电脑 / 发布者: 未知」＝SmartScreen 对
+; **未签名**安装包的提示，唯一解法是给安装包做 Authenticode 代码签名（证书见
+; docs/ops/client-code-signing.md）。签名入口统一在 sign_win.ps1：证书从环境变量
+; 解析，没配证书就打印警告跳过（发版不因缺证书挂），配了就签安装器 + 卸载器本体。
+; 不传 define 时本块不参与编译——「暂不签名也要出包」的发版路径与历史逐字一致。
+#ifdef SignToolScript
+SignTool=powershell -NoProfile -ExecutionPolicy Bypass -File "{#SignToolScript}" -Action Sign -Path $f
+SignedUninstaller=yes
+#endif
+
 ; 压缩
 Compression=lzma2/ultra
 SolidCompression=yes

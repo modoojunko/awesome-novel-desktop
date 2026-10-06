@@ -4,7 +4,7 @@
 > 重算窗口过了仍不解封＝计费侧 enforcement，只有账号主人能处理）。PyInstaller 不能交叉
 > 编译——exe 必须在真 Windows（x64）上构建；Apple Silicon 虚拟机的 Windows ARM64 打出的
 > ARM 包 x64 用户装不了，此路不通。本单＝在任意一台 x64 Windows 机器上复刻 CI 的
-> Windows 链，产物与 CI 同等效力（Windows 安装包 CI 本来就不签名）。
+> Windows 链，产物与 CI 同等效力（含代码签名：配了证书两边都签、都没配两边都不签）。
 
 ## 前置（一次性）
 
@@ -24,14 +24,18 @@ powershell -ExecutionPolicy Bypass -File build_release.ps1          # 版本取�
 # powershell -ExecutionPolicy Bypass -File build_release.ps1 0.26   # 或显式指定
 ```
 
-脚本七步与 CI 逐条对齐：前端构建 → release.json 生成（S端 端点已内置生产缺省值，
+脚本八步与 CI 逐条对齐：前端构建 → release.json 生成（S端 端点已内置生产缺省值，
 预置 `RELEASE_*` env 可覆盖）→ 依赖安装 → PyInstaller（APP_VERSION 注入 exe 版本资源）
 → 三件断言（release.json/LICENSE/THIRD-PARTY-NOTICES 必须真实烘进产物＋release_json_assert）
 → 冒烟（`--smoke` 无头，轮询 `%APPDATA%\AwesomeNovel\port.json` 探 health＋断言 SPA 在服务）
-→ Inno Setup 出包。
+→ 程序本体签名（未配证书＝警告跳过）→ Inno Setup 出包（有证书时连卸载器一起签，并校验）。
 
 **产物**：`client\packaging\dist\AwesomeNovel_Setup_<version>.exe`。
-SmartScreen 首次运行提示「未知发布者」属预期（CI 包同款不签名），点「仍要运行」。
+
+**代码签名（决定用户装包时是否看到 SmartScreen「发布者: 未知」）**：配了证书就签，
+没配就只是一条警告——两种都出包。取证书与配置步骤见
+[`client-code-signing.md`](./client-code-signing.md)；内测机不买证书也能用
+`$env:AINOVEL_SIGN_DEV_CERT='1'` 把签名链路走通（自签证书不解除 SmartScreen）。
 
 ## 出包后的发布末公里（在 Mac 上做即可，不需要 Windows）
 
