@@ -33,7 +33,6 @@ from auth_local.middleware import get_current_user  # noqa: E402
 from db import Base, async_session, engine, get_db  # noqa: E402
 from main import app  # noqa: E402
 from models.user import User  # noqa: E402
-from prompts import load_layers  # noqa: E402
 from write.quality import run_narrative_self_check  # noqa: E402
 
 _CFG_PATH = os.path.join(_tmp_data_root, "config.json")
@@ -175,20 +174,6 @@ def test_self_check_ledger_structure():
     text = "然后他起床。\n接着他洗脸。\n随后他出门。\n街上的灯还亮着。"
     issues = run_narrative_self_check(text)
     assert any("流水账" in i["rule"] for i in issues)
-
-
-def test_iron_rules_cover_three_clauses():
-    # c-write-prompt-layering：铁律迁入 write_chapter 模板 system 段（含仲裁句）
-    system_tpl, _ = load_layers("write_chapter")
-    assert "不写章节标题" in system_tpl
-    assert "不自行添加" in system_tpl
-    assert "不擅自命名" in system_tpl
-    assert "Markdown" in system_tpl
-    assert "视为已写情节" in system_tpl
-    assert "不留空行" in system_tpl
-    # 章末切点：征兆断章，禁总结收尾
-    assert "章末落点" in system_tpl
-    assert "征兆" in system_tpl
 
 
 # ── 契约：流式生成三工序 ─────────────────────────────────────────────────

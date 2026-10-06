@@ -774,15 +774,7 @@ class TestArcMaterial:
         assert "【世界观】" not in tp and "【人物档案】" not in tp and _FACTION_NOTE not in tp
 
     def test_check_prompt_five_lines_and_empty_fallback(self, client, stub_ai):
-        """体检五条判据 name 逐字＋空设定降级文案与占位。"""
-        from prompts import load_layers
-
-        system, _user = load_layers("arc_check")
-        for name in ("故事连贯", "开头接结局", "三问对得上", "和简介一个方向", "和世界/人物对得上"):
-            assert f'"{name}"' in system, f"体检 system 缺判据 {name}"
-        assert "先补再查更准" in system
-        assert "世界铁律·" in system
-
+        """空设定降级文案与占位（模板判据文本闸门已迁提示词仓 c-prompt-source-flip）。"""
         pid = _create_project(client)
         client.put(f"/api/novels/{pid}/story", json={"synopsis": "只有简介"})
         client.put(f"/api/novels/{pid}/story/arc", json=ARC_FULL)
@@ -794,52 +786,6 @@ class TestArcMaterial:
         assert "（角色表：无——需要人物处用通称）" in cp
         assert "只输出 JSON" in _system_of(fake)
         assert _system_of(fake).rstrip().splitlines()[-1].startswith("{")
-
-    def test_draft_notes_in_box_wording(self):
-        """散想法入口＝主线框：块标题与吸收要求句在（user），旧标题已去。"""
-        from prompts import load_layers
-
-        system, user = load_layers("arc_draft")
-        assert "作者已写在主线框里的内容" in user
-        assert "关键词与显式要求尽量吸收" in system
-        assert "【当前主线（未填部分用（未填）标注）】" not in user
-        assert user.index("作者已写在主线框里的内容") < user.index("作者这次的补充说明")
-        assert "只输出 JSON" in system
-        assert system.rstrip().splitlines()[-1].startswith("{")
-
-    def test_templates_scope(self):
-        """分层后各模板的占位面：draft/calibrate/check 的 user 吃设定素材、tone 不吃。"""
-        from prompts import load_layers
-
-        _s, u_check = load_layers("arc_check")
-        for key in ("{world}", "{cast}", "{genre_section}"):
-            assert key in u_check, f"体检 user 应引用 {key}"
-        _s2, u_tone = load_layers("arc_tone")
-        for key in ("{world}", "{cast}", "{genre_section}", "{roster}"):
-            assert key not in u_tone, f"tone 不应出现 {key}"
-        assert "不要发明与它们冲突的新设定" not in load_layers("arc_draft")[0]
-
-    def test_arc_templates_layered(self):
-        """分层协议：四个模板各自 system/user 两段；system＝角色＋优先级＋禁止项＋输出契约。
-
-        用户 2026-09-27 定：**逐模板独立、不做跨模板共享层**（每个页面的 AI 功能独立演进）。
-        """
-        import pytest as _pytest
-
-        from prompts import is_layered, load_layers
-
-        for name in ("arc_draft", "arc_calibrate", "arc_check", "arc_tone"):
-            assert is_layered(name), f"{name} 未分层"
-            system, user = load_layers(name)
-            assert system and user, name
-            assert "只输出 JSON" in system, name
-            assert "{world}" not in system, f"{name}: system 段不得含动态素材占位符"
-        s_draft, u_draft = load_layers("arc_draft")
-        for key in ("优先级", "禁止项", "专名以设定为准", "不得沿用", "通称"):
-            assert key in s_draft, key
-        assert "{world}" in u_draft and "{cast}" in u_draft and "{roster}" in u_draft
-        with _pytest.raises(FileNotFoundError):
-            load_layers("arc_hard_rules")  # 共享片段已退役（逐模板独立）
 
     def test_roster_block_in_prompt(self, client, stub_ai):
         """名册进包：人物名/别名在册；三类行齐。"""

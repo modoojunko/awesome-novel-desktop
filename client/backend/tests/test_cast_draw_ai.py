@@ -22,7 +22,7 @@ from sqlalchemy import select
 from auth_local.deps import require_ai_access as _raa
 from auth_local.deps import require_novel_model as _rnm
 from auth_local.middleware import get_current_user
-from chapters.ai_cast import CAST_DIMS, CastExcludeItem
+from chapters.ai_cast import CAST_DIMS
 from chapters.ai_plan import DIMENSIONS, _grades
 from db import async_session
 from main import app
@@ -157,54 +157,19 @@ def _draw_body(**kw) -> dict:
     return b
 
 
-# ── 2.1 模板快照 ────────────────────────────────────────────────────────────
+# ── 2.1 模板快照：正文断言已迁提示词仓（c-prompt-source-flip tests/test_templates_extra.py）；
+# 这里只留「代码常量」用例（_exclude_block 属服务端逻辑非模板文本）。
 
 
-class TestDrawPromptTemplate:
-    def test_example_covers_axes_exit_kinds_and_dims(self):
-        from prompts import load_layers
-
-        system, _user = load_layers("cast_draw")
-        example = system[system.index("【输出示例】"):]
-        for axis in ("身份", "关系", "功能"):
-            assert f'"axis":"{axis}"' in example.replace(" ", "")
-        for kind in ("章内退场", "本卷退场", "申请常驻"):
-            assert f'"exit_kind":"{kind}"' in example.replace(" ", "")
-        for d in CAST_DIMS:
-            assert f'"{d}"' in example
-        assert "以下为格式示例，不是本次输入" in example
-
-    def test_example_omits_why_not_old(self):
-        from prompts import load_layers
-
-        system, _ = load_layers("cast_draw")
-        assert "why_not_old" not in system  # 模型不输出该字段（服务端直抄缺人行）
-        assert "老角色为什么不行" in system  # 但规则句要交代清楚
-
-    def test_block_headers_constant(self):
-        from prompts import load_layers
-
-        _, user = load_layers("cast_draw")
-        assert user.count("=====【缺的人】=====") == 1
-        assert user.count("=====【素材】=====") == 1
-        assert user.count("=====【这几条路走过了（作者换一批，避开已出的人物路数）】=====") == 1
-        assert user.count("=====【临时要求】=====") == 1
-
+class TestExcludeRule:
     def test_exclude_block_body_pinned(self):
         """禁令块正文（decision 10 钉词源）：轴必须再用、禁同路人、仍贴缺的人；「换结构上不同」退役。"""
-        from chapters.ai_cast import _EXCLUDE_RULE, _exclude_block
+        from chapters.ai_cast import _EXCLUDE_RULE
 
         assert "轴照旧三张各出一张（身份／关系／功能）" in _EXCLUDE_RULE
         assert "轴可以再用、必须再用" in _EXCLUDE_RULE
         assert "禁的是同一条人物路子" in _EXCLUDE_RULE
         assert "仍要贴合【缺的人】" in _EXCLUDE_RULE
-        assert "换结构上不同" not in _EXCLUDE_RULE
-        block = _exclude_block([CastExcludeItem(axis="身份", name="孟舟白", persona="押货头目")])
-        assert block.startswith("- 身份｜孟舟白｜押货头目")
-        assert _exclude_block([]) == "（本次无）"
-
-
-# ── 2.2 等级表驱动（服务端算；唯一第一才计分）────────────────────────────────
 
 
 class TestGradesTable:

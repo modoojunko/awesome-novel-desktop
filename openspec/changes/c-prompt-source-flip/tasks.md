@@ -20,10 +20,10 @@
 
 ## 4. 闸门迁移（D4）
 
-- [ ] 4.1 迁 6 类正文闸门到提示词仓（pytest）：分层协议（原 `test_prompt_layering`，改扫提示词仓 `prompts/`）、注释↔占位符对拍（原 sync.py CURATED 校验并入 lint 命令）、去AI味 v4.4 断言、节奏规则、死引用、边界注入。验证＝提示词仓本地全绿；故意改坏一处模板（如删分层标记）必被拦截
-- [ ] 4.2 提示词仓 CI 加闸门 job（跑 4.1＋lint）。验证＝流水线实跑绿；构造一处坏改动可红
-- [ ] 4.3 主库测试改桩夹具：**逐文件先定归属**——只测编排行为的改 conftest 最小桩模板（`test_prose_pipeline`/`test_story_arc`/`test_cast_draw_ai`/`test_cast_review_ai`/`test_write_prompt_polish` 等）；含模板正文断言的与 4.1 同批迁走（`test_ai_prompt_and_boundary` 属此类，按段拆分判定，不在本任务重复处理）。验证＝主库 pytest 全绿且测试不再读 `client/backend/prompts/*.prompt`
-- [ ] 4.4 主库源码级门禁：新增测试断言主库树零 `.prompt`（先以允许清单＝现有 58 文件，第 5 组收紧为全禁）。验证＝门禁当前绿；临时造一个 `.prompt` 即红
+- [x] 4.1 迁 6 类正文闸门到提示词仓（pytest）：分层协议（原 `test_prompt_layering`，改扫提示词仓 `prompts/`）、注释↔占位符对拍（原 sync.py CURATED 校验并入 lint 命令）、去AI味 v4.4 断言、节奏规则、死引用、边界注入。验证＝提示词仓本地全绿；故意改坏一处模板（如删分层标记）必被拦截
+- [x] 4.2 提示词仓 CI 加闸门 job（跑 4.1＋lint）。验证＝流水线实跑绿；构造一处坏改动可红
+- [x] 4.3 主库测试改桩夹具：**逐文件先定归属**——只测编排行为的改 conftest 最小桩模板（`test_prose_pipeline`/`test_story_arc`/`test_cast_draw_ai`/`test_cast_review_ai`/`test_write_prompt_polish` 等）；含模板正文断言的与 4.1 同批迁走（`test_ai_prompt_and_boundary` 属此类，按段拆分判定，不在本任务重复处理）。验证＝主库 pytest 全绿且测试不再读 `client/backend/prompts/*.prompt`
+- [x] 4.4 主库源码级门禁：新增测试断言主库树零 `.prompt`（先以允许清单＝现有 58 文件，第 5 组收紧为全禁）。验证＝门禁当前绿；临时造一个 `.prompt` 即红
 
 ## 5. 删模板与工具收尾（D5）
 
