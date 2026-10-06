@@ -123,6 +123,31 @@ function mockBookApi() {
   });
 }
 
+/** 边几何：起点/终点到各自源/目标节点圆心的距离，以及两端圆心距（弦长）。
+ *  节点圆心取自 <g transform="translate(x, y)">，端点取自路径 d 的首/末两点
+ *  （直线 M…L… 与弓形 M…Q… 同形：首两点＝起点，末两点＝终点）。 */
+function edgeGeometry(container: HTMLElement) {
+  const centers = new Map<string, { x: number; y: number }>();
+  for (const g of Array.from(container.querySelectorAll(".rg-node"))) {
+    const m = /translate\((-?[\d.]+),\s*(-?[\d.]+)\)/.exec(g.getAttribute("transform") ?? "");
+    if (m) centers.set(g.querySelector(".rg-name")?.textContent ?? "", { x: Number(m[1]), y: Number(m[2]) });
+  }
+  return Array.from(container.querySelectorAll(".rg-edge")).map((g) => {
+    const [aName, bName] = (g.querySelector("title")?.textContent ?? "").split("：")[0].split(" → ");
+    const nums = (g.querySelector(".rg-line")?.getAttribute("d") ?? "").match(/-?[\d.]+/g)?.map(Number) ?? [];
+    const ca = centers.get(aName);
+    const cb = centers.get(bName);
+    expect(ca && cb).toBeTruthy(); // 边标题里的角色名必须能在节点里找到
+    const start = { x: nums[0], y: nums[1] };
+    const end = { x: nums.at(-2)!, y: nums.at(-1)! };
+    return {
+      startFrom: Math.hypot(start.x - ca!.x, start.y - ca!.y),
+      endFrom: Math.hypot(end.x - cb!.x, end.y - cb!.y),
+      chord: Math.hypot(cb!.x - ca!.x, cb!.y - ca!.y),
+    };
+  });
+}
+
 describe("RelationsGraphPane 章态并入剧情关系", () => {
   it("双源上图：往章演变走 preview、本章采纳/待确认走章档端点；同向覆盖开书边", async () => {
     mockBookApi();
@@ -331,28 +356,51 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
     dossierState.get.mockRejectedValue(new Error("down"));
     const { container } = render(<RelationsGraphPane projectId="p1" chapterRef="vol-1-ch-1" />);
     await screen.findAllByTestId("rg-row");
-    const centers = new Map<string, { x: number; y: number }>();
-    for (const g of Array.from(container.querySelectorAll(".rg-node"))) {
-      const m = /translate\((-?[\d.]+),\s*(-?[\d.]+)\)/.exec(g.getAttribute("transform") ?? "");
-      const name = g.querySelector(".rg-name")?.textContent ?? "";
-      if (m) centers.set(name, { x: Number(m[1]), y: Number(m[2]) });
-    }
-    const edges = Array.from(container.querySelectorAll(".rg-edge"));
-    expect(edges).toHaveLength(3); // 含一对反向边（弓形路径）与一条直线边，两条分支都覆盖
-    for (const g of edges) {
-      const tip = g.querySelector("title")?.textContent ?? "";
-      const [aName, bName] = tip.split("：")[0].split(" → ");
-      const nums = (g.querySelector(".rg-line")?.getAttribute("d") ?? "")
-        .match(/-?[\d.]+/g)
-        ?.map(Number) ?? [];
-      const ca = centers.get(aName);
-      const cb = centers.get(bName);
-      expect(ca && cb).toBeTruthy();
-      const dist = (p: { x: number; y: number }, c: { x: number; y: number }) =>
-        Math.hypot(p.x - c.x, p.y - c.y);
+    const geo = edgeGeometry(container);
+    expect(geo).toHaveLength(3); // 含一对反向边（弓形路径）与一条直线边，两条分支都覆盖
+    for (const g of geo) {
       // 起点贴源节点圆缘（半径 26，不进圆心）；终点＝圆缘＋箭头留白 3
-      expect(dist({ x: nums[0], y: nums[1] }, ca!)).toBeCloseTo(26, 3);
-      expect(dist({ x: nums.at(-2)!, y: nums.at(-1)! }, cb!)).toBeCloseTo(29, 3);
+      expect(g.startFrom).toBeCloseTo(26, 3);
+      expect(g.endFrom).toBeCloseTo(29, 3);
+    }
+  });
+
+  it("密集节点（10 张卡）：相邻卡弓形边两端仍贴圆周，不被回缩上限缩进圆内", async () => {
+    // 环上相邻两张卡的双向关系 → 弓形（曲线）分支，且 n=10 时弦长≈74 最短，上限最易误触发。
+    // id 补零：布局按 id 字符串排序定位，c1/c10/c2 的排法会让「相邻」错位
+    const nodes = Array.from({ length: 10 }, (_, i) => ({
+      id: `c${String(i + 1).padStart(2, "0")}`,
+      name: `角色${i + 1}`,
+      role: i === 0 ? "主角" : i === 1 ? "反派" : "配角",
+    }));
+    apiState.get.mockImplementation(async (p: string) => {
+      if (p.endsWith("/characters/graph"))
+        return {
+          ok: true,
+          data: {
+            nodes,
+            edges: [
+              { owner_id: "c01", other_id: "c02", owner_name: "角色1", other_name: "角色2",
+                rel_type: "同僚/敌意", stance: "", origin_chapter: "" },
+              { owner_id: "c02", other_id: "c01", owner_name: "角色2", other_name: "角色1",
+                rel_type: "同僚/敌意", stance: "", origin_chapter: "" },
+            ],
+          },
+        };
+      if (p.endsWith("/volumes")) return TREE;
+      throw new Error("unexpected " + p);
+    });
+    dossierState.preview.mockRejectedValue(new Error("down"));
+    dossierState.get.mockRejectedValue(new Error("down"));
+    const { container } = render(<RelationsGraphPane projectId="p1" chapterRef="vol-1-ch-1" />);
+    await screen.findAllByTestId("rg-row");
+    const geo = edgeGeometry(container);
+    expect(geo).toHaveLength(2);
+    for (const g of geo) {
+      // 夹具必须真的落在密集区间：上限按「到控制点的距离」取半时（≈0.52×弦长 <29）会被误触发
+      expect(g.chord).toBeLessThan(112);
+      expect(g.startFrom).toBeCloseTo(26, 3);
+      expect(g.endFrom).toBeCloseTo(29, 3);
     }
   });
 
