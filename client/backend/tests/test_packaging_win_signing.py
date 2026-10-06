@@ -40,37 +40,39 @@ def _active_lines(text: str) -> list[tuple[int, str]]:
     return lines
 
 
-def test_signtool_directive_is_optional():
-    """SignTool 必须在 #ifdef 里：没证书的构建不许被签名拦下，也不许被悄悄改行为。"""
+def test_installer_iss_declares_no_signtool():
+    """installer.iss 不得声明 [Setup] SignTool：其值必须是「已定义过的工具名」（要先用 iscc
+    的 -s/--signtool 定义），直接写内联命令会被判 invalid（2026-10-06 CI 演练实锤）。
+    安装器签名改由构建脚本在 iscc 之后直接签 —— 本测试同时钉住 `.iss 不回头用 SignTool`
+    与 `CI/本地脚本确实在出包后签` 两侧，避免任一侧被单独改回。"""
     text = INSTALLER_ISS.read_text(encoding="utf-8")
-    assert "#ifdef SignToolScript" in text, "缺 #ifdef SignToolScript 守卫"
-    # 按守卫块切三段（本文件另有 MyAppVersion 的 #ifndef/#endif，不能按第一个 #endif 切）
-    before, rest = text.split("#ifdef SignToolScript", 1)
-    guarded, after = rest.split("#endif", 1)
-
-    active = [line for _no, line in _active_lines(guarded) if line.startswith("SignTool=")]
-    assert active, "守卫块里没有 SignTool= 指令——签名链路被摘掉了"
-    assert "SignedUninstaller=yes" in guarded, (
-        "缺 SignedUninstaller=yes——卸载器会退回「未知发布者」（UAC 会提示）"
-    )
-    assert "$f" in active[0], "SignTool 命令必须带 $f（Inno 用它替换待签文件路径）"
-
-    # 守卫之外不得再出现活跃的 SignTool 指令（否则没证书的构建也会去调用签名工具）
     offenders = [
         (no, line)
-        for no, line in _active_lines(before + after)
+        for no, line in _active_lines(text)
         if line.startswith(("SignTool=", "SignedUninstaller="))
     ]
     assert not offenders, (
-        "SignTool/SignedUninstaller 出现在 #ifdef 守卫之外——无证书构建会被强绑签名：\n"
+        "installer.iss 又出现了 SignTool/SignedUninstaller 指令——该机制要求先用命令行定义工具名，"
+        "在 CI 上会被判 invalid（判例见 .iss 头注）：\n"
         + "\n".join(f"  L{no}: {line}" for no, line in offenders)
+    )
+    assert "SignTool" in text, "判例注释被删了——后人会再踩一次同一坑"
+
+    ci = WORKFLOW.read_text(encoding="utf-8")
+    assert "Sign & verify installer (Windows)" in ci, "CI 缺「出包后签名＋校验」步骤"
+    assert ci.index("Build Windows installer") < ci.index("Sign & verify installer (Windows)"), (
+        "签名必须在 iscc 出包之后（安装包是 iscc 生成的）"
+    )
+    ps1 = BUILD_RELEASE.read_text(encoding="utf-8")
+    assert "'sign_win.ps1') -Action Sign -Path $signed.FullName" in ps1, (
+        "本地打包脚本没在 iscc 之后签安装器"
     )
 
 
 def test_sign_script_is_the_single_entry():
     """签名入口唯一：四类动作 + 文档承诺的环境变量名都在，后续才能「加证书＝配两个变量」。"""
     text = SIGN_SCRIPT.read_text(encoding="utf-8")
-    for action in ("Sign", "Verify", "IsccArgs", "Resolve"):
+    for action in ("Sign", "Verify", "Resolve"):
         assert f"'{action}'" in text, f"sign_win.ps1 缺动作 {action}"
     for env in (
         "AINOVEL_SIGN_PFX",
@@ -99,8 +101,8 @@ def test_app_exe_is_signed_before_packaging():
     assert iscc_pos != -1, "build_release.ps1 缺 Inno 打包步骤"
     assert sign_pos < iscc_pos, "签名步骤须排在 Inno 打包之前"
     assert "dist\\AwesomeNovel\\AwesomeNovel.exe" in text, "签名目标不是程序本体 exe"
-    assert "IsccArgs" in text and "Verify" in text, (
-        "build_release.ps1 缺 iscc 签名参数传递或出包后校验"
+    assert "-Action Sign -Path $signed.FullName" in text and "-Action Verify" in text, (
+        "build_release.ps1 缺「iscc 出包后签安装器」或校验"
     )
     # 内测一键自签（-DevSign）：让导入过根证书的机器看到发布者名而不是「发布者未知」，别被改丢
     assert "[switch]$DevSign" in text, "build_release.ps1 缺 -DevSign 开关"
@@ -114,7 +116,7 @@ def test_ci_pipeline_order_and_verification_gate():
         "Configure Windows code signing",
         "Sign app exe (Windows)",
         "Build Windows installer",
-        "Verify installer signature (Windows)",
+        "Sign & verify installer (Windows)",
     ]
     positions = []
     for name in order:
@@ -125,7 +127,7 @@ def test_ci_pipeline_order_and_verification_gate():
         "签名步骤顺序错了（证书准备 → 签 exe → 打包 → 校验）：" + str(positions)
     )
     assert "WINDOWS_SIGN_PFX" in wf, "CI 缺证书 secret 入口"
-    assert "IsccArgs" in wf, "iscc 没带签名参数——安装器与卸载器不会签名"
+    assert "Sign & verify installer" in wf, "CI 没在 iscc 之后签安装器"
     assert "AwesomeNovel.exe" in wf, "CI 没签程序本体"
     assert "::warning" in wf and "未配置正式签名证书" in wf, (
         "没配正式证书时必须打 warning（说明本次出的是仓库自签包）——"

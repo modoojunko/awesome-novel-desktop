@@ -164,13 +164,14 @@ Step '8/8 Inno Setup 安装包' {
     if (-not $iscc) { throw 'iscc 不在 PATH 且默认路径无 Inno Setup 6（choco install innosetup -y）' }
     Push-Location $BuildDir
     try {
-        # 有证书时把 /DSignToolScript 传给 Inno：安装器本体 + 卸载器一并签名
-        $signArgs = @(& (Join-Path $BuildDir 'sign_win.ps1') -Action IsccArgs)
-        & $iscc "/DMyAppVersion=$Version" @signArgs installer.iss
+        # 安装器签名走本脚本（Inno SignTool 的值必须是「已定义过的工具名」，判例见
+        # installer.iss 头注）：iscc 出包 → 直接签 → 校验
+        & $iscc "/DMyAppVersion=$Version" installer.iss
         if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 构建失败' }
-        # 没签上＝链路坏了，此处直接失败（显式关闭签名时本步只警告）
         $signed = Get-ChildItem -Path (Join-Path $RepoRoot 'client\packaging\dist') -Filter 'AwesomeNovel_Setup_*.exe' |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        & (Join-Path $BuildDir 'sign_win.ps1') -Action Sign -Path $signed.FullName
+        if ($LASTEXITCODE -ne 0) { throw '安装包签名失败' }
         & (Join-Path $BuildDir 'sign_win.ps1') -Action Verify -Path $signed.FullName
         if ($LASTEXITCODE -ne 0) { throw '安装包签名校验失败' }
     } finally { Pop-Location }

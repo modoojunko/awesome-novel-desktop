@@ -21,8 +21,9 @@
 #                                    **不解除 SmartScreen，对外部用户仍显示「发布者: 未知」**。
 #                                    AINOVEL_SIGN_DEV_CERT=0 关掉（出未签名包）；
 #                                    =1 强制自签（即使配了正式证书，用于验内测链路）。
-# 都没有（即显式关闭） → 不签名：Sign/Verify 只打印警告（发版不因缺证书挂掉），
-#          IsccArgs 不输出任何参数（Inno 侧 SignTool 指令不启用，编译结果与历史一致）。
+# 都没有（即显式关闭） → 不签名：Sign/Verify 只打印警告（发版不因缺证书挂掉）。
+# 安装器不在 Inno 里签（SignTool 需先定义工具名，判例见 installer.iss 头注），
+# 由构建脚本在 iscc 之后对本文件 -Action Sign 直接签。
 #
 # ⚠️ 2023-06-01 起 CA/B 规则要求代码签名私钥必须由硬件保护（FIPS 140-2 L2 / CC EAL4+）
 #    且不可导出——**公共 CA 已不再签发可导出 PFX 的代码签名证书**。将来真要买，拿到的是
@@ -33,15 +34,14 @@
 # 其他可调项：AINOVEL_SIGN_TIMESTAMP_URL（默认 DigiCert RFC3161）、AINOVEL_SIGN_DESCRIPTION。
 #
 # 用法：
-#   sign_win.ps1 -Action Sign     -Path <file>      # 签一个文件（Inno 的 SignTool 也调这条）
+#   sign_win.ps1 -Action Sign     -Path <file>      # 签一个文件（构建脚本对 exe/安装器各调一次）
 #   sign_win.ps1 -Action Verify   -Path <file>      # 校验签名（未签名即失败）
-#   sign_win.ps1 -Action IsccArgs                   # 输出 iscc 需要的 /D 参数（未配置则无输出）
 #   sign_win.ps1 -Action Resolve                    # 打印当前解析结果（排障用）
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Sign', 'Verify', 'IsccArgs', 'Resolve')]
+    [ValidateSet('Sign', 'Verify', 'Resolve')]
     [string]$Action,
 
     [string]$Path
@@ -201,11 +201,5 @@ switch ($Action) {
     'Verify' {
         if (-not $config) { Write-NotConfiguredWarning; break }
         Assert-SignaturePresent -FilePath $Path
-    }
-    'IsccArgs' {
-        if (-not $config) { break }
-        # 交给 Inno：SignTool 指令覆盖安装器本体与卸载器（SignedUninstaller）
-        $scriptPath = (Resolve-Path $PSCommandPath).Path
-        Write-Output "/DSignToolScript=$scriptPath"
     }
 }

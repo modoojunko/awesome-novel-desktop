@@ -47,7 +47,7 @@ SmartScreen 对**从网上下载的文件**（带 Mark-of-the-Web 标记）做�
 签名入口统一在 `client/packaging/build/sign_win.ps1`，证书从环境变量解析：
 
 ```powershell
-# 本地打包（build_release.ps1 会自动用它签程序本体 + 安装器 + 卸载器，并校验）
+# 本地打包（build_release.ps1 会自动用它签程序本体 + 安装器，并校验）
 #
 # ① 云签名服务（推荐给 CI；dll 与元数据由厂商客户端工具装好）
 $env:AINOVEL_SIGN_DLIB = 'C:\Program Files\Azure Trusted Signing\...\Azure.CodeSigning.Dlib.dll'
@@ -76,8 +76,13 @@ secret，推 tag 出包时自动生效——
 签名覆盖面（缺一处用户就会在某个环节看到「未知发布者」）：
 
 1. `AwesomeNovel.exe`（程序本体，Inno 打包**前**签 —— 打包后签外面这份无效）
-2. `AwesomeNovel_Setup_v*.exe`（安装器，经 Inno `SignTool` 指令签）
-3. `unins000.exe`（卸载器，同一条指令，`SignedUninstaller=yes`）
+2. `AwesomeNovel_Setup_v*.exe`（安装器，**iscc 出包后**由构建脚本用 signtool 直接签——
+   不走 Inno 的 `SignTool` 指令：该指令的值必须是「**已定义过的工具名**」（要先用 iscc 的
+   `-s/--signtool` 定义），直接写内联命令会被判 `Value of [Setup] section directive "SignTool"
+   is invalid`（2026-10-06 CI 演练实锤，判例注释留在 `installer.iss` 头）。
+3. `unins000.exe`（卸载器）——**不含签名**：Inno 的 `SignedUninstaller` 只能靠 `SignTool`
+   机制，本路径下拿不到；卸装时 UAC 会显示未知发布者（已知缺口，需要时按上面「命令行定义
+   工具名」的形态改回即可）。
 
 **没配证书不会让发版挂**（`sign_win.ps1` 打印警告跳过，安装包照出），但会：
 - 本地脚本：步骤 7/8 打警告
@@ -88,7 +93,7 @@ secret，推 tag 出包时自动生效——
 ## 四、当前默认：仓库自签证书（用户 2026-10-06 拍板「自签即可」）
 
 没有正式证书时，构建**默认**用 `client/packaging/cert/cert.pfx`（CN=Awesome Novel (Dev)）签名：
-程序本体、安装器、卸载器一起签，出包后校验。想关掉（出未签名包）设 `AINOVEL_SIGN_DEV_CERT=0`；
+程序本体与安装器都会签、出包后校验（卸载器不签，见第三节第 3 条）。想关掉（出未签名包）设 `AINOVEL_SIGN_DEV_CERT=0`；
 想强制自签（哪怕配了正式证书，用于验内测链路）设 `=1`。配了正式证书（`/dlib`、`_PFX`、`_THUMBPRINT`）
 时**正式证书恒优先**——将来买到证书，配好就自动切换。
 
@@ -120,7 +125,7 @@ secret，推 tag 出包时自动生效——
 ## 六、相关文件
 
 - `client/packaging/build/sign_win.ps1`：证书解析 + 签名 + 校验（Sign / Verify / IsccArgs / Resolve）
-- `client/packaging/build/installer.iss`：`#ifdef SignToolScript` 包裹的 `SignTool` 指令（不传 define 时编译结果与历史一致）
+- `client/packaging/build/installer.iss`：**不声明 SignTool**（判例注释在头注；安装器由构建脚本在 iscc 之后签）
 - `client/packaging/build/build_release.ps1`：步骤 7/8 签程序本体、8/8 出包并校验
 - `.github/workflows/client-package.yml`：证书准备（secret → PFX）→ 签 exe → iscc（带签名参数）→ 校验闸门
 - `client/backend/tests/test_packaging_win_signing.py`：静态门禁（不看证书也要保证链路不被改丢）

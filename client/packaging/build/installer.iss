@@ -56,18 +56,14 @@ OutputBaseFilename=AwesomeNovel_Setup_v{#MyAppVersion}
 ; 图标
 SetupIconFile=icon.ico
 
-; ── 代码签名（可选，构建脚本传 /DSignToolScript=<绝对路径> 才启用）────────────
-; 用户双击安装包看到的「Windows 已保护你的电脑 / 发布者: 未知」＝SmartScreen 对
-; **未签名/签名不受信任**安装包的提示，唯一解法是给安装包做 Authenticode 代码签名（正式证书见
-; docs/ops/client-code-signing.md）。签名入口统一在 sign_win.ps1：证书从环境变量
-; 解析，没配证书就打印警告跳过（发版不因缺证书挂），配了就签安装器 + 卸载器本体。
-; 不传 define 时本块不参与编译——「暂不签名也要出包」的发版路径与历史逐字一致。
-#ifdef SignToolScript
-; ⚠️ 路径引号必须用 Inno 自己的 $q 转义——写肉眼引号会让 Inno 判
-;   「Value of [Setup] section directive "SignTool" is invalid」（2026-10-06 CI 演练实锤）
-SignTool=powershell -NoProfile -ExecutionPolicy Bypass -File $q{#SignToolScript}$q -Action Sign -Path $f
-SignedUninstaller=yes
-#endif
+; ── 代码签名（可选）：安装器由构建脚本在 iscc **之后**用 signtool 直接签 ────────
+; 判例（2026-10-06 CI 演练实锤）：[Setup] SignTool 的值必须是「**已定义过的工具名**」
+; （要用 iscc 的 -s/--signtool 先定义该工具），直接写内联命令会被判
+; 「Value of [Setup] section directive "SignTool" is invalid」。
+; 故本文件不再声明 SignTool；安装器签名走构建脚本（build_release.ps1 / client-package.yml
+; 的「iscc → sign → verify」三步，见 docs/ops/client-code-signing.md）。
+; 已知缺口：Inno 的 SignedUninstaller 只能靠 SignTool 机制，本路径下**卸载器不含签名**
+; （卸装时 UAC 显示未知发布者）；将来若需要，改回「命令行定义工具名」形态即可。
 
 ; 压缩
 Compression=lzma2/ultra

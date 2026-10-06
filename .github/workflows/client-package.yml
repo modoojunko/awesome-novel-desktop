@@ -290,23 +290,23 @@ jobs:
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' }
           if (-not (Test-Path $iscc)) { throw "找不到 iscc：$iscc" }
-          $signScript = (Resolve-Path 'client/packaging/build/sign_win.ps1').Path
           Push-Location client/packaging/build
           try {
-            # 有证书时 /DSignToolScript 让 Inno 连卸载器一起签（SignedUninstaller）
-            $signArgs = @(& $signScript -Action IsccArgs)
-            & $iscc "/DMyAppVersion=$VERSION" @signArgs installer.iss
+            # 安装器不在 Inno 里签（SignTool 值必须是已定义的工具名，判例见 installer.iss 头注）
+            & $iscc "/DMyAppVersion=$VERSION" installer.iss
             if ($LASTEXITCODE -ne 0) { throw 'Inno Setup 构建失败' }
           } finally { Pop-Location }
 
-      # 签名校验闸门：没签上（证书过期/时间戳服务不通/signtool 缺失或静默失败）
-      # 必须在这里红，而不是让用户从 SmartScreen 提示里发现
-      - name: Verify installer signature (Windows)
+      # 安装器签名（iscc 之后直接签，避开 Inno SignTool 的工具名定义要求）＋签名校验闸门：
+      # 没签上（证书过期/时间戳服务不通/signtool 缺失或静默失败）必须在这里红，
+      # 而不是让用户从 SmartScreen 提示里发现
+      - name: Sign & verify installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $installer = (Get-ChildItem 'client/packaging/dist/AwesomeNovel_Setup_*.exe' |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+          ./client/packaging/build/sign_win.ps1 -Action Sign -Path $installer
           ./client/packaging/build/sign_win.ps1 -Action Verify -Path $installer
 
       - name: Upload Windows installer
