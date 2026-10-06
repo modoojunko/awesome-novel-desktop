@@ -140,8 +140,7 @@ def _wire(env, monkeypatch, sk, pub_b64, exchange):
 
 
 def test_sync_happy_path_installs(env, cdn, monkeypatch):
-    root, _ = cdn if False else cdn  # base, root
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
     _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
@@ -158,7 +157,7 @@ def test_sync_happy_path_installs(env, cdn, monkeypatch):
 
 
 def test_sync_tampered_bundle_rejected_keeps_old(env, cdn, monkeypatch):
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
     # 先装 v5 成功
@@ -176,20 +175,20 @@ def test_sync_tampered_bundle_rejected_keeps_old(env, cdn, monkeypatch):
 
 
 def test_sync_bad_signature_rejected(env, cdn, monkeypatch):
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
-    man, latest = _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
+    man, _latest = _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
     # 篡改 manifest（保留原签名）→ 验签失败
     man["templates"]["write_chapter"] = "0" * 64
     (cdn_root / "prompts" / "v5" / "manifest.json").write_text(json.dumps(man))
-    pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, -1))
+    _pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, -1))
     st = sync_mod.sync_once(local_tier="free")
     assert st["phase"] == "failed" and st["reason"] == "signature"
 
 
 def test_sync_highwatermark_blocks_replay(env, cdn, monkeypatch):
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
     _publish(cdn_root, "7", {"free": ("k-free-7", cek)}, TPL, sk, "test-kid")
@@ -203,7 +202,7 @@ def test_sync_highwatermark_blocks_replay(env, cdn, monkeypatch):
 
 
 def test_sync_403_downgrades_tier(env, cdn, monkeypatch):
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
     _publish(cdn_root, "5", {"pro": ("k-pro-5", cek), "free": ("k-free-5", cek)}, TPL, sk, "test-kid")
@@ -213,33 +212,33 @@ def test_sync_403_downgrades_tier(env, cdn, monkeypatch):
             return None, 403  # 本地以为 pro，S端 说不够
         return {"cek": base64.b64encode(cek).decode(), "key_id": kid, "tier": "free", "version": ver}, 0
 
-    pp, sync_mod = _wire(env, monkeypatch, sk, pub, exchange)
+    _pp, sync_mod = _wire(env, monkeypatch, sk, pub, exchange)
     st = sync_mod.sync_once(local_tier="pro")
     assert st["phase"] == "ready" and st["tier"] == "free"
 
 
 def test_sync_all_tiers_403_tier_denied(env, cdn, monkeypatch):
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
     _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
-    pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, 403))
+    _pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, 403))
     st = sync_mod.sync_once(local_tier="free")
     assert st["phase"] == "tier_denied"
 
 
 def test_sync_404_reports_key_retired(env, cdn, monkeypatch):
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
     _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
-    pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, 404))
+    _pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (None, 404))
     st = sync_mod.sync_once(local_tier="free")
     assert st["phase"] == "failed" and st["reason"] == "key_retired"
 
 
 def test_sync_min_pack_version_retires_installed(env, cdn, monkeypatch):
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
     _publish(cdn_root, "3", {"free": ("k-free-3", cek)}, TPL, sk, "test-kid")
@@ -252,12 +251,12 @@ def test_sync_min_pack_version_retires_installed(env, cdn, monkeypatch):
 
 
 def test_sync_already_latest_is_ready(env, cdn, monkeypatch):
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
     _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
     calls = []
-    pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (calls.append(1), ({"cek": base64.b64encode(cek).decode(), "key_id": kid, "tier": "free", "version": ver}, 0))[1])
+    _pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: (calls.append(1), ({"cek": base64.b64encode(cek).decode(), "key_id": kid, "tier": "free", "version": ver}, 0))[1])
     assert sync_mod.sync_once(local_tier="free")["phase"] == "ready"
     n = len(calls)
     st = sync_mod.sync_once(local_tier="free")
@@ -265,8 +264,8 @@ def test_sync_already_latest_is_ready(env, cdn, monkeypatch):
 
 
 def test_sync_no_keys_skips(env, cdn, monkeypatch):
-    base, cdn_root = cdn
-    _, pp, sync_mod, _ = env
+    _base, _cdn_root = cdn
+    _, _pp, sync_mod, _ = env
     monkeypatch.setattr(sync_mod, "_validate_outbound", lambda url: True)
     monkeypatch.delenv("CLIENT_PACK_PUBKEYS", raising=False)
     st = sync_mod.sync_once(local_tier="free")
@@ -283,7 +282,7 @@ def test_prompts_missing_handler_returns_503_envelope(env):
     from main import _prompts_missing_handler
     from prompts import PromptPackMissing
 
-    _, _, sync_mod, prompts = env
+    _, _, _sync_mod, prompts = env
     import os as _os
 
     _os.environ["PROMPT_PACK_MODE"] = "force"  # 禁包内目录跳 → 真抛
@@ -312,7 +311,7 @@ def test_ai_states_contains_prompts_missing():
 
 def test_sync_same_version_tier_upgrade(env, cdn, monkeypatch):
     """同版本换档（免费→PRO）：不短路、补写新增模板、receipt 换档（实测抓到的回归）。"""
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
     tpls = {"a": "<<system>>\nA\n<<user>>\nx", "b": "<<system>>\nB\n<<user>>\ny"}
@@ -367,7 +366,7 @@ def test_sync_same_version_tier_upgrade(env, cdn, monkeypatch):
 def test_sync_tampered_latest_rejected_not_consumed(env, cdn, monkeypatch):
     """评审 P1：latest 未验签不得消费控制字段——篡改 min_pack_version 不触发清回执、
     篡改 min_client_version 不静默冻结。"""
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
     _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
@@ -386,7 +385,7 @@ def test_sync_tampered_latest_rejected_not_consumed(env, cdn, monkeypatch):
 
 def test_sync_404_refetches_latest_and_retries_once(env, cdn, monkeypatch):
     """评审 P3：404（密钥退役）→ 重取 latest（cache-bust）→ 版本变化则重试一次装新版。"""
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
     _publish(cdn_root, "6", {"free": ("k-free-6", cek)}, TPL, sk, "test-kid")
@@ -431,7 +430,6 @@ def test_status_ready_with_dev_fallback(env, monkeypatch):
 def test_exchange_cek_carries_token_flag(env, monkeypatch):
     """换钥必须带登录态（with_token=True）——联调实测缺口回归钉：
     call_server_api 默认不附 Authorization，换钥端点必 401。"""
-    import asyncio
 
     import auth_local.service as svc
 
@@ -451,7 +449,7 @@ def test_exchange_cek_carries_token_flag(env, monkeypatch):
 def test_sync_repairs_tampered_installed_pack(env, cdn, monkeypatch):
     """评审 P1：已装包被篡改 → 读侧拒绝（PromptPackMissing）且同步器自愈
     （同版本重装修复）——spec「读时校验失败须可自愈」的触发器回归钉。"""
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
     _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
@@ -471,7 +469,9 @@ def test_sync_repairs_tampered_installed_pack(env, cdn, monkeypatch):
 
     st = sync_mod.sync_once(local_tier="free")  # 同版本，但完整性复核不过 → 重装
     assert st["phase"] == "ready"
-    assert "篡改" not in open(fp, encoding="utf-8").read(), "篡改文件未被修复"
+    with open(fp, encoding="utf-8") as f:
+        repaired = f.read()
+    assert "篡改" not in repaired, "篡改文件未被修复"
     _il.reload(prompts)
     assert "你是助手" in prompts.load("write_chapter")
 
@@ -479,7 +479,7 @@ def test_sync_repairs_tampered_installed_pack(env, cdn, monkeypatch):
 def test_sync_same_tier_probe_skips_redownload(env, cdn, monkeypatch):
     """评审 P3：本地误报高档、S 判档仍等于已装档且本地完好 → 免重下重装
     （降档收敛探测出口；语义不变：真升档仍走下载安装）。"""
-    base, cdn_root = cdn
+    _base, cdn_root = cdn
     sk, pub = _keypair()
     cek = os.urandom(32)
     _publish(cdn_root, "5", {"free": ("k-free-5", cek), "pro": ("k-pro-5", cek)}, TPL, sk, "test-kid")

@@ -42,7 +42,9 @@ jobs:
       # （那里把 pyinstaller 装进同一 venv，bootloader 许可会在白名单外）
       - name: Dependency license gate
         run: python scripts/check_py_licenses.py
-      - run: pip install ruff pytest pytest-timeout pytest-asyncio
+      # ruff 钉版本（与本地 venv/ruff.toml 口径一致；不钉会随上游新规则漂移——
+      # 2026-10-06 实锤：未钉时装 0.16.10，对新代码凭空 +49 条红。判例同 S端 #633）
+      - run: pip install ruff==0.16.3 pytest pytest-timeout pytest-asyncio
       - name: Lint
         run: ruff check --extend-select F811,F821,F841 .
       - name: Test
