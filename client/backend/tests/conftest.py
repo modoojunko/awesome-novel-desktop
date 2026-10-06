@@ -135,6 +135,24 @@ os.environ["DATABASE_URL"] = (
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _force_weak_pack_keystore():
+    """提示词包钥匙库：测试一律走 weak 档（机器指纹派生），**不碰真实 DPAPI/Keychain**。
+
+    为什么：真档会把钥匙写进「当前用户的系统钥匙串」（macOS 实测会留下
+    awesomenovel-prompt-pack 条目），单元测试不该在开发机/CI 上留这种副作用。
+    weak 只是换一把派生钥匙（解不开真档写的容器），**不是绕过**；真档路径由
+    client/packaging/build/verify_pack_hardening.ps1 真机验收与人工实测覆盖。
+    """
+    prev = os.environ.get("AINOVEL_PACK_KEYSTORE")
+    os.environ["AINOVEL_PACK_KEYSTORE"] = "weak"
+    yield
+    if prev is None:
+        os.environ.pop("AINOVEL_PACK_KEYSTORE", None)
+    else:
+        os.environ["AINOVEL_PACK_KEYSTORE"] = prev
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _session_test_db():
     """建表基座：任何测试触碰 DB 前，表已建好（含 project_settings）。
 
