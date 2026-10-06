@@ -102,6 +102,9 @@ def test_app_exe_is_signed_before_packaging():
     assert "IsccArgs" in text and "Verify" in text, (
         "build_release.ps1 缺 iscc 签名参数传递或出包后校验"
     )
+    # 内测一键自签（-DevSign）：让导入过根证书的机器看到发布者名而不是「发布者未知」，别被改丢
+    assert "[switch]$DevSign" in text, "build_release.ps1 缺 -DevSign 开关"
+    assert "AINOVEL_SIGN_DEV_CERT" in text, "-DevSign 没接到自签证书环境变量上"
 
 
 def test_ci_pipeline_order_and_verification_gate():

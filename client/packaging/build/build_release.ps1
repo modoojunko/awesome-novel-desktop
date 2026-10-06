@@ -7,13 +7,25 @@
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File build_release.ps1            # 版本取自最新 v* tag
 #   powershell -ExecutionPolicy Bypass -File build_release.ps1 0.26       # 显式指定版本
+#   powershell -ExecutionPolicy Bypass -File build_release.ps1 0.27 -DevSign   # 内测自签签名（见下）
 # 产物：client/packaging/dist/AwesomeNovel_Setup_<version>.exe
 # 注意：须在仓库根的检出内运行（脚本向上定位仓库根）。
 #
 # 代码签名（2026-10-06 落地，见 docs/ops/client-code-signing.md）：
-#   配了证书环境变量 → 程序本体 + 安装器 + 卸载器全签名，结尾校验签名；
-#   没配 → 步骤 7 打印警告跳过（包照出，用户装包时看到 SmartScreen「发布者: 未知」）。
-#   内测自验链路：$env:AINOVEL_SIGN_DEV_CERT = '1'（用仓库自签证书，不解除 SmartScreen）。
+#   配了证书环境变量（AINOVEL_SIGN_DLIB / _PFX / _THUMBPRINT）→ 程序本体 + 安装器 + 卸载器
+#   全签名，出包后校验；没配 → 步骤 7 打印警告跳过（包照出）。
+#   -DevSign 开关＝用仓库自签证书签（等价于 $env:AINOVEL_SIGN_DEV_CERT='1'），
+#   **只对「导入过我们根证书的机器」显示发布者**（内测机先跑 client\packaging\cert\install_cert.bat），
+#   对外部用户仍显示「发布者: 未知」且不解除 SmartScreen——原因见
+#   docs/ops/client-code-signing.md 第二节。
+
+[CmdletBinding()]
+param(
+    [Parameter(Position = 0)][string]$Version,
+    # 内测自签签名：让导入过根证书的机器（测试同学本机）在 UAC/文件属性/安装弹窗里
+    # 看到「Awesome Novel (Dev)」而不是「发布者未知」；对未导入的机器无效果
+    [switch]$DevSign
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -22,10 +34,11 @@ $BuildDir = $PSScriptRoot
 $RepoRoot = (Resolve-Path (Join-Path $BuildDir '..\..\..')).Path
 $ClientDir = Join-Path $RepoRoot 'client'
 
+if ($DevSign) { $env:AINOVEL_SIGN_DEV_CERT = '1' }
+if ($args.Count -gt 0) { Write-Warning "忽略多余参数：$($args -join ' ')（只认版本号位置参数与 -DevSign）" }
+
 # ── 版本号：参数 > git tag（v0.26 -> 0.26，非法字符清洗，与 CI 同源）──
-if ($args.Count -ge 1 -and $args[0] -ne '') {
-    $Version = $args[0]
-} else {
+if (-not $Version) {
     $Version = (& git -C $RepoRoot describe --tags --abbrev=0 2>$null)
     if (-not $Version) { Write-Error 'git 仓库无 v* tag 且未显式给版本号'; exit 1 }
 }
