@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 #
-# AI Novel — PyInstaller build spec
+# Awesome Novel — PyInstaller build spec
 #
 # 两种模式:
 #   onefile: 单 exe（启动慢，开发测试用）
@@ -108,9 +108,9 @@ VSVersionInfo(
         [StringStruct('CompanyName', {APP_PUBLISHER!r}),
          StringStruct('FileDescription', {_file_desc!r}),
          StringStruct('FileVersion', {_ver!r}),
-         StringStruct('InternalName', 'AI Novel'),
+         StringStruct('InternalName', 'AwesomeNovel'),
          StringStruct('LegalCopyright', {_copyright!r}),
-         StringStruct('OriginalFilename', 'AI Novel.exe'),
+         StringStruct('OriginalFilename', 'AwesomeNovel.exe'),
          StringStruct('ProductName', {APP_BRAND_NAME!r}),
          StringStruct('ProductVersion', {_ver!r})])
       ]),
@@ -175,7 +175,7 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 # ── 可执行文件 ──
 _exe_kwargs = dict(
-    name='AI Novel',
+    name='AwesomeNovel',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -198,7 +198,7 @@ if is_onefile:
 else:
     # onedir：EXE 只打包启动器，binaries/zipfiles/datas 由 COLLECT 收集。
     # （若 EXE 与 COLLECT 同时接收 a.binaries，macOS 构建会报
-    #   “Resource 'dist/AI Novel' is not a valid file” —— 输出与收集循环引用。）
+    #   “Resource 'dist/AwesomeNovel' is not a valid file” —— 输出与收集循环引用。）
     exe = EXE(pyz, a.scripts, [], exclude_binaries=True, **_exe_kwargs)
     coll = COLLECT(
         exe,
@@ -208,13 +208,13 @@ else:
         strip=False,
         upx=True,
         upx_exclude=[],
-        name='AI Novel',
+        name='AwesomeNovel',
     )
     # macOS: 把 COLLECT 包成 .app（仅 darwin 且 onedir；Windows CI 走不到这里）
     if sys.platform == "darwin":
         app = BUNDLE(
             coll,
-            name='AI Novel.app',
+            name='AwesomeNovel.app',
             icon=APP_ICON_ICNS,
             bundle_identifier='com.ainovel.desktop',
         )

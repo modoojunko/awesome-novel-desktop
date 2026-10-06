@@ -721,6 +721,8 @@ class TestModelCandidates:
                 self.status_code = code
                 self._payload = payload or {}
                 self.text = ""
+                # 真 httpx.Response 恒有 headers（连接判据「200 必须是 API JSON」读它）
+                self.headers = {"content-type": "application/json"}
 
             def json(self):
                 return self._payload
@@ -743,7 +745,8 @@ class TestModelCandidates:
 
             async def post(self, url, headers=None, json=None):
                 calls.append(("POST", url))
-                return _Resp(200)
+                # 降级探针＝「你好」最小生成：需回格式正确的回复才算通（2026-10-05 拍板）
+                return _Resp(200, {"content": [{"type": "text", "text": "你好！"}]})
 
         monkeypatch.setattr(conn.httpx, "AsyncClient", _Client)
         out = _run_async(

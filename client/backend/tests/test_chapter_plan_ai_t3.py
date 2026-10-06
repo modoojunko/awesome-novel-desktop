@@ -90,8 +90,9 @@ def client():
 
 # ── AI 打桩（与 test_volume_plan_ai 同构：_generate 在 volumes.ai_plan 里取 client）──
 class _FakeAIClient:
-    def __init__(self, reply: str = "", boom: bool = False):
-        self._reply = reply
+    def __init__(self, reply: str | list[str] = "", boom: bool = False):
+        # list＝按调用次序出答（首答坏、次答好——重试路径用例）；单答恒返（既有行为）
+        self._replies = reply if isinstance(reply, list) else [reply]
         self._boom = boom
         self.calls: list[dict] = []
 
@@ -101,10 +102,10 @@ class _FakeAIClient:
             kwargs["usage"].update({"tokens_in": 100, "tokens_out": 200})
         if self._boom:
             raise RuntimeError("boom")
-        return self._reply
+        return self._replies[min(len(self.calls) - 1, len(self._replies) - 1)]
 
 
-def _setup_ai(monkeypatch, reply: str = "", *, boom: bool = False) -> _FakeAIClient:
+def _setup_ai(monkeypatch, reply: str | list[str] = "", *, boom: bool = False) -> _FakeAIClient:
     fake = _FakeAIClient(reply, boom)
 
     async def _factory(novel_id=None):
@@ -650,6 +651,37 @@ class TestDirectionsValidation:
         assert len(fake.calls) == 1, "依据瑕疵不得消耗重试预算"
         assert d["grades"] == ["S", "B", "B"], d  # 名次合法 → 字母照出（默认样本：卡 1 四维全第一）
         assert not any("不出等级" in w for w in d["warnings"]), d["warnings"]
+
+    def test_retry_carries_full_material_and_logs_cause(self, client, monkeypatch, caplog):
+        """结构性失败的重试 MUST 与首调用同源同文（素材＋引导句）＋失败原因落日志。
+
+        c-chapter-draw-retry-material 回归钉子：旧实现重试只发一句索取语（素材全丢），
+        凡本用例变红＝裸重试回归。
+        """
+        pid = _seed_vol(client, target=6)
+        # 首调用：三轴重复 → 丢到只剩 1 张 → 触发整批重试；重试：合法批
+        bad = _directions_reply(
+            [CARDS[0], dict(CARDS[1], axis="线索"), dict(CARDS[2], axis="线索")],
+            axes=["线索", "线索", "线索"],
+        )
+        fake = _setup_ai(monkeypatch, [bad, _directions_reply()])
+        with caplog.at_level("INFO", logger="chapters.ai_plan"):
+            r = client.post(f"/api/novels/{pid}/volumes/vol-1/chapters/ai-directions", json={})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d.get("degraded") is not True
+        assert len(d["directions"]) == 3
+        assert len(fake.calls) == 2, "首调用结构性失败 → 恰一次重试"
+        first_user = fake.calls[0]["messages"][0]["content"]
+        retry_user = fake.calls[1]["messages"][0]["content"]
+        assert retry_user == first_user, "重试 SHALL 与首调用同源同文（同一条素材消息）"
+        for marker in ("【本章位置】", "【进场（本章从哪接）】", "【本卷卷纲（四问）】", "请给出第 1 章的 3 个剧情方向"):
+            assert marker in retry_user, f"重试 user 消息缺素材标记：{marker}"
+        retry_sys = str(fake.calls[1].get("system") or "")
+        assert "（上一次" in retry_sys, "失败原因随 system 喂回"
+        logs = [rec.getMessage() for rec in caplog.records if "chapter_directions retry" in rec.getMessage()]
+        assert logs, "触发重试须落日志"
+        assert "attempt=2/3" in logs[0] and "cause=" in logs[0], logs
 
 
 def _seed_multi_chapters(pid: str, n: int) -> None:

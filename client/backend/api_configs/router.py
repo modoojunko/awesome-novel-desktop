@@ -126,6 +126,7 @@ async def create_config(
             api_key=body.api_key,
             vendor_override=body.vendor_override,
             api_format=body.api_format,
+            models=body.models,
         )
         return result
     except ValueError as e:
@@ -164,6 +165,7 @@ async def test_raw_connection(
         api_key=body.api_key,
         base_url=body.base_url,
         api_format=body.api_format,
+        preferred_model=body.model,
     )
 
 

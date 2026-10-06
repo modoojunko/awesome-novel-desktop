@@ -1,10 +1,16 @@
 // ChapterPlanModal — 卷下拆章弹窗（c-chapter-plan-ai）
 // 手写四段（全档）与 AI 三方向（PRO）共用同一张卡面；AI 四态；角标与「剧情吸引力/差在哪」；
 // 手写卡底条「AI 看一眼这一章」（免费只读例外）。落点卡由外层渲染（关窗后回中栏）。
+import { useEffect, useState } from "react";
 import Modal from "@/components/design/Modal";
 import { cnNum } from "@/lib/nodeTitle";
 import { STAGES, type ChapterPlanController } from "@/hooks/useChapterPlan";
 import { useFeature } from "@/hooks/useTier";
+
+// busy 态阶段进度（c-chapter-draw-retry-material，感知层）：前端计时推进的等待提示，
+// 非后端真实进度——阶段全完成 SHALL NOT 提前结束 busy，出卡仍以响应回来为准。
+const CH_STEPS = ["读卷纲与设定", "推演 3 个方向", "自查与评分"] as const;
+const STEP_DONE_MS = [5000, 10000, 15000] as const;
 
 export function ChapterPlanModal({
   plan,
@@ -23,6 +29,23 @@ export function ChapterPlanModal({
   const chCn = cnNum(state.nextNo);
   const no2 = String(state.nextNo).padStart(2, "0");
   const isAi = state.entrySource === "ai";
+
+  // 阶段计时：按 STEP_DONE_MS 逐段标完成；出卡（离开 busy）停表。
+  // 归零放「离开 busy」侧（effect 重进 busy 的复位晚于首帧绘制，会闪一次「全完成」）——
+  // 非 busy 态先把值清掉，重进 busy 的首帧必为 0；挂载初值本身是 0。
+  const [stepsDone, setStepsDone] = useState(0);
+  useEffect(() => {
+    if (!(isAi && state.phase === "busy")) {
+      setStepsDone(0);
+      return;
+    }
+    const t0 = Date.now();
+    const id = window.setInterval(() => {
+      const el = Date.now() - t0;
+      setStepsDone(STEP_DONE_MS.filter((ms) => el >= ms).length);
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [isAi, state.phase]);
 
   return (
     <Modal
@@ -44,6 +67,21 @@ export function ChapterPlanModal({
             <span className="ra-spin" aria-hidden="true" />
             <span aria-live="polite">正在想第{chCn}章的 3 个方向…</span>
             <span className="none">都按你的卷纲和上一章结尾推——3 个方向接的是同一句进场</span>
+            {/* 阶段列表（.ex-steps 既有词汇；宽度内联取 genbox 同款 66ch，不新增 CSS 规则） */}
+            <ul className="ex-steps" data-testid="split-steps" style={{ width: "100%", maxWidth: "66ch" }}>
+              {CH_STEPS.map((s, i) => (
+                <li key={s}>
+                  <b>{s}</b>
+                  {stepsDone > i ? (
+                    <em className="ok">完成</em>
+                  ) : (
+                    <em>
+                      <span className="ra-spin" aria-hidden="true" />进行中
+                    </em>
+                  )}
+                </li>
+              ))}
+            </ul>
             <span className="no-close">AI 创作中，请勿关闭弹窗</span>
           </div>
         )}

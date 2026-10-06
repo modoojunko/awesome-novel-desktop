@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import difflib
+import logging
 import re
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -43,6 +44,8 @@ from volumes.render import volume_outline_text
 from workflow.engine import strip_suffix
 
 router = APIRouter(prefix="/api/novels/{project_id}", tags=["chapter-plan-ai"])
+
+logger = logging.getLogger(__name__)
 
 
 def _vol_no(vol_ref: str) -> int:
@@ -591,8 +594,15 @@ async def ai_chapter_directions(
         # 排除触发（D21）：求差异 SHALL NOT 降温；纯结构性失败照既有阶梯降温
         retry_temp = 0.7 if (exclude and any("与已出方向雷同" in w for w in warn)) else 0.3
         retry_system = system + f"\n\n（上一次{cause}。）"
+        # 同源同文（c-chapter-draw-retry-material）：重试复用首调用同一 user 消息
+        # （素材包＋位置片段＋引导句＋排除清单）——旧实现只发一句索取语，素材全丢，
+        # 出卡必然脱离全书设定，且排除清单缺席会让重试卡再撞对拍被二次丢弃。
+        logger.info(
+            "chapter_directions retry attempt=%d/%d cause=%s novel=%s vol=%s ch=%d",
+            attempts + 1, MAX_ATTEMPTS, cause, project.id, vol_no, ch_no,
+        )
         raw, _u = await _generate(
-            project, retry_system, "请给出 2 到 3 个剧情方向（只输出 JSON）。",
+            project, retry_system, user_msg,
             temperature=retry_temp, db=db, user=user, operation="chapter_directions_retry",
         )
         parsed = _parse_json(raw)

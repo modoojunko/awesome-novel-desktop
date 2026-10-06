@@ -1,4 +1,4 @@
-# C端 后端 — AI Novel 本地后端服务
+# C端 后端 — Awesome Novel 本地后端服务
 
 FastAPI 应用，作为单用户桌面应用的本地后端，提供 AI 写作、项目管理、Token 计费等核心功能。
 

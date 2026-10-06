@@ -1,4 +1,4 @@
-# S 端官网 Landing Page 文案稿（爱小说 · AI Novel）
+# S 端官网 Landing Page 文案稿（爱小说 · Awesome Novel）
 
 > 用途：S 端营销首页（`server/frontend` LandingPage）的成稿文案。2026-09-30 按 main 已上线能力整理，替代旧稿。
 > 文案原则：面向小禾/老赵说话，不用技术词与内部术语（对齐 [c-sellpoints.md](c-sellpoints.md) 的 PM 评审口径）。

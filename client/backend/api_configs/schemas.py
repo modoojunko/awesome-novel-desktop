@@ -44,6 +44,8 @@ class CreateApiConfigBody(BaseModel):
     api_key: str = ""
     vendor_override: str | None = None
     api_format: ApiFormat | None = None
+    # 预填的模型名称落 models 首项（c-api-config-vendor-defaults）；与更新同语义可手动补清单
+    models: list[str] | None = None
 
     @field_validator("vendor_id")
     @classmethod
@@ -196,6 +198,8 @@ class TestRawBody(BaseModel):
     base_url: str
     api_key: str = ""
     api_format: ApiFormat = "openai"
+    # 探针优先模型 id（表单模型名称）；空则按「列表首个→候选首个」取
+    model: str | None = None
 
 
 class TestResultResponse(BaseModel):

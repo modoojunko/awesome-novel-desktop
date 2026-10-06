@@ -223,6 +223,37 @@ describe("ApiKeyConfigPage 覆盖补齐", () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("已添加「新配置」 · 请检查 Key"));
   });
 
+  it("新建：预填模型进 POST body models 首项；无预填（OpenAI 兼容）为空数组", async () => {
+    stubFull();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("添加 API Key")).toBeTruthy());
+    // DeepSeek 预填 → models 首项＝预填模型名
+    await createConfig();
+    await waitFor(() => {
+      const post = calls.find((c) => c.method === "POST" && /\/api-configs$/.test(c.url));
+      expect(post).toBeTruthy();
+    });
+    expect(
+      (calls.find((c) => c.method === "POST" && /\/api-configs$/.test(c.url))!.body as { models?: string[] })
+        .models,
+    ).toEqual(["deepseek-v4-pro"]);
+    // OpenAI 兼容无预填 → models 空数组
+    fireEvent.click(screen.getByText("添加 API Key"));
+    fireEvent.change(document.getElementById("cfName")!, { target: { value: "自建" } });
+    fireEvent.click(screen.getByText("OpenAI 兼容"));
+    fireEvent.change(document.getElementById("cfBase")!, { target: { value: "https://llm.example.com/v1" } });
+    fireEvent.change(document.getElementById("cfKey")!, { target: { value: "sk-y" } });
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => {
+      const posts = calls.filter((c) => c.method === "POST" && /\/api-configs$/.test(c.url));
+      expect(posts.length).toBe(2);
+    });
+    expect(
+      (calls.filter((c) => c.method === "POST" && /\/api-configs$/.test(c.url))[1].body as { models?: string[] })
+        .models,
+    ).toEqual([]);
+  });
+
   it("卡片「测试连接」走该配置的 test 端点；「编辑」后取消可关闭表单", async () => {
     stubFull();
     renderPage();

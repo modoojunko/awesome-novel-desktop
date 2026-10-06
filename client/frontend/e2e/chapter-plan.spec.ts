@@ -185,6 +185,9 @@ test("AI 四态：正在想 → 三卡（角标＋剧情吸引力）→ 选卡 �
     await goChaptersTab(page);
     await page.getByTestId("volume-split-ai").click();
     await expect(page.getByTestId("split-busy")).toBeVisible({ timeout: 5000 });
+    // busy 态阶段列表（c-chapter-draw-retry-material）：三段在场、随等待推进
+    await expect(page.getByTestId("split-steps")).toBeVisible();
+    await expect(page.getByTestId("split-steps")).toContainText("读卷纲与设定");
     release();
     await expect(page.getByTestId("pick-grid")).toBeVisible({ timeout: 10000 });
     await expect(page.locator(".pick-card")).toHaveCount(3);

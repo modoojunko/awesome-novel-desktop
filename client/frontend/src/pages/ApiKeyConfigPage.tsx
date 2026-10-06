@@ -61,16 +61,18 @@ export default function ApiKeyConfigPage() {
   }, []);
 
   const handleFormSubmit = useCallback(async (data: ApiConfigFormData) => {
+    // model 是创建表单的预填模型名称，落 models 首项；编辑不带（沿用已存值）
+    const { model, ...rest } = data;
     if (editConfig) {
       // 「留空则保留当前密钥」：编辑态空 Key **必须省略字段**——原样发 "" 会被后端
       // 当作更新值（encrypt("") == ""）把已存密钥清空（2026-09-18 覆盖率专项实锤，
       // 后端同时收紧为「空串=未提供」，两侧各一道）
-      const { api_key, ...rest } = data;
-      await updateConfig(editConfig.id, api_key.trim() ? data : rest);
+      const { api_key, ...fields } = rest;
+      await updateConfig(editConfig.id, api_key.trim() ? rest : fields);
       setEditConfig(null);
       toast.success(`已保存「${data.name}」`);
     } else {
-      const newConfig = await addConfig(data);
+      const newConfig = await addConfig({ ...rest, models: model ? [model] : [] });
       // 创建后自动测试，让卡片带上真实状态（原型同款行为）
       let ok = false;
       try {
@@ -250,6 +252,7 @@ export default function ApiKeyConfigPage() {
                 base_url: data.base_url,
                 api_key: data.api_key,
                 api_format: data.api_format,
+                model: data.model || null,
               })
         }
       />

@@ -1,6 +1,6 @@
 @echo off
 REM client/packaging/build/build.bat
-REM AI Novel — Build Script
+REM Awesome Novel — Build Script
 REM
 REM Usage:
 REM   build.bat             → 构建 onedir + 安装包
@@ -22,7 +22,7 @@ if "%APP_VERSION%"=="" (
 if "%APP_VERSION%"=="" set APP_VERSION=0.0.0
 echo Version: %APP_VERSION%
 
-echo ===== AI Novel Build v%APP_VERSION% =====
+echo ===== Awesome Novel Build v%APP_VERSION% =====
 
 REM 1. Build frontend
 echo [1/4] Building frontend...
@@ -47,13 +47,13 @@ if "%1"=="quick" (
   rmdir /S /Q dist build_py 2>nul
   pyinstaller build.spec --clean --noconfirm -- --onefile
   if %errorlevel% neq 0 ( echo [ERROR] PyInstaller failed & exit /b 1 )
-  echo [OK] Output: dist\AI Novel.exe
+  echo [OK] Output: dist\AwesomeNovel.exe
 ) else (
   echo [3/4] Building onedir (for installer)...
   rmdir /S /Q dist build_py 2>nul
   pyinstaller build.spec --clean --noconfirm
   if %errorlevel% neq 0 ( echo [ERROR] PyInstaller failed & exit /b 1 )
-  echo [OK] Output: dist\AI Novel\
+  echo [OK] Output: dist\AwesomeNovel\
 )
 
 REM 4. Build installer (if Inno Setup available)

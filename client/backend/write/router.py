@@ -315,7 +315,7 @@ async def polish_write_prompt(
 # 路径为空串：本 router 的 prefix 已以 /write 结尾，再写 "/write" 会注册成
 # /write/write（qa-night 2026-09-19 P1：前端调 /write 恒 404、AI 生成正文不可用）
 @router.post("")
-@ai_feature("ai-polish")
+@ai_feature("ai-generate")
 async def write_chapter(
     project_id: str,
     chapter_ref: str,
@@ -394,7 +394,7 @@ async def write_chapter(
 
 
 @router.post("/polish")
-@ai_feature("ai-generate")
+@ai_feature("ai-polish")
 async def polish_writing(
     project_id: str,
     chapter_ref: str,

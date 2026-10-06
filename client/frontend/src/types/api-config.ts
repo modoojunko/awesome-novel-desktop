@@ -1,6 +1,6 @@
 export type VendorId = 'openai' | 'anthropic' | 'deepseek' | 'glm' | 'kimi' | 'qwen' | 'ollama' | 'openai-compat';
 export type ApiFormat = 'openai' | 'anthropic';
-export type ConnectionStatus = 'ok' | 'auth_error' | 'timeout' | 'network_error' | 'rate_limited' | 'unknown' | 'untested';
+export type ConnectionStatus = 'ok' | 'auth_error' | 'endpoint_mismatch' | 'timeout' | 'network_error' | 'rate_limited' | 'unknown' | 'untested';
 export type ModelStatus = 'no_key' | 'no_model' | 'configured' | 'invalid';
 
 /** 后端判定层下发的 AI 就绪态（与 detail.reason 同枚举，D13）。 */

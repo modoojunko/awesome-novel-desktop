@@ -1,12 +1,14 @@
 # client/packaging/pywebview_app.py
-"""AI Novel 桌面应用入口 — pywebview 壳"""
+"""Awesome Novel 桌面应用入口 — pywebview 壳"""
 
 import json
 import os
 import random
 import sys
+import tempfile
 import threading
 import time
+import traceback
 from pathlib import Path
 
 # 模块级导入：NativeBridge 方法内引用 webview 常量，函数级导入会让 F821 误判未定义；
@@ -21,14 +23,47 @@ def get_base_dir() -> Path:
     return Path(__file__).parent.parent.parent
 
 
-def get_appdata() -> Path:
-    r"""运行时数据目录（日志/端口文件等）— 跨平台。
-    Windows: %APPDATA%\AI Novel；macOS: ~/Library/Application Support/AI Novel。"""
+APP_DIR_NAME = "AwesomeNovel"
+LEGACY_APP_DIR_NAME = "AI Novel"
+
+
+def _appdata_base() -> Path:
     if sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = Path(os.environ.get("APPDATA", "."))
-    return base / "AI Novel"
+        return Path.home() / "Library" / "Application Support"
+    return Path(os.environ.get("APPDATA", "."))
+
+
+def _migrate_legacy_appdata(base: Path) -> Path:
+    """旧名目录 AI Novel → AwesomeNovel（一次性换名；失败不阻断、绝不丢数据）。
+
+    macOS 上这个目录就是书稿数据目录（get_install_dir 冻结态直接取它），所以
+    改名必须无痛：同卷 os.rename 原子换名，并在旧路径留一个指向新目录的符号
+    链接——「装回旧版本」的用户照旧能找到自己的书。改名失败（被占用/权限不足）
+    就继续用旧目录：名字可以晚点再换，书不能看不见。"""
+    new = base / APP_DIR_NAME
+    old = base / LEGACY_APP_DIR_NAME
+    if not old.exists() or new.exists():
+        return new
+    try:
+        old.rename(new)
+    except OSError:
+        return old
+    try:
+        old.symlink_to(new, target_is_directory=True)
+    except OSError:
+        pass  # 只是回滚兼容的便利，建不出来不影响本次启动
+    return new
+
+
+def get_appdata() -> Path:
+    r"""运行时数据目录（日志/端口文件）— 跨平台；macOS 上它同时是书稿数据目录。
+    Windows: %APPDATA%\AwesomeNovel；macOS: ~/Library/Application Support/AwesomeNovel。
+    旧名 AI Novel 目录（≤v0.27 品牌）在 macOS 首启自动换名并在旧路径留软链；
+    Windows 侧旧目录只剩历史日志，不迁移（卸载器两个都清）。"""
+    base = _appdata_base()
+    if sys.platform == "darwin":
+        return _migrate_legacy_appdata(base)
+    return base / APP_DIR_NAME
 
 
 def get_install_dir() -> Path:
@@ -71,7 +106,7 @@ def _load_brand():
     except Exception:
         class _BrandFallback:
             BRAND_NAME = "爱小说"
-            BRAND_NAME_EN = "AI Novel"
+            BRAND_NAME_EN = "Awesome Novel"
             BRAND_MARK = "爱"
             BRAND_TAGLINE = "AI 辅助长篇小说写作"
 
@@ -86,25 +121,72 @@ def window_title() -> str:
         return "爱小说"
 
 
+# ── 启动日志与失败兜底（shell-startup-diagnostics）─────────────────────────
+# 现场形态：GUI 包「长期停在启动页」的报告，旧壳有两条静默失败路径——
+# ① server 线程死在早段（try 之外）② 轮询线程异常。两者都零日志零提示，
+# 只能靠猜。现在每一步都落 startup.log，且写日志永远不依赖 UI 线程
+# （窗口挂死时仍要能写盘、能开浏览器兜底）。
+
+
+def log_line(appdata: Path, message: str) -> None:
+    """把一行带时间戳的启动日志追加到 <appdata>/startup.log。
+
+    appdata 不可写时退到系统临时目录（如装进 Program Files 且无写权限），
+    再失败则静默——日志本身绝不能把启动打崩。"""
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    for target in (appdata, Path(tempfile.gettempdir()) / APP_DIR_NAME):
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            with open(target / "startup.log", "a", encoding="utf-8") as f:
+                f.write(f"[{stamp}] {message}\n")
+            return
+        except Exception:
+            continue
+
+
+# 后端线程存活信号：start_server 一退出（含启动期异常）即置位——
+# 健康轮询据此提前判负，不再干等满 60 秒。
+_server_exited = threading.Event()
+
+
+def _app_load_timeout() -> int:
+    """应用页装载看门狗时长（秒），env 可调；非法值回落 60。"""
+    try:
+        return max(5, int(os.environ.get("AI_NOVEL_APP_LOAD_TIMEOUT", "60")))
+    except Exception:
+        return 60
+
+
 def start_server():
-    """启动 FastAPI 后端"""
-    base_dir = get_base_dir()
-    backend_dir = base_dir / "backend"
-    if backend_dir.exists():
-        sys.path.insert(0, str(backend_dir))
-
-    # 安装目录: 数据就跟着 exe 走
-    install_dir = get_install_dir()
-    install_dir.mkdir(parents=True, exist_ok=True)
-    # 运行时目录（日志等临时文件）— 跨平台取 appdata
+    """启动 FastAPI 后端（GUI 模式下跑在后台线程；退出即置 _server_exited）。"""
     appdata = get_appdata()
-    appdata.mkdir(parents=True, exist_ok=True)
-    # 数据目录（DATA_ROOT）— 全新机器上 data/ 不存在，不建的话 sqlite 打不开 DB
-    data_root = install_dir / "data"
-    data_root.mkdir(parents=True, exist_ok=True)
+    try:
+        base_dir = get_base_dir()
+        backend_dir = base_dir / "backend"
+        if backend_dir.exists():
+            sys.path.insert(0, str(backend_dir))
 
-    # 写一条启动日志
-    log_file = appdata / "startup.log"
+        # 安装目录: 数据就跟着 exe 走
+        install_dir = get_install_dir()
+        install_dir.mkdir(parents=True, exist_ok=True)
+        # 运行时目录（日志等临时文件）— 跨平台取 appdata
+        appdata.mkdir(parents=True, exist_ok=True)
+        # 数据目录（DATA_ROOT）— 全新机器上 data/ 不存在，不建的话 sqlite 打不开 DB
+        data_root = install_dir / "data"
+        data_root.mkdir(parents=True, exist_ok=True)
+        log_line(appdata, f"server thread: dirs ok (data={data_root})")
+    except Exception:
+        # 目录建不出来＝后端必死（典型：装进 Program Files 且无写权限）。
+        # 旧版这段在 try 之外：PermissionError 静默杀掉线程，用户只看到永久
+        # 停在启动页，且 startup.log 一个字都没有。
+        log_line(appdata, "server thread FATAL preparing dirs:\n" + traceback.format_exc())
+        if sys.platform == "win32":
+            log_line(appdata, "hint: 数据目录随程序走（便携式）。若安装目录在 "
+                              "C:\\Program Files 下，标准用户无权写入——请把应用装到用户目录"
+                              "（如 D:\\AwesomeNovel），或以管理员身份运行。")
+        _server_exited.set()
+        return
+
     try:
         import uvicorn
         # GUI 模式下 sys.stdout/stderr 为 None，uvicorn 会崩溃
@@ -180,9 +262,7 @@ def start_server():
         with open(appdata / "port.json", "w") as f:
             json.dump({"port": port}, f)
 
-        with open(log_file, "a") as f:
-            f.write(f"[{time.strftime('%H:%M:%S')}] Starting uvicorn on port {port}\n")
-
+        log_line(appdata, f"starting uvicorn on port {port}")
         # GUI 模式下 sys.stdout 为 None，uvicorn 的日志格式化会崩溃
         # 方案: 将日志输出重定向到文件
         log_config = {
@@ -215,14 +295,16 @@ def start_server():
             log_config=log_config,
         )
     except Exception as e:
-        with open(log_file, "a") as f:
-            f.write(f"[{time.strftime('%H:%M:%S')}] ERROR: {e}\n")
-            import traceback
-            traceback.print_exc(file=f)
+        # 启动期异常（uvicorn 绑定失败 / 导入炸 / lifespan 抛错）必须留全文
+        log_line(appdata, f"server thread FATAL: {e!r}\n" + traceback.format_exc())
+    finally:
+        # 线程退出即置位：轮询线程据此提前判负（用户不用干等 60 秒超时）
+        _server_exited.set()
+        log_line(appdata, "server thread exited")
 
 
 def wait_for_server(appdata: Path, timeout: int = 15) -> int:
-    """等待后端启动，返回端口号。超时返回 None。"""
+    """等待后端启动，返回端口号。超时返回 None；后端线程已退出则立即判负。"""
     import urllib.request
 
     port_file = appdata / "port.json"
@@ -239,6 +321,9 @@ def wait_for_server(appdata: Path, timeout: int = 15) -> int:
                     return port
             except Exception:
                 pass
+        # 后端线程已退出且健康检查未过 → 永不会就绪，立即失败（不然干等满超时）
+        if _server_exited.is_set():
+            return None
         time.sleep(0.5)
     return None
 
@@ -285,32 +370,94 @@ def loading_html() -> str:
     return LOADING_HTML_TEMPLATE.replace("__BRAND_NAME__", name)
 
 
-def check_backend_and_navigate(window, appdata):
-    """后台轮询，等后端就绪后跳转到应用页面"""
-    port = wait_for_server(appdata, timeout=60)
-    if port:
-        with open(appdata / "startup.log", "a") as f:
-            f.write(f"[{time.strftime('%H:%M:%S')}] Backend ready, navigating...\n")
-        window.load_url(f"http://127.0.0.1:{port}")
-    else:
-        # 跨平台错误：写 error.html 并加载到窗口（窗口本就是 HTML，免去 Windows MessageBox）
-        import html
+def write_error_page(appdata: Path, reason: str) -> Path:
+    """写启动失败页（含 startup.log 与 uvicorn.log 尾段）并返回路径。
+
+    旧版只带 startup.log 尾段——而后端侧的真实死因（导入炸/lifespan 抛错）
+    全在 uvicorn.log 里，报错页反而漏了最有用的那份。"""
+    import html
+
+    blocks = []
+    for name in ("startup.log", "uvicorn.log"):
         try:
-            with open(appdata / "startup.log") as f:
-                logs = f.read()
+            tail = (appdata / name).read_text(encoding="utf-8", errors="replace")[-1500:]
         except Exception:
-            logs = "无日志"
-        err_path = appdata / "error.html"
-        err_path.write_text(
-            "<html><head><meta charset='utf-8'></head><body "
-            "style='font-family:-apple-system,sans-serif;padding:40px;"
-            "background:#1a1a2e;color:#e0e0e0'><h2>" + html.escape(window_title()) + " 启动失败</h2>"
-            "<p>后端启动超时，请检查日志:</p><pre "
-            "style='white-space:pre-wrap;background:#0f3460;padding:16px;border-radius:8px'>"
-            + html.escape(logs[-500:]) + "</pre></body></html>",
-            encoding="utf-8",
+            tail = "（无此日志）"
+        blocks.append(
+            f"<p style='margin:18px 0 6px;color:#9bb'>=== {name} ===</p><pre "
+            "style='white-space:pre-wrap;background:#0f3460;padding:16px;"
+            "border-radius:8px;max-height:32vh;overflow:auto'>"
+            + html.escape(tail) + "</pre>"
         )
-        window.load_url(err_path.as_uri())
+    err_path = appdata / "error.html"
+    err_path.write_text(
+        "<html><head><meta charset='utf-8'></head><body "
+        "style='font-family:-apple-system,sans-serif;padding:40px;"
+        "background:#1a1a2e;color:#e0e0e0'><h2>" + html.escape(window_title())
+        + " 启动失败</h2><p>" + html.escape(reason) + "</p>"
+        "<p style='color:#9bb'>日志目录：" + html.escape(str(appdata)) + "</p>"
+        + "".join(blocks) + "</body></html>",
+        encoding="utf-8",
+    )
+    return err_path
+
+
+def _show_error(window, appdata: Path, reason: str) -> None:
+    """把错误页装进窗口。UI 线程若已挂死，本调用会阻塞——调用方先落日志。"""
+    err_path = write_error_page(appdata, reason)
+    log_line(appdata, f"showing error page: {err_path}")
+    window.load_url(err_path.as_uri())
+
+
+def _open_in_browser_fallback(appdata: Path, port: int) -> None:
+    """窗口侧故障时的最后兜底：系统默认浏览器打开本地应用。
+
+    前端对 pywebview 原生桥探测不到即回退 HTTP（见 NativeBridge docstring），
+    浏览器里功能面不变；只在窗口装载失败时触发，正常运行永不出现。"""
+    url = f"http://127.0.0.1:{port}"
+    try:
+        import webbrowser
+
+        opened = webbrowser.open(url)
+        log_line(appdata, f"browser fallback: open({url}) -> {opened}")
+    except Exception:
+        log_line(appdata, "browser fallback failed:\n" + traceback.format_exc())
+
+
+def check_backend_and_navigate(window, appdata):
+    """后台轮询，等后端就绪后跳转到应用页面。
+
+    全函数受保护：旧版一旦这里抛异常（如窗口未 shown 时 load_url 抛
+    WebViewException），线程静默死亡＝永久停在启动页且零日志——现场报告
+    「长期卡在启动页」的最可疑形态。"""
+    try:
+        port = wait_for_server(appdata, timeout=60)
+        if not port:
+            log_line(appdata, "backend NOT ready (timeout / server thread exited)")
+            _show_error(window, appdata, "后端启动超时或启动失败，请检查下面的日志：")
+            return
+
+        log_line(appdata, f"backend ready (port {port}), dispatching navigation...")
+        window.load_url(f"http://127.0.0.1:{port}")
+        log_line(appdata, "navigation dispatched; waiting for app page load...")
+
+        # 装载看门狗：跳转已发出但应用页始终不装载（WebView 渲染进程挂死/窗口
+        # 消息循环被卡）＝「长期停在启动页」的另一种形态。此时 UI 线程大概率
+        # 已不响应、错误页也装不进去——所以先落日志、先开浏览器兜底。
+        timeout = _app_load_timeout()
+        if window.events.loaded.wait(timeout):
+            log_line(appdata, "app page loaded")
+            return
+        log_line(appdata, f"app page NOT loaded in {timeout}s — UI/renderer hang suspected")
+        _open_in_browser_fallback(appdata, port)
+        _show_error(window, appdata,
+                    "界面加载超时（桌面窗口可能未响应），已尝试用浏览器打开。请把日志发给开发者：")
+    except Exception:
+        log_line(appdata, "check_backend_and_navigate FAILED:\n" + traceback.format_exc())
+        try:
+            _show_error(window, appdata, "启动过程异常，请把日志发给开发者：")
+        except Exception:
+            log_line(appdata, "error page fallback also failed:\n" + traceback.format_exc())
 
 
 def ensure_loading_page(appdata: Path) -> str:
@@ -394,13 +541,26 @@ bridge = NativeBridge()
 def main():
     """主入口"""
     appdata = get_appdata()
-    appdata.mkdir(parents=True, exist_ok=True)
+    try:
+        appdata.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass  # log_line 自带临时目录兜底
 
     # CI 冒烟模式：不起 GUI，直接跑后端（uvicorn.run 阻塞），供打包验证脚本轮询
     # /api/health + 断言前端被服务。headless runner 上可靠，也方便本地快速验证打包后端。
     if "--smoke" in sys.argv:
         start_server()
         return
+
+    log_line(appdata, "shell main() entered: exe=%s frozen=%s data_dir=%s"
+             % (sys.executable, getattr(sys, "frozen", False), get_install_dir()))
+
+    # 清陈旧端口文件：port.json 只应来自本次运行。旧值残留时（上一实例未退干净/
+    # 上次启动崩在半途）健康轮询会连上前一个进程并据此跳转，多开场景直接卡启动页。
+    try:
+        (appdata / "port.json").unlink(missing_ok=True)
+    except Exception:
+        log_line(appdata, "stale port.json cleanup failed:\n" + traceback.format_exc())
 
     # 把加载页写入临时文件
     loading_url = ensure_loading_page(appdata)
@@ -418,24 +578,37 @@ def main():
     except Exception:
         win_w, win_h = 1400, 900
 
-    window = webview.create_window(
-        title=window_title(),
-        url=loading_url,
-        width=win_w,
-        height=win_h,
-        min_size=(1024, 680),
-        resizable=True,
-        text_select=True,
-        js_api=bridge,
-    )
+    try:
+        window = webview.create_window(
+            title=window_title(),
+            url=loading_url,
+            width=win_w,
+            height=win_h,
+            min_size=(1024, 680),
+            resizable=True,
+            text_select=True,
+            js_api=bridge,
+        )
+    except Exception:
+        # WebView2 运行时缺失等 GUI 初始化炸点：没有窗口可显示，日志是唯一留痕
+        log_line(appdata, "create_window FAILED:\n" + traceback.format_exc())
+        return
     bridge.window_ref = window
+
+    # 「窗口真的显示了」——UI 挂死类报告的第一分界（有这行＝窗口活了，
+    # 之后卡住都发生在导航/装载段；没这行＝GUI 初始化段就没起来）
+    def _on_window_shown(*_args, **_kwargs):
+        log_line(appdata, "window shown")
+
+    try:
+        window.events.shown += _on_window_shown
+    except Exception:
+        log_line(appdata, "register shown handler failed:\n" + traceback.format_exc())
 
     # 后台启动后端
     server_thread = threading.Thread(target=start_server, daemon=True)
     server_thread.start()
-
-    with open(appdata / "startup.log", "a") as f:
-        f.write(f"[{time.strftime('%H:%M:%S')}] Started server thread\n")
+    log_line(appdata, "server thread started")
 
     # 后台轮询，等后端就绪后跳转
     threading.Thread(
@@ -444,7 +617,12 @@ def main():
         daemon=True,
     ).start()
 
-    webview.start(debug=False)
+    try:
+        webview.start(debug=False)
+    except Exception:
+        log_line(appdata, "webview.start FAILED:\n" + traceback.format_exc())
+        return
+    log_line(appdata, "GUI loop exited (window closed)")
 
 
 if __name__ == "__main__":

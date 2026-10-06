@@ -1,4 +1,4 @@
-# docker-compose.yml — AI Novel 一键部署（4 服务）
+# docker-compose.yml — Awesome Novel 一键部署（4 服务）
 #
 #   server-backend  S端 License 服务 (FastAPI)   :${SERVER_HOST_PORT:-19000}
 #   server-frontend S端 管理门户 (nginx)         :${SERVER_WEB_HOST_PORT:-5173}

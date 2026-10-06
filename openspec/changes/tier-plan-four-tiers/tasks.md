@@ -32,7 +32,9 @@
 ## 4. B4 翻转（业务动作，前置：新版 C端 全量发布）
 
 - [ ] 4.1 standard/max tiers 行 status planned→live；SKU on_sale 上架；rehearsal 模式各走一单（下单-激活-退款）＋台账
-- [ ] 4.2 pay-ops 改价操作手册落档（首发折扣上下线双人复核；无时间窗引擎的补偿流程）
+  - 进度（10-05）：tiers 四档 live＋九 SKU on_sale＋季/年回架（月×3 九折/月×12 八折）已上线；rehearsal 三档各下一单 code:0＋支付码生成。**余**：激活-退款全链（需真实微信支付回调）＋台账归档——待真实支付走单后勾
+- [x] 4.2 pay-ops 改价操作手册落档（首发折扣上下线双人复核；无时间窗引擎的补偿流程）
+  - 落档：awesome-novel-server docs/ops/pay-ops-runbook.md（PR #5=54b5069）
 
 ## 5. B5 前端多态
 

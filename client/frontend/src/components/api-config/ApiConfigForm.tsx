@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ApiConfig } from "../../types/api-config";
 import Modal from "../design/Modal";
 import { Ico, P } from "../icons";
 import { FORMAT_PLACEHOLDER, VENDOR_FORMAT_LOCK, VENDORS, VENDOR_LABELS, VendorGlyph } from "./ProviderIcon";
+import { applyPreset, defaultsFor, type PrefillFields } from "./vendorDefaults";
 import type { ApiFormat } from "../../types/api-config";
 
 interface ApiConfigFormProps {
@@ -23,6 +24,7 @@ export interface ApiConfigFormData {
   name: string;
   vendor_id: string;
   base_url: string;
+  model: string;
   api_key: string;
   api_format: ApiFormat;
 }
@@ -34,7 +36,10 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest }: ApiC
   const [vendorId, setVendorId] = useState(config?.vendor || "");
   const [apiFormat, setApiFormat] = useState<ApiFormat>(config?.api_format || "openai");
   const [baseUrl, setBaseUrl] = useState(config?.base_url || "");
+  const [modelName, setModelName] = useState("");
   const [apiKey, setApiKey] = useState("");
+  // 当前已应用的预填值（手改判定基准）
+  const lastPresetRef = useRef<PrefillFields | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -49,15 +54,30 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest }: ApiC
     setVendorId(config?.vendor || "");
     setApiFormat(config?.api_format || "openai");
     setBaseUrl(config?.base_url || "");
+    setModelName("");
     setApiKey("");
     setError(null);
     setTestResult(null);
+    lastPresetRef.current = null;
   }
 
   // 接口格式锁定矩阵：单格式厂商锁定（openai/anthropic/ollama），双格式可切换
   const formatLock = VENDOR_FORMAT_LOCK[vendorId as keyof typeof VENDOR_FORMAT_LOCK];
 
-  // 拍板（09-06）：URL 不预填——选供应商、切格式都不改动输入框，仅联动格式与占位
+  // 2026-10-05 拍板：选已知供应商预填 Base URL＋模型名称（空或仍为预填值才覆盖、
+  // 手改不劫持）；登记值见 vendorDefaults（取代 09-06「URL 不预填」）
+  const prefillTo = (vendor: string, fmt: ApiFormat) => {
+    const next = defaultsFor(vendor, fmt);
+    const out = applyPreset(
+      { base_url: baseUrl.trim(), model: modelName.trim() },
+      lastPresetRef.current,
+      next,
+    );
+    setBaseUrl(out.base_url);
+    setModelName(out.model);
+    lastPresetRef.current = next;
+  };
+
   const handleVendorSelect = (id: string) => {
     /* v8 ignore start -- 防御分支：编辑态不渲染 .vgrid（改渲染 .vfix），无触发路径 */
     if (isEdit) return;
@@ -66,12 +86,14 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest }: ApiC
     const lock = VENDOR_FORMAT_LOCK[id as keyof typeof VENDOR_FORMAT_LOCK];
     if (lock) setApiFormat(lock);
     setTestResult(null);
+    prefillTo(id, lock ?? apiFormat);
   };
 
   const handleFormatSelect = (fmt: ApiFormat) => {
     if (formatLock || fmt === apiFormat) return;
     setApiFormat(fmt);
     setTestResult(null);
+    prefillTo(vendorId, fmt);
   };
 
   const validate = (): string | null => {
@@ -94,6 +116,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest }: ApiC
         name: name.trim(),
         vendor_id: vendorId,
         base_url: baseUrl.trim(),
+        model: modelName.trim(),
         api_key: apiKey,
         api_format: apiFormat,
       });
@@ -116,7 +139,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest }: ApiC
     if (err) return;
     setSaving(true);
     try {
-      await onSubmit({ name: name.trim(), vendor_id: vendorId, base_url: baseUrl.trim(), api_key: apiKey, api_format: apiFormat });
+      await onSubmit({ name: name.trim(), vendor_id: vendorId, base_url: baseUrl.trim(), model: modelName.trim(), api_key: apiKey, api_format: apiFormat });
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -239,6 +262,19 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest }: ApiC
             disabled={saving}
           />
         </div>
+        {!isEdit && (
+          <div className="field">
+            <label htmlFor="cfModel">模型名称</label>
+            <input
+              className="input mono"
+              id="cfModel"
+              value={modelName}
+              onChange={(e) => setModelName(e.target.value)}
+              placeholder="模型 id，如 deepseek-v4-pro"
+              disabled={saving}
+            />
+          </div>
+        )}
         <div className="field">
           <label htmlFor="cfKey">API Key</label>
           <input

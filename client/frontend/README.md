@@ -1,4 +1,4 @@
-# C端 前端 — AI Novel 桌面应用 UI
+# C端 前端 — Awesome Novel 桌面应用 UI
 
 基于 Next.js 的 React SPA，封装在 pywebview 窗口中运行。
 
