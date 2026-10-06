@@ -76,6 +76,9 @@ Step '4/7 PyInstaller 打包' {
     try {
         if (Test-Path dist) { Remove-Item -Recurse -Force dist }
         if (Test-Path build_py) { Remove-Item -Recurse -Force build_py }
+        # 阶段二：先编原生扩展（钥匙/解密/同步器），再打 PyInstaller——扩展在产物里优先于字节码
+        python compile_native.py
+        if ($LASTEXITCODE -ne 0) { throw '原生扩展编译失败（阶段二不允许回落字节码版）' }
         python -m PyInstaller build.spec --clean --noconfirm --workpath build_py
         if ($LASTEXITCODE -ne 0) { throw 'PyInstaller 失败' }
     } finally { Pop-Location }
@@ -95,6 +98,10 @@ Step '5/7 产物断言' {
     $tpl = Get-ChildItem -Path (Join-Path $BuildDir 'dist') -Recurse -Filter '*.prompt' | Select-Object -First 1
     if ($tpl) { throw "安装包含提示词模板（$($tpl.FullName)）——硬切要求产物零 .prompt" }
     Write-Host ' 断言通过: 产物零 *.prompt'
+    # 阶段二产物闸门：敏感模块必须已编译成原生扩展、且不得以 .py/.pyc 形态进包
+    python compile_native.py --scan (Join-Path $BuildDir 'dist')
+    if ($LASTEXITCODE -ne 0) { throw '原生扩展未进产物（阶段二被摘掉）' }
+    Write-Host ' 断言通过: prompt_pack 原生扩展在位'
 }
 
 # ── 6. 冒烟（--smoke 无头，轮询 health + SPA；不跑这步坏包照样绿）──

@@ -28,6 +28,9 @@ def env(tmp_path, monkeypatch):
     importlib.reload(prompt_pack)
     importlib.reload(sync_mod)
     importlib.reload(prompts)
+    # 编译形态（发布态）下 reload 不会重跑扩展模块的初始化 → 显式复位模块状态，
+    # 保证「同一套测试在 .py 与 .so 两态都跑」（c-prompt-pack-hardening 阶段二）
+    sync_mod.reset_state()
     yield tmp_path, prompt_pack, sync_mod, prompts
     importlib.reload(sync_mod)
     importlib.reload(prompt_pack)
@@ -456,9 +459,13 @@ def test_sync_repairs_tampered_installed_pack(env, cdn, monkeypatch):
     pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: ({"cek": base64.b64encode(cek).decode(), "key_id": kid, "tier": "free", "version": ver}, 0))
     assert sync_mod.sync_once(local_tier="free")["phase"] == "ready"
 
-    fp = os.path.join(pp.pack_root(), "v5", "write_chapter.prompt")
-    with open(fp, "a", encoding="utf-8") as f:
-        f.write("篡改")
+    # c-prompt-pack-hardening：模板只以容器落盘 → 篡改点＝容器字节（读侧应拒绝、同步器应重装）
+    fp = os.path.join(pp.pack_root(), "v5", "pack.bin")
+    with open(fp, "rb") as f:
+        blob = bytearray(f.read())
+    blob[-1] ^= 0xFF
+    with open(fp, "wb") as f:
+        f.write(bytes(blob))
 
     _, _, _, prompts = env
     import importlib as _il
@@ -469,11 +476,10 @@ def test_sync_repairs_tampered_installed_pack(env, cdn, monkeypatch):
 
     st = sync_mod.sync_once(local_tier="free")  # 同版本，但完整性复核不过 → 重装
     assert st["phase"] == "ready"
-    with open(fp, encoding="utf-8") as f:
-        repaired = f.read()
-    assert "篡改" not in repaired, "篡改文件未被修复"
     _il.reload(prompts)
     assert "你是助手" in prompts.load("write_chapter")
+    # 重装后容器必须可用（解密通过），且目录里仍无任何明文模板
+    assert not [n for n in os.listdir(os.path.dirname(fp)) if n.endswith(".prompt")]
 
 
 def test_sync_same_tier_probe_skips_redownload(env, cdn, monkeypatch):

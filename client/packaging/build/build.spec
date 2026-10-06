@@ -151,6 +151,10 @@ a = Analysis(
         'auth_local', 'auth_local.middleware', 'auth_local.models',
         'auth_local.router', 'auth_local.service',
         'settings', 'chapters', 'prompt', 'write', 'archive',
+        # 提示词包（c-prompt-pack-hardening 阶段二）：container/localkey/sync 在打包时被
+        # 编译成原生扩展并被函数内懒导入——PyInstaller 静态分析看不到懒导入，不显式列出
+        # 则冻结包里缺模块（运行期解密直接崩）
+        'prompt_pack', 'prompt_pack.container', 'prompt_pack.localkey', 'prompt_pack.sync',
         'api_configs', 'genres', 'workflow', 'workflow.engine', 'workflow.gates', 'workflow.tier',
         'filesystem', 'filesystem.storage', 'filesystem.init', 'filesystem.composite_storage',
         'settings.render',
