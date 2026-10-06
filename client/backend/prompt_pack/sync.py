@@ -45,6 +45,7 @@ from prompt_pack import (
     read_highwatermark,
     read_receipt,
     resolve_dir,
+    verify_file,
     write_highwatermark,
     write_receipt,
 )
@@ -317,7 +318,9 @@ def _install(version: str, tier: str, key_id: str, min_client_version: str | Non
             for name, text in templates.items():
                 fp = os.path.join(target, f"{name}.prompt")
                 h = hashlib.sha256(text.encode("utf-8")).hexdigest()
-                if os.path.exists(fp) and hashes2.get(name) == h:
+                # 现有文件哈希对得上且**实际内容完好**才跳过（评审 P1：被篡改文件
+                # 必须重写，否则同版本修复无从生效）
+                if os.path.exists(fp) and hashes2.get(name) == h and verify_file(fp, h):
                     continue
                 tmp = fp + ".tmp"
                 with open(tmp, "w", encoding="utf-8") as f:
@@ -383,6 +386,27 @@ def _cleanup_old(root: str, keep: set[str]) -> None:
             pass  # defer：下轮再试，不阻塞安装
 
 
+def _installed_pack_intact(receipt: dict | None) -> bool:
+    """按 receipt 复核已装目录全部模板哈希（评审 P1 修复）。
+
+    spec（prompt-pack-delivery）：读时校验失败须能自愈——loader 只能拒绝读取，
+    修复动作必须在同步器侧有触发器。本函数即该触发器：任一模板缺失/被改即
+    False，sync_once 据此跳过「已最新」短路，走同版本重装修复。
+    """
+    if not receipt:
+        return False
+    vdir = os.path.join(pack_root(), f"v{receipt.get('version')}")
+    templates = receipt.get("templates")
+    if not isinstance(templates, dict) or not templates:
+        return False
+    for name, expect in templates.items():
+        if not isinstance(expect, str) or not expect:
+            return False
+        if not verify_file(os.path.join(vdir, f"{name}.prompt"), expect):
+            return False
+    return True
+
+
 # ── 主流程 ───────────────────────────────────────────────────────────────────
 
 
@@ -414,6 +438,9 @@ def sync_once(
     _set_state("syncing", tier=tier)
     hw = read_highwatermark()
     receipt = read_receipt()
+    # 本地完整性预检（评审 P1）：版本已最新也要先验已装文件——损坏/被改时不得短路，
+    # 走同版本重装修复（spec：读时校验失败须可自愈）
+    intact = _installed_pack_intact(receipt)
 
     with httpx.Client(timeout=_FETCH_TIMEOUT, follow_redirects=False) as client:
         if _latest is not None:
@@ -458,10 +485,13 @@ def sync_once(
             and version == current
             and _normalize_tier(str(receipt.get("tier") or "")) != tier
         )
-        if current and version == current and not same_version_new_tier:
+        repair_same_version = bool(current) and version == current and not intact
+        if current and version == current and not same_version_new_tier and not repair_same_version:
             _set_state("ready", tier=tier, version=current)
             return get_status()
-        if hw and not is_newer(version, hw) and not (version == hw and same_version_new_tier):
+        if hw and not is_newer(version, hw) and not (
+            version == hw and (same_version_new_tier or repair_same_version)
+        ):
             logger.info("event=pack_sync_skip reason=highwatermark cur=%s hw=%s", version, hw)
             _set_state("ready", tier=tier, version=current)
             return get_status()
@@ -517,6 +547,16 @@ def sync_once(
                     raise ValueError("bad cek length")
             except (ValueError, TypeError):
                 _set_state("failed", reason="bad_cek")
+                return get_status()
+
+            # 评审 P3：同版本换档/降档收敛探测——S 判档仍等于已装档且本地完好时，
+            # 无需重下重装（无损语义：升档仍会走下方下载安装）
+            if (
+                version == current
+                and intact
+                and cand == _normalize_tier(str((receipt or {}).get("tier") or ""))
+            ):
+                _set_state("ready", tier=cand, version=version)
                 return get_status()
 
             bin_bytes = _fetch_bytes(client, _derive(latest_url, f"v{version}/{cand}.bin"))
@@ -604,7 +644,14 @@ def maybe_after_auth() -> None:
 
         local_tier = _normalize_tier(get_local_config().get("tier") or "")
         receipt = read_receipt()
-        if receipt and _normalize_tier(str(receipt.get("tier") or "")) == local_tier and resolve_dir():
+        # 早退三条件：档位一致＋目录可解析＋**完整性复核通过**（评审 P1：损坏/被改
+        # 的已装包也是「需要同步」的一种状态——启动/登录钩子即触发同版本重装修复）
+        if (
+            receipt
+            and _normalize_tier(str(receipt.get("tier") or "")) == local_tier
+            and resolve_dir()
+            and _installed_pack_intact(receipt)
+        ):
             return
         trigger_sync(local_tier)
     except Exception:  # pragma: no cover - 钩子绝不阻塞登录

@@ -11,7 +11,8 @@
   │                templates:{名:sha256}}（tmp＋os.replace，save_local_config 同款）
   highwatermark   ← 与 receipt 分开存（config.json 侧），防 clear-data 连带洗掉防重放记忆
   v{N}/           当前版本模板平铺（不可变）＋已验签 manifest 副本
-  v{N-1}/         回滚位（读时校验失败 1 次即回落——哈希校验无歧义，不设 N 次）
+  v{N-1}/         保留上一版（回滚位）；损坏自愈实作＝同步器完整性复核 →
+                  同版本重装修复（读路径只拒绝读取，修复触发器挂在同步侧）
   .staging-v{N}/  安装中转（七道校验全过才 rename；失败整目录删除）
 ```
 

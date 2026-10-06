@@ -446,3 +446,59 @@ def test_exchange_cek_carries_token_flag(env, monkeypatch):
     value, code = sync_mod._exchange_cek("k-1", "v-1")
     assert code == 0 and value["key_id"] == "k"
     assert captured == {"endpoint": "prompt-pack/key", "with_token": True}
+
+
+def test_sync_repairs_tampered_installed_pack(env, cdn, monkeypatch):
+    """评审 P1：已装包被篡改 → 读侧拒绝（PromptPackMissing）且同步器自愈
+    （同版本重装修复）——spec「读时校验失败须可自愈」的触发器回归钉。"""
+    base, cdn_root = cdn
+    sk, pub = _keypair()
+    cek = os.urandom(32)
+    _publish(cdn_root, "5", {"free": ("k-free-5", cek)}, TPL, sk, "test-kid")
+    pp, sync_mod = _wire(env, monkeypatch, sk, pub, lambda kid, ver: ({"cek": base64.b64encode(cek).decode(), "key_id": kid, "tier": "free", "version": ver}, 0))
+    assert sync_mod.sync_once(local_tier="free")["phase"] == "ready"
+
+    fp = os.path.join(pp.pack_root(), "v5", "write_chapter.prompt")
+    with open(fp, "a", encoding="utf-8") as f:
+        f.write("篡改")
+
+    _, _, _, prompts = env
+    import importlib as _il
+
+    _il.reload(prompts)
+    with pytest.raises(prompts.PromptPackMissing):
+        prompts.load("write_chapter")
+
+    st = sync_mod.sync_once(local_tier="free")  # 同版本，但完整性复核不过 → 重装
+    assert st["phase"] == "ready"
+    assert "篡改" not in open(fp, encoding="utf-8").read(), "篡改文件未被修复"
+    _il.reload(prompts)
+    assert "你是助手" in prompts.load("write_chapter")
+
+
+def test_sync_same_tier_probe_skips_redownload(env, cdn, monkeypatch):
+    """评审 P3：本地误报高档、S 判档仍等于已装档且本地完好 → 免重下重装
+    （降档收敛探测出口；语义不变：真升档仍走下载安装）。"""
+    base, cdn_root = cdn
+    sk, pub = _keypair()
+    cek = os.urandom(32)
+    _publish(cdn_root, "5", {"free": ("k-free-5", cek), "pro": ("k-pro-5", cek)}, TPL, sk, "test-kid")
+
+    def exchange(kid, ver):
+        if kid == "k-pro-5":
+            return None, 403  # S 拒绝高档（本地误报）
+        return {"cek": base64.b64encode(cek).decode(), "key_id": kid, "tier": "free", "version": ver}, 0
+
+    pp, sync_mod = _wire(env, monkeypatch, sk, pub, exchange)
+    assert sync_mod.sync_once(local_tier="free")["phase"] == "ready"
+
+    downloads = []
+    orig_fetch_bytes = sync_mod._fetch_bytes
+    monkeypatch.setattr(
+        sync_mod, "_fetch_bytes",
+        lambda c, u: (downloads.append(u), orig_fetch_bytes(c, u))[1],
+    )
+    st = sync_mod.sync_once(local_tier="pro")  # 本地误报 pro
+    assert st["phase"] == "ready" and st["tier"] == "free"
+    assert downloads == [], f"同档探测不应重下（实得 {downloads}）"
+    assert pp.read_receipt()["tier"] == "free"
