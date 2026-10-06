@@ -325,6 +325,37 @@ describe("RelationsGraphPane 章态并入剧情关系", () => {
     expect(screen.queryByText(/还没连线/)).toBeNull();
   });
 
+  it("边端点贴圆周：起终点都缩到圆缘（反派红软底/路人空底不再透出线头）", async () => {
+    mockBookApi();
+    dossierState.preview.mockRejectedValue(new Error("down"));
+    dossierState.get.mockRejectedValue(new Error("down"));
+    const { container } = render(<RelationsGraphPane projectId="p1" chapterRef="vol-1-ch-1" />);
+    await screen.findAllByTestId("rg-row");
+    const centers = new Map<string, { x: number; y: number }>();
+    for (const g of Array.from(container.querySelectorAll(".rg-node"))) {
+      const m = /translate\((-?[\d.]+),\s*(-?[\d.]+)\)/.exec(g.getAttribute("transform") ?? "");
+      const name = g.querySelector(".rg-name")?.textContent ?? "";
+      if (m) centers.set(name, { x: Number(m[1]), y: Number(m[2]) });
+    }
+    const edges = Array.from(container.querySelectorAll(".rg-edge"));
+    expect(edges).toHaveLength(3); // 含一对反向边（弓形路径）与一条直线边，两条分支都覆盖
+    for (const g of edges) {
+      const tip = g.querySelector("title")?.textContent ?? "";
+      const [aName, bName] = tip.split("：")[0].split(" → ");
+      const nums = (g.querySelector(".rg-line")?.getAttribute("d") ?? "")
+        .match(/-?[\d.]+/g)
+        ?.map(Number) ?? [];
+      const ca = centers.get(aName);
+      const cb = centers.get(bName);
+      expect(ca && cb).toBeTruthy();
+      const dist = (p: { x: number; y: number }, c: { x: number; y: number }) =>
+        Math.hypot(p.x - c.x, p.y - c.y);
+      // 起点贴源节点圆缘（半径 26，不进圆心）；终点＝圆缘＋箭头留白 3
+      expect(dist({ x: nums[0], y: nums[1] }, ca!)).toBeCloseTo(26, 3);
+      expect(dist({ x: nums.at(-2)!, y: nums.at(-1)! }, cb!)).toBeCloseTo(29, 3);
+    }
+  });
+
   it("preview/章行拉取失败静默：退回开书设定边，孤立点照常提示", async () => {
     mockBookApi();
     dossierState.preview.mockRejectedValue(new Error("preview down"));

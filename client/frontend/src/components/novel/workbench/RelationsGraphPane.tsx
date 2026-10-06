@@ -64,6 +64,10 @@ const W = 560;
 const H = 380;
 const CX = W / 2;
 const CY = H / 2;
+/** 节点圆半径：SVG 圆与边端点回缩共用同一值 */
+const NODE_R = 26;
+/** 箭头端与圆周的留白：箭头尖落在圆外，别藏进节点圆下 */
+const ARROW_GAP = 3;
 
 const norm = (s: string | undefined) => (s ?? "").trim();
 
@@ -95,15 +99,17 @@ function roleKey(role: string | undefined): "protagonist" | "villain" | "extra" 
   return "support";
 }
 
-/** 箭头落在节点圆周外缘：路径端点（B）沿来向回缩 r+gap，避免箭头藏进节点圆下。 */
-function trimEnd(
-  bx: number, by: number, refx: number, refy: number, r = 26, gap = 3,
+/** 路径端点贴圆周：端点从节点圆心沿参考点方向回缩 r+gap。起点终点同用——
+ *  节点圆有透明填充档（反派红软底、路人空底），线画到圆心会从圆里透出来；
+ *  回缩最多到半径连线的中点，防角色多、相邻节点间距不足时两端回缩把线吃成反向。 */
+function rimPoint(
+  cx: number, cy: number, refx: number, refy: number, gap = 0, r = NODE_R,
 ): { x: number; y: number } {
-  const dx = bx - refx;
-  const dy = by - refy;
+  const dx = cx - refx;
+  const dy = cy - refy;
   const len = Math.hypot(dx, dy) || 1;
-  const t = (r + gap) / len;
-  return { x: bx - dx * t, y: by - dy * t };
+  const t = Math.min((r + gap) / len, 0.5);
+  return { x: cx - dx * t, y: cy - dy * t };
 }
 
 /** 确定性环形布局：节点沿圆周均布（顺序=id 排序，稳定可复现）。 */
@@ -586,13 +592,15 @@ export function RelationsGraphPane({
             const dy = b.y - a.y;
             const cx = mx - dy * 0.14;
             const cy = my + dx * 0.14;
-            const end = trimEnd(b.x, b.y, cx, cy);
-            d = `M ${a.x} ${a.y} Q ${cx} ${cy} ${end.x} ${end.y}`;
+            const start = rimPoint(a.x, a.y, cx, cy);
+            const end = rimPoint(b.x, b.y, cx, cy, ARROW_GAP);
+            d = `M ${start.x} ${start.y} Q ${cx} ${cy} ${end.x} ${end.y}`;
             lx = 0.25 * a.x + 0.5 * cx + 0.25 * b.x;
             ly = 0.25 * a.y + 0.5 * cy + 0.25 * b.y;
           } else {
-            const end = trimEnd(b.x, b.y, a.x, a.y);
-            d = `M ${a.x} ${a.y} L ${end.x} ${end.y}`;
+            const start = rimPoint(a.x, a.y, b.x, b.y);
+            const end = rimPoint(b.x, b.y, a.x, a.y, ARROW_GAP);
+            d = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
           }
           const tip =
             e.kind === "pending"
@@ -631,7 +639,7 @@ export function RelationsGraphPane({
               transform={`translate(${p.x}, ${p.y})`}
               className={nd.ghost ? "rg-node ghost" : `rg-node role-${roleKey(nd.role)}`}
             >
-              <circle r={26} />
+              <circle r={NODE_R} />
               <text textAnchor="middle" dy="4" className="rg-name">
                 {nd.name}
               </text>
