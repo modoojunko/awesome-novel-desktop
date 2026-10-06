@@ -38,12 +38,20 @@ if "anthropic" not in sys.modules:
             for k, v in kwargs.items():
                 _reject_httpx_object(k, v)
 
-    # ai_client 归一网络异常（AITimeoutError）依赖这两个名字，stub 与真 SDK 同形
+    # ai_client 归一网络异常（AITimeoutError）与上游 404/405（AIRequestError）
+    # 依赖这几个名字，stub 与真 SDK 同形（status_code 取 response.status_code）
     class APIConnectionError(Exception):
         pass
 
     class APITimeoutError(APIConnectionError):
         pass
+
+    class APIStatusError(Exception):
+        def __init__(self, message, *, response=None, body=None):
+            super().__init__(message)
+            self.response = response
+            self.status_code = getattr(response, "status_code", None)
+            self.body = body
 
     class Timeout:
         """真 SDK 的 Timeout 类：与 httpx 无关，逐相位接收 connect/read/write/pool。"""
@@ -54,6 +62,7 @@ if "anthropic" not in sys.modules:
     anthropic.AsyncAnthropic = AsyncAnthropic
     anthropic.APIConnectionError = APIConnectionError
     anthropic.APITimeoutError = APITimeoutError
+    anthropic.APIStatusError = APIStatusError
     anthropic.Timeout = Timeout
     sys.modules["anthropic"] = anthropic
 
@@ -75,12 +84,19 @@ if "openai" not in sys.modules:
             for k, v in kwargs.items():
                 _reject_httpx_object(k, v)
 
-    # 同 anthropic：补齐 ai_client 依赖的异常名
+    # 同 anthropic：补齐 ai_client 依赖的异常名（含 404/405 归一用的 APIStatusError）
     class APIConnectionError(Exception):
         pass
 
     class APITimeoutError(APIConnectionError):
         pass
+
+    class APIStatusError(Exception):
+        def __init__(self, message, *, response=None, body=None):
+            super().__init__(message)
+            self.response = response
+            self.status_code = getattr(response, "status_code", None)
+            self.body = body
 
     class Timeout:
         def __init__(self, *, connect=None, read=None, write=None, pool=None):
@@ -89,6 +105,7 @@ if "openai" not in sys.modules:
     openai_mod.AsyncOpenAI = AsyncOpenAI
     openai_mod.APIConnectionError = APIConnectionError
     openai_mod.APITimeoutError = APITimeoutError
+    openai_mod.APIStatusError = APIStatusError
     openai_mod.Timeout = Timeout
     sys.modules["openai"] = openai_mod
 

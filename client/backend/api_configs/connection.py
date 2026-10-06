@@ -2,8 +2,15 @@
 
 探测按接口格式（api_format：openai | anthropic）构造，不再按 vendor 一一分支；
 vendor 只保留 ollama 特例（本地服务、免 Key、自有 tags 端点）。
-models 端点缺失（部分 Anthropic 兼容端点不提供列表）时降级为一条
-max_tokens=1 的最小请求验证鉴权。
+models 端点缺失（部分 Anthropic 兼容端点不提供列表）时降级为同款最小生成探针。
+
+「通」的判据（2026-10-05 拍板）：200 必须是 API JSON——网站首页/SPA 对任意路径
+回 200 HTML 不算通；可达且鉴权通过后向对话接口发**真实最小生成探针**——消息「你好」、
+关闭思考（ai_client 同款禁思考约定，端点拒绝该参数时去参重试一次）、短输出预算，
+与生成同址同鉴权头（openai {base}/chat/completions／anthropic {base}/v1/messages）；
+收到**格式正确且含可见回复文本**的回复才算通——非 2xx、体不符格式、空回复一律判失败，
+400/422 类业务性拒绝不再放行（点名所试模型 id）；无可用模型 id（列表空且无候选）
+判失败并提示填写模型名。
 """
 
 from __future__ import annotations
@@ -23,6 +30,8 @@ _ANTHROPIC_PROBE_MODEL = "claude-sonnet-4-20250514"
 # 只放**实测可用**的 id（deepseek 2026-09-09 实测：anthropic 兼容端点 404、
 # openai 端点 200 返回这三个）；没有把握的 vendor 留空 → 前端只给手动输入。
 # 候选**不自动写库**（用户点选才落 models），避免把猜测值塞进配置。
+# 与前端 vendorDefaults.ts 的 VENDOR_DEFAULTS 登记表同族（那边是创建预填值）：
+# 登记值/候选变更两处对齐。
 VENDOR_MODEL_CANDIDATES: dict[str, list[str]] = {
     "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-vision-exp"],
 }
@@ -32,6 +41,11 @@ NO_MODEL_LIST_NOTE = (
     "该端点不提供模型列表（Anthropic 兼容端点常见）——可手动填模型 id，"
     "或把接口格式改成 openai 后重新测试即可自动获取"
 )
+
+# 最小生成探针（2026-10-05 拍板）：「你好」＋禁思考＋短输出预算，格式正确回复才算通
+_PROBE_PROMPT = "你好"
+_PROBE_MAX_TOKENS = 32
+_THINKING_DISABLED = {"type": "disabled"}
 
 
 def model_candidates_for(vendor_id: str) -> list[str]:
@@ -45,6 +59,7 @@ async def test_connection(
     base_url: str,
     api_format: str = "openai",
     timeout: int = CONNECTION_TEST_TIMEOUT,
+    preferred_model: str | None = None,
 ) -> dict[str, Any]:
     """Test connectivity to a vendor's API.
 
@@ -73,17 +88,13 @@ async def test_connection(
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
             if resp.status_code == 404 and fallback is not None:
-                # models 端点不存在 → 降级最小请求验证鉴权；仅 401/403 判鉴权失败
+                # models 端点不存在 → 降级为「你好」最小生成探针（2026-10-05 拍板）
                 f_url, f_headers, f_payload = fallback
-                resp = await client.post(f_url, headers=f_headers, json=f_payload)
-                if resp.status_code in (401, 403):
-                    detail = _extract_error_detail(resp)
-                    return {
-                        "ok": False,
-                        "status": "auth_error",
-                        "models": None,
-                        "error": f"认证失败 (HTTP {resp.status_code}){detail}",
-                    }
+                probe = await _probe_generation(
+                    client, f_url, f_headers, f_payload, _anthropic_reply_text
+                )
+                if probe is not None:
+                    return probe
                 return {
                     "ok": True,
                     "status": "ok",
@@ -92,6 +103,83 @@ async def test_connection(
                     "candidates": model_candidates_for(vendor_id),
                     "note": NO_MODEL_LIST_NOTE,
                 }
+
+            # 判定与探针必须全部在 client 存活期内执行——async with 退出即关，出块后
+            # 再发请求会抛 RuntimeError（P0 回归钉：真 httpx 生命周期用例）
+            if resp.status_code in (401, 403):
+                detail = _extract_error_detail(resp)
+                return {
+                    "ok": False,
+                    "status": "auth_error",
+                    "models": None,
+                    "error": f"认证失败 (HTTP {resp.status_code}){detail}",
+                }
+            if resp.status_code == 429:
+                return {
+                    "ok": False,
+                    "status": "rate_limited",
+                    "models": None,
+                    "error": "请求频率限制 (HTTP 429)",
+                }
+            if resp.status_code >= 500:
+                detail = _extract_error_detail(resp)
+                return {
+                    "ok": False,
+                    "status": "network_error",
+                    "models": None,
+                    "error": f"服务端错误 (HTTP {resp.status_code}){detail}",
+                }
+            if resp.status_code != 200:
+                detail = _extract_error_detail(resp)
+                return {
+                    "ok": False,
+                    "status": "unknown",
+                    "models": None,
+                    "error": f"异常响应 (HTTP {resp.status_code}){detail}",
+                }
+
+            not_api = _non_api_response(resp)
+            if not_api:
+                return {
+                    "ok": False,
+                    "status": "endpoint_mismatch",
+                    "models": None,
+                    "error": not_api,
+                }
+            models = extract_fn(resp)
+            # 「你好」最小生成探针（2026-10-05 拍板，双格式统一判据）：与生成同址同头
+            # ——openai {base}/chat/completions／anthropic {base}/v1/messages
+            probe_model = _probe_model(models, vendor_id, preferred_model)
+            if api_format == "openai" and vendor_id != "ollama":
+                if not probe_model:
+                    # 无任何可用模型 id：仅凭可达性/鉴权不算通（2026-10-05 拍板）
+                    return {
+                        "ok": False,
+                        "status": "unknown",
+                        "models": None,
+                        "error": "模型列表为空且无候选模型 id——请填写模型名称后重新测试",
+                    }
+                ping = await _probe_generation(
+                    client,
+                    f"{base_url.rstrip('/')}/chat/completions",
+                    headers,
+                    _generation_payload(probe_model),
+                    _openai_reply_text,
+                )
+                if ping is not None:
+                    return ping
+            elif api_format == "anthropic" and fallback is not None:
+                f_url, f_headers, _f_payload = fallback
+                ping = await _probe_generation(
+                    client,
+                    f_url,
+                    f_headers,
+                    _generation_payload(probe_model or _ANTHROPIC_PROBE_MODEL),
+                    _anthropic_reply_text,
+                )
+                if ping is not None:
+                    return ping
+            return {"ok": True, "status": "ok", "models": models, "error": None}
     except httpx.TimeoutException:
         return {"ok": False, "status": "timeout", "models": None, "error": "连接超时"}
     except httpx.ConnectError:
@@ -108,41 +196,6 @@ async def test_connection(
             "models": None,
             "error": f"网络错误: {exc}",
         }
-
-    if resp.status_code == 401 or resp.status_code == 403:
-        detail = _extract_error_detail(resp)
-        return {
-            "ok": False,
-            "status": "auth_error",
-            "models": None,
-            "error": f"认证失败 (HTTP {resp.status_code}){detail}",
-        }
-    if resp.status_code == 429:
-        return {
-            "ok": False,
-            "status": "rate_limited",
-            "models": None,
-            "error": "请求频率限制 (HTTP 429)",
-        }
-    if resp.status_code >= 500:
-        detail = _extract_error_detail(resp)
-        return {
-            "ok": False,
-            "status": "network_error",
-            "models": None,
-            "error": f"服务端错误 (HTTP {resp.status_code}){detail}",
-        }
-    if resp.status_code != 200:
-        detail = _extract_error_detail(resp)
-        return {
-            "ok": False,
-            "status": "unknown",
-            "models": None,
-            "error": f"异常响应 (HTTP {resp.status_code}){detail}",
-        }
-
-    models = extract_fn(resp)
-    return {"ok": True, "status": "ok", "models": models, "error": None}
 
 
 # ── Protocol-based probe builder ────────────────────────────────────────────
@@ -179,11 +232,7 @@ def _build_probe(
         fallback = (
             f"{base}/v1/messages",
             dict(headers),
-            {
-                "model": _ANTHROPIC_PROBE_MODEL,
-                "max_tokens": 1,
-                "messages": [{"role": "user", "content": "ping"}],
-            },
+            _generation_payload(_ANTHROPIC_PROBE_MODEL),
         )
         return f"{base}/v1/models", headers, _extract_openai_models, fallback
 
@@ -194,6 +243,192 @@ def _build_probe(
         _extract_openai_models,
         None,
     )
+
+
+# ── 「通」的判据组件：非 API 响应识别 / 对话路径探针 ──────────────────────────
+
+
+def _non_api_response(resp: httpx.Response) -> str:
+    """200 响应但体不是 API JSON → 返回给用户的说明；是 JSON 则返回空串。
+
+    典型：Base URL 填成网站首页，SPA 对任意路径回 200 HTML——旧实现按 200 判
+    「连接正常」，坏配置到生成期才炸（内测 405 案）。
+    """
+    ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+    try:
+        body = resp.json()
+    except (ValueError, TypeError):
+        return (
+            "该地址返回的不是 API 数据"
+            + (f"（Content-Type: {ctype}）" if ctype else "")
+            + "——看起来像网页。请检查 Base URL 是否填成了网站地址"
+        )
+    if isinstance(body, dict) and body.get("error"):
+        msg = body["error"]
+        if isinstance(msg, dict):
+            msg = msg.get("message") or msg.get("msg") or str(msg)
+        return f"服务返回了错误（{str(msg)[:120]}）——请检查 Base URL 与 API Key"
+    return ""
+
+
+def _probe_model(
+    models: list[str], vendor_id: str, preferred_model: str | None = None
+) -> str:
+    """对话探针的模型 id：配置已选模型（preferred）→ 模型列表首个 → vendor 候选首个 → 空串（跳过探针）。"""
+    if preferred_model and preferred_model.strip():
+        return preferred_model.strip()
+    if models:
+        return models[0]
+    candidates = model_candidates_for(vendor_id)
+    return candidates[0] if candidates else ""
+
+
+def _generation_payload(model: str) -> dict[str, Any]:
+    """「你好」最小生成探针请求体（双格式同形）：禁思考＋短输出预算。"""
+    return {
+        "model": model,
+        "messages": [{"role": "user", "content": _PROBE_PROMPT}],
+        "max_tokens": _PROBE_MAX_TOKENS,
+        "thinking": dict(_THINKING_DISABLED),
+    }
+
+
+async def _probe_generation(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    reply_fn: Any,
+) -> dict[str, Any] | None:
+    """最小生成探针（2026-10-05 拍板）：发一条「你好」，收到格式正确且含可见回复文本
+    的回复才算通（reply_fn 按对应契约提取回复文本）。
+
+    返回 None = 通过；非 2xx、体不符格式、空回复一律判失败（400/422 类业务性拒绝
+    不再放行——点名所试模型 id），失败形态 dict = 直接作为连接测试结果返回。
+    """
+    model = payload.get("model", "")
+    try:
+        resp = await _post_with_thinking_retry(client, url, headers, payload)
+    except httpx.TimeoutException:
+        return {
+            "ok": False,
+            "status": "timeout",
+            "models": None,
+            "error": "对话探针超时（连接超时）",
+        }
+    except httpx.RequestError as exc:
+        return {
+            "ok": False,
+            "status": "network_error",
+            "models": None,
+            "error": f"网络错误: {exc}",
+        }
+    if resp.status_code in (401, 403):
+        detail = _extract_error_detail(resp)
+        return {
+            "ok": False,
+            "status": "auth_error",
+            "models": None,
+            "error": f"认证失败 (HTTP {resp.status_code}){detail}",
+        }
+    if resp.status_code in (404, 405):
+        return {
+            "ok": False,
+            "status": "endpoint_mismatch",
+            "models": None,
+            "error": (
+                f"对话接口不可达（HTTP {resp.status_code} @ {url}）——请核对 Base URL "
+                "与接口格式是否和厂商文档一致（常见：地址少了 /v1，或填成了网站地址）"
+            ),
+        }
+    if resp.status_code == 429:
+        return {
+            "ok": False,
+            "status": "rate_limited",
+            "models": None,
+            "error": "请求频率限制 (HTTP 429)",
+        }
+    if resp.status_code >= 500:
+        detail = _extract_error_detail(resp)
+        return {
+            "ok": False,
+            "status": "network_error",
+            "models": None,
+            "error": f"服务端错误 (HTTP {resp.status_code}){detail}",
+        }
+    if resp.status_code != 200:
+        detail = _extract_error_detail(resp)
+        return {
+            "ok": False,
+            "status": "unknown",
+            "models": None,
+            "error": (
+                f"探针请求被拒（HTTP {resp.status_code} @ {url}）——所试模型 {model}"
+                f"{detail}；请核对模型 id 是否有效（可在配置里填写模型名称）"
+            ),
+        }
+    not_api = _non_api_response(resp)
+    if not_api:
+        return {
+            "ok": False,
+            "status": "endpoint_mismatch",
+            "models": None,
+            "error": not_api,
+        }
+    if not reply_fn(resp):
+        return {
+            "ok": False,
+            "status": "unknown",
+            "models": None,
+            "error": (
+                f"模型回复格式不正确或回复为空（@ {url}）——所试模型 {model}，"
+                "请核对模型 id 与接口格式"
+            ),
+        }
+    return None
+
+
+async def _post_with_thinking_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+) -> httpx.Response:
+    """POST 最小生成探针；端点拒绝 thinking 参数时去参重试一次（ai_client 同款约定）。"""
+    resp = await client.post(url, headers=headers, json=payload)
+    if "thinking" in payload and resp.status_code == 400:
+        body = getattr(resp, "text", "") or ""
+        if "thinking" in body.lower():
+            stripped = {k: v for k, v in payload.items() if k != "thinking"}
+            resp = await client.post(url, headers=headers, json=stripped)
+    return resp
+
+
+def _openai_reply_text(resp: httpx.Response) -> str:
+    """openai chat.completion 契约的助手回复文本；格式不符/空 → 空串。"""
+    try:
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError, ValueError):
+        return ""
+    return content.strip() if isinstance(content, str) else ""
+
+
+def _anthropic_reply_text(resp: httpx.Response) -> str:
+    """anthropic messages 契约的可见回复文本（text 块拼接）；格式不符/空 → 空串。"""
+    try:
+        data = resp.json()
+    except (ValueError, TypeError):
+        return ""
+    blocks = data.get("content") if isinstance(data, dict) else None
+    if not isinstance(blocks, list):
+        return ""
+    texts = [
+        b.get("text", "")
+        for b in blocks
+        if isinstance(b, dict) and b.get("type") == "text"
+    ]
+    return "".join(t for t in texts if isinstance(t, str)).strip()
 
 
 # ── Response extractors ────────────────────────────────────────────────────

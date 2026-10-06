@@ -1,5 +1,6 @@
 // 添加/编辑 API Key 弹窗（ApiConfigForm）契约（覆盖率专项·批 1）：
-//   新建态（供应商格选择/格式锁定矩阵/URL 不预填只换占位/校验四态/提交成功失败/测试连接四分支）
+//   新建态（供应商格选择/格式锁定矩阵/供应商默认值预填〔2026-10-05 拍板反转「URL 不预填」〕/
+//   校验四态/提交成功失败/测试连接四分支）
 //   编辑态（供应商锁定显示/密钥留空保留/掩码提示/表单随编辑目标重置）。
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
@@ -43,25 +44,61 @@ describe("ApiConfigForm 新建态", () => {
     expect(screen.getByText("Anthropic 格式").className).toContain("on");
   });
 
-  it("URL 不预填：选供应商与切格式都只换占位、不动输入", () => {
+  it("预填：选 DeepSeek 自动填 Base URL＋模型名称，只填 Key 即可提交", async () => {
+    const onSubmit = vi.fn(async (_data: ApiConfigFormData) => {});
+    render(<ApiConfigForm open onSubmit={onSubmit} onCancel={vi.fn()} />);
+    const base = () => document.getElementById("cfBase") as HTMLInputElement;
+    const model = () => document.getElementById("cfModel") as HTMLInputElement;
+    expect(base().value).toBe("");
+    expect(model().value).toBe("");
+    fireEvent.click(screen.getByText("DeepSeek"));
+    expect(base().value).toBe("https://api.deepseek.com");
+    expect(model().value).toBe("deepseek-v4-pro");
+    setField("cfName", "写作");
+    setField("cfKey", "sk-1");
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith({
+      name: "写作",
+      vendor_id: "deepseek",
+      base_url: "https://api.deepseek.com",
+      model: "deepseek-v4-pro",
+      api_key: "sk-1",
+      api_format: "openai",
+    });
+  });
+
+  it("手改不覆盖：手改的 Base URL 切供应商保持用户值；未手改的模型名照常随供应商更新", () => {
     render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
     const base = () => document.getElementById("cfBase") as HTMLInputElement;
-    expect(base().value).toBe("");
-    expect(base().placeholder).toContain("openai.com");
-    // 选供应商（另一半：原用例只测了切格式）
-    fireEvent.click(screen.getByText("Anthropic"));
-    expect(base().value).toBe("");
-    fireEvent.click(screen.getByText("Ollama"));
-    expect(base().value).toBe("");
-    // 切格式
+    const model = () => document.getElementById("cfModel") as HTMLInputElement;
     fireEvent.click(screen.getByText("DeepSeek"));
-    fireEvent.click(screen.getByText("Anthropic 格式"));
+    setField("cfBase", "https://mine.example/v1"); // 手改
+    fireEvent.click(screen.getByText("GLM"));
+    expect(base().value).toBe("https://mine.example/v1"); // 手改字段不被覆盖
+    expect(model().value).toBe(""); // 未手改 → 随 GLM 登记值（模型 id 无据留空）
+    fireEvent.click(screen.getByText("DeepSeek"));
+    expect(base().value).toBe("https://mine.example/v1"); // 仍不被覆盖
+    expect(model().value).toBe("deepseek-v4-pro"); // 模型名仍是预填态 → 随供应商更新
+    setField("cfModel", "my-model"); // 手改模型名
+    fireEvent.click(screen.getByText("GLM"));
+    expect(model().value).toBe("my-model"); // 手改的模型名同样不被覆盖
+  });
+
+  it("无登记值不预填：OpenAI 兼容留空；切格式按「供应商×格式」登记值更新（GLM 双地址）", () => {
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    const base = () => document.getElementById("cfBase") as HTMLInputElement;
+    const model = () => document.getElementById("cfModel") as HTMLInputElement;
+    fireEvent.click(screen.getByText("OpenAI 兼容"));
     expect(base().value).toBe("");
-    expect(base().placeholder).toContain("anthropic.com");
-    // 手填后再点供应商/切格式也不被改写
-    fireEvent.change(base(), { target: { value: "https://mine.example" } });
+    expect(model().value).toBe("");
+    fireEvent.click(screen.getByText("GLM"));
+    expect(base().value).toBe("https://open.bigmodel.cn/api/paas/v4");
+    expect(model().value).toBe(""); // 模型 id 无据留空
+    fireEvent.click(screen.getByText("Anthropic 格式"));
+    expect(base().value).toBe("https://open.bigmodel.cn/api/anthropic");
     fireEvent.click(screen.getByText("OpenAI 格式"));
-    expect(base().value).toBe("https://mine.example");
+    expect(base().value).toBe("https://open.bigmodel.cn/api/paas/v4");
   });
 
   it("校验四态：名称/供应商/Base URL/API Key（Ollama 免 Key）", async () => {
@@ -74,13 +111,14 @@ describe("ApiConfigForm 新建态", () => {
     setField("cfName", "我的配置");
     submit();
     expect(await screen.findByText("请选择供应商")).toBeTruthy();
-    fireEvent.click(screen.getByText("DeepSeek"));
+    // 无登记值供应商（OpenAI 兼容）不预填 → Base URL 仍必填
+    fireEvent.click(screen.getByText("OpenAI 兼容"));
     submit();
     expect(await screen.findByText("请输入 Base URL")).toBeTruthy();
     setField("cfBase", "https://api.deepseek.com");
     submit();
     expect(await screen.findByText("请输入 API Key")).toBeTruthy();
-    // Ollama 免 Key
+    // Ollama 免 Key（预填的 localhost 不覆盖手填 URL）
     fireEvent.click(screen.getByText("Ollama"));
     submit();
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
@@ -88,6 +126,7 @@ describe("ApiConfigForm 新建态", () => {
       name: "我的配置",
       vendor_id: "ollama",
       base_url: "https://api.deepseek.com",
+      model: "",
       api_key: "",
       api_format: "openai",
     });
@@ -162,6 +201,8 @@ describe("ApiConfigForm 编辑态", () => {
     expect(document.querySelector(".vfix")).toBeTruthy();
     expect(document.querySelector(".vgrid")).toBeNull();
     expect(document.querySelector(".vfix")!.textContent).toContain("OpenAI");
+    // 模型名称＝创建表单一级字段，编辑态不渲染（沿用已存值，不施加预填）
+    expect(document.getElementById("cfModel")).toBeNull();
   });
 
   it("编辑态留空：表单提交空串（**省略字段是页面层职责**，见 ApiKeyConfigPage 用例），占位与掩码提示齐备", async () => {

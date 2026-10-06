@@ -211,9 +211,9 @@ test("模型配置：添加（网络错误）→ 删除 → Undo toast 展示", 
 
 // -------------------------------------------------------------------------
 // ③ 接口格式（c-api-format）：默认 OpenAI、GLM 可切、官方卡锁定、
-//    URL 不预填（拍板）、编辑态持久化
+//    供应商默认值预填（c-api-config-vendor-defaults，反转旧「URL 不预填」）、编辑态持久化
 // -------------------------------------------------------------------------
-test("模型配置：接口格式——默认/切换/锁定/URL 不预填/编辑持久化", async ({ page }) => {
+test("模型配置：接口格式——默认/切换/锁定/预填随格式换/手改不覆盖/编辑持久化", async ({ page }) => {
   const { restore } = await setupSession(page);
   try {
     await page.goto(`${ORIGIN}/#/config`);
@@ -227,18 +227,19 @@ test("模型配置：接口格式——默认/切换/锁定/URL 不预填/编辑
     // 默认 OpenAI 格式 on
     await expect(openaiBtn).toHaveClass(/on/);
 
-    // 选 GLM：URL 不预填（拍板），placeholder 维持 openai 示例
+    // 选 GLM：URL 预填「供应商×格式」登记值，placeholder 维持 openai 示例
     await page.getByRole("button", { name: "GLM", exact: true }).click();
-    await expect(page.locator("#cfBase")).toHaveValue("");
+    await expect(page.locator("#cfBase")).toHaveValue("https://open.bigmodel.cn/api/paas/v4");
     await expect(openaiBtn).toHaveClass(/on/);
 
-    // 切 Anthropic 格式：URL 仍为空，placeholder 随格式切换
+    // 切 Anthropic 格式：URL 随登记值换成 GLM 的 Anthropic 地址，placeholder 随格式切换
     await anthropicBtn.click();
     await expect(anthropicBtn).toHaveClass(/on/);
     const urlInput = page.locator("#cfBase");
+    await expect(urlInput).toHaveValue("https://open.bigmodel.cn/api/anthropic");
     await expect(urlInput).toHaveAttribute("placeholder", "https://api.anthropic.com");
 
-    // 手填 URL 后切回 OpenAI 格式：值不被覆盖
+    // 手填 URL 后切回 OpenAI 格式：手改值不被预填覆盖
     await urlInput.fill("https://my-relay.example.com/v1");
     await openaiBtn.click();
     await expect(urlInput).toHaveValue("https://my-relay.example.com/v1");
@@ -274,6 +275,64 @@ test("模型配置：接口格式——默认/切换/锁定/URL 不预填/编辑
     await expect(anthropicBtn).toHaveClass(/on/);
     await expect(urlInput).toHaveValue("http://127.0.0.1:1");
     await page.getByRole("button", { name: "取消" }).click();
+  } finally {
+    restore();
+  }
+});
+
+// -------------------------------------------------------------------------
+// ④ 供应商默认值预填（c-api-config-vendor-defaults）：选 DeepSeek 填好
+//    Base URL＋模型名称只填 Key 即可保存；OpenAI 兼容不预填；手改不覆盖
+// -------------------------------------------------------------------------
+
+test("模型配置：供应商默认值预填——选 DeepSeek 只填 Key 保存；OpenAI 兼容不预填", async ({
+  page,
+}, testInfo) => {
+  const { restore } = await setupSession(page);
+  try {
+    await page.goto(`${ORIGIN}/#/config`);
+    await expect(page.getByText("还没有模型配置")).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole("button", { name: "添加 API Key" }).first().click();
+    await page.getByPlaceholder("例如：主线 · OpenAI").fill("e2e预填");
+    const urlInput = page.locator("#cfBase");
+    const modelInput = page.locator("#cfModel");
+
+    // OpenAI 兼容：无登记值不预填（表单全新时做对照；重开新建不重置是存量行为）
+    await page.getByRole("button", { name: "OpenAI 兼容" }).click();
+    await expect(urlInput).toHaveValue("");
+    await expect(modelInput).toHaveValue("");
+
+    // 选 DeepSeek → Base URL 与模型名称自动填好（用户只需填 Key）
+    await page.getByRole("button", { name: "DeepSeek" }).click();
+    await expect(urlInput).toHaveValue("https://api.deepseek.com");
+    await expect(modelInput).toHaveValue("deepseek-v4-pro");
+    // 预填态对照截图（UI 任务完成证据，随报告落 test-results）
+    await page.screenshot({ path: testInfo.outputPath("prefill-deepseek.png") });
+
+    // 手改 Base URL（避开真实上游）→ 切供应商不被预填覆盖；模型名未手改随供应商更新
+    await urlInput.fill("http://127.0.0.1:1");
+    await page.getByRole("button", { name: "OpenAI 兼容" }).click();
+    await expect(urlInput).toHaveValue("http://127.0.0.1:1");
+    await expect(modelInput).toHaveValue("");
+    await page.getByRole("button", { name: "DeepSeek" }).click();
+    await expect(urlInput).toHaveValue("http://127.0.0.1:1");
+    await expect(modelInput).toHaveValue("deepseek-v4-pro");
+
+    // 只填 Key → 保存成功；POST body models 首项＝预填模型名，卡片带模型名
+    await page.getByPlaceholder("sk-...").fill("sk-e2e-invalid");
+    const created = page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" &&
+        r.url().includes("/api/v1/api-configs") &&
+        r.url().endsWith("/api-configs"),
+    );
+    await page.getByRole("button", { name: "保存并测试连接" }).click();
+    const resp = await created;
+    expect(resp.request().postDataJSON().models).toEqual(["deepseek-v4-pro"]);
+    const card = page.locator(".cfg-card", { hasText: "e2e预填" });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(card.getByText("deepseek-v4-pro")).toBeVisible();
   } finally {
     restore();
   }

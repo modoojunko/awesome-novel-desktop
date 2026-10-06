@@ -1655,3 +1655,7 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
 - **拆章抽卡 busy 态增阶段进度列表——产品超出原型项，不进 `book.html`**：照 c-chapter-plan-ai 收编实况更正（`book.html` 拆章弹窗只收样式＋空壳 `#split-body`，design:check 无拆章屏用例）与 c-chapter-plan-guards 先例（原型未覆盖在途态 → 登记偏差），本批只登记不补 DOM（2026-10-05 用户拍板「照先例登记偏差」）。
 - 阶段列表**复用既有 `.ex-steps` 词汇**（`li/b/em/em.ok`＋`ra-spin`；组件本身有 `preview.html`／`pages/*.html` 原型基准），零新增 CSS 族、零新增状态档、零裸 hex；阶段文案终稿＝**「读卷纲与设定／推演 3 个方向／自查与评分」**（design-language §13 口径，无内部术语）。
 - 不触两端共享段（`.ex-steps` 定义在 C端 `src/design/book.css`，非 base.css），无需 `design-cross.mjs`。
+
+## c-api-config-vendor-defaults（2026-10-05）
+
+- 供应商默认值预填（2026-10-05 拍板，**反转** 2026-09-06「URL 不预填」）：新增「模型名称」一级字段（`cfModel`，Base URL 与 API Key 之间；创建态显示、编辑态隐藏——模型名称属创建表单，编辑沿用已存值不施加预填）。选已知供应商或切换接口格式按 `VENDOR_DEFAULTS` 登记表预填 Base URL＋模型名称（DeepSeek 全量＝`https://api.deepseek.com`＋`deepseek-v4-pro`；其余供应商按官方文档核对登记 URL、无据模型 id 留空；openai-compat 无登记值整体不预填）。覆盖规则＝字段为空或仍为预填值才随选择更新、用户手改不覆盖（`applyPreset`）。旧「URL 一律不预填」注释三处（FORMAT_LOCK 处、vgrid 点击、fmtSeg 点击）随拍板更新。不涉 parity 基线屏默认态（弹层为交互形态，口径以本条为准）。
