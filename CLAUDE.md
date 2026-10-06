@@ -92,6 +92,15 @@
 > checkout 约定：同级放置，compose 以 `${S_SERVER_DIR:-../awesome-novel-server/server}`
 > 取服务端源码；S端 开发/测试/部署入口见该仓 CLAUDE.md。
 
+> **提示词源注记（c-prompt-source-flip，2026-10）**：产品提示词模板已迁私有仓
+> `awesome-novel-prompts`（`prompts/*.prompt`＝唯一编辑源，文件带纳管注释；
+> 发布链 publish.py/release.yml 也在该仓）。本仓**不跟踪任何 .prompt**。开发/测试态
+> 经 sibling checkout 取模板：同级放置，compose 只读挂载
+> `${PROMPTS_DIR:-../awesome-novel-prompts/prompts}` 并注入 `PROMPT_PACK_DEV_DIR`；
+> 原生直跑（dev-up.sh --native）自动注入同款。检出不在位时 AI 功能按「写作能力未就绪」
+> 提示（503 prompts_missing），不阻断起栈。改提示词＝在该仓改 → 提交推送 → 发布走
+> 该仓 Actions「发布提示词包」；内容闸门（分层/占位符对拍）在该仓 CI。
+
 ```bash
 # ═══ C端 ═══
 
@@ -114,6 +123,11 @@ cd client/backend && python -m pytest tests/ -v
 
 # C端 E2E 测试（需要 Docker 四服务栈运行；S端 源码走 sibling checkout）
 cd client/frontend && npx playwright test
+
+# e2e/跑批在非 sibling 布局（如 /tmp worktree）起栈：compose 的提示词挂载默认
+# ../awesome-novel-prompts/prompts 解析不到（Docker 造空目录→AI 按 503 语义），
+# 须显式传 PROMPTS_DIR 指向提示词仓检出：
+#   PROMPTS_DIR=/path/to/awesome-novel-prompts/prompts docker compose -p <proj> ...
 ```
 
 ## 架构

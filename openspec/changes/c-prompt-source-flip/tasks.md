@@ -12,11 +12,11 @@
 
 ## 3. 开发栈与 e2e 接入（D2）＋文档
 
-- [ ] 3.1 `docker-compose.yml` 的 client-backend 增只读挂载 `${PROMPTS_DIR:-../awesome-novel-prompts/prompts}:/app/prompt_templates:ro`＋`PROMPT_PACK_DEV_DIR=/app/prompt_templates`；e2e 三份 compose 为 override、应自动继承（实跑确认）。验证＝`docker compose config` 渲染含挂载与 env；起栈后任一 AI 端点可用（未装包）
-- [ ] 3.2 原生直跑：`scripts/dev-up.sh --native` 与 handoff.md 原生配方同批注入 `PROMPT_PACK_DEV_DIR`（默认 sibling、`PROMPTS_DIR` 可覆盖）。验证＝`--native` 起栈一次 AI 端点可用
-- [ ] 3.3 非 sibling 布局：e2e 跑批脚本/runbook 显式传 `PROMPTS_DIR`（/tmp worktree 下默认相对路径解析不到、静默落空）。验证＝/tmp 布局下起栈并按预期验证（可用或按未装包 503 记录）
-- [ ] 3.4 缺检出语义验证：检出移走/改名后起栈，AI 端点维持 503 `prompts_missing` 四态卡语义（不新增错误形态）。验证＝容器内实测记录一次
-- [ ] 3.5 文档：CLAUDE.md（快速开始/架构图/目录树/常用命令）与相关 README 增「clone 提示词仓为 sibling」与 `PROMPTS_DIR` 覆盖说明。验证＝按文档从零起栈一遍可跑通（记录走查结论）
+- [x] 3.1 `docker-compose.yml` 的 client-backend 增只读挂载 `${PROMPTS_DIR:-../awesome-novel-prompts/prompts}:/app/prompt_templates:ro`＋`PROMPT_PACK_DEV_DIR=/app/prompt_templates`；e2e 三份 compose 为 override、应自动继承（实跑确认）。验证＝`docker compose config` 渲染含挂载与 env；起栈后任一 AI 端点可用（未装包）
+- [x] 3.2 原生直跑：`scripts/dev-up.sh --native` 与 handoff.md 原生配方同批注入 `PROMPT_PACK_DEV_DIR`（默认 sibling、`PROMPTS_DIR` 可覆盖）。验证＝`--native` 起栈一次 AI 端点可用
+- [x] 3.3 非 sibling 布局：e2e 跑批脚本/runbook 显式传 `PROMPTS_DIR`（/tmp worktree 下默认相对路径解析不到、静默落空）。验证＝/tmp 布局下起栈并按预期验证（可用或按未装包 503 记录）
+- [x] 3.4 缺检出语义验证：检出移走/改名后起栈，AI 端点维持 503 `prompts_missing` 四态卡语义（不新增错误形态）。验证＝容器内实测记录一次
+- [x] 3.5 文档：CLAUDE.md（快速开始/架构图/目录树/常用命令）与相关 README 增「clone 提示词仓为 sibling」与 `PROMPTS_DIR` 覆盖说明。验证＝按文档从零起栈一遍可跑通（记录走查结论）
 
 ## 4. 闸门迁移（D4）
 

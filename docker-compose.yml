@@ -90,12 +90,20 @@ services:
       # trial 无到期旧宽限（c-s-entitlement-sync）：仅本地 dev 容器注入；
       # 生产安装包不带此 env，trial 无到期一律按免费基线收紧
       ENTITLEMENT_LEGACY_TRIAL: "1"
+      # 开发/测试态模板目录（c-prompt-source-flip）：提示词唯一源在 sibling 提示词仓
+      # （awesome-novel-prompts/prompts，文件带纳管注释，loader 一律剥除）；主库不跟踪
+      # .prompt。检出不在位时按未装包 503 语义（不新增错误形态）。
+      PROMPT_PACK_DEV_DIR: /app/prompt_templates
     depends_on:
       - server-backend
     ports:
       - "${CLIENT_HOST_PORT:-8000}:8000"
     volumes:
       - ${CLIENT_DATA_DIR:-./.docker-data/client}:/app/data
+      # 提示词模板源（c-prompt-source-flip）：sibling 检出只读挂载，PROMPTS_DIR 可覆盖
+      # （非 sibling 布局的 worktree 跑批须显式传）。不能挂 /app/prompts——loader 包目录
+      # 会被遮蔽。路径缺失时 Docker 造空目录→按缺包 503，不阻断起栈。
+      - ${PROMPTS_DIR:-../awesome-novel-prompts/prompts}:/app/prompt_templates:ro
       # 设备身份稳定化（device-registry-dup）：容器内 /etc/machine-id 缺失时
       # C端 身份回落容器 hostname，每次重建容器＝新指纹＝S端 多注册一台设备。
       # 挂宿主垫片文件钉死指纹（内容=宿主机身份，macOS 写 IOPlatformUUID /
