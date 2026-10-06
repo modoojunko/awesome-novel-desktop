@@ -27,6 +27,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 
@@ -40,6 +41,16 @@ NATIVE_MODULES: tuple[str, ...] = (
 FORBIDDEN_SUFFIXES = (".py", ".pyc", ".pyo")
 
 
+def _utf8_console() -> None:
+    """Windows runner 的控制台默认 cp1252：`print` 中文会 UnicodeEncodeError 直接炸
+    （2026-10-01 彩排在本仓已实锤过一次；本次 CI 第二次踩）。统一把 stdout/stderr 转 utf-8。
+    必须在任何 print 之前调用——包括 `::error::` 注解行。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(Exception):  # 老解释器/被重定向的流：不阻断主流程
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def _backend_dir() -> str:
     """client/backend（本脚本在 client/packaging/build/ 下）。"""
     here = os.path.dirname(os.path.abspath(__file__))
@@ -47,7 +58,7 @@ def _backend_dir() -> str:
 
 
 def _sources() -> list[tuple[str, str]]:
-    """(模块名, **相对 backend 的**源路径)。
+    r"""(模块名, **相对 backend 的**源路径)。
 
     为什么必须相对：Windows 上若把绝对源路径交给 cythonize，生成物路径会在
     `build_dir` 下按绝对路径镜像（`a\awesome-novel-desktop\...`），盘符一被剥掉
@@ -133,6 +144,7 @@ def _selfcheck(backend: str) -> None:
         cwd=backend,
         capture_output=True,
         text=True,
+        errors="replace",  # 子进程 traceback 也可能是中文/非 ASCII，别让解码再炸一次
         check=False,
     )
     if r.returncode != 0:
@@ -200,6 +212,7 @@ def scan_bundle(root: str) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    _utf8_console()
     if len(argv) >= 3 and argv[1] == "--scan":
         problems = scan_bundle(argv[2])
         for p in problems:
