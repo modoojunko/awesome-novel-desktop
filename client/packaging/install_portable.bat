@@ -1,16 +1,16 @@
 @echo off
 REM client/packaging/install_portable.bat
-REM AI Novel — 便携安装脚本（免 Inno Setup）
-REM 用法: 以管理员身份运行，自动安装到 Program Files + 创建快捷方式
-REM 或者: 直接解压到任意目录运行
+REM Awesome Novel — 便携安装脚本（免 Inno Setup）
+REM 用法: 双击即可——默认装到当前用户目录 %LOCALAPPDATA%\Programs\AwesomeNovel，无需管理员
+REM 也可以直接解压到任意目录，双击 AwesomeNovel.exe 运行
 
 setlocal enabledelayedexpansion
 
 set SCRIPT_DIR=%~dp0
-set SOURCE_DIR=%SCRIPT_DIR%dist\AI Novel
-set APP_NAME=AI Novel
+set SOURCE_DIR=%SCRIPT_DIR%dist\AwesomeNovel
+set APP_NAME=AwesomeNovel
 
-echo ===== AI Novel 安装 =====
+echo ===== Awesome Novel 安装 =====
 echo.
 
 REM 检查源文件
@@ -22,7 +22,7 @@ if not exist "%SOURCE_DIR%\%APP_NAME%.exe" (
 )
 
 REM 询问安装路径
-set INSTALL_DIR=%ProgramFiles%\AI Novel
+set INSTALL_DIR=%LOCALAPPDATA%\Programs\AwesomeNovel
 echo 安装目录: %INSTALL_DIR%
 echo 按 Enter 使用默认路径，或输入新路径:
 set /p USER_DIR=
@@ -34,7 +34,7 @@ echo [1/2] 复制文件到 %INSTALL_DIR%...
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 xcopy /E /I /Y /Q "%SOURCE_DIR%\*" "%INSTALL_DIR%" >nul
 if %errorlevel% neq 0 (
-    echo [错误] 复制失败，请尝试以管理员身份运行
+    echo [错误] 复制失败——目标目录不可写或被占用，换个目录、或关掉占用它的程序再试
     pause
     exit /b 1
 )
@@ -51,7 +51,7 @@ if %errorlevel% equ 0 (
 
 echo.
 echo ===== 安装完成 =====
-echo 启动: 双击桌面 "AI Novel" 快捷方式
+echo 启动: 双击桌面 "AwesomeNovel" 快捷方式
 echo 卸载: 删除 %INSTALL_DIR% 目录 + 桌面快捷方式
-echo 用户数据: %%APPDATA%%\AI Novel\
+echo 用户数据: %%APPDATA%%\AwesomeNovel\
 pause

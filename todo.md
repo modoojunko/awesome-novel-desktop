@@ -323,7 +323,7 @@ POST /web/login      × 35 → 200×35 全部（限流完全没拦，登录逻�
   `novel-v1.db`）：这是**代数计数器**，不是版本号——只在破坏性 schema 变更（删表/删列/
   列改名/类型收窄/约束变更）时 +1；additive（新表/可空列/带默认列）不升代，走启动期
   `ADDITIVE_COLUMNS` 幂等补列（`db_lifecycle.py:253`，现仅 1 条 `volumes.plan_line`）。
-  ②**C端 版本 = git tag**（v0.24）：只进安装包名 `AI_Novel_Setup_v0.24.exe` / dmg 与
+  ②**C端 版本 = git tag**（v0.24）：只进安装包名 `AwesomeNovel_Setup_v<版本>.exe`（≤v0.27 为 `AI_Novel_Setup_*`）/ dmg 与
   打包期烘焙的 `release.json.client_version`（`client-package.yml:85-97`），运行时仅被
   更新检测消费（`update_check.py:50`）——**从不进库文件名**。③备份包契约 =
   `backup.FORMAT_VERSION`（现 4，`backup/format.py:11`）。
@@ -369,8 +369,8 @@ POST /web/login      × 35 → 200×35 全部（限流完全没拦，登录逻�
   ②「装完库真的是新的」的现实来源更可能是**数据目录随 exe 走**：Windows 便携式
   `install_dir/data`（`pywebview_app.get_install_dir` → frozen Windows = exe 同目录），
   macOS 例外（Application Support，跨版本稳定）；**换路径安装／卸载重装才会空库**，与版本
-  命名无关（安装器不删数据：`[Files]` 白名单复制、无 InstallDelete/UninstallDelete；
-  `[UninstallRun]` 清的 `%APPDATA%\AI Novel` 是运行时目录不是 data）。
+  命名无关（安装器不删数据：`[Files]` 白名单复制；`[InstallDelete]` 只清卸载器残件与 ≤v0.27 的旧 exe，不碰 data；
+  `[UninstallRun]` 清的 `%APPDATA%\AwesomeNovel`（旧名 AI Novel 一并清）是运行时目录不是 data）。
   ③本轮核出的真洞：additive 登记纪律**无强制校验**——models 加列但漏登记不会报错，而
   「补列后刷指纹戳」把该库永久判成 current，此后**再修也不救**（指纹匹配→不再算 additive
   计划），runtime 才炸 `no such column`。**本方案集中 ADDITIVE 链退役即消解**；若落地前仍有

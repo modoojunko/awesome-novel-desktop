@@ -1,5 +1,5 @@
 #!/bin/bash
-# AI Novel 端到端测试 — 从注册到生成提示词
+# Awesome Novel 端到端测试 — 从注册到生成提示词
 # 启动后端后运行: bash scripts/e2e-test.sh
 set -e
 

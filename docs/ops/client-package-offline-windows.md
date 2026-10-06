@@ -27,13 +27,16 @@ powershell -ExecutionPolicy Bypass -File build_release.ps1          # 版本取�
 脚本七步与 CI 逐条对齐：前端构建 → release.json 生成（S端 端点已内置生产缺省值，
 预置 `RELEASE_*` env 可覆盖）→ 依赖安装 → PyInstaller（APP_VERSION 注入 exe 版本资源）
 → 三件断言（release.json/LICENSE/THIRD-PARTY-NOTICES 必须真实烘进产物＋release_json_assert）
-→ 冒烟（`--smoke` 无头，轮询 `%APPDATA%\AI Novel\port.json` 探 health＋断言 SPA 在服务）
+→ 冒烟（`--smoke` 无头，轮询 `%APPDATA%\AwesomeNovel\port.json` 探 health＋断言 SPA 在服务）
 → Inno Setup 出包。
 
-**产物**：`client\packaging\dist\AI_Novel_Setup_<version>.exe`。
+**产物**：`client\packaging\dist\AwesomeNovel_Setup_<version>.exe`。
 SmartScreen 首次运行提示「未知发布者」属预期（CI 包同款不签名），点「仍要运行」。
 
 ## 出包后的发布末公里（在 Mac 上做即可，不需要 Windows）
+
+⚠️ **改过安装包文件名的版本（如 2026-10 品牌更名 AwesomeNovel）**：顺序固定——先跑 C端 发版（新名产物进 `download/v<VER>/`、`latest.json` 指到该版），**随后同一窗口**部署 S端 落地页（awesome-novel-server：安装包直链按新名拼接）。顺序不能反：落地页先切，`latest.json` 仍指向的上一版目录里找不到新名实物，用户点下载拿到的是托管兜底页（200 的 HTML）。
+
 
 GitHub Release ＋ CDN 的正式发布链在 `client-package.yml` 的 release job。离线包先冒烟安装
 验证，待 Actions 解封后 `gh run rerun 37130854581` 走官方链（双包＋Release＋latest.json 上

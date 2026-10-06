@@ -159,7 +159,8 @@ test.describe('v0.1 用户场景与反馈验证', () => {
     if (list.ok()) {
       const configs = await list.json();
       for (const c of (configs as Array<{ id: string }>) ?? []) {
-        await request.delete(`http://127.0.0.1:8000/api/v1/api-configs/${c.id}`, {
+        // 走 API_8000（env 可覆盖）：硬编码 8000 在隔离栈跑批时会打到共享栈
+        await request.delete(`${API_8000}/api/v1/api-configs/${c.id}`, {
           headers: { Authorization: 'Bearer dev' }
         });
       }

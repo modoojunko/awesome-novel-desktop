@@ -1,5 +1,5 @@
 @echo off
-REM AI Novel 证书安装脚本
+REM Awesome Novel 证书安装脚本
 REM 右键 → "以管理员身份运行"
 REM 安装后安装包被系统信任，不再弹 SmartScreen
 
@@ -10,7 +10,7 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo 正在安装 AI Novel 证书...
+echo 正在安装 Awesome Novel 证书...
 
 powershell -ExecutionPolicy Bypass -Command "& { $pwd = ConvertTo-SecureString 'ainovel123' -Force -AsPlainText; Import-PfxCertificate -FilePath '%~dp0cert.pfx' -CertStoreLocation Cert:\LocalMachine\Root -Password $pwd }" >nul 2>&1
 

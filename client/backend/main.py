@@ -1,5 +1,5 @@
 # backend/main.py
-"""AI Novel — C/S 架构本地服务"""
+"""Awesome Novel — C/S 架构本地服务"""
 
 import json
 import logging

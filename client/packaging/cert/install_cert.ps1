@@ -1,4 +1,4 @@
-# AI Novel 证书安装脚本 (PowerShell)
+# Awesome Novel 证书安装脚本 (PowerShell)
 # 右键 → "以 PowerShell 运行" → 输入 Y 确认管理员权限
 
 $pwd = ConvertTo-SecureString "ainovel123" -Force -AsPlainText

@@ -26,9 +26,9 @@ jobs:
         include:
           # macOS: macos-latest = Apple Silicon (arm64)——目标仅 arm64（用户已确认）
           - os: macos-latest
-            artifact: AI-Novel-Setup-mac
+            artifact: AwesomeNovel-Setup-mac
           - os: windows-latest
-            artifact: AI-Novel-Setup-win
+            artifact: AwesomeNovel-Setup-win
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -165,8 +165,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          EXE="client/packaging/build/dist/AI Novel/AI Novel.exe"
-          PORT_JSON="$APPDATA/AI Novel/port.json"
+          EXE="client/packaging/build/dist/AwesomeNovel/AwesomeNovel.exe"
+          PORT_JSON="$APPDATA/AwesomeNovel/port.json"
           "$EXE" --smoke >/tmp/ainovel-smoke.log 2>&1 &
           APP_PID=$!
           trap 'kill $APP_PID 2>/dev/null || true' EXIT
@@ -181,8 +181,8 @@ jobs:
           if [ -z "$PORT" ] || ! curl -sf "http://127.0.0.1:$PORT/api/health" >/dev/null; then
             echo "::error::SMOKE FAILED — backend not ready"
             echo "--- app log ---"; cat /tmp/ainovel-smoke.log || true
-            echo "--- startup.log ---"; cat "$APPDATA/AI Novel/startup.log" 2>/dev/null || true
-            echo "--- uvicorn.log ---"; cat "$APPDATA/AI Novel/uvicorn.log" 2>/dev/null || true
+            echo "--- startup.log ---"; cat "$APPDATA/AwesomeNovel/startup.log" 2>/dev/null || true
+            echo "--- uvicorn.log ---"; cat "$APPDATA/AwesomeNovel/uvicorn.log" 2>/dev/null || true
             exit 1
           fi
           curl -sf "http://127.0.0.1:$PORT/" | grep -q 'id="root"' || {
@@ -217,7 +217,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: client/packaging/dist/AI_Novel_Setup_*.exe
+          path: client/packaging/dist/AwesomeNovel_Setup_*.exe
 
       # ── macOS 专属：签名 + DMG ──
       # 用户拍板：用自签证书 awesome-novel-design 签名（非 ad-hoc），
@@ -244,15 +244,15 @@ jobs:
         run: |
           KEYCHAIN="build.keychain-db"
           security unlock-keychain -p "ci-build-tmp" "$KEYCHAIN"
-          codesign --force --deep --sign "awesome-novel-design" --keychain "$KEYCHAIN" "client/packaging/build/dist/AI Novel.app"
-          codesign -v --deep "client/packaging/build/dist/AI Novel.app"
+          codesign --force --deep --sign "awesome-novel-design" --keychain "$KEYCHAIN" "client/packaging/build/dist/AwesomeNovel.app"
+          codesign -v --deep "client/packaging/build/dist/AwesomeNovel.app"
 
       - name: Smoke test (.app — backend + SPA)
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          APP="client/packaging/build/dist/AI Novel.app/Contents/MacOS/AI Novel"
-          PORT_JSON="$HOME/Library/Application Support/AI Novel/port.json"
+          APP="client/packaging/build/dist/AwesomeNovel.app/Contents/MacOS/AwesomeNovel"
+          PORT_JSON="$HOME/Library/Application Support/AwesomeNovel/port.json"
           "$APP" --smoke >/tmp/ainovel-smoke.log 2>&1 &
           APP_PID=$!
           trap 'kill $APP_PID 2>/dev/null || true' EXIT
@@ -267,8 +267,8 @@ jobs:
           if [ -z "$PORT" ] || ! curl -sf "http://127.0.0.1:$PORT/api/health" >/dev/null; then
             echo "::error::SMOKE FAILED — backend not ready"
             echo "--- app log ---"; cat /tmp/ainovel-smoke.log || true
-            echo "--- startup.log ---"; cat "$HOME/Library/Application Support/AI Novel/startup.log" 2>/dev/null || true
-            echo "--- uvicorn.log ---"; cat "$HOME/Library/Application Support/AI Novel/uvicorn.log" 2>/dev/null || true
+            echo "--- startup.log ---"; cat "$HOME/Library/Application Support/AwesomeNovel/startup.log" 2>/dev/null || true
+            echo "--- uvicorn.log ---"; cat "$HOME/Library/Application Support/AwesomeNovel/uvicorn.log" 2>/dev/null || true
             exit 1
           fi
           curl -sf "http://127.0.0.1:$PORT/" | grep -q 'id="root"' || {
@@ -286,14 +286,14 @@ jobs:
           cd client/packaging/build
           STAGE=.dmg_stage
           rm -rf "$STAGE"; mkdir -p "$STAGE"
-          cp -R "dist/AI Novel.app" "$STAGE/"
+          cp -R "dist/AwesomeNovel.app" "$STAGE/"
           # EULA 与第三方声明随包：DMG 根与 .app 内 _internal/ 双份（relicense-proprietary）。
           # 源在仓库根——相对本目录 ../../.. 与 installer.iss 的 ..\..\..\ 同款（CWD 无此二文件，2026-10-01 彩排实锤）
           cp ../../../LICENSE ../../../THIRD-PARTY-NOTICES.txt "$STAGE/"
           ln -s /Applications "$STAGE/Applications"
           # 输出名带 v 前缀，与 exe（installer.iss 模板内置 v）统一——
           # 落地页版本化直链按此文件名拼接（src/constants/client-release.ts）
-          hdiutil create -volname "AI Novel" -srcfolder "$STAGE" -ov -format UDZO "dist/AI_Novel_mac_v$VERSION.dmg"
+          hdiutil create -volname "Awesome Novel" -srcfolder "$STAGE" -ov -format UDZO "dist/AwesomeNovel_mac_v$VERSION.dmg"
           rm -rf "$STAGE"
 
       - name: Upload macOS DMG
@@ -301,7 +301,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: client/packaging/build/dist/AI_Novel_mac_*.dmg
+          path: client/packaging/build/dist/AwesomeNovel_mac_*.dmg
 
   release:
     needs: build
@@ -340,8 +340,8 @@ jobs:
           RELEASE_DOWNLOAD_BASE: ${{ vars.CLIENT_DOWNLOAD_BASE || 'https://www.awesomenovel.com/download' }}
         run: |
           VER="${GITHUB_REF_NAME#v}"
-          EXE="$(find artifacts -name 'AI_Novel_Setup_*.exe' -print -quit)"
-          DMG="$(find artifacts -name 'AI_Novel_mac_*.dmg' -print -quit)"
+          EXE="$(find artifacts -name 'AwesomeNovel_Setup_*.exe' -print -quit)"
+          DMG="$(find artifacts -name 'AwesomeNovel_mac_*.dmg' -print -quit)"
           [ -n "$EXE" ] && [ -n "$DMG" ] || { echo "::error::artifacts 缺少安装包"; exit 1; }
           npm install -g @cloudbase/cli
           tcb login --cloudbase-api-key "$TCB_API_KEY" -e "$TCB_ENV_ID"
@@ -409,8 +409,8 @@ jobs:
                 <div class="notes">{body}</div>
                 <section class="dl">
                   <h2>下载本版本</h2>
-                  <a href="{base}/v{ver}/AI_Novel_Setup_v{ver}.exe">Windows 安装包<small>exe</small></a>
-                  <a href="{base}/v{ver}/AI_Novel_mac_v{ver}.dmg">macOS 安装包<small>dmg</small></a>
+                  <a href="{base}/v{ver}/AwesomeNovel_Setup_v{ver}.exe">Windows 安装包<small>exe</small></a>
+                  <a href="{base}/v{ver}/AwesomeNovel_mac_v{ver}.dmg">macOS 安装包<small>dmg</small></a>
                 </section>
                 <p class="home"><a href="https://www.awesomenovel.com/">回到官网首页</a></p>
               </main>
