@@ -10,7 +10,9 @@
 """
 
 import os
+import threading
 import time as _time
+import types
 
 import pytest
 from sqlalchemy import select
@@ -20,14 +22,23 @@ from workflow.engine import MAX_VERSIONS_PER_CHAPTER, save_chapter
 
 
 def _fake_clock(monkeypatch):
-    """每次调用 +1s：保证 version 毫秒时间戳唯一（同毫秒撞唯一键）。"""
+    """每次调用 +1s：保证 version 毫秒时间戳唯一（同毫秒撞唯一键）。
+
+    **只换 `chapters.store` 的时钟，不动全局 `time.time`**（2026-10-06 CI 实锤）：
+    全局替换会被同进程的其它线程偷走 tick——`prompt_pack` 的同步 daemon 线程
+    （sync.py `_set_state(updated_at=time.time())`）在长套件后段仍可能活动，CI 上
+    版本号因此漂到 +61s/+62s（本用例两连红、本地恒绿——本地该线程已停）。锚到唯一
+    消费点（store 的快照时间戳）后，断言值与进程里别的时间消费者彻底解耦。
+    """
     tick = [1_700_000_000.0]
 
     def _now():
         tick[0] += 1.0
         return tick[0]
 
-    monkeypatch.setattr(_time, "time", _now)
+    from chapters import store as _store
+
+    monkeypatch.setattr(_store, "time", types.SimpleNamespace(time=_now))
     return tick
 
 
@@ -97,6 +108,35 @@ class TestVersionSnapshotCap:
         # 最旧的 10 份（第 0-9 次变更）被清掉，最新一份在场
         assert versions[0] != 1_700_000_001_000  # 第一次变更的时间戳已被删
         assert versions[-1] == 1_700_000_060_000  # 第 60 次变更（tick 起始 +60s）
+
+    @pytest.mark.asyncio
+    async def test_cap_immune_to_other_time_consumers(self, tmp_path, monkeypatch):
+        """回归钉子（2026-10-06 CI 两连红）：别的线程消费全局 time.time() 不得影响版本号。
+
+        旧写法（monkeypatch 全局 time.time）下，同进程任何别的时间消费者都会偷走
+        tick——实锤者＝prompt_pack 同步 daemon 线程的 `_set_state(updated_at=...)`，
+        致 CI 端版本号漂到 +61s/+62s 而本地恒绿。本用例开着「小偷线程」跑同一路径：
+        旧写法必红、锚到 chapters.store 后必绿。
+        """
+        _fake_clock(monkeypatch)
+        stop = threading.Event()
+
+        def _thief():
+            while not stop.is_set():
+                _time.time()  # 模拟同步线程的 updated_at 时间戳
+                _time.sleep(0.001)
+
+        t = threading.Thread(target=_thief, daemon=True)
+        t.start()
+        try:
+            root = str(tmp_path)
+            await _save_n(root, 60)
+            versions = await _versions(root)
+            assert versions[-1] == 1_700_000_060_000, (
+                "版本号被同进程别的时间消费者带偏——假时钟必须只锚 chapters.store")
+        finally:
+            stop.set()
+            t.join(timeout=1)
 
     @pytest.mark.asyncio
     async def test_under_cap_keeps_all(self, tmp_path, monkeypatch):

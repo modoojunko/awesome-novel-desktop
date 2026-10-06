@@ -10,7 +10,10 @@ CI 的冒烟断言已脚本化（`scripts/release_json_assert.py`），本测试
 
 from __future__ import annotations
 
+import ast
+import base64
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -20,10 +23,12 @@ import pytest
 from backup.format import FORMAT_VERSION
 from schema_version import db_filename_for
 from scripts.release_components import build_components
-from scripts.release_json_assert import check_release_json
+from scripts.release_json_assert import check_release_json, validate_pack_pubkeys
 
 BACKEND = Path(__file__).resolve().parent.parent
 SCRIPT = BACKEND / "scripts" / "release_json_assert.py"
+# 合成 32 字节 Ed25519 形态公钥（测试专用，非生产钥——只为形态校验通过）
+_TEST_PUB_B64 = base64.b64encode(b"\x02" * 32).decode()
 
 
 def _write_release_json(tmp_path: Path, version: str = "0.25", **overrides) -> Path:
@@ -38,6 +43,8 @@ def _write_release_json(tmp_path: Path, version: str = "0.25", **overrides) -> P
         "client_update_url": "https://www.awesomenovel.com/download/latest.json",
         "client_update_url_fallback": (
             "https://ai-novel-test.example/download/latest.json"),
+        # c-prompt-pack-delivery：验签公钥（缺烘＝打包端无钥可验）——负例测试各自删改
+        "pack_pubkeys": json.dumps({"test-kid": _TEST_PUB_B64}),
         "components": build_components(version),
     }
     cfg.update(overrides)
@@ -139,6 +146,7 @@ def test_generate_bakes_public_endpoint_family(tmp_path, monkeypatch):
     monkeypatch.setenv("RELEASE_PORTAL_URL", "https://www.awesomenovel.com")
     monkeypatch.setenv("RELEASE_DOWNLOAD_BASE", "https://www.awesomenovel.com/download")
     monkeypatch.setenv("RELEASE_DOWNLOAD_FALLBACK_BASE", "https://fallback.example/download")
+    monkeypatch.setenv("RELEASE_PACK_PUBKEYS", json.dumps({"test-kid": _TEST_PUB_B64}))
     proc = _run_generate("0.25.1", tmp_path)
     assert proc.returncode == 0, proc.stderr
     cfg = json.loads((tmp_path / "release.json").read_text(encoding="utf-8"))
@@ -155,9 +163,52 @@ def test_generate_missing_public_env_rejected(tmp_path, monkeypatch):
     monkeypatch.setenv("RELEASE_PORTAL_URL", "https://www.awesomenovel.com")
     monkeypatch.setenv("RELEASE_DOWNLOAD_BASE", "https://www.awesomenovel.com/download")
     monkeypatch.setenv("RELEASE_DOWNLOAD_FALLBACK_BASE", "https://fallback.example/download")
+    # 公钥 env 给足——本负例必须只因 RELEASE_PUBLIC_SERVER_API 缺失而红（可归因）
+    monkeypatch.setenv("RELEASE_PACK_PUBKEYS", json.dumps({"test-kid": _TEST_PUB_B64}))
     proc = _run_generate("0.25.1", tmp_path)
     assert proc.returncode != 0, "缺 RELEASE_PUBLIC_SERVER_API 必须失败"
     assert "RELEASE_PUBLIC_SERVER_API" in proc.stderr
+
+
+def _set_all_release_env(monkeypatch) -> None:
+    """除被测键外的 release env 全给足——负例失败必须可归因到被测键。"""
+    monkeypatch.setenv("RELEASE_SERVER_API_BASE", "https://novel-s-server.example/api")
+    monkeypatch.setenv("RELEASE_SERVER_API_FALLBACK", "https://novel-s-server.example/api")
+    monkeypatch.setenv("RELEASE_PUBLIC_SERVER_API", "https://www.awesomenovel.com/api")
+    monkeypatch.setenv("RELEASE_PORTAL_URL", "https://www.awesomenovel.com")
+    monkeypatch.setenv("RELEASE_DOWNLOAD_BASE", "https://www.awesomenovel.com/download")
+    monkeypatch.setenv("RELEASE_DOWNLOAD_FALLBACK_BASE", "https://fallback.example/download")
+    monkeypatch.setenv("RELEASE_PACK_PUBKEYS", json.dumps({"test-kid": _TEST_PUB_B64}))
+
+
+def test_generate_bakes_pack_pubkeys(tmp_path, monkeypatch):
+    """正例（c-prompt-pack-delivery）：generate() 逐字烘入 env 里的验签公钥。"""
+    _set_all_release_env(monkeypatch)
+    keys = json.dumps({"pack-k1": _TEST_PUB_B64, "pack-k2": _TEST_PUB_B64})
+    monkeypatch.setenv("RELEASE_PACK_PUBKEYS", keys)
+    proc = _run_generate("0.25.1", tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    cfg = json.loads((tmp_path / "release.json").read_text(encoding="utf-8"))
+    assert json.loads(cfg["pack_pubkeys"]) == json.loads(keys)
+
+
+def test_generate_missing_pack_pubkeys_env_rejected(tmp_path, monkeypatch):
+    """负例：RELEASE_PACK_PUBKEYS 缺失 → 生成即红且点名该 env——
+    防「workflow 漏注入 → 产物无钥 → 上线后 AI 恒未就绪」的静默断链。"""
+    _set_all_release_env(monkeypatch)
+    monkeypatch.delenv("RELEASE_PACK_PUBKEYS", raising=False)
+    proc = _run_generate("0.25.1", tmp_path)
+    assert proc.returncode != 0, "缺 RELEASE_PACK_PUBKEYS 必须失败"
+    assert "RELEASE_PACK_PUBKEYS" in proc.stderr
+
+
+def test_generate_bad_pack_pubkeys_rejected(tmp_path, monkeypatch):
+    """负例：env 里公钥形态非法（非 JSON）→ 生成期即拦，不产出坏产物。"""
+    _set_all_release_env(monkeypatch)
+    monkeypatch.setenv("RELEASE_PACK_PUBKEYS", "not-json")
+    proc = _run_generate("0.25.1", tmp_path)
+    assert proc.returncode != 0
+    assert "pack_pubkeys" in proc.stderr
 
 
 def test_ci_generate_step_sets_public_endpoint_env():
@@ -179,8 +230,6 @@ def test_ci_components_step_cwd_resolves():
     `cwd="client/backend"` → 解析成 `client/packaging/build/client/backend`（不存在）
     → 每个 tag/PR 构建都在 release.json 生成步 FileNotFoundError。
     """
-    import re
-
     wf = (BACKEND.parent.parent / ".github" / "workflows" / "client-package.yml").read_text(
         encoding="utf-8")
     step_start = wf.index("- name: Generate release.json")
@@ -231,3 +280,84 @@ def test_build_info_absent_tolerated(tmp_path):
     """tag 构建/旧产物不烘构建信息键 → 容忍通过。"""
     path = _write_release_json(tmp_path)  # version 0.25，无 build 键
     assert _run(path).returncode == 0
+
+
+# ── c-prompt-pack-delivery：验签公钥必选键 ──────────────────────────────────
+
+
+def test_pack_pubkeys_missing_rejected(tmp_path):
+    """负例：产物缺 pack_pubkeys → 冒烟必红——缺烘＝打包端无钥可验（AI 永久未就绪）。"""
+    path = _write_release_json(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["pack_pubkeys"]
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    proc = _run(path)
+    assert proc.returncode != 0, "缺 pack_pubkeys 必须失败（否则打包端无法校验提示词包）"
+    assert "pack_pubkeys" in proc.stderr
+
+
+@pytest.mark.parametrize("bad_value,marker", [
+    ("", "pack_pubkeys 为空"),                                    # 空串（未烘入）
+    ("not-json", "非合法 JSON"),                                   # 非 JSON
+    ('[{"kid": "x"}]', "非空"),                                    # JSON 但不是映射
+    ("{}", "非空"),                                                # 空映射
+    ('{"k": "@@@@"}', "非法 base64"),                              # 坏 base64
+    ('{"k": "QUJD"}', "32 字节"),                                  # 合法 b64 但仅 3 字节
+])
+def test_pack_pubkeys_malformed_rejected(tmp_path, bad_value, marker):
+    """负例族：形态非法一律转红（生成侧与产物侧共用同一校验实现）。"""
+    path = _write_release_json(tmp_path, pack_pubkeys=bad_value)
+    proc = _run(path)
+    assert proc.returncode != 0, f"非法形态必须失败：{bad_value!r}"
+    assert marker in proc.stderr, (marker, proc.stderr)
+
+
+@pytest.mark.parametrize("raw", [
+    "", None, "  ", "not-json", "{}", '{"k": "QUJD"}', '{"k": 3}',
+])
+def test_validate_pack_pubkeys_rejects(raw):
+    """单源校验器直测（负例）：生成侧与产物侧共用它，故它自身必须硬。"""
+    with pytest.raises(AssertionError):
+        validate_pack_pubkeys(raw)
+
+
+def test_validate_pack_pubkeys_accepts_and_normalizes():
+    """单源校验器直测（正例）：通过时返回去空白原串（生成侧直接写产物）。"""
+    raw = f'  {{"pack-k1": "{_TEST_PUB_B64}"}}  '
+    assert validate_pack_pubkeys(raw) == raw.strip()
+
+
+def test_ci_generate_step_sets_pack_pubkeys_env():
+    """静态守卫（c-prompt-pack-delivery）：workflow 生成步骤必须注入 RELEASE_PACK_PUBKEYS——
+    同「白名单有键、烘焙缺行」判例：漏注入＝产物无钥＝打包端 AI 永久未就绪。"""
+    wf = (BACKEND.parent.parent / ".github" / "workflows" / "client-package.yml").read_text(
+        encoding="utf-8")
+    step_start = wf.index("- name: Generate release.json")
+    step = wf[step_start: wf.index("\n      - name:", step_start)]
+    assert "RELEASE_PACK_PUBKEYS:" in step, "生成步骤缺 RELEASE_PACK_PUBKEYS 注入"
+
+
+def test_pack_pubkeys_defaults_consistent_across_entrypoints():
+    """跨入口漂移守卫：pywebview 生产常量 / workflow 内联默认 / ps1 默认必须逐字一致。
+
+    三处对应三条打包路径（CI 两平台走 workflow、Windows 本地走 ps1、无 release.json
+    的直打走 pywebview 回落）。任何一处漂移＝该路径烘出「验不了包的公钥」——事后
+    现场只表现为「AI 恒未就绪」，没有别的线索，故在此钉死。
+    """
+    root = BACKEND.parent.parent
+    pyw = (root / "client" / "packaging" / "build" / "pywebview_app.py").read_text(encoding="utf-8")
+    wf = (root / ".github" / "workflows" / "client-package.yml").read_text(encoding="utf-8")
+    ps1 = (root / "client" / "packaging" / "build" / "build_release.ps1").read_text(encoding="utf-8")
+
+    const = re.search(r"^PROD_PACK_PUBKEYS = (.+)$", pyw, re.MULTILINE)
+    assert const, "pywebview_app.py 缺 PROD_PACK_PUBKEYS 常量"
+    pyw_value = ast.literal_eval(const.group(1))
+    wf_m = re.search(r"RELEASE_PACK_PUBKEYS: \$\{\{ vars\.CLIENT_PACK_PUBKEYS \|\| '([^']+)' \}\}", wf)
+    assert wf_m, "workflow 缺 RELEASE_PACK_PUBKEYS 兜底默认（形态变了须同批更新本守卫）"
+    ps1_m = re.search(r"RELEASE_PACK_PUBKEYS\)\s*\{ \$env:RELEASE_PACK_PUBKEYS = '([^']+)' \}", ps1)
+    assert ps1_m, "build_release.ps1 缺 RELEASE_PACK_PUBKEYS 默认（形态变了须同批更新本守卫）"
+
+    assert pyw_value == wf_m.group(1) == ps1_m.group(1), (
+        "三入口公钥默认漂移", pyw_value, wf_m.group(1), ps1_m.group(1))
+    # 默认值本身必须是合法公钥形态（防「三处一致地写错」）
+    validate_pack_pubkeys(pyw_value)
