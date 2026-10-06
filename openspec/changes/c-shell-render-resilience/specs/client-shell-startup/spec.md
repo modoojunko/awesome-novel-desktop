@@ -47,16 +47,17 @@ Windows 侧该目录只是运行数据（日志/端口），SHALL 直接使用�
 壳 SHALL 读取可选的 `<appdata>/shell.json`，支持键：`webview_args`（追加给 WebView2 的浏览器
 参数）、`backend_timeout`、`app_load_timeout`（秒，收敛到 5..600）、`safe_mode`（bool，显式
 开关安全模式）。文件缺失或键缺省时行为 SHALL 与默认完全一致；非法 JSON、非对象、类型不符或
-越界值 SHALL 回落默认并留日志，MUST NOT 阻断启动。超时取用优先级 SHALL 为
-shell.json > 环境变量（`AI_NOVEL_BACKEND_TIMEOUT` / `AI_NOVEL_APP_LOAD_TIMEOUT`）> 默认 60 秒。
+越界值 SHALL 回落默认（越界值夹取到边界）**并留日志**（含原值，现场可对照自己写了什么），
+MUST NOT 阻断启动。超时取用优先级 SHALL 为 shell.json > 环境变量（`AI_NOVEL_BACKEND_TIMEOUT` /
+`AI_NOVEL_APP_LOAD_TIMEOUT`）> 默认 60 秒。
 
 #### Scenario: 现场不改包放宽等待
 - **WHEN** 测试同学在 shell.json 写 `{"backend_timeout": 120, "app_load_timeout": 90}`
 - **THEN** 后端就绪等待与装载看门狗分别按 120/90 秒执行，startup.log 可读出生效值
 
 #### Scenario: 坏配置文件不影响启动
-- **WHEN** shell.json 内容不是合法 JSON
-- **THEN** 启动按默认参数继续，startup.log 增一行读取失败说明
+- **WHEN** shell.json 内容不是合法 JSON，或写了 `"backend_timeout": "abc"` / `99999` 这类不可用值
+- **THEN** 启动按默认参数（越界值夹到边界）继续，startup.log 逐键留下回落说明与原值
 
 ### Requirement: 装载挂死自愈（标记 → 安全模式 → 自愈重启）
 
@@ -66,9 +67,12 @@ shell.json 的 `safe_mode` 显式值优先，否则标记存在即安全模式�
 覆盖既有值；必须在窗口创建之前生效）。标记一旦置位 SHALL 保持（同机同 WebView2 运行时上默认
 渲染路径已被证明会挂），出口为删除标记文件或 shell.json 写 `"safe_mode": false`。
 
-装载挂死且判定允许时 SHALL 自愈重启：仅限 Windows 安装版（冻结）且**本次不是安全模式**——
-壳 SHALL 拉起新实例并让位退出（新实例读标记进安全模式）；安全模式再挂 MUST NOT 继续重启
-（只剩浏览器兜底＋错误页），MUST NOT 出现无限重启链。
+装载挂死且判定允许时 SHALL 自愈重启：仅限 Windows 安装版（冻结）、本次非安全模式、且**本进程
+不是重启代**——壳 SHALL 拉起新实例并让位退出。重启守卫 MUST NOT 依赖「下一代必然进入安全模式」
+这一前提（标记可能写失败，用户也可能显式关闭安全模式）：父进程 SHALL 向子进程注入重启深度
+标记（环境变量），子进程再挂时 MUST NOT 继续重启；`shell.json` 显式 `safe_mode: false` 时
+SHALL NOT 自愈重启。任何路径都 MUST NOT 出现无限重启链，兜底为浏览器打开＋错误页，且跳过
+重启的原因 SHALL 落日志。
 
 #### Scenario: 首次挂死自动带着安全模式回来
 - **WHEN** Windows 安装版一次启动装载挂死（本次非安全模式）
@@ -77,6 +81,10 @@ shell.json 的 `safe_mode` 显式值优先，否则标记存在即安全模式�
 #### Scenario: 安全模式再挂不再重启
 - **WHEN** 已处于安全模式的一次启动再次装载挂死
 - **THEN** 不再拉起新实例，走浏览器兜底＋错误页，startup.log 保留完整判据
+
+#### Scenario: 标记写失败也不会成重启环
+- **WHEN** 装载挂死且 render-hang.flag 写盘失败（磁盘/权限/杀软），父进程已拉起新实例
+- **THEN** 新实例（重启代）再次挂死时不拉起任何实例，走浏览器兜底＋错误页，startup.log 写明 `auto relaunch 跳过`
 
 #### Scenario: 非 Windows / dev 模式保持现状
 - **WHEN** macOS 或未冻结的 dev 模式发生装载挂死

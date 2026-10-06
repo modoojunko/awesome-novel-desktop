@@ -33,13 +33,24 @@
 - [x] 3.3 uvicorn 级别 WARNING→INFO＋开 access；uvicorn.log 轮转 2MB×3＋utf-8
 - [ ] 3.4 真机复验：换包后回收 startup.log＋uvicorn.log＋pywebview.log，按 0.1 结论定安全模式参数
 
-## 4. 验收与收尾
+## 4. 评审整改（review-agent，2026-10-06）
 
-- [x] 4.1 门禁：`ruff check --extend-select F811,F821,F841` 改动文件零新增；
+- [x] 4.1 **P1 重启环**：守卫不再依赖「下一代会进安全模式」——父进程给孩子注入
+      `AI_NOVEL_SHELL_RELAUNCHED=1`，重启代一律不再重启；`shell.json` 显式 `safe_mode:false`
+      时不重启；被跳过的原因落日志。三条成环路径（标记正常/标记写失败/显式 opt-out）脚本实证：
+      父代重启、子代不再重启
+- [x] 4.2 **P3 静默回落**：shell.json 每个键被拒绝/夹取都留日志（含原值与生效值）——
+      与新立 spec 的「类型不符/越界 SHALL 回落默认并留日志」对齐
+- [x] 4.3 测试：守卫六态（含重启代/opt-out）、孩子进程深度标记、回落留痕 4 键、重启代集成与
+      opt-out 集成；28 → **31 例全绿**
+
+## 5. 验收与收尾
+
+- [x] 5.1 门禁：`ruff check --extend-select F811,F821,F841` 改动文件零新增；
       `ruff check --select F821 client/packaging/build/pywebview_app.py`（打包 CI 同款）绿
-- [x] 4.2 全量 `client/backend` pytest：**1892 passed / 0 failed**（66s；与 main 基线零新增红）
-- [x] 4.3 macOS 真机非 GUI 自证：真实 pywebview 6.2.1 下 `pywebview.log` 落盘（含 `Loading URL` /
+- [x] 5.2 全量 `client/backend` pytest：**1895 passed / 0 failed**（80s；与 main 基线零新增红）
+- [x] 5.3 macOS 真机非 GUI 自证：真实 pywebview 6.2.1 下 `pywebview.log` 落盘（含 `Loading URL` /
       `loaded event fired` 两判据）、安全模式两态（无标记＝无参数 / 有标记＝`--disable-gpu`）、
       追加注入语义、shell.json 生效＋参数合成、`webview2_version()` 非 Windows 回落 unknown
-- [x] 4.4 `openspec validate c-shell-render-resilience --specs` 通过（`--strict` 亦通过）
-- [ ] 4.5 提交＋PR（标题不带硬编码 PR 号）；打包随下一版本窗口（测试同学要新包才谈得上复验 3.4）
+- [x] 5.4 `openspec validate c-shell-render-resilience --specs`（`--strict`）复验通过
+- [ ] 5.5 提交＋推送更新 PR（标题不带硬编码 PR 号）；打包随下一版本窗口（测试同学要新包才谈得上复验 3.4）

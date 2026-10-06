@@ -29,6 +29,7 @@ LEGACY_APP_DIR_NAME = "AI Novel"
 # 运行时可调参数与「装载挂死自愈」（shell-render-resilience）
 SHELL_CONFIG_NAME = "shell.json"          # <appdata>/shell.json，可选的人工调参文件
 RENDER_HANG_MARKER = "render-hang.flag"   # 存在＝上次装载挂死过 → 从此固定走安全模式
+RELAUNCH_ENV_KEY = "AI_NOVEL_SHELL_RELAUNCHED"  # 父进程注入给孩子：本进程＝重启代（最多重启一轮）
 SAFE_MODE_ARGS = "--disable-gpu"          # 安全模式追加的 WebView2 参数（VM/无 GPU 渲染挂死常见解）
 DEFAULT_BACKEND_TIMEOUT = 60              # 后端就绪等待（秒）
 DEFAULT_APP_LOAD_TIMEOUT = 60             # 应用页装载看门狗（秒）
@@ -187,14 +188,28 @@ def load_shell_config(appdata: Path) -> dict:
     if not isinstance(raw, dict):
         log_line(appdata, f"shell.json 不是对象（{type(raw).__name__}），忽略")
         return cfg
-    if isinstance(raw.get("webview_args"), str) and raw["webview_args"].strip():
-        cfg["webview_args"] = raw["webview_args"].strip()
-    if "backend_timeout" in raw:
-        cfg["backend_timeout"] = _clamp_timeout(raw["backend_timeout"], DEFAULT_BACKEND_TIMEOUT)
-    if "app_load_timeout" in raw:
-        cfg["app_load_timeout"] = _clamp_timeout(raw["app_load_timeout"], DEFAULT_APP_LOAD_TIMEOUT)
-    if isinstance(raw.get("safe_mode"), bool):
-        cfg["safe_mode"] = raw["safe_mode"]
+    if "webview_args" in raw:
+        if isinstance(raw["webview_args"], str) and raw["webview_args"].strip():
+            cfg["webview_args"] = raw["webview_args"].strip()
+        else:
+            log_line(appdata,
+                     f"shell.json: webview_args={raw['webview_args']!r} 非法（需非空字符串），忽略")
+    for key, default in (
+        ("backend_timeout", DEFAULT_BACKEND_TIMEOUT),
+        ("app_load_timeout", DEFAULT_APP_LOAD_TIMEOUT),
+    ):
+        if key in raw:
+            cfg[key] = _clamp_timeout(raw[key], default)
+            if cfg[key] != raw[key]:
+                # 非数值回落默认 / 越界夹取都必须留痕：现场调参最怕"写了却没生效"
+                log_line(appdata,
+                         f"shell.json: {key}={raw[key]!r} 不可用或越界（5..600），按 {cfg[key]} 秒生效")
+    if "safe_mode" in raw:
+        if isinstance(raw["safe_mode"], bool):
+            cfg["safe_mode"] = raw["safe_mode"]
+        else:
+            log_line(appdata,
+                     f"shell.json: safe_mode={raw['safe_mode']!r} 非布尔，忽略（按标记自动判定）")
     return cfg
 
 
@@ -306,12 +321,31 @@ def attach_pywebview_log(appdata: Path) -> None:
         log_line(appdata, "挂 pywebview 文件日志失败：\n" + traceback.format_exc())
 
 
-def should_auto_relaunch(safe_mode: bool, frozen: bool, platform: str) -> bool:
-    """装载挂死后的自愈重启：仅 Windows 安装版、且本次不是安全模式（防无限重启）。
+def relaunch_depth_exceeded() -> bool:
+    """本进程是被自愈重启拉起来的一代（父进程注入的环境变量）。"""
+    return os.environ.get(RELAUNCH_ENV_KEY) == "1"
 
-    重启后新实例读 render-hang.flag 进安全模式；安全模式若再挂就只剩错误页——
-    这链条最多转一轮。"""
-    return platform == "win32" and frozen and not safe_mode
+
+def should_auto_relaunch(
+    *,
+    safe_mode: bool,
+    frozen: bool,
+    platform: str,
+    already_relaunched: bool,
+    safe_mode_opted_out: bool,
+) -> bool:
+    """装载挂死后的自愈重启判定（任何情况下最多一轮）。
+
+    守卫 MUST NOT 依赖「下一代会进安全模式」这个前提——标记可能没写成功
+    （磁盘/权限/杀软），用户也可能显式关了安全模式；只认重启深度（本进程已是
+    重启代就不再重启）＋用户显式 opt-out。非 Windows／dev 模式照旧不重启。"""
+    return (
+        platform == "win32"
+        and frozen
+        and not safe_mode
+        and not already_relaunched
+        and not safe_mode_opted_out
+    )
 
 
 def relaunch_in_safe_mode(appdata: Path) -> bool:
@@ -321,7 +355,9 @@ def relaunch_in_safe_mode(appdata: Path) -> bool:
 
         # 孩子进程拿**叠加前**的环境：新实例自己会按 shell.json＋标记重算参数，
         # 直接继承父进程的叠加值会重复（也避免把用户原值盖成父进程的合成值）。
+        # 另注入重启深度标记：孩子即使再挂也只走兜底，不会无限重启。
         env = dict(os.environ)
+        env[RELAUNCH_ENV_KEY] = "1"
         if _webview_args_original is None:
             env.pop("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", None)
         else:
@@ -673,12 +709,22 @@ def check_backend_and_navigate(window, appdata):
             return
         log_line(appdata, f"app page NOT loaded in {load_timeout}s — UI/renderer hang suspected")
         flag_render_hang(appdata, f"app page NOT loaded in {load_timeout}s")
-        # 自愈重启：本次不是安全模式才重启（新实例读标记进安全模式），避免死循环
-        if should_auto_relaunch(
-            safe_mode, bool(getattr(sys, "frozen", False)), sys.platform
-        ) and relaunch_in_safe_mode(appdata):
+        # 自愈重启（任何情况下最多一轮）：守卫只认重启深度与用户显式 opt-out，
+        # 不依赖「下一代会进安全模式」——标记写失败时那个前提不成立，会成重启环。
+        frozen = bool(getattr(sys, "frozen", False))
+        allowed = should_auto_relaunch(
+            safe_mode=safe_mode,
+            frozen=frozen,
+            platform=sys.platform,
+            already_relaunched=relaunch_depth_exceeded(),
+            safe_mode_opted_out=("safe_mode" in cfg and not bool(cfg["safe_mode"])),
+        )
+        if allowed and relaunch_in_safe_mode(appdata):
             _exit_soon()
             return
+        if not allowed and sys.platform == "win32" and frozen:
+            log_line(appdata,
+                     "auto relaunch 跳过：本进程已是重启代，或用户显式关闭了安全模式（最多一轮）")
         _open_in_browser_fallback(appdata, port)
         _show_error(window, appdata,
                     "界面加载超时（桌面窗口可能未响应），已尝试用浏览器打开。请把日志发给开发者：")

@@ -31,9 +31,11 @@ browserExecutableFolder / userDataFolder）——所以壳层可以注入浏览�
   非法值回落默认并留一行日志——配置文件永远不能把启动打崩。
 - **装载挂死自愈（两段）**：
   - 装载看门狗超时 → 落 `render-hang.flag`（持久标记）；
-  - **Windows 安装版且本次不是安全模式** → 自动拉起新实例并让位退出（新实例读标记进
-    安全模式：追加 `--disable-gpu`）；安全模式再挂就只剩浏览器兜底＋错误页——链条最多
-    转一轮，防死循环；非 Windows／dev 模式保持现状（浏览器兜底＋错误页）。
+  - **Windows 安装版、本次非安全模式、且本进程不是重启代** → 自动拉起新实例并让位退出
+    （新实例读标记进安全模式：追加 `--disable-gpu`）；重启守卫**不依赖"下一代会进安全模式"**
+    ——父进程向子进程注入重启深度标记（环境变量），子进程再挂就不再重启；`shell.json` 显式
+    `"safe_mode": false` 时不重启。任何路径都不会出现无限重启链，兜底为浏览器兜底＋错误页；
+    非 Windows／dev 模式保持现状。
   - 出口：删 `render-hang.flag` 或 `shell.json` 写 `"safe_mode": false`（日志与错误页都写明）。
 - **证据补齐（让下一轮能定罪）**：startup.log 增记 `safe_mode`／生效参数／WebView2 Runtime
   版本；pywebview 自己的调试日志（Loading URL / loaded event fired）旁路到 `pywebview.log`
@@ -64,6 +66,6 @@ browserExecutableFolder / userDataFolder）——所以壳层可以注入浏览�
 - `client/packaging/build/pywebview_app.py`：新增 shell.json 读取、安全模式与自愈重启、
   WebView2 版本读取、pywebview 日志旁路、uvicorn 日志级别与轮转；`check_backend_and_navigate`
   改吃会话配置。
-- `client/backend/tests/test_packaging_shell_startup.py`：13 例 → 27 例（新增 14 例：可调参数 6、
-  安全模式与自愈 6、杂项 2）。
+- `client/backend/tests/test_packaging_shell_startup.py`：13 例 → 31 例（可调参数 7、安全模式与
+  自愈 9、重启守卫与环断 3、杂项 2）。
 - 无前端改动、无接口契约改动、打包流水线（client-package.yml）不变。

@@ -385,6 +385,27 @@ def test_shell_config_clamps_and_rejects_bad_types(shell, tmp_path):
     assert "safe_mode" not in cfg, "非布尔 safe_mode 必须忽略（回落标记自动判定）"
 
 
+def test_shell_config_logs_rejected_and_clamped_values(shell, tmp_path):
+    """回落必须留痕：现场调参最怕"写了却没生效"（spec：类型不符/越界 SHALL 回落并留日志）。"""
+    (tmp_path / shell.SHELL_CONFIG_NAME).write_text(
+        json.dumps({
+            "backend_timeout": "abc",
+            "app_load_timeout": 99999,
+            "webview_args": [1],
+            "safe_mode": "yes",
+        }),
+        encoding="utf-8",
+    )
+
+    cfg = shell.load_shell_config(tmp_path)
+    text = _log_text(tmp_path)
+
+    assert cfg["backend_timeout"] == 60 and cfg["app_load_timeout"] == 600
+    for key in ("backend_timeout", "app_load_timeout", "webview_args", "safe_mode"):
+        assert key in text, f"{key} 回落必须留日志"
+    assert "99999" in text, "越界原值要原样可见，便于现场对照自己写了什么"
+
+
 def test_config_timeouts_flow_into_wait_and_watchdog(shell, tmp_path, monkeypatch):
     (tmp_path / shell.SHELL_CONFIG_NAME).write_text(
         json.dumps({"backend_timeout": 120, "app_load_timeout": 7}), encoding="utf-8"
@@ -441,10 +462,24 @@ def test_safe_mode_follows_flag_and_config(shell, tmp_path):
 
 
 def test_should_auto_relaunch_guards(shell):
-    assert shell.should_auto_relaunch(False, True, "win32") is True
-    assert shell.should_auto_relaunch(True, True, "win32") is False, "已在安全模式＝防死循环不重启"
-    assert shell.should_auto_relaunch(False, False, "win32") is False, "dev（非冻结）不重启"
-    assert shell.should_auto_relaunch(False, True, "darwin") is False
+    base = {
+        "safe_mode": False,
+        "frozen": True,
+        "platform": "win32",
+        "already_relaunched": False,
+        "safe_mode_opted_out": False,
+    }
+
+    assert shell.should_auto_relaunch(**base) is True
+    assert shell.should_auto_relaunch(**{**base, "safe_mode": True}) is False, "已在安全模式不重启"
+    assert shell.should_auto_relaunch(**{**base, "frozen": False}) is False, "dev（非冻结）不重启"
+    assert shell.should_auto_relaunch(**{**base, "platform": "darwin"}) is False
+    assert shell.should_auto_relaunch(**{**base, "already_relaunched": True}) is False, (
+        "本进程已是重启代＝不许再重启（不看标记是否写成功，从根上断掉重启环）"
+    )
+    assert shell.should_auto_relaunch(**{**base, "safe_mode_opted_out": True}) is False, (
+        "用户 shell.json 显式关安全模式＝不自愈重启"
+    )
 
 
 def test_webview2_version_never_raises(shell, monkeypatch):
@@ -495,6 +530,42 @@ def test_watchdog_hang_flags_marker_and_relaunches_when_allowed(shell, tmp_path,
     assert all(not u.endswith("error.html") for u in window.urls)
 
 
+def test_watchdog_hang_never_relaunches_twice(shell, tmp_path, monkeypatch):
+    """重启代再挂：只走兜底——标记写失败/被忽略也不会成重启环。"""
+    monkeypatch.setattr(shell, "wait_for_server", lambda appdata, timeout=60: 18130)
+    monkeypatch.setattr(shell, "_app_load_timeout", lambda: 1)
+    monkeypatch.setattr(shell, "relaunch_depth_exceeded", lambda: True)
+    monkeypatch.setattr(shell, "sys", types.SimpleNamespace(platform="win32", frozen=True))
+    spawned: list = []
+    monkeypatch.setattr(shell, "relaunch_in_safe_mode", lambda ad: spawned.append(ad) or True)
+    opened: list = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+
+    shell.check_backend_and_navigate(_FakeWindow(loaded=False), tmp_path)
+
+    assert spawned == [], "本进程已是重启代：不许再拉起新实例"
+    assert opened == ["http://127.0.0.1:18130"], "必须走浏览器兜底"
+    assert "auto relaunch 跳过" in _log_text(tmp_path)
+
+
+def test_watchdog_hang_no_relaunch_when_safe_mode_opted_out(shell, tmp_path, monkeypatch):
+    """shell.json 显式 safe_mode:false：连冻结版也不自愈重启（用户已明确不要安全模式）。"""
+    (tmp_path / shell.SHELL_CONFIG_NAME).write_text(
+        json.dumps({"safe_mode": False}), encoding="utf-8"
+    )
+    monkeypatch.setattr(shell, "wait_for_server", lambda appdata, timeout=60: 18131)
+    monkeypatch.setattr(shell, "_app_load_timeout", lambda: 1)
+    monkeypatch.setattr(shell, "sys", types.SimpleNamespace(platform="win32", frozen=True))
+    spawned: list = []
+    monkeypatch.setattr(shell, "relaunch_in_safe_mode", lambda ad: spawned.append(ad) or True)
+    monkeypatch.setattr("webbrowser.open", lambda url: True)
+
+    shell.check_backend_and_navigate(_FakeWindow(loaded=False), tmp_path)
+
+    assert spawned == [], "重启进的是用户已拒绝的安全模式——重启毫无意义，还会成环"
+    assert "auto relaunch 跳过" in _log_text(tmp_path)
+
+
 def test_relaunch_child_gets_preexisting_env_only(shell, tmp_path, monkeypatch):
     """孩子进程不许继承父进程叠加后的参数（否则二次叠加，还会盖掉用户原值）。"""
     monkeypatch.setenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--user-flag")
@@ -512,6 +583,7 @@ def test_relaunch_child_gets_preexisting_env_only(shell, tmp_path, monkeypatch):
     assert shell.relaunch_in_safe_mode(tmp_path) is True
     assert captured["argv"] == [sys.executable]
     assert captured["env"]["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] == "--user-flag"
+    assert captured["env"][shell.RELAUNCH_ENV_KEY] == "1", "孩子进程必须带上重启深度标记（最多一轮）"
 
 
 def test_watchdog_hang_falls_back_when_relaunch_disallowed(shell, tmp_path, monkeypatch):
