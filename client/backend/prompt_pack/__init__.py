@@ -7,7 +7,11 @@
                            installed_at/templates:{模板名:sha256}（tmp＋os.replace 原子写）
         highwatermark      防旧版重放高水位（与 receipt 分开存——clear-data/重建
                            receipt 不连带洗掉防重放记忆）
-        v{N}/              当前版本模板平铺（不可变；含已验签 manifest 副本）
+        key.bin            本地包密钥的封装体（Windows DPAPI blob；macOS 在 Keychain）
+                           ——绑机器+用户：整目录拷到别处解不开（见 localkey.py）
+        v{N}/              当前版本容器（不可变；含已验签 manifest 副本）
+                           pack.bin＝nonce||AES-GCM 密文（模板表，钥匙绑机器+用户）
+                           manifest.json＝非机密元数据（版本/哈希/签名）
         v{N-1}/            回滚位（读时校验失败一次即回落）
         .staging-v{N}/     安装中转（同步器专用；成功 rename 成 v{N}，失败整删）
 
@@ -151,7 +155,100 @@ def _dir_min_client_version(version_dir: str) -> str | None:
         return None
 
 
+# ── 读路径（内存解密；c-prompt-pack-hardening D3） ───────────────────────────
+
+
+def read_all_templates() -> dict[str, str] | None:
+    """解出已装版本的模板表（**内存中**，不落任何中间文件）。
+
+    不可用（未装/闸拒/钥匙不可用/容器损坏）一律返回 None——调用方按「该版本不可用」
+    回落或按未装处理；本函数不抛（读路径只降级，自愈在同步器侧）。
+    顺带做旧版明文包的就地加密迁移（D5，幂等）。
+    """
+    from prompt_pack import container  # noqa: PLC0415 — 子模块按需导入
+
+    try:
+        version_dir = resolve_dir()
+    except Exception:  # noqa: BLE001 — 包元数据读取失败不阻断回落
+        return None
+    if not version_dir:
+        return None
+    try:
+        migrate_plaintext(version_dir)
+        with open(os.path.join(version_dir, container.CONTAINER_NAME), "rb") as f:
+            blob = f.read()
+    except OSError:
+        return None
+    try:
+        return container.open_container(blob, os.path.basename(version_dir)[1:])
+    except container.ContainerInvalid:
+        return None
+
+
+def read_template(name: str) -> str | None:
+    """取单个模板（已装包路径，内存解密＋读时哈希校验）；不可用返回 None。"""
+    templates = read_all_templates()
+    if templates is None:
+        return None
+    text = templates.get(name)
+    if not isinstance(text, str):
+        return None
+    receipt = read_receipt() or {}
+    table = receipt.get("templates")
+    expect = table.get(name) if isinstance(table, dict) else None
+    if isinstance(expect, str) and expect and verify_text(text, expect) is False:
+        return None
+    return text
+
+
+def migrate_plaintext(version_dir: str) -> bool:
+    """旧版明文包（v{N}/*.prompt）就地加密转换（D5，幂等）。
+
+    返回 True＝转换完成或无需转换。**失败即按未装处理**：删掉明文与残件（同步器随后
+    重下），任何路径都不得保留明文可用态（spec：存量迁移条款）。
+    """
+    from prompt_pack import container  # noqa: PLC0415
+
+    try:
+        names = [n for n in os.listdir(version_dir) if n.endswith(".prompt")]
+    except OSError:
+        return False
+    if not names:
+        return True
+    version = os.path.basename(version_dir)[1:]
+    try:
+        templates: dict[str, str] = {}
+        for n in names:
+            with open(os.path.join(version_dir, n), encoding="utf-8") as f:
+                templates[n[: -len(".prompt")]] = f.read()
+        blob = container.seal(templates, version)
+        tmp = os.path.join(version_dir, container.CONTAINER_NAME + ".tmp")
+        with open(tmp, "wb") as f:
+            f.write(blob)
+        os.replace(tmp, os.path.join(version_dir, container.CONTAINER_NAME))
+    except Exception as e:  # noqa: BLE001 — 含钥匙不可用：一律转「按未装」
+        logger = __import__("logging").getLogger(__name__)
+        logger.warning("event=pack_migrate_failed version=%s err=%s", version, type(e).__name__)
+        for n in names:
+            try:
+                os.remove(os.path.join(version_dir, n))
+            except OSError:
+                pass
+        return False
+    for n in names:
+        try:
+            os.remove(os.path.join(version_dir, n))
+        except OSError:
+            pass
+    return True
+
+
 # ── 读时校验（防手改） ───────────────────────────────────────────────────────
+
+def verify_text(text: str, expect_sha256: str) -> bool:
+    """读时校验（容器内条目）：按模板**文本**哈希比对（receipt 语义不变）。"""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest() == expect_sha256
+
 
 _sig_cache: dict[str, tuple[int, int, str]] = {}
 
