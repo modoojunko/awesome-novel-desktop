@@ -5,10 +5,13 @@ vendor 只保留 ollama 特例（本地服务、免 Key、自有 tags 端点）�
 models 端点缺失（部分 Anthropic 兼容端点不提供列表）时降级为一条
 max_tokens=1 的最小请求验证鉴权。
 
-「通」的判据（内测 405 案收紧）：200 必须是 API JSON——网站首页/SPA 对任意路径
-回 200 HTML 不算通；anthropic 降级探针 404/405 判败（对话接口不可达）；
-openai 格式在拿到探针模型 id 后追加一条对话探针：用与生成完全相同的地址与鉴权头
-（{base}/chat/completions，SDK 同源拼法）发 max_tokens=1 最小请求，探不进不算通。
+「通」的判据（2026-10-05 拍板）：200 必须是 API JSON——网站首页/SPA 对任意路径
+回 200 HTML 不算通；可达且鉴权通过后向对话接口发**真实最小生成探针**——消息「你好」、
+关闭思考（ai_client 同款禁思考约定，端点拒绝该参数时去参重试一次）、短输出预算，
+与生成同址同鉴权头（openai {base}/chat/completions／anthropic {base}/v1/messages）；
+收到**格式正确且含可见回复文本**的回复才算通——非 2xx、体不符格式、空回复一律判失败，
+400/422 类业务性拒绝不再放行（点名所试模型 id）；无可用模型 id（列表空且无候选）
+判失败并提示填写模型名。
 """
 
 from __future__ import annotations
@@ -39,6 +42,11 @@ NO_MODEL_LIST_NOTE = (
     "该端点不提供模型列表（Anthropic 兼容端点常见）——可手动填模型 id，"
     "或把接口格式改成 openai 后重新测试即可自动获取"
 )
+
+# 最小生成探针（2026-10-05 拍板）：「你好」＋禁思考＋短输出预算，格式正确回复才算通
+_PROBE_PROMPT = "你好"
+_PROBE_MAX_TOKENS = 32
+_THINKING_DISABLED = {"type": "disabled"}
 
 
 def model_candidates_for(vendor_id: str) -> list[str]:
@@ -81,11 +89,13 @@ async def test_connection(
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
             if resp.status_code == 404 and fallback is not None:
-                # models 端点不存在 → 降级最小请求验证鉴权与对话路径。401/403 判鉴权
-                # 失败；404/405 = 对话接口本身不可达（地址/格式错）——旧实现对一切
-                # 非 401/403 都报「连接正常」，坏配置一路走到生成期才炸（内测 405 案）
+                # models 端点不存在 → 降级为「你好」最小生成探针（2026-10-05 拍板）：
+                # 收到格式正确且含可见回复文本的回复才算通；401/403 判鉴权失败；
+                # 404/405 = 对话接口本身不可达（地址/格式错）
                 f_url, f_headers, f_payload = fallback
-                resp = await client.post(f_url, headers=f_headers, json=f_payload)
+                resp = await _post_with_thinking_retry(
+                    client, f_url, f_headers, f_payload
+                )
                 if resp.status_code in (401, 403):
                     detail = _extract_error_detail(resp)
                     return {
@@ -104,13 +114,49 @@ async def test_connection(
                             "请核对 Base URL 与接口格式是否和厂商文档一致"
                         ),
                     }
-                not_api = _non_api_response(resp) if resp.status_code < 400 else ""
+                if resp.status_code == 429:
+                    return {
+                        "ok": False,
+                        "status": "rate_limited",
+                        "models": None,
+                        "error": "请求频率限制 (HTTP 429)",
+                    }
+                if resp.status_code >= 500:
+                    detail = _extract_error_detail(resp)
+                    return {
+                        "ok": False,
+                        "status": "network_error",
+                        "models": None,
+                        "error": f"服务端错误 (HTTP {resp.status_code}){detail}",
+                    }
+                if resp.status_code != 200:
+                    detail = _extract_error_detail(resp)
+                    return {
+                        "ok": False,
+                        "status": "unknown",
+                        "models": None,
+                        "error": (
+                            f"最小生成探针被拒（HTTP {resp.status_code} @ {f_url}）"
+                            f"{detail}——请核对模型 id 与接口格式"
+                        ),
+                    }
+                not_api = _non_api_response(resp)
                 if not_api:
                     return {
                         "ok": False,
                         "status": "endpoint_mismatch",
                         "models": None,
                         "error": not_api,
+                    }
+                if not _anthropic_reply_text(resp):
+                    return {
+                        "ok": False,
+                        "status": "unknown",
+                        "models": None,
+                        "error": (
+                            f"模型回复格式不正确或回复为空（@ {f_url}）——请核对接口格式"
+                            "（anthropic 契约应返回 content 文本块）"
+                        ),
                     }
                 return {
                     "ok": True,
@@ -178,14 +224,21 @@ async def test_connection(
             "error": not_api,
         }
     models = extract_fn(resp)
-    # openai 格式：追加对话探针（与生成同址同头）。旧实现只探 /models，而生成走
-    # {base}/chat/completions——「测试通了、一用就 405/404」的错位根源（内测 405 案）。
+    # openai 格式：追加「你好」最小生成探针（与生成同址同头）。旧实现只探 /models，
+    # 而生成走 {base}/chat/completions——「测试通了、一用就 405/404」的错位根源（内测 405 案）。
     if api_format == "openai" and vendor_id != "ollama":
         probe_model = _probe_model(models, vendor_id, preferred_model)
-        if probe_model:
-            ping = await _probe_chat_path(client, base_url, headers, probe_model)
-            if ping is not None:
-                return ping
+        if not probe_model:
+            # 无任何可用模型 id：仅凭可达性/鉴权不算通（2026-10-05 拍板）
+            return {
+                "ok": False,
+                "status": "unknown",
+                "models": None,
+                "error": "模型列表为空且无候选模型 id——请填写模型名称后重新测试",
+            }
+        ping = await _probe_chat_path(client, base_url, headers, probe_model)
+        if ping is not None:
+            return ping
     return {"ok": True, "status": "ok", "models": models, "error": None}
 
 
@@ -225,8 +278,9 @@ def _build_probe(
             dict(headers),
             {
                 "model": _ANTHROPIC_PROBE_MODEL,
-                "max_tokens": 1,
-                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": _PROBE_MAX_TOKENS,
+                "messages": [{"role": "user", "content": _PROBE_PROMPT}],
+                "thinking": dict(_THINKING_DISABLED),
             },
         )
         return f"{base}/v1/models", headers, _extract_openai_models, fallback
@@ -281,22 +335,21 @@ def _probe_model(
 async def _probe_chat_path(
     client: httpx.AsyncClient, base_url: str, headers: dict[str, str], model: str
 ) -> dict[str, Any] | None:
-    """openai 格式对话探针：POST {base}/chat/completions（SDK 同源拼法），max_tokens=1。
+    """openai 格式最小生成探针（2026-10-05 拍板）：POST {base}/chat/completions，
+    消息「你好」＋禁思考＋短输出预算——收到格式正确且含可见回复文本的回复才算通。
 
-    返回 None = 通过（含 400/422 级业务性拒绝——探针模型 id 是猜的，不把
-    「id 不被接受」误报成连接问题）；失败形态 dict = 直接作为连接测试结果返回。
+    返回 None = 通过；非 2xx、体不符格式、空回复一律判失败（400/422 类业务性拒绝
+    不再放行——点名所试模型 id），失败形态 dict = 直接作为连接测试结果返回。
     """
     url = f"{base_url.rstrip('/')}/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": _PROBE_PROMPT}],
+        "max_tokens": _PROBE_MAX_TOKENS,
+        "thinking": dict(_THINKING_DISABLED),
+    }
     try:
-        resp = await client.post(
-            url,
-            headers=headers,
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 1,
-            },
-        )
+        resp = await _post_with_thinking_retry(client, url, headers, payload)
     except httpx.TimeoutException:
         return {
             "ok": False,
@@ -329,6 +382,13 @@ async def _probe_chat_path(
                 "与接口格式是否和厂商文档一致（常见：地址少了 /v1，或填成了网站地址）"
             ),
         }
+    if resp.status_code == 429:
+        return {
+            "ok": False,
+            "status": "rate_limited",
+            "models": None,
+            "error": "请求频率限制 (HTTP 429)",
+        }
     if resp.status_code >= 500:
         detail = _extract_error_detail(resp)
         return {
@@ -337,16 +397,79 @@ async def _probe_chat_path(
             "models": None,
             "error": f"服务端错误 (HTTP {resp.status_code}){detail}",
         }
-    if resp.status_code == 200:
-        not_api = _non_api_response(resp)
-        if not_api:
-            return {
-                "ok": False,
-                "status": "endpoint_mismatch",
-                "models": None,
-                "error": not_api,
-            }
+    if resp.status_code != 200:
+        detail = _extract_error_detail(resp)
+        return {
+            "ok": False,
+            "status": "unknown",
+            "models": None,
+            "error": (
+                f"探针请求被拒（HTTP {resp.status_code} @ {url}）——所试模型 {model}"
+                f"{detail}；请核对模型 id 是否有效（可在配置里填写模型名称）"
+            ),
+        }
+    not_api = _non_api_response(resp)
+    if not_api:
+        return {
+            "ok": False,
+            "status": "endpoint_mismatch",
+            "models": None,
+            "error": not_api,
+        }
+    if not _openai_reply_text(resp):
+        return {
+            "ok": False,
+            "status": "unknown",
+            "models": None,
+            "error": (
+                f"模型回复格式不正确或回复为空（@ {url}）——所试模型 {model}，"
+                "请核对模型 id 与接口格式（openai 契约应返回 choices[0].message）"
+            ),
+        }
     return None
+
+
+async def _post_with_thinking_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+) -> httpx.Response:
+    """POST 最小生成探针；端点拒绝 thinking 参数时去参重试一次（ai_client 同款约定）。"""
+    resp = await client.post(url, headers=headers, json=payload)
+    if "thinking" in payload and resp.status_code == 400:
+        body = getattr(resp, "text", "") or ""
+        if "thinking" in body.lower():
+            stripped = {k: v for k, v in payload.items() if k != "thinking"}
+            resp = await client.post(url, headers=headers, json=stripped)
+    return resp
+
+
+def _openai_reply_text(resp: httpx.Response) -> str:
+    """openai chat.completion 契约的助手回复文本；格式不符/空 → 空串。"""
+    try:
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError, ValueError):
+        return ""
+    return content.strip() if isinstance(content, str) else ""
+
+
+def _anthropic_reply_text(resp: httpx.Response) -> str:
+    """anthropic messages 契约的可见回复文本（text 块拼接）；格式不符/空 → 空串。"""
+    try:
+        data = resp.json()
+    except (ValueError, TypeError):
+        return ""
+    blocks = data.get("content") if isinstance(data, dict) else None
+    if not isinstance(blocks, list):
+        return ""
+    texts = [
+        b.get("text", "")
+        for b in blocks
+        if isinstance(b, dict) and b.get("type") == "text"
+    ]
+    return "".join(t for t in texts if isinstance(t, str)).strip()
 
 
 # ── Response extractors ────────────────────────────────────────────────────

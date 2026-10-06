@@ -745,7 +745,8 @@ class TestModelCandidates:
 
             async def post(self, url, headers=None, json=None):
                 calls.append(("POST", url))
-                return _Resp(200)
+                # 降级探针＝「你好」最小生成：需回格式正确的回复才算通（2026-10-05 拍板）
+                return _Resp(200, {"content": [{"type": "text", "text": "你好！"}]})
 
         monkeypatch.setattr(conn.httpx, "AsyncClient", _Client)
         out = _run_async(

@@ -253,7 +253,9 @@ class TestBuildProbe:
         assert fallback is not None
         f_url, _f_headers, f_payload = fallback
         assert f_url == "https://open.bigmodel.cn/api/anthropic/v1/messages"
-        assert f_payload["max_tokens"] == 1
+        assert f_payload["max_tokens"] == 32  # 短输出预算（「你好」最小生成）
+        assert f_payload["messages"][0]["content"] == "你好"
+        assert f_payload["thinking"] == {"type": "disabled"}
 
     def test_anthropic_strips_trailing_v1(self):
         url, _, _, fallback = _build_probe(
@@ -305,6 +307,14 @@ class _FakeResp:
         if isinstance(self._payload, Exception):
             raise self._payload
         return self._payload
+
+    @property
+    def text(self) -> str:
+        import json as _json
+
+        if isinstance(self._payload, Exception):
+            return str(self._payload)
+        return _json.dumps(self._payload, ensure_ascii=False)
 
 
 class _FakeAsyncClient:
@@ -360,7 +370,10 @@ class TestConnectionFlow:
         assert [c[0] for c in fake_http.calls] == ["GET"]
 
     def test_models_404_falls_back_to_messages(self, fake_http):
-        fake_http.script = [("GET", 404), ("POST", 200)]
+        fake_http.script = [
+            ("GET", 404),
+            ("POST", 200, {"content": [{"type": "text", "text": "你好！"}]}),
+        ]
         out = _run_async(
             do_test_connection(
                 "glm", "sk", "https://open.bigmodel.cn/api/anthropic", "anthropic"
@@ -370,6 +383,9 @@ class TestConnectionFlow:
         kinds = [c[0] for c in fake_http.calls]
         assert kinds == ["GET", "POST"]
         assert fake_http.calls[1][1].endswith("/v1/messages")
+        payload = fake_http.calls[1][3]
+        assert payload["messages"][0]["content"] == "你好"  # 「你好」最小生成（2026-10-05 拍板）
+        assert payload["thinking"] == {"type": "disabled"}
 
     def test_fallback_auth_failure(self, fake_http):
         fake_http.script = [("GET", 404), ("POST", 401)]
@@ -422,10 +438,10 @@ class TestConnectionFlow:
         assert "invalid key" in out["error"]
 
     def test_openai_chat_probe_ok_and_same_path_as_generation(self, fake_http):
-        """模型列表可用 → 对话探针走与生成完全相同的地址（{base}/chat/completions）。"""
+        """模型列表可用 → 「你好」最小生成探针走与生成完全相同的地址（{base}/chat/completions）。"""
         fake_http.script = [
             ("GET", 200, {"data": [{"id": "m-1"}]}),
-            ("POST", 200, {"choices": []}),
+            ("POST", 200, {"choices": [{"message": {"content": "你好！"}}]}),
         ]
         out = _run_async(
             do_test_connection("openai-compat", "sk", "https://relay.example.com/v1", "openai")
@@ -433,7 +449,10 @@ class TestConnectionFlow:
         assert out["ok"] is True and out["models"] == ["m-1"]
         assert [c[0] for c in fake_http.calls] == ["GET", "POST"]
         assert fake_http.calls[1][1] == "https://relay.example.com/v1/chat/completions"
-        assert fake_http.calls[1][3]["max_tokens"] == 1
+        payload = fake_http.calls[1][3]
+        assert payload["max_tokens"] == 32
+        assert payload["messages"][0]["content"] == "你好"
+        assert payload["thinking"] == {"type": "disabled"}
 
     def test_openai_chat_probe_405_fails_with_actual_url(self, fake_http):
         """对话探针 405（地址/格式错）→ 判败，错误文案点名实际请求地址。"""
@@ -448,8 +467,8 @@ class TestConnectionFlow:
         assert "405" in out["error"]
         assert "https://api.example.com/chat/completions" in out["error"]
 
-    def test_openai_chat_probe_400_lenient(self, fake_http):
-        """探针模型 id 被拒（400，id 是猜的）不拦——不误报成连接问题。"""
+    def test_openai_chat_probe_model_rejected_strict(self, fake_http):
+        """探针模型 id 被拒（400）判失败并点名所试 id——原「400 宽松不拦」口径作废（2026-10-05 拍板）。"""
         fake_http.script = [
             ("GET", 200, {"data": [{"id": "embed-only"}]}),
             ("POST", 400, {"error": {"message": "model not supported"}}),
@@ -457,11 +476,15 @@ class TestConnectionFlow:
         out = _run_async(
             do_test_connection("openai-compat", "sk", "https://relay.example.com/v1", "openai")
         )
-        assert out["ok"] is True and out["models"] == ["embed-only"]
+        assert out["ok"] is False and out["status"] == "unknown"
+        assert "embed-only" in out["error"]
 
     def test_openai_probe_uses_vendor_candidate_when_no_models(self, fake_http):
         """模型列表为空 → 用 vendor 候选 id 做探针（deepseek 实测候选）。"""
-        fake_http.script = [("GET", 200, {"data": []}), ("POST", 200, {"choices": []})]
+        fake_http.script = [
+            ("GET", 200, {"data": []}),
+            ("POST", 200, {"choices": [{"message": {"content": "好的"}}]}),
+        ]
         out = _run_async(
             do_test_connection("deepseek", "sk", "https://api.deepseek.com", "openai")
         )
@@ -472,7 +495,7 @@ class TestConnectionFlow:
         """探针模型 id：配置已选模型（preferred）压过列表首个——预填模型名直通探针。"""
         fake_http.script = [
             ("GET", 200, {"data": [{"id": "m-list"}]}),
-            ("POST", 200, {"choices": []}),
+            ("POST", 200, {"choices": [{"message": {"content": "好的"}}]}),
         ]
         out = _run_async(
             do_test_connection(
@@ -490,7 +513,7 @@ class TestConnectionFlow:
         """preferred 空白 → 回落列表首个。"""
         fake_http.script = [
             ("GET", 200, {"data": [{"id": "m-list"}]}),
-            ("POST", 200, {"choices": []}),
+            ("POST", 200, {"choices": [{"message": {"content": "好的"}}]}),
         ]
         _run_async(
             do_test_connection(
@@ -502,6 +525,80 @@ class TestConnectionFlow:
             )
         )
         assert fake_http.calls[1][3]["model"] == "m-list"
+
+    # ── 2026-10-05 拍板：「你好」最小生成，格式正确回复才算通 ──
+
+    def test_chat_probe_empty_reply_fails(self, fake_http):
+        """2xx 但回复文本为空 → 不算通（「大模型回复了正确格式的数据才算连接正常」）。"""
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "m-1"}]}),
+            ("POST", 200, {"choices": [{"message": {"content": ""}}]}),
+        ]
+        out = _run_async(
+            do_test_connection("openai-compat", "sk", "https://api.example.com", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "unknown"
+        assert "回复" in out["error"]
+
+    def test_chat_probe_wrong_shape_fails(self, fake_http):
+        """2xx 但体不符合 openai 契约（无 choices[0].message）→ 不算通。"""
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "m-1"}]}),
+            ("POST", 200, {"choices": []}),
+        ]
+        out = _run_async(
+            do_test_connection("openai-compat", "sk", "https://api.example.com", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "unknown"
+
+    def test_chat_probe_thinking_rejected_retries_without_thinking(self, fake_http):
+        """端点拒绝 thinking 参数 → 去参重试一次（ai_client 同款约定），重试成功即通。"""
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "m-1"}]}),
+            ("POST", 400, {"error": {"message": "Unrecognized request argument: thinking"}}),
+            ("POST", 200, {"choices": [{"message": {"content": "你好！"}}]}),
+        ]
+        out = _run_async(
+            do_test_connection("openai-compat", "sk", "https://api.example.com", "openai")
+        )
+        assert out["ok"] is True
+        assert [c[0] for c in fake_http.calls] == ["GET", "POST", "POST"]
+        assert "thinking" in fake_http.calls[1][3]
+        assert "thinking" not in fake_http.calls[2][3]
+
+    def test_no_model_id_fails_with_prompt(self, fake_http):
+        """模型列表为空且无候选 → 判失败提示填模型名（不再只凭可达性报通）。"""
+        fake_http.script = [("GET", 200, {"data": []})]
+        out = _run_async(
+            do_test_connection("openai-compat", "sk", "https://api.example.com", "openai")
+        )
+        assert out["ok"] is False
+        assert "模型名称" in out["error"]
+        assert [c[0] for c in fake_http.calls] == ["GET"]
+
+    def test_fallback_empty_reply_fails(self, fake_http):
+        """anthropic 降级探针：2xx 但无 text 块 → 不算通。"""
+        fake_http.script = [
+            ("GET", 404),
+            ("POST", 200, {"content": [{"type": "thinking", "thinking": "…"}]}),
+        ]
+        out = _run_async(
+            do_test_connection(
+                "glm", "sk", "https://open.bigmodel.cn/api/anthropic", "anthropic"
+            )
+        )
+        assert out["ok"] is False and out["status"] == "unknown"
+        assert "回复" in out["error"]
+
+    def test_chat_probe_429_rate_limited(self, fake_http):
+        fake_http.script = [
+            ("GET", 200, {"data": [{"id": "m-1"}]}),
+            ("POST", 429),
+        ]
+        out = _run_async(
+            do_test_connection("openai-compat", "sk", "https://api.example.com", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "rate_limited"
 
     def test_anthropic_fallback_405_fails(self, fake_http):
         """anthropic 降级探针 404/405 = 对话接口不可达 → 判败（旧实现误报「连接正常」）。"""

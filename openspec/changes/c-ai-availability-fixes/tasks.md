@@ -23,7 +23,11 @@
 
 ## 5. 探针升级为「你好」真实生成（2026-10-05 用户拍板；取代 3.1/3.2 的探针语义）
 
-- [ ] 5.1 `connection.py` 对话探针改造：payload 换「你好」＋关闭思考（openai 走 `extra_body={"thinking": {"type": "disabled"}}`／anthropic 走 `thinking: {"type": "disabled"}`，与 `ai_client` 禁思考约定同源；端点拒绝该参数时去参重试一次）＋短输出预算（max_tokens=32）；成功判据改为「响应体按接口格式可解析出助手回复且含可见回复文本」（openai `choices[0].message.content`／anthropic text 块），400/422 业务性拒绝由「不拦」翻转为判败并点名所试模型 id；探针模型 id 取用顺序＝配置已选模型→列表首个→vendor 候选首个→anthropic 占位探测模型；anthropic 降级路径同此探针（`POST {base}/v1/messages`）
-- [ ] 5.2 `tests/test_api_format.py` 探针用例随语义翻转：原「探针 400 宽松」改判败点名 id；补「2xx 空回复判败」「2xx 格式错体判败」「thinking 拒绝去参重试」「你好 payload＋禁思考参数断言」「anthropic 降级走最小生成」用例；全套绿
-- [ ] 5.3 `client/backend` 全量 pytest 复跑零红＋`openspec validate c-ai-availability-fixes --specs` 复验通过
-- [ ] 5.4 无可用模型 id 分支（评审揪出）：openai 格式模型列表为空且无候选时由「跳过对话探针报通」改为判失败并提示填写模型名＋用例
+- [x] 5.1 `connection.py` 对话探针改造：payload 换「你好」＋关闭思考（openai 走 `extra_body={"thinking": {"type": "disabled"}}`／anthropic 走 `thinking: {"type": "disabled"}`，与 `ai_client` 禁思考约定同源；端点拒绝该参数时去参重试一次）＋短输出预算（max_tokens=32）；成功判据改为「响应体按接口格式可解析出助手回复且含可见回复文本」（openai `choices[0].message.content`／anthropic text 块），400/422 业务性拒绝由「不拦」翻转为判败并点名所试模型 id；探针模型 id 取用顺序＝配置已选模型→列表首个→vendor 候选首个→anthropic 占位探测模型；anthropic 降级路径同此探针（`POST {base}/v1/messages`）
+  - 证据：`_probe_chat_path`／`_build_probe` fallback／`_post_with_thinking_retry`／`_openai_reply_text`／`_anthropic_reply_text` 落地（PR #689 第 3 笔）
+- [x] 5.2 `tests/test_api_format.py` 探针用例随语义翻转：原「探针 400 宽松」改判败点名 id；补「2xx 空回复判败」「2xx 格式错体判败」「thinking 拒绝去参重试」「你好 payload＋禁思考参数断言」「anthropic 降级走最小生成」用例；全套绿
+  - 证据：探针组 **46/46 绿**（旧宽松钉翻转＋新增 6 钉：空回复/错体/thinking 重试/无 id 提示/降级空回复/429）；`test_ai_layers` 降级桩随语义补真回复
+- [x] 5.3 `client/backend` 全量 pytest 复跑零红＋`openspec validate c-ai-availability-fixes --specs` 复验通过
+  - 证据：全量 **1819 passed / 0 failed**
+- [x] 5.4 无可用模型 id 分支（评审揪出）：openai 格式模型列表为空且无候选时由「跳过对话探针报通」改为判失败并提示填写模型名＋用例
+  - 证据：`test_no_model_id_fails_with_prompt` 绿（断言错误含「模型名称」且无 POST 发出）
