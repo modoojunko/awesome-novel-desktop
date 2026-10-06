@@ -254,7 +254,11 @@ _sig_cache: dict[str, tuple[int, int, str]] = {}
 
 
 def verify_file(path: str, expect_sha256: str) -> bool:
-    """读时校验：(mtime_ns,size) 命中缓存即过；变更才重算 sha256。"""
+    """**文件形态**的读时校验（(mtime_ns,size) 命中缓存即过；变更才重算 sha256）。
+
+    容器化后已装包的读时校验走 `verify_text`（对解密出的模板文本比对），本函数只服务
+    历史/文件形态（开发态目录、测试）；不要用它去校验 `pack.bin`（那是密文，哈希对不上）。
+    """
     try:
         st = os.stat(path)
     except OSError:

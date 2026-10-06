@@ -95,7 +95,43 @@ def compile_inplace() -> list[str]:
     missing = [m for m in NATIVE_MODULES if not _ext_of(m)]
     if missing:
         raise SystemExit("编译后仍找不到扩展：" + ", ".join(missing))
+    _selfcheck(backend)
     return [p for p in made if os.path.exists(p)]
+
+
+_SELFCHECK = (
+    "import os, tempfile;"
+    "os.environ['DATA_ROOT'] = tempfile.mkdtemp();"
+    "os.environ['AINOVEL_PACK_KEYSTORE'] = 'weak';"
+    "import prompt_pack, prompt_pack.container as C, prompt_pack.localkey, prompt_pack.sync;"
+    "import prompts;"
+    "assert C.backend_name() == 'native', '扩展未生效（仍在用 .py）';"
+    "tpl = {'t': 'payload'};"
+    "blob = C.seal(tpl, '1');"
+    "assert C.open_container(blob, '1') == tpl, 'seal/open 往返不一致';"
+    "print('native selfcheck OK', C.__file__)"
+)
+
+
+def _selfcheck(backend: str) -> None:
+    """编译后自检：子进程 import 三个模块并跑一次 seal/open 往返。
+
+    只检查「文件存在」不够——损坏的扩展或 ABI 不符（Python 版本对不上）照样会被
+    PyInstaller 打进包，扫描闸门也照样过，问题要等用户装完包在解密路径上才炸
+    （评审 P2）。这里失败即红。
+    """
+    import subprocess
+
+    # 用**当前解释器**跑自检：扩展是按本解释器的 ABI 编的，拿 PATH 上的 python 可能对不上
+    r = subprocess.run(
+        [os.environ.get("PYTHON", sys.executable), "-c", _SELFCHECK],
+        cwd=backend,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if r.returncode != 0:
+        raise SystemExit("原生扩展自检失败（编译产物不可用，禁止进包）：\n" + (r.stdout + r.stderr).strip())
 
 
 def _ext_suffixes(backend: str, mod: str) -> list[str]:
@@ -135,15 +171,23 @@ def scan_bundle(root: str) -> list[str]:
     """
     problems: list[str] = []
     found_ext: dict[str, str] = {}
+    stems = {mod.split(".")[-1]: mod for mod in NATIVE_MODULES}
     for base, _dirs, names in os.walk(root):
+        # **只认我们自己的包目录**：依赖里就有同名文件（实测 anthropic/types/container.py、
+        # httpcore/_backends/sync.py、sqlalchemy/orm/sync.py）——按裸文件名匹配会在发版时
+        # 误报「敏感模块以可反编译形态进包」而打断发布（评审 P1）
+        if os.path.basename(base) != "prompt_pack":
+            continue
         for n in names:
             p = os.path.join(base, n)
-            for mod in NATIVE_MODULES:
-                stem = mod.split(".")[-1]
-                if n.startswith(stem) and _is_ext(n):
-                    found_ext.setdefault(mod, p)
-                if n in (f"{stem}.py", f"{stem}.pyc", f"{stem}.pyo"):
-                    problems.append(f"敏感模块以可反编译形态进了产物：{p}")
+            stem = n.split(".")[0]
+            mod = stems.get(stem)
+            if mod is None:
+                continue
+            if _is_ext(n):
+                found_ext.setdefault(mod, p)
+            elif n == f"{stem}.py" or (n.startswith(f"{stem}.") and n.endswith((".pyc", ".pyo"))):
+                problems.append(f"敏感模块以可反编译形态进了产物：{p}")
     for mod in NATIVE_MODULES:
         if mod not in found_ext:
             problems.append(f"产物里缺原生扩展：{mod}（编译步骤被摘掉或未打进包）")

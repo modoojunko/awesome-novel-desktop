@@ -100,3 +100,15 @@ def test_local_tree_compiled_artifacts_are_ignored():
     gi = (REPO / ".gitignore").read_text(encoding="utf-8")
     assert "client/backend/prompt_pack/*.so" in gi and "client/backend/prompt_pack/*.pyd" in gi
 
+def test_scanner_ignores_same_named_files_outside_our_package(tmp_path):
+    """评审 P1 回归：依赖里就有同名文件（实测 anthropic/types/container.py、
+    httpcore/_backends/sync.py、sqlalchemy/orm/sync.py）——扫描必须只认 `prompt_pack`
+    包目录内的文件，否则发版会被误判红（打包链只在 tag 跑，第一次发现就是发版日）。"""
+    mod = _compile_native()
+    root = _fake_bundle(tmp_path / "dep", shape="native")
+    for rel in ("anthropic/types", "httpcore/_backends", "sqlalchemy/orm"):
+        d = root / "_internal" / rel
+        d.mkdir(parents=True, exist_ok=True)
+        for n in ("container.py", "sync.py", "localkey.py", "container.pyc", "sync.pyc"):
+            (d / n).write_bytes(b"x")
+    assert mod.scan_bundle(str(root)) == [], "依赖里的同名文件被误判成本模块"
