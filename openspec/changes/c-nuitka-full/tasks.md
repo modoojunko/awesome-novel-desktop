@@ -11,7 +11,7 @@
 - [x] 2.1 spike 脚本转正 `build_nuitka.py`：清单走单源、release.json 条件烘焙、Windows 分支（icon/version-file/exe 名）、输出目录 rename `AI Novel`、`build-engine.json` 指纹落资源根；验证＝macOS 本地出包成功＋指纹文件在产物内
 - [ ] 2.2 `build.bat`/`build_mac.sh` 加 `BUILD_ENGINE` 开关（默认 pyinstaller）；`requirements.txt` 增 nuitka/ordered-set；验证＝两引擎本地各出一包
 - [ ] 2.3 macOS 冒烟：dist 产物启动（启动页→后端就绪→AI 一条链→退出干净）；验证＝冒烟清单逐项过＋启动耗时与 PyInstaller 版对拍记录
-  （进度 10-07：启动→后端就绪→退出已过【存活 30s＋loaded×2/ready×2＋隔离 DATA_ROOT 建库】；AI 一条链待登录态补跑。编译耗时对拍：冷 7m38s（991% CPU）/ccache 热 2m24s——CI 分钟数预算依据）
+  （进度 10-07：启动→后端就绪→页面内容已过【GET / 200＝真实 SPA HTML＋env.js 200＋存活 30s】；AI 一条链待登录态补跑。⚠️ 判据教训：loaded 事件只证导航完成不证渲染——冒烟必须 curl 页面内容。编译耗时对拍：冷 7m38s/ccache 热 2m24s——CI 分钟数预算依据）
 
 ## 3. 扫描门与原生化兼容
 
