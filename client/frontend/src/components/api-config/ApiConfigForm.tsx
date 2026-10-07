@@ -149,7 +149,9 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
   ) => {
     if (isEdit || !onFetchModels) return;
     if (!params.vendor_id || !params.base_url.trim()) return;
+    /* v8 ignore start -- 防御分支：调用点（失焦/切换）均已前置校验，非 ollama 且空 Key 到不了这里 */
     if (params.vendor_id !== "ollama" && !params.api_key.trim()) return;
+    /* v8 ignore stop */
     const fp = `${params.vendor_id}|${params.base_url.trim()}|${params.api_key}|${params.api_format}`;
     if (!opts?.force && fp === lastFetchRef.current) return;
     lastFetchRef.current = fp;
@@ -318,10 +320,12 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
       e.preventDefault();
       setCursor((c) => Math.max(c - 1, 0));
     } else if (e.key === "Enter") {
-      // 弹层开着且有可选项：Enter＝选中（吞掉，防止触发表单提交）；无匹配则放行为手填值
-      if (filteredModels.length > 0) {
+      // 弹层开着且有可选项：Enter＝选中（吞掉，防止触发表单提交）；无匹配则放行为手填值。
+      // cursor 钳位到过滤后区间（onChange 已重置，防越界兜底）
+      const pick = filteredModels[Math.min(cursor, filteredModels.length - 1)];
+      if (pick) {
         e.preventDefault();
-        pickModel(filteredModels[cursor] ?? filteredModels[0]);
+        pickModel(pick);
       }
     } else if (e.key === "Escape") {
       // 只收弹层，不把整个表单弹窗一起关掉（Modal 在 window 上听 Esc——评审 P1）
@@ -347,7 +351,9 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     if (!pickerOpen) return;
     const anchor = () => {
       const el = document.getElementById("cfModel");
+      /* v8 ignore start -- 防御分支：卸载竞态下滚动回调时输入框已不在文档 */
       if (!el) return;
+      /* v8 ignore stop */
       const r = el.getBoundingClientRect();
       const belowFits = r.bottom + 6 + 266 <= window.innerHeight;
       setPanelPos({

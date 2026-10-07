@@ -231,6 +231,22 @@ describe("ApiConfigForm 编辑态", () => {
     expect(screen.getByText("OpenAI 格式").className).toContain("on");
   });
 
+  it("编辑态 Key 失焦不触发自动拉取（编辑态无模型选择器）", () => {
+    const onFetchModels = vi.fn(async (_d: unknown) => ({ ok: false, status: "ok", models: [] }));
+    render(
+      <ApiConfigForm
+        open
+        config={editCfg()}
+        onSubmit={vi.fn(async () => {})}
+        onCancel={vi.fn()}
+        onFetchModels={onFetchModels}
+      />,
+    );
+    fireEvent.change(document.getElementById("cfKey")!, { target: { value: "sk-typed" } });
+    fireEvent.blur(document.getElementById("cfKey")!);
+    expect(onFetchModels).not.toHaveBeenCalled();
+  });
+
   it("测试连接返回不带 models 字段：按空列表 + note 判定", async () => {
     const onTest = vi.fn(async () => ({ ok: true, status: "ok", note: "端点未返回模型列表" }));
     render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onTest={onTest} />);
@@ -522,9 +538,10 @@ describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）",
   });
 
   it("供应商切换作废在途请求：清 Key 后切走，旧响应不落地且拉取态复位", async () => {
-    let resolveFirst: (v: { ok: boolean; status: string; models: string[] }) => void = () => {};
-    const pending = new Promise<{ ok: boolean; status: string; models: string[] }>((res) => {
-      resolveFirst = res;
+    let rejectFirst: () => void = () => {};
+    const pending = new Promise<{ ok: boolean; status: string; models: string[] }>((_, rej) => {
+      // 用 reject 形态钉 catch 内的作废判（seq 已变 → 不落地任何状态）
+      rejectFirst = () => rej(new Error("stale"));
     });
     const onFetchModels = vi.fn(async () => pending);
     render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
@@ -535,10 +552,200 @@ describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）",
     await screen.findByText("正在获取模型清单…");
     setField("cfKey", ""); // 清 Key → 切供应商不再发新请求顶替
     fireEvent.click(screen.getByText("GLM"));
-    resolveFirst({ ok: true, status: "ok", models: ["kimi-k3"] }); // 旧响应迟到
+    rejectFirst(); // 旧响应（失败形态）迟到
     await Promise.resolve();
-    // 旧供应商清单/默认选中不落地；拉取态已复位（不卡「正在获取…」）
+    // 旧供应商清单/默认选中不落地；拉取态已复位（不卡「正在获取…」、无失败提示）
     expect(screen.queryByText("正在获取模型清单…")).toBeNull();
+    expect(screen.queryByText("重新拉取")).toBeNull();
     expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("");
+  });
+});
+
+describe("ApiConfigForm 模型选择器覆盖补齐（CI 全局 100% 覆盖率门禁）", () => {
+  const blurKey = () => fireEvent.blur(document.getElementById("cfKey")!);
+  const blurBase = () => fireEvent.blur(document.getElementById("cfBase")!);
+  const input = () => document.getElementById("cfModel") as HTMLInputElement;
+  const panel = () => document.querySelector(".mp-panel") as HTMLElement | null;
+
+  async function setupFetched(onFetchModels: (data: any) => Promise<any>, models = ["m-1", "m-2", "m-3"]) {
+    render(
+      <ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />,
+    );
+    fireEvent.click(screen.getByText("Kimi"));
+    setField("cfName", "x");
+    setField("cfKey", "sk-1");
+    blurKey();
+    await waitFor(() => expect(input().value).toBe(models[0]));
+    return models;
+  }
+
+  it("拉取信封兜底三态：ok 不带 models→空清单；ok:false 不带 error→兜底文案；reject→catch 兜底", async () => {
+    const onFetchModels = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: "ok" }) // models 缺失 → ?? [] 空清单
+      .mockResolvedValueOnce({ ok: false, status: "unknown" }) // error 缺失 → 兜底文案
+      .mockRejectedValueOnce(new Error("net"));
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    fireEvent.click(screen.getByText("Kimi"));
+    setField("cfName", "x");
+    setField("cfKey", "sk-1");
+    blurKey();
+    await waitFor(() => expect(onFetchModels).toHaveBeenCalledTimes(1));
+    expect(input().value).toBe(""); // 空清单不默认选中
+    setField("cfKey", "sk-2"); // 指纹含 Key → 换 Key 重拉
+    blurKey();
+    expect(await screen.findByText("模型清单获取失败")).toBeTruthy();
+    setField("cfKey", "sk-3");
+    blurKey();
+    expect(await screen.findByText("重新拉取")).toBeTruthy(); // reject 同走兜底
+  });
+
+  it("切格式重拉：GLM＋Key 已填，切 Anthropic 格式即按新格式参数拉", async () => {
+    const onFetchModels = vi.fn(async () => ({ ok: true, status: "ok", models: ["glm-5.3"] }));
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    fireEvent.click(screen.getByText("GLM"));
+    setField("cfName", "x");
+    setField("cfKey", "sk-1");
+    fireEvent.click(screen.getByText("Anthropic 格式"));
+    await waitFor(() => expect(input().value).toBe("glm-5.3"));
+    expect(onFetchModels).toHaveBeenLastCalledWith({
+      vendor_id: "glm",
+      base_url: "https://open.bigmodel.cn/api/anthropic",
+      api_key: "sk-1",
+      api_format: "anthropic",
+    });
+  });
+
+  it("Base URL 失焦触发：Key 空非 ollama 不拉；Key 已填则拉；Ollama 免 Key 亦触发", async () => {
+    const onFetchModels = vi.fn(async () => ({ ok: true, status: "ok", models: ["m-1"] }));
+    const { unmount } = render(
+      <ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />,
+    );
+    fireEvent.click(screen.getByText("Kimi"));
+    setField("cfName", "x");
+    blurBase(); // Key 空 → 不拉
+    await Promise.resolve();
+    expect(onFetchModels).not.toHaveBeenCalled();
+    setField("cfKey", "sk-1");
+    blurBase(); // Key 已填 → 拉
+    await waitFor(() => expect(onFetchModels).toHaveBeenCalledTimes(1));
+    unmount();
+
+    const onFetchOllama = vi.fn(async () => ({ ok: true, status: "ok", models: ["llama3:8b"] }));
+    render(
+      <ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchOllama} />,
+    );
+    fireEvent.click(screen.getByText("Ollama")); // 免 Key 即拉（同参数）
+    await waitFor(() => expect(onFetchOllama).toHaveBeenCalledTimes(1));
+    blurBase(); // 同参数指纹去重，不重复拉（但触发路径已执行）
+    await Promise.resolve();
+    expect(onFetchOllama).toHaveBeenCalledTimes(1);
+  });
+
+  it("键盘补齐：IME 组合期放行；关态 Enter 早退；关态方向键开层；ArrowUp 上移；开态他键不动作", async () => {
+    await setupFetched(async () => ({ ok: true, status: "ok", models: ["m-1", "m-2", "m-3"] }));
+    fireEvent.focus(input());
+    expect(panel()).toBeTruthy();
+    // IME 组合期 Enter：早退——不开不选不关（面板保持、值不变）
+    fireEvent.keyDown(input(), { key: "Enter", isComposing: true });
+    expect(panel()).toBeTruthy();
+    expect(input().value).toBe("m-1");
+    // 开态他键（非方向/Enter/Esc）：落空不动作
+    fireEvent.keyDown(input(), { key: "z" });
+    expect(panel()).toBeTruthy();
+    // 开态 Enter 无匹配：不选不吞（手填值原样保留，真实浏览器放行隐式提交）
+    fireEvent.change(input(), { target: { value: "no-such-model" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(panel()).toBeTruthy();
+    expect(input().value).toBe("no-such-model");
+    // 清空过滤词 → 全量三项（组合框按当前值过滤，不清空则方向键被钳位）
+    fireEvent.change(input(), { target: { value: "" } });
+    expect(document.querySelectorAll(".mp-item").length).toBe(3);
+    // Esc 收起（stopPropagation 只关弹层）
+    fireEvent.keyDown(input(), { key: "Escape" });
+    expect(panel()).toBeNull();
+    // 关态 Enter：早退（不选中；真实浏览器里由此放行原生隐式提交，jsdom 不模拟）
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(panel()).toBeNull();
+    expect(input().value).toBe("");
+    // 关态 ArrowDown → 开层
+    fireEvent.keyDown(input(), { key: "ArrowDown" });
+    expect(panel()).toBeTruthy();
+    // ArrowDown×2 后 ArrowUp：光标钳位往返
+    fireEvent.keyDown(input(), { key: "ArrowDown" });
+    fireEvent.keyDown(input(), { key: "ArrowDown" });
+    expect(input().getAttribute("aria-activedescendant")).toBe("cf-model-opt-2");
+    fireEvent.keyDown(input(), { key: "ArrowUp" });
+    expect(input().getAttribute("aria-activedescendant")).toBe("cf-model-opt-1");
+  });
+
+  it("列表直点与选中态高亮：当前值即过滤词时 on 臂；全量列表 mouseEnter 移光标＋click 直选", async () => {
+    await setupFetched(async () => ({ ok: true, status: "ok", models: ["q-a", "q-b", "q-c"] }), ["q-a", "q-b", "q-c"]);
+    fireEvent.focus(input()); // 过滤词＝当前值 q-a → 列表＝[q-a]，命中 on 臂
+    const cur = document.querySelectorAll(".mp-item")[0];
+    expect(cur.className).toContain("on");
+    fireEvent.mouseEnter(cur);
+    fireEvent.click(cur); // 列表项直选
+    expect(panel()).toBeNull();
+    expect(input().value).toBe("q-a");
+    fireEvent.focus(input());
+    fireEvent.change(input(), { target: { value: "" } }); // 清空过滤 → 全量
+    const items = document.querySelectorAll(".mp-item");
+    expect(items.length).toBe(3);
+    fireEvent.mouseEnter(items[2]);
+    expect(input().getAttribute("aria-activedescendant")).toBe("cf-model-opt-2");
+    fireEvent.click(items[1]);
+    expect(input().value).toBe("q-b");
+    expect(panel()).toBeNull();
+  });
+
+  it("选中后再点输入框重开弹层；外点收起；弹层内 pointerdown/mousedown 不误关", async () => {
+    await setupFetched(async () => ({ ok: true, status: "ok", models: ["m-1", "m-2"] }));
+    fireEvent.focus(input());
+    fireEvent.keyDown(input(), { key: "Enter" }); // 选中首项后收起（焦点仍在输入框）
+    expect(panel()).toBeNull();
+    fireEvent.click(input()); // 再点重开（onClick 臂）
+    expect(panel()).toBeTruthy();
+    // 弹层内 pointerdown/mousedown（滚动条拖点）：不关
+    fireEvent.pointerDown(panel()!);
+    fireEvent.mouseDown(panel()!);
+    expect(panel()).toBeTruthy();
+    // 输入框内 pointerdown：不关
+    fireEvent.pointerDown(input());
+    expect(panel()).toBeTruthy();
+    // 外点（body）：收起
+    fireEvent.pointerDown(document.body);
+    expect(panel()).toBeNull();
+  });
+
+  it("弹层定位：近视口底缘向上翻转（flip 臂，fixed top 兜底 8px）", async () => {
+    await setupFetched(async () => ({ ok: true, status: "ok", models: ["m-1"] }));
+    const original = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", { value: 40, configurable: true });
+    try {
+      fireEvent.focus(input());
+      await waitFor(() => expect(panel()).toBeTruthy());
+      expect(panel()!.style.top).toBe("8px"); // jsdom 输入框矩形为 0 → 翻转臂取下限
+    } finally {
+      Object.defineProperty(window, "innerHeight", { value: original, configurable: true });
+    }
+  });
+
+  it("测试连接失败信封带清单：选项刷新但不自动改选（失败也可改选正确模型）", async () => {
+    const onTest = vi.fn(async () => ({
+      ok: false,
+      status: "unknown",
+      error: "探针被拒（所试模型 m-bad）",
+      models: ["m-1", "m-2"],
+    }));
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onTest={onTest} />);
+    setField("cfName", "x");
+    fireEvent.click(screen.getByText("Kimi"));
+    setField("cfKey", "sk-1");
+    setField("cfModel", "m-bad"); // 手填错 id
+    fireEvent.click(screen.getByText("测试连接"));
+    expect(await screen.findByText(/探针被拒/)).toBeTruthy();
+    expect(await screen.findByText("已拉到 2 个模型")).toBeTruthy(); // 失败信封清单照常刷新
+    expect(input().value).toBe("m-bad"); // 不自动改选（手填值保留），用户可从列表改选
   });
 });
