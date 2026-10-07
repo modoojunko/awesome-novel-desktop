@@ -9,7 +9,7 @@
 ## 时区口径（2026-09-01 拍板）
 
 - **存储与后端计算永远是 naive UTC**：取当前时刻用 `datetime.now(UTC).replace(tzinfo=None)`，取当前日期用 `datetime.now(UTC).date()`；禁止裸 `datetime.now()` / `date.today()`（隐式依赖容器时区，实测切换 TZ 即偏 8 小时）。
-- **上海时区只发生在前端展示**：S端 前端 `pay.ts` 的 `fmtBj` 是唯一转换点（无 offset 字符串按 UTC 解析 → `Asia/Shanghai` 格式化），后端不出上海时间字符串（拆仓后该文件在 awesome-novel-server 仓）。
+- **上海时区只发生在前端展示**：S端 前端 `pay.ts` 的 `fmtBj` 是唯一转换点（无 offset 字符串按 UTC 解析 → `Asia/Shanghai` 格式化），后端不出上海时间字符串（拆仓后该文件在 S端 私有仓）。
 - **容器 TZ / PG 数据库时区 / PostgREST 连接时区不作为口径依据**：不得通过改环境配置"统一时区"；orders 等表的 `created_at` 由应用显式传 UTC 值，不依赖 DB DEFAULT `now()`。
 - TZ 抗性测试：S端 仓 `server/tests/test_timezone_discipline.py`（进程切 Asia/Shanghai 断言会员剩余/注册写入不偏移）。
 
@@ -87,16 +87,16 @@
 
 ## 常用命令
 
-> **拆仓注记（s-server-repo-split，2026-10）**：S端 已迁私有仓
-> `awesome-novel-server`（支付/鉴权/设备/套餐/发码/营销）。本仓＝C端。两仓 sibling
-> checkout 约定：同级放置，compose 以 `${S_SERVER_DIR:-../awesome-novel-server/server}`
-> 取服务端源码；S端 开发/测试/部署入口见该仓 CLAUDE.md。
+> **拆仓注记（s-server-repo-split，2026-10）**：S端 已迁独立私有仓（支付/鉴权/设备/
+> 套餐/发码/营销）。本仓＝C端。两仓 sibling checkout 约定：同级放置，**私有仓名不入
+> 库**——本地在 `.env` 或 shell 设 `S_SERVER_DIR` 指向该仓检出的 `server/`（compose 与
+> design-cross.mjs 都读它；未设时按占位路径报「不存在」）；S端 开发/测试/部署入口见该仓 CLAUDE.md。
 
 ```bash
 # ═══ C端 ═══
 
-# 终端 1：S端 后端（本地模拟——来自 sibling 仓）
-cd ../awesome-novel-server/server && python app/main.py
+# 终端 1：S端 后端（本地模拟——sibling 私有仓检出；先 export S_SERVER_DIR=<该仓检出>/server）
+cd "$S_SERVER_DIR" && python app/main.py
 
 # 终端 2：C端 后端
 cd client/backend && mkdir -p data
@@ -127,7 +127,7 @@ flowchart LR
         SQLite[("SQLite")]
         FS[("本地文件")]
     end
-    subgraph server ["S端 — awesome-novel-server（sibling 私有仓）"]
+    subgraph server ["S端 — 私有仓（sibling checkout）"]
         VueSPA["Vue 3 SPA 门户"]
         S_Backend["FastAPI 4A 分层架构"]
         CDB[("SQLite / 云数据库")]
@@ -143,7 +143,7 @@ flowchart LR
 ```
 
 C端 是单用户桌面应用（FastAPI + SQLite + React SPA，pywebview 封装），提供 AI 写作全流程。
-S端（License 授权/支付/设备/套餐）已拆至私有仓 `awesome-novel-server`，本仓只经 HTTP API 与之协作。SSE 用于 C端 流式生成正文。
+S端（License 授权/支付/设备/套餐）已拆至独立私有仓（仓名不入库），本仓只经 HTTP API 与之协作。SSE 用于 C端 流式生成正文。
 
 ## 目录结构
 
@@ -174,7 +174,7 @@ ai-novel/
 ├── docs/                     文档（specs + plans）
 └── reference/                项目模板（YAML/MD templates）
 
-# S端（支付/鉴权/设备/套餐/发码/营销）→ ../awesome-novel-server
+# S端（支付/鉴权/设备/套餐/发码/营销）→ sibling 私有仓检出（路径见 $S_SERVER_DIR）
 ```
 
 ## 关键设计决策
@@ -186,7 +186,7 @@ ai-novel/
 - **设定渲染收敛 settings/render.py**：文风/反AI → 提示词字符串统一经 render.py（flatten_principles / fmt_mistakes / depiction_techniques_str / build_tone_section），容忍模板盘文件与前端/AI 保存的 dict/list 双态。前端两表单 merge-on-save（`{...existing, ...edited}`），因后端 PUT = 整体替换。
 - **题材/文风分离**：叙事者角色与叙事基调归文风表单（writing-style `narrator_role` + `tone{default_tone, atmosphere, pov, techniques}`），题材库的 toneBlueprint/narratorRole 数据保留但不注入提示词。存量项目经启动回填 `backfill_tone_overrides` 一次性迁入文风 tone。
 - **SSE 流式传输**：第五阶段写作期间每个段落一个 SSE 连接。前端可打开多个并行流，支持每个段落的暂停/停止。
-- **S端 数据库双实现**（详见 awesome-novel-server 仓）：`DB_BACKEND` 决定仓储实现——`sqlite`（SQLAlchemy/SQLite，本地与测试默认）或 `pg_http`（CloudBase PostgreSQL PostgREST HTTP API + 环境 API Key，生产）。仓储接口在 `app/infrastructure/repositories/base.py`（5 个 Protocol），服务层只依赖接口，切换数据库只改环境变量。体验版套餐 PG 无 TCP 直连（无连接地址/账号管理），HTTP API 是唯一路径（service_role 绕过 RLS）；建表由 MCP `applyMigration` 预建并打标 alembic_version，`pg_http` 后端启动跳过迁移。
+- **S端 数据库双实现**（详见 S端 私有仓）：`DB_BACKEND` 决定仓储实现——`sqlite`（SQLAlchemy/SQLite，本地与测试默认）或 `pg_http`（CloudBase PostgreSQL PostgREST HTTP API + 环境 API Key，生产）。仓储接口在 `app/infrastructure/repositories/base.py`（5 个 Protocol），服务层只依赖接口，切换数据库只改环境变量。体验版套餐 PG 无 TCP 直连（无连接地址/账号管理），HTTP API 是唯一路径（service_role 绕过 RLS）；建表由 MCP `applyMigration` 预建并打标 alembic_version，`pg_http` 后端启动跳过迁移。
 - **Token 计费**：每次 AI 调用记录到 `token_log` 并从用户余额中扣除。按模型计价（haiku：输入/输出每百万 $0.80/$4.00；sonnet：$3/$15）。
 - **多租户隔离**：文件系统路径 `/data/{user_id}/`，数据库查询通过 JWT 中的 user_id 限定范围，v1 不支持项目共享。
 
@@ -210,4 +210,4 @@ ai-novel/
 ### S端 — License 授权与设备管理服务
 - **后端**：4A 分层架构重构完成（Domain / Application / Infrastructure / Interfaces 四层，11 个 use case，Alembic 迁移）
 - **前端**：Vue 3 SPA 完整实现（8 页面 / 16 组件 / Pinia / 双主题 / 双向路由守卫 / 82 个 E2E 测试）
-- **CI**：C端 前后端构建＋C端 打包 exe＋镜像构建（S端 前后端构建/部署已随拆仓迁 awesome-novel-server 仓）
+- **CI**：C端 前后端构建＋C端 打包 exe＋镜像构建（S端 前后端构建/部署已随拆仓迁 S端 私有仓）

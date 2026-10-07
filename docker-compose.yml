@@ -16,9 +16,11 @@
 # 是服务间与 nginx 代理的内部契约，不可配；仅宿主端口映射可变。
 services:
   server-backend:
-    # 拆仓（s-server-repo-split）：S端 源码已迁 awesome-novel-server 私有仓；
-    # sibling checkout 约定——两仓同级放置，S_SERVER_DIR 可覆盖（CI 传检出路径）。
-    build: ${S_SERVER_DIR:-../awesome-novel-server/server}
+    # 拆仓（s-server-repo-split）：S端 源码在独立私有仓（仓名不入库，凭 S_SERVER_DIR 定位）；
+    # sibling checkout 约定——两仓同级放置。S_SERVER_DIR 指向该仓检出的 server/（本地写进
+    # .env 或 shell export；CI 传检出路径）。默认值只是占位（让不含 S端 源码的 CI 也能解析本
+    # 文件），照默认值构 S端 服务即报路径不存在——按提示设好变量即可。
+    build: ${S_SERVER_DIR:-../<S端私有仓检出>/server}
     container_name: ai-novel-server-backend
     environment:
       DB_DIR: /app/data
@@ -52,9 +54,9 @@ services:
 
   server-frontend:
     build:
-      # S端 源码在 sibling 仓（s-server-repo-split）；brand/LICENSE 用本仓副本
+      # S端 源码在 sibling 私有仓（s-server-repo-split）；brand/LICENSE 用本仓副本
       # （双仓各持一份、改动两端同批，见 brand/README 注记与两仓 CLAUDE.md）
-      context: ${S_SERVER_DIR:-../awesome-novel-server/server}/frontend
+      context: ${S_SERVER_DIR:-../<S端私有仓检出>/server}/frontend
       additional_contexts:
         # 品牌单源 brand.json（brand-name-single-source）：
         # Dockerfile 内 COPY --from=brand 注入，vite 构建期读取

@@ -40,21 +40,22 @@ jobs:
   e2e:
     needs: changes
     # 拆仓守卫（2026-10-05 拍板不配 S_SERVER_TOKEN）：nightly e2e 需跨仓检出
-    # awesome-novel-server 构建四服务栈（真后端不打桩）；未配令牌时整轮跳过
+    # S端 私有仓构建四服务栈（真后端不打桩）；未配令牌时整轮跳过
     # 而非红。本地全量 e2e（sibling 布局，见 CLAUDE.md）不受影响；后续在 secrets
-    # 配置 S_SERVER_TOKEN（PAT 读私有仓）即自动恢复。
-    if: ${{ needs.changes.outputs.changed == 'true' && secrets.S_SERVER_TOKEN != '' }}
+    # 配置 S_SERVER_TOKEN（PAT 读私有仓）＋ vars.S_SERVER_REPO（私有仓全名）即自动恢复。
+    if: ${{ needs.changes.outputs.changed == 'true' && secrets.S_SERVER_TOKEN != '' && vars.S_SERVER_REPO != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      # 拆仓（s-server-repo-split）：S端 源码在私有仓 awesome-novel-server，
+      # 拆仓（s-server-repo-split）：S端 源码在独立私有仓（仓名不入库），
       # compose 以 S_SERVER_DIR 取服务端构建上下文——双 checkout 到 s-server/。
-      # ⚠ 需在仓库 secrets 配 S_SERVER_TOKEN（PAT，对 awesome-novel-server 有读权限）。
+      # ⚠ 需在仓库 secrets 配 S_SERVER_TOKEN（PAT，对该私有仓有读权限）＋
+      #    vars.S_SERVER_REPO（私有仓全名 owner/repo，下方 repository 直接取用）。
       - uses: actions/checkout@v4
         with:
-          repository: modoojunko/awesome-novel-server
+          repository: ${{ vars.S_SERVER_REPO }}
           token: ${{ secrets.S_SERVER_TOKEN }}
           path: s-server
 
@@ -112,8 +113,8 @@ jobs:
           python -m pip install --quiet -r requirements.txt
           python scripts/upgrade_drill.py --all --work /tmp/drill-work
 
-      # s-contract-live-check 的 S web 契约活体冒烟已随拆仓迁至 awesome-novel-server
-      # 仓自有 workflow（s-contract-live.yml）——那是 S端 自己的测试套件，不再挂
+      # s-contract-live-check 的 S web 契约活体冒烟已随拆仓迁至 S端 私有仓
+      # 自有 workflow（s-contract-live.yml）——那是 S端 自己的测试套件，不再挂
       # C端 nightly 跑别的仓的代码。本 workflow 的 S端 源码检出仅用于构建四服务栈。
 
       - name: 上传失败报告
