@@ -42,6 +42,8 @@ jobs:
         env:
           # 版本资源口径：演练构建无 tag，退 0.0.0（win_version_info 兜底）
           APP_VERSION: rehearsal
+          # Windows 控制台 cp1252 兜底（#705 判例）：python 及子进程（compile_native）统一 UTF-8
+          PYTHONUTF8: "1"
         run: |
           cd client/packaging/build
           python build_nuitka.py
