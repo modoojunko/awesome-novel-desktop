@@ -120,55 +120,34 @@ VSVersionInfo(
 """, encoding='utf-8')
 
 # ── Analysis ──
+# 烘焙清单单源（c-nuitka-full）：datas/hiddenimports/excludes 与 Nuitka 引擎共用
+# bundle_manifest.py，分叉即失真——勿在此文件内联手抄清单。
+import sys as _sys
+
+_sys.path.insert(0, str(spec_dir))
+import bundle_manifest as _manifest
+
 a = Analysis(
     ['pywebview_app.py'],  # 与 build.spec 同目录
     pathex=[str(root_dir), str(backend_dir)],
     binaries=[],
     datas=[
-        # 前端整份 dist：index.html + assets/ + env.js + public/*.svg
-        # （只收 index.html + assets 会漏 env.js，index.html 用 <script src="./env.js"> 引用 → 冻结包 404）
-        (str(frontend_dist), "frontend"),
-        (str(backend_dir / "reference"), "reference"),
         # AI 提示词模板**不再随包**（c-prompt-pack-client 硬切，2026-10-05 拍板）：
         # 装完登录后按权益从 CDN 拉加密包装本地（prompt_pack/sync.py），loader 缺包时
         # 抛 PromptPackMissing → 503 {reason: prompts_missing} → 四态卡引导。
         # 回归由 client-package.yml / build_release.ps1 的「产物零 *.prompt」断言钉住。
+        *[(str(root_dir / src), dest) for src, dest in _manifest.DATAS],
         # 发布期注入的 S端 地址（CI 构建时生成在 spec 同目录；本地开发无此文件则不打）。
         # 注意 datas 的目标段是「目录」语义——写成文件名会造出同名目录套娃，须落资源根 "."。
-        *([(str(spec_dir / "release.json"), ".")] if (spec_dir / "release.json").exists() else []),
-        # 品牌单源（brand-name-single-source）：brand.json 落资源根，backend/brand.py 运行时探测读取
-        (str(root_dir / "brand" / "brand.json"), "."),
-        # EULA 与第三方开源声明随包（relicense-proprietary）：PyInstaller ≥6 落 _internal/
-        # （macOS 唯一通道；Windows 另由 installer.iss [Files] 显式落 {app} 根，双份属预期冗余）
-        (str(root_dir / "LICENSE"), "."),
-        (str(root_dir / "THIRD-PARTY-NOTICES.txt"), "."),
+        *[(str(spec_dir / src), dest)
+          for src, dest in _manifest.CONDITIONAL_DATAS
+          if (spec_dir / src).exists()],
     ],
-    hiddenimports=[
-        'main', 'config', 'brand', 'db', 'ai_client',
-        'aiosqlite', 'sqlalchemy.ext.asyncio',
-        'anthropic', 'openai',
-        'yaml', 'httpx', 'jose', 'multipart',
-        'auth_local', 'auth_local.middleware', 'auth_local.models',
-        'auth_local.router', 'auth_local.service',
-        'settings', 'chapters', 'prompt', 'write', 'archive',
-        # 提示词包（c-prompt-pack-hardening 阶段二）：container/localkey/sync 在打包时被
-        # 编译成原生扩展并被函数内懒导入——PyInstaller 静态分析看不到懒导入，不显式列出
-        # 则冻结包里缺模块（运行期解密直接崩）
-        'prompt_pack', 'prompt_pack.container', 'prompt_pack.localkey', 'prompt_pack.sync',
-        'api_configs', 'genres', 'workflow', 'workflow.engine', 'workflow.gates', 'workflow.tier',
-        'filesystem', 'filesystem.storage', 'filesystem.init', 'filesystem.composite_storage',
-        'settings.render',
-        'story', 'story.engine', 'story.character_agent', 'story.models',
-        'threads', 'novels',
-        'models', 'models.user', 'models.project', 'models.token_log', 'models.chapter', 'models.volume',
-        'backup', 'backup.router', 'backup.export', 'backup.format', 'backup.importer',
-        'job_runner',
-        'manuscript', 'manuscript.router', 'manuscript.service', 'manuscript.content', 'manuscript.render',
-    ],
+    hiddenimports=list(_manifest.HIDDEN_IMPORTS),
     hookspath=[str(spec_dir / "hooks")],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['tkinter', 'matplotlib', 'PIL', 'pandas', 'numpy', 'notebook', 'test', 'unittest'],
+    excludes=list(_manifest.EXCLUDED_IMPORTS),
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
