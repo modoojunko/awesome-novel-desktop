@@ -82,3 +82,7 @@
   收环境 lsof 逗号多端口假零→僵尸旧进程跨轮存活（bind 全败但 nohup 静默），后端
   404/超时全来自僵尸＋失效库句柄；修复＝逐口杀＋bind 自检＋spec 网络步骤 fail-fast
   （mustOk）；干净环境连跑三轮 7/7×18s 证稳。
+- **review-agent 轮（PR #714 后）**：P2＝trigger_sync 退出与 finally 清空非原子（排队
+  触发窄窗口被丢，违背「在途触发不吞」）→ 退出判定与 _syncing 复位合并同一临界区、
+  异常路径独立收尾；P3＝design-system delta 的 design-vocab.mjs 登记承诺与该文件机制
+  不符 → 措辞对齐（类名/文案不入其白名单）。
