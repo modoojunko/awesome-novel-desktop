@@ -13,42 +13,40 @@ interface Toast {
   message: string;
   type: ToastType;
   action?: ToastAction;
-  /** 常驻（不自动消失）：采纳回执的撤销入口须活到下次编辑（c-plot-split 拍板②） */
-  sticky?: boolean;
 }
 
 let _toasts: Toast[] = [];
 let _nextId = 1;
 const _listeners = new Set<(toasts: Toast[]) => void>();
+/** 全站基线：默认 3 秒自动消失（c-toast-dismiss；原 4 秒，2026-10-07 拍板） */
+const AUTO_DISMISS_MS = 3000;
 
 function notify() {
   for (const fn of _listeners) fn([..._toasts]);
 }
 
-function addToast(type: ToastType, msg: string, opts?: { action?: ToastAction; sticky?: boolean }): number {
+function addToast(type: ToastType, msg: string, opts?: { action?: ToastAction }): number {
   const id = _nextId++;
-  _toasts.push({ id, message: msg, type, action: opts?.action, sticky: opts?.sticky });
+  _toasts.push({ id, message: msg, type, action: opts?.action });
   notify();
-  if (!opts?.sticky) {
-    setTimeout(() => {
-      _toasts = _toasts.filter((t) => t.id !== id);
-      notify();
-    }, 4000);
-  }
+  setTimeout(() => {
+    _toasts = _toasts.filter((t) => t.id !== id);
+    notify();
+  }, AUTO_DISMISS_MS);
   return id;
 }
 
 export const toast = {
-  error(msg: string, opts?: { action?: ToastAction; sticky?: boolean }) {
+  error(msg: string, opts?: { action?: ToastAction }) {
     return addToast("error", msg, opts);
   },
-  success(msg: string, opts?: { action?: ToastAction; sticky?: boolean }) {
+  success(msg: string, opts?: { action?: ToastAction }) {
     return addToast("success", msg, opts);
   },
-  info(msg: string, opts?: { action?: ToastAction; sticky?: boolean }) {
+  info(msg: string, opts?: { action?: ToastAction }) {
     return addToast("info", msg, opts);
   },
-  /** 主动收掉一条（「下次编辑即收」语义） */
+  /** 主动收掉一条（「编辑即收」等提前收口语义） */
   dismiss(id: number) {
     _toasts = _toasts.filter((t) => t.id !== id);
     notify();
@@ -89,6 +87,13 @@ export function Toaster() {
               {t.action.label}
             </button>
           )}
+          <button
+            aria-label="关闭"
+            onClick={() => toast.dismiss(t.id)}
+            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, marginLeft: 2, padding: 0, border: 0, background: "none", color: "inherit", opacity: 0.7, flex: "none", cursor: "pointer" }}
+          >
+            <Ico d={P.close} sw={2.2} />
+          </button>
         </div>
       ))}
     </div>

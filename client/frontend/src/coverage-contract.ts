@@ -45,4 +45,6 @@ export const COVERAGE_CONTRACT_FILES = [
   // 批 1 收尾（pages 全量；此后 pages 目录完整性由契约测试的目录断言把守）
   "src/pages/LoginPage.tsx",
   "src/pages/NovelListPage.tsx",
+  // c-toast-dismiss（全站 toast：3 秒自动消失＋× 关闭，sticky 退役）
+  "src/lib/toast.tsx",
 ] as const;

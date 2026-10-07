@@ -578,7 +578,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   /** 替换明示 N＝已写的非空条数（拍板②） */
   const writtenCount = ogForm.plots.filter((s) => s.trim() !== "").length;
 
-  // 采纳回执（常驻到下次编辑，拍板②）：撤销快照＝采纳前列表
+  // 采纳回执（3 秒自动消失＋×，c-toast-dismiss；「编辑即收/切章即收」保留为提前收口）：撤销快照＝采纳前列表
   const plotReceiptRef = useRef<{ id: number; prev: string[] } | null>(null);
   const killPlotReceipt = useCallback(() => {
     const r = plotReceiptRef.current;
@@ -678,7 +678,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     plotDraw.openDraw();
   }, [chapterRef, plotDraw]);
 
-  /** 「就填这版」：整表替换（拍板②）＋常驻回执（撤销恢复填写前列表，含非空）。
+  /** 「就填这版」：整表替换（拍板②）＋回执（3 秒窗口内可撤销恢复填写前列表，含非空；c-toast-dismiss）。
    *  关窗在落库成功之后——保存失败时弹层留在原地、选中版还在，直接再点即可重试
    *  （先关后存会把失败变成「重抽一次烧 tokens」，评审 P3）；adoptingRef 挡落库期间重入。 */
   const adoptingRef = useRef(false);
@@ -707,7 +707,6 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     plotReceiptRef.current = {
       prev,
       id: toast.success(`剧情已由 AI 填好（${items.length} 条）`, {
-        sticky: true,
         action: { label: "撤销 · 恢复填写前的列表", onClick: handlePlotUndo },
       }),
     };

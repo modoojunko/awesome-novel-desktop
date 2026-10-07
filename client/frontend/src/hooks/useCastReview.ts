@@ -4,7 +4,7 @@
 // 会话跟章走（drawKey.cast，localStorage 兜刷新）：载荷＝盘点结果＋三选一＋输入指纹（只盖剧情
 // 输入，落账写名字不失效）＋gapId 批次；恢复按档位裁剪（免费档丢 cards 载荷）；指纹不符弃用并
 // 重跑；「重新盘点」＝全量重跑＋按段 idx 对回合并。并发双击在途互斥（busyRef，state 重渲染
-// 窗口挡不住连点）。落账回执走 toast sticky（先例 plot 采纳回执）＋结果页 aria-live 回执行。
+// 窗口挡不住连点）。落账回执＝toast（3 秒自动消失，c-toast-dismiss）＋结果页 aria-live 回执行。
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   castChoice,
@@ -118,7 +118,7 @@ export interface CastReviewController {
   backToCards: () => void;
   /** 写入两出口（建卡并写入／只加名单）：在途互斥 */
   submitWrite: (req: CastWriteRequest) => Promise<CastWriteOutcome | null>;
-  /** 写入成功落账：缺口转已处理、剩余继续、全部处理完收场；回执 toast sticky */
+  /** 写入成功落账：缺口转已处理、剩余继续、全部处理完收场；回执 toast（3 秒自动消失） */
   markWritten: (gapId: string, outcome: Extract<CastWriteOutcome, { ok: true }>) => void;
 }
 
@@ -555,7 +555,7 @@ export function useCastReview(opts: {
         writeError: null,
         notice,
       }));
-      toast.success(notice, { sticky: true });
+      toast.success(notice);
     },
     [persistGaps, sessionKey],
   );

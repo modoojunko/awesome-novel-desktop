@@ -37,7 +37,7 @@ interface OgPaneProps {
    *  undefined＝台账不可用（加载失败/未接线）——回落「（未填）」占位 */
   hookHints?: OgHookHints;
   onPatch: (patch: Partial<OgForm>) => void;
-  /** 剧情区编辑（输入/加/删任一动作）：上层用来收掉常驻采纳回执（拍板②）＋触发润色软提示检查 */
+  /** 剧情区编辑（输入/加/删任一动作）：上层用来提前收掉采纳回执（c-toast-dismiss；编辑即收）＋触发润色软提示检查 */
   onPlotEdit?: () => void;
   gaps: { key: string; label: string }[];
   confirmed: boolean;
