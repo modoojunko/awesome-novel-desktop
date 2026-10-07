@@ -31,6 +31,7 @@ import ai_client as ai_client_module
 from ai_client import AIClient, get_ai_client_for_user
 from api_configs import connection as conn_mod
 from api_configs.connection import _build_probe
+from api_configs.connection import fetch_models as do_fetch_models
 from api_configs.connection import test_connection as do_test_connection
 from api_configs.crypto import encrypt_api_key
 from api_configs.schemas import CreateApiConfigBody
@@ -475,9 +476,12 @@ class TestConnectionFlow:
         assert "https://api.example.com/chat/completions" in out["error"]
 
     def test_openai_chat_probe_model_rejected_strict(self, fake_http):
-        """探针模型 id 被拒（400）判失败并点名所试 id——原「400 宽松不拦」口径作废（2026-10-05 拍板）。"""
+        """探针模型 id 被拒（400）判失败并点名所试 id——原「400 宽松不拦」口径作废（2026-10-05 拍板）。
+
+        探针失败仍带回已提取的清单（评审 P1 自恢复闭环）：落库后书内选择面板有正确
+        候选，用户手填错 id 后不必删配置重建。"""
         fake_http.script = [
-            ("GET", 200, {"data": [{"id": "embed-only"}]}),
+            ("GET", 200, {"data": [{"id": "embed-only"}, {"id": "good-model"}]}),
             ("POST", 400, {"error": {"message": "model not supported"}}),
         ]
         out = _run_async(
@@ -485,6 +489,7 @@ class TestConnectionFlow:
         )
         assert out["ok"] is False and out["status"] == "unknown"
         assert "embed-only" in out["error"]
+        assert out["models"] == ["embed-only", "good-model"]  # 失败信封携带真实清单
 
     def test_openai_probe_uses_vendor_candidate_when_no_models(self, fake_http):
         """模型列表为空 → 用 vendor 候选 id 做探针（deepseek 实测候选）。"""
@@ -496,7 +501,7 @@ class TestConnectionFlow:
             do_test_connection("deepseek", "sk", "https://api.deepseek.com", "openai")
         )
         assert out["ok"] is True
-        assert fake_http.calls[1][3]["model"] == "deepseek-v4-flash"
+        assert fake_http.calls[1][3]["model"] == "deepseek-flash"
 
     def test_probe_uses_preferred_model_first(self, fake_http):
         """探针模型 id：配置已选模型（preferred）压过列表首个——预填模型名直通探针。"""
@@ -645,6 +650,99 @@ class TestConnectionFlow:
         )
         assert out["ok"] is False and out["status"] == "endpoint_mismatch"
         assert "405" in out["error"]
+
+
+class TestFetchModels:
+    """只拉清单轻探针（c-api-config-auto-models）：GET-only、零生成调用。"""
+
+    def test_openai_200_no_generation_probe(self, fake_http):
+        """openai 格式拉清单成功：只发一条 GET，SHALL NOT 追加对话探针（与连接测试的关键差异）。"""
+        fake_http.script = [("GET", 200, {"data": [{"id": "m-1"}, {"id": "m-2"}]})]
+        out = _run_async(
+            do_fetch_models("kimi", "sk", "https://api.moonshot.cn/v1", "openai")
+        )
+        assert out["ok"] is True and out["models"] == ["m-1", "m-2"]
+        assert out["status"] == "ok"
+        assert [c[0] for c in fake_http.calls] == ["GET"]
+        assert fake_http.calls[0][1].endswith("/v1/models")
+
+    def test_anthropic_404_returns_candidates_without_generation(self, fake_http):
+        """anthropic 404 → 空清单＋候选＋说明，且不发降级生成请求（轻探针不发生成）。"""
+        fake_http.script = [("GET", 404)]
+        out = _run_async(
+            do_fetch_models(
+                "deepseek", "sk", "https://api.deepseek.com/anthropic", "anthropic"
+            )
+        )
+        assert out["ok"] is True and out["models"] == []
+        assert out["candidates"] == ["deepseek-flash", "deepseek-v4-pro"]
+        assert out["note"]
+        assert [c[0] for c in fake_http.calls] == ["GET"]  # 无 POST
+
+    def test_html_page_fails(self, fake_http):
+        """200 但体是网页 → 判败并提示核对 Base URL（填错网址提前暴露，无需等测试连接）。"""
+        fake_http.script = [("GET", 200, ValueError("not json"), "text/html")]
+        out = _run_async(
+            do_fetch_models("openai", "sk", "https://platform.deepseek.com", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "endpoint_mismatch"
+        assert "不是 API 数据" in out["error"]
+
+    def test_empty_key_no_network(self, fake_http):
+        """非 ollama 且 Key 为空 → 鉴权失败，零网络请求。"""
+        out = _run_async(
+            do_fetch_models("openai", "", "https://api.openai.com", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "auth_error"
+        assert fake_http.calls == []
+
+    def test_ollama_tags_free_of_key(self, fake_http):
+        """ollama 免 Key：GET /api/tags，按 tags 形态提取。"""
+        fake_http.script = [("GET", 200, {"models": [{"name": "llama3:8b"}]})]
+        out = _run_async(do_fetch_models("ollama", "", "http://localhost:11434", "openai"))
+        assert out["ok"] is True and out["models"] == ["llama3:8b"]
+        assert fake_http.calls[0][1].endswith("/api/tags")
+
+    def test_auth_401_fails(self, fake_http):
+        fake_http.script = [("GET", 401)]
+        out = _run_async(
+            do_fetch_models("glm", "sk", "https://open.bigmodel.cn/api/paas/v4", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "auth_error"
+
+    def test_openai_404_is_error_not_no_list(self, fake_http):
+        """openai 格式 404＝Base URL 路径可疑（异常响应），SHALL NOT 误诊为「无清单端点」（评审 P1）。"""
+        fake_http.script = [("GET", 404)]
+        out = _run_async(
+            do_fetch_models("openai", "sk", "https://api.example.com/wrong-path", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "unknown"
+        assert "404" in out["error"]
+        assert "note" not in out and "candidates" not in out
+
+    def test_rate_limited_429(self, fake_http):
+        fake_http.script = [("GET", 429)]
+        out = _run_async(
+            do_fetch_models("openai", "sk", "https://api.openai.com/v1", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "rate_limited"
+
+    def test_server_error_500(self, fake_http):
+        fake_http.script = [("GET", 500, {"error": {"message": "upstream down"}})]
+        out = _run_async(
+            do_fetch_models("qwen", "sk", "https://dashscope.aliyuncs.com/compatible-mode/v1", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "network_error"
+        assert "upstream down" in out["error"]
+
+    def test_ollama_custom_port_respected(self, fake_http):
+        """ollama 自定义端口的 base 一律照打——旧实现见 "localhost" 硬替 11434（评审 P2 实锤）。"""
+        fake_http.script = [("GET", 200, {"models": [{"name": "llama3:8b"}]})]
+        out = _run_async(
+            do_fetch_models("ollama", "", "http://localhost:12345", "openai")
+        )
+        assert out["ok"] is True and out["models"] == ["llama3:8b"]
+        assert fake_http.calls[0][1] == "http://localhost:12345/api/tags"
 
 
 # ═════════════════ 4. 契约：create/update 语义 ═════════════════

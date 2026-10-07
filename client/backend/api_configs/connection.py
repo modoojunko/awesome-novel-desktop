@@ -27,13 +27,14 @@ CONNECTION_TEST_TIMEOUT = int(os.environ.get("API_CONFIG_TEST_TIMEOUT", "10"))
 _ANTHROPIC_PROBE_MODEL = "claude-sonnet-4-20250514"
 
 # 「端点不提供 /models」时的候选起点（按 vendor）。
-# 只放**实测可用**的 id（deepseek 2026-09-09 实测：anthropic 兼容端点 404、
-# openai 端点 200 返回这三个）；没有把握的 vendor 留空 → 前端只给手动输入。
+# 只放**有据**的 id（厂商官方文档或实测）；没有把握的 vendor 留空 → 前端只给手动输入。
 # 候选**不自动写库**（用户点选才落 models），避免把猜测值塞进配置。
 # 与前端 vendorDefaults.ts 的 VENDOR_DEFAULTS 登记表同族（那边是创建预填值）：
 # 登记值/候选变更两处对齐。
+# deepseek 2026-10-07 按官方文档刷新（api-docs.deepseek.com/api/list-models：
+# 现返回 deepseek-flash 与 deepseek-v4-pro；deepseek-v4-flash 已不存在，vision 实验版无据撤下）。
 VENDOR_MODEL_CANDIDATES: dict[str, list[str]] = {
-    "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-vision-exp"],
+    "deepseek": ["deepseek-flash", "deepseek-v4-pro"],
 }
 
 # 端点不提供模型列表时的统一说明（连接成功但列表为空的原因）
@@ -167,7 +168,9 @@ async def test_connection(
                     _openai_reply_text,
                 )
                 if ping is not None:
-                    return ping
+                    # 探针失败仍带回已提取的清单（评审 P1：手填错 id 的自恢复闭环——
+                    # 落库后书内选择面板立刻有正确候选可选，不必删配置重建）
+                    return {**ping, "models": models}
             elif api_format == "anthropic" and fallback is not None:
                 f_url, f_headers, _f_payload = fallback
                 ping = await _probe_generation(
@@ -178,7 +181,109 @@ async def test_connection(
                     _anthropic_reply_text,
                 )
                 if ping is not None:
-                    return ping
+                    return {**ping, "models": models}
+            return {"ok": True, "status": "ok", "models": models, "error": None}
+    except httpx.TimeoutException:
+        return {"ok": False, "status": "timeout", "models": None, "error": "连接超时"}
+    except httpx.ConnectError:
+        return {
+            "ok": False,
+            "status": "network_error",
+            "models": None,
+            "error": "无法连接服务器",
+        }
+    except httpx.RequestError as exc:
+        return {
+            "ok": False,
+            "status": "network_error",
+            "models": None,
+            "error": f"网络错误: {exc}",
+        }
+
+
+async def fetch_models(
+    vendor_id: str,
+    api_key: str,
+    base_url: str,
+    api_format: str = "openai",
+    timeout: int = CONNECTION_TEST_TIMEOUT,
+) -> dict[str, Any]:
+    """只拉清单轻探针（c-api-config-auto-models）：复用连接测试的端点/请求头构造，
+    仅 GET 模型清单端点，**不发对话探针**（零生成调用）——表单「Key 失焦自动拉清单」用。
+
+    与 test_connection 的关键差异：anthropic 格式 models 端点 404 时**不发生成请求**，
+    直接返回空清单＋该 vendor 候选＋说明（手填兜底的入口数据）。失败语义与测试路径同口径
+    （鉴权/限流/服务端错误/网络错误/网页判废），但不做「无模型 id 不算通」判定——
+    这里只回答「清单是什么」，不回答「连接能不能用」。
+    """
+    requires_key = vendor_id != "ollama"
+    if requires_key and not api_key.strip():
+        return {
+            "ok": False,
+            "status": "auth_error",
+            "models": None,
+            "error": "API Key 为空，请填写后再获取",
+        }
+
+    endpoint, headers, extract_fn, _unused_fallback = _build_probe(
+        api_format, vendor_id, api_key, base_url
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            resp = await client.get(endpoint, headers=headers)
+            # 「端点不提供清单」的 404 特判只限 anthropic 格式（与 test_connection 的
+            # fallback 判据同源）——openai/ollama 格式的 404 更常见成因是 Base URL 路径
+            # 填错，按异常响应报错并提示核对，不误诊为「无清单端点」（评审 P1）
+            if resp.status_code == 404 and api_format == "anthropic":
+                return {
+                    "ok": True,
+                    "status": "ok",
+                    "models": [],
+                    "error": None,
+                    "candidates": model_candidates_for(vendor_id),
+                    "note": NO_MODEL_LIST_NOTE,
+                }
+            if resp.status_code in (401, 403):
+                detail = _extract_error_detail(resp)
+                return {
+                    "ok": False,
+                    "status": "auth_error",
+                    "models": None,
+                    "error": f"认证失败 (HTTP {resp.status_code}){detail}",
+                }
+            if resp.status_code == 429:
+                return {
+                    "ok": False,
+                    "status": "rate_limited",
+                    "models": None,
+                    "error": "请求频率限制 (HTTP 429)",
+                }
+            if resp.status_code >= 500:
+                detail = _extract_error_detail(resp)
+                return {
+                    "ok": False,
+                    "status": "network_error",
+                    "models": None,
+                    "error": f"服务端错误 (HTTP {resp.status_code}){detail}",
+                }
+            if resp.status_code != 200:
+                detail = _extract_error_detail(resp)
+                return {
+                    "ok": False,
+                    "status": "unknown",
+                    "models": None,
+                    "error": f"异常响应 (HTTP {resp.status_code}){detail}",
+                }
+            not_api = _non_api_response(resp)
+            if not_api:
+                return {
+                    "ok": False,
+                    "status": "endpoint_mismatch",
+                    "models": None,
+                    "error": not_api,
+                }
+            models = extract_fn(resp)
             return {"ok": True, "status": "ok", "models": models, "error": None}
     except httpx.TimeoutException:
         return {"ok": False, "status": "timeout", "models": None, "error": "连接超时"}
@@ -217,12 +322,16 @@ def _build_probe(
     """
     base = base_url.rstrip("/")
 
-    # ollama 特例：本地服务、免 Key、自有 tags 端点，不按任一协议探测
+    # ollama 特例：本地服务、免 Key、自有 tags 端点，不按任一协议探测。
+    # 一律打用户填的 base（裸填/空＝官方默认 11434）——旧实现见 "localhost" 就硬替
+    # 11434，自定义端口（如 http://localhost:12345）被打去错端口（评审 P2 实锤）
     if vendor_id == "ollama":
-        url = "http://localhost:11434/api/tags"
-        if "localhost" not in base and base != "http://localhost:11434":
-            url = f"{base}/api/tags"
-        return url, {}, _extract_ollama_models, None
+        return (
+            f"{base or 'http://localhost:11434'}/api/tags",
+            {},
+            _extract_ollama_models,
+            None,
+        )
 
     if api_format == "anthropic":
         # Anthropic SDK 惯例：base 不带 /v1（SDK 自拼 /v1/messages），
