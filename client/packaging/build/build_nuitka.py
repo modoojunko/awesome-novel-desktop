@@ -89,7 +89,11 @@ def build(out_dir: Path) -> Path:
                 f"--macos-app-name={APP_NAME}",
                 f"--macos-app-icon={HERE / 'icon.icns'}"]
     elif sys.platform == "win32":
-        cmd += [f"--windows-icon-from-ico={HERE / 'icon.ico'}",
+        # standalone 必须显式声明：mac 侧由 --macos-create-app-bundle 蕴含，Windows
+        # 无旗标会静默跑成 accelerated（产物只有 exe+cmd 启动器、无 .dist 独立包，
+        # 演练四轮判例）——分发包绝不接受加速模式
+        cmd += ["--mode=standalone",
+                f"--windows-icon-from-ico={HERE / 'icon.ico'}",
                 "--windows-console-mode=disable"]
         # Nuitka 4.x 无 version-info 文件选项（演练判例：--windows-version-file 不存在），
         # 用离散旗标；字段与 PyInstaller 的 version_info.txt 同一单源（win_version_info）
