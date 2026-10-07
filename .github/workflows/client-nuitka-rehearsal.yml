@@ -1,0 +1,69 @@
+# C端 Nuitka Windows 演练（c-nuitka-full）
+#
+# 手动 dispatch 的打包链演练载体（判例：打包链改动须先 dispatch 演练）：
+# 在 windows-latest 上以 Nuitka 引擎出 onedir 包并断言产物形态，工件上传供
+# 真机安装冒烟（4.2/4.3）。**不碰发布链**：不建 Release、不传 CDN；
+# 正式出包灰度（client-package.yml 的 BUILD_ENGINE）在真机全冒烟通过后另行启用。
+#
+# 成本预期：Nuitka 全量编译在 2 核 runner 上约 30–60 分钟（mac 本地 10 核 7m38s 折算）。
+
+name: C端 Nuitka 演练 (windows)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rehearsal:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend + packaging deps
+        run: |
+          pip install -r client/backend/requirements.txt
+          pip install -r client/packaging/build/requirements.txt
+
+      - name: Build frontend
+        run: |
+          cd client/frontend
+          npm ci
+          npm run build
+
+      - name: Build app (Nuitka)
+        shell: bash
+        env:
+          # 版本资源口径：演练构建无 tag，退 0.0.0（win_version_info 兜底）
+          APP_VERSION: rehearsal
+        run: |
+          cd client/packaging/build
+          python build_nuitka.py
+
+      # 产物形态断言（与 mac 侧已验口径一致，钉在 CI 上防回归）
+      - name: Assert product shape
+        shell: bash
+        run: |
+          D="client/packaging/build/dist-nuitka/AwesomeNovel"
+          test -f "$D/AwesomeNovel.exe" || { echo "::error::主程序缺失"; exit 1; }
+          test -f "$D/frontend/index.html" || { echo "::error::前端 dist 未烘进产物"; exit 1; }
+          test -f "$D/build-engine.json" || { echo "::error::构建指纹缺失"; exit 1; }
+          test -f "$D/release.json" && echo "::warning::release.json 意外烘入（演练不应有）" || true
+          PYD=$(find "$D/prompt_pack" -name "*.pyd" 2>/dev/null | wc -l)
+          [ "$PYD" -ge 3 ] || { echo "::error::prompt_pack 原生扩展缺失（$PYD/3）"; exit 1; }
+          BAD=$(find "$D" \( -name "*.py" -o -name "*.pyc" -o -name "*.pyo" -o -name "*.prompt" \) | wc -l)
+          [ "$BAD" -eq 0 ] || { echo "::error::交付树出现字节码/源码/模板 $BAD 件"; exit 1; }
+          echo "产物形态断言全部通过（零字节码＋原生三件＋前端在位）"
+
+      - name: Upload onedir artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: awesomenovel-nuitka-windows
+          path: client/packaging/build/dist-nuitka/AwesomeNovel/
+          retention-days: 7

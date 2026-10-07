@@ -17,8 +17,12 @@ import webview
 
 
 def get_base_dir() -> Path:
+    # Nuitka standalone（c-nuitka-full）：sys.frozen 恒 False，官方标记是主模块
+    # globals 里的 __compiled__；datas 与二进制同目录（无 _MEIPASS 等价物）
     if getattr(sys, 'frozen', False):
         return Path(sys._MEIPASS)
+    if "__compiled__" in globals():
+        return Path(sys.executable).parent
     # Dev 模式: pywebview_app.py 在 client/packaging/build/ → 项目根目录
     return Path(__file__).parent.parent.parent
 
@@ -88,7 +92,7 @@ def get_appdata() -> Path:
 def get_install_dir() -> Path:
     """数据目录（DATA_ROOT）。Windows 便携式：exe 同目录；macOS：不写进 .app bundle，
     数据放 Application Support（与运行时目录一致）。"""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, 'frozen', False) or "__compiled__" in globals():
         if sys.platform == "darwin":
             return get_appdata()
         return Path(sys.executable).parent
@@ -118,7 +122,9 @@ def get_runtime_dir() -> Path:
 
     macOS / dev：等同 get_appdata()（macOS 上该目录同时是数据目录；dev 不往仓库里写）。"""
     appdata = get_appdata()
-    if sys.platform == "darwin" or not getattr(sys, "frozen", False):
+    if sys.platform == "darwin" or not (
+        getattr(sys, "frozen", False) or "__compiled__" in globals()
+    ):
         return appdata
     install_dir = get_install_dir()
     if _install_dir_writable(install_dir):
@@ -1172,6 +1178,20 @@ class NativeBridge:
     def pick_folder(self):
         result = self._window_ref.create_file_dialog(webview.FOLDER_DIALOG)
         return result[0] if result else None
+
+    def open_external(self, url: str):
+        """系统默认浏览器打开外链（登录授权页等）。
+
+        pywebview cocoa 只把「真实锚点点击」（WKNavigationTypeLinkActivated）转给
+        系统浏览器，编程式 window.open 的 navigationType=Other 落空（cocoa.py
+        createWebViewWith 判例，2026-10-07 Nuitka 包实测复现）——需要系统浏览器的
+        跳转走本桥；仅放行 http/https。桥探测不到时前端回退 window.open
+        （Windows 引擎下可达系统浏览器，行为不变）。"""
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            return False
+        import webbrowser
+
+        return bool(webbrowser.open(url))
 
     def pick_save_file(self, default_name: str = "", file_types=None):
         result = self._window_ref.create_file_dialog(
