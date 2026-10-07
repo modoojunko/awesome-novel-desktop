@@ -302,6 +302,7 @@ async def _run_async(
                 # 1600＝四域提取同预算：600 下 planted/resolved 各几条带证据句
                 # 必截断（真机实锤：断在半句 evidence → JSON 断裂 → parse 失败）
                 max_tokens=1600, usage=usage,
+                operation=f"reconcile_{kind}",
             )
             await _record(novel_id, kind, usage)
             data = _parse_json_lenient(text, allow_bare_array=(kind == "lore"))

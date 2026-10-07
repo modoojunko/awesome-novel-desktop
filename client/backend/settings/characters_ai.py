@@ -214,6 +214,7 @@ async def draft_character(
             temperature=temperature,
             json_mode=True,
             usage=usage,
+            operation=f"settings_char_draft_{target}",
         )
     except AITimeoutError:
         await record_usage(
@@ -374,6 +375,7 @@ async def check_character(
             temperature=0.3,
             json_mode=True,
             usage=usage,
+            operation="settings_char_check",
         )
     except AITimeoutError:
         await record_usage(
@@ -547,6 +549,7 @@ async def bootstrap_protagonist(
             temperature=0.5,
             json_mode=True,
             usage=usage,
+            operation="settings_char_bootstrap",
         )
     except AITimeoutError:
         await record_usage(

@@ -6,9 +6,12 @@ C/S 模式下从本地 config.json 动态读取 API Key/Base URL/Model，而不�
 
 import inspect
 import json
+import logging
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from anthropic import APIConnectionError as AnthropicConnectionError
@@ -66,6 +69,35 @@ _UPSTREAM_STATUS_ERRORS: tuple[type[Exception], ...] = (
     OpenAIStatusError,
     AnthropicStatusError,
 )
+
+# backend-logging（D7）：AI 调用链留痕。每次真实调用（无论成败）一行——
+# 成功 INFO、失败 WARNING 带归一化分类；正文/Key 不落日志（只记结果与计数）。
+logger = logging.getLogger(__name__)
+
+
+def _classify_error(e: Exception) -> str:
+    """失败分类与 _raise_normalized 同源：超时/上游拒绝/空响应/其他。
+
+    入参可能是归一化后的 AITimeoutError/AIRequestError（chat/chat_stream 出口），
+    也可能是原始异常（_guarded 内部路径）——两类都认。"""
+    if isinstance(e, (AITimeoutError, *_NETWORK_ERRORS)):
+        return "timeout"
+    if isinstance(e, AIRequestError):
+        return "upstream_reject"
+    status = getattr(e, "status_code", None)
+    if isinstance(e, _UPSTREAM_STATUS_ERRORS) and status is not None:
+        return f"upstream_{status}"
+    if isinstance(e, ValueError):
+        return "empty_response"
+    return type(e).__name__
+
+
+def _host_of(base_url: str) -> str:
+    """供应商主机（只取 host——完整 URL 含路径与可能的 query，不进日志）。"""
+    try:
+        return urlsplit(base_url).hostname or "-"
+    except ValueError:
+        return "-"
 
 
 def _upstream_route_message(exc: Exception, provider: str, base_url: str) -> str:
@@ -201,6 +233,41 @@ class AIClient:
         except Exception as e:  # noqa: BLE001 — 归一目标外的异常原样重抛（_raise_normalized 尾行 raise）
             self._raise_normalized(e)
 
+    def _log_call(
+        self,
+        operation: str,
+        model: str,
+        start: float,
+        *,
+        tokens_in: int | None = None,
+        tokens_out: int | None = None,
+        error: Exception | None = None,
+        attempt: int = 1,
+    ) -> None:
+        """一次 provider 调用出口的留痕行（D7）：成功 INFO / 失败 WARNING。
+
+        operation 由调用方传入（与 TokenLog 同名）；不落 API Key 与正文——
+        请求侧只计字符数由调用方掌握，本行只含结果与计数。error 截 200 字符
+        （httpx 异常文本含上游 URL，无 Key——header 鉴权）。
+        """
+        duration_ms = (time.perf_counter() - start) * 1000
+        op = operation or "-"
+        mdl = model or self._model or "-"
+        host = _host_of(self._base_url)
+        if error is None:
+            logger.info(
+                "event=ai_call op=%s model=%s host=%s attempt=%s duration_ms=%.0f"
+                " tokens_in=%d tokens_out=%d result=ok",
+                op, mdl, host, attempt, duration_ms, tokens_in or 0, tokens_out or 0,
+            )
+        else:
+            logger.warning(
+                "event=ai_call op=%s model=%s host=%s attempt=%s duration_ms=%.0f"
+                " result=%s error=%s",
+                op, mdl, host, attempt, duration_ms,
+                _classify_error(error), str(error)[:200],
+            )
+
     def _supports_temperature(self) -> bool:
         """Anthropic 1.x SDK 的 messages.create 不再接受 temperature（须走 extra_body）。"""
         cached = getattr(self, "_temp_supported", None)
@@ -262,13 +329,16 @@ class AIClient:
         messages: list[dict[str, str]],
         max_tokens: int = 1024,
         usage: dict | None = None,
+        operation: str = "",
         **kwargs: Any,
     ) -> str:
         """Non-streaming. Returns full response text.
 
         usage: 可选 dict，调用成功后填充 {"tokens_in", "tokens_out"}，供 TokenLog 记录。
+        operation: 业务动作名（backend-logging D7 留痕行用，与 TokenLog 同名）。
         """
         model = self.resolve(model)
+        start = time.perf_counter()
         if self._provider == "openai":
             openai_messages: list[dict[str, Any]] = []
             if system:
@@ -281,26 +351,47 @@ class AIClient:
             # json_mode 分层归属（D12）：业务层只传语义参数，客户端层按 api_format 落地
             if kwargs.pop("json_mode", False):
                 kwargs["response_format"] = {"type": "json_object"}
-            response = await self._guarded(
-                self._client.chat.completions.create(
-                    model=model,
-                    messages=openai_messages,
-                    max_tokens=max_tokens,
-                    extra_body=extra,
-                    **kwargs,
+            try:
+                response = await self._guarded(
+                    self._client.chat.completions.create(
+                        model=model,
+                        messages=openai_messages,
+                        max_tokens=max_tokens,
+                        extra_body=extra,
+                        **kwargs,
+                    )
                 )
-            )
+            except Exception as e:
+                self._log_call(operation, model, start, error=e)
+                raise
             if usage is not None:
                 u = getattr(response, "usage", None)
                 # OpenAI 的 prompt_tokens **已含**缓存命中部分（details.cached_tokens
                 # 是它的子集），故不再另加，避免重复计数。
                 usage["tokens_in"] = getattr(u, "prompt_tokens", 0) or 0
                 usage["tokens_out"] = getattr(u, "completion_tokens", 0) or 0
-            return response.choices[0].message.content or ""
+            choices = list(getattr(response, "choices", None) or [])
+            if not choices:
+                # choices 空（usage-only 响应等）＝无产物：按失败留痕，不记 ok
+                # （与 anthropic 无 text 块同口径，评审 P3）
+                self._log_call(
+                    operation, model, start,
+                    tokens_in=(usage or {}).get("tokens_in", 0),
+                    tokens_out=(usage or {}).get("tokens_out", 0),
+                    error=ValueError("模型未返回文本内容"),
+                )
+                raise ValueError("模型未返回文本内容（choices 空），请重试")
+            self._log_call(
+                operation, model, start,
+                tokens_in=(usage or {}).get("tokens_in", 0),
+                tokens_out=(usage or {}).get("tokens_out", 0),
+            )
+            return choices[0].message.content or ""
         else:
             kwargs.pop("json_mode", None)  # Anthropic 无 response_format，靠 prompt + 归一化兜底
             kwargs = self._anthropic_kwargs(kwargs)
             kwargs = self._with_thinking_disabled(kwargs)
+            attempt = 1
             try:
                 response = await self._guarded(
                     self._client.messages.create(
@@ -313,10 +404,13 @@ class AIClient:
                 )
             except Exception as e:  # noqa: BLE001 — 端点不认 thinking 时去掉再试一次
                 if isinstance(e, AITimeoutError):
+                    self._log_call(operation, model, start, error=e, attempt=attempt)
                     raise  # 网络层失败不做 thinking 重试
                 if "thinking" in kwargs and self._is_thinking_rejection(e):
                     self._remember_thinking_unsupported()
+                    self._log_call(operation, model, start, error=e, attempt=attempt)
                     kwargs.pop("thinking", None)
+                    attempt = 2
                     response = await self._guarded(
                         self._client.messages.create(
                             model=model,
@@ -327,6 +421,7 @@ class AIClient:
                         )
                     )
                 else:
+                    self._log_call(operation, model, start, error=e, attempt=attempt)
                     raise
             if usage is not None:
                 u = getattr(response, "usage", None)
@@ -341,10 +436,24 @@ class AIClient:
                 usage["tokens_out"] = getattr(u, "output_tokens", 0) or 0
             for block in response.content:
                 if getattr(block, "type", "") == "text" and block.text:
+                    self._log_call(
+                        operation, model, start,
+                        tokens_in=(usage or {}).get("tokens_in", 0),
+                        tokens_out=(usage or {}).get("tokens_out", 0),
+                        attempt=attempt,
+                    )
                     return block.text
             # 无 text 块（偶发：预算全用在思考 / 供应商只回 thinking）——
-            # 明确报错让上层可重试，**不得静默返回空串**（会被当成「非法 JSON」）
+            # 明确报错让上层可重试，**不得静默返回空串**（会被当成「非法 JSON」）；
+            # ok 行在文本确认后落（评审 P3：先记 ok 再抛错会让日志与调用方 _fail 矛盾）
             blocks = [getattr(b, "type", "?") for b in (response.content or [])]
+            self._log_call(
+                operation, model, start,
+                tokens_in=(usage or {}).get("tokens_in", 0),
+                tokens_out=(usage or {}).get("tokens_out", 0),
+                attempt=attempt,
+                error=ValueError("模型未返回文本内容"),
+            )
             raise ValueError(
                 f"模型未返回文本内容（返回块：{blocks or '空'}，stop_reason="
                 f"{getattr(response, 'stop_reason', '?')}），请重试"
@@ -356,10 +465,15 @@ class AIClient:
         system: str,
         messages: list[dict[str, str]],
         max_tokens: int = 4096,
+        operation: str = "",
         **kwargs: Any,
     ) -> AsyncIterator[StreamEvent]:
-        """Streaming chat. Yields StreamEvent with text, is_done, tokens."""
+        """Streaming chat. Yields StreamEvent with text, is_done, tokens.
+
+        operation: 业务动作名（backend-logging D7 留痕行用，与 TokenLog 同名）。
+        """
         model = self.resolve(model)
+        start = time.perf_counter()
         if self._provider == "openai":
             kwargs.pop("json_mode", None)  # 流式不落 response_format
             openai_messages: list[dict[str, Any]] = []
@@ -393,8 +507,12 @@ class AIClient:
                     delta = chunk.choices[0].delta
                     if delta and delta.content:
                         yield StreamEvent(text=delta.content)
+                self._log_call(
+                    operation, model, start, tokens_in=done_in, tokens_out=done_out
+                )
                 yield StreamEvent(is_done=True, tokens=done_out, tokens_in=done_in)
             except Exception as e:  # noqa: BLE001 — 归一目标外的异常原样重抛（_raise_normalized 尾行 raise）
+                self._log_call(operation, model, start, error=e)
                 self._raise_normalized(e)
         else:
             kwargs = self._anthropic_kwargs(kwargs)
@@ -421,8 +539,13 @@ class AIClient:
                             tokens = 0
                             if hasattr(event, "usage") and event.usage:
                                 tokens = event.usage.output_tokens
+                            self._log_call(
+                                operation, model, start,
+                                tokens_in=tokens_in, tokens_out=tokens,
+                            )
                             yield StreamEvent(is_done=True, tokens=tokens, tokens_in=tokens_in)
             except Exception as e:  # noqa: BLE001 — 归一目标外的异常原样重抛（_raise_normalized 尾行 raise）
+                self._log_call(operation, model, start, error=e)
                 self._raise_normalized(e)
 
 

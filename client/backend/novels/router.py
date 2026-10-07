@@ -174,6 +174,7 @@ async def suggest_meta(
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1200,
                 usage=usage,
+                operation="suggest_meta",
             )
         except AITimeoutError:
             from api_configs.usage import record_usage

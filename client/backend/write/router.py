@@ -77,6 +77,7 @@ async def _stream_chapter(db, project, root_path: str, chapter_ref: str, ctx, pr
             system=system,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=8192,
+            operation="write_chapter",
         ):
             if event.text:
                 full_text += event.text
@@ -247,6 +248,7 @@ async def polish_write_prompt(
             system=system,
             messages=[{"role": "user", "content": _craft_user_t.format(material=ctx.material_markdown())}],
             usage=usage,
+            operation="prompt_polish",
         )
     except AITimeoutError:
         from api_configs.usage import record_usage

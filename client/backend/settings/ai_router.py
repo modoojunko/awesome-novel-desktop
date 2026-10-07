@@ -465,6 +465,7 @@ async def intro_ai(
             temperature=temperature,
             json_mode=True,
             usage=usage,
+            operation=f"settings_intro_{action}",
         )
     except AITimeoutError:
         await _record_failure(
@@ -666,6 +667,7 @@ async def draft_world_topic(
             temperature=0.3,
             json_mode=True,
             usage=usage,
+            operation=f"settings_world_draft_{topic[:20]}",
         )
     except AITimeoutError:
         await _record_failure(
@@ -798,6 +800,7 @@ async def check_world_consistency(
             temperature=0.3,
             json_mode=True,
             usage=usage,
+            operation="settings_world_check",
         )
     except AITimeoutError:
         await _record_failure(
@@ -919,6 +922,7 @@ async def lore_suggest_world(
             temperature=0.3,
             json_mode=True,
             usage=usage,
+            operation="settings_world_lore_suggest",
         )
     except AITimeoutError:
         await _record_failure(
@@ -1140,6 +1144,7 @@ async def run_arc_ai(
             temperature=0.6 if action in ("draft", "calibrate") else 0.3,
             json_mode=True,
             usage=usage,
+            operation=f"arc_{action}",
         )
     except AITimeoutError:
         await _record_failure(
@@ -1588,6 +1593,7 @@ async def run_hooks_ai(
             temperature=0.6 if action in ("draft", "payoff") else 0.3,
             json_mode=True,
             usage=usage,
+            operation=f"settings_hooks_{action}",
         )
     except AITimeoutError:
         await _record_failure(
@@ -1797,6 +1803,7 @@ async def _distill_llm(project, user, db, *, system: str, prompt: str):
             temperature=0.3,
             json_mode=True,
             usage=usage,
+            operation="settings_style_distill",
         )
     except AITimeoutError:
         await _record_failure(
@@ -2162,6 +2169,7 @@ async def generate_field(
             temperature=0.3,
             json_mode=True,
             usage=usage,
+            operation=f"settings_{stype}_{field}",
         )
     except AITimeoutError:
         await _record_failure(

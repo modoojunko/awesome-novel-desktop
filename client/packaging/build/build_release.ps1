@@ -142,7 +142,18 @@ Step '6/8 冒烟测试' {
             Start-Sleep -Seconds 1
         }
         if (-not $port -or -not (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/api/health" -TimeoutSec 3 -ErrorAction SilentlyContinue)) {
+            # backend-logging：全部日志在运行目录 logs/ 下（startup.log ＋ 按天后端日志
+            # app.log*，取最新两份）；遗留运行目录根 uvicorn.log 作老现场兜底。
             foreach ($d in $runtimeDirs) {
+                $logDir = Join-Path $d 'logs'
+                if (Test-Path $logDir) {
+                    $startup = Join-Path $logDir 'startup.log'
+                    if (Test-Path $startup) { Write-Host "--- $startup ---"; Get-Content $startup -Tail 40 }
+                    Get-ChildItem -Path $logDir -Filter 'app*.log' -File -ErrorAction SilentlyContinue |
+                        Sort-Object LastWriteTime -Descending | Select-Object -First 2 | ForEach-Object {
+                            Write-Host "--- $($_.FullName) ---"; Get-Content $_.FullName -Tail 40
+                        }
+                }
                 foreach ($name in @('startup.log', 'uvicorn.log')) {
                     $f = Join-Path $d $name
                     if (Test-Path $f) { Write-Host "--- $f ---"; Get-Content $f -Tail 40 }
