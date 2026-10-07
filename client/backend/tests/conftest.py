@@ -124,6 +124,10 @@ if "openai" not in sys.modules:
 # 覆盖这两个变量（engine 模块级缓存，第一个 import 者生效），维持现状。
 _TMP_DATA_ROOT = tempfile.mkdtemp(prefix="ai-novel-test-data-")
 os.environ["DATA_ROOT"] = _TMP_DATA_ROOT
+# backend-logging：测试进程一律关闭文件日志（main.py 顶部 setup_logging 幂等
+# 调用会随任意测试导入 main 触发）——否则 pytest 向 DATA_ROOT/logs 刷文件。
+# 需要真实文件日志的用例用 daily_file_log fixture 临时开启并完整还原。
+os.environ["AINOVEL_LOG_OFF"] = "1"
 # c-db-per-version：测试库名＝「本机版本」派生（不设 CLIENT_VERSION 时是 dev 哨兵，
 # 会话库会被按 dev 语义对待）——显式钉一个版本，测试库名与断言口径一致
 os.environ.setdefault("CLIENT_VERSION", "0.25")
@@ -232,3 +236,40 @@ async def seed_chapter_db(root: str, chapter: dict, *, summary: str = "") -> Non
     await save_chapter(
         root, f"vol-{chapter.get('volume', 1)}-ch-{chapter.get('chapter', 1)}", chapter
     )
+
+
+# ── backend-logging：按天文件日志测试夹具 ────────────────────────────────────
+import logging as _logging
+
+from logging_setup import setup_logging as _setup_logging
+
+_NOISY = ("httpx", "httpcore", "openai", "sqlalchemy")
+
+
+@pytest.fixture()
+def daily_file_log(tmp_path, monkeypatch):
+    """临时开启真实按天文件日志（AINOVEL_LOG_OFF 会被本夹具移除），结束后完整
+    还原 root/uvicorn/noisy 的 handler 与级别——测试互不渗漏。"""
+    monkeypatch.delenv("AINOVEL_LOG_OFF", raising=False)
+    monkeypatch.setenv("AINOVEL_LOG_DIR", str(tmp_path / "logs"))
+    root, uv = _logging.getLogger(), _logging.getLogger("uvicorn")
+    snap_root_h, snap_uv_h = list(root.handlers), list(uv.handlers)
+    snap = (root.level, uv.level, uv.propagate,
+            _logging.getLogger("uvicorn.access").level,
+            {n: _logging.getLogger(n).level for n in _NOISY})
+    log_dir = _setup_logging()
+    yield log_dir
+    for h in list(root.handlers):
+        if h not in snap_root_h:
+            root.removeHandler(h)
+    for h in list(uv.handlers):
+        if h not in snap_uv_h:
+            uv.removeHandler(h)
+    root_level, uv_level, uv_prop, access_level, noisy = snap
+    root.setLevel(root_level)
+    uv.setLevel(uv_level)
+    uv.propagate = uv_prop
+    _logging.getLogger("uvicorn.access").setLevel(access_level)
+    for n, lvl in noisy.items():
+        _logging.getLogger(n).setLevel(lvl)
+

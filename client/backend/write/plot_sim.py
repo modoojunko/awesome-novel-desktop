@@ -264,6 +264,7 @@ async def plot_simulate(
                 max_tokens=1600,
                 system=system,
                 messages=[{"role": "user", "content": _user}],
+                operation="plot_sim",
                 usage=usage,
             )
         except AITimeoutError:

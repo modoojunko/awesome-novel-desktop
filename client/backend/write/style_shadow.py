@@ -177,7 +177,7 @@ async def suggest_style_shadow(
     usage: dict = {}
     text = await client.chat(
         model="haiku", system="", messages=[{"role": "user", "content": prompt}],
-        max_tokens=500, usage=usage,
+        max_tokens=500, usage=usage, operation="style_shadow_suggest",
     )
     await record_usage(
         db,

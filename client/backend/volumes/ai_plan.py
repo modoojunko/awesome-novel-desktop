@@ -63,6 +63,7 @@ async def _generate(
         raw = await client.chat(
             model=_MODEL, system=system, messages=[{"role": "user", "content": user_msg}],
             max_tokens=max_tokens, temperature=temperature, usage=usage,
+            operation=operation,
         )
     except AITimeoutError:
         from api_configs.usage import record_usage

@@ -99,7 +99,13 @@ class _FakeWindow:
 
 
 def _log_text(appdata: Path) -> str:
-    return (appdata / "startup.log").read_text(encoding="utf-8")
+    """backend-logging：启动日志落 logs/ 子目录；回退运行目录根（老链路兼容读）。"""
+    for p in (appdata / "logs" / "startup.log", appdata / "startup.log"):
+        try:
+            return p.read_text(encoding="utf-8")
+        except Exception:
+            continue
+    raise AssertionError("startup.log 未落盘（logs/ 与运行目录根都读不到）")
 
 
 # ── 1. 早失败：后端线程死了就不再干等 ──────────────────────────────────────
@@ -155,6 +161,102 @@ def test_error_page_carries_both_logs(shell, tmp_path):
     assert "lifespan crashed" in html
     assert "&lt;x&gt;" in html, "日志内容必须转义"
     assert str(tmp_path) in html
+
+
+# ── 3b. backend-logging：单目录与按天文件判据 ───────────────────────────────
+
+
+def test_error_page_prefers_newest_daily_backend_log(shell, tmp_path):
+    """logs/ 内多份按天文件时取最新（按 mtime），并展示其绝对路径。"""
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "startup.log").write_text("[t] boot ok", encoding="utf-8")
+    older = logs / "app.log.2026-10-01"
+    newer = logs / "app.log"
+    older.write_text("[older] yesterday-line", encoding="utf-8")
+    newer.write_text("[newer] today-line", encoding="utf-8")
+    os.utime(older, (1000, 1000))
+    os.utime(newer, (2000, 2000))
+
+    html = shell.write_error_page(tmp_path, "后端启动超时").read_text(encoding="utf-8")
+
+    assert "today-line" in html, "必须取最新一份按天日志"
+    assert "yesterday-line" not in html, "只带最新一份，不整目录倾倒"
+    assert "app.log" in html
+    assert "logs" in html and "求诊" in html, "错误页必须注明日志目录与求诊口径"
+
+
+def test_error_page_falls_back_to_legacy_uvicorn_log(shell, tmp_path):
+    """backend-logging 之前的老现场：只有运行目录根 uvicorn.log——回退生效。"""
+    (tmp_path / "uvicorn.log").write_text("[legacy] old-site-line", encoding="utf-8")
+
+    html = shell.write_error_page(tmp_path, "x").read_text(encoding="utf-8")
+
+    assert "old-site-line" in html
+
+
+def test_startup_log_lands_in_logs_dir(shell, tmp_path):
+    """backend-logging D8③：startup.log 写入 logs/ 子目录（运行目录根不再新增）。"""
+    shell.log_line(tmp_path, "hello-logs-dir")
+    assert (tmp_path / "logs" / "startup.log").exists()
+    assert "hello-logs-dir" in (tmp_path / "logs" / "startup.log").read_text(encoding="utf-8")
+
+
+def test_startup_log_falls_back_to_root_when_logs_unwritable(shell, tmp_path, monkeypatch):
+    """回退链：logs/ 建不出来 → 运行目录根（启动判据宁可降级也不丢）。"""
+    blocker = tmp_path / "logs"
+    blocker.write_text("i am a file", encoding="utf-8")  # logs/ 路径被文件占位
+
+    shell.log_line(tmp_path, "fallback-line")
+
+    text = (tmp_path / "startup.log").read_text(encoding="utf-8")
+    assert "fallback-line" in text
+
+
+def test_start_server_uses_no_log_config_and_injects_log_dir(shell, tmp_path, monkeypatch):
+    """uvicorn.Config 收到 log_config=None（文件日志单源移交 backend）＋ 注入
+    AINOVEL_LOG_DIR ＋ 预挂 setup_logging（幂等合一）。"""
+
+    captured: dict = {}
+
+    class _FakeServer:
+        def __init__(self, config):
+            captured["server_config"] = config
+            self.config = config
+
+        def run(self):
+            captured["ran"] = True
+
+    fake_uvicorn = types.ModuleType("uvicorn")
+
+    class _Config:
+        def __init__(self, app, **kwargs):
+            captured["app"] = app
+            captured["kwargs"] = kwargs
+
+    fake_uvicorn.Config = _Config
+    fake_uvicorn.Server = _FakeServer
+    monkeypatch.setitem(sys.modules, "uvicorn", fake_uvicorn)
+
+    pre_attached: list = []
+    fake_ls = types.ModuleType("logging_setup")
+    fake_ls.setup_logging = lambda: pre_attached.append(1) or None
+    monkeypatch.setitem(sys.modules, "logging_setup", fake_ls)
+    monkeypatch.delenv("AINOVEL_LOG_DIR", raising=False)
+    monkeypatch.setenv("AINOVEL_LOG_OFF", "1")  # 预挂真实实现也安全；此处用 stub 探测调用
+
+    appdata = tmp_path / "appdata"
+    monkeypatch.setattr(shell, "get_appdata", lambda: appdata)
+    monkeypatch.setattr(shell, "get_install_dir", lambda: tmp_path / "install")
+    monkeypatch.setattr(shell, "get_resource_root", lambda: tmp_path / "res")
+    monkeypatch.setattr(shell, "_server_exited", shell._server_exited)
+
+    shell.start_server()
+
+    assert captured.get("ran"), "uvicorn Server.run 应被驱动"
+    assert captured["kwargs"].get("log_config") is None, "壳层必须退役自带 log_config"
+    assert pre_attached, "起 uvicorn 前必须预挂 setup_logging（D3 预挂）"
+    assert os.environ.get("AINOVEL_LOG_DIR") == str(appdata / "logs")
 
 
 # ── 4/5. 轮询线程：异常不静默、装载超时有兜底 ─────────────────────────────

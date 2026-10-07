@@ -265,6 +265,7 @@ async def run_character_decision(
                     else _DECISION_SYSTEM[0] + " " + _STRICT_SUFFIX,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=1024,
+                    operation="story_character_decision",
                 ),
                 timeout=_LLM_TIMEOUT,
             )

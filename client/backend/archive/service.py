@@ -66,6 +66,7 @@ async def make_archive_summary(novel_id: str, full_text: str, ai_summary: bool =
             system=_s_sum,
             messages=[{"role": "user", "content": _u_sum.format(full_text=full_text)}],
             max_tokens=200,
+            operation="archive_summary",
             usage=usage,
         )
         await _record_ai_usage(novel_id, "archive_summary", usage)

@@ -171,5 +171,6 @@ async def polish_text(
         system=((_sys_t.format(**ctx) + f"；叙事角色定位：{role}") if _sys_t else f"你是一位资深小说编辑，专治「AI 腔」，请遵循以下角色定位：{role}"),
         messages=[{"role": "user", "content": prompt}],
         max_tokens=max_tokens,
+        operation="polish",
         usage=usage,
     )
