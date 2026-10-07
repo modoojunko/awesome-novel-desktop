@@ -1,6 +1,8 @@
 # 爱小说 · Awesome Novel
 
-> awesome-novel-agent 第 5 代 —— 源自开源项目 <https://github.com/modoojunko/awesome-novel-agent>；开源版仍按 AGPL 独立维护。
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue?style=flat-square)](LICENSE)
+
+> awesome-novel-agent 第 5 代 —— 源自开源项目 <https://github.com/modoojunko/awesome-novel-agent>（AGPL-3.0）；本仓库同样以 AGPL-3.0 开源。
 
 AI 辅助长篇小说创作平台 —— 单用户桌面应用，数据跟着你走。
 
@@ -34,7 +36,7 @@ AI 辅助长篇小说创作平台 —— 单用户桌面应用，数据跟着你
 ```
 
 - **C端** — 你电脑上跑的一切：FastAPI + SQLite + React SPA，装在 pywebview 窗口里
-- **S端** — 只做 License 激活 / 登录 / 验证，跑在腾讯云 CloudBase 上
+- **S端** — License 授权与设备管理服务（FastAPI 2.0 重构版），部署在腾讯云 CloudBase；独立私有组件，源码不在本仓
 - **数据** — SQLite 存元数据，YAML/MD 文件存小说内容，全在安装目录的 `data/` 下，可以随意备份和搬家
 
 ## 六阶段工作流
@@ -69,8 +71,8 @@ init → settings → outline → prompt → write → archive
 
 ```bash
 # 克隆
-git clone git@github.com:modoojunko/awesome-novel-desktop.git
-cd ai-novel
+git clone https://github.com/modoojunko/awesome-novel-desktop.git
+cd awesome-novel-desktop
 
 # 启动后端（无需 License）
 cd client/backend && mkdir -p data
@@ -95,33 +97,18 @@ pyinstaller build.spec
 ## 项目结构
 
 ```
-ai-novel/
-├── client/                    # C端 — 用户本地桌面应用
-│   ├── backend/              FastAPI 后端
-│   │   ├── main.py           入口 + 路由注册
-│   │   ├── config.py         配置 (DATA_ROOT, JWT_SECRET, SERVER_API_BASE)
-│   │   ├── db.py             SQLAlchemy + SQLite
-│   │   ├── ai_client.py      AI 客户端（动态 API Key）
-│   │   ├── models/           ORM: User, Project, TokenLog, NovelFile
-│   │   ├── auth_local/       License 验证 + JWT
-│   │   ├── projects/         项目 CRUD
-│   │   ├── settings/         设定管理 + AI 生成
-│   │   ├── chapters/         卷章 CRUD + 版本管理
-│   │   ├── workflow/         阶段机 + 验证门
-│   │   ├── prompt/           提示词组装
-│   │   ├── write/            SSE 流式写作 + 辅助写作
-│   │   ├── archive/          归档
-│   │   ├── filesystem/       双后端存储抽象
-│   │   └── story/            剧情推演引擎
+awesome-novel-desktop/
+├── client/                    # C端 — 用户本地桌面应用（本仓产品代码）
+│   ├── backend/              FastAPI 后端：六阶段工作流 / AI 生成 / 本地文件存储
 │   ├── frontend/             React 19 SPA (Vite + daisyUI)
-│   └── packaging/            PyInstaller + pywebview 打包
-├── server/                    # S端 — 腾讯云 CloudBase
-│   ├── cloudfunctions/       云函数
-│   ├── lib/                  共享库
-│   └── static/               静态页面
-├── docs/                     开发文档（不纳入版本控制）
-├── reference/                项目模板 (YAML/MD templates)
-└── CLAUDE.md                 Claude Code 项目指南
+│   └── packaging/            PyInstaller · Nuitka · Inno Setup 打包链
+├── brand/                    品牌单源（brand.json：名称 / 主体 / 图标）
+├── openspec/                 规格（specs/）与在途变更（changes/）
+├── docs/                     文档（ux 标准 / 法律 / 设计资产 …）
+├── scripts/                  仓库级脚本
+├── .github/workflows/        CI：前后端测试 / 打包发版 / 演练
+├── docker-compose*.yml       本地多服务栈（C端 + S端 sibling 私有仓）
+└── CLAUDE.md                 项目指南
 ```
 
 ## 存储后端
@@ -146,7 +133,13 @@ C端默认使用本地文件存储，所有数据在 `data/` 目录下：
 
 ## 许可证（License）
 
-本软件（含全部源代码与分发产物）为专有软件，版权归 **星纬（海口）投资有限公司** 所有，按仓库根 [LICENSE](LICENSE)（《爱小说》桌面软件最终用户许可协议 v2026.09）授权——软件本体可免费使用，增值功能/服务按已购授权提供。随分发附带的第三方开源组件按其自身许可提供，归属与声明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)；协议全文亦在官网公示（https://www.awesomenovel.com/legal/eula.html）。
+本软件以 **GNU Affero General Public License v3.0（AGPL-3.0-only）** 开源发布，版权所有 © 2026 **星纬（海口）投资有限公司**。完整许可全文见仓库根 [LICENSE](LICENSE)；随分发附带的第三方开源组件按其自身许可提供，归属与声明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)。
+
+- 你可以自由使用、修改、分发本软件；分发本软件或其衍生作品时，须同样以 AGPL-3.0 授权并提供完整对应源码。
+- 若将本软件（含修改版）作为网络服务提供给用户，须按 AGPL 第 13 条向这些用户提供对应源码。
+- 源码仓库：<https://github.com/modoojunko/awesome-novel-desktop>。
+- 账号、在线服务与增值功能（套餐、激活码等）不属于本许可的授予范围，适用《用户服务协议》《付费须知》等文件，见官网 <https://www.awesomenovel.com>。
+- 本仓库开源范围为桌面客户端（C端）；S端 在线服务为独立的私有专有组件，不在本许可范围内。
 
 ## 联系方式
 
