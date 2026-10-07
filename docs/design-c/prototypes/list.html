@@ -223,8 +223,11 @@
   .fin-done p{margin:3px 0 0;font-size:12.5px;color:var(--muted)}
 
   .toast-wrap{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:80;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
-  .toast{display:inline-flex;align-items:center;gap:8px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);animation:toast-in .22s ease}
+  .toast{display:inline-flex;align-items:center;gap:8px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);animation:toast-in .22s ease;pointer-events:auto}
   .toast svg{width:14px;height:14px;color:var(--ok);flex:none}
+  .toast .toast-x{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:2px;padding:0;border:0;background:none;color:inherit;opacity:.7;cursor:pointer;flex:none}
+  .toast .toast-x:hover{opacity:1}
+  .toast .toast-x svg{width:12px;height:12px;color:inherit}
   @keyframes toast-in{from{opacity:0;transform:translateY(8px)}}
 
   /* 底部状态条：左版权、右版本，固定窗口底 */
@@ -489,6 +492,8 @@
   <button class="chip-btn" data-pack-modal="packUpdateRun">更新进行中</button>
   <button class="chip-btn" data-pack-modal="packDone">已完成</button>
   <button class="chip-btn" data-pack-modal="packFail">失败</button>
+  <span class="demo-h">toast · 3 秒自消＋×</span>
+  <button class="chip-btn" data-toast-demo>弹一个</button>
   <span class="demo-note">产品实现为单实例弹窗（mode×stage 状态机），此处并列四变体供评审</span>
 </div>
 <!-- 版本行文案口径（c-version-build-info）：正式构建=v{X.Y.Z}；dev 构建={分支}@{commit前5位}（如 main@f456e，muted 小字同款）；构建信息缺失降级「开发版 dev」；获取失败「版本未知」。原型示例值用正式版形态，dev 形态属实现态动态文案，不改可见文本以免 parity 漂移。 -->
@@ -567,10 +572,13 @@ function persist(){ try { localStorage.setItem(STORE, JSON.stringify(books)); } 
 function toast(msg){
   const t = document.createElement('div');
   t.className = 'toast';
-  t.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg><span></span>';
+  t.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg><span></span>'
+    + '<button class="toast-x" type="button" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>';
   t.querySelector('span').textContent = msg;
+  const rm = () => { t.style.transition = 'opacity .3s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 300); };
+  t.querySelector('.toast-x').addEventListener('click', rm);
   $('toastWrap').appendChild(t);
-  setTimeout(() => { t.style.transition = 'opacity .3s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 2400);
+  setTimeout(rm, 3000);
 }
 
 const FIRST_RUN_HTML = `
@@ -950,6 +958,11 @@ document.querySelectorAll('[data-pack-modal]').forEach(b => b.addEventListener('
   const open = document.querySelector('.modal:not([hidden])');
   if (open) closeModal(open.id);
   openModal(b.getAttribute('data-pack-modal'));
+}));
+// toast 演示（非基线）：3 秒自消＋× 手动关
+document.querySelectorAll('[data-toast-demo]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.demo-bar .chip-btn').forEach(x => x.classList.remove('on'));
+  toast('演示：3 秒自动消失，也可点 × 立即收掉');
 }));
 // 更新确认 → 更新进行中（锁定态）：直接切变体，不经 closeModal（其 200ms 后会藏共享 scrim）
 $('packUpdateGo').addEventListener('click', () => {

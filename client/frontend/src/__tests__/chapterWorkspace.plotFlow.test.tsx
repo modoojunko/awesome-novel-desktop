@@ -1,5 +1,6 @@
 // 章剧情全链集成（c-plot-split 5.3/5.4）：门槛拦截（缺要素不发请求）／采纳整表替换＋
-// 常驻回执／撤销只回滚 plots／编辑收掉回执／已润色章改剧情软提示／免费态锁定卡。
+// 回执（3 秒窗口内可撤销，c-toast-dismiss）／撤销只回滚 plots／编辑收掉回执／
+// 已润色章改剧情软提示／免费态锁定卡。
 // 打桩层＝`@/lib/api`＋`@/lib/toast`（toast 断言回执与撤销语义）。
 import { createRef } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -213,7 +214,7 @@ describe("门槛拦截（拍板⑦三样：概要/挑战/结尾）", () => {
 });
 
 describe("采纳与撤销（拍板②）", () => {
-  it("就填这版＝整表替换＋常驻回执；撤销只回滚 plots", async () => {
+  it("就填这版＝整表替换＋回执（窗口内可撤销）；撤销只回滚 plots", async () => {
     mockApi.post.mockResolvedValue(THREE);
     const { railData, outline } = mount({ server: { ...FULL } });
     await waitFor(() => expect(railData()).not.toBeNull());
@@ -233,11 +234,10 @@ describe("采纳与撤销（拍板②）", () => {
         expect.objectContaining({ plot_items: THREE.versions[1].items }),
       ),
     );
-    // 回执常驻（sticky）＋带撤销动作
+    // 回执（3 秒自动消失基线）＋带撤销动作（窗口内可点）
     expect(mockToast.success).toHaveBeenCalledWith(
       expect.stringContaining("剧情已由 AI 填好（3 条）"),
       expect.objectContaining({
-        sticky: true,
         action: expect.objectContaining({ label: "撤销 · 恢复填写前的列表" }),
       }),
     );

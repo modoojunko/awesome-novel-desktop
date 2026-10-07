@@ -6,7 +6,7 @@ import { entitlementFor } from "./tier-features";
 
 // =========================================================================
 // c-plot-split 章内剧情 e2e：剧情区手写编辑（加/写/删＋自动保存落库）／
-// 右栏「剧情抽卡」三版抽卡（打桩；角标＋共用首尾）／采纳整表替换＋常驻回执撤销／
+// 右栏「剧情抽卡」三版抽卡（打桩；角标＋共用首尾）／采纳整表替换＋回执窗口内撤销／
 // 免费锁定（rail-locked 置灰＋升级出口，手写剧情照常可用）。
 // AI 端点 page.route 打桩；剧情真落库；断言走「不落库」后端直查。
 // =========================================================================
@@ -175,7 +175,7 @@ test("剧情区手写编辑全链：写一条/加一条/删一条，自动保存
   }
 });
 
-test("抽卡三版：角标＋共用首尾；采纳整表替换（明示 N 条）＋常驻回执撤销恢复", async ({ page, request }) => {
+test("抽卡三版：角标＋共用首尾；采纳整表替换（明示 N 条）＋回执窗口内撤销＋3 秒自动消失", async ({ page, request }) => {
   const { restore, token } = await setupSession(page);
   try {
     const pid = await createNovelWithChapter(page, `剧情抽卡${Date.now() % 100000}`);
@@ -201,9 +201,13 @@ test("抽卡三版：角标＋共用首尾；采纳整表替换（明示 N 条�
     await page.getByTestId("plot-card-0").click();
     await expect(page.getByTestId("plot-adopt")).toContainText("将替换已写的 2 条");
     await page.getByTestId("plot-adopt").click();
-    // 回执常驻（含撤销入口）
+    // 回执只活 3 秒窗口（c-toast-dismiss）：可见后立即点撤销，中间不得插入耗时轮询——
+    // 采纳落库由回执可见传递性证明（saveChapter 成功才出回执），不再单独 poll
     await expect(page.getByText("剧情已由 AI 填好（3 条）")).toBeVisible({ timeout: 8000 });
-    // 整表替换落库
+    await page.getByRole("button", { name: "撤销 · 恢复填写前的列表" }).click();
+    await expect(page.getByText("已恢复到 AI 填写前的列表")).toBeVisible();
+    await expect(page.getByLabel("第 1 条剧情")).toHaveValue("手写第一条");
+    // 撤销回写借 3s 自动保存；末尾轮询传递性证明「采纳落库＋撤销＋回写」全链
     const H = { Authorization: `Bearer ${token}` };
     await expect
       .poll(
@@ -212,19 +216,14 @@ test("抽卡三版：角标＋共用首尾；采纳整表替换（明示 N 条�
             ?.plot_items ?? [],
         { timeout: 12000 },
       )
-      .toEqual(THREE.versions[0].items);
-    // 撤销：恢复填写前列表（借 3s 自动保存回写）
-    await page.getByRole("button", { name: "撤销 · 恢复填写前的列表" }).click();
-    await expect(page.getByText("已恢复到 AI 填写前的列表")).toBeVisible();
-    await expect(page.getByLabel("第 1 条剧情")).toHaveValue("手写第一条");
-    await expect
-      .poll(
-        async () =>
-          (await (await request.get(`${ORIGIN}/api/novels/${pid}/chapters/vol-1-ch-1`, { headers: H })).json())
-            ?.plot_items ?? [],
-        { timeout: 12000 },
-      )
       .toEqual(["手写第一条", "手写第二条"]);
+    // 回执 3 秒自动消失基线：再采纳一版，不动它，等它自己走（× 关闭由 toast.test.tsx 单测钉）
+    await page.getByTestId("og-plot-draw").click();
+    await expect(page.getByTestId("plot-grid")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("plot-card-0").click();
+    await page.getByTestId("plot-adopt").click();
+    await expect(page.getByText("剧情已由 AI 填好（3 条）")).toBeVisible({ timeout: 8000 });
+    await expect(page.getByText("剧情已由 AI 填好（3 条）")).toBeHidden({ timeout: 6000 });
   } finally {
     await restore();
   }
