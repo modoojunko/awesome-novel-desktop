@@ -37,6 +37,12 @@ REPO = CLIENT.parent                 # 仓库根
 BACKEND = CLIENT / "backend"
 APP_NAME = "AwesomeNovel"  # 与 build.spec EXE/COLLECT、installer.iss Source 同名（改名单源 #687）
 
+# Windows 控制台默认 cp1252，编不了中文输出（#705/13f5f4d4 同款判例）——
+# 本脚本中文日志多，入口处统一兜底 UTF-8；GUI/重定向态 stdout 可能为 None
+for _stream in (sys.stdout, sys.stderr):
+    if _stream is not None and hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 
 def _fail(msg: str) -> None:
     raise SystemExit(f"build_nuitka: {msg}")
