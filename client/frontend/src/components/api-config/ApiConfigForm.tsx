@@ -62,7 +62,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
   const [cursor, setCursor] = useState(0);
   // 当前已应用的预填值（手改判定基准）
   const lastPresetRef = useRef<PrefillFields | null>(null);
-  // 用户手选/手填标记：自动默认选中（登记默认→清单首项）不覆盖手选值
+  // 用户手选/手填标记：自动默认选中（清单首项）不覆盖手选值
   const modelPickedRef = useRef(false);
   // 模型值镜像（评审 P0：applyAutoSelect 的守卫在 await 恢复后读到的是过期闭包 state，
   // 在途响应会覆盖用户刚手填的值——守卫一律读 ref）
@@ -117,8 +117,8 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
 
   // 2026-10-05 拍板：选已知供应商预填 Base URL＋模型名称（空或仍为预填值才覆盖、
   // 手改不劫持）；登记值见 vendorDefaults（取代 09-06「URL 不预填」）
-  // 2026-10-07：模型值参与覆盖判定的只有手选/手填值——自动拉取默认选中的值
-  // （登记默认→清单首项）不算手改，切供应商时随之更新（modelPickedRef 区分）
+  // 2026-10-07：模型值参与覆盖判定的只有手选/手填值——自动拉取默认选中的值（清单首项）
+  // 不算手改，切供应商时随之更新（modelPickedRef 区分）
   const prefillTo = (vendor: string, fmt: ApiFormat) => {
     const next = defaultsFor(vendor, fmt);
     const out = applyPreset(
