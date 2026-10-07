@@ -430,6 +430,28 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
             disabled={saving}
           />
         </div>
+        <div className="field">
+          <label htmlFor="cfKey">API Key</label>
+          <input
+            className="input mono"
+            id="cfKey"
+            type="password"
+            autoComplete="off"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            onBlur={() => {
+              // Key 失焦且非空＝自动拉清单的主触发点（2026-10-07 拍板：配完 Key 自动弹清单）
+              if (!isEdit && vendorId !== "ollama" && apiKey.trim()) {
+                void runFetchModels(curFetchParams());
+              }
+            }}
+            placeholder={keyPlaceholder}
+            disabled={saving || vendorId === "ollama"}
+          />
+          {isEdit && config?.api_key_masked && (
+            <span className="alt">当前密钥：{config.api_key_masked}</span>
+          )}
+        </div>
         {!isEdit && (
           <div className="field">
             <div className="label-row">
@@ -531,28 +553,6 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
             </div>
           </div>
         )}
-        <div className="field">
-          <label htmlFor="cfKey">API Key</label>
-          <input
-            className="input mono"
-            id="cfKey"
-            type="password"
-            autoComplete="off"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            onBlur={() => {
-              // Key 失焦且非空＝自动拉清单的主触发点（2026-10-07 拍板：配完 Key 自动弹清单）
-              if (!isEdit && vendorId !== "ollama" && apiKey.trim()) {
-                void runFetchModels(curFetchParams());
-              }
-            }}
-            placeholder={keyPlaceholder}
-            disabled={saving || vendorId === "ollama"}
-          />
-          {isEdit && config?.api_key_masked && (
-            <span className="alt">当前密钥：{config.api_key_masked}</span>
-          )}
-        </div>
         {testResult && (
           <div className={"tresult " + (testResult.ok ? "ok" : "bad")}>{testResult.message}</div>
         )}

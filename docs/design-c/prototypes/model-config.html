@@ -478,6 +478,11 @@
         <input class="input mono" id="cfBase" placeholder="https://api.openai.com" />
       </div>
       <div class="field">
+        <label for="cfKey">API Key</label>
+        <input class="input mono" id="cfKey" type="password" placeholder="sk-..." autocomplete="off" />
+        <span class="alt" id="cfKeyAlt" hidden></span>
+      </div>
+      <div class="field">
         <div class="label-row">
           <label for="cfModel">模型名称</label>
           <span class="mp-meta" id="cfModelMeta" hidden></span>
@@ -487,11 +492,6 @@
           <div class="mp-err" id="cfModelErr" hidden><span id="cfModelErrMsg"></span><button type="button" class="mp-retry" id="cfModelRetry">重新拉取</button></div>
           <div class="mp-panel" id="cfModelPanel" hidden></div>
         </div>
-      </div>
-      <div class="field">
-        <label for="cfKey">API Key</label>
-        <input class="input mono" id="cfKey" type="password" placeholder="sk-..." autocomplete="off" />
-        <span class="alt" id="cfKeyAlt" hidden></span>
       </div>
       <div class="tresult" id="cfTest" hidden></div>
     </div>

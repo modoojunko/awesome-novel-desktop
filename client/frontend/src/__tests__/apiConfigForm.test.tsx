@@ -291,6 +291,10 @@ describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）",
       models: ["kimi-k3", "kimi-k2.7-code"],
     }));
     render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    // 字段顺序拍板（2026-10-07）：Base URL → API Key → 模型（模型垫底，紧接 Key 失焦拉清单的动线）
+    const [b, k, m] = ["cfBase", "cfKey", "cfModel"].map((id) => document.getElementById(id)!);
+    expect(b.compareDocumentPosition(k) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(k.compareDocumentPosition(m) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(screen.getByText("Kimi"));
     setField("cfName", "x");
     setField("cfKey", "sk-1");
