@@ -422,6 +422,85 @@ class TestApiKeyCRUD:
         assert resp.status_code == 200
         assert captured["preferred_model"] == "deepseek-v4-pro"
 
+    def test_fetch_models_endpoint_passes_through(self, client, monkeypatch):
+        """只拉清单端点把 raw 配置透传给轻探针（无 preferred_model 概念）。"""
+        captured: dict = {}
+
+        async def fake_fetch(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True, "status": "ok", "models": ["m-1"], "error": None}
+
+        monkeypatch.setattr("api_configs.router._fetch_models", fake_fetch)
+        resp = client.post(
+            "/api/v1/api-configs/fetch-models",
+            json={
+                "vendor_id": "kimi",
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key": "sk-x",
+                "api_format": "openai",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["models"] == ["m-1"]
+        assert captured == {
+            "vendor_id": "kimi",
+            "api_key": "sk-x",
+            "base_url": "https://api.moonshot.cn/v1",
+            "api_format": "openai",
+        }
+
+    def test_fetch_models_rejects_extra_model_key(self, client, monkeypatch):
+        """轻探针请求体与 TestRawBody 的差异钉死：即使误传 model 也不透传（无探针优先模型概念）。"""
+        captured: dict = {}
+
+        async def fake_fetch(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True, "status": "ok", "models": [], "error": None}
+
+        monkeypatch.setattr("api_configs.router._fetch_models", fake_fetch)
+        resp = client.post(
+            "/api/v1/api-configs/fetch-models",
+            json={
+                "vendor_id": "kimi",
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key": "sk-x",
+                "api_format": "openai",
+                "model": "m-x",  # pydantic 忽略多余键——断言它没被透传
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert "preferred_model" not in captured
+
+    def test_test_config_persist_normalizes_and_truncates(self, client, monkeypatch):
+        """自动落库走归一化（去空白/去重）且超限截断——百炼逾百条清单不再堵死手动 PUT。"""
+        big = [f"m-{i:03d}" for i in range(150)] + ["m-000", " m-001 "]  # 152 条含重复与空白
+
+        async def fake_test(**kwargs):
+            return {"ok": True, "status": "ok", "models": big, "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "超长清单",
+                "vendor_id": "qwen",
+                "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "api_key": _test_api_key("long"),
+            },
+        )
+        cid = resp.json()["id"]
+        assert client.post(f"/api/v1/api-configs/{cid}/test").status_code == 200
+        got = client.get(f"/api/v1/api-configs/{cid}").json()["models"]
+        assert len(got) == 100  # 截断而非超限落库
+        assert got[:2] == ["m-000", "m-001"]  # 去重保序、空白已剥
+        # 归一化后的存量不再挡手动 PUT（修前：>100 原样落库 → 后续 PUT 422）
+        put = client.put(
+            f"/api/v1/api-configs/{cid}", json={"models": got + ["m-extra"]}
+        )
+        assert put.status_code == 422  # 手动路径超限仍报错（拍板口径：显式行为才拦）
+        put2 = client.put(f"/api/v1/api-configs/{cid}", json={"models": ["m-000"]})
+        assert put2.status_code == 200
+
     def test_create_config_with_vendor_detection(self, client):
         """Create config, verify vendor auto-detection."""
         resp = client.post(

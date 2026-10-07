@@ -210,6 +210,24 @@
   .tresult.bad { background: var(--err-soft); color: var(--err); }
   .ferr { font-size: 13px; padding: 9px 12px; border-radius: 9px; background: var(--err-soft); color: var(--err); margin-bottom: 4px; }
 
+  /* 模型选择器（c-api-config-auto-models：组合框＋弹层；与实现 model-config.css 同形态） */
+  .mp-wrap { position: relative; }
+  .mp-meta { font-size: 11.5px; color: var(--muted); }
+  .mp-meta.ok { color: var(--ok); }
+  .mp-meta.warn { color: var(--warn); }
+  .mp-panel { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 30; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-card); overflow: hidden; }
+  .mp-note { padding: 9px 12px; font-size: 12px; color: var(--muted); line-height: 1.6; border-bottom: 1px solid var(--border); }
+  .mp-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .mp-cap { font-size: 11.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); background: var(--fg-soft); color: var(--muted); font-family: var(--font-mono); cursor: pointer; }
+  .mp-cap:hover { border-color: var(--accent); color: var(--accent-strong); }
+  .mp-list { margin: 0; padding: 6px; list-style: none; max-height: 240px; overflow-y: auto; }
+  .mp-item { display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px; background: none; font: inherit; font-size: 12.5px; font-family: var(--font-mono); color: var(--fg); text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mp-item:hover, .mp-item.cur { background: var(--fg-soft); }
+  .mp-item.on { background: var(--accent-soft); color: var(--accent-strong); }
+  .mp-empty { padding: 12px; font-size: 12.5px; color: var(--muted); text-align: center; }
+  .mp-err { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--warn); }
+  .mp-retry { border: 0; background: none; font: inherit; font-size: 12px; color: var(--accent-strong); cursor: pointer; text-decoration: underline; padding: 0; flex: none; }
+
   /* 删除确认 */
   .del-inventory { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
   .inv-title { width: 100%; font-size: 12px; color: var(--muted); margin-bottom: 2px; }
@@ -460,8 +478,15 @@
         <input class="input mono" id="cfBase" placeholder="https://api.openai.com" />
       </div>
       <div class="field">
-        <label for="cfModel">模型名称</label>
-        <input class="input mono" id="cfModel" placeholder="模型 id，如 deepseek-v4-pro" />
+        <div class="label-row">
+          <label for="cfModel">模型名称</label>
+          <span class="mp-meta" id="cfModelMeta" hidden></span>
+        </div>
+        <div class="mp-wrap" id="cfModelWrap">
+          <input class="input mono" id="cfModel" placeholder="填 Key 后自动获取清单；也可直接输入模型 id" role="combobox" aria-expanded="false" aria-controls="cfModelPanel" aria-autocomplete="list" autocomplete="off" />
+          <div class="mp-err" id="cfModelErr" hidden><span id="cfModelErrMsg"></span><button type="button" class="mp-retry" id="cfModelRetry">重新拉取</button></div>
+          <div class="mp-panel" id="cfModelPanel" hidden></div>
+        </div>
       </div>
       <div class="field">
         <label for="cfKey">API Key</label>
@@ -673,12 +698,131 @@ function applyPreset(cur, prev, next) {
 function prefillTo(vendor, fmt) {
   const next = defaultsFor(vendor, fmt);
   const out = applyPreset(
-    { base_url: $('cfBase').value.trim(), model: $('cfModel').value.trim() },
+    { base_url: $('cfBase').value.trim(), model: picker.picked ? $('cfModel').value.trim() : '' },
     lastPreset, next);
   $('cfBase').value = out.base_url;
   $('cfModel').value = out.model;
   lastPreset = next;
 }
+
+/* ═══════════ 模型清单自动拉取（c-api-config-auto-models 演示） ═══════════ */
+/* 演示口径：本地种子清单模拟供应商 /models；Key 以 bad 开头 → 认证失败（与 simulateTest 同判据）；
+   真实实现见 client/frontend/src/components/api-config/ApiConfigForm.tsx（轻探针 POST /api-configs/fetch-models）。 */
+const MODEL_SEEDS = {
+  openai: ['gpt-5.2', 'gpt-5.2-mini', 'gpt-5.1'],
+  anthropic: ['claude-sonnet-5', 'claude-haiku-5'],
+  deepseek: ['deepseek-flash', 'deepseek-v4-pro'],
+  glm: ['glm-5.3', 'glm-5.2', 'glm-5.3-flash'],
+  kimi: ['kimi-k3', 'kimi-k2.7-code'],
+  qwen: ['qwen3.6-plus', 'qwen3.6-max', 'qwen3.6-flash', 'qwen-vl-plus', 'qwen-turbo'],
+  ollama: ['llama3:8b'],
+  'openai-compat': ['my-model-a', 'my-model-b'],
+};
+const picker = { list: [], candidates: [], note: null, fetching: false, err: null, open: false, picked: false, fp: '', cursor: 0 };
+function pickerParams() {
+  return selVendor + '|' + $('cfBase').value.trim() + '|' + $('cfKey').value + '|' + selFormat;
+}
+function renderPickerMeta() {
+  const el = $('cfModelMeta');
+  let tone = '', text = '';
+  if (picker.fetching) text = '正在获取模型清单…';
+  else if (picker.err) { tone = 'warn'; text = '清单获取失败'; }
+  else if (picker.list.length) { tone = 'ok'; text = `已拉到 ${picker.list.length} 个模型`; }
+  else if (picker.note) { tone = 'warn'; text = '无模型清单'; }
+  el.hidden = !text;
+  el.className = 'mp-meta' + (tone ? ' ' + tone : '');
+  el.textContent = text;
+  const errBox = $('cfModelErr');
+  errBox.hidden = !(picker.err && !picker.fetching);
+  $('cfModelErrMsg').textContent = picker.err || '';
+}
+function renderPickerPanel() {
+  const panel = $('cfModelPanel');
+  if (!picker.open) { panel.hidden = true; $('cfModel').setAttribute('aria-expanded', 'false'); return; }
+  const q = $('cfModel').value.trim().toLowerCase();
+  const rows = picker.list.filter(m => m.toLowerCase().includes(q));
+  let html = '';
+  if (picker.note) html += `<div class="mp-note">${picker.note}</div>`;
+  if (picker.candidates.length) {
+    html += `<div class="mp-chips">${picker.candidates.map(c => `<button type="button" class="mp-cap" data-pick="${c}">${c}</button>`).join('')}</div>`;
+  }
+  if (picker.fetching) html += '<div class="mp-empty">正在获取模型清单…</div>';
+  else if (!rows.length) {
+    html += `<div class="mp-empty">${picker.list.length === 0 ? '暂无模型清单——可手填模型 id，或点「重新拉取」' : '没有匹配的模型 id，换个词试试'}</div>`;
+  } else {
+    html += `<ul class="mp-list">${rows.map((m, i) => {
+      const on = m === $('cfModel').value;
+      return `<li><button type="button" role="option" aria-selected="${on}" class="mp-item${i === picker.cursor ? ' cur' : ''}${on ? ' on' : ''}" data-pick="${m}">${m}</button></li>`;
+    }).join('')}</ul>`;
+  }
+  panel.innerHTML = html;
+  panel.hidden = false;
+  $('cfModel').setAttribute('aria-expanded', 'true');
+}
+/* 默认选中（拍板 2026-10-07「默认选第一个」＋登记默认值调和）：登记默认 ∈ 清单 → 登记值；否则首项；手选不覆盖 */
+function autoSelect(models) {
+  if (!models.length) return;
+  if (picker.picked && $('cfModel').value.trim()) return;
+  const preset = defaultsFor(selVendor, selFormat).model;
+  $('cfModel').value = models.includes(preset) ? preset : models[0];
+}
+function fetchModelList(force) {
+  if (editTarget) return;
+  if (!selVendor || !$('cfBase').value.trim()) return;
+  if (selVendor !== 'ollama' && !$('cfKey').value.trim()) return;
+  const fp = pickerParams();
+  if (!force && fp === picker.fp) return;
+  picker.fp = fp; picker.fetching = true; picker.err = null;
+  renderPickerMeta(); if (picker.open) renderPickerPanel();
+  setTimeout(() => {
+    picker.fetching = false;
+    if (selVendor !== 'ollama' && $('cfKey').value.startsWith('bad')) {
+      picker.fp = ''; picker.err = '认证失败 (HTTP 401)';
+    } else {
+      picker.list = MODEL_SEEDS[selVendor] || []; picker.candidates = []; picker.note = null;
+      autoSelect(picker.list);
+    }
+    renderPickerMeta(); if (picker.open) renderPickerPanel();
+  }, 600);
+}
+/* 供应商/格式切换：旧端点清单作废（含指纹），Key 已填或免 Key 即重拉 */
+function invalidatePicker() {
+  picker.list = []; picker.candidates = []; picker.note = null; picker.err = null; picker.fp = '';
+  renderPickerMeta(); if (picker.open) renderPickerPanel();
+}
+function resetPicker() {
+  invalidatePicker();
+  picker.picked = false; picker.open = false; picker.cursor = 0;
+  renderPickerPanel();
+}
+function pickModel(m) {
+  $('cfModel').value = m;
+  picker.picked = true; picker.open = false;
+  renderPickerPanel();
+}
+$('cfModel').addEventListener('focus', () => { picker.open = true; picker.cursor = 0; renderPickerPanel(); });
+$('cfModel').addEventListener('input', () => { picker.picked = true; picker.open = true; picker.cursor = 0; renderPickerMeta(); renderPickerPanel(); });
+$('cfModel').addEventListener('keydown', e => {
+  const q = $('cfModel').value.trim().toLowerCase();
+  const rows = picker.list.filter(m => m.toLowerCase().includes(q));
+  if (!picker.open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { picker.open = true; renderPickerPanel(); return; }
+  if (!picker.open) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); picker.cursor = Math.min(picker.cursor + 1, rows.length - 1); renderPickerPanel(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); picker.cursor = Math.max(picker.cursor - 1, 0); renderPickerPanel(); }
+  else if (e.key === 'Enter') { if (rows.length) { e.preventDefault(); pickModel(rows[picker.cursor] || rows[0]); } }
+  else if (e.key === 'Escape') { picker.open = false; renderPickerPanel(); }
+});
+$('cfModelPanel').addEventListener('mousedown', e => e.preventDefault());
+$('cfModelPanel').addEventListener('click', e => {
+  const b = e.target.closest('[data-pick]');
+  if (b) pickModel(b.dataset.pick);
+});
+$('cfModelRetry').addEventListener('click', () => fetchModelList(true));
+$('cfKey').addEventListener('blur', () => { if (!editTarget && selVendor !== 'ollama' && $('cfKey').value.trim()) fetchModelList(); });
+$('cfBase').addEventListener('blur', () => { if (!editTarget && $('cfBase').value.trim() && (selVendor === 'ollama' || $('cfKey').value.trim())) fetchModelList(); });
+document.addEventListener('click', e => {
+  if (picker.open && !$('cfModelWrap').contains(e.target)) { picker.open = false; renderPickerPanel(); }
+});
 
 function renderVendors() {
   const wrap = $('cfVendors');
@@ -727,6 +871,7 @@ function openForm(edit) {
   $('cfKey').value = '';
   lastPreset = null;
   $('cfModel').value = '';
+  resetPicker(); // 清单/候选/拉取态/手选标记随表单重置
   // 模型名称＝创建表单一级字段；编辑态沿用已存值，不施加预填
   $('cfModel').closest('.field').hidden = !!edit;
   $('cfgError').hidden = true;
@@ -760,17 +905,22 @@ document.querySelector('#cfVendors').addEventListener('click', e => {
   $('cfTest').hidden = true;
   syncVendorUI();
   prefillTo(selVendor, selFormat);
+  // 切供应商：旧端点清单作废（含指纹）；Key 已填或免 Key 即按新供应商重拉
+  invalidatePicker();
+  if ($('cfKey').value.trim() || selVendor === 'ollama') fetchModelList();
 });
 
 document.querySelector('#fmtSeg').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b || b.disabled) return;
   if (b.dataset.fmt === selFormat) return;
-  // 切格式：按「供应商×格式」登记值更新预填（手改不覆盖），清测试结果
+  // 切格式：按「供应商×格式」登记值更新预填（手改不覆盖），清测试结果；清单随端点作废重拉
   selFormat = b.dataset.fmt;
   $('cfTest').hidden = true;
   syncFormatUI();
   prefillTo(selVendor, selFormat);
+  invalidatePicker();
+  if ($('cfKey').value.trim() || selVendor === 'ollama') fetchModelList();
 });
 
 function readForm() {

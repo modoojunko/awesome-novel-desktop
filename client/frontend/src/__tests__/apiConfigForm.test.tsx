@@ -280,3 +280,202 @@ describe("ApiConfigForm 编辑态", () => {
     expect(document.querySelector(".vgrid")).toBeTruthy();
   });
 });
+
+describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）", () => {
+  const blurKey = () => fireEvent.blur(document.getElementById("cfKey")!);
+
+  it("Key 失焦自动拉清单：无登记默认的供应商默认选首项；同参数重复失焦不重拉", async () => {
+    const onFetchModels = vi.fn(async () => ({
+      ok: true,
+      status: "ok",
+      models: ["kimi-k3", "kimi-k2.7-code"],
+    }));
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    fireEvent.click(screen.getByText("Kimi"));
+    setField("cfName", "x");
+    setField("cfKey", "sk-1");
+    blurKey();
+    await waitFor(() =>
+      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("kimi-k3"),
+    );
+    expect(await screen.findByText("已拉到 2 个模型")).toBeTruthy();
+    expect(onFetchModels).toHaveBeenCalledTimes(1);
+    expect(onFetchModels).toHaveBeenCalledWith({
+      vendor_id: "kimi",
+      base_url: "https://api.moonshot.cn/v1",
+      api_key: "sk-1",
+      api_format: "openai",
+    });
+    // 同参数再次失焦：指纹去重，不重复拉
+    blurKey();
+    await Promise.resolve();
+    expect(onFetchModels).toHaveBeenCalledTimes(1);
+  });
+
+  it("登记默认模型在清单内优先选中；不在清单内退清单首项", async () => {
+    const onFetchModels = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: "ok", models: ["deepseek-flash", "deepseek-v4-pro"] })
+      .mockResolvedValueOnce({ ok: true, status: "ok", models: ["deepseek-flash"] });
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    fireEvent.click(screen.getByText("DeepSeek"));
+    expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("deepseek-v4-pro"); // 预填初值
+    setField("cfName", "x");
+    setField("cfKey", "sk-1");
+    blurKey();
+    await waitFor(() =>
+      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("deepseek-v4-pro"),
+    ); // 登记默认 ∈ 清单 → 保持登记值（不取首项 flash）
+    // 清 Key 后切走再切回（中间不拉取）；回切即重拉，清单不再含登记默认 → 退首项
+    setField("cfKey", "");
+    fireEvent.click(screen.getByText("GLM"));
+    setField("cfKey", "sk-1");
+    fireEvent.click(screen.getByText("DeepSeek"));
+    await waitFor(() =>
+      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("deepseek-flash"),
+    );
+  });
+
+  it("无清单端点：空清单＋候选 chips＋说明，点 chip 选中；手填兜底仍可提交", async () => {
+    const onSubmit = vi.fn(async (_data: ApiConfigFormData) => {});
+    const onFetchModels = vi.fn(async () => ({
+      ok: true,
+      status: "ok",
+      models: [],
+      candidates: ["glm-5.3", "glm-5.3-flash"],
+      note: "该端点不提供模型列表（Anthropic 兼容端点常见）——可手动填模型 id",
+    }));
+    render(<ApiConfigForm open onSubmit={onSubmit} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    fireEvent.click(screen.getByText("GLM"));
+    fireEvent.click(screen.getByText("Anthropic 格式"));
+    setField("cfName", "x");
+    setField("cfKey", "sk-1");
+    blurKey();
+    expect(await screen.findByText("无模型清单")).toBeTruthy(); // 不点开弹层也可见「无清单」态
+    // 聚焦模型框弹层：说明＋候选 chips 可见，点 chip 选中
+    fireEvent.focus(document.getElementById("cfModel")!);
+    expect(screen.getByRole("listbox", { name: "模型清单" })).toBeTruthy();
+    expect(screen.getByText(/不提供模型列表/)).toBeTruthy();
+    fireEvent.click(screen.getByText("glm-5.3"));
+    expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("glm-5.3");
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ model: "glm-5.3" });
+  });
+
+  it("拉取失败不阻塞：失败提示＋「重新拉取」出口，手填模型仍可保存；重拉刷新清单但不覆盖手填", async () => {
+    const onSubmit = vi.fn(async (_data: ApiConfigFormData) => {});
+    const onFetchModels = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: "auth_error", error: "认证失败 (HTTP 401)" })
+      .mockResolvedValueOnce({ ok: true, status: "ok", models: ["m-1"] });
+    render(<ApiConfigForm open onSubmit={onSubmit} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    fireEvent.click(screen.getByText("Kimi"));
+    setField("cfName", "x");
+    setField("cfKey", "sk-bad");
+    blurKey();
+    expect(await screen.findByText("认证失败 (HTTP 401)")).toBeTruthy();
+    expect(screen.getByText("重新拉取")).toBeTruthy();
+    // 手填不受失败影响，可保存
+    setField("cfModel", "my-model");
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ model: "my-model" });
+    // 「重新拉取」强制重拉：清单刷新（元信息更新），手填值保持不被覆盖
+    fireEvent.click(screen.getByText("重新拉取"));
+    expect(await screen.findByText("已拉到 1 个模型")).toBeTruthy();
+    expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("my-model");
+  });
+
+  it("测试连接拉回清单同步刷新选择器（双保险）；手选值不被覆盖", async () => {
+    const onTest = vi.fn(async () => ({ ok: true, status: "ok", models: ["gpt-4o", "gpt-4o-mini"] }));
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onTest={onTest} />);
+    setField("cfName", "x");
+    fireEvent.click(screen.getByText("OpenAI"));
+    setField("cfKey", "sk-1");
+    fireEvent.click(screen.getByText("测试连接"));
+    await waitFor(() =>
+      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("gpt-4o"),
+    ); // 无登记默认 → 清单首项
+    expect(await screen.findByText("已拉到 2 个模型")).toBeTruthy();
+    // 手选后再次测试：清单刷新但手选值保持
+    setField("cfModel", "gpt-4o-mini");
+    fireEvent.click(screen.getByText("测试连接"));
+    await waitFor(() => expect(onTest).toHaveBeenCalledTimes(2));
+    expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("gpt-4o-mini");
+  });
+
+  it("弹层键盘交互：聚焦展开、输入过滤、ArrowDown＋Enter 选中、Esc 收起", async () => {
+    const onFetchModels = vi.fn(async () => ({
+      ok: true,
+      status: "ok",
+      models: ["qwen3.6-plus", "qwen3.6-max", "qwen3.6-flash"],
+    }));
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    fireEvent.click(screen.getByText("Qwen"));
+    setField("cfName", "x");
+    setField("cfKey", "sk-1");
+    blurKey();
+    await waitFor(() =>
+      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("qwen3.6-plus"),
+    );
+    const input = document.getElementById("cfModel") as HTMLInputElement;
+    fireEvent.focus(input);
+    // 输入过滤（组合框语义：输入即搜索）
+    fireEvent.change(input, { target: { value: "max" } });
+    expect(screen.queryByText("qwen3.6-plus")).toBeNull();
+    expect(screen.getByText("qwen3.6-max")).toBeTruthy();
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input.value).toBe("qwen3.6-max");
+    expect(document.querySelector(".mp-panel")).toBeNull(); // 选中后收起
+    // 重新展开后 Esc 收起
+    fireEvent.focus(input);
+    expect(document.querySelector(".mp-panel")).toBeTruthy();
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(document.querySelector(".mp-panel")).toBeNull();
+  });
+
+  it("Ollama 免 Key：选供应商即拉本地清单并默认选首项", async () => {
+    const onFetchModels = vi.fn(async () => ({
+      ok: true,
+      status: "ok",
+      models: ["llama3:8b"],
+    }));
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    fireEvent.click(screen.getByText("Ollama"));
+    await waitFor(() =>
+      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("llama3:8b"),
+    );
+    expect(onFetchModels).toHaveBeenCalledWith({
+      vendor_id: "ollama",
+      base_url: "http://localhost:11434",
+      api_key: "",
+      api_format: "openai",
+    });
+  });
+
+  it("在途过期响应丢弃：换供应商后旧清单响应不落地", async () => {
+    let resolveFirst: (v: { ok: boolean; status: string; models: string[] }) => void = () => {};
+    const first = new Promise<{ ok: boolean; status: string; models: string[] }>((res) => {
+      resolveFirst = res;
+    });
+    const onFetchModels = vi.fn().mockImplementationOnce(() => first).mockResolvedValueOnce({
+      ok: true,
+      status: "ok",
+      models: ["glm-5.3"],
+    });
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    fireEvent.click(screen.getByText("Kimi"));
+    setField("cfName", "x");
+    setField("cfKey", "sk-1");
+    blurKey(); // Kimi 在途
+    fireEvent.click(screen.getByText("GLM")); // 参数已变 → 序号作废 Kimi 响应，立即拉 GLM
+    await waitFor(() =>
+      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("glm-5.3"),
+    );
+    resolveFirst({ ok: true, status: "ok", models: ["kimi-k3"] }); // 过期响应迟到
+    await Promise.resolve();
+    expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("glm-5.3"); // 不被覆盖
+  });
+});

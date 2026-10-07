@@ -39,6 +39,16 @@ export interface FlatModelOption {
   vendor: VendorId;
 }
 
+/** 只拉清单轻探针结果（c-api-config-auto-models）：candidates/note 仅端点不提供清单时出现。 */
+export interface FetchModelsResult {
+  ok: boolean;
+  status: ConnectionStatus | 'ok';
+  models?: string[] | null;
+  candidates?: string[];
+  note?: string;
+  error?: string;
+}
+
 export interface UsageSummary {
   total_all_time: number;
   total_this_month: number;

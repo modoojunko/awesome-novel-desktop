@@ -27,10 +27,12 @@ from novels.service import (
     novel_to_dict,
 )
 
+from .connection import fetch_models as _fetch_models
 from .connection import test_connection as _test_raw_connection
 from .schemas import (
     ApplyModelToAllBody,
     CreateApiConfigBody,
+    FetchModelsBody,
     SetAiModelBody,
     TestRawBody,
     UpdateApiConfigBody,
@@ -166,6 +168,24 @@ async def test_raw_connection(
         base_url=body.base_url,
         api_format=body.api_format,
         preferred_model=body.model,
+    )
+
+
+@router.post("/api-configs/fetch-models")
+async def fetch_raw_models(
+    body: FetchModelsBody,
+    user: dict = Depends(get_current_user),
+):
+    """Fetch a vendor's model list with raw config data (no saved config, no chat probe).
+
+    创建表单「Key 失焦自动拉清单」用（c-api-config-auto-models）：只 GET 模型清单
+    端点，不发对话探针（零生成调用）。anthropic 格式 404 → 空清单＋候选＋说明。
+    """
+    return await _fetch_models(
+        vendor_id=body.vendor_id,
+        api_key=body.api_key,
+        base_url=body.base_url,
+        api_format=body.api_format,
     )
 
 

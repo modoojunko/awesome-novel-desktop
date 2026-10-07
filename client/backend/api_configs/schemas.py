@@ -202,6 +202,18 @@ class TestRawBody(BaseModel):
     model: str | None = None
 
 
+class FetchModelsBody(BaseModel):
+    """只拉清单轻探针的 raw 请求体（未保存态，c-api-config-auto-models）。
+
+    与 TestRawBody 同形去掉 model——轻探针不发生成请求，没有「探针优先模型」概念。
+    """
+
+    vendor_id: str
+    base_url: str
+    api_key: str = ""
+    api_format: ApiFormat = "openai"
+
+
 class TestResultResponse(BaseModel):
     ok: bool
     status: str

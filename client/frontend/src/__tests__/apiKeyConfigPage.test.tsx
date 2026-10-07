@@ -36,6 +36,7 @@ function stubApi(over: { putStatus?: number } = {}) {
       return { ok: true, json: async () => ({ total_all_time: 0, total_this_month: 0, total_today: 0, by_config: [] }) };
     }
     if (u.includes("/api-configs/status")) return { ok: true, json: async () => [] };
+    if (u.includes("/api-configs/fetch-models")) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["gpt-4o", "gpt-4o-mini"] }) };
     if (u.includes("/api-configs/test-connection")) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["gpt-4o"] }) };
     if (/\/api-configs\/c1\/test$/.test(u)) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["gpt-4o"] }) };
     if (method === "PUT") {
@@ -152,6 +153,7 @@ function stubFull(over: { listError?: string; empty?: boolean; createOk?: boolea
       };
     }
     if (u.includes("/api-configs/status")) return { ok: true, json: async () => [] };
+    if (u.includes("/api-configs/fetch-models")) return { ok: true, json: async () => ({ ok: true, status: "ok", models: ["deepseek-flash", "deepseek-v4-pro"] }) };
     if (method === "POST" && u.endsWith("/api-configs")) return { ok: true, json: async () => CONFIG2 };
     if (method === "POST" && u.includes("/restore")) return { ok: true, json: async () => CONFIG2 };
     if (method === "DELETE") return { ok: true, json: async () => ({ affected_projects: 0, affected_names: [] }) };
@@ -266,6 +268,33 @@ describe("ApiKeyConfigPage 覆盖补齐", () => {
     await waitFor(() => expect(document.getElementById("cfName")).toBeTruthy());
     fireEvent.click(within(document.querySelector(".mcard-foot") as HTMLElement).getByText("取消"));
     await waitFor(() => expect(document.querySelector(".mcard")).toBeNull()); // closeForm 清目标
+  });
+
+  it("新建：Key 失焦自动拉清单（fetch-models 端点）并默认选中登记模型", async () => {
+    stubFull();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("添加 API Key")).toBeTruthy());
+    fireEvent.click(screen.getByText("添加 API Key"));
+    await waitFor(() => expect(document.getElementById("cfName")).toBeTruthy());
+    fireEvent.change(document.getElementById("cfName")!, { target: { value: "自动拉清单" } });
+    fireEvent.click(screen.getByText("DeepSeek"));
+    fireEvent.change(document.getElementById("cfKey")!, { target: { value: "sk-x" } });
+    fireEvent.blur(document.getElementById("cfKey")!);
+    // 走只拉清单轻探针端点，body 为 raw 配置（不带 model）
+    await waitFor(() => expect(calls.some((c) => c.url.includes("/api-configs/fetch-models"))).toBe(true));
+    const fm = calls.find((c) => c.url.includes("/api-configs/fetch-models"))!;
+    expect(fm.method).toBe("POST");
+    expect(fm.body).toEqual({
+      vendor_id: "deepseek",
+      base_url: "https://api.deepseek.com",
+      api_key: "sk-x",
+      api_format: "openai",
+    });
+    // 默认选中：登记默认模型 deepseek-v4-pro ∈ 清单 → 保持登记值
+    await waitFor(() =>
+      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("deepseek-v4-pro"),
+    );
+    expect(await screen.findByText("已拉到 2 个模型")).toBeTruthy();
   });
 
   it("删除确认可取消（deleteTarget 清空，不发 DELETE）", async () => {
