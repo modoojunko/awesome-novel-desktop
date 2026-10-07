@@ -532,6 +532,29 @@ class TestApiKeyCRUD:
         put = client.put(f"/api/v1/api-configs/{cid}", json={"models": ["my-pick"]})
         assert put.status_code == 200
 
+    def test_test_config_keeps_head_under_limit(self, client, monkeypatch):
+        """未超限重测同样保头（首项＝已选模型语义）：用户手选值排供应商序第二位，落库仍居首。"""
+        async def fake_test(**kwargs):
+            return {"ok": True, "status": "ok", "models": ["v-first", "my-pick"], "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "保头未超限",
+                "vendor_id": "kimi",
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key": _test_api_key("head"),
+                "models": ["my-pick"],
+            },
+        )
+        cid = resp.json()["id"]
+        r = client.post(f"/api/v1/api-configs/{cid}/test")
+        assert r.status_code == 200
+        # 落库与响应体同序：手选值居首，其余按供应商原序跟随（下次探针优先用它）
+        assert r.json()["models"] == ["my-pick", "v-first"]
+        assert client.get(f"/api/v1/api-configs/{cid}").json()["models"] == ["my-pick", "v-first"]
+
     def test_create_config_with_vendor_detection(self, client):
         """Create config, verify vendor auto-detection."""
         resp = client.post(

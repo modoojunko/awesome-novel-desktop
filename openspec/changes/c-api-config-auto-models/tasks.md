@@ -38,7 +38,7 @@
 - [x] 5.4 【P1·前端】弹层 mousedown 整体 preventDefault（滚动条拖点不误关）；外点关闭改 document pointerdown（点非聚焦区域旧 blur 方案关不掉）
 - [x] 5.5 【P1·前端】invalidateModelList 作废在途请求（序号＋fetching 复位）；用例「清 Key 切供应商旧响应不落地」
 - [x] 5.6 【P1·后端】`test_api_config` 响应体与落库同一份归一化清单（不再 150/100 两口径）
-- [x] 5.7 【P1·后端】截断保头：配置默认模型（models 首项）在清单内时置截断结果首位；用例「my-pick 排 121 位仍保留」
+- [x] 5.7 【P1·后端】保头：配置默认模型（models 首项）在清单内时置落库结果首位——不限是否触发截断（首项＝已选模型语义，下次探针优先用）；用例「my-pick 排 121 位仍保留」＋「未超限重测同样保头」（review-agent 终审 P3 定案：放宽规格而非收紧代码）
 - [x] 5.8 【P1·后端+产品】fetch_models 404 特判限 anthropic 格式（openai/ollama 404＝异常响应提示核对，不误诊「无清单端点」）；用例
 - [x] 5.9 【P1·产品/后端】对话探针失败信封携带已提取清单（手填错 id 自恢复闭环）；用例
 - [x] 5.10 【P2·前端】空态文案按 fetchErr/modelNote 分岔（不再指向不存在的「重新拉取」）；IME 组合期 Enter 放行；Ollama placeholder 专文案；handleTest 同步清 fetchErr/candidates＋写同参指纹；aria-activedescendant＋option id＋tabIndex=-1；点输入框重开弹层
