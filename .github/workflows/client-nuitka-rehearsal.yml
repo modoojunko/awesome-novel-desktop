@@ -26,6 +26,18 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Nuitka 的 ccache 对象与工具下载目录缓存（%LOCALAPPDATA%\Nuitka）：
+      # 2 核 runner 每轮全量冷编 40-90 分钟，ccache 命中后编译段可压回几分钟。
+      # runner 即弃机器，不缓存则每次演练都是全价。
+      - name: Cache Nuitka ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/Nuitka
+          key: nuitka-windows-${{ hashFiles('client/backend/requirements.txt', 'client/packaging/build/requirements.txt') }}
+          restore-keys: |
+            nuitka-windows-
+
       - name: Install backend + packaging deps
         run: |
           pip install -r client/backend/requirements.txt
