@@ -35,7 +35,7 @@ HERE = Path(__file__).parent
 CLIENT = HERE.parent.parent          # build/ -> packaging/ -> client/
 REPO = CLIENT.parent                 # 仓库根
 BACKEND = CLIENT / "backend"
-APP_NAME = "AI Novel"
+APP_NAME = "AwesomeNovel"  # 与 build.spec EXE/COLLECT、installer.iss Source 同名（改名单源 #687）
 
 
 def _fail(msg: str) -> None:
@@ -87,7 +87,11 @@ def build(out_dir: Path) -> Path:
                 "--windows-console-mode=disable"]
         version_file = HERE / "version_info.txt"
         if not version_file.exists():
-            _fail("Windows 交付必须有版本资源：先由 build.bat 生成 version_info.txt 再调本脚本")
+            # 共享单源现生成（与 build.spec 同一 write_version_file）
+            import win_version_info
+            version_file = win_version_info.write_version_file(spec_dir=HERE, root_dir=REPO)
+        if version_file is None or not version_file.exists():
+            _fail("Windows 版本资源生成失败——检查 brand/brand.json 字段门禁输出")
         cmd.append(f"--windows-version-file={version_file}")
     else:
         _fail(f"平台未支持：{sys.platform}")

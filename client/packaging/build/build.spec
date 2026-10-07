@@ -41,83 +41,12 @@ APP_ICON_ICO = 'icon.ico'
 APP_ICON_ICNS = 'icon.icns'
 APP_ICON = APP_ICON_ICNS if sys.platform == "darwin" else APP_ICON_ICO
 
-# ═══ 可配置：Windows 版本资源（exe 文件属性/任务管理器里的「发布者」「公司」）═══
-# 不烘版本资源时 Windows 对 exe 一律显示「发布者: 未知」。发布者 = 版权人 = 经营主体，
-# 字段全部取自 brand/brand.json（与两端前端同源，唯一声明处，勿在此写死）。
-# 版本口径与 build.bat / CI 安装包同源：环境变量 APP_VERSION > git describe > 0.0.0
-# （CI 在 Build app 步骤注入 github.ref_name；本地 build.bat 已 set 同名变量）。
-# version_info.txt 是构建产物（.gitignore 已排除），仅 Windows 生成并使用，
-# macOS 构建不生成文件但同样过字段门禁（为 mac 侧将来补主体元数据预留）。
-_brand = json.loads((root_dir / "brand" / "brand.json").read_text(encoding="utf-8"))
+# ═══ Windows 版本资源（exe 文件属性/任务管理器里的「发布者」「公司」）═══
+# 生成逻辑抽为共享模块（c-nuitka-full）：build.bat 的 Nuitka 分支／build_nuitka
+# 也走同一生成器，字段门禁与版本口径单点维护——勿在此文件内联第二份。
+import win_version_info as _wvi
 
-
-def _brand_field(key: str) -> str:
-    """品牌源字段门禁：缺键/非串/空白串一律显式失败，不静默出「未知发布者」的包。"""
-    v = _brand.get(key)
-    if not isinstance(v, str) or not v.strip():
-        raise SystemExit(
-            f"brand/brand.json 缺有效字符串字段 {key}（经营主体/品牌署名需要）——补齐后再构建"
-        )
-    return v.strip()
-
-
-APP_PUBLISHER = _brand_field("company")
-APP_BRAND_NAME = _brand_field("name")
-APP_BRAND_NAME_EN = _brand_field("nameEn")
-
-
-def _detect_version() -> str:
-    v = os.environ.get('APP_VERSION', '').strip()
-    if not v:
-        try:
-            r = subprocess.run(
-                ['git', 'describe', '--tags', '--always', '--dirty'],
-                capture_output=True, text=True, cwd=str(root_dir))
-            v = r.stdout.strip() if r.returncode == 0 else ''
-        except OSError:
-            v = ''
-    v = v[1:] if v.startswith('v') else v  # tag 去 v 前缀
-    # 清洗进字符串字段（提交哈希/斜杠等不进元数据），数字位由 findall 另取
-    return re.sub(r'[^A-Za-z0-9.+_-]', '-', v) or '0.0.0'
-
-
-_version_file = None
-if sys.platform == 'win32':
-    _ver = _detect_version()
-    # 数字版本位只取首个点分数字前缀（四段各为 16 位 WORD）：
-    # describe 尾巴（提交哈希/PR 号等）不进数字位，超段 clamp 0–65535
-    _prefix = re.match(r'\d+(?:\.\d+)*', _ver)
-    _segs = [min(int(seg), 65535) for seg in (_prefix.group(0).split('.') if _prefix else [])]
-    _nums = (_segs + [0, 0, 0, 0])[:4]
-    _file_desc = f'{APP_BRAND_NAME} ({APP_BRAND_NAME_EN})'
-    _copyright = f'© {APP_PUBLISHER}'
-    _version_file = spec_dir / 'version_info.txt'
-    # 模板用 !r 生成合法字面量——值含引号/反斜杠也不炸加载器 eval，勿改回裸插值
-    _version_file.write_text(f"""# -*- coding: utf-8 -*-
-# 由 build.spec 自动生成——勿手改、勿提交
-VSVersionInfo(
-  ffi=FixedFileInfo(
-    filevers={tuple(_nums)},
-    prodvers={tuple(_nums)},
-    mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0,
-    date=(0, 0, 0, 0)),
-  kids=[
-    StringFileInfo([
-      StringTable(
-        '080404b0',
-        [StringStruct('CompanyName', {APP_PUBLISHER!r}),
-         StringStruct('FileDescription', {_file_desc!r}),
-         StringStruct('FileVersion', {_ver!r}),
-         StringStruct('InternalName', 'AwesomeNovel'),
-         StringStruct('LegalCopyright', {_copyright!r}),
-         StringStruct('OriginalFilename', 'AwesomeNovel.exe'),
-         StringStruct('ProductName', {APP_BRAND_NAME!r}),
-         StringStruct('ProductVersion', {_ver!r})])
-      ]),
-    VarFileInfo([VarStruct('Translation', [2052, 1200])])
-  ]
-)
-""", encoding='utf-8')
+_version_file = _wvi.write_version_file(spec_dir=spec_dir, root_dir=root_dir)
 
 # ── Analysis ──
 # 烘焙清单单源（c-nuitka-full）：datas/hiddenimports/excludes 与 Nuitka 引擎共用
