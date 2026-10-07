@@ -6,8 +6,9 @@
   Esc/遮罩关闭、焦点圈行为），SHALL NOT 新造弹窗骨架；进度呈现为分步行（检查版本 →
   下载 → 校验安装）而非百分比环形。
 - 弹窗三模式（首装自动／更新确认／手动检查）的标题、进度行、完成行与失败行文案
-  SHALL 在 design-language 状态总表登记新行，且 design-vocab.mjs 新词两端（C端/S端）
-  同批登记；状态语气沿用既有 info/warn/err 档，不新增语气档。
+  SHALL 在 design-language 状态总表登记新行；状态语气沿用既有 info/warn/err 档，
+  不新增语气档。（design-vocab.mjs 无新登记项——其机制只辖任意值/opacity 档/禁用
+  色板，类名与文案不入其白名单；review-agent 轮 P3 对齐。）
 - 账号面板「数据」组「写作能力」菜单项 SHALL 复用 `am-item` 组件词汇与图标位规格
   （与「模型配置 · API Key」同行规），状态随行文案三态：`已就绪 vX`／`未就绪`／
   `有新版本`；面板 foot 的 `am-pack` 小字行词汇与样式 SHALL 随本批退役。
@@ -17,7 +18,7 @@
 #### Scenario: 原型先行登记
 - **WHEN** 实现写作能力弹窗与菜单项
 - **THEN** 书架原型先行登记弹窗三模式变体（含进度行/完成行/失败行）并在 ADJUSTMENTS.md
-  留档，design-language 状态总表与 design-vocab.mjs 同批登记后才落实现
+  留档，design-language 状态总表登记后才落实现（design-vocab.mjs 无涉，机制见上）
 
 #### Scenario: 内部词不进文案
 - **WHEN** 检查弹窗三模式与菜单项全部用户可见文案

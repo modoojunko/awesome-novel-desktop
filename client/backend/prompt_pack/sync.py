@@ -698,10 +698,13 @@ def sync_once(
 def trigger_sync(local_tier: str | None = None) -> bool:
     """后台触发一次同步（重入保护）；返回是否新起了线程。
 
-    c-prompt-pack-onboard-modal：在途时新触发不再被丢弃——记 `_pending_tier`（后到
-    覆盖先到，只排一级防抖），当前同步结束后按最新触发参数重跑一次。首装竞态主
-    成因即「未登录启动同步占锁挂在 S端 冷启动上、登录触发被吞」，此改动与
-    `maybe_after_auth` 未登录早退同批收口。
+    c-prompt-pack-onboard-modal：在途时新触发排队（后到覆盖先到），工作线程循环
+    消费到空。**退出判定与 `_syncing` 复位在同一次加锁内完成**——触发方若在「本
+    线程最后一次消费为空」与「线程退出」之间到达，必见 `_syncing=True` 而排队，
+    该排队随后被本线程同一临界区内的下一次检查消费；不存在「返回 False 却被收尾
+    清空」的丢弃窗口（spec：在途触发不吞；review-agent 轮 P2）。首装竞态主成因
+    即「未登录启动同步占锁挂在 S端 冷启动上、登录触发被吞」，与 `maybe_after_auth`
+    未登录早退同批收口。
     """
     global _syncing, _pending_tier
     with _lock:
@@ -715,19 +718,22 @@ def trigger_sync(local_tier: str | None = None) -> bool:
         try:
             sync_once(local_tier)
             # 消费到空（评审 P2-1）：重跑本身也是在途同步——期间到达的新触发同样
-            # SHALL NOT 被丢弃（spec：在途触发不吞）。同步幂等（版本闸＋七道校验），
-            # 连续重跑至多多耗一次 CDN/S端往返；后到覆盖先到，不会无限排队。
+            # SHALL NOT 被丢弃。同步幂等（版本闸＋七道校验），连续重跑至多多耗一次
+            # CDN/S端往返；后到覆盖先到，不会无限排队。
             while True:
                 with _lock:
+                    if _pending_tier is None:
+                        # 退出与复位同锁（review-agent 轮 P2）：此后到达的触发
+                        # 必见 _syncing=False → 起新线程，绝无被丢的排队
+                        _syncing = False
+                        return
                     nxt, _pending_tier = _pending_tier, None
-                if nxt is None:
-                    break
                 sync_once(None if nxt is _PENDING_FROM_CONFIG else nxt)
-        except Exception as e:  # pragma: no cover - 后台线程兜底
+        except Exception as e:  # pragma: no cover - 后台线程兜底（sync_once 按契约不抛）
             logger.warning("event=pack_sync_unexpected err=%s", e)
             _set_state("failed", reason="unexpected")
-        finally:
             with _lock:
+                # 异常路径接受丢弃：防御分支，与正常退出路径不复用（其复位已在锁内）
                 _pending_tier = None
                 _syncing = False
 
