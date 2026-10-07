@@ -373,8 +373,10 @@ test("模型配置：Key 失焦自动拉清单——默认选中登记模型，�
     // 自动拉取完成态对照截图（随报告落 test-results）
     await page.screenshot({ path: testInfo.outputPath("auto-fetch-models.png") });
 
-    // 聚焦模型框 → 弹层展开；输入过滤；点选改选
+    // 聚焦模型框 → 弹层展开（组合框语义：当前值即过滤词）；清空看全量；输入过滤；点选改选
     await modelInput.click();
+    await expect(page.locator(".mp-panel .mp-item")).toHaveCount(1);
+    await modelInput.fill("");
     await expect(page.locator(".mp-panel .mp-item")).toHaveCount(2);
     await modelInput.fill("flash");
     await expect(page.locator(".mp-panel .mp-item")).toHaveCount(1);
