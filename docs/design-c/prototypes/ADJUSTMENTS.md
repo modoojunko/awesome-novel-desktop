@@ -1721,3 +1721,7 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
   `:hover`，与既有 action 按钮同口径），键盘焦点指示走全局 `:focus-visible` 兜底。
 - 剧情采纳回执的「撤销」入口随 toast 存活（3 秒窗口内可点，超时/× 即失）——c-plot-split
   拍板②「撤销入口常驻到下一次编辑」口径退役，主 spec 已随 change MODIFIED。
+- **补丁（同日评审轮）**：① list.html `.toast` 补 `pointer-events:auto`——对齐 model-config.html
+  先例（该文件此前漏配；list.html toast 原为纯文本未暴露，本批 × 是其首个 toast 内交互钮）；
+  ② demo-bar 增「toast · 3 秒自消＋×」演示钮（非基线，先例＝写作能力弹窗五态 chips），供评审
+  一键验 × 与 3 秒自消（此前只能走书卡「完本」动作触发）。
