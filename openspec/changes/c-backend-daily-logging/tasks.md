@@ -25,5 +25,6 @@
   - 4.1 实测（worktree @独立分支，venv 0.16.3 解释器）：2007 passed / 1 skipped / 0 failed（162s）；测试后核验 DATA_ROOT/logs 与 backend/logs 均未产生（AINOVEL_LOG_OFF 生效）。
 - [x] 4.2 ruff 门禁：`pip install ruff==0.16.3` 后对 app/tests/scripts 复核零新增告警（BLE001 判例化写法按仓内先例）。产出：输出结论贴任务下。
   - 4.2 实测：ruff 0.16.3 `check .` 全绿（初跑 5 条 F401/I001 已 --fix，复跑 All checks passed；E902 为误传不存在目录非代码问题）。
-- [ ] 4.3 打包 dispatch 演练：打包链改动（pywebview_app.py＋build_release.ps1 工具链）按惯例先演练一次（Windows cp1252 判例在案），产物核对特征串＝本分支构建；演练中顺带确认 3.5 的 smoke 诊断路径生效。产出：dispatch run 链接＋产物特征串核对记录。
+- [x] 4.3 打包 dispatch 演练：打包链改动（pywebview_app.py＋build_release.ps1 工具链）按惯例先演练一次（Windows cp1252 判例在案），产物核对特征串＝本分支构建；演练中顺带确认 3.5 的 smoke 诊断路径生效。产出：dispatch run 链接＋产物特征串核对记录。
+  - 4.3 实测：dispatch run [37567505008](https://github.com/modoojunko/awesome-novel-desktop/actions/runs/37567505008)（ref=c-backend-daily-logging）Windows＋macOS 双平台构建全绿（release job 跳过＝非 tag 正常）；macOS DMG 挂载后抽壳层入口（PyInstaller CArchive 自解，签名包 overlay 末端＝cookie 末），marshalled 常量区实锤 `AINOVEL_LOG_DIR`＋`_backend_log_candidates`，PYZ 目录含 `logging_setup`/`request_logging` 模块名——容器里跑的确实是本分支构建。3.5 的 smoke 诊断段（logs/ 读取）随 build_release.ps1 同批入包，真机判负场景随 4.4 一并人工核。
 - [ ] 4.4 真机冒烟判据（打包产物）：运行目录 `logs/` 下同时出现 `app.log`、`startup.log`、`pywebview.log`，运行目录根无新增 `uvicorn.log`；制造一次 AI 失败与一次 4xx 请求后，日志可见请求行＋WARNING 失败行；失败页在人为断后端场景下能展示按天日志尾段。产出：现场记录（可后补）。
