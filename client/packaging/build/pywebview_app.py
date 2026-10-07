@@ -1151,6 +1151,20 @@ class NativeBridge:
         result = self._window_ref.create_file_dialog(webview.FOLDER_DIALOG)
         return result[0] if result else None
 
+    def open_external(self, url: str):
+        """系统默认浏览器打开外链（登录授权页等）。
+
+        pywebview cocoa 只把「真实锚点点击」（WKNavigationTypeLinkActivated）转给
+        系统浏览器，编程式 window.open 的 navigationType=Other 落空（cocoa.py
+        createWebViewWith 判例，2026-10-07 Nuitka 包实测复现）——需要系统浏览器的
+        跳转走本桥；仅放行 http/https。桥探测不到时前端回退 window.open
+        （Windows 引擎下可达系统浏览器，行为不变）。"""
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            return False
+        import webbrowser
+
+        return bool(webbrowser.open(url))
+
     def pick_save_file(self, default_name: str = "", file_types=None):
         result = self._window_ref.create_file_dialog(
             webview.SAVE_DIALOG,

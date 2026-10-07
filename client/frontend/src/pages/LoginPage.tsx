@@ -142,7 +142,14 @@ export default function LoginPage() {
         return;
       }
       setAuthUrl(url);
-      window.open(url, '_blank');
+      // pywebview cocoa 只对「真实锚点点击」转系统浏览器，编程式 window.open 落空
+      // （UpdateNotice 同款判例）——壳层桥可用走 open_external，否则回退 window.open
+      const bridge = (window as any).pywebview?.api;
+      if (typeof bridge?.open_external === "function") {
+        void bridge.open_external(url);
+      } else {
+        window.open(url, '_blank');
+      }
 
       // 新一次点击先取消上一轮残留轮询，防重入
       /* v8 ignore start -- 防御分支：主按钮在 loading 期禁用，UI 上无法在轮询中再次进入 */
