@@ -26,5 +26,5 @@
 ## 4. 端到端与收尾
 
 - [x] 4.1 e2e `config-page.spec.ts` ④ 改造：DeepSeek 流程补 Key 失焦自动拉取（stub 清单）＋选择器默认选中＋POST body 断言保持
-- [ ] 4.2 隔离栈跑 config-page 全 spec＋design parity；全量 vitest／pytest 绿
+- [x] 4.2 隔离栈跑 config-page 全 spec＋design parity；全量 vitest／pytest 绿
 - [ ] 4.3 PR（含变更说明与本 change 归档待办）
