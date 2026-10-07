@@ -32,12 +32,14 @@
 
 清单到位后：`登记默认模型 ∈ 清单 → 选中它；否则选中清单首项`。登记默认模型目前仅 DeepSeek（`deepseek-v4-pro`），与「默认选第一个」仅在 DeepSeek 一家分歧，保登记值（10-05 拍板的推荐默认权重更高）。用户手动改选后，后续清单刷新不覆盖手选值。
 
-### D5 选择器形态：`.sel-panel` 搜索弹层（复用 GenreSettingForm 先例）
+### D5 选择器形态：组合框＋`.mp-*` 弹层（2026-10-07 评审整改后实况）
 
-- 字段呈现＝选中值按钮（mono 字体显示模型 id＋「已拉到 N 个」徽标态）；点击展开 `.sel-panel`（`.sel-search` 搜索框＋`.sel-list[role=listbox]` 滚动列表，键盘 ↑↓/Home/End）。
-- 弹层顶部保留**手填行**：清单为空/拉取失败时它是主出口；清单非空时也保留（用户可能要填清单外的 id——部分端点 /models 与可调用模型不同步）。
-- `candidates` chips（DeepSeek/无清单端点）展示在手填行旁，点击即选。
-- 失焦关闭弹层（含 panel 内 mousedown 防误关）。
+- **交付形态＝组合框**：`#cfModel` 保持可编辑输入框（存量测试/e2e 契约不破），输入即搜索（`aria-autocomplete=list`）；弹层 `.mp-panel`（`role=listbox`，条目 `role=option`＋id＋`aria-activedescendant`＋`tabIndex=-1`），键盘 ↑↓/Enter 选中/Esc 收起（Home/End 未做；IME 组合期按键放行给输入法）。设计稿期的「选中值按钮＋.sel-panel/.sel-search」方案（复用 GenreSettingForm）在实现时改为组合框——`.sel-*` 样式锁在 `.settings-v` 作用域、Modal 内不可复用，且输入框兼任搜索消掉了一个冗余控件。
+- **弹层 portal 到 body＋fixed 锚定输入框矩形**（评审 P1：Modal `.mcard` overflow-y:auto 会裁剪卡内绝对定位浮层——GenreSettingForm 的「就地展开」与 Modal 自身 portal 是同坑先例）；随滚动/resize 重锚、近视口底缘向上翻转。
+- **关闭机制**：外点＝document pointerdown 落在输入框/弹层之外即收起；弹层内部 mousedown 整体 preventDefault（滚动条/说明区拖点不抢焦点不误关）；Esc 只收弹层（stopPropagation，防 Modal 的 window Esc 把整窗关掉）。
+- 手填出口常驻：清单非空时输入框本身就是手填（清单外 id 合法——部分端点 /models 与可调用模型不同步）；清单为空/拉取失败时为主入口。
+- `candidates` chips（DeepSeek/无清单端点）展示在弹层顶部，点击即选。
+- 原型 `model-config.html` 演示同一交互（原型的弹层在自身页内绝对定位，无 Modal 裁剪问题；差异已在此登记，不追 portal）。
 
 ### D6 落库归一化补齐（service）
 
@@ -57,6 +59,6 @@
 
 ## 风险
 
-- 弹层嵌在 Modal 内：绝对定位面板的溢出裁剪需实测（Modal 容器 overflow）；GenreSettingForm 在非 Modal 场景，需验证。
+- ~~弹层嵌在 Modal 内：绝对定位面板的溢出裁剪需实测~~ → **评审实锤并已修**：`.mcard` overflow 裁剪卡内浮层（长清单必现），弹层已 portal 到 body＋fixed 锚定（见 D5）。
 - design-parity 门禁：原型 `model-config.html` 同批补选择器，否则 0.002 差异红线。
-- e2e `config-page.spec.ts` ④ 钉了 `#cfModel` 与 POST body：选择器保留 `#cfModel` id（手填行输入框承载），POST body 断言语义不变（默认选中＝预填值）。
+- e2e `config-page.spec.ts` ④ 钉了 `#cfModel` 与 POST body：选择器保留 `#cfModel` id（组合框输入框承载），POST body 断言语义不变（默认选中＝预填值）。

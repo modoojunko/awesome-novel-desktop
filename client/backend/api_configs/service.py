@@ -171,12 +171,20 @@ async def test_api_config(
     config.last_test_error = outcome.get("error")
     config.last_tested_at = datetime.now(UTC)
     if outcome.get("models"):
+        fetched = outcome["models"]
+        # 截断保头（评审 P1-2）：配置当前默认模型（models 首项＝用户登记/手选值）若在
+        # 清单内必须保留——绑定校验只认落库清单，丢头会让用户刚选的/已绑定的模型被
+        # 静默截掉，重绑被「不属于该配置模型列表」拒
+        preferred = _first_model(config.models)
+        if preferred and preferred in fetched:
+            fetched = [preferred] + [m for m in fetched if m != preferred]
         # 自动落库走与手写路径一致的归一化（去空白/去重），超限截断而非原样超限
-        # （c-api-config-auto-models：百炼清单可逾百条，超限落库会堵死后续手动 PUT）
-        config.models = json.dumps(
-            _normalize_models(outcome["models"], truncate=True), ensure_ascii=False
-        )
+        # （c-api-config-auto-models：百炼清单可逾百条，超限落库会堵死后续手动 PUT）；
+        # 响应体与落库同一份清单——两口径分叉会让前端态与 DB 不一致（评审 P1-1）
+        normalized = _normalize_models(fetched, truncate=True)
+        config.models = json.dumps(normalized, ensure_ascii=False)
         config.models_updated_at = datetime.now(UTC)
+        outcome = {**outcome, "models": normalized}
     await db.commit()
     await db.refresh(config)
 

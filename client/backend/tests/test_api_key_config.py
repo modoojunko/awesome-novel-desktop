@@ -472,7 +472,8 @@ class TestApiKeyCRUD:
         assert "preferred_model" not in captured
 
     def test_test_config_persist_normalizes_and_truncates(self, client, monkeypatch):
-        """自动落库走归一化（去空白/去重）且超限截断——百炼逾百条清单不再堵死手动 PUT。"""
+        """自动落库走归一化（去空白/去重）且超限截断——百炼逾百条清单不再堵死手动 PUT；
+        响应体与落库同一份清单（评审 P1：两口径分叉会让前端态与 DB 不一致）。"""
         big = [f"m-{i:03d}" for i in range(150)] + ["m-000", " m-001 "]  # 152 条含重复与空白
 
         async def fake_test(**kwargs):
@@ -489,7 +490,9 @@ class TestApiKeyCRUD:
             },
         )
         cid = resp.json()["id"]
-        assert client.post(f"/api/v1/api-configs/{cid}/test").status_code == 200
+        test_resp = client.post(f"/api/v1/api-configs/{cid}/test")
+        assert test_resp.status_code == 200
+        assert test_resp.json()["models"] == [f"m-{i:03d}" for i in range(100)]  # 响应体＝落库口径
         got = client.get(f"/api/v1/api-configs/{cid}").json()["models"]
         assert len(got) == 100  # 截断而非超限落库
         assert got[:2] == ["m-000", "m-001"]  # 去重保序、空白已剥
@@ -500,6 +503,34 @@ class TestApiKeyCRUD:
         assert put.status_code == 422  # 手动路径超限仍报错（拍板口径：显式行为才拦）
         put2 = client.put(f"/api/v1/api-configs/{cid}", json={"models": ["m-000"]})
         assert put2.status_code == 200
+
+    def test_test_config_truncate_keeps_preferred_head(self, client, monkeypatch):
+        """截断保头（评审 P1-2）：配置默认模型（models 首项＝用户手选值）在清单尾部也不被截掉。"""
+        models = [f"v-{i:03d}" for i in range(150)]
+        models[120] = "my-pick"  # 用户手选值排在供应商清单第 121 位
+
+        async def fake_test(**kwargs):
+            return {"ok": True, "status": "ok", "models": models, "error": None}
+
+        monkeypatch.setattr("api_configs.service._test_connection", fake_test)
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "保头截断",
+                "vendor_id": "qwen",
+                "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "api_key": _test_api_key("keep"),
+                "models": ["my-pick"],
+            },
+        )
+        cid = resp.json()["id"]
+        assert client.post(f"/api/v1/api-configs/{cid}/test").status_code == 200
+        got = client.get(f"/api/v1/api-configs/{cid}").json()["models"]
+        assert len(got) == 100
+        assert got[0] == "my-pick"  # 保头：不随供应商顺序被静默截掉
+        # 保头后绑定校验可救：书内重绑「my-pick」不再被「不属于该配置模型列表」拒
+        put = client.put(f"/api/v1/api-configs/{cid}", json={"models": ["my-pick"]})
+        assert put.status_code == 200
 
     def test_create_config_with_vendor_detection(self, client):
         """Create config, verify vendor auto-detection."""

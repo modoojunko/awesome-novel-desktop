@@ -482,4 +482,63 @@ describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）",
     await Promise.resolve();
     expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("glm-5.3"); // 不被覆盖
   });
+
+  it("在途拉取期间手填不被迟到响应覆盖（评审 P0：守卫读闭包过期 state 曾把它清掉）", async () => {
+    let resolveFetch: (v: { ok: boolean; status: string; models: string[] }) => void = () => {};
+    const pending = new Promise<{ ok: boolean; status: string; models: string[] }>((res) => {
+      resolveFetch = res;
+    });
+    const onFetchModels = vi.fn(async () => pending);
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    fireEvent.click(screen.getByText("Kimi"));
+    setField("cfName", "x");
+    setField("cfKey", "sk-1");
+    blurKey(); // 慢端点在途（最长 10s 超时窗口）
+    setField("cfModel", "my-model"); // 用户立刻手填（onChange 置手选标记）
+    resolveFetch({ ok: true, status: "ok", models: ["kimi-k3", "kimi-k2.7-code"] }); // 响应迟到
+    await waitFor(() => expect(screen.getByText("已拉到 2 个模型")).toBeTruthy()); // 清单照常落地
+    expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("my-model"); // 手填值不被覆盖
+  });
+
+  it("Esc 只收弹层不关表单弹窗（评审 P1：Modal 在 window 上听 Esc）", async () => {
+    const onFetchModels = vi.fn(async () => ({ ok: true, status: "ok", models: ["m-1", "m-2"] }));
+    const onCancel = vi.fn();
+    render(
+      <ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={onCancel} onFetchModels={onFetchModels} />,
+    );
+    fireEvent.click(screen.getByText("Kimi"));
+    setField("cfName", "x");
+    setField("cfKey", "sk-1");
+    blurKey();
+    await waitFor(() =>
+      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("m-1"),
+    );
+    const input = document.getElementById("cfModel") as HTMLInputElement;
+    fireEvent.focus(input);
+    expect(document.querySelector(".mp-panel")).toBeTruthy();
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(document.querySelector(".mp-panel")).toBeNull(); // 弹层收起
+    expect(onCancel).not.toHaveBeenCalled(); // 表单弹窗不跟着关
+  });
+
+  it("供应商切换作废在途请求：清 Key 后切走，旧响应不落地且拉取态复位", async () => {
+    let resolveFirst: (v: { ok: boolean; status: string; models: string[] }) => void = () => {};
+    const pending = new Promise<{ ok: boolean; status: string; models: string[] }>((res) => {
+      resolveFirst = res;
+    });
+    const onFetchModels = vi.fn(async () => pending);
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    fireEvent.click(screen.getByText("Kimi"));
+    setField("cfName", "x");
+    setField("cfKey", "sk-1");
+    blurKey(); // Kimi 在途
+    await screen.findByText("正在获取模型清单…");
+    setField("cfKey", ""); // 清 Key → 切供应商不再发新请求顶替
+    fireEvent.click(screen.getByText("GLM"));
+    resolveFirst({ ok: true, status: "ok", models: ["kimi-k3"] }); // 旧响应迟到
+    await Promise.resolve();
+    // 旧供应商清单/默认选中不落地；拉取态已复位（不卡「正在获取…」）
+    expect(screen.queryByText("正在获取模型清单…")).toBeNull();
+    expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("");
+  });
 });

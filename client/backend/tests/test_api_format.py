@@ -476,9 +476,12 @@ class TestConnectionFlow:
         assert "https://api.example.com/chat/completions" in out["error"]
 
     def test_openai_chat_probe_model_rejected_strict(self, fake_http):
-        """探针模型 id 被拒（400）判失败并点名所试 id——原「400 宽松不拦」口径作废（2026-10-05 拍板）。"""
+        """探针模型 id 被拒（400）判失败并点名所试 id——原「400 宽松不拦」口径作废（2026-10-05 拍板）。
+
+        探针失败仍带回已提取的清单（评审 P1 自恢复闭环）：落库后书内选择面板有正确
+        候选，用户手填错 id 后不必删配置重建。"""
         fake_http.script = [
-            ("GET", 200, {"data": [{"id": "embed-only"}]}),
+            ("GET", 200, {"data": [{"id": "embed-only"}, {"id": "good-model"}]}),
             ("POST", 400, {"error": {"message": "model not supported"}}),
         ]
         out = _run_async(
@@ -486,6 +489,7 @@ class TestConnectionFlow:
         )
         assert out["ok"] is False and out["status"] == "unknown"
         assert "embed-only" in out["error"]
+        assert out["models"] == ["embed-only", "good-model"]  # 失败信封携带真实清单
 
     def test_openai_probe_uses_vendor_candidate_when_no_models(self, fake_http):
         """模型列表为空 → 用 vendor 候选 id 做探针（deepseek 实测候选）。"""
@@ -705,6 +709,40 @@ class TestFetchModels:
             do_fetch_models("glm", "sk", "https://open.bigmodel.cn/api/paas/v4", "openai")
         )
         assert out["ok"] is False and out["status"] == "auth_error"
+
+    def test_openai_404_is_error_not_no_list(self, fake_http):
+        """openai 格式 404＝Base URL 路径可疑（异常响应），SHALL NOT 误诊为「无清单端点」（评审 P1）。"""
+        fake_http.script = [("GET", 404)]
+        out = _run_async(
+            do_fetch_models("openai", "sk", "https://api.example.com/wrong-path", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "unknown"
+        assert "404" in out["error"]
+        assert "note" not in out and "candidates" not in out
+
+    def test_rate_limited_429(self, fake_http):
+        fake_http.script = [("GET", 429)]
+        out = _run_async(
+            do_fetch_models("openai", "sk", "https://api.openai.com/v1", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "rate_limited"
+
+    def test_server_error_500(self, fake_http):
+        fake_http.script = [("GET", 500, {"error": {"message": "upstream down"}})]
+        out = _run_async(
+            do_fetch_models("qwen", "sk", "https://dashscope.aliyuncs.com/compatible-mode/v1", "openai")
+        )
+        assert out["ok"] is False and out["status"] == "network_error"
+        assert "upstream down" in out["error"]
+
+    def test_ollama_custom_port_respected(self, fake_http):
+        """ollama 自定义端口的 base 一律照打——旧实现见 "localhost" 硬替 11434（评审 P2 实锤）。"""
+        fake_http.script = [("GET", 200, {"models": [{"name": "llama3:8b"}]})]
+        out = _run_async(
+            do_fetch_models("ollama", "", "http://localhost:12345", "openai")
+        )
+        assert out["ok"] is True and out["models"] == ["llama3:8b"]
+        assert fake_http.calls[0][1] == "http://localhost:12345/api/tags"
 
 
 # ═════════════════ 4. 契约：create/update 语义 ═════════════════

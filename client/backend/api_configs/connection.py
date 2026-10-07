@@ -168,7 +168,9 @@ async def test_connection(
                     _openai_reply_text,
                 )
                 if ping is not None:
-                    return ping
+                    # 探针失败仍带回已提取的清单（评审 P1：手填错 id 的自恢复闭环——
+                    # 落库后书内选择面板立刻有正确候选可选，不必删配置重建）
+                    return {**ping, "models": models}
             elif api_format == "anthropic" and fallback is not None:
                 f_url, f_headers, _f_payload = fallback
                 ping = await _probe_generation(
@@ -179,7 +181,7 @@ async def test_connection(
                     _anthropic_reply_text,
                 )
                 if ping is not None:
-                    return ping
+                    return {**ping, "models": models}
             return {"ok": True, "status": "ok", "models": models, "error": None}
     except httpx.TimeoutException:
         return {"ok": False, "status": "timeout", "models": None, "error": "连接超时"}
@@ -230,7 +232,10 @@ async def fetch_models(
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
-            if resp.status_code == 404:
+            # 「端点不提供清单」的 404 特判只限 anthropic 格式（与 test_connection 的
+            # fallback 判据同源）——openai/ollama 格式的 404 更常见成因是 Base URL 路径
+            # 填错，按异常响应报错并提示核对，不误诊为「无清单端点」（评审 P1）
+            if resp.status_code == 404 and api_format == "anthropic":
                 return {
                     "ok": True,
                     "status": "ok",
@@ -317,12 +322,16 @@ def _build_probe(
     """
     base = base_url.rstrip("/")
 
-    # ollama 特例：本地服务、免 Key、自有 tags 端点，不按任一协议探测
+    # ollama 特例：本地服务、免 Key、自有 tags 端点，不按任一协议探测。
+    # 一律打用户填的 base（裸填/空＝官方默认 11434）——旧实现见 "localhost" 就硬替
+    # 11434，自定义端口（如 http://localhost:12345）被打去错端口（评审 P2 实锤）
     if vendor_id == "ollama":
-        url = "http://localhost:11434/api/tags"
-        if "localhost" not in base and base != "http://localhost:11434":
-            url = f"{base}/api/tags"
-        return url, {}, _extract_ollama_models, None
+        return (
+            f"{base or 'http://localhost:11434'}/api/tags",
+            {},
+            _extract_ollama_models,
+            None,
+        )
 
     if api_format == "anthropic":
         # Anthropic SDK 惯例：base 不带 /v1（SDK 自拼 /v1/messages），
