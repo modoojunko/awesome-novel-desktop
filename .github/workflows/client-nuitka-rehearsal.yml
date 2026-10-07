@@ -81,8 +81,15 @@ jobs:
       - name: Build installer (Inno Setup)
         shell: bash
         run: |
+          # iss 的 Source 指向 PyInstaller 链的输出位（dist/AwesomeNovel）；Nuitka
+          # 产物在 dist-nuitka/——拷贝对齐而非改 iss（生产链零扰动）
+          mkdir -p client/packaging/build/dist
+          cp -r client/packaging/build/dist-nuitka/AwesomeNovel client/packaging/build/dist/AwesomeNovel
+          # Inno Setup 不赌镜像预装：choco 确定性安装（上一轮 ISCC 秒退零输出的教训）
+          choco install innosetup -y --no-progress
+          ISCC='/c/Program Files (x86)/Inno Setup 6/ISCC.exe'
+          [ -f "$ISCC" ] || { echo "::error::ISCC 缺失：$ISCC"; exit 1; }
           cd client/packaging/build
-          ISCC="$(command -v iscc || echo '/c/Program Files (x86)/Inno Setup 6/ISCC.exe')"
           "$ISCC" installer.iss /DMyAppVersion=rehearsal
           test -f ../dist/AwesomeNovel_Setup_vrehearsal.exe || { echo "::error::安装包未产出"; exit 1; }
 
