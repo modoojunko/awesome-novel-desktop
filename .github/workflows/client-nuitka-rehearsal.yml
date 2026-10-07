@@ -5,7 +5,9 @@
 # 真机安装冒烟（4.2/4.3）。**不碰发布链**：不建 Release、不传 CDN；
 # 正式出包灰度（client-package.yml 的 BUILD_ENGINE）在真机全冒烟通过后另行启用。
 #
-# 成本预期：Nuitka 全量编译在 2 核 runner 上约 30–60 分钟（mac 本地 10 核 7m38s 折算）。
+# 成本预期：全量冷编 100 分钟上下（2 vCPU）；#722 起缓存 ccache，命中后编译段分钟级。
+# 判例登记（2026-10-07）：win32 必须显式 --mode=standalone；版本资源走离散旗标；
+# ISCC 的 define 用 -D 前缀（MSYS 会改写 /D）；dest 语义差见 bundle_manifest。
 
 name: C端 Nuitka 演练 (windows)
 
