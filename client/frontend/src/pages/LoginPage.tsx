@@ -146,7 +146,8 @@ export default function LoginPage() {
       // （UpdateNotice 同款判例）——壳层桥可用走 open_external，否则回退 window.open
       const bridge = (window as any).pywebview?.api;
       if (typeof bridge?.open_external === "function") {
-        void bridge.open_external(url);
+        // 桥调用失败（如无默认浏览器环境）回退 window.open，不让 rejection 悬空
+        Promise.resolve(bridge.open_external(url)).catch(() => window.open(url, "_blank"));
       } else {
         window.open(url, '_blank');
       }

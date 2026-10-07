@@ -78,9 +78,20 @@ def test_packaging_chains_are_wired():
     assert "python compile_native.py" in ps1, "本地打包脚本缺编译步骤"
     assert "compile_native.py --scan" in ps1, "本地打包脚本缺产物扫描闸门"
 
-    spec = BUILD_SPEC.read_text(encoding="utf-8")
+    # c-nuitka-full 清单单源化：datas/hiddenimports 抽进 bundle_manifest（双引擎共同
+    # 消费），「显式列出」的闸门意图改钉单源——懒导入被静态分析漏掉＝冻结包缺模块
+    # ＝运行期解密崩，这条底线不随清单搬家而松动。
+    manifest_spec = importlib.util.spec_from_file_location(
+        "bundle_manifest_under_test", REPO / "client" / "packaging" / "build" / "bundle_manifest.py"
+    )
+    assert manifest_spec and manifest_spec.loader
+    manifest = importlib.util.module_from_spec(manifest_spec)
+    manifest_spec.loader.exec_module(manifest)
     for mod in ("prompt_pack", "prompt_pack.container", "prompt_pack.localkey", "prompt_pack.sync"):
-        assert f"'{mod}'" in spec, f"build.spec 未显式列出 {mod}（懒导入会被静态分析漏掉）"
+        assert mod in manifest.HIDDEN_IMPORTS, f"烘焙清单未显式列出 {mod}（懒导入会被静态分析漏掉）"
+    assert "import bundle_manifest" in BUILD_SPEC.read_text(encoding="utf-8"), (
+        "build.spec 未消费清单单源——内联手抄会漂移（死条目判例）"
+    )
 
     assert "cython" in REQUIREMENTS.read_text(encoding="utf-8").lower(), "打包依赖缺 cython"
 
