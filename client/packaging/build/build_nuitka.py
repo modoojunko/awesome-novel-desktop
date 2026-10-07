@@ -42,9 +42,31 @@ def _fail(msg: str) -> None:
     raise SystemExit(f"build_nuitka: {msg}")
 
 
+def _ensure_native_extensions() -> None:
+    """阶段二前置（c-prompt-pack-hardening）：prompt_pack 原生扩展不存在就就地编译。
+
+    平台后缀随解释器走（cpython-312-darwin.so / win_amd64.pyd）；扩展缺失时
+    Nuitka 会退编 .py 进主二进制——不可读性等价但扫描门红（NATIVE 在位判失败），
+    所以这里补齐而非带病出包；失败即停，不允许静默字节码回落。
+    """
+    import glob
+
+    sys.path.insert(0, str(HERE))
+    if glob.glob(str(BACKEND / "prompt_pack" / "*.so")) or glob.glob(
+        str(BACKEND / "prompt_pack" / "*.pyd")
+    ):
+        return
+    print("build_nuitka: prompt_pack 原生扩展缺失，先跑 compile_native.py …")
+    r = subprocess.run([sys.executable, str(HERE / "compile_native.py")], cwd=str(HERE))
+    if r.returncode != 0:
+        _fail("compile_native 失败——拒绝出包（阶段二不静默回落字节码）")
+
+
 def build(out_dir: Path) -> Path:
     sys.path.insert(0, str(HERE))
     import bundle_manifest as M
+
+    _ensure_native_extensions()
 
     frontend_index = REPO / "client/frontend/dist/index.html"
     if not frontend_index.exists():
