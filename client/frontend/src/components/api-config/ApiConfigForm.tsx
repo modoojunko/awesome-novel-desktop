@@ -132,14 +132,13 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     return out;
   };
 
-  /** 默认选中（2026-10-07 拍板「默认选第一个」＋10-05 登记默认值调和）：
-   *  登记默认模型 ∈ 清单 → 登记值；否则清单首项。手选/手填（非空）不覆盖——
+  /** 默认选中（2026-10-07 二次拍板「默认选第一个就好，不评估价值」）：清单首项，
+   *  登记默认模型不优先（预填值只作清单到位前的初值）。手选/手填（非空）不覆盖——
    *  守卫读 modelNameRef（评审 P0：读闭包 state 会在途覆盖用户刚手填的值）。 */
-  const applyAutoSelect = (models: string[], vendor: string, fmt: ApiFormat) => {
+  const applyAutoSelect = (models: string[]) => {
     if (models.length === 0) return;
     if (modelPickedRef.current && modelNameRef.current.trim()) return;
-    const preset = defaultsFor(vendor, fmt).model;
-    setModel(models.includes(preset) ? preset : models[0]);
+    setModel(models[0]);
   };
 
   /** 只拉清单轻探针：precondition 不满足时静默跳过；同参数成功后不重复拉（force 重拉）。 */
@@ -166,7 +165,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
         setModelList(models);
         setModelCandidates(r.candidates ?? []);
         setModelNote(r.note ?? null);
-        applyAutoSelect(models, params.vendor_id, params.api_format);
+        applyAutoSelect(models);
       } else {
         lastFetchRef.current = ""; // 失败允许原参数重试
         setFetchErr(r.error || "模型清单获取失败");
@@ -265,7 +264,7 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
         setModelNote(null);
         setFetchErr(null);
         lastFetchRef.current = `${vendorId}|${baseUrl.trim()}|${apiKey}|${apiFormat}`;
-        if (r.ok) applyAutoSelect(r.models!, vendorId, apiFormat);
+        if (r.ok) applyAutoSelect(r.models!);
       }
     } catch {
       setTestResult({ ok: false, message: "测试请求失败" });

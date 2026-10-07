@@ -332,11 +332,11 @@ describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）",
     expect(onFetchModels).toHaveBeenCalledTimes(1);
   });
 
-  it("登记默认模型在清单内优先选中；不在清单内退清单首项", async () => {
+  it("默认选中清单首项（2026-10-07 二次拍板「默认选第一个，不评估价值」——登记默认不优先）", async () => {
     const onFetchModels = vi
       .fn()
       .mockResolvedValueOnce({ ok: true, status: "ok", models: ["deepseek-flash", "deepseek-v4-pro"] })
-      .mockResolvedValueOnce({ ok: true, status: "ok", models: ["deepseek-flash"] });
+      .mockResolvedValueOnce({ ok: true, status: "ok", models: ["deepseek-v4-pro"] });
     render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
     fireEvent.click(screen.getByText("DeepSeek"));
     expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("deepseek-v4-pro"); // 预填初值
@@ -344,15 +344,15 @@ describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）",
     setField("cfKey", "sk-1");
     blurKey();
     await waitFor(() =>
-      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("deepseek-v4-pro"),
-    ); // 登记默认 ∈ 清单 → 保持登记值（不取首项 flash）
-    // 清 Key 后切走再切回（中间不拉取）；回切即重拉，清单不再含登记默认 → 退首项
+      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("deepseek-flash"),
+    ); // 登记默认 ∈ 清单也不优先——严格选清单首项
+    // 清 Key 后切走再切回（中间不拉取）；回切即重拉，首项为 v4-pro → 选中它
     setField("cfKey", "");
     fireEvent.click(screen.getByText("GLM"));
     setField("cfKey", "sk-1");
     fireEvent.click(screen.getByText("DeepSeek"));
     await waitFor(() =>
-      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("deepseek-flash"),
+      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("deepseek-v4-pro"),
     );
   });
 

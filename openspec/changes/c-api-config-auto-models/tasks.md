@@ -15,7 +15,7 @@
 - [x] 2.2 `useApiConfigs.ts`：`fetchRawModels(body)` 调新端点
 - [x] 2.3 `ApiConfigForm.tsx`：模型字段改选择器（组合框＋`.mp-*` 搜索弹层＋候选 chips；键盘导航）
 - [x] 2.4 自动拉取接线：Key 失焦非空触发；Ollama 免 Key 触发；vendor/URL/格式变更重拉；在途去重（序号丢弃过期响应）；失败 warn＋「重新拉取」
-- [x] 2.5 默认选中规则：登记默认 ∈ 清单 → 登记值；否则首项；手选不覆盖；`handleTest` 结果同步刷新清单
+- [x] 2.5 默认选中规则（2026-10-07 二次拍板定案）：**清单首项**（「默认选第一个就好，不评估价值」——登记默认不优先，预填值只作初值）；手选不覆盖；`handleTest` 结果同步刷新清单
 - [x] 2.6 vitest：apiConfigForm（触发/默认选中/弹层搜索选择/手填兜底/测试刷新/失败重试）、apiKeyConfigPage（fetch-models 接线＋POST body）、apiVendorDefaults 对齐
 - [x] 2.7 字段顺序＝Base URL → API Key → 模型（2026-10-07 用户拍板：模型垫底，Key 失焦拉到的清单喂给紧随其下的选择器）；原型同批对调
 

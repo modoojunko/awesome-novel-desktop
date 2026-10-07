@@ -270,7 +270,7 @@ describe("ApiKeyConfigPage 覆盖补齐", () => {
     await waitFor(() => expect(document.querySelector(".mcard")).toBeNull()); // closeForm 清目标
   });
 
-  it("新建：Key 失焦自动拉清单（fetch-models 端点）并默认选中登记模型", async () => {
+  it("新建：Key 失焦自动拉清单（fetch-models 端点）并默认选中清单首项", async () => {
     stubFull();
     renderPage();
     await waitFor(() => expect(screen.getByText("添加 API Key")).toBeTruthy());
@@ -290,9 +290,9 @@ describe("ApiKeyConfigPage 覆盖补齐", () => {
       api_key: "sk-x",
       api_format: "openai",
     });
-    // 默认选中：登记默认模型 deepseek-v4-pro ∈ 清单 → 保持登记值
+    // 默认选中＝清单首项（2026-10-07 二次拍板：登记默认不优先）
     await waitFor(() =>
-      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("deepseek-v4-pro"),
+      expect((document.getElementById("cfModel") as HTMLInputElement).value).toBe("deepseek-flash"),
     );
     expect(await screen.findByText("已拉到 2 个模型")).toBeTruthy();
   });

@@ -365,11 +365,11 @@ test("模型配置：Key 失焦自动拉清单——默认选中登记模型，�
     await expect(page.locator("#cfBase")).toHaveValue("https://api.deepseek.com");
     await expect(modelInput).toHaveValue("deepseek-v4-pro"); // 预填初值
 
-    // 填 Key 失焦 → 自动走 fetch-models；清单到位，默认选中＝登记默认（∈ 清单）
+    // 填 Key 失焦 → 自动走 fetch-models；清单到位，默认选中＝清单首项（登记默认不优先）
     await page.getByPlaceholder("sk-...").fill("sk-e2e-auto");
     await page.locator("#cfKey").blur();
     await expect(page.getByText("已拉到 2 个模型")).toBeVisible({ timeout: 10000 });
-    await expect(modelInput).toHaveValue("deepseek-v4-pro");
+    await expect(modelInput).toHaveValue("deepseek-flash");
     // 自动拉取完成态对照截图（随报告落 test-results）
     await page.screenshot({ path: testInfo.outputPath("auto-fetch-models.png") });
 
@@ -378,10 +378,10 @@ test("模型配置：Key 失焦自动拉清单——默认选中登记模型，�
     await expect(page.locator(".mp-panel .mp-item")).toHaveCount(1);
     await modelInput.fill("");
     await expect(page.locator(".mp-panel .mp-item")).toHaveCount(2);
-    await modelInput.fill("flash");
+    await modelInput.fill("v4-pro");
     await expect(page.locator(".mp-panel .mp-item")).toHaveCount(1);
-    await page.locator(".mp-panel .mp-item", { hasText: "deepseek-flash" }).click();
-    await expect(modelInput).toHaveValue("deepseek-flash");
+    await page.locator(".mp-panel .mp-item", { hasText: "deepseek-v4-pro" }).click();
+    await expect(modelInput).toHaveValue("deepseek-v4-pro");
     await expect(page.locator(".mp-panel")).toHaveCount(0); // 选中后收起
 
     // 保存：POST body models 跟随改选值；卡片带改选的模型名
@@ -393,10 +393,10 @@ test("模型配置：Key 失焦自动拉清单——默认选中登记模型，�
     );
     await page.getByRole("button", { name: "保存并测试连接" }).click();
     const resp = await created;
-    expect(resp.request().postDataJSON().models).toEqual(["deepseek-flash"]);
+    expect(resp.request().postDataJSON().models).toEqual(["deepseek-v4-pro"]);
     const card = page.locator(".cfg-card", { hasText: "e2e自动拉清单" });
     await expect(card).toBeVisible({ timeout: 10000 });
-    await expect(card.getByText("deepseek-flash")).toBeVisible();
+    await expect(card.getByText("deepseek-v4-pro")).toBeVisible();
   } finally {
     restore();
   }

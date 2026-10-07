@@ -759,12 +759,11 @@ function renderPickerPanel() {
   panel.hidden = false;
   $('cfModel').setAttribute('aria-expanded', 'true');
 }
-/* 默认选中（拍板 2026-10-07「默认选第一个」＋登记默认值调和）：登记默认 ∈ 清单 → 登记值；否则首项；手选不覆盖 */
+/* 默认选中（2026-10-07 二次拍板「默认选第一个，不评估价值」）：清单首项，登记默认不优先；手选不覆盖 */
 function autoSelect(models) {
   if (!models.length) return;
   if (picker.picked && $('cfModel').value.trim()) return;
-  const preset = defaultsFor(selVendor, selFormat).model;
-  $('cfModel').value = models.includes(preset) ? preset : models[0];
+  $('cfModel').value = models[0];
 }
 function fetchModelList(force) {
   if (editTarget) return;
