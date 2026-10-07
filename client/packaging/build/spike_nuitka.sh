@@ -4,7 +4,9 @@
 set -x
 cd "$(dirname "$0")"
 
-PY=/Users/modoojunko/Desktop/coding/ai-novel/client/backend/.venv/bin/python
+# 解释器：仓库 backend venv 优先，缺省回落 PATH 上的 python3（勿硬编码机器路径）
+PY="${PYTHON_BIN:-../../backend/.venv/bin/python}"
+[ -x "$PY" ] || PY="$(command -v python3)"
 BACKEND=../../backend
 ROOT=../../..
 
