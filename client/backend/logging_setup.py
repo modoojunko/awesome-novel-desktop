@@ -47,7 +47,10 @@ class FoldRepeatFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         now = time.monotonic()
         template = record.msg if isinstance(record.msg, str) else str(record.msg)
-        key = (record.name, record.levelno, template)
+        # args 必须进 key：请求行/AI 留痕行共用固定模板、参数各异——不含 args 会把
+        # 连续正常操作折叠成一行（违反 spec「一行一条」）；风暴场景（同异常文本、
+        # args=() 或相同参数）折叠语义不变。
+        key = (record.name, record.levelno, template, record.args)
         state = self._state.get(key)
         if state is not None and (now - state[0]) < self._window:
             self._state[key] = (state[0], state[1] + 1)

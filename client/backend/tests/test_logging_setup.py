@@ -137,6 +137,22 @@ def test_storm_folded_to_bounded_lines(daily_file_log):
     assert text.count("boom-template-same") == 1, "同型消息窗口内只记首条"
 
 
+def test_distinct_args_never_folded(daily_file_log):
+    """反向判据（评审 P1）：请求行/AI 留痕行共用固定模板、参数各异——必须逐行落盘。"""
+    req = logging.getLogger("api.request")
+    for path in ("/api/a", "/api/b", "/api/c", "/api/d"):
+        req.info("%s %s %s %.0fms", "POST", path, 200, 12.0)
+    ai = logging.getLogger("ai_client")
+    tpl = "event=ai_call op=%s result=ok"
+    for op in ("op_x", "op_y"):
+        ai.info(tpl, op)
+
+    text = _log_text(daily_file_log)
+    for path in ("/api/a", "/api/b", "/api/c", "/api/d"):
+        assert path in text, f"不同参数的请求行不得被折叠：{path} 丢失"
+    assert text.count("event=ai_call") == 2, "不同 operation 的 AI 行不得被折叠"
+
+
 def test_fold_filter_carries_count_after_window(monkeypatch):
     f = FoldRepeatFilter(window_seconds=10.0)
     now = [1000.0]

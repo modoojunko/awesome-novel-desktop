@@ -370,12 +370,23 @@ class AIClient:
                 # 是它的子集），故不再另加，避免重复计数。
                 usage["tokens_in"] = getattr(u, "prompt_tokens", 0) or 0
                 usage["tokens_out"] = getattr(u, "completion_tokens", 0) or 0
+            choices = list(getattr(response, "choices", None) or [])
+            if not choices:
+                # choices 空（usage-only 响应等）＝无产物：按失败留痕，不记 ok
+                # （与 anthropic 无 text 块同口径，评审 P3）
+                self._log_call(
+                    operation, model, start,
+                    tokens_in=(usage or {}).get("tokens_in", 0),
+                    tokens_out=(usage or {}).get("tokens_out", 0),
+                    error=ValueError("模型未返回文本内容"),
+                )
+                raise ValueError("模型未返回文本内容（choices 空），请重试")
             self._log_call(
                 operation, model, start,
                 tokens_in=(usage or {}).get("tokens_in", 0),
                 tokens_out=(usage or {}).get("tokens_out", 0),
             )
-            return response.choices[0].message.content or ""
+            return choices[0].message.content or ""
         else:
             kwargs.pop("json_mode", None)  # Anthropic 无 response_format，靠 prompt + 归一化兜底
             kwargs = self._anthropic_kwargs(kwargs)
@@ -423,18 +434,26 @@ class AIClient:
                     + (getattr(u, "cache_creation_input_tokens", 0) or 0)
                 )
                 usage["tokens_out"] = getattr(u, "output_tokens", 0) or 0
+            for block in response.content:
+                if getattr(block, "type", "") == "text" and block.text:
+                    self._log_call(
+                        operation, model, start,
+                        tokens_in=(usage or {}).get("tokens_in", 0),
+                        tokens_out=(usage or {}).get("tokens_out", 0),
+                        attempt=attempt,
+                    )
+                    return block.text
+            # 无 text 块（偶发：预算全用在思考 / 供应商只回 thinking）——
+            # 明确报错让上层可重试，**不得静默返回空串**（会被当成「非法 JSON」）；
+            # ok 行在文本确认后落（评审 P3：先记 ok 再抛错会让日志与调用方 _fail 矛盾）
+            blocks = [getattr(b, "type", "?") for b in (response.content or [])]
             self._log_call(
                 operation, model, start,
                 tokens_in=(usage or {}).get("tokens_in", 0),
                 tokens_out=(usage or {}).get("tokens_out", 0),
                 attempt=attempt,
+                error=ValueError("模型未返回文本内容"),
             )
-            for block in response.content:
-                if getattr(block, "type", "") == "text" and block.text:
-                    return block.text
-            # 无 text 块（偶发：预算全用在思考 / 供应商只回 thinking）——
-            # 明确报错让上层可重试，**不得静默返回空串**（会被当成「非法 JSON」）
-            blocks = [getattr(b, "type", "?") for b in (response.content or [])]
             raise ValueError(
                 f"模型未返回文本内容（返回块：{blocks or '空'}，stop_reason="
                 f"{getattr(response, 'stop_reason', '?')}），请重试"

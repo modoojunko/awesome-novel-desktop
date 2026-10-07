@@ -1006,7 +1006,6 @@ def write_error_page(appdata: Path, reason: str) -> Path:
     import html
 
     blocks = []
-    shown: set[Path] = set()
     for kind, candidates in (
         ("startup.log", _startup_log_candidates(appdata)),
         ("后端日志（logs/ 最新）", _backend_log_candidates(appdata)),
@@ -1018,8 +1017,6 @@ def write_error_page(appdata: Path, reason: str) -> Path:
             if tail is not None:
                 used = candidate
                 break
-        if used is not None:
-            shown.add(used)
         blocks.append(
             f"<p style='margin:18px 0 6px;color:#9bb'>=== {html.escape(kind)}"
             f"{f'（{html.escape(str(used))}）' if used is not None else ''} ===</p>"
