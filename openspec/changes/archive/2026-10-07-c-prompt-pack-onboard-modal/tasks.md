@@ -27,14 +27,14 @@
 
 ## 4. 前端：弹窗与挂载点
 
-- [ ] 4.1 `licenseCache` PackStatus 扩 `step`；`PromptPackModal` 新组件（mode×stage 状态机
+- [x] 4.1 `licenseCache` PackStatus 扩 `step`；`PromptPackModal` 新组件（mode×stage 状态机
   见 design D7，复用 design/Modal；1s 轮询 `/prompt-pack/status` 上限 180s；tier_denied
   走升级出口；失败态含重新获取＋复制诊断）挂壳层单点，CustomEvent `pack-modal:open`
   开启；vitest 覆盖状态机各迁移。
-- [ ] 4.2 `NovelListPage` 挂载 effect：status 为 missing/failed → 开弹窗 install 模式并
+- [x] 4.2 `NovelListPage` 挂载 effect：status 为 missing/failed → 开弹窗 install 模式并
   POST `/prompt-pack/check`；否则 probe，有更新 → 开弹窗 update 模式；in-flight 去重＋
   StrictMode 双挂载保护；vitest 钉三分支与静默分支。
-- [ ] 4.3 `AiWriterAssistant` BLOCK_TEXT `prompts_missing` 文案按已登录失败口径调整
+- [x] 4.3 `AiWriterAssistant` BLOCK_TEXT `prompts_missing` 文案按已登录失败口径调整
   （指向菜单「写作能力」重新获取）；`PromptPackCard` 失败文案同步对齐；vitest 更新。
 
 ## 5. 前端：账号菜单入口
@@ -61,7 +61,7 @@
 
 - [ ] 7.1 真机首装冒烟（Windows/macOS 各一）：全新安装→登录→弹窗引导→就绪→AI 可用；
   菜单入口三态可见。
-- [ ] 7.2 归档（spec delta 同步：prompt-pack-delivery MODIFIED+ADDED、design-system
+- [x] 7.2 归档（spec delta 同步：prompt-pack-delivery MODIFIED+ADDED、design-system
   ADDED；Purpose 无需改）。
 
 ## 回归
