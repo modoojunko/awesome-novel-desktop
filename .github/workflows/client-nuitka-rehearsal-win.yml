@@ -93,7 +93,7 @@ jobs:
           [ -f "$ISCC" ] || { echo "::error::ISCC 缺失：$ISCC"; exit 1; }
           cd client/packaging/build
           # -D 而非 /D：Git Bash 的 MSYS 会把开头的 /D 参数改写成路径 → ISCC 报
-# 「more than one script filename」（八轮判例）；ISCC 两种前缀都认
+          # 「more than one script filename」（八轮判例）；ISCC 两种前缀都认
           "$ISCC" installer.iss -DMyAppVersion=rehearsal
           test -f ../dist/AwesomeNovel_Setup_vrehearsal.exe || { echo "::error::安装包未产出"; exit 1; }
 
