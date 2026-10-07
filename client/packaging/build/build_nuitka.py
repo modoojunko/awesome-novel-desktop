@@ -91,14 +91,20 @@ def build(out_dir: Path) -> Path:
     elif sys.platform == "win32":
         cmd += [f"--windows-icon-from-ico={HERE / 'icon.ico'}",
                 "--windows-console-mode=disable"]
-        version_file = HERE / "version_info.txt"
-        if not version_file.exists():
-            # 共享单源现生成（与 build.spec 同一 write_version_file）
-            import win_version_info
-            version_file = win_version_info.write_version_file(spec_dir=HERE, root_dir=REPO)
-        if version_file is None or not version_file.exists():
-            _fail("Windows 版本资源生成失败——检查 brand/brand.json 字段门禁输出")
-        cmd.append(f"--windows-version-file={version_file}")
+        # Nuitka 4.x 无 version-info 文件选项（演练判例：--windows-version-file 不存在），
+        # 用离散旗标；字段与 PyInstaller 的 version_info.txt 同一单源（win_version_info）
+        import win_version_info
+        fields = win_version_info.collect(root_dir=REPO)
+        if fields is None:
+            _fail("Windows 版本资源字段收集失败——检查 brand/brand.json 字段门禁输出")
+        cmd += [
+            f"--company-name={fields['publisher']}",
+            f"--product-name={fields['brand_name']}",
+            f"--file-version={fields['file_version']}",
+            f"--product-version={fields['file_version']}",
+            f"--file-description={fields['brand_name']} ({fields['brand_name_en']})",
+            f"--copyright=© {fields['publisher']}",
+        ]
     else:
         _fail(f"平台未支持：{sys.platform}")
 

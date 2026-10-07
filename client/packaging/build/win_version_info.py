@@ -48,8 +48,13 @@ def _detect_version(root_dir: Path) -> str:
     return re.sub(r"[^A-Za-z0-9.+_-]", "-", v) or "0.0.0"
 
 
-def write_version_file(spec_dir: Path, root_dir: Path) -> Path | None:
-    """生成 version_info.txt（仅 win32）；非 Windows 返回 None 不生成文件。"""
+def collect(root_dir: Path) -> dict | None:
+    """收集版本资源字段（仅 win32）；非 Windows 返回 None。
+
+    返回 dict：publisher/brand_name/brand_name_en/ver/file_version（点分数字串，
+    最多四段，可直接喂 Nuitka --file-version/--product-version——它们只收数字
+    不收 VSVersionInfo 文件，c-nuitka-full 演练判例）。
+    """
     if sys.platform != "win32":
         return None
 
@@ -64,7 +69,27 @@ def write_version_file(spec_dir: Path, root_dir: Path) -> Path | None:
     prefix = re.match(r"\d+(?:\.\d+)*", ver)
     segs = [min(int(seg), 65535) for seg in (prefix.group(0).split(".") if prefix else [])]
     nums = tuple((segs + [0, 0, 0, 0])[:4])
-    file_desc = f"{brand_name} ({brand_name_en})"
+    return {
+        "publisher": publisher,
+        "brand_name": brand_name,
+        "brand_name_en": brand_name_en,
+        "ver": ver,
+        "file_version": ".".join(str(n) for n in nums),
+    }
+
+
+def write_version_file(spec_dir: Path, root_dir: Path) -> Path | None:
+    """生成 version_info.txt（PyInstaller 引擎用；Nuitka 走 collect() 离散旗标）。"""
+    if sys.platform != "win32":
+        return None
+
+    fields = collect(root_dir)
+    assert fields is not None
+    publisher = fields["publisher"]
+    brand_name = fields["brand_name"]
+    ver = fields["ver"]
+    nums = tuple(int(x) for x in fields["file_version"].split("."))
+    file_desc = f"{brand_name} ({fields['brand_name_en']})"
     copyright_line = f"© {publisher}"
 
     version_file = spec_dir / "version_info.txt"
