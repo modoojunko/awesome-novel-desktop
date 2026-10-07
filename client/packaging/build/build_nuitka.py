@@ -98,6 +98,9 @@ def build(out_dir: Path) -> Path:
         if fields is None:
             _fail("Windows 版本资源字段收集失败——检查 brand/brand.json 字段门禁输出")
         cmd += [
+            # 输出名对齐 build.spec EXE/iss（dist 目录名跟可执行名走——演练三判例：
+            # 不设则 dist 叫 pywebview_app.dist 且 exe 名不对，改名字段与实际产物脱节）
+            "--output-filename=AwesomeNovel.exe",
             f"--company-name={fields['publisher']}",
             f"--product-name={fields['brand_name']}",
             f"--file-version={fields['file_version']}",
@@ -141,11 +144,15 @@ def build(out_dir: Path) -> Path:
     # ── 交付名对齐：Windows onedir 与 macOS .app 都改名 AI Novel（installer/DMG 期望；
     # Nuitka 的 bundle 目录名跟入口脚本走，--macos-app-name 只写 Info.plist）
     if sys.platform == "win32":
-        raw = out_dir / "pywebview_app.dist"
+        # dist 目录名跟输出可执行名走（--output-filename 决定）；glob 发现防 Nuitka
+        # 版本间命名漂移，发现不了就把目录列表打出来便于诊断
+        dists = list(out_dir.glob("*.dist"))
+        if len(dists) != 1:
+            _fail(f"期望恰一个 *.dist，实际 {len(dists)}：{[x.name for x in out_dir.iterdir()]}")
         target = out_dir / APP_NAME
         if target.exists():
             shutil.rmtree(target)
-        raw.rename(target)
+        dists[0].rename(target)
         dist_root = target
     else:
         raw = out_dir / "pywebview_app.app"
