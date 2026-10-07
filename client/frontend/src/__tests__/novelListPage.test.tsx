@@ -8,6 +8,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import NovelListPage from "@/pages/NovelListPage";
+import { resetPackProbeSlotForTests } from "@/lib/packProbe";
 import { SHELF_PAGE_SIZE } from "@/lib/shelfSort";
 import { toast } from "@/lib/toast";
 
@@ -943,5 +944,139 @@ describe("覆盖补齐（回看与多书局部更新）", () => {
     const note = screen.getByText("把上一版的作品带过来").closest(".fr-note") as HTMLElement;
     expect(note.textContent).toContain("3"); // 只计有书数的候选
     legacyStatusMock.value = null;
+  });
+});
+
+
+describe("写作能力探测（c-prompt-pack-onboard-modal）", () => {
+  beforeEach(() => {
+    resetPackProbeSlotForTests();
+  });
+
+  function listen() {
+    const events: CustomEvent[] = [];
+    const on = (e: Event) => events.push(e as CustomEvent);
+    window.addEventListener("pack-modal:open", on);
+    return () => window.removeEventListener("pack-modal:open", on);
+  }
+
+  it("未装包（probe 无已装版本且 source=pack）→ 广播 install 模式开弹窗", async () => {
+    getMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("/prompt-pack/probe"))
+        return { installed_version: "", latest_version: "", update_available: false, source: "pack" };
+      return [novel()];
+    });
+    const events: CustomEvent[] = [];
+    const on = (e: Event) => events.push(e as CustomEvent);
+    window.addEventListener("pack-modal:open", on);
+    renderPage();
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/prompt-pack/probe", { quiet: true }));
+    await act(async () => {});
+    window.removeEventListener("pack-modal:open", on);
+    expect(events).toHaveLength(1);
+    expect(events[0].detail).toEqual({ mode: "install" });
+  });
+
+  it("已装且探测有更新 → 广播 update（当前→最新版本对）", async () => {
+    getMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("/prompt-pack/probe"))
+        return { installed_version: "5", latest_version: "6", update_available: true, source: "pack" };
+      return [novel()];
+    });
+    const events: CustomEvent[] = [];
+    const on = (e: Event) => events.push(e as CustomEvent);
+    window.addEventListener("pack-modal:open", on);
+    renderPage();
+    await waitFor(() => expect(events.length).toBe(1));
+    window.removeEventListener("pack-modal:open", on);
+    expect(events[0].detail).toEqual({ mode: "update", from: "5", to: "6" });
+  });
+
+  it("已装无更新 → 全静默不广播", async () => {
+    getMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("/prompt-pack/probe"))
+        return { installed_version: "6", latest_version: "6", update_available: false, source: "pack" };
+      return [novel()];
+    });
+    const off = listen();
+    renderPage();
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/prompt-pack/probe", { quiet: true }));
+    await act(async () => {});
+    off();
+    // 静默＝零广播（探测结果无弹窗模式）
+  });
+
+  it("min_client 跳过（旧客户端＋未装）→ 全静默不广播（评审 P1-2）", async () => {
+    getMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("/prompt-pack/probe"))
+        return {
+          installed_version: "",
+          latest_version: "6",
+          update_available: false,
+          reason: "min_client_version",
+          source: "pack",
+        };
+      return [novel()];
+    });
+    const off = listen();
+    renderPage();
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/prompt-pack/probe", { quiet: true }));
+    await act(async () => {});
+    off();
+  });
+
+  it("dev 态（source=dev）未装也静默——存量 e2e 零扰动", async () => {
+    getMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("/prompt-pack/probe"))
+        return { installed_version: "", latest_version: "", update_available: false, source: "dev" };
+      return [novel()];
+    });
+    const off = listen();
+    renderPage();
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/prompt-pack/probe", { quiet: true }));
+    await act(async () => {});
+    off();
+  });
+
+  it("探测失败 → 静默不广播（finally 释放槽，下轮可再探测）", async () => {
+    getMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("/prompt-pack/probe")) throw new Error("down");
+      return [novel()];
+    });
+    const off = listen();
+    renderPage();
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/prompt-pack/probe", { quiet: true }));
+    await act(async () => {});
+    off();
+    getMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("/prompt-pack/probe"))
+        return { installed_version: "", latest_version: "", update_available: false, source: "pack" };
+      return [novel()];
+    });
+    resetPackProbeSlotForTests();
+    const events: CustomEvent[] = [];
+    const on = (e: Event) => events.push(e as CustomEvent);
+    window.addEventListener("pack-modal:open", on);
+    renderPage();
+    await waitFor(() => expect(events.length).toBe(1));
+    window.removeEventListener("pack-modal:open", on);
+    expect(events[0].detail).toEqual({ mode: "install" });
+  });
+
+  it("在途槽去重：同帧第二次挂载不重复探测（StrictMode 双挂载）", async () => {
+    let releaseProbe!: (v: unknown) => void;
+    getMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("/prompt-pack/probe"))
+        return new Promise((res) => { releaseProbe = res; });
+      return [novel()];
+    });
+    renderPage();
+    renderPage();
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/prompt-pack/probe", { quiet: true }));
+    await act(async () => {});
+    const probeCalls = getMock.mock.calls.filter((c) => String(c[0]).includes("probe")).length;
+    releaseProbe({ installed_version: "1", latest_version: "1", update_available: false, source: "pack" });
+    await act(async () => {});
+    expect(probeCalls).toBe(1);
   });
 });

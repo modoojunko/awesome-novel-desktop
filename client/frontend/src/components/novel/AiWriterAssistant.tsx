@@ -78,7 +78,8 @@ const BLOCK_TEXT: Record<string, string> = {
   missing_model: "先在本书选择模型",
   invalid: "本书绑定的模型已失效，重新选择模型",
   // c-prompt-pack-client：四态卡（PromptPackCard）承担引导与出口，此处为兜底文案
-  prompts_missing: "写作能力还没就绪——登录后会自动获取",
+  // 已登录失败不再「自动获取」（onboard-modal 定诊）：出口指向账号菜单手动重新获取
+  prompts_missing: "写作能力还没就绪——在账号菜单「写作能力」里重新获取",
 };
 
 export default function AiWriterAssistant({

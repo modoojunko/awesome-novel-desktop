@@ -8,6 +8,7 @@ import NovelListPage from "@/pages/NovelListPage";
 import NovelLayout from "@/pages/NovelLayout";
 import NovelWorkspace from "@/components/novel/NovelWorkspace";
 import MemberBlockPrompt from "@/components/novel/license/MemberBlockPrompt";
+import PromptPackModal from "@/components/novel/license/PromptPackModal";
 import AuthGuard from "@/components/auth/AuthGuard";
 import { isLoggedIn } from "@/lib/auth";
 
@@ -69,6 +70,8 @@ export default function App() {
       {/* 版权行并入底部状态条（StatusBar，ClientShell 层）——页脚 © 常驻条退役 */}
       {/* AI 会员拦截全局升级引导（监听 api.request 的 member-block 事件） */}
       <MemberBlockPrompt />
+      {/* 写作能力引导弹窗（c-prompt-pack-onboard-modal）：壳层单点，pack-modal:open 事件开启 */}
+      <PromptPackModal />
     </ClientShell>
   );
 }

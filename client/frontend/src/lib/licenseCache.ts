@@ -27,6 +27,8 @@ export interface PackStatus {
   reason?: string;
   tier?: string;
   version?: string;
+  /** 同步分步进度（c-prompt-pack-onboard-modal）：probe/download/install；非同步期恒空 */
+  step?: '' | 'probe' | 'download' | 'install';
   updated_at?: number;
 }
 
