@@ -209,6 +209,10 @@ test.describe("design-parity 书架屏（list.html v2）", () => {
       );
       const protoPage = await protoCtx.newPage();
       await protoPage.goto(`file://${PROTO_FILE}`);
+      // demo-bar 是原型自带的状态切换 chrome（非基线，收编前删除）——
+      // c-prompt-pack-onboard-modal 起挂在 list.html 底部，比对前移除
+      // （book parity 藏 doc-head 同理：应用侧没有这块，不移除会造整条底栏像素差）
+      await protoPage.evaluate(() => document.querySelector(".demo-bar")?.remove());
       await protoPage.evaluate(() => document.fonts.ready);
       // 帧位标定（e2e-speedup-infra 判保留）：parity 截图需两侧同一确定性帧，
       // 固定等待即标定值，非脆弱等待——勿换 pageSettled（遮罩动画帧位会漂，实测 84% 差异）

@@ -68,13 +68,19 @@ _ALIASES = {"monthly": "pro", "quarterly": "pro", "yearly": "pro", "lifetime": "
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-]+$")
 
 # ── 状态（供 /auth/verify 与前端四态卡） ─────────────────────────────────────
-_state: dict = {"phase": "missing", "reason": "", "tier": "", "version": "", "updated_at": 0.0}
+_state: dict = {"phase": "missing", "reason": "", "tier": "", "version": "", "step": "",
+                "updated_at": 0.0}
 _lock = threading.Lock()
 _syncing = False
+# c-prompt-pack-onboard-modal：在途触发的待重跑档位（只排一级）。None＝无排队；
+# 手动触发不带档位（None 语义=由本地配置解析）与「无排队」用哨兵区分
+_PENDING_FROM_CONFIG = object()
+_pending_tier: object | None = None
 
 
 def get_status() -> dict:
-    """包状态快照：phase ∈ syncing/ready/missing/failed/tier_denied。
+    """包状态快照：phase ∈ syncing/ready/missing/failed/tier_denied；step 为同步分步进度
+    （probe/download/install，c-prompt-pack-onboard-modal：引导弹窗消费，非同步期恒空）。
 
     口径（失败矩阵＋dev 兜底，2026-10-05 评审修正）：**有可用模板来源即 ready
     （全静默）**——①已装包（resolve_dir）②开发/测试态的包内目录（frozen 发布包
@@ -108,22 +114,32 @@ def reset_state() -> None:
     """把模块级状态复位（**测试夹具用**）。
 
     为什么需要显式复位：发布态本模块是编译扩展，`importlib.reload()` 对扩展模块
-    不会重跑初始化，模块级状态（`_state`/`_syncing`）因此会跨用例残留——夹具靠
-    reload 复位的老写法在编译形态下失效。显式复位两态通吃（.py 与 .so 同一套测试）。
+    不会重跑初始化，模块级状态（`_state`/`_syncing`/`_pending_tier`）因此会跨用例
+    残留——夹具靠 reload 复位的老写法在编译形态下失效。显式复位两态通吃
+    （.py 与 .so 同一套测试）。
     """
-    global _syncing  # noqa: PLW0603 — 模块级单例状态，复位即其用途
+    global _syncing, _pending_tier  # noqa: PLW0603 — 模块级单例状态，复位即其用途
     with _lock:
-        _state.update(phase="missing", reason="", tier="", version="", updated_at=0.0)
+        _state.update(phase="missing", reason="", tier="", version="", step="", updated_at=0.0)
         _syncing = False
+        _pending_tier = None
 
 
 def _set_state(phase: str, reason: str = "", tier: str = "", version: str = "") -> None:
     with _lock:
-        _state.update(phase=phase, reason=reason, updated_at=time.time())
+        # step 随任意相位迁移清空：终态（ready/failed）不该残留进行中分步；
+        # 同步中的分步由 _set_step 显式推进
+        _state.update(phase=phase, reason=reason, step="", updated_at=time.time())
         if tier:
             _state["tier"] = tier
         if version:
             _state["version"] = version
+
+
+def _set_step(step: str) -> None:
+    """同步分步进度（probe/download/install）——只推进不迁相位，弹窗轮询消费。"""
+    with _lock:
+        _state["step"] = step
 
 
 # ── URL 与信任根 ─────────────────────────────────────────────────────────────
@@ -433,6 +449,42 @@ def _installed_pack_intact(receipt: dict | None) -> bool:
 # ── 主流程 ───────────────────────────────────────────────────────────────────
 
 
+def probe_latest() -> dict:
+    """版本探测（c-prompt-pack-onboard-modal：只探测不安装）。
+
+    取 latest.json（验签＋min_client_version 闸）与已装 receipt 版本比较；不下载、
+    不装、不调 S端、不触碰状态机（探测不得把 ready 抖成 syncing）。任何不可得
+    （CDN 不可达/验签失败/无信任钥）＝无更新静默返回。dev 态（非 force 且包内目录
+    可用、且无已装包）恒无更新——存量 e2e 零改动的关键。
+    """
+    receipt = read_receipt()
+    installed_version = str(receipt.get("version") or "") if receipt else ""
+    no_update = {"installed_version": installed_version, "latest_version": "",
+                 "update_available": False, "source": "pack"}
+    if not installed_version and _dev_fallback_available():
+        # dev/测试态：包内目录可用即视为已就绪（source=dev，前端据此静默，
+        # 不弹首装窗——存量 e2e 与书架请求预算零扰动）
+        return {**no_update, "source": "dev"}
+    keys = _pubkeys()
+    if not keys:
+        return no_update
+    with httpx.Client(timeout=_FETCH_TIMEOUT, follow_redirects=False) as client:
+        latest = None
+        for url in _candidate_urls():
+            latest = _fetch_json(client, url)
+            if latest:
+                break
+    if not latest or not _verify_manifest_signature(latest, keys):
+        return {**no_update, "reason": "probe_unavailable"}
+    version = str(latest.get("version") or "")
+    min_client = latest.get("min_client_version")
+    if isinstance(min_client, str) and min_client and app_version() not in ("dev",) and is_newer(min_client, app_version()):
+        return {**no_update, "reason": "min_client_version"}
+    update_available = bool(version and installed_version and is_newer(version, installed_version))
+    return {"installed_version": installed_version, "latest_version": version,
+            "update_available": update_available}
+
+
 def sync_once(
     local_tier: str | None = None,
     _retry: bool = False,
@@ -459,6 +511,7 @@ def sync_once(
         return get_status()
 
     _set_state("syncing", tier=tier)
+    _set_step("probe")
     hw = read_highwatermark()
     receipt = read_receipt()
     # 本地完整性预检（评审 P1）：版本已最新也要先验已装文件——损坏/被改时不得短路，
@@ -492,6 +545,10 @@ def sync_once(
         min_client = latest.get("min_client_version")
         if isinstance(min_client, str) and min_client and app_version() not in ("dev",) and is_newer(min_client, app_version()):
             logger.info("event=pack_sync_skip reason=min_client_version need=%s", min_client)
+            # 须落终态（评审 P1-2）：不写回状态时未装包场景 phase 永停 syncing、
+            # step 永停 probe——前端弹窗会锁着轮询到 180s 假失败。已装包时
+            # get_status 的 resolve_dir 覆盖照常回 ready（现网静默语义不变）。
+            _set_state("missing", reason="min_client_version")
             return get_status()
         version = str(latest.get("version") or "")
         current = str(receipt.get("version") or "") if receipt else ""
@@ -525,6 +582,7 @@ def sync_once(
             return get_status()
 
         # 下载 manifest ＋按档 bundle；403 降档重试一次
+        _set_step("download")
         manifest = None
         for u in (latest_url,):
             m = _fetch_json(client, _derive(u, f"v{version}/manifest.json"))
@@ -620,6 +678,7 @@ def sync_once(
                 return get_status()
 
             min_client_manifest = manifest.get("min_client_version")
+            _set_step("install")
             got = _install(
                 version, cand, key_id,
                 min_client_manifest if isinstance(min_client_manifest, str) else None,
@@ -637,22 +696,39 @@ def sync_once(
 
 
 def trigger_sync(local_tier: str | None = None) -> bool:
-    """后台触发一次同步（重入保护）；返回是否新起了线程。"""
-    global _syncing
+    """后台触发一次同步（重入保护）；返回是否新起了线程。
+
+    c-prompt-pack-onboard-modal：在途时新触发不再被丢弃——记 `_pending_tier`（后到
+    覆盖先到，只排一级防抖），当前同步结束后按最新触发参数重跑一次。首装竞态主
+    成因即「未登录启动同步占锁挂在 S端 冷启动上、登录触发被吞」，此改动与
+    `maybe_after_auth` 未登录早退同批收口。
+    """
+    global _syncing, _pending_tier
     with _lock:
         if _syncing:
+            _pending_tier = local_tier if local_tier is not None else _PENDING_FROM_CONFIG
             return False
         _syncing = True
 
     def _run() -> None:
-        global _syncing
+        global _syncing, _pending_tier
         try:
             sync_once(local_tier)
+            # 消费到空（评审 P2-1）：重跑本身也是在途同步——期间到达的新触发同样
+            # SHALL NOT 被丢弃（spec：在途触发不吞）。同步幂等（版本闸＋七道校验），
+            # 连续重跑至多多耗一次 CDN/S端往返；后到覆盖先到，不会无限排队。
+            while True:
+                with _lock:
+                    nxt, _pending_tier = _pending_tier, None
+                if nxt is None:
+                    break
+                sync_once(None if nxt is _PENDING_FROM_CONFIG else nxt)
         except Exception as e:  # pragma: no cover - 后台线程兜底
             logger.warning("event=pack_sync_unexpected err=%s", e)
             _set_state("failed", reason="unexpected")
         finally:
             with _lock:
+                _pending_tier = None
                 _syncing = False
 
     t = threading.Thread(target=_run, name="prompt-pack-sync", daemon=True)
@@ -661,11 +737,19 @@ def trigger_sync(local_tier: str | None = None) -> bool:
 
 
 def maybe_after_auth() -> None:
-    """登录/校验成功钩子：未装包或档位与已装不一致时触发同步（静默）。"""
+    """登录/校验成功钩子：未装包或档位与已装不一致时触发同步（静默）。
+
+    c-prompt-pack-onboard-modal：未登录（本地无令牌）早退——无令牌换钥必然 401，
+    且 30-60s 冷启动占锁窗口会吞掉真正的登录触发。
+    """
     try:
         from auth_local.service import get_local_config
 
-        local_tier = _normalize_tier(get_local_config().get("tier") or "")
+        cfg = get_local_config()
+        if not (cfg.get("token") or "").strip():
+            logger.info("event=pack_sync_skip reason=not_logged_in")
+            return
+        local_tier = _normalize_tier(cfg.get("tier") or "")
         receipt = read_receipt()
         # 早退三条件：档位一致＋目录可解析＋**完整性复核通过**（评审 P1：损坏/被改
         # 的已装包也是「需要同步」的一种状态——启动/登录钩子即触发同版本重装修复）

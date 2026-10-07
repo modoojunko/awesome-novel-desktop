@@ -107,6 +107,24 @@ input, textarea, select { font: inherit; }
 .mcard-head .x { margin-left: auto; }
 .mcard-body { padding: 14px 24px 6px; }
 .mcard-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 24px 20px; }
+/* 写作能力弹窗分步行（c-prompt-pack-onboard-modal，list.html 弹窗变体同款） */
+.pm-steps { display: flex; flex-direction: column; gap: 9px; margin: 14px 0 2px; }
+.pm-step { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--muted); }
+.pm-step .pm-ic { width: 15px; height: 15px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.pm-step .pm-ic svg { width: 13px; height: 13px; }
+.pm-step.done { color: var(--fg); }
+.pm-step.done .pm-ic { color: var(--accent); }
+.pm-step.doing { color: var(--fg); }
+.pm-step.doing .pm-ic .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--accent); animation: pm-breath 1.6s ease-in-out infinite; }
+.pm-step.wait .pm-ic .dot { width: 7px; height: 7px; border-radius: 999px; border: 1.5px solid var(--border); }
+@keyframes pm-breath { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+.pm-ver { display: flex; align-items: center; gap: 9px; font-size: 13px; margin: 14px 0 2px; }
+.pm-ver b { font-size: 13px; }
+.pm-note { font-size: 12.5px; color: var(--muted); line-height: 1.75; margin: 8px 0 0; }
+.pm-ok { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--fg); margin: 14px 0 2px; }
+.pm-ok .pm-ic { color: var(--accent); width: 15px; height: 15px; flex: none; display: inline-flex; }
+.pm-ok .pm-ic svg { width: 15px; height: 15px; }
+.pm-warn { font-size: 12.5px; color: var(--warn); line-height: 1.75; margin: 12px 0 0; }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .field label { font-size: 12.5px; color: var(--muted); }
 .input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 14px; }

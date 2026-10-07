@@ -26,6 +26,15 @@ const CONFIG_PATH = path.join(
 );
 const TEST_PASSWORD = ["TestPass", "789!"].join("");
 
+/** fail-fast 网络断言（评审后补：后端出错立刻点名，不再挂到用例超时无法定位） */
+async function mustOk(r: Response, what: string): Promise<any> {
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok || (body && typeof body === "object" && "code" in body && body.code !== 0)) {
+    throw new Error(`${what} 失败: HTTP ${r.status} ${JSON.stringify(body).slice(0, 300)}`);
+  }
+  return body;
+}
+
 type PackStub = { phase: string; reason?: string; tier?: string; version?: string };
 
 async function sRegisterAndLogin() {
@@ -40,20 +49,21 @@ async function sRegisterAndLogin() {
       security_answer: "蓝色",
     }),
   });
-  const regBody = await reg.json();
-  if (regBody.code !== 0) throw new Error(`S端 register 失败: ${JSON.stringify(regBody)}`);
+  const regBody = await mustOk(reg, "S端 register");
   const login = await fetch(`${S_API}/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: name, password: TEST_PASSWORD }),
   });
-  const loginBody = await login.json();
-  if (loginBody.code !== 0) throw new Error(`S端 login 失败: ${JSON.stringify(loginBody)}`);
+  const loginBody = await mustOk(login, "S端 login");
   return { token: loginBody.data.token as string, username: name };
 }
 
 async function writeOAuthSession(t: string, u: string) {
-  const original = fs.readFileSync(CONFIG_PATH, "utf-8");
+  // 独立数据目录首跑 config.json 可能不存在（后端懒创建）：从空配置起步，
+  // 恢复时按 existed 还原或删除（与 prompt-pack-onboard.spec 同款）
+  const existed = fs.existsSync(CONFIG_PATH);
+  const original = existed ? fs.readFileSync(CONFIG_PATH, "utf-8") : "{}";
   const cfg = JSON.parse(original);
   cfg.token = t;
   cfg.username = u;
@@ -62,11 +72,21 @@ async function writeOAuthSession(t: string, u: string) {
   cfg.last_login_at = new Date().toISOString();
   cfg.pc_hash = randomUUID().replace(/-/g, "");
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
-  return () => fs.writeFileSync(CONFIG_PATH, original);
+  return () => {
+    if (existed) fs.writeFileSync(CONFIG_PATH, original);
+    else fs.rmSync(CONFIG_PATH, { force: true });
+  };
 }
 
 /** verify / check-auth / prompt-pack 本地端点全桩；packStub 可随轮次变化。 */
-async function stubPack(page: Page, packStub: () => PackStub, statusStub?: () => PackStub) {
+async function stubPack(
+  page: Page,
+  packStub: () => PackStub,
+  statusStub?: () => PackStub,
+  token?: string,
+) {
+  // AuthGuard 判据＝localStorage token（config-page.spec 同款种子）；缺种子会落登录页
+  if (token) await page.addInitScript((t) => localStorage.setItem("auth_token", t), token);
   const verify = () => ({
     valid: true,
     tier: "pro",
@@ -92,16 +112,22 @@ async function seedBook(page: Page, token: string): Promise<string> {
   await page.waitForURL(/#\/novel\/[0-9a-fA-F-]+/);
   const pid = page.url().match(/#\/novel\/([0-9a-fA-F-]+)/)![1];
   const base = `${ORIGIN}/api/novels/${pid}`;
-  await fetch(`${base}/volumes`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...auth },
-    body: JSON.stringify({ title: "第一卷" }),
-  });
-  await fetch(`${base}/volumes/vol-1/chapters`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...auth },
-    body: JSON.stringify({ title: "渡口" }),
-  });
+  await mustOk(
+    await fetch(`${base}/volumes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...auth },
+      body: JSON.stringify({ title: "第一卷" }),
+    }),
+    "建卷",
+  );
+  await mustOk(
+    await fetch(`${base}/volumes/vol-1/chapters`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...auth },
+      body: JSON.stringify({ title: "渡口" }),
+    }),
+    "建章",
+  );
   return pid;
 }
 
@@ -122,6 +148,7 @@ test.describe("写作能力四态卡", () => {
         page,
         () => ({ ...st, tier: "pro", version: "7" }),
         () => ({ ...st, tier: "pro", version: "7" }),
+        token,
       );
       await seedBook(page, token);
       await enterChapter(page);
@@ -145,7 +172,7 @@ test.describe("写作能力四态卡", () => {
     const { token, username } = await sRegisterAndLogin();
     const restore = await writeOAuthSession(token, username);
     try {
-      await stubPack(page, () => ({ phase: "tier_denied", reason: "tier" }));
+      await stubPack(page, () => ({ phase: "tier_denied", reason: "tier" }), undefined, token);
       await seedBook(page, token);
       await enterChapter(page);
 
@@ -167,7 +194,7 @@ test.describe("写作能力四态卡", () => {
     const { token, username } = await sRegisterAndLogin();
     const restore = await writeOAuthSession(token, username);
     try {
-      await stubPack(page, () => ({ phase: "ready", version: "7" }));
+      await stubPack(page, () => ({ phase: "ready", version: "7" }), undefined, token);
       await seedBook(page, token);
       await enterChapter(page);
 

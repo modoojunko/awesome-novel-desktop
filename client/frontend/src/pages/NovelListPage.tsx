@@ -1,4 +1,5 @@
 import { migratableCandidates, useLegacyDb } from '@/hooks/useLegacyDb';
+import { claimPackProbe, openPackModal, releasePackProbe, setLastProbe } from "@/lib/packProbe";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queryKeys";
@@ -205,6 +206,34 @@ function NovelList() {
     }).catch(() => {});
     supportUrl().then(setSupportLink).catch(() => {});
   }, [fetchNovels]);
+
+  // 写作能力探测（c-prompt-pack-onboard-modal）：每次进入作品页静默探测一次
+  // （单请求——书架请求预算守卫零扰动）；有新版→更新确认弹窗；未装（非 dev）→
+  // 首装弹窗（弹窗自行 POST /check 开跑）；其余（无更新/dev 态/跳过/探测失败）全静默。
+  useEffect(() => {
+    if (!claimPackProbe()) return;
+    void (async () => {
+      try {
+        const out = await api.get("/prompt-pack/probe", { quiet: true });
+        setLastProbe(out);
+        if (out?.update_available) {
+          openPackModal({ mode: "update", from: out.installed_version, to: out.latest_version });
+        } else if (
+          out &&
+          !out.installed_version &&
+          out.source !== "dev" &&
+          // min_client 闸跳过＝全静默（评审 P1-2：旧客户端未装包不弹首装窗）
+          out.reason !== "min_client_version"
+        ) {
+          openPackModal({ mode: "install" });
+        }
+      } catch {
+        /* 探测失败＝无更新静默（spec：探测失败不打扰） */
+      } finally {
+        releasePackProbe();
+      }
+    })();
+  }, []);
 
   // 卡片 ⋯ 菜单：点外部收起
   useEffect(() => {

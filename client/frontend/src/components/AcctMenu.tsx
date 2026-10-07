@@ -16,8 +16,8 @@ import { Ico, P } from "@/components/icons";
 import { useLegacyDb } from "@/hooks/useLegacyDb";
 import { useTier } from "@/hooks/useTier";
 import { api, errMessage, type ApiError } from "@/lib/api";
-import { toast } from "@/lib/toast";
 import { getUsername, logout } from "@/lib/auth";
+import { getLastProbe, openPackModal } from "@/lib/packProbe";
 import { supportUrl } from "@/lib/support";
 import { formatVersion, useClientVersion } from "@/lib/version";
 import { queryClient } from "@/lib/queryClient";
@@ -382,6 +382,24 @@ export default function AcctMenu({
             模型配置 · API Key
             <span className="am-hint">去配置</span>
           </button>
+          {/* 写作能力（c-prompt-pack-onboard-modal）：与「模型配置 · API Key」并行的
+              数据组入口，点击开同一弹窗（手动检查更新）；foot 小字行随本批退役 */}
+          <button
+            className="am-item"
+            role="menuitem"
+            data-od-id="acct-menu-pack"
+            data-testid="acct-menu-pack"
+            onClick={() => {
+              close();
+              openPackModal({ mode: "manual" });
+            }}
+          >
+            <Ico d={P.pack} sw={1.7} />
+            写作能力
+            <span className="am-hint" data-testid="acct-menu-pack-hint">
+              {packHint()}
+            </span>
+          </button>
 
           <div className="am-group">支持</div>
           {support && (
@@ -420,25 +438,6 @@ export default function AcctMenu({
             <span className="am-version" data-od-id="acct-menu-version">
               {formatVersion(version)}
             </span>
-            {/* 写作能力包版本行（c-prompt-pack-client：客服三句话中间一问的数据面） */}
-            {tier.pack ? (
-              <span className="am-pack" data-od-id="acct-menu-pack" data-testid="acct-menu-pack">
-                {tier.pack.phase === "ready"
-                  ? `写作能力 v${tier.pack.version ?? "-"}`
-                  : "写作能力未就绪"}
-                <button
-                  className="am-pack-check"
-                  type="button"
-                  data-od-id="acct-menu-pack-check"
-                  onClick={() => {
-                    void api.post("/prompt-pack/check", undefined, { quiet: true });
-                    toast.info("正在检查写作能力…");
-                  }}
-                >
-                  检查
-                </button>
-              </span>
-            ) : null}
           </div>
         </div>,
         document.body,
@@ -447,6 +446,14 @@ export default function AcctMenu({
       {migrateModal}
     </>
   );
+
+  /** 写作能力 hint 三态（design D6）：已就绪 vX／有新版本（最近探测缓存）／未就绪 */
+  function packHint(): string {
+    if (tier.pack?.phase === "ready") {
+      return getLastProbe()?.update_available ? "有新版本" : `已就绪 v${tier.pack.version ?? "-"}`;
+    }
+    return "未就绪";
+  }
 
   /** 徽章：触发钮短档 / 面板头完整档；失联（syncFailed）文案不变仅转 warn */
   function Badge({ full }: { full?: boolean }) {

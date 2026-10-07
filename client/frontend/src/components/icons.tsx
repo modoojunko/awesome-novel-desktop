@@ -57,6 +57,8 @@ export const P = {
   person: '<path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   backup: '<path d="M12 15V4M7 8l5-5 5 5M5 20h14"/>',
   restore: '<path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  // 写作能力菜单项（c-prompt-pack-onboard-modal；list/book 原型 acct-menu 同款笔记本形）
+  pack: '<path d="M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5z"/>',
   logout: '<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/>',
 } as const;
 
