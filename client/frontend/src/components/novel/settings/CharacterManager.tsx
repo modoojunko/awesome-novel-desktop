@@ -736,7 +736,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                     aria-label="角色名称"
                     onChange={(e) => setField("name", e.target.value)}
                   />
-                  <span role="group" aria-label="角色类型" style={{ display: "inline-flex", gap: 6 }}>
+                  <span role="group" aria-label="角色类型" style={{ display: "inline-flex", flexWrap: "wrap", gap: 6 }}>
                     {ROLES.map((role) => (
                       <button
                         key={role}
