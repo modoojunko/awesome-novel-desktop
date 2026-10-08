@@ -23,6 +23,7 @@
 #### Scenario: 行内 AI 帮我填（第三问）
 - **WHEN** PRO 作者点击基调第三问旁「AI 帮我填」
 - **THEN** 建议进弹窗文本卡，点「采纳 · 覆盖」才写入，面板底部出现回执可一步撤销；第三问输入框下方不再出现内嵌结果区
+
 ### Requirement: 确认与进度口径（沿设定页家族）
 
 - 确认按钮 SHALL 永远可点（无前端置灰门槛）；空内容确认 SHALL 由后端 400 拒绝并中文提示（「还未填写内容」语义）
@@ -41,6 +42,7 @@
 #### Scenario: 已确认后保存修改
 - **WHEN** 已确认状态下修改内容再点击「保存修改」
 - **THEN** 内容落库、进度维持不变
+
 ### Requirement: 右栏 AI 三行（全部聚焦主线）
 
 - 右栏 SHALL 为「AI 写作助手」能力行卡，共三行：**起草主线**（把简介/题材/世界/角色扩写为从头到尾的全景＋结局三问，接受散想法输入）／**结局校准**（把结局三问捋顺并与题材对味，冲突时给出提醒出口）／**主线体检**（前四条只看主线自身：故事连贯、开头接结局、三问对得上、和简介一个方向；**第五条对照设定：和世界/人物对得上**）
@@ -121,10 +123,11 @@
 #### Scenario: 散想法写进主线框即被吸收
 - **WHEN** 作者把一条散记（如「想写个复仇故事，结局别把血渴治好，加一场雨夜码头追凶」）写进主线框，点「起草主线」
 - **THEN** 正常发起调用（不 400）；产出顺着这条散记扩写、其中的关键词与显式要求被吸收（如结局保留「血渴未愈」、含雨夜码头戏），且不原样复述散记原句（人工 A/B 核验口径）
+
 ### Requirement: 免费/PRO 两态
 
 - 两态 SHALL 由本书 ai_state 单源驱动：ready＝可用；member_required＝整卡可见＋锁定（降透明＋锁形标），点击任一 AI 入口统一提示档位感知文案（单源 helper，按目标 feature key 的最低档出「开通解锁/PRO 专属/MAX 专属」口径；SHALL NOT 硬编码「升级 PRO」字面量）且不发出请求；no_key→引导去模型配置；missing_model/invalid→面板内引导选模型
-- 两态卡面文案 SHALL 面向作家：ready＝「你的 <display_name> 已包含 · 只加工你写的，不代写」（display_name 取服务端下发）；锁定＝「<目标档> 解锁 · 免费版写作功能完整，这一页照常自己写」类分档口径；内部套餐词（如「Max 同享」）SHALL NOT 出现在面板
+- 卡头文案 SHALL 只有档位角标（随套餐：免费版／标准会员／PRO 会员／MAX 会员）＋标题，SHALL NOT 出套餐文案（各档差异由能力行可用性体现）；面板内部套餐词（如「Max 同享」）SHALL NOT 出现
 - 免费态字段 SHALL 照常手写（手填功能不受限），锁定仅限 AI 入口
 
 #### Scenario: 免费版点击拦截
@@ -136,6 +139,7 @@
 
 - **WHEN** 免费版作者手写全景与结局三问并确认
 - **THEN** 保存与确认流程与会员档完全一致
+
 ### Requirement: story_arc 存储契约与 legacy 迁移
 
 - story_arc 对象 SHALL 为 `{fullstory, ending{scene, hero, tone}}`；读取 SHALL 兼容 legacy 形状（`fullstory ?? premise` 归一，legacy premise 非空即视为已填）
@@ -150,6 +154,7 @@
 #### Scenario: 旧书保存后双读一致
 - **WHEN** 旧书在主线面板保存一次
 - **THEN** fullstory 与 premise 镜像一致，旧版本代码读 premise 仍得到等价内容
+
 ### Requirement: 写作注入（承接剧情轨道退役）
 
 - fullstory SHALL 进写章提示词「故事走向」段（「全书主线：…」），注入预算 ≤600 字、与简介合并裁剪；裁剪 SHALL 只发生在写章提示词组装层（唯一裁剪点），存储层不截断
@@ -158,6 +163,7 @@
 #### Scenario: 注入含主线全文
 - **WHEN** 生成任一章正文
 - **THEN** 写作上下文含「全书主线：<fullstory，注入预算内>」（此前只有章纲 AI 读主线、写正文没带的承接线不回退）
+
 ### Requirement: 归档域 schema 定稿（本 change 不实现）
 
 - 主线进度与支线两条归档记录的 schema SHALL 按本 change 定稿：主线进度 `{ref, kind(event/revision), event, stage, note, review, created_at}`（幂等键=(ref,kind)，stage 枚举外值回退「发展」并原文记 note，审阅态统一叫 review，naive UTC，可审阅工作记录非只追加台账）；支线与伏笔台账合流（desc→description、intro_ref→introduced_in、生命周期→组归属、name/end_ref/review→新键，`kind:"subplot"` 新键用于注入过滤——支线注入独立预算（不挤占伏笔台账——台账 active 全量注入，≤8 上限已退役），hooks.priority 为数字串不得复用为「支线」标注）
@@ -166,6 +172,7 @@
 #### Scenario: 归档零实现
 - **WHEN** 本 change 交付
 - **THEN** 无归档表、无归档界面元素；主线进度/支线 schema 以设计文档形式留档供「正文归档」change 直接引用
+
 ### Requirement: 主线卡加载失败不得整卡覆盖
 
 主线卡（story_arc）加载失败时，面板 SHALL 进入失败态：呈现 err 语气提示与一个可点击的重试出口，保存/确认入口 SHALL 保持禁用，直至加载成功。系统 SHALL NOT 把加载失败的结果当作可保存的空基线（SHALL NOT 在失败后允许提交覆盖库中已有内容）。

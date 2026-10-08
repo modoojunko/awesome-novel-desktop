@@ -28,6 +28,7 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - Given both frontends render without a `data-theme` attribute
 - When accent color is computed
 - Then it resolves to oklch(48% 0.11 170), identical to the pre-theme-system baseline
+
 ### Requirement: Shared status language and tone words
 
 - Progress-bearing objects SHALL express state through the three-state dot classes (`dot-empty`, `dot-warn`, `dot-ok`) plus a title attribute wherever progress semantics exist.
@@ -61,6 +62,7 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - Given an implementation keeps a denser rhythm than the default spacing scale
 - When reviewed
 - Then ADJUSTMENTS.md documents the deviation and its reason, or the change is rejected
+
 ### Requirement: Component vocabulary reuse before invention
 - Buttons SHALL map to the existing `.btn` size/variant ladder; C-end wrappers around it MUST NOT be introduced, and S-end shell components SHALL compile down to those same classes.
 - Static capsules belong to pill roles (tag/status/count); clickable capsule-like controls belong to the chip family.
@@ -78,6 +80,7 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - Given 下载成稿弹层渲染三种格式
 - When 用户点选其中一行
 - Then 该行呈现选中态（token 派生配色）且可键盘操作，另两行保持未选态
+
 ### Requirement: Cross-end shared-class synchronization
 - Classes that must render identically — tokens block (including `--on-accent`), `.btn` ladder, modal family, form base and error states, toast (including the `warn` tone), notices (`.notice` with explicit `info/ok/warn/err` tones), pills (`.pill` role × tone family), skeleton atoms (`.sk` + `sk-pulse`), panel cards (`.panel` + `hoverable/hl/compact`), empty-state slots — SHALL exist under the same name with the same declarations in both ends' `src/design/base.css`, inside a `@cross-begin/@cross-end` marked segment.
 - The `@cross-begin/@cross-end` markers and the validation script `scripts/design-cross.mjs` (repo root) SHALL exist; both ends' `package.json` SHALL expose it as `design:cross`.
@@ -98,6 +101,7 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - Given the change that establishes the markers has landed
 - When `design:cross` runs on both ends
 - Then the marked segments are byte-identical after whitespace normalization
+
 ### Requirement: Free vs PRO gating stays visible
 
 - 会员专属能力（各档位）SHALL keep their entry points visible to lower-tier users in locked form with one sentence describing what unlocking provides; hiding entries is the documented exception requiring compensating notice.
@@ -114,15 +118,16 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 
 - Given 免费/标准/PRO 三位用户分别查看工作台右栏同一 AI 行
 - Then 三人分别看到「开通解锁」「PRO 专属」「MAX 专属」口径（按该行 minTier 与用户档位推导），形态一致仅文案分档
+
 ### Requirement: AI 写作助手卡片与结果区组件词汇
-- 「AI 写作助手」卡片组件（C端设定视图右栏）保持不变：PRO 徽标并入卡片头部＋标题＋一行套餐归属/只加工不代写；内部为**并列能力行**（每行＝名称上＋描述下从属＋右侧箭头，整行可点）；底部一条来源/去向声明。命名 `.rail-assist` + `.ra-*`。
+- 「AI 写作助手」卡片组件（C端设定视图右栏）：头部＝**档位角标**（随套餐：免费版／标准会员／PRO 会员／MAX 会员，文案单源）＋标题＋**可选**功能性副行（无 Key／缺模型／能力包未就绪／朱雀显示开关关等功能性说明；SHALL NOT 出套餐营销文案）；内部为**并列能力行**（每行＝名称上＋描述下从属＋右侧箭头，整行可点）；底部一条来源/去向声明。命名 `.rail-assist` + `.ra-*`。
 - AI 结果呈现 SHALL 统一为**「AI 出卡确认弹窗」**：复用全局弹窗壳（`design/Modal`）与写作域既有弹窗词汇，右栏能力行点击后结果进弹窗、弹窗内确认才写回、关闭即弃。**`.ai-sink` / `.aiz-*` 内嵌结果区词汇自本 change 起退役**，SHALL NOT 再作为设定域 AI 结果的渲染面；体检检查行沿各域既有 `chk-*`（角色页 `chk-row`）词汇**重挂**到弹窗卡体容器（Modal portal 到 body，`.settings-v .ai-sink` 前缀不再命中，词汇定义本身不变、只换挂载作用域）。
 - 弹窗四种卡形（不新增视觉词汇定义，逐一对齐写作域既有实现）：**文本卡**（内容＋「换一个」＋按域确认键）／**体检报告卡**（检查行列表＋「关闭」「重新检查」，无采纳键）／**候选勾选卡**（候选行可勾选＋「采纳」）／**结构化卡**（kv 行/势力行/逐格 diff 沿各域既有行词汇）。四卡形 footer 骨架统一＝次级「关闭」＋主行动键（按域文案）＋可选「换一个」；生成中 footer 隐藏主行动、占位常显。
 - **生成中关闭的保护口径**：生成中（running 态）允许关闭弹窗，最近一次生成结果 SHALL 缓存在面板 state；重开同一能力行 SHALL 直接展示缓存结果、不再发请求、不重复计 usage；「换一个」才重新生成。生成尚未返回即关闭＝放弃该次结果（请求在途自然丢弃），不弹挽留。
 - **版数计数**：文本卡 SHALL 显示已生成版数（「第 N 版」，从 1 起、每次「换一个」递增）；「换一个」在途期间旧版 SHALL 保持可读可采纳，新版到达后替换。
 - 生成中弹窗 SHALL 有进行中占位（prog 语气、aria-busy），占位 SHALL 附「AI 创作中，请勿关闭弹窗」提示行（c-ai-modal-no-close-tip：全 AI 弹窗统一、创作类用「AI 创作中」，盘点/检查/推演等非创作类按实义动词；只作文案提醒，不改变上方可关闭口径）；失败 SHALL 给可读提示＋可点击出口，动词单源：生成类失败＝「重试」、体检类＝「重新检查」；确认写回后 SHALL 沿既有回执一步撤销（ChangeReceipt）词汇。
 - 这些是 **C端局部组件**（不在两端共享 `base.css` 共享段），归 C端工作台设定视图作用域（`book.css` 或设定视图局部样式）；只复用共享令牌，不新增全局 token、不新增状态档位/胶囊形态/字号档位。
-- 能力行在无套餐时 SHALL 复用既有「可见 + 锁定」门控（见 Requirement: Free vs PRO gating stays visible）：整卡降透明、徽标转灰、行降透明 + cursor:not-allowed，点击给统一升级提示，不各自弹窗；锁定态卡片名 `.rail-assist.locked`。门控 key 用已登记的 `settings-ai-fields`（memberOnly），而非未登记的新 key。
+- 能力行在无套餐时 SHALL 复用既有「可见 + 锁定」门控（见 Requirement: Free vs PRO gating stays visible）：整卡降透明、档位角标转灰、行降透明 + cursor:not-allowed，点击给统一升级提示，不各自弹窗；锁定态卡片名 `.rail-assist.locked`。门控 key 用已登记的 `settings-ai-fields`（memberOnly），而非未登记的新 key。
 
 #### Scenario: 结果区不用可编辑底色
 - Given 简介/题材 AI 反馈已产出（弹窗卡内呈现）
@@ -191,6 +196,7 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 #### Scenario: 第三态文案合规
 - **WHEN** 角色项因内容变动退回未完成
 - **THEN** 徽标文案为「内容有变 · 待重新确认」，不含「已确认」字样
+
 ### Requirement: 认知六层的理解层次标记
 
 角色认知六层区块 SHALL 在层头补一句大白话 hint（给作家看的，不出现「理解层次/NLP/上三层下三层/精神层」等术语）：
@@ -209,6 +215,7 @@ s5 的展示口径 SHALL 为「宿命认知观」＋hint「他和这个世界到
 #### Scenario: 词表双源一致
 - **WHEN** 后端 character_model 与前端 characterModel 的 label/口径变更
 - **THEN** 两端同批修改且 parity 测试通过（镜像个数为零）
+
 ### Requirement: 伏笔面板的词表与状态词汇
 
 - 伏笔台账与伏笔卡 SHALL 使用 settings-v 作用域的 hk-* 词表（台账两行条目、分组头、伏笔卡档案表）， SHALL NOT 复用世界面板现役 `.kv-row` 等同名异义类——落地时以 ADJUSTMENTS 登记的类名映射表为准（`.kv` 家族作用域化或改名 `.hk-kv`）。
@@ -226,6 +233,7 @@ s5 的展示口径 SHALL 为「宿命认知观」＋hint「他和这个世界到
 
 - **WHEN** 伏笔面板与世界面板同处于设定视图
 - **THEN** 伏笔卡的档案表样式不改变世界面板 `.kv-row` 的布局（类名经映射表隔离）
+
 ### Requirement: 设定页内页签与文风量化词表
 
 - 设定面板内层级 SHALL 允许页签（`.settings-v .ptabs/.ptab`），并在 ADJUSTMENTS 登记页签回归例外（仅面板内层级，面板间导航仍走左树）；页签激活态沿 modnav 口径（accent 下划线）。
@@ -244,6 +252,7 @@ s5 的展示口径 SHALL 为「宿命认知观」＋hint「他和这个世界到
 
 - **WHEN** 基线行「篇幅配比」处于锁定态
 - **THEN** 锁定按钮带 aria-pressed=true，五层条 aria-hidden=true
+
 ### Requirement: C端 书架阶段徽标四态档位
 
 - C端 书架卡片的阶段徽标（`.b` 家族，C端 业务层专属，与 S端「`.b` 退役」口径无关）SHALL 呈现四态档位，档位-语气映射固定：
@@ -258,6 +267,7 @@ s5 的展示口径 SHALL 为「宿命认知观」＋hint「他和这个世界到
 
 - **WHEN** 书架上同时存在设定中/写作中/待完本/已完结四本书
 - **THEN** 四张卡片的徽标分别命中 setting（中性）/writing（warn）/ready（accent）/done（ok）四档，无其它形态
+
 ### Requirement: 中栏空态卡的四档词汇（`.e-empty` 家族）
 
 中栏默认页的空态卡 SHALL 用四档版式层级表达「这一屏在问你什么」，档位与命名固定为：
