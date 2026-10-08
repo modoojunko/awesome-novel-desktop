@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
 import PromptPackCard from "@/components/novel/license/PromptPackCard";
-import { useFeature } from "@/hooks/useTier";
+import { useFeature, usePlanBadge } from "@/hooks/useTier";
 import type { CharAiCtx } from "@/lib/characterModel";
 import { toast } from "@/lib/toast";
 import type { AiState } from "@/types/api-config";
@@ -8,8 +8,10 @@ import type { AiState } from "@/types/api-config";
 /**
  * AI 写作助手卡片（genre-signup-redesign tasks 3.2 / D4）。
  *
- * 结构：PRO 徽标并头部 + 标题 + 套餐归属/只加工不代写 + 若干**并列**能力行
- * （每行＝名称上 + 描述下从属 + 右箭头，整行可点）+ 底部来源/去向声明。
+ * 结构：档位角标（随套餐：免费版/标准会员/PRO 会员/MAX 会员）＋标题
+ * ＋可选状态副行 ＋若干**并列**能力行（每行＝名称上 + 描述下从属 + 右箭头，整行可点）
+ * ＋底部来源/去向声明。卡头 SHALL NOT 出套餐营销文案：各档差异由角标＋能力行可用性体现，
+ * 副行只承载功能性状态（无 Key/缺模型/能力包未就绪等下一步动作）。
  *
  * 门控：`useFeature('settings-ai-fields')`（已登记的 memberOnly key，非 ai-assistant）。
  * 免费版＝可见 + 锁定（整卡降透明 .locked，点击给统一升级提示，不各自弹窗）。
@@ -47,11 +49,6 @@ export interface AiWriterAssistantProps {
   targetLine?: ReactNode;
   title?: string;
   /**
-   * 头部副行插槽（c-character-intro 3.3）：给了就用它替换默认套餐/就绪态副行
-   * （免费态章纲页签＝「免费行可用 · 标「需 PRO」的行升级后解锁」）。
-   */
-  subTitle?: ReactNode;
-  /**
    * 后端判定层下发的本书 AI 就绪态（D13）。传了就**只读它**做一次分派
    * （不再 useFeature + ai_state 两处判）；不传则退回 tier 门控（兼容旧调用方）。
    */
@@ -87,7 +84,6 @@ export default function AiWriterAssistant({
   footNote,
   targetLine,
   title = "AI 写作助手",
-  subTitle,
   aiState,
   aiStateMessage,
   onBlocked,
@@ -97,9 +93,19 @@ export default function AiWriterAssistant({
   "data-testid": testId,
 }: AiWriterAssistantProps) {
   const unlocked = useFeature("settings-ai-fields");
+  // 卡头角标＝当前档位（免费版/标准会员/PRO 会员/MAX 会员/试用剩 N 天），不再写死 PRO
+  const planBadge = usePlanBadge();
   // aiState 提供时以它为准（同一事实源）；未提供才退回 tier 门控
   const state: AiState = aiState ?? (unlocked ? "ready" : "member_required");
   const locked = state === "member_required";
+  // 副行只承载功能性状态（无 Key/缺模型/能力包未就绪等下一步）；档位差异由角标＋
+  // 下面各能力行的可用性体现，故 ready/member_required 不出任何套餐文案。
+  const subText =
+    state === "no_key" && aiStateMessage
+      ? aiStateMessage
+      : state === "ready" || state === "member_required"
+        ? null
+        : BLOCK_TEXT[state];
   // 在途互斥用 **ref**（同步判定）而不是 state：state 要等重渲染才生效，
   // 连点会在同一 tick 内全部穿过（实测 6 连点 = 6 请求）。ref 让并发窗口归零。
   const busyRef = useRef(false);
@@ -131,21 +137,14 @@ export default function AiWriterAssistant({
       <PromptPackCard />
       <div className={`rail-assist${locked ? " locked" : ""}`} data-od-id={odId} data-testid={testId}>
       <div className="ra-head">
-        <span className="plan-badge">PRO</span>
+        {planBadge && (
+          <span className={`plan-badge plan-badge-${planBadge.tone}`} data-testid="plan-badge">
+            {planBadge.text}
+          </span>
+        )}
         <div className="rh-t">
           <b>{title}</b>
-          <span>
-            {subTitle ??
-              (locked
-                ? unlocked
-                  ? "你的套餐已包含 · 只加工你写的，不代写"
-                  : "未解锁 · 开通后本书 AI 即可用（标准档起）"
-                : state === "ready"
-                  ? "你的 PRO 已包含 · 只加工你写的，不代写"
-                  : state === "no_key" && aiStateMessage
-                  ? aiStateMessage
-                  : BLOCK_TEXT[state])}
-          </span>
+          {subText != null && <span>{subText}</span>}
         </div>
       </div>
       {targetLine != null && (

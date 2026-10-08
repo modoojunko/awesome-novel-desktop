@@ -15,6 +15,7 @@ vi.mock("@/lib/ai", () => ({
 vi.mock("@/hooks/useTier", () => ({
   useFeature: () => true,
   useTier: () => ({ isPro: true, isFree: false, tier: "pro" }),
+  usePlanBadge: () => ({ text: "PRO 会员", tone: "accent" }),
 }));
 vi.mock("@/hooks/useModelStatus", () => ({
   useModelStatus: () => ({ aiState: "ready", status: "configured", hasKeys: true, loading: false }),

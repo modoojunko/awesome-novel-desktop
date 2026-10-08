@@ -334,7 +334,9 @@ test.describe.serial("文风量化蒸馏链路", () => {
       await page.locator(".settings-v .col-tree").getByText("文风", { exact: true }).click();
       const rail = page.locator('[data-od-id="ai-assist-style"]');
       await expect(rail).toHaveClass(/locked/);
-      await expect(rail).toContainText("未解锁 · 开通后本书 AI 即可用（标准档起）");
+      // 卡头角标＝当前档位（不再写死 PRO）；套餐文案不进卡头——档位差异由能力行可用性体现
+      await expect(rail.getByTestId("plan-badge")).toHaveText("免费版");
+      await expect(rail).not.toContainText("未解锁 · 开通后本书 AI 即可用");
       // 量化空态照常可见（免费也能看，只是不能蒸馏）
       await page.locator('[data-od-id="ptab-quant"]').click();
       await expect(page.locator('[data-od-id="quant-empty"]')).toBeVisible();

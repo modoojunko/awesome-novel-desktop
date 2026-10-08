@@ -30,6 +30,7 @@ const tierState = vi.hoisted(() => ({ styleQuant: true }));
 vi.mock("@/hooks/useTier", () => ({
   useFeature: (key: string) => (key === "style-quant" ? tierState.styleQuant : true),
   useTier: () => ({ isPro: true, isFree: false, tier: "pro" }),
+  usePlanBadge: () => ({ text: "PRO 会员", tone: "accent" }),
 }));
 
 // AI 行门控只读后端 ai_state（D13）——测试里直接给就绪态，避免真实网络

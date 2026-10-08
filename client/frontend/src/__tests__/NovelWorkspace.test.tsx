@@ -408,7 +408,9 @@ describe("免费态：选中章 → 章对象工作台", () => {
     expect(screen.queryByRole("button", { name: "AI 生成正文" })).toBeNull();
     // 右栏免费 locked 卡 + 规划中（章模式三卡）
     expect(document.querySelector(".col-ai .rail-assist.locked")).toBeTruthy(); // 免费态整卡锁定
-    expect(screen.getByText(/未解锁 · 开通后本书 AI 即可用（标准档起）/)).toBeVisible();
+    // 卡头角标＝当前档位（不再写死 PRO）；套餐文案已不进卡头
+    expect(screen.getAllByTestId("plan-badge")[0].textContent).toBe("免费版");
+    expect(screen.queryByText(/你的 PRO 已包含|未解锁 · 开通后本书 AI 即可用/)).toBeNull();
   });
 });
 

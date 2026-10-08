@@ -19,6 +19,7 @@ vi.mock("@/lib/ai", () => ({ introAi: vi.fn(), genreAi: vi.fn(), aiBlockReason: 
 vi.mock("@/hooks/useTier", () => ({
   useFeature: () => true,
   useTier: () => ({ isPro: true, isFree: false, tier: "pro" }),
+  usePlanBadge: () => ({ text: "PRO 会员", tone: "accent" }),
 }));
 vi.mock("@/hooks/useModelStatus", () => ({
   useModelStatus: () => ({

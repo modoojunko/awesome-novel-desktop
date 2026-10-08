@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import AiWriterAssistant from "@/components/novel/AiWriterAssistant";
+import { resetVerifyCache, setVerifyCache } from "@/lib/licenseCache";
 
 // AI 写作助手卡片（genre-signup-redesign tasks 3.2 / D4）
 const ROWS = [
@@ -9,10 +10,27 @@ const ROWS = [
   { key: "polish", name: "润色", desc: "保原意压 AI 味", onClick: vi.fn() },
 ];
 
+/** 档位种子：无 Provider 时卡头角标走快照缓存（同 useFeature 的兜底口径） */
+function seedTier(tier: string, isMember: boolean) {
+  setVerifyCache({
+    tier,
+    is_member: isMember,
+    entitlement: {
+      v: 2,
+      features: isMember ? ["settings-ai-fields"] : [],
+      limits: { max_projects: null },
+    },
+  });
+}
+
+beforeEach(() => resetVerifyCache());
+
 describe("AiWriterAssistant", () => {
-  it("渲染 PRO 徽标 + 标题 + 三个并列能力行（名称上/描述下）", () => {
+  it("渲染档位角标（随套餐）+ 标题 + 三个并列能力行（名称上/描述下）", () => {
+    seedTier("pro", true);
     const { container } = render(<AiWriterAssistant rows={ROWS} footNote="输入：书名 + 简介本文" />);
-    expect(screen.getByText("PRO")).toBeTruthy();
+    // 角标不再写死 PRO：pro 会话＝PRO 会员
+    expect(screen.getByTestId("plan-badge").textContent).toBe("PRO 会员");
     expect(screen.getByText("AI 写作助手")).toBeTruthy();
     const steps = container.querySelectorAll(".ra-step");
     expect(steps).toHaveLength(3);
@@ -21,6 +39,18 @@ describe("AiWriterAssistant", () => {
       expect(screen.getByText(r.desc)).toBeTruthy();
     }
     expect(screen.getByText(/输入：书名 \+ 简介本文/)).toBeTruthy();
+  });
+
+  it("免费会话：角标「免费版」；卡头不出套餐文案（档位差异只看能力行可用性）", () => {
+    seedTier("free", false);
+    render(<AiWriterAssistant rows={ROWS} footNote="x" aiState="member_required" />);
+    expect(screen.getByTestId("plan-badge").textContent).toBe("免费版");
+    expect(screen.queryByText(/会员功能|你的 PRO 已包含|未解锁 · 开通后/)).toBeNull();
+  });
+
+  it("档位未知（无快照、无 Provider）：不标角标，避免说错档位", () => {
+    render(<AiWriterAssistant rows={ROWS} footNote="x" />);
+    expect(screen.queryByTestId("plan-badge")).toBeNull();
   });
 
   it("每行整行可点且带 data-aiact（e2e 定位）", () => {

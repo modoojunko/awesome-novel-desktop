@@ -1,5 +1,5 @@
 /** 右栏「AI 辅助」面板（c-ai-rail-shared：全局统一 ra-* 布局，与设定域 AiWriterAssistant 同构）。
- *  每页签＝一张 AI 助手卡：ra-head 头部（plan-badge＋标题＋状态副标题）＋ ai-target 作用域行
+ *  每页签＝一张 AI 助手卡：ra-head 头部（档位角标随套餐＋标题＋可选状态副行）＋ ai-target 作用域行
  *  ＋ ra-step 能力行（名称＋会读什么/落到哪＋箭头）＋ ra-foot 来源/去向声明。
  *  各页签内容不同，造型与门控全局一致；动作全部真链路（2026-09-17 起），
  *  AI 入口收口右栏（2026-09-20），布局统一设定模版（c-ai-rail-shared，2026-09-27）。
@@ -409,7 +409,7 @@ export function AiAssistPanel({
         ...proRow(false),
       }),
     ];
-    footNote = "章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。标「需开通／需 PRO／需 MAX」的行按套餐逐档解锁。";
+    footNote = "章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。";
   } else if (tab === "prose") {
     running = aiState?.polishLoading ? "polish" : zq.state.status === "running" ? "zhuque" : null;
     const streaming = !!aiState?.streaming;
@@ -576,17 +576,16 @@ export function AiAssistPanel({
       footNote={footNote}
       rows={rows}
       data-od-id={`ai-assist-${tab}`}
-      // 免费态章纲页签：副行插槽＋统一升级出口（行级门控的升级口）
-      subTitle={
-        tab === "og" && (!aiPlan || !aiPlot || !aiGenerate)
-          ? "标「需开通／需 PRO／需 MAX」的行按套餐逐档解锁"
-          : undefined
-      }
     >
-      {tab === "og" && (!aiPlan || !aiPlot || !aiGenerate) && (
+      {/* 未到 ai-generate（免费/标准）才给统一升级出口：锁定行自带「需开通／需 PRO／
+          需 MAX」hint 自解释，故只留按钮不带说明文案；PRO/MAX 不显示。 */}
+      {tab === "og" && !aiGenerate && (
         <p className="none" data-testid="og-upgrade-exit">
-          标「需开通／需 PRO／需 MAX」的行按套餐逐档解锁{" "}
-          <button className="btn btn-primary btn-sm" data-testid="og-upgrade-btn" onClick={onUpgrade}>
+          <button
+            className="btn btn-primary btn-sm"
+            data-testid="og-upgrade-btn"
+            onClick={onUpgrade}
+          >
             升级套餐
           </button>
         </p>
