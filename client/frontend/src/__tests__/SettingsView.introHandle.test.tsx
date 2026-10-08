@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import SettingsView from "@/components/novel/workbench/SettingsView";
+import { upgradeHintOf } from "@/lib/features";
 
 // 回归：IntroPanel 的 useImperativeHandle 必须注册在组件体（曾误贴进 adopt 闭包，
 // 导致 introRef.current 恒 null —— 简介面板「确认完成」静默失效、右栏 AI 三能力
@@ -567,5 +568,20 @@ describe("SettingsView · 文风右栏蒸馏行（style-quant＝MAX，c-tier-gat
     expect(row.className).toContain("zq-maxlk");
     expect(row.textContent).toContain("MAX 专属");
     expect(row).not.toBeDisabled();
+  });
+
+  it("非 MAX 档点蒸馏行：端内直出升级口，消息档位随 upgradeHintOf 单源（不写死档位名）", () => {
+    tierState.styleQuant = false;
+    const seen: string[] = [];
+    const onBlock = (e: Event) =>
+      seen.push((e as CustomEvent<{ message: string }>).detail.message);
+    window.addEventListener("member-block", onBlock);
+    try {
+      const { container } = renderStyle();
+      fireEvent.click(distillRow(container));
+      expect(seen).toEqual([`文风蒸馏为 ${upgradeHintOf("style-quant")}——升级后解锁`]);
+    } finally {
+      window.removeEventListener("member-block", onBlock);
+    }
   });
 });

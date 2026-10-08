@@ -431,9 +431,12 @@ export default function SettingsView({
         variant: styleQuant ? undefined : "maxlk",
         onClick: () => {
           if (!styleQuant) {
-            // 端内直出升级口（zhuque 行先例）；后端 style-quant 门仍是权威兜底
+            // 端内直出升级口（zhuque 行先例）；后端 style-quant 门仍是权威兜底。
+            // 档位口径走 upgradeHintOf 单源（行内徽标同句），不写死档位名
             window.dispatchEvent(
-              new CustomEvent("member-block", { detail: { message: "文风蒸馏为 MAX 专属——升级后解锁" } }),
+              new CustomEvent("member-block", {
+                detail: { message: `文风蒸馏为 ${upgradeHintOf("style-quant")}——升级后解锁` },
+              }),
             );
             return;
           }
