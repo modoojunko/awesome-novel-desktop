@@ -1158,10 +1158,12 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
 
   // ── 页签待确认泡泡（c-chtab-confirm-bubbles）：词汇＝.pill 家族既有组合
   //    （count role × accent/warn，N6 禁红）；该收数＝ogHookHints.mres（台账
-  //    「该收了」共享判定），与 HooksPane 行内标注同源；0 条不出泡泡 ──
+  //    「该收了」共享判定），与 HooksPane 行内标注同源；0 条不出泡泡。
+  //    设定/关系两泡钉在归档态上：取消归档后章档行虽保留（后端不清），
+  //    泡泡须随章退出归档态即时退场（spec 场景「未归档章无泡」）──
   const hooksDue = hookHints?.mres.length ?? 0;
   const settingsBubble: ChTabCnt =
-    tabBubbles.settings > 0
+    archived && tabBubbles.settings > 0
       ? {
           cls: "pill pill-count pill-accent",
           text: String(tabBubbles.settings),
@@ -1170,7 +1172,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
         }
       : CH_TAB_EMPTY_CNT;
   const relationsBubble: ChTabCnt =
-    tabBubbles.relations > 0
+    archived && tabBubbles.relations > 0
       ? {
           cls: "pill pill-count pill-accent",
           text: String(tabBubbles.relations),

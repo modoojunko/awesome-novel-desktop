@@ -1018,4 +1018,65 @@ describe("页签待确认泡泡（c-chtab-confirm-bubbles）", () => {
     const hookCalls = apiState.get.mock.calls.filter(([p]) => p === "/novels/p1/hooks");
     expect(hookCalls.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("取消归档：设定/关系泡泡随章退出归档态退场，伏笔该收泡不受影响", async () => {
+    // 评审 P2 修复回归：归档（泡在）→ 恢复编辑（unarchive）→ 树翻 draft。
+    // 后端 unarchive 不清章档行，泡泡若只跟着数据走就会挂在可编辑章上。
+    hookItems[0].status = "active"; // 前一用例把 h1 收束了，复位
+    let chArchived = true;
+    const archivedCh = () => ({
+      ref: "vol-1-ch-1",
+      volume: 1,
+      chapter: 1,
+      title: "第一章",
+      status: chArchived ? "archived" : "outline",
+      word_count: 1200,
+      has_prose: true,
+      outline_status: "in_progress",
+      archived: chArchived,
+    });
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/novels/p1/volumes")
+        return Promise.resolve([
+          { ref: "vol-1", title: "第一卷", summary: "", chapter_count: 1, chapters: [archivedCh()] },
+        ]);
+      if (path === "/novels/p1/chapters/vol-1-ch-1")
+        return Promise.resolve(ONE_CHAPTER_DATA);
+      if (path === "/novels/p1/chapters/vol-1-ch-1/dossier")
+        return Promise.resolve({
+          rows: DOSSIER_ROWS_FULL,
+          progress: { pending: 7, accepted: 1, rejected: 0 },
+          extraction: null,
+          not_extracted: false,
+          stale: false,
+          archived: true,
+          accepted_count: 1,
+        });
+      if (path === "/novels/p1/hooks") return Promise.resolve({ data: { items: hookItems } });
+      if (path === "/novels/p1/readiness")
+        return Promise.resolve({ complete: false, missing: [], warning: "" });
+      return Promise.resolve({});
+    });
+    apiState.request.mockResolvedValue([]);
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+    apiState.put.mockResolvedValue({});
+    apiState.post.mockResolvedValue({ ok: true });
+    apiState.patch.mockResolvedValue({ data: { id: "h1" } });
+
+    renderWorkspace("none");
+    await selectFirstChapter();
+    await waitFor(() => expect(screen.getByTestId("chtab-bubble-settings")).toBeTruthy());
+
+    // 走横幅「恢复编辑」实链：confirm → POST unarchive → chapter:archived → 树翻 draft
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    chArchived = false; // 服务端已回退；树重取（chapter:archived 触发）拿到新态
+    fireEvent.click(screen.getByRole("button", { name: "恢复编辑" }));
+    await waitFor(() =>
+      expect(screen.queryByTestId("chtab-bubble-settings")).toBeNull(),
+    );
+    expect(screen.queryByTestId("chtab-bubble-relations")).toBeNull();
+    // 伏笔「该收」＝台账章视角投影，与归档态无关——保留
+    expect(screen.getByTestId("chtab-bubble-hooks")).toBeTruthy();
+    confirmSpy.mockRestore();
+  });
 });
