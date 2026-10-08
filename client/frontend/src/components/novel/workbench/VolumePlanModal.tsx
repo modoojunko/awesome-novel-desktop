@@ -1,12 +1,13 @@
 // VolumePlanModal — 四问手写页（c-volume-antagonist 免费路径/付费转手写）。
 // 四问：①讲什么②主要冲突③这一卷的坎（类型＋一句话）④卷末收在哪里；
-// 底部两动作：「让 AI 铺完剩下的问题」（PRO）＋「直接创建这一卷」（免费）。
+// 底部两动作：「让 AI 铺完剩下的问题」（门禁＝ai-plan，标准档起）＋「直接创建这一卷」（免费）。
 // 手动入口（各处「＋ 新增一卷」，state.openMode==="manual"）下 SHALL NOT 出现 AI 动作：
 // 手写页只留「直接创建这一卷」，AI 铺空缺改由右栏 AI 助手入口进（用户 2026-09-22 拍板）。
 // 生成中 genbox 进度只在弹窗内；关弹窗不中断（完成后中栏自动回填）。
 import { useEffect } from "react";
 import Modal from "@/components/design/Modal";
 import { api } from "@/lib/api";
+import { minTierOf, tierLabel, upgradeHintOf, type FeatureKey } from "@/lib/features";
 import { cnNum } from "@/lib/nodeTitle";
 import { GEN_STEPS, type VolumePlanController } from "@/hooks/useVolumePlan";
 
@@ -26,7 +27,7 @@ const RULES_FOR_AUTHOR = [
 export function VolumePlanModal({
   projectId,
   plan,
-  isPro,
+  hasAiPlan,
   onUpgrade,
   onDirectCreate,
   onBackfill,
@@ -36,8 +37,9 @@ export function VolumePlanModal({
 }: {
   projectId: string;
   plan: VolumePlanController;
-  isPro: boolean;
-  onUpgrade: () => void;
+  /** 拥有 ai-plan（标准档起）：铺空缺是标准档能力（后端 /ai/expand 即 ai-plan） */
+  hasAiPlan: boolean;
+  onUpgrade: (required?: FeatureKey) => void;
   /** 免费路：答多少建多少（外层走 createVolume 四问扩展） */
   onDirectCreate: () => void;
   onBackfill: () => void;
@@ -146,8 +148,8 @@ export function VolumePlanModal({
             <button
               className="btn btn-primary"
               data-testid="desk-expand"
-              disabled={!isPro || state.error.includes("主线")}
-              title={isPro ? undefined : "铺空缺需 PRO——升级后可用"}
+              disabled={!hasAiPlan || state.error.includes("主线")}
+              title={hasAiPlan ? undefined : `铺空缺${upgradeHintOf("ai-plan")}——开通后可用`}
               onClick={() => void expandDesk()}
             >
               让 AI 铺完剩下的问题
@@ -164,13 +166,13 @@ export function VolumePlanModal({
           <span className="push">
             {manual ? (
               "想让 AI 铺空缺：用右侧 AI 助手的「规划第N卷（AI）」"
-            ) : isPro ? (
+            ) : hasAiPlan ? (
               "你答过的它不改——AI 只铺空着的"
             ) : (
               <>
-                <span className="pill-pro">PRO</span>
-                <span>铺空缺需 PRO；手写与创建不受限</span>
-                <button className="btn btn-ghost btn-sm" onClick={onUpgrade}>
+                <span className="pill-pro">{tierLabel(minTierOf("ai-plan"))}</span>
+                <span>铺空缺{upgradeHintOf("ai-plan")}；手写与创建不受限</span>
+                <button className="btn btn-ghost btn-sm" onClick={() => onUpgrade("ai-plan")}>
                   了解升级
                 </button>
               </>

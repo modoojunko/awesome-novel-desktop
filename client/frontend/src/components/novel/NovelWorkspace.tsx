@@ -34,6 +34,7 @@ import { useNovelState } from "@/hooks/useNovelState";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { GENRE_PENDING_LABEL } from "@/lib/genreVocab";
 import { useTier, useFeature } from "@/hooks/useTier";
+import type { FeatureKey } from "@/lib/features";
 import { toast } from "@/lib/toast";
 import { BRAND } from "@/lib/brand";
 import { isLoggedIn } from "@/lib/auth";
@@ -254,11 +255,16 @@ export default function NovelWorkspace() {
         ? "预览 · 只读正文，通读全篇"
         : "写作 · 卷有卷纲；点章即可配章纲、提示词并写正文";
 
-  // ── 升级 PRO 弹窗（novelbar / 右栏 locked 卡共用） ────────────────────
+  // ── 升级弹窗（本书偏好 / 右栏行级出口共用；目标档＝被点那行所需档，无 key 回退下一档） ──
   const [showUpgrade, setShowUpgrade] = useState(false);
   // 下载成稿弹层（manuscript-download）：挂壳层——预览视图条件挂载，挂预览内切视图会丢轮询/会话记忆
   const [showDownload, setShowDownload] = useState(false);
-  const onUpgrade = useCallback(() => setShowUpgrade(true), []);
+  // 升级弹窗（tier_required）：出口把被点那行的 feature key 带上，弹窗按该档出文案
+  const [upgradeRequired, setUpgradeRequired] = useState<FeatureKey | undefined>();
+  const onUpgrade = useCallback((required?: FeatureKey) => {
+    setUpgradeRequired(required);
+    setShowUpgrade(true);
+  }, []);
 
   // ── 右栏 AI 写入工具链（生成正文经 AiModal 提示词预览） ────
   // 归档章全面只读（c-archived-readonly）：写入动作在 AiAssistPanel 置灰＋hint
@@ -1266,7 +1272,7 @@ export default function NovelWorkspace() {
       <VolumePlanModal
         projectId={projectId}
         plan={plan}
-        isPro={isPro}
+        hasAiPlan={hasAiPlan}
         onUpgrade={onUpgrade}
         onDirectCreate={() => void handleDirectCreate()}
         creating={directCreating}
@@ -1322,8 +1328,8 @@ export default function NovelWorkspace() {
       )}
 
 
-      {/* PR 5 弹窗群：升级 PRO / AI 生成（提示词预览） */}
-      <UpgradeModal open={showUpgrade} onClose={() => setShowUpgrade(false)} />
+      {/* PR 5 弹窗群：升级引导 / AI 生成（提示词预览） */}
+      <UpgradeModal open={showUpgrade} required={upgradeRequired} onClose={() => { setShowUpgrade(false); setUpgradeRequired(undefined); }} />
       {chapterRef && (
         <>
           <AiModal

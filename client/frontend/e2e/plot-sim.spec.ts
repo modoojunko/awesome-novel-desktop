@@ -201,15 +201,15 @@ test("MAX：按回合推演 → 收进章纲追加一条剧情 → 刷新回读�
   }
 });
 
-test("免费态：剧情推演行可见但行级锁定「需 MAX」（og 页签不整卡锁）", async ({ page }) => {
+test("免费态：剧情推演行可见但行级锁定「MAX 专属」（og 页签不整卡锁）", async ({ page }) => {
   const { restore } = await setupSession(page, "none");
   try {
     await setupFirstChapter(page, `e2e-sim-免费-${Date.now()}`);
-    // tier-plan-four-tiers：og 页签恒 ready，门在行级——推演行 ra-off＋「需 MAX」
+    // tier-plan-four-tiers：og 页签恒 ready，门在行级——推演行 ra-off＋档位 hint（单源 upgradeHintOf）
     const row = page.getByTestId("og-simulate");
     await expect(row).toBeVisible();
     await expect(row).toBeDisabled();
-    await expect(row).toContainText("需 MAX");
+    await expect(row).toContainText("MAX 专属");
     await expect(page.locator(".rail-assist.locked")).toHaveCount(0);
     // 推演弹窗不出现（disabled 吞点击）
     await expect(page.locator(".modal", { hasText: "剧情推演" })).toHaveCount(0);

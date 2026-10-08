@@ -91,7 +91,7 @@ describe("VolumePlanModal 建卷在途", () => {
       return (
         <>
           <button data-testid="open" onClick={() => plan.open(1, false)}>open</button>
-          <VolumePlanModal projectId="p1" plan={plan} isPro onUpgrade={noop}
+          <VolumePlanModal projectId="p1" plan={plan} hasAiPlan onUpgrade={noop}
             onDirectCreate={onDirect} onBackfill={noop} onClose={plan.closeDesk} creating />
         </>
       );

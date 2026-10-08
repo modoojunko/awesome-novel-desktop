@@ -730,6 +730,10 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .rail-assist.locked .ra-step:hover { border-color: var(--border); }
 .rail-assist.locked .ra-body b { color: var(--muted); }
 .rail-assist.locked .ra-arrow { opacity: 0.4; }
+/* 卡头档位角标色调（文案与 tone 同源 lib/tier.tierShort）：accent＝会员（默认实心），
+   muted＝免费版/过期，warn＝试用临期 */
+.rail-assist .ra-head .plan-badge-muted { background: var(--fg-soft); color: var(--muted); }
+.rail-assist .ra-head .plan-badge-warn { background: var(--warn-soft); color: var(--warn); }
 
 /* ── 题材六格 .mod（genre-signup-redesign tasks 4.1 / D18）──
    每格＝编号 + 名称 + 怎么填（m-why）+ 成书去处（m-use）+ 控件。

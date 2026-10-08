@@ -234,10 +234,11 @@ test("免费锁定：剧情卡置灰禁点＋升级出口；手写剧情照常�
   try {
     const pid = await createNovelWithChapter(page, `剧情免费${Date.now() % 100000}`);
     // 右栏剧情行：行级门控（c-character-intro 起 og 页签行级化，整卡锁退役）置灰禁点不隐藏；
-    // 升级出口＝统一 og-upgrade-exit（手写全档可用）
+    // 升级出口＝副行「升级套餐」按钮（说明文案已删，锁定行 hint 走单源 upgradeHintOf）
     await expect(page.getByTestId("og-plot-draw")).toBeVisible();
     await expect(page.getByTestId("og-plot-draw")).toBeDisabled();
-    await expect(page.getByTestId("og-upgrade-exit")).toContainText("需 PRO");
+    await expect(page.getByTestId("og-upgrade-btn")).toBeVisible();
+    await expect(page.getByTestId("og-upgrade-btn")).toHaveText("升级套餐");
     // 手写剧情不被锁：加/写照常，且真落库
     await page.getByLabel("第 1 条剧情").fill("免费档也能自己写剧情");
     await page.getByRole("button", { name: "加一条" }).click();
@@ -251,6 +252,12 @@ test("免费锁定：剧情卡置灰禁点＋升级出口；手写剧情照常�
         { timeout: 12000 },
       )
       .toEqual(["免费档也能自己写剧情", "随便加、随便改"]);
+    // 出口带 tier_required（免费档此处＝ai-plan）→ 弹窗出「标准」口径，不再一律喊升级 PRO
+    await page.getByTestId("og-upgrade-btn").click();
+    await expect(
+      page.getByRole("dialog").getByRole("heading", { name: "升级标准 · 解锁 AI 能力" }),
+    ).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "暂不" }).click();
   } finally {
     await restore();
   }

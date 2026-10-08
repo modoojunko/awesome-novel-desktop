@@ -735,9 +735,9 @@
   .free-mode .only-pro { display: none; }
   .only-free { display: none; }
   .free-mode .only-free { display: inline; }
-  .rail-assist .ra-head .rh-t span.only-free { display: none; }
-  .free-mode .rail-assist .ra-head .rh-t span.only-pro { display: none; }
-  .free-mode .rail-assist .ra-head .rh-t span.only-free { display: block; }
+  /* 免费态统一升级出口：只给未到 ai-generate 的档位（free-mode＝免费档） */
+  .rail-assist .ra-upgrade { display: none; margin: 0; }
+  .free-mode .rail-assist .ra-upgrade { display: block; }
   .badge-accent { display: inline-flex; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 500; }
   .badge-muted { display: inline-flex; padding: 2px 9px; border-radius: 999px; background: var(--fg-soft); color: var(--muted); font-size: 11px; }
   .ch-history { margin-left: 4px; }
@@ -1091,42 +1091,43 @@
     <div id="railChapter" hidden>
       <div class="rail-assist" data-od-id="ai-assist-og" data-testid="rail-assist">
         <div class="ra-head">
-          <span class="plan-badge">PRO</span>
+          <span class="plan-badge"><span class="only-pro">PRO 会员</span><span class="only-free">免费版</span></span>
           <div class="rh-t">
             <b>AI 助手 · 章纲</b>
-            <span class="only-pro">你的 PRO 已包含 · 只加工你写的，不代写</span>
-            <span class="only-free">标「需开通／需 PRO／需 MAX」的行按套餐逐档解锁</span>
           </div>
         </div>
         <p class="ai-target" data-od-id="ai-target">必填已齐 · 归档门槛 <b>1/2</b></p>
         <button class="ra-step" data-pro type="button" id="btnPlotDrawRow">
-          <span class="ra-body"><b>剧情抽卡<span class="ra-hint">需开通</span></b><i>一次给 3 版剧情挑一版；要求概要、挑战、章末落点已填（手写剧情全免费）</i></span>
+          <span class="ra-body"><b>剧情抽卡<span class="ra-hint">需开通（标准档起）</span></b><i>一次给 3 版剧情挑一版；要求概要、挑战、章末落点已填（手写剧情全免费）</i></span>
           <span class="ra-arrow" aria-hidden="true">›</span>
         </button>
         <button class="ra-step" id="btn-open-review" data-testid="og-cast-review" data-od-id="rail-cast" data-aiact="cast-review" type="button">
-          <span class="ra-body"><b>盘点出场人物<span class="ra-hint">需开通</span></b><i>逐段盘这一章缺不缺人；缺的人给三个方向抽卡或你自己填，确认后写进角色表、本章出场角色与本卷出场清单</i></span>
+          <span class="ra-body"><b>盘点出场人物<span class="ra-hint">需开通（标准档起）</span></b><i>逐段盘这一章缺不缺人；缺的人给三个方向抽卡或你自己填，确认后写进角色表、本章出场角色与本卷出场清单</i></span>
           <span class="ra-arrow" aria-hidden="true">›</span>
         </button>
         <button class="ra-step" data-pro type="button">
-          <span class="ra-body"><b>剧情推演 · 按回合走一遍<span class="ra-hint">需 MAX</span></b><i>先定走法再逐步推演；走法可收进本章剧情条目</i></span>
+          <span class="ra-body"><b>剧情推演 · 按回合走一遍<span class="ra-hint">MAX 专属</span></b><i>先定走法再逐步推演；走法可收进本章剧情条目</i></span>
           <span class="ra-arrow" aria-hidden="true">›</span>
         </button>
         <button class="ra-step" data-pro type="button">
-          <span class="ra-body"><b>补全缺失字段<span class="ra-hint">需开通</span></b><i>只补还缺的字段，一稿回填</i></span>
+          <span class="ra-body"><b>补全缺失字段<span class="ra-hint">需开通（标准档起）</span></b><i>只补还缺的字段，一稿回填</i></span>
           <span class="ra-arrow" aria-hidden="true">›</span>
         </button>
         <button class="ra-step" data-pro type="button">
-          <span class="ra-body"><b>与卷纲冲突检测<span class="ra-hint">需 PRO</span></b><i>拿本章章纲去对卷纲，报出冲突点</i></span>
+          <span class="ra-body"><b>与卷纲冲突检测<span class="ra-hint">PRO 专属</span></b><i>拿本章章纲去对卷纲，报出冲突点</i></span>
           <span class="ra-arrow" aria-hidden="true">›</span>
         </button>
-        <p class="ra-foot"><span class="only-pro">章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。</span><span class="only-free">章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。标「需开通／需 PRO／需 MAX」的行按套餐逐档解锁。</span></p>
+        <p class="ra-upgrade" data-testid="og-upgrade-exit">
+          <button class="btn btn-primary btn-sm" id="btnUpgrade3" data-testid="og-upgrade-btn">升级套餐</button>
+        </p>
+        <p class="ra-foot">章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。</p>
       </div>
 
       <!-- c-zhuque-ai-detect：正文页签 AI 助手卡（原型此前未建模正文右栏卡，本 change 连同朱雀行一并补齐）。
            朱雀行四态演示切换（右上角演示 chips）：zq-ready 就绪 / zq-guide 未配引导 / zq-maxlk 非MAX锁定 / zq-off 开关关不渲染 -->
       <div class="rail-assist" id="railProse" hidden data-od-id="ai-assist-prose" data-testid="rail-assist-prose">
         <div class="ra-head">
-          <span class="plan-badge">PRO</span>
+          <span class="plan-badge"><span class="only-pro">PRO 会员</span><span class="only-free">免费版</span></span>
           <div class="rh-t">
             <b>AI 助手 · 正文</b>
             <span id="railProseSub">生成 · 检测就绪</span>

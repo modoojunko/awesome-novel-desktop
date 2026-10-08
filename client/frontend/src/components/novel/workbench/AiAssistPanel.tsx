@@ -1,5 +1,5 @@
 /** 右栏「AI 辅助」面板（c-ai-rail-shared：全局统一 ra-* 布局，与设定域 AiWriterAssistant 同构）。
- *  每页签＝一张 AI 助手卡：ra-head 头部（plan-badge＋标题＋状态副标题）＋ ai-target 作用域行
+ *  每页签＝一张 AI 助手卡：ra-head 头部（档位角标随套餐＋标题＋可选状态副行）＋ ai-target 作用域行
  *  ＋ ra-step 能力行（名称＋会读什么/落到哪＋箭头）＋ ra-foot 来源/去向声明。
  *  各页签内容不同，造型与门控全局一致；动作全部真链路（2026-09-17 起），
  *  AI 入口收口右栏（2026-09-20），布局统一设定模版（c-ai-rail-shared，2026-09-27）。
@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { api, request } from "@/lib/api";
 import { useFeature, useTier } from "@/hooks/useTier";
+import { upgradeHintOf, type FeatureKey } from "@/lib/features";
 import { getZhuqueShow } from "@/lib/prefs";
 import { runZhuqueCheck, useZhuqueCheck } from "@/hooks/useZhuqueCheck";
 import type { AiState } from "@/types/api-config";
@@ -88,7 +89,7 @@ export function AiAssistPanel({
   /** AI 生成正文（c-prose-write-entry：正文页签动作清单首项，走页面级解锁链 → AiModal） */
   onAiWrite?: () => void;
   /** 升级 PRO（免费态统一升级出口） */
-  onUpgrade?: () => void;
+  onUpgrade?: (required?: FeatureKey) => void;
   /** chapter-rewrite：下游「基于旧设定」章计数（无数据时显示「—」） */
   staleDownstream?: number;
   /** 正文页签的选区动作通道（去AI味） */
@@ -307,9 +308,9 @@ export function AiAssistPanel({
     style: "文风", relations: "角色关系", hooks: "伏笔", actions: "操作",
   };
 
-  /** 门控与设定域同源：PRO＝ready，免费＝member_required（点击走统一升级出口）。
-   *  c-character-intro 3.3：行级 PRO 映射只作用章纲页签——og 页签恒 ready（盘点行
-   *  免费可点，其余行 ra-off＋「需 PRO」）；其余页签维持 member_required 整卡锁定。 */
+  /** 门控与设定域同源：会员＝ready，免费＝member_required（点击走统一升级出口）。
+   *  c-character-intro 3.3：行级锁只作用章纲页签——og 页签恒 ready，每行按自己的
+   *  key 出锁（未到档的 ra-off＋行内档位 hint，文案单源 upgradeHintOf）；其余页签维持整卡锁定。 */
   // 整卡门禁按页签拆 key：og 恒 ready（行级锁承载）；其余页签=该页签主 key——
   // 免费整卡 member_required（统一升级出口不变）；会员但档位不够→ready＋行级锁
   const tabReady: Record<string, boolean> = {
@@ -367,21 +368,21 @@ export function AiAssistPanel({
     ) : (
       <>必填已齐 · 归档门槛 {ogStats.reqOk}/{REQ_FIELDS.length}</>
     );
-    // 行级 PRO 映射（c-character-intro 3.3）：只作用章纲页签——盘点行全档免费可点，
-    // 其余四行免费态 ra-off＋「需 PRO」（照 VolumeAssistPanel 先例）；
+    // 行级锁（c-character-intro 3.3）：只作用章纲页签——每行按自己的 key 置锁
+    // （ai-plan→「需开通」／ai-generate→「需 PRO」／ai-plot→「需 MAX」）；
     // 其余页签维持 member_required 整卡锁定，不因本 change 放行。
     // （「AI 起草」行已随 c-og-ai-draft-retire 退役：与拆章/补全缺失字段重复。）
     // 行级 key（5.2）：抽卡/补缺/盘点→ai-plan（标准）、推演→ai-plot（MAX）、
-    // 冲突检测→ai-generate（PRO，ai-check 族）；hint 按档位出「需开通/需 PRO/需 MAX」
+    // 冲突检测→ai-generate（PRO，ai-check 族）；hint 按各行 key 出（单源 upgradeHintOf）
     const proRow = (disabledExtra: boolean, hintExtra?: string) => ({
       disabled: !aiGenerate || disabledExtra,
-      hint: !aiGenerate ? "需 PRO" : hintExtra,
+      hint: !aiGenerate ? upgradeHintOf("ai-generate") : hintExtra,
     });
     rows = [
       cap("plot-draw", "剧情抽卡", "一次给 3 版剧情挑一版；要求概要、挑战、章末落点已填（手写剧情全免费）", {
         onClick: onPlotDraw,
         disabled: archived || !aiPlan,
-        hint: archived ? "本章已归档" : !aiPlan ? "需开通" : undefined,
+        hint: archived ? "本章已归档" : !aiPlan ? upgradeHintOf("ai-plan") : undefined,
         testid: "og-plot-draw",
       }),
       cap(
@@ -391,25 +392,25 @@ export function AiAssistPanel({
         {
           onClick: () => onCastReview?.(),
           disabled: archived || castEmpty || !onCastReview || !aiPlan,
-          hint: archived ? "本章已归档" : castEmpty ? "先写剧情再盘点" : !aiPlan ? "需开通" : undefined,
+          hint: archived ? "本章已归档" : castEmpty ? "先写剧情再盘点" : !aiPlan ? upgradeHintOf("ai-plan") : undefined,
           testid: "og-cast-review",
           odId: "rail-cast",
         },
       ),
       cap("simulate", "剧情推演 · 按回合走一遍", "先定走法再逐步推演；走法可收进本章剧情条目", {
-        onClick: onSimulate, disabled: archived || !aiPlot, hint: archived ? "本章已归档" : !aiPlot ? "需 MAX" : undefined, testid: "og-simulate",
+        onClick: onSimulate, disabled: archived || !aiPlot, hint: archived ? "本章已归档" : !aiPlot ? upgradeHintOf("ai-plot") : undefined, testid: "og-simulate",
       }),
       cap("fill", "补全缺失字段", missing.length ? `只补还缺的 ${missing.length} 项，一稿回填` : "必填已齐，暂无可补", {
         onClick: () => onFillGaps?.(),
         disabled: !onFillGaps || gapsLoading || missing.length === 0 || !aiPlan,
-        hint: !aiPlan ? "需开通" : undefined,
+        hint: !aiPlan ? upgradeHintOf("ai-plan") : undefined,
       }),
       cap("conflict", "与卷纲冲突检测", "拿本章章纲去对卷纲，报出冲突点", {
         onClick: () => onAiCheck?.("volume_conflict"),
         ...proRow(false),
       }),
     ];
-    footNote = "章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。标「需开通／需 PRO／需 MAX」的行按套餐逐档解锁。";
+    footNote = "章纲动作的结果都回填到中栏章纲表单，检查修改后落库（3 秒静默自动保存兜底）。";
   } else if (tab === "prose") {
     running = aiState?.polishLoading ? "polish" : zq.state.status === "running" ? "zhuque" : null;
     const streaming = !!aiState?.streaming;
@@ -441,7 +442,7 @@ export function AiAssistPanel({
       cap("polish", "去AI味", "选中段落去掉机器腔，对照预览后替换", {
         onClick: () => onAiSelection?.("polish", sel()),
         disabled: streaming || !aiPolish || !aiState?.hasSelection || !!aiState?.polishLoading,
-        hint: !aiPolish ? "MAX 专属" : !aiState?.hasSelection ? "先在正文选中一段" : aiState?.polishLoading ? "生成中" : undefined,
+        hint: !aiPolish ? upgradeHintOf("ai-polish") : !aiState?.hasSelection ? "先在正文选中一段" : aiState?.polishLoading ? "生成中" : undefined,
         testid: "ai-polish",
       }),
     ];
@@ -465,14 +466,14 @@ export function AiAssistPanel({
               : "未配置 Key · 点击去「模型配置 → 朱雀」粘贴腾讯云 EdgeOne Key"
             : "整章送腾讯朱雀测 AI 味，结果与段落标注就地显示",
         badge: maxlk ? (
-          <span className="pill pill-warn">PRO 专属</span>
+          <span className="pill pill-warn">{upgradeHintOf("ai-detect")}</span>
         ) : (
           <span className="pill pill-accent">PRO 权益</span>
         ),
         variant: maxlk ? "maxlk" : guide ? "guide" : undefined,
         onClick: () => {
           if (maxlk) {
-            onUpgrade?.();
+            onUpgrade?.("ai-detect");
             return;
           }
           if (guide) {
@@ -576,17 +577,18 @@ export function AiAssistPanel({
       footNote={footNote}
       rows={rows}
       data-od-id={`ai-assist-${tab}`}
-      // 免费态章纲页签：副行插槽＋统一升级出口（行级门控的升级口）
-      subTitle={
-        tab === "og" && (!aiPlan || !aiPlot || !aiGenerate)
-          ? "标「需开通／需 PRO／需 MAX」的行按套餐逐档解锁"
-          : undefined
-      }
     >
-      {tab === "og" && (!aiPlan || !aiPlot || !aiGenerate) && (
+      {/* 未到 ai-generate（免费/标准）才给统一升级出口：锁定行自带档位 hint（文案单源
+          upgradeHintOf）自解释，故只留按钮不带说明文案；PRO/MAX 不显示。 */}
+      {/* 朱雀显示开关关（zhuque-workbench）：检测行整行不渲染，卡片副行注明去处 */}
+      statusNote={tab === "prose" && !zqShow ? "朱雀检测已关闭 · 其余可用" : undefined}
+      {tab === "og" && !aiGenerate && (
         <p className="none" data-testid="og-upgrade-exit">
-          标「需开通／需 PRO／需 MAX」的行按套餐逐档解锁{" "}
-          <button className="btn btn-primary btn-sm" data-testid="og-upgrade-btn" onClick={onUpgrade}>
+          <button
+            className="btn btn-primary btn-sm"
+            data-testid="og-upgrade-btn"
+            onClick={() => onUpgrade?.(aiPlan ? "ai-generate" : "ai-plan")}
+          >
             升级套餐
           </button>
         </p>

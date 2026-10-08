@@ -56,7 +56,7 @@ describe("右栏「剧情抽卡」（三态）", () => {
     expect(onPlotDraw).toHaveBeenCalledTimes(1);
   });
 
-  it("免费态：行级门控（c-character-intro 3.3 起 og 页签不整卡锁）——剧情行 ra-off「需 PRO」，升级走统一出口", async () => {
+  it("免费态：行级门控（c-character-intro 3.3 起 og 页签不整卡锁）——剧情行 ra-off＋档位 hint，升级走统一出口", async () => {
     const onPlotDraw = vi.fn();
     const onUpgrade = vi.fn();
     renderPanel({ isPro: false, onPlotDraw, onUpgrade });

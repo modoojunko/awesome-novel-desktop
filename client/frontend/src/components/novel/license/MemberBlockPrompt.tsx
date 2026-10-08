@@ -29,7 +29,7 @@ export default function MemberBlockPrompt() {
     <Modal
       open={message !== null}
       onClose={() => setMessage(null)}
-      title="PRO 专属功能"
+      title="升级套餐解锁"
       footer={
         <>
           <button

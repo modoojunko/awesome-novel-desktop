@@ -25,6 +25,7 @@ import {
   useState,
 } from "react";
 import { api } from "@/lib/api";
+import { minTierOf, tierLabel } from "@/lib/features";
 import { useDirtyState } from "@/hooks/useDirtyState";
 import { Cfg, ListEditor, type SettingSaveHandle } from "./FormField";
 import { Ico, P } from "@/components/icons";
@@ -622,7 +623,7 @@ const StyleSettingForm = forwardRef<StylePanelHandle, Props>(function StyleSetti
           onClick={() => setTab("quant")}
         >
           量化参数
-          <span className="ptab-pro">PRO</span>
+          <span className="ptab-pro">{tierLabel(minTierOf("style-quant"))}</span>
           <span className={`badge ${quantReady ? "acc" : "empty"}`} data-od-id="quant-tab-badge">
             {quantReady ? `置信度 ${quant?.confidence}` : "未蒸馏"}
           </span>

@@ -1,6 +1,7 @@
 import { useContext } from "react";
 import { FEATURES, tierRank, type FeatureKey } from "@/lib/features";
 import { getVerifyCache } from "@/lib/licenseCache";
+import { tierShort, type TierShort } from "@/lib/tier";
 import { TierContext, type TierState } from "@/components/novel/license/LicenseProvider";
 
 const SAFE_FREE: TierState = {
@@ -54,4 +55,20 @@ export function useFeature(key: FeatureKey): boolean {
     return ctx.entitlement.features.includes(key);
   }
   return fallbackAllowed(key);
+}
+
+/** AI 助手卡头档位角标：文案单源＝lib/tier 的 tierShort（与账号菜单同口径，含
+ *  display_name 优先、试用剩天数、过期合并免费版）；上下文档位优先，未包 Provider
+ *  回落 verify 快照缓存；档位未知（无快照）返回 null——不标，避免对用户说错档位。 */
+export function usePlanBadge(): TierShort | null {
+  const ctx = useContext(TierContext);
+  const v = getVerifyCache();
+  const tier = ctx?.tier ?? v?.tier;
+  return tierShort({
+    tier,
+    is_member: ctx?.isMember ?? v?.is_member,
+    expired: ctx?.expired ?? v?.expired,
+    trial_remaining_days: ctx?.trialRemainingDays ?? v?.trial_remaining_days,
+    display_name: v?.tier_catalog?.tiers?.find((r) => r.key === tier)?.display_name,
+  });
 }

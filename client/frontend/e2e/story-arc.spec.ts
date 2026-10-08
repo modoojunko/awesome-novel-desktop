@@ -396,7 +396,7 @@ test.describe("免费版", () => {
       await page.locator('.col-ai [data-aiact="draft"]').click();
       // 统一升级提示：rail guard 的 onBlocked toast 或 403 后 MemberBlockPrompt，二者其一
       await expect(
-        page.getByText(/会员功能|开通|升级 PRO 后解锁/).first(),
+        page.getByText(/会员功能|开通套餐后解锁/).first(),
       ).toBeVisible({ timeout: 8000 });
       await page.locator('[data-od-id="arc-tone-ai-fill"]').click();
       // 预拦=0 请求；穿透=恰好 1 发 403：等往返或确认无请求（替代固定 sleep）
@@ -408,7 +408,7 @@ test.describe("免费版", () => {
       await expect(page.locator('[data-od-id="arc-ending-tone"]')).toHaveValue(""); // 不写回
       // 403 穿透时全局升级弹窗（MemberBlockPrompt 模态，事件异步挂载）会挡住面板——
       // 确定性关闭：等标题出现再点「稍后再说」；前端预拦（0 请求）时无弹窗，短等后跳过
-      const promptTitle = page.getByText("PRO 专属功能");
+      const promptTitle = page.getByText("升级套餐解锁");
       if (await promptTitle.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false)) {
         await page.getByRole("button", { name: "稍后再说" }).click();
       }

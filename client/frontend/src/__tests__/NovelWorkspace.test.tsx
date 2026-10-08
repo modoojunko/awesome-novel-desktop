@@ -408,7 +408,9 @@ describe("免费态：选中章 → 章对象工作台", () => {
     expect(screen.queryByRole("button", { name: "AI 生成正文" })).toBeNull();
     // 右栏免费 locked 卡 + 规划中（章模式三卡）
     expect(document.querySelector(".col-ai .rail-assist.locked")).toBeTruthy(); // 免费态整卡锁定
-    expect(screen.getByText(/未解锁 · 开通后本书 AI 即可用（标准档起）/)).toBeVisible();
+    // 卡头角标＝当前档位（不再写死 PRO）；套餐文案已不进卡头
+    expect(screen.getAllByTestId("plan-badge")[0].textContent).toBe("免费版");
+    expect(screen.queryByText(/你的 PRO 已包含|未解锁 · 开通后本书 AI 即可用/)).toBeNull();
   });
 });
 
@@ -592,7 +594,7 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
     // PRO 徽随行头归一迁入账户胶囊（未登录不渲染）；顶栏本体在即可
     expect(document.querySelector(".appbar-wb")).toBeTruthy();
     expect(screen.queryByText(/免费模式/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "升级 PRO" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /升级 PRO|升级套餐/ })).toBeNull();
     await waitFor(() =>
       expect(apiState.get).toHaveBeenCalledWith(
         "/novels/p1/workflow/phase-status",

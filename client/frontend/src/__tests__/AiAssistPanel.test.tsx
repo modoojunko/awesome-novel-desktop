@@ -227,7 +227,9 @@ describe("AiAssistPanel（随页签，ra-* 统一布局）", () => {
     renderPanel("style", { isPro: false, onAiCheck, onUpgrade }, V2.free);
     // 免费档文风页签主 key=style-suggest（标准）→ 整卡 member_required 锁
     expect(document.querySelector(".rail-assist.locked")).toBeTruthy();
-    expect(screen.getByText(/开通.*AI 即可用|未解锁/)).toBeTruthy();
+    // 卡头角标＝当前档位（免费版）；套餐文案不进卡头——锁定由 .locked＋点击升级出口承载
+    expect(screen.getByTestId("plan-badge").textContent).toBe("免费版");
+    expect(screen.queryByText(/开通.*AI 即可用|未解锁/)).toBeNull();
     await clickRow(/文风一致性检查/);
     expect(onAiCheck).not.toHaveBeenCalled();
     expect(onUpgrade).toHaveBeenCalled();

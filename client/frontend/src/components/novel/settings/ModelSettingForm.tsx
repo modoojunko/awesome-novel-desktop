@@ -233,7 +233,7 @@ export default function ModelSettingForm({
         </div>
         {aiState === "member_required" && (
           <span className="opt" style={{ fontSize: 12, color: "var(--muted)" }}>
-            模型已配好 · 升级 PRO 后本书 AI 即可用
+            模型已配好 · 开通套餐后本书 AI 即可用
           </span>
         )}
         {(aiState === "no_key" || aiState === "missing_model") && (

@@ -7,6 +7,7 @@
 // pk-corner g-S「最合适」/g-A「也行」/g-B「备选」/lock-card/no-card/cr-sug）。
 import { useEffect, useState } from "react";
 import Modal from "@/components/design/Modal";
+import { minTierOf, tierLabel, upgradeHintOf } from "@/lib/features";
 import {
   cardDuty,
   cardWhyNotOld,
@@ -782,7 +783,7 @@ function GapCard({
               抽卡选人
             </button>
           )}
-          <span className="ai-tag">PRO</span>
+          <span className="ai-tag">{tierLabel(minTierOf("ai-plan"))}</span>
           <button className="lnk" data-testid="cr-fill-manual" onClick={() => cast.fillManual(gap.gapId)}>
             不抽了，自己填一个名字
           </button>
@@ -834,14 +835,14 @@ function GapCard({
       {/* 免费锁（按钮级，无假卡面）：升级出口＋自己填全免费 */}
       {!hasAiPlan && open && gap.choice === "加人" && (
         <div className="lock-card" data-testid="cr-lock">
-          <b>AI 抽人是 PRO 功能</b>
+          <b>AI 抽人{upgradeHintOf("ai-plan")}</b>
           <p>
             AI 能按这段戏缺的人一次给 3 个互不相同的人物方向——叫什么、什么性格、怎么出场怎么退场都配好，挑一个直接用。
             缺的人自己填全免费：在出场名单里直接加名字、建角色卡都不要钱。
           </p>
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn btn-primary btn-sm" data-testid="cr-upgrade" onClick={onUpgrade}>
-              升级 PRO
+              升级套餐
             </button>
             <button className="btn btn-secondary btn-sm" onClick={() => cast.fillManual(gap.gapId)}>
               自己填一个

@@ -11,6 +11,7 @@
  */
 import { useEffect, useState } from "react";
 import Modal from "@/components/design/Modal";
+import { minTierOf, tierLabel } from "@/lib/features";
 import { SAMPLE_MAX, SAMPLE_MIN, countSampleChars } from "@/lib/styleApi";
 
 interface Props {
@@ -55,7 +56,7 @@ export default function StylePasteModal({ open, onClose, onSubmit }: Props) {
       title="粘贴文风样本"
       width={560}
       wbStyle
-      afterTitle={<span className="ai-tag">PRO</span>}
+      afterTitle={<span className="ai-tag">{tierLabel(minTierOf("style-quant"))}</span>}
       footer={
         <>
           <span className="paste-note" style={{ marginRight: "auto" }}>

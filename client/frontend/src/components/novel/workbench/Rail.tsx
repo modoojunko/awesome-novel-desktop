@@ -7,6 +7,7 @@
 import type { RefObject } from "react";
 import type { ProseAIState, ProseHandle } from "./ProsePane";
 import { toast } from "@/lib/toast";
+import type { FeatureKey } from "@/lib/features";
 import { AiAssistPanel, type OgStats } from "./AiAssistPanel";
 import {
   VolumeAssistPanel,
@@ -56,7 +57,7 @@ interface RailProps {
   /** 书本 id（右栏 AI 辅助面板按书按章取数） */
   projectId: string;
   isPro: boolean;
-  onUpgrade: () => void;
+  onUpgrade: (required?: FeatureKey) => void;
   proseRef: RefObject<ProseHandle | null>;
   aiState: ProseAIState;
   data?: RailChapterData;

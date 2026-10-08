@@ -78,13 +78,18 @@ export function minTierOf(key: FeatureKey): TierKey {
   return FEATURES[key].minTier;
 }
 
-/** 升级引导短文案（按 key 最低档单源）：锁定行/-toast 统一出口用，
- *  替代散落的「升级 PRO」硬编码（tier-plan-four-tiers 5.5）。 */
+/** 档位短名（徽标/角标用；档位名唯一来源，升级弹窗/门槛徽标等都取这里） */
+export function tierLabel(tier: TierKey): string {
+  return { free: "免费", standard: "标准", pro: "PRO", max: "MAX" }[tier];
+}
+
+/** 升级引导短文案（按 key 最低档单源）：锁定行/-toast/徽标统一出口用，
+ *  替代散落的「升级 PRO」硬编码（tier-plan-four-tiers 5.5）；
+ *  徽标只需档位名时用 tierLabel(minTierOf(key))。 */
 export function upgradeHintOf(key: FeatureKey): string {
   const t = FEATURES[key].minTier;
   if (t === "standard") return "需开通（标准档起）";
-  if (t === "pro") return "PRO 专属";
-  return "MAX 专属";
+  return `${tierLabel(t)} 专属`;
 }
 
 /**
