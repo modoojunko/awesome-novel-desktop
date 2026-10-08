@@ -164,9 +164,16 @@ async def test_connection(
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
+            # 200 体判废先于留痕（评审二轮 P3，内测 405 案形态）：Base URL 填成网站
+            # 首页等场景函数裁定 endpoint_mismatch，留痕行不得与之相悖机械记 ok；
+            # 仅 200 做体判废——非 200 的错误体（鉴权失败 JSON 等）过 _non_api_response
+            # 会误报「返回了错误」
+            not_api = _non_api_response(resp) if resp.status_code == 200 else ""
             _log_probe(
                 "models_list", vendor=vendor_id, api_format=api_format,
                 url=endpoint, start=start, status=resp.status_code,
+                result="endpoint_mismatch" if not_api else None,
+                error=not_api or None,
             )
             if resp.status_code == 404 and fallback is not None:
                 # models 端点不存在 → 降级为「你好」最小生成探针（2026-10-05 拍板）
@@ -220,7 +227,6 @@ async def test_connection(
                     "error": f"异常响应 (HTTP {resp.status_code}){detail}",
                 }
 
-            not_api = _non_api_response(resp)
             if not_api:
                 return {
                     "ok": False,
@@ -332,9 +338,13 @@ async def fetch_models(
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
+            # 体判废先于留痕（评审二轮 P3，同 test_connection）
+            not_api = _non_api_response(resp) if resp.status_code == 200 else ""
             _log_probe(
                 "models_list", vendor=vendor_id, api_format=api_format,
                 url=endpoint, start=start, status=resp.status_code,
+                result="endpoint_mismatch" if not_api else None,
+                error=not_api or None,
             )
             # 「端点不提供清单」的 404 特判只限 anthropic 格式（与 test_connection 的
             # fallback 判据同源）——openai/ollama 格式的 404 更常见成因是 Base URL 路径
@@ -379,7 +389,6 @@ async def fetch_models(
                     "models": None,
                     "error": f"异常响应 (HTTP {resp.status_code}){detail}",
                 }
-            not_api = _non_api_response(resp)
             if not_api:
                 return {
                     "ok": False,

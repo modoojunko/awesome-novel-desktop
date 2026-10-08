@@ -22,10 +22,10 @@ def _run_async(coro):
 
 
 class _FakeResp:
-    def __init__(self, status=200, body=None):
+    def __init__(self, status=200, body=None, ctype="application/json"):
         self.status_code = status
         self._body = body
-        self.headers = {"content-type": "application/json"}
+        self.headers = {"content-type": ctype}
 
     def json(self):
         if self._body is None:
@@ -248,6 +248,30 @@ def test_ollama_probe_logs_native_format(fake_http, cap_probe):
     line = _probe_lines(cap_probe)[-1].getMessage()
     assert "vendor=ollama" in line and "path=/api/tags" in line
     assert "format=-" in line
+
+
+def test_html_200_logs_endpoint_mismatch(fake_http, cap_probe):
+    """评审二轮 P3（内测 405 案形态）：Base URL 填成网站首页、任意路径回 200
+    HTML——留痕行须与函数裁定一致记 endpoint_mismatch（WARNING），不得机械
+    result=ok 误导定诊；test_connection 与 fetch_models 同口径。"""
+    fake_http.script = [_FakeResp(200, None, ctype="text/html")]
+    out = _run_async(conn_mod.test_connection(
+        vendor_id="custom", api_key="sk", base_url="https://www.some-site.com",
+    ))
+    assert out["status"] == "endpoint_mismatch"
+    records = _probe_lines(cap_probe)
+    assert len(records) == 1, "体判废短路，不再发生成探针"
+    line = records[0].getMessage()
+    assert "status=200" in line and "result=endpoint_mismatch" in line
+    assert records[0].levelno == logging.WARNING
+
+    fake_http.script = [_FakeResp(200, None, ctype="text/html")]
+    out = _run_async(conn_mod.fetch_models(
+        vendor_id="custom", api_key="sk", base_url="https://www.some-site.com",
+    ))
+    assert out["status"] == "endpoint_mismatch"
+    line = _probe_lines(cap_probe)[-1].getMessage()
+    assert "result=endpoint_mismatch" in line
 
 
 # ── 朱雀检测（zhuque.client.classify）────────────────────────────────────────

@@ -32,3 +32,4 @@
 - [x] 5.1 P2：`_probe_target`／`_log_classify` 对畸形 URL（未闭合 `[`——httpx 0.28.1 接受并真实连接，urlparse 抛 ValueError）兜底 `("-", "-")`——探针不再从 except 处理器二次抛 500 化。钉子 `test_malformed_base_url_never_breaks_probe`。
 - [x] 5.2 P3：ollama 探针行 `format=-`（原生 /api/tags 非按格式探测）；`_log_probe` 内集中处理。钉子 `test_ollama_probe_logs_native_format`。
 - [x] 5.3 P3：删除死常量 `_LLM_MARK`（handler 标记字面量唯一设置点在 logging_setup，测试按字面量钉）。
+- [x] 5.4 二轮评审 P3：200 体判废提前到留痕之前（`_non_api_response` 一次计算两处复用），「网站首页 200 HTML」场景留痕行与函数裁定一致记 `endpoint_mismatch`（WARNING）——不误导定诊。钉子 `test_html_200_logs_endpoint_mismatch`（test_connection／fetch_models 双口径）。
