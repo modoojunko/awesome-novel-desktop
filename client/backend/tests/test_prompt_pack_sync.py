@@ -420,9 +420,14 @@ def test_sync_404_refetches_latest_and_retries_once(env, cdn, monkeypatch):
     assert pp2.read_receipt()["version"] == "7"
 
 
-def test_status_ready_with_dev_fallback(env, monkeypatch):
-    """评审 P1：dev/测试态（非 force 且包内目录存在）＝写作能力可用 → ready 全静默。"""
+def test_status_ready_with_dev_fallback(env, tmp_path, monkeypatch):
+    """评审 P1：dev/测试态（非 force 且有开发态模板源）＝写作能力可用 → ready 全静默。"""
     _, _, sync_mod, _ = env
+    # 主库零模板后 CI 无包内镜像：显式给 DEV_DIR 桩目录模拟「开发态有模板源」
+    dev_dir = tmp_path / "dev-templates"
+    dev_dir.mkdir()
+    (dev_dir / "write_chapter.prompt").write_text("桩", encoding="utf-8")
+    monkeypatch.setenv("PROMPT_PACK_DEV_DIR", str(dev_dir))
     monkeypatch.delenv("PROMPT_PACK_MODE", raising=False)  # 模拟 dev 会话
     st = sync_mod.get_status()
     assert st["phase"] == "ready"

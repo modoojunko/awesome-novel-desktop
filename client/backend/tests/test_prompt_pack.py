@@ -99,15 +99,22 @@ def test_loader_reads_installed_pack(pack_env):
     assert "pack 版正文" in prompts.load("write_chapter")
 
 
-def test_loader_tampered_pack_falls_back_to_bundled(pack_env):
+def test_loader_tampered_pack_falls_back_to_bundled(pack_env, monkeypatch):
     root, pp, prompts = pack_env
+    # 回落源（解析序②）：主库零模板后 CI 无包内镜像，显式给 DEV_DIR 桩目录
+    dev_dir = os.path.join(str(root), "dev-templates")
+    os.makedirs(dev_dir, exist_ok=True)
+    with open(os.path.join(dev_dir, "write_chapter.prompt"), "w", encoding="utf-8") as f:
+        f.write("桩回落正文")
+    monkeypatch.setenv("PROMPT_PACK_DEV_DIR", dev_dir)
     vdir, receipt = _make_pack(root, "5", {"write_chapter": "原件"})
-    # 安装后手改文件 → 读时 sha256 不过 → 视为缺失 → 回落包内开发目录
+    # 安装后手改文件 → 读时 sha256 不过 → 视为缺失 → 回落开发态模板目录
     with open(os.path.join(vdir, "write_chapter.prompt"), "w", encoding="utf-8") as f:
         f.write("被手改")
     pp.write_receipt(receipt)
     text = prompts.load("write_chapter")
     assert "被手改" not in text
+    assert "桩回落正文" in text
 
 
 def test_loader_force_mode_pack_missing(pack_env, monkeypatch):
