@@ -11,93 +11,12 @@ from pathlib import Path
 from typing import ClassVar
 
 from genres.vocab_presets import VOCAB_PRESETS
-from prompts import load
-from settings.ai_router import GENRE_FIELDS, INTRO_ACTIONS
 
 _BACKEND = Path(__file__).resolve().parents[1]
 
 
-class TestPromptTemplates:
-    def test_intro_templates_exist_with_placeholders(self):
-        for action in INTRO_ACTIONS:
-            text = load(f"settings_intro_{action}")
-            assert "{title}" in text and "{content}" in text
-            if action == "fill":
-                assert "{missing_segments}" in text
-            # 模板必须写明「只输出 JSON」与单源占位（段名/禁忌在 introspect 里）
-            assert "JSON" in text
-
-    def test_introspect_has_six_segments_and_taboo_rules(self):
-        text = load("settings_intro_introspect")
-        for name in ("主角身份", "本来的生活", "突发状况", "必须面对的矛盾", "不做的后果", "做了的可能结局"):
-            assert name in text, f"体检模板缺段名：{name}"
-        for rule in ("设定集腔", "作者自白", "剧透"):
-            assert rule in text
-
-    def test_introspect_has_title_check(self):
-        """D21：体检含标题对照（fit 三值 + 候选 ≤3 + 只提示不代改）。"""
-        text = load("settings_intro_introspect")
-        assert "标题对照" in text
-        for v in ("mismatch", "generic"):
-            assert v in text
-        assert "由作者自己决定" in text  # 拍板：不做一键改
-        assert "title_check" in text
-        # verdict 口径不受标题影响（独立提示行）
-        assert "只看六段与禁忌" in text
-
-    def test_genre_templates_exist_with_placeholders(self):
-        for field in GENRE_FIELDS:
-            text = load(f"settings_genre_{field}")
-            assert "{title}" in text and "{synopsis}" in text
-            # 题材必须进题材类提示词（用户 2026-09-10）：AI 助手此前完全不知道
-            # 本书是什么题材，产出只能靠书名硬猜，只能写出通用空话。
-            assert "{theme}" in text and "{theme_desc}" in text and "{theme_example}" in text
-            # 当前值：02 拆成 current_note（作者那句话）+ current_value（短标签），其余仍是 current
-            assert "{current}" in text or "{current_note}" in text
-            assert "JSON" in text
-
-    def test_candidates_are_injected_not_hand_copied(self):
-        """候选池动态注入（{candidate_list}），模板里不得再手抄候选词。
-
-        手抄必然漂移：改了 vocab 表忘了改模板 → 模型给出池外候选 → 归一化兜底 →
-        静默降级成"自定义"。故用本用例钉住。
-        """
-        from genres.vocab_presets import VOCAB_PRESETS
-
-        labels = [e["label"] for e in VOCAB_PRESETS]
-        assert len(labels) >= 15
-        for field in GENRE_FIELDS:
-            text = load(f"settings_genre_{field}")
-            # 判定「手写清单」＝同一行里出现 ≥2 个候选 label（示例里单引一个不算）
-            for line in text.splitlines():
-                hits = [lb for lb in labels if lb in line]
-                assert len(hits) < 2, f"settings_genre_{field} 手写了候选清单：{line}"
-        # 三类候选都由占位符承接（含 id 清单——模型要按 id 回填 tagId）
-        cp = load("settings_genre_core_promise")
-        assert "{candidate_list}" in cp
-        fl = load("settings_genre_forbidden_list")
-        assert "{forbidden_candidates}" in fl and "{forbidden_ids}" in fl
-        bf = load("settings_genre_battlefield")
-        assert "{battlefield_candidates}" in bf and "{battlefield_ids}" in bf
-
-    def test_core_promise_supports_multi_point_switch(self):
-        """{multi_point} 开关与「禁止另起炉灶」约束（用户 2026-09-10 参考稿）。"""
-        text = load("settings_genre_core_promise")
-        assert "{multi_point}" in text
-        assert "最多 3 个独立看点" in text or "最多返回 3" in text
-        assert "禁止完全另起炉灶" in text
-
-    def test_templates_do_not_name_models(self):
-        """prompt 层模型无关（D11 ⑦）：模板内不得出现具体模型名。"""
-        names = ("gpt-", "claude-", "deepseek", "qwen", "glm-", "kimi", "haiku", "sonnet")
-        for field in GENRE_FIELDS:
-            text = load(f"settings_genre_{field}").lower()
-            for n in names:
-                assert n not in text, f"settings_genre_{field} 出现模型名 {n}"
-        for action in INTRO_ACTIONS:
-            text = load(f"settings_intro_{action}").lower()
-            for n in names:
-                assert n not in text, f"settings_intro_{action} 出现模型名 {n}"
+# TestPromptTemplates（intro/genre 模板正文断言）已迁提示词仓（c-prompt-source-flip
+# tests/test_templates_extra.py TestIntroGenreTemplates）。
 
 
 class TestLayeringBoundaryGate:
@@ -192,58 +111,8 @@ class TestR9R10:
         assert "ai-model.yaml" not in src
 
 
-class TestPolishPromptQuality:
-    """润色模板质量契约（用户反馈「当前润色很差」后重写，2026-09-10）。
-
-    可判定项：占位符完整、硬性规则齐全、禁忌黑名单具象、自检清单在、few-shot 对照在，
-    且 **few-shot 自身不违反规则 1（不新增原文没有的信息）**——示例违规会教坏模型。
-    """
-
-    def _t(self) -> str:
-        return load("settings_intro_polish")
-
-    def test_placeholders(self):
-        t = self._t()
-        assert "{title}" in t and "{content}" in t
-
-    def test_hard_rules_present(self):
-        t = self._t()
-        for rule in ("完整保留全部原始设定", "不新增", "不删减", "不改人称", "字数 ≤ 原文的 90%",
-                     "多用短句", "不写死结局"):
-            assert rule in t, f"缺硬性规则：{rule}"
-
-    def test_hook_rule_rejects_resume_opening(self):
-        t = self._t()
-        assert "第一句必须是危机或反差钩子" in t
-        assert "履历式开头" in t
-
-    def test_taboo_blacklist_is_concrete(self):
-        t = self._t()
-        words = ("浮生", "流年", "凡尘", "孑然", "寂寥", "命运齿轮", "瞳孔骤缩", "气场全开")
-        missing = [w for w in words if w not in t]
-        assert not missing, f"禁忌黑名单缺词：{missing}"
-        for pat in ('"不是X，而是Y"', "不仅…更是", "在这个…的世界里"):
-            assert pat in t, f"缺 AI 平滑句式：{pat}"
-
-    def test_self_check_list_present(self):
-        t = self._t()
-        assert "自检" in t and "逐条过" in t
-
-    def test_few_shot_pair_present(self):
-        t = self._t()
-        assert "示例" in t and "原文：" in t and "改后：" in t
-
-    def test_few_shot_does_not_invent_facts(self):
-        """示例里不得出现原文没有的数字/地点——否则示例本身违反规则 1。"""
-        t = self._t()
-        block = t.split("示例", 1)[1]
-        for fabricated in ("七天", "出租屋", "三天", "五年后"):
-            assert fabricated not in block, f"示例新增了原文没有的信息：{fabricated}"
-
-    def test_json_contract_only(self):
-        t = self._t()
-        assert '"original"' in t and '"polished"' in t
-        assert "markdown" in t  # polished 内不得含 markdown 标记
+# TestPolishPromptQuality（简介润色质量契约）已迁提示词仓（同上
+# TestIntroPolishQuality）。
 
 
 class TestThemeAnchorAndMultiPoint:

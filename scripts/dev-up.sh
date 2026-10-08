@@ -175,6 +175,18 @@ native_start_all() {
   ensure_all_deps
   echo "── 本地直跑启动全部服务 ──"
 
+  # 提示词模板源（c-prompt-source-flip）：sibling 提示词仓检出（PROMPTS_DIR 可覆盖）。
+  # 主库不跟踪 .prompt，原生直跑不经 compose，须在此注入 PROMPT_PACK_DEV_DIR；
+  # 缺检出时留空（loader 按未装包 503 语义，不阻断起栈）。
+  PROMPTS_SRC="${PROMPTS_DIR:-$ROOT/../awesome-novel-prompts/prompts}"
+  PROMPTS_ENV=""
+  if [[ -d "$PROMPTS_SRC" ]]; then
+    PROMPTS_ENV="PROMPT_PACK_DEV_DIR=$PROMPTS_SRC"
+    echo "[env] 提示词模板源：$PROMPTS_SRC"
+  else
+    echo "[warn] 提示词模板源不在位（$PROMPTS_SRC）——AI 功能将按未装包提示"
+  fi
+
   native_start_one "S端后端" "$S_BACK_PORT" "s-backend.log" \
     "cd '$ROOT/server' && mkdir -p data && DB_DIR=./data .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port $S_BACK_PORT"
 
@@ -182,7 +194,7 @@ native_start_all() {
     "cd '$ROOT/server/frontend' && ./node_modules/.bin/vite dev --port $S_FRONT_PORT"
 
   native_start_one "C端后端" "$C_BACK_PORT" "c-backend.log" \
-    "cd '$ROOT/client/backend' && SERVER_API_BASE=http://127.0.0.1:$S_BACK_PORT/api DATA_ROOT=./data .venv/bin/uvicorn main:app --host 127.0.0.1 --port $C_BACK_PORT"
+    "cd '$ROOT/client/backend' && SERVER_API_BASE=http://127.0.0.1:$S_BACK_PORT/api DATA_ROOT=./data $PROMPTS_ENV .venv/bin/uvicorn main:app --host 127.0.0.1 --port $C_BACK_PORT"
 
   native_start_one "C端前端" "$C_FRONT_PORT" "c-frontend.log" \
     "cd '$ROOT/client/frontend' && ./node_modules/.bin/vite dev --port $C_FRONT_PORT"

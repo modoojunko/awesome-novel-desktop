@@ -793,70 +793,10 @@ class TestPlanCard:
         assert r.status_code == 404
 
 
-# ── 模板契约＋卷纲聚光（提示词对齐修复的钉子）────────────────────────────
-def test_split_template_scene_state_rules():
-    """章卡模板钉住「客观局面」两处：硬规则 10（在场者写进剧情）、checks 缺席示例；负面清单不破。"""
-    with open(
-        os.path.join(os.path.dirname(__file__), "..", "prompts", "chapter_split.prompt"),
-        encoding="utf-8",
-    ) as f:
-        src = f.read()
-    assert "10. 剧情写整个场面，不只写主角" in src
-    # c-og-slim-v2：在场者约束由「本章行动」移入剧情（该格退役）
-    assert "在场的其他人物、群体写进剧情里" in src
-    assert "acts" not in src
-    assert "这一章没出场" in src
-    assert "【伏笔台账】" not in src and "【主线全景】" not in src  # 负面清单（§5）不破
+# 模板契约钉子已迁提示词仓（c-prompt-source-flip tests/test_templates_pins.py）；
+# 本文件保留行为用例。
 
 
-def test_split_template_ending_natural_breakpoint():
-    """章尾钉住「下一拍硬切」（c-chapter-seam-hardcut 翻转旧「自然断点」口径）：
-    规则 4 教动向不教局面，ending 定义呼应；悬念道具禁令收窄保留；末章例外（规则 5）保留。"""
-    with open(
-        os.path.join(os.path.dirname(__file__), "..", "prompts", "chapter_split.prompt"),
-        encoding="utf-8",
-    ) as f:
-        rule4 = next(
-            line for line in f.read().splitlines() if line.startswith("4. ")
-        )
-    assert "下一拍要砸下来" in rule4
-    assert "悬念道具" in rule4  # 禁令收窄保留（凭空新谜团仍禁）
-    assert "局面陈述" in rule4  # 禁局面总结收尾
-    with open(
-        os.path.join(os.path.dirname(__file__), "..", "prompts", "chapter_split.prompt"),
-        encoding="utf-8",
-    ) as f:
-        src = f.read()
-    assert "停在下一拍要砸下来的动作或台词瞬间" in src  # ending 字段定义呼应
-    assert "5. 素材标注「本章是本卷末章」时例外" in src  # 末章收卷不变（收束口径）
-
-
-def test_selfcheck_template_pull_natural_breakpoint():
-    """章级自检的「拉力」问句与生成模板同批：下一拍硬切口径，钩子导向问法退役。"""
-    with open(
-        os.path.join(os.path.dirname(__file__), "..", "prompts", "chapter_selfcheck.prompt"),
-        encoding="utf-8",
-    ) as f:
-        pull = next(
-            line
-            for line in f.read().splitlines()
-            if line.startswith("- 拉力（只看本章结尾）")
-        )
-    assert "下一拍要爆发" in pull
-    assert "自然断点" not in pull
-    assert "悬念钩" in pull  # 硬造悬念禁令口径保留
-
-
-def test_position_fragment_ch1_ending_aligned():
-    """#488 位置片段章尾行与硬规则 4 同口径：「大钩」导向词退役，密度要求原词保留。"""
-    with open(
-        os.path.join(os.path.dirname(__file__), "..", "prompts", "pos_ch1.prompt"),
-        encoding="utf-8",
-    ) as f:
-        ch1 = f.read()
-    assert "大钩" not in ch1
-    assert "不收场、不喘息" in ch1  # pacing 对拍钉子原样存活
-    assert "停在新麻烦刚炸开、主角还没接招的局面" in ch1
 
 
 def test_volume_named_character_spotlights_into_cast(client, monkeypatch):
@@ -996,18 +936,3 @@ def test_world_rules_block_renders_when_defined(client, monkeypatch):
     system = _layered_prompt(fake.calls[-1])
     assert "【世界铁律】\n世界铁律·死者不可复生：任何力量都不能把人从死亡里拉回来" in system
 
-def test_split_template_rule2_cast_sentence():
-    """c-character-intro 规则 2 补句（chapter-plan-ai MODIFIED delta 钉词源，逐字对拍）。"""
-    import os as _os
-
-    with open(
-        _os.path.join(_os.path.dirname(__file__), "..", "prompts", "chapter_split.prompt"),
-        encoding="utf-8",
-    ) as f:
-        rule2 = next(line for line in f.read().splitlines() if line.startswith("2. "))
-    for phrase in (
-        "无名配角（店伙计、路人、卫兵这类只递话、只在场的过场人物）可用泛称",
-        "泛称不得承担关键剧情作用",
-        "具名新人一律不添——要不要加新角色由章纲页的人物盘点决定",
-    ):
-        assert phrase in rule2, f"规则 2 补句缺钉词：{phrase}"

@@ -107,13 +107,14 @@ class TestPolish:
         assert r.status_code == 200, r.text
         assert r.json()["polished_text"] == "她握桨听风。"
         prompt = captured[-1]["messages"][0]["content"]
-        # 新口径锚：检查清单指针＋边界标记＋选区原文＋禁止规则单源（未配置文风 → 「（无）」兜底）
-        assert "检查清单" in prompt
+        # 口径锚（v5 诊断门控版，c-polish-v5-diagnostic-gate）：完成判定指针＋边界标记＋
+        # 选区原文＋禁止规则单源（未配置文风 → 「（无）」兜底）
+        assert "完成判定" in prompt
         assert "［待处理文本开始］" in prompt and "［待处理文本结束］" in prompt
         assert "她握紧船桨" in prompt
         assert "禁止规则" in prompt and "（无）" in prompt
         system = captured[-1]["system"]
-        assert "AI 腔" in system and "检查清单" in system
+        assert "AI 腔" in system and "完成判定" in system
 
         # 记账：operation=polish（口径不变）
         from models.token_log import TokenLog

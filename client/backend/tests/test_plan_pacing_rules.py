@@ -229,26 +229,6 @@ def test_fragment_headers_stripped():
     assert load_fragment("volume_pos_first").startswith("【本卷是全书第 1 卷】")
 
 
-def test_fragment_verbatim_pins():
-    """四片段对拍钉子（改坏关键句 → 红）：与 spec/评审成稿逐字一致的关键约束。"""
-    with open(os.path.join(_PROMPTS_DIR, "pos_ch1.prompt"), encoding="utf-8") as f:
-        ch1 = f.read()
-    assert "开场即冲突" in ch1 and "不写身份来历、不铺世界观、不写日常" in ch1
-    assert "不收场、不喘息" in ch1
-    with open(os.path.join(_PROMPTS_DIR, "pos_golden3.prompt"), encoding="utf-8") as f:
-        g3 = f.read()
-    assert "至少破一次预期" in g3 and "合格例" in g3 and "不合格例" in g3
-    assert "困难比上一章更狠" in g3 and "三个方向兑现的手段互不相同" in g3
-    assert "冲突叠加着走" in g3 and "旧的未解、新的又起" in g3  # v2 开篇期拍板：旧的未解、新的又起
-    with open(os.path.join(_PROMPTS_DIR, "pos_vol_start.prompt"), encoding="utf-8") as f:
-        vs = f.read()
-    assert "本章就让本卷核心冲突露头" in vs  # 禁「最迟第 3 章」类拖延措辞
-    assert "最迟" not in vs
-    assert "stage 不低于「冲突初现」" in vs
-    with open(os.path.join(_PROMPTS_DIR, "volume_pos_first.prompt"), encoding="utf-8") as f:
-        vf = f.read()
-    assert "开卷即入戏" in vf and "不设铺垫期" in vf and "不晚于第 3 章" in vf
-
 
 def test_volume_rules_eight_rules_with_rhythm_criteria():
     """rules 单源：八条（规则 8＝卷末点名高潮＋位置）＋体检判据「对节奏」组；锚点切分不破。"""
