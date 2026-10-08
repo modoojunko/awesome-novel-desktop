@@ -47,4 +47,7 @@ export const COVERAGE_CONTRACT_FILES = [
   "src/pages/NovelListPage.tsx",
   // c-toast-dismiss（全站 toast：3 秒自动消失＋× 关闭，sticky 退役）
   "src/lib/toast.tsx",
+  // c-prose-model-select（生成弹窗按次换模型：弹层锚定换算——大屏 zoom 折算＋放不下翻转/限高，
+  // 两条弹层共用：生成弹窗模型选择位、模型配置页模型选择器）
+  "src/lib/panelAnchor.ts",
 ] as const;

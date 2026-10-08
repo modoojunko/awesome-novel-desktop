@@ -37,3 +37,11 @@
 ## 6. 环境收尾
 
 - [x] 6.1 本会话隔离栈已拆：uvicorn(8100)/假 S(19100)/vite(5199,5198) 逐口 kill（逐口复验为空）；临时 playwright/vite config 与 `test-results/` 已删；A/B 用 pristine worktree（`/tmp/an-baseline`）已 `worktree remove`；`/tmp/wmo-e2e` 已删。主检出与共享 docker 栈零触碰（`git status` 无本会话残留）。
+
+## 7. 评审整改（review-agent 四条）
+
+- [x] 7.1 **[P2] 弹层无视口上限**：`.mp-panel` 加 `max-height: 360px`＋`overflow-y: auto`（整层滚动），`.mp-list` 收掉自带 `max-height/overflow`；`.mp-panel` 与触发位的定位改由 `placePanel` 按可用空间翻转（挂 `bottom`）。**验证 ✓** vitest：`panelAnchor.test.ts` 8 例（含翻转/保底/zoom 折算/zoom 读取兜底）＋ `apiConfigForm.test.tsx` 翻转臂与上限两例（原「jsdom 零矩形 → top 8px」用例随口径重写）＋ `AiModal.test.tsx` 弹层上限/翻转两例；e2e 新用例「多配置不越出视口」4 组配置断言下缘不越视口、`scrollHeight > clientHeight`、末组模型滚到底 `toBeInViewport`。
+- [x] 7.2 **[P2] 大屏 zoom 双重放大**：抽出 `lib/panelAnchor.ts`（`htmlZoom()`＋`placePanel()`，`/zoom` 折算＋翻转/限高），生成弹窗选择位与模型配置页模型选择器**共用**（后者为本 change 之前同一模式）；**验证 ✓** 单测含 zoom=1.28/1.1 折算与非法值兜底；e2e 在 2560×1400（zoom=1.28 生效）断言弹层与触发位宽度/左边 ≤3px、视觉间距 = 6×zoom；**变异自证**：把 `/zoom` 抹掉后该用例实测红（宽度差 450.58px），还原后绿。
+- [x] 7.3 **[P3] 覆盖对宽严不一致**：`ai_client.py` 覆盖分支改 `config_key_usable(cfg)`（与本书就绪同谓词），文案「没有可用 Key（或最近连接失败），去「模型配置」检查或重测后重试」；spec delta 同批补「宽严 SHALL 与本书模型路径一致」。**验证 ✓** pytest 13 例（新增「auth_error 配置被拒」「untested 仍放行」；端点用例补 400 一档）；spec 场景补「最近连接测试失败」。
+- [x] 7.4 **[P3] 键盘选中态对读屏不可见**：触发位补 `aria-activedescendant`（`ai-model-opt-${cursor}`）＋选项补 `id`＋`aria-label="生成模型"`。**验证 ✓** vitest 新增用例：首项即 `opt-0`、方向键后 `opt-1` 且该元素 `role=option`／文本对得上、Esc 收起后不再指向已卸载选项。
+- [x] 7.5 覆盖率契约：`src/lib/panelAnchor.ts` 入 `COVERAGE_CONTRACT_FILES`（新前端文件按批入契约，随 `vitest --coverage` 四闸 100%）。**验证 ✓** `coverageContract.test.ts` 5 例过；`npx vitest run --coverage` 契约文件全 100%。

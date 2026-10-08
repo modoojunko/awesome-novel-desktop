@@ -338,4 +338,63 @@ describe("AiModal · 生成模型选择位", () => {
     );
     expect(screen.queryByTestId("ai-model-select")).toBeNull();
   });
+
+  // 评审整改（P2）：多配置时弹层只受视口约束（封顶＋整层滚动），不再逐组裁切
+  it("弹层带视口感知上限：空间充足时下方展开且 maxHeight 有封顶", async () => {
+    renderModal();
+    await screen.findByTestId("ai-prompt");
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      top: 100, bottom: 140, left: 20, right: 540, width: 520, height: 40, x: 20, y: 100,
+      toJSON: () => ({}),
+    } as DOMRect);
+    try {
+      fireEvent.click(await screen.findByTestId("ai-model-select"));
+      const panel = await screen.findByTestId("ai-model-panel");
+      expect(panel.style.top).toBe("146px");
+      expect(panel.style.bottom).toBe("");
+      expect(panel.style.maxHeight).toBe("360px");
+    } finally {
+      rectSpy.mockRestore();
+    }
+  });
+
+  it("弹层放不下时向上翻转（挂 bottom）且按上方可用空间限高", async () => {
+    renderModal();
+    await screen.findByTestId("ai-prompt");
+    const origH = window.innerHeight;
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      top: 700, bottom: 740, left: 20, right: 540, width: 520, height: 40, x: 20, y: 700,
+      toJSON: () => ({}),
+    } as DOMRect);
+    Object.defineProperty(window, "innerHeight", { value: 900, configurable: true });
+    try {
+      fireEvent.click(await screen.findByTestId("ai-model-select"));
+      const panel = await screen.findByTestId("ai-model-panel");
+      expect(panel.style.bottom).toBe("206px"); // (900-700)+6：下缘贴触发位上缘
+      expect(panel.style.top).toBe("");
+      expect(panel.style.maxHeight).toBe("360px");
+    } finally {
+      rectSpy.mockRestore();
+      Object.defineProperty(window, "innerHeight", { value: origH, configurable: true });
+    }
+  });
+
+  it("键盘停在哪一行对读屏可见（aria-activedescendant 指向选项 id）", async () => {
+    renderModal();
+    await screen.findByTestId("ai-prompt");
+    const trigger = await screen.findByTestId("ai-model-select");
+    fireEvent.click(trigger);
+    await screen.findByTestId("ai-model-panel");
+    // 首项即本书模型（c1::deepseek-v4-pro）
+    expect(trigger.getAttribute("aria-activedescendant")).toBe("ai-model-opt-0");
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    expect(trigger.getAttribute("aria-activedescendant")).toBe("ai-model-opt-1");
+    const active = document.getElementById("ai-model-opt-1");
+    expect(active?.getAttribute("role")).toBe("option");
+    expect(active?.textContent).toContain("deepseek-v4-flash");
+    // 收起后不再指向已卸载的选项
+    fireEvent.keyDown(trigger, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("ai-model-panel")).toBeNull());
+    expect(trigger.getAttribute("aria-activedescendant")).toBeNull();
+  });
 });

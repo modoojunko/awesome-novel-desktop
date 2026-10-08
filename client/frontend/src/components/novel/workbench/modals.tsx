@@ -15,6 +15,7 @@ import { api, request } from "@/lib/api";
 import { cnNum } from "@/lib/nodeTitle";
 import { toast } from "@/lib/toast";
 import { useModelStatus } from "@/hooks/useModelStatus";
+import { placePanel, type PanelPlacement } from "@/lib/panelAnchor";
 import type { FlatModelOption, ModelSelection } from "@/types/api-config";
 
 const fmt = (n: number) => n.toLocaleString("zh-CN");
@@ -450,9 +451,7 @@ function ModelPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [cursor, setCursor] = useState(0);
-  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(
-    null,
-  );
+  const [pos, setPos] = useState<PanelPlacement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
@@ -480,20 +479,20 @@ function ModelPicker({
   );
   const current = flat.find((o) => o.key === value) ?? flat[0];
 
-  // 弹层定位（先例 ApiConfigForm 同口径）：portal 出 .mcard 滚动容器后用 fixed 锚触发位
-  // 矩形；随滚动/resize 重锚，近视口底缘向上翻转（266≈弹层最大高＋边距）
+  // 弹层定位：portal 出 .mcard 滚动容器后用 fixed 锚触发位矩形，随滚动/resize 重锚；
+  // 换算（zoom 折算＋放不下翻转/限高）统一走 placePanel——见 lib/panelAnchor.ts
   useEffect(() => {
     if (!open) return;
     const anchor = () => {
       const el = wrapRef.current?.querySelector("button");
       if (!el) return;
       const r = el.getBoundingClientRect();
-      const belowFits = r.bottom + 6 + 266 <= window.innerHeight;
-      setPos({
-        top: belowFits ? r.bottom + 6 : Math.max(8, r.top - 6 - 266),
-        left: r.left,
-        width: r.width,
-      });
+      setPos(
+        placePanel(
+          { top: r.top, bottom: r.bottom, left: r.left, width: r.width },
+          window.innerHeight,
+        ),
+      );
     };
     anchor();
     window.addEventListener("scroll", anchor, true);
@@ -560,6 +559,8 @@ function ModelPicker({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls="ai-model-panel"
+        aria-activedescendant={open && flat[cursor] ? `ai-model-opt-${cursor}` : undefined}
+        aria-label="生成模型"
         data-testid="ai-model-select"
         onClick={() => (open ? setOpen(false) : openAt())}
         onKeyDown={onKeyDown}
@@ -582,8 +583,10 @@ function ModelPicker({
             style={{
               position: "fixed",
               top: pos.top,
+              bottom: pos.bottom,
               left: pos.left,
               width: pos.width,
+              maxHeight: pos.maxHeight,
               zIndex: 70,
             }}
             onMouseDown={(e) => e.preventDefault()} // 点选不抢焦点：键盘现场留在触发位（同先例）
@@ -603,6 +606,7 @@ function ModelPicker({
                         <button
                           type="button"
                           role="option"
+                          id={`ai-model-opt-${i}`}
                           aria-selected={on}
                           tabIndex={-1}
                           className={

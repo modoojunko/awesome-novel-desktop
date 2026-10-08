@@ -149,6 +149,7 @@ def _mk_config(name: str, models: list[str] | None, **kw) -> str:
                 base_url=kw.get("base_url", f"https://{name}.example.com/v1"),
                 models=json.dumps(models) if models is not None else None,
                 status=kw.get("status", "active"),
+                last_test_status=kw.get("last_test_status"),
             )
             session.add(cfg)
             await session.commit()
@@ -335,6 +336,36 @@ class TestOverrideResolution:
                 )
             )
 
+    def test_failed_test_status_config_rejected(self, client):
+        """评审 P3：与本书就绪同谓词——Key 已吊销（最近连接失败）的配置不得按次放行。"""
+        pid, _ = _create_project_and_chapter(client)
+        c1 = _mk_config("deepseek-rev", ["deepseek-v4-pro"])
+        revoked = _mk_config(
+            "deepseek-auth-error", ["deepseek-v4-pro"], last_test_status="auth_error"
+        )
+        _bind(pid, c1, "deepseek-v4-pro")
+        with pytest.raises(ValueError, match="最近连接失败"):
+            _run_async(
+                ai_client_mod.get_ai_client_for_novel(
+                    pid, api_config_id=revoked, model="deepseek-v4-pro"
+                )
+            )
+
+    def test_untested_config_still_allowed(self, client):
+        """只拦失败态：未测试（untested/None）与 ok 照旧放行（与本书就绪判据同口径）。"""
+        pid, _ = _create_project_and_chapter(client)
+        c1 = _mk_config("deepseek-un", ["deepseek-v4-pro"])
+        fresh = _mk_config(
+            "deepseek-untested", ["deepseek-v4-flash"], last_test_status="untested"
+        )
+        _bind(pid, c1, "deepseek-v4-pro")
+        got = _run_async(
+            ai_client_mod.get_ai_client_for_novel(
+                pid, api_config_id=fresh, model="deepseek-v4-flash"
+            )
+        )
+        assert got.model == "deepseek-v4-flash"
+
     def test_half_pair_rejected(self, client):
         pid, _ = _create_project_and_chapter(client)
         c1 = _mk_config("deepseek-i", ["deepseek-v4-pro"])
@@ -415,6 +446,16 @@ class TestWriteEndpointOverride:
             f"/api/novels/{pid}/chapters/{ref}/write", json={"api_config_id": c2}
         )
         assert r2.status_code == 400, r2.text
+        assert fake.calls == []
+
+        # 评审 P3：最近连接失败的配置（Key 已吊销）同样挡在开流前
+        dead = _mk_config("deepseek-broken", ["deepseek-v4-pro"], last_test_status="auth_error")
+        r3 = client.post(
+            f"/api/novels/{pid}/chapters/{ref}/write",
+            json={"api_config_id": dead, "model": "deepseek-v4-pro"},
+        )
+        assert r3.status_code == 400, r3.text
+        assert "最近连接失败" in r3.text
         assert fake.calls == []
 
     def test_failure_path_records_real_override_model(self, client, monkeypatch):

@@ -1877,3 +1877,5 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
    （ADJUSTMENTS #10「parity 排除」）同例；故本次无基线像素变更，`design:check` 预期零差异。
 5. **可选项 < 2 时不渲染该行**（含本书模型共 1 个可选＝与今日弹窗逐字一致）——原型演示态
    含两个配置三个模型（深度求索 ×2 + 本地 Ollama ×1），仅示多模型场景。
+
+**补丁（同日评审轮，四整改）**：① 弹层高度改由弹层自身承担——`.mp-panel` 加视口上限（`max-height: 360px`）＋整层滚动，`.mp-list` 收掉自带的 `max-height: 240px/overflow-y`（原实现多配置逐组累加后下缘落出视口、fixed 弹层拽不回来）；② 定位换共享助手 `lib/panelAnchor.ts`（`getBoundingClientRect` 的视觉值按 `html { zoom }` 折算回布局 px，并覆盖「模型配置页模型选择器」同一模式）；③ 弹层补 `aria-activedescendant` 指向选项 id（键盘停在哪一行对读屏可见）；④ 后端按次覆盖对改与本书就绪同一谓词（`config_key_usable`：Key 非空＋可解密＋最近连接测试非失败态）。原型侧形态不变（原型弹层就地展开、无 fixed 定位/zoom 问题），本条只登记实现侧收口。
