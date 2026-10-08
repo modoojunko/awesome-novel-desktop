@@ -30,6 +30,8 @@
 
 ## 6. 回归
 
-- [ ] 6.1 门禁实跑：`npm run design:lint`、`npm run design:check`（像素差 <0.2%）、`tsc --noEmit`、后端 pytest、前端 vitest。验证：全绿，结论回填本任务
-- [ ] 6.2 共享段判定复核：本改仅 C端 设定域业务层（ra-step 行复用、无令牌/组件词汇/状态语言变更），不触两端共享段，免 design-cross——依据 proposal Design Impact 判定。验证：判定结论回填
-- [ ] 6.3 真机冒烟：配角空卡一键立卡全链（出稿→采纳→撤销重改）＋主角链各一遍。验证：截图/结论贴 change 目录
+- [x] 6.1 门禁实跑：`npm run design:lint`、`npm run design:check`（像素差 <0.2%）、`tsc --noEmit`、后端 pytest、前端 vitest。验证：全绿，结论回填本任务
+  结论：design:lint 净；design:check 7/8（唯一红＝书架屏 quota 2.693%，已知存量光栅漂移、A/B 定罪在案，非本改触面）；`tsc --noEmit` 净；pytest 全量 2086 passed 1 skipped；vitest 全量 1274 passed；e2e settings-forms 15 passed（新钉子＋主角链零改动；1 例「预览只读」为无关定位器歧义偶发，单跑复验绿）
+- [x] 6.2 共享段判定复核：本改仅 C端 设定域业务层（ra-step 行复用、无令牌/组件词汇/状态语言变更），不触两端共享段，免 design-cross——依据 proposal Design Impact 判定。验证：判定结论回填
+  结论：实改面＝CharacterManager/AiWriterAssistant（业务层 props/行数据）＋charactersApi 注释＋后端 characters_ai.py，零 base.css/共享类触碰；S端 无涉及，design-cross 免跑
+- [ ] 6.3 真机冒烟：配角空卡一键立卡全链（出稿→采纳→撤销重改）＋主角链各一遍。验证：截图/结论贴 change 目录（待发版前随真机批次；本地隔离栈已全链实测 5.1）
