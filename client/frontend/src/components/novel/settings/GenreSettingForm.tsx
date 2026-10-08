@@ -258,7 +258,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [data, setData] = useState<GenrePayload>(EMPTY);
-  /** 01 口味胶囊＝纯 UI 联动，不落库、不计入判据。 */
+  /** 02 起点胶囊的高亮＝纯 UI 标记（起点来自哪颗），不落库、不计入判据；再点取消。 */
   const [flavorKey, setFlavorKey] = useState<string | null>(null);
   const [customForbidden, setCustomForbidden] = useState("");
   const loadedRef = useRef(false);
@@ -511,42 +511,69 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
     [themeRows, cursor, pickRow, closeThemePanel],
   );
 
-  // ── 02 常见口味快捷填充：预填 02/03/04/05（不写 promise_note）───
+  // ── 02 常见口味起点胶囊：只写 02（示例句 + 短标签），再点一次取消（用户 2026-10-08
+  //    拍板收窄——内测反馈「选题材和下面一堆要选要填的联动了，这里不需要」「选中的框无法
+  //    取消」；此前一次预填 02/03/04/05 退役）。高亮只是「起点来自哪颗」的 UI 标记。───
+  /** 点选起点瞬间 02 的值：取消（起点句未被作者动过）时还原用。 */
+  const flavorBeforeRef = useRef<{ core_promise: string; promise_note: string } | null>(null);
   const applyFlavor = useCallback(
     (key: string) => {
       const f = GENRE_FLAVORS.find((x) => x.key === key);
       if (!f) return;
-      setFlavorKey(key);
-      // 一次点击覆盖多格 → 必须给回执 + 一步撤销（这是本面板后果最大的误点）。
+      const start = { core_promise: f.corePromise, promise_note: f.promiseNote };
+      if (flavorKey === key) {
+        // 取消：起点句没被作者动过才还原点前值；改过就只清高亮、一个字不动
+        //（不抹作者手敲的字，与撤销差量回滚同哲学）。只清高亮＝纯 UI 变更，不出回执。
+        setFlavorKey(null);
+        const restore = flavorBeforeRef.current;
+        const untouched =
+          data.core_promise === start.core_promise && data.promise_note === start.promise_note;
+        if (untouched && restore) {
+          setData((prev) => ({ ...prev, ...restore }));
+          recordChange(
+            `已取消「${f.label}」起点，还原原句`,
+            () => {
+              /* 值已落地 */
+            },
+            () => {
+              setData((cur) => ({ ...cur, ...start }));
+              setFlavorKey(key);
+            },
+          );
+          setNoteHint(false);
+        }
+        flavorBeforeRef.current = null;
+        return;
+      }
+      // 点选/切换：以新起点覆盖 02（回执 + 一步撤销；快照含高亮，撤销后高亮跟着回）。
       // 注意：recordChange 会触发父组件 setState，**不得**写在 setData 的 updater 里
-      // （React 可能重复调用 updater → 渲染中反复 setState）。
+      //（React 可能重复调用 updater → 渲染中反复 setState）。
       const before = {
         core_promise: data.core_promise,
         promise_note: data.promise_note,
-        forbidden_list: data.forbidden_list,
-        cost_ratio: data.cost_ratio,
-        battlefield: data.battlefield,
+        flavor: flavorKey,
       };
-      setData((prev) => ({
-        ...prev,
-        core_promise: f.corePromise,
-        promise_note: f.promiseNote, // 起点是「一句完整的话」，不是几个字
-        forbidden_list: f.forbidden.map((tagId) => ({ tagId })),
-        cost_ratio: f.costRatio,
-        battlefield: [...f.battlefield],
-      }));
+      flavorBeforeRef.current = { core_promise: before.core_promise, promise_note: before.promise_note };
+      setFlavorKey(key);
+      setData((prev) => ({ ...prev, ...start }));
       recordChange(
-        `已按「${f.label}」覆盖：主要看什么 / 绝对禁止（${f.forbidden.length} 项）/ 吃苦指数 ` +
-          `${before.cost_ratio ?? "未设"}→${f.costRatio} / 本小说斗什么（${f.battlefield.length} 项）`,
+        `已按「${f.label}」给出「主要看什么」一句起点：「${f.promiseNote}」，可撤销`,
         () => {
           /* 值已落地 */
         },
-        () => setData((cur) => ({ ...cur, ...before })),
+        () => {
+          setData((cur) => ({
+            ...cur,
+            core_promise: before.core_promise,
+            promise_note: before.promise_note,
+          }));
+          setFlavorKey(before.flavor);
+        },
       );
       setNoteHint(false);
-      toast.success(`已按「${f.label}」给出一句起点，改到像你写的再确认`);
+      toast.success(`已按「${f.label}」给出一句起点，改到像你写的再确认；再点一次可取消`);
     },
-    [data, recordChange],
+    [data.core_promise, data.promise_note, flavorKey, recordChange],
   );
 
   // ── 03 绝对禁止：勾选 / 自定义 ─────────────────────────────────────
@@ -1101,7 +1128,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
           </>
         }
       >
-        {/* 常见口味快捷填充：一次性预填 02/03/04/05（纯起点，各格可改） */}
+        {/* 常见口味起点胶囊：只给 02 一句起点（收窄自一次预填 02-05，c-genre-flavor-promise-only） */}
         <div className="cap-row flavors">
           <span className="cap-label inline">常见口味</span>
           {GENRE_FLAVORS.map((f) => (
@@ -1110,7 +1137,7 @@ const GenreSettingForm = forwardRef<GenreHandle, GenreSettingFormProps>(function
               className={`cap${flavorKey === f.key ? " on" : ""}`}
               type="button"
               data-g={f.key}
-              title="一次预填主要看什么 / 绝对禁止 / 吃苦指数 / 本小说斗什么"
+              title="给「主要看什么」一句起点，可改；再点一次取消"
               onClick={() => applyFlavor(f.key)}
             >
               {f.label}

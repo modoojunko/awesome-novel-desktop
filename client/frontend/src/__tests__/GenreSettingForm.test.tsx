@@ -73,22 +73,31 @@ describe("GenreSettingForm · 六格", () => {
     expect(container.querySelectorAll(".m-why").length).toBe(5);
   });
 
-  it("常见口味＝起点：点「逆袭打脸」预填一句完整的话（+03/04/05），不落 track", async () => {
+  it("常见口味＝起点：点「逆袭打脸」只给 02 一句完整的话（2026-10-08 收窄：03/04/05 不联动），再点取消", async () => {
     const { container } = renderPanel();
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
-    fireEvent.click(container.querySelector('[data-g="comeback"]')!);
+    const comeback = container.querySelector('[data-g="comeback"]')!;
+    fireEvent.click(comeback);
 
     // 02 的主输入是作家要写的那句话（用户 2026-09-10：选项只是几个词）
     const note = (container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value;
     expect(note).toContain("读者要看到");
     expect(note).toContain("弱者");
     expect(container.textContent).toContain("标签：以弱破强的痛快"); // 短标签仍在（胶囊写入）
+    // 03/04/05 不被预填（用户 2026-10-08：选题材和下面一堆要选要填的联动，不需要）
     expect(container.querySelector('[data-forbid="forbidden:no-deus-ex-machina"]')?.className)
-      .toContain("on");
-    expect(container.querySelector('[data-bf="battlefield:resources"]')?.className).toContain("on");
-    expect(container.querySelector('[data-od-id="cost-slider"]')).toBeTruthy();
-    expect(screen.getByText("8")).toBeTruthy();
+      .not.toContain("on");
+    expect(container.querySelector('[data-bf="battlefield:resources"]')?.className)
+      .not.toContain("on");
+    expect(container.querySelector('[data-od-id="cost-sentence"]')).toBeNull();
+    expect(container.querySelector(".cost-val")!.textContent).toBe("—");
+    // 选中的框可取消：再点一次＝还原（02 回到未填、高亮消失）
+    expect(comeback.className).toContain("on");
+    fireEvent.click(comeback);
+    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+      .toBe("");
+    expect(comeback.className).not.toContain("on");
   });
 
   it("03 回车自定义禁区 → 生成可移除的自定义胶囊", async () => {
@@ -599,7 +608,7 @@ describe("GenreSettingForm · 改动回执 + 撤销", () => {
     apiState.put.mockResolvedValue({ ok: true });
   });
 
-  it("口味胶囊＝一次覆盖多格 → 回执写明覆盖范围，撤销回到改前", async () => {
+  it("口味胶囊＝覆盖 02 起点 → 回执含起点全句，撤销回到改前（04 不被动）", async () => {
     const { ref, receipt, container } = renderPanel({
       core_promise: "算无遗策的掌控感",
       promise_note: "读者要看布局收网",
@@ -608,8 +617,9 @@ describe("GenreSettingForm · 改动回执 + 撤销", () => {
     await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
 
     fireEvent.click(container.querySelector('[data-g="comeback"]')!);
-    expect(receipt()?.text).toContain("已按「逆袭打脸」覆盖");
-    expect(receipt()?.text).toContain("吃苦指数 5→8");
+    expect(receipt()?.text).toContain("已按「逆袭打脸」给出「主要看什么」一句起点");
+    expect(receipt()?.text).toContain("弱者用脑子换来的痛快"); // 起点全句入回执（最长回执载体）
+    expect(receipt()?.text).not.toContain("吃苦指数");
 
     receipt()!.undo();
     await waitFor(() =>
@@ -617,6 +627,72 @@ describe("GenreSettingForm · 改动回执 + 撤销", () => {
         .toBe("读者要看布局收网"),
     );
     expect(container.querySelector(".cost-val")!.textContent).toBe("5");
+    // 撤销后高亮跟着回：点选前的态＝未选中
+    expect(container.querySelector('[data-g="comeback"]')?.className).not.toContain("on");
+  });
+
+  it("起点再点一次取消：未改过 → 还原点前值＋回执可撤销（撤销＝重新写回起点）", async () => {
+    const { receipt, container } = renderPanel({ promise_note: "作者原来的句子" });
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+
+    const comeback = container.querySelector('[data-g="comeback"]')!;
+    fireEvent.click(comeback);
+    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+      .toContain("弱者用脑子换来的痛快");
+
+    fireEvent.click(comeback); // 再点＝取消
+    await waitFor(() =>
+      expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+        .toBe("作者原来的句子"),
+    );
+    expect(comeback.className).not.toContain("on");
+    expect(receipt()?.text).toContain("已取消「逆袭打脸」起点");
+
+    receipt()!.undo(); // 撤销取消＝重新写回该起点
+    await waitFor(() =>
+      expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+        .toContain("弱者用脑子换来的痛快"),
+    );
+    expect(comeback.className).toContain("on");
+  });
+
+  it("起点被作者改过后取消：只清高亮、字不动、不新增回执", async () => {
+    const { receipt, container } = renderPanel({ promise_note: "作者原来的句子" });
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+
+    const comeback = container.querySelector('[data-g="comeback"]')!;
+    fireEvent.click(comeback);
+    fireEvent.change(container.querySelector('[data-od-id="m1-input"]')!, {
+      target: { value: "作者改过的话" },
+    });
+
+    fireEvent.click(comeback);
+    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+      .toBe("作者改过的话");
+    expect(comeback.className).not.toContain("on");
+    // 无数据变更 → 不新增回执（最后一条仍是点选时的那条）
+    expect(receipt()?.text).toContain("一句起点");
+    expect(receipt()?.text).not.toContain("已取消");
+  });
+
+  it("切换口味：新起点覆盖 02；撤销回到上一颗的句子且高亮回上一颗", async () => {
+    const { receipt, container } = renderPanel();
+    await waitFor(() => expect(container.querySelectorAll(".mod")).toHaveLength(5));
+
+    fireEvent.click(container.querySelector('[data-g="comeback"]')!);
+    fireEvent.click(container.querySelector('[data-g="mind"]')!);
+    expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+      .toContain("信息差布局收网");
+    expect(container.querySelector('[data-g="mind"]')?.className).toContain("on");
+    expect(receipt()?.text).toContain("已按「烧脑博弈」给出「主要看什么」一句起点");
+
+    receipt()!.undo();
+    await waitFor(() =>
+      expect((container.querySelector('[data-od-id="m1-input"]') as HTMLTextAreaElement).value)
+        .toContain("弱者用脑子换来的痛快"),
+    );
+    expect(container.querySelector('[data-g="comeback"]')?.className).toContain("on");
+    expect(container.querySelector('[data-g="mind"]')?.className).not.toContain("on");
   });
 
   it("禁项胶囊：勾选与取消都留回执，撤销可来回", async () => {

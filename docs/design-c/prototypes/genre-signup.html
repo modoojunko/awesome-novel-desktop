@@ -442,11 +442,11 @@
         <div class="mod">
           <div class="mod-head"><span class="m-no">01</span><span class="m-name">题材</span><span class="m-why">选个口味起点，下面各格跟着给建议</span><span class="m-use">填好后：<b>全书都按这套口味给建议</b>，随时可换</span></div>
           <div class="cap-row">
-            <span class="cap on" data-g="comeback">逆袭打脸</span>
-            <span class="cap" data-g="mind">烧脑博弈</span>
-            <span class="cap" data-g="sweet">独宠撒糖</span>
-            <span class="cap" data-g="survival">绝境求生</span>
-            <span class="cap" data-g="scheme">权谋布局</span>
+            <span class="cap" data-g="comeback" title="给「主要看什么」一句起点，可改；再点一次取消">逆袭打脸</span>
+            <span class="cap" data-g="mind" title="给「主要看什么」一句起点，可改；再点一次取消">烧脑博弈</span>
+            <span class="cap" data-g="sweet" title="给「主要看什么」一句起点，可改；再点一次取消">独宠撒糖</span>
+            <span class="cap" data-g="survival" title="给「主要看什么」一句起点，可改；再点一次取消">绝境求生</span>
+            <span class="cap" data-g="scheme" title="给「主要看什么」一句起点，可改；再点一次取消">权谋布局</span>
           </div>
         </div>
 
@@ -723,29 +723,33 @@
 
   /* ═══ 题材窗 ═══ */
 
-  /* 题材口味联动 */
+  /* 常见口味＝02 起点胶囊：点选只给「主要看什么」一句起点，再点一次取消
+     （c-genre-flavor-promise-only，2026-10-08 用户拍板收窄：不再联动 03/04/05） */
   const GENRES = [
-    { g: 'comeback', label: '逆袭打脸', forbid: ['禁天降外援', '禁白捡神器', '禁反派降智'], cost: 8, bf: ['抢资源', '爬地位'] },
-    { g: 'mind',     label: '烧脑博弈', forbid: ['禁预知破局', '禁反派降智'],             cost: 5, bf: ['爬地位', '查真相'] },
-    { g: 'sweet',    label: '独宠撒糖', forbid: ['禁无端虐主', '禁第三者搅局'],           cost: 3, bf: ['争感情', '搞基建'] },
-    { g: 'survival', label: '绝境求生', forbid: ['禁天降外援', '禁预知破局'],             cost: 7, bf: ['抗外敌', '抢资源'] },
-    { g: 'scheme',   label: '权谋布局', forbid: ['禁反派降智', '禁预知破局'],             cost: 5, bf: ['爬地位', '查真相'] }
+    { g: 'comeback', label: '逆袭打脸', note: '读者要看到主角被境界、资源、人情全都压着，却专挑对方体系里的漏洞打；每赢一次，都是弱者用脑子换来的痛快。' },
+    { g: 'mind',     label: '烧脑博弈', note: '读者要看到眼前的局面每解释一层就翻一次，主角靠信息差布局收网；读到最后才发现最早那句话就是答案。' },
+    { g: 'sweet',    label: '独宠撒糖', note: '读者要看到两个人的关系一点点靠近，误会当场解开、不拖不虐；甜在具体的照顾与偏心，不在嘴上。' },
+    { g: 'survival', label: '绝境求生', note: '读者要看到主角被逼到退无可退，靠胆量与临场判断硬撑过去；每一关都比上一关更险，喘口气的工夫都没有。' },
+    { g: 'scheme',   label: '权谋布局', note: '读者要看到主角手里没牌却总在下一盘更大的棋：你看到的让步是局，你看到的败退也是局。' }
   ];
-  let genreIdx = 0, bfCount = 2;
-  function renderGenre() {
-    const g = GENRES[genreIdx];
-    document.querySelectorAll('[data-g]').forEach(c => c.classList.toggle('on', c.dataset.g === g.g));
-    document.getElementById('forbidRow').innerHTML = g.forbid.map(f => `<span class="cap on">${esc(f)}</span>`).join('');
-    document.getElementById('costRange').value = g.cost;
-    renderCost();
-    bfCount = g.bf.length;
-    document.getElementById('bfRow').innerHTML = g.bf.map(b => `<span class="cap on">${esc(b)}</span>`).join('');
-    document.getElementById('bfNote').style.display = 'none';
-  }
+  let flavorOn = null, flavorPrev = '';
   document.querySelectorAll('[data-g]').forEach(c => c.addEventListener('click', () => {
-    genreIdx = GENRES.findIndex(x => x.g === c.dataset.g);
-    renderGenre();
-    toast('已按「' + GENRES[genreIdx].label + '」给出口味建议，各格可改');
+    const f = GENRES.find(x => x.g === c.dataset.g);
+    if (!f) return;
+    const m1 = document.getElementById('m1Input');
+    if (flavorOn === f.g) {
+      /* 取消：起点句没动过才还原点前值；作者已改过就只清高亮、一个字不动 */
+      c.classList.remove('on');
+      if (m1.value === f.note) m1.value = flavorPrev;
+      flavorOn = null;
+      toast('已取消「' + f.label + '」起点');
+      return;
+    }
+    document.querySelectorAll('[data-g]').forEach(x => x.classList.toggle('on', x.dataset.g === f.g));
+    flavorPrev = m1.value;
+    flavorOn = f.g;
+    m1.value = f.note;
+    toast('已按「' + f.label + '」给出「主要看什么」一句起点，可改；再点一次取消');
   }));
 
   /* 禁项 / 战场：胶囊点击切换，第 3 个战场出软提示 */
@@ -782,7 +786,9 @@
     document.getElementById('costSent').textContent = v + ' 分 → ' + COST_SENT[costAnchor(v)];
   }
   document.getElementById('costRange').addEventListener('input', renderCost);
-  renderGenre();
+  /* 初始空态：口味起点未选、吃苦指数未设（对齐实现「未设显示 —、无浮例句」） */
+  document.getElementById('costVal').textContent = '—';
+  document.getElementById('costSent').textContent = '';
 
   /* 题材 AI 五行：各答各题 + 采纳落控件（演示数据） */
   const AI = {

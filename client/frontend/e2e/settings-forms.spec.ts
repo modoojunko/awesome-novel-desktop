@@ -292,7 +292,7 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
     await themeRow.locator('[data-g="theme:仙侠/修真"]').click();
     await page.locator('[data-od-id="sub-genre-row"] [data-g="sub:凡人流"]').click();
 
-    // 02 常见口味＝起点：填的是**一句话**（作家改的就是这句）+ 03/05 胶囊 + 04 指数
+    // 02 常见口味＝起点：只给**一句话**（作家改的就是这句）；03/04/05 不联动（c-genre-flavor-promise-only）
     await page.locator('[data-g="comeback"]').click();
     await expect(page.locator('[data-od-id="m1-input"]')).toHaveValue(/读者要看到/);
     await expect(page.locator('[data-od-id="genre-panel"]')).toContainText("标签：以弱破强的痛快");
@@ -301,10 +301,10 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
       .locator('[data-od-id="m1-input"]')
       .fill("读者要看到弱者用脑子翻盘，每赢一次都痛快");
     await expect(page.locator('[data-od-id="genre-panel"]')).toContainText("/200");
-    await expect(page.locator('[data-forbid="forbidden:no-deus-ex-machina"]')).toHaveClass(/on/);
-    await expect(page.locator('[data-bf="battlefield:resources"]')).toHaveClass(/on/);
-    await expect(page.locator(".settings-v .cost-val")).toHaveText("8");
-    // 口味快捷填充不覆盖 01 已选题材（字段仍显示 大类 / 子类）
+    await expect(page.locator('[data-forbid="forbidden:no-deus-ex-machina"]')).not.toHaveClass(/on/);
+    await expect(page.locator('[data-bf="battlefield:resources"]')).not.toHaveClass(/on/);
+    await expect(page.locator(".settings-v .cost-val")).toHaveText("—");
+    // 口味起点不覆盖 01 已选题材（字段仍显示 大类 / 子类）
     await expect(trigger).toContainText("仙侠/修真 / 凡人流");
 
     // 03 回车自定义禁区
@@ -336,10 +336,8 @@ test("题材：五格面板（口味起点 → 自定义禁区 → 吃苦指数 
     expect(genre.sub_genre).toBe("凡人流");
     expect(genre.core_promise).toBe("以弱破强的痛快");
     expect(genre.cost_ratio).toBe(6);
-    expect(genre.forbidden_list).toEqual(
-      expect.arrayContaining([{ text: "禁穿越" }]),
-    );
-    expect(genre.battlefield).toContain("battlefield:resources");
+    expect(genre.forbidden_list).toEqual([{ text: "禁穿越" }]);
+    expect(genre.battlefield).toEqual([]); // 口味起点不再联动 05（作者没勾过战场）
     expect(genre.genre_id).toBeUndefined();
   } finally {
     await restore();
@@ -358,10 +356,10 @@ test("题材：长回执单行截断，确认完成点得到", async ({ page }) 
     await page.getByRole("button", { name: /^设定/ }).click();
     await openSetting(page, "题材");
 
-    // 口味胶囊＝一次点击改 5 格 → 最长的一条回执
+    // 口味胶囊回执携带起点全句 → 最长的一条回执（c-genre-flavor-promise-only）
     await page.locator('[data-g="comeback"]').click();
     const receipt = page.locator('[data-od-id="panel-receipt"]');
-    await expect(receipt).toContainText("覆盖：主要看什么 / 绝对禁止");
+    await expect(receipt).toContainText("给出「主要看什么」一句起点");
 
     // 文本单行截断（scrollWidth > clientWidth），全文挂 title 悬浮可读
     const rt = receipt.locator(".rt");
