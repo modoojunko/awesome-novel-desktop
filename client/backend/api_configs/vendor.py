@@ -59,6 +59,14 @@ def detect_vendor(base_url: str) -> VendorPattern | None:
     return None
 
 
+# 无 URL 形态的入口型 vendor 展示名——按钮显式选择、域名检测不可达：
+# relay 中转站域名形态任意，只能经 vendor_override 登记（c-relay-vendor-entry）
+_OVERRIDE_DISPLAY = {
+    "relay": "中转站 API",
+    "openai-compat": "OpenAI 兼容",
+}
+
+
 def resolve_vendor(
     base_url: str,
     vendor_override: str | None = None,
@@ -73,7 +81,11 @@ def resolve_vendor(
         for vp in VENDOR_PATTERNS:
             if vp.vendor_id == vendor_override:
                 return (vp.vendor_id, vp.display_name, vp.protocol)
-        return (vendor_override, vendor_override, "openai")
+        return (
+            vendor_override,
+            _OVERRIDE_DISPLAY.get(vendor_override, vendor_override),
+            "openai",
+        )
 
     detected = detect_vendor(base_url)
     if detected:

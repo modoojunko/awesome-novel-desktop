@@ -197,7 +197,7 @@
   .badge.ok { background: var(--ok-soft); color: color-mix(in oklch, var(--ok) 88%, var(--fg)); }
   .badge.empty { background: var(--fg-soft); color: var(--muted); }
   .pill { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 1.6; font-weight: 500; background: var(--surface); color: var(--muted); white-space: nowrap; vertical-align: 2px; }
-  .vgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .vgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .vbtn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 62px; padding: 8px 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--muted); transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease; }
   .vbtn svg { width: 22px; height: 22px; flex: none; }
   .vbtn span { font-size: 11px; line-height: 1; white-space: nowrap; }
@@ -554,6 +554,7 @@ const VENDORS = [
   { id: 'kimi', label: 'Kimi', icon: 'M20 15a8 8 0 01-10.8-5.2A8 8 0 1020 15z' },
   { id: 'qwen', label: 'Qwen', icon: 'M12 5a7 7 0 110 14 7 7 0 010-14zM12 9a3 3 0 110 6 3 3 0 010-6z' },
   { id: 'ollama', label: 'Ollama', icon: 'M6 6h12v12H6zM10 6V4M14 6V4M10 20v-2M14 20v-2' },
+  { id: 'relay', label: '中转站 API', icon: 'M4 8h8M4 16h8M12 12h5M17 9l3 3-3 3' },
   { id: 'openai-compat', label: 'OpenAI 兼容', icon: 'M9 15l6-6M11 7l1.6-1.6a3 3 0 014.2 4.2L15 11M13 17l-1.6 1.6a3 3 0 01-4.2-4.2L9 13' },
 ];
 const STATUS = {

@@ -256,6 +256,26 @@ describe("ApiKeyConfigPage 覆盖补齐", () => {
     ).toEqual([]);
   });
 
+  it("新建中转站配置：保存负载显式带 vendor_override=relay（域名检测不可达，c-relay-vendor-entry）", async () => {
+    stubFull();
+    renderPage();
+    await waitFor(() => expect(screen.getByText("添加 API Key")).toBeTruthy());
+    fireEvent.click(screen.getByText("添加 API Key"));
+    fireEvent.change(document.getElementById("cfName")!, { target: { value: "lunarfox" } });
+    fireEvent.click(screen.getByText("中转站 API"));
+    fireEvent.change(document.getElementById("cfBase")!, { target: { value: "https://api.lunarfox.cn/v1" } });
+    fireEvent.change(document.getElementById("cfKey")!, { target: { value: "sk-relay" } });
+    fireEvent.submit(document.getElementById("api-config-form")!);
+    await waitFor(() => {
+      const posts = calls.filter((c) => c.method === "POST" && /\/api-configs$/.test(c.url));
+      expect(posts.length).toBe(1);
+    });
+    const body = calls.find((c) => c.method === "POST" && /\/api-configs$/.test(c.url))!.body as Record<string, unknown>;
+    expect(body.vendor_id).toBe("relay");
+    expect(body.vendor_override).toBe("relay");
+    expect(body.base_url).toBe("https://api.lunarfox.cn/v1");
+  });
+
   it("卡片「测试连接」走该配置的 test 端点；「编辑」后取消可关闭表单", async () => {
     stubFull();
     renderPage();

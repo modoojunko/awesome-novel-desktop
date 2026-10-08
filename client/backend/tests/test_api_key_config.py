@@ -583,6 +583,38 @@ class TestApiKeyCRUD:
         assert resp.status_code == 201
         assert resp.json()["vendor"] == "openai-compat"
 
+    def test_create_relay_vendor_override(self, client):
+        """TC-VENDOR-09: 中转站显式登记——域名检测对任意站方地址必然落兜底，
+        vendor_override=relay 是唯一可靠身份来源（c-relay-vendor-entry）。"""
+        from api_configs.vendor import resolve_vendor
+
+        # 纯函数面：覆写分支展示名映射（顺带修 override=openai-compat 裸 id 展示旧瑕疵）
+        assert resolve_vendor("https://x.example.com", "relay") == (
+            "relay",
+            "中转站 API",
+            "openai",
+        )
+        assert resolve_vendor("https://x.example.com", "openai-compat") == (
+            "openai-compat",
+            "OpenAI 兼容",
+            "openai",
+        )
+        # 落库面：vendor/展示名照登记，不因 URL 形态漂移
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "lunarfox 中转",
+                "vendor_id": "relay",
+                "vendor_override": "relay",
+                "base_url": "https://api.lunarfox.cn/v1",
+                "api_key": _test_api_key("relay"),
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["vendor"] == "relay"
+        assert body["vendor_display_name"] == "中转站 API"
+
     def test_create_ollama_without_api_key(self, client):
         """TC-CRUD-02: Ollama config does not require an API key."""
         resp = client.post(

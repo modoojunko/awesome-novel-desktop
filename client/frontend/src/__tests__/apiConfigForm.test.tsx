@@ -456,7 +456,7 @@ describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）",
     expect(document.querySelector(".mp-panel")).toBeNull();
   });
 
-  it("OpenAI 兼容：显示兼容模版引导文案（Gemini 兼容地址/手填模型 id/反代说明），他商不显示", () => {
+  it("OpenAI 兼容：显示兼容模版引导文案（Gemini 兼容地址/手填模型 id/指向中转站按钮），他商不显示", () => {
     render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
     // 默认 OpenAI：无引导
     expect(screen.queryByText(/generativelanguage\.googleapis\.com/)).toBeNull();
@@ -464,7 +464,17 @@ describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）",
     const hint = screen.getByText(/未列厂商（如 Google Gemini）走 OpenAI 兼容模版/);
     expect(hint.textContent).toContain("https://generativelanguage.googleapis.com/v1beta/openai/");
     expect(hint.textContent).toContain("手填模型 id");
-    expect(hint.textContent).toContain("反代/转发");
+    expect(hint.textContent).toContain("中转站 API"); // 反代/转发口径收编进中转站按钮（c-relay-vendor-entry）
+  });
+
+  it("中转站 API：显示中转站口径引导（/v1 填法/403 分组权限手填），他商不显示", () => {
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    expect(screen.queryByText(/中转站\/转发 API：Base URL 填站方给的接口地址/)).toBeNull();
+    fireEvent.click(screen.getByText("中转站 API"));
+    const hint = screen.getByText(/中转站\/转发 API：Base URL 填站方给的接口地址/);
+    expect(hint.textContent).toContain("/v1");
+    expect(hint.textContent).toContain("403");
+    expect(hint.textContent).toContain("手填模型 id");
   });
 
   it("Ollama 免 Key：选供应商即拉本地清单并默认选首项", async () => {

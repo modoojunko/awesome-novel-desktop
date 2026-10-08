@@ -9,6 +9,7 @@ export const VENDORS = [
   { id: "kimi", label: "Kimi" },
   { id: "qwen", label: "Qwen" },
   { id: "ollama", label: "Ollama" },
+  { id: "relay", label: "中转站 API" },
   { id: "openai-compat", label: "OpenAI 兼容" },
 ] as const;
 
@@ -34,6 +35,7 @@ export const VENDOR_LABELS: Record<VendorId, string> = {
   kimi: "Kimi",
   qwen: "Qwen",
   ollama: "Ollama",
+  relay: "中转站 API",
   "openai-compat": "OpenAI 兼容",
 };
 

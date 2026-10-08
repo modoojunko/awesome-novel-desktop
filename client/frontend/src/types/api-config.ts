@@ -1,4 +1,4 @@
-export type VendorId = 'openai' | 'anthropic' | 'deepseek' | 'glm' | 'kimi' | 'qwen' | 'ollama' | 'openai-compat';
+export type VendorId = 'openai' | 'anthropic' | 'deepseek' | 'glm' | 'kimi' | 'qwen' | 'ollama' | 'relay' | 'openai-compat';
 export type ApiFormat = 'openai' | 'anthropic';
 export type ConnectionStatus = 'ok' | 'auth_error' | 'endpoint_mismatch' | 'timeout' | 'network_error' | 'rate_limited' | 'unknown' | 'untested';
 export type ModelStatus = 'no_key' | 'no_model' | 'configured' | 'invalid';

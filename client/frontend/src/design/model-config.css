@@ -69,7 +69,8 @@
 /* 同 book.css .input.mono：显式 width 对冲 list.css .mono 书封方块的 width:40px 同分冲突 */
 .input.mono { width: 100%; font-family: var(--font-mono); font-size: 13px; }
 .field .alt { font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); }
-.vgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+/* 9 供应商（relay 中转站 2026-10-08 入列）3×3 恰齐；窄屏降 2 列（尾行孤格可接受） */
+.vgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .vbtn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 62px; padding: 8px 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--muted); transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease; }
 .vbtn svg { width: 22px; height: 22px; flex: none; }
 .vbtn span { font-size: 11px; line-height: 1; white-space: nowrap; }

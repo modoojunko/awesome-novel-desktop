@@ -71,6 +71,7 @@ export const VENDOR_ICON: Record<string, string> = {
   kimi: '<path d="M20 15a8 8 0 01-10.8-5.2A8 8 0 1020 15z"/>',
   qwen: '<path d="M12 5a7 7 0 110 14 7 7 0 010-14zM12 9a3 3 0 110 6 3 3 0 010-6z"/>',
   ollama: '<path d="M6 6h12v12H6zM10 6V4M14 6V4M10 20v-2M14 20v-2"/>',
+  relay: '<path d="M4 8h8M4 16h8M12 12h5M17 9l3 3-3 3"/>',
   "openai-compat": '<path d="M9 15l6-6M11 7l1.6-1.6a3 3 0 014.2 4.2L15 11M13 17l-1.6 1.6a3 3 0 01-4.2-4.2L9 13"/>',
 };
 

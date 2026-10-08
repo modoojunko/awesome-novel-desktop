@@ -39,6 +39,8 @@ export function useApiConfigs() {
     api_key: string;
     api_format: "openai" | "anthropic";
     models?: string[];
+    /** relay（中转站）必须显式登记：域名检测对任意站方地址必然落兜底（c-relay-vendor-entry） */
+    vendor_override?: string;
   }): Promise<ApiConfig> => {
     let config: ApiConfig;
     try {

@@ -72,7 +72,12 @@ export default function ApiKeyConfigPage() {
       setEditConfig(null);
       toast.success(`已保存「${data.name}」`);
     } else {
-      const newConfig = await addConfig({ ...rest, models: model ? [model] : [] });
+      const newConfig = await addConfig({
+        ...rest,
+        models: model ? [model] : [],
+        // 中转站域名检测必然落兜底——显式登记 vendor 身份（c-relay-vendor-entry）
+        vendor_override: data.vendor_id === "relay" ? "relay" : undefined,
+      });
       // 创建后自动测试，让卡片带上真实状态（原型同款行为）
       let ok = false;
       try {

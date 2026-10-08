@@ -22,10 +22,14 @@ describe("vendorDefaults 登记表", () => {
     });
   });
 
-  it("无登记值的供应商（OpenAI 兼容）与未知键返回空（不预填）", () => {
+  it("无登记值的供应商（OpenAI 兼容/中转站）与未知键返回空（不预填）", () => {
     expect(defaultsFor("openai-compat", "openai")).toEqual({ base_url: "", model: "" });
+    // 中转站站方地址/模型各不相同，无据不登记（c-relay-vendor-entry 沿用登记纪律）
+    expect(defaultsFor("relay", "openai")).toEqual({ base_url: "", model: "" });
+    expect(defaultsFor("relay", "anthropic")).toEqual({ base_url: "", model: "" });
     expect(defaultsFor("no-such-vendor", "openai")).toEqual({ base_url: "", model: "" });
     expect(VENDOR_DEFAULTS["openai-compat"]).toBeUndefined();
+    expect(VENDOR_DEFAULTS["relay"]).toBeUndefined();
   });
 
   it("登记表所有值非预填即空串（禁编造：无据字段必须为空）", () => {

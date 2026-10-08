@@ -309,6 +309,15 @@ test("模型配置：供应商默认值预填——选 DeepSeek 只填 Key 保�
       page.getByText(/generativelanguage\.googleapis\.com\/v1beta\/openai/),
     ).toBeVisible();
 
+    // 中转站 API：无登记值不预填＋中转站口径引导可见（c-relay-vendor-entry）
+    await page.getByRole("button", { name: "中转站 API" }).click();
+    await expect(urlInput).toHaveValue("");
+    await expect(modelInput).toHaveValue("");
+    await expect(
+      page.getByText(/中转站\/转发 API：Base URL 填站方给的接口地址/),
+    ).toBeVisible();
+    await expect(page.getByText(/403/)).toBeVisible();
+
     // 选 DeepSeek → Base URL 与模型名称自动填好（用户只需填 Key）
     await page.getByRole("button", { name: "DeepSeek" }).click();
     await expect(urlInput).toHaveValue("https://api.deepseek.com");

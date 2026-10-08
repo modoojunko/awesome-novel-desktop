@@ -21,6 +21,7 @@ KNOWN_VENDORS = {
     "kimi",
     "qwen",
     "ollama",
+    "relay",
     "openai-compat",
 }
 

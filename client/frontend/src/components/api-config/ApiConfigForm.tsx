@@ -497,13 +497,20 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
             placeholder={FORMAT_PLACEHOLDER[apiFormat]}
             disabled={saving}
           />
+          {vendorId === "relay" && (
+            <p className="cf-hint">
+              中转站/转发 API：Base URL 填站方给的接口地址（通常以 /v1 结尾，如{" "}
+              <code>https://api.example.com/v1</code>），API Key 用站方后台生成的
+              令牌。模型清单拉不到（如提示 403「分组权限」）时直接手填模型 id 即可
+              ——连接测试会实际验证对话路径，通了就能用。
+            </p>
+          )}
           {vendorId === "openai-compat" && (
             <p className="cf-hint">
               未列厂商（如 Google Gemini）走 OpenAI 兼容模版：Gemini 官方兼容地址{" "}
               <code>https://generativelanguage.googleapis.com/v1beta/openai/</code>
               （配 Gemini API Key）。该类地址可能拉不到模型清单，手填模型 id（如
-              gemini-2.5-pro）即可；国外厂商也可把 Base URL 填成反代/转发服务地址
-              （OpenAI、Anthropic 等按钮同样支持改地址指向反代）。
+              gemini-2.5-pro）即可；转发/中转站请改用「中转站 API」按钮。
             </p>
           )}
         </div>

@@ -1735,3 +1735,12 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
 - **book.html 补 `.pill` 基础家族样式**（`.pill`/`.pill-count`/`.pill-accent` 逐字对齐 base.css:156-164）：此前原型只有 `.pill-warn`/`.pill-new` 两个 tone 覆盖、无基础类，缺口 chips 处的裸 `class="pill"` 实为无样式渲染，本批顺带补齐（不影响 parity 已登记存量红）。
 - **默认 parity 种子（未归档态）不出现泡泡**——泡泡是归档收口后的条件态；book 屏四例 parity 为存量红（4.71%/2.901%/2.76%/~2.7%），归 `c-book-parity-rebaseline` 专户，本批不新增门槛。原型页签行的存量 IA 漂移（「章档」tab 已退役仍在校）同样留归该专户，本批不动。
 - **实现侧动效**：泡泡挂载 pop（scale+fade ~220ms，book.css 屏级 keyframes，先例＝.ai-streaming .pulse）；递减不做 bump（数字变化本身可见）；原型为静态不演示动画。
+
+## c-relay-vendor-entry（2026-10-08）
+
+**供应商网格独立「中转站 API」入口**（用户拍板 2026-10-08：独立格子、与「OpenAI 兼容」并存）：
+
+- **model-config.html**：VENDORS 数组插 `relay`「中转站 API」（Ollama 与「OpenAI 兼容」之间，转发箭头图形）；`.vgrid` 桌面列数 4→3（9 按钮恰 3×3，尾行不再孤格），窄屏 2 列维持。实现侧 model-config.css 同步。
+- **选中口径引导（cf-hint 同款形态）**：中转站格＝/v1 填法＋站方后台令牌＋「清单拉不到（403 分组权限）手填模型 id、连接测试实际验证对话路径」；「OpenAI 兼容」格反代/转发句退役（原 ③ 口径），改指向「中转站 API」按钮——Gemini 兼容层地址与手填说明保留。
+- **实现侧提交链**：relay 保存显式带 `vendor_override=relay`（域名检测对站方地址必然落兜底，身份只能显式登记）；后端 resolve 展示名映射「中转站 API」。探测/调用零新分支（协议路径与 openai-compat 同径，403/404 降级链同享——c-relay-compat-probe）。
+- 依赖：基于 PR #747（fix/c-relay-base-normalize）叠放，引导文案引用的 403 行为随该 PR 落地。
