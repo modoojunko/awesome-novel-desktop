@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_local.middleware import get_current_user
@@ -135,6 +136,10 @@ async def create_config(
         if "名称已被使用" in str(e):
             raise HTTPException(409, "名称已被使用")
         raise HTTPException(422, str(e))
+    except IntegrityError:
+        # 唯一约束兜底（check-then-act 交错、让位名与字面名相撞等极端序）：转 409 不出 500
+        await db.rollback()
+        raise HTTPException(409, "名称已被使用")
 
 
 @router.get("/api-configs")
@@ -245,6 +250,10 @@ async def update_config(
         if "名称已被使用" in str(e):
             raise HTTPException(409, "名称已被使用")
         raise HTTPException(422, str(e))
+    except IntegrityError:
+        # 唯一约束兜底（check-then-act 交错、让位名与现名相撞等极端序）：转 409 不出 500
+        await db.rollback()
+        raise HTTPException(409, "名称已被使用")
 
 
 @router.delete("/api-configs/{config_id}")
