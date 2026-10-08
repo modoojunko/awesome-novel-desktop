@@ -129,6 +129,9 @@ input, textarea, select { font: inherit; }
 .field label { font-size: 12.5px; color: var(--muted); }
 .input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--fg); font-size: 14px; }
 .input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+/* .input.mono 对冲 list.css .mono 书封方块的同类名泄漏（display:grid＋place-items 双轴
+   居中＋40px 高＋fg-soft 底）——文本输入框必须左对齐、内容高、surface 底 */
+.input.mono { display: block; height: auto; text-align: left; border-radius: 9px; background: var(--surface); }
 /* 原型 <p class=hint> 吃 UA 默认 p 外距（1em 0），preflight 清零后需还原 */
 .hint { font-size: 12.5px; color: var(--muted); line-height: 1.7; padding: 10px 12px; background: var(--fg-soft); border-radius: 9px; margin: 1em 0; }
 .hint b { color: var(--fg); font-weight: 500; }

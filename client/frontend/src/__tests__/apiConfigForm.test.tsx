@@ -561,6 +561,71 @@ describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）",
   });
 });
 
+describe("ApiConfigForm 获取模型按钮（2026-10-08 拍板：显式触发口＋下拉正对模型名称框）", () => {
+  const blurKey = () => fireEvent.blur(document.getElementById("cfKey")!);
+  const fetchBtn = () => screen.getByText("获取模型").closest("button") as HTMLButtonElement;
+
+  it("未就绪禁用：无供应商／无 Key／无 Base 各态；禁用态点击不发请求；title 随态提示", async () => {
+    const onFetchModels = vi.fn(async () => ({ ok: true, status: "ok", models: ["m-1"] }));
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    // 无供应商：禁用
+    expect(fetchBtn().disabled).toBe(true);
+    expect(fetchBtn().title).toBe("先选供应商并填 Base URL 与 API Key");
+    fireEvent.click(fetchBtn()); // 守卫早退：不发请求
+    expect(onFetchModels).not.toHaveBeenCalled();
+    // 选 Kimi（预填 Base）但 Key 空：仍禁用
+    fireEvent.click(screen.getByText("Kimi"));
+    expect(fetchBtn().disabled).toBe(true);
+    fireEvent.click(fetchBtn());
+    expect(onFetchModels).not.toHaveBeenCalled();
+    // OpenAI 兼容（无登记 Base）：Key 已填也禁用（缺 Base）
+    fireEvent.click(screen.getByText("OpenAI 兼容"));
+    setField("cfKey", "sk-1");
+    expect(fetchBtn().disabled).toBe(true);
+    // Base 补上即就绪
+    setField("cfBase", "https://api.moonshot.cn/v1");
+    expect(fetchBtn().disabled).toBe(false);
+    expect(fetchBtn().title).toBe("重新拉取模型清单");
+    // Ollama 免 Key：仅 Base 即就绪（选供应商即拉本地清单，拉取完成后按钮恢复可点）
+    setField("cfKey", "");
+    fireEvent.click(screen.getByText("Ollama"));
+    await waitFor(() => expect(fetchBtn().disabled).toBe(false));
+  });
+
+  it("就绪点击：展开弹层并强制重拉（同参数指纹不挡显式点击）；在途禁用且点击不发新请求", async () => {
+    let resolveFirst: (v: { ok: boolean; status: string; models: string[] }) => void = () => {};
+    const first = new Promise<{ ok: boolean; status: string; models: string[] }>((res) => {
+      resolveFirst = res;
+    });
+    const onFetchModels = vi
+      .fn()
+      .mockImplementationOnce(() => first)
+      .mockResolvedValueOnce({ ok: true, status: "ok", models: ["m-1"] });
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} onFetchModels={onFetchModels} />);
+    fireEvent.click(screen.getByText("Kimi"));
+    setField("cfName", "x");
+    setField("cfKey", "sk-1");
+    blurKey(); // Key 失焦自动拉取（在途）
+    await waitFor(() => expect(fetchBtn().disabled).toBe(true)); // 在途禁用＋转圈
+    expect(screen.getByText("正在获取模型清单…")).toBeTruthy();
+    fireEvent.click(fetchBtn()); // 在途点击：守卫早退，不顶掉在途请求
+    expect(onFetchModels).toHaveBeenCalledTimes(1);
+    resolveFirst({ ok: true, status: "ok", models: ["m-1", "m-2"] });
+    await waitFor(() => expect(fetchBtn().disabled).toBe(false));
+    expect(await screen.findByText("已拉到 2 个模型")).toBeTruthy();
+    // 显式点击：同参数也 force 重拉，且弹层展开正对模型名称框
+    fireEvent.click(fetchBtn());
+    await waitFor(() => expect(onFetchModels).toHaveBeenCalledTimes(2));
+    expect(onFetchModels).toHaveBeenLastCalledWith({
+      vendor_id: "kimi",
+      base_url: "https://api.moonshot.cn/v1",
+      api_key: "sk-1",
+      api_format: "openai",
+    });
+    expect(document.querySelector(".mp-panel")).toBeTruthy();
+  });
+});
+
 describe("ApiConfigForm 模型选择器覆盖补齐（CI 全局 100% 覆盖率门禁）", () => {
   const blurKey = () => fireEvent.blur(document.getElementById("cfKey")!);
   const blurBase = () => fireEvent.blur(document.getElementById("cfBase")!);
