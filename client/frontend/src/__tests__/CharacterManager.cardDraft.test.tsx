@@ -222,6 +222,45 @@ describe("CharacterManager 一键立卡", () => {
     expect(apiPost).toHaveBeenCalledTimes(2);
   });
 
+  it("切卡后缓存不跟人：B 卡点同行＝重新出稿，不借 A 的缓存", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (String(url) === "/novels/p1/characters") {
+        return Promise.resolve({
+          data: listWith([cardData({ id: "c1", name: "阿一" }), cardData({ id: "c2", name: "阿二" })]),
+        });
+      }
+      if (String(url).endsWith("/c1")) return Promise.resolve({ data: cardData({ id: "c1", name: "阿一" }) });
+      return Promise.resolve({ data: cardData({ id: "c2", name: "阿二" }) });
+    });
+    apiPost.mockImplementation((url: string) => {
+      if (String(url).includes("/bootstrap")) {
+        return Promise.resolve({ data: DRAFT });
+      }
+      return Promise.resolve({ data: cardData() });
+    });
+    apiPatch.mockResolvedValue({ data: { rev: 2 } });
+    const ref = createRef<CharacterSaveHandle>();
+    render(<CharacterManager ref={ref} projectId="p1" introReady />);
+    await screen.findByText("阿一");
+    await act(async () => {
+      await ref.current?.runAi?.("cardDraft");
+    });
+    await screen.findByTestId("char-ai-card");
+    fireEvent.click(footerClose());
+    await waitFor(() => expect(screen.queryByTestId("char-ai-card")).toBeNull());
+    expect(apiPost).toHaveBeenCalledTimes(1);
+
+    // 切到 B 卡（loadCard 清出稿槽）→ 再点同行必须重新出稿
+    fireEvent.click(screen.getByText("阿二"));
+    await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/novels/p1/characters/c2"));
+    await act(async () => {
+      await ref.current?.runAi?.("cardDraft");
+    });
+    await screen.findByTestId("char-ai-card");
+    expect(apiPost).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/上次生成结果/)).toBeNull(); // 非缓存态
+  });
+
   it("无卡上下文 cardDraft 不发请求", async () => {
     apiGet.mockImplementation(() => Promise.resolve({
       data: { count: 0, protagonist_id: null, gate: { ok: false, no_protagonist: true }, confirmed: false, items: [] },

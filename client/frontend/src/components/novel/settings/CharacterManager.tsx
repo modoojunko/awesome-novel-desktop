@@ -177,6 +177,10 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     onDirtyChange?.(false);
     setSink(null);
     setCheck(null);
+    // 出稿槽随卡清：bootstrapSink 泛化收配角/反派「一键立卡」稿后不清会把 A 卡的稿
+    // 借给 B 卡当缓存（评审 P2）——主角待立时代只有一张卡，这条不存在
+    setBootstrapSink(null);
+    setBootstrapKind("bootstrap");
     setCardOpen(false); // 换卡＝弹窗随结果一起清（D9 缓存面板级寿命）
     setVersions({}); // 版数随卡复位：新卡首稿是「第 1 版」，不带上一张卡的计数
   }, [projectId, clearDirty, onDirtyChange]);
