@@ -102,7 +102,7 @@
 
 - **状态（常驻）**：正文页签 AI 助手卡作用域行 SHALL 显示「本章提示词 自动组装/已自定义」与组装来源字数（懒取，失败降级「…」）。
 - **全文（查看/编辑）**：「生成正文」弹窗打开时 SHALL 展示当前最新提示词（每次打开重新拉取/组装，含截至上一章的动态内容）；作者 SHALL 可直接编辑。只查看不生成 SHALL 通过关闭弹窗完成，SHALL NOT 有副作用（不组装不落库不烧 token）。
-- **存稿（落库）**：弹窗 SHALL 提供「存为本章提示词」：经 `PUT /novels/{id}/chapters/{ref}/prompts/write` 落库，此后每次生成 SHALL 沿用该稿（`polished=true`）；不点存稿的编辑 SHALL 仅用于本次生成，SHALL NOT 改动已存提示词。
+- **存稿（落库）**：弹窗 SHALL 提供「存为本章提示词」：经 `PUT /novels/{id}/chapters/{ref}/prompts/write` 落库，此后每次生成 SHALL 沿用该稿（`polished=true`）；**生成即落库**：点「生成正文」后本次实际使用的提示词稿 SHALL 落库为本章提示词行（`POST /write` 既有行为）——原「不点存稿的编辑 SHALL 仅用于本次生成，SHALL NOT 改动已存提示词」表述与实现相悖，随本 change 更正；「存为本章提示词」提供不生成、只落库的入口。
 - 存稿成功后 SHALL 通知页面刷新状态行（`promptSavedSignal` 链路；原「弹窗内 AI 润色成功」触发方随 c-retire-prompt-polish 退役）；原「提示词」中栏页签、页签徽标「已自定义/自动组装」与整章提示词管理页 SHALL 退役。
 
 #### Scenario: 状态行随存稿刷新

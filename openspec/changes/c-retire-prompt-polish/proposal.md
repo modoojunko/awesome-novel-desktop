@@ -39,6 +39,14 @@
 - 提示词仓：`prompt_crafting.prompt` 自本仓删除；`awesome-novel-prompts` 镜像随其 sync 链跟进（本仓 `.prompt` 计数 58→57，零漂移锚随之下移一位）。
 - 并行 change 提示：`c-retire-selection-transforms` 的 workbench delta 与本 change 改同一 requirement（其 delta 亦含「生成正文弹窗内的『AI 润色』是提示词唯一的润色入口」旧措辞）——其归档 sync 须重取 main 并落本 change 后的措辞（判例：openspec 归档并行竞态）。
 - e2e：`prompt-pipeline.spec.ts` 首用例改为「组装 → 编辑 → 生成」并钉「弹窗内无润色入口/无两段式文案」；`workbench-features.spec.ts` 存量稿断言收紧为徽标文案。本机未跑（隔离栈未起，共享 demo 栈按约定不复用），随 e2e 排程/常规环境复跑。
+## 评审轮修复（2026-10-08，review-agent 自查后补）
+
+- **P2 漏改第五个 capability**：`prose-writing`「基于确认提示词生成」是本弹窗取稿口径的规格主源，原 delta 只改了 prompt-crafting/chapter-plot-items/workbench/workbench-3-label——补 `specs/prose-writing/spec.md` delta；其中 Scenario「润色稿缺锚不回落」原文引用「润色校验锚（见 prompt-crafting）仅在**新发起润色**时生效」，该 requirement 已被本 change REMOVED（悬空引用），一并删除该句。
+- **P3**：`intro-genre-settings` 两处调用点/模型粒度清单去「提示词润色」（照 c-retire-continue-writing 同款先例）；`chapter-data` 两处「润色素材包」升级为「全量素材包（`material_markdown`）」（对应本 change 保留的孤儿渲染面）；prompt-crafting delta 一处病句（「无润色产物或润色校验概念存在」→「润色产物与其校验概念已随 c-retire-prompt-polish 不存在」）。
+- **同批发现并更正的既有矛盾（无行为变更，只有文本）**：`prose-writing` 场景「弹窗内临时编辑优先生效」与 `workbench`「章提示词查看与存稿」存稿条款、以及弹窗保存行引导句，都声称「不点存稿的编辑仅用于本次生成／不回写持久化提示词」——与实现相悖：`POST /write` 历来在生成时把本次所用稿落库为本章提示词行（回归钉 `tests/test_write_regressions.py::test_override_still_wins` 明确断言 `_read_stored_prompt == "作家手动编辑版"`）。本 change 按**实现（已被回归钉住的口径）**更正三处文本；若产品口径应为「生成不回写」，属行为变更，须另立 change 同批改实现＋钉＋文案。
+- **本地资料（未 git 跟踪，不进 PR）**：`docs/manual/content/ch-06-prose.md` 改单段式口径（删「先 AI 润色再改」与两段式说明；补「生成即存」与「本次组装／本章已存稿」两枚徽标释义），`dist/` 已随 `build.py` 重建。**遗留**：截图 `img/06-gen-prompt-modal.png`（2026-10-05 拍）仍含「AI 润色」按钮与旧徽标，待按 README 配方用 `client/frontend/scripts/manual-shots-ch06b.cjs` 重拍；`build.py --check` 报 8 处失配（S端 拆仓后的 s-payments/code-issuance/account-deletion/entitlement-sync/s-client-outdated-signal 不在本仓 specs），系既有、与本 change 无关。
+- **归档并行竞态清单更新**：本 change 现改 **7 个 capability**；除已知的 workbench（与 `c-retire-selection-transforms` 同 requirement）外，新增 `prose-writing`（同 capability、不同 requirement：其 REMOVED/ADDED「选区变换」不重叠，但归档脚本按 requirement 名对齐须复核）与 `intro-genre-settings`（与 `c-retire-continue-writing` 同 requirement「模型选择的三层粒度与绑定」——**该 change 未归档**，其 delta 含「章写作/续写→章写作」旧快照，若在其后归档会把「提示词润色」清单项带回，归档前必须重取 main 复核）。
+
 - **登记不做的两项（待产品拍板，不在本 change 范围）**：
   1. `ChapterContext.material_markdown()` 的生产消费方只剩本 change 删掉的润色端点（现仅测试在用）——未随链删除：它与 `to_user_material` 的「两路同源」是 4 处 spec 条款＋golden 对拍共同维护的既有不变量，删除＝另一次独立退役（含 spec 重写），建议单独立项拍板。
   2. `should_refresh_stored_prompt` 的「非润色产物才回落重组」第三条件是给历史润色行的作者资产保护；润色退役后新存量稿（作家存稿＝新分层口径行）走的是「缺上章结尾块且素材有该块」判据——若作家把该块删掉，重开弹窗会看到重组稿（badge 本次组装）而非存稿。属既有守卫与新现实的口径差，未改行为，登记观察。

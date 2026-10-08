@@ -33,3 +33,12 @@
 - [ ] 5.1 `ChapterContext.material_markdown()` 生产消费方随润色链消失（现仅测试在用）——未随链删除：两路同源是 4 处 spec 条款＋golden 对拍维护的既有不变量，删除＝独立退役，建议单独立项（proposal Impact 已登记）
 - [ ] 5.2 `should_refresh_stored_prompt` 三锚保护只覆盖历史润色行；新存量稿（作家存稿）若删掉「上章结尾」块会在弹窗被重组稿顶替——既有守卫口径差，未改行为，登记观察
 - [ ] 5.3 标准层回填（设计侧）：`docs/ux/design-language.html` A3/N7 与 `docs/ux/audit.html` S5 的「两段式」例实例改单段式（ADJUSTMENTS.md 已登记，实现侧不擅改标准）
+
+## 6. 评审轮修复（review-agent 自查，2026-10-08）
+
+- [x] 6.1 P2：补 `prose-writing` delta（原漏改的第五个 capability；删「润色校验锚…新发起润色」悬空引用）
+- [x] 6.2 P3：`intro-genre-settings`（两处清单去「提示词润色」）＋`chapter-data`（「润色素材包」→「全量素材包（material_markdown）」）＋prompt-crafting delta 病句
+- [x] 6.3 既有矛盾更正（无行为变更）：`prose-writing`/`workbench` 的「不点存稿仅用于本次、不回写」与弹窗引导句，按实现（`test_override_still_wins` 钉住「生成即落库」）改正三处文本
+- [x] 6.4 本地手册（未跟踪）：ch-06 文案改单段式＋生成即存＋徽标释义；`build.py` 重建 dist；`--check` 8 处失配为 S端 拆仓既有（非本 change）
+- [ ] 6.5 手册截图重拍：`img/06-gen-prompt-modal.png` 仍显「AI 润色」按钮（需隔离环境：8100 后端＋9100 mock＋会话，跑 `scripts/manual-shots-ch06b.cjs`）
+- [x] 6.6 归档并行竞态清单更新（7 capability；intro-genre-settings 与未归档的 c-retire-continue-writing 同 requirement）
