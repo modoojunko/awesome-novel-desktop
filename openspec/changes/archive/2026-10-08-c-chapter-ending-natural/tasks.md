@@ -14,3 +14,8 @@
 
 - [ ] 3.1 spec sync（归档时）：`openspec/specs/chapter-plan-ai/spec.md` 按 delta 落两处 MODIFIED。验证：`openspec validate --strict` 通过。
 - [ ] 3.2 真 3 方向出卡人工抽检一次（隔离栈或主栈皆可）：章尾为局面句（谁在哪、事到哪一步），无神秘人／信物／异象式钩子；末章出卡时仍收在卷纲预期结局。验证：抽检记录贴进 change `evidence/`。
+
+## 归档注记（2026-10-08）
+
+- 本 change 的 spec delta **未回灌主 spec**：其「章尾自然断点」口径已被后续 change（章首接缝＋章末硬切族）的「`ending` 停在下一拍要砸下来的动向／动作瞬间」口径取代，主 spec 现行文本即最新裁决；delta 作为历史提案随档留存。
+- 留一条存量漂移挂账：`openspec/specs/chapter-plan-ai/spec.md` 四维定义里「结尾拉力（只看本章结尾：停在"还没完"的地方）」一句仍是更早措辞，与本 change 及后续口径均不一致，待 prompt 口径负责人另案对齐。
