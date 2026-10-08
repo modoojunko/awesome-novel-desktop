@@ -1343,11 +1343,26 @@ test("角色：一键立卡（配角）——右栏行→出稿→采纳只补�
     // 名字/人设已齐 → 卡区提示行退场
     await expect(page.getByTestId("char-ai-hint")).toHaveCount(0, { timeout: 10000 });
 
-    // 路人卡不给行：当前卡切成路人 → 行退场（与体检排除同口径）
-    await page
-      .getByRole("group", { name: "角色类型" })
-      .getByRole("button", { name: "路人" })
-      .click();
+    // 路人卡不给行：API 切路人后重载选卡（卡头「合并…」与类型 chips 在窄卡片上
+    // 存在重叠拦截点击的 #753 布局缺陷，点击路径由其修复，此处钉行为而非路径）
+    await request.patch(`${ORIGIN}/api/novels/${pid}/characters/${side!.id}`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      data: { path: "role", value: "路人", base_rev: detail.data.rev },
+    });
+    await expect
+      .poll(
+        async () => {
+          const r = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+          return (r.data?.items ?? []).some((x: { id: string; role: string }) => x.id === side!.id && x.role === "路人");
+        },
+        { timeout: 5000 },
+      )
+      .toBe(true);
+    await page.reload();
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "角色");
+    await page.locator(".char-group-head", { hasText: "路人" }).click();
+    await page.locator(".char-row-btn", { hasText: "周船工" }).click();
     await expect(page.locator('[data-aiact="cardDraft"]')).toHaveCount(0, { timeout: 10000 });
   } finally {
     await restore();
