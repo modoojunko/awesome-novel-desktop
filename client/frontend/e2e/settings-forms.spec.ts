@@ -1352,6 +1352,19 @@ test("角色：一键立卡（配角）——右栏行→出稿→采纳只补�
 
     // 配角空卡：卡区提示行与右栏「一键立卡」行同现
     await expect(page.getByTestId("char-ai-hint")).toBeVisible({ timeout: 10000 });
+
+    // 卡头几何回归（评审 P3 钉子）：类型 chips 与 char-side 操作钮零重叠、点中的是 chip 自身
+    // ——flexWrap 丢失时 chips 溢出钻到「合并…」底下，此断言当场红
+    const chipHittable = await page.evaluate(() => {
+      const chip = [...document.querySelectorAll('.char-head [role="group"] button')].find(
+        (b) => b.textContent === "路人",
+      );
+      if (!chip) return false;
+      const r = chip.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return !!hit && (hit === chip || chip.contains(hit));
+    });
+    expect(chipHittable).toBeTruthy();
     const row = page.locator('[data-aiact="cardDraft"]');
     await expect(row).toBeVisible();
 
