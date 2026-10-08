@@ -2,7 +2,9 @@
 // + 删除/合并（L3 名称输入确认）+ 单格自动保存（防抖 + 串行队列 + rev 冲突 409 处理）
 // + 右栏 AI 经 SettingsView 分发（本组件暴露 runAi/clearAi 句柄）；出稿/体检统一进 AiCardModal 弹窗（c-settings-ai-confirm-modal）。
 // + 首次进入引导与「从简介立主角」（character-bootstrap-from-intro：出稿采纳走既有单格写入）。
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+// + 整项确认口径（c-chars-confirm-scope）：门禁缺口经 onGateHintChange 上抛给页脚提示；
+//   卡片级保存态归位卡头（「这张卡…」），与整项口径分开。
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { charactersApi, BootstrapDraft, CharacterCard } from "@/lib/charactersApi";
 import {
   COG_FIELD_HINTS,
@@ -12,6 +14,7 @@ import {
   DOSSIER_FIELDS,
   DOSSIER_FILL_KEYS,
   displayName,
+  GATE_FIELDS,
   ROLES,
   type CharAiCtx,
 } from "@/lib/characterModel";
@@ -30,6 +33,8 @@ interface Props {
   /** 本书 AI 就绪态（D13）：空态引导按钮与右栏行同一门控；不 ready 时点击走 onBlocked */
   aiState?: AiState;
   onBlocked?: (reason: AiState) => void;
+  /** 整项确认门禁缺口（c-chars-confirm-scope）：列表/门禁变化时上抛，页脚提示的数据源 */
+  onGateHintChange?: (hint: CharGateHint) => void;
 }
 
 export interface CharacterSaveHandle {
@@ -37,6 +42,39 @@ export interface CharacterSaveHandle {
   /** 兼容 SettingSaveHandle 可选成员 */
   clearAi?: () => void;
   runAi?: (key: string) => Promise<void>;
+}
+
+/** 整项确认门禁的缺口摘要（c-chars-confirm-scope）——页脚提示与主按钮同一档位口径：
+ *  未确认＝第一次确认档（只看主角名称/一句话人设），已确认＝此后档（全书卡扫六项）。 */
+export interface CharGateHint {
+  /** 书里还没有主角卡（两档的共同前置） */
+  noProtagonist: boolean;
+  /** 第一次确认档缺的项（空数组＝这一档可过） */
+  protagonistMissing: string[];
+  /** 主角显示名（点名用；无主角卡时为空串） */
+  protagonistName: string;
+  /** 此后确认档的缺口卡：主角 + 每张非路人卡六项、路人卡只剧情定位（缺口头由服务端列表下发） */
+  gapCards: { role: string; name: string; fields: string[] }[];
+}
+
+/** 门禁摘要（纯函数）：缺口取服务端列表下发的 gaps；首档判据＝名称/人设（后端 FIRST_CONFIRM_REQUIRED 同源，
+ *  标签仍从 GATE_FIELDS 取，不手抄第二份词表）。 */
+export function gateHintOf(list: CharacterCard[], noProtagonist: boolean): CharGateHint {
+  const prot = list.find((c) => c.role === "主角");
+  const label = (k: string) => GATE_FIELDS.find(([p]) => p === k)?.[1] ?? k;
+  const protagonistMissing: string[] = [];
+  if (prot) {
+    if (!displayName(prot.name)) protagonistMissing.push(label("name"));
+    if (!prot.persona.trim()) protagonistMissing.push(label("persona"));
+  }
+  return {
+    noProtagonist,
+    protagonistMissing,
+    protagonistName: prot ? displayName(prot.name) : "",
+    gapCards: list
+      .filter((c) => (c.gaps ?? []).length > 0)
+      .map((c) => ({ role: c.role, name: displayName(c.name), fields: c.gaps ?? [] })),
+  };
 }
 
 type SaveState = "saved" | "saving" | "dirty" | "failed";
@@ -67,7 +105,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   props,
   ref,
 ) {
-  const { projectId, onDirtyChange, onCtxChange, introReady, aiState, onBlocked } = props;
+  const { projectId, onDirtyChange, onCtxChange, introReady, aiState, onBlocked, onGateHintChange } = props;
   const [list, setList] = useState<CharacterCard[]>([]);
   const [gate, setGate] = useState<{ ok: boolean; no_protagonist: boolean; confirmed: boolean }>({
     ok: false, no_protagonist: true, confirmed: false,
@@ -163,6 +201,13 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  // 整项确认门禁缺口上报（c-chars-confirm-scope）：页脚提示的数据源。
+  // 列表在单卡保存落库后会重取（reloadList），缺口因此天然新鲜。
+  const gateHint = useMemo(() => gateHintOf(list, gate.no_protagonist), [list, gate.no_protagonist]);
+  useEffect(() => {
+    onGateHintChange?.(gateHint);
+  }, [gateHint, onGateHintChange]);
 
   const flushQueue = useCallback(async () => {
     if (runningRef.current || queueRef.current.length === 0 || !card) return;
@@ -640,15 +685,6 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
           )
         ) : (
           <>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-              <span className={`char-save-state ${saveState}`}>
-                {saveState === "saving" && "保存中…"}
-                {saveState === "saved" && "已自动保存"}
-                {saveState === "dirty" && "有未保存修改"}
-                {saveState === "failed" && "保存失败 · 请重试"}
-              </span>
-            </div>
-
             <header className="char-head">
               <span className="char-seal">{sealChar}</span>
               <div className="char-idblock">
@@ -692,6 +728,14 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
                 </div>
               </div>
               <div className="char-side">
+                {/* 卡片级保存态：与主角徽标/合并·删除同列（原型 ch-side），限定词「这张卡」
+                    与页脚的整项口径分开——c-chars-confirm-scope */}
+                <span className={`char-save-state ${saveState}`}>
+                  {saveState === "saving" && "这张卡保存中…"}
+                  {saveState === "saved" && "这张卡已自动保存"}
+                  {saveState === "dirty" && "这张卡有未保存修改"}
+                  {saveState === "failed" && "这张卡保存失败 · 请重试"}
+                </span>
                 <span className={`badge ${card.role === "主角" ? (card.name && card.persona ? "ok" : "warn") : "empty"}`}>
                   {card.role === "主角" ? (card.name && card.persona ? "已立主角" : "主角待立") : card.role}
                 </span>

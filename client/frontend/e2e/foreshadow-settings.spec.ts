@@ -498,10 +498,11 @@ test.describe.serial("伏笔设定（真表 novel_hooks）", () => {
       await waitDebounce(page);
       await expect(badge).toHaveText(/内容有变 · 待重新确认/);
 
-      // 重新确认（已确认态主按钮＝保存修改，先 flush 再快照）→ 恢复「已确认」系徽标
+      // 重新确认（已确认态主按钮＝「重新确认」——自动保存制，c-chars-confirm-scope；
+      // 先 flush 再快照）→ 恢复「已确认」系徽标
       await page
         .locator(".panel-foot")
-        .getByRole("button", { name: "保存修改" })
+        .getByRole("button", { name: "重新确认" })
         .click();
       await expect(badge).toHaveText(/已确认 · 1 条待收束/, { timeout: 5000 });
       const status = await apiGetJSON(request, token, `/novels/${pid}/settings/status`);
