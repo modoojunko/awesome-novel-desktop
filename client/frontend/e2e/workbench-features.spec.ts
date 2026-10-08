@@ -413,13 +413,14 @@ test("提示词：页签退役；生成正文弹窗查看/编辑/存为本章提
     await ai.getByRole("button", { name: "取消" }).click();
     await expect(page.locator(".ai-target")).toContainText("已自定义", { timeout: 10000 });
 
-    // 重开弹窗：内容＝存下的那一版（存量稿，无「AI 润色」按钮）
+    // 重开弹窗：内容＝存下的那一版（存量稿标「本章已存稿」；c-retire-prompt-polish
+    // 后弹窗内无任何润色入口）
     await page.getByTestId("ai-write-btn").click();
     const ai2 = page.getByRole("dialog", { name: "AI 生成正文" });
     await expect(ai2.getByTestId("ai-prompt")).toHaveValue(/追出城门的场景/, {
       timeout: 10000,
     });
-    await expect(ai2.getByTestId("ai-polished-tag")).toBeVisible();
+    await expect(ai2.getByTestId("ai-polished-tag")).toHaveText("本章已存稿");
     await expect(ai2.getByTestId("ai-polish")).toHaveCount(0);
   } finally {
     await restore();

@@ -184,22 +184,6 @@ export async function polishText(
 }
 
 // ---------------------------------------------------------------------------
-// Two-stage prompt pipeline (ai-prompt-crafting)
-// ---------------------------------------------------------------------------
-
-/** AI 润色整章提示词：素材包 → 大模型润色 → 校验落库（后端 502 时不动既有行） */
-export async function polishWritePrompt(
-  projectId: string,
-  chapterRef: string,
-): Promise<string> {
-  const data = await doJsonPost(
-    `${API_BASE}/novels/${projectId}/chapters/${chapterRef}/write/prompt/polish`,
-    {},
-  );
-  return data.prompt as string;
-}
-
-// ---------------------------------------------------------------------------
 // 题材五行 AI（genre-signup-redesign tasks 4.2 / D18）
 // ---------------------------------------------------------------------------
 

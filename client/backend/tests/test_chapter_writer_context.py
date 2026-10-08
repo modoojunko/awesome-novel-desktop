@@ -207,29 +207,6 @@ def test_previous_tail_block_both_paths_and_absent():
     assert ctx.build_system_prompt() == ctx2.build_system_prompt()
 
 
-def test_validate_polished_prompt_tail_anchor():
-    from write.chapter_writer import validate_polished_prompt
-
-    base = (
-        "## 任务指示\n字数不少。\n## 前情上下文\n前情要点。\n"
-        "## 章纲概要\n概要。\n红线：无。\n质感：细节。爽点设计：线索·玉佩。\n"
-    )
-    ctx = ChapterContext()
-    ctx.chapter_outline = {"summary": "概要"}
-    ctx.micro_payoffs = [{"kind": "clue", "description": "玉佩"}]
-    # 无尾块：不要求上章结尾锚
-    assert validate_polished_prompt(base, ctx) == []
-    # 有尾块：缺锚判不合格，补齐后合格
-    ctx.previous_tail = "枪口对着他。"
-    assert "上章结尾" in validate_polished_prompt(base, ctx)
-    with_tail = base + "## 上章结尾（原文）\n枪口对着他。"
-    assert validate_polished_prompt(with_tail, ctx) == []
-    # 回退态：语义前情缺席 → 前情锚不触发、上章结尾锚照常触发
-    ctx_fb = ChapterContext()
-    ctx_fb.previous_tail = "枪口对着他。"
-    no_prev = "## 任务指示\n字数不少。\n红线：无。\n质感：细节。"
-    assert validate_polished_prompt(no_prev, ctx_fb) == ["上章结尾"]
-
 
 def test_should_refresh_stored_prompt():
     """c-chapter-seam-hardcut：存量粗组稿代际守卫四态。"""

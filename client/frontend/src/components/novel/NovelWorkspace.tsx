@@ -268,7 +268,7 @@ export default function NovelWorkspace() {
   const [showAiModal, setShowAiModal] = useState(false);
   // 生成已启动的信号（计数器）：ChapterWorkspace 收到即切正文页签 + 聚焦（真 bug #2）
   const [aiWriteSignal, setAiWriteSignal] = useState(0);
-  // 提示词落库信号（c-prompt-tab-retire）：弹窗润色/存稿后右栏提示词状态行刷新
+  // 提示词落库信号（c-prompt-tab-retire）：弹窗存稿后右栏提示词状态行刷新
   const [promptSavedSignal, setPromptSavedSignal] = useState(0);
 
   const runAiAction = useCallback((action: AiAction) => {
