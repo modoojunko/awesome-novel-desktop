@@ -4,6 +4,9 @@
 
 判据（缺失/不一致即非零退出，流水线转红）：
 1. 既有三键（S端 地址、版本、检测地址）形态不变；
+   且 `server_api_base != server_api_fallback`——主/兜底同址＝call_server_api
+   去重后无兜底，主基址一次网络抖动即业务不可用（v0.29.x 实锤：Variables
+   缺配致两键同烘直连域名，事后仅见零星 s_api_call_error）；
 2. **组件清单 `components` 必须存在**，且 `db_filename` 与后端单源逐字一致；
 3. `backup_format_version` 等于后端单源当前值；
 4. c-version-build-info：`client_build_branch`/`client_build_commit` **可选键**
@@ -65,6 +68,11 @@ def check_release_json(path: str | Path) -> dict:
     # public_server_api 缺烘曾致打包端授权页 404（v0.23–v0.25 实锤），冒烟必拦
     for key in ("server_api_base", "server_api_fallback", "public_server_api", "portal_url"):
         assert str(data.get(key, "")).startswith("https://"), (f"release.json 键 {key} 缺失或非 https", data)
+    # 主/兜底同址判红（v0.29.x 实锤）：call_server_api 对基址列表去重，
+    # 同址＝兜底形同虚设，主基址一次网络抖动即业务不可用且无第二次尝试
+    assert data.get("server_api_base") != data.get("server_api_fallback"), (
+        ("server_api_base 与 server_api_fallback 同址（去重后无兜底——"
+         "兜底应为云托管直连源，主基址走自定义域名）"), data.get("server_api_base"))
     # c-prompt-pack-delivery：提示词包公钥必选——缺烘＝打包端无钥可验，AI 永久未就绪
     validate_pack_pubkeys(data.get("pack_pubkeys", ""))
     version = str(data.get("client_version", "")).strip()

@@ -34,7 +34,8 @@ _TEST_PUB_B64 = base64.b64encode(b"\x02" * 32).decode()
 def _write_release_json(tmp_path: Path, version: str = "0.25", **overrides) -> Path:
     """模拟打包期产物：与 CI 生成步骤同构（components 由单源脚本产出）。"""
     cfg = {
-        "server_api_base": "https://novel-s-server.example/api",
+        # 主≠兜底（生产拓扑：主＝自定义域名，兜底＝云托管直连）——同址会被产物断言判红
+        "server_api_base": "https://www.awesomenovel.com/api",
         "server_api_fallback": "https://novel-s-server.example/api",
         # S端 公开地址族（c-package-public-endpoints）：与 CI 生成步骤同构
         "public_server_api": "https://www.awesomenovel.com/api",
@@ -127,6 +128,20 @@ def test_public_endpoint_family_non_https_rejected(tmp_path, bad):
     path = _write_release_json(tmp_path, **bad)
     proc = _run(path)
     assert proc.returncode != 0, f"非 https 必须失败：{bad}"
+
+
+def test_server_api_base_fallback_same_rejected(tmp_path):
+    """负例（v0.29.x 实锤）：主/兜底同址 → 断言必须转红——call_server_api 对基址
+    列表去重，同址＝无兜底，主基址一次网络抖动即业务不可用（Variables 缺配曾把
+    两键同烘直连域名，用户侧仅见零星 s_api_call_error）。"""
+    path = _write_release_json(
+        tmp_path,
+        server_api_base="https://www.awesomenovel.com/api",
+        server_api_fallback="https://www.awesomenovel.com/api",
+    )
+    proc = _run(path)
+    assert proc.returncode != 0, "主/兜底同址必须失败（否则无兜底静默发布）"
+    assert "同址" in proc.stderr
 
 
 def _run_generate(version: str, tmp_path: Path) -> subprocess.CompletedProcess:
