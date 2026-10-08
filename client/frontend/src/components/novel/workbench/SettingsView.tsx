@@ -33,6 +33,7 @@ import { INTRO_SEGMENTS, INTRO_FORMULA, DONT_DO, INTRO_MAX_LEN, TABOO_RULES } fr
 import { GENRE_DEFINITION } from "@/lib/genreVocab";
 import { useModelStatus } from "@/hooks/useModelStatus";
 import { useFeature } from "@/hooks/useTier";
+import { upgradeHintOf } from "@/lib/features";
 import type { AiState } from "@/types/api-config";
 import AiWriterAssistant, {
   CharsAiRail,
@@ -426,7 +427,7 @@ export default function SettingsView({
         key: "distill",
         name: "蒸馏我的文风",
         desc: "交 3,000–10,000 字你认可的案例 → 出「作者画像」给你确认 → 六行基线落卡 · 输入：粘贴文本、novel-samples 或已归档章节",
-        badge: styleQuant ? undefined : <span className="pill pill-warn">MAX 专属</span>,
+        badge: styleQuant ? undefined : <span className="pill pill-warn">{upgradeHintOf("style-quant")}</span>,
         variant: styleQuant ? undefined : "maxlk",
         onClick: () => {
           if (!styleQuant) {
@@ -1350,7 +1351,7 @@ const IntroPanel = forwardRef<
           const reason = aiBlockReason(e);
           const msg =
             reason === "member_required"
-              ? "AI 是会员功能，升级 PRO 后解锁"
+              ? "AI 是会员功能，开通套餐后解锁"
               : reason === "no_key"
                 ? (e as Error).message || "先去「模型配置」添加 API Key"
                 : reason === "missing_model" || reason === "invalid"

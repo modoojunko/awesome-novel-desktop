@@ -48,6 +48,32 @@ describe("AiWriterAssistant", () => {
     expect(screen.queryByText(/会员功能|你的 PRO 已包含|未解锁 · 开通后/)).toBeNull();
   });
 
+  it("功能性副行：注记在无功能状态时显示；功能状态（无 Key）优先", () => {
+    resetVerifyCache();
+    seedTier("pro", true);
+    const { unmount } = render(
+      <AiWriterAssistant
+        rows={ROWS}
+        footNote="x"
+        aiState="ready"
+        statusNote="朱雀检测已关闭 · 其余可用"
+      />,
+    );
+    expect(screen.getByText("朱雀检测已关闭 · 其余可用")).toBeTruthy();
+    unmount();
+
+    render(
+      <AiWriterAssistant
+        rows={ROWS}
+        footNote="x"
+        aiState="no_key"
+        statusNote="朱雀检测已关闭 · 其余可用"
+      />,
+    );
+    expect(screen.getByText("先去「模型配置」添加 API Key")).toBeTruthy();
+    expect(screen.queryByText("朱雀检测已关闭 · 其余可用")).toBeNull();
+  });
+
   it("档位未知（无快照、无 Provider）：不标角标，避免说错档位", () => {
     render(<AiWriterAssistant rows={ROWS} footNote="x" />);
     expect(screen.queryByTestId("plan-badge")).toBeNull();

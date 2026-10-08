@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { FEATURES, isMemberFeature, minTierOf, tierRank, type FeatureKey, type TierKey } from "@/lib/features";
+import { FEATURES, isMemberFeature, minTierOf, tierLabel, tierRank, upgradeHintOf, type FeatureKey, type TierKey } from "@/lib/features";
 
 const FREE_FEATURES: FeatureKey[] = [
   "tree-crud",
@@ -25,6 +25,24 @@ const STANDARD_FEATURES: FeatureKey[] = [
 const PRO_FEATURES: FeatureKey[] = ["ai-generate", "prompt-panel", "ai-detect"];
 
 const MAX_FEATURES: FeatureKey[] = ["ai-plot", "ai-polish", "style-quant"];
+
+describe("档位名与锁文案单源（c-rail-tier-badge）", () => {
+  it("tierLabel 是档位名唯一来源；upgradeHintOf 与它同源（徽标不会与行内 hint 说两套）", () => {
+    expect(tierLabel("free")).toBe("免费");
+    expect(tierLabel("standard")).toBe("标准");
+    expect(tierLabel("pro")).toBe("PRO");
+    expect(tierLabel("max")).toBe("MAX");
+    const pairs: Array<[FeatureKey, TierKey]> = [
+      ["ai-plan", "standard"],
+      ["ai-detect", "pro"],
+      ["ai-polish", "max"],
+    ];
+    for (const [key, tier] of pairs) {
+      expect(minTierOf(key), key).toBe(tier);
+      expect(upgradeHintOf(key), key).toContain(tierLabel(tier)); // 长口径里必含短名
+    }
+  });
+});
 
 describe("minTierOf — 四档功能矩阵（2026-10-05 拍板）", () => {
   it("人工写作能力免费完整可用", () => {

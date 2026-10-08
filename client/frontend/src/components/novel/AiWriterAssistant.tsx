@@ -49,6 +49,12 @@ export interface AiWriterAssistantProps {
   targetLine?: ReactNode;
   title?: string;
   /**
+   * 功能性副行（可选）：与无 Key/缺模型等功能状态同槽，只承载「当前为什么这样」的功能说明
+   * （如朱雀检测显示开关关闭＝「朱雀检测已关闭 · 其余可用」）；SHALL NOT 用来放套餐文案。
+   * 功能状态（no_key/missing_model/…）优先，无状态时显示本注记。
+   */
+  statusNote?: string;
+  /**
    * 后端判定层下发的本书 AI 就绪态（D13）。传了就**只读它**做一次分派
    * （不再 useFeature + ai_state 两处判）；不传则退回 tier 门控（兼容旧调用方）。
    */
@@ -84,6 +90,7 @@ export default function AiWriterAssistant({
   footNote,
   targetLine,
   title = "AI 写作助手",
+  statusNote,
   aiState,
   aiStateMessage,
   onBlocked,
@@ -98,13 +105,14 @@ export default function AiWriterAssistant({
   // aiState 提供时以它为准（同一事实源）；未提供才退回 tier 门控
   const state: AiState = aiState ?? (unlocked ? "ready" : "member_required");
   const locked = state === "member_required";
-  // 副行只承载功能性状态（无 Key/缺模型/能力包未就绪等下一步）；档位差异由角标＋
-  // 下面各能力行的可用性体现，故 ready/member_required 不出任何套餐文案。
+  // 副行只承载功能性状态（无 Key/缺模型/能力包未就绪等下一步）＋调用方的功能性注记；
+  // 档位差异由角标＋下面各能力行的可用性体现，故 ready/member_required 不出任何套餐文案。
+  // 优先级：功能性状态（可操作）> 调用方注记（解释当前形态）> 不显示。
   const subText =
     state === "no_key" && aiStateMessage
       ? aiStateMessage
       : state === "ready" || state === "member_required"
-        ? null
+        ? statusNote ?? null
         : BLOCK_TEXT[state];
   // 在途互斥用 **ref**（同步判定）而不是 state：state 要等重渲染才生效，
   // 连点会在同一 tick 内全部穿过（实测 6 连点 = 6 请求）。ref 让并发窗口归零。

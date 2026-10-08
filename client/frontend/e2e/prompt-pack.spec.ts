@@ -180,7 +180,7 @@ test.describe("写作能力四态卡", () => {
       await expect(card).toBeVisible({ timeout: 15000 });
       await expect(card).toContainText("该能力随 MAX 提供");
       await card.getByRole("button", { name: "去升级" }).click();
-      await expect(page.locator(".modal", { hasText: "PRO 专属功能" })).toBeVisible({
+      await expect(page.locator(".modal", { hasText: "升级套餐解锁" })).toBeVisible({
         timeout: 10000,
       });
     } finally {

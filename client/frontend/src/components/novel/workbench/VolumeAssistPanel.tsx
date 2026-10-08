@@ -8,6 +8,7 @@
  *     卷号 · 名字 · 章数目标；点一行＝选中该卷并立刻体检）。
  *  原「卷选中态四页签统计卡」与「未选中态四格全书统计」由本 change 退役（workbench delta）。 */
 import { useFeature } from "@/hooks/useTier";
+import { upgradeHintOf, type FeatureKey } from "@/lib/features";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { volumePlanApi, type VolumeCheckResult } from "@/lib/volumePlanApi";
 import { nextVolNo as nextVolumeNo } from "@/lib/chapterRef";
@@ -152,7 +153,7 @@ function VolumeVerifyPanel({
   /** 「去补卷纲」出口：中栏切回卷纲页签（信号经壳层 seq 递增） */
   onGoOutline: () => void;
   isPro: boolean;
-  onUpgrade: () => void;
+  onUpgrade: (required?: FeatureKey) => void;
 }) {
   const [checking, setChecking] = useState(false);
   const [report, setReport] = useState<VolumeCheckResult | null>(null);
@@ -243,15 +244,15 @@ function VolumeVerifyPanel({
                   ? "卷纲关键项还没填——先补卷纲"
                   : "按卷纲拆出下一章的三方向卡（标准起）",
               onClick: () => {
-                /* v8 ignore start -- 防御分支：!isPro／splitBlocked／outlineIncomplete 任一为真时
+                /* v8 ignore start -- 防御分支：!aiPlan／splitBlocked／outlineIncomplete 任一为真时
                    该行同一渲染里必被 disabled（按钮吞 click），真实 UI 只能走三关全过→onSplitAi 一条路 */
-                if (!aiPlan) onUpgrade();
+                if (!aiPlan) onUpgrade("ai-plan");
                 else if (!splitBlocked && !outlineIncomplete) onSplitAi();
                 /* v8 ignore stop */
               },
               disabled: checking || splitBlocked || !aiPlan || outlineIncomplete,
               hint: !aiPlan
-                ? "需 PRO"
+                ? upgradeHintOf("ai-plan")
                 : splitBlocked
                   ? `写作位在第${frontierVol}卷`
                   : outlineIncomplete
@@ -271,13 +272,13 @@ function VolumeVerifyPanel({
       </p>
       {tab === "chapters" && !aiPlan && (
         <p className="none" data-testid="volume-split-ai-locked">
-          AI 三方向需 PRO——手写拆章免费：用中栏「拆下一章」{" "}
+          AI 三方向{upgradeHintOf("ai-plan")}——手写拆章免费：用中栏「拆下一章」{" "}
           <button
             className="btn btn-primary btn-sm"
             data-testid="volume-split-ai-upgrade"
-            onClick={onUpgrade}
+            onClick={() => onUpgrade("ai-plan")}
           >
-            升级 PRO
+            升级套餐
           </button>
         </p>
       )}
@@ -359,7 +360,7 @@ export function VolumeAssistPanel({
   /** 「去补卷纲」出口：中栏切回卷纲页签（c-split-to-chapters-tab） */
   onGoOutline: () => void;
   isPro: boolean;
-  onUpgrade: () => void;
+  onUpgrade: (required?: FeatureKey) => void;
   /** 打开规划台（空书＝1；写作默认页＝最大卷号+1） */
   onPlanVolume: (volNo: number) => void;
   /** 「卷的验证」点行：选中该卷（外层会立刻触发体检） */
@@ -401,7 +402,7 @@ export function VolumeAssistPanel({
             testid: "plan-first-volume",
           },
         ]}
-        footNote="免费版：体检与建议只读；生成、改写与归档需 PRO。规划台里材料与规则随时可看，输入也能先写。"
+        footNote="免费版：体检与建议只读；生成、改写与归档需开通（标准档起）。规划台里材料与规则随时可看，输入也能先写。"
         data-od-id="plan-entry-empty"
       >
         <div data-testid="plan-entry-empty">

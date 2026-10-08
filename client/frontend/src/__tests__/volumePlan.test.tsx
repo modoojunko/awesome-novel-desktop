@@ -116,7 +116,7 @@ function DeskHarness({
     <>
       <button data-testid="open" onClick={() => plan.open(1, false, manual ? "manual" : "ai")}>open</button>
       <VolumePlanModal
-        projectId="p1" plan={plan} isPro={true} onUpgrade={noop}
+        projectId="p1" plan={plan} hasAiPlan onUpgrade={noop}
         onDirectCreate={onDirectCreate} onBackfill={onBackfill} onClose={plan.closeDesk}
       />
     </>
@@ -309,7 +309,7 @@ render(<DeskHarness onDirectCreate={onDirect} onBackfill={noop} />);
       return (
         <>
           <button data-testid="open" onClick={() => plan.open(1, true)}>open</button>
-          <VolumePlanModal projectId="p1" plan={plan} isPro onUpgrade={noop}
+          <VolumePlanModal projectId="p1" plan={plan} hasAiPlan onUpgrade={noop}
             onDirectCreate={noop} onBackfill={onBackfill} onClose={plan.closeDesk} />
         </>
       );
@@ -338,7 +338,7 @@ render(<Harness />);
       return (
         <>
           <button data-testid="open" onClick={() => plan.open(2, false)}>open</button>
-          <VolumePlanModal projectId="p1" plan={plan} isPro onUpgrade={noop}
+          <VolumePlanModal projectId="p1" plan={plan} hasAiPlan onUpgrade={noop}
             onDirectCreate={noop} onBackfill={noop} onClose={plan.closeDesk} />
         </>
       );
@@ -380,13 +380,15 @@ render(<Harness />);
     expect(screen.getByTestId("desk-done").textContent).toContain("— 章");
   });
 
-  it("免费档：铺空缺置灰＋PRO 说明；直建可用", async () => {
+  it("免费档：铺空缺置灰＋开通说明（标准档起）；直建可用", async () => {
+    const upgradeCalls: (string | undefined)[] = [];
     function FreeHarness() {
       const plan = useVolumePlan("p1");
       return (
         <>
           <button data-testid="open" onClick={() => plan.open(1, false)}>open</button>
-          <VolumePlanModal projectId="p1" plan={plan} isPro={false} onUpgrade={noop}
+          <VolumePlanModal projectId="p1" plan={plan} hasAiPlan={false}
+            onUpgrade={(required) => upgradeCalls.push(required)}
             onDirectCreate={noop} onBackfill={noop} onClose={plan.closeDesk} />
         </>
       );
@@ -396,10 +398,13 @@ render(<FreeHarness />);
     fireEvent.click(screen.getByTestId("open"));
     const expand = screen.getByTestId("desk-expand") as HTMLButtonElement;
     expect(expand.disabled).toBe(true);
-    expect(expand.title).toContain("PRO");
-    expect(document.querySelector(".pill-pro")).toBeTruthy(); // 规划台弹窗自带 PRO 徽（非右栏 AI 卡）
+    expect(expand.title).toContain("需开通（标准档起）");
+    expect(document.querySelector(".pill-pro")?.textContent).toBe("标准"); // 规划台弹窗自带档位徽（非右栏 AI 卡）
     const create = screen.getByTestId("desk-create") as HTMLButtonElement;
     expect(create.disabled).toBeFalsy();
+    // 出口带 tier_required（铺空缺＝ai-plan）→ 升级弹窗出「标准」口径
+    fireEvent.click(screen.getByRole("button", { name: "了解升级" }));
+    expect(upgradeCalls).toEqual(["ai-plan"]);
   });
 });
 
@@ -419,6 +424,7 @@ function renderPanel(
   const onSelectVolume = vi.fn();
   const onGoOutline = vi.fn();
   const onSplitAi = vi.fn();
+  const onUpgrade = vi.fn();
   if (opts.free) seedTierFree();
   else seedTierPlan();
   render(
@@ -431,13 +437,13 @@ function renderPanel(
       onSplitAi={onSplitAi}
       onGoOutline={onGoOutline}
       isPro
-      onUpgrade={vi.fn()}
+      onUpgrade={onUpgrade}
       onSelectVolume={onSelectVolume}
       autoCheckSeq={0}
       {...props}
     />,
   );
-  return { onPlanVolume, onSelectVolume, onGoOutline, onSplitAi };
+  return { onPlanVolume, onSelectVolume, onGoOutline, onSplitAi, onUpgrade };
 }
 
 describe("VolumeAssistPanel 三态", () => {
@@ -614,14 +620,18 @@ describe("卷页签右栏（c-write-home-rail-anchor）", () => {
     expect(onGoOutline).toHaveBeenCalled();
   });
 
-  it("免费档在本卷章节页签：AI 行锁定＋升级出口，文案指向中栏「拆下一章」", async () => {
-    renderPanel({ isPro: false, data: railData("chapters"), autoCheckSeq: 1 }, { free: true });
+  it("免费档在本卷章节页签：AI 行锁定＋升级出口（带 tier_required＝ai-plan），文案指向中栏「拆下一章」", async () => {
+    const { onUpgrade } = renderPanel(
+      { isPro: false, data: railData("chapters"), autoCheckSeq: 1 },
+      { free: true },
+    );
     await waitFor(() => expect(screen.getByTestId("volume-check-report")).toBeDefined());
     expect(screen.getByTestId("volume-split-ai-locked").textContent).toContain(
       "手写拆章免费：用中栏「拆下一章」",
     );
     expect((screen.getByTestId("volume-split-ai") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("volume-split-ai-upgrade")).toBeDefined();
+    fireEvent.click(screen.getByTestId("volume-split-ai-upgrade"));
+    expect(onUpgrade).toHaveBeenCalledWith("ai-plan");
   });
 
   it("卷纲页签：无拆章 AI 行与锁定/拦截段，仅体检＋重新规划", async () => {

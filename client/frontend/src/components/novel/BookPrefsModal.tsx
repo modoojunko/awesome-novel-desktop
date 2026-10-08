@@ -160,7 +160,7 @@ export default function BookPrefsModal({
                 setShowUpgrade(true);
               }}
             >
-              升级 PRO
+              升级套餐
             </button>
           )}
         </div>

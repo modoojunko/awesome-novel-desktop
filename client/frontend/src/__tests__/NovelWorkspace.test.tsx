@@ -594,7 +594,7 @@ describe("PRO 态：徽标 + phase-status + AI 入口", () => {
     // PRO 徽随行头归一迁入账户胶囊（未登录不渲染）；顶栏本体在即可
     expect(document.querySelector(".appbar-wb")).toBeTruthy();
     expect(screen.queryByText(/免费模式/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "升级 PRO" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /升级 PRO|升级套餐/ })).toBeNull();
     await waitFor(() =>
       expect(apiState.get).toHaveBeenCalledWith(
         "/novels/p1/workflow/phase-status",

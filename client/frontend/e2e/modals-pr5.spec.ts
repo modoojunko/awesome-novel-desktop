@@ -12,7 +12,7 @@ import { entitlementFor } from "./tier-features";
 //   ② 归档章写入锁死（c-archived-readonly）：归档 → 右栏 AI 动作禁用＋hint 指路
 //      「重写本章」；只读横幅指路重写、无恢复编辑旁路；「解除只读」解锁链退役
 //   ③ 版本历史弹窗：两轮自动保存产生快照 → ver-row 列表 + 当前版本 → 恢复回退正文
-//   ④ 本书偏好弹窗：面板「本书偏好」→ per-book 字号保存持久 + 免费态升级 PRO 链升级弹窗
+//   ④ 本书偏好弹窗：面板「本书偏好」→ per-book 字号保存持久 + 免费态升级套餐链升级弹窗
 // =========================================================================
 // 鉴权手法与 workbench-features.spec.ts 一致：S端 真实注册登录 → 写 docker
 // 容器 config.json（trial=PRO / none=免费）→ localStorage 注入 auth_token。
@@ -324,10 +324,10 @@ test("版本历史弹窗：快照列表 + 当前版本徽标 + 恢复回退正�
 });
 
 // -------------------------------------------------------------------------
-// ④ 本书偏好弹窗：per-book 保存持久 + 免费态「升级 PRO」链升级弹窗
+// ④ 本书偏好弹窗：per-book 保存持久 + 免费态「升级套餐」链升级弹窗
 // -------------------------------------------------------------------------
 
-test("本书偏好：字号 per-book 持久 + 免费态升级 PRO 链升级弹窗", async ({
+test("本书偏好：字号 per-book 持久 + 免费态升级套餐链升级弹窗", async ({
   page,
 }) => {
   const { restore } = await setupSession(page, "none");
@@ -352,7 +352,7 @@ test("本书偏好：字号 per-book 持久 + 免费态升级 PRO 链升级弹�
       /^(v\d+\.\d+.*|[A-Za-z0-9._/-]{1,40}@[0-9a-f]{5}|开发版 dev|版本未知)$/,
     );
 
-    // 免费态：账号行「升级 PRO」→ 关偏好弹窗、链出升级弹窗（S端 门户引导）
+    // 免费态：账号行「升级套餐」→ 关偏好弹窗、链出升级弹窗（S端 门户引导）
     await expect(dlg.locator("#pref-upgrade")).toBeVisible();
     await dlg.locator("#pref-upgrade").click();
     await expect(

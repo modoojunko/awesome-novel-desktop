@@ -315,7 +315,7 @@ test.describe("世界设定 v2", () => {
     const { restore } = await setupSession(page, "free");
     try {
       const pid = await createNovel(page, `世界免费_${Date.now() % 100000}`);
-      await stubAiState(page, pid, "member_required", "这是会员功能，升级 PRO 后解锁");
+      await stubAiState(page, pid, "member_required", "这是会员功能，开通套餐后解锁");
       await page.getByRole("button", { name: /^设定/ }).click();
       await openSetting(page, "世界");
       const stage = page.locator('[data-od-id="stage-input"]');

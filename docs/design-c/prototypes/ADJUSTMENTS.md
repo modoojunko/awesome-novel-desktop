@@ -1823,3 +1823,12 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
    故「无缺口 + 内容有变」那一句在 demo 里点不到（页脚按缺口优先显示）——该分支由实现侧的
    单测与 e2e 钉（`settings-forms` 角色链：改内容 → 双处内容有变 → 重新确认 → 双恢复）。
    重新确认后恢复口径（`重新确认`＝快照跟上最新内容）在原型 todo 与实现同步。
+
+## c-rail-tier-badge（右栏 AI 助手卡头收口＋升级弹窗按档位，2026-10-08）
+
+起因＝PRO 作者报「我已是 PRO，写作页仍让我升级 PRO」：卡头那句「标「需开通／需 PRO／需 MAX」的行按套餐逐档解锁」判据含 MAX 专属 key（对 PRO 恒真），且卡头 PRO 徽标写死。用户拍板：**说明文案直接去掉（锁定行自带行内 hint）＋卡头角标跟套餐走**。原型同批落笔：
+
+1. **`book.html` 两处 AI 助手卡头**：`plan-badge` 由写死「PRO」改为随档位（`only-pro`＝「PRO 会员」／`free-mode`＝「免费版」，用既有两态机制）；删 `rh-t` 里的两态副行文案（「你的 PRO 已包含 · 只加工你写的，不代写」／「标「需开通…」」），卡头＝角标＋标题；`rh-t span.only-free/only-pro` 三条 CSS 退役。页脚两态同文收成一句（免费态尾部那句说明文案退役）。
+2. **免费态统一升级出口**：og 卡补 `ra-upgrade` 块＋`#btnUpgrade3`「升级套餐」（`free-mode` 显示）——`design-parity-book` 的 `modal-upgrade` 例本来就点这个 id，此前原型无此元素。行内 `ra-hint` 五处改与实现同源的长口径（「需开通（标准档起）／PRO 专属／MAX 专属」，实现单源＝`lib/features.upgradeHintOf`）。
+3. **存量偏差（登记不修）**：`modalUpgrade` 原型仍是 PRO 单档文案（标题＋三行权益），实现已按 `tier_required` 出标准/PRO/MAX 三套口径——`modal-upgrade` parity 例的差带会因此扩大，`book.*` 基线待随 `DESIGN_PARITY=1` 重录（change tasks 3.2）；卷选中栏的「PRO 功能／升级 PRO」卡（`#railVolume`）是更早的过时段（卷纲屏已迁 storyline.html），本批不动。
+4. **应用侧同步（不新增视觉词汇）**：`lib/features` 补档位短名单源 `tierLabel`（`upgradeHintOf` 内部也改用），四处档位徽标（抽人锁卡／规划台「铺空缺」／粘贴文风样本／量化页签）不再写字面量；卡头副行新增功能性注记槽 `statusNote`（朱雀显示开关关闭时注明「朱雀检测已关闭 · 其余可用」，功能状态优先）。

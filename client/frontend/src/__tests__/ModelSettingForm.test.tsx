@@ -183,14 +183,14 @@ describe("ModelSettingForm · 状态与空态", () => {
     expect(container.querySelector(".badge.empty")).toBeTruthy();
   });
 
-  it("member_required：文案「模型已配好 · 升级 PRO 后本书 AI 即可用」（不出现「AI 就绪」）", () => {
+  it("member_required：文案「模型已配好 · 开通套餐后本书 AI 即可用」（不出现「AI 就绪」）", () => {
     setState({
       aiState: "member_required",
       status: "no_key",
       aiMessage: "AI 是会员功能",
     });
     renderForm();
-    expect(screen.getByText(/模型已配好 · 升级 PRO 后本书 AI 即可用/)).toBeTruthy();
+    expect(screen.getByText(/模型已配好 · 开通套餐后本书 AI 即可用/)).toBeTruthy();
     expect(screen.queryByText(/AI 就绪/)).toBeNull();
   });
 
