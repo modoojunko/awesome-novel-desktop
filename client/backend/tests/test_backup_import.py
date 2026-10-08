@@ -1,14 +1,18 @@
 """备份导入测试（c-novel-backup-import-f821-fix）。
 
 覆盖：配置包恢复（_restore_config——user 只补空、api_configs 同名跳过不覆盖、
-密钥重加密落库）+ 含版本快照的书包导入（ChapterVersion 落库，F821 回归锚）。
+密钥重加密落库）+ 含版本快照的书包导入（ChapterVersion 落库，F821 回归锚）
++ persist 全链持久性（c-backup-import-persist-fix——单 active 配置挂回＋
+逐书显式提交，新开会话验落库）。
 """
 
 import asyncio
 import io
+import os
 import uuid
 import zipfile
 
+import pytest
 import yaml
 from sqlalchemy import select
 
@@ -195,6 +199,195 @@ class TestVersionSnapshotImport:
         assert vs[0].version == 1
         assert vs[0].snapshot == '{"note": "快照原文"}'
         assert ch.title == "第一章"
+
+
+class TestPersistDurability:
+    """persist 全链持久性（c-backup-import-persist-fix）。
+
+    修复前双雷：unique_active 挂回守卫读不存在的 novel.api_config_id → 单 active
+    配置用户 persist 恒 500；挂回赋值全程无 commit → 会话关闭即回滚（挂回永不
+    生效）。判据＝复刻 get_db 生命周期（会话内不手动 commit）＋新开会话验落库。
+    """
+
+    def _book_zip(self, name: str) -> bytes:
+        """最小单书包：project.yaml + 卷 + 章（触发 Novel/Volume/Chapter 落库）。"""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("project.yaml", yaml.safe_dump({
+                "name": name, "slug": f"persist-{uuid.uuid4().hex[:6]}",
+                "current_phase": "write",
+            }))
+            zf.writestr("volumes/vol-1.yaml", yaml.safe_dump({
+                "volume": 1, "title": "第一卷",
+            }))
+            zf.writestr("chapters/ch-1.yaml", yaml.safe_dump({
+                "volume": 1, "title": "第一章", "prose": "正文内容。",
+                "status": "done",
+            }))
+        return buf.getvalue()
+
+    async def _seed_unique_active_user(self) -> str:
+        from models.api_config import ApiConfig
+        from models.user import User
+
+        uid = f"persist-{uuid.uuid4().hex[:8]}"
+        async with async_session() as session:
+            session.add(User(id=uid, email=f"{uid}@test.local", password_hash="x"))
+            session.add(ApiConfig(
+                user_id=uid, name="常用", vendor="deepseek",
+                api_key="sk-persist", base_url="https://api.deepseek.com/v1",
+                models='["deepseek-v4-pro"]', status="active",
+            ))
+            await session.commit()
+        return uid
+
+    def test_unique_active_full_chain_persists(self):
+        """单 active 配置＋含书包 → persist 成功；新会话见书且挂回已持久。"""
+        from backup.importer import persist_package
+        from models.api_config import ApiConfig
+        from models.project import Novel
+
+        async def run():
+            uid = await self._seed_unique_active_user()
+            path = _write_temp_zip(self._book_zip("挂回持久书"))
+            try:
+                async with async_session() as db:  # 复刻 get_db：会话内不手动 commit
+                    summary = await persist_package(
+                        db, uid, [path], include_config=False
+                    )
+            finally:
+                os.remove(path)
+
+            assert summary["results"][0]["status"] == "ok", summary
+            assert summary["reattach"] == {"mode": "unique_active", "attached": 1}
+
+            async with async_session() as verify:
+                cfg = (await verify.scalars(
+                    select(ApiConfig).where(ApiConfig.user_id == uid)
+                )).one()
+                novel = (await verify.scalars(
+                    select(Novel).where(Novel.user_id == uid)
+                )).one()
+                assert novel.name == "挂回持久书"
+                assert novel.ai_config_id == cfg.id
+
+        asyncio.run(run())
+
+    def test_reattach_crash_keeps_books_without_attach(self, monkeypatch):
+        """挂回异常 → persist 冒泡；已落书保持（逐书原子）、挂回不生效（置空待选）。"""
+        from backup.importer import persist_package
+        from models.project import Novel
+
+        async def boom(*args, **kwargs):
+            raise RuntimeError("reattach crash")
+
+        monkeypatch.setattr("backup.importer._reattach_configs", boom)
+
+        async def run():
+            uid = await self._seed_unique_active_user()
+            path = _write_temp_zip(self._book_zip("挂回异常书"))
+            try:
+                async with async_session() as db:
+                    with pytest.raises(RuntimeError):
+                        await persist_package(db, uid, [path], include_config=False)
+            finally:
+                os.remove(path)
+
+            async with async_session() as verify:
+                novel = (await verify.scalars(
+                    select(Novel).where(Novel.user_id == uid)
+                )).one()
+                assert novel.name == "挂回异常书"
+                assert novel.ai_config_id is None
+
+        asyncio.run(run())
+
+    def test_config_only_package_persists_via_final_commit(self):
+        """零书 config-only 包 → 配置恢复只经收尾 commit 落库（评审缺口钉）。"""
+        from backup.importer import persist_package
+        from models.api_config import ApiConfig
+        from models.user import User
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("config.yaml", yaml.safe_dump(_config_payload()))
+
+        async def run():
+            uid = await self._seed_unique_active_user()
+            path = _write_temp_zip(buf.getvalue())
+            try:
+                async with async_session() as db:
+                    summary = await persist_package(db, uid, [path])
+            finally:
+                os.remove(path)
+
+            assert summary["results"] == []
+            assert summary["reattach"] == {"mode": "none", "attached": 0}
+
+            async with async_session() as verify:
+                names = set((await verify.scalars(
+                    select(ApiConfig.name).where(ApiConfig.user_id == uid)
+                )).all())
+                # 种子「常用」同名跳过不覆盖，包内「备胎」由收尾 commit 落库
+                assert names == {"常用", "备胎"}, names
+                user = await verify.get(User, uid)
+                assert user.display_name == "导入昵称"
+
+        asyncio.run(run())
+
+    def test_multi_book_partial_failure_keeps_good_books(self, monkeypatch):
+        """多书 assets 包逐书提交：后一书失败不拖回已落好书（逐书原子序列钉）。"""
+        from backup.importer import _import_single_book, persist_package
+        from models.project import Novel
+
+        real_import = _import_single_book
+
+        async def flaky(db, zf, book_dir, user_id, **kwargs):
+            if "bad-book" in book_dir:
+                raise ValueError("坏书数据")
+            return await real_import(db, zf, book_dir, user_id, **kwargs)
+
+        monkeypatch.setattr("backup.importer._import_single_book", flaky)
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("backup.yaml", yaml.safe_dump({
+                "format_version": FORMAT_VERSION,
+                "books": [{"slug": "good-book"}, {"slug": "bad-book"}],
+            }))
+            for slug, name in (("good-book", "序列好书"), ("bad-book", "序列坏书")):
+                zf.writestr(f"projects/{slug}/project.yaml", yaml.safe_dump({
+                    "name": name, "slug": slug, "current_phase": "write",
+                }))
+                zf.writestr(f"projects/{slug}/volumes/vol-1.yaml", yaml.safe_dump({
+                    "volume": 1, "title": "第一卷",
+                }))
+                zf.writestr(f"projects/{slug}/chapters/ch-1.yaml", yaml.safe_dump({
+                    "volume": 1, "title": "第一章", "prose": "正文内容。",
+                    "status": "done",
+                }))
+
+        async def run():
+            uid = await self._seed_unique_active_user()
+            path = _write_temp_zip(buf.getvalue())
+            try:
+                async with async_session() as db:
+                    summary = await persist_package(db, uid, [path], include_config=False)
+            finally:
+                os.remove(path)
+
+            statuses = {r["book_id"]: r["status"] for r in summary["results"]}
+            assert statuses == {
+                "projects/good-book/": "ok", "projects/bad-book/": "failed",
+            }, statuses
+
+            async with async_session() as verify:
+                names = set((await verify.scalars(
+                    select(Novel.name).where(Novel.user_id == uid)
+                )).all())
+                assert names == {"序列好书"}, names
+
+        asyncio.run(run())
 
 
 def test_format_version_above_supported_rejected():
