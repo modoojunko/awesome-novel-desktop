@@ -99,13 +99,21 @@ Single source of truth for product-wide visual vocabulary across both frontends 
 - When `design:cross` runs on both ends
 - Then the marked segments are byte-identical after whitespace normalization
 ### Requirement: Free vs PRO gating stays visible
-- PRO-only capabilities SHALL keep their entry points visible to free users in locked form with one sentence describing what unlocking provides; hiding entries is the documented exception requiring compensating notice.
-- Gating vocabulary in UI text SHALL avoid internal terms (gate/readiness/license errors); it describes what is missing and how to proceed.
+
+- 会员专属能力（各档位）SHALL keep their entry points visible to lower-tier users in locked form with one sentence describing what unlocking provides; hiding entries is the documented exception requiring compensating notice.
+- Gating vocabulary in UI text SHALL avoid internal terms (gate/readiness/license errors); it describes what is missing and how to proceed（补救语句带可点击出口）。
+- **档位感知锁文案**：同一锁定行对不同用户 SHALL 呈对应口径——免费用户「开通解锁」类、标准用户对 PRO/MAX 件「PRO 专属 / MAX 专属」、PRO 用户对 MAX 件「MAX 专属」；文案出自单一 helper（输入 minTier），SHALL NOT 在组件内散写字面量。
 
 #### Scenario: Free hits project limit
+
 - Given a free account already has the maximum number of projects
 - When they view the shelf
 - Then create/import appear locked with an upgrade path rather than being hidden
+
+#### Scenario: 同一锁行按档位出文案
+
+- Given 免费/标准/PRO 三位用户分别查看工作台右栏同一 AI 行
+- Then 三人分别看到「开通解锁」「PRO 专属」「MAX 专属」口径（按该行 minTier 与用户档位推导），形态一致仅文案分档
 ### Requirement: AI 写作助手卡片与结果区组件词汇
 - 「AI 写作助手」卡片组件（C端设定视图右栏）保持不变：PRO 徽标并入卡片头部＋标题＋一行套餐归属/只加工不代写；内部为**并列能力行**（每行＝名称上＋描述下从属＋右侧箭头，整行可点）；底部一条来源/去向声明。命名 `.rail-assist` + `.ra-*`。
 - AI 结果呈现 SHALL 统一为**「AI 出卡确认弹窗」**：复用全局弹窗壳（`design/Modal`）与写作域既有弹窗词汇，右栏能力行点击后结果进弹窗、弹窗内确认才写回、关闭即弃。**`.ai-sink` / `.aiz-*` 内嵌结果区词汇自本 change 起退役**，SHALL NOT 再作为设定域 AI 结果的渲染面；体检检查行沿各域既有 `chk-*`（角色页 `chk-row`）词汇**重挂**到弹窗卡体容器（Modal portal 到 body，`.settings-v .ai-sink` 前缀不再命中，词汇定义本身不变、只换挂载作用域）。
@@ -346,3 +354,14 @@ s5 的展示口径 SHALL 为「宿命认知观」＋hint「他和这个世界到
 
 - **WHEN** 带撤销链接的 toast 弹出后作者未在窗口内点击，toast 自动消失
 - **THEN** 撤销入口一并消失，无法再触发该次撤销；已生效的操作结果保持不变
+
+### Requirement: 档位徽标与档位名词表
+
+- 顶栏/账号面板/偏好弹窗的档位徽标（pill）SHALL 支持 standard/pro/max 三档会员态＋免费/试用态，语气词沿用 info/ok/warn 族：免费=中性、试用=warn（临期转 err 遵循既有口径）、三档会员=ok；SHALL NOT 新增第四种胶囊形态与新语气词。
+- 档位显示文案 SHALL 取服务端下发的 display_name（单源），前端不写死档位中文名。
+- docs/ux/design-language.html §5/§13 与两端 design-vocab.mjs 若登记档位词 SHALL 两端同批。
+
+#### Scenario: 五态档位徽标
+
+- **WHEN** 五类档位用户（免费/试用/标准/PRO/MAX）查看顶栏徽标
+- **THEN** 徽标分别命中中性/warn/ok/ok/ok 底色且文案为 display_name，无新形态
