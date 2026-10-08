@@ -61,8 +61,10 @@ Step '1/8 前端构建' {
 }
 
 # ── 2. release.json 烘焙源（S端 端点：缺省=CI fallback 生产值，预置 env 可覆盖）──
+# 主基址默认＝自定义域名（与 workflow 默认拓扑一致）；兜底＝云托管直连——
+# 两值同址在生成步即判红（生成/产物双闸；v0.29.x 实锤：同址＝去重后无兜底）
 Step '2/8 release.json 生成' {
-    if (-not $env:RELEASE_SERVER_API_BASE)      { $env:RELEASE_SERVER_API_BASE = 'https://novel-s-server-297265-7-1468883265.sh.run.tcloudbase.com/api' }
+    if (-not $env:RELEASE_SERVER_API_BASE)      { $env:RELEASE_SERVER_API_BASE = 'https://www.awesomenovel.com/api' }
     if (-not $env:RELEASE_SERVER_API_FALLBACK)  { $env:RELEASE_SERVER_API_FALLBACK = 'https://novel-s-server-297265-7-1468883265.sh.run.tcloudbase.com/api' }
     if (-not $env:RELEASE_PUBLIC_SERVER_API)    { $env:RELEASE_PUBLIC_SERVER_API = 'https://www.awesomenovel.com/api' }
     if (-not $env:RELEASE_PORTAL_URL)           { $env:RELEASE_PORTAL_URL = 'https://www.awesomenovel.com' }

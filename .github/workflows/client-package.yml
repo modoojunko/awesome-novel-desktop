@@ -116,7 +116,9 @@ jobs:
       # ── 发布期注入：S端 域名 + 客户端版本 + 更新检测地址 + 构建信息，写成 release.json 随 datas 烘进安装包 ──
       # 换域名只改仓库 Variables：CLIENT_SERVER_API_BASE / CLIENT_SERVER_API_FALLBACK /
       # CLIENT_DOWNLOAD_BASE / CLIENT_DOWNLOAD_BASE_FALLBACK；
-      # 未配置 Variable（含 fork PR 场景）回落默认值——开箱可用、与营销域名解耦。
+      # 未配置 Variable（含 fork PR 场景）回落默认值——默认拓扑＝自定义域名主基址 +
+      # 云托管直连兜底（v0.29.x 实锤：BASE 默认曾烘直连域名且与 FALLBACK 同址，
+      # call_server_api 去重后无兜底，主基址一次网络抖动即业务不可用）。
       # 运行时优先级：用户 config.json / 环境变量 > 包内 release.json（见 pywebview_app.start_server）。
       # client_version：tag 构建写去 v 前缀真实版本；PR/手动构建写 dev（应用侧跳过更新检测）。
       # 生成逻辑抽脚本化（c-version-build-info）：版本形态门禁＋构建信息烘焙（非 tag 构建烘
@@ -128,7 +130,9 @@ jobs:
         working-directory: client/packaging/build
         shell: bash
         env:
-          RELEASE_SERVER_API_BASE: ${{ vars.CLIENT_SERVER_API_BASE || 'https://novel-s-server-297265-7-1468883265.sh.run.tcloudbase.com/api' }}
+          RELEASE_SERVER_API_BASE: ${{ vars.CLIENT_SERVER_API_BASE || 'https://www.awesomenovel.com/api' }}
+          # 兜底基址＝云托管直连源（自定义域名解析抖动时 call_server_api 自动切换）；
+          # 与主基址同值会在生成步即判红（同值＝运行时去重后无兜底，生成/产物双闸）
           RELEASE_SERVER_API_FALLBACK: ${{ vars.CLIENT_SERVER_API_FALLBACK || 'https://novel-s-server-297265-7-1468883265.sh.run.tcloudbase.com/api' }}
           # S端 公开地址族（c-package-public-endpoints）：public_server_api 必须指向承载
           # S端 web /auth 的源（授权页 URL 由它剥 /api 构造）——缺烘曾致打包端授权页
