@@ -123,17 +123,19 @@
 - **THEN** 正常发起调用（不 400）；产出顺着这条散记扩写、其中的关键词与显式要求被吸收（如结局保留「血渴未愈」、含雨夜码头戏），且不原样复述散记原句（人工 A/B 核验口径）
 ### Requirement: 免费/PRO 两态
 
-- 两态 SHALL 由本书 ai_state 单源驱动：ready＝可用；member_required＝整卡可见＋锁定（降透明＋锁形标），点击任一 AI 入口统一提示「这是会员功能，升级 PRO 后解锁——免费版写作能力完整」（不各自弹窗）且不发出请求；no_key→引导去模型配置；missing_model/invalid→面板内引导选模型
-- 两态卡面文案 SHALL 面向作家：PRO＝「你的 PRO 已包含 · 只加工你写的，不代写」；免费＝「升级 PRO 解锁 · 免费版写作功能完整，这一页照常自己写」；内部套餐词（如「Max 同享」）SHALL NOT 出现在面板
+- 两态 SHALL 由本书 ai_state 单源驱动：ready＝可用；member_required＝整卡可见＋锁定（降透明＋锁形标），点击任一 AI 入口统一提示档位感知文案（单源 helper，按目标 feature key 的最低档出「开通解锁/PRO 专属/MAX 专属」口径；SHALL NOT 硬编码「升级 PRO」字面量）且不发出请求；no_key→引导去模型配置；missing_model/invalid→面板内引导选模型
+- 两态卡面文案 SHALL 面向作家：ready＝「你的 <display_name> 已包含 · 只加工你写的，不代写」（display_name 取服务端下发）；锁定＝「<目标档> 解锁 · 免费版写作功能完整，这一页照常自己写」类分档口径；内部套餐词（如「Max 同享」）SHALL NOT 出现在面板
 - 免费态字段 SHALL 照常手写（手填功能不受限），锁定仅限 AI 入口
 
 #### Scenario: 免费版点击拦截
+
 - **WHEN** 免费版作者点击任一 AI 行或行内「AI 帮我填」
-- **THEN** 卡片呈锁定态，弹统一升级提示，不发出 AI 请求
+- **THEN** 卡片呈锁定态，弹档位感知统一升级提示，不发出 AI 请求
 
 #### Scenario: 免费版手填不受影响
+
 - **WHEN** 免费版作者手写全景与结局三问并确认
-- **THEN** 保存与确认流程与 PRO 完全一致
+- **THEN** 保存与确认流程与会员档完全一致
 ### Requirement: story_arc 存储契约与 legacy 迁移
 
 - story_arc 对象 SHALL 为 `{fullstory, ending{scene, hero, tone}}`；读取 SHALL 兼容 legacy 形状（`fullstory ?? premise` 归一，legacy premise 非空即视为已填）
