@@ -199,6 +199,20 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
     api_format: apiFormat,
   });
 
+  /** 「获取模型」按钮可用性＝轻探针前置条件（未就绪禁用，不点了才静默跳过）。 */
+  const canFetchModels =
+    !isEdit && !!vendorId && !!baseUrl.trim() && (vendorId === "ollama" || !!apiKey.trim());
+
+  /** 显式触发口（2026-10-08 拍板）：点击强拉清单（同参数也重拉）＋展开选择器弹层——
+   *  下拉正对「模型名称」框，不依赖失焦自动拉取也能拿到清单。 */
+  const handleFetchModelsClick = () => {
+    /* v8 ignore start -- 防御分支：按钮在未就绪/在途时已 disabled，真实点击到不了这里 */
+    if (!canFetchModels || fetching) return;
+    /* v8 ignore stop */
+    setPickerOpen(true);
+    void runFetchModels(curFetchParams(), { force: true });
+  };
+
   const handleVendorSelect = (id: string) => {
     /* v8 ignore start -- 防御分支：编辑态不渲染 .vgrid（改渲染 .vfix），无触发路径 */
     if (isEdit) return;
@@ -533,9 +547,21 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
           <div className="field">
             <div className="label-row">
               <label htmlFor="cfModel">模型名称</label>
-              {metaText && (
-                <span className={"mp-meta" + (metaTone ? ` ${metaTone}` : "")}>{metaText}</span>
-              )}
+              <div className="mp-fetchrow">
+                {metaText && (
+                  <span className={"mp-meta" + (metaTone ? ` ${metaTone}` : "")}>{metaText}</span>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleFetchModelsClick}
+                  disabled={!canFetchModels || fetching || saving}
+                  title={canFetchModels ? "重新拉取模型清单" : "先选供应商并填 Base URL 与 API Key"}
+                >
+                  {fetching && <Ico d={P.spinner} sw={2.4} className="spin" />}
+                  获取模型
+                </button>
+              </div>
             </div>
             <div className="mp-wrap">
               <input
