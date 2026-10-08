@@ -10,7 +10,6 @@ import { useEffect, useState } from "react";
 import Modal from "@/components/design/Modal";
 import VersionDiff from "@/components/novel/VersionDiff";
 import { api, request } from "@/lib/api";
-import { polishWritePrompt } from "@/lib/ai";
 import { cnNum } from "@/lib/nodeTitle";
 import { toast } from "@/lib/toast";
 
@@ -427,13 +426,14 @@ export function HistoryModal({
 }
 
 // ---------------------------------------------------------------------------
-// AI 生成正文（tall；两段式 ai-prompt-crafting：打开展示存量/粗组 →
-// 「AI 润色」→ 作家过目/编辑 →「生成正文」流式追加）
-// c-prompt-tab-retire：提示词页签退役后本弹窗兼任「查看/编辑/存稿」入口——
-// 「存为本章提示词」把编辑稿落库（PUT prompts/write），此后每次生成本弹窗
+// AI 生成正文（tall）：打开展示存量/本次组装稿 → 作家过目/编辑 →「生成正文」
+// 流式追加。c-prompt-tab-retire：提示词页签退役后本弹窗兼任「查看/编辑/存稿」
+// 入口——「存为本章提示词」把编辑稿落库（PUT prompts/write），此后每次生成本弹窗
 // 打开即显示这一版；只查看不生成＝打开后取消（零副作用）。
 // 「刷新提示词」＝GET ?fresh=1 忽略存量行按当前素材重新组装（只换预览稿，
 // 不动存量行）；章纲/设定改过之后用它拿到新组装稿。
+// c-retire-prompt-polish：原「AI 润色」两段式第二段退役（组装稿直接可编辑用），
+// 弹窗内不再有润色入口。
 // ---------------------------------------------------------------------------
 
 export function AiModal({
@@ -450,18 +450,16 @@ export function AiModal({
   chapterRef: string;
   /** 携带编辑后的提示词启动生成 */
   onConfirm: (prompt: string) => void;
-  /** 提示词落库成功（润色或「存为本章提示词」）→ 右栏状态行刷新 */
+  /** 提示词落库成功（「存为本章提示词」）→ 右栏状态行刷新 */
   onPromptSaved?: () => void;
 }) {
   const [prompt, setPrompt] = useState("");
   const [hasOutline, setHasOutline] = useState(true);
-  // polished：true = 存量提示词（润色或作家编辑落库）；false = 程序粗组稿
+  // polished：true = 存量提示词（作家编辑落库）；false = 程序本次组装稿
   const [polished, setPolished] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [polishing, setPolishing] = useState(false);
-  const [polishError, setPolishError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   // 旧版整包分型（c-write-prompt-layering）：raw=粗组存稿旧行（建议刷新）、
@@ -474,7 +472,6 @@ export function AiModal({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    setPolishError(null);
     request(`/novels/${projectId}/chapters/${chapterRef}/write/prompt`, {
       quiet: true,
     })
@@ -507,24 +504,6 @@ export function AiModal({
     };
   }, [open, projectId, chapterRef, reloadKey]);
 
-  const handlePolish = async () => {
-    if (polishing) return;
-    setPolishing(true);
-    setPolishError(null);
-    try {
-      const text = await polishWritePrompt(projectId, chapterRef);
-      setPrompt(text);
-      setPolished(true);
-      toast.success("AI 润色完成 · 已保存，可继续编辑");
-      onPromptSaved?.();
-    } catch (e) {
-      // 502（润色未过校验/模型出错）不动既有行 → 就地提示可重试
-      setPolishError((e as Error)?.message || "润色失败，请重试");
-    } finally {
-      setPolishing(false);
-    }
-  };
-
   /** 「刷新提示词」：fresh=1 绕过存量行重新组装；成功清错误态（初始失败后可当
    *  恢复路径），失败不动当前稿也不动错误标志 */
   const handleRefresh = async () => {
@@ -541,7 +520,6 @@ export function AiModal({
       setLegacyKind("");
       setLintWarnings(Array.isArray(d?.warnings) ? d.warnings.filter(Boolean) : []);
       setError(null);
-      setPolishError(null);
     } catch (e) {
       toast.error((e as Error)?.message || "刷新失败，请重试");
     } finally {
@@ -587,20 +565,10 @@ export function AiModal({
           <button className="btn btn-secondary" onClick={onClose}>
             取消
           </button>
-          {polished === false && (
-            <button
-              className="btn btn-secondary"
-              data-testid="ai-polish"
-              disabled={polishing || loading || refreshing}
-              onClick={() => void handlePolish()}
-            >
-              {polishing ? "润色中…" : "AI 润色"}
-            </button>
-          )}
           <button
             className="btn btn-primary"
             data-testid="ai-confirm"
-            disabled={loading || !!error || polishing || refreshing}
+            disabled={loading || !!error || refreshing}
             onClick={() => {
               onClose();
               onConfirm(prompt);
@@ -616,19 +584,19 @@ export function AiModal({
           本章提示词{" "}
           {polished === false ? (
             <span className="badge warn" data-testid="ai-raw-tag">
-              未润色
+              本次组装
             </span>
           ) : polished === true ? (
             <span className="badge ok" data-testid="ai-polished-tag">
-              已润色
+              本章已存稿
             </span>
           ) : null}{" "}
-          <span className="opt">由「设定 + 章纲」组装，可先 AI 润色再编辑</span>
+          <span className="opt">由「设定 + 章纲」组装，可直接编辑</span>
         </label>
         <textarea
           className="ai-prompt"
           value={prompt}
-          disabled={loading || polishing || refreshing}
+          disabled={loading || refreshing}
           placeholder={loading ? "组装中…" : ""}
           onChange={(e) => setPrompt(e.target.value)}
           data-testid="ai-prompt"
@@ -639,7 +607,7 @@ export function AiModal({
               style={{ margin: "8px 0 0", fontSize: 12, color: "var(--muted)" }}
               data-testid="ai-legacy-note"
             >
-              恒定设定（题材/文风/世界观/铁律）已由系统按本书设定注入，与本稿并存；可继续编辑或润色。
+              恒定设定（题材/文风/世界观/铁律）已由系统按本书设定注入，与本稿并存；可继续编辑。
             </p>
           ) : (
             <p
@@ -658,17 +626,18 @@ export function AiModal({
             {lintWarnings.join("；")}
           </p>
         ) : null}
-        {/* 刷新＋存稿行：刷新＝fresh 组装稿仅换预览（不动存量行）；存稿＝编辑稿落库 */}
+        {/* 刷新＋存稿行：刷新＝fresh 组装稿仅换预览（不动存量行）；生成＝本次所用稿落库；
+            存稿＝不生成只落库 */}
         <div className="ai-prompt-save">
           <span>
-            「刷新提示词」按最新章纲重新组装章级素材（恒定设定由系统按本书设定注入，不动已存稿）；直接生成＝这一版只用于本次，存下来则本章以后每次生成都用它。
+            「刷新提示词」按最新章纲重新组装章级素材（恒定设定由系统按本书设定注入，不动已存稿）；点「生成正文」＝本次用的这一版同时记为本章提示词，只想先存不生成用「存为本章提示词」。
           </span>
           <div style={{ display: "flex", gap: 8, flex: "none" }}>
             <button
               className="btn btn-ghost btn-sm"
               data-testid="ai-prompt-refresh"
-              title="按最新章纲重新组装章级素材；不改动已存稿，可再润色或编辑"
-              disabled={loading || polishing || refreshing}
+              title="按最新章纲重新组装章级素材；不改动已存稿，可再编辑"
+              disabled={loading || refreshing}
               onClick={() => void handleRefresh()}
             >
               {refreshing ? "刷新中…" : "刷新提示词"}
@@ -676,12 +645,7 @@ export function AiModal({
             <button
               className="btn btn-ghost btn-sm"
               data-testid="ai-prompt-save"
-              disabled={loading ||
-                polishing ||
-                refreshing ||
-                saving ||
-                !!error ||
-                !prompt.trim()}
+              disabled={loading || refreshing || saving || !!error || !prompt.trim()}
               onClick={() => void handleSavePrompt()}
             >
               {saving ? "保存中…" : "存为本章提示词"}
@@ -689,18 +653,7 @@ export function AiModal({
           </div>
         </div>
       </div>
-      {polishError ? (
-        <p style={{ margin: 0, fontSize: 12.5, color: "var(--err)" }}>
-          {polishError} ·{" "}
-          <button
-            className="btn btn-ghost btn-sm"
-            disabled={polishing}
-            onClick={() => void handlePolish()}
-          >
-            重试润色
-          </button>
-        </p>
-      ) : error ? (
+      {error ? (
         <p style={{ margin: 0, fontSize: 12.5, color: "var(--err)" }}>
           {error}·
           <button
@@ -713,7 +666,7 @@ export function AiModal({
       ) : (
         <p style={{ margin: 0, fontSize: 12.5, color: "var(--muted)" }}>
           {hasOutline
-            ? "两段式：先「AI 润色」成稿 → 过目编辑 → 生成。生成内容将追加到本章末尾。"
+            ? "过目／编辑后点「生成正文」；生成内容将追加到本章末尾。"
             : "本章尚未配置章纲，将仅依据设定生成。建议先去「大纲」补章纲（不强制）。"}
         </p>
       )}

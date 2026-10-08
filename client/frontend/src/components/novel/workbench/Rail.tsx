@@ -47,7 +47,7 @@ export interface RailChapterData {
   onAiCheck?: (kind: AiCheckKind) => void;
   /** 文风「AI 建议本章调整」触发（StyleShadowPane 信号拉取；2026-09-20 入口收口右栏） */
   onStyleSuggest?: () => void;
-  /** 提示词落库信号（c-prompt-tab-retire）：弹窗润色/存稿后右栏提示词状态行刷新 */
+  /** 提示词落库信号（c-prompt-tab-retire）：弹窗存稿后右栏提示词状态行刷新 */
   promptSavedSignal?: number;
 }
 

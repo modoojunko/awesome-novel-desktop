@@ -6,9 +6,10 @@ import { addFirstChapterViaTree, cleanupSessionNovels, stableClick } from "./hel
 import { entitlementFor } from "./tier-features";
 
 // =========================================================================
-// 两段式提示词 → 正文生成 全链路 E2E（ai-prompt-crafting，打桩 AI）：
-//   ① AiModal：粗组稿「未润色」→「AI 润色」（stub polish 端点）→ 换稿换标 →
-//      作家补一句 →「生成正文」（stub /write SSE）→ 正文落 editor
+// 提示词 → 正文生成 全链路 E2E（ai-prompt-crafting；c-retire-prompt-polish 后
+// 单段式，打桩 AI）：
+//   ① AiModal：本次组装稿（标「本次组装」，无润色入口）→ 作家编辑提示词 →
+//      「生成正文」（stub /write SSE）→ 正文落 editor
 //   ② 完工检查横幅：word_check 字数不足提示 + self_check 规则清单（可关闭）
 // 会话/打桩手法与 workbench-features.spec.ts 一致：S端 真注册登录 +
 // config.json 注入 trial；AI 端点用 page.route fulfill（不依赖真实模型）。
@@ -130,14 +131,14 @@ async function setupFirstChapter(page: Page) {
   await addFirstChapterViaTree(page);
 }
 
-const POLISHED_PROMPT = [
+const EDITED_PROMPT = [
   "# 整章任务",
   "",
   "城门对峙一场戏：目标是带信入城，守卫盘查是阻碍，通缉令画像是钩子。",
   "章末落点：他收起通缉令，转身没入夜色。",
 ].join("\n");
 
-test("两段式：AiModal 粗组→AI 润色→编辑→生成 + 完工检查横幅", async ({
+test("单段式：AiModal 组装→编辑→生成 + 完工检查横幅（c-retire-prompt-polish）", async ({
   page,
   request,
 }) => {
@@ -148,14 +149,8 @@ test("两段式：AiModal 粗组→AI 润色→编辑→生成 + 完工检查横
     await setupFirstChapter(page);
 
     // ── 打桩 AI 端点（不依赖真实模型） ─────────────────────────────────
-    await page.route("**/api/novels/*/chapters/*/write/prompt/polish", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ prompt: POLISHED_PROMPT, polished: true }),
-      }),
-    );
-    // /write SSE（glob 以 /write 结尾：不会误吞 /write/prompt 等子路径；续写端点已随 c-retire-continue-writing 退役）
+    // /write SSE（glob 以 /write 结尾：不会误吞 /write/prompt 等子路径；续写端点已随
+    // c-retire-continue-writing 退役；提示词润色端点已随 c-retire-prompt-polish 退役）
     const CHUNK = "雨点砸在铁皮棚上，他没有抬头。守卫把通缉令举到火把下比对了很久。";
     const DONE_WORD_CHECK = {
       target: 2500,
@@ -166,8 +161,15 @@ test("两段式：AiModal 粗组→AI 润色→编辑→生成 + 完工检查横
     const DONE_SELF_CHECK = [
       { rule: "因果自然呈现", excerpts: ["因为画像不像，所以他松了手。"] },
     ];
-    await page.route("**/api/novels/*/chapters/*/write", (route) =>
-      route.fulfill({
+    let sentPrompt = "";
+    await page.route("**/api/novels/*/chapters/*/write", async (route) => {
+      try {
+        sentPrompt = (JSON.parse(route.request().postData() || "{}") as { prompt?: string })
+          .prompt ?? "";
+      } catch {
+        sentPrompt = "";
+      }
+      await route.fulfill({
         status: 200,
         contentType: "text/event-stream",
         body:
@@ -178,26 +180,22 @@ test("两段式：AiModal 粗组→AI 润色→编辑→生成 + 完工检查横
             word_check: DONE_WORD_CHECK,
             self_check: DONE_SELF_CHECK,
           })}\n\n`,
-      }),
-    );
+      });
+    });
 
-    // ── 阶段一：AiModal 打开 → 粗组稿「未润色」 ────────────────────────
+    // ── 阶段一：AiModal 打开 → 本次组装稿（无润色入口） ────────────────
     await page.getByRole("tab", { name: /^正文/ }).click();
     await page.getByTestId("ai-write-btn").click(); // 2026-09-20 AI 入口唯一化右栏
     const ai = page.getByRole("dialog", { name: "AI 生成正文" });
     await expect(ai.getByTestId("ai-prompt")).toBeEnabled({ timeout: 10000 });
-    await expect(ai.getByTestId("ai-raw-tag")).toHaveText("未润色");
-
-    // ── 阶段二：AI 润色 → 换稿 + 换标 ──────────────────────────────────
-    await ai.getByTestId("ai-polish").click();
-    await expect(ai.getByTestId("ai-prompt")).toHaveValue(POLISHED_PROMPT, {
-      timeout: 10000,
-    });
-    await expect(ai.getByTestId("ai-polished-tag")).toHaveText("已润色");
+    await expect(ai.getByTestId("ai-raw-tag")).toHaveText("本次组装");
+    // 退役面：弹窗内不得再有润色入口与两段式文案
     await expect(ai.getByTestId("ai-polish")).toHaveCount(0);
+    await expect(ai.getByText("AI 润色")).toHaveCount(0);
+    await expect(ai.getByText(/两段式/)).toHaveCount(0);
 
-    // 作家过目补一句（编辑不丢润色稿）
-    await ai.getByTestId("ai-prompt").fill(`${POLISHED_PROMPT}\n补充：风声里夹着马蹄。`);
+    // ── 阶段二：作家编辑提示词（组装稿可直接改）────────────────────────
+    await ai.getByTestId("ai-prompt").fill(EDITED_PROMPT);
 
     // ── 阶段三：生成正文 → SSE 落 editor + 完工检查（c-workbench-density：
     // 横幅收缩为编辑态工具行警示胶囊，点开展开明细条）─────────────────────
@@ -205,6 +203,8 @@ test("两段式：AiModal 粗组→AI 润色→编辑→生成 + 完工检查横
     const editor = page.locator(".editor");
     await expect(editor).toBeVisible({ timeout: 5000 });
     await expect(editor).toContainText("雨点砸在铁皮棚上", { timeout: 10000 });
+    // 编辑稿原样透传给生成端点（弹窗内不再有 AI 改写步骤）
+    expect(sentPrompt).toBe(EDITED_PROMPT);
 
     const pill = page.getByTestId("qc-banner");
     await expect(pill).toBeVisible({ timeout: 10000 });

@@ -135,6 +135,22 @@ describe("角色面板 · 页脚缺口摘要（按档位）", () => {
       ),
     );
   });
+
+  // 评审补丁：列表没到手时不得冒充「无主角」——回落通用提示即可（加载失败另有 toast）
+  it("列表载入失败：回落通用提示，不显示「先立主角」warn", async () => {
+    apiState.get.mockImplementation((url: string) => {
+      if (String(url) === "/novels/p1/characters") return Promise.reject(new Error("角色列表 500"));
+      return Promise.resolve({ data: {} });
+    });
+    const { container } = renderChars(false);
+
+    await waitFor(() =>
+      expect(container.querySelector(".panel-foot .note")?.textContent).toBe(
+        "高级项可后补 · 确认即计入进度",
+      ),
+    );
+    expect(container.querySelector('[data-od-id="chars-gate-hint"]')).toBeNull();
+  });
 });
 
 describe("角色面板 · 主按钮按保存模型分派", () => {
