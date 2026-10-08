@@ -478,6 +478,8 @@ async def bootstrap_protagonist(
 
     带 character_id（主角待立）时，名称/别名/人设/格位均以服务端此刻内容为
     唯一空值基准——已有的一律不返回、改记入 skipped。
+    c-char-ai-card-generic：character_id 为配角/反派卡时按角色分派通用立卡
+    模板（剧情定位口径改写为其与主角这条线的关系）；主角待立路径字节不动。
     """
 
     project = await _get_project(db, project_id, user["id"])
@@ -490,9 +492,12 @@ async def bootstrap_protagonist(
         except Unprocessable:
             raise HTTPException(404, "角色不存在或已删除") from None
 
+    generic_card = ch is not None and ch.role in ("配角", "反派")
     story = await get_storage().read_yaml(project.root_path, "story.yaml") or {}
     synopsis = str(story.get("synopsis") or "").strip()
     if not synopsis:
+        if generic_card:
+            raise HTTPException(400, "简介还没写——先去 01 简介写几句，再来立卡")
         raise HTTPException(400, "简介还没写——先去 01 简介写几句，再来立主角")
 
     theme_label, _theme_desc = _theme_of(story)
@@ -528,16 +533,29 @@ async def bootstrap_protagonist(
         f"{k}（{layer_of[k][0]}·{layer_of[k][1]}）" for k in COG_FILL_KEYS
     )
 
-    _s_bs, prompt = load_layers("settings_characters_bootstrap")
-    prompt = prompt.format(
-        title=project.name,
-        theme=theme_label or "（未确认）",
-        synopsis=_clamp(synopsis, 600),
-        world=world or "（未填写）",
-        filled_lines=filled_lines,
-        dossier_briefs=dossier_briefs,
-        cog_briefs=cog_briefs,
-    )
+    if generic_card:
+        _s_bs, prompt = load_layers("settings_characters_card")
+        prompt = prompt.format(
+            title=project.name,
+            theme=theme_label or "（未确认）",
+            synopsis=_clamp(synopsis, 600),
+            world=world or "（未填写）",
+            role=ch.role,
+            filled_lines=filled_lines,
+            dossier_briefs=dossier_briefs,
+            cog_briefs=cog_briefs,
+        )
+    else:
+        _s_bs, prompt = load_layers("settings_characters_bootstrap")
+        prompt = prompt.format(
+            title=project.name,
+            theme=theme_label or "（未确认）",
+            synopsis=_clamp(synopsis, 600),
+            world=world or "（未填写）",
+            filled_lines=filled_lines,
+            dossier_briefs=dossier_briefs,
+            cog_briefs=cog_briefs,
+        )
 
     client = await get_ai_client_for_novel(project_id)
     usage: dict = {}
@@ -572,7 +590,7 @@ async def bootstrap_protagonist(
         )
         raise HTTPException(502, f"AI 生成失败，可重试：{e!s}") from e
 
-    data = _parse_json(text, "立主角")
+    data = _parse_json(text, "立卡" if generic_card else "立主角")
     skipped: list[dict] = []
 
     name = _clamp(data.get("name"), 30).strip()

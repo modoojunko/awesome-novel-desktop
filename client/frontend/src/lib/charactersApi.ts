@@ -202,7 +202,8 @@ export const charactersApi = {
       ),
     ),
 
-  /** 从简介立主角（书级）：characterId 可选——主角待立时带上，出稿只补空格 */
+  /** 立卡出稿（书级端点，c-char-ai-card-generic）：characterId 缺省＝从简介立主角；
+      带配角/反派卡 id＝右栏「一键立卡」，后端按卡角色分派模板，出稿只补空格 */
   bootstrapDraft: (projectId: string, characterId?: string) =>
     unwrap<BootstrapDraft>(
       api.post(`/novels/${projectId}/settings/ai/characters/bootstrap`, {

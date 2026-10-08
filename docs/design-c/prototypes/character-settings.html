@@ -537,35 +537,42 @@
             <div class="rh-t"><b>AI 写作助手</b><span>你的 PRO 已包含 · 只加工你写的，不代写</span></div>
           </div>
           <p class="ai-target" id="aiTarget" data-od-id="ai-target"></p>
+          <div class="ra-row" id="rowCard" hidden data-od-id="row-card-draft">
+            <button class="ra-step" type="button" data-aiask="cardDraft" data-od-id="ai-card-draft">
+              <span class="ra-idx num">01</span>
+              <span class="ra-body"><b>一键立卡</b><i id="hCard">按简介把这张卡的空格一次拟齐 · 只补空格，采纳才写入</i></span>
+              <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+          </div>
           <div class="ra-row">
             <button class="ra-step" type="button" data-aiask="persona" data-od-id="ai-persona">
-              <span class="ra-idx num">01</span>
+              <span class="ra-idx num">02</span>
               <span class="ra-body"><b>人设补充</b><i id="hPersona">补一句话人设，采纳才覆盖</i></span>
               <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
             </button>
           </div>
           <div class="ra-row">
             <button class="ra-step" type="button" data-aiask="dossier" data-od-id="ai-dossier">
-              <span class="ra-idx num">02</span>
+              <span class="ra-idx num">03</span>
               <span class="ra-body"><b>基础信息补充</b><i id="hDossier">补档案空格；性别、年龄不代填</i></span>
               <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
             </button>
           </div>
           <div class="ra-row">
             <button class="ra-step" type="button" data-aiask="cog" data-od-id="ai-cognition">
-              <span class="ra-idx num">03</span>
+              <span class="ra-idx num">04</span>
               <span class="ra-body"><b>认知补充</b><i id="hCog">把每层要写的那几格补上，只补空格</i></span>
               <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
             </button>
           </div>
           <div class="ra-row">
             <button class="ra-step" type="button" data-aiask="check" data-od-id="ai-check">
-              <span class="ra-idx num">04</span>
+              <span class="ra-idx num">05</span>
               <span class="ra-body"><b>一致性体检</b><i id="hCheck">拿这张卡去对简介、题材、世界、主线</i></span>
               <svg class="ra-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="14" height="14"><path d="m9 6 6 6-6 6"/></svg>
             </button>
           </div>
-          <p class="ra-foot">这四行都只对<b>当前选中的角色</b>生效：先给你一稿，点<b>采纳 · 写入</b>才落到卡上，写错了能一步撤销。只补空格——你写过的字一个不动；性别、年龄不代填，留给你自己定。答案都是 AI 现场生成的，这里只是示例，不满意就<b>重新生成</b>。卡片上不放 AI 按钮：免费用户照样可以手填所有字段，这一栏看得见、点不动。</p>
+          <p class="ra-foot">这些行都只对<b>当前选中的角色</b>生效（「一键立卡」只认配角与反派）：先给你一稿，点<b>采纳 · 写入</b>才落到卡上，写错了能一步撤销。只补空格——你写过的字一个不动；性别、年龄不代填，留给你自己定。答案都是 AI 现场生成的，这里只是示例，不满意就<b>重新生成</b>。卡片上不放 AI 按钮：免费用户照样可以手填所有字段，这一栏看得见、点不动。</p>
         </div>
         <p class="opt" style="margin-top:12px; padding:0 4px;">未配置模型？去左侧「模型设定」。</p>
       </aside>
@@ -793,6 +800,12 @@
     if (t) t.innerHTML = aiTargetHtml();
     const d = DATA[UI.sel];
     const nm = d.name || '未命名';
+    const g = zoneGaps(d);
+    /* 一键立卡：配角/反派且有任一空格才出现（路人/主角不给行；卡满退场） */
+    const rowCard = $('#rowCard');
+    if (rowCard) rowCard.hidden = !((d.type === '配角' || d.type === '反派') && (g.persona + g.dossier + g.cog) > 0);
+    const hCard = $('#hCard');
+    if (hCard) hCard.textContent = '按简介为「' + nm + '」把人设、档案、认知的空格一次拟齐 · 采纳才写入';
     const ph = $('#hPersona'), dh = $('#hDossier'), ch2 = $('#hCog'), kh = $('#hCheck');
     /* 能力行＝名称 + 描述（描述里带「会读什么」）+ 右箭头，与现役 AI 卡片同构 */
     if (ph) ph.textContent = '为「' + nm + '」出一稿 · 会读：这张卡、简介、题材';
@@ -832,12 +845,18 @@
   function renderTree() {
     $('#treeList').innerHTML = treeHtml();
     $('#treeCnt').textContent = String(Object.keys(DATA).length);
-    $('#charCount').textContent = Object.keys(DATA).length + ' 人';
+    /* #charCount 元素已随历史改版移除，守卫防整页初始化被一行炸掉（存量实锤 2026-10-08） */
+    const cc = $('#charCount');
+    if (cc) cc.textContent = Object.keys(DATA).length + ' 人';
   }
 
   /* ═══ 人物卡 ═══ */
   function headHtml(d) {
     const types = TYPES.map(t => '<button type="button" class="chip' + (d.type === t ? ' on' : '') + '" data-act="type" data-type="' + t + '">' + t + '</button>').join('');
+    /* 配角/反派且名称与人设皆空：一行纯文案指引（不可点，卡片上不放 AI 按钮） */
+    const aiHint = (d.type === '配角' || d.type === '反派') && !String(d.name || '').trim() && !String(d.persona || '').trim()
+      ? '<p class="opt char-ai-hint" data-od-id="char-ai-hint" style="margin:2px 0 0;">右侧「一键立卡」可以先为 TA 拟一稿——只补空格，采纳才写入。</p>'
+      : '';
     const side = d.type === '主角'
       ? '<span class="badge ' + (protOk(d) ? 'ok' : 'warn') + '">' + (protOk(d) ? '已立主角' : '主角待立') + '</span>'
       : '<span class="badge empty">' + esc(d.type) + '</span>';
@@ -857,7 +876,7 @@
           '<button type="button" class="danger" data-act="ops-del" data-od-id="btn-char-del">删除</button>' +
         '</div>' +
       '</div>' +
-    '</header>' + opsPanelHtml(d) + '<!-- <div class="ai-sink" id="sinkCheck" hidden data-od-id="sink-check"></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->';
+    '</header>' + aiHint + opsPanelHtml(d) + '<!-- <div class="ai-sink" id="sinkCheck" hidden data-od-id="sink-check"></div> 已退役→AI 出卡确认弹窗（c-settings-ai-confirm-modal，见文件头标记） -->';
   }
 
   /* 删除 / 合并：都是先出说明、再动手；动手走同一份回执，可一步撤销 */
@@ -1819,6 +1838,7 @@
   $$('.ra-step').forEach(btn => btn.addEventListener('click', () => {
     const k = btn.dataset.aiask;
     if (k === 'check') { renderCheck(); return; }
+    if (k === 'cardDraft') { toast('这是示例稿：正式版会按简介为这张卡把空格一次拟齐——先出稿，采纳才写入'); return; }
     aiZone(k);
   }));
 

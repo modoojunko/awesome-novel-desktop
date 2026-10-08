@@ -1736,6 +1736,21 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
 - **默认 parity 种子（未归档态）不出现泡泡**——泡泡是归档收口后的条件态；book 屏四例 parity 为存量红（4.71%/2.901%/2.76%/~2.7%），归 `c-book-parity-rebaseline` 专户，本批不新增门槛。原型页签行的存量 IA 漂移（「章档」tab 已退役仍在校）同样留归该专户，本批不动。
 - **实现侧动效**：泡泡挂载 pop（scale+fade ~220ms，book.css 屏级 keyframes，先例＝.ai-streaming .pulse）；递减不做 bump（数字变化本身可见）；原型为静态不演示动画。
 
+## c-char-ai-card-generic（2026-10-08）
+**「角色」右栏新增「一键立卡」行（配角/反派上下文）＋卡区一行指引文案**（内测吐槽「主角能用 AI 帮配置、配角没有」的对称化；change＝openspec/changes/c-char-ai-card-generic）：
+
+- **character-settings.html 右栏**：新增首行 `ra-step`「一键立卡」（`data-aiask="cardDraft"`，`data-od-id="ai-card-draft"`，外包 `#rowCard` 默认 `hidden`）——JS 在 `renderAiTarget()` 按上下文显隐：当前卡为**配角/反派**且人设/档案/认知任一有空格才出现，路人与主角不给行、卡满退场；desc 动态带当前角色名。既有四行 ra-idx 编号顺延 02–05（实现侧右栏行无编号，此为原型局部演示形态，与既有四行同口径不另登记）；ra-foot「这四行」改「这些行」并补「一键立卡只认配角与反派」括注。点击行为＝toast 示例说明（先出稿、采纳才写入）。
+- **character-settings.html 卡区**：配角/反派卡且**名称与人设皆空**时，卡头下渲染一行纯文案指引「右侧『一键立卡』可以先为 TA 拟一稿——只补空格，采纳才写入。」（`data-od-id="char-ai-hint"`，`.opt` 既有提示样式，不可点——守「卡片上不放 AI 按钮」拍板；写名字或人设任一即消失）。
+- **默认 parity 种子（主角选中态）零变化**：`#rowCard` 初始 hidden、提示行只在配角/反派空卡出现，本页既有 parity 快照不受影响；新行为条件态，验收走 e2e 钉子（`data-aiact="cardDraft"`）。
+- **文案 §13 自查**：行名「一键立卡」动词短语；desc/foot/指引均无内部术语（门控/模板/manifest 等），提示行指向右栏出口。
+- **顺带存量修复（本 change 截图时实锤）**：`character-settings.html` 的 `renderTree` 在
+  `$('#charCount').textContent` 上裸取空引用——该元素已随历史改版移除，JS 行残留，
+  file:// 打开首帧即抛 `TypeError` → 整页（含角色卡）从不渲染；因角色屏 parity 用例
+  整体 skip，门禁一直没抓到。修复＝加 `if (cc)` 守卫一行（与同函数 `#treeCnt` 邻行
+  同风格），不增删任何视觉元素。
+- **原型截图**（本 change 目录）：`proto-default-protagonist.png`（主角选中默认态＝
+  行隐藏、parity 零变化）、`proto-side-card-row.png`（配角有空格→右栏首行「一键立卡」
+  显形、编号顺延）、`proto-side-card-hint.png`（清空名称与人设→卡区提示行显形）。
 ## c-chars-confirm-scope（角色面板：卡级保存与整项确认分家，2026-10-08）
 
 起因＝内测吐槽「某个角色的设定保存 和 整体角色设定的确认 混一起，容易搞晕」。原型
