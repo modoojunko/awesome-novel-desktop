@@ -610,6 +610,20 @@ const CHAR_SEEDS: CharSeed[] = [
   }),
 ];
 
+/** 门禁缺口（与后端 card_gaps 同构）：非路人六项、路人只剧情定位。
+ *  页脚提示（c-chars-confirm-scope）两侧同源，占位空数组会让应用侧少一句话。 */
+function seedGaps(c: CharSeed): string[] {
+  if (c.role === "路人") return String(c.dossier.plot ?? "").trim() ? [] : ["剧情定位"];
+  const miss: string[] = [];
+  if (!String(c.name ?? "").trim()) miss.push("角色名称");
+  if (!String(c.persona ?? "").trim()) miss.push("一句话人设");
+  if (!String(c.dossier.plot ?? "").trim()) miss.push("剧情定位");
+  if (!String(c.cog.w5 ?? "").trim()) miss.push("核心认知盲区");
+  if (!String(c.cog.p3 ?? "").trim()) miss.push("能力上限");
+  if (!String(c.cog.p4 ?? "").trim()) miss.push("能力代价");
+  return miss;
+}
+
 const CHAR_ITEMS = CHAR_SEEDS.map((c, i) => ({
   id: c.id,
   novel_id: PID,
@@ -625,7 +639,7 @@ const CHAR_ITEMS = CHAR_SEEDS.map((c, i) => ({
   created_at: UPDATED,
   updated_at: UPDATED,
   first_chapter: c.first,
-  gaps: [],
+  gaps: seedGaps(c),
   rel_count: c.id === "char-ls" ? 8 : c.id === "char-sw" ? 1 : c.id === "char-liu" ? 1 : 0,
 }));
 
