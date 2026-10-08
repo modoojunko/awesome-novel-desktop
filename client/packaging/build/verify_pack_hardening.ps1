@@ -73,7 +73,7 @@ Write-Host ""
 if ($fail -eq 0) {
     Write-Host "自动检查全部通过。以下三步请在真机上人工确认：" -ForegroundColor Cyan
 } else {
-    Write-Host "有 $fail 项未通过——把上面的输出与 logs\startup.log、logs\app.log 一起回报。" -ForegroundColor Red
+    Write-Host "有 $fail 项未通过——把上面的输出与 logs\startup.log、logs\app.log（AI/模型问题加附 logs\llm.log）一起回报。" -ForegroundColor Red
 }
 @'
 人工手测（脚本判不了的）：

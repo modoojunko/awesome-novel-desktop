@@ -6,6 +6,9 @@
   DATA_ROOT/logs；AINOVEL_LOG_OFF=1 整体关闭（conftest 全局设置，测试零副作用）。
 - 按天轮转：TimedRotatingFileHandler（midnight、backupCount=5、UTF-8、delay=True），
   现文件 app.log、轮转产物 app.log.YYYY-MM-DD。
+- llm.log 专项档（c-llm-call-log）：同参第二个 handler，只挂三类大模型出网调用的
+  具名 logger（ai_client / llm_probe / zhuque.client）；这些 logger 保持
+  propagate=True——行双写 app.log（求诊主档不缺行）＋ llm.log（专项档）。
 - Handler 拓扑（D1）：挂 root＋`uvicorn` 两个挂点，并显式 `uvicorn.propagate=False`
   ——log_config=None 跳过 dictConfig 后，uvicorn 默认配置里的 propagate 护栏不再
   生效，不钉这条同一个 record 会在两个挂点各写一行（dev 看不出、打包必现双行）。
@@ -26,10 +29,15 @@ from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 _MARK = "_ainovel_daily"
+_LLM_MARK = "_ainovel_llm"
 
 # 第三方库静音名单（D2）：root 提到 INFO 后它们会刷屏/进求诊文件——httpx 每个
 # 上游请求一行且含完整 URL（隐私面）；AI 调用观测由 ai_client 的留痕行承载。
 _NOISY_LOGGERS = ("httpx", "httpcore", "openai", "sqlalchemy")
+
+# llm.log 专项档挂载点（c-llm-call-log）：大模型出网调用的三类具名 logger
+# （生成调用 / 连接探针 / 朱雀检测）。不设 propagate=False——app.log 双写保留。
+_LLM_LOGGERS = ("ai_client", "llm_probe", "zhuque.client")
 
 
 class FoldRepeatFilter(logging.Filter):
@@ -108,6 +116,24 @@ def setup_logging(log_dir: str | os.PathLike | None = None) -> Path | None:
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     for name in _NOISY_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
+
+    # llm.log 专项档（c-llm-call-log）：同参第二 handler，独立折叠实例（filter 状态
+    # 不共享——同一条 record 在两个 handler 各自独立判定，互不干扰）。
+    llm_handler = TimedRotatingFileHandler(
+        log_dir / "llm.log",
+        when="midnight",
+        backupCount=5,
+        encoding="utf-8",
+        delay=True,
+    )
+    llm_handler._ainovel_llm = True
+    llm_handler._ainovel_dir = log_dir
+    llm_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
+    llm_handler.addFilter(FoldRepeatFilter())
+    for name in _LLM_LOGGERS:
+        logging.getLogger(name).addHandler(llm_handler)
 
     if sys.stdout is not None:  # 打包 GUI 态 stdout 可能是 None（壳层已垫 devnull 则非 None）
         console = logging.StreamHandler(sys.stdout)

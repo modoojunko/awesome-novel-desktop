@@ -11,15 +11,25 @@ models 端点缺失（部分 Anthropic 兼容端点不提供列表）时降级�
 收到**格式正确且含可见回复文本**的回复才算通——非 2xx、体不符格式、空回复一律判失败，
 400/422 类业务性拒绝不再放行（点名所试模型 id）；无可用模型 id（列表空且无候选）
 判失败并提示填写模型名。
+
+留痕（c-llm-call-log）：每个出网请求落一行 `llm_probe` 日志（llm.log 专项档＋
+app.log 双写）——Gemini 401 定诊实锤：探针不落日志时远程只能靠推断。行只含
+host＋path（丢弃 query；headers 含 Key 永不落）＋上游状态码＋耗时＋结果分类。
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import re
+import time
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
+
+# llm.log 专项档挂载点（logging_setup._LLM_LOGGERS 同名登记）
+logger = logging.getLogger("llm_probe")
 
 CONNECTION_TEST_TIMEOUT = int(os.environ.get("API_CONFIG_TEST_TIMEOUT", "10"))
 
@@ -54,6 +64,60 @@ def model_candidates_for(vendor_id: str) -> list[str]:
     return list(VENDOR_MODEL_CANDIDATES.get(vendor_id, []))
 
 
+# ── 留痕组件（c-llm-call-log）────────────────────────────────────────────────
+
+
+def _probe_target(url: str) -> tuple[str, str]:
+    """URL → (host, path)。query 永不落日志——某些网关支持 ?key= 传钥，整 URL
+    与请求头一样按机密处理。"""
+    parts = urlparse(url)
+    return parts.netloc, parts.path or "/"
+
+
+def _status_result(status_code: int) -> str:
+    """上游 HTTP 状态码 → 机械结果分类（请求级事实，不掺业务判断——anthropic
+    格式 models 404 在返回体里是合法形态，日志仍如实记 not_found）。"""
+    if 200 <= status_code < 300:
+        return "ok"
+    if status_code in (401, 403):
+        return "auth_error"
+    if status_code == 404:
+        return "not_found"
+    if status_code == 429:
+        return "rate_limited"
+    if status_code >= 500:
+        return "server_error"
+    return "http_error"
+
+
+def _log_probe(
+    kind: str,
+    *,
+    vendor: str,
+    api_format: str,
+    url: str,
+    start: float,
+    status: int = 0,
+    model: str = "",
+    result: str | None = None,
+    error: str | None = None,
+) -> None:
+    """一个出网请求一行留痕：成功 INFO / 失败 WARNING（ai_client 留痕行同款约定）。
+
+    status=0 表示请求未完成（超时/连接失败）；result 缺省按状态码机械映射。
+    """
+    host, path = _probe_target(url)
+    outcome = result or _status_result(status)
+    logger.log(
+        logging.INFO if outcome == "ok" else logging.WARNING,
+        "event=llm_probe kind=%s vendor=%s format=%s host=%s path=%s model=%s"
+        " status=%d duration_ms=%.0f result=%s%s",
+        kind, vendor or "-", api_format or "-", host, path, model or "-",
+        status, (time.perf_counter() - start) * 1000, outcome,
+        f" error={error[:120]}" if error else "",
+    )
+
+
 async def test_connection(
     vendor_id: str,
     api_key: str,
@@ -85,14 +149,20 @@ async def test_connection(
         api_format, vendor_id, api_key, base_url
     )
 
+    start = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
+            _log_probe(
+                "models_list", vendor=vendor_id, api_format=api_format,
+                url=endpoint, start=start, status=resp.status_code,
+            )
             if resp.status_code == 404 and fallback is not None:
                 # models 端点不存在 → 降级为「你好」最小生成探针（2026-10-05 拍板）
                 f_url, f_headers, f_payload = fallback
                 probe = await _probe_generation(
-                    client, f_url, f_headers, f_payload, _anthropic_reply_text
+                    client, f_url, f_headers, f_payload, _anthropic_reply_text,
+                    vendor=vendor_id, api_format=api_format,
                 )
                 if probe is not None:
                     return probe
@@ -166,6 +236,8 @@ async def test_connection(
                     headers,
                     _generation_payload(probe_model),
                     _openai_reply_text,
+                    vendor=vendor_id,
+                    api_format=api_format,
                 )
                 if ping is not None:
                     # 探针失败仍带回已提取的清单（评审 P1：手填错 id 的自恢复闭环——
@@ -179,13 +251,24 @@ async def test_connection(
                     f_headers,
                     _generation_payload(probe_model or _ANTHROPIC_PROBE_MODEL),
                     _anthropic_reply_text,
+                    vendor=vendor_id,
+                    api_format=api_format,
                 )
                 if ping is not None:
                     return {**ping, "models": models}
             return {"ok": True, "status": "ok", "models": models, "error": None}
     except httpx.TimeoutException:
+        _log_probe(
+            "models_list", vendor=vendor_id, api_format=api_format,
+            url=endpoint, start=start, status=0, result="timeout",
+        )
         return {"ok": False, "status": "timeout", "models": None, "error": "连接超时"}
-    except httpx.ConnectError:
+    except httpx.ConnectError as exc:
+        _log_probe(
+            "models_list", vendor=vendor_id, api_format=api_format,
+            url=endpoint, start=start, status=0, result="network_error",
+            error=str(exc),
+        )
         return {
             "ok": False,
             "status": "network_error",
@@ -193,6 +276,11 @@ async def test_connection(
             "error": "无法连接服务器",
         }
     except httpx.RequestError as exc:
+        _log_probe(
+            "models_list", vendor=vendor_id, api_format=api_format,
+            url=endpoint, start=start, status=0, result="network_error",
+            error=str(exc),
+        )
         return {
             "ok": False,
             "status": "network_error",
@@ -229,9 +317,14 @@ async def fetch_models(
         api_format, vendor_id, api_key, base_url
     )
 
+    start = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
+            _log_probe(
+                "models_list", vendor=vendor_id, api_format=api_format,
+                url=endpoint, start=start, status=resp.status_code,
+            )
             # 「端点不提供清单」的 404 特判只限 anthropic 格式（与 test_connection 的
             # fallback 判据同源）——openai/ollama 格式的 404 更常见成因是 Base URL 路径
             # 填错，按异常响应报错并提示核对，不误诊为「无清单端点」（评审 P1）
@@ -286,8 +379,17 @@ async def fetch_models(
             models = extract_fn(resp)
             return {"ok": True, "status": "ok", "models": models, "error": None}
     except httpx.TimeoutException:
+        _log_probe(
+            "models_list", vendor=vendor_id, api_format=api_format,
+            url=endpoint, start=start, status=0, result="timeout",
+        )
         return {"ok": False, "status": "timeout", "models": None, "error": "连接超时"}
-    except httpx.ConnectError:
+    except httpx.ConnectError as exc:
+        _log_probe(
+            "models_list", vendor=vendor_id, api_format=api_format,
+            url=endpoint, start=start, status=0, result="network_error",
+            error=str(exc),
+        )
         return {
             "ok": False,
             "status": "network_error",
@@ -295,6 +397,11 @@ async def fetch_models(
             "error": "无法连接服务器",
         }
     except httpx.RequestError as exc:
+        _log_probe(
+            "models_list", vendor=vendor_id, api_format=api_format,
+            url=endpoint, start=start, status=0, result="network_error",
+            error=str(exc),
+        )
         return {
             "ok": False,
             "status": "network_error",
@@ -408,6 +515,8 @@ async def _probe_generation(
     headers: dict[str, str],
     payload: dict[str, Any],
     reply_fn: Any,
+    vendor: str = "",
+    api_format: str = "",
 ) -> dict[str, Any] | None:
     """最小生成探针（2026-10-05 拍板）：发一条「你好」，收到格式正确且含可见回复文本
     的回复才算通（reply_fn 按对应契约提取回复文本）。
@@ -416,9 +525,14 @@ async def _probe_generation(
     不再放行——点名所试模型 id），失败形态 dict = 直接作为连接测试结果返回。
     """
     model = payload.get("model", "")
+    start = time.perf_counter()
     try:
         resp = await _post_with_thinking_retry(client, url, headers, payload)
     except httpx.TimeoutException:
+        _log_probe(
+            "generation_probe", vendor=vendor, api_format=api_format,
+            url=url, start=start, model=model, result="timeout",
+        )
         return {
             "ok": False,
             "status": "timeout",
@@ -426,12 +540,31 @@ async def _probe_generation(
             "error": "对话探针超时（连接超时）",
         }
     except httpx.RequestError as exc:
+        _log_probe(
+            "generation_probe", vendor=vendor, api_format=api_format,
+            url=url, start=start, model=model, result="network_error",
+            error=str(exc),
+        )
         return {
             "ok": False,
             "status": "network_error",
             "models": None,
             "error": f"网络错误: {exc}",
         }
+    verdict = _probe_verdict(resp, url, model, reply_fn)
+    _log_probe(
+        "generation_probe", vendor=vendor, api_format=api_format,
+        url=url, start=start, model=model, status=resp.status_code,
+        result=verdict["status"] if verdict else "ok",
+        error=verdict["error"] if verdict else None,
+    )
+    return verdict
+
+
+def _probe_verdict(
+    resp: httpx.Response, url: str, model: str, reply_fn: Any
+) -> dict[str, Any] | None:
+    """生成探针的响应判定（无副作用纯判定）：None = 通过；否则失败形态 dict。"""
     if resp.status_code in (401, 403):
         detail = _extract_error_detail(resp)
         return {
