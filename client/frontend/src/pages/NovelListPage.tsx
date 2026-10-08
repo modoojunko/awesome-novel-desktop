@@ -251,6 +251,8 @@ function NovelList() {
   useEffect(() => {
     if (!carryRec || carryRec.carried || carryRec.suppressed || carryConfirmed) return;
     if ((carryRec.book_count ?? 0) <= 0) return;
+    /* v8 ignore next -- dispatch 闭包经队列同步执行（运行时必达，46 次调用全命中）；
+       v8 provider 对「调用实参里的箭头体」存在双映射幻影（调用语句命中、闭包体记 0） */
     enqueueDialog('carry', 1, () => setCarryOpen(true));
   }, [carryRec, carryConfirmed]);
 
