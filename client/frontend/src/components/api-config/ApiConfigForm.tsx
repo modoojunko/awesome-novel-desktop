@@ -497,6 +497,15 @@ export function ApiConfigForm({ open, config, onSubmit, onCancel, onTest, onFetc
             placeholder={FORMAT_PLACEHOLDER[apiFormat]}
             disabled={saving}
           />
+          {vendorId === "openai-compat" && (
+            <p className="cf-hint">
+              未列厂商（如 Google Gemini）走 OpenAI 兼容模版：Gemini 官方兼容地址{" "}
+              <code>https://generativelanguage.googleapis.com/v1beta/openai/</code>
+              （配 Gemini API Key）。该类地址可能拉不到模型清单，手填模型 id（如
+              gemini-2.5-pro）即可；国外厂商也可把 Base URL 填成反代/转发服务地址
+              （OpenAI、Anthropic 等按钮同样支持改地址指向反代）。
+            </p>
+          )}
         </div>
         <div className="field">
           <label htmlFor="cfKey">API Key</label>

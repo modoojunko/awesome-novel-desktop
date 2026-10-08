@@ -37,11 +37,26 @@ VENDOR_MODEL_CANDIDATES: dict[str, list[str]] = {
     "deepseek": ["deepseek-flash", "deepseek-v4-pro"],
 }
 
-# 端点不提供模型列表时的统一说明（连接成功但列表为空的原因）
-NO_MODEL_LIST_NOTE = (
+# 端点不提供模型列表时的统一说明（连接成功但列表为空的原因），按接口格式分文案：
+# anthropic 版尾句引导「改成 openai 重测拉清单」；openai 格式下该尾句是自我循环，
+# 故 openai 版只留手填出口（c-api-config-foreign-vendors 评审补查：消费点三处——
+# test_connection 404 降级 / fetch-models anthropic 分支 / model-candidates 端点）。
+NO_MODEL_LIST_NOTE_ANTHROPIC = (
     "该端点不提供模型列表（Anthropic 兼容端点常见）——可手动填模型 id，"
     "或把接口格式改成 openai 后重新测试即可自动获取"
 )
+NO_MODEL_LIST_NOTE_OPENAI = (
+    "该端点不提供模型列表——可手动填模型 id 后重新测试"
+)
+
+
+def no_model_list_note(api_format: str) -> str:
+    """按接口格式选「端点不提供模型列表」说明。"""
+    return (
+        NO_MODEL_LIST_NOTE_OPENAI
+        if api_format == "openai"
+        else NO_MODEL_LIST_NOTE_ANTHROPIC
+    )
 
 # 最小生成探针（2026-10-05 拍板）：「你好」＋禁思考＋短输出预算，格式正确回复才算通
 _PROBE_PROMPT = "你好"
@@ -89,10 +104,31 @@ async def test_connection(
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await client.get(endpoint, headers=headers)
             if resp.status_code == 404 and fallback is not None:
-                # models 端点不存在 → 降级为「你好」最小生成探针（2026-10-05 拍板）
-                f_url, f_headers, f_payload = fallback
+                # models 端点不存在 → 降级为「你好」最小生成探针（2026-10-05 拍板）。
+                # 两格式同享降级（Gemini 官方 OpenAI 兼容层等无清单端点因此可用，
+                # 2026-10-08 拍板）。payload 在此现解：404 时列表恒空，探针 id 链
+                # ＝已选模型 > 候选首个 >（仅 anthropic）占位——存量分歧一并修齐
+                # （原实现在 _build_probe 烤死占位 id，已选模型被无视）。openai 格式
+                # 链尾不垫占位 id：凭空猜 id 对兼容端点是噪音，无 id 不降级、判负提示
+                # 填写模型名。
+                f_url, f_headers, f_reply = fallback
+                probe_model = _probe_model([], vendor_id, preferred_model)
+                if not probe_model and api_format != "anthropic":
+                    return {
+                        "ok": False,
+                        "status": "unknown",
+                        "models": None,
+                        "error": (
+                            "该地址不提供模型列表（HTTP 404）且未填写模型名称——"
+                            "请填写模型名称后重新测试"
+                        ),
+                    }
                 probe = await _probe_generation(
-                    client, f_url, f_headers, f_payload, _anthropic_reply_text
+                    client,
+                    f_url,
+                    f_headers,
+                    _generation_payload(probe_model or _ANTHROPIC_PROBE_MODEL),
+                    f_reply,
                 )
                 if probe is not None:
                     return probe
@@ -102,7 +138,7 @@ async def test_connection(
                     "models": [],
                     "error": None,
                     "candidates": model_candidates_for(vendor_id),
-                    "note": NO_MODEL_LIST_NOTE,
+                    "note": no_model_list_note(api_format),
                 }
 
             # 判定与探针必须全部在 client 存活期内执行——async with 退出即关，出块后
@@ -172,13 +208,13 @@ async def test_connection(
                     # 落库后书内选择面板立刻有正确候选可选，不必删配置重建）
                     return {**ping, "models": models}
             elif api_format == "anthropic" and fallback is not None:
-                f_url, f_headers, _f_payload = fallback
+                f_url, f_headers, f_reply = fallback
                 ping = await _probe_generation(
                     client,
                     f_url,
                     f_headers,
                     _generation_payload(probe_model or _ANTHROPIC_PROBE_MODEL),
-                    _anthropic_reply_text,
+                    f_reply,
                 )
                 if ping is not None:
                     return {**ping, "models": models}
@@ -242,7 +278,7 @@ async def fetch_models(
                     "models": [],
                     "error": None,
                     "candidates": model_candidates_for(vendor_id),
-                    "note": NO_MODEL_LIST_NOTE,
+                    "note": no_model_list_note("anthropic"),
                 }
             if resp.status_code in (401, 403):
                 detail = _extract_error_detail(resp)
@@ -314,20 +350,28 @@ def _openai_models_url(base: str) -> str:
 
 def _build_probe(
     api_format: str, vendor_id: str, api_key: str, base_url: str
-) -> tuple[str, dict[str, str], Any, tuple[str, dict[str, str], dict[str, Any]] | None]:
+) -> tuple[
+    str,
+    dict[str, str],
+    Any,
+    tuple[str, dict[str, str], Any] | None,
+]:
     """Return (endpoint_url, headers, response_extractor, auth_fallback).
 
-    auth_fallback = (url, headers, payload)：models 端点 404 时的降级探活请求，
-    仅 anthropic 格式提供（部分兼容端点不提供模型列表）。
+    auth_fallback = (url, headers, reply_fn)：models 端点 404 时的降级探活请求
+    （两格式同享）。探针 payload 不在此构造——id 链需 preferred_model 与候选，
+    由 test_connection 在 404 分支按 `_probe_model([], vendor, preferred)` 现解；
+    openai 格式无 id 时调用方判负不降级。
     """
     base = base_url.rstrip("/")
 
     # ollama 特例：本地服务、免 Key、自有 tags 端点，不按任一协议探测。
     # 一律打用户填的 base（裸填/空＝官方默认 11434）——旧实现见 "localhost" 就硬替
-    # 11434，自定义端口（如 http://localhost:12345）被打去错端口（评审 P2 实锤）
+    # 11434，自定义端口（如 http://localhost:12345）被打去错端口（评审 P2 实锤）。
+    # 登记预填值为 …/v1（SDK 生成调用需版本段），此处剥掉防打去 /v1/api/tags
     if vendor_id == "ollama":
         return (
-            f"{base or 'http://localhost:11434'}/api/tags",
+            f"{base.removesuffix('/v1') or 'http://localhost:11434'}/api/tags",
             {},
             _extract_ollama_models,
             None,
@@ -338,19 +382,20 @@ def _build_probe(
         # 用户粘贴以 /v1 结尾的 base 时先剥防双拼
         base = base.removesuffix("/v1")
         headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
-        fallback = (
-            f"{base}/v1/messages",
-            dict(headers),
-            _generation_payload(_ANTHROPIC_PROBE_MODEL),
-        )
+        fallback = (f"{base}/v1/messages", dict(headers), _anthropic_reply_text)
         return f"{base}/v1/models", headers, _extract_openai_models, fallback
 
-    # openai 格式（OpenAI 官方 / DeepSeek / GLM / Kimi / Qwen / 兼容端点）
+    # openai 格式（OpenAI 官方 / DeepSeek / GLM / Kimi / Qwen / 兼容端点）：
+    # 404 同享降级（Gemini 官方 OpenAI 兼容层 /v1beta/openai 等无清单端点）
     return (
         _openai_models_url(base),
         {"Authorization": f"Bearer {api_key}"},
         _extract_openai_models,
-        None,
+        (
+            f"{base}/chat/completions",
+            {"Authorization": f"Bearer {api_key}"},
+            _openai_reply_text,
+        ),
     )
 
 
