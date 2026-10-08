@@ -21,3 +21,10 @@
 - [x] 4.2 lint：`ruff check client/backend/backup client/backend/tests`（CI 钉 ruff==0.16.3 口径）零新增 ✓ ruff 0.16.3 All checks passed（修一处函数内 import 排序后）
 - [x] 4.3 `openspec validate --change c-backup-import-persist-fix --strict` 通过 ✓ Change 'c-backup-import-persist-fix' is valid
 - [ ] 4.4 真机冒烟（随发版）：单模型配置账号导出→导入→书架可见书且书内模型已接回；不阻塞合码
+
+## 5. 评审整改（合入前风险处置，2026-10-08 review-agent）
+
+- [x] 5.1 补「config-only 包持久化」钉 `test_config_only_package_persists_via_final_commit`：零书配置包只经收尾 commit 落库，新会话验「备胎」配置＋user 只补空；变异验证（仅撤收尾 commit→FAILED）证明钉子咬在收尾 commit 上 ✓
+- [x] 5.2 补「多书 assets 包逐书序列」钉 `test_multi_book_partial_failure_keeps_good_books`：两书包＋monkeypatch 令第二书失败，断言好书 ok 已落、坏书 failed 零残留 ✓
+- [x] 5.3 门禁复跑：全量 2042 passed 1 skipped；ruff 0.16.3 All checks passed ✓
+- [x] 5.4 设计已接受取舍确认：挂回环节基础设施故障→重试得《书名（备份）》重复本——属 spec scenario「挂回异常书保持」口径内的既有裁决，不改码（全有全无方案已被 SQLite 方言实证否决，见 design 决策 1）✓

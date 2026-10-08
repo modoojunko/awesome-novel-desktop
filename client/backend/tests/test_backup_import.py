@@ -302,6 +302,93 @@ class TestPersistDurability:
 
         asyncio.run(run())
 
+    def test_config_only_package_persists_via_final_commit(self):
+        """零书 config-only 包 → 配置恢复只经收尾 commit 落库（评审缺口钉）。"""
+        from backup.importer import persist_package
+        from models.api_config import ApiConfig
+        from models.user import User
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("config.yaml", yaml.safe_dump(_config_payload()))
+
+        async def run():
+            uid = await self._seed_unique_active_user()
+            path = _write_temp_zip(buf.getvalue())
+            try:
+                async with async_session() as db:
+                    summary = await persist_package(db, uid, [path])
+            finally:
+                os.remove(path)
+
+            assert summary["results"] == []
+            assert summary["reattach"] == {"mode": "none", "attached": 0}
+
+            async with async_session() as verify:
+                names = set((await verify.scalars(
+                    select(ApiConfig.name).where(ApiConfig.user_id == uid)
+                )).all())
+                # 种子「常用」同名跳过不覆盖，包内「备胎」由收尾 commit 落库
+                assert names == {"常用", "备胎"}, names
+                user = await verify.get(User, uid)
+                assert user.display_name == "导入昵称"
+
+        asyncio.run(run())
+
+    def test_multi_book_partial_failure_keeps_good_books(self, monkeypatch):
+        """多书 assets 包逐书提交：后一书失败不拖回已落好书（逐书原子序列钉）。"""
+        from backup.importer import _import_single_book, persist_package
+        from models.project import Novel
+
+        real_import = _import_single_book
+
+        async def flaky(db, zf, book_dir, user_id, **kwargs):
+            if "bad-book" in book_dir:
+                raise ValueError("坏书数据")
+            return await real_import(db, zf, book_dir, user_id, **kwargs)
+
+        monkeypatch.setattr("backup.importer._import_single_book", flaky)
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("backup.yaml", yaml.safe_dump({
+                "format_version": FORMAT_VERSION,
+                "books": [{"slug": "good-book"}, {"slug": "bad-book"}],
+            }))
+            for slug, name in (("good-book", "序列好书"), ("bad-book", "序列坏书")):
+                zf.writestr(f"projects/{slug}/project.yaml", yaml.safe_dump({
+                    "name": name, "slug": slug, "current_phase": "write",
+                }))
+                zf.writestr(f"projects/{slug}/volumes/vol-1.yaml", yaml.safe_dump({
+                    "volume": 1, "title": "第一卷",
+                }))
+                zf.writestr(f"projects/{slug}/chapters/ch-1.yaml", yaml.safe_dump({
+                    "volume": 1, "title": "第一章", "prose": "正文内容。",
+                    "status": "done",
+                }))
+
+        async def run():
+            uid = await self._seed_unique_active_user()
+            path = _write_temp_zip(buf.getvalue())
+            try:
+                async with async_session() as db:
+                    summary = await persist_package(db, uid, [path], include_config=False)
+            finally:
+                os.remove(path)
+
+            statuses = {r["book_id"]: r["status"] for r in summary["results"]}
+            assert statuses == {
+                "projects/good-book/": "ok", "projects/bad-book/": "failed",
+            }, statuses
+
+            async with async_session() as verify:
+                names = set((await verify.scalars(
+                    select(Novel.name).where(Novel.user_id == uid)
+                )).all())
+                assert names == {"序列好书"}, names
+
+        asyncio.run(run())
+
 
 def test_format_version_above_supported_rejected():
     """格式契约演进：format_version > FORMAT_VERSION 拒绝并提示升级（防新格式包被旧应用半恢复）。
