@@ -34,7 +34,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://localhost:8000",
+        // VITE_API_PROXY：会话私有 e2e 栈可指向自起后端（默认共享 dev 栈 8000 不动）
+        target: process.env.VITE_API_PROXY || "http://localhost:8000",
         changeOrigin: true,
       },
     },

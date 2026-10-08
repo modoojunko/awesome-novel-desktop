@@ -4,15 +4,17 @@ import { join } from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 
 /**
- * UP-11 版本升级 e2e（c-db-per-version）：空态双出口 + 「把上一版的作品带过来」全链。
+ * UP-11/UP-17 版本升级 e2e（c-db-per-version → c-lossless-upgrade）：
+ * 首启告知卡四步（告知→同意→锁定进度→完成确认）＋队列让位。
  *
- * 与其余 e2e 的差别：本文件**不打桩候选端点**——候选扫描/搬运/计数都走真后端。
- * 数据目录由 `UP11_DATA_DIR` 指定（会话私有 docker 栈的宿主侧挂载点），spec 在宿主
- * 侧往该目录播种旧版库；未设置该变量则整组 skip（避免误连别人的共享栈）。
+ * 与其余 e2e 的差别：本文件**不打桩候选/搬运端点**——候选扫描/密文转接/计数都走真
+ * 后端。数据目录由 `UP11_DATA_DIR` 指定（会话私有 docker 栈的宿主侧挂载点），spec 在
+ * 宿主侧往该目录播种旧版库；未设置该变量则整组 skip（避免误连别人的共享栈）。
  *
- * 断言判据：①无候选时「从备份包恢复」恒在、带回出口不出现；②播种 `novel-v1.db`
- * （遗留代数名）后空态出现「这台电脑上有旧版作品（N 本）」；③走完向导后结果页报
- * 「已带回 N 本书」；④**经真实后端接口核对**书确实落进当前版本的库。
+ * 断言判据：①无候选＝首装态：无卡无常驻行，「从备份包恢复」出口恒在；②播种
+ * `novel-v1.db` 后**告知卡自动出现**（两块清单，角落小字让位）；③同意→进度锁定
+ * （无取消/收起按钮）→结果确认→书架落书；④宿主侧直读当前版本库核对；⑤队列让位：
+ * 未点完成确认前写作能力弹窗不入场，确认后入场（UP-18，探测/下载不延迟的呈现面）。
  */
 const DATA_DIR = process.env.UP11_DATA_DIR || "";
 // 种子 id 每轮唯一：迁移是 INSERT OR IGNORE——固定 id 在「同库已被上一次全量跑
@@ -99,13 +101,16 @@ test.describe("UP-11 版本升级：空态双出口与带回全链", () => {
     await expect(page.getByText("开始你的第一本书")).toBeVisible();
     const restore = page.getByText("从备份包恢复");
     await expect(restore).toBeVisible();                      // 第二出口恒在
-    await expect(page.getByText("把上一版的作品带过来")).toHaveCount(0);  // 无候选时不出现
+    // 首装态（c-lossless-upgrade）：告知卡与常驻行完全不出现
+    await expect(page.getByTestId("carry-card")).toHaveCount(0);
+    await expect(page.getByTestId("carry-strip-later")).toHaveCount(0);
+    await expect(page.getByTestId("carry-strip-done")).toHaveCount(0);
 
     await restore.click();
     await expect(page.getByText("恢复备份")).toBeVisible();      // RestoreModal 单实例打开
   });
 
-  test("同机升级：遗留库进候选 → 一次确认带回 → 真后端计数落库", async ({ page }) => {
+  test("同机升级：告知卡四步（自动出现→同意→锁定进度→确认）→ 真后端计数落库", async ({ page }) => {
     clearLibraries();
     const seeded = seedLegacyLibrary();
     const before = statSync(seeded);
@@ -113,23 +118,25 @@ test.describe("UP-11 版本升级：空态双出口与带回全链", () => {
     await stubSession(page);
     await page.goto("/#/novels");
 
-    // ① 出口行报书数（候选扫描读到遗留库的 2 本）
-    await expect(page.getByText("这台电脑上有旧版作品")).toBeVisible();
-    // 出口行有两处 `.fr-note`（首启出口行 ＋ 免费额度注记）——按文案定位，别用裸类选择器
-    await expect(page.locator(".fr-note").filter({ hasText: "旧版作品" })).toContainText("2");
-    const bring = page.getByText("把上一版的作品带过来").first();
-    await expect(bring).toBeVisible();
+    // ① 告知卡自动出现（recommended 候选 → 壳层队列直接放行）：清单含书名＋主按钮覆盖两样
+    const card = page.getByTestId("carry-card");
+    await expect(card).toBeVisible({ timeout: 15_000 });
+    await expect(card).toContainText("上一版的书0");
+    await expect(card).toContainText("把作品和模型配置带过来");
+    // 角落小字让位：卡在途不再渲染空态出口行的带回小字
+    await expect(page.locator(".fr-note").filter({ hasText: "旧版作品" })).toHaveCount(0);
 
-    // ② 一次确认：向导单候选 → 主按钮即搬运
-    await bring.click();
-    // 出口行按钮与弹窗主按钮同名（这是有意的文案一致性）——确认按钮必须限定在 dialog 内
-    const confirm = page.getByRole("dialog").getByRole("button", { name: "把上一版的作品带过来" });
-    await expect(confirm).toBeVisible();
-    await confirm.click();
+    // ② 同意（唯一操作）→ 进度锁定：无取消/收起按钮
+    await page.getByTestId("carry-start").click();
+    await expect(page.getByTestId("carry-progress")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("carry-progress").locator("button")).toHaveCount(0);
 
-    // ③ 结果页回声（计数与预览同源）
-    await expect(page.getByText(/已带回 \d+ 本书/)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText("已带回 2 本书")).toBeVisible();
+    // ③ 完成确认：结果卡 → 点「好，开始写作」收尾
+    await expect(page.getByTestId("carry-result")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("carry-result")).toContainText("已带回 2 本书");
+    await page.getByTestId("carry-confirm").click();
+    // 完成常驻行
+    await expect(page.getByTestId("carry-strip-done")).toBeVisible();
 
     // ④ 落库核对：直接读**宿主侧的当前版本库文件**（最强证据——不经前端状态，
     //    证明书真的写进了本版本的库；`page.request` 无页面鉴权会话，故不走它）
@@ -150,5 +157,45 @@ con.close()
     const after = statSync(seeded);
     expect(after.size).toBe(before.size);
     expect(after.mtimeMs).toBe(before.mtimeMs);
+  });
+});
+
+test.describe("UP-18 壳层队列让位（c-lossless-upgrade）", () => {
+  test.skip(!DATA_DIR, "未设 UP11_DATA_DIR（会话私有栈的数据目录）——整组跳过");
+
+  test.beforeAll(() => {
+    if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+  });
+
+  test("带回未确认：能力包弹窗不入场；完成确认后入场（呈现延迟、探测不延迟）", async ({ page }) => {
+    clearLibraries();
+    seedLegacyLibrary();
+
+    await stubSession(page);
+    // 探测桩：未装包（source=pack）→ 首装弹窗意愿成立（下载本身由后台同步，不在此断言）
+    await page.route("**/api/prompt-pack/probe", (r) =>
+      r.fulfill({ json: { installed_version: "", latest_version: "9.9",
+                          update_available: false, source: "pack" } }));
+    // 同步器桩：POST /check 只回状态形状（防真同步打 CDN 拖时/失败噪声）
+    await page.route("**/api/prompt-pack/check", (r) =>
+      r.fulfill({ json: { started: false, state: "idle", stage: "idle",
+                          installed_version: "", latest_version: "9.9", tier: "free" } }));
+
+    await page.goto("/#/novels");
+    const card = page.getByTestId("carry-card");
+    await expect(card).toBeVisible({ timeout: 15_000 });
+
+    // 队列让位：带回卡在途（未确认）→ 写作能力弹窗 SHALL NOT 入场
+    await page.waitForTimeout(1500);
+    await expect(page.getByText("正在准备写作能力")).toHaveCount(0);
+    await expect(page.getByText("写作能力有更新")).toHaveCount(0);
+    await expect(page.getByText("写作能力已就绪")).toHaveCount(0);
+
+    // 走完四步 → 完成确认放行队列 → 能力包弹窗此刻才入场
+    await page.getByTestId("carry-start").click();
+    await expect(page.getByTestId("carry-result")).toBeVisible({ timeout: 60_000 });
+    await page.getByTestId("carry-confirm").click();
+    const packTitles = page.getByText(/正在准备写作能力|写作能力有更新|写作能力/, { exact: false });
+    await expect(packTitles.first()).toBeVisible({ timeout: 10_000 });
   });
 });

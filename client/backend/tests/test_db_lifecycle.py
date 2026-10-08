@@ -277,3 +277,67 @@ class TestSentinelDisposedShapes:
         assert all(".corrupt" not in c["filename"] for c in cands)
         quarantined = db_lifecycle.list_quarantined(tmp_path)
         assert [q["filename"] for q in quarantined] == [Path(result["quarantined_to"]).name]
+
+
+# ── c-lossless-upgrade：候选只读清单（candidate_manifest）─────────────────
+
+class TestCandidateManifest:
+    def _lib(self, path: Path, books=3, with_configs=True):
+        tables = {
+            "novels": ["id TEXT PRIMARY KEY", "name TEXT", "created_at TEXT"],
+            "chapters": ["id TEXT PRIMARY KEY", "novel_id TEXT", "word_count INTEGER"],
+        }
+        rows = {
+            "novels": [(f"n{i}", f"书{i}", "2026-01-01") for i in range(books)],
+            "chapters": [(f"c{i}", f"n{i}", 1000 + i) for i in range(books)],
+        }
+        if with_configs:
+            tables["api_configs"] = ["id TEXT PRIMARY KEY", "name TEXT", "created_at TEXT"]
+            rows["api_configs"] = [("a1", "DeepSeek", "2026-01-01"),
+                                   ("a2", "朱雀 AI 检测", "2026-01-02")]
+        _write_db(path, tables, rows)
+
+    def test_manifest_books_and_configs(self, tmp_path):
+        db = tmp_path / "novel-v0.24.db"
+        self._lib(db)
+        m = db_lifecycle.candidate_manifest(db)
+        assert m is not None
+        assert m["books_total"] == 3
+        assert [b["name"] for b in m["books"]] == ["书0", "书1", "书2"]
+        assert m["books"][0]["words"] == 1000  # 每书 1 章，字数随章
+        assert [c["name"] for c in m["configs"]] == ["DeepSeek", "朱雀 AI 检测"]
+        assert m["configs_total"] == 2
+
+    def test_manifest_book_cap(self, tmp_path):
+        db = tmp_path / "novel-v0.24.db"
+        self._lib(db, books=55)
+        m = db_lifecycle.candidate_manifest(db)
+        assert m["books_total"] == 55
+        assert len(m["books"]) == db_lifecycle.MANIFEST_BOOK_CAP  # 封顶 50，total 说真话
+
+    def test_manifest_without_configs_table(self, tmp_path):
+        """老库无 api_configs 表：配置清单为空而非整体失败（降级契约）。"""
+        db = tmp_path / "novel-v0.24.db"
+        self._lib(db, books=1, with_configs=False)
+        m = db_lifecycle.candidate_manifest(db)
+        assert m is not None and m["configs"] == [] and m["configs_total"] == 0
+
+    def test_manifest_broken_db_returns_none(self, tmp_path):
+        db = tmp_path / "junk.db"
+        db.write_bytes(b"\x00" * 512)
+        assert db_lifecycle.candidate_manifest(db) is None
+
+    def test_manifest_never_reads_api_key(self, tmp_path):
+        """密钥永不返回：响应序列化后全文不得出现密钥材料。"""
+        import json as _json
+
+        db = tmp_path / "novel-v0.24.db"
+        self._lib(db, books=1)
+        con = sqlite3.connect(db)
+        con.execute("ALTER TABLE api_configs ADD COLUMN api_key TEXT")
+        con.execute("UPDATE api_configs SET api_key = 'enc:AAAAdeadbeefsecret'")
+        con.commit()
+        con.close()
+        m = db_lifecycle.candidate_manifest(db)
+        payload = _json.dumps({"candidates": [{"manifest": m}]}, ensure_ascii=False)
+        assert "enc:" not in payload and "deadbeefsecret" not in payload

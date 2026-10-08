@@ -159,3 +159,6 @@ client/packaging/build/dist-nuitka/
 client/packaging/build/spike-*.log
 client/packaging/build/compilation-report.xml
 client/packaging/build/spike-report.xml
+
+# 会话私有 e2e 栈数据目录（c-lossless-upgrade 判例：git add -A 曾带入 wal/shm 残件）
+.e2e-carry/

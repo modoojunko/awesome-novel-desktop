@@ -646,8 +646,13 @@ def phase_downgrade(root: str, work: Path) -> None:
 
 
 # ── version-chain 阶段：版本命名 + 找回搬运（c-db-per-version）─────────────
-def _seed_lib(db_path: Path, books: int, id_prefix: str) -> None:
-    """seed 一份低版本库（书/卷/章，显式列名——与测试夹具同款纪律）。"""
+def _seed_lib(db_path: Path, books: int, id_prefix: str, *, rich: bool = False) -> None:
+    """seed 一份低版本库（书/卷/章，显式列名——与测试夹具同款纪律）。
+
+    rich=True（c-lossless-upgrade 8.2）：补等价对拍所需的用户面——含源钥加密的
+    api_configs（enc:）、token_log 用量、角色/伏笔/设定 KV、预置题材（含被编辑过的
+    行）与 genre_vocab；fernet 钥匙行写进 app_meta（投影器按各库自身钥匙解密文）。
+    """
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript("""
@@ -674,8 +679,78 @@ def _seed_lib(db_path: Path, books: int, id_prefix: str) -> None:
                      " VALUES (?,?,?,?,?,?,?)",
                      (f"{id_prefix}c{i}", nid, f"{id_prefix}v{i}", 1, f"vol-1-ch-{i+1}"
                       if id_prefix == "a" else f"vol-2-ch-{i+1}", "第一章", "draft"))
+    if rich:
+        _seed_rich(conn, id_prefix)
     conn.commit()
     conn.close()
+
+
+def _seed_rich(conn: sqlite3.Connection, id_prefix: str) -> None:
+    """富种子（8.2）：配置密文/用量/角色/伏笔/设定/题材。列＝当前 schema 子集。"""
+    from cryptography.fernet import Fernet
+
+    src_key = Fernet.generate_key()
+    conn.executescript("""
+        CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT, password_hash TEXT,
+            display_name TEXT, api_key TEXT, api_base_url TEXT, api_model TEXT);
+        CREATE TABLE api_configs (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, vendor TEXT,
+            vendor_display_name TEXT, api_format TEXT, base_url TEXT, api_key TEXT,
+            models TEXT, status TEXT);
+        CREATE TABLE token_log (id TEXT PRIMARY KEY, user_id TEXT, novel_id TEXT,
+            api_config_id TEXT, chapter_id TEXT, operation TEXT, model TEXT,
+            tokens_in INTEGER, tokens_out INTEGER, cost_cents INTEGER);
+        CREATE TABLE characters (id TEXT PRIMARY KEY, novel_id TEXT, seq INTEGER, name TEXT,
+            aliases TEXT, role TEXT, persona TEXT, dossier TEXT, cog TEXT, legacy TEXT, rev INTEGER);
+        CREATE TABLE novel_hooks (id TEXT PRIMARY KEY, novel_id TEXT, seq INTEGER,
+            description TEXT, type TEXT, priority INTEGER, status TEXT,
+            introduced_chapter_id TEXT, payoff_note TEXT);
+        CREATE TABLE project_settings (root_path TEXT, key TEXT, content TEXT);
+        CREATE TABLE genres (id TEXT PRIMARY KEY, name TEXT, description TEXT, category TEXT,
+            narrator_role TEXT, typical_arc TEXT, tone_blueprint TEXT, taboos TEXT,
+            prompt_injection TEXT, genre_config TEXT, story_arc_templates TEXT, is_preset INTEGER);
+        CREATE TABLE genre_vocab (id TEXT PRIMARY KEY, kind TEXT, label TEXT, sort INTEGER,
+            is_preset INTEGER);
+    """)
+    conn.execute("INSERT INTO users VALUES ('u1','u1@t.local','x','演练用户','','','')")
+    # 两条配置：一条 enc:（源钥）、一条明文遗留（旧行为兼容面）
+    enc = "enc:" + Fernet(src_key).encrypt(b"sk-drill-live").decode()
+    models_a = "['deepseek-v4-pro']".replace("'", chr(34))
+    models_b = "['glm-5']".replace("'", chr(34))
+    conn.execute(
+        "INSERT INTO api_configs (id,user_id,name,vendor,vendor_display_name,api_format,"
+        "base_url,api_key,models,status) VALUES ('cfg-a','u1','演练配置A','deepseek','DeepSeek',"
+        "'openai','https://api.deepseek.com',?,?,'active')", (enc, models_a))
+    conn.execute(
+        "INSERT INTO api_configs (id,user_id,name,vendor,vendor_display_name,api_format,"
+        "base_url,api_key,models,status) VALUES ('cfg-b','u1','演练配置B','glm','智谱',"
+        "'openai','https://open.bigmodel.cn','sk-plain-legacy',?,'active')", (models_b,))
+    nid = f"{id_prefix}0"
+    conn.execute(
+        "INSERT INTO token_log (id,user_id,novel_id,api_config_id,chapter_id,operation,model,"
+        "tokens_in,tokens_out,cost_cents) VALUES ('tl1','u1',?,'cfg-a',NULL,'write_prose',"
+        "'deepseek-v4-pro',1200,3400,12)", (nid,))
+    q = chr(34)  # SQL 内 JSON 双引号（避免嵌套转义坑）
+    conn.execute(
+        "INSERT INTO characters (id,novel_id,seq,name,aliases,role,persona,dossier,cog,legacy,rev)"
+        f" VALUES ('ch1',?,1,'林拾','[]','主角','憨直嘴笨','{{{q}look{q}: {q}瘦长个{q}}}',"
+        f"'{{{q}w3{q}: {q}规则护有钱人{q}}}','{{}}',1)",
+        (nid,))
+    conn.execute(
+        "INSERT INTO novel_hooks (id,novel_id,seq,description,type,priority,status,"
+        "introduced_chapter_id,payoff_note) VALUES ('hk1',?,1,'残卷里撕掉的一页','mystery',2,"
+        "'active',?,?)", (nid, f"{id_prefix}c0", "第 20 章回收"))
+    conn.execute("INSERT INTO project_settings VALUES (?,?,?)",
+                 (f"./data/drill-{id_prefix}0", "writing-style",
+                  f"{{{q}role{q}: {q}克制叙事{q}}}"))
+    # 预置题材：一行被「用户编辑过」（描述与出厂不同）＋ genre_vocab 一行
+    conn.execute(
+        "INSERT INTO genres (id,name,description,category,narrator_role,typical_arc,"
+        "tone_blueprint,taboos,prompt_injection,genre_config,story_arc_templates,is_preset)"
+        " VALUES ('xianxia','仙侠','用户改过的文案','fantasy','','','{}','[]','','{}','[]',1)")
+    conn.execute(
+        "INSERT INTO genre_vocab (id,kind,label,sort,is_preset)"
+        " VALUES ('gv-heat','promise','热血',1,1)")
+    conn.execute("INSERT INTO app_meta VALUES ('fernet_key', ?)", (src_key.decode(),))
 
 
 def phase_version_chain_seed(root: Path, work: Path) -> None:
@@ -794,8 +869,181 @@ def phase_version_chain_boot(root: Path, work: Path) -> None:
           f"app_version={ver[0]}；搬后导出 {zips[0].split('/')[-1]}")
 
 
+# ── 等价对拍（c-lossless-upgrade 8.1）─────────────────────────────────────
+# 「用户可见状态」投影器：同一函数读源/目标 → 规范 JSON 逐项比对（不比 id——
+# 经 name/ref/seq 对齐，允许搬运重映射）。密文按**各库自身**钥匙行解成明文比较。
+
+
+def _project_state(db_path: Path) -> dict:
+    from cryptography.fernet import Fernet
+
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+
+    def _fernets():
+        row = con.execute(
+            "SELECT value FROM app_meta WHERE key='fernet_key'").fetchone()
+        return [Fernet(row[0].encode())] if row else []
+
+    def _plain(stored: str) -> str:
+        if not stored or not stored.startswith("enc:"):
+            return stored or ""
+        for f in _fernets():
+            try:
+                return f.decrypt(stored[4:].encode()).decode()
+            except Exception:  # noqa: BLE001, S112 —— 逐钥试解，失败换下一把
+                continue
+        return "<DEAD>"
+
+    def _has(t: str) -> bool:
+        return bool(con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (t,)).fetchone())
+
+    out: dict = {"books": [], "settings": [], "configs": [], "usage": [],
+                 "genres": [], "vocab": []}
+    for n in con.execute("SELECT * FROM novels ORDER BY name"):
+        vols = con.execute("SELECT COUNT(*) FROM volumes WHERE novel_id=?", (n["id"],)).fetchone()[0]
+        chs = con.execute(
+            "SELECT ref, title, status FROM chapters WHERE novel_id=? ORDER BY ref", (n["id"],)
+        ).fetchall()
+        out["books"].append({
+            "name": n["name"], "phase": n["current_phase"], "status": n["status"],
+            "volumes": vols,
+            "chapters": [{"ref": c["ref"], "title": c["title"], "status": c["status"]} for c in chs],
+        })
+        if _has("characters"):
+            for c in con.execute(
+                "SELECT name, role, persona, dossier, cog, legacy FROM characters"
+                " WHERE novel_id=? ORDER BY seq", (n["id"],)):
+                out["books"][-1].setdefault("characters", []).append(dict(c))
+        if _has("novel_hooks"):
+            for h in con.execute(
+                "SELECT h.seq, h.description, h.status, h.priority, h.payoff_note, ci.ref"
+                " FROM novel_hooks h LEFT JOIN chapters ci ON h.introduced_chapter_id=ci.id"
+                " WHERE h.novel_id=? ORDER BY h.seq", (n["id"],)):
+                out["books"][-1].setdefault("hooks", []).append(dict(h))
+        if _has("project_settings"):
+            for ps in con.execute(
+                "SELECT key, content FROM project_settings WHERE root_path=? ORDER BY key",
+                (n["root_path"],)):
+                out["settings"].append({"key": ps["key"], "content": ps["content"]})
+    if _has("api_configs"):
+        for c in con.execute("SELECT * FROM api_configs ORDER BY name"):
+            out["configs"].append({
+                "name": c["name"], "vendor": c["vendor"], "api_format": c["api_format"],
+                "base_url": c["base_url"], "models": c["models"], "status": c["status"],
+                "plaintext": _plain(c["api_key"]),  # 等价判据核心：明文可解且相等
+            })
+        if _has("token_log"):
+            for t in con.execute(
+                "SELECT ac.name, tl.operation, SUM(tl.tokens_in+tl.tokens_out) AS tokens"
+                " FROM token_log tl LEFT JOIN api_configs ac ON tl.api_config_id=ac.id"
+                " GROUP BY ac.name, tl.operation ORDER BY ac.name, tl.operation"):
+                out["usage"].append(dict(t))
+    if _has("genres"):
+        for g in con.execute(
+                "SELECT id, name, description, category FROM genres ORDER BY id"):
+            out["genres"].append(dict(g))
+    if _has("genre_vocab"):
+        for v in con.execute("SELECT id, kind, label, sort FROM genre_vocab ORDER BY id"):
+            out["vocab"].append(dict(v))
+    con.close()
+    return out
+
+
+def _diff_state(src: dict, tgt: dict) -> list[str]:
+    import difflib
+
+    a = json.dumps(src, ensure_ascii=False, indent=1, sort_keys=True).splitlines()
+    b = json.dumps(tgt, ensure_ascii=False, indent=1, sort_keys=True).splitlines()
+    return [ln for ln in difflib.unified_diff(a, b, "source", "target", lineterm="")][2:]
+
+
+def phase_version_chain_parity(root: Path, work: Path) -> None:
+    """等价对拍（8.1）：富种子源库 → 目标（含出厂种子行）→ 搬运 → 投影逐项比对。
+
+    DRILL_TRANSFER_NOOP=1（8.3 反断言）：把密钥转接 patch 成 no-op 再搬——parity 必须
+    在「配置明文」一项转红（<DEAD>），证明门禁抓得住 Key 死文回归；CI 直接跑该形态。
+    """
+    import asyncio as _aio
+
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    os.environ["DATA_ROOT"] = str(root)
+
+    from sqlalchemy import create_engine as _ce
+
+    import models  # noqa: F401
+    from db import Base
+    from migration.engine import run_migration
+
+    active = _active_db(root)
+    assert not active.exists(), f"parity 要求全新目标库：{active}"
+    _se = _ce(f"sqlite:///{active}")
+    Base.metadata.create_all(_se)
+    _se.dispose()
+
+    # 目标钥匙行（等价真实启动：lifespan init_crypto 生成自有钥匙——转接的「新钥」）
+    from api_configs.crypto import init_crypto
+    from db import async_session
+
+    async def _init():
+        async with async_session() as session:
+            await init_crypto(session)
+
+    _aio.run(_init())
+    from db import engine as _engine
+
+    _aio.run(_engine.dispose())
+
+    # 目标预置题材出厂行（模拟 ensure_seed_genres 先播种）：与源文案不同（证明源行胜出）
+    # ＋一行目标独有（新版新增预置，证明保留）
+    tc = sqlite3.connect(active)
+    tc.execute(
+        "INSERT INTO genres (id,name,description,category,narrator_role,typical_arc,"
+        "tone_blueprint,taboos,prompt_injection,genre_config,story_arc_templates,is_preset)"
+        " VALUES ('xianxia','仙侠','新版出厂文案','fantasy','','','{}','[]','','{}','[]',1),"
+        "('newcomer','新增题材','仅新版有','fantasy','','','{}','[]','','{}','[]',1)")
+    tc.commit()
+    tc.close()
+
+    src = root / db_filename_for("0.24")
+    _seed_lib(src, 1, "p", rich=True)
+
+    if os.environ.get("DRILL_TRANSFER_NOOP"):
+        import migration.engine as _eng
+
+        _eng._reencrypt_dead_ciphertexts = lambda tgt, src_con, dr: 0  # 转接关掉（no-op）
+        print("[parity-noop] 密钥转接已 patch 为 no-op（反断言形态）")
+
+    rep = run_migration(root, src.name, active)
+    assert rep["status"] == "ok", rep
+    assert rep["complete"] is True, ("完整性", rep)
+
+    src_proj = _project_state(src)
+    tgt_proj = _project_state(active)
+
+    # 目标独有预置行是白名单差异（新版新增，先剔除再比对）；其余必须逐项相等
+    expect_newcomer = {"id": "newcomer", "name": "新增题材",
+                       "description": "仅新版有", "category": "fantasy"}
+    tgt_only = [g for g in tgt_proj["genres"] if g not in src_proj["genres"]]
+    assert tgt_only == [expect_newcomer], tgt_only
+    for g in (tgt_only or []):
+        tgt_proj["genres"].remove(g)
+    diff = _diff_state(src_proj, tgt_proj)
+
+    if os.environ.get("DRILL_TRANSFER_NOOP"):
+        assert any("DEAD" in ln for ln in diff), ("反断言失效：转接关掉仍全等", diff)
+        print(f"[parity-noop] 反断言红 ✓（差异行数 {len(diff)}，含 <DEAD>）")
+    else:
+        assert not diff, ("等价对拍失败", "\n".join(diff[:40]))
+        print("[version-chain-parity] 源/目标用户可见状态逐项相等 ✓"
+              "（含配置明文 Key 可解、用量、角色、伏笔、设定、题材源行胜出）")
+    _save_state(work, parity={"ok": True, "noop": bool(os.environ.get("DRILL_TRANSFER_NOOP"))})
+
+
 PHASES = ["seed-old", "boot-new", "version-chain-seed", "version-chain-boot",
-          "import-v1", "export-v2", "roundtrip-v2", "downgrade"]
+          "version-chain-parity", "import-v1", "export-v2", "roundtrip-v2", "downgrade"]
 
 
 def main() -> None:
@@ -822,6 +1070,7 @@ def main() -> None:
             # version-chain：两阶段共用 root-chain（低版本库 → 链式搬运）
             "version-chain-seed": "root-chain",
             "version-chain-boot": "root-chain",
+            "version-chain-parity": "root-parity",
         }
         roots = {p: str(work / d) for p, d in shared.items()}
         for ph in PHASES:
@@ -836,6 +1085,7 @@ def main() -> None:
                 break
         print("\n═══ 演练摘要 ═══")
         checks = _load_state(work) if _state_path(work).exists() else {}
+        print(f"parity: {'noop 反断言红=✔' if checks.get('parity', {}).get('noop') else '源/目标等价=✔'}（用户可见状态投影逐项比对）")
         print(f"version-chain: 源只读=✔ 空库启动=✔ 候选检出=✔ 搬运 {checks.get('chain_total')} 本=✔ "
               f"零重复=✔ 源三件套不变=✔ app_version={checks.get('chain_app_version')} "
               f"搬后导出={checks.get('chain_export')}（版本对 0.23/0.24 → {DRILL_VERSION}）")
@@ -854,6 +1104,7 @@ def main() -> None:
         "boot-new": phase_boot_new,
         "version-chain-seed": phase_version_chain_seed,
         "version-chain-boot": phase_version_chain_boot,
+        "version-chain-parity": phase_version_chain_parity,
         "import-v1": phase_import_v1,
         "export-v2": phase_export_v2,
         "roundtrip-v2": phase_roundtrip_v2,

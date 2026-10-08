@@ -1832,3 +1832,22 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
 2. **免费态统一升级出口**：og 卡补 `ra-upgrade` 块＋`#btnUpgrade3`「升级套餐」（`free-mode` 显示）——`design-parity-book` 的 `modal-upgrade` 例本来就点这个 id，此前原型无此元素。行内 `ra-hint` 五处改与实现同源的长口径（「需开通（标准档起）／PRO 专属／MAX 专属」，实现单源＝`lib/features.upgradeHintOf`）。
 3. **存量偏差（登记不修）**：`modalUpgrade` 原型仍是 PRO 单档文案（标题＋三行权益），实现已按 `tier_required` 出标准/PRO/MAX 三套口径——`modal-upgrade` parity 例的差带会因此扩大，`book.*` 基线待随 `DESIGN_PARITY=1` 重录（change tasks 3.2）；卷选中栏的「PRO 功能／升级 PRO」卡（`#railVolume`）是更早的过时段（卷纲屏已迁 storyline.html），本批不动。
 4. **应用侧同步（不新增视觉词汇）**：`lib/features` 补档位短名单源 `tierLabel`（`upgradeHintOf` 内部也改用），四处档位徽标（抽人锁卡／规划台「铺空缺」／粘贴文风样本／量化页签）不再写字面量；卡头副行新增功能性注记槽 `statusNote`（朱雀显示开关关闭时注明「朱雀检测已关闭 · 其余可用」，功能状态优先）。
+
+## c-lossless-upgrade（2026-10-08）
+
+**新增 `upgrade-carry.html`（书架首屏「带回告知卡」四步，2026-10-08 立项稿自 drafts 移入）**：
+升级首启、登录后书架上出现「把作品和模型配置带过来」告知卡——两块平级清单（作品名+字数／
+模型配置条数+名称）→ 同意 → 锁定进度 → 完成点确认。底部 demo-strip（8 态＋「排入能力包
+弹窗」队列演示）为非产品 UI，先例＝model-config.html demo-bar，不进 parity 截图。
+
+- **屏内构成**：告知卡/进度/结果（正常与不完整两变体）三种 `.mcard` 形态＋常驻行三态
+  （完成 ok／稍后带 warn 含「本版不再提醒」／不完整 warn **无静默出口**）＋「⑥ 首次安装」
+  态（无卡，只有写作能力弹窗，与现状一致）。复用 `.mcard`/`.notice`/`.mv-list` 与全部
+  token，无新语气档（info/ok/warn/err）；两块清单用 `section/h3/ul/li` 语义结构。
+- **与既有屏的关系**：appbar/书架外壳复用 list.html 同款（导航链到 index/model-config），
+  本文件独立成页只承载首启编排；书架空态（`#none` 态）沿用 list.html 的 `.bk-empty`。
+- **不完整变体**（`#partial`）：警示块（warn-soft 底）＋按钮组「先这样，开始写作／重新带
+  一次」；确认后常驻行持续提醒且不提供「不再提醒」——数据完整性提醒不可静默（用户拍板）。
+- **双端影响判定**：仅 C端、不触 `base.css` 令牌与 `pill/notice/sk/panel/f-err` 共享段
+  （proposal Design Impact）→ 无需 design-cross；「设置 › 本机旧版本数据」为本版新增入口，
+  实现侧同批建页，原型未建模其内部（后续如需再补登记）。

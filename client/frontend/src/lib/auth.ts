@@ -1,5 +1,6 @@
 import { resetLicenseCache } from '@/lib/licenseCache';
 import { resetPackProbeState } from '@/lib/packProbe';
+import { clearDialogQueue } from '@/lib/dialogQueue';
 
 const TOKEN_KEY = 'auth_token';
 const USERNAME_KEY = 'auth_username';
@@ -29,5 +30,6 @@ export function logout() {
   sessionStorage.setItem('manual_logout', '1');
   resetLicenseCache();
   resetPackProbeState(); // 写作能力探测缓存随登出清（换号不沿用，评审 P2-3）
+  clearDialogQueue(); // c-lossless-upgrade：壳层弹窗队列随登出清（防跨账号串台）
   window.location.hash = '#/';
 }

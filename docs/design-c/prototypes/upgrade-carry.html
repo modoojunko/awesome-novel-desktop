@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>首次升级 · 带回告知卡 · 爱小说（草案）</title>
+<!--
+  ══════════════════════════════════════════════════════════════════
+  首次升级 · 带回告知卡 · 交互原型（2026-10-08，c-lossless-upgrade）
+
+  命题：新版本首次启动要「把上一版的作品带过来」，但这属于动用户数据——
+  必须让用户知晓、由用户点头，不能悄悄做。现状把入口藏在空书架角落一行小字，
+  用户容易错过，也容易把「空书架」误读成「书没了」。
+
+  进度期口径（用户拍板 10-08）：**不让离开**——进度卡锁定、无取消/收起按钮（引擎是全表一次
+  事务，写锁持续到搬完；收回后台去写作会撞 database is locked）。关掉应用则搬运中断，
+  下次打开重新提示，已带回的部分不会重复（单事务，无半成品）。
+
+  本稿的答复：首屏自动浮出一张告知卡，讲清三件事——
+    ① 找到了什么（来源版本 + 作品清单 + **模型配置清单**——两样平级列出：
+       用户同意的是「作品 + 模型配置」两件事，不是只同意了作品）
+    ② 要做什么（复制到新版本；旧文件一个字不动；随时可装回旧版本）
+    ③ Key 不用重新粘贴（模型配置连 Key 一起带；登录态/字号偏好本来就跟随本机）
+  出口两个：主按钮「把上一版的作品带过来」／次按钮「稍后带」。
+  进度期锁定（不让离开），完成后由用户点确认收尾、书架顶部留常驻回执行。
+
+  已定口径（评审后逐条拍板 10-08）：
+    · 进度期锁定：不让离开（无取消/收起）；关窗＝中断，下次打开重新提示，无半成品（单事务）。
+    · 后端补只读清单字段（candidates/preview：作品名+字数、配置条数+名称；**密钥永不返回**）。
+    · 「稍后带」出口：常驻行给「本版不再提醒」+ 设置永久入口；下个版本重新评估。
+    · 不拆开关：一次同意带走作品 + 模型配置两样。
+    · 多候选只带「最接近当前版本」的那份（＝recommended），卡内不做选择；更早的留设置入口。
+    · 预置题材：**源行胜出**（用户编辑优先；旧版出厂文本会覆盖新版改进——发布说明须写明）。
+    · 卡文条件句：源钥解不开时才出现「N 条 Key 需重新粘贴」；正常态承诺「不用重新粘贴」。
+    · **收尾＝用户点「完成确认」**（队列也在这时放行给能力包；用户没确认就离开，能力包留到下次）。
+    · **搬运不完整必须提示用户**（有整表跳过 / FK 违规 / 少书）：结果卡改不完整变体
+      （警示块 + 「重新带一次」），确认后顶部常驻行持续提醒，**不给静默出口**，直到重搬完整。
+
+  多候选口径（用户拍板 10-08）：卡只带**最接近当前版本的那一份**（＝后端 recommended 候选），
+  卡里不列候选、不做选择；更早的候选只在卡上留一行提示，带不带在「设置 › 本机旧版本数据」里决定。
+
+  触发面（用户拍板 10-08「就是要登录后才执行」）：
+    只在登录后的书架出现——登录页不出卡、不带（书架有 AuthGuard，未登录本来也进不去）。
+    搬运是纯本机操作、不改登录态；用户没登录时这一版就不提示，旧文件原位保留，登录后随时能带。
+
+  本稿新增的入口：「设置 › 本机旧版本数据」（旧库清单与清理）——现状唯一入口是搬运结果步，
+  属本版要一并做的部分，卡文里的回执行指向它。
+
+  首启提示仲裁（一个弹窗宿主，复用既有模式）：
+    仓库已有先例——PromptPackModal（pack-modal:open）与带回向导（legacy-migrate:open）
+    都是「壳层单点 + 自定义事件」。本稿把搬运也做成同一个宿主的**一类内容**：
+      · 同一时刻只渲染队首；优先级＝数据（搬运） > 能力（写作能力包） > 提示（更新/公告）；
+      · 搬运未收尾前，能力包只在队列里等；搬运一收尾，宿主接着渲染它；
+      · 能力包自己的下载进度不占弹窗位（后台进行，降级成状态行）。
+    演示：底部「排入能力包弹窗」→ 搬运走完（点确认）后它才出现。
+
+  口径：文案用「带过来」，不用「迁移／移动」——动作实质是复制，源文件只读。
+  后续演进：库文件命名轴改「兼容代」后，同代升级不再出现内容搬运，
+  本卡只在真正换代时出现。
+
+  视觉与组件词汇遵循 prototypes/CLAUDE.md（token 原样、单线 SVG、oklch、
+  网格 minmax(0,1fr)）。底部演示条为非产品 UI。
+  ══════════════════════════════════════════════════════════════════
+-->
+<style>
+  /* 绑定 docs/ux/design-language.html v2.1 令牌，与 design-c 原型同源 */
+  :root{
+    --bg:      oklch(98% 0.004 240);
+    --surface: oklch(100% 0 0);
+    --fg:      oklch(20% 0.02 240);
+    --muted:   oklch(50% 0.018 240);
+    --border:  oklch(90% 0.006 240);
+    --accent:  oklch(48% 0.11 170);
+    --accent-strong:oklch(41% 0.10 170);
+    --accent-soft:color-mix(in oklch,var(--accent) 12%,transparent);
+    --accent-faint:color-mix(in oklch,var(--accent) 6%,transparent);
+    --ok:oklch(52% 0.11 155);--ok-soft:color-mix(in oklch,var(--ok) 14%,transparent);
+    --warn:oklch(50% 0.13 75);--warn-soft:color-mix(in oklch,var(--warn) 16%,transparent);
+    --err:oklch(50% 0.17 25);--err-soft:color-mix(in oklch,var(--err) 12%,transparent);
+    --on-accent:oklch(100% 0 0);
+    --fg-soft:color-mix(in oklch,var(--fg) 5%,transparent);
+    --shadow-card:0 1px 2px color-mix(in oklch,var(--fg) 5%,transparent),
+                  0 12px 32px -12px color-mix(in oklch,var(--fg) 14%,transparent);
+    --shadow-pop:0 18px 50px -12px color-mix(in oklch,var(--fg) 26%,transparent);
+    --faint:color-mix(in oklch,var(--muted) 45%,var(--bg));
+    --font-display:'Noto Serif SC','Songti SC','STSong','Iowan Old Style',Georgia,serif;
+    --font-body:-apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',system-ui,sans-serif;
+    --font-mono:ui-monospace,'SF Mono',Menlo,'JetBrains Mono',monospace;
+    --radius:10px;--radius-lg:16px;--radius-sm:7px;--radius-pill:999px;
+  }
+  *,*::before,*::after{box-sizing:border-box}
+  [hidden]{display:none !important}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.55;
+    text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column;padding-bottom:26px}
+  p{margin:0}
+  button{font:inherit;cursor:pointer;border:0;background:none;color:inherit;padding:0}
+  input,select{font:inherit}
+  img,svg{display:block}
+  a{color:inherit;text-decoration:none}
+  .num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+  .serif{font-family:var(--font-display)}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 15px;border-radius:var(--radius);
+    border:1px solid transparent;font-size:13.5px;font-weight:500;letter-spacing:.01em;transition:background .15s ease,border-color .15s ease}
+  .btn:active{transform:translateY(1px)}
+  .btn-primary{background:var(--accent);color:var(--on-accent)}
+  .btn-primary:hover{background:var(--accent-strong)}
+  .btn-secondary{background:var(--surface);color:var(--fg);border-color:var(--border)}
+  .btn-secondary:hover{border-color:var(--fg)}
+  .btn-ghost{background:transparent;color:var(--muted);padding:0 8px}
+  .btn-ghost:hover{color:var(--fg);background:var(--fg-soft)}
+  .btn-sm{height:28px;padding:0 12px;font-size:12.5px;border-radius:8px;gap:5px}
+  .btn svg{width:15px;height:15px}
+  .btn-sm svg{width:13px;height:13px}
+
+  /* ── 顶部常驻行（搬运中／已完成／未带回） ── */
+  .notice{display:flex;align-items:center;gap:12px;border:1px solid color-mix(in oklch,var(--warn) 28%,var(--border));
+    background:var(--warn-soft);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:13px}
+  .notice.info{border-color:color-mix(in oklch,var(--accent) 30%,var(--border));background:var(--accent-soft)}
+  .notice.ok{border-color:color-mix(in oklch,var(--ok) 30%,var(--border));background:var(--ok-soft)}
+  .notice .nt{flex:1;min-width:0}
+  .notice .nt b{font-weight:500}
+  .notice .nt span{color:var(--muted);font-size:12.5px;margin-left:8px}
+  .notice .acts{display:inline-flex;gap:8px;flex:none}
+  .icon-btn{width:30px;height:30px;display:inline-grid;place-items:center;border-radius:8px;color:var(--muted);flex:none}
+  .icon-btn:hover{color:var(--fg);background:var(--fg-soft)}
+  .icon-btn svg{width:15px;height:15px}
+
+  /* ── 壳层 appbar 48 ── */
+  .appbar{height:48px;flex:none;display:flex;align-items:center;padding:0 20px;gap:12px;background:var(--surface);border-bottom:1px solid var(--border)}
+  .logo{display:inline-flex;align-items:center;gap:9px;font-family:var(--font-display);font-size:16px;font-weight:600;letter-spacing:.08em;white-space:nowrap}
+  .logo-mark{width:26px;height:26px;border-radius:7px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-family:var(--font-display);font-size:14px;flex:none}
+  .appbar .nav{display:inline-flex;gap:4px;margin-left:14px}
+  .appbar .nav a{font-size:13.5px;color:var(--muted);padding:5px 10px;border-radius:8px}
+  .appbar .nav a:hover{color:var(--fg)}
+  .appbar .nav a.on{color:var(--fg);background:var(--fg-soft);font-weight:500}
+  .appbar .spacer{flex:1}
+  .acct-trigger{display:inline-flex;align-items:center;gap:7px;padding:4px 10px 4px 5px;border:1px solid var(--border);border-radius:var(--radius-pill);background:var(--surface);color:var(--fg);font-size:12.5px}
+  .avatar{width:24px;height:24px;border-radius:var(--radius-pill);background:var(--accent-soft);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none}
+
+  /* ── 主体 ── */
+  .main{flex:1;width:min(100%,1080px);margin-inline:auto;padding:40px 32px 80px}
+  .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:26px}
+  .page-head h1{font-family:var(--font-display);font-size:30px;font-weight:600;margin:0;letter-spacing:.01em}
+  .page-head .sub{font-size:13px;color:var(--muted);margin-top:6px}
+  .head-acts{display:flex;gap:8px}
+  .bk-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 18px}
+  .bk-search{position:relative;flex:1 1 240px;min-width:200px}
+  .bk-search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--muted);pointer-events:none}
+  .bk-search input{width:100%;height:36px;padding:0 12px 0 35px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--fg);font-size:13.5px}
+  .bk-search input::placeholder{color:var(--muted)}
+  .bk-search input:focus{border-color:var(--accent);outline:none}
+  .bk-chips{display:inline-flex;flex-wrap:wrap;gap:6px}
+  .chip{height:30px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-pill);background:var(--surface);color:var(--muted);font-size:12.5px}
+  .chip.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  .bk-sort{height:36px;padding:0 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--fg);font-size:13px;margin-left:auto;cursor:pointer}
+
+  .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+  @media (max-width:900px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:600px){.cards{grid-template-columns:minmax(0,1fr)}}
+  .book-card{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px;cursor:pointer;
+    transition:border-color .15s ease,box-shadow .15s ease,transform .15s ease}
+  .book-card:hover{border-color:color-mix(in oklch,var(--accent) 45%,var(--border));box-shadow:var(--shadow-card);transform:translateY(-2px)}
+  .book-card .top{display:flex;align-items:center;gap:8px}
+  .mono{flex:none;width:40px;height:40px;border-radius:10px;background:var(--fg-soft);border:1px solid var(--border);display:grid;place-items:center;font-family:var(--font-display);font-size:19px;color:var(--fg)}
+  .genre{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border:1px solid var(--border);border-radius:var(--radius-pill);font-size:11.5px;color:var(--muted);background:var(--bg);white-space:nowrap}
+  .genre svg{width:12px;height:12px}
+  .top .b{margin-left:auto}
+  .b{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:var(--radius-pill);font-size:11px;font-weight:500;white-space:nowrap}
+  .b.writing{background:var(--warn-soft);color:var(--warn)}
+  .b.setting{background:var(--fg-soft);color:var(--muted)}
+  .b.done{background:var(--ok-soft);color:var(--ok)}
+  .book-card h3{font-family:var(--font-display);font-size:21px;font-weight:600;margin:14px 0 0;letter-spacing:.01em}
+  .book-card .summary{font-size:12.5px;color:var(--muted);margin:8px 0 0;line-height:1.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .book-card .stats{display:flex;gap:18px;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
+  .book-card .stats b{display:block;color:var(--fg);font-weight:500;margin-bottom:1px}
+  .book-card .foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:auto;padding-top:18px}
+  .book-card .updated{font-size:11.5px;color:var(--muted)}
+  .book-card .go{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--fg)}
+  .book-card:hover .go{color:var(--accent)}
+  .book-card .go svg{width:14px;height:14px}
+
+  /* ── 空书架 ── */
+  .bk-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:64px 24px;text-align:center;
+    background:var(--surface);border:1px dashed var(--border);border-radius:var(--radius-lg);color:var(--muted)}
+  .bk-empty .em{font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--fg)}
+  .bk-empty .es{font-size:12.5px;line-height:1.7}
+  .bk-empty .acts{display:inline-flex;gap:8px;margin-top:8px}
+  .fr-note{font-size:12px;color:var(--muted);margin-top:14px}
+
+  /* ── 备选形态：页内首屏卡（若不想让弹窗盖住书架，可把告知卡改内联；本稿走「一个弹窗宿主」）── */
+  .carry-wrap{display:flex;justify-content:center}
+  .carry-panel{width:min(560px,100%);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);
+    box-shadow:var(--shadow-card);padding:22px 24px 20px}
+  .carry-panel h2{font-family:var(--font-display);font-size:19px;font-weight:600;margin:0}
+  .carry-panel h2 .icon-btn{float:right}
+  .carry-panel .lead{font-size:12.5px;color:var(--muted);line-height:1.75;margin-top:6px}
+  .carry-panel .mv-list{margin:10px 0 0}
+  .carry-panel .xp{margin:14px 0 0}
+  .carry-panel .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+
+
+  /* ── 弹窗 ── */
+  .scrim{position:fixed;inset:0;background:color-mix(in oklch,var(--fg) 28%,transparent);z-index:40;opacity:0;transition:opacity .2s ease}
+  .scrim.show{opacity:1}
+  .modal{position:fixed;inset:0;z-index:41;display:grid;place-items:center;padding:24px}
+  .modal .mcard{width:min(460px,92vw);max-height:calc(100vh - 48px);overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:16px;
+    box-shadow:var(--shadow-pop);transform:translateY(8px) scale(.98);opacity:0;transition:transform .18s ease,opacity .18s ease}
+  .modal.show .mcard{transform:none;opacity:1}
+  .mcard-head{display:flex;align-items:center;gap:10px;padding:20px 24px 0}
+  .mcard-head .mh{font-family:var(--font-display);font-size:17px;font-weight:600}
+  .mcard-head .x{margin-left:auto}
+  .mcard-body{padding:14px 24px 6px}
+  .mcard-body .lead{font-size:12.5px;color:var(--muted);line-height:1.75}
+  .mcard-foot{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;padding:16px 24px 20px}
+  /* 窄屏：主按钮 11 字在 92vw 卡里会压线 → 竖排、按钮占满 */
+  @media (max-width:430px){
+    .mcard-foot{flex-direction:column-reverse}
+    .mcard-foot .btn{width:100%}
+  }
+
+  /* 节标题（作品 / 模型配置两块） */
+  .carry-sec{margin-top:12px}
+  .carry-sec .sec-h{font-size:12px;color:var(--muted);margin-bottom:6px}
+  .carry-sec .sec-h b{color:var(--fg);font-weight:500;font-size:12.5px;margin-right:8px}
+
+  /* 作品清单（告知卡内） */
+  .mv-list{list-style:none;padding:0;margin:12px 0 0;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);overflow:hidden}
+  .mv{display:flex;align-items:center;gap:12px;padding:9px 14px;font-size:13px}
+  .mv + .mv{border-top:1px solid var(--border)}
+  .mv .mv-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-display);font-size:13.5px}
+  .mv .mv-w{color:var(--muted);font-size:12px;flex:none}
+  .mv-sum{font-size:12px;color:var(--muted);margin:8px 0 0}
+
+  /* 三条说明 */
+  .xp{list-style:none;margin:14px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+  .xp li{display:flex;gap:10px}
+  .xp .xp-ic{width:28px;height:28px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;flex:none;margin-top:1px}
+  .xp .xp-ic svg{width:15px;height:15px}
+  .xp b{display:block;font-size:13px;font-weight:500}
+  .xp p{font-size:12.5px;color:var(--muted);line-height:1.7;margin-top:1px}
+
+  /* 卡内警示块（搬运不完整） */
+  .warn-block{margin-top:12px;border:1px solid color-mix(in oklch,var(--warn) 30%,var(--border));background:var(--warn-soft);
+    border-radius:var(--radius);padding:10px 12px;font-size:12.5px;line-height:1.7}
+
+  /* 进度条 */
+  .pbar{height:6px;border-radius:var(--radius-pill);background:var(--fg-soft);overflow:hidden}
+  .pbar .pfill{height:100%;width:42%;border-radius:var(--radius-pill);background:var(--accent);transition:width .3s ease}
+
+  /* Toast（本草案给演示条让位：bottom 抬高，产品内恢复 24px） */
+  .toast-wrap{position:fixed;bottom:112px;left:50%;transform:translateX(-50%);z-index:80;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
+  .toast{display:inline-flex;align-items:center;gap:8px;background:var(--fg);color:var(--surface);padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:var(--shadow-card);pointer-events:auto}
+  .toast svg{width:14px;height:14px;color:var(--ok);flex:none}
+
+  /* 演示条（非产品 UI） */
+  .demo-strip{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:90;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:4px;
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-pill);padding:6px 10px;box-shadow:var(--shadow-pop);font-size:12.5px;
+    max-width:min(1120px, calc(100vw - 24px))}
+  .demo-strip .ds-label{color:var(--muted);padding:0 8px;white-space:nowrap}
+  .demo-strip .ds-group{display:inline-flex;gap:2px;background:var(--fg-soft);border-radius:var(--radius-pill);padding:2px}
+  .demo-strip .ds-group button{height:26px;border-radius:var(--radius-pill);padding:0 12px}
+  .demo-strip .sep{width:1px;height:18px;background:var(--border);margin:0 6px}
+  .demo-strip button{height:28px;padding:0 10px;border-radius:var(--radius-pill);color:var(--muted);font-size:12.5px;white-space:nowrap}
+  .demo-strip button:hover{background:var(--fg-soft);color:var(--fg)}
+  .demo-strip button.on{background:var(--accent);color:var(--on-accent)}
+</style>
+</head>
+<body>
+
+<header class="appbar" data-od-id="appbar">
+  <a class="logo" href="index.html"><span class="logo-mark">爱</span>爱小说</a>
+  <nav class="nav">
+    <a class="on" href="#" aria-current="page">我的作品</a>
+    <a href="model-config.html">模型配置</a>
+  </nav>
+  <div class="spacer"></div>
+  <button class="acct-trigger" data-od-id="acct-trigger"><span class="avatar">我</span>账户</button>
+</header>
+
+<main class="main" id="shelf-view">
+  <div id="strip-slot" data-od-id="carry-strip-slot"></div>
+  <div class="page-head">
+    <div>
+      <h1>我的作品</h1>
+      <div class="sub" id="page-sub">还没有作品</div>
+    </div>
+    <div class="head-acts">
+      <button class="btn btn-secondary" data-od-id="btn-restore">从备份包恢复</button>
+      <button class="btn btn-primary" data-od-id="btn-new-book">新建作品</button>
+    </div>
+  </div>
+
+  <div class="bk-toolbar" id="works-toolbar" data-od-id="works-toolbar">
+    <label class="bk-search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5 20 20"/></svg>
+      <input placeholder="搜索作品名" aria-label="搜索作品名" />
+    </label>
+    <div class="bk-chips" role="group" aria-label="按状态筛选">
+      <button class="chip on">全部</button>
+      <button class="chip">写作中</button>
+      <button class="chip">已完结</button>
+    </div>
+    <select class="bk-sort" aria-label="排序方式"><option>最近更新</option><option>创建时间</option></select>
+  </div>
+
+  <div id="cards" class="cards" data-od-id="works-cards"></div>
+  <div id="empty" class="bk-empty" data-od-id="works-empty" hidden></div>
+</main>
+
+
+<div class="scrim" id="scrim" hidden></div>
+<div class="modal" id="modal" hidden><div class="mcard" id="mcard" data-od-id="carry-modal"></div></div>
+<div class="toast-wrap" id="toasts"></div>
+
+<div class="demo-strip" data-od-id="demo-strip">
+  <span class="ds-label">演示条（非产品 UI）：切阶段</span>
+  <button data-phase="none">空态</button>
+  <button data-phase="card">① 告知卡</button>
+  <button data-phase="progress">② 搬运中</button>
+  <button data-phase="result">③ 完成确认</button>
+  <button data-phase="done">④ 已带回</button>
+  <button data-phase="later">⑤ 稍后带</button>
+  <button data-phase="fresh">⑥ 首次安装</button>
+  <button data-phase="partial">⑦ 不完整结果</button>
+  <span class="sep"></span>
+  <button id="btn-pack-queue">排入能力包弹窗</button>
+</div>
+
+<script>
+const I = {
+  book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5C10.4 5.2 8.4 4.5 5.5 4.5v13c2.9 0 4.9.7 6.5 2 1.6-1.3 3.6-2 6.5-2v-13c-2.9 0-4.9.7-6.5 2z"/><path d="M12 6.5v13"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5.5 15V6.5A1.5 1.5 0 0 1 7 5h8.5"/></svg>',
+  shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l6.5 2.4v4.9c0 3.9-2.6 7-6.5 8.2-3.9-1.2-6.5-4.3-6.5-8.2V6.4L12 4z"/><path d="M9.3 12.2l1.9 1.9 3.5-3.6"/></svg>',
+  key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="16" r="3.5"/><path d="M10.6 13.6 19.5 4.7"/><path d="M16 8.2l2.2 2.2"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6.5 18.5 12 13 17.5"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
+};
+
+const BOOKS = [
+  { ch:'长', name:'长夜灯行', genre:'仙侠', state:'writing', stateText:'写作中', vols:3, chs:24, words:'12.6 万', updated:'更新于 2 天前', go:'继续写',
+    summary:'守灯人一夜一夜地等候，直到他发现整座城都在假装睡觉。' },
+  { ch:'观', name:'观星者手记', genre:'科幻', state:'setting', stateText:'筹备中', vols:1, chs:6, words:'3.1 万', updated:'更新于 6 天前', go:'打开',
+    summary:'天文台学徒的观测记录，越往后越不像星象。' },
+  { ch:'河', name:'河湾旧事', genre:'现实', state:'done', stateText:'已完结', vols:5, chs:60, words:'28.4 万', updated:'更新于 1 个月前', go:'打开',
+    summary:'一条河改道，带走了三个家族的六十年。' },
+];
+const CARRY = { from:'v0.28.2', to:'v0.29.0', count:3, words:'44.1 万字',
+  // 模型配置是「作品」的平级项：卡里单列一块，用户同意的是两件事
+  configs:[ { name:'DeepSeek', meta:'3 个模型' }, { name:'朱雀 AI 检测', meta:'检测服务' } ],
+  // 更早的候选份数（卡只带「最接近当前版本」的那一份；其余留在设置入口）
+  others: 1,
+  // 源钥不可得时才 >0：结果卡出现「N 条 Key 需要重新粘贴」条件句（正常态不显示）
+  deadKeys: 0,
+  // 搬运不完整（有整表跳过/FK 违规/少书）时 >0：结果卡与原位提醒都必须明示，直到重搬或用户处理
+  incompleteTables: 0 };
+
+const $ = (id) => document.getElementById(id);
+
+function bookCard(b){
+  return `<article class="book-card" data-od-id="book-card">
+    <div class="top">
+      <div class="mono">${b.ch}</div>
+      <span class="genre">${I.book}${b.genre}</span>
+      <span class="b ${b.state}">${b.stateText}</span>
+    </div>
+    <h3>${b.name}</h3>
+    <p class="summary">${b.summary}</p>
+    <div class="stats">
+      <div><b class="num">${b.vols}</b>卷</div>
+      <div><b class="num">${b.chs}</b>章</div>
+      <div><b class="num">${b.words}</b>字</div>
+    </div>
+    <div class="foot">
+      <span class="updated">${b.updated}</span>
+      <span class="go">${b.go}${I.arrow}</span>
+    </div>
+  </article>`;
+}
+
+function emptyShelf(withNote){
+  return `<div class="em">还没有作品</div>
+    <div class="es">新建一本，或把上一版的作品带过来。</div>
+    <div class="acts">
+      <button class="btn btn-primary">${I.plus}<span>新建作品</span></button>
+      <button class="btn btn-secondary">从备份包恢复</button>
+    </div>
+    ${withNote ? `<p class="fr-note">上一版的书不见了？打开「账户 › 找回旧版作品」，或从备份包恢复（现状：入口藏在这里，容易错过）</p>` : ''}`;
+}
+
+/* ── 顶部常驻行 ── */
+function stripDone(){
+  return `<div class="notice ok" data-od-id="carry-strip">
+    <div class="nt"><b>已把上一版的作品和模型配置带过来 · ${CARRY.count} 本 + ${CARRY.configs.length} 条配置</b><span>旧文件仍在原位置（设置 › 本机旧版本数据）</span></div>
+    <div class="acts"><button class="icon-btn" aria-label="关闭">${I.x}</button></div>
+  </div>`;
+}
+function stripPartial(){
+  return `<div class="notice" data-od-id="carry-strip">
+    <div class="nt"><b>上次带回不完整 · ${CARRY.incompleteTables} 张表没有完整迁入</b><span>旧版里可能有内容没带过来</span></div>
+    <div class="acts"><button class="btn btn-primary btn-sm" data-act="carry">重新带一次</button></div>
+  </div>`;
+}
+function stripPending(){
+  return `<div class="notice" data-od-id="carry-strip">
+    <div class="nt"><b>上一版还有 ${CARRY.count} 本作品和 ${CARRY.configs.length} 条模型配置没有带过来</b><span>旧文件原样保留，下次打开还会提醒</span></div>
+    <div class="acts">
+      <button class="btn btn-ghost btn-sm" data-act="mute" data-od-id="btn-mute">本版不再提醒</button>
+      <button class="btn btn-primary btn-sm" data-act="carry">带过来</button>
+    </div>
+  </div>`;
+}
+
+/* ── 共用一个壳层弹窗宿主：搬运卡是它的内容之一 ──
+   仓库已有先例：PromptPackModal（pack-modal:open）与带回向导（legacy-migrate:open）都是
+   「壳层单点 + 自定义事件」。宿主收一个队列，同一时刻只渲染队首：
+   优先级＝数据（搬运） > 能力（写作能力包） > 提示（更新/公告）。
+   排队规则：搬运流程未收尾前，能力包弹窗只在队列里等；它自己在下载时也不占弹窗位
+   （后台进行，降级成状态行）。 */
+function dlgCard(){
+  const bookRows = BOOKS.map(b => `<li class="mv"><span class="mv-n">${b.name}</span><span class="mv-w num">${b.words}字</span></li>`).join('');
+  const cfgRows = CARRY.configs.map(c => `<li class="mv"><span class="mv-n">${c.name}</span><span class="mv-w">${c.meta}</span></li>`).join('');
+  return `<div class="mcard-head"><span class="mh">把上一版的作品带过来</span></div>
+  <div class="mcard-body">
+    <p class="lead">连同模型配置一起——检测到上一版（<span class="num">${CARRY.from}</span>）里要带过来的内容：</p>
+    ${CARRY.others ? `<p class="mv-sum">另有更早的 <span class="num">${CARRY.others}</span> 份数据，之后可在「设置 › 本机旧版本数据」里带</p>` : ''}
+    <section class="carry-sec">
+      <h3 class="sec-h"><b>作品</b><span class="num">${CARRY.count}</span> 本 · <span class="num">${CARRY.words}</span></div>
+      <ul class="mv-list">${bookRows}</ul>
+    </section>
+    <section class="carry-sec">
+      <h3 class="sec-h"><b>模型配置</b><span class="num">${CARRY.configs.length}</span> 条 · 含 API Key 与用量统计</div>
+      <ul class="mv-list">${cfgRows}</ul>
+    </section>
+    <ul class="xp">
+      <li><span class="xp-ic">${I.copy}</span><div><b>复制到新版本</b><p>点「带过来」后，作品与模型配置的副本会进入 <span class="num">${CARRY.to}</span>。</p></div></li>
+      <li><span class="xp-ic">${I.shield}</span><div><b>旧文件一个字不动</b><p>上一版的数据文件原位保留，随时可以装回旧版本。</p></div></li>
+      <li><span class="xp-ic">${I.key}</span><div><b>Key 不用重新粘贴</b><p>模型配置连 Key 一起带；登录状态、字号等偏好本来就跟随本机，不用处理。</p></div></li>
+    </ul>
+  </div>
+  <div class="mcard-foot">
+    <button class="btn btn-secondary" data-act="later" data-od-id="btn-later">稍后带</button>
+    <button class="btn btn-primary" data-act="carry" data-od-id="btn-carry">把作品和模型配置带过来</button>
+  </div>`;
+}
+function dlgProgress(){
+  return `<div class="mcard-head"><span class="mh">把作品和模型配置带过来</span></div>
+  <div class="mcard-body">
+    <div class="pbar"><div class="pfill"></div></div>
+    <p class="lead" style="margin-top:12px">正在复制第 <span class="num">3 / 7</span> 张表 · 作品 <span class="num">1/3</span> 本 · 模型配置 <span class="num">0/2</span> 条</p>
+    <p class="lead" style="margin-top:8px">旧文件原样保留，一个字都不会动。带回期间请保持本窗口开启，通常几秒钟完成；万一关了，下次打开会重新提示，已带回的部分不会重复。</p>
+  </div>
+  <div class="mcard-foot"><!-- 进度期锁定：无取消、无收起（用户拍板 10-08「不让离开」） --></div>`;
+}
+/* 结果卡：搬完由用户点确认收尾——「和搬家前一模一样」是这句话要兑现的东西。
+   本卡只在登录后的书架出现（触发面 10-08 拍板），没有登录页分支。 */
+function dlgResult(isPartial){
+  const bookRows = BOOKS.map(b => `<li class="mv"><span class="mv-n">${b.name}</span><span class="mv-w num">${b.words}字</span></li>`).join('');
+  const cfgRows = CARRY.configs.map(c => `<li class="mv"><span class="mv-n">${c.name}</span><span class="mv-w">${c.meta}</span></li>`).join('');
+  const partial = !!isPartial;
+  return `<div class="mcard-head"><span class="mh">${partial ? '作品已经带过来，有一项要留意' : '作品和模型配置已经带过来'}</span></div>
+  <div class="mcard-body">
+    <p class="lead">${partial ? '书架、设定、章节都在；模型配置连 Key 一起可用。但这次带回不完整：' : '跟升级前一模一样——书架、设定、章节都在；模型配置连 Key 一起可用，不用重新粘贴。'}</p>
+    <section class="carry-sec">
+      <h3 class="sec-h"><b>作品</b><span class="num">${CARRY.count}</span> 本 · <span class="num">${CARRY.words}</span></div>
+      <ul class="mv-list">${bookRows}</ul>
+    </section>
+    <section class="carry-sec">
+      <h3 class="sec-h"><b>模型配置</b><span class="num">${CARRY.configs.length}</span> 条 · 含 API Key 与用量统计</div>
+      <ul class="mv-list">${cfgRows}</ul>
+    </section>
+    ${partial ? `<div class="warn-block" data-od-id="carry-partial">有 <span class="num">${CARRY.incompleteTables}</span> 张表没有完整迁入，旧版里可能有内容没带过来。可以重新带一次，或用备份包恢复。</div>` : ''}
+    ${CARRY.deadKeys ? `<p class="mv-sum">其中 <span class="num">${CARRY.deadKeys}</span> 条配置的 Key 无法直接迁过来，需在「模型配置」里重新粘贴。</p>` : ''}
+    <p class="mv-sum">旧文件仍在原位置，随时可以装回旧版本${CARRY.others ? `；更早的 ${CARRY.others} 份数据在「设置 › 本机旧版本数据」里` : ''}。</p>
+  </div>
+  <div class="mcard-foot">
+    ${partial
+      ? `<button class="btn btn-secondary" data-act="confirm" data-od-id="btn-confirm">先这样，开始写作</button>
+         <button class="btn btn-primary" data-act="carry">重新带一次</button>`
+      : `<button class="btn btn-secondary" data-act="files">查看旧文件</button>
+         <button class="btn btn-primary" data-act="confirm" data-od-id="btn-confirm">好，开始写作</button>`}
+  </div>`;
+}
+/* 写作能力包（同一个弹窗宿主的第二类内容）：搬运收尾后若在队列里，由宿主接着渲染 */
+function dlgPack(){
+  return `<div class="mcard-head"><span class="mh">写作能力有更新</span></div>
+  <div class="mcard-body">
+    <p class="lead">写作能力包（提示词库）有新版本可用，更新后 AI 写作更贴合本书。</p>
+    <p class="lead" style="margin-top:8px">下载在后台自动完成，期间可以正常写作。</p>
+  </div>
+  <div class="mcard-foot">
+    <button class="btn btn-secondary" data-act="pack-close">稍后</button>
+    <button class="btn btn-primary" data-act="pack-start">更新</button>
+  </div>`;
+}
+
+function toast(text){
+  $('toasts').innerHTML = `<div class="toast">${I.check}<span>${text}</span></div>`;
+  setTimeout(() => { $('toasts').innerHTML = ''; }, 2600);
+}
+
+/* ── 状态机（演示用）──
+   phase：流程阶段（none 空态 / fresh 首次安装 / card 告知 / progress 搬运 /
+          result 完成确认 / done 已带回 / later 稍后带）
+   触发面：只在登录后的书架（用户拍板 10-08「就是要登录后才执行」）——
+   登录页不出卡、不带；登录态不受搬运影响。 */
+const S = { phase:'card', packQueued:false, muted:false, partialDemo:false };
+const PHASES = ['none','fresh','card','progress','result','done','later','partial'];
+function applyHash(){
+  const h = location.hash.slice(1).split('/').pop();
+  if (PHASES.includes(h)) S.phase = h;
+  if (h === 'partial') { S.partialDemo = true; CARRY.incompleteTables = 1; }
+}
+applyHash();
+window.addEventListener('hashchange', () => { applyHash(); render(); });
+
+function openModal(html){
+  const m = $('modal'), s = $('scrim');
+  $('mcard').innerHTML = html;
+  s.hidden = false; m.hidden = false;
+  requestAnimationFrame(() => { s.classList.add('show'); m.classList.add('show'); });
+  // 弹层只服务「包弹窗（示意）」；搬运流程走页内卡，自带 bindPanelActs
+}
+function closeModal(){
+  const m = $('modal'), s = $('scrim');
+  if (m.hidden) return;
+  s.classList.remove('show'); m.classList.remove('show');
+  setTimeout(() => { m.hidden = true; s.hidden = true; }, 200);  // 200ms 退场后 hidden（同原型惯例）
+}
+
+function render(){
+  const phase = S.phase;
+  // 'partial'＝结果卡「不完整」变体的演示态：渲染上等同 result，只是带上不完整标记。
+  // 标记跨阶段保持（确认之后常驻行还要继续提醒），只在演示条切阶段时重置。
+  const isPartial = S.partialDemo;
+  const eff = (phase === 'partial') ? 'result' : phase;
+  const showBooks = (eff === 'done' || eff === 'result');
+
+  $('cards').style.display = showBooks ? '' : 'none';
+  $('cards').innerHTML = showBooks ? BOOKS.map(bookCard).join('') : '';
+  const showEmpty = !showBooks;
+  $('empty').hidden = !showEmpty;
+  $('empty').innerHTML = showEmpty ? emptyShelf(eff === 'none') : '';
+  $('page-sub').textContent = showBooks ? `${CARRY.count} 本作品 · 共 ${CARRY.words}` : '还没有作品';
+
+  // 顶部常驻行
+  const stripHtml =
+    eff === 'done' ? (CARRY.incompleteTables ? stripPartial() : stripDone()) :
+    (eff === 'later' && !S.muted) ? stripPending() : '';
+  $('strip-slot').innerHTML = stripHtml;
+  bindStripActs($('strip-slot'));
+
+  // 弹窗宿主：同一时刻只渲染队首。优先级＝数据（搬运） > 能力（写作能力包）。
+  // 搬运未收尾时，能力包在队列里等；搬运一收尾（phase=done）它才接上。
+  // 队列放行条件（用户拍板 10-08）：**用户点完「完成确认」**（到达 done）才轮到能力包，
+  // 不是 job 一跑完就弹；用户没确认就离开，能力包留到下次。
+  let dlg = null;
+  if (eff === 'fresh') dlg = dlgPack();  // 首次安装：没有可带的东西，只有能力包提醒
+  else if (eff === 'card') dlg = dlgCard();
+  else if (eff === 'progress') dlg = dlgProgress();
+  else if (eff === 'result') dlg = dlgResult(isPartial);
+  else if (eff === 'done' && S.packQueued) dlg = dlgPack();
+  if (dlg) openModal(dlg); else closeModal();
+  bindDialogActs();
+
+  if (eff === 'done' && S.prevPhase !== 'done') {
+    toast(CARRY.incompleteTables
+      ? `已带回 ${CARRY.count} 本书和 ${CARRY.configs.length} 条模型配置，但有 ${CARRY.incompleteTables} 张表未完整迁入`
+      : `已带回 ${CARRY.count} 本书和 ${CARRY.configs.length} 条模型配置`);
+  }
+  S.prevPhase = phase;
+
+  document.querySelectorAll('.demo-strip [data-phase]').forEach(b => b.classList.toggle('on', b.dataset.phase === phase));   // 高亮用原 phase（partial 也点亮）
+  $('btn-pack-queue').classList.toggle('on', !!S.packQueued);
+}
+
+function bindDialogActs(){
+  $('mcard').querySelectorAll('[data-act]').forEach(el => {
+    el.addEventListener('click', () => {
+      const a = el.dataset.act;
+      if (a === 'carry') setPhase('progress');
+      else if (a === 'later') setPhase('later');
+      else if (a === 'confirm') setPhase('done');
+      else if (a === 'files') toast('旧文件位置：设置 › 本机旧版本数据');
+      else if (a === 'pack-close') { S.packQueued = false; render(); toast('写作能力包可以稍后在设置里更新'); }
+      else if (a === 'pack-start') { S.packQueued = false; render(); toast('（示意）开始更新写作能力，后台下载'); }
+    });
+  });
+}
+function bindStripActs(slot){
+  slot.querySelectorAll('[data-act]').forEach(el => {
+    el.addEventListener('click', () => {
+      if (el.dataset.act === 'carry') setPhase('progress');
+      else if (el.dataset.act === 'mute') { S.muted = true; render(); toast('本版不再提醒；设置 › 本机旧版本数据 里随时可以带'); }
+    });
+  });
+}
+function setPhase(p){ S.phase = p; S.muted = false; render(); }   // 切阶段＝重置演示态
+
+document.querySelectorAll('.demo-strip [data-phase]').forEach(b => {
+  b.addEventListener('click', () => {
+    S.partialDemo = b.dataset.phase === 'partial';
+    CARRY.incompleteTables = S.partialDemo ? 1 : 0;
+    setPhase(b.dataset.phase);
+  });
+});
+// 「能力包弹窗」演示：入队。搬运在走 → 排队等；搬运已收尾 → 立刻由宿主渲染出来
+$('btn-pack-queue').addEventListener('click', () => {
+  S.packQueued = true; render();
+  if (S.phase !== 'done') toast('写作能力包提示已排队，等搬运收尾后自动出现');
+});
+// 演示：进度自动走到结果（真实实现由 job 进度驱动）
+setInterval(() => { if (S.phase === 'progress') setPhase('result'); }, 3200);
+
+render();
+</script>
+</body>
+</html>

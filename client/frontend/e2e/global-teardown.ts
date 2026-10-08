@@ -12,6 +12,13 @@
 export default async function globalTeardown() {
   try {
     const { sweepResidue } = await import("../scripts/sweep-e2e-residue.mjs");
+    // E2E_SWEEP_DATA_DIR 缺省时扫共享 .docker-data/client——私有栈（E2E_BASE_URL 非
+    // 5174）而未设此变量时**跳过清理**，宁可残留也不碰别人的数据目录（隔离红线）
+    const privateStack = !!process.env.E2E_BASE_URL && !process.env.E2E_BASE_URL.includes(":5174");
+    if (privateStack && !process.env.E2E_SWEEP_DATA_DIR) {
+      console.log("[e2e-cleanup] 跳过：私有栈未设 E2E_SWEEP_DATA_DIR（防误清共享目录）");
+      return;
+    }
     sweepResidue({ apply: true, log: (s: string) => console.log(`[e2e-cleanup] ${s}`) });
   } catch (e) {
     console.log(`[e2e-cleanup] 跳过：${(e as Error).message}`);

@@ -1,4 +1,7 @@
-import { migratableCandidates, useLegacyDb } from '@/hooks/useLegacyDb';
+import { migratableCandidates, recommendedCandidate, useLegacyDb } from '@/hooks/useLegacyDb';
+import CarryDialog from '@/components/CarryDialog';
+import { enqueueDialog, finishDialog } from '@/lib/dialogQueue';
+import { snoozeCarry, useCarryStore } from '@/lib/carryStore';
 import { claimPackProbe, openPackModal, releasePackProbe, setLastProbe } from "@/lib/packProbe";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -143,11 +146,19 @@ function NovelList() {
   const navigate = useNavigate();
   // db-generation：旧库检测（免登端点；空书架开口行→AcctMenu 弹窗）
   const legacyDb = useLegacyDb();
-  // 旧版数据出口行（c-db-per-version）：可搬运候选的书数合计（推荐位由后端单源给，
-  // 弹窗自己按 `recommended` 预选，这里不需要再算一遍）
+  // c-lossless-upgrade：带回四步卡 + 常驻行（数据层＝carryStore 单例，useLegacyDb 是薄壳）
+  const { job } = useCarryStore();
+  // 推荐位单源（后端 recommended）；更早候选＝其余未带回的可搬运份
+  const carryRec = recommendedCandidate(legacyDb.status);
+  const carryOthers = migratableCandidates(legacyDb.status)
+    .filter((c) => c !== carryRec && !c.carried).length;
   const priorCandidates = migratableCandidates(legacyDb.status);
   const priorBooks = priorCandidates.reduce((n, c) => n + (c.book_count ?? 0), 0);
   const legacyAutoShown = useRef(false);
+  const [carryOpen, setCarryOpen] = useState(false);
+  const [carryConfirmed, setCarryConfirmed] = useState(false); // 本页访问周期内已确认（队列放行后不再弹卡）
+  const [carryLater, setCarryLater] = useState(false); // 本会话内点过「稍后带」——常驻行接管提醒（评审修复：否则 SPA 内再无提醒路径）
+  const [stripClosed, setStripClosed] = useState(false); // 完成回执行的 ×（仅视觉收起）
 
   // 找回完成后书架自动刷新：AcctMenu 已改 queryClient 失效 novels key
   // （c-query-cache-layer 5.1：事件广播退役，失效语义由查询缓存承载）
@@ -234,6 +245,17 @@ function NovelList() {
       }
     })();
   }, []);
+
+  /* c-lossless-upgrade：首启仲裁——存在 recommended 且未带回/未抑制的候选时，
+     告知卡经壳层弹窗队列入场（数据类优先；一次点击≠一次同意，能力包弹窗等
+     队列放行）。多候选只带最接近的一份，其余在卡上留一行提示。 */
+  useEffect(() => {
+    if (!carryRec || carryRec.carried || carryRec.suppressed || carryConfirmed) return;
+    if ((carryRec.book_count ?? 0) <= 0) return;
+    /* v8 ignore next -- dispatch 闭包经队列同步执行（运行时必达，46 次调用全命中）；
+       v8 provider 对「调用实参里的箭头体」存在双映射幻影（调用语句命中、闭包体记 0） */
+    enqueueDialog('carry', 1, () => setCarryOpen(true));
+  }, [carryRec, carryConfirmed]);
 
   // 卡片 ⋯ 菜单：点外部收起
   useEffect(() => {
@@ -511,6 +533,43 @@ function NovelList() {
   return (
     // pg-works：书架屏垂直节奏（works.html 口径，list.css 屏级作用域；ADJUSTMENTS 换代节 #12）
     <main className="main pg-works">
+      {/* c-lossless-upgrade：带回常驻行（完成 ok / 稍后带 warn＋本版不再提醒）。
+          同屏提示上限＝模态 1＋常驻行 1＋notice ≤2；完成行仅视觉可收起。 */}
+      {carryRec?.carried && !stripClosed && (
+        <div className="notice ok" data-testid="carry-strip-done">
+          <span className="nt">
+            <b>已把上一版的作品和模型配置带过来</b>
+            <span>旧文件仍在原位置（账户 › 本机旧版本数据）</span>
+          </span>
+          <button className="btn btn-ghost btn-sm" aria-label="关闭" onClick={() => setStripClosed(true)}>×</button>
+        </div>
+      )}
+      {carryRec && (carryRec.suppressed || carryLater) && !carryRec.carried && !carryConfirmed && (
+        <div className="notice" data-testid="carry-strip-later">
+          <span className="nt">
+            <b>上一版还有 {carryRec.book_count ?? '?'} 本作品没有带过来</b>
+            <span>旧文件原样保留，下次打开还会提醒</span>
+          </span>
+          <span className="flex items-center gap-2">
+            <button
+              className="btn btn-ghost btn-sm"
+              data-testid="carry-strip-mute"
+              onClick={() => {
+                void snoozeCarry(carryRec.filename).then(() => finishDialog('carry'));
+              }}
+            >
+              本版不再提醒
+            </button>
+            <button
+              className="btn btn-primary btn-sm"
+              data-testid="carry-strip-open"
+              onClick={() => setCarryOpen(true)}
+            >
+              带过来
+            </button>
+          </span>
+        </div>
+      )}
       {/* 权益快照异常（c-s-entitlement-sync）：后端已按档位标准兜底，可复制详情找客服 */}
       {entDegraded && (
         <div className="notice">
@@ -726,7 +785,9 @@ function NovelList() {
                 并在 CTA 下重复了一次免费版文案，与原型基线不一致（design:check 书架屏
                 empty 1.44% 像素差）；本批按原型收拢为一行。 */}
             <p className="fr-note">
-              {priorBooks > 0 ? (
+              {/* c-lossless-upgrade：告知卡是主入口；此处出口行只在「卡不在途」时
+                  保留（如无 recommended 但有其他候选——进完整向导选来源） */}
+              {priorBooks > 0 && !(carryRec && !carryRec.carried && !carryRec.suppressed) ? (
                 <>
                   这台电脑上有旧版作品（<span className="num">{priorBooks}</span> 本）·{' '}
                   <button
@@ -861,6 +922,23 @@ function NovelList() {
           onReopened={handleReopened}
         />
       )}
-    </main>
+          {/* c-lossless-upgrade：带回四步卡（壳层队列条目；稍后带＝收卡不出队——
+          队列继续被 carry 占住，能力包弹窗本页访问周期不入场，下次进入重新评估） */}
+      {carryRec && (
+        <CarryDialog
+          candidate={carryRec}
+          others={carryOthers}
+          open={carryOpen}
+          onLater={() => {
+            setCarryOpen(false);
+            setCarryLater(true); // 常驻行接管（评审修复：稍后带≠静默——SPA 会话内保持提醒）
+          }}
+          onConfirmed={() => {
+            setCarryOpen(false);
+            setCarryConfirmed(true);
+          }}
+        />
+      )}
+</main>
   );
 }

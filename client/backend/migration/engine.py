@@ -30,6 +30,11 @@ logger = logging.getLogger("uvicorn.error")
 # 迁移排除表：app_meta（旧 schema_id 污染新戳；migration.* 是新库私产）
 EXCLUDED_TABLES = {"app_meta"}
 
+# 预置种子表清单（c-lossless-upgrade D4）：＝启动期 ensure_seed_* 播种的全部
+# 出厂字典表。这些表在搬运路径按「源行胜出」处理（用户编辑优先于新版出厂文案）；
+# 将来新增播种表 MUST 同批登记进本清单（specs：预置题材源行胜出）。
+SEED_TABLES = ("genres", "genre_vocab")
+
 # 世代门禁：库内含盘上 yaml 世代特征（自存储 ADR 前设定在文件系统）→ 行级
 # 迁入会丢设定（specs R5 宁少勿错——引导资产包通道）。探测：novels.root_path
 # 下的 settings 目录有 yaml 且库内无对应承载表（settings 键迁库后的形态）。
@@ -38,6 +43,50 @@ LEGACY_YAML_MARKER = "settings/genre.yaml"
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+# ── 「完整达成」单源判定（c-lossless-upgrade D8）────────────────────────────
+# 三处消费共用：候选/常驻行的抑制与继续提醒（router）、清理白名单（router）、
+# 演练对拍（upgrade_drill）。契约＝吃搬运 report dict（migration.last 内嵌完整
+# report）；history 侧（计数形态）经 completeness_from_history 适配后消费。
+
+
+def is_complete_report(report: dict | None) -> bool:
+    """完整达成＝无整表跳过 ∧ 无 FK 违规 ∧ 源/迁入书数一致 ∧ 状态 ok。
+
+    None/缺字段一律 False（宁保守：不完整者继续提醒、不进清理白名单）。
+    """
+    if not isinstance(report, dict):
+        return False
+    if report.get("status") != "ok":
+        return False
+    skipped = report.get("tables_skipped")
+    if isinstance(skipped, list) and skipped:
+        return False
+    fk = report.get("fk_violations")
+    if isinstance(fk, list) and fk:
+        return False
+    src = report.get("book_count_source")
+    mig = report.get("book_count_migrated")
+    return not (src is not None and mig is not None and src != mig)
+
+
+def completeness_from_history(entry: dict) -> dict:
+    """history 条目（计数形态）→ report dict 适配器（老数据走同一条判定）。
+
+    字段**缺失**（老格式）按不完整处理——少删优于误删（沿用既有保守语义）；
+    书数两缺一时不在适配器里判（is_complete_report 对缺计数容忍，同旧口径）。
+    """
+    skipped = entry.get("tables_skipped")
+    fk = entry.get("fk_violations")
+    return {
+        "status": "ok",
+        "tables_skipped": [] if skipped == 0 else [{"table": "history"}],
+        "fk_violations": [] if fk == 0 else [{"table": "history"}],
+        "book_count_source": entry.get("book_count_source"),
+        "book_count_migrated": entry.get("book_count_migrated"),
+    }
+
 
 
 def _sqlite_ro(path: Path) -> sqlite3.Connection:
@@ -51,6 +100,79 @@ def _sqlite_rw(path: Path) -> sqlite3.Connection:
 
 
 # ── 第 0 步：预检 ──────────────────────────────────────────────────────────
+
+
+def _reencrypt_dead_ciphertexts(tgt: sqlite3.Connection,
+                                src_con: sqlite3.Connection,
+                                data_root: Path) -> int:
+    """密钥转接（c-lossless-upgrade D3）：修「目标钥匙解不开」的 api_configs 行。
+
+    候选源钥依次为：①源库 app_meta.fernet_key 行（src_con＝只读 work 副本，
+    app_meta 表在副本内完整——EXCLUDED_TABLES 只影响 INSERT 计划）；②数据目录
+    旧 `.fernet_key` 文件（按本次搬运的 data_root 解析，不依赖 import 期常量）。
+    源钥内容非法按「不可得」降级（构造失败即跳过，不使搬运失败）。
+    只碰目标钥匙解不开的行（幂等；可解行永不触碰，目标原生密文不受影响）；
+    目标钥匙经 api_configs.crypto 取（init_crypto 已在 lifespan 先行；Fernet
+    无共享可变态，本后台线程使用安全）。返回搬后目标库不可解 enc: 行数
+    （含目标库既有死文——只报事实不断言成因）。
+    """
+    from cryptography.fernet import Fernet, InvalidToken
+
+    from api_configs import crypto as _crypto
+
+    def _load(raw) -> Fernet | None:
+        try:
+            return Fernet(raw)
+        except Exception:  # noqa: BLE001 —— 非法钥＝不可得，降级
+            return None
+
+    source_keys: list[Fernet] = []
+    try:
+        row = src_con.execute(
+            "SELECT value FROM app_meta WHERE key = 'fernet_key'"
+        ).fetchone()
+        if row:
+            fk = _load(str(row[0]).strip().encode("ascii", "ignore"))
+            if fk is not None:
+                source_keys.append(fk)
+    except sqlite3.Error:
+        pass
+    try:
+        legacy = (Path(data_root) / ".fernet_key")
+        if legacy.is_file():
+            fk = _load(legacy.read_bytes().strip())
+            if fk is not None:
+                source_keys.append(fk)
+    except OSError:
+        pass
+
+    def _decrypt(f: Fernet, token: str) -> str | None:
+        try:
+            return f.decrypt(token.encode("utf-8")).decode("utf-8")
+        except (InvalidToken, ValueError):
+            return None
+
+    rows = tgt.execute(
+        "SELECT rowid, api_key FROM main.api_configs WHERE api_key LIKE 'enc:%'"
+    ).fetchall()
+    dead = 0
+    for rowid, stored in rows:
+        token = stored[4:]
+        if _decrypt(_crypto._get_fernet(), token) is not None:
+            continue  # 目标钥匙可解——原生或已转接，永不触碰
+        plaintext = next(
+            (pt for pt in (_decrypt(f, token) for f in source_keys) if pt is not None),
+            None,
+        )
+        if plaintext is None:
+            dead += 1
+            continue
+        new_stored = _crypto.encrypt_api_key(plaintext)
+        tgt.execute(
+            "UPDATE main.api_configs SET api_key = ? WHERE rowid = ?",
+            (new_stored, rowid),
+        )
+    return dead
 
 
 def precheck(data_root: Path, source_filename: str, active_db_path: Path) -> dict:
@@ -181,7 +303,9 @@ def build_plan(staged: Path) -> dict:
     for tname in sorted(set(src_schema) - set(meta)):
         skipped.append({"table": tname, "reason": "table_retired",
                         "columns": src_schema[tname]})
-    return {"v": 1, "tables": plan, "tables_skipped": skipped, "backfills": backfills, "planned_at": _now_iso()}
+    # dead_keys/complete 是搬后结果——preview 恒 None（同构＝字段集合一致，不造数）
+    return {"v": 1, "tables": plan, "tables_skipped": skipped, "backfills": backfills,
+            "dead_keys": None, "complete": None, "planned_at": _now_iso()}
 
 
 # ── 执行（六步） ──────────────────────────────────────────────────────────
@@ -202,6 +326,7 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
     work_dir: Path | None = None  # 早退路径（precheck/拷贝失败）时 finally 不误清
     report = {"v": 1, "source": source_filename, "at": _now_iso(),
               "tables": [], "tables_skipped": [], "fk_violations": [],
+              "dead_keys": 0, "complete": None,
               # source＝源库书数；migrated＝**本次真正带回**的书数（目标已有书时不得虚高）；
               # target_after＝合并后目标库总数（诊断用）
               "book_count_source": None, "book_count_migrated": None,
@@ -299,6 +424,42 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                 tables_done += 1
                 _emit("transfer", tables_total=tables_total, tables_done=tables_done,
                       table=t, rows_inserted=entry["rows_inserted"])
+            # 4.5 预置种子表源行胜出（c-lossless-upgrade D4）：清单钉死＝ensure_seed_*
+            # 播种表（新增播种表须同批登记 SEED_TABLES）。用户对预置项的编辑优先于
+            # 新版出厂文案。实现＝UPDATE 交集列（两表 PK 均为 id）：**不做 DELETE+重插**
+            # ——源行常缺目标 NOT NULL 无默认列，重插会被 OR IGNORE 静默吞掉整行
+            # （测试实锤）；UPDATE 只写源实有列，目标独有列（含新版新增预置行）原样保留，
+            # 源独有行由上方正常搬运路径带 backfill 插入。
+            for seed_table in SEED_TABLES:
+                if seed_table not in {e["table"] for e in plan["tables"]}:
+                    continue
+                cols = next(e["columns"] for e in plan["tables"]
+                            if e["table"] == seed_table)
+                set_cols = [c for c in cols if c != "id"]
+                if not set_cols:
+                    continue
+                assignments = ", ".join(
+                    f'"{c}" = (SELECT s."{c}" FROM mig_src."{seed_table}" s '
+                    f'WHERE s.id = main."{seed_table}".id)' for c in set_cols)
+                tgt.execute(
+                    f'UPDATE main."{seed_table}" SET {assignments} '
+                    f'WHERE id IN (SELECT id FROM mig_src."{seed_table}")'
+                )
+
+            # 4.6 密钥转接（c-lossless-upgrade D3）：只修「目标钥匙解不开」的行——
+            # 依次用源库钥匙行（staged 副本 app_meta 可读：EXCLUDED_TABLES 只影响
+            # INSERT 计划，不影响 ATTACH 读取）与数据目录旧钥匙文件（按本次搬运的
+            # data_root 解析，不依赖 import 期常量）解密，成功者按目标钥匙重加密
+            # 原地改写；两把皆解不开则保持原样，dead_keys 只报事实不断言成因。
+            # 仅本次 api_configs 有迁入行时执行（幂等：可解行永不触碰）。
+            if any(e["table"] == "api_configs" and e.get("rows_inserted")
+                   for e in report["tables"]):
+                try:
+                    report["dead_keys"] = _reencrypt_dead_ciphertexts(
+                        tgt, src_con, data_root)
+                except Exception:  # noqa: BLE001 —— 转接失败不阻断迁入（沿用死文统计的容错口径）
+                    logger.warning("migration: 密钥转接失败（按不转接处理）", exc_info=True)
+
             # 5 核对：FK 违规只报不删 + 书计数
             _emit("verify", tables_total=tables_total, tables_done=tables_done)
             for row in tgt.execute("PRAGMA foreign_key_check"):
@@ -324,24 +485,14 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
                         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                         (k, v),
                     )
-            # key-crypto-selfcontained：api_configs 密文随表迁入而源库钥匙（app_meta
-            # 行）不随行——统计口径＝库内全部 enc: 密文（含目标库既有死文），故文案
-            # 只报事实不断言成因；运行期由「密文无法解密」的 503 no_key 引导承接。
-            if any(e["table"] == "api_configs" and e.get("rows_inserted") for e in report["tables"]):
-                try:
-                    from api_configs.crypto import decrypt_api_key
-
-                    enc_rows = tgt.execute(
-                        "SELECT api_key FROM main.api_configs WHERE api_key LIKE 'enc:%'"
-                    ).fetchall()
-                    dead = sum(1 for (k,) in enc_rows if not decrypt_api_key(k))
-                    if dead:
-                        report["notes"].append(
-                            f"库内 {dead} 条配置的 API Key 按当前加密钥匙不可解"
-                            "——请在「模型配置」重新粘贴保存"
-                        )
-                except Exception:  # noqa: BLE001 —— 提示失败不阻断迁入
-                    logger.warning("migration: 死文配置统计失败", exc_info=True)
+            # dead_keys 口径（c-lossless-upgrade）：搬后目标库全部不可解 enc: 行数
+            # （含目标库既有死文）——文案只报事实；运行期由「密文无法解密」的
+            # 503 no_key 引导承接。转接未执行（api_configs 无迁入行）时保持初值 0。
+            if report.get("dead_keys"):
+                report["notes"].append(
+                    f"{report['dead_keys']} 条配置的 API Key 按当前加密钥匙不可解"
+                    "——请在「模型配置」重新粘贴保存"
+                )
             tgt.commit()
         finally:
             try:
@@ -351,8 +502,8 @@ def run_migration(data_root: Path, source_filename: str, active_db_path: Path,
             tgt.close()
             src_con.close()
 
-        # 预置题材说明（种子行 OR IGNORE 由新版定义胜出——已知损失入 notes）
-        report["notes"].append("预置题材的行内编辑不随迁（新版定义胜出）")
+
+        report["complete"] = is_complete_report(report)
 
     except Exception:
         logger.exception("migration failed: %s", source_filename)

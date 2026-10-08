@@ -244,6 +244,11 @@ test.describe("design-parity 书架屏（list.html v2）", () => {
         r.fulfill({ json: { has_api_key: true, portal_url: "https://www.awesomenovel.com" } })
       );
       await appPage.route("**/api/auth/check-auth", (r) => r.fulfill({ json: { code: 1 } }));
+      // c-lossless-upgrade：带回常驻行/告知卡只在「本机有旧版数据」时渲染——parity
+      // 环境经 vite 代理连的是真开发栈（可能有历史候选），必须钉死为首装态（原型
+      // list.html 不含带回 UI；带回卡的对位原型是 upgrade-carry.html，见 ADJUSTMENTS）
+      await appPage.route("**/api/backup/db-migration/candidates", (r) =>
+        r.fulfill({ json: { code: 0, data: { candidates: [], quarantined: [], current_version: "0.0" } } }));
       await appPage.goto("/#/novels");
       await appPage.waitForLoadState("networkidle");
       await appPage.evaluate(() => document.fonts.ready);

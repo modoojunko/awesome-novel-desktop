@@ -575,7 +575,7 @@ describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
     withCandidates();
     await openMenu();
     const menuItem = item("acct-menu-migrate") as HTMLElement;
-    expect(menuItem.textContent).toContain("带回旧版作品");
+    expect(menuItem.textContent).toContain("本机旧版本数据");
     fireEvent.click(menuItem);
     await act(async () => {});
     expect(item("test-migrate-modal")).toBeTruthy();
@@ -619,14 +619,14 @@ describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("条件菜单项：有未抑制候选才显示；点击开弹窗并收起面板", async () => {
+  it("菜单项常驻（c-lossless-upgrade）：候选被抑制/已带回也保留入口；点击开弹窗并收起面板", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("fetch", statusFetch());
     await openMigrateViaMenu();
-    // 候选全部被抑制 → 过滤后为空 → 菜单项不渲染（另一 render 实例）
+    // 候选被「本版不再提醒」抑制 → 入口仍在（更早候选/清理从这里进；旧条件形态退役）
     withCandidates(true);
     await openMenu();
-    expect(item("acct-menu-migrate")).toBeNull();
+    expect(item("acct-menu-migrate")).toBeTruthy();
   });
 
   it("空态事件双出口：legacy-migrate:open 开带回弹窗；restore:open 开恢复弹窗", async () => {
@@ -739,7 +739,7 @@ describe("AcctMenu 带回旧版（接线 + 后台守望）", () => {
     await tickWatch(121_000); // 前 120 拍都还是 running，第 121 拍越限
     expect(toastState.success).not.toHaveBeenCalled();
     expect(toastState.error).not.toHaveBeenCalled();
-    expect(toastState.info).toHaveBeenCalledWith("带回耗时较长，可从菜单「带回旧版作品」查看进度");
+    expect(toastState.info).toHaveBeenCalledWith("带回耗时较长，可从菜单「本机旧版本数据」查看进度");
     const after = fetchMock.mock.calls.length;
     await tickWatch(3000);
     expect(fetchMock.mock.calls.length).toBe(after); // 超时也停

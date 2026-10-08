@@ -5,8 +5,8 @@
  * `recommended` **由后端单源给出**——前端不得按列表顺序推断推荐位。
  */
 
-import { useCallback, useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { useCallback, useEffect } from 'react';
+import { refreshCarry, snoozeCarry, useCarryStore } from '@/lib/carryStore';
 
 export type LegacyCandidateKind = 'semver' | 'legacy' | 'gen0' | 'sentinel' | 'mismatch';
 
@@ -25,6 +25,15 @@ export interface LegacyCandidate {
   recommended: boolean;
   stamp: string;
   suppressed: boolean;
+  /** c-lossless-upgrade：本次已带回（migration.last 完整达成才算） */
+  carried?: boolean;
+  /** c-lossless-upgrade：recommended 候选的只读内容清单（后端只挂 recommended） */
+  manifest?: {
+    books: Array<{ name: string; words: number }>;
+    books_total: number;
+    configs: Array<{ name: string }>;
+    configs_total: number;
+  } | null;
 }
 
 export interface QuarantinedLibrary {
@@ -39,41 +48,43 @@ export interface LegacyStatus {
   current_version: string;
 }
 
-/** 可搬运候选（不可读件只作只读展示，不提供带回动作）。 */
+/**
+ * 可搬运候选（不可读件只作只读展示，不提供带回动作）。
+ */
 export function migratableCandidates(status: LegacyStatus | null): LegacyCandidate[] {
   return (status?.candidates ?? []).filter((c) => !c.unreadable);
 }
 
-/** 推荐源：后端给的推荐位优先，否则列表首位（列表已按后端顺序排好）。 */
+/**
+ * 推荐源：后端给的推荐位优先，否则列表首位（列表已按后端顺序排好）。
+ */
 export function recommendedCandidate(status: LegacyStatus | null): LegacyCandidate | null {
   const items = migratableCandidates(status);
   return items.find((c) => c.recommended) ?? items[0] ?? null;
 }
 
+/**
+ * c-lossless-upgrade 5.1：本 hook 已收敛为 carryStore 单例的薄壳——书架与账户
+ * 菜单共享同一份 candidates 请求（此前两处挂载各发一次，挤占书架请求预算）。
+ */
 export function useLegacyDb(): {
   status: LegacyStatus | null;
   refresh: () => Promise<void>;
   dismiss: (filename: string) => Promise<void>;
 } {
-  const [status, setStatus] = useState<LegacyStatus | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const res = await api.get('/backup/db-migration/candidates', { quiet: true });
-      if (res.code === 0) setStatus(res.data as LegacyStatus);
-    } catch {
-      setStatus(null);
-    }
-  }, []);
+  const { status } = useCarryStore();
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void refreshCarry();
+  }, []);
+
+  const refresh = useCallback(async () => {
+    await refreshCarry();
+  }, []);
 
   const dismiss = useCallback(async (filename: string) => {
-    await api.post('/backup/db-migration/dismiss', { filename });
-    await refresh();
-  }, [refresh]);
+    await snoozeCarry(filename);
+  }, []);
 
   return { status, refresh, dismiss };
 }
