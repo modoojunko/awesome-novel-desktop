@@ -3,8 +3,10 @@
 require_ai_access(): AI 功能门控（tier-plan-four-tiers 起按 feature key）——
     非会员 403 member_required；会员但档位不够 403 feature_required（带
     feature/tier_required）；过档位门后还需配置 API Key，未配置 503 引导设置。
+require_tier_access(): 只到会员＋档位（同上两段 403，**不查大模型 Key**）——
+    供「Key 由作者自持、与大模型无关」的端点用（朱雀检测；配置域连门都不挂）。
 ai_feature(key): 路由装饰器——setattr 标注端点所需 key（不做 wraps，保证
-    route.endpoint 即标注对象）；require_ai_access 读 route.endpoint.__ai_feature__。
+    route.endpoint 即标注对象）；两个门都读 route.endpoint.__ai_feature__。
 require_project_limit(): 按快照 limits.max_projects 拦截；会员不限。
 """
 
@@ -15,10 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db import get_db
 from models.api_config import ApiConfig
 from models.project import Novel
-from models.user import User
 
 from .middleware import get_current_user
-from .service import check_permission, ensure_entitlement_snapshot, get_local_config
+from .service import check_permission, ensure_entitlement_snapshot
 
 
 def ai_feature(key: str):
@@ -63,13 +64,8 @@ _TIER_RANK = {"none": 0, "free": 1, "standard": 2, "pro": 3, "trial": 3, "max": 
               "monthly": 3, "quarterly": 3, "yearly": 3, "lifetime": 4}  # trial=pro 同权（含朱雀）
 
 
-async def require_ai_access(
-    user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-    request: Request = None,
-):
-    """AI 功能门控：非会员 403 member_required → 档位不够 403 feature_required
-    → 未配 Key 503。
+async def _require_member_and_tier(user: dict, request: Request | None) -> None:
+    """会员＋档位两段（不通过即抛 403）；Key 判据归调用方。
 
     403 detail 为结构化 {reason, message, feature?, tier_required?}，
     前端 request() 据此弹分档升级引导，而非裸错误。request 为 FastAPI 注入；
@@ -122,38 +118,48 @@ async def require_ai_access(
                 },
             )
 
-    # 2) 会员需已配置 API Key（ApiConfig → 旧 User 字段 → config.json 迁移期兜底）
-    # Check ApiConfig first (new system)
-    try:
-        result = await db.execute(
-            select(ApiConfig)
-            .where(
-                ApiConfig.user_id == user["id"],
-                ApiConfig.status == "active",
-                ApiConfig.api_key != "",
-            )
-            .limit(1)
+
+async def require_ai_access(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,
+):
+    """AI 功能门控：非会员 403 member_required → 档位不够 403 feature_required
+    → 未配（写作大模型）Key 503。"""
+    await _require_member_and_tier(user, request)
+    await _check_writing_model_configured(user, db)
+    return True
+
+
+async def require_tier_access(
+    user: dict = Depends(get_current_user),
+    request: Request = None,
+):
+    """会员＋档位门禁（**不含**「已配大模型 Key」判据）。
+
+    供 Key 由作者自持、与大模型无关的端点用（朱雀检测：Key 是作者自己的腾讯资产；
+    配置域按 2026-10-08 拍板「配置不分套餐权益」连门都不挂）：「过档位门后还需配大
+    模型 Key」在那些端点上会拦掉本不该拦的调用（c-zhuque-config-keyless 回归）。
+    """
+    await _require_member_and_tier(user, request)
+    return True
+
+
+async def _check_writing_model_configured(user: dict, db: AsyncSession) -> None:
+    """会员需已配置**写作大模型** Key；未配置 → 503 引导去「模型配置 → 写作大模型」。
+
+    判据**复用判定层** `user_has_ai_key`（不得内联重写；该函数即「ApiConfig 活文行 →
+    旧 User 字段 → config.json 兜底」的单一事实源，并按可解密口径校验）——它同时排除
+    `vendor="zhuque"` 的行：朱雀 Key 不是写作大模型 Key（2026-10-08 口径：两个 Key
+    世界互不顶替——只配朱雀的用户打大模型功能时得到「去配大模型」的引导，而不是被
+    放过门后在更深处失败）。
+    """
+    from ai_state import user_has_ai_key  # 延迟导入防环（同 ensure_novel_model_ready）
+
+    if not await user_has_ai_key(db, user["id"]):
+        raise HTTPException(
+            503, "尚未配置写作大模型 API Key — 去「模型配置 → 写作大模型」添加"
         )
-        if result.scalar_one_or_none():
-            return True
-    except Exception:  # noqa: S110
-        pass
-
-    # Fallback: check old User.api_key for migration period
-    try:
-        result = await db.execute(select(User).where(User.id == user["id"]))
-        u = result.scalar_one_or_none()
-        if u and u.api_key:
-            return True
-    except Exception:  # noqa: S110
-        pass
-
-    # Fallback to config.json
-    cfg = get_local_config()
-    if cfg.get("api_key"):
-        return True
-
-    raise HTTPException(503, "AI 服务未配置 — 请先在设置中填写 API Key")
 
 
 def ai_access_granted(feature: str | None = None) -> bool:

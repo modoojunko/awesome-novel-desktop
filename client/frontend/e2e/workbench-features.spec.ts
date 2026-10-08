@@ -428,10 +428,11 @@ test("提示词：页签退役；生成正文弹窗查看/编辑/存为本章提
 });
 
 // -------------------------------------------------------------------------
-// ④b 未配 API Key（trial 会员）：点提示词 tab 就地提示去配置，不整页跳 /config
+// ④b 未配 API Key（trial 会员）：提示词面板可看/可改不被拦，**点生成才**就地提示去配，
+//     不整页跳 /config（2026-10-08 拍板：看/改不依赖写作大模型配置，生成动作才提示）
 // -------------------------------------------------------------------------
 
-test("无Key：生成正文弹窗就地报错，不整页跳转", async ({
+test("无Key：提示词面板可看可改，点生成才就地提示去配", async ({
   page,
 }) => {
   const { restore } = await setupSession(page); // trial 会员但未注入 ApiConfig
@@ -439,13 +440,18 @@ test("无Key：生成正文弹窗就地报错，不整页跳转", async ({
     await createNovel(page, `无Key提示词${Date.now() % 100000}`);
     await writeFirstChapter(page);
 
-    // 点正文页签 → 生成正文：write/prompt 503 → 弹窗就地显示错误（而非全局跳 /config）
+    // 点正文页签 → 生成正文：弹窗打开即展示提示词（看/改不被 503 拦）＋生成按钮可用
     await page.getByRole("tab", { name: /^正文/ }).click();
     await page.getByTestId("ai-write-btn").click();
     const ai = page.getByRole("dialog", { name: "AI 生成正文" });
-    await expect(ai.getByText(/API Key/)).toBeVisible({ timeout: 10000 });
-    // 错误态：生成按钮不可点
-    await expect(ai.getByTestId("ai-confirm")).toBeDisabled();
+    await expect(ai.getByTestId("ai-prompt")).toBeVisible({ timeout: 10000 });
+    await expect(ai.getByTestId("ai-confirm")).toBeEnabled();
+
+    // 点生成：就地提示去配「写作大模型」（未配 Key 的引导落在生成动作上）
+    await ai.getByTestId("ai-confirm").click();
+    await expect(
+      page.locator(".toast", { hasText: "写作大模型" }),
+    ).toBeVisible({ timeout: 10000 });
 
     // 关键回归断言：仍留在章页（未整页跳 /config）
     await expect(page).toHaveURL(/#\/novel\//);
