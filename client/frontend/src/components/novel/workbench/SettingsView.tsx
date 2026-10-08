@@ -97,6 +97,9 @@ export interface SettingsViewProps {
   settingsStatus: Record<string, boolean> | null;
   /** 角色项"内容有变"（character-settings-v2）：确认存档与当前内容指纹不一致 */
   charStale?: boolean;
+  /** 重取确认存档状态（c-chars-stale-reconfirm）：角色面板数据刷新后与重新确认成功后调用，
+   *  让徽标/页脚当场说真话（不再要求刷新页面） */
+  onRefreshConfirmState?: () => void;
   confirmedStatus?: Record<string, boolean> | null;
   confirmSetting: (type: string) => Promise<boolean>;
   onDirtyChange?: (dirty: boolean) => void;
@@ -117,7 +120,8 @@ function normalizePanel(v: string | undefined): string {
 }
 
 export default function SettingsView({
-  projectId, initialPanel, homeSeq, settingsStatus, confirmedStatus, charStale, confirmSetting, onDirtyChange, onGoWrite, novelName,
+  projectId, initialPanel, homeSeq, settingsStatus, confirmedStatus, charStale, confirmSetting,
+  onRefreshConfirmState, onDirtyChange, onGoWrite, novelName,
 }: SettingsViewProps) {
   const [panel, setPanel] = useState(() => normalizePanel(initialPanel));
   /** 改动回执（用户 2026-09-10）：三面板里"一键改变内容"的动作在脚部留一条 + 一步撤销。 */
@@ -236,6 +240,8 @@ export default function SettingsView({
     label: string;
     ok: boolean;
     empty: boolean;
+    /** 内容有变（c-chars-stale-reconfirm）：页脚让位判据的第二来源 */
+    stale: boolean;
   } | null>(null);
   const [hookSaveState, setHookSaveState] = useState<HookSaveState>("saved");
   const [hookCtx, setHookCtx] = useState<{ id: string; code: string; desc: string } | null>(null);
@@ -581,6 +587,9 @@ export default function SettingsView({
         handle?.clearAi?.();
         // 已确认态再点＝重新确认：内容指纹基线随之前移（伏笔徽标恢复「已确认」系）
         handle?.markConfirmed?.();
+        // 角色：存档被重盖过 → 立刻重取确认存档状态，徽标与页脚当场从「内容有变」恢复
+        // （伏笔的基线在面板本地，markConfirmed 已即时生效，不需要重取）
+        if (panel === "chars") onRefreshConfirmState?.();
         toast.success(
           AUTO_SAVE_PANELS.has(panel) ? `「${item.name}」已重新确认` : `「${item.name}」已保存`,
         );
@@ -605,7 +614,7 @@ export default function SettingsView({
     } finally {
       setBusy(false);
     }
-  }, [item, panel, confirmed, busy, confirmSetting, done, total, currentHandle, projectId]);
+  }, [item, panel, confirmed, busy, confirmSetting, done, total, currentHandle, projectId, onRefreshConfirmState]);
 
   const panelTitle = isModel ? "模型设定" : (item?.name ?? "");
   // 模型窗不是设定完成度项 → 徽标改为**真实就绪态**（与面板内「当前状态」同源，D13）
@@ -649,6 +658,9 @@ export default function SettingsView({
             : "未填";
   const badgeOk = isModel ? modelBadge.ok : hookBadge ? hookBadge.ok : badgeCls === BADGE_DONE;
   const hookEmpty = isForeshadow && !!hookPanelState?.empty;
+  // 内容有变（c-chars-stale-reconfirm）：角色＝服务端确认存档过期；伏笔＝面板本地指纹快照。
+  // 让位口径——stale 期间页脚不以「已确认」表述、不渲染绿色已确认标注（warn 只由徽标给一次）。
+  const panelStale = (isChars && !!charStale) || (isForeshadow && !!hookPanelState?.stale);
   // 角色面板页脚提示（c-chars-confirm-scope）：讲的是**整项**（书内所有角色卡）而不是当前选中卡，
   // 且按这次点击将要适用的档位出摘要——未确认＝第一次确认档只查主角，已确认＝此后档点名首卡。
   // 缺口来自列表响应（CharacterManager 上抛），此处只负责措辞与语气。
@@ -680,17 +692,23 @@ export default function SettingsView({
         warn: true,
       };
     }
+    // 缺口优先（上面那条）；无缺口但内容有变 → 让位文案，不出现「已确认」
+    if (panelStale) {
+      return { text: "内容改过了——点「重新确认」即可，改动已自动保存", warn: false };
+    }
     return { text: "已确认 · 改动自动保存，可随时重新确认", warn: false };
-  }, [isChars, charGateHint, confirmed]);
+  }, [isChars, charGateHint, confirmed, panelStale]);
   const panelDesc = isModel
     ? "本书写作所用的模型、变更历史与用量。"
     : (DESCS[panel] ?? "");
   const panelNote = isModel
     ? "工具项 · 不参与设定进度"
     : isForeshadow
-      ? confirmed
-        ? "已确认 · 可随时回来修改并重新确认"
-        : "改动自动保存 · 确认后停留本格（已是最后一项）"
+      ? hookPanelState?.stale
+        ? "内容改过了——点「重新确认」即可，改动已自动保存"
+        : confirmed
+          ? "已确认 · 可随时回来修改并重新确认"
+          : "改动自动保存 · 确认后停留本格（已是最后一项）"
       : confirmed
         ? "已确认 · 可随时回来修改并重新确认"
         : item?.canDefer
@@ -884,6 +902,7 @@ export default function SettingsView({
                 onDirtyChange={handleDirtyChange}
                 onCtxChange={setCharCtx}
                 onGateHintChange={setCharGateHint}
+                onRefreshConfirmState={onRefreshConfirmState}
                 introReady={!!settingsStatus?.synopsis}
                 aiState={aiState}
                 onBlocked={handleAiBlocked}
@@ -919,7 +938,7 @@ export default function SettingsView({
             )}
             {/* 改动回执（在模型设定/简介/题材/世界四面板发声；其余面板恒 null） */}
             <ChangeReceiptBar receipt={receipt} />
-            {confirmed && !isModel && (
+            {confirmed && !isModel && !panelStale && (
               <span className="done-note">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                   <path d={CHECK_PATH} />

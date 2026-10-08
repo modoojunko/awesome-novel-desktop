@@ -61,7 +61,7 @@ interface Props {
   /** 保存四态上报（面板脚 save-state 槽位由 SettingsView 渲染） */
   onSaveStateChange?: (s: HookSaveState) => void;
   /** 面板徽标五态＋空表预检上报（panel-head 徽标与 panel-foot note/warnline 槽位） */
-  onPanelState?: (s: { cls: string; label: string; ok: boolean; empty: boolean }) => void;
+  onPanelState?: (s: { cls: string; label: string; ok: boolean; empty: boolean; stale: boolean }) => void;
   /** 选中条目变化上报（右栏 h2/h4 置灰与作用域行的数据源） */
   onCtxChange?: (ctx: { id: string; code: string; desc: string } | null) => void;
   /** 本书 AI 就绪态（D13）：空态「让 AI 起草」旁路同一门控 */
@@ -883,15 +883,16 @@ const HooksSettingForm = forwardRef<HooksPanelHandle, Props>(function HooksSetti
 
   const lastPanelState = useRef("");
   useEffect(() => {
-    let next: { cls: string; label: string; ok: boolean; empty: boolean };
-    if (stale) next = { cls: "warn", label: "内容有变 · 待重新确认", ok: false, empty: !hasContent };
+    // stale 一并透出（c-chars-stale-reconfirm）：页脚据它让位（stale 期间不以「已确认」表述）
+    let next: { cls: string; label: string; ok: boolean; empty: boolean; stale: boolean };
+    if (stale) next = { cls: "warn", label: "内容有变 · 待重新确认", ok: false, empty: !hasContent, stale: true };
     else if (items.length === 0)
-      next = { cls: "empty", label: "还没有伏笔", ok: false, empty: true };
+      next = { cls: "empty", label: "还没有伏笔", ok: false, empty: true, stale: false };
     else if (confirmed)
-      next = { cls: "ok", label: `已确认 · ${pendingCount} 条待收束`, ok: true, empty: !hasContent };
+      next = { cls: "ok", label: `已确认 · ${pendingCount} 条待收束`, ok: true, empty: !hasContent, stale: false };
     else if (pendingCount > 0)
-      next = { cls: "warn", label: `${pendingCount} 条待收束`, ok: false, empty: !hasContent };
-    else next = { cls: "ok", label: "全部收束", ok: true, empty: !hasContent };
+      next = { cls: "warn", label: `${pendingCount} 条待收束`, ok: false, empty: !hasContent, stale: false };
+    else next = { cls: "ok", label: "全部收束", ok: true, empty: !hasContent, stale: false };
     // 挂载/每次派生值变化都上报（父层不重置本状态，避免「先清后报」时序抹掉）；
     // 同值重入由父层 setState 浅比较吸收（deps 不含父层状态，无回环）
     const key = JSON.stringify(next) + stale + snapVersion;

@@ -623,6 +623,46 @@ test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确�
     expect(clr.status()).toBe(200);
     const gate2 = await apiGetJSON(request, token, `/novels/${pid}/characters/gate/status`);
     expect(gate2.data?.stale).toBe(true);
+
+    // c-chars-stale-reconfirm：内容有变期间页脚让位（缺口优先 → 点名缺口；不出现「已确认」标注），
+    // 补回/补齐门禁项后走「无缺口 + 内容有变」分支 → 重新确认 → 徽标与页脚当场恢复
+    /** 以库里最新 rev 单格写入（每次 PATCH 都 bump rev，写死 rev 会 409） */
+    const patchGate = async (path: string, value: string) => {
+      const cur = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+      const c = cur.data.items.find((x: { name: string }) => x.name === "林晚");
+      const r = await request.patch(`/api/novels/${pid}/characters/${c.id}`, {
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        data: { path, value, base_rev: c.rev },
+      });
+      expect(r.status()).toBe(200);
+    };
+    await patchGate("persona", "拾残人，瘦高个");
+    for (const [path, value] of [
+      ["dossier.plot", "替人拾残卷，一步步刨出旧案"],
+      ["cog.w5", "以为旧案只是家事"],
+      ["cog.p3", "捡到的残卷越多，看得越远"],
+      ["cog.p4", "每拼一卷，忘掉一段自己的事"],
+    ] as const) {
+      await patchGate(path, value);
+    }
+    // 离开再回角色面板：数据刷新触发重取 → 徽标与页脚同源为「内容有变」
+    await page.locator(".settings-v .col-tree .s-item", { hasText: "主线" }).click();
+    const charsReload2 = page.waitForResponse(`**/api/novels/${pid}/characters`);
+    await page.locator(".settings-v .col-tree .s-item", { hasText: "角色" }).click();
+    await charsReload2;
+    await expect(page.locator(".col-middle .panel-head .badge")).toHaveText("内容有变 · 待重新确认");
+    await expect(page.locator(".panel-foot .note")).toHaveText(
+      "内容改过了——点「重新确认」即可，改动已自动保存",
+    );
+    await expect(page.locator(".done-note")).toHaveCount(0);
+    // 重新确认 → 徽标与页脚当场恢复（不刷新页面）
+    await page.locator(".panel-foot").getByRole("button", { name: "重新确认" }).click();
+    await expect(page.locator(".col-middle .panel-head .badge")).toHaveText("已确认", {
+      timeout: 8000,
+    });
+    await expect(page.locator(".panel-foot .note")).toHaveText(
+      "已确认 · 改动自动保存，可随时重新确认",
+    );
   } finally {
     await restore();
   }

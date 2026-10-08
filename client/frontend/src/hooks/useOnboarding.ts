@@ -67,26 +67,28 @@ export function useOnboarding(projectId: string | undefined, volumes: any[]) {
     [projectId],
   );
 
-  // 角色第三态（character-settings-v2）：确认存档 vs 当前内容指纹
+  // 角色第三态（character-settings-v2）：确认存档 vs 当前内容指纹。
+  // c-chars-stale-reconfirm：回填写**精确值**（confirmed && stale）而非只置真——否则内容
+  // 改回/重新确认后结论清不掉；并按两类时机重取（挂载与确认标记变化自动跑，另暴露给
+  // 角色面板在「数据刷新后」与「确认/重新确认成功后」主动调用）。
   const [charStaleState, setCharStaleState] = useState(false);
-  useEffect(() => {
+  const refreshCharStale = useCallback(async () => {
     if (!projectId) return; // 书未加载完不打空 id 请求（/novels//characters/... 404 污染控制台）
-    let alive = true;
-    void (async () => {
-      try {
-        const res = await api.get(`/novels/${projectId}/characters/gate/status`) as {
-          data?: { confirmed?: boolean; stale?: boolean } | null;
-        };
-        if (alive && res?.data?.confirmed && res.data.stale) setCharStaleState(true);
-        if (alive && !res?.data?.confirmed) setCharStaleState(false);
-      } catch {
-        /* 无确认存档 = 未确认，无需 stale */
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [projectId, confirmedStatus]);
+    try {
+      const res = (await api.get(`/novels/${projectId}/characters/gate/status`)) as {
+        data?: { confirmed?: boolean; stale?: boolean } | null;
+      };
+      setCharStaleState(!!res?.data?.confirmed && !!res.data.stale);
+    } catch {
+      /* 取不到就维持现值：网络抖动不得把已有的「内容有变」结论抹成绿 */
+    }
+  }, [projectId]);
+  useEffect(() => {
+    void refreshCharStale();
+  }, [refreshCharStale, confirmedStatus]);
 
-  return { settingsStatus, confirmedStatus, settingsDone, allConfirmed, isNew, confirmSetting, loading, charStale: charStaleState };
+  return {
+    settingsStatus, confirmedStatus, settingsDone, allConfirmed, isNew, confirmSetting, loading,
+    charStale: charStaleState, refreshCharStale,
+  };
 }
