@@ -102,6 +102,24 @@ def test_log_call_attempt_field_and_truncation(cap_ai):
     assert "attempt=2" in line and "result=empty_response" in line
 
 
+def test_log_call_includes_vendor_field(cap_ai):
+    """c-llm-call-log：留痕行带 vendor 身份（工厂层传入）；`__new__` 直装的
+    旧构造路径实例无 _vendor 属性——兜底记 -，不炸。"""
+    c = _make_openai_client()
+    c._vendor = "deepseek"
+    c._log_call("unit_vendor", "m", time.perf_counter())
+    line = [r.getMessage() for r in cap_ai.records if r.name == "ai_client"][-1]
+    assert "vendor=deepseek" in line
+
+    bare = AIClient.__new__(AIClient)
+    bare._provider = "openai"
+    bare._model = "m"
+    bare._base_url = "https://api.example.com/v1"
+    bare._log_call("unit_vendor_bare", "m", time.perf_counter())
+    line = [r.getMessage() for r in cap_ai.records if r.name == "ai_client"][-1]
+    assert "vendor=-" in line
+
+
 def test_normalize_upstream_reject_classified(cap_ai):
     """AIRequestError（404/405 归一）分类＝upstream_reject。"""
     err = ai_client.AIRequestError("模型服务拒绝了请求（HTTP 405）")
