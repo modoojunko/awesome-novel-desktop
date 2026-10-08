@@ -712,6 +712,10 @@
   .rail-assist .ra-step.zq-guide { border-style: dashed; }
   .rail-assist .ra-step.zq-maxlk { opacity: 0.55; cursor: not-allowed; }
   .rail-assist .ra-step.zq-maxlk:hover { border-color: var(--border); }
+  /* .pill 基础家族（c-chtab-confirm-bubbles：逐字对齐 base.css:156-164；此前原型仅有 tone 覆盖无基础类） */
+  .pill { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 1.6; font-weight: 500; background: var(--surface); color: var(--muted); white-space: nowrap; }
+  .pill-count { font-family: var(--font-mono); background: var(--fg-soft); }
+  .pill-accent { background: var(--accent-soft); border-color: transparent; color: var(--accent-strong); }
   .pill-warn { background: var(--warn-soft); border-color: transparent; color: color-mix(in oklch, var(--warn) 85%, var(--fg)); }
   .pill-new { background: var(--accent); border-color: transparent; color: var(--on-accent); letter-spacing: 0.06em; }
   .rail-assist .ra-body b .pill { margin-left: 6px; }
@@ -993,10 +997,10 @@
       <div class="ch-tabs" role="tablist" aria-label="章节对象">
         <button class="chtab on" data-chtab="og" role="tab" aria-selected="true">章纲 <span class="cnt" id="tabOgCnt">已确认</span></button>
         <button class="chtab" data-chtab="prose" role="tab" aria-selected="false">正文 <span class="cnt" id="tabProseCnt">793 字</span></button>
-        <button class="chtab" role="tab" aria-selected="false">设定</button>
+        <button class="chtab" role="tab" aria-selected="false">设定 <span class="pill pill-count pill-accent" title="5 条本章变化待确认">5</span></button>
         <button class="chtab" role="tab" aria-selected="false">文风</button>
-        <button class="chtab" role="tab" aria-selected="false">角色关系</button>
-        <button class="chtab" role="tab" aria-selected="false">伏笔</button>
+        <button class="chtab" role="tab" aria-selected="false">角色关系 <span class="pill pill-count pill-accent" title="3 条人物关系待确认">3</span></button>
+        <button class="chtab" role="tab" aria-selected="false">伏笔 <span class="pill pill-count pill-warn" title="2 条伏笔到了计划收束章">该收 2</span></button>
         <button class="chtab" data-chtab="dossier" role="tab" aria-selected="false" data-od-id="tab-dossier">章档 <span class="cnt" id="tabDossierCnt">3 待确认</span></button>
         <button class="chtab" role="tab" aria-selected="false">操作</button>
         <span style="flex:1"></span>

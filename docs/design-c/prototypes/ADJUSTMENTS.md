@@ -1725,3 +1725,13 @@ model-config.html 不在像素 parity 基线内（同 c-zhuque-ai-detect 登记�
   先例（该文件此前漏配；list.html toast 原为纯文本未暴露，本批 × 是其首个 toast 内交互钮）；
   ② demo-bar 增「toast · 3 秒自消＋×」演示钮（非基线，先例＝写作能力弹窗五态 chips），供评审
   一键验 × 与 3 秒自消（此前只能走书卡「完本」动作触发）。
+
+## c-chtab-confirm-bubbles（2026-10-08）
+
+**章工作台页签行新增三枚「待确认」计数泡泡**（用户拍板 2026-10-08；交互原型 drafts/ai-novel-c端-归档待确认页签泡泡.html 先行过目）：
+
+- **book.html 页签行**：「设定」加 `pill pill-count pill-accent` 裸数字（5＝设定+物品+认知三域 pending，与页签内「全部采纳（N）」同口径）、「角色关系」同款（3＝关系域 pending）、「伏笔」`pill pill-count pill-warn`「该收 2」（台账该收了计数，规则与台账行标注同源）；均带 title（非视觉等价信息）。
+- **配色裁决**：初议「微信红 pill」，按 design-language §5 规则 N6（红只表不可逆/即时生效；同页签行红色已被「缺 N 项」cnt.err 占用）改判 **accent**（本应用「下一步动作」色，与「全部采纳」主按钮同语言）；形态/出现/递减/清零自消行为维持拍板口径。**不做实底填充与新胶囊形态**——`.pill` 家族既有 role×tone 组合，零共享段改动。
+- **book.html 补 `.pill` 基础家族样式**（`.pill`/`.pill-count`/`.pill-accent` 逐字对齐 base.css:156-164）：此前原型只有 `.pill-warn`/`.pill-new` 两个 tone 覆盖、无基础类，缺口 chips 处的裸 `class="pill"` 实为无样式渲染，本批顺带补齐（不影响 parity 已登记存量红）。
+- **默认 parity 种子（未归档态）不出现泡泡**——泡泡是归档收口后的条件态；book 屏四例 parity 为存量红（4.71%/2.901%/2.76%/~2.7%），归 `c-book-parity-rebaseline` 专户，本批不新增门槛。原型页签行的存量 IA 漂移（「章档」tab 已退役仍在校）同样留归该专户，本批不动。
+- **实现侧动效**：泡泡挂载 pop（scale+fade ~220ms，book.css 屏级 keyframes，先例＝.ai-streaming .pulse）；递减不做 bump（数字变化本身可见）；原型为静态不演示动画。
