@@ -7,6 +7,9 @@
 // 不参与进度（ADJUSTMENTS #4）。
 // 产品扩展（ADJUSTMENTS #9）：已确认面板的按钮转「保存修改」——设计稿 done 态
 // 无落库入口，保留产品「改完随时存」能力；确认流程沿 gap3（先 save 再 confirm）。
+// 例外（c-chars-confirm-scope）：自动保存制面板（角色/伏笔）的改动即时落库，已确认态
+// 按钮与回执走「重新确认 / 已重新确认」；角色页脚提示＝整项口径的缺口摘要（按档位），
+// 数据由 CharacterManager 经 onGateHintChange 上抛（列表载入前报 null → 回落通用 note）。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";

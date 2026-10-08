@@ -33,8 +33,9 @@ interface Props {
   /** 本书 AI 就绪态（D13）：空态引导按钮与右栏行同一门控；不 ready 时点击走 onBlocked */
   aiState?: AiState;
   onBlocked?: (reason: AiState) => void;
-  /** 整项确认门禁缺口（c-chars-confirm-scope）：列表/门禁变化时上抛，页脚提示的数据源 */
-  onGateHintChange?: (hint: CharGateHint) => void;
+  /** 整项确认门禁缺口（c-chars-confirm-scope）：列表载入成功后上报，未载入/载入失败报 null
+   *  （页脚据此回落通用提示，不冒充「书里没有主角」） */
+  onGateHintChange?: (hint: CharGateHint | null) => void;
 }
 
 export interface CharacterSaveHandle {
@@ -110,6 +111,9 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   const [gate, setGate] = useState<{ ok: boolean; no_protagonist: boolean; confirmed: boolean }>({
     ok: false, no_protagonist: true, confirmed: false,
   });
+  /** 列表是否已成功载入（c-chars-confirm-scope 评审补丁）：未载入/载入失败时不上报门禁摘要——
+   *  初值 gate.no_protagonist=true 是「还不知道」，直接上报会把空列表当成「书里没有主角」。 */
+  const [listLoaded, setListLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [card, setCard] = useState<CharacterCard | null>(null);
   const [groupsOpen, setGroupsOpen] = useState<Record<string, boolean>>({
@@ -158,6 +162,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     const data = await charactersApi.list(projectId);
     setList(data.items);
     setGate({ ok: data.gate.ok, no_protagonist: data.gate.no_protagonist, confirmed: data.confirmed });
+    setListLoaded(true); // 只有真拿到列表才放行门禁摘要（失败路径保持静默，见 listLoaded 声明处）
     return data.items;
   }, [projectId]);
 
@@ -187,6 +192,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   }, [projectId, clearDirty, onDirtyChange, onCtxChange]);
 
   useEffect(() => {
+    setListLoaded(false); // 换书重取：旧书的缺口摘要不得借道新书的首帧（评审补丁）
     (async () => {
       try {
         const items = await reloadList();
@@ -203,8 +209,12 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
   }, [projectId]);
 
   // 整项确认门禁缺口上报（c-chars-confirm-scope）：页脚提示的数据源。
-  // 列表在单卡保存落库后会重取（reloadList），缺口因此天然新鲜。
-  const gateHint = useMemo(() => gateHintOf(list, gate.no_protagonist), [list, gate.no_protagonist]);
+  // 列表在单卡保存落库后会重取（reloadList），缺口因此天然新鲜；
+  // 未载入/载入失败时上报 null（页脚回落通用提示）——空列表不等于「书里没有主角」（评审补丁）。
+  const gateHint = useMemo(
+    () => (listLoaded ? gateHintOf(list, gate.no_protagonist) : null),
+    [listLoaded, list, gate.no_protagonist],
+  );
   useEffect(() => {
     onGateHintChange?.(gateHint);
   }, [gateHint, onGateHintChange]);
