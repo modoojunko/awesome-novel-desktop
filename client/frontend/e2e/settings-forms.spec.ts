@@ -584,6 +584,10 @@ test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确�
       (l: { data?: { items?: unknown[] } }) =>
         JSON.stringify(l.data?.items ?? []).includes("瘦高个的拾残人"),
     ); // 末格 PATCH 落库（条件轮询替代固定 sleep）
+    // 页脚提示＝整项口径（c-chars-confirm-scope）：未确认＝第一次确认档，只看主角名称+人设
+    await expect(page.locator(".panel-foot .note")).toHaveText(
+      "主角写全了——第一次确认只看主角；配角、反派后补也行，改动会自动保存",
+    );
     const confirmPost = page.waitForResponse(
       (r) =>
         r.request().method() === "POST" && r.url().includes("/characters/confirm"),
@@ -598,6 +602,14 @@ test("角色：分组列表新建 → 卷宗卡填写自动保存 → 名称确�
     const gate1 = await apiGetJSON(request, token, `/novels/${pid}/characters/gate/status`);
     expect(gate1.data?.confirmed).toBe(true);
     expect(gate1.data?.stale).toBe(false);
+    // 回角色面板（确认即前进会切走）：已确认＝此后档，页脚常驻点名缺口卡 + 按钮转「重新确认」
+    const charsReload = page.waitForResponse(`**/api/novels/${pid}/characters`);
+    await page.locator(".settings-v .col-tree .s-item", { hasText: "角色" }).click();
+    await charsReload;
+    await expect(page.locator('[data-od-id="chars-gate-hint"]')).toHaveText(
+      "还差：主角《林晚》缺 剧情定位、核心认知盲区、能力上限 等",
+    );
+    await expect(page.locator(".panel-foot").getByRole("button", { name: "重新确认" })).toBeVisible();
     // 清空人设（门禁字段）→ 内容有变
     const list3 = await apiGetJSON(request, token, `/novels/${pid}/characters`);
     const card3 = list3.data.items.find((x: { name: string }) => x.name === "林晚");
