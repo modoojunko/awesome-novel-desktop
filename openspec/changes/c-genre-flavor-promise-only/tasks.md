@@ -18,4 +18,4 @@
 
 - [x] 4.1 `openspec validate c-genre-flavor-promise-only --strict` 通过。验证：命令退出 0。
 - [x] 4.2 前端门禁：`npm run design:lint` + `tsc --noEmit` + vitest 全量（无 CSS 改动，design:check 像素零差）。验证：全绿。
-- [ ] 4.3 二轮改动复跑隔离栈 e2e（settings-forms.spec.ts）后 push 同一 PR。验证：远端 head 前进、CI 绿。
+- [x] 4.3 二轮改动复跑隔离栈 e2e（settings-forms.spec.ts）后 push 同一 PR；评审整改（ref 随 undo 恢复）后 rebase 到 main 并**再复跑一轮**（rebase 后构建 15/15 绿，bundle 特征串自证）。验证：远端 head 前进、CI 绿。
