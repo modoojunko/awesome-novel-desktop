@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import NovelWorkspace from "@/components/novel/NovelWorkspace";
 import { streamChapterWrite } from "@/lib/ai";
+import { hooksApi } from "@/lib/hooksApi";
 import {
   ProjectContext,
   type ProjectState,
@@ -878,5 +879,143 @@ describe("正文生成中的现场保护（c-prose-stream-guard）", () => {
     fireEvent.click(screen.getByRole("button", { name: /^写作/ }));
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     confirmSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 页签「待确认」泡泡（c-chtab-confirm-bubbles）：
+//   设定/角色关系＝本章变化按域 pending（accent 计数泡泡，与页签内「全部采纳（N）」
+//   同口径）；伏笔＝「该收 N」（warn，ogHookHints.mres 台账共享判定）。
+//   提取收口即取（无轮询）；DOSSIER_CHANGED_EVENT 即时递减；未归档章无泡；
+//   hooksApi 变更广播 HOOKS_CHANGED_EVENT → 台账重取 → 泡泡刷新。
+// ---------------------------------------------------------------------------
+describe("页签待确认泡泡（c-chtab-confirm-bubbles）", () => {
+  const DOSSIER_ROWS_FULL = [
+    { id: "r1", domain: "settings", status: "pending" },
+    { id: "r2", domain: "items", status: "pending" },
+    { id: "r3", domain: "knowledge", status: "pending" },
+    { id: "r4", domain: "settings", status: "pending" },
+    { id: "r5", domain: "settings", status: "accepted" },
+    { id: "r6", domain: "relations", status: "pending" },
+    { id: "r7", domain: "relations", status: "pending" },
+    { id: "r8", domain: "relations", status: "pending" },
+  ];
+
+  /** 台账种子（可变引用：收束用例在 patch 前就地改 status，重取才拿得到新态）。 */
+  const hookItems = [
+    { id: "h1", code: "#H-0001", description: "半块玉佩", status: "active",
+      planned_chapter_id: "vol-1-ch-1", introduced_chapter_id: null,
+      mentioned_chapter_id: null, resolved_chapter_id: null },
+    { id: "h2", code: "#H-0002", description: "六指之谜", status: "active",
+      planned_chapter_id: null, introduced_chapter_id: null,
+      mentioned_chapter_id: null, resolved_chapter_id: null },
+  ];
+
+  /** 已归档一章树（archived: true → 工作台拉 dossier 元数据）。 */
+  function mockArchivedChapterTree(dossierRows: unknown[] = DOSSIER_ROWS_FULL) {
+    const archivedCh = {
+      ref: "vol-1-ch-1",
+      volume: 1,
+      chapter: 1,
+      title: "第一章",
+      status: "archived",
+      word_count: 1200,
+      has_prose: true,
+      outline_status: "in_progress",
+      archived: true,
+    };
+    apiState.get.mockImplementation((path: string) => {
+      if (path === "/novels/p1/volumes")
+        return Promise.resolve([
+          { ref: "vol-1", title: "第一卷", summary: "", chapter_count: 1, chapters: [archivedCh] },
+        ]);
+      if (path === "/novels/p1/chapters/vol-1-ch-1")
+        return Promise.resolve(ONE_CHAPTER_DATA);
+      if (path === "/novels/p1/chapters/vol-1-ch-1/dossier")
+        return Promise.resolve({
+          rows: dossierRows,
+          progress: {
+            pending: dossierRows.filter((r) => (r as { status: string }).status === "pending").length,
+            accepted: 1,
+            rejected: 0,
+          },
+          extraction: null,
+          not_extracted: false,
+          stale: false,
+          archived: true,
+          accepted_count: 1,
+        });
+      if (path === "/novels/p1/hooks")
+        return Promise.resolve({ data: { items: hookItems } });
+      if (path === "/novels/p1/readiness")
+        return Promise.resolve({ complete: false, missing: [], warning: "" });
+      return Promise.resolve({});
+    });
+    apiState.request.mockResolvedValue([]);
+    apiState.fetchStory.mockResolvedValue({ synopsis: "" });
+    apiState.put.mockResolvedValue({});
+    apiState.post.mockResolvedValue({});
+    apiState.patch.mockResolvedValue({ data: { id: "h1" } });
+  }
+
+  it("已归档章：设定 4／关系 3 accent 泡泡＋伏笔「该收 1」warn 泡泡", async () => {
+    mockArchivedChapterTree();
+    renderWorkspace("none");
+    await selectFirstChapter();
+    // 设定泡＝settings+items+knowledge 三域 pending（r1/r2/r3/r4；r5 已采纳不计）
+    await waitFor(() => expect(screen.getByTestId("chtab-bubble-settings")).toBeTruthy());
+    expect(screen.getByTestId("chtab-bubble-settings").textContent).toBe("4");
+    expect(screen.getByTestId("chtab-bubble-settings").className).toContain("pill-accent");
+    // 关系泡＝relations 域 pending
+    expect(screen.getByTestId("chtab-bubble-relations").textContent).toBe("3");
+    expect(screen.getByTestId("chtab-bubble-relations").className).toContain("pill-accent");
+    // 伏笔泡＝台账该收了（h1 计划章 ≤ 本章；h2 未设计划章不计），warn 款「该收 N」
+    expect(screen.getByTestId("chtab-bubble-hooks").textContent).toBe("该收 1");
+    expect(screen.getByTestId("chtab-bubble-hooks").className).toContain("pill-warn");
+  });
+
+  it("逐条确认广播 DOSSIER_CHANGED_EVENT → 泡泡即时递减到消失", async () => {
+    mockArchivedChapterTree();
+    renderWorkspace("none");
+    await selectFirstChapter();
+    await waitFor(() => expect(screen.getByTestId("chtab-bubble-settings")).toBeTruthy());
+    // 确认全部本章变化行 → 重取后 pending 归零 → 泡泡退场（关系/伏笔不动）
+    mockArchivedChapterTree([
+      { id: "r1", domain: "settings", status: "accepted" },
+      { id: "r6", domain: "relations", status: "pending" },
+    ]);
+    window.dispatchEvent(
+      new CustomEvent("dossier-relations-changed", {
+        detail: { projectId: "p1", chapterRef: "vol-1-ch-1" },
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByTestId("chtab-bubble-settings")).toBeNull(),
+    );
+    expect(screen.getByTestId("chtab-bubble-relations").textContent).toBe("1");
+  });
+
+  it("未归档章无泡泡", async () => {
+    mockOneChapterTree();
+    renderWorkspace("none");
+    await selectFirstChapter();
+    await screen.findByRole("tab", { name: /^章纲/ });
+    expect(screen.queryByTestId("chtab-bubble-settings")).toBeNull();
+    expect(screen.queryByTestId("chtab-bubble-relations")).toBeNull();
+    expect(screen.queryByTestId("chtab-bubble-hooks")).toBeNull();
+  });
+
+  it("hooksApi 变更广播 HOOKS_CHANGED_EVENT → 台账重取 →「该收」泡泡消失", async () => {
+    mockArchivedChapterTree();
+    renderWorkspace("none");
+    await selectFirstChapter();
+    await waitFor(() => expect(screen.getByTestId("chtab-bubble-hooks")).toBeTruthy());
+    // 就地收束 h1 → 经 hooksApi patch（真实模块；api.patch 落 mock）→ 广播 → 重取得新态
+    hookItems[0].status = "resolved";
+    await hooksApi.patch("p1", "h1", { status: "resolved" });
+    await waitFor(() => expect(screen.queryByTestId("chtab-bubble-hooks")).toBeNull());
+    // 台账确实重取过（/hooks 第二次命中）
+    const hookCalls = apiState.get.mock.calls.filter(([p]) => p === "/novels/p1/hooks");
+    expect(hookCalls.length).toBeGreaterThanOrEqual(2);
   });
 });

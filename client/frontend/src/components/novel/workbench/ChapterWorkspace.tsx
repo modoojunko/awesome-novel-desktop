@@ -31,7 +31,7 @@ import { StyleShadowPane } from "./StyleShadowPane";
 import { SettingsChangelogPane } from "./SettingsChangelogPane";
 import { HooksPane } from "./HooksPane";
 import { RelationsGraphPane } from "./RelationsGraphPane";
-import { dossierApi } from "@/lib/dossierApi";
+import { DOSSIER_CHANGED_EVENT, dossierApi } from "@/lib/dossierApi";
 import {
   RelationChangesSection,
   SettingChangesSection,
@@ -91,6 +91,17 @@ import { chapterNoOf, volNoOf } from "@/lib/chapterRef";
 
 type OutlineApi = ReturnType<typeof useOutline>;
 type WorkbenchApi = ReturnType<typeof useWorkbench>;
+
+/** 章内页签键（页签行渲染与 chTab 状态共用；c-chtab-confirm-bubbles 起徽标带 title/testid） */
+type ChTabKey = "og" | "prose" | "settings" | "relations" | "hooks" | "actions" | "style";
+/** 页签徽标：既有 .cnt 文本计数，或 .pill 家族计数泡泡（count role × tone） */
+interface ChTabCnt {
+  text: string;
+  cls: string;
+  title?: string;
+  testid?: string;
+}
+const CH_TAB_EMPTY_CNT: ChTabCnt = { text: "", cls: "" };
 
 interface ChapterWorkspaceProps {
   projectId: string;
@@ -212,9 +223,7 @@ export default function ChapterWorkspace({
   // 为旧代字段，ADJUSTMENTS ⑤ 登记）。
 
   // ── 页签：点章强制落「章纲」（设计稿行为） ───────────────────────────
-  const [chTab, setChTab] = useState<
-    "og" | "prose" | "settings" | "relations" | "hooks" | "actions"
-   | "style">("og");
+  const [chTab, setChTab] = useState<ChTabKey>("og");
   const [showArchive, setShowArchive] = useState(false);
   // 章级变化轻量元数据（c-chapter-dossier）：归档态常驻一次＋弹窗打开时刷新——
   // 供重归档覆盖警示、归档卡「未提取」态（not_extracted）与三段进度条的待确认计数
@@ -224,35 +233,78 @@ export default function ChapterWorkspace({
     pending: number;
   } | null>(null);
   const [dossierEmpty, setDossierEmpty] = useState(false);
+  // 页签泡泡（c-chtab-confirm-bubbles）：设定三域/关系域 pending，与对应页签内
+  // 「全部采纳（N）」同一份数据派生（rows 现地过滤）；提取收口即取，零轮询
+  const [tabBubbles, setTabBubbles] = useState<{ settings: number; relations: number }>({
+    settings: 0,
+    relations: 0,
+  });
+  const applyDossierMeta = useCallback(
+    (d: Awaited<ReturnType<typeof dossierApi.get>>) => {
+      const n = d.progress.pending + d.progress.accepted + d.progress.rejected;
+      setRearchive(
+        n > 0
+          ? {
+              rows: n,
+              accepted: d.progress.accepted,
+              pending: d.progress.pending,
+            }
+          : null,
+      );
+      setDossierEmpty(d.not_extracted);
+      setTabBubbles({
+        settings: d.rows.filter((r) => r.domain !== "relations" && r.status === "pending")
+          .length,
+        relations: d.rows.filter((r) => r.domain === "relations" && r.status === "pending")
+          .length,
+      });
+    },
+    [],
+  );
+  const resetDossierMeta = useCallback(() => {
+    setRearchive(null);
+    setDossierEmpty(false);
+    setTabBubbles({ settings: 0, relations: 0 });
+  }, []);
+  // 提取刚收口、树尚未翻转 archived 的窗口也要取到（泡泡不迟于完成 toast 出现）
   useEffect(() => {
-    if (!showArchive && !archived) return;
+    if (!showArchive && !archived && store.archiveJob?.state !== "done") return;
     let cancelled = false;
     void (async () => {
       try {
         const d = await dossierApi.get(projectId, chapterRef);
         if (cancelled) return;
-        const n = d.progress.pending + d.progress.accepted + d.progress.rejected;
-        setRearchive(
-          n > 0
-            ? {
-                rows: n,
-                accepted: d.progress.accepted,
-                pending: d.progress.pending,
-              }
-            : null,
-        );
-        setDossierEmpty(d.not_extracted);
+        applyDossierMeta(d);
       } catch {
-        if (!cancelled) {
-          setRearchive(null);
-          setDossierEmpty(false);
-        }
+        if (!cancelled) resetDossierMeta();
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [showArchive, archived, store.archiveJob?.state, projectId, chapterRef]);
+  }, [showArchive, archived, store.archiveJob?.state, projectId, chapterRef, applyDossierMeta, resetDossierMeta]);
+  // 逐条/批量确认与驳回后即时递减（行动作既有广播；与本工作台章匹配才重取）
+  useEffect(() => {
+    if (!archived && store.archiveJob?.state !== "done") return;
+    let cancelled = false;
+    const onChanged = (e: Event) => {
+      const d = (e as CustomEvent).detail as { projectId?: string; chapterRef?: string };
+      if (d?.projectId !== projectId || d?.chapterRef !== chapterRef) return;
+      void (async () => {
+        try {
+          const fresh = await dossierApi.get(projectId, chapterRef);
+          if (!cancelled) applyDossierMeta(fresh);
+        } catch {
+          /* 重取失败保留现值，下次动作后再收敛 */
+        }
+      })();
+    };
+    window.addEventListener(DOSSIER_CHANGED_EVENT, onChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(DOSSIER_CHANGED_EVENT, onChanged);
+    };
+  }, [archived, store.archiveJob?.state, projectId, chapterRef, applyDossierMeta]);
   const [showHistory, setShowHistory] = useState(false);
   // 章纲查看/编辑两态（对齐卷纲）：默认查看态，切章回落查看
   const [ogEditing, setOgEditing] = useState(false);
@@ -263,6 +315,8 @@ export default function ChapterWorkspace({
     setShowHistory(false);
     setOgEditing(false);
     setProseEditing(false);
+    // 泡泡随章重取（c-chtab-confirm-bubbles）：先清上一章计数，未归档章不残留
+    setTabBubbles({ settings: 0, relations: 0 });
   }, [chapterRef]);
 
   // 生成启动信号（页面解锁链/AiModal 确认后递增）：切正文页签 + 进编辑态 + 聚焦（真 bug #2）
@@ -1102,6 +1156,38 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     text: wordCount ? `${fmt(wordCount)} 字` : "空章",
   };
 
+  // ── 页签待确认泡泡（c-chtab-confirm-bubbles）：词汇＝.pill 家族既有组合
+  //    （count role × accent/warn，N6 禁红）；该收数＝ogHookHints.mres（台账
+  //    「该收了」共享判定），与 HooksPane 行内标注同源；0 条不出泡泡 ──
+  const hooksDue = hookHints?.mres.length ?? 0;
+  const settingsBubble: ChTabCnt =
+    tabBubbles.settings > 0
+      ? {
+          cls: "pill pill-count pill-accent",
+          text: String(tabBubbles.settings),
+          title: `${tabBubbles.settings} 条本章变化待确认`,
+          testid: "chtab-bubble-settings",
+        }
+      : CH_TAB_EMPTY_CNT;
+  const relationsBubble: ChTabCnt =
+    tabBubbles.relations > 0
+      ? {
+          cls: "pill pill-count pill-accent",
+          text: String(tabBubbles.relations),
+          title: `${tabBubbles.relations} 条人物关系待确认`,
+          testid: "chtab-bubble-relations",
+        }
+      : CH_TAB_EMPTY_CNT;
+  const hooksBubble: ChTabCnt =
+    hooksDue > 0
+      ? {
+          cls: "pill pill-count pill-warn",
+          text: `该收 ${hooksDue}`,
+          title: `${hooksDue} 条伏笔到了计划收束章`,
+          testid: "chtab-bubble-hooks",
+        }
+      : CH_TAB_EMPTY_CNT;
+
   const saveView =
     saveState === "autosaving"
       ? { cls: "save-state saving", text: "保存中…" }
@@ -1157,12 +1243,12 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
           [
             ["og", "章纲", ogCnt],
             ["prose", "正文", proseCnt],
-            ["settings", "设定", { text: "", cls: "" }],
-            ["style", "文风", { text: "", cls: "" }],
-            ["relations", "角色关系", { text: "", cls: "" }],
-            ["hooks", "伏笔", { text: "", cls: "" }],
-            ["actions", "操作", { text: "", cls: "" }],
-          ] as const
+            ["settings", "设定", settingsBubble],
+            ["style", "文风", CH_TAB_EMPTY_CNT],
+            ["relations", "角色关系", relationsBubble],
+            ["hooks", "伏笔", hooksBubble],
+            ["actions", "操作", CH_TAB_EMPTY_CNT],
+          ] as Array<[ChTabKey, string, ChTabCnt]>
         ).map(([key, text, cnt]) => (
           <button
             key={key}
@@ -1171,7 +1257,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
             aria-selected={chTab === key}
             onClick={() => setChTab(key)}
           >
-            {text} <span className={cnt.cls}>{cnt.text}</span>
+            {text}{" "}
+            <span className={cnt.cls} title={cnt.title} data-testid={cnt.testid}>
+              {cnt.text}
+            </span>
           </button>
         ))}
         {/* 生成中徽章（c-prose-stream-guard）：提升到页签行——离开正文页签
