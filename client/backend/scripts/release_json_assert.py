@@ -4,9 +4,11 @@
 
 判据（缺失/不一致即非零退出，流水线转红）：
 1. 既有三键（S端 地址、版本、检测地址）形态不变；
-   且 `server_api_base != server_api_fallback`——主/兜底同址＝call_server_api
-   去重后无兜底，主基址一次网络抖动即业务不可用（v0.29.x 实锤：Variables
-   缺配致两键同烘直连域名，事后仅见零星 s_api_call_error）；
+   且 `server_api_base` 与 `server_api_fallback` **归一化后**不同址——主/兜底
+   同址＝call_server_api 去重后无兜底，主基址一次网络抖动即业务不可用
+   （v0.29.x 实锤：Variables 缺配致两键同烘直连域名，事后仅见零星
+   s_api_call_error）；同一道闸在生成侧（release_json_generate）前移生效，
+   不待双平台打包烧完才红；
 2. **组件清单 `components` 必须存在**，且 `db_filename` 与后端单源逐字一致；
 3. `backup_format_version` 等于后端单源当前值；
 4. c-version-build-info：`client_build_branch`/`client_build_commit` **可选键**
@@ -27,11 +29,23 @@ import json
 import re
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backup.format import FORMAT_VERSION  # noqa: E402
 from schema_version import db_filename_for  # noqa: E402
+
+
+def normalize_server_base(raw: object) -> str:
+    """S端 基址归一化（零依赖复刻 auth_local._normalize_server_api 同语义）：
+    rstrip 尾斜杠＋裸域名补 /api。call_server_api 的主/兜底去重对象是**归一化后**
+    的基址，同址判定必须比归一化形——否则尾斜杠/裸域名变体绕过守卫、运行时仍无兜底。
+    """
+    base = str(raw or "").rstrip("/")
+    if base and not urlsplit(base).path:
+        base += "/api"
+    return base
 
 
 def validate_pack_pubkeys(raw: object) -> str:
@@ -68,11 +82,13 @@ def check_release_json(path: str | Path) -> dict:
     # public_server_api 缺烘曾致打包端授权页 404（v0.23–v0.25 实锤），冒烟必拦
     for key in ("server_api_base", "server_api_fallback", "public_server_api", "portal_url"):
         assert str(data.get(key, "")).startswith("https://"), (f"release.json 键 {key} 缺失或非 https", data)
-    # 主/兜底同址判红（v0.29.x 实锤）：call_server_api 对基址列表去重，
+    # 主/兜底同址判红（v0.29.x 实锤）：call_server_api 对归一化后的基址列表去重，
     # 同址＝兜底形同虚设，主基址一次网络抖动即业务不可用且无第二次尝试
-    assert data.get("server_api_base") != data.get("server_api_fallback"), (
-        ("server_api_base 与 server_api_fallback 同址（去重后无兜底——"
-         "兜底应为云托管直连源，主基址走自定义域名）"), data.get("server_api_base"))
+    assert normalize_server_base(data.get("server_api_base")) != normalize_server_base(
+        data.get("server_api_fallback")), (
+        ("server_api_base 与 server_api_fallback 归一化后同址（去重后无兜底——"
+         "兜底应为云托管直连源，主基址走自定义域名）"),
+        data.get("server_api_base"), data.get("server_api_fallback"))
     # c-prompt-pack-delivery：提示词包公钥必选——缺烘＝打包端无钥可验，AI 永久未就绪
     validate_pack_pubkeys(data.get("pack_pubkeys", ""))
     version = str(data.get("client_version", "")).strip()

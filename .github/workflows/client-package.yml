@@ -132,7 +132,7 @@ jobs:
         env:
           RELEASE_SERVER_API_BASE: ${{ vars.CLIENT_SERVER_API_BASE || 'https://www.awesomenovel.com/api' }}
           # 兜底基址＝云托管直连源（自定义域名解析抖动时 call_server_api 自动切换）；
-          # 与主基址同值会被产物断言判红（同址＝去重后无兜底）
+          # 与主基址同值会在生成步即判红（同值＝运行时去重后无兜底，生成/产物双闸）
           RELEASE_SERVER_API_FALLBACK: ${{ vars.CLIENT_SERVER_API_FALLBACK || 'https://novel-s-server-297265-7-1468883265.sh.run.tcloudbase.com/api' }}
           # S端 公开地址族（c-package-public-endpoints）：public_server_api 必须指向承载
           # S端 web /auth 的源（授权页 URL 由它剥 /api 构造）——缺烘曾致打包端授权页

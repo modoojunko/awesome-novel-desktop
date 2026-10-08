@@ -23,7 +23,11 @@ import pytest
 from backup.format import FORMAT_VERSION
 from schema_version import db_filename_for
 from scripts.release_components import build_components
-from scripts.release_json_assert import check_release_json, validate_pack_pubkeys
+from scripts.release_json_assert import (
+    check_release_json,
+    normalize_server_base,
+    validate_pack_pubkeys,
+)
 
 BACKEND = Path(__file__).resolve().parent.parent
 SCRIPT = BACKEND / "scripts" / "release_json_assert.py"
@@ -144,6 +148,33 @@ def test_server_api_base_fallback_same_rejected(tmp_path):
     assert "同址" in proc.stderr
 
 
+@pytest.mark.parametrize("base_override", [
+    "https://www.awesomenovel.com/api/",  # 尾斜杠变体（运行时归一化后与兜底同址）
+    "https://www.awesomenovel.com",       # 裸域名（运行时补 /api 后与兜底同址）
+])
+def test_server_api_base_fallback_normalized_same_rejected(tmp_path, base_override):
+    """负例（守卫补漏）：归一化后同址也必须转红——call_server_api 去重的是
+    归一化基址（auth_local._normalize_server_api：尾斜杠 rstrip＋裸域名补 /api），
+    原始串比较会让变体绕过守卫、运行时仍无兜底。"""
+    path = _write_release_json(
+        tmp_path,
+        server_api_base=base_override,
+        server_api_fallback="https://www.awesomenovel.com/api",
+    )
+    proc = _run(path)
+    assert proc.returncode != 0, f"归一化后同址必须失败：{base_override}"
+    assert "同址" in proc.stderr
+
+
+def test_normalize_server_base_semantics():
+    """归一化单源直测：与 auth_local._normalize_server_api 同语义（零依赖复刻）。"""
+    assert normalize_server_base("https://a.example/api/") == "https://a.example/api"
+    assert normalize_server_base("https://a.example") == "https://a.example/api"  # 裸域名补 /api
+    # 自定义子路径不改动（同 auth_local：非空 path 一律原样）
+    assert normalize_server_base("https://a.example/custom") == "https://a.example/custom"
+    assert normalize_server_base("") == ""
+
+
 def _run_generate(version: str, tmp_path: Path) -> subprocess.CompletedProcess:
     """子进程驱动生成脚本（与 CI Generate 步骤同形；直 import 会缺脚本目录 sys.path）。"""
     out = tmp_path / "release.json"
@@ -155,7 +186,7 @@ def _run_generate(version: str, tmp_path: Path) -> subprocess.CompletedProcess:
 
 def test_generate_bakes_public_endpoint_family(tmp_path, monkeypatch):
     """正例（c-package-public-endpoints）：generate() 烘入地址族两新键且值来自 env。"""
-    monkeypatch.setenv("RELEASE_SERVER_API_BASE", "https://novel-s-server.example/api")
+    monkeypatch.setenv("RELEASE_SERVER_API_BASE", "https://www.awesomenovel.com/api")
     monkeypatch.setenv("RELEASE_SERVER_API_FALLBACK", "https://novel-s-server.example/api")
     monkeypatch.setenv("RELEASE_PUBLIC_SERVER_API", "https://www.awesomenovel.com/api")
     monkeypatch.setenv("RELEASE_PORTAL_URL", "https://www.awesomenovel.com")
@@ -172,7 +203,7 @@ def test_generate_bakes_public_endpoint_family(tmp_path, monkeypatch):
 
 def test_generate_missing_public_env_rejected(tmp_path, monkeypatch):
     """负例：地址族 env 缺失 → 生成即红，不得产出缺键产物。"""
-    monkeypatch.setenv("RELEASE_SERVER_API_BASE", "https://novel-s-server.example/api")
+    monkeypatch.setenv("RELEASE_SERVER_API_BASE", "https://www.awesomenovel.com/api")
     monkeypatch.setenv("RELEASE_SERVER_API_FALLBACK", "https://novel-s-server.example/api")
     monkeypatch.delenv("RELEASE_PUBLIC_SERVER_API", raising=False)
     monkeypatch.setenv("RELEASE_PORTAL_URL", "https://www.awesomenovel.com")
@@ -185,9 +216,19 @@ def test_generate_missing_public_env_rejected(tmp_path, monkeypatch):
     assert "RELEASE_PUBLIC_SERVER_API" in proc.stderr
 
 
+def test_generate_server_base_fallback_same_rejected(tmp_path, monkeypatch):
+    """负例（v0.29.x 实锤）：生成期即拦主/兜底同址——同一道闸在 Generate 步前移
+    生效，不待双平台打包烧完才在冒烟步红（CI 里产物断言排在打包构建之后）。"""
+    _set_all_release_env(monkeypatch)
+    monkeypatch.setenv("RELEASE_SERVER_API_FALLBACK", "https://www.awesomenovel.com/api")  # 与主同值
+    proc = _run_generate("0.25.1", tmp_path)
+    assert proc.returncode != 0, "生成期同址必须失败（失败时点前移到 Generate 步）"
+    assert "同址" in proc.stderr
+
+
 def _set_all_release_env(monkeypatch) -> None:
     """除被测键外的 release env 全给足——负例失败必须可归因到被测键。"""
-    monkeypatch.setenv("RELEASE_SERVER_API_BASE", "https://novel-s-server.example/api")
+    monkeypatch.setenv("RELEASE_SERVER_API_BASE", "https://www.awesomenovel.com/api")
     monkeypatch.setenv("RELEASE_SERVER_API_FALLBACK", "https://novel-s-server.example/api")
     monkeypatch.setenv("RELEASE_PUBLIC_SERVER_API", "https://www.awesomenovel.com/api")
     monkeypatch.setenv("RELEASE_PORTAL_URL", "https://www.awesomenovel.com")
