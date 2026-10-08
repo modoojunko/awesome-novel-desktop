@@ -28,4 +28,4 @@
 - [x] 5.1 门禁实跑并记录结论：`npm run design:lint`／`npx tsc --noEmit`／vitest 全量／相关 e2e；design:check 之 book 屏为存量红（c-book-parity-rebaseline 专户），本批不新增门槛——结论写入 PR 描述
 - [x] 5.2 共享段判定复核：确认 base.css 零改动、`.pill` 家族零新增类（免 design-cross，依据＝proposal Design Impact）
 - [x] 5.3 设计资产随 PR 入库（实勘：三份均为 git 跟踪文件，早前『本地资产』判断系 ls-files 截断误读；主检出 pull 即得，无并行覆盖问题）
-- [ ] 5.4 推分支＋PR（描述含：拍板口径、N6 配色裁决、门禁结论、遗留＝book 屏 parity 归 rebaseline）
+- [x] 5.4 推分支＋PR（描述含：拍板口径、N6 配色裁决、门禁结论、遗留＝book 屏 parity 归 rebaseline）
