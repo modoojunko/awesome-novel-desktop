@@ -1,5 +1,6 @@
 """故事状态消费链（c-chapter-dossier 6.x）：折叠去重四形态／unarchive 不消费／
-stale 跳过＋块头注记／预算硬闸／两路同源 golden／润色条件锚／来源第七处＋缺口标注。
+stale 跳过＋块头注记／预算硬闸／两路同源 golden／来源第七处＋缺口标注。
+（原「润色条件锚」用例随 c-retire-prompt-polish 退役——润色校验函数已删。）
 
 用法：
     cd client/backend
@@ -247,19 +248,6 @@ def test_block_quota_and_hard_gate():
     }
     gated = _story_state_block(huge)
     assert len(gated) <= 1500 + 200  # 标题/锚/规则行余量
-
-
-def test_polish_anchor_requires_story_state_title():
-    from write.chapter_writer import ChapterContext, validate_polished_prompt
-
-    ctx = ChapterContext()
-    ctx.story_state = {"settings": [{"area": "a", "content": "x", "ref": "r"}]}
-    # 有状态块但润色产物丢了段标题 → 缺失项含「故事状态」；标题在 → 不缺
-    assert "故事状态" in validate_polished_prompt("前情 章纲概要", ctx)
-    assert "故事状态" not in validate_polished_prompt("前情 章纲概要 故事状态", ctx)
-    # 无状态块 → 不要求该锚
-    empty = ChapterContext()
-    assert "故事状态" not in validate_polished_prompt("前情", empty)
 
 
 # ── 来源第七处＋缺口标注 ────────────────────────────────────────────────────

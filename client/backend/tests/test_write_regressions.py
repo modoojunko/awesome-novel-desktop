@@ -1,12 +1,13 @@
 """ai-prompt-crafting — PR #198 review 三项 major 的回归测试
 
 矩阵：
-- major 1：无覆盖直写（POST /write 空 body）不得用粗组兜底覆盖已润色的
-  write-prompt 存量行；显式 override 仍正常覆盖。
-- major 2：阶段机不允许回退（write→prompt 重润色 / archive→write 返工）时，
-  polish / write 端点宽容跳过推进，不再 500。
-- major 3：validate_polished_prompt 的前情/场景原材料锚词按素材有无条件校验
-  （无场景卡且无前情的章，产物不含这两段也合格）。
+- major 1：无覆盖直写（POST /write 空 body）不得用粗组兜底覆盖存量的
+  write-prompt 行；显式 override 仍正常覆盖。
+- major 2：阶段机不允许回退（archive→write 返工）时，write 端点宽容跳过推进，
+  不再 500。原「write→prompt 重润色」用例随 c-retire-prompt-polish 退役
+  （润色端点已下线，阶段宽容口径由 /write 返工用例继续钉住）。
+- major 3（已随 c-retire-prompt-polish 退役）：validate_polished_prompt 的
+  条件锚校验随润色链删除。
 
 用法：
     cd client/backend
@@ -138,27 +139,6 @@ def _clean_config_after():
 def client():
     with TestClient(app) as c:
         yield c
-
-
-# 无场景卡时仍合格的润色产物（第 1 章素材包带「无前置章节」前情哨兵，故仍需前情锚）
-MINIMAL_VALID = (
-    "## 任务指示\n第 1 章，目标字数约 2000 字。\n"
-    "## 前情上下文\n无前置章节，开篇直接切入角色当下行动。\n"
-    "## 不可违反规则\n红线：本章必须完成——主角进城。\n"
-    "## 质感要求\n留 1-2 个细碎生活细节。"
-)
-
-
-class _FakeChatClient:
-    """润色路径：client.chat 返回固定文本。"""
-
-    def __init__(self, reply: str = MINIMAL_VALID):
-        self._reply = reply
-        self.last_kwargs: dict = {}
-
-    async def chat(self, **kwargs):
-        self.last_kwargs = kwargs
-        return self._reply
 
 
 class _FakeStreamClient:
@@ -410,24 +390,6 @@ class TestDirectWriteKeepsStoredPrompt:
 class TestPhaseRegressionsTolerated:
     """major 2：阶段回退不再 500。"""
 
-    def test_polish_from_write_phase_returns_200(self, client, monkeypatch):
-        _set_member()
-        pid, ref = _create_project_and_chapter(client)
-        _run_async(_set_phase(pid, "write"))
-        fake = _FakeChatClient()
-
-        async def _fake(novel_id=None):
-            return fake
-
-        import ai_client as ai_client_mod
-
-        monkeypatch.setattr(ai_client_mod, "get_ai_client_for_novel", _fake)
-
-        r = client.post(f"/api/novels/{pid}/chapters/{ref}/write/prompt/polish")
-        assert r.status_code == 200, r.text
-        assert r.json()["polished"] is True
-        assert _read_stored_prompt(pid, ref) == MINIMAL_VALID
-
     def test_write_from_archive_phase_returns_200(self, client, monkeypatch):
         _set_member()
         pid, ref = _create_project_and_chapter(client)
@@ -444,60 +406,3 @@ class TestPhaseRegressionsTolerated:
         r = client.post(f"/api/novels/{pid}/chapters/{ref}/write", json={})
         assert r.status_code == 200, r.text
         assert _done_event(r.text)["type"] == "done"
-
-
-class TestAnchorValidationConditional:
-    """major 3：前情/章纲概要锚词按素材有无条件校验（c-og-slim-v2：场景原材料锚退役）。"""
-
-    def _ctx(self, **kw):
-        from write.chapter_writer import ChapterContext
-
-        ctx = ChapterContext()
-        for k, v in kw.items():
-            setattr(ctx, k, v)
-        return ctx
-
-    def test_sparse_material_passes_without_outline_or_recap(self):
-        from write.chapter_writer import validate_polished_prompt
-
-        no_recap_text = MINIMAL_VALID.replace(
-            "## 前情上下文\n无前置章节，开篇直接切入角色当下行动。\n", ""
-        )
-        ctx = self._ctx()  # 无场景卡、无前情、无爽点
-        assert validate_polished_prompt(no_recap_text, ctx) == []
-
-    def test_summary_requires_outline_anchor(self):
-        """有章纲概要原料 → 产物必须有章纲概要段（要素 6）。"""
-        from write.chapter_writer import validate_polished_prompt
-
-        ctx = self._ctx(chapter_outline={"summary": "她夜探库房调包账册"})
-        missing = validate_polished_prompt(MINIMAL_VALID, ctx)
-        assert "章纲概要" in missing
-        with_outline = MINIMAL_VALID + "\n## 章纲概要\n她夜探库房调包账册。"
-        assert validate_polished_prompt(with_outline, ctx) == []
-
-    def test_no_summary_no_outline_anchor(self):
-        from write.chapter_writer import validate_polished_prompt
-
-        ctx = self._ctx(chapter_outline={})
-        assert validate_polished_prompt(MINIMAL_VALID, ctx) == []
-
-    def test_prev_recap_requires_recap_anchor(self):
-        from write.chapter_writer import validate_polished_prompt
-
-        no_recap_text = MINIMAL_VALID.replace(
-            "## 前情上下文\n无前置章节，开篇直接切入角色当下行动。\n", ""
-        )
-        ctx = self._ctx(previous_chapter_recap="上一章主角进城。")
-        missing = validate_polished_prompt(no_recap_text, ctx)
-        assert "前情" in missing
-
-    def test_full_still_passes_with_all_anchors(self):
-        from write.chapter_writer import validate_polished_prompt
-
-        full = MINIMAL_VALID + "\n## 前情上下文\n上章摘要。\n## 场景原材料\n场景1｜城门。"
-        ctx = self._ctx(
-            scene_cards=[{"scene_name": "城门对峙"}],
-            previous_chapter_recap="上一章摘要",
-        )
-        assert validate_polished_prompt(full, ctx) == []

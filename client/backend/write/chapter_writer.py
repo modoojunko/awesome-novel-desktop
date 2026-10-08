@@ -1,8 +1,10 @@
 """ChapterContext builder — 素材包组装层（ai-prompt-crafting）。
 
-两段式提示词生产的第一段：从 DB 确定性组装素材包。
+提示词生产链的组装段：从 DB 确定性组装素材包（c-retire-prompt-polish 后这是提示词的
+唯一生产式——大模型润色段已退役，存量历史润色行仍按 ``_POLISH_ANCHORS`` 判型）。
 - ``build_chapter_context``：读全量数据源（设定/章纲全字段含提示词格子/前情）。
-- ``ChapterContext.material_markdown()``：结构化素材包（发给大模型润色的原料）。
+- ``ChapterContext.material_markdown()``：全量素材渲染面（原润色链的输入；润色退役后
+  生产消费方暂缺，只由两路同源 golden 看住——是否随链退役见 c-retire-prompt-polish 登记）。
 - ``ChapterContext.build_system_prompt()``：system 恒定层（本书设定，逐章一致）。
 - ``ChapterContext.to_user_material()``：章级动态素材（c-write-prompt-layering 拆层，
   原 to_prompt 整包退役——恒定块上收 system 恒定层）。
@@ -284,11 +286,9 @@ def clamp_word_target(value) -> int:
     return n
 
 
-# 润色产物必备锚词（模板「硬性纪律」要求保留；缺失即轻校验不合格）。
-# 前情与素材包是否有对应段落强相关（无前情/无剧情条目的章不能要求模型凭空产段），
-# 故不进无条件清单，改在 validate 内按素材有无条件校验。
+# 旧版润色行的三锚标记——c-retire-prompt-polish 后不再有新润色产物，本常量只服务
+# 存量行判型（legacy_prompt_kind / should_refresh_stored_prompt）。
 _POLISH_ANCHORS = ("任务指示", "红线", "质感")
-_PLACEHOLDER_RE = re.compile(r"\{[^}\n]*\}")
 
 # 剧情条目块（c-plot-split）：块名＋定位句钉死（两路同源 parity 回归校对到字）。
 _PLOT_BLOCK_TITLE = "【本章剧情走向（分条）】"
@@ -412,33 +412,6 @@ def strip_code_fences(text: str) -> str:
     return s.strip()
 
 
-def validate_polished_prompt(text: str, ctx: "ChapterContext") -> list[str]:
-    """润色产物轻校验：返回缺失的必备锚词清单（空清单 = 合格）。
-
-    爽点锚词仅在确有爽点时要求；剧情走向段仅在 plot_items 非空时要求
-    （c-plot-split 条件锚）；场景原材料锚随场景卡退役（c-og-slim-v2）。
-    """
-    missing = [a for a in _POLISH_ANCHORS if a not in text]
-    if (ctx.previous_context or ctx.previous_chapter_recap) and "前情" not in text:
-        missing.append("前情")
-    # c-chapter-seam-hardcut：上章结尾原文块在场时产物须保留段标题（与「前情」
-    # 条件锚同手法）；回退态（语义前情缺席）只触发本锚，不触发「前情」锚
-    if ctx.previous_tail and "上章结尾" not in text:
-        missing.append("上章结尾")
-    if (ctx.chapter_outline or {}).get("summary") and "章纲概要" not in text:
-        missing.append("章纲概要")
-    if ctx.micro_payoffs and "爽点" not in text:
-        missing.append("爽点设计")
-    if ctx.plot_items and "剧情走向" not in text:
-        missing.append("剧情走向")
-    # c-chapter-dossier：有故事状态时润色产物须保留段标题（与「前情」锚同手法）
-    if _story_state_block(ctx.story_state) and "故事状态" not in text:
-        missing.append("故事状态")
-    if _PLACEHOLDER_RE.search(text):
-        missing.append("占位符残留")
-    return missing
-
-
 class ChapterContext:
     """Holds all context data needed for writing a chapter."""
 
@@ -496,10 +469,10 @@ class ChapterContext:
         # （story_state_upto 产出）；空 dict 时素材包/提示词两路均不出块。
         self.story_state: dict = {}
 
-    # ── 素材包（润色原料）───────────────────────────────────────────
+    # ── 素材包（提示词原料）─────────────────────────────────────────
 
     def material_markdown(self) -> str:
-        """结构化素材包：全部数据源按标签罗列，供大模型润色成成品提示词。"""
+        """结构化素材包：全部数据源按标签罗列（提示词/生成两路消费的渲染面）。"""
         blocks: list[str] = []
         title = f"《{self.novel_title}》素材包" if self.novel_title else "小说素材包"
         vol_ch = "、".join(

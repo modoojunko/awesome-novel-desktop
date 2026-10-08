@@ -10,14 +10,13 @@ from auth_local.deps import ai_feature, require_ai_access, require_novel_model
 from auth_local.middleware import get_current_user
 from db import get_db
 from novels.service import get_novel
-from prompts import load_layers
 from workflow.engine import _validate_ref, advance_phase, load_chapter
 
 
 def _advance_phase(project, target: str) -> None:
-    """宽容推进（engine.advance_phase 单源）：阶段机只进不退，返工（如 write 阶段
-    重润色→prompt）不允许回退——跳过推进而非抛 ValueError→500：润色/生成结果
-    本身已合法落库，阶段标记保持现状不影响后续操作（write/archive 均为幂等入口）。
+    """宽容推进（engine.advance_phase 单源）：阶段机只进不退，返工不允许回退——
+    跳过推进而非抛 ValueError→500：生成结果本身已合法落库，阶段标记保持现状
+    不影响后续操作（write/archive 均为幂等入口）。
     """
     advance_phase(project, target)
 from write.auxiliary import polish_text
@@ -162,10 +161,10 @@ async def get_write_prompt(
     _: bool = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
-    """AI 弹窗提示词预览：存量 write-prompt 行优先（润色/编辑结果），无则粗组兜底。
+    """AI 弹窗提示词预览：存量 write-prompt 行优先（作家存稿/历史润色行），无则组装兜底。
 
     fresh=True（弹窗「刷新提示词」）：忽略存量行按当前素材重新组装，只回新稿
-    不动存量行——落库仍只走润色/「存为本章提示词」。
+    不动存量行——落库走「存为本章提示词」与生成时的自动留存。
     """
     project = await get_novel(db, project_id, user["id"])
     if not project:
@@ -188,7 +187,7 @@ async def get_write_prompt(
     if not fresh:
         existing = await load_prompt(project.root_path, chapter_ref, "write-prompt")
         if existing.strip() and not should_refresh_stored_prompt(existing, ctx):
-            # legacy：旧版整包行（含恒定设定）→ 弹窗分级提示（润色行信息性、粗组行建议刷新）
+            # legacy：旧版整包行（含恒定设定）→ 弹窗分级提示（旧润色行信息性、旧粗组行建议刷新）
             return {
                 "prompt": existing,
                 "has_outline": has_outline,
@@ -204,114 +203,6 @@ async def get_write_prompt(
         "legacy": False,
         "warnings": ctx.lint_warnings,
     }
-
-
-@router.post("/prompt/polish")
-@ai_feature("ai-generate")
-async def polish_write_prompt(
-    project_id: str,
-    chapter_ref: str,
-    user: dict = Depends(get_current_user),
-    _: bool = Depends(require_ai_access),
-    __: bool = Depends(require_novel_model),
-    db: AsyncSession = Depends(get_db),
-):
-    """两段式第二段：素材包 → 大模型润色 → 轻校验 → 覆盖写 write-prompt 行。
-
-    校验不合格或模型报错时不落库（既有行保持原样），前端可重试。
-    """
-    project = await get_novel(db, project_id, user["id"])
-    if not project:
-        raise HTTPException(404, "Project not found")
-    _validate_ref(chapter_ref)
-
-    from ai_client import get_ai_client_for_novel
-    from write.chapter_writer import (
-        build_chapter_context,
-        strip_code_fences,
-        validate_polished_prompt,
-    )
-
-    ctx = await build_chapter_context(
-        project.root_path, chapter_ref, project.name, novel_id=project.id
-    )
-
-
-    system, _craft_user_t = load_layers("prompt_crafting")
-    client = await get_ai_client_for_novel(project.id)
-    model = "haiku"  # 符号别名，落到本书模型
-    usage: dict = {}
-    try:
-        raw = await client.chat(
-            model=model,
-            max_tokens=4000,
-            system=system,
-            messages=[{"role": "user", "content": _craft_user_t.format(material=ctx.material_markdown())}],
-            usage=usage,
-            operation="prompt_polish",
-        )
-    except AITimeoutError:
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db,
-            user_id=user["id"],
-            project_id=project.id,
-            chapter_id=chapter_ref,
-            operation="prompt_polish_fail",
-            model=model,
-            tokens_in=usage.get("tokens_in", 0),
-            tokens_out=usage.get("tokens_out", 0),
-            force=True,
-        )
-        raise HTTPException(502, "AI 服务响应超时，请稍后重试")
-    except HTTPException:
-        raise
-    except Exception as e:  # 模型/网络错误：不落库，前端可重试
-        from api_configs.usage import record_usage
-
-        await record_usage(
-            db,
-            user_id=user["id"],
-            project_id=project.id,
-            chapter_id=chapter_ref,
-            operation="prompt_polish_fail",
-            model=model,
-            tokens_in=usage.get("tokens_in", 0),
-            tokens_out=usage.get("tokens_out", 0),
-            force=True,
-        )
-        raise HTTPException(502, f"润色调用失败：{e}") from e
-
-    from api_configs.usage import record_usage
-
-    # 记账先于校验：调用已完成（钱已花），产物不合格也要留痕
-    await record_usage(
-        db,
-        user_id=user["id"],
-        project_id=project.id,
-        chapter_id=chapter_ref,
-        operation="prompt_polish",
-        model=model,
-        tokens_in=usage.get("tokens_in", 0),
-        tokens_out=usage.get("tokens_out", 0),
-    )
-    polished = strip_code_fences(raw)
-
-    missing = validate_polished_prompt(polished, ctx)
-    if missing:
-        raise HTTPException(
-            502,
-            f"润色产物未覆盖必备段（{'、'.join(missing)}），未落库，可重试",
-        )
-
-    from prompt.store import save_prompt
-
-    await save_prompt(project.root_path, chapter_ref, "write-prompt", polished)
-    # 润色接管分段 generate 退役后的阶段推进（outline→prompt；返工回退跳过）
-    _advance_phase(project, "prompt")
-    await db.commit()
-    return {"prompt": polished, "polished": True}
 
 
 # 路径为空串：本 router 的 prefix 已以 /write 结尾，再写 "/write" 会注册成
@@ -359,10 +250,10 @@ async def write_chapter(
     if prompt_override:
         prompt = prompt_override
     else:
-        # 无覆盖直写：优先复用存量 write-prompt（通常是已润色版），与 GET 端点同优先级；
-        # 避免粗组兜底静默覆盖已润色内容。无存量才落粗组。
-        # c-chapter-seam-hardcut：存量粗组稿缺「上章结尾」块（旧版组装的行）时回落
-        # 重组，让升级后的重生成吃到新素材；润色稿不受影响（守卫内三锚保护）。
+        # 无覆盖直写：优先复用存量 write-prompt（通常是作家存稿版），与 GET 端点同优先级；
+        # 避免组装兜底静默覆盖存量稿。无存量才落兜底组装。
+        # c-chapter-seam-hardcut：存量旧组装稿缺「上章结尾」块（旧版组装的行）时回落
+        # 重组，让升级后的重生成吃到新素材；三锚判定的存量稿不受影响（守卫内保护）。
         from prompt.store import load_prompt
         from write.chapter_writer import should_refresh_stored_prompt
 
@@ -377,7 +268,7 @@ async def write_chapter(
 
     await save_prompt(project.root_path, chapter_ref, "write-prompt", prompt)
 
-    # 粗组兜底路径允许跳过润色直写：outline→prompt→write 桥接；返工回退跳过
+    # 无覆盖直写路径：outline→prompt→write 桥接；返工回退跳过
     if project.current_phase == "outline":
         _advance_phase(project, "prompt")
     _advance_phase(project, "write")

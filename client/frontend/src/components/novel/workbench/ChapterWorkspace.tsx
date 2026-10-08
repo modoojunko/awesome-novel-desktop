@@ -123,7 +123,7 @@ interface ChapterWorkspaceProps {
   onRailData: (data: RailChapterData | null) => void;
   /** 生成启动信号（计数器递增）：切正文页签 + 聚焦（真 bug #2） */
   aiWriteSignal: number;
-  /** 提示词落库信号（c-prompt-tab-retire）：弹窗润色/存稿后右栏提示词状态行刷新 */
+  /** 提示词落库信号（c-prompt-tab-retire）：弹窗存稿后右栏提示词状态行刷新 */
   promptSavedSignal?: number;
   /** 续写恢复信号（顶栏 CTA）：n 递增触发，落正文页签并滚回上次位置 */
   resumeSignal?: { ref: string; scroll: number; n: number };
@@ -133,7 +133,7 @@ interface ChapterWorkspaceProps {
   onRevert: (ref: string) => void;
   /** chapter-rewrite：树刷新（useWorkbench.refresh——旧稿分组与角标只在树 hook 里） */
   onTreeRefresh: () => Promise<void> | void;
-  /** 重新润色出口（已润色章改剧情软提示）：打开 AI 生成正文弹窗（内含 AI 润色） */
+  /** 刷新提示词出口（存量稿章改剧情软提示）：打开 AI 生成正文弹窗（可刷新提示词） */
   onOpenAiModal?: () => void;
 }
 
@@ -626,7 +626,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, chapterRef, ogForm]);
 
-  // ── 章内剧情（c-plot-split）：门槛拦截 → 三版抽卡 → 采纳/撤销 → 润色软提示 ──
+  // ── 章内剧情（c-plot-split）：门槛拦截 → 三版抽卡 → 采纳/撤销 → 提示词软提示 ──
   const plotDraw = usePlotDraw(projectId, chapterRef);
   const navigate = useNavigate();
   /** 替换明示 N＝已写的非空条数（拍板②） */
@@ -652,34 +652,35 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     toast.info("已恢复到 AI 填写前的列表");
   }, [killPlotReceipt]);
 
-  // 已润色章改剧情软提示（拍板⑥）：quiet 探提示词，润色产物才提示，不自动重算
-  const polishHintShownRef = useRef(false);
-  const polishHintTimerRef = useRef<number | null>(null);
+  // 存量稿章改剧情软提示（拍板⑥；c-retire-prompt-polish 后出口指向「刷新提示词」）：
+  // quiet 探提示词，存量稿才提示，不自动重算
+  const promptHintShownRef = useRef(false);
+  const promptHintTimerRef = useRef<number | null>(null);
   // 切章/卸载：清挂起的软提示 timer、重置「已提示」（新章要重新判定）
   useEffect(() => {
-    polishHintShownRef.current = false;
+    promptHintShownRef.current = false;
     return () => {
-      if (polishHintTimerRef.current) clearTimeout(polishHintTimerRef.current);
-      polishHintTimerRef.current = null;
+      if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
+      promptHintTimerRef.current = null;
     };
   }, [chapterRef]);
-  const maybeHintPolish = useCallback(() => {
-    if (!isPro || polishHintShownRef.current) return;
-    if (polishHintTimerRef.current) clearTimeout(polishHintTimerRef.current);
-    polishHintTimerRef.current = window.setTimeout(() => {
+  const maybeHintPromptRefresh = useCallback(() => {
+    if (!isPro || promptHintShownRef.current) return;
+    if (promptHintTimerRef.current) clearTimeout(promptHintTimerRef.current);
+    promptHintTimerRef.current = window.setTimeout(() => {
       void (async () => {
         try {
           const d = (await request(
             `/novels/${projectId}/chapters/${chapterRef}/write/prompt`,
             { quiet: true },
           )) as { polished?: boolean };
-          if (!d?.polished || polishHintShownRef.current) return;
-          polishHintShownRef.current = true;
-          toast.info("提示词还是旧版、没带上新剧情——可以重新润色", {
+          if (!d?.polished || promptHintShownRef.current) return;
+          promptHintShownRef.current = true;
+          toast.info("提示词还是旧版、没带上新剧情——可以刷新提示词", {
             action: {
-              label: "去重新润色",
+              label: "去刷新提示词",
               onClick: () => {
-                polishHintShownRef.current = false; // 重润后下次改动还能再提示
+                promptHintShownRef.current = false; // 刷新后下次改动还能再提示
                 onOpenAiModal?.();
               },
             },
@@ -692,7 +693,7 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, chapterRef, isPro, onOpenAiModal]);
 
-  // 剧情编辑（输入/加/删任一动作，OgPane 上抛）：下次编辑即收回执（拍板②）＋润色软提示
+  // 剧情编辑（输入/加/删任一动作，OgPane 上抛）：下次编辑即收回执（拍板②）＋提示词软提示
   const saveOgRef = useRef(saveOg);
   saveOgRef.current = saveOg;
   const outlineRef = useRef(outline);
@@ -701,8 +702,8 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
   ogFormRef.current = ogForm;
   const handlePlotEdit = useCallback(() => {
     killPlotReceipt();
-    maybeHintPolish();
-  }, [killPlotReceipt, maybeHintPolish]);
+    maybeHintPromptRefresh();
+  }, [killPlotReceipt, maybeHintPromptRefresh]);
 
   /** 「剧情抽卡」（右栏动作）：先 flush 表单，门槛读服务端值（拍板⑦三样） */
   const handlePlotDraw = useCallback(async () => {
@@ -765,10 +766,10 @@ const [ogForm, setOgForm] = useState<OgForm>(EMPTY_OG_FORM);
       }),
     };
     adoptingRef.current = false;
-    maybeHintPolish();
+    maybeHintPromptRefresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plotDraw, ogForm, outline.saveChapter, outline.chaptersMap, chapterRef,
-      killPlotReceipt, handlePlotUndo, maybeHintPolish]);
+      killPlotReceipt, handlePlotUndo, maybeHintPromptRefresh]);
 
   // ── 剧情推演（plot-sim）：弹窗按回合走一遍；收进章纲＝追加一条剧情条目后走既有保存链
   // （c-og-slim-v2：原落点「预期策略」已退役，改追加剧情条目，既有条目不动）──

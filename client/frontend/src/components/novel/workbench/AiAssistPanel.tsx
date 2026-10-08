@@ -107,7 +107,7 @@ export function AiAssistPanel({
   onAiCheck?: (kind: AiCheckKind) => void;
   /** 文风「AI 建议本章调整」（触发 StyleShadowPane 拉取；结果在页签内逐项采纳） */
   onStyleSuggest?: () => void;
-  /** 提示词落库信号（c-prompt-tab-retire）：弹窗润色/存稿后状态行刷新 */
+  /** 提示词落库信号（c-prompt-tab-retire）：弹窗存稿后状态行刷新 */
   promptSavedSignal?: number;
 }) {
   // 页签内轻量数据（与中栏页签同端点；只在对应页签激活时取）
