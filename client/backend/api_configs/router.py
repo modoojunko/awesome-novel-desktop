@@ -311,14 +311,14 @@ async def model_candidates(
     db: AsyncSession = Depends(get_db),
 ):
     """该配置所属 vendor 的候选模型 id（端点不提供 /models 时的起点，不触网）。"""
-    from .connection import NO_MODEL_LIST_NOTE, model_candidates_for
+    from .connection import model_candidates_for, no_model_list_note
 
     config = await get_api_config(db, _user_id(user), config_id)
     if not config:
         raise HTTPException(404, "配置不存在")
     return {
         "candidates": model_candidates_for(config.get("vendor", "")),
-        "note": NO_MODEL_LIST_NOTE,
+        "note": no_model_list_note(config.get("api_format") or "openai"),
     }
 
 

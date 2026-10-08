@@ -140,7 +140,7 @@ test("模型配置：空态 + 表单顺序校验（名称→供应商→Base URL
     await expect(page.getByText("请输入 Base URL")).toBeVisible();
 
     // 填 Base URL → API Key
-    await page.getByPlaceholder("https://api.openai.com").fill("http://127.0.0.1:1");
+    await page.getByPlaceholder("https://api.openai.com/v1").fill("http://127.0.0.1:1");
     await page.getByRole("button", { name: "保存并测试连接" }).click();
     await expect(page.getByText("请输入 API Key")).toBeVisible();
 
@@ -168,7 +168,7 @@ test("模型配置：添加（网络错误）→ 删除 → Undo toast 展示", 
     await page.getByRole("button", { name: "添加 API Key" }).first().click();
     await page.getByPlaceholder("例如：主线 · OpenAI").fill("e2e测试配置");
     await page.getByRole("button", { name: "OpenAI 兼容" }).click();
-    await page.getByPlaceholder("https://api.openai.com").fill("http://127.0.0.1:1");
+    await page.getByPlaceholder("https://api.openai.com/v1").fill("http://127.0.0.1:1");
     await page.getByPlaceholder("sk-...").fill("sk-e2e-invalid");
 
     // POST /api/v1/api-configs（创建；随后自动连接测试，127.0.0.1:1 → network_error）
@@ -298,10 +298,16 @@ test("模型配置：供应商默认值预填——选 DeepSeek 只填 Key 保�
     const urlInput = page.locator("#cfBase");
     const modelInput = page.locator("#cfModel");
 
-    // OpenAI 兼容：无登记值不预填（表单全新时做对照；重开新建不重置是存量行为）
+    // OpenAI 兼容：无登记值不预填＋兼容模版引导文案可见（c-api-config-foreign-vendors）
     await page.getByRole("button", { name: "OpenAI 兼容" }).click();
     await expect(urlInput).toHaveValue("");
     await expect(modelInput).toHaveValue("");
+    await expect(
+      page.getByText(/未列厂商（如 Google Gemini）走 OpenAI 兼容模版/),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/generativelanguage\.googleapis\.com\/v1beta\/openai/),
+    ).toBeVisible();
 
     // 选 DeepSeek → Base URL 与模型名称自动填好（用户只需填 Key）
     await page.getByRole("button", { name: "DeepSeek" }).click();

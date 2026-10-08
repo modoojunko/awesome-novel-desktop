@@ -456,6 +456,17 @@ describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）",
     expect(document.querySelector(".mp-panel")).toBeNull();
   });
 
+  it("OpenAI 兼容：显示兼容模版引导文案（Gemini 兼容地址/手填模型 id/反代说明），他商不显示", () => {
+    render(<ApiConfigForm open onSubmit={vi.fn(async () => {})} onCancel={vi.fn()} />);
+    // 默认 OpenAI：无引导
+    expect(screen.queryByText(/generativelanguage\.googleapis\.com/)).toBeNull();
+    fireEvent.click(screen.getByText("OpenAI 兼容"));
+    const hint = screen.getByText(/未列厂商（如 Google Gemini）走 OpenAI 兼容模版/);
+    expect(hint.textContent).toContain("https://generativelanguage.googleapis.com/v1beta/openai/");
+    expect(hint.textContent).toContain("手填模型 id");
+    expect(hint.textContent).toContain("反代/转发");
+  });
+
   it("Ollama 免 Key：选供应商即拉本地清单并默认选首项", async () => {
     const onFetchModels = vi.fn(async () => ({
       ok: true,
@@ -469,7 +480,7 @@ describe("ApiConfigForm 模型清单自动拉取（c-api-config-auto-models）",
     );
     expect(onFetchModels).toHaveBeenCalledWith({
       vendor_id: "ollama",
-      base_url: "http://localhost:11434",
+      base_url: "http://localhost:11434/v1", // 登记值含版本段（2026-10-08 修正）；后端 tags 探针剥尾 /v1
       api_key: "",
       api_format: "openai",
     });

@@ -13,7 +13,10 @@ export interface VendorDefault {
 }
 
 export const VENDOR_DEFAULTS: Partial<Record<VendorId, Partial<Record<ApiFormat, VendorDefault>>>> = {
-  openai: { openai: { base_url: "https://api.openai.com", model: "" } },
+  // OpenAI/Ollama 2026-10-08 实证修正（c-api-config-foreign-vendors）：SDK 生成调用以
+  // base_url 直拼路径、不自补版本段（裸域名打 /chat/completions，官方 404），登记值须含
+  // 版本段（OpenAI 官方 /v1；Ollama 官方 README 同款 /v1；后端 tags 探针会剥尾 /v1）
+  openai: { openai: { base_url: "https://api.openai.com/v1", model: "" } },
   anthropic: { anthropic: { base_url: "https://api.anthropic.com", model: "" } },
   // DeepSeek 首批全量（URL 与模型均有实测在案）；×anthropic 无实测端点（实测 404）不登记
   deepseek: {
@@ -28,7 +31,7 @@ export const VENDOR_DEFAULTS: Partial<Record<VendorId, Partial<Record<ApiFormat,
   },
   kimi: { openai: { base_url: "https://api.moonshot.cn/v1", model: "" } },
   qwen: { openai: { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "" } },
-  ollama: { openai: { base_url: "http://localhost:11434", model: "" } },
+  ollama: { openai: { base_url: "http://localhost:11434/v1", model: "" } },
 };
 
 const EMPTY_DEFAULT: VendorDefault = { base_url: "", model: "" };
