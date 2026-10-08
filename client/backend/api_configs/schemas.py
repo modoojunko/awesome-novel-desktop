@@ -58,7 +58,8 @@ class CreateApiConfigBody(BaseModel):
 
 
 class UpdateApiConfigBody(BaseModel):
-    name: str | None = None
+    # 与 create 同契约（长度上限 100）：update 侧曾裸奔，超长名可经 PUT 落库
+    name: str | None = Field(default=None, min_length=1, max_length=100)
     base_url: str | None = None
     api_key: str | None = None
     vendor_override: str | None = None

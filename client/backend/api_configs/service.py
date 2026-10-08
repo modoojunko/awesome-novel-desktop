@@ -67,6 +67,7 @@ async def _assert_name_available(db: AsyncSession, user_id: str, name: str) -> N
     撤销窗口（前端 8s toast）内行原样保留、restore 照常复活原名；窗口过期后
     用户重建同名配置是正常诉求，不该被看不见的行堵死。改名后缀嵌行 id（PK）
     保证唯一，软删行不在任何列表出现，该形态用户不可见。
+    朱雀行（vendor=zhuque）例外：保留名「朱雀 AI 检测」任何状态都拒借，见循环内注释。
     """
     existing = await db.execute(
         select(ApiConfig).where(
@@ -85,6 +86,10 @@ async def _assert_name_available(db: AsyncSession, user_id: str, name: str) -> N
         )
     )
     for row in blocked.scalars().all():
+        # 朱雀保留名不参与让位：get_zhuque_config 按 name+vendor 单槽位查行，
+        # 让普通配置借走该名，朱雀行从此查不到（zhuque 契约：active/deleted 一律 409）
+        if row.vendor == "zhuque":
+            raise ValueError("名称已被使用")
         row.name = f"{name[:40]}（已删除 {row.id}）"
     # flush 须在此处：让位 UPDATE 与调用方随后的改名/INSERT 不能归并进同一批次——
     # SQLite 唯一约束逐行检查，同批内「B 先取名、A 后让位」会自撞约束

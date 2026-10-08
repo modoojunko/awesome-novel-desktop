@@ -1104,7 +1104,7 @@ class TestSoftDeleteRestore:
                 "api_key": _test_api_key("restore"),
             },
         )
-        assert resp.status_code in (200, 201), resp.text
+        assert resp.status_code == 201, resp.text  # create 路由钉死 201
         return resp.json()["id"]
 
     def test_delete_is_soft_row_kept_list_excludes(self, client):
@@ -1164,7 +1164,7 @@ class TestSoftDeleteRestore:
                 "api_key": _test_api_key("restore-2"),
             },
         )
-        assert resp.status_code in (200, 201), resp.text
+        assert resp.status_code == 201, resp.text
         new_id = resp.json()["id"]
         # 新配置进列表；旧行仍软删在库但已让出名字
         listed = client.get("/api/v1/api-configs").json()
@@ -1187,7 +1187,7 @@ class TestSoftDeleteRestore:
                 "api_key": _test_api_key("restore-3"),
             },
         )
-        assert create_resp.status_code in (200, 201), create_resp.text
+        assert create_resp.status_code == 201, create_resp.text
         new_id = create_resp.json()["id"]
         # 旧行在让位期间被改名过，restore 复活的是让位名——两行并存且名字互不冲突
         resp = client.post(f"/api/v1/api-configs/{old_id}/restore")
@@ -1198,7 +1198,11 @@ class TestSoftDeleteRestore:
         assert len(set(pair.values())) == 2, "复活行与新行名字不得相同"
 
     def test_update_rename_can_take_deleted_name(self, client):
-        """TC-SOFT-06: 改名到软删行占着的名字 → 放行（让位对改名路径同生效）。"""
+        """TC-SOFT-06: 改名到软删行占着的名字 → 放行（让位对改名路径同生效）。
+
+        同时钉让位名形态（{原名}（已删除 {行id}））与 update 路径的 flush 分批——
+        本用例曾以「组合跑红、单跑绿」的顺序依赖复现同批自撞约束。
+        """
         a_id = self._create(client, "改名-让位A")
         b_resp = client.post(
             "/api/v1/api-configs",
@@ -1209,11 +1213,82 @@ class TestSoftDeleteRestore:
                 "api_key": _test_api_key("rename-b"),
             },
         )
+        assert b_resp.status_code == 201, b_resp.text
         b_id = b_resp.json()["id"]
         client.delete(f"/api/v1/api-configs/{a_id}")
         resp = client.put(f"/api/v1/api-configs/{b_id}", json={"name": "改名-让位A"})
         assert resp.status_code == 200, resp.text
         assert resp.json()["name"] == "改名-让位A"
+        old = _run_async(_get_config(self.RESTORE_USER_ID, a_id))
+        assert old.name == f"改名-让位A（已删除 {a_id}）", "让位名形态钉子"
+
+    def test_same_name_recreate_twice_all_yielded(self, client):
+        """TC-SOFT-07: 删→建同名→再删→第三次重建——多个软删行让位互不撞，放行。"""
+        first_id = self._create(client, "软删-双让位")
+        client.delete(f"/api/v1/api-configs/{first_id}")
+        second_id = self._create(client, "软删-双让位")  # first 让位
+        client.delete(f"/api/v1/api-configs/{second_id}")
+        third_id = self._create(client, "软删-双让位")  # second 让位，first 已不在占名态
+        listed = client.get("/api/v1/api-configs").json()
+        assert any(c["id"] == third_id for c in listed)
+        first = _run_async(_get_config(self.RESTORE_USER_ID, first_id))
+        second = _run_async(_get_config(self.RESTORE_USER_ID, second_id))
+        assert first.status == "deleted" and second.status == "deleted"
+        assert first.name != second.name, "两个软删行让位名互异（嵌行 id）"
+
+    def test_zhuque_reserved_name_not_yielded(self, client):
+        """TC-SOFT-08: 软删朱雀行占保留名 → 同名普通配置 409（保留名不参与让位）。
+
+        get_zhuque_config 按 name+vendor 单槽位查行；让普通配置借走保留名会让
+        朱雀行从此查不到（zhuque 契约：active/deleted 一律 409）。
+        """
+        from zhuque.service import ZHUQUE_NAME
+
+        async def _insert_deleted_zhuque() -> None:
+            async with async_session() as session:
+                await session.execute(
+                    text(
+                        "INSERT INTO api_configs (id, user_id, name, vendor, vendor_display_name, api_key, base_url, status, created_at, updated_at) "
+                        "VALUES (:id, :uid, :name, 'zhuque', '朱雀 AI 检测', '', '', 'deleted', datetime('now'), datetime('now'))"
+                    ),
+                    {
+                        "id": str(uuid.uuid4()),
+                        "uid": self.RESTORE_USER_ID,
+                        "name": ZHUQUE_NAME,
+                    },
+                )
+                await session.commit()
+
+        _run_async(_insert_deleted_zhuque())
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": ZHUQUE_NAME,
+                "vendor_id": "openai",
+                "base_url": "https://api.openai.com",
+                "api_key": _test_api_key("zhuque-name"),
+            },
+        )
+        assert resp.status_code == 409, resp.text
+
+    def test_yielded_name_colliding_with_literal_returns_409(self, client):
+        """TC-SOFT-09: 让位名与字面软删行相撞（构造态）→ 约束兜底 409，不出 500。"""
+        a_id = self._create(client, "兜底-X")
+        lit_id = self._create(client, f"兜底-X（已删除 {a_id}）")  # 字面行恰为让位名
+        client.delete(f"/api/v1/api-configs/{lit_id}")
+        client.delete(f"/api/v1/api-configs/{a_id}")
+        resp = client.post(
+            "/api/v1/api-configs",
+            json={
+                "name": "兜底-X",
+                "vendor_id": "openai",
+                "base_url": "https://api.openai.com",
+                "api_key": _test_api_key("fallback"),
+            },
+        )
+        # 重建「兜底-X」→ A 让位名＝字面行名 → flush 撞约束 → 路由兜底 409
+        assert resp.status_code == 409, resp.text
+        assert "名称已被使用" in resp.text
 
 
 # ═══════════════════════════════════════════════════════════════════════════
