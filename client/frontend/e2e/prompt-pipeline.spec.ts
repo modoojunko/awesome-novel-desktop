@@ -223,6 +223,117 @@ test("单段式：AiModal 组装→编辑→生成 + 完工检查横幅（c-reti
   }
 });
 
+// ═══ 生成模型选择位（c-prose-model-select）════════════════════════════════════
+//  模型域打桩（两配置 × 三模型 + 本书模型就绪）→ 默认路径请求体不带按次模型对；
+//  换到另一配置的模型后请求体携带所选 `api_config_id` + `model`（仅本次生成）。
+
+test("生成模型选择位：默认本书模型不带按次模型对、换模型后进请求体", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(120_000);
+  const { restore, token } = await setupSession(page);
+  try {
+    await ensurePromptAccess(request, token);
+    await createNovel(page, `选模型${Date.now() % 100000}`);
+    await setupFirstChapter(page);
+
+    // 模型域打桩：跨配置 × 多模型 + 本书模型就绪（不依赖真实 Key/探测）
+    const cfg = (id: string, name: string, vendor: string, models: string[]) => ({
+      id,
+      name,
+      vendor,
+      vendor_display_name: vendor,
+      api_format: "openai",
+      base_url: "https://example.com/v1",
+      api_key_masked: "sk-•••",
+      status: "active",
+      last_test_status: "ok",
+      last_test_error: null,
+      last_tested_at: null,
+      models,
+      models_updated_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    await page.route("**/api/v1/api-configs", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          cfg("c1", "深度求索", "deepseek", ["deepseek-v4-pro", "deepseek-v4-flash"]),
+          cfg("c2", "本地 · Ollama", "ollama", ["qwen2.5:14b"]),
+        ]),
+      }),
+    );
+    await page.route("**/api/v1/novels/*/ai-model", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          api_config_id: "c1",
+          config_name: "深度求索",
+          model: "deepseek-v4-pro",
+          ai_state: "ready",
+          message: "",
+        }),
+      }),
+    );
+
+    const CHUNK = "雨点砸在铁皮棚上，他没有抬头。";
+    const bodies: Array<Record<string, unknown>> = [];
+    await page.route("**/api/novels/*/chapters/*/write", async (route) => {
+      try {
+        bodies.push(JSON.parse(route.request().postData() || "{}"));
+      } catch {
+        bodies.push({});
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body:
+          `data: ${JSON.stringify({ type: "chunk", text: CHUNK })}\n\n` +
+          `data: ${JSON.stringify({ type: "done", full_text: CHUNK })}\n\n`,
+      });
+    });
+
+    await page.getByRole("tab", { name: /^正文/ }).click();
+    await page.getByTestId("ai-write-btn").click();
+    const ai = page.getByRole("dialog", { name: "AI 生成正文" });
+    await expect(ai.getByTestId("ai-prompt")).toBeEnabled({ timeout: 10000 });
+
+    // 默认＝本书模型：触发位显示「配置名 · 模型名」
+    await expect(ai.getByTestId("ai-model-select")).toBeVisible();
+    await expect(ai.getByTestId("ai-model-name")).toHaveText("深度求索 · deepseek-v4-pro");
+    await ai.getByTestId("ai-confirm").click();
+    await expect(page.locator(".editor")).toContainText(CHUNK, { timeout: 10000 });
+    // 默认路径：请求体无按次模型对（与今日链路逐字一致）
+    expect(bodies[bodies.length - 1]).not.toHaveProperty("api_config_id");
+    expect(bodies[bodies.length - 1]).not.toHaveProperty("model");
+
+    // 重开弹窗 → 回本书模型（按次语义：不记忆、不持久）
+    await page.getByTestId("ai-write-btn").click();
+    await expect(ai.getByTestId("ai-prompt")).toBeEnabled({ timeout: 10000 });
+    await expect(ai.getByTestId("ai-model-name")).toHaveText("深度求索 · deepseek-v4-pro");
+
+    // 换到另一配置的模型（弹层 portal 到 body：用 page 级定位）→ 请求体携带该对
+    await ai.getByTestId("ai-model-select").click();
+    const panel = page.getByTestId("ai-model-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("本地 · Ollama");
+    await panel.locator('[data-model="c2::qwen2.5:14b"]').click();
+    await expect(ai.getByTestId("ai-model-name")).toHaveText("本地 · Ollama · qwen2.5:14b");
+    await ai.getByTestId("ai-confirm").click();
+    await expect.poll(() => bodies.length, { timeout: 10000 }).toBe(2);
+    expect(bodies[bodies.length - 1]).toMatchObject({
+      api_config_id: "c2",
+      model: "qwen2.5:14b",
+    });
+  } finally {
+    await restore();
+  }
+});
+
 // ═══ 编辑器内核（c-prose-editor-tiptap）═══════════════════════════════════════
 //   spec 场景「AI 生成可整体撤销」＋「采纳替换走范围事务」的回归护栏。
 

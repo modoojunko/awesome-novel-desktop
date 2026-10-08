@@ -34,6 +34,7 @@ import {
   type StreamDoneMeta,
 } from "@/lib/ai";
 import type { SelectionCapture } from "@/lib/selection";
+import type { ModelSelection } from "@/types/api-config";
 import {
   type FontSizePref,
   type LineHeightPref,
@@ -64,8 +65,9 @@ export const INITIAL_PROSE_AI_STATE: ProseAIState = {
 export interface ProseHandle {
   focus(): void;
   captureNow(): SelectionCapture | null;
-  /** promptOverride：AI 弹窗编辑后的提示词（空 = 后端自动组装） */
-  startWriting(prompt?: string): void;
+  /** promptOverride：AI 弹窗编辑后的提示词（空 = 后端自动组装）
+   *  modelSelection：按次模型对（c-prose-model-select；未传 = 本书模型） */
+  startWriting(prompt?: string, modelSelection?: ModelSelection): void;
   stopWriting(): void;
   /** capture：解锁链等场景预先捕获的选区/光标（弹窗焦点会丢现场选区） */
   polish(capture: SelectionCapture): void;
@@ -534,7 +536,7 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
   );
 
   const startStream = useCallback(
-    (promptOverride?: string) => {
+    (promptOverride?: string, modelSelection?: ModelSelection) => {
       if (!editor || editor.isDestroyed || streamingRef.current) return;
       if (archived) {
         toast.error("已归档章节不可生成");
@@ -574,7 +576,13 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
           finishStream(streamReceivedRef.current, false);
         },
       };
-      abortRef.current = streamChapterWrite(projectId, chapterRef, cbs, promptOverride);
+      abortRef.current = streamChapterWrite(
+        projectId,
+        chapterRef,
+        cbs,
+        promptOverride,
+        modelSelection,
+      );
     },
     [projectId, chapterRef, archived, editor, appendChunk, finishStream, scrollInsertIntoView, onAIStateChange],
   );
@@ -645,7 +653,8 @@ const ProsePane = forwardRef<ProseHandle, ProsePaneProps>(function ProsePane(
     () => ({
       focus: () => editor?.commands.focus("end"), // 落文末：进入写作的继续位置
       captureNow,
-      startWriting: (prompt?: string) => startStream(prompt),
+      startWriting: (prompt?: string, modelSelection?: ModelSelection) =>
+        startStream(prompt, modelSelection),
       stopWriting: () => {
         // 中断 + 立即收尾（fetch abort 不回调 onDone/onError）
         abortRef.current?.abort();

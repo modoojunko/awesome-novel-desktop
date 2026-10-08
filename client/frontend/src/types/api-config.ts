@@ -39,6 +39,13 @@ export interface FlatModelOption {
   vendor: VendorId;
 }
 
+/** 按次模型对（c-prose-model-select）：生成正文弹窗的「生成模型」选择位。
+ *  仅本次生成生效——不落库、不改本书绑定（`GET /novels/{id}/ai-model` 不变）。 */
+export interface ModelSelection {
+  api_config_id: string;
+  model: string;
+}
+
 /** 只拉清单轻探针结果（c-api-config-auto-models）：candidates/note 仅端点不提供清单时出现。 */
 export interface FetchModelsResult {
   ok: boolean;

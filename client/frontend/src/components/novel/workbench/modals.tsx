@@ -6,12 +6,16 @@
 // 文案与结构与原型 modalDelete/modalArchive/modalHistory/modalAi 逐字对齐
 // （modalUnlock 随「解除只读」解锁链退役，c-archived-readonly）；
 // 产品化差异（升级跳 S端 等）见 docs/design-c/prototypes/ADJUSTMENTS.md。
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Modal from "@/components/design/Modal";
 import VersionDiff from "@/components/novel/VersionDiff";
+import { Ico, P } from "@/components/icons";
 import { api, request } from "@/lib/api";
 import { cnNum } from "@/lib/nodeTitle";
 import { toast } from "@/lib/toast";
+import { useModelStatus } from "@/hooks/useModelStatus";
+import type { FlatModelOption, ModelSelection } from "@/types/api-config";
 
 const fmt = (n: number) => n.toLocaleString("zh-CN");
 
@@ -426,6 +430,246 @@ export function HistoryModal({
 }
 
 // ---------------------------------------------------------------------------
+// 生成模型选择位（c-prose-model-select）：跨配置/供应商按次选模型，仅本次生成生效。
+// 控件＝.mp-* 组合框＋弹层（先例 ApiConfigForm：portal 到 body + fixed 定位——弹窗
+// 滚动区不裁剪浮层；Esc 只收弹层）；选项只在「≠ 本书模型」时随请求下发。
+// ---------------------------------------------------------------------------
+
+function ModelPicker({
+  options,
+  value,
+  bookValue,
+  onPick,
+}: {
+  options: FlatModelOption[];
+  /** 当前选择键 `${api_config_id}::${model}` */
+  value: string;
+  /** 本书模型键（弹层内标「本书模型」；标记恒随绑定，不随选择移动） */
+  bookValue: string;
+  onPick: (key: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [cursor, setCursor] = useState(0);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(
+    null,
+  );
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  // 分组：以配置为组（组头＝配置名 + 供应商）——跨供应商可辨（沿 ModelSettingForm 分组语义）
+  const groups = useMemo(() => {
+    const byConfig = new Map<string, FlatModelOption[]>();
+    for (const o of options) {
+      const list = byConfig.get(o.api_config_id) ?? [];
+      list.push(o);
+      byConfig.set(o.api_config_id, list);
+    }
+    return [...byConfig.entries()].map(([cid, opts]) => ({
+      cid,
+      name: opts[0].config_name,
+      vendor: opts[0].vendor,
+      opts,
+    }));
+  }, [options]);
+  const flat = useMemo(
+    () =>
+      groups.flatMap((g) =>
+        g.opts.map((o) => ({ ...o, key: `${o.api_config_id}::${o.model}` })),
+      ),
+    [groups],
+  );
+  const current = flat.find((o) => o.key === value) ?? flat[0];
+
+  // 弹层定位（先例 ApiConfigForm 同口径）：portal 出 .mcard 滚动容器后用 fixed 锚触发位
+  // 矩形；随滚动/resize 重锚，近视口底缘向上翻转（266≈弹层最大高＋边距）
+  useEffect(() => {
+    if (!open) return;
+    const anchor = () => {
+      const el = wrapRef.current?.querySelector("button");
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const belowFits = r.bottom + 6 + 266 <= window.innerHeight;
+      setPos({
+        top: belowFits ? r.bottom + 6 : Math.max(8, r.top - 6 - 266),
+        left: r.left,
+        width: r.width,
+      });
+    };
+    anchor();
+    window.addEventListener("scroll", anchor, true);
+    window.addEventListener("resize", anchor);
+    return () => {
+      window.removeEventListener("scroll", anchor, true);
+      window.removeEventListener("resize", anchor);
+    };
+  }, [open]);
+
+  // 外点关闭：pointerdown 落在触发位与弹层之外即收起（同先例）
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (wrapRef.current?.contains(t)) return;
+      if (panelRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+
+  const openAt = () => {
+    const i = flat.findIndex((o) => o.key === value);
+    setCursor(i >= 0 ? i : 0);
+    setOpen(true);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) {
+        openAt();
+      } else {
+        setCursor((c) =>
+          Math.min(Math.max(c + (e.key === "ArrowDown" ? 1 : -1), 0), flat.length - 1),
+        );
+      }
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (!open) {
+        openAt();
+      } else {
+        const pick = flat[cursor];
+        if (pick) {
+          onPick(pick.key);
+          setOpen(false);
+        }
+      }
+    } else if (e.key === "Escape" && open) {
+      // 只收弹层：吞掉冒泡（Modal 在 window 上听 Esc——先例 ApiConfigForm 评审 P1）
+      e.stopPropagation();
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div className="mp-wrap" ref={wrapRef} data-testid="ai-model-picker">
+      <button
+        type="button"
+        className="input mp-trigger"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls="ai-model-panel"
+        data-testid="ai-model-select"
+        onClick={() => (open ? setOpen(false) : openAt())}
+        onKeyDown={onKeyDown}
+      >
+        <span className="mt-name" data-testid="ai-model-name">
+          {current ? `${current.config_name} · ${current.model}` : ""}
+        </span>
+        <Ico d={P.chevronDown} />
+      </button>
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            className="mp-panel"
+            id="ai-model-panel"
+            role="listbox"
+            aria-label="生成模型"
+            data-testid="ai-model-panel"
+            ref={panelRef}
+            style={{
+              position: "fixed",
+              top: pos.top,
+              left: pos.left,
+              width: pos.width,
+              zIndex: 70,
+            }}
+            onMouseDown={(e) => e.preventDefault()} // 点选不抢焦点：键盘现场留在触发位（同先例）
+          >
+            {groups.map((g) => (
+              <div key={g.cid}>
+                <div className="mp-group">
+                  {g.name} <span className="mg-vendor">{g.vendor}</span>
+                </div>
+                <ul className="mp-list">
+                  {g.opts.map((o) => {
+                    const key = `${o.api_config_id}::${o.model}`;
+                    const i = flat.findIndex((f) => f.key === key);
+                    const on = key === value;
+                    return (
+                      <li key={key}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={on}
+                          tabIndex={-1}
+                          className={
+                            "mp-item" + (i === cursor ? " cur" : "") + (on ? " on" : "")
+                          }
+                          data-model={key}
+                          onMouseEnter={() => setCursor(i)}
+                          onClick={() => {
+                            onPick(key);
+                            setOpen(false);
+                          }}
+                        >
+                          {o.model}
+                          {key === bookValue ? (
+                            <span className="mp-flag">本书模型</span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
+/** 「生成模型」字段（挂载即取数——只在弹窗打开时挂载，不占章工作台常驻请求预算）：
+ *  `ai_state !== ready` 或可选项 < 2 时整行不渲染（单模型用户零变化）。 */
+function ModelField({
+  projectId,
+  modelSel,
+  onChange,
+}: {
+  projectId: string;
+  modelSel: ModelSelection | null;
+  onChange: (sel: ModelSelection | null) => void;
+}) {
+  const { modelOptions, currentConfigId, currentModel, aiState } = useModelStatus(projectId);
+  const bookKey =
+    currentConfigId && currentModel ? `${currentConfigId}::${currentModel}` : "";
+  const key = modelSel ? `${modelSel.api_config_id}::${modelSel.model}` : bookKey;
+  if (aiState !== "ready" || modelOptions.length < 2) return null;
+  return (
+    <div className="field">
+      <label>
+        生成模型{" "}
+        <span className="opt">仅本次生成生效（提示词润色/刷新仍用本书模型）</span>
+      </label>
+      <ModelPicker
+        options={modelOptions}
+        value={key}
+        bookValue={bookKey}
+        onPick={(k) => {
+          const o = modelOptions.find((m) => `${m.api_config_id}::${m.model}` === k);
+          if (!o) return;
+          onChange(k === bookKey ? null : { api_config_id: o.api_config_id, model: o.model });
+        }}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // AI 生成正文（tall）：打开展示存量/本次组装稿 → 作家过目/编辑 →「生成正文」
 // 流式追加。c-prompt-tab-retire：提示词页签退役后本弹窗兼任「查看/编辑/存稿」
 // 入口——「存为本章提示词」把编辑稿落库（PUT prompts/write），此后每次生成本弹窗
@@ -448,8 +692,9 @@ export function AiModal({
   onClose: () => void;
   projectId: string;
   chapterRef: string;
-  /** 携带编辑后的提示词启动生成 */
-  onConfirm: (prompt: string) => void;
+  /** 携带编辑后的提示词启动生成；modelSelection＝按次模型对（c-prose-model-select：
+   *  未换模型/与本书模型相同＝undefined，走本书模型路径） */
+  onConfirm: (prompt: string, modelSelection?: ModelSelection) => void;
   /** 提示词落库成功（「存为本章提示词」）→ 右栏状态行刷新 */
   onPromptSaved?: () => void;
 }) {
@@ -466,12 +711,15 @@ export function AiModal({
   // polished=润色旧行（只信息性，不引导覆盖）；"" = 新分层口径
   const [legacyKind, setLegacyKind] = useState("");
   const [lintWarnings, setLintWarnings] = useState<string[]>([]);
+  // 按次模型对（c-prose-model-select）：每次打开回到本书模型（按次语义，不记忆）
+  const [modelSel, setModelSel] = useState<ModelSelection | null>(null);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setModelSel(null);
     request(`/novels/${projectId}/chapters/${chapterRef}/write/prompt`, {
       quiet: true,
     })
@@ -571,7 +819,7 @@ export function AiModal({
             disabled={loading || !!error || refreshing}
             onClick={() => {
               onClose();
-              onConfirm(prompt);
+              onConfirm(prompt, modelSel ?? undefined);
             }}
           >
             生成正文
@@ -653,6 +901,10 @@ export function AiModal({
           </div>
         </div>
       </div>
+      {/* 生成模型（c-prose-model-select）：仅弹窗打开时挂载取数；单选/未就绪不渲染 */}
+      {open && (
+        <ModelField projectId={projectId} modelSel={modelSel} onChange={setModelSel} />
+      )}
       {error ? (
         <p style={{ margin: 0, fontSize: 12.5, color: "var(--err)" }}>
           {error}·
