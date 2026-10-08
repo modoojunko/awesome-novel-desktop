@@ -1,5 +1,6 @@
+import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
 import { resetChapterStoresForTest } from "@/hooks/useChapterData";
 
 // ---------------------------------------------------------------------------
@@ -261,6 +262,73 @@ describe("失败与重试", () => {
     act(() => result.current.retry());
     await act(async () => {});
     expect(result.current.saveState).toBe("saved");
+  });
+});
+
+describe("StrictMode 模拟卸载（开发态）", () => {
+  /** 真实复现 dev 双跑：React 19 StrictMode 下 mount 即「卸载→重挂」，useMemo 持有的
+   *  store 实例在 release() 里被置 disposed 并逐出注册表——修复前 load() 命中
+   *  `if (this.disposed) return` 把章数据丢弃，章节恒 0 字（接口数据正常、零报错）。
+   *  注意：必须用 render+组件形态——renderHook 不触发 StrictMode 双跑（实测）。 */
+  function useProbe(journal: string[]) {
+    const { useChapterData } = hooksRef.current!;
+    return useChapterData("p1", "vol-1-ch-1");
+  }
+  const hooksRef: { current: typeof import("@/hooks/useChapterData") | null } = { current: null };
+
+  it("disposed 后再次 acquire 复活：load 结果照常落地（章节不再恒 0 字）", async () => {
+    hooksRef.current = await importHooks();
+    apiState.get.mockResolvedValue({
+      ...CHAPTER,
+      prose: "原有的正文，载入不应进撤销史。",
+      status: "writing",
+    });
+    let snap: { prose: string; status: string; loading: boolean } | null = null;
+    function Comp() {
+      const d = useProbe([]);
+      snap = { prose: d.prose, status: d.status, loading: d.loading };
+      return null;
+    }
+    render(
+      <React.StrictMode>
+        <Comp />
+      </React.StrictMode>,
+    );
+    await act(async () => {});
+    expect(snap!.loading).toBe(false);
+    expect(snap!.prose).toBe("原有的正文，载入不应进撤销史。");
+    expect(snap!.status).toBe("writing");
+  });
+
+  it("复活实例重新收编注册表：双消费者共享同一 store", async () => {
+    hooksRef.current = await importHooks();
+    apiState.get.mockResolvedValue({ ...CHAPTER });
+    let aProse = "";
+    function Comp() {
+      const d = useProbe([]);
+      aProse = d.prose;
+      return null;
+    }
+    render(
+      <React.StrictMode>
+        <Comp />
+      </React.StrictMode>,
+    );
+    await act(async () => {});
+    // 同章第二个消费者（经注册表拿到同一实例）写入 → 首个消费者可见
+    const { useChapterData } = hooksRef.current!;
+    function CompB() {
+      const d = useChapterData("p1", "vol-1-ch-1");
+      act(() => d.setProse("共享的一段"));
+      return null;
+    }
+    render(
+      <React.StrictMode>
+        <CompB />
+      </React.StrictMode>,
+    );
+    await act(async () => {});
+    expect(aProse).toBe("共享的一段");
   });
 });
 

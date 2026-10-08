@@ -150,6 +150,14 @@ class ChapterStore {
   /** 首个消费者挂载 → 拉取章节数据。 */
   acquire = () => {
     this.refCount += 1;
+    if (this.disposed) {
+      // React 19 StrictMode（仅开发态）挂载即「卸载→重挂」：release() 把本实例置
+      // disposed 并逐出注册表，而持有它的 useMemo 不会重算——再次 acquire 若不复活，
+      // load() 的 `if (this.disposed) return` 会把章数据永远丢弃（实测 dev 下章节
+      // 恒 0 字、接口数据正常）。复活并重新收编注册表，让后续 getStore 仍取本实例。
+      this.disposed = false;
+      stores.set(storeKey(this.projectId, this.ref), this);
+    }
     if (this.refCount === 1) void this.load();
   };
 

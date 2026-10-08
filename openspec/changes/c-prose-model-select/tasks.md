@@ -45,3 +45,8 @@
 - [x] 7.3 **[P3] 覆盖对宽严不一致**：`ai_client.py` 覆盖分支改 `config_key_usable(cfg)`（与本书就绪同谓词），文案「没有可用 Key（或最近连接失败），去「模型配置」检查或重测后重试」；spec delta 同批补「宽严 SHALL 与本书模型路径一致」。**验证 ✓** pytest 13 例（新增「auth_error 配置被拒」「untested 仍放行」；端点用例补 400 一档）；spec 场景补「最近连接测试失败」。
 - [x] 7.4 **[P3] 键盘选中态对读屏不可见**：触发位补 `aria-activedescendant`（`ai-model-opt-${cursor}`）＋选项补 `id`＋`aria-label="生成模型"`。**验证 ✓** vitest 新增用例：首项即 `opt-0`、方向键后 `opt-1` 且该元素 `role=option`／文本对得上、Esc 收起后不再指向已卸载选项。
 - [x] 7.5 覆盖率契约：`src/lib/panelAnchor.ts` 入 `COVERAGE_CONTRACT_FILES`（新前端文件按批入契约，随 `vitest --coverage` 四闸 100%）。**验证 ✓** `coverageContract.test.ts` 5 例过；`npx vitest run --coverage` 契约文件全 100%。
+
+## 8. 存量红收敛（review 后续：用户拍板「修复」）
+
+- [x] 8.1 **`prompt-pipeline`「编辑工具箱」存量红根因修复（`useChapterData`，非本 change 触碰面）**：React 19 StrictMode（仅开发态）挂载即「卸载→重挂」，模块级单例 `ChapterStore` 在 `release()` 被置 `disposed`＋逐出注册表，而持有它的 `useMemo` 不重算——再次 `acquire` 后 `load()` 命中 `if (this.disposed) return` 把**带正文的响应永久丢弃**（实测 dev：接口数据正常、零报错、编辑器恒 0 字）。修复＝`acquire()` 复活 disposed 实例并重新收编注册表。**验证 ✓** 新增 2 例（`render`＋`<React.StrictMode>` 真双跑形态；**判例：`renderHook` 不触发 StrictMode 双跑，钉子必须用 render**）＋变异自证（禁用复活 → 两例红；还原 → 绿）；e2e dev 栈整文件 **6/6 × 3 轮**（原 1 例存量红转绿）、prod 构建 **6/6**；vitest 111 文件 / 1323 例全绿。
+- [x] 8.2 A/B 留痕：pristine `origin/main`（dev 栈）同例同红＝缺陷先于本 change 存在；prod 构建两态皆绿＝StrictMode 是 dev-only。CI（nightly）跑 docker prod 构建，不受此缺陷影响。
