@@ -1230,3 +1230,114 @@ test("角色：未命名卡可删除、可合并（占位名不进确认比对�
     await restore();
   }
 });
+
+// -------------------------------------------------------------------------
+// ⑨ 一键立卡（c-char-ai-card-generic）：配角空卡右栏「一键立卡」行→出稿过目→
+//    采纳只补空格走真后端（不建卡）；名字/人设齐后提示行退场；路人卡不给行。
+//    出稿桩在页面层（本地栈无模型）；AI 就绪态桩同⑥。
+// -------------------------------------------------------------------------
+test("角色：一键立卡（配角）——右栏行→出稿→采纳只补空格", async ({ page, request }) => {
+  const { restore, token } = await setupSession(page);
+  try {
+    const pid = await createNovel(page, `立卡${Date.now() % 100000}`);
+    // AI 就绪态桩（ai-model + 配置清单）
+    await page.route(`**/api/v1/novels/${pid}/ai-model`, (r) =>
+      r.fulfill({
+        json: {
+          api_config_id: "c1",
+          model: "gpt-4o",
+          config_name: "主配置",
+          ai_state: "ready",
+          effective_model: "gpt-4o",
+          reason: "ready",
+          message: "",
+        },
+      }),
+    );
+    await page.route("**/api/v1/api-configs", (r) =>
+      r.fulfill({
+        json: [
+          {
+            id: "c1",
+            name: "主配置",
+            vendor: "openai",
+            models: ["gpt-4o"],
+            status: "active",
+            last_test_status: "ok",
+          },
+        ],
+      }),
+    );
+    // 立卡出稿桩（采纳的 PATCH 走真后端，端点路径与响应形同主角链）
+    await page.route("**/settings/ai/characters/bootstrap", (r) =>
+      r.fulfill({
+        json: {
+          ok: true,
+          data: {
+            name: "周船工",
+            aliases: ["老周"],
+            persona: "渡口撑船三十年，认得每一道水纹。",
+            cells: [
+              { path: "dossier.look", value: "黝黑精瘦" },
+              { path: "cog.v1", value: "攒钱换新船" },
+            ],
+            skipped: [],
+          },
+        },
+      }),
+    );
+
+    await page.getByRole("button", { name: /^设定/ }).click();
+    await openSetting(page, "角色");
+    // 连建两张：首张主角（自动选中），次张配角（自动选中＝当前卡）
+    await page.getByRole("button", { name: "添加角色" }).click();
+    await page.waitForTimeout(1200);
+    await page.getByRole("button", { name: "添加角色" }).click();
+    await page.waitForTimeout(1200);
+
+    // 配角空卡：卡区提示行与右栏「一键立卡」行同现
+    await expect(page.getByTestId("char-ai-hint")).toBeVisible({ timeout: 10000 });
+    const row = page.locator('[data-aiact="cardDraft"]');
+    await expect(row).toBeVisible();
+
+    await row.click();
+    await expect(
+      page.getByText("AI 拟稿 · 为「未命名」立卡（采纳才写入）"),
+    ).toBeVisible({ timeout: 10000 });
+    await page.getByRole("button", { name: "采纳 · 写入" }).click();
+
+    // 采纳走真后端：名字落库、仍只有 2 张卡（不建卡）；轮询钉到 detail 的
+    // 最后一格（列表只保证名字已落，中途采样会早退——首跑实锤过这个竞态）
+    await pollBackend(
+      () => apiGetJSON(request, token, `/novels/${pid}/characters`),
+      (l: { data?: { items?: Array<{ name: string; role: string }> } }) =>
+        (l.data?.items ?? []).some((x) => x.name === "周船工" && x.role === "配角"),
+    );
+    const list = await apiGetJSON(request, token, `/novels/${pid}/characters`);
+    expect(list.data.items.length).toBe(2);
+    const side = (list.data.items as Array<{ id: string; name: string }>).find(
+      (x) => x.name === "周船工",
+    );
+    await pollBackend(
+      () => apiGetJSON(request, token, `/novels/${pid}/characters/${side!.id}`),
+      (d: { data?: { cog?: Record<string, string> } }) =>
+        (d.data?.cog?.v1 ?? "") === "攒钱换新船",
+    );
+    const detail = await apiGetJSON(request, token, `/novels/${pid}/characters/${side!.id}`);
+    expect(detail.data.persona).toBe("渡口撑船三十年，认得每一道水纹。");
+    expect(detail.data.dossier.look).toBe("黝黑精瘦");
+    expect(detail.data.cog.v1).toBe("攒钱换新船");
+
+    // 名字/人设已齐 → 卡区提示行退场
+    await expect(page.getByTestId("char-ai-hint")).toHaveCount(0, { timeout: 10000 });
+
+    // 路人卡不给行：当前卡切成路人 → 行退场（与体检排除同口径）
+    await page
+      .getByRole("group", { name: "角色类型" })
+      .getByRole("button", { name: "路人" })
+      .click();
+    await expect(page.locator('[data-aiact="cardDraft"]')).toHaveCount(0, { timeout: 10000 });
+  } finally {
+    await restore();
+  }
+});
