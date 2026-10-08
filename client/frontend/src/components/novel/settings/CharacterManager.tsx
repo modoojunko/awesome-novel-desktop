@@ -212,6 +212,7 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
 
   useEffect(() => {
     setListLoaded(false); // 换书重取：旧书的缺口摘要不得借道新书的首帧（评审补丁）
+    selectedIdRef.current = ""; // 换书清选中：空书残留旧书 id 会让空态立主角被迟到守卫误弃
     (async () => {
       try {
         const items = await reloadList();
@@ -522,8 +523,12 @@ const CharacterManager = forwardRef<CharacterSaveHandle, Props>(function Charact
     }
     aiBusyRef.current = true;
     setAiBusy(true);
+    // 迟到草稿守卫（与 runAi 的 selectedIdRef 判据同款）：出稿途中切卡后完成的稿
+    // 不得在别的卡上下文开弹窗——label 取当前卡名、内容却是出稿卡素材，采纳即串卡
+    const targetId = card?.id || "";
     try {
       const res = await charactersApi.bootstrapDraft(projectId, card?.id || undefined);
+      if (selectedIdRef.current !== targetId) return; // 已切卡：弃稿
       setSink(null);
       setCheck(null);
       setBootstrapSink(res);

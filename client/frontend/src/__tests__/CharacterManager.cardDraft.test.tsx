@@ -261,6 +261,52 @@ describe("CharacterManager 一键立卡", () => {
     expect(screen.queryByText(/上次生成结果/)).toBeNull(); // 非缓存态
   });
 
+  it("出稿途中切卡：迟到草稿弃用，不在别的卡上开弹窗", async () => {
+    let resolveDraft!: (v: { data: unknown }) => void;
+    apiGet.mockImplementation((url: string) => {
+      if (String(url) === "/novels/p1/characters") {
+        return Promise.resolve({
+          data: listWith([cardData({ id: "c1", name: "阿一" }), cardData({ id: "c2", name: "阿二" })]),
+        });
+      }
+      if (String(url).endsWith("/c1")) return Promise.resolve({ data: cardData({ id: "c1", name: "阿一" }) });
+      return Promise.resolve({ data: cardData({ id: "c2", name: "阿二" }) });
+    });
+    apiPost.mockImplementation((url: string) => {
+      if (String(url).includes("/bootstrap")) {
+        return new Promise((r) => { resolveDraft = r; });
+      }
+      return Promise.resolve({ data: cardData() });
+    });
+    apiPatch.mockResolvedValue({ data: { rev: 2 } });
+    const ref = createRef<CharacterSaveHandle>();
+    render(<CharacterManager ref={ref} projectId="p1" introReady />);
+    await screen.findByText("阿一");
+    void ref.current?.runAi?.("cardDraft"); // 出稿在途（deferred 未 resolve）
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith("/novels/p1/settings/ai/characters/bootstrap", { character_id: "c1" }),
+    );
+    // 生成途中切到 B 卡
+    fireEvent.click(screen.getByText("阿二"));
+    await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/novels/p1/characters/c2"));
+    // A 的稿此刻迟到完成——不得在 B 的上下文开弹窗（label 会取 B 的卡名，采纳即串卡）
+    await act(async () => {
+      resolveDraft({ data: DRAFT });
+    });
+    await waitFor(() => expect(screen.queryByTestId("char-ai-card")).toBeNull());
+    // B 卡再点同行＝全新出稿（POST 第 2 次），非缓存态
+    apiPost.mockImplementation((url: string) => {
+      if (String(url).includes("/bootstrap")) return Promise.resolve({ data: DRAFT });
+      return Promise.resolve({ data: cardData() });
+    });
+    await act(async () => {
+      await ref.current?.runAi?.("cardDraft");
+    });
+    await screen.findByTestId("char-ai-card");
+    expect(apiPost).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/上次生成结果/)).toBeNull();
+  });
+
   it("无卡上下文 cardDraft 不发请求", async () => {
     apiGet.mockImplementation(() => Promise.resolve({
       data: { count: 0, protagonist_id: null, gate: { ok: false, no_protagonist: true }, confirmed: false, items: [] },
