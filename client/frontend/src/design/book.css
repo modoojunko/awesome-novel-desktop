@@ -956,7 +956,7 @@ body.focus .editor-wrap { padding-inline: 8vw; }
 .char-seal { width: 52px; height: 52px; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-family: var(--font-display); font-size: 24px; font-weight: 600; display: grid; place-items: center; flex: none; }
 .char-idblock { flex: 1; min-width: 0; }
 .char-name-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.char-name-input { font-family: var(--font-display); font-size: 25px; font-weight: 600; color: var(--fg); border: none; background: transparent; width: 8.5em; padding: 2px 8px; margin-left: -8px; border-radius: 8px; }
+.char-name-input { font-family: var(--font-display); font-size: 25px; font-weight: 600; color: var(--fg); border: none; background: transparent; width: 8.5em; max-width: 100%; padding: 2px 8px; margin-left: -8px; border-radius: 8px; }
 .char-name-input:hover { background: var(--fg-soft); }
 .char-name-input:focus { outline: none; background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent); }
 .char-alias-input { display: block; width: 100%; margin-top: 6px; border: none; border-bottom: 1px dashed transparent; background: transparent; color: var(--muted); font-size: 12.5px; padding: 2px 4px; border-radius: 6px; }
